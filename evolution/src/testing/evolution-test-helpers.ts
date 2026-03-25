@@ -234,6 +234,102 @@ export async function createTestVariant(
   return data;
 }
 
+// ─── Arena comparison factory ────────────────────────────────────
+
+/**
+ * Insert a test evolution_arena_comparisons row and return the full row.
+ * Uses actual DB columns: prompt_id, entry_a, entry_b, winner, confidence, run_id.
+ */
+export async function createTestArenaComparison(
+  supabase: SupabaseClient,
+  promptId: string,
+  variantAId: string,
+  variantBId: string,
+  overrides?: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const row = {
+    prompt_id: promptId,
+    entry_a: variantAId,
+    entry_b: variantBId,
+    winner: variantAId,
+    confidence: 0.9,
+    ...overrides,
+  };
+
+  const { data, error } = await supabase
+    .from('evolution_arena_comparisons')
+    .insert(row)
+    .select()
+    .single();
+
+  if (error) throw new Error(`createTestArenaComparison failed: ${error.message ?? error.code ?? JSON.stringify(error)}`);
+  return data;
+}
+
+// ─── Evolution log factory ───────────────────────────────────────
+
+/**
+ * Insert a test evolution_logs row and return the full row.
+ * Uses the generalized entity logger schema: entity_type, entity_id, level, message, agent_name, iteration.
+ */
+export async function createTestEvolutionLog(
+  supabase: SupabaseClient,
+  entityType: string,
+  entityId: string,
+  overrides?: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const row = {
+    entity_type: entityType,
+    entity_id: entityId,
+    level: 'info',
+    message: '[TEST_EVO] test log',
+    agent_name: 'test',
+    iteration: 0,
+    ...overrides,
+  };
+
+  const { data, error } = await supabase
+    .from('evolution_logs')
+    .insert(row)
+    .select()
+    .single();
+
+  if (error) throw new Error(`createTestEvolutionLog failed: ${error.message ?? error.code ?? JSON.stringify(error)}`);
+  return data;
+}
+
+// ─── Budget event factory ────────────────────────────────────────
+
+/**
+ * Insert a test evolution_agent_invocations row for budget event testing.
+ * Budget events are tracked via the invocations table.
+ */
+export async function createTestBudgetEvent(
+  supabase: SupabaseClient,
+  runId: string,
+  overrides?: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const row = {
+    run_id: runId,
+    agent_name: 'budget_check',
+    iteration: 0,
+    execution_order: 0,
+    success: true,
+    cost_usd: 0,
+    skipped: false,
+    ...overrides,
+  };
+
+  const { data, error } = await supabase
+    .from('evolution_agent_invocations')
+    .insert(row)
+    .select()
+    .single();
+
+  if (error) throw new Error(`createTestBudgetEvent failed: ${error.message ?? error.code ?? JSON.stringify(error)}`);
+  return data;
+}
+
 // ─── Mock LLM client ────────────────────────────────────────────
 
 /**
@@ -246,6 +342,36 @@ export function createMockEvolutionLLMClient(
     complete: jest.fn().mockResolvedValue(VALID_VARIANT_TEXT),
     completeStructured: jest.fn().mockResolvedValue({ winner: 'A', confidence: 0.9 }),
     ...overrides,
+  };
+}
+
+/**
+ * Create a mock EvolutionLLMClient where all methods reject with the given error.
+ * Useful for testing error handling paths.
+ */
+export function createMockLlmErrorClient(
+  errorMessage: string = 'LLM API error',
+): EvolutionLLMClient {
+  const rejection = () => Promise.reject(new Error(errorMessage));
+  return {
+    complete: jest.fn().mockImplementation(rejection),
+    completeStructured: jest.fn().mockImplementation(rejection),
+  };
+}
+
+/**
+ * Create a mock EvolutionLLMClient where all methods resolve after a delay.
+ * Useful for testing timeout behavior.
+ */
+export function createMockLlmTimeoutClient(
+  delayMs: number = 5000,
+): EvolutionLLMClient {
+  const delayed = <T>(value: T) => () =>
+    new Promise<T>((resolve) => setTimeout(resolve, delayMs, value));
+
+  return {
+    complete: jest.fn().mockImplementation(delayed(VALID_VARIANT_TEXT)),
+    completeStructured: jest.fn().mockImplementation(delayed({ winner: 'A', confidence: 0.9 })),
   };
 }
 

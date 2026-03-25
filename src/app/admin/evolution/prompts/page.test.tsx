@@ -66,4 +66,22 @@ describe('PromptsPage', () => {
       expect(screen.getByText(/Explain quantum computing/)).toBeInTheDocument();
     });
   });
+
+  it('renders prompt creation form area', () => {
+    render(<PromptsPage />);
+    expect(screen.getByText('New Prompt')).toBeInTheDocument();
+  });
+
+  it('displays prompt status badge', async () => {
+    render(<PromptsPage />);
+    await waitFor(() => {
+      expect(screen.getByText('active')).toBeInTheDocument();
+    });
+  });
+
+  it('renders prompts breadcrumb item', () => {
+    render(<PromptsPage />);
+    const breadcrumb = screen.getByTestId('evolution-breadcrumb');
+    expect(breadcrumb).toHaveTextContent('Prompts');
+  });
 });

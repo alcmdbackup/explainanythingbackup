@@ -149,4 +149,36 @@ adminTest.describe('Evolution Runs (T4, T7, T8, T10)', { tag: '@evolution' }, ()
     await adminPage.waitForURL('**/admin/evolution/runs', { timeout: 10000 });
     await expect(adminPage.locator('h1')).toContainText('Evolution Runs');
   });
+
+  adminTest('failed run detail page shows error message in status badge', async ({ adminPage }) => {
+    await adminPage.goto(`/admin/evolution/runs/${failedRunId}`);
+    await adminPage.waitForLoadState('domcontentloaded');
+
+    // Wait for the detail header to render
+    const header = adminPage.locator('[data-testid="entity-detail-header"]');
+    await expect(header).toBeVisible({ timeout: 15000 });
+
+    // The status badge should reflect the failed state (hasError=true renders error styling)
+    const statusBadge = header.locator('[data-testid="status-badge"]');
+    await expect(statusBadge).toBeVisible();
+    await expect(statusBadge).toContainText(/failed/i);
+  });
+
+  adminTest('run detail page renders variant tab with content', async ({ adminPage }) => {
+    await adminPage.goto(`/admin/evolution/runs/${completedRunId}`);
+    await adminPage.waitForLoadState('domcontentloaded');
+
+    // Wait for the tab bar to render
+    const tabBar = adminPage.locator('[data-testid="tab-bar"]');
+    await expect(tabBar).toBeVisible({ timeout: 15000 });
+
+    // Click the Variants tab
+    const variantsTab = adminPage.locator('[data-testid="tab-variants"]');
+    await expect(variantsTab).toBeVisible();
+    await variantsTab.click();
+
+    // Tab content area should be visible after clicking
+    const tabContent = adminPage.locator('[data-testid="tab-content"]');
+    await expect(tabContent).toBeVisible({ timeout: 10000 });
+  });
 });

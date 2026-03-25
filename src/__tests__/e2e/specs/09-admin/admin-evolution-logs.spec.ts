@@ -133,4 +133,62 @@ adminTest.describe('Admin Evolution LogsTab Filters', { tag: '@evolution' }, () 
       await expect(variantIdFilter).toBeVisible();
     },
   );
+
+  adminTest(
+    'LogsTab level filter shows filtered results',
+    async ({ adminPage }) => {
+      await adminPage.goto(`/admin/evolution/runs/${seeded.runId}`);
+      await adminPage.waitForLoadState('domcontentloaded');
+
+      // Click logs tab
+      const logsTab = adminPage.locator('button:has-text("Logs"), [role="tab"]:has-text("Logs")');
+      if (await logsTab.isVisible()) {
+        await logsTab.click();
+      }
+
+      const logsContainer = adminPage.locator('[data-testid="logs-tab"]');
+      await logsContainer.waitFor({ state: 'visible', timeout: 10_000 });
+
+      // Select "info" level filter — our seeded log has level 'info'
+      const levelFilter = logsContainer.locator('select[aria-label="Filter by level"]');
+      await levelFilter.selectOption('info');
+
+      // Wait for table to update — the seeded log should still appear
+      const table = logsContainer.locator('table');
+      await expect(table).toBeVisible({ timeout: 10_000 });
+
+      // The log count label should reflect filtered results
+      const countLabel = logsContainer.locator('text=/\\d+ logs?/');
+      await expect(countLabel).toBeVisible();
+    },
+  );
+
+  adminTest(
+    'LogsTab message search filters by text',
+    async ({ adminPage }) => {
+      await adminPage.goto(`/admin/evolution/runs/${seeded.runId}`);
+      await adminPage.waitForLoadState('domcontentloaded');
+
+      // Click logs tab
+      const logsTab = adminPage.locator('button:has-text("Logs"), [role="tab"]:has-text("Logs")');
+      if (await logsTab.isVisible()) {
+        await logsTab.click();
+      }
+
+      const logsContainer = adminPage.locator('[data-testid="logs-tab"]');
+      await logsContainer.waitFor({ state: 'visible', timeout: 10_000 });
+
+      // Type the seeded log message text into search
+      const messageSearch = logsContainer.locator('input[aria-label="Search messages"]');
+      await messageSearch.fill('[TEST] E2E log entry');
+
+      // Wait for debounced search to trigger and table to render results
+      const table = logsContainer.locator('table');
+      await expect(table).toBeVisible({ timeout: 10_000 });
+
+      // The matching log row should contain our seeded message text
+      const matchingRow = logsContainer.locator('td:has-text("[TEST] E2E log entry")');
+      await expect(matchingRow).toBeVisible({ timeout: 10_000 });
+    },
+  );
 });

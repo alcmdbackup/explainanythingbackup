@@ -83,4 +83,31 @@ describe('InvocationsListPage', () => {
     render(<InvocationsListPage />);
     await waitFor(() => expect(screen.getByText('2 items')).toBeInTheDocument());
   });
+
+  it('renders Invocations breadcrumb item', async () => {
+    render(<InvocationsListPage />);
+    await waitFor(() => {
+      const breadcrumb = screen.getByTestId('evolution-breadcrumb');
+      expect(breadcrumb).toHaveTextContent('Invocations');
+    });
+  });
+
+  it('displays agent name column header', async () => {
+    render(<InvocationsListPage />);
+    await waitFor(() => expect(screen.getByText('Agent')).toBeInTheDocument());
+  });
+
+  it('displays cost column header', async () => {
+    render(<InvocationsListPage />);
+    await waitFor(() => expect(screen.getByText('Cost')).toBeInTheDocument());
+  });
+
+  it('renders hide test content filter checkbox', async () => {
+    render(<InvocationsListPage />);
+    await waitFor(() => {
+      const filter = screen.getByTestId('filter-filterTestContent');
+      expect(filter).toBeInTheDocument();
+      expect(filter).toHaveTextContent('Hide test content');
+    });
+  });
 });

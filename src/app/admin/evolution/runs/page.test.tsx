@@ -86,4 +86,41 @@ describe('EvolutionRunsPage', () => {
     render(<EvolutionRunsPage />);
     expect(screen.getByTestId('entity-list-page')).toBeInTheDocument();
   });
+
+  it('renders Runs breadcrumb item', () => {
+    render(<EvolutionRunsPage />);
+    expect(screen.getByText('Runs')).toBeInTheDocument();
+  });
+
+  it('displays run data after loading', async () => {
+    render(<EvolutionRunsPage />);
+    await waitFor(() => {
+      expect(screen.getByText('Test Strategy')).toBeInTheDocument();
+    });
+  });
+
+  it('displays run cost', async () => {
+    render(<EvolutionRunsPage />);
+    await waitFor(() => {
+      expect(screen.getByText('$2.50')).toBeInTheDocument();
+    });
+  });
+
+  it('renders status badge for completed run', async () => {
+    render(<EvolutionRunsPage />);
+    await waitFor(() => {
+      expect(screen.getByText('completed')).toBeInTheDocument();
+    });
+  });
+
+  it('renders page heading', () => {
+    render(<EvolutionRunsPage />);
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Evolution Runs');
+  });
+
+  it('calls getEvolutionRunsAction on mount', () => {
+    const { getEvolutionRunsAction } = jest.requireMock('@evolution/services/evolutionActions');
+    render(<EvolutionRunsPage />);
+    expect(getEvolutionRunsAction).toHaveBeenCalled();
+  });
 });

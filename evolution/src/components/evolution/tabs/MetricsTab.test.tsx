@@ -76,4 +76,169 @@ describe('MetricsTab', () => {
     render(<MetricsTab runId="run-1" />);
     await waitFor(() => expect(screen.getByText('DB error')).toBeInTheDocument());
   });
+
+  it('renders top variants table with rank and mu', async () => {
+    getEvolutionRunSummaryAction.mockResolvedValue({
+      success: true, data: mockSummary, error: null,
+    });
+    getEvolutionCostBreakdownAction.mockResolvedValue({
+      success: true, data: [], error: null,
+    });
+
+    render(<MetricsTab runId="run-1" />);
+    await waitFor(() => expect(screen.getByText('Top Variants')).toBeInTheDocument());
+    expect(screen.getByText('27.50')).toBeInTheDocument();
+    expect(screen.getByText('25.00')).toBeInTheDocument();
+  });
+
+  it('renders strategy effectiveness table', async () => {
+    getEvolutionRunSummaryAction.mockResolvedValue({
+      success: true, data: mockSummary, error: null,
+    });
+    getEvolutionCostBreakdownAction.mockResolvedValue({
+      success: true, data: [], error: null,
+    });
+
+    render(<MetricsTab runId="run-1" />);
+    await waitFor(() => expect(screen.getByText('Strategy Effectiveness')).toBeInTheDocument());
+    // "generation" appears in both top variants and strategy effectiveness tables
+    expect(screen.getAllByText('generation').length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText('evolution')).toBeInTheDocument();
+  });
+
+  it('renders cost breakdown table', async () => {
+    getEvolutionRunSummaryAction.mockResolvedValue({
+      success: true, data: mockSummary, error: null,
+    });
+    getEvolutionCostBreakdownAction.mockResolvedValue({
+      success: true, data: [
+        { agent: 'generation', calls: 10, costUsd: 0.5 },
+        { agent: 'ranking', calls: 20, costUsd: 1.0 },
+      ], error: null,
+    });
+
+    render(<MetricsTab runId="run-1" />);
+    await waitFor(() => expect(screen.getByText('Cost by Agent')).toBeInTheDocument());
+    expect(screen.getByText('$0.50')).toBeInTheDocument();
+    expect(screen.getByText('$1.00')).toBeInTheDocument();
+  });
+
+  it('renders loading skeleton before data arrives', () => {
+    getEvolutionRunSummaryAction.mockReturnValue(new Promise(() => {}));
+    getEvolutionCostBreakdownAction.mockReturnValue(new Promise(() => {}));
+
+    const { container } = render(<MetricsTab runId="run-1" />);
+    expect(container.querySelector('.animate-pulse')).toBeInTheDocument();
+  });
+
+  it('shows match stats metrics', async () => {
+    getEvolutionRunSummaryAction.mockResolvedValue({
+      success: true, data: mockSummary, error: null,
+    });
+    getEvolutionCostBreakdownAction.mockResolvedValue({
+      success: true, data: [], error: null,
+    });
+
+    render(<MetricsTab runId="run-1" />);
+    await waitFor(() => expect(screen.getByTestId('metrics-tab')).toBeInTheDocument());
+    expect(screen.getByText('50')).toBeInTheDocument(); // totalMatches
+    expect(screen.getByText('85.0%')).toBeInTheDocument(); // avgConfidence
+    expect(screen.getByText('70.0%')).toBeInTheDocument(); // decisiveRate
+  });
+
+  it('shows baseline checkmark for baseline variants', async () => {
+    getEvolutionRunSummaryAction.mockResolvedValue({
+      success: true, data: mockSummary, error: null,
+    });
+    getEvolutionCostBreakdownAction.mockResolvedValue({
+      success: true, data: [], error: null,
+    });
+
+    render(<MetricsTab runId="run-1" />);
+    await waitFor(() => expect(screen.getByText('Top Variants')).toBeInTheDocument());
+    // v2 is baseline, should show ✓
+    expect(screen.getByText('✓')).toBeInTheDocument();
+  });
+
+  it('renders stop reason and duration', async () => {
+    getEvolutionRunSummaryAction.mockResolvedValue({
+      success: true, data: mockSummary, error: null,
+    });
+    getEvolutionCostBreakdownAction.mockResolvedValue({
+      success: true, data: [], error: null,
+    });
+
+    render(<MetricsTab runId="run-1" />);
+    await waitFor(() => expect(screen.getByTestId('metrics-tab')).toBeInTheDocument());
+    expect(screen.getByText('iterations_complete')).toBeInTheDocument();
+    expect(screen.getByText('120s')).toBeInTheDocument();
+  });
+
+  it('shows default error message when error has no message', async () => {
+    getEvolutionRunSummaryAction.mockResolvedValue({
+      success: false, data: null, error: null,
+    });
+    getEvolutionCostBreakdownAction.mockResolvedValue({
+      success: true, data: [], error: null,
+    });
+
+    render(<MetricsTab runId="run-1" />);
+    await waitFor(() => expect(screen.getByText('Failed to load summary')).toBeInTheDocument());
+  });
+
+  it('refetches when runId changes', async () => {
+    getEvolutionRunSummaryAction.mockResolvedValue({
+      success: true, data: mockSummary, error: null,
+    });
+    getEvolutionCostBreakdownAction.mockResolvedValue({
+      success: true, data: [], error: null,
+    });
+
+    const { rerender } = render(<MetricsTab runId="run-1" />);
+    await waitFor(() => expect(screen.getByTestId('metrics-tab')).toBeInTheDocument());
+
+    rerender(<MetricsTab runId="run-2" />);
+    expect(getEvolutionRunSummaryAction).toHaveBeenCalledWith('run-2');
+  });
+
+  it('hides cost breakdown when empty', async () => {
+    getEvolutionRunSummaryAction.mockResolvedValue({
+      success: true, data: mockSummary, error: null,
+    });
+    getEvolutionCostBreakdownAction.mockResolvedValue({
+      success: true, data: [], error: null,
+    });
+
+    render(<MetricsTab runId="run-1" />);
+    await waitFor(() => expect(screen.getByTestId('metrics-tab')).toBeInTheDocument());
+    expect(screen.queryByText('Cost by Agent')).not.toBeInTheDocument();
+  });
+
+  it('fetches both summary and cost breakdown in parallel', async () => {
+    getEvolutionRunSummaryAction.mockResolvedValue({
+      success: true, data: mockSummary, error: null,
+    });
+    getEvolutionCostBreakdownAction.mockResolvedValue({
+      success: true, data: [], error: null,
+    });
+
+    render(<MetricsTab runId="run-1" />);
+    await waitFor(() => expect(screen.getByTestId('metrics-tab')).toBeInTheDocument());
+
+    expect(getEvolutionRunSummaryAction).toHaveBeenCalledWith('run-1');
+    expect(getEvolutionCostBreakdownAction).toHaveBeenCalledWith('run-1');
+  });
+
+  it('shows baseline rank metric', async () => {
+    getEvolutionRunSummaryAction.mockResolvedValue({
+      success: true, data: mockSummary, error: null,
+    });
+    getEvolutionCostBreakdownAction.mockResolvedValue({
+      success: true, data: [], error: null,
+    });
+
+    render(<MetricsTab runId="run-1" />);
+    await waitFor(() => expect(screen.getByTestId('metrics-tab')).toBeInTheDocument());
+    expect(screen.getByText('Baseline Rank')).toBeInTheDocument();
+  });
 });
