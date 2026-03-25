@@ -1,7 +1,7 @@
 # Improve Test Coverage Evolution Plan
 
 ## Background
-The evolution dashboard currently has ~1,401 test cases across 94+ test files (~79% file coverage). While breadth is reasonable, critical gaps exist: 8 source files have zero tests, many page-level tests are shallow (presence-only, no interactions), integration tests miss key workflows (arena comparisons, full experiment lifecycle, metrics recomputation), and E2E tests cover only ~56% of admin pages with almost no tab-content or filter-interaction validation.
+The evolution dashboard currently has ~1,400 test cases across 94+ test files (~79% file coverage). (Precise count: 942 unit + 215 component + 149 page + 48 integration + 47 E2E = ~1,401.) While breadth is reasonable, critical gaps exist: 8 source files have zero tests, many page-level tests are shallow (presence-only, no interactions), integration tests miss key workflows (arena comparisons, full experiment lifecycle, metrics recomputation), and E2E tests cover only ~56% of admin pages with almost no tab-content or filter-interaction validation.
 
 ## Requirements (from GH Issue #NNN)
 Comprehensive coverage of all evolution admin pages, tabs, actions, and services — including unit, integration, and E2E tests across all evolution dashboard components.
@@ -26,7 +26,7 @@ Create test files for the most critical untested code.
 1. `evolution/src/services/metricsActions.test.ts` (~30 tests)
    - `getEntityMetricsAction`: admin auth, UUID validation, valid entityType, DB read success, stale row detection → recomputation → fresh read, DB errors on initial/fresh read
    - `getBatchMetricsAction`: admin auth, empty entityIds/metricNames early return, valid batch fetch, Map→Record conversion, DB errors
-   - Mock pattern: `createTableAwareMock()` from service-test-mocks.ts, mock `recomputeStaleMetrics`
+   - **Mock pattern note:** metricsActions.ts does NOT use the `adminAction()` factory — it manually composes `requireAdmin()`, `withLogging()`, and `serverReadRequestId()`. Tests must mock each middleware individually (unlike evolutionActions.test.ts which relies on adminAction). Additionally, `getBatchMetricsAction` uses a **dynamic import** (`await import('@evolution/lib/metrics/readMetrics')`) for `getMetricsForEntities` — this requires `jest.mock()` at module level with a factory function, not the standard static mock approach. Use `createTableAwareMock()` from service-test-mocks.ts for Supabase chain mocking, and separately mock `recomputeStaleMetrics` from `@evolution/lib/metrics/recomputeMetrics`.
 
 2. `evolution/src/lib/core/entityRegistry.test.ts` (~25 tests)
    - Lazy init: null until first `getEntity()`, singleton pattern (same instance on repeat calls)
@@ -143,15 +143,17 @@ Create integration tests for critical untested workflows.
     - SKIP LOCKED concurrent safety (two requests, only one recomputes)
     - Propagated metrics: run finalization → strategy aggregate update
 
-27. `src/__tests__/integration/evolution-experiment-full-lifecycle.integration.test.ts` (~6 tests)
-    - Create experiment → add runs → mark runs completed → verify auto-completion via RPC
-    - Cancel experiment → verify pending/claimed/running runs cancelled, completed unchanged
-    - Strategy aggregate updates cascade correctly
+27. `src/__tests__/integration/evolution-experiment-create-complete.integration.test.ts` (~6 tests)
+    - **Note:** `evolution-experiment-lifecycle.integration.test.ts` already exists (covers experiment auto-completion RPC). This new file tests the full CREATE→COMPLETE flow, not the auto-completion RPC.
+    - Create experiment → add runs with `addRunToExperimentAction` → mark runs completed → verify experiment status transitions
+    - Strategy aggregate updates cascade correctly after run completion
+    - Verify `complete_experiment_if_done` RPC is called with correct `p_completed_run_id`
 
 28. `src/__tests__/integration/evolution-arena-comparison.integration.test.ts` (~6 tests)
-    - Sync variants to arena → create comparisons → verify Elo updates
-    - Multi-prompt arena isolation (entries scoped to correct prompt)
-    - Over-limit rejection (201 entries vs 200 limit)
+    - **Note:** `evolution-sync-arena.integration.test.ts` already exists (covers upsert + ON CONFLICT + over-limit). This file tests comparison and Elo update workflows.
+    - Create arena entries → run pairwise comparison → verify match result persisted in `evolution_arena_comparisons`
+    - Multi-prompt arena isolation (entries scoped to correct prompt_id)
+    - Verify Elo/mu/sigma updates on variant rows after comparison
 
 29. `src/__tests__/integration/evolution-cost-cascade.integration.test.ts` (~5 tests)
     - Create invocations with costs → verify run total via RPC → verify strategy aggregate update
@@ -197,15 +199,32 @@ This project IS the testing — all deliverables are test files. Verification ap
 
 **Final verification:**
 - `npm test -- evolution/` — all evolution unit tests pass
-- `npm run test:integration:evolution` — all evolution integration tests pass
-- `npm run test:e2e:evolution` — all evolution E2E tests pass
+- `npm run test:integration:evolution` — all evolution integration tests pass (confirmed: script exists in package.json, filters by `--testPathPatterns="evolution-|arena-actions|manual-experiment|strategy-resolution"`)
+- `npm run test:e2e:evolution` — all evolution E2E tests pass (confirmed: script exists, uses `playwright test --project=chromium --grep=@evolution`)
 - `npm run test:coverage -- evolution/` — verify coverage improvement
+- **New test files in CI:** Unit tests run via `--changedSince` in CI, so new test files will only execute if their source files are also touched. Since this project only adds test files (no source changes), ensure the PR description notes that full unit suite should be run. Integration tests run all matching paths regardless of changes.
 
 **Expected test count increase:**
 - Current: ~1,401 test cases
-- Target: ~1,750+ test cases (~25% increase)
-- New test files: 14
+- Target: ~1,800+ test cases (~28% increase)
+- New test files: 16
 - Enhanced test files: 21
+
+**Coverage thresholds:**
+- Current jest.config.js thresholds: branches 41%, functions 35%, lines 42%, statements 42%
+- After this work completes, measure new coverage and raise thresholds by the improvement delta to lock in gains
+- Integration tests (jest.integration.config.js) have 0% thresholds by design — no change needed
+
+**CI wall-clock budget:**
+- New integration tests (Phase 6, ~30 tests) run sequentially (maxWorkers:1, 30s timeout each)
+- Worst case: 30 × 30s = 15 min. CI job timeout is 30 min. Existing 48 tests ~8 min. Total ~23 min — within budget.
+- If tests approach timeout, split into evolution-critical (run on PRs to main) and evolution-full (run on PRs to production)
+
+**Integration test cleanup strategy:**
+- All new integration tests must use `cleanupEvolutionData()` from `evolution/src/testing/evolution-test-helpers.ts` in afterAll/afterEach
+- Use `createTestStrategyConfig()`, `createTestEvolutionRun()` etc. which generate `[TEST]`-prefixed data
+- RPCs used: `complete_experiment_if_done`, `update_strategy_aggregates`, `sync_to_arena`, `get_run_total_cost` — all confirmed available in dev DB (used by existing integration tests)
+- Environment secrets: Same as existing integration tests (SUPABASE_SERVICE_ROLE_KEY, NEXT_PUBLIC_SUPABASE_URL from .env.test)
 
 ## Documentation Updates
 The following docs were identified as relevant and may need updates:
@@ -218,7 +237,7 @@ The following docs were identified as relevant and may need updates:
 
 ## Key Files Modified/Created
 
-### New Test Files (14)
+### New Test Files (16)
 - `evolution/src/services/metricsActions.test.ts`
 - `evolution/src/lib/core/entityRegistry.test.ts`
 - `evolution/src/lib/core/agents/GenerationAgent.test.ts`
@@ -228,11 +247,13 @@ The following docs were identified as relevant and may need updates:
 - `src/app/admin/evolution/strategies/[strategyId]/page.test.tsx`
 - `src/app/admin/evolution/prompts/[promptId]/page.test.tsx`
 - `src/__tests__/integration/evolution-metrics-recomputation.integration.test.ts`
-- `src/__tests__/integration/evolution-experiment-full-lifecycle.integration.test.ts`
+- `src/__tests__/integration/evolution-experiment-create-complete.integration.test.ts`
 - `src/__tests__/integration/evolution-arena-comparison.integration.test.ts`
 - `src/__tests__/integration/evolution-cost-cascade.integration.test.ts`
 - `src/__tests__/integration/evolution-visualization-data.integration.test.ts`
 - `src/__tests__/e2e/specs/09-admin/admin-evolution-variants.spec.ts`
+- `src/__tests__/e2e/specs/09-admin/admin-evolution-experiments-list.spec.ts`
+- `src/__tests__/e2e/specs/09-admin/admin-evolution-invocation-detail.spec.ts`
 
 ### Enhanced Test Files (21)
 - MetricsTab, RelatedRunsTab, VariantDetailPanel, LogsTab (component deepening)
