@@ -18,7 +18,7 @@ const STATUS_FILTER: FilterDef = {
 };
 
 const COLUMNS: ColumnDef<ArenaTopic>[] = [
-  { key: 'title', header: 'Title', render: (t) => t.title },
+  { key: 'name', header: 'Name', render: (t) => t.name },
   {
     key: 'prompt',
     header: 'Prompt',

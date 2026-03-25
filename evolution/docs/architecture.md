@@ -249,12 +249,13 @@ terminate the loop with `stopReason='budget_exceeded'`.
 
 ### Phase Execution and Error Handling
 
-Each phase (generate, rank, evolve) is wrapped by the `executePhase()` helper in
-`evolve-article.ts`. This wrapper catches `BudgetExceededError` and
+Each phase (generate, rank) is implemented as an Agent subclass (`GenerationAgent`,
+`RankingAgent`) in `evolution/src/lib/core/agents/`. The evolve phase calls pipeline functions directly. These agent classes extend the `Agent`
+base class and use its `Agent.run()` template method, which wraps execution with
+budget-error handling, invocation tracking via `createInvocation()`/`updateInvocation()`,
+and cost attribution. The `run()` method catches `BudgetExceededError` and
 `BudgetExceededWithPartialResults` separately — the latter extends the former, so order
-matters. Each phase invocation is tracked in the database via `createInvocation()` and
-`updateInvocation()`, recording execution order, cost, and success/failure status. These
-invocation records link to `llmCallTracking` rows for full cost attribution.
+matters. Invocation records link to `llmCallTracking` rows for full cost attribution.
 
 ### Pool Growth
 
@@ -466,7 +467,7 @@ The current V2 architecture replaced a fundamentally different V1 design.
 ### V2 (Current)
 
 - **Monolithic orchestrator** — `evolveArticle()` owns the entire loop.
-- **3 pure phase functions** — `generateVariants()`, `rankPool()`, `evolveVariants()`.
+- **2 agent classes** — `GenerationAgent`, `RankingAgent` using `Agent.run()` template method.
 - **No checkpoints** — atomic execution; if it fails, the run fails.
 - **No agent pool** — strategies are hardcoded, not dynamically assigned.
 - **Budget-aware** — reserve-before-spend pattern, budget tiers, graceful degradation.
@@ -491,8 +492,9 @@ reasoning about behavior significantly easier.
 | `evolution/src/services/evolutionRunnerCore.ts` | Core claim + execute |
 | `evolution/src/lib/pipeline/runner.ts` | V2 run execution (resolve, pipeline, persist) |
 | `evolution/src/lib/pipeline/evolve-article.ts` | Main loop orchestrator |
-| `evolution/src/lib/pipeline/generate.ts` | Generate phase |
-| `evolution/src/lib/pipeline/rank.ts` | Rank phase (triage + Swiss) |
+| `evolution/src/lib/core/` | Entity base class, Agent base class, METRIC_CATALOG, entityRegistry |
+| `evolution/src/lib/pipeline/generate.ts` | Generate phase (GenerationAgent) |
+| `evolution/src/lib/pipeline/rank.ts` | Rank phase (RankingAgent, triage + Swiss) |
 | `evolution/src/lib/pipeline/evolve.ts` | Evolve phase (mutation + crossover) |
 | `evolution/src/lib/pipeline/finalize.ts` | Result persistence |
 | `evolution/src/lib/pipeline/arena.ts` | Arena load/sync |

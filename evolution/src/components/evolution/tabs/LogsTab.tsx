@@ -4,7 +4,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { getEntityLogsAction, type LogEntry, type LogFilters } from '@evolution/services/logActions';
-import type { EntityType } from '@evolution/lib/pipeline/infra/createEntityLogger';
+import type { EntityType } from '@evolution/lib/core/types';
 
 // ─── Types ───────────────────────────────────────────────────────
 

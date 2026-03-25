@@ -5,8 +5,11 @@
 import { useEffect, useState } from 'react';
 import { MetricGrid, type MetricItem } from '@evolution/components/evolution';
 import { getEntityMetricsAction } from '@evolution/services/metricsActions';
-import { getMetricDef, FORMATTERS } from '@evolution/lib/metrics/registry';
+import { getEntityMetricDef } from '@evolution/lib/core/entityRegistry';
+import { METRIC_FORMATTERS } from '@evolution/lib/core/metricCatalog';
+import type { MetricFormatter } from '@evolution/lib/core/types';
 import { DYNAMIC_METRIC_PREFIXES, type EntityType, type MetricRow } from '@evolution/lib/metrics/types';
+import type { EntityType as CoreEntityType } from '@evolution/lib/core/types';
 
 interface EntityMetricsTabProps {
   entityType: EntityType;
@@ -25,21 +28,21 @@ const CATEGORY_LABELS: Record<Category, string> = {
 const CATEGORY_ORDER: Category[] = ['rating', 'cost', 'match', 'count'];
 
 function resolveCategory(metricName: string, entityType: EntityType): Category {
-  const def = getMetricDef(entityType, metricName);
+  const def = getEntityMetricDef(entityType as CoreEntityType, metricName);
   if (def) return def.category;
   if (DYNAMIC_METRIC_PREFIXES.some(p => metricName.startsWith(p))) return 'cost';
   return 'count';
 }
 
 function resolveFormatter(metricName: string, entityType: EntityType): (v: number) => string {
-  const def = getMetricDef(entityType, metricName);
-  if (def) return FORMATTERS[def.formatter];
-  if (DYNAMIC_METRIC_PREFIXES.some(p => metricName.startsWith(p))) return FORMATTERS.costDetailed;
-  return FORMATTERS.integer;
+  const def = getEntityMetricDef(entityType as CoreEntityType, metricName);
+  if (def) return METRIC_FORMATTERS[def.formatter as MetricFormatter];
+  if (DYNAMIC_METRIC_PREFIXES.some(p => metricName.startsWith(p))) return METRIC_FORMATTERS.costDetailed;
+  return METRIC_FORMATTERS.integer;
 }
 
 function resolveLabel(metricName: string, entityType: EntityType): string {
-  const def = getMetricDef(entityType, metricName);
+  const def = getEntityMetricDef(entityType as CoreEntityType, metricName);
   if (def) return def.label;
   // Dynamic metric: prettify "agentCost:generation" → "Generation Cost"
   const colonIdx = metricName.indexOf(':');

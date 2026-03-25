@@ -14,7 +14,7 @@ const MOCK_TOPICS = [
   {
     id: '550e8400-e29b-41d4-a716-446655440000',
     prompt: 'Explain quantum computing to a beginner in simple terms that anyone can understand without technical background',
-    title: 'Quantum Computing Intro',
+    name: 'Quantum Computing Intro',
     status: 'active' as const,
     created_at: '2026-03-01T09:00:00Z',
     entry_count: 5,
@@ -22,7 +22,7 @@ const MOCK_TOPICS = [
   {
     id: '660e8400-e29b-41d4-a716-446655440001',
     prompt: 'Describe photosynthesis',
-    title: 'Photosynthesis',
+    name: 'Photosynthesis',
     status: 'archived' as const,
     created_at: '2026-02-15T09:00:00Z',
     entry_count: 3,

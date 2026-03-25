@@ -54,11 +54,11 @@ export default function PromptDetailPage(): JSX.Element {
       <EvolutionBreadcrumb items={[
         { label: 'Dashboard', href: '/admin/evolution-dashboard' },
         { label: 'Prompts', href: '/admin/evolution/prompts' },
-        { label: prompt.title },
+        { label: prompt.name },
       ]} />
 
       <EntityDetailHeader
-        title={prompt.title}
+        title={prompt.name}
         entityId={prompt.id}
         statusBadge={
           <span

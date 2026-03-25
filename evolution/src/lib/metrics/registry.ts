@@ -118,7 +118,6 @@ export const METRIC_REGISTRY: Record<EntityType, EntityMetricRegistry> = {
     atPropagation: [...SHARED_PROPAGATION_DEFS],
   },
   prompt: { duringExecution: [], atFinalization: [], atPropagation: [] },
-  arena_topic: { duringExecution: [], atFinalization: [], atPropagation: [] },
 };
 
 // ─── Build-time validation ──────────────────────────────────────

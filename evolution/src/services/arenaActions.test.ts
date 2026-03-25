@@ -50,7 +50,7 @@ const VALID_UUID_2 = '660e8400-e29b-41d4-a716-446655440001';
 const MOCK_TOPIC = {
   id: VALID_UUID,
   prompt: 'Explain photosynthesis to a 5-year-old.',
-  title: 'Photosynthesis Explainer',
+  name: 'Photosynthesis Explainer',
   status: 'active' as const,
   created_at: '2026-03-01T09:00:00Z',
 };
@@ -160,7 +160,7 @@ describe('arenaActions', () => {
 
       expect(result.success).toBe(true);
       expect(result.data!.id).toBe(VALID_UUID);
-      expect(result.data!.title).toBe('Photosynthesis Explainer');
+      expect(result.data!.name).toBe('Photosynthesis Explainer');
     });
 
     it('rejects invalid topicId', async () => {
@@ -200,7 +200,7 @@ describe('arenaActions', () => {
 
       const result = await createArenaTopicAction({
         prompt: 'Explain photosynthesis to a 5-year-old.',
-        title: 'Photosynthesis Explainer',
+        name: 'Photosynthesis Explainer',
       });
 
       expect(result.success).toBe(true);
@@ -220,16 +220,16 @@ describe('arenaActions', () => {
 
       const result = await createArenaTopicAction({
         prompt: 'Some prompt text',
-        title: 'Duplicate',
+        name: 'Duplicate',
       });
 
       expect(result.success).toBe(false);
     });
 
-    it('rejects input with empty title', async () => {
+    it('rejects input with empty name', async () => {
       const result = await createArenaTopicAction({
         prompt: 'Valid prompt text here.',
-        title: '',
+        name: '',
       });
 
       expect(result.success).toBe(false);
@@ -362,7 +362,7 @@ describe('arenaActions', () => {
       const result = await listPromptsAction({ limit: 20, offset: 0, filterTestContent: true });
 
       expect(result.success).toBe(true);
-      expect(chain.not).toHaveBeenCalledWith('title', 'ilike', '%[TEST]%');
+      expect(chain.not).toHaveBeenCalledWith('name', 'ilike', '%[TEST]%');
     });
 
     it('does not call .not() when filterTestContent is false', async () => {
@@ -392,7 +392,7 @@ describe('arenaActions', () => {
       const results = await Promise.all([
         getArenaTopicsAction(undefined),
         getArenaTopicDetailAction(VALID_UUID),
-        createArenaTopicAction({ prompt: 'Some prompt', title: 'Test' }),
+        createArenaTopicAction({ prompt: 'Some prompt', name: 'Test' }),
         getArenaEntriesAction({ topicId: VALID_UUID }),
         getArenaEntryDetailAction(VALID_UUID_2),
       ]);

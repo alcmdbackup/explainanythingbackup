@@ -283,7 +283,7 @@ describe('experimentActions', () => {
   // ─── getPromptsAction filterTestContent ────────────────────
 
   describe('getPromptsAction filterTestContent', () => {
-    it('calls .not() on title when filterTestContent is true', async () => {
+    it('calls .not() on name when filterTestContent is true', async () => {
       const chain = {
         select: jest.fn().mockReturnThis(),
         eq: jest.fn().mockReturnThis(),
@@ -296,7 +296,7 @@ describe('experimentActions', () => {
       const result = await getPromptsAction({ status: 'active', filterTestContent: true });
 
       expect(result.success).toBe(true);
-      expect(chain.not).toHaveBeenCalledWith('title', 'ilike', '%[TEST]%');
+      expect(chain.not).toHaveBeenCalledWith('name', 'ilike', '%[TEST]%');
     });
 
     it('does not call .not() when filterTestContent is false', async () => {

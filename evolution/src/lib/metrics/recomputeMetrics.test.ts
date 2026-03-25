@@ -5,22 +5,26 @@ import type { MetricRow, EntityType } from './types';
 
 // ─── Mocks ─────────────────────────────────────────────────────
 
-jest.mock('./registry', () => ({
-  METRIC_REGISTRY: {
-    run: {
-      atFinalization: [
-        { name: 'winner_elo', compute: jest.fn(() => 1400) },
-        { name: 'median_elo', compute: jest.fn(() => 1300) },
-        { name: 'p90_elo', compute: jest.fn(() => 1350) },
-        { name: 'max_elo', compute: jest.fn(() => 1450) },
-        // Non-elo finalization metric — should be skipped
-        { name: 'total_matches', compute: jest.fn(() => 10) },
-      ],
-      atPropagation: [],
-    },
-    strategy: { atPropagation: [] },
-    experiment: { atPropagation: [] },
-  },
+jest.mock('../core/entityRegistry', () => ({
+  getEntity: jest.fn((type: string) => {
+    if (type === 'run') {
+      return {
+        metrics: {
+          duringExecution: [],
+          atFinalization: [
+            { name: 'winner_elo', compute: jest.fn(() => 1400) },
+            { name: 'median_elo', compute: jest.fn(() => 1300) },
+            { name: 'p90_elo', compute: jest.fn(() => 1350) },
+            { name: 'max_elo', compute: jest.fn(() => 1450) },
+            // Non-elo finalization metric — should be skipped
+            { name: 'total_matches', compute: jest.fn(() => 10) },
+          ],
+          atPropagation: [],
+        },
+      };
+    }
+    return { metrics: { duringExecution: [], atFinalization: [], atPropagation: [] } };
+  }),
 }));
 
 const mockWriteMetric = jest.fn();

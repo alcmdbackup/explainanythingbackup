@@ -45,7 +45,7 @@ Prompt registry for evolution runs and arena topics. Renamed from `evolution_are
 |--------|------|-------------|-------------|
 | `id` | UUID | PK | |
 | `prompt` | TEXT | NOT NULL, UNIQUE (case-insensitive) | The prompt text |
-| `title` | TEXT | NOT NULL, default `''` | Display title |
+| `name` | TEXT | NOT NULL, default `''` | Display name |
 | `status` | TEXT | NOT NULL, CHECK `('active','archived')` | |
 | `deleted_at` | TIMESTAMPTZ | | Soft delete timestamp |
 | `archived_at` | TIMESTAMPTZ | | |
@@ -203,7 +203,7 @@ Unified EAV (entity-attribute-value) table for all evolution metrics. Replaces s
 | Column | Type | Constraints | Description |
 |--------|------|-------------|-------------|
 | `id` | UUID | PK, default `gen_random_uuid()` | |
-| `entity_type` | TEXT | NOT NULL, CHECK `('run','invocation','variant','strategy','experiment','prompt','arena_topic')` | Type of entity this metric belongs to |
+| `entity_type` | TEXT | NOT NULL, CHECK `('run','invocation','variant','strategy','experiment','prompt')` | Type of entity this metric belongs to |
 | `entity_id` | UUID | NOT NULL | FK to the entity's primary key |
 | `metric_name` | TEXT | NOT NULL | e.g. `'cost'`, `'winner_elo'`, `'median_elo'`, `'agentCost:generation'` |
 | `value` | DOUBLE PRECISION | NOT NULL | Metric value |

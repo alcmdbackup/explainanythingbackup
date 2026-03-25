@@ -5,7 +5,7 @@ import { METRIC_REGISTRY, getAllMetricDefs } from './registry';
 import type { MetricName, MetricTiming, EntityType, AggregationMethod, EntityMetricRegistry } from './types';
 import { DYNAMIC_METRIC_PREFIXES } from './types';
 
-interface WriteMetricOpts {
+export interface WriteMetricOpts {
   sigma?: number;
   ci_lower?: number;
   ci_upper?: number;

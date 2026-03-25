@@ -2,15 +2,15 @@
 
 This document covers the V2 pipeline's operational components: the phase functions that generate, rank, and evolve text variants, plus the supporting infrastructure for format validation, cost tracking, invocation logging, and LLM communication. For the overall system design, see [Architecture](../architecture.md). For rating math details, see [Rating and Comparison](../rating_and_comparison.md).
 
-## V2 Monolithic Orchestrator
+## V2 Agent-Based Orchestrator
 
-V1 used a supervisor-agent architecture: a supervisor dispatched work to an agent pool, collected results through a reducer, and persisted intermediate state via checkpoints. V2 eliminates all of that. The single `evolveArticle()` function in `evolution/src/lib/pipeline/evolve-article.ts` calls three pure phase functions directly in a flat loop:
+V1 used a supervisor-agent architecture: a supervisor dispatched work to an agent pool, collected results through a reducer, and persisted intermediate state via checkpoints. V2 replaces that with a flat orchestrator backed by two concrete Agent subclasses. The `evolveArticle()` function in `evolution/src/lib/pipeline/evolve-article.ts` drives a generate-rank-evolve loop:
 
-1. `generateVariants()` — create new text variants from the original
-2. `rankPool()` — compare and rate all variants in the pool
-3. `evolveVariants()` — mutate and crossover the top-rated variants
+1. `GenerationAgent` — create new text variants from the original
+2. `RankingAgent` — compare and rate all variants in the pool
+3. `evolveVariants()` — mutate and crossover the top-rated variants (uses pipeline functions directly, no separate agent class)
 
-There is no agent pool, no reducer, and no checkpoint persistence between iterations. Each phase function is a pure async operation that takes inputs and returns outputs. The orchestrator manages the pool, ratings map, and cost tracker as local state, passing them into each phase. This design is simpler to reason about and debug, at the cost of not being resumable mid-run.
+There is no agent pool, no reducer, and no checkpoint persistence between iterations. The orchestrator manages the pool, ratings map, and cost tracker as local state. This design is simpler to reason about and debug, at the cost of not being resumable mid-run.
 
 ```typescript
 export async function evolveArticle(
@@ -23,7 +23,7 @@ export async function evolveArticle(
 ): Promise<EvolutionResult>
 ```
 
-Each iteration calls the three phases through `executePhase()`, which wraps budget-error handling (discussed below). The loop runs for `config.iterations` rounds or until budget exhaustion or external kill signal. Config validation enforces hard bounds: iterations must be 1-100, budget must be positive and at most $50, and both `judgeModel` and `generationModel` must be non-empty strings.
+Each iteration calls the generate and rank phases through their respective agent classes (`GenerationAgent`, `RankingAgent`), each using the `Agent.run()` template method which wraps budget-error handling (discussed below). The evolve phase calls pipeline functions directly. The loop runs for `config.iterations` rounds or until budget exhaustion or external kill signal. Config validation enforces hard bounds: iterations must be 1-100, budget must be positive and at most $50, and both `judgeModel` and `generationModel` must be non-empty strings.
 
 Between iterations, the orchestrator checks for external kill signals by querying the run's status in the database. If the status has been set to `failed` or `cancelled` (by a user or admin action), the loop terminates gracefully with whatever results have been accumulated so far. Kill detection errors are swallowed — the pipeline continues if the database is temporarily unreachable.
 
@@ -174,24 +174,13 @@ The validation rules file (`formatValidationRules.ts`) also exports helper funct
 Format validation is the primary quality gate preventing malformed content from entering the variant pool. Because validation failures are silent (no retry, no error), the FORMAT_RULES prompt injection serves as the first line of defense — guiding the LLM to produce compliant output so that validation rarely needs to reject.
 
 
-## executePhase Helper
+## Agent.run() Template Method
 
-`evolution/src/lib/pipeline/evolve-article.ts`
+`evolution/src/lib/core/Agent.ts`
 
-Wraps each pipeline phase call with budget-error handling and invocation cost tracking.
+The `Agent` base class provides a `run()` template method that wraps each phase with budget-error handling, invocation cost tracking, and metric recording. Concrete agent classes (`GenerationAgent`, `RankingAgent`) implement the `execute()` method with phase-specific logic. Entity classes and the `METRIC_CATALOG` live in `evolution/src/lib/core/`. Metrics are resolved via `getEntity(type).metrics` from the entity registry rather than a standalone `METRIC_REGISTRY`.
 
-```typescript
-export async function executePhase<T>(
-  phaseName: string,
-  phaseFn: () => Promise<T>,
-  db: SupabaseClient,
-  invocationId: string | null,
-  costTracker: { getTotalSpent(): number },
-  costBefore: number,
-): Promise<PhaseResult<T>>
-```
-
-The return type `PhaseResult<T>` encodes four outcomes:
+The `run()` method returns a `PhaseResult<T>` encoding four outcomes:
 
 - **Success** — `{ success: true, result }`. The invocation row is updated with the cost delta and `success: true`.
 - **BudgetExceededWithPartialResults** — `{ success: false, budgetExceeded: true, partialVariants }`. Some variants were produced before budget ran out. The invocation is marked failed.

@@ -66,7 +66,7 @@ export type EvolutionStrategyFullDb = z.infer<typeof evolutionStrategyFullDbSche
 
 export const evolutionPromptInsertSchema = z.object({
   prompt: z.string().min(1),
-  title: z.string().min(1).max(500),
+  name: z.string().min(1).max(500),
   status: promptStatusEnum.optional().default('active'),
   deleted_at: z.string().nullable().optional(),
   archived_at: z.string().nullable().optional(),

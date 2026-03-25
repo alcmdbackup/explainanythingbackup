@@ -71,11 +71,11 @@ export default function ArenaTopicDetailPage(): JSX.Element {
         items={[
           { label: 'Evolution', href: '/admin/evolution-dashboard' },
           { label: 'Arena', href: '/admin/evolution/arena' },
-          { label: topic.title },
+          { label: topic.name },
         ]}
       />
 
-      <EntityDetailHeader title={topic.title} entityId={topic.id} />
+      <EntityDetailHeader title={topic.name} entityId={topic.id} />
 
       <div className="bg-[var(--surface-elevated)] border border-[var(--border-default)] rounded-book p-6 space-y-4 shadow-warm-lg">
         <h2 className="text-2xl font-display font-bold text-[var(--text-primary)]">Topic Details</h2>
@@ -92,7 +92,7 @@ export default function ArenaTopicDetailPage(): JSX.Element {
 
       <div>
         <h2 className="text-2xl font-display font-bold text-[var(--text-primary)] mb-3">Evolution Metrics</h2>
-        <EntityMetricsTab entityType="arena_topic" entityId={topicId} />
+        <EntityMetricsTab entityType="prompt" entityId={topicId} />
       </div>
 
       <div className="bg-[var(--surface-elevated)] border border-[var(--border-default)] rounded-book p-6 shadow-warm-lg">

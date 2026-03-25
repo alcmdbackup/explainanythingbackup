@@ -33,7 +33,7 @@ const loadData = async (filters: Record<string, string>, page: number, pageSize:
 // ─── Column + filter definitions ──────────────────────────────────
 
 const columns: ColumnDef<PromptListItem>[] = [
-  { key: 'title', header: 'Title', render: (row) => row.title },
+  { key: 'name', header: 'Name', render: (row) => row.name },
   {
     key: 'prompt',
     header: 'Prompt',
@@ -63,7 +63,7 @@ const filters: FilterDef[] = [
 // ─── Form fields ──────────────────────────────────────────────────
 
 const createFields: FieldDef[] = [
-  { name: 'title', label: 'Title', type: 'text', required: true, placeholder: 'Prompt title' },
+  { name: 'name', label: 'Name', type: 'text', required: true, placeholder: 'Prompt name' },
   { name: 'prompt', label: 'Prompt', type: 'textarea', required: true, placeholder: 'Enter prompt text' },
 ];
 
@@ -124,7 +124,7 @@ export default function PromptsPage(): JSX.Element {
   const formOpen = dialog.kind === 'create' || dialog.kind === 'edit';
   const formInitial = dialog.kind === 'edit'
     ? {
-        title: dialog.row.title,
+        name: dialog.row.name,
         prompt: dialog.row.prompt,
       }
     : {};
@@ -132,7 +132,7 @@ export default function PromptsPage(): JSX.Element {
   const handleFormSubmit = async (values: Record<string, unknown>) => {
     if (dialog.kind === 'create') {
       const result = await createPromptAction({
-        title: values.title as string,
+        name: values.name as string,
         prompt: values.prompt as string,
       });
       if (!result.success) throw new Error(result.error?.message ?? 'Create failed');
@@ -140,7 +140,7 @@ export default function PromptsPage(): JSX.Element {
     } else if (dialog.kind === 'edit') {
       const result = await updatePromptAction({
         id: dialog.row.id,
-        title: values.title as string,
+        name: values.name as string,
         prompt: values.prompt as string,
       });
       if (!result.success) throw new Error(result.error?.message ?? 'Update failed');
@@ -175,8 +175,8 @@ export default function PromptsPage(): JSX.Element {
       return {
         title: isArchived ? 'Unarchive Prompt' : 'Archive Prompt',
         message: isArchived
-          ? `Unarchive "${dialog.row.title}"?`
-          : `Archive "${dialog.row.title}"? It will no longer appear in active lists.`,
+          ? `Unarchive "${dialog.row.name}"?`
+          : `Archive "${dialog.row.name}"? It will no longer appear in active lists.`,
         confirmLabel: isArchived ? 'Unarchive' : 'Archive',
         onConfirm: handleArchive,
         danger: false,
@@ -185,7 +185,7 @@ export default function PromptsPage(): JSX.Element {
     if (dialog.kind === 'delete') {
       return {
         title: 'Delete Prompt',
-        message: `Delete "${dialog.row.title}"? This action is permanent.`,
+        message: `Delete "${dialog.row.name}"? This action is permanent.`,
         confirmLabel: 'Delete',
         onConfirm: handleDelete,
         danger: true,
