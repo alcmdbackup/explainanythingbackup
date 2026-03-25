@@ -1,10 +1,12 @@
 # New E2E Evolution Run Test Plan
 
 ## Background
-Design a comprehensive E2E test that runs on both main and production PRs, testing that an evolution run can be created via experiment and successfully runs to completion using real LLM calls. The test should verify metrics computation (run, experiment, strategy), arena sync, experiment auto-completion, and that metrics render correctly in the admin UI. Max budget: $0.02 per run.
+Design a comprehensive E2E test that runs on production PRs (via `@evolution` tag in `e2e-evolution` CI job), testing that an evolution run can be created via experiment and successfully runs to completion using real LLM calls. The test verifies metrics computation (run, experiment, strategy), arena sync, experiment auto-completion, and that metrics render correctly in the admin UI. Max budget: $0.02 per run.
+
+**CI scope**: `@evolution` tagged tests run on PRs to `production` only (not `main`). This is intentional — real LLM calls are too expensive/slow for every PR to main. The `e2e-critical` job for main PRs uses `@critical` tag only.
 
 ## Requirements (from GH Issue #813)
-- E2E test that runs on both main→production merges
+- E2E test that runs on production merges (via `@evolution` tag)
 - Creates experiment → queues run → executes with real LLM calls → verifies completion
 - Max budget: $0.02 per run
 - Verifies: metrics correctly calculated, arena sync works, experiment auto-completes
@@ -47,6 +49,7 @@ Create a POST endpoint that:
 
 ```typescript
 import { NextRequest, NextResponse } from 'next/server';
+import { randomUUID } from 'crypto';
 import { requireAdmin } from '@/lib/services/adminAuth';
 import { claimAndExecuteRun } from '@evolution/lib/pipeline/claimAndExecuteRun';
 import { logger } from '@/lib/server_utilities';
@@ -58,19 +61,22 @@ export async function POST(request: NextRequest) {
     await requireAdmin();
     const body = await request.json().catch(() => ({}));
     const result = await claimAndExecuteRun({
-      runnerId: `api-${Date.now()}`,
+      runnerId: `api-${randomUUID()}`,
       targetRunId: body.targetRunId,
     });
     return NextResponse.json(result);
   } catch (error) {
-    if (error instanceof Error && error.message.includes('Unauthorized')) {
-      return NextResponse.json({ error: error.message }, { status: 403 });
+    const msg = error instanceof Error ? error.message : String(error);
+    if (msg.startsWith('Unauthorized')) {
+      return NextResponse.json({ error: msg }, { status: 403 });
     }
-    logger.error('Evolution run API error', { error: String(error) });
+    logger.error('Evolution run API error', { error: msg });
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
 ```
+
+**Note on `requireAdmin()` in API route context**: This is the first usage of `requireAdmin()` in an API route (all prior usages are in server actions via `adminAction()`). `requireAdmin()` calls `createSupabaseServerClient()` which reads cookies from the Next.js request context. API routes share this context, so it should work — but verify during implementation with a quick manual test before writing the full E2E spec.
 
 **Unit test**: `src/app/api/evolution/run/route.test.ts` — mock `requireAdmin` and `claimAndExecuteRun`, verify auth guard and response shape.
 
@@ -80,7 +86,7 @@ export async function POST(request: NextRequest) {
 
 **Tag**: `{ tag: '@evolution' }` — runs on production PRs via `npm run test:e2e:evolution`
 
-**Structure**: Serial mode since all tests share pipeline-created state.
+**Structure**: Serial mode since all tests share pipeline-created state. Use `test.describe.configure({ mode: 'serial', timeout: 180_000 })` for extended timeout (pipeline takes 30-60s + UI assertions).
 
 #### `beforeAll` — Seed test data and trigger pipeline
 
@@ -98,17 +104,18 @@ export async function POST(request: NextRequest) {
    ```typescript
    {
      prompt: 'Write a short article about the water cycle',
-     name: `${TEST_PREFIX} Prompt`,
+     name: `${TEST_PREFIX} Prompt`,  // Zod schema uses `name`; verify at implementation — lifecycle spec uses `title`
      status: 'active',
    }
    ```
+   **Column name note**: Zod schema (`evolutionPromptInsertSchema`) defines `name`, but the working lifecycle spec inserts with `title`. A migration may have renamed this column. At implementation time, verify the actual DB column by checking the latest migration or testing the insert. Use whichever column name the insert succeeds with.
 
-3. Create test experiment:
+3. Create test experiment with `running` status (required for auto-completion):
    ```typescript
    {
      name: `${TEST_PREFIX} Experiment`,
      prompt_id: promptId,
-     status: 'draft',
+     status: 'running',  // Must be 'running' for complete_experiment_if_done RPC
    }
    ```
 
@@ -131,16 +138,12 @@ export async function POST(request: NextRequest) {
    });
    ```
 
-6. Poll for completion (timeout 120s):
+6. Poll for completion using Playwright's `expect.poll()` for proper timeout integration:
    ```typescript
-   let status = 'pending';
-   const deadline = Date.now() + 120_000;
-   while (status !== 'completed' && status !== 'failed' && Date.now() < deadline) {
-     await new Promise(r => setTimeout(r, 3000));
+   await expect.poll(async () => {
      const { data } = await sb.from('evolution_runs').select('status').eq('id', runId).single();
-     status = data?.status ?? status;
-   }
-   expect(status).toBe('completed');
+     return data?.status;
+   }, { timeout: 120_000, intervals: [3_000] }).toBe('completed');
    ```
 
 #### Test 1: Run completed successfully
@@ -219,15 +222,21 @@ Delete in FK-safe order using Supabase service client:
 1. `evolution_arena_comparisons` WHERE `prompt_id = promptId`
 2. `evolution_agent_invocations` WHERE `run_id = runId`
 3. `evolution_logs` WHERE `run_id = runId`
-4. `evolution_metrics` WHERE `entity_id IN (runId, strategyId, experimentId)`
-5. `evolution_variants` WHERE `run_id = runId` OR `prompt_id = promptId`
-6. `evolution_explanations` WHERE `prompt_id = promptId`
-7. `evolution_runs` WHERE `id = runId`
-8. `evolution_experiments` WHERE `id = experimentId`
-9. `evolution_strategies` WHERE `id = strategyId`
-10. `evolution_prompts` WHERE `id = promptId`
+4. `evolution_metrics` WHERE `entity_id IN (runId, strategyId, experimentId)` — covers run, strategy, and experiment metrics
+5. `evolution_variants` WHERE `run_id = runId` — only by run_id to avoid deleting arena variants from other runs
+6. `evolution_variants` WHERE `prompt_id = promptId` AND `synced_to_arena = true` — clean up arena entries created by syncToArena
+7. `evolution_explanations` WHERE `prompt_id = promptId` — seed articles created by pipeline
+8. `evolution_runs` WHERE `id = runId`
+9. `evolution_experiments` WHERE `id = experimentId`
+10. `evolution_strategies` WHERE `id = strategyId`
+11. `evolution_prompts` WHERE `id = promptId`
 
-Also track all IDs via `trackEvolutionId()` for defense-in-depth global teardown.
+Track all IDs via `trackEvolutionId()` for defense-in-depth global teardown.
+
+**Factory gap**: `evolution_metrics` is not in the factory's `FK_SAFE_DELETION_ORDER` or `EvolutionEntityType`. As part of this project, extend the factory:
+- Add `'metric'` to `EvolutionEntityType`
+- Add `{ type: 'metric', table: 'evolution_metrics' }` to `FK_SAFE_DELETION_ORDER` (before variants, since metrics have no FK children)
+- This ensures defense-in-depth cleanup covers metrics rows if afterAll fails partway.
 
 ### Phase 2b: Experiment wizard creation + cleanup test
 
@@ -245,7 +254,7 @@ Also track all IDs via `trackEvolutionId()` for defense-in-depth global teardown
    ```typescript
    {
      prompt: 'E2E wizard test: explain photosynthesis',
-     name: `${TEST_PREFIX} Wizard Prompt`,
+     name: `${TEST_PREFIX} Wizard Prompt`,  // See column name note in Phase 2
      status: 'active',
    }
    ```
@@ -319,7 +328,8 @@ Also track all IDs via `trackEvolutionId()`.
 ### Modified files
 | File | Change |
 |------|--------|
-| `src/__tests__/e2e/specs/09-admin/admin-experiment-wizard.spec.ts` | Delete or refactor — replaced by self-contained wizard-e2e spec |
+| `src/__tests__/e2e/helpers/evolution-test-data-factory.ts` | Add `metric` entity type + `evolution_metrics` to FK_SAFE_DELETION_ORDER |
+| `src/__tests__/e2e/specs/09-admin/admin-experiment-wizard.spec.ts` | Delete — replaced by self-contained wizard-e2e spec |
 
 ### Manual verification
 - Run the E2E test locally with a real OPENAI_API_KEY
