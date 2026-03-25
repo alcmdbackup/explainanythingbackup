@@ -1,7 +1,7 @@
 /**
  * @jest-environment node
  */
-// Tests for processRunQueue.ts — validates parseIntArg, claimBatch, round-robin, executeRun, and multi-DB support.
+// Tests for processRunQueue.ts — validates parseIntArg, buildDbTargets, and main loop delegation to claimAndExecuteRun.
 
 // Mock fs for env file loading
 jest.mock('fs', () => ({
@@ -40,21 +40,16 @@ function getMockClient(url: string) {
     });
     mockClients[url] = { rpc: jest.fn(), from: mockFrom };
   }
-  return mockClients[url];
+  return mockClients[url]!;
 }
 jest.mock('@supabase/supabase-js', () => ({
   createClient: jest.fn((url: string) => getMockClient(url)),
 }));
 
-// Mock the V2 runner module
-const mockExecuteV2Run = jest.fn().mockResolvedValue(undefined);
+// Mock claimAndExecuteRun — the only pipeline dependency
+const mockClaimAndExecuteRun = jest.fn().mockResolvedValue({ claimed: false });
 jest.mock('../src/lib/pipeline/claimAndExecuteRun', () => ({
-  executeV2Run: mockExecuteV2Run,
-}));
-
-// Mock callLLM (used by createRawLLMProvider)
-jest.mock('@/lib/services/llms', () => ({
-  callLLM: jest.fn().mockResolvedValue('mocked LLM response'),
+  claimAndExecuteRun: mockClaimAndExecuteRun,
 }));
 
 // Mock LLM semaphore
@@ -72,7 +67,7 @@ describe('parseIntArg', () => {
     const parseIntArg = (flag: string, defaultVal: number): number => {
       const idx = process.argv.indexOf(flag);
       if (idx === -1 || idx + 1 >= process.argv.length) return defaultVal;
-      const val = parseInt(process.argv[idx + 1], 10);
+      const val = parseInt(process.argv[idx + 1]!, 10);
       return Number.isFinite(val) && val > 0 ? val : defaultVal;
     };
     expect(parseIntArg('--parallel', 1)).toBe(1);
@@ -86,7 +81,7 @@ describe('parseIntArg', () => {
     const parseIntArg = (flag: string, defaultVal: number): number => {
       const idx = process.argv.indexOf(flag);
       if (idx === -1 || idx + 1 >= process.argv.length) return defaultVal;
-      const val = parseInt(process.argv[idx + 1], 10);
+      const val = parseInt(process.argv[idx + 1]!, 10);
       return Number.isFinite(val) && val > 0 ? val : defaultVal;
     };
     expect(parseIntArg('--parallel', 1)).toBe(5);
@@ -100,74 +95,11 @@ describe('parseIntArg', () => {
     const parseIntArg = (flag: string, defaultVal: number): number => {
       const idx = process.argv.indexOf(flag);
       if (idx === -1 || idx + 1 >= process.argv.length) return defaultVal;
-      const val = parseInt(process.argv[idx + 1], 10);
+      const val = parseInt(process.argv[idx + 1]!, 10);
       return Number.isFinite(val) && val > 0 ? val : defaultVal;
     };
     expect(parseIntArg('--parallel', 1)).toBe(1);
     process.argv = original;
-  });
-});
-
-describe('claimBatch round-robin', () => {
-  it('round-robins across multiple DbTargets', async () => {
-    const { claimBatch } = await import('./processRunQueue');
-
-    const aRuns = [
-      { id: 'a1', explanation_id: 1, prompt_id: null, experiment_id: null, strategy_id: 's1', budget_cap_usd: 5 },
-      { id: 'a2', explanation_id: 2, prompt_id: null, experiment_id: null, strategy_id: 's1', budget_cap_usd: 5 },
-    ];
-    const bRuns = [
-      { id: 'b1', explanation_id: 3, prompt_id: null, experiment_id: null, strategy_id: 's1', budget_cap_usd: 5 },
-    ];
-
-    const rpcA = jest.fn().mockImplementation(async () => {
-      const run = aRuns.shift();
-      return run ? { data: run, error: null } : { data: null, error: null };
-    });
-    const rpcB = jest.fn().mockImplementation(async () => {
-      const run = bRuns.shift();
-      return run ? { data: run, error: null } : { data: null, error: null };
-    });
-
-    const targetA: DbTarget = { name: 'a', client: { rpc: rpcA } as never };
-    const targetB: DbTarget = { name: 'b', client: { rpc: rpcB } as never };
-
-    const batch = await claimBatch(4, [targetA, targetB]);
-
-    expect(batch).toHaveLength(3);
-    expect(batch.map(t => t.run.id)).toEqual(['a1', 'b1', 'a2']);
-    expect(batch.map(t => t.db.name)).toEqual(['a', 'b', 'a']);
-  });
-
-  it('works with single target in degraded mode', async () => {
-    const { claimBatch } = await import('./processRunQueue');
-
-    const runs = [
-      { id: 'r1', explanation_id: 1, prompt_id: null, experiment_id: null, strategy_id: 's1', budget_cap_usd: 5 },
-      { id: 'r2', explanation_id: 2, prompt_id: null, experiment_id: null, strategy_id: 's1', budget_cap_usd: 5 },
-    ];
-
-    const rpc = jest.fn().mockImplementation(async () => {
-      const run = runs.shift();
-      return run ? { data: run, error: null } : { data: null, error: null };
-    });
-
-    const target: DbTarget = { name: 'only', client: { rpc } as never };
-    const batch = await claimBatch(3, [target]);
-
-    expect(batch).toHaveLength(2);
-    expect(batch.map(t => t.run.id)).toEqual(['r1', 'r2']);
-    expect(batch.every(t => t.db.name === 'only')).toBe(true);
-  });
-
-  it('stops claiming when no more pending runs', async () => {
-    const { claimBatch } = await import('./processRunQueue');
-
-    const rpc = jest.fn().mockResolvedValue({ data: null, error: null });
-    const target: DbTarget = { name: 'empty', client: { rpc } as never };
-
-    const batch = await claimBatch(5, [target]);
-    expect(batch).toHaveLength(0);
   });
 });
 
@@ -207,90 +139,125 @@ describe('parallel execution', () => {
   });
 });
 
-describe('executeRun V2 delegation', () => {
-  const mockFrom = jest.fn();
-  const mockSupabase = { from: mockFrom, rpc: jest.fn() };
-
-  function setupMockFrom() {
-    mockFrom.mockReturnValue({
-      select: jest.fn().mockReturnValue({
-        eq: jest.fn().mockReturnValue({
-          single: jest.fn(),
-          order: jest.fn().mockReturnValue({ limit: jest.fn() }),
-        }),
-      }),
-      update: jest.fn().mockReturnValue({
-        eq: jest.fn().mockReturnValue({
-          eq: jest.fn(),
-          in: jest.fn(),
-        }),
-      }),
-    });
-  }
+describe('claimAndExecuteRun delegation', () => {
+  // Spy on process.exit to prevent tests from exiting
+  let mockExit: jest.SpyInstance;
 
   beforeEach(() => {
     jest.clearAllMocks();
-    setupMockFrom();
+    mockClaimAndExecuteRun.mockResolvedValue({ claimed: false });
+    mockExit = jest.spyOn(process, 'exit').mockImplementation(() => undefined as never);
   });
 
-  it('delegates to executeV2Run for explanation-based run', async () => {
-    const { executeRun } = await import('./processRunQueue');
-
-    const run = {
-      id: 'run-expl',
-      explanation_id: 42,
-      prompt_id: null,
-      experiment_id: null,
-      strategy_id: 'strat-1',
-      budget_cap_usd: 5,
-    };
-
-    const mockTarget: DbTarget = { name: 'test', client: mockSupabase as never };
-    await executeRun({ run, db: mockTarget });
-
-    expect(mockExecuteV2Run).toHaveBeenCalledWith(
-      'run-expl',
-      run,
-      expect.anything(),
-      expect.objectContaining({ complete: expect.any(Function) }),
-    );
+  afterEach(() => {
+    mockExit.mockRestore();
   });
 
-  it('marks run failed when executeV2Run throws', async () => {
-    const { executeRun } = await import('./processRunQueue');
+  it('passes runnerId matching v2- format (regression: runner_id mismatch)', async () => {
+    mockClaimAndExecuteRun
+      .mockResolvedValueOnce({ claimed: true, runId: 'r1', stopReason: 'completed', durationMs: 100 })
+      .mockResolvedValue({ claimed: false });
 
-    mockExecuteV2Run.mockRejectedValueOnce(new Error('Pipeline exploded'));
+    const { main } = await import('./processRunQueue');
+    await main();
 
-    const mockUpdate = jest.fn().mockReturnValue({
-      eq: jest.fn().mockReturnValue({
-        in: jest.fn(),
-      }),
-    });
-    mockFrom.mockReturnValue({
-      select: jest.fn().mockReturnValue({
-        eq: jest.fn().mockReturnValue({ single: jest.fn() }),
-      }),
-      update: mockUpdate,
-    });
-
-    const run = {
-      id: 'run-fail',
-      explanation_id: 1,
-      prompt_id: null,
-      experiment_id: null,
-      strategy_id: 'strat-1',
-      budget_cap_usd: 5,
-    };
-
-    const mockTarget: DbTarget = { name: 'test', client: mockSupabase as never };
-    await executeRun({ run, db: mockTarget });
-
-    expect(mockUpdate).toHaveBeenCalledWith(
+    expect(mockClaimAndExecuteRun).toHaveBeenCalledWith(
       expect.objectContaining({
-        status: 'failed',
-        error_message: expect.stringContaining('Pipeline exploded'),
+        runnerId: expect.stringMatching(/^v2-/),
+        db: expect.anything(),
       }),
     );
+  });
+
+  it('passes target db client to claimAndExecuteRun', async () => {
+    const { main } = await import('./processRunQueue');
+    await main();
+
+    // Should have called once per target in the batch (2 targets with default parallel=1 means 1 call,
+    // but with PARALLEL=1 and round-robin, batch size is 1 so only first target is called first iteration)
+    const calls = mockClaimAndExecuteRun.mock.calls;
+    expect(calls.length).toBeGreaterThanOrEqual(1);
+    // Every call should have a db property
+    for (const call of calls) {
+      expect(call[0]).toHaveProperty('db');
+    }
+  });
+
+  it('stops when no runs claimed from any target', async () => {
+    mockClaimAndExecuteRun.mockResolvedValue({ claimed: false });
+
+    const { main } = await import('./processRunQueue');
+    await main();
+
+    // Should exit after one batch with no claims
+    expect(mockExit).toHaveBeenCalledWith(0);
+  });
+
+  it('handles unexpected throw from claimAndExecuteRun gracefully', async () => {
+    mockClaimAndExecuteRun.mockRejectedValue(new Error('Network timeout'));
+
+    const { main } = await import('./processRunQueue');
+    // Should not throw — Promise.allSettled catches the rejection
+    await main();
+
+    expect(mockExit).toHaveBeenCalledWith(0);
+  });
+
+  it('respects MAX_RUNS limit', async () => {
+    // Always claim successfully — MAX_RUNS (default 10) should cap total runs
+    let callCount = 0;
+    mockClaimAndExecuteRun.mockImplementation(async () => {
+      callCount++;
+      return { claimed: true, runId: `r${callCount}`, stopReason: 'completed', durationMs: 10 };
+    });
+
+    const { main } = await import('./processRunQueue');
+    await main();
+
+    // Default MAX_RUNS=10, PARALLEL=1 → 10 claimed runs then exit
+    expect(callCount).toBeLessThanOrEqual(11); // may overshoot by 1 batch
+  });
+
+  it('logs run results with db target name', async () => {
+    const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
+    mockClaimAndExecuteRun
+      .mockResolvedValueOnce({ claimed: true, runId: 'r1', stopReason: 'completed', durationMs: 50 })
+      .mockResolvedValue({ claimed: false });
+
+    const { main } = await import('./processRunQueue');
+    await main();
+
+    const logOutput = consoleSpy.mock.calls.map(c => c[0]).join('\n');
+    expect(logOutput).toContain('Run completed');
+    expect(logOutput).toContain('r1');
+    consoleSpy.mockRestore();
+  });
+
+  it('passes dryRun flag when DRY_RUN is set', async () => {
+    const originalArgv = process.argv;
+    process.argv = ['node', 'script.ts', '--dry-run'];
+
+    jest.resetModules();
+    // Re-mock after resetModules
+    jest.mock('../src/lib/pipeline/claimAndExecuteRun', () => ({
+      claimAndExecuteRun: mockClaimAndExecuteRun,
+    }));
+    jest.mock('@/lib/services/llmSemaphore', () => ({
+      initLLMSemaphore: jest.fn(),
+    }));
+
+    mockClaimAndExecuteRun
+      .mockResolvedValueOnce({ claimed: true, runId: 'dr1', stopReason: 'dry-run', durationMs: 1 })
+      .mockResolvedValue({ claimed: false });
+
+    const { main } = await import('./processRunQueue');
+    await main();
+
+    expect(mockClaimAndExecuteRun).toHaveBeenCalledWith(
+      expect.objectContaining({ dryRun: true }),
+    );
+
+    process.argv = originalArgv;
   });
 });
 
@@ -317,7 +284,7 @@ describe('buildDbTargets', () => {
     const targets = await buildDbTargets();
 
     expect(targets).toHaveLength(1);
-    expect(targets[0].name).toBe('prod');
+    expect(targets[0]!.name).toBe('prod');
   });
 
   it('skips target with missing env file', async () => {
@@ -329,7 +296,7 @@ describe('buildDbTargets', () => {
     const targets = await buildDbTargets();
 
     expect(targets).toHaveLength(1);
-    expect(targets[0].name).toBe('staging');
+    expect(targets[0]!.name).toBe('staging');
 
     // Restore
     (fsMod.existsSync as jest.Mock).mockImplementation((p: string) =>
@@ -350,48 +317,5 @@ describe('loadEnvFile', () => {
     (fsMod.existsSync as jest.Mock).mockImplementation((p: string) =>
       p.includes('.env.local') || p.includes('.env.evolution-prod'),
     );
-  });
-});
-
-describe('dry-run with TaggedRun', () => {
-  it('writes to correct db.client in dry-run mode', async () => {
-    // Enable dry-run via argv
-    const originalArgv = process.argv;
-    process.argv = ['node', 'script.ts', '--dry-run'];
-
-    // Re-import to pick up --dry-run flag
-    jest.resetModules();
-    const { executeRun } = await import('./processRunQueue');
-
-    const mockUpdate = jest.fn().mockReturnValue({
-      eq: jest.fn().mockReturnValue({ in: jest.fn() }),
-    });
-    const mockClient = {
-      from: jest.fn().mockReturnValue({ update: mockUpdate }),
-      rpc: jest.fn(),
-    };
-
-    const run = {
-      id: 'dry-run-1',
-      explanation_id: 1,
-      prompt_id: null,
-      experiment_id: null,
-      strategy_id: 'strat-1',
-      budget_cap_usd: 5,
-    };
-
-    const mockTarget: DbTarget = { name: 'staging', client: mockClient as never };
-    await executeRun({ run, db: mockTarget });
-
-    // Verify update was called on the correct client
-    expect(mockClient.from).toHaveBeenCalledWith('evolution_runs');
-    expect(mockUpdate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        status: 'completed',
-        error_message: 'dry-run: no execution performed',
-      }),
-    );
-
-    process.argv = originalArgv;
   });
 });

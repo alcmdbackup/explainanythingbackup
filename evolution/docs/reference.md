@@ -10,12 +10,12 @@ For conceptual overviews see [Architecture](architecture.md); for database schem
 
 ### Pipeline (`evolution/src/lib/pipeline/`)
 
-The core pipeline implements the generate-rank-evolve loop and all supporting infrastructure. The call chain flows: `executeV2Run` (runner.ts) calls `evolveArticle` (evolve-article.ts), which iterates through `generate` / `rank` / `evolve` phases per iteration, then `finalizeRun` persists results.
+The core pipeline implements the generate-rank-evolve loop and all supporting infrastructure. The call chain flows: `claimAndExecuteRun` (claimAndExecuteRun.ts) calls the internal `executePipeline()`, which calls `evolveArticle` (loop/runIterationLoop.ts), iterating through `generate` / `rank` / `evolve` phases per iteration, then `finalizeRun` persists results.
 
 | File | Purpose |
 |------|---------|
-| `runner.ts` | `executeV2Run` — top-level orchestrator; resolves content (from `explanations` or `evolution_prompts` table, or generates seed article), loads strategy config, constructs `EvolutionConfig`, calls `evolveArticle`, then `finalizeRun` and `syncToArena`. Starts and clears a 30-second heartbeat interval. Exports `ClaimedRun` type. |
-| `evolve-article.ts` | `evolveArticle` — main loop entry point. Validates `EvolutionConfig` constraints (see Configuration section), creates cost tracker and run logger, then iterates: generate new variants, rank via calibration + tournament, evolve top performers. Returns `EvolutionResult` with winner, pool, ratings, match history, cost, stop reason, and convergence metrics (muHistory, diversityHistory). |
+| `claimAndExecuteRun.ts` | `claimAndExecuteRun` — top-level orchestrator and single public entry point. Claims a pending run via RPC, starts 30s heartbeat, builds run context (resolves content from `explanations` or `evolution_prompts` table, or generates seed article), loads strategy config, constructs `EvolutionConfig`, calls `evolveArticle`, then `finalizeRun` and `syncToArena`. Accepts optional `db` for multi-DB batch runners and optional `dryRun` flag. Exports `ClaimedRun`, `RunnerOptions`, `RunnerResult` types. |
+| `loop/runIterationLoop.ts` | `evolveArticle` — main loop entry point. Validates `EvolutionConfig` constraints (see Configuration section), creates cost tracker and run logger, then iterates: generate new variants, rank via calibration + tournament, evolve top performers. Returns `EvolutionResult` with winner, pool, ratings, match history, cost, stop reason, and convergence metrics (muHistory, diversityHistory). |
 | `generate.ts` | Text generation phase; produces new variants from strategies using the configured generation model. Each strategy produces one or more candidate variants per iteration. FORMAT_RULES are injected into the generation prompt. |
 | `rank.ts` | Ranking phase; runs two-stage comparison: (1) calibration against N opponents for initial seeding, (2) Swiss-style tournament among top-K candidates. Updates TrueSkill ratings after each match. |
 | `evolve.ts` | Evolution phase; creates offspring variants by combining/mutating top-ranked parents. Uses the generation model with evolution-specific prompts that include parent text and critique feedback. |
@@ -24,7 +24,7 @@ The core pipeline implements the generate-rank-evolve loop and all supporting in
 | `cost-tracker.ts` | `createCostTracker` — per-run budget tracker using a reserve-before-spend pattern. `reserve()` is synchronous (critical for parallel safety under Node.js event loop). Applies a 1.3x margin on reservations. `recordSpend()` settles actual cost. `release()` frees reservation on failure. Throws `BudgetExceededError` when `spent + reserved + margined > budgetUsd`. |
 | `run-logger.ts` | `createRunLogger` — structured logging adapter; writes iteration-level log rows to `evolution_run_logs` with phase, message, and optional metadata JSON. |
 | `invocations.ts` | `createInvocation` / `updateInvocation` — records individual LLM calls to `evolution_invocations` with prompt text, response, model, token counts, cost, and latency for post-hoc cost auditing. |
-| `llm-client.ts` | `createV2LLMClient` — LLM abstraction with built-in retry (3 attempts, exponential backoff: 1s/2s/4s), 60-second per-call timeout, and cost tracker integration. Supports model pricing for `gpt-4.1-nano`, `gpt-4.1-mini`, `gpt-4.1`, `gpt-4o`, `gpt-4o-mini`, `deepseek-chat`, `claude-sonnet-4-20250514`, `claude-haiku-4-5-20251001`. Falls back to most-expensive pricing ($15/$60 per 1M tokens) for unknown models. Cost estimation uses chars/4 as token approximation. |
+| `infra/createLLMClient.ts` | `createV2LLMClient` — LLM abstraction with built-in retry (3 attempts, exponential backoff: 1s/2s/4s), 60-second per-call timeout, and cost tracker integration. Supports model pricing for `gpt-4.1-nano`, `gpt-4.1-mini`, `gpt-4.1`, `gpt-4o`, `gpt-4o-mini`, `deepseek-chat`, `claude-sonnet-4-20250514`, `claude-haiku-4-5-20251001`. Falls back to most-expensive pricing ($15/$60 per 1M tokens) for unknown models. Cost estimation uses chars/4 as token approximation. |
 | `seed-article.ts` | `generateSeedArticle` — produces the initial "generation 0" variant from the source prompt when no existing explanation content is available. Returns `SeedResult` with the generated text and cost. |
 | `strategy.ts` | `hashStrategyConfig` / `upsertStrategy` / `labelStrategyConfig` — strategy fingerprinting via deterministic JSON hash; upserts to `evolution_strategies` table with deduplication. |
 | `experiments.ts` | `createExperiment` / `addRunToExperiment` / `computeExperimentMetrics` — experiment grouping for A/B analysis. Returns `ExperimentMetrics` with aggregate Elo, cost, and convergence stats per strategy arm. |
@@ -82,7 +82,7 @@ Server actions and the server-side runner core. All server actions use Next.js `
 
 | File | Purpose |
 |------|---------|
-| `evolutionRunnerCore.ts` | `claimAndExecuteEvolutionRun` — server-side runner entry point. Checks concurrent run count against `EVOLUTION_MAX_CONCURRENT_RUNS`, calls `claim_evolution_run` RPC, starts 30s heartbeat, dynamically imports and invokes the V2 pipeline (`executeV2Run`), handles errors and marks run failed on unrecoverable exceptions. Uses a system UUID (`00000000-0000-4000-8000-000000000001`) for LLM call tracking. |
+| `claimAndExecuteRun.ts` | `claimAndExecuteRun` — server-side runner entry point. Calls `claim_evolution_run` RPC (concurrent limit enforced server-side via advisory lock), starts 30s heartbeat, calls `executePipeline()` internally which orchestrates the full pipeline lifecycle. Handles errors and marks run failed on unrecoverable exceptions. Uses a system UUID (`00000000-0000-4000-8000-000000000001`) for LLM call tracking. Accepts optional `db` (SupabaseClient) and `dryRun` (boolean) options. |
 | `evolutionActions.ts` | Server actions for run management: create new runs, list runs with status/pagination filtering, cancel in-progress runs, retry failed runs, fetch run summaries. |
 | `evolutionVisualizationActions.ts` | Server actions powering the Elo charts and convergence visualizations: mu history time series, diversity trend data, per-iteration cost breakdowns, rating distribution histograms. |
 | `arenaActions.ts` | Server actions for the arena subsystem: list arena topics, fetch leaderboard rankings for a topic, get arena entry details with comparison history. Arena entries are now `evolution_variants` rows with `synced_to_arena=true` (the `evolution_arena_entries` table was consolidated into `evolution_variants` in migration `20260321000002`). |
@@ -118,7 +118,7 @@ Public API for the evolution subsystem. Re-exports from:
 
 V2 pipeline barrel. Re-exports everything from `lib/index.ts` plus V2-specific exports:
 - **V2 types**: `V2Match`, `EvolutionConfig`, `EvolutionResult`, `V2StrategyConfig`
-- **Pipeline functions**: `evolveArticle`, `executeV2Run`, `generateSeedArticle`, `finalizeRun`
+- **Pipeline functions**: `claimAndExecuteRun`, `evolveArticle`, `generateSeedArticle`, `finalizeRun`
 - **Infrastructure**: `createCostTracker`, `createV2LLMClient`, `createInvocation`, `updateInvocation`, `createRunLogger`
 - **Strategy**: `hashStrategyConfig`, `labelStrategyConfig`, `upsertStrategy`
 - **Arena**: `loadArenaEntries`, `syncToArena`, `isArenaEntry`
@@ -141,7 +141,7 @@ UI component barrel for the admin dashboard. Exports 20+ components:
 
 ### EvolutionConfig Validation
 
-Validated at the entry point of `evolveArticle()` in `evolution/src/lib/pipeline/evolve-article.ts`.
+Validated at the entry point of `evolveArticle()` in `evolution/src/lib/pipeline/loop/runIterationLoop.ts`.
 
 | Field | Type | Range | Default | Description |
 |-------|------|-------|---------|-------------|
@@ -170,7 +170,7 @@ Validation throws plain `Error` with a descriptive message on constraint violati
 
 ### EntityLogger
 
-**File:** `evolution/src/lib/pipeline/entity-logger.ts`
+**File:** `evolution/src/lib/pipeline/infra/createEntityLogger.ts`
 
 The `EntityLogger` interface provides structured logging throughout the evolution pipeline. Each log entry is persisted to `evolution_run_logs` with a level, message, phase name, and optional context metadata.
 
@@ -225,7 +225,7 @@ The `formatValidator` checks output against these rules. Behavior is controlled 
 
 ### LLM Model Pricing
 
-The V2 LLM client (`evolution/src/lib/pipeline/llm-client.ts`) uses hard-coded pricing for cost estimation. Cost is calculated as `chars/4` to approximate token count.
+The V2 LLM client (`evolution/src/lib/pipeline/infra/createLLMClient.ts`) uses hard-coded pricing for cost estimation. Cost is calculated as `chars/4` to approximate token count.
 
 | Model | Input (per 1M tokens) | Output (per 1M tokens) |
 |-------|----------------------|------------------------|
@@ -298,7 +298,7 @@ When `--mock` is not specified and no cloud API keys are set, falls back to `LOC
 
 Run claiming is handled by the `claim_evolution_run` Postgres RPC (see [Data Model](data_model.md) for full schema).
 
-**Claim flow** (`evolutionRunnerCore.ts` and batch scripts):
+**Claim flow** (`claimAndExecuteRun.ts` and batch scripts):
 
 1. Check concurrent run count: query `evolution_runs` where status is `claimed` or `running`. If count >= `EVOLUTION_MAX_CONCURRENT_RUNS`, skip.
 2. Call `claim_evolution_run(p_runner_id, p_run_id?)` RPC.
@@ -312,7 +312,7 @@ Run claiming is handled by the `claim_evolution_run` Postgres RPC (see [Data Mod
 
 **Post-claim state**: The claimed run's status is atomically updated to `claimed`, `runner_id` is set to the claiming runner's ID, and `last_heartbeat` is set to `now()`. The runner then transitions the status to `running` once pipeline execution begins.
 
-**Failure modes**: If the RPC returns an error, the runner logs it and returns `{claimed: false}`. If the concurrent count check fails, the runner also returns without claiming. Both the `evolutionRunnerCore.ts` service and the batch scripts in `evolution/scripts/` implement this same flow.
+**Failure modes**: If the RPC returns an error, the runner logs it and returns `{claimed: false}`. If the concurrent count check fails, the runner also returns without claiming. Both the `claimAndExecuteRun.ts` function and the batch scripts in `evolution/scripts/` implement this same flow.
 
 ---
 
@@ -322,7 +322,7 @@ Run claiming is handled by the `claim_evolution_run` Postgres RPC (see [Data Mod
 
 Once a run is claimed, the runner starts a **30-second heartbeat interval** that updates `last_heartbeat` on the run row. This proves the runner process is alive. The heartbeat is cleared when the run completes (success or failure) or when the runner process shuts down cleanly.
 
-Implementation: `evolutionRunnerCore.ts` uses `setInterval` with a 30-second period. The interval is stored and cleared in a `try/finally` block.
+Implementation: `claimAndExecuteRun.ts` uses `setInterval` with a 30-second period. The interval is stored and cleared in a `try/finally` block.
 
 ### Watchdog
 

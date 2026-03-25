@@ -16,22 +16,16 @@ shared core function.
 - Protected by `requireAdmin()`.
 - `maxDuration = 800` seconds (Vercel limit); pipeline gets `(800 - 60) * 1000 ms`.
 - Accepts optional `{ runId: UUID }` body to target a specific pending run.
-- Delegates to `claimAndExecuteEvolutionRun()`.
+- Delegates to `claimAndExecuteRun()`.
 
 ### CLI Batch Runner
 
-`evolution/scripts/evolution-runner-v2.ts` — the primary batch execution script.
+`evolution/scripts/processRunQueue.ts` — the primary batch execution script.
 
-- Flags: `--parallel`, `--max-runs`, `--max-concurrent-llm`.
-- Polls for pending runs and dispatches them through the core runner.
-
-### Multi-Target Runner
-
-`evolution/scripts/evolution-runner.ts` — round-robins between staging and production
-environments.
-
-- Flags: `--dry-run` for preview without execution.
-- Useful for distributing load across deployment targets.
+- Flags: `--parallel`, `--max-runs`, `--max-concurrent-llm`, `--dry-run`.
+- Round-robins between staging and production databases.
+- Calls `claimAndExecuteRun({ runnerId, db: target.client })` for each target.
+- See [Minicomputer Deployment](./minicomputer_deployment.md) for systemd setup.
 
 ### Local Runner
 
@@ -42,8 +36,8 @@ environments.
 
 ### Core Function
 
-All entry points funnel into `claimAndExecuteEvolutionRun()` in
-`evolution/src/services/evolutionRunnerCore.ts`:
+All entry points funnel into `claimAndExecuteRun()` in
+`evolution/src/lib/pipeline/claimAndExecuteRun.ts`:
 
 ```typescript
 export interface RunnerOptions {
@@ -60,17 +54,19 @@ export interface RunnerResult {
   error?: string;
 }
 
-export async function claimAndExecuteEvolutionRun(
+export async function claimAndExecuteRun(
   options: RunnerOptions,
 ): Promise<RunnerResult>
 ```
 
 The function follows a strict sequence: check the concurrent run limit, attempt to claim
 a pending run via the `claim_evolution_run` RPC, start a 30-second heartbeat timer, then
-dynamically import and call `executeV2Run()` from the pipeline layer. The dynamic import
-keeps the pipeline code out of the main app's initial bundle. On any pipeline error, the
+call the internal `executePipeline()` function which handles the full pipeline lifecycle
+(build context, run evolution loop, finalize, sync arena). On any pipeline error, the
 run is marked as failed and the error message is returned in `RunnerResult`. The
 heartbeat is always cleaned up in a `finally` block regardless of success or failure.
+An optional `db` parameter allows external callers (e.g. `processRunQueue.ts`) to inject
+their own Supabase client for multi-database support.
 
 ## Execution Flow
 
@@ -80,14 +76,14 @@ The end-to-end flow from trigger to completion:
   Trigger (API / CLI / Local)
        |
        v
-  claimAndExecuteEvolutionRun()
+  claimAndExecuteRun()
        |
        +-- Check concurrent limit (EVOLUTION_MAX_CONCURRENT_RUNS, default 5)
        +-- claim_evolution_run RPC (FOR UPDATE SKIP LOCKED, FIFO)
        +-- Start heartbeat (30s interval)
        |
        v
-  executeV2Run()                    [evolution/src/lib/pipeline/runner.ts]
+  executePipeline()                 [evolution/src/lib/pipeline/claimAndExecuteRun.ts] (internal)
        |
        +-- Mark run status = 'running'
        +-- Load strategy config from evolution_strategies
@@ -101,10 +97,10 @@ The end-to-end flow from trigger to completion:
        |     +-- Load non-archived arena variants from evolution_variants (synced_to_arena=true)
        |     +-- Attach pre-seeded mu/sigma ratings, set fromArena=true
        |
-       +-- evolveArticle()          [evolution/src/lib/pipeline/evolve-article.ts]
+       +-- evolveArticle()          [evolution/src/lib/pipeline/loop/runIterationLoop.ts]
        |     +-- (3-op loop — see next section)
        |
-       +-- finalizeRun()            [evolution/src/lib/pipeline/finalize.ts]
+       +-- finalizeRun()            [evolution/src/lib/pipeline/finalize/persistRunResults.ts]
        |     +-- Filter out arena-sourced variants from pool
        |     +-- Build V3 run_summary JSON
        |     +-- Update run status = 'completed'
@@ -112,7 +108,7 @@ The end-to-end flow from trigger to completion:
        |     +-- Update strategy aggregate stats
        |     +-- Auto-complete experiment if all runs done
        |
-       +-- syncToArena()            [evolution/src/lib/pipeline/arena.ts]
+       +-- syncToArena()            [evolution/src/lib/pipeline/finalize/persistRunResults.ts]
              +-- Set synced_to_arena=true on winning variant in evolution_variants (prompt-based runs only)
 ```
 
@@ -129,7 +125,7 @@ blocking each other — each will atomically claim a different pending run. If a
 pending run ordered by `created_at`. The RPC returns the full run row including
 `explanation_id`, `prompt_id`, `experiment_id`, `strategy_id`, and `budget_cap_usd`.
 
-After a successful claim, `executeV2Run()` immediately transitions the run to `'running'`
+After a successful claim, `executePipeline()` immediately transitions the run to `'running'`
 status, loads the strategy configuration from `evolution_strategies`, and proceeds to
 content resolution.
 
@@ -386,9 +382,9 @@ since arena entries already exist in `evolution_variants` with `synced_to_arena=
 
 ### Heartbeat
 
-Both the core runner (`evolutionRunnerCore.ts`) and the pipeline runner (`runner.ts`)
-maintain a heartbeat by updating `evolution_runs.last_heartbeat` every 30 seconds. The
-heartbeat interval is always cleared in a `finally` block to prevent leaks.
+`claimAndExecuteRun()` maintains a heartbeat by updating `evolution_runs.last_heartbeat`
+every 30 seconds. The heartbeat interval is always cleared in a `finally` block to
+prevent leaks.
 
 ### Stale Run Expiry
 
@@ -420,12 +416,12 @@ TypeScript path aliases map `@evolution/*` to `./evolution/src/*`, allowing the 
 app's API route to import evolution code directly:
 
 ```typescript
-import { claimAndExecuteEvolutionRun } from '@evolution/services/evolutionRunnerCore';
+import { claimAndExecuteRun } from '@evolution/lib/pipeline/claimAndExecuteRun';
 ```
 
 ### LLM Adapter
 
-The pipeline does not call LLM APIs directly. Instead, `evolutionRunnerCore.ts` wraps
+The pipeline does not call LLM APIs directly. Instead, `claimAndExecuteRun.ts` wraps
 the main app's `callLLM()` function in a provider object:
 
 ```typescript
@@ -486,12 +482,10 @@ reasoning about behavior significantly easier.
 | File | Purpose |
 |------|---------|
 | `src/app/api/evolution/run/route.ts` | API entry point |
-| `evolution/scripts/evolution-runner-v2.ts` | Batch CLI runner |
-| `evolution/scripts/evolution-runner.ts` | Multi-target runner |
+| `evolution/scripts/processRunQueue.ts` | Batch runner (multi-DB round-robin scheduler) |
 | `evolution/scripts/run-evolution-local.ts` | Local dev runner |
-| `evolution/src/services/evolutionRunnerCore.ts` | Core claim + execute |
-| `evolution/src/lib/pipeline/runner.ts` | V2 run execution (resolve, pipeline, persist) |
-| `evolution/src/lib/pipeline/evolve-article.ts` | Main loop orchestrator |
+| `evolution/src/lib/pipeline/claimAndExecuteRun.ts` | Core claim + execute (single entry point) |
+| `evolution/src/lib/pipeline/loop/runIterationLoop.ts` | Main loop orchestrator (`evolveArticle`) |
 | `evolution/src/lib/core/` | Entity base class, Agent base class, METRIC_CATALOG, entityRegistry |
 | `evolution/src/lib/pipeline/generate.ts` | Generate phase (GenerationAgent) |
 | `evolution/src/lib/pipeline/rank.ts` | Rank phase (RankingAgent, triage + Swiss) |
