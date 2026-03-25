@@ -9,10 +9,10 @@ import type { EntityLogger } from '../infra/createEntityLogger';
 import { createEntityLogger } from '../infra/createEntityLogger';
 import { isArenaEntry } from '../setup/buildRunContext';
 import { logger as serverLogger } from '@/lib/server_utilities';
-import { METRIC_REGISTRY } from '../../metrics/registry';
+import { getEntity } from '../../core/entityRegistry';
 import { writeMetric } from '../../metrics/writeMetrics';
 import { getMetricsForEntities } from '../../metrics/readMetrics';
-import type { FinalizationContext, MetricRow } from '../../metrics/types';
+import type { FinalizationContext, MetricRow, MetricName } from '../../metrics/types';
 
 import { evolutionVariantInsertSchema, EvolutionRunSummaryV3Schema } from '../../schemas';
 
@@ -228,10 +228,10 @@ export async function finalizeRun(
     };
 
     // Run-level finalization metrics
-    for (const def of METRIC_REGISTRY.run.atFinalization) {
+    for (const def of getEntity('run').metrics.atFinalization) {
       const value = def.compute(finCtx);
       if (value != null) {
-        await writeMetric(db, 'run', runId, def.name, value, 'at_finalization');
+        await writeMetric(db, 'run', runId, def.name as MetricName, value, 'at_finalization');
       }
     }
 
@@ -249,10 +249,10 @@ export async function finalizeRun(
       const invFinCtx: FinalizationContext = { ...finCtx, invocationDetails: detailsMap as FinalizationContext['invocationDetails'] };
       for (const inv of invocations) {
         const invCtx = { ...invFinCtx, currentInvocationId: inv.id };
-        for (const def of METRIC_REGISTRY.invocation.atFinalization) {
+        for (const def of getEntity('invocation').metrics.atFinalization) {
           const value = def.compute(invCtx);
           if (value != null) {
-            await writeMetric(db, 'invocation', inv.id, def.name, value, 'at_finalization');
+            await writeMetric(db, 'invocation', inv.id, def.name as MetricName, value, 'at_finalization');
           }
         }
       }
@@ -261,10 +261,10 @@ export async function finalizeRun(
     // Variant-level finalization metrics
     for (const v of localPool) {
       const varCtx: FinalizationContext = { ...finCtx, currentVariantCost: v.costUsd ?? null };
-      for (const def of METRIC_REGISTRY.variant.atFinalization) {
+      for (const def of getEntity('variant').metrics.atFinalization) {
         const value = def.compute(varCtx);
         if (value != null) {
-          await writeMetric(db, 'variant', v.id, def.name, value, 'at_finalization');
+          await writeMetric(db, 'variant', v.id, def.name as MetricName, value, 'at_finalization');
         }
       }
     }
@@ -323,7 +323,7 @@ export async function finalizeRun(
 
 /**
  * Generic propagation: aggregate child run metrics into a parent entity.
- * Works for both strategy and experiment (same pattern, driven by METRIC_REGISTRY).
+ * Works for both strategy and experiment (same pattern, driven by entity registry).
  */
 async function propagateMetrics(
   db: SupabaseClient,
@@ -340,7 +340,7 @@ async function propagateMetrics(
   const childRunIds = (runs ?? []).map((r: { id: string }) => r.id);
   if (childRunIds.length === 0) return;
 
-  const propDefs = METRIC_REGISTRY[entityType].atPropagation;
+  const propDefs = getEntity(entityType).metrics.atPropagation;
   if (propDefs.length === 0) return;
 
   const sourceMetricNames = [...new Set(propDefs.map(d => d.sourceMetric))];
@@ -353,11 +353,11 @@ async function propagateMetrics(
     const sourceRows = collect(def.sourceMetric);
     if (sourceRows.length === 0) continue;
     const aggregated = def.aggregate(sourceRows);
-    await writeMetric(db, entityType, entityId, def.name, aggregated.value, 'at_propagation', {
+    await writeMetric(db, entityType, entityId, def.name as MetricName, aggregated.value, 'at_propagation', {
       ci_lower: aggregated.ci?.[0],
       ci_upper: aggregated.ci?.[1],
       n: aggregated.n,
-      aggregation_method: def.aggregationMethod,
+      aggregation_method: def.aggregationMethod as import('../../metrics/types').AggregationMethod,
     });
   }
 }

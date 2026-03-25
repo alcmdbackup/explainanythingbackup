@@ -150,7 +150,7 @@ export async function createTestPrompt(
     .from('evolution_prompts')
     .insert({
       prompt: `[TEST] prompt_${uniqueSuffix}`,
-      title: `[TEST] Prompt ${uniqueSuffix}`,
+      name: `[TEST] Prompt ${uniqueSuffix}`,
     })
     .select('id')
     .single();

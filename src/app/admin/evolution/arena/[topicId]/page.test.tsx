@@ -6,7 +6,7 @@ import ArenaTopicDetailPage from './page';
 const MOCK_TOPIC = {
   id: '550e8400-e29b-41d4-a716-446655440000',
   prompt: 'Explain photosynthesis to a 5-year-old.',
-  title: 'Photosynthesis Explainer',
+  name: 'Photosynthesis Explainer',
   status: 'active' as const,
   created_at: '2026-03-01T09:00:00Z',
 };

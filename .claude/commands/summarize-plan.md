@@ -81,17 +81,16 @@ Output this exact format:
 [More detailed description of what the plan entails, organized by phase if the plan has phases. Be concise but thorough.]
 
 ## Files Changed (vs origin/main)
-### Modified
-- path/to/file.ts
 
-### Added
-- path/to/new-file.ts
+| File | Status | Description | Done? |
+|------|--------|-------------|-------|
+| path/to/file.ts | Modified | Brief description of what changed | Yes/No |
+| path/to/new-file.ts | Added | Brief description of what was added | Yes/No |
+| path/to/removed-file.ts | Deleted | Why it was removed | Yes/No |
+| path/to/wip-file.ts | Uncommitted | What's in progress | No |
 
-### Deleted
-- path/to/removed-file.ts
-
-### Uncommitted
-- path/to/wip-file.ts (if any)
+Status values: Added, Modified, Deleted, Uncommitted.
+Done column: "Yes" if the change is committed and complete per the plan, "No" if still in progress or planned but not yet done. For planning-phase projects where no code has been written yet, mark planning/research docs as "Yes" and planned code files from the phased execution plan as "Planned (P#)" with their phase number.
 
 ## Tracked Docs
 [List from _status.json relevantDocs array, or "No tracked docs" if missing]
@@ -103,6 +102,6 @@ Output this exact format:
 
 - Overview bullets: max 15 words each
 - Detailed changes: max 200 words total
-- File lists: just paths, no descriptions
+- File table: brief descriptions (5-10 words max per row), include planned files from execution plan
 - Tracked docs: just paths, no descriptions
 - No filler text, headers, or explanations beyond the template

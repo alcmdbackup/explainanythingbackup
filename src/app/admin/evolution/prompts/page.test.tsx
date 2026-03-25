@@ -15,7 +15,7 @@ jest.mock('@evolution/services/arenaActions', () => ({
     data: {
       items: [{
         id: '22222222-2222-2222-2222-222222222222',
-        title: 'Test Prompt',
+        name: 'Test Prompt',
         prompt: 'Explain quantum computing in simple terms that a high school student could understand.',
         status: 'active',
         deleted_at: null,

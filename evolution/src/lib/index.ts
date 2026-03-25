@@ -123,3 +123,10 @@ export type { StrategyConfig, StrategyConfigRow } from './shared/hashStrategyCon
 // ─── Reversal comparison ────────────────────────────────────────
 export { run2PassReversal } from './shared/computeRatings';
 export type { ReversalConfig } from './shared/computeRatings';
+
+// ─── Entity/Agent class system ──────────────────────────────────
+export { Entity } from './core/Entity';
+export { Agent } from './core/Agent';
+export { METRIC_CATALOG } from './core/metricCatalog';
+export { getEntity, getEntityMetrics, getAllEntityMetricDefs, getEntityListViewMetrics, getEntityMetricDef, isValidEntityMetricName } from './core/entityRegistry';
+export type { EntityType as CoreEntityType, ParentRelation, ChildRelation, EntityAction, AgentContext, AgentResult, EntityMetricRegistry, CatalogMetricDef } from './core/types';

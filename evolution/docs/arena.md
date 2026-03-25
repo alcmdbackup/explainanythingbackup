@@ -92,13 +92,13 @@ A fresh entry with default mu=25 maps to Elo 1200. See [Rating System](./rating_
 
 ### evolution_prompts (prompt bank)
 
-The prompt bank stores the prompts that arena entries are rated against. Originally named `evolution_arena_topics`, it was renamed in the 20260320 migration.
+The prompt bank stores the prompts that arena entries are rated against. Originally named `evolution_arena_topics`, it was renamed in the 20260320 migration. Arena pages are filtered views of prompts — the `arena_topic` entity type has been removed from the entity registry and `evolution_metrics` CHECK constraint.
 
 | Column       | Type        | Description                          |
 |-------------|-------------|--------------------------------------|
 | id          | uuid PK     | Auto-generated                       |
 | prompt      | text        | The full prompt text                 |
-| title       | varchar(200)| Short human-readable label           |
+| name        | varchar(200)| Short human-readable display name    |
 | status      | text        | `active` or `archived`               |
 | deleted_at  | timestamptz | Soft delete (null = active)          |
 | archived_at | timestamptz | Archive timestamp                    |

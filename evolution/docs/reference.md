@@ -32,6 +32,19 @@ The core pipeline implements the generate-rank-evolve loop and all supporting in
 | `errors.ts` | `BudgetExceededWithPartialResults` — extends `BudgetExceededError` for mid-generation budget breaches with salvageable output. Carries `partialVariants: Variant[]` so the pipeline can finalize with whatever was produced before the budget ran out. |
 | `types.ts` | V2-specific types: `EvolutionConfig` (run configuration), `EvolutionResult` (pipeline output including winner, pool, ratings, matchHistory, totalCost, iterationsRun, stopReason, muHistory, diversityHistory, matchCounts), `V2Match` (winnerId/loserId/result/confidence/judgeModel/reversed), `V2StrategyConfig` (generationModel, judgeModel, iterations, budgetUsd). |
 
+### Core (`evolution/src/lib/core/`)
+
+The core layer defines abstract base classes for entities and agents, the central metric catalog, and the entity registry. Subclasses in `entities/` and `agents/` implement concrete domain objects.
+
+| File | Purpose |
+|------|---------|
+| `Entity.ts` | Abstract entity base class with generic CRUD (`list`, `getById`, `executeAction`), metric propagation (`propagateMetricsToParents`, `markParentMetricsStale`), and entity-aware logging via `createLogger`. |
+| `Agent.ts` | Abstract agent base class with `run()`/`execute()` template method. `run()` wraps execution with budget-error handling, invocation tracking, and cost attribution. |
+| `metricCatalog.ts` | Central metric definitions (25 metrics) organized by timing phase (during_execution, at_finalization, at_propagation). Exports `METRIC_CATALOG` and `METRIC_FORMATTERS` for consistent formatting across UI. |
+| `entityRegistry.ts` | Lazy-init entity registry mapping `EntityType` to singleton entity instances. Provides `getEntity(type)` lookup helper used by CRUD routing and metric propagation. |
+| `entities/` | 6 entity subclasses: `RunEntity`, `StrategyEntity`, `ExperimentEntity`, `VariantEntity`, `InvocationEntity`, `PromptEntity`. Each declares parents, children, metrics, list columns, filters, actions, and detail tabs. |
+| `agents/` | 2 agent subclasses: `GenerationAgent` (text generation phase), `RankingAgent` (triage + Swiss ranking phase). Each implements the `execute()` method with phase-specific logic. |
+
 ### Shared (`evolution/src/lib/shared/`)
 
 Utilities shared between the pipeline, services, and UI layers. These modules have no V2-specific dependencies and can be consumed by any layer.

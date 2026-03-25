@@ -67,8 +67,8 @@ describe('EntityMetricsTab', () => {
     await waitFor(() => {
       expect(screen.getByTestId('entity-metrics-tab')).toBeInTheDocument();
     });
-    // Should have category sections
-    expect(screen.getByText('Cost')).toBeInTheDocument();
+    // Should have category sections (Cost may appear as both category heading and metric label)
+    expect(screen.getAllByText('Cost').length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText('Rating')).toBeInTheDocument();
   });
 

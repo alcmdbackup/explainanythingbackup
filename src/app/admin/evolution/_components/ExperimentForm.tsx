@@ -30,7 +30,7 @@ export function ExperimentForm({ onCreated }: ExperimentFormProps): JSX.Element 
   const [step, setStep] = useState<Step>('setup');
 
   const [name, setName] = useState('');
-  const [availablePrompts, setAvailablePrompts] = useState<Array<{ id: string; prompt: string; title: string }>>([]);
+  const [availablePrompts, setAvailablePrompts] = useState<Array<{ id: string; prompt: string; name: string }>>([]);
   const [selectedPromptId, setSelectedPromptId] = useState<string>('');
   const [budgetPerRun, setBudgetPerRun] = useState(0.05);
   const [loading, setLoading] = useState(true);
@@ -200,7 +200,7 @@ export function ExperimentForm({ onCreated }: ExperimentFormProps): JSX.Element 
                         />
                         <div className="min-w-0 flex-1">
                           <span className="text-sm font-ui font-medium text-[var(--text-primary)]">
-                            {p.title}
+                            {p.name}
                           </span>
                           <span className="text-xs font-body text-[var(--text-muted)] ml-2 truncate">
                             — {p.prompt.length > 80 ? p.prompt.slice(0, 80) + '...' : p.prompt}

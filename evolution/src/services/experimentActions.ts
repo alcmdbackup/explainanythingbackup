@@ -117,14 +117,14 @@ export const getPromptsAction = adminAction(
   async (input: { status?: string; filterTestContent?: boolean } | undefined, ctx: AdminContext) => {
     let query = ctx.supabase
       .from('evolution_prompts')
-      .select('id, prompt, title, status, created_at')
+      .select('id, prompt, name, status, created_at')
       .order('created_at', { ascending: false });
 
     if (input?.status) {
       query = query.eq('status', input.status);
     }
     if (input?.filterTestContent) {
-      query = query.not('title', 'ilike', '%[TEST]%');
+      query = query.not('name', 'ilike', '%[TEST]%');
     }
 
     const { data, error } = await query;

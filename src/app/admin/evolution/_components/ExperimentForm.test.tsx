@@ -26,8 +26,8 @@ jest.mock('sonner', () => ({
 // ─── Fixtures ───────────────────────────────────────────────────
 
 const PROMPTS = [
-  { id: 'p1', title: 'Photosynthesis', prompt: 'Explain photosynthesis', status: 'active' as const, createdAt: '2026-01-01' },
-  { id: 'p2', title: 'Gravity', prompt: 'Explain gravity briefly', status: 'active' as const, createdAt: '2026-01-02' },
+  { id: 'p1', name: 'Photosynthesis', prompt: 'Explain photosynthesis', status: 'active' as const, createdAt: '2026-01-01' },
+  { id: 'p2', name: 'Gravity', prompt: 'Explain gravity briefly', status: 'active' as const, createdAt: '2026-01-02' },
 ];
 
 const STRATEGIES = [

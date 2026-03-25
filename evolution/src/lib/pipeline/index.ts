@@ -95,6 +95,10 @@ export type { ArenaTextVariation } from './setup/buildRunContext';
 export { createExperiment, addRunToExperiment, computeExperimentMetrics } from './manageExperiments';
 export type { ExperimentMetrics } from './manageExperiments';
 
+// ─── Entity/Agent classes ────────────────────────────────────────
+export { GenerationAgent, type GenerationInput } from '../core/agents/GenerationAgent';
+export { RankingAgent, type RankingInput, type RankResult } from '../core/agents/RankingAgent';
+
 // ─── Pipeline schemas (Phase 2) ─────────────────────────────────
 export {
   variantSchema,

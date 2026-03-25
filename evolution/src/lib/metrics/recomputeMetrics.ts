@@ -1,8 +1,8 @@
 // Stale metric recomputation with SELECT FOR UPDATE SKIP LOCKED thundering herd protection.
 
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { EntityType, MetricRow, FinalizationContext } from './types';
-import { METRIC_REGISTRY } from './registry';
+import type { EntityType, MetricRow, FinalizationContext, MetricName } from './types';
+import { getEntity } from '../core/entityRegistry';
 import { writeMetric } from './writeMetrics';
 import { getMetricsForEntities } from './readMetrics';
 import { DEFAULT_MU } from '@evolution/lib/shared/computeRatings';
@@ -71,11 +71,11 @@ async function recomputeRunEloMetrics(db: SupabaseClient, runId: string): Promis
     matchHistory: [],
   };
 
-  for (const def of METRIC_REGISTRY.run.atFinalization) {
+  for (const def of getEntity('run').metrics.atFinalization) {
     if (!['winner_elo', 'median_elo', 'p90_elo', 'max_elo'].includes(def.name)) continue;
     const value = def.compute(ctx);
     if (value != null) {
-      await writeMetric(db, 'run', runId, def.name, value, 'at_finalization');
+      await writeMetric(db, 'run', runId, def.name as MetricName, value, 'at_finalization');
     }
   }
 }
@@ -113,7 +113,7 @@ async function recomputePropagatedMetrics(
   entityId: string,
   childRunIds: string[],
 ): Promise<void> {
-  const propDefs = METRIC_REGISTRY[entityType].atPropagation;
+  const propDefs = getEntity(entityType as import('../core/types').EntityType).metrics.atPropagation;
   if (propDefs.length === 0) return;
 
   const sourceMetricNames = [...new Set(propDefs.map(d => d.sourceMetric))];
@@ -126,11 +126,11 @@ async function recomputePropagatedMetrics(
     const sourceRows = collect(def.sourceMetric);
     if (sourceRows.length === 0) continue;
     const aggregated = def.aggregate(sourceRows);
-    await writeMetric(db, entityType, entityId, def.name, aggregated.value, 'at_propagation', {
+    await writeMetric(db, entityType, entityId, def.name as MetricName, aggregated.value, 'at_propagation', {
       ci_lower: aggregated.ci?.[0],
       ci_upper: aggregated.ci?.[1],
       n: aggregated.n,
-      aggregation_method: def.aggregationMethod,
+      aggregation_method: def.aggregationMethod as import('./types').AggregationMethod,
     });
   }
 }

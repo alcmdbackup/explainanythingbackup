@@ -67,7 +67,7 @@ function createValidStrategyInsert() {
 }
 
 function createValidPromptInsert() {
-  return { prompt: 'Explain quantum physics', title: 'Quantum Physics' };
+  return { prompt: 'Explain quantum physics', name: 'Quantum Physics' };
 }
 
 function createValidExperimentInsert() {
@@ -178,7 +178,7 @@ describe('evolution_prompts', () => {
   });
 
   it('rejects empty prompt', () => {
-    expect(() => evolutionPromptInsertSchema.parse({ prompt: '', title: 'Test' })).toThrow();
+    expect(() => evolutionPromptInsertSchema.parse({ prompt: '', name: 'Test' })).toThrow();
   });
 
   it('rejects invalid status', () => {

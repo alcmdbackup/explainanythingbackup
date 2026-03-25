@@ -4,7 +4,8 @@
 
 import { adminAction, type AdminContext } from './adminAction';
 import { validateUuid } from './shared';
-import type { EntityType } from '@evolution/lib/pipeline/infra/createEntityLogger';
+import { getEntity } from '@evolution/lib/core/entityRegistry';
+import type { EntityType } from '@evolution/lib/core/types';
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -52,22 +53,13 @@ export const getEntityLogsAction = adminAction(
       .from('evolution_logs')
       .select('id, created_at, level, agent_name, iteration, variant_id, message, context, entity_type, entity_id', { count: 'exact' });
 
-    // Query by appropriate ancestor column per entity type
-    switch (entityType) {
-      case 'run':
-        query = query.eq('run_id', entityId);
-        break;
-      case 'experiment':
-        query = query.eq('experiment_id', entityId);
-        break;
-      case 'strategy':
-        query = query.eq('strategy_id', entityId);
-        break;
-      case 'invocation':
-        query = query.eq('entity_type', 'invocation').eq('entity_id', entityId);
-        break;
-      default:
-        throw new Error(`Unknown entity type: ${entityType}`);
+    // Query by entity's logQueryColumn (ancestor FK) or direct entity_type+entity_id
+    const entity = getEntity(entityType);
+    if (entity.logQueryColumn) {
+      query = query.eq(entity.logQueryColumn, entityId);
+    } else {
+      // Leaf entities without ancestor columns: filter by entity_type + entity_id directly
+      query = query.eq('entity_type', entityType).eq('entity_id', entityId);
     }
 
     query = query.order('created_at', { ascending: true });
