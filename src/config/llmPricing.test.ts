@@ -175,8 +175,8 @@ describe('LLM Pricing', () => {
 
     it('should have pricing for OpenRouter models', () => {
       expect(LLM_PRICING['openai/gpt-oss-20b']).toBeDefined();
-      expect(LLM_PRICING['openai/gpt-oss-20b'].inputPer1M).toBe(0.03);
-      expect(LLM_PRICING['openai/gpt-oss-20b'].outputPer1M).toBe(0.11);
+      expect(LLM_PRICING['openai/gpt-oss-20b']!.inputPer1M).toBe(0.03);
+      expect(LLM_PRICING['openai/gpt-oss-20b']!.outputPer1M).toBe(0.11);
     });
 
     it('should have $0 pricing for local models', () => {

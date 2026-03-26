@@ -88,20 +88,15 @@ const DEFAULT_PRICING: ModelPricing = { inputPer1M: 10.00, outputPer1M: 30.00 };
  * Returns default pricing if model not found.
  */
 export function getModelPricing(model: string): ModelPricing {
-  if (LLM_PRICING[model]) {
-    return LLM_PRICING[model];
-  }
+  const exact = LLM_PRICING[model];
+  if (exact) return exact;
 
-  // Fall back to prefix match (e.g., "gpt-4o-2024-11-20" matches "gpt-4o")
-  // Sort by key length descending so longer (more specific) prefixes match first
-  const entries = Object.entries(LLM_PRICING).sort((a, b) => b[0].length - a[0].length);
-  for (const [key, pricing] of entries) {
-    if (model.startsWith(key)) {
-      return pricing;
-    }
-  }
+  // Prefix match fallback — sort by key length descending so longer (more specific) prefixes win
+  const prefixMatch = Object.entries(LLM_PRICING)
+    .sort((a, b) => b[0].length - a[0].length)
+    .find(([key]) => model.startsWith(key));
 
-  return DEFAULT_PRICING;
+  return prefixMatch?.[1] ?? DEFAULT_PRICING;
 }
 
 /** Calculate estimated cost in USD for an LLM call. */
