@@ -4,7 +4,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useState, type ReactNode } from 'react';
+import { useState, useCallback, type ReactNode } from 'react';
 
 export interface EntityLink {
   prefix: string;
@@ -32,8 +32,28 @@ export function EntityDetailHeader({
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState(title);
   const [saving, setSaving] = useState(false);
+  const [copied, setCopied] = useState(false);
 
-  const handleSave = async () => {
+  const handleCopyId = useCallback(async () => {
+    if (!entityId) return;
+    try {
+      await navigator.clipboard.writeText(entityId);
+    } catch {
+      // Fallback for non-secure contexts
+      const ta = document.createElement('textarea');
+      ta.value = entityId;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+    }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  }, [entityId]);
+
+  const handleSave = async (): Promise<void> => {
     const trimmed = editValue.trim();
     if (!trimmed || !onRename) return;
     setSaving(true);
@@ -45,7 +65,7 @@ export function EntityDetailHeader({
     }
   };
 
-  const handleCancel = () => {
+  const handleCancel = (): void => {
     setEditValue(title);
     setEditing(false);
   };
@@ -110,13 +130,18 @@ export function EntityDetailHeader({
             {statusBadge}
           </div>
           {entityId && (
-            <p
-              className="text-xs font-mono text-[var(--text-muted)] mt-1 truncate"
-              title={entityId}
+            <button
+              onClick={handleCopyId}
+              className="flex items-center gap-1 text-xs font-mono text-[var(--text-muted)] mt-1 truncate hover:text-[var(--accent-gold)] transition-colors cursor-pointer"
+              title="Click to copy full ID"
               data-testid="entity-id"
             >
-              {entityId.length > 12 ? `${entityId.substring(0, 12)}…` : entityId}
-            </p>
+              <svg className="w-3 h-3 flex-shrink-0" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <rect x="5" y="5" width="9" height="9" rx="1" />
+                <path d="M11 5V3a1 1 0 0 0-1-1H3a1 1 0 0 0-1 1v7a1 1 0 0 0 1 1h2" />
+              </svg>
+              {copied ? 'Copied!' : (entityId.length > 12 ? `${entityId.substring(0, 12)}…` : entityId)}
+            </button>
           )}
         </div>
         {actions && <div className="flex-shrink-0" data-testid="header-actions">{actions}</div>}

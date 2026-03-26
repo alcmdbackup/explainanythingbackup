@@ -47,9 +47,9 @@ describe('StrategiesPage', () => {
     expect(headings.length).toBeGreaterThanOrEqual(1);
   });
 
-  it('renders breadcrumb with Dashboard link', () => {
+  it('renders breadcrumb with Evolution link', () => {
     render(<StrategiesPage />);
-    expect(screen.getByText('Dashboard')).toBeInTheDocument();
+    expect(screen.getByText('Evolution')).toBeInTheDocument();
   });
 
   it('renders New Strategy button', () => {
@@ -113,5 +113,13 @@ describe('StrategiesPage', () => {
     const { listStrategiesAction } = jest.requireMock('@evolution/services/strategyRegistryActions');
     render(<StrategiesPage />);
     expect(listStrategiesAction).toHaveBeenCalled();
+  });
+
+  it('does not render Created By column (F48)', async () => {
+    render(<StrategiesPage />);
+    await waitFor(() => {
+      expect(screen.getByText('Test Strategy')).toBeInTheDocument();
+    });
+    expect(screen.queryByText('Created By')).not.toBeInTheDocument();
   });
 });

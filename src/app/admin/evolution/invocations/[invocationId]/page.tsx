@@ -19,6 +19,7 @@ export default async function InvocationDetailPage({ params }: Props): Promise<J
     <div className="space-y-6 pb-12">
       <EvolutionBreadcrumb
         items={[
+          { label: 'Evolution', href: '/admin/evolution-dashboard' },
           { label: 'Invocations', href: '/admin/evolution/invocations' },
           { label: `${invocationId.substring(0, 8)}...` },
         ]}

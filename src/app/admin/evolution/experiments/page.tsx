@@ -38,9 +38,11 @@ const FILTERS: FilterDef[] = [
     label: 'Status',
     type: 'select',
     options: [
-      { label: 'Active', value: '' },
-      { label: 'Cancelled', value: 'cancelled' },
       { label: 'All', value: 'all' },
+      { label: 'Draft', value: 'draft' },
+      { label: 'Running', value: 'running' },
+      { label: 'Completed', value: 'completed' },
+      { label: 'Cancelled', value: 'cancelled' },
     ],
   },
   { key: 'filterTestContent', label: 'Hide test content', type: 'checkbox', defaultChecked: true },
@@ -98,7 +100,7 @@ export default function ExperimentsListPage(): JSX.Element {
   const [experiments, setExperiments] = useState<ExperimentSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterValues, setFilterValues] = useState<Record<string, string>>(() => {
-    const defaults: Record<string, string> = {};
+    const defaults: Record<string, string> = { status: 'all' };
     for (const f of FILTERS) {
       if (f.type === 'checkbox' && f.defaultChecked) {
         defaults[f.key] = 'true';
@@ -137,11 +139,10 @@ export default function ExperimentsListPage(): JSX.Element {
       toast.success('Experiment cancelled');
       load();
     } else {
-      toast.error(res.error?.message || 'Failed to cancel');
+      toast.error(res.error?.message ?? 'Failed to cancel');
     }
   };
 
-  // Add cancel action column dynamically so handleCancel closure is available
   const columnsWithActions: ColumnDef<ExperimentSummary>[] = [
     ...COLUMNS,
     {
@@ -171,7 +172,7 @@ export default function ExperimentsListPage(): JSX.Element {
   return (
     <div className="space-y-6">
       <EvolutionBreadcrumb items={[
-        { label: 'Dashboard', href: '/admin/evolution-dashboard' },
+        { label: 'Evolution', href: '/admin/evolution-dashboard' },
         { label: 'Experiments' },
       ]} />
 

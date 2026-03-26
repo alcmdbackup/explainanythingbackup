@@ -38,9 +38,9 @@ describe('PromptsPage', () => {
     expect(headings.length).toBeGreaterThanOrEqual(1);
   });
 
-  it('renders breadcrumb with Dashboard link', () => {
+  it('renders breadcrumb with Evolution link', () => {
     render(<PromptsPage />);
-    expect(screen.getByText('Dashboard')).toBeInTheDocument();
+    expect(screen.getByText('Evolution')).toBeInTheDocument();
   });
 
   it('renders New Prompt button', () => {

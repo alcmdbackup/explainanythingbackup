@@ -19,16 +19,12 @@ import { evolutionVariantInsertSchema, EvolutionRunSummaryV3Schema } from '../..
 /** V2 baseline strategy name (V1 uses 'original_baseline'). */
 const V2_BASELINE_STRATEGY = 'baseline';
 
-// ─── Types ───────────────────────────────────────────────────────
-
 interface RunContext {
   experiment_id: string | null;
   explanation_id: number | null;
   strategy_id: string | null;
   prompt_id: string | null;
 }
-
-// ─── Helpers ─────────────────────────────────────────────────────
 
 function buildRunSummary(
   result: EvolutionResult,
@@ -95,11 +91,7 @@ function buildRunSummary(
   };
 }
 
-// ─── Public API ──────────────────────────────────────────────────
-
-/**
- * Persist V2 results in V1-compatible format: run_summary, variants, strategy aggregates.
- */
+/** Persist V2 results in V1-compatible format: run_summary, variants, strategy aggregates. */
 export async function finalizeRun(
   runId: string,
   result: EvolutionResult,
@@ -280,7 +272,7 @@ export async function finalizeRun(
     logger?.warn('Finalization metrics write failed', { phaseName: 'finalize', error: (metricsErr instanceof Error ? metricsErr.message : String(metricsErr)).slice(0, 500) });
   }
 
-  // Step 6: Strategy aggregate update (legacy — will be removed in Phase 6)
+  // Step 6a: Strategy aggregate update (legacy — will be removed in Phase 6)
   if (run.strategy_id) {
     try {
       await db.rpc('update_strategy_aggregates', {
@@ -299,7 +291,7 @@ export async function finalizeRun(
     }
   }
 
-  // Step 6: Experiment auto-completion (only if ALL sibling runs are done)
+  // Step 6b: Experiment auto-completion (only if ALL sibling runs are done)
   if (run.experiment_id) {
     try {
       await db.rpc('complete_experiment_if_done', {
@@ -319,12 +311,7 @@ export async function finalizeRun(
   }
 }
 
-// ─── Propagation helper ──────────────────────────────────────────
-
-/**
- * Generic propagation: aggregate child run metrics into a parent entity.
- * Works for both strategy and experiment (same pattern, driven by entity registry).
- */
+/** Aggregate child run metrics into a parent entity (strategy or experiment). */
 async function propagateMetrics(
   db: SupabaseClient,
   entityType: 'strategy' | 'experiment',
@@ -346,7 +333,7 @@ async function propagateMetrics(
   const sourceMetricNames = [...new Set(propDefs.map(d => d.sourceMetric))];
   const runMetrics = await getMetricsForEntities(db, 'run', childRunIds, sourceMetricNames);
 
-  const collect = (name: string) =>
+  const collect = (name: string): MetricRow[] =>
     [...runMetrics.values()].flatMap(ms => ms.filter((m: MetricRow) => m.metric_name === name));
 
   for (const def of propDefs) {
@@ -362,12 +349,7 @@ async function propagateMetrics(
   }
 }
 
-// ─── Sync to arena ───────────────────────────────────────────────
-
-/**
- * Sync pipeline results to arena via sync_to_arena RPC.
- * Upserts new variants as entries, inserts match history, updates Elo.
- */
+/** Sync pipeline results to arena: upsert entries, insert matches, update Elo. */
 export async function syncToArena(
   runId: string,
   promptId: string,
@@ -377,6 +359,15 @@ export async function syncToArena(
   supabase: SupabaseClient,
   logger?: EntityLogger,
 ): Promise<void> {
+  // Compute per-variant match counts from match history
+  const variantMatchCounts = new Map<string, number>();
+  for (const m of matchHistory) {
+    if (m.confidence > 0) {
+      variantMatchCounts.set(m.winnerId, (variantMatchCounts.get(m.winnerId) ?? 0) + 1);
+      variantMatchCounts.set(m.loserId, (variantMatchCounts.get(m.loserId) ?? 0) + 1);
+    }
+  }
+
   // Build entries: all non-arena variants
   const newEntries = pool
     .filter((v) => !isArenaEntry(v))
@@ -388,7 +379,7 @@ export async function syncToArena(
         elo_score: r ? toEloScale(r.mu) : 1200,
         mu: r?.mu ?? 25,
         sigma: r?.sigma ?? 8.333,
-        arena_match_count: 0,
+        arena_match_count: variantMatchCounts.get(v.id) ?? 0,
         generation_method: 'pipeline',
       };
     });

@@ -132,4 +132,19 @@ describe('ArenaListPage', () => {
       expect(screen.getByText('archived')).toBeInTheDocument();
     });
   });
+
+  it('F35: does not show item count while loading', () => {
+    // Make action never resolve so component stays in loading state
+    mockGetArenaTopicsAction.mockReturnValue(new Promise(() => {}));
+    render(<ArenaListPage />);
+    // totalCount is undefined during loading, so the "X items" text should not render
+    expect(screen.queryByText(/items?$/)).toBeNull();
+  });
+
+  it('F35: shows item count after loading completes', async () => {
+    render(<ArenaListPage />);
+    await waitFor(() => {
+      expect(screen.getByText('2 items')).toBeInTheDocument();
+    });
+  });
 });

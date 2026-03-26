@@ -66,12 +66,12 @@ export function EntityTable<T>({
             {columns.map((col) => (
               <th
                 key={col.key}
-                className={`py-1 pr-3 last:pr-0 group ${alignClass(col.align)} ${
+                className={`py-1 pr-3 last:pr-0 group text-xs font-ui font-medium ${alignClass(col.align)} ${
                   col.sortable ? 'cursor-pointer select-none hover:text-[var(--text-secondary)]' : ''
                 }`}
                 onClick={col.sortable && onSort ? () => onSort(col.key) : undefined}
               >
-                {col.header}
+                <span>{col.header}</span>
                 {col.sortable && <SortIndicator active={sortKey === col.key} dir={sortDir} />}
               </th>
             ))}

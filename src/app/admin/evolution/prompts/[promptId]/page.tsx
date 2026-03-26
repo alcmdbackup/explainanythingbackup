@@ -52,7 +52,7 @@ export default function PromptDetailPage(): JSX.Element {
   return (
     <div className="space-y-6 pb-12">
       <EvolutionBreadcrumb items={[
-        { label: 'Dashboard', href: '/admin/evolution-dashboard' },
+        { label: 'Evolution', href: '/admin/evolution-dashboard' },
         { label: 'Prompts', href: '/admin/evolution/prompts' },
         { label: prompt.name },
       ]} />

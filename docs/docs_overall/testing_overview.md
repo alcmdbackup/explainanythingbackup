@@ -48,6 +48,7 @@ Consolidated guide covering testing rules, tiers, and CI/CD workflows.
 | Rule 14: Unroute before route in mocks | Code review + `page.unroute()` in helpers | Edit-time |
 | Rule 15: Restore global.fetch | Code review + `afterEach` pattern | Edit-time |
 | Rule 16: E2E cleanup for DB imports | ESLint `flakiness/require-test-cleanup` | Lint (CI + IDE) |
+| Column label uniqueness | ESLint `no-duplicate-column-labels` | Lint (CI + IDE) |
 
 ---
 
@@ -168,9 +169,9 @@ test('import creates explanation', async ({ page }) => {
   - **Critical**: 5 tests (auth-flow, explanation-generation, streaming-api, error-handling, vector-matching)
   - **Evolution**: 16 files (claim, budget, costs, completion, watchdog, strategy-hash, strategy-aggregates, cancel-experiment, sync-arena, entity-logger, experiment-lifecycle, metrics-recomputation, cost-cascade, visualization-data, experiment-create-complete, arena-comparison). Auto-skip when evolution DB tables not yet migrated.
   - **Full**: All 32 tests
-- **E2E**: 46 spec files in `__tests__/e2e/specs/`
-  - **Critical**: `@critical` tagged tests via `{ tag: '@critical' }` (run on PRs to main)
-  - **Evolution**: `@evolution` tagged specs (dashboard, runs, strategies, arena, experiments, invocations, variants, experiments-list, invocation-detail, logs, run pipeline, experiment wizard)
+- **E2E**: 48 spec files in `__tests__/e2e/specs/`
+  - **Critical**: `@critical` tagged tests via `{ tag: '@critical' }` (run on PRs to main). Evolution Phase 1-2 E2E specs are tagged `@critical`.
+  - **Evolution**: `@evolution` tagged specs (dashboard, runs, strategies, arena, experiments, invocations, variants, experiments-list, invocation-detail, logs, run pipeline, experiment wizard). Includes 5 new specs + 1 accessibility spec added in `09-admin/`.
   - **Full**: All tests (run on PRs to production)
 
 ### E2E Test Tagging Strategy

@@ -98,7 +98,7 @@ export default function InvocationsListPage(): JSX.Element {
     <div className="space-y-6">
       <EvolutionBreadcrumb
         items={[
-          { label: 'Dashboard', href: '/admin/evolution-dashboard' },
+          { label: 'Evolution', href: '/admin/evolution-dashboard' },
           { label: 'Invocations' },
         ]}
       />

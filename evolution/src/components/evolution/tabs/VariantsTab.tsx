@@ -14,9 +14,10 @@ import { buildVariantDetailUrl } from '@evolution/lib/utils/evolutionUrls';
 
 interface VariantsTabProps {
   runId: string;
+  runStatus?: string;
 }
 
-export function VariantsTab({ runId }: VariantsTabProps): JSX.Element {
+export function VariantsTab({ runId, runStatus }: VariantsTabProps): JSX.Element {
   const searchParams = useSearchParams();
   const initialVariant = searchParams.get('variant');
   const [variants, setVariants] = useState<EvolutionVariant[]>([]);
@@ -27,7 +28,7 @@ export function VariantsTab({ runId }: VariantsTabProps): JSX.Element {
   const initialVariantApplied = useRef(false);
 
   useEffect(() => {
-    async function load() {
+    async function load(): Promise<void> {
       setLoading(true);
       const result = await getEvolutionVariantsAction(runId);
       if (result.success && result.data) {
@@ -48,7 +49,7 @@ export function VariantsTab({ runId }: VariantsTabProps): JSX.Element {
   }, [initialVariant, loading, variants]);
 
   const strategies = useMemo(() => {
-    const set = new Set(variants.map(v => v.agent_name));
+    const set = new Set(variants.map(v => v.agent_name).filter(Boolean));
     return Array.from(set).sort();
   }, [variants]);
 
@@ -71,6 +72,11 @@ export function VariantsTab({ runId }: VariantsTabProps): JSX.Element {
 
   return (
     <div className="space-y-4" data-testid="variants-tab">
+      {runStatus === 'failed' && (
+        <div className="rounded-book border border-[var(--status-warning)] bg-[var(--status-warning)]/10 p-3 text-sm font-ui text-[var(--status-warning)]">
+          This run failed. Variant data may be incomplete or from a partial execution.
+        </div>
+      )}
       <div className="flex items-center justify-between relative z-10">
         <select
           value={strategyFilter}
@@ -109,7 +115,7 @@ export function VariantsTab({ runId }: VariantsTabProps): JSX.Element {
                   </td>
                   <td className="px-2 py-2 text-right font-semibold">{Math.round(v.elo_score)}</td>
                   <td className="px-2 py-2 text-right text-[var(--text-muted)]">{v.match_count}</td>
-                  <td className="px-2 py-2 font-mono text-xs">{v.agent_name}</td>
+                  <td className="px-2 py-2 font-mono text-xs">{v.agent_name || '—'}</td>
                   <td className="px-2 py-2 text-right text-[var(--text-muted)]">{v.generation}</td>
                   <td className="px-2 py-2">
                     <span className="flex items-center gap-2">
@@ -117,14 +123,14 @@ export function VariantsTab({ runId }: VariantsTabProps): JSX.Element {
                         onClick={() => setExpandedId(expandedId === v.id ? null : v.id)}
                         className="text-[var(--accent-gold)] hover:underline text-xs"
                       >
-                        {expandedId === v.id ? 'Hide' : 'View'}
+                        {expandedId === v.id ? 'Hide' : 'Preview'}
                       </button>
                       <Link
                         href={buildVariantDetailUrl(v.id)}
                         className="text-[var(--text-muted)] hover:text-[var(--accent-gold)] text-xs"
                         title="Full variant detail"
                       >
-                        Full
+                        Detail
                       </Link>
                     </span>
                   </td>

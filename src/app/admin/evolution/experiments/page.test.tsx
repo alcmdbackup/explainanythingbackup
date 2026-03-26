@@ -34,9 +34,9 @@ jest.mock('sonner', () => ({
 }));
 
 describe('ExperimentsListPage', () => {
-  it('renders breadcrumb with Dashboard link', () => {
+  it('renders breadcrumb with Evolution link', () => {
     render(<ExperimentsListPage />);
-    expect(screen.getByText('Dashboard')).toBeInTheDocument();
+    expect(screen.getByText('Evolution')).toBeInTheDocument();
   });
 
   it('renders EntityListPage wrapper', () => {
@@ -64,5 +64,14 @@ describe('ExperimentsListPage', () => {
     const label = screen.getByTestId('filter-filterTestContent');
     const checkbox = label.querySelector('input[type="checkbox"]') as HTMLInputElement;
     expect(checkbox.checked).toBe(true);
+  });
+
+  it('F31: status filter has all 5 options (All, Draft, Running, Completed, Cancelled)', () => {
+    render(<ExperimentsListPage />);
+    const select = screen.getByTestId('filter-status');
+    const options = select.querySelectorAll('option');
+    const labels = Array.from(options).map(o => o.textContent);
+    expect(labels).toEqual(['All', 'Draft', 'Running', 'Completed', 'Cancelled']);
+    expect(options).toHaveLength(5);
   });
 });

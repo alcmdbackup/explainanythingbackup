@@ -7,6 +7,7 @@ import { ExperimentForm } from './ExperimentForm';
 const mockCreateWithRunsAction = jest.fn();
 const mockGetPromptsAction = jest.fn();
 const mockGetStrategiesAction = jest.fn();
+const mockCreatePromptAction = jest.fn();
 const mockToastSuccess = jest.fn();
 const mockToastError = jest.fn();
 
@@ -14,6 +15,10 @@ jest.mock('@evolution/services/experimentActions', () => ({
   createExperimentWithRunsAction: (...args: unknown[]) => mockCreateWithRunsAction(...args),
   getPromptsAction: (...args: unknown[]) => mockGetPromptsAction(...args),
   getStrategiesAction: (...args: unknown[]) => mockGetStrategiesAction(...args),
+}));
+
+jest.mock('@evolution/services/arenaActions', () => ({
+  createPromptAction: (...args: unknown[]) => mockCreatePromptAction(...args),
 }));
 
 jest.mock('sonner', () => ({
@@ -116,20 +121,22 @@ describe('ExperimentForm', () => {
       await waitFor(() => expect(screen.getByText('Photosynthesis')).toBeInTheDocument());
     });
 
-    it('disables Next when name is empty', async () => {
+    it('shows errors when Next clicked with empty name', async () => {
       render(<ExperimentForm />);
       await waitFor(() => expect(screen.getByText('Photosynthesis')).toBeInTheDocument());
       fireEvent.click(screen.getAllByRole('radio')[0]);
-      expect(screen.getByText('Next: Select Strategies')).toBeDisabled();
+      fireEvent.click(screen.getByText('Next: Select Strategies'));
+      expect(screen.getByText('Enter an experiment name')).toBeInTheDocument();
     });
 
-    it('disables Next when no prompt selected', async () => {
+    it('shows errors when Next clicked with no prompt selected', async () => {
       render(<ExperimentForm />);
       await waitFor(() => expect(screen.getByText('Photosynthesis')).toBeInTheDocument());
       fireEvent.change(screen.getByPlaceholderText('e.g., Model comparison Q1'), {
         target: { value: 'My Experiment' },
       });
-      expect(screen.getByText('Next: Select Strategies')).toBeDisabled();
+      fireEvent.click(screen.getByText('Next: Select Strategies'));
+      expect(screen.getByText('Select a prompt')).toBeInTheDocument();
     });
 
     it('defaults budget per run to $0.05', async () => {
@@ -211,12 +218,12 @@ describe('ExperimentForm', () => {
       fireEvent.change(runsInput, { target: { value: '21' } });
 
       expect(screen.getByText(/exceeds/)).toBeInTheDocument();
-      expect(screen.getByText('Review')).toBeDisabled();
+      expect(screen.getByRole('button', { name: 'Review' })).toBeDisabled();
     });
 
     it('disables Review when no strategies selected', async () => {
       await goToStrategiesStep();
-      expect(screen.getByText('Review')).toBeDisabled();
+      expect(screen.getByRole('button', { name: 'Review' })).toBeDisabled();
     });
 
     it('can navigate back to setup', async () => {
@@ -231,7 +238,7 @@ describe('ExperimentForm', () => {
       await goToStrategiesStep();
       // Select Economy
       fireEvent.click(screen.getByTestId('strategy-check-strat-1'));
-      fireEvent.click(screen.getByText('Review'));
+      fireEvent.click(screen.getByRole('button', { name: 'Review' }));
       await waitFor(() => expect(screen.getByText('Create Experiment')).toBeInTheDocument());
     }
 
@@ -266,7 +273,7 @@ describe('ExperimentForm', () => {
 
       // Step 2: select Economy
       fireEvent.click(screen.getByTestId('strategy-check-strat-1'));
-      fireEvent.click(screen.getByText('Review'));
+      fireEvent.click(screen.getByRole('button', { name: 'Review' }));
       await waitFor(() => expect(screen.getByText('Create Experiment')).toBeInTheDocument());
 
       // Step 3: submit
@@ -292,7 +299,7 @@ describe('ExperimentForm', () => {
       fireEvent.click(screen.getByTestId('strategy-check-strat-1'));
       fireEvent.change(screen.getByTestId('runs-count-strat-1'), { target: { value: '3' } });
 
-      fireEvent.click(screen.getByText('Review'));
+      fireEvent.click(screen.getByRole('button', { name: 'Review' }));
       await waitFor(() => expect(screen.getByText('Create Experiment')).toBeInTheDocument());
 
       await act(async () => {
@@ -313,7 +320,7 @@ describe('ExperimentForm', () => {
       fireEvent.click(screen.getByTestId('strategy-check-strat-2'));
       fireEvent.change(screen.getByTestId('runs-count-strat-2'), { target: { value: '2' } });
 
-      fireEvent.click(screen.getByText('Review'));
+      fireEvent.click(screen.getByRole('button', { name: 'Review' }));
       await waitFor(() => expect(screen.getByText('Create Experiment')).toBeInTheDocument());
 
       await act(async () => {
@@ -348,6 +355,165 @@ describe('ExperimentForm', () => {
       await goToReview();
       fireEvent.click(screen.getByText('Back'));
       await waitFor(() => expect(screen.getByText('Select Strategies')).toBeInTheDocument());
+    });
+  });
+
+  describe('Create New Prompt Dialog', () => {
+    it('shows "Create new prompt" button in setup step', async () => {
+      render(<ExperimentForm />);
+      await waitFor(() => expect(screen.getByText('Photosynthesis')).toBeInTheDocument());
+      expect(screen.getByTestId('create-prompt-btn')).toBeInTheDocument();
+      expect(screen.getByText('Create new prompt')).toBeInTheDocument();
+    });
+
+    it('opens dialog when "Create new prompt" is clicked', async () => {
+      render(<ExperimentForm />);
+      await waitFor(() => expect(screen.getByText('Photosynthesis')).toBeInTheDocument());
+      fireEvent.click(screen.getByTestId('create-prompt-btn'));
+      expect(screen.getByText('Create New Prompt')).toBeInTheDocument();
+      expect(screen.getByText('Prompt Name')).toBeInTheDocument();
+      expect(screen.getByText('Prompt Text')).toBeInTheDocument();
+    });
+
+    it('closes dialog on Cancel', async () => {
+      render(<ExperimentForm />);
+      await waitFor(() => expect(screen.getByText('Photosynthesis')).toBeInTheDocument());
+      fireEvent.click(screen.getByTestId('create-prompt-btn'));
+      expect(screen.getByText('Create New Prompt')).toBeInTheDocument();
+      fireEvent.click(screen.getByText('Cancel'));
+      expect(screen.queryByText('Create New Prompt')).not.toBeInTheDocument();
+    });
+
+    it('validates whitespace-only name', async () => {
+      render(<ExperimentForm />);
+      await waitFor(() => expect(screen.getByText('Photosynthesis')).toBeInTheDocument());
+      fireEvent.click(screen.getByTestId('create-prompt-btn'));
+
+      // Fill name with spaces only, fill prompt text
+      const nameInput = screen.getByPlaceholderText('e.g., Explain gravity for kids');
+      fireEvent.change(nameInput, { target: { value: '   ' } });
+
+      const textareas = screen.getAllByRole('textbox');
+      const promptTextarea = textareas.find(el => el.tagName === 'TEXTAREA');
+      fireEvent.change(promptTextarea!, { target: { value: 'Some prompt text' } });
+
+      fireEvent.click(screen.getByText('Save'));
+      await waitFor(() => expect(screen.getByText('Name is required')).toBeInTheDocument());
+    });
+
+    it('validates whitespace-only prompt text', async () => {
+      render(<ExperimentForm />);
+      await waitFor(() => expect(screen.getByText('Photosynthesis')).toBeInTheDocument());
+      fireEvent.click(screen.getByTestId('create-prompt-btn'));
+
+      const nameInput = screen.getByPlaceholderText('e.g., Explain gravity for kids');
+      fireEvent.change(nameInput, { target: { value: 'My Prompt' } });
+
+      const textareas = screen.getAllByRole('textbox');
+      const promptTextarea = textareas.find(el => el.tagName === 'TEXTAREA');
+      fireEvent.change(promptTextarea!, { target: { value: '   ' } });
+
+      fireEvent.click(screen.getByText('Save'));
+      await waitFor(() => expect(screen.getByText('Prompt text is required')).toBeInTheDocument());
+    });
+
+    it('validates name max length', async () => {
+      render(<ExperimentForm />);
+      await waitFor(() => expect(screen.getByText('Photosynthesis')).toBeInTheDocument());
+      fireEvent.click(screen.getByTestId('create-prompt-btn'));
+
+      const nameInput = screen.getByPlaceholderText('e.g., Explain gravity for kids');
+      fireEvent.change(nameInput, { target: { value: 'A'.repeat(201) } });
+
+      const textareas = screen.getAllByRole('textbox');
+      const promptTextarea = textareas.find(el => el.tagName === 'TEXTAREA');
+      fireEvent.change(promptTextarea!, { target: { value: 'Some prompt' } });
+
+      fireEvent.click(screen.getByText('Save'));
+      await waitFor(() => expect(screen.getByText(/Name must be at most 200 characters/)).toBeInTheDocument());
+    });
+
+    it('validates prompt text max length', async () => {
+      render(<ExperimentForm />);
+      await waitFor(() => expect(screen.getByText('Photosynthesis')).toBeInTheDocument());
+      fireEvent.click(screen.getByTestId('create-prompt-btn'));
+
+      const nameInput = screen.getByPlaceholderText('e.g., Explain gravity for kids');
+      fireEvent.change(nameInput, { target: { value: 'My Prompt' } });
+
+      const textareas = screen.getAllByRole('textbox');
+      const promptTextarea = textareas.find(el => el.tagName === 'TEXTAREA');
+      fireEvent.change(promptTextarea!, { target: { value: 'X'.repeat(2001) } });
+
+      fireEvent.click(screen.getByText('Save'));
+      await waitFor(() => expect(screen.getByText(/Prompt text must be at most 2000 characters/)).toBeInTheDocument());
+    });
+
+    it('creates prompt, adds it to list, and auto-selects it', async () => {
+      mockCreatePromptAction.mockResolvedValue({
+        success: true,
+        data: { id: 'p-new', name: 'New Prompt', prompt: 'Explain something new' },
+      });
+
+      render(<ExperimentForm />);
+      await waitFor(() => expect(screen.getByText('Photosynthesis')).toBeInTheDocument());
+      fireEvent.click(screen.getByTestId('create-prompt-btn'));
+
+      const nameInput = screen.getByPlaceholderText('e.g., Explain gravity for kids');
+      fireEvent.change(nameInput, { target: { value: 'New Prompt' } });
+
+      const textareas = screen.getAllByRole('textbox');
+      const promptTextarea = textareas.find(el => el.tagName === 'TEXTAREA');
+      fireEvent.change(promptTextarea!, { target: { value: 'Explain something new' } });
+
+      await act(async () => {
+        fireEvent.click(screen.getByText('Save'));
+      });
+
+      await waitFor(() => {
+        expect(mockCreatePromptAction).toHaveBeenCalledWith({
+          name: 'New Prompt',
+          prompt: 'Explain something new',
+        });
+        expect(mockToastSuccess).toHaveBeenCalledWith('Prompt "New Prompt" created');
+        // New prompt should appear in the list
+        expect(screen.getByText('New Prompt')).toBeInTheDocument();
+      });
+
+      // New prompt should be auto-selected (its radio should be checked)
+      const radios = screen.getAllByRole('radio');
+      const newPromptRadio = radios.find(r => {
+        const label = r.closest('label');
+        return label?.textContent?.includes('New Prompt');
+      });
+      expect(newPromptRadio).toBeChecked();
+    });
+
+    it('shows error when create prompt action fails', async () => {
+      mockCreatePromptAction.mockResolvedValue({
+        success: false,
+        data: null,
+        error: { message: 'Duplicate name' },
+      });
+
+      render(<ExperimentForm />);
+      await waitFor(() => expect(screen.getByText('Photosynthesis')).toBeInTheDocument());
+      fireEvent.click(screen.getByTestId('create-prompt-btn'));
+
+      const nameInput = screen.getByPlaceholderText('e.g., Explain gravity for kids');
+      fireEvent.change(nameInput, { target: { value: 'My Prompt' } });
+
+      const textareas = screen.getAllByRole('textbox');
+      const promptTextarea = textareas.find(el => el.tagName === 'TEXTAREA');
+      fireEvent.change(promptTextarea!, { target: { value: 'Explain something' } });
+
+      await act(async () => {
+        fireEvent.click(screen.getByText('Save'));
+      });
+
+      await waitFor(() => {
+        expect(screen.getByText('Duplicate name')).toBeInTheDocument();
+      });
     });
   });
 });

@@ -58,10 +58,10 @@ describe('PromptDetailPage', () => {
     });
   });
 
-  it('renders breadcrumb with Dashboard and Prompts links', async () => {
+  it('renders breadcrumb with Evolution and Prompts links', async () => {
     render(<PromptDetailPage />);
     await waitFor(() => {
-      expect(screen.getByText('Dashboard')).toBeInTheDocument();
+      expect(screen.getByText('Evolution')).toBeInTheDocument();
       expect(screen.getByText('Prompts')).toBeInTheDocument();
     });
   });

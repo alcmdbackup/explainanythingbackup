@@ -3,9 +3,8 @@
 
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, type KeyboardEvent, type ReactNode } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import type { ReactNode } from 'react';
 
 export interface TabDef {
   id: string;
@@ -25,13 +24,37 @@ export function EntityDetailTabs({
   onTabChange,
   children,
 }: EntityDetailTabsProps): JSX.Element {
+  const handleKeyDown = (e: KeyboardEvent, index: number): void => {
+    let nextIndex = index;
+    if (e.key === 'ArrowRight') nextIndex = (index + 1) % tabs.length;
+    else if (e.key === 'ArrowLeft') nextIndex = (index - 1 + tabs.length) % tabs.length;
+    else if (e.key === 'Home') nextIndex = 0;
+    else if (e.key === 'End') nextIndex = tabs.length - 1;
+    else return;
+    e.preventDefault();
+    const nextTab = tabs[nextIndex];
+    if (!nextTab) return;
+    onTabChange(nextTab.id);
+    const el = document.querySelector(`[data-testid="tab-${nextTab.id}"]`) as HTMLElement | null;
+    el?.focus();
+  };
+
   return (
     <div>
-      <div className="flex gap-1 border-b border-[var(--border-default)] mb-4" data-testid="tab-bar">
-        {tabs.map((tab) => (
+      <div
+        className="flex gap-1 border-b border-[var(--border-default)] mb-4"
+        role="tablist"
+        data-testid="tab-bar"
+      >
+        {tabs.map((tab, i) => (
           <button
             key={tab.id}
+            role="tab"
+            aria-selected={activeTab === tab.id}
+            aria-controls={`tabpanel-${tab.id}`}
+            tabIndex={activeTab === tab.id ? 0 : -1}
             onClick={() => onTabChange(tab.id)}
+            onKeyDown={(e) => handleKeyDown(e, i)}
             className={`px-4 py-2 text-sm font-medium font-ui border-b-2 transition-colors ${
               activeTab === tab.id
                 ? 'text-[var(--accent-gold)] border-[var(--accent-gold)]'
@@ -43,7 +66,12 @@ export function EntityDetailTabs({
           </button>
         ))}
       </div>
-      <div data-testid="tab-content">
+      <div
+        role="tabpanel"
+        id={`tabpanel-${activeTab}`}
+        aria-labelledby={`tab-${activeTab}`}
+        data-testid="tab-content"
+      >
         {children}
       </div>
     </div>

@@ -51,10 +51,10 @@ describe('VariantsListPage', () => {
     mockListVariants.mockClear();
   });
 
-  it('renders breadcrumb with Dashboard link', async () => {
+  it('renders breadcrumb with Evolution link', async () => {
     render(<VariantsListPage />);
-    await waitFor(() => expect(screen.getByText('Dashboard')).toBeInTheDocument());
-    expect(screen.getByText('Dashboard').closest('a')).toHaveAttribute('href', '/admin/evolution-dashboard');
+    await waitFor(() => expect(screen.getByText('Evolution')).toBeInTheDocument());
+    expect(screen.getByText('Evolution').closest('a')).toHaveAttribute('href', '/admin/evolution-dashboard');
   });
 
   it('renders page title', async () => {

@@ -6,14 +6,10 @@ import { useEffect, useState, useCallback } from 'react';
 import { getEntityLogsAction, type LogEntry, type LogFilters } from '@evolution/services/logActions';
 import type { EntityType } from '@evolution/lib/core/types';
 
-// ─── Types ───────────────────────────────────────────────────────
-
 interface LogsTabProps {
   entityType: EntityType;
   entityId: string;
 }
-
-// ─── Constants ───────────────────────────────────────────────────
 
 const LEVELS = ['', 'info', 'warn', 'error', 'debug'] as const;
 const ENTITY_TYPES = ['', 'run', 'invocation', 'experiment', 'strategy'] as const;
@@ -32,8 +28,6 @@ const ENTITY_BADGE_COLORS: Record<string, string> = {
   experiment: 'bg-green-900/30 text-green-300',
   strategy: 'bg-amber-900/30 text-amber-300',
 };
-
-// ─── Component ───────────────────────────────────────────────────
 
 export function LogsTab({ entityType, entityId }: LogsTabProps): JSX.Element {
   const [logs, setLogs] = useState<LogEntry[]>([]);
@@ -89,7 +83,6 @@ export function LogsTab({ entityType, entityId }: LogsTabProps): JSX.Element {
 
   return (
     <div className="space-y-3" data-testid="logs-tab">
-      {/* Filter bar — 2 rows */}
       <div className="space-y-2">
         <div className="flex flex-wrap gap-2 items-center">
           <select
@@ -134,9 +127,10 @@ export function LogsTab({ entityType, entityId }: LogsTabProps): JSX.Element {
             aria-label="Filter by iteration"
           >
             <option value="">All iterations</option>
-            {Array.from({ length: 20 }, (_, i) => i + 1).map((n) => (
-              <option key={n} value={n}>{n}</option>
-            ))}
+            {Array.from(
+              { length: Math.max(logs.reduce((max, l) => (l.iteration != null && l.iteration > max ? l.iteration : max), 0), 20) },
+              (_, i) => <option key={i + 1} value={i + 1}>{i + 1}</option>,
+            )}
           </select>
 
           <span className="text-xs text-[var(--text-muted)] ml-auto">
@@ -165,17 +159,14 @@ export function LogsTab({ entityType, entityId }: LogsTabProps): JSX.Element {
         </div>
       </div>
 
-      {/* Loading */}
       {loading && (
         <div className="h-48 bg-[var(--surface-elevated)] rounded-book animate-pulse" />
       )}
 
-      {/* Empty state */}
       {!loading && logs.length === 0 && (
         <div className="text-sm text-[var(--text-muted)] p-8 text-center">No logs available.</div>
       )}
 
-      {/* Table */}
       {!loading && logs.length > 0 && (
         <div className="overflow-x-auto border border-[var(--border-default)] rounded-book">
           <table className="w-full text-sm">
@@ -196,13 +187,13 @@ export function LogsTab({ entityType, entityId }: LogsTabProps): JSX.Element {
                   onClick={() => setExpandedId(expandedId === log.id ? null : log.id)}
                 >
                   <td className="px-3 py-2 text-xs text-[var(--text-muted)] whitespace-nowrap">
-                    {new Date(log.created_at).toLocaleTimeString()}
+                    {new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }).format(new Date(log.created_at))}
                   </td>
                   <td className={`px-3 py-2 text-xs font-mono ${LEVEL_COLORS[log.level] ?? ''}`}>
                     {log.level}
                   </td>
                   <td className="px-3 py-2 text-xs">
-                    <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-mono ${ENTITY_BADGE_COLORS[log.entity_type] ?? 'bg-gray-800 text-gray-300'}`}>
+                    <span className={`inline-block px-1.5 py-0.5 rounded text-xs font-mono ${ENTITY_BADGE_COLORS[log.entity_type] ?? 'bg-gray-800 text-gray-300'}`}>
                       {log.entity_type}
                     </span>
                   </td>
@@ -217,7 +208,6 @@ export function LogsTab({ entityType, entityId }: LogsTabProps): JSX.Element {
         </div>
       )}
 
-      {/* Expanded context */}
       {expandedId !== null && (() => {
         const log = logs.find((l) => l.id === expandedId);
         return log?.context ? (
@@ -227,7 +217,6 @@ export function LogsTab({ entityType, entityId }: LogsTabProps): JSX.Element {
         ) : null;
       })()}
 
-      {/* Pagination */}
       {totalPages > 1 && (
         <div className="flex items-center justify-between text-xs text-[var(--text-muted)]">
           <button

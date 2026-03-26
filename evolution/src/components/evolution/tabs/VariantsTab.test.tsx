@@ -73,6 +73,93 @@ describe('VariantsTab', () => {
     await waitFor(() => expect(screen.getByText('Server error')).toBeInTheDocument());
   });
 
+  it('F24/F43: shows em-dash when agent_name is empty', async () => {
+    const variantsWithEmptyAgent: EvolutionVariant[] = [
+      {
+        id: 'cccc-3333-dddd-4444-eeee-5555',
+        run_id: 'run-1',
+        explanation_id: 1,
+        variant_content: 'No agent variant',
+        elo_score: 1100,
+        generation: 1,
+        agent_name: '',
+        match_count: 2,
+        is_winner: false,
+        created_at: '2026-03-19T00:00:00Z',
+      },
+    ];
+
+    (evolutionActions.getEvolutionVariantsAction as jest.Mock).mockResolvedValue({
+      success: true,
+      data: variantsWithEmptyAgent,
+      error: null,
+    });
+
+    render(<VariantsTab runId="run-1" />);
+    await waitFor(() => expect(screen.getByTestId('variants-tab')).toBeInTheDocument());
+    // The Strategy column should show em-dash for empty agent_name
+    expect(screen.getByText('\u2014')).toBeInTheDocument();
+  });
+
+  it('F26: strategy dropdown has no empty options when variants have empty/null agent_name', async () => {
+    const variantsWithEmpty: EvolutionVariant[] = [
+      {
+        id: 'v1',
+        run_id: 'run-1',
+        explanation_id: 1,
+        variant_content: 'content1',
+        elo_score: 1300,
+        generation: 1,
+        agent_name: 'generation',
+        match_count: 3,
+        is_winner: false,
+        created_at: '2026-03-19T00:00:00Z',
+      },
+      {
+        id: 'v2',
+        run_id: 'run-1',
+        explanation_id: 1,
+        variant_content: 'content2',
+        elo_score: 1200,
+        generation: 1,
+        agent_name: '',
+        match_count: 2,
+        is_winner: false,
+        created_at: '2026-03-19T00:00:00Z',
+      },
+      {
+        id: 'v3',
+        run_id: 'run-1',
+        explanation_id: 1,
+        variant_content: 'content3',
+        elo_score: 1100,
+        generation: 1,
+        agent_name: null as unknown as string,
+        match_count: 1,
+        is_winner: false,
+        created_at: '2026-03-19T00:00:00Z',
+      },
+    ];
+
+    (evolutionActions.getEvolutionVariantsAction as jest.Mock).mockResolvedValue({
+      success: true,
+      data: variantsWithEmpty,
+      error: null,
+    });
+
+    render(<VariantsTab runId="run-1" />);
+    await waitFor(() => expect(screen.getByTestId('variants-tab')).toBeInTheDocument());
+
+    const select = screen.getByRole('combobox');
+    const options = select.querySelectorAll('option');
+    // First option is "All strategies", rest should only be non-empty agent names
+    for (const opt of Array.from(options)) {
+      expect(opt.textContent!.trim()).not.toBe('');
+    }
+    // Only "All strategies" and "generation" should appear
+    expect(options).toHaveLength(2);
+  });
+
   it('filters by strategy', async () => {
     (evolutionActions.getEvolutionVariantsAction as jest.Mock).mockResolvedValue({
       success: true,

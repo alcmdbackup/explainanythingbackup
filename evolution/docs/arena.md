@@ -116,7 +116,7 @@ Arena entries are rows in `evolution_variants` with `synced_to_arena = true`. Th
 | sigma              | float       | OpenSkill sigma (uncertainty)                    |
 | prompt_id          | uuid FK     | References `evolution_prompts.id`                |
 | synced_to_arena    | boolean     | `true` = this variant is an arena entry          |
-| arena_match_count  | int         | Total comparisons this entry has participated in |
+| arena_match_count  | int         | Total comparisons this entry has participated in (computed from match history, not hardcoded) |
 | generation_method  | text        | Strategy/model that produced the entry           |
 | model              | text        | LLM model used (nullable)                        |
 | cost_usd           | float       | Generation cost (nullable)                       |
@@ -166,7 +166,7 @@ The arena admin pages provide leaderboard views and topic management.
 | Route                                      | Purpose                                              |
 |-------------------------------------------|------------------------------------------------------|
 | `/admin/evolution/arena`                  | List all arena topics with entry counts              |
-| `/admin/evolution/arena/[topicId]`        | Leaderboard for a topic: Elo, Mu, Sigma, Matches, Cost |
+| `/admin/evolution/arena/[topicId]`        | Leaderboard for a topic: sortable columns for Elo (rounded to integers), Mu, Sigma, Matches, Cost (shows "N/A" — cost data unavailable at variant level). Markdown is stripped from content previews via `stripMarkdownTitle()`. |
 | `/admin/evolution/arena/entries/[entryId]`| Entry detail: content, rating history, comparisons   |
 
 **Source files:**

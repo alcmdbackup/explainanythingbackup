@@ -566,6 +566,29 @@ describe('experimentActions', () => {
     });
   });
 
+  // ─── F32: Metrics resilience ────────────────────────────────
+
+  describe('getExperimentAction metrics resilience', () => {
+    it('F32: returns success with default metrics when computeExperimentMetrics throws', async () => {
+      const experiment = { id: VALID_UUID, name: 'Test', evolution_runs: [] };
+      const chain = {
+        select: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        single: jest.fn().mockResolvedValue({ data: experiment, error: null }),
+      };
+      mockSupabase.from = jest.fn().mockReturnValue(chain);
+      mockComputeExperimentMetrics.mockRejectedValue(new Error('No completed runs'));
+
+      const result = await getExperimentAction({ experimentId: VALID_UUID });
+
+      expect(result.success).toBe(true);
+      expect(result.data).toEqual({
+        ...experiment,
+        metrics: { maxElo: null, totalCost: 0, runs: [] },
+      });
+    });
+  });
+
   // ─── Auth integration ───────────────────────────────────────
 
   describe('auth integration', () => {

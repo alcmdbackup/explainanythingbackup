@@ -3,14 +3,12 @@
 
 'use client';
 
-import React, { useState, useCallback, useEffect, type ReactNode } from 'react';
+import { useState, useCallback, useEffect, useRef, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import { EvolutionBreadcrumb, EntityListPage } from '@evolution/components/evolution';
 import type { ColumnDef, FilterDef } from '@evolution/components/evolution';
 import { FormDialog, type FieldDef } from './FormDialog';
 import { ConfirmDialog } from './ConfirmDialog';
-
-// ─── Config types ────────────────────────────────────────────────
 
 export interface RowAction<T> {
   label: string;
@@ -37,8 +35,6 @@ export interface RegistryPageConfig<T> {
   /** Page size (default 50). */
   pageSize?: number;
 }
-
-// ─── Component ───────────────────────────────────────────────────
 
 export function RegistryPage<T extends { id: string }>({
   config,
@@ -81,21 +77,26 @@ export function RegistryPage<T extends { id: string }>({
   const [page, setPage] = useState(1);
   const pageSize = config.pageSize ?? 50;
 
-  const loadData = useCallback(async () => {
+  // Use ref for config.loadData to avoid infinite re-render loop
+  // (config is a new object every render, which would cause useCallback to recreate on every render)
+  const loadDataFnRef = useRef(config.loadData);
+  loadDataFnRef.current = config.loadData;
+
+  const loadData = useCallback(async (): Promise<void> => {
     setLoading(true);
     try {
-      const result = await config.loadData(filterValues, page, pageSize);
+      const result = await loadDataFnRef.current(filterValues, page, pageSize);
       setItems(result.items);
       setTotal(result.total);
     } catch {
       toast.error('Failed to load data');
     }
     setLoading(false);
-  }, [config, filterValues, page, pageSize]);
+  }, [filterValues, page, pageSize]);
 
   useEffect(() => { loadData(); }, [loadData]);
 
-  const handleFilterChange = (key: string, value: string) => {
+  const handleFilterChange = (key: string, value: string): void => {
     setFilterValues((prev) => ({ ...prev, [key]: value }));
     setPage(1);
   };

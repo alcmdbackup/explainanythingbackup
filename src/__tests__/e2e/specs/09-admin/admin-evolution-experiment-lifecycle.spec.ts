@@ -27,7 +27,7 @@ adminTest.describe('Experiment Lifecycle (T0)', { tag: '@evolution' }, () => {
     // Seed a prompt
     const { data: prompt, error: promptErr } = await sb
       .from('evolution_prompts')
-      .insert({ prompt: `${testPrefix} test prompt`, title: `${testPrefix} Prompt`, status: 'active' })
+      .insert({ prompt: `${testPrefix} test prompt`, name: `${testPrefix} Prompt`, status: 'active' })
       .select('id')
       .single();
     if (promptErr) throw new Error(`Seed prompt failed: ${promptErr.message}`);

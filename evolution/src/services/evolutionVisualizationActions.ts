@@ -4,10 +4,7 @@
 
 import { adminAction, type AdminContext } from './adminAction';
 import { validateUuid } from './shared';
-import type { EvolutionRunSummary } from '@evolution/lib/types';
 import { EvolutionRunSummarySchema } from '@evolution/lib/types';
-
-// ─── Types ──────────────────────────────────────────────────────
 
 export interface DashboardData {
   activeRuns: number;
@@ -56,23 +53,42 @@ export interface LineageData {
   treeSearchPath?: string[];
 }
 
-// ─── Actions ────────────────────────────────────────────────────
-
 /** Aggregate dashboard metrics from runs, invocations, and cost view. */
 export const getEvolutionDashboardDataAction = adminAction(
   'getEvolutionDashboardData',
-  async (_input: undefined, ctx: AdminContext): Promise<DashboardData> => {
+  async (input: { filterTestContent?: boolean } | undefined, ctx: AdminContext): Promise<DashboardData> => {
     const { supabase } = ctx;
+    const filterTest = input?.filterTestContent ?? false;
+
+    // If filtering test content, find test strategy IDs to exclude
+    let testStrategyIds: string[] = [];
+    if (filterTest) {
+      const { data: testStrats } = await supabase
+        .from('evolution_strategies')
+        .select('id')
+        .ilike('name', '%[TEST]%');
+      testStrategyIds = (testStrats ?? []).map(s => s.id as string);
+    }
 
     // Parallel queries for status counts and costs
+    let statusQuery = supabase.from('evolution_runs').select('status');
+    if (filterTest && testStrategyIds.length > 0) {
+      statusQuery = statusQuery.not('strategy_id', 'in', `(${testStrategyIds.join(',')})`);
+    }
+
+    let recentQuery = supabase.from('evolution_runs')
+      .select('id, status, strategy_id, created_at, completed_at')
+      .eq('archived', false)
+      .order('created_at', { ascending: false })
+      .limit(10);
+    if (filterTest && testStrategyIds.length > 0) {
+      recentQuery = recentQuery.not('strategy_id', 'in', `(${testStrategyIds.join(',')})`);
+    }
+
     const [statusResult, costResult, recentResult] = await Promise.all([
-      supabase.from('evolution_runs').select('status'),
+      statusQuery,
       supabase.from('evolution_run_costs').select('total_cost_usd'),
-      supabase.from('evolution_runs')
-        .select('id, status, strategy_id, created_at, completed_at')
-        .eq('archived', false)
-        .order('created_at', { ascending: false })
-        .limit(10),
+      recentQuery,
     ]);
 
     // Count by status
@@ -141,8 +157,7 @@ export const getEvolutionRunEloHistoryAction = adminAction(
     const parsed = EvolutionRunSummarySchema.safeParse(data.run_summary);
     if (!parsed.success) return [];
 
-    const summary = parsed.data as EvolutionRunSummary;
-    return (summary.muHistory ?? []).map((mus, i) => ({ iteration: i + 1, mu: mus[0] ?? 0 }));
+    return (parsed.data.muHistory ?? []).map((mus, i) => ({ iteration: i + 1, mu: mus[0] ?? 0 }));
   },
 );
 

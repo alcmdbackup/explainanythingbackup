@@ -43,7 +43,7 @@ async function seedRunWithLogs(): Promise<SeededData> {
 
   const { data: prompt, error: e2 } = await supabase
     .from('evolution_prompts')
-    .insert({ prompt: `[TEST] Logs prompt ${ts}`, title: `[TEST] Logs ${ts}` })
+    .insert({ prompt: `[TEST] Logs prompt ${ts}`, name: `[TEST] Logs ${ts}` })
     .select('id')
     .single();
 

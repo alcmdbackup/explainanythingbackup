@@ -27,6 +27,7 @@ module.exports = {
       '@supabase/supabase-js',
       'test-data-factory',
       'evolution-test-helpers',
+      'evolution-test-data-factory',
     ];
 
     let dbImportNode = null;

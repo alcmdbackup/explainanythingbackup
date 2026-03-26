@@ -49,9 +49,9 @@ jest.mock('@evolution/lib/utils/evolutionUrls', () => ({
 }));
 
 describe('EvolutionRunsPage', () => {
-  it('renders breadcrumb with Dashboard link', () => {
+  it('renders breadcrumb with Evolution link', () => {
     render(<EvolutionRunsPage />);
-    expect(screen.getByText('Dashboard')).toBeInTheDocument();
+    expect(screen.getByText('Evolution')).toBeInTheDocument();
   });
 
   it('renders status filter', () => {

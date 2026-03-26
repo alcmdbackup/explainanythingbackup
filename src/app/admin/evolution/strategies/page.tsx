@@ -20,8 +20,6 @@ import {
 } from '@evolution/services/strategyRegistryActions';
 import { MODEL_OPTIONS } from '@/lib/utils/modelOptions';
 
-// ─── Load data adapter ────────────────────────────────────────────
-
 const loadData = async (filters: Record<string, string>, page: number, pageSize: number) => {
   const result = await listStrategiesAction({
     limit: pageSize,
@@ -35,16 +33,13 @@ const loadData = async (filters: Record<string, string>, page: number, pageSize:
   return { items: result.data!.items, total: result.data!.total };
 };
 
-// ─── Column + filter definitions ──────────────────────────────────
-
 const baseColumns: ColumnDef<StrategyListItem>[] = [
   { key: 'name', header: 'Name', render: (row) => row.name },
-  { key: 'label', header: 'Label', render: (row) => row.label },
+  { key: 'label', header: 'Label', render: (row) => <span className="truncate block max-w-[200px]" title={row.label}>{row.label}</span> },
   { key: 'pipeline_type', header: 'Pipeline', render: (row) => row.pipeline_type ?? '—' },
   { key: 'status', header: 'Status', render: (row) => row.status },
   { key: 'run_count', header: 'Runs', render: (row) => row.run_count },
   { key: 'avg_final_elo', header: 'Avg Elo', render: (row) => (row.avg_final_elo != null ? row.avg_final_elo.toFixed(0) : '—') },
-  { key: 'created_by', header: 'Created By', render: (row) => row.created_by },
 ];
 const columns: ColumnDef<StrategyListItem>[] = [...baseColumns, ...createMetricColumns<StrategyListItem>('strategy')];
 
@@ -72,8 +67,6 @@ const filters: FilterDef[] = [
   { key: 'filterTestContent', label: 'Hide test content', type: 'checkbox', defaultChecked: true },
 ];
 
-// ─── Form fields ──────────────────────────────────────────────────
-
 const createFields: FieldDef[] = [
   { name: 'name', label: 'Name', type: 'text', required: true, placeholder: 'Strategy name' },
   { name: 'description', label: 'Description', type: 'textarea', placeholder: 'Optional description' },
@@ -81,8 +74,6 @@ const createFields: FieldDef[] = [
   { name: 'judgeModel', label: 'Judge Model', type: 'select', required: true, options: [{ label: 'Select a model...', value: '' }, ...MODEL_OPTIONS.map(m => ({ label: m, value: m }))] },
   { name: 'iterations', label: 'Iterations', type: 'number', required: true },
 ];
-
-// ─── Component ────────────────────────────────────────────────────
 
 type DialogState =
   | { kind: 'none' }
@@ -96,8 +87,6 @@ export default function StrategiesPage(): JSX.Element {
   const [dialog, setDialog] = useState<DialogState>({ kind: 'none' });
 
   const close = (): void => setDialog({ kind: 'none' });
-
-  // ─── Row actions ──────────────────────────────────────────────
 
   const rowActions: RowAction<StrategyListItem>[] = [
     {
@@ -125,11 +114,9 @@ export default function StrategiesPage(): JSX.Element {
     },
   ];
 
-  // ─── Config ───────────────────────────────────────────────────
-
   const config: RegistryPageConfig<StrategyListItem> = {
     title: 'Strategies',
-    breadcrumbs: [{ label: 'Dashboard', href: '/admin/evolution-dashboard' }],
+    breadcrumbs: [{ label: 'Evolution', href: '/admin/evolution-dashboard' }],
     columns,
     filters,
     loadData,
@@ -138,8 +125,6 @@ export default function StrategiesPage(): JSX.Element {
     headerAction: { label: 'New Strategy', onClick: () => setDialog({ kind: 'create' }) },
     emptyMessage: 'No strategies found.',
   };
-
-  // ─── Create / Edit form ───────────────────────────────────────
 
   const formOpen = dialog.kind === 'create' || dialog.kind === 'edit';
   const formInitial = dialog.kind === 'edit'
@@ -174,8 +159,6 @@ export default function StrategiesPage(): JSX.Element {
     }
   };
 
-  // ─── Clone confirm ────────────────────────────────────────────
-
   const handleClone = async () => {
     if (dialog.kind !== 'clone') return;
     const result = await cloneStrategyAction({
@@ -185,8 +168,6 @@ export default function StrategiesPage(): JSX.Element {
     if (!result.success) throw new Error(result.error?.message ?? 'Clone failed');
     toast.success('Strategy cloned');
   };
-
-  // ─── Archive confirm ─────────────────────────────────────────
 
   const handleArchive = async () => {
     if (dialog.kind !== 'archive') return;
@@ -202,16 +183,12 @@ export default function StrategiesPage(): JSX.Element {
     }
   };
 
-  // ─── Delete confirm ──────────────────────────────────────────
-
   const handleDelete = async () => {
     if (dialog.kind !== 'delete') return;
     const result = await deleteStrategyAction(dialog.row.id);
     if (!result.success) throw new Error(result.error?.message ?? 'Delete failed');
     toast.success('Strategy deleted');
   };
-
-  // ─── Render ───────────────────────────────────────────────────
 
   const confirmOpen = dialog.kind === 'clone' || dialog.kind === 'archive' || dialog.kind === 'delete';
   const getConfirmProps = (): { title: string; message: string; confirmLabel?: string; onConfirm: () => Promise<void>; danger: boolean } => {
@@ -238,7 +215,7 @@ export default function StrategiesPage(): JSX.Element {
     }
     return {
       title: 'Delete Strategy',
-      message: `Permanently delete "${(dialog as { kind: 'delete'; row: StrategyListItem }).row.name}"? This cannot be undone.`,
+      message: `Permanently delete "${dialog.kind === 'delete' ? dialog.row.name : ''}"? This cannot be undone.`,
       confirmLabel: 'Delete',
       onConfirm: handleDelete,
       danger: true,
