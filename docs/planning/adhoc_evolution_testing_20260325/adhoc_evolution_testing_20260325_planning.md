@@ -43,10 +43,13 @@ The evolution admin dashboard has broken row actions, incorrect cost calculation
 
 **1d. Dashboard cost metrics use mismatched populations**
 - File: `evolution/src/services/evolutionVisualizationActions.ts`
-- Root cause: The `evolution_run_costs` view only has `run_id` and `total_cost_usd` columns — it does NOT have `archived`, `strategy_id`, or other filter columns. Cannot apply filters directly to this view.
-- Fix approach: Instead of querying `evolution_run_costs` separately, compute cost from the same `evolution_runs` query used for status counts. Join `evolution_runs` with `evolution_run_costs` via `run_id`, then apply the same test-content and archived filters. Alternatively, query `evolution_agent_invocations` directly with a run_id IN clause from the filtered run set.
-- Simpler approach: After the filtered statusQuery returns run IDs, query `evolution_run_costs` with `.in('run_id', filteredRunIds)` to get costs only for the filtered population. This ensures numerator and denominator match.
-- Test: Unit test that cost totals only include runs matching the current filters (not archived, not test content when filtered).
+- **IMPORTANT**: The `evolution_run_costs` view was DROPPED by migration `20260323000004_drop_legacy_metrics.sql`. The existing code on lines 90 and 118 that queries this view is already broken (returns empty/error). This must be fixed as part of this item.
+- Fix approach: Replace queries to `evolution_run_costs` with queries to `evolution_metrics` table (which replaced the view). Query `evolution_metrics` with `entity_type='run'` and `metric_name='cost'` filtered by the same run IDs from the status query. This gives per-run cost from the metrics system.
+  - Line 90: Replace `supabase.from('evolution_run_costs').select('total_cost_usd')` with a query to `evolution_metrics` where `entity_type='run'` and `metric_name='cost'`, filtered to the same run population as statusQuery.
+  - Line 118: Replace `supabase.from('evolution_run_costs')...` with the same metrics-based approach for per-run cost enrichment.
+  - For the `.in('run_id', filteredRunIds)` approach: note that `evolution_metrics` uses `entity_id` (not `run_id`), so the filter is `.in('entity_id', filteredRunIds)`.
+  - Cardinality: typical run count is <100 so `.in()` is fine; no subquery needed.
+- Test: Unit test that cost totals use `evolution_metrics` table and only include filtered runs. Also verify the existing `evolution-visualization.integration.test.ts` passes.
 
 **1e. Dashboard Recent Runs hardcodes budget/explanation**
 - Files: `src/app/admin/evolution-dashboard/page.tsx`, `evolution/src/services/evolutionVisualizationActions.ts`
@@ -55,7 +58,8 @@ The evolution admin dashboard has broken row actions, incorrect cost calculation
   2. `evolutionVisualizationActions.ts` DashboardData interface (~line 16-23): add `budget_cap_usd` and `explanation_id` to the `recentRuns` type
   3. `evolutionVisualizationActions.ts` line 130-137: map these new fields in the return object
   4. `evolution-dashboard/page.tsx` lines 70-80: replace `budget_cap_usd: 0` with `r.budget_cap_usd ?? 0` and `explanation_id: null` with `r.explanation_id ?? null`
-- Test: Verify dashboard shows actual budget values and explanation IDs. Run `npx tsc --noEmit` to catch any type mismatches in the chain.
+- Also update: `src/app/admin/evolution-dashboard/page.test.tsx` (lines 22-31) — the mock `recentRuns` array must include the new `budget_cap_usd` and `explanation_id` fields or tsc will fail.
+- Test: Verify dashboard shows actual budget values and explanation IDs. Run `npx tsc --noEmit` to catch any type mismatches in the full chain (5 files total).
 
 ### Phase 2: P1 Medium Bugs (9 fixes)
 
@@ -178,12 +182,16 @@ The evolution admin dashboard has broken row actions, incorrect cost calculation
 - Run `npm test` for unit tests after each phase
 - Commit each phase separately for selective revert capability
 
-### Affected E2E Specs (verified file names)
-- `src/__tests__/e2e/specs/09-admin/admin-prompt-registry.spec.ts` — Phase 1a (row actions)
-- `src/__tests__/e2e/specs/09-admin/admin-strategy-registry.spec.ts` — Phase 1a, 2d (duplicate column)
-- `src/__tests__/e2e/specs/09-admin/admin-evolution.spec.ts` — Phase 1d/1e (dashboard)
-- `src/__tests__/e2e/specs/09-admin/admin-evolution-visualization.spec.ts` — Phase 3c/3d/3e (arena sort)
-- `src/__tests__/e2e/specs/09-admin/admin-experiment-detail.spec.ts` — Phase 2h (breadcrumb)
+### Affected E2E Specs (verified via `ls specs/09-admin/admin-evolution*.spec.ts`)
+- `admin-prompt-registry.spec.ts` — Phase 1a (row actions)
+- `admin-strategy-registry.spec.ts` — Phase 1a, 2d (duplicate column)
+- `admin-evolution-dashboard.spec.ts` — Phase 1d/1e (dashboard costs, budget, explanation)
+- `admin-evolution-arena-detail.spec.ts` — Phase 3c/3d/3e (arena sort, rank, nulls)
+- `admin-evolution-experiments-list.spec.ts` — Phase 2h (breadcrumb), 2a (test content filter)
+- `admin-evolution-strategy-detail.spec.ts` — Phase 3h (new Runs tab)
+- `admin-evolution-variants.spec.ts` — Phase 3m (new Matches tab)
+- `admin-evolution-filter-consistency.spec.ts` — Phase 2a (test content filter)
+- `admin-evolution-error-states.spec.ts` — Phase 2c (404 handling)
 
 ### E2E Spec Updates Required
 - Phase 1a: Run existing `admin-prompt-registry.spec.ts` and `admin-strategy-registry.spec.ts` — they should now PASS (currently they may navigate away). If DOM structure changes break selectors, update accordingly.
