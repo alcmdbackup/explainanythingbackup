@@ -18,7 +18,7 @@ async function main() {
   if (runError) { console.error('Run query error:', runError); return; }
   if (!runs?.length) { console.error('No runs found matching 3345a6ab*'); return; }
 
-  const run = runs[0];
+  const run = runs[0]!;
   console.log('\n=== RUN ===');
   console.log('ID:', run.id);
   console.log('Status:', run.status);
