@@ -80,11 +80,8 @@ export async function generateVariants(
   const results = await Promise.allSettled(
     activeStrategies.map(async (strategy) => {
       const prompt = buildPrompt(text, strategy, feedback);
-      const stratResult: StrategyResult = {
-        name: strategy,
-        promptLength: prompt.length,
-        status: 'success',
-      };
+      const stratResult: StrategyResult = { name: strategy, promptLength: prompt.length, status: 'success' };
+      let variant: ReturnType<typeof createVariant> | null = null;
 
       try {
         const generated = await llm.complete(prompt, 'generation', {
@@ -95,33 +92,22 @@ export async function generateVariants(
           logger?.warn(`Strategy ${strategy} variant failed format validation`, { phaseName: 'generation', iteration });
           stratResult.status = 'format_rejected';
           stratResult.formatIssues = fmt.issues;
-          strategyResults.push(stratResult);
-          return null;
+        } else {
+          logger?.debug(`Strategy ${strategy} produced variant`, { phaseName: 'generation', iteration });
+          variant = createVariant({ text: generated.trim(), strategy, iterationBorn: iteration, parentIds: [], version: 0 });
+          stratResult.variantId = variant.id;
+          stratResult.textLength = variant.text.length;
         }
-        logger?.debug(`Strategy ${strategy} produced variant`, { phaseName: 'generation', iteration });
-        const variant = createVariant({
-          text: generated.trim(),
-          strategy,
-          iterationBorn: iteration,
-          parentIds: [],
-          version: 0,
-        });
-        stratResult.variantId = variant.id;
-        stratResult.textLength = variant.text.length;
-        strategyResults.push(stratResult);
-        return variant;
       } catch (err) {
-        if (err instanceof BudgetExceededError) {
-          stratResult.status = 'error';
-          stratResult.error = err.message;
-          strategyResults.push(stratResult);
-          throw err;
-        }
         stratResult.status = 'error';
-        stratResult.error = String(err).slice(0, 500);
+        stratResult.error = err instanceof BudgetExceededError ? err.message : String(err).slice(0, 500);
         strategyResults.push(stratResult);
+        if (err instanceof BudgetExceededError) throw err;
         return null;
       }
+
+      strategyResults.push(stratResult);
+      return variant;
     }),
   );
 

@@ -41,6 +41,15 @@ function createMockContext(overrides?: Partial<AgentContext>): AgentContext {
   };
 }
 
+const mockVariants = [
+  { id: 'v1', text: 'variant1', version: 0, parentIds: [], strategy: 'gen', createdAt: 0, iterationBorn: 0 },
+];
+
+const mockGenResult = {
+  variants: mockVariants,
+  strategyResults: [{ name: 'gen', promptLength: 100, status: 'success' as const, variantId: 'v1', textLength: 50 }],
+};
+
 describe('GenerationAgent', () => {
   let agent: GenerationAgent;
 
@@ -59,8 +68,7 @@ describe('GenerationAgent', () => {
 
   describe('execute()', () => {
     it('delegates to generateVariants with correct arguments', async () => {
-      const variants = [{ id: 'v1', text: 'variant1', version: 0, parentIds: [], strategy: 'gen', createdAt: 0, iterationBorn: 0 }];
-      mockGenerateVariants.mockResolvedValue(variants as any);
+      mockGenerateVariants.mockResolvedValue(mockGenResult as any);
 
       const input: GenerationInput = {
         text: 'explain photosynthesis',
@@ -68,16 +76,15 @@ describe('GenerationAgent', () => {
       };
       const ctx = createMockContext();
 
-      const result = await agent.execute(input, ctx);
+      await agent.execute(input, ctx);
 
       expect(mockGenerateVariants).toHaveBeenCalledWith(
         'explain photosynthesis', 2, input.llm, ctx.config, undefined, ctx.logger,
       );
-      expect(result).toBe(variants);
     });
 
     it('passes feedback when provided', async () => {
-      mockGenerateVariants.mockResolvedValue([]);
+      mockGenerateVariants.mockResolvedValue({ variants: [], strategyResults: [] } as any);
 
       const feedback = { weakestDimension: 'clarity', suggestions: ['be more specific'] };
       const input: GenerationInput = {
@@ -94,19 +101,27 @@ describe('GenerationAgent', () => {
       );
     });
 
-    it('returns the variants from generateVariants', async () => {
-      const variants = [
+    it('returns AgentOutput with variants and detail', async () => {
+      const twoVariants = [
         { id: 'v1', text: 'a', version: 0, parentIds: [], strategy: 'gen', createdAt: 0, iterationBorn: 0 },
         { id: 'v2', text: 'b', version: 0, parentIds: [], strategy: 'gen', createdAt: 0, iterationBorn: 0 },
       ];
-      mockGenerateVariants.mockResolvedValue(variants as any);
+      mockGenerateVariants.mockResolvedValue({
+        variants: twoVariants,
+        strategyResults: [
+          { name: 's1', promptLength: 100, status: 'success' as const, variantId: 'v1' },
+          { name: 's2', promptLength: 100, status: 'success' as const, variantId: 'v2' },
+        ],
+      } as any);
 
       const input: GenerationInput = { text: 'test', llm: {} as any };
       const ctx = createMockContext();
 
-      const result = await agent.execute(input, ctx);
-      expect(result).toHaveLength(2);
-      expect(result).toBe(variants);
+      const output = await agent.execute(input, ctx);
+      expect(output.result).toHaveLength(2);
+      expect(output.detail.detailType).toBe('generation');
+      expect(output.detail.strategies).toHaveLength(2);
+      expect(output.childVariantIds).toEqual(['v1', 'v2']);
     });
 
     it('propagates errors from generateVariants', async () => {
@@ -119,7 +134,7 @@ describe('GenerationAgent', () => {
     });
 
     it('uses iteration from context', async () => {
-      mockGenerateVariants.mockResolvedValue([]);
+      mockGenerateVariants.mockResolvedValue({ variants: [], strategyResults: [] } as any);
 
       const input: GenerationInput = { text: 'test', llm: {} as any };
       const ctx = createMockContext({ iteration: 7 });
@@ -132,7 +147,7 @@ describe('GenerationAgent', () => {
     });
 
     it('uses config from context', async () => {
-      mockGenerateVariants.mockResolvedValue([]);
+      mockGenerateVariants.mockResolvedValue({ variants: [], strategyResults: [] } as any);
 
       const customConfig = { iterations: 10, budgetUsd: 20, judgeModel: 'claude-3', generationModel: 'claude-3' };
       const input: GenerationInput = { text: 'test', llm: {} as any };
@@ -148,7 +163,7 @@ describe('GenerationAgent', () => {
 
   describe('run() integration', () => {
     it('wraps execute with invocation tracking via base class', async () => {
-      mockGenerateVariants.mockResolvedValue([]);
+      mockGenerateVariants.mockResolvedValue({ variants: [], strategyResults: [] } as any);
       const ctx = createMockContext();
 
       const result = await agent.run(

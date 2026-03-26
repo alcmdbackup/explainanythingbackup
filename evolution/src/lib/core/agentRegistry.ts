@@ -12,7 +12,7 @@ let _agents: AnyAgent[] | null = null;
 /** Lazily initialize and return all concrete agent class instances. */
 export function getAgentClasses(): AnyAgent[] {
   if (!_agents) {
-    // Dynamic imports to avoid circular deps — these are only constructed once
+    // Dynamic requires avoid circular deps at module load time
     const { GenerationAgent } = require('./agents/GenerationAgent');
     const { RankingAgent } = require('./agents/RankingAgent');
     _agents = [new GenerationAgent(), new RankingAgent()];
@@ -20,7 +20,6 @@ export function getAgentClasses(): AnyAgent[] {
   return _agents;
 }
 
-/** Reset for testing. */
 export function _resetAgentRegistryForTesting(): void {
   _agents = null;
 }

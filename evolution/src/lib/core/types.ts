@@ -6,7 +6,6 @@ import type { V2CostTracker } from '../pipeline/infra/trackBudget';
 import type { EvolutionConfig } from '../pipeline/infra/types';
 import type { MetricValue } from '@evolution/experiments/evolution/experimentMetrics';
 
-// ─── Re-exports from metrics/types (canonical source) ────────────
 export type { MetricRow, ExecutionContext, FinalizationContext } from '../metrics/types';
 import type { MetricRow, ExecutionContext, FinalizationContext } from '../metrics/types';
 
@@ -19,12 +18,14 @@ export type EntityType = typeof CORE_ENTITY_TYPES[number];
 
 export interface ParentRelation {
   parentType: EntityType;
-  foreignKey: string; // Column on THIS entity's table (e.g. 'strategy_id' on runs)
+  /** Column on this entity's table pointing to the parent (e.g. 'strategy_id' on runs). */
+  foreignKey: string;
 }
 
 export interface ChildRelation {
   childType: EntityType;
-  foreignKey: string; // Column on the CHILD's table (e.g. 'run_id' on variants)
+  /** Column on the child's table pointing back to this entity (e.g. 'run_id' on variants). */
+  foreignKey: string;
   cascade: 'delete' | 'nullify' | 'restrict';
 }
 
@@ -143,26 +144,19 @@ export interface AgentContext {
   config: EvolutionConfig;
 }
 
-/** Structured output from Agent.execute(): result + execution detail + variant lineage. */
 export interface AgentOutput<TOutput, TDetail> {
   result: TOutput;
   detail: TDetail;
-  /** Variant IDs created by this agent (for lineage tracking). */
   childVariantIds?: string[];
-  /** Variant IDs consumed/ranked by this agent (for lineage tracking). */
   parentVariantIds?: string[];
 }
 
-/** Field definition for config-driven execution detail rendering. */
 export interface DetailFieldDef {
   key: string;
   label: string;
   type: 'table' | 'boolean' | 'badge' | 'number' | 'text' | 'list' | 'object';
-  /** Column definitions for table type fields. */
   columns?: Array<{ key: string; label: string }>;
-  /** Nested field definitions for object type fields. */
   children?: DetailFieldDef[];
-  /** Optional formatter name for number/text fields. */
   formatter?: string;
 }
 
@@ -170,7 +164,6 @@ export interface AgentResult<T> {
   success: boolean;
   result: T | null;
   cost: number;
-  /** Duration of agent execution in milliseconds. */
   durationMs: number;
   invocationId: string | null;
   budgetExceeded?: boolean;

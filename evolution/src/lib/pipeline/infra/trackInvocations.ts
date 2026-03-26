@@ -4,9 +4,12 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { evolutionAgentInvocationInsertSchema } from '../../schemas';
 import type { EntityLogger } from './createEntityLogger';
 
-/**
- * Create an invocation row for a pipeline phase. Returns UUID on success, null on error.
- */
+function warn(logger: EntityLogger | undefined, message: string, ctx: Record<string, unknown>): void {
+  if (logger) logger.warn(message, ctx);
+  else console.warn(`[V2] ${message}: ${ctx.error ?? JSON.stringify(ctx)}`);
+}
+
+/** Create an invocation row for a pipeline phase. Returns UUID on success, null on error. */
 export async function createInvocation(
   db: SupabaseClient,
   runId: string,
@@ -30,19 +33,17 @@ export async function createInvocation(
       .single();
 
     if (error) {
-      if (logger) { logger.warn('createInvocation error', { phaseName, error: error.message }); } else { console.warn(`[V2] createInvocation error: ${error.message}`); }
+      warn(logger, 'createInvocation error', { phaseName, error: error.message });
       return null;
     }
     return data?.id ?? null;
   } catch (err) {
-    if (logger) { logger.warn('createInvocation exception', { phaseName, error: String(err).slice(0, 500) }); } else { console.warn(`[V2] createInvocation exception: ${err}`); }
+    warn(logger, 'createInvocation exception', { phaseName, error: String(err).slice(0, 500) });
     return null;
   }
 }
 
-/**
- * Update an invocation row with results. No-op if id is null.
- */
+/** Update an invocation row with results. No-op if id is null. */
 export async function updateInvocation(
   db: SupabaseClient,
   id: string | null,
@@ -69,10 +70,8 @@ export async function updateInvocation(
       })
       .eq('id', id);
 
-    if (error) {
-      if (logger) { logger.warn('updateInvocation error', { invocationId: id, error: error.message }); } else { console.warn(`[V2] updateInvocation error: ${error.message}`); }
-    }
+    if (error) warn(logger, 'updateInvocation error', { invocationId: id, error: error.message });
   } catch (err) {
-    if (logger) { logger.warn('updateInvocation exception', { invocationId: id, error: String(err).slice(0, 500) }); } else { console.warn(`[V2] updateInvocation exception: ${err}`); }
+    warn(logger, 'updateInvocation exception', { invocationId: id, error: String(err).slice(0, 500) });
   }
 }

@@ -9,7 +9,7 @@ import { v4 as uuidv4 } from 'uuid';
 import type { Rating } from './shared/computeRatings';
 import type { VariantSchema, CritiqueSchema, MetaFeedbackSchema } from './schemas';
 
-// Stub types retained for backward compatibility after V1 removal
+// Stub types retained for backward compatibility
 type PipelineAction = { type: string; [key: string]: unknown };
 type SectionEvolutionState = Record<string, unknown>;
 type TreeSearchResult = Record<string, unknown>;
@@ -50,16 +50,16 @@ interface CreateVariantParams {
   costUsd?: number;
 }
 
-export function createVariant(params: CreateVariantParams): Variant {
+export function createVariant({ text, strategy, iterationBorn, parentIds, version, costUsd }: CreateVariantParams): Variant {
   return {
     id: uuidv4(),
-    text: params.text,
-    strategy: params.strategy,
-    iterationBorn: params.iterationBorn,
-    parentIds: params.parentIds ?? [],
-    version: params.version ?? 0,
+    text,
+    strategy,
+    iterationBorn,
+    parentIds: parentIds ?? [],
+    version: version ?? 0,
     createdAt: Date.now() / 1000,
-    ...(params.costUsd !== undefined && { costUsd: params.costUsd }),
+    ...(costUsd !== undefined && { costUsd }),
   };
 }
 

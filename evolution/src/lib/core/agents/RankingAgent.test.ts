@@ -44,12 +44,24 @@ function createMockContext(overrides?: Partial<AgentContext>): AgentContext {
 
 const MOCK_VARIANT = { id: 'v1', text: 'variant', version: 0, parentIds: [], strategy: 'gen', createdAt: 0, iterationBorn: 0 };
 
-function createMockRankResult(): RankResult {
+const MOCK_META = {
+  budgetPressure: 0.3,
+  budgetTier: 'low' as const,
+  top20Cutoff: 25,
+  eligibleContenders: 4,
+  totalComparisons: 0,
+  fineRankingRounds: 1,
+  fineRankingExitReason: 'stale',
+  convergenceStreak: 0,
+};
+
+function createMockRankPoolResult() {
   return {
     matches: [],
     ratingUpdates: { v1: { mu: 1500, sigma: 200 } as Rating },
     matchCountIncrements: { v1: 3 },
     converged: false,
+    meta: MOCK_META,
   };
 }
 
@@ -71,8 +83,8 @@ describe('RankingAgent', () => {
 
   describe('execute()', () => {
     it('delegates to rankPool with correct arguments', async () => {
-      const result = createMockRankResult();
-      mockRankPool.mockResolvedValue(result);
+      const poolResult = createMockRankPoolResult();
+      mockRankPool.mockResolvedValue(poolResult);
 
       const ratings = new Map<string, Rating>([['v1', { mu: 1500, sigma: 350 } as Rating]]);
       const matchCounts = new Map<string, number>([['v1', 0]]);
@@ -95,11 +107,12 @@ describe('RankingAgent', () => {
         input.pool, ratings, matchCounts, ['v1'],
         input.llm, ctx.config, 0.3, cache, ctx.logger,
       );
-      expect(actual).toBe(result);
+      expect(actual.result.matches).toEqual(poolResult.matches);
+      expect(actual.detail.detailType).toBe('ranking');
     });
 
     it('preserves Map instances passed to rankPool', async () => {
-      mockRankPool.mockResolvedValue(createMockRankResult());
+      mockRankPool.mockResolvedValue(createMockRankPoolResult());
 
       const ratings = new Map<string, Rating>();
       const matchCounts = new Map<string, number>();
@@ -127,12 +140,12 @@ describe('RankingAgent', () => {
       expect(call[7]).toBe(cache);
     });
 
-    it('returns rank result with converged flag', async () => {
-      const result = createMockRankResult();
-      result.converged = true;
-      result.ratingUpdates = { v1: { mu: 1600, sigma: 180 } as Rating };
-      result.matchCountIncrements = { v1: 5 };
-      mockRankPool.mockResolvedValue(result);
+    it('returns AgentOutput with rank result and detail', async () => {
+      const poolResult = createMockRankPoolResult();
+      poolResult.converged = true;
+      poolResult.ratingUpdates = { v1: { mu: 1600, sigma: 180 } as Rating };
+      poolResult.matchCountIncrements = { v1: 5 };
+      mockRankPool.mockResolvedValue(poolResult);
 
       const input: RankingInput = {
         pool: [MOCK_VARIANT as any],
@@ -146,9 +159,11 @@ describe('RankingAgent', () => {
 
       const actual = await agent.execute(input, createMockContext());
 
-      expect(actual.converged).toBe(true);
-      expect(actual.ratingUpdates).toEqual({ v1: { mu: 1600, sigma: 180 } });
-      expect(actual.matchCountIncrements).toEqual({ v1: 5 });
+      expect(actual.result.converged).toBe(true);
+      expect(actual.result.ratingUpdates).toEqual({ v1: { mu: 1600, sigma: 180 } });
+      expect(actual.result.matchCountIncrements).toEqual({ v1: 5 });
+      expect(actual.detail.detailType).toBe('ranking');
+      expect(actual.parentVariantIds).toEqual(['v1']);
     });
 
     it('propagates errors from rankPool', async () => {
@@ -168,7 +183,7 @@ describe('RankingAgent', () => {
     });
 
     it('passes budgetFraction correctly', async () => {
-      mockRankPool.mockResolvedValue(createMockRankResult());
+      mockRankPool.mockResolvedValue(createMockRankPoolResult());
 
       const input: RankingInput = {
         pool: [],
@@ -189,7 +204,7 @@ describe('RankingAgent', () => {
     });
 
     it('passes config from context', async () => {
-      mockRankPool.mockResolvedValue(createMockRankResult());
+      mockRankPool.mockResolvedValue(createMockRankPoolResult());
       const customConfig = { iterations: 10, budgetUsd: 20, judgeModel: 'claude-3', generationModel: 'claude-3' };
 
       const input: RankingInput = {
@@ -211,7 +226,7 @@ describe('RankingAgent', () => {
     });
 
     it('passes newEntrantIds correctly', async () => {
-      mockRankPool.mockResolvedValue(createMockRankResult());
+      mockRankPool.mockResolvedValue(createMockRankPoolResult());
 
       const input: RankingInput = {
         pool: [MOCK_VARIANT as any],
@@ -234,7 +249,7 @@ describe('RankingAgent', () => {
 
   describe('run() integration', () => {
     it('wraps execute with invocation tracking via base class', async () => {
-      mockRankPool.mockResolvedValue(createMockRankResult());
+      mockRankPool.mockResolvedValue(createMockRankPoolResult());
 
       const input: RankingInput = {
         pool: [],
@@ -253,7 +268,7 @@ describe('RankingAgent', () => {
     });
 
     it('handles matches in returned result', async () => {
-      const rankResult = createMockRankResult();
+      const rankResult = createMockRankPoolResult();
       rankResult.matches = [{ variantAId: 'v1', variantBId: 'v2', winnerId: 'v1' } as any];
       mockRankPool.mockResolvedValue(rankResult);
 

@@ -187,28 +187,14 @@ async function runComparison(
   const result = await compareWithBiasMitigation(textA, textB, callLLM, cache);
   logger?.debug('Comparison result', { idA, idB, winner: result.winner, confidence: result.confidence, phaseName: 'ranking' });
 
-  let winnerId: string;
-  let loserId: string;
-  let matchResult: 'win' | 'draw';
-
-  if (result.winner === 'A') {
-    winnerId = idA;
-    loserId = idB;
-    matchResult = 'win';
-  } else if (result.winner === 'B') {
-    winnerId = idB;
-    loserId = idA;
-    matchResult = 'win';
-  } else {
-    winnerId = idA;
-    loserId = idB;
-    matchResult = 'draw';
-  }
+  const isDraw = result.winner !== 'A' && result.winner !== 'B';
+  const winnerId = result.winner === 'B' ? idB : idA;
+  const loserId = result.winner === 'B' ? idA : idB;
 
   return {
     winnerId,
     loserId,
-    result: matchResult,
+    result: isDraw ? 'draw' : 'win',
     confidence: result.confidence,
     judgeModel: config.judgeModel,
     reversed: false,
@@ -593,7 +579,11 @@ export async function rankPool(
   if (pool.length < 2) {
     return {
       matches: [], ratingUpdates: {}, matchCountIncrements: {}, converged: false,
-      meta: { budgetPressure: 0, budgetTier: 'low', top20Cutoff: 0, eligibleContenders: 0, totalComparisons: 0, fineRankingRounds: 0, fineRankingExitReason: 'no_contenders', convergenceStreak: 0 },
+      meta: {
+        budgetPressure: 0, budgetTier: 'low', top20Cutoff: 0,
+        eligibleContenders: 0, totalComparisons: 0, fineRankingRounds: 0,
+        fineRankingExitReason: 'no_contenders', convergenceStreak: 0,
+      },
     };
   }
 

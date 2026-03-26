@@ -114,23 +114,12 @@ export async function finalizeRun(
 
   if (localPool.length === 0) {
     if (result.pool.length > 0) {
-      // Arena-only pool: all variants came from arena, no local variants to persist
-      logger?.info('Arena-only pool: marking as completed', {
-        phaseName: 'finalize',
-        arenaPoolSize: result.pool.length,
-        localPoolSize: 0,
-      });
-      await db
-        .from('evolution_runs')
-        .update({ status: 'completed', completed_at: new Date().toISOString(), run_summary: { version: 3, stopReason: 'arena_only' } })
-        .eq('id', runId);
-      return;
+      logger?.info('Arena-only pool: marking as completed', { phaseName: 'finalize', arenaPoolSize: result.pool.length, localPoolSize: 0 });
+      await db.from('evolution_runs').update({ status: 'completed', completed_at: new Date().toISOString(), run_summary: { version: 3, stopReason: 'arena_only' } }).eq('id', runId);
+    } else {
+      logger?.error('Finalization failed: empty pool', { phaseName: 'finalize' });
+      await db.from('evolution_runs').update({ status: 'failed', error_message: 'Finalization failed: empty pool' }).eq('id', runId);
     }
-    logger?.error('Finalization failed: empty pool', { phaseName: 'finalize' });
-    await db
-      .from('evolution_runs')
-      .update({ status: 'failed', error_message: 'Finalization failed: empty pool' })
-      .eq('id', runId);
     return;
   }
 
@@ -279,7 +268,7 @@ export async function finalizeRun(
     logger?.warn('Finalization metrics write failed', { phaseName: 'finalize', error: (metricsErr instanceof Error ? metricsErr.message : String(metricsErr)).slice(0, 500) });
   }
 
-  // Step 6: Strategy aggregate update (legacy — will be removed in Phase 6)
+  // Step 6: Strategy aggregate update (legacy)
   if (run.strategy_id) {
     try {
       await db.rpc('update_strategy_aggregates', {
@@ -298,7 +287,7 @@ export async function finalizeRun(
     }
   }
 
-  // Step 6: Experiment auto-completion (only if ALL sibling runs are done)
+  // Step 7: Experiment auto-completion (only if ALL sibling runs are done)
   if (run.experiment_id) {
     try {
       await db.rpc('complete_experiment_if_done', {
@@ -344,12 +333,10 @@ async function propagateMetrics(
 
   const sourceMetricNames = [...new Set(propDefs.map(d => d.sourceMetric))];
   const runMetrics = await getMetricsForEntities(db, 'run', childRunIds, sourceMetricNames);
-
-  const collect = (name: string) =>
-    [...runMetrics.values()].flatMap(ms => ms.filter((m: MetricRow) => m.metric_name === name));
+  const allRows = [...runMetrics.values()].flat();
 
   for (const def of propDefs) {
-    const sourceRows = collect(def.sourceMetric);
+    const sourceRows = allRows.filter((m: MetricRow) => m.metric_name === def.sourceMetric);
     if (sourceRows.length === 0) continue;
     const aggregated = def.aggregate(sourceRows);
     await writeMetric(db, entityType, entityId, def.name as MetricName, aggregated.value, 'at_propagation', {
