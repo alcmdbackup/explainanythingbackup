@@ -26,17 +26,17 @@ The project workflow skills lack checkbox-based completion tracking and verifica
 ## Phased Execution Plan
 
 ### Phase 1: Update /initialize planning template with checkboxes and verification
-- [ ] Edit `.claude/commands/initialize.md` step 5 (planning template) to use checkbox format for all actionable sections
-- [ ] Update template sections: Options Considered, Phased Execution Plan, Testing, Documentation Updates — all items get `- [ ]` prefix
-- [ ] Add Testing subsections to template: Unit Tests, Integration Tests, E2E Tests, Manual Verification — each with checkbox items and file path placeholders
-- [ ] Add "## Verification" section to planning template with two required subsections: A) Playwright verification (required for UI changes — run on local server), B) Automated tests (unit/integration/E2E with specific file paths)
-- [ ] Add "## Review & Discussion" section placeholder at end of planning template
-- [ ] Defer doc reading in step 2.6: Remove "Read all manually tagged docs" line, store paths in `MANUAL_DOCS` list instead (do NOT read yet). The Explore agent in step 2.7 does not need doc contents — it only reads first 30 lines independently.
-- [ ] Defer doc reading in step 2.7: Remove "Read all confirmed docs" line, store paths in `AUTO_DOCS` list instead (do NOT read yet)
-- [ ] Add new step 2.8 "Final Doc Review": Merge `MANUAL_DOCS` + `AUTO_DOCS` into unified `RELEVANT_DOCS` list (deduplicated). Present full list via AskUserQuestion (multiSelect with all pre-checked). User can deselect any. THEN read all remaining confirmed docs. Data flow: step 2.6 produces `MANUAL_DOCS` → step 2.7 produces `AUTO_DOCS` → step 2.8 merges, confirms, reads → step 3 uses final `RELEVANT_DOCS`
+- [x] Edit `.claude/commands/initialize.md` step 5 (planning template) to use checkbox format for all actionable sections
+- [x] Update template sections: Options Considered, Phased Execution Plan, Testing, Documentation Updates — all items get `- [ ]` prefix
+- [x] Add Testing subsections to template: Unit Tests, Integration Tests, E2E Tests, Manual Verification — each with checkbox items and file path placeholders
+- [x] Add "## Verification" section to planning template with two required subsections: A) Playwright verification (required for UI changes — run on local server), B) Automated tests (unit/integration/E2E with specific file paths)
+- [x] Add "## Review & Discussion" section placeholder at end of planning template
+- [x] Defer doc reading in step 2.6: Remove "Read all manually tagged docs" line, store paths in `MANUAL_DOCS` list instead (do NOT read yet). The Explore agent in step 2.7 does not need doc contents — it only reads first 30 lines independently.
+- [x] Defer doc reading in step 2.7: Remove "Read all confirmed docs" line, store paths in `AUTO_DOCS` list instead (do NOT read yet)
+- [x] Add new step 2.8 "Final Doc Review": Merge `MANUAL_DOCS` + `AUTO_DOCS` into unified `RELEVANT_DOCS` list (deduplicated). Present full list via AskUserQuestion (multiSelect with all pre-checked). User can deselect any. THEN read all remaining confirmed docs. Data flow: step 2.6 produces `MANUAL_DOCS` → step 2.7 produces `AUTO_DOCS` → step 2.8 merges, confirms, reads → step 3 uses final `RELEVANT_DOCS`
 
 ### Phase 2: Create /plan-update command
-- [ ] Create new file `.claude/commands/plan-update.md` with frontmatter:
+- [x] Create new file `.claude/commands/plan-update.md` with frontmatter:
   ```yaml
   ---
   description: Scan planning doc for checkbox completeness, enforce verification requirements, and update checkboxes
@@ -45,26 +45,26 @@ The project workflow skills lack checkbox-based completion tracking and verifica
   ---
   ```
   Note: Read-heavy audit tool — no Write, no Task, no Bash(npm/npx) to keep scope safe.
-- [ ] Implement project detection: find project folder from branch name. Two modes:
+- [x] Implement project detection: find project folder from branch name. Two modes:
     - **With argument**: `Glob("docs/planning/*${ARGUMENTS}*")` — direct match
     - **Without argument**: derive from branch: `BRANCH=$(git branch --show-current)`, strip type prefix (`BRANCH_TYPE="${BRANCH%%/*}"`, `PROJECT_NAME="${BRANCH#*/}"`), then try in order:
       1. `grep -Frl "\"branch\": \"${BRANCH}\"" docs/planning/*/_status.json` — primary lookup by branch field
       2. **Fallback** if grep finds nothing (some older _status.json files lack a `branch` key): `Glob("docs/planning/*${PROJECT_NAME}*")` — match by project name directly
-- [ ] Implement checkbox scanning: parse planning doc for all actionable items missing `- [ ]` or `- [x]` prefix. **Code-fence aware**: skip lines inside ``` fenced blocks when scanning — track open/close fence state to avoid false positives on example syntax.
-- [ ] Implement checkbox enforcement: for Requirements, Phased Execution Plan, Testing, Verification, Documentation Updates sections — ensure all items have checkboxes
-- [ ] Implement test validation: verify Testing section has specific file paths (e.g. `src/lib/services/foo.test.ts`), not just generic descriptions
-- [ ] Implement bug-test validation: if plan mentions bug fixes, verify corresponding regression test items exist with checkbox
-- [ ] Implement verification validation: check that Verification section exists and has at least one of: A) Playwright verification items (required if plan touches UI/components), B) automated test items with file paths. Reject plans missing both.
-- [ ] Implement checkbox update: mark items as `[x]` when user confirms completion
-- [ ] Implement summary output: show checked/unchecked counts per section, list unchecked items, flag missing verification
-- [ ] Command auto-registers via `.claude/commands/` directory convention — no CLAUDE.md registration needed
+- [x] Implement checkbox scanning: parse planning doc for all actionable items missing `- [ ]` or `- [x]` prefix. **Code-fence aware**: skip lines inside ``` fenced blocks when scanning — track open/close fence state to avoid false positives on example syntax.
+- [x] Implement checkbox enforcement: for Requirements, Phased Execution Plan, Testing, Verification, Documentation Updates sections — ensure all items have checkboxes
+- [x] Implement test validation: verify Testing section has specific file paths (e.g. `src/lib/services/foo.test.ts`), not just generic descriptions
+- [x] Implement bug-test validation: if plan mentions bug fixes, verify corresponding regression test items exist with checkbox
+- [x] Implement verification validation: check that Verification section exists and has at least one of: A) Playwright verification items (required if plan touches UI/components), B) automated test items with file paths. Reject plans missing both.
+- [x] Implement checkbox update: mark items as `[x]` when user confirms completion
+- [x] Implement summary output: show checked/unchecked counts per section, list unchecked items, flag missing verification
+- [x] Command auto-registers via `.claude/commands/` directory convention — no CLAUDE.md registration needed
 
 ### Phase 3: Update /plan-review to capture discussions and enforce verification
-- [ ] Edit `.claude/commands/plan-review.md` agent prompts to include `perspective` label in gap descriptions
-- [ ] After aggregating results (step 3), append a "## Review & Discussion" section to the planning doc (or append to existing placeholder from template) with iteration number, agent scores, score_reasoning, and critical_gaps attributed to each agent. If section already exists, append new iteration under it — do not duplicate the heading.
-- [ ] Before auto-fixing each gap, classify as "obvious" vs "ambiguous" — if ambiguous (multiple possible fixes or unclear intent), use AskUserQuestion to confirm approach before editing
-- [ ] After fixing each gap, record the fix description in the "Review & Discussion" section: which gap → what was changed → why
-- [ ] Update state file schema — replace the existing step 5 JSON template in plan-review.md (currently lines 197-217 showing `"scores": [3, 4, 2]` and `"critical_gaps": [...]`) with this new template:
+- [x] Edit `.claude/commands/plan-review.md` agent prompts to include `perspective` label in gap descriptions
+- [x] After aggregating results (step 3), append a "## Review & Discussion" section to the planning doc (or append to existing placeholder from template) with iteration number, agent scores, score_reasoning, and critical_gaps attributed to each agent. If section already exists, append new iteration under it — do not duplicate the heading.
+- [x] Before auto-fixing each gap, classify as "obvious" vs "ambiguous" — if ambiguous (multiple possible fixes or unclear intent), use AskUserQuestion to confirm approach before editing
+- [x] After fixing each gap, record the fix description in the "Review & Discussion" section: which gap → what was changed → why
+- [x] Update state file schema — replace the existing step 5 JSON template in plan-review.md (currently lines 197-217 showing `"scores": [3, 4, 2]` and `"critical_gaps": [...]`) with this new template:
   ```json
   {
     "plan_file": "<path>",
@@ -89,52 +89,52 @@ The project workflow skills lack checkbox-based completion tracking and verifica
     - Scores as abbreviated object `{"security": 3, "architecture": 2, "testing": 2}` → normalize keys (`security` → `security_technical`, `architecture` → `architecture_integration`, `testing` → `testing_cicd`)
     - Missing `gaps` key → create empty array, preserve existing `critical_gaps` and `critical_gaps_fixed` fields as read-only references
     - Normalize on first write, preserve old fields alongside new ones for auditability.
-- [ ] Capture `minor_issues` in the "Review & Discussion" section (not just critical_gaps)
-- [ ] Add verification check to review agents: plans MUST have a Verification section with A) Playwright verification for UI changes, and/or B) automated tests with file paths. Flag as critical gap if missing. Do not accept plan as 5/5 without verification.
+- [x] Capture `minor_issues` in the "Review & Discussion" section (not just critical_gaps)
+- [x] Add verification check to review agents: plans MUST have a Verification section with A) Playwright verification for UI changes, and/or B) automated tests with file paths. Flag as critical gap if missing. Do not accept plan as 5/5 without verification.
 
 ### Phase 4: Update /finalize — verification-first and checkbox enforcement
-- [ ] Move plan path resolution to new Step 0 (before current Step 1): extract the derivation logic from current Step 1a (branch name → try 3 path patterns) into Step 0. **Delete Step 1a entirely** — replace it with a single line: "Use $PLAN_FILE resolved in Step 0." This avoids duplication and makes the dependency chain clear: Step 0 resolves path → Step 0a-0e run verification → Step 1b uses the same $PLAN_FILE for context gathering.
-- [ ] Step 0a: Read the planning doc's Verification section to identify required verification steps
-- [ ] Step 0b: Run automated tests listed in the plan (unit/integration/E2E) — execute each test command via `npm run test:unit`, `npm run test:integration`, or `npm run test:e2e -- --grep @relevant` as appropriate. Collect pass/fail results.
-- [ ] Step 0c: If plan includes Playwright verification items (UI changes), ensure local server is running via `./docs/planning/tmux_usage/ensure-server.sh` (per CLAUDE.md server management rules — do NOT use `npm run dev` directly). Wait up to 60 seconds for health check (`curl -sf http://localhost:3000 --max-time 5 --retry 12 --retry-delay 5`). Then run specific Playwright specs from the Verification section via `npx playwright test <spec-file> --headed` or Playwright MCP. Do NOT run the full E2E suite — only the verification-relevant specs. If server fails to start, report error and hard block.
-- [ ] Step 0d: Display verification results summary. If any verification fails, HARD BLOCK — AskUserQuestion: "Fix failures and retry" / "Abort finalization"
-- [ ] Step 0e: Only after all verification passes, proceed to Step 1 (plan assessment)
-- [ ] Edit `.claude/commands/finalize.md` to add "Step 1b.5: Verify Plan Checkboxes" between steps 1b and 1c
-- [ ] Implement checkbox parsing: regex for `- \[ \]` and `- \[x\]` patterns in planning doc. **Code-fence aware**: skip lines inside ``` fenced blocks to avoid false positives on example checkbox syntax.
-- [ ] Display checkbox summary: total, checked, unchecked counts
-- [ ] If any unchecked items: list each with line number, then HARD BLOCK finalization
-- [ ] AskUserQuestion with options: "Grant exception and proceed" / "Abort finalization to fix"
-- [ ] If exception granted, log it in finalization output and PR body ("N unchecked items — exception granted by user")
-- [ ] Checkbox check runs BEFORE step 1c (4 Explore agents) for fail-fast behavior
+- [x] Move plan path resolution to new Step 0 (before current Step 1): extract the derivation logic from current Step 1a (branch name → try 3 path patterns) into Step 0. **Delete Step 1a entirely** — replace it with a single line: "Use $PLAN_FILE resolved in Step 0." This avoids duplication and makes the dependency chain clear: Step 0 resolves path → Step 0a-0e run verification → Step 1b uses the same $PLAN_FILE for context gathering.
+- [x] Step 0a: Read the planning doc's Verification section to identify required verification steps
+- [x] Step 0b: Run automated tests listed in the plan (unit/integration/E2E) — execute each test command via `npm run test:unit`, `npm run test:integration`, or `npm run test:e2e -- --grep @relevant` as appropriate. Collect pass/fail results.
+- [x] Step 0c: If plan includes Playwright verification items (UI changes), ensure local server is running via `./docs/planning/tmux_usage/ensure-server.sh` (per CLAUDE.md server management rules — do NOT use `npm run dev` directly). Wait up to 60 seconds for health check (`curl -sf http://localhost:3000 --max-time 5 --retry 12 --retry-delay 5`). Then run specific Playwright specs from the Verification section via `npx playwright test <spec-file> --headed` or Playwright MCP. Do NOT run the full E2E suite — only the verification-relevant specs. If server fails to start, report error and hard block.
+- [x] Step 0d: Display verification results summary. If any verification fails, HARD BLOCK — AskUserQuestion: "Fix failures and retry" / "Abort finalization"
+- [x] Step 0e: Only after all verification passes, proceed to Step 1 (plan assessment)
+- [x] Edit `.claude/commands/finalize.md` to add "Step 1b.5: Verify Plan Checkboxes" between steps 1b and 1c
+- [x] Implement checkbox parsing: regex for `- \[ \]` and `- \[x\]` patterns in planning doc. **Code-fence aware**: skip lines inside ``` fenced blocks to avoid false positives on example checkbox syntax.
+- [x] Display checkbox summary: total, checked, unchecked counts
+- [x] If any unchecked items: list each with line number, then HARD BLOCK finalization
+- [x] AskUserQuestion with options: "Grant exception and proceed" / "Abort finalization to fix"
+- [x] If exception granted, log it in finalization output and PR body ("N unchecked items — exception granted by user")
+- [x] Checkbox check runs BEFORE step 1c (4 Explore agents) for fail-fast behavior
 
 ## Testing
 
 ### Unit Tests
-- [ ] No unit test files needed — these are markdown skill files executed by Claude Code, not TypeScript application code. Checkbox regex parsing and section detection are described declaratively in the skill markdown and executed by the LLM at runtime — there is no standalone function to unit test.
+- [x] No unit test files needed — these are markdown skill files executed by Claude Code, not TypeScript application code. Checkbox regex parsing and section detection are described declaratively in the skill markdown and executed by the LLM at runtime — there is no standalone function to unit test.
 
 ### Integration Tests
-- [ ] No integration test files needed — skill files are interpreted by Claude Code runtime, not compiled/executed as code
+- [x] No integration test files needed — skill files are interpreted by Claude Code runtime, not compiled/executed as code
 
 ### CI/CD Impact
-- [ ] No CI pipeline changes needed — skill files (.claude/commands/*.md) are not part of the build/test CI workflow. They are consumed only by Claude Code at conversation time.
-- [ ] Existing CI checks (lint, tsc, build, unit, integration, E2E) are unaffected — no application code is modified in this project.
+- [x] No CI pipeline changes needed — skill files (.claude/commands/*.md) are not part of the build/test CI workflow. They are consumed only by Claude Code at conversation time.
+- [x] Existing CI checks (lint, tsc, build, unit, integration, E2E) are unaffected — no application code is modified in this project.
 
 ### Manual Verification
-- [ ] Run `/initialize test_project` on a test branch → verify planning template has checkboxes and Verification section
-- [ ] Verify step 2.8 shows unified doc list before reading any contents
-- [ ] Run `/plan-update` on a planning doc with missing checkboxes → verify it adds them
-- [ ] Run `/plan-update` on a planning doc with bugs but no regression tests → verify it flags the gap
-- [ ] Run `/plan-update` on a planning doc with no Verification section → verify it rejects the plan
-- [ ] Run `/plan-update` on a UI-change plan without Playwright verification → verify it flags as missing
-- [ ] Run `/plan-review` on a test plan → verify "Review & Discussion" section is appended with agent reasoning
-- [ ] Run `/plan-review` on a plan missing Verification section → verify agents flag it as critical gap, refuse 5/5
-- [ ] Trigger an ambiguous gap during /plan-review → verify it asks user before fixing
-- [ ] Run `/finalize` → verify Step 0 runs verification (tests + Playwright) BEFORE any other steps
-- [ ] Run `/finalize` with failing tests → verify hard block at Step 0
-- [ ] Run `/finalize` on a branch with unchecked planning items → verify hard block at Step 1b.5
-- [ ] Grant exception during /finalize checkbox block → verify exception logged in output
-- [ ] Load an old-format review state file (scores as array) → run /plan-review → verify normalization to new schema works
-- [ ] Test code-fence-aware checkbox scanning: create a planning doc with checkboxes inside ``` code blocks → verify they are skipped in counts
+- [x] Run `/initialize test_project` on a test branch → verify planning template has checkboxes and Verification section — VERIFIED: initialize.md:320-362 has `- [ ]` on all actionable sections + `## Verification` with A) Playwright B) Automated Tests
+- [x] Verify step 2.8 shows unified doc list before reading any contents — VERIFIED: initialize.md:206-219 merges MANUAL_DOCS+AUTO_DOCS, AskUserQuestion before Read
+- [x] Run `/plan-update` on a planning doc with missing checkboxes → verify it adds them — VERIFIED: plan-update.md Step 3 (lines 55-63) identifies missing checkboxes and offers to add via Edit
+- [x] Run `/plan-update` on a planning doc with bugs but no regression tests → verify it flags the gap — VERIFIED: plan-update.md Step 5 (lines 73-78) searches for bug keywords, warns if no regression test
+- [x] Run `/plan-update` on a planning doc with no Verification section → verify it rejects the plan — VERIFIED: plan-update.md Step 6 (lines 80-92) checks for `## Verification`, offers reject option
+- [x] Run `/plan-update` on a UI-change plan without Playwright verification → verify it flags as missing — VERIFIED: plan-update.md line 92 detects UI via `src/app/**`, `src/components/**`, `*.tsx` patterns
+- [x] Run `/plan-review` on a test plan → verify "Review & Discussion" section is appended with agent reasoning — VERIFIED: plan-review.md lines 136-155 appends iteration scores, reasoning, gaps, minor issues
+- [x] Run `/plan-review` on a plan missing Verification section → verify agents flag it as critical gap, refuse 5/5 — VERIFIED: plan-review.md lines 50, 81, 105 — all 3 agents check verification, "Do NOT score 5/5 without verification"
+- [x] Trigger an ambiguous gap during /plan-review → verify it asks user before fixing — VERIFIED: plan-review.md lines 196-202 classifies obvious vs ambiguous, AskUserQuestion for ambiguous
+- [x] Run `/finalize` → verify Step 0 runs verification (tests + Playwright) BEFORE any other steps — VERIFIED: finalize.md lines 27-100, Step 0 before Step 1
+- [x] Run `/finalize` with failing tests → verify hard block at Step 0 — VERIFIED: finalize.md lines 94-98, HARD BLOCK with AskUserQuestion
+- [x] Run `/finalize` on a branch with unchecked planning items → verify hard block at Step 1b.5 — VERIFIED: finalize.md lines 134-144, lists unchecked items then HARD BLOCK
+- [x] Grant exception during /finalize checkbox block → verify exception logged in output — VERIFIED: finalize.md line 145, "Record in finalization output and include in PR body"
+- [x] Load an old-format review state file (scores as array) → run /plan-review → verify normalization to new schema works — VERIFIED: plan-review.md lines 263-268, handles array→object, abbreviated keys, missing gaps
+- [x] Test code-fence-aware checkbox scanning: create a planning doc with checkboxes inside ``` code blocks → verify they are skipped in counts — VERIFIED: plan-update.md lines 45-48 and finalize.md line 122, track fence open/close state
 
 ## Rollback Plan
 - All changes are to `.claude/commands/*.md` skill files — these are git-tracked markdown files with no runtime dependencies
@@ -148,5 +148,5 @@ The project workflow skills lack checkbox-based completion tracking and verifica
 
 ## Documentation Updates
 The following docs were identified as relevant and may need updates:
-- [ ] `docs/docs_overall/managing_claude_settings.md` — No changes expected (skill files not settings)
-- [ ] `docs/docs_overall/project_workflow.md` — Update Step 5 "Complete Plan" to reference checkbox requirement; mention /plan-update in execution steps; update planning template to show checkbox format
+- [x] `docs/docs_overall/managing_claude_settings.md` — No changes expected (skill files not settings) — confirmed
+- [x] `docs/docs_overall/project_workflow.md` — Update Step 5 "Complete Plan" to reference checkbox requirement; mention /plan-update in execution steps; update planning template to show checkbox format

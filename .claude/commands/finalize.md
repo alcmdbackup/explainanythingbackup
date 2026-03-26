@@ -24,11 +24,11 @@ The argument passed is: `$ARGUMENTS`
 
 Execute these steps in order. If any step fails, fix the issue before proceeding:
 
-### 1. Agent-Based Plan Assessment
+### Step 0: Verification-First Gate
 
-Verify that the implementation plan was fully executed using 4 parallel Explore agents that semantically assess the code — not just check if files were touched.
+Run the plan's verification steps (tests + Playwright) BEFORE any other finalization work. This is a hard gate — finalization cannot proceed if verification fails.
 
-**Step 1a: Locate the planning file**
+**Step 0: Locate the planning file**
 
 Derive the plan file path from the current branch name:
 
@@ -43,7 +43,69 @@ Try these paths in order, use the first that exists:
 2. `docs/planning/${PROJECT_NAME}/_planning.md` (modern flat)
 3. `docs/planning/${PROJECT_NAME}/${PROJECT_NAME}_planning.md` (legacy)
 
-If none found → display a warning ("No planning file found — skipping plan assessment") and proceed to Step 2.
+Store as `$PLAN_FILE`. If none found → display a warning ("No planning file found — skipping verification and plan assessment") and proceed to Step 2.
+
+**Step 0a: Read Verification section**
+
+Read the planning doc and extract the `## Verification` section. Identify:
+- Automated test commands/file paths (unit, integration, E2E)
+- Playwright verification specs (if any)
+
+If no Verification section found → warn "No Verification section in plan — skipping verification gate" and proceed to Step 1.
+
+**Step 0b: Run automated tests**
+
+Execute each test listed in the Verification section:
+- Unit tests: `npm run test:unit` (or specific grep/file path from plan)
+- Integration tests: `npm run test:integration` (or specific grep/file path from plan)
+- E2E tests: `npm run test:e2e -- --grep @relevant` (or specific spec file from plan)
+
+Collect pass/fail results for each.
+
+**Step 0c: Run Playwright verification (if applicable)**
+
+If plan includes Playwright verification items (UI changes):
+
+1. Ensure local server is running via `./docs/planning/tmux_usage/ensure-server.sh` (per CLAUDE.md — do NOT use `npm run dev` directly)
+2. Wait up to 60 seconds for health check:
+   ```bash
+   curl -sf http://localhost:3000 --max-time 5 --retry 12 --retry-delay 5
+   ```
+3. Run ONLY the verification-relevant Playwright specs from the plan:
+   ```bash
+   npx playwright test <spec-file> --headed
+   ```
+   Do NOT run the full E2E suite — only specs listed in the Verification section.
+4. If server fails to start → report error and HARD BLOCK.
+
+**Step 0d: Verification results**
+
+Display verification results summary:
+```
+Verification Gate
+──────────────────────────────────────
+Unit tests:        ✓ PASSED / ✗ FAILED
+Integration tests: ✓ PASSED / ✗ FAILED
+E2E tests:         ✓ PASSED / ✗ FAILED / ⊘ N/A
+Playwright:        ✓ PASSED / ✗ FAILED / ⊘ N/A
+──────────────────────────────────────
+```
+
+If any verification fails → **HARD BLOCK**. Use AskUserQuestion:
+- Question: "Verification failed. Finalization cannot proceed with failing verification."
+- Options:
+  1. "Fix failures and retry" — abort finalization, user fixes and re-runs /finalize
+  2. "Abort finalization" — stop entirely
+
+**Step 0e**: Only after ALL verification passes, proceed to Step 1.
+
+### 1. Agent-Based Plan Assessment
+
+Verify that the implementation plan was fully executed using 4 parallel Explore agents that semantically assess the code — not just check if files were touched.
+
+Use `$PLAN_FILE` resolved in Step 0.
+
+If no planning file was found in Step 0 → display a warning ("No planning file found — skipping plan assessment") and proceed to Step 2.
 
 **Step 1b: Gather context for agents**
 
@@ -54,6 +116,36 @@ DIFF_FILES=$(git diff --name-only origin/main)
 ```
 
 Read the planning file content to confirm it exists and is non-empty.
+
+**Step 1b.5: Verify Plan Checkboxes**
+
+Parse the planning doc for checkbox completion. **Code-fence aware**: skip lines inside ``` fenced blocks to avoid false positives on example checkbox syntax (track open/close fence state).
+
+1. **Scan** for all `- [ ]` (unchecked) and `- [x]`/`- [X]` (checked) items outside code fences
+2. **Display summary**:
+   ```
+   Plan Checkbox Verification
+   ──────────────────────────────────────
+   Total items:   N
+   Checked:       N ✓
+   Unchecked:     N ✗
+   ──────────────────────────────────────
+   ```
+3. **If any unchecked items**: List each with its line number, then **HARD BLOCK** finalization:
+   ```
+   Unchecked items:
+   - Line 42: [Phase 1] Add rollback plan section
+   - Line 67: [Testing] Write integration test for auth flow
+   ```
+   Use AskUserQuestion:
+   - Question: "N unchecked items found in planning doc. Finalization requires all items checked."
+   - Options:
+     1. "Grant exception and proceed" — log exception: "N unchecked items — exception granted by user"
+     2. "Abort finalization to fix" — stop finalization
+4. **If exception granted**: Record in finalization output and include in PR body: "N unchecked items — exception granted by user"
+5. **If all checked**: Display "Plan checkboxes: ALL COMPLETE ✓" → proceed
+
+This check runs BEFORE Step 1c (4 Explore agents) for fail-fast behavior.
 
 **Step 1c: Launch 4 Explore agents in parallel**
 
