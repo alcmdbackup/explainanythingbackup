@@ -36,7 +36,7 @@ function DashboardContent(): JSX.Element {
       reportError(msg);
     }
     setLoading(false);
-  }, [reportRefresh, reportError, filterTestContent]);
+  }, [filterTestContent, reportRefresh, reportError]);
 
   useEffect(() => {
     load();
@@ -81,16 +81,17 @@ function DashboardContent(): JSX.Element {
 
   return (
     <div className="space-y-6" data-testid="dashboard-content">
-      <label className="flex items-center gap-2 text-sm font-ui text-[var(--text-secondary)]">
-        <input
-          type="checkbox"
-          checked={filterTestContent}
-          onChange={(e) => setFilterTestContent(e.target.checked)}
-          className="rounded border-[var(--border-default)]"
-          data-testid="filter-test-content-toggle"
-        />
-        Hide test content
-      </label>
+      <div className="flex flex-wrap gap-2" data-testid="filter-bar">
+        <label className="flex items-center gap-2 text-sm font-ui text-[var(--text-secondary)]" data-testid="filter-filterTestContent">
+          <input
+            type="checkbox"
+            checked={filterTestContent}
+            onChange={(e) => setFilterTestContent(e.target.checked)}
+            className="rounded"
+          />
+          Hide test content
+        </label>
+      </div>
       <MetricGrid metrics={metrics} columns={3} variant="card" testId="dashboard-metrics" />
       <div>
         <h2 className="text-2xl font-display font-semibold text-[var(--text-primary)] mb-3">Recent Runs</h2>

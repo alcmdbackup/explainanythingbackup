@@ -80,22 +80,22 @@ describe('evolutionVisualizationActions', () => {
       const runCosts = [{ run_id: VALID_UUID, total_cost_usd: 3.0 }];
 
       const mock = createTableAwareMock([
-        // evolution_runs (status) — built first at line 79
+        // evolution_runs (status)
         (b) => {
           b.then = jest.fn((resolve: (v: unknown) => void) =>
             resolve({ data: statusRows, error: null })
           );
         },
-        // evolution_runs (recent) — built second at line 84
-        (b) => {
-          b.then = jest.fn((resolve: (v: unknown) => void) =>
-            resolve({ data: recentRuns, error: null })
-          );
-        },
-        // evolution_run_costs (total) — third, inside Promise.all
+        // evolution_run_costs (total) — created before recentQuery in code
         (b) => {
           b.then = jest.fn((resolve: (v: unknown) => void) =>
             resolve({ data: costRows, error: null })
+          );
+        },
+        // evolution_runs (recent)
+        (b) => {
+          b.then = jest.fn((resolve: (v: unknown) => void) =>
+            resolve({ data: recentRuns, error: null })
           );
         },
         // evolution_strategies (names)
@@ -156,6 +156,102 @@ describe('evolutionVisualizationActions', () => {
       expect(result.data!.totalCostUsd).toBe(0);
       expect(result.data!.avgCostPerRun).toBe(0);
       expect(result.data!.recentRuns).toEqual([]);
+    });
+
+    it('filters test content when filterTestContent is true', async () => {
+      // With filterTestContent=true, the action first fetches test strategy IDs,
+      // then excludes those strategy_ids from all queries using .not('strategy_id', 'in', ...).
+      // Query order: strategies (test IDs), status, costs, recent,
+      //   then: filtered IDs for cost, filtered costs, strategies (names), per-run costs.
+      const testStrategies = [{ id: VALID_UUID_3 }]; // one test strategy
+      const statusRows = [
+        { status: 'running' },
+        { status: 'completed' },
+      ];
+      const allCosts = [{ total_cost_usd: '10.00' }]; // includes test costs
+      const recentRuns = [
+        {
+          id: VALID_UUID,
+          status: 'completed',
+          strategy_id: VALID_UUID_2,
+          created_at: '2026-03-01T10:00:00Z',
+          completed_at: '2026-03-01T12:00:00Z',
+        },
+      ];
+      const filteredRunIds = [{ id: VALID_UUID }];
+      const filteredCosts = [{ total_cost_usd: '4.50' }];
+      const strategies = [{ id: VALID_UUID_2, name: 'Real Strategy' }];
+      const runCosts = [{ run_id: VALID_UUID, total_cost_usd: 4.5 }];
+
+      const mock = createTableAwareMock([
+        // 1. evolution_strategies (fetch test strategy IDs)
+        (b) => {
+          b.then = jest.fn((resolve: (v: unknown) => void) =>
+            resolve({ data: testStrategies, error: null })
+          );
+        },
+        // 2. evolution_runs (status with .not strategy_id)
+        (b) => {
+          b.then = jest.fn((resolve: (v: unknown) => void) =>
+            resolve({ data: statusRows, error: null })
+          );
+        },
+        // 3. evolution_run_costs (all costs)
+        (b) => {
+          b.then = jest.fn((resolve: (v: unknown) => void) =>
+            resolve({ data: allCosts, error: null })
+          );
+        },
+        // 4. evolution_runs (recent with .not strategy_id)
+        (b) => {
+          b.then = jest.fn((resolve: (v: unknown) => void) =>
+            resolve({ data: recentRuns, error: null })
+          );
+        },
+        // 5. evolution_runs (filtered IDs for cost)
+        (b) => {
+          b.then = jest.fn((resolve: (v: unknown) => void) =>
+            resolve({ data: filteredRunIds, error: null })
+          );
+        },
+        // 6. evolution_run_costs (filtered costs)
+        (b) => {
+          b.then = jest.fn((resolve: (v: unknown) => void) =>
+            resolve({ data: filteredCosts, error: null })
+          );
+        },
+        // 7. evolution_strategies (names enrichment)
+        (b) => {
+          b.then = jest.fn((resolve: (v: unknown) => void) =>
+            resolve({ data: strategies, error: null })
+          );
+        },
+        // 8. evolution_run_costs (per-run costs)
+        (b) => {
+          b.then = jest.fn((resolve: (v: unknown) => void) =>
+            resolve({ data: runCosts, error: null })
+          );
+        },
+      ]);
+      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+      const result = await getEvolutionDashboardDataAction({ filterTestContent: true });
+
+      expect(result.success).toBe(true);
+      expect(result.data!.activeRuns).toBe(1);
+      expect(result.data!.completedRuns).toBe(1);
+      expect(result.data!.totalCostUsd).toBe(4.5);
+      expect(result.data!.recentRuns).toHaveLength(1);
+      expect(result.data!.recentRuns[0]!.strategy_name).toBe('Real Strategy');
+
+      // Verify test strategy IDs were fetched first
+      const fromCalls = mock.from.mock.calls;
+      expect(fromCalls[0][0]).toBe('evolution_strategies');
+      // Verify .not() was called on the status query with strategy_id exclusion
+      const statusBuilder = mock.from.mock.results[1].value;
+      expect(statusBuilder.not).toHaveBeenCalledWith(
+        'strategy_id', 'in', expect.stringContaining(VALID_UUID_3),
+      );
     });
 
     it('returns error when status query fails', async () => {

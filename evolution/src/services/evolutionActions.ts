@@ -195,16 +195,21 @@ export const getEvolutionRunsAction = adminAction(
     const limit = Math.min(Math.max(filters?.limit ?? 50, 1), 200);
     const offset = Math.max(filters?.offset ?? 0, 0);
 
-    // Use an inner join to filter test content DB-side, avoiding the previous
-    // approach of fetching all [TEST] strategy IDs into JS (which caused a
-    // PostgREST Bad Request when the ID list exceeded the URL size limit).
-    const selectExpr = filters?.filterTestContent
-      ? '*, evolution_strategies!inner(name)'
-      : '*';
+    // Fetch test strategy IDs first (small set), then exclude them.
+    // This avoids the !inner join approach which requires a FK constraint and
+    // a fresh PostgREST schema cache — both of which have caused silent failures.
+    let testStrategyIds: string[] = [];
+    if (filters?.filterTestContent) {
+      const { data: testStrategies } = await supabase
+        .from('evolution_strategies')
+        .select('id')
+        .ilike('name', '%[TEST]%');
+      testStrategyIds = (testStrategies ?? []).map(s => s.id as string);
+    }
 
     let query = supabase
       .from('evolution_runs')
-      .select(selectExpr, { count: 'exact' });
+      .select('*', { count: 'exact' });
 
     if (filters?.status) query = query.eq('status', filters.status);
     if (!filters?.includeArchived) query = query.eq('archived', false);
@@ -212,8 +217,8 @@ export const getEvolutionRunsAction = adminAction(
       if (!validateUuid(filters.promptId)) throw new Error('Invalid promptId filter');
       query = query.eq('prompt_id', filters.promptId);
     }
-    if (filters?.filterTestContent) {
-      query = query.not('evolution_strategies.name', 'ilike', '%[TEST]%');
+    if (filters?.filterTestContent && testStrategyIds.length > 0) {
+      query = query.not('strategy_id', 'in', `(${testStrategyIds.join(',')})`);
     }
 
     query = query.order('created_at', { ascending: false }).range(offset, offset + limit - 1);
@@ -467,21 +472,34 @@ export const listVariantsAction = adminAction(
     const parsed = listVariantsInputSchema.parse(input);
     const { supabase } = ctx;
 
-    // When filtering test content, use nested inner join through runs to strategies
+    // Fetch test strategy IDs, then find their run IDs, then exclude those variants.
+    // This avoids nested !inner joins which depend on FK constraints + PostgREST schema cache.
     const baseFields = 'id, run_id, explanation_id, elo_score, generation, agent_name, match_count, is_winner, created_at';
-    const selectExpr = parsed.filterTestContent
-      ? `${baseFields}, evolution_runs!inner(evolution_strategies!inner(name))`
-      : baseFields;
+    let testRunIds: string[] = [];
+    if (parsed.filterTestContent) {
+      const { data: testStrategies } = await supabase
+        .from('evolution_strategies')
+        .select('id')
+        .ilike('name', '%[TEST]%');
+      const testStrategyIds = (testStrategies ?? []).map(s => s.id as string);
+      if (testStrategyIds.length > 0) {
+        const { data: testRuns } = await supabase
+          .from('evolution_runs')
+          .select('id')
+          .in('strategy_id', testStrategyIds);
+        testRunIds = (testRuns ?? []).map(r => r.id as string);
+      }
+    }
 
     let query = supabase
       .from('evolution_variants')
-      .select(selectExpr, { count: 'exact' });
+      .select(baseFields, { count: 'exact' });
 
     if (parsed.runId) query = query.eq('run_id', parsed.runId);
     if (parsed.agentName) query = query.eq('agent_name', parsed.agentName);
     if (parsed.isWinner !== undefined) query = query.eq('is_winner', parsed.isWinner);
-    if (parsed.filterTestContent) {
-      query = query.not('evolution_runs.evolution_strategies.name', 'ilike', '%[TEST]%');
+    if (parsed.filterTestContent && testRunIds.length > 0) {
+      query = query.not('run_id', 'in', `(${testRunIds.join(',')})`);
     }
 
     query = query.order('created_at', { ascending: false })
