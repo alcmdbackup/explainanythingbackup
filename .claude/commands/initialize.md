@@ -171,8 +171,7 @@ Before auto-discovery, give the user a chance to manually specify docs they alre
      - If multiple matches → present matches via AskUserQuestion and let user pick
      - If no match → warn user: "No doc found matching '[entry]'. Skipping." and continue
      - If user provides empty input after selecting "Yes" → treat as skip, continue to step 2.7
-   - Add all resolved paths to `RELEVANT_DOCS`
-   - **Read all manually tagged docs** using the Read tool
+   - Add all resolved paths to `MANUAL_DOCS` list (do NOT read yet — reading is deferred to step 2.8)
 
 3. **Continue to step 2.7** — auto-discovery will supplement (not replace) manually tagged docs.
 
@@ -202,9 +201,22 @@ After reading core docs, discover which additional docs in `docs/docs_overall/` 
    "Auto-discovery found these additional docs (you already tagged: [list manually tagged docs from step 2.6, or 'none']). Select any to add:"
    - [List each doc from Explore agent results with its one-line reason as the description]
 
-3. **Read all confirmed docs** using the Read tool.
+3. **Store the confirmed list** as `AUTO_DOCS` (do NOT read yet — reading is deferred to step 2.8).
 
-4. **Store the confirmed list** as `RELEVANT_DOCS` for use in later steps (written to `_status.json` in step 3.5, and used to pre-populate templates in steps 4 and 5).
+### 2.8. Final Doc Review
+
+Merge and deduplicate `MANUAL_DOCS` (from step 2.6) and `AUTO_DOCS` (from step 2.7) into a unified `RELEVANT_DOCS` list.
+
+1. **Deduplicate**: Remove any paths that appear in both lists.
+
+2. **Present full list** via AskUserQuestion (multiSelect, all pre-checked):
+
+   "These docs will be read for project context. Deselect any that aren't needed:"
+   - [List each doc path from RELEVANT_DOCS, all pre-selected]
+
+3. **Read all remaining confirmed docs** using the Read tool.
+
+4. **Store the final list** as `RELEVANT_DOCS` for use in later steps (written to `_status.json` in step 3.5, and used to pre-populate templates in steps 4 and 5).
 
 ### 3. Create Folder Structure
 
@@ -306,17 +318,48 @@ Create `$PROJECT_PATH/${PROJECT_NAME}_planning.md` using the **Write tool** with
 [3-5 sentences describing the problem — refine after /research]
 
 ## Options Considered
-[Concise but thorough list of options]
+- [ ] **Option A: [Name]**: [Description]
+- [ ] **Option B: [Name]**: [Description]
+- [ ] **Option C: [Name]**: [Description]
 
 ## Phased Execution Plan
-[Incrementally executable milestones]
+
+### Phase 1: [Phase Name]
+- [ ] [Actionable item with specific deliverable]
+- [ ] [Actionable item with specific deliverable]
+
+### Phase 2: [Phase Name]
+- [ ] [Actionable item with specific deliverable]
+- [ ] [Actionable item with specific deliverable]
 
 ## Testing
-[Tests to write or modify, plus manual verification on stage]
+
+### Unit Tests
+- [ ] [Test file path and description, e.g. `src/lib/services/foo.test.ts` — test X behavior]
+
+### Integration Tests
+- [ ] [Test file path and description, e.g. `src/__tests__/integration/foo.integration.test.ts` — test Y flow]
+
+### E2E Tests
+- [ ] [Test file path and description, e.g. `src/__tests__/e2e/specs/foo.spec.ts` — verify Z end-to-end]
+
+### Manual Verification
+- [ ] [Manual verification step description]
+
+## Verification
+
+### A) Playwright Verification (required for UI changes)
+- [ ] [Playwright spec or manual UI check — run on local server via ensure-server.sh]
+
+### B) Automated Tests
+- [ ] [Specific test file path to run, e.g. `npm run test:unit -- --grep "foo"` or `npx playwright test src/__tests__/e2e/specs/foo.spec.ts`]
 
 ## Documentation Updates
 The following docs were identified as relevant and may need updates:
-- [list each path from RELEVANT_DOCS, e.g. `docs/feature_deep_dives/tag_system.md` - brief note on what may change]
+- [ ] [list each path from RELEVANT_DOCS, e.g. `docs/feature_deep_dives/tag_system.md` — brief note on what may change]
+
+## Review & Discussion
+[This section is populated by /plan-review with agent scores, reasoning, and gap resolutions per iteration]
 ```
 
 Pre-populate the "Documentation Updates" section with the actual paths from `RELEVANT_DOCS`.

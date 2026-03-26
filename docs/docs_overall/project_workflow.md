@@ -60,14 +60,19 @@ See the planning doc for full bypass documentation.
 
 ### Step 5: Complete Plan
 - Ensure all sections in plan template are completed
+- All actionable items must have checkbox prefix (`- [ ]`)
+- Run `/plan-update` to verify checkbox completeness and enforcement
 - Final criteria:
   - Plan conveys high-level structure
   - Plan is organized into phases that can be implemented and tested incrementally
   - Plan contains key snippets of code
   - Plan lists all code modified
   - Plan lists all tests added or modified (unit/integration/E2E)
+  - Plan has a Verification section with Playwright and/or automated tests
+  - All items use checkbox format for tracking
 
 > **Tip:** Use `/summarize-plan` at any point to get a quick overview of your plan, changed files, and tracked docs.
+> **Tip:** Use `/plan-update` to scan for missing checkboxes, validate test paths, and mark items complete.
 
 ### Step 6: Execute
 - Execute the plan incrementally in phases
@@ -122,16 +127,44 @@ See the planning doc for full bypass documentation.
 [3-5 sentences describing the problem]
 
 ## Options Considered
-[Concise but thorough list of options]
+- [ ] **Option A: [Name]**: [Description]
+- [ ] **Option B: [Name]**: [Description]
 
 ## Phased Execution Plan
-[Incrementally executable milestones]
+
+### Phase 1: [Phase Name]
+- [ ] [Actionable item with specific deliverable]
+
+### Phase 2: [Phase Name]
+- [ ] [Actionable item with specific deliverable]
 
 ## Testing
-[Tests to write or modify, plus manual verification on stage]
+
+### Unit Tests
+- [ ] [Test file path and description]
+
+### Integration Tests
+- [ ] [Test file path and description]
+
+### E2E Tests
+- [ ] [Test file path and description]
+
+### Manual Verification
+- [ ] [Manual verification step]
+
+## Verification
+
+### A) Playwright Verification (required for UI changes)
+- [ ] [Playwright spec or manual UI check]
+
+### B) Automated Tests
+- [ ] [Specific test file path or command to run]
 
 ## Documentation Updates
-[Files in docs/docs_overall and docs/feature_deep_dives to update]
+- [ ] [Doc path — brief note on what may change]
+
+## Review & Discussion
+[Populated by /plan-review with agent scores, reasoning, and gap resolutions]
 ```
 
 ### Progress Document
