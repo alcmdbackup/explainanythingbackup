@@ -14,9 +14,9 @@ import {
   createStrategyAction,
   updateStrategyAction,
   cloneStrategyAction,
-  deleteStrategyAction,
   type StrategyListItem,
 } from '@evolution/services/strategyRegistryActions';
+import { executeEntityAction } from '@evolution/services/entityActions';
 import { MODEL_OPTIONS } from '@/lib/utils/modelOptions';
 
 const loadData = async (filters: Record<string, string>, page: number, pageSize: number) => {
@@ -135,7 +135,7 @@ export default function StrategiesPage(): JSX.Element {
 
   const handleDelete = async () => {
     if (dialog.kind !== 'delete') return;
-    const result = await deleteStrategyAction(dialog.row.id);
+    const result = await executeEntityAction({ entityType: 'strategy', entityId: dialog.row.id, actionKey: 'delete' });
     if (!result.success) throw new Error(result.error?.message ?? 'Delete failed');
     toast.success('Strategy deleted');
   };

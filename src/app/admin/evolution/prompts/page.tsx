@@ -12,9 +12,9 @@ import {
   listPromptsAction,
   createPromptAction,
   updatePromptAction,
-  deletePromptAction,
   type PromptListItem,
 } from '@evolution/services/arenaActions';
+import { executeEntityAction } from '@evolution/services/entityActions';
 
 // ─── Load data adapter ────────────────────────────────────────────
 
@@ -122,7 +122,7 @@ export default function PromptsPage(): JSX.Element {
 
   const handleDelete = async () => {
     if (dialog.kind !== 'delete') return;
-    const result = await deletePromptAction(dialog.row.id);
+    const result = await executeEntityAction({ entityType: 'prompt', entityId: dialog.row.id, actionKey: 'delete' });
     if (!result.success) throw new Error(result.error?.message ?? 'Delete failed');
     toast.success('Prompt deleted');
   };

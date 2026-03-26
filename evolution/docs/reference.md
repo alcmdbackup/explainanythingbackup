@@ -136,7 +136,7 @@ UI component barrel for the admin dashboard. Exports 20+ components:
 - **Layout**: `EvolutionBreadcrumb`, `EvolutionStatusBadge`, `TableSkeleton`, `EmptyState`, `ElapsedTime`
 - **Detail views**: `EntityDetailHeader`, `MetricGrid`, `EntityDetailTabs`, `useTabState`, `VariantDetailPanel`
 - **Lists**: `EntityTable`, `EntityListPage`, `RunsTable`, `getBaseColumns`
-- **Registry**: `RegistryPage`, `FormDialog`, `ConfirmDialog`
+- **Dialogs**: `FormDialog`, `ConfirmDialog`, `NotFoundCard`
 - **Visualization**: `EloSparkline`, `LineageGraph`, `TextDiff`, `InputArticleSection`, `VariantCard`
 - **Providers**: `AutoRefreshProvider`, `useAutoRefresh`
 
@@ -429,7 +429,7 @@ Total: 17 pages (15 list/detail pairs + dashboard + wizard) + 1 API route.
 
 **`ConfigDrivenDetailRenderer`** (`src/app/admin/evolution/invocations/[invocationId]/ConfigDrivenDetailRenderer.tsx`) — renders the agent-specific execution detail section on the invocation detail page. Reads field definitions from `DETAIL_VIEW_CONFIGS` (keyed by agent name) and renders each field generically, eliminating the need for a custom component per agent type.
 
-All pages use the shared UI components from `evolution/src/components/evolution/index.ts`. Common patterns include `EntityListPage` for list views with filtering, `EntityDetailTabs` for detail views with tabbed navigation, `RegistryPage` for CRUD registries, and `AutoRefreshProvider` for real-time polling. The dashboard uses a 15-second auto-refresh interval; other pages refresh on user navigation.
+All pages use the shared UI components from `evolution/src/components/evolution/index.ts`. Common patterns include `EntityListPage` for list views with filtering (supports both controlled and self-managed modes with `loadData`), `EntityDetailTabs` for detail views with tabbed navigation, and `AutoRefreshProvider` for real-time polling. The dashboard uses a 15-second auto-refresh interval; other pages refresh on user navigation.
 
 Navigation uses `EvolutionBreadcrumb` for consistent breadcrumb trails. Status is shown via `EvolutionStatusBadge` which color-codes run states (pending=gray, running=blue, completed=green, failed=red).
 

@@ -201,6 +201,26 @@ describe('Entity Actions Integration Tests', () => {
         .single();
       expect(data?.stale).toBe(true);
     });
+
+    it('delete marks parent experiment metrics stale', async () => {
+      if (!tablesExist) return;
+      const promptId = await createTestPrompt(supabase);
+      promptIds.push(promptId);
+      const strategyId = await createTestStrategyConfig(supabase);
+      strategyIds.push(strategyId);
+      const expId = await createExperiment(promptId);
+      const run = await createTestEvolutionRun(supabase, null, { experiment_id: expId, strategy_id: strategyId, prompt_id: promptId, status: 'completed' });
+      await writeMetric('experiment', expId, 'total_cost', 5.0);
+
+      await getEntity('run').executeAction('delete', run.id as string, supabase);
+
+      const { data } = await supabase.from('evolution_metrics')
+        .select('stale')
+        .eq('entity_type', 'experiment')
+        .eq('entity_id', expId)
+        .single();
+      expect(data?.stale).toBe(true);
+    });
   });
 
   // ─── Experiment ───────────────────────────────────────────────
@@ -216,6 +236,20 @@ describe('Entity Actions Integration Tests', () => {
 
       const { data } = await supabase.from('evolution_experiments').select('name').eq('id', expId).single();
       expect(data?.name).toBe('Renamed Exp');
+    });
+
+    it('cancel sets status to cancelled', async () => {
+      if (!tablesExist) return;
+      const promptId = await createTestPrompt(supabase);
+      promptIds.push(promptId);
+      const expId = await createExperiment(promptId);
+      // Set to running first
+      await supabase.from('evolution_experiments').update({ status: 'running' }).eq('id', expId);
+
+      await getEntity('experiment').executeAction('cancel', expId, supabase);
+
+      const { data } = await supabase.from('evolution_experiments').select('status').eq('id', expId).single();
+      expect(data?.status).toBe('cancelled');
     });
 
     it('delete cascades runs and children', async () => {
