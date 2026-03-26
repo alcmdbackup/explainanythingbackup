@@ -160,6 +160,11 @@ describe('entityRegistry', () => {
       const listView = getEntityListViewMetrics('run');
       expect(listView.length).toBeLessThanOrEqual(all.length);
     });
+
+    it('does not include cost in run list view (cost shown via server action)', () => {
+      const names = getEntityListViewMetrics('run').map(d => d.name);
+      expect(names).not.toContain('cost');
+    });
   });
 
   // ─── getEntityMetricDef ──────────────────────────────────────

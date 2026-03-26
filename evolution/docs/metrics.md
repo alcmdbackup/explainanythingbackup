@@ -44,7 +44,7 @@ All metrics are declared in a typed registry keyed by entity type. Each definiti
 
 | Name | Category | Timing | Description |
 |------|----------|--------|-------------|
-| `cost` | cost | during_execution | Total USD spent (from cost tracker) |
+| `cost` | cost | during_execution | Total USD spent (from cost tracker). `listView: false` — not shown in the entity list view. The run list and detail pages display cost by querying `evolution_agent_invocations` directly rather than reading this metric row. |
 | `winner_elo` | rating | at_finalization | Elo of the highest-mu variant |
 | `median_elo` | rating | at_finalization | 50th percentile Elo across all variants |
 | `p90_elo` | rating | at_finalization | 90th percentile Elo |
@@ -192,7 +192,7 @@ Each propagation metric definition specifies a `sourceMetric` (which child metri
 
 **File:** `evolution/src/lib/metrics/metricColumns.tsx`
 
-`createMetricColumns(entityType)` generates table column definitions from the registry for use in `EntityTable`. Only metrics with `listView: true` appear in list pages. Each column uses the registry's formatter for display.
+`createMetricColumns(entityType)` generates table column definitions from the registry for use in `EntityTable`. Only metrics with `listView: true` appear in list pages. Each column uses the registry's formatter for display. The run `cost` metric has `listView: false`, so it is excluded from list columns; cost is instead fetched directly from `evolution_agent_invocations` by the run list and detail pages.
 
 `createRunsMetricColumns()` generates run-specific metric columns for the runs table within experiment and strategy detail pages.
 

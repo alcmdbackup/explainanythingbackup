@@ -327,7 +327,7 @@ Previously updated strategy aggregate metrics after run finalization using Welfo
 
 ### `sync_to_arena(p_prompt_id UUID, p_run_id UUID, p_entries JSONB, p_matches JSONB)`
 
-Atomically upserts arena entries and inserts comparison records. Enforces size limits: max 200 entries, max 1000 matches per call. Uses `ON CONFLICT (id) DO UPDATE` for entry upserts.
+Atomically upserts arena entries and inserts comparison records. Enforces size limits: max 200 entries, max 1000 matches per call. Uses `ON CONFLICT (id) DO UPDATE` for entry upserts. Migration `20260326000002_fix_sync_to_arena_match_count.sql` fixed the INSERT path to use `COALESCE((entry->>'arena_match_count')::INT, 0)` instead of hardcoded `0`, so `arena_match_count` is now properly persisted for entries that carry existing match history.
 
 ### `cancel_experiment(p_experiment_id UUID)`
 
@@ -375,8 +375,9 @@ Cost flows through three layers:
 2. **Per-invocation**: Each agent invocation writes its `cost_usd` to `evolution_agent_invocations`. This is the source of truth for cost attribution.
 
 3. **Aggregation**:
-   - `get_run_total_cost(p_run_id)` — RPC for single-run cost
-   - `evolution_run_costs` — view for batch list pages (`SELECT run_id, SUM(cost_usd)`)
+   - `get_run_total_cost(p_run_id)` — RPC for single-run cost (retained but no longer used by the UI)
+   - `evolution_run_costs` — view for batch list pages (`SELECT run_id, SUM(cost_usd)`) (retained but no longer used by the UI)
+   - Run list view and detail page now query `evolution_agent_invocations` directly for cost display
    - Budget events table was dropped in V2; audit trail is now in-memory only
 
 ```typescript

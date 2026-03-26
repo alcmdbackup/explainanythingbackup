@@ -77,6 +77,7 @@ Key behaviors:
 - Calls `sync_to_arena` RPC which handles upserting variants and inserting comparisons atomically
 - Limits enforced by the RPC: max **200 entries** and max **1000 matches** per sync call
 - Logs a warning on failure but does not throw -- arena sync is non-critical to the run
+- Migration `20260326000002_fix_sync_to_arena_match_count.sql` fixed the RPC to use `COALESCE((entry->>'arena_match_count')::INT, 0)` on INSERT instead of hardcoded `0`, so `arena_match_count` is now properly persisted when syncing entries that already have match history
 
 ### Elo scale conversion
 
@@ -166,7 +167,7 @@ The arena admin pages provide leaderboard views and topic management.
 | Route                                      | Purpose                                              |
 |-------------------------------------------|------------------------------------------------------|
 | `/admin/evolution/arena`                  | List all arena topics with entry counts              |
-| `/admin/evolution/arena/[topicId]`        | Leaderboard for a topic: sortable columns for Elo (rounded to integers), Mu, Sigma, Matches, Cost (shows "N/A" — cost data unavailable at variant level). Markdown is stripped from content previews via `stripMarkdownTitle()`. |
+| `/admin/evolution/arena/[topicId]`        | Leaderboard for a topic: sortable columns for Elo (rounded to integers), 95% CI (`formatEloCIRange(elo, sigma)`), Mu, Sigma, Matches, Cost (shows "N/A" — cost data unavailable at variant level). Entries below the top 15% eligibility cutoff (mean + 1.04×stdDev of Elo scores) are dimmed. Markdown is stripped from content previews via `stripMarkdownTitle()`. |
 | `/admin/evolution/arena/entries/[entryId]`| Entry detail: content, rating history, comparisons   |
 
 **Source files:**
