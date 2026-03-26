@@ -1,28 +1,72 @@
 # Fix Test Filtering Evolution Further Plan
 
 ## Background
-The evolution runs and invocations list pages have a "Hide test content" checkbox that starts checked, but the initial data load doesn't actually apply the filter. Test runs appear on first load. Toggling the checkbox off then on again makes the filter work correctly. Additionally, the evolution dashboard overview page was missing the test content filter entirely. This project fixes the initial load filtering, adds the missing dashboard filter, and adds regression tests.
+The evolution admin dashboard pages use PostgREST `!inner` joins to filter out test content (runs/variants/invocations linked to strategies with `[TEST]` in their name). On staging, these queries fail with HTTP 300 (PGRST201) because there are two FK constraints from `evolution_runs.strategy_id` → `evolution_strategies.id`, making the relationship ambiguous. The dashboard overview page was also missing the filter entirely.
 
-## Requirements (from GH Issue #TBD)
-1. Fix: evolution dashboard overview page missing test content filter entirely (already done)
-2. Fix: runs list page initial load ignores filterTestContent despite checkbox being checked
-3. Fix: invocations list page initial load ignores filterTestContent despite checkbox being checked
-4. Audit: check all other evolution list pages for the same initial-load bug
-5. Add regression tests for each fix to prevent future breakage
+## Requirements
+1. Fix: evolution dashboard overview page missing test content filter entirely (done Phase 1)
+2. Fix: all `!inner` join queries that fail due to ambiguous FK
+3. Drop duplicate legacy FK constraint `evolution_runs_strategy_config_id_fkey`
+4. Add regression tests to prevent future breakage
 
 ## Problem
-[3-5 sentences describing the problem — refine after /research]
+PostgREST cannot resolve `evolution_strategies!inner(name)` when two FK constraints point from `evolution_runs.strategy_id` to `evolution_strategies.id`. The legacy FK `evolution_runs_strategy_config_id_fkey` predates the migration history; the new FK `fk_runs_strategy` was added in migration `20260324000001`. PostgREST returns HTTP 300, the Supabase client treats this as an error, and the page silently shows 0 results.
 
 ## Options Considered
-[Concise but thorough list of options]
+
+### Option A: Disambiguate the FK in `!inner` join syntax
+- Change `evolution_strategies!inner(name)` → `evolution_strategies!fk_runs_strategy(name)`
+- Pros: Minimal code change, keeps single-query pattern
+- Cons: Fragile — ties code to FK constraint names, still depends on PostgREST schema cache
+
+### Option B: Two-step query (fetch test IDs, then exclude) ← **Chosen**
+- Step 1: Query `evolution_strategies` for IDs where `name ilike '%[TEST]%'`
+- Step 2: Exclude those IDs using `.not('strategy_id', 'in', '(id1,id2,...)')`
+- Pros: No FK dependency, no PostgREST schema cache issues, works regardless of constraint state
+- Cons: Extra query per action call (but test strategy count is always small)
+
+### Option C: Drop the duplicate FK only
+- Just drop `evolution_runs_strategy_config_id_fkey` via migration
+- Pros: Fixes root cause at DB level
+- Cons: Doesn't protect against future ambiguity, PostgREST cache delay risk
+
+**Decision: Option B + drop the duplicate FK (Option C) for defense in depth.**
 
 ## Phased Execution Plan
-[Incrementally executable milestones]
+
+### Phase 1: Dashboard Overview Filter ✅ (Complete)
+- Added `filterTestContent` parameter to `getEvolutionDashboardDataAction`
+- Added "Hide test content" checkbox to dashboard page (default: checked)
+- Added unit tests
+
+### Phase 2: Replace !inner Joins with Two-Step Queries ✅ (Complete)
+- `getEvolutionRunsAction` — replaced `!inner` join with test strategy ID lookup
+- `listVariantsAction` — replaced nested `!inner` join with test run ID lookup
+- `listInvocationsAction` — replaced nested `!inner` join with test run ID lookup
+- `getEvolutionDashboardDataAction` — replaced `!inner` joins with strategy ID exclusion
+- Updated all corresponding tests
+
+### Phase 3: Drop Duplicate FK Constraint
+- Add migration to drop `evolution_runs_strategy_config_id_fkey`
+- Keep only `fk_runs_strategy` (the one from `20260324000001`)
+
+### Phase 4: Add Integration Test
+- Add integration test that verifies the filter queries work end-to-end against real Supabase
+- Test should create a test strategy + run, verify filter excludes them, clean up
 
 ## Testing
-[Tests to write or modify, plus manual verification on stage]
+
+### Unit Tests (Updated in Phase 2)
+- `evolutionVisualizationActions.test.ts` — test for `filterTestContent: true` path
+- `evolutionActions.test.ts` — test for strategy ID exclusion approach
+- `invocationActions.test.ts` — test for run ID exclusion approach
+- `page.test.tsx` (dashboard) — checkbox default state + filter param passing
+
+### Integration Test (Phase 4)
+- Test `getEvolutionRunsAction` with `filterTestContent: true` against real DB
+- Verify it returns data (not 0 results) when non-test runs exist
+- Verify it excludes runs linked to `[TEST]` strategies
 
 ## Documentation Updates
-The following docs were identified as relevant and may need updates:
-- `docs/docs_overall/testing_overview.md` - may need updates to test data filtering docs
-- `evolution/docs/architecture.md` - may need updates to dashboard/admin UI docs
+- `docs/docs_overall/testing_overview.md` — no changes needed (already documents `[TEST]` convention)
+- `evolution/docs/architecture.md` — no changes needed (describes pipeline, not admin UI)

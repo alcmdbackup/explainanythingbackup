@@ -60,21 +60,24 @@ export const getEvolutionDashboardDataAction = adminAction(
     const { supabase } = ctx;
     const filterTest = input?.filterTestContent ?? false;
 
-    // If filtering test content, find test strategy IDs to exclude
+    // Fetch test strategy IDs first (small set), then exclude their runs.
+    // This avoids !inner joins which depend on FK constraints + PostgREST schema cache.
     let testStrategyIds: string[] = [];
     if (filterTest) {
-      const { data: testStrats } = await supabase
+      const { data: testStrategies } = await supabase
         .from('evolution_strategies')
         .select('id')
         .ilike('name', '%[TEST]%');
-      testStrategyIds = (testStrats ?? []).map(s => s.id as string);
+      testStrategyIds = (testStrategies ?? []).map(s => s.id as string);
     }
 
-    // Parallel queries for status counts and costs
+    // Build queries — order matters for deterministic mock testing: status, cost, recent.
     let statusQuery = supabase.from('evolution_runs').select('status');
     if (filterTest && testStrategyIds.length > 0) {
       statusQuery = statusQuery.not('strategy_id', 'in', `(${testStrategyIds.join(',')})`);
     }
+
+    const costQuery = supabase.from('evolution_run_costs').select('total_cost_usd');
 
     let recentQuery = supabase.from('evolution_runs')
       .select('id, status, strategy_id, created_at, completed_at')
@@ -85,9 +88,10 @@ export const getEvolutionDashboardDataAction = adminAction(
       recentQuery = recentQuery.not('strategy_id', 'in', `(${testStrategyIds.join(',')})`);
     }
 
+    // Parallel queries for status counts, costs, and recent runs
     const [statusResult, costResult, recentResult] = await Promise.all([
       statusQuery,
-      supabase.from('evolution_run_costs').select('total_cost_usd'),
+      costQuery,
       recentQuery,
     ]);
 
@@ -98,10 +102,9 @@ export const getEvolutionDashboardDataAction = adminAction(
     const completedRuns = runs.filter(r => r.status === 'completed').length;
     const failedRuns = runs.filter(r => r.status === 'failed').length;
 
-    // Total cost — when filtering, re-query to get non-test run IDs for cost lookup
-    // Total cost — when filtering, exclude test run costs using testStrategyIds
-    const allCosts = costResult.data ?? [];
+    // Total cost — when filtering, exclude test run costs
     let totalCostUsd: number;
+    const allCosts = costResult.data ?? [];
     if (filterTest && testStrategyIds.length > 0) {
       const { data: filteredRuns } = await supabase
         .from('evolution_runs')

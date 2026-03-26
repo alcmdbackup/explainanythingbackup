@@ -159,23 +159,30 @@ describe('evolutionActions', () => {
       expect(result.error?.message).toContain('Invalid promptId');
     });
 
-    it('filters test content via inner join on strategy name', async () => {
-      const runs = [{ ...MOCK_RUN, strategy_id: VALID_UUID_3, evolution_strategies: { name: 'Real Strategy' } }];
+    it('filters test content by excluding test strategy IDs', async () => {
+      const testStrategyId = '00000000-0000-0000-0000-000000000099';
+      const runs = [{ ...MOCK_RUN, strategy_id: VALID_UUID_3 }];
 
       const mock = createTableAwareMock([
-        // evolution_runs (with inner join on evolution_strategies for filtering)
+        // 1. evolution_strategies (fetch test strategy IDs)
+        (b) => {
+          b.then = jest.fn((resolve: (v: unknown) => void) =>
+            resolve({ data: [{ id: testStrategyId }], error: null })
+          );
+        },
+        // 2. evolution_runs (main query with .not strategy_id exclusion)
         (b) => {
           b.then = jest.fn((resolve: (v: unknown) => void) =>
             resolve({ data: runs, error: null, count: 1 })
           );
         },
-        // evolution_run_costs
+        // 3. evolution_run_costs (enrichment)
         (b) => {
           b.then = jest.fn((resolve: (v: unknown) => void) =>
             resolve({ data: [], error: null })
           );
         },
-        // evolution_strategies (for strategy name enrichment)
+        // 4. evolution_strategies (strategy name enrichment)
         (b) => {
           b.then = jest.fn((resolve: (v: unknown) => void) =>
             resolve({ data: [{ id: VALID_UUID_3, name: 'Real Strategy' }], error: null })
@@ -187,8 +194,10 @@ describe('evolutionActions', () => {
       const result = await getEvolutionRunsAction({ filterTestContent: true });
 
       expect(result.success).toBe(true);
-      // 3 calls: runs (with join), costs, strategy names. No separate strategy ID lookup.
-      expect(mock.from).toHaveBeenCalledTimes(3);
+      // First call fetches test strategy IDs
+      expect(mock.from.mock.calls[0][0]).toBe('evolution_strategies');
+      // Second call is the main runs query
+      expect(mock.from.mock.calls[1][0]).toBe('evolution_runs');
     });
   });
 

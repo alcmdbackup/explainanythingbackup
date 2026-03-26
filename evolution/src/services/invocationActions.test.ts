@@ -28,9 +28,13 @@ function makeMockCtx(returnData: unknown[] = [], count = 0) {
   chain.select = jest.fn(() => chain);
   chain.eq = jest.fn(() => chain);
   chain.not = jest.fn(() => chain);
+  chain.in = jest.fn(() => chain);
+  chain.ilike = jest.fn(() => chain);
   chain.order = jest.fn(() => chain);
   chain.range = jest.fn(() => Promise.resolve({ data: returnData, error: null, count }));
   chain.single = jest.fn(() => Promise.resolve({ data: returnData[0] ?? null, error: null }));
+  // Default thenable for awaited queries without range/single
+  chain.then = jest.fn((resolve: (v: unknown) => void) => resolve({ data: returnData, error: null }));
   return {
     ctx: { supabase: { from: jest.fn(() => chain) }, adminUserId: 'admin-1' },
     chain,
@@ -106,14 +110,11 @@ describe('listInvocationsAction', () => {
     await expect(listHandler({ limit: 10, offset: 0 }, ctx)).rejects.toEqual({ message: 'connection refused' });
   });
 
-  it('filters test content via nested inner join on strategy name', async () => {
+  it('filters test content by excluding test strategy run IDs', async () => {
     const { ctx, chain } = makeMockCtx([{ id: '1' }], 1);
     await listHandler({ filterTestContent: true, limit: 10, offset: 0 }, ctx);
-    expect(chain.not).toHaveBeenCalledWith(
-      'evolution_runs.evolution_strategies.name',
-      'ilike',
-      '%[TEST]%',
-    );
+    // Should query evolution_strategies for [TEST] names via ilike
+    expect(chain.ilike).toHaveBeenCalledWith('name', '%[TEST]%');
   });
 
   it('does not filter test content when filterTestContent is false', async () => {

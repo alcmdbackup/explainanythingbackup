@@ -159,14 +159,16 @@ describe('evolutionVisualizationActions', () => {
     });
 
     it('filters test content when filterTestContent is true', async () => {
-      // With filterTestContent=true, the action should use inner joins and .not()
-      // to exclude runs whose strategy name contains [TEST].
-      // Query order: status (with inner join), cost (skipped/resolved), recent (with inner join),
-      // then: filtered IDs for cost, filtered cost, strategies, per-run costs.
+      // With filterTestContent=true, the action first fetches test strategy IDs,
+      // then excludes those strategy_ids from all queries using .not('strategy_id', 'in', ...).
+      // Query order: strategies (test IDs), status, costs, recent,
+      //   then: filtered IDs for cost, filtered costs, strategies (names), per-run costs.
+      const testStrategies = [{ id: VALID_UUID_3 }]; // one test strategy
       const statusRows = [
         { status: 'running' },
         { status: 'completed' },
       ];
+      const allCosts = [{ total_cost_usd: '10.00' }]; // includes test costs
       const recentRuns = [
         {
           id: VALID_UUID,
@@ -176,43 +178,55 @@ describe('evolutionVisualizationActions', () => {
           completed_at: '2026-03-01T12:00:00Z',
         },
       ];
-      const filteredIds = [{ id: VALID_UUID }];
+      const filteredRunIds = [{ id: VALID_UUID }];
       const filteredCosts = [{ total_cost_usd: '4.50' }];
       const strategies = [{ id: VALID_UUID_2, name: 'Real Strategy' }];
       const runCosts = [{ run_id: VALID_UUID, total_cost_usd: 4.5 }];
 
       const mock = createTableAwareMock([
-        // 1. evolution_runs (status with inner join) — filterTest=true skips cost query
+        // 1. evolution_strategies (fetch test strategy IDs)
+        (b) => {
+          b.then = jest.fn((resolve: (v: unknown) => void) =>
+            resolve({ data: testStrategies, error: null })
+          );
+        },
+        // 2. evolution_runs (status with .not strategy_id)
         (b) => {
           b.then = jest.fn((resolve: (v: unknown) => void) =>
             resolve({ data: statusRows, error: null })
           );
         },
-        // 2. evolution_runs (recent with inner join) — cost query is Promise.resolve
+        // 3. evolution_run_costs (all costs)
+        (b) => {
+          b.then = jest.fn((resolve: (v: unknown) => void) =>
+            resolve({ data: allCosts, error: null })
+          );
+        },
+        // 4. evolution_runs (recent with .not strategy_id)
         (b) => {
           b.then = jest.fn((resolve: (v: unknown) => void) =>
             resolve({ data: recentRuns, error: null })
           );
         },
-        // 3. evolution_runs (filtered IDs for cost lookup)
+        // 5. evolution_runs (filtered IDs for cost)
         (b) => {
           b.then = jest.fn((resolve: (v: unknown) => void) =>
-            resolve({ data: filteredIds, error: null })
+            resolve({ data: filteredRunIds, error: null })
           );
         },
-        // 4. evolution_run_costs (filtered)
+        // 6. evolution_run_costs (filtered costs)
         (b) => {
           b.then = jest.fn((resolve: (v: unknown) => void) =>
             resolve({ data: filteredCosts, error: null })
           );
         },
-        // 5. evolution_strategies (names)
+        // 7. evolution_strategies (names enrichment)
         (b) => {
           b.then = jest.fn((resolve: (v: unknown) => void) =>
             resolve({ data: strategies, error: null })
           );
         },
-        // 6. evolution_run_costs (per run)
+        // 8. evolution_run_costs (per-run costs)
         (b) => {
           b.then = jest.fn((resolve: (v: unknown) => void) =>
             resolve({ data: runCosts, error: null })
@@ -230,16 +244,13 @@ describe('evolutionVisualizationActions', () => {
       expect(result.data!.recentRuns).toHaveLength(1);
       expect(result.data!.recentRuns[0]!.strategy_name).toBe('Real Strategy');
 
-      // Verify that .not() was called on the status query to exclude [TEST]
+      // Verify test strategy IDs were fetched first
       const fromCalls = mock.from.mock.calls;
-      expect(fromCalls[0][0]).toBe('evolution_runs'); // status query
-      // The inner join select should include evolution_strategies!inner
-      const statusBuilder = mock.from.mock.results[0].value;
-      expect(statusBuilder.select).toHaveBeenCalledWith(
-        expect.stringContaining('evolution_strategies!inner'),
-      );
+      expect(fromCalls[0][0]).toBe('evolution_strategies');
+      // Verify .not() was called on the status query with strategy_id exclusion
+      const statusBuilder = mock.from.mock.results[1].value;
       expect(statusBuilder.not).toHaveBeenCalledWith(
-        'evolution_strategies.name', 'ilike', '%[TEST]%',
+        'strategy_id', 'in', expect.stringContaining(VALID_UUID_3),
       );
     });
 

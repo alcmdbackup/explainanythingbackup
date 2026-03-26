@@ -54,19 +54,32 @@ export const listInvocationsAction = adminAction(
     const parsed = listInvocationsInputSchema.parse(input);
     const { supabase } = ctx;
 
-    // When filtering test content, use nested inner join through runs to strategies
+    // Fetch test strategy IDs → test run IDs, then exclude those invocations.
+    // This avoids nested !inner joins which depend on FK constraints + PostgREST schema cache.
     const baseFields = 'id, run_id, agent_name, iteration, execution_order, success, cost_usd, duration_ms, created_at';
-    const selectExpr = parsed.filterTestContent
-      ? `${baseFields}, evolution_runs!inner(evolution_strategies!inner(name))`
-      : baseFields;
+    let testRunIds: string[] = [];
+    if (parsed.filterTestContent) {
+      const { data: testStrategies } = await supabase
+        .from('evolution_strategies')
+        .select('id')
+        .ilike('name', '%[TEST]%');
+      const testStrategyIds = (testStrategies ?? []).map(s => s.id as string);
+      if (testStrategyIds.length > 0) {
+        const { data: testRuns } = await supabase
+          .from('evolution_runs')
+          .select('id')
+          .in('strategy_id', testStrategyIds);
+        testRunIds = (testRuns ?? []).map(r => r.id as string);
+      }
+    }
 
     let query = supabase
       .from('evolution_agent_invocations')
-      .select(selectExpr, { count: 'exact' });
+      .select(baseFields, { count: 'exact' });
 
     if (parsed.runId) query = query.eq('run_id', parsed.runId);
-    if (parsed.filterTestContent) {
-      query = query.not('evolution_runs.evolution_strategies.name', 'ilike', '%[TEST]%');
+    if (parsed.filterTestContent && testRunIds.length > 0) {
+      query = query.not('run_id', 'in', `(${testRunIds.join(',')})`);
     }
 
     query = query.order('created_at', { ascending: false })
