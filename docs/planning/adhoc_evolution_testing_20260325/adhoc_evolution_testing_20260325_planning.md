@@ -21,15 +21,67 @@ The evolution admin dashboard has broken row actions, incorrect cost calculation
 
 ## Phased Execution Plan
 
-### Phase 1: P0 Critical Bugs (5 fixes)
+### Phase 0: Consolidate EntityListPage + RegistryPage (architectural)
 
-**1a. Row action buttons navigate instead of acting**
-- Files: `evolution/src/components/evolution/EntityTable.tsx`, `evolution/src/components/evolution/RegistryPage.tsx`
-- Root cause: EntityTable wraps every cell in `<Link>` (line 94). RegistryPage appends a synthetic `_actions` column. Buttons inside the Link trigger navigation because `e.stopPropagation()` doesn't prevent `<a>` default behavior in Next.js App Router (which uses client-side navigation via onClick, not native anchor behavior).
-- Fix approach: Add a `skipLink?: boolean` property to `ColumnDef`. RegistryPage sets `skipLink: true` on the actions column. EntityTable checks `col.skipLink` and skips the `<Link>` wrapper for those columns. Additionally, add `e.preventDefault()` in RegistryPage.tsx:118 as defense-in-depth.
-- Files modified: `EntityTable.tsx` (add skipLink check in cell render), `RegistryPage.tsx` (set skipLink on actions column + add preventDefault)
-- Test: Update `admin-prompt-registry.spec.ts` to verify Edit button opens dialog (not navigates). The existing test at lines 58-71 already asserts this — run it to confirm the fix works. Also verify `admin-strategy-registry.spec.ts` action buttons.
-- Side effect: This also fixes 3i (invocations Run ID column) since any column can now opt out of Link wrapping.
+The Entity base class (`evolution/src/lib/core/Entity.ts`) already declares `actions`, `renameField`, `editConfig`, `createConfig`, `archiveColumn`, `archiveValue`, and `executeAction()` — full CRUD infrastructure. But only Prompts and Strategies pages use it (via `RegistryPage`). The other 5 list pages (Runs, Experiments, Invocations, Variants, Arena) use `EntityListPage` directly and reimplement ~30 lines of identical state management boilerplate without any action support.
+
+#### Current entity action capabilities (from entity subclasses):
+
+| Entity | Rename | Edit | Create | Archive | Unarchive | Delete | Custom |
+|--------|--------|------|--------|---------|-----------|--------|--------|
+| Prompt | Yes | Yes | Yes | Yes (status→archived) | Yes (status→active) | Yes (if no refs) | — |
+| Strategy | Yes | Yes | Yes | Yes (status→archived) | Yes (status→active) | Yes (if 0 runs) | — |
+| Run | — | — | — | Yes (archived→true) | Yes (archived→false) | Yes (if terminal) | Kill |
+| Experiment | Yes | — | — | Yes (status→cancelled) | — | Yes (if terminal) | Cancel |
+| Variant | — | — | — | — | — | — | — |
+| Invocation | — | — | — | — | — | — | — |
+
+#### What to add:
+
+| Entity | Add | Why |
+|--------|-----|-----|
+| Experiment | Unarchive | Cancelled experiments should be re-activatable |
+| Variant | Archive, Delete | Clean up test variants, remove low-quality arena entries |
+| Invocation | — (read-only) | Invocations are immutable audit records |
+
+**0a. Create a generic `executeEntityAction` server action**
+- File: New `evolution/src/services/entityActions.ts`
+- Implementation: Single `adminAction` that receives `{ entityType, entityId, actionKey, payload? }`, looks up the entity via `getEntity(entityType)`, and calls `entity.executeAction(actionKey, entityId, db, payload)`.
+- This replaces the per-entity action server actions (archive/delete/rename/cancel) that are currently scattered across `arenaActions.ts`, `evolutionActions.ts`, `experimentActions.ts`, `strategyRegistryActions.ts`.
+- Test: Unit test exercising rename, archive, unarchive, delete via the generic action.
+
+**0b. Merge RegistryPage's features into EntityListPage**
+- Files: `evolution/src/components/evolution/EntityListPage.tsx`, `evolution/src/components/evolution/RegistryPage.tsx`
+- Add these optional props to `EntityListPage`:
+  - `loadData?: (filters, page, pageSize) => Promise<{ items: T[]; total: number }>` — when provided, EntityListPage manages state internally (items, loading, page, filterValues). When omitted, existing controlled pattern works.
+  - `rowActions?: EntityAction<T>[]` — EntityListPage appends an `_actions` column with `skipLink: true` (fixing P0 1a architecturally). Action buttons call `executeEntityAction` or custom handlers. Buttons with `confirm` show ConfirmDialog before executing. Buttons with `danger` get error styling.
+  - `headerAction?: { label: string; onClick: () => void }` — renders create button in header.
+  - `formDialog?` and `confirmDialog?` — same interface as RegistryPage currently exposes.
+  - `breadcrumbs?: Array<{ label: string; href?: string }>` — renders EvolutionBreadcrumb.
+  - `onActionComplete?: () => void` — reload callback after action execution.
+- Also add `skipLink?: boolean` to `ColumnDef` in `EntityTable.tsx`. When true, the cell renders without the `<Link>` wrapper.
+- Delete `RegistryPage.tsx` after migration — it becomes redundant.
+
+**0c. Migrate all 7 list pages to enhanced EntityListPage**
+- Each page drops its manual `useState`/`useEffect`/`useCallback` boilerplate and passes `loadData` + `rowActions` instead.
+- Pages: runs, experiments, invocations, variants, arena, prompts, strategies.
+- Prompts and strategies switch from `RegistryPage` to `EntityListPage` with `rowActions` from their entity's `actions` array.
+- Runs page keeps its `renderTable` (RunsTable) but gains `rowActions` for Kill/Archive/Delete.
+- Experiments page gains Archive/Delete actions (currently only has inline Cancel button).
+- Variants page gains Archive/Delete actions.
+- Invocations page stays read-only (empty actions array).
+- Arena page stays read-only for topics (archiving is via the prompts page).
+
+**0d. Add missing entity capabilities**
+- File: `evolution/src/lib/core/entities/ExperimentEntity.ts`
+  - Add `unarchive` action: `{ key: 'unarchive', label: 'Reopen', visible: (row) => row.status === 'cancelled' }`, sets status back to `'draft'`.
+- File: `evolution/src/lib/core/entities/VariantEntity.ts`
+  - Add `archiveColumn = 'archived_at'` and `archiveValue = new Date().toISOString()`.
+  - Add actions: `archive` (visible when `archived_at` is null), `unarchive` (visible when `archived_at` is set, sets to null), `delete` (with confirm message noting cascade to arena comparisons).
+
+### Phase 1: P0 Critical Bugs (4 remaining fixes — 1a is now part of Phase 0)
+
+**Note:** P0 item 1a (row action buttons) is architecturally resolved by Phase 0b (skipLink + action column in EntityListPage). The remaining P0 items are:
 
 **1b. Strategy budget field name mismatch**
 - File: `src/app/admin/evolution/_components/StrategyConfigDisplay.tsx`
@@ -153,8 +205,8 @@ The evolution admin dashboard has broken row actions, incorrect cost calculation
 - Test: Update `admin-strategy-detail.spec.ts` to verify the new Runs tab appears and loads data.
 
 **3i. Invocations "Run ID" column links to invocation detail**
-- No code changes needed — already fixed by Phase 1a `skipLink` approach. The invocations page can add `skipLink: true` to the Run ID column if it should link to the run instead. Alternatively, the Run ID column's `render` function can return its own `<Link>` to the run detail page, which will be the only link in that cell since the outer Link is skipped.
-- Verify: After 1a is done, confirm invocations list Run ID column behavior is correct.
+- No separate code changes needed — resolved by Phase 0b consolidation. The Run ID column's `render` function can return its own `<Link>` to the run detail page since the row-level Link skips `skipLink: true` columns.
+- Verify: After Phase 0 is done, confirm invocations list Run ID column links to run detail.
 
 **3j. Wizard review doesn't show selected prompt**
 - File: `src/app/admin/evolution/_components/ExperimentForm.tsx`
@@ -194,7 +246,7 @@ The evolution admin dashboard has broken row actions, incorrect cost calculation
 - `admin-evolution-error-states.spec.ts` — Phase 2c (404 handling)
 
 ### E2E Spec Updates Required
-- Phase 1a: Run existing `admin-prompt-registry.spec.ts` and `admin-strategy-registry.spec.ts` — they should now PASS (currently they may navigate away). If DOM structure changes break selectors, update accordingly.
+- Phase 0: Run existing `admin-prompt-registry.spec.ts` and `admin-strategy-registry.spec.ts` — action buttons should now work (currently navigate away). If DOM structure changes break selectors, update accordingly. All other list page specs should be re-run to verify no regressions from the EntityListPage consolidation.
 - Phase 3h: Add test assertions for "Runs" tab in strategy detail E2E spec
 - Phase 3m: Add test assertions for "Matches" tab in variant detail E2E spec (if spec exists)
 - Phase 3d: Verify arena E2E spec sort assertions still pass with descending default
