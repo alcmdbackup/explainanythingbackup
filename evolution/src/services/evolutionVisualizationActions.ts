@@ -92,22 +92,49 @@ export const getEvolutionDashboardDataAction = adminAction(
     ]);
 
     // Count by status
-    const runs = statusResult.data ?? [];
+    const runs = (statusResult.data ?? []) as unknown as Array<{ status: string }>;
     const activeRuns = runs.filter(r => r.status === 'running' || r.status === 'claimed').length;
     const queueDepth = runs.filter(r => r.status === 'pending').length;
     const completedRuns = runs.filter(r => r.status === 'completed').length;
     const failedRuns = runs.filter(r => r.status === 'failed').length;
 
-    // Total cost
-    const costs = costResult.data ?? [];
-    const totalCostUsd = costs.reduce((sum, c) => sum + (Number(c.total_cost_usd) || 0), 0);
+    // Total cost — when filtering, re-query to get non-test run IDs for cost lookup
+    // Total cost — when filtering, exclude test run costs using testStrategyIds
+    const allCosts = costResult.data ?? [];
+    let totalCostUsd: number;
+    if (filterTest && testStrategyIds.length > 0) {
+      const { data: filteredRuns } = await supabase
+        .from('evolution_runs')
+        .select('id')
+        .not('strategy_id', 'in', `(${testStrategyIds.join(',')})`);
+      const filteredRunIds = (filteredRuns ?? []).map(r => r.id as string);
+      if (filteredRunIds.length > 0) {
+        const { data: filteredCosts } = await supabase
+          .from('evolution_run_costs')
+          .select('total_cost_usd')
+          .in('run_id', filteredRunIds);
+        totalCostUsd = (filteredCosts ?? []).reduce(
+          (sum: number, c: { total_cost_usd: string | number }) => sum + (Number(c.total_cost_usd) || 0), 0,
+        );
+      } else {
+        totalCostUsd = 0;
+      }
+    } else {
+      totalCostUsd = allCosts.reduce(
+        (sum, c) => sum + (Number(c.total_cost_usd) || 0), 0,
+      );
+    }
+
     const runCount = completedRuns + failedRuns;
     const avgCostPerRun = runCount > 0 ? totalCostUsd / runCount : 0;
 
     // Enrich recent runs with strategy names and costs
-    const recentRuns = recentResult.data ?? [];
-    const strategyIds = [...new Set(recentRuns.map(r => r.strategy_id as string).filter(Boolean))];
-    const runIds = recentRuns.map(r => r.id as string);
+    const recentRuns = (recentResult.data ?? []) as unknown as Array<{
+      id: string; status: string; strategy_id: string | null;
+      created_at: string; completed_at: string | null;
+    }>;
+    const strategyIds = [...new Set(recentRuns.map(r => r.strategy_id).filter((id): id is string => !!id))];
+    const runIds = recentRuns.map(r => r.id);
 
     const [stratMap, costMap] = await Promise.all([
       strategyIds.length > 0
@@ -128,12 +155,12 @@ export const getEvolutionDashboardDataAction = adminAction(
       totalCostUsd,
       avgCostPerRun,
       recentRuns: recentRuns.map(r => ({
-        id: r.id as string,
-        status: r.status as string,
-        strategy_name: stratMap.get(r.strategy_id as string) ?? null,
-        total_cost_usd: costMap.get(r.id as string) ?? 0,
-        created_at: r.created_at as string,
-        completed_at: r.completed_at as string | null,
+        id: r.id,
+        status: r.status,
+        strategy_name: stratMap.get(r.strategy_id ?? '') ?? null,
+        total_cost_usd: costMap.get(r.id) ?? 0,
+        created_at: r.created_at,
+        completed_at: r.completed_at,
       })),
     };
   },

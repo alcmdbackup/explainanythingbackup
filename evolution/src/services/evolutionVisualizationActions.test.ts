@@ -158,6 +158,91 @@ describe('evolutionVisualizationActions', () => {
       expect(result.data!.recentRuns).toEqual([]);
     });
 
+    it('filters test content when filterTestContent is true', async () => {
+      // With filterTestContent=true, the action should use inner joins and .not()
+      // to exclude runs whose strategy name contains [TEST].
+      // Query order: status (with inner join), cost (skipped/resolved), recent (with inner join),
+      // then: filtered IDs for cost, filtered cost, strategies, per-run costs.
+      const statusRows = [
+        { status: 'running' },
+        { status: 'completed' },
+      ];
+      const recentRuns = [
+        {
+          id: VALID_UUID,
+          status: 'completed',
+          strategy_id: VALID_UUID_2,
+          created_at: '2026-03-01T10:00:00Z',
+          completed_at: '2026-03-01T12:00:00Z',
+        },
+      ];
+      const filteredIds = [{ id: VALID_UUID }];
+      const filteredCosts = [{ total_cost_usd: '4.50' }];
+      const strategies = [{ id: VALID_UUID_2, name: 'Real Strategy' }];
+      const runCosts = [{ run_id: VALID_UUID, total_cost_usd: 4.5 }];
+
+      const mock = createTableAwareMock([
+        // 1. evolution_runs (status with inner join) — filterTest=true skips cost query
+        (b) => {
+          b.then = jest.fn((resolve: (v: unknown) => void) =>
+            resolve({ data: statusRows, error: null })
+          );
+        },
+        // 2. evolution_runs (recent with inner join) — cost query is Promise.resolve
+        (b) => {
+          b.then = jest.fn((resolve: (v: unknown) => void) =>
+            resolve({ data: recentRuns, error: null })
+          );
+        },
+        // 3. evolution_runs (filtered IDs for cost lookup)
+        (b) => {
+          b.then = jest.fn((resolve: (v: unknown) => void) =>
+            resolve({ data: filteredIds, error: null })
+          );
+        },
+        // 4. evolution_run_costs (filtered)
+        (b) => {
+          b.then = jest.fn((resolve: (v: unknown) => void) =>
+            resolve({ data: filteredCosts, error: null })
+          );
+        },
+        // 5. evolution_strategies (names)
+        (b) => {
+          b.then = jest.fn((resolve: (v: unknown) => void) =>
+            resolve({ data: strategies, error: null })
+          );
+        },
+        // 6. evolution_run_costs (per run)
+        (b) => {
+          b.then = jest.fn((resolve: (v: unknown) => void) =>
+            resolve({ data: runCosts, error: null })
+          );
+        },
+      ]);
+      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+      const result = await getEvolutionDashboardDataAction({ filterTestContent: true });
+
+      expect(result.success).toBe(true);
+      expect(result.data!.activeRuns).toBe(1);
+      expect(result.data!.completedRuns).toBe(1);
+      expect(result.data!.totalCostUsd).toBe(4.5);
+      expect(result.data!.recentRuns).toHaveLength(1);
+      expect(result.data!.recentRuns[0]!.strategy_name).toBe('Real Strategy');
+
+      // Verify that .not() was called on the status query to exclude [TEST]
+      const fromCalls = mock.from.mock.calls;
+      expect(fromCalls[0][0]).toBe('evolution_runs'); // status query
+      // The inner join select should include evolution_strategies!inner
+      const statusBuilder = mock.from.mock.results[0].value;
+      expect(statusBuilder.select).toHaveBeenCalledWith(
+        expect.stringContaining('evolution_strategies!inner'),
+      );
+      expect(statusBuilder.not).toHaveBeenCalledWith(
+        'evolution_strategies.name', 'ilike', '%[TEST]%',
+      );
+    });
+
     it('returns error when status query fails', async () => {
       const mock = createTableAwareMock([
         // evolution_runs (status) — fails
