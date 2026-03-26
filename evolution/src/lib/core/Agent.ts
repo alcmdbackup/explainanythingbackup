@@ -61,7 +61,7 @@ export abstract class Agent<TInput, TOutput, TDetail extends ExecutionDetailBase
       // Check BudgetExceededWithPartialResults BEFORE BudgetExceededError (subclass)
       if (error instanceof BudgetExceededWithPartialResults) {
         await updateInvocation(ctx.db, invocationId, failUpdate);
-        return { success: false, result: null, cost, durationMs, invocationId, budgetExceeded: true, partialResult: error.partialVariants };
+        return { success: false, result: null, cost, durationMs, invocationId, budgetExceeded: true, partialResult: error.partialData };
       }
 
       if (error instanceof BudgetExceededError) {

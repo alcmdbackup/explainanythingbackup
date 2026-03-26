@@ -5,6 +5,7 @@ import type { Variant } from '../../types';
 import { createVariant } from '../../types';
 import type { Rating, ComparisonResult } from '../../shared/computeRatings';
 import type { EvolutionConfig, EvolutionResult, V2Match } from '../infra/types';
+import type { RankResult } from './rankVariants';
 
 import { createCostTracker } from '../infra/trackBudget';
 import { createV2LLMClient } from '../infra/createLLMClient';
@@ -193,6 +194,14 @@ export async function evolveArticle(
         stopReason = 'converged'; iterationsRun = iter; break;
       }
     } else if (rankPhase.budgetExceeded) {
+      if (rankPhase.partialResult) {
+        const partialRank = rankPhase.partialResult as RankResult;
+        for (const [id, r] of Object.entries(partialRank.ratingUpdates)) { ratings.set(id, r); }
+        for (const [id, delta] of Object.entries(partialRank.matchCountIncrements)) {
+          matchCounts.set(id, (matchCounts.get(id) ?? 0) + delta);
+        }
+        allMatches.push(...partialRank.matches);
+      }
       logger.warn('Budget exceeded during ranking', { iteration: iter, totalSpent: costTracker.getTotalSpent(), phaseName: 'budget' });
       stopReason = 'budget_exceeded'; iterationsRun = iter; break;
     }

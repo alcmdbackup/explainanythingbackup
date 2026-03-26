@@ -5,6 +5,7 @@ import { BudgetExceededError } from '../../types';
 import type { EvolutionConfig } from '../infra/types';
 import { writeMetric } from '../../metrics/writeMetrics';
 import { createMockEntityLogger } from '../../../testing/evolution-test-helpers';
+import { RankingAgent } from '../../core/agents/RankingAgent';
 
 jest.mock('../../metrics/writeMetrics', () => ({
   writeMetric: jest.fn().mockResolvedValue(undefined),
@@ -456,5 +457,51 @@ describe('evolveArticle', () => {
       expect(calls.some((c) => c.message === 'Baseline variant added')).toBe(true);
       expect(calls.some((c) => c.message === 'Initial pool loaded')).toBe(true);
     });
+  });
+
+  // ─── Partial ranking results on budget exceeded ───────────────
+  it('applies partial ranking results when ranking returns budgetExceeded with partialResult', async () => {
+    const partialRatingUpdates = { 'v-partial-1': { mu: 32, sigma: 5 }, 'v-partial-2': { mu: 18, sigma: 6 } };
+    const partialMatchCountIncrements = { 'v-partial-1': 3, 'v-partial-2': 3 };
+    const partialMatches = [
+      { winnerId: 'v-partial-1', loserId: 'v-partial-2', result: 'win' as const, confidence: 0.8, timestamp: Date.now() },
+    ];
+
+    // Spy on RankingAgent.prototype.run to return budget exceeded with partial results
+    const rankSpy = jest.spyOn(RankingAgent.prototype, 'run').mockResolvedValueOnce({
+      success: false,
+      result: null,
+      cost: 0.5,
+      invocationId: 'inv-mock',
+      budgetExceeded: true,
+      partialResult: {
+        ratingUpdates: partialRatingUpdates,
+        matchCountIncrements: partialMatchCountIncrements,
+        matches: partialMatches,
+        converged: false,
+      },
+    });
+
+    const result = await evolveArticle(
+      'original text',
+      makeRawProvider(),
+      makeMockDb(),
+      'run-1',
+      { ...baseConfig, iterations: 3 },
+    );
+
+    rankSpy.mockRestore();
+
+    expect(result.stopReason).toBe('budget_exceeded');
+    // Partial ratings should be applied
+    expect(result.ratings.get('v-partial-1')).toEqual({ mu: 32, sigma: 5 });
+    expect(result.ratings.get('v-partial-2')).toEqual({ mu: 18, sigma: 6 });
+    // Partial match counts should be applied
+    expect(result.matchCounts['v-partial-1']).toBe(3);
+    expect(result.matchCounts['v-partial-2']).toBe(3);
+    // Partial matches should be in matchHistory
+    expect(result.matchHistory).toEqual(expect.arrayContaining([
+      expect.objectContaining({ winnerId: 'v-partial-1', loserId: 'v-partial-2' }),
+    ]));
   });
 });
