@@ -472,6 +472,7 @@ describe('evolveArticle', () => {
       success: false,
       result: null,
       cost: 0.5,
+      durationMs: 100,
       invocationId: 'inv-mock',
       budgetExceeded: true,
       partialResult: {
