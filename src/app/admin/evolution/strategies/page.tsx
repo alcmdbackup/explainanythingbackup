@@ -1,23 +1,22 @@
-// Strategies CRUD list page using RegistryPage pattern with V2 schema.
-// Provides create, edit, clone, archive, and delete actions for strategy configs.
+// Strategies CRUD list page using EntityListPage self-managed mode.
+// Provides create, edit, clone, and delete actions for strategy configs (no archive).
 
 'use client';
 
 import { useState } from 'react';
 import { toast } from 'sonner';
-import { RegistryPage, type RegistryPageConfig, type RowAction } from '@evolution/components/evolution/RegistryPage';
+import { EntityListPage } from '@evolution/components/evolution';
+import type { RowAction, FilterDef, ColumnDef } from '@evolution/components/evolution';
 import type { FieldDef } from '@evolution/components/evolution/FormDialog';
-import type { ColumnDef, FilterDef } from '@evolution/components/evolution';
 import { createMetricColumns } from '@evolution/lib/metrics/metricColumns';
 import {
   listStrategiesAction,
   createStrategyAction,
   updateStrategyAction,
   cloneStrategyAction,
-  archiveStrategyAction,
-  deleteStrategyAction,
   type StrategyListItem,
 } from '@evolution/services/strategyRegistryActions';
+import { executeEntityAction } from '@evolution/services/entityActions';
 import { MODEL_OPTIONS } from '@/lib/utils/modelOptions';
 
 const loadData = async (filters: Record<string, string>, page: number, pageSize: number) => {
@@ -38,7 +37,6 @@ const baseColumns: ColumnDef<StrategyListItem>[] = [
   { key: 'label', header: 'Label', render: (row) => <span className="truncate block max-w-[200px]" title={row.label}>{row.label}</span> },
   { key: 'pipeline_type', header: 'Pipeline', render: (row) => row.pipeline_type ?? '—' },
   { key: 'status', header: 'Status', render: (row) => row.status },
-  { key: 'run_count', header: 'Runs', render: (row) => row.run_count },
   { key: 'avg_final_elo', header: 'Avg Elo', render: (row) => (row.avg_final_elo != null ? row.avg_final_elo.toFixed(0) : '—') },
 ];
 const columns: ColumnDef<StrategyListItem>[] = [...baseColumns, ...createMetricColumns<StrategyListItem>('strategy')];
@@ -51,7 +49,6 @@ const filters: FilterDef[] = [
     options: [
       { label: 'All', value: '' },
       { label: 'Active', value: 'active' },
-      { label: 'Archived', value: 'archived' },
     ],
   },
   {
@@ -80,7 +77,6 @@ type DialogState =
   | { kind: 'create' }
   | { kind: 'edit'; row: StrategyListItem }
   | { kind: 'clone'; row: StrategyListItem }
-  | { kind: 'archive'; row: StrategyListItem }
   | { kind: 'delete'; row: StrategyListItem };
 
 export default function StrategiesPage(): JSX.Element {
@@ -89,42 +85,10 @@ export default function StrategiesPage(): JSX.Element {
   const close = (): void => setDialog({ kind: 'none' });
 
   const rowActions: RowAction<StrategyListItem>[] = [
-    {
-      label: 'Edit',
-      onClick: (row) => setDialog({ kind: 'edit', row }),
-    },
-    {
-      label: 'Clone',
-      onClick: (row) => setDialog({ kind: 'clone', row }),
-    },
-    {
-      label: 'Archive',
-      onClick: (row) => setDialog({ kind: 'archive', row }),
-      visible: (row) => row.status !== 'archived',
-    },
-    {
-      label: 'Unarchive',
-      onClick: (row) => setDialog({ kind: 'archive', row }),
-      visible: (row) => row.status === 'archived',
-    },
-    {
-      label: 'Delete',
-      onClick: (row) => setDialog({ kind: 'delete', row }),
-      danger: true,
-    },
+    { label: 'Edit', onClick: (row) => setDialog({ kind: 'edit', row }) },
+    { label: 'Clone', onClick: (row) => setDialog({ kind: 'clone', row }) },
+    { label: 'Delete', onClick: (row) => setDialog({ kind: 'delete', row }), danger: true },
   ];
-
-  const config: RegistryPageConfig<StrategyListItem> = {
-    title: 'Strategies',
-    breadcrumbs: [{ label: 'Evolution', href: '/admin/evolution-dashboard' }],
-    columns,
-    filters,
-    loadData,
-    getRowHref: (row) => `/admin/evolution/strategies/${row.id}`,
-    rowActions,
-    headerAction: { label: 'New Strategy', onClick: () => setDialog({ kind: 'create' }) },
-    emptyMessage: 'No strategies found.',
-  };
 
   const formOpen = dialog.kind === 'create' || dialog.kind === 'edit';
   const formInitial = dialog.kind === 'edit'
@@ -169,28 +133,14 @@ export default function StrategiesPage(): JSX.Element {
     toast.success('Strategy cloned');
   };
 
-  const handleArchive = async () => {
-    if (dialog.kind !== 'archive') return;
-    const isArchived = dialog.row.status === 'archived';
-    if (isArchived) {
-      const result = await updateStrategyAction({ id: dialog.row.id, status: 'active' });
-      if (!result.success) throw new Error(result.error?.message ?? 'Unarchive failed');
-      toast.success('Strategy unarchived');
-    } else {
-      const result = await archiveStrategyAction(dialog.row.id);
-      if (!result.success) throw new Error(result.error?.message ?? 'Archive failed');
-      toast.success('Strategy archived');
-    }
-  };
-
   const handleDelete = async () => {
     if (dialog.kind !== 'delete') return;
-    const result = await deleteStrategyAction(dialog.row.id);
+    const result = await executeEntityAction({ entityType: 'strategy', entityId: dialog.row.id, actionKey: 'delete' });
     if (!result.success) throw new Error(result.error?.message ?? 'Delete failed');
     toast.success('Strategy deleted');
   };
 
-  const confirmOpen = dialog.kind === 'clone' || dialog.kind === 'archive' || dialog.kind === 'delete';
+  const confirmOpen = dialog.kind === 'clone' || dialog.kind === 'delete';
   const getConfirmProps = (): { title: string; message: string; confirmLabel?: string; onConfirm: () => Promise<void>; danger: boolean } => {
     if (dialog.kind === 'clone') {
       return {
@@ -201,21 +151,9 @@ export default function StrategiesPage(): JSX.Element {
         danger: false,
       };
     }
-    if (dialog.kind === 'archive') {
-      const isArchived = dialog.row.status === 'archived';
-      return {
-        title: isArchived ? 'Unarchive Strategy' : 'Archive Strategy',
-        message: isArchived
-          ? `Unarchive "${dialog.row.name}"?`
-          : `Archive "${dialog.row.name}"? It will no longer appear in active lists.`,
-        confirmLabel: isArchived ? 'Unarchive' : 'Archive',
-        onConfirm: handleArchive,
-        danger: false,
-      };
-    }
     return {
       title: 'Delete Strategy',
-      message: `Permanently delete "${dialog.kind === 'delete' ? dialog.row.name : ''}"? This cannot be undone.`,
+      message: `Permanently delete "${dialog.kind === 'delete' ? dialog.row.name : ''}" and all its runs? This cannot be undone.`,
       confirmLabel: 'Delete',
       onConfirm: handleDelete,
       danger: true,
@@ -223,8 +161,19 @@ export default function StrategiesPage(): JSX.Element {
   };
 
   return (
-    <RegistryPage<StrategyListItem>
-      config={config}
+    <EntityListPage<StrategyListItem>
+      title="Strategies"
+      breadcrumbs={[
+        { label: 'Evolution', href: '/admin/evolution-dashboard' },
+        { label: 'Strategies' },
+      ]}
+      columns={columns}
+      filters={filters}
+      loadData={loadData}
+      getRowHref={(row) => `/admin/evolution/strategies/${row.id}`}
+      rowActions={rowActions}
+      headerAction={{ label: 'New Strategy', onClick: () => setDialog({ kind: 'create' }) }}
+      emptyMessage="No strategies found."
       formDialog={formOpen ? {
         open: true,
         onClose: close,

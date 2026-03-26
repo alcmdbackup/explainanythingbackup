@@ -12,11 +12,11 @@ export type { MetricGridProps, MetricItem } from './MetricGrid';
 export { EntityTable } from './EntityTable';
 export type { EntityTableProps, ColumnDef } from './EntityTable';
 export { EntityListPage } from './EntityListPage';
-export type { EntityListPageProps, FilterDef } from './EntityListPage';
+export type { EntityListPageProps, FilterDef, RowAction } from './EntityListPage';
 export { EntityDetailTabs, useTabState } from './EntityDetailTabs';
 export type { EntityDetailTabsProps, TabDef, UseTabStateOptions } from './EntityDetailTabs';
-export { RegistryPage } from './RegistryPage';
-export type { RegistryPageConfig, RowAction } from './RegistryPage';
+// RegistryPage removed — use EntityListPage with loadData prop instead
+export { NotFoundCard } from './NotFoundCard';
 export { FormDialog } from './FormDialog';
 export type { FieldDef } from './FormDialog';
 export { ConfirmDialog } from './ConfirmDialog';

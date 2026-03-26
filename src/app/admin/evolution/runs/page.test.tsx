@@ -67,12 +67,9 @@ describe('EvolutionRunsPage', () => {
     expect(checkbox.checked).toBe(true);
   });
 
-  it('renders include archived checkbox (unchecked by default)', () => {
+  it('does not render include archived filter (archive removed)', () => {
     render(<EvolutionRunsPage />);
-    const label = screen.getByTestId('filter-includeArchived');
-    const checkbox = label.querySelector('input[type="checkbox"]') as HTMLInputElement;
-    expect(checkbox).toBeInTheDocument();
-    expect(checkbox.checked).toBe(false);
+    expect(screen.queryByTestId('filter-includeArchived')).not.toBeInTheDocument();
   });
 
   it('renders runs table', async () => {

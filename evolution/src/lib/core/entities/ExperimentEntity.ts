@@ -17,8 +17,6 @@ export class ExperimentEntity extends Entity<EvolutionExperimentFullDb> {
   readonly type: EntityType = 'experiment';
   readonly table = 'evolution_experiments';
   readonly statusField = 'status';
-  readonly archiveColumn = 'status';
-  readonly archiveValue = 'cancelled';
   readonly logQueryColumn = 'experiment_id';
   readonly renameField = 'name';
 
@@ -27,7 +25,7 @@ export class ExperimentEntity extends Entity<EvolutionExperimentFullDb> {
   ];
 
   readonly children: ChildRelation[] = [
-    { childType: 'run', foreignKey: 'experiment_id', cascade: 'nullify' },
+    { childType: 'run', foreignKey: 'experiment_id', cascade: 'delete' },
   ];
 
   readonly metrics: EntityMetricRegistry = {
@@ -93,10 +91,8 @@ export class ExperimentEntity extends Entity<EvolutionExperimentFullDb> {
     { key: 'cancel', label: 'Cancel', danger: true,
       confirm: 'Cancel this experiment?',
       visible: (row) => ['draft', 'running'].includes(row.status) },
-    { key: 'archive', label: 'Archive',
-      visible: (row) => ['completed', 'cancelled'].includes(row.status) },
     { key: 'delete', label: 'Delete', danger: true,
-      confirm: 'Delete this experiment?',
+      confirm: 'Delete this experiment and all its runs?',
       visible: (row) => ['completed', 'cancelled'].includes(row.status) },
   ];
 

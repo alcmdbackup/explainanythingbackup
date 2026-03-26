@@ -9,10 +9,12 @@ import {
   EntityListPage,
 } from '@evolution/components/evolution';
 import type { FilterDef, ColumnDef } from '@evolution/components/evolution';
+import { ConfirmDialog } from '@evolution/components/evolution/ConfirmDialog';
 import {
   listExperimentsAction,
   cancelExperimentAction,
 } from '@evolution/services/experimentActions';
+import { executeEntityAction } from '@evolution/services/entityActions';
 import { buildExperimentUrl } from '@evolution/lib/utils/evolutionUrls';
 
 interface ExperimentSummary {
@@ -99,6 +101,7 @@ const COLUMNS: ColumnDef<ExperimentSummary>[] = [
 export default function ExperimentsListPage(): JSX.Element {
   const [experiments, setExperiments] = useState<ExperimentSummary[]>([]);
   const [loading, setLoading] = useState(true);
+  const [deleteTarget, setDeleteTarget] = useState<ExperimentSummary | null>(null);
   const [filterValues, setFilterValues] = useState<Record<string, string>>(() => {
     const defaults: Record<string, string> = { status: 'all' };
     for (const f of FILTERS) {
@@ -143,29 +146,39 @@ export default function ExperimentsListPage(): JSX.Element {
     }
   };
 
+  const handleDelete = async (): Promise<void> => {
+    if (!deleteTarget) return;
+    const res = await executeEntityAction({ entityType: 'experiment', entityId: deleteTarget.id, actionKey: 'delete' });
+    if (res.success) { toast.success('Experiment deleted'); load(); } else { toast.error(res.error?.message ?? 'Delete failed'); }
+  };
+
   const columnsWithActions: ColumnDef<ExperimentSummary>[] = [
     ...COLUMNS,
     {
       key: 'actions',
       header: '',
       align: 'right',
-      render: (exp) => {
-        if (exp.status === 'running' || exp.status === 'draft') {
-          return (
+      skipLink: true,
+      render: (exp) => (
+        <div className="flex gap-2">
+          {(exp.status === 'running' || exp.status === 'draft') && (
             <button
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                handleCancel(exp);
-              }}
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleCancel(exp); }}
               className="font-ui text-xs text-[var(--status-warning)] hover:text-[var(--status-error)]"
             >
               Cancel
             </button>
-          );
-        }
-        return null;
-      },
+          )}
+          {['completed', 'cancelled'].includes(exp.status) && (
+            <button
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); setDeleteTarget(exp); }}
+              className="font-ui text-xs text-[var(--status-error)]"
+            >
+              Delete
+            </button>
+          )}
+        </div>
+      ),
     },
   ];
 
@@ -188,6 +201,16 @@ export default function ExperimentsListPage(): JSX.Element {
         getRowHref={(exp) => buildExperimentUrl(exp.id)}
         emptyMessage="No experiments found."
         emptySuggestion="Use the experiment wizard to start one."
+      />
+
+      <ConfirmDialog
+        open={!!deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        title="Delete Experiment"
+        message={`Delete "${deleteTarget?.name}" and all its runs? This cannot be undone.`}
+        confirmLabel="Delete"
+        onConfirm={handleDelete}
+        danger
       />
     </div>
   );

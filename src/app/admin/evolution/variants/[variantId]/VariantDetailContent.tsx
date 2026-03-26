@@ -4,11 +4,13 @@
 import { EntityDetailHeader, MetricGrid, EntityDetailTabs, useTabState, EntityMetricsTab } from '@evolution/components/evolution';
 import { VariantContentSection } from '@evolution/components/evolution/variant/VariantContentSection';
 import { VariantLineageSection } from '@evolution/components/evolution/variant/VariantLineageSection';
+import { VariantMatchHistory } from '@evolution/components/evolution/variant/VariantMatchHistory';
 import type { VariantFullDetail } from '@evolution/services/variantDetailActions';
 
 const TABS = [
   { id: 'content', label: 'Content' },
   { id: 'metrics', label: 'Metrics' },
+  { id: 'matches', label: 'Matches' },
   { id: 'lineage', label: 'Lineage' },
 ];
 
@@ -54,6 +56,7 @@ export function VariantDetailContent({ variant }: VariantDetailContentProps): JS
       <EntityDetailTabs tabs={TABS} activeTab={activeTab} onTabChange={setActiveTab}>
         {activeTab === 'metrics' && <EntityMetricsTab entityType="variant" entityId={variant.id} />}
         {activeTab === 'content' && <VariantContentSection content={variant.variantContent} />}
+        {activeTab === 'matches' && <VariantMatchHistory variantId={variant.id} />}
         {activeTab === 'lineage' && <VariantLineageSection variantId={variant.id} />}
       </EntityDetailTabs>
     </div>

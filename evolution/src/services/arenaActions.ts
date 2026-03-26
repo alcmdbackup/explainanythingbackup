@@ -49,8 +49,8 @@ export interface ArenaComparison {
 // ─── Schemas ────────────────────────────────────────────────────
 
 const createTopicSchema = z.object({
-  prompt: z.string().min(1).max(10000),
-  name: z.string().min(1).max(200),
+  prompt: z.string().trim().min(1).max(10000),
+  name: z.string().trim().min(1).max(200),
 });
 
 // ─── Actions ────────────────────────────────────────────────────
@@ -211,14 +211,14 @@ export interface PromptListItem {
 }
 
 const createPromptSchema = z.object({
-  name: z.string().min(1).max(200),
-  prompt: z.string().min(1).max(10000),
+  name: z.string().trim().min(1).max(200),
+  prompt: z.string().trim().min(1).max(10000),
 });
 
 const updatePromptSchema = z.object({
   id: z.string().uuid(),
-  name: z.string().min(1).max(200).optional(),
-  prompt: z.string().min(1).max(10000).optional(),
+  name: z.string().trim().min(1).max(200).optional(),
+  prompt: z.string().trim().min(1).max(10000).optional(),
 });
 
 export const listPromptsAction = adminAction(

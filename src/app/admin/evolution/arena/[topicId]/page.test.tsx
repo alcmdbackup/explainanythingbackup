@@ -126,7 +126,7 @@ describe('ArenaTopicDetailPage', () => {
     });
   });
 
-  it('shows error when topic fails to load', async () => {
+  it('shows not found card when topic fails to load', async () => {
     mockGetArenaTopicDetailAction.mockResolvedValue({
       success: false,
       data: null,
@@ -134,7 +134,7 @@ describe('ArenaTopicDetailPage', () => {
     });
     render(<ArenaTopicDetailPage />);
     await waitFor(() => {
-      expect(screen.getByText('Network error')).toBeInTheDocument();
+      expect(screen.getByText('Arena Topic not found')).toBeInTheDocument();
     });
   });
 
@@ -168,7 +168,7 @@ describe('ArenaTopicDetailPage', () => {
     expect(eloHeader.textContent).toContain('\u25B2');
   });
 
-  it('switches sort column and resets direction to asc (F41)', async () => {
+  it('switches sort column and resets direction to desc (F41)', async () => {
     const user = userEvent.setup();
     render(<ArenaTopicDetailPage />);
     await waitFor(() => {
@@ -176,7 +176,7 @@ describe('ArenaTopicDetailPage', () => {
     });
     const muHeader = screen.getByText(/^Mu/);
     await user.click(muHeader);
-    expect(muHeader.textContent).toContain('\u25B2');
+    expect(muHeader.textContent).toContain('\u25BC'); // defaults to desc
     // Elo should no longer show indicator
     const eloHeader = screen.getByText(/Elo/);
     expect(eloHeader.textContent).not.toContain('\u25B2');

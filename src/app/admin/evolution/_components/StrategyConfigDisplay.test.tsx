@@ -34,6 +34,17 @@ describe('StrategyConfigDisplay', () => {
     expect(screen.getByText(/deepseek-chat/)).toBeInTheDocument();
   });
 
+  it('renders budget row when budgetUsd is present', () => {
+    render(<StrategyConfigDisplay config={{ ...baseConfig, budgetUsd: 2.0 }} />);
+    expect(screen.getByText('Budget')).toBeInTheDocument();
+    expect(screen.getByText('$2.00')).toBeInTheDocument();
+  });
+
+  it('does not render budget row when budgetUsd is absent', () => {
+    render(<StrategyConfigDisplay config={baseConfig} />);
+    expect(screen.queryByText('Budget')).not.toBeInTheDocument();
+  });
+
   it('shows single article mode when enabled', () => {
     render(<StrategyConfigDisplay config={{ ...baseConfig, singleArticle: true }} />);
     expect(screen.getByText('Single Article')).toBeInTheDocument();

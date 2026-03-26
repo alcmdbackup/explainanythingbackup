@@ -34,6 +34,7 @@ export interface EvolutionRun {
   total_cost_usd?: number;
   experiment_name?: string | null;
   strategy_name?: string | null;
+  prompt_name?: string | null;
 }
 
 export interface EvolutionVariant {
@@ -187,7 +188,7 @@ export const queueEvolutionRunAction = adminAction(
 export const getEvolutionRunsAction = adminAction(
   'getEvolutionRunsAction',
   async (
-    filters: { status?: string; promptId?: string; includeArchived?: boolean; filterTestContent?: boolean; limit?: number; offset?: number } | undefined,
+    filters: { status?: string; promptId?: string; strategy_id?: string; includeArchived?: boolean; filterTestContent?: boolean; limit?: number; offset?: number } | undefined,
     ctx: AdminContext,
   ): Promise<{ items: EvolutionRun[]; total: number }> => {
     const { supabase } = ctx;
@@ -212,7 +213,10 @@ export const getEvolutionRunsAction = adminAction(
       .select('*', { count: 'exact' });
 
     if (filters?.status) query = query.eq('status', filters.status);
-    if (!filters?.includeArchived) query = query.eq('archived', false);
+    if (filters?.strategy_id) {
+      if (!validateUuid(filters.strategy_id)) throw new Error('Invalid strategy_id filter');
+      query = query.eq('strategy_id', filters.strategy_id);
+    }
     if (filters?.promptId) {
       if (!validateUuid(filters.promptId)) throw new Error('Invalid promptId filter');
       query = query.eq('prompt_id', filters.promptId);
@@ -230,15 +234,17 @@ export const getEvolutionRunsAction = adminAction(
     // evolution_strategies object that the TS Supabase client can't parse.
     const typedRuns = (runs ?? []) as unknown as EvolutionRun[];
 
-    // Batch-fetch costs from view
+    // Batch-fetch costs from evolution_metrics (replaces dropped evolution_run_costs view)
     const runIds = typedRuns.map(r => r.id);
     if (runIds.length > 0) {
       const { data: costs } = await supabase
-        .from('evolution_run_costs')
-        .select('run_id, total_cost_usd')
-        .in('run_id', runIds);
+        .from('evolution_metrics')
+        .select('entity_id, value')
+        .eq('entity_type', 'run')
+        .eq('metric_name', 'cost')
+        .in('entity_id', runIds);
 
-      const costMap = new Map((costs ?? []).map(c => [c.run_id as string, Number(c.total_cost_usd) || 0]));
+      const costMap = new Map((costs ?? []).map(c => [c.entity_id as string, Number(c.value) || 0]));
       for (const run of typedRuns) {
         run.total_cost_usd = costMap.get(run.id) ?? 0;
       }
@@ -311,15 +317,17 @@ export const getEvolutionRunByIdAction = adminAction(
     const { data: costData } = await ctx.supabase.rpc('get_run_total_cost', { p_run_id: runId });
     run.total_cost_usd = Number(costData) || 0;
 
-    // Fetch strategy name
-    if (run.strategy_id) {
-      const { data: strat } = await ctx.supabase
-        .from('evolution_strategies')
-        .select('name')
-        .eq('id', run.strategy_id)
-        .single();
-      run.strategy_name = strat?.name ?? null;
-    }
+    // Fetch strategy + prompt names
+    const [stratResult, promptResult] = await Promise.all([
+      run.strategy_id
+        ? ctx.supabase.from('evolution_strategies').select('name').eq('id', run.strategy_id).single()
+        : Promise.resolve({ data: null }),
+      run.prompt_id
+        ? ctx.supabase.from('evolution_prompts').select('name').eq('id', run.prompt_id).single()
+        : Promise.resolve({ data: null }),
+    ]);
+    run.strategy_name = stratResult.data?.name ?? null;
+    run.prompt_name = promptResult.data?.name ?? null;
 
     return run;
   },

@@ -1,10 +1,9 @@
 // Strategy entity: root entity owning propagation metrics aggregated from child runs.
 
-import type { SupabaseClient } from '@supabase/supabase-js';
 import { Entity } from '../Entity';
 import { METRIC_CATALOG } from '../metricCatalog';
 import type {
-  ParentRelation, ChildRelation, EntityAction, ColumnDef, FilterDef, FieldDef,
+  ParentRelation, ChildRelation, EntityAction, ColumnDef, FilterDef,
   TabDef, EntityLink, EntityMetricRegistry, EntityType,
 } from '../types';
 import { evolutionStrategyInsertSchema, type EvolutionStrategyFullDb } from '../../schemas';
@@ -17,8 +16,6 @@ export class StrategyEntity extends Entity<EvolutionStrategyFullDb> {
   readonly type: EntityType = 'strategy';
   readonly table = 'evolution_strategies';
   readonly statusField = 'status';
-  readonly archiveColumn = 'status';
-  readonly archiveValue = 'archived';
   readonly logQueryColumn = 'strategy_id';
   readonly renameField = 'name';
 
@@ -44,7 +41,7 @@ export class StrategyEntity extends Entity<EvolutionStrategyFullDb> {
   readonly parents: ParentRelation[] = [];
 
   readonly children: ChildRelation[] = [
-    { childType: 'run', foreignKey: 'strategy_id', cascade: 'restrict' },
+    { childType: 'run', foreignKey: 'strategy_id', cascade: 'delete' },
   ];
 
   readonly metrics: EntityMetricRegistry = {
@@ -104,21 +101,15 @@ export class StrategyEntity extends Entity<EvolutionStrategyFullDb> {
   ];
 
   readonly listFilters: FilterDef[] = [
-    { field: 'status', type: 'select', options: ['active', 'archived'] },
+    { field: 'status', type: 'select', options: ['active'] },
     { field: 'pipeline_type', type: 'select', options: ['full', 'single'] },
   ];
 
   readonly actions: EntityAction<EvolutionStrategyFullDb>[] = [
     { key: 'rename', label: 'Rename' },
     { key: 'edit', label: 'Edit' },
-    { key: 'archive', label: 'Archive',
-      confirm: 'Archive this strategy? It will be hidden from new experiments.',
-      visible: (row) => row.status === 'active' },
-    { key: 'unarchive', label: 'Unarchive',
-      visible: (row) => row.status === 'archived' },
     { key: 'delete', label: 'Delete', danger: true,
-      confirm: 'Delete this strategy? Only possible if no runs reference it.',
-      visible: (row) => row.run_count === 0 },
+      confirm: 'Delete this strategy and all its runs?' },
   ];
 
   readonly detailTabs: TabDef[] = [
@@ -134,11 +125,5 @@ export class StrategyEntity extends Entity<EvolutionStrategyFullDb> {
     return [];
   }
 
-  async executeAction(key: string, id: string, db: SupabaseClient): Promise<void> {
-    if (key === 'unarchive') {
-      await db.from(this.table).update({ status: 'active' }).eq('id', id);
-      return;
-    }
-    return super.executeAction(key, id, db);
-  }
+  // No custom actions — delete cascade handled by base class
 }

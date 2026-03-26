@@ -175,18 +175,23 @@ export function ExperimentForm({ onCreated }: ExperimentFormProps): JSX.Element 
         </CardTitle>
         <div className="flex gap-1 mt-2">
           {STEPS.map((s, i) => {
+            const currentIdx = STEPS.indexOf(step);
+            const isCompleted = i < currentIdx;
             return (
               <div key={s} className="flex-1 text-center">
                 <div
                   className={`h-1 rounded-full transition-colors ${
-                    i <= STEPS.indexOf(step)
+                    i <= currentIdx
                       ? 'bg-[var(--accent-gold)]'
                       : 'bg-[var(--border-default)]'
                   }`}
                 />
-                <span className={`text-xs font-ui mt-0.5 block ${
-                  i <= STEPS.indexOf(step) ? 'text-[var(--accent-gold)]' : 'text-[var(--text-muted)]'
-                }`}>{STEP_LABELS[s]}</span>
+                <span
+                  className={`text-xs font-ui mt-0.5 block ${
+                    i <= currentIdx ? 'text-[var(--accent-gold)]' : 'text-[var(--text-muted)]'
+                  } ${isCompleted ? 'cursor-pointer hover:underline' : ''}`}
+                  onClick={isCompleted ? () => setStep(s) : undefined}
+                >{STEP_LABELS[s]}</span>
               </div>
             );
           })}
@@ -439,6 +444,7 @@ export function ExperimentForm({ onCreated }: ExperimentFormProps): JSX.Element 
           <>
             <div className="space-y-2 text-sm font-ui text-[var(--text-secondary)]">
               <div><span className="text-[var(--text-muted)]">Name:</span> {name}</div>
+              <div><span className="text-[var(--text-muted)]">Prompt:</span> {availablePrompts.find(p => p.id === selectedPromptId)?.name ?? selectedPromptId.slice(0, 8)}</div>
               <div><span className="text-[var(--text-muted)]">Strategies:</span> {selections.length}</div>
               <div><span className="text-[var(--text-muted)]">Total runs:</span> {totalRuns}</div>
               <div><span className="text-[var(--text-muted)]">Est. total budget:</span> ${totalBudget.toFixed(2)}</div>

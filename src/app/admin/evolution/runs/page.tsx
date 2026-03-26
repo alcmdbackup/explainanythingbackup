@@ -2,7 +2,8 @@
 // Standardizes on the shared list page pattern while preserving RunsTable's budget bars.
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
+import { toast } from 'sonner';
 import {
   EvolutionBreadcrumb,
   EntityListPage,
@@ -10,10 +11,13 @@ import {
   getBaseColumns,
 } from '@evolution/components/evolution';
 import type { FilterDef } from '@evolution/components/evolution';
+import { ConfirmDialog } from '@evolution/components/evolution/ConfirmDialog';
 import {
   getEvolutionRunsAction,
+  killEvolutionRunAction,
   type EvolutionRun,
 } from '@evolution/services/evolutionActions';
+import { executeEntityAction } from '@evolution/services/entityActions';
 import { createRunsMetricColumns } from '@evolution/lib/metrics/metricColumns';
 import type { MetricRow } from '@evolution/lib/metrics/types';
 import { getListViewMetrics } from '@evolution/lib/metrics/registry';
@@ -33,16 +37,18 @@ const filters: FilterDef[] = [
       { label: 'Failed', value: 'failed' },
     ],
   },
-  { key: 'includeArchived', label: 'Include archived', type: 'checkbox' },
   { key: 'filterTestContent', label: 'Hide test content', type: 'checkbox', defaultChecked: true },
 ];
 
 const pageSize = 50;
 
+type RunAction = { kind: 'none' } | { kind: 'kill'; run: EvolutionRun } | { kind: 'delete'; run: EvolutionRun };
+
 export default function EvolutionRunsPage(): JSX.Element {
   const [runs, setRuns] = useState<(EvolutionRun & { metrics?: MetricRow[] })[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [pendingAction, setPendingAction] = useState<RunAction>({ kind: 'none' });
   const [filterValues, setFilterValues] = useState<Record<string, string>>(() => {
     const defaults: Record<string, string> = {};
     for (const f of filters) {
@@ -58,7 +64,6 @@ export default function EvolutionRunsPage(): JSX.Element {
     setLoading(true);
     const result = await getEvolutionRunsAction({
       status: filterValues.status || undefined,
-      includeArchived: filterValues.includeArchived === 'true',
       filterTestContent: filterValues.filterTestContent === 'true',
       limit: pageSize,
       offset: (page - 1) * pageSize,
@@ -86,6 +91,36 @@ export default function EvolutionRunsPage(): JSX.Element {
     setPage(1);
   };
 
+  const handleKill = async (): Promise<void> => {
+    if (pendingAction.kind !== 'kill') return;
+    const result = await killEvolutionRunAction(pendingAction.run.id);
+    if (result.success) { toast.success('Run killed'); load(); } else { toast.error(result.error?.message ?? 'Kill failed'); }
+  };
+
+  const handleDelete = async (): Promise<void> => {
+    if (pendingAction.kind !== 'delete') return;
+    const result = await executeEntityAction({ entityType: 'run', entityId: pendingAction.run.id, actionKey: 'delete' });
+    if (result.success) { toast.success('Run deleted'); load(); } else { toast.error(result.error?.message ?? 'Delete failed'); }
+  };
+
+  const renderActions = (run: EvolutionRun & { metrics?: MetricRow[] }): React.ReactNode => (
+    <div className="flex gap-2">
+      {['pending', 'claimed', 'running'].includes(run.status) && (
+        <button onClick={() => setPendingAction({ kind: 'kill', run })} className="font-ui text-xs text-[var(--status-error)]">Kill</button>
+      )}
+      {['completed', 'failed', 'cancelled'].includes(run.status) && (
+        <button onClick={() => setPendingAction({ kind: 'delete', run })} className="font-ui text-xs text-[var(--status-error)]">Delete</button>
+      )}
+    </div>
+  );
+
+  const confirmOpen = pendingAction.kind === 'kill' || pendingAction.kind === 'delete';
+  const confirmProps = pendingAction.kind === 'kill'
+    ? { title: 'Kill Run', message: `Kill run ${pendingAction.run.id.substring(0, 8)}?`, confirmLabel: 'Kill', onConfirm: handleKill, danger: true }
+    : pendingAction.kind === 'delete'
+      ? { title: 'Delete Run', message: `Delete run ${pendingAction.run.id.substring(0, 8)} and all its variants/invocations?`, confirmLabel: 'Delete', onConfirm: handleDelete, danger: true }
+      : { title: '', message: '', onConfirm: async () => {}, danger: false };
+
   return (
     <div className="space-y-6">
       <EvolutionBreadcrumb items={[
@@ -110,9 +145,16 @@ export default function EvolutionRunsPage(): JSX.Element {
             runs={tableItems}
             columns={[...getBaseColumns(), ...createRunsMetricColumns()]}
             loading={tableLoading}
+            renderActions={renderActions}
             testId="runs-list-table"
           />
         )}
+      />
+
+      <ConfirmDialog
+        open={confirmOpen}
+        onClose={() => setPendingAction({ kind: 'none' })}
+        {...confirmProps}
       />
     </div>
   );

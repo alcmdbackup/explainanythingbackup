@@ -112,7 +112,10 @@ export function EntityDetailHeader({
               </div>
             ) : (
               <>
-                <h1 className="text-4xl font-display font-bold text-[var(--text-primary)] truncate">
+                <h1
+                  className="text-4xl font-display font-bold text-[var(--text-primary)] min-w-0 flex-shrink-0"
+                  title={title}
+                >
                   {title}
                 </h1>
                 {onRename && (

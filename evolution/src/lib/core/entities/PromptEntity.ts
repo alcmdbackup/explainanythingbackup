@@ -1,6 +1,5 @@
 // Prompt entity: root entity for evolution prompts (no metrics, no parent).
 
-import type { SupabaseClient } from '@supabase/supabase-js';
 import { Entity } from '../Entity';
 import type {
   ParentRelation, ChildRelation, EntityAction, ColumnDef, FilterDef,
@@ -12,8 +11,6 @@ export class PromptEntity extends Entity<EvolutionPromptFullDb> {
   readonly type: EntityType = 'prompt';
   readonly table = 'evolution_prompts';
   readonly renameField = 'name';
-  readonly archiveColumn = 'status';
-  readonly archiveValue = 'archived';
 
   readonly editConfig = {
     fields: [
@@ -33,8 +30,8 @@ export class PromptEntity extends Entity<EvolutionPromptFullDb> {
   readonly parents: ParentRelation[] = [];
 
   readonly children: ChildRelation[] = [
-    { childType: 'experiment', foreignKey: 'prompt_id', cascade: 'restrict' },
-    { childType: 'run', foreignKey: 'prompt_id', cascade: 'restrict' },
+    { childType: 'experiment', foreignKey: 'prompt_id', cascade: 'delete' },
+    { childType: 'run', foreignKey: 'prompt_id', cascade: 'delete' },
   ];
 
   readonly metrics: EntityMetricRegistry = {
@@ -50,18 +47,14 @@ export class PromptEntity extends Entity<EvolutionPromptFullDb> {
   ];
 
   readonly listFilters: FilterDef[] = [
-    { field: 'status', type: 'select', options: ['active', 'archived'] },
+    { field: 'status', type: 'select', options: ['active'] },
   ];
 
   readonly actions: EntityAction<EvolutionPromptFullDb>[] = [
     { key: 'rename', label: 'Rename' },
     { key: 'edit', label: 'Edit' },
-    { key: 'archive', label: 'Archive',
-      visible: (row) => row.status === 'active' },
-    { key: 'unarchive', label: 'Unarchive',
-      visible: (row) => row.status === 'archived' },
     { key: 'delete', label: 'Delete', danger: true,
-      confirm: 'Delete this prompt? Only possible if no experiments or runs reference it.' },
+      confirm: 'Delete this prompt and all its experiments/runs?' },
   ];
 
   readonly detailTabs: TabDef[] = [
@@ -75,11 +68,5 @@ export class PromptEntity extends Entity<EvolutionPromptFullDb> {
     return [];
   }
 
-  async executeAction(key: string, id: string, db: SupabaseClient): Promise<void> {
-    if (key === 'unarchive') {
-      await db.from(this.table).update({ status: 'active', archived_at: null }).eq('id', id);
-      return;
-    }
-    return super.executeAction(key, id, db);
-  }
+  // No custom actions — delete cascade handled by base class
 }

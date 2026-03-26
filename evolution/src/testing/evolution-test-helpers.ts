@@ -62,6 +62,8 @@ export async function evolutionTablesExist(supabase: SupabaseClient): Promise<bo
 export interface CleanupOptions {
   explanationIds?: number[];
   runIds?: string[];
+  experimentIds?: string[];
+  variantIds?: string[];
   strategyIds?: string[];
   promptIds?: string[];
 }
@@ -74,12 +76,12 @@ export async function cleanupEvolutionData(
   supabase: SupabaseClient,
   options: CleanupOptions,
 ): Promise<void> {
-  const { explanationIds = [], runIds: extraRunIds = [], strategyIds = [], promptIds = [] } = options;
-  const hasIds = explanationIds.length > 0 || extraRunIds.length > 0 || strategyIds.length > 0 || promptIds.length > 0;
+  const { explanationIds = [], runIds: extraRunIds = [], experimentIds = [], variantIds: extraVariantIds = [], strategyIds = [], promptIds = [] } = options;
+  const hasIds = explanationIds.length > 0 || extraRunIds.length > 0 || experimentIds.length > 0 || extraVariantIds.length > 0 || strategyIds.length > 0 || promptIds.length > 0;
   if (!hasIds) return;
 
   try {
-    // Collect run IDs from explicit + explanation-derived
+    // Collect run IDs from explicit + explanation-derived + experiment-derived
     const runIds: string[] = [...extraRunIds];
     if (explanationIds.length > 0) {
       const { data: runs } = await supabase
@@ -88,22 +90,52 @@ export async function cleanupEvolutionData(
         .in('explanation_id', explanationIds);
       runIds.push(...(runs ?? []).map((r) => r.id));
     }
+    if (experimentIds.length > 0) {
+      const { data: runs } = await supabase
+        .from('evolution_runs')
+        .select('id')
+        .in('experiment_id', experimentIds);
+      runIds.push(...(runs ?? []).map((r) => r.id));
+    }
+
+    // Collect variant IDs from explicit + run-derived
+    const variantIds: string[] = [...extraVariantIds];
+    if (runIds.length > 0) {
+      const { data: variants } = await supabase
+        .from('evolution_variants')
+        .select('id')
+        .in('run_id', runIds);
+      variantIds.push(...(variants ?? []).map((v) => v.id));
+    }
+
+    // FK-safe order: arena_comparisons → metrics → invocations → logs → variants → runs → experiments → strategies → prompts
+    if (variantIds.length > 0) {
+      await supabase.from('evolution_arena_comparisons').delete().or(
+        variantIds.map(id => `entry_a.eq.${id},entry_b.eq.${id}`).join(','),
+      );
+    }
+
+    // Clean up metrics for all entity types
+    const allEntityIds = [...new Set([...runIds, ...variantIds, ...experimentIds, ...strategyIds, ...promptIds])];
+    if (allEntityIds.length > 0) {
+      await supabase.from('evolution_metrics').delete().in('entity_id', allEntityIds);
+    }
 
     if (runIds.length > 0) {
-      // Delete in FK-safe order: leaf tables first
-      await supabase.from('evolution_arena_comparisons').delete().in('run_id', runIds);
-      await supabase.from('evolution_logs').delete().in('run_id', runIds);
       await supabase.from('evolution_agent_invocations').delete().in('run_id', runIds);
+      await supabase.from('evolution_logs').delete().in('run_id', runIds);
       await supabase.from('evolution_variants').delete().in('run_id', runIds);
       await supabase.from('evolution_runs').delete().in('id', runIds);
     }
 
-    // Delete strategies (after runs that reference them)
+    if (experimentIds.length > 0) {
+      await supabase.from('evolution_experiments').delete().in('id', experimentIds);
+    }
+
     if (strategyIds.length > 0) {
       await supabase.from('evolution_strategies').delete().in('id', strategyIds);
     }
 
-    // Delete prompts (after runs that reference them)
     if (promptIds.length > 0) {
       await supabase.from('evolution_prompts').delete().in('id', promptIds);
     }
