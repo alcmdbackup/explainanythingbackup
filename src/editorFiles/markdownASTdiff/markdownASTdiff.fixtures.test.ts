@@ -47,13 +47,13 @@ function createSimpleAST(markdown: string) {
     // Check if it's a heading
     const headingMatch = p.match(/^(#{1,6})\s+(.*)$/);
     if (headingMatch) {
-      return createMockHeading(headingMatch[1].length, headingMatch[2]);
+      return createMockHeading(headingMatch[1]!.length, headingMatch[2]!);
     }
 
     // Check if it's a code block
     const codeMatch = p.match(/^```(\w*)\n([\s\S]*?)```$/);
     if (codeMatch) {
-      return createMockCodeBlock(codeMatch[2], codeMatch[1] || null);
+      return createMockCodeBlock(codeMatch[2]!, codeMatch[1]! || null);
     }
 
     // Check if it's a list

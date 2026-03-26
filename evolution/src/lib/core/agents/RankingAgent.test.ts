@@ -5,6 +5,7 @@ import type { AgentContext } from '../types';
 import { rankPool } from '../../pipeline/loop/rankVariants';
 import { rankingExecutionDetailSchema } from '../../schemas';
 import type { Rating, ComparisonResult } from '../../shared/computeRatings';
+import type { V2Match } from '../../pipeline/infra/types';
 
 jest.mock('../../pipeline/loop/rankVariants', () => ({
   rankPool: jest.fn(),
@@ -57,7 +58,7 @@ const MOCK_META = {
 
 function createMockRankPoolResult() {
   return {
-    matches: [],
+    matches: [] as V2Match[],
     ratingUpdates: { v1: { mu: 1500, sigma: 200 } as Rating },
     matchCountIncrements: { v1: 3 },
     converged: false,
@@ -131,7 +132,7 @@ describe('RankingAgent', () => {
 
       await agent.execute(input, ctx);
 
-      const call = mockRankPool.mock.calls[0];
+      const call = mockRankPool.mock.calls[0]!;
       expect(call[1]).toBeInstanceOf(Map);
       expect(call[1]).toBe(ratings);
       expect(call[2]).toBeInstanceOf(Map);

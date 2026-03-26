@@ -182,8 +182,8 @@ describe('rankPool', () => {
     // Should have ratings for all pool members
     for (const v of pool) {
       expect(result.ratingUpdates[v.id]).toBeDefined();
-      expect(result.ratingUpdates[v.id].mu).toBeDefined();
-      expect(result.ratingUpdates[v.id].sigma).toBeDefined();
+      expect(result.ratingUpdates[v.id]!.mu).toBeDefined();
+      expect(result.ratingUpdates[v.id]!.sigma).toBeDefined();
     }
   });
 
@@ -358,10 +358,10 @@ describe('rankPool', () => {
     expect(highRating).toBeDefined();
     expect(lowRating).toBeDefined();
     // Winner should have higher mu than loser
-    expect(highRating.mu).toBeGreaterThan(lowRating.mu);
+    expect(highRating!.mu).toBeGreaterThan(lowRating!.mu);
     // Both sigmas should be lower than DEFAULT_SIGMA after matches
-    expect(highRating.sigma).toBeLessThan(DEFAULT_SIGMA);
-    expect(lowRating.sigma).toBeLessThan(DEFAULT_SIGMA);
+    expect(highRating!.sigma).toBeLessThan(DEFAULT_SIGMA);
+    expect(lowRating!.sigma).toBeLessThan(DEFAULT_SIGMA);
   });
 
   // ─── Bug #2: Silent Elo corruption from LLM errors ──────────
@@ -380,7 +380,7 @@ describe('rankPool', () => {
     // Confidence-0 matches should NOT change ratings (no draw update)
     const v3Rating = result.ratingUpdates['v3'];
     // v3 should stay near default mu since all matches were confidence-0 (skipped)
-    expect(v3Rating.mu).toBeCloseTo(initialMu, 0);
+    expect(v3Rating!.mu).toBeCloseTo(initialMu, 0);
   });
 
   it('Bug #2: confidence-0 match does NOT update ratings in fine-ranking', async () => {
@@ -393,8 +393,8 @@ describe('rankPool', () => {
     // All matches have confidence 0 → ratings should remain at default
     const r0 = result.ratingUpdates['v0'];
     const r1 = result.ratingUpdates['v1'];
-    expect(r0.mu).toBeCloseTo(DEFAULT_MU, 0);
-    expect(r1.mu).toBeCloseTo(DEFAULT_MU, 0);
+    expect(r0!.mu).toBeCloseTo(DEFAULT_MU, 0);
+    expect(r1!.mu).toBeCloseTo(DEFAULT_MU, 0);
   });
 
   it('Bug #2: 4+ consecutive errors break ranking early', async () => {

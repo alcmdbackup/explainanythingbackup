@@ -304,7 +304,7 @@ describe('findMatches Service', () => {
       await findBestMatchFromList('test query', longContentMatches, MatchMode.Normal, null, 'user123');
 
       // Assert
-      const promptCall = mockCallOpenAIModel.mock.calls[0][0];
+      const promptCall = mockCallOpenAIModel.mock.calls[0]![0];
       expect(promptCall).toContain('...');
       expect(promptCall.length).toBeLessThan(3000); // Should be truncated
     });
@@ -391,8 +391,8 @@ describe('findMatches Service', () => {
       const result = await enhanceMatchesWithCurrentContentAndDiversity(mockVectorResults, null);
 
       // Assert
-      expect(result[0].ranking.diversity_score).toBeNull();
-      expect(result[1].ranking.diversity_score).toBeNull();
+      expect(result[0]!.ranking.diversity_score).toBeNull();
+      expect(result[1]!.ranking.diversity_score).toBeNull();
     });
 
     it('should handle empty diversity comparison array', async () => {
@@ -400,8 +400,8 @@ describe('findMatches Service', () => {
       const result = await enhanceMatchesWithCurrentContentAndDiversity(mockVectorResults, []);
 
       // Assert
-      expect(result[0].ranking.diversity_score).toBeNull();
-      expect(result[1].ranking.diversity_score).toBeNull();
+      expect(result[0]!.ranking.diversity_score).toBeNull();
+      expect(result[1]!.ranking.diversity_score).toBeNull();
     });
 
     it('should handle missing diversity match for specific explanation', async () => {
@@ -418,8 +418,8 @@ describe('findMatches Service', () => {
       const result = await enhanceMatchesWithCurrentContentAndDiversity(mockVectorResults, partialDiversity);
 
       // Assert
-      expect(result[0].ranking.diversity_score).toBe(0.5);
-      expect(result[1].ranking.diversity_score).toBeNull();
+      expect(result[0]!.ranking.diversity_score).toBe(0.5);
+      expect(result[1]!.ranking.diversity_score).toBeNull();
     });
 
     it('should handle explanation with null content', async () => {
@@ -438,7 +438,7 @@ describe('findMatches Service', () => {
       const result = await enhanceMatchesWithCurrentContentAndDiversity(mockVectorResults, null);
 
       // Assert
-      expect(result[0].current_content).toBe('');
+      expect(result[0]!.current_content).toBe('');
     });
 
     it('should handle explanation with null title', async () => {
@@ -457,7 +457,7 @@ describe('findMatches Service', () => {
       const result = await enhanceMatchesWithCurrentContentAndDiversity(mockVectorResults, null);
 
       // Assert
-      expect(result[0].current_title).toBe('');
+      expect(result[0]!.current_title).toBe('');
     });
 
     it('should handle empty similarTexts array', async () => {

@@ -42,7 +42,7 @@ function makeResult(overrides?: Partial<EvolutionResult>): EvolutionResult {
   ];
 
   return {
-    winner: pool[1],
+    winner: pool[1]!,
     pool,
     ratings,
     matchHistory,

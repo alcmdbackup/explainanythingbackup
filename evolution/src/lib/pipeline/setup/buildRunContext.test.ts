@@ -256,7 +256,7 @@ describe('loadArenaEntries', () => {
       strategy: 'arena_pipeline',
       fromArena: true,
     });
-    expect(result.variants[1].strategy).toBe('arena_unknown');
+    expect(result.variants[1]!.strategy).toBe('arena_unknown');
   });
 
   it('sets up ratings from DB mu/sigma', async () => {

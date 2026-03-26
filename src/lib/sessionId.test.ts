@@ -50,7 +50,7 @@ const mockCrypto = {
       // Simple mock hash - just return a buffer based on the data
       const mockHash = new Uint8Array(32);
       for (let i = 0; i < Math.min(data.length, 32); i++) {
-        mockHash[i] = data[i] ^ 0x5a;
+        mockHash[i] = data[i]! ^ 0x5a;
       }
       return mockHash.buffer;
     }),

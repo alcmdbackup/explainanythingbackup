@@ -45,7 +45,7 @@ jest.mock('@evolution/components/evolution', () => ({
   ),
   useTabState: (tabs: Array<{ id: string }>) => {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const [tab, setTab] = require('react').useState(tabs[0].id);
+    const [tab, setTab] = require('react').useState(tabs[0]!.id);
     return [tab, setTab];
   },
 }));

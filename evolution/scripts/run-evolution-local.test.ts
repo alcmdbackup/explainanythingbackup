@@ -109,7 +109,7 @@ describe('run-evolution-local prompt mode', () => {
     it('should adjust iterations to cover max checkpoint', () => {
       const checkpoints = [3, 5, 10];
       let iterations = 5;
-      const maxCheckpoint = checkpoints[checkpoints.length - 1];
+      const maxCheckpoint = checkpoints[checkpoints.length - 1]!;
       if (maxCheckpoint > iterations) {
         iterations = maxCheckpoint;
       }
@@ -119,7 +119,7 @@ describe('run-evolution-local prompt mode', () => {
     it('should not reduce iterations below max checkpoint', () => {
       const checkpoints = [3, 5, 10];
       let iterations = 15; // already higher
-      const maxCheckpoint = checkpoints[checkpoints.length - 1];
+      const maxCheckpoint = checkpoints[checkpoints.length - 1]!;
       if (maxCheckpoint > iterations) {
         iterations = maxCheckpoint;
       }

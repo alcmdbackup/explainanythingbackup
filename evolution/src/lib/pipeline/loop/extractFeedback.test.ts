@@ -50,7 +50,7 @@ describe('evolveVariants', () => {
 
     // Should call with parent a (top rated) text in prompts
     const calls = llm.complete.mock.calls;
-    expect(calls.some((c: string[]) => c[0].includes('Variant a'))).toBe(true);
+    expect(calls.some((c: string[]) => c[0]!.includes('Variant a'))).toBe(true);
   });
 
   it('produces crossover with 2 parents', async () => {
@@ -108,8 +108,8 @@ describe('evolveVariants', () => {
     });
 
     const calls = llm.complete.mock.calls;
-    expect(calls.some((c: string[]) => c[0].includes('flow'))).toBe(true);
-    expect(calls.some((c: string[]) => c[0].includes('improve transitions'))).toBe(true);
+    expect(calls.some((c: string[]) => c[0]!.includes('flow'))).toBe(true);
+    expect(calls.some((c: string[]) => c[0]!.includes('improve transitions'))).toBe(true);
   });
 
   it('sets iterationBorn correctly', async () => {

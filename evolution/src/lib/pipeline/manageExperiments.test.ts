@@ -161,8 +161,8 @@ describe('computeExperimentMetrics', () => {
     ];
     const { db } = makeMockDb({ runRows: runs });
     const metrics = await computeExperimentMetrics('00000000-0000-4000-8000-000000000011', db);
-    expect(metrics.runs[0].cost).toBe(0);
-    expect(metrics.runs[0].eloPerDollar).toBeNull();
+    expect(metrics.runs[0]!.cost).toBe(0);
+    expect(metrics.runs[0]!.eloPerDollar).toBeNull();
   });
 });
 

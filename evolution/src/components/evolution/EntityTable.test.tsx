@@ -67,6 +67,6 @@ describe('EntityTable', () => {
   it('applies hover class to rows', () => {
     const { container } = render(<EntityTable columns={columns} items={items} />);
     const rows = container.querySelectorAll('tbody tr');
-    expect(rows[0].className).toContain('hover:bg-[var(--surface-elevated)]');
+    expect(rows[0]!.className).toContain('hover:bg-[var(--surface-elevated)]');
   });
 });

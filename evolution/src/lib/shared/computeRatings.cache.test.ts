@@ -80,7 +80,7 @@ describe('ComparisonCache', () => {
     cache.set('c', 'd', false, { winnerId: 'w2', loserId: 'l2', confidence: 0.9, isDraw: false });
     const entries = cache.entries();
     expect(entries).toHaveLength(2);
-    expect(entries[0][1].winnerId).toBeDefined();
+    expect(entries[0]![1].winnerId).toBeDefined();
   });
 
   it('fromEntries() restores cache with identical lookup behavior', () => {

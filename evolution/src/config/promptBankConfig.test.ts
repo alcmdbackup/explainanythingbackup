@@ -94,7 +94,7 @@ describe('promptBankConfig', () => {
       for (const m of evoMethods) {
         expect(m.checkpoints.length).toBeGreaterThan(0);
         for (let i = 1; i < m.checkpoints.length; i++) {
-          expect(m.checkpoints[i]).toBeGreaterThan(m.checkpoints[i - 1]);
+          expect(m.checkpoints[i]!).toBeGreaterThan(m.checkpoints[i - 1]!);
         }
       }
     });

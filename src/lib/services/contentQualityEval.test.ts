@@ -44,8 +44,8 @@ describe('evaluateContentQuality', () => {
 
     expect(result).not.toBeNull();
     expect(result!.scores).toHaveLength(3);
-    expect(result!.scores[0].dimension).toBe('clarity');
-    expect(result!.scores[0].score).toBe(0.8);
+    expect(result!.scores[0]!.dimension).toBe('clarity');
+    expect(result!.scores[0]!.score).toBe(0.8);
   });
 
   it('returns null when LLM returns empty response', async () => {
@@ -132,7 +132,7 @@ describe('evaluateContentQuality', () => {
     expect(result!.scores).toHaveLength(4);
 
     // Prompt should contain all 4 default dimension criteria
-    const prompt = mockCallOpenAI.mock.calls[0][0];
+    const prompt = mockCallOpenAI.mock.calls[0]![0];
     expect(prompt).toContain('CLARITY');
     expect(prompt).toContain('STRUCTURE');
     expect(prompt).toContain('ENGAGEMENT');
@@ -148,7 +148,7 @@ describe('evaluateContentQuality', () => {
 
     await evaluateContentQuality(42, 'Test', longContent, 'user', ['overall']);
 
-    const prompt = mockCallOpenAI.mock.calls[0][0];
+    const prompt = mockCallOpenAI.mock.calls[0]![0];
     // Content should be truncated to 6000 chars
     expect(prompt.length).toBeLessThan(longContent.length);
   });

@@ -116,7 +116,7 @@ describe('StrategyDetailPage', () => {
     jest.mocked(getStrategyDetailAction).mockResolvedValueOnce({
       success: false,
       data: null,
-      error: { message: 'Strategy not found' },
+      error: { code: 'NOT_FOUND' as const, message: 'Strategy not found' },
     });
 
     render(<StrategyDetailPage />);
@@ -129,7 +129,7 @@ describe('StrategyDetailPage', () => {
     jest.mocked(getStrategyDetailAction).mockResolvedValueOnce({
       success: false,
       data: null,
-      error: { message: 'Failed' },
+      error: { code: 'UNKNOWN_ERROR' as const, message: 'Failed' },
     });
 
     render(<StrategyDetailPage />);

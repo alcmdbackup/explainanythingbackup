@@ -116,8 +116,8 @@ describe('evolutionActions', () => {
 
       expect(result.success).toBe(true);
       expect(result.data!.items).toHaveLength(1);
-      expect(result.data!.items[0].total_cost_usd).toBe(2.5);
-      expect(result.data!.items[0].strategy_name).toBe('My Strategy');
+      expect(result.data!.items[0]!.total_cost_usd).toBe(2.5);
+      expect(result.data!.items[0]!.strategy_name).toBe('My Strategy');
     });
 
     it('returns error on DB failure', async () => {
@@ -274,10 +274,10 @@ describe('evolutionActions', () => {
       expect(result.data).toHaveLength(2);
       // generator: 0.75, judge: 0.10 — sorted descending by cost
       const [first, second] = result.data!;
-      expect(first.agent).toBe('generator');
-      expect(first.calls).toBe(2);
-      expect(first.costUsd).toBeCloseTo(0.75);
-      expect(second.agent).toBe('judge');
+      expect(first!.agent).toBe('generator');
+      expect(first!.calls).toBe(2);
+      expect(first!.costUsd).toBeCloseTo(0.75);
+      expect(second!.agent).toBe('judge');
     });
 
     it('rejects invalid runId', async () => {
@@ -332,7 +332,7 @@ describe('evolutionActions', () => {
       expect(result.success).toBe(true);
       expect(result.data!.items).toHaveLength(1);
       expect(result.data!.total).toBe(1);
-      expect(result.data!.items[0].message).toBe('Generating variant');
+      expect(result.data!.items[0]!.message).toBe('Generating variant');
     });
 
     it('rejects invalid runId', async () => {
@@ -455,7 +455,7 @@ describe('evolutionActions', () => {
 
       expect(result.success).toBe(true);
       expect(result.data!.items).toHaveLength(1);
-      expect(result.data!.items[0].strategy_name).toBe('Strategy Beta');
+      expect(result.data!.items[0]!.strategy_name).toBe('Strategy Beta');
     });
 
     it('returns error on DB failure', async () => {
@@ -626,7 +626,7 @@ describe('evolutionActions', () => {
           };
         }),
       };
-      mockSupabase.from = jest.fn((table: string) => {
+      (mockSupabase as any).from = jest.fn((table: string) => {
         insertedTables.push(table);
         return chain;
       });
@@ -655,7 +655,7 @@ describe('evolutionActions', () => {
     it('returns error when strategy not found', async () => {
       const mock = createTableAwareMock([
         // evolution_strategies lookup
-        (b: ReturnType<typeof createSupabaseChainMock>) => {
+        (b: Record<string, jest.Mock>) => {
           b.single = jest.fn().mockResolvedValue({ data: null, error: null });
         },
       ]);
@@ -673,7 +673,7 @@ describe('evolutionActions', () => {
     it('rejects archived strategy', async () => {
       const mock = createTableAwareMock([
         // evolution_strategies lookup returns archived
-        (b: ReturnType<typeof createSupabaseChainMock>) => {
+        (b: Record<string, jest.Mock>) => {
           b.single = jest.fn().mockResolvedValue({
             data: { id: VALID_UUID, status: 'archived' },
             error: null,
@@ -695,14 +695,14 @@ describe('evolutionActions', () => {
       const insertedRun = { ...MOCK_RUN, budget_cap_usd: 5.0 };
       const mock = createTableAwareMock([
         // evolution_strategies lookup
-        (b: ReturnType<typeof createSupabaseChainMock>) => {
+        (b: Record<string, jest.Mock>) => {
           b.single = jest.fn().mockResolvedValue({
             data: { id: VALID_UUID_2, status: 'active' },
             error: null,
           });
         },
         // evolution_runs insert
-        (b: ReturnType<typeof createSupabaseChainMock>) => {
+        (b: Record<string, jest.Mock>) => {
           b.single = jest.fn().mockResolvedValue({ data: insertedRun, error: null });
         },
       ]);
@@ -745,7 +745,7 @@ describe('evolutionActions', () => {
         metaFeedback: null,
       };
       const mock = createTableAwareMock([
-        (b: ReturnType<typeof createSupabaseChainMock>) => {
+        (b: Record<string, jest.Mock>) => {
           b.single = jest.fn().mockResolvedValue({
             data: { run_summary: validSummary },
             error: null,
@@ -763,7 +763,7 @@ describe('evolutionActions', () => {
 
     it('returns null for missing summary', async () => {
       const mock = createTableAwareMock([
-        (b: ReturnType<typeof createSupabaseChainMock>) => {
+        (b: Record<string, jest.Mock>) => {
           b.single = jest.fn().mockResolvedValue({
             data: { run_summary: null },
             error: null,
@@ -780,7 +780,7 @@ describe('evolutionActions', () => {
 
     it('returns error on DB failure', async () => {
       const mock = createTableAwareMock([
-        (b: ReturnType<typeof createSupabaseChainMock>) => {
+        (b: Record<string, jest.Mock>) => {
           b.single = jest.fn().mockResolvedValue({
             data: null,
             error: { message: 'connection error' },
@@ -821,8 +821,8 @@ describe('evolutionActions', () => {
 
       expect(result.success).toBe(true);
       expect(result.data).toHaveLength(2);
-      expect(result.data![0].elo_score).toBe(1400);
-      expect(result.data![1].elo_score).toBe(1200);
+      expect(result.data![0]!.elo_score).toBe(1400);
+      expect(result.data![1]!.elo_score).toBe(1200);
     });
 
     it('returns empty array when no variants exist', async () => {
@@ -922,7 +922,7 @@ describe('evolutionActions', () => {
     it('returns null for invalid run_summary schema', async () => {
       const invalidSummary = { version: 'not-a-number', stopReason: 123 };
       const mock = createTableAwareMock([
-        (b: ReturnType<typeof createSupabaseChainMock>) => {
+        (b: Record<string, jest.Mock>) => {
           b.single = jest.fn().mockResolvedValue({
             data: { run_summary: invalidSummary },
             error: null,

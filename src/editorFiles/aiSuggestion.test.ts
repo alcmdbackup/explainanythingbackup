@@ -333,7 +333,7 @@ describe('validateAISuggestionOutput - Validation Function', () => {
 
     expect(result.success).toBe(false);
     if (!result.success) {
-      expect(result.error.issues[0].message).toContain('Invalid JSON');
+      expect(result.error.issues[0]!.message).toContain('Invalid JSON');
     }
   });
 
@@ -732,7 +732,7 @@ describe('formatSourcesForPrompt - Source Conversion', () => {
     const result = await formatSourcesForPrompt(sources, 'test-user');
 
     expect(result).toHaveLength(1);
-    expect(result[0].isVerbatim).toBe(false); // is_summarized=true means isVerbatim=false
+    expect(result[0]!.isVerbatim).toBe(false); // is_summarized=true means isVerbatim=false
   });
 
   it('should use domain as title fallback', async () => {
@@ -765,7 +765,7 @@ describe('formatSourcesForPrompt - Source Conversion', () => {
     const result = await formatSourcesForPrompt(sources, 'test-user');
 
     expect(result).toHaveLength(1);
-    expect(result[0].title).toBe('example.com');
+    expect(result[0]!.title).toBe('example.com');
   });
 });
 

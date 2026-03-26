@@ -7,11 +7,11 @@ function makeMockLlm(responses?: string[]) {
   const defaultResponses = ['Test Title', '## Introduction\n\nTest content with multiple sentences. It is well formatted.'];
   const responsesToUse = responses ?? defaultResponses;
   return {
-    complete: jest.fn(async () => {
+    complete: jest.fn<Promise<string>, [prompt: string, label: string]>(async () => {
       if (callIdx >= responsesToUse.length) {
         throw new Error(`Unexpected LLM call #${callIdx + 1} (only ${responsesToUse.length} responses provided)`);
       }
-      return responsesToUse[callIdx++];
+      return responsesToUse[callIdx++]!;
     }),
   };
 }
@@ -27,14 +27,14 @@ describe('generateSeedArticle', () => {
   });
 
   it('title LLM error propagates', async () => {
-    const llm = { complete: jest.fn(async () => { throw new Error('API down'); }) };
+    const llm = { complete: jest.fn<Promise<string>, [prompt: string, label: string]>(async () => { throw new Error('API down'); }) };
     await expect(generateSeedArticle('topic', llm)).rejects.toThrow('API down');
   });
 
   it('article LLM error propagates', async () => {
     let call = 0;
     const llm = {
-      complete: jest.fn(async () => {
+      complete: jest.fn<Promise<string>, [prompt: string, label: string]>(async () => {
         call++;
         if (call === 1) return 'Title';
         throw new Error('Article gen failed');

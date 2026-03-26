@@ -196,8 +196,8 @@ adminTest.describe('Evolution Run Pipeline', { tag: '@evolution' }, () => {
 
     const winners = variants!.filter(v => v.is_winner);
     expect(winners).toHaveLength(1);
-    expect(winners[0].elo_score).toBeGreaterThan(0);
-    expect(winners[0].mu).toBeGreaterThan(0);
+    expect(winners[0]!.elo_score).toBeGreaterThan(0);
+    expect(winners[0]!.mu).toBeGreaterThan(0);
   });
 
   adminTest('invocations were recorded', async () => {

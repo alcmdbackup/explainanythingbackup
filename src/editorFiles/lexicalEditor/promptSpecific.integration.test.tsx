@@ -108,7 +108,7 @@ async function getDiffNodeCount(editor: LexicalEditor): Promise<number> {
 async function acceptAllDiffs(editor: LexicalEditor): Promise<void> {
   let keys = await getAllDiffNodeKeys(editor);
   while (keys.length > 0) {
-    await acceptDiffTag(editor, keys[0]);
+    await acceptDiffTag(editor, keys[0]!);
     keys = await getAllDiffNodeKeys(editor);
   }
 }
@@ -119,7 +119,7 @@ async function acceptAllDiffs(editor: LexicalEditor): Promise<void> {
 async function rejectAllDiffs(editor: LexicalEditor): Promise<void> {
   let keys = await getAllDiffNodeKeys(editor);
   while (keys.length > 0) {
-    await rejectDiffTag(editor, keys[0]);
+    await rejectDiffTag(editor, keys[0]!);
     keys = await getAllDiffNodeKeys(editor);
   }
 }
@@ -142,7 +142,7 @@ beforeEach(() => {
 // ============= Remove First Sentence Tests =============
 
 describe('Prompt-Specific: Remove First Sentence', () => {
-  const fixture = AI_PIPELINE_FIXTURES.promptSpecific.removeFirstSentence;
+  const fixture = AI_PIPELINE_FIXTURES.promptSpecific.removeFirstSentence!;
   let editor: LexicalEditor;
 
   beforeEach(() => {
@@ -150,14 +150,14 @@ describe('Prompt-Specific: Remove First Sentence', () => {
   });
 
   it('should create deletion diff for removed sentence', async () => {
-    await setupEditorWithFixture(editor, fixture.expectedStep4Output);
+    await setupEditorWithFixture(editor, fixture.expectedStep4Output!);
 
     const diffCount = await getDiffNodeCount(editor);
     expect(diffCount).toBe(fixture.expectedDiffNodeCount);
   });
 
   it('accept removes the sentence from content', async () => {
-    await setupEditorWithFixture(editor, fixture.expectedStep4Output);
+    await setupEditorWithFixture(editor, fixture.expectedStep4Output!);
 
     await acceptAllDiffs(editor);
 
@@ -167,7 +167,7 @@ describe('Prompt-Specific: Remove First Sentence', () => {
   });
 
   it('reject keeps the sentence in content', async () => {
-    await setupEditorWithFixture(editor, fixture.expectedStep4Output);
+    await setupEditorWithFixture(editor, fixture.expectedStep4Output!);
 
     await rejectAllDiffs(editor);
 
@@ -180,7 +180,7 @@ describe('Prompt-Specific: Remove First Sentence', () => {
 // ============= Shorten First Paragraph Tests =============
 
 describe('Prompt-Specific: Shorten First Paragraph', () => {
-  const fixture = AI_PIPELINE_FIXTURES.promptSpecific.shortenFirstParagraph;
+  const fixture = AI_PIPELINE_FIXTURES.promptSpecific.shortenFirstParagraph!;
   let editor: LexicalEditor;
 
   beforeEach(() => {
@@ -188,14 +188,14 @@ describe('Prompt-Specific: Shorten First Paragraph', () => {
   });
 
   it('should create deletion and insertion diffs', async () => {
-    await setupEditorWithFixture(editor, fixture.expectedStep4Output);
+    await setupEditorWithFixture(editor, fixture.expectedStep4Output!);
 
     const diffCount = await getDiffNodeCount(editor);
     expect(diffCount).toBe(fixture.expectedDiffNodeCount);
   });
 
   it('accept all replaces verbose paragraph with concise version', async () => {
-    await setupEditorWithFixture(editor, fixture.expectedStep4Output);
+    await setupEditorWithFixture(editor, fixture.expectedStep4Output!);
 
     await acceptAllDiffs(editor);
 
@@ -205,7 +205,7 @@ describe('Prompt-Specific: Shorten First Paragraph', () => {
   });
 
   it('reject all keeps original verbose paragraph', async () => {
-    await setupEditorWithFixture(editor, fixture.expectedStep4Output);
+    await setupEditorWithFixture(editor, fixture.expectedStep4Output!);
 
     await rejectAllDiffs(editor);
 
@@ -218,7 +218,7 @@ describe('Prompt-Specific: Shorten First Paragraph', () => {
 // ============= Improve Entire Article Tests =============
 
 describe('Prompt-Specific: Improve Entire Article', () => {
-  const fixture = AI_PIPELINE_FIXTURES.promptSpecific.improveEntireArticle;
+  const fixture = AI_PIPELINE_FIXTURES.promptSpecific.improveEntireArticle!;
   let editor: LexicalEditor;
 
   beforeEach(() => {
@@ -226,14 +226,14 @@ describe('Prompt-Specific: Improve Entire Article', () => {
   });
 
   it('should create multiple diffs across headings and paragraphs', async () => {
-    await setupEditorWithFixture(editor, fixture.expectedStep4Output);
+    await setupEditorWithFixture(editor, fixture.expectedStep4Output!);
 
     const diffCount = await getDiffNodeCount(editor);
     expect(diffCount).toBe(fixture.expectedDiffNodeCount);
   });
 
   it('accept all transforms article to improved version', async () => {
-    await setupEditorWithFixture(editor, fixture.expectedStep4Output);
+    await setupEditorWithFixture(editor, fixture.expectedStep4Output!);
 
     await acceptAllDiffs(editor);
 
@@ -246,7 +246,7 @@ describe('Prompt-Specific: Improve Entire Article', () => {
   });
 
   it('reject all keeps original poor quality article', async () => {
-    await setupEditorWithFixture(editor, fixture.expectedStep4Output);
+    await setupEditorWithFixture(editor, fixture.expectedStep4Output!);
 
     await rejectAllDiffs(editor);
 
@@ -256,14 +256,14 @@ describe('Prompt-Specific: Improve Entire Article', () => {
   });
 
   it('partial accept keeps some improvements, rejects others', async () => {
-    await setupEditorWithFixture(editor, fixture.expectedStep4Output);
+    await setupEditorWithFixture(editor, fixture.expectedStep4Output!);
 
     const diffKeys = await getAllDiffNodeKeys(editor);
     expect(diffKeys.length).toBeGreaterThanOrEqual(4);
 
     // Accept first two diffs (heading changes)
-    await acceptDiffTag(editor, diffKeys[0]);
-    await acceptDiffTag(editor, diffKeys[1]);
+    await acceptDiffTag(editor, diffKeys[0]!);
+    await acceptDiffTag(editor, diffKeys[1]!);
 
     // Get remaining keys and reject rest
     const remainingKeys = await getAllDiffNodeKeys(editor);

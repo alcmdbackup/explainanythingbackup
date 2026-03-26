@@ -76,7 +76,7 @@ describe('compareWithBiasMitigation', () => {
   function mockCallLLM(responses: string[]): (prompt: string) => Promise<string> {
     let idx = 0;
     return jest.fn(async () => {
-      const resp = responses[idx % responses.length];
+      const resp = responses[idx % responses.length]!;
       idx++;
       return resp;
     });

@@ -128,7 +128,7 @@ describe('Evolution Sync to Arena Integration Tests', () => {
       .eq('id', variantId);
 
     expect(rows).toHaveLength(1);
-    expect(Number(rows![0].mu)).toBe(30);
+    expect(Number(rows![0]!.mu)).toBe(30);
   });
 
   it('over-limit rejection (201 entries)', async () => {

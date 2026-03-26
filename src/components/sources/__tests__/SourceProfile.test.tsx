@@ -89,7 +89,7 @@ describe('SourceProfile', () => {
   it('uses singular "article" for 1 citing article', () => {
     const singleArticleData: SourceProfileData = {
       ...mockProfileData,
-      citingArticles: [mockProfileData.citingArticles[0]],
+      citingArticles: [mockProfileData.citingArticles[0]!],
     };
     render(<SourceProfile data={singleArticleData} />);
     expect(screen.getByText('Cited in 1 article')).toBeInTheDocument();

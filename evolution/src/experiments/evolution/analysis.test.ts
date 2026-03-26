@@ -16,9 +16,9 @@ describe('computeManualAnalysis', () => {
     expect(result.completedRuns).toBe(2);
     expect(result.totalRuns).toBe(2);
     expect(result.runs).toHaveLength(2);
-    expect(result.runs[0].elo).toBe(1200);
-    expect(result.runs[0].eloPer$).toBeCloseTo((1200 - 1200) / 0.50, 1);
-    expect(result.runs[1].configLabel).toBe('deepseek-chat');
+    expect(result.runs[0]!.elo).toBe(1200);
+    expect(result.runs[0]!.eloPer$).toBeCloseTo((1200 - 1200) / 0.50, 1);
+    expect(result.runs[1]!.configLabel).toBe('deepseek-chat');
     expect(result.warnings).toEqual([]);
   });
 
@@ -37,7 +37,7 @@ describe('computeManualAnalysis', () => {
       { id: 'r1', status: 'completed', total_cost_usd: 0.30, run_summary: null, config: null },
     ];
     const result = computeManualAnalysis(dbRuns, extractElo);
-    expect(result.runs[0].elo).toBeNull();
-    expect(result.runs[0].eloPer$).toBeNull();
+    expect(result.runs[0]!.elo).toBeNull();
+    expect(result.runs[0]!.eloPer$).toBeNull();
   });
 });

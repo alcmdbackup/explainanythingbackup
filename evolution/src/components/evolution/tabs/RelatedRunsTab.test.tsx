@@ -71,7 +71,7 @@ describe('RelatedRunsTab', () => {
     mockedGetExperimentAction.mockResolvedValueOnce({
       success: false,
       data: null,
-      error: { message: 'Not found' },
+      error: { code: 'NOT_FOUND' as const, message: 'Not found' },
     });
     render(<RelatedRunsTab experimentId="exp-missing" />);
     // Should show empty table since no runs were loaded

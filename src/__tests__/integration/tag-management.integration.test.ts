@@ -86,8 +86,8 @@ describe('Tag Management Integration Tests', () => {
       const results = await addTagsToExplanation(explanation.id, [tag1.id, tag2.id]);
 
       expect(results).toHaveLength(2);
-      expect(results[0].explanation_id).toBe(explanation.id);
-      expect(results[0].isDeleted).toBe(false);
+      expect(results[0]!.explanation_id).toBe(explanation.id);
+      expect(results[0]!.isDeleted).toBe(false);
 
       const { data: dbRelationships } = await supabase
         .from('explanation_tags')
@@ -152,7 +152,7 @@ describe('Tag Management Integration Tests', () => {
 
       expect(tags).toHaveLength(1);
       // Type narrowing for union type - simple tag has tag_name directly
-      const firstTag = tags[0];
+      const firstTag = tags[0]!;
       expect('tag_name' in firstTag && firstTag.tag_name).toContain('django');
     });
   });
@@ -178,8 +178,8 @@ describe('Tag Management Integration Tests', () => {
       const results = await addTagsToExplanation(explanation.id, [tag.id]);
 
       expect(results).toHaveLength(1);
-      expect(results[0].isDeleted).toBe(false);
-      expect(results[0].id).toBe(deletedRelationship.id);
+      expect(results[0]!.isDeleted).toBe(false);
+      expect(results[0]!.id).toBe(deletedRelationship.id);
 
       const { data: reactivatedRelationship } = await supabase
         .from('explanation_tags')

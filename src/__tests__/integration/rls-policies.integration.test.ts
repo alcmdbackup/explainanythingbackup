@@ -225,7 +225,7 @@ describe('RLS Policies', () => {
       // There should be at least one visible explanation in the database
       // If database is empty, this may return empty array which is also valid
       if (data && data.length > 0) {
-        expect(data[0].delete_status).toBe('visible');
+        expect(data[0]!.delete_status).toBe('visible');
       }
     });
   });

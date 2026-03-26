@@ -132,7 +132,7 @@ adminTest.describe('Experiment Wizard E2E', { tag: '@evolution' }, () => {
     const toastText = await toast.textContent();
     const uuidMatch = toastText?.match(/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i);
     if (uuidMatch) {
-      experimentId = uuidMatch[1];
+      experimentId = uuidMatch[1]!;
       trackEvolutionId('experiment', experimentId);
     } else {
       // Fallback: query DB for the experiment we just created

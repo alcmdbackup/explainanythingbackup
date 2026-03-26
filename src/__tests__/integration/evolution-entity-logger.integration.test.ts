@@ -70,7 +70,7 @@ describe('Evolution Entity Logger Integration Tests', () => {
     expect(logs).toBeDefined();
     expect(logs!.length).toBeGreaterThanOrEqual(1);
 
-    const log = logs![0];
+    const log = logs![0]!;
     logIds.push(log.id);
     expect(log.entity_type).toBe('run');
     expect(log.entity_id).toBe(runId);
@@ -110,7 +110,7 @@ describe('Evolution Entity Logger Integration Tests', () => {
     expect(logs).toBeDefined();
     expect(logs!.length).toBeGreaterThanOrEqual(1);
 
-    const log = logs![0];
+    const log = logs![0]!;
     logIds.push(log.id);
     expect(log.iteration).toBe(3);
     expect(log.agent_name).toBe('ranking');
