@@ -33,16 +33,16 @@ export class RunEntity extends Entity<EvolutionRunFullDb> {
 
   readonly metrics: EntityMetricRegistry = {
     duringExecution: [
-      { ...METRIC_CATALOG.cost, listView: false, compute: (ctx) => computeRunCost(ctx) },
+      { ...METRIC_CATALOG.cost, listView: false, compute: computeRunCost },
     ],
     atFinalization: [
-      { ...METRIC_CATALOG.winner_elo, compute: (ctx) => computeWinnerElo(ctx) },
-      { ...METRIC_CATALOG.median_elo, compute: (ctx) => computeMedianElo(ctx) },
-      { ...METRIC_CATALOG.p90_elo, compute: (ctx) => computeP90Elo(ctx) },
-      { ...METRIC_CATALOG.max_elo, compute: (ctx) => computeMaxElo(ctx) },
-      { ...METRIC_CATALOG.total_matches, compute: (ctx) => computeTotalMatches(ctx) },
-      { ...METRIC_CATALOG.decisive_rate, compute: (ctx) => computeDecisiveRate(ctx) },
-      { ...METRIC_CATALOG.variant_count, compute: (ctx) => computeVariantCount(ctx) },
+      { ...METRIC_CATALOG.winner_elo, compute: computeWinnerElo },
+      { ...METRIC_CATALOG.median_elo, compute: computeMedianElo },
+      { ...METRIC_CATALOG.p90_elo, compute: computeP90Elo },
+      { ...METRIC_CATALOG.max_elo, compute: computeMaxElo },
+      { ...METRIC_CATALOG.total_matches, compute: computeTotalMatches },
+      { ...METRIC_CATALOG.decisive_rate, compute: computeDecisiveRate },
+      { ...METRIC_CATALOG.variant_count, compute: computeVariantCount },
     ],
     atPropagation: [],
   };

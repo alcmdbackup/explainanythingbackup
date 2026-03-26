@@ -23,6 +23,16 @@ import { formatElo, stripMarkdownTitle } from '@evolution/lib/shared/computeRati
 import { formatEloCIRange } from '@evolution/lib/utils/formatters';
 import { computeEloCutoff } from './arenaCutoff';
 
+function ContentLink({ entryId, content }: { entryId: string; content: string }): JSX.Element {
+  const cleaned = stripMarkdownTitle(content);
+  const label = cleaned.length > 60 ? `${cleaned.substring(0, 60)}…` : cleaned;
+  return (
+    <Link href={`/admin/evolution/variants/${entryId}`} className="text-[var(--accent-gold)] hover:underline">
+      {label}
+    </Link>
+  );
+}
+
 export default function ArenaTopicDetailPage(): JSX.Element {
   const { topicId } = useParams<{ topicId: string }>();
   const [topic, setTopic] = useState<ArenaTopic | null>(null);
@@ -192,15 +202,7 @@ export default function ArenaTopicDetailPage(): JSX.Element {
                     >
                       <td className="py-2 pr-3 font-mono text-[var(--text-muted)]">{eloRankMap.get(entry.id) ?? index + 1}</td>
                       <td className="py-2 pr-3">
-                        {(() => {
-                          const cleaned = stripMarkdownTitle(entry.variant_content);
-                          const label = cleaned.length > 60 ? `${cleaned.substring(0, 60)}…` : cleaned;
-                          return (
-                            <Link href={`/admin/evolution/variants/${entry.id}`} className="text-[var(--accent-gold)] hover:underline">
-                              {label}
-                            </Link>
-                          );
-                        })()}
+                        <ContentLink entryId={entry.id} content={entry.variant_content} />
                       </td>
                       <td className="py-2 pr-3 font-mono">{formatElo(entry.elo_score)}</td>
                       <td className="py-2 pr-3 font-mono text-[var(--text-secondary)]">
@@ -213,9 +215,10 @@ export default function ArenaTopicDetailPage(): JSX.Element {
                       <td className="py-2 pr-3 font-mono">{entry.arena_match_count}</td>
                       <td className="py-2 pr-3 text-[var(--text-secondary)]">{entry.generation_method}</td>
                       <td className="py-2 font-mono">
-                        {entry.cost_usd != null ? `$${entry.cost_usd.toFixed(2)}` : (
-                          <span className="text-[var(--text-muted)]" title="Cost data is tracked at the invocation level, not per variant">N/A</span>
-                        )}
+                        {entry.cost_usd != null
+                          ? `$${entry.cost_usd.toFixed(2)}`
+                          : <span className="text-[var(--text-muted)]" title="Cost data is tracked at the invocation level, not per variant">N/A</span>
+                        }
                       </td>
                     </tr>
                   );

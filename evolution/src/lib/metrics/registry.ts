@@ -44,7 +44,7 @@ const SHARED_PROPAGATION_DEFS: EntityMetricRegistry['atPropagation'] = [
   { name: 'best_max_elo', label: 'Best Max Elo', category: 'rating', formatter: 'elo',
     sourceMetric: 'max_elo', sourceEntity: 'run', aggregate: aggregateMax, aggregationMethod: 'max' },
   // Match
-  { name: 'total_matches' as const, label: 'Total Matches', category: 'match', formatter: 'integer',
+  { name: 'total_matches', label: 'Total Matches', category: 'match', formatter: 'integer',
     sourceMetric: 'total_matches', sourceEntity: 'run', aggregate: aggregateSum, aggregationMethod: 'sum' },
   { name: 'avg_matches_per_run', label: 'Avg Matches/Run', category: 'match', formatter: 'integer',
     sourceMetric: 'total_matches', sourceEntity: 'run', aggregate: aggregateAvg, aggregationMethod: 'avg' },
