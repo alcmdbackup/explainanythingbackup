@@ -44,9 +44,56 @@ The Entity base class (`evolution/src/lib/core/Entity.ts`) already declares `act
 | Variant | Archive, Delete | Clean up test variants, remove low-quality arena entries |
 | Invocation | — (read-only) | Invocations are immutable audit records |
 
-**0a. Create a generic `executeEntityAction` server action**
-- File: New `evolution/src/services/entityActions.ts`
-- Implementation: Single `adminAction` that receives `{ entityType, entityId, actionKey, payload? }`, looks up the entity via `getEntity(entityType)`, and calls `entity.executeAction(actionKey, entityId, db, payload)`.
+**0a. Fix Entity.executeAction('delete') cascade + create generic server action**
+
+**Critical bug in Entity.executeAction('delete')**: The base class checks `restrict` children (blocks delete if children exist) but **ignores `delete` and `nullify` cascade declarations**. It just does `DELETE FROM table WHERE id = ?` without cleaning up children. Since the DB has no FK CASCADE constraints on most evolution tables, this orphans child rows.
+
+Fix `Entity.ts` executeAction('delete') (lines 134-148):
+```ts
+if (key === 'delete') {
+  for (const child of this.children) {
+    const childEntity = getEntity(child.childType);
+    if (child.cascade === 'restrict') {
+      const { count } = await db.from(childEntity.table)
+        .select('id', { count: 'exact', head: true })
+        .eq(child.foreignKey, id);
+      if (count && count > 0) {
+        throw new Error(`Cannot delete ${this.type}: ${count} ${child.childType}(s) reference it.`);
+      }
+    } else if (child.cascade === 'delete') {
+      // Recursively delete children (they may have their own children)
+      const { data: childRows } = await db.from(childEntity.table)
+        .select('id').eq(child.foreignKey, id);
+      for (const row of childRows ?? []) {
+        await childEntity.executeAction('delete', row.id, db);
+      }
+    } else if (child.cascade === 'nullify') {
+      await db.from(childEntity.table)
+        .update({ [child.foreignKey]: null })
+        .eq(child.foreignKey, id);
+    }
+  }
+  // Also clean up metrics (logical FK, no DB cascade)
+  await db.from('evolution_metrics')
+    .delete()
+    .eq('entity_type', this.type)
+    .eq('entity_id', id);
+  // Also clean up logs
+  if (this.logQueryColumn) {
+    await db.from('evolution_logs')
+      .delete()
+      .eq(this.logQueryColumn, id);
+  }
+  await db.from(this.table).delete().eq('id', id);
+  return;
+}
+```
+
+Also add missing children declarations:
+- `VariantEntity`: add `children = [{ childType: 'arena_comparison' ... }]` — but arena_comparison is not an entity type, so handle in VariantEntity.executeAction override: delete from `evolution_arena_comparisons` where `entry_a = id OR entry_b = id` before deleting the variant.
+
+**Generic server action**: New `evolution/src/services/entityActions.ts`
+- Single `adminAction` that receives `{ entityType, entityId, actionKey, payload? }`, looks up the entity via `getEntity(entityType)`, and calls `entity.executeAction(actionKey, entityId, db, payload)`.
 - This replaces the per-entity action server actions (archive/delete/rename/cancel) that are currently scattered across `arenaActions.ts`, `evolutionActions.ts`, `experimentActions.ts`, `strategyRegistryActions.ts`.
 - Unit test: `evolution/src/services/entityActions.test.ts` — mock `getEntity()` and verify routing.
 - **Integration test**: New `src/__tests__/integration/entity-actions.integration.test.ts`
@@ -68,16 +115,19 @@ The Entity base class (`evolution/src/lib/core/Entity.ts`) already declares `act
     | Strategy | delete (blocked) | throws when runs reference it |
     | Run | archive | `archived` → `true` |
     | Run | unarchive | `archived` → `false` |
-    | Run | delete | row + child variants/invocations/logs cascade deleted |
+    | Run | delete | row deleted; verify variants, invocations, logs, metrics ALL deleted (cascade:'delete' on children + metrics/logs cleanup) |
+    | Run | delete (verify no orphans) | query variants/invocations/logs/metrics by deleted run_id → all return 0 rows |
     | Run | cancel (kill) | `status` → `'cancelled'` |
     | Experiment | rename | `name` column updated |
-    | Experiment | cancel | `status` → `'cancelled'` (verify child runs also failed) |
+    | Experiment | cancel | `status` → `'cancelled'` (verify child runs also failed via RPC) |
     | Experiment | archive | `archived` → `true` (new column) |
     | Experiment | unarchive | `archived` → `false` |
-    | Experiment | delete | row deleted, child runs get `experiment_id = NULL` (nullify cascade) |
+    | Experiment | delete | row deleted; verify child runs get `experiment_id = NULL` (nullify cascade); verify metrics/logs cleaned |
+    | Experiment | delete (verify nullify) | query runs by experiment_id → runs still exist but experiment_id is NULL |
     | Variant | archive | `archived_at` set to timestamp |
     | Variant | unarchive | `archived_at` → `null` |
-    | Variant | delete | row + arena comparisons cascade deleted |
+    | Variant | delete | row deleted; verify arena comparisons referencing this variant also deleted |
+    | Variant | delete (verify no orphans) | query arena_comparisons by entry_a/entry_b → 0 rows |
 
   - Cleanup: `cleanupEvolutionData()` needs extension before this test can use it:
     1. Add `experimentIds?: string[]` to `CleanupOptions` — delete from `evolution_experiments` after runs
