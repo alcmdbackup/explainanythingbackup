@@ -73,11 +73,26 @@ The Entity base class (`evolution/src/lib/core/Entity.ts`) already declares `act
 - Arena page stays read-only for topics (archiving is via the prompts page).
 
 **0d. Add missing entity capabilities**
-- File: `evolution/src/lib/core/entities/ExperimentEntity.ts`
-  - Add `unarchive` action: `{ key: 'unarchive', label: 'Reopen', visible: (row) => row.status === 'cancelled' }`, sets status back to `'draft'`.
+
+**Experiment: Fix archive/cancel confusion + add unarchive**
+- Current problem: `archiveColumn = 'status'`, `archiveValue = 'cancelled'` makes archive identical to cancel. These are semantically different operations:
+  - **Cancel** = stop active runs (destructive, should use `cancel_experiment` RPC to fail pending/claimed/running runs)
+  - **Archive** = hide from default list (non-destructive, reversible)
+- Fix: Add `archived` boolean column to `evolution_experiments` via migration (matches the pattern `evolution_runs` already uses).
+  - Migration: `ALTER TABLE evolution_experiments ADD COLUMN IF NOT EXISTS archived BOOLEAN NOT NULL DEFAULT false;`
+  - Update `ExperimentEntity.ts`:
+    - Change `archiveColumn = 'archived'`, `archiveValue = true`
+    - Fix `cancel` action to call `cancel_experiment` RPC (currently just sets status directly — misses failing child runs)
+    - Add `unarchive` action: `{ key: 'unarchive', label: 'Unarchive', visible: (row) => row.archived === true }` — sets `archived = false`
+    - Update `archive` visibility: `visible: (row) => ['completed', 'cancelled'].includes(row.status) && !row.archived`
+    - Add `'archived'` to `experimentStatusEnum` is NOT needed — archived is orthogonal to status
+  - Update `EvolutionExperimentFullDb` schema in `schemas.ts` to include `archived: z.boolean().default(false)`
+
+**Variant: Add archive + delete**
 - File: `evolution/src/lib/core/entities/VariantEntity.ts`
   - Add `archiveColumn = 'archived_at'` and `archiveValue = new Date().toISOString()`.
-  - Add actions: `archive` (visible when `archived_at` is null), `unarchive` (visible when `archived_at` is set, sets to null), `delete` (with confirm message noting cascade to arena comparisons).
+  - Add actions: `archive` (visible when `archived_at` is null and variant is not a winner), `unarchive` (visible when `archived_at` is set, sets `archived_at` to null), `delete` (with confirm message noting cascade to arena comparisons).
+  - Override `executeAction` for `unarchive` to set `archived_at = null`.
 
 ### Phase 1: P0 Critical Bugs (4 remaining fixes — 1a is now part of Phase 0)
 
