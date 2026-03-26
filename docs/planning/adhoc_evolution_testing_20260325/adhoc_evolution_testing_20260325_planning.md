@@ -48,7 +48,39 @@ The Entity base class (`evolution/src/lib/core/Entity.ts`) already declares `act
 - File: New `evolution/src/services/entityActions.ts`
 - Implementation: Single `adminAction` that receives `{ entityType, entityId, actionKey, payload? }`, looks up the entity via `getEntity(entityType)`, and calls `entity.executeAction(actionKey, entityId, db, payload)`.
 - This replaces the per-entity action server actions (archive/delete/rename/cancel) that are currently scattered across `arenaActions.ts`, `evolutionActions.ts`, `experimentActions.ts`, `strategyRegistryActions.ts`.
-- Test: Unit test exercising rename, archive, unarchive, delete via the generic action.
+- Unit test: `evolution/src/services/entityActions.test.ts` — mock `getEntity()` and verify routing.
+- **Integration test**: New `src/__tests__/integration/entity-actions.integration.test.ts`
+  - Uses real Supabase (service role) — follows existing pattern from `evolution-infrastructure.integration.test.ts`
+  - Seeds test data via `createTestStrategyConfig`, `createTestPrompt`, `createTestEvolutionRun`, `createTestVariant` from `evolution-test-helpers.ts`
+  - Test matrix — every entity × every declared action:
+
+    | Entity | Action | Verify |
+    |--------|--------|--------|
+    | Prompt | rename | `name` column updated |
+    | Prompt | archive | `status` → `'archived'` |
+    | Prompt | unarchive | `status` → `'active'` |
+    | Prompt | delete | row removed (only when no runs reference it) |
+    | Prompt | delete (blocked) | throws when runs reference it |
+    | Strategy | rename | `name` column updated |
+    | Strategy | archive | `status` → `'archived'` |
+    | Strategy | unarchive | `status` → `'active'` |
+    | Strategy | delete | row removed (only when `run_count = 0`) |
+    | Strategy | delete (blocked) | throws when runs reference it |
+    | Run | archive | `archived` → `true` |
+    | Run | unarchive | `archived` → `false` |
+    | Run | delete | row + child variants/invocations/logs cascade deleted |
+    | Run | cancel (kill) | `status` → `'cancelled'` |
+    | Experiment | rename | `name` column updated |
+    | Experiment | cancel | `status` → `'cancelled'` (verify child runs also failed) |
+    | Experiment | archive | `archived` → `true` (new column) |
+    | Experiment | unarchive | `archived` → `false` |
+    | Experiment | delete | row deleted, child runs get `experiment_id = NULL` (nullify cascade) |
+    | Variant | archive | `archived_at` set to timestamp |
+    | Variant | unarchive | `archived_at` → `null` |
+    | Variant | delete | row + arena comparisons cascade deleted |
+
+  - Cleanup: Use `cleanupEvolutionData()` in `afterAll` per existing convention
+  - Auto-skip: Use `evolutionTablesExist()` guard for environments without evolution tables
 
 **0b. Merge RegistryPage's features into EntityListPage**
 - Files: `evolution/src/components/evolution/EntityListPage.tsx`, `evolution/src/components/evolution/RegistryPage.tsx`
@@ -267,6 +299,7 @@ The Entity base class (`evolution/src/lib/core/Entity.ts`) already declares `act
 - Phase 3d: Verify arena E2E spec sort assertions still pass with descending default
 
 ### Integration Tests
+- **NEW** `src/__tests__/integration/entity-actions.integration.test.ts` — Phase 0a: 22-case test matrix covering every entity × every action against real Supabase
 - `src/__tests__/integration/evolution-visualization.integration.test.ts` — Phase 1d changes the dashboard query; verify this test passes or update it
 
 ## Rollback Plan
