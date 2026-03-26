@@ -39,7 +39,7 @@ jest.mock('./llmSpendingGate', () => ({
 
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import { logger } from '@/lib/server_utilities';
-import { callLLM, callLLMModel, callOpenAIModel, isAnthropicModel, isLocalModel, DEFAULT_MODEL, LIGHTER_MODEL, type LLMUsageMetadata } from './llms';
+import { callLLM, callLLMModel, callOpenAIModel, isAnthropicModel, isLocalModel, isOpenRouterModel, DEFAULT_MODEL, LIGHTER_MODEL, type LLMUsageMetadata } from './llms';
 import { ServiceError } from '@/lib/errors/serviceError';
 import { ERROR_CODES } from '@/lib/errorHandling';
 
@@ -844,6 +844,123 @@ describe('llms', () => {
     });
   });
 
+  describe('isOpenRouterModel', () => {
+    it('should identify openai/gpt-oss-20b as OpenRouter model', () => {
+      expect(isOpenRouterModel('openai/gpt-oss-20b')).toBe(true);
+    });
+
+    it('should not identify other models as OpenRouter', () => {
+      expect(isOpenRouterModel('gpt-4.1-mini')).toBe(false);
+      expect(isOpenRouterModel('deepseek-chat')).toBe(false);
+      expect(isOpenRouterModel('claude-sonnet-4-20250514')).toBe(false);
+      expect(isOpenRouterModel('LOCAL_qwen2.5:14b')).toBe(false);
+    });
+  });
+
+  describe('OpenRouter model routing', () => {
+    it('should route openai/gpt-oss-20b to OpenRouter client', async () => {
+      process.env.OPENROUTER_API_KEY = 'test-openrouter-key';
+
+      mockCreateSpy.mockResolvedValueOnce({
+        choices: [{ message: { content: 'OpenRouter response' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
+        model: 'openai/gpt-oss-20b',
+      });
+
+      const result = await callLLM(
+        'Test prompt',
+        'test_source',
+        '00000000-0000-4000-8000-000000000001',
+        'openai/gpt-oss-20b',
+        false,
+        null,
+        null,
+        null,
+        false,
+      );
+
+      expect(result).toBe('OpenRouter response');
+      expect(mockCreateSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          model: 'openai/gpt-oss-20b',
+        })
+      );
+    });
+
+    it('should throw when OPENROUTER_API_KEY is missing', async () => {
+      delete process.env.OPENROUTER_API_KEY;
+
+      await expect(
+        callLLM(
+          'Test prompt',
+          'test_source',
+          '00000000-0000-4000-8000-000000000001',
+          'openai/gpt-oss-20b',
+          false,
+          null,
+          null,
+          null,
+          false,
+        )
+      ).rejects.toThrow('OPENROUTER_API_KEY not found in environment variables');
+    });
+
+    it('should use json_object response_format for OpenRouter with structured output', async () => {
+      process.env.OPENROUTER_API_KEY = 'test-openrouter-key';
+      const responseSchema = z.object({ answer: z.string() });
+
+      mockCreateSpy.mockResolvedValueOnce({
+        choices: [{ message: { content: '{"answer":"test"}' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
+        model: 'openai/gpt-oss-20b',
+      });
+
+      await callLLM(
+        'Test prompt',
+        'test_source',
+        '00000000-0000-4000-8000-000000000001',
+        'openai/gpt-oss-20b',
+        false,
+        null,
+        responseSchema,
+        'TestResponse',
+        false,
+      );
+
+      expect(mockCreateSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          response_format: { type: 'json_object' },
+        })
+      );
+    });
+
+    it('should use validatedModel for cost tracking (prevents pricing mismatch)', async () => {
+      process.env.OPENROUTER_API_KEY = 'test-openrouter-key';
+
+      mockCreateSpy.mockResolvedValueOnce({
+        choices: [{ message: { content: 'Response' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 10000, completion_tokens: 5000, total_tokens: 15000 },
+        model: 'openai/gpt-oss-20b-some-variant', // API may return different model string
+      });
+
+      await callLLM(
+        'Test prompt',
+        'test_source',
+        '00000000-0000-4000-8000-000000000001',
+        'openai/gpt-oss-20b',
+        false,
+        null,
+        null,
+        null,
+        false,
+      );
+
+      // openai/gpt-oss-20b: (10000/1M * 0.03) + (5000/1M * 0.11) = 0.0003 + 0.00055 = 0.00085
+      const insertCall = mockSupabase.insert.mock.calls[0][0];
+      expect(insertCall.estimated_cost_usd).toBeCloseTo(0.00085, 6);
+    });
+  });
+
   describe('isLocalModel', () => {
     it('should identify LOCAL_ prefixed models', () => {
       expect(isLocalModel('LOCAL_qwen2.5:14b')).toBe(true);
@@ -1149,6 +1266,10 @@ describe('llms', () => {
         expect.stringContaining('LLM call tracking save failed (non-fatal'),
         expect.objectContaining({ call_source: 'test_source', model: 'claude-sonnet-4-20250514' }),
       );
+    });
+
+    it('should not identify OpenRouter models as Anthropic', () => {
+      expect(isAnthropicModel('openai/gpt-oss-20b')).toBe(false);
     });
 
     it('callOpenAIModel backward compat should also route Claude to Anthropic', async () => {

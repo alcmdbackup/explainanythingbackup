@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars */
 /**
- * LLM service for making API calls to OpenAI, DeepSeek, and Anthropic with structured output support.
+ * LLM service for making API calls to OpenAI, DeepSeek, Anthropic, and OpenRouter with structured output support.
  * Provides call tracking, tracing, and automatic logging. Routes to the correct provider based on model prefix.
  */
 import OpenAI from 'openai';
@@ -220,6 +220,34 @@ function getLocalClient(): OpenAI {
     return localClient;
 }
 
+const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
+let openRouterClient: OpenAI | null = null;
+
+function getOpenRouterClient(): OpenAI {
+    if (typeof window !== 'undefined') {
+        throw new Error('OpenRouter client cannot be used on the client side');
+    }
+
+    if (!process.env.OPENROUTER_API_KEY) {
+        throw new Error('OPENROUTER_API_KEY not found in environment variables. Please check your .env file.');
+    }
+
+    if (!openRouterClient) {
+        openRouterClient = new OpenAI({
+            apiKey: process.env.OPENROUTER_API_KEY,
+            baseURL: OPENROUTER_BASE_URL,
+            maxRetries: 3,
+            timeout: 60000,
+        });
+    }
+
+    return openRouterClient;
+}
+
+export function isOpenRouterModel(model: string): boolean {
+    return model === 'openai/gpt-oss-20b';
+}
+
 let anthropicClient: Anthropic | null = null;
 
 function getAnthropicClient(): Anthropic {
@@ -279,7 +307,7 @@ async function callOpenAIModel(
         };
 
         if (response_obj && response_obj_name) {
-            if (isDeepSeekModel(validatedModel) || isLocalModel(validatedModel)) {
+            if (isDeepSeekModel(validatedModel) || isLocalModel(validatedModel) || isOpenRouterModel(validatedModel)) {
                 requestOptions.response_format = { type: 'json_object' };
             } else {
                 requestOptions.response_format = zodResponseFormat(response_obj, response_obj_name);
@@ -299,6 +327,8 @@ async function callOpenAIModel(
             client = getLocalClient();
         } else if (isDeepSeekModel(validatedModel)) {
             client = getDeepSeekClient();
+        } else if (isOpenRouterModel(validatedModel)) {
+            client = getOpenRouterClient();
         } else {
             client = getOpenAIClient();
         }
@@ -352,7 +382,7 @@ async function callOpenAIModel(
             promptTokens = usage.prompt_tokens ?? 0;
             completionTokens = usage.completion_tokens ?? 0;
             reasoningTokens = usage.completion_tokens_details?.reasoning_tokens ?? 0;
-            const costModel = isLocalModel(validatedModel) ? validatedModel : modelUsed;
+            const costModel = (isLocalModel(validatedModel) || isOpenRouterModel(validatedModel)) ? validatedModel : modelUsed;
             estimatedCostUsd = calculateLLMCost(costModel, promptTokens, completionTokens, reasoningTokens);
 
             span.setAttributes({

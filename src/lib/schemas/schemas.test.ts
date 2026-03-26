@@ -80,12 +80,17 @@ describe('schemas', () => {
       expect(allowedLLMModelSchema.parse('LOCAL_qwen2.5:14b')).toBe('LOCAL_qwen2.5:14b');
     });
 
+    it('should accept OpenRouter model', () => {
+      expect(allowedLLMModelSchema.parse('openai/gpt-oss-20b')).toBe('openai/gpt-oss-20b');
+    });
+
     it('should reject invalid LLM models', () => {
       expect(() => allowedLLMModelSchema.parse('gpt-3')).toThrow();
       expect(() => allowedLLMModelSchema.parse('gpt-4')).toThrow();
       expect(() => allowedLLMModelSchema.parse('claude-3')).toThrow();
       expect(() => allowedLLMModelSchema.parse('')).toThrow();
       expect(() => allowedLLMModelSchema.parse('LOCAL_unknown')).toThrow();
+      expect(() => allowedLLMModelSchema.parse('openai/gpt-oss-30b')).toThrow();
     });
   });
 
