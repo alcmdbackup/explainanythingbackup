@@ -24,10 +24,10 @@ describe('BudgetExceededWithPartialResults', () => {
     expect(err.cap).toBe(0.9);
   });
 
-  it('stores partialVariants array and is instanceof both classes', () => {
+  it('stores partialData and is instanceof both classes', () => {
     const err = new BudgetExceededWithPartialResults(partialVariants, originalError);
-    expect(err.partialVariants).toBe(partialVariants);
-    expect(err.partialVariants).toHaveLength(2);
+    expect(err.partialData).toBe(partialVariants);
+    expect(err.partialData).toHaveLength(2);
     expect(err).toBeInstanceOf(BudgetExceededWithPartialResults);
     expect(err).toBeInstanceOf(BudgetExceededError);
     expect(err).toBeInstanceOf(Error);

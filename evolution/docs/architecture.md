@@ -227,6 +227,15 @@ Budget tiers control comparison intensity:
 | 50-80%      | Medium | 25              |
 | > 80%       | High   | 15              |
 
+**Partial results on budget errors** — When a `BudgetExceededError` occurs during triage
+or Swiss fine-ranking, partial rating updates and matches accumulated so far are not lost.
+`rankPool()` catches the budget error and throws `BudgetExceededWithPartialResults` with a
+partial `RankResult` containing the accumulated `ratingUpdates`, `matchCountIncrements`,
+and `matches` from all comparisons completed before the error. The loop handler in
+`runIterationLoop.ts` extracts and applies these partial results (updating the pool's
+ratings and match history) before breaking out of the loop with
+`stopReason='budget_exceeded'`.
+
 ### Evolve Phase
 
 `evolveVariants()` in `evolution/src/lib/pipeline/evolve.ts` applies genetic-algorithm-
@@ -296,13 +305,13 @@ requires **2 consecutive rounds** where all eligible variants have converged.
 
 A variant is **eligible** for convergence checking if it is:
 - Not eliminated during triage, AND
-- Either `mu >= 3 * sigma` OR in the top-K set (default K=5)
+- Either `mu + 1.04*sigma >= top15Cutoff` OR in the top-K set (default K=5)
 
 A single variant is **converged** when its sigma drops below
 `DEFAULT_CONVERGENCE_SIGMA` (3.0).
 
 ```
-eligible = !eliminated AND (mu >= 3*sigma OR in topK)
+eligible = !eliminated AND (mu + 1.04*sigma >= top15Cutoff OR in topK)
 converged = sigma < 3.0
 pool_converged = 2 consecutive rounds where ALL eligible sigmas < 3.0
 ```

@@ -213,13 +213,13 @@ class BudgetExceededError extends Error {
   constructor(agentName: string, spent: number, reserved: number, cap: number);
 }
 
-// Per-run: thrown when budget runs out mid-generation but some variants exist
+// Per-run: thrown when budget runs out mid-phase but partial results exist
 class BudgetExceededWithPartialResults extends BudgetExceededError {
-  constructor(partialVariants: Variant[], originalError: BudgetExceededError);
+  constructor(partialData: unknown, originalError: BudgetExceededError);
 }
 ```
 
-> **Warning:** `BudgetExceededWithPartialResults` extends `BudgetExceededError`. In `catch` blocks, check for `BudgetExceededWithPartialResults` **before** `BudgetExceededError`, or the subclass will be caught by the parent and the partial variants will be lost. This is a common source of bugs.
+> **Warning:** `BudgetExceededWithPartialResults` extends `BudgetExceededError`. In `catch` blocks, check for `BudgetExceededWithPartialResults` **before** `BudgetExceededError`, or the subclass will be caught by the parent and the partial data will be lost. This is a common source of bugs. The `partialData` field is typed as `unknown` and may contain either `Variant[]` (from the generation phase) or `RankResult` (from the ranking phase). Callers must inspect the data to determine which type they received.
 
 The global errors (`GlobalBudgetExceededError` and `LLMKillSwitchError`) both extend `ServiceError` from the main app's error infrastructure. They carry structured `details` (category, daily totals, caps) that can be logged or surfaced in admin UI. The kill switch error has no constructor parameters -- it always produces the same message ("LLM kill switch is enabled -- all LLM calls are blocked").
 

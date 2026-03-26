@@ -163,13 +163,24 @@ Swiss-system pairing matches similarly-rated variants to maximize information ga
 comparison. Only variants that survived triage participate.
 
 **Eligibility filter:** a variant enters Phase 2 if it was not eliminated AND either:
-- `mu >= 3 * sigma` (skill estimate is meaningfully above zero), OR
+- `mu + ELIGIBILITY_Z_SCORE * sigma >= top15Cutoff` (upper-bound estimate reaches the top 15%), OR
 - it is in the current top-K by mu (default K=5, configurable via `config.tournamentTopK`)
 
-The `mu >= 3 * sigma` condition is a signal-to-noise check: the variant's estimated skill
-must be at least three times its uncertainty. The top-K exception ensures the current best
-variants always participate in fine-ranking regardless of their sigma, which matters when
-a strong variant has been recently generated and still has high uncertainty.
+`ELIGIBILITY_Z_SCORE` is 1.04 (the 85th percentile z-score). `top15Cutoff` is the mu of
+the variant at the 15th percentile of non-eliminated variants, recomputed each Swiss round
+as ratings change. This upper-bound check asks: could this variant plausibly be in the top
+tier? If the optimistic projection of its skill reaches the cutoff, it remains eligible.
+
+The top-K safety net ensures the current best variants by mu always participate in
+fine-ranking regardless of their sigma, which matters when a strong variant has been
+recently generated and still has high uncertainty.
+
+**Minimum pool floor:** if fewer than 3 variants pass the eligibility filter, the system
+falls back to the top-3 variants by mu. This prevents degenerate rounds where too few
+variants are eligible for meaningful pairwise comparisons.
+
+Both `topKIds` and `top15Cutoff` are recomputed at the start of each Swiss round, so
+eligibility adapts as ratings shift during fine-ranking.
 
 **Bradley-Terry pairing.** For each candidate pair `(A, B)`:
 

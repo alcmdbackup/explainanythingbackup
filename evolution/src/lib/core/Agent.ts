@@ -56,20 +56,17 @@ export abstract class Agent<TInput, TOutput, TDetail extends ExecutionDetailBase
     } catch (error) {
       const cost = ctx.costTracker.getTotalSpent() - costBefore;
       const durationMs = Date.now() - startMs;
-      const failUpdate = { cost_usd: cost, success: false, error_message: error instanceof Error ? error.message : String(error), duration_ms: durationMs };
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      await updateInvocation(ctx.db, invocationId, { cost_usd: cost, success: false, error_message: errorMessage, duration_ms: durationMs });
 
-      // Check BudgetExceededWithPartialResults BEFORE BudgetExceededError (subclass)
+      // Check BudgetExceededWithPartialResults BEFORE BudgetExceededError (subclass first)
       if (error instanceof BudgetExceededWithPartialResults) {
-        await updateInvocation(ctx.db, invocationId, failUpdate);
-        return { success: false, result: null, cost, durationMs, invocationId, budgetExceeded: true, partialResult: error.partialVariants };
+        return { success: false, result: null, cost, durationMs, invocationId, budgetExceeded: true, partialResult: error.partialData };
       }
-
       if (error instanceof BudgetExceededError) {
-        await updateInvocation(ctx.db, invocationId, failUpdate);
         return { success: false, result: null, cost, durationMs, invocationId, budgetExceeded: true };
       }
 
-      await updateInvocation(ctx.db, invocationId, { ...failUpdate, error_message: String(error) });
       throw error;
     }
   }

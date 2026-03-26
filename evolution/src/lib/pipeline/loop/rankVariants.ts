@@ -9,9 +9,16 @@ import {
   compareWithBiasMitigation, DEFAULT_SIGMA, DEFAULT_CONVERGENCE_SIGMA,
 } from '../../shared/computeRatings';
 import type { EvolutionConfig, V2Match } from '../infra/types';
+import { BudgetExceededWithPartialResults } from '../infra/errors';
 import type { EntityLogger } from '../infra/createEntityLogger';
 
 // ─── Constants ───────────────────────────────────────────────────
+
+/** Z-score for Swiss eligibility: 85th percentile (top 15%). */
+const ELIGIBILITY_Z_SCORE = 1.04;
+
+/** Minimum eligible variants for Swiss ranking. */
+const MIN_SWISS_POOL = 3;
 
 /** Minimum triage opponents before early exit can fire. */
 const MIN_TRIAGE_OPPONENTS = 2;
@@ -264,6 +271,7 @@ interface TriageResult {
   eliminatedIds: Set<string>;
   ratings: Map<string, Rating>;
   matchCounts: Map<string, number>;
+  budgetError?: BudgetExceededError;
 }
 
 async function executeTriage(
@@ -296,7 +304,9 @@ async function executeTriage(
   const numOpponents = config.calibrationOpponents ?? 5;
 
   let consecutiveErrors = 0;
+  let budgetError: BudgetExceededError | null = null;
 
+  try {
   for (const entrantId of needsTriage) {
     const entrantVariant = poolMap.get(entrantId);
     if (!entrantVariant) continue;
@@ -384,8 +394,13 @@ async function executeTriage(
       }
     }
   }
+  } catch (error) {
+    if (error instanceof BudgetExceededError) {
+      budgetError = error;
+    } else { throw error; }
+  }
 
-  return { matches, eliminatedIds, ratings: localRatings, matchCounts: localCounts };
+  return { matches, eliminatedIds, ratings: localRatings, matchCounts: localCounts, budgetError: budgetError ?? undefined };
 }
 
 // ─── Fine-ranking phase ──────────────────────────────────────────
@@ -398,6 +413,7 @@ interface FineRankingResult {
   rounds: number;
   exitReason: string;
   convergenceStreak: number;
+  budgetError?: BudgetExceededError;
 }
 
 async function executeFineRanking(
@@ -422,29 +438,41 @@ async function executeFineRanking(
   const topK = config.tournamentTopK ?? 5;
   let consecutiveErrors = 0;
 
-  // Compute topK IDs by mu
-  const topKIds = new Set(
-    [...localRatings.entries()]
-      .sort(([, a], [, b]) => b.mu - a.mu)
-      .slice(0, topK)
-      .map(([id]) => id),
-  );
-
-  // Eligible: not eliminated, and (mu >= 3*sigma OR in topK)
   const getEligibleIds = (): string[] => {
-    return pool
-      .filter((v) => !eliminatedIds.has(v.id))
-      .filter((v) => {
-        const r = localRatings.get(v.id);
-        if (!r) return false;
-        return r.mu >= 3 * r.sigma || topKIds.has(v.id);
-      })
-      .map((v) => v.id);
+    const nonEliminated = pool.filter((v) => !eliminatedIds.has(v.id));
+
+    // Recompute topK each round (ratings change)
+    const sortedByMu = nonEliminated
+      .map((v) => ({ id: v.id, mu: localRatings.get(v.id)?.mu ?? 0 }))
+      .sort((a, b) => b.mu - a.mu);
+    const topKIds = new Set(sortedByMu.slice(0, topK).map((e) => e.id));
+
+    // Top-15% cutoff
+    const top15Idx = Math.max(0, Math.floor(sortedByMu.length * 0.15) - 1);
+    const top15Cutoff = sortedByMu[top15Idx]?.mu ?? 0;
+
+    const eligible = nonEliminated.filter((v) => {
+      const r = localRatings.get(v.id);
+      if (!r) return false;
+      return r.mu + ELIGIBILITY_Z_SCORE * r.sigma >= top15Cutoff || topKIds.has(v.id);
+    });
+
+    // Minimum pool floor
+    if (eligible.length < MIN_SWISS_POOL) {
+      logger?.info('Swiss pool below minimum, using top-3 fallback', { eligible: eligible.length, phaseName: 'ranking' });
+      return sortedByMu.slice(0, MIN_SWISS_POOL).map((e) => e.id);
+    }
+
+    logger?.debug(`Swiss eligibility: ${eligible.length} of ${nonEliminated.length} variants pass top-15% filter`, { phaseName: 'ranking' });
+    return eligible.map((v) => v.id);
   };
 
-  // Swiss rounds
+  let budgetError: BudgetExceededError | null = null;
   let lastRound = 0;
   let exitReason = 'maxRounds';
+
+  try {
+  // Swiss rounds
 
   for (let round = 0; round < 20; round++) {
     lastRound = round;
@@ -525,6 +553,11 @@ async function executeFineRanking(
       consecutiveConvergedRounds = 0;
     }
   }
+  } catch (error) {
+    if (error instanceof BudgetExceededError) {
+      budgetError = error;
+    } else { throw error; }
+  }
 
   return {
     matches,
@@ -534,6 +567,7 @@ async function executeFineRanking(
     rounds: lastRound + 1,
     exitReason,
     convergenceStreak: consecutiveConvergedRounds,
+    budgetError: budgetError ?? undefined,
   };
 }
 
@@ -558,6 +592,26 @@ export interface RankResult {
   converged: boolean;
   /** Ranking metadata for execution detail construction. */
   meta: RankingMeta;
+}
+
+/** Compute match count deltas between current and initial snapshots. */
+function computeMatchCountDeltas(
+  currentCounts: Map<string, number>,
+  initialCounts: Map<string, number>,
+): Record<string, number> {
+  const deltas: Record<string, number> = {};
+  for (const [id, count] of currentCounts) {
+    const delta = count - (initialCounts.get(id) ?? 0);
+    if (delta > 0) deltas[id] = delta;
+  }
+  return deltas;
+}
+
+/** Compute top-20% mu cutoff from a ratings map. */
+function computeTop20Cutoff(ratingsMap: Map<string, Rating>): number {
+  const allMus = [...ratingsMap.values()].map(r => r.mu).sort((a, b) => b - a);
+  const idx = Math.max(0, Math.floor(allMus.length * 0.2) - 1);
+  return allMus[idx] ?? 0;
 }
 
 /**
@@ -613,8 +667,9 @@ export async function rankPool(
 
   logger?.info(`Ranking pool: ${pool.length} variants, ${newEntrantIds.length} new entrants`, { phaseName: 'ranking' });
 
+  let triageResult: TriageResult | null = null;
   if (hasExistingVariants && newEntrantIds.length > 0) {
-    const triageResult = await executeTriage(
+    triageResult = await executeTriage(
       pool,
       currentRatings,
       currentCounts,
@@ -631,55 +686,56 @@ export async function rankPool(
     logger?.info(`Triage: ${eliminatedIds.size} eliminated, ${newEntrantIds.length - eliminatedIds.size} passed`, { phaseName: 'ranking' });
   }
 
-  // Phase 2: Fine-ranking
-  const fineResult = await executeFineRanking(
-    pool,
-    currentRatings,
-    currentCounts,
-    eliminatedIds,
-    config,
-    callLLM,
-    maxComparisons,
-    cache,
-    logger,
-  );
-  allMatches.push(...fineResult.matches);
-
-  // Build full rating snapshot
-  const ratingUpdates: Record<string, Rating> = Object.fromEntries(fineResult.ratings);
-
-  // Compute match count increments (deltas)
-  const matchCountIncrements: Record<string, number> = {};
-  for (const [id, count] of fineResult.matchCounts) {
-    const initial = initialCounts.get(id) ?? 0;
-    const delta = count - initial;
-    if (delta > 0) matchCountIncrements[id] = delta;
+  // Phase 2: Fine-ranking (skip if triage already hit budget)
+  let fineResult: FineRankingResult | null = null;
+  if (!triageResult?.budgetError) {
+    fineResult = await executeFineRanking(
+      pool,
+      currentRatings,
+      currentCounts,
+      eliminatedIds,
+      config,
+      callLLM,
+      maxComparisons,
+      cache,
+      logger,
+    );
+    allMatches.push(...fineResult.matches);
+    currentRatings = fineResult.ratings;
+    currentCounts = fineResult.matchCounts;
   }
 
-  if (fineResult.converged) {
-    logger?.info('Pool converged', { phaseName: 'ranking' });
-  }
-
-  // Compute top20 cutoff from final ratings
-  const allMus = [...fineResult.ratings.values()].map(r => r.mu).sort((a, b) => b - a);
-  const top20Idx = Math.max(0, Math.floor(allMus.length * 0.2) - 1);
-  const top20Cutoff = allMus[top20Idx] ?? 0;
+  // Common result fields used for both normal and budget-exceeded paths
+  const ratingUpdates: Record<string, Rating> = Object.fromEntries(currentRatings);
+  const matchCountIncrements = computeMatchCountDeltas(currentCounts, initialCounts);
   const eligibleContenders = pool.filter(v => !eliminatedIds.has(v.id)).length;
 
-  return {
+  const buildResult = (converged: boolean): RankResult => ({
     matches: allMatches,
     ratingUpdates,
     matchCountIncrements,
-    converged: fineResult.converged,
+    converged,
     meta: {
       budgetPressure: budgetFraction ?? 0,
       budgetTier: tier,
-      top20Cutoff,
+      top20Cutoff: computeTop20Cutoff(currentRatings),
       eligibleContenders,
       totalComparisons: allMatches.length,
-      fineRankingRounds: fineResult.rounds,
-      fineRankingExitReason: fineResult.exitReason,
-      convergenceStreak: fineResult.convergenceStreak,
+      fineRankingRounds: fineResult?.rounds ?? 0,
+      fineRankingExitReason: fineResult?.exitReason ?? 'budget_exceeded',
+      convergenceStreak: fineResult?.convergenceStreak ?? 0,
     },
-  };
+  });
+
+  // Check for budget error from either phase
+  const budgetError = triageResult?.budgetError ?? fineResult?.budgetError;
+  if (budgetError) {
+    throw new BudgetExceededWithPartialResults(buildResult(false), budgetError);
+  }
+
+  if (fineResult?.converged) {
+    logger?.info('Pool converged', { phaseName: 'ranking' });
+  }
+
+  return buildResult(fineResult!.converged);
 }

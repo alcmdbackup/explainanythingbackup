@@ -175,7 +175,7 @@ describe('Agent abstract class', () => {
       expect(updateInvocation).toHaveBeenCalledWith(
         ctx.db, 'inv-123', expect.objectContaining({
           success: false,
-          error_message: 'Error: unexpected failure',
+          error_message: 'unexpected failure',
         }),
       );
     });

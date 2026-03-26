@@ -61,7 +61,7 @@ describe('generateVariants', () => {
       expect(err).toBeInstanceOf(BudgetExceededWithPartialResults);
       const partialErr = err as BudgetExceededWithPartialResults;
       // At least 1 variant should succeed (the ones that don't throw)
-      expect(partialErr.partialVariants.length).toBeGreaterThanOrEqual(1);
+      expect((partialErr.partialData as any[]).length).toBeGreaterThanOrEqual(1);
     }
   });
 
