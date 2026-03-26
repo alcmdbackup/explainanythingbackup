@@ -89,7 +89,18 @@ if (key === 'delete') {
       await childEntity.executeAction('delete', row.id, db);
     }
   }
-  // Clean up metrics (logical FK, no DB cascade)
+  // Mark parent metrics stale (they were computed including this entity)
+  for (const parent of this.parents) {
+    const row = await db.from(this.table).select(parent.foreignKey).eq('id', id).single();
+    const parentId = (row.data as Record<string, unknown> | null)?.[parent.foreignKey] as string | undefined;
+    if (parentId) {
+      await db.from('evolution_metrics')
+        .update({ stale: true, updated_at: new Date().toISOString() })
+        .eq('entity_type', parent.parentType)
+        .eq('entity_id', parentId);
+    }
+  }
+  // Clean up this entity's own metrics (logical FK, no DB cascade)
   await db.from('evolution_metrics')
     .delete()
     .eq('entity_type', this.type)
@@ -151,6 +162,8 @@ Remove `archiveColumn`, `archiveValue` from all entity subclasses. Remove archiv
   | Experiment | delete (verify no orphans) | query all child tables → 0 rows |
   | Variant | delete | variant deleted, arena comparisons deleted, metrics deleted |
   | Variant | delete (verify no orphans) | query arena_comparisons → 0 rows |
+  | Run | delete (stale parent metrics) | after deleting run, verify strategy metrics have `stale=true` |
+  | Run | delete (stale experiment metrics) | after deleting run from experiment, verify experiment metrics have `stale=true` |
 
 - Cleanup: Extend `cleanupEvolutionData()`:
   1. Add `experimentIds?: string[]` to `CleanupOptions`
@@ -302,7 +315,7 @@ sorted.sort((a, b) => {
 - `admin-evolution-error-states.spec.ts` — Phase 2c
 
 ### Integration Tests
-- **NEW** `entity-actions.integration.test.ts` — Phase 0a: 17-case matrix covering every entity × action with cascade verification
+- **NEW** `entity-actions.integration.test.ts` — Phase 0a: 19-case matrix covering every entity × action with cascade + stale metrics verification
 - `evolution-visualization.integration.test.ts` — Phase 1d: verify after dashboard query changes
 
 ## Rollback Plan
