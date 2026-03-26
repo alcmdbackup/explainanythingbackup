@@ -48,7 +48,7 @@ import {
   cloneStrategyAction,
   archiveStrategyAction,
   deleteStrategyAction,
-} from './strategyRegistryActionsV2';
+} from './strategyRegistryActions';
 
 const VALID_UUID = '550e8400-e29b-41d4-a716-446655440000';
 const VALID_UUID_2 = '660e8400-e29b-41d4-a716-446655440001';
@@ -79,7 +79,7 @@ const MOCK_STRATEGY = {
   created_at: '2026-01-15T00:00:00Z',
 };
 
-describe('strategyRegistryActionsV2', () => {
+describe('strategyRegistryActions', () => {
   let mockSupabase: ReturnType<typeof createSupabaseChainMock>;
 
   beforeEach(() => {
@@ -105,7 +105,7 @@ describe('strategyRegistryActionsV2', () => {
       expect(result.success).toBe(true);
       expect(result.data!.items).toHaveLength(1);
       expect(result.data!.total).toBe(1);
-      expect(result.data!.items[0].config_hash).toBe('abc123hash');
+      expect(result.data!.items[0]!.config_hash).toBe('abc123hash');
     });
 
     it('filters by status when provided', async () => {
@@ -212,6 +212,40 @@ describe('strategyRegistryActionsV2', () => {
 
       expect(result.success).toBe(false);
     });
+
+    it('returns "Strategy not found" for PGRST116 error code', async () => {
+      const chain = {
+        select: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        single: jest.fn().mockResolvedValue({
+          data: null,
+          error: { message: 'JSON object requested, multiple (or no) rows returned', code: 'PGRST116' },
+        }),
+      };
+      mockSupabase.from = jest.fn().mockReturnValue(chain);
+
+      const result = await getStrategyDetailAction(VALID_UUID);
+
+      expect(result.success).toBe(false);
+      expect(result.error?.message).toBe('Strategy not found');
+    });
+
+    it('returns "Failed to load strategy" for non-PGRST116 errors', async () => {
+      const chain = {
+        select: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        single: jest.fn().mockResolvedValue({
+          data: null,
+          error: { message: 'connection timeout', code: '57014' },
+        }),
+      };
+      mockSupabase.from = jest.fn().mockReturnValue(chain);
+
+      const result = await getStrategyDetailAction(VALID_UUID);
+
+      expect(result.success).toBe(false);
+      expect(result.error?.message).toBe('Failed to load strategy');
+    });
   });
 
   // ─── createStrategyAction ────────────────────────────────────
@@ -278,13 +312,18 @@ describe('strategyRegistryActionsV2', () => {
   describe('updateStrategyAction', () => {
     it('updates strategy name', async () => {
       const updated = { ...MOCK_STRATEGY, name: 'Beta Strategy' };
-      const chain = {
+      const strategyChain = {
         update: jest.fn().mockReturnThis(),
         eq: jest.fn().mockReturnThis(),
         select: jest.fn().mockReturnThis(),
         single: jest.fn().mockResolvedValue({ data: updated, error: null }),
       };
-      mockSupabase.from = jest.fn().mockReturnValue(chain);
+      const logsChain = {
+        insert: jest.fn().mockResolvedValue({ error: null }),
+      };
+      mockSupabase.from = jest.fn((table: string) =>
+        table === 'evolution_logs' ? logsChain : strategyChain,
+      ) as never;
 
       const result = await updateStrategyAction({ id: VALID_UUID, name: 'Beta Strategy' });
 
@@ -376,6 +415,7 @@ describe('strategyRegistryActionsV2', () => {
       const chain = {
         update: jest.fn().mockReturnThis(),
         eq: jest.fn().mockReturnThis(),
+        insert: jest.fn(() => Promise.resolve({ error: null })),
         then: jest.fn((resolve: (v: unknown) => void) =>
           resolve({ data: null, error: null })
         ),

@@ -1,0 +1,9 @@
+{
+  "branch": "chore/workflow_improvements_20260325",
+  "created_at": "2026-03-25T00:00:00Z",
+  "prerequisites": {},
+  "relevantDocs": [
+    "docs/docs_overall/managing_claude_settings.md",
+    "docs/docs_overall/project_workflow.md"
+  ]
+}
