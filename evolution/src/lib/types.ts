@@ -154,7 +154,7 @@ export interface AgentResult {
 
 // ─── Agent execution detail types ───────────────────────────────
 
-interface ExecutionDetailBase {
+export interface ExecutionDetailBase {
   totalCost: number;
   /** Set by truncateDetail() when JSONB exceeds 100KB cap. */
   _truncated?: boolean;

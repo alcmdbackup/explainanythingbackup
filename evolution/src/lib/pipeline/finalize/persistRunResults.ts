@@ -239,8 +239,7 @@ export async function finalizeRun(
     const { data: invocations } = await db
       .from('evolution_agent_invocations')
       .select('id, agent_name, execution_detail')
-      .eq('run_id', runId)
-      .eq('agent_name', 'generation');
+      .eq('run_id', runId);
 
     if (invocations && invocations.length > 0) {
       const detailsMap = new Map(

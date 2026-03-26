@@ -9,17 +9,31 @@ import { ExperimentEntity } from './entities/ExperimentEntity';
 import { VariantEntity } from './entities/VariantEntity';
 import { InvocationEntity } from './entities/InvocationEntity';
 import { PromptEntity } from './entities/PromptEntity';
+import { getAgentClasses } from './agentRegistry';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let _registry: Record<EntityType, Entity<any>> | null = null;
 
 function initRegistry(): void {
+  const invocation = new InvocationEntity();
+
+  // Merge agent-contributed finalization metrics into InvocationEntity
+  const agentClasses = getAgentClasses();
+  for (const agent of agentClasses) {
+    for (const metricDef of agent.invocationMetrics) {
+      const alreadyRegistered = invocation.metrics.atFinalization.some(d => d.name === metricDef.name);
+      if (!alreadyRegistered) {
+        invocation.metrics.atFinalization.push(metricDef);
+      }
+    }
+  }
+
   _registry = {
     run: new RunEntity(),
     strategy: new StrategyEntity(),
     experiment: new ExperimentEntity(),
     variant: new VariantEntity(),
-    invocation: new InvocationEntity(),
+    invocation,
     prompt: new PromptEntity(),
   };
 

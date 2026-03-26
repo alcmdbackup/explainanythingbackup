@@ -130,4 +130,16 @@ describe('updateInvocation', () => {
     expect(spy).toHaveBeenCalledWith(expect.stringContaining('updateInvocation error'));
     spy.mockRestore();
   });
+
+  it('passes duration_ms to DB update when provided', async () => {
+    const { db, updatedRows } = makeMockDb();
+    await updateInvocation(db, INV_ID, { cost_usd: 0.01, success: true, duration_ms: 1234 });
+    expect(updatedRows[0]).toMatchObject({ duration_ms: 1234 });
+  });
+
+  it('omits duration_ms from DB update when not provided', async () => {
+    const { db, updatedRows } = makeMockDb();
+    await updateInvocation(db, INV_ID, { cost_usd: 0.01, success: true });
+    expect(updatedRows[0]).not.toHaveProperty('duration_ms');
+  });
 });

@@ -253,6 +253,16 @@ and cost attribution. The `run()` method catches `BudgetExceededError` and
 `BudgetExceededWithPartialResults` separately — the latter extends the former, so order
 matters. Invocation records link to `llmCallTracking` rows for full cost attribution.
 
+### Execution Detail Flow
+
+`Agent.execute()` returns `AgentOutput<TOutput, TDetail>` where `TDetail` is a typed execution detail object (e.g. variant counts for generation, match counts for ranking). `Agent.run()` processes this as follows:
+
+1. `execute()` returns `AgentOutput` with `result`, `detail`, and optional `childVariantIds` / `parentVariantIds`.
+2. `run()` patches `totalCost` into the detail object, then validates it via Zod `safeParse`. Validation failures are logged but do not fail the invocation.
+3. `duration_ms` is computed from a `Date.now()` timestamp taken before `execute()` is called.
+4. `updateInvocation()` is called with `execution_detail` (validated JSONB) and `duration_ms` together, so both fields are always written in the same DB update.
+5. The admin UI invocation detail page reads `execution_detail` and renders it via `ConfigDrivenDetailRenderer`, using per-agent `DetailFieldDef[]` configs from `DETAIL_VIEW_CONFIGS` in `evolution/src/lib/core/detailViewConfigs.ts`.
+
 ### Pool Growth
 
 The pool is append-only. Typical growth is ~5-6 variants per iteration (3 generated +

@@ -143,10 +143,35 @@ export interface AgentContext {
   config: EvolutionConfig;
 }
 
+/** Structured output from Agent.execute(): result + execution detail + variant lineage. */
+export interface AgentOutput<TOutput, TDetail> {
+  result: TOutput;
+  detail: TDetail;
+  /** Variant IDs created by this agent (for lineage tracking). */
+  childVariantIds?: string[];
+  /** Variant IDs consumed/ranked by this agent (for lineage tracking). */
+  parentVariantIds?: string[];
+}
+
+/** Field definition for config-driven execution detail rendering. */
+export interface DetailFieldDef {
+  key: string;
+  label: string;
+  type: 'table' | 'boolean' | 'badge' | 'number' | 'text' | 'list' | 'object';
+  /** Column definitions for table type fields. */
+  columns?: Array<{ key: string; label: string }>;
+  /** Nested field definitions for object type fields. */
+  children?: DetailFieldDef[];
+  /** Optional formatter name for number/text fields. */
+  formatter?: string;
+}
+
 export interface AgentResult<T> {
   success: boolean;
   result: T | null;
   cost: number;
+  /** Duration of agent execution in milliseconds. */
+  durationMs: number;
   invocationId: string | null;
   budgetExceeded?: boolean;
   partialResult?: unknown;

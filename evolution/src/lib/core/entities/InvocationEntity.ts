@@ -25,13 +25,13 @@ export class InvocationEntity extends Entity<EvolutionAgentInvocationFullDb> {
     duringExecution: [],
     atFinalization: [
       { ...METRIC_CATALOG.best_variant_elo,
-        compute: (ctx) => computeBestVariantElo(ctx, ctx.currentInvocationId!) },
+        compute: (ctx) => computeBestVariantElo(ctx, ctx.currentInvocationId ?? null) },
       { ...METRIC_CATALOG.avg_variant_elo,
-        compute: (ctx) => computeAvgVariantElo(ctx, ctx.currentInvocationId!) },
+        compute: (ctx) => computeAvgVariantElo(ctx, ctx.currentInvocationId ?? null) },
       { ...METRIC_CATALOG.variant_count, name: 'variant_count', label: 'Variants Produced',
         timing: 'at_finalization',
         description: 'Number of variants created by this invocation',
-        compute: (ctx) => computeInvocationVariantCount(ctx, ctx.currentInvocationId!) },
+        compute: (ctx) => computeInvocationVariantCount(ctx, ctx.currentInvocationId ?? null) },
     ],
     atPropagation: [],
   };
@@ -45,7 +45,11 @@ export class InvocationEntity extends Entity<EvolutionAgentInvocationFullDb> {
   ];
 
   readonly listFilters: FilterDef[] = [
-    { field: 'agent_name', type: 'select', options: ['generation', 'ranking'] },
+    { field: 'agent_name', type: 'select', options: [
+      'generation', 'ranking', 'evolution', 'reflection', 'iterativeEditing',
+      'treeSearch', 'sectionDecomposition', 'debate', 'proximity', 'metaReview',
+      'outlineGeneration', 'flowCritique',
+    ] },
   ];
 
   readonly actions: EntityAction<EvolutionAgentInvocationFullDb>[] = [];

@@ -230,6 +230,34 @@ describe('METRIC_CATALOG cross-reference', () => {
   });
 });
 
+describe('InvocationEntity with agent metrics (via registry)', () => {
+  it('has agent-contributed metrics when initialized through registry', () => {
+    const { getEntity, _resetRegistryForTesting } = require('../../core/entityRegistry');
+    _resetRegistryForTesting();
+    const entity = getEntity('invocation');
+    const names = entity.metrics.atFinalization.map((d: { name: string }) => d.name);
+    // Base 3 + agent-contributed: format_rejection_rate, total_comparisons
+    expect(names).toContain('best_variant_elo');
+    expect(names).toContain('format_rejection_rate');
+    expect(names).toContain('total_comparisons');
+    expect(entity.metrics.atFinalization.length).toBeGreaterThanOrEqual(5);
+    _resetRegistryForTesting();
+  });
+});
+
+describe('DETAIL_VIEW_CONFIGS sync with agent classes', () => {
+  it('every agent detailViewConfig matches its DETAIL_VIEW_CONFIGS entry', () => {
+    const { getAgentClasses } = require('../../core/agentRegistry');
+    const { DETAIL_VIEW_CONFIGS } = require('../../core/detailViewConfigs');
+    const agents = getAgentClasses();
+    for (const agent of agents) {
+      const config = DETAIL_VIEW_CONFIGS[agent.name];
+      expect(config).toBeDefined();
+      expect(agent.detailViewConfig).toEqual(config);
+    }
+  });
+});
+
 describe('entity registry integration', () => {
   it('strategy and experiment have identical propagation metric names', () => {
     const stratEntity = new StrategyEntity();

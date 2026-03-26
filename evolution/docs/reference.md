@@ -39,11 +39,14 @@ The core layer defines abstract base classes for entities and agents, the centra
 | File | Purpose |
 |------|---------|
 | `Entity.ts` | Abstract entity base class with generic CRUD (`list`, `getById`, `executeAction`), metric propagation (`propagateMetricsToParents`, `markParentMetricsStale`), and entity-aware logging via `createLogger`. |
-| `Agent.ts` | Abstract agent base class with `run()`/`execute()` template method. `run()` wraps execution with budget-error handling, invocation tracking, and cost attribution. |
+| `Agent.ts` | Abstract agent base class with `run()`/`execute()` template method. `run()` wraps execution with budget-error handling, invocation tracking, cost attribution, duration tracking, and detail validation via safeParse. |
 | `metricCatalog.ts` | Central metric definitions (25 metrics) organized by timing phase (during_execution, at_finalization, at_propagation). Exports `METRIC_CATALOG` and `METRIC_FORMATTERS` for consistent formatting across UI. |
-| `entityRegistry.ts` | Lazy-init entity registry mapping `EntityType` to singleton entity instances. Provides `getEntity(type)` lookup helper used by CRUD routing and metric propagation. |
+| `entityRegistry.ts` | Lazy-init entity registry mapping `EntityType` to singleton entity instances. Provides `getEntity(type)` lookup helper used by CRUD routing and metric propagation. Merges agent-specific `invocationMetrics` from `agentRegistry.ts` into `InvocationEntity` at init. |
+| `agentRegistry.ts` | Lazy agent class registry; exports `getAgentClasses()` returning all concrete Agent subclasses. Used by `entityRegistry.ts` to collect and merge agent-declared `invocationMetrics` without creating circular imports. |
+| `agentMetrics.ts` | Agent-specific metric compute functions (e.g. `format_rejection_rate` for GenerationAgent, `total_comparisons` for RankingAgent). Kept separate from `metricCatalog.ts` so agent metrics can reference agent implementation details. |
+| `detailViewConfigs.ts` | Pure-data detail view configs (`DETAIL_VIEW_CONFIGS`) mapping agent names to `DetailFieldDef[]` arrays. Consumed by `ConfigDrivenDetailRenderer` to render invocation detail panels without per-agent custom components. |
 | `entities/` | 6 entity subclasses: `RunEntity`, `StrategyEntity`, `ExperimentEntity`, `VariantEntity`, `InvocationEntity`, `PromptEntity`. Each declares parents, children, metrics, list columns, filters, actions, and detail tabs. |
-| `agents/` | 2 agent subclasses: `GenerationAgent` (text generation phase), `RankingAgent` (triage + Swiss ranking phase). Each implements the `execute()` method with phase-specific logic. |
+| `agents/` | 2 agent subclasses: `GenerationAgent` (text generation phase), `RankingAgent` (triage + Swiss ranking phase). Each implements `execute()` and declares `detailViewConfig` and optional `invocationMetrics`. |
 
 ### Shared (`evolution/src/lib/shared/`)
 
@@ -404,7 +407,7 @@ The admin UI is a Next.js App Router application. All pages are under `src/app/a
 | `/admin/evolution/strategies` | `evolution/strategies/page.tsx` | Strategy registry CRUD |
 | `/admin/evolution/strategies/[strategyId]` | `evolution/strategies/[strategyId]/page.tsx` | Strategy detail |
 | `/admin/evolution/invocations` | `evolution/invocations/page.tsx` | LLM invocation list (cost auditing) |
-| `/admin/evolution/invocations/[invocationId]` | `evolution/invocations/[invocationId]/page.tsx` | Invocation detail (prompt, response, tokens, cost) |
+| `/admin/evolution/invocations/[invocationId]` | `evolution/invocations/[invocationId]/page.tsx` | Invocation detail (prompt, response, tokens, cost, execution detail via `ConfigDrivenDetailRenderer`) |
 
 ### API Routes
 
@@ -413,6 +416,8 @@ The admin UI is a Next.js App Router application. All pages are under `src/app/a
 | `/api/evolution/run` | POST | `src/app/api/evolution/run/route.ts` | Trigger evolution pipeline run. Admin-only. Accepts `{ targetRunId?: string }`, returns `RunnerResult`. `maxDuration=300`. |
 
 Total: 17 pages (15 list/detail pairs + dashboard + wizard) + 1 API route.
+
+**`ConfigDrivenDetailRenderer`** (`src/app/admin/evolution/invocations/[invocationId]/ConfigDrivenDetailRenderer.tsx`) — renders the agent-specific execution detail section on the invocation detail page. Reads field definitions from `DETAIL_VIEW_CONFIGS` (keyed by agent name) and renders each field generically, eliminating the need for a custom component per agent type.
 
 All pages use the shared UI components from `evolution/src/components/evolution/index.ts`. Common patterns include `EntityListPage` for list views with filtering, `EntityDetailTabs` for detail views with tabbed navigation, `RegistryPage` for CRUD registries, and `AutoRefreshProvider` for real-time polling. The dashboard uses a 15-second auto-refresh interval; other pages refresh on user navigation.
 

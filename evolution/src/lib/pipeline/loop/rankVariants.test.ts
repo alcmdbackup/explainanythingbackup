@@ -45,6 +45,8 @@ describe('rankPool', () => {
     const result = await rankPool([makeVariant('a')], new Map(), new Map(), [], llm, baseConfig);
     expect(result.matches).toHaveLength(0);
     expect(result.converged).toBe(false);
+    expect(result.meta).toBeDefined();
+    expect(result.meta.budgetTier).toBe('low');
   });
 
   it('handles first iteration with all new entrants (fine-ranking only)', async () => {
@@ -54,6 +56,21 @@ describe('rankPool', () => {
     const result = await rankPool(pool, new Map(), new Map(), ids, llm, baseConfig);
     expect(result.matches.length).toBeGreaterThan(0);
     expect(Object.keys(result.ratingUpdates).length).toBeGreaterThan(0);
+  });
+
+  it('returns meta with ranking metadata', async () => {
+    const pool = makePool(4);
+    const ids = pool.map((v) => v.id);
+    const llm = createV2MockLlm({ rankingResponses: Array(30).fill('A') });
+    const result = await rankPool(pool, new Map(), new Map(), ids, llm, baseConfig);
+    expect(result.meta).toBeDefined();
+    expect(result.meta.budgetTier).toBe('low');
+    expect(result.meta.totalComparisons).toBe(result.matches.length);
+    expect(typeof result.meta.fineRankingRounds).toBe('number');
+    expect(typeof result.meta.fineRankingExitReason).toBe('string');
+    expect(typeof result.meta.convergenceStreak).toBe('number');
+    expect(typeof result.meta.top20Cutoff).toBe('number');
+    expect(typeof result.meta.eligibleContenders).toBe('number');
   });
 
   // ─── Triage ──────────────────────────────────────────────────

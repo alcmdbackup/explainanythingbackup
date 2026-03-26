@@ -20,7 +20,7 @@ function getInvocationVariantIds(
 
 export function computeBestVariantElo(
   ctx: FinalizationContext,
-  invocationId: string | undefined,
+  invocationId: string | undefined | null,
 ): number | null {
   if (!invocationId || !ctx.invocationDetails) return null;
   const detail = ctx.invocationDetails.get(invocationId);
@@ -37,7 +37,7 @@ export function computeBestVariantElo(
 
 export function computeAvgVariantElo(
   ctx: FinalizationContext,
-  invocationId: string | undefined,
+  invocationId: string | undefined | null,
 ): number | null {
   if (!invocationId || !ctx.invocationDetails) return null;
   const detail = ctx.invocationDetails.get(invocationId);
@@ -54,7 +54,7 @@ export function computeAvgVariantElo(
 
 export function computeInvocationVariantCount(
   ctx: FinalizationContext,
-  invocationId: string | undefined,
+  invocationId: string | undefined | null,
 ): number | null {
   if (!invocationId || !ctx.invocationDetails) return null;
   const detail = ctx.invocationDetails.get(invocationId);

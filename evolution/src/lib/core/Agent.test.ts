@@ -1,9 +1,11 @@
 // Tests for Agent abstract class: verifies run() ceremony, budget error handling, invocation tracking.
 
 import { Agent } from './Agent';
-import type { AgentContext } from './types';
-import { BudgetExceededError } from '../types';
+import type { AgentContext, AgentOutput, DetailFieldDef } from './types';
+import { BudgetExceededError, ExecutionDetailBase } from '../types';
 import { BudgetExceededWithPartialResults } from '../pipeline/infra/errors';
+import { GenerationAgent } from './agents/GenerationAgent';
+import { RankingAgent } from './agents/RankingAgent';
 import { z } from 'zod';
 
 // ─── Mock dependencies ──────────────────────────────────────────
@@ -15,19 +17,29 @@ jest.mock('../pipeline/infra/trackInvocations', () => ({
 
 const { createInvocation, updateInvocation } = require('../pipeline/infra/trackInvocations');
 
+// ─── Test detail type ─────────────────────────────────────────────
+
+interface TestDetail extends ExecutionDetailBase {
+  detailType: 'test';
+}
+
 // ─── Test agent subclass ─────────────────────────────────────────
 
-class TestAgent extends Agent<string, string> {
+class TestAgent extends Agent<string, string, TestDetail> {
   readonly name = 'test_agent';
-  readonly executionDetailSchema = z.object({ detailType: z.literal('test') });
-  executeFn: (input: string, ctx: AgentContext) => Promise<string>;
+  readonly executionDetailSchema = z.object({ detailType: z.literal('test'), totalCost: z.number() });
+  readonly detailViewConfig: DetailFieldDef[] = [];
+  executeFn: (input: string, ctx: AgentContext) => Promise<AgentOutput<string, TestDetail>>;
 
-  constructor(executeFn?: (input: string, ctx: AgentContext) => Promise<string>) {
+  constructor(executeFn?: (input: string, ctx: AgentContext) => Promise<AgentOutput<string, TestDetail>>) {
     super();
-    this.executeFn = executeFn ?? (async (input) => `result:${input}`);
+    this.executeFn = executeFn ?? (async (input) => ({
+      result: `result:${input}`,
+      detail: { detailType: 'test', totalCost: 0 },
+    }));
   }
 
-  async execute(input: string, ctx: AgentContext): Promise<string> {
+  async execute(input: string, ctx: AgentContext): Promise<AgentOutput<string, TestDetail>> {
     return this.executeFn(input, ctx);
   }
 }
@@ -86,11 +98,16 @@ describe('Agent abstract class', () => {
       expect(result.success).toBe(true);
       expect(result.result).toBe('result:hello');
       expect(result.invocationId).toBe('inv-123');
+      expect(typeof result.durationMs).toBe('number');
       expect(createInvocation).toHaveBeenCalledWith(
         ctx.db, 'run-123', 0, 'test_agent', 1,
       );
       expect(updateInvocation).toHaveBeenCalledWith(
-        ctx.db, 'inv-123', expect.objectContaining({ success: true }),
+        ctx.db, 'inv-123', expect.objectContaining({
+          success: true,
+          execution_detail: { detailType: 'test', totalCost: 0 },
+          duration_ms: expect.any(Number),
+        }),
       );
     });
 
@@ -177,6 +194,69 @@ describe('Agent abstract class', () => {
       const result = await agent.run('hello', ctx);
 
       expect(result.cost).toBe(0.5);
+    });
+  });
+
+  describe('run() - schema validation failure', () => {
+    it('warns when execution detail does not match schema, but still succeeds', async () => {
+      // Return a detail with wrong shape: totalCost is a string, not a number
+      const agent = new TestAgent(async () => ({
+        result: 'ok',
+        detail: { detailType: 'wrong', totalCost: 'not-a-number' } as any,
+      }));
+      const ctx = createMockContext();
+
+      const result = await agent.run('hello', ctx);
+
+      expect(result.success).toBe(true);
+      expect(ctx.logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('validation failed'),
+        expect.any(Object),
+      );
+    });
+  });
+
+  describe('run() - BudgetExceededError durationMs', () => {
+    it('result.durationMs is a number >= 0', async () => {
+      const agent = new TestAgent(async () => {
+        throw new BudgetExceededError('test', 5, 6, 10);
+      });
+      const ctx = createMockContext();
+
+      const result = await agent.run('hello', ctx);
+
+      expect(typeof result.durationMs).toBe('number');
+      expect(result.durationMs).toBeGreaterThanOrEqual(0);
+    });
+  });
+
+  describe('run() - BudgetExceededWithPartialResults durationMs', () => {
+    it('result.durationMs is a number >= 0', async () => {
+      const partialVariants = [{ id: 'v1', text: 'partial', version: 0, parentIds: [], strategy: 'gen', createdAt: 0, iterationBorn: 0 }];
+      const baseError = new BudgetExceededError('test', 5, 6, 10);
+      const agent = new TestAgent(async () => {
+        throw new BudgetExceededWithPartialResults(partialVariants as any, baseError);
+      });
+      const ctx = createMockContext();
+
+      const result = await agent.run('hello', ctx);
+
+      expect(typeof result.durationMs).toBe('number');
+      expect(result.durationMs).toBeGreaterThanOrEqual(0);
+    });
+  });
+
+  describe('detailViewConfig on concrete agents', () => {
+    it('GenerationAgent has a non-empty detailViewConfig', () => {
+      const agent = new GenerationAgent();
+      expect(Array.isArray(agent.detailViewConfig)).toBe(true);
+      expect(agent.detailViewConfig.length).toBeGreaterThan(0);
+    });
+
+    it('RankingAgent has a non-empty detailViewConfig', () => {
+      const agent = new RankingAgent();
+      expect(Array.isArray(agent.detailViewConfig)).toBe(true);
+      expect(agent.detailViewConfig.length).toBeGreaterThan(0);
     });
   });
 });

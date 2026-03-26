@@ -37,11 +37,30 @@ function buildPrompt(
   return buildEvolutionPrompt(preamble, 'Original Text', text, instructions, feedback);
 }
 
+// ─── Result type ─────────────────────────────────────────────────
+
+/** Per-strategy metadata for execution detail tracking. */
+export interface StrategyResult {
+  name: string;
+  promptLength: number;
+  status: 'success' | 'format_rejected' | 'error';
+  formatIssues?: string[];
+  variantId?: string;
+  textLength?: number;
+  error?: string;
+}
+
+/** Extended result from generateVariants with per-strategy metadata. */
+export interface GenerationResult {
+  variants: Variant[];
+  strategyResults: StrategyResult[];
+}
+
 // ─── Public API ──────────────────────────────────────────────────
 
 /**
  * Generate new text variants using parallel LLM strategies.
- * Returns validated variants (format failures are silently discarded).
+ * Returns validated variants and per-strategy metadata.
  * Throws BudgetExceededWithPartialResults if budget exceeded mid-generation.
  */
 export async function generateVariants(
@@ -51,30 +70,58 @@ export async function generateVariants(
   config: EvolutionConfig,
   feedback?: { weakestDimension: string; suggestions: string[] },
   logger?: EntityLogger,
-): Promise<Variant[]> {
+): Promise<GenerationResult> {
   const count = Math.min(config.strategiesPerRound ?? 3, STRATEGIES.length);
   const activeStrategies = STRATEGIES.slice(0, count);
   logger?.info(`Generating with ${count} strategies`, { phaseName: 'generation', iteration });
 
+  const strategyResults: StrategyResult[] = [];
+
   const results = await Promise.allSettled(
     activeStrategies.map(async (strategy) => {
       const prompt = buildPrompt(text, strategy, feedback);
-      const generated = await llm.complete(prompt, 'generation', {
-        model: config.generationModel as LLMCompletionOptions['model'],
-      });
-      const fmt = validateFormat(generated);
-      if (!fmt.valid) {
-        logger?.warn(`Strategy ${strategy} variant failed format validation`, { phaseName: 'generation', iteration });
+      const stratResult: StrategyResult = {
+        name: strategy,
+        promptLength: prompt.length,
+        status: 'success',
+      };
+
+      try {
+        const generated = await llm.complete(prompt, 'generation', {
+          model: config.generationModel as LLMCompletionOptions['model'],
+        });
+        const fmt = validateFormat(generated);
+        if (!fmt.valid) {
+          logger?.warn(`Strategy ${strategy} variant failed format validation`, { phaseName: 'generation', iteration });
+          stratResult.status = 'format_rejected';
+          stratResult.formatIssues = fmt.issues;
+          strategyResults.push(stratResult);
+          return null;
+        }
+        logger?.debug(`Strategy ${strategy} produced variant`, { phaseName: 'generation', iteration });
+        const variant = createVariant({
+          text: generated.trim(),
+          strategy,
+          iterationBorn: iteration,
+          parentIds: [],
+          version: 0,
+        });
+        stratResult.variantId = variant.id;
+        stratResult.textLength = variant.text.length;
+        strategyResults.push(stratResult);
+        return variant;
+      } catch (err) {
+        if (err instanceof BudgetExceededError) {
+          stratResult.status = 'error';
+          stratResult.error = err.message;
+          strategyResults.push(stratResult);
+          throw err;
+        }
+        stratResult.status = 'error';
+        stratResult.error = String(err).slice(0, 500);
+        strategyResults.push(stratResult);
         return null;
       }
-      logger?.debug(`Strategy ${strategy} produced variant`, { phaseName: 'generation', iteration });
-      return createVariant({
-        text: generated.trim(),
-        strategy,
-        iterationBorn: iteration,
-        parentIds: [],
-        version: 0,
-      });
     }),
   );
 
@@ -93,5 +140,5 @@ export async function generateVariants(
     throw new BudgetExceededWithPartialResults(variants, budgetError);
   }
 
-  return variants;
+  return { variants, strategyResults };
 }
