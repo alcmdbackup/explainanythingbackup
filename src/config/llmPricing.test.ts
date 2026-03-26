@@ -106,6 +106,13 @@ describe('LLM Pricing', () => {
       expect(cost).toBe(0);
     });
 
+    it('should calculate cost correctly for openai/gpt-oss-20b (OpenRouter)', () => {
+      // 10000 input + 5000 output
+      // (10000/1M * 0.03) + (5000/1M * 0.11) = 0.0003 + 0.00055 = 0.00085
+      const cost = calculateLLMCost('openai/gpt-oss-20b', 10000, 5000);
+      expect(cost).toBeCloseTo(0.00085, 6);
+    });
+
     it('should calculate cost correctly for gpt-5-mini', () => {
       // 10000 input + 5000 output
       // (10000/1M * 0.25) + (5000/1M * 2.00) = 0.0025 + 0.01 = 0.0125
@@ -164,6 +171,12 @@ describe('LLM Pricing', () => {
       expect(LLM_PRICING['claude-3-5-sonnet-20241022']).toBeDefined();
       expect(LLM_PRICING['claude-3-opus-20240229']).toBeDefined();
       expect(LLM_PRICING['claude-3-haiku-20240307']).toBeDefined();
+    });
+
+    it('should have pricing for OpenRouter models', () => {
+      expect(LLM_PRICING['openai/gpt-oss-20b']).toBeDefined();
+      expect(LLM_PRICING['openai/gpt-oss-20b'].inputPer1M).toBe(0.03);
+      expect(LLM_PRICING['openai/gpt-oss-20b'].outputPer1M).toBe(0.11);
     });
 
     it('should have $0 pricing for local models', () => {

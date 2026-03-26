@@ -75,6 +75,7 @@ export const allowedLLMModelSchema = z.enum([
   "o3-mini",
   "deepseek-chat",
   "claude-sonnet-4-20250514",
+  "openai/gpt-oss-20b",
   "LOCAL_qwen2.5:14b",
 ]);
 

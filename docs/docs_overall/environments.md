@@ -215,6 +215,7 @@ Available to all workflows - API keys that don't change between environments:
 |--------|---------|
 | `OPENAI_API_KEY` | OpenAI API key |
 | `DEEPSEEK_API_KEY` | DeepSeek API key (evolution pipeline) |
+| `OPENROUTER_API_KEY` | OpenRouter API key (openai/gpt-oss-20b) |
 | `PINECONE_API_KEY` | Pinecone API key |
 
 #### Development Environment Secrets
@@ -344,6 +345,7 @@ See `scripts/query-honeycomb.md` for detailed instructions on querying logs and 
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase admin key (server-only) |
 | `OPENAI_API_KEY` | OpenAI API key |
 | `DEEPSEEK_API_KEY` | DeepSeek API key (used by evolution pipeline) |
+| `OPENROUTER_API_KEY` | OpenRouter API key (used for openai/gpt-oss-20b) |
 | `PINECONE_API_KEY` | Pinecone API key |
 | `PINECONE_INDEX_NAME_ALL` | Pinecone index name |
 
