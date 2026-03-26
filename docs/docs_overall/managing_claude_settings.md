@@ -10,8 +10,72 @@ This document explains how Claude Code permissions are stored, how they persist 
 | `.claude/settings.json` | Project (shared) | ✅ Yes | Yes |
 | `.claude/settings.local.json` | Project (personal) | ✅ Yes* | No (globally gitignored) |
 | `.claude/doc-mapping.json` | Project (shared) | ✅ Yes | Yes |
+| `.mcp.json` | Project MCP servers | ✅ Yes | Yes |
 
 *Project-local settings persist in `explainanything-feature0/` but are destroyed in worktrees during reset.
+
+## MCP Server Configuration
+
+MCP servers and settings use **separate file locations**. Do NOT define MCP servers in `.claude/settings.json` — they will not load reliably across worktrees.
+
+### MCP File Locations
+
+| File | Scope | Purpose |
+|------|-------|---------|
+| `.mcp.json` | Project | **The only project-level location for MCP servers.** Git-tracked, works in all worktrees. |
+| `~/.claude.json` (global `mcpServers`) | User | Personal MCPs available across all projects and worktrees |
+| `~/.claude.json` (per-project path) | Local | MCPs scoped to one specific directory path — does NOT transfer between worktrees |
+
+### Common Pitfall: `mcpServers` in `.claude/settings.json`
+
+**Do NOT put MCP servers in `.claude/settings.json` `mcpServers`.** While the key exists and may appear to work in one worktree, Claude Code discovers project MCP servers from `.mcp.json`, not from settings files. Servers defined in `.claude/settings.json` will silently fail to load in other worktrees.
+
+**Correct** — define MCPs in `.mcp.json`:
+```json
+{
+  "mcpServers": {
+    "supabase": {
+      "type": "http",
+      "url": "https://mcp.supabase.com/mcp?project_ref=..."
+    },
+    "honeycomb": {
+      "type": "http",
+      "url": "https://mcp.honeycomb.io/mcp"
+    }
+  }
+}
+```
+
+**Wrong** — defining MCPs in `.claude/settings.json`:
+```json
+{
+  "mcpServers": {
+    "supabase": { "type": "http", "url": "..." }
+  }
+}
+```
+
+### Auto-Approving Project MCPs
+
+To skip approval prompts for `.mcp.json` servers, add to `.claude/settings.json`:
+```json
+{
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": ["honeycomb", "supabase"]
+}
+```
+
+### Adding MCPs via CLI
+
+When using `claude mcp add`, the `--scope` flag controls where the server is stored:
+
+| Scope | Storage | Available across worktrees? |
+|-------|---------|---------------------------|
+| `--scope local` (default) | `~/.claude.json` per-project path | ❌ No — path-specific |
+| `--scope project` | `.mcp.json` | ✅ Yes — git-tracked |
+| `--scope user` | `~/.claude.json` global | ✅ Yes — all projects |
+
+**For worktree compatibility, always use `--scope project` or `--scope user`.**
 
 ## Permission Resolution Order
 

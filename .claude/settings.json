@@ -74,15 +74,10 @@
   },
   "enableAllProjectMcpServers": true,
   "enabledMcpjsonServers": [
-    "honeycomb"
+    "honeycomb",
+    "supabase"
   ],
   "enabledPlugins": {},
-  "mcpServers": {
-    "supabase": {
-      "type": "http",
-      "url": "https://mcp.supabase.com/mcp?project_ref=ifubinffdbyewoezcidz"
-    }
-  },
   "hooks": {
     "PreToolUse": [
       {
