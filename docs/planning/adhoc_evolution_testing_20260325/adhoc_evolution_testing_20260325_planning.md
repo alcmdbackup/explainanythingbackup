@@ -79,8 +79,14 @@ The Entity base class (`evolution/src/lib/core/Entity.ts`) already declares `act
     | Variant | unarchive | `archived_at` → `null` |
     | Variant | delete | row + arena comparisons cascade deleted |
 
-  - Cleanup: Use `cleanupEvolutionData()` in `afterAll` per existing convention
+  - Cleanup: `cleanupEvolutionData()` needs extension before this test can use it:
+    1. Add `experimentIds?: string[]` to `CleanupOptions` — delete from `evolution_experiments` after runs
+    2. Add `variantIds?: string[]` to `CleanupOptions` — delete arena comparisons referencing these variants, then delete variants
+    3. Add `evolution_metrics` cleanup — delete metrics rows by `entity_id` IN collected IDs (metrics use logical FKs, no CASCADE — rows are orphaned when entities are deleted)
+    4. Cleanup order (FK-safe): arena_comparisons → metrics → invocations → logs → variants → runs → experiments → strategies → prompts
+  - Each test block tracks created IDs in arrays, passes them to `cleanupEvolutionData()` in `afterAll`
   - Auto-skip: Use `evolutionTablesExist()` guard for environments without evolution tables
+  - Test isolation: Each `describe` block creates its own seed data and cleans up independently
 
 **0b. Merge RegistryPage's features into EntityListPage**
 - Files: `evolution/src/components/evolution/EntityListPage.tsx`, `evolution/src/components/evolution/RegistryPage.tsx`
