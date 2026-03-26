@@ -117,7 +117,7 @@ describe('arenaActions', () => {
 
       expect(result.success).toBe(true);
       expect(result.data).toHaveLength(1);
-      expect(result.data![0].entry_count).toBe(2);
+      expect(result.data![0]!.entry_count).toBe(2);
     });
 
     it('returns error on DB failure', async () => {
@@ -262,7 +262,7 @@ describe('arenaActions', () => {
 
       expect(result.success).toBe(true);
       expect(result.data).toHaveLength(1);
-      expect(result.data![0].elo_score).toBe(1200);
+      expect(result.data![0]!.elo_score).toBe(1200);
     });
 
     it('rejects invalid topicId', async () => {
@@ -417,7 +417,7 @@ describe('arenaActions', () => {
 
       expect(result.success).toBe(true);
       expect(result.data).toHaveLength(1);
-      expect(result.data![0].winner).toBe('a');
+      expect(result.data![0]!.winner).toBe('a');
     });
 
     it('rejects invalid topicId', async () => {

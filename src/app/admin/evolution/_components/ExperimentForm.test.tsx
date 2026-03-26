@@ -98,7 +98,7 @@ async function fillSetup() {
     target: { value: 'Test Experiment' },
   });
   const radios = screen.getAllByRole('radio');
-  fireEvent.click(radios[0]);
+  fireEvent.click(radios[0]!);
   // Set budget high enough so all strategies are eligible
   const budgetInput = screen.getByDisplayValue('0.05');
   fireEvent.change(budgetInput, { target: { value: '1.00' } });
@@ -124,7 +124,7 @@ describe('ExperimentForm', () => {
     it('shows errors when Next clicked with empty name', async () => {
       render(<ExperimentForm />);
       await waitFor(() => expect(screen.getByText('Photosynthesis')).toBeInTheDocument());
-      fireEvent.click(screen.getAllByRole('radio')[0]);
+      fireEvent.click(screen.getAllByRole('radio')[0]!);
       fireEvent.click(screen.getByText('Next: Select Strategies'));
       expect(screen.getByText('Enter an experiment name')).toBeInTheDocument();
     });
@@ -171,7 +171,7 @@ describe('ExperimentForm', () => {
       fireEvent.change(screen.getByPlaceholderText('e.g., Model comparison Q1'), {
         target: { value: 'Test Experiment' },
       });
-      fireEvent.click(screen.getAllByRole('radio')[0]);
+      fireEvent.click(screen.getAllByRole('radio')[0]!);
       // Set budget to $0.25 — only Economy should be eligible
       const budgetInput = screen.getByDisplayValue('0.05');
       fireEvent.change(budgetInput, { target: { value: '0.25' } });
@@ -265,7 +265,7 @@ describe('ExperimentForm', () => {
       fireEvent.change(screen.getByPlaceholderText('e.g., Model comparison Q1'), {
         target: { value: 'My Experiment' },
       });
-      fireEvent.click(screen.getAllByRole('radio')[0]);
+      fireEvent.click(screen.getAllByRole('radio')[0]!);
       // Set budget high enough for Economy strategy (budgetUsd: 0.25)
       fireEvent.change(screen.getByDisplayValue('0.05'), { target: { value: '1.00' } });
       fireEvent.click(screen.getByText('Next: Select Strategies'));

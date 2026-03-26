@@ -427,7 +427,7 @@ describe('EvolutionRunSummary schemas', () => {
     const result = EvolutionRunSummarySchema.parse(v2);
     expect(result.version).toBe(3);
     expect(result.muHistory.length).toBe(2);
-    expect(result.topVariants[0].mu).toBeGreaterThan(15);
+    expect(result.topVariants[0]!.mu).toBeGreaterThan(15);
   });
 
   it('transforms V1 summary to V3', () => {

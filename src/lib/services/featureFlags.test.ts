@@ -105,7 +105,7 @@ describe('FeatureFlags Service', () => {
 
       expect(result.success).toBe(true);
       expect(result.data).toHaveLength(2);
-      expect(result.data?.[0].name).toBe('flag_one');
+      expect(result.data![0]!.name).toBe('flag_one');
     });
 
     it('should handle database errors', async () => {

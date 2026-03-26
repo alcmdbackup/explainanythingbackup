@@ -92,8 +92,8 @@ describe('sourceDiscovery', () => {
       const result = await getTopSources({ sort: 'citations', period: 'all' });
 
       expect(result).toHaveLength(3);
-      expect(result[0].source_cache_id).toBe(1);
-      expect(result[0].total_citations).toBe(47);
+      expect(result[0]!.source_cache_id).toBe(1);
+      expect(result[0]!.total_citations).toBe(47);
     });
 
     it('should sort by domain when sort=domain', async () => {
@@ -101,9 +101,9 @@ describe('sourceDiscovery', () => {
 
       const result = await getTopSources({ sort: 'domain', period: 'all' });
 
-      expect(result[0].domain).toBe('arxiv.org');
-      expect(result[1].domain).toBe('docs.python.org');
-      expect(result[2].domain).toBe('en.wikipedia.org');
+      expect(result[0]!.domain).toBe('arxiv.org');
+      expect(result[1]!.domain).toBe('docs.python.org');
+      expect(result[2]!.domain).toBe('en.wikipedia.org');
     });
 
     it('should return empty array when no data', async () => {
@@ -203,10 +203,10 @@ describe('sourceDiscovery', () => {
       const result = await getPopularSourcesByTopic(1, 10);
 
       expect(result).toHaveLength(2);
-      expect(result[0].source_cache_id).toBe(10);
-      expect(result[0].frequency).toBe(2);
-      expect(result[1].source_cache_id).toBe(20);
-      expect(result[1].frequency).toBe(1);
+      expect(result[0]!.source_cache_id).toBe(10);
+      expect(result[0]!.frequency).toBe(2);
+      expect(result[1]!.source_cache_id).toBe(20);
+      expect(result[1]!.frequency).toBe(1);
     });
 
     it('should return empty when no explanations in topic', async () => {
@@ -275,10 +275,10 @@ describe('sourceDiscovery', () => {
       const result = await getSimilarArticleSources(42);
 
       expect(result).toHaveLength(2);
-      expect(result[0].source_cache_id).toBe(10);
-      expect(result[0].frequency).toBe(2);
-      expect(result[1].source_cache_id).toBe(20);
-      expect(result[1].frequency).toBe(1);
+      expect(result[0]!.source_cache_id).toBe(10);
+      expect(result[0]!.frequency).toBe(2);
+      expect(result[1]!.source_cache_id).toBe(20);
+      expect(result[1]!.frequency).toBe(1);
     });
 
     it('should exclude the current explanation from similar matches', async () => {

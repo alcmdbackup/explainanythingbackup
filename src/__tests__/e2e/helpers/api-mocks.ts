@@ -264,7 +264,7 @@ export async function mockUserLibraryAPI(
  */
 export async function mockExplanationByIdAPI(
   page: Page,
-  explanation = mockLibraryExplanations[0]
+  explanation = mockLibraryExplanations[0]!
 ) {
   await page.unroute('**/api/getExplanation**');
   await page.route('**/api/getExplanation**', async (route) => {

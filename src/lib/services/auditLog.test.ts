@@ -232,10 +232,10 @@ describe('AuditLog Service', () => {
 
       expect(result.success).toBe(true);
       expect(result.data).toHaveLength(2);
-      expect(result.data?.[0].adminId).toBe('admin-1');
-      expect(result.data?.[0].count).toBe(2);
-      expect(result.data?.[1].adminId).toBe('admin-2');
-      expect(result.data?.[1].count).toBe(1);
+      expect(result.data![0]!.adminId).toBe('admin-1');
+      expect(result.data![0]!.count).toBe(2);
+      expect(result.data![1]!.adminId).toBe('admin-2');
+      expect(result.data![1]!.count).toBe(1);
     });
   });
 

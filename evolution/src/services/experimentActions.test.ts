@@ -195,8 +195,8 @@ describe('experimentActions', () => {
 
       expect(result.success).toBe(true);
       expect(result.data).toHaveLength(2);
-      expect(result.data![0].runCount).toBe(2);
-      expect(result.data![1].runCount).toBe(0);
+      expect(result.data![0]!.runCount).toBe(2);
+      expect(result.data![1]!.runCount).toBe(0);
     });
 
     it('filters experiments by status when provided', async () => {
@@ -538,7 +538,7 @@ describe('experimentActions', () => {
       const result = await listExperimentsAction(undefined);
 
       expect(result.success).toBe(true);
-      expect(result.data![0].runCount).toBe(0);
+      expect(result.data![0]!.runCount).toBe(0);
     });
   });
 

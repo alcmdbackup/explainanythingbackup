@@ -54,8 +54,8 @@ function createMockASTFromMarkdown(markdown: string) {
     if (headingMatch) {
       return {
         type: 'heading',
-        depth: headingMatch[1].length,
-        children: [{ type: 'text', value: headingMatch[2] }],
+        depth: headingMatch[1]!.length,
+        children: [{ type: 'text', value: headingMatch[2]! }],
       };
     }
 
@@ -336,7 +336,7 @@ describe('Pipeline Error Handling', () => {
 
 describe('Pipeline Regression Tests', () => {
   it('delete first sentence produces correct CriticMarkup', () => {
-    const fixture = AI_PIPELINE_FIXTURES.promptSpecific.removeFirstSentence;
+    const fixture = AI_PIPELINE_FIXTURES.promptSpecific.removeFirstSentence!;
 
     // Verify the expected output has a deletion
     expect(hasCriticDeletion(fixture.expectedStep3Output)).toBe(true);
@@ -344,14 +344,14 @@ describe('Pipeline Regression Tests', () => {
   });
 
   it('shorten paragraph produces both deletion and insertion', () => {
-    const fixture = AI_PIPELINE_FIXTURES.promptSpecific.shortenFirstParagraph;
+    const fixture = AI_PIPELINE_FIXTURES.promptSpecific.shortenFirstParagraph!;
 
     expect(hasCriticDeletion(fixture.expectedStep3Output)).toBe(true);
     expect(hasCriticInsertion(fixture.expectedStep3Output)).toBe(true);
   });
 
   it('improve article produces multiple diffs', () => {
-    const fixture = AI_PIPELINE_FIXTURES.promptSpecific.improveEntireArticle;
+    const fixture = AI_PIPELINE_FIXTURES.promptSpecific.improveEntireArticle!;
 
     const operationCount = countCriticOperations(fixture.expectedStep3Output);
     expect(operationCount).toBeGreaterThan(2);

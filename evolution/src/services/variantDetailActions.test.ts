@@ -156,8 +156,8 @@ describe('variantDetailActions', () => {
 
       expect(result.success).toBe(true);
       expect(result.data).toHaveLength(1);
-      expect(result.data![0].id).toBe(VALID_UUID_3);
-      expect(result.data![0].eloScore).toBe(1200);
+      expect(result.data![0]!.id).toBe(VALID_UUID_3);
+      expect(result.data![0]!.eloScore).toBe(1200);
     });
 
     it('returns empty array when variant has no parent', async () => {
@@ -211,9 +211,9 @@ describe('variantDetailActions', () => {
 
       expect(result.success).toBe(true);
       expect(result.data).toHaveLength(1);
-      expect(result.data![0].id).toBe(VALID_UUID_2);
-      expect(result.data![0].eloScore).toBe(1350);
-      expect(result.data![0].preview).toHaveLength(children[0].variant_content.length);
+      expect(result.data![0]!.id).toBe(VALID_UUID_2);
+      expect(result.data![0]!.eloScore).toBe(1350);
+      expect(result.data![0]!.preview).toHaveLength(children[0]!.variant_content.length);
     });
 
     it('rejects invalid variantId', async () => {
@@ -282,8 +282,8 @@ describe('variantDetailActions', () => {
 
       expect(result.success).toBe(true);
       expect(result.data).toHaveLength(2);
-      expect(result.data![0].id).toBe(VALID_UUID_3);
-      expect(result.data![1].id).toBe(VALID_UUID_2);
+      expect(result.data![0]!.id).toBe(VALID_UUID_3);
+      expect(result.data![1]!.id).toBe(VALID_UUID_2);
     });
 
     it('returns empty array when variant has no parent', async () => {

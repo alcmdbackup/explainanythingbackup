@@ -127,7 +127,7 @@ describe('sigma convergence over multiple matches', () => {
 
     // Each sigma should be less than or equal to previous
     for (let i = 1; i < sigmaHistory.length; i++) {
-      expect(sigmaHistory[i]).toBeLessThanOrEqual(sigmaHistory[i - 1]);
+      expect(sigmaHistory[i]!).toBeLessThanOrEqual(sigmaHistory[i - 1]!);
     }
   });
 });
@@ -160,7 +160,7 @@ describe('toEloScale', () => {
     const mus = [10, 20, 25, 30, 40];
     const roundTripped = mus.map(toEloScale);
     for (let i = 1; i < roundTripped.length; i++) {
-      expect(roundTripped[i]).toBeGreaterThan(roundTripped[i - 1]);
+      expect(roundTripped[i]!).toBeGreaterThan(roundTripped[i - 1]!);
     }
   });
 });

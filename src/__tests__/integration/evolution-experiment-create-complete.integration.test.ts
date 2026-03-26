@@ -115,7 +115,7 @@ describe('Evolution Experiment Create & Complete Integration Tests', () => {
     expect(error).toBeNull();
     expect(runs).toBeDefined();
     expect(runs!.length).toBe(1);
-    expect(runs![0].experiment_id).toBe(expId);
+    expect(runs![0]!.experiment_id).toBe(expId);
   });
 
   it('updates experiment status to completed', async () => {

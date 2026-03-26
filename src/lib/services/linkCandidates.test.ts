@@ -68,9 +68,20 @@ function mockChain(result: { data?: unknown; error?: unknown }) {
   return proxy;
 }
 
-function mockSimpleChain(overrides: Record<string, jest.Mock> = {}) {
+interface MockChain extends Record<string, jest.Mock> {
+  select: jest.Mock;
+  insert: jest.Mock;
+  update: jest.Mock;
+  upsert: jest.Mock;
+  delete: jest.Mock;
+  eq: jest.Mock;
+  order: jest.Mock;
+  single: jest.Mock;
+}
+
+function mockSimpleChain(overrides: Record<string, jest.Mock> = {}): MockChain {
   const single = jest.fn();
-  const base: Record<string, jest.Mock> = {
+  const base: MockChain = {
     select: jest.fn().mockReturnThis(),
     insert: jest.fn().mockReturnThis(),
     update: jest.fn().mockReturnThis(),

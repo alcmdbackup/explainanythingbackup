@@ -70,8 +70,8 @@ describe('generateVariants', () => {
     const feedback = { weakestDimension: 'clarity', suggestions: ['simplify'] };
     await generateVariants('original', 1, llm, baseConfig, feedback);
     const calls = llm.complete.mock.calls;
-    expect(calls.some((c: string[]) => c[0].includes('clarity'))).toBe(true);
-    expect(calls.some((c: string[]) => c[0].includes('simplify'))).toBe(true);
+    expect(calls.some((c: string[]) => c[0]!.includes('clarity'))).toBe(true);
+    expect(calls.some((c: string[]) => c[0]!.includes('simplify'))).toBe(true);
   });
 
   it('makes all 3 LLM calls in parallel', async () => {
@@ -99,7 +99,7 @@ describe('generateVariants', () => {
     expect(result.variants).toHaveLength(1);
     expect(llm.complete).toHaveBeenCalledTimes(1);
     // First strategy should be structural_transform
-    expect(result.variants[0].strategy).toBe('structural_transform');
+    expect(result.variants[0]!.strategy).toBe('structural_transform');
   });
 
   it('assigns unique IDs to each variant', async () => {

@@ -96,8 +96,8 @@ async function obtainBypassCookieSingle(baseUrl: string): Promise<BypassCookie |
   }
 
   // Parse Set-Cookie string to extract name=value
-  const cookieParts = bypassSetCookie.split(';')[0].split('=');
-  const cookieName = cookieParts[0].trim();
+  const cookieParts = bypassSetCookie.split(';')[0]!.split('=');
+  const cookieName = cookieParts[0]!.trim();
   const cookieValue = cookieParts.slice(1).join('=').trim();
 
   if (!cookieName || !cookieValue) {
@@ -111,9 +111,9 @@ async function obtainBypassCookieSingle(baseUrl: string): Promise<BypassCookie |
   const maxAgeMatch = bypassSetCookie.match(/Max-Age=(\d+)/i);
   const expiresMatch = bypassSetCookie.match(/Expires=([^;]+)/i);
   if (maxAgeMatch) {
-    expires = Math.floor(Date.now() / 1000) + parseInt(maxAgeMatch[1]);
+    expires = Math.floor(Date.now() / 1000) + parseInt(maxAgeMatch[1]!);
   } else if (expiresMatch) {
-    expires = Math.floor(new Date(expiresMatch[1]).getTime() / 1000);
+    expires = Math.floor(new Date(expiresMatch[1]!).getTime() / 1000);
   } else {
     expires = Math.floor(Date.now() / 1000) + 3600; // fallback 1 hour
   }

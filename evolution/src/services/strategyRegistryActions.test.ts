@@ -105,7 +105,7 @@ describe('strategyRegistryActions', () => {
       expect(result.success).toBe(true);
       expect(result.data!.items).toHaveLength(1);
       expect(result.data!.total).toBe(1);
-      expect(result.data!.items[0].config_hash).toBe('abc123hash');
+      expect(result.data!.items[0]!.config_hash).toBe('abc123hash');
     });
 
     it('filters by status when provided', async () => {

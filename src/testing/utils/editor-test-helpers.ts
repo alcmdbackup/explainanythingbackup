@@ -456,7 +456,16 @@ export interface PipelineFixture {
  * Comprehensive fixtures for AI pipeline testing
  * 30 cases as specified in the testing plan
  */
-export const AI_PIPELINE_FIXTURES: Record<string, Record<string, PipelineFixture>> = {
+interface AIFixtures {
+  insertions: Record<string, PipelineFixture>;
+  deletions: Record<string, PipelineFixture>;
+  updates: Record<string, PipelineFixture>;
+  mixed: Record<string, PipelineFixture>;
+  edgeCases: Record<string, PipelineFixture>;
+  promptSpecific: Record<string, PipelineFixture>;
+}
+
+export const AI_PIPELINE_FIXTURES: AIFixtures = {
   // ========= Insertions (5 cases) =========
   insertions: {
     singleWord: {

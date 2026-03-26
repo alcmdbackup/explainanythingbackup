@@ -452,7 +452,7 @@ describe('evolveArticle', () => {
       const { logger, calls } = createMockEntityLogger();
       await evolveArticle('original text', makeRawProvider(), makeMockDb(), 'run-1', baseConfig, {
         logger,
-        initialPool: [{ id: 'init-1', text: 'test', strategy: 'test', iterationBorn: 0, parentIds: [], version: 0, mu: 25, sigma: 8 }],
+        initialPool: [{ id: 'init-1', text: 'test', strategy: 'test', iterationBorn: 0, parentIds: [], version: 0, mu: 25, sigma: 8, createdAt: Date.now() }],
       });
       expect(calls.some((c) => c.message === 'Baseline variant added')).toBe(true);
       expect(calls.some((c) => c.message === 'Initial pool loaded')).toBe(true);
@@ -472,6 +472,7 @@ describe('evolveArticle', () => {
       success: false,
       result: null,
       cost: 0.5,
+      durationMs: 100,
       invocationId: 'inv-mock',
       budgetExceeded: true,
       partialResult: {

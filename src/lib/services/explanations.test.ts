@@ -374,8 +374,8 @@ describe('Explanations Service', () => {
       const result = await getRecentExplanations(10, 0, { sort: 'top', period: 'week' });
 
       // Assert - explanation 2 should come first (more views)
-      expect(result[0].id).toBe(2);
-      expect(result[1].id).toBe(1);
+      expect(result[0]!.id).toBe(2);
+      expect(result[1]!.id).toBe(1);
       // Verify RPC was called with correct parameters
       expect(mockSupabase.rpc).toHaveBeenCalledWith('get_explanation_view_counts', {
         p_period: 'week',

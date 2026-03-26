@@ -199,7 +199,7 @@ describe('vectorsim', () => {
       });
       expect(mockNamespace.query).toHaveBeenCalled();
       expect(matches).toHaveLength(1);
-      expect(matches[0].id).toBe('match1');
+      expect(matches[0]!.id).toBe('match1');
     });
 
     it('should filter by anchor when specified', async () => {

@@ -91,7 +91,7 @@ describe('PromptDetailPage', () => {
     jest.mocked(getPromptDetailAction).mockResolvedValueOnce({
       success: false,
       data: null,
-      error: { message: 'Prompt not found' },
+      error: { code: 'NOT_FOUND' as const, message: 'Prompt not found' },
     });
 
     render(<PromptDetailPage />);

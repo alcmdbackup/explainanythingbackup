@@ -122,8 +122,8 @@ describe('evolutionVisualizationActions', () => {
       expect(result.data!.failedRuns).toBe(1);
       expect(result.data!.totalCostUsd).toBe(5.0); // 3.00 + 2.00
       expect(result.data!.recentRuns).toHaveLength(1);
-      expect(result.data!.recentRuns[0].strategy_name).toBe('Strategy Alpha');
-      expect(result.data!.recentRuns[0].total_cost_usd).toBe(3.0);
+      expect(result.data!.recentRuns[0]!.strategy_name).toBe('Strategy Alpha');
+      expect(result.data!.recentRuns[0]!.total_cost_usd).toBe(3.0);
     });
 
     it('handles empty runs and zero costs gracefully', async () => {
@@ -248,7 +248,7 @@ describe('evolutionVisualizationActions', () => {
       const fromCalls = mock.from.mock.calls;
       expect(fromCalls[0][0]).toBe('evolution_strategies');
       // Verify .not() was called on the status query with strategy_id exclusion
-      const statusBuilder = mock.from.mock.results[1].value;
+      const statusBuilder = mock.from.mock.results[1]!.value;
       expect(statusBuilder.not).toHaveBeenCalledWith(
         'strategy_id', 'in', expect.stringContaining(VALID_UUID_3),
       );
@@ -400,11 +400,11 @@ describe('evolutionVisualizationActions', () => {
 
       expect(result.success).toBe(true);
       expect(result.data).toHaveLength(2);
-      expect(result.data![0].id).toBe(VALID_UUID_2);
-      expect(result.data![0].parentId).toBeNull();
-      expect(result.data![1].id).toBe(VALID_UUID_3);
-      expect(result.data![1].parentId).toBe(VALID_UUID_2);
-      expect(result.data![1].isWinner).toBe(true);
+      expect(result.data![0]!.id).toBe(VALID_UUID_2);
+      expect(result.data![0]!.parentId).toBeNull();
+      expect(result.data![1]!.id).toBe(VALID_UUID_3);
+      expect(result.data![1]!.parentId).toBe(VALID_UUID_2);
+      expect(result.data![1]!.isWinner).toBe(true);
     });
 
     it('rejects invalid runId', async () => {

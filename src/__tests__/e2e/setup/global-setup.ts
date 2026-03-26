@@ -341,7 +341,7 @@ async function seedTestExplanation(supabase: SupabaseClient, topicId?: number) {
   if (existing && existing.length > 0) {
     console.log('   ✓ Test explanation already exists');
     // Ensure tag is associated even for existing explanations
-    const existingExplanationId = existing[0].explanationid;
+    const existingExplanationId = existing[0]!.explanationid;
     await ensureTagAssociated(supabase, existingExplanationId);
     return;
   }

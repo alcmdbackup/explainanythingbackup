@@ -148,10 +148,10 @@ describe('generate → rank composition', () => {
     if (variants.length === 0) return;
 
     // Single variant should still work — just no matches
-    const singleVariant = [variants[0]];
+    const singleVariant = [variants[0]!];
     const result = await rankPool(
       singleVariant, new Map(), new Map(),
-      [singleVariant[0].id], llm, { ...baseConfig, calibrationOpponents: 0 },
+      [singleVariant[0]!.id], llm, { ...baseConfig, calibrationOpponents: 0 },
     );
 
     expect(result.matches).toHaveLength(0);

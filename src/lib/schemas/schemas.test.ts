@@ -955,7 +955,7 @@ describe('schemas', () => {
       const result = linkWhitelistSnapshotSchema.parse(validData);
 
       expect(result.version).toBe(5);
-      expect(result.data['machine learning'].canonical_term).toBe('Machine Learning');
+      expect(result.data['machine learning']!.canonical_term).toBe('Machine Learning');
     });
 
     it('should accept empty data object', () => {

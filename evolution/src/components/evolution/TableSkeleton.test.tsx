@@ -8,7 +8,7 @@ describe('TableSkeleton', () => {
     render(<TableSkeleton />);
     const rows = screen.getByTestId('table-skeleton').querySelectorAll('tbody tr');
     expect(rows).toHaveLength(5);
-    const cells = rows[0].querySelectorAll('td');
+    const cells = rows[0]!.querySelectorAll('td');
     expect(cells).toHaveLength(5);
   });
 
@@ -16,7 +16,7 @@ describe('TableSkeleton', () => {
     render(<TableSkeleton rows={3} columns={8} />);
     const rows = screen.getByTestId('table-skeleton').querySelectorAll('tbody tr');
     expect(rows).toHaveLength(3);
-    const cells = rows[0].querySelectorAll('td');
+    const cells = rows[0]!.querySelectorAll('td');
     expect(cells).toHaveLength(8);
   });
 

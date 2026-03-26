@@ -232,7 +232,7 @@ describe('CostAnalytics Service', () => {
       const result = await getCostByModelAction({});
 
       expect(result.success).toBe(true);
-      expect(result.data?.[0].model).toBe('expensive');
+      expect(result.data?.[0]!.model).toBe('expensive');
     });
   });
 
@@ -378,7 +378,7 @@ describe('CostAnalytics Service', () => {
       const result = await getCostByModelAction({});
 
       expect(result.success).toBe(true);
-      expect(result.data?.[0].model).toBe('unknown');
+      expect(result.data?.[0]!.model).toBe('unknown');
     });
 
     it('should return error on DB failure', async () => {

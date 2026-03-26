@@ -89,7 +89,7 @@ describe('SourceChip', () => {
     const buttons = screen.queryAllByRole('button');
     // In loading state, the button may be hidden or disabled
     if (buttons.length > 0) {
-      const removeButton = buttons[0];
+      const removeButton = buttons[0]!;
       fireEvent.click(removeButton);
       // Loading state typically prevents removal
     }

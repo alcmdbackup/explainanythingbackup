@@ -323,8 +323,8 @@ describe('explanationTags', () => {
       const result = await getTagUsageStats();
 
       expect(result).toHaveLength(2);
-      expect(result[0].usage_count).toBe(2);
-      expect(result[1].usage_count).toBe(1);
+      expect(result[0]!.usage_count).toBe(2);
+      expect(result[1]!.usage_count).toBe(1);
     });
 
     it('should handle empty results', async () => {

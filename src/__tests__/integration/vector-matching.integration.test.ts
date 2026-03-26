@@ -120,8 +120,8 @@ describe('Vector Matching Integration Tests', () => {
       );
 
       expect(results).toHaveLength(1);
-      expect(results[0].score).toBe(0.92);
-      expect(results[0].metadata.text).toBe('Quantum entanglement is a physical phenomenon...');
+      expect(results[0]!.score).toBe(0.92);
+      expect(results[0]!.metadata.text).toBe('Quantum entanglement is a physical phenomenon...');
     });
   });
 
@@ -160,9 +160,9 @@ describe('Vector Matching Integration Tests', () => {
 
       // Assert - verify low similarity match is returned
       expect(results).toHaveLength(1);
-      expect(results[0].score).toBe(0.32);
-      expect(results[0].metadata.topic_id).toBe(20);
-      expect(results[0].metadata.text).toBe('Baking a cake requires flour, eggs, and sugar...');
+      expect(results[0]!.score).toBe(0.32);
+      expect(results[0]!.metadata.topic_id).toBe(20);
+      expect(results[0]!.metadata.text).toBe('Baking a cake requires flour, eggs, and sugar...');
     });
   });
 
@@ -181,28 +181,28 @@ describe('Vector Matching Integration Tests', () => {
       mockPineconeQuery.mockResolvedValueOnce({
         matches: [
           {
-            id: testVectors[0].id,
+            id: testVectors[0]!.id,
             score: 0.88,
-            metadata: { ...testVectors[0].metadata, topic_id: 10 }, // Physics
-            values: testVectors[0].values,
+            metadata: { ...testVectors[0]!.metadata, topic_id: 10 }, // Physics
+            values: testVectors[0]!.values,
           },
           {
-            id: testVectors[1].id,
+            id: testVectors[1]!.id,
             score: 0.85,
-            metadata: { ...testVectors[1].metadata, topic_id: 10 }, // Physics
-            values: testVectors[1].values,
+            metadata: { ...testVectors[1]!.metadata, topic_id: 10 }, // Physics
+            values: testVectors[1]!.values,
           },
           {
-            id: testVectors[2].id,
+            id: testVectors[2]!.id,
             score: 0.82,
-            metadata: { ...testVectors[2].metadata, topic_id: 20 }, // Chemistry
-            values: testVectors[2].values,
+            metadata: { ...testVectors[2]!.metadata, topic_id: 20 }, // Chemistry
+            values: testVectors[2]!.values,
           },
           {
-            id: testVectors[3].id,
+            id: testVectors[3]!.id,
             score: 0.78,
-            metadata: { ...testVectors[3].metadata, topic_id: 30 }, // Mathematics
-            values: testVectors[3].values,
+            metadata: { ...testVectors[3]!.metadata, topic_id: 30 }, // Mathematics
+            values: testVectors[3]!.values,
           },
         ],
       });
@@ -213,17 +213,17 @@ describe('Vector Matching Integration Tests', () => {
 
       // Assert - verify multiple matches are returned in order
       expect(results).toHaveLength(4);
-      expect(results[0].score).toBe(0.88);
-      expect(results[0].metadata.topic_id).toBe(10); // Physics
-      expect(results[1].score).toBe(0.85);
-      expect(results[2].score).toBe(0.82);
-      expect(results[2].metadata.topic_id).toBe(20); // Chemistry
-      expect(results[3].score).toBe(0.78);
-      expect(results[3].metadata.topic_id).toBe(30); // Mathematics
+      expect(results[0]!.score).toBe(0.88);
+      expect(results[0]!.metadata.topic_id).toBe(10); // Physics
+      expect(results[1]!.score).toBe(0.85);
+      expect(results[2]!.score).toBe(0.82);
+      expect(results[2]!.metadata.topic_id).toBe(20); // Chemistry
+      expect(results[3]!.score).toBe(0.78);
+      expect(results[3]!.metadata.topic_id).toBe(30); // Mathematics
 
       // Verify scores are in descending order
       for (let i = 0; i < results.length - 1; i++) {
-        expect((results[i].score ?? 0)).toBeGreaterThanOrEqual(results[i + 1].score ?? 0);
+        expect((results[i]!.score ?? 0)).toBeGreaterThanOrEqual(results[i + 1]!.score ?? 0);
       }
     });
   });
@@ -309,9 +309,9 @@ describe('Vector Matching Integration Tests', () => {
 
       // Verify results
       expect(results).toHaveLength(1);
-      expect(results[0].score).toBe(0.75);
-      expect(results[0].metadata.isAnchor).toBe(true);
-      expect(results[0].metadata.anchorSet).toBe(anchorSetValue);
+      expect(results[0]!.score).toBe(0.75);
+      expect(results[0]!.metadata.isAnchor).toBe(true);
+      expect(results[0]!.metadata.anchorSet).toBe(anchorSetValue);
     });
   });
 

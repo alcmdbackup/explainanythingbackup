@@ -174,7 +174,7 @@ describe('sourceSummarizer', () => {
 
       await summarizeSourceContent(longContent, 2000, 'user1');
 
-      const prompt = mockCallLLM.mock.calls[0][0] as string;
+      const prompt = mockCallLLM.mock.calls[0]![0] as string;
       expect(prompt).toContain('approximately 2000 words');
       expect(prompt).toContain(longContent);
     });

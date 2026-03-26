@@ -37,8 +37,8 @@ function createMockASTFromMarkdown(markdown: string) {
     if (headingMatch) {
       return {
         type: 'heading',
-        depth: headingMatch[1].length,
-        children: [{ type: 'text', value: headingMatch[2] }],
+        depth: headingMatch[1]!.length,
+        children: [{ type: 'text', value: headingMatch[2]! }],
       };
     }
 
@@ -233,7 +233,7 @@ describe('Golden Tests: Expected Outputs Validation', () => {
 
 describe('Golden Tests: Known Regression Cases', () => {
   it('delete first sentence regression', () => {
-    const fixture = AI_PIPELINE_FIXTURES.promptSpecific.removeFirstSentence;
+    const fixture = AI_PIPELINE_FIXTURES.promptSpecific.removeFirstSentence!;
 
     const beforeAST = createMockASTFromMarkdown(fixture.originalMarkdown);
     const afterAST = createMockASTFromMarkdown(fixture.editedMarkdown);
@@ -254,7 +254,7 @@ describe('Golden Tests: Known Regression Cases', () => {
   });
 
   it('shorten paragraph regression', () => {
-    const fixture = AI_PIPELINE_FIXTURES.promptSpecific.shortenFirstParagraph;
+    const fixture = AI_PIPELINE_FIXTURES.promptSpecific.shortenFirstParagraph!;
 
     const beforeAST = createMockASTFromMarkdown(fixture.originalMarkdown);
     const afterAST = createMockASTFromMarkdown(fixture.editedMarkdown);
@@ -275,7 +275,7 @@ describe('Golden Tests: Known Regression Cases', () => {
   });
 
   it('improve entire article regression', () => {
-    const fixture = AI_PIPELINE_FIXTURES.promptSpecific.improveEntireArticle;
+    const fixture = AI_PIPELINE_FIXTURES.promptSpecific.improveEntireArticle!;
 
     const beforeAST = createMockASTFromMarkdown(fixture.originalMarkdown);
     const afterAST = createMockASTFromMarkdown(fixture.editedMarkdown);
