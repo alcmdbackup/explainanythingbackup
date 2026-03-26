@@ -1,0 +1,11 @@
+{
+  "branch": "feat/clean_up_setup_across_workspaces_20260325",
+  "created_at": "2026-03-25T00:00:00Z",
+  "prerequisites": {},
+  "relevantDocs": [
+    "docs/docs_overall/managing_claude_settings.md",
+    "docs/docs_overall/environments.md",
+    "docs/docs_overall/testing_overview.md",
+    "docs/docs_overall/debugging.md"
+  ]
+}
