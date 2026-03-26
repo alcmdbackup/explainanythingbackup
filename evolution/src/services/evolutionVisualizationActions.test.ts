@@ -162,28 +162,27 @@ describe('evolutionVisualizationActions', () => {
 
     it('filters test content when filterTestContent is true', async () => {
       // With filterTestContent=true, the action first fetches test strategy IDs,
-      // then excludes those strategy_ids from all queries using .not('strategy_id', 'in', ...).
-      // Query order: strategies (test IDs), status, costs, recent,
-      //   then: filtered IDs for cost, filtered costs, strategies (names), per-run costs.
-      const testStrategies = [{ id: VALID_UUID_3 }]; // one test strategy
+      // then excludes those strategy_ids from status/recent queries.
+      // Query order: strategies (test IDs), status, recent, metrics (cost), strategies (names), metrics (per-run).
+      const testStrategies = [{ id: VALID_UUID_3 }];
       const statusRows = [
-        { status: 'running' },
-        { status: 'completed' },
+        { id: 'r1', status: 'running' },
+        { id: VALID_UUID, status: 'completed' },
       ];
-      const allCosts = [{ total_cost_usd: '10.00' }]; // includes test costs
       const recentRuns = [
         {
           id: VALID_UUID,
           status: 'completed',
           strategy_id: VALID_UUID_2,
+          budget_cap_usd: 5.0,
+          explanation_id: null,
           created_at: '2026-03-01T10:00:00Z',
           completed_at: '2026-03-01T12:00:00Z',
         },
       ];
-      const filteredRunIds = [{ id: VALID_UUID }];
-      const filteredCosts = [{ total_cost_usd: '4.50' }];
+      const costMetrics = [{ entity_id: VALID_UUID, value: 4.5 }];
       const strategies = [{ id: VALID_UUID_2, name: 'Real Strategy' }];
-      const runCosts = [{ run_id: VALID_UUID, total_cost_usd: 4.5 }];
+      const perRunCostMetrics = [{ entity_id: VALID_UUID, value: 4.5 }];
 
       const mock = createTableAwareMock([
         // 1. evolution_strategies (fetch test strategy IDs)
@@ -192,46 +191,34 @@ describe('evolutionVisualizationActions', () => {
             resolve({ data: testStrategies, error: null })
           );
         },
-        // 2. evolution_runs (status with .not strategy_id)
+        // 2. evolution_runs (status with .not strategy_id) — parallel
         (b) => {
           b.then = jest.fn((resolve: (v: unknown) => void) =>
             resolve({ data: statusRows, error: null })
           );
         },
-        // 3. evolution_run_costs (all costs)
-        (b) => {
-          b.then = jest.fn((resolve: (v: unknown) => void) =>
-            resolve({ data: allCosts, error: null })
-          );
-        },
-        // 4. evolution_runs (recent with .not strategy_id)
+        // 3. evolution_runs (recent with .not strategy_id) — parallel
         (b) => {
           b.then = jest.fn((resolve: (v: unknown) => void) =>
             resolve({ data: recentRuns, error: null })
           );
         },
-        // 5. evolution_runs (filtered IDs for cost)
+        // 4. evolution_metrics (total cost)
         (b) => {
           b.then = jest.fn((resolve: (v: unknown) => void) =>
-            resolve({ data: filteredRunIds, error: null })
+            resolve({ data: costMetrics, error: null })
           );
         },
-        // 6. evolution_run_costs (filtered costs)
-        (b) => {
-          b.then = jest.fn((resolve: (v: unknown) => void) =>
-            resolve({ data: filteredCosts, error: null })
-          );
-        },
-        // 7. evolution_strategies (names enrichment)
+        // 5. evolution_strategies (names enrichment)
         (b) => {
           b.then = jest.fn((resolve: (v: unknown) => void) =>
             resolve({ data: strategies, error: null })
           );
         },
-        // 8. evolution_run_costs (per-run costs)
+        // 6. evolution_metrics (per-run costs)
         (b) => {
           b.then = jest.fn((resolve: (v: unknown) => void) =>
-            resolve({ data: runCosts, error: null })
+            resolve({ data: perRunCostMetrics, error: null })
           );
         },
       ]);
@@ -249,11 +236,6 @@ describe('evolutionVisualizationActions', () => {
       // Verify test strategy IDs were fetched first
       const fromCalls = mock.from.mock.calls;
       expect(fromCalls[0][0]).toBe('evolution_strategies');
-      // Verify .not() was called on the status query with strategy_id exclusion
-      const statusBuilder = mock.from.mock.results[1].value;
-      expect(statusBuilder.not).toHaveBeenCalledWith(
-        'strategy_id', 'in', expect.stringContaining(VALID_UUID_3),
-      );
     });
 
     it('returns error when status query fails', async () => {
