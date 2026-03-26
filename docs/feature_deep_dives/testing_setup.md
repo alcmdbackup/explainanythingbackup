@@ -19,9 +19,9 @@ ExplainAnything uses a **four-tier testing strategy**:
   - **Critical** (run on PRs to main): 5 tests
   - **Full** (run on PRs to production): All 27 tests
   - **Evolution** (11 files): Auto-skip when evolution DB tables not yet migrated. Covers claim, budget, costs, completion, watchdog, strategy hashing/aggregates, cancel experiment, arena sync, entity logging, experiment lifecycle.
-- **E2E**: 43 spec files in `__tests__/e2e/specs/`
-  - **Critical** (`{ tag: '@critical' }` parameter): Run on PRs to main
-  - **Evolution** (`{ tag: '@evolution' }` parameter): Dashboard, runs, strategies, arena, experiments, invocations, run pipeline, experiment wizard
+- **E2E**: 48 spec files in `__tests__/e2e/specs/`
+  - **Critical** (`{ tag: '@critical' }` parameter): Run on PRs to main. Evolution Phase 1-2 E2E specs are tagged `@critical`.
+  - **Evolution** (`{ tag: '@evolution' }` parameter): Dashboard, runs, strategies, arena, experiments, invocations, run pipeline, experiment wizard, accessibility
   - **Full**: All tests (run on PRs to production)
 - **Exploratory**: `/user-test` skill for AI-driven exploration (see [User Testing](./user_testing.md))
 
@@ -343,6 +343,14 @@ export class SearchPage extends BasePage {
 }
 ```
 
+### Evolution Accessibility Tests
+
+Evolution E2E specs include accessibility tests using Playwright's accessibility snapshot feature (`page.accessibility.snapshot()`). These tests verify ARIA roles, labels, and keyboard navigation across evolution admin pages (tab lists, sortable tables, form controls). The accessibility spec lives in `09-admin/admin-evolution-accessibility.spec.ts`.
+
+### `@critical` Tagging for Evolution
+
+Evolution Phase 1-2 E2E specs are tagged `{ tag: '@critical' }` so they run on every PR to `main`. This ensures core evolution flows (dashboard, runs, experiments, arena) are always validated in CI.
+
 ### Auth Fixture
 
 ```typescript
@@ -505,6 +513,8 @@ cleanupAllTrackedEvolutionData()      // FK-safe 9-step cleanup from per-worker 
 ```
 
 **`[TEST_EVO]` prefix:** E2E evolution test data uses this prefix (distinct from `[TEST]` used by explanation tests) for easy identification in logs and cleanup queries. Cleanup order: arena_comparisons → invocations → logs → metrics → variants → explanations → runs → experiments → strategies → prompts.
+
+**Cleanup enforcement:** `evolution-test-data-factory` is included in the `require-test-cleanup` ESLint pattern — any E2E spec importing it must have an `afterAll` cleanup block.
 
 ### logging-test-helpers.ts
 ```typescript

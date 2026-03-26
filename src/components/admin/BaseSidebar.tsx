@@ -62,13 +62,13 @@ export function BaseSidebar({ title, navItems, backLink, activeOverrides }: Base
   );
 
   return (
-    <aside className="w-64 bg-[var(--surface-secondary)] border-r border-[var(--border-default)] min-h-screen">
+    <aside className="w-64 bg-[var(--surface-secondary)] border-r border-[var(--border-default)] min-h-screen flex flex-col">
       <div className="p-4 border-b border-[var(--border-default)]">
         <h1 className="text-lg font-semibold text-[var(--text-primary)]">
           {title}
         </h1>
       </div>
-      <nav className="p-2">
+      <nav className="p-2 flex-1 overflow-y-auto">
         {isNavGroupArray(navItems) ? (
           <div className="space-y-4">
             {navItems.map((group) => (
@@ -88,7 +88,7 @@ export function BaseSidebar({ title, navItems, backLink, activeOverrides }: Base
           </ul>
         )}
       </nav>
-      <div className="absolute bottom-4 left-4 right-4">
+      <div className="p-4 border-t border-[var(--border-default)] mt-auto">
         <Link
           href={backLink.href}
           data-testid={backLink.testId}

@@ -10,11 +10,11 @@ describe('EntityDetailHeader', () => {
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Test Strategy');
   });
 
-  it('renders entity ID truncated with title attr', () => {
+  it('renders entity ID truncated with copy tooltip', () => {
     const longId = 'abcdef1234567890abcdef';
     render(<EntityDetailHeader title="Run" entityId={longId} />);
     const el = screen.getByTestId('entity-id');
-    expect(el).toHaveAttribute('title', longId);
+    expect(el).toHaveAttribute('title', 'Click to copy full ID');
     expect(el.textContent).toContain('abcdef123456');
     expect(el.textContent).toContain('…');
   });
@@ -22,7 +22,7 @@ describe('EntityDetailHeader', () => {
   it('renders short entity ID without truncation', () => {
     render(<EntityDetailHeader title="Run" entityId="abc123" />);
     const el = screen.getByTestId('entity-id');
-    expect(el.textContent).toBe('abc123');
+    expect(el.textContent).toContain('abc123');
   });
 
   it('renders status badge when provided', () => {

@@ -39,12 +39,11 @@ const loadData = async (filters: Record<string, string>, page: number, pageSize:
 
 const baseColumns: ColumnDef<StrategyListItem>[] = [
   { key: 'name', header: 'Name', render: (row) => row.name },
-  { key: 'label', header: 'Label', render: (row) => row.label },
+  { key: 'label', header: 'Label', render: (row) => <span className="truncate block max-w-[200px]" title={row.label}>{row.label}</span> },
   { key: 'pipeline_type', header: 'Pipeline', render: (row) => row.pipeline_type ?? '—' },
   { key: 'status', header: 'Status', render: (row) => row.status },
   { key: 'run_count', header: 'Runs', render: (row) => row.run_count },
   { key: 'avg_final_elo', header: 'Avg Elo', render: (row) => (row.avg_final_elo != null ? row.avg_final_elo.toFixed(0) : '—') },
-  { key: 'created_by', header: 'Created By', render: (row) => row.created_by },
 ];
 const columns: ColumnDef<StrategyListItem>[] = [...baseColumns, ...createMetricColumns<StrategyListItem>('strategy')];
 
@@ -129,7 +128,7 @@ export default function StrategiesPage(): JSX.Element {
 
   const config: RegistryPageConfig<StrategyListItem> = {
     title: 'Strategies',
-    breadcrumbs: [{ label: 'Dashboard', href: '/admin/evolution-dashboard' }],
+    breadcrumbs: [{ label: 'Evolution', href: '/admin/evolution-dashboard' }],
     columns,
     filters,
     loadData,

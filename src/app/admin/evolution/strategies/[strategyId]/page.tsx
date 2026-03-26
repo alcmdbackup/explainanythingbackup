@@ -67,7 +67,7 @@ export default function StrategyDetailPage(): JSX.Element {
     <div className="space-y-6 pb-12">
       <EvolutionBreadcrumb
         items={[
-          { label: 'Dashboard', href: '/admin/evolution-dashboard' },
+          { label: 'Evolution', href: '/admin/evolution-dashboard' },
           { label: 'Strategies', href: '/admin/evolution/strategies' },
           { label: strategy.name },
         ]}

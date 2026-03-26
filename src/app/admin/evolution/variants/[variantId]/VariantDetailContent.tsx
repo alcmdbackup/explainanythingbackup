@@ -7,8 +7,8 @@ import { VariantLineageSection } from '@evolution/components/evolution/variant/V
 import type { VariantFullDetail } from '@evolution/services/variantDetailActions';
 
 const TABS = [
-  { id: 'metrics', label: 'Metrics' },
   { id: 'content', label: 'Content' },
+  { id: 'metrics', label: 'Metrics' },
   { id: 'lineage', label: 'Lineage' },
 ];
 
@@ -44,7 +44,7 @@ export function VariantDetailContent({ variant }: VariantDetailContentProps): JS
         variant="bordered"
         size="lg"
         metrics={[
-          { label: 'Agent', value: variant.agentName },
+          { label: 'Agent', value: variant.agentName || '—' },
           { label: 'Generation', value: String(variant.generation) },
           { label: 'Rating', value: String(Math.round(variant.eloScore)) },
           { label: 'Matches', value: String(variant.matchCount) },

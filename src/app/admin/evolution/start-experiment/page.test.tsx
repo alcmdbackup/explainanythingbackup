@@ -26,9 +26,9 @@ describe('StartExperimentPage', () => {
     expect(heading).toHaveTextContent('Start Experiment');
   });
 
-  it('renders breadcrumb with Dashboard link', () => {
+  it('renders breadcrumb with Evolution link', () => {
     render(<StartExperimentPage />);
-    expect(screen.getByText('Dashboard')).toBeInTheDocument();
+    expect(screen.getByText('Evolution')).toBeInTheDocument();
   });
 
   it('renders experiment form loading state', () => {

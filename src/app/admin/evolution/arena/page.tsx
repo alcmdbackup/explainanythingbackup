@@ -78,7 +78,7 @@ export default function ArenaListPage(): JSX.Element {
         columns={COLUMNS}
         items={topics}
         loading={loading}
-        totalCount={topics.length}
+        totalCount={loading ? undefined : topics.length}
         filterValues={filterValues}
         onFilterChange={handleFilterChange}
         getRowHref={(topic) => `/admin/evolution/arena/${topic.id}`}

@@ -222,7 +222,7 @@ This ensures no orphaned runs continue executing after cancellation. Any runs th
 
 ### Listing and Querying
 
-The `listExperimentsAction` returns experiments ordered by creation date (newest first) with an optional status filter. Each result includes a `runCount` derived from the joined `evolution_runs` rows, giving a quick overview without loading full run details.
+The `listExperimentsAction` returns experiments ordered by creation date (newest first) with an optional status filter (options: All, Draft, Running, Completed, Cancelled). Each result includes a `runCount` derived from the joined `evolution_runs` rows, giving a quick overview without loading full run details.
 
 The `getExperimentAction` returns full experiment detail including all associated runs and computed metrics.
 
@@ -240,14 +240,15 @@ The experiment creation interface is a 3-step wizard located at `src/app/admin/e
 
 ### Step 2: Strategies
 
-- Browse and multi-select from the strategy library (loaded via `getStrategiesAction`).
-- Configure how many runs to create per selected strategy.
-- Only `active` strategies appear in the picker.
+- Browse and multi-select from the strategy library (loaded via `getStrategiesAction`). A select-all checkbox is available for quick bulk selection.
+- Configure how many runs to create per selected strategy (runs-per-strategy input).
+- Only `active` strategies appear in the picker. A "Hide test strategies" filter excludes `[TEST]`-prefixed strategies.
+- An inline prompt creation dialog allows creating a new prompt without leaving the wizard.
 
 ### Step 3: Review
 
-- Summary of all runs that will be created (strategy x count matrix).
-- Validate total budget constraint: **$10 maximum total budget** across all planned runs.
+- Summary of all runs that will be created (strategy x count matrix). Each step has a visible label.
+- Validate total budget constraint: **$10 maximum total budget** across all planned runs. Validation is deferred — errors are shown only on the review step, not inline during selection.
 - Confirm to create the experiment and enqueue all runs.
 
 On confirmation, the wizard calls `createExperimentAction` once, then calls `addRunToExperimentAction` for each planned run. The first `addRunToExperiment` call auto-transitions the experiment from `draft` to `running`.

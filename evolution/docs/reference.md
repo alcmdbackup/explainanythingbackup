@@ -52,6 +52,7 @@ Utilities shared between the pipeline, services, and UI layers. These modules ha
 | File | Purpose |
 |------|---------|
 | `rating.ts` | OpenSkill (Weng-Lin Bayesian) rating system wrapping the `openskill` library. `createRating()` returns `{mu: 25, sigma: 8.333}`. `updateRating(winner, loser)` and `updateDraw(a, b)` return updated pairs. `isConverged(rating)` checks sigma < 3.0. `toEloScale(rating)` converts to traditional Elo range. `computeEloPerDollar(elo, cost)` measures cost-efficiency. Constants: `DEFAULT_MU=25`, `DEFAULT_SIGMA=25/3`, `DEFAULT_CONVERGENCE_SIGMA=3.0`, `ELO_SIGMA_SCALE=400/25`. See [Rating and Comparison](rating_and_comparison.md). |
+| `computeRatings.ts` | `formatElo(elo)` — formats Elo values as rounded integers for display. `stripMarkdownTitle(text)` — removes leading markdown heading syntax from content strings for clean display in tables and previews. |
 | `reversalComparison.ts` | `run2PassReversal` — runs the same comparison twice with prompt order reversed (A vs B, then B vs A) to detect and mitigate position bias. Accepts `ReversalConfig` for controlling tie-breaking and confidence thresholds. |
 | `comparisonCache.ts` | `ComparisonCache` — in-memory LRU cache for pairwise comparison results keyed by `(variantIdA, variantIdB)`. Prevents redundant LLM comparison calls within a run. Max size controlled by `MAX_CACHE_SIZE` constant. Exports `CachedMatch` type. |
 | `formatValidator.ts` | `validateFormat` — checks generated text against FORMAT_RULES. Returns `FormatResult` with pass/fail and violation details. Reads `FORMAT_VALIDATION_MODE` env var at call time: `reject` (default) throws on violation, `warn` logs but passes, `off` skips validation entirely. |
@@ -412,6 +413,14 @@ The admin UI is a Next.js App Router application. All pages are under `src/app/a
 |-------|--------|------|---------|
 | `/api/evolution/run` | POST | `src/app/api/evolution/run/route.ts` | Trigger evolution pipeline run. Admin-only. Accepts `{ targetRunId?: string }`, returns `RunnerResult`. `maxDuration=300`. |
 
+Additional files:
+
+| Route | Page File | Purpose |
+|-------|-----------|---------|
+| (layout) | `evolution/layout.tsx` | Shared evolution layout with sidebar navigation wrapping all `/admin/evolution/*` routes |
+| (not-found) | `evolution/not-found.tsx` | Custom 404 page for unmatched evolution routes |
+| (loading) | `evolution/*/loading.tsx` | Per-route loading skeletons reusing `TableSkeleton` |
+
 Total: 17 pages (15 list/detail pairs + dashboard + wizard) + 1 API route.
 
 All pages use the shared UI components from `evolution/src/components/evolution/index.ts`. Common patterns include `EntityListPage` for list views with filtering, `EntityDetailTabs` for detail views with tabbed navigation, `RegistryPage` for CRUD registries, and `AutoRefreshProvider` for real-time polling. The dashboard uses a 15-second auto-refresh interval; other pages refresh on user navigation.
@@ -487,6 +496,14 @@ Test data factories in `evolution-test-helpers.ts` prefix names and titles with 
 ### CleanupOptions
 
 `cleanupEvolutionData(supabase, options)` accepts a `CleanupOptions` object with optional arrays: `explanationIds`, `runIds`, `strategyIds`, `promptIds`. It deletes in FK-safe order (invocations, variants, runs, strategies, prompts) and silently ignores errors so test cleanup never throws.
+
+---
+
+## ESLint Rules
+
+| Rule | Purpose |
+|------|---------|
+| `no-duplicate-column-labels` | Prevents duplicate column label strings in entity table definitions. Catches copy-paste errors where two columns share the same header text. |
 
 ---
 

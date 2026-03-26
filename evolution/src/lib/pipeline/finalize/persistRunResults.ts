@@ -377,6 +377,15 @@ export async function syncToArena(
   supabase: SupabaseClient,
   logger?: EntityLogger,
 ): Promise<void> {
+  // Compute per-variant match counts from match history
+  const variantMatchCounts = new Map<string, number>();
+  for (const m of matchHistory) {
+    if (m.confidence > 0) {
+      variantMatchCounts.set(m.winnerId, (variantMatchCounts.get(m.winnerId) ?? 0) + 1);
+      variantMatchCounts.set(m.loserId, (variantMatchCounts.get(m.loserId) ?? 0) + 1);
+    }
+  }
+
   // Build entries: all non-arena variants
   const newEntries = pool
     .filter((v) => !isArenaEntry(v))
@@ -388,7 +397,7 @@ export async function syncToArena(
         elo_score: r ? toEloScale(r.mu) : 1200,
         mu: r?.mu ?? 25,
         sigma: r?.sigma ?? 8.333,
-        arena_match_count: 0,
+        arena_match_count: variantMatchCounts.get(v.id) ?? 0,
         generation_method: 'pipeline',
       };
     });

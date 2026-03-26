@@ -134,9 +134,13 @@ export function LogsTab({ entityType, entityId }: LogsTabProps): JSX.Element {
             aria-label="Filter by iteration"
           >
             <option value="">All iterations</option>
-            {Array.from({ length: 20 }, (_, i) => i + 1).map((n) => (
-              <option key={n} value={n}>{n}</option>
-            ))}
+            {(() => {
+              const maxIter = logs.reduce((max, l) => (l.iteration != null && l.iteration > max ? l.iteration : max), 0);
+              const count = Math.max(maxIter, 20);
+              return Array.from({ length: count }, (_, i) => i + 1).map((n) => (
+                <option key={n} value={n}>{n}</option>
+              ));
+            })()}
           </select>
 
           <span className="text-xs text-[var(--text-muted)] ml-auto">
@@ -196,13 +200,13 @@ export function LogsTab({ entityType, entityId }: LogsTabProps): JSX.Element {
                   onClick={() => setExpandedId(expandedId === log.id ? null : log.id)}
                 >
                   <td className="px-3 py-2 text-xs text-[var(--text-muted)] whitespace-nowrap">
-                    {new Date(log.created_at).toLocaleTimeString()}
+                    {new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }).format(new Date(log.created_at))}
                   </td>
                   <td className={`px-3 py-2 text-xs font-mono ${LEVEL_COLORS[log.level] ?? ''}`}>
                     {log.level}
                   </td>
                   <td className="px-3 py-2 text-xs">
-                    <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-mono ${ENTITY_BADGE_COLORS[log.entity_type] ?? 'bg-gray-800 text-gray-300'}`}>
+                    <span className={`inline-block px-1.5 py-0.5 rounded text-xs font-mono ${ENTITY_BADGE_COLORS[log.entity_type] ?? 'bg-gray-800 text-gray-300'}`}>
                       {log.entity_type}
                     </span>
                   </td>

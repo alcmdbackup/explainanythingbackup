@@ -80,22 +80,22 @@ describe('evolutionVisualizationActions', () => {
       const runCosts = [{ run_id: VALID_UUID, total_cost_usd: 3.0 }];
 
       const mock = createTableAwareMock([
-        // evolution_runs (status)
+        // evolution_runs (status) — built first at line 79
         (b) => {
           b.then = jest.fn((resolve: (v: unknown) => void) =>
             resolve({ data: statusRows, error: null })
           );
         },
-        // evolution_run_costs (total)
-        (b) => {
-          b.then = jest.fn((resolve: (v: unknown) => void) =>
-            resolve({ data: costRows, error: null })
-          );
-        },
-        // evolution_runs (recent)
+        // evolution_runs (recent) — built second at line 84
         (b) => {
           b.then = jest.fn((resolve: (v: unknown) => void) =>
             resolve({ data: recentRuns, error: null })
+          );
+        },
+        // evolution_run_costs (total) — third, inside Promise.all
+        (b) => {
+          b.then = jest.fn((resolve: (v: unknown) => void) =>
+            resolve({ data: costRows, error: null })
           );
         },
         // evolution_strategies (names)

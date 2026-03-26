@@ -79,7 +79,14 @@ export const getExperimentAction = adminAction(
 
     if (error || !experiment) throw new Error(`Experiment ${input.experimentId} not found`);
 
-    const metrics = await computeExperimentMetrics(input.experimentId, ctx.supabase);
+    let metrics;
+    try {
+      metrics = await computeExperimentMetrics(input.experimentId, ctx.supabase);
+    } catch {
+      // Metrics computation can fail (e.g., no completed runs with winners yet).
+      // Don't block the entire detail page.
+      metrics = { maxElo: null, totalCost: 0, runs: [] };
+    }
 
     return { ...experiment, metrics };
   },

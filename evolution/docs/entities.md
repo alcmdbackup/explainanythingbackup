@@ -94,6 +94,20 @@ flowchart TD
 - **CASCADE deletes** on arena comparisons and variants from prompts — deleting a prompt removes its entire arena.
 - **SET NULL** on arena comparison `run_id` — deleting a run preserves comparison history but loses provenance.
 
+## UI Conventions
+
+### Entity Cross-Links
+
+Detail pages use `EntityDetailHeader`'s `links` prop to cross-reference related entities. Each link is `{ prefix: string; label: string; href: string }` — for example, a run detail page links to its parent experiment and strategy. This provides one-click navigation between related entities.
+
+### Breadcrumb Convention
+
+All evolution pages use "Evolution" as the root breadcrumb, linking to `/admin/evolution-dashboard`. Subsequent breadcrumb segments reflect the entity type and name (e.g., "Evolution > Runs > Run abc123").
+
+### CopyableId
+
+Entity IDs displayed in detail headers are clickable — clicking copies the full UUID to the clipboard via the `CopyableId` component. This avoids the need to manually select and copy long UUIDs.
+
 ## Cross-References
 
 - [Data Model](./data_model.md) — full table schemas, column types, and constraints

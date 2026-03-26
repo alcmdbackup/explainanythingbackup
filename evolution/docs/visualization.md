@@ -8,7 +8,7 @@ For database tables backing these views, see [Data Model](./data_model.md). For 
 
 ## Admin Pages
 
-All pages live under `src/app/admin/evolution/` (Next.js App Router). Each page fetches data through server actions defined in `evolution/src/services/`.
+All pages live under `src/app/admin/evolution/` (Next.js App Router). A shared `layout.tsx` at `src/app/admin/evolution/layout.tsx` wraps all evolution routes with consistent sidebar navigation and layout chrome. Each page fetches data through server actions defined in `evolution/src/services/`.
 
 | Route | Description | Key data |
 |---|---|---|
@@ -62,6 +62,7 @@ Tab container with URL-synced tab selection:
 - Active tab is stored in the `?tab=<id>` query parameter via `useTabState`.
 - Supports a legacy tab map for redirecting old tab IDs to new ones after renames.
 - Each tab is lazy-rendered only when selected.
+- Accessible markup: the tab bar renders with `role="tablist"`, each tab button has `role="tab"` and `aria-selected`, and arrow key navigation cycles between tabs.
 
 ```typescript
 // Usage pattern in a detail page
@@ -154,6 +155,10 @@ Data is fetched via `getEntityLogsAction` from `evolution/src/services/logAction
 ### EvolutionStatusBadge
 
 Color-coded status pill used across all pages. Maps run/experiment status values to badge colors (e.g., green for completed, yellow for running, red for failed).
+
+### Loading Skeletons
+
+Each evolution route directory includes a `loading.tsx` file that renders a `TableSkeleton` component during page transitions. This reuses the shared `TableSkeleton` from `evolution/src/components/evolution/` to provide consistent loading states (animated placeholder rows) across all evolution list and detail pages.
 
 ---
 

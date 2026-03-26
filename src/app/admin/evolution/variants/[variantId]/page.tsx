@@ -19,6 +19,7 @@ export default async function VariantDetailPage({ params }: Props): Promise<JSX.
     <div className="space-y-6 pb-12">
       <EvolutionBreadcrumb
         items={[
+          { label: 'Evolution', href: '/admin/evolution-dashboard' },
           { label: 'Variants', href: '/admin/evolution/variants' },
           { label: `${variantId.substring(0, 8)}...` },
         ]}

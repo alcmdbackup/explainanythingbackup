@@ -65,4 +65,18 @@ describe('RunsTable', () => {
     expect(screen.getByTestId('run-row-run-1')).toBeInTheDocument();
     expect(screen.queryByTestId('run-row-run-2')).toBeNull();
   });
+
+  it('F2: getBaseColumns() returns unique column headers (no duplicates)', () => {
+    const cols = getBaseColumns<BaseRun>();
+    const headers = cols.map(c => c.header);
+    const uniqueHeaders = new Set(headers);
+    expect(uniqueHeaders.size).toBe(headers.length);
+  });
+
+  it('F2: cost column header is "Spent" not "Cost"', () => {
+    const cols = getBaseColumns<BaseRun>();
+    const costCol = cols.find(c => c.key === 'cost');
+    expect(costCol).toBeDefined();
+    expect(costCol!.header).toBe('Spent');
+  });
 });

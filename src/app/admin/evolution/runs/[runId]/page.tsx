@@ -63,7 +63,7 @@ export default function EvolutionRunDetailPage(): JSX.Element {
   return (
     <div className="space-y-6">
       <EvolutionBreadcrumb items={[
-        { label: 'Dashboard', href: '/admin/evolution-dashboard' },
+        { label: 'Evolution', href: '/admin/evolution-dashboard' },
         { label: 'Runs', href: '/admin/evolution/runs' },
         { label: run.id.substring(0, 8) },
       ]} />
@@ -72,13 +72,34 @@ export default function EvolutionRunDetailPage(): JSX.Element {
         title={`Run ${run.id.substring(0, 8)}`}
         entityId={run.id}
         statusBadge={<EvolutionStatusBadge status={run.status as import('@evolution/lib/types').EvolutionRunStatus} hasError={!!run.error_message} />}
+        links={[
+          ...(run.strategy_name || run.strategy_id
+            ? [{ prefix: 'Strategy', label: run.strategy_name || run.strategy_id.substring(0, 8), href: `/admin/evolution/strategies/${run.strategy_id}` }]
+            : []),
+          ...(run.experiment_id
+            ? [{ prefix: 'Experiment', label: run.experiment_name || run.experiment_id.substring(0, 8), href: `/admin/evolution/experiments/${run.experiment_id}` }]
+            : []),
+          ...(run.prompt_id
+            ? [{ prefix: 'Prompt', label: `#${run.prompt_id}`, href: `/admin/evolution/prompts` }]
+            : []),
+        ]}
       />
+
+      {run.status === 'failed' && run.error_message && (
+        <div
+          className="rounded-book border border-[var(--status-error)] bg-[var(--status-error)]/10 p-4"
+          data-testid="run-error-banner"
+        >
+          <p className="text-sm font-ui font-medium text-[var(--status-error)] mb-1">Run Failed</p>
+          <p className="text-xs font-mono text-[var(--text-secondary)] whitespace-pre-wrap">{run.error_message}</p>
+        </div>
+      )}
 
       <EntityDetailTabs tabs={TABS} activeTab={activeTab} onTabChange={setActiveTab}>
         {activeTab === 'metrics' && <EntityMetricsTab entityType="run" entityId={runId} />}
         {activeTab === 'elo' && <EloTab runId={runId} />}
         {activeTab === 'lineage' && <LineageTab runId={runId} />}
-        {activeTab === 'variants' && <VariantsTab runId={runId} />}
+        {activeTab === 'variants' && <VariantsTab runId={runId} runStatus={run.status} />}
         {activeTab === 'logs' && <LogsTab entityType="run" entityId={runId} />}
       </EntityDetailTabs>
     </div>

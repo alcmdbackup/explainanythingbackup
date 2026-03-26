@@ -22,10 +22,11 @@ function DashboardContent(): JSX.Element {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [filterTestContent, setFilterTestContent] = useState(true);
   const { refreshKey, reportRefresh, reportError } = useAutoRefresh();
 
   const load = useCallback(async () => {
-    const result = await getEvolutionDashboardDataAction();
+    const result = await getEvolutionDashboardDataAction({ filterTestContent });
     if (result.success && result.data) {
       setData(result.data);
       reportRefresh();
@@ -35,7 +36,7 @@ function DashboardContent(): JSX.Element {
       reportError(msg);
     }
     setLoading(false);
-  }, [reportRefresh, reportError]);
+  }, [reportRefresh, reportError, filterTestContent]);
 
   useEffect(() => {
     load();
@@ -80,6 +81,16 @@ function DashboardContent(): JSX.Element {
 
   return (
     <div className="space-y-6" data-testid="dashboard-content">
+      <label className="flex items-center gap-2 text-sm font-ui text-[var(--text-secondary)]">
+        <input
+          type="checkbox"
+          checked={filterTestContent}
+          onChange={(e) => setFilterTestContent(e.target.checked)}
+          className="rounded border-[var(--border-default)]"
+          data-testid="filter-test-content-toggle"
+        />
+        Hide test content
+      </label>
       <MetricGrid metrics={metrics} columns={3} variant="card" testId="dashboard-metrics" />
       <div>
         <h2 className="text-2xl font-display font-semibold text-[var(--text-primary)] mb-3">Recent Runs</h2>

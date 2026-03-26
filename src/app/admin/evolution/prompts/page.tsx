@@ -109,7 +109,7 @@ export default function PromptsPage(): JSX.Element {
 
   const config: RegistryPageConfig<PromptListItem> = {
     title: 'Prompts',
-    breadcrumbs: [{ label: 'Dashboard', href: '/admin/evolution-dashboard' }],
+    breadcrumbs: [{ label: 'Evolution', href: '/admin/evolution-dashboard' }],
     columns,
     filters,
     loadData,

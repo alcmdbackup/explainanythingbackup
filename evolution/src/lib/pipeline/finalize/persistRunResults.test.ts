@@ -581,6 +581,56 @@ describe('finalizeRun logging', () => {
 
 // ─── syncToArena logging tests ──────────────────────────────────
 
+// ─── F38: Arena match count computation ─────────────────────────
+
+describe('syncToArena match count computation', () => {
+  it('F38: passes correct arena_match_count for each variant based on matchHistory participation', async () => {
+    const supabase = createMockArenaSupabase();
+    const pool: Variant[] = [
+      makeVariant(V1_ID, 'test', { text: '# V1' }),
+      makeVariant(V_NEW_ID, 'test', { text: '# V_NEW' }),
+    ];
+    const ratings = new Map<string, Rating>([
+      [V1_ID, { mu: 28, sigma: 7 }],
+      [V_NEW_ID, { mu: 25, sigma: 8 }],
+    ]);
+    const matches: V2Match[] = [
+      { winnerId: V1_ID, loserId: V_NEW_ID, result: 'win' as const, confidence: 0.8, judgeModel: 'gpt-4.1-nano', reversed: false },
+      { winnerId: V1_ID, loserId: V_NEW_ID, result: 'win' as const, confidence: 0.7, judgeModel: 'gpt-4.1-nano', reversed: false },
+      { winnerId: V_NEW_ID, loserId: V1_ID, result: 'draw' as const, confidence: 0.5, judgeModel: 'gpt-4.1-nano', reversed: false },
+    ];
+
+    await syncToArena(RUN_ID, PROMPT_ID, pool, ratings, matches, supabase);
+
+    const call = (supabase.rpc as jest.Mock).mock.calls[0];
+    const entries = call[1].p_entries as Array<{ id: string; arena_match_count: number }>;
+    const v1Entry = entries.find((e) => e.id === V1_ID);
+    const vNewEntry = entries.find((e) => e.id === V_NEW_ID);
+    // V1_ID: winner in match 1, winner in match 2, loser in match 3 = 3
+    expect(v1Entry!.arena_match_count).toBe(3);
+    // V_NEW_ID: loser in match 1, loser in match 2, winner in match 3 = 3
+    expect(vNewEntry!.arena_match_count).toBe(3);
+  });
+
+  it('F38: confidence-0 matches do not count toward arena_match_count', async () => {
+    const supabase = createMockArenaSupabase();
+    const pool: Variant[] = [makeVariant(V1_ID, 'test', { text: '# V1' })];
+    const ratings = new Map<string, Rating>([[V1_ID, { mu: 28, sigma: 7 }]]);
+    const matches: V2Match[] = [
+      { winnerId: V1_ID, loserId: V_NEW_ID, result: 'win' as const, confidence: 0, judgeModel: 'gpt-4.1-nano', reversed: false },
+      { winnerId: V1_ID, loserId: V_NEW_ID, result: 'win' as const, confidence: 0.9, judgeModel: 'gpt-4.1-nano', reversed: false },
+    ];
+
+    await syncToArena(RUN_ID, PROMPT_ID, pool, ratings, matches, supabase);
+
+    const call = (supabase.rpc as jest.Mock).mock.calls[0];
+    const entries = call[1].p_entries as Array<{ id: string; arena_match_count: number }>;
+    const v1Entry = entries.find((e) => e.id === V1_ID);
+    // Only the confidence=0.9 match should count
+    expect(v1Entry!.arena_match_count).toBe(1);
+  });
+});
+
 describe('syncToArena logging', () => {
   it('logs Arena sync preparation and Arena sync complete on success', async () => {
     const supabase = createMockArenaSupabase();

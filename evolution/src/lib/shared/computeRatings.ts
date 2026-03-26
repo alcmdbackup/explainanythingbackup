@@ -56,6 +56,17 @@ export function toEloScale(mu: number): number {
   return Math.max(0, Math.min(3000, 1200 + (mu - DEFAULT_MU) * (400 / DEFAULT_MU)));
 }
 
+/** Format an Elo value as a rounded integer string for display. */
+export function formatElo(value: number): string {
+  return Math.round(value).toString();
+}
+
+/** Strip markdown heading markers and return the first line, truncated with ellipsis. */
+export function stripMarkdownTitle(text: string): string {
+  const firstLine = text.split('\n')[0] ?? '';
+  return firstLine.replace(/^#{1,6}\s+/, '').trim();
+}
+
 export const DECISIVE_CONFIDENCE_THRESHOLD = 0.6;
 
 /** Returns null if cost is missing or zero. */

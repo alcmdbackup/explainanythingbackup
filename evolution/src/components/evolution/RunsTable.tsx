@@ -110,7 +110,7 @@ export function getBaseColumns<T extends BaseRun>(): RunsColumnDef<T>[] {
     },
     {
       key: 'cost',
-      header: 'Cost',
+      header: 'Spent',
       align: 'right',
       render: (run) => {
         const cost = run.total_cost_usd ?? 0;

@@ -59,10 +59,10 @@ describe('VariantDetailContent', () => {
 
   it('renders tabs including content tab', () => {
     render(<VariantDetailContent variant={mockVariant} />);
-    // Content is behind the Content tab now
-    expect(screen.getByText('Content')).toBeInTheDocument();
-    expect(screen.getByText('Metrics')).toBeInTheDocument();
-    expect(screen.getByText('Lineage')).toBeInTheDocument();
+    // Content tab is selected by default, so both tab label and content section exist
+    expect(screen.getByRole('tab', { name: 'Content' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Metrics' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Lineage' })).toBeInTheDocument();
   });
 
   it('renders run cross-link', () => {

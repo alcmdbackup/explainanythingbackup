@@ -304,4 +304,15 @@ describe('RegistryPage', () => {
       expect(toast.error).toHaveBeenCalledWith('Failed to load data');
     });
   });
+
+  // ─── F1/F3: Render stability (no infinite loop) ─────────────
+
+  it('F1/F3: loadData is called exactly once on mount (no infinite re-render loop)', async () => {
+    render(<RegistryPage config={makeConfig()} />);
+    await waitFor(() => {
+      expect(screen.getByTestId('item-count')).toHaveTextContent('2');
+    });
+    // loadData should have been called exactly once on initial mount
+    expect(mockLoadData).toHaveBeenCalledTimes(1);
+  });
 });
