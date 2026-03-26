@@ -282,6 +282,76 @@ Also add to the **Repository Secrets (Shared)** table in the GitHub Secrets sect
 
 > **Note:** Like `DEEPSEEK_API_KEY`, this secret is not passed in `ci.yml` because unit tests mock all LLM calls. It only needs to be set in `.env.local` for local dev and in Vercel env vars if the model is used in production.
 
+### Phase 5: Live Connection Verification
+
+After all code changes, tests, and docs are complete, verify the OpenRouter connection works end-to-end using the real API key.
+
+**Step 1:** Ensure `OPENROUTER_API_KEY` is set in `.env.local`.
+
+**Step 2:** Run a minimal verification script via `npx tsx`. The script reads the API key from `.env.local` (never pass keys as CLI args — they leak into shell history and `ps` output):
+```typescript
+// /tmp/verify-openrouter.ts  (written to /tmp, NOT inside the repo)
+import 'dotenv/config';  // loads .env.local
+import OpenAI from 'openai';
+
+const apiKey = process.env.OPENROUTER_API_KEY;
+if (!apiKey) { console.error('OPENROUTER_API_KEY not set in .env.local'); process.exit(1); }
+
+const client = new OpenAI({
+  apiKey,
+  baseURL: 'https://openrouter.ai/api/v1',
+});
+
+// --- Non-streaming test ---
+console.log('--- Non-streaming test ---');
+const response = await client.chat.completions.create({
+  model: 'openai/gpt-oss-20b',
+  messages: [{ role: 'user', content: 'Say "hello" and nothing else.' }],
+  max_tokens: 20,
+});
+console.log('Model returned:', response.model);
+console.log('Response:', response.choices[0]?.message?.content);
+console.log('Usage:', JSON.stringify(response.usage));
+
+// --- Streaming test ---
+console.log('\n--- Streaming test ---');
+const stream = await client.chat.completions.create({
+  model: 'openai/gpt-oss-20b',
+  messages: [{ role: 'user', content: 'Count from 1 to 5.' }],
+  max_tokens: 50,
+  stream: true,
+});
+let chunks = 0;
+let streamContent = '';
+for await (const chunk of stream) {
+  const content = chunk.choices[0]?.delta?.content || '';
+  streamContent += content;
+  chunks++;
+}
+console.log('Chunks received:', chunks);
+console.log('Stream content:', streamContent);
+console.log('\nConnection verified successfully');
+```
+
+> **Important:** Write this script to `/tmp/verify-openrouter.ts` (outside the repo), NOT inside the project tree. Run from the project root so `dotenv` finds `.env.local`:
+> ```bash
+> npx tsx /tmp/verify-openrouter.ts
+> ```
+> Delete after use: `rm /tmp/verify-openrouter.ts`
+
+**Step 3:** Verify:
+- [ ] Non-streaming API call succeeds (no auth or routing errors)
+- [ ] `response.model` — note the exact string returned (may differ from `openai/gpt-oss-20b`)
+- [ ] `response.usage` — tokens are reported correctly
+- [ ] Streaming call succeeds — chunks > 0 and content is non-empty
+- [ ] Negative test: temporarily set an invalid API key and confirm a clear auth error (not a generic 500)
+
+**Step 4:** Record ALL results in `_progress.md`:
+- Exact `response.model` string returned by OpenRouter
+- Token counts from `response.usage`
+- Number of streaming chunks
+- Whether the `costModel` fix is confirmed necessary (if returned model string differs from `openai/gpt-oss-20b`)
+
 ## Rollback / Failure Handling
 
 This model is only for evolution experiments, not user-facing generation. If OpenRouter has an outage:
