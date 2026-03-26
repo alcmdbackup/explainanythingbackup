@@ -271,7 +271,6 @@ interface TriageResult {
   eliminatedIds: Set<string>;
   ratings: Map<string, Rating>;
   matchCounts: Map<string, number>;
-  budgetExceeded: boolean;
   budgetError?: BudgetExceededError;
 }
 
@@ -401,7 +400,7 @@ async function executeTriage(
     } else { throw error; }
   }
 
-  return { matches, eliminatedIds, ratings: localRatings, matchCounts: localCounts, budgetExceeded: !!budgetError, budgetError: budgetError ?? undefined };
+  return { matches, eliminatedIds, ratings: localRatings, matchCounts: localCounts, budgetError: budgetError ?? undefined };
 }
 
 // ─── Fine-ranking phase ──────────────────────────────────────────
@@ -414,7 +413,6 @@ interface FineRankingResult {
   rounds: number;
   exitReason: string;
   convergenceStreak: number;
-  budgetExceeded: boolean;
   budgetError?: BudgetExceededError;
 }
 
@@ -470,11 +468,11 @@ async function executeFineRanking(
   };
 
   let budgetError: BudgetExceededError | null = null;
+  let lastRound = 0;
+  let exitReason = 'maxRounds';
 
   try {
   // Swiss rounds
-  let lastRound = 0;
-  let exitReason = 'maxRounds';
 
   for (let round = 0; round < 20; round++) {
     lastRound = round;
@@ -569,7 +567,6 @@ async function executeFineRanking(
     rounds: lastRound + 1,
     exitReason,
     convergenceStreak: consecutiveConvergedRounds,
-    budgetExceeded: !!budgetError,
     budgetError: budgetError ?? undefined,
   };
 }
@@ -595,6 +592,26 @@ export interface RankResult {
   converged: boolean;
   /** Ranking metadata for execution detail construction. */
   meta: RankingMeta;
+}
+
+/** Compute match count deltas between current and initial snapshots. */
+function computeMatchCountDeltas(
+  currentCounts: Map<string, number>,
+  initialCounts: Map<string, number>,
+): Record<string, number> {
+  const deltas: Record<string, number> = {};
+  for (const [id, count] of currentCounts) {
+    const delta = count - (initialCounts.get(id) ?? 0);
+    if (delta > 0) deltas[id] = delta;
+  }
+  return deltas;
+}
+
+/** Compute top-20% mu cutoff from a ratings map. */
+function computeTop20Cutoff(ratingsMap: Map<string, Rating>): number {
+  const allMus = [...ratingsMap.values()].map(r => r.mu).sort((a, b) => b - a);
+  const idx = Math.max(0, Math.floor(allMus.length * 0.2) - 1);
+  return allMus[idx] ?? 0;
 }
 
 /**
@@ -671,7 +688,7 @@ export async function rankPool(
 
   // Phase 2: Fine-ranking (skip if triage already hit budget)
   let fineResult: FineRankingResult | null = null;
-  if (!triageResult?.budgetExceeded) {
+  if (!triageResult?.budgetError) {
     fineResult = await executeFineRanking(
       pool,
       currentRatings,
@@ -688,69 +705,37 @@ export async function rankPool(
     currentCounts = fineResult.matchCounts;
   }
 
+  // Common result fields used for both normal and budget-exceeded paths
+  const ratingUpdates: Record<string, Rating> = Object.fromEntries(currentRatings);
+  const matchCountIncrements = computeMatchCountDeltas(currentCounts, initialCounts);
+  const eligibleContenders = pool.filter(v => !eliminatedIds.has(v.id)).length;
+
+  const buildResult = (converged: boolean): RankResult => ({
+    matches: allMatches,
+    ratingUpdates,
+    matchCountIncrements,
+    converged,
+    meta: {
+      budgetPressure: budgetFraction ?? 0,
+      budgetTier: tier,
+      top20Cutoff: computeTop20Cutoff(currentRatings),
+      eligibleContenders,
+      totalComparisons: allMatches.length,
+      fineRankingRounds: fineResult?.rounds ?? 0,
+      fineRankingExitReason: fineResult?.exitReason ?? 'budget_exceeded',
+      convergenceStreak: fineResult?.convergenceStreak ?? 0,
+    },
+  });
+
   // Check for budget error from either phase
   const budgetError = triageResult?.budgetError ?? fineResult?.budgetError;
   if (budgetError) {
-    const ratingUpdates: Record<string, Rating> = Object.fromEntries(currentRatings);
-    const matchCountIncrements: Record<string, number> = {};
-    for (const [id, count] of currentCounts) {
-      const initial = initialCounts.get(id) ?? 0;
-      const delta = count - initial;
-      if (delta > 0) matchCountIncrements[id] = delta;
-    }
-    const partialMus = [...currentRatings.values()].map(r => r.mu).sort((a, b) => b - a);
-    const partialTop20Idx = Math.max(0, Math.floor(partialMus.length * 0.2) - 1);
-    const partialResult: RankResult = {
-      matches: allMatches, ratingUpdates, matchCountIncrements, converged: false,
-      meta: {
-        budgetPressure: budgetFraction ?? 0,
-        budgetTier: tier,
-        top20Cutoff: partialMus[partialTop20Idx] ?? 0,
-        eligibleContenders: pool.filter(v => !eliminatedIds.has(v.id)).length,
-        totalComparisons: allMatches.length,
-        fineRankingRounds: fineResult?.rounds ?? 0,
-        fineRankingExitReason: fineResult?.exitReason ?? 'budget_exceeded',
-        convergenceStreak: fineResult?.convergenceStreak ?? 0,
-      },
-    };
-    throw new BudgetExceededWithPartialResults(partialResult, budgetError);
-  }
-
-  // Build full rating snapshot
-  const ratingUpdates: Record<string, Rating> = Object.fromEntries(currentRatings);
-
-  // Compute match count increments (deltas)
-  const matchCountIncrements: Record<string, number> = {};
-  for (const [id, count] of currentCounts) {
-    const initial = initialCounts.get(id) ?? 0;
-    const delta = count - initial;
-    if (delta > 0) matchCountIncrements[id] = delta;
+    throw new BudgetExceededWithPartialResults(buildResult(false), budgetError);
   }
 
   if (fineResult?.converged) {
     logger?.info('Pool converged', { phaseName: 'ranking' });
   }
 
-  // Compute top20 cutoff from final ratings (fineResult is non-null here — budget error would have thrown above)
-  const allMus = [...fineResult!.ratings.values()].map(r => r.mu).sort((a, b) => b - a);
-  const top20Idx = Math.max(0, Math.floor(allMus.length * 0.2) - 1);
-  const top20Cutoff = allMus[top20Idx] ?? 0;
-  const eligibleContenders = pool.filter(v => !eliminatedIds.has(v.id)).length;
-
-  return {
-    matches: allMatches,
-    ratingUpdates,
-    matchCountIncrements,
-    converged: fineResult!.converged,
-    meta: {
-      budgetPressure: budgetFraction ?? 0,
-      budgetTier: tier,
-      top20Cutoff,
-      eligibleContenders,
-      totalComparisons: allMatches.length,
-      fineRankingRounds: fineResult!.rounds,
-      fineRankingExitReason: fineResult!.exitReason,
-      convergenceStreak: fineResult!.convergenceStreak,
-    },
-  };
+  return buildResult(fineResult!.converged);
 }

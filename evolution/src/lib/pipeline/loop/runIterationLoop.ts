@@ -178,13 +178,18 @@ export async function evolveArticle(
       { pool, ratings, matchCounts, newEntrantIds: newVariantIds, llm, budgetFraction, cache: comparisonCache },
       agentCtx,
     );
-    if (rankPhase.success && rankPhase.result) {
-      const rankResult = rankPhase.result;
+
+    // Apply ranking results (works for both full success and partial budget-exceeded results)
+    const rankResult = rankPhase.result ?? (rankPhase.partialResult as RankResult | undefined);
+    if (rankResult) {
       for (const [id, r] of Object.entries(rankResult.ratingUpdates)) { ratings.set(id, r); }
       for (const [id, delta] of Object.entries(rankResult.matchCountIncrements)) {
         matchCounts.set(id, (matchCounts.get(id) ?? 0) + delta);
       }
       allMatches.push(...rankResult.matches);
+    }
+
+    if (rankPhase.success && rankResult) {
       const topK = resolvedConfig.tournamentTopK ?? 5;
       const muValues = [...ratings.values()].map((r) => r.mu).sort((a, b) => b - a).slice(0, topK);
       muHistory.push(muValues);
@@ -194,14 +199,6 @@ export async function evolveArticle(
         stopReason = 'converged'; iterationsRun = iter; break;
       }
     } else if (rankPhase.budgetExceeded) {
-      if (rankPhase.partialResult) {
-        const partialRank = rankPhase.partialResult as RankResult;
-        for (const [id, r] of Object.entries(partialRank.ratingUpdates)) { ratings.set(id, r); }
-        for (const [id, delta] of Object.entries(partialRank.matchCountIncrements)) {
-          matchCounts.set(id, (matchCounts.get(id) ?? 0) + delta);
-        }
-        allMatches.push(...partialRank.matches);
-      }
       logger.warn('Budget exceeded during ranking', { iteration: iter, totalSpent: costTracker.getTotalSpent(), phaseName: 'budget' });
       stopReason = 'budget_exceeded'; iterationsRun = iter; break;
     }
