@@ -106,23 +106,12 @@ export async function finalizeRun(
 
   if (localPool.length === 0) {
     if (result.pool.length > 0) {
-      // Arena-only pool: all variants came from arena, no local variants to persist
-      logger?.info('Arena-only pool: marking as completed', {
-        phaseName: 'finalize',
-        arenaPoolSize: result.pool.length,
-        localPoolSize: 0,
-      });
-      await db
-        .from('evolution_runs')
-        .update({ status: 'completed', completed_at: new Date().toISOString(), run_summary: { version: 3, stopReason: 'arena_only' } })
-        .eq('id', runId);
-      return;
+      logger?.info('Arena-only pool: marking as completed', { phaseName: 'finalize', arenaPoolSize: result.pool.length, localPoolSize: 0 });
+      await db.from('evolution_runs').update({ status: 'completed', completed_at: new Date().toISOString(), run_summary: { version: 3, stopReason: 'arena_only' } }).eq('id', runId);
+    } else {
+      logger?.error('Finalization failed: empty pool', { phaseName: 'finalize' });
+      await db.from('evolution_runs').update({ status: 'failed', error_message: 'Finalization failed: empty pool' }).eq('id', runId);
     }
-    logger?.error('Finalization failed: empty pool', { phaseName: 'finalize' });
-    await db
-      .from('evolution_runs')
-      .update({ status: 'failed', error_message: 'Finalization failed: empty pool' })
-      .eq('id', runId);
     return;
   }
 
@@ -231,8 +220,7 @@ export async function finalizeRun(
     const { data: invocations } = await db
       .from('evolution_agent_invocations')
       .select('id, agent_name, execution_detail')
-      .eq('run_id', runId)
-      .eq('agent_name', 'generation');
+      .eq('run_id', runId);
 
     if (invocations && invocations.length > 0) {
       const detailsMap = new Map(
@@ -332,12 +320,10 @@ async function propagateMetrics(
 
   const sourceMetricNames = [...new Set(propDefs.map(d => d.sourceMetric))];
   const runMetrics = await getMetricsForEntities(db, 'run', childRunIds, sourceMetricNames);
-
-  const collect = (name: string): MetricRow[] =>
-    [...runMetrics.values()].flatMap(ms => ms.filter((m: MetricRow) => m.metric_name === name));
+  const allRows = [...runMetrics.values()].flat();
 
   for (const def of propDefs) {
-    const sourceRows = collect(def.sourceMetric);
+    const sourceRows = allRows.filter((m: MetricRow) => m.metric_name === def.sourceMetric);
     if (sourceRows.length === 0) continue;
     const aggregated = def.aggregate(sourceRows);
     await writeMetric(db, entityType, entityId, def.name as MetricName, aggregated.value, 'at_propagation', {

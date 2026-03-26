@@ -60,6 +60,16 @@ export const METRIC_CATALOG = {
     timing: 'at_finalization',
     description: 'Average Elo of variants produced by this invocation',
   },
+  format_rejection_rate: {
+    name: 'format_rejection_rate', label: 'Format Rejection Rate', category: 'count', formatter: 'percent',
+    timing: 'at_finalization',
+    description: 'Fraction of generation strategies that failed format validation',
+  },
+  total_comparisons: {
+    name: 'total_comparisons', label: 'Total Comparisons', category: 'match', formatter: 'integer',
+    timing: 'at_finalization',
+    description: 'Total pairwise comparisons performed by this ranking invocation',
+  },
 
   // === Propagation-phase metrics (derived — entities override name/label) ===
   run_count: {

@@ -178,11 +178,40 @@ Format validation is the primary quality gate preventing malformed content from 
 
 `evolution/src/lib/core/Agent.ts`
 
-The `Agent` base class provides a `run()` template method that wraps each phase with budget-error handling, invocation cost tracking, and metric recording. Concrete agent classes (`GenerationAgent`, `RankingAgent`) implement the `execute()` method with phase-specific logic. Entity classes and the `METRIC_CATALOG` live in `evolution/src/lib/core/`. Metrics are resolved via `getEntity(type).metrics` from the entity registry rather than a standalone `METRIC_REGISTRY`.
+The `Agent` base class is generic over three type parameters:
+
+```typescript
+abstract class Agent<TInput, TOutput, TDetail extends ExecutionDetailBase>
+```
+
+Concrete agent classes implement `execute()` which returns `AgentOutput<TOutput, TDetail>`:
+
+```typescript
+interface AgentOutput<TOutput, TDetail extends ExecutionDetailBase> {
+  result: TOutput;
+  detail: TDetail;
+  childVariantIds?: string[];
+  parentVariantIds?: string[];
+}
+```
+
+Two abstract members configure agent-specific observability:
+
+- **`detailViewConfig: DetailFieldDef[]`** — config-driven field definitions used by the admin UI to render the invocation detail panel without custom per-agent components. Consumed by `ConfigDrivenDetailRenderer` in `src/app/admin/evolution/invocations/[invocationId]/ConfigDrivenDetailRenderer.tsx`.
+- **`invocationMetrics?: FinalizationMetricDef[]`** — optional list of agent-specific metric definitions (e.g. `format_rejection_rate` for GenerationAgent, `total_comparisons` for RankingAgent). These are merged into `InvocationEntity` at startup via `agentRegistry.ts`.
+
+The `run()` method wraps each phase with budget-error handling, invocation cost tracking, and metric recording. It now additionally:
+
+- Tracks wall-clock duration and writes `duration_ms` to the invocation row.
+- Validates the returned `detail` object via Zod `safeParse` before writing it to the `execution_detail` JSONB column (malformed details are logged but do not fail the invocation).
+- Patches `totalCost` into the detail before persisting.
+- Passes `execution_detail` + `duration_ms` together in the `updateInvocation()` call.
+
+Metrics are resolved via `getEntity(type).metrics` from the entity registry rather than a standalone `METRIC_REGISTRY`. Agent-specific metrics are merged in at registry init time (see Entities doc).
 
 The `run()` method returns a `PhaseResult<T>` encoding four outcomes:
 
-- **Success** — `{ success: true, result }`. The invocation row is updated with the cost delta and `success: true`.
+- **Success** — `{ success: true, result }`. The invocation row is updated with the cost delta, `duration_ms`, `execution_detail`, and `success: true`.
 - **BudgetExceededWithPartialResults** — `{ success: false, budgetExceeded: true, partialVariants }`. Some variants were produced before budget ran out. The invocation is marked failed.
 - **BudgetExceededError** — `{ success: false, budgetExceeded: true }`. No usable results. The invocation is marked failed.
 - **Other errors** — re-thrown. The caller (or process boundary) handles them.

@@ -108,6 +108,25 @@ All evolution pages use "Evolution" as the root breadcrumb, linking to `/admin/e
 
 Entity IDs displayed in detail headers are clickable — clicking copies the full UUID to the clipboard via the `CopyableId` component. This avoids the need to manually select and copy long UUIDs.
 
+## Agent Metric Merging
+
+Agent subclasses can declare metrics that are specific to their execution context (e.g. rejection rates, comparison counts). These are merged into `InvocationEntity`'s metric list at startup rather than being hardcoded there, keeping agent and entity concerns separate.
+
+### How it works
+
+1. Each concrete `Agent` subclass optionally declares `invocationMetrics: FinalizationMetricDef[]` alongside its `detailViewConfig`.
+2. `agentRegistry.ts` exports `getAgentClasses()`, which returns all concrete Agent subclasses without importing them in a way that creates circular dependencies.
+3. `entityRegistry.ts` calls `getAgentClasses()` during lazy init and merges each agent's `invocationMetrics` into `InvocationEntity.metrics` before the entity is returned to callers.
+
+### Current agent metrics
+
+| Agent | Metric key | Description |
+|-------|-----------|-------------|
+| `GenerationAgent` | `format_rejection_rate` | Fraction of generated variants rejected by format validation |
+| `RankingAgent` | `total_comparisons` | Total pairwise comparisons performed (triage + Swiss rounds) |
+
+These metrics appear on the `InvocationEntity` detail page alongside the standard invocation metrics (cost, duration, success rate) defined in `metricCatalog.ts`.
+
 ## Cross-References
 
 - [Data Model](./data_model.md) — full table schemas, column types, and constraints

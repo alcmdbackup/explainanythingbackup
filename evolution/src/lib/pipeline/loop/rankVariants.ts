@@ -187,28 +187,14 @@ async function runComparison(
   const result = await compareWithBiasMitigation(textA, textB, callLLM, cache);
   logger?.debug('Comparison result', { idA, idB, winner: result.winner, confidence: result.confidence, phaseName: 'ranking' });
 
-  let winnerId: string;
-  let loserId: string;
-  let matchResult: 'win' | 'draw';
-
-  if (result.winner === 'A') {
-    winnerId = idA;
-    loserId = idB;
-    matchResult = 'win';
-  } else if (result.winner === 'B') {
-    winnerId = idB;
-    loserId = idA;
-    matchResult = 'win';
-  } else {
-    winnerId = idA;
-    loserId = idB;
-    matchResult = 'draw';
-  }
+  const isDraw = result.winner !== 'A' && result.winner !== 'B';
+  const winnerId = result.winner === 'B' ? idB : idA;
+  const loserId = result.winner === 'B' ? idA : idB;
 
   return {
     winnerId,
     loserId,
-    result: matchResult,
+    result: isDraw ? 'draw' : 'win',
     confidence: result.confidence,
     judgeModel: config.judgeModel,
     reversed: false,
@@ -409,6 +395,9 @@ interface FineRankingResult {
   ratings: Map<string, Rating>;
   matchCounts: Map<string, number>;
   converged: boolean;
+  rounds: number;
+  exitReason: string;
+  convergenceStreak: number;
 }
 
 async function executeFineRanking(
@@ -454,16 +443,21 @@ async function executeFineRanking(
   };
 
   // Swiss rounds
+  let lastRound = 0;
+  let exitReason = 'maxRounds';
+
   for (let round = 0; round < 20; round++) {
-    if (totalComparisons >= maxComparisons) break;
+    lastRound = round;
+    if (totalComparisons >= maxComparisons) { exitReason = 'budget'; break; }
 
     const eligibleIds = getEligibleIds();
-    if (eligibleIds.length < 2) break;
+    if (eligibleIds.length < 2) { exitReason = 'no_contenders'; break; }
 
     const pairs = swissPairing(eligibleIds, localRatings, completedPairs);
     if (pairs.length === 0) {
       consecutiveConvergedRounds++;
-      if (consecutiveConvergedRounds >= 2) break;
+      exitReason = 'stale';
+      if (consecutiveConvergedRounds >= 2) { exitReason = 'convergence'; }
       break; // No new pairs
     }
     logger?.debug('Swiss round start', { round, eligible: eligibleIds.length, pairs: pairs.length, totalComparisons, phaseName: 'ranking' });
@@ -524,7 +518,8 @@ async function executeFineRanking(
       consecutiveConvergedRounds++;
       logger?.info('Fine-ranking convergence signal', { round, convergedCount: currentEligible.length, eligibleCount: currentEligible.length, phaseName: 'ranking' });
       if (consecutiveConvergedRounds >= 2) {
-        return { matches, ratings: localRatings, matchCounts: localCounts, converged: true };
+        exitReason = 'convergence';
+        break;
       }
     } else {
       consecutiveConvergedRounds = 0;
@@ -536,16 +531,33 @@ async function executeFineRanking(
     ratings: localRatings,
     matchCounts: localCounts,
     converged: consecutiveConvergedRounds >= 2,
+    rounds: lastRound + 1,
+    exitReason,
+    convergenceStreak: consecutiveConvergedRounds,
   };
 }
 
 // ─── Public API ──────────────────────────────────────────────────
+
+/** Ranking execution metadata for execution detail tracking. */
+export interface RankingMeta {
+  budgetPressure: number;
+  budgetTier: 'low' | 'medium' | 'high';
+  top20Cutoff: number;
+  eligibleContenders: number;
+  totalComparisons: number;
+  fineRankingRounds: number;
+  fineRankingExitReason: string;
+  convergenceStreak: number;
+}
 
 export interface RankResult {
   matches: V2Match[];
   ratingUpdates: Record<string, Rating>;
   matchCountIncrements: Record<string, number>;
   converged: boolean;
+  /** Ranking metadata for execution detail construction. */
+  meta: RankingMeta;
 }
 
 /**
@@ -565,7 +577,14 @@ export async function rankPool(
   logger?: EntityLogger,
 ): Promise<RankResult> {
   if (pool.length < 2) {
-    return { matches: [], ratingUpdates: {}, matchCountIncrements: {}, converged: false };
+    return {
+      matches: [], ratingUpdates: {}, matchCountIncrements: {}, converged: false,
+      meta: {
+        budgetPressure: 0, budgetTier: 'low', top20Cutoff: 0,
+        eligibleContenders: 0, totalComparisons: 0, fineRankingRounds: 0,
+        fineRankingExitReason: 'no_contenders', convergenceStreak: 0,
+      },
+    };
   }
 
   // Ensure all pool members have ratings
@@ -641,10 +660,26 @@ export async function rankPool(
     logger?.info('Pool converged', { phaseName: 'ranking' });
   }
 
+  // Compute top20 cutoff from final ratings
+  const allMus = [...fineResult.ratings.values()].map(r => r.mu).sort((a, b) => b - a);
+  const top20Idx = Math.max(0, Math.floor(allMus.length * 0.2) - 1);
+  const top20Cutoff = allMus[top20Idx] ?? 0;
+  const eligibleContenders = pool.filter(v => !eliminatedIds.has(v.id)).length;
+
   return {
     matches: allMatches,
     ratingUpdates,
     matchCountIncrements,
     converged: fineResult.converged,
+    meta: {
+      budgetPressure: budgetFraction ?? 0,
+      budgetTier: tier,
+      top20Cutoff,
+      eligibleContenders,
+      totalComparisons: allMatches.length,
+      fineRankingRounds: fineResult.rounds,
+      fineRankingExitReason: fineResult.exitReason,
+      convergenceStreak: fineResult.convergenceStreak,
+    },
   };
 }
