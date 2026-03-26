@@ -27,7 +27,7 @@ adminTest.describe('Evolution Variants (list page)', { tag: '@evolution' }, () =
     // Seed prompt
     const { data: prompt, error: pErr } = await sb
       .from('evolution_prompts')
-      .insert({ prompt: `${testPrefix} prompt`, title: `${testPrefix} Prompt`, status: 'active' })
+      .insert({ prompt: `${testPrefix} prompt`, name: `${testPrefix} Prompt`, status: 'active' })
       .select('id')
       .single();
     if (pErr) throw new Error(`Seed prompt: ${pErr.message}`);

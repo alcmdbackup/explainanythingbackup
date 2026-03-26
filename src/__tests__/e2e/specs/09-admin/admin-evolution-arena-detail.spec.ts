@@ -24,7 +24,7 @@ adminTest.describe('Evolution Arena Detail', { tag: '@evolution' }, () => {
       .from('evolution_prompts')
       .insert({
         prompt: `# ${testPrefix} Arena Topic`,
-        title: `${testPrefix} Arena Topic`,
+        name: `${testPrefix} Arena Topic`,
         status: 'active',
       })
       .select('id')
