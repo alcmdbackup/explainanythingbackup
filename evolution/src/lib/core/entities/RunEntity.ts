@@ -33,7 +33,7 @@ export class RunEntity extends Entity<EvolutionRunFullDb> {
 
   readonly metrics: EntityMetricRegistry = {
     duringExecution: [
-      { ...METRIC_CATALOG.cost, compute: (ctx) => computeRunCost(ctx) },
+      { ...METRIC_CATALOG.cost, listView: false, compute: (ctx) => computeRunCost(ctx) },
     ],
     atFinalization: [
       { ...METRIC_CATALOG.winner_elo, compute: (ctx) => computeWinnerElo(ctx) },

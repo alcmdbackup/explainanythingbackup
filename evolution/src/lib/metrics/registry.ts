@@ -63,7 +63,7 @@ export const METRIC_REGISTRY: Record<EntityType, EntityMetricRegistry> = {
   run: {
     duringExecution: [
       { name: 'cost', label: 'Total Cost', category: 'cost', formatter: 'cost',
-        listView: true, compute: computeRunCost },
+        listView: false, compute: computeRunCost },
     ],
     atFinalization: [
       { name: 'winner_elo', label: 'Winner Elo', category: 'rating', formatter: 'elo',

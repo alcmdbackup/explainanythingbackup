@@ -234,17 +234,18 @@ export const getEvolutionRunsAction = adminAction(
     // evolution_strategies object that the TS Supabase client can't parse.
     const typedRuns = (runs ?? []) as unknown as EvolutionRun[];
 
-    // Batch-fetch costs from evolution_metrics (replaces dropped evolution_run_costs view)
+    // Batch-fetch costs from evolution_agent_invocations (source of truth for LLM spend)
     const runIds = typedRuns.map(r => r.id);
     if (runIds.length > 0) {
       const { data: costs } = await supabase
-        .from('evolution_metrics')
-        .select('entity_id, value')
-        .eq('entity_type', 'run')
-        .eq('metric_name', 'cost')
-        .in('entity_id', runIds);
+        .from('evolution_agent_invocations')
+        .select('run_id, cost_usd')
+        .in('run_id', runIds);
 
-      const costMap = new Map((costs ?? []).map(c => [c.entity_id as string, Number(c.value) || 0]));
+      const costMap = new Map<string, number>();
+      for (const row of costs ?? []) {
+        costMap.set(row.run_id, (costMap.get(row.run_id) ?? 0) + Number(row.cost_usd ?? 0));
+      }
       for (const run of typedRuns) {
         run.total_cost_usd = costMap.get(run.id) ?? 0;
       }
@@ -313,9 +314,12 @@ export const getEvolutionRunByIdAction = adminAction(
 
     const run = data as EvolutionRun;
 
-    // Fetch cost
-    const { data: costData } = await ctx.supabase.rpc('get_run_total_cost', { p_run_id: runId });
-    run.total_cost_usd = Number(costData) || 0;
+    // Fetch cost from evolution_agent_invocations (source of truth for LLM spend)
+    const { data: costRows } = await ctx.supabase
+      .from('evolution_agent_invocations')
+      .select('cost_usd')
+      .eq('run_id', runId);
+    run.total_cost_usd = (costRows ?? []).reduce((sum, r) => sum + Number(r.cost_usd ?? 0), 0);
 
     // Fetch strategy + prompt names
     const [stratResult, promptResult] = await Promise.all([

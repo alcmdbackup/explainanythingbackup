@@ -582,6 +582,9 @@ describe('finalizeRun logging', () => {
 // ─── syncToArena logging tests ──────────────────────────────────
 
 // ─── F38: Arena match count computation ─────────────────────────
+// NOTE: The TS layer correctly passes arena_match_count per variant.
+// Migration 20260326000002 fixes the sync_to_arena RPC to use COALESCE((entry->>'arena_match_count')::INT, 0)
+// instead of hardcoded 0 on INSERT, so the DB now persists these counts.
 
 describe('syncToArena match count computation', () => {
   it('F38: passes correct arena_match_count for each variant based on matchHistory participation', async () => {
