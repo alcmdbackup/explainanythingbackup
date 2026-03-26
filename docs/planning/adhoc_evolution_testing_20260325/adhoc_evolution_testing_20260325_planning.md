@@ -77,66 +77,100 @@ Delete Variant
 
 **Critical bug in Entity.executeAction('delete')**: The base class checks `restrict` children but **ignores `delete` cascade declarations**. It just does `DELETE FROM table WHERE id = ?` without cleaning up children. Since the DB has no FK CASCADE constraints on most evolution tables, this orphans child rows.
 
-Fix `Entity.ts` executeAction('delete') (lines 134-148):
+Fix `Entity.ts` executeAction('delete') (lines 134-148). Key design decisions:
+
+**Visited set for cycle safety**: Pass a `Set<string>` of `'type:id'` through recursive calls to prevent infinite loops if entity graph ever has cycles. Current graph is a DAG but this is defensive.
+
+**Stale-marking before child deletion**: Mark parent metrics stale BEFORE recursing into children. This ensures the stale flag is set even if a child's delete later deletes the same row (the double-cascade scenario). Skip stale-marking for entities being cascade-deleted (pass `skipStaleMarking` flag) since they're about to be deleted anyway — avoids wasted DB writes.
+
+**Double-cascade deduplication**: When Prompt deletes both Experiments and Runs, some runs may be deleted via Experiment cascade first, then the direct Run cascade finds them already gone (empty query result). The visited set prevents re-processing. No silent failure — just a no-op.
+
+**No transaction wrapping (documented limitation)**: Supabase JS client doesn't support multi-statement transactions. A partial delete leaves orphaned rows. Mitigation: the cleanup helper and integration tests verify no orphans. A future `delete_entity_cascade` Postgres RPC could wrap this in a transaction. Add a TODO comment in the code.
+
 ```ts
 if (key === 'delete') {
-  // Recursively delete all children first
+  const visited = (payload?._visited as Set<string>) ?? new Set<string>();
+  const selfKey = `${this.type}:${id}`;
+  if (visited.has(selfKey)) return; // cycle/duplicate guard
+  visited.add(selfKey);
+
+  // 1. Mark parent metrics stale BEFORE deleting children (reads row while it still exists)
+  if (!payload?._skipStaleMarking) {
+    for (const parent of this.parents) {
+      const row = await db.from(this.table).select(parent.foreignKey).eq('id', id).single();
+      const parentId = (row.data as Record<string, unknown> | null)?.[parent.foreignKey] as string | undefined;
+      if (parentId) {
+        await db.from('evolution_metrics')
+          .update({ stale: true, updated_at: new Date().toISOString() })
+          .eq('entity_type', parent.parentType)
+          .eq('entity_id', parentId);
+      }
+    }
+  }
+
+  // 2. Recursively delete all children (skip their stale-marking — they're being deleted)
   for (const child of this.children) {
     const childEntity = getEntity(child.childType);
     const { data: childRows } = await db.from(childEntity.table)
       .select('id').eq(child.foreignKey, id);
     for (const row of childRows ?? []) {
-      await childEntity.executeAction('delete', row.id, db);
+      await childEntity.executeAction('delete', row.id, db, {
+        _visited: visited,
+        _skipStaleMarking: true, // parent is being deleted, no point marking stale
+      });
     }
   }
-  // Mark parent metrics stale (they were computed including this entity)
-  for (const parent of this.parents) {
-    const row = await db.from(this.table).select(parent.foreignKey).eq('id', id).single();
-    const parentId = (row.data as Record<string, unknown> | null)?.[parent.foreignKey] as string | undefined;
-    if (parentId) {
-      await db.from('evolution_metrics')
-        .update({ stale: true, updated_at: new Date().toISOString() })
-        .eq('entity_type', parent.parentType)
-        .eq('entity_id', parentId);
-    }
-  }
-  // Clean up this entity's own metrics (logical FK, no DB cascade)
-  await db.from('evolution_metrics')
-    .delete()
-    .eq('entity_type', this.type)
-    .eq('entity_id', id);
-  // Clean up logs
+
+  // 3. Clean up this entity's own metrics + logs
+  await db.from('evolution_metrics').delete()
+    .eq('entity_type', this.type).eq('entity_id', id);
   if (this.logQueryColumn) {
-    await db.from('evolution_logs')
-      .delete()
-      .eq(this.logQueryColumn, id);
+    await db.from('evolution_logs').delete().eq(this.logQueryColumn, id);
   }
+
+  // 4. Delete self
+  // TODO: wrap in Postgres RPC for transactional safety
   await db.from(this.table).delete().eq('id', id);
   return;
 }
 ```
 
-Update all entity child declarations to use `cascade: 'delete'`:
-- `ExperimentEntity.ts`: change `{ childType: 'run', foreignKey: 'experiment_id', cascade: 'nullify' }` → `cascade: 'delete'`
-- `StrategyEntity.ts`: change `{ childType: 'run', foreignKey: 'strategy_id', cascade: 'restrict' }` → `cascade: 'delete'`
-- `PromptEntity.ts`: change both children from `cascade: 'restrict'` → `cascade: 'delete'`
+**Update entity child declarations** — all `cascade: 'delete'`:
+- `ExperimentEntity.ts`: `cascade: 'nullify'` → `'delete'`
+- `StrategyEntity.ts`: `cascade: 'restrict'` → `'delete'`
+- `PromptEntity.ts`: both children `cascade: 'restrict'` → `'delete'`
 
-Add `VariantEntity` override for arena comparisons (not a registered entity type):
+**Fix Prompt→Run parent asymmetry**: `RunEntity.parents` currently only lists `[strategy, experiment]` but Run also has `prompt_id` FK. Add `{ parentType: 'prompt', foreignKey: 'prompt_id' }` to RunEntity.parents so stale-marking correctly marks prompt metrics when a run is deleted.
+
+**VariantEntity override** for arena comparisons (not a registered entity type):
 ```ts
-async executeAction(key: string, id: string, db: SupabaseClient): Promise<void> {
+async executeAction(key: string, id: string, db: SupabaseClient, payload?: Record<string, unknown>): Promise<void> {
   if (key === 'delete') {
     await db.from('evolution_arena_comparisons').delete().or(`entry_a.eq.${id},entry_b.eq.${id}`);
   }
-  return super.executeAction(key, id, db);
+  return super.executeAction(key, id, db, payload); // passes visited set through
 }
 ```
 
-Remove `archiveColumn`, `archiveValue` from all entity subclasses. Remove archive/unarchive actions from all entities. Remove "Include archived" filter from runs page. Remove `archived` filter from dashboard queries.
+**Remove archive**: Remove `archiveColumn`, `archiveValue` from all entity subclasses. Remove archive/unarchive actions. Remove "Include archived" filter from runs page. Remove `archived` filter from dashboard queries.
+
+**Update existing tests that test archive**:
+- `Entity.test.ts` lines 95-98 (archiveColumn/archiveValue assertions) and lines 139-149 (archive executeAction test) — remove these test cases
+- `entities.test.ts` lines 65-68 (StrategyEntity cascade:'restrict' assertion) and lines 180-182 (PromptEntity cascade:'restrict') — update to assert `cascade: 'delete'`
+- `admin-prompt-registry.spec.ts` lines 69-75 (archive E2E test) — rewrite as delete test: click Delete, confirm dialog, verify row removed
+- `admin-strategy-registry.spec.ts` — same: rewrite archive test as delete test
+
+**Migration for existing archived rows**: Add migration to set `status='active'` on any rows with `status='archived'` in `evolution_strategies` and `evolution_prompts`. Set `archived=false` on `evolution_runs` where `archived=true`. This ensures no rows are stuck in an unreachable state after archive removal.
 
 **Generic server action**: New `evolution/src/services/entityActions.ts`
-- Single `adminAction` that receives `{ entityType, entityId, actionKey, payload? }`, looks up the entity via `getEntity(entityType)`, and calls `entity.executeAction(actionKey, entityId, db, payload)`.
-- For delete actions: before executing, count all descendants (recursive) and include in the confirm message so the UI can show "Delete this experiment? This will also delete 3 runs, 12 variants, 8 invocations."
-- Unit test: `evolution/src/services/entityActions.test.ts` — mock `getEntity()` and verify routing.
+- Single `adminAction` that receives `{ entityType, entityId, actionKey, payload? }`.
+- **Input validation** (defense against arbitrary client input):
+  1. Validate `entityType` is in the entity registry (`getEntity()` returns undefined for unknown types → throw 'Invalid entity type')
+  2. Validate `actionKey` is in the entity's declared `actions` array (`entity.actions.some(a => a.key === actionKey)` → throw 'Invalid action')
+  3. Validate `entityId` is a valid UUID (regex check)
+- Calls `entity.executeAction(actionKey, entityId, db, payload)`.
+- For delete actions: before executing, count all descendants (recursive) and return count in response so the UI can show "Delete this experiment? This will also delete 3 runs, 12 variants, 8 invocations."
+- Unit test: `evolution/src/services/entityActions.test.ts` — test input validation, routing, and rejection of invalid types/actions.
 
 **Integration test**: New `src/__tests__/integration/entity-actions.integration.test.ts`
 - Uses real Supabase (service role)
@@ -168,8 +202,8 @@ Remove `archiveColumn`, `archiveValue` from all entity subclasses. Remove archiv
 - Cleanup: Extend `cleanupEvolutionData()`:
   1. Add `experimentIds?: string[]` to `CleanupOptions`
   2. Add `variantIds?: string[]` to `CleanupOptions`
-  3. Add `evolution_metrics` cleanup by `entity_id`
-  4. FK-safe order: arena_comparisons → metrics → invocations → logs → variants → runs → experiments → strategies → prompts
+  3. Add explicit `evolution_metrics` cleanup: for each collected entity ID (run, variant, strategy, experiment, prompt), delete from `evolution_metrics` where `entity_id IN (ids)` — must run BEFORE deleting the entity rows
+  4. FK-safe order: arena_comparisons → metrics (all entity types) → invocations → logs → variants → runs → experiments → strategies → prompts
 - Auto-skip: `evolutionTablesExist()` guard
 - Test isolation: Each `describe` block seeds and cleans independently
 
