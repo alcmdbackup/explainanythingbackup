@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars */
 /**
- * LLM service for making API calls to OpenAI, DeepSeek, and Anthropic with structured output support.
+ * LLM service for making API calls to OpenAI, DeepSeek, Anthropic, and OpenRouter with structured output support.
  * Provides call tracking, tracing, and automatic logging. Routes to the correct provider based on model prefix.
  */
 import OpenAI from 'openai';
