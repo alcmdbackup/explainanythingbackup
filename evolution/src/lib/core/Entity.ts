@@ -61,9 +61,7 @@ export abstract class Entity<TRow> {
   // === SCHEMA ===
   abstract readonly insertSchema?: ZodSchema;
 
-  // === ARCHIVE ===
-  readonly archiveColumn?: string;
-  readonly archiveValue?: unknown;
+  // (archive support removed — delete-only)
 
   // === LOGGING ===
   createLogger(entityId: string, db: SupabaseClient, row?: TRow): EntityLogger {
@@ -125,25 +123,48 @@ export abstract class Entity<TRow> {
         .eq('id', id);
       return;
     }
-    if (key === 'archive' && this.archiveColumn) {
-      await db.from(this.table)
-        .update({ [this.archiveColumn]: this.archiveValue })
-        .eq('id', id);
-      return;
-    }
     if (key === 'delete') {
-      for (const child of this.children) {
-        if (child.cascade === 'restrict') {
-          const { count } = await db.from(getEntity(child.childType).table)
-            .select('id', { count: 'exact', head: true })
-            .eq(child.foreignKey, id);
-          if (count && count > 0) {
-            throw new Error(
-              `Cannot delete ${this.type}: ${count} ${child.childType}(s) reference it. Archive instead.`,
-            );
+      const visited = (payload?._visited as Set<string>) ?? new Set<string>();
+      const selfKey = `${this.type}:${id}`;
+      if (visited.has(selfKey)) return; // cycle/duplicate guard
+      visited.add(selfKey);
+
+      // 1. Mark parent metrics stale BEFORE deleting children (reads row while it still exists)
+      if (!payload?._skipStaleMarking) {
+        for (const parent of this.parents) {
+          const row = await db.from(this.table).select(parent.foreignKey).eq('id', id).single();
+          const parentId = (row.data as Record<string, unknown> | null)?.[parent.foreignKey] as string | undefined;
+          if (parentId) {
+            await db.from('evolution_metrics')
+              .update({ stale: true, updated_at: new Date().toISOString() })
+              .eq('entity_type', parent.parentType)
+              .eq('entity_id', parentId);
           }
         }
       }
+
+      // 2. Recursively delete all children (skip their stale-marking — they're being deleted)
+      for (const child of this.children) {
+        const childEntity = getEntity(child.childType);
+        const { data: childRows } = await db.from(childEntity.table)
+          .select('id').eq(child.foreignKey, id);
+        for (const row of childRows ?? []) {
+          await childEntity.executeAction('delete', row.id, db, {
+            _visited: visited,
+            _skipStaleMarking: true, // parent is being deleted, no point marking stale
+          });
+        }
+      }
+
+      // 3. Clean up this entity's own metrics + logs
+      await db.from('evolution_metrics').delete()
+        .eq('entity_type', this.type).eq('entity_id', id);
+      if (this.logQueryColumn) {
+        await db.from('evolution_logs').delete().eq(this.logQueryColumn, id);
+      }
+
+      // 4. Delete self
+      // TODO: wrap in Postgres RPC for transactional safety
       await db.from(this.table).delete().eq('id', id);
       return;
     }

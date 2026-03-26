@@ -86,10 +86,10 @@ describe('evolutionActions', () => {
   describe('getEvolutionRunsAction', () => {
     it('returns runs enriched with costs and strategy names', async () => {
       const runs = [MOCK_RUN];
-      const costs = [{ run_id: VALID_UUID, total_cost_usd: 2.5 }];
+      const costMetrics = [{ entity_id: VALID_UUID, value: 2.5 }];
       const strategies = [{ id: VALID_UUID_2, name: 'My Strategy' }];
 
-      // from() calls in order: evolution_runs, evolution_run_costs, evolution_experiments (none), evolution_strategies
+      // from() calls in order: evolution_runs, evolution_metrics (costs), evolution_strategies
       const mock = createTableAwareMock([
         // evolution_runs
         (b) => {
@@ -97,10 +97,10 @@ describe('evolutionActions', () => {
             resolve({ data: runs, error: null })
           );
         },
-        // evolution_run_costs
+        // evolution_metrics (costs)
         (b) => {
           b.then = jest.fn((resolve: (v: unknown) => void) =>
-            resolve({ data: costs, error: null })
+            resolve({ data: costMetrics, error: null })
           );
         },
         // evolution_strategies (for strategy names)

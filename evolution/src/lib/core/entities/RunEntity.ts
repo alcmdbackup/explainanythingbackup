@@ -18,13 +18,12 @@ export class RunEntity extends Entity<EvolutionRunFullDb> {
   readonly type: EntityType = 'run';
   readonly table = 'evolution_runs';
   readonly statusField = 'status';
-  readonly archiveColumn = 'archived';
-  readonly archiveValue = true;
   readonly logQueryColumn = 'run_id';
 
   readonly parents: ParentRelation[] = [
     { parentType: 'strategy', foreignKey: 'strategy_id' },
     { parentType: 'experiment', foreignKey: 'experiment_id' },
+    { parentType: 'prompt', foreignKey: 'prompt_id' },
   ];
 
   readonly children: ChildRelation[] = [
@@ -56,17 +55,12 @@ export class RunEntity extends Entity<EvolutionRunFullDb> {
 
   readonly listFilters: FilterDef[] = [
     { field: 'status', type: 'select', options: ['pending', 'running', 'completed', 'failed'] },
-    { field: 'archived', type: 'toggle', label: 'Show archived' },
   ];
 
   readonly actions: EntityAction<EvolutionRunFullDb>[] = [
     { key: 'cancel', label: 'Kill', danger: true,
       confirm: 'Kill this run?',
       visible: (row) => ['pending', 'claimed', 'running'].includes(row.status) },
-    { key: 'archive', label: 'Archive',
-      visible: (row) => ['completed', 'failed'].includes(row.status) && !row.archived },
-    { key: 'unarchive', label: 'Unarchive',
-      visible: (row) => row.archived === true },
     { key: 'delete', label: 'Delete', danger: true,
       confirm: 'Delete this run and all its variants/invocations?',
       visible: (row) => ['completed', 'failed', 'cancelled'].includes(row.status) },
@@ -95,10 +89,6 @@ export class RunEntity extends Entity<EvolutionRunFullDb> {
       await db.from(this.table)
         .update({ status: 'cancelled', completed_at: new Date().toISOString() })
         .eq('id', id);
-      return;
-    }
-    if (key === 'unarchive') {
-      await db.from(this.table).update({ archived: false }).eq('id', id);
       return;
     }
     return super.executeAction(key, id, db);

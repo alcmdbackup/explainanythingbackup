@@ -81,10 +81,10 @@ describe('StrategiesPage', () => {
     });
   });
 
-  it('displays run count', async () => {
+  it('displays strategy data (run_count from metrics, not base column)', async () => {
     render(<StrategiesPage />);
     await waitFor(() => {
-      expect(screen.getByText('5')).toBeInTheDocument();
+      expect(screen.getByText('Test Strategy')).toBeInTheDocument();
     });
   });
 

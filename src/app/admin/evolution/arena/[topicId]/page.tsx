@@ -8,6 +8,7 @@ import Link from 'next/link';
 import {
   EvolutionBreadcrumb,
   EntityDetailHeader,
+  NotFoundCard,
   MetricGrid,
   EntityMetricsTab,
 } from '@evolution/components/evolution';
@@ -34,24 +35,30 @@ export default function ArenaTopicDetailPage(): JSX.Element {
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
 
   const sortedEntries = useMemo(() => {
-    const sorted = [...entries].sort((a, b) => {
+    const mult = sortDir === 'desc' ? -1 : 1;
+    return [...entries].sort((a, b) => {
       const av = a[sortKey];
       const bv = b[sortKey];
       if (av == null && bv == null) return 0;
-      if (av == null) return 1;
+      if (av == null) return 1;  // nulls always last
       if (bv == null) return -1;
-      if (typeof av === 'string' && typeof bv === 'string') return av.localeCompare(bv);
-      return (av as number) - (bv as number);
+      if (typeof av === 'string') return mult * av.localeCompare(bv as string);
+      return mult * ((av as number) - (bv as number));
     });
-    return sortDir === 'desc' ? sorted.reverse() : sorted;
   }, [entries, sortKey, sortDir]);
+
+  // Elo-based rank (independent of current sort column)
+  const eloRankMap = useMemo(() => {
+    const byElo = [...entries].sort((a, b) => (b.elo_score ?? 0) - (a.elo_score ?? 0));
+    return new Map(byElo.map((e, i) => [e.id, i + 1]));
+  }, [entries]);
 
   const handleSort = (key: SortKey) => {
     if (key === sortKey) {
       setSortDir(prev => (prev === 'asc' ? 'desc' : 'asc'));
     } else {
       setSortKey(key);
-      setSortDir('asc');
+      setSortDir('desc');
     }
   };
 
@@ -94,9 +101,13 @@ export default function ArenaTopicDetailPage(): JSX.Element {
 
   if (error || !topic) {
     return (
-      <div className="p-8 text-center text-sm font-ui text-[var(--status-error)]">
-        {error ?? 'Topic not found'}
-      </div>
+      <NotFoundCard
+        entityType="Arena Topic"
+        breadcrumbs={[
+          { label: 'Evolution', href: '/admin/evolution-dashboard' },
+          { label: 'Arena', href: '/admin/evolution/arena' },
+        ]}
+      />
     );
   }
 
@@ -157,7 +168,7 @@ export default function ArenaTopicDetailPage(): JSX.Element {
                     key={entry.id}
                     className="border-b border-[var(--border-default)] last:border-0 hover:bg-[var(--surface-hover)]"
                   >
-                    <td className="py-2 pr-3 font-mono text-[var(--text-muted)]">{index + 1}</td>
+                    <td className="py-2 pr-3 font-mono text-[var(--text-muted)]">{eloRankMap.get(entry.id) ?? index + 1}</td>
                     <td className="py-2 pr-3">
                       {(() => {
                         const cleaned = stripMarkdownTitle(entry.variant_content);
@@ -170,8 +181,8 @@ export default function ArenaTopicDetailPage(): JSX.Element {
                       })()}
                     </td>
                     <td className="py-2 pr-3 font-mono">{formatElo(entry.elo_score)}</td>
-                    <td className="py-2 pr-3 font-mono">{entry.mu.toFixed(1)}</td>
-                    <td className="py-2 pr-3 font-mono">{entry.sigma.toFixed(1)}</td>
+                    <td className="py-2 pr-3 font-mono">{entry.mu != null ? entry.mu.toFixed(1) : 'N/A'}</td>
+                    <td className="py-2 pr-3 font-mono">{entry.sigma != null ? entry.sigma.toFixed(1) : 'N/A'}</td>
                     <td className="py-2 pr-3 font-mono">{entry.arena_match_count}</td>
                     <td className="py-2 pr-3 text-[var(--text-secondary)]">{entry.generation_method}</td>
                     <td className="py-2 font-mono">

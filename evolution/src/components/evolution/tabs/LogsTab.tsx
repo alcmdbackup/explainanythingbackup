@@ -2,7 +2,7 @@
 // Fetches logs via getEntityLogsAction with filter bar, pagination, entity-type badges, and JSON context viewer.
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { Fragment, useEffect, useState, useCallback } from 'react';
 import { getEntityLogsAction, type LogEntry, type LogFilters } from '@evolution/services/logActions';
 import type { EntityType } from '@evolution/lib/core/types';
 
@@ -181,41 +181,40 @@ export function LogsTab({ entityType, entityId }: LogsTabProps): JSX.Element {
             </thead>
             <tbody>
               {logs.map((log) => (
-                <tr
-                  key={log.id}
-                  className="border-t border-[var(--border-default)] cursor-pointer hover:bg-[var(--surface-elevated)]"
-                  onClick={() => setExpandedId(expandedId === log.id ? null : log.id)}
-                >
-                  <td className="px-3 py-2 text-xs text-[var(--text-muted)] whitespace-nowrap">
-                    {new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }).format(new Date(log.created_at))}
-                  </td>
-                  <td className={`px-3 py-2 text-xs font-mono ${LEVEL_COLORS[log.level] ?? ''}`}>
-                    {log.level}
-                  </td>
-                  <td className="px-3 py-2 text-xs">
-                    <span className={`inline-block px-1.5 py-0.5 rounded text-xs font-mono ${ENTITY_BADGE_COLORS[log.entity_type] ?? 'bg-gray-800 text-gray-300'}`}>
-                      {log.entity_type}
-                    </span>
-                  </td>
-                  <td className="px-3 py-2 text-xs font-mono text-[var(--text-secondary)]">
-                    {log.agent_name ?? '—'}
-                  </td>
-                  <td className="px-3 py-2 text-xs">{log.message}</td>
-                </tr>
+                <Fragment key={log.id}>
+                  <tr
+                    className="border-t border-[var(--border-default)] cursor-pointer hover:bg-[var(--surface-elevated)]"
+                    onClick={() => setExpandedId(expandedId === log.id ? null : log.id)}
+                  >
+                    <td className="px-3 py-2 text-xs text-[var(--text-muted)] whitespace-nowrap">
+                      {new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }).format(new Date(log.created_at))}
+                    </td>
+                    <td className={`px-3 py-2 text-xs font-mono ${LEVEL_COLORS[log.level] ?? ''}`}>
+                      {log.level}
+                    </td>
+                    <td className="px-3 py-2 text-xs">
+                      <span className={`inline-block px-1.5 py-0.5 rounded text-xs font-mono ${ENTITY_BADGE_COLORS[log.entity_type] ?? 'bg-gray-800 text-gray-300'}`}>
+                        {log.entity_type}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 text-xs font-mono text-[var(--text-secondary)]">
+                      {log.agent_name ?? '—'}
+                    </td>
+                    <td className="px-3 py-2 text-xs">{log.message}</td>
+                  </tr>
+                  {expandedId === log.id && log.context && (
+                    <tr>
+                      <td colSpan={5} className="p-3 bg-[var(--surface-elevated)] text-xs font-mono overflow-x-auto">
+                        <pre className="text-[var(--text-secondary)]">{JSON.stringify(log.context, null, 2)}</pre>
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
               ))}
             </tbody>
           </table>
         </div>
       )}
-
-      {expandedId !== null && (() => {
-        const log = logs.find((l) => l.id === expandedId);
-        return log?.context ? (
-          <div className="p-3 bg-[var(--surface-elevated)] rounded-book border border-[var(--border-default)] text-xs font-mono overflow-x-auto">
-            <pre className="text-[var(--text-secondary)]">{JSON.stringify(log.context, null, 2)}</pre>
-          </div>
-        ) : null;
-      })()}
 
       {totalPages > 1 && (
         <div className="flex items-center justify-between text-xs text-[var(--text-muted)]">

@@ -18,6 +18,8 @@ export interface DashboardData {
     status: string;
     strategy_name: string | null;
     total_cost_usd: number;
+    budget_cap_usd: number;
+    explanation_id: number | null;
     created_at: string;
     completed_at: string | null;
   }>;
@@ -71,63 +73,44 @@ export const getEvolutionDashboardDataAction = adminAction(
       testStrategyIds = (testStrategies ?? []).map(s => s.id as string);
     }
 
-    // Build queries — order matters for deterministic mock testing: status, cost, recent.
-    let statusQuery = supabase.from('evolution_runs').select('status');
+    // Build queries — status needs id for cost metric lookup
+    let statusQuery = supabase.from('evolution_runs').select('id, status');
     if (filterTest && testStrategyIds.length > 0) {
       statusQuery = statusQuery.not('strategy_id', 'in', `(${testStrategyIds.join(',')})`);
     }
 
-    const costQuery = supabase.from('evolution_run_costs').select('total_cost_usd');
-
     let recentQuery = supabase.from('evolution_runs')
-      .select('id, status, strategy_id, created_at, completed_at')
-      .eq('archived', false)
+      .select('id, status, strategy_id, budget_cap_usd, explanation_id, created_at, completed_at')
       .order('created_at', { ascending: false })
       .limit(10);
     if (filterTest && testStrategyIds.length > 0) {
       recentQuery = recentQuery.not('strategy_id', 'in', `(${testStrategyIds.join(',')})`);
     }
 
-    // Parallel queries for status counts, costs, and recent runs
-    const [statusResult, costResult, recentResult] = await Promise.all([
+    const [statusResult, recentResult] = await Promise.all([
       statusQuery,
-      costQuery,
       recentQuery,
     ]);
 
     // Count by status
-    const runs = (statusResult.data ?? []) as unknown as Array<{ status: string }>;
+    const runs = statusResult.data ?? [];
+    const filteredRunIds = runs.map(r => (r as Record<string, unknown>).id as string).filter(Boolean);
     const activeRuns = runs.filter(r => r.status === 'running' || r.status === 'claimed').length;
     const queueDepth = runs.filter(r => r.status === 'pending').length;
     const completedRuns = runs.filter(r => r.status === 'completed').length;
     const failedRuns = runs.filter(r => r.status === 'failed').length;
 
-    // Total cost — when filtering, exclude test run costs
-    let totalCostUsd: number;
-    const allCosts = costResult.data ?? [];
-    if (filterTest && testStrategyIds.length > 0) {
-      const { data: filteredRuns } = await supabase
-        .from('evolution_runs')
-        .select('id')
-        .not('strategy_id', 'in', `(${testStrategyIds.join(',')})`);
-      const filteredRunIds = (filteredRuns ?? []).map(r => r.id as string);
-      if (filteredRunIds.length > 0) {
-        const { data: filteredCosts } = await supabase
-          .from('evolution_run_costs')
-          .select('total_cost_usd')
-          .in('run_id', filteredRunIds);
-        totalCostUsd = (filteredCosts ?? []).reduce(
-          (sum: number, c: { total_cost_usd: string | number }) => sum + (Number(c.total_cost_usd) || 0), 0,
-        );
-      } else {
-        totalCostUsd = 0;
-      }
-    } else {
-      totalCostUsd = allCosts.reduce(
-        (sum, c) => sum + (Number(c.total_cost_usd) || 0), 0,
-      );
+    // Total cost from evolution_metrics (replaces dropped evolution_run_costs view)
+    let totalCostUsd = 0;
+    if (filteredRunIds.length > 0) {
+      const { data: costMetrics } = await supabase
+        .from('evolution_metrics')
+        .select('value')
+        .eq('entity_type', 'run')
+        .eq('metric_name', 'cost')
+        .in('entity_id', filteredRunIds);
+      totalCostUsd = (costMetrics ?? []).reduce((sum, m) => sum + (Number(m.value) || 0), 0);
     }
-
     const runCount = completedRuns + failedRuns;
     const avgCostPerRun = runCount > 0 ? totalCostUsd / runCount : 0;
 
@@ -145,8 +128,9 @@ export const getEvolutionDashboardDataAction = adminAction(
             .then(({ data }) => new Map((data ?? []).map(s => [s.id as string, s.name as string])))
         : Promise.resolve(new Map<string, string>()),
       runIds.length > 0
-        ? supabase.from('evolution_run_costs').select('run_id, total_cost_usd').in('run_id', runIds)
-            .then(({ data }) => new Map((data ?? []).map(c => [c.run_id as string, Number(c.total_cost_usd) || 0])))
+        ? supabase.from('evolution_metrics').select('entity_id, value')
+            .eq('entity_type', 'run').eq('metric_name', 'cost').in('entity_id', runIds)
+            .then(({ data }) => new Map((data ?? []).map(c => [c.entity_id as string, Number(c.value) || 0])))
         : Promise.resolve(new Map<string, number>()),
     ]);
 
@@ -162,6 +146,8 @@ export const getEvolutionDashboardDataAction = adminAction(
         status: r.status,
         strategy_name: stratMap.get(r.strategy_id ?? '') ?? null,
         total_cost_usd: costMap.get(r.id) ?? 0,
+        budget_cap_usd: Number((r as Record<string, unknown>).budget_cap_usd) || 0,
+        explanation_id: ((r as Record<string, unknown>).explanation_id as number | null) ?? null,
         created_at: r.created_at,
         completed_at: r.completed_at,
       })),

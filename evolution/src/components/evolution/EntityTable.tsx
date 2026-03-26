@@ -11,6 +11,8 @@ export interface ColumnDef<T> {
   header: string;
   align?: 'left' | 'right' | 'center';
   sortable?: boolean;
+  /** When true, cell renders without the row's Link wrapper (e.g. for action buttons). */
+  skipLink?: boolean;
   render: (item: T) => ReactNode;
 }
 
@@ -90,7 +92,7 @@ export function EntityTable<T>({
                     key={col.key}
                     className={`py-2 pr-3 last:pr-0 ${alignClass(col.align)} font-mono text-[var(--text-secondary)]`}
                   >
-                    {href ? (
+                    {href && !col.skipLink ? (
                       <Link href={href} className="block hover:text-[var(--accent-gold)]">
                         {col.render(item)}
                       </Link>

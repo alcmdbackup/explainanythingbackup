@@ -19,9 +19,37 @@ import {
   getStrategyDetailAction,
   type StrategyListItem,
 } from '@evolution/services/strategyRegistryActions';
+import {
+  getEvolutionRunsAction,
+  type EvolutionRun,
+} from '@evolution/services/evolutionActions';
+import { EntityTable, type ColumnDef } from '@evolution/components/evolution';
+import { EvolutionStatusBadge } from '@evolution/components/evolution';
+import { buildRunUrl } from '@evolution/lib/utils/evolutionUrls';
+
+// Inline runs tab for strategy detail
+const RUN_COLUMNS: ColumnDef<EvolutionRun>[] = [
+  { key: 'id', header: 'ID', render: (r) => <span className="font-mono text-xs text-[var(--accent-gold)]">{r.id.substring(0, 8)}</span> },
+  { key: 'status', header: 'Status', render: (r) => <EvolutionStatusBadge status={r.status as import('@evolution/lib/types').EvolutionRunStatus} hasError={!!r.error_message} /> },
+  { key: 'created_at', header: 'Created', render: (r) => new Date(r.created_at).toLocaleDateString() },
+];
+
+function StrategyRunsTab({ strategyId }: { strategyId: string }): JSX.Element {
+  const [runs, setRuns] = useState<EvolutionRun[]>([]);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    void (async () => {
+      const result = await getEvolutionRunsAction({ strategy_id: strategyId, limit: 50, offset: 0 });
+      if (result.success && result.data) setRuns(result.data.items);
+      setLoading(false);
+    })();
+  }, [strategyId]);
+  return <EntityTable columns={RUN_COLUMNS} items={runs} loading={loading} getRowHref={(r) => buildRunUrl(r.id)} emptyMessage="No runs for this strategy." />;
+}
 
 const TABS: TabDef[] = [
   { id: 'metrics', label: 'Metrics' },
+  { id: 'runs', label: 'Runs' },
   { id: 'config', label: 'Configuration' },
   { id: 'logs', label: 'Logs' },
 ];
@@ -92,6 +120,7 @@ export default function StrategyDetailPage(): JSX.Element {
 
       <EntityDetailTabs tabs={TABS} activeTab={activeTab} onTabChange={setActiveTab}>
         {activeTab === 'metrics' && <EntityMetricsTab entityType="strategy" entityId={strategyId} />}
+        {activeTab === 'runs' && <StrategyRunsTab strategyId={strategyId} />}
         {activeTab === 'config' && (
           <div className="space-y-6">
             <StrategyConfigDisplay config={strategy.config ?? {}} />

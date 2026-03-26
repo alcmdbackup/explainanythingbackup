@@ -59,55 +59,60 @@ describe('evolutionVisualizationActions', () => {
   describe('getEvolutionDashboardDataAction', () => {
     it('aggregates status counts, costs, and recent runs', async () => {
       const statusRows = [
-        { status: 'running' },
-        { status: 'claimed' },
-        { status: 'pending' },
-        { status: 'completed' },
-        { status: 'completed' },
-        { status: 'failed' },
+        { id: 'r1', status: 'running' },
+        { id: 'r2', status: 'claimed' },
+        { id: 'r3', status: 'pending' },
+        { id: 'r4', status: 'completed' },
+        { id: 'r5', status: 'completed' },
+        { id: 'r6', status: 'failed' },
       ];
-      const costRows = [{ total_cost_usd: '3.00' }, { total_cost_usd: '2.00' }];
+      const costMetrics = [
+        { entity_id: 'r4', value: 3.0 },
+        { entity_id: 'r5', value: 2.0 },
+      ];
       const recentRuns = [
         {
           id: VALID_UUID,
           status: 'completed',
           strategy_id: VALID_UUID_2,
+          budget_cap_usd: 5.0,
+          explanation_id: 42,
           created_at: '2026-03-01T10:00:00Z',
           completed_at: '2026-03-01T12:00:00Z',
         },
       ];
       const strategies = [{ id: VALID_UUID_2, name: 'Strategy Alpha' }];
-      const runCosts = [{ run_id: VALID_UUID, total_cost_usd: 3.0 }];
+      const perRunCostMetrics = [{ entity_id: VALID_UUID, value: 3.0 }];
 
       const mock = createTableAwareMock([
-        // evolution_runs (status)
+        // 1. evolution_runs (status) — parallel
         (b) => {
           b.then = jest.fn((resolve: (v: unknown) => void) =>
             resolve({ data: statusRows, error: null })
           );
         },
-        // evolution_run_costs (total) — created before recentQuery in code
-        (b) => {
-          b.then = jest.fn((resolve: (v: unknown) => void) =>
-            resolve({ data: costRows, error: null })
-          );
-        },
-        // evolution_runs (recent)
+        // 2. evolution_runs (recent) — parallel
         (b) => {
           b.then = jest.fn((resolve: (v: unknown) => void) =>
             resolve({ data: recentRuns, error: null })
           );
         },
-        // evolution_strategies (names)
+        // 3. evolution_metrics (total cost) — sequential after parallel
+        (b) => {
+          b.then = jest.fn((resolve: (v: unknown) => void) =>
+            resolve({ data: costMetrics, error: null })
+          );
+        },
+        // 4. evolution_strategies (names) — parallel
         (b) => {
           b.then = jest.fn((resolve: (v: unknown) => void) =>
             resolve({ data: strategies, error: null })
           );
         },
-        // evolution_run_costs (per run)
+        // 5. evolution_metrics (per run cost) — parallel
         (b) => {
           b.then = jest.fn((resolve: (v: unknown) => void) =>
-            resolve({ data: runCosts, error: null })
+            resolve({ data: perRunCostMetrics, error: null })
           );
         },
       ]);
@@ -122,30 +127,27 @@ describe('evolutionVisualizationActions', () => {
       expect(result.data!.failedRuns).toBe(1);
       expect(result.data!.totalCostUsd).toBe(5.0); // 3.00 + 2.00
       expect(result.data!.recentRuns).toHaveLength(1);
-      expect(result.data!.recentRuns[0].strategy_name).toBe('Strategy Alpha');
-      expect(result.data!.recentRuns[0].total_cost_usd).toBe(3.0);
+      expect(result.data!.recentRuns[0]!.strategy_name).toBe('Strategy Alpha');
+      expect(result.data!.recentRuns[0]!.total_cost_usd).toBe(3.0);
+      expect(result.data!.recentRuns[0]!.budget_cap_usd).toBe(5.0);
+      expect(result.data!.recentRuns[0]!.explanation_id).toBe(42);
     });
 
     it('handles empty runs and zero costs gracefully', async () => {
       const mock = createTableAwareMock([
-        // evolution_runs (status)
+        // evolution_runs (status) — parallel
         (b) => {
           b.then = jest.fn((resolve: (v: unknown) => void) =>
             resolve({ data: [], error: null })
           );
         },
-        // evolution_run_costs (total)
+        // evolution_runs (recent) — parallel
         (b) => {
           b.then = jest.fn((resolve: (v: unknown) => void) =>
             resolve({ data: [], error: null })
           );
         },
-        // evolution_runs (recent)
-        (b) => {
-          b.then = jest.fn((resolve: (v: unknown) => void) =>
-            resolve({ data: [], error: null })
-          );
-        },
+        // No cost metrics query when filteredRunIds is empty
       ]);
       (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
 

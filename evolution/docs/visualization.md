@@ -12,7 +12,7 @@ All pages live under `src/app/admin/evolution/` (Next.js App Router). A shared `
 
 | Route | Description | Key data |
 |---|---|---|
-| `/admin/evolution-dashboard` | Aggregate metrics across all runs and experiments. Auto-refreshes every 15 seconds. | Run counts by status, cost totals, recent activity |
+| `/admin/evolution-dashboard` | Aggregate metrics across all runs and experiments. Auto-refreshes every 15 seconds. Cost queries use `evolution_metrics` (the `evolution_run_costs` view was dropped). | Run counts by status, cost totals from `evolution_metrics`, recent activity |
 | `/admin/evolution/runs` | Paginated run list with status filtering and "Hide test content" checkbox. Test content filter uses an inner join on `evolution_strategies` to exclude runs whose strategy name contains `[TEST]`. | Status badge, iteration count, cost, created date |
 | `/admin/evolution/runs/[runId]` | Run detail with tabs: **Overview**, **Elo**, **Lineage**, **Variants**, **Logs**. Auto-refreshes while run is in progress. | Full run metrics, lineage graph, variant list |
 | `/admin/evolution/experiments` | Experiment list with status filter, "Hide test content" checkbox, and standard table layout (ID, Name, Status, Runs, Created, Cancel action columns). | Name, status, run count, created date |
@@ -22,10 +22,10 @@ All pages live under `src/app/admin/evolution/` (Next.js App Router). A shared `
 | `/admin/evolution/arena/[topicId]` | Topic leaderboard sorted by Elo rating. Columns: Elo, Mu, Sigma, Matches, Cost. | TrueSkill ratings, match history |
 | `/admin/evolution/arena/entries/[entryId]` | Individual arena entry detail with match history and rating trajectory. | Entry metrics, per-match results |
 | `/admin/evolution/variants` | Paginated variant list across all runs with "Hide test content" checkbox. Filter uses nested inner join through `evolution_runs` → `evolution_strategies` to exclude variants from test runs. | Variant name, strategy, iteration, Elo |
-| `/admin/evolution/variants/[variantId]` | Variant detail with full prompt text, metrics, and lineage context. | Prompt content, parent chain, comparison results |
+| `/admin/evolution/variants/[variantId]` | Variant detail with full prompt text, metrics, lineage context, and a **Matches** tab showing match history from arena comparisons. | Prompt content, parent chain, comparison results, match history |
 | `/admin/evolution/prompts` | CRUD interface for `evolution_prompts` table. | Prompt name, template text, created/updated dates |
 | `/admin/evolution/strategies` | CRUD interface for `evolution_strategies` table. | Strategy name, config JSON, status |
-| `/admin/evolution/strategies/[strategyId]` | Strategy detail with tabs: **Overview** and **Logs**. | Strategy config, aggregated logs across all runs using this strategy |
+| `/admin/evolution/strategies/[strategyId]` | Strategy detail with tabs: **Overview**, **Runs**, and **Logs**. The **Runs** tab shows runs filtered by `strategy_id`. | Strategy config, linked runs, aggregated logs across all runs using this strategy |
 | `/admin/evolution/invocations` | Invocation list with "Hide test content" checkbox. Filter uses nested inner join through `evolution_runs` → `evolution_strategies` to exclude invocations from test runs. | Agent name, iteration, success, cost, duration |
 | `/admin/evolution/invocations/[invocationId]` | Invocation detail (server wrapper + `InvocationDetailContent` client component) with **Overview** and **Logs** tabs. | Input/output text, token breakdown, invocation-level logs |
 
@@ -203,7 +203,7 @@ The factory detects handler arity: single-argument handlers receive only `ctx` (
 
 ### Service Files
 
-Eight service files define 50+ server actions total:
+Nine service files define 50+ server actions total:
 
 | File | Scope |
 |---|---|
@@ -216,6 +216,7 @@ Eight service files define 50+ server actions total:
 | `strategyRegistryActionsV2.ts` | Strategy CRUD for the registry page |
 | `costAnalytics.ts` | Cost aggregation and budget analysis |
 | `logActions.ts` | Multi-entity log queries for the LogsTab component |
+| `entityActions.ts` | Generic entity action dispatcher (`executeEntityAction`) |
 
 ### Pagination Pattern
 

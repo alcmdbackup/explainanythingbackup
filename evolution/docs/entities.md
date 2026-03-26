@@ -87,12 +87,43 @@ flowchart TD
 | Log | `evolution_logs` | Logs tab on run/experiment/strategy/invocation detail pages |
 | Metrics | `evolution_metrics` | Metrics tab on entity detail pages |
 
+## Entity Action Matrix
+
+All entity actions use a delete-only model. Archive/unarchive support was removed in favor of hard deletes with recursive cascade.
+
+| Entity | Actions | Notes |
+|--------|---------|-------|
+| Experiment | `cancel`, `delete` | Cancel stops in-progress runs; delete cascades to child runs |
+| Prompt | `rename`, `edit`, `delete` | Delete cascades to experiments and runs |
+| Strategy | `delete` | Delete cascades to child runs |
+| Run | `cancel`, `delete` | Cancel sets status to `cancelled`; delete cascades to variants, invocations |
+| Variant | `delete` | Delete removes arena comparisons referencing this variant, then the variant itself |
+| Invocation | _(none)_ | Read-only; cleaned up by parent run delete |
+
+Actions are declared on each entity subclass in `evolution/src/lib/core/entities/` and executed via the `executeEntityAction` server action (see [Reference](./reference.md)).
+
 ## FK Cascade Behaviors
 
-- **CASCADE deletes** on run children (variants, invocations, logs) — deleting a run cleans up all associated data.
-- **CASCADE deletes** on arena comparisons from variants — deleting a variant removes its comparison history.
-- **CASCADE deletes** on arena comparisons and variants from prompts — deleting a prompt removes its entire arena.
-- **SET NULL** on arena comparison `run_id` — deleting a run preserves comparison history but loses provenance.
+All parent-child relationships use `cascade: 'delete'`. Deleting a parent entity recursively deletes all descendants.
+
+Cascade tree:
+
+```
+Prompt
+├── Experiment (prompt_id) → cascade delete
+│   └── Run (experiment_id) → cascade delete
+│       ├── Variant (run_id) → cascade delete
+│       │   └── Arena Comparison (entry_a/entry_b) → cascade delete
+│       └── Invocation (run_id) → cascade delete
+└── Run (prompt_id) → cascade delete
+        └── (same as above)
+
+Strategy
+└── Run (strategy_id) → cascade delete
+        └── (same as above)
+```
+
+The base `Entity.executeAction` method handles recursive child deletion automatically when the action key is `delete`. Custom pre-delete logic (e.g., Variant cleaning up arena comparisons) is implemented in entity-specific `executeAction` overrides.
 
 ## UI Conventions
 

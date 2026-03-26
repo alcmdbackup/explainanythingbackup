@@ -11,6 +11,7 @@ import {
   useTabState,
   EvolutionStatusBadge,
   EntityMetricsTab,
+  NotFoundCard,
   type TabDef,
 } from '@evolution/components/evolution';
 import {
@@ -56,7 +57,15 @@ export default function EvolutionRunDetailPage(): JSX.Element {
   }
 
   if (!run) {
-    return <div className="text-[var(--status-error)] text-sm p-4">Run not found.</div>;
+    return (
+      <NotFoundCard
+        entityType="Run"
+        breadcrumbs={[
+          { label: 'Evolution', href: '/admin/evolution-dashboard' },
+          { label: 'Runs', href: '/admin/evolution/runs' },
+        ]}
+      />
+    );
   }
 
   return (
@@ -79,7 +88,7 @@ export default function EvolutionRunDetailPage(): JSX.Element {
             ? { prefix: 'Experiment', label: run.experiment_name || run.experiment_id.substring(0, 8), href: `/admin/evolution/experiments/${run.experiment_id}` }
             : null,
           run.prompt_id
-            ? { prefix: 'Prompt', label: `#${run.prompt_id}`, href: `/admin/evolution/prompts` }
+            ? { prefix: 'Prompt', label: run.prompt_name || run.prompt_id.substring(0, 8), href: `/admin/evolution/prompts/${run.prompt_id}` }
             : null,
         ].filter(Boolean) as Array<{ prefix: string; label: string; href: string }>}
       />

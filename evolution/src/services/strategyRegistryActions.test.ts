@@ -212,6 +212,40 @@ describe('strategyRegistryActions', () => {
 
       expect(result.success).toBe(false);
     });
+
+    it('returns "Strategy not found" for PGRST116 error code', async () => {
+      const chain = {
+        select: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        single: jest.fn().mockResolvedValue({
+          data: null,
+          error: { message: 'JSON object requested, multiple (or no) rows returned', code: 'PGRST116' },
+        }),
+      };
+      mockSupabase.from = jest.fn().mockReturnValue(chain);
+
+      const result = await getStrategyDetailAction(VALID_UUID);
+
+      expect(result.success).toBe(false);
+      expect(result.error?.message).toBe('Strategy not found');
+    });
+
+    it('returns "Failed to load strategy" for non-PGRST116 errors', async () => {
+      const chain = {
+        select: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        single: jest.fn().mockResolvedValue({
+          data: null,
+          error: { message: 'connection timeout', code: '57014' },
+        }),
+      };
+      mockSupabase.from = jest.fn().mockReturnValue(chain);
+
+      const result = await getStrategyDetailAction(VALID_UUID);
+
+      expect(result.success).toBe(false);
+      expect(result.error?.message).toBe('Failed to load strategy');
+    });
   });
 
   // ─── createStrategyAction ────────────────────────────────────

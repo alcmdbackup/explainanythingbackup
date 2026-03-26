@@ -87,7 +87,10 @@ export const getStrategyDetailAction = adminAction(
       .select('*')
       .eq('id', strategyId)
       .single();
-    if (error) throw error;
+    if (error) {
+      if (error.code === 'PGRST116') throw new Error('Strategy not found');
+      throw new Error('Failed to load strategy');
+    }
     return data as StrategyListItem;
   },
 );

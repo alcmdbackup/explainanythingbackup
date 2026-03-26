@@ -23,7 +23,6 @@ export default async function ExperimentDetailPage({ params }: Props): Promise<J
         items={[
           { label: 'Evolution', href: '/admin/evolution-dashboard' },
           { label: 'Experiments', href: '/admin/evolution/experiments' },
-          { label: 'Experiment' },
           { label: experiment.name },
         ]}
       />

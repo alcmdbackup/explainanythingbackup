@@ -97,6 +97,7 @@ Server actions and the server-side runner core. All server actions use Next.js `
 | `adminAction.ts` | Shared admin utilities: authentication guards ensuring admin role, pagination parameter parsing and validation. |
 | `shared.ts` | Common service utilities: Supabase `service_role` client construction, error message formatting, database query error handling patterns. |
 | `costAnalytics.ts` | Cost analytics aggregation: per-model cost breakdown, daily/weekly spend trends, cost-per-iteration averages, budget utilization percentages. |
+| `entityActions.ts` | Generic entity action dispatcher. Exports `executeEntityAction` server action. Input: `{ entityType, entityId, actionKey, payload? }`. Validates entity type against the entity registry, UUID format for entityId, and action key against the entity's declared actions. Uses `adminAction` wrapper for auth. Delegates to `Entity.executeAction` on the resolved entity instance. |
 
 ### Schemas (`evolution/src/lib/schemas.ts`)
 

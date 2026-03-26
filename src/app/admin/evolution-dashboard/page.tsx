@@ -69,10 +69,10 @@ function DashboardContent(): JSX.Element {
 
   const recentRuns: BaseRun[] = data.recentRuns.map((r) => ({
     id: r.id,
-    explanation_id: null,
+    explanation_id: r.explanation_id ?? null,
     status: r.status,
     total_cost_usd: r.total_cost_usd,
-    budget_cap_usd: 0,
+    budget_cap_usd: r.budget_cap_usd ?? 0,
     error_message: null,
     completed_at: r.completed_at,
     created_at: r.created_at,

@@ -24,7 +24,7 @@ interface StrategyConfig {
   generationModel: string;
   judgeModel: string;
   iterations: number;
-  budgetCapUsd?: number;
+  budgetUsd?: number;
   singleArticle?: boolean;
   enabledAgents?: string[];
   agentModels?: Record<string, string>;
@@ -77,8 +77,8 @@ export function StrategyConfigDisplay({ config: raw, showRaw }: StrategyConfigDi
         <h4 className="font-display text-lg font-medium text-[var(--text-muted)]">Execution</h4>
         <div className="bg-[var(--surface-primary)] rounded-page p-3 space-y-1">
           <ConfigRow label="Iterations" value={String(config.iterations ?? '—')} />
-          {config.budgetCapUsd != null && (
-            <ConfigRow label="Budget" value={`$${config.budgetCapUsd.toFixed(2)}`} highlight />
+          {config.budgetUsd != null && (
+            <ConfigRow label="Budget" value={`$${config.budgetUsd.toFixed(2)}`} highlight />
           )}
           {config.singleArticle && <ConfigRow label="Mode" value="Single Article" highlight />}
           {hasAgentOverrides && (

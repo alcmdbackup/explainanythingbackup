@@ -1,7 +1,7 @@
 /**
  * @critical
  * Admin Prompt Registry E2E tests.
- * Tests create, edit, and archive flows on the prompts page.
+ * Tests create, edit, and delete flows on the prompts page.
  */
 
 import { adminTest, expect } from '../../fixtures/admin-auth';
@@ -19,14 +19,12 @@ adminTest.describe('Prompt Registry CRUD', () => {
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!,
     );
-    // Hard-delete test prompts (not just archive)
     const { data } = await supabase
       .from('evolution_prompts')
       .select('id')
-      .ilike('title', '[E2E] Test Prompt%');
+      .ilike('name', '[E2E] Test Prompt%');
     if (data && data.length > 0) {
       const ids = data.map(p => p.id as string);
-      // Delete runs referencing these prompts first
       const { data: runs } = await supabase.from('evolution_runs').select('id').in('prompt_id', ids);
       const runIds = (runs ?? []).map(r => r.id as string);
       if (runIds.length > 0) {
@@ -40,38 +38,36 @@ adminTest.describe('Prompt Registry CRUD', () => {
     }
   });
 
-  adminTest('create, edit, and archive a prompt @critical', async ({ adminPage }) => {
+  adminTest('create, edit, and delete a prompt @critical', async ({ adminPage }) => {
     // Navigate to prompts page
     await adminPage.goto('/admin/evolution/prompts');
-    await expect(adminPage.getByText('Prompt Registry')).toBeVisible();
+    await expect(adminPage.getByText('Prompts')).toBeVisible();
 
     // Create prompt
-    await adminPage.getByTestId('add-prompt-btn').click();
-    await adminPage.getByRole('textbox', { name: /title/i }).first().fill(testPromptTitle);
-    await adminPage.getByRole('textbox', { name: /prompt text/i }).first().fill('Explain photosynthesis to a 10-year-old');
-    await adminPage.getByRole('button', { name: /save/i }).click();
+    await adminPage.getByTestId('header-action').click();
+    await adminPage.getByRole('textbox', { name: /name/i }).first().fill(testPromptTitle);
+    await adminPage.getByRole('textbox', { name: /prompt/i }).first().fill('Explain photosynthesis to a 10-year-old');
+    await adminPage.getByRole('button', { name: /save|submit|create/i }).click();
 
     // Verify prompt appears in table
     await expect(adminPage.getByText(testPromptTitle)).toBeVisible({ timeout: 10000 });
 
     // Edit prompt
-    const row = adminPage.getByTestId(`prompt-row-${testPromptTitle}`).or(
-      adminPage.locator('tr', { hasText: testPromptTitle }),
-    );
+    const row = adminPage.locator('tr', { hasText: testPromptTitle });
     await row.getByText('Edit').click();
-    await adminPage.getByRole('textbox', { name: /title/i }).first().clear();
-    await adminPage.getByRole('textbox', { name: /title/i }).first().fill(`${testPromptTitle} (edited)`);
-    await adminPage.getByRole('button', { name: /save/i }).click();
+    await adminPage.getByRole('textbox', { name: /name/i }).first().clear();
+    await adminPage.getByRole('textbox', { name: /name/i }).first().fill(`${testPromptTitle} (edited)`);
+    await adminPage.getByRole('button', { name: /save|submit/i }).click();
 
     // Verify edit
     await expect(adminPage.getByText(`${testPromptTitle} (edited)`)).toBeVisible({ timeout: 10000 });
 
-    // Archive prompt
+    // Delete prompt
     const editedRow = adminPage.locator('tr', { hasText: `${testPromptTitle} (edited)` });
-    await editedRow.getByText('Archive').click();
-    await adminPage.getByRole('button', { name: /archive/i }).last().click();
+    await editedRow.getByText('Delete').click();
+    await adminPage.getByRole('button', { name: /delete/i }).last().click();
 
-    // Verify archived (should disappear from active filter)
+    // Verify deleted (row should disappear)
     await expect(adminPage.getByText(`${testPromptTitle} (edited)`)).not.toBeVisible({ timeout: 5000 });
   });
 });

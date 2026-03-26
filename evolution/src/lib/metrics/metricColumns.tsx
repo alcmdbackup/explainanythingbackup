@@ -25,7 +25,10 @@ export function createMetricColumns<T>(
     sortable: false,
     render: (item: T) => {
       const m = findMetric(item, def.name);
-      return m != null ? METRIC_FORMATTERS[def.formatter as MetricFormatter](m.value) : '—';
+      if (m != null) return METRIC_FORMATTERS[def.formatter as MetricFormatter](m.value);
+      // Cost metrics default to $0.00 when no row exists, others show dash
+      if (def.formatter === 'cost' || def.formatter === 'costDetailed') return METRIC_FORMATTERS[def.formatter as MetricFormatter](0);
+      return '—';
     },
   }));
 }
@@ -37,7 +40,12 @@ export function createRunsMetricColumns<T extends BaseRun>(): RunsColumnDef<T>[]
     align: 'right' as const,
     render: (item: T) => {
       const m = findMetric(item, def.name);
-      return <span className="font-mono text-xs">{m != null ? METRIC_FORMATTERS[def.formatter as MetricFormatter](m.value) : '—'}</span>;
+      const text = m != null
+        ? METRIC_FORMATTERS[def.formatter as MetricFormatter](m.value)
+        : (def.formatter === 'cost' || def.formatter === 'costDetailed')
+          ? METRIC_FORMATTERS[def.formatter as MetricFormatter](0)
+          : '—';
+      return <span className="font-mono text-xs">{text}</span>;
     },
   }));
 }

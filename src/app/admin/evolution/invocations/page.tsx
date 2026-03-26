@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { EvolutionBreadcrumb, EntityListPage } from '@evolution/components/evolution';
 import { listInvocationsAction, type InvocationListEntry } from '@evolution/services/invocationActions';
 import type { ColumnDef, FilterDef } from '@evolution/components/evolution';
+import Link from 'next/link';
 import { formatCostDetailed } from '@evolution/lib/utils/formatters';
 
 const PAGE_SIZE = 20;
@@ -26,10 +27,15 @@ const COLUMNS: ColumnDef<InvocationListEntry>[] = [
   {
     key: 'run_id',
     header: 'Run ID',
+    skipLink: true,
     render: (inv) => (
-      <span className="font-mono text-xs text-[var(--text-muted)]" title={inv.run_id}>
+      <Link
+        href={`/admin/evolution/runs/${inv.run_id}`}
+        className="font-mono text-xs text-[var(--accent-gold)] hover:underline"
+        title={inv.run_id}
+      >
         {inv.run_id.substring(0, 8)}
-      </span>
+      </Link>
     ),
   },
   { key: 'agent_name', header: 'Agent', render: (inv) => inv.agent_name },

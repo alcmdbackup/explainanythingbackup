@@ -40,12 +40,9 @@ class TestEntity extends Entity<TestRow> {
     { field: 'status', type: 'select', options: ['active', 'archived'] },
   ];
   readonly actions: EntityAction<TestRow>[] = [
-    { key: 'archive', label: 'Archive' },
     { key: 'delete', label: 'Delete', danger: true },
   ];
   readonly renameField = 'name';
-  readonly archiveColumn = 'status';
-  readonly archiveValue = 'archived';
   readonly detailTabs: TabDef[] = [
     { id: 'overview', label: 'Overview' },
   ];
@@ -92,9 +89,9 @@ describe('Entity abstract class', () => {
     expect(entity.renameField).toBe('name');
   });
 
-  it('has archive config', () => {
-    expect(entity.archiveColumn).toBe('status');
-    expect(entity.archiveValue).toBe('archived');
+  it('has no archive config (delete-only)', () => {
+    expect((entity as any).archiveColumn).toBeUndefined();
+    expect((entity as any).archiveValue).toBeUndefined();
   });
 
   it('generates detail links from row', () => {
@@ -136,16 +133,10 @@ describe('Entity abstract class', () => {
       expect(eqFn).toHaveBeenCalledWith('id', 'test-id');
     });
 
-    it('archive calls db update with archive column and value', async () => {
-      const eqFn = jest.fn(() => Promise.resolve({ error: null }));
-      const updateFn = jest.fn(() => ({ eq: eqFn }));
-      const mockDb = { from: jest.fn(() => ({ update: updateFn })) } as any;
-
-      await entity.executeAction('archive', 'test-id', mockDb);
-
-      expect(mockDb.from).toHaveBeenCalledWith('test_table');
-      expect(updateFn).toHaveBeenCalledWith({ status: 'archived' });
-      expect(eqFn).toHaveBeenCalledWith('id', 'test-id');
+    it('archive is no longer a valid action', async () => {
+      const mockDb = {} as any;
+      await expect(entity.executeAction('archive', 'test-id', mockDb))
+        .rejects.toThrow("Unknown action 'archive' on run");
     });
   });
 

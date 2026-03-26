@@ -17,9 +17,9 @@ describe('RunEntity', () => {
     expect(entity.table).toBe('evolution_runs');
   });
 
-  it('has strategy and experiment parents', () => {
-    expect(entity.parents).toHaveLength(2);
-    expect(entity.parents.map(p => p.parentType)).toEqual(['strategy', 'experiment']);
+  it('has strategy, experiment, and prompt parents', () => {
+    expect(entity.parents).toHaveLength(3);
+    expect(entity.parents.map(p => p.parentType)).toEqual(['strategy', 'experiment', 'prompt']);
   });
 
   it('has variant and invocation children', () => {
@@ -34,9 +34,9 @@ describe('RunEntity', () => {
     expect(entity.metrics.atPropagation).toHaveLength(0);
   });
 
-  it('has kill, archive, unarchive, delete actions', () => {
+  it('has kill and delete actions', () => {
     const keys = entity.actions.map(a => a.key);
-    expect(keys).toEqual(['cancel', 'archive', 'unarchive', 'delete']);
+    expect(keys).toEqual(['cancel', 'delete']);
   });
 
   it('has logQueryColumn', () => {
@@ -62,10 +62,10 @@ describe('StrategyEntity', () => {
     expect(entity.parents).toHaveLength(0);
   });
 
-  it('has run children with restrict cascade', () => {
+  it('has run children with delete cascade', () => {
     expect(entity.children).toHaveLength(1);
     expect(entity.children[0]!.childType).toBe('run');
-    expect(entity.children[0]!.cascade).toBe('restrict');
+    expect(entity.children[0]!.cascade).toBe('delete');
   });
 
   it('has 14 propagation metrics (same as SHARED_PROPAGATION_DEFS)', () => {
@@ -134,8 +134,9 @@ describe('VariantEntity', () => {
     expect(entity.metrics.atFinalization[0]!.name).toBe('cost');
   });
 
-  it('has no actions', () => {
-    expect(entity.actions).toHaveLength(0);
+  it('has delete action', () => {
+    expect(entity.actions).toHaveLength(1);
+    expect(entity.actions[0]!.key).toBe('delete');
   });
 });
 
@@ -177,9 +178,9 @@ describe('PromptEntity', () => {
     expect(entity.parents).toHaveLength(0);
   });
 
-  it('has experiment and run children with restrict', () => {
+  it('has experiment and run children with delete cascade', () => {
     expect(entity.children).toHaveLength(2);
-    expect(entity.children.every(c => c.cascade === 'restrict')).toBe(true);
+    expect(entity.children.every(c => c.cascade === 'delete')).toBe(true);
   });
 
   it('has no metrics', () => {
@@ -188,9 +189,9 @@ describe('PromptEntity', () => {
     expect(entity.metrics.atPropagation).toHaveLength(0);
   });
 
-  it('has rename, edit, archive, unarchive, delete actions', () => {
+  it('has rename, edit, delete actions', () => {
     const keys = entity.actions.map(a => a.key);
-    expect(keys).toEqual(['rename', 'edit', 'archive', 'unarchive', 'delete']);
+    expect(keys).toEqual(['rename', 'edit', 'delete']);
   });
 
   it('has create and edit config', () => {

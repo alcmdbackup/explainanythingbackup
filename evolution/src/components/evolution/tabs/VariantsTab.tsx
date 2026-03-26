@@ -23,7 +23,7 @@ export function VariantsTab({ runId, runStatus }: VariantsTabProps): JSX.Element
   const [variants, setVariants] = useState<EvolutionVariant[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [strategyFilter, setStrategyFilter] = useState<string>('');
   const initialVariantApplied = useRef(false);
 
@@ -45,7 +45,7 @@ export function VariantsTab({ runId, runStatus }: VariantsTabProps): JSX.Element
     if (!initialVariant || loading || initialVariantApplied.current || variants.length === 0) return;
     initialVariantApplied.current = true;
     const match = variants.find(v => v.id === initialVariant || v.id.startsWith(initialVariant));
-    if (match) setExpandedId(match.id);
+    if (match) setExpandedIds(new Set([match.id]));
   }, [initialVariant, loading, variants]);
 
   const strategies = useMemo(() => {
@@ -107,7 +107,7 @@ export function VariantsTab({ runId, runStatus }: VariantsTabProps): JSX.Element
                   className={`border-t border-[var(--border-default)] hover:bg-[var(--surface-secondary)] ${v.is_winner ? 'bg-[var(--status-success)]/5' : ''}`}
                 >
                   <td className="px-2 py-2 text-[var(--text-muted)]">
-                    <span className="cursor-pointer" title={v.id} onClick={() => setExpandedId(expandedId === v.id ? null : v.id)}>
+                    <span className="cursor-pointer" title={v.id} onClick={() => setExpandedIds(prev => { const next = new Set(prev); if (next.has(v.id)) next.delete(v.id); else next.add(v.id); return next; })}>
                       #{i + 1}
                       {v.is_winner && <span className="ml-1 text-[var(--accent-gold)]">&#9733;</span>}
                       <span className="ml-1 font-mono text-xs text-[var(--accent-gold)]">{v.id.substring(0, 6)}</span>
@@ -120,10 +120,10 @@ export function VariantsTab({ runId, runStatus }: VariantsTabProps): JSX.Element
                   <td className="px-2 py-2">
                     <span className="flex items-center gap-2">
                       <button
-                        onClick={() => setExpandedId(expandedId === v.id ? null : v.id)}
+                        onClick={() => setExpandedIds(prev => { const next = new Set(prev); if (next.has(v.id)) next.delete(v.id); else next.add(v.id); return next; })}
                         className="text-[var(--accent-gold)] hover:underline text-xs"
                       >
-                        {expandedId === v.id ? 'Hide' : 'Preview'}
+                        {expandedIds.has(v.id) ? 'Hide' : 'Preview'}
                       </button>
                       <Link
                         href={buildVariantDetailUrl(v.id)}
@@ -135,7 +135,7 @@ export function VariantsTab({ runId, runStatus }: VariantsTabProps): JSX.Element
                     </span>
                   </td>
                 </tr>
-                {expandedId === v.id && (
+                {expandedIds.has(v.id) && (
                   <tr key={`${v.id}-text`}>
                     <td colSpan={6} className="p-4 bg-[var(--surface-secondary)]">
                       <pre className="whitespace-pre-wrap text-xs text-[var(--text-secondary)] max-h-64 overflow-y-auto">
