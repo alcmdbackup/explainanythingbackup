@@ -4,10 +4,7 @@
 
 import { adminAction, type AdminContext } from './adminAction';
 import { validateUuid } from './shared';
-import type { EvolutionRunSummary } from '@evolution/lib/types';
 import { EvolutionRunSummarySchema } from '@evolution/lib/types';
-
-// ─── Types ──────────────────────────────────────────────────────
 
 export interface DashboardData {
   activeRuns: number;
@@ -55,8 +52,6 @@ export interface LineageData {
   edges: { source: string; target: string }[];
   treeSearchPath?: string[];
 }
-
-// ─── Actions ────────────────────────────────────────────────────
 
 /** Aggregate dashboard metrics from runs, invocations, and cost view. */
 export const getEvolutionDashboardDataAction = adminAction(
@@ -162,8 +157,7 @@ export const getEvolutionRunEloHistoryAction = adminAction(
     const parsed = EvolutionRunSummarySchema.safeParse(data.run_summary);
     if (!parsed.success) return [];
 
-    const summary = parsed.data as EvolutionRunSummary;
-    return (summary.muHistory ?? []).map((mus, i) => ({ iteration: i + 1, mu: mus[0] ?? 0 }));
+    return (parsed.data.muHistory ?? []).map((mus, i) => ({ iteration: i + 1, mu: mus[0] ?? 0 }));
   },
 );
 

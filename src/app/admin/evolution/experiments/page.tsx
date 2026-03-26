@@ -139,11 +139,10 @@ export default function ExperimentsListPage(): JSX.Element {
       toast.success('Experiment cancelled');
       load();
     } else {
-      toast.error(res.error?.message || 'Failed to cancel');
+      toast.error(res.error?.message ?? 'Failed to cancel');
     }
   };
 
-  // Add cancel action column dynamically so handleCancel closure is available
   const columnsWithActions: ColumnDef<ExperimentSummary>[] = [
     ...COLUMNS,
     {

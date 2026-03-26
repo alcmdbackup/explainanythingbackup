@@ -31,8 +31,7 @@ const TABS: TabDef[] = [
 ];
 
 export default function EvolutionRunDetailPage(): JSX.Element {
-  const params = useParams<{ runId: string }>();
-  const runId = params.runId;
+  const { runId } = useParams<{ runId: string }>();
   const [run, setRun] = useState<EvolutionRun | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useTabState(TABS);
@@ -73,16 +72,16 @@ export default function EvolutionRunDetailPage(): JSX.Element {
         entityId={run.id}
         statusBadge={<EvolutionStatusBadge status={run.status as import('@evolution/lib/types').EvolutionRunStatus} hasError={!!run.error_message} />}
         links={[
-          ...(run.strategy_name || run.strategy_id
-            ? [{ prefix: 'Strategy', label: run.strategy_name || run.strategy_id.substring(0, 8), href: `/admin/evolution/strategies/${run.strategy_id}` }]
-            : []),
-          ...(run.experiment_id
-            ? [{ prefix: 'Experiment', label: run.experiment_name || run.experiment_id.substring(0, 8), href: `/admin/evolution/experiments/${run.experiment_id}` }]
-            : []),
-          ...(run.prompt_id
-            ? [{ prefix: 'Prompt', label: `#${run.prompt_id}`, href: `/admin/evolution/prompts` }]
-            : []),
-        ]}
+          run.strategy_name || run.strategy_id
+            ? { prefix: 'Strategy', label: run.strategy_name || run.strategy_id.substring(0, 8), href: `/admin/evolution/strategies/${run.strategy_id}` }
+            : null,
+          run.experiment_id
+            ? { prefix: 'Experiment', label: run.experiment_name || run.experiment_id.substring(0, 8), href: `/admin/evolution/experiments/${run.experiment_id}` }
+            : null,
+          run.prompt_id
+            ? { prefix: 'Prompt', label: `#${run.prompt_id}`, href: `/admin/evolution/prompts` }
+            : null,
+        ].filter(Boolean) as Array<{ prefix: string; label: string; href: string }>}
       />
 
       {run.status === 'failed' && run.error_message && (

@@ -3,8 +3,7 @@
 
 'use client';
 
-import type { KeyboardEvent, ReactNode } from 'react';
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, type KeyboardEvent, type ReactNode } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 
 export interface TabDef {
@@ -25,7 +24,7 @@ export function EntityDetailTabs({
   onTabChange,
   children,
 }: EntityDetailTabsProps): JSX.Element {
-  const handleKeyDown = (e: KeyboardEvent, index: number) => {
+  const handleKeyDown = (e: KeyboardEvent, index: number): void => {
     let nextIndex = index;
     if (e.key === 'ArrowRight') nextIndex = (index + 1) % tabs.length;
     else if (e.key === 'ArrowLeft') nextIndex = (index - 1 + tabs.length) % tabs.length;

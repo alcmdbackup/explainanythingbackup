@@ -10,8 +10,6 @@ import { EmptyState } from '@evolution/components/evolution/EmptyState';
 import { buildExplanationUrl, buildRunUrl } from '@evolution/lib/utils/evolutionUrls';
 import { formatCost } from '@evolution/lib/utils/formatters';
 
-// ─── Helpers ─────────────────────────────────────────────────────
-
 function getProgressBarColor(pct: number): string {
   if (pct >= 0.9) return 'bg-[var(--status-error)]';
   if (pct >= 0.7) return 'bg-[var(--status-warning)]';
@@ -31,8 +29,6 @@ function BudgetWarning({ pct, budgetCapUsd }: { pct: number; budgetCapUsd: numbe
     </span>
   );
 }
-
-// ─── Types ───────────────────────────────────────────────────────
 
 /** V2 run shape for RunsTable rows. */
 export interface BaseRun {
@@ -64,8 +60,6 @@ interface RunsTableProps<T extends BaseRun> {
   renderActions?: (run: T) => React.ReactNode;
   testId?: string;
 }
-
-// ─── Default columns ─────────────────────────────────────────────
 
 export function getBaseColumns<T extends BaseRun>(): RunsColumnDef<T>[] {
   return [
@@ -154,8 +148,6 @@ export function getBaseColumns<T extends BaseRun>(): RunsColumnDef<T>[] {
   ];
 }
 
-// ─── Component ───────────────────────────────────────────────────
-
 export function RunsTable<T extends BaseRun>({
   runs,
   columns,
@@ -170,12 +162,9 @@ export function RunsTable<T extends BaseRun>({
   const displayRuns = maxRows ? runs.slice(0, maxRows) : runs;
   const totalColumns = columns.length + (renderActions ? 1 : 0);
 
-  const handleRowClick = (run: T) => {
-    if (onRowClick) {
-      onRowClick(run);
-    } else {
-      router.push(buildRunUrl(run.id));
-    }
+  const handleRowClick = (run: T): void => {
+    if (onRowClick) onRowClick(run);
+    else router.push(buildRunUrl(run.id));
   };
 
   return (

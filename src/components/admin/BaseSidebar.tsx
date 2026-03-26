@@ -1,5 +1,5 @@
-'use client';
 // Shared sidebar shell for admin dashboard variants. Renders nav items with optional group headers.
+'use client';
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
@@ -19,18 +19,16 @@ export interface NavGroup {
 
 export interface BaseSidebarProps {
   title: string;
-  /** Accepts flat NavItem[] (backward compat) or grouped NavGroup[]. */
   navItems: NavItem[] | NavGroup[];
   backLink: { label: string; href: string; testId: string };
   activeOverrides?: Record<string, (pathname: string) => boolean>;
 }
 
-/** Type guard: checks if the first element has an `items` array (NavGroup) vs `href` (NavItem). */
 function isNavGroupArray(items: NavItem[] | NavGroup[]): items is NavGroup[] {
   return items.length > 0 && 'items' in items[0]!;
 }
 
-export function BaseSidebar({ title, navItems, backLink, activeOverrides }: BaseSidebarProps) {
+export function BaseSidebar({ title, navItems, backLink, activeOverrides }: BaseSidebarProps): JSX.Element {
   const pathname = usePathname();
 
   const isActive = (href: string) => {

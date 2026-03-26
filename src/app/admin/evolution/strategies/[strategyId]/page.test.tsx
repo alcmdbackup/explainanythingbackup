@@ -83,10 +83,10 @@ describe('StrategyDetailPage', () => {
     });
   });
 
-  it('renders breadcrumb with Dashboard and Strategies links', async () => {
+  it('renders breadcrumb with Evolution and Strategies links', async () => {
     render(<StrategyDetailPage />);
     await waitFor(() => {
-      expect(screen.getByText('Dashboard')).toBeInTheDocument();
+      expect(screen.getByText('Evolution')).toBeInTheDocument();
       expect(screen.getByText('Strategies')).toBeInTheDocument();
     });
   });

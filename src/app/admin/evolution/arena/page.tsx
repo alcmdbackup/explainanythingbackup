@@ -44,11 +44,10 @@ export default function ArenaListPage(): JSX.Element {
 
   const fetchTopics = useCallback(async () => {
     setLoading(true);
-    const statusFilter = filterValues.status || undefined;
-    const filterTestContent = filterValues.filterTestContent === 'true';
-    const result = await getArenaTopicsAction(
-      statusFilter || filterTestContent ? { status: statusFilter, filterTestContent } : undefined,
-    );
+    const result = await getArenaTopicsAction({
+      status: filterValues.status || undefined,
+      filterTestContent: filterValues.filterTestContent === 'true',
+    });
     if (result.success && result.data) {
       setTopics(result.data);
     }
@@ -74,7 +73,7 @@ export default function ArenaListPage(): JSX.Element {
 
       <EntityListPage
         title="Arena Topics"
-        filters={[STATUS_FILTER, { key: 'filterTestContent', label: 'Hide test content', type: 'checkbox' as const, defaultChecked: true }]}
+        filters={[STATUS_FILTER, { key: 'filterTestContent', label: 'Hide test content', type: 'checkbox', defaultChecked: true }]}
         columns={COLUMNS}
         items={topics}
         loading={loading}

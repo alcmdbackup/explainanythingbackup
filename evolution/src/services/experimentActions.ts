@@ -12,8 +12,6 @@ import {
 } from '@evolution/lib/pipeline/manageExperiments';
 import { createEntityLogger } from '@evolution/lib/pipeline/infra/createEntityLogger';
 
-// ─── Schemas ──────────────────────────────────────────────────────
-
 const addRunInputSchema = z.object({
   experimentId: z.string().uuid(),
   config: z.object({
@@ -30,8 +28,6 @@ const createExperimentWithRunsInputSchema = z.object({
     budget_cap_usd: z.number().positive().max(10, 'Budget cap cannot exceed $10'),
   })).min(1).max(20),
 });
-
-// ─── Actions ─────────────────────────────────────────────────────
 
 /** Create a new experiment for a prompt. */
 export const createExperimentAction = adminAction(

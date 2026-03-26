@@ -53,7 +53,7 @@ export function EntityDetailHeader({
     setTimeout(() => setCopied(false), 1500);
   }, [entityId]);
 
-  const handleSave = async () => {
+  const handleSave = async (): Promise<void> => {
     const trimmed = editValue.trim();
     if (!trimmed || !onRename) return;
     setSaving(true);
@@ -65,7 +65,7 @@ export function EntityDetailHeader({
     }
   };
 
-  const handleCancel = () => {
+  const handleCancel = (): void => {
     setEditValue(title);
     setEditing(false);
   };

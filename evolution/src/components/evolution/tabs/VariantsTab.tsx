@@ -28,7 +28,7 @@ export function VariantsTab({ runId, runStatus }: VariantsTabProps): JSX.Element
   const initialVariantApplied = useRef(false);
 
   useEffect(() => {
-    async function load() {
+    async function load(): Promise<void> {
       setLoading(true);
       const result = await getEvolutionVariantsAction(runId);
       if (result.success && result.data) {

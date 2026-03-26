@@ -159,15 +159,15 @@ export default function ArenaTopicDetailPage(): JSX.Element {
                   >
                     <td className="py-2 pr-3 font-mono text-[var(--text-muted)]">{index + 1}</td>
                     <td className="py-2 pr-3">
-                      <Link
-                        href={`/admin/evolution/variants/${entry.id}`}
-                        className="text-[var(--accent-gold)] hover:underline"
-                      >
-                        {(() => {
-                          const cleaned = stripMarkdownTitle(entry.variant_content);
-                          return cleaned.length > 60 ? `${cleaned.substring(0, 60)}…` : cleaned;
-                        })()}
-                      </Link>
+                      {(() => {
+                        const cleaned = stripMarkdownTitle(entry.variant_content);
+                        const label = cleaned.length > 60 ? `${cleaned.substring(0, 60)}…` : cleaned;
+                        return (
+                          <Link href={`/admin/evolution/variants/${entry.id}`} className="text-[var(--accent-gold)] hover:underline">
+                            {label}
+                          </Link>
+                        );
+                      })()}
                     </td>
                     <td className="py-2 pr-3 font-mono">{formatElo(entry.elo_score)}</td>
                     <td className="py-2 pr-3 font-mono">{entry.mu.toFixed(1)}</td>

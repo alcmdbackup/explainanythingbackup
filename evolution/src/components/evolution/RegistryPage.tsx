@@ -3,14 +3,12 @@
 
 'use client';
 
-import React, { useState, useCallback, useEffect, useRef, type ReactNode } from 'react';
+import { useState, useCallback, useEffect, useRef, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import { EvolutionBreadcrumb, EntityListPage } from '@evolution/components/evolution';
 import type { ColumnDef, FilterDef } from '@evolution/components/evolution';
 import { FormDialog, type FieldDef } from './FormDialog';
 import { ConfirmDialog } from './ConfirmDialog';
-
-// ─── Config types ────────────────────────────────────────────────
 
 export interface RowAction<T> {
   label: string;
@@ -37,8 +35,6 @@ export interface RegistryPageConfig<T> {
   /** Page size (default 50). */
   pageSize?: number;
 }
-
-// ─── Component ───────────────────────────────────────────────────
 
 export function RegistryPage<T extends { id: string }>({
   config,
@@ -86,7 +82,7 @@ export function RegistryPage<T extends { id: string }>({
   const loadDataFnRef = useRef(config.loadData);
   loadDataFnRef.current = config.loadData;
 
-  const loadData = useCallback(async () => {
+  const loadData = useCallback(async (): Promise<void> => {
     setLoading(true);
     try {
       const result = await loadDataFnRef.current(filterValues, page, pageSize);
@@ -100,7 +96,7 @@ export function RegistryPage<T extends { id: string }>({
 
   useEffect(() => { loadData(); }, [loadData]);
 
-  const handleFilterChange = (key: string, value: string) => {
+  const handleFilterChange = (key: string, value: string): void => {
     setFilterValues((prev) => ({ ...prev, [key]: value }));
     setPage(1);
   };

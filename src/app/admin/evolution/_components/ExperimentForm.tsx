@@ -1,6 +1,6 @@
-'use client';
 // Experiment creation wizard: name/prompt setup, strategy selection, review, and submit.
-// Uses V2 actions — experiment auto-starts when first run is added.
+// Uses V2 actions -- experiment auto-starts when first run is added.
+'use client';
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { toast } from 'sonner';
@@ -20,6 +20,7 @@ interface ExperimentFormProps {
 
 type Step = 'setup' | 'strategies' | 'review';
 const STEPS: Step[] = ['setup', 'strategies', 'review'];
+const STEP_LABELS: Record<Step, string> = { setup: 'Setup', strategies: 'Strategies', review: 'Review' };
 
 const MAX_EXPERIMENT_BUDGET = 10.00;
 
@@ -126,7 +127,6 @@ export function ExperimentForm({ onCreated }: ExperimentFormProps): JSX.Element 
     setSubmitting(true);
 
     try {
-      // Build flat run list from selections
       const runs: Array<{ strategy_id: string; budget_cap_usd: number }> = [];
       for (const sel of selections) {
         for (let i = 0; i < sel.runsCount; i++) {
@@ -175,7 +175,6 @@ export function ExperimentForm({ onCreated }: ExperimentFormProps): JSX.Element 
         </CardTitle>
         <div className="flex gap-1 mt-2">
           {STEPS.map((s, i) => {
-            const labels: Record<Step, string> = { setup: 'Setup', strategies: 'Strategies', review: 'Review' };
             return (
               <div key={s} className="flex-1 text-center">
                 <div
@@ -187,7 +186,7 @@ export function ExperimentForm({ onCreated }: ExperimentFormProps): JSX.Element 
                 />
                 <span className={`text-xs font-ui mt-0.5 block ${
                   i <= STEPS.indexOf(step) ? 'text-[var(--accent-gold)]' : 'text-[var(--text-muted)]'
-                }`}>{labels[s]}</span>
+                }`}>{STEP_LABELS[s]}</span>
               </div>
             );
           })}
