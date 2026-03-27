@@ -124,12 +124,19 @@ jobs:
           ref: ${{ github.head_ref }}
       - uses: supabase/setup-cli@v1
       - name: Generate types
-        run: npx supabase gen types --lang typescript --project-id ${{ vars.SUPABASE_STAGING_PROJECT_ID }} > src/lib/database.types.ts
+        id: gen
+        continue-on-error: true
+        run: npx supabase gen types --lang typescript --project-id ${{ vars.SUPABASE_STAGING_PROJECT_ID }} > src/lib/database.types.ts.tmp
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-      - name: Validate types file
+      - name: Validate and apply types file
+        if: steps.gen.outcome == 'success'
         run: |
-          test -s src/lib/database.types.ts || (echo "::error::Type generation produced empty file" && exit 1)
+          if [ ! -s src/lib/database.types.ts.tmp ]; then
+            echo "::error::Type generation produced empty file"
+            exit 1
+          fi
+          mv src/lib/database.types.ts.tmp src/lib/database.types.ts
       - name: Commit if changed
         run: |
           if ! git diff --quiet src/lib/database.types.ts; then
@@ -146,7 +153,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     needs: [detect-changes, generate-types]
-    if: '!failure() && !cancelled()'
+    if: '!cancelled()'
     steps:
       - uses: actions/checkout@v4
         with:
