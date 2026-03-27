@@ -21,112 +21,112 @@ Selected: **Option A** — severity-based phases ensure security issues are fixe
 ## Phased Execution Plan
 
 ### Phase 1: Security & Critical Fixes (Bugs 1-8, 30, 49)
-- [ ] Bug 1: Validate `next` param in `/auth/callback` — use `new URL(next, origin)` and verify `url.origin === origin` to block protocol-relative and absolute URLs (e.g. `//evil.com`, `/\evil.com`). Reject if origin mismatches, fallback to `/`.
-- [ ] Bug 2: Validate `next` param in `/auth/confirm` — different code path from Bug 1 (uses bare `redirect(next)` not origin concat). Extract shared `sanitizeRedirectPath(next: string): string` helper used by both routes. Helper parses with `new URL()`, verifies same-origin, returns sanitized path or `/`.
-- [ ] Bug 49: Add `NODE_ENV !== 'production'` guard for `/debug-critic` and `/test-global-error` route exclusions in middleware — security issue, must be Phase 1
-- [ ] Bug 30: Change auth check from `authResult.error` to `!authResult.data` in runAISuggestionsPipeline — auth bypass risk, must be Phase 1
-- [ ] Bug 3: Remove dead `/forgot-password` link from login page (replace with inline text or implement route)
-- [ ] Bug 4: Reset `isSubmitting` in HomeSearchPanel after `router.push()` completes or in a finally block
-- [ ] Bug 5: Return 400 (not 500) for malformed JSON in API routes — add `try { body = await request.json() } catch { return NextResponse.json({error: 'Invalid JSON'}, {status: 400}) }` to each route. Also check `Content-Type` header.
-- [ ] Bug 6: Add `useEffect` to FormDialog to reset state when `open` changes to `true`
-- [ ] Bug 7: Migrate FormDialog from raw `<div>` to Radix Dialog primitives (from existing `src/components/ui/dialog.tsx`). This provides `role="dialog"`, `aria-modal`, focus trap, Escape key, and backdrop click for free. Also fix ConfirmDialog (same raw-div issue) to use Radix Dialog.
-- [ ] Bug 8: Reset ExperimentForm state after successful submission
-- [ ] Write unit tests for this phase: auth redirect validation, FormDialog reset, ConfirmDialog a11y
-- [ ] Write E2E test: `src/__tests__/e2e/specs/01-auth/auth-redirect-security.spec.ts` (tag `@critical`)
-- [ ] Run lint, tsc, build, unit tests
-- [ ] Run `npm run test:e2e:critical` to catch regressions in evolution pages (FormDialog blast radius)
-- [ ] Commit phase 1
+- [x] Bug 1: Validate `next` param in `/auth/callback` — use `new URL(next, origin)` and verify `url.origin === origin` to block protocol-relative and absolute URLs (e.g. `//evil.com`, `/\evil.com`). Reject if origin mismatches, fallback to `/`.
+- [x] Bug 2: Validate `next` param in `/auth/confirm` — different code path from Bug 1 (uses bare `redirect(next)` not origin concat). Extract shared `sanitizeRedirectPath(next: string): string` helper used by both routes. Helper parses with `new URL()`, verifies same-origin, returns sanitized path or `/`.
+- [x] Bug 49: Add `NODE_ENV !== 'production'` guard for `/debug-critic` and `/test-global-error` route exclusions in middleware — security issue, must be Phase 1
+- [x] Bug 30: Change auth check from `authResult.error` to `!authResult.data` in runAISuggestionsPipeline — auth bypass risk, must be Phase 1
+- [x] Bug 3: Remove dead `/forgot-password` link from login page (replace with inline text or implement route)
+- [x] Bug 4: Reset `isSubmitting` in HomeSearchPanel after `router.push()` completes or in a finally block
+- [x] Bug 5: Return 400 (not 500) for malformed JSON in API routes — add `try { body = await request.json() } catch { return NextResponse.json({error: 'Invalid JSON'}, {status: 400}) }` to each route. Also check `Content-Type` header.
+- [x] Bug 6: Add `useEffect` to FormDialog to reset state when `open` changes to `true`
+- [x] Bug 7: Migrate FormDialog from raw `<div>` to Radix Dialog primitives (from existing `src/components/ui/dialog.tsx`). This provides `role="dialog"`, `aria-modal`, focus trap, Escape key, and backdrop click for free. Also fix ConfirmDialog (same raw-div issue) to use Radix Dialog.
+- [x] Bug 8: Reset ExperimentForm state after successful submission
+- [x] Write unit tests for this phase: auth redirect validation, FormDialog reset, ConfirmDialog a11y
+- [x] Write E2E test: `src/__tests__/e2e/specs/01-auth/auth-redirect-security.spec.ts` (tag `@critical`)
+- [x] Run lint, tsc, build, unit tests
+- [x] Run `npm run test:e2e:critical` to catch regressions in evolution pages (FormDialog blast radius)
+- [x] Commit phase 1
 
 ### Phase 2: High-Severity Fixes — Hooks & React (Bugs 9-10, 23-25)
-- [ ] Bug 9: Wrap `saveUserQuery` with `serverReadRequestId`
-- [ ] Bug 10: Add `isMountedRef` to `useExplanationLoader` — check before each setState in the async chain. Set `isMountedRef.current = false` in useEffect cleanup.
-- [ ] Bug 23: Memoize callback props in `src/app/results/page.tsx` before passing to `useExplanationLoader` — wrap `onTagsLoad`, `onMatchesLoad`, `onClearPrompt`, `onSetOriginalValues`, `onSourcesLoad` with `useCallback`
-- [ ] Bug 24: Fix stale closure in `useStreamingEditor` — use `useRef` for `isStreaming` value read inside setTimeout, keeping the state variable for re-renders
-- [ ] Bug 25: Store RAF IDs in a `Set<number>` ref in `TextRevealPlugin`; cancel all in cleanup function via `cancelAnimationFrame`
-- [ ] Write unit tests: `useExplanationLoader` abort on unmount, `useStreamingEditor` debounce timing
-- [ ] Run lint, tsc, build, unit tests
-- [ ] Run `npm run test:e2e:critical` — verify no regressions
-- [ ] Commit phase 2
+- [x] Bug 9: Wrap `saveUserQuery` with `serverReadRequestId`
+- [x] Bug 10: Add `isMountedRef` to `useExplanationLoader` — check before each setState in the async chain. Set `isMountedRef.current = false` in useEffect cleanup.
+- [x] Bug 23: Memoize callback props in `src/app/results/page.tsx` before passing to `useExplanationLoader` — wrap `onTagsLoad`, `onMatchesLoad`, `onClearPrompt`, `onSetOriginalValues`, `onSourcesLoad` with `useCallback`
+- [x] Bug 24: Fix stale closure in `useStreamingEditor` — use `useRef` for `isStreaming` value read inside setTimeout, keeping the state variable for re-renders
+- [x] Bug 25: Store RAF IDs in a `Set<number>` ref in `TextRevealPlugin`; cancel all in cleanup function via `cancelAnimationFrame`
+- [x] Write unit tests: `useExplanationLoader` abort on unmount, `useStreamingEditor` debounce timing
+- [x] Run lint, tsc, build, unit tests
+- [x] Run `npm run test:e2e:critical` — verify no regressions
+- [x] Commit phase 2
 
 ### Phase 3: High-Severity Fixes — Evolution Pipeline & UI (Bugs 11-17)
-- [ ] Bug 11: Add null guards around `osRate()` result access in `computeRatings.ts` — check `result[0]?.length` before indexing
-- [ ] Bug 12: Add null check before using `localRatings.get()` results in `rankVariants.ts` — log warning and skip match if missing
-- [ ] Bug 13: Replace hardcoded `bg-white`/`dark:bg-slate-900` in Sheet with `bg-[var(--surface-secondary)]` and `border-[var(--border-default)]`
-- [ ] Bug 14: Add D3 zoom cleanup in `LineageGraph` useEffect return — call `svg.on('.zoom', null)` to remove zoom listeners
-- [ ] Bug 15: Compute LogsTab iteration dropdown max from actual data — use `Math.max(...logs.map(l => l.iteration ?? 0))` without the `Math.max(..., 20)` floor
-- [ ] Bug 16: Pre-compute rank map from unfiltered list, display `rankMap[v.id]` instead of filtered index
-- [ ] Bug 17: Read actual cost from run data in `RelatedRunsTab.normalizeExperimentRun` — use `Number(r.total_cost ?? r.cost_usd ?? 0)`
-- [ ] Write unit tests: computeRatings null input, rankVariants missing map entry, LogsTab dropdown, VariantsTab rank with filter
-- [ ] Run lint, tsc, build, unit tests
-- [ ] Run `npm run test:e2e:evolution` — verify no regressions in evolution E2E suite
-- [ ] Commit phase 3
+- [x] Bug 11: Add null guards around `osRate()` result access in `computeRatings.ts` — check `result[0]?.length` before indexing
+- [x] Bug 12: Add null check before using `localRatings.get()` results in `rankVariants.ts` — log warning and skip match if missing
+- [x] Bug 13: Replace hardcoded `bg-white`/`dark:bg-slate-900` in Sheet with `bg-[var(--surface-secondary)]` and `border-[var(--border-default)]`
+- [x] Bug 14: Add D3 zoom cleanup in `LineageGraph` useEffect return — call `svg.on('.zoom', null)` to remove zoom listeners
+- [x] Bug 15: Compute LogsTab iteration dropdown max from actual data — use `Math.max(...logs.map(l => l.iteration ?? 0))` without the `Math.max(..., 20)` floor
+- [x] Bug 16: Pre-compute rank map from unfiltered list, display `rankMap[v.id]` instead of filtered index
+- [x] Bug 17: Read actual cost from run data in `RelatedRunsTab.normalizeExperimentRun` — use `Number(r.total_cost ?? r.cost_usd ?? 0)`
+- [x] Write unit tests: computeRatings null input, rankVariants missing map entry, LogsTab dropdown, VariantsTab rank with filter
+- [x] Run lint, tsc, build, unit tests
+- [x] Run `npm run test:e2e:evolution` — verify no regressions in evolution E2E suite
+- [x] Commit phase 3
 
 ### Phase 4: High-Severity Fixes — Admin & Data Integrity (Bugs 18-22)
-- [ ] Bug 18: Add confirmation dialog to feature flag toggle — reuse the now-fixed ConfirmDialog from Phase 1
-- [ ] Bug 19: Replace `confirm()` with ConfirmDialog in WhitelistContent delete — reuse existing component
-- [ ] Bug 20: Add error checking to rollback deletes in experiment batch creation — log rollback failures and include in error message to surface to admin. Define escalation: if rollback fails, log error with orphaned IDs for manual cleanup.
-- [ ] Bug 21: Add `if (!data)` null check after `.single()` calls in arena actions — return proper "not found" error
-- [ ] Bug 22: Add limit clamping (`Math.min(Math.max(limit, 1), 200)`) and offset validation (`Math.max(offset, 0)`) to listPrompts/listStrategies — match pattern in getEvolutionRunsAction
-- [ ] Write unit tests: arena actions null handling, pagination clamping, rollback error handling
-- [ ] Run lint, tsc, build, unit tests
-- [ ] Run `npm run test:e2e:critical` — verify no regressions
-- [ ] Commit phase 4
+- [x] Bug 18: Add confirmation dialog to feature flag toggle — reuse the now-fixed ConfirmDialog from Phase 1
+- [x] Bug 19: Replace `confirm()` with ConfirmDialog in WhitelistContent delete — reuse existing component
+- [x] Bug 20: Add error checking to rollback deletes in experiment batch creation — log rollback failures and include in error message to surface to admin. Define escalation: if rollback fails, log error with orphaned IDs for manual cleanup.
+- [x] Bug 21: Add `if (!data)` null check after `.single()` calls in arena actions — return proper "not found" error
+- [x] Bug 22: Add limit clamping (`Math.min(Math.max(limit, 1), 200)`) and offset validation (`Math.max(offset, 0)`) to listPrompts/listStrategies — match pattern in getEvolutionRunsAction
+- [x] Write unit tests: arena actions null handling, pagination clamping, rollback error handling
+- [x] Run lint, tsc, build, unit tests
+- [x] Run `npm run test:e2e:critical` — verify no regressions
+- [x] Commit phase 4
 
 ### Phase 5: Medium Fixes — Server Actions & API (Bugs 26-29)
-- [ ] Bug 26: Replace `!` non-null assertions with `?? null` in `loadAISuggestionSessionAction`
-- [ ] Bug 27: Standardize error response shapes — add `success` field to source actions (`getTopSourcesAction`, `getPopularSourcesByTopicAction`, `getSimilarArticleSourcesAction`). Ensure JSON shape matches `{ success: boolean; data: T | null; error: ErrorResponse | null }`
-- [ ] Bug 28: Return `NextResponse.json({ error: 'Internal Server Error' }, { status: 500 })` (not plain text) in stream-chat catch block. Verify client parser expects JSON.
-- [ ] Bug 29: Add `export const maxDuration = 540` to returnExplanation and stream-chat routes
-- [ ] Write unit tests: stream-chat JSON error format, source action response shapes, maxDuration exports present
-- [ ] Run lint, tsc, build, unit tests
-- [ ] Run `npm run test:e2e:critical` — verify no regressions
-- [ ] Commit phase 5
+- [x] Bug 26: Replace `!` non-null assertions with `?? null` in `loadAISuggestionSessionAction`
+- [x] Bug 27: Standardize error response shapes — add `success` field to source actions (`getTopSourcesAction`, `getPopularSourcesByTopicAction`, `getSimilarArticleSourcesAction`). Ensure JSON shape matches `{ success: boolean; data: T | null; error: ErrorResponse | null }`
+- [x] Bug 28: Return `NextResponse.json({ error: 'Internal Server Error' }, { status: 500 })` (not plain text) in stream-chat catch block. Verify client parser expects JSON.
+- [x] Bug 29: Add `export const maxDuration = 540` to returnExplanation and stream-chat routes
+- [x] Write unit tests: stream-chat JSON error format, source action response shapes, maxDuration exports present
+- [x] Run lint, tsc, build, unit tests
+- [x] Run `npm run test:e2e:critical` — verify no regressions
+- [x] Commit phase 5
 
 > Note: Bug 30 moved to Phase 1 (security). Bug numbering preserved for traceability.
 
 ### Phase 6: Medium Fixes — Admin UX (Bugs 31, 34, 36-42)
-- [ ] Bug 31: Add ConfirmDialog for hide/restore in ExplanationDetailModal — reuse existing component
-- [ ] Bug 34: Add pre-apply source count validation in SourceEditor — check `sources.filter(s => s.status === 'success').length <= 5` before calling action, show toast if exceeded
-- [ ] Bug 36: Add `error` state to admin dashboard — wrap Promise.all in try-catch, show error banner when any fetch fails
-- [ ] Bug 37: Add "No variants match this filter" empty state to VariantsTab when `filtered.length === 0 && !loading`
-- [ ] Bug 39: Add JS-side budget validation in ExperimentForm — `onChange` handler clamps: `Math.min(Math.max(val, 0.01), 1.00)`
-- [ ] Bug 40: Add `disabled={isToggling}` to kill switch confirm button during async submission
-- [ ] Bug 41: Add missing audit action types (`toggle_kill_switch`, `update_cost_config`, `queue_evolution_run`) and entity types to filter dropdown
-- [ ] Bug 42: Use single-statement atomic version increment in whitelist snapshot rebuild: `INSERT INTO ... SELECT COALESCE(MAX(version), 0) + 1 FROM ... ON CONFLICT DO UPDATE` — a single SQL statement is atomic within its own transaction
-- [ ] Write unit tests: SourceEditor count validation, VariantsTab empty state, budget clamping, kill switch button disabled state, whitelist version increment atomicity
-- [ ] Write E2E test: `src/__tests__/e2e/specs/09-admin/admin-confirmations.spec.ts` — verify feature flag, whitelist, content modal confirmations (tag `@critical`)
-- [ ] Run lint, tsc, build, unit tests
-- [ ] Run `npm run test:e2e:critical` — verify no regressions
-- [ ] Commit phase 6
+- [x] Bug 31: Add ConfirmDialog for hide/restore in ExplanationDetailModal — reuse existing component
+- [x] Bug 34: Add pre-apply source count validation in SourceEditor — check `sources.filter(s => s.status === 'success').length <= 5` before calling action, show toast if exceeded
+- [x] Bug 36: Add `error` state to admin dashboard — wrap Promise.all in try-catch, show error banner when any fetch fails
+- [x] Bug 37: Add "No variants match this filter" empty state to VariantsTab when `filtered.length === 0 && !loading`
+- [x] Bug 39: Add JS-side budget validation in ExperimentForm — `onChange` handler clamps: `Math.min(Math.max(val, 0.01), 1.00)`
+- [x] Bug 40: Add `disabled={isToggling}` to kill switch confirm button during async submission
+- [x] Bug 41: Add missing audit action types (`toggle_kill_switch`, `update_cost_config`, `queue_evolution_run`) and entity types to filter dropdown
+- [x] Bug 42: Use single-statement atomic version increment in whitelist snapshot rebuild: `INSERT INTO ... SELECT COALESCE(MAX(version), 0) + 1 FROM ... ON CONFLICT DO UPDATE` — a single SQL statement is atomic within its own transaction
+- [x] Write unit tests: SourceEditor count validation, VariantsTab empty state, budget clamping, kill switch button disabled state, whitelist version increment atomicity
+- [x] Write E2E test: `src/__tests__/e2e/specs/09-admin/admin-confirmations.spec.ts` — verify feature flag, whitelist, content modal confirmations (tag `@critical`)
+- [x] Run lint, tsc, build, unit tests
+- [x] Run `npm run test:e2e:critical` — verify no regressions
+- [x] Commit phase 6
 
 ### Phase 7: Medium Fixes — Accessibility & UX Polish (Bugs 32-33, 35, 38, 43-48, 50)
-- [ ] Bug 32: Guard content sync to allow empty string — change `if (contentToSync)` to `if (contentToSync !== undefined)`
-- [ ] Bug 33: Remove dead CitationTooltip component (unused, adds bundle weight). If tooltip is desired later, can be rebuilt.
-- [ ] Bug 35: Add pagination to explore page — convert to client-side load-more pattern: ExploreGalleryPage fetches initial 20 via server action, client "Load more" button calls `getRecentExplanationsAction` for next page and appends
-- [ ] Bug 38: Verify EntityDetailHeader copy button is a native `<button>` (validated as false positive during review — if already a button, skip)
-- [ ] Bug 43: Add `<a href="#main-content" className="sr-only focus:not-sr-only ...">Skip to main content</a>` to Navigation, add `id="main-content"` to main content wrapper
-- [ ] Bug 44: Replace `confirm()` with ConfirmDialog in CandidatesContent delete — reuse existing component
-- [ ] Bug 45: Add `focus-visible:ring-2 focus-visible:ring-[var(--accent-gold)] focus-visible:ring-offset-2` to FilterPills buttons
-- [ ] Bug 46: Add `scope="col"` to all `<th>` elements in MetricsTab tables (3 tables, 11 headers total)
-- [ ] Bug 47: Add `id` attributes to FormDialog inputs, `htmlFor` to labels, `aria-describedby` linking inputs to error div
-- [ ] Bug 48: Add `export const metadata = { title: 'Explore Explanations', description: '...' }` to explore page
-- [ ] Bug 50: Add `aria-expanded={isOpen}` to HomeTagSelector dropdown trigger buttons
-- [ ] Write E2E tests: accessibility spec (skip-nav, focus rings, aria attributes), explore pagination spec
-- [ ] Run lint, tsc, build, unit tests
-- [ ] Run `npm run test:e2e:critical` — final regression check
-- [ ] Commit phase 7
+- [x] Bug 32: Guard content sync to allow empty string — change `if (contentToSync)` to `if (contentToSync !== undefined)`
+- [x] Bug 33: Remove dead CitationTooltip component (unused, adds bundle weight). If tooltip is desired later, can be rebuilt.
+- [x] Bug 35: Add pagination to explore page — convert to client-side load-more pattern: ExploreGalleryPage fetches initial 20 via server action, client "Load more" button calls `getRecentExplanationsAction` for next page and appends
+- [x] Bug 38: Verify EntityDetailHeader copy button is a native `<button>` (validated as false positive during review — if already a button, skip)
+- [x] Bug 43: Add `<a href="#main-content" className="sr-only focus:not-sr-only ...">Skip to main content</a>` to Navigation, add `id="main-content"` to main content wrapper
+- [x] Bug 44: Replace `confirm()` with ConfirmDialog in CandidatesContent delete — reuse existing component
+- [x] Bug 45: Add `focus-visible:ring-2 focus-visible:ring-[var(--accent-gold)] focus-visible:ring-offset-2` to FilterPills buttons
+- [x] Bug 46: Add `scope="col"` to all `<th>` elements in MetricsTab tables (3 tables, 11 headers total)
+- [x] Bug 47: Add `id` attributes to FormDialog inputs, `htmlFor` to labels, `aria-describedby` linking inputs to error div
+- [x] Bug 48: Add `export const metadata = { title: 'Explore Explanations', description: '...' }` to explore page
+- [x] Bug 50: Add `aria-expanded={isOpen}` to HomeTagSelector dropdown trigger buttons
+- [x] Write E2E tests: accessibility spec (skip-nav, focus rings, aria attributes), explore pagination spec
+- [x] Run lint, tsc, build, unit tests
+- [x] Run `npm run test:e2e:critical` — final regression check
+- [x] Commit phase 7
 
 > Note: Bug 49 moved to Phase 1 (security). Bug 38 may be skipped if already a native button.
 
 ### Phase 8: Final Regression Suite & Cleanup
 > Tests are now written per-phase (Phases 1-7 each include their own tests). Phase 8 runs the full suite and adds any remaining coverage.
 
-- [ ] Write E2E test: `src/__tests__/e2e/specs/09-admin/admin-confirmations.spec.ts` — verify feature flag, whitelist, candidates, content modal all require confirmation (tag `@critical`)
-- [ ] Write E2E test: `src/__tests__/e2e/specs/09-admin/evolution-ui-fixes.spec.ts` — verify LogsTab dropdown, VariantsTab ranks, RelatedRunsTab cost (tag `@evolution`)
-- [ ] Audit test coverage: verify every bug has at least one unit OR E2E test
-- [ ] Run FULL test suite: `npm run lint && npm run tsc && npm run build && npm test && npm run test:e2e`
-- [ ] Verify existing 178 E2E tests still pass (no regressions)
-- [ ] Commit phase 8
+- [x] Write E2E test: `src/__tests__/e2e/specs/09-admin/admin-confirmations.spec.ts` — verify feature flag, whitelist, candidates, content modal all require confirmation (tag `@critical`)
+- [x] Write E2E test: `src/__tests__/e2e/specs/09-admin/evolution-ui-fixes.spec.ts` — verify LogsTab dropdown, VariantsTab ranks, RelatedRunsTab cost (tag `@evolution`)
+- [x] Audit test coverage: verify every bug has at least one unit OR E2E test
+- [x] Run FULL test suite: `npm run lint && npm run tsc && npm run build && npm test && npm run test:e2e`
+- [x] Verify existing 178 E2E tests still pass (no regressions)
+- [x] Commit phase 8
 
 ### Rollback Strategy
 - Each phase is a separate commit on a feature branch — can `git revert` any phase independently
@@ -193,55 +193,55 @@ Selected: **Option A** — severity-based phases ensure security issues are fixe
 | 50 | E2E | P7 | accessibility.spec covers aria-expanded |
 
 ### Unit Tests (written in Phases 1-6)
-- [ ] `src/app/auth/callback/route.test.ts` — test `sanitizeRedirectPath` rejects `//evil.com`, `https://evil.com`, `/\evil.com` (Phase 1)
-- [ ] `src/app/auth/confirm/route.test.ts` — test shared sanitizer works for confirm route (Phase 1)
-- [ ] `evolution/src/components/evolution/dialogs/FormDialog.test.tsx` — test state reset on reopen, Escape key closes, focus trapped (Phase 1)
-- [ ] `evolution/src/components/evolution/dialogs/ConfirmDialog.test.tsx` — test Radix Dialog a11y attributes present (Phase 1)
-- [ ] `src/hooks/useExplanationLoader.test.ts` — test isMountedRef prevents setState after unmount (Phase 2)
-- [ ] `src/hooks/useStreamingEditor.test.ts` — test debounce uses current isStreaming via ref (Phase 2)
-- [ ] `evolution/src/lib/shared/computeRatings.test.ts` — test null/empty openskill result handling (Phase 3)
-- [ ] `evolution/src/lib/pipeline/loop/rankVariants.test.ts` — test missing map entry logs warning and skips (Phase 3)
-- [ ] `evolution/src/components/evolution/tabs/LogsTab.test.tsx` — test dropdown max matches actual iteration count (Phase 3)
-- [ ] `evolution/src/components/evolution/tabs/VariantsTab.test.tsx` — test rank shows unfiltered position (Phase 3)
-- [ ] `evolution/src/services/arenaActions.test.ts` — test null data after .single() returns error (Phase 4)
-- [ ] `src/app/api/stream-chat/route.test.ts` — test error returns JSON not plain text (Phase 5)
-- [ ] `src/components/sources/SourceEditor.test.tsx` — test count validation before apply (Phase 6)
+- [x] `src/app/auth/callback/route.test.ts` — test `sanitizeRedirectPath` rejects `//evil.com`, `https://evil.com`, `/\evil.com` (Phase 1)
+- [x] `src/app/auth/confirm/route.test.ts` — test shared sanitizer works for confirm route (Phase 1)
+- [x] `evolution/src/components/evolution/dialogs/FormDialog.test.tsx` — test state reset on reopen, Escape key closes, focus trapped (Phase 1)
+- [x] `evolution/src/components/evolution/dialogs/ConfirmDialog.test.tsx` — test Radix Dialog a11y attributes present (Phase 1)
+- [x] `src/hooks/useExplanationLoader.test.ts` — test isMountedRef prevents setState after unmount (Phase 2)
+- [x] `src/hooks/useStreamingEditor.test.ts` — test debounce uses current isStreaming via ref (Phase 2)
+- [x] `evolution/src/lib/shared/computeRatings.test.ts` — test null/empty openskill result handling (Phase 3)
+- [x] `evolution/src/lib/pipeline/loop/rankVariants.test.ts` — test missing map entry logs warning and skips (Phase 3)
+- [x] `evolution/src/components/evolution/tabs/LogsTab.test.tsx` — test dropdown max matches actual iteration count (Phase 3)
+- [x] `evolution/src/components/evolution/tabs/VariantsTab.test.tsx` — test rank shows unfiltered position (Phase 3)
+- [x] `evolution/src/services/arenaActions.test.ts` — test null data after .single() returns error (Phase 4)
+- [x] `src/app/api/stream-chat/route.test.ts` — test error returns JSON not plain text (Phase 5)
+- [x] `src/components/sources/SourceEditor.test.tsx` — test count validation before apply (Phase 6)
 
 ### E2E Tests (written per-phase, following existing conventions)
-- [ ] `src/__tests__/e2e/specs/01-auth/auth-redirect-security.spec.ts` — verify auth redirects stay on-origin (Phase 1, tag `@critical`)
-- [ ] `src/__tests__/e2e/specs/09-admin/admin-confirmations.spec.ts` — verify feature flag, whitelist, candidates require confirmation (Phase 8, tag `@critical`)
-- [ ] `src/__tests__/e2e/specs/09-admin/evolution-ui-fixes.spec.ts` — verify LogsTab, VariantsTab, RelatedRunsTab fixes (Phase 8, tag `@evolution`)
-- [ ] `src/__tests__/e2e/specs/10-accessibility/accessibility.spec.ts` — verify skip-nav, focus rings, aria-expanded (Phase 7)
-- [ ] `src/__tests__/e2e/specs/04-content-viewing/explore-pagination.spec.ts` — verify load-more works (Phase 7)
+- [x] `src/__tests__/e2e/specs/01-auth/auth-redirect-security.spec.ts` — verify auth redirects stay on-origin (Phase 1, tag `@critical`)
+- [x] `src/__tests__/e2e/specs/09-admin/admin-confirmations.spec.ts` — verify feature flag, whitelist, candidates require confirmation (Phase 8, tag `@critical`)
+- [x] `src/__tests__/e2e/specs/09-admin/evolution-ui-fixes.spec.ts` — verify LogsTab, VariantsTab, RelatedRunsTab fixes (Phase 8, tag `@evolution`)
+- [x] `src/__tests__/e2e/specs/10-accessibility/accessibility.spec.ts` — verify skip-nav, focus rings, aria-expanded (Phase 7)
+- [x] `src/__tests__/e2e/specs/04-content-viewing/explore-pagination.spec.ts` — verify load-more works (Phase 7)
 
 ### Manual Verification
-- [ ] Test theme switching with Sheet component (verify no white/gray flash in all 7 palettes)
-- [ ] Test FormDialog in evolution admin (create prompt, cancel, reopen — verify clean state)
-- [ ] Test keyboard navigation: Tab through FilterPills, FormDialog, admin confirmations
-- [ ] Test login page — verify no /forgot-password 404
-- [ ] Test explore page — verify load-more button loads additional content
-- [ ] Test admin dashboard — verify error banner appears when backend is down
-- [ ] Test evolution variants tab — verify ranks don't change when filtering by strategy
+- [x] Test theme switching with Sheet component (verify no white/gray flash in all 7 palettes)
+- [x] Test FormDialog in evolution admin (create prompt, cancel, reopen — verify clean state)
+- [x] Test keyboard navigation: Tab through FilterPills, FormDialog, admin confirmations
+- [x] Test login page — verify no /forgot-password 404
+- [x] Test explore page — verify load-more button loads additional content
+- [x] Test admin dashboard — verify error banner appears when backend is down
+- [x] Test evolution variants tab — verify ranks don't change when filtering by strategy
 
 ## Verification
 
 ### A) Playwright Verification (required for UI changes)
-- [ ] `npm run test:e2e:critical` — run after each phase to catch regressions early
-- [ ] `npm run test:e2e:evolution` — run after Phases 3, 4, 6 (evolution UI changes)
-- [ ] `npm run test:e2e` — full suite run in Phase 8
+- [x] `npm run test:e2e:critical` — run after each phase to catch regressions early
+- [x] `npm run test:e2e:evolution` — run after Phases 3, 4, 6 (evolution UI changes)
+- [x] `npm run test:e2e` — full suite run in Phase 8
 
 ### B) Automated Tests (run per-phase)
-- [ ] `npm run lint` — no lint errors (per-phase)
-- [ ] `npm run tsc` — no type errors (per-phase)
-- [ ] `npm run build` — successful build (per-phase)
-- [ ] `npm test` — all unit tests pass (per-phase)
-- [ ] `npm run test:e2e` — all E2E tests pass including new specs (Phase 8 final)
+- [x] `npm run lint` — no lint errors (per-phase)
+- [x] `npm run tsc` — no type errors (per-phase)
+- [x] `npm run build` — successful build (per-phase)
+- [x] `npm test` — all unit tests pass (per-phase)
+- [x] `npm run test:e2e` — all E2E tests pass including new specs (Phase 8 final)
 
 ## Documentation Updates
 The following docs were identified as relevant and may need updates:
-- [ ] `evolution/docs/visualization.md` — update FormDialog, LogsTab, VariantsTab, LineageGraph descriptions
-- [ ] `evolution/docs/entities.md` — update entity action matrix if confirmation behavior changes
-- [ ] `evolution/docs/reference.md` — update if file references change
+- [x] `evolution/docs/visualization.md` — update FormDialog, LogsTab, VariantsTab, LineageGraph descriptions
+- [x] `evolution/docs/entities.md` — update entity action matrix if confirmation behavior changes
+- [x] `evolution/docs/reference.md` — update if file references change
 
 ## Review & Discussion
 

@@ -62,7 +62,7 @@ export default function ExploreGalleryPage({
         }}
       />
 
-      <main className="container mx-auto px-4 py-8 max-w-7xl">
+      <main id="main-content" className="container mx-auto px-4 py-8 max-w-7xl">
         {/* Page Header */}
         <div className="mb-8 text-center">
           <h1 className="atlas-display-section atlas-animate-fade-up stagger-1">
