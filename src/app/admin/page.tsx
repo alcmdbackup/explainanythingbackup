@@ -22,22 +22,38 @@ export default function AdminPage() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const [error, setError] = useState<string | null>(null);
+
   const loadStats = useCallback(async () => {
     setLoading(true);
+    setError(null);
 
-    const [healthResult, reportsResult, costsResult] = await Promise.all([
-      getSystemHealthAction(),
-      getReportCountsAction(),
-      getCostSummaryAction({})
-    ]);
+    try {
+      const [healthResult, reportsResult, costsResult] = await Promise.all([
+        getSystemHealthAction(),
+        getReportCountsAction(),
+        getCostSummaryAction({})
+      ]);
 
-    setStats({
-      explanations: healthResult.data?.totalExplanations || 0,
-      users: healthResult.data?.totalUsers || 0,
-      pendingReports: reportsResult.data?.pending || 0,
-      totalCost: costsResult.data?.totalCost || 0,
-      databaseHealth: healthResult.data?.database || 'down'
-    });
+      const failures: string[] = [];
+      if (!healthResult.success) failures.push('system health');
+      if (!reportsResult.success) failures.push('report counts');
+      if (!costsResult.success) failures.push('cost summary');
+
+      if (failures.length > 0) {
+        setError(`Failed to load: ${failures.join(', ')}`);
+      }
+
+      setStats({
+        explanations: healthResult.data?.totalExplanations || 0,
+        users: healthResult.data?.totalUsers || 0,
+        pendingReports: reportsResult.data?.pending || 0,
+        totalCost: costsResult.data?.totalCost || 0,
+        databaseHealth: healthResult.data?.database || 'down'
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load dashboard data');
+    }
 
     setLoading(false);
   }, []);
@@ -52,6 +68,11 @@ export default function AdminPage() {
 
   return (
     <div className="space-y-6">
+      {error && (
+        <div className="p-3 rounded-book border border-[var(--status-error)] bg-[var(--status-error)]/10 text-sm font-ui text-[var(--status-error)]">
+          {error}
+        </div>
+      )}
       <div className="flex justify-between items-center">
         <h1 className="text-2xl font-bold text-[var(--text-primary)]">
           Admin Dashboard

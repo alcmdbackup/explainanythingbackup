@@ -87,6 +87,14 @@ export default function SourceEditor({
 
   const handleApply = useCallback(async () => {
     if (!explanationId) return;
+
+    // Validate source count before applying
+    const successCount = editedSources.filter(s => s.status === 'success').length;
+    if (successCount > 5) {
+      setError(`Too many sources (${successCount}). Maximum 5 sources allowed.`);
+      return;
+    }
+
     setIsApplying(true);
     setError(null);
 

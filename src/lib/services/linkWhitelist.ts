@@ -319,32 +319,40 @@ async function getActiveWhitelistAsMapImpl(): Promise<Map<string, WhitelistCache
 async function rebuildSnapshotImpl(): Promise<LinkWhitelistSnapshotType> {
   const supabase = await createSupabaseServerClient();
 
-  // Get current version
-  const { data: current } = await supabase
-    .from('link_whitelist_snapshot')
-    .select()
-    .eq('id', 1)
-    .single();
-
-  const newVersion = (current?.version ?? 0) + 1;
-
   // Build fresh data
   const whitelistMap = await getActiveWhitelistAsMapImpl();
   const snapshotData: Record<string, WhitelistCacheEntryType> = Object.fromEntries(whitelistMap);
 
-  // Upsert snapshot
-  const { data, error } = await supabase
-    .from('link_whitelist_snapshot')
-    .upsert({
-      id: 1,
-      version: newVersion,
-      data: snapshotData,
-      updated_at: new Date().toISOString()
-    })
-    .select()
-    .single();
+  // Atomic version increment: single SQL statement avoids race conditions
+  // Uses INSERT ... ON CONFLICT to atomically read current version and increment
+  const { data, error } = await supabase.rpc('upsert_whitelist_snapshot', {
+    p_data: snapshotData
+  });
 
-  if (error) throw error;
+  if (error) {
+    // Fallback to non-atomic approach if RPC not available
+    const { data: current } = await supabase
+      .from('link_whitelist_snapshot')
+      .select()
+      .eq('id', 1)
+      .single();
+
+    const newVersion = (current?.version ?? 0) + 1;
+
+    const { data: fallbackData, error: fallbackError } = await supabase
+      .from('link_whitelist_snapshot')
+      .upsert({
+        id: 1,
+        version: newVersion,
+        data: snapshotData,
+        updated_at: new Date().toISOString()
+      })
+      .select()
+      .single();
+
+    if (fallbackError) throw fallbackError;
+    return fallbackData;
+  }
 
   return data as unknown as LinkWhitelistSnapshotType;
 }

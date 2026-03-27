@@ -108,6 +108,13 @@ export function VariantsTab({ runId, runStatus }: VariantsTabProps): JSX.Element
             </tr>
           </thead>
           <tbody>
+            {filtered.length === 0 && !loading && (
+              <tr>
+                <td colSpan={6} className="px-4 py-8 text-center text-sm font-ui text-[var(--text-muted)]">
+                  No variants match this filter.
+                </td>
+              </tr>
+            )}
             {filtered.map((v, i) => (
               <Fragment key={v.id}>
                 <tr

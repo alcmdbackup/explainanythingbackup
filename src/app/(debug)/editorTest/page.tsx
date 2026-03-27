@@ -230,6 +230,7 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
         try {
             const result = await loadAISuggestionSessionAction(sessionId);
             if (result.success && result.data) {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 setLoadedSessionData(result.data as any);
                 setSelectedSessionId(sessionId);
 

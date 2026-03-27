@@ -12,6 +12,7 @@ import {
   restoreExplanationAction,
   type AdminExplanation
 } from '@/lib/services/adminContent';
+import { ConfirmDialog } from '@evolution/components/evolution/dialogs/ConfirmDialog';
 
 interface ExplanationDetailModalProps {
   explanation: AdminExplanation;
@@ -27,36 +28,33 @@ export function ExplanationDetailModal({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const titleId = useId();
+  const [confirmAction, setConfirmAction] = useState<'hide' | 'restore' | null>(null);
 
-  const handleHide = async () => {
+  const executeAction = async () => {
+    const action = confirmAction;
+    setConfirmAction(null);
+    if (!action) return;
+
     setLoading(true);
     setError(null);
-    const result = await hideExplanationAction(explanation.id);
+    const result = action === 'hide'
+      ? await hideExplanationAction(explanation.id)
+      : await restoreExplanationAction(explanation.id);
     if (result.success) {
-      toast.success('Explanation hidden successfully');
+      toast.success(`Explanation ${action === 'hide' ? 'hidden' : 'restored'} successfully`);
       onUpdate();
       onClose();
     } else {
-      setError(result.error?.message || 'Failed to hide explanation');
+      setError(result.error?.message || `Failed to ${action} explanation`);
     }
     setLoading(false);
   };
 
-  const handleRestore = async () => {
-    setLoading(true);
-    setError(null);
-    const result = await restoreExplanationAction(explanation.id);
-    if (result.success) {
-      toast.success('Explanation restored successfully');
-      onUpdate();
-      onClose();
-    } else {
-      setError(result.error?.message || 'Failed to restore explanation');
-    }
-    setLoading(false);
-  };
+  const handleHide = () => setConfirmAction('hide');
+  const handleRestore = () => setConfirmAction('restore');
 
   return (
+    <>
     <FocusTrap>
       <div
         className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
@@ -196,5 +194,17 @@ export function ExplanationDetailModal({
       </div>
       </div>
     </FocusTrap>
+    <ConfirmDialog
+      open={!!confirmAction}
+      onClose={() => setConfirmAction(null)}
+      title={confirmAction === 'hide' ? 'Hide Explanation?' : 'Restore Explanation?'}
+      message={confirmAction === 'hide'
+        ? 'This will hide the explanation from public view.'
+        : 'This will restore the explanation to public view.'}
+      confirmLabel={confirmAction === 'hide' ? 'Hide' : 'Restore'}
+      onConfirm={executeAction}
+      danger={confirmAction === 'hide'}
+    />
+    </>
   );
 }
