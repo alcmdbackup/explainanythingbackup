@@ -10,7 +10,7 @@ Focus: Everything — test all areas including main app, evolution admin, arena,
 
 ## High Level Summary
 
-8 rounds of 4 parallel research agents (32 agents total) investigated the entire codebase. Found **120+ distinct bugs and UX issues** across all areas. Below is the consolidated list of the top 50 bugs selected for fixing, organized by severity and area.
+8 rounds of 4 parallel research agents (32 agents total) investigated the entire codebase. Found **120+ distinct bugs and UX issues** across all areas. After code-level validation (reading actual source for each bug), **8 false positives were removed** and replaced with confirmed bugs. Final list: **50 validated bugs** organized by severity and area.
 
 ## Documents Read
 
@@ -138,10 +138,9 @@ Focus: Everything — test all areas including main app, evolution admin, arena,
 - File: src/app/login/page.tsx line 234
 - Login page links to `/forgot-password` but the route doesn't exist — dead link for core auth flow
 
-**Bug 4: 9 server actions missing try-catch error handling**
-- File: src/actions/actions.ts
-- Functions at lines 379, 435, 468, 512, 531, 550, 569, 584, 616 have NO try-catch blocks
-- Any DB failure causes unhandled error propagation to client
+**Bug 4: HomeSearchPanel isSubmitting never reset to false**
+- File: src/components/home/HomeSearchPanel.tsx line 40
+- `setIsSubmitting(true)` called but never reset after `router.push()` — form permanently disabled if nav is slow
 
 **Bug 5: Missing JSON parse error handling in 5 API routes**
 - Files: returnExplanation/route.ts, stream-chat/route.ts, runAISuggestionsPipeline/route.ts, fetchSourceMetadata/route.ts, client-logs/route.ts
@@ -166,9 +165,9 @@ Focus: Everything — test all areas including main app, evolution admin, arena,
 - File: src/actions/actions.ts line 314
 - Request ID not tracked for this action, breaking distributed tracing
 
-**Bug 10: Parameter naming inconsistency (explanationid vs explanationId)**
-- File: src/actions/actions.ts lines 512, 531, 569
-- Lowercase `explanationid` and `userid` vs camelCase everywhere else
+**Bug 10: useExplanationLoader no isMountedRef for async operations**
+- File: src/hooks/useExplanationLoader.ts lines 166-348
+- 6+ sequential awaits with setState calls between each — no abort or mounted check on unmount
 
 **Bug 11: Unsafe non-null assertions on array access**
 - File: evolution/src/lib/shared/computeRatings.ts lines 37, 46
@@ -226,9 +225,9 @@ Focus: Everything — test all areas including main app, evolution admin, arena,
 - File: src/hooks/useStreamingEditor.ts lines 48-74
 - setTimeout captures stale `isStreaming` value; debounce fires with wrong timing
 
-**Bug 25: Stream timeout interval not cleared on early returns**
-- File: src/app/results/page.tsx lines 370-417
-- When stream errors, interval continues running — memory leak
+**Bug 25: TextRevealPlugin RAF not cancelled on unmount**
+- File: src/editorFiles/lexicalEditor/TextRevealPlugin.tsx lines 75-119
+- requestAnimationFrame IDs never stored or cancelled; cleanup only removes mutation listeners
 
 ### MEDIUM (Bugs 26-50)
 
@@ -252,9 +251,9 @@ Focus: Everything — test all areas including main app, evolution admin, arena,
 - File: src/app/api/runAISuggestionsPipeline/route.ts line 22
 - Checks `authResult.error` instead of `!authResult.data` like other routes
 
-**Bug 31: Debounce race in StreamingSyncPlugin**
-- File: src/editorFiles/lexicalEditor/StreamingSyncPlugin.tsx lines 35-70
-- Multiple concurrent editor.update() calls without lock mechanism
+**Bug 31: ExplanationDetailModal hide/restore without confirmation**
+- File: src/components/admin/ExplanationDetailModal.tsx lines 31, 45
+- Hide and restore actions execute immediately on click — no "Are you sure?" for destructive admin actions
 
 **Bug 32: Missing content sync validation when switching editor modes**
 - File: src/app/results/page.tsx lines 644-672
@@ -268,13 +267,13 @@ Focus: Everything — test all areas including main app, evolution admin, arena,
 - File: src/components/sources/SourceEditor.tsx lines 88-112
 - No UI check before submission — user gets cryptic error instead of friendly message
 
-**Bug 35: SourceList doesn't count loading sources toward 5-source limit**
-- File: src/components/sources/SourceList.tsx line 58
-- 4 success + 1 loading = attempt to add 6th source succeeds
+**Bug 35: Explore page hardcoded limit of 20 with no pagination**
+- File: src/app/explanations/page.tsx line 20
+- `getRecentExplanations(20, 0, ...)` — no load-more, infinite scroll, or pagination controls
 
-**Bug 36: EloTab chart renders misleading y-axis with uniform data**
-- File: evolution/src/components/evolution/tabs/EloTab.tsx lines 57-65
-- All variants at mu=50 shows axis 49-51, implying huge variance
+**Bug 36: Admin dashboard stats don't show errors when API calls fail**
+- File: src/app/admin/page.tsx lines 28-39
+- Failed API calls silently fall back to 0/'down' — no error state, admin can't distinguish failure from zero
 
 **Bug 37: VariantsTab empty state missing after filter**
 - File: evolution/src/components/evolution/tabs/VariantsTab.tsx
@@ -304,9 +303,9 @@ Focus: Everything — test all areas including main app, evolution admin, arena,
 - File: src/components/Navigation.tsx
 - Keyboard users must tab through entire nav before reaching content
 
-**Bug 44: Color-only status indicators (admin dashboard)**
-- File: src/app/admin/page.tsx
-- System health shown as colored dot only — inaccessible to color-blind users
+**Bug 44: CandidatesContent uses browser confirm() for delete**
+- File: src/components/admin/CandidatesContent.tsx line 91
+- Native `confirm()` instead of accessible modal — inconsistent with FocusTrap modals elsewhere
 
 **Bug 45: Missing focus indicators on FilterPills buttons**
 - File: src/components/explore/FilterPills.tsx
@@ -328,9 +327,23 @@ Focus: Everything — test all areas including main app, evolution admin, arena,
 - File: src/lib/utils/supabase/middleware.ts lines 44-45
 - `/debug-critic` and `/test-global-error` bypass auth entirely
 
-**Bug 50: Z-index conflict between Sheet and ReportContentButton**
-- File: src/components/ui/sheet.tsx (z-[60]) vs ReportContentButton (z-[100])
-- Overlapping modals stack unpredictably
+**Bug 50: HomeTagSelector dropdowns missing aria-expanded**
+- File: src/components/home/HomeTagSelector.tsx
+- Dropdown buttons toggle open/closed state with icon rotation but no `aria-expanded` attribute for screen readers
+
+## Validation Results
+
+All 50 bugs validated by reading actual source code. 8 original false positives replaced:
+- Bug 4: was "missing try-catch" → replaced with HomeSearchPanel isSubmitting stuck
+- Bug 10: was "param naming" → replaced with useExplanationLoader unmount leak
+- Bug 25: was "interval not cleared" → replaced with TextRevealPlugin RAF leak
+- Bug 31: was "StreamingSyncPlugin race" → replaced with ExplanationDetailModal no confirmation
+- Bug 35: was "SourceList limit" → replaced with explore page no pagination
+- Bug 36: was "EloTab y-axis" → replaced with admin dashboard silent errors
+- Bug 44: was "color-only status" → replaced with CandidatesContent confirm()
+- Bug 50: was "z-index conflict" → replaced with HomeTagSelector aria-expanded
+
+6 bugs partially confirmed (real but less severe than claimed): 5, 11, 21, 24, 32, 45
 
 ## Open Questions
 - Should we implement /forgot-password or just remove the dead link?
