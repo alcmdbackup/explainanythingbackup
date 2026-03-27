@@ -1,7 +1,7 @@
 // Shared helper to extract friction spots for a specific variant from match history.
 // Collects and deduplicates friction sentences relevant to a given variant ID.
 
-import type { Match } from '../types';
+import type { Match } from '../../types';
 
 /**
  * Collect friction spots for a given variant from match history.

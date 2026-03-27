@@ -1,7 +1,7 @@
 // Unit tests for friction spots helper — extraction and formatting.
 
 import { getVariantFrictionSpots, formatFrictionSpots } from './frictionSpots';
-import type { Match } from '../types';
+import type { Match } from '../../types';
 
 function makeMatch(a: string, b: string, frictionSpots?: { a: string[]; b: string[] }): Match {
   return {
