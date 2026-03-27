@@ -101,7 +101,8 @@ const _createContentReportAction = withLogging(async (
       };
     }
 
-    const { data, error } = await supabase
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase as any)
       .from('content_reports')
       .insert({
         explanation_id: input.explanation_id,

@@ -163,7 +163,8 @@ async function getUserLibraryExplanationsImpl(userid: string) {
 
   // Step 2: Fetch metrics for all explanation IDs
   const explanationIds = data.map((row: any) => row.explanationid);
-  const { data: metricsData, error: metricsError } = await supabase
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: metricsData, error: metricsError } = await (supabase as any)
     .from('explanationMetrics')
     .select('explanationid, total_views, total_saves')
     .in('explanationid', explanationIds);

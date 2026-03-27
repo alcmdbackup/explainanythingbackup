@@ -63,7 +63,7 @@ export async function updateSession(request: NextRequest) {
       .from('user_profiles')
       .select('is_disabled, disabled_reason')
       .eq('user_id', user.id)
-      .single()
+      .single() as { data: { is_disabled: boolean; disabled_reason: string | null } | null }
 
     if (profile?.is_disabled) {
       // User is disabled, redirect to account disabled page

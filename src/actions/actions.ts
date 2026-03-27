@@ -346,12 +346,12 @@ export const saveUserQuery = serverReadRequestId(withLogging(
                 };
             }
 
-            const savedQuery = await createUserQuery(validatedData.data);
-            
-            return { 
-                success: true, 
+            const savedQuery = await createUserQuery(validatedData.data) as { id: number };
+
+            return {
+                success: true,
                 error: null,
-                id: savedQuery.id 
+                id: savedQuery.id
             };
         } catch (error) {
             return {
@@ -1465,7 +1465,8 @@ const _getTestingPipelineRecordsByStepAction = withLogging(
         try {
             // Get all records for this step from the database
             const supabase = await createSupabaseServerClient();
-            const { data, error } = await supabase
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const { data, error } = await (supabase as any)
                 .from('testing_edits_pipeline')
                 .select('id, set_name, content, created_at')
                 .eq('step', step)
@@ -1481,7 +1482,8 @@ const _getTestingPipelineRecordsByStepAction = withLogging(
             }
 
             // Map set_name to name for backwards compatibility
-            const mappedData = data?.map(record => ({
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const mappedData = data?.map((record: any) => ({
                 id: record.id,
                 name: record.set_name,
                 content: record.content,
@@ -1588,7 +1590,8 @@ const _getAISuggestionSessionsAction = withLogging(
     }> {
         try {
             const supabase = await createSupabaseServerClient();
-            let query = supabase
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            let query = (supabase as any)
                 .from('testing_edits_pipeline')
                 .select('session_id, explanation_id, explanation_title, user_prompt, created_at')
                 .not('session_id', 'is', null);
@@ -1610,12 +1613,13 @@ const _getAISuggestionSessionsAction = withLogging(
             }
 
             // Remove duplicates by session_id (keep most recent)
-            const uniqueSessions = data?.reduce((acc, session) => {
+            type SessionRecord = { session_id: string; explanation_id: number; explanation_title: string; user_prompt: string; created_at: string };
+            const uniqueSessions = (data as SessionRecord[] | null)?.reduce((acc: SessionRecord[], session: SessionRecord) => {
                 if (!acc.some(s => s.session_id === session.session_id)) {
                     acc.push(session);
                 }
                 return acc;
-            }, [] as typeof data) || [];
+            }, [] as SessionRecord[]) || [];
 
             return {
                 success: true,
@@ -1680,7 +1684,8 @@ const _loadAISuggestionSessionAction = withLogging(
     }> {
         try {
             const supabase = await createSupabaseServerClient();
-            const { data, error } = await supabase
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const { data, error } = await (supabase as any)
                 .from('testing_edits_pipeline')
                 .select('step, content, session_id, explanation_id, explanation_title, user_prompt, source_content, session_metadata, created_at')
                 .eq('session_id', sessionId)
@@ -1713,7 +1718,8 @@ const _loadAISuggestionSessionAction = withLogging(
                 source_content: firstRecord.source_content ?? null
             };
 
-            const steps = data.map(record => ({
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const steps = data.map((record: any) => ({
                 step: record.step,
                 content: record.content,
                 session_metadata: record.session_metadata as unknown as SessionMetadata,
