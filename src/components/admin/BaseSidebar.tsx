@@ -1,5 +1,5 @@
-'use client';
 // Shared sidebar shell for admin dashboard variants. Renders nav items with optional group headers.
+'use client';
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
@@ -19,18 +19,16 @@ export interface NavGroup {
 
 export interface BaseSidebarProps {
   title: string;
-  /** Accepts flat NavItem[] (backward compat) or grouped NavGroup[]. */
   navItems: NavItem[] | NavGroup[];
   backLink: { label: string; href: string; testId: string };
   activeOverrides?: Record<string, (pathname: string) => boolean>;
 }
 
-/** Type guard: checks if the first element has an `items` array (NavGroup) vs `href` (NavItem). */
 function isNavGroupArray(items: NavItem[] | NavGroup[]): items is NavGroup[] {
-  return items.length > 0 && 'items' in items[0];
+  return items.length > 0 && 'items' in items[0]!;
 }
 
-export function BaseSidebar({ title, navItems, backLink, activeOverrides }: BaseSidebarProps) {
+export function BaseSidebar({ title, navItems, backLink, activeOverrides }: BaseSidebarProps): JSX.Element {
   const pathname = usePathname();
 
   const isActive = (href: string) => {
@@ -62,13 +60,13 @@ export function BaseSidebar({ title, navItems, backLink, activeOverrides }: Base
   );
 
   return (
-    <aside className="w-64 bg-[var(--surface-secondary)] border-r border-[var(--border-default)] min-h-screen">
+    <aside className="w-64 bg-[var(--surface-secondary)] border-r border-[var(--border-default)] min-h-screen flex flex-col">
       <div className="p-4 border-b border-[var(--border-default)]">
         <h1 className="text-lg font-semibold text-[var(--text-primary)]">
           {title}
         </h1>
       </div>
-      <nav className="p-2">
+      <nav className="p-2 flex-1 overflow-y-auto">
         {isNavGroupArray(navItems) ? (
           <div className="space-y-4">
             {navItems.map((group) => (
@@ -88,7 +86,7 @@ export function BaseSidebar({ title, navItems, backLink, activeOverrides }: Base
           </ul>
         )}
       </nav>
-      <div className="absolute bottom-4 left-4 right-4">
+      <div className="p-4 border-t border-[var(--border-default)] mt-auto">
         <Link
           href={backLink.href}
           data-testid={backLink.testId}

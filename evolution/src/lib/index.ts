@@ -3,7 +3,7 @@
 
 // ─── Types ───────────────────────────────────────────────────────
 export type {
-  TextVariation,
+  Variant,
   ExecutionContext,
   ReadonlyPipelineState,
   EvolutionRunStatus,
@@ -33,6 +33,65 @@ export {
   EvolutionRunSummaryV3Schema,
 } from './types';
 
+// ─── Schemas ──────────────────────────────────────────────────────
+export {
+  // Enums
+  evolutionRunStatusEnum,
+  pipelineTypeEnum,
+  promptStatusEnum,
+  experimentStatusEnum,
+  logLevelEnum,
+  arenaWinnerEnum,
+  explanationSourceEnum,
+  pipelinePhaseEnum,
+  agentNameEnum,
+  budgetEventTypeEnum,
+  // DB entity schemas
+  evolutionStrategyInsertSchema,
+  evolutionStrategyFullDbSchema,
+  evolutionPromptInsertSchema,
+  evolutionPromptFullDbSchema,
+  evolutionExperimentInsertSchema,
+  evolutionExperimentFullDbSchema,
+  evolutionRunInsertSchema,
+  evolutionRunFullDbSchema,
+  evolutionVariantInsertSchema,
+  evolutionVariantFullDbSchema,
+  evolutionAgentInvocationInsertSchema,
+  evolutionAgentInvocationFullDbSchema,
+  evolutionRunLogInsertSchema,
+  evolutionRunLogFullDbSchema,
+  evolutionArenaComparisonInsertSchema,
+  evolutionArenaComparisonFullDbSchema,
+  evolutionBudgetEventInsertSchema,
+  evolutionBudgetEventFullDbSchema,
+  evolutionExplanationInsertSchema,
+  evolutionExplanationFullDbSchema,
+} from './schemas';
+
+export type {
+  EvolutionStrategyInsert,
+  EvolutionStrategyFullDb,
+  EvolutionPromptInsert,
+  EvolutionPromptFullDb,
+  EvolutionExperimentInsert,
+  EvolutionExperimentFullDb,
+  EvolutionRunInsert,
+  EvolutionRunFullDb,
+  EvolutionVariantInsert,
+  EvolutionVariantFullDb,
+  EvolutionAgentInvocationInsert,
+  EvolutionAgentInvocationFullDb,
+  EvolutionRunLogInsert,
+  EvolutionRunLogFullDb,
+  EvolutionArenaComparisonInsert,
+  EvolutionArenaComparisonFullDb,
+  EvolutionBudgetEventInsert,
+  EvolutionBudgetEventFullDb,
+  EvolutionExplanationInsert,
+  EvolutionExplanationFullDb,
+} from './schemas';
+
 // ─── Rating ──────────────────────────────────────────────────────
 export { createRating, updateRating, updateDraw, isConverged, toEloScale, computeEloPerDollar, DEFAULT_MU, DEFAULT_SIGMA, DEFAULT_CONVERGENCE_SIGMA } from './shared/computeRatings';
 export type { Rating } from './shared/computeRatings';
@@ -46,8 +105,11 @@ export type { CachedMatch } from './shared/computeRatings';
 // ─── Error classification ────────────────────────────────────────
 export { isTransientError } from './shared/classifyErrors';
 
-// ─── Text variation factory ──────────────────────────────────────
-export { createTextVariation } from './types';
+// ─── Variant factory ─────────────────────────────────────────────
+export { createVariant } from './types';
+
+/** @deprecated Use Variant */ export type { TextVariation } from './types';
+/** @deprecated Use createVariant */ export { createTextVariation } from './types';
 
 // ─── Format validation ──────────────────────────────────────────
 export { validateFormat } from './shared/enforceVariantFormat';
@@ -61,3 +123,10 @@ export type { StrategyConfig, StrategyConfigRow } from './shared/hashStrategyCon
 // ─── Reversal comparison ────────────────────────────────────────
 export { run2PassReversal } from './shared/computeRatings';
 export type { ReversalConfig } from './shared/computeRatings';
+
+// ─── Entity/Agent class system ──────────────────────────────────
+export { Entity } from './core/Entity';
+export { Agent } from './core/Agent';
+export { METRIC_CATALOG } from './core/metricCatalog';
+export { getEntity, getEntityMetrics, getAllEntityMetricDefs, getEntityListViewMetrics, getEntityMetricDef, isValidEntityMetricName } from './core/entityRegistry';
+export type { EntityType as CoreEntityType, ParentRelation, ChildRelation, EntityAction, AgentContext, AgentResult, EntityMetricRegistry, CatalogMetricDef } from './core/types';

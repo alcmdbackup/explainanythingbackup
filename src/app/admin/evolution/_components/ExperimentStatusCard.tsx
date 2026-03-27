@@ -10,7 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   getExperimentAction,
   cancelExperimentAction,
-} from '@evolution/services/experimentActionsV2';
+} from '@evolution/services/experimentActions';
 import { StatusBadge } from '@evolution/components/evolution/StatusBadge';
 
 interface ExperimentStatus {

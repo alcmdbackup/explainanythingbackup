@@ -33,7 +33,8 @@ describe('generate → rank composition', () => {
     });
 
     // Generate variants
-    const variants = await generateVariants('original text', 1, llm, baseConfig);
+    const genResult = await generateVariants('original text', 1, llm, baseConfig);
+    const variants = genResult.variants;
     expect(variants.length).toBeGreaterThan(0);
 
     // Rank them
@@ -59,7 +60,8 @@ describe('generate → rank composition', () => {
   it('generate returns empty → rank with empty newEntrants returns empty matches', async () => {
     const llm = createV2MockLlm({ defaultText: 'bad format' });
 
-    const variants = await generateVariants('original', 1, llm, baseConfig);
+    const genResult = await generateVariants('original', 1, llm, baseConfig);
+    const variants = genResult.variants;
     expect(variants).toHaveLength(0);
 
     const result = await rankPool([], new Map(), new Map(), [], llm, baseConfig);
@@ -74,14 +76,16 @@ describe('generate → rank composition', () => {
     });
 
     // Iteration 1: generate + rank
-    const variants1 = await generateVariants('original text', 1, llm, baseConfig);
+    const genResult1 = await generateVariants('original text', 1, llm, baseConfig);
+    const variants1 = genResult1.variants;
     const result1 = await rankPool(
       variants1, new Map(), new Map(),
       variants1.map((v) => v.id), llm, baseConfig,
     );
 
     // Iteration 2: new variants added to existing pool
-    const variants2 = await generateVariants('original text', 2, llm, baseConfig);
+    const genResult2 = await generateVariants('original text', 2, llm, baseConfig);
+    const variants2 = genResult2.variants;
     const combined = [...variants1, ...variants2];
     const ratings = new Map(Object.entries(result1.ratingUpdates));
     const matchCounts = new Map(Object.entries(result1.matchCountIncrements));
@@ -103,7 +107,8 @@ describe('generate → rank composition', () => {
       rankingResponses: Array(20).fill('A'),
     });
 
-    const variants = await generateVariants('original text', 3, llm, baseConfig);
+    const genResult = await generateVariants('original text', 3, llm, baseConfig);
+    const variants = genResult.variants;
 
     for (const v of variants) {
       expect(v.iterationBorn).toBe(3);
@@ -117,7 +122,8 @@ describe('generate → rank composition', () => {
       rankingResponses: Array(50).fill('draw'),
     });
 
-    const variants = await generateVariants('original text', 1, llm, baseConfig);
+    const genResult = await generateVariants('original text', 1, llm, baseConfig);
+    const variants = genResult.variants;
     if (variants.length === 0) return; // format validation may reject — skip gracefully
 
     const result = await rankPool(
@@ -132,19 +138,20 @@ describe('generate → rank composition', () => {
   it('rank handles single variant without crashing', async () => {
     const llm = createV2MockLlm({ defaultText: validText });
 
-    const variants = await generateVariants('original text', 1, llm, {
+    const genResult = await generateVariants('original text', 1, llm, {
       ...baseConfig,
       calibrationOpponents: 0,
       tournamentTopK: 1,
     });
+    const variants = genResult.variants;
 
     if (variants.length === 0) return;
 
     // Single variant should still work — just no matches
-    const singleVariant = [variants[0]];
+    const singleVariant = [variants[0]!];
     const result = await rankPool(
       singleVariant, new Map(), new Map(),
-      [singleVariant[0].id], llm, { ...baseConfig, calibrationOpponents: 0 },
+      [singleVariant[0]!.id], llm, { ...baseConfig, calibrationOpponents: 0 },
     );
 
     expect(result.matches).toHaveLength(0);

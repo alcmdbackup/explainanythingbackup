@@ -14,20 +14,21 @@ import { buildVariantDetailUrl } from '@evolution/lib/utils/evolutionUrls';
 
 interface VariantsTabProps {
   runId: string;
+  runStatus?: string;
 }
 
-export function VariantsTab({ runId }: VariantsTabProps): JSX.Element {
+export function VariantsTab({ runId, runStatus }: VariantsTabProps): JSX.Element {
   const searchParams = useSearchParams();
   const initialVariant = searchParams.get('variant');
   const [variants, setVariants] = useState<EvolutionVariant[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [strategyFilter, setStrategyFilter] = useState<string>('');
   const initialVariantApplied = useRef(false);
 
   useEffect(() => {
-    async function load() {
+    async function load(): Promise<void> {
       setLoading(true);
       const result = await getEvolutionVariantsAction(runId);
       if (result.success && result.data) {
@@ -44,11 +45,11 @@ export function VariantsTab({ runId }: VariantsTabProps): JSX.Element {
     if (!initialVariant || loading || initialVariantApplied.current || variants.length === 0) return;
     initialVariantApplied.current = true;
     const match = variants.find(v => v.id === initialVariant || v.id.startsWith(initialVariant));
-    if (match) setExpandedId(match.id);
+    if (match) setExpandedIds(new Set([match.id]));
   }, [initialVariant, loading, variants]);
 
   const strategies = useMemo(() => {
-    const set = new Set(variants.map(v => v.agent_name));
+    const set = new Set(variants.map(v => v.agent_name).filter(Boolean));
     return Array.from(set).sort();
   }, [variants]);
 
@@ -71,6 +72,11 @@ export function VariantsTab({ runId }: VariantsTabProps): JSX.Element {
 
   return (
     <div className="space-y-4" data-testid="variants-tab">
+      {runStatus === 'failed' && (
+        <div className="rounded-book border border-[var(--status-warning)] bg-[var(--status-warning)]/10 p-3 text-sm font-ui text-[var(--status-warning)]">
+          This run failed. Variant data may be incomplete or from a partial execution.
+        </div>
+      )}
       <div className="flex items-center justify-between relative z-10">
         <select
           value={strategyFilter}
@@ -101,7 +107,7 @@ export function VariantsTab({ runId }: VariantsTabProps): JSX.Element {
                   className={`border-t border-[var(--border-default)] hover:bg-[var(--surface-secondary)] ${v.is_winner ? 'bg-[var(--status-success)]/5' : ''}`}
                 >
                   <td className="px-2 py-2 text-[var(--text-muted)]">
-                    <span className="cursor-pointer" title={v.id} onClick={() => setExpandedId(expandedId === v.id ? null : v.id)}>
+                    <span className="cursor-pointer" title={v.id} onClick={() => setExpandedIds(prev => { const next = new Set(prev); if (next.has(v.id)) next.delete(v.id); else next.add(v.id); return next; })}>
                       #{i + 1}
                       {v.is_winner && <span className="ml-1 text-[var(--accent-gold)]">&#9733;</span>}
                       <span className="ml-1 font-mono text-xs text-[var(--accent-gold)]">{v.id.substring(0, 6)}</span>
@@ -109,27 +115,27 @@ export function VariantsTab({ runId }: VariantsTabProps): JSX.Element {
                   </td>
                   <td className="px-2 py-2 text-right font-semibold">{Math.round(v.elo_score)}</td>
                   <td className="px-2 py-2 text-right text-[var(--text-muted)]">{v.match_count}</td>
-                  <td className="px-2 py-2 font-mono text-xs">{v.agent_name}</td>
+                  <td className="px-2 py-2 font-mono text-xs">{v.agent_name || '—'}</td>
                   <td className="px-2 py-2 text-right text-[var(--text-muted)]">{v.generation}</td>
                   <td className="px-2 py-2">
                     <span className="flex items-center gap-2">
                       <button
-                        onClick={() => setExpandedId(expandedId === v.id ? null : v.id)}
+                        onClick={() => setExpandedIds(prev => { const next = new Set(prev); if (next.has(v.id)) next.delete(v.id); else next.add(v.id); return next; })}
                         className="text-[var(--accent-gold)] hover:underline text-xs"
                       >
-                        {expandedId === v.id ? 'Hide' : 'View'}
+                        {expandedIds.has(v.id) ? 'Hide' : 'Preview'}
                       </button>
                       <Link
                         href={buildVariantDetailUrl(v.id)}
                         className="text-[var(--text-muted)] hover:text-[var(--accent-gold)] text-xs"
                         title="Full variant detail"
                       >
-                        Full
+                        Detail
                       </Link>
                     </span>
                   </td>
                 </tr>
-                {expandedId === v.id && (
+                {expandedIds.has(v.id) && (
                   <tr key={`${v.id}-text`}>
                     <td colSpan={6} className="p-4 bg-[var(--surface-secondary)]">
                       <pre className="whitespace-pre-wrap text-xs text-[var(--text-secondary)] max-h-64 overflow-y-auto">

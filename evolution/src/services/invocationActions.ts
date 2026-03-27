@@ -36,6 +36,7 @@ export interface InvocationDetail {
 
 const listInvocationsInputSchema = z.object({
   runId: z.string().uuid().optional(),
+  filterTestContent: z.boolean().optional(),
   limit: z.number().int().min(1).max(200).default(50),
   offset: z.number().int().min(0).default(0),
 });
@@ -53,11 +54,33 @@ export const listInvocationsAction = adminAction(
     const parsed = listInvocationsInputSchema.parse(input);
     const { supabase } = ctx;
 
+    // Fetch test strategy IDs → test run IDs, then exclude those invocations.
+    // This avoids nested !inner joins which depend on FK constraints + PostgREST schema cache.
+    const baseFields = 'id, run_id, agent_name, iteration, execution_order, success, cost_usd, duration_ms, created_at';
+    let testRunIds: string[] = [];
+    if (parsed.filterTestContent) {
+      const { data: testStrategies } = await supabase
+        .from('evolution_strategies')
+        .select('id')
+        .ilike('name', '%[TEST]%');
+      const testStrategyIds = (testStrategies ?? []).map(s => s.id as string);
+      if (testStrategyIds.length > 0) {
+        const { data: testRuns } = await supabase
+          .from('evolution_runs')
+          .select('id')
+          .in('strategy_id', testStrategyIds);
+        testRunIds = (testRuns ?? []).map(r => r.id as string);
+      }
+    }
+
     let query = supabase
       .from('evolution_agent_invocations')
-      .select('id, run_id, agent_name, iteration, execution_order, success, cost_usd, duration_ms, created_at', { count: 'exact' });
+      .select(baseFields, { count: 'exact' });
 
     if (parsed.runId) query = query.eq('run_id', parsed.runId);
+    if (parsed.filterTestContent && testRunIds.length > 0) {
+      query = query.not('run_id', 'in', `(${testRunIds.join(',')})`);
+    }
 
     query = query.order('created_at', { ascending: false })
       .range(parsed.offset, parsed.offset + parsed.limit - 1);
@@ -65,7 +88,7 @@ export const listInvocationsAction = adminAction(
     const { data, error, count } = await query;
     if (error) throw error;
 
-    return { items: (data ?? []) as InvocationListEntry[], total: count ?? 0 };
+    return { items: (data ?? []) as unknown as InvocationListEntry[], total: count ?? 0 };
   },
 );
 

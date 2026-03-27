@@ -7,8 +7,9 @@ import type { AllowedLLMModelType } from '@/lib/schemas/schemas';
 
 import { v4 as uuidv4 } from 'uuid';
 import type { Rating } from './shared/computeRatings';
+import type { VariantSchema, CritiqueSchema, MetaFeedbackSchema } from './schemas';
 
-// Stub types retained for backward compatibility after V1 removal
+// Stub types retained for backward compatibility
 type PipelineAction = { type: string; [key: string]: unknown };
 type SectionEvolutionState = Record<string, unknown>;
 type TreeSearchResult = Record<string, unknown>;
@@ -35,23 +36,12 @@ export type AgentStepPhase = 0 | 1 | 2 | 3 | 4 | 5;
 
 // ─── Core data types ─────────────────────────────────────────────
 
-export interface TextVariation {
-  id: string;
-  text: string;
-  version: number;
-  parentIds: string[];
-  strategy: string;
-  createdAt: number; // unix timestamp
-  iterationBorn: number;
-  /** Cost in USD to generate this variant (for per-variant attribution). */
-  costUsd?: number;
-  /** True if this variant was loaded from the Arena at pipeline start. */
-  fromArena?: boolean;
-}
+/** Core in-memory variant type, derived from variantSchema. */
+export type Variant = VariantSchema;
 
-// ─── Text variation factory ─────────────────────────────────────
+// ─── Variant factory ────────────────────────────────────────────
 
-interface CreateTextVariationParams {
+interface CreateVariantParams {
   text: string;
   strategy: string;
   iterationBorn: number;
@@ -60,18 +50,22 @@ interface CreateTextVariationParams {
   costUsd?: number;
 }
 
-export function createTextVariation(params: CreateTextVariationParams): TextVariation {
+export function createVariant({ text, strategy, iterationBorn, parentIds, version, costUsd }: CreateVariantParams): Variant {
   return {
     id: uuidv4(),
-    text: params.text,
-    strategy: params.strategy,
-    iterationBorn: params.iterationBorn,
-    parentIds: params.parentIds ?? [],
-    version: params.version ?? 0,
+    text,
+    strategy,
+    iterationBorn,
+    parentIds: parentIds ?? [],
+    version: version ?? 0,
     createdAt: Date.now() / 1000,
-    ...(params.costUsd !== undefined && { costUsd: params.costUsd }),
+    ...(costUsd !== undefined && { costUsd }),
   };
 }
+
+/** @deprecated Use Variant */ export type TextVariation = Variant;
+/** @deprecated Use CreateVariantParams */ export type CreateTextVariationParams = CreateVariantParams;
+/** @deprecated Use createVariant */ export const createTextVariation = createVariant;
 
 // ─── Outline generation types (step-level scoring) ──────────────
 
@@ -88,8 +82,8 @@ export interface GenerationStep {
   costUsd: number;
 }
 
-/** Extends TextVariation with step-level scoring for outline-based generation. */
-export interface OutlineVariant extends TextVariation {
+/** Extends Variant with step-level scoring for outline-based generation. */
+export interface OutlineVariant extends Variant {
   steps: GenerationStep[];
   /** The intermediate outline text (section headings + summaries). */
   outline: string;
@@ -97,9 +91,9 @@ export interface OutlineVariant extends TextVariation {
   weakestStep: GenerationStepName | null;
 }
 
-export function isOutlineVariant(v: TextVariation): v is OutlineVariant {
+export function isOutlineVariant(v: Variant): v is OutlineVariant {
   const candidate = v as Partial<OutlineVariant>;
-  return Array.isArray(candidate.steps) && candidate.steps.length > 0 && 'name' in candidate.steps[0];
+  return Array.isArray(candidate.steps) && candidate.steps.length > 0 && 'name' in candidate.steps[0]!;
 }
 
 /** Parse raw LLM score to [0, 1], defaulting to 0.5 on failure. */
@@ -108,23 +102,11 @@ export function parseStepScore(rawOutput: string): number {
   return Number.isFinite(parsed) ? Math.max(0, Math.min(1, parsed)) : 0.5;
 }
 
-export interface Critique {
-  variationId: string;
-  dimensionScores: Record<string, number>;
-  goodExamples: Record<string, string[]>;
-  badExamples: Record<string, string[]>;
-  notes: Record<string, string>;
-  reviewer: string;
-  /** Score scale: '1-10' for quality critiques (default), '0-5' for flow critiques. */
-  scale?: '1-10' | '0-5';
-}
+/** Quality feedback with dimension scores, derived from critiqueSchema. */
+export type Critique = CritiqueSchema;
 
-export interface MetaFeedback {
-  recurringWeaknesses: string[];
-  priorityImprovements: string[];
-  successfulStrategies: string[];
-  patternsToAvoid: string[];
-}
+/** Aggregated insights from meta-review, derived from metaFeedbackSchema. */
+export type MetaFeedback = MetaFeedbackSchema;
 
 export interface DebateTranscript {
   variantAId: string;
@@ -172,7 +154,7 @@ export interface AgentResult {
 
 // ─── Agent execution detail types ───────────────────────────────
 
-interface ExecutionDetailBase {
+export interface ExecutionDetailBase {
   totalCost: number;
   /** Set by truncateDetail() when JSONB exceeds 100KB cap. */
   _truncated?: boolean;
@@ -400,7 +382,7 @@ export interface ReadonlyPipelineState {
   // --- Pool ---
   readonly originalText: string;
   readonly iteration: number;
-  readonly pool: readonly TextVariation[];
+  readonly pool: readonly Variant[];
   readonly poolIds: ReadonlySet<string>;
   readonly newEntrantsThisIteration: readonly string[];
 
@@ -418,8 +400,8 @@ export interface ReadonlyPipelineState {
   // --- Arena ---
   readonly lastSyncedMatchIndex: number;
 
-  getTopByRating(n: number): TextVariation[];
-  getVariationById(id: string): TextVariation | undefined;
+  getTopByRating(n: number): Variant[];
+  getVariationById(id: string): Variant | undefined;
   getPoolSize(): number;
   hasVariant(id: string): boolean;
 }
@@ -561,7 +543,7 @@ export interface Checkpoint {
 export interface SerializedPipelineState {
   iteration: number;
   originalText: string;
-  pool: TextVariation[];
+  pool: Variant[];
   newEntrantsThisIteration: string[];
   ratings: Record<string, { mu: number; sigma: number }>;
   /** @deprecated Old Elo format — only present in legacy checkpoints. */
@@ -635,6 +617,9 @@ export interface AgentAttribution {
 }
 
 // ─── Evolution run summary (persisted as JSONB) ─────────────────
+// Schemas moved to schemas.ts. Re-exported here for backward compatibility.
+
+export { EvolutionRunSummaryV3Schema, EvolutionRunSummarySchema } from './schemas';
 
 /** V3: mu-based run summary. New runs write this directly. */
 export interface EvolutionRunSummary {
@@ -671,153 +656,3 @@ export interface EvolutionRunSummary {
   /** Aggregate action type counts across all agents in the run. */
   actionCounts?: Record<string, number>;
 }
-
-/** TrueSkill default sigma used for V1/V2 → V3 migration: ordinal + 3*sigma ≈ mu */
-const V2_DEFAULT_SIGMA = 25 / 3;
-
-export const EvolutionRunSummaryV3Schema = z.object({
-  version: z.literal(3),
-  stopReason: z.string().max(200),
-  finalPhase: z.enum(['EXPANSION', 'COMPETITION']),
-  totalIterations: z.number().int().min(0).max(100),
-  durationSeconds: z.number().min(0),
-  muHistory: z.union([
-    z.array(z.array(z.number())),  // New format: number[][] (top-K per iteration)
-    z.array(z.number()).transform(arr => arr.map(v => [v]))  // Legacy: number[] → wrap each as [v]
-  ]).pipe(z.array(z.array(z.number())).max(100)),
-  diversityHistory: z.array(z.number()).max(100),
-  matchStats: z.object({
-    totalMatches: z.number().int().min(0),
-    avgConfidence: z.number().min(0).max(1),
-    decisiveRate: z.number().min(0).max(1),
-  }),
-  topVariants: z.array(z.object({
-    id: z.string().max(200),
-    strategy: z.string().max(100),
-    mu: z.number(),
-    isBaseline: z.boolean(),
-  })).max(10),
-  baselineRank: z.number().int().min(1).nullable(),
-  baselineMu: z.number().nullable(),
-  strategyEffectiveness: z.record(z.string(), z.object({
-    count: z.number().int().min(0),
-    avgMu: z.number(),
-  })),
-  metaFeedback: z.object({
-    successfulStrategies: z.array(z.string().min(1).max(200)).max(10),
-    recurringWeaknesses: z.array(z.string().min(1).max(200)).max(10),
-    patternsToAvoid: z.array(z.string().min(1).max(200)).max(10),
-    priorityImprovements: z.array(z.string().min(1).max(200)).max(10),
-  }).nullable(),
-  actionCounts: z.record(z.string(), z.number().int().min(0)).optional(),
-}).strict();
-
-/** Legacy V2 schema with ordinal field names. Auto-transforms to V3 on parse. */
-const EvolutionRunSummaryV2Schema = z.object({
-  version: z.literal(2),
-  stopReason: z.string().max(200),
-  finalPhase: z.enum(['EXPANSION', 'COMPETITION']),
-  totalIterations: z.number().int().min(0).max(100),
-  durationSeconds: z.number().min(0),
-  ordinalHistory: z.array(z.number()).max(100),
-  diversityHistory: z.array(z.number()).max(100),
-  matchStats: z.object({
-    totalMatches: z.number().int().min(0),
-    avgConfidence: z.number().min(0).max(1),
-    decisiveRate: z.number().min(0).max(1),
-  }),
-  topVariants: z.array(z.object({
-    id: z.string().max(200),
-    strategy: z.string().max(100),
-    ordinal: z.number(),
-    isBaseline: z.boolean(),
-  })).max(10),
-  baselineRank: z.number().int().min(1).nullable(),
-  baselineOrdinal: z.number().nullable(),
-  strategyEffectiveness: z.record(z.string(), z.object({
-    count: z.number().int().min(0),
-    avgOrdinal: z.number(),
-  })),
-  metaFeedback: z.object({
-    successfulStrategies: z.array(z.string().min(1).max(200)).max(10),
-    recurringWeaknesses: z.array(z.string().min(1).max(200)).max(10),
-    patternsToAvoid: z.array(z.string().min(1).max(200)).max(10),
-    priorityImprovements: z.array(z.string().min(1).max(200)).max(10),
-  }).nullable(),
-}).transform((v2): EvolutionRunSummary => ({
-  version: 3,
-  stopReason: v2.stopReason,
-  finalPhase: v2.finalPhase,
-  totalIterations: v2.totalIterations,
-  durationSeconds: v2.durationSeconds,
-  muHistory: v2.ordinalHistory.map((ord) => [ord + 3 * V2_DEFAULT_SIGMA]),
-  diversityHistory: v2.diversityHistory,
-  matchStats: v2.matchStats,
-  topVariants: v2.topVariants.map((tv) => ({
-    id: tv.id, strategy: tv.strategy, mu: tv.ordinal + 3 * V2_DEFAULT_SIGMA, isBaseline: tv.isBaseline,
-  })),
-  baselineRank: v2.baselineRank,
-  baselineMu: v2.baselineOrdinal != null ? v2.baselineOrdinal + 3 * V2_DEFAULT_SIGMA : null,
-  strategyEffectiveness: Object.fromEntries(
-    Object.entries(v2.strategyEffectiveness).map(([k, v]) => [k, { count: v.count, avgMu: v.avgOrdinal + 3 * V2_DEFAULT_SIGMA }]),
-  ),
-  metaFeedback: v2.metaFeedback,
-}));
-
-/** Legacy V1 schema with Elo field names. Auto-transforms to V3 on parse (V1→V3 direct). */
-const EvolutionRunSummaryV1Schema = z.object({
-  version: z.literal(1).optional(),
-  stopReason: z.string().max(200),
-  finalPhase: z.enum(['EXPANSION', 'COMPETITION']),
-  totalIterations: z.number().int().min(0).max(100),
-  durationSeconds: z.number().min(0),
-  eloHistory: z.array(z.number()).max(100),
-  diversityHistory: z.array(z.number()).max(100),
-  matchStats: z.object({
-    totalMatches: z.number().int().min(0),
-    avgConfidence: z.number().min(0).max(1),
-    decisiveRate: z.number().min(0).max(1),
-  }),
-  topVariants: z.array(z.object({
-    id: z.string().max(200),
-    strategy: z.string().max(100),
-    elo: z.number(),
-    isBaseline: z.boolean(),
-  })).max(10),
-  baselineRank: z.number().int().min(1).nullable(),
-  baselineElo: z.number().nullable(),
-  strategyEffectiveness: z.record(z.string(), z.object({
-    count: z.number().int().min(0),
-    avgElo: z.number(),
-  })),
-  metaFeedback: z.object({
-    successfulStrategies: z.array(z.string().min(1).max(200)).max(10),
-    recurringWeaknesses: z.array(z.string().min(1).max(200)).max(10),
-    patternsToAvoid: z.array(z.string().min(1).max(200)).max(10),
-    priorityImprovements: z.array(z.string().min(1).max(200)).max(10),
-  }).nullable(),
-}).transform((v1): EvolutionRunSummary => ({
-  version: 3,
-  stopReason: v1.stopReason,
-  finalPhase: v1.finalPhase,
-  totalIterations: v1.totalIterations,
-  durationSeconds: v1.durationSeconds,
-  muHistory: v1.eloHistory.map((ord) => [ord + 3 * V2_DEFAULT_SIGMA]),
-  diversityHistory: v1.diversityHistory,
-  matchStats: v1.matchStats,
-  topVariants: v1.topVariants.map((tv) => ({
-    id: tv.id, strategy: tv.strategy, mu: tv.elo + 3 * V2_DEFAULT_SIGMA, isBaseline: tv.isBaseline,
-  })),
-  baselineRank: v1.baselineRank,
-  baselineMu: v1.baselineElo != null ? v1.baselineElo + 3 * V2_DEFAULT_SIGMA : null,
-  strategyEffectiveness: Object.fromEntries(
-    Object.entries(v1.strategyEffectiveness).map(([k, v]) => [k, { count: v.count, avgMu: v.avgElo + 3 * V2_DEFAULT_SIGMA }]),
-  ),
-  metaFeedback: v1.metaFeedback,
-}));
-
-export const EvolutionRunSummarySchema = z.union([
-  EvolutionRunSummaryV3Schema,
-  EvolutionRunSummaryV2Schema,
-  EvolutionRunSummaryV1Schema,
-]);

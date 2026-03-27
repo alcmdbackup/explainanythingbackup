@@ -9,7 +9,7 @@ jest.mock('next/navigation', () => ({
   useSearchParams: () => new URLSearchParams(),
 }));
 
-jest.mock('@evolution/services/strategyRegistryActionsV2', () => ({
+jest.mock('@evolution/services/strategyRegistryActions', () => ({
   listStrategiesAction: jest.fn().mockResolvedValue({
     success: true,
     data: {
@@ -47,9 +47,9 @@ describe('StrategiesPage', () => {
     expect(headings.length).toBeGreaterThanOrEqual(1);
   });
 
-  it('renders breadcrumb with Dashboard link', () => {
+  it('renders breadcrumb with Evolution link', () => {
     render(<StrategiesPage />);
-    expect(screen.getByText('Dashboard')).toBeInTheDocument();
+    expect(screen.getByText('Evolution')).toBeInTheDocument();
   });
 
   it('renders New Strategy button', () => {
@@ -72,5 +72,54 @@ describe('StrategiesPage', () => {
   it('shows pipeline filter', () => {
     render(<StrategiesPage />);
     expect(screen.getByLabelText('Pipeline')).toBeInTheDocument();
+  });
+
+  it('renders strategy label text', async () => {
+    render(<StrategiesPage />);
+    await waitFor(() => {
+      expect(screen.getByText('Gen: gpt-4o | Judge: gpt-4o | 10 iters')).toBeInTheDocument();
+    });
+  });
+
+  it('displays strategy data (run_count from metrics, not base column)', async () => {
+    render(<StrategiesPage />);
+    await waitFor(() => {
+      expect(screen.getByText('Test Strategy')).toBeInTheDocument();
+    });
+  });
+
+  it('shows active status text', async () => {
+    render(<StrategiesPage />);
+    await waitFor(() => {
+      expect(screen.getByText('active')).toBeInTheDocument();
+    });
+  });
+
+  it('renders strategies breadcrumb', () => {
+    render(<StrategiesPage />);
+    const headings = screen.getAllByText('Strategies');
+    expect(headings.length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByTestId('evolution-breadcrumb')).toBeInTheDocument();
+  });
+
+  it('renders table after loading', async () => {
+    render(<StrategiesPage />);
+    await waitFor(() => {
+      expect(screen.getByText('Test Strategy')).toBeInTheDocument();
+    });
+  });
+
+  it('calls listStrategiesAction on mount', () => {
+    const { listStrategiesAction } = jest.requireMock('@evolution/services/strategyRegistryActions');
+    render(<StrategiesPage />);
+    expect(listStrategiesAction).toHaveBeenCalled();
+  });
+
+  it('does not render Created By column (F48)', async () => {
+    render(<StrategiesPage />);
+    await waitFor(() => {
+      expect(screen.getByText('Test Strategy')).toBeInTheDocument();
+    });
+    expect(screen.queryByText('Created By')).not.toBeInTheDocument();
   });
 });

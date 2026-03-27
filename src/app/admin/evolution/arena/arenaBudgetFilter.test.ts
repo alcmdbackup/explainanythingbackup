@@ -41,7 +41,7 @@ describe('filterByBudgetTier', () => {
   it('returns entries with cost < 0.10 for tier "low"', () => {
     const result = filterByBudgetTier(entries, 'low');
     expect(result).toHaveLength(1);
-    expect(result[0].id).toBe('e1');
+    expect(result[0]!.id).toBe('e1');
   });
 
   it('returns entries with 0.10 <= cost < 0.50 for tier "medium"', () => {

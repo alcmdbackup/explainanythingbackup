@@ -1,12 +1,13 @@
-// Tests for arena topic detail page with leaderboard rendering.
+// Tests for arena topic detail page with leaderboard rendering and column sorting.
 
 import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import ArenaTopicDetailPage from './page';
 
 const MOCK_TOPIC = {
   id: '550e8400-e29b-41d4-a716-446655440000',
   prompt: 'Explain photosynthesis to a 5-year-old.',
-  title: 'Photosynthesis Explainer',
+  name: 'Photosynthesis Explainer',
   status: 'active' as const,
   created_at: '2026-03-01T09:00:00Z',
 };
@@ -125,7 +126,7 @@ describe('ArenaTopicDetailPage', () => {
     });
   });
 
-  it('shows error when topic fails to load', async () => {
+  it('shows not found card when topic fails to load', async () => {
     mockGetArenaTopicDetailAction.mockResolvedValue({
       success: false,
       data: null,
@@ -133,7 +134,7 @@ describe('ArenaTopicDetailPage', () => {
     });
     render(<ArenaTopicDetailPage />);
     await waitFor(() => {
-      expect(screen.getByText('Network error')).toBeInTheDocument();
+      expect(screen.getByText('Arena Topic not found')).toBeInTheDocument();
     });
   });
 
@@ -143,5 +144,42 @@ describe('ArenaTopicDetailPage', () => {
     await waitFor(() => {
       expect(screen.getByText('No entries yet.')).toBeInTheDocument();
     });
+  });
+
+  it('renders sortable column headers (F41)', async () => {
+    render(<ArenaTopicDetailPage />);
+    await waitFor(() => {
+      expect(screen.getByTestId('leaderboard-table')).toBeInTheDocument();
+    });
+    // Elo header should show descending indicator by default
+    const eloHeader = screen.getByText(/Elo/);
+    expect(eloHeader.textContent).toContain('\u25BC');
+  });
+
+  it('toggles sort direction when clicking same column (F41)', async () => {
+    const user = userEvent.setup();
+    render(<ArenaTopicDetailPage />);
+    await waitFor(() => {
+      expect(screen.getByTestId('leaderboard-table')).toBeInTheDocument();
+    });
+    const eloHeader = screen.getByText(/Elo/);
+    // Default is desc, clicking should toggle to asc
+    await user.click(eloHeader);
+    expect(eloHeader.textContent).toContain('\u25B2');
+  });
+
+  it('switches sort column and resets direction to desc (F41)', async () => {
+    const user = userEvent.setup();
+    render(<ArenaTopicDetailPage />);
+    await waitFor(() => {
+      expect(screen.getByTestId('leaderboard-table')).toBeInTheDocument();
+    });
+    const muHeader = screen.getByText(/^Mu/);
+    await user.click(muHeader);
+    expect(muHeader.textContent).toContain('\u25BC'); // defaults to desc
+    // Elo should no longer show indicator
+    const eloHeader = screen.getByText(/Elo/);
+    expect(eloHeader.textContent).not.toContain('\u25B2');
+    expect(eloHeader.textContent).not.toContain('\u25BC');
   });
 });

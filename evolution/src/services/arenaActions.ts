@@ -11,7 +11,7 @@ import { z } from 'zod';
 export interface ArenaTopic {
   id: string;
   prompt: string;
-  title: string;
+  name: string;
   status: 'active' | 'archived';
   created_at: string;
   entry_count?: number;
@@ -49,8 +49,8 @@ export interface ArenaComparison {
 // ─── Schemas ────────────────────────────────────────────────────
 
 const createTopicSchema = z.object({
-  prompt: z.string().min(1).max(10000),
-  title: z.string().min(1).max(200),
+  prompt: z.string().trim().min(1).max(10000),
+  name: z.string().trim().min(1).max(200),
 });
 
 // ─── Actions ────────────────────────────────────────────────────
@@ -68,7 +68,7 @@ export const getArenaTopicsAction = adminAction(
       .order('created_at', { ascending: false });
 
     if (filters?.status) query = query.eq('status', filters.status);
-    if (filters?.filterTestContent) query = query.not('title', 'ilike', '%[TEST]%');
+    if (filters?.filterTestContent) query = query.not('name', 'ilike', '%[TEST]%');
 
     const { data, error } = await query;
     if (error) throw error;
@@ -121,7 +121,7 @@ export const createArenaTopicAction = adminAction(
       .from('evolution_prompts')
       .insert({
         prompt: parsed.prompt,
-        title: parsed.title,
+        name: parsed.name,
       })
       .select()
       .single();
@@ -203,7 +203,7 @@ export const archiveArenaTopicAction = adminAction(
 export interface PromptListItem {
   id: string;
   prompt: string;
-  title: string;
+  name: string;
   status: 'active' | 'archived';
   deleted_at: string | null;
   archived_at: string | null;
@@ -211,14 +211,14 @@ export interface PromptListItem {
 }
 
 const createPromptSchema = z.object({
-  title: z.string().min(1).max(200),
-  prompt: z.string().min(1).max(10000),
+  name: z.string().trim().min(1).max(200),
+  prompt: z.string().trim().min(1).max(10000),
 });
 
 const updatePromptSchema = z.object({
   id: z.string().uuid(),
-  title: z.string().min(1).max(200).optional(),
-  prompt: z.string().min(1).max(10000).optional(),
+  name: z.string().trim().min(1).max(200).optional(),
+  prompt: z.string().trim().min(1).max(10000).optional(),
 });
 
 export const listPromptsAction = adminAction(
@@ -233,7 +233,7 @@ export const listPromptsAction = adminAction(
       .is('deleted_at', null);
 
     if (input.status) query = query.eq('status', input.status);
-    if (input.filterTestContent) query = query.not('title', 'ilike', '%[TEST]%');
+    if (input.filterTestContent) query = query.not('name', 'ilike', '%[TEST]%');
 
     query = query.order('created_at', { ascending: false })
       .range(input.offset, input.offset + input.limit - 1);
@@ -267,7 +267,7 @@ export const createPromptAction = adminAction(
     const { data, error } = await ctx.supabase
       .from('evolution_prompts')
       .insert({
-        title: parsed.title,
+        name: parsed.name,
         prompt: parsed.prompt,
       })
       .select()
@@ -285,7 +285,7 @@ export const updatePromptAction = adminAction(
     if (!validateUuid(parsed.id)) throw new Error('Invalid promptId');
 
     const updates: Record<string, unknown> = {};
-    if (parsed.title !== undefined) updates.title = parsed.title;
+    if (parsed.name !== undefined) updates.name = parsed.name;
     if (parsed.prompt !== undefined) updates.prompt = parsed.prompt;
 
     if (Object.keys(updates).length === 0) throw new Error('No fields to update');

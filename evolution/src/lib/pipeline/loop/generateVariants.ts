@@ -1,11 +1,12 @@
 // Generates new text variants using parallel LLM strategies with format validation.
 
-import type { TextVariation, EvolutionLLMClient } from '../../types';
+import type { Variant, EvolutionLLMClient, LLMCompletionOptions } from '../../types';
 import type { EvolutionConfig } from '../infra/types';
+import type { EntityLogger } from '../infra/createEntityLogger';
 import { BudgetExceededError } from '../../types';
 import { BudgetExceededWithPartialResults } from '../infra/errors';
 import { validateFormat } from '../../shared/enforceVariantFormat';
-import { createTextVariation } from '../../types';
+import { createVariant } from '../../types';
 import { buildEvolutionPrompt } from './buildPrompts';
 
 // ─── Strategy prompts ────────────────────────────────────────────
@@ -36,11 +37,30 @@ function buildPrompt(
   return buildEvolutionPrompt(preamble, 'Original Text', text, instructions, feedback);
 }
 
+// ─── Result type ─────────────────────────────────────────────────
+
+/** Per-strategy metadata for execution detail tracking. */
+export interface StrategyResult {
+  name: string;
+  promptLength: number;
+  status: 'success' | 'format_rejected' | 'error';
+  formatIssues?: string[];
+  variantId?: string;
+  textLength?: number;
+  error?: string;
+}
+
+/** Extended result from generateVariants with per-strategy metadata. */
+export interface GenerationResult {
+  variants: Variant[];
+  strategyResults: StrategyResult[];
+}
+
 // ─── Public API ──────────────────────────────────────────────────
 
 /**
  * Generate new text variants using parallel LLM strategies.
- * Returns validated variants (format failures are silently discarded).
+ * Returns validated variants and per-strategy metadata.
  * Throws BudgetExceededWithPartialResults if budget exceeded mid-generation.
  */
 export async function generateVariants(
@@ -49,29 +69,49 @@ export async function generateVariants(
   llm: EvolutionLLMClient,
   config: EvolutionConfig,
   feedback?: { weakestDimension: string; suggestions: string[] },
-): Promise<TextVariation[]> {
+  logger?: EntityLogger,
+): Promise<GenerationResult> {
   const count = Math.min(config.strategiesPerRound ?? 3, STRATEGIES.length);
   const activeStrategies = STRATEGIES.slice(0, count);
+  logger?.info(`Generating with ${count} strategies`, { phaseName: 'generation', iteration });
+
+  const strategyResults: StrategyResult[] = [];
 
   const results = await Promise.allSettled(
     activeStrategies.map(async (strategy) => {
       const prompt = buildPrompt(text, strategy, feedback);
-      const generated = await llm.complete(prompt, 'generation', {
-        model: config.generationModel as Parameters<typeof llm.complete>[2] extends { model?: infer M } ? M : never,
-      });
-      const fmt = validateFormat(generated);
-      if (!fmt.valid) return null;
-      return createTextVariation({
-        text: generated.trim(),
-        strategy,
-        iterationBorn: iteration,
-        parentIds: [],
-        version: 0,
-      });
+      const stratResult: StrategyResult = { name: strategy, promptLength: prompt.length, status: 'success' };
+      let variant: ReturnType<typeof createVariant> | null = null;
+
+      try {
+        const generated = await llm.complete(prompt, 'generation', {
+          model: config.generationModel as LLMCompletionOptions['model'],
+        });
+        const fmt = validateFormat(generated);
+        if (!fmt.valid) {
+          logger?.warn(`Strategy ${strategy} variant failed format validation`, { phaseName: 'generation', iteration });
+          stratResult.status = 'format_rejected';
+          stratResult.formatIssues = fmt.issues;
+        } else {
+          logger?.debug(`Strategy ${strategy} produced variant`, { phaseName: 'generation', iteration });
+          variant = createVariant({ text: generated.trim(), strategy, iterationBorn: iteration, parentIds: [], version: 0 });
+          stratResult.variantId = variant.id;
+          stratResult.textLength = variant.text.length;
+        }
+      } catch (err) {
+        stratResult.status = 'error';
+        stratResult.error = err instanceof BudgetExceededError ? err.message : String(err).slice(0, 500);
+        strategyResults.push(stratResult);
+        if (err instanceof BudgetExceededError) throw err;
+        return null;
+      }
+
+      strategyResults.push(stratResult);
+      return variant;
     }),
   );
 
-  const variants: TextVariation[] = [];
+  const variants: Variant[] = [];
   let budgetError: BudgetExceededError | null = null;
 
   for (const result of results) {
@@ -86,5 +126,5 @@ export async function generateVariants(
     throw new BudgetExceededWithPartialResults(variants, budgetError);
   }
 
-  return variants;
+  return { variants, strategyResults };
 }

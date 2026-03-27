@@ -339,7 +339,7 @@ describe('Import Articles Integration Tests', () => {
                 .in('id', [result1.explanationId, result2.explanationId]);
 
             expect(explanations).toHaveLength(2);
-            expect(explanations![0].primary_topic_id).toBe(explanations![1].primary_topic_id);
+            expect(explanations![0]!.primary_topic_id).toBe(explanations![1]!.primary_topic_id);
         });
 
         it('should store content without modification', async () => {

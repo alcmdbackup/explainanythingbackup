@@ -146,6 +146,35 @@ Before creating project files, read these three core documents to understand the
 
 These provide essential context for the project initialization.
 
+### 2.6. Manual Doc Tagging (Optional)
+
+Before auto-discovery, give the user a chance to manually specify docs they already know are relevant.
+
+1. **Ask user** via AskUserQuestion:
+   - Question: "Do you want to manually tag any docs to track for this project? You can type doc names or paths (e.g. 'tag_system', 'docs/feature_deep_dives/error_handling.md'). Select 'Skip' to go straight to auto-discovery."
+   - Options:
+     1. "Yes, I'll specify docs" — user selects "Other" and types doc names/paths
+     2. "Skip to auto-discovery" — continue to step 2.7
+
+2. **If user provides doc names/paths:**
+   - Parse the user's input: split on commas first, then trim whitespace from each entry. If no commas, split on newlines. Entries with spaces are treated as a single doc name (e.g., "error handling" matches "error_handling.md").
+   - For each entry, fuzzy-match against all markdown files in:
+     - `docs/docs_overall/`
+     - `docs/feature_deep_dives/`
+     - `evolution/docs/evolution/`
+   - Use Glob tool (not `ls`) to find matches. Two calls needed since evolution/ is a sibling to docs/:
+     - `Glob("**/*{user_input}*.md", path="docs/")` — covers docs_overall/ and feature_deep_dives/
+     - `Glob("**/*{user_input}*.md", path="evolution/docs/evolution/")` — covers evolution docs
+   - Matching logic:
+     - If entry is a full path and file exists → use directly
+     - If entry is a partial name → find files containing that string (case-insensitive)
+     - If multiple matches → present matches via AskUserQuestion and let user pick
+     - If no match → warn user: "No doc found matching '[entry]'. Skipping." and continue
+     - If user provides empty input after selecting "Yes" → treat as skip, continue to step 2.7
+   - Add all resolved paths to `MANUAL_DOCS` list (do NOT read yet — reading is deferred to step 2.8)
+
+3. **Continue to step 2.7** — auto-discovery will supplement (not replace) manually tagged docs.
+
 ### 2.7. Discover Relevant Project Documentation
 
 After reading core docs, discover which additional docs in `docs/docs_overall/` and `docs/feature_deep_dives/` are relevant to this project. Do NOT include any files from `docs/planning/`.
@@ -164,16 +193,30 @@ After reading core docs, discover which additional docs in `docs/docs_overall/` 
    - Only include files from docs/docs_overall/ and docs/feature_deep_dives/
    - Do NOT include any files from docs/planning/
    - Exclude the 3 core docs already read: getting_started.md, architecture.md, project_workflow.md
+   - Exclude docs already manually tagged by user in step 2.6: [list RELEVANT_DOCS entries]
    ```
 
 2. **Present results to user** via AskUserQuestion (multiSelect):
 
-   "These docs appear relevant to your project. Select which to read now and track for updates during /finalize:"
+   "Auto-discovery found these additional docs (you already tagged: [list manually tagged docs from step 2.6, or 'none']). Select any to add:"
    - [List each doc from Explore agent results with its one-line reason as the description]
 
-3. **Read all confirmed docs** using the Read tool.
+3. **Store the confirmed list** as `AUTO_DOCS` (do NOT read yet — reading is deferred to step 2.8).
 
-4. **Store the confirmed list** as `RELEVANT_DOCS` for use in later steps (written to `_status.json` in step 3.5, and used to pre-populate templates in steps 4 and 5).
+### 2.8. Final Doc Review
+
+Merge and deduplicate `MANUAL_DOCS` (from step 2.6) and `AUTO_DOCS` (from step 2.7) into a unified `RELEVANT_DOCS` list.
+
+1. **Deduplicate**: Remove any paths that appear in both lists.
+
+2. **Present full list** via AskUserQuestion (multiSelect, all pre-checked):
+
+   "These docs will be read for project context. Deselect any that aren't needed:"
+   - [List each doc path from RELEVANT_DOCS, all pre-selected]
+
+3. **Read all remaining confirmed docs** using the Read tool.
+
+4. **Store the final list** as `RELEVANT_DOCS` for use in later steps (written to `_status.json` in step 3.5, and used to pre-populate templates in steps 4 and 5).
 
 ### 3. Create Folder Structure
 
@@ -198,7 +241,7 @@ Create `$PROJECT_PATH/_status.json` using the **Write tool**. Include the `relev
 }
 ```
 
-- `relevantDocs` must only contain paths under `docs/docs_overall/` or `docs/feature_deep_dives/`
+- `relevantDocs` may contain paths under `docs/docs_overall/`, `docs/feature_deep_dives/`, or `evolution/docs/evolution/`
 - Never include paths under `docs/planning/`
 - Populate from the user-confirmed list in step 2.7
 
@@ -275,17 +318,48 @@ Create `$PROJECT_PATH/${PROJECT_NAME}_planning.md` using the **Write tool** with
 [3-5 sentences describing the problem — refine after /research]
 
 ## Options Considered
-[Concise but thorough list of options]
+- [ ] **Option A: [Name]**: [Description]
+- [ ] **Option B: [Name]**: [Description]
+- [ ] **Option C: [Name]**: [Description]
 
 ## Phased Execution Plan
-[Incrementally executable milestones]
+
+### Phase 1: [Phase Name]
+- [ ] [Actionable item with specific deliverable]
+- [ ] [Actionable item with specific deliverable]
+
+### Phase 2: [Phase Name]
+- [ ] [Actionable item with specific deliverable]
+- [ ] [Actionable item with specific deliverable]
 
 ## Testing
-[Tests to write or modify, plus manual verification on stage]
+
+### Unit Tests
+- [ ] [Test file path and description, e.g. `src/lib/services/foo.test.ts` — test X behavior]
+
+### Integration Tests
+- [ ] [Test file path and description, e.g. `src/__tests__/integration/foo.integration.test.ts` — test Y flow]
+
+### E2E Tests
+- [ ] [Test file path and description, e.g. `src/__tests__/e2e/specs/foo.spec.ts` — verify Z end-to-end]
+
+### Manual Verification
+- [ ] [Manual verification step description]
+
+## Verification
+
+### A) Playwright Verification (required for UI changes)
+- [ ] [Playwright spec or manual UI check — run on local server via ensure-server.sh]
+
+### B) Automated Tests
+- [ ] [Specific test file path to run, e.g. `npm run test:unit -- --grep "foo"` or `npx playwright test src/__tests__/e2e/specs/foo.spec.ts`]
 
 ## Documentation Updates
 The following docs were identified as relevant and may need updates:
-- [list each path from RELEVANT_DOCS, e.g. `docs/feature_deep_dives/tag_system.md` - brief note on what may change]
+- [ ] [list each path from RELEVANT_DOCS, e.g. `docs/feature_deep_dives/tag_system.md` — brief note on what may change]
+
+## Review & Discussion
+[This section is populated by /plan-review with agent scores, reasoning, and gap resolutions per iteration]
 ```
 
 Pre-populate the "Documentation Updates" section with the actual paths from `RELEVANT_DOCS`.
@@ -414,7 +488,9 @@ Documents created:
    - ${PROJECT_NAME}_research.md
    - ${PROJECT_NAME}_planning.md
    - ${PROJECT_NAME}_progress.md
-Relevant docs discovered and read: [count]
+Manually tagged docs: [count from step 2.6]
+   - [list manually tagged paths]
+Relevant docs discovered and read: [count from step 2.7]
    - [list each path from RELEVANT_DOCS]
 Documentation mappings: [list any new mappings added to .claude/doc-mapping.json]
 GitHub Issue: [issue URL]

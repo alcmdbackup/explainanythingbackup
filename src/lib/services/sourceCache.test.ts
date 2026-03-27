@@ -265,8 +265,8 @@ describe('sourceCache', () => {
 
       const result = await getSourcesByExplanationId(1);
       // Should be ordered by position: source 10 first, then source 20
-      expect(result[0].id).toBe(10);
-      expect(result[1].id).toBe(20);
+      expect(result[0]!.id).toBe(10);
+      expect(result[1]!.id).toBe(20);
     });
   });
 });

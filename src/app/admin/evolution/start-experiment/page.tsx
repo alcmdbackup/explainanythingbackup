@@ -12,7 +12,7 @@ export default function StartExperimentPage(): JSX.Element {
   return (
     <div className="space-y-6">
       <EvolutionBreadcrumb items={[
-        { label: 'Dashboard', href: '/admin/evolution-dashboard' },
+        { label: 'Evolution', href: '/admin/evolution-dashboard' },
         { label: 'Start Experiment' },
       ]} />
 

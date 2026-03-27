@@ -85,3 +85,4 @@ docs/planning/deploy/
 /refs
 evolution/.next/
 .claude/worktrees/
+.playwright-mcp

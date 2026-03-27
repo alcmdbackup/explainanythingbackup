@@ -31,6 +31,35 @@ if [ -n "$STAGED_FILES" ]; then
   fi
 fi
 
+# --- Evolution TypeScript enforcement: block @ts-ignore, @ts-nocheck, as any ---
+EVOLUTION_STAGED=$(git diff --cached --name-only --diff-filter=ACM | grep "^evolution/src/" | grep -v '\.test\.\|\.spec\.\|/testing/' || true)
+
+if [ -n "$EVOLUTION_STAGED" ]; then
+  TS_VIOLATIONS=""
+  while IFS= read -r file; do
+    [ -z "$file" ] && continue
+    MATCHES=$(git show ":$file" 2>/dev/null | grep -nE '@ts-ignore|@ts-nocheck|\bas[[:space:]]+any\b' || true)
+    if [ -n "$MATCHES" ]; then
+      if [ -z "$TS_VIOLATIONS" ]; then
+        echo ""
+        echo "ERROR: TypeScript anti-patterns in evolution/ production code:"
+      fi
+      TS_VIOLATIONS="found"
+      echo "  $file"
+      echo "$MATCHES" | sed 's/^/    /'
+    fi
+  done <<< "$EVOLUTION_STAGED"
+
+  if [ -n "$TS_VIOLATIONS" ]; then
+    echo ""
+    echo "Remove @ts-ignore, @ts-nocheck, and 'as any' before committing."
+    echo "Use proper types or // eslint-disable-next-line with justification."
+    echo "Bypass: git commit --no-verify"
+    echo ""
+    exit 1
+  fi
+fi
+
 # --- Migration timestamp validation ---
 STAGED_MIGRATIONS=$(git diff --cached --name-only --diff-filter=A -- 'supabase/migrations/*.sql' || true)
 

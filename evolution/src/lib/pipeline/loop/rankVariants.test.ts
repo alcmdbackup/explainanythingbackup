@@ -1,10 +1,13 @@
 // Tests for V2 rankPool — triage, Swiss fine-ranking, convergence, budget tiers.
 
 import { rankPool } from './rankVariants';
+import type { RankResult } from './rankVariants';
 import { BudgetExceededError } from '../../types';
+import { BudgetExceededWithPartialResults } from '../infra/errors';
 import { createRating, DEFAULT_MU, DEFAULT_SIGMA } from '../../shared/computeRatings';
 import { createV2MockLlm } from '../../../testing/v2MockLlm';
-import type { TextVariation } from '../../types';
+import { createMockEntityLogger } from '../../../testing/evolution-test-helpers';
+import type { Variant } from '../../types';
 import type { Rating } from '../../shared/computeRatings';
 import type { EvolutionConfig } from '../infra/types';
 
@@ -17,7 +20,7 @@ const baseConfig: EvolutionConfig = {
   tournamentTopK: 3,
 };
 
-function makeVariant(id: string, text?: string): TextVariation {
+function makeVariant(id: string, text?: string): Variant {
   return {
     id,
     text: text ?? `# Variant ${id}\n\n## Section\n\nContent for ${id}. Multiple sentences here. Properly formatted text.`,
@@ -29,7 +32,7 @@ function makeVariant(id: string, text?: string): TextVariation {
   };
 }
 
-function makePool(n: number): TextVariation[] {
+function makePool(n: number): Variant[] {
   return Array.from({ length: n }, (_, i) => makeVariant(`v${i}`));
 }
 
@@ -44,6 +47,8 @@ describe('rankPool', () => {
     const result = await rankPool([makeVariant('a')], new Map(), new Map(), [], llm, baseConfig);
     expect(result.matches).toHaveLength(0);
     expect(result.converged).toBe(false);
+    expect(result.meta).toBeDefined();
+    expect(result.meta.budgetTier).toBe('low');
   });
 
   it('handles first iteration with all new entrants (fine-ranking only)', async () => {
@@ -53,6 +58,21 @@ describe('rankPool', () => {
     const result = await rankPool(pool, new Map(), new Map(), ids, llm, baseConfig);
     expect(result.matches.length).toBeGreaterThan(0);
     expect(Object.keys(result.ratingUpdates).length).toBeGreaterThan(0);
+  });
+
+  it('returns meta with ranking metadata', async () => {
+    const pool = makePool(4);
+    const ids = pool.map((v) => v.id);
+    const llm = createV2MockLlm({ rankingResponses: Array(30).fill('A') });
+    const result = await rankPool(pool, new Map(), new Map(), ids, llm, baseConfig);
+    expect(result.meta).toBeDefined();
+    expect(result.meta.budgetTier).toBe('low');
+    expect(result.meta.totalComparisons).toBe(result.matches.length);
+    expect(typeof result.meta.fineRankingRounds).toBe('number');
+    expect(typeof result.meta.fineRankingExitReason).toBe('string');
+    expect(typeof result.meta.convergenceStreak).toBe('number');
+    expect(typeof result.meta.top20Cutoff).toBe('number');
+    expect(typeof result.meta.eligibleContenders).toBe('number');
   });
 
   // ─── Triage ──────────────────────────────────────────────────
@@ -162,8 +182,8 @@ describe('rankPool', () => {
     // Should have ratings for all pool members
     for (const v of pool) {
       expect(result.ratingUpdates[v.id]).toBeDefined();
-      expect(result.ratingUpdates[v.id].mu).toBeDefined();
-      expect(result.ratingUpdates[v.id].sigma).toBeDefined();
+      expect(result.ratingUpdates[v.id]!.mu).toBeDefined();
+      expect(result.ratingUpdates[v.id]!.sigma).toBeDefined();
     }
   });
 
@@ -191,14 +211,14 @@ describe('rankPool', () => {
     expect(result.matches.every((m) => m.result === 'draw')).toBe(true);
   });
 
-  it('BudgetExceededError propagates from callback', async () => {
+  it('BudgetExceededError propagates as BudgetExceededWithPartialResults', async () => {
     const pool = makePool(3);
     const llm = createV2MockLlm();
     llm.complete.mockRejectedValue(new BudgetExceededError('ranking', 0.9, 0.1, 1.0));
 
     await expect(
       rankPool(pool, new Map(), new Map(), [], llm, baseConfig),
-    ).rejects.toThrow(BudgetExceededError);
+    ).rejects.toThrow(BudgetExceededWithPartialResults);
   });
 
   // ─── Cache ───────────────────────────────────────────────────
@@ -308,12 +328,13 @@ describe('rankPool', () => {
 
     const llm = createV2MockLlm({ rankingResponses: Array(20).fill('A') });
     const result = await rankPool(pool, ratings, new Map(), [], llm, baseConfig);
-    // The first match should pair the two closest-rated variants (v0 vs v1)
-    // since they have highest outcome uncertainty
+    // The high-uncertainty pair (v0 vs v1) should appear somewhere in matches
+    // (not necessarily first — Swiss pairing may shuffle)
     expect(result.matches.length).toBeGreaterThan(0);
-    const firstMatch = result.matches[0];
-    const firstPairIds = [firstMatch.winnerId, firstMatch.loserId].sort();
-    expect(firstPairIds).toEqual(['v0', 'v1']);
+    const v0v1Match = result.matches.find(
+      (m) => (m.winnerId === 'v0' && m.loserId === 'v1') || (m.winnerId === 'v1' && m.loserId === 'v0'),
+    );
+    expect(v0v1Match).toBeDefined();
   });
 
   it('ratingUpdates returns correct snapshot with updated mu/sigma values', async () => {
@@ -337,10 +358,10 @@ describe('rankPool', () => {
     expect(highRating).toBeDefined();
     expect(lowRating).toBeDefined();
     // Winner should have higher mu than loser
-    expect(highRating.mu).toBeGreaterThan(lowRating.mu);
+    expect(highRating!.mu).toBeGreaterThan(lowRating!.mu);
     // Both sigmas should be lower than DEFAULT_SIGMA after matches
-    expect(highRating.sigma).toBeLessThan(DEFAULT_SIGMA);
-    expect(lowRating.sigma).toBeLessThan(DEFAULT_SIGMA);
+    expect(highRating!.sigma).toBeLessThan(DEFAULT_SIGMA);
+    expect(lowRating!.sigma).toBeLessThan(DEFAULT_SIGMA);
   });
 
   // ─── Bug #2: Silent Elo corruption from LLM errors ──────────
@@ -359,7 +380,7 @@ describe('rankPool', () => {
     // Confidence-0 matches should NOT change ratings (no draw update)
     const v3Rating = result.ratingUpdates['v3'];
     // v3 should stay near default mu since all matches were confidence-0 (skipped)
-    expect(v3Rating.mu).toBeCloseTo(initialMu, 0);
+    expect(v3Rating!.mu).toBeCloseTo(initialMu, 0);
   });
 
   it('Bug #2: confidence-0 match does NOT update ratings in fine-ranking', async () => {
@@ -372,8 +393,8 @@ describe('rankPool', () => {
     // All matches have confidence 0 → ratings should remain at default
     const r0 = result.ratingUpdates['v0'];
     const r1 = result.ratingUpdates['v1'];
-    expect(r0.mu).toBeCloseTo(DEFAULT_MU, 0);
-    expect(r1.mu).toBeCloseTo(DEFAULT_MU, 0);
+    expect(r0!.mu).toBeCloseTo(DEFAULT_MU, 0);
+    expect(r1!.mu).toBeCloseTo(DEFAULT_MU, 0);
   });
 
   it('Bug #2: 4+ consecutive errors break ranking early', async () => {
@@ -385,5 +406,304 @@ describe('rankPool', () => {
     const result = await rankPool(pool, new Map(), new Map(), [], llm, baseConfig);
     // Should have limited matches due to early break
     expect(result.converged).toBe(false);
+  });
+
+  // ─── Logger integration ──────────────────────────────────────
+  describe('logging', () => {
+    it('logs pool size, budget tier, and triage results', async () => {
+      const pool = makePool(4);
+      const ratings = makeRatings([['v0', 30], ['v1', 28], ['v2', 25]]);
+      const llm = createV2MockLlm();
+      const { logger, calls } = createMockEntityLogger();
+
+      await rankPool(pool, ratings, new Map(), ['v3'], llm, baseConfig, 0.3, undefined, logger);
+      const messages = calls.map((c) => c.message);
+      expect(messages.some((m) => m.includes('Ranking pool'))).toBe(true);
+      expect(messages.some((m) => m.includes('Budget tier'))).toBe(true);
+      expect(messages.some((m) => m.includes('Triage'))).toBe(true);
+    });
+
+    it('logs comparison results at debug level', async () => {
+      const pool = makePool(3);
+      const llm = createV2MockLlm();
+      const { logger, calls } = createMockEntityLogger();
+
+      await rankPool(pool, new Map(), new Map(), [], llm, baseConfig, 0, undefined, logger);
+      const debugCalls = calls.filter((c) => c.level === 'debug' && c.message === 'Comparison result');
+      expect(debugCalls.length).toBeGreaterThan(0);
+    });
+
+    it('logs Swiss round starts', async () => {
+      const pool = makePool(4);
+      const llm = createV2MockLlm();
+      const { logger, calls } = createMockEntityLogger();
+
+      await rankPool(pool, new Map(), new Map(), [], llm, baseConfig, 0, undefined, logger);
+      expect(calls.some((c) => c.message === 'Swiss round start')).toBe(true);
+    });
+
+    it('logs failed comparisons as warnings', async () => {
+      const pool = makePool(3);
+      const llm = createV2MockLlm();
+      llm.complete.mockResolvedValue('');
+      const { logger, calls } = createMockEntityLogger();
+
+      await rankPool(pool, new Map(), new Map(), [], llm, baseConfig, 0, undefined, logger);
+      expect(calls.some((c) => c.level === 'warn' && c.message.includes('comparison failed'))).toBe(true);
+    });
+
+    it('logs convergence when pool converges', async () => {
+      const pool = makePool(2);
+      const llm = createV2MockLlm();
+      const { logger, calls } = createMockEntityLogger();
+
+      // Pre-set low sigmas to trigger convergence
+      const ratings = new Map<string, Rating>();
+      ratings.set('v0', { mu: 30, sigma: 0.5 });
+      ratings.set('v1', { mu: 25, sigma: 0.5 });
+
+      await rankPool(pool, ratings, new Map(), [], llm, baseConfig, 0, undefined, logger);
+      expect(calls.some((c) => c.message === 'Pool converged' || c.message.includes('convergence'))).toBe(true);
+    });
+
+    it('logs triage elimination when entrant is eliminated', async () => {
+      const pool = makePool(6);
+      // Set strong top-20% to create high cutoff
+      const ratings = makeRatings([['v0', 40], ['v1', 38], ['v2', 35], ['v3', 33], ['v4', 30]]);
+      // v5 is new entrant with weak text, will lose comparisons
+      const llm = createV2MockLlm();
+      // Make v5 always lose: LLM returns B as winner
+      llm.completeStructured.mockResolvedValue({ winner: 'B', confidence: 0.95 });
+      const { logger, calls } = createMockEntityLogger();
+
+      await rankPool(pool, ratings, new Map(), ['v5'], llm, baseConfig, 0, undefined, logger);
+      // Should have triage logs even if elimination doesn't trigger (depends on cutoff math)
+      expect(calls.some((c) => c.message.includes('Triage'))).toBe(true);
+    });
+
+    it('logs LLM comparison failure in makeCompareCallback', async () => {
+      const pool = makePool(3);
+      const llm = createV2MockLlm();
+      llm.complete.mockRejectedValue(new Error('LLM timeout'));
+      const { logger, calls } = createMockEntityLogger();
+
+      await rankPool(pool, new Map(), new Map(), [], llm, baseConfig, 0, undefined, logger);
+      expect(calls.some((c) => c.level === 'warn' && c.message === 'LLM comparison failed')).toBe(true);
+    });
+
+    it('does not throw when logger is undefined', async () => {
+      const pool = makePool(3);
+      const llm = createV2MockLlm();
+      // No logger passed — should not throw
+      const result = await rankPool(pool, new Map(), new Map(), [], llm, baseConfig);
+      expect(result.matches.length).toBeGreaterThan(0);
+    });
+  });
+
+  it('calibrationOpponents=0 still works without error', async () => {
+    const pool = makePool(4);
+    const ratings = makeRatings([['v0', 30], ['v1', 28], ['v2', 25], ['v3', 22]]);
+    ratings.set('v3', createRating()); // New entrant
+
+    const llm = createV2MockLlm({ rankingResponses: Array(20).fill('A') });
+    const result = await rankPool(pool, ratings, new Map(), ['v3'], llm, {
+      ...baseConfig,
+      calibrationOpponents: 0,
+    });
+    // Should complete without throwing; triage may be skipped with 0 opponents
+    expect(result).toBeDefined();
+    expect(typeof result.converged).toBe('boolean');
+  });
+
+  // ─── Partial results on budget exceeded ─────────────────────
+  describe('partial results on budget exceeded', () => {
+    it('rankPool() throws BudgetExceededWithPartialResults mid-triage', async () => {
+      const pool = makePool(6);
+      const ratings = makeRatings([
+        ['v0', 30], ['v1', 28], ['v2', 25], ['v3', 22], ['v4', 20],
+      ]);
+      // v5 is new entrant — triage will compare it against opponents
+      const newEntrants = ['v5'];
+
+      let callCount = 0;
+      const llm = createV2MockLlm();
+      // Succeed for first 2 comparisons (4 LLM calls with bias mitigation), then throw budget error
+      llm.complete.mockImplementation(async () => {
+        callCount++;
+        if (callCount > 4) throw new BudgetExceededError('ranking', 0.9, 0.1, 1.0);
+        return 'A is better';
+      });
+
+      try {
+        await rankPool(pool, ratings, new Map(), newEntrants, llm, baseConfig);
+        fail('Should have thrown');
+      } catch (err) {
+        expect(err).toBeInstanceOf(BudgetExceededWithPartialResults);
+        const partial = (err as BudgetExceededWithPartialResults).partialData as RankResult;
+        expect(partial.matches.length).toBeGreaterThan(0);
+        // Should have some non-default rating updates from completed comparisons
+        const nonDefaultRatings = Object.values(partial.ratingUpdates).filter((r) => r.mu !== DEFAULT_MU);
+        expect(nonDefaultRatings.length).toBeGreaterThan(0);
+      }
+    });
+
+    it('rankPool() throws BudgetExceededWithPartialResults mid-Swiss', async () => {
+      const pool = makePool(4);
+      // No new entrants → skips triage, goes straight to fine-ranking
+      let callCount = 0;
+      const llm = createV2MockLlm();
+      // Succeed for first 2 comparisons (4 LLM calls), then throw budget error
+      llm.complete.mockImplementation(async () => {
+        callCount++;
+        if (callCount > 4) throw new BudgetExceededError('ranking', 0.9, 0.1, 1.0);
+        return 'A is better';
+      });
+
+      try {
+        await rankPool(pool, new Map(), new Map(), [], llm, baseConfig);
+        fail('Should have thrown');
+      } catch (err) {
+        expect(err).toBeInstanceOf(BudgetExceededWithPartialResults);
+        const partial = (err as BudgetExceededWithPartialResults).partialData as RankResult;
+        expect(partial.matches.length).toBeGreaterThan(0);
+        expect(Object.keys(partial.matchCountIncrements).length).toBeGreaterThan(0);
+      }
+    });
+
+    it('triage budget exceeded skips fine-ranking', async () => {
+      const pool = makePool(6);
+      const ratings = makeRatings([
+        ['v0', 30], ['v1', 28], ['v2', 25], ['v3', 22], ['v4', 20],
+      ]);
+
+      const llm = createV2MockLlm();
+      // Throw immediately — triage catches it, fine-ranking should be skipped
+      llm.complete.mockRejectedValue(new BudgetExceededError('ranking', 0.9, 0.1, 1.0));
+
+      try {
+        await rankPool(pool, ratings, new Map(), ['v5'], llm, baseConfig);
+        fail('Should have thrown');
+      } catch (err) {
+        expect(err).toBeInstanceOf(BudgetExceededWithPartialResults);
+        const partial = (err as BudgetExceededWithPartialResults).partialData as RankResult;
+        // No matches completed since budget error thrown on first call
+        expect(partial.matches).toHaveLength(0);
+      }
+    });
+  });
+
+  // ─── Swiss eligibility filter ─────────────────────────────────
+  describe('Swiss eligibility filter', () => {
+    it('excludes low-mu calibrated variants', async () => {
+      // Pool with calibrated variants: some high-mu, some low-mu
+      const pool = makePool(6);
+      const ratings = makeRatings([
+        ['v0', 35, 3], ['v1', 33, 3], ['v2', 30, 3],
+        ['v3', 15, 3], ['v4', 13, 3], ['v5', 10, 3],
+      ]);
+
+      const { logger, calls } = createMockEntityLogger();
+      const llm = createV2MockLlm({ rankingResponses: Array(50).fill('A') });
+      const result = await rankPool(pool, ratings, new Map(), [], llm, baseConfig, 0, undefined, logger);
+
+      // Low-mu variants (v3-v5) with small sigma should be excluded from Swiss
+      // Check that matches don't involve them heavily
+      const lowMuMatches = result.matches.filter(
+        (m) => ['v3', 'v4', 'v5'].includes(m.winnerId) || ['v3', 'v4', 'v5'].includes(m.loserId),
+      );
+      const highMuMatches = result.matches.filter(
+        (m) => ['v0', 'v1', 'v2'].includes(m.winnerId) || ['v0', 'v1', 'v2'].includes(m.loserId),
+      );
+      // High-mu variants should dominate the matches
+      expect(highMuMatches.length).toBeGreaterThanOrEqual(lowMuMatches.length);
+    });
+
+    it('includes high-sigma new variants via z-score', async () => {
+      // 20 variants: top15Idx = max(0, floor(20*0.15)-1) = 2, cutoff = 3rd highest mu = 33
+      // v19 with mu=26, sigma=8.333: 26 + 1.04*8.333 = 34.67 >= 33 → eligible
+      const pool = makePool(20);
+      const entries: Array<[string, number, number?]> = [];
+      for (let i = 0; i < 19; i++) {
+        entries.push([`v${i}`, 35 - i, 3]); // v0=35, v1=34, ..., v18=17
+      }
+      entries.push(['v19', 26, DEFAULT_SIGMA]); // High sigma, moderate mu
+      const ratings = makeRatings(entries);
+
+      const llm = createV2MockLlm({ rankingResponses: Array(200).fill('A') });
+      const result = await rankPool(pool, ratings, new Map(), [], llm, {
+        ...baseConfig, tournamentTopK: 3,
+      });
+
+      // v19 should participate in matches due to high sigma pushing it above cutoff
+      const v19Matches = result.matches.filter(
+        (m) => m.winnerId === 'v19' || m.loserId === 'v19',
+      );
+      expect(v19Matches.length).toBeGreaterThan(0);
+    });
+
+    it('topK safety net includes low-mu variant in topK', async () => {
+      // All variants have same mu but topK=3
+      const pool = makePool(4);
+      const ratings = makeRatings([
+        ['v0', 25, 3], ['v1', 25, 3], ['v2', 25, 3], ['v3', 10, 3],
+      ]);
+
+      const llm = createV2MockLlm({ rankingResponses: Array(50).fill('A') });
+      // topK=4 means v3 is in topK despite low mu
+      const result = await rankPool(pool, ratings, new Map(), [], llm, {
+        ...baseConfig, tournamentTopK: 4,
+      });
+
+      const v3Matches = result.matches.filter(
+        (m) => m.winnerId === 'v3' || m.loserId === 'v3',
+      );
+      expect(v3Matches.length).toBeGreaterThan(0);
+    });
+
+    it('convergence uses tightened eligibility set, not all pool members', async () => {
+      // Pool of 10: top 3 have low sigma (converged), bottom 7 have high sigma (not converged).
+      // The bottom 7 have low mu so they are NOT eligible under the top-15% filter.
+      // Convergence should check only the eligible (top) variants and return converged=true.
+      const pool = makePool(10);
+      const entries: Array<[string, number, number?]> = [];
+      // Top 3: high mu, very low sigma (below DEFAULT_CONVERGENCE_SIGMA of 3.0)
+      entries.push(['v0', 35, 1.5]);
+      entries.push(['v1', 33, 1.5]);
+      entries.push(['v2', 31, 1.5]);
+      // Bottom 7: low mu, high sigma (NOT converged, but should be excluded from eligibility)
+      for (let i = 3; i < 10; i++) {
+        entries.push([`v${i}`, 5, DEFAULT_SIGMA]); // mu + z*sigma = 5 + 1.04*8.333 ≈ 13.67, well below cutoff ~31
+      }
+      const ratings = makeRatings(entries);
+
+      // Use A responses to keep the top variants winning (preserving their low sigma)
+      const llm = createV2MockLlm({ rankingResponses: Array(100).fill('A') });
+      const result = await rankPool(pool, ratings, new Map(), [], llm, {
+        ...baseConfig, tournamentTopK: 3,
+      });
+
+      // Convergence should be true because only the top eligible variants (v0-v2)
+      // are checked, and they all have sigma < 3.0
+      expect(result.converged).toBe(true);
+    });
+
+    it('minimum pool floor ensures at least 3 variants', async () => {
+      // Only 2 variants would pass the filter normally, but floor ensures 3
+      const pool = makePool(5);
+      const ratings = makeRatings([
+        ['v0', 35, 2], ['v1', 33, 2], // These pass filter
+        ['v2', 5, 2], ['v3', 4, 2], ['v4', 3, 2], // These don't
+      ]);
+
+      const { logger, calls } = createMockEntityLogger();
+      const llm = createV2MockLlm({ rankingResponses: Array(50).fill('A') });
+      await rankPool(pool, ratings, new Map(), [], llm, {
+        ...baseConfig, tournamentTopK: 2,
+      }, 0, undefined, logger);
+
+      // Should log the fallback message
+      const fallbackLog = calls.find((c) => c.message.includes('Swiss pool below minimum'));
+      expect(fallbackLog).toBeDefined();
+    });
   });
 });

@@ -1,21 +1,20 @@
-// Prompts CRUD list page using RegistryPage pattern with V2 schema.
-// Manages evolution_prompts (prompts) with create, edit, archive, and delete.
+// Prompts CRUD list page using EntityListPage self-managed mode.
+// Manages evolution_prompts with create, edit, and delete (no archive).
 
 'use client';
 
 import { useState, useCallback } from 'react';
 import { toast } from 'sonner';
-import { RegistryPage, type RegistryPageConfig, type RowAction } from '@evolution/components/evolution/RegistryPage';
+import { EntityListPage } from '@evolution/components/evolution';
+import type { RowAction, FilterDef, ColumnDef } from '@evolution/components/evolution';
 import type { FieldDef } from '@evolution/components/evolution/FormDialog';
-import type { ColumnDef, FilterDef } from '@evolution/components/evolution';
 import {
   listPromptsAction,
   createPromptAction,
   updatePromptAction,
-  archivePromptAction,
-  deletePromptAction,
   type PromptListItem,
 } from '@evolution/services/arenaActions';
+import { executeEntityAction } from '@evolution/services/entityActions';
 
 // ─── Load data adapter ────────────────────────────────────────────
 
@@ -33,7 +32,7 @@ const loadData = async (filters: Record<string, string>, page: number, pageSize:
 // ─── Column + filter definitions ──────────────────────────────────
 
 const columns: ColumnDef<PromptListItem>[] = [
-  { key: 'title', header: 'Title', render: (row) => row.title },
+  { key: 'name', header: 'Name', render: (row) => row.name },
   {
     key: 'prompt',
     header: 'Prompt',
@@ -54,7 +53,6 @@ const filters: FilterDef[] = [
     options: [
       { label: 'All', value: '' },
       { label: 'Active', value: 'active' },
-      { label: 'Archived', value: 'archived' },
     ],
   },
   { key: 'filterTestContent', label: 'Hide test content', type: 'checkbox', defaultChecked: true },
@@ -63,7 +61,7 @@ const filters: FilterDef[] = [
 // ─── Form fields ──────────────────────────────────────────────────
 
 const createFields: FieldDef[] = [
-  { name: 'title', label: 'Title', type: 'text', required: true, placeholder: 'Prompt title' },
+  { name: 'name', label: 'Name', type: 'text', required: true, placeholder: 'Prompt name' },
   { name: 'prompt', label: 'Prompt', type: 'textarea', required: true, placeholder: 'Enter prompt text' },
 ];
 
@@ -73,7 +71,6 @@ type DialogState =
   | { kind: 'none' }
   | { kind: 'create' }
   | { kind: 'edit'; row: PromptListItem }
-  | { kind: 'archive'; row: PromptListItem }
   | { kind: 'delete'; row: PromptListItem };
 
 export default function PromptsPage(): JSX.Element {
@@ -89,50 +86,23 @@ export default function PromptsPage(): JSX.Element {
       onClick: (row) => setDialog({ kind: 'edit', row }),
     },
     {
-      label: 'Archive',
-      onClick: (row) => setDialog({ kind: 'archive', row }),
-      visible: (row) => row.status !== 'archived',
-    },
-    {
-      label: 'Unarchive',
-      onClick: (row) => setDialog({ kind: 'archive', row }),
-      visible: (row) => row.status === 'archived',
-    },
-    {
       label: 'Delete',
       onClick: (row) => setDialog({ kind: 'delete', row }),
       danger: true,
     },
   ];
 
-  // ─── Config ───────────────────────────────────────────────────
-
-  const config: RegistryPageConfig<PromptListItem> = {
-    title: 'Prompts',
-    breadcrumbs: [{ label: 'Dashboard', href: '/admin/evolution-dashboard' }],
-    columns,
-    filters,
-    loadData,
-    getRowHref: (row) => `/admin/evolution/prompts/${row.id}`,
-    rowActions,
-    headerAction: { label: 'New Prompt', onClick: () => setDialog({ kind: 'create' }) },
-    emptyMessage: 'No prompts found.',
-  };
-
   // ─── Create / Edit form ───────────────────────────────────────
 
   const formOpen = dialog.kind === 'create' || dialog.kind === 'edit';
   const formInitial = dialog.kind === 'edit'
-    ? {
-        title: dialog.row.title,
-        prompt: dialog.row.prompt,
-      }
+    ? { name: dialog.row.name, prompt: dialog.row.prompt }
     : {};
 
   const handleFormSubmit = async (values: Record<string, unknown>) => {
     if (dialog.kind === 'create') {
       const result = await createPromptAction({
-        title: values.title as string,
+        name: values.name as string,
         prompt: values.prompt as string,
       });
       if (!result.success) throw new Error(result.error?.message ?? 'Create failed');
@@ -140,7 +110,7 @@ export default function PromptsPage(): JSX.Element {
     } else if (dialog.kind === 'edit') {
       const result = await updatePromptAction({
         id: dialog.row.id,
-        title: values.title as string,
+        name: values.name as string,
         prompt: values.prompt as string,
       });
       if (!result.success) throw new Error(result.error?.message ?? 'Update failed');
@@ -148,55 +118,31 @@ export default function PromptsPage(): JSX.Element {
     }
   };
 
-  // ─── Archive confirm ─────────────────────────────────────────
-
-  const handleArchive = async () => {
-    if (dialog.kind !== 'archive') return;
-    const result = await archivePromptAction(dialog.row.id);
-    if (!result.success) throw new Error(result.error?.message ?? 'Archive failed');
-    toast.success(dialog.row.status === 'archived' ? 'Prompt unarchived' : 'Prompt archived');
-  };
-
   // ─── Delete confirm ──────────────────────────────────────────
 
   const handleDelete = async () => {
     if (dialog.kind !== 'delete') return;
-    const result = await deletePromptAction(dialog.row.id);
+    const result = await executeEntityAction({ entityType: 'prompt', entityId: dialog.row.id, actionKey: 'delete' });
     if (!result.success) throw new Error(result.error?.message ?? 'Delete failed');
     toast.success('Prompt deleted');
   };
 
   // ─── Render ───────────────────────────────────────────────────
 
-  const confirmOpen = dialog.kind === 'archive' || dialog.kind === 'delete';
-  const confirmProps = (() => {
-    if (dialog.kind === 'archive') {
-      const isArchived = dialog.row.status === 'archived';
-      return {
-        title: isArchived ? 'Unarchive Prompt' : 'Archive Prompt',
-        message: isArchived
-          ? `Unarchive "${dialog.row.title}"?`
-          : `Archive "${dialog.row.title}"? It will no longer appear in active lists.`,
-        confirmLabel: isArchived ? 'Unarchive' : 'Archive',
-        onConfirm: handleArchive,
-        danger: false,
-      };
-    }
-    if (dialog.kind === 'delete') {
-      return {
-        title: 'Delete Prompt',
-        message: `Delete "${dialog.row.title}"? This action is permanent.`,
-        confirmLabel: 'Delete',
-        onConfirm: handleDelete,
-        danger: true,
-      };
-    }
-    return { title: '', message: '', onConfirm: async () => {}, danger: false };
-  })();
-
   return (
-    <RegistryPage<PromptListItem>
-      config={config}
+    <EntityListPage<PromptListItem>
+      title="Prompts"
+      breadcrumbs={[
+        { label: 'Evolution', href: '/admin/evolution-dashboard' },
+        { label: 'Prompts' },
+      ]}
+      columns={columns}
+      filters={filters}
+      loadData={loadData}
+      getRowHref={(row) => `/admin/evolution/prompts/${row.id}`}
+      rowActions={rowActions}
+      headerAction={{ label: 'New Prompt', onClick: () => setDialog({ kind: 'create' }) }}
+      emptyMessage="No prompts found."
       formDialog={formOpen ? {
         open: true,
         onClose: close,
@@ -205,10 +151,14 @@ export default function PromptsPage(): JSX.Element {
         initial: formInitial,
         onSubmit: handleFormSubmit,
       } : undefined}
-      confirmDialog={confirmOpen ? {
+      confirmDialog={dialog.kind === 'delete' ? {
         open: true,
         onClose: close,
-        ...confirmProps,
+        title: 'Delete Prompt',
+        message: `Delete "${dialog.row.name}" and all its experiments/runs? This cannot be undone.`,
+        confirmLabel: 'Delete',
+        onConfirm: handleDelete,
+        danger: true,
       } : undefined}
     />
   );

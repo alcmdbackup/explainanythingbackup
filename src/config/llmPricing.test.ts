@@ -140,23 +140,23 @@ describe('LLM Pricing', () => {
       expect(LLM_PRICING['gpt-4.1-mini']).toBeDefined();
       expect(LLM_PRICING['gpt-4.1-nano']).toBeDefined();
       // Verify actual pricing
-      expect(LLM_PRICING['gpt-4.1-mini'].inputPer1M).toBe(0.40);
-      expect(LLM_PRICING['gpt-4.1-mini'].outputPer1M).toBe(1.60);
-      expect(LLM_PRICING['gpt-4.1-nano'].inputPer1M).toBe(0.10);
-      expect(LLM_PRICING['gpt-4.1-nano'].outputPer1M).toBe(0.40);
+      expect(LLM_PRICING['gpt-4.1-mini']!.inputPer1M).toBe(0.40);
+      expect(LLM_PRICING['gpt-4.1-mini']!.outputPer1M).toBe(1.60);
+      expect(LLM_PRICING['gpt-4.1-nano']!.inputPer1M).toBe(0.10);
+      expect(LLM_PRICING['gpt-4.1-nano']!.outputPer1M).toBe(0.40);
     });
 
     it('should have pricing for GPT-5 models', () => {
       expect(LLM_PRICING['gpt-5-mini']).toBeDefined();
       expect(LLM_PRICING['gpt-5-nano']).toBeDefined();
       // Verify actual pricing
-      expect(LLM_PRICING['gpt-5-mini'].inputPer1M).toBe(0.25);
-      expect(LLM_PRICING['gpt-5-mini'].outputPer1M).toBe(2.00);
+      expect(LLM_PRICING['gpt-5-mini']!.inputPer1M).toBe(0.25);
+      expect(LLM_PRICING['gpt-5-mini']!.outputPer1M).toBe(2.00);
     });
 
     it('should have pricing for o1 models with reasoning', () => {
       expect(LLM_PRICING['o1']).toBeDefined();
-      expect(LLM_PRICING['o1'].reasoningPer1M).toBeDefined();
+      expect(LLM_PRICING['o1']!.reasoningPer1M).toBeDefined();
       expect(LLM_PRICING['o1-mini']).toBeDefined();
     });
 
@@ -168,8 +168,8 @@ describe('LLM Pricing', () => {
 
     it('should have $0 pricing for local models', () => {
       expect(LLM_PRICING['LOCAL_qwen2.5:14b']).toBeDefined();
-      expect(LLM_PRICING['LOCAL_qwen2.5:14b'].inputPer1M).toBe(0);
-      expect(LLM_PRICING['LOCAL_qwen2.5:14b'].outputPer1M).toBe(0);
+      expect(LLM_PRICING['LOCAL_qwen2.5:14b']!.inputPer1M).toBe(0);
+      expect(LLM_PRICING['LOCAL_qwen2.5:14b']!.outputPer1M).toBe(0);
     });
 
     it('should have output pricing >= input pricing for all models', () => {

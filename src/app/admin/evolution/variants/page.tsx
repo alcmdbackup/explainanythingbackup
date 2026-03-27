@@ -20,6 +20,7 @@ const FILTERS: FilterDef[] = [
       { value: 'no', label: 'Non-winners' },
     ],
   },
+  { key: 'filterTestContent', label: 'Hide test content', type: 'checkbox', defaultChecked: true },
 ];
 
 const COLUMNS: ColumnDef<VariantListEntry>[] = [
@@ -67,7 +68,7 @@ export default function VariantsListPage(): JSX.Element {
   const [loading, setLoading] = useState(true);
   const [totalCount, setTotalCount] = useState(0);
   const [page, setPage] = useState(1);
-  const [filterValues, setFilterValues] = useState<Record<string, string>>({});
+  const [filterValues, setFilterValues] = useState<Record<string, string>>({ filterTestContent: 'true' });
 
   const fetchData = useCallback(async (currentPage: number, filters: Record<string, string>) => {
     setLoading(true);
@@ -76,6 +77,7 @@ export default function VariantsListPage(): JSX.Element {
     const result = await listVariantsAction({
       agentName: filters.agentName || undefined,
       isWinner,
+      filterTestContent: filters.filterTestContent === 'true',
       limit: PAGE_SIZE,
       offset: (currentPage - 1) * PAGE_SIZE,
     });
@@ -99,7 +101,7 @@ export default function VariantsListPage(): JSX.Element {
     <div className="space-y-6">
       <EvolutionBreadcrumb
         items={[
-          { label: 'Dashboard', href: '/admin/evolution-dashboard' },
+          { label: 'Evolution', href: '/admin/evolution-dashboard' },
           { label: 'Variants' },
         ]}
       />

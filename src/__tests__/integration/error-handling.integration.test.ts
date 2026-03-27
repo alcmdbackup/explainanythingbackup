@@ -157,7 +157,7 @@ describe('Error Handling Integration Tests', () => {
       // Assert
       expect(capturedLogs.length).toBeGreaterThan(0);
 
-      const logEntry = capturedLogs[0];
+      const logEntry = capturedLogs[0]!;
       const logData = logEntry.data as Record<string, unknown>;
 
       expect(logData.requestId).toBe(testRequestId);
@@ -179,7 +179,7 @@ describe('Error Handling Integration Tests', () => {
       handleError(error, context, additionalData);
 
       // Assert
-      const logData = capturedLogs[0].data as Record<string, unknown>;
+      const logData = capturedLogs[0]!.data as Record<string, unknown>;
       expect(logData.operationId).toBe('op-456');
       expect(logData.retryCount).toBe(3);
       expect(logData.inputSize).toBe(1024);
@@ -196,7 +196,7 @@ describe('Error Handling Integration Tests', () => {
       // Assert
       expect(result.code).toBe(ERROR_CODES.DATABASE_ERROR);
 
-      const logData = capturedLogs[0].data as Record<string, unknown>;
+      const logData = capturedLogs[0]!.data as Record<string, unknown>;
       const loggedError = logData.error as ErrorResponse;
       expect(loggedError.code).toBe(result.code);
       expect(loggedError.message).toBe(result.message);
@@ -286,7 +286,7 @@ describe('Error Handling Integration Tests', () => {
       // Assert
       expect(result?.code).toBe(ERROR_CODES.LLM_API_ERROR);
 
-      const logData = capturedLogs[0].data as Record<string, unknown>;
+      const logData = capturedLogs[0]!.data as Record<string, unknown>;
       expect(logData.layer).toBe('outer');
     });
   });

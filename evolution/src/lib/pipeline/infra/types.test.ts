@@ -1,10 +1,10 @@
 // Type-level assertions verifying V2 types match spec and are distinct from V1.
 
 import { expectTypeOf } from 'expect-type';
-import type { TextVariation as V1TextVariation, Match as V1Match } from '../../types';
+import type { Variant as V1Variant, Match as V1Match } from '../../types';
 import type { StrategyConfig as V1StrategyConfig } from '../../shared/hashStrategyConfig';
 import type {
-  TextVariation,
+  Variant,
   Rating,
   V2Match,
   EvolutionConfig,
@@ -13,8 +13,8 @@ import type {
 } from './types';
 
 describe('V2 types', () => {
-  it('TextVariation is identical to V1', () => {
-    expectTypeOf<TextVariation>().toEqualTypeOf<V1TextVariation>();
+  it('Variant is identical to V1', () => {
+    expectTypeOf<Variant>().toEqualTypeOf<V1Variant>();
   });
 
   it('Rating has mu and sigma', () => {

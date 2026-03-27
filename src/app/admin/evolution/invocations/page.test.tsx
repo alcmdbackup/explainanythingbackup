@@ -48,10 +48,10 @@ describe('InvocationsListPage', () => {
     mockListInvocations.mockClear();
   });
 
-  it('renders breadcrumb with Dashboard link', async () => {
+  it('renders breadcrumb with Evolution link', async () => {
     render(<InvocationsListPage />);
-    await waitFor(() => expect(screen.getByText('Dashboard')).toBeInTheDocument());
-    expect(screen.getByText('Dashboard').closest('a')).toHaveAttribute('href', '/admin/evolution-dashboard');
+    await waitFor(() => expect(screen.getByText('Evolution')).toBeInTheDocument());
+    expect(screen.getByText('Evolution').closest('a')).toHaveAttribute('href', '/admin/evolution-dashboard');
   });
 
   it('renders page title', async () => {
@@ -82,5 +82,32 @@ describe('InvocationsListPage', () => {
   it('shows total count', async () => {
     render(<InvocationsListPage />);
     await waitFor(() => expect(screen.getByText('2 items')).toBeInTheDocument());
+  });
+
+  it('renders Invocations breadcrumb item', async () => {
+    render(<InvocationsListPage />);
+    await waitFor(() => {
+      const breadcrumb = screen.getByTestId('evolution-breadcrumb');
+      expect(breadcrumb).toHaveTextContent('Invocations');
+    });
+  });
+
+  it('displays agent name column header', async () => {
+    render(<InvocationsListPage />);
+    await waitFor(() => expect(screen.getByText('Agent')).toBeInTheDocument());
+  });
+
+  it('displays cost column header', async () => {
+    render(<InvocationsListPage />);
+    await waitFor(() => expect(screen.getByText('Cost')).toBeInTheDocument());
+  });
+
+  it('renders hide test content filter checkbox', async () => {
+    render(<InvocationsListPage />);
+    await waitFor(() => {
+      const filter = screen.getByTestId('filter-filterTestContent');
+      expect(filter).toBeInTheDocument();
+      expect(filter).toHaveTextContent('Hide test content');
+    });
   });
 });

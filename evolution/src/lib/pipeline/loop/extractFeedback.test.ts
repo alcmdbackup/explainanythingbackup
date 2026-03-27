@@ -2,7 +2,7 @@
 
 import { evolveVariants } from './extractFeedback';
 import { BudgetExceededError } from '../../types';
-import type { TextVariation } from '../../types';
+import type { Variant } from '../../types';
 import type { Rating } from '../../shared/computeRatings';
 import { createV2MockLlm } from '../../../testing/v2MockLlm';
 import type { EvolutionConfig } from '../infra/types';
@@ -24,7 +24,7 @@ This is an evolved test variant with proper formatting. It has multiple sentence
 
 The pipeline evolves variants through mutation and crossover. Each variant improves upon its parents. Higher quality emerges over iterations.`;
 
-function makeVariant(id: string, mu: number, version = 1): TextVariation {
+function makeVariant(id: string, mu: number, version = 1): Variant {
   return {
     id,
     text: `# Variant ${id}\n\n## Section\n\nContent for variant ${id}. This has multiple sentences. It is properly formatted.`,
@@ -50,7 +50,7 @@ describe('evolveVariants', () => {
 
     // Should call with parent a (top rated) text in prompts
     const calls = llm.complete.mock.calls;
-    expect(calls.some((c: string[]) => c[0].includes('Variant a'))).toBe(true);
+    expect(calls.some((c: string[]) => c[0]!.includes('Variant a'))).toBe(true);
   });
 
   it('produces crossover with 2 parents', async () => {
@@ -108,8 +108,8 @@ describe('evolveVariants', () => {
     });
 
     const calls = llm.complete.mock.calls;
-    expect(calls.some((c: string[]) => c[0].includes('flow'))).toBe(true);
-    expect(calls.some((c: string[]) => c[0].includes('improve transitions'))).toBe(true);
+    expect(calls.some((c: string[]) => c[0]!.includes('flow'))).toBe(true);
+    expect(calls.some((c: string[]) => c[0]!.includes('improve transitions'))).toBe(true);
   });
 
   it('sets iterationBorn correctly', async () => {
@@ -156,5 +156,28 @@ describe('evolveVariants', () => {
 
     const result = await evolveVariants(pool, ratings, 1, llm, baseConfig);
     expect(result.every((v) => v.version === 6)).toBe(true);
+  });
+
+  it('diversityScore exactly 0.5 does NOT trigger creative exploration', async () => {
+    const llm = createV2MockLlm({ defaultText: validText });
+    const pool = [makeVariant('a', 30), makeVariant('b', 20)];
+    const ratings = makeRatings([['a', 30], ['b', 20]]);
+
+    const result = await evolveVariants(pool, ratings, 1, llm, baseConfig, {
+      diversityScore: 0.5,
+    });
+    // Condition is 0 < score < 0.5, so 0.5 should NOT trigger creative.
+    // Expect 2 mutations + 1 crossover = 3 (no creative variant).
+    expect(result.length).toBeLessThanOrEqual(3);
+    expect(result.every((v) => v.strategy !== 'creative_exploration')).toBe(true);
+  });
+
+  it('all format failures returns empty array', async () => {
+    const llm = createV2MockLlm({ defaultText: 'no heading, invalid format' });
+    const pool = [makeVariant('a', 30), makeVariant('b', 20)];
+    const ratings = makeRatings([['a', 30], ['b', 20]]);
+
+    const result = await evolveVariants(pool, ratings, 1, llm, baseConfig);
+    expect(result).toHaveLength(0);
   });
 });

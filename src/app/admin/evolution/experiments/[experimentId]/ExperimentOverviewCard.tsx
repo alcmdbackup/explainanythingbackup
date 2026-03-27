@@ -6,7 +6,7 @@
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { cancelExperimentAction } from '@evolution/services/experimentActionsV2';
+import { cancelExperimentAction } from '@evolution/services/experimentActions';
 import { StatusBadge } from '@evolution/components/evolution/StatusBadge';
 import { MetricGrid } from '@evolution/components/evolution';
 import type { V2Experiment } from './ExperimentDetailContent';

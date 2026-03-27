@@ -7,6 +7,8 @@ import {
   updateDraw,
   isConverged,
   toEloScale,
+  formatElo,
+  stripMarkdownTitle,
   DEFAULT_CONVERGENCE_SIGMA,
   type Rating,
 } from './computeRatings';
@@ -125,7 +127,7 @@ describe('sigma convergence over multiple matches', () => {
 
     // Each sigma should be less than or equal to previous
     for (let i = 1; i < sigmaHistory.length; i++) {
-      expect(sigmaHistory[i]).toBeLessThanOrEqual(sigmaHistory[i - 1]);
+      expect(sigmaHistory[i]!).toBeLessThanOrEqual(sigmaHistory[i - 1]!);
     }
   });
 });
@@ -158,7 +160,7 @@ describe('toEloScale', () => {
     const mus = [10, 20, 25, 30, 40];
     const roundTripped = mus.map(toEloScale);
     for (let i = 1; i < roundTripped.length; i++) {
-      expect(roundTripped[i]).toBeGreaterThan(roundTripped[i - 1]);
+      expect(roundTripped[i]!).toBeGreaterThan(roundTripped[i - 1]!);
     }
   });
 });
@@ -199,6 +201,47 @@ describe('edge cases', () => {
     const [newA, newB] = updateRating(a, b);
     expect(Number.isFinite(newA.mu)).toBe(true);
     expect(Number.isFinite(newB.mu)).toBe(true);
+  });
+});
+
+describe('formatElo', () => {
+  it('rounds float to integer string', () => {
+    expect(formatElo(1523.7)).toBe('1524');
+  });
+
+  it('handles exact integers', () => {
+    expect(formatElo(1200)).toBe('1200');
+  });
+
+  it('rounds down when fraction < 0.5', () => {
+    expect(formatElo(1400.3)).toBe('1400');
+  });
+});
+
+describe('stripMarkdownTitle', () => {
+  it('strips single # heading marker', () => {
+    expect(stripMarkdownTitle('# Hello World')).toBe('Hello World');
+  });
+
+  it('strips multi-level heading markers', () => {
+    expect(stripMarkdownTitle('### Third Level')).toBe('Third Level');
+    expect(stripMarkdownTitle('###### Sixth Level')).toBe('Sixth Level');
+  });
+
+  it('returns first line only', () => {
+    expect(stripMarkdownTitle('# Title\nBody text here')).toBe('Title');
+  });
+
+  it('preserves text without heading markers', () => {
+    expect(stripMarkdownTitle('Plain text content')).toBe('Plain text content');
+  });
+
+  it('handles empty string', () => {
+    expect(stripMarkdownTitle('')).toBe('');
+  });
+
+  it('trims whitespace around heading', () => {
+    expect(stripMarkdownTitle('## Spaced  ')).toBe('Spaced');
   });
 });
 

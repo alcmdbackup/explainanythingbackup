@@ -382,11 +382,11 @@ describe('UserLibrary Service', () => {
 
       // Assert
       expect(result).toHaveLength(2);
-      expect(result[0].id).toBe(1);
-      expect(result[0].total_views).toBe(50);
-      expect(result[1].id).toBeUndefined(); // Missing explanation should have undefined properties
-      expect(result[1].saved_timestamp).toBe('2024-01-02T00:00:00Z');
-      expect(result[1].total_views).toBe(0); // Missing metrics should default to 0
+      expect(result[0]!.id).toBe(1);
+      expect(result[0]!.total_views).toBe(50);
+      expect(result[1]!.id).toBeUndefined(); // Missing explanation should have undefined properties
+      expect(result[1]!.saved_timestamp).toBe('2024-01-02T00:00:00Z');
+      expect(result[1]!.total_views).toBe(0); // Missing metrics should default to 0
     });
 
     it('should propagate errors from Supabase query', async () => {
@@ -436,8 +436,8 @@ describe('UserLibrary Service', () => {
       const result = await getUserLibraryExplanations(userId);
 
       // Assert - should still return data with zero metrics
-      expect(result[0].total_views).toBe(0);
-      expect(result[0].total_saves).toBe(0);
+      expect(result[0]!.total_views).toBe(0);
+      expect(result[0]!.total_saves).toBe(0);
     });
 
     it('should include summary_teaser in returned data', async () => {
@@ -474,7 +474,7 @@ describe('UserLibrary Service', () => {
       const result = await getUserLibraryExplanations(userId);
 
       // Assert
-      expect(result[0].summary_teaser).toBe('This is a test teaser');
+      expect(result[0]!.summary_teaser).toBe('This is a test teaser');
     });
 
     it('should handle null metricsData gracefully', async () => {
@@ -512,8 +512,8 @@ describe('UserLibrary Service', () => {
       const result = await getUserLibraryExplanations(userId);
 
       // Assert - should still return data with zero metrics
-      expect(result[0].total_views).toBe(0);
-      expect(result[0].total_saves).toBe(0);
+      expect(result[0]!.total_views).toBe(0);
+      expect(result[0]!.total_saves).toBe(0);
     });
   });
 

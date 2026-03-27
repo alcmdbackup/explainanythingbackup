@@ -308,7 +308,7 @@ This test validates that updating content triggers the full embedding regenerati
         .eq('id', testExplanationId)
         .single();
 
-      expect(finalExplanation?.content).toBe(updates[2].content);
+      expect(finalExplanation?.content).toBe(updates[2]!.content);
 
       // Note: Embeddings may not be called if content is too short for chunking
       // Just verify all updates were successful

@@ -3,6 +3,16 @@
 import { evolveArticle } from './runIterationLoop';
 import { BudgetExceededError } from '../../types';
 import type { EvolutionConfig } from '../infra/types';
+import { writeMetric } from '../../metrics/writeMetrics';
+import { createMockEntityLogger } from '../../../testing/evolution-test-helpers';
+import { RankingAgent } from '../../core/agents/RankingAgent';
+
+jest.mock('../../metrics/writeMetrics', () => ({
+  writeMetric: jest.fn().mockResolvedValue(undefined),
+  writeMetrics: jest.fn().mockResolvedValue(undefined),
+}));
+
+const mockedWriteMetric = writeMetric as jest.MockedFunction<typeof writeMetric>;
 
 const validText = `# Test Article
 
@@ -49,7 +59,7 @@ function makeMockDb(opts?: { runStatus?: string; statusError?: boolean }) {
           })),
         };
       }
-      // evolution_agent_invocations and evolution_run_logs
+      // evolution_agent_invocations and evolution_logs
       return {
         insert: jest.fn(() => ({
           select: jest.fn(() => ({
@@ -354,5 +364,145 @@ describe('evolveArticle', () => {
     expect(result.totalCost).toBeGreaterThan(0);
     // Sanity: pool should have baseline + generated variants
     expect(result.pool.length).toBeGreaterThan(1);
+  });
+
+  // ─── Metrics writes ────────────────────────────────────────────
+
+  it('writeMetric called with run cost after each iteration', async () => {
+    mockedWriteMetric.mockClear();
+    const config = { ...baseConfig, iterations: 2 };
+    await evolveArticle(
+      'original text',
+      makeRawProvider(),
+      makeMockDb(),
+      'run-1',
+      config,
+    );
+    // writeMetric should have been called for 'cost' metric during execution
+    const costCalls = mockedWriteMetric.mock.calls.filter(
+      (args) => args[0] === undefined // db arg (mock)
+        || (args[1] === 'run' && args[3] === 'cost' && args[5] === 'during_execution'),
+    );
+    // Filter more precisely: entity_type='run', metric_name='cost', timing='during_execution'
+    const runCostCalls = mockedWriteMetric.mock.calls.filter(
+      ([, entityType, , metricName, , timing]) =>
+        entityType === 'run' && metricName === 'cost' && timing === 'during_execution',
+    );
+    // Should be called once per iteration (2 iterations)
+    expect(runCostCalls.length).toBe(2);
+    // Each call should have a positive cost value
+    for (const call of runCostCalls) {
+      expect(call[4]).toBeGreaterThan(0); // value arg
+    }
+  });
+
+  it('writeMetric called with dynamic agentCost metrics during execution', async () => {
+    mockedWriteMetric.mockClear();
+    await evolveArticle(
+      'original text',
+      makeRawProvider(),
+      makeMockDb(),
+      'run-1',
+      baseConfig,
+    );
+    // Dynamic agentCost:* metrics should be written
+    const agentCostCalls = mockedWriteMetric.mock.calls.filter(
+      ([, entityType, , metricName, , timing]) =>
+        entityType === 'run'
+        && typeof metricName === 'string'
+        && metricName.startsWith('agentCost:')
+        && timing === 'during_execution',
+    );
+    expect(agentCostCalls.length).toBeGreaterThan(0);
+  });
+
+  // ─── EntityLogger integration ────────────────────────────────
+  describe('logging', () => {
+    it('logs config validation, winner determination, and evolution complete', async () => {
+      const { logger, calls } = createMockEntityLogger();
+      await evolveArticle('original text', makeRawProvider(), makeMockDb(), 'run-1', baseConfig, { logger });
+      const messages = calls.map((c) => c.message);
+      expect(messages).toContain('Config validation passed');
+      expect(messages).toContain('Winner determined');
+      expect(messages).toContain('Evolution complete');
+    });
+
+    it('logs iteration start and generation/ranking results', async () => {
+      const { logger, calls } = createMockEntityLogger();
+      await evolveArticle('original text', makeRawProvider(), makeMockDb(), 'run-1', { ...baseConfig, iterations: 2 }, { logger });
+      const iterationStarts = calls.filter((c) => c.message.startsWith('Starting iteration'));
+      expect(iterationStarts.length).toBe(2);
+      expect(calls.some((c) => c.message === 'Generation complete')).toBe(true);
+      expect(calls.some((c) => c.message === 'Ranking complete')).toBe(true);
+    });
+
+    it('logs kill detection when run is killed', async () => {
+      const { logger, calls } = createMockEntityLogger();
+      await evolveArticle('original text', makeRawProvider(), makeMockDb({ runStatus: 'failed' }), 'run-1', { ...baseConfig, iterations: 5 }, { logger });
+      expect(calls.some((c) => c.message === 'Run killed externally')).toBe(true);
+    });
+
+    it('logs budget exceeded during ranking', async () => {
+      const { logger, calls } = createMockEntityLogger();
+      await evolveArticle('original text', makeRawProvider(), makeMockDb(), 'run-1', { ...baseConfig, iterations: 5, budgetUsd: 0.0001 }, { logger });
+      expect(calls.some((c) => c.message.includes('budget exceeded') || c.message.includes('Budget exceeded'))).toBe(true);
+    });
+
+    it('logs baseline variant and initial pool when provided', async () => {
+      const { logger, calls } = createMockEntityLogger();
+      await evolveArticle('original text', makeRawProvider(), makeMockDb(), 'run-1', baseConfig, {
+        logger,
+        initialPool: [{ id: 'init-1', text: 'test', strategy: 'test', iterationBorn: 0, parentIds: [], version: 0, mu: 25, sigma: 8, createdAt: Date.now() }],
+      });
+      expect(calls.some((c) => c.message === 'Baseline variant added')).toBe(true);
+      expect(calls.some((c) => c.message === 'Initial pool loaded')).toBe(true);
+    });
+  });
+
+  // ─── Partial ranking results on budget exceeded ───────────────
+  it('applies partial ranking results when ranking returns budgetExceeded with partialResult', async () => {
+    const partialRatingUpdates = { 'v-partial-1': { mu: 32, sigma: 5 }, 'v-partial-2': { mu: 18, sigma: 6 } };
+    const partialMatchCountIncrements = { 'v-partial-1': 3, 'v-partial-2': 3 };
+    const partialMatches = [
+      { winnerId: 'v-partial-1', loserId: 'v-partial-2', result: 'win' as const, confidence: 0.8, timestamp: Date.now() },
+    ];
+
+    // Spy on RankingAgent.prototype.run to return budget exceeded with partial results
+    const rankSpy = jest.spyOn(RankingAgent.prototype, 'run').mockResolvedValueOnce({
+      success: false,
+      result: null,
+      cost: 0.5,
+      durationMs: 100,
+      invocationId: 'inv-mock',
+      budgetExceeded: true,
+      partialResult: {
+        ratingUpdates: partialRatingUpdates,
+        matchCountIncrements: partialMatchCountIncrements,
+        matches: partialMatches,
+        converged: false,
+      },
+    });
+
+    const result = await evolveArticle(
+      'original text',
+      makeRawProvider(),
+      makeMockDb(),
+      'run-1',
+      { ...baseConfig, iterations: 3 },
+    );
+
+    rankSpy.mockRestore();
+
+    expect(result.stopReason).toBe('budget_exceeded');
+    // Partial ratings should be applied
+    expect(result.ratings.get('v-partial-1')).toEqual({ mu: 32, sigma: 5 });
+    expect(result.ratings.get('v-partial-2')).toEqual({ mu: 18, sigma: 6 });
+    // Partial match counts should be applied
+    expect(result.matchCounts['v-partial-1']).toBe(3);
+    expect(result.matchCounts['v-partial-2']).toBe(3);
+    // Partial matches should be in matchHistory
+    expect(result.matchHistory).toEqual(expect.arrayContaining([
+      expect.objectContaining({ winnerId: 'v-partial-1', loserId: 'v-partial-2' }),
+    ]));
   });
 });

@@ -27,7 +27,7 @@ const STEP_LABELS: Record<string, string> = {
 };
 
 // Detailed check definitions for each step
-export const STEP_CHECKS: Record<string, CheckDefinition[]> = {
+export const STEP_CHECKS: { [key: string]: CheckDefinition[]; step2: CheckDefinition[]; step3: CheckDefinition[]; step4: CheckDefinition[] } = {
   step2: [
     {
       id: 'length_ratio',
@@ -304,7 +304,7 @@ export function ValidationChecksTable({ results, step4Result }: ValidationChecks
       }
       allChecks.push({
         checkName: check.name,
-        stepLabel: STEP_LABELS[key],
+        stepLabel: STEP_LABELS[key] ?? key,
         status,
         description: check.description,
       });

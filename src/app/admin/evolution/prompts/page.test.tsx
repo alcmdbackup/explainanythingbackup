@@ -15,7 +15,7 @@ jest.mock('@evolution/services/arenaActions', () => ({
     data: {
       items: [{
         id: '22222222-2222-2222-2222-222222222222',
-        title: 'Test Prompt',
+        name: 'Test Prompt',
         prompt: 'Explain quantum computing in simple terms that a high school student could understand.',
         status: 'active',
         deleted_at: null,
@@ -38,9 +38,9 @@ describe('PromptsPage', () => {
     expect(headings.length).toBeGreaterThanOrEqual(1);
   });
 
-  it('renders breadcrumb with Dashboard link', () => {
+  it('renders breadcrumb with Evolution link', () => {
     render(<PromptsPage />);
-    expect(screen.getByText('Dashboard')).toBeInTheDocument();
+    expect(screen.getByText('Evolution')).toBeInTheDocument();
   });
 
   it('renders New Prompt button', () => {
@@ -65,5 +65,23 @@ describe('PromptsPage', () => {
     await waitFor(() => {
       expect(screen.getByText(/Explain quantum computing/)).toBeInTheDocument();
     });
+  });
+
+  it('renders prompt creation form area', () => {
+    render(<PromptsPage />);
+    expect(screen.getByText('New Prompt')).toBeInTheDocument();
+  });
+
+  it('displays prompt status badge', async () => {
+    render(<PromptsPage />);
+    await waitFor(() => {
+      expect(screen.getByText('active')).toBeInTheDocument();
+    });
+  });
+
+  it('renders prompts breadcrumb item', () => {
+    render(<PromptsPage />);
+    const breadcrumb = screen.getByTestId('evolution-breadcrumb');
+    expect(breadcrumb).toHaveTextContent('Prompts');
   });
 });

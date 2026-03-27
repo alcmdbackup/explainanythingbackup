@@ -80,8 +80,8 @@ async function convertTagsToUIFormatImpl(rawTags: TagFullDbType[]): Promise<TagU
       const allTagsWithPresetId = allPresetTagsByPresetId.get(presetId) || [];
       
       // Find the first tag from our input tags (we know at least one tag was selected)
-      const selectedTag = tags[0];
-      
+      const selectedTag = tags[0]!;
+
       const presetTagUI = {
         tags: allTagsWithPresetId, // All available tags with this presetTagId
         tag_active_current: true,

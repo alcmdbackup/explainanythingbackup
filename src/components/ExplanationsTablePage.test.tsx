@@ -139,7 +139,7 @@ describe('ExplanationsTablePage', () => {
       await user.click(titleHeader);
 
       const rows = screen.getAllByRole('row').slice(1); // Skip header row
-      const firstTitle = within(rows[0]).getByText(/Explanation/);
+      const firstTitle = within(rows[0]!).getByText(/Explanation/);
       expect(firstTitle.textContent).toBe('Alpha Explanation');
     });
 
@@ -152,7 +152,7 @@ describe('ExplanationsTablePage', () => {
       await user.click(titleHeader);
 
       const rows = screen.getAllByRole('row').slice(1);
-      const firstTitle = within(rows[0]).getByText(/Explanation/);
+      const firstTitle = within(rows[0]!).getByText(/Explanation/);
       expect(firstTitle.textContent).toBe('Gamma Explanation');
     });
 
@@ -190,9 +190,9 @@ describe('ExplanationsTablePage', () => {
       await user.click(titleHeader);
 
       const rows = screen.getAllByRole('row').slice(1);
-      expect(within(rows[0]).getByText('apple')).toBeInTheDocument();
-      expect(within(rows[1]).getByText('Banana')).toBeInTheDocument();
-      expect(within(rows[2]).getByText('Zebra')).toBeInTheDocument();
+      expect(within(rows[0]!).getByText('apple')).toBeInTheDocument();
+      expect(within(rows[1]!).getByText('Banana')).toBeInTheDocument();
+      expect(within(rows[2]!).getByText('Zebra')).toBeInTheDocument();
     });
   });
 
@@ -206,7 +206,7 @@ describe('ExplanationsTablePage', () => {
 
       // Default sort is by date descending (newest first)
       const rows = screen.getAllByRole('row').slice(1);
-      const firstDate = within(rows[0]).getByText(/Formatted:/);
+      const firstDate = within(rows[0]!).getByText(/Formatted:/);
       expect(firstDate.textContent).toContain('2024-01-03');
     });
 
@@ -218,7 +218,7 @@ describe('ExplanationsTablePage', () => {
       await user.click(dateHeader);
 
       const rows = screen.getAllByRole('row').slice(1);
-      const firstDate = within(rows[0]).getByText(/Formatted:/);
+      const firstDate = within(rows[0]!).getByText(/Formatted:/);
       expect(firstDate.textContent).toContain('2024-01-01');
     });
 
@@ -231,7 +231,7 @@ describe('ExplanationsTablePage', () => {
       await user.click(dateHeader); // desc
 
       const rows = screen.getAllByRole('row').slice(1);
-      const firstDate = within(rows[0]).getByText(/Formatted:/);
+      const firstDate = within(rows[0]!).getByText(/Formatted:/);
       expect(firstDate.textContent).toContain('2024-01-03');
     });
 
@@ -471,7 +471,7 @@ describe('ExplanationsTablePage', () => {
     it('should make View link clickable', () => {
       render(<ExplanationsTablePage explanations={mockExplanations} error={null} />);
 
-      const link = screen.getAllByText(/View →/)[0].closest('a');
+      const link = screen.getAllByText(/View →/)[0]!.closest('a');
       expect(link).toBeInTheDocument();
       expect(link?.tagName).toBe('A');
     });

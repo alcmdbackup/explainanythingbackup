@@ -458,7 +458,7 @@ describe('TagBar', () => {
       });
       render(<TagBar {...props} />);
 
-      const tagContainer = screen.getByText(presetTag.tags[0].tag_name).closest('span');
+      const tagContainer = screen.getByText(presetTag.tags[0]!.tag_name).closest('span');
       const removeButton = within(tagContainer!).getByRole('button');
       fireEvent.click(removeButton);
 
@@ -526,7 +526,7 @@ describe('TagBar', () => {
       });
       render(<TagBar {...props} />);
 
-      const tagElement = screen.getByText(presetTag.tags[0].tag_name);
+      const tagElement = screen.getByText(presetTag.tags[0]!.tag_name);
       // Preset tags use CSS variable based styling
       expect(tagElement).toHaveClass('bg-[var(--surface-elevated)]');
     });

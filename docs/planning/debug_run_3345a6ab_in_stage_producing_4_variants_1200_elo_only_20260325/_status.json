@@ -1,0 +1,15 @@
+{
+  "branch": "fix/debug_run_3345a6ab_in_stage_producing_4_variants_1200_elo_only_20260325",
+  "created_at": "2026-03-25T00:00:00Z",
+  "prerequisites": {},
+  "relevantDocs": [
+    "evolution/docs/architecture.md",
+    "evolution/docs/arena.md",
+    "evolution/docs/rating_and_comparison.md",
+    "docs/docs_overall/debugging.md",
+    "evolution/docs/strategies_and_experiments.md",
+    "evolution/docs/data_model.md",
+    "evolution/docs/cost_optimization.md",
+    "docs/feature_deep_dives/evolution_logging.md"
+  ]
+}

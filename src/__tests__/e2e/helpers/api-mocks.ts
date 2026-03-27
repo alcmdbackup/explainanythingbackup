@@ -201,8 +201,8 @@ This fascinating phenomenon challenges our classical understanding of physics an
     { tag_name: 'quantum-mechanics', tag_type: 'simple' },
     { tag_name: 'advanced', tag_type: 'preset' },
   ],
-  explanation_id: 90001,
-  userQueryId: 91001,
+  explanation_id: 9_000_001,
+  userQueryId: 9_001_001,
 };
 
 /**
@@ -212,8 +212,8 @@ export const shortMockExplanation: MockExplanationResponse = {
   title: 'Brief Explanation',
   content: 'This is a short explanation for testing purposes.',
   tags: [{ tag_name: 'test', tag_type: 'simple' }],
-  explanation_id: 90002,
-  userQueryId: 91002,
+  explanation_id: 9_000_002,
+  userQueryId: 9_001_002,
 };
 
 /**
@@ -264,7 +264,7 @@ export async function mockUserLibraryAPI(
  */
 export async function mockExplanationByIdAPI(
   page: Page,
-  explanation = mockLibraryExplanations[0]
+  explanation = mockLibraryExplanations[0]!
 ) {
   await page.unroute('**/api/getExplanation**');
   await page.route('**/api/getExplanation**', async (route) => {

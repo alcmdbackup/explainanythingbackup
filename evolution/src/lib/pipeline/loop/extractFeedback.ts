@@ -1,10 +1,10 @@
 // Evolves existing variants via LLM mutation and crossover with format validation.
 
-import type { TextVariation, EvolutionLLMClient } from '../../types';
+import type { Variant, EvolutionLLMClient } from '../../types';
 import type { Rating } from '../../shared/computeRatings';
 import type { EvolutionConfig } from '../infra/types';
 import { validateFormat } from '../../shared/enforceVariantFormat';
-import { createTextVariation } from '../../types';
+import { createVariant } from '../../types';
 import { buildEvolutionPrompt } from './buildPrompts';
 
 // ─── Prompt builders ─────────────────────────────────────────────
@@ -60,7 +60,7 @@ function buildCreativePrompt(parentText: string): string {
  * BudgetExceededError propagates directly to caller.
  */
 export async function evolveVariants(
-  pool: TextVariation[],
+  pool: Variant[],
   ratings: Map<string, Rating>,
   iteration: number,
   llm: EvolutionLLMClient,
@@ -69,7 +69,7 @@ export async function evolveVariants(
     feedback?: { weakestDimension: string; suggestions: string[] };
     diversityScore?: number;
   },
-): Promise<TextVariation[]> {
+): Promise<Variant[]> {
   if (pool.length === 0) return [];
 
   // Select parents by descending mu
@@ -83,13 +83,13 @@ export async function evolveVariants(
   const maxVersion = Math.max(...parents.map((p) => p.version));
   const feedback = options?.feedback;
 
-  const variants: TextVariation[] = [];
+  const variants: Variant[] = [];
 
   const tryCreate = async (text: string, strategy: string): Promise<void> => {
     const fmt = validateFormat(text);
     if (!fmt.valid) return;
     variants.push(
-      createTextVariation({
+      createVariant({
         text: text.trim(),
         strategy,
         iterationBorn: iteration,
@@ -101,14 +101,14 @@ export async function evolveVariants(
 
   // Clarity mutation on parent 0
   const clarityText = await llm.complete(
-    buildMutationPrompt(parents[0].text, 'clarity', feedback),
+    buildMutationPrompt(parents[0]!.text, 'clarity', feedback),
     'evolution',
   );
   await tryCreate(clarityText, 'mutate_clarity');
 
   // Structure mutation on parent 0
   const structText = await llm.complete(
-    buildMutationPrompt(parents[0].text, 'structure', feedback),
+    buildMutationPrompt(parents[0]!.text, 'structure', feedback),
     'evolution',
   );
   await tryCreate(structText, 'mutate_structure');
@@ -116,7 +116,7 @@ export async function evolveVariants(
   // Crossover if 2+ parents
   if (parents.length >= 2) {
     const crossText = await llm.complete(
-      buildCrossoverPrompt(parents[0].text, parents[1].text, feedback),
+      buildCrossoverPrompt(parents[0]!.text, parents[1]!.text, feedback),
       'evolution',
     );
     await tryCreate(crossText, 'crossover');
@@ -126,7 +126,7 @@ export async function evolveVariants(
   const diversity = options?.diversityScore ?? 1.0;
   if (diversity > 0 && diversity < 0.5) {
     const creativeText = await llm.complete(
-      buildCreativePrompt(parents[0].text),
+      buildCreativePrompt(parents[0]!.text),
       'evolution',
     );
     await tryCreate(creativeText, 'creative_exploration');

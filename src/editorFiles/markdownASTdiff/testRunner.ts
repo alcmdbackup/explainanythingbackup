@@ -33,8 +33,8 @@ export function parseTestCases(testCasesContent: string): TestCase[] {
   let inCodeBlock = false;
   
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    
+    const line = lines[i]!;
+
     // Match test case header: "## Test Case X: Description"
     const testCaseMatch = line.match(/^## Test Case (\d+): (.+)$/);
     if (testCaseMatch) {
@@ -45,8 +45,8 @@ export function parseTestCases(testCasesContent: string): TestCase[] {
       
       // Start new test case
       currentTestCase = {
-        id: parseInt(testCaseMatch[1]),
-        description: testCaseMatch[2],
+        id: parseInt(testCaseMatch[1]!, 10),
+        description: testCaseMatch[2]!,
         before: '',
         after: '',
         expectedDiff: ''
@@ -95,7 +95,7 @@ export function parseTestCases(testCasesContent: string): TestCase[] {
         // We need to look ahead to see if there are more lines after this closing
         let isFinalClosing = false;
         for (let j = i + 1; j < lines.length; j++) {
-          const nextLine = lines[j].trim();
+          const nextLine = lines[j]!.trim();
           if (nextLine === '---' || nextLine.startsWith('## Test Case')) {
             isFinalClosing = true;
             break;

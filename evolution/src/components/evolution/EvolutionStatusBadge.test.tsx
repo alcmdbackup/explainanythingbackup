@@ -48,7 +48,7 @@ describe('EvolutionStatusBadge', () => {
     };
     for (const status of ALL_STATUSES) {
       const { unmount } = render(<EvolutionStatusBadge status={status} />);
-      expect(screen.getByTestId('status-icon')).toHaveTextContent(EXPECTED_ICONS[status]);
+      expect(screen.getByTestId('status-icon')).toHaveTextContent(EXPECTED_ICONS[status]!);
       unmount();
     }
   });

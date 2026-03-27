@@ -2,7 +2,7 @@
 // Fetches run data via V2 actions and renders EntityDetailHeader + EntityDetailTabs.
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import {
   EvolutionBreadcrumb,
@@ -10,98 +10,41 @@ import {
   EntityDetailTabs,
   useTabState,
   EvolutionStatusBadge,
+  EntityMetricsTab,
+  NotFoundCard,
   type TabDef,
 } from '@evolution/components/evolution';
 import {
   getEvolutionRunByIdAction,
-  getEvolutionRunLogsAction,
   type EvolutionRun,
-  type RunLogEntry,
 } from '@evolution/services/evolutionActions';
-import { RunMetricsTab } from './RunMetricsTab';
 import { EloTab } from '@evolution/components/evolution/tabs/EloTab';
 import { LineageTab } from '@evolution/components/evolution/tabs/LineageTab';
 import { VariantsTab } from '@evolution/components/evolution/tabs/VariantsTab';
+import { LogsTab } from '@evolution/components/evolution/tabs/LogsTab';
 
 const TABS: TabDef[] = [
-  { id: 'overview', label: 'Overview' },
+  { id: 'metrics', label: 'Metrics' },
   { id: 'elo', label: 'Elo' },
   { id: 'lineage', label: 'Lineage' },
   { id: 'variants', label: 'Variants' },
   { id: 'logs', label: 'Logs' },
 ];
 
-function LogsPanel({ runId }: { runId: string }): JSX.Element {
-  const [logs, setLogs] = useState<RunLogEntry[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    async function load() {
-      setLoading(true);
-      const result = await getEvolutionRunLogsAction({ runId });
-      if (result.success && result.data) {
-        setLogs(result.data.items);
-      }
-      setLoading(false);
-    }
-    load();
-  }, [runId]);
-
-  if (loading) {
-    return <div className="h-48 bg-[var(--surface-elevated)] rounded-book animate-pulse" />;
-  }
-
-  if (logs.length === 0) {
-    return <div className="text-sm text-[var(--text-muted)] p-8 text-center">No logs available.</div>;
-  }
-
-  return (
-    <div className="overflow-x-auto border border-[var(--border-default)] rounded-book" data-testid="logs-panel">
-      <table className="w-full text-sm">
-        <thead className="bg-[var(--surface-elevated)]">
-          <tr>
-            <th className="px-3 py-2 text-left">Time</th>
-            <th className="px-3 py-2 text-left">Level</th>
-            <th className="px-3 py-2 text-left">Agent</th>
-            <th className="px-3 py-2 text-left">Message</th>
-          </tr>
-        </thead>
-        <tbody>
-          {logs.map((log) => (
-            <tr key={log.id} className="border-t border-[var(--border-default)]">
-              <td className="px-3 py-2 text-xs text-[var(--text-muted)] whitespace-nowrap">
-                {new Date(log.created_at).toLocaleTimeString()}
-              </td>
-              <td className="px-3 py-2 text-xs font-mono">{log.level}</td>
-              <td className="px-3 py-2 text-xs font-mono text-[var(--text-secondary)]">{log.agent_name ?? '—'}</td>
-              <td className="px-3 py-2 text-xs">{log.message}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
 export default function EvolutionRunDetailPage(): JSX.Element {
-  const params = useParams<{ runId: string }>();
-  const runId = params.runId;
+  const { runId } = useParams<{ runId: string }>();
   const [run, setRun] = useState<EvolutionRun | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useTabState(TABS);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    const result = await getEvolutionRunByIdAction(runId);
-    if (result.success && result.data) {
-      setRun(result.data);
-    }
-    setLoading(false);
-  }, [runId]);
-
   useEffect(() => {
-    load();
-  }, [load]);
+    void (async () => {
+      setLoading(true);
+      const result = await getEvolutionRunByIdAction(runId);
+      if (result.success && result.data) setRun(result.data);
+      setLoading(false);
+    })();
+  }, [runId]);
 
   if (loading && !run) {
     return (
@@ -114,13 +57,21 @@ export default function EvolutionRunDetailPage(): JSX.Element {
   }
 
   if (!run) {
-    return <div className="text-[var(--status-error)] text-sm p-4">Run not found.</div>;
+    return (
+      <NotFoundCard
+        entityType="Run"
+        breadcrumbs={[
+          { label: 'Evolution', href: '/admin/evolution-dashboard' },
+          { label: 'Runs', href: '/admin/evolution/runs' },
+        ]}
+      />
+    );
   }
 
   return (
     <div className="space-y-6">
       <EvolutionBreadcrumb items={[
-        { label: 'Dashboard', href: '/admin/evolution-dashboard' },
+        { label: 'Evolution', href: '/admin/evolution-dashboard' },
         { label: 'Runs', href: '/admin/evolution/runs' },
         { label: run.id.substring(0, 8) },
       ]} />
@@ -129,14 +80,35 @@ export default function EvolutionRunDetailPage(): JSX.Element {
         title={`Run ${run.id.substring(0, 8)}`}
         entityId={run.id}
         statusBadge={<EvolutionStatusBadge status={run.status as import('@evolution/lib/types').EvolutionRunStatus} hasError={!!run.error_message} />}
+        links={[
+          run.strategy_name || run.strategy_id
+            ? { prefix: 'Strategy', label: run.strategy_name || run.strategy_id.substring(0, 8), href: `/admin/evolution/strategies/${run.strategy_id}` }
+            : null,
+          run.experiment_id
+            ? { prefix: 'Experiment', label: run.experiment_name || run.experiment_id.substring(0, 8), href: `/admin/evolution/experiments/${run.experiment_id}` }
+            : null,
+          run.prompt_id
+            ? { prefix: 'Prompt', label: run.prompt_name || run.prompt_id.substring(0, 8), href: `/admin/evolution/prompts/${run.prompt_id}` }
+            : null,
+        ].filter(Boolean) as Array<{ prefix: string; label: string; href: string }>}
       />
 
+      {run.status === 'failed' && run.error_message && (
+        <div
+          className="rounded-book border border-[var(--status-error)] bg-[var(--status-error)]/10 p-4"
+          data-testid="run-error-banner"
+        >
+          <p className="text-sm font-ui font-medium text-[var(--status-error)] mb-1">Run Failed</p>
+          <p className="text-xs font-mono text-[var(--text-secondary)] whitespace-pre-wrap">{run.error_message}</p>
+        </div>
+      )}
+
       <EntityDetailTabs tabs={TABS} activeTab={activeTab} onTabChange={setActiveTab}>
-        {activeTab === 'overview' && <RunMetricsTab runId={runId} />}
+        {activeTab === 'metrics' && <EntityMetricsTab entityType="run" entityId={runId} />}
         {activeTab === 'elo' && <EloTab runId={runId} />}
         {activeTab === 'lineage' && <LineageTab runId={runId} />}
-        {activeTab === 'variants' && <VariantsTab runId={runId} />}
-        {activeTab === 'logs' && <LogsPanel runId={runId} />}
+        {activeTab === 'variants' && <VariantsTab runId={runId} runStatus={run.status} />}
+        {activeTab === 'logs' && <LogsTab entityType="run" entityId={runId} />}
       </EntityDetailTabs>
     </div>
   );

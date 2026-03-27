@@ -6,6 +6,7 @@ import { adminAction, type AdminContext } from './adminAction';
 import { validateUuid } from './shared';
 import { logger } from '@/lib/server_utilities';
 import { logAdminAction } from '@/lib/services/auditLog';
+import { createEntityLogger } from '@evolution/lib/pipeline/infra/createEntityLogger';
 import type { EvolutionRunSummary } from '@evolution/lib/types';
 import { EvolutionRunSummarySchema } from '@evolution/lib/types';
 import { z } from 'zod';
@@ -33,6 +34,7 @@ export interface EvolutionRun {
   total_cost_usd?: number;
   experiment_name?: string | null;
   strategy_name?: string | null;
+  prompt_name?: string | null;
 }
 
 export interface EvolutionVariant {
@@ -91,6 +93,7 @@ const listVariantsInputSchema = z.object({
   runId: z.string().uuid().optional(),
   agentName: z.string().optional(),
   isWinner: z.boolean().optional(),
+  filterTestContent: z.boolean().optional(),
   limit: z.number().int().min(1).max(200).default(50),
   offset: z.number().int().min(0).default(0),
 });
@@ -170,6 +173,14 @@ export const queueEvolutionRunAction = adminAction(
       },
     });
 
+    const runLogger = createEntityLogger({
+      entityType: 'run',
+      entityId: data.id,
+      runId: data.id,
+      strategyId: input.strategyId,
+    }, supabase);
+    runLogger.info('Evolution run queued', { budgetCapUsd: budgetCap, promptId: input.promptId, explanationId: input.explanationId });
+
     return data as EvolutionRun;
   },
 );
@@ -177,7 +188,7 @@ export const queueEvolutionRunAction = adminAction(
 export const getEvolutionRunsAction = adminAction(
   'getEvolutionRunsAction',
   async (
-    filters: { status?: string; promptId?: string; includeArchived?: boolean; limit?: number; offset?: number } | undefined,
+    filters: { status?: string; promptId?: string; strategy_id?: string; includeArchived?: boolean; filterTestContent?: boolean; limit?: number; offset?: number } | undefined,
     ctx: AdminContext,
   ): Promise<{ items: EvolutionRun[]; total: number }> => {
     const { supabase } = ctx;
@@ -185,15 +196,33 @@ export const getEvolutionRunsAction = adminAction(
     const limit = Math.min(Math.max(filters?.limit ?? 50, 1), 200);
     const offset = Math.max(filters?.offset ?? 0, 0);
 
+    // Fetch test strategy IDs first (small set), then exclude them.
+    // This avoids the !inner join approach which requires a FK constraint and
+    // a fresh PostgREST schema cache — both of which have caused silent failures.
+    let testStrategyIds: string[] = [];
+    if (filters?.filterTestContent) {
+      const { data: testStrategies } = await supabase
+        .from('evolution_strategies')
+        .select('id')
+        .ilike('name', '%[TEST]%');
+      testStrategyIds = (testStrategies ?? []).map(s => s.id as string);
+    }
+
     let query = supabase
       .from('evolution_runs')
       .select('*', { count: 'exact' });
 
     if (filters?.status) query = query.eq('status', filters.status);
-    if (!filters?.includeArchived) query = query.eq('archived', false);
+    if (filters?.strategy_id) {
+      if (!validateUuid(filters.strategy_id)) throw new Error('Invalid strategy_id filter');
+      query = query.eq('strategy_id', filters.strategy_id);
+    }
     if (filters?.promptId) {
       if (!validateUuid(filters.promptId)) throw new Error('Invalid promptId filter');
       query = query.eq('prompt_id', filters.promptId);
+    }
+    if (filters?.filterTestContent && testStrategyIds.length > 0) {
+      query = query.not('strategy_id', 'in', `(${testStrategyIds.join(',')})`);
     }
 
     query = query.order('created_at', { ascending: false }).range(offset, offset + limit - 1);
@@ -201,17 +230,21 @@ export const getEvolutionRunsAction = adminAction(
     const { data: runs, error, count } = await query;
     if (error) throw error;
 
-    const typedRuns = (runs ?? []) as EvolutionRun[];
+    // Cast through unknown: the join select expression includes an extra
+    // evolution_strategies object that the TS Supabase client can't parse.
+    const typedRuns = (runs ?? []) as unknown as EvolutionRun[];
 
-    // Batch-fetch costs from view
+    // Batch-fetch costs from evolution_metrics (replaces dropped evolution_run_costs view)
     const runIds = typedRuns.map(r => r.id);
     if (runIds.length > 0) {
       const { data: costs } = await supabase
-        .from('evolution_run_costs')
-        .select('run_id, total_cost_usd')
-        .in('run_id', runIds);
+        .from('evolution_metrics')
+        .select('entity_id, value')
+        .eq('entity_type', 'run')
+        .eq('metric_name', 'cost')
+        .in('entity_id', runIds);
 
-      const costMap = new Map((costs ?? []).map(c => [c.run_id as string, Number(c.total_cost_usd) || 0]));
+      const costMap = new Map((costs ?? []).map(c => [c.entity_id as string, Number(c.value) || 0]));
       for (const run of typedRuns) {
         run.total_cost_usd = costMap.get(run.id) ?? 0;
       }
@@ -284,15 +317,17 @@ export const getEvolutionRunByIdAction = adminAction(
     const { data: costData } = await ctx.supabase.rpc('get_run_total_cost', { p_run_id: runId });
     run.total_cost_usd = Number(costData) || 0;
 
-    // Fetch strategy name
-    if (run.strategy_id) {
-      const { data: strat } = await ctx.supabase
-        .from('evolution_strategies')
-        .select('name')
-        .eq('id', run.strategy_id)
-        .single();
-      run.strategy_name = strat?.name ?? null;
-    }
+    // Fetch strategy + prompt names
+    const [stratResult, promptResult] = await Promise.all([
+      run.strategy_id
+        ? ctx.supabase.from('evolution_strategies').select('name').eq('id', run.strategy_id).single()
+        : Promise.resolve({ data: null }),
+      run.prompt_id
+        ? ctx.supabase.from('evolution_prompts').select('name').eq('id', run.prompt_id).single()
+        : Promise.resolve({ data: null }),
+    ]);
+    run.strategy_name = stratResult.data?.name ?? null;
+    run.prompt_name = promptResult.data?.name ?? null;
 
     return run;
   },
@@ -372,7 +407,7 @@ export const getEvolutionRunLogsAction = adminAction(
     if (!validateUuid(runId)) throw new Error('Invalid runId');
 
     let query = ctx.supabase
-      .from('evolution_run_logs')
+      .from('evolution_logs')
       .select('id, created_at, level, agent_name, iteration, variant_id, message, context', { count: 'exact' })
       .eq('run_id', runId)
       .order('created_at', { ascending: true });
@@ -422,6 +457,15 @@ export const killEvolutionRunAction = adminAction(
       entityId: runId,
     });
 
+    const runLogger = createEntityLogger({
+      entityType: 'run',
+      entityId: runId,
+      runId,
+      experimentId: (data as EvolutionRun).experiment_id ?? undefined,
+      strategyId: (data as EvolutionRun).strategy_id,
+    }, supabase);
+    runLogger.warn('Run cancelled by admin');
+
     logger.info('Evolution run killed by admin', { runId, adminUserId });
     return data as EvolutionRun;
   },
@@ -436,13 +480,35 @@ export const listVariantsAction = adminAction(
     const parsed = listVariantsInputSchema.parse(input);
     const { supabase } = ctx;
 
+    // Fetch test strategy IDs, then find their run IDs, then exclude those variants.
+    // This avoids nested !inner joins which depend on FK constraints + PostgREST schema cache.
+    const baseFields = 'id, run_id, explanation_id, elo_score, generation, agent_name, match_count, is_winner, created_at';
+    let testRunIds: string[] = [];
+    if (parsed.filterTestContent) {
+      const { data: testStrategies } = await supabase
+        .from('evolution_strategies')
+        .select('id')
+        .ilike('name', '%[TEST]%');
+      const testStrategyIds = (testStrategies ?? []).map(s => s.id as string);
+      if (testStrategyIds.length > 0) {
+        const { data: testRuns } = await supabase
+          .from('evolution_runs')
+          .select('id')
+          .in('strategy_id', testStrategyIds);
+        testRunIds = (testRuns ?? []).map(r => r.id as string);
+      }
+    }
+
     let query = supabase
       .from('evolution_variants')
-      .select('id, run_id, explanation_id, elo_score, generation, agent_name, match_count, is_winner, created_at', { count: 'exact' });
+      .select(baseFields, { count: 'exact' });
 
     if (parsed.runId) query = query.eq('run_id', parsed.runId);
     if (parsed.agentName) query = query.eq('agent_name', parsed.agentName);
     if (parsed.isWinner !== undefined) query = query.eq('is_winner', parsed.isWinner);
+    if (parsed.filterTestContent && testRunIds.length > 0) {
+      query = query.not('run_id', 'in', `(${testRunIds.join(',')})`);
+    }
 
     query = query.order('created_at', { ascending: false })
       .range(parsed.offset, parsed.offset + parsed.limit - 1);
@@ -450,7 +516,7 @@ export const listVariantsAction = adminAction(
     const { data, error, count } = await query;
     if (error) throw error;
 
-    const items = (data ?? []) as VariantListEntry[];
+    const items = (data ?? []) as unknown as VariantListEntry[];
 
     // Post-fetch enrichment: batch-fetch strategy names via runs
     const runIds = [...new Set(items.map(v => v.run_id).filter(Boolean))];

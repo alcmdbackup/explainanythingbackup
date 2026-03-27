@@ -1,15 +1,17 @@
-'use client';
 // Experiment creation wizard: name/prompt setup, strategy selection, review, and submit.
-// Uses V2 actions — experiment auto-starts when first run is added.
+// Uses V2 actions -- experiment auto-starts when first run is added.
+'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { toast } from 'sonner';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   createExperimentWithRunsAction,
   getPromptsAction,
   getStrategiesAction,
-} from '@evolution/services/experimentActionsV2';
+} from '@evolution/services/experimentActions';
+import { createPromptAction } from '@evolution/services/arenaActions';
+import { FormDialog, type FieldDef } from '@evolution/components/evolution/FormDialog';
 import { StrategyConfigDisplay } from './StrategyConfigDisplay';
 
 interface ExperimentFormProps {
@@ -18,6 +20,7 @@ interface ExperimentFormProps {
 
 type Step = 'setup' | 'strategies' | 'review';
 const STEPS: Step[] = ['setup', 'strategies', 'review'];
+const STEP_LABELS: Record<Step, string> = { setup: 'Setup', strategies: 'Strategies', review: 'Review' };
 
 const MAX_EXPERIMENT_BUDGET = 10.00;
 
@@ -30,7 +33,7 @@ export function ExperimentForm({ onCreated }: ExperimentFormProps): JSX.Element 
   const [step, setStep] = useState<Step>('setup');
 
   const [name, setName] = useState('');
-  const [availablePrompts, setAvailablePrompts] = useState<Array<{ id: string; prompt: string; title: string }>>([]);
+  const [availablePrompts, setAvailablePrompts] = useState<Array<{ id: string; prompt: string; name: string }>>([]);
   const [selectedPromptId, setSelectedPromptId] = useState<string>('');
   const [budgetPerRun, setBudgetPerRun] = useState(0.05);
   const [loading, setLoading] = useState(true);
@@ -39,6 +42,36 @@ export function ExperimentForm({ onCreated }: ExperimentFormProps): JSX.Element 
   const [selections, setSelections] = useState<StrategySelection[]>([]);
 
   const [submitting, setSubmitting] = useState(false);
+  const [setupSubmitted, setSetupSubmitted] = useState(false);
+  const [showCreatePrompt, setShowCreatePrompt] = useState(false);
+
+  const createPromptFields: FieldDef[] = useMemo(() => [
+    { name: 'name', label: 'Prompt Name', type: 'text', required: true, placeholder: 'e.g., Explain gravity for kids' },
+    { name: 'prompt', label: 'Prompt Text', type: 'textarea', required: true, placeholder: 'Enter the prompt text...' },
+  ], []);
+
+  const validateCreatePrompt = useCallback((values: Record<string, unknown>): string | null => {
+    const nameVal = (typeof values.name === 'string' ? values.name : '').trim();
+    const promptVal = (typeof values.prompt === 'string' ? values.prompt : '').trim();
+    if (!nameVal) return 'Name is required';
+    if (nameVal.length > 200) return `Name must be at most 200 characters (currently ${nameVal.length})`;
+    if (!promptVal) return 'Prompt text is required';
+    if (promptVal.length > 2000) return `Prompt text must be at most 2000 characters (currently ${promptVal.length})`;
+    return null;
+  }, []);
+
+  const handleCreatePrompt = useCallback(async (values: Record<string, unknown>) => {
+    const nameVal = (typeof values.name === 'string' ? values.name : '').trim();
+    const promptVal = (typeof values.prompt === 'string' ? values.prompt : '').trim();
+    const result = await createPromptAction({ name: nameVal, prompt: promptVal });
+    if (!result.success || !result.data) {
+      throw new Error(result.error?.message ?? 'Failed to create prompt');
+    }
+    const newPrompt = result.data as { id: string; name: string; prompt: string };
+    setAvailablePrompts(prev => [newPrompt, ...prev]);
+    setSelectedPromptId(newPrompt.id);
+    toast.success(`Prompt "${newPrompt.name}" created`);
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -94,7 +127,6 @@ export function ExperimentForm({ onCreated }: ExperimentFormProps): JSX.Element 
     setSubmitting(true);
 
     try {
-      // Build flat run list from selections
       const runs: Array<{ strategy_id: string; budget_cap_usd: number }> = [];
       for (const sel of selections) {
         for (let i = 0; i < sel.runsCount; i++) {
@@ -142,16 +174,27 @@ export function ExperimentForm({ onCreated }: ExperimentFormProps): JSX.Element 
           New Experiment
         </CardTitle>
         <div className="flex gap-1 mt-2">
-          {STEPS.map((s, i) => (
-            <div
-              key={s}
-              className={`h-1 flex-1 rounded-full transition-colors ${
-                i <= STEPS.indexOf(step)
-                  ? 'bg-[var(--accent-gold)]'
-                  : 'bg-[var(--border-default)]'
-              }`}
-            />
-          ))}
+          {STEPS.map((s, i) => {
+            const currentIdx = STEPS.indexOf(step);
+            const isCompleted = i < currentIdx;
+            return (
+              <div key={s} className="flex-1 text-center">
+                <div
+                  className={`h-1 rounded-full transition-colors ${
+                    i <= currentIdx
+                      ? 'bg-[var(--accent-gold)]'
+                      : 'bg-[var(--border-default)]'
+                  }`}
+                />
+                <span
+                  className={`text-xs font-ui mt-0.5 block ${
+                    i <= currentIdx ? 'text-[var(--accent-gold)]' : 'text-[var(--text-muted)]'
+                  } ${isCompleted ? 'cursor-pointer hover:underline' : ''}`}
+                  onClick={isCompleted ? () => setStep(s) : undefined}
+                >{STEP_LABELS[s]}</span>
+              </div>
+            );
+          })}
         </div>
       </CardHeader>
       <CardContent className="space-y-6">
@@ -200,7 +243,7 @@ export function ExperimentForm({ onCreated }: ExperimentFormProps): JSX.Element 
                         />
                         <div className="min-w-0 flex-1">
                           <span className="text-sm font-ui font-medium text-[var(--text-primary)]">
-                            {p.title}
+                            {p.name}
                           </span>
                           <span className="text-xs font-body text-[var(--text-muted)] ml-2 truncate">
                             — {p.prompt.length > 80 ? p.prompt.slice(0, 80) + '...' : p.prompt}
@@ -210,7 +253,24 @@ export function ExperimentForm({ onCreated }: ExperimentFormProps): JSX.Element 
                     );
                   })
                 )}
+                <button
+                  type="button"
+                  onClick={() => setShowCreatePrompt(true)}
+                  data-testid="create-prompt-btn"
+                  className="flex items-center gap-2 w-full p-3 border border-dashed border-[var(--border-default)] rounded-page text-sm font-ui font-medium text-[var(--accent-gold)] hover:bg-[var(--surface-elevated)] transition-colors"
+                >
+                  <span className="text-lg leading-none">+</span>
+                  Create new prompt
+                </button>
               </div>
+              <FormDialog
+                open={showCreatePrompt}
+                onClose={() => setShowCreatePrompt(false)}
+                title="Create New Prompt"
+                fields={createPromptFields}
+                onSubmit={handleCreatePrompt}
+                validate={validateCreatePrompt}
+              />
             </div>
 
             <div>
@@ -231,15 +291,17 @@ export function ExperimentForm({ onCreated }: ExperimentFormProps): JSX.Element 
               </p>
             </div>
 
-            {setupErrors.length > 0 && (
+            {setupSubmitted && setupErrors.length > 0 && (
               <ul className="text-xs font-body text-[var(--status-error)] space-y-0.5">
                 {setupErrors.map((e, i) => <li key={i}>{e}</li>)}
               </ul>
             )}
 
             <button
-              onClick={() => setStep('strategies')}
-              disabled={setupErrors.length > 0}
+              onClick={() => {
+                setSetupSubmitted(true);
+                if (setupErrors.length === 0) setStep('strategies');
+              }}
               className="w-full py-2.5 font-ui text-sm font-medium bg-[var(--accent-gold)] text-[var(--surface-primary)] rounded-page hover:opacity-90 disabled:opacity-50 transition-opacity"
             >
               Next: Select Strategies
@@ -257,6 +319,25 @@ export function ExperimentForm({ onCreated }: ExperimentFormProps): JSX.Element 
                 {selections.length} selected, {totalRuns} total runs
               </span>
             </div>
+
+            {strategies.length > 0 && (
+              <label className="flex items-center gap-2 text-xs font-ui text-[var(--text-secondary)] cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={selections.length > 0 && selections.length === strategies.filter(s => eligibleStrategyIds.has(s.id)).length}
+                  onChange={() => {
+                    const eligible = strategies.filter(s => eligibleStrategyIds.has(s.id));
+                    if (selections.length === eligible.length) {
+                      setSelections([]);
+                    } else {
+                      setSelections(eligible.map(s => ({ strategyId: s.id, runsCount: selections.find(x => x.strategyId === s.id)?.runsCount ?? 1 })));
+                    }
+                  }}
+                  className="w-4 h-4 accent-[var(--accent-gold)]"
+                />
+                {selections.length === strategies.filter(s => eligibleStrategyIds.has(s.id)).length ? 'Deselect all' : 'Select all'}
+              </label>
+            )}
 
             <div className="space-y-2 max-h-80 overflow-y-auto">
               {strategies.length === 0 ? (
@@ -363,6 +444,7 @@ export function ExperimentForm({ onCreated }: ExperimentFormProps): JSX.Element 
           <>
             <div className="space-y-2 text-sm font-ui text-[var(--text-secondary)]">
               <div><span className="text-[var(--text-muted)]">Name:</span> {name}</div>
+              <div><span className="text-[var(--text-muted)]">Prompt:</span> {availablePrompts.find(p => p.id === selectedPromptId)?.name ?? selectedPromptId.slice(0, 8)}</div>
               <div><span className="text-[var(--text-muted)]">Strategies:</span> {selections.length}</div>
               <div><span className="text-[var(--text-muted)]">Total runs:</span> {totalRuns}</div>
               <div><span className="text-[var(--text-muted)]">Est. total budget:</span> ${totalBudget.toFixed(2)}</div>

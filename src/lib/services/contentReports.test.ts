@@ -203,7 +203,7 @@ describe('ContentReports Service', () => {
 
       expect(result.success).toBe(true);
       expect(result.data?.reports).toHaveLength(1);
-      expect(result.data?.reports[0].explanation_title).toBe('Test Title');
+      expect(result.data!.reports[0]!.explanation_title).toBe('Test Title');
       expect(result.data?.total).toBe(50);
       expect(requireAdmin).toHaveBeenCalled();
     });

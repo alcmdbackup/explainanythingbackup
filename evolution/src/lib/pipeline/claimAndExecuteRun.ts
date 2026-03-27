@@ -4,7 +4,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import { logger } from '@/lib/server_utilities';
 import { callLLM } from '@/lib/services/llms';
-import type { AllowedLLMModelType } from '@/lib/schemas/schemas';
+import { allowedLLMModelSchema } from '@/lib/schemas/schemas';
 import { buildRunContext, type ClaimedRun } from './setup/buildRunContext';
 import { evolveArticle } from './loop/runIterationLoop';
 import { finalizeRun, syncToArena } from './finalize/persistRunResults';
@@ -22,6 +22,10 @@ export interface RunnerOptions {
   runnerId: string;
   maxDurationMs?: number;
   targetRunId?: string;
+  /** Optional external Supabase client (e.g. for multi-DB batch runners). Falls back to createSupabaseServiceClient(). */
+  db?: SupabaseClient;
+  /** If true, claim the run but return immediately without executing the pipeline. */
+  dryRun?: boolean;
 }
 
 export interface RunnerResult {
@@ -78,7 +82,7 @@ async function markRunFailed(
 export async function claimAndExecuteRun(
   options: RunnerOptions,
 ): Promise<RunnerResult> {
-  const supabase = await createSupabaseServiceClient();
+  const supabase = options.db ?? await createSupabaseServiceClient();
   const startMs = Date.now();
 
   // Claim a run (concurrent limit enforced server-side via advisory lock in RPC)
@@ -110,18 +114,27 @@ export async function claimAndExecuteRun(
     budget_cap_usd: Number(claimedRow.budget_cap_usd) || 1.0,
   };
 
-  let heartbeatInterval: NodeJS.Timeout | null = null;
   logger.info('Claimed evolution run', { runId, runnerId: options.runnerId });
 
+  if (options.dryRun) {
+    await supabase.from('evolution_runs').update({
+      status: 'completed',
+      completed_at: new Date().toISOString(),
+      error_message: 'dry-run: no execution performed',
+    }).eq('id', runId);
+    return { claimed: true, runId, stopReason: 'dry-run', durationMs: Date.now() - startMs };
+  }
+
+  let heartbeatInterval: NodeJS.Timeout | null = null;
+
   try {
-    // Create LLM provider
-    const llmProvider = {
+    const llmProvider: LLMProvider = {
       async complete(prompt: string, label: string, opts?: { model?: string }): Promise<string> {
         return callLLM(
           prompt,
           `evolution_${label}`,
           EVOLUTION_SYSTEM_USERID,
-          (opts?.model ?? 'deepseek-chat') as AllowedLLMModelType,
+          allowedLLMModelSchema.parse(opts?.model ?? 'deepseek-chat'),
           false,
           null,
           null,
@@ -134,53 +147,13 @@ export async function claimAndExecuteRun(
 
     heartbeatInterval = startHeartbeat(supabase, runId);
 
-    // Set status to running
-    await supabase
-      .from('evolution_runs')
-      .update({ status: 'running' })
-      .eq('id', runId);
-
-    // Build run context (strategy, content, arena)
-    const contextResult = await buildRunContext(runId, claimedRun, supabase, llmProvider);
-    if ('error' in contextResult) {
-      await markRunFailed(supabase, runId, contextResult.error);
-      return { claimed: true, runId, error: contextResult.error, durationMs: Date.now() - startMs };
-    }
-
-    const { originalText, config, logger: runLogger, initialPool } = contextResult.context;
-
-    // Run pipeline
-    const result = await evolveArticle(originalText, llmProvider, supabase, runId, config, {
-      logger: runLogger,
-      initialPool: initialPool.length > 0 ? initialPool : undefined,
-    });
-
-    // Persist results
-    const durationSeconds = (Date.now() - startMs) / 1000;
-    await finalizeRun(runId, result, {
-      experiment_id: claimedRun.experiment_id,
-      explanation_id: claimedRun.explanation_id,
-      strategy_id: claimedRun.strategy_id,
-      prompt_id: claimedRun.prompt_id ?? null,
-    }, supabase, durationSeconds, runLogger, options.runnerId);
-
-    // Sync to arena if prompt-based run
-    if (claimedRun.prompt_id) {
-      try {
-        await syncToArena(runId, claimedRun.prompt_id, result.pool, result.ratings, result.matchHistory, supabase);
-        runLogger.info('Arena sync complete', { phaseName: 'arena' });
-      } catch (err) {
-        runLogger.warn(`Arena sync failed: ${err}`, { phaseName: 'arena' });
-      }
-    }
-
-    logger.info(`Run ${runId} completed`, { stopReason: result.stopReason, iterations: result.iterationsRun, cost: result.totalCost.toFixed(4) });
+    await executePipeline(runId, claimedRun, supabase, llmProvider, startMs, options.runnerId);
     return { claimed: true, runId, stopReason: 'completed', durationMs: Date.now() - startMs };
   } catch (error) {
-    const msg = (error instanceof Error ? error.message : String(error)).slice(0, 2000);
+    const msg = error instanceof Error ? error.message : String(error);
     logger.error('Evolution pipeline failed', { runId, error: msg });
     await markRunFailed(supabase, runId, msg);
-    return { claimed: true, runId, error: msg, durationMs: Date.now() - startMs };
+    return { claimed: true, runId, error: msg.slice(0, 2000), durationMs: Date.now() - startMs };
   } finally {
     if (heartbeatInterval) {
       clearInterval(heartbeatInterval);
@@ -188,68 +161,68 @@ export async function claimAndExecuteRun(
   }
 }
 
-// ─── Bridge for batch runner scripts (removed in Phase 3) ────────
+// ─── Shared execution logic ──────────────────────────────────────
 
-type RawLLMProvider = {
+interface LLMProvider {
   complete(prompt: string, label: string, opts?: { model?: string }): Promise<string>;
-};
+}
 
-/**
- * Execute a V2 run with an externally-provided db and llmProvider.
- * Used by batch runner scripts that handle claiming themselves.
- * @deprecated Use claimAndExecuteRun instead. Will be removed in Phase 3.
- */
-export async function executeV2Run(
+/** Build context, run evolution loop, finalize, sync arena. Re-throws on failure. */
+async function executePipeline(
   runId: string,
   claimedRun: ClaimedRun,
   db: SupabaseClient,
-  llmProvider: RawLLMProvider,
+  llmProvider: LLMProvider,
+  startMs: number,
+  runnerId: string,
 ): Promise<void> {
-  const heartbeatInterval = startHeartbeat(db, runId);
-  const startTime = Date.now();
+  await db
+    .from('evolution_runs')
+    .update({ status: 'running' })
+    .eq('id', runId);
 
-  try {
-    await db
-      .from('evolution_runs')
-      .update({ status: 'running' })
-      .eq('id', runId);
-
-    const contextResult = await buildRunContext(runId, claimedRun, db, llmProvider);
-    if ('error' in contextResult) {
-      await markRunFailed(db, runId, contextResult.error);
-      return;
-    }
-
-    const { originalText, config, logger: runLogger, initialPool } = contextResult.context;
-
-    const result = await evolveArticle(originalText, llmProvider, db, runId, config, {
-      logger: runLogger,
-      initialPool: initialPool.length > 0 ? initialPool : undefined,
-    });
-
-    const durationSeconds = (Date.now() - startTime) / 1000;
-    await finalizeRun(runId, result, {
-      experiment_id: claimedRun.experiment_id,
-      explanation_id: claimedRun.explanation_id,
-      strategy_id: claimedRun.strategy_id,
-      prompt_id: claimedRun.prompt_id ?? null,
-    }, db, durationSeconds, runLogger, `legacy-${runId}`);
-
-    if (claimedRun.prompt_id) {
-      try {
-        await syncToArena(runId, claimedRun.prompt_id, result.pool, result.ratings, result.matchHistory, db);
-        runLogger.info('Arena sync complete', { phaseName: 'arena' });
-      } catch (err) {
-        runLogger.warn(`Arena sync failed: ${err}`, { phaseName: 'arena' });
-      }
-    }
-
-    logger.info(`Run ${runId} completed`, { stopReason: result.stopReason, iterations: result.iterationsRun, cost: result.totalCost.toFixed(4) });
-  } catch (error) {
-    const message = (error instanceof Error ? error.message : String(error)).slice(0, 2000);
-    await markRunFailed(db, runId, message);
-    logger.error(`Run ${runId} failed`, { error: message });
-  } finally {
-    clearInterval(heartbeatInterval);
+  const contextResult = await buildRunContext(runId, claimedRun, db, llmProvider);
+  if ('error' in contextResult) {
+    await markRunFailed(db, runId, contextResult.error);
+    throw new Error(contextResult.error);
   }
+
+  const { originalText, config, logger: runLogger, initialPool } = contextResult.context;
+  runLogger.info('Run context built', { initialPoolSize: initialPool.length, phaseName: 'setup' });
+
+  runLogger.info('Starting evolution loop', {
+    iterations: config.iterations, budgetUsd: config.budgetUsd,
+    generationModel: config.generationModel, judgeModel: config.judgeModel,
+    phaseName: 'loop',
+  });
+  const result = await evolveArticle(originalText, llmProvider, db, runId, config, {
+    logger: runLogger,
+    initialPool: initialPool.length > 0 ? initialPool : undefined,
+    experimentId: claimedRun.experiment_id ?? undefined,
+    strategyId: claimedRun.strategy_id,
+  });
+  runLogger.info('Evolution loop completed', {
+    stopReason: result.stopReason, iterations: result.iterationsRun,
+    cost: result.totalCost, poolSize: result.pool.length, phaseName: 'loop',
+  });
+
+  const durationSeconds = (Date.now() - startMs) / 1000;
+  await finalizeRun(runId, result, {
+    experiment_id: claimedRun.experiment_id,
+    explanation_id: claimedRun.explanation_id,
+    strategy_id: claimedRun.strategy_id,
+    prompt_id: claimedRun.prompt_id ?? null,
+  }, db, durationSeconds, runLogger, runnerId);
+  runLogger.info('Finalization completed', { phaseName: 'finalize' });
+
+  if (claimedRun.prompt_id) {
+    try {
+      await syncToArena(runId, claimedRun.prompt_id, result.pool, result.ratings, result.matchHistory, db, runLogger);
+    } catch (err) {
+      runLogger.warn('Arena sync failed', { phaseName: 'arena', error: (err instanceof Error ? err.message : String(err)).slice(0, 500) });
+    }
+  }
+
+  logger.info(`Run ${runId} completed`, { stopReason: result.stopReason, iterations: result.iterationsRun, cost: result.totalCost.toFixed(4) });
 }
+

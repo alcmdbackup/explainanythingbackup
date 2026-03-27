@@ -509,7 +509,7 @@ describe('Source Server Actions', () => {
       // Arrange
       const originalEnv = process.env.E2E_TEST_MODE;
       process.env.E2E_TEST_MODE = 'true';
-      const mockExplanationId = 90001; // >= 90000 triggers E2E mode
+      const mockExplanationId = 9_000_001; // >= 9_000_000 triggers E2E mode
 
       // Act
       const result = await getSourcesForExplanationAction({ explanationId: mockExplanationId });

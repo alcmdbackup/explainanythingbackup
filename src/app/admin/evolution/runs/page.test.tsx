@@ -49,24 +49,27 @@ jest.mock('@evolution/lib/utils/evolutionUrls', () => ({
 }));
 
 describe('EvolutionRunsPage', () => {
-  it('renders page title', () => {
+  it('renders breadcrumb with Evolution link', () => {
     render(<EvolutionRunsPage />);
-    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Evolution Runs');
+    expect(screen.getByText('Evolution')).toBeInTheDocument();
   });
 
-  it('renders breadcrumb with Dashboard link', () => {
+  it('renders status filter', () => {
     render(<EvolutionRunsPage />);
-    expect(screen.getByText('Dashboard')).toBeInTheDocument();
+    expect(screen.getByTestId('filter-status')).toBeInTheDocument();
   });
 
-  it('renders status filter select', () => {
+  it('renders hide test content checkbox (checked by default)', () => {
     render(<EvolutionRunsPage />);
-    expect(screen.getByTestId('status-filter')).toBeInTheDocument();
+    const label = screen.getByTestId('filter-filterTestContent');
+    const checkbox = label.querySelector('input[type="checkbox"]') as HTMLInputElement;
+    expect(checkbox).toBeInTheDocument();
+    expect(checkbox.checked).toBe(true);
   });
 
-  it('renders archived toggle', () => {
+  it('does not render include archived filter (archive removed)', () => {
     render(<EvolutionRunsPage />);
-    expect(screen.getByTestId('archived-toggle')).toBeInTheDocument();
+    expect(screen.queryByTestId('filter-includeArchived')).not.toBeInTheDocument();
   });
 
   it('renders runs table', async () => {
@@ -74,5 +77,47 @@ describe('EvolutionRunsPage', () => {
     await waitFor(() => {
       expect(screen.getByTestId('runs-list-table')).toBeInTheDocument();
     });
+  });
+
+  it('renders entity list page wrapper', () => {
+    render(<EvolutionRunsPage />);
+    expect(screen.getByTestId('entity-list-page')).toBeInTheDocument();
+  });
+
+  it('renders Runs breadcrumb item', () => {
+    render(<EvolutionRunsPage />);
+    expect(screen.getByText('Runs')).toBeInTheDocument();
+  });
+
+  it('displays run data after loading', async () => {
+    render(<EvolutionRunsPage />);
+    await waitFor(() => {
+      expect(screen.getByText('Test Strategy')).toBeInTheDocument();
+    });
+  });
+
+  it('displays run cost', async () => {
+    render(<EvolutionRunsPage />);
+    await waitFor(() => {
+      expect(screen.getByText('$2.50')).toBeInTheDocument();
+    });
+  });
+
+  it('renders status badge for completed run', async () => {
+    render(<EvolutionRunsPage />);
+    await waitFor(() => {
+      expect(screen.getByText('completed')).toBeInTheDocument();
+    });
+  });
+
+  it('renders page heading', () => {
+    render(<EvolutionRunsPage />);
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Evolution Runs');
+  });
+
+  it('calls getEvolutionRunsAction on mount', () => {
+    const { getEvolutionRunsAction } = jest.requireMock('@evolution/services/evolutionActions');
+    render(<EvolutionRunsPage />);
+    expect(getEvolutionRunsAction).toHaveBeenCalled();
   });
 });

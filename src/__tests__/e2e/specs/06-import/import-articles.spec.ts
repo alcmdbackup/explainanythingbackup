@@ -1,6 +1,7 @@
 import { test, expect } from '../../fixtures/auth';
 import { ImportPage } from '../../helpers/pages/ImportPage';
 import { safeWaitFor } from '../../helpers/error-utils';
+// eslint-disable-next-line flakiness/require-test-cleanup -- cleanup via trackExplanationForCleanup + global-teardown
 import { trackExplanationForCleanup } from '../../helpers/test-data-factory';
 
 // Add retries for flaky LLM API conditions
@@ -122,7 +123,7 @@ test.describe('Import Articles Feature', () => {
             await importPage.waitForPublishSuccess();
 
             // Should redirect to results page
-            await authenticatedPage.waitForURL(/\/results\?explanation_id=\d+/, { timeout: 30000 });
+            await authenticatedPage.waitForURL(/\/results\?explanation_id=\d+/, { timeout: 10000 });
             expect(authenticatedPage.url()).toContain('/results');
 
             // Track explanation ID for cleanup by global teardown
@@ -173,8 +174,6 @@ test.describe('Import Articles Feature', () => {
         });
 
         test('should show error for content under minimum length', async ({ authenticatedPage }) => {
-          // eslint-disable-next-line flakiness/max-test-timeout -- form submission + server validation exceeds 60s in CI
-          test.setTimeout(90000);
             const importPage = new ImportPage(authenticatedPage);
 
             await authenticatedPage.goto('/');
@@ -192,7 +191,7 @@ test.describe('Import Articles Feature', () => {
             // Wait for error element to appear in the modal
             await authenticatedPage.waitForSelector('[data-testid="import-error"]', {
                 state: 'visible',
-                timeout: 30000
+                timeout: 10000
             });
 
             const error = await importPage.getImportError();

@@ -53,7 +53,7 @@ export interface StrategyConfigRow {
 /** Normalize enabledAgents before hashing: undefined → omit, [] → undefined, non-empty → sort. */
 export function normalizeEnabledAgents(agents: AgentName[] | undefined): AgentName[] | undefined {
   if (!agents || agents.length === 0) return undefined;
-  return [...agents].sort() as AgentName[];
+  return [...agents].sort();
 }
 
 // ─── Labeling ───────────────────────────────────────────────────

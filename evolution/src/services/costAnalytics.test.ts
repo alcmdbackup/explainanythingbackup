@@ -232,7 +232,7 @@ describe('CostAnalytics Service', () => {
       const result = await getCostByModelAction({});
 
       expect(result.success).toBe(true);
-      expect(result.data?.[0].model).toBe('expensive');
+      expect(result.data?.[0]!.model).toBe('expensive');
     });
   });
 
@@ -275,6 +275,122 @@ describe('CostAnalytics Service', () => {
 
       expect(result.success).toBe(true);
       expect(result.data).toHaveLength(5);
+    });
+  });
+
+  describe('getCostSummaryAction edge cases', () => {
+    it('should handle date-only format for startDate and endDate', async () => {
+      mockSupabase.lte
+        .mockResolvedValueOnce({
+          data: [{ estimated_cost_usd: '0.10', total_tokens: 500 }],
+          error: null,
+          count: 1
+        })
+        .mockResolvedValueOnce({
+          count: 0,
+          error: null
+        });
+
+      const result = await getCostSummaryAction({
+        startDate: '2025-01-01',
+        endDate: '2025-01-31'
+      });
+
+      expect(result.success).toBe(true);
+      // Date-only strings should be converted to timestamps
+      expect(mockSupabase.gte).toHaveBeenCalledWith('created_at', '2025-01-01T00:00:00Z');
+    });
+
+    it('should compute avgCostPerCall correctly', async () => {
+      const mockData = [
+        { estimated_cost_usd: '0.20', total_tokens: 1000 },
+        { estimated_cost_usd: '0.30', total_tokens: 2000 }
+      ];
+
+      mockSupabase.lte
+        .mockResolvedValueOnce({
+          data: mockData,
+          error: null,
+          count: 2
+        })
+        .mockResolvedValueOnce({
+          count: 0,
+          error: null
+        });
+
+      const result = await getCostSummaryAction({});
+
+      expect(result.success).toBe(true);
+      expect(result.data?.avgCostPerCall).toBeCloseTo(0.25, 2);
+    });
+
+    it('should return error on DB failure', async () => {
+      mockSupabase.lte.mockResolvedValueOnce({
+        data: null,
+        error: { message: 'connection timeout' },
+        count: null
+      });
+
+      const result = await getCostSummaryAction({});
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBeDefined();
+    });
+  });
+
+  describe('getDailyCostsAction edge cases', () => {
+    it('should return empty array when no data', async () => {
+      mockSupabase.order.mockResolvedValue({
+        data: [],
+        error: null
+      });
+
+      const result = await getDailyCostsAction({});
+
+      expect(result.success).toBe(true);
+      expect(result.data).toEqual([]);
+    });
+
+    it('should return error on DB failure', async () => {
+      mockSupabase.order.mockResolvedValue({
+        data: null,
+        error: { message: 'view not found' }
+      });
+
+      const result = await getDailyCostsAction({});
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBeDefined();
+    });
+  });
+
+  describe('getCostByModelAction edge cases', () => {
+    it('should label records with null model as unknown', async () => {
+      const mockData = [
+        { model: null, prompt_tokens: 100, completion_tokens: 50, reasoning_tokens: 0, total_tokens: 150, estimated_cost_usd: '0.01' }
+      ];
+
+      mockSupabase.lte.mockResolvedValue({
+        data: mockData,
+        error: null
+      });
+
+      const result = await getCostByModelAction({});
+
+      expect(result.success).toBe(true);
+      expect(result.data?.[0]!.model).toBe('unknown');
+    });
+
+    it('should return error on DB failure', async () => {
+      mockSupabase.lte.mockResolvedValue({
+        data: null,
+        error: { message: 'query error' }
+      });
+
+      const result = await getCostByModelAction({});
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBeDefined();
     });
   });
 

@@ -289,7 +289,7 @@ describe('Supabase Middleware - updateSession', () => {
 
       // Verify createServerClient sets up cookie handlers
       expect(mockCreateServerClient).toHaveBeenCalled();
-      const callArgs = mockCreateServerClient.mock.calls[0];
+      const callArgs = mockCreateServerClient.mock.calls[0]!;
       const cookiesConfig = callArgs[2]?.cookies;
 
       expect(cookiesConfig).toBeDefined();

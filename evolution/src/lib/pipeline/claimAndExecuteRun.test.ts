@@ -37,7 +37,6 @@ jest.mock('./finalize/persistRunResults', () => ({
 /** Minimal chainable supabase mock with concurrent run count support. */
 function createChainMock(activeRunCount = 0) {
   const mock: Record<string, jest.Mock> = {};
-  let isCountQuery = false;
   const chain = () => mock;
   for (const m of [
     'from', 'insert', 'update', 'upsert', 'delete',
@@ -48,16 +47,14 @@ function createChainMock(activeRunCount = 0) {
   }
   mock.select = jest.fn().mockImplementation((_cols?: string, opts?: { count?: string; head?: boolean }) => {
     if (opts?.count === 'exact' && opts?.head === true) {
-      isCountQuery = true;
-    } else {
-      isCountQuery = false;
-    }
-    return mock;
-  });
-  mock.in = jest.fn().mockImplementation(() => {
-    if (isCountQuery) {
-      isCountQuery = false;
-      return Promise.resolve({ count: activeRunCount, error: null });
+      // Return a scoped chain whose .in() resolves with count data,
+      // preventing shared mutable state leaking across interleaved calls.
+      const countChain: Record<string, jest.Mock> = {};
+      for (const m of ['eq', 'neq', 'gte', 'lte', 'gt', 'lt', 'is', 'order', 'limit', 'range']) {
+        countChain[m] = jest.fn(() => countChain);
+      }
+      countChain.in = jest.fn(() => Promise.resolve({ count: activeRunCount, error: null }));
+      return countChain;
     }
     return mock;
   });
@@ -234,6 +231,67 @@ describe('claimAndExecuteRun', () => {
 
       expect(result.claimed).toBe(true);
       expect(result.error).toContain('Strategy not found');
+    });
+
+    it('propagates runnerId from options through to finalizeRun (regression: runner_id mismatch)', async () => {
+      const result = await claimAndExecuteRun({ runnerId: 'v2-test-runner-123' });
+
+      expect(result.claimed).toBe(true);
+      expect(result.stopReason).toBe('completed');
+      // runnerId is the 7th arg to finalizeRun
+      expect(mockFinalizeRun).toHaveBeenCalledWith(
+        'run-123',        // runId
+        expect.anything(), // result
+        expect.anything(), // metadata
+        expect.anything(), // db
+        expect.any(Number), // durationSeconds
+        expect.anything(), // logger
+        'v2-test-runner-123', // runnerId — must match what was passed to claimAndExecuteRun
+      );
+    });
+  });
+
+  describe('db option', () => {
+    it('uses provided db option instead of creating default client', async () => {
+      const customRpc = jest.fn().mockResolvedValue({ data: [], error: null });
+      const customDb = Object.assign(createChainMock(), { rpc: customRpc });
+
+      await claimAndExecuteRun({ runnerId: 'test', db: customDb as never });
+
+      expect(createSupabaseServiceClient).not.toHaveBeenCalled();
+      expect(customRpc).toHaveBeenCalledWith('claim_evolution_run', expect.anything());
+    });
+
+    it('falls back to createSupabaseServiceClient when db not provided', async () => {
+      mockRpc.mockResolvedValue({ data: [], error: null });
+
+      await claimAndExecuteRun({ runnerId: 'test' });
+
+      expect(createSupabaseServiceClient).toHaveBeenCalled();
+    });
+  });
+
+  describe('dryRun option', () => {
+    it('returns dry-run result without executing pipeline when dryRun is true', async () => {
+      const claimedRow = {
+        id: 'dry-run-1',
+        explanation_id: 'exp-1',
+        prompt_id: null,
+        experiment_id: null,
+        strategy_id: 'strat-1',
+        budget_cap_usd: '1.0',
+      };
+      mockRpc.mockResolvedValue({ data: [claimedRow], error: null });
+
+      const result = await claimAndExecuteRun({ runnerId: 'test', dryRun: true });
+
+      expect(result.claimed).toBe(true);
+      expect(result.stopReason).toBe('dry-run');
+      expect(result.runId).toBe('dry-run-1');
+      // Pipeline should NOT have been executed
+      expect(mockBuildRunContext).not.toHaveBeenCalled();
+      expect(mockEvolveArticle).not.toHaveBeenCalled();
+      expect(mockFinalizeRun).not.toHaveBeenCalled();
     });
   });
 });

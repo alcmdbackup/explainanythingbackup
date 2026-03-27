@@ -130,6 +130,26 @@ export async function createTestExplanation(
     throw new Error(`Failed to create test explanation: ${error.message}`);
   }
 
+  // Verify the row is readable via anon key (catches RLS/replication lag issues)
+  const anonClient = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  );
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const { data: check } = await anonClient
+      .from('explanations')
+      .select('id')
+      .eq('id', data.id)
+      .eq('delete_status', 'visible')
+      .limit(1);
+    if (check && check.length > 0) break;
+    if (attempt === 4) {
+      console.warn(`[test-data-factory] Explanation ${data.id} not visible via anon key after 5 attempts`);
+    }
+    // eslint-disable-next-line flakiness/no-wait-for-timeout -- readback verification delay, not a test wait
+    await new Promise(r => setTimeout(r, 200));
+  }
+
   // Auto-track for defense-in-depth cleanup
   trackExplanationForCleanup(data.id);
 

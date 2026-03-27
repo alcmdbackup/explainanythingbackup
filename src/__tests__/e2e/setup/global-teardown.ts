@@ -224,6 +224,65 @@ async function globalTeardown() {
     console.error('❌ Step 5 (delete test-prefixed tables) failed:', error);
   }
 
+  // Step 5b: Clean evolution entities created by E2E/TEST tests (FK-safe order)
+  try {
+    console.log('   Cleaning evolution test entities...');
+
+    // Find test strategy and experiment IDs by name pattern
+    const [testStrategies, testExperiments, testPrompts] = await Promise.all([
+      supabase.from('evolution_strategies').select('id').or('name.ilike.%[TEST]%,name.ilike.%[E2E]%'),
+      supabase.from('evolution_experiments').select('id').or('name.ilike.%[TEST]%,name.ilike.%[E2E]%'),
+      supabase.from('evolution_prompts').select('id').or('name.ilike.%[TEST]%,name.ilike.%[E2E]%'),
+    ]);
+
+    const testStrategyIds = (testStrategies.data ?? []).map(s => s.id as string);
+    const testExperimentIds = (testExperiments.data ?? []).map(e => e.id as string);
+    const testPromptIds = (testPrompts.data ?? []).map(p => p.id as string);
+
+    // Find test run IDs by strategy_id or experiment_id
+    const testRunIds: string[] = [];
+    if (testStrategyIds.length > 0) {
+      const { data: runs } = await supabase.from('evolution_runs').select('id').in('strategy_id', testStrategyIds);
+      testRunIds.push(...(runs ?? []).map(r => r.id as string));
+    }
+    if (testExperimentIds.length > 0) {
+      const { data: runs } = await supabase.from('evolution_runs').select('id').in('experiment_id', testExperimentIds);
+      for (const r of runs ?? []) {
+        if (!testRunIds.includes(r.id as string)) testRunIds.push(r.id as string);
+      }
+    }
+
+    // Delete leaf tables by run_id first
+    if (testRunIds.length > 0) {
+      await supabase.from('evolution_arena_comparisons').delete().in('run_id', testRunIds);
+      await supabase.from('evolution_logs').delete().in('run_id', testRunIds);
+      await supabase.from('evolution_agent_invocations').delete().in('run_id', testRunIds);
+      await supabase.from('evolution_variants').delete().in('run_id', testRunIds);
+      await supabase.from('evolution_runs').delete().in('id', testRunIds);
+    }
+
+    // Delete root entities
+    if (testExperimentIds.length > 0) {
+      await supabase.from('evolution_experiments').delete().in('id', testExperimentIds);
+    }
+    if (testStrategyIds.length > 0) {
+      await supabase.from('evolution_strategies').delete().in('id', testStrategyIds);
+    }
+    if (testPromptIds.length > 0) {
+      await supabase.from('evolution_prompts').delete().in('id', testPromptIds);
+    }
+
+    // Clean llmCallTracking entries from evolution system user
+    await supabase.from('llmCallTracking').delete().eq('userid', '00000000-0000-4000-8000-000000000001');
+
+    const totalCleaned = testRunIds.length + testExperimentIds.length + testStrategyIds.length + testPromptIds.length;
+    if (totalCleaned > 0) {
+      console.log(`   ✓ Cleaned ${totalCleaned} evolution test entities`);
+    }
+  } catch (error) {
+    console.error('❌ Step 5b (evolution entity cleanup) failed:', error);
+  }
+
   // Step 6: Defense-in-depth - clean any tracked explanations from temp files
   try {
     console.log('   Cleaning tracked explanations (defense-in-depth)...');
@@ -233,6 +292,18 @@ async function globalTeardown() {
     }
   } catch (error) {
     console.error('❌ Step 6 (tracked explanations cleanup) failed:', error);
+  }
+
+  // Step 6b: Clean tracked evolution data (defense-in-depth)
+  try {
+    console.log('   Cleaning tracked evolution data (defense-in-depth)...');
+    const { cleanupAllTrackedEvolutionData } = await import('../helpers/evolution-test-data-factory');
+    const evolutionCleanedCount = await cleanupAllTrackedEvolutionData();
+    if (evolutionCleanedCount > 0) {
+      console.log(`   ✓ Cleaned ${evolutionCleanedCount} tracked evolution records`);
+    }
+  } catch (error) {
+    console.error('❌ Step 6b (tracked evolution cleanup) failed:', error);
   }
 
   console.log('✅ E2E Global Teardown: Complete');

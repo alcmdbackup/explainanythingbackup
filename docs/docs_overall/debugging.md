@@ -308,8 +308,8 @@ GROUP BY agent_name;
 
 ### Related
 
-- [Cost Optimization](../../evolution/docs/evolution/cost_optimization.md) — Budget event logger implementation details
-- [Reference](../../evolution/docs/evolution/reference.md) — CostTracker API including `releaseReservation` and `setEventLogger`
+- [Cost Optimization](../../evolution/docs/cost_optimization.md) — Budget event logger implementation details
+- [Reference](../../evolution/docs/reference.md) — CostTracker API including `releaseReservation` and `setEventLogger`
 
 ---
 

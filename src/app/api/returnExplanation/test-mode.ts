@@ -11,7 +11,7 @@ interface Scenario {
 }
 
 // Counter for generating incrementing mock IDs
-let mockExplanationIdCounter = 90000;
+let mockExplanationIdCounter = 9_000_000;
 
 // Generate a mock result that matches production schema
 function createMockResult() {

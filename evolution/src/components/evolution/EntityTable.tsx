@@ -11,6 +11,8 @@ export interface ColumnDef<T> {
   header: string;
   align?: 'left' | 'right' | 'center';
   sortable?: boolean;
+  /** When true, cell renders without the row's Link wrapper (e.g. for action buttons). */
+  skipLink?: boolean;
   render: (item: T) => ReactNode;
 }
 
@@ -28,18 +30,14 @@ export interface EntityTableProps<T> {
 }
 
 function SortIndicator({ active, dir }: { active: boolean; dir?: 'asc' | 'desc' }): JSX.Element {
-  if (!active) return <span className="text-[var(--text-muted)] opacity-0 group-hover:opacity-50 ml-0.5">▲</span>;
-  return <span className="ml-0.5">{dir === 'desc' ? '▼' : '▲'}</span>;
+  if (!active) return <span className="text-[var(--text-muted)] group-hover:text-[var(--accent-gold)] ml-0.5">▲</span>;
+  return <span className="text-[var(--accent-gold)] ml-0.5">{dir === 'desc' ? '▼' : '▲'}</span>;
 }
 
-const ALIGN_CLASS: Record<string, string> = {
-  left: 'text-left',
-  right: 'text-right',
-  center: 'text-center',
-};
+const ALIGN_CLASS = { left: 'text-left', right: 'text-right', center: 'text-center' } as const;
 
-function alignClass(align?: 'left' | 'right' | 'center'): string {
-  return ALIGN_CLASS[align ?? 'left'];
+function alignClass(align: 'left' | 'right' | 'center' = 'left'): string {
+  return ALIGN_CLASS[align];
 }
 
 export function EntityTable<T>({
@@ -63,19 +61,19 @@ export function EntityTable<T>({
   }
 
   return (
-    <div className="overflow-x-auto" data-testid={testId ?? 'entity-table'}>
+    <div className="overflow-x-auto shadow-warm-sm rounded-page" data-testid={testId ?? 'entity-table'}>
       <table className="w-full text-xs font-ui">
         <thead>
-          <tr className="text-[var(--text-muted)] border-b border-[var(--border-default)]">
+          <tr className="text-[var(--text-muted)] border-b border-[var(--border-default)] bg-[var(--surface-elevated)]">
             {columns.map((col) => (
               <th
                 key={col.key}
-                className={`py-1 pr-3 last:pr-0 group ${alignClass(col.align)} ${
+                className={`py-1 pr-3 last:pr-0 group text-xs font-ui font-medium ${alignClass(col.align)} ${
                   col.sortable ? 'cursor-pointer select-none hover:text-[var(--text-secondary)]' : ''
                 }`}
                 onClick={col.sortable && onSort ? () => onSort(col.key) : undefined}
               >
-                {col.header}
+                <span>{col.header}</span>
                 {col.sortable && <SortIndicator active={sortKey === col.key} dir={sortDir} />}
               </th>
             ))}
@@ -87,14 +85,14 @@ export function EntityTable<T>({
             return (
               <tr
                 key={i}
-                className="border-b border-[var(--border-default)] last:border-0 hover:bg-[var(--surface-secondary)] transition-colors"
+                className="border-b border-[var(--border-default)] last:border-0 hover:bg-[var(--surface-elevated)] transition-colors"
               >
                 {columns.map((col) => (
                   <td
                     key={col.key}
-                    className={`py-1.5 pr-3 last:pr-0 ${alignClass(col.align)} font-mono text-[var(--text-secondary)]`}
+                    className={`py-2 pr-3 last:pr-0 ${alignClass(col.align)} font-mono text-[var(--text-secondary)]`}
                   >
-                    {href ? (
+                    {href && !col.skipLink ? (
                       <Link href={href} className="block hover:text-[var(--accent-gold)]">
                         {col.render(item)}
                       </Link>

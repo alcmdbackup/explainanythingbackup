@@ -30,6 +30,7 @@ Consolidated guide covering testing rules, tiers, and CI/CD workflows.
 13. **E2E suites with `beforeAll` state must use serial mode.** Any `test.describe` block that creates shared state in `beforeAll` and mutates it in tests must use `test.describe.configure({ mode: 'serial' })`. This prevents parallel tests from racing on shared mutable state. Merge with existing config: `{ retries: 2, mode: 'serial' }`.
 14. **Mock helpers must unroute before routing.** All mock helper functions in `api-mocks.ts` must call `await page.unroute(pattern)` before `await page.route(pattern, ...)` to prevent handler stacking when a mock is called multiple times in the same test.
 15. **Restore global.fetch in unit tests.** Any test that assigns `global.fetch` must save the original and restore it in `afterEach`: `const originalFetch = global.fetch; afterEach(() => { global.fetch = originalFetch; });`
+16. **E2E specs that import database tools must have afterAll cleanup.** Any spec file importing `@supabase/supabase-js`, `test-data-factory`, or `evolution-test-helpers` must include a `test.afterAll` or `adminTest.afterAll` block that deletes created entities. Enforced by ESLint `flakiness/require-test-cleanup`.
 
 ### Enforcement Summary
 
@@ -46,6 +47,8 @@ Consolidated guide covering testing rules, tiers, and CI/CD workflows.
 | Rule 13: Serial mode for beforeAll suites | Code review + `test.describe.configure` | Edit-time |
 | Rule 14: Unroute before route in mocks | Code review + `page.unroute()` in helpers | Edit-time |
 | Rule 15: Restore global.fetch | Code review + `afterEach` pattern | Edit-time |
+| Rule 16: E2E cleanup for DB imports | ESLint `flakiness/require-test-cleanup` | Lint (CI + IDE) |
+| Column label uniqueness | ESLint `no-duplicate-column-labels` | Lint (CI + IDE) |
 
 ---
 
@@ -160,13 +163,15 @@ test('import creates explanation', async ({ page }) => {
 | **E2E** | Playwright | Real browser | Full user flows against running app |
 
 ### Test Statistics
-- **Unit**: ~287 colocated `.test.ts` files (src + evolution + scripts)
+- **Unit**: ~310 colocated `.test.ts` files (src + evolution + scripts), including 65 evolution-specific
 - **ESM**: 1 file for AST diffing (bypasses Jest ESM limitations)
-- **Integration**: 24 test files in `src/__tests__/integration/`
+- **Integration**: 32 test files in `src/__tests__/integration/`
   - **Critical**: 5 tests (auth-flow, explanation-generation, streaming-api, error-handling, vector-matching)
-  - **Full**: All 24 tests
-- **E2E**: 36 spec files in `__tests__/e2e/specs/`
-  - **Critical**: `@critical` tagged tests via `{ tag: '@critical' }` (run on PRs to main)
+  - **Evolution**: 16 files (claim, budget, costs, completion, watchdog, strategy-hash, strategy-aggregates, cancel-experiment, sync-arena, entity-logger, experiment-lifecycle, metrics-recomputation, cost-cascade, visualization-data, experiment-create-complete, arena-comparison). Auto-skip when evolution DB tables not yet migrated.
+  - **Full**: All 32 tests
+- **E2E**: 48 spec files in `__tests__/e2e/specs/`
+  - **Critical**: `@critical` tagged tests via `{ tag: '@critical' }` (run on PRs to main). Evolution Phase 1-2 E2E specs are tagged `@critical`.
+  - **Evolution**: `@evolution` tagged specs (dashboard, runs, strategies, arena, experiments, invocations, variants, experiments-list, invocation-detail, logs, run pipeline, experiment wizard). Includes 5 new specs + 1 accessibility spec added in `09-admin/`.
   - **Full**: All tests (run on PRs to production)
 
 ### E2E Test Tagging Strategy

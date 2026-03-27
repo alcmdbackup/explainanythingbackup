@@ -5,11 +5,13 @@ import { generateSeedArticle } from './generateSeedArticle';
 function makeMockLlm(responses?: string[]) {
   let callIdx = 0;
   const defaultResponses = ['Test Title', '## Introduction\n\nTest content with multiple sentences. It is well formatted.'];
+  const responsesToUse = responses ?? defaultResponses;
   return {
-    complete: jest.fn(async () => {
-      const resp = (responses ?? defaultResponses)[callIdx] ?? '';
-      callIdx++;
-      return resp;
+    complete: jest.fn<Promise<string>, [prompt: string, label: string]>(async () => {
+      if (callIdx >= responsesToUse.length) {
+        throw new Error(`Unexpected LLM call #${callIdx + 1} (only ${responsesToUse.length} responses provided)`);
+      }
+      return responsesToUse[callIdx++]!;
     }),
   };
 }
@@ -25,14 +27,14 @@ describe('generateSeedArticle', () => {
   });
 
   it('title LLM error propagates', async () => {
-    const llm = { complete: jest.fn(async () => { throw new Error('API down'); }) };
+    const llm = { complete: jest.fn<Promise<string>, [prompt: string, label: string]>(async () => { throw new Error('API down'); }) };
     await expect(generateSeedArticle('topic', llm)).rejects.toThrow('API down');
   });
 
   it('article LLM error propagates', async () => {
     let call = 0;
     const llm = {
-      complete: jest.fn(async () => {
+      complete: jest.fn<Promise<string>, [prompt: string, label: string]>(async () => {
         call++;
         if (call === 1) return 'Title';
         throw new Error('Article gen failed');
@@ -60,5 +62,30 @@ describe('generateSeedArticle', () => {
     const result = await generateSeedArticle('topic', llm);
     // Plain text fallback strips quotes and trims
     expect(result.title).toBe('My Great Title');
+  });
+
+  it('calls logger.debug for title and article generation', async () => {
+    const { createMockEntityLogger } = await import('../../../testing/evolution-test-helpers');
+    const { logger } = createMockEntityLogger();
+    const llm = makeMockLlm();
+    await generateSeedArticle('quantum computing', llm, logger);
+    expect(logger.debug).toHaveBeenCalledWith('Starting seed title generation', expect.objectContaining({ phaseName: 'seed_setup' }));
+    expect(logger.debug).toHaveBeenCalledWith('Seed title generated', expect.objectContaining({ phaseName: 'seed_setup' }));
+    expect(logger.debug).toHaveBeenCalledWith('Starting seed article generation', expect.objectContaining({ phaseName: 'seed_setup' }));
+  });
+
+  it('calls logger.info with seed article complete message', async () => {
+    const { createMockEntityLogger } = await import('../../../testing/evolution-test-helpers');
+    const { logger } = createMockEntityLogger();
+    const llm = makeMockLlm();
+    await generateSeedArticle('quantum computing', llm, logger);
+    expect(logger.info).toHaveBeenCalledWith('Seed article complete', expect.objectContaining({ phaseName: 'seed_setup' }));
+  });
+
+  it('no errors when logger is undefined (existing behavior preserved)', async () => {
+    const llm = makeMockLlm();
+    const result = await generateSeedArticle('quantum computing', llm);
+    expect(result.title).toBe('Test Title');
+    expect(result.content).toContain('Test content');
   });
 });

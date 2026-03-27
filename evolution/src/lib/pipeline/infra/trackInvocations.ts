@@ -1,45 +1,49 @@
 // DB invocation row helpers for V2 pipeline phase tracking.
 
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { evolutionAgentInvocationInsertSchema } from '../../schemas';
+import type { EntityLogger } from './createEntityLogger';
 
-/**
- * Create an invocation row for a pipeline phase. Returns UUID on success, null on error.
- */
+function warn(logger: EntityLogger | undefined, message: string, ctx: Record<string, unknown>): void {
+  if (logger) logger.warn(message, ctx);
+  else console.warn(`[V2] ${message}: ${ctx.error ?? JSON.stringify(ctx)}`);
+}
+
+/** Create an invocation row for a pipeline phase. Returns UUID on success, null on error. */
 export async function createInvocation(
   db: SupabaseClient,
   runId: string,
   iteration: number,
   phaseName: string,
   executionOrder: number,
+  logger?: EntityLogger,
 ): Promise<string | null> {
   try {
+    const payload = evolutionAgentInvocationInsertSchema.parse({
+      run_id: runId,
+      agent_name: phaseName,
+      iteration,
+      execution_order: executionOrder,
+      success: false,
+    });
     const { data, error } = await db
       .from('evolution_agent_invocations')
-      .insert({
-        run_id: runId,
-        agent_name: phaseName,
-        iteration,
-        execution_order: executionOrder,
-        success: false,
-        skipped: false,
-      })
+      .insert({ ...payload, skipped: false })
       .select('id')
       .single();
 
     if (error) {
-      console.warn(`[V2] createInvocation error: ${error.message}`);
+      warn(logger, 'createInvocation error', { phaseName, error: error.message });
       return null;
     }
     return data?.id ?? null;
   } catch (err) {
-    console.warn(`[V2] createInvocation exception: ${err}`);
+    warn(logger, 'createInvocation exception', { phaseName, error: String(err).slice(0, 500) });
     return null;
   }
 }
 
-/**
- * Update an invocation row with results. No-op if id is null.
- */
+/** Update an invocation row with results. No-op if id is null. */
 export async function updateInvocation(
   db: SupabaseClient,
   id: string | null,
@@ -48,7 +52,9 @@ export async function updateInvocation(
     success: boolean;
     execution_detail?: Record<string, unknown>;
     error_message?: string;
+    duration_ms?: number;
   },
+  logger?: EntityLogger,
 ): Promise<void> {
   if (!id) return;
 
@@ -60,13 +66,12 @@ export async function updateInvocation(
         success: updates.success,
         execution_detail: updates.execution_detail ?? null,
         error_message: updates.error_message ?? null,
+        ...(updates.duration_ms != null && { duration_ms: updates.duration_ms }),
       })
       .eq('id', id);
 
-    if (error) {
-      console.warn(`[V2] updateInvocation error: ${error.message}`);
-    }
+    if (error) warn(logger, 'updateInvocation error', { invocationId: id, error: error.message });
   } catch (err) {
-    console.warn(`[V2] updateInvocation exception: ${err}`);
+    warn(logger, 'updateInvocation exception', { invocationId: id, error: String(err).slice(0, 500) });
   }
 }

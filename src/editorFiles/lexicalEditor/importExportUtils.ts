@@ -240,7 +240,7 @@ export function promoteNodesAfterImport(): void {
 
   // Promote nodes (process in reverse order to handle nested promotions correctly)
   for (let i = nodesToPromote.length - 1; i >= 0; i--) {
-    const node = nodesToPromote[i];
+    const node = nodesToPromote[i]!;
     // Check if the node is still in the tree and still needs promotion
     if (node.getParent() && node.getParent()?.getType() !== 'root' && shouldPromoteToTopLevel(node)) {
       console.log("🔝 Promoting node:", node.getType(), "key:", node.getKey());
@@ -877,7 +877,7 @@ function _fixCriticMarkupWithHeadings(markdown: string): string {
   // Process CriticMarkup blocks with headings in reverse order
   let fixedMarkdown = markdown;
   for (let i = criticMarkupWithHeadings.length - 1; i >= 0; i--) {
-    const { start, end } = criticMarkupWithHeadings[i];
+    const { start, end } = criticMarkupWithHeadings[i]!;
     
     // Check if the opening { is not on a newline
     const charBefore = start > 0 ? fixedMarkdown[start - 1] : '';

@@ -21,10 +21,10 @@ import { toEloScale } from '../src/lib/shared/computeRatings';
 import {
   evolveArticle,
   generateSeedArticle,
-  createRunLogger,
+  createEntityLogger,
   upsertStrategy,
 } from '../src/lib/pipeline';
-import type { EvolutionConfig, EvolutionResult, RunLogger } from '../src/lib/pipeline';
+import type { EvolutionConfig, EvolutionResult, EntityLogger } from '../src/lib/pipeline';
 
 // ─── Types ────────────────────────────────────────────────────────
 
@@ -118,9 +118,9 @@ Options:
   };
 }
 
-// ─── Console Logger (implements RunLogger) ───────────────────────
+// ─── Console Logger (implements EntityLogger) ───────────────────────
 
-function createConsoleLogger(): RunLogger {
+function createConsoleLogger(): EntityLogger {
   function log(level: string, message: string, ctx?: Record<string, unknown>) {
     const ts = new Date().toISOString().slice(11, 23);
     const extra = ctx && Object.keys(ctx).length > 0 ? ` ${JSON.stringify(ctx)}` : '';
@@ -167,19 +167,19 @@ function createMockLLMProvider(): { complete(prompt: string, label: string, opts
       await new Promise((r) => setTimeout(r, 30 + Math.random() * 40));
 
       if (prompt.includes('OVERALL_WINNER') && prompt.includes('Evaluation Dimensions')) {
-        return structuredTemplates[(callCount - 1) % structuredTemplates.length];
+        return structuredTemplates[(callCount - 1) % structuredTemplates.length]!;
       }
       if (prompt.includes('## Text A') && prompt.includes('## Text B')) {
-        return comparisonResponses[(callCount - 1) % comparisonResponses.length];
+        return comparisonResponses[(callCount - 1) % comparisonResponses.length]!;
       }
-      return textTemplates[(callCount - 1) % textTemplates.length];
+      return textTemplates[(callCount - 1) % textTemplates.length]!;
     },
   };
 }
 
 function createDirectLLMProvider(
   model: string,
-  logger: RunLogger,
+  logger: EntityLogger,
   supabase: SupabaseClient | null = null,
 ): { complete(prompt: string, label: string, opts?: { model?: string }): Promise<string> } {
   const isLocal = model.startsWith('LOCAL_');
@@ -426,8 +426,8 @@ async function main() {
 
   logger.info('Input loaded', { chars: originalText.length, words: originalText.split(/\s+/).length });
 
-  const runLogger: RunLogger = (supabase && dbTracking)
-    ? createRunLogger(runId, supabase)
+  const runLogger: EntityLogger = (supabase && dbTracking)
+    ? createEntityLogger({ entityType: 'run', entityId: runId, runId }, supabase)
     : logger;
 
   const db = supabase ?? createClient('http://localhost:54321', 'dummy-key', {

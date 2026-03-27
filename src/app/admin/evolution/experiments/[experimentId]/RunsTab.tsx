@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { buildRunUrl } from '@evolution/lib/utils/evolutionUrls';
-import { getExperimentAction } from '@evolution/services/experimentActionsV2';
+import { getExperimentAction } from '@evolution/services/experimentActions';
 
 const RUN_STATUS_COLORS: Record<string, string> = {
   pending: 'var(--text-muted)',

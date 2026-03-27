@@ -1,7 +1,7 @@
 // Tests for buildRunContext, loadArenaEntries, and isArenaEntry.
 
 import { buildRunContext, loadArenaEntries, isArenaEntry, type ClaimedRun, type ArenaTextVariation } from './buildRunContext';
-import type { TextVariation } from '../../types';
+import type { Variant } from '../../types';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 const validText = `# Test Article
@@ -43,10 +43,11 @@ function makeMockDb(opts?: { contentText?: string; strategyConfig?: Record<strin
         }),
         insert: jest.fn((data: Record<string, unknown>) => {
           inserts.push({ table, data });
+          const invId = `inv-${String(inserts.length).padStart(6, '0')}`;
           return {
             select: jest.fn(() => ({
               single: jest.fn(async () => ({
-                data: { id: `inv-${Math.random().toString(36).slice(2, 6)}` },
+                data: { id: invId },
                 error: null,
               })),
             })),
@@ -168,7 +169,7 @@ describe('buildRunContext', () => {
 
 // ─── Arena helpers ──────────────────────────────────────────────
 
-function makeVariant(overrides: Partial<TextVariation> = {}): TextVariation {
+function makeVariant(overrides: Partial<Variant> = {}): Variant {
   return {
     id: 'v-1',
     text: '# Test\n\n## Intro\n\nSome content here.',
@@ -214,7 +215,7 @@ describe('isArenaEntry', () => {
   });
 
   it('returns false for variants with fromArena=false', () => {
-    const v = { ...makeVariant(), fromArena: false } as unknown as TextVariation;
+    const v = { ...makeVariant(), fromArena: false } as unknown as Variant;
     expect(isArenaEntry(v)).toBe(false);
   });
 });
@@ -255,7 +256,7 @@ describe('loadArenaEntries', () => {
       strategy: 'arena_pipeline',
       fromArena: true,
     });
-    expect(result.variants[1].strategy).toBe('arena_unknown');
+    expect(result.variants[1]!.strategy).toBe('arena_unknown');
   });
 
   it('sets up ratings from DB mu/sigma', async () => {

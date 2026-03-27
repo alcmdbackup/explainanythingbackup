@@ -62,6 +62,8 @@ export async function evolutionTablesExist(supabase: SupabaseClient): Promise<bo
 export interface CleanupOptions {
   explanationIds?: number[];
   runIds?: string[];
+  experimentIds?: string[];
+  variantIds?: string[];
   strategyIds?: string[];
   promptIds?: string[];
 }
@@ -74,12 +76,12 @@ export async function cleanupEvolutionData(
   supabase: SupabaseClient,
   options: CleanupOptions,
 ): Promise<void> {
-  const { explanationIds = [], runIds: extraRunIds = [], strategyIds = [], promptIds = [] } = options;
-  const hasIds = explanationIds.length > 0 || extraRunIds.length > 0 || strategyIds.length > 0 || promptIds.length > 0;
+  const { explanationIds = [], runIds: extraRunIds = [], experimentIds = [], variantIds: extraVariantIds = [], strategyIds = [], promptIds = [] } = options;
+  const hasIds = explanationIds.length > 0 || extraRunIds.length > 0 || experimentIds.length > 0 || extraVariantIds.length > 0 || strategyIds.length > 0 || promptIds.length > 0;
   if (!hasIds) return;
 
   try {
-    // Collect run IDs from explicit + explanation-derived
+    // Collect run IDs from explicit + explanation-derived + experiment-derived
     const runIds: string[] = [...extraRunIds];
     if (explanationIds.length > 0) {
       const { data: runs } = await supabase
@@ -88,20 +90,52 @@ export async function cleanupEvolutionData(
         .in('explanation_id', explanationIds);
       runIds.push(...(runs ?? []).map((r) => r.id));
     }
+    if (experimentIds.length > 0) {
+      const { data: runs } = await supabase
+        .from('evolution_runs')
+        .select('id')
+        .in('experiment_id', experimentIds);
+      runIds.push(...(runs ?? []).map((r) => r.id));
+    }
+
+    // Collect variant IDs from explicit + run-derived
+    const variantIds: string[] = [...extraVariantIds];
+    if (runIds.length > 0) {
+      const { data: variants } = await supabase
+        .from('evolution_variants')
+        .select('id')
+        .in('run_id', runIds);
+      variantIds.push(...(variants ?? []).map((v) => v.id));
+    }
+
+    // FK-safe order: arena_comparisons → metrics → invocations → logs → variants → runs → experiments → strategies → prompts
+    if (variantIds.length > 0) {
+      await supabase.from('evolution_arena_comparisons').delete().or(
+        variantIds.map(id => `entry_a.eq.${id},entry_b.eq.${id}`).join(','),
+      );
+    }
+
+    // Clean up metrics for all entity types
+    const allEntityIds = [...new Set([...runIds, ...variantIds, ...experimentIds, ...strategyIds, ...promptIds])];
+    if (allEntityIds.length > 0) {
+      await supabase.from('evolution_metrics').delete().in('entity_id', allEntityIds);
+    }
 
     if (runIds.length > 0) {
-      // Delete in FK-safe order: children first
       await supabase.from('evolution_agent_invocations').delete().in('run_id', runIds);
+      await supabase.from('evolution_logs').delete().in('run_id', runIds);
       await supabase.from('evolution_variants').delete().in('run_id', runIds);
       await supabase.from('evolution_runs').delete().in('id', runIds);
     }
 
-    // Delete strategies (after runs that reference them)
+    if (experimentIds.length > 0) {
+      await supabase.from('evolution_experiments').delete().in('id', experimentIds);
+    }
+
     if (strategyIds.length > 0) {
       await supabase.from('evolution_strategies').delete().in('id', strategyIds);
     }
 
-    // Delete prompts (after runs that reference them)
     if (promptIds.length > 0) {
       await supabase.from('evolution_prompts').delete().in('id', promptIds);
     }
@@ -148,7 +182,7 @@ export async function createTestPrompt(
     .from('evolution_prompts')
     .insert({
       prompt: `[TEST] prompt_${uniqueSuffix}`,
-      title: `[TEST] Prompt ${uniqueSuffix}`,
+      name: `[TEST] Prompt ${uniqueSuffix}`,
     })
     .select('id')
     .single();
@@ -232,6 +266,102 @@ export async function createTestVariant(
   return data;
 }
 
+// ─── Arena comparison factory ────────────────────────────────────
+
+/**
+ * Insert a test evolution_arena_comparisons row and return the full row.
+ * Uses actual DB columns: prompt_id, entry_a, entry_b, winner, confidence, run_id.
+ */
+export async function createTestArenaComparison(
+  supabase: SupabaseClient,
+  promptId: string,
+  variantAId: string,
+  variantBId: string,
+  overrides?: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const row = {
+    prompt_id: promptId,
+    entry_a: variantAId,
+    entry_b: variantBId,
+    winner: 'a',
+    confidence: 0.9,
+    ...overrides,
+  };
+
+  const { data, error } = await supabase
+    .from('evolution_arena_comparisons')
+    .insert(row)
+    .select()
+    .single();
+
+  if (error) throw new Error(`createTestArenaComparison failed: ${error.message ?? error.code ?? JSON.stringify(error)}`);
+  return data;
+}
+
+// ─── Evolution log factory ───────────────────────────────────────
+
+/**
+ * Insert a test evolution_logs row and return the full row.
+ * Uses the generalized entity logger schema: entity_type, entity_id, level, message, agent_name, iteration.
+ */
+export async function createTestEvolutionLog(
+  supabase: SupabaseClient,
+  entityType: string,
+  entityId: string,
+  overrides?: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const row = {
+    entity_type: entityType,
+    entity_id: entityId,
+    level: 'info',
+    message: '[TEST_EVO] test log',
+    agent_name: 'test',
+    iteration: 0,
+    ...overrides,
+  };
+
+  const { data, error } = await supabase
+    .from('evolution_logs')
+    .insert(row)
+    .select()
+    .single();
+
+  if (error) throw new Error(`createTestEvolutionLog failed: ${error.message ?? error.code ?? JSON.stringify(error)}`);
+  return data;
+}
+
+// ─── Budget event factory ────────────────────────────────────────
+
+/**
+ * Insert a test evolution_agent_invocations row for budget event testing.
+ * Budget events are tracked via the invocations table.
+ */
+export async function createTestBudgetEvent(
+  supabase: SupabaseClient,
+  runId: string,
+  overrides?: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const row = {
+    run_id: runId,
+    agent_name: 'budget_check',
+    iteration: 0,
+    execution_order: 0,
+    success: true,
+    cost_usd: 0,
+    skipped: false,
+    ...overrides,
+  };
+
+  const { data, error } = await supabase
+    .from('evolution_agent_invocations')
+    .insert(row)
+    .select()
+    .single();
+
+  if (error) throw new Error(`createTestBudgetEvent failed: ${error.message ?? error.code ?? JSON.stringify(error)}`);
+  return data;
+}
+
 // ─── Mock LLM client ────────────────────────────────────────────
 
 /**
@@ -247,6 +377,36 @@ export function createMockEvolutionLLMClient(
   };
 }
 
+/**
+ * Create a mock EvolutionLLMClient where all methods reject with the given error.
+ * Useful for testing error handling paths.
+ */
+export function createMockLlmErrorClient(
+  errorMessage: string = 'LLM API error',
+): EvolutionLLMClient {
+  const rejection = () => Promise.reject(new Error(errorMessage));
+  return {
+    complete: jest.fn().mockImplementation(rejection),
+    completeStructured: jest.fn().mockImplementation(rejection),
+  };
+}
+
+/**
+ * Create a mock EvolutionLLMClient where all methods resolve after a delay.
+ * Useful for testing timeout behavior.
+ */
+export function createMockLlmTimeoutClient(
+  delayMs: number = 5000,
+): EvolutionLLMClient {
+  const delayed = <T>(value: T) => () =>
+    new Promise<T>((resolve) => setTimeout(resolve, delayMs, value));
+
+  return {
+    complete: jest.fn().mockImplementation(delayed(VALID_VARIANT_TEXT)),
+    completeStructured: jest.fn().mockImplementation(delayed({ winner: 'A', confidence: 0.9 })),
+  };
+}
+
 // ─── Mock logger ────────────────────────────────────────────────
 
 /**
@@ -259,6 +419,21 @@ export function createMockEvolutionLogger(): EvolutionLogger {
     error: jest.fn(),
     debug: jest.fn(),
   };
+}
+
+/**
+ * Create a mock EntityLogger with call-capturing for test assertions.
+ * Tracks all log calls with level, message, and context.
+ */
+export function createMockEntityLogger() {
+  const calls: Array<{ level: string; message: string; context?: Record<string, unknown> }> = [];
+  const logger: import('@evolution/lib/pipeline/infra/createEntityLogger').EntityLogger = {
+    info: jest.fn((msg: string, ctx?: Record<string, unknown>) => calls.push({ level: 'info', message: msg, context: ctx })),
+    warn: jest.fn((msg: string, ctx?: Record<string, unknown>) => calls.push({ level: 'warn', message: msg, context: ctx })),
+    error: jest.fn((msg: string, ctx?: Record<string, unknown>) => calls.push({ level: 'error', message: msg, context: ctx })),
+    debug: jest.fn((msg: string, ctx?: Record<string, unknown>) => calls.push({ level: 'debug', message: msg, context: ctx })),
+  };
+  return { logger, calls };
 }
 
 // ─── Checkpoint factory ─────────────────────────────────────────

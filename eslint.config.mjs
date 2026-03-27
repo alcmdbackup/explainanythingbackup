@@ -51,6 +51,7 @@ const eslintConfig = [
     rules: {
       "flakiness/max-test-timeout": "error",
       "flakiness/no-test-skip": "error",
+      "flakiness/require-test-cleanup": "error",
     },
   },
   // Flakiness prevention for all E2E files (specs + helpers)
@@ -110,6 +111,22 @@ const eslintConfig = [
             message: "Evolution code must not import app-layer modules. Use @/lib/* for shared infra only.",
           },
         ],
+      }],
+    },
+  },
+  // Strict TypeScript enforcement for evolution production code
+  {
+    files: ["evolution/src/**/*.ts", "evolution/src/**/*.tsx"],
+    ignores: ["**/*.test.ts", "**/*.test.tsx", "**/*.spec.ts", "**/*.spec.tsx", "evolution/src/testing/**"],
+    rules: {
+      "@typescript-eslint/no-explicit-any": "error",
+      "@typescript-eslint/consistent-type-assertions": ["error", {
+        assertionStyle: "as",
+        objectLiteralTypeAssertions: "never",
+      }],
+      "@typescript-eslint/explicit-function-return-type": ["warn", {
+        allowExpressions: true,
+        allowTypedFunctionExpressions: true,
       }],
     },
   },

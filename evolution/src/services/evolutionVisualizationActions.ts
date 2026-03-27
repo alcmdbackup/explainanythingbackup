@@ -4,10 +4,7 @@
 
 import { adminAction, type AdminContext } from './adminAction';
 import { validateUuid } from './shared';
-import type { EvolutionRunSummary } from '@evolution/lib/types';
 import { EvolutionRunSummarySchema } from '@evolution/lib/types';
-
-// ─── Types ──────────────────────────────────────────────────────
 
 export interface DashboardData {
   activeRuns: number;
@@ -21,6 +18,8 @@ export interface DashboardData {
     status: string;
     strategy_name: string | null;
     total_cost_usd: number;
+    budget_cap_usd: number;
+    explanation_id: number | null;
     created_at: string;
     completed_at: string | null;
   }>;
@@ -56,42 +55,72 @@ export interface LineageData {
   treeSearchPath?: string[];
 }
 
-// ─── Actions ────────────────────────────────────────────────────
-
 /** Aggregate dashboard metrics from runs, invocations, and cost view. */
 export const getEvolutionDashboardDataAction = adminAction(
   'getEvolutionDashboardData',
-  async (_input: undefined, ctx: AdminContext): Promise<DashboardData> => {
+  async (input: { filterTestContent?: boolean } | undefined, ctx: AdminContext): Promise<DashboardData> => {
     const { supabase } = ctx;
+    const filterTest = input?.filterTestContent ?? false;
 
-    // Parallel queries for status counts and costs
-    const [statusResult, costResult, recentResult] = await Promise.all([
-      supabase.from('evolution_runs').select('status'),
-      supabase.from('evolution_run_costs').select('total_cost_usd'),
-      supabase.from('evolution_runs')
-        .select('id, status, strategy_id, created_at, completed_at')
-        .eq('archived', false)
-        .order('created_at', { ascending: false })
-        .limit(10),
+    // Fetch test strategy IDs first (small set), then exclude their runs.
+    // This avoids !inner joins which depend on FK constraints + PostgREST schema cache.
+    let testStrategyIds: string[] = [];
+    if (filterTest) {
+      const { data: testStrategies } = await supabase
+        .from('evolution_strategies')
+        .select('id')
+        .ilike('name', '%[TEST]%');
+      testStrategyIds = (testStrategies ?? []).map(s => s.id as string);
+    }
+
+    // Build queries — status needs id for cost metric lookup
+    let statusQuery = supabase.from('evolution_runs').select('id, status');
+    if (filterTest && testStrategyIds.length > 0) {
+      statusQuery = statusQuery.not('strategy_id', 'in', `(${testStrategyIds.join(',')})`);
+    }
+
+    let recentQuery = supabase.from('evolution_runs')
+      .select('id, status, strategy_id, budget_cap_usd, explanation_id, created_at, completed_at')
+      .order('created_at', { ascending: false })
+      .limit(10);
+    if (filterTest && testStrategyIds.length > 0) {
+      recentQuery = recentQuery.not('strategy_id', 'in', `(${testStrategyIds.join(',')})`);
+    }
+
+    const [statusResult, recentResult] = await Promise.all([
+      statusQuery,
+      recentQuery,
     ]);
 
     // Count by status
     const runs = statusResult.data ?? [];
+    const filteredRunIds = runs.map(r => (r as Record<string, unknown>).id as string).filter(Boolean);
     const activeRuns = runs.filter(r => r.status === 'running' || r.status === 'claimed').length;
     const queueDepth = runs.filter(r => r.status === 'pending').length;
     const completedRuns = runs.filter(r => r.status === 'completed').length;
     const failedRuns = runs.filter(r => r.status === 'failed').length;
 
-    // Total cost
-    const costs = costResult.data ?? [];
-    const totalCostUsd = costs.reduce((sum, c) => sum + (Number(c.total_cost_usd) || 0), 0);
+    // Total cost from evolution_metrics (replaces dropped evolution_run_costs view)
+    let totalCostUsd = 0;
+    if (filteredRunIds.length > 0) {
+      const { data: costMetrics } = await supabase
+        .from('evolution_metrics')
+        .select('value')
+        .eq('entity_type', 'run')
+        .eq('metric_name', 'cost')
+        .in('entity_id', filteredRunIds);
+      totalCostUsd = (costMetrics ?? []).reduce((sum, m) => sum + (Number(m.value) || 0), 0);
+    }
     const runCount = completedRuns + failedRuns;
     const avgCostPerRun = runCount > 0 ? totalCostUsd / runCount : 0;
 
     // Enrich recent runs with strategy names and costs
-    const recentRuns = recentResult.data ?? [];
-    const strategyIds = [...new Set(recentRuns.map(r => r.strategy_id as string).filter(Boolean))];
-    const runIds = recentRuns.map(r => r.id as string);
+    const recentRuns = (recentResult.data ?? []) as unknown as Array<{
+      id: string; status: string; strategy_id: string | null;
+      created_at: string; completed_at: string | null;
+    }>;
+    const strategyIds = [...new Set(recentRuns.map(r => r.strategy_id).filter((id): id is string => !!id))];
+    const runIds = recentRuns.map(r => r.id);
 
     const [stratMap, costMap] = await Promise.all([
       strategyIds.length > 0
@@ -99,8 +128,9 @@ export const getEvolutionDashboardDataAction = adminAction(
             .then(({ data }) => new Map((data ?? []).map(s => [s.id as string, s.name as string])))
         : Promise.resolve(new Map<string, string>()),
       runIds.length > 0
-        ? supabase.from('evolution_run_costs').select('run_id, total_cost_usd').in('run_id', runIds)
-            .then(({ data }) => new Map((data ?? []).map(c => [c.run_id as string, Number(c.total_cost_usd) || 0])))
+        ? supabase.from('evolution_metrics').select('entity_id, value')
+            .eq('entity_type', 'run').eq('metric_name', 'cost').in('entity_id', runIds)
+            .then(({ data }) => new Map((data ?? []).map(c => [c.entity_id as string, Number(c.value) || 0])))
         : Promise.resolve(new Map<string, number>()),
     ]);
 
@@ -112,12 +142,14 @@ export const getEvolutionDashboardDataAction = adminAction(
       totalCostUsd,
       avgCostPerRun,
       recentRuns: recentRuns.map(r => ({
-        id: r.id as string,
-        status: r.status as string,
-        strategy_name: stratMap.get(r.strategy_id as string) ?? null,
-        total_cost_usd: costMap.get(r.id as string) ?? 0,
-        created_at: r.created_at as string,
-        completed_at: r.completed_at as string | null,
+        id: r.id,
+        status: r.status,
+        strategy_name: stratMap.get(r.strategy_id ?? '') ?? null,
+        total_cost_usd: costMap.get(r.id) ?? 0,
+        budget_cap_usd: Number((r as Record<string, unknown>).budget_cap_usd) || 0,
+        explanation_id: ((r as Record<string, unknown>).explanation_id as number | null) ?? null,
+        created_at: r.created_at,
+        completed_at: r.completed_at,
       })),
     };
   },
@@ -141,8 +173,7 @@ export const getEvolutionRunEloHistoryAction = adminAction(
     const parsed = EvolutionRunSummarySchema.safeParse(data.run_summary);
     if (!parsed.success) return [];
 
-    const summary = parsed.data as EvolutionRunSummary;
-    return (summary.muHistory ?? []).map((mus, i) => ({ iteration: i + 1, mu: mus[0] ?? 0 }));
+    return (parsed.data.muHistory ?? []).map((mus, i) => ({ iteration: i + 1, mu: mus[0] ?? 0 }));
   },
 );
 

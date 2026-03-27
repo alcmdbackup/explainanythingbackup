@@ -540,8 +540,8 @@ const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(({
         // Helper: Check word boundaries
         const isWordBoundary = (content: string, startIndex: number, endIndex: number): boolean => {
           const isBoundary = (char: string) => /[\s.,;:!?()\[\]{}'\"<>\/]/.test(char);
-          const beforeOk = startIndex === 0 || isBoundary(content[startIndex - 1]);
-          const afterOk = endIndex >= content.length || isBoundary(content[endIndex]);
+          const beforeOk = startIndex === 0 || isBoundary(content[startIndex - 1]!);
+          const afterOk = endIndex >= content.length || isBoundary(content[endIndex]!);
           return beforeOk && afterOk;
         };
 
@@ -561,19 +561,19 @@ const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(({
             // Match at start: splitText returns [match, after]
             const [match] = textNode.splitText(endIndex);
             const linkNode = $createStandaloneTitleLinkNode(url);
-            linkNode.append(match);
-            match.replace(linkNode);
+            linkNode.append(match!);
+            match!.replace(linkNode);
           } else if (endIndex === textLength) {
             // Match at end: splitText returns [before, match]
             const parts = textNode.splitText(startIndex);
-            const match = parts[1];
+            const match = parts[1]!;
             const linkNode = $createStandaloneTitleLinkNode(url);
             linkNode.append(match);
             match.replace(linkNode);
           } else {
             // Match in middle: splitText returns [before, match, after]
             const parts = textNode.splitText(startIndex, endIndex);
-            const match = parts[1];
+            const match = parts[1]!;
             const linkNode = $createStandaloneTitleLinkNode(url);
             linkNode.append(match);
             match.replace(linkNode);

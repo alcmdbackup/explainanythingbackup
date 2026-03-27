@@ -284,9 +284,9 @@ describe('LinkResolver Service', () => {
       const result = await resolveLinksForArticle(123, content);
 
       expect(result).toHaveLength(1);
-      expect(result[0].type).toBe('heading');
-      expect(result[0].term).toBe('## Introduction');
-      expect(result[0].standaloneTitle).toBe('Machine Learning Introduction');
+      expect(result[0]!.type).toBe('heading');
+      expect(result[0]!.term).toBe('## Introduction');
+      expect(result[0]!.standaloneTitle).toBe('Machine Learning Introduction');
     });
 
     it('should resolve term links from whitelist', async () => {
@@ -308,9 +308,9 @@ describe('LinkResolver Service', () => {
       const result = await resolveLinksForArticle(123, content);
 
       expect(result).toHaveLength(1);
-      expect(result[0].type).toBe('term');
-      expect(result[0].term).toBe('machine learning');
-      expect(result[0].standaloneTitle).toBe('Introduction to Machine Learning');
+      expect(result[0]!.type).toBe('term');
+      expect(result[0]!.term).toBe('machine learning');
+      expect(result[0]!.standaloneTitle).toBe('Introduction to Machine Learning');
     });
 
     it('should only link first occurrence of term', async () => {
@@ -332,7 +332,7 @@ describe('LinkResolver Service', () => {
       const result = await resolveLinksForArticle(123, content);
 
       expect(result).toHaveLength(1);
-      expect(result[0].startIndex).toBe(0);
+      expect(result[0]!.startIndex).toBe(0);
     });
 
     it('should skip disabled terms', async () => {
@@ -405,7 +405,7 @@ describe('LinkResolver Service', () => {
       const result = await resolveLinksForArticle(123, content);
 
       expect(result).toHaveLength(1);
-      expect(result[0].standaloneTitle).toBe('Custom ML Title');
+      expect(result[0]!.standaloneTitle).toBe('Custom ML Title');
     });
 
     it('should not link terms inside headings', async () => {
@@ -430,9 +430,9 @@ describe('LinkResolver Service', () => {
 
       // Should have 2 links: heading + term in body
       expect(result).toHaveLength(2);
-      expect(result[0].type).toBe('heading');
-      expect(result[1].type).toBe('term');
-      expect(result[1].startIndex).toBeGreaterThan(result[0].endIndex);
+      expect(result[0]!.type).toBe('heading');
+      expect(result[1]!.type).toBe('term');
+      expect(result[1]!.startIndex).toBeGreaterThan(result[0]!.endIndex);
     });
 
     it('should prioritize longer terms over shorter', async () => {
@@ -490,9 +490,9 @@ describe('LinkResolver Service', () => {
       const result = await resolveLinksForArticle(123, content);
 
       expect(result).toHaveLength(2);
-      expect(result[0].term).toBe('neural networks');
-      expect(result[1].term).toBe('machine learning');
-      expect(result[0].startIndex).toBeLessThan(result[1].startIndex);
+      expect(result[0]!.term).toBe('neural networks');
+      expect(result[1]!.term).toBe('machine learning');
+      expect(result[0]!.startIndex).toBeLessThan(result[1]!.startIndex);
     });
   });
 

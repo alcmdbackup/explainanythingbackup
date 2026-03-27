@@ -176,8 +176,7 @@ test.describe('Action Buttons', () => {
       expect(await resultsPage.isInEditMode()).toBe(true);
 
       // Exit edit mode
-      await authenticatedPage.click('[data-testid="edit-button"]');
-      await authenticatedPage.locator('[data-testid="edit-button"]:has-text("Edit")').waitFor({ state: 'visible', timeout: 5000 });
+      await resultsPage.clickEditButton();
 
       // Verify we're no longer in edit mode
       const isInEditMode = await resultsPage.isInEditMode();
@@ -249,13 +248,22 @@ test.describe('Action Buttons', () => {
     });
 
     test('should preserve content when toggling between markdown and plaintext modes', async ({ authenticatedPage }) => {
-      // eslint-disable-next-line flakiness/max-test-timeout -- content load + format toggle exceeds 60s in CI
-      test.setTimeout(90000);
       const resultsPage = new ResultsPage(authenticatedPage);
 
       // Navigate directly to test explanation
       await authenticatedPage.goto(`/results?explanation_id=${testExplanation.id}`);
       await resultsPage.waitForAnyContent(60000);
+
+      // Wait for actual content to load (not just placeholder text)
+      await authenticatedPage.waitForFunction(
+        (sel) => {
+          const el = document.querySelector(sel);
+          const text = el?.textContent ?? '';
+          return text.length > 0 && !text.includes('Content will appear here');
+        },
+        '[data-testid="explanation-content"]',
+        { timeout: 30000 }
+      );
 
       // Get initial content using ResultsPage.getContent()
       const initialContent = await resultsPage.getContent();
@@ -278,8 +286,8 @@ test.describe('Action Buttons', () => {
         { timeout: 5000 }
       );
 
-      // Verify content is preserved (editor should still have content)
-      const plaintextContent = await resultsPage.getContent();
+      // Verify content is preserved (in plain text mode, content is in the textarea)
+      const plaintextContent = await textarea.inputValue();
       expect(plaintextContent).toBeTruthy();
 
       // Toggle back to markdown mode

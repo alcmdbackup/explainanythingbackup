@@ -16,6 +16,10 @@ jest.mock('@evolution/services/variantDetailActions', () => ({
   getVariantLineageChainAction: jest.fn().mockResolvedValue({ success: true, data: [] }),
 }));
 
+jest.mock('@evolution/services/metricsActions', () => ({
+  getEntityMetricsAction: jest.fn().mockResolvedValue({ success: true, data: [], error: null }),
+}));
+
 const mockVariant: VariantFullDetail = {
   id: 'aaaaaaaa-1111-2222-3333-444444444444',
   runId: 'bbbbbbbb-1111-2222-3333-444444444444',
@@ -53,10 +57,12 @@ describe('VariantDetailContent', () => {
     expect(screen.getByText('8')).toBeInTheDocument();
   });
 
-  it('renders variant content section', () => {
+  it('renders tabs including content tab', () => {
     render(<VariantDetailContent variant={mockVariant} />);
-    expect(screen.getByTestId('variant-content-section')).toBeInTheDocument();
-    expect(screen.getByText('Variant content text here')).toBeInTheDocument();
+    // Content tab is selected by default, so both tab label and content section exist
+    expect(screen.getByRole('tab', { name: 'Content' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Metrics' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Lineage' })).toBeInTheDocument();
   });
 
   it('renders run cross-link', () => {

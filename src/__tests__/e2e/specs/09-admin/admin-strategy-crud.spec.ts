@@ -5,9 +5,39 @@
  */
 
 import { adminTest, expect } from '../../fixtures/admin-auth';
+import { createClient } from '@supabase/supabase-js';
+import * as dotenv from 'dotenv';
+import * as path from 'path';
+
+dotenv.config({ path: path.resolve(process.cwd(), '.env.local') });
 
 adminTest.describe('Strategy Registry CRUD', () => {
   const testStrategyName = `[E2E] Test Strategy ${Date.now()}`;
+
+  adminTest.afterAll(async () => {
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    );
+    const { data } = await supabase
+      .from('evolution_strategies')
+      .select('id')
+      .ilike('name', '[E2E] Test Strategy%');
+    if (data && data.length > 0) {
+      const ids = data.map(s => s.id as string);
+      // Delete runs referencing these strategies first
+      const { data: runs } = await supabase.from('evolution_runs').select('id').in('strategy_id', ids);
+      const runIds = (runs ?? []).map(r => r.id as string);
+      if (runIds.length > 0) {
+        await supabase.from('evolution_arena_comparisons').delete().in('run_id', runIds);
+        await supabase.from('evolution_logs').delete().in('run_id', runIds);
+        await supabase.from('evolution_agent_invocations').delete().in('run_id', runIds);
+        await supabase.from('evolution_variants').delete().in('run_id', runIds);
+        await supabase.from('evolution_runs').delete().in('id', runIds);
+      }
+      await supabase.from('evolution_strategies').delete().in('id', ids);
+    }
+  });
 
   adminTest('create strategy with preset selection @critical', async ({ adminPage }) => {
     // Navigate to strategies page

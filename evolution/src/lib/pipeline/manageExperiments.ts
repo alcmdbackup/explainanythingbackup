@@ -1,6 +1,8 @@
 // V2 experiment core functions: create, add runs, compute metrics, cancel.
 
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { evolutionExperimentInsertSchema, evolutionRunInsertSchema } from '../schemas';
+import { createEntityLogger } from './infra/createEntityLogger';
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -28,13 +30,22 @@ export async function createExperiment(
     throw new Error('Experiment name must be 1-200 characters');
   }
 
+  const expPayload = evolutionExperimentInsertSchema.parse({ name: trimmed, prompt_id: promptId });
   const { data, error } = await db
     .from('evolution_experiments')
-    .insert({ name: trimmed, prompt_id: promptId })
+    .insert(expPayload)
     .select('id')
     .single();
 
   if (error) throw new Error(`Failed to create experiment: ${error.message}`);
+
+  const expLogger = createEntityLogger({
+    entityType: 'experiment',
+    entityId: data.id,
+    experimentId: data.id,
+  }, db);
+  expLogger.info('Experiment created', { name: trimmed, promptId });
+
   return { id: data.id };
 }
 
@@ -55,15 +66,16 @@ export async function addRunToExperiment(
     throw new Error(`Cannot add runs to ${exp.status} experiment`);
   }
 
+  const runPayload = evolutionRunInsertSchema.parse({
+    experiment_id: experimentId,
+    prompt_id: exp.prompt_id,
+    strategy_id: config.strategy_id,
+    budget_cap_usd: config.budget_cap_usd,
+    status: 'pending',
+  });
   const { data: run, error: runError } = await db
     .from('evolution_runs')
-    .insert({
-      experiment_id: experimentId,
-      prompt_id: exp.prompt_id,
-      strategy_id: config.strategy_id,
-      budget_cap_usd: config.budget_cap_usd,
-      status: 'pending',
-    })
+    .insert(runPayload)
     .select('id')
     .single();
 
@@ -75,6 +87,13 @@ export async function addRunToExperiment(
       .update({ status: 'running', updated_at: new Date().toISOString() })
       .eq('id', experimentId)
       .eq('status', 'draft');
+
+    const expLogger = createEntityLogger({
+      entityType: 'experiment',
+      entityId: experimentId,
+      experimentId,
+    }, db);
+    expLogger.info('Experiment transitioned draft→running', { firstRunId: run.id });
   }
 
   return { runId: run.id };

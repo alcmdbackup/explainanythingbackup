@@ -22,19 +22,21 @@ export async function runWatchdog(
   const threshold = thresholdMinutes ?? getStaleThresholdMinutes();
   const cutoff = new Date(Date.now() - threshold * 60 * 1000).toISOString();
 
+  // Fetch runs with stale heartbeat OR null heartbeat (old claim function didn't set it)
   const { data: staleRuns, error: fetchError } = await supabase
     .from('evolution_runs')
-    .select('id, runner_id, last_heartbeat')
+    .select('id, runner_id, last_heartbeat, created_at')
     .in('status', ['claimed', 'running'])
-    .lt('last_heartbeat', cutoff);
+    .or(`last_heartbeat.lt.${cutoff},and(last_heartbeat.is.null,created_at.lt.${cutoff})`);
 
   if (fetchError) {
     throw new Error(`Watchdog fetch error: ${fetchError.message}`);
   }
 
+  const runs = staleRuns ?? [];
   const markedFailed: string[] = [];
 
-  for (const run of (staleRuns ?? [])) {
+  for (const run of runs) {
     const errorMessage = JSON.stringify({
       message: `Run abandoned: no heartbeat for ${threshold} minutes (likely runner crash)`,
       source: 'evolution-watchdog',
@@ -61,7 +63,7 @@ export async function runWatchdog(
   }
 
   return {
-    staleRunsFound: (staleRuns ?? []).length,
+    staleRunsFound: runs.length,
     markedFailed,
   };
 }
