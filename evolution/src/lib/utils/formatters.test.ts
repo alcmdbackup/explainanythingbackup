@@ -12,6 +12,7 @@ import {
   formatScore1,
   elo95CI,
   formatEloCIRange,
+  formatEloWithUncertainty,
   formatDate,
   formatDateTime,
 } from './formatters';
@@ -138,6 +139,24 @@ describe('formatters', () => {
     });
     it('returns null for undefined sigma', () => {
       expect(formatEloCIRange(1500, undefined)).toBeNull();
+    });
+  });
+
+  describe('formatEloWithUncertainty', () => {
+    it('formats elo with 95% CI half-width', () => {
+      expect(formatEloWithUncertainty(1500, 50)).toBe('1500 ± 98');
+    });
+    it('returns null for null sigma', () => {
+      expect(formatEloWithUncertainty(1500, null)).toBeNull();
+    });
+    it('returns null for zero sigma', () => {
+      expect(formatEloWithUncertainty(1500, 0)).toBeNull();
+    });
+    it('returns null for undefined sigma', () => {
+      expect(formatEloWithUncertainty(1500, undefined)).toBeNull();
+    });
+    it('handles large sigma', () => {
+      expect(formatEloWithUncertainty(1200, 200)).toBe('1200 ± 392');
     });
   });
 

@@ -218,6 +218,11 @@ export async function finalizeRun(
       matchHistory: result.matchHistory,
     };
 
+    // Ensure cost metric exists (may have been skipped if iteration loop broke early)
+    if (result.totalCost != null && !isNaN(result.totalCost)) {
+      await writeMetric(db, 'run', runId, 'cost' as MetricName, result.totalCost, 'during_execution');
+    }
+
     // Run-level finalization metrics
     for (const def of getEntity('run').metrics.atFinalization) {
       const value = def.compute(finCtx);

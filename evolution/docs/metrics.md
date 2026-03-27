@@ -44,7 +44,7 @@ All metrics are declared in a typed registry keyed by entity type. Each definiti
 
 | Name | Category | Timing | Description |
 |------|----------|--------|-------------|
-| `cost` | cost | during_execution | Total USD spent (from cost tracker). `listView: false` — not shown in the entity list view. The run list and detail pages display cost by querying `evolution_agent_invocations` directly rather than reading this metric row. |
+| `cost` | cost | during_execution | Total USD spent (from cost tracker). Written incrementally during the iteration loop AND re-written at finalization as a safety net (using `during_execution` timing) to ensure the row exists even when the loop breaks early (`budget_exceeded`/`converged`). This is critical because `propagateMetrics()` uses `cost` as the source metric for `run_count`, `total_cost`, and `avg_cost_per_run` on strategy/experiment entities. `listView: false` — not shown in the entity list view. |
 | `winner_elo` | rating | at_finalization | Elo of the highest-mu variant |
 | `median_elo` | rating | at_finalization | 50th percentile Elo across all variants |
 | `p90_elo` | rating | at_finalization | 90th percentile Elo |
