@@ -68,3 +68,21 @@ export function formatEloCIRange(elo: number, sigma: number | null | undefined):
   const half = elo95CI(sigma);
   return `[${Math.round(elo - half)}, ${Math.round(elo + half)}]`;
 }
+
+// ─── Date formatting ─────────────────────────────────────
+
+/** Format date for list views (short: "Mar 26"). Includes year if not current year. */
+export function formatDate(dateStr: string): string {
+  const d = new Date(dateStr);
+  const now = new Date();
+  const opts: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric' };
+  if (d.getFullYear() !== now.getFullYear()) opts.year = 'numeric';
+  return d.toLocaleDateString('en-US', opts);
+}
+
+/** Format date+time for detail views (e.g., "Mar 26, 2026 14:30"). */
+export function formatDateTime(dateStr: string): string {
+  const d = new Date(dateStr);
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) +
+    ' ' + d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+}

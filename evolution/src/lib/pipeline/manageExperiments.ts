@@ -30,7 +30,17 @@ export async function createExperiment(
     throw new Error('Experiment name must be 1-200 characters');
   }
 
-  const expPayload = evolutionExperimentInsertSchema.parse({ name: trimmed, prompt_id: promptId });
+  // Dedup: append incrementing suffix if name already exists
+  let finalName = trimmed;
+  const { count } = await db
+    .from('evolution_experiments')
+    .select('id', { count: 'exact', head: true })
+    .eq('name', trimmed);
+  if (count && count > 0) {
+    finalName = `${trimmed} (${count + 1})`;
+  }
+
+  const expPayload = evolutionExperimentInsertSchema.parse({ name: finalName, prompt_id: promptId });
   const { data, error } = await db
     .from('evolution_experiments')
     .insert(expPayload)

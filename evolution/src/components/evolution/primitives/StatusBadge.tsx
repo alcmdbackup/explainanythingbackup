@@ -104,6 +104,8 @@ export function StatusBadge({ variant, status, badgeStyle = 'filled', pulse = fa
         className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-ui font-medium border ${className}`}
         style={{ color, borderColor: color }}
         data-testid={testId}
+        role="status"
+        aria-label={`Status: ${label}${hasError ? ' (has errors)' : ''}`}
       >
         {hasError && (
           <span
@@ -133,6 +135,8 @@ export function StatusBadge({ variant, status, badgeStyle = 'filled', pulse = fa
         borderColor: `color-mix(in srgb, ${color} 30%, transparent)`,
       }}
       data-testid={testId}
+      role="status"
+      aria-label={`Status: ${label}${hasError ? ' (has errors)' : ''}`}
     >
       {hasError && (
         <span

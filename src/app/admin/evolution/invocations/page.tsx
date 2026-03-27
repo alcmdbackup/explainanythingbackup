@@ -13,6 +13,16 @@ const PAGE_SIZE = 20;
 
 const FILTERS: FilterDef[] = [
   { key: 'filterTestContent', label: 'Hide test content', type: 'checkbox', defaultChecked: true },
+  {
+    key: 'successFilter',
+    label: 'Status',
+    type: 'select',
+    options: [
+      { label: 'All', value: 'all' },
+      { label: 'Success', value: 'success' },
+      { label: 'Failed', value: 'failed' },
+    ],
+  },
 ];
 
 const COLUMNS: ColumnDef<InvocationListEntry>[] = [
@@ -43,14 +53,18 @@ const COLUMNS: ColumnDef<InvocationListEntry>[] = [
   { key: 'iteration', header: 'Iteration', align: 'right', render: (inv) => inv.iteration ?? '—' },
   {
     key: 'success',
-    header: 'Success',
+    header: 'Status',
     align: 'center',
-    render: (inv) =>
-      inv.success ? (
-        <span className="text-[var(--status-success)]">✓</span>
-      ) : (
-        <span className="text-[var(--status-error)]">✗</span>
-      ),
+    render: (inv) => {
+      if (inv.success) {
+        return <span className="text-[var(--status-success)]">✓</span>;
+      }
+      const isBudgetExceeded = inv.error_message?.toLowerCase().includes('budget');
+      if (isBudgetExceeded) {
+        return <span className="text-[var(--status-warning)]" title={inv.error_message ?? undefined}>⚠ budget</span>;
+      }
+      return <span className="text-[var(--status-error)]" title={inv.error_message ?? undefined}>✗ failed</span>;
+    },
   },
   {
     key: 'cost_usd',
@@ -82,6 +96,7 @@ export default function InvocationsListPage(): JSX.Element {
     setLoading(true);
     const result = await listInvocationsAction({
       filterTestContent: filters.filterTestContent === 'true',
+      successFilter: (filters.successFilter as 'all' | 'success' | 'failed') || undefined,
       limit: PAGE_SIZE,
       offset: (currentPage - 1) * PAGE_SIZE,
     });

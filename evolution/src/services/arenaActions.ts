@@ -3,7 +3,7 @@
 // V2 schema: elo data lives directly on evolution_variants (no separate elo table).
 
 import { adminAction, type AdminContext } from './adminAction';
-import { validateUuid } from './shared';
+import { validateUuid, applyTestContentNameFilter } from './shared';
 import { z } from 'zod';
 
 // ─── Types ──────────────────────────────────────────────────────
@@ -68,7 +68,7 @@ export const getArenaTopicsAction = adminAction(
       .order('created_at', { ascending: false });
 
     if (filters?.status) query = query.eq('status', filters.status);
-    if (filters?.filterTestContent) query = query.not('name', 'ilike', '%[TEST]%');
+    if (filters?.filterTestContent) query = applyTestContentNameFilter(query);
 
     const { data, error } = await query;
     if (error) throw error;
@@ -234,7 +234,7 @@ export const listPromptsAction = adminAction(
       .is('deleted_at', null);
 
     if (input.status) query = query.eq('status', input.status);
-    if (input.filterTestContent) query = query.not('name', 'ilike', '%[TEST]%');
+    if (input.filterTestContent) query = applyTestContentNameFilter(query);
 
     query = query.order('created_at', { ascending: false })
       .range(input.offset, input.offset + input.limit - 1);

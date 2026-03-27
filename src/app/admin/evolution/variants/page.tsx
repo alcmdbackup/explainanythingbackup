@@ -43,7 +43,7 @@ const COLUMNS: ColumnDef<VariantListEntry>[] = [
       </span>
     ),
   },
-  { key: 'agent_name', header: 'Agent', render: (v) => v.agent_name },
+  { key: 'agent_name', header: 'Agent', render: (v) => v.agent_name || <span className="text-[var(--text-muted)]">—</span> },
   {
     key: 'elo_score',
     header: 'Rating',
@@ -60,7 +60,7 @@ const COLUMNS: ColumnDef<VariantListEntry>[] = [
     render: (v) =>
       v.is_winner ? (
         <span className="text-[var(--status-success)]" title="Winner">★</span>
-      ) : null,
+      ) : <span className="text-[var(--text-muted)]">—</span>,
   },
 ];
 

@@ -136,7 +136,7 @@ export function EntityDetailHeader({
             <button
               onClick={handleCopyId}
               className="flex items-center gap-1 text-xs font-mono text-[var(--text-muted)] mt-1 truncate hover:text-[var(--accent-gold)] transition-colors cursor-pointer"
-              title="Click to copy full ID"
+              title={`Click to copy: ${entityId}`}
               data-testid="entity-id"
             >
               <svg className="w-3 h-3 flex-shrink-0" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">

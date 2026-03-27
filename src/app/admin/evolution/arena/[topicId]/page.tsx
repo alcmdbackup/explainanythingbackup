@@ -175,7 +175,10 @@ export default function ArenaTopicDetailPage(): JSX.Element {
           </p>
         )}
         {entries.length === 0 ? (
-          <p className="text-sm font-ui text-[var(--text-muted)]">No entries yet.</p>
+          <div className="text-sm font-ui text-[var(--text-muted)] text-center py-4">
+            <p>No entries yet.</p>
+            <p className="mt-1 text-xs">Entries are added automatically when variants compete in this topic.</p>
+          </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm font-ui" data-testid="leaderboard-table">

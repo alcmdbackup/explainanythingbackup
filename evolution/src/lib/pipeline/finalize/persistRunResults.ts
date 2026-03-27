@@ -80,7 +80,7 @@ function buildRunSummary(
     finalPhase: 'COMPETITION',
     totalIterations: result.iterationsRun,
     durationSeconds,
-    muHistory: result.muHistory.map((arr) => arr[0] ?? 0),
+    muHistory: result.muHistory,
     diversityHistory: result.diversityHistory,
     matchStats: { totalMatches, avgConfidence, decisiveRate },
     topVariants,
@@ -263,7 +263,15 @@ export async function finalizeRun(
       await propagateMetrics(db, 'experiment', run.experiment_id);
     }
   } catch (metricsErr) {
-    logger?.warn('Finalization metrics write failed', { phaseName: 'finalize', error: (metricsErr instanceof Error ? metricsErr.message : String(metricsErr)).slice(0, 500) });
+    const errMsg = metricsErr instanceof Error ? metricsErr.message : String(metricsErr);
+    const errStack = metricsErr instanceof Error ? metricsErr.stack?.slice(0, 1000) : undefined;
+    logger?.warn('Finalization metrics write failed', {
+      phaseName: 'finalize',
+      error: errMsg.slice(0, 500),
+      errorType: metricsErr instanceof Error ? metricsErr.constructor.name : typeof metricsErr,
+      errorStack: errStack,
+      runId,
+    });
   }
 
   // Step 6a: Strategy aggregate update (legacy — will be removed in Phase 6)

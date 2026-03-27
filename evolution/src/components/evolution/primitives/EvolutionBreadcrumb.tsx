@@ -19,7 +19,7 @@ export function EvolutionBreadcrumb({ items }: EvolutionBreadcrumbProps) {
     <nav aria-label="Breadcrumb" className="text-xs text-[var(--text-muted)]" data-testid="evolution-breadcrumb">
       {items.map((item, i) => (
         <span key={i}>
-          {i > 0 && <span className="mx-1">/</span>}
+          {i > 0 && <span className="mx-1" aria-hidden="true">/</span>}
           {item.href ? (
             <Link href={item.href} className="hover:text-[var(--accent-gold)] hover:underline">
               {item.label}
