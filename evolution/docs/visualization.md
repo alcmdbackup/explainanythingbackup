@@ -110,7 +110,7 @@ Key differences from the old `MetricsTab`:
 Specialized table for displaying evolution runs with:
 - **Budget visualization**: Color-coded progress bar showing iteration progress against the configured budget. Colors shift from green to yellow to red as budget is consumed.
 - **Cost warning indicators**: Visual flags when a run's cost exceeds expected thresholds.
-- **Status badges**: Inline `EvolutionStatusBadge` for each run row.
+- **Status badges**: Inline `StatusBadge` (variant="run-status") for each run row.
 
 ### RegistryPage
 
@@ -164,7 +164,7 @@ Each evolution route directory includes a `loading.tsx` file that renders a `Tab
 
 ## LineageGraph (D3 DAG Visualization)
 
-The `LineageGraph` component (`evolution/src/components/evolution/LineageGraph.tsx`) renders variant ancestry as a directed acyclic graph using D3.
+The `LineageGraph` component (`evolution/src/components/evolution/visualizations/LineageGraph.tsx`) renders variant ancestry as a directed acyclic graph using D3.
 
 **Key implementation details:**
 
