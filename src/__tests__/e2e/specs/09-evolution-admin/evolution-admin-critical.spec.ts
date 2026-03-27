@@ -21,10 +21,8 @@ test.describe('Evolution Admin Critical Bugs', { tag: '@critical' }, () => {
     await page.waitForURL(/\/admin\/evolution\/runs\//, { timeout: 10000 });
 
     // Verify cost is displayed (either from metrics or fallback)
-    const costText = await page.locator('text=/\\$[0-9]/')
-      .first()
-      .textContent()
-      .catch(() => null);
+    const costLocator = page.locator('text=/\\$[0-9]/').first();
+    const costText = await costLocator.count() > 0 ? await costLocator.textContent() : null;
     // Cost should exist somewhere on the page
     expect(costText).not.toBeNull();
   });
