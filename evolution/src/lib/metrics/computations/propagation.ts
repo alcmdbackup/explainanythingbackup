@@ -1,8 +1,8 @@
 // Reusable aggregation functions for propagated metrics (child → parent entity).
 
 import type { MetricRow } from '../types';
-import type { MetricValue } from '@evolution/experiments/evolution/experimentMetrics';
-import { bootstrapMeanCI } from '@evolution/experiments/evolution/experimentMetrics';
+import type { MetricValue } from '../experimentMetrics';
+import { bootstrapMeanCI } from '../experimentMetrics';
 import { toMetricValue } from '../types';
 
 export function aggregateSum(rows: MetricRow[]): MetricValue {
