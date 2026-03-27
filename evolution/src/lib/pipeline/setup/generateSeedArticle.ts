@@ -9,17 +9,14 @@ const SEED_TIMEOUT_MS = 60_000;
 async function withTimeout<T>(promise: Promise<T>, label: string): Promise<T> {
   let timeoutId: NodeJS.Timeout | undefined;
   try {
-    const result = await Promise.race([
+    return await Promise.race([
       promise,
       new Promise<never>((_, reject) => {
         timeoutId = setTimeout(() => reject(new Error(`Seed ${label} timed out after 60s`)), SEED_TIMEOUT_MS);
       }),
     ]);
+  } finally {
     if (timeoutId) clearTimeout(timeoutId);
-    return result;
-  } catch (error) {
-    if (timeoutId) clearTimeout(timeoutId);
-    throw error;
   }
 }
 

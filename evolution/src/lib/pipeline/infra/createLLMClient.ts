@@ -69,7 +69,6 @@ export function createV2LLMClient(
               timeoutId = setTimeout(() => reject(new Error('LLM call timeout (60s)')), PER_CALL_TIMEOUT_MS);
             }),
           ]);
-          if (timeoutId) clearTimeout(timeoutId);
 
           // Success — record actual cost
           const actual = calculateCost(prompt.length, response.length, pricing);
@@ -77,7 +76,6 @@ export function createV2LLMClient(
           logger?.info('LLM call succeeded', { phaseName: agentName, promptChars: prompt.length, responseChars: response.length, costUsd: actual, attempt });
           return response;
         } catch (error) {
-          if (timeoutId) clearTimeout(timeoutId);
           if (error instanceof BudgetExceededError) {
             // Budget errors are NOT retried
             costTracker.release(agentName, margined);
@@ -96,6 +94,8 @@ export function createV2LLMClient(
           logger?.warn('LLM transient error', { phaseName: agentName, attempt, error: lastError.message.slice(0, 500) });
           // Exponential backoff before retry
           await new Promise((resolve) => setTimeout(resolve, BACKOFF_MS[attempt]));
+        } finally {
+          if (timeoutId) clearTimeout(timeoutId);
         }
       }
 
