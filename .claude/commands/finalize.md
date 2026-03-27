@@ -1,5 +1,5 @@
 ---
-description: Rebase off remote main, simplify code, run code review, run all checks (lint/tsc/build/unit/integration), update docs, fix issues, commit, create PR, and monitor CI until all checks pass
+description: Rebase off remote main, simplify code, run code review, run all checks (lint/tsc/build/unit/integration/E2E critical), update docs, fix issues, commit, create PR, and monitor CI until all checks pass
 argument-hint: [--e2e]
 allowed-tools: Bash(git:*), Bash(npm:*), Bash(npx:*), Bash(gh:*), Read, Edit, Write, Grep, Glob, AskUserQuestion, Task
 ---
@@ -16,7 +16,7 @@ Complete the current branch work by rebasing, running all checks, fixing issues,
 
 ## Arguments
 
-- `--e2e`: Include E2E critical tests in the verification (optional, default: skip E2E)
+- `--e2e`: Include the full E2E suite in addition to E2E critical tests (optional, default: critical only)
 
 The argument passed is: `$ARGUMENTS`
 
@@ -629,21 +629,51 @@ Issues to IGNORE:
 - Issues silenced by lint-ignore comments
 - Intentional functionality changes related to the broader change
 
-### 4. Run Checks (fix issues as they arise)
+### 4. Run All Checks (collect all failures)
 
-Run each check. If it fails, fix the issues and re-run until it passes. Fix ALL bugs encountered regardless of whether they originated from this branch or pre-existed:
+Run ALL 5 checks without stopping on failure. Collect every failure into a summary table, then fix all issues at once:
 
-1. **Lint**: `npm run lint`
-2. **TypeScript**: `npx tsc --noEmit`
-3. **Build**: `npm run build`
-4. **Unit Tests**: `npm run test:unit`
-5. **Integration Tests**: `npm run test:integration`
+```bash
+# Run all 5 — capture exit codes, do NOT stop on failure
+npm run lint;                LINT_RC=$?
+npx tsc --noEmit;            TSC_RC=$?
+npm run build;               BUILD_RC=$?
+npm run test:unit;           UNIT_RC=$?
+npm run test:integration;    INT_RC=$?
+```
 
-### 5. E2E Tests (if --e2e flag provided)
+Display results:
+```
+Check Results
+──────────────────────────────────────
+Lint:              ✓ PASSED / ✗ FAILED
+TypeScript:        ✓ PASSED / ✗ FAILED
+Build:             ✓ PASSED / ✗ FAILED
+Unit Tests:        ✓ PASSED / ✗ FAILED
+Integration Tests: ✓ PASSED / ✗ FAILED
+──────────────────────────────────────
+```
 
-If `$ARGUMENTS` contains `--e2e`:
-- Run: `npm run test:e2e -- --grep @critical`
-- Fix any failures before proceeding
+If any check failed:
+1. Fix ALL failing issues at once (regardless of whether they originated from this branch or pre-existed)
+2. Re-run ALL 5 checks (not just the ones that failed)
+3. Repeat until all 5 pass
+
+### 5. E2E Critical Tests
+
+Always run E2E critical tests — no flag required:
+
+```bash
+npm run test:e2e -- --grep @critical
+```
+
+Fix any failures before proceeding.
+
+If `$ARGUMENTS` contains `--e2e`, ALSO run the full E2E suite after critical tests pass:
+
+```bash
+npm run test:e2e
+```
 
 ### 6. Documentation Updates
 
@@ -788,7 +818,8 @@ gh pr create --base main --title "[Project] ${PROJECT_NAME}" --body "$(cat <<'EO
 - Build: ✓
 - Unit Tests: ✓
 - Integration Tests: ✓
-- E2E Tests: [✓ / skipped]
+- E2E Critical: ✓
+- E2E Full: [✓ / skipped (no --e2e flag)]
 
 ### Documentation Updates
 [List of docs updated, or "No updates needed"]
@@ -821,7 +852,7 @@ sleep 30
 **Step 8b: Watch checks until completion**
 
 ```bash
-timeout 900 gh pr checks --watch --fail-fast
+timeout 900 gh pr checks --watch
 ```
 
 This blocks until all checks complete or 15 minutes elapse. Check the exit code:
@@ -884,22 +915,23 @@ Use **AskUserQuestion**:
 If "Fix and retry":
 1. Analyze the failure logs to identify root causes
 2. Fix ALL issues locally (regardless of origin — pre-existing bugs included)
-3. Re-run local checks from Step 4 (lint, tsc, build, unit, integration) to verify fixes
-4. Commit fixes:
+3. Re-run ALL local checks: Step 4 (all 5 checks) + Step 5 (E2E critical). Re-run everything, not just the checks that failed.
+4. **Never use `gh run rerun`** — always push new commits to trigger a full CI run. Re-running stale commits can mask issues introduced by fixes.
+5. Commit fixes:
    ```bash
    git add -A
    git commit -m "fix: address CI failures (iteration N)"
    ```
-5. Push:
+6. Push:
    ```bash
    git push
    ```
-6. Backup push (non-fatal — YOU MUST run this step, but if it fails, log the error and continue):
+7. Backup push (non-fatal — YOU MUST run this step, but if it fails, log the error and continue):
    ```bash
    git -c http.postBuffer=524288000 push backup HEAD --force-with-lease --no-verify
    ```
    Verify exit code. If non-zero, display "WARNING: Backup push failed with exit code $?" and continue.
-7. Return to Step 8a (wait 30s, then re-watch)
+8. Return to Step 8a (wait 30s, then re-watch)
 
 **Maximum iterations**: 5 fix-push-watch cycles. After 5 failures:
 
@@ -934,7 +966,8 @@ Iterations: N (0 = first attempt passed)
 - Code simplification pass completed on changed source files
 - Code review passed with no high-confidence issues (or user chose to proceed)
 - All checks pass (lint, tsc, build, unit, integration)
-- E2E critical tests pass (if --e2e flag was provided)
+- E2E critical tests pass (always run)
+- E2E full suite passes (if --e2e flag was provided)
 - Branch is rebased on latest origin/main
 - Documentation is updated for all doc-worthy changes
 - Working tree is clean (verified by `git status --porcelain` returning empty)

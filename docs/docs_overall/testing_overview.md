@@ -213,12 +213,12 @@ test('should load page @critical', async ({ page }) => { ... });
 
 ### E2E Tests in Skill Workflows
 
-The `/finalize` and `/mainToProd` skills support optional E2E test execution:
+Both `/finalize` and `/mainToProd` include E2E tests as part of their standard verification:
 
-| Skill | Flag | E2E Scope | Duration |
-|-------|------|-----------|----------|
-| `/finalize --e2e` | `--e2e` | Critical only (`@critical` tagged) | ~1.5 min |
-| `/mainToProd --e2e` | `--e2e` | Full suite (chromium + chromium-unauth) | ~5 min |
+| Skill | E2E Behavior | Flag | Duration |
+|-------|-------------|------|----------|
+| `/finalize` | Critical (`@critical` tagged) always runs | `--e2e` adds full suite | ~1.5 min (critical) |
+| `/mainToProd` | Full suite always runs (no flag needed) | N/A | ~5 min |
 
 E2E tests run after lint/tsc/build/unit/integration checks pass. The dev server is managed automatically via tmux (local) or webServer (CI).
 
