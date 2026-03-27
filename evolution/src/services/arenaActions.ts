@@ -78,12 +78,13 @@ export const getArenaTopicsAction = adminAction(
     // Batch-fetch entry counts
     if (topics.length > 0) {
       const topicIds = topics.map(t => t.id);
-      const { data: counts } = await ctx.supabase
+      const { data: counts, error: countError } = await ctx.supabase
         .from('evolution_variants')
         .select('prompt_id')
         .eq('synced_to_arena', true)
         .in('prompt_id', topicIds)
         .is('archived_at', null);
+      if (countError) throw countError;
 
       const countMap = new Map<string, number>();
       for (const entry of counts ?? []) {

@@ -83,10 +83,10 @@ describe('LogsTab', () => {
     });
     const select = screen.getByLabelText('Filter by iteration');
     const options = select.querySelectorAll('option');
-    // 1 "All iterations" + 20 numbered options
-    expect(options).toHaveLength(21);
-    expect(options[1]!.textContent).toBe('1');
-    expect(options[20]!.textContent).toBe('20');
+    // 1 "All iterations" + 21 numbered options (0 through 20)
+    expect(options).toHaveLength(22);
+    expect(options[1]!.textContent).toBe('0');
+    expect(options[21]!.textContent).toBe('20');
   });
 
   it('renders message search input with placeholder', async () => {

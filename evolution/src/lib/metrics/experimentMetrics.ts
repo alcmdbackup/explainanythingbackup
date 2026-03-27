@@ -275,8 +275,12 @@ export async function computeRunMetrics(
   if (variants && variants.length > 0) {
     const elos = variants.map((v: { elo_score: number }) => v.elo_score).sort((a: number, b: number) => a - b);
     metrics.totalVariants = scalar(elos.length);
-    metrics.medianElo = scalar(elos[Math.min(Math.floor(0.5 * elos.length), elos.length - 1)]!);
-    metrics.p90Elo = scalar(elos[Math.min(Math.floor(0.9 * elos.length), elos.length - 1)]!);
+    // Proper median: average of two middle values for even-length arrays
+    const mid = Math.floor(elos.length / 2);
+    const median = elos.length % 2 === 1 ? elos[mid]! : (elos[mid - 1]! + elos[mid]!) / 2;
+    metrics.medianElo = scalar(median);
+    // Nearest-rank P90: ceil(0.9 * n) - 1, clamped to valid range
+    metrics.p90Elo = scalar(elos[Math.min(Math.ceil(elos.length * 0.9) - 1, elos.length - 1)]!);
     metrics.maxElo = scalar(elos[elos.length - 1]!);
   }
 
