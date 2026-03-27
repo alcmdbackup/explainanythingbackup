@@ -86,3 +86,5 @@ docs/planning/deploy/
 evolution/.next/
 .claude/worktrees/
 .playwright-mcp
+.npm-cache/
+npm-install.log
