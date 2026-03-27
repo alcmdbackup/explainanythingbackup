@@ -81,7 +81,7 @@ describe('InvocationsListPage', () => {
   it('shows success/failure indicators', async () => {
     render(<InvocationsListPage />);
     await waitFor(() => expect(screen.getByText('✓')).toBeInTheDocument());
-    expect(screen.getByText('✗')).toBeInTheDocument();
+    expect(screen.getByText('✗ failed')).toBeInTheDocument();
   });
 
   it('shows total count', async () => {

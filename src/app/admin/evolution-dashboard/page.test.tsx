@@ -37,6 +37,7 @@ jest.mock('@evolution/services/evolutionVisualizationActions', () => ({
 
 jest.mock('@evolution/lib/utils/formatters', () => ({
   formatCost: (v: number) => `$${v.toFixed(2)}`,
+  formatDate: (d: string) => new Date(d).toLocaleDateString(),
 }));
 
 jest.mock('@evolution/lib/utils/evolutionUrls', () => ({
