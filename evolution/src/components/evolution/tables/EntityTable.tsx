@@ -4,7 +4,7 @@
 import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { TableSkeleton } from './TableSkeleton';
-import { EmptyState } from './EmptyState';
+import { EmptyState } from '../primitives/EmptyState';
 
 export interface ColumnDef<T> {
   key: string;

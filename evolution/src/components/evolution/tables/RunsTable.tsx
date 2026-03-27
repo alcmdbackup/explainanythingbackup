@@ -4,9 +4,9 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { StatusBadge } from '@evolution/components/evolution';
-import { TableSkeleton } from '@evolution/components/evolution/TableSkeleton';
-import { EmptyState } from '@evolution/components/evolution/EmptyState';
+import { StatusBadge } from '../primitives/StatusBadge';
+import { TableSkeleton } from './TableSkeleton';
+import { EmptyState } from '../primitives/EmptyState';
 import { buildExplanationUrl, buildRunUrl } from '@evolution/lib/utils/evolutionUrls';
 import { formatCost } from '@evolution/lib/utils/formatters';
 

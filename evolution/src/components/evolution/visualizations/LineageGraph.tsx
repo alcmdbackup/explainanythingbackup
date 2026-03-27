@@ -3,8 +3,7 @@
 // Uses d3-dag for Sugiyama layout and d3 for SVG rendering with zoom/pan.
 
 import { useRef, useEffect, useState, useCallback } from 'react';
-import { VariantCard } from '@evolution/components/evolution/VariantCard';
-import { STRATEGY_PALETTE } from '@evolution/components/evolution/VariantCard';
+import { VariantCard, STRATEGY_PALETTE } from './VariantCard';
 import type { LineageData } from '@evolution/services/evolutionVisualizationActions';
 
 interface LineageGraphProps {

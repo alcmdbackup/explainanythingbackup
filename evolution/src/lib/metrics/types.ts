@@ -118,7 +118,7 @@ export { type MetricValue } from './experimentMetrics';
 
 // ─── MetricItem re-export ────────────────────────────────────────
 
-export type { MetricItem } from '@evolution/components/evolution/MetricGrid';
+export type { MetricItem } from '@evolution/components/evolution';
 
 // ─── Conversions ────────────────────────────────────────────────
 

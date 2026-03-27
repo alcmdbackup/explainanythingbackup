@@ -3,8 +3,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { EntityTable, type ColumnDef } from '../EntityTable';
-import { StatusBadge } from '../StatusBadge';
+import { EntityTable, type ColumnDef } from '../tables/EntityTable';
+import { StatusBadge } from '../primitives/StatusBadge';
 import { buildRunUrl } from '@evolution/lib/utils/evolutionUrls';
 import { getExperimentAction } from '@evolution/services/experimentActions';
 
