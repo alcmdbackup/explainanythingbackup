@@ -299,33 +299,12 @@ describe('LoginPage', () => {
     });
   });
 
-  describe('Forgot Password Link', () => {
-    it('should render forgot password link in login mode', () => {
+  describe('Password Reset Info', () => {
+    it('should show contact admin text instead of forgot password link', () => {
       render(<LoginPage />);
 
-      const forgotLink = screen.getByRole('link', { name: /forgot password/i });
-      expect(forgotLink).toBeInTheDocument();
-      expect(forgotLink).toHaveAttribute('href', '/forgot-password');
-    });
-
-    it('should not show forgot password link in signup mode', async () => {
-      const user = userEvent.setup();
-      render(<LoginPage />);
-
-      const signupToggle = screen.getByRole('button', {
-        name: /new here\? create account/i,
-      });
-      await user.click(signupToggle);
-
-      // Wait for transition
-      await waitFor(() => {
-        expect(screen.getByText('Begin Your Journey')).toBeInTheDocument();
-      });
-
-      const forgotLink = screen.queryByRole('link', {
-        name: /forgot password/i,
-      });
-      expect(forgotLink).not.toBeInTheDocument();
+      expect(screen.getByText('Contact admin to reset password')).toBeInTheDocument();
+      expect(screen.queryByRole('link', { name: /forgot password/i })).not.toBeInTheDocument();
     });
   });
 
