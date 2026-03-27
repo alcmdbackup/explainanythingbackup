@@ -359,8 +359,9 @@ async function executeTriage(
         continue;
       }
       consecutiveErrors = 0;
-      const isDraw = match.winnerId === match.loserId;
-      if (isDraw || match.result === 'draw') {
+      // Treat low-confidence (0 < confidence < 0.3) as draw (consistent with fine-ranking)
+      const isDraw = match.confidence < 0.3 || match.result === 'draw' || match.winnerId === match.loserId;
+      if (isDraw) {
         const [newA, newB] = updateDraw(entrantRating, oppRating);
         localRatings.set(entrantId, newA);
         localRatings.set(oppId, newB);
@@ -733,9 +734,13 @@ export async function rankPool(
     throw new BudgetExceededWithPartialResults(buildResult(false), budgetError);
   }
 
+  if (!fineResult) {
+    logger?.warn('Fine-ranking skipped (triage budget exceeded); convergence not evaluated', { phaseName: 'ranking' });
+  }
+
   if (fineResult?.converged) {
     logger?.info('Pool converged', { phaseName: 'ranking' });
   }
 
-  return buildResult(fineResult!.converged);
+  return buildResult(fineResult?.converged ?? false);
 }

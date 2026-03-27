@@ -165,6 +165,8 @@ export async function evolveArticle(
       }
       logger.warn('Budget exceeded during generation', { iteration: iter, totalSpent: costTracker.getTotalSpent(), phaseName: 'budget' });
       stopReason = 'budget_exceeded'; iterationsRun = iter; break;
+    } else {
+      logger.warn('Generation failed (non-budget)', { iteration: iter, phaseName: 'generation' });
     }
 
     // ─── Rank phase ──────────────────────────────────────────

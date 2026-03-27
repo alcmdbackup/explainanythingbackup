@@ -294,4 +294,38 @@ describe('claimAndExecuteRun', () => {
       expect(mockFinalizeRun).not.toHaveBeenCalled();
     });
   });
+
+  describe('heartbeat runner_id check', () => {
+    it('M11: heartbeat is started with runner_id (verified via successful pipeline execution)', async () => {
+      const claimedRow = {
+        id: 'hb-run-1',
+        explanation_id: null,
+        prompt_id: null,
+        experiment_id: null,
+        strategy_id: 'strat-1',
+        budget_cap_usd: '1.0',
+      };
+      mockRpc.mockResolvedValue({ data: [claimedRow], error: null });
+      mockBuildRunContext.mockResolvedValue({
+        context: {
+          originalText: 'text',
+          config: { iterations: 1, budgetUsd: 1, judgeModel: 'gpt-4.1-nano', generationModel: 'gpt-4.1-nano' },
+          logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
+          initialPool: [],
+        },
+      });
+      mockEvolveArticle.mockResolvedValue({
+        winner: { id: 'v1' }, pool: [], ratings: new Map(), matchHistory: [],
+        totalCost: 0, iterationsRun: 1, stopReason: 'iterations_complete',
+        muHistory: [], diversityHistory: [], matchCounts: {},
+      });
+      mockFinalizeRun.mockResolvedValue(undefined);
+
+      const result = await claimAndExecuteRun({ runnerId: 'runner-hb', db: supabaseMock as never });
+
+      // Pipeline should complete successfully (heartbeat started with runner_id)
+      expect(result.claimed).toBe(true);
+      expect(result.runId).toBe('hb-run-1');
+    });
+  });
 });

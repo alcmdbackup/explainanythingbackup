@@ -3,6 +3,11 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import EvolutionRunsPage from './page';
 
+const mockToastError = jest.fn();
+jest.mock('sonner', () => ({
+  toast: { error: (...args: unknown[]) => mockToastError(...args), success: jest.fn() },
+}));
+
 jest.mock('next/navigation', () => ({
   useRouter: () => ({ push: jest.fn(), replace: jest.fn(), prefetch: jest.fn() }),
   usePathname: () => '/admin/evolution/runs',
@@ -119,5 +124,14 @@ describe('EvolutionRunsPage', () => {
     const { getEvolutionRunsAction } = jest.requireMock('@evolution/services/evolutionActions');
     render(<EvolutionRunsPage />);
     expect(getEvolutionRunsAction).toHaveBeenCalled();
+  });
+
+  it('H1: shows error toast when fetch fails', async () => {
+    const { getEvolutionRunsAction } = jest.requireMock('@evolution/services/evolutionActions');
+    getEvolutionRunsAction.mockResolvedValueOnce({ success: false, error: { message: 'DB error' } });
+    render(<EvolutionRunsPage />);
+    await waitFor(() => {
+      expect(mockToastError).toHaveBeenCalledWith('DB error');
+    });
   });
 });

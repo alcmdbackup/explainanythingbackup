@@ -107,7 +107,9 @@ export async function finalizeRun(
   if (localPool.length === 0) {
     if (result.pool.length > 0) {
       logger?.info('Arena-only pool: marking as completed', { phaseName: 'finalize', arenaPoolSize: result.pool.length, localPoolSize: 0 });
-      await db.from('evolution_runs').update({ status: 'completed', completed_at: new Date().toISOString(), run_summary: { version: 3, stopReason: 'arena_only' } }).eq('id', runId);
+      const arenaOnlySummary = buildRunSummary(result, durationSeconds);
+      arenaOnlySummary.stopReason = 'arena_only';
+      await db.from('evolution_runs').update({ status: 'completed', completed_at: new Date().toISOString(), run_summary: arenaOnlySummary }).eq('id', runId);
     } else {
       logger?.error('Finalization failed: empty pool', { phaseName: 'finalize' });
       await db.from('evolution_runs').update({ status: 'failed', error_message: 'Finalization failed: empty pool' }).eq('id', runId);
@@ -143,7 +145,11 @@ export async function finalizeRun(
   }
 
   if (!updatedRows || updatedRows.length === 0) {
-    logger?.warn('Finalization aborted: run status changed externally (likely killed)', { phaseName: 'finalize' });
+    logger?.error('Finalization aborted: run status changed externally. Variants NOT persisted.', {
+      phaseName: 'finalize',
+      variantCount: localPool.length,
+      runId,
+    });
     return; // Skip variant persistence
   }
 

@@ -5,6 +5,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { EntityListPage, EvolutionBreadcrumb, type ColumnDef, type FilterDef } from '@evolution/components/evolution';
 import { getArenaTopicsAction, type ArenaTopic } from '@evolution/services/arenaActions';
+import { toast } from 'sonner';
 
 const STATUS_FILTER: FilterDef = {
   key: 'status',
@@ -50,6 +51,8 @@ export default function ArenaListPage(): JSX.Element {
     });
     if (result.success && result.data) {
       setTopics(result.data);
+    } else if (!result.success) {
+      toast.error(result.error?.message ?? 'Failed to load arena topics');
     }
     setLoading(false);
   }, [filterValues.status, filterValues.filterTestContent]);

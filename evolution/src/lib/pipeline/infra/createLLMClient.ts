@@ -60,14 +60,16 @@ export function createV2LLMClient(
       let lastError: Error | null = null;
 
       for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+        let timeoutId: NodeJS.Timeout | undefined;
         try {
           logger?.debug('LLM call attempt', { phaseName: agentName, attempt, model });
           const response = await Promise.race([
             rawProvider.complete(prompt, agentName, { model }),
-            new Promise<never>((_, reject) =>
-              setTimeout(() => reject(new Error('LLM call timeout (60s)')), PER_CALL_TIMEOUT_MS),
-            ),
+            new Promise<never>((_, reject) => {
+              timeoutId = setTimeout(() => reject(new Error('LLM call timeout (60s)')), PER_CALL_TIMEOUT_MS);
+            }),
           ]);
+          if (timeoutId) clearTimeout(timeoutId);
 
           // Success — record actual cost
           const actual = calculateCost(prompt.length, response.length, pricing);
@@ -75,6 +77,7 @@ export function createV2LLMClient(
           logger?.info('LLM call succeeded', { phaseName: agentName, promptChars: prompt.length, responseChars: response.length, costUsd: actual, attempt });
           return response;
         } catch (error) {
+          if (timeoutId) clearTimeout(timeoutId);
           if (error instanceof BudgetExceededError) {
             // Budget errors are NOT retried
             costTracker.release(agentName, margined);

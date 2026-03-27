@@ -81,9 +81,13 @@ export function ExperimentForm({ onCreated }: ExperimentFormProps): JSX.Element 
       ]);
       if (promptsRes.success && promptsRes.data) {
         setAvailablePrompts(promptsRes.data);
+      } else if (!promptsRes.success) {
+        toast.error(promptsRes.error?.message ?? 'Failed to load prompts');
       }
       if (strategiesRes.success && strategiesRes.data) {
         setStrategies(strategiesRes.data);
+      } else if (!strategiesRes.success) {
+        toast.error(strategiesRes.error?.message ?? 'Failed to load strategies');
       }
       setLoading(false);
     })();

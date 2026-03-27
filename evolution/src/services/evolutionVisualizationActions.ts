@@ -20,6 +20,7 @@ export interface DashboardData {
     total_cost_usd: number;
     budget_cap_usd: number;
     explanation_id: number | null;
+    error_message: string | null;
     created_at: string;
     completed_at: string | null;
   }>;
@@ -80,7 +81,7 @@ export const getEvolutionDashboardDataAction = adminAction(
     }
 
     let recentQuery = supabase.from('evolution_runs')
-      .select('id, status, strategy_id, budget_cap_usd, explanation_id, created_at, completed_at')
+      .select('id, status, strategy_id, budget_cap_usd, explanation_id, error_message, created_at, completed_at')
       .order('created_at', { ascending: false })
       .limit(10);
     if (filterTest && testStrategyIds.length > 0) {
@@ -117,6 +118,7 @@ export const getEvolutionDashboardDataAction = adminAction(
     // Enrich recent runs with strategy names and costs
     const recentRuns = (recentResult.data ?? []) as unknown as Array<{
       id: string; status: string; strategy_id: string | null;
+      error_message: string | null;
       created_at: string; completed_at: string | null;
     }>;
     const strategyIds = [...new Set(recentRuns.map(r => r.strategy_id).filter((id): id is string => !!id))];
@@ -148,6 +150,7 @@ export const getEvolutionDashboardDataAction = adminAction(
         total_cost_usd: costMap.get(r.id) ?? 0,
         budget_cap_usd: Number((r as Record<string, unknown>).budget_cap_usd) || 0,
         explanation_id: ((r as Record<string, unknown>).explanation_id as number | null) ?? null,
+        error_message: r.error_message ?? null,
         created_at: r.created_at,
         completed_at: r.completed_at,
       })),

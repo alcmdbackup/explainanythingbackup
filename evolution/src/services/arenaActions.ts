@@ -87,7 +87,8 @@ export const getArenaTopicsAction = adminAction(
 
       const countMap = new Map<string, number>();
       for (const entry of counts ?? []) {
-        const tid = entry.prompt_id as string;
+        const tid = entry.prompt_id;
+        if (!tid) continue;
         countMap.set(tid, (countMap.get(tid) ?? 0) + 1);
       }
       for (const topic of topics) {

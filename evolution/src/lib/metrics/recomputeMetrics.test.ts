@@ -16,8 +16,9 @@ jest.mock('../core/entityRegistry', () => ({
             { name: 'median_elo', compute: jest.fn(() => 1300) },
             { name: 'p90_elo', compute: jest.fn(() => 1350) },
             { name: 'max_elo', compute: jest.fn(() => 1450) },
-            // Non-elo finalization metric — should be skipped
             { name: 'total_matches', compute: jest.fn(() => 10) },
+            { name: 'decisive_rate', compute: jest.fn(() => 0.75) },
+            { name: 'variant_count', compute: jest.fn(() => 5) },
           ],
           atPropagation: [],
         },
@@ -141,10 +142,10 @@ describe('recomputeStaleMetrics', () => {
       p_metric_names: ['winner_elo', 'median_elo'],
     });
 
-    // writeMetric should be called for the 4 elo metrics only
-    expect(mockWriteMetric).toHaveBeenCalledTimes(4);
+    // writeMetric should be called for all 7 finalization metrics
+    expect(mockWriteMetric).toHaveBeenCalledTimes(7);
     const writtenNames = mockWriteMetric.mock.calls.map((c: unknown[]) => c[3]);
-    expect(writtenNames).toEqual(['winner_elo', 'median_elo', 'p90_elo', 'max_elo']);
+    expect(writtenNames).toEqual(['winner_elo', 'median_elo', 'p90_elo', 'max_elo', 'total_matches', 'decisive_rate', 'variant_count']);
   });
 
   it('recomputeRunEloMetrics reads variant mu/sigma and writes computed values', async () => {
@@ -158,8 +159,8 @@ describe('recomputeStaleMetrics', () => {
 
     await recomputeStaleMetrics(db, 'run', 'run-1', staleRows);
 
-    // All 4 elo metrics are always recomputed together
-    expect(mockWriteMetric).toHaveBeenCalledTimes(4);
+    // All 7 finalization metrics are always recomputed together
+    expect(mockWriteMetric).toHaveBeenCalledTimes(7);
 
     // Verify each call passes ('run', 'run-1', metric_name, value, 'at_finalization')
     for (const call of mockWriteMetric.mock.calls) {
@@ -232,6 +233,25 @@ describe('recomputeStaleMetrics', () => {
 
     // Should not throw
     await recomputeStaleMetrics(db, 'strategy', 'strat-1', staleRows);
+  });
+
+  it('H4: recomputes total_matches and variant_count when stale (not just elo)', async () => {
+    const staleRows = [makeStaleRow('total_matches'), makeStaleRow('variant_count')];
+    const { db } = makeMockDb({
+      variants: [
+        { id: 'v1', mu: 30, sigma: 5 },
+        { id: 'v2', mu: 20, sigma: 6 },
+      ],
+    });
+
+    await recomputeStaleMetrics(db, 'run', 'run-1', staleRows);
+
+    // All 7 finalization metrics should be recomputed (not just the 4 elo ones)
+    expect(mockWriteMetric).toHaveBeenCalledTimes(7);
+    const writtenNames = mockWriteMetric.mock.calls.map((c: unknown[]) => c[3]);
+    expect(writtenNames).toContain('total_matches');
+    expect(writtenNames).toContain('variant_count');
+    expect(writtenNames).toContain('decisive_rate');
   });
 
   it('experiment entity type with no completed runs — no errors', async () => {

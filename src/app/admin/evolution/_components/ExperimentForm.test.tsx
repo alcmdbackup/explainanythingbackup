@@ -516,4 +516,22 @@ describe('ExperimentForm', () => {
       });
     });
   });
+
+  it('H2: shows error toast when getPromptsAction fails', async () => {
+    mockGetPromptsAction.mockResolvedValueOnce({ success: false, error: { message: 'Prompt load error' } });
+    mockGetStrategiesAction.mockResolvedValueOnce({ success: true, data: STRATEGIES });
+    render(<ExperimentForm />);
+    await waitFor(() => {
+      expect(mockToastError).toHaveBeenCalledWith('Prompt load error');
+    });
+  });
+
+  it('H2: shows error toast when getStrategiesAction fails', async () => {
+    mockGetPromptsAction.mockResolvedValueOnce({ success: true, data: PROMPTS });
+    mockGetStrategiesAction.mockResolvedValueOnce({ success: false, error: { message: 'Strategy load error' } });
+    render(<ExperimentForm />);
+    await waitFor(() => {
+      expect(mockToastError).toHaveBeenCalledWith('Strategy load error');
+    });
+  });
 });

@@ -73,7 +73,7 @@ function DashboardContent(): JSX.Element {
     status: r.status,
     total_cost_usd: r.total_cost_usd,
     budget_cap_usd: r.budget_cap_usd ?? 0,
-    error_message: null,
+    error_message: r.error_message ?? null,
     completed_at: r.completed_at,
     created_at: r.created_at,
     strategy_name: r.strategy_name,

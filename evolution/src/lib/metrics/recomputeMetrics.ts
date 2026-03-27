@@ -72,7 +72,6 @@ async function recomputeRunEloMetrics(db: SupabaseClient, runId: string): Promis
   };
 
   for (const def of getEntity('run').metrics.atFinalization) {
-    if (!['winner_elo', 'median_elo', 'p90_elo', 'max_elo'].includes(def.name)) continue;
     const value = def.compute(ctx);
     if (value != null) {
       await writeMetric(db, 'run', runId, def.name as MetricName, value, 'at_finalization');

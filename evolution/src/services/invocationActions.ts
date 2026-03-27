@@ -88,7 +88,7 @@ export const listInvocationsAction = adminAction(
     const { data, error, count } = await query;
     if (error) throw error;
 
-    return { items: (data ?? []) as unknown as InvocationListEntry[], total: count ?? 0 };
+    return { items: (data ?? []) as InvocationListEntry[], total: count ?? 0 };
   },
 );
 

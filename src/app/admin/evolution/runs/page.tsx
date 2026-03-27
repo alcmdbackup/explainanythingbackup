@@ -78,6 +78,8 @@ export default function EvolutionRunsPage(): JSX.Element {
       const metricsMap = metricsResult.success && metricsResult.data ? metricsResult.data : {};
 
       setRuns(items.map(r => ({ ...r, metrics: metricsMap[r.id] ?? [] })));
+    } else if (!result.success) {
+      toast.error(result.error?.message ?? 'Failed to load runs');
     }
     setLoading(false);
   }, [filterValues, page]);
