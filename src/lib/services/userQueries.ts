@@ -29,8 +29,7 @@ async function createUserQueryImpl(query: UserQueryInsertType) {
   assertUserId(query.userid, 'createUserQuery');
   const supabase = await createSupabaseServerClient()
   
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data, error } = await (supabase as any)
+  const { data, error } = await supabase
     .from('userQueries')
     .insert(query)
     .select()

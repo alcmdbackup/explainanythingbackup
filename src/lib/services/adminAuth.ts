@@ -121,7 +121,7 @@ export async function getAdminUser(): Promise<AdminUser | null> {
       return null;
     }
 
-    return adminRecord[0] as unknown as AdminUser;
+    return adminRecord[0] as AdminUser;
   } catch (error) {
     logger.error('Exception in getAdminUser', { error });
     return null;

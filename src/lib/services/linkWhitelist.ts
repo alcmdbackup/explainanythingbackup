@@ -1,6 +1,7 @@
 'use server'
 
 import { createSupabaseServerClient } from '@/lib/utils/supabase/server';
+import type { Json } from '@/lib/database.types';
 import { logger } from '@/lib/server_utilities';
 import { callLLM, DEFAULT_MODEL } from '@/lib/services/llms';
 import { createStandaloneTitlePrompt } from '@/lib/prompts';
@@ -338,7 +339,7 @@ async function rebuildSnapshotImpl(): Promise<LinkWhitelistSnapshotType> {
     .upsert({
       id: 1,
       version: newVersion,
-      data: snapshotData as Record<string, unknown>,
+      data: snapshotData as unknown as Json,
       updated_at: new Date().toISOString()
     })
     .select()

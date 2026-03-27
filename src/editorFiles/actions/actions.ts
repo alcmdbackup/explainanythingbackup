@@ -227,8 +227,7 @@ export const getTestingPipelineRecordsByStepAction = withLogging(
         try {
             // Get all records for this step from the database
             const supabase = await createSupabaseServerClient();
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const { data, error } = await (supabase as any)
+            const { data, error } = await supabase
                 .from('testing_edits_pipeline')
                 .select('id, set_name, content, created_at')
                 .eq('step', step)
@@ -244,8 +243,7 @@ export const getTestingPipelineRecordsByStepAction = withLogging(
             }
 
             // Map set_name to name for backwards compatibility
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const mappedData = data?.map((record: any) => ({
+            const mappedData = data?.map(record => ({
                 id: record.id,
                 name: record.set_name,
                 content: record.content,
@@ -609,8 +607,7 @@ export const getSessionValidationResultsAction = withLogging(
     }> {
         try {
             const supabase = await createSupabaseServerClient();
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const { data, error } = await (supabase as any)
+            const { data, error } = await supabase
                 .from('testing_edits_pipeline')
                 .select('session_metadata')
                 .eq('session_id', sessionId)
