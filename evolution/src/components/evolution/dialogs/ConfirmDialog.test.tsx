@@ -1,4 +1,4 @@
-// Tests for reusable ConfirmDialog component.
+// Tests for reusable ConfirmDialog component (Radix Dialog-based).
 
 import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
@@ -13,11 +13,11 @@ describe('ConfirmDialog', () => {
     expect(screen.getByText('Are you sure?')).toBeInTheDocument();
   });
 
-  it('renders nothing when closed', () => {
-    const { container } = render(
+  it('does not render content when closed', () => {
+    render(
       <ConfirmDialog open={false} onClose={jest.fn()} title="X" message="Y" onConfirm={jest.fn()} />,
     );
-    expect(container.innerHTML).toBe('');
+    expect(screen.queryByText('X')).not.toBeInTheDocument();
   });
 
   it('calls onConfirm and onClose on confirm click', async () => {
@@ -37,5 +37,22 @@ describe('ConfirmDialog', () => {
     );
     const btn = screen.getByText('Destroy');
     expect(btn.className).toContain('bg-[var(--status-error)]');
+  });
+
+  it('has accessible dialog role and aria-modal', () => {
+    render(
+      <ConfirmDialog open onClose={jest.fn()} title="Test" message="msg" onConfirm={jest.fn()} />,
+    );
+    const dialog = screen.getByRole('dialog');
+    expect(dialog).toBeInTheDocument();
+  });
+
+  it('calls onClose when Cancel is clicked', () => {
+    const onClose = jest.fn();
+    render(
+      <ConfirmDialog open onClose={onClose} title="Test" message="msg" onConfirm={jest.fn()} />,
+    );
+    fireEvent.click(screen.getByText('Cancel'));
+    expect(onClose).toHaveBeenCalled();
   });
 });

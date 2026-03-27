@@ -5,6 +5,8 @@
 
 import { redirect } from 'next/navigation';
 import { isUserAdmin } from '@/lib/services/adminAuth';
+
+export const dynamic = 'force-dynamic';
 import { SidebarSwitcher } from '@/components/admin/SidebarSwitcher';
 import { AdminLayoutClient } from '@/components/admin/AdminLayoutClient';
 

@@ -230,13 +230,9 @@ export default function LoginPage() {
                   </Label>
                 </div>
 
-                <Link
-                  href="/forgot-password"
-                  className="text-sm atlas-ui text-[var(--text-muted)] hover:text-[var(--accent-gold)] transition-colors"
-                  tabIndex={isLoading ? -1 : 0}
-                >
-                  <span className="gold-underline">Forgot password?</span>
-                </Link>
+                <span className="text-sm atlas-ui text-[var(--text-muted)]">
+                  Contact admin to reset password
+                </span>
               </div>
             )}
 

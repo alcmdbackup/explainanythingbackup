@@ -167,6 +167,7 @@ export default function HomeTagSelector({
           type="button"
           onClick={() => setOpenDropdown(openDropdown === 'difficulty' ? null : 'difficulty')}
           disabled={disabled}
+          aria-expanded={openDropdown === 'difficulty'}
           data-testid="home-tag-difficulty"
           className={cn(
             'inline-flex items-center gap-1 px-3 py-1 text-sm',
@@ -211,6 +212,7 @@ export default function HomeTagSelector({
           type="button"
           onClick={() => setOpenDropdown(openDropdown === 'length' ? null : 'length')}
           disabled={disabled}
+          aria-expanded={openDropdown === 'length'}
           data-testid="home-tag-length"
           className={cn(
             'inline-flex items-center gap-1 px-3 py-1 text-sm',

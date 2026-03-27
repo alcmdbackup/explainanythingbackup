@@ -151,6 +151,15 @@ export function ExperimentForm({ onCreated }: ExperimentFormProps): JSX.Element 
       }
 
       toast.success(`Experiment created with ${totalRuns} run(s): ${result.data.experimentId}`);
+
+      // Reset form state after successful submission
+      setName('');
+      setSelectedPromptId('');
+      setBudgetPerRun(0.05);
+      setSelections([]);
+      setStep('setup');
+      setSetupSubmitted(false);
+
       onCreated?.(result.data.experimentId);
     } catch (error) {
       toast.error(String(error));
@@ -287,7 +296,7 @@ export function ExperimentForm({ onCreated }: ExperimentFormProps): JSX.Element 
                 min={0.01}
                 max={1.00}
                 value={budgetPerRun}
-                onChange={(e) => setBudgetPerRun(Number(e.target.value))}
+                onChange={(e) => setBudgetPerRun(Math.min(Math.max(Number(e.target.value), 0.01), 1.00))}
                 className="w-32 px-3 py-2 text-sm font-mono bg-[var(--surface-primary)] border border-[var(--border-default)] rounded-page text-[var(--text-primary)] focus:border-[var(--accent-gold)] focus:outline-none"
               />
               <p className="text-xs font-body text-[var(--text-muted)] mt-1">

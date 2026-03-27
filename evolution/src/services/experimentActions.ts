@@ -188,10 +188,21 @@ export const createExperimentWithRunsAction = adminAction(
         createdRunCount: createdRunIds.length,
         error: (err instanceof Error ? err.message : String(err)).slice(0, 500),
       });
+      const orphanedIds: string[] = [];
       for (const runId of createdRunIds) {
-        await ctx.supabase.from('evolution_runs').delete().eq('id', runId);
+        const { error: delErr } = await ctx.supabase.from('evolution_runs').delete().eq('id', runId);
+        if (delErr) {
+          orphanedIds.push(runId);
+          expLogger.error('Rollback failed: could not delete run', { runId, error: delErr.message });
+        }
       }
-      await ctx.supabase.from('evolution_experiments').delete().eq('id', experimentId);
+      const { error: expDelErr } = await ctx.supabase.from('evolution_experiments').delete().eq('id', experimentId);
+      if (expDelErr) {
+        expLogger.error('Rollback failed: could not delete experiment', { experimentId, error: expDelErr.message });
+      }
+      if (orphanedIds.length > 0) {
+        expLogger.error('Manual cleanup needed for orphaned runs', { orphanedIds });
+      }
       throw err;
     }
   },

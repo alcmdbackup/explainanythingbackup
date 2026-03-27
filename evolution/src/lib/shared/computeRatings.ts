@@ -34,7 +34,10 @@ export function createRating(): Rating {
  */
 export function updateRating(winner: Rating, loser: Rating): [Rating, Rating] {
   const result = osRate([[winner], [loser]], { rank: [1, 2] });
-  return [result[0]![0]!, result[1]![0]!];
+  const newWinner = result[0]?.[0];
+  const newLoser = result[1]?.[0];
+  if (!newWinner || !newLoser) return [winner, loser];
+  return [newWinner, newLoser];
 }
 
 /**
@@ -43,7 +46,10 @@ export function updateRating(winner: Rating, loser: Rating): [Rating, Rating] {
  */
 export function updateDraw(a: Rating, b: Rating): [Rating, Rating] {
   const result = osRate([[a], [b]], { rank: [1, 1] });
-  return [result[0]![0]!, result[1]![0]!];
+  const newA = result[0]?.[0];
+  const newB = result[1]?.[0];
+  if (!newA || !newB) return [a, b];
+  return [newA, newB];
 }
 
 /** Check if a rating has converged (sigma below threshold). */

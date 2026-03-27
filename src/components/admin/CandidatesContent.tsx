@@ -7,6 +7,7 @@
 import { useState, useEffect, useCallback, useId } from 'react';
 import FocusTrap from 'focus-trap-react';
 import { toast } from 'sonner';
+import { ConfirmDialog } from '@evolution/components/evolution/dialogs/ConfirmDialog';
 import {
   getAllCandidatesAction,
   approveCandidateAction,
@@ -87,10 +88,16 @@ export default function CandidatesContent() {
     }
   };
 
-  const handleDelete = async (id: number) => {
-    if (!confirm('Are you sure you want to permanently delete this candidate?')) {
-      return;
-    }
+  const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null);
+
+  const handleDelete = (id: number) => {
+    setDeleteConfirmId(id);
+  };
+
+  const executeDelete = async () => {
+    if (deleteConfirmId === null) return;
+    const id = deleteConfirmId;
+    setDeleteConfirmId(null);
 
     const result = await deleteCandidateAction(id);
     if (result.success) {
@@ -305,6 +312,15 @@ export default function CandidatesContent() {
           </div>
         </FocusTrap>
       )}
+      <ConfirmDialog
+        open={deleteConfirmId !== null}
+        onClose={() => setDeleteConfirmId(null)}
+        title="Delete Candidate?"
+        message="Are you sure you want to permanently delete this candidate?"
+        confirmLabel="Delete"
+        onConfirm={executeDelete}
+        danger
+      />
     </div>
   );
 }

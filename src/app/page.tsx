@@ -42,7 +42,7 @@ export default function Home() {
         <div className="min-h-screen bg-[var(--surface-primary)] flex flex-col vignette-overlay paper-texture">
             <Navigation showSearchBar={false} />
             <div className="flex-1 flex items-center justify-center">
-                <main className="container mx-auto px-8 max-w-2xl">
+                <main id="main-content" className="container mx-auto px-8 max-w-2xl">
                     <div className="text-center mb-12">
                         <h1 className="atlas-display text-[var(--text-primary)] mb-4 atlas-animate-fade-up stagger-1">
                             Explain Anything

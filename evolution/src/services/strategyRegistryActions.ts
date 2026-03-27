@@ -58,6 +58,9 @@ export const listStrategiesAction = adminAction(
     input: { limit: number; offset: number; status?: string; created_by?: string; pipeline_type?: string; filterTestContent?: boolean },
     ctx: AdminContext,
   ): Promise<{ items: StrategyListItem[]; total: number }> => {
+    const limit = Math.min(Math.max(input.limit, 1), 200);
+    const offset = Math.max(input.offset, 0);
+
     let query = ctx.supabase
       .from('evolution_strategies')
       .select('*', { count: 'exact' });
@@ -68,7 +71,7 @@ export const listStrategiesAction = adminAction(
     if (input.filterTestContent) query = applyTestContentNameFilter(query);
 
     query = query.order('created_at', { ascending: false })
-      .range(input.offset, input.offset + input.limit - 1);
+      .range(offset, offset + limit - 1);
 
     const { data, error, count } = await query;
     if (error) throw error;

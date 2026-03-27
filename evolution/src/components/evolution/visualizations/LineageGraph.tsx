@@ -145,6 +145,14 @@ export function LineageGraph({ nodes, edges, treeSearchPath }: LineageGraphProps
 
   useEffect(() => {
     renderGraph();
+    return () => {
+      // Remove D3 zoom listeners on cleanup
+      if (svgRef.current) {
+        import('d3').then(d3 => {
+          d3.select(svgRef.current).on('.zoom', null);
+        });
+      }
+    };
   }, [renderGraph]);
 
   if (allGen0) {

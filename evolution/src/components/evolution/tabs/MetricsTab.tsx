@@ -83,10 +83,10 @@ export function MetricsTab({ runId }: MetricsTabProps): JSX.Element {
             <table className="w-full text-sm">
               <thead className="bg-[var(--surface-elevated)]">
                 <tr>
-                  <th className="px-3 py-2 text-left">Rank</th>
-                  <th className="px-3 py-2 text-left">Strategy</th>
-                  <th className="px-3 py-2 text-right">Mu</th>
-                  <th className="px-3 py-2 text-center">Baseline?</th>
+                  <th scope="col" className="px-3 py-2 text-left">Rank</th>
+                  <th scope="col" className="px-3 py-2 text-left">Strategy</th>
+                  <th scope="col" className="px-3 py-2 text-right">Mu</th>
+                  <th scope="col" className="px-3 py-2 text-center">Baseline?</th>
                 </tr>
               </thead>
               <tbody>
@@ -112,9 +112,9 @@ export function MetricsTab({ runId }: MetricsTabProps): JSX.Element {
             <table className="w-full text-sm">
               <thead className="bg-[var(--surface-elevated)]">
                 <tr>
-                  <th className="px-3 py-2 text-left">Strategy</th>
-                  <th className="px-3 py-2 text-right">Count</th>
-                  <th className="px-3 py-2 text-right">Avg Mu</th>
+                  <th scope="col" className="px-3 py-2 text-left">Strategy</th>
+                  <th scope="col" className="px-3 py-2 text-right">Count</th>
+                  <th scope="col" className="px-3 py-2 text-right">Avg Mu</th>
                 </tr>
               </thead>
               <tbody>
@@ -141,9 +141,9 @@ export function MetricsTab({ runId }: MetricsTabProps): JSX.Element {
             <table className="w-full text-sm">
               <thead className="bg-[var(--surface-elevated)]">
                 <tr>
-                  <th className="px-3 py-2 text-left">Agent</th>
-                  <th className="px-3 py-2 text-right">Calls</th>
-                  <th className="px-3 py-2 text-right">Cost</th>
+                  <th scope="col" className="px-3 py-2 text-left">Agent</th>
+                  <th scope="col" className="px-3 py-2 text-right">Calls</th>
+                  <th scope="col" className="px-3 py-2 text-right">Cost</th>
                 </tr>
               </thead>
               <tbody>

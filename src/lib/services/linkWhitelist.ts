@@ -1,6 +1,7 @@
 'use server'
 
 import { createSupabaseServerClient } from '@/lib/utils/supabase/server';
+import type { Json } from '@/lib/database.types';
 import { logger } from '@/lib/server_utilities';
 import { callLLM, DEFAULT_MODEL } from '@/lib/services/llms';
 import { createStandaloneTitlePrompt } from '@/lib/prompts';
@@ -332,13 +333,13 @@ async function rebuildSnapshotImpl(): Promise<LinkWhitelistSnapshotType> {
   const whitelistMap = await getActiveWhitelistAsMapImpl();
   const snapshotData: Record<string, WhitelistCacheEntryType> = Object.fromEntries(whitelistMap);
 
-  // Upsert snapshot
+  // Upsert snapshot with incremented version
   const { data, error } = await supabase
     .from('link_whitelist_snapshot')
     .upsert({
       id: 1,
       version: newVersion,
-      data: snapshotData,
+      data: snapshotData as unknown as Json,
       updated_at: new Date().toISOString()
     })
     .select()

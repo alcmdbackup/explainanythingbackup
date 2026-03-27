@@ -23,7 +23,7 @@ function normalizeExperimentRun(r: Record<string, unknown>): NormalizedRun {
   return {
     id: r.id as string,
     status: r.status as string,
-    cost: 0,
+    cost: Number(r.total_cost ?? r.cost_usd ?? 0),
     created: r.created_at ? new Date(r.created_at as string).toLocaleDateString() : '—',
   };
 }

@@ -1,9 +1,16 @@
 // Reusable confirmation dialog for destructive/important actions.
-// Replaces 3+ inline confirm dialogs across Prompts, Strategies, Arena.
+// Uses Radix Dialog for accessible modal behavior (focus trap, Escape, aria-modal).
 
 'use client';
 
 import React, { useState } from 'react';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from '@/components/ui/dialog';
 
 interface ConfirmDialogProps {
   open: boolean;
@@ -26,8 +33,6 @@ export function ConfirmDialog({
 }: ConfirmDialogProps) {
   const [loading, setLoading] = useState(false);
 
-  if (!open) return null;
-
   const handleConfirm = async () => {
     if (loading) return; // Prevent double-submit
     setLoading(true);
@@ -40,10 +45,12 @@ export function ConfirmDialog({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="w-full max-w-md rounded-book bg-[var(--surface-secondary)] p-6 shadow-warm">
-        <h3 className="font-display text-xl font-semibold text-[var(--text-primary)]">{title}</h3>
-        <p className="mt-2 font-ui text-sm text-[var(--text-secondary)]">{message}</p>
+    <Dialog open={open} onOpenChange={(isOpen) => { if (!isOpen) onClose(); }}>
+      <DialogContent className="w-full max-w-md rounded-book bg-[var(--surface-secondary)] p-6 shadow-warm-lg border-[var(--border-default)]">
+        <DialogHeader>
+          <DialogTitle className="font-display text-xl font-semibold text-[var(--text-primary)]">{title}</DialogTitle>
+          <DialogDescription className="mt-2 font-ui text-sm text-[var(--text-secondary)]">{message}</DialogDescription>
+        </DialogHeader>
         <div className="mt-4 flex justify-end gap-2">
           <button
             onClick={onClose}
@@ -62,7 +69,7 @@ export function ConfirmDialog({
             {loading ? 'Loading...' : confirmLabel}
           </button>
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
