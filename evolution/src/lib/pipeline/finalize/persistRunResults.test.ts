@@ -300,6 +300,30 @@ describe('finalizeRun', () => {
     expect(metricNames).toContain('variant_count');
   });
 
+  it('writeMetric called with cost during_execution to ensure propagation source exists', async () => {
+    mockedWriteMetric.mockClear();
+    const { db } = makeMockDb();
+    const result = makeResult();
+    await finalizeRun(RUN_ID, result, { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
+    const costCalls = mockedWriteMetric.mock.calls.filter(
+      ([, entityType, , name, , timing]) => entityType === 'run' && name === 'cost' && timing === 'during_execution',
+    );
+    expect(costCalls).toHaveLength(1);
+    expect(costCalls[0]![4]).toBe(result.totalCost);
+  });
+
+  it('skips cost write when totalCost is NaN', async () => {
+    mockedWriteMetric.mockClear();
+    const { db } = makeMockDb();
+    const result = makeResult();
+    result.totalCost = NaN;
+    await finalizeRun(RUN_ID, result, { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
+    const costCalls = mockedWriteMetric.mock.calls.filter(
+      ([, , , name, , timing]) => name === 'cost' && timing === 'during_execution',
+    );
+    expect(costCalls).toHaveLength(0);
+  });
+
   it('writeMetric passes correct entity_id for run metrics', async () => {
     mockedWriteMetric.mockClear();
     const { db } = makeMockDb();

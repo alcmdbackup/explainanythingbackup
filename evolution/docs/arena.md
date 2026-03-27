@@ -167,7 +167,7 @@ The arena admin pages provide leaderboard views and topic management.
 | Route                                      | Purpose                                              |
 |-------------------------------------------|------------------------------------------------------|
 | `/admin/evolution/arena`                  | List all arena topics with entry counts              |
-| `/admin/evolution/arena/[topicId]`        | Leaderboard for a topic: sortable columns for Elo (rounded to integers), 95% CI (`formatEloCIRange(elo, sigma)`), Mu, Sigma, Matches, Cost (shows "N/A" — cost data unavailable at variant level). Entries below the top 15% eligibility cutoff (mean + 1.04×stdDev of Elo scores) are dimmed. Markdown is stripped from content previews via `stripMarkdownTitle()`. |
+| `/admin/evolution/arena/[topicId]`        | Leaderboard for a topic: sortable columns for Elo (rounded to integers), 95% CI (`formatEloCIRange(elo, sigma)`), Elo ± σ (`formatEloWithUncertainty(elo, sigma * ELO_SIGMA_SCALE)`), Matches, Method, Cost (shows "N/A" — cost data unavailable at variant level). Entries below the top 15% eligibility cutoff (mean + 1.04×stdDev of Elo scores) are dimmed. Markdown is stripped from content previews via `stripMarkdownTitle()`. |
 | `/admin/evolution/arena/entries/[entryId]`| Entry detail: content, rating history, comparisons   |
 
 **Source files:**

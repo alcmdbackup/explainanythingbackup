@@ -105,7 +105,9 @@ The end-to-end flow from trigger to completion:
        |     +-- Build V3 run_summary JSON
        |     +-- Update run status = 'completed'
        |     +-- Upsert variants to evolution_variants
-       |     +-- Update strategy aggregate stats
+       |     +-- Write cost metric (safety net — ensures row exists even if loop broke early)
+       |     +-- Write finalization metrics (elo, matches, variant counts)
+       |     +-- Propagate metrics to strategy + experiment entities
        |     +-- Auto-complete experiment if all runs done
        |
        +-- syncToArena()            [evolution/src/lib/pipeline/finalize/persistRunResults.ts]

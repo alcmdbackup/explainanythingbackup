@@ -20,7 +20,7 @@ import {
   type ArenaEntry,
 } from '@evolution/services/arenaActions';
 import { formatElo, stripMarkdownTitle, ELO_SIGMA_SCALE } from '@evolution/lib/shared/computeRatings';
-import { formatEloCIRange } from '@evolution/lib/utils/formatters';
+import { formatEloCIRange, formatEloWithUncertainty } from '@evolution/lib/utils/formatters';
 import { computeEloCutoff } from './arenaCutoff';
 
 function ContentLink({ entryId, content }: { entryId: string; content: string }): JSX.Element {
@@ -42,7 +42,7 @@ export default function ArenaTopicDetailPage(): JSX.Element {
   const [hasMetrics, setHasMetrics] = useState(false);
 
   // Sort state for leaderboard columns (F41)
-  type SortKey = 'elo_score' | 'mu' | 'sigma' | 'arena_match_count' | 'generation_method' | 'cost_usd';
+  type SortKey = 'elo_score' | 'sigma' | 'arena_match_count' | 'generation_method' | 'cost_usd';
   const [sortKey, setSortKey] = useState<SortKey>('elo_score');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
 
@@ -185,8 +185,7 @@ export default function ArenaTopicDetailPage(): JSX.Element {
                   <th className="py-2 pr-3">Content</th>
                   <th className="py-2 pr-3 cursor-pointer select-none hover:text-[var(--text-primary)]" onClick={() => handleSort('elo_score')}>Elo{sortIndicator('elo_score')}</th>
                   <th className="py-2 pr-3">95% CI</th>
-                  <th className="py-2 pr-3 cursor-pointer select-none hover:text-[var(--text-primary)]" onClick={() => handleSort('mu')}>Mu{sortIndicator('mu')}</th>
-                  <th className="py-2 pr-3 cursor-pointer select-none hover:text-[var(--text-primary)]" onClick={() => handleSort('sigma')}>Sigma{sortIndicator('sigma')}</th>
+                  <th className="py-2 pr-3 cursor-pointer select-none hover:text-[var(--text-primary)]" onClick={() => handleSort('sigma')}>Elo ± σ{sortIndicator('sigma')}</th>
                   <th className="py-2 pr-3 cursor-pointer select-none hover:text-[var(--text-primary)]" onClick={() => handleSort('arena_match_count')}>Matches{sortIndicator('arena_match_count')}</th>
                   <th className="py-2 pr-3 cursor-pointer select-none hover:text-[var(--text-primary)]" onClick={() => handleSort('generation_method')}>Method{sortIndicator('generation_method')}</th>
                   <th className="py-2 cursor-pointer select-none hover:text-[var(--text-primary)]" onClick={() => handleSort('cost_usd')}>Cost{sortIndicator('cost_usd')}</th>
@@ -210,8 +209,11 @@ export default function ArenaTopicDetailPage(): JSX.Element {
                           ? (formatEloCIRange(entry.elo_score, entry.sigma * ELO_SIGMA_SCALE) ?? '\u2014')
                           : '\u2014'}
                       </td>
-                      <td className="py-2 pr-3 font-mono">{entry.mu != null ? entry.mu.toFixed(1) : 'N/A'}</td>
-                      <td className="py-2 pr-3 font-mono">{entry.sigma != null ? entry.sigma.toFixed(1) : 'N/A'}</td>
+                      <td className="py-2 pr-3 font-mono">
+                        {entry.elo_score != null && entry.sigma != null
+                          ? (formatEloWithUncertainty(entry.elo_score, entry.sigma * ELO_SIGMA_SCALE) ?? '—')
+                          : '—'}
+                      </td>
                       <td className="py-2 pr-3 font-mono">{entry.arena_match_count}</td>
                       <td className="py-2 pr-3 text-[var(--text-secondary)]">{entry.generation_method}</td>
                       <td className="py-2 font-mono">

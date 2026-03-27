@@ -157,6 +157,32 @@ adminTest.describe('Evolution Arena Detail', { tag: '@evolution' }, () => {
     expect(firstRowAfter).toBeDefined();
   });
 
+  adminTest('leaderboard shows Elo ± σ column instead of separate Mu and Sigma columns', async ({ adminPage }) => {
+    await adminPage.goto(`/admin/evolution/arena/${promptId}`);
+    await adminPage.waitForLoadState('domcontentloaded');
+
+    const leaderboardTable = adminPage.locator('[data-testid="leaderboard-table"]');
+    await expect(leaderboardTable).toBeVisible({ timeout: 15000 });
+
+    const headers = leaderboardTable.locator('thead th');
+    const headerTexts = await headers.allTextContents();
+    const headerString = headerTexts.join(' | ');
+
+    // "Elo ± σ" column should exist
+    expect(headerString).toContain('Elo ± σ');
+
+    // Separate "Mu" and "Sigma" columns should no longer exist
+    const exactMu = headerTexts.some(h => h.trim() === 'Mu' || h.trim().startsWith('Mu'));
+    const exactSigma = headerTexts.some(h => h.trim() === 'Sigma' || h.trim().startsWith('Sigma'));
+    expect(exactMu).toBe(false);
+    expect(exactSigma).toBe(false);
+
+    // Rows should contain the "±" format (e.g. "1400 ± 172")
+    const firstRow = leaderboardTable.locator('tbody tr[data-testid="lb-row-0"]');
+    const rowText = await firstRow.textContent();
+    expect(rowText).toContain('±');
+  });
+
   adminTest('entries show non-zero match counts after sync', async ({ adminPage }) => {
     await adminPage.goto(`/admin/evolution/arena/${promptId}`);
     await adminPage.waitForLoadState('domcontentloaded');

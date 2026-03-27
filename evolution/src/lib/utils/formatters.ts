@@ -68,3 +68,10 @@ export function formatEloCIRange(elo: number, sigma: number | null | undefined):
   const half = elo95CI(sigma);
   return `[${Math.round(elo - half)}, ${Math.round(elo + half)}]`;
 }
+
+/** Format Elo with uncertainty as "1200 ± 45". sigmaElo must be pre-scaled (Elo scale). */
+export function formatEloWithUncertainty(elo: number, sigmaElo: number | null | undefined): string | null {
+  if (sigmaElo == null || sigmaElo <= 0) return null;
+  const half = elo95CI(sigmaElo);
+  return `${Math.round(elo)} ± ${half}`;
+}
