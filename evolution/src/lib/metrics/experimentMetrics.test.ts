@@ -186,8 +186,8 @@ describe('computeRunMetrics', () => {
     const result = await computeRunMetrics('run-1', supabase as never);
     expect(result.metrics.totalVariants?.value).toBe(4);
     expect(result.metrics.maxElo?.value).toBe(1500);
-    // median index = floor(0.5 * 4) = 2 → sorted[2] = 1450
-    expect(result.metrics.medianElo?.value).toBe(1450);
+    // True median of [1200, 1350, 1450, 1500] = (1350 + 1450) / 2 = 1400
+    expect(result.metrics.medianElo?.value).toBe(1400);
   });
 
   it('aggregates agent costs by agent_name', async () => {

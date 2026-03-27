@@ -178,7 +178,11 @@ export abstract class Entity<TRow> {
   async propagateMetricsToParents(entityId: string, db: SupabaseClient): Promise<void> {
     for (const parent of this.parents) {
       const row = await db.from(this.table).select(parent.foreignKey).eq('id', entityId).single();
-      const parentId = (row.data as Record<string, unknown> | null)?.[parent.foreignKey] as string | undefined;
+      if (row.error) {
+        console.warn(`[Entity.propagateMetrics] Failed to fetch parent FK for ${this.type}/${entityId}: ${row.error.message}`);
+        continue;
+      }
+      const parentId = (row.data as unknown as Record<string, unknown> | null)?.[parent.foreignKey] as string | undefined;
       if (!parentId) continue;
 
       const parentEntity = getEntity(parent.parentType);
@@ -189,6 +193,10 @@ export abstract class Entity<TRow> {
         const childIds = await db.from(this.table)
           .select('id')
           .eq(parent.foreignKey, parentId);
+        if (childIds.error) {
+          console.warn(`[Entity.propagateMetrics] Failed to fetch child IDs for ${this.type}/${parentId}: ${childIds.error.message}`);
+          continue;
+        }
         const ids = childIds.data?.map((r: { id: string }) => r.id) ?? [];
         const metricsMap = await getMetricsForEntities(
           db, this.type as import('../metrics/types').EntityType, ids, [def.sourceMetric],
@@ -223,7 +231,11 @@ export abstract class Entity<TRow> {
   async markParentMetricsStale(entityId: string, db: SupabaseClient): Promise<void> {
     for (const parent of this.parents) {
       const row = await db.from(this.table).select(parent.foreignKey).eq('id', entityId).single();
-      const parentId = (row.data as Record<string, unknown> | null)?.[parent.foreignKey] as string | undefined;
+      if (row.error) {
+        console.warn(`[Entity.markStale] Failed to fetch parent FK for ${this.type}/${entityId}: ${row.error.message}`);
+        continue;
+      }
+      const parentId = (row.data as unknown as Record<string, unknown> | null)?.[parent.foreignKey] as string | undefined;
       if (!parentId) continue;
 
       const parentEntity = getEntity(parent.parentType);

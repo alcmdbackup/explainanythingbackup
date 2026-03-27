@@ -70,7 +70,7 @@ export function MetricGrid({
             {metric.prefix && typeof metric.value === 'number'
               ? `${metric.prefix}${metric.value}`
               : metric.value}
-            {metric.ci && (
+            {metric.ci && metric.ci[0] != null && metric.ci[1] != null && (
               <span className="text-xs text-[var(--text-muted)] ml-1">
                 [{metric.ci[0].toFixed(2)}, {metric.ci[1].toFixed(2)}]
                 {metric.n === 2 && (

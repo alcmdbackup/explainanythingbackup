@@ -271,6 +271,28 @@ describe('finalizeRun', () => {
     expect(rows[0]!.sigma).toBe(DEFAULT_SIGMA);
   });
 
+  // Regression: winner tie-breaking should use lowest sigma when mu is equal
+  it('winner tie-breaks by lowest sigma when mu is equal', async () => {
+    const V_LOW_SIGMA = '00000000-0000-4000-8000-000000000050';
+    const V_HIGH_SIGMA = '00000000-0000-4000-8000-000000000051';
+    const pool = [
+      makeVariant(V_HIGH_SIGMA, 'test'),
+      makeVariant(V_LOW_SIGMA, 'test'),
+    ];
+    const ratings = new Map<string, Rating>([
+      [V_HIGH_SIGMA, { mu: 30, sigma: 6 }],
+      [V_LOW_SIGMA, { mu: 30, sigma: 3 }],
+    ]);
+    const result = makeResult({ pool, ratings });
+    const { db, upserts } = makeMockDb();
+    await finalizeRun(RUN_ID, result, { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
+    const rows = (upserts.find((u) => u.table === 'evolution_variants')?.data ?? []) as Array<Record<string, unknown>>;
+    const winners = rows.filter((r) => r.is_winner === true);
+    expect(winners).toHaveLength(1);
+    // V_LOW_SIGMA should win because same mu but lower sigma
+    expect(winners[0]!.id).toBe(V_LOW_SIGMA);
+  });
+
   it('explanation_id passed through to variants', async () => {
     const { db, upserts } = makeMockDb();
     await finalizeRun(RUN_ID, makeResult(), { experiment_id: null, explanation_id: 42, strategy_id: null, prompt_id: null }, db, 120);

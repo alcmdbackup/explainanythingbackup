@@ -94,9 +94,9 @@ export function LineageGraph({ nodes, edges, treeSearchPath }: LineageGraphProps
       });
 
     // Draw nodes
-    const eloValues = nodes.map(n => n.elo);
-    const minElo = Math.min(...eloValues);
-    const maxElo = Math.max(...eloValues);
+    const eloValues = nodes.map(n => n.elo).filter(v => v != null && isFinite(v));
+    const minElo = eloValues.length > 0 ? Math.min(...eloValues) : 1200;
+    const maxElo = eloValues.length > 0 ? Math.max(...eloValues) : 1200;
     const scaleRadius = d3.scaleLinear().domain([minElo, maxElo]).range([6, 18]);
 
     const nodeGroups = g.selectAll('g.node')

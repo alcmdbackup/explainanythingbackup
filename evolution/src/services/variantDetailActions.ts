@@ -99,11 +99,12 @@ export const getVariantParentsAction = adminAction('getVariantParentsAction', as
   if (!validateUuid(variantId)) throw new Error('Invalid variantId');
   const { supabase } = ctx;
 
-  const { data: variant } = await supabase
+  const { data: variant, error: variantError } = await supabase
     .from('evolution_variants')
     .select('parent_variant_id')
     .eq('id', variantId)
     .single();
+  if (variantError) throw variantError;
 
   if (!variant?.parent_variant_id) return [];
 

@@ -53,7 +53,7 @@ export function isConverged(r: Rating, threshold: number = DEFAULT_CONVERGENCE_S
 
 /** Map mu to the 0–3000 Elo scale: 1200 + (mu - 25) * 16, clamped to [0, 3000]. */
 export function toEloScale(mu: number): number {
-  return Math.max(0, Math.min(3000, 1200 + (mu - DEFAULT_MU) * (400 / DEFAULT_MU)));
+  return Math.max(0, Math.min(3000, 1200 + (mu - DEFAULT_MU) * ELO_SIGMA_SCALE));
 }
 
 /** Format an Elo value as a rounded integer string for display. */
@@ -71,7 +71,7 @@ export const DECISIVE_CONFIDENCE_THRESHOLD = 0.6;
 
 /** Returns null if cost is missing or zero. */
 export function computeEloPerDollar(mu: number, totalCostUsd: number | null): number | null {
-  if (!totalCostUsd) return null;
+  if (totalCostUsd == null || totalCostUsd === 0) return null;
   return (toEloScale(mu) - 1200) / totalCostUsd;
 }
 

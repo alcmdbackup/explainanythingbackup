@@ -4,6 +4,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Variant } from '../../types';
 import type { EvolutionConfig, V2StrategyConfig } from '../infra/types';
 import type { Rating } from '../../shared/computeRatings';
+import { DEFAULT_MU, DEFAULT_SIGMA } from '../../shared/computeRatings';
 import type { EntityLogger } from '../infra/createEntityLogger';
 import { generateSeedArticle } from './generateSeedArticle';
 import { createEntityLogger } from '../infra/createEntityLogger';
@@ -59,8 +60,8 @@ export async function loadArenaEntries(
       fromArena: true,
     });
     ratings.set(entry.id, {
-      mu: entry.mu ?? 25,
-      sigma: entry.sigma ?? 8.333,
+      mu: entry.mu ?? DEFAULT_MU,
+      sigma: entry.sigma ?? DEFAULT_SIGMA,
     });
   }
 

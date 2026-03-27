@@ -29,6 +29,7 @@ export function ConfirmDialog({
   if (!open) return null;
 
   const handleConfirm = async () => {
+    if (loading) return; // Prevent double-submit
     setLoading(true);
     try {
       await onConfirm();

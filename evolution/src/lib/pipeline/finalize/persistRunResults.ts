@@ -153,13 +153,17 @@ export async function finalizeRun(
     return; // Skip variant persistence
   }
 
-  // Step 3: Determine winner (highest mu, tie-break by pool order)
+  // Step 3: Determine winner (highest mu, tie-break by lowest sigma)
   let winnerId = localPool[0]!.id;
   let bestMu = -Infinity;
+  let bestSigma = Infinity;
   for (const v of localPool) {
-    const mu = result.ratings.get(v.id)?.mu ?? -Infinity;
-    if (mu > bestMu) {
+    const r = result.ratings.get(v.id);
+    const mu = r?.mu ?? -Infinity;
+    const sigma = r?.sigma ?? Infinity;
+    if (mu > bestMu || (mu === bestMu && sigma < bestSigma)) {
       bestMu = mu;
+      bestSigma = sigma;
       winnerId = v.id;
     }
   }

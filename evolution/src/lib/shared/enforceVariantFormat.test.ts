@@ -128,4 +128,59 @@ describe('validateFormat', () => {
     // Should not report bullet issues from inside the unclosed block
     expect(result.issues.includes('Contains bullet points')).toBe(false);
   });
+
+  // Regression: H3+ headings must NOT be detected as H1
+  it('does not treat H3 headings as H1', () => {
+    const text = '# Real Title\n\n## Section\n\n### Subsection\n\nThis paragraph has enough sentences. It explains the topic well.';
+    const result = validateFormat(text);
+    expect(result.valid).toBe(true);
+    expect(result.issues.some((i) => i.includes('Multiple H1'))).toBe(false);
+  });
+
+  it('does not treat H4 or deeper headings as H1', () => {
+    const text = '#### Deep Heading\n\n## Section\n\nSome text here. More text follows.';
+    const result = validateFormat(text);
+    // Should report missing H1, NOT multiple H1
+    expect(result.issues).toContain('Missing H1 title');
+    expect(result.issues.some((i) => i.includes('Multiple H1'))).toBe(false);
+  });
+
+  it('still detects actual multiple H1 headings', () => {
+    const text = '# First\n\n## Section\n\nParagraph text here. More text.\n\n# Second\n\n## Section\n\nMore text. Even more.';
+    const result = validateFormat(text);
+    expect(result.issues.some((i) => i.includes('Multiple H1'))).toBe(true);
+  });
+
+  // Regression: FORMAT_VALIDATION_MODE should be case-insensitive
+  it('treats uppercase WARN mode correctly', () => {
+    const original = process.env.FORMAT_VALIDATION_MODE;
+    process.env.FORMAT_VALIDATION_MODE = 'WARN';
+    try {
+      const result = validateFormat('no H1 here');
+      expect(result.valid).toBe(true);
+      expect(result.issues.length).toBeGreaterThan(0);
+    } finally {
+      if (original !== undefined) {
+        process.env.FORMAT_VALIDATION_MODE = original;
+      } else {
+        delete process.env.FORMAT_VALIDATION_MODE;
+      }
+    }
+  });
+
+  it('treats uppercase OFF mode correctly', () => {
+    const original = process.env.FORMAT_VALIDATION_MODE;
+    process.env.FORMAT_VALIDATION_MODE = 'OFF';
+    try {
+      const result = validateFormat('anything');
+      expect(result.valid).toBe(true);
+      expect(result.issues).toHaveLength(0);
+    } finally {
+      if (original !== undefined) {
+        process.env.FORMAT_VALIDATION_MODE = original;
+      } else {
+        delete process.env.FORMAT_VALIDATION_MODE;
+      }
+    }
+  });
 });
