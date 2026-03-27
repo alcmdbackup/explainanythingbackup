@@ -11,7 +11,7 @@ import {
   getExperimentAction,
   cancelExperimentAction,
 } from '@evolution/services/experimentActions';
-import { StatusBadge } from '@evolution/components/evolution/StatusBadge';
+import { StatusBadge } from '@evolution/components/evolution';
 
 interface ExperimentStatus {
   id: string;

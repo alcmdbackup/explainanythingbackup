@@ -24,13 +24,13 @@ import {
   type EvolutionRun,
 } from '@evolution/services/evolutionActions';
 import { EntityTable, type ColumnDef } from '@evolution/components/evolution';
-import { EvolutionStatusBadge } from '@evolution/components/evolution';
+import { StatusBadge } from '@evolution/components/evolution';
 import { buildRunUrl } from '@evolution/lib/utils/evolutionUrls';
 
 // Inline runs tab for strategy detail
 const RUN_COLUMNS: ColumnDef<EvolutionRun>[] = [
   { key: 'id', header: 'ID', render: (r) => <span className="font-mono text-xs text-[var(--accent-gold)]">{r.id.substring(0, 8)}</span> },
-  { key: 'status', header: 'Status', render: (r) => <EvolutionStatusBadge status={r.status as import('@evolution/lib/types').EvolutionRunStatus} hasError={!!r.error_message} /> },
+  { key: 'status', header: 'Status', render: (r) => <StatusBadge variant="run-status" status={r.status} hasError={!!r.error_message} /> },
   { key: 'created_at', header: 'Created', render: (r) => new Date(r.created_at).toLocaleDateString() },
 ];
 

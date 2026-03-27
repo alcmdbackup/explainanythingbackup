@@ -1,6 +1,6 @@
 // Barrel exports for evolution UI components (V2).
 
-export { EvolutionStatusBadge } from './EvolutionStatusBadge';
+export { StatusBadge } from './StatusBadge';
 export { EvolutionBreadcrumb } from './EvolutionBreadcrumb';
 export type { BreadcrumbItem } from './EvolutionBreadcrumb';
 export { TableSkeleton } from './TableSkeleton';

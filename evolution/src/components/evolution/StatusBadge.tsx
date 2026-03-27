@@ -1,5 +1,5 @@
-// Unified status badge component for evolution admin pages.
-// Supports filled (default) and outlined styles, with optional pulse dot for active states.
+// Unified status badge for evolution admin pages.
+// Supports filled (default) and outlined styles, hasError dot, status icons, and pulse dot.
 
 'use client';
 
@@ -14,114 +14,140 @@ type BadgeVariant =
   | 'experiment-status'
   | 'winner';
 
+/** Maps variant+status → CSS custom property color token. */
 const VARIANT_COLORS: Record<BadgeVariant, Record<string, string>> = {
   'run-status': {
-    completed: 'bg-green-100 text-green-800',
-    running: 'bg-blue-100 text-blue-800',
-    pending: 'bg-yellow-100 text-yellow-800',
-    claimed: 'bg-yellow-100 text-yellow-800',
-    failed: 'bg-red-100 text-red-800',
-    paused: 'bg-gray-100 text-gray-800',
-    cancelled: 'bg-red-100 text-red-800',
+    completed: 'var(--status-success)',
+    running: 'var(--accent-gold)',
+    pending: 'var(--status-warning)',
+    claimed: 'var(--text-muted)',
+    failed: 'var(--status-error)',
+    paused: 'var(--text-muted)',
+    cancelled: 'var(--status-error)',
   },
   'entity-status': {
-    active: 'bg-green-100 text-green-800',
-    archived: 'bg-gray-100 text-gray-600',
+    active: 'var(--status-success)',
+    archived: 'var(--text-muted)',
   },
   'pipeline-type': {
-    full: 'bg-purple-100 text-purple-800',
-    single: 'bg-indigo-100 text-indigo-800',
-    v2: 'bg-teal-100 text-teal-800',
+    full: 'var(--accent-primary)',
+    single: 'var(--accent-blue)',
+    v2: 'var(--accent-copper)',
   },
   'generation-method': {
-    article: 'bg-blue-100 text-blue-800',
-    prompt: 'bg-orange-100 text-orange-800',
+    article: 'var(--accent-blue)',
+    prompt: 'var(--accent-gold)',
   },
   'invocation-status': {
-    true: 'bg-green-100 text-green-800',
-    false: 'bg-red-100 text-red-800',
+    true: 'var(--status-success)',
+    false: 'var(--status-error)',
   },
   'experiment-status': {
-    running: 'bg-blue-100 text-blue-800',
-    completed: 'bg-green-100 text-green-800',
-    analyzing: 'bg-blue-100 text-blue-800',
-    pending: 'bg-yellow-100 text-yellow-800',
-    failed: 'bg-red-100 text-red-800',
-    cancelled: 'bg-red-100 text-red-800',
-    draft: 'bg-gray-100 text-gray-800',
-    archived: 'bg-gray-100 text-gray-600',
-  },
-  winner: {
-    true: 'bg-amber-100 text-amber-800',
-    false: 'bg-gray-100 text-gray-600',
-  },
-};
-
-/** CSS variable colors for outlined style (maps status → design system token). */
-const OUTLINED_COLORS: Record<BadgeVariant, Record<string, string>> = {
-  'experiment-status': {
-    pending: 'var(--text-muted)',
     running: 'var(--accent-gold)',
-    analyzing: 'var(--accent-gold)',
     completed: 'var(--status-success)',
+    analyzing: 'var(--accent-gold)',
+    pending: 'var(--status-warning)',
     failed: 'var(--status-error)',
-    cancelled: 'var(--text-muted)',
+    cancelled: 'var(--status-error)',
     draft: 'var(--text-muted)',
     archived: 'var(--text-muted)',
   },
-  'run-status': {},
-  'entity-status': {},
-  'pipeline-type': {},
-  'generation-method': {},
-  'invocation-status': {},
-  winner: {},
+  winner: {
+    true: 'var(--accent-gold)',
+    false: 'var(--text-muted)',
+  },
+};
+
+/** Status icons shown for run-status variant. */
+const STATUS_ICONS: Record<string, string> = {
+  pending: '\u23F3',   // hourglass
+  claimed: '\u25B6',   // play (starting)
+  running: '\u25B6',   // play
+  completed: '\u2713', // checkmark
+  failed: '\u2717',    // X mark
+  cancelled: '\u23F9', // stop button
 };
 
 interface StatusBadgeProps {
   variant: BadgeVariant;
   status: string;
-  /** 'filled' (default) uses Tailwind bg classes; 'outlined' uses CSS variable border+text. */
+  /** 'filled' (default) uses semi-transparent bg; 'outlined' uses border+text only. */
   badgeStyle?: 'filled' | 'outlined';
   /** Show animated pulse dot before label (useful for active/in-progress states). */
   pulse?: boolean;
+  /** Show small error dot indicator (useful for run-status badges). */
+  hasError?: boolean;
   className?: string;
 }
 
-export function StatusBadge({ variant, status, badgeStyle = 'filled', pulse = false, className = '' }: StatusBadgeProps) {
+export function StatusBadge({ variant, status, badgeStyle = 'filled', pulse = false, hasError = false, className = '' }: StatusBadgeProps) {
   const key = status.toLowerCase();
   const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
   const label = variant === 'winner'
     ? (status === 'true' ? 'Winner' : '')
     : variant === 'invocation-status'
       ? (status === 'true' ? 'Success' : 'Failed')
-      : capitalize(status);
+      : variant === 'run-status' && key === 'claimed'
+        ? 'Starting'
+        : capitalize(status);
 
   if (!label) return null;
 
+  const color = VARIANT_COLORS[variant]?.[key] ?? 'var(--text-muted)';
+  const icon = variant === 'run-status' ? STATUS_ICONS[key] : undefined;
+  const testId = variant === 'run-status' ? `status-badge-${key}` : 'status-badge';
+
   if (badgeStyle === 'outlined') {
-    const color = OUTLINED_COLORS[variant]?.[key] ?? 'var(--text-muted)';
     return (
       <span
-        className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-ui font-medium border ${className}`}
+        className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-ui font-medium border ${className}`}
         style={{ color, borderColor: color }}
-        data-testid="status-badge"
+        data-testid={testId}
       >
+        {hasError && (
+          <span
+            className="inline-block w-1.5 h-1.5 rounded-full bg-[var(--status-error)]"
+            title="Run has error details"
+            data-testid="error-dot"
+          />
+        )}
         {pulse && (
           <span
-            className="w-1.5 h-1.5 rounded-full mr-1.5 animate-pulse"
+            className="w-1.5 h-1.5 rounded-full animate-pulse"
             style={{ backgroundColor: color }}
           />
         )}
+        {icon && <span className="leading-none" data-testid="status-icon">{icon}</span>}
         {label}
       </span>
     );
   }
 
-  const colors = VARIANT_COLORS[variant]?.[key] ?? 'bg-gray-100 text-gray-600';
   return (
     <span
-      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-ui font-medium ${colors} ${className}`}
+      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-ui font-medium border ${className}`}
+      style={{
+        backgroundColor: `color-mix(in srgb, ${color} 20%, transparent)`,
+        color,
+        borderColor: `color-mix(in srgb, ${color} 30%, transparent)`,
+      }}
+      data-testid={testId}
     >
+      {hasError && (
+        <span
+          className="inline-block w-1.5 h-1.5 rounded-full bg-[var(--status-error)]"
+          title="Run has error details"
+          data-testid="error-dot"
+        />
+      )}
+      {pulse && (
+        <span
+          className="w-1.5 h-1.5 rounded-full animate-pulse"
+          style={{ backgroundColor: color }}
+        />
+      )}
+      {icon && <span className="leading-none" data-testid="status-icon">{icon}</span>}
       {label}
     </span>
   );

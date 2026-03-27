@@ -4,7 +4,7 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { EvolutionStatusBadge } from '@evolution/components/evolution';
+import { StatusBadge } from '@evolution/components/evolution';
 import { TableSkeleton } from '@evolution/components/evolution/TableSkeleton';
 import { EmptyState } from '@evolution/components/evolution/EmptyState';
 import { buildExplanationUrl, buildRunUrl } from '@evolution/lib/utils/evolutionUrls';
@@ -92,7 +92,7 @@ export function getBaseColumns<T extends BaseRun>(): RunsColumnDef<T>[] {
       key: 'status',
       header: 'Status',
       render: (run) => (
-        <EvolutionStatusBadge status={run.status as import('@evolution/lib/types').EvolutionRunStatus} hasError={!!run.error_message} />
+        <StatusBadge variant="run-status" status={run.status} hasError={!!run.error_message} />
       ),
     },
     {

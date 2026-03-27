@@ -9,7 +9,7 @@ import {
   EntityDetailHeader,
   EntityDetailTabs,
   useTabState,
-  EvolutionStatusBadge,
+  StatusBadge,
   EntityMetricsTab,
   NotFoundCard,
   type TabDef,
@@ -79,7 +79,7 @@ export default function EvolutionRunDetailPage(): JSX.Element {
       <EntityDetailHeader
         title={`Run ${run.id.substring(0, 8)}`}
         entityId={run.id}
-        statusBadge={<EvolutionStatusBadge status={run.status as import('@evolution/lib/types').EvolutionRunStatus} hasError={!!run.error_message} />}
+        statusBadge={<StatusBadge variant="run-status" status={run.status} hasError={!!run.error_message} />}
         links={[
           run.strategy_name || run.strategy_id
             ? { prefix: 'Strategy', label: run.strategy_name || run.strategy_id.substring(0, 8), href: `/admin/evolution/strategies/${run.strategy_id}` }
