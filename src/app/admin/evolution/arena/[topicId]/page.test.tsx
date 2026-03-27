@@ -152,7 +152,7 @@ describe('ArenaTopicDetailPage', () => {
       expect(screen.getByTestId('leaderboard-table')).toBeInTheDocument();
     });
     // Elo header should show descending indicator by default
-    const eloHeader = screen.getByText(/Elo/);
+    const eloHeader = screen.getAllByText(/Elo/).find(el => !el.textContent?.includes('±'))!;
     expect(eloHeader.textContent).toContain('\u25BC');
   });
 
@@ -162,7 +162,7 @@ describe('ArenaTopicDetailPage', () => {
     await waitFor(() => {
       expect(screen.getByTestId('leaderboard-table')).toBeInTheDocument();
     });
-    const eloHeader = screen.getByText(/Elo/);
+    const eloHeader = screen.getAllByText(/Elo/).find(el => !el.textContent?.includes('±'))!;
     // Default is desc, clicking should toggle to asc
     await user.click(eloHeader);
     expect(eloHeader.textContent).toContain('\u25B2');
@@ -174,11 +174,11 @@ describe('ArenaTopicDetailPage', () => {
     await waitFor(() => {
       expect(screen.getByTestId('leaderboard-table')).toBeInTheDocument();
     });
-    const muHeader = screen.getByText(/^Mu/);
-    await user.click(muHeader);
-    expect(muHeader.textContent).toContain('\u25BC'); // defaults to desc
+    const eloSigmaHeader = screen.getByText(/Elo ± σ/);
+    await user.click(eloSigmaHeader);
+    expect(eloSigmaHeader.textContent).toContain('\u25BC'); // defaults to desc
     // Elo should no longer show indicator
-    const eloHeader = screen.getByText(/Elo/);
+    const eloHeader = screen.getAllByText(/Elo/).find(el => !el.textContent?.includes('±'))!;
     expect(eloHeader.textContent).not.toContain('\u25B2');
     expect(eloHeader.textContent).not.toContain('\u25BC');
   });
