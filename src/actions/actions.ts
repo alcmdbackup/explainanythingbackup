@@ -1619,7 +1619,13 @@ const _getAISuggestionSessionsAction = withLogging(
 
             return {
                 success: true,
-                data: uniqueSessions,
+                data: uniqueSessions as Array<{
+                    session_id: string;
+                    explanation_id: number;
+                    explanation_title: string;
+                    user_prompt: string;
+                    created_at: string;
+                }>,
                 error: null
             };
         } catch (error) {
@@ -1710,7 +1716,7 @@ const _loadAISuggestionSessionAction = withLogging(
             const steps = data.map(record => ({
                 step: record.step,
                 content: record.content,
-                session_metadata: record.session_metadata,
+                session_metadata: record.session_metadata as unknown as SessionMetadata,
                 created_at: record.created_at
             }));
 

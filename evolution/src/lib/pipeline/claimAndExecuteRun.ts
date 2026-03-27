@@ -104,7 +104,7 @@ export async function claimAndExecuteRun(
     return { claimed: false, error: `Failed to claim run: ${claimError.message}` };
   }
 
-  const claimedRow = claimedRows?.[0];
+  const claimedRow = (claimedRows as unknown as ClaimedRun[])?.[0];
   if (!claimedRow) {
     return { claimed: false };
   }

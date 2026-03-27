@@ -42,7 +42,7 @@ async function createTopicImpl(topic: TopicInsertType): Promise<TopicFullDbType>
     .limit(1);
 
   if (selectError) throw selectError;
-  if (existingList && existingList.length > 0) return existingList[0];
+  if (existingList && existingList.length > 0) return existingList[0] as TopicFullDbType;
 
   // Insert if not found
   const { data, error } = await supabase
@@ -52,7 +52,7 @@ async function createTopicImpl(topic: TopicInsertType): Promise<TopicFullDbType>
     .single();
 
   if (error) throw error;
-  return data;
+  return data as TopicFullDbType;
 }
 
 /**
@@ -70,7 +70,7 @@ async function getTopicByIdImpl(id: number): Promise<TopicFullDbType | null> {
     .single();
 
   if (error) throw error;
-  return data;
+  return data as TopicFullDbType;
 }
 
 /**
@@ -102,7 +102,7 @@ async function getRecentTopicsImpl(
   const { data, error } = await query;
 
   if (error) throw error;
-  return data || [];
+  return (data || []) as TopicFullDbType[];
 }
 
 /**
@@ -125,7 +125,7 @@ async function updateTopicImpl(
     .single();
 
   if (error) throw error;
-  return data;
+  return data as TopicFullDbType;
 }
 
 /**
@@ -163,7 +163,7 @@ async function searchTopicsByTitleImpl(
     .limit(limit);
 
   if (error) throw error;
-  return data || [];
+  return (data || []) as TopicFullDbType[];
 }
 
 // Wrap all async functions with automatic logging for entry/exit/timing

@@ -98,7 +98,7 @@ Both entity types share the same propagation definitions — they aggregate from
 | Column | Type | Description |
 |--------|------|-------------|
 | `id` | UUID PK | Auto-generated |
-| `entity_type` | TEXT | `run`, `invocation`, `variant`, `strategy`, `experiment`, `prompt`, `arena_topic` |
+| `entity_type` | TEXT | `run`, `invocation`, `variant`, `strategy`, `experiment`, `prompt` |
 | `entity_id` | UUID | ID of the entity this metric belongs to |
 | `metric_name` | TEXT | Registry-validated metric name |
 | `value` | DOUBLE PRECISION | The metric value |

@@ -283,7 +283,7 @@ export async function createTestArenaComparison(
     prompt_id: promptId,
     entry_a: variantAId,
     entry_b: variantBId,
-    winner: variantAId,
+    winner: 'a',
     confidence: 0.9,
     ...overrides,
   };

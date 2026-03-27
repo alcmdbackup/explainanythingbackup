@@ -8,6 +8,7 @@ import { serverReadRequestId } from '@/lib/serverReadRequestId';
 import { handleError, type ErrorResponse } from '@/lib/errorHandling';
 import { logger } from '@/lib/server_utilities';
 import { headers } from 'next/headers';
+import type { Json } from '@/lib/database.types';
 
 export type AuditAction =
   | 'hide_explanation'
@@ -135,7 +136,7 @@ export async function logAdminAction(input: {
         action: input.action,
         entity_type: input.entityType,
         entity_id: input.entityId,
-        details: sanitizedDetails,
+        details: sanitizedDetails as Json,
         ip_address: ipAddress,
         user_agent: userAgent
       });

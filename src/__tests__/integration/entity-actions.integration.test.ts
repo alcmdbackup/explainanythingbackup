@@ -49,13 +49,14 @@ describe('Entity Actions Integration Tests', () => {
   }
 
   async function writeMetric(entityType: string, entityId: string, metricName: string, value: number): Promise<void> {
-    await supabase.from('evolution_metrics').insert({
+    const { error } = await supabase.from('evolution_metrics').insert({
       entity_type: entityType,
       entity_id: entityId,
       metric_name: metricName,
-      timing: 'at_finalization',
+      source: 'at_finalization',
       value,
     });
+    if (error) throw new Error(`writeMetric failed: ${error.message}`);
   }
 
   async function countRows(table: string, column: string, value: string): Promise<number> {

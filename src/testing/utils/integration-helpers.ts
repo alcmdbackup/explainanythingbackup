@@ -6,6 +6,7 @@
  */
 
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import type { Database } from '@/lib/database.types';
 import { createMockExplanation, createMockTopic, createMockTag } from './test-helpers';
 
 /**
@@ -38,7 +39,7 @@ export function createTestSupabaseClient(): SupabaseClient {
     );
   }
 
-  return createClient(url, serviceRoleKey, {
+  return createClient<Database>(url, serviceRoleKey, {
     auth: {
       autoRefreshToken: false,
       persistSession: false,

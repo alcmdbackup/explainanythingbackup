@@ -109,13 +109,13 @@ export class ExperimentEntity extends Entity<EvolutionExperimentFullDb> {
     return [{ label: 'Prompt', entityType: 'prompt', entityId: row.prompt_id }];
   }
 
-  async executeAction(key: string, id: string, db: SupabaseClient): Promise<void> {
+  async executeAction(key: string, id: string, db: SupabaseClient, payload?: Record<string, unknown>): Promise<void> {
     if (key === 'cancel') {
       await db.from(this.table)
         .update({ status: 'cancelled', updated_at: new Date().toISOString() })
         .eq('id', id);
       return;
     }
-    return super.executeAction(key, id, db);
+    return super.executeAction(key, id, db, payload);
   }
 }

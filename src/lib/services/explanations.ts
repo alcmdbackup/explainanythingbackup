@@ -63,9 +63,9 @@ async function createExplanationImpl(explanation: ExplanationInsertType): Promis
     });
     throw error;
   }
-  
 
-  return data;
+
+  return data as ExplanationFullDbType;
 }
 
 /**
@@ -92,7 +92,7 @@ async function getExplanationByIdImpl(id: number): Promise<ExplanationFullDbType
   if (!results || results.length === 0) {
     throw new Error(`Explanation not found for ID: ${id}`);
   }
-  return results[0];
+  return results[0] as ExplanationFullDbType;
 }
 
 /**
@@ -179,7 +179,7 @@ async function getRecentExplanationsImpl(
     if (error) throw error;
 
     // Merge metrics for 'new' mode explanations
-    return mergeMetrics(data || []);
+    return mergeMetrics((data || []) as ExplanationWithViewCount[]);
   }
 
   // For 'top' mode, use server-side aggregation via RPC function
@@ -194,7 +194,7 @@ async function getRecentExplanationsImpl(
 
   // Convert RPC result to Map for efficient lookup
   const viewCounts = new Map<number, number>();
-  for (const row of viewCountsData || []) {
+  for (const row of (viewCountsData || []) as Array<{ explanationid: number; view_count: number }>) {
     viewCounts.set(row.explanationid, Number(row.view_count));
   }
 
@@ -212,10 +212,10 @@ async function getRecentExplanationsImpl(
   if (expError) throw expError;
 
   // Step 3: Add view counts and sort by view count (descending), then by timestamp (descending) as tiebreaker
-  const explanationsWithViews: ExplanationWithViewCount[] = (explanations || []).map(exp => ({
+  const explanationsWithViews = (explanations || []).map(exp => ({
     ...exp,
     viewCount: viewCounts.get(exp.id) || 0
-  }));
+  })) as ExplanationWithViewCount[];
 
   explanationsWithViews.sort((a, b) => {
     const viewsA = a.viewCount || 0;
@@ -253,7 +253,7 @@ async function updateExplanationImpl(
     .single();
 
   if (error) throw error;
-  return data;
+  return data as ExplanationFullDbType;
 }
 
 /**
@@ -293,7 +293,7 @@ async function getExplanationsByIdsImpl(ids: number[]): Promise<ExplanationFullD
     .in('id', ids);
 
   if (error) throw error;
-  return data || [];
+  return (data || []) as ExplanationFullDbType[];
 }
 
 /**
@@ -324,7 +324,7 @@ async function getExplanationsByTopicIdImpl(
     .order('timestamp', { ascending: false });
 
   if (error) throw error;
-  return data || [];
+  return (data || []) as ExplanationFullDbType[];
 }
 
 // Wrap all async functions with automatic logging for entry/exit/timing

@@ -61,7 +61,7 @@ async function createWhitelistTermImpl(
     .single();
 
   if (selectError && selectError.code !== 'PGRST116') throw selectError;
-  if (existing) return existing;
+  if (existing) return existing as LinkWhitelistFullType;
 
   // Insert new term
   const { data, error } = await supabase
@@ -78,7 +78,7 @@ async function createWhitelistTermImpl(
   // Rebuild snapshot after insert
   await rebuildSnapshotImpl();
 
-  return data;
+  return data as LinkWhitelistFullType;
 }
 
 /**
@@ -97,7 +97,7 @@ async function getAllActiveWhitelistTermsImpl(): Promise<LinkWhitelistFullType[]
     .order('canonical_term');
 
   if (error) throw error;
-  return data || [];
+  return (data || []) as LinkWhitelistFullType[];
 }
 
 /**
@@ -139,7 +139,7 @@ async function updateWhitelistTermImpl(
   // Rebuild snapshot after update
   await rebuildSnapshotImpl();
 
-  return data;
+  return data as LinkWhitelistFullType;
 }
 
 /**
@@ -215,7 +215,7 @@ async function addAliasesImpl(
   const newAliases = aliasRecords.filter(a => !existingLowers.has(a.alias_term_lower));
 
   if (newAliases.length === 0) {
-    return existingAliases || [];
+    return (existingAliases || []) as LinkAliasFullType[];
   }
 
   // Insert new aliases
@@ -229,7 +229,7 @@ async function addAliasesImpl(
   // Rebuild snapshot after adding aliases
   await rebuildSnapshotImpl();
 
-  return [...(existingAliases || []), ...(data || [])];
+  return [...(existingAliases || []), ...(data || [])] as LinkAliasFullType[];
 }
 
 /**
@@ -300,7 +300,7 @@ async function getActiveWhitelistAsMapImpl(): Promise<Map<string, WhitelistCache
 
   // Add aliases (resolved to their parent canonical term)
   for (const alias of aliases || []) {
-    const parent = termById.get(alias.whitelist_id);
+    const parent = alias.whitelist_id ? termById.get(alias.whitelist_id) : undefined;
     if (parent) {
       map.set(alias.alias_term_lower, parent);
     }
@@ -346,7 +346,7 @@ async function rebuildSnapshotImpl(): Promise<LinkWhitelistSnapshotType> {
 
   if (error) throw error;
 
-  return data;
+  return data as unknown as LinkWhitelistSnapshotType;
 }
 
 /**
@@ -371,7 +371,7 @@ async function getSnapshotImpl(): Promise<LinkWhitelistSnapshotType> {
     return await rebuildSnapshotImpl();
   }
 
-  return data;
+  return data as unknown as LinkWhitelistSnapshotType;
 }
 
 // ============================================================================
@@ -581,7 +581,7 @@ async function getAliasesForTermImpl(whitelistId: number): Promise<LinkAliasFull
     .order('alias_term');
 
   if (error) throw error;
-  return data || [];
+  return (data || []) as LinkAliasFullType[];
 }
 
 /**
@@ -601,7 +601,7 @@ async function getWhitelistTermByIdImpl(id: number): Promise<LinkWhitelistFullTy
     throw new Error(`Whitelist term not found for ID: ${id}`);
   }
 
-  return data;
+  return data as LinkWhitelistFullType;
 }
 
 // Wrap all async functions with automatic logging for entry/exit/timing

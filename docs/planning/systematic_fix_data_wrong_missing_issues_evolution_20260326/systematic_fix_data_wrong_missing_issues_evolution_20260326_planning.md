@@ -18,8 +18,8 @@ Additionally, there's a **migration/test deadlock**: CI tests run against stagin
 
 ## Options Considered
 - [x] **Option A: Generated Types + CI-Managed Workflow (Recommended)**: Apply migrations on PR, generate types in CI, wire `Database` generic into Supabase clients. Eliminates both schema drift and the migration/test deadlock.
-- [ ] **Option B: Manual Schema Audit Only**: Manually audit all schemas, fix mismatches, add documentation. Fixes current bugs but doesn't prevent future drift or the deadlock.
-- [ ] **Option C: Full ORM Migration**: Replace raw Supabase queries with Drizzle/Prisma ORM. Maximum type safety but massive scope, high risk of regressions.
+- [x] **Option B: Manual Schema Audit Only**: Manually audit all schemas, fix mismatches, add documentation. Fixes current bugs but doesn't prevent future drift or the deadlock.
+- [x] **Option C: Full ORM Migration**: Replace raw Supabase queries with Drizzle/Prisma ORM. Maximum type safety but massive scope, high risk of regressions.
 
 ## CI Architecture (New)
 
@@ -124,37 +124,37 @@ Generated types and Zod schemas serve **different purposes** and coexist:
 ## Phased Execution Plan
 
 ### Phase 1: Fix Active CI Blockers (Quick Wins)
-- [ ] Fix or delete `evolution-run-costs.integration.test.ts` — tests reference intentionally dropped `get_run_total_cost` RPC and `evolution_run_costs` view
-- [ ] Fix `evolution-experiment-completion.integration.test.ts` — update test fixtures to use valid UUIDs instead of plain strings
-- [ ] Fix `evolution-test-helpers.ts` `createTestArenaComparison` — uses UUID for `winner` field instead of valid `'a'`/`'b'`/`'draw'`
-- [ ] Fix `entity-actions.integration.test.ts` — fix stale metrics assertions (`stale` field returning undefined); verify rename action test is valid (ExperimentEntity does have rename — do NOT delete it)
-- [ ] Fix stale `arena_topic` reference in `evolution/docs/metrics.md:101`
-- [ ] Run full CI suite and confirm all evolution tests pass
+- [x] Fix or delete `evolution-run-costs.integration.test.ts` — tests reference intentionally dropped `get_run_total_cost` RPC and `evolution_run_costs` view
+- [x] Fix `evolution-experiment-completion.integration.test.ts` — update test fixtures to use valid UUIDs instead of plain strings
+- [x] Fix `evolution-test-helpers.ts` `createTestArenaComparison` — uses UUID for `winner` field instead of valid `'a'`/`'b'`/`'draw'`
+- [x] Fix `entity-actions.integration.test.ts` — fix stale metrics assertions (`stale` field returning undefined); verify rename action test is valid (ExperimentEntity does have rename — do NOT delete it)
+- [x] Fix stale `arena_topic` reference in `evolution/docs/metrics.md:101`
+- [x] Run full CI suite and confirm all evolution tests pass
 
 ### Phase 2: Add Supabase Generated Types
-- [ ] Generate initial `database.types.ts` at `src/lib/database.types.ts` using `npx supabase gen types --lang typescript --project-id <staging-id>` (note: `--lang` flag required, not positional)
-- [ ] Wire `Database` generic into ALL Supabase client creation points (full inventory):
-  - [ ] `src/lib/utils/supabase/client.ts` — `createBrowserClient<Database>`
-  - [ ] `src/lib/utils/supabase/server.ts` — `createServerClient<Database>` and `createClient<Database>`
-  - [ ] `src/lib/supabase.ts` — legacy file: BOTH `createClient<Database>` (line 12) AND `createBrowserClient<Database>` (line 17) — two clients in one file
-  - [ ] `src/lib/utils/supabase/middleware.ts` — `createServerClient<Database>`
-  - [ ] `src/testing/utils/integration-helpers.ts` — `createClient<Database>` for test clients
-  - [ ] `src/app/api/health/route.ts` — `createClient<Database>` (low priority but complete inventory)
-- [ ] Update BOTH Supabase mock files:
-  - [ ] `src/testing/mocks/@supabase/supabase-js.ts` — type mock's `.from()` to accept `Database` table names
-  - [ ] `src/__mocks__/@supabase/ssr.ts` — same treatment for SSR mock path
-  - [ ] Use `as unknown as SupabaseClient<Database>` on mock return to maintain chainability while satisfying types
-- [ ] Add `"db:types": "npx supabase gen types --lang typescript --project-id <staging-id> > src/lib/database.types.ts"` to `package.json`
-- [ ] Verify that `.from('evolution_variants')` now returns typed data instead of `any`
-- [ ] Fix type errors surfaced by new strict typing — delete redundant local interfaces (ArenaTopic, ArenaEntry, etc.) as each service file is fixed
-- [ ] Note: `AdminContext.supabase` in `evolution/src/services/adminAction.ts` will automatically become `SupabaseClient<Database>` since it calls `createSupabaseServiceClient()` which is now typed — no per-service changes needed (transitive benefit)
-- [ ] Note: Scripts under `evolution/scripts/` and `scripts/` also create untyped clients — lower priority, track as follow-up
+- [x] Generate initial `database.types.ts` at `src/lib/database.types.ts` using `npx supabase gen types --lang typescript --project-id <staging-id>` (note: `--lang` flag required, not positional)
+- [x] Wire `Database` generic into ALL Supabase client creation points (full inventory):
+  - [x] `src/lib/utils/supabase/client.ts` — `createBrowserClient<Database>`
+  - [x] `src/lib/utils/supabase/server.ts` — `createServerClient<Database>` and `createClient<Database>`
+  - [x] `src/lib/supabase.ts` — legacy file: BOTH `createClient<Database>` (line 12) AND `createBrowserClient<Database>` (line 17) — two clients in one file
+  - [x] `src/lib/utils/supabase/middleware.ts` — `createServerClient<Database>`
+  - [x] `src/testing/utils/integration-helpers.ts` — `createClient<Database>` for test clients
+  - [x] `src/app/api/health/route.ts` — `createClient<Database>` (low priority but complete inventory)
+- [x] Update BOTH Supabase mock files:
+  - [x] `src/testing/mocks/@supabase/supabase-js.ts` — type mock's `.from()` to accept `Database` table names
+  - [x] `src/__mocks__/@supabase/ssr.ts` — same treatment for SSR mock path
+  - [x] Use `as unknown as SupabaseClient<Database>` on mock return to maintain chainability while satisfying types
+- [x] Add `"db:types": "npx supabase gen types --lang typescript --project-id <staging-id> > src/lib/database.types.ts"` to `package.json`
+- [x] Verify that `.from('evolution_variants')` now returns typed data instead of `any`
+- [x] Fix type errors surfaced by new strict typing — delete redundant local interfaces (ArenaTopic, ArenaEntry, etc.) as each service file is fixed
+- [x] Note: `AdminContext.supabase` in `evolution/src/services/adminAction.ts` will automatically become `SupabaseClient<Database>` since it calls `createSupabaseServiceClient()` which is now typed — no per-service changes needed (transitive benefit)
+- [x] Note: Scripts under `evolution/scripts/` and `scripts/` also create untyped clients — lower priority, track as follow-up
 
 ### Phase 3: CI Workflow Changes
 
 **Key architectural decision**: All jobs (migrations, type generation, typecheck, tests) live in **ONE workflow (`ci.yml`)**. GitHub Actions `needs:` only works within a single workflow — cross-workflow dependencies are impossible.
 
-- [ ] Add `deploy-migrations` job to `ci.yml` (move logic from `supabase-migrations.yml` for the PR path):
+- [x] Add `deploy-migrations` job to `ci.yml` (move logic from `supabase-migrations.yml` for the PR path):
   ```yaml
   deploy-migrations:
     needs: [detect-changes]
@@ -189,7 +189,7 @@ Generated types and Zod schemas serve **different purposes** and coexist:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
   ```
-- [ ] Add `generate-types` job to `ci.yml`:
+- [x] Add `generate-types` job to `ci.yml`:
   ```yaml
   generate-types:
     needs: [detect-changes, deploy-migrations]
@@ -222,7 +222,7 @@ Generated types and Zod schemas serve **different purposes** and coexist:
             git push
           fi
   ```
-- [ ] Restructure `ci.yml` job dependencies:
+- [x] Restructure `ci.yml` job dependencies:
   - Current: `detect-changes → [typecheck, lint]` (parallel)
   - New: `detect-changes → deploy-migrations → generate-types → typecheck → unit-tests → integration`
   - `detect-changes → lint` (parallel, unchanged)
@@ -230,13 +230,13 @@ Generated types and Zod schemas serve **different purposes** and coexist:
   - For docs-only PRs: deploy-migrations skips (no migration files), generate-types runs but finds no diff (no commit), typecheck runs normally
   - Note: `generate-types` uses `if: !failure() && !cancelled()` so it runs when deploy-migrations succeeds OR is skipped, but NOT when it fails (prevents generating types from partially-migrated schema)
   - Note: Workflow-level `cancel-in-progress: true` could kill a migration mid-execution on rapid pushes. `supabase db push` is transactional per-file, so partial cancellation is safe — the next run re-applies from where it left off.
-- [ ] Keep `supabase-migrations.yml` for push-to-main/production deploys (existing behavior unchanged)
-- [ ] Add `.gitattributes` entry: `src/lib/database.types.ts merge=theirs` to auto-resolve merge conflicts
-- [ ] Add `detect-changes` output `has_migrations` — set to `true` if any files changed in `supabase/migrations/`
+- [x] Keep `supabase-migrations.yml` for push-to-main/production deploys (existing behavior unchanged)
+- [x] Add `.gitattributes` entry: `src/lib/database.types.ts merge=theirs` to auto-resolve merge conflicts
+- [x] Add `detect-changes` output `has_migrations` — set to `true` if any files changed in `supabase/migrations/`
 - [ ] Add secrets to GitHub repo:
   - [ ] `SUPABASE_ACCESS_TOKEN` — scoped to staging project (from Supabase dashboard → access tokens), stored in `staging` GitHub environment
   - [ ] `SUPABASE_STAGING_PROJECT_ID` — staging project ref (can be a variable instead of secret since it's already public in workflow files: `ifubinffdbyewoezcidz`)
-  - [ ] `SUPABASE_DB_PASSWORD` — already exists as repo secret
+  - [x] `SUPABASE_DB_PASSWORD` — already exists as repo secret
 - [ ] Add a simple integration test that parses a real DB row through each `FullDbSchema` Zod schema — catches Zod/DB mismatches at test time
 - [ ] Test the full flow: create a test PR with a trivial migration, verify CI applies migration → regenerates types → auto-commits → typecheck job checks out fresh commit → tsc catches stale code
 - [ ] Document rollback procedure: if the CI workflow changes break existing PRs, revert the workflow file on main; existing PRs rebase onto the revert
@@ -265,9 +265,9 @@ Generated types and Zod schemas serve **different purposes** and coexist:
 - [ ] New test: `src/lib/database.types.test.ts` — verify generated types file exists and is non-empty
 
 ### Integration Tests
-- [ ] `src/__tests__/integration/evolution-run-costs.integration.test.ts` — fix or remove (dropped RPC)
-- [ ] `src/__tests__/integration/evolution-experiment-completion.integration.test.ts` — fix UUID fixtures
-- [ ] `src/__tests__/integration/entity-actions.integration.test.ts` — fix stale metrics assertions (keep rename test)
+- [x] `src/__tests__/integration/evolution-run-costs.integration.test.ts` — fix or remove (dropped RPC)
+- [x] `src/__tests__/integration/evolution-experiment-completion.integration.test.ts` — fix UUID fixtures
+- [x] `src/__tests__/integration/entity-actions.integration.test.ts` — fix stale metrics assertions (keep rename test)
 - [ ] New test: `src/__tests__/integration/evolution-schema-validation.integration.test.ts` — parse real DB rows through Zod schemas
 
 ### E2E Tests
@@ -281,20 +281,20 @@ Generated types and Zod schemas serve **different purposes** and coexist:
 ## Verification
 
 ### A) Playwright Verification (required for UI changes)
-- [ ] No UI changes in this project — skip Playwright
+- [x] No UI changes in this project — skip Playwright
 
 ### B) Automated Tests
-- [ ] `npm run test:unit` — all unit tests pass
-- [ ] `npm run test:integration` — all integration tests pass (especially evolution-*)
+- [x] `npm run test:unit` — all unit tests pass
+- [x] `npm run test:integration` — all integration tests pass (especially evolution-*)
 - [ ] `npm run test:e2e -- --grep "evolution"` — all E2E tests pass
-- [ ] `npx tsc --noEmit` — no type errors with generated types wired in
+- [x] `npx tsc --noEmit` — no type errors with generated types wired in
 
 ## Documentation Updates
 The following docs were identified as relevant and may need updates:
-- [ ] `evolution/docs/data_model.md` — add section on generated types, type coexistence strategy, schema validation workflow
-- [ ] `evolution/docs/reference.md` — add `npm run db:types` to key scripts, document CI type generation, document destructive DDL guardrail
-- [ ] `evolution/docs/metrics.md` — fix stale `arena_topic` entity type reference (line 101)
-- [ ] `docs/docs_overall/environments.md` — document new CI flow: migrations apply on PR, types auto-generated, fork/dependabot handling
+- [x] `evolution/docs/data_model.md` — add section on generated types, type coexistence strategy, schema validation workflow
+- [x] `evolution/docs/reference.md` — add `npm run db:types` to key scripts, document CI type generation, document destructive DDL guardrail
+- [x] `evolution/docs/metrics.md` — fix stale `arena_topic` entity type reference (line 101)
+- [x] `docs/docs_overall/environments.md` — document new CI flow: migrations apply on PR, types auto-generated, fork/dependabot handling
 
 ## Review & Discussion
 

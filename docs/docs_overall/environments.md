@@ -36,8 +36,15 @@ Migrations are stored in `supabase/migrations/` and deployed automatically via G
 
 | Trigger | Staging | Production |
 |---------|---------|------------|
+| PR with changes in `supabase/migrations/**` | Auto-deploy via CI (`deploy-migrations` job) | N/A |
 | Push to `main` with changes in `supabase/migrations/**` | Auto-deploy | Auto-deploy (after staging succeeds) |
 | Manual dispatch | Optional skip | Requires staging success or explicit skip |
+
+**CI Flow (PRs)**: When a PR contains migration files, the CI `deploy-migrations` job applies them to staging before tests run. This eliminates the migration/test deadlock where tests fail because the schema hasn't been applied yet. Types are then regenerated from the updated staging schema and auto-committed to the PR branch.
+
+- Fork PRs and Dependabot PRs skip migration deployment (no secrets access)
+- Destructive DDL (`DROP TABLE`, `RENAME COLUMN`, `TRUNCATE`, `DELETE FROM`) is blocked; `DROP FUNCTION/VIEW IF EXISTS` is allowlisted
+- Concurrent migration PRs are queued via GitHub's concurrency group (`migration-staging`)
 
 **Manual deployment** (if needed):
 ```bash
