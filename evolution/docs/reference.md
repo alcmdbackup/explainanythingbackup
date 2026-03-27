@@ -261,6 +261,24 @@ Maximum 3 retries. Per-call timeout is 60 seconds. Budget is reserved before eac
 
 ---
 
+## Key Scripts
+
+| Script | Command | Description |
+|--------|---------|-------------|
+| Type generation | `npm run db:types` | Regenerate `src/lib/database.types.ts` from staging DB (requires `SUPABASE_ACCESS_TOKEN`) |
+
+## CI Type Generation
+
+The CI pipeline automatically regenerates database types on every PR:
+
+1. **deploy-migrations** — applies new migration files to staging (if any changed)
+2. **generate-types** — runs `supabase gen types` against staging, auto-commits if changed
+3. **typecheck** — checks out latest commit (including auto-committed types), runs `tsc`
+
+Destructive DDL (`DROP TABLE`, `RENAME COLUMN`, `TRUNCATE`, `DELETE FROM`) is blocked by a CI guardrail. `DROP FUNCTION/VIEW IF EXISTS` is allowlisted (standard RPC replacement).
+
+---
+
 ## CLI Scripts
 
 ### `evolution/scripts/evolution-runner-v2.ts`

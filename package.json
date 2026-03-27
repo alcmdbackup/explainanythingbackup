@@ -32,6 +32,7 @@
     "test:v1-regression": "jest --testPathPatterns='evolution/src/lib/' --testPathIgnorePatterns='v2/'",
     "test:esm": "npx tsx --test --test-name-pattern='.*' src/editorFiles/markdownASTdiff/markdownASTdiff.esm.test.ts",
     "test:eslint-rules": "node eslint-rules/no-hardcoded-colors.test.js && node eslint-rules/no-arbitrary-text-sizes.test.js && node eslint-rules/prefer-design-system-fonts.test.js && node eslint-rules/prefer-warm-shadows.test.js && node eslint-rules/no-tailwind-color-classes.test.js && node eslint-rules/prefer-design-radius.test.js && node eslint-rules/enforce-heading-typography.test.js && node eslint-rules/enforce-prose-font.test.js && node eslint-rules/no-inline-typography.test.js && node eslint-rules/no-duplicate-column-labels.test.js",
+    "db:types": "npx supabase gen types --lang typescript --project-id ifubinffdbyewoezcidz > src/lib/database.types.ts",
     "query:prod": "npx tsx scripts/query-prod.ts",
     "prepare": "git config core.hooksPath .githooks || true"
   },
@@ -71,7 +72,7 @@
     "@radix-ui/react-select": "^2.2.6",
     "@radix-ui/react-slot": "^1.2.4",
     "@sentry/nextjs": "^10.32.1",
-    "@supabase/ssr": "^0.6.1",
+    "@supabase/ssr": "^0.9.0",
     "@supabase/supabase-js": "^2.50.0",
     "@types/diff": "^7.0.2",
     "class-variance-authority": "^0.7.1",

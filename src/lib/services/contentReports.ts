@@ -185,11 +185,11 @@ const _getContentReportsAction = withLogging(async (
     }
 
     // Transform to include explanation_title at top level
-    const reports: ContentReportWithExplanation[] = (data || []).map((report: ContentReport & { explanations: { explanation_title: string } }) => ({
+    const reports = (data || []).map((report) => ({
       ...report,
       explanation_title: report.explanations?.explanation_title,
       explanations: undefined
-    }));
+    })) as ContentReportWithExplanation[];
 
     return {
       success: true,

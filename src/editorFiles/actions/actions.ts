@@ -633,7 +633,7 @@ export const getSessionValidationResultsAction = withLogging(
                 throw error;
             }
 
-            const validationResults = data?.session_metadata?.validationResults || null;
+            const validationResults = (data?.session_metadata as Record<string, unknown> | null)?.validationResults || null;
 
             return {
                 success: true,

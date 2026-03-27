@@ -503,3 +503,23 @@ Notable indexes beyond standard FK indexes:
 | `uq_arena_topic_prompt` | prompts | Case-insensitive unique on `lower(prompt)` |
 
 For the full index list, see `supabase/migrations/20260315000001_evolution_v2.sql`.
+
+---
+
+## Generated Types
+
+The file `src/lib/database.types.ts` contains auto-generated TypeScript types from the Supabase database schema. These types are used by all Supabase client instances via the `Database` generic parameter, providing compile-time type safety for all `.from()` queries.
+
+### Type Coexistence
+
+| Layer | File | Purpose |
+|-------|------|---------|
+| **DB query typing** | `src/lib/database.types.ts` (auto-generated) | Types `.from()` return values, catches column renames at compile time |
+| **Runtime validation** | `evolution/src/lib/schemas.ts` (manual Zod) | Validates data at runtime, transforms versions (V1→V3), enforces business constraints |
+| **Domain types** | `evolution/src/lib/types.ts` (manual) | In-memory pipeline types (Variant, Rating, ExecutionContext) |
+
+### Regeneration
+
+- **Local**: `npm run db:types` (requires `SUPABASE_ACCESS_TOKEN`)
+- **CI**: Auto-generated on every PR push — the `generate-types` job regenerates and auto-commits if changed
+- **Merge conflicts**: `.gitattributes` auto-resolves in favor of incoming version

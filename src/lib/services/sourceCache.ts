@@ -50,7 +50,7 @@ async function insertSourceCacheImpl(
     .single();
 
   if (selectError && selectError.code !== 'PGRST116') throw selectError;
-  if (existing) return existing;
+  if (existing) return existing as SourceCacheFullType;
 
   // Insert new source
   const { data, error } = await supabase
@@ -63,7 +63,7 @@ async function insertSourceCacheImpl(
     .single();
 
   if (error) throw error;
-  return data;
+  return data as SourceCacheFullType;
 }
 
 /**
@@ -79,7 +79,7 @@ async function getSourceByUrlImpl(url: string): Promise<SourceCacheFullType | nu
     .single();
 
   if (error && error.code !== 'PGRST116') throw error;
-  return data || null;
+  return (data || null) as SourceCacheFullType | null;
 }
 
 /**
@@ -95,7 +95,7 @@ async function getSourceByIdImpl(id: number): Promise<SourceCacheFullType | null
     .single();
 
   if (error && error.code !== 'PGRST116') throw error;
-  return data || null;
+  return (data || null) as SourceCacheFullType | null;
 }
 
 /**
@@ -115,7 +115,7 @@ async function updateSourceCacheImpl(
     .single();
 
   if (error) throw error;
-  return data;
+  return data as SourceCacheFullType;
 }
 
 /**

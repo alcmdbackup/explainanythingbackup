@@ -136,7 +136,7 @@ async function refreshExplanationMetricsImpl(options: {
 
     return {
       results: [], // All refresh doesn't return individual results
-      count: count || 0
+      count: (count as number) || 0
     };
   } else {
     // Refresh specific explanations

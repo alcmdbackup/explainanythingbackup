@@ -12,6 +12,7 @@
 
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import type { Database } from '@/lib/database.types';
 import { logger } from '@/lib/server_utilities';
 
 // Required tag IDs for "Rewrite with tags" functionality
@@ -70,7 +71,7 @@ export async function GET(): Promise<NextResponse<HealthResponse>> {
   // Check 2: Database connection
   try {
     // Create Supabase client with global fetch timeout
-    const supabase = createClient(
+    const supabase = createClient<Database>(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       {

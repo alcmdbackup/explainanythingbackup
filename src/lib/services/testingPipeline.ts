@@ -155,7 +155,7 @@ async function saveTestingPipelineRecordImpl(
       sessionId: data.session_id
     });
 
-    return data;
+    return data as unknown as TestingPipelineRecord;
   } catch (error) {
     logger.error('Unexpected error in saveTestingPipelineRecord:', {
       error: error instanceof Error ? error.message : String(error),
@@ -289,7 +289,7 @@ async function updateTestingPipelineRecordSetNameImpl(
       newSetName: newSetName
     });
 
-    return data;
+    return data as unknown as TestingPipelineRecord;
   } catch (error) {
     logger.error('Unexpected error in updateTestingPipelineRecordSetName:', {
       error: error instanceof Error ? error.message : String(error),
@@ -326,7 +326,7 @@ async function getTestingPipelineRecordsImpl(
       throw error;
     }
 
-    return data || [];
+    return (data || []) as unknown as TestingPipelineRecord[];
   } catch (error) {
     logger.error('Unexpected error in getTestingPipelineRecords:', {
       error: error instanceof Error ? error.message : String(error),

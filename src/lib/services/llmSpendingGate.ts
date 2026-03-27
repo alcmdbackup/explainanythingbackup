@@ -127,7 +127,7 @@ export class LLMSpendingGate {
 
   async getSpendingSummary(): Promise<SpendingSummary> {
     const supabase = await createSupabaseServiceClient();
-    const today = new Date().toISOString().split('T')[0];
+    const today = new Date().toISOString().split('T')[0]!;
 
     const [rollupsResult, configResult] = await Promise.all([
       supabase.from('daily_cost_rollups').select('*').eq('date', today),
@@ -138,8 +138,8 @@ export class LLMSpendingGate {
     const config = configResult.data ?? [];
 
     const getConfigValue = (key: string): unknown => {
-      const row = config.find((c: { key: string; value: { value: unknown } }) => c.key === key);
-      return row?.value?.value ?? 0;
+      const row = config.find((c: { key: string; value: unknown }) => c.key === key);
+      return (row?.value as { value?: unknown } | null)?.value ?? 0;
     };
 
     const daily = rollups.map((r: { category: string; total_cost_usd: number; reserved_usd: number; call_count: number }) => ({
@@ -195,7 +195,7 @@ export class LLMSpendingGate {
 
       if (error) throw error;
 
-      const enabled = data?.value?.value === true;
+      const enabled = (data?.value as { value?: unknown } | null)?.value === true;
       this.killSwitchCache = { value: enabled, expiresAt: Date.now() + KILL_SWITCH_CACHE_TTL_MS };
       return enabled;
     } catch (err) {
@@ -264,7 +264,7 @@ export class LLMSpendingGate {
       if (capResult.error) throw capResult.error;
 
       const monthlyTotal = (totalResult.data ?? []).reduce((sum: number, r: { total_cost_usd: number }) => sum + Number(r.total_cost_usd), 0);
-      const monthlyCap = (capResult.data?.value?.value as number) ?? 500;
+      const monthlyCap = ((capResult.data?.value as { value?: unknown } | null)?.value as number) ?? 500;
 
       this.monthlyCache = { value: { total: monthlyTotal, cap: monthlyCap }, expiresAt: Date.now() + MONTHLY_CACHE_TTL_MS };
 
