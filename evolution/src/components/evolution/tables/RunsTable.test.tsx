@@ -9,6 +9,7 @@ jest.mock('next/navigation', () => ({
 
 jest.mock('@evolution/lib/utils/formatters', () => ({
   formatCost: (v: number) => `$${v.toFixed(2)}`,
+  formatDate: (d: string) => new Date(d).toLocaleDateString(),
 }));
 
 const mockRuns: BaseRun[] = [

@@ -128,7 +128,7 @@ export function LogsTab({ entityType, entityId }: LogsTabProps): JSX.Element {
           >
             <option value="">All iterations</option>
             {Array.from(
-              { length: Math.max(logs.reduce((max, l) => (l.iteration != null && l.iteration > max ? l.iteration : max), 0), 20) + 1 },
+              { length: Math.max(logs.reduce((max, l) => (l.iteration != null && l.iteration > max ? l.iteration : max), 0), 1) + 1 },
               (_, i) => <option key={i} value={i}>{i}</option>,
             )}
           </select>

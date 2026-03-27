@@ -3,7 +3,7 @@
 // All wrapped by adminAction factory for auth + logging + error handling.
 
 import { adminAction, type AdminContext } from './adminAction';
-import { validateUuid } from './shared';
+import { validateUuid, applyTestContentNameFilter } from './shared';
 import { z } from 'zod';
 import {
   createExperiment,
@@ -101,7 +101,7 @@ export const listExperimentsAction = adminAction(
       query = query.eq('status', input.status);
     }
     if (input?.filterTestContent) {
-      query = query.not('name', 'ilike', '%[TEST]%');
+      query = applyTestContentNameFilter(query);
     }
 
     const { data, error } = await query;
@@ -127,7 +127,7 @@ export const getPromptsAction = adminAction(
       query = query.eq('status', input.status);
     }
     if (input?.filterTestContent) {
-      query = query.not('name', 'ilike', '%[TEST]%');
+      query = applyTestContentNameFilter(query);
     }
 
     const { data, error } = await query;
@@ -149,7 +149,7 @@ export const getStrategiesAction = adminAction(
       query = query.eq('status', input.status);
     }
     if (input?.filterTestContent) {
-      query = query.not('name', 'ilike', '%[TEST]%');
+      query = applyTestContentNameFilter(query);
     }
 
     const { data, error } = await query;

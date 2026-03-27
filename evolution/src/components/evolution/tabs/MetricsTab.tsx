@@ -61,10 +61,11 @@ export function MetricsTab({ runId }: MetricsTabProps): JSX.Element {
 
   const overviewMetrics: MetricItem[] = [
     { label: 'Total Iterations', value: summary.totalIterations },
+    { label: 'Variants', value: summary.topVariants.length },
+    { label: 'Total Comparisons', value: summary.matchStats.totalMatches },
     { label: 'Duration', value: summary.durationSeconds > 0 ? `${Math.round(summary.durationSeconds)}s` : '—' },
     { label: 'Final Phase', value: summary.finalPhase },
     { label: 'Stop Reason', value: summary.stopReason },
-    { label: 'Total Matches', value: summary.matchStats.totalMatches },
     { label: 'Avg Confidence', value: `${(summary.matchStats.avgConfidence * 100).toFixed(1)}%` },
     { label: 'Decisive Rate', value: `${(summary.matchStats.decisiveRate * 100).toFixed(1)}%` },
     { label: 'Baseline Rank', value: summary.baselineRank ?? '—' },

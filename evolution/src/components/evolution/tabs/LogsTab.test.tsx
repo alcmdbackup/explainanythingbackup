@@ -76,17 +76,17 @@ describe('LogsTab', () => {
     });
   });
 
-  it('renders iteration dropdown with options 1-20', async () => {
+  it('renders iteration dropdown with options based on log data', async () => {
     render(<LogsTab entityType="run" entityId="run-1" />);
     await waitFor(() => {
       expect(screen.getByLabelText('Filter by iteration')).toBeInTheDocument();
     });
     const select = screen.getByLabelText('Filter by iteration');
     const options = select.querySelectorAll('option');
-    // 1 "All iterations" + 21 numbered options (0 through 20)
-    expect(options).toHaveLength(22);
+    // 1 "All iterations" + N numbered options (dynamic, based on max iteration in logs)
+    expect(options.length).toBeGreaterThanOrEqual(2); // at least "All" + 0
+    expect(options[0]!.textContent).toBe('All iterations');
     expect(options[1]!.textContent).toBe('0');
-    expect(options[21]!.textContent).toBe('20');
   });
 
   it('renders message search input with placeholder', async () => {

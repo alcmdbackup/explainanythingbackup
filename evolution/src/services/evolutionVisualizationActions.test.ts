@@ -35,6 +35,11 @@ jest.mock('@/lib/services/auditLog', () => ({
   logAdminAction: jest.fn().mockResolvedValue(undefined),
 }));
 
+jest.mock('./shared', () => ({
+  ...jest.requireActual('./shared'),
+  getTestStrategyIds: jest.fn().mockResolvedValue(['test-strat-1']),
+}));
+
 import {
   getEvolutionDashboardDataAction,
   getEvolutionRunEloHistoryAction,
@@ -161,10 +166,8 @@ describe('evolutionVisualizationActions', () => {
     });
 
     it('filters test content when filterTestContent is true', async () => {
-      // With filterTestContent=true, the action first fetches test strategy IDs,
-      // then excludes those strategy_ids from status/recent queries.
-      // Query order: strategies (test IDs), status, recent, metrics (cost), strategies (names), metrics (per-run).
-      const testStrategies = [{ id: VALID_UUID_3 }];
+      // With filterTestContent=true, getTestStrategyIds is mocked via ./shared to return ['test-strat-1'].
+      // Query order: status, recent, metrics (cost), strategies (names), metrics (per-run).
       const statusRows = [
         { id: 'r1', status: 'running' },
         { id: VALID_UUID, status: 'completed' },
@@ -185,37 +188,31 @@ describe('evolutionVisualizationActions', () => {
       const perRunCostMetrics = [{ entity_id: VALID_UUID, value: 4.5 }];
 
       const mock = createTableAwareMock([
-        // 1. evolution_strategies (fetch test strategy IDs)
-        (b) => {
-          b.then = jest.fn((resolve: (v: unknown) => void) =>
-            resolve({ data: testStrategies, error: null })
-          );
-        },
-        // 2. evolution_runs (status with .not strategy_id) — parallel
+        // 1. evolution_runs (status with .not strategy_id) — parallel
         (b) => {
           b.then = jest.fn((resolve: (v: unknown) => void) =>
             resolve({ data: statusRows, error: null })
           );
         },
-        // 3. evolution_runs (recent with .not strategy_id) — parallel
+        // 2. evolution_runs (recent with .not strategy_id) — parallel
         (b) => {
           b.then = jest.fn((resolve: (v: unknown) => void) =>
             resolve({ data: recentRuns, error: null })
           );
         },
-        // 4. evolution_metrics (total cost)
+        // 3. evolution_metrics (total cost)
         (b) => {
           b.then = jest.fn((resolve: (v: unknown) => void) =>
             resolve({ data: costMetrics, error: null })
           );
         },
-        // 5. evolution_strategies (names enrichment)
+        // 4. evolution_strategies (names enrichment)
         (b) => {
           b.then = jest.fn((resolve: (v: unknown) => void) =>
             resolve({ data: strategies, error: null })
           );
         },
-        // 6. evolution_metrics (per-run costs)
+        // 5. evolution_metrics (per-run costs)
         (b) => {
           b.then = jest.fn((resolve: (v: unknown) => void) =>
             resolve({ data: perRunCostMetrics, error: null })
@@ -233,13 +230,13 @@ describe('evolutionVisualizationActions', () => {
       expect(result.data!.recentRuns).toHaveLength(1);
       expect(result.data!.recentRuns[0]!.strategy_name).toBe('Real Strategy');
 
-      // Verify test strategy IDs were fetched first
+      // getTestStrategyIds is mocked via ./shared, so first supabase call is the status query
       const fromCalls = mock.from.mock.calls;
-      expect(fromCalls[0][0]).toBe('evolution_strategies');
+      expect(fromCalls[0][0]).toBe('evolution_runs');
       // Verify .not() was called on the status query with strategy_id exclusion
-      const statusBuilder = mock.from.mock.results[1]!.value;
+      const statusBuilder = mock.from.mock.results[0]!.value;
       expect(statusBuilder.not).toHaveBeenCalledWith(
-        'strategy_id', 'in', expect.stringContaining(VALID_UUID_3),
+        'strategy_id', 'in', expect.stringContaining('test-strat-1'),
       );
     });
 

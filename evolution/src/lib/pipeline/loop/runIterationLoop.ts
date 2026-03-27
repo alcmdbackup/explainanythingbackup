@@ -217,7 +217,15 @@ export async function evolveArticle(
         await writeMetric(db, 'run', runId, `agentCost:${phase}` as const, cost as number, 'during_execution');
       }
     } catch (metricsErr) {
-      logger.warn('Execution metrics write failed', { phaseName: 'metrics', error: (metricsErr instanceof Error ? metricsErr.message : String(metricsErr)).slice(0, 500) });
+      const errMsg = metricsErr instanceof Error ? metricsErr.message : String(metricsErr);
+      const errStack = metricsErr instanceof Error ? metricsErr.stack?.slice(0, 1000) : undefined;
+      logger.warn('Execution metrics write failed', {
+        phaseName: 'metrics',
+        error: errMsg.slice(0, 500),
+        errorType: metricsErr instanceof Error ? metricsErr.constructor.name : typeof metricsErr,
+        errorStack: errStack,
+        runId,
+      });
     }
 
     iterationsRun = iter;

@@ -202,7 +202,7 @@ export function EntityListPage<T>(props: EntityListPageProps<T>): JSX.Element {
         <div className="flex flex-row items-center justify-between gap-4 p-6 border-b border-[var(--border-default)]">
           <div>
             <h1 className="text-4xl font-display font-bold text-[var(--text-primary)]">{props.title}</h1>
-            {totalCount != null && (
+            {totalCount != null && !loading && (
               <p className="text-xs font-ui text-[var(--text-muted)] mt-0.5">
                 {totalCount} {totalCount === 1 ? 'item' : 'items'}
               </p>
@@ -296,7 +296,7 @@ export function EntityListPage<T>(props: EntityListPageProps<T>): JSX.Element {
               disabled={page <= 1}
               className="px-3 py-1.5 text-xs font-ui text-[var(--text-muted)] border border-[var(--border-default)] rounded-page hover:bg-[var(--surface-elevated)] hover:text-[var(--accent-gold)] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
             >
-              ◀ Prev
+              <svg className="w-3 h-3 inline-block mr-1" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M8 2L4 6l4 4" /></svg>Prev
             </button>
             {Array.from({ length: Math.min(totalPages, MAX_VISIBLE_PAGES) }, (_, i) => {
               const pageNum = pageNumberForIndex(i, page, totalPages);
@@ -319,7 +319,7 @@ export function EntityListPage<T>(props: EntityListPageProps<T>): JSX.Element {
               disabled={page >= totalPages}
               className="px-3 py-1.5 text-xs font-ui text-[var(--text-muted)] border border-[var(--border-default)] rounded-page hover:bg-[var(--surface-elevated)] hover:text-[var(--accent-gold)] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
             >
-              Next ▶
+              Next<svg className="w-3 h-3 inline-block ml-1" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M4 2l4 4-4 4" /></svg>
             </button>
           </div>
         )}

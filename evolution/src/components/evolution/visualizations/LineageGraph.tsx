@@ -17,6 +17,9 @@ export function LineageGraph({ nodes, edges, treeSearchPath }: LineageGraphProps
   const svgRef = useRef<SVGSVGElement>(null);
   const [selectedNode, setSelectedNode] = useState<LineageData['nodes'][0] | null>(null);
 
+  // Check if all variants are Gen 0 (no evolution occurred)
+  const allGen0 = nodes.length > 0 && nodes.every(n => n.iterationBorn === 0) && edges.length === 0;
+
   const renderGraph = useCallback(async () => {
     if (!svgRef.current || nodes.length === 0) return;
 
@@ -144,6 +147,16 @@ export function LineageGraph({ nodes, edges, treeSearchPath }: LineageGraphProps
     renderGraph();
   }, [renderGraph]);
 
+  if (allGen0) {
+    return (
+      <div className="bg-[var(--surface-secondary)] rounded-book border border-[var(--border-default)] p-8 text-center" data-testid="lineage-graph">
+        <p className="text-[var(--text-muted)] text-sm">
+          All {nodes.length} variants are initial (Gen 0) — no evolution lineage to display.
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="relative">
       <svg
@@ -152,6 +165,8 @@ export function LineageGraph({ nodes, edges, treeSearchPath }: LineageGraphProps
         height={500}
         className="bg-[var(--surface-secondary)] rounded-book border border-[var(--border-default)]"
         data-testid="lineage-graph"
+        role="img"
+        aria-label={`Lineage graph showing ${nodes.length} variants across ${new Set(nodes.map(n => n.iterationBorn)).size} generations`}
       />
 
       {/* Side panel for selected node */}

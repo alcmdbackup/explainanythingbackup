@@ -261,6 +261,8 @@ describe('experimentActions', () => {
 
       expect(result.success).toBe(true);
       expect(chain.not).toHaveBeenCalledWith('name', 'ilike', '%[TEST]%');
+      expect(chain.not).toHaveBeenCalledWith('name', 'eq', 'test');
+      expect(chain.not).toHaveBeenCalledWith('name', 'eq', 'Test');
     });
 
     it('does not call .not() when filterTestContent is false', async () => {
@@ -297,6 +299,8 @@ describe('experimentActions', () => {
 
       expect(result.success).toBe(true);
       expect(chain.not).toHaveBeenCalledWith('name', 'ilike', '%[TEST]%');
+      expect(chain.not).toHaveBeenCalledWith('name', 'eq', 'test');
+      expect(chain.not).toHaveBeenCalledWith('name', 'eq', 'Test');
     });
 
     it('does not call .not() when filterTestContent is false', async () => {
@@ -333,6 +337,8 @@ describe('experimentActions', () => {
 
       expect(result.success).toBe(true);
       expect(chain.not).toHaveBeenCalledWith('name', 'ilike', '%[TEST]%');
+      expect(chain.not).toHaveBeenCalledWith('name', 'eq', 'test');
+      expect(chain.not).toHaveBeenCalledWith('name', 'eq', 'Test');
     });
 
     it('does not call .not() when filterTestContent is false', async () => {

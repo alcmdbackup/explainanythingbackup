@@ -197,7 +197,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: [detect-changes, typecheck, lint]
-    if: needs.detect-changes.outputs.path != 'fast'
+    if: >-
+      !cancelled() && !failure()
+      && needs.detect-changes.outputs.path != 'fast'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -232,7 +234,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: [detect-changes, unit-tests]
-    if: needs.detect-changes.outputs.path != 'fast' && github.base_ref == 'main'
+    if: >-
+      !cancelled() && !failure()
+      && needs.detect-changes.outputs.path != 'fast' && github.base_ref == 'main'
     environment: staging
     env:
       NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
@@ -258,7 +262,8 @@ jobs:
     timeout-minutes: 30
     needs: [detect-changes, unit-tests]
     if: >-
-      github.base_ref == 'production' &&
+      !cancelled() && !failure()
+      && github.base_ref == 'production' &&
       (needs.detect-changes.outputs.path == 'evolution-only' || needs.detect-changes.outputs.path == 'full')
     environment: staging
     env:
@@ -285,7 +290,8 @@ jobs:
     timeout-minutes: 30
     needs: [detect-changes, unit-tests]
     if: >-
-      github.base_ref == 'production' &&
+      !cancelled() && !failure()
+      && github.base_ref == 'production' &&
       (needs.detect-changes.outputs.path == 'non-evolution-only' || needs.detect-changes.outputs.path == 'full')
     environment: staging
     env:
@@ -311,7 +317,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     needs: [detect-changes, unit-tests]
-    if: needs.detect-changes.outputs.path != 'fast' && github.base_ref == 'main'
+    if: >-
+      !cancelled() && !failure()
+      && needs.detect-changes.outputs.path != 'fast' && github.base_ref == 'main'
     environment: staging
     env:
       NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
@@ -383,7 +391,8 @@ jobs:
     timeout-minutes: 30
     needs: [detect-changes, unit-tests]
     if: >-
-      github.base_ref == 'production' &&
+      !cancelled() && !failure()
+      && github.base_ref == 'production' &&
       (needs.detect-changes.outputs.path == 'evolution-only' || needs.detect-changes.outputs.path == 'full')
     environment: staging
     env:
@@ -456,7 +465,8 @@ jobs:
     timeout-minutes: 30
     needs: [detect-changes, unit-tests]
     if: >-
-      github.base_ref == 'production' &&
+      !cancelled() && !failure()
+      && github.base_ref == 'production' &&
       (needs.detect-changes.outputs.path == 'non-evolution-only' || needs.detect-changes.outputs.path == 'full')
     environment: staging
     strategy:

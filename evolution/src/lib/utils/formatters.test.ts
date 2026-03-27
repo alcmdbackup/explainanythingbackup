@@ -12,6 +12,8 @@ import {
   formatScore1,
   elo95CI,
   formatEloCIRange,
+  formatDate,
+  formatDateTime,
 } from './formatters';
 
 describe('formatters', () => {
@@ -136,6 +138,30 @@ describe('formatters', () => {
     });
     it('returns null for undefined sigma', () => {
       expect(formatEloCIRange(1500, undefined)).toBeNull();
+    });
+  });
+
+  describe('formatDate', () => {
+    it('formats date without year for current year', () => {
+      const result = formatDate(new Date().toISOString());
+      expect(result).not.toContain(String(new Date().getFullYear()));
+    });
+    it('includes year for past year', () => {
+      const result = formatDate('2020-06-15T12:00:00Z');
+      expect(result).toContain('2020');
+    });
+    it('formats as short month + day', () => {
+      const result = formatDate('2020-03-26T12:00:00Z');
+      expect(result).toContain('Mar');
+      expect(result).toContain('26');
+    });
+  });
+
+  describe('formatDateTime', () => {
+    it('includes date and time', () => {
+      const result = formatDateTime('2026-03-26T14:30:00Z');
+      expect(result).toContain('Mar');
+      expect(result).toContain('2026');
     });
   });
 });

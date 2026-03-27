@@ -14,7 +14,7 @@ describe('EntityDetailHeader', () => {
     const longId = 'abcdef1234567890abcdef';
     render(<EntityDetailHeader title="Run" entityId={longId} />);
     const el = screen.getByTestId('entity-id');
-    expect(el).toHaveAttribute('title', 'Click to copy full ID');
+    expect(el).toHaveAttribute('title', `Click to copy: ${longId}`);
     expect(el.textContent).toContain('abcdef123456');
     expect(el.textContent).toContain('…');
   });

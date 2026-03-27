@@ -8,7 +8,7 @@ import { StatusBadge } from '../primitives/StatusBadge';
 import { TableSkeleton } from './TableSkeleton';
 import { EmptyState } from '../primitives/EmptyState';
 import { buildExplanationUrl, buildRunUrl } from '@evolution/lib/utils/evolutionUrls';
-import { formatCost } from '@evolution/lib/utils/formatters';
+import { formatCost, formatDate } from '@evolution/lib/utils/formatters';
 
 function getProgressBarColor(pct: number): string {
   if (pct >= 0.9) return 'bg-[var(--status-error)]';
@@ -41,12 +41,14 @@ export interface BaseRun {
   completed_at: string | null;
   created_at: string;
   strategy_name?: string | null;
+  explanation_title?: string | null;
 }
 
 export interface RunsColumnDef<T extends BaseRun> {
   key: string;
   header: string;
   align?: 'left' | 'right';
+  minWidth?: string;
   render: (run: T) => React.ReactNode;
 }
 
@@ -70,11 +72,11 @@ export function getBaseColumns<T extends BaseRun>(): RunsColumnDef<T>[] {
         <span className="flex items-center gap-1.5">
           <Link
             href={buildExplanationUrl(run.explanation_id)}
-            className="font-mono text-xs text-[var(--accent-gold)] hover:underline"
+            className="text-xs text-[var(--accent-gold)] hover:underline truncate max-w-[200px]"
             onClick={(e) => e.stopPropagation()}
-            title={`View explanation #${run.explanation_id}`}
+            title={run.explanation_title ?? `Explanation #${run.explanation_id}`}
           >
-            #{run.explanation_id}
+            {run.explanation_title ?? `#${run.explanation_id}`}
           </Link>
         </span>
       ) : (
@@ -139,9 +141,10 @@ export function getBaseColumns<T extends BaseRun>(): RunsColumnDef<T>[] {
     {
       key: 'created',
       header: 'Created',
+      minWidth: '6rem',
       render: (run) => (
-        <span className="text-[var(--text-muted)] text-xs">
-          {new Date(run.created_at).toLocaleDateString()}
+        <span className="text-[var(--text-muted)] text-xs whitespace-nowrap">
+          {formatDate(run.created_at)}
         </span>
       ),
     },
@@ -176,6 +179,7 @@ export function RunsTable<T extends BaseRun>({
               <th
                 key={col.key}
                 className={`${compact ? 'px-2 py-1.5' : 'p-3'} text-${col.align ?? 'left'}`}
+                style={col.minWidth ? { minWidth: col.minWidth } : undefined}
               >
                 {col.header}
               </th>

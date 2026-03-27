@@ -54,21 +54,34 @@ export function EloTab({ runId }: EloTabProps): JSX.Element {
   const chartW = width - padding.left - padding.right;
   const chartH = height - padding.top - padding.bottom;
 
-  const muValues = history.map(h => h.mu);
-  const minMu = Math.min(...muValues) - 1;
-  const maxMu = Math.max(...muValues) + 1;
+  // Determine number of lines: use mus array (top-K) if available, otherwise single line
+  const hasMultiLine = history.some(h => h.mus && h.mus.length > 1);
+  const lineCount = hasMultiLine ? Math.max(...history.map(h => h.mus?.length ?? 1)) : 1;
+
+  // Collect all mu values for axis scaling
+  const allMuValues = history.flatMap(h => h.mus ?? [h.mu]);
+  const minMu = Math.min(...allMuValues) - 1;
+  const maxMu = Math.max(...allMuValues) + 1;
   const muRange = maxMu - minMu || 1;
 
-  const points = history.map((h, i) => {
-    const x = padding.left + (i / Math.max(history.length - 1, 1)) * chartW;
-    const y = padding.top + chartH - ((h.mu - minMu) / muRange) * chartH;
-    return `${x},${y}`;
-  });
+  // Line colors for top-K variants (gold for #1, copper for rest, fading opacity)
+  const lineColors = ['var(--accent-gold)', 'var(--accent-copper)', 'var(--text-secondary)', 'var(--text-muted)', 'var(--border-default)'];
+
+  // Build polyline points for each rank position
+  const lineData = Array.from({ length: lineCount }, (_, rank) =>
+    history.map((h, i) => {
+      const mu = h.mus?.[rank] ?? (rank === 0 ? h.mu : null);
+      if (mu == null) return null;
+      const x = padding.left + (i / Math.max(history.length - 1, 1)) * chartW;
+      const y = padding.top + chartH - ((mu - minMu) / muRange) * chartH;
+      return `${x},${y}`;
+    }).filter(Boolean) as string[],
+  );
 
   return (
     <div className="space-y-4" data-testid="elo-tab">
       <h3 className="text-xl font-display font-semibold text-[var(--text-primary)]">
-        Rating History ({history.length} iterations)
+        Rating History ({history.length} iterations{hasMultiLine ? `, Top ${lineCount}` : ''})
       </h3>
       <div className="bg-[var(--surface-secondary)] border border-[var(--border-default)] rounded-book p-4">
         <svg viewBox={`0 0 ${width} ${height}`} className="w-full max-w-2xl">
@@ -92,20 +105,35 @@ export function EloTab({ runId }: EloTabProps): JSX.Element {
               </text>
             );
           })}
-          {/* Line */}
-          <polyline
-            points={points.join(' ')}
-            fill="none"
-            stroke="var(--accent-gold)"
-            strokeWidth="2"
-          />
-          {/* Dots */}
+          {/* Lines for each rank position (top-K) */}
+          {lineData.map((pts, rank) => (
+            <polyline
+              key={rank}
+              points={pts.join(' ')}
+              fill="none"
+              stroke={lineColors[rank] ?? 'var(--text-muted)'}
+              strokeWidth={rank === 0 ? 2 : 1.5}
+              strokeOpacity={rank === 0 ? 1 : 0.6}
+            />
+          ))}
+          {/* Dots for top-1 line only */}
           {history.map((h, i) => {
             const x = padding.left + (i / Math.max(history.length - 1, 1)) * chartW;
             const y = padding.top + chartH - ((h.mu - minMu) / muRange) * chartH;
             return <circle key={i} cx={x} cy={y} r="3" fill="var(--accent-gold)" />;
           })}
         </svg>
+        {/* Legend for multi-line chart */}
+        {hasMultiLine && (
+          <div className="flex gap-4 mt-2 text-xs text-[var(--text-secondary)]">
+            {Array.from({ length: Math.min(lineCount, 5) }, (_, i) => (
+              <span key={i} className="flex items-center gap-1">
+                <span className="inline-block w-3 h-0.5" style={{ backgroundColor: lineColors[i] ?? 'var(--text-muted)', opacity: i === 0 ? 1 : 0.6 }} />
+                #{i + 1}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

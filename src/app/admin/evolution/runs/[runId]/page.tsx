@@ -73,22 +73,22 @@ export default function EvolutionRunDetailPage(): JSX.Element {
       <EvolutionBreadcrumb items={[
         { label: 'Evolution', href: '/admin/evolution-dashboard' },
         { label: 'Runs', href: '/admin/evolution/runs' },
-        { label: run.id.substring(0, 8) },
+        { label: run.prompt_name || run.id.substring(0, 8) },
       ]} />
 
       <EntityDetailHeader
-        title={`Run ${run.id.substring(0, 8)}`}
+        title={run.prompt_name ? `Run: ${run.prompt_name}` : `Run ${run.id.substring(0, 8)}`}
         entityId={run.id}
         statusBadge={<StatusBadge variant="run-status" status={run.status} hasError={!!run.error_message} />}
         links={[
           run.strategy_name || run.strategy_id
-            ? { prefix: 'Strategy', label: run.strategy_name || run.strategy_id.substring(0, 8), href: `/admin/evolution/strategies/${run.strategy_id}` }
+            ? { prefix: 'Strategy', label: run.strategy_name || `#${run.strategy_id.substring(0, 8)}`, href: `/admin/evolution/strategies/${run.strategy_id}` }
             : null,
           run.experiment_id
-            ? { prefix: 'Experiment', label: run.experiment_name || run.experiment_id.substring(0, 8), href: `/admin/evolution/experiments/${run.experiment_id}` }
+            ? { prefix: 'Experiment', label: run.experiment_name || `#${run.experiment_id.substring(0, 8)}`, href: `/admin/evolution/experiments/${run.experiment_id}` }
             : null,
           run.prompt_id
-            ? { prefix: 'Prompt', label: run.prompt_name || run.prompt_id.substring(0, 8), href: `/admin/evolution/prompts/${run.prompt_id}` }
+            ? { prefix: 'Prompt', label: run.prompt_name || `#${run.prompt_id.substring(0, 8)}`, href: `/admin/evolution/prompts/${run.prompt_id}` }
             : null,
         ].filter(Boolean) as Array<{ prefix: string; label: string; href: string }>}
       />

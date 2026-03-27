@@ -3,7 +3,7 @@
 // V2 rewrite: uses run_summary JSONB, cost view, and variant lineage instead of checkpoints.
 
 import { adminAction, type AdminContext } from './adminAction';
-import { validateUuid } from './shared';
+import { validateUuid, getTestStrategyIds } from './shared';
 import { EvolutionRunSummarySchema } from '@evolution/lib/types';
 
 export interface DashboardData {
@@ -29,6 +29,8 @@ export interface DashboardData {
 export interface EloHistoryPoint {
   iteration: number;
   mu: number;
+  /** Top-K mu values for this iteration (when available from V3 run_summary). */
+  mus?: number[];
 }
 
 export interface LineageNode {
@@ -64,14 +66,10 @@ export const getEvolutionDashboardDataAction = adminAction(
     const filterTest = input?.filterTestContent ?? false;
 
     // Fetch test strategy IDs first (small set), then exclude their runs.
-    // This avoids !inner joins which depend on FK constraints + PostgREST schema cache.
+    // Uses shared helper that matches [TEST], exact "test"/"Test", and timestamp patterns.
     let testStrategyIds: string[] = [];
     if (filterTest) {
-      const { data: testStrategies } = await supabase
-        .from('evolution_strategies')
-        .select('id')
-        .ilike('name', '%[TEST]%');
-      testStrategyIds = (testStrategies ?? []).map(s => s.id as string);
+      testStrategyIds = await getTestStrategyIds(supabase);
     }
 
     // Build queries — status needs id for cost metric lookup
@@ -101,7 +99,8 @@ export const getEvolutionDashboardDataAction = adminAction(
     const completedRuns = runs.filter(r => r.status === 'completed').length;
     const failedRuns = runs.filter(r => r.status === 'failed').length;
 
-    // Total cost from evolution_metrics (replaces dropped evolution_run_costs view)
+    // Total cost from evolution_metrics, with fallback to evolution_run_costs view
+    // when metrics writes fail (Bug 1: cost always $0.00)
     let totalCostUsd = 0;
     if (filteredRunIds.length > 0) {
       const { data: costMetrics } = await supabase
@@ -111,6 +110,16 @@ export const getEvolutionDashboardDataAction = adminAction(
         .eq('metric_name', 'cost')
         .in('entity_id', filteredRunIds);
       totalCostUsd = (costMetrics ?? []).reduce((sum, m) => sum + (Number(m.value) || 0), 0);
+
+      // Fallback: if metrics-based cost is $0, use evolution_run_costs view
+      // which aggregates directly from evolution_agent_invocations.cost_usd
+      if (totalCostUsd === 0) {
+        const { data: viewCosts } = await supabase
+          .from('evolution_run_costs')
+          .select('total_cost_usd')
+          .in('run_id', filteredRunIds);
+        totalCostUsd = (viewCosts ?? []).reduce((sum, c) => sum + (Number(c.total_cost_usd) || 0), 0);
+      }
     }
     const runCount = completedRuns + failedRuns;
     const avgCostPerRun = runCount > 0 ? totalCostUsd / runCount : 0;
@@ -132,7 +141,23 @@ export const getEvolutionDashboardDataAction = adminAction(
       runIds.length > 0
         ? supabase.from('evolution_metrics').select('entity_id, value')
             .eq('entity_type', 'run').eq('metric_name', 'cost').in('entity_id', runIds)
-            .then(({ data, error }) => { if (error) throw error; return new Map((data ?? []).map(c => [c.entity_id as string, Number(c.value) || 0])); })
+            .then(async ({ data, error }) => {
+              if (error) throw error;
+              const map = new Map((data ?? []).map(c => [c.entity_id as string, Number(c.value) || 0]));
+              // Fallback: fill missing costs from evolution_run_costs view
+              const missingIds = runIds.filter(id => !map.has(id) || map.get(id) === 0);
+              if (missingIds.length > 0) {
+                const { data: viewCosts } = await supabase
+                  .from('evolution_run_costs')
+                  .select('run_id, total_cost_usd')
+                  .in('run_id', missingIds);
+                for (const c of viewCosts ?? []) {
+                  const cost = Number(c.total_cost_usd) || 0;
+                  if (cost > 0) map.set(c.run_id as string, cost);
+                }
+              }
+              return map;
+            })
         : Promise.resolve(new Map<string, number>()),
     ]);
 
@@ -176,7 +201,11 @@ export const getEvolutionRunEloHistoryAction = adminAction(
     const parsed = EvolutionRunSummarySchema.safeParse(data.run_summary);
     if (!parsed.success) return [];
 
-    return (parsed.data.muHistory ?? []).map((mus, i) => ({ iteration: i + 1, mu: mus[0] ?? 0 }));
+    return (parsed.data.muHistory ?? []).map((mus, i) => ({
+      iteration: i + 1,
+      mu: mus[0] ?? 0,
+      mus: mus.length > 1 ? mus : undefined,
+    }));
   },
 );
 
