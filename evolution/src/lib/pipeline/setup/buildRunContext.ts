@@ -15,6 +15,8 @@ import { v2StrategyConfigSchema } from '../../schemas';
 /** Variant loaded from arena (fromArena flag set). */
 export interface ArenaTextVariation extends Variant {
   fromArena: true;
+  /** Cumulative arena match count loaded from DB, used for absolute-count sync. */
+  arenaMatchCount?: number;
 }
 
 // ─── Arena Type guard ───────────────────────────────────────────
@@ -58,6 +60,7 @@ export async function loadArenaEntries(
       createdAt: Date.now() / 1000,
       iterationBorn: 0,
       fromArena: true,
+      arenaMatchCount: entry.arena_match_count ?? 0,
     });
     ratings.set(entry.id, {
       mu: entry.mu ?? DEFAULT_MU,

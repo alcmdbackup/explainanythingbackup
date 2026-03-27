@@ -313,6 +313,7 @@ export interface RankingExecutionDetail extends ExecutionDetailBase {
   eligibleContenders: number;
   totalComparisons: number;
   flowEnabled: boolean;
+  low_sigma_opponents_count?: number;
 }
 
 export interface ProximityExecutionDetail extends ExecutionDetailBase {

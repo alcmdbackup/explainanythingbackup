@@ -161,6 +161,23 @@ The action selects the appropriate ancestor column based on entity type:
 
 Results are ordered by `created_at ASC` with range-based pagination (max 200 per page).
 
+## Triage Convergence Logging
+
+During triage in `executeTriage()`, a debug-level log is emitted per entrant after opponent selection:
+
+**Message:** `"Triage entrant opponents"`
+
+**Context fields:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `variantId` | string | The entrant being calibrated |
+| `opponentSigmas` | number[] | Sigma values of the selected opponents |
+| `sigmaBefore` | number | The entrant's sigma before triage matches |
+| `lowSigmaOpponents` | number | Count of opponents with sigma in the bottom 25th percentile (anchors) |
+
+This log helps diagnose whether sigma-weighted opponent selection is working as expected and how many anchor opponents each entrant faces.
+
 ## Key Files
 
 | File | Purpose |

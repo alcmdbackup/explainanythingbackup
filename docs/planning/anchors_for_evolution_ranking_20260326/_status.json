@@ -1,0 +1,21 @@
+{
+  "project": "feat/anchors_for_evolution_ranking_20260326",
+  "branch": "feat/anchors_for_evolution_ranking_20260326",
+  "created_at": "2026-03-26T23:36:41Z",
+  "prerequisites": {
+    "getting_started_read": "2026-03-26T23:36:41Z",
+    "project_workflow_read": "2026-03-27T00:21:53Z",
+    "todos_created": "2026-03-27T00:30:00Z",
+    "testing_overview_read": "2026-03-27T06:00:52Z",
+    "design_style_guide_read": "2026-03-27T06:13:23Z"
+  },
+  "relevantDocs": [
+    "evolution/docs/arena.md",
+    "evolution/docs/rating_and_comparison.md",
+    "evolution/docs/architecture.md",
+    "docs/feature_deep_dives/evolution_metrics.md",
+    "docs/feature_deep_dives/evolution_logging.md",
+    "evolution/docs/metrics.md",
+    "evolution/docs/visualization.md"
+  ]
+}

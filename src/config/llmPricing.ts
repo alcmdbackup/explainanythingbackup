@@ -61,7 +61,7 @@ export const LLM_PRICING: Record<string, ModelPricing> = {
   'deepseek-chat': { inputPer1M: 0.14, outputPer1M: 0.28 },
 
   // OpenRouter (GPT-OSS-20B via OpenRouter)
-  'openai/gpt-oss-20b': { inputPer1M: 0.03, outputPer1M: 0.11 },
+  'gpt-oss-20b': { inputPer1M: 0.03, outputPer1M: 0.11 },
 
   // Local models (Ollama) — free
   'LOCAL_qwen2.5:14b': { inputPer1M: 0, outputPer1M: 0 },

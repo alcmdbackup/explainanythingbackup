@@ -198,8 +198,9 @@ and carries partial results.
 **Triage** — only runs when there are both existing and new variants (skipped entirely
 on the first iteration when all variants are new). For each new entrant whose sigma is
 at or above `CALIBRATED_SIGMA_THRESHOLD` (5.0), the system runs pairwise comparisons
-against stratified opponents selected from the existing pool. Triage has two early
-termination conditions:
+against stratified opponents selected from the existing pool. Opponent selection uses
+sigma-weighted sorting within each quartile slice, preferring low-sigma anchors for
+faster calibration. Triage has two early termination conditions:
 
 - **Elimination**: if after 2+ opponents, `mu + 2*sigma < top20Cutoff` (the mu of the
   variant at the 80th percentile), the entrant is eliminated. Eliminated variants are

@@ -565,6 +565,7 @@ export const rankingExecutionDetailSchema = executionDetailBaseSchema.extend({
   eligibleContenders: z.number().int().min(0),
   totalComparisons: z.number().int().min(0),
   flowEnabled: z.boolean(),
+  low_sigma_opponents_count: z.number().int().min(0).optional(),
 });
 
 export const proximityExecutionDetailSchema = executionDetailBaseSchema.extend({

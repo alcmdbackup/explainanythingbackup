@@ -67,6 +67,7 @@ export class RankingAgent extends Agent<RankingInput, RankResult, RankingExecuti
     { key: 'totalComparisons', label: 'Total Comparisons', type: 'number' },
     { key: 'eligibleContenders', label: 'Eligible Contenders', type: 'number' },
     { key: 'flowEnabled', label: 'Flow Enabled', type: 'boolean' },
+    { key: 'low_sigma_opponents_count', label: 'Low-σ Opponents', type: 'number' },
     { key: 'totalCost', label: 'Total Cost', type: 'number', formatter: 'cost' },
   ];
 
@@ -93,6 +94,7 @@ export class RankingAgent extends Agent<RankingInput, RankResult, RankingExecuti
       eligibleContenders: meta.eligibleContenders,
       totalComparisons: meta.totalComparisons,
       flowEnabled: false,
+      low_sigma_opponents_count: meta.lowSigmaOpponentsCount,
     };
 
     return {
