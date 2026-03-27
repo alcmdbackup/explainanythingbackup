@@ -658,7 +658,7 @@ function ResultsPageContent() {
             }
 
             // Sync content to lifecycle reducer before exiting
-            if (contentToSync) {
+            if (contentToSync !== undefined) {
                 dispatchLifecycle({ type: 'UPDATE_CONTENT', content: contentToSync });
             }
 

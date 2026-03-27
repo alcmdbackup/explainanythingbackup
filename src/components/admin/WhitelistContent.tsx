@@ -4,7 +4,7 @@
  * Manages canonical terms and aliases for link whitelisting.
  */
 
-import { useState, useEffect, useCallback, useId, useRef } from 'react';
+import { useState, useEffect, useCallback, useId } from 'react';
 import { ConfirmDialog } from '@evolution/components/evolution/dialogs/ConfirmDialog';
 import FocusTrap from 'focus-trap-react';
 import { toast } from 'sonner';
