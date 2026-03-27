@@ -11,7 +11,7 @@ import {
   getBaseColumns,
 } from '@evolution/components/evolution';
 import type { FilterDef } from '@evolution/components/evolution';
-import { ConfirmDialog } from '@evolution/components/evolution/ConfirmDialog';
+import { ConfirmDialog } from '@evolution/components/evolution';
 import {
   getEvolutionRunsAction,
   killEvolutionRunAction,
