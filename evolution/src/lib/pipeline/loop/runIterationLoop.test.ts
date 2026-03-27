@@ -459,6 +459,30 @@ describe('evolveArticle', () => {
     });
   });
 
+  // ─── C3: Generation failure logging ─────────────────────────────
+  it('logs warning when generation fails with non-budget error', async () => {
+    const { logger, calls } = createMockEntityLogger();
+    // Use a provider that returns empty text (which will cause generation to fail validation)
+    const provider = makeRawProvider();
+    provider.complete.mockResolvedValue('');
+
+    const result = await evolveArticle(
+      'original text',
+      provider,
+      makeMockDb(),
+      'run-1',
+      baseConfig,
+      { logger },
+    );
+    // Loop should continue to ranking even when generation fails
+    expect(result.stopReason).toBe('iterations_complete');
+    // Should log generation failure warning
+    const genFailCalls = calls.filter((c) =>
+      c.message === 'Generation failed (non-budget)' || c.message.includes('Generation'),
+    );
+    expect(genFailCalls.length).toBeGreaterThan(0);
+  });
+
   // ─── Partial ranking results on budget exceeded ───────────────
   it('applies partial ranking results when ranking returns budgetExceeded with partialResult', async () => {
     const partialRatingUpdates = { 'v-partial-1': { mu: 32, sigma: 5 }, 'v-partial-2': { mu: 18, sigma: 6 } };

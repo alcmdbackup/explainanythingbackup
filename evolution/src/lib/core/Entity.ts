@@ -164,7 +164,10 @@ export abstract class Entity<TRow> {
       }
 
       // 4. Delete self
-      // TODO: wrap in Postgres RPC for transactional safety
+      // TODO: wrap steps 1-4 in a single Supabase RPC for transactional safety.
+      // Currently each step is a separate request — if step 3 succeeds but step 4 fails,
+      // orphaned metrics/logs are cleaned up but the entity remains. Supabase JS client
+      // does not support multi-statement transactions; requires a server-side RPC function.
       await db.from(this.table).delete().eq('id', id);
       return;
     }

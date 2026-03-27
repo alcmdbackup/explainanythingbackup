@@ -515,6 +515,21 @@ describe('finalizeRun bug fixes', () => {
     expect(failedUpdate).toBeUndefined();
   });
 
+  it('H5: arena-only run produces full run_summary with matchStats and topVariants', async () => {
+    const arenaVariant: Variant = { ...makeVariant(ARENA_ID, 'test'), fromArena: true };
+    const result = makeResult({ pool: [arenaVariant] });
+    const { db, updates } = makeMockDb();
+    await finalizeRun(RUN_ID, result, { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
+
+    const completedUpdate = updates.find((u) => u.data.status === 'completed');
+    expect(completedUpdate).toBeDefined();
+    const summary = completedUpdate!.data.run_summary as Record<string, unknown>;
+    expect(summary.version).toBe(3);
+    expect(summary.stopReason).toBe('arena_only');
+    expect(summary.matchStats).toBeDefined();
+    expect(summary.topVariants).toBeDefined();
+  });
+
   it('Bug #14: finalization skips persistence when runner_id mismatch (count=0)', async () => {
     const { db, upserts } = makeMockDb();
     // Override the chain to return empty data (simulating count=0 / runner_id mismatch)
@@ -546,10 +561,10 @@ describe('finalizeRun bug fixes', () => {
     // Variants should NOT be persisted
     const variantUpserts = upserts.filter((u) => u.table === 'evolution_variants');
     expect(variantUpserts).toHaveLength(0);
-    // Should log warning
-    expect(mockLogger.warn).toHaveBeenCalledWith(
+    // Should log error (M1: upgraded from warn to error)
+    expect(mockLogger.error).toHaveBeenCalledWith(
       expect.stringContaining('Finalization aborted'),
-      expect.any(Object),
+      expect.objectContaining({ variantCount: expect.any(Number) }),
     );
   });
 });

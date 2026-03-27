@@ -4,6 +4,11 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import VariantsListPage from './page';
 
+const mockToastError = jest.fn();
+jest.mock('sonner', () => ({
+  toast: { error: (...args: unknown[]) => mockToastError(...args), success: jest.fn() },
+}));
+
 const mockVariants = [
   {
     id: 'aaaaaaaa-1111-2222-3333-444444444444',
@@ -121,6 +126,14 @@ describe('VariantsListPage', () => {
       const filter = screen.getByTestId('filter-filterTestContent');
       expect(filter).toBeInTheDocument();
       expect(filter).toHaveTextContent('Hide test content');
+    });
+  });
+
+  it('H1: shows error toast when fetch fails', async () => {
+    mockListVariants.mockResolvedValueOnce({ success: false, error: { message: 'DB error' } });
+    render(<VariantsListPage />);
+    await waitFor(() => {
+      expect(mockToastError).toHaveBeenCalledWith('DB error');
     });
   });
 });

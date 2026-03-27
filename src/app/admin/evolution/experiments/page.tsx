@@ -124,6 +124,8 @@ export default function ExperimentsListPage(): JSX.Element {
     const result = await listExperimentsAction(params);
     if (result.success && result.data) {
       setExperiments(result.data as ExperimentSummary[]);
+    } else if (!result.success) {
+      toast.error(result.error?.message ?? 'Failed to load experiments');
     }
     setLoading(false);
   }, [filterValues]);

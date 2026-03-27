@@ -217,10 +217,9 @@ order-invariant keys) are excluded from candidate generation, preventing rematch
 As the run consumes more of its budget, the ranking phase becomes more conservative,
 preserving remaining budget for generation.
 
-> **Warning:** Draw handling differs between phases. In triage, a match is treated as a
-> draw when `confidence === 0` or `winnerId === loserId`. In fine-ranking, the threshold
-> is `confidence < 0.3`. Both paths call `updateDraw()` which shifts both ratings toward
-> each other.
+> **Note:** Draw handling is consistent across both phases. A match is treated as a draw
+> when `confidence < 0.3` or `winnerId === loserId`. Both triage and fine-ranking use the
+> same threshold and both call `updateDraw()` which shifts both ratings toward each other.
 
 ---
 

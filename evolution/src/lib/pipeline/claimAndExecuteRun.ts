@@ -38,13 +38,18 @@ export interface RunnerResult {
 
 // ─── Helpers ─────────────────────────────────────────────────────
 
-function startHeartbeat(db: SupabaseClient, runId: string): NodeJS.Timeout {
+function startHeartbeat(db: SupabaseClient, runId: string, runnerId: string): NodeJS.Timeout {
   return setInterval(async () => {
     try {
-      await db
+      const { data } = await db
         .from('evolution_runs')
         .update({ last_heartbeat: new Date().toISOString() })
-        .eq('id', runId);
+        .eq('id', runId)
+        .eq('runner_id', runnerId)
+        .select('id');
+      if (!data || data.length === 0) {
+        logger.warn('Heartbeat skipped: runner_id mismatch (run may have been re-claimed)', { runId, runnerId });
+      }
     } catch (err) {
       logger.warn('Heartbeat update failed', { runId, error: String(err) });
     }
@@ -145,7 +150,7 @@ export async function claimAndExecuteRun(
       },
     };
 
-    heartbeatInterval = startHeartbeat(supabase, runId);
+    heartbeatInterval = startHeartbeat(supabase, runId, options.runnerId);
 
     await executePipeline(runId, claimedRun, supabase, llmProvider, startMs, options.runnerId);
     return { claimed: true, runId, stopReason: 'completed', durationMs: Date.now() - startMs };

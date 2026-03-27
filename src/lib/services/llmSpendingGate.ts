@@ -74,7 +74,18 @@ export class LLMSpendingGate {
     if (cached) {
       const headroom = cached.dailyCap * FAST_PATH_HEADROOM;
       if (cached.dailyTotal + cached.reserved + estimatedCost < cached.dailyCap - headroom) {
-        return estimatedCost;
+        // Check monthly cap using cached value (no DB call on cache hit)
+        if (this.monthlyCache && this.monthlyCache.expiresAt > Date.now()) {
+          if (this.monthlyCache.value.total + estimatedCost >= this.monthlyCache.value.cap) {
+            throw new GlobalBudgetExceededError(
+              `Monthly budget exceeded: $${this.monthlyCache.value.total.toFixed(2)} of $${this.monthlyCache.value.cap.toFixed(2)} cap`,
+              { category, monthlyTotal: this.monthlyCache.value.total, monthlyCap: this.monthlyCache.value.cap },
+            );
+          }
+          // Both daily and monthly caches warm and under limit — fast return
+          return estimatedCost;
+        }
+        // Monthly cache miss/expired — fall through to slow path
       }
     }
 

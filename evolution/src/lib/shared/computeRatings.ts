@@ -1,4 +1,4 @@
-// Rating math, pairwise comparison, LRU cache, and 2-pass reversal — consolidated from
+// Rating math, pairwise comparison, FIFO cache, and 2-pass reversal — consolidated from
 // rating.ts, comparisonCache.ts, reversalComparison.ts, and lib/comparison.ts.
 
 import { rating as osRating, rate as osRate } from 'openskill';
@@ -76,10 +76,10 @@ export function computeEloPerDollar(mu: number, totalCostUsd: number | null): nu
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// Comparison Cache (LRU)
+// Comparison Cache (FIFO)
 // ═══════════════════════════════════════════════════════════════════
 
-/** Maximum number of entries before LRU eviction kicks in. */
+/** Maximum number of entries before FIFO eviction kicks in. */
 export const MAX_CACHE_SIZE = 500;
 
 export interface CachedMatch {

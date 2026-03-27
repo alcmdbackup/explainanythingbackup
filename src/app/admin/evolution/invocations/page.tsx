@@ -7,6 +7,7 @@ import { listInvocationsAction, type InvocationListEntry } from '@evolution/serv
 import type { ColumnDef, FilterDef } from '@evolution/components/evolution';
 import Link from 'next/link';
 import { formatCostDetailed } from '@evolution/lib/utils/formatters';
+import { toast } from 'sonner';
 
 const PAGE_SIZE = 20;
 
@@ -87,6 +88,8 @@ export default function InvocationsListPage(): JSX.Element {
     if (result.success && result.data) {
       setItems(result.data.items);
       setTotalCount(result.data.total);
+    } else if (!result.success) {
+      toast.error(result.error?.message ?? 'Failed to load invocations');
     }
     setLoading(false);
   }, []);

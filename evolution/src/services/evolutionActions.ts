@@ -210,7 +210,7 @@ export const getEvolutionRunsAction = adminAction(
 
     let query = supabase
       .from('evolution_runs')
-      .select('*', { count: 'exact' });
+      .select('id, status, strategy_id, experiment_id, prompt_id, budget_cap_usd, error_message, created_at, completed_at, archived, pipeline_version, runner_id, run_summary, last_heartbeat', { count: 'exact' });
 
     if (filters?.status) query = query.eq('status', filters.status);
     if (filters?.strategy_id) {
@@ -230,9 +230,7 @@ export const getEvolutionRunsAction = adminAction(
     const { data: runs, error, count } = await query;
     if (error) throw error;
 
-    // Cast through unknown: the join select expression includes an extra
-    // evolution_strategies object that the TS Supabase client can't parse.
-    const typedRuns = (runs ?? []) as unknown as EvolutionRun[];
+    const typedRuns = (runs ?? []) as EvolutionRun[];
 
     // Batch-fetch costs from evolution_agent_invocations (source of truth for LLM spend)
     const runIds = typedRuns.map(r => r.id);
@@ -520,7 +518,7 @@ export const listVariantsAction = adminAction(
     const { data, error, count } = await query;
     if (error) throw error;
 
-    const items = (data ?? []) as unknown as VariantListEntry[];
+    const items = (data ?? []) as VariantListEntry[];
 
     // Post-fetch enrichment: batch-fetch strategy names via runs
     const runIds = [...new Set(items.map(v => v.run_id).filter(Boolean))];

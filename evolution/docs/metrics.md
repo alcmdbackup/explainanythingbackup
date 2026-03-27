@@ -157,13 +157,13 @@ The upsert uses `ON CONFLICT (entity_type, entity_id, metric_name)` so repeated 
 
 **File:** `evolution/src/lib/metrics/recomputeMetrics.ts`
 
-When a variant's `mu` or `sigma` changes after run completion (e.g., from arena matches), a database trigger (`mark_elo_metrics_stale`) sets `stale=true` on dependent run, strategy, and experiment metrics.
+When a variant's `mu` or `sigma` changes after run completion (e.g., from arena matches), a database trigger (`mark_elo_metrics_stale`) sets `stale=true` on **all** dependent run, strategy, and experiment metrics (not just elo-category metrics).
 
 On the next read, server actions detect stale rows and call `recomputeStaleMetrics()`:
 
 1. **Row-level locking** via `lock_stale_metrics` RPC (`SELECT FOR UPDATE SKIP LOCKED`) — concurrent readers skip recomputation, preventing thundering herd.
 2. **Recompute** based on entity type:
-   - **Run**: re-reads variant ratings and recomputes elo metrics via finalization compute functions.
+   - **Run**: re-reads variant ratings and recomputes all finalization metrics (elo, match stats, variant counts) via finalization compute functions.
    - **Strategy/Experiment**: re-reads child run metrics and re-runs propagation aggregation.
 3. **Clear stale flags** in a `finally` block.
 

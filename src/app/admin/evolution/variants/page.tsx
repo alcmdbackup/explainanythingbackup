@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { EvolutionBreadcrumb, EntityListPage } from '@evolution/components/evolution';
 import { listVariantsAction, type VariantListEntry } from '@evolution/services/evolutionActions';
 import type { ColumnDef, FilterDef } from '@evolution/components/evolution';
+import { toast } from 'sonner';
 
 const PAGE_SIZE = 20;
 
@@ -84,6 +85,8 @@ export default function VariantsListPage(): JSX.Element {
     if (result.success && result.data) {
       setItems(result.data.items);
       setTotalCount(result.data.total);
+    } else if (!result.success) {
+      toast.error(result.error?.message ?? 'Failed to load variants');
     }
     setLoading(false);
   }, []);

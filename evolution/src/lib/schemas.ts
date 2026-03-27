@@ -54,6 +54,8 @@ export const evolutionStrategyFullDbSchema = evolutionStrategyInsertSchema.exten
   run_count: z.number().int().min(0).default(0),
   total_cost_usd: z.number().min(0).default(0),
   avg_final_elo: z.number().nullable().default(null),
+  best_final_elo: z.number().nullable().default(null),
+  worst_final_elo: z.number().nullable().default(null),
   first_used_at: z.string().nullable().default(null),
   last_used_at: z.string().nullable().default(null),
   created_at: z.string(),
@@ -107,6 +109,7 @@ export const evolutionRunInsertSchema = z.object({
   error_message: z.string().nullable().optional(),
   prompt_id: z.string().uuid().nullable().optional(),
   pipeline_version: z.string().max(50).optional(),
+  // DB migration 20260322000007 conditionally applies NOT NULL — keep nullable for safety
   strategy_id: z.string().uuid().nullable().optional(),
   experiment_id: z.string().uuid().nullable().optional(),
   archived: z.boolean().optional().default(false),
@@ -145,6 +148,8 @@ export const evolutionVariantInsertSchema = z.object({
   generation_method: z.string().max(200).optional().nullable(),
   cost_usd: z.number().min(0).optional().nullable(),
   archived_at: z.string().nullable().optional(),
+  model: z.string().max(200).optional().nullable(),
+  evolution_explanation_id: z.string().uuid().optional().nullable(),
 });
 
 export const evolutionVariantFullDbSchema = evolutionVariantInsertSchema.extend({
