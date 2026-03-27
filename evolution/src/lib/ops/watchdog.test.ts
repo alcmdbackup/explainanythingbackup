@@ -1,6 +1,14 @@
-// Tests for V2 watchdog — stale run detection and failure marking.
+// Tests for V2 watchdog — stale run detection, failure marking, and orphaned reservation cleanup.
 
-import { runWatchdog } from './watchdog';
+const mockCleanup = jest.fn();
+
+jest.mock('@/lib/services/llmSpendingGate', () => ({
+  getSpendingGate: jest.fn().mockReturnValue({
+    cleanupOrphanedReservations: () => mockCleanup(),
+  }),
+}));
+
+import { runWatchdog, cleanupOrphanedReservations } from './watchdog';
 
 function buildWatchdogMock(opts: { staleRuns?: Array<Record<string, unknown>> }) {
   const { staleRuns = [] } = opts;
@@ -45,5 +53,22 @@ describe('watchdog ops', () => {
     const result = await runWatchdog(supabase);
     expect(result.staleRunsFound).toBe(1);
     expect(result.markedFailed).toEqual(['run-2']);
+  });
+});
+
+describe('cleanupOrphanedReservations', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('calls spending gate cleanup', async () => {
+    mockCleanup.mockResolvedValue(undefined);
+    await cleanupOrphanedReservations();
+    expect(mockCleanup).toHaveBeenCalledTimes(1);
+  });
+
+  it('propagates errors from spending gate', async () => {
+    mockCleanup.mockRejectedValue(new Error('DB connection failed'));
+    await expect(cleanupOrphanedReservations()).rejects.toThrow('DB connection failed');
   });
 });

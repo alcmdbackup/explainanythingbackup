@@ -2,8 +2,8 @@
 
 import type { EntityType, EntityMetricRegistry, MetricDefBase } from './types';
 import { DYNAMIC_METRIC_PREFIXES } from './types';
-import { computeRunCost } from './computations/execution';
 import {
+  computeRunCost,
   computeWinnerElo, computeMedianElo, computeP90Elo, computeMaxElo,
   computeTotalMatches, computeDecisiveRate, computeVariantCount,
 } from './computations/finalization';

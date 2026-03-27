@@ -1,9 +1,11 @@
 // Unit tests for finalization-phase metric compute functions.
 
 import {
+  computeRunCost, computeAgentCost,
   computeWinnerElo, computeMedianElo, computeP90Elo, computeMaxElo,
   computeTotalMatches, computeDecisiveRate, computeVariantCount,
 } from './finalization';
+import type { ExecutionContext } from '../types';
 import { toEloScale, DEFAULT_MU } from '@evolution/lib/shared/computeRatings';
 import type { FinalizationContext } from '../types';
 import type { Variant } from '@evolution/lib/types';
@@ -104,5 +106,37 @@ describe('computeDecisiveRate', () => {
 describe('computeVariantCount', () => {
   it('returns pool.length', () => {
     expect(computeVariantCount(makeCtx())).toBe(3);
+  });
+});
+
+// ─── Execution-phase metrics ─────────────────────────────────────
+
+function makeExecCtx(totalSpent: number, phaseCosts: Record<string, number>, phaseName: string): ExecutionContext {
+  return {
+    costTracker: {
+      getTotalSpent: () => totalSpent,
+      getPhaseCosts: () => phaseCosts,
+    },
+    phaseName,
+  };
+}
+
+describe('computeRunCost', () => {
+  it('returns costTracker.getTotalSpent()', () => {
+    expect(computeRunCost(makeExecCtx(1.23, {}, 'generation'))).toBe(1.23);
+  });
+
+  it('returns 0 when no spend', () => {
+    expect(computeRunCost(makeExecCtx(0, {}, 'ranking'))).toBe(0);
+  });
+});
+
+describe('computeAgentCost', () => {
+  it('returns phase cost for named phase', () => {
+    expect(computeAgentCost(makeExecCtx(2, { generation: 0.8, ranking: 1.2 }, 'ranking'))).toBe(1.2);
+  });
+
+  it('returns 0 for unknown phase', () => {
+    expect(computeAgentCost(makeExecCtx(2, { generation: 0.8 }, 'ranking'))).toBe(0);
   });
 });

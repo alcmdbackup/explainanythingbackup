@@ -1,7 +1,8 @@
-// Detect stale evolution runs and mark them as failed.
+// Detect stale evolution runs and mark them as failed; clean up orphaned reservations.
 // V2: no checkpoints, no continuation — stale runs are simply failed.
 
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { getSpendingGate } from '@/lib/services/llmSpendingGate';
 
 const DEFAULT_STALE_THRESHOLD_MINUTES = 10;
 
@@ -66,4 +67,9 @@ export async function runWatchdog(
     staleRunsFound: runs.length,
     markedFailed,
   };
+}
+
+export async function cleanupOrphanedReservations(): Promise<void> {
+  const gate = getSpendingGate();
+  await gate.cleanupOrphanedReservations();
 }
