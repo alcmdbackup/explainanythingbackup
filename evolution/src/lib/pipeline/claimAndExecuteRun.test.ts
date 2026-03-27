@@ -220,7 +220,7 @@ describe('claimAndExecuteRun', () => {
 
       expect(result.claimed).toBe(true);
       expect(result.runId).toBe('run-123');
-      expect(result.stopReason).toBe('completed');
+      expect(result.stopReason).toBe('iterations_complete');
       expect(result.durationMs).toBeGreaterThanOrEqual(0);
     });
 
@@ -237,7 +237,7 @@ describe('claimAndExecuteRun', () => {
       const result = await claimAndExecuteRun({ runnerId: 'v2-test-runner-123' });
 
       expect(result.claimed).toBe(true);
-      expect(result.stopReason).toBe('completed');
+      expect(result.stopReason).toBe('iterations_complete');
       // runnerId is the 7th arg to finalizeRun
       expect(mockFinalizeRun).toHaveBeenCalledWith(
         'run-123',        // runId
@@ -292,6 +292,57 @@ describe('claimAndExecuteRun', () => {
       expect(mockBuildRunContext).not.toHaveBeenCalled();
       expect(mockEvolveArticle).not.toHaveBeenCalled();
       expect(mockFinalizeRun).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('deadline and signal threading', () => {
+    const claimedRow = {
+      id: 'run-dl-1',
+      explanation_id: 'exp-1',
+      prompt_id: null,
+      experiment_id: null,
+      strategy_id: 'strat-1',
+      budget_cap_usd: '2.0',
+    };
+
+    beforeEach(() => {
+      mockRpc.mockResolvedValue({ data: [claimedRow], error: null });
+      mockBuildRunContext.mockResolvedValue({
+        context: {
+          originalText: 'test text',
+          config: { iterations: 1, budgetUsd: 2, judgeModel: 'gpt-4.1-nano', generationModel: 'gpt-4.1-nano' },
+          logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
+          initialPool: [],
+        },
+      });
+      mockEvolveArticle.mockResolvedValue({
+        winner: { id: 'v1', text: 'test', strategy: 'baseline' },
+        pool: [],
+        ratings: new Map(),
+        matchHistory: [],
+        totalCost: 0.01,
+        iterationsRun: 1,
+        stopReason: 'time_limit',
+        muHistory: [],
+        diversityHistory: [],
+        matchCounts: {},
+      });
+      mockFinalizeRun.mockResolvedValue(undefined);
+    });
+
+    it('maxDurationMs → deadlineMs passed to evolveArticle options', async () => {
+      const beforeMs = Date.now();
+      await claimAndExecuteRun({ runnerId: 'test-runner', maxDurationMs: 5000 });
+
+      expect(mockEvolveArticle).toHaveBeenCalledTimes(1);
+      const evolveOpts = mockEvolveArticle.mock.calls[0][5];
+      expect(evolveOpts.deadlineMs).toBeGreaterThanOrEqual(beforeMs + 5000);
+      expect(evolveOpts.deadlineMs).toBeLessThanOrEqual(Date.now() + 5000);
+    });
+
+    it('pipeline stopReason propagated to RunnerResult', async () => {
+      const result = await claimAndExecuteRun({ runnerId: 'test-runner' });
+      expect(result.stopReason).toBe('time_limit');
     });
   });
 

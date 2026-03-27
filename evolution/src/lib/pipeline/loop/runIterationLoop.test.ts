@@ -529,4 +529,73 @@ describe('evolveArticle', () => {
       expect.objectContaining({ winnerId: 'v-partial-1', loserId: 'v-partial-2' }),
     ]));
   });
+
+  // ─── Deadline / signal tests ──────────────────────────────────
+
+  it('deadline in past → stopReason=time_limit, iterationsRun=0, winner is baseline', async () => {
+    const result = await evolveArticle(
+      'original text',
+      makeRawProvider(),
+      makeMockDb(),
+      'run-dl-1',
+      { ...baseConfig, iterations: 5 },
+      { deadlineMs: Date.now() - 1000 },
+    );
+    expect(result.stopReason).toBe('time_limit');
+    expect(result.pool.length).toBeGreaterThanOrEqual(1);
+    expect(result.winner.strategy).toBe('baseline');
+  });
+
+  it('abort signal → stopReason=killed', async () => {
+    const ac = new AbortController();
+    ac.abort();
+    const result = await evolveArticle(
+      'original text',
+      makeRawProvider(),
+      makeMockDb(),
+      'run-sig-1',
+      { ...baseConfig, iterations: 5 },
+      { signal: ac.signal },
+    );
+    expect(result.stopReason).toBe('killed');
+  });
+
+  it('deadline far future → normal completion', async () => {
+    const result = await evolveArticle(
+      'original text',
+      makeRawProvider(),
+      makeMockDb(),
+      'run-dl-2',
+      baseConfig,
+      { deadlineMs: Date.now() + 600_000 },
+    );
+    expect(result.stopReason).toBe('iterations_complete');
+    expect(result.iterationsRun).toBe(1);
+  });
+
+  it('abort signal + deadline both true → killed wins (abort checked first)', async () => {
+    const ac = new AbortController();
+    ac.abort();
+    const result = await evolveArticle(
+      'original text',
+      makeRawProvider(),
+      makeMockDb(),
+      'run-both-1',
+      { ...baseConfig, iterations: 5 },
+      { signal: ac.signal, deadlineMs: Date.now() - 1000 },
+    );
+    expect(result.stopReason).toBe('killed');
+  });
+
+  it('deadline in past + tiny budget → time_limit wins (checked before generate)', async () => {
+    const result = await evolveArticle(
+      'original text',
+      makeRawProvider(),
+      makeMockDb(),
+      'run-dl-3',
+      { ...baseConfig, iterations: 5, budgetUsd: 0.0001 },
+      { deadlineMs: Date.now() - 1000 },
+    );
+    expect(result.stopReason).toBe('time_limit');
+  });
 });

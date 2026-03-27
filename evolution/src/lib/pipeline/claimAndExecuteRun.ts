@@ -26,6 +26,8 @@ export interface RunnerOptions {
   db?: SupabaseClient;
   /** If true, claim the run but return immediately without executing the pipeline. */
   dryRun?: boolean;
+  /** Optional AbortSignal for external shutdown (e.g. SIGTERM). */
+  signal?: AbortSignal;
 }
 
 export interface RunnerResult {
@@ -89,6 +91,9 @@ export async function claimAndExecuteRun(
 ): Promise<RunnerResult> {
   const supabase = options.db ?? await createSupabaseServiceClient();
   const startMs = Date.now();
+  const deadlineMs = options.maxDurationMs && options.maxDurationMs > 0
+    ? startMs + options.maxDurationMs
+    : undefined;
 
   // Claim a run (concurrent limit enforced server-side via advisory lock in RPC)
   const maxConcurrent = parseInt(process.env.EVOLUTION_MAX_CONCURRENT_RUNS ?? '', 10) || DEFAULT_MAX_CONCURRENT_RUNS;
@@ -152,8 +157,8 @@ export async function claimAndExecuteRun(
 
     heartbeatInterval = startHeartbeat(supabase, runId, options.runnerId);
 
-    await executePipeline(runId, claimedRun, supabase, llmProvider, startMs, options.runnerId);
-    return { claimed: true, runId, stopReason: 'completed', durationMs: Date.now() - startMs };
+    const pipelineResult = await executePipeline(runId, claimedRun, supabase, llmProvider, startMs, options.runnerId, deadlineMs, options.signal);
+    return { claimed: true, runId, stopReason: pipelineResult.stopReason, durationMs: Date.now() - startMs };
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     logger.error('Evolution pipeline failed', { runId, error: msg });
@@ -180,7 +185,9 @@ async function executePipeline(
   llmProvider: LLMProvider,
   startMs: number,
   runnerId: string,
-): Promise<void> {
+  deadlineMs?: number,
+  signal?: AbortSignal,
+): Promise<{ stopReason: string }> {
   await db
     .from('evolution_runs')
     .update({ status: 'running' })
@@ -205,6 +212,8 @@ async function executePipeline(
     initialPool: initialPool.length > 0 ? initialPool : undefined,
     experimentId: claimedRun.experiment_id ?? undefined,
     strategyId: claimedRun.strategy_id,
+    deadlineMs,
+    signal,
   });
   runLogger.info('Evolution loop completed', {
     stopReason: result.stopReason, iterations: result.iterationsRun,
@@ -229,5 +238,7 @@ async function executePipeline(
   }
 
   logger.info(`Run ${runId} completed`, { stopReason: result.stopReason, iterations: result.iterationsRun, cost: result.totalCost.toFixed(4) });
+
+  return { stopReason: result.stopReason };
 }
 

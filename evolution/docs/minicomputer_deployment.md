@@ -76,6 +76,7 @@ npx tsx evolution/scripts/processRunQueue.ts --dry-run --max-runs 1
 | `--max-runs N` | Stop after N total runs | `10` |
 | `--parallel N` | Number of parallel run executors | `1` |
 | `--max-concurrent-llm N` | Global LLM API concurrency cap | `20` |
+| `--max-duration N` | Per-run wall clock deadline in milliseconds | `6000000` (100 min) |
 
 The runner generates an ID in the format `v2-<hostname>-<pid>-<timestamp>` and writes it to the `runner_id` column on claimed runs.
 

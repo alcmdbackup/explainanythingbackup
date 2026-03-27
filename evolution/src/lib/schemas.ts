@@ -352,7 +352,7 @@ export const evolutionResultSchema = z.object({
   matchHistory: z.array(v2MatchSchema),
   totalCost: z.number().min(0),
   iterationsRun: z.number().int().min(0),
-  stopReason: z.enum(['budget_exceeded', 'iterations_complete', 'converged', 'killed']),
+  stopReason: z.enum(['budget_exceeded', 'iterations_complete', 'converged', 'killed', 'time_limit']),
   muHistory: z.array(z.array(z.number())),
   diversityHistory: z.array(z.number()),
   matchCounts: z.record(z.string(), z.number().int().min(0)),

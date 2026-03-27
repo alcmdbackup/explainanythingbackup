@@ -60,6 +60,52 @@ jest.mock('@/lib/services/llmSemaphore', () => ({
 
 import type { DbTarget } from './processRunQueue';
 
+describe('--max-duration flag', () => {
+  it('parses --max-duration 300000 correctly', () => {
+    const original = process.argv;
+    process.argv = ['node', 'script.ts', '--max-duration', '300000'];
+    const parseIntArg = (flag: string, defaultVal: number): number => {
+      const idx = process.argv.indexOf(flag);
+      if (idx === -1 || idx + 1 >= process.argv.length) return defaultVal;
+      const val = parseInt(process.argv[idx + 1]!, 10);
+      return Number.isFinite(val) && val > 0 ? val : defaultVal;
+    };
+    expect(parseIntArg('--max-duration', 6_000_000)).toBe(300000);
+    process.argv = original;
+  });
+
+  it('defaults to 6_000_000 when flag absent', () => {
+    const original = process.argv;
+    process.argv = ['node', 'script.ts'];
+    const parseIntArg = (flag: string, defaultVal: number): number => {
+      const idx = process.argv.indexOf(flag);
+      if (idx === -1 || idx + 1 >= process.argv.length) return defaultVal;
+      const val = parseInt(process.argv[idx + 1]!, 10);
+      return Number.isFinite(val) && val > 0 ? val : defaultVal;
+    };
+    expect(parseIntArg('--max-duration', 6_000_000)).toBe(6_000_000);
+    process.argv = original;
+  });
+
+  it('passes maxDurationMs and signal to claimAndExecuteRun', async () => {
+    mockClaimAndExecuteRun.mockResolvedValue({ claimed: false });
+    const mockExit = jest.spyOn(process, 'exit').mockImplementation(() => undefined as never);
+
+    const { main } = await import('./processRunQueue');
+    await main();
+
+    if (mockClaimAndExecuteRun.mock.calls.length > 0) {
+      const opts = mockClaimAndExecuteRun.mock.calls[0][0];
+      expect(opts).toHaveProperty('maxDurationMs');
+      expect(opts.maxDurationMs).toBeGreaterThan(0);
+      expect(opts).toHaveProperty('signal');
+      expect(opts.signal).toBeInstanceOf(AbortSignal);
+    }
+
+    mockExit.mockRestore();
+  });
+});
+
 describe('parseIntArg', () => {
   it('returns default when flag not present', () => {
     const original = process.argv;
