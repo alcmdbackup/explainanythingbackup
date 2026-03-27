@@ -235,10 +235,11 @@ export const getEvolutionRunsAction = adminAction(
     // Batch-fetch costs from evolution_agent_invocations (source of truth for LLM spend)
     const runIds = typedRuns.map(r => r.id);
     if (runIds.length > 0) {
-      const { data: costs } = await supabase
+      const { data: costs, error: costError } = await supabase
         .from('evolution_agent_invocations')
         .select('run_id, cost_usd')
         .in('run_id', runIds);
+      if (costError) throw costError;
 
       const costMap = new Map<string, number>();
       for (const row of costs ?? []) {
@@ -256,11 +257,11 @@ export const getEvolutionRunsAction = adminAction(
     const [experimentMap, strategyMap] = await Promise.all([
       experimentIds.length > 0
         ? supabase.from('evolution_experiments').select('id, name').in('id', experimentIds)
-            .then(({ data }) => new Map((data ?? []).map(e => [e.id as string, e.name as string])))
+            .then(({ data, error }) => { if (error) throw error; return new Map((data ?? []).map(e => [e.id as string, e.name as string])); })
         : Promise.resolve(new Map<string, string>()),
       strategyIds.length > 0
         ? supabase.from('evolution_strategies').select('id, name').in('id', strategyIds)
-            .then(({ data }) => new Map((data ?? []).map(s => [s.id as string, s.name as string])))
+            .then(({ data, error }) => { if (error) throw error; return new Map((data ?? []).map(s => [s.id as string, s.name as string])); })
         : Promise.resolve(new Map<string, string>()),
     ]);
 
@@ -313,10 +314,11 @@ export const getEvolutionRunByIdAction = adminAction(
     const run = data as EvolutionRun;
 
     // Fetch cost from evolution_agent_invocations (source of truth for LLM spend)
-    const { data: costRows } = await ctx.supabase
+    const { data: costRows, error: costError } = await ctx.supabase
       .from('evolution_agent_invocations')
       .select('cost_usd')
       .eq('run_id', runId);
+    if (costError) throw costError;
     run.total_cost_usd = (costRows ?? []).reduce((sum, r) => sum + Number(r.cost_usd ?? 0), 0);
 
     // Fetch strategy + prompt names
@@ -523,17 +525,18 @@ export const listVariantsAction = adminAction(
     // Post-fetch enrichment: batch-fetch strategy names via runs
     const runIds = [...new Set(items.map(v => v.run_id).filter(Boolean))];
     if (runIds.length > 0) {
-      const { data: runData } = await supabase
+      const { data: runData, error: runDataError } = await supabase
         .from('evolution_runs')
         .select('id, strategy_id')
         .in('id', runIds);
+      if (runDataError) throw runDataError;
 
       const runMap = new Map((runData ?? []).map(r => [r.id as string, r.strategy_id as string | null]));
       const strategyIds = [...new Set((runData ?? []).map(r => r.strategy_id as string | null).filter((id): id is string => !!id))];
 
       const strategyMap = strategyIds.length > 0
         ? await supabase.from('evolution_strategies').select('id, name').in('id', strategyIds)
-            .then(({ data: d }) => new Map((d ?? []).map(s => [s.id as string, s.name as string])))
+            .then(({ data: d, error: e }) => { if (e) throw e; return new Map((d ?? []).map(s => [s.id as string, s.name as string])); })
         : new Map<string, string>();
 
       for (const item of items) {

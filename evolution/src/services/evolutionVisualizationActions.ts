@@ -127,12 +127,12 @@ export const getEvolutionDashboardDataAction = adminAction(
     const [stratMap, costMap] = await Promise.all([
       strategyIds.length > 0
         ? supabase.from('evolution_strategies').select('id, name').in('id', strategyIds)
-            .then(({ data }) => new Map((data ?? []).map(s => [s.id as string, s.name as string])))
+            .then(({ data, error }) => { if (error) throw error; return new Map((data ?? []).map(s => [s.id as string, s.name as string])); })
         : Promise.resolve(new Map<string, string>()),
       runIds.length > 0
         ? supabase.from('evolution_metrics').select('entity_id, value')
             .eq('entity_type', 'run').eq('metric_name', 'cost').in('entity_id', runIds)
-            .then(({ data }) => new Map((data ?? []).map(c => [c.entity_id as string, Number(c.value) || 0])))
+            .then(({ data, error }) => { if (error) throw error; return new Map((data ?? []).map(c => [c.entity_id as string, Number(c.value) || 0])); })
         : Promise.resolve(new Map<string, number>()),
     ]);
 

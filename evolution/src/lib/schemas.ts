@@ -2,6 +2,7 @@
 // Dependency rule: schemas.ts → types.ts → index.ts (never reverse).
 
 import { z } from 'zod';
+import { DEFAULT_SIGMA } from './shared/computeRatings';
 
 // ═══════════════════════════════════════════════════════════════════
 // Shared enums & helpers
@@ -649,7 +650,7 @@ export const EvolutionRunSummaryV3Schema = z.object({
 }).strict();
 
 /** TrueSkill default sigma used for V1/V2 → V3 migration: ordinal + 3*sigma ≈ mu */
-const V2_DEFAULT_SIGMA = 25 / 3;
+const V2_DEFAULT_SIGMA = DEFAULT_SIGMA;
 
 /** Type alias for the V3 run summary (used by the transform output). */
 interface EvolutionRunSummaryV3 {
