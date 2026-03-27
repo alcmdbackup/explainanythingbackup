@@ -1663,11 +1663,11 @@ const _loadAISuggestionSessionAction = withLogging(
         success: boolean;
         data: {
             session_metadata: {
-                session_id: string;
-                explanation_id: number;
-                explanation_title: string;
-                user_prompt: string;
-                source_content: string;
+                session_id: string | null;
+                explanation_id: number | null;
+                explanation_title: string | null;
+                user_prompt: string | null;
+                source_content: string | null;
             };
             steps: Array<{
                 step: string;
@@ -1706,11 +1706,11 @@ const _loadAISuggestionSessionAction = withLogging(
             // Extract session metadata from first record (all records have same session data)
             const firstRecord = data[0]!;
             const sessionMetadata = {
-                session_id: firstRecord.session_id!,
-                explanation_id: firstRecord.explanation_id!,
-                explanation_title: firstRecord.explanation_title!,
-                user_prompt: firstRecord.user_prompt!,
-                source_content: firstRecord.source_content!
+                session_id: firstRecord.session_id ?? null,
+                explanation_id: firstRecord.explanation_id ?? null,
+                explanation_title: firstRecord.explanation_title ?? null,
+                user_prompt: firstRecord.user_prompt ?? null,
+                source_content: firstRecord.source_content ?? null
             };
 
             const steps = data.map(record => ({
@@ -2416,14 +2416,16 @@ import { getTopSources, getPopularSourcesByTopic, getSimilarArticleSources, type
 
 const _getTopSourcesAction = withLogging(
     async function (params: SourceLeaderboardFilters): Promise<{
+        success: boolean;
         data: import('@/lib/schemas/schemas').SourceCitationCountType[];
         error: ErrorResponse | null;
     }> {
         try {
             const data = await getTopSources(params);
-            return { data, error: null };
+            return { success: true, data, error: null };
         } catch (error) {
             return {
+                success: false,
                 data: [],
                 error: handleError(error, 'getTopSourcesAction', params)
             };
@@ -2441,14 +2443,16 @@ export const getTopSourcesAction = _getTopSourcesAction;
 
 const _getPopularSourcesByTopicAction = withLogging(
     async function (params: { topicId: number; limit?: number }): Promise<{
+        success: boolean;
         data: DiscoveredSource[];
         error: ErrorResponse | null;
     }> {
         try {
             const data = await getPopularSourcesByTopic(params.topicId, params.limit);
-            return { data, error: null };
+            return { success: true, data, error: null };
         } catch (error) {
             return {
+                success: false,
                 data: [],
                 error: handleError(error, 'getPopularSourcesByTopicAction', params)
             };
@@ -2462,14 +2466,16 @@ export const getPopularSourcesByTopicAction = _getPopularSourcesByTopicAction;
 
 const _getSimilarArticleSourcesAction = withLogging(
     async function (params: { explanationId: number; limit?: number }): Promise<{
+        success: boolean;
         data: DiscoveredSource[];
         error: ErrorResponse | null;
     }> {
         try {
             const data = await getSimilarArticleSources(params.explanationId, params.limit);
-            return { data, error: null };
+            return { success: true, data, error: null };
         } catch (error) {
             return {
+                success: false,
                 data: [],
                 error: handleError(error, 'getSimilarArticleSourcesAction', params)
             };

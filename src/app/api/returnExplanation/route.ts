@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import * as Sentry from '@sentry/nextjs';
 import { MatchMode, UserInputType, type SourceCacheFullType, type SourceChipType } from '@/lib/schemas/schemas';
+
+export const maxDuration = 540;
 import { returnExplanationLogic } from '@/lib/services/returnExplanation';
 import { getOrCreateCachedSource } from '@/lib/services/sourceCache';
 import { logger } from '@/lib/server_utilities';

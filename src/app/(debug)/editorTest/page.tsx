@@ -230,7 +230,7 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
         try {
             const result = await loadAISuggestionSessionAction(sessionId);
             if (result.success && result.data) {
-                setLoadedSessionData(result.data);
+                setLoadedSessionData(result.data as any);
                 setSelectedSessionId(sessionId);
 
                 // Set the original content from session
@@ -262,7 +262,7 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
 
                 // Set test set name based on session
                 setTestSetName(`session-${sessionId.slice(0, 8)}`);
-                setLoadedExplanationTitle(result.data.session_metadata.explanation_title);
+                setLoadedExplanationTitle(result.data.session_metadata.explanation_title ?? '');
 
                 console.log(`✅ Loaded session ${sessionId}: "${result.data.session_metadata.user_prompt}"`);
                 console.log(`📊 Session contains ${steps.length} pipeline steps`);
