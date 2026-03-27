@@ -307,6 +307,7 @@ async function executeTriage(
 
   try {
   for (const entrantId of needsTriage) {
+    if (consecutiveErrors > 3) break; // Stop triage entirely after sustained LLM failures
     const entrantVariant = poolMap.get(entrantId);
     if (!entrantVariant) continue;
 
