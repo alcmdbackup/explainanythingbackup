@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useReducer, useCallback, Suspense, useMemo
 import { useSearchParams, useRouter } from 'next/navigation';
 import { AppRouterInstance } from 'next/dist/shared/lib/app-router-context.shared-runtime';
 import { saveExplanationToLibraryAction, getUserQueryByIdAction, createUserExplanationEventAction, saveOrPublishChanges, resolveLinksForDisplayAction } from '@/actions/actions';
-import { matchWithCurrentContentType, MatchMode, UserInputType, ExplanationStatus, type SourceChipType } from '@/lib/schemas/schemas';
+import { matchWithCurrentContentType, MatchMode, UserInputType, ExplanationStatus, type SourceChipType, type TagUIType } from '@/lib/schemas/schemas';
 import { logger } from '@/lib/client_utilities';
 import { RequestIdContext } from '@/lib/requestIdContext';
 import { markPerformance, measurePerformance } from '@/lib/webVitals';
@@ -126,19 +126,18 @@ function ResultsPageContent() {
         clearSystemSavedId
     } = useExplanationLoader({
         userId: userid || undefined,
-        onTagsLoad: (tags) => dispatchTagAction({ type: 'LOAD_TAGS', tags }),
-        onMatchesLoad: (matches) => setMatches(matches),
-        onClearPrompt: () => setPrompt(''),
-        onSetOriginalValues: (content, title, status) => {
-            // Dispatch LOAD_EXPLANATION to set viewing state with original values
+        onTagsLoad: useCallback((tags: TagUIType[]) => dispatchTagAction({ type: 'LOAD_TAGS', tags }), [dispatchTagAction]),
+        onMatchesLoad: useCallback((matches: matchWithCurrentContentType[]) => setMatches(matches), []),
+        onClearPrompt: useCallback(() => setPrompt(''), []),
+        onSetOriginalValues: useCallback((content: string, title: string, status: ExplanationStatus) => {
             dispatchLifecycle({
                 type: 'LOAD_EXPLANATION',
                 content,
                 title,
                 status
             });
-        },
-        onSourcesLoad: setSources
+        }, []),
+        onSourcesLoad: useCallback(setSources, [])
     });
 
     // Text reveal animation settings

@@ -311,7 +311,7 @@ export const saveOrPublishChanges = serverReadRequestId(_saveOrPublishChanges);
  * - Called by returnExplanation for query tracking
  * - Uses createUserQuery for database storage
  */
-export const saveUserQuery = withLogging(
+export const saveUserQuery = serverReadRequestId(withLogging(
     async function saveUserQuery(userInput, matches, explanationId: number | null, userid: string, newExplanation: boolean, userInputType: UserInputType, allowedQuery: boolean, previousExplanationViewedId: number | null) {
         
         try {
@@ -362,10 +362,10 @@ export const saveUserQuery = withLogging(
         }
     },
     'saveUserQuery',
-    { 
+    {
         enabled: FILE_DEBUG
     }
-); 
+));
 
 /**
  * Fetches a single explanation by its ID (server action)
