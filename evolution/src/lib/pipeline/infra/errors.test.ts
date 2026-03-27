@@ -1,7 +1,6 @@
 // Tests for V2 error classes.
 
-import { BudgetExceededError } from '../../types';
-import { BudgetExceededWithPartialResults } from './errors';
+import { BudgetExceededError, BudgetExceededWithPartialResults } from '../../types';
 import type { Variant } from '../../types';
 
 describe('BudgetExceededWithPartialResults', () => {

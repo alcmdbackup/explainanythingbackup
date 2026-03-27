@@ -1,7 +1,7 @@
 // Shared helper for formatting all MetaFeedback fields into LLM prompt sections.
 // Replaces inline extraction that only used priorityImprovements.
 
-import type { MetaFeedback } from '../types';
+import type { MetaFeedback } from '../../types';
 
 /**
  * Format all 4 MetaFeedback fields into a structured prompt section.

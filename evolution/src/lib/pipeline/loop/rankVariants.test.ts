@@ -2,8 +2,7 @@
 
 import { rankPool } from './rankVariants';
 import type { RankResult } from './rankVariants';
-import { BudgetExceededError } from '../../types';
-import { BudgetExceededWithPartialResults } from '../infra/errors';
+import { BudgetExceededError, BudgetExceededWithPartialResults } from '../../types';
 import { createRating, DEFAULT_MU, DEFAULT_SIGMA } from '../../shared/computeRatings';
 import { createV2MockLlm } from '../../../testing/v2MockLlm';
 import { createMockEntityLogger } from '../../../testing/evolution-test-helpers';

@@ -2,7 +2,7 @@
 // Verifies all 4 MetaFeedback fields, empty fields, and null input.
 
 import { formatMetaFeedback } from './metaFeedback';
-import type { MetaFeedback } from '../types';
+import type { MetaFeedback } from '../../types';
 
 describe('formatMetaFeedback', () => {
   it('returns null for null input', () => {

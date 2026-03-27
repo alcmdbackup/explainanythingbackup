@@ -4,7 +4,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { EntityLogger } from '../pipeline/infra/createEntityLogger';
 import type { V2CostTracker } from '../pipeline/infra/trackBudget';
 import type { EvolutionConfig } from '../pipeline/infra/types';
-import type { MetricValue } from '@evolution/experiments/evolution/experimentMetrics';
+import type { MetricValue } from '../metrics/experimentMetrics';
 
 export type { MetricRow, ExecutionContext, FinalizationContext } from '../metrics/types';
 import type { MetricRow, ExecutionContext, FinalizationContext } from '../metrics/types';

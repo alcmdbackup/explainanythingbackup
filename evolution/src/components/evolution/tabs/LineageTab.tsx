@@ -10,7 +10,7 @@ import {
 } from '@evolution/services/evolutionVisualizationActions';
 
 const LineageGraph = dynamic(
-  () => import('@evolution/components/evolution/LineageGraph').then(m => m.LineageGraph),
+  () => import('@evolution/components/evolution/visualizations/LineageGraph').then(m => m.LineageGraph),
   {
     ssr: false,
     loading: () => (

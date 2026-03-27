@@ -9,7 +9,7 @@ jest.mock('@evolution/services/evolutionVisualizationActions', () => ({
   getEvolutionRunLineageAction: (...args: unknown[]) => mockGetLineage(...args),
 }));
 
-jest.mock('@evolution/components/evolution/LineageGraph', () => ({
+jest.mock('@evolution/components/evolution/visualizations/LineageGraph', () => ({
   LineageGraph: ({ nodes }: { nodes: unknown[] }) => (
     <div data-testid="lineage-graph">{nodes.length} nodes</div>
   ),

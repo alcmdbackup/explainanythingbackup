@@ -1,8 +1,7 @@
 // Tests for V2 generateVariants helper.
 
 import { generateVariants } from './generateVariants';
-import { BudgetExceededError } from '../../types';
-import { BudgetExceededWithPartialResults } from '../infra/errors';
+import { BudgetExceededError, BudgetExceededWithPartialResults } from '../../types';
 import { createV2MockLlm } from '../../../testing/v2MockLlm';
 import type { EvolutionConfig } from '../infra/types';
 

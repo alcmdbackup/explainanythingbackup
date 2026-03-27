@@ -9,7 +9,7 @@ import {
   EntityListPage,
 } from '@evolution/components/evolution';
 import type { FilterDef, ColumnDef } from '@evolution/components/evolution';
-import { ConfirmDialog } from '@evolution/components/evolution/ConfirmDialog';
+import { ConfirmDialog } from '@evolution/components/evolution';
 import {
   listExperimentsAction,
   cancelExperimentAction,

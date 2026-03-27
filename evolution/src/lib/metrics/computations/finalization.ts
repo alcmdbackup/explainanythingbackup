@@ -1,6 +1,6 @@
-// Compute functions for metrics written at run completion (elo, match stats, variant counts).
+// Compute functions for metrics written during execution and at run completion.
 
-import type { FinalizationContext } from '../types';
+import type { ExecutionContext, FinalizationContext } from '../types';
 import { toEloScale, DEFAULT_MU } from '@evolution/lib/shared/computeRatings';
 
 export function computeWinnerElo(ctx: FinalizationContext): number | null {
@@ -43,4 +43,14 @@ export function computeDecisiveRate(ctx: FinalizationContext): number | null {
 
 export function computeVariantCount(ctx: FinalizationContext): number {
   return ctx.pool.length;
+}
+
+// ─── Execution-phase metrics (cost tracking) ─────────────────────
+
+export function computeRunCost(ctx: ExecutionContext): number {
+  return ctx.costTracker.getTotalSpent();
+}
+
+export function computeAgentCost(ctx: ExecutionContext): number {
+  return ctx.costTracker.getPhaseCosts()[ctx.phaseName] ?? 0;
 }

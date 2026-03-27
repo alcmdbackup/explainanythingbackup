@@ -1,9 +1,8 @@
 // Integration test: verifies rankPool returns partial results with non-default ratings when budget is exceeded mid-ranking.
 
-import { rankPool } from '../loop/rankVariants';
-import type { RankResult } from '../loop/rankVariants';
-import { BudgetExceededError } from '../../types';
-import { BudgetExceededWithPartialResults } from '../infra/errors';
+import { rankPool } from './rankVariants';
+import type { RankResult } from './rankVariants';
+import { BudgetExceededError, BudgetExceededWithPartialResults } from '../../types';
 import { createRating, DEFAULT_MU, DEFAULT_SIGMA } from '../../shared/computeRatings';
 import { createV2MockLlm } from '../../../testing/v2MockLlm';
 import type { Variant } from '../../types';

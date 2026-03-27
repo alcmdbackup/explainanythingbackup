@@ -111,7 +111,7 @@ describe('EvolutionRunsPage', () => {
   it('renders status badge for completed run', async () => {
     render(<EvolutionRunsPage />);
     await waitFor(() => {
-      expect(screen.getByText('completed')).toBeInTheDocument();
+      expect(screen.getByText('Completed')).toBeInTheDocument();
     });
   });
 

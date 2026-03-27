@@ -133,12 +133,13 @@ V2 pipeline barrel. Re-exports everything from `lib/index.ts` plus V2-specific e
 ### `evolution/src/components/evolution/index.ts`
 
 UI component barrel for the admin dashboard. Exports 20+ components:
-- **Layout**: `EvolutionBreadcrumb`, `EvolutionStatusBadge`, `TableSkeleton`, `EmptyState`, `ElapsedTime`
-- **Detail views**: `EntityDetailHeader`, `MetricGrid`, `EntityDetailTabs`, `useTabState`, `VariantDetailPanel`
-- **Lists**: `EntityTable`, `EntityListPage`, `RunsTable`, `getBaseColumns`
-- **Dialogs**: `FormDialog`, `ConfirmDialog`, `NotFoundCard`
-- **Visualization**: `EloSparkline`, `LineageGraph`, `TextDiff`, `InputArticleSection`, `VariantCard`
-- **Providers**: `AutoRefreshProvider`, `useAutoRefresh`
+- **Primitives** (`primitives/`): `StatusBadge`, `EvolutionBreadcrumb`, `MetricGrid`, `EmptyState`, `NotFoundCard`
+- **Tables** (`tables/`): `EntityTable`, `RunsTable`, `TableSkeleton`
+- **Sections** (`sections/`): `EntityDetailHeader`, `EntityDetailTabs`, `useTabState`, `InputArticleSection`, `VariantDetailPanel`
+- **Visualizations** (`visualizations/`): `LineageGraph`, `TextDiff`, `VariantCard`
+- **Dialogs** (`dialogs/`): `FormDialog`, `ConfirmDialog`
+- **Context** (`context/`): `AutoRefreshProvider`, `useAutoRefresh`
+- **Page shells** (root): `EntityListPage`, `EntityDetailPageClient`, `EvolutionErrorBoundary`
 
 ---
 

@@ -21,6 +21,7 @@ Start with the data model, then follow execution flow through agents, cost, and 
 | 11 | [Visualization](./visualization.md) | Admin pages, shared components, server actions |
 | 12 | [Minicomputer Deployment](./minicomputer_deployment.md) | Setup, CLI flags, systemd |
 | 13 | [Curriculum](./curriculum.md) | 4-week learning path, glossary |
+| 14 | [Logging](./logging.md) | Structured logging, entity loggers, debug output |
 
 ## Document Map
 
@@ -40,7 +41,8 @@ evolution/docs/
 ├── reference.md                    — File index, CLI commands, config, errors
 ├── visualization.md                — Admin UI pages and shared components
 ├── minicomputer_deployment.md      — Local deployment with systemd
-└── curriculum.md                   — Guided learning path and glossary
+├── curriculum.md                   — Guided learning path and glossary
+└── logging.md                     — Structured logging and entity loggers
 ```
 
 ## Quick Orientation

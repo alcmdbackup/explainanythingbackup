@@ -2,14 +2,13 @@
 // Returns updated ratings, match results, and convergence status.
 
 import type { Variant, EvolutionLLMClient, LLMCompletionOptions } from '../../types';
-import { BudgetExceededError } from '../../types';
+import { BudgetExceededError, BudgetExceededWithPartialResults } from '../../types';
 import type { Rating, ComparisonResult } from '../../shared/computeRatings';
 import {
   createRating, updateRating, updateDraw, isConverged,
   compareWithBiasMitigation, DEFAULT_SIGMA, DEFAULT_CONVERGENCE_SIGMA,
 } from '../../shared/computeRatings';
 import type { EvolutionConfig, V2Match } from '../infra/types';
-import { BudgetExceededWithPartialResults } from '../infra/errors';
 import type { EntityLogger } from '../infra/createEntityLogger';
 
 // ─── Constants ───────────────────────────────────────────────────

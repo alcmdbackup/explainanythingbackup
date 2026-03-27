@@ -2,7 +2,7 @@
 
 import { render, screen, fireEvent } from '@testing-library/react';
 import { EntityListPage } from './EntityListPage';
-import type { ColumnDef } from './EntityTable';
+import type { ColumnDef } from './tables/EntityTable';
 
 interface TestItem {
   id: string;

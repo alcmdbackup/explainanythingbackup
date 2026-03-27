@@ -3,8 +3,7 @@
 import type { Variant, EvolutionLLMClient, LLMCompletionOptions } from '../../types';
 import type { EvolutionConfig } from '../infra/types';
 import type { EntityLogger } from '../infra/createEntityLogger';
-import { BudgetExceededError } from '../../types';
-import { BudgetExceededWithPartialResults } from '../infra/errors';
+import { BudgetExceededError, BudgetExceededWithPartialResults } from '../../types';
 import { validateFormat } from '../../shared/enforceVariantFormat';
 import { createVariant } from '../../types';
 import { buildEvolutionPrompt } from './buildPrompts';

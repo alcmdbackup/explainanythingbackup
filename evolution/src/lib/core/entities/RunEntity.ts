@@ -8,8 +8,8 @@ import type {
   TabDef, EntityLink, EntityMetricRegistry, EntityType,
 } from '../types';
 import { evolutionRunInsertSchema, type EvolutionRunFullDb } from '../../schemas';
-import { computeRunCost } from '../../metrics/computations/execution';
 import {
+  computeRunCost,
   computeWinnerElo, computeMedianElo, computeP90Elo, computeMaxElo,
   computeTotalMatches, computeDecisiveRate, computeVariantCount,
 } from '../../metrics/computations/finalization';

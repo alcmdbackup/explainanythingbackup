@@ -4,8 +4,7 @@
 import type { ZodSchema } from 'zod';
 import type { AgentContext, AgentResult, AgentOutput, DetailFieldDef, FinalizationMetricDef } from './types';
 import type { ExecutionDetailBase } from '../types';
-import { BudgetExceededError } from '../types';
-import { BudgetExceededWithPartialResults } from '../pipeline/infra/errors';
+import { BudgetExceededError, BudgetExceededWithPartialResults } from '../types';
 import { createInvocation, updateInvocation } from '../pipeline/infra/trackInvocations';
 
 export abstract class Agent<TInput, TOutput, TDetail extends ExecutionDetailBase = ExecutionDetailBase> {

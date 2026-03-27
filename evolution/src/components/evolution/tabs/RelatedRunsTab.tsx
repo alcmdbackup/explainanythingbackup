@@ -3,9 +3,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { EntityTable, type ColumnDef } from '../EntityTable';
-import { EvolutionStatusBadge } from '../EvolutionStatusBadge';
-import type { EvolutionRunStatus } from '@evolution/lib/types';
+import { EntityTable, type ColumnDef } from '../tables/EntityTable';
+import { StatusBadge } from '../primitives/StatusBadge';
 import { buildRunUrl } from '@evolution/lib/utils/evolutionUrls';
 import { getExperimentAction } from '@evolution/services/experimentActions';
 
@@ -38,7 +37,7 @@ const COLUMNS: ColumnDef<NormalizedRun>[] = [
   {
     key: 'status',
     header: 'Status',
-    render: (r) => <EvolutionStatusBadge status={r.status as EvolutionRunStatus} />,
+    render: (r) => <StatusBadge variant="run-status" status={r.status} />,
   },
   {
     key: 'cost',

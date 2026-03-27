@@ -5,10 +5,10 @@
 
 import { useState, useCallback, useEffect, useRef, type ReactNode } from 'react';
 import { toast } from 'sonner';
-import { EntityTable, type ColumnDef } from './EntityTable';
-import { EvolutionBreadcrumb, type BreadcrumbItem } from './EvolutionBreadcrumb';
-import { FormDialog, type FieldDef } from './FormDialog';
-import { ConfirmDialog } from './ConfirmDialog';
+import { EntityTable, type ColumnDef } from './tables/EntityTable';
+import { EvolutionBreadcrumb, type BreadcrumbItem } from './primitives/EvolutionBreadcrumb';
+import { FormDialog, type FieldDef } from './dialogs/FormDialog';
+import { ConfirmDialog } from './dialogs/ConfirmDialog';
 
 export interface FilterDef {
   key: string;

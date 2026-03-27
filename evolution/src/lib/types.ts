@@ -493,6 +493,17 @@ export class BudgetExceededError extends Error {
   }
 }
 
+/** Thrown when budget is exceeded mid-generation/ranking but some results were already produced. */
+export class BudgetExceededWithPartialResults extends BudgetExceededError {
+  constructor(
+    public readonly partialData: unknown,
+    originalError: BudgetExceededError,
+  ) {
+    super(originalError.agentName, originalError.spent, originalError.reserved, originalError.cap);
+    this.name = 'BudgetExceededWithPartialResults';
+  }
+}
+
 export class LLMRefusalError extends Error {
   constructor(message: string) {
     super(message);
