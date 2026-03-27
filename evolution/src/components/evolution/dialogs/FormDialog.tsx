@@ -1,9 +1,15 @@
 // Reusable form dialog with configurable field types for CRUD operations.
-// Replaces PromptFormDialog, NewTopicDialog, and parts of StrategyDialog.
+// Uses Radix Dialog for accessible modal behavior (focus trap, Escape, aria-modal).
 
 'use client';
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -46,6 +52,16 @@ export function FormDialog({
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
+  // Reset state when dialog opens
+  useEffect(() => {
+    if (open) {
+      setValues(initial);
+      setError(null);
+      setLoading(false);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
   const updateField = useCallback(
     (name: string, value: unknown) => {
       setValues((prev) => {
@@ -56,8 +72,6 @@ export function FormDialog({
     },
     [onFormChange],
   );
-
-  if (!open) return null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -85,85 +99,98 @@ export function FormDialog({
   const inputClasses = 'mt-1 w-full rounded-book border border-[var(--border-default)] bg-[var(--surface-input)] p-2 font-ui text-sm text-[var(--text-primary)]';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="w-full max-w-lg rounded-book bg-[var(--surface-secondary)] p-6 shadow-warm">
-        <h3 className="font-display text-xl font-semibold text-[var(--text-primary)]">{title}</h3>
+    <Dialog open={open} onOpenChange={(isOpen) => { if (!isOpen) onClose(); }}>
+      <DialogContent className="w-full max-w-lg rounded-book bg-[var(--surface-secondary)] p-6 shadow-warm-lg border-[var(--border-default)]">
+        <DialogHeader>
+          <DialogTitle className="font-display text-xl font-semibold text-[var(--text-primary)]">{title}</DialogTitle>
+        </DialogHeader>
 
         {error && (
-          <div className="mt-2 rounded-book bg-[var(--status-error)]/10 p-2 font-ui text-sm text-[var(--status-error)]">{error}</div>
+          <div className="mt-2 rounded-book bg-[var(--status-error)]/10 p-2 font-ui text-sm text-[var(--status-error)]" role="alert">{error}</div>
         )}
 
         {children}
 
         <form onSubmit={handleSubmit} className="mt-4 space-y-4">
-          {fields.map((field) => (
-            <div key={field.name}>
-              <label className="block font-ui text-sm font-medium text-[var(--text-secondary)]">
-                {field.label}
-                {field.required && <span className="text-[var(--status-error)]"> *</span>}
-              </label>
+          {fields.map((field) => {
+            const fieldId = `form-dialog-${field.name}`;
+            const errorId = `${fieldId}-error`;
+            return (
+              <div key={field.name}>
+                <label htmlFor={fieldId} className="block font-ui text-sm font-medium text-[var(--text-secondary)]">
+                  {field.label}
+                  {field.required && <span className="text-[var(--status-error)]"> *</span>}
+                </label>
 
-              {field.type === 'text' && (
-                <input
-                  type="text"
-                  value={(values[field.name] as string) ?? ''}
-                  onChange={(e) => updateField(field.name, e.target.value)}
-                  placeholder={field.placeholder}
-                  className={inputClasses}
-                  required={field.required}
-                />
-              )}
+                {field.type === 'text' && (
+                  <input
+                    id={fieldId}
+                    type="text"
+                    value={(values[field.name] as string) ?? ''}
+                    onChange={(e) => updateField(field.name, e.target.value)}
+                    placeholder={field.placeholder}
+                    className={inputClasses}
+                    required={field.required}
+                    aria-describedby={error ? errorId : undefined}
+                  />
+                )}
 
-              {field.type === 'textarea' && (
-                <textarea
-                  value={(values[field.name] as string) ?? ''}
-                  onChange={(e) => updateField(field.name, e.target.value)}
-                  placeholder={field.placeholder}
-                  className={inputClasses}
-                  rows={4}
-                  required={field.required}
-                />
-              )}
+                {field.type === 'textarea' && (
+                  <textarea
+                    id={fieldId}
+                    value={(values[field.name] as string) ?? ''}
+                    onChange={(e) => updateField(field.name, e.target.value)}
+                    placeholder={field.placeholder}
+                    className={inputClasses}
+                    rows={4}
+                    required={field.required}
+                    aria-describedby={error ? errorId : undefined}
+                  />
+                )}
 
-              {field.type === 'select' && (
-                <select
-                  value={(values[field.name] as string) ?? ''}
-                  onChange={(e) => updateField(field.name, e.target.value)}
-                  className={inputClasses}
-                >
-                  {field.options?.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
-              )}
+                {field.type === 'select' && (
+                  <select
+                    id={fieldId}
+                    value={(values[field.name] as string) ?? ''}
+                    onChange={(e) => updateField(field.name, e.target.value)}
+                    className={inputClasses}
+                  >
+                    {field.options?.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                )}
 
-              {field.type === 'number' && (
-                <input
-                  type="number"
-                  value={(values[field.name] as number) ?? ''}
-                  onChange={(e) => updateField(field.name, parseFloat(e.target.value))}
-                  className={inputClasses}
-                  required={field.required}
-                />
-              )}
+                {field.type === 'number' && (
+                  <input
+                    id={fieldId}
+                    type="number"
+                    value={(values[field.name] as number) ?? ''}
+                    onChange={(e) => updateField(field.name, parseFloat(e.target.value))}
+                    className={inputClasses}
+                    required={field.required}
+                  />
+                )}
 
-              {field.type === 'checkbox' && (
-                <input
-                  type="checkbox"
-                  checked={(values[field.name] as boolean) ?? false}
-                  onChange={(e) => updateField(field.name, e.target.checked)}
-                  className="mt-1"
-                />
-              )}
+                {field.type === 'checkbox' && (
+                  <input
+                    id={fieldId}
+                    type="checkbox"
+                    checked={(values[field.name] as boolean) ?? false}
+                    onChange={(e) => updateField(field.name, e.target.checked)}
+                    className="mt-1"
+                  />
+                )}
 
-              {field.type === 'custom' && field.render?.(
-                values[field.name],
-                (v) => updateField(field.name, v),
-              )}
-            </div>
-          ))}
+                {field.type === 'custom' && field.render?.(
+                  values[field.name],
+                  (v) => updateField(field.name, v),
+                )}
+              </div>
+            );
+          })}
 
           <div className="flex justify-end gap-2 pt-2">
             <button
@@ -183,7 +210,7 @@ export function FormDialog({
             </button>
           </div>
         </form>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

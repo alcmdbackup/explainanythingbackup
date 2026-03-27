@@ -1,4 +1,4 @@
-// Tests for FormDialog component - verifies open/close, field rendering, validation, and submit.
+// Tests for FormDialog component — validates state reset on reopen, Radix Dialog a11y, and form behavior.
 
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { FormDialog, FieldDef } from './FormDialog';
@@ -21,9 +21,9 @@ const baseProps = {
 describe('FormDialog', () => {
   beforeEach(() => jest.clearAllMocks());
 
-  it('renders nothing when open is false', () => {
-    const { container } = render(<FormDialog {...baseProps} open={false} />);
-    expect(container.innerHTML).toBe('');
+  it('does not render content when open is false', () => {
+    render(<FormDialog {...baseProps} open={false} />);
+    expect(screen.queryByText('Test Dialog')).not.toBeInTheDocument();
   });
 
   it('renders title, fields, and buttons when open', () => {
@@ -33,6 +33,19 @@ describe('FormDialog', () => {
     expect(screen.getByText('Body')).toBeInTheDocument();
     expect(screen.getByText('Save')).toBeInTheDocument();
     expect(screen.getByText('Cancel')).toBeInTheDocument();
+  });
+
+  it('has accessible dialog role and aria-modal', () => {
+    render(<FormDialog {...baseProps} />);
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+  });
+
+  it('has htmlFor on labels linked to input ids', () => {
+    render(<FormDialog {...baseProps} />);
+    const label = screen.getByText('Title').closest('label');
+    expect(label).toHaveAttribute('for', 'form-dialog-title');
+    const input = document.getElementById('form-dialog-title');
+    expect(input).toBeInTheDocument();
   });
 
   it('calls onSubmit with field values on form submit', async () => {
@@ -60,6 +73,40 @@ describe('FormDialog', () => {
     fireEvent.submit(screen.getByText('Save').closest('form')!);
     await waitFor(() => {
       expect(screen.getByText('Server error')).toBeInTheDocument();
+    });
+  });
+
+  it('resets state when dialog is reopened', async () => {
+    const { rerender } = render(<FormDialog {...baseProps} />);
+
+    // Type into title field
+    const input = screen.getByPlaceholderText('Enter title') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: 'Dirty Value' } });
+    expect(input.value).toBe('Dirty Value');
+
+    // Close then reopen
+    rerender(<FormDialog {...baseProps} open={false} />);
+    rerender(<FormDialog {...baseProps} open={true} />);
+
+    // Value should be reset to initial (empty)
+    await waitFor(() => {
+      const resetInput = screen.getByPlaceholderText('Enter title') as HTMLInputElement;
+      expect(resetInput.value).toBe('');
+    });
+  });
+
+  it('resets to initial values on reopen', async () => {
+    const initial = { title: 'Default', body: '' };
+    const { rerender } = render(<FormDialog {...baseProps} initial={initial} />);
+
+    fireEvent.change(screen.getByPlaceholderText('Enter title'), { target: { value: 'Changed' } });
+
+    rerender(<FormDialog {...baseProps} initial={initial} open={false} />);
+    rerender(<FormDialog {...baseProps} initial={initial} open={true} />);
+
+    await waitFor(() => {
+      const resetInput = screen.getByPlaceholderText('Enter title') as HTMLInputElement;
+      expect(resetInput.value).toBe('Default');
     });
   });
 });

@@ -10,7 +10,14 @@ import { logger } from '@/lib/server_utilities';
 
 export async function POST(request: NextRequest) {
   try {
-    const { prompt, userid, __requestId } = await request.json();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let body: any;
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
+    }
+    const { prompt, userid, __requestId } = body;
 
     // Server-side auth validation
     const authResult = await validateApiAuth(__requestId);
@@ -105,6 +112,6 @@ export async function POST(request: NextRequest) {
       tags: { endpoint: '/api/stream-chat', method: 'POST' },
       extra: { requestId: RequestIdContext.getRequestId() },
     });
-    return new Response('Internal Server Error', { status: 500 });
+    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }
 }

@@ -15,11 +15,18 @@ import { logger } from '@/lib/server_utilities';
  */
 export async function POST(request: NextRequest) {
   try {
-    const { currentContent, userPrompt, sessionData, __requestId } = await request.json();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let body: any;
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json({ success: false, error: 'Invalid JSON' }, { status: 400 });
+    }
+    const { currentContent, userPrompt, sessionData, __requestId } = body;
 
     // Server-side auth validation (E2E tests authenticate before running)
     const authResult = await validateApiAuth(__requestId);
-    if (authResult.error) {
+    if (!authResult.data) {
       logger.warn('runAISuggestionsPipeline: Auth validation failed', {
         error: authResult.error
       });

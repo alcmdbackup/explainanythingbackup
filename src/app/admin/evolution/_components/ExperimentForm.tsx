@@ -151,6 +151,15 @@ export function ExperimentForm({ onCreated }: ExperimentFormProps): JSX.Element 
       }
 
       toast.success(`Experiment created with ${totalRuns} run(s): ${result.data.experimentId}`);
+
+      // Reset form state after successful submission
+      setName('');
+      setSelectedPromptId('');
+      setBudgetPerRun(0.05);
+      setSelections([]);
+      setStep('setup');
+      setSetupSubmitted(false);
+
       onCreated?.(result.data.experimentId);
     } catch (error) {
       toast.error(String(error));

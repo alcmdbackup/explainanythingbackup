@@ -24,7 +24,14 @@ export async function POST(request: NextRequest) {
     return streamMockResponse(request);
   }
     try {
-        const { userInput, savedId, matchMode, userid, userInputType, additionalRules, existingContent, previousExplanationViewedId, previousExplanationViewedVector, sources, sourceUrls, __requestId } = await request.json();
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        let body: any;
+        try {
+          body = await request.json();
+        } catch {
+          return Response.json({ error: 'Invalid JSON' }, { status: 400 });
+        }
+        const { userInput, savedId, matchMode, userid, userInputType, additionalRules, existingContent, previousExplanationViewedId, previousExplanationViewedVector, sources, sourceUrls, __requestId } = body;
 
         // Server-side auth validation - verify user is authenticated
         const authResult = await validateApiAuth(__requestId);

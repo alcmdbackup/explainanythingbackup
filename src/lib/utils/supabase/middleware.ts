@@ -42,8 +42,8 @@ export async function updateSession(request: NextRequest) {
     !user &&
     !request.nextUrl.pathname.startsWith('/login') &&
     !request.nextUrl.pathname.startsWith('/auth') &&
-    !request.nextUrl.pathname.startsWith('/debug-critic') &&
-    !request.nextUrl.pathname.startsWith('/test-global-error')
+    !(process.env.NODE_ENV !== 'production' && request.nextUrl.pathname.startsWith('/debug-critic')) &&
+    !(process.env.NODE_ENV !== 'production' && request.nextUrl.pathname.startsWith('/test-global-error'))
   ) {
     // no user, potentially respond by redirecting the user to the login page
     const url = request.nextUrl.clone()
