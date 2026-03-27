@@ -1,0 +1,11 @@
+{
+  "branch": "feat/supabase_cli_usage_instructions_20260327",
+  "created_at": "2026-03-27T00:00:00Z",
+  "prerequisites": {},
+  "relevantDocs": [
+    "docs/docs_overall/environments.md",
+    "docs/feature_deep_dives/authentication_rls.md",
+    "docs/docs_overall/testing_overview.md",
+    "docs/docs_overall/debugging.md"
+  ]
+}
