@@ -71,10 +71,11 @@ export async function syncToArena(
 
 Key behaviors:
 
-- Filters out variants where `fromArena === true` (they already exist in the arena)
+- Filters out variants where `fromArena === true` (they already exist in the arena) for the new-entries array
+- Builds a separate `arenaUpdates` array for existing arena entries, containing only mutable rating fields (`mu`, `sigma`, `elo_score`, `arena_match_count`). Immutable fields (content, generation_method, model, etc.) are preserved.
 - Upserts each new variant into `evolution_variants` with `synced_to_arena = true` and its current `mu`, `sigma`, and Elo-scale rating
 - Builds match records from the run's match history, including cross-pool comparisons between new variants and existing arena entries
-- Calls `sync_to_arena` RPC which handles upserting variants and inserting comparisons atomically
+- Calls `sync_to_arena` RPC with both `p_entries` (new variants) and `p_arena_updates` (existing arena entry rating updates), which handles upserting variants, updating arena ratings, and inserting comparisons atomically
 - Limits enforced by the RPC: max **200 entries** and max **1000 matches** per sync call
 - Logs a warning on failure but does not throw -- arena sync is non-critical to the run
 - Migration `20260326000002_fix_sync_to_arena_match_count.sql` fixed the RPC to use `COALESCE((entry->>'arena_match_count')::INT, 0)` on INSERT instead of hardcoded `0`, so `arena_match_count` is now properly persisted when syncing entries that already have match history
@@ -190,6 +191,12 @@ All data fetching and mutations go through server actions in `evolution/src/serv
 | `archiveArenaTopicAction`     | Soft-archive a topic                 |
 
 The prompt registry actions (`listPromptsAction`, `createPromptAction`, `updatePromptAction`, `archivePromptAction`, `deletePromptAction`) in the same file manage the underlying `evolution_prompts` table and are shared between the arena UI and the pipeline's prompt selection.
+
+## Anchor behavior
+
+Arena entries with low sigma (high rating confidence) act as **anchors** during triage. When `selectOpponents()` picks calibration opponents for a new entrant, each quartile slice is sub-sorted by sigma ascending before selection, so low-sigma variants are preferred. This means new entrants are more likely to be matched against well-established arena entries whose ratings are stable, producing faster and more reliable calibration.
+
+The arena leaderboard visually distinguishes anchors: entries in the bottom 25th percentile of sigma receive a gold "Anchor" badge, and the leaderboard header shows the total anchor count. See [Visualization](./visualization.md) for UI details.
 
 ## Cross-references
 

@@ -93,6 +93,7 @@ export class RankingAgent extends Agent<RankingInput, RankResult, RankingExecuti
       eligibleContenders: meta.eligibleContenders,
       totalComparisons: meta.totalComparisons,
       flowEnabled: false,
+      low_sigma_opponents_count: meta.lowSigmaOpponentsCount,
     };
 
     return {

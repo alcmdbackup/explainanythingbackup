@@ -7,7 +7,7 @@ import { toEloScale, DEFAULT_MU, DEFAULT_SIGMA } from '../../shared/computeRatin
 import type { EvolutionResult, V2Match } from '../infra/types';
 import type { EntityLogger } from '../infra/createEntityLogger';
 import { createEntityLogger } from '../infra/createEntityLogger';
-import { isArenaEntry } from '../setup/buildRunContext';
+import { isArenaEntry, type ArenaTextVariation } from '../setup/buildRunContext';
 import { logger as serverLogger } from '@/lib/server_utilities';
 import { getEntity } from '../../core/entityRegistry';
 import { writeMetric } from '../../metrics/writeMetrics';
@@ -376,6 +376,21 @@ export async function syncToArena(
       };
     });
 
+  // Build arena updates: existing arena entries that participated in matches this run
+  const arenaUpdates = pool
+    .filter((v): v is ArenaTextVariation => isArenaEntry(v))
+    .filter((v) => (variantMatchCounts.get(v.id) ?? 0) > 0)
+    .map((v) => {
+      const r = ratings.get(v.id);
+      return {
+        id: v.id,
+        mu: r?.mu ?? 25,
+        sigma: r?.sigma ?? 8.333,
+        elo_score: r ? toEloScale(r.mu) : 1200,
+        arena_match_count: (v.arenaMatchCount ?? 0) + (variantMatchCounts.get(v.id) ?? 0),
+      };
+    });
+
   // Build match results: filter failed comparisons, normalize draw entries to sorted order
   const matches = matchHistory
     .filter((m) => m.confidence > 0) // Skip failed comparisons (confidence 0)
@@ -389,7 +404,7 @@ export async function syncToArena(
       return { entry_a: m.winnerId, entry_b: m.loserId, winner: 'a' as const, confidence: m.confidence };
     });
 
-  logger?.info('Arena sync preparation', { newEntriesCount: newEntries.length, matchCount: matches.length, phaseName: 'arena' });
+  logger?.info('Arena sync preparation', { newEntriesCount: newEntries.length, arenaUpdatesCount: arenaUpdates.length, matchCount: matches.length, phaseName: 'arena' });
 
   // Try sync with 1 retry (idempotent RPC using ON CONFLICT DO UPDATE)
   let lastError: { message: string } | null = null;
@@ -399,10 +414,11 @@ export async function syncToArena(
       p_run_id: runId,
       p_entries: newEntries,
       p_matches: matches,
+      p_arena_updates: arenaUpdates,
     });
 
     if (!error) {
-      logger?.info('Arena sync complete', { entrySynced: newEntries.length, matchesSynced: matches.length, phaseName: 'arena' });
+      logger?.info('Arena sync complete', { entrySynced: newEntries.length, arenaUpdated: arenaUpdates.length, matchesSynced: matches.length, phaseName: 'arena' });
       return;
     }
     lastError = error;

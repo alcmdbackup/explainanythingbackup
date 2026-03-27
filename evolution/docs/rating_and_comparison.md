@@ -140,6 +140,8 @@ picks from the sorted pool:
 - 2 from the middle
 - 1 from the bottom quartile (preferring fellow new entrants)
 
+Within each quartile slice, candidates are sub-sorted by sigma ascending before picking, so **low-sigma opponents are preferred**. This sigma-weighted selection means new entrants are more likely to face well-calibrated anchors. Matching against a low-sigma opponent is roughly 2x more effective per match due to cubic scaling -- the information gain scales as sigma_opponent^3 / c^3, so halving opponent sigma yields ~8x less noise per comparison.
+
 This stratified approach ensures new variants are tested against a representative cross-
 section rather than clustered at one skill level. When the pool is too small for proper
 stratification (fewer than `n - 1` existing variants), the function falls back to padding

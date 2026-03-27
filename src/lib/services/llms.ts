@@ -245,7 +245,7 @@ function getOpenRouterClient(): OpenAI {
 }
 
 export function isOpenRouterModel(model: string): boolean {
-    return model === 'openai/gpt-oss-20b';
+    return model === 'gpt-oss-20b';
 }
 
 let anthropicClient: Anthropic | null = null;
@@ -295,7 +295,11 @@ async function callOpenAIModel(
             ? "You are a helpful assistant. Please provide your response in JSON format."
             : "You are a helpful assistant.";
 
-        const apiModel = isLocalModel(validatedModel) ? validatedModel.replace(/^LOCAL_/, '') : validatedModel;
+        const apiModel = isLocalModel(validatedModel)
+            ? validatedModel.replace(/^LOCAL_/, '')
+            : isOpenRouterModel(validatedModel)
+                ? `openai/${validatedModel}`
+                : validatedModel;
 
         const requestOptions: OpenAI.Chat.ChatCompletionCreateParams = {
             model: apiModel,

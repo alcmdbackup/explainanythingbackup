@@ -81,7 +81,7 @@ describe('schemas', () => {
     });
 
     it('should accept OpenRouter model', () => {
-      expect(allowedLLMModelSchema.parse('openai/gpt-oss-20b')).toBe('openai/gpt-oss-20b');
+      expect(allowedLLMModelSchema.parse('gpt-oss-20b')).toBe('gpt-oss-20b');
     });
 
     it('should reject invalid LLM models', () => {

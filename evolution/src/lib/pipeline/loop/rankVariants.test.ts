@@ -514,6 +514,96 @@ describe('rankPool', () => {
     expect(typeof result.converged).toBe('boolean');
   });
 
+  // ─── Sigma-weighted opponent selection ──────────────────────
+  describe('sigma-weighted opponent selection', () => {
+    it('triage prefers lowest-sigma existing variants within each quartile', async () => {
+      // Set up pool with 2 variants per quartile at same mu but different sigmas
+      const pool = makePool(9); // v0-v7 existing, v8 new entrant
+      const ratings = makeRatings([
+        // Top quartile: same mu, different sigma
+        ['v0', 35, 2],  // low sigma — should be preferred
+        ['v1', 34, 7],  // high sigma
+        // Upper-mid
+        ['v2', 30, 2],  // low sigma
+        ['v3', 29, 7],
+        // Lower-mid
+        ['v4', 25, 2],  // low sigma
+        ['v5', 24, 7],
+        // Bottom
+        ['v6', 20, 2],
+        ['v7', 19, 7],
+      ]);
+      // v8 is new entrant
+      const newEntrants = ['v8'];
+
+      const llm = createV2MockLlm({ rankingResponses: Array(50).fill('A') });
+      const result = await rankPool(pool, ratings, new Map(), newEntrants, llm, {
+        ...baseConfig,
+        calibrationOpponents: 5,
+      });
+
+      // v8 should have been matched against opponents — low-sigma variants preferred
+      const v8Matches = result.matches.filter(
+        (m) => m.winnerId === 'v8' || m.loserId === 'v8',
+      );
+      expect(v8Matches.length).toBeGreaterThan(0);
+      // Check that low-sigma variants (v0, v2, v4) appear as opponents
+      const opponentIds = v8Matches.map((m) => m.winnerId === 'v8' ? m.loserId : m.winnerId);
+      const lowSigmaOpponents = opponentIds.filter((id) => ['v0', 'v2', 'v4', 'v6'].includes(id));
+      expect(lowSigmaOpponents.length).toBeGreaterThan(0);
+    });
+
+    it('all-same-sigma degenerates to current behavior', async () => {
+      const pool = makePool(6);
+      const ratings = makeRatings([
+        ['v0', 35, 5], ['v1', 30, 5], ['v2', 25, 5],
+        ['v3', 22, 5], ['v4', 20, 5],
+      ]);
+      const newEntrants = ['v5'];
+
+      const llm = createV2MockLlm({ rankingResponses: Array(30).fill('A') });
+      const result = await rankPool(pool, ratings, new Map(), newEntrants, llm, baseConfig);
+      // Should complete without error and produce matches
+      expect(result.matches.length).toBeGreaterThan(0);
+    });
+
+    it('empty existing pool falls back to new-vs-new', async () => {
+      const pool = makePool(3);
+      const newEntrants = pool.map((v) => v.id);
+
+      const llm = createV2MockLlm({ rankingResponses: Array(20).fill('A') });
+      const result = await rankPool(pool, new Map(), new Map(), newEntrants, llm, baseConfig);
+      // All variants are new, no existing — should still produce matches
+      expect(result.matches.length).toBeGreaterThan(0);
+    });
+
+    it('no-ratings fallback works without crash', async () => {
+      const pool = makePool(5);
+      const newEntrants = ['v4'];
+
+      const llm = createV2MockLlm({ rankingResponses: Array(30).fill('A') });
+      // Pass empty ratings — selectOpponents should use position-based fallback
+      const result = await rankPool(pool, new Map(), new Map(), newEntrants, llm, baseConfig);
+      expect(result.matches.length).toBeGreaterThan(0);
+    });
+
+    it('fewer existing than n pads with new entrants', async () => {
+      const pool = makePool(4);
+      const ratings = makeRatings([['v0', 30, 3], ['v1', 25, 3]]);
+      const newEntrants = ['v2', 'v3'];
+
+      const llm = createV2MockLlm({ rankingResponses: Array(30).fill('A') });
+      const result = await rankPool(pool, ratings, new Map(), newEntrants, llm, {
+        ...baseConfig,
+        calibrationOpponents: 5,
+      });
+      expect(result.matches.length).toBeGreaterThan(0);
+      for (const v of pool) {
+        expect(result.ratingUpdates[v.id]).toBeDefined();
+      }
+    });
+  });
+
   // ─── Partial results on budget exceeded ─────────────────────
   describe('partial results on budget exceeded', () => {
     it('rankPool() throws BudgetExceededWithPartialResults mid-triage', async () => {

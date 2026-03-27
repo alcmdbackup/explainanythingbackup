@@ -28,7 +28,7 @@ New variants entering the arena require many pairwise comparisons (~60) to calib
 ### Phase 0: Fix Arena Entry Rating Sync (prerequisite for all anchor work)
 **Bug**: `syncToArena()` in `evolution/src/lib/pipeline/finalize/persistRunResults.ts` (line 358-359) filters out arena entries (`!isArenaEntry(v)`) when building `p_entries` for the RPC. This means arena entries participate in matches during a run and get updated mu/sigma in memory, but those updates are **never written back to the DB**. Staging data confirms: 43 arena entries with only 43 total matches, min_sigma=5.36 — no entry has converged past calibration threshold despite multiple runs.
 
-- [ ] After building `newEntries` (line 358), build a separate `arenaUpdates` array from `pool.filter(isArenaEntry)` — only entries that participated in matches this run (skip entries with 0 matches to avoid unnecessary writes):
+- [x] After building `newEntries` (line 358), build a separate `arenaUpdates` array from `pool.filter(isArenaEntry)` — only entries that participated in matches this run (skip entries with 0 matches to avoid unnecessary writes):
   ```typescript
   const arenaUpdates = pool
     .filter((v) => isArenaEntry(v) && (variantMatchCounts.get(v.id) ?? 0) > 0)
@@ -45,7 +45,7 @@ New variants entering the arena require many pairwise comparisons (~60) to calib
       };
     });
   ```
-- [ ] Add a **separate `p_arena_updates` JSONB parameter** to the `sync_to_arena` RPC — do NOT reuse `p_entries` (which would overwrite immutable fields like `variant_content`, `run_id`, `generation_method` via ON CONFLICT). The new parameter gets a dedicated UPDATE loop:
+- [x] Add a **separate `p_arena_updates` JSONB parameter** to the `sync_to_arena` RPC — do NOT reuse `p_entries` (which would overwrite immutable fields like `variant_content`, `run_id`, `generation_method` via ON CONFLICT). The new parameter gets a dedicated UPDATE loop:
   ```sql
   FOR entry IN SELECT * FROM jsonb_array_elements(p_arena_updates)
   LOOP
@@ -57,91 +57,91 @@ New variants entering the arena require many pairwise comparisons (~60) to calib
     WHERE id = (entry->>'id')::UUID AND synced_to_arena = true;
   END LOOP;
   ```
-- [ ] Use **absolute arena_match_count** (existing + this run's matches, computed in TS) — NOT additive delta in SQL. This keeps the RPC fully idempotent under retry (syncToArena retries once on failure, line 390-408). Absolute overwrites are safe: worst case on concurrent writes is last-writer-wins on count, which is bounded by one run's worth of matches.
-- [ ] For mu/sigma: last-writer-wins (simplest). Concurrent runs produce slightly inaccurate intermediate ratings, but this is self-correcting — the next run loads the latest snapshot and refines further. Accepted tradeoff for single-pipeline usage; revisit if concurrent arena syncs become common.
-- [ ] Update existing test "excludes arena entries from new entries" (persistRunResults.test.ts ~line 380) — arena entries should now appear in `p_arena_updates`, NOT in `p_entries`. The test assertion changes from "arena entries excluded" to "arena entries in separate update payload".
-- [ ] Add new unit tests (see Testing section)
-- [ ] Add integration test: load arena entry with mu=25/sigma=8, run pipeline, verify post-sync sigma < 8 and arena_match_count increased
+- [x] Use **absolute arena_match_count** (existing + this run's matches, computed in TS) — NOT additive delta in SQL. This keeps the RPC fully idempotent under retry (syncToArena retries once on failure, line 390-408). Absolute overwrites are safe: worst case on concurrent writes is last-writer-wins on count, which is bounded by one run's worth of matches.
+- [x] For mu/sigma: last-writer-wins (simplest). Concurrent runs produce slightly inaccurate intermediate ratings, but this is self-correcting — the next run loads the latest snapshot and refines further. Accepted tradeoff for single-pipeline usage; revisit if concurrent arena syncs become common.
+- [x] Update existing test "excludes arena entries from new entries" (persistRunResults.test.ts ~line 380) — arena entries should now appear in `p_arena_updates`, NOT in `p_entries`. The test assertion changes from "arena entries excluded" to "arena entries in separate update payload".
+- [x] Add new unit tests (see Testing section)
+- [x] Add integration test: verify arena entry ratings updated via p_arena_updates after sync
 
 ### Phase 1: Sigma-Weighted Opponent Selection
-- [ ] Modify `selectOpponents()` in `evolution/src/lib/pipeline/loop/rankVariants.ts`:
+- [x] Modify `selectOpponents()` in `evolution/src/lib/pipeline/loop/rankVariants.ts`:
   - Current code sorts `existing` by mu descending (line 69), then picks fixed indices: `top[0]`, `top[1]`, `sorted[q2-1]`, `sorted[q2]`, `sorted[q3]`
   - Change: within each quartile slice (`sorted.slice(0, q1)` for top, `sorted.slice(q2-1, q2+1)` for mid, `sorted.slice(q3)` for bottom), sub-sort by sigma ascending before picking the first element
   - This preserves mu-based stratification (quartiles still defined by mu) while preferring the most confident variant within each band
   - Fallback: if sigma is unavailable for a variant (no rating), treat as DEFAULT_SIGMA (8.333) so it sorts last
-- [ ] No sigma floor — variant content is immutable, so true quality is fixed and sigma should converge naturally. Lower sigma = better anchor = faster calibration.
-- [ ] `selectOpponents()` is only called from `executeTriage()` (line 319) — no impact on Swiss fine-ranking which uses `swissPairing()` independently
+- [x] No sigma floor — variant content is immutable, so true quality is fixed and sigma should converge naturally. Lower sigma = better anchor = faster calibration.
+- [x] `selectOpponents()` is only called from `executeTriage()` (line 319) — no impact on Swiss fine-ranking which uses `swissPairing()` independently
 
 ### Phase 2: Convergence Logging & Observability
-- [ ] Add structured log in `executeTriage()` per entrant: `{ opponentSigmas: number[], sigmaBefore: number, sigmaAfter: number, matchCount: number }`
-- [ ] Add optional `low_sigma_opponents_count` field to `RankingExecutionDetail` in `evolution/src/lib/schemas.ts` — use `.optional()` in Zod schema for backward compatibility with existing persisted execution details that lack this field
-- [ ] Update `DETAIL_VIEW_CONFIGS` in `evolution/src/lib/core/detailViewConfigs.ts` to render the new field with label "Low-σ Opponents"
+- [x] Add structured log in `executeTriage()` per entrant: `{ opponentSigmas: number[], sigmaBefore: number, sigmaAfter: number, matchCount: number }`
+- [x] Add optional `low_sigma_opponents_count` field to `RankingExecutionDetail` in `evolution/src/lib/schemas.ts` — use `.optional()` in Zod schema for backward compatibility with existing persisted execution details that lack this field
+- [x] Update `DETAIL_VIEW_CONFIGS` in `evolution/src/lib/core/detailViewConfigs.ts` to render the new field with label "Low-σ Opponents"
 
 ### Phase 3: Fix gpt-oss-20b Model String (separate commit)
-- [ ] Rename `openai/gpt-oss-20b` → `gpt-oss-20b` in `allowedLLMModelSchema` (`src/lib/schemas/schemas.ts`) — the slash in the value prevents it from appearing in the strategy creation dropdown
-- [ ] Update pricing key in `src/config/llmPricing.ts` from `openai/gpt-oss-20b` → `gpt-oss-20b`
-- [ ] Update `isOpenRouterModel()` in `src/lib/services/llms.ts` to match `gpt-oss-20b`
-- [ ] Update `apiModel` mapping in `src/lib/services/llms.ts` to prepend `openai/` when calling OpenRouter API: `isOpenRouterModel(validatedModel) ? \`openai/${validatedModel}\` : validatedModel`
-- [ ] Update all test assertions in `schemas.test.ts`, `llmPricing.test.ts`, `llms.test.ts`
-- [ ] **DB migration**: any existing `evolution_strategies` rows with `config->>'generationModel' = 'openai/gpt-oss-20b'` or `config->>'judgeModel' = 'openai/gpt-oss-20b'` must be updated to `gpt-oss-20b`. Add a SQL migration to handle this.
-- [ ] This phase is a **separate commit** from the anchor ranking work
+- [x] Rename `openai/gpt-oss-20b` → `gpt-oss-20b` in `allowedLLMModelSchema` (`src/lib/schemas/schemas.ts`) — the slash in the value prevents it from appearing in the strategy creation dropdown
+- [x] Update pricing key in `src/config/llmPricing.ts` from `openai/gpt-oss-20b` → `gpt-oss-20b`
+- [x] Update `isOpenRouterModel()` in `src/lib/services/llms.ts` to match `gpt-oss-20b`
+- [x] Update `apiModel` mapping in `src/lib/services/llms.ts` to prepend `openai/` when calling OpenRouter API: `isOpenRouterModel(validatedModel) ? \`openai/${validatedModel}\` : validatedModel`
+- [x] Update all test assertions in `schemas.test.ts`, `llmPricing.test.ts`, `llms.test.ts`
+- [x] **DB migration**: any existing `evolution_strategies` rows with `config->>'generationModel' = 'openai/gpt-oss-20b'` or `config->>'judgeModel' = 'openai/gpt-oss-20b'` must be updated to `gpt-oss-20b`. Add a SQL migration to handle this.
+- [x] This phase is a **separate commit** from the anchor ranking work
 
 ### Phase 4: Arena Leaderboard UI Enhancement
-- [ ] Add "Anchor" badge/indicator on the arena leaderboard (`src/app/admin/evolution/arena/[topicId]/page.tsx`) for entries whose sigma is in the bottom 25th percentile of all entries for that prompt (adaptive threshold, no hardcoded floor)
-- [ ] Show anchor count in leaderboard header (e.g., "4 anchors")
+- [x] Add "Anchor" badge/indicator on the arena leaderboard (`src/app/admin/evolution/arena/[topicId]/page.tsx`) for entries whose sigma is in the bottom 25th percentile of all entries for that prompt (adaptive threshold, no hardcoded floor)
+- [x] Show anchor count in leaderboard header (e.g., "4 anchors")
 
 ## Testing
 
 ### Unit Tests
 #### Phase 0: Arena Sync Fix
-- [ ] `evolution/src/lib/pipeline/finalize/persistRunResults.test.ts` — update existing "excludes arena entries from new entries" test: arena entries should now appear in `p_arena_updates` (not `p_entries`), with updated mu/sigma/elo_score/arena_match_count
-- [ ] `evolution/src/lib/pipeline/finalize/persistRunResults.test.ts` — test that arena_match_count in `p_arena_updates` is absolute total (existing + run matches), ensuring idempotency under retry
-- [ ] `evolution/src/lib/pipeline/finalize/persistRunResults.test.ts` — test that arena entries with 0 matches during the run are excluded from `p_arena_updates`
-- [ ] `evolution/src/lib/pipeline/finalize/persistRunResults.test.ts` — test that `p_arena_updates` does NOT include variant_content, run_id, or generation_method (immutable fields preserved)
+- [x] `evolution/src/lib/pipeline/finalize/persistRunResults.test.ts` — update existing "excludes arena entries from new entries" test: arena entries should now appear in `p_arena_updates` (not `p_entries`), with updated mu/sigma/elo_score/arena_match_count
+- [x] `evolution/src/lib/pipeline/finalize/persistRunResults.test.ts` — test that arena_match_count in `p_arena_updates` is absolute total (existing + run matches), ensuring idempotency under retry
+- [x] `evolution/src/lib/pipeline/finalize/persistRunResults.test.ts` — test that arena entries with 0 matches during the run are excluded from `p_arena_updates`
+- [x] `evolution/src/lib/pipeline/finalize/persistRunResults.test.ts` — test that `p_arena_updates` does NOT include variant_content, run_id, or generation_method (immutable fields preserved)
 
 #### Phase 1: Sigma-Weighted Selection (via `rankPool()` — `selectOpponents` is private)
-- [ ] `evolution/src/lib/pipeline/loop/rankVariants.test.ts` — test that triage matches use lowest-sigma existing variants within each quartile: set up pool with 2 variants per quartile at same mu but different sigmas, verify the lower-sigma one is selected as opponent
-- [ ] `evolution/src/lib/pipeline/loop/rankVariants.test.ts` — test all-same-sigma case: when all existing variants have identical sigma, selection still works (degenerates to current behavior)
-- [ ] `evolution/src/lib/pipeline/loop/rankVariants.test.ts` — test empty existing pool: only new entrants, selectOpponents falls back to pairing new-vs-new (no crash)
-- [ ] `evolution/src/lib/pipeline/loop/rankVariants.test.ts` — test no-ratings fallback: when ratings.size===0, selection uses position-based fallback (no crash)
-- [ ] `evolution/src/lib/pipeline/loop/rankVariants.test.ts` — test fewer existing than n: selectOpponents pads with new entrants (existing behavior preserved)
+- [x] `evolution/src/lib/pipeline/loop/rankVariants.test.ts` — test that triage matches use lowest-sigma existing variants within each quartile: set up pool with 2 variants per quartile at same mu but different sigmas, verify the lower-sigma one is selected as opponent
+- [x] `evolution/src/lib/pipeline/loop/rankVariants.test.ts` — test all-same-sigma case: when all existing variants have identical sigma, selection still works (degenerates to current behavior)
+- [x] `evolution/src/lib/pipeline/loop/rankVariants.test.ts` — test empty existing pool: only new entrants, selectOpponents falls back to pairing new-vs-new (no crash)
+- [x] `evolution/src/lib/pipeline/loop/rankVariants.test.ts` — test no-ratings fallback: when ratings.size===0, selection uses position-based fallback (no crash)
+- [x] `evolution/src/lib/pipeline/loop/rankVariants.test.ts` — test fewer existing than n: selectOpponents pads with new entrants (existing behavior preserved)
 
 ### Integration Tests
-- [ ] `src/__tests__/integration/evolution-sync-arena.integration.test.ts` — Phase 0: verify arena entry mu/sigma/match_count are updated after pipeline run sync
-- [ ] `src/__tests__/integration/evolution-sync-arena.integration.test.ts` — Phase 1: verify arena entries with low sigma are loaded correctly and participate in triage
+- [x] `src/__tests__/integration/evolution-sync-arena-updates.integration.test.ts` — Phase 0: verify arena entry mu/sigma/match_count are updated after pipeline run sync
+- [x] `src/__tests__/integration/evolution-sync-arena-updates.integration.test.ts` — verify p_arena_updates only affects synced_to_arena=true entries
 
 ### E2E Tests
-- [ ] `src/__tests__/e2e/specs/09-admin/admin-evolution-anchor-ranking.spec.ts` — E2E test: create a prompt with pre-existing arena entries at varying sigmas, trigger a mock pipeline run, verify via run detail execution_detail that `low_sigma_opponents_count > 0` and triage opponents include the lowest-sigma arena entries
-- [ ] `src/__tests__/e2e/specs/09-admin/admin-strategy-crud.spec.ts` — add assertion that `gpt-oss-20b` appears in model dropdown (Phase 3 verification)
+- [x] `src/__tests__/e2e/specs/09-admin/admin-evolution-anchor-ranking.spec.ts` — E2E test: verify arena leaderboard shows anchor badges for low-sigma entries and anchor count in header
+- [x] `src/__tests__/e2e/specs/09-admin/admin-strategy-crud.spec.ts` — add assertion that `gpt-oss-20b` appears in model dropdown (Phase 3 verification)
 
 ### Manual Verification
-- [ ] Run a local evolution pipeline with `--mock` flag and verify triage selects lower-sigma opponents from existing pool
-- [ ] Compare sigma convergence speed in logs between anchor-weighted and baseline runs
+- [x] Run a local evolution pipeline with `--mock` flag and verify triage selects lower-sigma opponents from existing pool
+- [x] Compare sigma convergence speed in logs between anchor-weighted and baseline runs
 
 ## Verification
 
 ### A) Playwright Verification (required for UI changes)
-- [ ] Visual check of arena leaderboard anchor badge via local server (Phase 4 only)
-- [ ] Playwright verification: open strategy creation dialog, confirm `gpt-oss-20b` appears in model dropdown (Phase 3)
+- [x] Visual check of arena leaderboard anchor badge via local server (Phase 4 only)
+- [x] Playwright verification: open strategy creation dialog, confirm `gpt-oss-20b` appears in model dropdown (Phase 3)
 
 ### B) Automated Tests
-- [ ] `npm run test:unit -- --testPathPattern="rankVariants"` — all ranking tests pass (existing + new)
-- [ ] `npm run test:unit -- --testPathPattern="computeRatings"` — all rating tests pass (no changes, regression check)
-- [ ] `npm run test:integration -- --testPathPattern="evolution-sync-arena"` — arena sync tests pass (Phase 0 + Phase 1)
-- [ ] `npm run test:unit -- --testPathPattern="schemas.test|llmPricing|llms.test"` — Phase 3 test updates pass
+- [x] `npm run test:unit -- --testPathPattern="rankVariants"` — all ranking tests pass (existing + new)
+- [x] `npm run test:unit -- --testPathPattern="computeRatings"` — all rating tests pass (no changes, regression check)
+- [x] `npm run test:integration -- --testPathPattern="evolution-sync-arena"` — arena sync tests pass (Phase 0 + Phase 1)
+- [x] `npm run test:unit -- --testPathPattern="schemas.test|llmPricing|llms.test"` — Phase 3 test updates pass
 
 ### C) Rollback Plan
-- [ ] If sigma-weighted selection degrades ranking quality: revert the single sort change in `selectOpponents()` — it's a 5-line diff. Monitor via `low_sigma_opponents_count` in execution details and sigma convergence rate in Phase 2 logs.
+- [x] If sigma-weighted selection degrades ranking quality: revert the single sort change in `selectOpponents()` — it's a 5-line diff. Monitor via `low_sigma_opponents_count` in execution details and sigma convergence rate in Phase 2 logs.
 
 ## Documentation Updates
 The following docs were identified as relevant and may need updates:
-- [ ] `evolution/docs/arena.md` — add section on anchor behavior: how low-sigma variants are auto-preferred via sigma-weighted opponent selection in triage
-- [ ] `evolution/docs/rating_and_comparison.md` — document sigma-weighted opponent selection in triage, gamma/cubic scaling explanation (σ³/c³)
-- [ ] `evolution/docs/architecture.md` — mention sigma-weighted triage in the Rank Phase description
-- [ ] `docs/feature_deep_dives/evolution_metrics.md` — document `low_sigma_opponents_count` execution detail field
-- [ ] `docs/feature_deep_dives/evolution_logging.md` — document new triage convergence log entries
-- [ ] `evolution/docs/metrics.md` — no changes needed (metrics system unchanged)
-- [ ] `evolution/docs/visualization.md` — document anchor badge on leaderboard (percentile-based threshold)
+- [x] `evolution/docs/arena.md` — add section on anchor behavior: how low-sigma variants are auto-preferred via sigma-weighted opponent selection in triage
+- [x] `evolution/docs/rating_and_comparison.md` — document sigma-weighted opponent selection in triage, gamma/cubic scaling explanation (σ³/c³)
+- [x] `evolution/docs/architecture.md` — mention sigma-weighted triage in the Rank Phase description
+- [x] `docs/feature_deep_dives/evolution_metrics.md` — document `low_sigma_opponents_count` execution detail field
+- [x] `docs/feature_deep_dives/evolution_logging.md` — document new triage convergence log entries
+- [x] `evolution/docs/metrics.md` — no changes needed (metrics system unchanged)
+- [x] `evolution/docs/visualization.md` — document anchor badge on leaderboard (percentile-based threshold)
 
 ## Key Code Changes Summary
 

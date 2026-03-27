@@ -845,8 +845,8 @@ describe('llms', () => {
   });
 
   describe('isOpenRouterModel', () => {
-    it('should identify openai/gpt-oss-20b as OpenRouter model', () => {
-      expect(isOpenRouterModel('openai/gpt-oss-20b')).toBe(true);
+    it('should identify gpt-oss-20b as OpenRouter model', () => {
+      expect(isOpenRouterModel('gpt-oss-20b')).toBe(true);
     });
 
     it('should not identify other models as OpenRouter', () => {
@@ -858,7 +858,7 @@ describe('llms', () => {
   });
 
   describe('OpenRouter model routing', () => {
-    it('should route openai/gpt-oss-20b to OpenRouter client', async () => {
+    it('should route gpt-oss-20b to OpenRouter client with openai/ prefix', async () => {
       process.env.OPENROUTER_API_KEY = 'test-openrouter-key';
 
       mockCreateSpy.mockResolvedValueOnce({
@@ -871,7 +871,7 @@ describe('llms', () => {
         'Test prompt',
         'test_source',
         '00000000-0000-4000-8000-000000000001',
-        'openai/gpt-oss-20b',
+        'gpt-oss-20b',
         false,
         null,
         null,
@@ -880,6 +880,7 @@ describe('llms', () => {
       );
 
       expect(result).toBe('OpenRouter response');
+      // API model should have openai/ prefix prepended
       expect(mockCreateSpy).toHaveBeenCalledWith(
         expect.objectContaining({
           model: 'openai/gpt-oss-20b',
@@ -895,7 +896,7 @@ describe('llms', () => {
           'Test prompt',
           'test_source',
           '00000000-0000-4000-8000-000000000001',
-          'openai/gpt-oss-20b',
+          'gpt-oss-20b',
           false,
           null,
           null,
@@ -919,7 +920,7 @@ describe('llms', () => {
         'Test prompt',
         'test_source',
         '00000000-0000-4000-8000-000000000001',
-        'openai/gpt-oss-20b',
+        'gpt-oss-20b',
         false,
         null,
         responseSchema,
@@ -947,7 +948,7 @@ describe('llms', () => {
         'Test prompt',
         'test_source',
         '00000000-0000-4000-8000-000000000001',
-        'openai/gpt-oss-20b',
+        'gpt-oss-20b',
         false,
         null,
         null,
@@ -955,7 +956,7 @@ describe('llms', () => {
         false,
       );
 
-      // openai/gpt-oss-20b: (10000/1M * 0.03) + (5000/1M * 0.11) = 0.0003 + 0.00055 = 0.00085
+      // gpt-oss-20b: (10000/1M * 0.03) + (5000/1M * 0.11) = 0.0003 + 0.00055 = 0.00085
       const insertCall = mockSupabase.insert.mock.calls[0][0];
       expect(insertCall.estimated_cost_usd).toBeCloseTo(0.00085, 6);
     });
@@ -1269,7 +1270,7 @@ describe('llms', () => {
     });
 
     it('should not identify OpenRouter models as Anthropic', () => {
-      expect(isAnthropicModel('openai/gpt-oss-20b')).toBe(false);
+      expect(isAnthropicModel('gpt-oss-20b')).toBe(false);
     });
 
     it('callOpenAIModel backward compat should also route Claude to Anthropic', async () => {
