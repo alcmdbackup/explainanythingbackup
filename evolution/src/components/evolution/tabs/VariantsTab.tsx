@@ -53,6 +53,13 @@ export function VariantsTab({ runId, runStatus }: VariantsTabProps): JSX.Element
     return Array.from(set).sort();
   }, [variants]);
 
+  // Pre-compute rank map from unfiltered (sorted) list so ranks stay stable when filtering
+  const rankMap = useMemo(() => {
+    const map = new Map<string, number>();
+    variants.forEach((v, i) => map.set(v.id, i + 1));
+    return map;
+  }, [variants]);
+
   const filtered = useMemo(() => {
     if (!strategyFilter) return variants;
     return variants.filter(v => v.agent_name === strategyFilter);
@@ -108,7 +115,7 @@ export function VariantsTab({ runId, runStatus }: VariantsTabProps): JSX.Element
                 >
                   <td className="px-2 py-2 text-[var(--text-muted)]">
                     <span className="cursor-pointer" title={v.id} onClick={() => setExpandedIds(prev => { const next = new Set(prev); if (next.has(v.id)) next.delete(v.id); else next.add(v.id); return next; })}>
-                      #{i + 1}
+                      #{rankMap.get(v.id) ?? i + 1}
                       {v.is_winner && <span className="mx-1 text-[var(--accent-gold)]">★</span>}
                       <span className="ml-1.5 font-mono text-xs text-[var(--accent-gold)]">{v.id.substring(0, 6)}</span>
                     </span>
