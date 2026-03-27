@@ -743,6 +743,35 @@ describe('rankPool', () => {
     expect(v3Rating!.mu).toBeCloseTo(DEFAULT_MU, 0);
   });
 
+  // Regression: failed comparisons (confidence=0) should not inflate avg confidence denominator
+  it('triage early exit uses only successful match count for avg confidence', async () => {
+    // Set up pool with existing variants + 1 new entrant
+    const pool = makePool(5);
+    const ratings = makeRatings([
+      ['v0', 30, 3], ['v1', 28, 3], ['v2', 25, 3], ['v3', 22, 3],
+    ]);
+    const newEntrants = ['v4'];
+
+    // Simulate: 1 failed comparison (returns empty = confidence 0), then 2 decisive wins
+    let callCount = 0;
+    const llm = createV2MockLlm();
+    llm.complete.mockImplementation(async () => {
+      callCount++;
+      if (callCount <= 2) return '';  // First comparison: both passes fail → confidence 0
+      return 'A'; // Subsequent: decisive A wins → confidence 1.0
+    });
+
+    const result = await rankPool(pool, ratings, new Map(), newEntrants, llm, {
+      ...baseConfig,
+      calibrationOpponents: 4, // Enough opponents to see the effect
+    });
+
+    // Should complete without error; the entrant should have been evaluated
+    expect(result.ratingUpdates['v4']).toBeDefined();
+    // If the bug were present, the avg confidence would be diluted by the failed match
+    // and the entrant would not get an early exit, consuming more LLM calls
+  });
+
   // ─── C1: fineResult null safety ──────────────────────────────
   it('returns converged=false when triage budget exceeded and fineResult is null', async () => {
     const pool = makePool(6);

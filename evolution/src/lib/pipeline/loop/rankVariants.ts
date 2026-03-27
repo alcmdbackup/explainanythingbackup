@@ -318,6 +318,7 @@ async function executeTriage(
     const opponents = selectOpponents(entrantId, pool, localRatings, newEntrantIds, numOpponents);
     let decisiveCount = 0;
     let totalConfidence = 0;
+    let successfulMatches = 0;
 
     for (let i = 0; i < opponents.length; i++) {
       const oppId = opponents[i]!;
@@ -354,10 +355,10 @@ async function executeTriage(
         consecutiveErrors++;
         logger?.warn('Triage comparison failed', { entrantId, oppId, consecutiveErrors, phaseName: 'ranking' });
         if (consecutiveErrors > 3) break; // Too many consecutive failures
-        totalConfidence += match.confidence;
         continue;
       }
       consecutiveErrors = 0;
+      successfulMatches++;
       // Treat low-confidence (0 < confidence < 0.3) as draw (consistent with fine-ranking)
       const isDraw = match.confidence < 0.3 || match.result === 'draw' || match.winnerId === match.loserId;
       if (isDraw) {
@@ -375,21 +376,21 @@ async function executeTriage(
       totalConfidence += match.confidence;
       if (match.confidence >= DECISIVE_CONFIDENCE) decisiveCount++;
 
-      // Elimination check
+      // Elimination check (use successfulMatches instead of i to exclude failed comparisons)
       const currentRating = localRatings.get(entrantId)!;
-      if (i >= MIN_TRIAGE_OPPONENTS - 1 && currentRating.mu + 2 * currentRating.sigma < top20Cutoff) {
+      if (successfulMatches >= MIN_TRIAGE_OPPONENTS && currentRating.mu + 2 * currentRating.sigma < top20Cutoff) {
         eliminatedIds.add(entrantId);
         logger?.info('Triage elimination', { entrantId, muPlusSigma: currentRating.mu + 2 * currentRating.sigma, cutoff: top20Cutoff, phaseName: 'ranking' });
         break;
       }
 
-      // Decisive early exit
+      // Decisive early exit (use successfulMatches for both count and avg confidence denominator)
       if (
-        i >= MIN_TRIAGE_OPPONENTS - 1 &&
+        successfulMatches >= MIN_TRIAGE_OPPONENTS &&
         decisiveCount >= MIN_TRIAGE_OPPONENTS &&
-        totalConfidence / (i + 1) >= AVG_CONFIDENCE_THRESHOLD
+        totalConfidence / successfulMatches >= AVG_CONFIDENCE_THRESHOLD
       ) {
-        logger?.info('Triage early exit', { entrantId, decisiveCount, avgConfidence: totalConfidence / (i + 1), phaseName: 'ranking' });
+        logger?.info('Triage early exit', { entrantId, decisiveCount, avgConfidence: totalConfidence / successfulMatches, phaseName: 'ranking' });
         break;
       }
     }
