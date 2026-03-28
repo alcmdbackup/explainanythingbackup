@@ -1,18 +1,11 @@
 ---
-description: Merge main into production, resolve conflicts (preferring main), run checks, and create PR
-argument-hint: [--e2e]
+description: Merge main into production, resolve conflicts (preferring main), run checks (including E2E), and create PR
 allowed-tools: Bash(git:*), Bash(gh:*), Bash(npm:*), Bash(npx:*), Read, Glob, mcp__filesystem__write_file
 ---
 
 # Main to Production Release
 
 Automate the process of merging main into production with conflict resolution and verification.
-
-## Arguments
-
-- `--e2e`: Include full E2E test suite in the verification (optional, default: skip E2E)
-
-The argument passed is: `$ARGUMENTS`
 
 ## Context
 
@@ -79,39 +72,45 @@ After resolving:
 git add -A
 ```
 
-### 4. Run Verification Checks
+### 4. Run All Verification Checks (collect all failures)
 
-Run each check. If any fails, fix the issues before proceeding:
+Run ALL 5 checks without stopping on failure. Collect every failure into a summary table, then fix all issues at once:
 
 ```bash
-# 1. Lint
-npm run lint
-
-# 2. TypeScript
-npx tsc --noEmit
-
-# 3. Build
-npm run build
-
-# 4. Unit Tests
-npm run test:unit
-
-# 5. Integration Tests
-npm run test:integration
+# Run all 5 — capture exit codes, do NOT stop on failure
+npm run lint;                LINT_RC=$?
+npx tsc --noEmit;            TSC_RC=$?
+npm run build;               BUILD_RC=$?
+npm run test:unit;           UNIT_RC=$?
+npm run test:integration;    INT_RC=$?
 ```
 
-If any check fails:
-- Fix the issue
-- Re-run the failing check
-- Continue when all pass
+Display results:
+```
+Check Results
+──────────────────────────────────────
+Lint:              ✓ PASSED / ✗ FAILED
+TypeScript:        ✓ PASSED / ✗ FAILED
+Build:             ✓ PASSED / ✗ FAILED
+Unit Tests:        ✓ PASSED / ✗ FAILED
+Integration Tests: ✓ PASSED / ✗ FAILED
+──────────────────────────────────────
+```
 
-### 4.5. E2E Tests (if --e2e flag provided)
+If any check failed:
+1. Fix ALL failing issues at once
+2. Re-run ALL 5 checks (not just the ones that failed)
+3. Repeat until all 5 pass
 
-If `$ARGUMENTS` contains `--e2e`:
-- Run: `npm run test:e2e`
-- This runs the full chromium + chromium-unauth E2E suite
-- If any E2E tests fail, fix them and re-run until all pass
-- Do not skip or proceed without passing E2E tests
+### 4.5. E2E Tests
+
+Always run the full E2E suite — no flag required:
+
+```bash
+npm run test:e2e
+```
+
+This runs the full chromium + chromium-unauth E2E suite. If any E2E tests fail, fix them and re-run until all pass. Do not skip or proceed without passing E2E tests.
 
 ### 5. Commit
 
@@ -121,7 +120,7 @@ git commit -m "Release: main → production ($(date '+%b %d') - <brief descripti
 ## Summary
 <list key PRs merged>
 
-Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>"
+Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>"
 ```
 
 ### 6. Push and Create PR
@@ -154,11 +153,74 @@ gh pr create --base production --head $(git branch --show-current) \
 
 ## Test plan
 - [ ] CI passes on all checks
-- E2E Tests: [✓ passed / skipped (no --e2e flag)]
+- E2E Tests: ✓ passed
 - [ ] Smoke tests pass post-deployment
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)"
 ```
+
+### 6.2. Monitor CI Checks
+
+After PR creation, monitor CI checks until they all pass. If any fail, fix issues locally, push, and re-monitor.
+
+**Step 6.2a: Wait for CI to start**
+
+```bash
+sleep 30
+```
+
+**Step 6.2b: Watch checks until completion**
+
+```bash
+timeout 900 gh pr checks --watch
+```
+
+| Exit Code | Meaning | Action |
+|-----------|---------|--------|
+| 0 | All checks passed | Proceed to Step 7 |
+| 1 | One or more checks failed | Proceed to Step 6.2c (diagnose) |
+| 124 | Timeout (15 min elapsed) | Ask user: "CI timed out. Wait longer or abort?" |
+| 8 | Checks still pending | Re-run `gh pr checks --watch` |
+
+**Step 6.2c: Diagnose and fix failures**
+
+```bash
+gh pr checks --json name,bucket,link,state
+```
+
+Get failure logs:
+```bash
+FAILED_RUN_IDS=$(gh pr checks --json link,bucket \
+  --jq 'map(select(.bucket == "fail") | .link | capture("runs/(?<id>[0-9]+)") | .id) | unique | .[]')
+
+for run_id in $FAILED_RUN_IDS; do
+  gh run view "$run_id" --log-failed
+done
+```
+
+**Step 6.2d: Fix, commit, and push**
+
+1. Analyze the failure logs to identify root causes
+2. Fix ALL issues locally
+3. Re-run ALL local checks: Step 4 (all 5 checks) + Step 4.5 (E2E). Re-run everything, not just the checks that failed.
+4. **Never use `gh run rerun`** — always push new commits to trigger a full CI run. Re-running stale commits can mask issues introduced by fixes.
+5. Commit fixes:
+   ```bash
+   git add -A
+   git commit -m "fix: address CI failures (iteration N)"
+   ```
+6. Push:
+   ```bash
+   git push
+   ```
+7. Backup push (non-fatal):
+   ```bash
+   git -c http.postBuffer=524288000 push backup HEAD --force-with-lease --no-verify
+   ```
+   Verify exit code. If non-zero, display "WARNING: Backup push failed with exit code $?" and continue.
+8. Return to Step 6.2a (wait 30s, then re-watch)
+
+**Maximum iterations**: 5 fix-push-watch cycles. After 5 failures, ask user: "CI checks have failed 5 times. Continue trying or abort monitoring?"
 
 ### 7. Verify and Cleanup
 
@@ -186,8 +248,9 @@ git stash pop
 - Build succeeds
 - Unit tests pass
 - Integration tests pass
-- E2E tests pass (if --e2e flag was provided)
+- E2E tests pass (always run)
 - PR created with no merge conflicts
+- PR CI checks all pass (or user chose to abort monitoring)
 - `mergeable: MERGEABLE` status
 - PR URL displayed
 
