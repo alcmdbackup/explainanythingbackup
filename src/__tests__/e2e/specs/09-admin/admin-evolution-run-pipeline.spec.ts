@@ -180,7 +180,7 @@ adminTest.describe('Evolution Run Pipeline', { tag: '@evolution' }, () => {
     expect(run!.status).toBe('completed');
     expect(run!.run_summary).toBeTruthy();
     expect(run!.run_summary.version).toBe(3);
-    expect(['iterations_complete', 'budget_exceeded', 'converged']).toContain(run!.run_summary.stopReason);
+    expect(['iterations_complete', 'budget_exceeded', 'converged', 'time_limit']).toContain(run!.run_summary.stopReason);
     expect(run!.completed_at).toBeTruthy();
   });
 

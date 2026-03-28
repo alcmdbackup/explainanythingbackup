@@ -22,6 +22,7 @@ const DRY_RUN = process.argv.includes('--dry-run');
 const MAX_RUNS = parseIntArg('--max-runs', 10);
 const PARALLEL = parseIntArg('--parallel', 1);
 const MAX_CONCURRENT_LLM = parseIntArg('--max-concurrent-llm', 20);
+const MAX_DURATION_MS = parseIntArg('--max-duration', 6_000_000);
 const RUNNER_ID = `v2-${hostname()}-${process.pid}-${Date.now()}`;
 
 interface DbTarget { name: string; client: SupabaseClient }
@@ -92,11 +93,13 @@ async function buildDbTargets(): Promise<DbTarget[]> {
 // ─── Graceful shutdown ──────────────────────────────────────────
 
 let shuttingDown = false;
+const abortController = new AbortController();
 
 function setupGracefulShutdown() {
   const handler = () => {
     if (shuttingDown) return;
     shuttingDown = true;
+    abortController.abort();
     log('info', 'Received shutdown signal, finishing current runs...');
   };
 
@@ -140,6 +143,8 @@ async function main() {
           runnerId: RUNNER_ID,
           db: target.client,
           dryRun: DRY_RUN || undefined,
+          maxDurationMs: MAX_DURATION_MS,
+          signal: abortController.signal,
         }).then(result => ({ result, target })),
       ),
     );
@@ -189,5 +194,5 @@ if (isDirectExecution) {
 
 // ─── Exports for testing ─────────────────────────────────────────
 
-export { parseIntArg, log, buildDbTargets, loadEnvFile, main };
+export { parseIntArg, log, buildDbTargets, loadEnvFile, main, abortController, MAX_DURATION_MS };
 export type { DbTarget };
