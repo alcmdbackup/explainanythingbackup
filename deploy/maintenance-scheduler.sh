@@ -178,6 +178,10 @@ PROGRESSEOF
   git commit -m "chore: auto-initialize ${PROJECT_NAME}"
 
   # --- Concatenate preamble + skill SKILL.md into temp file ---
+  if [ ! -f "$REPO_DIR/$PREAMBLE_FILE" ]; then
+    log "WARN: Preamble not found: $REPO_DIR/$PREAMBLE_FILE"
+    continue
+  fi
   PROMPT_FILE=$(mktemp /tmp/maint-prompt-${skill}-XXXXXX.md)
   cat "$REPO_DIR/$PREAMBLE_FILE" "$WORKTREE_DIR/.claude/skills/maintenance/${skill}/SKILL.md" > "$PROMPT_FILE"
 

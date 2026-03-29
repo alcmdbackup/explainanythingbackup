@@ -141,7 +141,11 @@ watch_run() {
 
     for skill in "${SKILLS[@]}"; do
       local STATUS_FILE="$LOG_DIR/${skill}-${DATE}.status"
-      [ ! -f "$STATUS_FILE" ] && continue
+      if [ ! -f "$STATUS_FILE" ]; then
+        # Missing status file = skill never launched, count as done (failure)
+        DONE=$((DONE + 1))
+        continue
+      fi
       [[ "$(cat "$STATUS_FILE")" != "running" ]] && DONE=$((DONE + 1))
     done
 
