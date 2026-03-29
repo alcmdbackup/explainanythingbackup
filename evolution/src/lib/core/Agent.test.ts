@@ -245,6 +245,27 @@ describe('Agent abstract class', () => {
     });
   });
 
+  describe('run() - detail parse failure writes null detail to DB', () => {
+    it('writes undefined execution_detail when detail fails schema validation', async () => {
+      const agent = new TestAgent(async () => ({
+        result: 'ok',
+        detail: { detailType: 'wrong', totalCost: 'not-a-number' } as any,
+      }));
+      const ctx = createMockContext();
+
+      const result = await agent.run('hello', ctx);
+
+      expect(result.success).toBe(true);
+      // Verify that execution_detail is undefined (not the invalid detail)
+      const updateCall = updateInvocation.mock.calls[0][2];
+      expect(updateCall.execution_detail).toBeUndefined();
+      expect(ctx.logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('writing null detail to DB'),
+        expect.any(Object),
+      );
+    });
+  });
+
   describe('detailViewConfig on concrete agents', () => {
     it('GenerationAgent has a non-empty detailViewConfig', () => {
       const agent = new GenerationAgent();

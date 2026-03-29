@@ -22,9 +22,29 @@ export interface V2CostTracker {
 /** Safety margin multiplier for budget reservations. */
 const RESERVE_MARGIN = 1.3;
 
+/** Whether strict assertions are enabled (dev/test only). */
+const STRICT_ASSERTIONS = process.env.EVOLUTION_ASSERTIONS === 'true';
+
+/** Assert a postcondition — logs unconditionally, throws only in strict mode. */
+function assertPostcondition(
+  condition: boolean,
+  message: string,
+  logger?: EntityLogger,
+): void {
+  if (!condition) {
+    logger?.error(`Budget assertion failed: ${message}`, { phaseName: 'budget_assertion' });
+    if (STRICT_ASSERTIONS) {
+      throw new Error(`Budget assertion failed: ${message}`);
+    }
+  }
+}
+
 // ─── Implementation ──────────────────────────────────────────────
 
 export function createCostTracker(budgetUsd: number, logger?: EntityLogger): V2CostTracker {
+  if (!Number.isFinite(budgetUsd) || budgetUsd <= 0) {
+    throw new Error(`createCostTracker: budgetUsd must be a positive finite number, got ${budgetUsd}`);
+  }
   let totalSpent = 0;
   let totalReserved = 0;
   const phaseCosts: Record<string, number> = {};
@@ -41,6 +61,9 @@ export function createCostTracker(budgetUsd: number, logger?: EntityLogger): V2C
         throw new BudgetExceededError(phase, totalSpent, totalReserved + margined, budgetUsd);
       }
       totalReserved += margined;
+      if (estimatedCost >= 0) {
+        assertPostcondition(totalReserved >= 0, `totalReserved negative after reserve: ${totalReserved}`, logger);
+      }
       return margined;
     },
 
@@ -58,6 +81,17 @@ export function createCostTracker(budgetUsd: number, logger?: EntityLogger): V2C
         }
       }
 
+      // Postcondition assertions
+      assertPostcondition(totalReserved >= 0, `totalReserved negative after recordSpend: ${totalReserved}`, logger);
+      assertPostcondition(Number.isFinite(totalSpent), `totalSpent not finite after recordSpend: ${totalSpent}`, logger);
+
+      // Core budget invariant (unconditional — runs in all environments)
+      if (totalSpent + totalReserved > budgetUsd * 1.01) {
+        logger?.error('Budget invariant violated: totalSpent + totalReserved > budgetUsd * 1.01', {
+          phaseName: phase, totalSpent, totalReserved, budgetUsd,
+        });
+      }
+
       // Threshold warnings
       const pct = totalSpent / budgetUsd;
       if (!warned50 && pct >= 0.5) {
@@ -72,6 +106,7 @@ export function createCostTracker(budgetUsd: number, logger?: EntityLogger): V2C
 
     release(_phase: string, reservedAmount: number): void {
       totalReserved = Math.max(0, totalReserved - reservedAmount);
+      assertPostcondition(totalReserved >= 0, `totalReserved negative after release: ${totalReserved}`, logger);
     },
 
     getTotalSpent(): number {

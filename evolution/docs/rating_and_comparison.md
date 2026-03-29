@@ -65,6 +65,17 @@ export function isConverged(r: Rating, threshold?: number): boolean;
 calls reduce sigma for every participant, even losers -- uncertainty always decreases when
 you observe an outcome.
 
+### Rating Invariants (Property-Tested)
+
+The following invariants are verified by property-based tests in `computeRatings.property.test.ts` using `fast-check` against the real openskill library:
+
+- **Sigma decrease:** Both players' sigma decreases after `updateRating()` and `updateDraw()` (for sigma >= 1.0; below 1.0, openskill's convergence floor may cause sigma to increase).
+- **Finite outputs:** All mu and sigma values after any rating update are finite numbers.
+- **Draw symmetry:** `updateDraw(a, b)` and `updateDraw(b, a)` produce symmetric results.
+- **Elo monotonicity:** `toEloScale()` is monotonically increasing in mu.
+- **Elo range:** `toEloScale()` output is always in [0, 3000].
+- **Aggregation shape:** `aggregateWinners()` always returns a valid `ComparisonResult` with winner in {A, B, TIE}, confidence in [0, 1], and turns = 2.
+
 ### Elo Scale Conversion
 
 For display purposes (leaderboards, the [Arena](./arena.md) UI), raw mu is projected onto

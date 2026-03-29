@@ -1,6 +1,6 @@
 // Seed article generation for prompt-based V2 runs. 2 LLM calls: title → article.
 
-import { FORMAT_RULES } from '../../shared/enforceVariantFormat';
+import { FORMAT_RULES, validateFormat } from '../../shared/enforceVariantFormat';
 import type { EntityLogger } from '../infra/createEntityLogger';
 
 const SEED_TIMEOUT_MS = 60_000;
@@ -108,6 +108,10 @@ export async function generateSeedArticle(
   );
 
   const content = `# ${title}\n\n${articleContent}`;
+  const formatResult = validateFormat(content);
+  if (!formatResult.valid) {
+    logger?.warn('Seed article format validation issues', { issues: formatResult.issues, phaseName: 'seed_setup' });
+  }
   logger?.info('Seed article complete', { title, contentLength: content.length, phaseName: 'seed_setup' });
   return { title, content };
 }

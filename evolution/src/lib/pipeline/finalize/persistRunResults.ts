@@ -15,6 +15,7 @@ import { getMetricsForEntities } from '../../metrics/readMetrics';
 import { type FinalizationContext, type MetricRow, type MetricName, isMetricValue } from '../../metrics/types';
 
 import { evolutionVariantInsertSchema, EvolutionRunSummaryV3Schema } from '../../schemas';
+import { selectWinner } from '../../shared/selectWinner';
 
 /** V2 baseline strategy name (V1 uses 'original_baseline'). */
 const V2_BASELINE_STRATEGY = 'baseline';
@@ -154,19 +155,8 @@ export async function finalizeRun(
   }
 
   // Step 3: Determine winner (highest mu, tie-break by lowest sigma)
-  let winnerId = localPool[0]!.id;
-  let bestMu = -Infinity;
-  let bestSigma = Infinity;
-  for (const v of localPool) {
-    const r = result.ratings.get(v.id);
-    const mu = r?.mu ?? -Infinity;
-    const sigma = r?.sigma ?? Infinity;
-    if (mu > bestMu || (mu === bestMu && sigma < bestSigma)) {
-      bestMu = mu;
-      bestSigma = sigma;
-      winnerId = v.id;
-    }
-  }
+  const winResult = selectWinner(localPool, result.ratings);
+  const winnerId = winResult.winnerId;
   const winnerMu = result.ratings.get(winnerId)?.mu ?? DEFAULT_MU;
   const winnerSigma = result.ratings.get(winnerId)?.sigma ?? DEFAULT_SIGMA;
   logger?.info('Winner determined', { winnerId, winnerMu, winnerSigma, phaseName: 'finalize' });

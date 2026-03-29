@@ -77,6 +77,11 @@ export function createV2LLMClient(
             }),
           ]);
 
+          // Validate response is non-empty string
+          if (typeof response !== 'string' || response.trim().length === 0) {
+            throw new Error('Empty LLM response');
+          }
+
           // Success — record actual cost
           const actual = calculateCost(prompt.length, response.length, pricing);
           costTracker.recordSpend(agentName, actual, margined);

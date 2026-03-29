@@ -70,7 +70,12 @@ async function recomputeRunEloMetrics(db: SupabaseClient, runId: string): Promis
   const ratings = new Map<string, Rating>();
   const pool: Variant[] = [];
   for (const v of variants) {
-    ratings.set(v.id, { mu: v.mu ?? DEFAULT_MU, sigma: v.sigma ?? DEFAULT_MU / 3 });
+    const rawMu = v.mu as number | null;
+    const rawSigma = v.sigma as number | null;
+    ratings.set(v.id, {
+      mu: Number.isFinite(rawMu) ? rawMu! : DEFAULT_MU,
+      sigma: Number.isFinite(rawSigma) ? rawSigma! : DEFAULT_MU / 3,
+    });
     pool.push({ id: v.id, text: '', version: 0, parentIds: [], strategy: '', createdAt: 0, iterationBorn: 0 });
   }
 
