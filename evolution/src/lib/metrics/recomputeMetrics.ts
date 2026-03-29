@@ -31,10 +31,8 @@ export async function recomputeStaleMetrics(
   try {
     if (entityType === 'run') {
       await recomputeRunEloMetrics(db, entityId);
-    } else if (entityType === 'strategy') {
-      await recomputeStrategyMetrics(db, entityId);
-    } else if (entityType === 'experiment') {
-      await recomputeExperimentMetrics(db, entityId);
+    } else if (entityType === 'strategy' || entityType === 'experiment') {
+      await recomputeParentEntityMetrics(db, entityType, entityId);
     }
   } finally {
     // Clear stale flags for the metrics we locked
@@ -85,33 +83,21 @@ async function recomputeRunEloMetrics(db: SupabaseClient, runId: string): Promis
   }
 }
 
-async function recomputeStrategyMetrics(db: SupabaseClient, strategyId: string): Promise<void> {
-  // Get all completed run IDs for this strategy
+async function recomputeParentEntityMetrics(
+  db: SupabaseClient,
+  entityType: 'strategy' | 'experiment',
+  entityId: string,
+): Promise<void> {
+  const columnName = entityType === 'strategy' ? 'strategy_id' : 'experiment_id';
   const { data: runs, error: runsError } = await db
     .from('evolution_runs')
     .select('id')
-    .eq('strategy_id', strategyId)
+    .eq(columnName, entityId)
     .eq('status', 'completed');
-  if (runsError) throw new Error(`Failed to read runs for strategy ${strategyId}: ${runsError.message}`);
+  if (runsError) throw new Error(`Failed to read runs for ${entityType} ${entityId}: ${runsError.message}`);
 
   if (!runs || runs.length === 0) return;
-  const runIds = runs.map(r => r.id);
-
-  await recomputePropagatedMetrics(db, 'strategy', strategyId, runIds);
-}
-
-async function recomputeExperimentMetrics(db: SupabaseClient, experimentId: string): Promise<void> {
-  const { data: runs, error: runsError } = await db
-    .from('evolution_runs')
-    .select('id')
-    .eq('experiment_id', experimentId)
-    .eq('status', 'completed');
-  if (runsError) throw new Error(`Failed to read runs for experiment ${experimentId}: ${runsError.message}`);
-
-  if (!runs || runs.length === 0) return;
-  const runIds = runs.map(r => r.id);
-
-  await recomputePropagatedMetrics(db, 'experiment', experimentId, runIds);
+  await recomputePropagatedMetrics(db, entityType, entityId, runs.map(r => r.id));
 }
 
 async function recomputePropagatedMetrics(

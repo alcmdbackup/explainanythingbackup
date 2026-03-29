@@ -61,9 +61,6 @@ export function createCostTracker(budgetUsd: number, logger?: EntityLogger): V2C
         throw new BudgetExceededError(phase, totalSpent, totalReserved + margined, budgetUsd);
       }
       totalReserved += margined;
-      if (estimatedCost >= 0) {
-        assertPostcondition(totalReserved >= 0, `totalReserved negative after reserve: ${totalReserved}`, logger);
-      }
       return margined;
     },
 
@@ -81,8 +78,7 @@ export function createCostTracker(budgetUsd: number, logger?: EntityLogger): V2C
         }
       }
 
-      // Postcondition assertions
-      assertPostcondition(totalReserved >= 0, `totalReserved negative after recordSpend: ${totalReserved}`, logger);
+      // Postcondition: guard against NaN propagation from bad actualCost
       assertPostcondition(Number.isFinite(totalSpent), `totalSpent not finite after recordSpend: ${totalSpent}`, logger);
 
       // Core budget invariant (unconditional — runs in all environments)
@@ -106,7 +102,6 @@ export function createCostTracker(budgetUsd: number, logger?: EntityLogger): V2C
 
     release(_phase: string, reservedAmount: number): void {
       totalReserved = Math.max(0, totalReserved - reservedAmount);
-      assertPostcondition(totalReserved >= 0, `totalReserved negative after release: ${totalReserved}`, logger);
     },
 
     getTotalSpent(): number {

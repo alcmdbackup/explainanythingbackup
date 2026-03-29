@@ -76,27 +76,10 @@ export async function generateSeedArticle(
   logger?: EntityLogger,
 ): Promise<SeedResult> {
   logger?.debug('Starting seed title generation', { phaseName: 'seed_setup' });
-  // Generate title
-  const titleRaw = await withTimeout(
-    llm.complete(buildTitlePrompt(promptText), 'seed_title'),
+  let title = await withTimeout(
+    generateTitle(promptText, (p) => llm.complete(p, 'seed_title')),
     'title generation',
   );
-
-  // Parse title: try JSON object, fall back to plain text
-  let title: string;
-  try {
-    const parsed = JSON.parse(titleRaw);
-    if (typeof parsed === 'object' && parsed !== null) {
-      title = (parsed.title1 ?? parsed.title ?? '').toString();
-    } else if (typeof parsed === 'string') {
-      title = parsed;
-    } else {
-      title = titleRaw.replace(/["\n]/g, '').trim().slice(0, 200);
-    }
-  } catch {
-    title = titleRaw.replace(/["\n]/g, '').trim().slice(0, 200);
-  }
-
   if (!title) title = promptText.slice(0, 100);
   logger?.debug('Seed title generated', { titleLength: title.length, phaseName: 'seed_setup' });
 
