@@ -1,0 +1,17 @@
+[Unit]
+Description=Maintenance Skills Scheduler
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/ac/Documents/ac/explainanything-worktree0
+Environment=PATH=/home/ac/.nvm/versions/node/v22.22.0/bin:/usr/local/bin:/usr/bin:/bin
+EnvironmentFile=/etc/maintenance-scheduler.env
+ExecStart=/bin/bash deploy/maintenance-scheduler.sh
+TimeoutStartSec=7200
+User=ac
+Group=ac
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=maintenance-scheduler

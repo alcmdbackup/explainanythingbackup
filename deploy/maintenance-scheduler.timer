@@ -1,0 +1,10 @@
+[Unit]
+Description=Weekly Maintenance Skills Timer
+
+[Timer]
+OnCalendar=Sun *-*-* 02:00:00
+Persistent=true
+AccuracySec=60
+
+[Install]
+WantedBy=timers.target
