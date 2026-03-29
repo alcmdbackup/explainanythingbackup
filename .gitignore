@@ -83,6 +83,9 @@ docs/planning/deploy/
 /hooks
 /objects
 /refs
+# Maintenance logs
+logs/maintenance/
+
 evolution/.next/
 .claude/worktrees/
 .playwright-mcp
