@@ -50,7 +50,18 @@ The evolution pipeline has 90+ runtime invariants enforced across 6 subsystems, 
   - Phase cost accumulation: sum(phaseCosts) === totalSpent
 - [ ] Run lint, tsc, build, all evolution unit tests — verify no regressions
 
-### Phase 2: Database Constraints (~0.5 day)
+### Phase 2: Trust Boundary Hardening — DB Reads + Seed Validation (~1 day)
+
+- [ ] Add `safeParse` to RPC claim response in `claimAndExecuteRun.ts:112` — replace `as unknown as ClaimedRun[]` with Zod schema validation (Risk #2)
+- [ ] Add `isFinite()` checks on arena entry mu/sigma in `buildRunContext.ts:53-69` — NaN is not caught by `??` (Risk #3)
+- [ ] Add null validation on `resolveContent` return in `buildRunContext.ts:111-112` — replace `as string` cast (Risk #4)
+- [ ] Add `validateFormat()` call to seed article content in `generateSeedArticle.ts` — currently the only LLM text path that skips format validation (new finding)
+- [ ] Upgrade Agent detail validation from warn-only to throw in `Agent.ts:36-42` — or at minimum, don't write invalid detail to DB (Risk #5)
+- [ ] Add `isFinite()` guard to `writeMetric()` in `writeMetrics.ts:100` — reject NaN/Infinity before DB write (Risk #8)
+- [ ] Add `budgetUsd > 0` precondition to `createCostTracker()` in `trackBudget.ts:27` (Risk #7)
+- [ ] Run lint, tsc, build, all evolution unit tests — verify no regressions
+
+### Phase 3: Database Constraints (~0.5 day)
 
 - [ ] Create migration `supabase/migrations/YYYYMMDD_add_evolution_constraints.sql`:
   - `ALTER TABLE evolution_runs ADD CONSTRAINT check_runs_status CHECK (status IN ('pending','claimed','running','completed','failed'));`
@@ -62,7 +73,7 @@ The evolution pipeline has 90+ runtime invariants enforced across 6 subsystems, 
 - [ ] Verify no existing data violates constraints on staging before deploying
 - [ ] Run E2E tests to confirm pipeline still works end-to-end with new constraints
 
-### Phase 3: Format Validator Property Tests + Budget Assertions (~0.5 day)
+### Phase 4: Format Validator Property Tests + Budget Assertions (~0.5 day)
 
 - [ ] Create `evolution/src/lib/shared/enforceVariantFormat.property.test.ts`
   - `stripCodeBlocks`: idempotency (strip twice = strip once), non-code text unchanged
@@ -75,7 +86,7 @@ The evolution pipeline has 90+ runtime invariants enforced across 6 subsystems, 
   - Gate with `process.env.NODE_ENV !== 'production'` or `EVOLUTION_ASSERTIONS` env var
 - [ ] Run full test suite
 
-### Phase 4: Branded Types (optional, ~1-2 days)
+### Phase 5: Branded Types (optional, ~1-2 days)
 
 - [ ] Add `ValidatedArticle` branded type to `evolution/src/lib/types.ts`
   - `type ValidatedArticle = string & { readonly __validated: unique symbol }`

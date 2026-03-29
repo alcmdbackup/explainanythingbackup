@@ -145,6 +145,107 @@ Bug-related commit categories from ~352 recent evolution commits (methodology: g
 4. Should the assertion framework be production-enabled (with env var toggle) or dev/test only?
 5. DB constraints: deploy to staging first or straight to prod given existing data appears clean?
 
+## Phase Walkthrough (Detailed Threat Analysis)
+
+### Phase 1: selectWinner extraction + property-based tests
+
+**selectWinner divergence:** Winner determination exists in two places with divergent semantics for unrated variants:
+- `runIterationLoop.ts:250` — `if (!r) continue` — SKIPS unrated
+- `persistRunResults.ts:156` — `r?.mu ?? -Infinity` — INCLUDES as worst
+
+In normal operation both produce the same winner. But if any variant lacks a rating, the loop winner can differ from the finalization winner. The DB stores a different winner than what the loop used for further evolution. Silent correctness bug, no error thrown.
+
+**Rating property tests protect against:**
+- Sigma not decreasing (convergence detection fails, loop never terminates via convergence)
+- NaN/Infinity outputs (propagates through entire pool, corrupts all ratings)
+- Draw asymmetry (position bias leaks into rating system)
+- Elo scale non-monotonicity (leaderboard display contradicts internal ranking)
+
+**Budget property tests protect against:**
+- Core invariant violation (`totalSpent + totalReserved > budgetUsd`) allowing overspend
+- Reserve margin drift (constant changed, under/over-budgeting)
+- Reserve-spend accounting mismatch (available budget diverges from reality)
+
+### Phase 2: DB constraints
+
+**Status enum CHECKs protect against:**
+- Direct DB writes bypassing Zod (batch runner, RPCs, migrations)
+- RPC-level typos (`'completd'` accepted, run becomes invisible to claim system)
+- Migration accidents writing cross-table status values (`'archived'` on runs)
+
+**config_hash UNIQUE protects against:**
+- `ON CONFLICT` upsert degrading to plain INSERT (no actual unique index to detect conflict)
+- Duplicate strategy rows splitting aggregate metrics
+- Experiment comparison becoming meaningless
+
+### Phase 3: Format validator tests + budget assertions
+
+**Format property tests protect against:**
+- `stripCodeBlocks` leaving partial fence markers (validator sees different text than pool)
+- Over-aggressive regex stripping legitimate content
+- Bullet detection regression (LLM outputs with bullets enter pool, render broken on frontend)
+- `extractParagraphs` leaking headings into sentence count (false rejections of good variants)
+
+**Budget assertions protect against:**
+- `totalReserved` going negative from double-release (silent, available budget wrong)
+- `totalSpent` becoming NaN from malformed API response (budget check stops working entirely, unbounded spend until global gate catches it)
+- Reserve-spend mismatch from caller storing wrong value (accounting drift across iterations)
+
+### Phase 4: Branded types (optional)
+
+**ValidatedArticle protects against:**
+- New code paths that skip validation (compiler refuses to build)
+- Refactoring that moves validation after pool insertion (compilation fails)
+
+**RatedVariant protects against:**
+- Unrated variants reaching finalization with phantom DEFAULT_MU ratings
+- Arena entries synced with uncalibrated defaults (Elo 1200 imposters)
+- Median/p90 metrics skewed by phantom fallback values
+- Inconsistent unrated-handling policy across ~20 call sites
+
+## Validation Audit: Top 10 Highest-Risk Gaps
+
+Verified against actual code. Risk = Likelihood × Impact × (1/Detectability).
+
+| Rank | Gap | Location | Likelihood | Impact | Detectability | Description |
+|------|-----|----------|-----------|--------|---------------|-------------|
+| 1 | execution_detail from DB unvalidated | `persistRunResults.ts:235` | LIKELY | CRITICAL | VERY LOW | Loaded as `unknown`, passed to metrics compute without safeParse. Wrong metric values cascade to strategy/experiment aggregations permanently. |
+| 2 | RPC response casting | `claimAndExecuteRun.ts:112` | CERTAIN | CRITICAL | EVENTUAL | `as unknown as ClaimedRun[]` — zero validation. If RPC shape changes, `budget_cap_usd` becomes NaN, fallback `|| 1.0` fires → wrong budget. |
+| 3 | Arena entry mu/sigma unvalidated | `buildRunContext.ts:53-69` | LIKELY | HIGH | EVENTUAL | `entry.mu ?? DEFAULT_MU` — `??` doesn't catch NaN (NaN is not nullish). NaN enters ratings map → all ranking is garbage. |
+| 4 | resolveContent `as string` cast | `buildRunContext.ts:111-112` | LIKELY | HIGH | HIGH | If DB column is null, JS produces string `"null"` — LLM generates article about the word "null", burning budget. |
+| 5 | Agent detail validation warn-only | `Agent.ts:36-42` | LIKELY (on refactor) | MEDIUM | LOW | `safeParse` fails → logs warning → continues writing invalid detail to DB → feeds gap #1. |
+| 6 | syncToArena trusts pool/ratings | `persistRunResults.ts:429-435` | POSSIBLE | MEDIUM-HIGH | MEDIUM | Corrupt data from gaps #3/#5 written atomically to arena — persists across runs. |
+| 7 | createCostTracker accepts negative budget | `trackBudget.ts:27` | POSSIBLE | MEDIUM | EVENTUAL | No check `budgetUsd > 0`. If gap #2 produces NaN → `reserve()` never throws → no budget limit. |
+| 8 | writeMetric accepts NaN/Infinity | `writeMetrics.ts:100` | POSSIBLE | MEDIUM | MEDIUM | NaN persists to `evolution_metrics` → breaks aggregate queries and admin UI. |
+| 9 | rankPool no variant structure check | `rankVariants.ts:651` | UNLIKELY | HIGH | IMMEDIATE | Low likelihood (pool built internally), but crash is actually the best failure mode (loud). |
+| 10 | config_hash no UNIQUE constraint | DB schema | POSSIBLE | LOW | HIGH | `ON CONFLICT` upsert needs unique index. Without it, duplicates accumulate. Cosmetic impact. |
+
+**Cascade chains identified:**
+- Gaps #2 → #7: Corrupt RPC → bad budget → unlimited spend
+- Gaps #3 → #6: Corrupt arena mu → NaN ratings → corrupt arena sync
+- Gaps #5 → #1: Invalid agent detail → corrupt DB detail → wrong metrics
+
+### Systemic Patterns
+
+**DB reads are not validated:** 23 unvalidated Supabase `.select()` responses found across pipeline, metrics, core, and service layers. Common patterns:
+- `as string` casts on DB fields (8 critical instances in `evolutionActions.ts`, `buildRunContext.ts`)
+- `as unknown as Type[]` double casts bypassing type safety (`Entity.ts:185,238`, `claimAndExecuteRun.ts:112`)
+- `?? DEFAULT` fallbacks that hide missing/null columns (`loadArenaEntries`, `recomputeMetrics.ts`)
+- RPC response shapes assumed without schema validation (5 RPC calls in `persistRunResults.ts`)
+- Only 3 places follow the good pattern: `run_summary` safeParse, strategy config safeParse, variant insert `.parse()`
+
+**Pure functions are TS-only:** Rating math, format helpers, budget operations — all rely purely on TypeScript types. No runtime input checks. Fine for internal calls, but a bug in the caller propagates silently through the entire computation chain.
+
+**LLM outputs are partially validated:**
+- Generated/evolved variant text → `validateFormat()` ✅
+- Seed article content → **NOT validated** ❌ (critical gap: all evolution iterations build on potentially malformed seed)
+- Judge comparison responses → `parseWinner()` degrades gracefully (returns null/TIE, low confidence)
+- LLM client returns raw `string` with zero shape validation
+
+### Seed Article Validation Gap (New Finding)
+
+`generateSeedArticle.ts:110` — after LLM generates article content, it is concatenated into the seed variant as `# ${title}\n\n${articleContent}` without calling `validateFormat()`. Every other LLM text output goes through format validation, but the seed (the starting point for the entire run) skips it. A malformed seed (e.g., containing bullets, no section headings) propagates through all iterations as the baseline variant.
+
 ## Documents Read
 
 ### Core Docs
