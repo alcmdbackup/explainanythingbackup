@@ -1,5 +1,5 @@
 // Loading skeleton for the evolution prompts list page.
-import { TableSkeleton } from '@evolution/components/evolution/TableSkeleton';
+import { TableSkeleton } from '@evolution/components/evolution';
 
 export default function Loading(): JSX.Element {
   return (

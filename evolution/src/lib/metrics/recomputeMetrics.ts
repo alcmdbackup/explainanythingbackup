@@ -49,10 +49,11 @@ export async function recomputeStaleMetrics(
 
 async function recomputeRunEloMetrics(db: SupabaseClient, runId: string): Promise<void> {
   // Read current variant ratings for this run
-  const { data: variants } = await db
+  const { data: variants, error: variantError } = await db
     .from('evolution_variants')
     .select('id, mu, sigma')
     .eq('run_id', runId);
+  if (variantError) throw new Error(`Failed to read variants for run ${runId}: ${variantError.message}`);
 
   if (!variants || variants.length === 0) return;
 
@@ -72,7 +73,6 @@ async function recomputeRunEloMetrics(db: SupabaseClient, runId: string): Promis
   };
 
   for (const def of getEntity('run').metrics.atFinalization) {
-    if (!['winner_elo', 'median_elo', 'p90_elo', 'max_elo'].includes(def.name)) continue;
     const value = def.compute(ctx);
     if (value != null) {
       await writeMetric(db, 'run', runId, def.name as MetricName, value, 'at_finalization');
@@ -82,11 +82,12 @@ async function recomputeRunEloMetrics(db: SupabaseClient, runId: string): Promis
 
 async function recomputeStrategyMetrics(db: SupabaseClient, strategyId: string): Promise<void> {
   // Get all completed run IDs for this strategy
-  const { data: runs } = await db
+  const { data: runs, error: runsError } = await db
     .from('evolution_runs')
     .select('id')
     .eq('strategy_id', strategyId)
     .eq('status', 'completed');
+  if (runsError) throw new Error(`Failed to read runs for strategy ${strategyId}: ${runsError.message}`);
 
   if (!runs || runs.length === 0) return;
   const runIds = runs.map(r => r.id);
@@ -95,11 +96,12 @@ async function recomputeStrategyMetrics(db: SupabaseClient, strategyId: string):
 }
 
 async function recomputeExperimentMetrics(db: SupabaseClient, experimentId: string): Promise<void> {
-  const { data: runs } = await db
+  const { data: runs, error: runsError } = await db
     .from('evolution_runs')
     .select('id')
     .eq('experiment_id', experimentId)
     .eq('status', 'completed');
+  if (runsError) throw new Error(`Failed to read runs for experiment ${experimentId}: ${runsError.message}`);
 
   if (!runs || runs.length === 0) return;
   const runIds = runs.map(r => r.id);

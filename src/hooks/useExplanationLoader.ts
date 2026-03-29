@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import {
     getExplanationByIdAction,
     isExplanationSavedByUserAction,
@@ -107,6 +107,12 @@ export function useExplanationLoader(
     const { userId = 'anonymous', onTagsLoad, onMatchesLoad, onClearPrompt, onSetOriginalValues, onSourcesLoad } = options;
     const { withRequestId } = useClientPassRequestId(userId);
 
+    // Track mount status to prevent setState after unmount
+    const isMountedRef = useRef(true);
+    useEffect(() => {
+        return () => { isMountedRef.current = false; };
+    }, []);
+
     // State for the 7 explanation-related variables
     const [explanationId, setExplanationId] = useState<number | null>(null);
     const [explanationTitle, setExplanationTitle] = useState('');
@@ -181,10 +187,14 @@ export function useExplanationLoader(
             logger.debug('[loadExplanation] getExplanationByIdAction returned:', { found: !!explanation }, FILE_DEBUG);
 
             if (!explanation) {
-                setError('Explanation not found');
-                setIsLoading(false);
+                if (isMountedRef.current) {
+                    setError('Explanation not found');
+                    setIsLoading(false);
+                }
                 return;
             }
+
+            if (!isMountedRef.current) return;
 
             // Update all state with loaded explanation data
             setExplanationTitle(explanation.explanation_title);
@@ -338,8 +348,9 @@ export function useExplanationLoader(
                 setExplanationVector(null);
             }
 
-            setIsLoading(false);
+            if (isMountedRef.current) setIsLoading(false);
         } catch (err) {
+            if (!isMountedRef.current) return;
             const errorMessage = err instanceof Error ? err.message : 'Failed to load explanation';
             setError(errorMessage);
             logger.error('Failed to load explanation:', { error: errorMessage });

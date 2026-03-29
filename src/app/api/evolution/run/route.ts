@@ -15,6 +15,7 @@ export async function POST(request: NextRequest) {
     const result = await claimAndExecuteRun({
       runnerId: `api-${randomUUID()}`,
       targetRunId: body.targetRunId,
+      maxDurationMs: 240_000,
     });
     return NextResponse.json(result);
   } catch (error) {

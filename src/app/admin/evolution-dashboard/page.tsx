@@ -3,6 +3,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
+import Link from 'next/link';
 import {
   MetricGrid,
   AutoRefreshProvider,
@@ -73,7 +74,7 @@ function DashboardContent(): JSX.Element {
     status: r.status,
     total_cost_usd: r.total_cost_usd,
     budget_cap_usd: r.budget_cap_usd ?? 0,
-    error_message: null,
+    error_message: r.error_message ?? null,
     completed_at: r.completed_at,
     created_at: r.created_at,
     strategy_name: r.strategy_name,
@@ -94,7 +95,10 @@ function DashboardContent(): JSX.Element {
       </div>
       <MetricGrid metrics={metrics} columns={3} variant="card" testId="dashboard-metrics" />
       <div>
-        <h2 className="text-2xl font-display font-semibold text-[var(--text-primary)] mb-3">Recent Runs</h2>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-2xl font-display font-semibold text-[var(--text-primary)]">Recent Runs</h2>
+          <Link href="/admin/evolution/runs" className="text-sm text-[var(--accent-gold)] hover:underline">View all runs →</Link>
+        </div>
         <RunsTable runs={recentRuns} columns={getBaseColumns()} compact maxRows={10} testId="dashboard-runs-table" />
       </div>
     </div>

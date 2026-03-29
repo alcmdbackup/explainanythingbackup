@@ -20,6 +20,9 @@ jest.mock('@evolution/components/evolution', () => ({
       {actions}
     </div>
   ),
+  StatusBadge: ({ status }: { variant: string; status: string }) => (
+    <span data-testid="status-badge">{status.charAt(0).toUpperCase() + status.slice(1)}</span>
+  ),
   MetricGrid: ({ metrics }: { metrics: Array<{ label: string; value: string }> }) => (
     <div data-testid="metric-grid">
       {metrics.map((m) => <div key={m.label}><span>{m.label}</span><span>{m.value}</span></div>)}

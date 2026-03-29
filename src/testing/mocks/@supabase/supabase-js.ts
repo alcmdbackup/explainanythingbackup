@@ -1,3 +1,6 @@
+import type { SupabaseClient } from '@supabase/supabase-js';
+import type { Database } from '@/lib/database.types';
+
 export const mockSupabaseClient = {
   from: jest.fn().mockReturnThis(),
   select: jest.fn().mockReturnThis(),
@@ -31,6 +34,6 @@ export const mockSupabaseClient = {
   },
 };
 
-export const createClient = jest.fn().mockReturnValue(mockSupabaseClient);
-export const createServerClient = jest.fn().mockReturnValue(mockSupabaseClient);
-export const createBrowserClient = jest.fn().mockReturnValue(mockSupabaseClient);
+export const createClient = jest.fn().mockReturnValue(mockSupabaseClient as unknown as SupabaseClient<Database>);
+export const createServerClient = jest.fn().mockReturnValue(mockSupabaseClient as unknown as SupabaseClient<Database>);
+export const createBrowserClient = jest.fn().mockReturnValue(mockSupabaseClient as unknown as SupabaseClient<Database>);

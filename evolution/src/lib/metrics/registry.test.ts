@@ -32,6 +32,11 @@ describe('getEntityListViewMetrics', () => {
     expect(defs.length).toBeGreaterThan(0);
   });
 
+  it('does not include cost in run list view (cost shown via server action)', () => {
+    const names = getEntityListViewMetrics('run').map(d => d.name);
+    expect(names).not.toContain('cost');
+  });
+
   it('returns metrics for strategy', () => {
     const defs = getEntityListViewMetrics('strategy');
     const names = defs.map(d => d.name);

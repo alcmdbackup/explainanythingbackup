@@ -100,8 +100,8 @@ adminTest.describe('Evolution Run Pipeline', { tag: '@evolution' }, () => {
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     );
     const { data: authData, error: authErr } = await anonClient.auth.signInWithPassword({
-      email: (process.env.ADMIN_TEST_EMAIL || process.env.TEST_USER_EMAIL)!,
-      password: (process.env.ADMIN_TEST_PASSWORD || process.env.TEST_USER_PASSWORD)!,
+      email: process.env.ADMIN_TEST_EMAIL!,
+      password: process.env.ADMIN_TEST_PASSWORD!,
     });
     if (authErr || !authData.session) throw new Error(`Admin auth failed: ${authErr?.message}`);
 
@@ -180,7 +180,7 @@ adminTest.describe('Evolution Run Pipeline', { tag: '@evolution' }, () => {
     expect(run!.status).toBe('completed');
     expect(run!.run_summary).toBeTruthy();
     expect(run!.run_summary.version).toBe(3);
-    expect(['iterations_complete', 'budget_exceeded', 'converged']).toContain(run!.run_summary.stopReason);
+    expect(['iterations_complete', 'budget_exceeded', 'converged', 'time_limit']).toContain(run!.run_summary.stopReason);
     expect(run!.completed_at).toBeTruthy();
   });
 

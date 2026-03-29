@@ -46,7 +46,7 @@ export { isTransientError } from '../shared/classifyErrors';
 export { hashStrategyConfig, labelStrategyConfig, upsertStrategy } from './setup/findOrCreateStrategy';
 
 // ─── V2 errors (M2) ─────────────────────────────────────────────
-export { BudgetExceededWithPartialResults } from './infra/errors';
+export { BudgetExceededWithPartialResults } from '../types';
 
 // ─── V2 cost tracking (M3) ──────────────────────────────────────
 export type { V2CostTracker } from './infra/trackBudget';

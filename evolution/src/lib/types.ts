@@ -313,6 +313,7 @@ export interface RankingExecutionDetail extends ExecutionDetailBase {
   eligibleContenders: number;
   totalComparisons: number;
   flowEnabled: boolean;
+  low_sigma_opponents_count?: number;
 }
 
 export interface ProximityExecutionDetail extends ExecutionDetailBase {
@@ -490,6 +491,17 @@ export class BudgetExceededError extends Error {
   ) {
     super(`Budget exceeded for ${agentName}: spent $${spent.toFixed(4)} + $${reserved.toFixed(4)} reserved = $${(spent + reserved).toFixed(4)} committed, cap $${cap.toFixed(4)}`);
     this.name = 'BudgetExceededError';
+  }
+}
+
+/** Thrown when budget is exceeded mid-generation/ranking but some results were already produced. */
+export class BudgetExceededWithPartialResults extends BudgetExceededError {
+  constructor(
+    public readonly partialData: unknown,
+    originalError: BudgetExceededError,
+  ) {
+    super(originalError.agentName, originalError.spent, originalError.reserved, originalError.cap);
+    this.name = 'BudgetExceededWithPartialResults';
   }
 }
 

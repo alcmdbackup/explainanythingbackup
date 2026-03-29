@@ -237,7 +237,7 @@ describe('Email Confirmation Route - GET', () => {
   });
 
   describe('Redirect Security', () => {
-    it('should handle external URLs in next parameter', async () => {
+    it('should reject external URLs in next parameter and redirect to /', async () => {
       const request = createMockNextRequest('http://localhost:3000/auth/confirm', {
         searchParams: {
           token_hash: 'valid-token',
@@ -246,14 +246,13 @@ describe('Email Confirmation Route - GET', () => {
         },
       }) as unknown as NextRequest;
 
-      // Note: Current implementation doesn't validate redirect URLs
-      // This test documents actual behavior
-      await expect(GET(request)).rejects.toThrow('NEXT_REDIRECT: https://evil.com');
+      // sanitizeRedirectPath rejects external URLs, falls back to /
+      await expect(GET(request)).rejects.toThrow('NEXT_REDIRECT: /');
 
-      expect(redirect).toHaveBeenCalledWith('https://evil.com');
+      expect(redirect).toHaveBeenCalledWith('/');
     });
 
-    it('should handle protocol-relative URLs', async () => {
+    it('should reject protocol-relative URLs and redirect to /', async () => {
       const request = createMockNextRequest('http://localhost:3000/auth/confirm', {
         searchParams: {
           token_hash: 'valid-token',
@@ -262,9 +261,10 @@ describe('Email Confirmation Route - GET', () => {
         },
       }) as unknown as NextRequest;
 
-      await expect(GET(request)).rejects.toThrow('NEXT_REDIRECT: //evil.com');
+      // sanitizeRedirectPath rejects protocol-relative URLs, falls back to /
+      await expect(GET(request)).rejects.toThrow('NEXT_REDIRECT: /');
 
-      expect(redirect).toHaveBeenCalledWith('//evil.com');
+      expect(redirect).toHaveBeenCalledWith('/');
     });
 
     it('should preserve query parameters in next path', async () => {

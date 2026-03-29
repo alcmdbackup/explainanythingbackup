@@ -2,8 +2,7 @@
 
 import { Agent } from './Agent';
 import type { AgentContext, AgentOutput, DetailFieldDef } from './types';
-import { BudgetExceededError, ExecutionDetailBase } from '../types';
-import { BudgetExceededWithPartialResults } from '../pipeline/infra/errors';
+import { BudgetExceededError, BudgetExceededWithPartialResults, ExecutionDetailBase } from '../types';
 import { GenerationAgent } from './agents/GenerationAgent';
 import { RankingAgent } from './agents/RankingAgent';
 import { z } from 'zod';

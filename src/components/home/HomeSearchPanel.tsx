@@ -63,7 +63,11 @@ export default function HomeSearchPanel({
       sessionStorage.removeItem('pendingTags');
     }
 
-    router.push(`/results?q=${encodeURIComponent(query.trim())}`);
+    try {
+      router.push(`/results?q=${encodeURIComponent(query.trim())}`);
+    } finally {
+      setIsSubmitting(false);
+    }
   }, [query, sources, tagState, isSubmitting, router]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {

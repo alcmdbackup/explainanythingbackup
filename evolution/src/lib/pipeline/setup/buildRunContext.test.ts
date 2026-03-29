@@ -276,7 +276,7 @@ describe('loadArenaEntries', () => {
     const supabase = createMockSupabase({ selectResult: { data: entries, error: null } });
     const result = await loadArenaEntries('prompt-1', supabase);
 
-    expect(result.ratings.get('e1')).toEqual({ mu: 25, sigma: 8.333 });
+    expect(result.ratings.get('e1')).toEqual({ mu: 25, sigma: 25 / 3 });
   });
 
   it('queries only non-archived entries for given topic', async () => {

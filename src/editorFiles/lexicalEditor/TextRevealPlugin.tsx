@@ -23,6 +23,7 @@ interface TextRevealPluginProps {
 export function TextRevealPlugin({ isStreaming, animationEffect }: TextRevealPluginProps) {
   const [editor] = useLexicalComposerContext();
   const animatedKeysRef = useRef<Set<string>>(new Set());
+  const rafIdsRef = useRef<Set<number>>(new Set());
 
   // Clear animated keys when streaming ends
   useEffect(() => {
@@ -72,7 +73,11 @@ export function TextRevealPlugin({ isStreaming, animationEffect }: TextRevealPlu
         for (const [nodeKey, mutation] of mutations) {
           if (mutation === 'created') {
             // Use requestAnimationFrame to ensure DOM is ready
-            requestAnimationFrame(() => applyAnimation(nodeKey));
+            const rafId = requestAnimationFrame(() => {
+              rafIdsRef.current.delete(rafId);
+              applyAnimation(nodeKey);
+            });
+            rafIdsRef.current.add(rafId);
           }
         }
       }
@@ -83,7 +88,11 @@ export function TextRevealPlugin({ isStreaming, animationEffect }: TextRevealPlu
       (mutations) => {
         for (const [nodeKey, mutation] of mutations) {
           if (mutation === 'created') {
-            requestAnimationFrame(() => applyAnimation(nodeKey));
+            const rafId = requestAnimationFrame(() => {
+              rafIdsRef.current.delete(rafId);
+              applyAnimation(nodeKey);
+            });
+            rafIdsRef.current.add(rafId);
           }
         }
       }
@@ -94,7 +103,11 @@ export function TextRevealPlugin({ isStreaming, animationEffect }: TextRevealPlu
       (mutations) => {
         for (const [nodeKey, mutation] of mutations) {
           if (mutation === 'created') {
-            requestAnimationFrame(() => applyAnimation(nodeKey));
+            const rafId = requestAnimationFrame(() => {
+              rafIdsRef.current.delete(rafId);
+              applyAnimation(nodeKey);
+            });
+            rafIdsRef.current.add(rafId);
           }
         }
       }
@@ -105,7 +118,11 @@ export function TextRevealPlugin({ isStreaming, animationEffect }: TextRevealPlu
       (mutations) => {
         for (const [nodeKey, mutation] of mutations) {
           if (mutation === 'created') {
-            requestAnimationFrame(() => applyAnimation(nodeKey));
+            const rafId = requestAnimationFrame(() => {
+              rafIdsRef.current.delete(rafId);
+              applyAnimation(nodeKey);
+            });
+            rafIdsRef.current.add(rafId);
           }
         }
       }
@@ -116,6 +133,11 @@ export function TextRevealPlugin({ isStreaming, animationEffect }: TextRevealPlu
       unregisterHeading();
       unregisterQuote();
       unregisterList();
+      // Cancel any pending requestAnimationFrame calls
+      for (const rafId of rafIdsRef.current) {
+        cancelAnimationFrame(rafId);
+      }
+      rafIdsRef.current.clear();
     };
   }, [editor, isStreaming, animationEffect]);
 

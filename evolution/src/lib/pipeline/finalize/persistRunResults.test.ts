@@ -271,6 +271,28 @@ describe('finalizeRun', () => {
     expect(rows[0]!.sigma).toBe(DEFAULT_SIGMA);
   });
 
+  // Regression: winner tie-breaking should use lowest sigma when mu is equal
+  it('winner tie-breaks by lowest sigma when mu is equal', async () => {
+    const V_LOW_SIGMA = '00000000-0000-4000-8000-000000000050';
+    const V_HIGH_SIGMA = '00000000-0000-4000-8000-000000000051';
+    const pool = [
+      makeVariant(V_HIGH_SIGMA, 'test'),
+      makeVariant(V_LOW_SIGMA, 'test'),
+    ];
+    const ratings = new Map<string, Rating>([
+      [V_HIGH_SIGMA, { mu: 30, sigma: 6 }],
+      [V_LOW_SIGMA, { mu: 30, sigma: 3 }],
+    ]);
+    const result = makeResult({ pool, ratings });
+    const { db, upserts } = makeMockDb();
+    await finalizeRun(RUN_ID, result, { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
+    const rows = (upserts.find((u) => u.table === 'evolution_variants')?.data ?? []) as Array<Record<string, unknown>>;
+    const winners = rows.filter((r) => r.is_winner === true);
+    expect(winners).toHaveLength(1);
+    // V_LOW_SIGMA should win because same mu but lower sigma
+    expect(winners[0]!.id).toBe(V_LOW_SIGMA);
+  });
+
   it('explanation_id passed through to variants', async () => {
     const { db, upserts } = makeMockDb();
     await finalizeRun(RUN_ID, makeResult(), { experiment_id: null, explanation_id: 42, strategy_id: null, prompt_id: null }, db, 120);
@@ -298,6 +320,30 @@ describe('finalizeRun', () => {
     expect(metricNames).toContain('total_matches');
     expect(metricNames).toContain('decisive_rate');
     expect(metricNames).toContain('variant_count');
+  });
+
+  it('writeMetric called with cost during_execution to ensure propagation source exists', async () => {
+    mockedWriteMetric.mockClear();
+    const { db } = makeMockDb();
+    const result = makeResult();
+    await finalizeRun(RUN_ID, result, { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
+    const costCalls = mockedWriteMetric.mock.calls.filter(
+      ([, entityType, , name, , timing]) => entityType === 'run' && name === 'cost' && timing === 'during_execution',
+    );
+    expect(costCalls).toHaveLength(1);
+    expect(costCalls[0]![4]).toBe(result.totalCost);
+  });
+
+  it('skips cost write when totalCost is NaN', async () => {
+    mockedWriteMetric.mockClear();
+    const { db } = makeMockDb();
+    const result = makeResult();
+    result.totalCost = NaN;
+    await finalizeRun(RUN_ID, result, { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
+    const costCalls = mockedWriteMetric.mock.calls.filter(
+      ([, , , name, , timing]) => name === 'cost' && timing === 'during_execution',
+    );
+    expect(costCalls).toHaveLength(0);
   });
 
   it('writeMetric passes correct entity_id for run metrics', async () => {
@@ -377,23 +423,33 @@ describe('syncToArena', () => {
     }));
   });
 
-  it('excludes arena entries from new entries (only syncs pipeline variants)', async () => {
+  it('excludes arena entries from p_entries and includes them in p_arena_updates', async () => {
     const supabase = createMockArenaSupabase();
     const pool: Variant[] = [
       makeVariant(V_NEW_ID, 'test', { text: '# New' }),
-      makeArenaVariant({ id: V_ARENA_ID, text: '# Arena' }),
+      makeArenaVariant({ id: V_ARENA_ID, text: '# Arena', arenaMatchCount: 10 }),
     ];
     const ratings = new Map<string, Rating>([
       [V_NEW_ID, { mu: 25, sigma: 8 }],
-      [V_ARENA_ID, { mu: 30, sigma: 6 }],
+      [V_ARENA_ID, { mu: 30, sigma: 4 }],
     ]);
+    const matches: V2Match[] = [
+      { winnerId: V_ARENA_ID, loserId: V_NEW_ID, result: 'win' as const, confidence: 0.8, judgeModel: 'gpt-4.1-nano', reversed: false },
+    ];
 
-    await syncToArena(RUN_ID, PROMPT_ID, pool, ratings, [], supabase);
+    await syncToArena(RUN_ID, PROMPT_ID, pool, ratings, matches, supabase);
 
     const call = (supabase.rpc as jest.Mock).mock.calls[0];
     const entries = call[1].p_entries;
     expect(entries).toHaveLength(1);
     expect(entries[0].id).toBe(V_NEW_ID);
+
+    const arenaUpdates = call[1].p_arena_updates;
+    expect(arenaUpdates).toHaveLength(1);
+    expect(arenaUpdates[0].id).toBe(V_ARENA_ID);
+    expect(arenaUpdates[0].mu).toBe(30);
+    expect(arenaUpdates[0].sigma).toBe(4);
+    expect(arenaUpdates[0].arena_match_count).toBe(11); // 10 existing + 1 new
   });
 
   it('maps draw matches correctly', async () => {
@@ -515,6 +571,21 @@ describe('finalizeRun bug fixes', () => {
     expect(failedUpdate).toBeUndefined();
   });
 
+  it('H5: arena-only run produces full run_summary with matchStats and topVariants', async () => {
+    const arenaVariant: Variant = { ...makeVariant(ARENA_ID, 'test'), fromArena: true };
+    const result = makeResult({ pool: [arenaVariant] });
+    const { db, updates } = makeMockDb();
+    await finalizeRun(RUN_ID, result, { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
+
+    const completedUpdate = updates.find((u) => u.data.status === 'completed');
+    expect(completedUpdate).toBeDefined();
+    const summary = completedUpdate!.data.run_summary as Record<string, unknown>;
+    expect(summary.version).toBe(3);
+    expect(summary.stopReason).toBe('arena_only');
+    expect(summary.matchStats).toBeDefined();
+    expect(summary.topVariants).toBeDefined();
+  });
+
   it('Bug #14: finalization skips persistence when runner_id mismatch (count=0)', async () => {
     const { db, upserts } = makeMockDb();
     // Override the chain to return empty data (simulating count=0 / runner_id mismatch)
@@ -546,10 +617,10 @@ describe('finalizeRun bug fixes', () => {
     // Variants should NOT be persisted
     const variantUpserts = upserts.filter((u) => u.table === 'evolution_variants');
     expect(variantUpserts).toHaveLength(0);
-    // Should log warning
-    expect(mockLogger.warn).toHaveBeenCalledWith(
+    // Should log error (M1: upgraded from warn to error)
+    expect(mockLogger.error).toHaveBeenCalledWith(
       expect.stringContaining('Finalization aborted'),
-      expect.any(Object),
+      expect.objectContaining({ variantCount: expect.any(Number) }),
     );
   });
 });
@@ -582,6 +653,9 @@ describe('finalizeRun logging', () => {
 // ─── syncToArena logging tests ──────────────────────────────────
 
 // ─── F38: Arena match count computation ─────────────────────────
+// NOTE: The TS layer correctly passes arena_match_count per variant.
+// Migration 20260326000002 fixes the sync_to_arena RPC to use COALESCE((entry->>'arena_match_count')::INT, 0)
+// instead of hardcoded 0 on INSERT, so the DB now persists these counts.
 
 describe('syncToArena match count computation', () => {
   it('F38: passes correct arena_match_count for each variant based on matchHistory participation', async () => {
@@ -628,6 +702,69 @@ describe('syncToArena match count computation', () => {
     const v1Entry = entries.find((e) => e.id === V1_ID);
     // Only the confidence=0.9 match should count
     expect(v1Entry!.arena_match_count).toBe(1);
+  });
+});
+
+describe('syncToArena arena updates', () => {
+  it('p_arena_updates has absolute arena_match_count (idempotent)', async () => {
+    const supabase = createMockArenaSupabase();
+    const pool: Variant[] = [
+      makeArenaVariant({ id: V_ARENA_ID, text: '# Arena', arenaMatchCount: 20 }),
+    ];
+    const ratings = new Map<string, Rating>([[V_ARENA_ID, { mu: 28, sigma: 5 }]]);
+    const matches: V2Match[] = [
+      { winnerId: V_ARENA_ID, loserId: V_NEW_ID, result: 'win' as const, confidence: 0.8, judgeModel: 'gpt-4.1-nano', reversed: false },
+      { winnerId: V_ARENA_ID, loserId: V1_ID, result: 'win' as const, confidence: 0.7, judgeModel: 'gpt-4.1-nano', reversed: false },
+    ];
+
+    await syncToArena(RUN_ID, PROMPT_ID, pool, ratings, matches, supabase);
+
+    const call = (supabase.rpc as jest.Mock).mock.calls[0];
+    const arenaUpdates = call[1].p_arena_updates;
+    expect(arenaUpdates).toHaveLength(1);
+    // Absolute count: 20 existing + 2 this run = 22
+    expect(arenaUpdates[0].arena_match_count).toBe(22);
+  });
+
+  it('skips arena entries with 0 run matches from p_arena_updates', async () => {
+    const supabase = createMockArenaSupabase();
+    const pool: Variant[] = [
+      makeArenaVariant({ id: V_ARENA_ID, text: '# Arena', arenaMatchCount: 10 }),
+    ];
+    const ratings = new Map<string, Rating>([[V_ARENA_ID, { mu: 28, sigma: 5 }]]);
+    // No matches involving V_ARENA_ID
+    const matches: V2Match[] = [
+      { winnerId: V_NEW_ID, loserId: V1_ID, result: 'win' as const, confidence: 0.8, judgeModel: 'gpt-4.1-nano', reversed: false },
+    ];
+
+    await syncToArena(RUN_ID, PROMPT_ID, pool, ratings, matches, supabase);
+
+    const call = (supabase.rpc as jest.Mock).mock.calls[0];
+    const arenaUpdates = call[1].p_arena_updates;
+    expect(arenaUpdates).toHaveLength(0);
+  });
+
+  it('p_arena_updates does NOT contain variant_content, run_id, or generation_method', async () => {
+    const supabase = createMockArenaSupabase();
+    const pool: Variant[] = [
+      makeArenaVariant({ id: V_ARENA_ID, text: '# Arena', arenaMatchCount: 5 }),
+    ];
+    const ratings = new Map<string, Rating>([[V_ARENA_ID, { mu: 28, sigma: 5 }]]);
+    const matches: V2Match[] = [
+      { winnerId: V_ARENA_ID, loserId: V_NEW_ID, result: 'win' as const, confidence: 0.8, judgeModel: 'gpt-4.1-nano', reversed: false },
+    ];
+
+    await syncToArena(RUN_ID, PROMPT_ID, pool, ratings, matches, supabase);
+
+    const call = (supabase.rpc as jest.Mock).mock.calls[0];
+    const arenaUpdates = call[1].p_arena_updates;
+    expect(arenaUpdates).toHaveLength(1);
+    const update = arenaUpdates[0];
+    expect(update).not.toHaveProperty('variant_content');
+    expect(update).not.toHaveProperty('run_id');
+    expect(update).not.toHaveProperty('generation_method');
+    // Should only have rating fields
+    expect(Object.keys(update).sort()).toEqual(['arena_match_count', 'elo_score', 'id', 'mu', 'sigma']);
   });
 });
 

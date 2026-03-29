@@ -1,0 +1,24 @@
+{
+  "branch": "feat/scan_for_bugs_evolution_20260326",
+  "created_at": "2026-03-26T00:00:00Z",
+  "prerequisites": {
+    "getting_started": true,
+    "project_workflow": true,
+    "todos_created": true,
+    "getting_started_read": "2026-03-27T05:59:10Z",
+    "project_workflow_read": "2026-03-27T05:59:10Z",
+    "testing_overview_read": "2026-03-27T06:01:59Z"
+  },
+  "relevantDocs": [
+    "evolution/docs/README.md",
+    "evolution/docs/reference.md",
+    "evolution/docs/logging.md",
+    "evolution/docs/architecture.md",
+    "evolution/docs/data_model.md",
+    "evolution/docs/agents/overview.md",
+    "evolution/docs/cost_optimization.md",
+    "evolution/docs/rating_and_comparison.md",
+    "docs/docs_overall/debugging.md",
+    "docs/feature_deep_dives/testing_setup.md"
+  ]
+}

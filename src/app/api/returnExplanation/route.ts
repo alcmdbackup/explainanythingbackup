@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import * as Sentry from '@sentry/nextjs';
 import { MatchMode, UserInputType, type SourceCacheFullType, type SourceChipType } from '@/lib/schemas/schemas';
+
+export const maxDuration = 540;
 import { returnExplanationLogic } from '@/lib/services/returnExplanation';
 import { getOrCreateCachedSource } from '@/lib/services/sourceCache';
 import { logger } from '@/lib/server_utilities';
@@ -24,7 +26,14 @@ export async function POST(request: NextRequest) {
     return streamMockResponse(request);
   }
     try {
-        const { userInput, savedId, matchMode, userid, userInputType, additionalRules, existingContent, previousExplanationViewedId, previousExplanationViewedVector, sources, sourceUrls, __requestId } = await request.json();
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        let body: any;
+        try {
+          body = await request.json();
+        } catch {
+          return Response.json({ error: 'Invalid JSON' }, { status: 400 });
+        }
+        const { userInput, savedId, matchMode, userid, userInputType, additionalRules, existingContent, previousExplanationViewedId, previousExplanationViewedVector, sources, sourceUrls, __requestId } = body;
 
         // Server-side auth validation - verify user is authenticated
         const authResult = await validateApiAuth(__requestId);

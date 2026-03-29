@@ -1,0 +1,20 @@
+[Unit]
+Description=Maintenance System Monitor (S16)
+After=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/home/ac/Documents/ac/explainanything-worktree0
+Environment=PATH=/home/ac/.nvm/versions/node/v22.22.0/bin:/usr/local/bin:/usr/bin:/bin
+# No EnvironmentFile — script loads .env.local directly (same pattern as evolution-runner)
+ExecStart=/usr/bin/tmux new-session -d -s S16 /bin/bash deploy/maintenance-watcher.sh --monitor
+ExecStop=/usr/bin/tmux kill-session -t S16
+User=ac
+Group=ac
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=maintenance-monitor
+
+[Install]
+WantedBy=multi-user.target

@@ -4,6 +4,11 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import ArenaListPage from './page';
 
+const mockToastError = jest.fn();
+jest.mock('sonner', () => ({
+  toast: { error: (...args: unknown[]) => mockToastError(...args), success: jest.fn() },
+}));
+
 jest.mock('next/navigation', () => ({
   useRouter: () => ({ push: jest.fn(), replace: jest.fn(), prefetch: jest.fn() }),
   usePathname: () => '/admin/evolution/arena',
@@ -145,6 +150,14 @@ describe('ArenaListPage', () => {
     render(<ArenaListPage />);
     await waitFor(() => {
       expect(screen.getByText('2 items')).toBeInTheDocument();
+    });
+  });
+
+  it('H1: shows error toast when fetch fails', async () => {
+    mockGetArenaTopicsAction.mockResolvedValue({ success: false, error: { message: 'DB error' } });
+    render(<ArenaListPage />);
+    await waitFor(() => {
+      expect(mockToastError).toHaveBeenCalledWith('DB error');
     });
   });
 });

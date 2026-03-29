@@ -356,6 +356,7 @@ const _getCostByUserAction = withLogging(async (
     const userMap = new Map<string, UserCost>();
     for (const row of data || []) {
       const userId = row.userid;
+      if (!userId) continue;
       const existing = userMap.get(userId);
       if (existing) {
         existing.callCount += 1;
@@ -449,7 +450,9 @@ const _backfillCostsAction = withLogging(async (
             .update({ estimated_cost_usd: cost })
             .eq('id', record.id);
 
-          if (!updateError) {
+          if (updateError) {
+            logger.warn('Cost backfill update failed', { recordId: record.id, error: updateError.message });
+          } else {
             totalUpdated++;
           }
         }

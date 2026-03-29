@@ -459,6 +459,31 @@ describe('EvolutionRunSummary schemas', () => {
 // Phase 2: Internal Pipeline Type Schemas
 // ═══════════════════════════════════════════════════════════════════
 
+describe('evolutionResultSchema.stopReason', () => {
+  const baseResult = {
+    winner: { id: UUID1, text: 'text', version: 0, parentIds: [], strategy: 'baseline', createdAt: 1711152000, iterationBorn: 0 },
+    pool: [],
+    ratings: new Map(),
+    matchHistory: [],
+    totalCost: 0.5,
+    iterationsRun: 3,
+    muHistory: [],
+    diversityHistory: [],
+    matchCounts: {},
+  };
+
+  it.each(['budget_exceeded', 'iterations_complete', 'converged', 'killed', 'time_limit'] as const)(
+    'accepts stopReason=%s',
+    (stopReason) => {
+      expect(() => evolutionResultSchema.parse({ ...baseResult, stopReason })).not.toThrow();
+    },
+  );
+
+  it('rejects invalid stopReason', () => {
+    expect(() => evolutionResultSchema.parse({ ...baseResult, stopReason: 'bogus' })).toThrow();
+  });
+});
+
 describe('variantSchema', () => {
   const validVariant = {
     id: UUID1, text: 'Some text', version: 0, parentIds: [],

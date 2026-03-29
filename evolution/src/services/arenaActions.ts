@@ -3,7 +3,7 @@
 // V2 schema: elo data lives directly on evolution_variants (no separate elo table).
 
 import { adminAction, type AdminContext } from './adminAction';
-import { validateUuid } from './shared';
+import { validateUuid, applyTestContentNameFilter } from './shared';
 import { z } from 'zod';
 
 // ─── Types ──────────────────────────────────────────────────────
@@ -68,7 +68,7 @@ export const getArenaTopicsAction = adminAction(
       .order('created_at', { ascending: false });
 
     if (filters?.status) query = query.eq('status', filters.status);
-    if (filters?.filterTestContent) query = query.not('name', 'ilike', '%[TEST]%');
+    if (filters?.filterTestContent) query = applyTestContentNameFilter(query);
 
     const { data, error } = await query;
     if (error) throw error;
@@ -78,16 +78,18 @@ export const getArenaTopicsAction = adminAction(
     // Batch-fetch entry counts
     if (topics.length > 0) {
       const topicIds = topics.map(t => t.id);
-      const { data: counts } = await ctx.supabase
+      const { data: counts, error: countError } = await ctx.supabase
         .from('evolution_variants')
         .select('prompt_id')
         .eq('synced_to_arena', true)
         .in('prompt_id', topicIds)
         .is('archived_at', null);
+      if (countError) throw countError;
 
       const countMap = new Map<string, number>();
       for (const entry of counts ?? []) {
-        const tid = entry.prompt_id as string;
+        const tid = entry.prompt_id;
+        if (!tid) continue;
         countMap.set(tid, (countMap.get(tid) ?? 0) + 1);
       }
       for (const topic of topics) {
@@ -109,6 +111,7 @@ export const getArenaTopicDetailAction = adminAction(
       .eq('id', topicId)
       .single();
     if (error) throw error;
+    if (!data) throw new Error(`Arena topic not found: ${topicId}`);
     return data as ArenaTopic;
   },
 );
@@ -227,16 +230,19 @@ export const listPromptsAction = adminAction(
     input: { limit: number; offset: number; status?: string; filterTestContent?: boolean },
     ctx: AdminContext,
   ): Promise<{ items: PromptListItem[]; total: number }> => {
+    const limit = Math.min(Math.max(input.limit, 1), 200);
+    const offset = Math.max(input.offset, 0);
+
     let query = ctx.supabase
       .from('evolution_prompts')
       .select('*', { count: 'exact' })
       .is('deleted_at', null);
 
     if (input.status) query = query.eq('status', input.status);
-    if (input.filterTestContent) query = query.not('name', 'ilike', '%[TEST]%');
+    if (input.filterTestContent) query = applyTestContentNameFilter(query);
 
     query = query.order('created_at', { ascending: false })
-      .range(input.offset, input.offset + input.limit - 1);
+      .range(offset, offset + limit - 1);
 
     const { data, error, count } = await query;
     if (error) throw error;

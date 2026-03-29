@@ -72,4 +72,18 @@ adminTest.describe('Strategy Registry CRUD', () => {
     // Verify strategy appears in table
     await expect(adminPage.getByText(testStrategyName)).toBeVisible({ timeout: 10000 });
   });
+
+  adminTest('model dropdown includes gpt-oss-20b without slash', async ({ adminPage }) => {
+    await adminPage.goto('/admin/evolution/strategies');
+    await expect(adminPage.getByText('Strategy Registry')).toBeVisible();
+
+    // Open create dialog
+    await adminPage.getByText('Create Strategy').click();
+    await expect(adminPage.getByText('Create Strategy').first()).toBeVisible();
+
+    // The model dropdown should contain gpt-oss-20b (not openai/gpt-oss-20b)
+    const pageContent = await adminPage.content();
+    expect(pageContent).toContain('gpt-oss-20b');
+    expect(pageContent).not.toContain('openai/gpt-oss-20b');
+  });
 });

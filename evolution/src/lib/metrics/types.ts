@@ -5,7 +5,7 @@ import type { ReactNode } from 'react';
 import type { TextVariation, AgentExecutionDetail } from '../types';
 import type { Rating } from '../shared/computeRatings';
 import type { EvolutionResult, V2Match } from '../pipeline/infra/types';
-import type { MetricValue } from '@evolution/experiments/evolution/experimentMetrics';
+import type { MetricValue } from './experimentMetrics';
 
 // ─── Entity & Metric Name Types ─────────────────────────────────
 
@@ -114,11 +114,11 @@ export const MetricRowSchema = z.object({
 export type MetricRow = z.infer<typeof MetricRowSchema>;
 
 // Re-export MetricValue for UI compatibility
-export { type MetricValue } from '@evolution/experiments/evolution/experimentMetrics';
+export { type MetricValue } from './experimentMetrics';
 
 // ─── MetricItem re-export ────────────────────────────────────────
 
-export type { MetricItem } from '@evolution/components/evolution/MetricGrid';
+export type { MetricItem } from '@evolution/components/evolution';
 
 // ─── Conversions ────────────────────────────────────────────────
 

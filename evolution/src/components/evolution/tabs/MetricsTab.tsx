@@ -61,10 +61,11 @@ export function MetricsTab({ runId }: MetricsTabProps): JSX.Element {
 
   const overviewMetrics: MetricItem[] = [
     { label: 'Total Iterations', value: summary.totalIterations },
+    { label: 'Variants', value: summary.topVariants.length },
+    { label: 'Total Comparisons', value: summary.matchStats.totalMatches },
     { label: 'Duration', value: summary.durationSeconds > 0 ? `${Math.round(summary.durationSeconds)}s` : '—' },
     { label: 'Final Phase', value: summary.finalPhase },
     { label: 'Stop Reason', value: summary.stopReason },
-    { label: 'Total Matches', value: summary.matchStats.totalMatches },
     { label: 'Avg Confidence', value: `${(summary.matchStats.avgConfidence * 100).toFixed(1)}%` },
     { label: 'Decisive Rate', value: `${(summary.matchStats.decisiveRate * 100).toFixed(1)}%` },
     { label: 'Baseline Rank', value: summary.baselineRank ?? '—' },
@@ -82,10 +83,10 @@ export function MetricsTab({ runId }: MetricsTabProps): JSX.Element {
             <table className="w-full text-sm">
               <thead className="bg-[var(--surface-elevated)]">
                 <tr>
-                  <th className="px-3 py-2 text-left">Rank</th>
-                  <th className="px-3 py-2 text-left">Strategy</th>
-                  <th className="px-3 py-2 text-right">Mu</th>
-                  <th className="px-3 py-2 text-center">Baseline?</th>
+                  <th scope="col" className="px-3 py-2 text-left">Rank</th>
+                  <th scope="col" className="px-3 py-2 text-left">Strategy</th>
+                  <th scope="col" className="px-3 py-2 text-right">Mu</th>
+                  <th scope="col" className="px-3 py-2 text-center">Baseline?</th>
                 </tr>
               </thead>
               <tbody>
@@ -111,9 +112,9 @@ export function MetricsTab({ runId }: MetricsTabProps): JSX.Element {
             <table className="w-full text-sm">
               <thead className="bg-[var(--surface-elevated)]">
                 <tr>
-                  <th className="px-3 py-2 text-left">Strategy</th>
-                  <th className="px-3 py-2 text-right">Count</th>
-                  <th className="px-3 py-2 text-right">Avg Mu</th>
+                  <th scope="col" className="px-3 py-2 text-left">Strategy</th>
+                  <th scope="col" className="px-3 py-2 text-right">Count</th>
+                  <th scope="col" className="px-3 py-2 text-right">Avg Mu</th>
                 </tr>
               </thead>
               <tbody>
@@ -140,9 +141,9 @@ export function MetricsTab({ runId }: MetricsTabProps): JSX.Element {
             <table className="w-full text-sm">
               <thead className="bg-[var(--surface-elevated)]">
                 <tr>
-                  <th className="px-3 py-2 text-left">Agent</th>
-                  <th className="px-3 py-2 text-right">Calls</th>
-                  <th className="px-3 py-2 text-right">Cost</th>
+                  <th scope="col" className="px-3 py-2 text-left">Agent</th>
+                  <th scope="col" className="px-3 py-2 text-right">Calls</th>
+                  <th scope="col" className="px-3 py-2 text-right">Cost</th>
                 </tr>
               </thead>
               <tbody>

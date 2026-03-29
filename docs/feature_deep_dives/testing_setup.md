@@ -527,6 +527,55 @@ testSensitiveDataSanitization()     // Test PII redaction
 
 ---
 
+## Supabase CLI for Test Infrastructure
+
+When debugging test failures, use the Supabase CLI and read-only query scripts to inspect database state. See [debugging.md](../docs_overall/debugging.md#supabase-cli-debugging) for full reference.
+
+### Querying Staging/Production Test Data
+
+```bash
+# Check test data state on staging (read-only, DB-enforced)
+npm run query:staging -- "SELECT count(*) FROM explanations WHERE explanation_title LIKE '[TEST]%'"
+npm run query:staging -- "SELECT id, status, created_at FROM evolution_runs ORDER BY created_at DESC LIMIT 10"
+
+# Query production for comparison
+npm run query:prod -- "SELECT count(*) FROM explanations"
+
+# Interactive REPL for exploratory debugging
+npm run query:staging
+```
+
+### Debugging Slow or Stuck Tests
+
+```bash
+# Find queries running > 5 minutes (may indicate test deadlocks)
+npx supabase inspect db long-running-queries --linked
+
+# Check for lock contention between parallel test workers
+npx supabase inspect db locks --linked
+npx supabase inspect db blocking --linked
+
+# Identify slowest queries (may explain slow integration tests)
+npx supabase inspect db outliers --linked
+```
+
+### Schema & Health Checks
+
+```bash
+# Check RLS policies and index coverage (affects test behavior)
+npx supabase db advisors --linked
+
+# Verify migration status matches expectations
+npx supabase migration list
+
+# Compare local schema vs staging
+npx supabase db diff --linked
+```
+
+> **Safety:** All commands above are read-only. `npm run query:staging`/`query:prod` use DB-enforced `readonly_local` roles — writes are impossible. `supabase inspect db` reads pg_stat views only. `supabase db query --linked` is blocked by hook — use the query scripts instead.
+
+---
+
 ## Key Architectural Decisions
 
 | Aspect | Unit | Integration | E2E |

@@ -5,6 +5,8 @@
 import { useEffect, useState, useCallback } from 'react';
 import { EntityListPage, EvolutionBreadcrumb, type ColumnDef, type FilterDef } from '@evolution/components/evolution';
 import { getArenaTopicsAction, type ArenaTopic } from '@evolution/services/arenaActions';
+import { toast } from 'sonner';
+import { formatDate } from '@evolution/lib/utils/formatters';
 
 const STATUS_FILTER: FilterDef = {
   key: 'status',
@@ -17,8 +19,15 @@ const STATUS_FILTER: FilterDef = {
   ],
 };
 
+const HIDE_EMPTY_FILTER: FilterDef = {
+  key: 'hideEmpty',
+  label: 'Hide empty topics',
+  type: 'checkbox',
+  defaultChecked: false,
+};
+
 const COLUMNS: ColumnDef<ArenaTopic>[] = [
-  { key: 'name', header: 'Name', render: (t) => t.name },
+  { key: 'name', header: 'Name', render: (t) => t.name || <span className="text-[var(--text-muted)] italic">Untitled</span> },
   {
     key: 'prompt',
     header: 'Prompt',
@@ -33,7 +42,7 @@ const COLUMNS: ColumnDef<ArenaTopic>[] = [
   {
     key: 'created_at',
     header: 'Created',
-    render: (t) => new Date(t.created_at).toLocaleDateString(),
+    render: (t) => formatDate(t.created_at),
   },
 ];
 
@@ -50,6 +59,8 @@ export default function ArenaListPage(): JSX.Element {
     });
     if (result.success && result.data) {
       setTopics(result.data);
+    } else if (!result.success) {
+      toast.error(result.error?.message ?? 'Failed to load arena topics');
     }
     setLoading(false);
   }, [filterValues.status, filterValues.filterTestContent]);
@@ -73,9 +84,9 @@ export default function ArenaListPage(): JSX.Element {
 
       <EntityListPage
         title="Arena Topics"
-        filters={[STATUS_FILTER, { key: 'filterTestContent', label: 'Hide test content', type: 'checkbox', defaultChecked: true }]}
+        filters={[STATUS_FILTER, HIDE_EMPTY_FILTER, { key: 'filterTestContent', label: 'Hide test content', type: 'checkbox', defaultChecked: true }]}
         columns={COLUMNS}
-        items={topics}
+        items={filterValues.hideEmpty === 'true' ? topics.filter(t => (t.entry_count ?? 0) > 0) : topics}
         loading={loading}
         totalCount={loading ? undefined : topics.length}
         filterValues={filterValues}

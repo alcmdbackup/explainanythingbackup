@@ -22,7 +22,7 @@ shared core function.
 
 `evolution/scripts/processRunQueue.ts` — the primary batch execution script.
 
-- Flags: `--parallel`, `--max-runs`, `--max-concurrent-llm`, `--dry-run`.
+- Flags: `--parallel`, `--max-runs`, `--max-concurrent-llm`, `--max-duration`, `--dry-run`.
 - Round-robins between staging and production databases.
 - Calls `claimAndExecuteRun({ runnerId, db: target.client })` for each target.
 - See [Minicomputer Deployment](./minicomputer_deployment.md) for systemd setup.
@@ -105,7 +105,9 @@ The end-to-end flow from trigger to completion:
        |     +-- Build V3 run_summary JSON
        |     +-- Update run status = 'completed'
        |     +-- Upsert variants to evolution_variants
-       |     +-- Update strategy aggregate stats
+       |     +-- Write cost metric (safety net — ensures row exists even if loop broke early)
+       |     +-- Write finalization metrics (elo, matches, variant counts)
+       |     +-- Propagate metrics to strategy + experiment entities
        |     +-- Auto-complete experiment if all runs done
        |
        +-- syncToArena()            [evolution/src/lib/pipeline/finalize/persistRunResults.ts]
@@ -159,8 +161,10 @@ The core algorithm in `evolveArticle()` runs a generate-rank-evolve loop for up 
 ```
   for each iteration:
       |
+      +-- Abort signal check → exits with stopReason='killed' if signal aborted
       +-- Kill check: isRunKilled() → reads evolution_runs.status
       |   (exits with stopReason='killed' if status is 'failed' or 'cancelled')
+      +-- Deadline check → exits with stopReason='time_limit' if wall clock exceeded
       |
       +-- GENERATE: generateVariants()
       |   3 parallel strategies → 3 new variants
@@ -198,8 +202,9 @@ and carries partial results.
 **Triage** — only runs when there are both existing and new variants (skipped entirely
 on the first iteration when all variants are new). For each new entrant whose sigma is
 at or above `CALIBRATED_SIGMA_THRESHOLD` (5.0), the system runs pairwise comparisons
-against stratified opponents selected from the existing pool. Triage has two early
-termination conditions:
+against stratified opponents selected from the existing pool. Opponent selection uses
+sigma-weighted sorting within each quartile slice, preferring low-sigma anchors for
+faster calibration. Triage has two early termination conditions:
 
 - **Elimination**: if after 2+ opponents, `mu + 2*sigma < top20Cutoff` (the mu of the
   variant at the 80th percentile), the entrant is eliminated. Eliminated variants are
@@ -282,14 +287,15 @@ comparisons — it remains in the pool and retains its rating for winner determi
 
 ## Stop Reasons
 
-The loop terminates for one of four reasons:
+The loop terminates for one of five reasons:
 
 | Stop Reason          | Trigger                                              |
 |----------------------|------------------------------------------------------|
 | `iterations_complete`| All configured iterations finished normally           |
 | `converged`          | Convergence detected during ranking                   |
 | `budget_exceeded`    | `BudgetExceededError` thrown by cost tracker           |
-| `killed`             | External cancellation via `isRunKilled()` check       |
+| `killed`             | External cancellation via `isRunKilled()` check or abort signal |
+| `time_limit`         | Wall clock deadline reached (`deadlineMs` option)     |
 
 ### Kill Detection
 

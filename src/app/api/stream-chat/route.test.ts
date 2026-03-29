@@ -244,9 +244,9 @@ describe('POST /api/stream-chat', () => {
 
     const response = await POST(request);
 
-    expect(response.status).toBe(500);
-    const text = await response.text();
-    expect(text).toBe('Internal Server Error');
+    expect(response.status).toBe(400);
+    const json = await response.json();
+    expect(json).toEqual({ error: 'Invalid JSON' });
   });
 
   it('should format SSE messages correctly', async () => {

@@ -41,6 +41,7 @@ export const DETAIL_VIEW_CONFIGS: Record<string, DetailFieldDef[]> = {
     { key: 'totalComparisons', label: 'Total Comparisons', type: 'number' },
     { key: 'eligibleContenders', label: 'Eligible Contenders', type: 'number' },
     { key: 'flowEnabled', label: 'Flow Enabled', type: 'boolean' },
+    { key: 'low_sigma_opponents_count', label: 'Low-σ Opponents', type: 'number' },
     { key: 'totalCost', label: 'Total Cost', type: 'number', formatter: 'cost' },
   ],
   iterativeEditing: [

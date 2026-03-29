@@ -2,14 +2,13 @@
 // Returns updated ratings, match results, and convergence status.
 
 import type { Variant, EvolutionLLMClient, LLMCompletionOptions } from '../../types';
-import { BudgetExceededError } from '../../types';
+import { BudgetExceededError, BudgetExceededWithPartialResults } from '../../types';
 import type { Rating, ComparisonResult } from '../../shared/computeRatings';
 import {
   createRating, updateRating, updateDraw, isConverged,
   compareWithBiasMitigation, DEFAULT_SIGMA, DEFAULT_CONVERGENCE_SIGMA,
 } from '../../shared/computeRatings';
 import type { EvolutionConfig, V2Match } from '../infra/types';
-import { BudgetExceededWithPartialResults } from '../infra/errors';
 import type { EntityLogger } from '../infra/createEntityLogger';
 
 // ─── Constants ───────────────────────────────────────────────────
@@ -102,13 +101,19 @@ function selectOpponents(
 
   const opponents: string[] = [];
 
+  // Helper: sub-sort a slice by sigma ascending (prefer low-sigma anchors)
+  const sortBySigma = (slice: Variant[]): Variant[] =>
+    [...slice].sort((a, b) =>
+      (ratings.get(a.id)?.sigma ?? DEFAULT_SIGMA) - (ratings.get(b.id)?.sigma ?? DEFAULT_SIGMA),
+    );
+
   if (n >= 5) {
     // 2 top, 2 mid, 1 bottom/new
-    const top = sorted.slice(0, Math.max(q1, 1));
+    const top = sortBySigma(sorted.slice(0, Math.max(q1, 1)));
     opponents.push(top[0]!.id);
     if (top.length > 1) opponents.push(top[1]!.id);
 
-    const mid = sorted.slice(Math.max(q2 - 1, 0), q2 + 1);
+    const mid = sortBySigma(sorted.slice(Math.max(q2 - 1, 0), q2 + 1));
     for (const v of mid) {
       if (opponents.length >= 4) break;
       if (!opponents.includes(v.id)) opponents.push(v.id);
@@ -122,17 +127,23 @@ function selectOpponents(
     }
   } else if (n >= 3) {
     // 1 top, 1 mid, 1 bottom/new
-    opponents.push(sorted[0]!.id);
-    if (q2 < sorted.length) opponents.push(sorted[q2]!.id);
+    const topSlice = sortBySigma(sorted.slice(0, Math.max(q1, 1)));
+    opponents.push(topSlice[0]!.id);
+    const midSlice = sortBySigma(sorted.slice(Math.max(q2 - 1, 0), q2 + 1));
+    if (midSlice.length > 0) opponents.push(midSlice[0]!.id);
     if (otherNew.length > 0 && !opponents.includes(otherNew[0]!)) {
       opponents.push(otherNew[0]!);
-    } else if (q3 < sorted.length && !opponents.includes(sorted[q3]!.id)) {
-      opponents.push(sorted[q3]!.id);
+    } else {
+      const bottomSlice = sortBySigma(sorted.slice(q3));
+      if (bottomSlice.length > 0 && !opponents.includes(bottomSlice[0]!.id)) {
+        opponents.push(bottomSlice[0]!.id);
+      }
     }
   } else {
-    // n < 3: top n
-    for (let i = 0; i < Math.min(n, sorted.length); i++) {
-      opponents.push(sorted[i]!.id);
+    // n < 3: top n (sorted by sigma within the slice)
+    const topSlice = sortBySigma(sorted.slice(0, Math.min(n, sorted.length)));
+    for (const v of topSlice) {
+      opponents.push(v.id);
     }
   }
 
@@ -272,6 +283,7 @@ interface TriageResult {
   ratings: Map<string, Rating>;
   matchCounts: Map<string, number>;
   budgetError?: BudgetExceededError;
+  lowSigmaOpponentsCount: number;
 }
 
 async function executeTriage(
@@ -305,9 +317,11 @@ async function executeTriage(
 
   let consecutiveErrors = 0;
   let budgetError: BudgetExceededError | null = null;
+  let totalLowSigmaOpponents = 0;
 
   try {
   for (const entrantId of needsTriage) {
+    if (consecutiveErrors > 3) break; // Stop triage entirely after sustained LLM failures
     const entrantVariant = poolMap.get(entrantId);
     if (!entrantVariant) continue;
 
@@ -317,8 +331,20 @@ async function executeTriage(
     }
 
     const opponents = selectOpponents(entrantId, pool, localRatings, newEntrantIds, numOpponents);
+    const opponentSigmas = opponents.map((id) => localRatings.get(id)?.sigma ?? DEFAULT_SIGMA);
+    const lowSigmaCount = opponentSigmas.filter((s) => s < CALIBRATED_SIGMA_THRESHOLD).length;
+    const entrantSigmaBefore = localRatings.get(entrantId)?.sigma ?? DEFAULT_SIGMA;
+    totalLowSigmaOpponents += lowSigmaCount;
+    logger?.debug('Triage entrant opponents', {
+      entrantId,
+      sigmaBefore: entrantSigmaBefore,
+      opponentSigmas,
+      lowSigmaOpponents: lowSigmaCount,
+      phaseName: 'ranking',
+    });
     let decisiveCount = 0;
     let totalConfidence = 0;
+    let successfulMatches = 0;
 
     for (let i = 0; i < opponents.length; i++) {
       const oppId = opponents[i]!;
@@ -355,12 +381,13 @@ async function executeTriage(
         consecutiveErrors++;
         logger?.warn('Triage comparison failed', { entrantId, oppId, consecutiveErrors, phaseName: 'ranking' });
         if (consecutiveErrors > 3) break; // Too many consecutive failures
-        totalConfidence += match.confidence;
         continue;
       }
       consecutiveErrors = 0;
-      const isDraw = match.winnerId === match.loserId;
-      if (isDraw || match.result === 'draw') {
+      successfulMatches++;
+      // Treat low-confidence (0 < confidence < 0.3) as draw (consistent with fine-ranking)
+      const isDraw = match.confidence < 0.3 || match.result === 'draw' || match.winnerId === match.loserId;
+      if (isDraw) {
         const [newA, newB] = updateDraw(entrantRating, oppRating);
         localRatings.set(entrantId, newA);
         localRatings.set(oppId, newB);
@@ -375,21 +402,21 @@ async function executeTriage(
       totalConfidence += match.confidence;
       if (match.confidence >= DECISIVE_CONFIDENCE) decisiveCount++;
 
-      // Elimination check
+      // Elimination check (use successfulMatches instead of i to exclude failed comparisons)
       const currentRating = localRatings.get(entrantId)!;
-      if (i >= MIN_TRIAGE_OPPONENTS - 1 && currentRating.mu + 2 * currentRating.sigma < top20Cutoff) {
+      if (successfulMatches >= MIN_TRIAGE_OPPONENTS && currentRating.mu + 2 * currentRating.sigma < top20Cutoff) {
         eliminatedIds.add(entrantId);
         logger?.info('Triage elimination', { entrantId, muPlusSigma: currentRating.mu + 2 * currentRating.sigma, cutoff: top20Cutoff, phaseName: 'ranking' });
         break;
       }
 
-      // Decisive early exit
+      // Decisive early exit (use successfulMatches for both count and avg confidence denominator)
       if (
-        i >= MIN_TRIAGE_OPPONENTS - 1 &&
+        successfulMatches >= MIN_TRIAGE_OPPONENTS &&
         decisiveCount >= MIN_TRIAGE_OPPONENTS &&
-        totalConfidence / (i + 1) >= AVG_CONFIDENCE_THRESHOLD
+        totalConfidence / successfulMatches >= AVG_CONFIDENCE_THRESHOLD
       ) {
-        logger?.info('Triage early exit', { entrantId, decisiveCount, avgConfidence: totalConfidence / (i + 1), phaseName: 'ranking' });
+        logger?.info('Triage early exit', { entrantId, decisiveCount, avgConfidence: totalConfidence / successfulMatches, phaseName: 'ranking' });
         break;
       }
     }
@@ -400,7 +427,7 @@ async function executeTriage(
     } else { throw error; }
   }
 
-  return { matches, eliminatedIds, ratings: localRatings, matchCounts: localCounts, budgetError: budgetError ?? undefined };
+  return { matches, eliminatedIds, ratings: localRatings, matchCounts: localCounts, budgetError: budgetError ?? undefined, lowSigmaOpponentsCount: totalLowSigmaOpponents };
 }
 
 // ─── Fine-ranking phase ──────────────────────────────────────────
@@ -583,6 +610,8 @@ export interface RankingMeta {
   fineRankingRounds: number;
   fineRankingExitReason: string;
   convergenceStreak: number;
+  /** Total low-sigma opponents (sigma < 5.0) selected across all triage entrants. */
+  lowSigmaOpponentsCount?: number;
 }
 
 export interface RankResult {
@@ -724,6 +753,7 @@ export async function rankPool(
       fineRankingRounds: fineResult?.rounds ?? 0,
       fineRankingExitReason: fineResult?.exitReason ?? 'budget_exceeded',
       convergenceStreak: fineResult?.convergenceStreak ?? 0,
+      lowSigmaOpponentsCount: triageResult?.lowSigmaOpponentsCount,
     },
   });
 
@@ -733,9 +763,13 @@ export async function rankPool(
     throw new BudgetExceededWithPartialResults(buildResult(false), budgetError);
   }
 
+  if (!fineResult) {
+    logger?.warn('Fine-ranking skipped (triage budget exceeded); convergence not evaluated', { phaseName: 'ranking' });
+  }
+
   if (fineResult?.converged) {
     logger?.info('Pool converged', { phaseName: 'ranking' });
   }
 
-  return buildResult(fineResult!.converged);
+  return buildResult(fineResult?.converged ?? false);
 }

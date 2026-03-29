@@ -1,4 +1,4 @@
-// Rating math, pairwise comparison, LRU cache, and 2-pass reversal — consolidated from
+// Rating math, pairwise comparison, FIFO cache, and 2-pass reversal — consolidated from
 // rating.ts, comparisonCache.ts, reversalComparison.ts, and lib/comparison.ts.
 
 import { rating as osRating, rate as osRate } from 'openskill';
@@ -34,7 +34,10 @@ export function createRating(): Rating {
  */
 export function updateRating(winner: Rating, loser: Rating): [Rating, Rating] {
   const result = osRate([[winner], [loser]], { rank: [1, 2] });
-  return [result[0]![0]!, result[1]![0]!];
+  const newWinner = result[0]?.[0];
+  const newLoser = result[1]?.[0];
+  if (!newWinner || !newLoser) return [winner, loser];
+  return [newWinner, newLoser];
 }
 
 /**
@@ -43,7 +46,10 @@ export function updateRating(winner: Rating, loser: Rating): [Rating, Rating] {
  */
 export function updateDraw(a: Rating, b: Rating): [Rating, Rating] {
   const result = osRate([[a], [b]], { rank: [1, 1] });
-  return [result[0]![0]!, result[1]![0]!];
+  const newA = result[0]?.[0];
+  const newB = result[1]?.[0];
+  if (!newA || !newB) return [a, b];
+  return [newA, newB];
 }
 
 /** Check if a rating has converged (sigma below threshold). */
@@ -53,7 +59,7 @@ export function isConverged(r: Rating, threshold: number = DEFAULT_CONVERGENCE_S
 
 /** Map mu to the 0–3000 Elo scale: 1200 + (mu - 25) * 16, clamped to [0, 3000]. */
 export function toEloScale(mu: number): number {
-  return Math.max(0, Math.min(3000, 1200 + (mu - DEFAULT_MU) * (400 / DEFAULT_MU)));
+  return Math.max(0, Math.min(3000, 1200 + (mu - DEFAULT_MU) * ELO_SIGMA_SCALE));
 }
 
 /** Format an Elo value as a rounded integer string for display. */
@@ -71,15 +77,15 @@ export const DECISIVE_CONFIDENCE_THRESHOLD = 0.6;
 
 /** Returns null if cost is missing or zero. */
 export function computeEloPerDollar(mu: number, totalCostUsd: number | null): number | null {
-  if (!totalCostUsd) return null;
+  if (totalCostUsd == null || totalCostUsd === 0) return null;
   return (toEloScale(mu) - 1200) / totalCostUsd;
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// Comparison Cache (LRU)
+// Comparison Cache (FIFO)
 // ═══════════════════════════════════════════════════════════════════
 
-/** Maximum number of entries before LRU eviction kicks in. */
+/** Maximum number of entries before FIFO eviction kicks in. */
 export const MAX_CACHE_SIZE = 500;
 
 export interface CachedMatch {

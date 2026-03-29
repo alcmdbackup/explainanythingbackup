@@ -11,8 +11,8 @@ Type=oneshot
 WorkingDirectory=/opt/explainanything
 # No EnvironmentFile — script loads .env.local and .env.evolution-prod directly via dotenv
 Environment=PATH=/usr/local/bin:/usr/bin:/bin
-ExecStart=/usr/bin/npx tsx evolution/scripts/processRunQueue.ts --max-runs 10 --parallel 2
-TimeoutStartSec=1800
+ExecStart=/usr/bin/npx tsx evolution/scripts/processRunQueue.ts --max-runs 10 --parallel 10
+TimeoutStartSec=7200
 User=evolution
 Group=evolution
 

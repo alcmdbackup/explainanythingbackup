@@ -1,5 +1,5 @@
-// Arena topic detail page with leaderboard. Shows topic metadata and entries ranked by elo_score.
-// V2 schema: elo data lives directly on evolution_variants.
+// Arena topic detail page with leaderboard. Shows topic metadata, entries ranked by elo_score,
+// 95% CI column, and top 15% eligibility cutoff indicator.
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
@@ -19,7 +19,19 @@ import {
   type ArenaTopic,
   type ArenaEntry,
 } from '@evolution/services/arenaActions';
-import { formatElo, stripMarkdownTitle } from '@evolution/lib/shared/computeRatings';
+import { formatElo, stripMarkdownTitle, ELO_SIGMA_SCALE } from '@evolution/lib/shared/computeRatings';
+import { formatEloCIRange, formatEloWithUncertainty } from '@evolution/lib/utils/formatters';
+import { computeEloCutoff } from './arenaCutoff';
+
+function ContentLink({ entryId, content }: { entryId: string; content: string }): JSX.Element {
+  const cleaned = stripMarkdownTitle(content);
+  const label = cleaned.length > 60 ? `${cleaned.substring(0, 60)}…` : cleaned;
+  return (
+    <Link href={`/admin/evolution/variants/${entryId}`} className="text-[var(--accent-gold)] hover:underline">
+      {label}
+    </Link>
+  );
+}
 
 export default function ArenaTopicDetailPage(): JSX.Element {
   const { topicId } = useParams<{ topicId: string }>();
@@ -30,7 +42,7 @@ export default function ArenaTopicDetailPage(): JSX.Element {
   const [hasMetrics, setHasMetrics] = useState(false);
 
   // Sort state for leaderboard columns (F41)
-  type SortKey = 'elo_score' | 'mu' | 'sigma' | 'arena_match_count' | 'generation_method' | 'cost_usd';
+  type SortKey = 'elo_score' | 'sigma' | 'arena_match_count' | 'generation_method' | 'cost_usd';
   const [sortKey, setSortKey] = useState<SortKey>('elo_score');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
 
@@ -52,6 +64,27 @@ export default function ArenaTopicDetailPage(): JSX.Element {
     const byElo = [...entries].sort((a, b) => (b.elo_score ?? 0) - (a.elo_score ?? 0));
     return new Map(byElo.map((e, i) => [e.id, i + 1]));
   }, [entries]);
+
+  // Top 15% eligibility cutoff
+  const eloCutoff = useMemo(() => computeEloCutoff(entries), [entries]);
+
+  // Anchor threshold: bottom 25th percentile of sigma (lowest sigma = most converged)
+  const anchorSet = useMemo(() => {
+    const sigmas = entries.map(e => e.sigma).filter((s): s is number => s != null).sort((a, b) => a - b);
+    if (sigmas.length < 4) return new Set<string>();
+    const p25Idx = Math.floor(sigmas.length * 0.25);
+    const threshold = sigmas[p25Idx]!;
+    return new Set(entries.filter(e => e.sigma != null && e.sigma <= threshold).map(e => e.id));
+  }, [entries]);
+
+  const eligibleSet = useMemo(() => {
+    if (eloCutoff == null) return null;
+    return new Set(
+      entries
+        .filter(e => e.elo_score != null && e.elo_score >= eloCutoff)
+        .map(e => e.id),
+    );
+  }, [entries, eloCutoff]);
 
   const handleSort = (key: SortKey) => {
     if (key === sortKey) {
@@ -144,9 +177,24 @@ export default function ArenaTopicDetailPage(): JSX.Element {
       )}
 
       <div className="bg-[var(--surface-elevated)] border border-[var(--border-default)] rounded-book p-6 shadow-warm-lg">
-        <h2 className="text-2xl font-display font-bold text-[var(--text-primary)] mb-4">Leaderboard</h2>
+        <div className="flex items-center gap-3 mb-4">
+          <h2 className="text-2xl font-display font-bold text-[var(--text-primary)]">Leaderboard</h2>
+          {anchorSet.size > 0 && (
+            <span className="text-xs font-ui bg-[var(--accent-gold)]/15 text-[var(--accent-gold)] px-2 py-0.5 rounded-full" data-testid="anchor-count">
+              {anchorSet.size} anchor{anchorSet.size !== 1 ? 's' : ''}
+            </span>
+          )}
+        </div>
+        {eloCutoff != null && (
+          <p className="text-xs font-ui text-[var(--text-muted)] mb-3" data-testid="cutoff-info">
+            Top 15% cutoff: {formatElo(eloCutoff)} Elo. Entries below cutoff are dimmed.
+          </p>
+        )}
         {entries.length === 0 ? (
-          <p className="text-sm font-ui text-[var(--text-muted)]">No entries yet.</p>
+          <div className="text-sm font-ui text-[var(--text-muted)] text-center py-4">
+            <p>No entries yet.</p>
+            <p className="mt-1 text-xs">Entries are added automatically when variants compete in this topic.</p>
+          </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm font-ui" data-testid="leaderboard-table">
@@ -155,43 +203,52 @@ export default function ArenaTopicDetailPage(): JSX.Element {
                   <th className="py-2 pr-3">Rank</th>
                   <th className="py-2 pr-3">Content</th>
                   <th className="py-2 pr-3 cursor-pointer select-none hover:text-[var(--text-primary)]" onClick={() => handleSort('elo_score')}>Elo{sortIndicator('elo_score')}</th>
-                  <th className="py-2 pr-3 cursor-pointer select-none hover:text-[var(--text-primary)]" onClick={() => handleSort('mu')}>Mu{sortIndicator('mu')}</th>
-                  <th className="py-2 pr-3 cursor-pointer select-none hover:text-[var(--text-primary)]" onClick={() => handleSort('sigma')}>Sigma{sortIndicator('sigma')}</th>
+                  <th className="py-2 pr-3">95% CI</th>
+                  <th className="py-2 pr-3 cursor-pointer select-none hover:text-[var(--text-primary)]" onClick={() => handleSort('sigma')}>Elo ± σ{sortIndicator('sigma')}</th>
                   <th className="py-2 pr-3 cursor-pointer select-none hover:text-[var(--text-primary)]" onClick={() => handleSort('arena_match_count')}>Matches{sortIndicator('arena_match_count')}</th>
                   <th className="py-2 pr-3 cursor-pointer select-none hover:text-[var(--text-primary)]" onClick={() => handleSort('generation_method')}>Method{sortIndicator('generation_method')}</th>
                   <th className="py-2 cursor-pointer select-none hover:text-[var(--text-primary)]" onClick={() => handleSort('cost_usd')}>Cost{sortIndicator('cost_usd')}</th>
                 </tr>
               </thead>
               <tbody>
-                {sortedEntries.map((entry, index) => (
-                  <tr
-                    key={entry.id}
-                    className="border-b border-[var(--border-default)] last:border-0 hover:bg-[var(--surface-hover)]"
-                  >
-                    <td className="py-2 pr-3 font-mono text-[var(--text-muted)]">{eloRankMap.get(entry.id) ?? index + 1}</td>
-                    <td className="py-2 pr-3">
-                      {(() => {
-                        const cleaned = stripMarkdownTitle(entry.variant_content);
-                        const label = cleaned.length > 60 ? `${cleaned.substring(0, 60)}…` : cleaned;
-                        return (
-                          <Link href={`/admin/evolution/variants/${entry.id}`} className="text-[var(--accent-gold)] hover:underline">
-                            {label}
-                          </Link>
-                        );
-                      })()}
-                    </td>
-                    <td className="py-2 pr-3 font-mono">{formatElo(entry.elo_score)}</td>
-                    <td className="py-2 pr-3 font-mono">{entry.mu != null ? entry.mu.toFixed(1) : 'N/A'}</td>
-                    <td className="py-2 pr-3 font-mono">{entry.sigma != null ? entry.sigma.toFixed(1) : 'N/A'}</td>
-                    <td className="py-2 pr-3 font-mono">{entry.arena_match_count}</td>
-                    <td className="py-2 pr-3 text-[var(--text-secondary)]">{entry.generation_method}</td>
-                    <td className="py-2 font-mono">
-                      {entry.cost_usd != null ? `$${entry.cost_usd.toFixed(2)}` : (
-                        <span className="text-[var(--text-muted)]" title="Cost data is tracked at the invocation level, not per variant">N/A</span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
+                {sortedEntries.map((entry, index) => {
+                  const isEligible = eligibleSet == null || eligibleSet.has(entry.id);
+                  return (
+                    <tr
+                      key={entry.id}
+                      className={`border-b border-[var(--border-default)] last:border-0 hover:bg-[var(--surface-hover)]${isEligible ? '' : ' opacity-50'}`}
+                    >
+                      <td className="py-2 pr-3 font-mono text-[var(--text-muted)]">{eloRankMap.get(entry.id) ?? index + 1}</td>
+                      <td className="py-2 pr-3">
+                        <ContentLink entryId={entry.id} content={entry.variant_content} />
+                      </td>
+                      <td className="py-2 pr-3 font-mono">{formatElo(entry.elo_score)}</td>
+                      <td className="py-2 pr-3 font-mono text-[var(--text-secondary)]">
+                        {entry.elo_score != null && entry.sigma != null
+                          ? (formatEloCIRange(entry.elo_score, entry.sigma * ELO_SIGMA_SCALE) ?? '\u2014')
+                          : '\u2014'}
+                      </td>
+                      <td className="py-2 pr-3 font-mono">
+                        {entry.elo_score != null && entry.sigma != null
+                          ? (formatEloWithUncertainty(entry.elo_score, entry.sigma * ELO_SIGMA_SCALE) ?? '—')
+                          : '—'}
+                        {anchorSet.has(entry.id) && (
+                          <span className="ml-1.5 text-xs font-ui bg-[var(--accent-gold)]/15 text-[var(--accent-gold)] px-1.5 py-0.5 rounded-full" data-testid="anchor-badge">
+                            Anchor
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-2 pr-3 font-mono">{entry.arena_match_count}</td>
+                      <td className="py-2 pr-3 text-[var(--text-secondary)]">{entry.generation_method}</td>
+                      <td className="py-2 font-mono">
+                        {entry.cost_usd != null
+                          ? `$${entry.cost_usd.toFixed(2)}`
+                          : <span className="text-[var(--text-muted)]" title="Cost data is tracked at the invocation level, not per variant">N/A</span>
+                        }
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

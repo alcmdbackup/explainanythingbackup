@@ -3,13 +3,14 @@
 'use client';
 
 import { useState, useCallback, useEffect } from 'react';
+import { formatDate } from '@evolution/lib/utils/formatters';
 import { toast } from 'sonner';
 import {
   EvolutionBreadcrumb,
   EntityListPage,
 } from '@evolution/components/evolution';
 import type { FilterDef, ColumnDef } from '@evolution/components/evolution';
-import { ConfirmDialog } from '@evolution/components/evolution/ConfirmDialog';
+import { ConfirmDialog } from '@evolution/components/evolution';
 import {
   listExperimentsAction,
   cancelExperimentAction,
@@ -29,6 +30,7 @@ const STATE_COLORS: Record<string, string> = {
   draft: 'var(--text-muted)',
   pending: 'var(--text-muted)',
   running: 'var(--accent-gold)',
+  stale: 'var(--status-warning)',
   completed: 'var(--status-success)',
   failed: 'var(--status-error)',
   cancelled: 'var(--text-muted)',
@@ -78,12 +80,16 @@ const COLUMNS: ColumnDef<ExperimentSummary>[] = [
   {
     key: 'status',
     header: 'Status',
-    render: (exp) => (
-      <span className="inline-flex items-center text-xs">
-        <StatusDot status={exp.status} />
-        {exp.status}
-      </span>
-    ),
+    render: (exp) => {
+      const isStale = exp.status === 'running' &&
+        (Date.now() - new Date(exp.created_at).getTime()) > 60 * 60 * 1000;
+      return (
+        <span className="inline-flex items-center text-xs">
+          <StatusDot status={isStale ? 'stale' : exp.status} />
+          {isStale ? 'stale' : exp.status}
+        </span>
+      );
+    },
   },
   {
     key: 'runCount',
@@ -94,7 +100,7 @@ const COLUMNS: ColumnDef<ExperimentSummary>[] = [
   {
     key: 'created_at',
     header: 'Created',
-    render: (exp) => new Date(exp.created_at).toLocaleDateString(),
+    render: (exp) => formatDate(exp.created_at),
   },
 ];
 
@@ -124,6 +130,8 @@ export default function ExperimentsListPage(): JSX.Element {
     const result = await listExperimentsAction(params);
     if (result.success && result.data) {
       setExperiments(result.data as ExperimentSummary[]);
+    } else if (!result.success) {
+      toast.error(result.error?.message ?? 'Failed to load experiments');
     }
     setLoading(false);
   }, [filterValues]);

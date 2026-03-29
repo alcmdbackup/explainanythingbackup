@@ -209,7 +209,7 @@ npm run query:prod -- --json "SELECT id, explanation_title FROM explanations LIM
 
 **Safety**: Uses `readonly_local` role with SELECT-only privileges. Cannot write, even if you try. 30-second query timeout prevents runaway queries.
 
-**Setup**: See [environments.md — Read-Only Production Access](environments.md#read-only-production-access)
+**Setup**: See [environments.md — Read-Only Database Access](environments.md#read-only-database-access)
 
 **Common queries**:
 ```sql
@@ -246,6 +246,100 @@ The `requestId` is the universal key for tracing a request across all systems.
 3. **Sentry**: Search events by `requestId` tag
 4. **Honeycomb**: Filter dataset by `requestId` field
 5. **Database**: Query related records by timestamp/user if needed via `query:prod`
+
+---
+
+## Supabase CLI Debugging
+
+The Supabase CLI (`npx supabase`, v2.84.4) provides database inspection and debugging tools for both staging and production. Use the `/debug` skill for guided debugging workflows that incorporate these tools.
+
+### Setup
+
+```bash
+# One-time: authenticate with Supabase
+npx supabase login
+
+# Link to staging (prod linking is blocked by settings.json)
+npx supabase link --project-ref ifubinffdbyewoezcidz
+```
+
+### Ad-Hoc SQL Queries (Staging & Production)
+
+Use `npm run query:staging` and `npm run query:prod` for safe, read-only SQL access. Both use a dedicated `readonly_local` PostgreSQL role with SELECT-only privileges — writes are impossible even if you try.
+
+```bash
+# Staging
+npm run query:staging                                    # Interactive REPL (staging> prompt)
+npm run query:staging -- "SELECT count(*) FROM explanations"
+npm run query:staging -- --json "SELECT id, explanation_title FROM explanations LIMIT 5"
+
+# Production
+npm run query:prod                                       # Interactive REPL (prod> prompt)
+npm run query:prod -- "SELECT count(*) FROM explanations"
+npm run query:prod -- --json "SELECT id, explanation_title FROM explanations LIMIT 5" | jq '.'
+```
+
+**Common debugging queries:**
+```sql
+-- Recent explanations
+SELECT id, explanation_title, created_at FROM explanations ORDER BY created_at DESC LIMIT 10;
+
+-- Check evolution runs
+SELECT id, status, generation_method, created_at FROM evolution_runs ORDER BY created_at DESC LIMIT 10;
+
+-- User activity (last 7 days)
+SELECT count(*), date_trunc('day', created_at) as day FROM "userQueries" GROUP BY day ORDER BY day DESC LIMIT 7;
+
+-- Find test content pollution
+SELECT count(*) FROM explanations WHERE explanation_title LIKE '[TEST]%';
+```
+
+### Database Inspection (via Supabase CLI)
+
+These read-only commands work against the linked project (staging by default, or specify `--db-url`):
+
+| Command | Purpose |
+|---------|---------|
+| `npx supabase inspect db long-running-queries --linked` | Queries running > 5 minutes |
+| `npx supabase inspect db blocking --linked` | Queries holding locks + waiting queries |
+| `npx supabase inspect db locks --linked` | Exclusive locks on relations |
+| `npx supabase inspect db outliers --linked` | Queries by total execution time |
+| `npx supabase inspect db calls --linked` | Queries by total call count |
+| `npx supabase inspect db table-stats --linked` | Table sizes, index sizes, row counts |
+| `npx supabase inspect db index-stats --linked` | Index usage and unused indices |
+| `npx supabase inspect db bloat --linked` | Dead tuple space estimation |
+| `npx supabase inspect db vacuum-stats --linked` | Vacuum operations per table |
+| `npx supabase inspect db db-stats --linked` | Cache hit rates, WAL size |
+
+### Security & Performance Audits
+
+```bash
+# Check for RLS issues, unindexed foreign keys, exposed auth.users
+npx supabase db advisors --linked
+
+# Schema dump for inspection
+npx supabase db dump --linked -f schema.sql
+
+# Compare local vs remote schema
+npx supabase db diff --linked
+
+# Check migration status
+npx supabase migration list
+```
+
+### Safety Matrix
+
+| Method | Safety | Use for |
+|--------|--------|---------|
+| `npm run query:staging` | **DB-enforced** read-only | Ad-hoc staging SQL queries |
+| `npm run query:prod` | **DB-enforced** read-only | Ad-hoc production SQL queries |
+| `npx supabase inspect db *` | Read-only (pg_stat views) | Database health inspection |
+| `npx supabase db advisors` | Read-only (analysis) | Security/performance checks |
+| `npx supabase db dump` | Read-only (pg_dump) | Schema export |
+| `supabase db query --linked` | **BLOCKED by hook** | Use query:staging/query:prod instead |
+| `supabase link` to prod | **BLOCKED by settings.json** | Prod linking not allowed |
+
+> **Note:** `supabase db query --linked` is blocked because it can execute arbitrary writes. The `query:staging`/`query:prod` scripts use a DB-enforced read-only role, making them the safe path for ad-hoc queries.
 
 ---
 

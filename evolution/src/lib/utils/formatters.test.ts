@@ -12,6 +12,9 @@ import {
   formatScore1,
   elo95CI,
   formatEloCIRange,
+  formatEloWithUncertainty,
+  formatDate,
+  formatDateTime,
 } from './formatters';
 
 describe('formatters', () => {
@@ -136,6 +139,48 @@ describe('formatters', () => {
     });
     it('returns null for undefined sigma', () => {
       expect(formatEloCIRange(1500, undefined)).toBeNull();
+    });
+  });
+
+  describe('formatEloWithUncertainty', () => {
+    it('formats elo with 95% CI half-width', () => {
+      expect(formatEloWithUncertainty(1500, 50)).toBe('1500 ± 98');
+    });
+    it('returns null for null sigma', () => {
+      expect(formatEloWithUncertainty(1500, null)).toBeNull();
+    });
+    it('returns null for zero sigma', () => {
+      expect(formatEloWithUncertainty(1500, 0)).toBeNull();
+    });
+    it('returns null for undefined sigma', () => {
+      expect(formatEloWithUncertainty(1500, undefined)).toBeNull();
+    });
+    it('handles large sigma', () => {
+      expect(formatEloWithUncertainty(1200, 200)).toBe('1200 ± 392');
+    });
+  });
+
+  describe('formatDate', () => {
+    it('formats date without year for current year', () => {
+      const result = formatDate(new Date().toISOString());
+      expect(result).not.toContain(String(new Date().getFullYear()));
+    });
+    it('includes year for past year', () => {
+      const result = formatDate('2020-06-15T12:00:00Z');
+      expect(result).toContain('2020');
+    });
+    it('formats as short month + day', () => {
+      const result = formatDate('2020-03-26T12:00:00Z');
+      expect(result).toContain('Mar');
+      expect(result).toContain('26');
+    });
+  });
+
+  describe('formatDateTime', () => {
+    it('includes date and time', () => {
+      const result = formatDateTime('2026-03-26T14:30:00Z');
+      expect(result).toContain('Mar');
+      expect(result).toContain('2026');
     });
   });
 });

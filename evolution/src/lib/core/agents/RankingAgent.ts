@@ -7,8 +7,8 @@ import type { Rating, ComparisonResult } from '../../shared/computeRatings';
 import type { V2Match } from '../../pipeline/infra/types';
 import { rankPool } from '../../pipeline/loop/rankVariants';
 import { rankingExecutionDetailSchema } from '../../schemas';
+import type { FinalizationContext } from '../../metrics/types';
 import { METRIC_CATALOG } from '../metricCatalog';
-import { computeTotalComparisons } from '../agentMetrics';
 import type { EvolutionLLMClient } from '../../types';
 
 export interface RankingInput {
@@ -35,9 +35,15 @@ export class RankingAgent extends Agent<RankingInput, RankResult, RankingExecuti
   readonly invocationMetrics: FinalizationMetricDef[] = [
     {
       ...METRIC_CATALOG.total_comparisons,
-      compute: (ctx) => computeTotalComparisons(ctx, ctx.currentInvocationId ?? null),
+      compute: (ctx) => RankingAgent.computeTotalComparisons(ctx, ctx.currentInvocationId ?? null),
     },
   ];
+
+  private static computeTotalComparisons(ctx: FinalizationContext, invocationId: string | null): number | null {
+    if (!invocationId || !ctx.invocationDetails) return null;
+    const detail = ctx.invocationDetails.get(invocationId) as RankingExecutionDetail | undefined;
+    return detail?.totalComparisons ?? null;
+  }
 
   readonly detailViewConfig: DetailFieldDef[] = [
     {
@@ -61,6 +67,7 @@ export class RankingAgent extends Agent<RankingInput, RankResult, RankingExecuti
     { key: 'totalComparisons', label: 'Total Comparisons', type: 'number' },
     { key: 'eligibleContenders', label: 'Eligible Contenders', type: 'number' },
     { key: 'flowEnabled', label: 'Flow Enabled', type: 'boolean' },
+    { key: 'low_sigma_opponents_count', label: 'Low-σ Opponents', type: 'number' },
     { key: 'totalCost', label: 'Total Cost', type: 'number', formatter: 'cost' },
   ];
 
@@ -87,6 +94,7 @@ export class RankingAgent extends Agent<RankingInput, RankResult, RankingExecuti
       eligibleContenders: meta.eligibleContenders,
       totalComparisons: meta.totalComparisons,
       flowEnabled: false,
+      low_sigma_opponents_count: meta.lowSigmaOpponentsCount,
     };
 
     return {

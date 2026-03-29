@@ -248,6 +248,55 @@ describe('LLMSpendingGate', () => {
     });
   });
 
+  describe('fast-path monthly cap check', () => {
+    it('fast-path checks monthly cap before returning', async () => {
+      // Set monthly cache to at-limit directly (no initial call needed)
+      (gate as unknown as { monthlyCache: { value: { total: number; cap: number }; expiresAt: number } }).monthlyCache = {
+        value: { total: 10, cap: 10 },
+        expiresAt: Date.now() + 60_000,
+      };
+
+      // Set daily cache well under cap to trigger fast-path
+      (gate as unknown as { spendingCache: Map<string, { value: { dailyTotal: number; dailyCap: number; reserved: number }; expiresAt: number }> }).spendingCache.set('non_evolution', {
+        value: { dailyTotal: 1, dailyCap: 50, reserved: 0 },
+        expiresAt: Date.now() + 30_000,
+      });
+
+      // Kill switch cache (to avoid DB call for kill switch)
+      (gate as unknown as { killSwitchCache: { value: boolean; expiresAt: number } }).killSwitchCache = {
+        value: false,
+        expiresAt: Date.now() + 5_000,
+      };
+
+      // Should throw GlobalBudgetExceededError on fast-path due to monthly cap
+      await expect(gate.checkBudget('returnExplanation', 0.01)).rejects.toThrow(GlobalBudgetExceededError);
+    });
+
+    it('fast-path returns immediately when both daily and monthly caches are warm and under limit', async () => {
+      // Populate both caches
+      (gate as unknown as { monthlyCache: { value: { total: number; cap: number }; expiresAt: number } }).monthlyCache = {
+        value: { total: 5, cap: 500 },
+        expiresAt: Date.now() + 60_000,
+      };
+      (gate as unknown as { spendingCache: Map<string, { value: { dailyTotal: number; dailyCap: number; reserved: number }; expiresAt: number }> }).spendingCache.set('non_evolution', {
+        value: { dailyTotal: 1, dailyCap: 50, reserved: 0 },
+        expiresAt: Date.now() + 30_000,
+      });
+      // Kill switch cache (to avoid DB call for kill switch)
+      (gate as unknown as { killSwitchCache: { value: boolean; expiresAt: number } }).killSwitchCache = {
+        value: false,
+        expiresAt: Date.now() + 5_000,
+      };
+
+      // Should NOT call createSupabaseServiceClient (no DB query)
+      (createSupabaseServiceClient as jest.Mock).mockClear();
+      const reserved = await gate.checkBudget('returnExplanation', 0.01);
+      expect(reserved).toBe(0.01);
+      // No DB calls should have been made (kill switch cached, fast-path hit)
+      expect(createSupabaseServiceClient).not.toHaveBeenCalled();
+    });
+  });
+
   describe('invalidateCache', () => {
     it('forces next check to query DB for kill switch', async () => {
       mockKillSwitch(false);

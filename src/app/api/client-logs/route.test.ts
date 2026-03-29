@@ -124,10 +124,10 @@ describe('POST /api/client-logs', () => {
 
       const response = await POST(request);
 
-      expect(response.status).toBe(500);
+      expect(response.status).toBe(400);
 
       const json = await response.json();
-      expect(json).toEqual({ error: 'Failed to write log' });
+      expect(json).toEqual({ error: 'Invalid JSON' });
     });
 
     it('should handle empty log entry', async () => {

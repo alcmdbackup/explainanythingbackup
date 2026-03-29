@@ -459,6 +459,30 @@ describe('evolveArticle', () => {
     });
   });
 
+  // ─── C3: Generation failure logging ─────────────────────────────
+  it('logs warning when generation fails with non-budget error', async () => {
+    const { logger, calls } = createMockEntityLogger();
+    // Use a provider that returns empty text (which will cause generation to fail validation)
+    const provider = makeRawProvider();
+    provider.complete.mockResolvedValue('');
+
+    const result = await evolveArticle(
+      'original text',
+      provider,
+      makeMockDb(),
+      'run-1',
+      baseConfig,
+      { logger },
+    );
+    // Loop should continue to ranking even when generation fails
+    expect(result.stopReason).toBe('iterations_complete');
+    // Should log generation failure warning
+    const genFailCalls = calls.filter((c) =>
+      c.message === 'Generation failed (non-budget)' || c.message.includes('Generation'),
+    );
+    expect(genFailCalls.length).toBeGreaterThan(0);
+  });
+
   // ─── Partial ranking results on budget exceeded ───────────────
   it('applies partial ranking results when ranking returns budgetExceeded with partialResult', async () => {
     const partialRatingUpdates = { 'v-partial-1': { mu: 32, sigma: 5 }, 'v-partial-2': { mu: 18, sigma: 6 } };
@@ -504,5 +528,74 @@ describe('evolveArticle', () => {
     expect(result.matchHistory).toEqual(expect.arrayContaining([
       expect.objectContaining({ winnerId: 'v-partial-1', loserId: 'v-partial-2' }),
     ]));
+  });
+
+  // ─── Deadline / signal tests ──────────────────────────────────
+
+  it('deadline in past → stopReason=time_limit, iterationsRun=0, winner is baseline', async () => {
+    const result = await evolveArticle(
+      'original text',
+      makeRawProvider(),
+      makeMockDb(),
+      'run-dl-1',
+      { ...baseConfig, iterations: 5 },
+      { deadlineMs: Date.now() - 1000 },
+    );
+    expect(result.stopReason).toBe('time_limit');
+    expect(result.pool.length).toBeGreaterThanOrEqual(1);
+    expect(result.winner.strategy).toBe('baseline');
+  });
+
+  it('abort signal → stopReason=killed', async () => {
+    const ac = new AbortController();
+    ac.abort();
+    const result = await evolveArticle(
+      'original text',
+      makeRawProvider(),
+      makeMockDb(),
+      'run-sig-1',
+      { ...baseConfig, iterations: 5 },
+      { signal: ac.signal },
+    );
+    expect(result.stopReason).toBe('killed');
+  });
+
+  it('deadline far future → normal completion', async () => {
+    const result = await evolveArticle(
+      'original text',
+      makeRawProvider(),
+      makeMockDb(),
+      'run-dl-2',
+      baseConfig,
+      { deadlineMs: Date.now() + 600_000 },
+    );
+    expect(result.stopReason).toBe('iterations_complete');
+    expect(result.iterationsRun).toBe(1);
+  });
+
+  it('abort signal + deadline both true → killed wins (abort checked first)', async () => {
+    const ac = new AbortController();
+    ac.abort();
+    const result = await evolveArticle(
+      'original text',
+      makeRawProvider(),
+      makeMockDb(),
+      'run-both-1',
+      { ...baseConfig, iterations: 5 },
+      { signal: ac.signal, deadlineMs: Date.now() - 1000 },
+    );
+    expect(result.stopReason).toBe('killed');
+  });
+
+  it('deadline in past + tiny budget → time_limit wins (checked before generate)', async () => {
+    const result = await evolveArticle(
+      'original text',
+      makeRawProvider(),
+      makeMockDb(),
+      'run-dl-3',
+      { ...baseConfig, iterations: 5, budgetUsd: 0.0001 },
+      { deadlineMs: Date.now() - 1000 },
+    );
+    expect(result.stopReason).toBe('time_limit');
   });
 });

@@ -114,13 +114,16 @@ export interface FormatResult {
 }
 
 function getValidationMode(): string {
-  return process.env.FORMAT_VALIDATION_MODE ?? 'reject';
+  return (process.env.FORMAT_VALIDATION_MODE ?? 'reject').toLowerCase();
 }
 
 function findH1Lines(lines: string[]): number[] {
   const h1Lines: number[] = [];
   for (let i = 0; i < lines.length; i++) {
-    if (lines[i]!.startsWith('# ') && !lines[i]!.startsWith('## ')) {
+    const line = lines[i]!;
+    // Match "# Title" but NOT "## ", "### ", "#### ", etc.
+    // A true H1 starts with "# " and the character after the space is NOT '#'.
+    if (line.startsWith('# ') && line[2] !== '#') {
       h1Lines.push(i);
     }
   }

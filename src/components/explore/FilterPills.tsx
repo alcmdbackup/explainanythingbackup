@@ -60,7 +60,7 @@ export default function FilterPills({ sort, period }: FilterPillsProps) {
         <button
           onClick={() => handleTabClick('new')}
           className={`
-            px-5 py-2 text-sm font-ui font-medium rounded-full transition-all duration-200
+            px-5 py-2 text-sm font-ui font-medium rounded-full transition-all duration-200 focus-visible:ring-2 focus-visible:ring-[var(--accent-gold)] focus-visible:ring-offset-2
             ${
               sort === 'new'
                 ? 'bg-gradient-to-br from-[var(--accent-gold)] to-[var(--accent-copper)] text-[var(--text-on-primary)] shadow-warm'
@@ -73,7 +73,7 @@ export default function FilterPills({ sort, period }: FilterPillsProps) {
         <button
           onClick={() => handleTabClick('top')}
           className={`
-            px-5 py-2 text-sm font-ui font-medium rounded-full transition-all duration-200
+            px-5 py-2 text-sm font-ui font-medium rounded-full transition-all duration-200 focus-visible:ring-2 focus-visible:ring-[var(--accent-gold)] focus-visible:ring-offset-2
             ${
               sort === 'top'
                 ? 'bg-gradient-to-br from-[var(--accent-gold)] to-[var(--accent-copper)] text-[var(--text-on-primary)] shadow-warm'

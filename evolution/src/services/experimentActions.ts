@@ -3,7 +3,7 @@
 // All wrapped by adminAction factory for auth + logging + error handling.
 
 import { adminAction, type AdminContext } from './adminAction';
-import { validateUuid } from './shared';
+import { validateUuid, applyTestContentNameFilter } from './shared';
 import { z } from 'zod';
 import {
   createExperiment,
@@ -101,7 +101,7 @@ export const listExperimentsAction = adminAction(
       query = query.eq('status', input.status);
     }
     if (input?.filterTestContent) {
-      query = query.not('name', 'ilike', '%[TEST]%');
+      query = applyTestContentNameFilter(query);
     }
 
     const { data, error } = await query;
@@ -127,7 +127,7 @@ export const getPromptsAction = adminAction(
       query = query.eq('status', input.status);
     }
     if (input?.filterTestContent) {
-      query = query.not('name', 'ilike', '%[TEST]%');
+      query = applyTestContentNameFilter(query);
     }
 
     const { data, error } = await query;
@@ -149,7 +149,7 @@ export const getStrategiesAction = adminAction(
       query = query.eq('status', input.status);
     }
     if (input?.filterTestContent) {
-      query = query.not('name', 'ilike', '%[TEST]%');
+      query = applyTestContentNameFilter(query);
     }
 
     const { data, error } = await query;
@@ -188,10 +188,21 @@ export const createExperimentWithRunsAction = adminAction(
         createdRunCount: createdRunIds.length,
         error: (err instanceof Error ? err.message : String(err)).slice(0, 500),
       });
+      const orphanedIds: string[] = [];
       for (const runId of createdRunIds) {
-        await ctx.supabase.from('evolution_runs').delete().eq('id', runId);
+        const { error: delErr } = await ctx.supabase.from('evolution_runs').delete().eq('id', runId);
+        if (delErr) {
+          orphanedIds.push(runId);
+          expLogger.error('Rollback failed: could not delete run', { runId, error: delErr.message });
+        }
       }
-      await ctx.supabase.from('evolution_experiments').delete().eq('id', experimentId);
+      const { error: expDelErr } = await ctx.supabase.from('evolution_experiments').delete().eq('id', experimentId);
+      if (expDelErr) {
+        expLogger.error('Rollback failed: could not delete experiment', { experimentId, error: expDelErr.message });
+      }
+      if (orphanedIds.length > 0) {
+        expLogger.error('Manual cleanup needed for orphaned runs', { orphanedIds });
+      }
       throw err;
     }
   },

@@ -5,6 +5,7 @@
  */
 
 import { useState, useEffect, useCallback, useId } from 'react';
+import { ConfirmDialog } from '@evolution/components/evolution/dialogs/ConfirmDialog';
 import FocusTrap from 'focus-trap-react';
 import { toast } from 'sonner';
 import {
@@ -44,6 +45,7 @@ export default function WhitelistContent() {
   const [aliasLoading, setAliasLoading] = useState(false);
 
   const [saving, setSaving] = useState(false);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null);
 
   const loadTerms = useCallback(async () => {
     setLoading(true);
@@ -131,10 +133,14 @@ export default function WhitelistContent() {
     setSaving(false);
   };
 
-  const handleDelete = async (id: number) => {
-    if (!confirm('Are you sure you want to delete this term? This will also delete all its aliases.')) {
-      return;
-    }
+  const handleDelete = (id: number) => {
+    setDeleteConfirmId(id);
+  };
+
+  const executeDelete = async () => {
+    if (deleteConfirmId === null) return;
+    const id = deleteConfirmId;
+    setDeleteConfirmId(null);
 
     const result = await deleteWhitelistTermAction(id);
     if (result.success) {
@@ -437,6 +443,15 @@ export default function WhitelistContent() {
         </div>
         </FocusTrap>
       )}
+      <ConfirmDialog
+        open={deleteConfirmId !== null}
+        onClose={() => setDeleteConfirmId(null)}
+        title="Delete Whitelist Term?"
+        message="Are you sure you want to delete this term? This will also delete all its aliases."
+        confirmLabel="Delete"
+        onConfirm={executeDelete}
+        danger
+      />
     </div>
   );
 }
