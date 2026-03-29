@@ -51,6 +51,8 @@ export async function loadArenaEntries(
   const ratings = new Map<string, Rating>();
 
   for (const entry of data) {
+    const rawMu = entry.mu as number | null;
+    const rawSigma = entry.sigma as number | null;
     variants.push({
       id: entry.id,
       text: entry.variant_content,
@@ -63,8 +65,8 @@ export async function loadArenaEntries(
       arenaMatchCount: entry.arena_match_count ?? 0,
     });
     ratings.set(entry.id, {
-      mu: entry.mu ?? DEFAULT_MU,
-      sigma: entry.sigma ?? DEFAULT_SIGMA,
+      mu: Number.isFinite(rawMu) ? rawMu! : DEFAULT_MU,
+      sigma: Number.isFinite(rawSigma) ? rawSigma! : DEFAULT_SIGMA,
     });
   }
 
@@ -108,8 +110,10 @@ async function resolveContent(
       .eq('id', run.explanation_id)
       .single();
     if (error || !data?.content) return null;
-    logger?.info('Content resolved from explanation', { contentLength: (data.content as string).length, source: 'explanation', phaseName: 'setup' });
-    return data.content as string;
+    const content = typeof data.content === 'string' ? data.content : null;
+    if (!content) return null;
+    logger?.info('Content resolved from explanation', { contentLength: content.length, source: 'explanation', phaseName: 'setup' });
+    return content;
   }
 
   if (run.prompt_id != null) {
@@ -119,7 +123,9 @@ async function resolveContent(
       .eq('id', run.prompt_id)
       .single();
     if (error || !data?.prompt) return null;
-    const seed = await generateSeedArticle(data.prompt as string, llm, logger);
+    const promptText = typeof data.prompt === 'string' ? data.prompt : null;
+    if (!promptText) return null;
+    const seed = await generateSeedArticle(promptText, llm, logger);
     logger?.info('Content resolved from seed generation', { contentLength: seed.content.length, source: 'prompt', phaseName: 'setup' });
     return seed.content;
   }

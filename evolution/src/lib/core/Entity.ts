@@ -18,6 +18,15 @@ function getEntity(type: import('./types').EntityType) {
   return require('./entityRegistry').getEntity(type) as Entity<unknown>;
 }
 
+/** Runtime type guard to extract a FK string from an untyped DB row, replacing double casts. */
+function extractFk(row: unknown, key: string): string | undefined {
+  if (typeof row === 'object' && row !== null && key in row) {
+    const val = (row as Record<string, unknown>)[key];
+    return typeof val === 'string' ? val : undefined;
+  }
+  return undefined;
+}
+
 // ─── Abstract Entity ─────────────────────────────────────────────
 
 export abstract class Entity<TRow> {
@@ -133,7 +142,7 @@ export abstract class Entity<TRow> {
       if (!payload?._skipStaleMarking) {
         for (const parent of this.parents) {
           const row = await db.from(this.table).select(parent.foreignKey).eq('id', id).single();
-          const parentId = (row.data as Record<string, unknown> | null)?.[parent.foreignKey] as string | undefined;
+          const parentId = extractFk(row.data, parent.foreignKey);
           if (parentId) {
             await db.from('evolution_metrics')
               .update({ stale: true, updated_at: new Date().toISOString() })
@@ -182,7 +191,7 @@ export abstract class Entity<TRow> {
         console.warn(`[Entity.propagateMetrics] Failed to fetch parent FK for ${this.type}/${entityId}: ${row.error.message}`);
         continue;
       }
-      const parentId = (row.data as unknown as Record<string, unknown> | null)?.[parent.foreignKey] as string | undefined;
+      const parentId = extractFk(row.data, parent.foreignKey);
       if (!parentId) continue;
 
       const parentEntity = getEntity(parent.parentType);
@@ -235,7 +244,7 @@ export abstract class Entity<TRow> {
         console.warn(`[Entity.markStale] Failed to fetch parent FK for ${this.type}/${entityId}: ${row.error.message}`);
         continue;
       }
-      const parentId = (row.data as unknown as Record<string, unknown> | null)?.[parent.foreignKey] as string | undefined;
+      const parentId = extractFk(row.data, parent.foreignKey);
       if (!parentId) continue;
 
       const parentEntity = getEntity(parent.parentType);

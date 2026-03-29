@@ -93,9 +93,8 @@ describe('V2CostTracker', () => {
     expect(() => ct.reserve('gen', 0.1)).toThrow(BudgetExceededError); // 0.39 > 0.3
   });
 
-  it('zero-budget config throws on first reserve', () => {
-    const ct = createCostTracker(0);
-    expect(() => ct.reserve('gen', 0.01)).toThrow(BudgetExceededError);
+  it('zero-budget config throws at construction', () => {
+    expect(() => createCostTracker(0)).toThrow('budgetUsd must be a positive finite number');
   });
 
   it('reserve after full spend throws', () => {

@@ -50,6 +50,18 @@ describe('writeMetrics', () => {
     }], 'during_execution')).rejects.toThrow('Failed to write metrics: DB down');
   });
 
+  it('rejects NaN metric value', async () => {
+    const { db } = makeMockDb();
+    await expect(writeMetric(db, 'run', '00000000-0000-0000-0000-000000000001', 'cost' as any, NaN, 'during_execution'))
+      .rejects.toThrow('writeMetric: value must be finite');
+  });
+
+  it('rejects Infinity metric value', async () => {
+    const { db } = makeMockDb();
+    await expect(writeMetric(db, 'run', '00000000-0000-0000-0000-000000000001', 'cost' as any, Infinity, 'during_execution'))
+      .rejects.toThrow('writeMetric: value must be finite');
+  });
+
   it('handles null sigma/ci fields correctly', async () => {
     const { db, upsertedRows } = makeMockDb();
     await writeMetrics(db, [{

@@ -111,6 +111,10 @@ export { createVariant } from './types';
 /** @deprecated Use Variant */ export type { TextVariation } from './types';
 /** @deprecated Use createVariant */ export { createTextVariation } from './types';
 
+// ─── Winner selection ────────────────────────────────────────────
+export { selectWinner } from './shared/selectWinner';
+export type { WinnerCandidate, SelectWinnerResult } from './shared/selectWinner';
+
 // ─── Format validation ──────────────────────────────────────────
 export { validateFormat } from './shared/enforceVariantFormat';
 export type { FormatResult } from './shared/enforceVariantFormat';

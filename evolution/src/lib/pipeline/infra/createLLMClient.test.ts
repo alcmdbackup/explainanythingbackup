@@ -105,6 +105,22 @@ describe('V2 LLM Client', () => {
     expect(ct.getAvailableBudget()).toBeCloseTo(10);
   });
 
+  it('rejects empty string LLM response', async () => {
+    const ct = createCostTracker(10);
+    const provider = makeProvider(async () => '');
+    const llm = createV2LLMClient(provider, ct, 'gpt-4.1-nano');
+
+    await expect(llm.complete('test', 'generation')).rejects.toThrow('Empty LLM response');
+  });
+
+  it('rejects whitespace-only LLM response', async () => {
+    const ct = createCostTracker(10);
+    const provider = makeProvider(async () => '   \n  ');
+    const llm = createV2LLMClient(provider, ct, 'gpt-4.1-nano');
+
+    await expect(llm.complete('test', 'generation')).rejects.toThrow('Empty LLM response');
+  });
+
   it('unknown model uses fallback pricing from shared config', async () => {
     const ct = createCostTracker(10);
     const provider = makeProvider();
