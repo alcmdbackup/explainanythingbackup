@@ -1,10 +1,10 @@
 /**
  * @jest-environment node
  */
-// Tests for query-prod.ts — validates arg parsing, table formatting, and JSON output.
+// Tests for query-db.ts — validates arg parsing, env config selection, table formatting, and JSON output.
 // Only exercises exported pure functions; no pg.Client mocking needed.
 
-import { parseArgs, formatAsTable, formatAsJson } from './query-prod';
+import { parseArgs, getEnvConfig, formatAsTable, formatAsJson } from './query-db';
 import { QueryResult } from 'pg';
 
 function makeResult(rows: Record<string, unknown>[], fieldNames: string[]): QueryResult {
@@ -25,31 +25,83 @@ function makeResult(rows: Record<string, unknown>[], fieldNames: string[]): Quer
   };
 }
 
-describe('query-prod', () => {
+describe('query-db', () => {
   describe('parseArgs', () => {
-    it('returns null query when no args', () => {
+    it('returns null query and null target when no args', () => {
       const result = parseArgs(['node', 'script.ts']);
-      expect(result).toEqual({ query: null, json: false });
+      expect(result).toEqual({ query: null, json: false, target: null });
     });
 
-    it('extracts positional query', () => {
-      const result = parseArgs(['node', 'script.ts', 'SELECT 1']);
-      expect(result).toEqual({ query: 'SELECT 1', json: false });
+    it('extracts positional query with --prod', () => {
+      const result = parseArgs(['node', 'script.ts', '--prod', 'SELECT 1']);
+      expect(result).toEqual({ query: 'SELECT 1', json: false, target: '--prod' });
+    });
+
+    it('extracts positional query with --staging', () => {
+      const result = parseArgs(['node', 'script.ts', '--staging', 'SELECT 1']);
+      expect(result).toEqual({ query: 'SELECT 1', json: false, target: '--staging' });
     });
 
     it('detects --json flag before query', () => {
-      const result = parseArgs(['node', 'script.ts', '--json', 'SELECT 1']);
-      expect(result).toEqual({ query: 'SELECT 1', json: true });
+      const result = parseArgs(['node', 'script.ts', '--prod', '--json', 'SELECT 1']);
+      expect(result).toEqual({ query: 'SELECT 1', json: true, target: '--prod' });
     });
 
     it('detects --json flag after query', () => {
-      const result = parseArgs(['node', 'script.ts', 'SELECT 1', '--json']);
-      expect(result).toEqual({ query: 'SELECT 1', json: true });
+      const result = parseArgs(['node', 'script.ts', '--staging', 'SELECT 1', '--json']);
+      expect(result).toEqual({ query: 'SELECT 1', json: true, target: '--staging' });
     });
 
-    it('handles --json only (REPL mode with JSON output)', () => {
-      const result = parseArgs(['node', 'script.ts', '--json']);
-      expect(result).toEqual({ query: null, json: true });
+    it('handles --json only with target (REPL mode with JSON output)', () => {
+      const result = parseArgs(['node', 'script.ts', '--prod', '--json']);
+      expect(result).toEqual({ query: null, json: true, target: '--prod' });
+    });
+
+    it('returns null target when no --prod or --staging flag', () => {
+      const result = parseArgs(['node', 'script.ts', 'SELECT 1']);
+      expect(result).toEqual({ query: 'SELECT 1', json: false, target: null });
+    });
+
+    it('returns null target with no args at all (triggers usage error in main)', () => {
+      const result = parseArgs(['node', 'script.ts']);
+      expect(result.target).toBeNull();
+      // getEnvConfig(null) returns null, which main() uses to show usage error
+      expect(getEnvConfig(result.target)).toBeNull();
+    });
+
+    it('handles target flag in any position', () => {
+      const result = parseArgs(['node', 'script.ts', 'SELECT 1', '--prod']);
+      expect(result).toEqual({ query: 'SELECT 1', json: false, target: '--prod' });
+    });
+  });
+
+  describe('getEnvConfig', () => {
+    it('returns prod config for --prod', () => {
+      const config = getEnvConfig('--prod');
+      expect(config).toEqual({
+        envFile: '.env.prod.readonly',
+        envVar: 'PROD_READONLY_DATABASE_URL',
+        prompt: 'prod> ',
+        connectMsg: 'Connected to production (read-only)',
+      });
+    });
+
+    it('returns staging config for --staging', () => {
+      const config = getEnvConfig('--staging');
+      expect(config).toEqual({
+        envFile: '.env.staging.readonly',
+        envVar: 'STAGING_READONLY_DATABASE_URL',
+        prompt: 'staging> ',
+        connectMsg: 'Connected to staging (read-only)',
+      });
+    });
+
+    it('returns null for null target', () => {
+      expect(getEnvConfig(null)).toBeNull();
+    });
+
+    it('returns null for unknown target', () => {
+      expect(getEnvConfig('--unknown')).toBeNull();
     });
   });
 

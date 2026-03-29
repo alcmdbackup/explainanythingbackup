@@ -275,6 +275,65 @@ If systematic investigation reveals issue is truly environmental, timing-depende
 
 **But:** 95% of "no root cause" cases are incomplete investigation.
 
+## Debugging Principles
+
+### Always Suggest Systematic Fixes
+When you identify a root cause, propose the right systematic fix — not a one-off patch. A one-off fix masks the underlying problem and guarantees a repeat visit. If the fix requires touching multiple files or refactoring, that's the right fix. Propose it.
+
+### Ask About Refactoring When Code Is Too Complex
+If during investigation you discover the code is overly complex — tangled dependencies, unclear data flow, excessive abstraction — ask the user: "This area is complex. Should we refactor and simplify before fixing?" Simplifying first often makes the fix obvious and prevents future bugs in the same area.
+
+## Supabase CLI Debugging Tools
+
+Use these tools during Phase 1 (Root Cause Investigation) to inspect database state on staging and production.
+
+### Ad-Hoc SQL Queries (Read-Only)
+
+Both scripts use a DB-enforced `readonly_local` role — writes are impossible.
+
+```bash
+# Staging
+npm run query:staging                                    # Interactive REPL (staging> prompt)
+npm run query:staging -- "SELECT count(*) FROM explanations"
+npm run query:staging -- --json "SELECT id, status FROM evolution_runs ORDER BY created_at DESC LIMIT 5"
+
+# Production
+npm run query:prod                                       # Interactive REPL (prod> prompt)
+npm run query:prod -- "SELECT count(*) FROM explanations"
+npm run query:prod -- --json "SELECT id, status FROM evolution_runs ORDER BY created_at DESC LIMIT 5"
+```
+
+### Database Inspection (via Supabase CLI)
+
+```bash
+# Find slow queries (> 5 minutes)
+npx supabase inspect db long-running-queries --linked
+
+# Find lock contention
+npx supabase inspect db blocking --linked
+npx supabase inspect db locks --linked
+
+# Query performance analysis
+npx supabase inspect db outliers --linked
+npx supabase inspect db calls --linked
+
+# Table and index health
+npx supabase inspect db table-stats --linked
+npx supabase inspect db index-stats --linked
+npx supabase inspect db bloat --linked
+
+# Security and performance audit
+npx supabase db advisors --linked
+
+# Schema comparison (local vs remote)
+npx supabase db diff --linked
+```
+
+### Safety Notes
+- `supabase db query --linked` is **blocked by hook** — use `npm run query:staging` / `query:prod` instead
+- `supabase inspect db` commands are read-only (pg_stat views)
+- See `docs/docs_overall/debugging.md` for full safety matrix
+
 ## Supporting Techniques
 
 These techniques are part of systematic debugging and available in this directory:

@@ -295,7 +295,7 @@ Two additional policy layers:
      FOR ALL TO service_role USING (true) WITH CHECK (true);
    ```
 
-2. **`readonly_select`** (20260318) — SELECT-only access for `readonly_local` role, used by `npm run query:prod` for debugging. Skips gracefully when the role does not exist.
+2. **`readonly_select`** (20260318) — SELECT-only access for `readonly_local` role, used by `npm run query:prod` / `npm run query:staging` for debugging. Skips gracefully when the role does not exist.
 
 > **Warning:** The `deny_all` policy blocks `anon` and `authenticated` roles entirely. All evolution data access goes through `service_role` (server-side Supabase client). If you see empty query results in the browser, this is likely the cause.
 

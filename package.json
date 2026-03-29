@@ -33,7 +33,8 @@
     "test:esm": "npx tsx --test --test-name-pattern='.*' src/editorFiles/markdownASTdiff/markdownASTdiff.esm.test.ts",
     "test:eslint-rules": "node eslint-rules/no-hardcoded-colors.test.js && node eslint-rules/no-arbitrary-text-sizes.test.js && node eslint-rules/prefer-design-system-fonts.test.js && node eslint-rules/prefer-warm-shadows.test.js && node eslint-rules/no-tailwind-color-classes.test.js && node eslint-rules/prefer-design-radius.test.js && node eslint-rules/enforce-heading-typography.test.js && node eslint-rules/enforce-prose-font.test.js && node eslint-rules/no-inline-typography.test.js && node eslint-rules/no-duplicate-column-labels.test.js",
     "db:types": "npx supabase gen types --lang typescript --project-id ifubinffdbyewoezcidz > src/lib/database.types.ts",
-    "query:prod": "npx tsx scripts/query-prod.ts",
+    "query:prod": "npx tsx scripts/query-db.ts --prod",
+    "query:staging": "npx tsx scripts/query-db.ts --staging",
     "prepare": "git config core.hooksPath .githooks || true"
   },
   "dependencies": {

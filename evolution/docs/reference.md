@@ -390,7 +390,7 @@ Two override policies provide access:
 | Policy | Migration | Role | Access | Purpose |
 |--------|-----------|------|--------|---------|
 | `service_role_all` | `20260321000001` | `service_role` | Full CRUD | Batch runner, server actions, E2E test seeds |
-| `readonly_select` | `20260318000001` | `readonly_local` | SELECT only | `npm run query:prod` debugging; skips gracefully when role does not exist |
+| `readonly_select` | `20260318000001` | `readonly_local` | SELECT only | `npm run query:prod` / `query:staging` debugging; skips gracefully when role does not exist |
 
 ### Recent Schema Migrations
 

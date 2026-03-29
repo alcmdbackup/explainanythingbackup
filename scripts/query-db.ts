@@ -1,6 +1,6 @@
 #!/usr/bin/env npx tsx
-// CLI tool for safe, read-only SQL queries against production Supabase PostgreSQL.
-// Uses a dedicated readonly_local role with SELECT-only privileges.
+// CLI tool for safe, read-only SQL queries against staging or production Supabase PostgreSQL.
+// Uses a dedicated readonly_local role with SELECT-only privileges (DB-enforced).
 
 import { Client, QueryResult } from 'pg';
 import * as dns from 'dns';
@@ -11,29 +11,60 @@ import * as readline from 'readline';
 // Force IPv4 — Supabase resolves to IPv6 which many networks can't reach
 dns.setDefaultResultOrder('ipv4first');
 
-dotenv.config({ path: path.resolve(process.cwd(), '.env.prod.readonly') });
+// --- Environment configuration per target ---
+
+interface EnvConfig {
+  envFile: string;
+  envVar: string;
+  prompt: string;
+  connectMsg: string;
+}
+
+const ENV_CONFIGS: Record<string, EnvConfig> = {
+  '--prod': {
+    envFile: '.env.prod.readonly',
+    envVar: 'PROD_READONLY_DATABASE_URL',
+    prompt: 'prod> ',
+    connectMsg: 'Connected to production (read-only)',
+  },
+  '--staging': {
+    envFile: '.env.staging.readonly',
+    envVar: 'STAGING_READONLY_DATABASE_URL',
+    prompt: 'staging> ',
+    connectMsg: 'Connected to staging (read-only)',
+  },
+};
 
 // --- Exported pure functions for testability ---
 
 export interface ParsedArgs {
   query: string | null;
   json: boolean;
+  target: string | null; // '--prod' or '--staging'
 }
 
 export function parseArgs(argv: string[]): ParsedArgs {
   const args = argv.slice(2);
   let json = false;
   let query: string | null = null;
+  let target: string | null = null;
 
   for (const arg of args) {
     if (arg === '--json') {
       json = true;
+    } else if (arg === '--prod' || arg === '--staging') {
+      target = arg;
     } else if (!query) {
       query = arg;
     }
   }
 
-  return { query, json };
+  return { query, json, target };
+}
+
+export function getEnvConfig(target: string | null): EnvConfig | null {
+  if (!target || !ENV_CONFIGS[target]) return null;
+  return ENV_CONFIGS[target];
 }
 
 export function formatAsTable(result: QueryResult): string {
@@ -78,14 +109,27 @@ export function formatAsJson(result: QueryResult): string {
 // --- Main CLI logic ---
 
 async function main() {
-  const connectionString = process.env.PROD_READONLY_DATABASE_URL;
-  if (!connectionString) {
-    console.error('Missing PROD_READONLY_DATABASE_URL.');
-    console.error('Copy .env.prod.readonly.example to .env.prod.readonly and fill in the connection string.');
+  const { query, json, target } = parseArgs(process.argv);
+
+  const envConfig = getEnvConfig(target);
+  if (!envConfig) {
+    console.error('Usage: query-db.ts --prod|--staging [--json] [query]');
+    console.error('');
+    console.error('  --prod      Query production (read-only)');
+    console.error('  --staging   Query staging (read-only)');
+    console.error('  --json      Output results as JSON');
     process.exit(1);
   }
 
-  const { query, json } = parseArgs(process.argv);
+  // Load env file after flag parsing (not at module top-level)
+  dotenv.config({ path: path.resolve(process.cwd(), envConfig.envFile) });
+
+  const connectionString = process.env[envConfig.envVar];
+  if (!connectionString) {
+    console.error(`Missing ${envConfig.envVar}.`);
+    console.error(`Copy ${envConfig.envFile.replace('.readonly', '.readonly.example')} to ${envConfig.envFile} and fill in the connection string.`);
+    process.exit(1);
+  }
 
   const client = new Client({
     connectionString,
@@ -106,7 +150,7 @@ async function main() {
   try {
     await client.connect();
     await client.query('SELECT 1');
-    console.error('✅ Connected to production (read-only)');
+    console.error(`✅ ${envConfig.connectMsg}`);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     const safeMsg = msg.replace(/postgres(?:ql)?:\/\/[^\s]+/g, 'postgresql://***');
@@ -119,7 +163,7 @@ async function main() {
     await executeQuery(client, query, json);
   } else {
     // Interactive REPL mode
-    await repl(client, json);
+    await repl(client, json, envConfig.prompt);
   }
 
   await client.end();
@@ -142,11 +186,11 @@ async function executeQuery(client: Client, sql: string, json: boolean): Promise
   }
 }
 
-async function repl(client: Client, json: boolean): Promise<void> {
+async function repl(client: Client, json: boolean, prompt: string): Promise<void> {
   const rl = readline.createInterface({
     input: process.stdin,
     output: process.stderr,
-    prompt: 'prod> ',
+    prompt,
   });
 
   console.error('Type SQL queries, or \\q to exit.');

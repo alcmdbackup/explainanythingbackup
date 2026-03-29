@@ -197,6 +197,41 @@ test('should load page @critical', async ({ page }) => { ... });
 
 ---
 
+## Database Debugging During Tests
+
+When debugging test failures related to database state, use the Supabase CLI and read-only query scripts. See [debugging.md](debugging.md#supabase-cli-debugging) for full reference.
+
+### Inspecting Test Data
+
+```bash
+# Query staging DB to check data state (read-only, DB-enforced)
+npm run query:staging -- "SELECT count(*) FROM explanations WHERE explanation_title LIKE '[TEST]%'"
+npm run query:staging -- "SELECT id, status FROM evolution_runs ORDER BY created_at DESC LIMIT 5"
+
+# Interactive REPL for exploratory debugging
+npm run query:staging
+```
+
+### Database Health Checks
+
+```bash
+# Check migration status before running integration tests
+npx supabase migration list
+
+# Compare local vs remote schema (catch drift)
+npx supabase db diff --linked
+
+# Check for table bloat or test data pollution
+npx supabase inspect db table-stats --linked
+
+# Find long-running queries that may block tests
+npx supabase inspect db long-running-queries --linked
+```
+
+> **Safety:** All commands above are read-only. `npm run query:staging` uses a DB-enforced `readonly_local` role. `supabase inspect db` uses pg_stat views. `supabase db query --linked` is blocked by hook — use `query:staging` instead.
+
+---
+
 ## Quick Reference
 
 | Type | Command | Purpose |
