@@ -3,11 +3,18 @@
 ## Background
 Explore using formal verification to solidify the evolution pipeline code. The evolution system is a complex pipeline with multiple interacting components (generate, rank, evolve loop, budget tracking, arena sync, metrics propagation) that would benefit from formal guarantees about correctness invariants.
 
-## Requirements (from GH Issue #TBD)
-Give me a proposal based on research — detailed requirements to be derived from /research findings.
+## Requirements (from GH Issue #872)
+Research-derived requirements from 3 rounds of 12 parallel agents:
+
+1. Add property-based testing (fast-check) for pure functions: rating math, budget tracker, format validator, comparison logic
+2. Extract duplicated `selectWinner()` into shared utility with postcondition assertions
+3. Add missing DB constraints: status enum CHECKs, config_hash UNIQUE, run_id FK
+4. Introduce branded types for compile-time safety: ValidatedArticle, RatedVariant
+5. Add runtime assertion framework for budget postconditions and pool invariants
+6. (Optional) TLA+ model for concurrent run lifecycle
 
 ## Problem
-[3-5 sentences describing the problem — refine after /research]
+The evolution pipeline has 90+ runtime invariants enforced across 6 subsystems, but relies heavily on convention rather than structural guarantees. Winner selection logic is duplicated with divergent semantics. Zero property-based testing exists despite 30%+ pure function density. Database constraints are incomplete — status enums and config_hash uniqueness are enforced only in TypeScript. These gaps create risk of silent data corruption, state machine violations, and rating math regressions.
 
 ## Options Considered
 - [ ] **Option A: [Name]**: [Description]
