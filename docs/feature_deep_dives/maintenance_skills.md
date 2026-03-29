@@ -76,8 +76,8 @@ All fire once after all 6 skills stop. No per-skill chatter.
 
 ## Security Design
 
-- API keys in `/etc/maintenance-scheduler.env` (chmod 600, not in git)
-- Wrapper scripts source credentials directly (no keys in process list or tmux -e)
+- API keys in `.env.local` (chmod 600, same as evolution runner — not in git)
+- Wrapper scripts source `.env.local` directly (no keys in process list or tmux -e)
 - All JSON payloads built with `jq` (no string interpolation)
 - `flock` for atomic lockfile (prevents concurrent runs and `reset_worktrees` conflicts)
 - Worktree isolation limits blast radius of any single skill
@@ -111,5 +111,5 @@ tmux new-session -d -s S16 "bash deploy/maintenance-watcher.sh --monitor"
 
 - `inotify-tools` package (`apt install inotify-tools`)
 - `reset_worktrees` must have been run (creates worktrees 10-15)
-- `/etc/maintenance-scheduler.env` with credentials
+- `.env.local` with `RESEND_API_KEY`, `MAINT_NOTIFY_EMAIL`, `SLACK_WEBHOOK_URL` (alongside existing keys)
 - Playwright + Chromium installed (`~/.cache/ms-playwright/`)

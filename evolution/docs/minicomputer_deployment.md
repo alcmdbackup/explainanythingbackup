@@ -350,16 +350,11 @@ A weekly systemd timer runs 6 automated `claude -p` health checks in dedicated w
 # Install inotify-tools (required for S16 idle mode)
 sudo apt install inotify-tools
 
-# Create env file with credentials (chmod 600)
-sudo cp /dev/null /etc/maintenance-scheduler.env
-sudo tee /etc/maintenance-scheduler.env <<'EOF'
-ANTHROPIC_API_KEY=
-RESEND_API_KEY=
-MAINT_NOTIFY_EMAIL=
-MAINT_FROM_EMAIL=
-SLACK_WEBHOOK_URL=
-EOF
-sudo chmod 600 /etc/maintenance-scheduler.env
+# Add maintenance vars to .env.local (ANTHROPIC_API_KEY already present)
+# RESEND_API_KEY=re_...
+# MAINT_NOTIFY_EMAIL=you@example.com
+# MAINT_FROM_EMAIL=maintenance@explainanything.com
+# SLACK_WEBHOOK_URL=https://hooks.slack.com/...
 
 # Install systemd units
 sudo cp deploy/maintenance-scheduler.service /etc/systemd/system/

@@ -17,8 +17,8 @@ if ! command -v inotifywait &>/dev/null; then
   exit 1
 fi
 
-# Source credentials if available (for Slack/Resend notifications)
-[ -f /etc/maintenance-scheduler.env ] && set -a && source /etc/maintenance-scheduler.env && set +a
+# Source credentials from .env.local (same as evolution runner)
+[ -f "$REPO_DIR/.env.local" ] && set -a && source "$REPO_DIR/.env.local" && set +a
 
 SKILLS=(refactor-simplify test-gaps update-docs ts-coverage bugs-code bugs-ux)
 declare -A SKILL_SESSIONS=(

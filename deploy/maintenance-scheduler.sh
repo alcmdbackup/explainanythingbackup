@@ -202,8 +202,8 @@ PROGRESSEOF
     cat > "$WRAPPER" <<WRAPPEREOF
 #!/usr/bin/env bash
 set -euo pipefail
-# Source credentials (same file watcher uses)
-[ -f /etc/maintenance-scheduler.env ] && set -a && source /etc/maintenance-scheduler.env && set +a
+# Source credentials from worktree0's .env.local (single source of truth)
+[ -f "${REPO_DIR}/.env.local" ] && set -a && source "${REPO_DIR}/.env.local" && set +a
 
 claude -p \\
   --append-system-prompt-file "${PROMPT_FILE}" \\
