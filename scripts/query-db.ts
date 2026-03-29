@@ -142,7 +142,7 @@ async function main() {
   // Graceful shutdown
   const cleanup = async () => {
     try { await client.end(); } catch { /* ignore */ }
-    process.exit(0);
+    process.exit(process.exitCode ?? 0);
   };
   process.on('SIGINT', cleanup);
   process.on('SIGTERM', cleanup);
