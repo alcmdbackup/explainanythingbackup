@@ -8,26 +8,25 @@ Research-derived requirements from 3 rounds of 12 parallel agents:
 
 1. Add property-based testing (fast-check) for pure functions: rating math, budget tracker, format validator, comparison logic
 2. Extract duplicated `selectWinner()` into shared utility with postcondition assertions
-3. Add missing DB constraints: status enum CHECKs, config_hash UNIQUE, run_id FK
-4. Introduce branded types for compile-time safety: ValidatedArticle, RatedVariant
-5. Add runtime assertion framework for budget postconditions and pool invariants
-6. (Optional) TLA+ model for concurrent run lifecycle
+3. Harden trust boundaries: validate DB reads, RPC responses, LLM outputs, seed articles
+4. Add missing DB constraints: status enum CHECKs, config_hash UNIQUE
+5. Add runtime assertion framework for budget postconditions
 
 ## Problem
-The evolution pipeline has 90+ runtime invariants enforced across 6 subsystems, but relies heavily on convention rather than structural guarantees. Winner selection logic is duplicated with divergent semantics. Zero property-based testing exists despite 30%+ pure function density. Database constraints are incomplete — status enums and config_hash uniqueness are enforced only in TypeScript. These gaps create risk of silent data corruption, state machine violations, and rating math regressions.
+The evolution pipeline has 90+ runtime invariants enforced across 6 subsystems, but relies heavily on convention rather than structural guarantees. Winner selection logic is duplicated with divergent semantics. Zero property-based testing exists despite 30%+ pure function density. Database constraints are incomplete — status enums and config_hash uniqueness are enforced only in TypeScript. DB reads are trusted via unsafe `as` casts throughout. These gaps create risk of silent data corruption, state machine violations, and rating math regressions.
 
 ## Options Considered
-- [x] **Option A: Phased bottom-up** — Start with property-based tests and code extraction (zero-risk), then layer on types and DB constraints. Low disruption, incremental value.
-- [ ] **Option B: Type-system-first** — Start with branded types and discriminated unions for compile-time safety, then backfill tests. Higher upfront refactor cost but strongest guarantees.
-- [ ] **Option C: Full formal methods** — TLA+ models + property-based tests + branded types all at once. Maximum coverage but very high effort and risk of scope creep.
+- [x] **Option A: Phased bottom-up (Phases 1-4)** — Property-based tests + code extraction, trust boundary hardening, DB constraints, format tests + assertions. Low disruption, incremental value, no added type complexity.
+- [ ] **Option B: Type-system-first** — Start with branded types and discriminated unions. Higher upfront refactor cost.
+- [ ] **Option C: Full formal methods** — TLA+ models + branded types + property tests. Maximum coverage but high effort.
 
-**Decision: Option A** — phased bottom-up approach. Each phase delivers standalone value and can stop at any point without wasted work.
+**Decision: Option A (Phases 1-4 only)** — Skip branded types (Phase 5). The property-based tests and runtime guards catch the same bugs at test/runtime. Branded types add cognitive overhead that isn't justified for this team size.
 
 **ROI methodology note:** Bug-count estimates (e.g., "~80 rating, ~45 budget") come from git log keyword search for fix-related commits touching evolution files, categorized by subsystem. These are approximate commit counts, not deduplicated verified bugs. Useful for relative prioritization (rating > budget > format) but not precise metrics.
 
 ## Phased Execution Plan
 
-### Phase 1: Quick Wins — Property Tests + Code Extraction (~1 day)
+### Phase 1: Property Tests + Code Extraction (~1 day)
 
 - [ ] Install `fast-check` as devDependency: `npm install --save-dev fast-check`
 - [ ] Create `evolution/src/lib/shared/selectWinner.ts` — extract unified winner determination function
@@ -55,7 +54,7 @@ The evolution pipeline has 90+ runtime invariants enforced across 6 subsystems, 
 - [ ] Add `safeParse` to RPC claim response in `claimAndExecuteRun.ts:112` — replace `as unknown as ClaimedRun[]` with Zod schema validation (Risk #2)
 - [ ] Add `isFinite()` checks on arena entry mu/sigma in `buildRunContext.ts:53-69` — NaN is not caught by `??` (Risk #3)
 - [ ] Add null validation on `resolveContent` return in `buildRunContext.ts:111-112` — replace `as string` cast (Risk #4)
-- [ ] Add `validateFormat()` call to seed article content in `generateSeedArticle.ts` — currently the only LLM text path that skips format validation (new finding)
+- [ ] Add `validateFormat()` call to seed article content in `generateSeedArticle.ts` — currently the only LLM text path that skips format validation
 - [ ] Upgrade Agent detail validation from warn-only to throw in `Agent.ts:36-42` — or at minimum, don't write invalid detail to DB (Risk #5)
 - [ ] Add `isFinite()` guard to `writeMetric()` in `writeMetrics.ts:100` — reject NaN/Infinity before DB write (Risk #8)
 - [ ] Add `budgetUsd > 0` precondition to `createCostTracker()` in `trackBudget.ts:27` (Risk #7)
@@ -66,7 +65,7 @@ The evolution pipeline has 90+ runtime invariants enforced across 6 subsystems, 
   - `evolutionActions.ts:324` (cost_usd via `Number()`)
   - Any other `?? DEFAULT_MU` / `?? DEFAULT_SIGMA` patterns
 - [ ] Replace `as unknown as Record<string, unknown>` double casts in `Entity.ts:185,238` with safeParse or type guards — this is the generic CRUD layer used by all 6 entity subclasses; every admin UI list/detail page flows through here
-- [ ] Add LLM response guard to `createLLMClient.ts` — validate response is non-empty string before returning; reject empty strings, HTML error pages, or truncated responses at the client boundary rather than letting downstream consumers silently discard garbage
+- [ ] Add LLM response guard to `createLLMClient.ts` — validate response is non-empty string before returning; reject empty strings, HTML error pages, or truncated responses at the client boundary
 - [ ] Run lint, tsc, build, all evolution unit tests — verify no regressions
 
 ### Phase 3: Database Constraints (~0.5 day)
@@ -93,18 +92,6 @@ The evolution pipeline has 90+ runtime invariants enforced across 6 subsystems, 
   - After `release()`: `assert(totalReserved >= 0)`
   - Gate with `process.env.NODE_ENV !== 'production'` or `EVOLUTION_ASSERTIONS` env var
 - [ ] Run full test suite
-
-### Phase 5: Branded Types (optional, ~1-2 days)
-
-- [ ] Add `ValidatedArticle` branded type to `evolution/src/lib/types.ts`
-  - `type ValidatedArticle = string & { readonly __validated: unique symbol }`
-  - Update `Variant.text` type or add `validatedText` field
-  - Update `validateFormat()` return to produce `ValidatedArticle | null`
-  - Update generation and evolution call sites to use branded type
-- [ ] Add `RatedVariant` type pattern
-  - Type that guarantees `ratings.get(v.id)` is defined
-  - Apply after ranking phase completes, before finalization consumes
-- [ ] Run lint, tsc, build — compiler catches any missed call sites
 
 ## Testing
 
@@ -137,7 +124,7 @@ The evolution pipeline has 90+ runtime invariants enforced across 6 subsystems, 
 - [ ] `npx jest evolution/src/lib/pipeline/infra/trackBudget.property.test.ts` — budget property tests
 - [ ] `npx jest evolution/src/lib/shared/enforceVariantFormat.property.test.ts` — format property tests
 - [ ] `npm run test` — full test suite
-- [ ] `npm run tsc` — type checking (catches branded type issues if Phase 4 done)
+- [ ] `npm run tsc` — type checking
 - [ ] `npm run lint` — lint pass
 - [ ] `npm run build` — build pass
 
