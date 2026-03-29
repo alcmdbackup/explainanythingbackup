@@ -1,4 +1,4 @@
-// Unit tests for stale metric recomputation with SKIP LOCKED concurrency protection.
+// Unit tests for stale metric recomputation with atomic claim-and-clear concurrency protection.
 
 import { recomputeStaleMetrics } from './recomputeMetrics';
 import type { MetricRow, EntityType } from './types';
@@ -173,7 +173,7 @@ describe('recomputeStaleMetrics', () => {
     }
   });
 
-  it('clears stale flag after successful recompute', async () => {
+  it('does not issue update call on success — RPC already cleared stale', async () => {
     const staleRows = [makeStaleRow('winner_elo')];
     const { db, updateCalls } = makeMockDb({
       variants: [{ id: 'v1', mu: 25, sigma: 8 }],
@@ -181,9 +181,24 @@ describe('recomputeStaleMetrics', () => {
 
     await recomputeStaleMetrics(db, 'run', 'run-1', staleRows);
 
-    // The update call should set stale: false
+    // No update call needed — the RPC atomically set stale=false
+    expect(updateCalls).toHaveLength(0);
+  });
+
+  it('re-marks stale=true on recomputation failure so next reader retries', async () => {
+    const staleRows = [makeStaleRow('winner_elo')];
+    const { db, updateCalls } = makeMockDb({
+      variants: [{ id: 'v1', mu: 25, sigma: 8 }],
+    });
+
+    // Make writeMetric throw to simulate recomputation failure
+    mockWriteMetric.mockRejectedValueOnce(new Error('DB write failed'));
+
+    await expect(recomputeStaleMetrics(db, 'run', 'run-1', staleRows)).rejects.toThrow('DB write failed');
+
+    // Should have re-marked stale=true in the catch block
     expect(updateCalls).toHaveLength(1);
-    expect(updateCalls[0]!.payload).toMatchObject({ stale: false });
+    expect(updateCalls[0]!.payload).toMatchObject({ stale: true });
   });
 
   it('handles empty variant array gracefully — no errors', async () => {
@@ -206,7 +221,7 @@ describe('recomputeStaleMetrics', () => {
     expect(rpcCalls).toHaveLength(0);
   });
 
-  it('returns early when SKIP LOCKED returns empty (no rows locked)', async () => {
+  it('returns early when claim-and-clear returns empty (another request claimed)', async () => {
     const staleRows = [makeStaleRow('winner_elo')];
     const { db, updateCalls } = makeMockDb({ lockResult: [] });
 
@@ -217,7 +232,7 @@ describe('recomputeStaleMetrics', () => {
     expect(updateCalls).toHaveLength(0);
   });
 
-  it('returns early when SKIP LOCKED returns null', async () => {
+  it('returns early when claim-and-clear returns null', async () => {
     const staleRows = [makeStaleRow('winner_elo')];
     const { db, updateCalls } = makeMockDb({ lockResult: null });
 

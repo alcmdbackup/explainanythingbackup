@@ -101,7 +101,7 @@ export interface ExecutionMetricDef extends CatalogMetricDef {
 }
 
 export interface FinalizationMetricDef extends CatalogMetricDef {
-  compute: (ctx: FinalizationContext) => number | null;
+  compute: (ctx: FinalizationContext) => MetricValue | number | null;
 }
 
 export interface PropagationMetricDef extends CatalogMetricDef {

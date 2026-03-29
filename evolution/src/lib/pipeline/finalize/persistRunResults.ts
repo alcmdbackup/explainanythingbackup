@@ -12,7 +12,7 @@ import { logger as serverLogger } from '@/lib/server_utilities';
 import { getEntity } from '../../core/entityRegistry';
 import { writeMetric } from '../../metrics/writeMetrics';
 import { getMetricsForEntities } from '../../metrics/readMetrics';
-import type { FinalizationContext, MetricRow, MetricName } from '../../metrics/types';
+import { type FinalizationContext, type MetricRow, type MetricName, isMetricValue } from '../../metrics/types';
 
 import { evolutionVariantInsertSchema, EvolutionRunSummaryV3Schema } from '../../schemas';
 
@@ -225,9 +225,17 @@ export async function finalizeRun(
 
     // Run-level finalization metrics
     for (const def of getEntity('run').metrics.atFinalization) {
-      const value = def.compute(finCtx);
-      if (value != null) {
-        await writeMetric(db, 'run', runId, def.name as MetricName, value, 'at_finalization');
+      const result = def.compute(finCtx);
+      if (result == null) continue;
+      if (isMetricValue(result)) {
+        await writeMetric(db, 'run', runId, def.name as MetricName, result.value, 'at_finalization', {
+          sigma: result.sigma ?? undefined,
+          ci_lower: result.ci?.[0],
+          ci_upper: result.ci?.[1],
+          n: result.n,
+        });
+      } else {
+        await writeMetric(db, 'run', runId, def.name as MetricName, result, 'at_finalization');
       }
     }
 
@@ -245,10 +253,10 @@ export async function finalizeRun(
       for (const inv of invocations) {
         const invCtx = { ...invFinCtx, currentInvocationId: inv.id };
         for (const def of getEntity('invocation').metrics.atFinalization) {
-          const value = def.compute(invCtx);
-          if (value != null) {
-            await writeMetric(db, 'invocation', inv.id, def.name as MetricName, value, 'at_finalization');
-          }
+          const result = def.compute(invCtx);
+          if (result == null) continue;
+          const val = isMetricValue(result) ? result.value : result;
+          await writeMetric(db, 'invocation', inv.id, def.name as MetricName, val, 'at_finalization');
         }
       }
     }
@@ -257,10 +265,10 @@ export async function finalizeRun(
     for (const v of localPool) {
       const varCtx: FinalizationContext = { ...finCtx, currentVariantCost: v.costUsd ?? null };
       for (const def of getEntity('variant').metrics.atFinalization) {
-        const value = def.compute(varCtx);
-        if (value != null) {
-          await writeMetric(db, 'variant', v.id, def.name as MetricName, value, 'at_finalization');
-        }
+        const result = def.compute(varCtx);
+        if (result == null) continue;
+        const val = isMetricValue(result) ? result.value : result;
+        await writeMetric(db, 'variant', v.id, def.name as MetricName, val, 'at_finalization');
       }
     }
 
@@ -323,7 +331,7 @@ export async function finalizeRun(
 }
 
 /** Aggregate child run metrics into a parent entity (strategy or experiment). */
-async function propagateMetrics(
+export async function propagateMetrics(
   db: SupabaseClient,
   entityType: 'strategy' | 'experiment',
   entityId: string,

@@ -9,6 +9,7 @@ import { rankPool } from '../../pipeline/loop/rankVariants';
 import { rankingExecutionDetailSchema } from '../../schemas';
 import type { FinalizationContext } from '../../metrics/types';
 import { METRIC_CATALOG } from '../metricCatalog';
+import { computeTotalComparisons } from '../../metrics/computations/finalizationInvocation';
 import type { EvolutionLLMClient } from '../../types';
 
 export interface RankingInput {
@@ -35,15 +36,9 @@ export class RankingAgent extends Agent<RankingInput, RankResult, RankingExecuti
   readonly invocationMetrics: FinalizationMetricDef[] = [
     {
       ...METRIC_CATALOG.total_comparisons,
-      compute: (ctx) => RankingAgent.computeTotalComparisons(ctx, ctx.currentInvocationId ?? null),
+      compute: (ctx) => computeTotalComparisons(ctx, ctx.currentInvocationId ?? null),
     },
   ];
-
-  private static computeTotalComparisons(ctx: FinalizationContext, invocationId: string | null): number | null {
-    if (!invocationId || !ctx.invocationDetails) return null;
-    const detail = ctx.invocationDetails.get(invocationId) as RankingExecutionDetail | undefined;
-    return detail?.totalComparisons ?? null;
-  }
 
   readonly detailViewConfig: DetailFieldDef[] = [
     {
