@@ -242,6 +242,29 @@ Verified against actual code. Risk = Likelihood × Impact × (1/Detectability).
 - Judge comparison responses → `parseWinner()` degrades gracefully (returns null/TIE, low confidence)
 - LLM client returns raw `string` with zero shape validation
 
+### Systemic `??` vs NaN Problem (New Finding)
+
+The arena mu/sigma gap (#3) is one instance of a systemic pattern. JavaScript's `??` (nullish coalescing) only catches `null`/`undefined`, NOT `NaN`. Every `?? DEFAULT` fallback on a numeric DB field is a potential NaN passthrough. Confirmed instances:
+- `buildRunContext.ts:53-69` — `entry.mu ?? DEFAULT_MU` (arena entries)
+- `recomputeMetrics.ts:63` — `v.mu ?? DEFAULT_MU`, `v.sigma ?? DEFAULT_MU / 3` (stale recompute)
+- `manageExperiments.ts:133` — `variants?.[0]?.elo_score ?? null` (experiment metrics)
+- `evolutionActions.ts:324` — `Number(r.cost_usd ?? 0)` (cost aggregation)
+
+If any of these DB columns contain `NaN` (from upstream corruption), the fallback doesn't fire and NaN propagates into rating math, metrics, or cost totals.
+
+### Entity.ts Double-Cast Pattern (New Finding)
+
+`Entity.ts` lines 185 and 238 use `as unknown as Record<string, unknown>` — a double cast that completely bypasses TypeScript's type system. This is the generic CRUD layer used by all 6 entity subclasses (Run, Strategy, Experiment, Variant, Invocation, Prompt). Every entity list and detail page in the admin UI flows through this path. If any entity table's schema drifts from the TS type (column renamed in migration), the failure is silent — the UI renders `undefined` or blank fields with no error.
+
+### LLM Client Returns Unvalidated Strings (New Finding)
+
+`createLLMClient.ts` returns `Promise<string>` with no validation that the response is non-empty, doesn't contain error messages, or isn't truncated. Every LLM interaction (generation, comparison, seed) receives this raw string. Downstream consumers handle garbage gracefully:
+- `validateFormat()` rejects malformed generation output
+- `parseWinner()` returns null for unparseable comparison responses
+- `aggregateWinners()` degrades to low confidence
+
+But there's no early detection point. A completely broken LLM response (empty string, HTML error page, API error message in the response body) flows through the entire pipeline before being silently discarded or producing a 0-confidence comparison. Adding a basic non-empty + no-HTML guard at the client boundary would catch these immediately.
+
 ### Seed Article Validation Gap (New Finding)
 
 `generateSeedArticle.ts:110` — after LLM generates article content, it is concatenated into the seed variant as `# ${title}\n\n${articleContent}` without calling `validateFormat()`. Every other LLM text output goes through format validation, but the seed (the starting point for the entire run) skips it. A malformed seed (e.g., containing bullets, no section headings) propagates through all iterations as the baseline variant.
