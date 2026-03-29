@@ -59,6 +59,14 @@ The evolution pipeline has 90+ runtime invariants enforced across 6 subsystems, 
 - [ ] Upgrade Agent detail validation from warn-only to throw in `Agent.ts:36-42` — or at minimum, don't write invalid detail to DB (Risk #5)
 - [ ] Add `isFinite()` guard to `writeMetric()` in `writeMetrics.ts:100` — reject NaN/Infinity before DB write (Risk #8)
 - [ ] Add `budgetUsd > 0` precondition to `createCostTracker()` in `trackBudget.ts:27` (Risk #7)
+- [ ] Audit and fix all `?? DEFAULT` fallbacks on numeric DB fields — `??` doesn't catch NaN, need `isFinite()` or explicit NaN check at:
+  - `buildRunContext.ts:53-69` (arena mu/sigma)
+  - `recomputeMetrics.ts:63` (variant mu/sigma)
+  - `manageExperiments.ts:133` (elo_score)
+  - `evolutionActions.ts:324` (cost_usd via `Number()`)
+  - Any other `?? DEFAULT_MU` / `?? DEFAULT_SIGMA` patterns
+- [ ] Replace `as unknown as Record<string, unknown>` double casts in `Entity.ts:185,238` with safeParse or type guards — this is the generic CRUD layer used by all 6 entity subclasses; every admin UI list/detail page flows through here
+- [ ] Add LLM response guard to `createLLMClient.ts` — validate response is non-empty string before returning; reject empty strings, HTML error pages, or truncated responses at the client boundary rather than letting downstream consumers silently discard garbage
 - [ ] Run lint, tsc, build, all evolution unit tests — verify no regressions
 
 ### Phase 3: Database Constraints (~0.5 day)
