@@ -9,6 +9,7 @@ import { EntityListPage } from '@evolution/components/evolution';
 import type { RowAction, FilterDef, ColumnDef } from '@evolution/components/evolution';
 import type { FieldDef } from '@evolution/components/evolution';
 import { createMetricColumns } from '@evolution/lib/metrics/metricColumns';
+import { getListViewMetrics } from '@evolution/lib/metrics/registry';
 import {
   listStrategiesAction,
   createStrategyAction,
@@ -16,8 +17,10 @@ import {
   cloneStrategyAction,
   type StrategyListItem,
 } from '@evolution/services/strategyRegistryActions';
+import { getBatchMetricsAction } from '@evolution/services/metricsActions';
 import { executeEntityAction } from '@evolution/services/entityActions';
 import { MODEL_OPTIONS } from '@/lib/utils/modelOptions';
+import type { MetricRow } from '@evolution/lib/metrics/types';
 
 const loadData = async (filters: Record<string, string>, page: number, pageSize: number) => {
   const result = await listStrategiesAction({
@@ -29,7 +32,21 @@ const loadData = async (filters: Record<string, string>, page: number, pageSize:
     filterTestContent: filters.filterTestContent === 'true',
   });
   if (!result.success) throw new Error(result.error?.message ?? 'Load failed');
-  return { items: result.data!.items, total: result.data!.total };
+
+  const items = result.data!.items;
+
+  // Batch-fetch list-view metrics for strategies
+  const metricNames = getListViewMetrics('strategy').map(d => d.name);
+  if (items.length > 0 && metricNames.length > 0) {
+    const metricsResult = await getBatchMetricsAction('strategy', items.map(s => s.id), metricNames);
+    const metricsMap = metricsResult.success && metricsResult.data ? metricsResult.data : {};
+    return {
+      items: items.map(s => ({ ...s, metrics: (metricsMap[s.id] ?? []) as MetricRow[] })),
+      total: result.data!.total,
+    };
+  }
+
+  return { items, total: result.data!.total };
 };
 
 const baseColumns: ColumnDef<StrategyListItem>[] = [

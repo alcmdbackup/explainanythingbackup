@@ -7,6 +7,7 @@ import { EntityTable, type ColumnDef } from '../tables/EntityTable';
 import { StatusBadge } from '../primitives/StatusBadge';
 import { buildRunUrl } from '@evolution/lib/utils/evolutionUrls';
 import { getExperimentAction } from '@evolution/services/experimentActions';
+import { getBatchMetricsAction } from '@evolution/services/metricsActions';
 
 export interface RelatedRunsTabProps {
   experimentId: string;
@@ -63,7 +64,22 @@ export function RelatedRunsTab({ experimentId }: RelatedRunsTabProps): JSX.Eleme
       setLoading(true);
       const res = await getExperimentAction({ experimentId });
       if (res.success && res.data?.evolution_runs) {
-        setRuns((res.data.evolution_runs as Record<string, unknown>[]).map(normalizeExperimentRun));
+        const rawRuns = res.data.evolution_runs as Record<string, unknown>[];
+        const normalized = rawRuns.map(normalizeExperimentRun);
+
+        // Fetch actual costs from metrics
+        const runIds = normalized.map(r => r.id);
+        if (runIds.length > 0) {
+          const costResult = await getBatchMetricsAction('run', runIds, ['cost']);
+          if (costResult.success && costResult.data) {
+            for (const r of normalized) {
+              const costRow = costResult.data[r.id]?.find(m => m.metric_name === 'cost');
+              if (costRow) r.cost = costRow.value;
+            }
+          }
+        }
+
+        setRuns(normalized);
       }
       setLoading(false);
     }

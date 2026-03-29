@@ -36,6 +36,8 @@ export async function recomputeStaleMetrics(
       await recomputeStrategyMetrics(db, entityId);
     } else if (entityType === 'experiment') {
       await recomputeExperimentMetrics(db, entityId);
+    } else if (entityType === 'invocation') {
+      await recomputeInvocationMetrics(db, entityId);
     }
     // Success: stale already cleared by the RPC — no further action needed
   } catch (err) {
@@ -150,5 +152,53 @@ async function recomputePropagatedMetrics(
       n: aggregated.n,
       aggregation_method: def.aggregationMethod as import('./types').AggregationMethod,
     });
+  }
+}
+
+async function recomputeInvocationMetrics(db: SupabaseClient, invocationId: string): Promise<void> {
+  // Fetch invocation's execution_detail and parent run's variants
+  const { data: inv, error: invError } = await db
+    .from('evolution_agent_invocations')
+    .select('id, run_id, execution_detail')
+    .eq('id', invocationId)
+    .single();
+  if (invError || !inv) return;
+
+  const { data: variants, error: variantError } = await db
+    .from('evolution_variants')
+    .select('id, mu, sigma')
+    .eq('run_id', inv.run_id);
+  if (variantError || !variants || variants.length === 0) return;
+
+  const ratings = new Map<string, Rating>();
+  const pool: Variant[] = [];
+  for (const v of variants) {
+    ratings.set(v.id, { mu: v.mu ?? DEFAULT_MU, sigma: v.sigma ?? DEFAULT_MU / 3 });
+    pool.push({ id: v.id, text: '', version: 0, parentIds: [], strategy: '', createdAt: 0, iterationBorn: 0 });
+  }
+
+  const detailsMap = new Map([[inv.id, inv.execution_detail]]);
+  const ctx: FinalizationContext = {
+    result: { winner: pool[0]!, pool, ratings, matchHistory: [], totalCost: 0, iterationsRun: 0, stopReason: 'iterations_complete', muHistory: [], diversityHistory: [], matchCounts: {} },
+    ratings,
+    pool,
+    matchHistory: [],
+    invocationDetails: detailsMap as FinalizationContext['invocationDetails'],
+    currentInvocationId: inv.id,
+  };
+
+  for (const def of getEntity('invocation').metrics.atFinalization) {
+    const result = def.compute(ctx);
+    if (result == null) continue;
+    if (isMetricValue(result)) {
+      await writeMetric(db, 'invocation', invocationId, def.name as MetricName, result.value, 'at_finalization', {
+        sigma: result.sigma ?? undefined,
+        ci_lower: result.ci?.[0],
+        ci_upper: result.ci?.[1],
+        n: result.n,
+      });
+    } else {
+      await writeMetric(db, 'invocation', invocationId, def.name as MetricName, result, 'at_finalization');
+    }
   }
 }
