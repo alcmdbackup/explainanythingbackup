@@ -85,6 +85,28 @@ in USD, giving a cost-efficiency metric surfaced in the Arena dashboard.
 
 ---
 
+## Elo Confidence Intervals
+
+Run-level elo metrics carry uncertainty information derived from the source variant's Bayesian sigma. This propagates the rating system's built-in uncertainty into the metrics layer.
+
+### Run-Level CI (From Variant Sigma)
+
+For run-level metrics like `winner_elo`, the CI is computed directly from the winning variant's sigma:
+
+```
+eloSigma = variant.sigma * ELO_SIGMA_SCALE   (ELO_SIGMA_SCALE = 16)
+ci_lower = elo - 1.96 * eloSigma
+ci_upper = elo + 1.96 * eloSigma
+```
+
+These are stored in the `sigma`, `ci_lower`, and `ci_upper` columns of the `evolution_metrics` row. A variant with low sigma (well-calibrated) produces a tight CI; a variant with high sigma (few matches) produces a wide CI.
+
+### Propagated CI (Bootstrap)
+
+At the strategy and experiment level, elo metrics are aggregated across multiple runs using `bootstrap_mean` aggregation. The CI at these levels comes from `bootstrapMeanCI()` — a resampling-based estimate of the mean's uncertainty — not from the per-variant sigma. This is appropriate because the cross-run variance (different runs producing different winner elos) is the dominant source of uncertainty at the aggregate level.
+
+---
+
 ## Two-Phase Ranking Pipeline
 
 **Source:** `evolution/src/lib/pipeline/rank.ts`

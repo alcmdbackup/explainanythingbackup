@@ -263,11 +263,11 @@ Findings 8 and 9 are architectural observations (low probability, would require 
 
 ## Documentation Updates
 The following docs were identified as relevant and may need updates:
-- [ ] `evolution/docs/metrics.md` — update: add lock RPC (atomic claim-and-clear), invocation stale handling, per-LLM-call cost persistence, elo CI computation
-- [ ] `evolution/docs/arena.md` — no changes needed (arena sync flow verified correct)
-- [ ] `evolution/docs/data_model.md` — add `lock_stale_metrics` RPC to Key RPCs section (atomic claim-and-clear pattern)
-- [ ] `evolution/docs/architecture.md` — update LLM client section to note cost metric persistence on each call
-- [ ] `evolution/docs/rating_and_comparison.md` — document elo CI computation (sigma → elo scale → 95% CI)
+- [x] `evolution/docs/metrics.md` — update: add lock RPC (atomic claim-and-clear), invocation stale handling, per-LLM-call cost persistence, elo CI computation
+- [x] `evolution/docs/arena.md` — no changes needed (arena sync flow verified correct)
+- [x] `evolution/docs/data_model.md` — add `lock_stale_metrics` RPC to Key RPCs section (atomic claim-and-clear pattern)
+- [x] `evolution/docs/architecture.md` — update LLM client section to note cost metric persistence on each call
+- [x] `evolution/docs/rating_and_comparison.md` — document elo CI computation (sigma → elo scale → 95% CI)
 
 ## Review & Discussion
 
