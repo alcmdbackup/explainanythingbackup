@@ -41,7 +41,7 @@ Findings 8 and 9 are architectural observations (low probability, would require 
 
 ### Phase 1: Critical Fixes (Findings 1, 4, 10, 11)
 
-- [ ] **Create `lock_stale_metrics` RPC migration** — `supabase/migrations/20260328000001_create_lock_stale_metrics.sql`
+- [x] **Create `lock_stale_metrics` RPC migration** — `supabase/migrations/20260328000001_create_lock_stale_metrics.sql`
   - **Approach**: Atomic claim-and-clear pattern using the `stale` flag itself as the lock mechanism. No advisory locks or `SELECT FOR UPDATE` needed.
   - **Why not advisory locks**: Both `pg_try_advisory_xact_lock` (transaction-scoped) and `SELECT FOR UPDATE SKIP LOCKED` release when the Supabase RPC transaction ends. Since recomputation happens in separate TypeScript DB calls AFTER the RPC returns, these locks provide no protection. Session-scoped `pg_try_advisory_lock` would work but requires explicit `pg_advisory_unlock` and Supabase connection pooling may assign different sessions.
   - **Pattern**: The RPC atomically UPDATEs `stale = false` for matching rows and RETURNs the rows that were updated. If another request already cleared `stale`, the UPDATE matches zero rows and returns empty — caller skips recomputation. This is a compare-and-swap on the `stale` flag.
@@ -73,7 +73,7 @@ Findings 8 and 9 are architectural observations (low probability, would require 
   // No finally block needed — stale already cleared by RPC on success
   ```
   - `SECURITY DEFINER`, `SET search_path = public`, granted to `service_role` only
-- [ ] **Write cost metrics on every LLM call** — `evolution/src/lib/pipeline/infra/createLLMClient.ts`
+- [x] **Write cost metrics on every LLM call** — `evolution/src/lib/pipeline/infra/createLLMClient.ts`
   - **Approach**: Write in the LLM client wrapper (not a callback on cost tracker). Cost tracker stays pure (sync math, no I/O). The LLM client is already the integration boundary between LLM calls and cost tracking.
   - **Concurrency note**: `createV2LLMClient.complete()` is called sequentially per LLM call within an agent (generation runs strategies in parallel via `Promise.all` but each strategy makes one LLM call). Multiple concurrent calls could produce interleaved upserts, but since each writes `costTracker.getTotalSpent()` (cumulative), the last writer wins with the correct total. No race condition because cost tracker `reserve()` and `recordSpend()` are synchronous under Node's single-threaded event loop.
   - **Current flow**: `createV2LLMClient.complete()` → `costTracker.reserve()` → LLM call → `costTracker.recordSpend()` → return. Cost only in memory.
@@ -85,10 +85,10 @@ Findings 8 and 9 are architectural observations (low probability, would require 
   - **Params**: Add `db: SupabaseClient` and `runId: string` to `createV2LLMClient()` signature
   - Update `claimAndExecuteRun.ts` to pass `db` and `runId` to `createV2LLMClient()`
   - **Deployment**: Ship atomically with iteration-end cost write removal (next item) to avoid a window with no cost writes
-- [ ] **Remove redundant iteration-end cost write** — `evolution/src/lib/pipeline/loop/runIterationLoop.ts:208-229`
+- [x] **Remove redundant iteration-end cost write** — `evolution/src/lib/pipeline/loop/runIterationLoop.ts:208-229`
   - Remove the `duringExecution` metrics write block (now handled per-LLM-call)
   - Keep finalization safety net at `persistRunResults.ts:222-224` as final reconciliation (this path does NOT go through `validateTiming` for agent metrics — it writes `'cost'` which is in the static registry)
-- [ ] **Add sigma and CI to ALL run-level elo metrics** — `evolution/src/lib/metrics/computations/finalization.ts`
+- [x] **Add sigma and CI to ALL run-level elo metrics** — `evolution/src/lib/metrics/computations/finalization.ts`
   - Change all 4 elo compute functions to return `MetricValue` (with sigma and CI) instead of `number`
   - `computeWinnerElo`: extract winner variant's sigma, convert to Elo scale (`eloSigma = sigma * ELO_SIGMA_SCALE`), return `{ value: elo, sigma: eloSigma, ci: [elo - 1.96*eloSigma, elo + 1.96*eloSigma], n: 1 }`
   - `computeMaxElo`: same as winner (highest elo variant's sigma)
@@ -112,19 +112,19 @@ Findings 8 and 9 are architectural observations (low probability, would require 
     ```
   - **Existing test migration**: Update `finalization.test.ts` to assert on `.value` property for elo functions (e.g., `expect(computeWinnerElo(ctx).value).toBe(toEloScale(30))`)
   - **Update `recomputeMetrics.ts:75-80`**: The `recomputeRunEloMetrics` function also calls `def.compute(ctx)` and passes the result to `writeMetric`. Must add the same `isMetricValue()` type guard here to extract sigma/CI when recomputing stale elo metrics
-- [ ] **Add sigma and CI to ALL propagated elo metrics** — `evolution/src/lib/metrics/computations/propagation.ts`
+- [x] **Add sigma and CI to ALL propagated elo metrics** — `evolution/src/lib/metrics/computations/propagation.ts`
   - `aggregateBootstrapMean` already produces CI from bootstrap resampling. Once run-level elo metrics carry sigma, `bootstrapMeanCI` will draw from `Normal(value, sigma)` per source row, producing uncertainty-aware CIs. Affected: `avg_final_elo`, `avg_median_elo`, `avg_p90_elo`, `avg_decisive_rate`
   - `aggregateMax` (`best_final_elo`, `best_max_elo`): change to track which row produced the max and propagate its sigma. Return `{ value: max, sigma: maxRow.sigma, ci: maxRow.sigma ? [max - 1.96*sigma, max + 1.96*sigma] : null, n }`
   - `aggregateMin` (`worst_final_elo`): same pattern — propagate sigma from the min source row
   - `aggregateAvg` (`avg_matches_per_run`, `avg_cost_per_run`, `avg_variant_count`): add CI via standard error (`se = stddev / sqrt(n)`, `ci = [mean - 1.96*se, mean + 1.96*se]`). Keep deterministic (no bootstrap) — these are non-elo metrics where exact mean is appropriate. **Do NOT change to aggregateBootstrapMean** to avoid breaking existing deterministic test assertions.
   - **Existing test migration**: Update `propagation.test.ts` — existing `aggregateAvg` test asserts `toBe(20)` on `.value`; add new assertions for `.ci` and `.n` fields
-- [ ] **Fix `writeMetrics` validation to include agent-contributed metrics** — `evolution/src/lib/metrics/writeMetrics.ts`
+- [x] **Fix `writeMetrics` validation to include agent-contributed metrics** — `evolution/src/lib/metrics/writeMetrics.ts`
   - **Use Option B**: Add `format_rejection_rate` and `total_comparisons` directly to `METRIC_REGISTRY.invocation.atFinalization` in `registry.ts`
   - Reason: Option A (use `getEntity()` in `validateTiming()`) introduces runtime dependency on entity registry singleton, risking import cycle: `writeMetrics → entityRegistry → Entity → writeMetrics`. Option B keeps `writeMetrics.ts` import-free of entity registry, avoids lazy-init side effects in test environments, and is a 2-line addition to the static registry.
   - **Import source**: Import compute functions from standalone module (e.g., `computations/finalizationInvocation.ts` or a new `computations/agentMetrics.ts`), NOT from `GenerationAgent`/`RankingAgent` classes — importing Agent classes into `registry.ts` would create a new import cycle: `registry.ts → GenerationAgent → Agent → ... → registry.ts`
   - Extract `computeFormatRejectionRate` and `computeTotalComparisons` from their agent classes into a shared compute module if not already standalone
   - This is the **direct cause** of zero strategy/experiment metrics on staging
-- [ ] **Backfill propagated metrics for existing entities** — `evolution/scripts/backfill-propagated-metrics.ts`
+- [x] **Backfill propagated metrics for existing entities** — `evolution/scripts/backfill-propagated-metrics.ts`
   - Standalone script (NOT a migration — migrations run at deploy time and could timeout)
   - Query all strategies/experiments with completed runs but zero metrics rows in `evolution_metrics`
   - For each, call `propagateMetrics()` (the same function used by finalization)
@@ -132,41 +132,41 @@ Findings 8 and 9 are architectural observations (low probability, would require 
   - Add idempotency: `propagateMetrics` uses upsert, so re-running is safe
   - Test: integration test verifying backfill script produces correct metrics for a strategy with known runs
   - Sequencing: must deploy Finding 11 fix first, then run backfill
-- [ ] Run lint, tsc, build
-- [ ] Run existing unit tests for affected files
+- [x] Run lint, tsc, build
+- [x] Run existing unit tests for affected files
 
 ### Phase 2: Stale Recomputation Fixes (Findings 2, 3)
 
-- [ ] **Add stale detection to `getBatchMetricsAction`** — `evolution/src/services/metricsActions.ts`
+- [x] **Add stale detection to `getBatchMetricsAction`** — `evolution/src/services/metricsActions.ts`
   - After fetching metrics, check for stale rows per entity
   - For each entity with stale rows, call `recomputeStaleMetrics()`
   - Re-read and return fresh metrics
-- [ ] **Expand stale trigger to include invocation metrics** — new migration
+- [x] **Expand stale trigger to include invocation metrics** — new migration
   - Add `best_variant_elo`, `avg_variant_elo` to the invocation-level stale marking in `mark_elo_metrics_stale()`
   - Query `evolution_agent_invocations` for the variant's `run_id` to find affected invocations
-- [ ] **Add invocation handler to `recomputeStaleMetrics()`** — `evolution/src/lib/metrics/recomputeMetrics.ts`
+- [x] **Add invocation handler to `recomputeStaleMetrics()`** — `evolution/src/lib/metrics/recomputeMetrics.ts`
   - Add `entityType === 'invocation'` branch
   - Fetch invocation's `execution_detail` from DB
   - Reconstruct `FinalizationContext` with `invocationDetails` map
   - Recompute `best_variant_elo` and `avg_variant_elo` using current variant ratings
-- [ ] Run lint, tsc, build
-- [ ] Run existing unit tests for affected files
+- [x] Run lint, tsc, build
+- [x] Run existing unit tests for affected files
 
 ### Phase 3: UI Display Fixes (Findings 5, 6, 7)
 
-- [ ] **Fix strategy list metrics fetch** — `src/app/admin/evolution/strategies/page.tsx`
+- [x] **Fix strategy list metrics fetch** — `src/app/admin/evolution/strategies/page.tsx`
   - Add `getBatchMetricsAction('strategy', strategyIds, metricNames)` call (follow runs page pattern at lines 76-80)
   - Merge metrics into strategy items before rendering
-- [ ] **Fix RelatedRunsTab cost display** — `evolution/src/components/evolution/tabs/RelatedRunsTab.tsx`
+- [x] **Fix RelatedRunsTab cost display** — `evolution/src/components/evolution/tabs/RelatedRunsTab.tsx`
   - Replace hardcoded `cost: 0` with actual cost from `getBatchMetricsAction` or `evolution_run_costs` view
-- [ ] **Delete dead code** — `evolution/src/lib/core/Entity.ts:178-229`
+- [x] **Delete dead code** — `evolution/src/lib/core/Entity.ts:178-229`
   - Remove `propagateMetricsToParents()` method (never called, has type bug)
-- [ ] Run lint, tsc, build
-- [ ] Run existing unit tests for affected files
+- [x] Run lint, tsc, build
+- [x] Run existing unit tests for affected files
 
 ### Phase 4: CI & Test Coverage (Finding 12, CI gap)
 
-- [ ] **Enable evolution E2E tests on PRs to `main`** — `.github/workflows/ci.yml`
+- [x] **Enable evolution E2E tests on PRs to `main`** — `.github/workflows/ci.yml`
   - Current: `e2e-evolution` job has `github.base_ref == 'production'` (line 395) — only runs on production PRs
   - All evolution PRs target `main`, so these tests never run during development
   - The last main→production PR (#841) had no CI checks at all (only Vercel deploy) — so even the production gate didn't catch it
@@ -175,13 +175,13 @@ Findings 8 and 9 are architectural observations (low probability, would require 
   - **Cost/staging impact**: Evolution E2E uses `gpt-4.1-nano` with `budget_cap_usd: 0.02` — cost per run ~$0.02. With evolution path detection, only PRs touching evolution code trigger these tests. `environment: staging` approval gate may apply — verify staging environment is configured for auto-approval on PRs to main.
   - Also apply same fix to `integration-evolution` job (line 266) which has the same `production`-only gate
   - Do NOT change `e2e-non-evolution` and `integration-non-evolution` — these run critical tests on all PRs already
-- [ ] **Strengthen E2E metric value assertions** — existing E2E specs currently only check element existence (`data-testid`), not actual values or CI display
+- [x] **Strengthen E2E metric value assertions** — existing E2E specs currently only check element existence (`data-testid`), not actual values or CI display
   - `admin-evolution-run-pipeline.spec.ts`: After clicking metrics tab, assert metric values are numeric (not "—" or "No metrics"), verify CI range displayed for elo metrics
   - `admin-evolution-strategy-detail.spec.ts`: Assert strategy metrics tab shows propagated values with CI ranges (e.g., `avg_final_elo` has `±` or range display)
   - `admin-evolution-invocation-detail.spec.ts`: Assert invocation metrics tab shows `best_variant_elo`, `avg_variant_elo`, `variant_count` with actual values
-- [ ] **Add experiment detail metrics E2E test** — no existing test covers experiment metrics tab
+- [x] **Add experiment detail metrics E2E test** — no existing test covers experiment metrics tab
   - New test in `admin-evolution-run-pipeline.spec.ts` or dedicated spec: navigate to experiment detail → click metrics tab → verify propagated metrics visible with values
-- [ ] **Add CI display E2E assertions** — verify confidence intervals render on detail pages
+- [x] **Add CI display E2E assertions** — verify confidence intervals render on detail pages
   - Run detail: verify elo metrics show CI range (e.g., `1200 ± 45` or `1155–1245`)
   - Strategy detail: verify bootstrap mean metrics show CI range
   - Arena leaderboard already has CI test — extend pattern to detail pages
@@ -196,70 +196,70 @@ Findings 8 and 9 are architectural observations (low probability, would require 
 ## Testing
 
 ### Unit Tests
-- [ ] `evolution/src/lib/pipeline/infra/createLLMClient.test.ts` — verify cost metric written after each successful LLM call; verify `.catch()` suppresses write errors
-- [ ] `evolution/src/lib/metrics/recomputeMetrics.test.ts` — add invocation recomputation test; update lock check to use claim-and-clear return value; test error recovery re-marks stale=true on recomputation failure
-- [ ] `evolution/src/services/metricsActions.test.ts` — add batch stale detection test
-- [ ] `evolution/src/lib/metrics/writeMetrics.test.ts` — verify `format_rejection_rate` and `total_comparisons` pass validation (regression test for Finding 11); test exercises real `validateTiming` with metrics from `METRIC_REGISTRY` that now includes agent metrics
-- [ ] `evolution/src/lib/metrics/computations/finalization.test.ts`:
-  - [ ] `computeWinnerElo` returns `MetricValue` with sigma = variant's sigma * ELO_SIGMA_SCALE and 95% CI
-  - [ ] `computeMaxElo` returns `MetricValue` with sigma from highest-elo variant
-  - [ ] `computeMedianElo` returns `MetricValue` with sigma from median variant
-  - [ ] `computeP90Elo` returns `MetricValue` with sigma from P90 variant
-  - [ ] All elo functions return `null` for empty pool (existing tests updated to check `.value`)
-  - [ ] CI bounds are symmetric: `[elo - 1.96*eloSigma, elo + 1.96*eloSigma]`
-  - [ ] Sigma scales correctly: variant sigma=3.0 → eloSigma = 3.0 * 16 = 48
-  - [ ] Non-elo functions (cost, total_matches, decisive_rate, variant_count) continue returning `number`
-- [ ] `evolution/src/lib/metrics/computations/propagation.test.ts`:
-  - [ ] `aggregateBootstrapMean` produces CI when source rows have sigma (verify non-null ci_lower/ci_upper)
-  - [ ] `aggregateBootstrapMean` CI width decreases with more observations (n=2 vs n=10)
-  - [ ] `aggregateMax` propagates sigma from the max source row
-  - [ ] `aggregateMin` propagates sigma from the min source row
-  - [ ] `aggregateAvg` produces CI via standard error when n >= 2 (deterministic — exact mean preserved)
+- [x] `evolution/src/lib/pipeline/infra/createLLMClient.test.ts` — verify cost metric written after each successful LLM call; verify `.catch()` suppresses write errors
+- [x] `evolution/src/lib/metrics/recomputeMetrics.test.ts` — add invocation recomputation test; update lock check to use claim-and-clear return value; test error recovery re-marks stale=true on recomputation failure
+- [x] `evolution/src/services/metricsActions.test.ts` — add batch stale detection test
+- [x] `evolution/src/lib/metrics/writeMetrics.test.ts` — verify `format_rejection_rate` and `total_comparisons` pass validation (regression test for Finding 11); test exercises real `validateTiming` with metrics from `METRIC_REGISTRY` that now includes agent metrics
+- [x] `evolution/src/lib/metrics/computations/finalization.test.ts`:
+  - [x] `computeWinnerElo` returns `MetricValue` with sigma = variant's sigma * ELO_SIGMA_SCALE and 95% CI
+  - [x] `computeMaxElo` returns `MetricValue` with sigma from highest-elo variant
+  - [x] `computeMedianElo` returns `MetricValue` with sigma from median variant
+  - [x] `computeP90Elo` returns `MetricValue` with sigma from P90 variant
+  - [x] All elo functions return `null` for empty pool (existing tests updated to check `.value`)
+  - [x] CI bounds are symmetric: `[elo - 1.96*eloSigma, elo + 1.96*eloSigma]`
+  - [x] Sigma scales correctly: variant sigma=3.0 → eloSigma = 3.0 * 16 = 48
+  - [x] Non-elo functions (cost, total_matches, decisive_rate, variant_count) continue returning `number`
+- [x] `evolution/src/lib/metrics/computations/propagation.test.ts`:
+  - [x] `aggregateBootstrapMean` produces CI when source rows have sigma (verify non-null ci_lower/ci_upper)
+  - [x] `aggregateBootstrapMean` CI width decreases with more observations (n=2 vs n=10)
+  - [x] `aggregateMax` propagates sigma from the max source row
+  - [x] `aggregateMin` propagates sigma from the min source row
+  - [x] `aggregateAvg` produces CI via standard error when n >= 2 (deterministic — exact mean preserved)
 
 ### Integration Tests
-- [ ] `src/__tests__/integration/evolution-metrics-recomputation.integration.test.ts` — test `lock_stale_metrics` RPC exists and atomic claim-and-clear works (concurrent callers: first claims, second gets empty)
-- [ ] `src/__tests__/integration/evolution-metrics-recomputation.integration.test.ts` — test stale trigger cascade: update variant mu/sigma → verify run/strategy/experiment metrics marked stale
-- [ ] `src/__tests__/integration/evolution-metrics-recomputation.integration.test.ts` — test end-to-end recompute: write stale metric → detect → lock → recompute → verify fresh values
-- [ ] `src/__tests__/integration/evolution-metrics-recomputation.integration.test.ts` — write run elo metric with sigma/CI → verify sigma and ci_lower/ci_upper stored correctly in DB
-- [ ] `src/__tests__/integration/evolution-metrics-recomputation.integration.test.ts` — write multiple run elo metrics with sigma → propagate to strategy → verify propagated metrics have CI from bootstrap
-- [ ] `src/__tests__/integration/evolution-metrics-backfill.integration.test.ts` — test backfill script: seed strategy with completed run + metrics, run backfill, verify propagated metrics created; test idempotency (re-run produces same result)
-- [ ] Integration test exercising real Finding 11 path: call `persistRunResults` finalization metrics loop with real `validateTiming` and `getEntity('invocation')` — verify `format_rejection_rate` writes succeed
+- [x] `src/__tests__/integration/evolution-metrics-recomputation.integration.test.ts` — test `lock_stale_metrics` RPC exists and atomic claim-and-clear works (concurrent callers: first claims, second gets empty)
+- [x] `src/__tests__/integration/evolution-metrics-recomputation.integration.test.ts` — test stale trigger cascade: update variant mu/sigma → verify run/strategy/experiment metrics marked stale
+- [x] `src/__tests__/integration/evolution-metrics-recomputation.integration.test.ts` — test end-to-end recompute: write stale metric → detect → lock → recompute → verify fresh values
+- [x] `src/__tests__/integration/evolution-metrics-recomputation.integration.test.ts` — write run elo metric with sigma/CI → verify sigma and ci_lower/ci_upper stored correctly in DB
+- [x] `src/__tests__/integration/evolution-metrics-recomputation.integration.test.ts` — write multiple run elo metrics with sigma → propagate to strategy → verify propagated metrics have CI from bootstrap
+- [x] `src/__tests__/integration/evolution-metrics-backfill.integration.test.ts` — test backfill script: seed strategy with completed run + metrics, run backfill, verify propagated metrics created; test idempotency (re-run produces same result)
+- [x] Integration test exercising real Finding 11 path: call `persistRunResults` finalization metrics loop with real `validateTiming` and `getEntity('invocation')` — verify `format_rejection_rate` writes succeed
 
 ### E2E Tests
-- [ ] `admin-evolution-run-pipeline.spec.ts` — verify run detail metrics tab shows elo values with CI ranges (not bare numbers)
-- [ ] `admin-evolution-run-pipeline.spec.ts` — verify strategy metrics were propagated with CI: query DB for `avg_final_elo` and assert `ci_lower` and `ci_upper` are non-null
-- [ ] `admin-evolution-run-pipeline.spec.ts` — verify experiment metrics were propagated with CI: same assertion
-- [ ] `admin-evolution-run-pipeline.spec.ts` — verify `best_final_elo` has sigma from the best run's winner_elo sigma
-- [ ] `admin-evolution-strategy-detail.spec.ts` — verify strategy list shows metric values (not "—")
-- [ ] `admin-evolution-invocation-detail.spec.ts` — verify invocation metrics tab shows best_variant_elo, avg_variant_elo, variant_count values
-- [ ] Playwright manual verification of all evolution admin pages showing metrics with CI
+- [x] `admin-evolution-run-pipeline.spec.ts` — verify run detail metrics tab shows elo values with CI ranges (not bare numbers)
+- [x] `admin-evolution-run-pipeline.spec.ts` — verify strategy metrics were propagated with CI: query DB for `avg_final_elo` and assert `ci_lower` and `ci_upper` are non-null
+- [x] `admin-evolution-run-pipeline.spec.ts` — verify experiment metrics were propagated with CI: same assertion
+- [x] `admin-evolution-run-pipeline.spec.ts` — verify `best_final_elo` has sigma from the best run's winner_elo sigma
+- [x] `admin-evolution-strategy-detail.spec.ts` — verify strategy list shows metric values (not "—")
+- [x] `admin-evolution-invocation-detail.spec.ts` — verify invocation metrics tab shows best_variant_elo, avg_variant_elo, variant_count values
+- [x] Playwright manual verification of all evolution admin pages showing metrics with CI
 
 ### Manual Verification
-- [ ] Verify run detail page shows elo metrics with confidence intervals (e.g., `1402 ± 48` or range `1306–1498`)
-- [ ] Verify strategy detail metrics tab shows propagated elo metrics with bootstrap CI
-- [ ] Verify experiment detail metrics tab shows propagated elo metrics with bootstrap CI
-- [ ] Verify `best_final_elo` and `worst_final_elo` show CI from source run's sigma
-- [ ] Verify invocation detail metrics tab shows elo and variant count values
-- [ ] Verify strategy list page displays avg_final_elo, best_final_elo after fix
-- [ ] Verify experiment detail RelatedRunsTab shows non-zero cost
+- [x] Verify run detail page shows elo metrics with confidence intervals (e.g., `1402 ± 48` or range `1306–1498`)
+- [x] Verify strategy detail metrics tab shows propagated elo metrics with bootstrap CI
+- [x] Verify experiment detail metrics tab shows propagated elo metrics with bootstrap CI
+- [x] Verify `best_final_elo` and `worst_final_elo` show CI from source run's sigma
+- [x] Verify invocation detail metrics tab shows elo and variant count values
+- [x] Verify strategy list page displays avg_final_elo, best_final_elo after fix
+- [x] Verify experiment detail RelatedRunsTab shows non-zero cost
 
 ## Verification
 
 ### A) Playwright Verification
-- [ ] Run Playwright against all evolution admin pages to verify metrics display
-- [ ] Check run detail metrics tab: elo metrics have CI ranges
-- [ ] Check strategy list shows metric columns with values
-- [ ] Check strategy detail metrics tab: propagated metrics with bootstrap CI
-- [ ] Check experiment detail metrics tab: propagated metrics visible
-- [ ] Check experiment detail runs tab shows costs
-- [ ] Check invocation detail metrics tab: elo and count values
+- [x] Run Playwright against all evolution admin pages to verify metrics display
+- [x] Check run detail metrics tab: elo metrics have CI ranges
+- [x] Check strategy list shows metric columns with values
+- [x] Check strategy detail metrics tab: propagated metrics with bootstrap CI
+- [x] Check experiment detail metrics tab: propagated metrics visible
+- [x] Check experiment detail runs tab shows costs
+- [x] Check invocation detail metrics tab: elo and count values
 
 ### B) Automated Tests
-- [ ] `npm run test:unit -- --testPathPattern="createLLMClient|recomputeMetrics|metricsActions|finalization|propagation|writeMetrics"`
-- [ ] `npm run test:integration -- --testPathPattern="evolution-metrics"`
-- [ ] `npx playwright test src/__tests__/e2e/specs/09-admin/admin-evolution-run-pipeline.spec.ts`
-- [ ] `npx playwright test src/__tests__/e2e/specs/09-admin/admin-evolution-strategy-detail.spec.ts`
-- [ ] `npx playwright test src/__tests__/e2e/specs/09-admin/admin-evolution-invocation-detail.spec.ts`
+- [x] `npm run test:unit -- --testPathPattern="createLLMClient|recomputeMetrics|metricsActions|finalization|propagation|writeMetrics"`
+- [x] `npm run test:integration -- --testPathPattern="evolution-metrics"`
+- [x] `npx playwright test src/__tests__/e2e/specs/09-admin/admin-evolution-run-pipeline.spec.ts`
+- [x] `npx playwright test src/__tests__/e2e/specs/09-admin/admin-evolution-strategy-detail.spec.ts`
+- [x] `npx playwright test src/__tests__/e2e/specs/09-admin/admin-evolution-invocation-detail.spec.ts`
 
 ## Documentation Updates
 The following docs were identified as relevant and may need updates:

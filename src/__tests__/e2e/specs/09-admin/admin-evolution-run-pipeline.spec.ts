@@ -281,7 +281,7 @@ adminTest.describe('Evolution Run Pipeline', { tag: '@evolution' }, () => {
 
     const { data: metrics } = await sb
       .from('evolution_metrics')
-      .select('metric_name, value')
+      .select('metric_name, value, sigma, ci_lower, ci_upper')
       .eq('entity_type', 'experiment')
       .eq('entity_id', experimentId);
 
@@ -299,6 +299,15 @@ adminTest.describe('Evolution Run Pipeline', { tag: '@evolution' }, () => {
     const totalCost = metrics!.find(m => m.metric_name === 'total_cost');
     expect(totalCost!.value).toBeGreaterThan(0);
     expect(totalCost!.value).toBeLessThan(0.02);
+
+    // avg_final_elo should have CI from bootstrap propagation
+    const avgElo = metrics!.find(m => m.metric_name === 'avg_final_elo');
+    expect(avgElo).toBeTruthy();
+    expect(avgElo!.sigma).not.toBeNull();
+    expect(avgElo!.ci_lower).not.toBeNull();
+    expect(avgElo!.ci_upper).not.toBeNull();
+    expect(avgElo!.ci_lower).toBeLessThanOrEqual(avgElo!.value);
+    expect(avgElo!.ci_upper).toBeGreaterThanOrEqual(avgElo!.value);
   });
 
   adminTest('arena sync worked', async () => {
