@@ -23,6 +23,8 @@ The evolution pipeline has 90+ runtime invariants enforced across 6 subsystems, 
 
 **Decision: Option A** — phased bottom-up approach. Each phase delivers standalone value and can stop at any point without wasted work.
 
+**ROI methodology note:** Bug-count estimates (e.g., "~80 rating, ~45 budget") come from git log keyword search for fix-related commits touching evolution files, categorized by subsystem. These are approximate commit counts, not deduplicated verified bugs. Useful for relative prioritization (rating > budget > format) but not precise metrics.
+
 ## Phased Execution Plan
 
 ### Phase 1: Quick Wins — Property Tests + Code Extraction (~1 day)

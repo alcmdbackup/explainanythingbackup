@@ -101,12 +101,12 @@ Claim RPC (`claim_evolution_run`) was simplified in a recent migration — advis
 
 ### 8. ROI Analysis (from commit history)
 
-Bug categories from ~352 recent evolution commits:
-- **Rating/comparison logic**: ~80 bugs (highest concentration)
-- **State/finalization**: ~70 bugs
-- **Error handling**: ~55 bugs
-- **Budget tracking**: ~45 bugs
-- **Format validation**: ~35 bugs
+Bug-related commit categories from ~352 recent evolution commits (methodology: git log keyword search for "fix" in commits touching `evolution/` files, categorized by subsystem touched — these are **approximate counts of fix-related commits, not deduplicated verified bugs**; useful for relative prioritization, not as precise metrics):
+- **Rating/comparison logic**: ~80 fix-related commits (highest concentration)
+- **State/finalization**: ~70 fix-related commits
+- **Error handling**: ~55 fix-related commits
+- **Budget tracking**: ~45 fix-related commits
+- **Format validation**: ~35 fix-related commits
 
 ## Proposed Verification Approaches (Ranked by ROI)
 
