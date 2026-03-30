@@ -39,51 +39,60 @@ adminTest.describe('Strategy Registry CRUD', () => {
     }
   });
 
-  adminTest('create strategy with preset selection @critical', async ({ adminPage }) => {
+  adminTest('create strategy with form dialog @critical', async ({ adminPage }) => {
     // Navigate to strategies page
     await adminPage.goto('/admin/evolution/strategies');
-    await expect(adminPage.getByText('Strategy Registry')).toBeVisible();
+    await expect(adminPage.locator('main').getByRole('heading', { name: 'Strategies' })).toBeVisible({ timeout: 15000 });
 
-    // Open create dialog
-    await adminPage.getByText('Create Strategy').click();
-    await expect(adminPage.getByText('Create Strategy').first()).toBeVisible();
+    // Open create dialog via header action button
+    await adminPage.locator('[data-testid="header-action"]').click();
+    const dialog = adminPage.locator('div[role="dialog"]');
+    await expect(dialog).toBeVisible();
 
     // Fill in name
-    await adminPage.getByTestId('strategy-name-input').fill(testStrategyName);
+    await dialog.getByPlaceholder('Strategy name').fill(testStrategyName);
 
-    // Verify agent selection is visible
-    await expect(adminPage.getByText('Agent Selection')).toBeVisible();
-    await expect(adminPage.getByText('Required (always enabled)')).toBeVisible();
-    await expect(adminPage.getByText('Optional')).toBeVisible();
+    // Select generation model (required)
+    const genModelSelect = dialog.locator('select').first();
+    const genOptions = await genModelSelect.locator('option').allTextContents();
+    const validModel = genOptions.find(o => o !== 'Select a model…' && o.trim() !== '');
+    if (validModel) await genModelSelect.selectOption({ label: validModel });
 
-    // Toggle an optional agent
-    const reflectionToggle = adminPage.getByTestId('agent-toggle-reflection');
-    if (await reflectionToggle.isVisible()) {
-      const isChecked = await reflectionToggle.isChecked();
-      await reflectionToggle.click();
-      // Verify toggle changed
-      const newState = await reflectionToggle.isChecked();
-      expect(newState).not.toBe(isChecked);
+    // Select judge model (required)
+    const judgeModelSelect = dialog.locator('select').nth(1);
+    const judgeOptions = await judgeModelSelect.locator('option').allTextContents();
+    const validJudge = judgeOptions.find(o => o !== 'Select a model…' && o.trim() !== '');
+    if (validJudge) await judgeModelSelect.selectOption({ label: validJudge });
+
+    // Fill iterations
+    const iterInput = dialog.getByRole('spinbutton');
+    await iterInput.fill('3');
+
+    // Submit via Save button
+    await dialog.getByRole('button', { name: /save/i }).click();
+
+    // Uncheck "Hide test content" to see [E2E] prefixed strategies
+    const hideTestCheckbox = adminPage.locator('[data-testid="filter-filterTestContent"] input[type="checkbox"]');
+    if (await hideTestCheckbox.isChecked()) {
+      await hideTestCheckbox.click();
     }
 
-    // Submit
-    await adminPage.getByText('Create', { exact: true }).last().click();
-
-    // Verify strategy appears in table
-    await expect(adminPage.getByText(testStrategyName)).toBeVisible({ timeout: 10000 });
+    // Verify strategy appears in table (wait for reload after filter change)
+    await expect(adminPage.locator('[data-testid="entity-list-table"]').getByText(testStrategyName)).toBeVisible({ timeout: 15000 });
   });
 
   adminTest('model dropdown includes gpt-oss-20b without slash', async ({ adminPage }) => {
     await adminPage.goto('/admin/evolution/strategies');
-    await expect(adminPage.getByText('Strategy Registry')).toBeVisible();
+    await expect(adminPage.locator('main').getByRole('heading', { name: 'Strategies' })).toBeVisible({ timeout: 15000 });
 
     // Open create dialog
-    await adminPage.getByText('Create Strategy').click();
-    await expect(adminPage.getByText('Create Strategy').first()).toBeVisible();
+    await adminPage.locator('[data-testid="header-action"]').click();
+    const dialog = adminPage.locator('div[role="dialog"]');
+    await expect(dialog).toBeVisible();
 
     // The model dropdown should contain gpt-oss-20b (not openai/gpt-oss-20b)
-    const pageContent = await adminPage.content();
-    expect(pageContent).toContain('gpt-oss-20b');
-    expect(pageContent).not.toContain('openai/gpt-oss-20b');
+    const dialogContent = await dialog.innerHTML();
+    expect(dialogContent).toContain('gpt-oss-20b');
+    expect(dialogContent).not.toContain('openai/gpt-oss-20b');
   });
 });

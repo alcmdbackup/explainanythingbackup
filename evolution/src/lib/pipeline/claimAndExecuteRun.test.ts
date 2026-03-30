@@ -251,6 +251,22 @@ describe('claimAndExecuteRun', () => {
     });
   });
 
+  describe('safeParse: invalid RPC response shape', () => {
+    it('returns { claimed: false } when RPC returns row without required fields', async () => {
+      mockRpc.mockResolvedValue({ data: [{ foo: 'bar' }], error: null });
+
+      const result = await claimAndExecuteRun({ runnerId: 'test-runner' });
+      expect(result.claimed).toBe(false);
+    });
+
+    it('returns { claimed: false } when RPC returns non-array data', async () => {
+      mockRpc.mockResolvedValue({ data: 'not-an-array', error: null });
+
+      const result = await claimAndExecuteRun({ runnerId: 'test-runner' });
+      expect(result.claimed).toBe(false);
+    });
+  });
+
   describe('db option', () => {
     it('uses provided db option instead of creating default client', async () => {
       const customRpc = jest.fn().mockResolvedValue({ data: [], error: null });

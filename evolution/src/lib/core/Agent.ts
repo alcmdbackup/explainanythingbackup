@@ -35,7 +35,7 @@ export abstract class Agent<TInput, TOutput, TDetail extends ExecutionDetailBase
 
       const parseResult = this.executionDetailSchema.safeParse(detail);
       if (!parseResult.success) {
-        ctx.logger.warn(`Agent ${this.name} execution detail validation failed`, {
+        ctx.logger.warn(`Agent ${this.name} execution detail validation failed — writing null detail to DB`, {
           phaseName: this.name,
           errors: parseResult.error.issues.slice(0, 3).map(i => i.message),
         });
@@ -44,7 +44,7 @@ export abstract class Agent<TInput, TOutput, TDetail extends ExecutionDetailBase
       await updateInvocation(ctx.db, invocationId, {
         cost_usd: cost,
         success: true,
-        execution_detail: detail as unknown as Record<string, unknown>,
+        execution_detail: parseResult.success ? (detail as unknown as Record<string, unknown>) : undefined,
         duration_ms: durationMs,
       });
 

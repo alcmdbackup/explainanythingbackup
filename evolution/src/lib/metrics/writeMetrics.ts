@@ -101,6 +101,9 @@ export async function writeMetric(
   timing: MetricTiming,
   opts?: WriteMetricOpts,
 ): Promise<void> {
+  if (!Number.isFinite(value)) {
+    throw new Error(`writeMetric: value must be finite, got ${value} for metric '${metricName}' on ${entityType}/${entityId}`);
+  }
   await writeMetrics(db, [{
     entity_type: entityType,
     entity_id: entityId,

@@ -109,19 +109,28 @@ export async function claimAndExecuteRun(
     return { claimed: false, error: `Failed to claim run: ${claimError.message}` };
   }
 
-  const claimedRow = (claimedRows as unknown as ClaimedRun[])?.[0];
-  if (!claimedRow) {
+  // Validate RPC response shape instead of unsafe `as unknown as` cast
+  const rows = Array.isArray(claimedRows) ? claimedRows : [];
+  const claimedRow = rows[0] as Record<string, unknown> | undefined;
+  if (!claimedRow || typeof claimedRow.id !== 'string' || typeof claimedRow.strategy_id !== 'string') {
+    if (claimedRow) {
+      logger.error('Evolution runner claim RPC returned invalid row shape', {
+        runnerId: options.runnerId,
+        keys: Object.keys(claimedRow),
+      });
+    }
     return { claimed: false };
   }
 
   const runId = claimedRow.id;
+  const rawBudget = Number(claimedRow.budget_cap_usd);
   const claimedRun: ClaimedRun = {
     id: runId,
-    explanation_id: claimedRow.explanation_id ?? null,
-    prompt_id: claimedRow.prompt_id ?? null,
-    experiment_id: claimedRow.experiment_id ?? null,
+    explanation_id: (claimedRow.explanation_id as number | null) ?? null,
+    prompt_id: (claimedRow.prompt_id as string | null) ?? null,
+    experiment_id: (claimedRow.experiment_id as string | null) ?? null,
     strategy_id: claimedRow.strategy_id,
-    budget_cap_usd: Number(claimedRow.budget_cap_usd) || 1.0,
+    budget_cap_usd: Number.isFinite(rawBudget) && rawBudget > 0 ? rawBudget : 1.0,
   };
 
   logger.info('Claimed evolution run', { runId, runnerId: options.runnerId });

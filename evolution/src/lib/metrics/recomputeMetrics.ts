@@ -32,10 +32,8 @@ export async function recomputeStaleMetrics(
   try {
     if (entityType === 'run') {
       await recomputeRunEloMetrics(db, entityId);
-    } else if (entityType === 'strategy') {
-      await recomputeStrategyMetrics(db, entityId);
-    } else if (entityType === 'experiment') {
-      await recomputeExperimentMetrics(db, entityId);
+    } else if (entityType === 'strategy' || entityType === 'experiment') {
+      await recomputeParentEntityMetrics(db, entityType, entityId);
     } else if (entityType === 'invocation') {
       await recomputeInvocationMetrics(db, entityId);
     }
@@ -70,7 +68,12 @@ async function recomputeRunEloMetrics(db: SupabaseClient, runId: string): Promis
   const ratings = new Map<string, Rating>();
   const pool: Variant[] = [];
   for (const v of variants) {
-    ratings.set(v.id, { mu: v.mu ?? DEFAULT_MU, sigma: v.sigma ?? DEFAULT_MU / 3 });
+    const rawMu = v.mu as number | null;
+    const rawSigma = v.sigma as number | null;
+    ratings.set(v.id, {
+      mu: Number.isFinite(rawMu) ? rawMu! : DEFAULT_MU,
+      sigma: Number.isFinite(rawSigma) ? rawSigma! : DEFAULT_MU / 3,
+    });
     pool.push({ id: v.id, text: '', version: 0, parentIds: [], strategy: '', createdAt: 0, iterationBorn: 0 });
   }
 
@@ -98,33 +101,21 @@ async function recomputeRunEloMetrics(db: SupabaseClient, runId: string): Promis
   }
 }
 
-async function recomputeStrategyMetrics(db: SupabaseClient, strategyId: string): Promise<void> {
-  // Get all completed run IDs for this strategy
+async function recomputeParentEntityMetrics(
+  db: SupabaseClient,
+  entityType: 'strategy' | 'experiment',
+  entityId: string,
+): Promise<void> {
+  const columnName = entityType === 'strategy' ? 'strategy_id' : 'experiment_id';
   const { data: runs, error: runsError } = await db
     .from('evolution_runs')
     .select('id')
-    .eq('strategy_id', strategyId)
+    .eq(columnName, entityId)
     .eq('status', 'completed');
-  if (runsError) throw new Error(`Failed to read runs for strategy ${strategyId}: ${runsError.message}`);
+  if (runsError) throw new Error(`Failed to read runs for ${entityType} ${entityId}: ${runsError.message}`);
 
   if (!runs || runs.length === 0) return;
-  const runIds = runs.map(r => r.id);
-
-  await recomputePropagatedMetrics(db, 'strategy', strategyId, runIds);
-}
-
-async function recomputeExperimentMetrics(db: SupabaseClient, experimentId: string): Promise<void> {
-  const { data: runs, error: runsError } = await db
-    .from('evolution_runs')
-    .select('id')
-    .eq('experiment_id', experimentId)
-    .eq('status', 'completed');
-  if (runsError) throw new Error(`Failed to read runs for experiment ${experimentId}: ${runsError.message}`);
-
-  if (!runs || runs.length === 0) return;
-  const runIds = runs.map(r => r.id);
-
-  await recomputePropagatedMetrics(db, 'experiment', experimentId, runIds);
+  await recomputePropagatedMetrics(db, entityType, entityId, runs.map(r => r.id));
 }
 
 async function recomputePropagatedMetrics(

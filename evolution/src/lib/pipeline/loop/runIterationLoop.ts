@@ -12,6 +12,7 @@ import { createV2LLMClient } from '../infra/createLLMClient';
 import type { EntityLogger } from '../infra/createEntityLogger';
 import { GenerationAgent } from '../../core/agents/GenerationAgent';
 import { RankingAgent } from '../../core/agents/RankingAgent';
+import { selectWinner } from '../../shared/selectWinner';
 
 // ─── Config validation ───────────────────────────────────────────
 
@@ -225,22 +226,10 @@ export async function evolveArticle(
   if (iterationsRun === 0) iterationsRun = resolvedConfig.iterations;
 
   // ─── Winner determination ──────────────────────────────────
-  // Highest mu, tie-broken by lowest sigma
-  let winner = pool[0]!; // baseline fallback
-  let bestMu = -Infinity;
-  let bestSigma = Infinity;
+  const winResult = selectWinner(pool, ratings);
+  const winner = pool.find((v) => v.id === winResult.winnerId) ?? pool[0]!;
 
-  for (const v of pool) {
-    const r = ratings.get(v.id);
-    if (!r) continue;
-    if (r.mu > bestMu || (r.mu === bestMu && r.sigma < bestSigma)) {
-      winner = v;
-      bestMu = r.mu;
-      bestSigma = r.sigma;
-    }
-  }
-
-  logger.info('Winner determined', { winnerId: winner.id, winnerMu: bestMu, winnerSigma: bestSigma, phaseName: 'winner_determination' });
+  logger.info('Winner determined', { winnerId: winner.id, winnerMu: winResult.mu, winnerSigma: winResult.sigma, phaseName: 'winner_determination' });
   logger.info('Evolution complete', {
     stopReason, iterations: iterationsRun, poolSize: pool.length,
     totalCost: costTracker.getTotalSpent(), winnerId: winner.id,

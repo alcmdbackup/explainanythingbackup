@@ -78,6 +78,18 @@ const filters: FilterDef[] = [
       { label: 'Single', value: 'single' },
     ],
   },
+  {
+    key: 'created_by',
+    label: 'Origin',
+    type: 'select',
+    options: [
+      { label: 'All', value: '' },
+      { label: 'Admin', value: 'admin' },
+      { label: 'System', value: 'system' },
+      { label: 'Experiment', value: 'experiment' },
+      { label: 'Batch', value: 'batch' },
+    ],
+  },
   { key: 'filterTestContent', label: 'Hide test content', type: 'checkbox', defaultChecked: true },
 ];
 

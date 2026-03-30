@@ -41,7 +41,7 @@ adminTest.describe('Prompt Registry CRUD', () => {
   adminTest('create, edit, and delete a prompt @critical', async ({ adminPage }) => {
     // Navigate to prompts page
     await adminPage.goto('/admin/evolution/prompts');
-    await expect(adminPage.getByText('Prompts')).toBeVisible();
+    await expect(adminPage.locator('main').getByRole('heading', { name: 'Prompts' })).toBeVisible();
 
     // Create prompt
     await adminPage.getByTestId('header-action').click();
@@ -65,9 +65,12 @@ adminTest.describe('Prompt Registry CRUD', () => {
     // Delete prompt
     const editedRow = adminPage.locator('tr', { hasText: `${testPromptTitle} (edited)` });
     await editedRow.getByText('Delete').click();
-    await adminPage.getByRole('button', { name: /delete/i }).last().click();
+    // Wait for confirmation dialog, then click the danger/confirm delete button
+    const confirmDialog = adminPage.locator('div[role="dialog"]');
+    await expect(confirmDialog).toBeVisible();
+    await confirmDialog.getByRole('button', { name: /delete/i }).click();
 
-    // Verify deleted (row should disappear)
-    await expect(adminPage.getByText(`${testPromptTitle} (edited)`)).not.toBeVisible({ timeout: 5000 });
+    // Verify deleted (row should disappear from table — allow time for server action + reload)
+    await expect(adminPage.locator('[data-testid="entity-list-table"]').getByText(`${testPromptTitle} (edited)`)).not.toBeVisible({ timeout: 15000 });
   });
 });

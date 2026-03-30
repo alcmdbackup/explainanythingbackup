@@ -61,6 +61,7 @@ Utilities shared between the pipeline, services, and UI layers. These modules ha
 | `formatValidator.ts` | `validateFormat` — checks generated text against FORMAT_RULES. Returns `FormatResult` with pass/fail and violation details. Reads `FORMAT_VALIDATION_MODE` env var at call time: `reject` (default) throws on violation, `warn` logs but passes, `off` skips validation entirely. |
 | `formatValidationRules.ts` | Individual validation rule definitions: no bullet points (`- ` or `* `), no numbered lists (`1. `), no tables (`|`), paragraph structure (min 2 sentences), heading hierarchy (H1 title required, body uses H2/H3). |
 | `formatRules.ts` | `FORMAT_RULES` constant — the prose-only format instructions string injected into all generation and evolution prompts. Defined as a template literal with clear delimiters. |
+| `selectWinner.ts` | `selectWinner(pool, ratings)` — unified winner determination. Highest mu wins, sigma tiebreak. Unrated variants get `mu=-Infinity`. Replaces duplicated inline logic in `runIterationLoop.ts` and `persistRunResults.ts`. |
 | `textVariationFactory.ts` | `createVariant` — factory for constructing `Variant` objects with UUID-based ID generation, parent tracking, generation metadata, and strategy attribution. |
 | `errorClassification.ts` | `isTransientError` — classifies errors as transient (network timeouts, rate limits, 5xx responses) vs permanent (auth failures, invalid requests, content policy violations) for the retry logic in `llm-client.ts`. |
 | `strategyConfig.ts` | `labelStrategyConfig` / `defaultStrategyName` — generates human-readable labels from strategy config objects (e.g., "gpt-4.1-mini / 5 iter / $2.00"). Exports `StrategyConfig` and `StrategyConfigRow` types. |
@@ -517,6 +518,16 @@ npm run test:e2e -- --grep "evolution"
 ### `[TEST]` Prefix
 
 Test data factories in `evolution-test-helpers.ts` prefix names and titles with `[TEST]` (e.g., `[TEST] strategy_...`, `[TEST] Prompt ...`). This allows the admin UI to hide test rows by default using a server-side `NOT ILIKE '%[TEST]%'` filter. All evolution list pages (Prompts, Strategies, Experiments, Arena Topics) include a "Hide test content" checkbox, checked by default.
+
+### Property-Based Tests (fast-check)
+
+Property-based tests using `fast-check@^3` validate invariants of pure functions against randomly generated inputs. These tests use `jest.unmock('openskill')` to test against the real rating library (Jest config mocks openskill by default).
+
+| Test File | Invariants Tested |
+|-----------|-------------------|
+| `computeRatings.property.test.ts` | Sigma decrease, finite outputs, draw symmetry, Elo monotonicity, aggregation shape |
+| `trackBudget.property.test.ts` | Budget invariant, reserve margin, phase accumulation, release restoration |
+| `enforceVariantFormat.property.test.ts` | stripCodeBlocks idempotency, validateFormat edge cases, extractParagraphs invariants |
 
 ### CleanupOptions
 

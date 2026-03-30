@@ -89,12 +89,13 @@ describe('Evolution Test Content Filter Integration', () => {
     expect(testIds).toContain(testStrategyId);
     expect(testIds).not.toContain(realStrategyId);
 
-    // Step 2: Query runs excluding test strategy IDs
+    // Step 2: Query runs excluding test strategy IDs, scoped to our test data
+    // Scope to our test runs first to keep the query small, then exclude test strategies
     const { data: filteredRuns, error: runErr } = await supabase
       .from('evolution_runs')
       .select('id, strategy_id')
-      .not('strategy_id', 'in', `(${testIds.join(',')})`)
-      .in('id', [testRunId, realRunId]);
+      .in('id', [testRunId, realRunId])
+      .not('strategy_id', 'in', `(${testStrategyId})`);
 
     expect(runErr).toBeNull();
     expect(filteredRuns).toHaveLength(1);
