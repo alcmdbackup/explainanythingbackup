@@ -99,9 +99,13 @@ adminTest.describe('Evolution Run Pipeline', { tag: '@evolution' }, () => {
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     );
+    if (!process.env.TEST_USER_EMAIL || !process.env.TEST_USER_PASSWORD) {
+      await adminContext.close();
+      return;
+    }
     const { data: authData, error: authErr } = await anonClient.auth.signInWithPassword({
-      email: (process.env.ADMIN_TEST_EMAIL || process.env.TEST_USER_EMAIL)!,
-      password: (process.env.ADMIN_TEST_PASSWORD || process.env.TEST_USER_PASSWORD)!,
+      email: process.env.TEST_USER_EMAIL!,
+      password: process.env.TEST_USER_PASSWORD!,
     });
     if (authErr || !authData.session) throw new Error(`Admin auth failed: ${authErr?.message}`);
 
@@ -180,7 +184,7 @@ adminTest.describe('Evolution Run Pipeline', { tag: '@evolution' }, () => {
     expect(run!.status).toBe('completed');
     expect(run!.run_summary).toBeTruthy();
     expect(run!.run_summary.version).toBe(3);
-    expect(['iterations_complete', 'budget_exceeded', 'converged']).toContain(run!.run_summary.stopReason);
+    expect(['iterations_complete', 'budget_exceeded', 'converged', 'time_limit']).toContain(run!.run_summary.stopReason);
     expect(run!.completed_at).toBeTruthy();
   });
 
@@ -214,11 +218,11 @@ adminTest.describe('Evolution Run Pipeline', { tag: '@evolution' }, () => {
     expect(agentNames.some(n => /generation|ranking/i.test(n))).toBe(true);
   });
 
-  adminTest('run metrics were computed', async () => {
+  adminTest('run metrics were computed with sigma/CI on elo', async () => {
     const sb = getServiceClient();
     const { data: metrics } = await sb
       .from('evolution_metrics')
-      .select('metric_name, value')
+      .select('metric_name, value, sigma, ci_lower, ci_upper')
       .eq('entity_type', 'run')
       .eq('entity_id', runId);
 
@@ -232,13 +236,22 @@ adminTest.describe('Evolution Run Pipeline', { tag: '@evolution' }, () => {
     const cost = metrics!.find(m => m.metric_name === 'cost');
     expect(cost!.value).toBeGreaterThan(0);
     expect(cost!.value).toBeLessThan(0.02);
+
+    // Elo metrics should have sigma and CI bounds
+    const winnerElo = metrics!.find(m => m.metric_name === 'winner_elo');
+    expect(winnerElo).toBeTruthy();
+    expect(winnerElo!.sigma).not.toBeNull();
+    expect(winnerElo!.ci_lower).not.toBeNull();
+    expect(winnerElo!.ci_upper).not.toBeNull();
+    expect(winnerElo!.ci_lower).toBeLessThan(winnerElo!.value);
+    expect(winnerElo!.ci_upper).toBeGreaterThan(winnerElo!.value);
   });
 
   adminTest('strategy metrics were propagated', async () => {
     const sb = getServiceClient();
     const { data: metrics } = await sb
       .from('evolution_metrics')
-      .select('metric_name, value')
+      .select('metric_name, value, sigma, ci_lower, ci_upper')
       .eq('entity_type', 'strategy')
       .eq('entity_id', strategyId);
 
@@ -254,6 +267,11 @@ adminTest.describe('Evolution Run Pipeline', { tag: '@evolution' }, () => {
 
     const totalCost = metrics!.find(m => m.metric_name === 'total_cost');
     expect(totalCost!.value).toBeGreaterThan(0);
+
+    // best_final_elo should have sigma propagated from the source run's winner_elo
+    const bestElo = metrics!.find(m => m.metric_name === 'best_final_elo');
+    expect(bestElo).toBeTruthy();
+    expect(bestElo!.sigma).not.toBeNull();
   });
 
   adminTest('experiment auto-completed and metrics propagated', async () => {
@@ -267,7 +285,7 @@ adminTest.describe('Evolution Run Pipeline', { tag: '@evolution' }, () => {
 
     const { data: metrics } = await sb
       .from('evolution_metrics')
-      .select('metric_name, value')
+      .select('metric_name, value, sigma, ci_lower, ci_upper')
       .eq('entity_type', 'experiment')
       .eq('entity_id', experimentId);
 
@@ -285,6 +303,15 @@ adminTest.describe('Evolution Run Pipeline', { tag: '@evolution' }, () => {
     const totalCost = metrics!.find(m => m.metric_name === 'total_cost');
     expect(totalCost!.value).toBeGreaterThan(0);
     expect(totalCost!.value).toBeLessThan(0.02);
+
+    // avg_final_elo should have CI from bootstrap propagation
+    const avgElo = metrics!.find(m => m.metric_name === 'avg_final_elo');
+    expect(avgElo).toBeTruthy();
+    expect(avgElo!.sigma).not.toBeNull();
+    expect(avgElo!.ci_lower).not.toBeNull();
+    expect(avgElo!.ci_upper).not.toBeNull();
+    expect(avgElo!.ci_lower).toBeLessThanOrEqual(avgElo!.value);
+    expect(avgElo!.ci_upper).toBeGreaterThanOrEqual(avgElo!.value);
   });
 
   adminTest('arena sync worked', async () => {

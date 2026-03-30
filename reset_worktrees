@@ -20,6 +20,17 @@ fi
 GIT_ROOT=$(git rev-parse --show-toplevel)
 PARENT_DIR=$(dirname "$GIT_ROOT")
 COUNTER_FILE="$GIT_ROOT/.worktree_counter"
+NUM_WORKTREES=15
+BATCH_SIZE=5
+
+# Pre-flight disk space check (~5GB per worktree)
+REQUIRED_GB=$((NUM_WORKTREES * 5))
+AVAILABLE_GB=$(df -BG --output=avail "$PARENT_DIR" | tail -1 | tr -d ' G')
+if [ "$AVAILABLE_GB" -lt "$REQUIRED_GB" ]; then
+    echo -e "${RED}Error: Need ~${REQUIRED_GB}GB but only ${AVAILABLE_GB}GB available in $PARENT_DIR${NC}"
+    exit 1
+fi
+echo "Disk check: ${AVAILABLE_GB}GB available, ~${REQUIRED_GB}GB needed"
 
 # Step 0.5: Delete all old worktree directories from parent directory
 echo -e "\n${BLUE}Step 0.5: Cleaning up old worktree directories...${NC}"
@@ -122,8 +133,9 @@ git branch -D "$FEATURE0_BRANCH" 2>/dev/null || true
 git checkout -b "$FEATURE0_BRANCH"
 echo -e "${GREEN}Created branch $FEATURE0_BRANCH for explainanything-feature0${NC}"
 
-# Step 3b: Create five worktrees in parent directory (indices 1-5)
-for i in 1 2 3 4 5; do
+# Step 3b: Create worktrees in parent directory (Pass 1: sequential git + config)
+WORKTREE_PATHS=()
+for i in $(seq 1 $NUM_WORKTREES); do
     BRANCH_NAME="git_worktree_${COUNTER}_${i}"
     WORKTREE_PATH="$PARENT_DIR/worktree_${COUNTER}_${i}"
 
@@ -137,8 +149,8 @@ for i in 1 2 3 4 5; do
 
     echo -e "${GREEN}Created: $WORKTREE_PATH${NC}"
 
-    # Copy configuration files and install dependencies
-    echo "Setting up dependencies and configuration..."
+    # Copy configuration files
+    echo "Setting up configuration..."
 
     # Copy environment files if they exist
     for env_file in .env.local .env.test .env.stage .env.prod; do
@@ -169,20 +181,74 @@ for i in 1 2 3 4 5; do
         echo "  Warning: $FEATURE0_CLAUDE not found"
     fi
 
-    # Install dependencies (don't copy node_modules as it breaks symlinks)
-    if [ -f "$WORKTREE_PATH/package.json" ]; then
-        echo "  Installing dependencies (this may take a few minutes)..."
-        if (cd "$WORKTREE_PATH" && npm install --legacy-peer-deps 2>&1); then
-            echo -e "  ${GREEN}✓ npm install succeeded${NC}"
-        else
-            echo -e "  ${RED}✗ npm install FAILED${NC}"
-            echo -e "${RED}Error: Failed to install dependencies for $WORKTREE_PATH${NC}"
-            exit 1
-        fi
-    fi
-
-    echo -e "${GREEN}Dependencies installed and configuration copied${NC}"
+    WORKTREE_PATHS+=("$WORKTREE_PATH")
+    echo -e "${GREEN}Configuration copied${NC}"
 done
+
+# Step 3c: Install dependencies in batches of $BATCH_SIZE (Pass 2: batched parallel npm install)
+# Note: set -e does not apply to background processes, so we track failures manually
+echo -e "\n${BLUE}Step 3c: Installing dependencies in batches of $BATCH_SIZE...${NC}"
+FAILED_INSTALLS=()
+
+for ((batch_start=0; batch_start<${#WORKTREE_PATHS[@]}; batch_start+=BATCH_SIZE)); do
+    batch_end=$((batch_start + BATCH_SIZE))
+    if [ "$batch_end" -gt "${#WORKTREE_PATHS[@]}" ]; then
+        batch_end=${#WORKTREE_PATHS[@]}
+    fi
+    echo -e "\n${BLUE}Batch $((batch_start / BATCH_SIZE + 1)): worktrees $((batch_start + 1))-${batch_end}${NC}"
+
+    PIDS=()
+    BATCH_PATHS=()
+    for ((j=batch_start; j<batch_end; j++)); do
+        wt="${WORKTREE_PATHS[$j]}"
+        if [ -f "$wt/package.json" ]; then
+            echo "  Starting npm install in $(basename "$wt")..."
+            # Use per-worktree npm cache to prevent corruption between parallel installs
+            (cd "$wt" && npm install --legacy-peer-deps --cache "$wt/.npm-cache" > "$wt/npm-install.log" 2>&1) &
+            PIDS+=($!)
+            BATCH_PATHS+=("$wt")
+        fi
+    done
+
+    # Wait for all installs in this batch
+    for idx in "${!PIDS[@]}"; do
+        pid="${PIDS[$idx]}"
+        wt="${BATCH_PATHS[$idx]}"
+        if wait "$pid"; then
+            echo -e "  ${GREEN}✓ $(basename "$wt") npm install succeeded${NC}"
+        else
+            echo -e "  ${RED}✗ $(basename "$wt") npm install FAILED (see $wt/npm-install.log)${NC}"
+            FAILED_INSTALLS+=("$wt")
+        fi
+    done
+done
+
+# Clean up per-worktree npm caches and log files (preserve logs for failed installs)
+for wt in "${WORKTREE_PATHS[@]}"; do
+    rm -rf "$wt/.npm-cache"
+    # Only remove log if install succeeded (not in FAILED_INSTALLS)
+    local_failed=false
+    for failed_wt in "${FAILED_INSTALLS[@]}"; do
+        if [ "$wt" = "$failed_wt" ]; then
+            local_failed=true
+            break
+        fi
+    done
+    if [ "$local_failed" = false ]; then
+        rm -f "$wt/npm-install.log"
+    fi
+done
+
+# Report failures
+if [ ${#FAILED_INSTALLS[@]} -gt 0 ]; then
+    echo -e "\n${RED}npm install failed in ${#FAILED_INSTALLS[@]} worktree(s):${NC}"
+    for wt in "${FAILED_INSTALLS[@]}"; do
+        echo -e "  ${RED}- $wt${NC}"
+    done
+    exit 1
+fi
+
+echo -e "${GREEN}All dependencies installed${NC}"
 
 # Step 5: Copy Claude configuration files
 echo -e "\n${BLUE}Step 5: Copying Claude configuration files...${NC}"

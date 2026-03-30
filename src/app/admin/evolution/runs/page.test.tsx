@@ -3,6 +3,11 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import EvolutionRunsPage from './page';
 
+const mockToastError = jest.fn();
+jest.mock('sonner', () => ({
+  toast: { error: (...args: unknown[]) => mockToastError(...args), success: jest.fn() },
+}));
+
 jest.mock('next/navigation', () => ({
   useRouter: () => ({ push: jest.fn(), replace: jest.fn(), prefetch: jest.fn() }),
   usePathname: () => '/admin/evolution/runs',
@@ -41,6 +46,7 @@ jest.mock('@evolution/services/evolutionActions', () => ({
 
 jest.mock('@evolution/lib/utils/formatters', () => ({
   formatCost: (v: number) => `$${v.toFixed(2)}`,
+  formatDate: (d: string) => new Date(d).toLocaleDateString(),
 }));
 
 jest.mock('@evolution/lib/utils/evolutionUrls', () => ({
@@ -106,7 +112,7 @@ describe('EvolutionRunsPage', () => {
   it('renders status badge for completed run', async () => {
     render(<EvolutionRunsPage />);
     await waitFor(() => {
-      expect(screen.getByText('completed')).toBeInTheDocument();
+      expect(screen.getByText('Completed')).toBeInTheDocument();
     });
   });
 
@@ -119,5 +125,14 @@ describe('EvolutionRunsPage', () => {
     const { getEvolutionRunsAction } = jest.requireMock('@evolution/services/evolutionActions');
     render(<EvolutionRunsPage />);
     expect(getEvolutionRunsAction).toHaveBeenCalled();
+  });
+
+  it('H1: shows error toast when fetch fails', async () => {
+    const { getEvolutionRunsAction } = jest.requireMock('@evolution/services/evolutionActions');
+    getEvolutionRunsAction.mockResolvedValueOnce({ success: false, error: { message: 'DB error' } });
+    render(<EvolutionRunsPage />);
+    await waitFor(() => {
+      expect(mockToastError).toHaveBeenCalledWith('DB error');
+    });
   });
 });

@@ -29,11 +29,17 @@ export function useStreamingEditor({
   const lastStreamingUpdateRef = useRef<string>('');
   const isInitialLoadRef = useRef<boolean>(true);
   const isMountedRef = useRef<boolean>(false);
+  const isStreamingRef = useRef<boolean>(isStreaming);
 
   // Mark as mounted after first render to avoid race conditions
   useEffect(() => {
     isMountedRef.current = true;
   }, []);
+
+  // Keep isStreamingRef in sync for use inside setTimeout closures
+  useEffect(() => {
+    isStreamingRef.current = isStreaming;
+  }, [isStreaming]);
 
   // Lock editor during streaming to prevent conflicts
   useEffect(() => {
@@ -70,8 +76,8 @@ export function useStreamingEditor({
           console.error('Error updating editor content during streaming:', error);
         }
       }
-    }, isStreaming ? 100 : 0); // Use 100ms debounce for streaming, immediate for non-streaming
-  }, [isStreaming]);
+    }, isStreamingRef.current ? 100 : 0); // Use 100ms debounce for streaming, immediate for non-streaming
+  }, []);
 
   // Update editor content when content prop changes (streaming updates)
   useEffect(() => {

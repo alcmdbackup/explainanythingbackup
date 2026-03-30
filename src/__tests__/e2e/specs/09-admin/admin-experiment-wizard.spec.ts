@@ -41,7 +41,7 @@ adminTest.describe('Experiment Creation Wizard', { tag: '@evolution' }, () => {
     await adminPage.waitForLoadState('domcontentloaded');
 
     // Wizard form should render
-    await expect(adminPage.locator('h1')).toContainText('Create Experiment');
+    await expect(adminPage.locator('main h1').first()).toContainText('Create Experiment');
 
     // Step 1: Fill in experiment name
     const nameInput = adminPage.getByTestId('experiment-name-input');
@@ -77,7 +77,7 @@ adminTest.describe('Experiment Creation Wizard', { tag: '@evolution' }, () => {
     await adminPage.goto('/admin/evolution/experiments/new');
     await adminPage.waitForLoadState('domcontentloaded');
 
-    await expect(adminPage.locator('h1')).toContainText('Create Experiment');
+    await expect(adminPage.locator('main h1').first()).toContainText('Create Experiment');
 
     // Before clicking Next, validation errors should not be visible
     const validationError = adminPage.locator('[data-testid="validation-error"], .text-red-500, [role="alert"]');
@@ -98,7 +98,7 @@ adminTest.describe('Experiment Creation Wizard', { tag: '@evolution' }, () => {
     await adminPage.goto('/admin/evolution/experiments/new');
     await adminPage.waitForLoadState('domcontentloaded');
 
-    await expect(adminPage.locator('h1')).toContainText('Create Experiment');
+    await expect(adminPage.locator('main h1').first()).toContainText('Create Experiment');
 
     // Fill experiment name first
     const nameInput = adminPage.getByTestId('experiment-name-input');
@@ -138,7 +138,7 @@ adminTest.describe('Experiment Creation Wizard', { tag: '@evolution' }, () => {
     await adminPage.goto('/admin/evolution/experiments/new');
     await adminPage.waitForLoadState('domcontentloaded');
 
-    await expect(adminPage.locator('h1')).toContainText('Create Experiment');
+    await expect(adminPage.locator('main h1').first()).toContainText('Create Experiment');
 
     // Step indicator should be visible with step labels
     const stepIndicator = adminPage.locator('[data-testid="step-indicator"], [data-testid="wizard-steps"], nav[aria-label="Wizard steps"]');

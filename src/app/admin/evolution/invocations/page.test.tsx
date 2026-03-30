@@ -3,6 +3,11 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import InvocationsListPage from './page';
 
+const mockToastError = jest.fn();
+jest.mock('sonner', () => ({
+  toast: { error: (...args: unknown[]) => mockToastError(...args), success: jest.fn() },
+}));
+
 const mockInvocations = [
   {
     id: 'aaaaaaaa-1111-2222-3333-444444444444',
@@ -76,7 +81,7 @@ describe('InvocationsListPage', () => {
   it('shows success/failure indicators', async () => {
     render(<InvocationsListPage />);
     await waitFor(() => expect(screen.getByText('✓')).toBeInTheDocument());
-    expect(screen.getByText('✗')).toBeInTheDocument();
+    expect(screen.getByText('✗ failed')).toBeInTheDocument();
   });
 
   it('shows total count', async () => {
@@ -108,6 +113,14 @@ describe('InvocationsListPage', () => {
       const filter = screen.getByTestId('filter-filterTestContent');
       expect(filter).toBeInTheDocument();
       expect(filter).toHaveTextContent('Hide test content');
+    });
+  });
+
+  it('H1: shows error toast when fetch fails', async () => {
+    mockListInvocations.mockResolvedValueOnce({ success: false, error: { message: 'DB error' } });
+    render(<InvocationsListPage />);
+    await waitFor(() => {
+      expect(mockToastError).toHaveBeenCalledWith('DB error');
     });
   });
 });

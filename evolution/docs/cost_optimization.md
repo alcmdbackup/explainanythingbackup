@@ -171,11 +171,11 @@ Each call to `checkBudget(callSource, estimatedCostUsd?)` executes:
 
 2. **Category routing** -- `callSource` starting with `evolution_` routes to the `evolution` category with its own daily cap; everything else goes to `non_evolution`.
 
-3. **Fast path** (30s cache TTL) -- If cached spending is well below the daily cap (10% headroom), approves without a DB round-trip.
+3. **Fast path** (30s cache TTL) -- If cached spending is well below the daily cap (10% headroom), approves the daily check without a DB round-trip, then falls through to the monthly cap check.
 
 4. **Near-cap path** -- When spending is close to the cap or cache is cold, calls `check_and_reserve_llm_budget` RPC for an atomic DB reservation. Throws `GlobalBudgetExceededError` if denied.
 
-5. **Monthly cap check** (60s cache TTL) -- Verifies cumulative monthly spend against `monthly_cap_usd`. Throws `GlobalBudgetExceededError` if exceeded.
+5. **Monthly cap check** (60s cache TTL) -- Always runs (including after the fast path). Verifies cumulative monthly spend against `monthly_cap_usd`. Throws `GlobalBudgetExceededError` if exceeded.
 
 6. **Post-call reconciliation** -- `reconcileAfterCall()` runs in a `finally` block. It calls `reconcile_llm_reservation` RPC to release the reservation and update actual spend. Failures are logged but not re-thrown (non-fatal). The cache for the relevant category is also invalidated so the next call gets a fresh spending snapshot.
 

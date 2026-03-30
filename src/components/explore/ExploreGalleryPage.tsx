@@ -1,7 +1,9 @@
 'use client';
 
+import { useState, useCallback } from 'react';
 import Link from 'next/link';
 import { type ExplanationWithMetrics, type SortMode, type TimePeriod } from '@/lib/schemas/schemas';
+import { getRecentExplanationsAction } from '@/actions/actions';
 import Navigation from '@/components/Navigation';
 import FeedCard from './FeedCard';
 import FilterPills from './FilterPills';
@@ -17,12 +19,35 @@ interface ExploreGalleryPageProps {
  * ExploreGalleryPage - Reddit-style feed for browsing explanations.
  * Uses FeedCard components with engagement metrics (views, saves, share).
  */
+const PAGE_SIZE = 20;
+
 export default function ExploreGalleryPage({
   explanations,
   error,
   sort,
   period,
 }: ExploreGalleryPageProps) {
+  const [items, setItems] = useState(explanations);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(explanations.length >= PAGE_SIZE);
+
+  const loadMore = useCallback(async () => {
+    setLoadingMore(true);
+    try {
+      const data = await getRecentExplanationsAction(PAGE_SIZE, items.length, { sort, period: period as 'today' | 'week' | 'month' | 'all' });
+      if (data && data.length > 0) {
+        setItems(prev => [...prev, ...data]);
+        setHasMore(data.length >= PAGE_SIZE);
+      } else {
+        setHasMore(false);
+      }
+    } catch {
+      // Silently fail — user can retry
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [items.length, sort, period]);
+
   return (
     <div className="min-h-screen bg-[var(--surface-primary)]">
       <Navigation
@@ -37,7 +62,7 @@ export default function ExploreGalleryPage({
         }}
       />
 
-      <main className="container mx-auto px-4 py-8 max-w-7xl">
+      <main id="main-content" className="container mx-auto px-4 py-8 max-w-7xl">
         {/* Page Header */}
         <div className="mb-8 text-center">
           <h1 className="atlas-display-section atlas-animate-fade-up stagger-1">
@@ -57,7 +82,7 @@ export default function ExploreGalleryPage({
         )}
 
         {/* Empty State */}
-        {explanations.length === 0 ? (
+        {items.length === 0 ? (
           <div className="text-center py-16 gallery-card max-w-md mx-auto">
             <svg
               className="w-16 h-16 mx-auto mb-4 text-[var(--accent-gold)]/50"
@@ -88,7 +113,7 @@ export default function ExploreGalleryPage({
         ) : (
           /* Single-column Feed */
           <div className="max-w-3xl mx-auto space-y-4">
-            {explanations.map((explanation, index) => (
+            {items.map((explanation, index) => (
               <FeedCard
                 key={explanation.id}
                 explanation={explanation}
@@ -99,6 +124,18 @@ export default function ExploreGalleryPage({
                 index={index}
               />
             ))}
+            {hasMore && (
+              <div className="text-center py-6">
+                <button
+                  onClick={loadMore}
+                  disabled={loadingMore}
+                  className="px-6 py-2.5 text-sm font-ui font-medium text-[var(--text-secondary)] border border-[var(--border-default)] rounded-book hover:bg-[var(--surface-elevated)] transition-colors disabled:opacity-50"
+                  data-testid="load-more-btn"
+                >
+                  {loadingMore ? 'Loading...' : 'Load more'}
+                </button>
+              </div>
+            )}
           </div>
         )}
       </main>

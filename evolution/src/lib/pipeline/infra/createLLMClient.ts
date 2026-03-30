@@ -60,13 +60,14 @@ export function createV2LLMClient(
       let lastError: Error | null = null;
 
       for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+        let timeoutId: NodeJS.Timeout | undefined;
         try {
           logger?.debug('LLM call attempt', { phaseName: agentName, attempt, model });
           const response = await Promise.race([
             rawProvider.complete(prompt, agentName, { model }),
-            new Promise<never>((_, reject) =>
-              setTimeout(() => reject(new Error('LLM call timeout (60s)')), PER_CALL_TIMEOUT_MS),
-            ),
+            new Promise<never>((_, reject) => {
+              timeoutId = setTimeout(() => reject(new Error('LLM call timeout (60s)')), PER_CALL_TIMEOUT_MS);
+            }),
           ]);
 
           // Success — record actual cost
@@ -93,6 +94,8 @@ export function createV2LLMClient(
           logger?.warn('LLM transient error', { phaseName: agentName, attempt, error: lastError.message.slice(0, 500) });
           // Exponential backoff before retry
           await new Promise((resolve) => setTimeout(resolve, BACKOFF_MS[attempt]));
+        } finally {
+          if (timeoutId) clearTimeout(timeoutId);
         }
       }
 

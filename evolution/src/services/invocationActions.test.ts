@@ -6,6 +6,7 @@ jest.mock('./adminAction', () => ({
 }));
 jest.mock('./shared', () => ({
   validateUuid: (id: string) => /^[0-9a-f]{8}-/.test(id),
+  getTestStrategyIds: jest.fn().mockResolvedValue(['test-strat-1']),
 }));
 
 import { listInvocationsAction, getInvocationDetailAction } from './invocationActions';
@@ -113,8 +114,9 @@ describe('listInvocationsAction', () => {
   it('filters test content by excluding test strategy run IDs', async () => {
     const { ctx, chain } = makeMockCtx([{ id: '1' }], 1);
     await listHandler({ filterTestContent: true, limit: 10, offset: 0 }, ctx);
-    // Should query evolution_strategies for [TEST] names via ilike
-    expect(chain.ilike).toHaveBeenCalledWith('name', '%[TEST]%');
+    // Should call getTestStrategyIds and use the returned IDs to filter runs
+    const { getTestStrategyIds } = require('./shared');
+    expect(getTestStrategyIds).toHaveBeenCalled();
   });
 
   it('does not filter test content when filterTestContent is false', async () => {

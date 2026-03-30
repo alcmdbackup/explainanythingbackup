@@ -28,7 +28,7 @@ adminTest.describe('Evolution V2 Admin UI Smoke Tests', { tag: '@evolution' }, (
     await adminPage.waitForLoadState('domcontentloaded');
 
     // Page heading
-    await expect(adminPage.locator('h1')).toContainText('Evolution Runs');
+    await expect(adminPage.locator('main h1').first()).toContainText('Evolution Runs');
 
     // Filters bar renders
     await expect(adminPage.locator('[data-testid="runs-filters"]')).toBeVisible();
@@ -47,7 +47,7 @@ adminTest.describe('Evolution V2 Admin UI Smoke Tests', { tag: '@evolution' }, (
     await expect(entityList).toBeVisible({ timeout: 15000 });
 
     // Page should have a heading with "Strategies" text
-    await expect(adminPage.locator('h1')).toContainText('Strateg');
+    await expect(adminPage.locator('main h1').first()).toContainText('Strateg');
   });
 
   adminTest('arena page loads', async ({ adminPage }) => {

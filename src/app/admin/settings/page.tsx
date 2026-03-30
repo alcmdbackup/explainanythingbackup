@@ -11,6 +11,7 @@ import {
   createFeatureFlagAction,
   type FeatureFlag
 } from '@/lib/services/featureFlags';
+import { ConfirmDialog } from '@evolution/components/evolution/dialogs/ConfirmDialog';
 
 export default function AdminSettingsPage() {
   const [flags, setFlags] = useState<FeatureFlag[]>([]);
@@ -23,6 +24,7 @@ export default function AdminSettingsPage() {
   const [newName, setNewName] = useState('');
   const [newDescription, setNewDescription] = useState('');
   const [creating, setCreating] = useState(false);
+  const [confirmFlag, setConfirmFlag] = useState<FeatureFlag | null>(null);
 
   const loadFlags = useCallback(async () => {
     setLoading(true);
@@ -43,6 +45,13 @@ export default function AdminSettingsPage() {
   }, [loadFlags]);
 
   const handleToggle = async (flag: FeatureFlag) => {
+    setConfirmFlag(flag);
+  };
+
+  const executeToggle = async () => {
+    if (!confirmFlag) return;
+    const flag = confirmFlag;
+    setConfirmFlag(null);
     setUpdating(flag.id);
     setError(null);
 
@@ -233,6 +242,17 @@ export default function AdminSettingsPage() {
           Additional system configuration options will be added here.
         </p>
       </div>
+
+      {/* Confirm dialog for feature flag toggle */}
+      <ConfirmDialog
+        open={!!confirmFlag}
+        onClose={() => setConfirmFlag(null)}
+        title={confirmFlag ? `${confirmFlag.enabled ? 'Disable' : 'Enable'} "${confirmFlag.name}"?` : ''}
+        message={confirmFlag ? `This will ${confirmFlag.enabled ? 'disable' : 'enable'} the feature flag "${confirmFlag.name}".` : ''}
+        confirmLabel={confirmFlag?.enabled ? 'Disable' : 'Enable'}
+        onConfirm={executeToggle}
+        danger={confirmFlag?.enabled}
+      />
     </div>
   );
 }

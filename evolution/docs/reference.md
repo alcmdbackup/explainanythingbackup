@@ -133,12 +133,13 @@ V2 pipeline barrel. Re-exports everything from `lib/index.ts` plus V2-specific e
 ### `evolution/src/components/evolution/index.ts`
 
 UI component barrel for the admin dashboard. Exports 20+ components:
-- **Layout**: `EvolutionBreadcrumb`, `EvolutionStatusBadge`, `TableSkeleton`, `EmptyState`, `ElapsedTime`
-- **Detail views**: `EntityDetailHeader`, `MetricGrid`, `EntityDetailTabs`, `useTabState`, `VariantDetailPanel`
-- **Lists**: `EntityTable`, `EntityListPage`, `RunsTable`, `getBaseColumns`
-- **Dialogs**: `FormDialog`, `ConfirmDialog`, `NotFoundCard`
-- **Visualization**: `EloSparkline`, `LineageGraph`, `TextDiff`, `InputArticleSection`, `VariantCard`
-- **Providers**: `AutoRefreshProvider`, `useAutoRefresh`
+- **Primitives** (`primitives/`): `StatusBadge`, `EvolutionBreadcrumb`, `MetricGrid`, `EmptyState`, `NotFoundCard`
+- **Tables** (`tables/`): `EntityTable`, `RunsTable`, `TableSkeleton`
+- **Sections** (`sections/`): `EntityDetailHeader`, `EntityDetailTabs`, `useTabState`, `InputArticleSection`, `VariantDetailPanel`
+- **Visualizations** (`visualizations/`): `LineageGraph`, `TextDiff`, `VariantCard`
+- **Dialogs** (`dialogs/`): `FormDialog`, `ConfirmDialog`
+- **Context** (`context/`): `AutoRefreshProvider`, `useAutoRefresh`
+- **Page shells** (root): `EntityListPage`, `EntityDetailPageClient`, `EvolutionErrorBoundary`
 
 ---
 
@@ -260,6 +261,24 @@ Maximum 3 retries. Per-call timeout is 60 seconds. Budget is reserved before eac
 
 ---
 
+## Key Scripts
+
+| Script | Command | Description |
+|--------|---------|-------------|
+| Type generation | `npm run db:types` | Regenerate `src/lib/database.types.ts` from staging DB (requires `SUPABASE_ACCESS_TOKEN`) |
+
+## CI Type Generation
+
+The CI pipeline automatically regenerates database types on every PR:
+
+1. **deploy-migrations** — applies new migration files to staging (if any changed)
+2. **generate-types** — runs `supabase gen types` against staging, auto-commits if changed
+3. **typecheck** — checks out latest commit (including auto-committed types), runs `tsc`
+
+Destructive DDL (`DROP TABLE`, `RENAME COLUMN`, `TRUNCATE`, `DELETE FROM`) is blocked by a CI guardrail. `DROP FUNCTION/VIEW IF EXISTS` is allowlisted (standard RPC replacement).
+
+---
+
 ## CLI Scripts
 
 ### `evolution/scripts/evolution-runner-v2.ts`
@@ -371,7 +390,7 @@ Two override policies provide access:
 | Policy | Migration | Role | Access | Purpose |
 |--------|-----------|------|--------|---------|
 | `service_role_all` | `20260321000001` | `service_role` | Full CRUD | Batch runner, server actions, E2E test seeds |
-| `readonly_select` | `20260318000001` | `readonly_local` | SELECT only | `npm run query:prod` debugging; skips gracefully when role does not exist |
+| `readonly_select` | `20260318000001` | `readonly_local` | SELECT only | `npm run query:prod` / `query:staging` debugging; skips gracefully when role does not exist |
 
 ### Recent Schema Migrations
 

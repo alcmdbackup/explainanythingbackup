@@ -8,7 +8,7 @@ import {
   cleanupEvolutionData,
   createTestEvolutionRun,
 } from '@evolution/testing/evolution-test-helpers';
-import { runWatchdog } from '@evolution/lib/ops/watchdog';
+import { runWatchdog } from '@evolution/lib/maintenance/watchdog';
 
 describe('Evolution Watchdog Integration Tests', () => {
   let supabase: SupabaseClient;

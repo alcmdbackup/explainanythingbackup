@@ -1,6 +1,6 @@
-// Tests for shared utilities: validateUuid(), UUID_REGEX, UUID_V4_REGEX.
+// Tests for shared utilities: validateUuid(), UUID_REGEX, UUID_V4_REGEX, isTestContentName().
 
-import { validateUuid, UUID_REGEX, UUID_V4_REGEX } from './shared';
+import { validateUuid, UUID_REGEX, UUID_V4_REGEX, isTestContentName } from './shared';
 
 describe('validateUuid', () => {
   const VALID_V4 = '550e8400-e29b-41d4-a716-446655440000';
@@ -58,5 +58,39 @@ describe('UUID_V4_REGEX', () => {
 
   it('rejects non-v4 UUIDs', () => {
     expect(UUID_V4_REGEX.test('550e8400-e29b-31d4-a716-446655440000')).toBe(false);
+  });
+});
+
+describe('isTestContentName', () => {
+  it('matches exact "test" (case-insensitive)', () => {
+    expect(isTestContentName('test')).toBe(true);
+    expect(isTestContentName('Test')).toBe(true);
+    expect(isTestContentName('TEST')).toBe(true);
+  });
+
+  it('matches [TEST] prefix', () => {
+    expect(isTestContentName('[TEST] My Strategy')).toBe(true);
+    expect(isTestContentName('[test] lowercase')).toBe(true);
+  });
+
+  it('matches timestamp-based auto-generated names', () => {
+    expect(isTestContentName('nav2-1774498767678-strat')).toBe(true);
+    expect(isTestContentName('nav2-1774498767678-exp')).toBe(true);
+  });
+
+  it('does NOT match legitimate content starting with "test"', () => {
+    expect(isTestContentName('Testing strategies for climate change')).toBe(false);
+    expect(isTestContentName('Testimonial page')).toBe(false);
+  });
+
+  it('does NOT match regular names', () => {
+    expect(isTestContentName('Federal reserve')).toBe(false);
+    expect(isTestContentName('March 26, 2026 - B')).toBe(false);
+  });
+
+  it('handles null/undefined/empty', () => {
+    expect(isTestContentName(null)).toBe(false);
+    expect(isTestContentName(undefined)).toBe(false);
+    expect(isTestContentName('')).toBe(false);
   });
 });

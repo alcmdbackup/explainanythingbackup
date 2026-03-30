@@ -16,8 +16,14 @@
 
 import { test, expect } from '@playwright/test';
 
+// /test-global-error is only accessible in dev mode (middleware excludes it
+// from auth only when NODE_ENV !== 'production'). Skip in CI production builds.
+const isCI = !!process.env.CI;
+
 test.describe('Error Boundary', () => {
-  test.describe('Error Display', () => {
+test.describe('Error Boundary', () => {
+  // eslint-disable-next-line flakiness/no-test-skip -- debug route auth-excluded only in dev mode
+  test.skip(isCI, 'Debug route requires dev mode (auth-excluded only when NODE_ENV !== production)');
     test('should display error page when unhandled error occurs in page', async ({
       page,
     }) => {

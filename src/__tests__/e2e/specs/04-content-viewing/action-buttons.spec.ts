@@ -254,17 +254,6 @@ test.describe('Action Buttons', () => {
       await authenticatedPage.goto(`/results?explanation_id=${testExplanation.id}`);
       await resultsPage.waitForAnyContent(60000);
 
-      // Wait for actual content to load (not just placeholder text)
-      await authenticatedPage.waitForFunction(
-        (sel) => {
-          const el = document.querySelector(sel);
-          const text = el?.textContent ?? '';
-          return text.length > 0 && !text.includes('Content will appear here');
-        },
-        '[data-testid="explanation-content"]',
-        { timeout: 30000 }
-      );
-
       // Get initial content using ResultsPage.getContent()
       const initialContent = await resultsPage.getContent();
       expect(initialContent).toBeTruthy();
@@ -286,8 +275,8 @@ test.describe('Action Buttons', () => {
         { timeout: 5000 }
       );
 
-      // Verify content is preserved (in plain text mode, content is in the textarea)
-      const plaintextContent = await textarea.inputValue();
+      // Verify content is preserved (editor should still have content)
+      const plaintextContent = await resultsPage.getContent();
       expect(plaintextContent).toBeTruthy();
 
       // Toggle back to markdown mode

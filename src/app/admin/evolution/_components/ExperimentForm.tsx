@@ -11,7 +11,7 @@ import {
   getStrategiesAction,
 } from '@evolution/services/experimentActions';
 import { createPromptAction } from '@evolution/services/arenaActions';
-import { FormDialog, type FieldDef } from '@evolution/components/evolution/FormDialog';
+import { FormDialog, type FieldDef } from '@evolution/components/evolution';
 import { StrategyConfigDisplay } from './StrategyConfigDisplay';
 
 interface ExperimentFormProps {
@@ -81,9 +81,13 @@ export function ExperimentForm({ onCreated }: ExperimentFormProps): JSX.Element 
       ]);
       if (promptsRes.success && promptsRes.data) {
         setAvailablePrompts(promptsRes.data);
+      } else if (!promptsRes.success) {
+        toast.error(promptsRes.error?.message ?? 'Failed to load prompts');
       }
       if (strategiesRes.success && strategiesRes.data) {
         setStrategies(strategiesRes.data);
+      } else if (!strategiesRes.success) {
+        toast.error(strategiesRes.error?.message ?? 'Failed to load strategies');
       }
       setLoading(false);
     })();
@@ -147,6 +151,15 @@ export function ExperimentForm({ onCreated }: ExperimentFormProps): JSX.Element 
       }
 
       toast.success(`Experiment created with ${totalRuns} run(s): ${result.data.experimentId}`);
+
+      // Reset form state after successful submission
+      setName('');
+      setSelectedPromptId('');
+      setBudgetPerRun(0.05);
+      setSelections([]);
+      setStep('setup');
+      setSetupSubmitted(false);
+
       onCreated?.(result.data.experimentId);
     } catch (error) {
       toast.error(String(error));
@@ -283,7 +296,7 @@ export function ExperimentForm({ onCreated }: ExperimentFormProps): JSX.Element 
                 min={0.01}
                 max={1.00}
                 value={budgetPerRun}
-                onChange={(e) => setBudgetPerRun(Number(e.target.value))}
+                onChange={(e) => setBudgetPerRun(Math.min(Math.max(Number(e.target.value), 0.01), 1.00))}
                 className="w-32 px-3 py-2 text-sm font-mono bg-[var(--surface-primary)] border border-[var(--border-default)] rounded-page text-[var(--text-primary)] focus:border-[var(--accent-gold)] focus:outline-none"
               />
               <p className="text-xs font-body text-[var(--text-muted)] mt-1">

@@ -30,7 +30,12 @@ const requestBodySchema = z.object({
  */
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      return Response.json({ success: false, error: 'Invalid JSON' }, { status: 400 });
+    }
 
     // Validate request body
     const validationResult = requestBodySchema.safeParse(body);

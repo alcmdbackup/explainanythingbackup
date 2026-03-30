@@ -76,6 +76,7 @@ npx tsx evolution/scripts/processRunQueue.ts --dry-run --max-runs 1
 | `--max-runs N` | Stop after N total runs | `10` |
 | `--parallel N` | Number of parallel run executors | `1` |
 | `--max-concurrent-llm N` | Global LLM API concurrency cap | `20` |
+| `--max-duration N` | Per-run wall clock deadline in milliseconds | `6000000` (100 min) |
 
 The runner generates an ID in the format `v2-<hostname>-<pid>-<timestamp>` and writes it to the `runner_id` column on claimed runs.
 
@@ -336,6 +337,56 @@ npx tsx evolution/scripts/run-evolution-local.ts \
 The `LOCAL_` prefix routes requests to Ollama's OpenAI-compatible API at `http://localhost:11434/v1`. Override with `LOCAL_LLM_BASE_URL` env var. Local model calls are tracked at $0 cost.
 
 **Hardware note:** qwen2.5:14b requires ~10GB RAM. The 32GB minicomputer can run it alongside the evolution runner without issues. Expect ~30-60s per generation (vs ~2-5s for cloud APIs).
+
+## Maintenance Skills Scheduler
+
+A weekly systemd timer runs 6 automated `claude -p` health checks in dedicated worktrees (10-15) and tmux sessions (S10-S15). A persistent S16 monitor sends a single summary notification when all complete.
+
+**Skills**: refactor-simplify, test-gaps, update-docs, ts-coverage, bugs-code, bugs-ux (Playwright).
+
+### Install
+
+```bash
+# Install inotify-tools (required for S16 idle mode)
+sudo apt install inotify-tools
+
+# Add maintenance vars to .env.local (ANTHROPIC_API_KEY already present)
+# RESEND_API_KEY=re_...
+# MAINT_NOTIFY_EMAIL=you@example.com
+# MAINT_FROM_EMAIL=maintenance@explainanything.com
+# SLACK_WEBHOOK_URL=https://hooks.slack.com/...
+
+# Install systemd units
+sudo cp deploy/maintenance-scheduler.service /etc/systemd/system/
+sudo cp deploy/maintenance-scheduler.timer /etc/systemd/system/
+sudo cp deploy/maintenance-monitor.service /etc/systemd/system/
+
+# Install logrotate
+sudo cp deploy/logrotate-maintenance.conf /etc/logrotate.d/maintenance-scheduler
+
+# Enable timer and monitor
+sudo systemctl daemon-reload
+sudo systemctl enable --now maintenance-scheduler.timer
+sudo systemctl enable --now maintenance-monitor.service
+```
+
+### Verify
+
+```bash
+# Dry run (validates worktrees, branches, no claude launched)
+bash deploy/maintenance-scheduler.sh --dry-run
+
+# Check timer
+systemctl list-timers | grep maintenance
+
+# View monitor
+tmux attach -t S16
+
+# Logs
+journalctl -u maintenance-scheduler -n 50
+```
+
+See [Maintenance Skills Deep Dive](../../docs/feature_deep_dives/maintenance_skills.md) for full documentation.
 
 ## Fallback: Manual Trigger via Admin UI
 

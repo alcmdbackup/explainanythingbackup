@@ -1,0 +1,2 @@
+# Auto-resolve merge conflicts for CI-generated files
+src/lib/database.types.ts merge=theirs

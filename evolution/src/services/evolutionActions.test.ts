@@ -36,6 +36,11 @@ jest.mock('@/lib/services/auditLog', () => ({
   logAdminAction: jest.fn().mockResolvedValue(undefined),
 }));
 
+jest.mock('./shared', () => ({
+  ...jest.requireActual('./shared'),
+  getTestStrategyIds: jest.fn().mockResolvedValue(['test-strat-1']),
+}));
+
 import {
   queueEvolutionRunAction,
   getEvolutionRunsAction,
@@ -86,10 +91,10 @@ describe('evolutionActions', () => {
   describe('getEvolutionRunsAction', () => {
     it('returns runs enriched with costs and strategy names', async () => {
       const runs = [MOCK_RUN];
-      const costMetrics = [{ entity_id: VALID_UUID, value: 2.5 }];
+      const costRows = [{ run_id: VALID_UUID, cost_usd: 1.5 }, { run_id: VALID_UUID, cost_usd: 1.0 }];
       const strategies = [{ id: VALID_UUID_2, name: 'My Strategy' }];
 
-      // from() calls in order: evolution_runs, evolution_metrics (costs), evolution_strategies
+      // from() calls in order: evolution_runs, evolution_agent_invocations (costs), evolution_strategies
       const mock = createTableAwareMock([
         // evolution_runs
         (b) => {
@@ -97,10 +102,10 @@ describe('evolutionActions', () => {
             resolve({ data: runs, error: null })
           );
         },
-        // evolution_metrics (costs)
+        // evolution_agent_invocations (costs)
         (b) => {
           b.then = jest.fn((resolve: (v: unknown) => void) =>
-            resolve({ data: costMetrics, error: null })
+            resolve({ data: costRows, error: null })
           );
         },
         // evolution_strategies (for strategy names)
@@ -118,6 +123,40 @@ describe('evolutionActions', () => {
       expect(result.data!.items).toHaveLength(1);
       expect(result.data!.items[0]!.total_cost_usd).toBe(2.5);
       expect(result.data!.items[0]!.strategy_name).toBe('My Strategy');
+    });
+
+    it('returns zero cost when invocations have null cost_usd', async () => {
+      const runs = [MOCK_RUN];
+      const costRows = [{ run_id: VALID_UUID, cost_usd: null }, { run_id: VALID_UUID, cost_usd: 0.5 }];
+      const strategies = [{ id: VALID_UUID_2, name: 'My Strategy' }];
+
+      const mock = createTableAwareMock([
+        (b) => { b.then = jest.fn((resolve: (v: unknown) => void) => resolve({ data: runs, error: null })); },
+        (b) => { b.then = jest.fn((resolve: (v: unknown) => void) => resolve({ data: costRows, error: null })); },
+        (b) => { b.then = jest.fn((resolve: (v: unknown) => void) => resolve({ data: strategies, error: null })); },
+      ]);
+      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+      const result = await getEvolutionRunsAction(undefined);
+
+      expect(result.success).toBe(true);
+      expect(result.data!.items[0]!.total_cost_usd).toBe(0.5);
+    });
+
+    it('returns zero cost when no invocations exist for a run', async () => {
+      const runs = [MOCK_RUN];
+
+      const mock = createTableAwareMock([
+        (b) => { b.then = jest.fn((resolve: (v: unknown) => void) => resolve({ data: runs, error: null })); },
+        (b) => { b.then = jest.fn((resolve: (v: unknown) => void) => resolve({ data: [], error: null })); },
+        (b) => { b.then = jest.fn((resolve: (v: unknown) => void) => resolve({ data: [], error: null })); },
+      ]);
+      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+      const result = await getEvolutionRunsAction(undefined);
+
+      expect(result.success).toBe(true);
+      expect(result.data!.items[0]!.total_cost_usd).toBe(0);
     });
 
     it('returns error on DB failure', async () => {
@@ -160,29 +199,22 @@ describe('evolutionActions', () => {
     });
 
     it('filters test content by excluding test strategy IDs', async () => {
-      const testStrategyId = '00000000-0000-0000-0000-000000000099';
       const runs = [{ ...MOCK_RUN, strategy_id: VALID_UUID_3 }];
 
       const mock = createTableAwareMock([
-        // 1. evolution_strategies (fetch test strategy IDs)
-        (b) => {
-          b.then = jest.fn((resolve: (v: unknown) => void) =>
-            resolve({ data: [{ id: testStrategyId }], error: null })
-          );
-        },
-        // 2. evolution_runs (main query with .not strategy_id exclusion)
+        // 1. evolution_runs (main query with .not strategy_id exclusion)
         (b) => {
           b.then = jest.fn((resolve: (v: unknown) => void) =>
             resolve({ data: runs, error: null, count: 1 })
           );
         },
-        // 3. evolution_run_costs (enrichment)
+        // 2. evolution_run_costs (enrichment)
         (b) => {
           b.then = jest.fn((resolve: (v: unknown) => void) =>
             resolve({ data: [], error: null })
           );
         },
-        // 4. evolution_strategies (strategy name enrichment)
+        // 3. evolution_strategies (strategy name enrichment)
         (b) => {
           b.then = jest.fn((resolve: (v: unknown) => void) =>
             resolve({ data: [{ id: VALID_UUID_3, name: 'Real Strategy' }], error: null })
@@ -194,10 +226,8 @@ describe('evolutionActions', () => {
       const result = await getEvolutionRunsAction({ filterTestContent: true });
 
       expect(result.success).toBe(true);
-      // First call fetches test strategy IDs
-      expect(mock.from.mock.calls[0][0]).toBe('evolution_strategies');
-      // Second call is the main runs query
-      expect(mock.from.mock.calls[1][0]).toBe('evolution_runs');
+      // getTestStrategyIds is mocked via ./shared, so first supabase call is the main runs query
+      expect(mock.from.mock.calls[0][0]).toBe('evolution_runs');
     });
   });
 
@@ -210,12 +240,18 @@ describe('evolutionActions', () => {
         (b) => {
           b.single = jest.fn().mockResolvedValue({ data: MOCK_RUN, error: null });
         },
+        // evolution_agent_invocations (cost query)
+        (b) => {
+          b.eq = jest.fn().mockResolvedValue({
+            data: [{ cost_usd: 0.73 }, { cost_usd: 0.50 }],
+            error: null,
+          });
+        },
         // evolution_strategies single
         (b) => {
           b.single = jest.fn().mockResolvedValue({ data: { name: 'Strategy Alpha' }, error: null });
         },
       ]);
-      mock.rpc = jest.fn().mockResolvedValue({ data: '1.23', error: null });
       (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
 
       const result = await getEvolutionRunByIdAction(VALID_UUID);
@@ -491,31 +527,25 @@ describe('evolutionActions', () => {
       ];
 
       const mock = createTableAwareMock([
-        // 1. evolution_strategies (fetch test strategy IDs)
-        (b) => {
-          b.then = jest.fn((resolve: (v: unknown) => void) =>
-            resolve({ data: [{ id: testStrategyId }], error: null })
-          );
-        },
-        // 2. evolution_runs (fetch test run IDs)
+        // 1. evolution_runs (fetch test run IDs using test-strat-1 from mocked getTestStrategyIds)
         (b) => {
           b.then = jest.fn((resolve: (v: unknown) => void) =>
             resolve({ data: [{ id: testRunId }], error: null })
           );
         },
-        // 3. evolution_variants (main query with .not run_id exclusion)
+        // 2. evolution_variants (main query with .not run_id exclusion)
         (b) => {
           b.then = jest.fn((resolve: (v: unknown) => void) =>
             resolve({ data: variants, error: null, count: 1 })
           );
         },
-        // 4. evolution_runs (enrichment)
+        // 3. evolution_runs (enrichment)
         (b) => {
           b.then = jest.fn((resolve: (v: unknown) => void) =>
             resolve({ data: [{ id: VALID_UUID, strategy_id: VALID_UUID_2 }], error: null })
           );
         },
-        // 5. evolution_strategies (strategy name enrichment)
+        // 4. evolution_strategies (strategy name enrichment)
         (b) => {
           b.then = jest.fn((resolve: (v: unknown) => void) =>
             resolve({ data: [{ id: VALID_UUID_2, name: 'Real Strategy' }], error: null })
@@ -527,12 +557,10 @@ describe('evolutionActions', () => {
       const result = await listVariantsAction({ filterTestContent: true, limit: 50, offset: 0 });
 
       expect(result.success).toBe(true);
-      // First call fetches test strategy IDs
-      expect(mock.from.mock.calls[0][0]).toBe('evolution_strategies');
-      // Second call fetches test run IDs
-      expect(mock.from.mock.calls[1][0]).toBe('evolution_runs');
-      // Third call is the main variants query
-      expect(mock.from.mock.calls[2][0]).toBe('evolution_variants');
+      // getTestStrategyIds is mocked via ./shared, so first supabase call fetches test run IDs
+      expect(mock.from.mock.calls[0][0]).toBe('evolution_runs');
+      // Second call is the main variants query
+      expect(mock.from.mock.calls[1][0]).toBe('evolution_variants');
     });
   });
 

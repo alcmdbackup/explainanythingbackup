@@ -44,7 +44,7 @@ All metrics are declared in a typed registry keyed by entity type. Each definiti
 
 | Name | Category | Timing | Description |
 |------|----------|--------|-------------|
-| `cost` | cost | during_execution | Total USD spent (from cost tracker) |
+| `cost` | cost | during_execution | Total USD spent (from cost tracker). Written incrementally during the iteration loop AND re-written at finalization as a safety net (using `during_execution` timing) to ensure the row exists even when the loop breaks early (`budget_exceeded`/`converged`). This is critical because `propagateMetrics()` uses `cost` as the source metric for `run_count`, `total_cost`, and `avg_cost_per_run` on strategy/experiment entities. `listView: false` — not shown in the entity list view. |
 | `winner_elo` | rating | at_finalization | Elo of the highest-mu variant |
 | `median_elo` | rating | at_finalization | 50th percentile Elo across all variants |
 | `p90_elo` | rating | at_finalization | 90th percentile Elo |
@@ -98,7 +98,7 @@ Both entity types share the same propagation definitions — they aggregate from
 | Column | Type | Description |
 |--------|------|-------------|
 | `id` | UUID PK | Auto-generated |
-| `entity_type` | TEXT | `run`, `invocation`, `variant`, `strategy`, `experiment`, `prompt`, `arena_topic` |
+| `entity_type` | TEXT | `run`, `invocation`, `variant`, `strategy`, `experiment`, `prompt` |
 | `entity_id` | UUID | ID of the entity this metric belongs to |
 | `metric_name` | TEXT | Registry-validated metric name |
 | `value` | DOUBLE PRECISION | The metric value |
@@ -157,13 +157,13 @@ The upsert uses `ON CONFLICT (entity_type, entity_id, metric_name)` so repeated 
 
 **File:** `evolution/src/lib/metrics/recomputeMetrics.ts`
 
-When a variant's `mu` or `sigma` changes after run completion (e.g., from arena matches), a database trigger (`mark_elo_metrics_stale`) sets `stale=true` on dependent run, strategy, and experiment metrics.
+When a variant's `mu` or `sigma` changes after run completion (e.g., from arena matches), a database trigger (`mark_elo_metrics_stale`) sets `stale=true` on **all** dependent run, strategy, and experiment metrics (not just elo-category metrics).
 
 On the next read, server actions detect stale rows and call `recomputeStaleMetrics()`:
 
 1. **Row-level locking** via `lock_stale_metrics` RPC (`SELECT FOR UPDATE SKIP LOCKED`) — concurrent readers skip recomputation, preventing thundering herd.
 2. **Recompute** based on entity type:
-   - **Run**: re-reads variant ratings and recomputes elo metrics via finalization compute functions.
+   - **Run**: re-reads variant ratings and recomputes all finalization metrics (elo, match stats, variant counts) via finalization compute functions.
    - **Strategy/Experiment**: re-reads child run metrics and re-runs propagation aggregation.
 3. **Clear stale flags** in a `finally` block.
 
@@ -192,7 +192,7 @@ Each propagation metric definition specifies a `sourceMetric` (which child metri
 
 **File:** `evolution/src/lib/metrics/metricColumns.tsx`
 
-`createMetricColumns(entityType)` generates table column definitions from the registry for use in `EntityTable`. Only metrics with `listView: true` appear in list pages. Each column uses the registry's formatter for display.
+`createMetricColumns(entityType)` generates table column definitions from the registry for use in `EntityTable`. Only metrics with `listView: true` appear in list pages. Each column uses the registry's formatter for display. The run `cost` metric has `listView: false`, so it is excluded from list columns; cost is instead fetched directly from `evolution_agent_invocations` by the run list and detail pages.
 
 `createRunsMetricColumns()` generates run-specific metric columns for the runs table within experiment and strategy detail pages.
 

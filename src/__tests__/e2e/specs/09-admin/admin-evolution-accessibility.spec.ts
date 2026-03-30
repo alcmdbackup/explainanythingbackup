@@ -68,6 +68,13 @@ adminTest.describe('Evolution Accessibility', { tag: '@evolution' }, () => {
     await adminPage.goto('/admin/evolution/strategies');
     await adminPage.waitForLoadState('domcontentloaded');
 
+    // Uncheck "Hide test content" so seeded test data appears
+    const filterCheckbox = adminPage.locator('[data-testid="filter-filterTestContent"] input[type="checkbox"]');
+    await expect(filterCheckbox).toBeVisible({ timeout: 10000 });
+    if (await filterCheckbox.isChecked()) {
+      await filterCheckbox.click();
+    }
+
     // Wait for the table to render
     const table = adminPage.locator('table');
     await expect(table.first()).toBeVisible({ timeout: 15000 });
@@ -88,6 +95,13 @@ adminTest.describe('Evolution Accessibility', { tag: '@evolution' }, () => {
     await adminPage.goto('/admin/evolution/prompts');
     await adminPage.waitForLoadState('domcontentloaded');
 
+    // Uncheck "Hide test content" so seeded test data appears
+    const filterCheckbox = adminPage.locator('[data-testid="filter-filterTestContent"] input[type="checkbox"]');
+    await expect(filterCheckbox).toBeVisible({ timeout: 10000 });
+    if (await filterCheckbox.isChecked()) {
+      await filterCheckbox.click();
+    }
+
     const table = adminPage.locator('table');
     await expect(table.first()).toBeVisible({ timeout: 15000 });
 
@@ -104,6 +118,13 @@ adminTest.describe('Evolution Accessibility', { tag: '@evolution' }, () => {
   adminTest('table columnheaders on Arena page have text content', async ({ adminPage }) => {
     await adminPage.goto('/admin/evolution/arena');
     await adminPage.waitForLoadState('domcontentloaded');
+
+    // Uncheck "Hide test content" so seeded test data appears
+    const filterCheckbox = adminPage.locator('[data-testid="filter-filterTestContent"] input[type="checkbox"]');
+    await expect(filterCheckbox).toBeVisible({ timeout: 10000 });
+    if (await filterCheckbox.isChecked()) {
+      await filterCheckbox.click();
+    }
 
     const table = adminPage.locator('table');
     await expect(table.first()).toBeVisible({ timeout: 15000 });

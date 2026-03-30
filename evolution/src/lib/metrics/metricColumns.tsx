@@ -6,8 +6,8 @@ import { getEntityListViewMetrics } from '../core/entityRegistry';
 import { METRIC_FORMATTERS } from '../core/metricCatalog';
 import type { MetricFormatter } from '../core/types';
 import type { EntityType, MetricRow } from './types';
-import type { ColumnDef } from '@evolution/components/evolution/EntityTable';
-import type { RunsColumnDef, BaseRun } from '@evolution/components/evolution/RunsTable';
+import type { ColumnDef } from '@evolution/components/evolution';
+import type { RunsColumnDef, BaseRun } from '@evolution/components/evolution';
 
 function findMetric(item: unknown, metricName: string): MetricRow | undefined {
   const obj = item as Record<string, unknown>;

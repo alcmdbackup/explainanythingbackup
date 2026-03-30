@@ -2,6 +2,8 @@
  * Mock for @supabase/ssr
  * Provides mock implementations of createBrowserClient and createServerClient
  */
+import type { SupabaseClient } from '@supabase/supabase-js';
+import type { Database } from '@/lib/database.types';
 
 /**
  * Mock auth object with all necessary methods for Phase 9 testing
@@ -99,7 +101,7 @@ export const createBrowserClient = jest.fn(() => ({
   update: jest.fn().mockReturnThis(),
   delete: jest.fn().mockReturnThis(),
   auth: createMockAuth(),
-}));
+} as unknown as SupabaseClient<Database>));
 
 export const createServerClient = jest.fn((url, key, options) => ({
   from: jest.fn().mockReturnThis(),
@@ -110,4 +112,4 @@ export const createServerClient = jest.fn((url, key, options) => ({
   auth: createMockAuth(),
   // Store the cookies config for testing
   _cookiesConfig: options?.cookies,
-}));
+} as unknown as SupabaseClient<Database>));

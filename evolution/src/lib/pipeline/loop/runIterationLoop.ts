@@ -75,7 +75,7 @@ export async function evolveArticle(
   db: SupabaseClient,
   runId: string,
   config: EvolutionConfig,
-  options?: { logger?: EntityLogger; initialPool?: Array<Variant & { mu?: number; sigma?: number }>; experimentId?: string; strategyId?: string },
+  options?: { logger?: EntityLogger; initialPool?: Array<Variant & { mu?: number; sigma?: number }>; experimentId?: string; strategyId?: string; deadlineMs?: number; signal?: AbortSignal },
 ): Promise<EvolutionResult> {
   validateConfig(config);
 
@@ -137,10 +137,24 @@ export async function evolveArticle(
   let executionOrder = 0;
 
   for (let iter = 1; iter <= resolvedConfig.iterations; iter++) {
+    // Abort signal check (highest priority — process being killed)
+    if (options?.signal?.aborted) {
+      logger.warn('Run aborted via signal', { iteration: iter, phaseName: 'loop' });
+      stopReason = 'killed';
+      break;
+    }
+
     // Kill detection at iteration boundary
     if (await isRunKilled(db, runId, logger)) {
       logger.warn('Run killed externally', { iteration: iter, phaseName: 'loop' });
       stopReason = 'killed';
+      break;
+    }
+
+    // Wall clock deadline check
+    if (options?.deadlineMs && Date.now() >= options.deadlineMs) {
+      logger.warn('Wall clock deadline reached', { iteration: iter, phaseName: 'loop' });
+      stopReason = 'time_limit';
       break;
     }
 
@@ -165,6 +179,8 @@ export async function evolveArticle(
       }
       logger.warn('Budget exceeded during generation', { iteration: iter, totalSpent: costTracker.getTotalSpent(), phaseName: 'budget' });
       stopReason = 'budget_exceeded'; iterationsRun = iter; break;
+    } else {
+      logger.warn('Generation failed (non-budget)', { iteration: iter, phaseName: 'generation' });
     }
 
     // ─── Rank phase ──────────────────────────────────────────
@@ -215,7 +231,15 @@ export async function evolveArticle(
         await writeMetric(db, 'run', runId, `agentCost:${phase}` as const, cost as number, 'during_execution');
       }
     } catch (metricsErr) {
-      logger.warn('Execution metrics write failed', { phaseName: 'metrics', error: (metricsErr instanceof Error ? metricsErr.message : String(metricsErr)).slice(0, 500) });
+      const errMsg = metricsErr instanceof Error ? metricsErr.message : String(metricsErr);
+      const errStack = metricsErr instanceof Error ? metricsErr.stack?.slice(0, 1000) : undefined;
+      logger.warn('Execution metrics write failed', {
+        phaseName: 'metrics',
+        error: errMsg.slice(0, 500),
+        errorType: metricsErr instanceof Error ? metricsErr.constructor.name : typeof metricsErr,
+        errorStack: errStack,
+        runId,
+      });
     }
 
     iterationsRun = iter;

@@ -89,9 +89,8 @@ describe('OAuth Callback Route - GET', () => {
 
       const response = await GET(request);
 
-      // When next is empty, it defaults to '/' via the ?? operator, so result is origin + '/'
-      // But empty string is falsy, so ?? uses '/'
-      expect(response.headers.get('Location')).toBe('http://localhost:3000');
+      // Empty string goes through sanitizeRedirectPath which returns '/'
+      expect(response.headers.get('Location')).toBe('http://localhost:3000/');
     });
 
     it('should handle nested paths in next parameter', async () => {
@@ -158,8 +157,7 @@ describe('OAuth Callback Route - GET', () => {
   });
 
   describe('Redirect Security', () => {
-    it('should not allow external URLs in next parameter', async () => {
-      // Note: Current implementation doesn't validate this, but test documents expected behavior
+    it('should reject external URLs in next parameter and redirect to /', async () => {
       const request = createMockRequestWithParams('http://localhost:3000/auth/callback', {
         code: 'valid-code',
         next: 'https://evil.com',
@@ -167,12 +165,11 @@ describe('OAuth Callback Route - GET', () => {
 
       const response = await GET(request);
 
-      // Current implementation would redirect to http://localhost:3000https://evil.com
-      // which is safe but incorrect. Test documents actual behavior.
-      expect(response.headers.get('Location')).toBe('http://localhost:3000https://evil.com');
+      // sanitizeRedirectPath rejects external URLs, falls back to /
+      expect(response.headers.get('Location')).toBe('http://localhost:3000/');
     });
 
-    it('should handle protocol-relative URLs in next parameter', async () => {
+    it('should reject protocol-relative URLs in next parameter', async () => {
       const request = createMockRequestWithParams('http://localhost:3000/auth/callback', {
         code: 'valid-code',
         next: '//evil.com',
@@ -180,8 +177,8 @@ describe('OAuth Callback Route - GET', () => {
 
       const response = await GET(request);
 
-      // Documents actual behavior - concatenates origin + next
-      expect(response.headers.get('Location')).toBe('http://localhost:3000//evil.com');
+      // sanitizeRedirectPath rejects protocol-relative URLs, falls back to /
+      expect(response.headers.get('Location')).toBe('http://localhost:3000/');
     });
 
     it('should preserve query parameters in next path', async () => {

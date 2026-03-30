@@ -56,8 +56,9 @@ describe('aggregateMax', () => {
     expect(aggregateMax([makeRow(5), makeRow(10), makeRow(3)]).value).toBe(10);
   });
 
-  it('returns -Infinity for empty', () => {
-    expect(aggregateMax([]).value).toBe(-Infinity);
+  it('returns 0 for empty (safe default)', () => {
+    expect(aggregateMax([]).value).toBe(0);
+    expect(aggregateMax([]).n).toBe(0);
   });
 });
 
@@ -66,8 +67,9 @@ describe('aggregateMin', () => {
     expect(aggregateMin([makeRow(5), makeRow(10), makeRow(3)]).value).toBe(3);
   });
 
-  it('returns Infinity for empty', () => {
-    expect(aggregateMin([]).value).toBe(Infinity);
+  it('returns 0 for empty (safe default)', () => {
+    expect(aggregateMin([]).value).toBe(0);
+    expect(aggregateMin([]).n).toBe(0);
   });
 });
 

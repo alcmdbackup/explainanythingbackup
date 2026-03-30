@@ -1,0 +1,56 @@
+-- Rollback for 20260216000001_add_continuation_pending_status.sql.
+-- Reverts continuation_pending status, claim RPC, and checkpoint_and_continue RPC.
+
+BEGIN;
+  -- Transition any in-flight continuation_pending runs to 'failed'
+  -- so they don't violate the restored CHECK constraint.
+  UPDATE content_evolution_runs
+  SET status = 'failed',
+      error_message = 'Run failed during rollback of continuation-passing feature'
+  WHERE status = 'continuation_pending';
+
+  ALTER TABLE content_evolution_runs
+    DROP CONSTRAINT content_evolution_runs_status_check;
+  ALTER TABLE content_evolution_runs
+    ADD CONSTRAINT content_evolution_runs_status_check
+    CHECK (status IN ('pending','claimed','running','completed','failed','paused'));
+
+  -- Drop the atomic RPC (no longer needed)
+  DROP FUNCTION IF EXISTS checkpoint_and_continue(UUID, INT, TEXT, JSONB, INT, NUMERIC);
+
+  -- Restore original claim RPC (pending only)
+  CREATE OR REPLACE FUNCTION claim_evolution_run(p_runner_id TEXT)
+  RETURNS SETOF content_evolution_runs
+  LANGUAGE plpgsql
+  SECURITY DEFINER
+  SET search_path = public
+  AS $$
+  DECLARE
+    v_run content_evolution_runs%ROWTYPE;
+  BEGIN
+    SELECT * INTO v_run
+    FROM content_evolution_runs
+    WHERE status = 'pending'
+    ORDER BY created_at ASC
+    FOR UPDATE SKIP LOCKED
+    LIMIT 1;
+
+    IF NOT FOUND THEN RETURN; END IF;
+
+    UPDATE content_evolution_runs
+    SET status = 'claimed',
+        runner_id = p_runner_id,
+        last_heartbeat = NOW(),
+        started_at = NOW()
+    WHERE id = v_run.id;
+
+    v_run.status := 'claimed';
+    v_run.runner_id := p_runner_id;
+    v_run.last_heartbeat := NOW();
+    v_run.started_at := NOW();
+    RETURN NEXT v_run;
+  END;
+  $$;
+COMMIT;
+
+DROP INDEX CONCURRENTLY IF EXISTS idx_evolution_runs_continuation;

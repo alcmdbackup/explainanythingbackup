@@ -74,4 +74,14 @@ describe('ExperimentsListPage', () => {
     expect(labels).toEqual(['All', 'Draft', 'Running', 'Completed', 'Cancelled']);
     expect(options).toHaveLength(5);
   });
+
+  it('H1: shows error toast when fetch fails', async () => {
+    const { toast } = jest.requireMock('sonner');
+    const { listExperimentsAction } = jest.requireMock('@evolution/services/experimentActions');
+    listExperimentsAction.mockResolvedValueOnce({ success: false, error: { message: 'DB error' } });
+    render(<ExperimentsListPage />);
+    await waitFor(() => {
+      expect(toast.error).toHaveBeenCalledWith('DB error');
+    });
+  });
 });

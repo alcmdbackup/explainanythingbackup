@@ -106,7 +106,7 @@ async function getOverridesForArticleImpl(
   if (error) throw error;
 
   const map = new Map<string, ArticleLinkOverrideFullType>();
-  for (const item of data || []) {
+  for (const item of (data || []) as ArticleLinkOverrideFullType[]) {
     map.set(item.term_lower, item);
   }
 
@@ -149,7 +149,7 @@ async function setOverrideImpl(
     .single();
 
   if (error) throw error;
-  return data;
+  return data as ArticleLinkOverrideFullType;
 }
 
 /**

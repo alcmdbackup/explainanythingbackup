@@ -1,33 +1,45 @@
 // Barrel exports for evolution UI components (V2).
 
-export { EvolutionStatusBadge } from './EvolutionStatusBadge';
-export { EvolutionBreadcrumb } from './EvolutionBreadcrumb';
-export type { BreadcrumbItem } from './EvolutionBreadcrumb';
-export { TableSkeleton } from './TableSkeleton';
-export { EmptyState } from './EmptyState';
-export { EntityDetailHeader } from './EntityDetailHeader';
-export type { EntityDetailHeaderProps, EntityLink } from './EntityDetailHeader';
-export { MetricGrid } from './MetricGrid';
-export type { MetricGridProps, MetricItem } from './MetricGrid';
-export { EntityTable } from './EntityTable';
-export type { EntityTableProps, ColumnDef } from './EntityTable';
+// primitives/
+export { StatusBadge } from './primitives/StatusBadge';
+export { EvolutionBreadcrumb } from './primitives/EvolutionBreadcrumb';
+export type { BreadcrumbItem } from './primitives/EvolutionBreadcrumb';
+export { EmptyState } from './primitives/EmptyState';
+export { MetricGrid } from './primitives/MetricGrid';
+export type { MetricGridProps, MetricItem } from './primitives/MetricGrid';
+export { NotFoundCard } from './primitives/NotFoundCard';
+
+// tables/
+export { TableSkeleton } from './tables/TableSkeleton';
+export { EntityTable } from './tables/EntityTable';
+export type { EntityTableProps, ColumnDef } from './tables/EntityTable';
+export { RunsTable, getBaseColumns } from './tables/RunsTable';
+export type { BaseRun, RunsColumnDef } from './tables/RunsTable';
+
+// sections/
+export { EntityDetailHeader } from './sections/EntityDetailHeader';
+export type { EntityDetailHeaderProps, EntityLink } from './sections/EntityDetailHeader';
+export { EntityDetailTabs, useTabState } from './sections/EntityDetailTabs';
+export type { EntityDetailTabsProps, TabDef, UseTabStateOptions } from './sections/EntityDetailTabs';
+export { InputArticleSection } from './sections/InputArticleSection';
+export { VariantDetailPanel } from './sections/VariantDetailPanel';
+
+// visualizations/
+export { VariantCard } from './visualizations/VariantCard';
+export { TextDiff } from './visualizations/TextDiff';
+export { LineageGraph } from './visualizations/LineageGraph';
+
+// dialogs/
+export { FormDialog } from './dialogs/FormDialog';
+export type { FieldDef } from './dialogs/FormDialog';
+export { ConfirmDialog } from './dialogs/ConfirmDialog';
+
+// context/
+export { AutoRefreshProvider, useAutoRefresh } from './context/AutoRefreshProvider';
+
+// page shells (remain at root)
 export { EntityListPage } from './EntityListPage';
 export type { EntityListPageProps, FilterDef, RowAction } from './EntityListPage';
-export { EntityDetailTabs, useTabState } from './EntityDetailTabs';
-export type { EntityDetailTabsProps, TabDef, UseTabStateOptions } from './EntityDetailTabs';
-// RegistryPage removed — use EntityListPage with loadData prop instead
-export { NotFoundCard } from './NotFoundCard';
-export { FormDialog } from './FormDialog';
-export type { FieldDef } from './FormDialog';
-export { ConfirmDialog } from './ConfirmDialog';
-export { AutoRefreshProvider, useAutoRefresh } from './AutoRefreshProvider';
-export { EloSparkline } from './EloSparkline';
-export { VariantCard } from './VariantCard';
-export { RunsTable, getBaseColumns } from './RunsTable';
-export type { BaseRun, RunsColumnDef } from './RunsTable';
-export { TextDiff } from './TextDiff';
-export { InputArticleSection } from './InputArticleSection';
-export { ElapsedTime } from './ElapsedTime';
-export { LineageGraph } from './LineageGraph';
-export { VariantDetailPanel } from './VariantDetailPanel';
+
+// tabs/
 export { EntityMetricsTab } from './tabs/EntityMetricsTab';

@@ -2,7 +2,7 @@
 
 import { render, screen, fireEvent } from '@testing-library/react';
 import { EntityListPage } from './EntityListPage';
-import type { ColumnDef } from './EntityTable';
+import type { ColumnDef } from './tables/EntityTable';
 
 interface TestItem {
   id: string;
@@ -86,7 +86,7 @@ describe('EntityListPage', () => {
       />
     );
     expect(screen.getByTestId('pagination')).toBeInTheDocument();
-    fireEvent.click(screen.getByText('Next ▶'));
+    fireEvent.click(screen.getByText('Next'));
     expect(onPageChange).toHaveBeenCalledWith(3);
   });
 

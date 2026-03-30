@@ -81,7 +81,7 @@ adminTest.describe('Evolution Navigation', { tag: ['@evolution', '@critical'] },
     await adminPage.goto('/admin/evolution/experiments');
     await adminPage.waitForLoadState('domcontentloaded');
 
-    await expect(adminPage.locator('h1')).toContainText(/experiment/i, { timeout: 15000 });
+    await expect(adminPage.locator('main h1').first()).toContainText(/experiment/i, { timeout: 15000 });
 
     // Click the seeded experiment row
     const experimentRow = adminPage.locator(`[data-testid="experiment-row-${experimentId}"]`);
@@ -97,7 +97,7 @@ adminTest.describe('Evolution Navigation', { tag: ['@evolution', '@critical'] },
     await adminPage.goto('/admin/evolution/strategies');
     await adminPage.waitForLoadState('domcontentloaded');
 
-    await expect(adminPage.locator('h1')).toContainText(/strateg/i, { timeout: 15000 });
+    await expect(adminPage.locator('main h1').first()).toContainText(/strateg/i, { timeout: 15000 });
 
     // Click the seeded strategy row
     const strategyRow = adminPage.locator(`[data-testid="strategy-row-${strategyId}"]`);

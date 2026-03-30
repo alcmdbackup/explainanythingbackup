@@ -2,8 +2,8 @@
 
 import type { EntityType, EntityMetricRegistry, MetricDefBase } from './types';
 import { DYNAMIC_METRIC_PREFIXES } from './types';
-import { computeRunCost } from './computations/execution';
 import {
+  computeRunCost,
   computeWinnerElo, computeMedianElo, computeP90Elo, computeMaxElo,
   computeTotalMatches, computeDecisiveRate, computeVariantCount,
 } from './computations/finalization';
@@ -44,7 +44,7 @@ const SHARED_PROPAGATION_DEFS: EntityMetricRegistry['atPropagation'] = [
   { name: 'best_max_elo', label: 'Best Max Elo', category: 'rating', formatter: 'elo',
     sourceMetric: 'max_elo', sourceEntity: 'run', aggregate: aggregateMax, aggregationMethod: 'max' },
   // Match
-  { name: 'total_matches' as const, label: 'Total Matches', category: 'match', formatter: 'integer',
+  { name: 'total_matches', label: 'Total Matches', category: 'match', formatter: 'integer',
     sourceMetric: 'total_matches', sourceEntity: 'run', aggregate: aggregateSum, aggregationMethod: 'sum' },
   { name: 'avg_matches_per_run', label: 'Avg Matches/Run', category: 'match', formatter: 'integer',
     sourceMetric: 'total_matches', sourceEntity: 'run', aggregate: aggregateAvg, aggregationMethod: 'avg' },
@@ -63,7 +63,7 @@ export const METRIC_REGISTRY: Record<EntityType, EntityMetricRegistry> = {
   run: {
     duringExecution: [
       { name: 'cost', label: 'Total Cost', category: 'cost', formatter: 'cost',
-        listView: true, compute: computeRunCost },
+        listView: false, compute: computeRunCost },
     ],
     atFinalization: [
       { name: 'winner_elo', label: 'Winner Elo', category: 'rating', formatter: 'elo',

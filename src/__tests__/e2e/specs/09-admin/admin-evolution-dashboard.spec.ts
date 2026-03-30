@@ -173,6 +173,14 @@ adminTest.describe('Evolution Dashboard (T1-T3)', { tag: '@evolution' }, () => {
       const content = adminPage.locator('[data-testid="dashboard-content"]');
       await expect(content).toBeVisible({ timeout: 15000 });
 
+      // Uncheck "Hide test content" so seeded test runs appear
+      const filterCheckbox = adminPage.locator('[data-testid="filter-filterTestContent"] input[type="checkbox"]');
+      if (await filterCheckbox.isChecked()) {
+        await filterCheckbox.click();
+        // Wait for data to reload after filter change
+        await adminPage.waitForTimeout(2000); // eslint-disable-line flakiness/no-wait-for-timeout -- filter reload
+      }
+
       // The RunsTable should be visible
       const runsTable = adminPage.locator('[data-testid="dashboard-runs-table"]');
       await expect(runsTable).toBeVisible();

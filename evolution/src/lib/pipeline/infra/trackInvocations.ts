@@ -36,6 +36,9 @@ export async function createInvocation(
       warn(logger, 'createInvocation error', { phaseName, error: error.message });
       return null;
     }
+    if (!data?.id) {
+      warn(logger, 'createInvocation returned no ID', { phaseName });
+    }
     return data?.id ?? null;
   } catch (err) {
     warn(logger, 'createInvocation exception', { phaseName, error: String(err).slice(0, 500) });

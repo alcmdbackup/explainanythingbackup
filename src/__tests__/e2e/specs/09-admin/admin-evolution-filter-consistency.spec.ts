@@ -130,7 +130,7 @@ adminTest.describe('Evolution Filter Consistency', { tag: ['@evolution', '@criti
     await adminPage.waitForLoadState('domcontentloaded');
 
     // Verify page loads without error
-    await expect(adminPage.locator('h1')).toContainText(/experiment/i, { timeout: 15000 });
+    await expect(adminPage.locator('main h1').first()).toContainText(/experiment/i, { timeout: 15000 });
 
     // If hide-test-content toggle exists, verify it is functional
     const hideTestCheckbox = adminPage.locator('[data-testid="hide-test-content"]');

@@ -3,7 +3,7 @@
 // Uses adminAction wrapper, validates all inputs, and returns ActionResult<T>.
 
 import { adminAction, type AdminContext } from './adminAction';
-import { validateUuid } from './shared';
+import { validateUuid, applyTestContentNameFilter } from './shared';
 import { hashStrategyConfig, labelStrategyConfig } from '@evolution/lib/pipeline/setup/findOrCreateStrategy';
 import type { V2StrategyConfig } from '@evolution/lib/pipeline/infra/types';
 import { createEntityLogger } from '@evolution/lib/pipeline/infra/createEntityLogger';
@@ -58,6 +58,9 @@ export const listStrategiesAction = adminAction(
     input: { limit: number; offset: number; status?: string; created_by?: string; pipeline_type?: string; filterTestContent?: boolean },
     ctx: AdminContext,
   ): Promise<{ items: StrategyListItem[]; total: number }> => {
+    const limit = Math.min(Math.max(input.limit, 1), 200);
+    const offset = Math.max(input.offset, 0);
+
     let query = ctx.supabase
       .from('evolution_strategies')
       .select('*', { count: 'exact' });
@@ -65,10 +68,10 @@ export const listStrategiesAction = adminAction(
     if (input.status) query = query.eq('status', input.status);
     if (input.created_by) query = query.eq('created_by', input.created_by);
     if (input.pipeline_type) query = query.eq('pipeline_type', input.pipeline_type);
-    if (input.filterTestContent) query = query.not('name', 'ilike', '%[TEST]%');
+    if (input.filterTestContent) query = applyTestContentNameFilter(query);
 
     query = query.order('created_at', { ascending: false })
-      .range(input.offset, input.offset + input.limit - 1);
+      .range(offset, offset + limit - 1);
 
     const { data, error, count } = await query;
     if (error) throw error;

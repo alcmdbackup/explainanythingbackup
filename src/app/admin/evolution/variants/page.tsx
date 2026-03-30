@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { EvolutionBreadcrumb, EntityListPage } from '@evolution/components/evolution';
 import { listVariantsAction, type VariantListEntry } from '@evolution/services/evolutionActions';
 import type { ColumnDef, FilterDef } from '@evolution/components/evolution';
+import { toast } from 'sonner';
 
 const PAGE_SIZE = 20;
 
@@ -42,7 +43,7 @@ const COLUMNS: ColumnDef<VariantListEntry>[] = [
       </span>
     ),
   },
-  { key: 'agent_name', header: 'Agent', render: (v) => v.agent_name },
+  { key: 'agent_name', header: 'Agent', render: (v) => v.agent_name || <span className="text-[var(--text-muted)]">—</span> },
   {
     key: 'elo_score',
     header: 'Rating',
@@ -59,7 +60,7 @@ const COLUMNS: ColumnDef<VariantListEntry>[] = [
     render: (v) =>
       v.is_winner ? (
         <span className="text-[var(--status-success)]" title="Winner">★</span>
-      ) : null,
+      ) : <span className="text-[var(--text-muted)]">—</span>,
   },
 ];
 
@@ -84,6 +85,8 @@ export default function VariantsListPage(): JSX.Element {
     if (result.success && result.data) {
       setItems(result.data.items);
       setTotalCount(result.data.total);
+    } else if (!result.success) {
+      toast.error(result.error?.message ?? 'Failed to load variants');
     }
     setLoading(false);
   }, []);

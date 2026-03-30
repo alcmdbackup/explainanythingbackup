@@ -3,7 +3,7 @@
 // Provides CRUD for evolution runs, variant listing, cost breakdown, and logs.
 
 import { adminAction, type AdminContext } from './adminAction';
-import { validateUuid } from './shared';
+import { validateUuid, getTestStrategyIds } from './shared';
 import { logger } from '@/lib/server_utilities';
 import { logAdminAction } from '@/lib/services/auditLog';
 import { createEntityLogger } from '@evolution/lib/pipeline/infra/createEntityLogger';
@@ -35,6 +35,7 @@ export interface EvolutionRun {
   experiment_name?: string | null;
   strategy_name?: string | null;
   prompt_name?: string | null;
+  explanation_title?: string | null;
 }
 
 export interface EvolutionVariant {
@@ -196,21 +197,15 @@ export const getEvolutionRunsAction = adminAction(
     const limit = Math.min(Math.max(filters?.limit ?? 50, 1), 200);
     const offset = Math.max(filters?.offset ?? 0, 0);
 
-    // Fetch test strategy IDs first (small set), then exclude them.
-    // This avoids the !inner join approach which requires a FK constraint and
-    // a fresh PostgREST schema cache — both of which have caused silent failures.
+    // Fetch test strategy IDs using shared helper (matches [TEST], exact "test", timestamp patterns).
     let testStrategyIds: string[] = [];
     if (filters?.filterTestContent) {
-      const { data: testStrategies } = await supabase
-        .from('evolution_strategies')
-        .select('id')
-        .ilike('name', '%[TEST]%');
-      testStrategyIds = (testStrategies ?? []).map(s => s.id as string);
+      testStrategyIds = await getTestStrategyIds(supabase);
     }
 
     let query = supabase
       .from('evolution_runs')
-      .select('*', { count: 'exact' });
+      .select('id, status, strategy_id, experiment_id, prompt_id, budget_cap_usd, error_message, created_at, completed_at, archived, pipeline_version, runner_id, run_summary, last_heartbeat', { count: 'exact' });
 
     if (filters?.status) query = query.eq('status', filters.status);
     if (filters?.strategy_id) {
@@ -230,44 +225,51 @@ export const getEvolutionRunsAction = adminAction(
     const { data: runs, error, count } = await query;
     if (error) throw error;
 
-    // Cast through unknown: the join select expression includes an extra
-    // evolution_strategies object that the TS Supabase client can't parse.
-    const typedRuns = (runs ?? []) as unknown as EvolutionRun[];
+    const typedRuns = (runs ?? []) as EvolutionRun[];
 
-    // Batch-fetch costs from evolution_metrics (replaces dropped evolution_run_costs view)
+    // Batch-fetch costs from evolution_agent_invocations (source of truth for LLM spend)
     const runIds = typedRuns.map(r => r.id);
     if (runIds.length > 0) {
-      const { data: costs } = await supabase
-        .from('evolution_metrics')
-        .select('entity_id, value')
-        .eq('entity_type', 'run')
-        .eq('metric_name', 'cost')
-        .in('entity_id', runIds);
+      const { data: costs, error: costError } = await supabase
+        .from('evolution_agent_invocations')
+        .select('run_id, cost_usd')
+        .in('run_id', runIds);
+      if (costError) throw costError;
 
-      const costMap = new Map((costs ?? []).map(c => [c.entity_id as string, Number(c.value) || 0]));
+      const costMap = new Map<string, number>();
+      for (const row of costs ?? []) {
+        costMap.set(row.run_id, (costMap.get(row.run_id) ?? 0) + Number(row.cost_usd ?? 0));
+      }
+
       for (const run of typedRuns) {
         run.total_cost_usd = costMap.get(run.id) ?? 0;
       }
     }
 
-    // Batch-fetch experiment and strategy names
+    // Batch-fetch experiment, strategy, and explanation names
     const experimentIds = [...new Set(typedRuns.map(r => r.experiment_id).filter((id): id is string => !!id))];
     const strategyIds = [...new Set(typedRuns.map(r => r.strategy_id).filter(Boolean))];
+    const explanationIds = [...new Set(typedRuns.map(r => r.explanation_id).filter((id): id is number => id != null))];
 
-    const [experimentMap, strategyMap] = await Promise.all([
+    const [experimentMap, strategyMap, explanationMap] = await Promise.all([
       experimentIds.length > 0
         ? supabase.from('evolution_experiments').select('id, name').in('id', experimentIds)
-            .then(({ data }) => new Map((data ?? []).map(e => [e.id as string, e.name as string])))
+            .then(({ data, error }) => { if (error) throw error; return new Map((data ?? []).map(e => [e.id as string, e.name as string])); })
         : Promise.resolve(new Map<string, string>()),
       strategyIds.length > 0
         ? supabase.from('evolution_strategies').select('id, name').in('id', strategyIds)
-            .then(({ data }) => new Map((data ?? []).map(s => [s.id as string, s.name as string])))
+            .then(({ data, error }) => { if (error) throw error; return new Map((data ?? []).map(s => [s.id as string, s.name as string])); })
+        : Promise.resolve(new Map<string, string>()),
+      explanationIds.length > 0
+        ? supabase.from('explanations').select('id, explanation_title').in('id', explanationIds)
+            .then(({ data }) => new Map((data ?? []).map(e => [String(e.id), e.explanation_title as string])))
         : Promise.resolve(new Map<string, string>()),
     ]);
 
     for (const run of typedRuns) {
       run.experiment_name = run.experiment_id ? experimentMap.get(run.experiment_id) ?? null : null;
       run.strategy_name = run.strategy_id ? strategyMap.get(run.strategy_id) ?? null : null;
+      run.explanation_title = run.explanation_id ? explanationMap.get(String(run.explanation_id)) ?? null : null;
     }
 
     return { items: typedRuns, total: count ?? 0 };
@@ -313,9 +315,13 @@ export const getEvolutionRunByIdAction = adminAction(
 
     const run = data as EvolutionRun;
 
-    // Fetch cost
-    const { data: costData } = await ctx.supabase.rpc('get_run_total_cost', { p_run_id: runId });
-    run.total_cost_usd = Number(costData) || 0;
+    // Fetch cost from evolution_agent_invocations (source of truth for LLM spend)
+    const { data: costRows, error: costError } = await ctx.supabase
+      .from('evolution_agent_invocations')
+      .select('cost_usd')
+      .eq('run_id', runId);
+    if (costError) throw costError;
+    run.total_cost_usd = (costRows ?? []).reduce((sum, r) => sum + Number(r.cost_usd ?? 0), 0);
 
     // Fetch strategy + prompt names
     const [stratResult, promptResult] = await Promise.all([
@@ -485,11 +491,7 @@ export const listVariantsAction = adminAction(
     const baseFields = 'id, run_id, explanation_id, elo_score, generation, agent_name, match_count, is_winner, created_at';
     let testRunIds: string[] = [];
     if (parsed.filterTestContent) {
-      const { data: testStrategies } = await supabase
-        .from('evolution_strategies')
-        .select('id')
-        .ilike('name', '%[TEST]%');
-      const testStrategyIds = (testStrategies ?? []).map(s => s.id as string);
+      const testStrategyIds = await getTestStrategyIds(supabase);
       if (testStrategyIds.length > 0) {
         const { data: testRuns } = await supabase
           .from('evolution_runs')
@@ -516,22 +518,23 @@ export const listVariantsAction = adminAction(
     const { data, error, count } = await query;
     if (error) throw error;
 
-    const items = (data ?? []) as unknown as VariantListEntry[];
+    const items = (data ?? []) as VariantListEntry[];
 
     // Post-fetch enrichment: batch-fetch strategy names via runs
     const runIds = [...new Set(items.map(v => v.run_id).filter(Boolean))];
     if (runIds.length > 0) {
-      const { data: runData } = await supabase
+      const { data: runData, error: runDataError } = await supabase
         .from('evolution_runs')
         .select('id, strategy_id')
         .in('id', runIds);
+      if (runDataError) throw runDataError;
 
       const runMap = new Map((runData ?? []).map(r => [r.id as string, r.strategy_id as string | null]));
       const strategyIds = [...new Set((runData ?? []).map(r => r.strategy_id as string | null).filter((id): id is string => !!id))];
 
       const strategyMap = strategyIds.length > 0
         ? await supabase.from('evolution_strategies').select('id, name').in('id', strategyIds)
-            .then(({ data: d }) => new Map((d ?? []).map(s => [s.id as string, s.name as string])))
+            .then(({ data: d, error: e }) => { if (e) throw e; return new Map((d ?? []).map(s => [s.id as string, s.name as string])); })
         : new Map<string, string>();
 
       for (const item of items) {

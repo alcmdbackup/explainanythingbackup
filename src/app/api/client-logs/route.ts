@@ -12,7 +12,13 @@ const isDevelopment = process.env.NODE_ENV === 'development';
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let body: any;
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
+    }
 
     // Handle batched logs from remoteFlusher
     const logs = body.logs || [body];

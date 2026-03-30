@@ -147,7 +147,7 @@ adminTest.describe('Evolution Runs (T4, T7, T8, T10)', { tag: '@evolution' }, ()
 
     // Verify navigation back to runs list
     await adminPage.waitForURL('**/admin/evolution/runs', { timeout: 10000 });
-    await expect(adminPage.locator('h1')).toContainText('Evolution Runs');
+    await expect(adminPage.locator('main h1').first()).toContainText('Evolution Runs');
   });
 
   adminTest('failed run detail page shows error message in status badge', async ({ adminPage }) => {

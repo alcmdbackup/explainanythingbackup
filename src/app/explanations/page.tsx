@@ -1,9 +1,15 @@
 import { getRecentExplanations } from '@/lib/services/explanations';
 import { ExploreGalleryPage } from '@/components/explore';
 import { type ExplanationFullDbType, type SortMode, type TimePeriod } from '@/lib/schemas/schemas';
+import type { Metadata } from 'next';
 
 // Disable caching to ensure time period filter affects query results
 export const dynamic = 'force-dynamic';
+
+export const metadata: Metadata = {
+  title: 'Explore Explanations',
+  description: 'Browse and discover explanations on a wide range of topics.',
+};
 
 interface ExplanationsPageProps {
     searchParams: Promise<{ sort?: string; t?: string }>;

@@ -19,7 +19,7 @@ All pages live under `src/app/admin/evolution/` (Next.js App Router). A shared `
 | `/admin/evolution/experiments/[experimentId]` | Experiment detail with tabs: **Overview**, **Analysis**, **Runs**, **Logs**. | Experiment config, cost analysis, linked runs, aggregated logs |
 | `/admin/evolution/start-experiment` | Three-step creation wizard: select strategy, configure parameters, confirm and launch. | Strategy registry, prompt templates |
 | `/admin/evolution/arena` | Arena topics list showing active matchmaking topics. | Topic name, entry count, match count |
-| `/admin/evolution/arena/[topicId]` | Topic leaderboard sorted by Elo rating. Columns: Elo, Mu, Sigma, Matches, Cost. | TrueSkill ratings, match history |
+| `/admin/evolution/arena/[topicId]` | Topic leaderboard sorted by Elo rating. Columns: Elo, 95% CI (formatted via `formatEloCIRange(elo, sigma)`), Elo ± σ (formatted via `formatEloWithUncertainty(elo, sigma * ELO_SIGMA_SCALE)`), Matches, Method, Cost. Entries below the top 15% eligibility cutoff (mean + 1.04×stdDev of Elo scores) are dimmed. Cutoff logic is in `src/app/admin/evolution/arena/[topicId]/arenaCutoff.ts`. Entries in the bottom 25th percentile of sigma display a gold "Anchor" badge, and the leaderboard header shows the total anchor count. | TrueSkill ratings, match history, anchor badges |
 | `/admin/evolution/arena/entries/[entryId]` | Individual arena entry detail with match history and rating trajectory. | Entry metrics, per-match results |
 | `/admin/evolution/variants` | Paginated variant list across all runs with "Hide test content" checkbox. Filter uses nested inner join through `evolution_runs` → `evolution_strategies` to exclude variants from test runs. | Variant name, strategy, iteration, Elo |
 | `/admin/evolution/variants/[variantId]` | Variant detail with full prompt text, metrics, lineage context, and a **Matches** tab showing match history from arena comparisons. | Prompt content, parent chain, comparison results, match history |
@@ -110,7 +110,7 @@ Key differences from the old `MetricsTab`:
 Specialized table for displaying evolution runs with:
 - **Budget visualization**: Color-coded progress bar showing iteration progress against the configured budget. Colors shift from green to yellow to red as budget is consumed.
 - **Cost warning indicators**: Visual flags when a run's cost exceeds expected thresholds.
-- **Status badges**: Inline `EvolutionStatusBadge` for each run row.
+- **Status badges**: Inline `StatusBadge` (variant="run-status") for each run row.
 
 ### RegistryPage
 
@@ -164,7 +164,7 @@ Each evolution route directory includes a `loading.tsx` file that renders a `Tab
 
 ## LineageGraph (D3 DAG Visualization)
 
-The `LineageGraph` component (`evolution/src/components/evolution/LineageGraph.tsx`) renders variant ancestry as a directed acyclic graph using D3.
+The `LineageGraph` component (`evolution/src/components/evolution/visualizations/LineageGraph.tsx`) renders variant ancestry as a directed acyclic graph using D3.
 
 **Key implementation details:**
 

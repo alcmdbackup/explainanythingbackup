@@ -295,7 +295,7 @@ Two additional policy layers:
      FOR ALL TO service_role USING (true) WITH CHECK (true);
    ```
 
-2. **`readonly_select`** (20260318) — SELECT-only access for `readonly_local` role, used by `npm run query:prod` for debugging. Skips gracefully when the role does not exist.
+2. **`readonly_select`** (20260318) — SELECT-only access for `readonly_local` role, used by `npm run query:prod` / `npm run query:staging` for debugging. Skips gracefully when the role does not exist.
 
 > **Warning:** The `deny_all` policy blocks `anon` and `authenticated` roles entirely. All evolution data access goes through `service_role` (server-side Supabase client). If you see empty query results in the browser, this is likely the cause.
 
@@ -327,7 +327,7 @@ Previously updated strategy aggregate metrics after run finalization using Welfo
 
 ### `sync_to_arena(p_prompt_id UUID, p_run_id UUID, p_entries JSONB, p_matches JSONB)`
 
-Atomically upserts arena entries and inserts comparison records. Enforces size limits: max 200 entries, max 1000 matches per call. Uses `ON CONFLICT (id) DO UPDATE` for entry upserts.
+Atomically upserts arena entries and inserts comparison records. Enforces size limits: max 200 entries, max 1000 matches per call. Uses `ON CONFLICT (id) DO UPDATE` for entry upserts. Migration `20260326000002_fix_sync_to_arena_match_count.sql` fixed the INSERT path to use `COALESCE((entry->>'arena_match_count')::INT, 0)` instead of hardcoded `0`, so `arena_match_count` is now properly persisted for entries that carry existing match history.
 
 ### `cancel_experiment(p_experiment_id UUID)`
 
@@ -375,8 +375,9 @@ Cost flows through three layers:
 2. **Per-invocation**: Each agent invocation writes its `cost_usd` to `evolution_agent_invocations`. This is the source of truth for cost attribution.
 
 3. **Aggregation**:
-   - `get_run_total_cost(p_run_id)` — RPC for single-run cost
-   - `evolution_run_costs` — view for batch list pages (`SELECT run_id, SUM(cost_usd)`)
+   - `get_run_total_cost(p_run_id)` — RPC for single-run cost (retained but no longer used by the UI)
+   - `evolution_run_costs` — view for batch list pages (`SELECT run_id, SUM(cost_usd)`) (retained but no longer used by the UI)
+   - Run list view and detail page now query `evolution_agent_invocations` directly for cost display
    - Budget events table was dropped in V2; audit trail is now in-memory only
 
 ```typescript
@@ -502,3 +503,23 @@ Notable indexes beyond standard FK indexes:
 | `uq_arena_topic_prompt` | prompts | Case-insensitive unique on `lower(prompt)` |
 
 For the full index list, see `supabase/migrations/20260315000001_evolution_v2.sql`.
+
+---
+
+## Generated Types
+
+The file `src/lib/database.types.ts` contains auto-generated TypeScript types from the Supabase database schema. These types are used by all Supabase client instances via the `Database` generic parameter, providing compile-time type safety for all `.from()` queries.
+
+### Type Coexistence
+
+| Layer | File | Purpose |
+|-------|------|---------|
+| **DB query typing** | `src/lib/database.types.ts` (auto-generated) | Types `.from()` return values, catches column renames at compile time |
+| **Runtime validation** | `evolution/src/lib/schemas.ts` (manual Zod) | Validates data at runtime, transforms versions (V1→V3), enforces business constraints |
+| **Domain types** | `evolution/src/lib/types.ts` (manual) | In-memory pipeline types (Variant, Rating, ExecutionContext) |
+
+### Regeneration
+
+- **Local**: `npm run db:types` (requires `SUPABASE_ACCESS_TOKEN`)
+- **CI**: Auto-generated on every PR push — the `generate-types` job regenerates and auto-commits if changed
+- **Merge conflicts**: `.gitattributes` auto-resolves in favor of incoming version

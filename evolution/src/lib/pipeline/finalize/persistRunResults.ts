@@ -7,7 +7,7 @@ import { toEloScale, DEFAULT_MU, DEFAULT_SIGMA } from '../../shared/computeRatin
 import type { EvolutionResult, V2Match } from '../infra/types';
 import type { EntityLogger } from '../infra/createEntityLogger';
 import { createEntityLogger } from '../infra/createEntityLogger';
-import { isArenaEntry } from '../setup/buildRunContext';
+import { isArenaEntry, type ArenaTextVariation } from '../setup/buildRunContext';
 import { logger as serverLogger } from '@/lib/server_utilities';
 import { getEntity } from '../../core/entityRegistry';
 import { writeMetric } from '../../metrics/writeMetrics';
@@ -80,7 +80,7 @@ function buildRunSummary(
     finalPhase: 'COMPETITION',
     totalIterations: result.iterationsRun,
     durationSeconds,
-    muHistory: result.muHistory.map((arr) => arr[0] ?? 0),
+    muHistory: result.muHistory,
     diversityHistory: result.diversityHistory,
     matchStats: { totalMatches, avgConfidence, decisiveRate },
     topVariants,
@@ -107,7 +107,9 @@ export async function finalizeRun(
   if (localPool.length === 0) {
     if (result.pool.length > 0) {
       logger?.info('Arena-only pool: marking as completed', { phaseName: 'finalize', arenaPoolSize: result.pool.length, localPoolSize: 0 });
-      await db.from('evolution_runs').update({ status: 'completed', completed_at: new Date().toISOString(), run_summary: { version: 3, stopReason: 'arena_only' } }).eq('id', runId);
+      const arenaOnlySummary = buildRunSummary(result, durationSeconds);
+      arenaOnlySummary.stopReason = 'arena_only';
+      await db.from('evolution_runs').update({ status: 'completed', completed_at: new Date().toISOString(), run_summary: arenaOnlySummary }).eq('id', runId);
     } else {
       logger?.error('Finalization failed: empty pool', { phaseName: 'finalize' });
       await db.from('evolution_runs').update({ status: 'failed', error_message: 'Finalization failed: empty pool' }).eq('id', runId);
@@ -143,17 +145,25 @@ export async function finalizeRun(
   }
 
   if (!updatedRows || updatedRows.length === 0) {
-    logger?.warn('Finalization aborted: run status changed externally (likely killed)', { phaseName: 'finalize' });
+    logger?.error('Finalization aborted: run status changed externally. Variants NOT persisted.', {
+      phaseName: 'finalize',
+      variantCount: localPool.length,
+      runId,
+    });
     return; // Skip variant persistence
   }
 
-  // Step 3: Determine winner (highest mu, tie-break by pool order)
+  // Step 3: Determine winner (highest mu, tie-break by lowest sigma)
   let winnerId = localPool[0]!.id;
   let bestMu = -Infinity;
+  let bestSigma = Infinity;
   for (const v of localPool) {
-    const mu = result.ratings.get(v.id)?.mu ?? -Infinity;
-    if (mu > bestMu) {
+    const r = result.ratings.get(v.id);
+    const mu = r?.mu ?? -Infinity;
+    const sigma = r?.sigma ?? Infinity;
+    if (mu > bestMu || (mu === bestMu && sigma < bestSigma)) {
       bestMu = mu;
+      bestSigma = sigma;
       winnerId = v.id;
     }
   }
@@ -208,6 +218,11 @@ export async function finalizeRun(
       matchHistory: result.matchHistory,
     };
 
+    // Ensure cost metric exists (may have been skipped if iteration loop broke early)
+    if (result.totalCost != null && !isNaN(result.totalCost)) {
+      await writeMetric(db, 'run', runId, 'cost' as MetricName, result.totalCost, 'during_execution');
+    }
+
     // Run-level finalization metrics
     for (const def of getEntity('run').metrics.atFinalization) {
       const value = def.compute(finCtx);
@@ -257,7 +272,15 @@ export async function finalizeRun(
       await propagateMetrics(db, 'experiment', run.experiment_id);
     }
   } catch (metricsErr) {
-    logger?.warn('Finalization metrics write failed', { phaseName: 'finalize', error: (metricsErr instanceof Error ? metricsErr.message : String(metricsErr)).slice(0, 500) });
+    const errMsg = metricsErr instanceof Error ? metricsErr.message : String(metricsErr);
+    const errStack = metricsErr instanceof Error ? metricsErr.stack?.slice(0, 1000) : undefined;
+    logger?.warn('Finalization metrics write failed', {
+      phaseName: 'finalize',
+      error: errMsg.slice(0, 500),
+      errorType: metricsErr instanceof Error ? metricsErr.constructor.name : typeof metricsErr,
+      errorStack: errStack,
+      runId,
+    });
   }
 
   // Step 6a: Strategy aggregate update (legacy — will be removed in Phase 6)
@@ -370,6 +393,21 @@ export async function syncToArena(
       };
     });
 
+  // Build arena updates: existing arena entries that participated in matches this run
+  const arenaUpdates = pool
+    .filter((v): v is ArenaTextVariation => isArenaEntry(v))
+    .filter((v) => (variantMatchCounts.get(v.id) ?? 0) > 0)
+    .map((v) => {
+      const r = ratings.get(v.id);
+      return {
+        id: v.id,
+        mu: r?.mu ?? 25,
+        sigma: r?.sigma ?? 8.333,
+        elo_score: r ? toEloScale(r.mu) : 1200,
+        arena_match_count: (v.arenaMatchCount ?? 0) + (variantMatchCounts.get(v.id) ?? 0),
+      };
+    });
+
   // Build match results: filter failed comparisons, normalize draw entries to sorted order
   const matches = matchHistory
     .filter((m) => m.confidence > 0) // Skip failed comparisons (confidence 0)
@@ -383,7 +421,7 @@ export async function syncToArena(
       return { entry_a: m.winnerId, entry_b: m.loserId, winner: 'a' as const, confidence: m.confidence };
     });
 
-  logger?.info('Arena sync preparation', { newEntriesCount: newEntries.length, matchCount: matches.length, phaseName: 'arena' });
+  logger?.info('Arena sync preparation', { newEntriesCount: newEntries.length, arenaUpdatesCount: arenaUpdates.length, matchCount: matches.length, phaseName: 'arena' });
 
   // Try sync with 1 retry (idempotent RPC using ON CONFLICT DO UPDATE)
   let lastError: { message: string } | null = null;
@@ -393,10 +431,11 @@ export async function syncToArena(
       p_run_id: runId,
       p_entries: newEntries,
       p_matches: matches,
+      p_arena_updates: arenaUpdates,
     });
 
     if (!error) {
-      logger?.info('Arena sync complete', { entrySynced: newEntries.length, matchesSynced: matches.length, phaseName: 'arena' });
+      logger?.info('Arena sync complete', { entrySynced: newEntries.length, arenaUpdated: arenaUpdates.length, matchesSynced: matches.length, phaseName: 'arena' });
       return;
     }
     lastError = error;

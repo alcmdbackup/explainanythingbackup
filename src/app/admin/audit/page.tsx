@@ -24,7 +24,10 @@ const ACTIONS: { value: AuditAction; label: string }[] = [
   { value: 'enable_user', label: 'Enable User' },
   { value: 'update_user_notes', label: 'Update Notes' },
   { value: 'update_feature_flag', label: 'Update Flag' },
-  { value: 'backfill_costs', label: 'Backfill Costs' }
+  { value: 'backfill_costs', label: 'Backfill Costs' },
+  { value: 'toggle_kill_switch', label: 'Toggle Kill Switch' },
+  { value: 'update_cost_config', label: 'Update Cost Config' },
+  { value: 'queue_evolution_run', label: 'Queue Evolution Run' }
 ];
 
 const ENTITY_TYPES: { value: EntityType; label: string }[] = [

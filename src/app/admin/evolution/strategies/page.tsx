@@ -7,7 +7,7 @@ import { useState } from 'react';
 import { toast } from 'sonner';
 import { EntityListPage } from '@evolution/components/evolution';
 import type { RowAction, FilterDef, ColumnDef } from '@evolution/components/evolution';
-import type { FieldDef } from '@evolution/components/evolution/FormDialog';
+import type { FieldDef } from '@evolution/components/evolution';
 import { createMetricColumns } from '@evolution/lib/metrics/metricColumns';
 import {
   listStrategiesAction,

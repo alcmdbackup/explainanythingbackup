@@ -30,7 +30,7 @@ export interface EvolutionResult {
   totalCost: number;
   /** Actual iterations completed (distinct from config.iterations). */
   iterationsRun: number;
-  stopReason: 'budget_exceeded' | 'iterations_complete' | 'converged' | 'killed';
+  stopReason: 'budget_exceeded' | 'iterations_complete' | 'converged' | 'killed' | 'time_limit';
   /** muHistory[i] = array of mu values for top-K variants after iteration i. */
   muHistory: number[][];
   /** diversityHistory[i] = pairwise text diversity score after iteration i. */

@@ -247,7 +247,7 @@ export default function AdminCostsPage(): React.ReactElement {
                     <span className="text-sm text-[var(--text-muted)]">
                       {costConfig?.killSwitchEnabled ? 'Re-enable LLM calls?' : 'Block ALL LLM calls?'}
                     </span>
-                    <button onClick={handleToggleKillSwitch} className="px-3 py-1 bg-red-600 text-white rounded text-sm">
+                    <button onClick={handleToggleKillSwitch} disabled={loading} className="px-3 py-1 bg-red-600 text-white rounded text-sm disabled:opacity-50">
                       Confirm
                     </button>
                     <button onClick={() => setKillSwitchConfirm(false)} className="px-3 py-1 border border-[var(--border-color)] rounded text-sm">

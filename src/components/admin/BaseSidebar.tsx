@@ -44,6 +44,7 @@ export function BaseSidebar({ title, navItems, backLink, activeOverrides }: Base
         href={item.href}
         data-testid={item.testId}
         title={item.description}
+        aria-current={isActive(item.href) ? 'page' : undefined}
         className={`
           flex items-center gap-3 px-3 py-2 rounded-md text-sm
           transition-colors duration-150

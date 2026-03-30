@@ -87,7 +87,7 @@ adminTest.describe('Experiment Wizard E2E', { tag: '@evolution' }, () => {
     await adminPage.goto('/admin/evolution/start-experiment');
     await adminPage.waitForLoadState('domcontentloaded');
 
-    await expect(adminPage.locator('h1')).toContainText('Start Experiment');
+    await expect(adminPage.locator('main h1').first()).toContainText('Start Experiment');
     // Wait for form to finish loading
     await expect(adminPage.locator('text=Experiment Name')).toBeVisible({ timeout: 15000 });
   });

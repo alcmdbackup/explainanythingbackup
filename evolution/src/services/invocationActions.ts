@@ -3,7 +3,7 @@
 // Provides paginated listing and single-invocation fetch for the admin UI.
 
 import { adminAction, type AdminContext } from './adminAction';
-import { validateUuid } from './shared';
+import { validateUuid, getTestStrategyIds } from './shared';
 import { z } from 'zod';
 
 // ─── Types ───────────────────────────────────────────────────────
@@ -17,6 +17,7 @@ export interface InvocationListEntry {
   success: boolean;
   cost_usd: number | null;
   duration_ms: number | null;
+  error_message: string | null;
   created_at: string;
 }
 
@@ -37,6 +38,7 @@ export interface InvocationDetail {
 const listInvocationsInputSchema = z.object({
   runId: z.string().uuid().optional(),
   filterTestContent: z.boolean().optional(),
+  successFilter: z.enum(['all', 'success', 'failed']).optional(),
   limit: z.number().int().min(1).max(200).default(50),
   offset: z.number().int().min(0).default(0),
 });
@@ -56,14 +58,10 @@ export const listInvocationsAction = adminAction(
 
     // Fetch test strategy IDs → test run IDs, then exclude those invocations.
     // This avoids nested !inner joins which depend on FK constraints + PostgREST schema cache.
-    const baseFields = 'id, run_id, agent_name, iteration, execution_order, success, cost_usd, duration_ms, created_at';
+    const baseFields = 'id, run_id, agent_name, iteration, execution_order, success, cost_usd, duration_ms, error_message, created_at';
     let testRunIds: string[] = [];
     if (parsed.filterTestContent) {
-      const { data: testStrategies } = await supabase
-        .from('evolution_strategies')
-        .select('id')
-        .ilike('name', '%[TEST]%');
-      const testStrategyIds = (testStrategies ?? []).map(s => s.id as string);
+      const testStrategyIds = await getTestStrategyIds(supabase);
       if (testStrategyIds.length > 0) {
         const { data: testRuns } = await supabase
           .from('evolution_runs')
@@ -78,6 +76,8 @@ export const listInvocationsAction = adminAction(
       .select(baseFields, { count: 'exact' });
 
     if (parsed.runId) query = query.eq('run_id', parsed.runId);
+    if (parsed.successFilter === 'success') query = query.eq('success', true);
+    if (parsed.successFilter === 'failed') query = query.eq('success', false);
     if (parsed.filterTestContent && testRunIds.length > 0) {
       query = query.not('run_id', 'in', `(${testRunIds.join(',')})`);
     }
@@ -88,7 +88,7 @@ export const listInvocationsAction = adminAction(
     const { data, error, count } = await query;
     if (error) throw error;
 
-    return { items: (data ?? []) as unknown as InvocationListEntry[], total: count ?? 0 };
+    return { items: (data ?? []) as InvocationListEntry[], total: count ?? 0 };
   },
 );
 

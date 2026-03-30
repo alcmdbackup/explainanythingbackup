@@ -42,6 +42,7 @@ server-*.log
 .env*
 !.env.example
 !.env.prod.readonly.example
+!.env.staging.readonly.example
 .env.local
 
 # vercel
@@ -83,6 +84,11 @@ docs/planning/deploy/
 /hooks
 /objects
 /refs
+# Maintenance logs
+logs/maintenance/
+
 evolution/.next/
 .claude/worktrees/
 .playwright-mcp
+.npm-cache/
+npm-install.log

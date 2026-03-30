@@ -1,6 +1,6 @@
 #!/bin/bash
-# Blocks direct Supabase write commands to enforce GitHub Actions migrations.
-# Reads/queries are allowed; writes must go through supabase/migrations/ and GitHub.
+# Blocks direct Supabase write commands and unsafe remote queries.
+# Hook is defense-in-depth; the DB readonly_local role is the authoritative enforcement layer.
 
 COMMAND="$TOOL_INPUT"
 
@@ -10,6 +10,8 @@ BLOCKED_PATTERNS=(
   "supabase db reset"
   "supabase migration up"
   "supabase migration repair"
+  "supabase db query --linked"
+  "supabase db query --db-url"
   "psql.*-c"
   "psql.*-f"
   "psql.*--command"
@@ -22,6 +24,7 @@ ALLOWED_PATTERNS=(
   "supabase db pull"
   "supabase db diff"
   "supabase db lint"
+  "supabase db query --local"
   "psql.*SELECT"
   "psql.*select"
   "psql.*\\d"
@@ -37,6 +40,19 @@ done
 # Check for blocked write patterns
 for pattern in "${BLOCKED_PATTERNS[@]}"; do
   if [[ "$COMMAND" =~ $pattern ]]; then
+    # Provide specific guidance for query --linked/--db-url
+    if [[ "$COMMAND" =~ "supabase db query" ]]; then
+      cat << 'EOF'
+{
+  "hookSpecificOutput": {
+    "hookEventName": "PreToolUse",
+    "permissionDecision": "deny",
+    "permissionDecisionReason": "supabase db query --linked/--db-url is blocked because it can execute arbitrary writes.\n\nUse safe, read-only alternatives instead:\n  npm run query:staging -- \"SELECT ...\"   (staging, DB-enforced read-only)\n  npm run query:prod -- \"SELECT ...\"      (production, DB-enforced read-only)\n  supabase inspect db <command> --linked   (read-only pg_stat views)\n\nFor local queries, use: supabase db query \"SELECT ...\" (defaults to --local)"
+  }
+}
+EOF
+      exit 0
+    fi
     cat << 'EOF'
 {
   "hookSpecificOutput": {
@@ -49,6 +65,11 @@ EOF
     exit 0
   fi
 done
+
+# supabase db query with no --linked/--db-url defaults to --local (safe)
+if [[ "$COMMAND" =~ "supabase db query" ]] && [[ ! "$COMMAND" =~ "--linked" ]] && [[ ! "$COMMAND" =~ "--db-url" ]]; then
+  exit 0
+fi
 
 # Not a Supabase write command - allow
 exit 0

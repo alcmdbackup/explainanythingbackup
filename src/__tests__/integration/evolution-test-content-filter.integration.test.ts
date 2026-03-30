@@ -90,15 +90,17 @@ describe('Evolution Test Content Filter Integration', () => {
     expect(testIds).not.toContain(realStrategyId);
 
     // Step 2: Query runs excluding test strategy IDs
-    const { data: filteredRuns, error: runErr } = await supabase
+    // Fetch both runs then filter client-side — PostgREST .not().in() chain
+    // returns 400 Bad Request due to ambiguous FK on strategy_id.
+    const { data: allRuns, error: runErr } = await supabase
       .from('evolution_runs')
       .select('id, strategy_id')
-      .not('strategy_id', 'in', `(${testIds.join(',')})`)
       .in('id', [testRunId, realRunId]);
 
     expect(runErr).toBeNull();
+    const filteredRuns = (allRuns ?? []).filter(r => !testIds.includes(r.strategy_id as string));
     expect(filteredRuns).toHaveLength(1);
-    expect(filteredRuns?.[0]?.id).toBe(realRunId);
+    expect(filteredRuns[0]?.id).toBe(realRunId);
   });
 
   it('filter returns all runs when no test strategies exist matching pattern', async () => {

@@ -36,8 +36,15 @@ Migrations are stored in `supabase/migrations/` and deployed automatically via G
 
 | Trigger | Staging | Production |
 |---------|---------|------------|
+| PR with changes in `supabase/migrations/**` | Auto-deploy via CI (`deploy-migrations` job) | N/A |
 | Push to `main` with changes in `supabase/migrations/**` | Auto-deploy | Auto-deploy (after staging succeeds) |
 | Manual dispatch | Optional skip | Requires staging success or explicit skip |
+
+**CI Flow (PRs)**: When a PR contains migration files, the CI `deploy-migrations` job applies them to staging before tests run. This eliminates the migration/test deadlock where tests fail because the schema hasn't been applied yet. Types are then regenerated from the updated staging schema and auto-committed to the PR branch.
+
+- Fork PRs and Dependabot PRs skip migration deployment (no secrets access)
+- Destructive DDL (`DROP TABLE`, `RENAME COLUMN`, `TRUNCATE`, `DELETE FROM`) is blocked; `DROP FUNCTION/VIEW IF EXISTS` is allowlisted
+- Concurrent migration PRs are queued via GitHub's concurrency group (`migration-staging`)
 
 **Manual deployment** (if needed):
 ```bash
@@ -75,26 +82,56 @@ supabase db push
 
 ---
 
-## Read-Only Production Access
+## Supabase CLI
 
-Safe, read-only access to production Supabase PostgreSQL for debugging and analytics. Uses a dedicated `readonly_local` database role with SELECT-only privileges — separate from the service role key.
+The Supabase CLI (`npx supabase`, v2.84.4) is used for database inspection, migration management, and debugging. See [debugging.md](debugging.md#supabase-cli-debugging) for full CLI debugging reference.
 
 ### Setup
 
+```bash
+# Authenticate (one-time)
+npx supabase login
+
+# Link to staging project
+npx supabase link --project-ref ifubinffdbyewoezcidz
+```
+
+> **Safety:** Linking to production (`qbxhivoezkfbjbsctdzo`) is blocked by `settings.json`. Use `npm run query:prod` for safe, read-only production access instead.
+
+---
+
+## Read-Only Database Access
+
+Safe, read-only access to staging and production Supabase PostgreSQL for debugging and analytics. Both use a dedicated `readonly_local` database role with SELECT-only privileges — separate from the service role key.
+
+### Setup
+
+**Production:**
 1. Copy the template: `cp .env.prod.readonly.example .env.prod.readonly`
+2. Fill in the connection string (get password from Supabase dashboard → Database Settings)
+3. Format: `postgresql://readonly_local:<password>@db.<project-ref>.supabase.co:5432/postgres`
+
+**Staging:**
+1. Copy the template: `cp .env.staging.readonly.example .env.staging.readonly`
 2. Fill in the connection string (get password from Supabase dashboard → Database Settings)
 3. Format: `postgresql://readonly_local:<password>@db.<project-ref>.supabase.co:5432/postgres`
 
 ### Usage
 
 ```bash
-# Interactive REPL
+# Staging — interactive REPL
+npm run query:staging
+
+# Staging — single query
+npm run query:staging -- "SELECT count(*) FROM explanations"
+
+# Production — interactive REPL
 npm run query:prod
 
-# Single query
+# Production — single query
 npm run query:prod -- "SELECT count(*) FROM explanations"
 
-# JSON output (for piping to jq)
+# JSON output (either environment, for piping to jq)
 npm run query:prod -- --json "SELECT id, explanation_title FROM explanations LIMIT 5"
 ```
 
@@ -102,9 +139,10 @@ npm run query:prod -- --json "SELECT id, explanation_title FROM explanations LIM
 
 - Uses `readonly_local` PostgreSQL role with **SELECT-only** privileges (database-enforced)
 - Cannot INSERT, UPDATE, DELETE, or modify schema — even if the script had a bug
-- Connection string stored in `.env.prod.readonly` (git-ignored, never committed)
+- Connection strings stored in `.env.staging.readonly` / `.env.prod.readonly` (git-ignored, never committed)
 - Completely separate from the service role key used by the application
 - Error messages are sanitized to never leak the connection string
+- `supabase db query --linked` is blocked by hook — use these scripts instead
 
 ---
 
@@ -215,6 +253,7 @@ Available to all workflows - API keys that don't change between environments:
 |--------|---------|
 | `OPENAI_API_KEY` | OpenAI API key |
 | `DEEPSEEK_API_KEY` | DeepSeek API key (evolution pipeline) |
+| `OPENROUTER_API_KEY` | OpenRouter API key (openai/gpt-oss-20b) |
 | `PINECONE_API_KEY` | Pinecone API key |
 
 #### Development Environment Secrets
@@ -344,6 +383,7 @@ See `scripts/query-honeycomb.md` for detailed instructions on querying logs and 
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase admin key (server-only) |
 | `OPENAI_API_KEY` | OpenAI API key |
 | `DEEPSEEK_API_KEY` | DeepSeek API key (used by evolution pipeline) |
+| `OPENROUTER_API_KEY` | OpenRouter API key (used for openai/gpt-oss-20b) |
 | `PINECONE_API_KEY` | Pinecone API key |
 | `PINECONE_INDEX_NAME_ALL` | Pinecone index name |
 

@@ -13,7 +13,7 @@ adminTest.describe('Evolution Invocations (T25)', { tag: '@evolution' }, () => {
     await expect(entityList).toBeVisible({ timeout: 15000 });
 
     // Verify the page title
-    await expect(adminPage.locator('h1')).toContainText('Invocations');
+    await expect(adminPage.locator('main h1').first()).toContainText('Invocations');
 
     // Verify expected column headers are present in the table
     const expectedColumns = ['ID', 'Run ID', 'Agent', 'Iteration', 'Success', 'Cost', 'Duration', 'Created'];

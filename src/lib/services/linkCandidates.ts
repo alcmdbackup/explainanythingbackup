@@ -60,7 +60,7 @@ async function upsertCandidateImpl(
     .single();
 
   if (selectError && selectError.code !== 'PGRST116') throw selectError;
-  if (existing) return existing;
+  if (existing) return existing as LinkCandidateFullType;
 
   // Insert new candidate
   const { data, error } = await supabase
@@ -76,7 +76,7 @@ async function upsertCandidateImpl(
     .single();
 
   if (error) throw error;
-  return data;
+  return data as LinkCandidateFullType;
 }
 
 /**
@@ -94,7 +94,7 @@ async function getCandidateByIdImpl(id: number): Promise<LinkCandidateFullType> 
   if (error) throw error;
   if (!data) throw new Error(`Candidate not found for ID: ${id}`);
 
-  return data;
+  return data as LinkCandidateFullType;
 }
 
 /**
@@ -117,7 +117,7 @@ async function getAllCandidatesImpl(
   const { data, error } = await query;
 
   if (error) throw error;
-  return data || [];
+  return (data || []) as LinkCandidateFullType[];
 }
 
 /**
@@ -168,7 +168,7 @@ async function upsertOccurrenceImpl(
     .single();
 
   if (error) throw error;
-  return data;
+  return data as CandidateOccurrenceFullType;
 }
 
 /**
@@ -185,7 +185,7 @@ async function getOccurrencesForExplanationImpl(
     .eq('explanation_id', explanationId);
 
   if (error) throw error;
-  return data || [];
+  return (data || []) as CandidateOccurrenceFullType[];
 }
 
 /**
@@ -407,7 +407,7 @@ async function approveCandidateImpl(
     .single();
 
   if (error) throw error;
-  return data;
+  return data as LinkCandidateFullType;
 }
 
 /**
@@ -430,7 +430,7 @@ async function rejectCandidateImpl(id: number): Promise<LinkCandidateFullType> {
     .single();
 
   if (error) throw error;
-  return data;
+  return data as LinkCandidateFullType;
 }
 
 // Wrap async functions with automatic logging for entry/exit/timing
