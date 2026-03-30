@@ -4,6 +4,7 @@
  */
 
 import { createClient } from '@supabase/supabase-js';
+import type { Database } from '../src/lib/database.types';
 import * as dotenv from 'dotenv';
 import * as path from 'path';
 
@@ -27,7 +28,7 @@ async function seedAdminTestUser() {
     return; // Exit gracefully without error
   }
 
-  const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
+  const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 
   // 1. Get or create auth user
   const { data: authUsers } = await supabase.auth.admin.listUsers();
@@ -53,7 +54,7 @@ async function seedAdminTestUser() {
     {
       user_id: userId,
       role: 'admin',
-      added_by: userId,
+      created_by: userId,
     },
     { onConflict: 'user_id' }
   );

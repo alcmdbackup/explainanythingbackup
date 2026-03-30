@@ -122,8 +122,9 @@ test.describe('Search and Generate Flow', () => {
 
         await page.goto(`${process.env.BASE_URL}/results?explanation_id=${prodData!.explanationId}`);
         await resultsPage.waitForAnyContent();
-        const hasContent = await resultsPage.hasContent();
-        expect(hasContent).toBe(true);
+        // Use auto-waiting assertion instead of point-in-time isVisible check
+        const contentLocator = page.locator('[data-testid="explanation-content"]');
+        await expect(contentLocator).toBeVisible({ timeout: 30000 });
         return;
       }
 

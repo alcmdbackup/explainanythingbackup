@@ -58,6 +58,10 @@ test.describe('Home Page Tabs', () => {
       const searchTab = page.locator('[data-testid="home-tab-search"]');
       await searchTab.click();
 
+      // Wait for the search panel to be visible after tab switch before checking value
+      const searchPanel = page.locator('#search-panel');
+      await expect(searchPanel).toBeVisible();
+
       // Verify query is preserved
       await expect(searchInput).toHaveValue('quantum entanglement');
     });

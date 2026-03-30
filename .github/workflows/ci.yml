@@ -1,6 +1,6 @@
 # CI workflow optimized for cost reduction (76% savings target)
-# - Fast path: docs/migrations only → lint+tsc (~1 min)
-# - Full path: code changes → all tests (~2.5-3 min)
+# - Fast path: docs only → lint+tsc (~1 min)
+# - Full path: code or migration changes → all tests (~2.5-3 min)
 
 name: CI
 
@@ -38,9 +38,12 @@ jobs:
             echo "has_migrations=false" >> $GITHUB_OUTPUT
           fi
           CODE_CHANGED=$(echo "$CHANGED" | grep -E '\.(ts|tsx|js|jsx|json|css)$' || true)
-          if [ -z "$CODE_CHANGED" ]; then
+          if [ -z "$CODE_CHANGED" ] && [ -z "$MIGRATION_CHANGED" ]; then
             echo "path=fast" >> $GITHUB_OUTPUT
             echo "::notice ::Fast path - no code changes detected"
+          elif [ -z "$CODE_CHANGED" ] && [ -n "$MIGRATION_CHANGED" ]; then
+            echo "path=full" >> $GITHUB_OUTPUT
+            echo "::notice ::Full path - migration changes require test validation"
           else
             # Classify changes as evolution-only, non-evolution-only, or full
             EVOLUTION_ONLY_PATHS="evolution|arena|strategy-resolution|manual-experiment|src/app/admin/quality/optimization/"
@@ -248,6 +251,9 @@ jobs:
       PINECONE_API_KEY: ${{ secrets.PINECONE_API_KEY }}
       PINECONE_INDEX_NAME_ALL: ${{ secrets.PINECONE_INDEX_NAME_ALL }}
       PINECONE_NAMESPACE: ${{ secrets.PINECONE_NAMESPACE }}
+      DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -276,6 +282,9 @@ jobs:
       PINECONE_API_KEY: ${{ secrets.PINECONE_API_KEY }}
       PINECONE_INDEX_NAME_ALL: ${{ secrets.PINECONE_INDEX_NAME_ALL }}
       PINECONE_NAMESPACE: ${{ secrets.PINECONE_NAMESPACE }}
+      DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -304,6 +313,9 @@ jobs:
       PINECONE_API_KEY: ${{ secrets.PINECONE_API_KEY }}
       PINECONE_INDEX_NAME_ALL: ${{ secrets.PINECONE_INDEX_NAME_ALL }}
       PINECONE_NAMESPACE: ${{ secrets.PINECONE_NAMESPACE }}
+      DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -331,6 +343,9 @@ jobs:
       PINECONE_API_KEY: ${{ secrets.PINECONE_API_KEY }}
       PINECONE_INDEX_NAME_ALL: ${{ secrets.PINECONE_INDEX_NAME_ALL }}
       PINECONE_NAMESPACE: ${{ secrets.PINECONE_NAMESPACE }}
+      DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
       TEST_USER_EMAIL: ${{ secrets.TEST_USER_EMAIL }}
       TEST_USER_PASSWORD: ${{ secrets.TEST_USER_PASSWORD }}
       TEST_USER_ID: ${{ secrets.TEST_USER_ID }}
@@ -403,6 +418,9 @@ jobs:
       PINECONE_API_KEY: ${{ secrets.PINECONE_API_KEY }}
       PINECONE_INDEX_NAME_ALL: ${{ secrets.PINECONE_INDEX_NAME_ALL }}
       PINECONE_NAMESPACE: ${{ secrets.PINECONE_NAMESPACE }}
+      DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
       TEST_USER_EMAIL: ${{ secrets.TEST_USER_EMAIL }}
       TEST_USER_PASSWORD: ${{ secrets.TEST_USER_PASSWORD }}
       TEST_USER_ID: ${{ secrets.TEST_USER_ID }}
@@ -479,6 +497,9 @@ jobs:
       PINECONE_API_KEY: ${{ secrets.PINECONE_API_KEY }}
       PINECONE_INDEX_NAME_ALL: ${{ secrets.PINECONE_INDEX_NAME_ALL }}
       PINECONE_NAMESPACE: ${{ secrets.PINECONE_NAMESPACE }}
+      DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
       TEST_USER_EMAIL: ${{ secrets.TEST_USER_EMAIL }}
       TEST_USER_PASSWORD: ${{ secrets.TEST_USER_PASSWORD }}
       TEST_USER_ID: ${{ secrets.TEST_USER_ID }}

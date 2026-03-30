@@ -2,6 +2,7 @@
 // Creates and cleans up evolution runs, strategies, prompts, and variants with FK-safe ordering.
 
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import type { Database } from '@/lib/database.types';
 import * as fs from 'fs';
 
 const TEST_EVO_PREFIX = '[TEST_EVO]';
@@ -24,7 +25,7 @@ export function getEvolutionServiceClient(): SupabaseClient {
     if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
       throw new Error('SUPABASE_SERVICE_ROLE_KEY is required for evolution test data factory');
     }
-    supabaseInstance = createClient(
+    supabaseInstance = createClient<Database>(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY
     );
@@ -159,7 +160,6 @@ export interface CreateTestRunOptions {
   strategyId?: string;
   promptId?: string;
   status?: string;
-  config?: Record<string, unknown>;
 }
 
 export interface TestRun {
@@ -185,7 +185,6 @@ export async function createTestRun(options?: CreateTestRunOptions): Promise<Tes
       strategy_id: strategyId,
       prompt_id: promptId,
       status: options?.status ?? 'pending',
-      config: options?.config ?? { test: true },
     })
     .select('id')
     .single();
@@ -207,8 +206,8 @@ export async function createTestRun(options?: CreateTestRunOptions): Promise<Tes
 export interface CreateTestVariantOptions {
   runId: string;
   promptId?: string;
-  iteration?: number;
-  content?: string;
+  generation?: number;
+  variant_content?: string;
 }
 
 export interface TestVariant {
@@ -229,8 +228,8 @@ export async function createTestVariant(options: CreateTestVariantOptions): Prom
     .insert({
       run_id: options.runId,
       prompt_id: options.promptId,
-      iteration: options.iteration ?? 1,
-      content: options.content ?? `${TEST_EVO_PREFIX} Variant content ${suffix}`,
+      generation: options.generation ?? 1,
+      variant_content: options.variant_content ?? `${TEST_EVO_PREFIX} Variant content ${suffix}`,
     })
     .select('id')
     .single();
@@ -252,8 +251,6 @@ export async function createTestVariant(options: CreateTestVariantOptions): Prom
 export interface CreateTestExperimentOptions {
   name?: string;
   promptId?: string;
-  strategyId?: string;
-  config?: Record<string, unknown>;
 }
 
 export interface TestExperiment {
@@ -276,8 +273,6 @@ export async function createTestExperiment(
     .insert({
       name: options.name ?? `${TEST_EVO_PREFIX} Experiment ${suffix}`,
       prompt_id: options.promptId,
-      strategy_id: options.strategyId,
-      config: options.config ?? { test: true },
     })
     .select('id')
     .single();
