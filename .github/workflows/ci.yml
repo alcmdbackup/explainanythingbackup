@@ -175,7 +175,9 @@ jobs:
           path: tsconfig.ci.tsbuildinfo
           key: tsc-cache-${{ runner.os }}-${{ hashFiles('tsconfig.ci.json', 'package-lock.json') }}
 
-      - run: npx tsc --incremental --tsBuildInfoFile tsconfig.ci.tsbuildinfo --noEmit --project tsconfig.ci.json
+      # SYNC-POINT: Uses npm run typecheck (same as finalize.md Step 4)
+      # tsconfig.ci.json has incremental:true + tsBuildInfoFile — no CLI flags needed
+      - run: npm run typecheck
 
   lint:
     name: Lint

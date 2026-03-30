@@ -71,7 +71,7 @@ npm run test:all              # Unit + Integration
 | `jest.integration-setup.js` | Integration setup: service role client, stable mocks |
 | `jest.shims.js` | OpenAI Node shims (runs before module imports) |
 | `playwright.config.ts` | E2E: projects, timeouts, web server, reporters |
-| `tsconfig.ci.json` | TypeScript check in CI (includes test files) |
+| `tsconfig.ci.json` | TypeScript check: incremental builds, shared by local + CI via `npm run typecheck` |
 
 ---
 
