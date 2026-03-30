@@ -1,0 +1,13 @@
+{
+  "branch": "feat/fix_testing_local_setup_20260329",
+  "created_at": "2026-03-29T00:00:00Z",
+  "prerequisites": {},
+  "relevantDocs": [
+    "docs/docs_overall/testing_overview.md",
+    "docs/feature_deep_dives/testing_setup.md",
+    "docs/docs_overall/environments.md",
+    "docs/docs_overall/project_workflow.md",
+    "docs/docs_overall/debugging.md",
+    "docs/feature_deep_dives/debugging_skill.md"
+  ]
+}
