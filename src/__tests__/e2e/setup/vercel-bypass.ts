@@ -39,6 +39,7 @@ interface BypassCookieState {
  * Check if bypass is needed (external URL + secret present)
  */
 export function needsBypassCookie(): boolean {
+  // eslint-disable-next-line flakiness/no-hardcoded-base-url -- URL comparison for localhost detection, BASE_URL set by playwright.config.ts
   const baseUrl = process.env.BASE_URL || 'http://localhost:3008';
   const secret = process.env.VERCEL_AUTOMATION_BYPASS_SECRET;
   const isExternal = !baseUrl.includes('localhost') && !baseUrl.includes('127.0.0.1');

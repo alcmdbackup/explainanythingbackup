@@ -55,13 +55,13 @@ adminTest.describe('Strategy Registry CRUD', () => {
     // Select generation model (required)
     const genModelSelect = dialog.locator('select').first();
     const genOptions = await genModelSelect.locator('option').allTextContents();
-    const validModel = genOptions.find(o => o !== 'Select a model…' && o.trim() !== '');
+    const validModel = genOptions.find(o => o !== 'Select a model...' && o.trim() !== '');
     if (validModel) await genModelSelect.selectOption({ label: validModel });
 
     // Select judge model (required)
     const judgeModelSelect = dialog.locator('select').nth(1);
     const judgeOptions = await judgeModelSelect.locator('option').allTextContents();
-    const validJudge = judgeOptions.find(o => o !== 'Select a model…' && o.trim() !== '');
+    const validJudge = judgeOptions.find(o => o !== 'Select a model...' && o.trim() !== '');
     if (validJudge) await judgeModelSelect.selectOption({ label: validJudge });
 
     // Fill iterations
@@ -70,6 +70,9 @@ adminTest.describe('Strategy Registry CRUD', () => {
 
     // Submit via Save button
     await dialog.getByRole('button', { name: /save/i }).click();
+
+    // Wait for dialog to close (save completed)
+    await expect(dialog).not.toBeVisible({ timeout: 15000 });
 
     // Uncheck "Hide test content" to see [E2E] prefixed strategies
     const hideTestCheckbox = adminPage.locator('[data-testid="filter-filterTestContent"] input[type="checkbox"]');

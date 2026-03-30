@@ -1,0 +1,23 @@
+{
+  "branch": "feat/find_fix_flaky_tests_20260329",
+  "created_at": "2026-03-29T00:00:00.000Z",
+  "prerequisites": {
+    "getting_started.md": true,
+    "architecture.md": true,
+    "project_workflow.md": true,
+    "TodoWrite": true,
+    "getting_started_read": "2026-03-30T06:38:54Z",
+    "project_workflow_read": "2026-03-30T06:38:55Z",
+    "testing_overview_read": "2026-03-30T06:38:55Z",
+    "todos_created": "2026-03-30T06:39:00Z",
+    "design_style_guide_read": "2026-03-30T09:11:12Z"
+  },
+  "relevantDocs": [
+    "docs/docs_overall/testing_overview.md",
+    "docs/feature_deep_dives/testing_setup.md",
+    "docs/docs_overall/environments.md",
+    "evolution/docs/architecture.md",
+    "docs/docs_overall/debugging.md",
+    "docs/feature_deep_dives/debugging_skill.md"
+  ]
+}

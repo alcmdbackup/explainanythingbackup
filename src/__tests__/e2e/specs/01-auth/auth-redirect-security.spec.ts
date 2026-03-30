@@ -27,7 +27,7 @@ test.describe('Auth Redirect Security', { tag: '@critical' }, () => {
     await page.goto('/auth/callback?code=fake&next=/dashboard');
     const url = page.url();
     expect(url).not.toContain('evil.com');
-    const baseUrl = process.env.BASE_URL || 'http://localhost:3008';
+    const baseUrl = process.env.BASE_URL!;
     expect(url).toContain(new URL(baseUrl).hostname);
   });
 

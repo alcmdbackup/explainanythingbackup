@@ -107,6 +107,7 @@ adminTest.describe('Evolution Run Pipeline', { tag: '@evolution' }, () => {
 
     const supabaseUrl = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL!);
     const projectRef = supabaseUrl.hostname.split('.')[0];
+    // eslint-disable-next-line flakiness/no-hardcoded-base-url -- cookie domain needs full URL, BASE_URL set by playwright.config.ts
     const baseUrl = process.env.BASE_URL || 'http://localhost:3008';
     const cookieDomain = new URL(baseUrl).hostname;
     const isSecure = baseUrl.startsWith('https');

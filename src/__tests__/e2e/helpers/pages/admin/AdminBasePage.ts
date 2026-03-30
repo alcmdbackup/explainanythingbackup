@@ -36,8 +36,8 @@ export class AdminBasePage {
    * Navigate to the admin dashboard.
    */
   async goto() {
-    const baseUrl = process.env.BASE_URL || 'http://localhost:3008';
-    await this.page.goto(`${baseUrl}/admin`, { waitUntil: 'domcontentloaded' });
+    // Use relative path so Playwright resolves against its configured baseURL
+    await this.page.goto('/admin', { waitUntil: 'domcontentloaded' });
     await expect(this.sidebar).toBeVisible();
   }
 
@@ -54,6 +54,7 @@ export class AdminBasePage {
    * Navigate to the Content page.
    */
   async goToContent() {
+    await this.navContent.waitFor({ state: 'visible' });
     await this.navContent.click();
     await this.page.waitForURL('**/admin/content');
   }
@@ -62,6 +63,7 @@ export class AdminBasePage {
    * Navigate to the Users page.
    */
   async goToUsers() {
+    await this.navUsers.waitFor({ state: 'visible' });
     await this.navUsers.click();
     await this.page.waitForURL('**/admin/users');
   }
@@ -70,6 +72,7 @@ export class AdminBasePage {
    * Navigate to the Costs page.
    */
   async goToCosts() {
+    await this.navCosts.waitFor({ state: 'visible' });
     await this.navCosts.click();
     await this.page.waitForURL('**/admin/costs');
   }
@@ -78,6 +81,7 @@ export class AdminBasePage {
    * Navigate to the Whitelist page.
    */
   async goToWhitelist() {
+    await this.navWhitelist.waitFor({ state: 'visible' });
     await this.navWhitelist.click();
     await this.page.waitForURL('**/admin/whitelist');
   }

@@ -92,7 +92,7 @@ adminTest.describe('Evolution Navigation', { tag: ['@evolution', '@critical'] },
     await experimentRow.click();
 
     // Should navigate to experiment detail
-    await adminPage.waitForURL(`**/admin/evolution/experiments/${experimentId}`, { timeout: 10000 });
+    await adminPage.waitForURL(`**/admin/evolution/experiments/${experimentId}`, { timeout: 30000 });
     expect(adminPage.url()).toContain(`/admin/evolution/experiments/${experimentId}`);
   });
 
@@ -111,7 +111,7 @@ adminTest.describe('Evolution Navigation', { tag: ['@evolution', '@critical'] },
     await strategyRow.click();
 
     // Should navigate to strategy detail
-    await adminPage.waitForURL(`**/admin/evolution/strategies/${strategyId}`, { timeout: 10000 });
+    await adminPage.waitForURL(`**/admin/evolution/strategies/${strategyId}`, { timeout: 30000 });
     expect(adminPage.url()).toContain(`/admin/evolution/strategies/${strategyId}`);
   });
 

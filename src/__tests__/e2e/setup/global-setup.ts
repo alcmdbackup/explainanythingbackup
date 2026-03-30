@@ -168,6 +168,7 @@ async function globalSetup() {
   // Wait for server to be ready (especially important for production builds in CI)
   // Priority: BASE_URL env > instance discovery > hardcoded fallback
   const instanceURL = discoverInstanceURL();
+  // eslint-disable-next-line flakiness/no-hardcoded-base-url -- global setup URL resolution mirrors playwright.config.ts
   const baseUrl = process.env.BASE_URL || instanceURL || 'http://localhost:3008';
   console.log(`   Using server: ${baseUrl}${instanceURL && !process.env.BASE_URL ? ' (discovered from instance)' : ''}`);
   // Use /api/health endpoint which is excluded from auth middleware

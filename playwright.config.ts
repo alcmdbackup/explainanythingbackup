@@ -76,6 +76,12 @@ if (!process.env.CI) {
 const instanceURL = discoverInstanceURL();
 const baseURL = process.env.BASE_URL || instanceURL || 'http://localhost:3008';
 
+// Export resolved baseURL so test helpers (AdminBasePage, admin-auth fixture) use the correct URL
+// instead of falling back to hardcoded port 3008 when process.env.BASE_URL is unset
+if (!process.env.BASE_URL && instanceURL) {
+  process.env.BASE_URL = baseURL;
+}
+
 // Detect production environment for extended timeouts and serial execution
 const isProduction = baseURL.includes('vercel.app') || baseURL.includes('explainanything');
 
