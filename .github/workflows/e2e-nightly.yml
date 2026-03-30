@@ -31,9 +31,6 @@ jobs:
       PINECONE_INDEX_NAME_ALL: ${{ secrets.PINECONE_INDEX_NAME_ALL }}
       PINECONE_NAMESPACE: ${{ secrets.PINECONE_NAMESPACE }}
 
-      # Admin test credentials
-      ADMIN_TEST_EMAIL: ${{ secrets.ADMIN_TEST_EMAIL }}
-      ADMIN_TEST_PASSWORD: ${{ secrets.ADMIN_TEST_PASSWORD }}
       NEXT_PUBLIC_USE_AI_API_ROUTE: 'true'
 
       # Vercel bypass for protected deployments

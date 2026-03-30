@@ -25,7 +25,7 @@ let adminSessionExpiry = 0;
  * Used to skip admin tests gracefully in CI when secrets aren't configured.
  */
 export function hasAdminCredentials(): boolean {
-  return !!(process.env.ADMIN_TEST_EMAIL && process.env.ADMIN_TEST_PASSWORD);
+  return !!(process.env.TEST_USER_EMAIL && process.env.TEST_USER_PASSWORD);
 }
 
 interface AdminSessionData {
@@ -36,7 +36,7 @@ interface AdminSessionData {
 
 /**
  * Authenticates as admin user with retry logic.
- * Uses ADMIN_TEST_EMAIL/ADMIN_TEST_PASSWORD env vars.
+ * Uses TEST_USER_EMAIL/TEST_USER_PASSWORD env vars.
  */
 async function authenticateAdmin(retries = MAX_AUTH_RETRIES): Promise<AdminSessionData> {
   const now = Date.now();
@@ -46,11 +46,11 @@ async function authenticateAdmin(retries = MAX_AUTH_RETRIES): Promise<AdminSessi
   }
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const adminEmail = process.env.ADMIN_TEST_EMAIL;
-  const adminPassword = process.env.ADMIN_TEST_PASSWORD;
+  const adminEmail = process.env.TEST_USER_EMAIL;
+  const adminPassword = process.env.TEST_USER_PASSWORD;
 
   if (!adminEmail || !adminPassword) {
-    throw new Error('ADMIN_TEST_EMAIL and ADMIN_TEST_PASSWORD must be set');
+    throw new Error('TEST_USER_EMAIL and TEST_USER_PASSWORD must be set');
   }
 
   console.log(`   Authenticating admin user: ${adminEmail}`);
@@ -94,7 +94,7 @@ export const adminTest = base.extend<AdminFixtures>({
   adminPage: async ({ browser }, use, testInfo) => {
     // Skip admin tests if credentials aren't configured
     if (!hasAdminCredentials()) {
-      testInfo.skip(true, 'ADMIN_TEST_EMAIL/ADMIN_TEST_PASSWORD not configured');
+      testInfo.skip(true, 'TEST_USER_EMAIL/TEST_USER_PASSWORD not configured');
       return;
     }
 
@@ -159,7 +159,7 @@ export const adminTest = base.extend<AdminFixtures>({
   // Extract user ID from cached session (no DB query needed)
   adminUserId: async ({}, use, testInfo) => {
     if (!hasAdminCredentials()) {
-      testInfo.skip(true, 'ADMIN_TEST_EMAIL/ADMIN_TEST_PASSWORD not configured');
+      testInfo.skip(true, 'TEST_USER_EMAIL/TEST_USER_PASSWORD not configured');
       return;
     }
     const session = await authenticateAdmin();

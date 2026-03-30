@@ -267,7 +267,7 @@ jobs:
       !cancelled() && !failure()
       && (github.base_ref == 'production' || github.base_ref == 'main') &&
       (needs.detect-changes.outputs.path == 'evolution-only' || needs.detect-changes.outputs.path == 'full')
-    environment: Development
+    environment: staging
     env:
       NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
       NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
@@ -334,8 +334,6 @@ jobs:
       TEST_USER_EMAIL: ${{ secrets.TEST_USER_EMAIL }}
       TEST_USER_PASSWORD: ${{ secrets.TEST_USER_PASSWORD }}
       TEST_USER_ID: ${{ secrets.TEST_USER_ID }}
-      ADMIN_TEST_EMAIL: ${{ secrets.TEST_USER_EMAIL }}
-      ADMIN_TEST_PASSWORD: ${{ secrets.TEST_USER_PASSWORD }}
       NEXT_PUBLIC_USE_AI_API_ROUTE: 'true'
     steps:
       - uses: actions/checkout@v4
@@ -408,8 +406,6 @@ jobs:
       TEST_USER_EMAIL: ${{ secrets.TEST_USER_EMAIL }}
       TEST_USER_PASSWORD: ${{ secrets.TEST_USER_PASSWORD }}
       TEST_USER_ID: ${{ secrets.TEST_USER_ID }}
-      ADMIN_TEST_EMAIL: ${{ secrets.TEST_USER_EMAIL }}
-      ADMIN_TEST_PASSWORD: ${{ secrets.TEST_USER_PASSWORD }}
       NEXT_PUBLIC_USE_AI_API_ROUTE: 'true'
     steps:
       - uses: actions/checkout@v4
@@ -486,8 +482,6 @@ jobs:
       TEST_USER_EMAIL: ${{ secrets.TEST_USER_EMAIL }}
       TEST_USER_PASSWORD: ${{ secrets.TEST_USER_PASSWORD }}
       TEST_USER_ID: ${{ secrets.TEST_USER_ID }}
-      ADMIN_TEST_EMAIL: ${{ secrets.TEST_USER_EMAIL }}
-      ADMIN_TEST_PASSWORD: ${{ secrets.TEST_USER_PASSWORD }}
       NEXT_PUBLIC_USE_AI_API_ROUTE: 'true'
     steps:
       - uses: actions/checkout@v4
