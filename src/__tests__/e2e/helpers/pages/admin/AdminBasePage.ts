@@ -47,7 +47,7 @@ export class AdminBasePage {
   async expectDashboardLoaded() {
     await expect(this.sidebar).toBeVisible();
     await expect(this.navDashboard).toBeVisible();
-    await expect(this.page.getByText('Admin Dashboard')).toBeVisible();
+    await expect(this.page.locator('main').getByRole('heading', { name: 'Admin Dashboard' })).toBeVisible();
   }
 
   /**

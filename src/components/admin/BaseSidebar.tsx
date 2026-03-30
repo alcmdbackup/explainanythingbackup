@@ -63,9 +63,9 @@ export function BaseSidebar({ title, navItems, backLink, activeOverrides }: Base
   return (
     <aside className="w-64 bg-[var(--surface-secondary)] border-r border-[var(--border-default)] min-h-screen flex flex-col">
       <div className="p-4 border-b border-[var(--border-default)]">
-        <h1 className="text-lg font-semibold text-[var(--text-primary)]">
+        <div className="text-lg font-semibold text-[var(--text-primary)]">
           {title}
-        </h1>
+        </div>
       </div>
       <nav className="p-2 flex-1 overflow-y-auto">
         {isNavGroupArray(navItems) ? (
