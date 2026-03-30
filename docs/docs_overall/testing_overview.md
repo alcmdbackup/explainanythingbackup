@@ -245,6 +245,22 @@ npx supabase inspect db long-running-queries --linked
 | E2E (UI) | `npm run test:e2e:ui` | Interactive UI mode |
 | E2E (headed) | `npm run test:e2e:headed` | Visible browser |
 | All | `npm run test:all` | Unit + Integration |
+| Typecheck | `npm run typecheck` | TypeScript check (incremental) |
+| Unit (changed) | `npm run test:changed` | Only tests affected by branch changes |
+
+### Check Parity: Local vs CI
+
+| Check | Local (/finalize) | CI (main) | CI (prod) |
+|-------|-------------------|-----------|-----------|
+| Lint | `npm run lint` | `npm run lint` | `npm run lint` |
+| TypeScript | `npm run typecheck` | `npm run typecheck` | `npm run typecheck` |
+| Build | `npm run build` | ✗ skipped | ✗ skipped |
+| Unit | `npm run test` | `test:ci --changedSince` | same |
+| ESM | `npm run test:esm` | `npm run test:esm` | `npm run test:esm` |
+| Integration | `test:integration` (all) | `:critical` (5) | `:evolution` + `:non-evolution` |
+| E2E | `test:e2e:critical` | `test:e2e:critical` | `:evolution` + `:non-evolution --shard` |
+
+**Intentional differences**: CI uses `--changedSince` (unit), `--shard` (E2E), `--maxWorkers=2`. Local runs full suites for strict pre-PR verification.
 
 ### E2E Tests in Skill Workflows
 
