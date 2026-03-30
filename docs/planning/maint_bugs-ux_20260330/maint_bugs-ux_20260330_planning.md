@@ -42,12 +42,15 @@ The evolution admin dashboard has 5 confirmed bugs (data display, missing page, 
 ### P0 — Data correctness bugs
 - [ ] **B1.** Dashboard Total Cost / Avg Cost show $0.00 with 299 completed runs (#15)
   - Files: `src/app/admin/evolution-dashboard/page.tsx`, `evolution/src/services/evolutionVisualizationActions.ts` (cost query at lines 102-123)
-  - Investigation: Check if cost aggregation query sums correctly. The `Promise.all` at lines 136-162 has no try-catch — add error handling with logging. If both `evolution_metrics` and `evolution_run_costs` sources fail, show "Cost unavailable" instead of misleading $0.00.
-  - Test: Unit test for cost aggregation with mock data (0 runs, 1 run, many runs, null costs, query failure)
+  - **Root cause investigation first**: Check if (a) cost aggregation query logic is wrong (wrong join, NULL propagation), (b) cost data genuinely doesn't exist in DB (runs have no cost records), or (c) error swallows result silently. Run the query manually against Supabase to determine.
+  - **If query is wrong**: Fix the query. **If data is genuinely zero**: Leave as $0.00 (not a bug). **If error handling**: Add try-catch around Promise.all at line 89 and line 136. In the catch path, return `totalCostUsd: null` (not 0). Update `DashboardData` type to allow `null`. In page renderer (line 67), render `formatCost(data.totalCostUsd)` as "—" when null.
+  - Test: Unit test for cost aggregation with mock data (0 runs → $0.00, many runs → sum, null costs → skip, query failure → null)
 - [ ] **B2.** "stale" experiment status exists in data but not in filter dropdown (#10)
   - Files: `src/app/admin/evolution/experiments/page.tsx` lines 44-50 (FILTERS array)
-  - Fix: Add `{ label: 'Stale', value: 'stale' }` to filter options. Stale is computed client-side (running > 60min) at lines 84-89 via `STATE_COLORS` map (line 33 has `stale: 'var(--status-warning)'`). Filter must match computed status, not DB status.
-  - Test: Unit test that filter options include 'stale'; test that stale experiments appear when filter selected
+  - Fix: Add `{ label: 'Stale', value: 'stale' }` to filter options.
+  - **Client/server mismatch**: "stale" is computed client-side (running > 60min, lines 84-89) — it's NOT a DB status value. `listExperimentsAction` does `query.eq('status', input.status)` which would return 0 results for 'stale'. Fix approach: When filter value is 'stale', pass `status: 'running'` to the server action (fetch all running experiments), then filter client-side to only show those where `created_at` is older than 60 minutes. This means the `fetchData` callback needs a special case for 'stale'.
+  - **Implement B2 before U9**: U9 (URL param sync) reads the FILTERS array. B2 must add 'stale' to FILTERS first so U9's allowlist includes it.
+  - Test: Unit test that filter options include 'stale'; test that stale filter fetches 'running' from server then filters by age client-side
 
 ### P1 — Structural bugs
 - [ ] **B3.** `/admin/evolution` returns 404 — missing index page (#5)
@@ -58,9 +61,9 @@ The evolution admin dashboard has 5 confirmed bugs (data display, missing page, 
   - Investigation: Check if duplicate is from a hidden native checkbox + styled overlay pattern. If intentional (common in custom checkbox components), add `aria-hidden="true"` to the duplicate. If accidental, remove it.
   - Test: Unit test or snapshot test for login form accessibility tree
 - [ ] **B5.** Item count sometimes missing on initial render — hydration timing (#36)
-  - Files: affected list pages (experiments, runs)
-  - Investigation: Check if count renders before data loads. May need to show count in loading skeleton or defer count display until data arrives.
-  - Test: Verify in existing page tests that item count appears after data load
+  - Files: affected list pages (experiments, runs) — the `EntityListPage` component renders count from `totalCount` prop
+  - Fix approach: Show "—" or skeleton placeholder for count while `loading=true`, then show actual count when data arrives. This avoids the flash of missing count.
+  - Test: New unit test in `EntityListPage.test.tsx` — render with `loading=true`, assert count shows placeholder; render with `loading=false` and `totalCount=5`, assert "5 items" appears
 
 ---
 
@@ -82,10 +85,14 @@ The evolution admin dashboard has 5 confirmed bugs (data display, missing page, 
 - [ ] **U4.** Add pagination to arena detail page (#4)
   - Add `limit`/`offset` params to `getArenaEntriesAction` in `evolution/src/services/arenaActions.ts`
   - Return `{ items: ArenaEntry[], total: number }` instead of `ArenaEntry[]`
-  - Refactor `src/app/admin/evolution/arena/[topicId]/page.tsx` to add page state
-  - COMPLEXITY NOTE: Arena detail has custom client-side sorting (5 sort keys at lines 44-60), independent elo-rank computation (lines 62-66), and eligibility cutoff logic (lines 68-87) that currently operate on the full dataset. With pagination, sorting/ranking becomes per-page only. Elo-rank column will show rank within current page, not global rank. This is an acceptable trade-off for 97+ entries.
-  - Cannot reuse EntityListPage directly — keep custom table but add pagination controls
-  - Test: Unit test for action with limit/offset; update existing arena page test; E2E for pagination
+  - **Pre-implementation**: Audit all callers of `getArenaEntriesAction` (grep for the function name). Update each caller to unpack `{ items, total }` instead of expecting `ArenaEntry[]`. TypeScript build will catch any missed callers.
+  - Refactor `src/app/admin/evolution/arena/[topicId]/page.tsx` to add page state with `PAGE_SIZE = 20`
+  - COMPLEXITY: Arena has custom client-side sorting (5 keys, lines 44-60), elo-rank (lines 62-66), eloCutoff (line 69), and anchorSet (line 72). All currently operate on full dataset. With pagination:
+    - **Sorting**: Server-side sort by `elo_score DESC` as default. Client-side sort applies to current page only.
+    - **Elo-rank**: Shows rank within current page. Add column header note: "Rank (page)" to make this explicit.
+    - **EloCutoff / AnchorSet**: These compute eligibility thresholds over ALL entries. With pagination they'd only reflect the current page, which is **incorrect**. Fix: fetch global stats (min/max elo, percentile cutoffs) in a separate lightweight query alongside paginated results, so eligibility rendering remains accurate.
+  - Cannot reuse EntityListPage directly — keep custom table but add pagination controls (copy pagination UI from EntityListPage lines 292-325)
+  - Test: Unit test for action with limit/offset; test for global stats query; update existing arena page test; E2E for pagination
 - [ ] **U5.** Add `role="alert"` to start-experiment validation errors (#9)
   - `src/app/admin/evolution/start-experiment/page.tsx` — wrap error list container with `role="alert" aria-live="polite"`
   - Test: Unit test asserting role="alert" on error container
@@ -130,8 +137,8 @@ The evolution admin dashboard has 5 confirmed bugs (data display, missing page, 
   - Test: Unit test for expand/collapse; snapshot test
 - [ ] **U17.** Show inline validation errors next to fields (#28, #31)
   - Move error messages from bottom list to beneath each invalid field
-  - BREAKING: Existing tests may assert error list below form — update page.test.tsx assertions
-  - Test: Update existing tests to assert inline errors; add test for each field error state
+  - VERIFIED SAFE: `start-experiment/page.test.tsx` has no validation error assertions. Also check `ExperimentForm.test.tsx` in `_components/` before implementing — it may have error-related assertions.
+  - Test: Add new test assertions for inline error rendering per field
 - [ ] **U18.** Add "Contact admin to reset password" link or action (#32)
   - Either `mailto:` link or remove the unhelpful text entirely
   - Test: Unit test for link href or text removal
