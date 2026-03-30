@@ -45,7 +45,7 @@ All metrics are declared in a typed registry keyed by entity type. Each definiti
 | Name | Category | Timing | Description |
 |------|----------|--------|-------------|
 | `cost` | cost | during_execution | Total USD spent (from cost tracker). Written incrementally during the iteration loop AND re-written at finalization as a safety net (using `during_execution` timing) to ensure the row exists even when the loop breaks early (`budget_exceeded`/`converged`). This is critical because `propagateMetrics()` uses `cost` as the source metric for `run_count`, `total_cost`, and `avg_cost_per_run` on strategy/experiment entities. `listView: false` — not shown in the entity list view. |
-| `winner_elo` | rating | at_finalization | Elo of the highest-mu variant |
+| `winner_elo` | rating | at_finalization | Elo of the highest-mu variant. Includes sigma (variant sigma * ELO_SIGMA_SCALE) and 95% CI. |
 | `median_elo` | rating | at_finalization | 50th percentile Elo across all variants |
 | `p90_elo` | rating | at_finalization | 90th percentile Elo |
 | `max_elo` | rating | at_finalization | Highest Elo in the pool |
@@ -58,8 +58,8 @@ All metrics are declared in a typed registry keyed by entity type. Each definiti
 
 | Name | Category | Timing | Description |
 |------|----------|--------|-------------|
-| `best_variant_elo` | rating | at_finalization | Highest elo among variants produced by this invocation |
-| `avg_variant_elo` | rating | at_finalization | Average elo of variants from this invocation |
+| `best_variant_elo` | rating | at_finalization | Highest elo among variants produced by this invocation. Also marked stale by the trigger when variant mu/sigma changes. |
+| `avg_variant_elo` | rating | at_finalization | Average elo of variants from this invocation. Also marked stale by the trigger when variant mu/sigma changes. |
 | `variant_count` | count | at_finalization | Number of variants created by this invocation |
 
 ### Variant Metrics
@@ -131,6 +131,23 @@ Follows the same pattern as all evolution tables: deny-all default, `service_rol
 
 ---
 
+## Per-LLM-Call Cost Persistence
+
+Cost metrics are now written to the database after each successful LLM call via `createV2LLMClient`. When the client is constructed with optional `db` and `runId` parameters, each LLM call writes its cost to `evolution_agent_invocations` fire-and-forget (errors are logged but do not fail the call). This provides fine-grained cost tracking independent of the phase-level cost metric writes.
+
+---
+
+## Elo CI on Run Metrics
+
+Run-level elo metrics (e.g., `winner_elo`) now carry sigma and 95% confidence intervals derived from the source variant's Bayesian uncertainty:
+
+- **eloSigma** = `variant.sigma * ELO_SIGMA_SCALE` (where `ELO_SIGMA_SCALE = 16`)
+- **CI** = `[elo - 1.96 * eloSigma, elo + 1.96 * eloSigma]`
+
+These values are stored in the `sigma`, `ci_lower`, and `ci_upper` columns of the metric row. Propagated metrics at the strategy/experiment level use bootstrap CI instead (computed by `bootstrapMeanCI()` from multiple run values), not the per-variant sigma.
+
+---
+
 ## Write Path
 
 **File:** `evolution/src/lib/metrics/writeMetrics.ts`
@@ -161,11 +178,11 @@ When a variant's `mu` or `sigma` changes after run completion (e.g., from arena 
 
 On the next read, server actions detect stale rows and call `recomputeStaleMetrics()`:
 
-1. **Row-level locking** via `lock_stale_metrics` RPC (`SELECT FOR UPDATE SKIP LOCKED`) — concurrent readers skip recomputation, preventing thundering herd.
+1. **Atomic claim-and-clear** via `lock_stale_metrics` RPC — this is NOT advisory locking or `SELECT FOR UPDATE SKIP LOCKED`. Instead, the RPC atomically UPDATEs `stale=false` and RETURNs the claimed rows in a single statement. This ensures exactly one caller processes each stale row. If recomputation fails, the catch block re-marks the rows `stale=true` so they are retried on the next read.
 2. **Recompute** based on entity type:
    - **Run**: re-reads variant ratings and recomputes all finalization metrics (elo, match stats, variant counts) via finalization compute functions.
    - **Strategy/Experiment**: re-reads child run metrics and re-runs propagation aggregation.
-3. **Clear stale flags** in a `finally` block.
+3. On success, rows remain `stale=false`. On failure, the catch block sets `stale=true` again to allow retry.
 
 ---
 

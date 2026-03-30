@@ -59,7 +59,7 @@ async function seedArenaWithBudget(): Promise<SeededArenaData> {
     .from('evolution_prompts')
     .insert({
       prompt: `[TEST] Budget Arena Topic ${ts}`,
-      title: `E2E Budget Topic ${ts}`,
+      name: `E2E Budget Topic ${ts}`,
     })
     .select('id')
     .single();

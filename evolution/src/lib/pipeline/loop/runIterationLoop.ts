@@ -12,9 +12,6 @@ import { createV2LLMClient } from '../infra/createLLMClient';
 import type { EntityLogger } from '../infra/createEntityLogger';
 import { GenerationAgent } from '../../core/agents/GenerationAgent';
 import { RankingAgent } from '../../core/agents/RankingAgent';
-import { getEntity } from '../../core/entityRegistry';
-import { writeMetric } from '../../metrics/writeMetrics';
-import type { ExecutionContext } from '../../core/types';
 
 // ─── Config validation ───────────────────────────────────────────
 
@@ -90,7 +87,7 @@ export async function evolveArticle(
   const noopLogger: EntityLogger = { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} };
   const logger = options?.logger ?? noopLogger;
   const costTracker = createCostTracker(resolvedConfig.budgetUsd);
-  const llm = createV2LLMClient(llmProvider, costTracker, resolvedConfig.generationModel);
+  const llm = createV2LLMClient(llmProvider, costTracker, resolvedConfig.generationModel, logger, db, runId);
 
   logger.info('Config validation passed', {
     iterations: resolvedConfig.iterations, budgetUsd: resolvedConfig.budgetUsd,
@@ -219,28 +216,8 @@ export async function evolveArticle(
       stopReason = 'budget_exceeded'; iterationsRun = iter; break;
     }
 
-    // ─── Write execution metrics ─────────────────────────────
-    try {
-      const execCtx: ExecutionContext = { costTracker, phaseName: 'generation' };
-      for (const def of getEntity('run').metrics.duringExecution) {
-        const value = def.compute(execCtx);
-        await writeMetric(db, 'run', runId, def.name as import('../../metrics/types').MetricName, value, 'during_execution');
-      }
-      // Dynamic per-agent cost metrics
-      for (const [phase, cost] of Object.entries(costTracker.getPhaseCosts())) {
-        await writeMetric(db, 'run', runId, `agentCost:${phase}` as const, cost as number, 'during_execution');
-      }
-    } catch (metricsErr) {
-      const errMsg = metricsErr instanceof Error ? metricsErr.message : String(metricsErr);
-      const errStack = metricsErr instanceof Error ? metricsErr.stack?.slice(0, 1000) : undefined;
-      logger.warn('Execution metrics write failed', {
-        phaseName: 'metrics',
-        error: errMsg.slice(0, 500),
-        errorType: metricsErr instanceof Error ? metricsErr.constructor.name : typeof metricsErr,
-        errorStack: errStack,
-        runId,
-      });
-    }
+    // Cost metrics are now written per-LLM-call in createV2LLMClient (fire-and-forget).
+    // Finalization safety net at persistRunResults.ts:222-224 reconciles final cost.
 
     iterationsRun = iter;
   }

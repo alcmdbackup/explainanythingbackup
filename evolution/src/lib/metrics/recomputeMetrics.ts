@@ -1,7 +1,7 @@
-// Stale metric recomputation with SELECT FOR UPDATE SKIP LOCKED thundering herd protection.
+// Stale metric recomputation with atomic claim-and-clear thundering herd protection.
 
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { EntityType, MetricRow, FinalizationContext, MetricName } from './types';
+import { type EntityType, type MetricRow, type FinalizationContext, type MetricName, isMetricValue } from './types';
 import { getEntity } from '../core/entityRegistry';
 import { writeMetric } from './writeMetrics';
 import { getMetricsForEntities } from './readMetrics';
@@ -17,16 +17,17 @@ export async function recomputeStaleMetrics(
 ): Promise<void> {
   if (staleRows.length === 0) return;
 
-  // Acquire row-level lock — SKIP LOCKED means concurrent readers skip recomputation
+  // Atomic claim-and-clear: sets stale=false and returns claimed rows.
+  // If another request already cleared stale, returns empty — skip recomputation.
   const staleNames = staleRows.map(r => r.metric_name);
-  const { data: locked } = await db.rpc('lock_stale_metrics', {
+  const { data: claimed } = await db.rpc('lock_stale_metrics', {
     p_entity_type: entityType,
     p_entity_id: entityId,
     p_metric_names: staleNames,
   });
 
-  // If no rows locked (another request is recomputing), skip
-  if (!locked || (locked as unknown[]).length === 0) return;
+  // No rows claimed (another request is recomputing or already finished) — skip
+  if (!claimed || (claimed as unknown[]).length === 0) return;
 
   try {
     if (entityType === 'run') {
@@ -35,15 +36,24 @@ export async function recomputeStaleMetrics(
       await recomputeStrategyMetrics(db, entityId);
     } else if (entityType === 'experiment') {
       await recomputeExperimentMetrics(db, entityId);
+    } else if (entityType === 'invocation') {
+      await recomputeInvocationMetrics(db, entityId);
     }
-  } finally {
-    // Clear stale flags for the metrics we locked
-    await db
-      .from('evolution_metrics')
-      .update({ stale: false, updated_at: new Date().toISOString() })
-      .eq('entity_type', entityType)
-      .eq('entity_id', entityId)
-      .in('metric_name', staleNames);
+    // Success: stale already cleared by the RPC — no further action needed
+  } catch (err) {
+    // Re-mark stale so the next reader retries recomputation
+    try {
+      await db
+        .from('evolution_metrics')
+        .update({ stale: true, updated_at: new Date().toISOString() })
+        .eq('entity_type', entityType)
+        .eq('entity_id', entityId)
+        .in('metric_name', staleNames);
+    } catch (_remarErr) {
+      // Double-fault: re-mark failed too. Metrics stuck as stale=false but
+      // values may be incorrect. Log but don't mask the original error.
+    }
+    throw err;
   }
 }
 
@@ -73,9 +83,17 @@ async function recomputeRunEloMetrics(db: SupabaseClient, runId: string): Promis
   };
 
   for (const def of getEntity('run').metrics.atFinalization) {
-    const value = def.compute(ctx);
-    if (value != null) {
-      await writeMetric(db, 'run', runId, def.name as MetricName, value, 'at_finalization');
+    const result = def.compute(ctx);
+    if (result == null) continue;
+    if (isMetricValue(result)) {
+      await writeMetric(db, 'run', runId, def.name as MetricName, result.value, 'at_finalization', {
+        sigma: result.sigma ?? undefined,
+        ci_lower: result.ci?.[0],
+        ci_upper: result.ci?.[1],
+        n: result.n,
+      });
+    } else {
+      await writeMetric(db, 'run', runId, def.name as MetricName, result, 'at_finalization');
     }
   }
 }
@@ -134,5 +152,53 @@ async function recomputePropagatedMetrics(
       n: aggregated.n,
       aggregation_method: def.aggregationMethod as import('./types').AggregationMethod,
     });
+  }
+}
+
+async function recomputeInvocationMetrics(db: SupabaseClient, invocationId: string): Promise<void> {
+  // Fetch invocation's execution_detail and parent run's variants
+  const { data: inv, error: invError } = await db
+    .from('evolution_agent_invocations')
+    .select('id, run_id, execution_detail')
+    .eq('id', invocationId)
+    .single();
+  if (invError || !inv) return;
+
+  const { data: variants, error: variantError } = await db
+    .from('evolution_variants')
+    .select('id, mu, sigma')
+    .eq('run_id', inv.run_id);
+  if (variantError || !variants || variants.length === 0) return;
+
+  const ratings = new Map<string, Rating>();
+  const pool: Variant[] = [];
+  for (const v of variants) {
+    ratings.set(v.id, { mu: v.mu ?? DEFAULT_MU, sigma: v.sigma ?? DEFAULT_MU / 3 });
+    pool.push({ id: v.id, text: '', version: 0, parentIds: [], strategy: '', createdAt: 0, iterationBorn: 0 });
+  }
+
+  const detailsMap = new Map([[inv.id, inv.execution_detail]]);
+  const ctx: FinalizationContext = {
+    result: { winner: pool[0]!, pool, ratings, matchHistory: [], totalCost: 0, iterationsRun: 0, stopReason: 'iterations_complete', muHistory: [], diversityHistory: [], matchCounts: {} },
+    ratings,
+    pool,
+    matchHistory: [],
+    invocationDetails: detailsMap as FinalizationContext['invocationDetails'],
+    currentInvocationId: inv.id,
+  };
+
+  for (const def of getEntity('invocation').metrics.atFinalization) {
+    const result = def.compute(ctx);
+    if (result == null) continue;
+    if (isMetricValue(result)) {
+      await writeMetric(db, 'invocation', invocationId, def.name as MetricName, result.value, 'at_finalization', {
+        sigma: result.sigma ?? undefined,
+        ci_lower: result.ci?.[0],
+        ci_upper: result.ci?.[1],
+        n: result.n,
+      });
+    } else {
+      await writeMetric(db, 'invocation', invocationId, def.name as MetricName, result, 'at_finalization');
+    }
   }
 }

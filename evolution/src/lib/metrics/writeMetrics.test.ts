@@ -101,4 +101,19 @@ describe('writeMetric timing validation', () => {
       db, 'run', '00000000-0000-0000-0000-000000000001', 'totally_fake' as never, 1, 'during_execution',
     )).rejects.toThrow(/Unknown metric/);
   });
+
+  // Regression test for Finding 11: agent-contributed metrics must pass validation
+  it('accepts format_rejection_rate for invocation at_finalization', async () => {
+    const { db } = makeMockDb();
+    await expect(writeMetric(
+      db, 'invocation', '00000000-0000-0000-0000-000000000001', 'format_rejection_rate', 0.33, 'at_finalization',
+    )).resolves.not.toThrow();
+  });
+
+  it('accepts total_comparisons for invocation at_finalization', async () => {
+    const { db } = makeMockDb();
+    await expect(writeMetric(
+      db, 'invocation', '00000000-0000-0000-0000-000000000001', 'total_comparisons', 15, 'at_finalization',
+    )).resolves.not.toThrow();
+  });
 });

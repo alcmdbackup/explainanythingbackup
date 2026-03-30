@@ -29,14 +29,15 @@ async function seedAdminTestUser() {
     return; // Exit gracefully without error
   }
 
-  // Validate password strength
-  if (ADMIN_TEST_PASSWORD.length < 12) {
-    throw new Error('ADMIN_TEST_PASSWORD must be at least 12 characters');
+  // If admin email matches test user, the test user is already an admin — skip seeding
+  if (ADMIN_TEST_EMAIL === TEST_USER_EMAIL) {
+    console.log('ℹ ADMIN_TEST_EMAIL matches TEST_USER_EMAIL — test user is already admin, skipping seed');
+    return;
   }
 
-  // Verify admin email differs from regular test user
-  if (ADMIN_TEST_EMAIL === TEST_USER_EMAIL) {
-    throw new Error('ADMIN_TEST_EMAIL must differ from TEST_USER_EMAIL');
+  // Validate password strength (only for dedicated admin accounts)
+  if (ADMIN_TEST_PASSWORD.length < 12) {
+    throw new Error('ADMIN_TEST_PASSWORD must be at least 12 characters');
   }
 
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);

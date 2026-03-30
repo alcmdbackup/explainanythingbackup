@@ -90,10 +90,20 @@ adminTest.describe('Evolution Invocation Detail', { tag: '@evolution' }, () => {
     const { error: iErr } = await sb.from('evolution_agent_invocations').insert(invocationInserts);
     if (iErr) throw new Error(`Seed invocations: ${iErr.message}`);
     invocationIds.push(successInvocationId, failedInvocationId);
+
+    // Seed finalization metrics for the success invocation
+    const metricRows = [
+      { entity_type: 'invocation', entity_id: successInvocationId, metric_name: 'best_variant_elo', value: 1420, sigma: 38, ci_lower: 1382, ci_upper: 1458 },
+      { entity_type: 'invocation', entity_id: successInvocationId, metric_name: 'avg_variant_elo', value: 1280, sigma: 45, ci_lower: 1235, ci_upper: 1325 },
+      { entity_type: 'invocation', entity_id: successInvocationId, metric_name: 'variant_count', value: 4 },
+    ];
+    const { error: mErr } = await sb.from('evolution_metrics').insert(metricRows);
+    if (mErr) throw new Error(`Seed invocation metrics: ${mErr.message}`);
   });
 
   adminTest.afterAll(async () => {
     const sb = getServiceClient();
+    await sb.from('evolution_metrics').delete().in('entity_id', invocationIds);
     await sb.from('evolution_agent_invocations').delete().in('id', invocationIds);
     await sb.from('evolution_runs').delete().eq('id', runId);
     await sb.from('evolution_strategies').delete().eq('id', strategyId);
@@ -186,6 +196,39 @@ adminTest.describe('Evolution Invocation Detail', { tag: '@evolution' }, () => {
     // Breadcrumb should contain "Invocations" link
     const invocationsLink = breadcrumb.locator('a:has-text("Invocations")');
     await expect(invocationsLink).toBeVisible();
+  });
+
+  adminTest('invocation metrics tab shows best_variant_elo, avg_variant_elo, variant_count', async ({ adminPage }) => {
+    await adminPage.goto(`/admin/evolution/invocations/${successInvocationId}`);
+    await adminPage.waitForLoadState('domcontentloaded');
+
+    const header = adminPage.locator('[data-testid="entity-detail-header"]');
+    await expect(header).toBeVisible({ timeout: 15000 });
+
+    // Switch to the Metrics tab
+    const metricsTab = adminPage.locator('[data-testid="tab-metrics"]');
+    await metricsTab.click();
+
+    const metricsContainer = adminPage.locator('[data-testid="entity-metrics-tab"]');
+    await expect(metricsContainer).toBeVisible({ timeout: 10000 });
+
+    // best_variant_elo (label: "Best Variant Elo")
+    const bestElo = adminPage.locator('[data-testid="metric-best-variant-elo"]');
+    await expect(bestElo).toBeVisible();
+    await expect(bestElo).not.toContainText('—');
+    // Should show CI range
+    await expect(bestElo).toContainText('[');
+
+    // avg_variant_elo (label: "Avg Variant Elo")
+    const avgElo = adminPage.locator('[data-testid="metric-avg-variant-elo"]');
+    await expect(avgElo).toBeVisible();
+    await expect(avgElo).not.toContainText('—');
+    await expect(avgElo).toContainText('[');
+
+    // variant_count (label overridden to "Variants Produced" in InvocationEntity)
+    const variantCount = adminPage.locator('[data-testid="metric-variants-produced"]');
+    await expect(variantCount).toBeVisible();
+    await expect(variantCount).toContainText('4');
   });
 
   adminTest('back navigation from detail to list via breadcrumb', async ({ adminPage }) => {

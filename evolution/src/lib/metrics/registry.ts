@@ -9,6 +9,7 @@ import {
 } from './computations/finalization';
 import {
   computeBestVariantElo, computeAvgVariantElo, computeInvocationVariantCount,
+  computeFormatRejectionRate, computeTotalComparisons,
 } from './computations/finalizationInvocation';
 import {
   aggregateSum, aggregateAvg, aggregateMax, aggregateMin, aggregateCount,
@@ -95,6 +96,12 @@ export const METRIC_REGISTRY: Record<EntityType, EntityMetricRegistry> = {
       { name: 'variant_count', label: 'Variants Produced', category: 'count', formatter: 'integer',
         description: 'Number of variants created by this invocation',
         compute: (ctx) => computeInvocationVariantCount(ctx, ctx.currentInvocationId) },
+      { name: 'format_rejection_rate', label: 'Format Rejection Rate', category: 'count', formatter: 'percent',
+        description: 'Fraction of generation strategies that failed format validation',
+        compute: (ctx) => computeFormatRejectionRate(ctx, ctx.currentInvocationId ?? null) },
+      { name: 'total_comparisons', label: 'Total Comparisons', category: 'match', formatter: 'integer',
+        description: 'Total pairwise comparisons performed by this ranking invocation',
+        compute: (ctx) => computeTotalComparisons(ctx, ctx.currentInvocationId ?? null) },
     ],
     atPropagation: [],
   },

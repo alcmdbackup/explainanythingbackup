@@ -232,7 +232,7 @@ async function globalTeardown() {
     const [testStrategies, testExperiments, testPrompts] = await Promise.all([
       supabase.from('evolution_strategies').select('id').or('name.ilike.%[TEST]%,name.ilike.%[E2E]%'),
       supabase.from('evolution_experiments').select('id').or('name.ilike.%[TEST]%,name.ilike.%[E2E]%'),
-      supabase.from('evolution_prompts').select('id').or('title.ilike.%[TEST]%,title.ilike.%[E2E]%'),
+      supabase.from('evolution_prompts').select('id').or('name.ilike.%[TEST]%,name.ilike.%[E2E]%'),
     ]);
 
     const testStrategyIds = (testStrategies.data ?? []).map(s => s.id as string);

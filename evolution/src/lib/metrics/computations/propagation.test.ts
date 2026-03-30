@@ -46,6 +46,20 @@ describe('aggregateAvg', () => {
     expect(result.n).toBe(3);
   });
 
+  it('produces CI via standard error when n >= 2', () => {
+    const result = aggregateAvg([makeRow(10), makeRow(20), makeRow(30)]);
+    expect(result.ci).not.toBeNull();
+    expect(result.ci![0]).toBeLessThan(20);
+    expect(result.ci![1]).toBeGreaterThan(20);
+    expect(result.sigma).not.toBeNull();
+  });
+
+  it('returns null CI for n=1', () => {
+    const result = aggregateAvg([makeRow(42)]);
+    expect(result.value).toBe(42);
+    expect(result.ci).toBeNull();
+  });
+
   it('returns 0 for empty (no division-by-zero)', () => {
     expect(aggregateAvg([]).value).toBe(0);
   });
@@ -54,6 +68,20 @@ describe('aggregateAvg', () => {
 describe('aggregateMax', () => {
   it('correct max', () => {
     expect(aggregateMax([makeRow(5), makeRow(10), makeRow(3)]).value).toBe(10);
+  });
+
+  it('propagates sigma from max source row', () => {
+    const result = aggregateMax([makeRow(5, 2.0), makeRow(10, 3.5), makeRow(3, 1.0)]);
+    expect(result.value).toBe(10);
+    expect(result.sigma).toBe(3.5);
+    expect(result.ci).toEqual([10 - 1.96 * 3.5, 10 + 1.96 * 3.5]);
+  });
+
+  it('returns null sigma/ci when max row has no sigma', () => {
+    const result = aggregateMax([makeRow(5), makeRow(10), makeRow(3)]);
+    expect(result.value).toBe(10);
+    expect(result.sigma).toBeNull();
+    expect(result.ci).toBeNull();
   });
 
   it('returns 0 for empty (safe default)', () => {
@@ -65,6 +93,13 @@ describe('aggregateMax', () => {
 describe('aggregateMin', () => {
   it('correct min', () => {
     expect(aggregateMin([makeRow(5), makeRow(10), makeRow(3)]).value).toBe(3);
+  });
+
+  it('propagates sigma from min source row', () => {
+    const result = aggregateMin([makeRow(5, 2.0), makeRow(10, 3.5), makeRow(3, 1.0)]);
+    expect(result.value).toBe(3);
+    expect(result.sigma).toBe(1.0);
+    expect(result.ci).toEqual([3 - 1.96 * 1.0, 3 + 1.96 * 1.0]);
   });
 
   it('returns 0 for empty (safe default)', () => {

@@ -1,11 +1,16 @@
 // V2 LLM client wrapper with retry on transient errors and cost tracking integration.
+// Writes cost metrics to DB after each successful LLM call (fire-and-forget) so cost
+// survives sudden process crashes.
 
+import type { SupabaseClient } from '@supabase/supabase-js';
 import type { EvolutionLLMClient, LLMCompletionOptions } from '../../types';
 import { BudgetExceededError } from '../../types';
 import { isTransientError } from '../../shared/classifyErrors';
 import { getModelPricing, type ModelPricing } from '@/config/llmPricing';
 import type { V2CostTracker } from './trackBudget';
 import type { EntityLogger } from './createEntityLogger';
+import { writeMetric } from '../../metrics/writeMetrics';
+import type { MetricName } from '../../metrics/types';
 
 // ─── Cost estimation ─────────────────────────────────────────────
 
@@ -41,6 +46,8 @@ export function createV2LLMClient(
   costTracker: V2CostTracker,
   defaultModel: string,
   logger?: EntityLogger,
+  db?: SupabaseClient,
+  runId?: string,
 ): EvolutionLLMClient {
   return {
     async complete(
@@ -73,6 +80,18 @@ export function createV2LLMClient(
           // Success — record actual cost
           const actual = calculateCost(prompt.length, response.length, pricing);
           costTracker.recordSpend(agentName, actual, margined);
+
+          // Fire-and-forget: persist cost to DB so it survives process crashes.
+          // Cost tracker is the source of truth; DB write is best-effort.
+          if (db && runId) {
+            const totalSpent = costTracker.getTotalSpent();
+            const phaseCost = costTracker.getPhaseCosts()[agentName] ?? 0;
+            writeMetric(db, 'run', runId, 'cost' as MetricName, totalSpent, 'during_execution')
+              .catch((err) => logger?.warn('Fire-and-forget cost write failed', { phaseName: agentName, error: err instanceof Error ? err.message : String(err) }));
+            writeMetric(db, 'run', runId, `agentCost:${agentName}` as MetricName, phaseCost, 'during_execution')
+              .catch((err) => logger?.warn('Fire-and-forget agentCost write failed', { phaseName: agentName, error: err instanceof Error ? err.message : String(err) }));
+          }
+
           logger?.info('LLM call succeeded', { phaseName: agentName, promptChars: prompt.length, responseChars: response.length, costUsd: actual, attempt });
           return response;
         } catch (error) {
