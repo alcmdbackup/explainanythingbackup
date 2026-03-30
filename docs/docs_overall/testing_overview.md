@@ -373,7 +373,7 @@ detect-changes → typecheck + lint (parallel)
 | **Code checkout** | PR branch | production (`ref: production`) | production |
 | **Test types** | Unit → Integration → E2E | E2E only | E2E `@smoke` only |
 | **Target** | Local build | Live production URL | Live production URL |
-| **Secrets** | Development environment | Production environment | Production environment |
+| **Secrets** | Staging environment | Production environment | Production environment |
 | **Browsers** | Chromium | Chromium + Firefox | Chromium |
 | **E2E_TEST_MODE** | Yes (mocked SSE) | No (real AI) | No (real AI) |
 | **@skip-prod** | N/A (isProduction=false) | CLI `--grep-invert` + config `grepInvert` | N/A (only @smoke runs) |
@@ -403,9 +403,9 @@ Available to all workflows - API keys that don't change between environments:
 | `OPENAI_API_KEY` | OpenAI API key |
 | `PINECONE_API_KEY` | Pinecone API key |
 
-### Development Environment Secrets
+### Staging Environment Secrets
 
-Used by `ci.yml` with `environment: Development`:
+Used by `ci.yml` with `environment: staging`:
 
 | Secret | Value |
 |--------|-------|

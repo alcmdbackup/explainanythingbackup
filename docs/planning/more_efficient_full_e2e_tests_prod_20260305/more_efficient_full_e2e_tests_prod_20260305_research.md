@@ -514,7 +514,7 @@ Most spec files create ONE `testExplanation` in `beforeAll` and share it across 
 ### S. CI Workflow Issues (12 new)
 
 **HIGH:**
-- `e2e-nightly.yml` missing `PINECONE_NAMESPACE`, `ADMIN_TEST_EMAIL`, `ADMIN_TEST_PASSWORD` — admin tests fail silently in nightly.
+- `e2e-nightly.yml` missing `PINECONE_NAMESPACE`, `TEST_USER_EMAIL`, `TEST_USER_PASSWORD` — admin tests fail silently in nightly.
 - `ci.yml:269` — `npm run test:e2e -- --shard=1/4` but `test:e2e` script locks `--project=chromium --project=chromium-unauth`. Shard flag may conflict with project filters.
 - `ci.yml:103,128,153,217` — `unit-tests` listed as hard dependency for integration/E2E jobs, but `unit-tests` conditionally skipped. Docs-only PR to production deadlocks.
 
@@ -606,7 +606,7 @@ Everything else — `src/components/**`, `src/app/**` (except evolution), `src/h
 
 **Missing env vars in nightly (`e2e-nightly.yml`):**
 - `PINECONE_NAMESPACE` — vector search may use wrong namespace
-- `ADMIN_TEST_EMAIL` / `ADMIN_TEST_PASSWORD` — admin tests fail
+- `TEST_USER_EMAIL` / `TEST_USER_PASSWORD` — admin tests fail
 - `NEXT_PUBLIC_USE_AI_API_ROUTE` — different code path than CI
 
 **Missing steps in nightly:**
@@ -614,7 +614,7 @@ Everything else — `src/components/**`, `src/app/**` (except evolution), `src/h
 
 **Missing in post-deploy smoke:**
 - `OPENAI_API_KEY`, `PINECONE_API_KEY`, `PINECONE_INDEX_NAME_ALL`, `PINECONE_NAMESPACE`
-- `ADMIN_TEST_EMAIL`, `ADMIN_TEST_PASSWORD`, `NEXT_PUBLIC_USE_AI_API_ROUTE`
+- `TEST_USER_EMAIL`, `TEST_USER_PASSWORD`, `NEXT_PUBLIC_USE_AI_API_ROUTE`
 - No admin user seeding step
 
 **Cache key discrepancy:**

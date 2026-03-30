@@ -73,8 +73,8 @@ npx shadcn@latest add toast
 **Environment Variables** (add to `.env.local` and GitHub secrets):
 ```bash
 # Add to .env.local for local development
-ADMIN_TEST_EMAIL=admin-test@explainanything.com
-ADMIN_TEST_PASSWORD=<secure-test-password-min-12-chars>
+TEST_USER_EMAIL=admin-test@explainanything.com
+TEST_USER_PASSWORD=<secure-test-password-min-12-chars>
 ```
 
 **Password Requirements**: Minimum 12 characters, mixed case, numbers required.
@@ -92,17 +92,17 @@ const supabase = createClient(
 );
 
 async function seedAdminTestUser() {
-  const email = process.env.ADMIN_TEST_EMAIL;
-  const password = process.env.ADMIN_TEST_PASSWORD;
+  const email = process.env.TEST_USER_EMAIL;
+  const password = process.env.TEST_USER_PASSWORD;
 
   // Validate password strength
   if (!password || password.length < 12) {
-    throw new Error('ADMIN_TEST_PASSWORD must be at least 12 characters');
+    throw new Error('TEST_USER_PASSWORD must be at least 12 characters');
   }
 
   // Verify this is different from regular test user
   if (email === process.env.TEST_USER_EMAIL) {
-    throw new Error('ADMIN_TEST_EMAIL must differ from TEST_USER_EMAIL');
+    throw new Error('TEST_USER_EMAIL must differ from TEST_USER_EMAIL');
   }
 
   // 1. Create auth user (or get existing)
@@ -147,16 +147,16 @@ seedAdminTestUser().catch(err => {
   env:
     NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
     SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-    ADMIN_TEST_EMAIL: ${{ secrets.ADMIN_TEST_EMAIL }}
-    ADMIN_TEST_PASSWORD: ${{ secrets.ADMIN_TEST_PASSWORD }}
+    TEST_USER_EMAIL: ${{ secrets.TEST_USER_EMAIL }}
+    TEST_USER_PASSWORD: ${{ secrets.TEST_USER_PASSWORD }}
     TEST_USER_EMAIL: ${{ secrets.TEST_USER_EMAIL }}
 
 # Add identical step to e2e-full job
 ```
 
 3. **GitHub Secrets to add** (staging environment - matches existing CI):
-   - `ADMIN_TEST_EMAIL` - e.g., `admin-test@explainanything.com`
-   - `ADMIN_TEST_PASSWORD` - secure password (min 12 chars)
+   - `TEST_USER_EMAIL` - e.g., `admin-test@explainanything.com`
+   - `TEST_USER_PASSWORD` - secure password (min 12 chars)
 
 **Verification before tests**:
 ```bash
@@ -222,7 +222,7 @@ interface AdminSessionData {
 
 /**
  * Authenticates as admin user with retry logic.
- * Uses ADMIN_TEST_EMAIL/ADMIN_TEST_PASSWORD env vars.
+ * Uses TEST_USER_EMAIL/TEST_USER_PASSWORD env vars.
  */
 async function authenticateAdmin(retries = 3): Promise<AdminSessionData> {
   const now = Date.now();
@@ -238,8 +238,8 @@ async function authenticateAdmin(retries = 3): Promise<AdminSessionData> {
 
   for (let attempt = 1; attempt <= retries; attempt++) {
     const { data, error } = await supabase.auth.signInWithPassword({
-      email: process.env.ADMIN_TEST_EMAIL!,
-      password: process.env.ADMIN_TEST_PASSWORD!,
+      email: process.env.TEST_USER_EMAIL!,
+      password: process.env.TEST_USER_PASSWORD!,
     });
 
     if (!error && data.session && data.user) {
@@ -333,7 +333,7 @@ export { expect };
 ```
 
 **Key differences from regular auth fixture**:
-- Uses `ADMIN_TEST_EMAIL` / `ADMIN_TEST_PASSWORD` (not `TEST_USER_EMAIL`)
+- Uses `TEST_USER_EMAIL` / `TEST_USER_PASSWORD` (not `TEST_USER_EMAIL`)
 - Provides `adminPage` and `adminUserId` fixtures
 - User ID extracted from JWT (no service role key needed in tests)
 
@@ -612,7 +612,7 @@ src/__tests__/e2e/
 |------|--------|
 | `docs/feature_deep_dives/admin_panel.md` | Complete rewrite (currently empty stub) |
 | `docs/docs_overall/testing_overview.md` | Add admin E2E test section |
-| `.env.example` | Add ADMIN_TEST_EMAIL, ADMIN_TEST_PASSWORD placeholders |
+| `.env.example` | Add TEST_USER_EMAIL, TEST_USER_PASSWORD placeholders |
 
 ---
 

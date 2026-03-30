@@ -302,7 +302,7 @@ This creates inconsistent naming and makes it unclear which secrets belong to wh
 
 Use GitHub Environments for everything, with consistent naming:
 - **Repository Secrets**: Only shared secrets (API keys that don't change between environments)
-- **Development Environment**: Dev database credentials and test users
+- **Staging Environment**: Dev database credentials and test users
 - **Production Environment**: Prod database credentials and test users (same names, different values)
 
 ### Proposed Structure
@@ -314,7 +314,7 @@ Use GitHub Environments for everything, with consistent naming:
 | `OPENAI_API_KEY` | OpenAI API key (same for dev/prod) |
 | `PINECONE_API_KEY` | Pinecone API key (same for dev/prod) |
 
-**Development Environment Secrets:**
+**Staging Environment Secrets:**
 
 | Secret | Value |
 |--------|-------|
@@ -352,15 +352,15 @@ Use GitHub Environments for everything, with consistent naming:
 ```yaml
 jobs:
   integration-tests:
-    environment: Development
+    environment: staging
     # ... rest unchanged
 
   e2e-critical:
-    environment: Development
+    environment: staging
     # ... rest unchanged
 
   e2e-full:
-    environment: Development
+    environment: staging
     # ... rest unchanged
 ```
 
@@ -368,7 +368,7 @@ jobs:
 ```yaml
 jobs:
   e2e-full:
-    environment: Development
+    environment: staging
     # ... rest unchanged
 ```
 
@@ -387,15 +387,15 @@ TEST_USER_ID: ${{ secrets.TEST_USER_ID }}
 
 ### Execution Steps
 
-1. **Create Development environment** in GitHub (Settings → Environments)
-2. **Copy secrets to Development environment**:
+1. **Create Staging environment** in GitHub (Settings → Environments)
+2. **Copy secrets to Staging environment**:
    - Move dev-specific secrets from repository level
    - Keep only `OPENAI_API_KEY` and `PINECONE_API_KEY` at repository level
 3. **Update Production environment**:
    - Rename `PROD_TEST_USER_*` to `TEST_USER_*`
 4. **Update workflow files**:
-   - Add `environment: Development` to ci.yml jobs
-   - Add `environment: Development` to e2e-nightly.yml
+   - Add `environment: staging` to ci.yml jobs
+   - Add `environment: staging` to e2e-nightly.yml
    - Update post-deploy-smoke.yml to use `TEST_USER_*`
 5. **Delete repository-level secrets** (after verifying workflows work)
 6. **Update documentation** in environments.md

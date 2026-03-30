@@ -100,8 +100,8 @@ adminTest.describe('Evolution Run Pipeline', { tag: '@evolution' }, () => {
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     );
     const { data: authData, error: authErr } = await anonClient.auth.signInWithPassword({
-      email: process.env.ADMIN_TEST_EMAIL!,
-      password: process.env.ADMIN_TEST_PASSWORD!,
+      email: process.env.TEST_USER_EMAIL!,
+      password: process.env.TEST_USER_PASSWORD!,
     });
     if (authErr || !authData.session) throw new Error(`Admin auth failed: ${authErr?.message}`);
 

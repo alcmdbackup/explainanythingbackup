@@ -10,7 +10,7 @@ Admin users cannot access `/admin` on production (`explainanything.vercel.app`).
 **Why E2E tests didn't catch this**:
 1. CI and nightly E2E tests run against the Dev database where the user IS an admin
 2. The "non-admin redirect" test was explicitly skipped (commit `879b72d`) because the test user is an admin in Dev
-3. Post-deploy smoke tests run against production but don't have admin test credentials configured (`ADMIN_TEST_EMAIL`/`ADMIN_TEST_PASSWORD` not in Production environment secrets)
+3. Post-deploy smoke tests run against production but don't have admin test credentials configured (`TEST_USER_EMAIL`/`TEST_USER_PASSWORD` not in Production environment secrets)
 
 ## Technical Analysis
 
