@@ -253,6 +253,7 @@ Available to all workflows - API keys that don't change between environments:
 |--------|---------|
 | `OPENAI_API_KEY` | OpenAI API key |
 | `DEEPSEEK_API_KEY` | DeepSeek API key (evolution pipeline) |
+| `ANTHROPIC_API_KEY` | Anthropic API key (Claude models) |
 | `OPENROUTER_API_KEY` | OpenRouter API key (openai/gpt-oss-20b) |
 | `PINECONE_API_KEY` | Pinecone API key |
 

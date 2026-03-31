@@ -318,7 +318,7 @@ The CI workflow detects what files changed to optimize costs:
 
 | Path | Trigger | Jobs Run |
 |------|---------|----------|
-| **Fast** | Only docs/migrations changed (no `.ts`, `.tsx`, `.js`, `.jsx`, `.json`, `.css`) | lint + tsc only (~1 min) |
+| **Fast** | Only docs changed (no code files, no migrations) | lint + tsc only (~1 min) |
 | **Full** | Any code file changed | All tests (~2.5-3 min) |
 
 **Full Path Pipeline:**
@@ -407,6 +407,9 @@ Available to all workflows - API keys that don't change between environments:
 |--------|---------|
 | `OPENAI_API_KEY` | OpenAI API key |
 | `PINECONE_API_KEY` | Pinecone API key |
+| `DEEPSEEK_API_KEY` | DeepSeek API key (evolution LLM provider) |
+| `ANTHROPIC_API_KEY` | Anthropic API key (Claude models) |
+| `OPENROUTER_API_KEY` | OpenRouter API key (gpt-oss-20b) |
 
 ### Staging Environment Secrets
 
