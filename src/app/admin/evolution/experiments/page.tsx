@@ -3,6 +3,7 @@
 'use client';
 
 import { useState, useCallback, useEffect } from 'react';
+import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 import { formatDate } from '@evolution/lib/utils/formatters';
 import { toast } from 'sonner';
 import {
@@ -45,6 +46,7 @@ const FILTERS: FilterDef[] = [
       { label: 'All', value: 'all' },
       { label: 'Draft', value: 'draft' },
       { label: 'Running', value: 'running' },
+      { label: 'Stale', value: 'stale' },
       { label: 'Completed', value: 'completed' },
       { label: 'Cancelled', value: 'cancelled' },
     ],
@@ -104,7 +106,29 @@ const COLUMNS: ColumnDef<ExperimentSummary>[] = [
   },
 ];
 
+function emptyMessageForFilter(status: string): string {
+  switch (status) {
+    case 'draft': return 'No draft experiments.';
+    case 'running': return 'No experiments running.';
+    case 'stale': return 'No stale experiments. All running experiments are healthy.';
+    case 'completed': return 'No completed experiments.';
+    case 'cancelled': return 'No cancelled experiments.';
+    default: return 'No experiments found.';
+  }
+}
+
+function emptySuggestionForFilter(status: string): string {
+  if (status === 'all' || status === 'draft') {
+    return 'Start one at /admin/evolution/start-experiment';
+  }
+  return 'Try adjusting filters to see results.';
+}
+
 export default function ExperimentsListPage(): JSX.Element {
+  useEffect(() => { document.title = 'Experiments | Evolution'; }, []);
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
   const [experiments, setExperiments] = useState<ExperimentSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [deleteTarget, setDeleteTarget] = useState<ExperimentSummary | null>(null);
@@ -115,21 +139,35 @@ export default function ExperimentsListPage(): JSX.Element {
         defaults[f.key] = 'true';
       }
     }
+    // Read initial filter values from URL search params
+    const urlStatus = searchParams.get('status');
+    if (urlStatus && FILTERS[0]?.options?.some(o => o.value === urlStatus)) {
+      defaults.status = urlStatus;
+    }
     return defaults;
   });
 
   const load = useCallback(async () => {
     setLoading(true);
     const statusVal = filterValues.status;
+    const isStaleFilter = statusVal === 'stale';
     const params: { status?: string; filterTestContent?: boolean } = {
       filterTestContent: filterValues.filterTestContent === 'true',
     };
     if (statusVal && statusVal !== 'all') {
-      params.status = statusVal;
+      // 'stale' is computed client-side (running > 60min), not a DB status
+      params.status = isStaleFilter ? 'running' : statusVal;
     }
     const result = await listExperimentsAction(params);
     if (result.success && result.data) {
-      setExperiments(result.data as ExperimentSummary[]);
+      let items = result.data as ExperimentSummary[];
+      if (isStaleFilter) {
+        const staleThreshold = 60 * 60 * 1000; // 60 minutes
+        items = items.filter(exp =>
+          Date.now() - new Date(exp.created_at).getTime() > staleThreshold
+        );
+      }
+      setExperiments(items);
     } else if (!result.success) {
       toast.error(result.error?.message ?? 'Failed to load experiments');
     }
@@ -142,6 +180,16 @@ export default function ExperimentsListPage(): JSX.Element {
 
   const handleFilterChange = (key: string, value: string): void => {
     setFilterValues((prev) => ({ ...prev, [key]: value }));
+    // Sync status filter to URL for shareable/refreshable state
+    if (key === 'status') {
+      const params = new URLSearchParams(searchParams.toString());
+      if (value === 'all') {
+        params.delete('status');
+      } else {
+        params.set('status', value);
+      }
+      router.replace(`${pathname}?${params.toString()}`);
+    }
   };
 
   const handleCancel = async (experiment: ExperimentSummary): Promise<void> => {
@@ -207,8 +255,8 @@ export default function ExperimentsListPage(): JSX.Element {
         filterValues={filterValues}
         onFilterChange={handleFilterChange}
         getRowHref={(exp) => buildExperimentUrl(exp.id)}
-        emptyMessage="No experiments found."
-        emptySuggestion="Use the experiment wizard to start one."
+        emptyMessage={emptyMessageForFilter(filterValues.status ?? 'all')}
+        emptySuggestion={emptySuggestionForFilter(filterValues.status ?? 'all')}
       />
 
       <ConfirmDialog

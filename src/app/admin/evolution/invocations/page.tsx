@@ -86,6 +86,7 @@ const COLUMNS: ColumnDef<InvocationListEntry>[] = [
 ];
 
 export default function InvocationsListPage(): JSX.Element {
+  useEffect(() => { document.title = 'Invocations | Evolution'; }, []);
   const [items, setItems] = useState<InvocationListEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [totalCount, setTotalCount] = useState(0);

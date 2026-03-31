@@ -1,21 +1,22 @@
 // Centralized number formatting utilities for the evolution dashboard.
 // Ensures consistent display of costs, Elo scores, percentages, and durations.
 
-/** Format cost for tables, summaries, and headers — 2 decimal places. */
+/** Format cost for tables, summaries, and headers — 2 decimal places.
+ *  Returns '—' for null/undefined/NaN to distinguish missing data from genuinely $0.00. */
 export function formatCost(usd: number | null | undefined): string {
-  if (usd == null || isNaN(usd)) return '$0.00';
+  if (usd == null || isNaN(usd)) return '—';
   return `$${usd.toFixed(2)}`;
 }
 
 /** Format cost for per-agent breakdowns — 3 decimal places. */
 export function formatCostDetailed(usd: number | null | undefined): string {
-  if (usd == null || isNaN(usd)) return '$0.000';
+  if (usd == null || isNaN(usd)) return '—';
   return `$${usd.toFixed(3)}`;
 }
 
 /** Format cost for individual LLM calls — 4 decimal places (preserves sub-cent precision). */
 export function formatCostMicro(usd: number | null | undefined): string {
-  if (usd == null || isNaN(usd)) return '$0.0000';
+  if (usd == null || isNaN(usd)) return '—';
   return `$${usd.toFixed(4)}`;
 }
 

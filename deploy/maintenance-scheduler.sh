@@ -41,7 +41,7 @@ declare -A SKILL_WT_INDEX=( [refactor-simplify]=10 [test-gaps]=11 [update-docs]=
 
 # Per-skill tool whitelists
 TOOLS_RESEARCH='Read,Write,Glob,Grep,Agent,Bash(git log *),Bash(git diff *),Bash(git blame *),Bash(git add *),Bash(git commit *)'
-TOOLS_PLAYWRIGHT="${TOOLS_RESEARCH},mcp__playwright__browser_navigate,mcp__playwright__browser_snapshot,mcp__playwright__browser_click,mcp__playwright__browser_fill_form,mcp__playwright__browser_take_screenshot,mcp__playwright__browser_console_messages,mcp__playwright__browser_close"
+TOOLS_PLAYWRIGHT="${TOOLS_RESEARCH},mcp__playwright__browser_navigate,mcp__playwright__browser_snapshot,mcp__playwright__browser_click,mcp__playwright__browser_fill_form,mcp__playwright__browser_take_screenshot,mcp__playwright__browser_console_messages,mcp__playwright__browser_close,mcp__playwright__browser_evaluate,mcp__playwright__browser_run_code,mcp__playwright__browser_hover,mcp__playwright__browser_press_key,mcp__playwright__browser_select_option"
 declare -A SKILL_TOOLS=( [refactor-simplify]="$TOOLS_RESEARCH" [test-gaps]="$TOOLS_RESEARCH"
   [update-docs]="$TOOLS_RESEARCH" [ts-coverage]="$TOOLS_RESEARCH" [bugs-code]="$TOOLS_RESEARCH"
   [bugs-ux]="$TOOLS_PLAYWRIGHT" )

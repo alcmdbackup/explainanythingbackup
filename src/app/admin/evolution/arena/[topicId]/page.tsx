@@ -35,8 +35,11 @@ function ContentLink({ entryId, content }: { entryId: string; content: string })
 
 export default function ArenaTopicDetailPage(): JSX.Element {
   const { topicId } = useParams<{ topicId: string }>();
+  const PAGE_SIZE = 20;
   const [topic, setTopic] = useState<ArenaTopic | null>(null);
   const [entries, setEntries] = useState<ArenaEntry[]>([]);
+  const [totalEntries, setTotalEntries] = useState(0);
+  const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [hasMetrics, setHasMetrics] = useState(false);
@@ -95,15 +98,18 @@ export default function ArenaTopicDetailPage(): JSX.Element {
     }
   };
 
+  const totalPages = Math.ceil(totalEntries / PAGE_SIZE);
+
   const sortIndicator = (key: SortKey) =>
     sortKey === key ? (sortDir === 'asc' ? ' \u25B2' : ' \u25BC') : '';
 
   useEffect(() => {
     async function load() {
       setLoading(true);
+      const offset = (page - 1) * PAGE_SIZE;
       const [topicResult, entriesResult, metricsResult] = await Promise.all([
         getArenaTopicDetailAction(topicId),
-        getArenaEntriesAction({ topicId }),
+        getArenaEntriesAction({ topicId, limit: PAGE_SIZE, offset }),
         getEntityMetricsAction('prompt', topicId),
       ]);
 
@@ -112,19 +118,20 @@ export default function ArenaTopicDetailPage(): JSX.Element {
         setLoading(false);
         return;
       }
-      if (!entriesResult.success) {
+      if (!entriesResult.success || !entriesResult.data) {
         setError(entriesResult.error?.message ?? 'Failed to load entries');
         setLoading(false);
         return;
       }
 
       setTopic(topicResult.data);
-      setEntries(entriesResult.data ?? []);
+      setEntries(entriesResult.data.items);
+      setTotalEntries(entriesResult.data.total);
       setHasMetrics(metricsResult.success && (metricsResult.data?.length ?? 0) > 0);
       setLoading(false);
     }
     load();
-  }, [topicId]);
+  }, [topicId, page]);
 
   if (loading) {
     return (
@@ -216,6 +223,7 @@ export default function ArenaTopicDetailPage(): JSX.Element {
                   return (
                     <tr
                       key={entry.id}
+                      data-testid={`lb-row-${index}`}
                       className={`border-b border-[var(--border-default)] last:border-0 hover:bg-[var(--surface-hover)]${isEligible ? '' : ' opacity-50'}`}
                     >
                       <td className="py-2 pr-3 font-mono text-[var(--text-muted)]">{eloRankMap.get(entry.id) ?? index + 1}</td>
@@ -251,6 +259,46 @@ export default function ArenaTopicDetailPage(): JSX.Element {
                 })}
               </tbody>
             </table>
+            {/* Pagination controls */}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-center gap-2 py-4 border-t border-[var(--border-default)]">
+                <button
+                  onClick={() => setPage(p => Math.max(1, p - 1))}
+                  disabled={page <= 1}
+                  className="px-3 py-1 text-xs font-ui border border-[var(--border-default)] rounded disabled:opacity-40"
+                >
+                  &lsaquo; Prev
+                </button>
+                {Array.from({ length: totalPages }, (_, i) => i + 1)
+                  .filter(p => Math.abs(p - page) <= 3 || p === 1 || p === totalPages)
+                  .map((p, idx, arr) => {
+                    const prev = arr[idx - 1];
+                    const showEllipsis = prev != null && p - prev > 1;
+                    return (
+                      <span key={p}>
+                        {showEllipsis && <span className="text-xs text-[var(--text-muted)]">…</span>}
+                        <button
+                          onClick={() => setPage(p)}
+                          className={`px-3 py-1 text-xs font-ui border rounded ${
+                            p === page
+                              ? 'bg-[var(--accent-gold)] text-[var(--surface-primary)] border-[var(--accent-gold)]'
+                              : 'border-[var(--border-default)]'
+                          }`}
+                        >
+                          {p}
+                        </button>
+                      </span>
+                    );
+                  })}
+                <button
+                  onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                  disabled={page >= totalPages}
+                  className="px-3 py-1 text-xs font-ui border border-[var(--border-default)] rounded disabled:opacity-40"
+                >
+                  Next &rsaquo;
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>

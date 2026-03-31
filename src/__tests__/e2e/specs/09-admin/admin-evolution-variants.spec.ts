@@ -142,6 +142,14 @@ adminTest.describe('Evolution Variants (list page)', { tag: '@evolution' }, () =
     const table = adminPage.locator('[data-testid="entity-list-table"]');
     await expect(table).toBeVisible({ timeout: 15000 });
 
+    // Uncheck "Hide test content" so seeded test data is visible
+    const testContentFilter = adminPage.locator('[data-testid="filter-filterTestContent"] input[type="checkbox"]');
+    if (await testContentFilter.isChecked()) {
+      await testContentFilter.uncheck();
+      // Wait for table to re-render after filter change
+      await table.locator('tbody tr').first().waitFor({ state: 'visible', timeout: 10000 });
+    }
+
     // Select "Winners" from the winner filter
     const winnerFilter = adminPage.locator('[data-testid="filter-isWinner"]');
     await expect(winnerFilter).toBeVisible();

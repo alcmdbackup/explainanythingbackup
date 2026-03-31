@@ -246,14 +246,14 @@ describe('arenaActions', () => {
   // ─── getArenaEntriesAction ───────────────────────────────────
 
   describe('getArenaEntriesAction', () => {
-    it('returns entries sorted by elo_score', async () => {
+    it('returns entries sorted by elo_score with total count', async () => {
       const chain = {
         select: jest.fn().mockReturnThis(),
         eq: jest.fn().mockReturnThis(),
         order: jest.fn().mockReturnThis(),
         is: jest.fn().mockReturnThis(),
         then: jest.fn((resolve: (v: unknown) => void) =>
-          resolve({ data: [MOCK_ENTRY], error: null })
+          resolve({ data: [MOCK_ENTRY], count: 1, error: null })
         ),
       };
       mockSupabase.from = jest.fn().mockReturnValue(chain);
@@ -261,8 +261,9 @@ describe('arenaActions', () => {
       const result = await getArenaEntriesAction({ topicId: VALID_UUID });
 
       expect(result.success).toBe(true);
-      expect(result.data).toHaveLength(1);
-      expect(result.data![0]!.elo_score).toBe(1200);
+      expect(result.data!.items).toHaveLength(1);
+      expect(result.data!.items[0]!.elo_score).toBe(1200);
+      expect(result.data!.total).toBe(1);
     });
 
     it('rejects invalid topicId', async () => {
@@ -279,7 +280,7 @@ describe('arenaActions', () => {
         order: jest.fn().mockReturnThis(),
         is: jest.fn().mockReturnThis(),
         then: jest.fn((resolve: (v: unknown) => void) =>
-          resolve({ data: null, error: { message: 'query failed' } })
+          resolve({ data: null, count: null, error: { message: 'query failed' } })
         ),
       };
       mockSupabase.from = jest.fn().mockReturnValue(chain);

@@ -126,7 +126,7 @@ describe('ExperimentForm', () => {
       await waitFor(() => expect(screen.getByText('Photosynthesis')).toBeInTheDocument());
       fireEvent.click(screen.getAllByRole('radio')[0]!);
       fireEvent.click(screen.getByText('Next: Select Strategies'));
-      expect(screen.getByText('Enter an experiment name')).toBeInTheDocument();
+      expect(screen.getAllByText('Enter an experiment name').length).toBeGreaterThanOrEqual(1);
     });
 
     it('shows errors when Next clicked with no prompt selected', async () => {
@@ -136,7 +136,7 @@ describe('ExperimentForm', () => {
         target: { value: 'My Experiment' },
       });
       fireEvent.click(screen.getByText('Next: Select Strategies'));
-      expect(screen.getByText('Select a prompt')).toBeInTheDocument();
+      expect(screen.getAllByText('Select a prompt').length).toBeGreaterThanOrEqual(1);
     });
 
     it('defaults budget per run to $0.05', async () => {
@@ -239,7 +239,7 @@ describe('ExperimentForm', () => {
       // Select Economy
       fireEvent.click(screen.getByTestId('strategy-check-strat-1'));
       fireEvent.click(screen.getByRole('button', { name: 'Review' }));
-      await waitFor(() => expect(screen.getByText('Create Experiment')).toBeInTheDocument());
+      await waitFor(() => expect(screen.getByTestId('experiment-submit-btn')).toBeInTheDocument());
     }
 
     it('shows summary with correct info', async () => {
@@ -274,11 +274,11 @@ describe('ExperimentForm', () => {
       // Step 2: select Economy
       fireEvent.click(screen.getByTestId('strategy-check-strat-1'));
       fireEvent.click(screen.getByRole('button', { name: 'Review' }));
-      await waitFor(() => expect(screen.getByText('Create Experiment')).toBeInTheDocument());
+      await waitFor(() => expect(screen.getByTestId('experiment-submit-btn')).toBeInTheDocument());
 
       // Step 3: submit
       await act(async () => {
-        fireEvent.click(screen.getByText('Create Experiment'));
+        fireEvent.click(screen.getByTestId('experiment-submit-btn'));
       });
 
       await waitFor(() => {
@@ -300,10 +300,10 @@ describe('ExperimentForm', () => {
       fireEvent.change(screen.getByTestId('runs-count-strat-1'), { target: { value: '3' } });
 
       fireEvent.click(screen.getByRole('button', { name: 'Review' }));
-      await waitFor(() => expect(screen.getByText('Create Experiment')).toBeInTheDocument());
+      await waitFor(() => expect(screen.getByTestId('experiment-submit-btn')).toBeInTheDocument());
 
       await act(async () => {
-        fireEvent.click(screen.getByText('Create Experiment'));
+        fireEvent.click(screen.getByTestId('experiment-submit-btn'));
       });
 
       await waitFor(() => {
@@ -321,10 +321,10 @@ describe('ExperimentForm', () => {
       fireEvent.change(screen.getByTestId('runs-count-strat-2'), { target: { value: '2' } });
 
       fireEvent.click(screen.getByRole('button', { name: 'Review' }));
-      await waitFor(() => expect(screen.getByText('Create Experiment')).toBeInTheDocument());
+      await waitFor(() => expect(screen.getByTestId('experiment-submit-btn')).toBeInTheDocument());
 
       await act(async () => {
-        fireEvent.click(screen.getByText('Create Experiment'));
+        fireEvent.click(screen.getByTestId('experiment-submit-btn'));
       });
 
       await waitFor(() => {
@@ -343,7 +343,7 @@ describe('ExperimentForm', () => {
       await goToReview();
 
       await act(async () => {
-        fireEvent.click(screen.getByText('Create Experiment'));
+        fireEvent.click(screen.getByTestId('experiment-submit-btn'));
       });
 
       await waitFor(() => {

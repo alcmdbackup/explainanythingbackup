@@ -65,6 +65,7 @@ const COLUMNS: ColumnDef<VariantListEntry>[] = [
 ];
 
 export default function VariantsListPage(): JSX.Element {
+  useEffect(() => { document.title = 'Variants | Evolution'; }, []);
   const [items, setItems] = useState<VariantListEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [totalCount, setTotalCount] = useState(0);
