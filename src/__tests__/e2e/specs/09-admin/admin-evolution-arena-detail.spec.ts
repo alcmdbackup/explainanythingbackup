@@ -144,7 +144,8 @@ adminTest.describe('Evolution Arena Detail', { tag: '@evolution' }, () => {
     const firstRowBefore = await leaderboardTable.locator('tbody tr[data-testid="lb-row-0"]').textContent();
 
     // Click the "Elo" column header to change sort order
-    const eloHeader = leaderboardTable.locator('thead th:has-text("Elo")');
+    // Use .first() because multiple headers contain "Elo" (e.g. "Elo", "Elo ± σ")
+    const eloHeader = leaderboardTable.locator('thead th:has-text("Elo")').first();
     await expect(eloHeader).toBeVisible();
     await eloHeader.click();
 

@@ -84,7 +84,6 @@ const STRATEGIES = [
 
 beforeEach(() => {
   jest.clearAllMocks();
-  window.confirm = jest.fn(() => true);
   mockGetPromptsAction.mockResolvedValue({ success: true, data: PROMPTS });
   mockGetStrategiesAction.mockResolvedValue({ success: true, data: STRATEGIES });
   mockCreateWithRunsAction.mockResolvedValue({ success: true, data: { experimentId: 'exp-1' } });
@@ -240,7 +239,7 @@ describe('ExperimentForm', () => {
       // Select Economy
       fireEvent.click(screen.getByTestId('strategy-check-strat-1'));
       fireEvent.click(screen.getByRole('button', { name: 'Review' }));
-      await waitFor(() => expect(screen.getByText('Create Experiment')).toBeInTheDocument());
+      await waitFor(() => expect(screen.getByTestId('experiment-submit-btn')).toBeInTheDocument());
     }
 
     it('shows summary with correct info', async () => {
@@ -275,11 +274,11 @@ describe('ExperimentForm', () => {
       // Step 2: select Economy
       fireEvent.click(screen.getByTestId('strategy-check-strat-1'));
       fireEvent.click(screen.getByRole('button', { name: 'Review' }));
-      await waitFor(() => expect(screen.getByText('Create Experiment')).toBeInTheDocument());
+      await waitFor(() => expect(screen.getByTestId('experiment-submit-btn')).toBeInTheDocument());
 
       // Step 3: submit
       await act(async () => {
-        fireEvent.click(screen.getByText('Create Experiment'));
+        fireEvent.click(screen.getByTestId('experiment-submit-btn'));
       });
 
       await waitFor(() => {
@@ -301,10 +300,10 @@ describe('ExperimentForm', () => {
       fireEvent.change(screen.getByTestId('runs-count-strat-1'), { target: { value: '3' } });
 
       fireEvent.click(screen.getByRole('button', { name: 'Review' }));
-      await waitFor(() => expect(screen.getByText('Create Experiment')).toBeInTheDocument());
+      await waitFor(() => expect(screen.getByTestId('experiment-submit-btn')).toBeInTheDocument());
 
       await act(async () => {
-        fireEvent.click(screen.getByText('Create Experiment'));
+        fireEvent.click(screen.getByTestId('experiment-submit-btn'));
       });
 
       await waitFor(() => {
@@ -322,10 +321,10 @@ describe('ExperimentForm', () => {
       fireEvent.change(screen.getByTestId('runs-count-strat-2'), { target: { value: '2' } });
 
       fireEvent.click(screen.getByRole('button', { name: 'Review' }));
-      await waitFor(() => expect(screen.getByText('Create Experiment')).toBeInTheDocument());
+      await waitFor(() => expect(screen.getByTestId('experiment-submit-btn')).toBeInTheDocument());
 
       await act(async () => {
-        fireEvent.click(screen.getByText('Create Experiment'));
+        fireEvent.click(screen.getByTestId('experiment-submit-btn'));
       });
 
       await waitFor(() => {
@@ -344,7 +343,7 @@ describe('ExperimentForm', () => {
       await goToReview();
 
       await act(async () => {
-        fireEvent.click(screen.getByText('Create Experiment'));
+        fireEvent.click(screen.getByTestId('experiment-submit-btn'));
       });
 
       await waitFor(() => {

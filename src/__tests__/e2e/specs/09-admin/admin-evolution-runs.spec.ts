@@ -76,7 +76,7 @@ adminTest.describe('Evolution Runs (T4, T7, T8, T10)', { tag: '@evolution' }, ()
     await expect(table).toBeVisible({ timeout: 15000 });
 
     // Use the status filter dropdown
-    const statusFilter = adminPage.locator('[data-testid="status-filter"]');
+    const statusFilter = adminPage.locator('[data-testid="filter-status"]');
     await expect(statusFilter).toBeVisible();
 
     // Filter to "completed" — should show only completed runs

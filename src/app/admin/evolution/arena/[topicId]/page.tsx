@@ -223,6 +223,7 @@ export default function ArenaTopicDetailPage(): JSX.Element {
                   return (
                     <tr
                       key={entry.id}
+                      data-testid={`lb-row-${index}`}
                       className={`border-b border-[var(--border-default)] last:border-0 hover:bg-[var(--surface-hover)]${isEligible ? '' : ' opacity-50'}`}
                     >
                       <td className="py-2 pr-3 font-mono text-[var(--text-muted)]">{eloRankMap.get(entry.id) ?? index + 1}</td>

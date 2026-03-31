@@ -65,7 +65,7 @@ adminTest.describe('Experiment Creation Wizard', { tag: '@evolution' }, () => {
     await firstStrategyOption.click();
 
     // Submit the form
-    await adminPage.getByTestId('create-experiment-submit').click();
+    await adminPage.getByTestId('experiment-submit-btn').click();
 
     // Verify success toast appears
     const toast = adminPage.locator('[data-testid="toast-success"], [role="status"]');

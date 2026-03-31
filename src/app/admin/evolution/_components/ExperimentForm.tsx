@@ -128,10 +128,6 @@ export function ExperimentForm({ onCreated }: ExperimentFormProps): JSX.Element 
 
   const handleSubmit = async () => {
     if (setupErrors.length > 0 || selections.length === 0 || overBudget) return;
-    const confirmed = window.confirm(
-      `This will start ${totalRuns} pipeline run${totalRuns !== 1 ? 's' : ''} costing ~$${totalBudget.toFixed(2)}. Continue?`
-    );
-    if (!confirmed) return;
     setSubmitting(true);
 
     try {
@@ -534,7 +530,7 @@ export function ExperimentForm({ onCreated }: ExperimentFormProps): JSX.Element 
                     Creating...
                   </span>
                 ) : (
-                  'Create Experiment'
+                  `Create Experiment (${totalRuns} run${totalRuns !== 1 ? 's' : ''}, ~$${totalBudget.toFixed(2)})`
                 )}
               </button>
             </div>
