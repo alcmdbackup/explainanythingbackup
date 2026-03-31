@@ -84,6 +84,7 @@ const STRATEGIES = [
 
 beforeEach(() => {
   jest.clearAllMocks();
+  window.confirm = jest.fn(() => true);
   mockGetPromptsAction.mockResolvedValue({ success: true, data: PROMPTS });
   mockGetStrategiesAction.mockResolvedValue({ success: true, data: STRATEGIES });
   mockCreateWithRunsAction.mockResolvedValue({ success: true, data: { experimentId: 'exp-1' } });
@@ -126,7 +127,7 @@ describe('ExperimentForm', () => {
       await waitFor(() => expect(screen.getByText('Photosynthesis')).toBeInTheDocument());
       fireEvent.click(screen.getAllByRole('radio')[0]!);
       fireEvent.click(screen.getByText('Next: Select Strategies'));
-      expect(screen.getByText('Enter an experiment name')).toBeInTheDocument();
+      expect(screen.getAllByText('Enter an experiment name').length).toBeGreaterThanOrEqual(1);
     });
 
     it('shows errors when Next clicked with no prompt selected', async () => {
@@ -136,7 +137,7 @@ describe('ExperimentForm', () => {
         target: { value: 'My Experiment' },
       });
       fireEvent.click(screen.getByText('Next: Select Strategies'));
-      expect(screen.getByText('Select a prompt')).toBeInTheDocument();
+      expect(screen.getAllByText('Select a prompt').length).toBeGreaterThanOrEqual(1);
     });
 
     it('defaults budget per run to $0.05', async () => {

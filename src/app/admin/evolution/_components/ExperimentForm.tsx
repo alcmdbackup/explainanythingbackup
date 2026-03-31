@@ -316,10 +316,11 @@ export function ExperimentForm({ onCreated }: ExperimentFormProps): JSX.Element 
               </p>
             </div>
 
+            {/* Screen reader announcement for validation errors */}
             {setupSubmitted && setupErrors.length > 0 && (
-              <ul role="alert" aria-live="polite" className="text-xs font-body text-[var(--status-error)] space-y-0.5">
-                {setupErrors.map((e, i) => <li key={i}>{e}</li>)}
-              </ul>
+              <div role="alert" aria-live="polite" className="sr-only">
+                {setupErrors.join('. ')}
+              </div>
             )}
 
             <button

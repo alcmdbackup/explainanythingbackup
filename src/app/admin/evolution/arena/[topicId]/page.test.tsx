@@ -139,7 +139,7 @@ describe('ArenaTopicDetailPage', () => {
   });
 
   it('shows empty leaderboard message when no entries', async () => {
-    mockGetArenaEntriesAction.mockResolvedValue({ success: true, data: [] });
+    mockGetArenaEntriesAction.mockResolvedValue({ success: true, data: { entries: [], total: 0 } });
     render(<ArenaTopicDetailPage />);
     await waitFor(() => {
       expect(screen.getByText('No entries yet.')).toBeInTheDocument();
