@@ -261,8 +261,8 @@ describe('arenaActions', () => {
       const result = await getArenaEntriesAction({ topicId: VALID_UUID });
 
       expect(result.success).toBe(true);
-      expect(result.data!.entries).toHaveLength(1);
-      expect(result.data!.entries[0]!.elo_score).toBe(1200);
+      expect(result.data!.items).toHaveLength(1);
+      expect(result.data!.items[0]!.elo_score).toBe(1200);
       expect(result.data!.total).toBe(1);
     });
 

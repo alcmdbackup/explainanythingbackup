@@ -73,7 +73,7 @@ describe('ArenaTopicDetailPage', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockGetArenaTopicDetailAction.mockResolvedValue({ success: true, data: MOCK_TOPIC });
-    mockGetArenaEntriesAction.mockResolvedValue({ success: true, data: { entries: MOCK_ENTRIES, total: MOCK_ENTRIES.length } });
+    mockGetArenaEntriesAction.mockResolvedValue({ success: true, data: { items: MOCK_ENTRIES, total: MOCK_ENTRIES.length } });
   });
 
   it('renders topic title in header', async () => {
@@ -139,7 +139,7 @@ describe('ArenaTopicDetailPage', () => {
   });
 
   it('shows empty leaderboard message when no entries', async () => {
-    mockGetArenaEntriesAction.mockResolvedValue({ success: true, data: { entries: [], total: 0 } });
+    mockGetArenaEntriesAction.mockResolvedValue({ success: true, data: { items: [], total: 0 } });
     render(<ArenaTopicDetailPage />);
     await waitFor(() => {
       expect(screen.getByText('No entries yet.')).toBeInTheDocument();

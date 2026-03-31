@@ -138,7 +138,7 @@ export const getArenaEntriesAction = adminAction(
   async (
     input: { topicId: string; includeArchived?: boolean; limit?: number; offset?: number },
     ctx: AdminContext,
-  ): Promise<{ entries: ArenaEntry[]; total: number }> => {
+  ): Promise<{ items: ArenaEntry[]; total: number }> => {
     if (!validateUuid(input.topicId)) throw new Error('Invalid topicId');
 
     let query = ctx.supabase
@@ -156,7 +156,7 @@ export const getArenaEntriesAction = adminAction(
 
     const { data, error, count } = await query;
     if (error) throw error;
-    return { entries: (data ?? []) as ArenaEntry[], total: count ?? 0 };
+    return { items: (data ?? []) as ArenaEntry[], total: count ?? 0 };
   },
 );
 

@@ -125,7 +125,7 @@ export default function ArenaTopicDetailPage(): JSX.Element {
       }
 
       setTopic(topicResult.data);
-      setEntries(entriesResult.data.entries);
+      setEntries(entriesResult.data.items);
       setTotalEntries(entriesResult.data.total);
       setHasMetrics(metricsResult.success && (metricsResult.data?.length ?? 0) > 0);
       setLoading(false);
