@@ -204,10 +204,10 @@ The evolution admin dashboard has 5 confirmed bugs (data display, missing page, 
 | 6 | CLS spot-check: invocations page loads, measure CLS via `PerformanceObserver` | U1 |
 
 ### Existing test audit (pre-implementation)
-- [ ] Run `npm test -- --testPathPattern="evolution"` to baseline all passing tests
-- [ ] Verify U17 is safe: `start-experiment/page.test.tsx` has NO validation error assertions (confirmed)
-- [ ] Check runs/page.test.tsx for pageSize assertions (U3 changes 50→20)
-- [ ] Check arenaActions.test.ts for getArenaEntriesAction signature (U4 changes return type)
+- [x] Run `npm test -- --testPathPattern="evolution"` to baseline all passing tests
+- [x] Verify U17 is safe: `start-experiment/page.test.tsx` has NO validation error assertions (confirmed)
+- [x] Check runs/page.test.tsx for pageSize assertions (U3 changes 50→20) — no test file exists
+- [x] Check arenaActions.test.ts for getArenaEntriesAction signature (U4 changes return type) — updated
 
 ### CI verification commands
 ```bash
