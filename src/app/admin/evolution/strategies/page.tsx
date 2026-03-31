@@ -3,7 +3,7 @@
 
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { toast } from 'sonner';
 import { EntityListPage } from '@evolution/components/evolution';
 import type { RowAction, FilterDef, ColumnDef } from '@evolution/components/evolution';
@@ -109,6 +109,7 @@ type DialogState =
   | { kind: 'delete'; row: StrategyListItem };
 
 export default function StrategiesPage(): JSX.Element {
+  useEffect(() => { document.title = 'Strategies | Evolution'; }, []);
   const [dialog, setDialog] = useState<DialogState>({ kind: 'none' });
 
   const close = (): void => setDialog({ kind: 'none' });

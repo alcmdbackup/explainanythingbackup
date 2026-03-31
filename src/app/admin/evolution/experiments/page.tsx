@@ -106,6 +106,7 @@ const COLUMNS: ColumnDef<ExperimentSummary>[] = [
 ];
 
 export default function ExperimentsListPage(): JSX.Element {
+  useEffect(() => { document.title = 'Experiments | Evolution'; }, []);
   const [experiments, setExperiments] = useState<ExperimentSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [deleteTarget, setDeleteTarget] = useState<ExperimentSummary | null>(null);

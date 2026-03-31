@@ -73,7 +73,7 @@ describe('ArenaTopicDetailPage', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockGetArenaTopicDetailAction.mockResolvedValue({ success: true, data: MOCK_TOPIC });
-    mockGetArenaEntriesAction.mockResolvedValue({ success: true, data: MOCK_ENTRIES });
+    mockGetArenaEntriesAction.mockResolvedValue({ success: true, data: { entries: MOCK_ENTRIES, total: MOCK_ENTRIES.length } });
   });
 
   it('renders topic title in header', async () => {

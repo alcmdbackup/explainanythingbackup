@@ -305,7 +305,7 @@ export function ExperimentForm({ onCreated }: ExperimentFormProps): JSX.Element 
             </div>
 
             {setupSubmitted && setupErrors.length > 0 && (
-              <ul className="text-xs font-body text-[var(--status-error)] space-y-0.5">
+              <ul role="alert" aria-live="polite" className="text-xs font-body text-[var(--status-error)] space-y-0.5">
                 {setupErrors.map((e, i) => <li key={i}>{e}</li>)}
               </ul>
             )}
@@ -379,6 +379,7 @@ export function ExperimentForm({ onCreated }: ExperimentFormProps): JSX.Element 
                         checked={isSelected}
                         disabled={!isEligible}
                         onChange={() => toggleStrategy(s.id)}
+                        aria-label={`Select ${s.name}`}
                         className="w-4 h-4 accent-[var(--accent-gold)]"
                         data-testid={`strategy-check-${s.id}`}
                       />
