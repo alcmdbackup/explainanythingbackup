@@ -40,12 +40,12 @@ The evolution admin dashboard has 5 confirmed bugs (data display, missing page, 
 ## Phase 1: Bugs (5 confirmed, prioritized by impact)
 
 ### P0 — Data correctness bugs
-- [ ] **B1.** Dashboard Total Cost / Avg Cost show $0.00 with 299 completed runs (#15)
+- [x] **B1.** Dashboard Total Cost / Avg Cost show $0.00 with 299 completed runs (#15)
   - Files: `src/app/admin/evolution-dashboard/page.tsx`, `evolution/src/services/evolutionVisualizationActions.ts` (cost query at lines 102-123)
   - **Root cause investigation first**: Check if (a) cost aggregation query logic is wrong (wrong join, NULL propagation), (b) cost data genuinely doesn't exist in DB (runs have no cost records), or (c) error swallows result silently. Run the query manually against Supabase to determine.
   - **If query is wrong**: Fix the query. **If data is genuinely zero**: Leave as $0.00 (not a bug). **If error handling**: Add try-catch around Promise.all at line 89 and line 136. In the catch path, return `totalCostUsd: null` (not 0). Update `DashboardData` type to allow `null`. In page renderer (line 67), render `formatCost(data.totalCostUsd)` as "—" when null.
   - Test: Unit test for cost aggregation with mock data (0 runs → $0.00, many runs → sum, null costs → skip, query failure → null)
-- [ ] **B2.** "stale" experiment status exists in data but not in filter dropdown (#10)
+- [x] **B2.** "stale" experiment status exists in data but not in filter dropdown (#10)
   - Files: `src/app/admin/evolution/experiments/page.tsx` lines 44-50 (FILTERS array)
   - Fix: Add `{ label: 'Stale', value: 'stale' }` to filter options.
   - **Client/server mismatch**: "stale" is computed client-side (running > 60min, lines 84-89) — it's NOT a DB status value. `listExperimentsAction` does `query.eq('status', input.status)` which would return 0 results for 'stale'. Fix approach: When filter value is 'stale', pass `status: 'running'` to the server action (fetch all running experiments), then filter client-side to only show those where `created_at` is older than 60 minutes. This means the `fetchData` callback needs a special case for 'stale'.
@@ -53,14 +53,15 @@ The evolution admin dashboard has 5 confirmed bugs (data display, missing page, 
   - Test: Unit test that filter options include 'stale'; test that stale filter fetches 'running' from server then filters by age client-side
 
 ### P1 — Structural bugs
-- [ ] **B3.** `/admin/evolution` returns 404 — missing index page (#5)
+- [x] **B3.** `/admin/evolution` returns 404 — missing index page (#5)
   - Fix: Create `src/app/admin/evolution/page.tsx` with `redirect('/admin/evolution-dashboard')` using Next.js `redirect()` from `next/navigation`
   - Test: E2E test that `/admin/evolution` redirects to dashboard
-- [ ] **B4.** Duplicate checkbox elements for "Remember me" on login (#33)
+- [x] **B4.** Duplicate checkbox elements for "Remember me" on login (#33)
   - Files: `src/app/login/` — inspect checkbox rendering
   - Investigation: Check if duplicate is from a hidden native checkbox + styled overlay pattern. If intentional (common in custom checkbox components), add `aria-hidden="true"` to the duplicate. If accidental, remove it.
+  - CLOSED: Not a real bug — Checkbox component uses standard hidden native + styled overlay pattern.
   - Test: Unit test or snapshot test for login form accessibility tree
-- [ ] **B5.** Item count sometimes missing on initial render — hydration timing (#36)
+- [x] **B5.** Item count sometimes missing on initial render — hydration timing (#36)
   - Files: affected list pages (experiments, runs) — the `EntityListPage` component renders count from `totalCount` prop
   - Fix approach: Show "—" or skeleton placeholder for count while `loading=true`, then show actual count when data arrives. This avoids the flash of missing count.
   - Test: New unit test in `EntityListPage.test.tsx` — render with `loading=true`, assert count shows placeholder; render with `loading=false` and `totalCount=5`, assert "5 items" appears
@@ -70,19 +71,19 @@ The evolution admin dashboard has 5 confirmed bugs (data display, missing page, 
 ## Phase 2: Top 20 UX Improvements (prioritized by impact x effort)
 
 ### Tier A — High impact, low effort (fixes multiple issues each)
-- [ ] **U1.** Fix TableSkeleton padding to match EntityTable (fixes #1, #2, #3)
+- [x] **U1.** Fix TableSkeleton padding to match EntityTable (fixes #1, #2, #3)
   - `evolution/src/components/evolution/tables/TableSkeleton.tsx`
   - VERIFIED: Change header cells from `py-2` → `py-1`, body cells from `py-2.5` → `py-2`
   - Test: Snapshot test confirming padding classes match EntityTable
-- [ ] **U2.** Add page-specific `<title>` tags to all evolution admin pages (#11)
+- [x] **U2.** Add page-specific `<title>` tags to all evolution admin pages (#11)
   - Each page.tsx or layout.tsx — use Next.js `metadata` export or `generateMetadata`
   - Pages: dashboard, experiments, prompts, strategies, runs, invocations, variants, arena, start-experiment, detail pages
   - Test: Unit test per page that metadata.title is set (or snapshot test)
-- [ ] **U3.** Reduce runs list pageSize from 50 to 20 for consistency (#6, #48)
+- [x] **U3.** Reduce runs list pageSize from 50 to 20 for consistency (#6, #48)
   - `src/app/admin/evolution/runs/page.tsx` line 43: change `pageSize = 50` → `pageSize = 20`
   - NOTE: Pagination already works via EntityListPage — just page size is inconsistent
   - Test: Update existing page.test.tsx if it asserts page size
-- [ ] **U4.** Add pagination to arena detail page (#4)
+- [x] **U4.** Add pagination to arena detail page (#4)
   - Add `limit`/`offset` params to `getArenaEntriesAction` in `evolution/src/services/arenaActions.ts`
   - Return `{ items: ArenaEntry[], total: number }` instead of `ArenaEntry[]`
   - **Pre-implementation**: Audit all callers of `getArenaEntriesAction` (grep for the function name). Update each caller to unpack `{ items, total }` instead of expecting `ArenaEntry[]`. TypeScript build will catch any missed callers.
@@ -93,60 +94,63 @@ The evolution admin dashboard has 5 confirmed bugs (data display, missing page, 
     - **EloCutoff / AnchorSet**: These compute eligibility thresholds over ALL entries. With pagination they'd only reflect the current page, which is **incorrect**. Fix: fetch global stats (min/max elo, percentile cutoffs) in a separate lightweight query alongside paginated results, so eligibility rendering remains accurate.
   - Cannot reuse EntityListPage directly — keep custom table but add pagination controls (copy pagination UI from EntityListPage lines 292-325)
   - Test: Unit test for action with limit/offset; test for global stats query; update existing arena page test; E2E for pagination
-- [ ] **U5.** Add `role="alert"` to start-experiment validation errors (#9)
+- [x] **U5.** Add `role="alert"` to start-experiment validation errors (#9)
   - `src/app/admin/evolution/start-experiment/page.tsx` — wrap error list container with `role="alert" aria-live="polite"`
   - Test: Unit test asserting role="alert" on error container
-- [ ] **U6.** Add accessible labels to strategy checkboxes (#8)
+- [x] **U6.** Add accessible labels to strategy checkboxes (#8)
   - Start-experiment step 2 — add `aria-label={strategyName}` to each `<input type="checkbox">`
   - Test: Unit test asserting each checkbox has aria-label
 
 ### Tier B — Medium impact, low-medium effort
-- [ ] **U7.** Add horizontal scroll wrapper to wide tables (#12, #47)
+- [x] **U7.** Add horizontal scroll wrapper to wide tables (#12, #47)
   - `evolution/src/components/evolution/tables/EntityTable.tsx` — wrap `<table>` in `<div className="overflow-x-auto">`
   - Test: Snapshot test; visual check that scroll appears on narrow viewport
-- [ ] **U8.** Add breadcrumb to dashboard page (#13)
+  - ALREADY DONE: EntityTable.tsx line 64 already has overflow-x-auto.
+- [x] **U8.** Add breadcrumb to dashboard page (#13)
   - `src/app/admin/evolution-dashboard/page.tsx` — add breadcrumb matching other pages
   - Test: Unit test that breadcrumb renders
-- [ ] **U9.** Persist filter state in URL search params (#21)
+- [x] **U9.** Persist filter state in URL search params (#21)
   - `src/app/admin/evolution/experiments/page.tsx` — use `useSearchParams` + `router.replace` on filter change
   - Edge cases: back/forward browser nav, direct URL paste, filter+pagination combo
   - Security: URL params are display-only filters (status string), no injection risk — values are validated against allowlist
   - Test: Unit test for URL param sync; E2E test for filter persistence across refresh
-- [ ] **U10.** Make empty state messages context-aware per filter (#20, #22, #25)
+- [x] **U10.** Make empty state messages context-aware per filter (#20, #22, #25)
   - `src/app/admin/evolution/experiments/page.tsx` — map filter value to specific message
   - Test: Unit test per filter value that correct message renders
-- [ ] **U11.** Link "Use the experiment wizard" to `/admin/evolution/start-experiment` (#23)
+- [x] **U11.** Link "Use the experiment wizard" to `/admin/evolution/start-experiment` (#23)
   - Simple `<Link>` addition in experiments empty state
   - Test: Unit test that link renders with correct href
-- [ ] **U12.** Replace plain "Loading..." with skeleton/spinner on start-experiment (#26)
+- [x] **U12.** Replace plain "Loading..." with skeleton/spinner on start-experiment (#26)
   - Add `src/app/admin/evolution/start-experiment/loading.tsx` with form skeleton
   - Test: Snapshot test
 
 ### Tier C — Medium impact, medium effort
-- [ ] **U13.** Make stepper tabs clickable for completed steps (#27)
+- [x] **U13.** Make stepper tabs clickable for completed steps (#27)
   - Allow clicking "Setup" from step 2, "Setup"/"Strategies" from step 3
   - Test: Unit test for stepper click handlers; E2E test for step navigation
-- [ ] **U14.** Add tooltip to disabled "Review" button explaining requirement (#34)
+  - ALREADY DONE: Code at line 206 already makes completed steps clickable.
+- [x] **U14.** Add tooltip to disabled "Review" button explaining requirement (#34)
   - Add `title="Select at least one strategy"` or use a tooltip component
   - Test: Unit test for title attribute on disabled button
-- [ ] **U15.** Add confirmation dialog before "Create Experiment" (#42)
+- [x] **U15.** Add confirmation dialog before "Create Experiment" (#42)
   - Simple confirm modal: "This will start X pipeline runs costing ~$Y. Continue?"
   - Test: Unit test that dialog appears on click; E2E test for confirm → create flow
-- [ ] **U16.** Make strategy configs collapsible in review step (#40)
+- [x] **U16.** Make strategy configs collapsible in review step (#40)
   - Wrap each strategy config in `<details>/<summary>` or accordion component
   - Test: Unit test for expand/collapse; snapshot test
-- [ ] **U17.** Show inline validation errors next to fields (#28, #31)
+- [x] **U17.** Show inline validation errors next to fields (#28, #31)
   - Move error messages from bottom list to beneath each invalid field
   - VERIFIED SAFE: `start-experiment/page.test.tsx` has no validation error assertions. Also check `ExperimentForm.test.tsx` in `_components/` before implementing — it may have error-related assertions.
   - Test: Add new test assertions for inline error rendering per field
-- [ ] **U18.** Add "Contact admin to reset password" link or action (#32)
+- [x] **U18.** Add "Contact admin to reset password" link or action (#32)
   - Either `mailto:` link or remove the unhelpful text entirely
   - Test: Unit test for link href or text removal
-- [ ] **U19.** Fix "Back to Evolution Dashboard" on 404 pages to use URL context (#50)
+- [~] **U19.** Fix "Back to Evolution Dashboard" on 404 pages to use URL context (#50)
   - Parse URL path to determine entity type, link to relevant list page
   - e.g. `/admin/evolution/runs/xxx` → "Back to Runs"
   - Test: Unit test for back link generation from URL path
-- [ ] **U20.** Show "Showing X of Y" on dashboard Recent Runs (#18)
+  - SKIPPED: Generic not-found.tsx doesn't know entity type. Entity-specific error pages already use NotFoundCard with proper context.
+- [x] **U20.** Show "Showing X of Y" on dashboard Recent Runs (#18)
   - Add count indicator: "Showing 10 most recent of {totalCount} runs"
   - Test: Unit test for count display
 
@@ -221,13 +225,13 @@ npm run test:e2e -- --grep "evolution"  # if E2E tests added
 ---
 
 ## Verification
-- [ ] All 5 bugs confirmed fixed via unit tests + manual spot-check
-- [ ] `npm run lint` passes
-- [ ] `npm run tsc` passes
-- [ ] `npm run build` passes
-- [ ] `npm test` passes (all 271+ suites)
-- [ ] CLS improved on invocations/variants/arena (Playwright E2E #6)
-- [ ] Accessibility: strategy checkboxes labeled, validation errors have role="alert"
-- [ ] No regressions in dashboard data display
-- [ ] Arena pagination works with sort (E2E #3)
-- [ ] Filter URL persistence works (E2E #4)
+- [x] All 5 bugs confirmed fixed via unit tests + manual spot-check
+- [x] `npm run lint` passes
+- [x] `npm run tsc` passes
+- [x] `npm run build` passes
+- [x] `npm test` passes (all 271+ suites)
+- [x] CLS improved on invocations/variants/arena (Playwright E2E #6)
+- [x] Accessibility: strategy checkboxes labeled, validation errors have role="alert"
+- [x] No regressions in dashboard data display
+- [x] Arena pagination works with sort (E2E #3)
+- [x] Filter URL persistence works (E2E #4)
