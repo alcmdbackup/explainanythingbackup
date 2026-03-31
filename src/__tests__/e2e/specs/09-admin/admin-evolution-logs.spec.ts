@@ -107,11 +107,13 @@ adminTest.describe('Admin Evolution LogsTab Filters', { tag: '@evolution' }, () 
       await adminPage.goto(`/admin/evolution/runs/${seeded.runId}`);
       await adminPage.waitForLoadState('domcontentloaded');
 
+      // Wait for run detail to load (tab bar only renders after data loads)
+      await adminPage.locator('[data-testid="entity-detail-header"]').waitFor({ state: 'visible', timeout: 15_000 });
+
       // Click logs tab
-      const logsTab = adminPage.locator('button:has-text("Logs"), [role="tab"]:has-text("Logs")');
-      if (await logsTab.isVisible()) {
-        await logsTab.click();
-      }
+      const logsTab = adminPage.locator('[data-testid="tab-logs"]');
+      await expect(logsTab).toBeVisible();
+      await logsTab.click();
 
       const logsContainer = adminPage.locator('[data-testid="logs-tab"]');
       await logsContainer.waitFor({ state: 'visible', timeout: 10_000 });
@@ -140,11 +142,11 @@ adminTest.describe('Admin Evolution LogsTab Filters', { tag: '@evolution' }, () 
       await adminPage.goto(`/admin/evolution/runs/${seeded.runId}`);
       await adminPage.waitForLoadState('domcontentloaded');
 
-      // Click logs tab
-      const logsTab = adminPage.locator('button:has-text("Logs"), [role="tab"]:has-text("Logs")');
-      if (await logsTab.isVisible()) {
-        await logsTab.click();
-      }
+      // Wait for run detail to load, then click logs tab
+      await adminPage.locator('[data-testid="entity-detail-header"]').waitFor({ state: 'visible', timeout: 15_000 });
+      const logsTab = adminPage.locator('[data-testid="tab-logs"]');
+      await expect(logsTab).toBeVisible();
+      await logsTab.click();
 
       const logsContainer = adminPage.locator('[data-testid="logs-tab"]');
       await logsContainer.waitFor({ state: 'visible', timeout: 10_000 });
@@ -169,11 +171,11 @@ adminTest.describe('Admin Evolution LogsTab Filters', { tag: '@evolution' }, () 
       await adminPage.goto(`/admin/evolution/runs/${seeded.runId}`);
       await adminPage.waitForLoadState('domcontentloaded');
 
-      // Click logs tab
-      const logsTab = adminPage.locator('button:has-text("Logs"), [role="tab"]:has-text("Logs")');
-      if (await logsTab.isVisible()) {
-        await logsTab.click();
-      }
+      // Wait for run detail to load, then click logs tab
+      await adminPage.locator('[data-testid="entity-detail-header"]').waitFor({ state: 'visible', timeout: 15_000 });
+      const logsTab = adminPage.locator('[data-testid="tab-logs"]');
+      await expect(logsTab).toBeVisible();
+      await logsTab.click();
 
       const logsContainer = adminPage.locator('[data-testid="logs-tab"]');
       await logsContainer.waitFor({ state: 'visible', timeout: 10_000 });

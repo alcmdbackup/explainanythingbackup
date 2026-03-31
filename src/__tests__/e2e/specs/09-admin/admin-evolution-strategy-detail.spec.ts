@@ -134,15 +134,15 @@ adminTest.describe('Evolution Strategy Detail (T17, T18)', { tag: '@evolution' }
     // Metrics tab should be active by default — metrics container visible
     await expect(adminPage.locator('[data-testid="entity-metrics-tab"]')).toBeVisible({ timeout: 10000 });
 
-    // Switch to Config tab
+    // Switch to Config tab — StrategyConfigDisplay renders "Models" heading in tab content
     await configTab.click();
-    await expect(adminPage.locator('text=Configuration')).toBeVisible({ timeout: 5000 });
+    await expect(adminPage.locator('[data-testid="tab-content"] h4:has-text("Models")')).toBeVisible({ timeout: 5000 });
 
     // Switch to Logs tab
     await logsTab.click();
 
-    // Tab content should change — Configuration section should no longer be visible
-    await expect(adminPage.locator('text=Configuration')).not.toBeVisible({ timeout: 5000 });
+    // Tab content should change — Config's "Models" heading should no longer be visible
+    await expect(adminPage.locator('[data-testid="tab-content"] h4:has-text("Models")')).not.toBeVisible({ timeout: 5000 });
 
     // Switch back to Metrics
     await metricsTab.click();
