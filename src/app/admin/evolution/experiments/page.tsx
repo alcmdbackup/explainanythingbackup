@@ -3,6 +3,7 @@
 'use client';
 
 import { useState, useCallback, useEffect } from 'react';
+import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 import { formatDate } from '@evolution/lib/utils/formatters';
 import { toast } from 'sonner';
 import {
@@ -105,8 +106,29 @@ const COLUMNS: ColumnDef<ExperimentSummary>[] = [
   },
 ];
 
+function emptyMessageForFilter(status: string): string {
+  switch (status) {
+    case 'draft': return 'No draft experiments.';
+    case 'running': return 'No experiments running.';
+    case 'stale': return 'No stale experiments. All running experiments are healthy.';
+    case 'completed': return 'No completed experiments.';
+    case 'cancelled': return 'No cancelled experiments.';
+    default: return 'No experiments found.';
+  }
+}
+
+function emptySuggestionForFilter(status: string): string {
+  if (status === 'all' || status === 'draft') {
+    return 'Start one at /admin/evolution/start-experiment';
+  }
+  return 'Try adjusting filters to see results.';
+}
+
 export default function ExperimentsListPage(): JSX.Element {
   useEffect(() => { document.title = 'Experiments | Evolution'; }, []);
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
   const [experiments, setExperiments] = useState<ExperimentSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [deleteTarget, setDeleteTarget] = useState<ExperimentSummary | null>(null);
@@ -116,6 +138,11 @@ export default function ExperimentsListPage(): JSX.Element {
       if (f.type === 'checkbox' && f.defaultChecked) {
         defaults[f.key] = 'true';
       }
+    }
+    // Read initial filter values from URL search params
+    const urlStatus = searchParams.get('status');
+    if (urlStatus && FILTERS[0]?.options?.some(o => o.value === urlStatus)) {
+      defaults.status = urlStatus;
     }
     return defaults;
   });
@@ -153,6 +180,16 @@ export default function ExperimentsListPage(): JSX.Element {
 
   const handleFilterChange = (key: string, value: string): void => {
     setFilterValues((prev) => ({ ...prev, [key]: value }));
+    // Sync status filter to URL for shareable/refreshable state
+    if (key === 'status') {
+      const params = new URLSearchParams(searchParams.toString());
+      if (value === 'all') {
+        params.delete('status');
+      } else {
+        params.set('status', value);
+      }
+      router.replace(`${pathname}?${params.toString()}`);
+    }
   };
 
   const handleCancel = async (experiment: ExperimentSummary): Promise<void> => {
@@ -218,8 +255,8 @@ export default function ExperimentsListPage(): JSX.Element {
         filterValues={filterValues}
         onFilterChange={handleFilterChange}
         getRowHref={(exp) => buildExperimentUrl(exp.id)}
-        emptyMessage="No experiments found."
-        emptySuggestion="Use the experiment wizard to start one."
+        emptyMessage={emptyMessageForFilter(filterValues.status ?? 'all')}
+        emptySuggestion={emptySuggestionForFilter(filterValues.status ?? 'all')}
       />
 
       <ConfirmDialog

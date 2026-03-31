@@ -10,6 +10,7 @@ import {
   useAutoRefresh,
   RunsTable,
   getBaseColumns,
+  EvolutionBreadcrumb,
   type MetricItem,
   type BaseRun,
 } from '@evolution/components/evolution';
@@ -109,6 +110,7 @@ export default function EvolutionDashboardPage(): JSX.Element {
   useEffect(() => { document.title = 'Dashboard | Evolution'; }, []);
   return (
     <div className="space-y-6">
+      <EvolutionBreadcrumb items={[{ label: 'Evolution Dashboard' }]} />
       <h1 className="text-4xl font-display font-bold text-[var(--text-primary)]">Evolution Dashboard</h1>
       <AutoRefreshProvider isActive intervalMs={15000}>
         <DashboardContent />
