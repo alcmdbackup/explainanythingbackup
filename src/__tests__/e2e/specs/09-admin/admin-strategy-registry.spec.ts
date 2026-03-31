@@ -104,7 +104,7 @@ adminTest.describe('Admin Strategy Registry - Origin Filter', { tag: '@evolution
       await adminPage.locator('[data-testid="filter-created_by"]').selectOption('experiment');
 
       // Wait for table to reload after filter change
-      const table = adminPage.locator('[data-testid="strategies-table"]');
+      const table = adminPage.locator('[data-testid="entity-list-table"]');
       await table.waitFor({ state: 'visible' });
     },
   );

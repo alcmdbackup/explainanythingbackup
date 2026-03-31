@@ -54,7 +54,6 @@ const baseColumns: ColumnDef<StrategyListItem>[] = [
   { key: 'label', header: 'Label', render: (row) => <span className="truncate block max-w-[200px]" title={row.label}>{row.label}</span> },
   { key: 'pipeline_type', header: 'Pipeline', render: (row) => row.pipeline_type ?? '—' },
   { key: 'status', header: 'Status', render: (row) => row.status },
-  { key: 'avg_final_elo', header: 'Avg Elo', render: (row) => (row.avg_final_elo != null ? row.avg_final_elo.toFixed(0) : '—') },
 ];
 const columns: ColumnDef<StrategyListItem>[] = [...baseColumns, ...createMetricColumns<StrategyListItem>('strategy')];
 

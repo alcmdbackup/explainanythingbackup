@@ -108,11 +108,10 @@ adminTest.describe('Evolution Error States', { tag: '@evolution' }, () => {
     await expect(metricsTab).toBeVisible();
     await metricsTab.click();
 
-    // The metrics panel should render with empty state or loading content, not be blank
-    const metricsPanel = adminPage.locator('[data-testid="tab-panel-metrics"], [role="tabpanel"]');
-    await expect(metricsPanel.first()).toBeVisible({ timeout: 10000 });
-
-    const panelText = await metricsPanel.first().textContent();
-    expect(panelText?.trim().length).toBeGreaterThan(0);
+    // Wait for metrics tab content to load (not just the panel container)
+    // Use auto-waiting assertion instead of point-in-time textContent() which races with loading state
+    const metricsPanel = adminPage.locator('[data-testid="tab-panel-metrics"], [role="tabpanel"]').first();
+    await expect(metricsPanel).toBeVisible({ timeout: 10000 });
+    await expect(metricsPanel).not.toHaveText('', { timeout: 15000 });
   });
 });

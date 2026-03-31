@@ -4,6 +4,7 @@
  */
 
 import { createClient } from '@supabase/supabase-js';
+import type { Database } from '../src/lib/database.types';
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -11,14 +12,14 @@ const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 const USER_ID = '08b3f7d2-196f-4606-83fc-d78b080f3e6f';
 
 async function addAdmin() {
-  const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
+  const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 
   const { data, error } = await supabase
     .from('admin_users')
     .upsert({
       user_id: USER_ID,
       role: 'admin',
-      added_by: USER_ID
+      created_by: USER_ID
     }, { onConflict: 'user_id' })
     .select();
 

@@ -75,8 +75,17 @@ adminTest.describe('Evolution Runs (T4, T7, T8, T10)', { tag: '@evolution' }, ()
     const table = adminPage.locator('[data-testid="runs-list-table"]');
     await expect(table).toBeVisible({ timeout: 15000 });
 
+    // Uncheck "Hide test content" so seeded test data is visible
+    const hideTestCheckbox = adminPage.locator('[data-testid="filter-filterTestContent"] input[type="checkbox"]');
+    // eslint-disable-next-line flakiness/no-point-in-time-checks -- control flow, not assertion
+    if (await hideTestCheckbox.isChecked()) {
+      await hideTestCheckbox.click();
+      // Wait for table to reload after filter change
+      await table.waitFor({ state: 'visible' });
+    }
+
     // Use the status filter dropdown
-    const statusFilter = adminPage.locator('[data-testid="status-filter"]');
+    const statusFilter = adminPage.locator('[data-testid="filter-status"]');
     await expect(statusFilter).toBeVisible();
 
     // Filter to "completed" — should show only completed runs
@@ -100,6 +109,15 @@ adminTest.describe('Evolution Runs (T4, T7, T8, T10)', { tag: '@evolution' }, ()
     const table = adminPage.locator('[data-testid="runs-list-table"]');
     await expect(table).toBeVisible({ timeout: 15000 });
 
+    // Uncheck "Hide test content" so seeded test data is visible
+    const hideTestCheckbox = adminPage.locator('[data-testid="filter-filterTestContent"] input[type="checkbox"]');
+    // eslint-disable-next-line flakiness/no-point-in-time-checks -- control flow, not assertion
+    if (await hideTestCheckbox.isChecked()) {
+      await hideTestCheckbox.click();
+      // Wait for table to reload after filter change
+      await table.waitFor({ state: 'visible' });
+    }
+
     // Click the completed run row
     const runRow = adminPage.locator(`[data-testid="run-row-${completedRunId}"]`);
     await expect(runRow).toBeVisible({ timeout: 10000 });
@@ -118,16 +136,12 @@ adminTest.describe('Evolution Runs (T4, T7, T8, T10)', { tag: '@evolution' }, ()
     const header = adminPage.locator('[data-testid="entity-detail-header"]');
     await expect(header).toBeVisible({ timeout: 15000 });
 
-    // Verify the tab bar renders
-    const tabBar = adminPage.locator('[data-testid="tab-bar"]');
-    await expect(tabBar).toBeVisible();
-
-    // Verify each expected tab exists
-    await expect(adminPage.locator('[data-testid="tab-overview"]')).toBeVisible();
-    await expect(adminPage.locator('[data-testid="tab-elo"]')).toBeVisible();
-    await expect(adminPage.locator('[data-testid="tab-lineage"]')).toBeVisible();
-    await expect(adminPage.locator('[data-testid="tab-variants"]')).toBeVisible();
-    await expect(adminPage.locator('[data-testid="tab-logs"]')).toBeVisible();
+    // Verify the tab bar renders with expected tabs (uses ARIA role="tab")
+    await expect(adminPage.getByRole('tab', { name: 'Metrics' })).toBeVisible();
+    await expect(adminPage.getByRole('tab', { name: 'Elo' })).toBeVisible();
+    await expect(adminPage.getByRole('tab', { name: 'Lineage' })).toBeVisible();
+    await expect(adminPage.getByRole('tab', { name: 'Variants' })).toBeVisible();
+    await expect(adminPage.getByRole('tab', { name: 'Logs' })).toBeVisible();
   });
 
   adminTest('run detail breadcrumb navigation works', async ({ adminPage }) => {
@@ -158,8 +172,8 @@ adminTest.describe('Evolution Runs (T4, T7, T8, T10)', { tag: '@evolution' }, ()
     const header = adminPage.locator('[data-testid="entity-detail-header"]');
     await expect(header).toBeVisible({ timeout: 15000 });
 
-    // The status badge should reflect the failed state (hasError=true renders error styling)
-    const statusBadge = header.locator('[data-testid="status-badge"]');
+    // The status badge should reflect the failed state (run-status variant uses status-badge-${status})
+    const statusBadge = header.locator('[data-testid="status-badge-failed"]');
     await expect(statusBadge).toBeVisible();
     await expect(statusBadge).toContainText(/failed/i);
   });

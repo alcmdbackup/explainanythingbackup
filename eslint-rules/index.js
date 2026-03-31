@@ -9,6 +9,7 @@
  * - no-silent-catch: Disallow .catch(() => {}) - use safe helpers instead
  * - no-networkidle: Disallow waitForLoadState('networkidle') - use specific waits
  * - no-hardcoded-tmpdir: Disallow hardcoded /tmp/ paths - use os.tmpdir() with worker subdirs
+ * - no-point-in-time-checks: Prefer auto-waiting assertions over point-in-time DOM checks
  *
  * See docs/docs_overall/testing_rules.md for acceptable exceptions.
  */
@@ -22,5 +23,6 @@ module.exports = {
     'no-hardcoded-tmpdir': require('./no-hardcoded-tmpdir'),
     'require-test-cleanup': require('./require-test-cleanup'),
     'no-duplicate-column-labels': require('./no-duplicate-column-labels'),
+    'no-point-in-time-checks': require('./no-point-in-time-checks'),
   },
 };

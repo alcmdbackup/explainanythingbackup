@@ -52,6 +52,7 @@ const eslintConfig = [
       "flakiness/max-test-timeout": "error",
       "flakiness/no-test-skip": "error",
       "flakiness/require-test-cleanup": "error",
+      "flakiness/no-point-in-time-checks": "warn",
     },
   },
   // Flakiness prevention for all E2E files (specs + helpers)
@@ -98,6 +99,16 @@ const eslintConfig = [
       "design-system/enforce-heading-typography": "warn",
       "design-system/enforce-prose-font": "warn",
       "design-system/no-inline-typography": "error",
+    },
+  },
+  // Enforce typed Supabase clients to prevent schema drift
+  {
+    files: ["scripts/**/*.ts", "src/__tests__/**/*.ts"],
+    rules: {
+      "no-restricted-syntax": ["warn", {
+        selector: "CallExpression[callee.name='createClient']:not([typeArguments])",
+        message: "Use createClient<Database>() instead of untyped createClient(). Import Database from '@/lib/database.types'.",
+      }],
     },
   },
   // Boundary enforcement: evolution/ must not import app-layer modules from src/

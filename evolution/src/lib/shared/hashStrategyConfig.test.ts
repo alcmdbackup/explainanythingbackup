@@ -126,12 +126,7 @@ describe('strategyConfig', () => {
         pipeline_type: 'full',
         status: 'active',
         created_by: 'system',
-        run_count: 5,
-        total_cost_usd: 2.50,
-        avg_final_elo: 1350.5,
         avg_elo_per_dollar: 60.2,
-        best_final_elo: 1500,
-        worst_final_elo: 1200,
         stddev_final_elo: 75.3,
         first_used_at: '2026-01-01T00:00:00Z',
         last_used_at: '2026-02-07T00:00:00Z',
@@ -153,9 +148,10 @@ describe('strategyConfig', () => {
       const prompt: PromptMetadata = {
         id: 'prompt-id',
         prompt: 'Explain quantum computing',
-        title: 'Quantum Computing',
+        name: 'Quantum Computing',
         status: 'active',
         deleted_at: null,
+        archived_at: null,
         created_at: '2026-01-01T00:00:00Z',
       };
 

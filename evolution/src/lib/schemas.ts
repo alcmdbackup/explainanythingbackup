@@ -52,11 +52,9 @@ export const evolutionStrategyInsertSchema = z.object({
 
 export const evolutionStrategyFullDbSchema = evolutionStrategyInsertSchema.extend({
   id: z.string().uuid(),
-  run_count: z.number().int().min(0).default(0),
-  total_cost_usd: z.number().min(0).default(0),
-  avg_final_elo: z.number().nullable().default(null),
-  best_final_elo: z.number().nullable().default(null),
-  worst_final_elo: z.number().nullable().default(null),
+  is_predefined: z.boolean().default(false),
+  avg_elo_per_dollar: z.number().nullable().default(null),
+  stddev_final_elo: z.number().nullable().default(null),
   first_used_at: z.string().nullable().default(null),
   last_used_at: z.string().nullable().default(null),
   created_at: z.string(),

@@ -195,12 +195,12 @@ adminTest.describe('Evolution Variants (list page)', { tag: '@evolution' }, () =
     const breadcrumb = adminPage.locator('[data-testid="evolution-breadcrumb"]');
     await expect(breadcrumb).toBeVisible({ timeout: 15000 });
 
-    // Breadcrumb should contain "Dashboard" link
-    const dashLink = breadcrumb.locator('a:has-text("Dashboard")');
-    await expect(dashLink).toBeVisible();
+    // Breadcrumb should contain "Evolution" link (pointing to dashboard)
+    const evoLink = breadcrumb.locator('a:has-text("Evolution")');
+    await expect(evoLink).toBeVisible();
 
-    // Click Dashboard breadcrumb
-    await dashLink.click();
+    // Click Evolution breadcrumb
+    await evoLink.click();
     await adminPage.waitForURL('**/admin/evolution-dashboard', { timeout: 10000 });
     expect(adminPage.url()).toContain('/admin/evolution-dashboard');
   });

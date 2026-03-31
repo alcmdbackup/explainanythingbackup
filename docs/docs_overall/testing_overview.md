@@ -7,7 +7,11 @@ Consolidated guide covering testing rules, tiers, and CI/CD workflows.
 1. **Start from a known state every test.** Create all needed data in the test (or via API/seed), and reset/cleanup DB + auth/session so tests don't depend on order or shared accounts.
 2. **Never use fixed sleeps.** Wait only on observable conditions: element is visible/enabled, URL changed, specific network response completed, websocket event received, etc.
 3. **Use stable selectors only.** Prefer `data-testid` (or equivalent); avoid brittle CSS/XPath based on layout/text unless it's an accessibility role/name that's truly stable.
-4. **Make async explicit.** After actions, assert the next expected state (auto-waiting assertions) and/or wait for the relevant request: "click → wait for /api/foo 200 → expect success UI."
+4. **Make async explicit — use auto-waiting assertions, not point-in-time checks.** After actions, assert the next expected state using Playwright's `expect(locator)` assertions which retry automatically until met or timeout. **Never use point-in-time methods for assertions** — they execute once and race with React hydration and streaming:
+   - `page.textContent()`, `page.isVisible()`, `locator.innerText()`, `locator.inputValue()` → run once, return immediately
+   - `expect(locator).toContainText()`, `expect(locator).toBeVisible()`, `expect(locator).toHaveValue()` → retry until true or timeout
+   - `waitForLoadState('domcontentloaded')` fires before RSC hydration — wait for specific content instead
+   - Pattern: "click → `expect(locator).toBeVisible()` → `expect(locator).toContainText('expected')`"
 5. **Isolate external dependencies.** Mock/stub third-party services (payments, email, maps, feature flags) and make backend responses deterministic; avoid real timeouts to external systems.
 6. **Keep timeouts short** - 60 seconds max per test
 7. **Never silently swallow errors.** Use helpers from `src/__tests__/e2e/helpers/error-utils.ts` instead of bare `.catch(() => {})`:
@@ -39,6 +43,7 @@ Consolidated guide covering testing rules, tiers, and CI/CD workflows.
 | Rule 2: No fixed sleeps | ESLint `flakiness/no-wait-for-timeout` (catches `waitForTimeout` + `new Promise(setTimeout)`) | Lint (CI + IDE) |
 | Rule 6: Short timeouts | ESLint `flakiness/max-test-timeout` | Lint (CI + IDE) |
 | Rule 7: No silent errors | ESLint `flakiness/no-silent-catch` | Lint (CI + IDE) |
+| Rule 4: No point-in-time checks | ESLint `flakiness/no-point-in-time-checks` (warn) | Lint (CI + IDE) |
 | Rule 8: No test.skip | ESLint `flakiness/no-test-skip` | Lint (CI + IDE) |
 | Rule 9: No `networkidle` | ESLint `flakiness/no-networkidle` | Lint (CI + IDE) |
 | Rule 10: Unregister route mocks | Fixture teardown in `base.ts` + `auth.ts` (after `use()`) | Runtime (automatic) |
@@ -313,7 +318,7 @@ The CI workflow detects what files changed to optimize costs:
 
 | Path | Trigger | Jobs Run |
 |------|---------|----------|
-| **Fast** | Only docs/migrations changed (no `.ts`, `.tsx`, `.js`, `.jsx`, `.json`, `.css`) | lint + tsc only (~1 min) |
+| **Fast** | Only docs changed (no code files, no migrations) | lint + tsc only (~1 min) |
 | **Full** | Any code file changed | All tests (~2.5-3 min) |
 
 **Full Path Pipeline:**
@@ -402,6 +407,9 @@ Available to all workflows - API keys that don't change between environments:
 |--------|---------|
 | `OPENAI_API_KEY` | OpenAI API key |
 | `PINECONE_API_KEY` | Pinecone API key |
+| `DEEPSEEK_API_KEY` | DeepSeek API key (evolution LLM provider) |
+| `ANTHROPIC_API_KEY` | Anthropic API key (Claude models) |
+| `OPENROUTER_API_KEY` | OpenRouter API key (gpt-oss-20b) |
 
 ### Staging Environment Secrets
 

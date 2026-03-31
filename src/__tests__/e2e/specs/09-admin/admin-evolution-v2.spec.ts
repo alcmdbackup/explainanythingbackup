@@ -31,7 +31,7 @@ adminTest.describe('Evolution V2 Admin UI Smoke Tests', { tag: '@evolution' }, (
     await expect(adminPage.locator('h1')).toContainText('Evolution Runs');
 
     // Filters bar renders
-    await expect(adminPage.locator('[data-testid="runs-filters"]')).toBeVisible();
+    await expect(adminPage.locator('[data-testid="filter-bar"]')).toBeVisible();
 
     // Table or empty state renders (table may be empty if no runs exist)
     const table = adminPage.locator('[data-testid="runs-list-table"]');

@@ -55,18 +55,19 @@ adminTest.describe('Strategy Registry CRUD', () => {
     // Select generation model (required)
     const genModelSelect = dialog.locator('select').first();
     const genOptions = await genModelSelect.locator('option').allTextContents();
-    const validModel = genOptions.find(o => o !== 'Select a model…' && o.trim() !== '');
+    const validModel = genOptions.find(o => o !== 'Select a model...' && o.trim() !== '');
     if (validModel) await genModelSelect.selectOption({ label: validModel });
 
     // Select judge model (required)
     const judgeModelSelect = dialog.locator('select').nth(1);
     const judgeOptions = await judgeModelSelect.locator('option').allTextContents();
-    const validJudge = judgeOptions.find(o => o !== 'Select a model…' && o.trim() !== '');
+    const validJudge = judgeOptions.find(o => o !== 'Select a model...' && o.trim() !== '');
     if (validJudge) await judgeModelSelect.selectOption({ label: validJudge });
 
-    // Fill iterations
+    // Fill iterations — use random value to avoid UNIQUE(config_hash) collision with existing strategies
     const iterInput = dialog.getByRole('spinbutton');
-    await iterInput.fill('3');
+    const randomIters = Math.floor(Math.random() * 90) + 10; // 10-99
+    await iterInput.fill(String(randomIters));
 
     // Submit via Save button
     await dialog.getByRole('button', { name: /save/i }).click();
