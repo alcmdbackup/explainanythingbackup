@@ -45,6 +45,7 @@ const FILTERS: FilterDef[] = [
       { label: 'All', value: 'all' },
       { label: 'Draft', value: 'draft' },
       { label: 'Running', value: 'running' },
+      { label: 'Stale', value: 'stale' },
       { label: 'Completed', value: 'completed' },
       { label: 'Cancelled', value: 'cancelled' },
     ],
@@ -121,15 +122,24 @@ export default function ExperimentsListPage(): JSX.Element {
   const load = useCallback(async () => {
     setLoading(true);
     const statusVal = filterValues.status;
+    const isStaleFilter = statusVal === 'stale';
     const params: { status?: string; filterTestContent?: boolean } = {
       filterTestContent: filterValues.filterTestContent === 'true',
     };
     if (statusVal && statusVal !== 'all') {
-      params.status = statusVal;
+      // 'stale' is computed client-side (running > 60min), not a DB status
+      params.status = isStaleFilter ? 'running' : statusVal;
     }
     const result = await listExperimentsAction(params);
     if (result.success && result.data) {
-      setExperiments(result.data as ExperimentSummary[]);
+      let items = result.data as ExperimentSummary[];
+      if (isStaleFilter) {
+        const staleThreshold = 60 * 60 * 1000; // 60 minutes
+        items = items.filter(exp =>
+          Date.now() - new Date(exp.created_at).getTime() > staleThreshold
+        );
+      }
+      setExperiments(items);
     } else if (!result.success) {
       toast.error(result.error?.message ?? 'Failed to load experiments');
     }
