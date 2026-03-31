@@ -65,8 +65,8 @@ function DashboardContent(): JSX.Element {
     { label: 'Queue Depth', value: data.queueDepth },
     { label: 'Completed Runs', value: data.completedRuns },
     { label: 'Failed Runs', value: data.failedRuns },
-    { label: 'Total Cost', value: formatCost(data.totalCostUsd), prefix: '$' },
-    { label: 'Avg Cost', value: formatCost(data.avgCostPerRun), prefix: '$' },
+    { label: 'Total Cost', value: formatCost(data.totalCostUsd) },
+    { label: 'Avg Cost', value: formatCost(data.avgCostPerRun) },
   ];
 
   const recentRuns: BaseRun[] = data.recentRuns.map((r) => ({
@@ -97,7 +97,12 @@ function DashboardContent(): JSX.Element {
       <MetricGrid metrics={metrics} columns={3} variant="card" testId="dashboard-metrics" />
       <div>
         <div className="flex items-center justify-between mb-3">
-          <h2 className="text-2xl font-display font-semibold text-[var(--text-primary)]">Recent Runs</h2>
+          <div>
+            <h2 className="text-2xl font-display font-semibold text-[var(--text-primary)]">Recent Runs</h2>
+            <p className="text-xs font-ui text-[var(--text-muted)]">
+              Showing {Math.min(recentRuns.length, 10)} most recent of {data.activeRuns + data.queueDepth + data.completedRuns + data.failedRuns} total
+            </p>
+          </div>
           <Link href="/admin/evolution/runs" className="text-sm text-[var(--accent-gold)] hover:underline">View all runs →</Link>
         </div>
         <RunsTable runs={recentRuns} columns={getBaseColumns()} compact maxRows={10} testId="dashboard-runs-table" />

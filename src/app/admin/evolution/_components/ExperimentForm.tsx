@@ -128,6 +128,10 @@ export function ExperimentForm({ onCreated }: ExperimentFormProps): JSX.Element 
 
   const handleSubmit = async () => {
     if (setupErrors.length > 0 || selections.length === 0 || overBudget) return;
+    const confirmed = window.confirm(
+      `This will start ${totalRuns} pipeline run${totalRuns !== 1 ? 's' : ''} costing ~$${totalBudget.toFixed(2)}. Continue?`
+    );
+    if (!confirmed) return;
     setSubmitting(true);
 
     try {
@@ -222,8 +226,13 @@ export function ExperimentForm({ onCreated }: ExperimentFormProps): JSX.Element 
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="e.g., Model comparison Q1"
-                className="w-full px-3 py-2 text-sm font-ui bg-[var(--surface-primary)] border border-[var(--border-default)] rounded-page text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:border-[var(--accent-gold)] focus:outline-none"
+                className={`w-full px-3 py-2 text-sm font-ui bg-[var(--surface-primary)] border rounded-page text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:border-[var(--accent-gold)] focus:outline-none ${
+                  setupSubmitted && !name.trim() ? 'border-[var(--status-error)]' : 'border-[var(--border-default)]'
+                }`}
               />
+              {setupSubmitted && !name.trim() && (
+                <p className="text-xs font-body text-[var(--status-error)] mt-0.5">Enter an experiment name</p>
+              )}
             </div>
 
             <div>
@@ -276,6 +285,9 @@ export function ExperimentForm({ onCreated }: ExperimentFormProps): JSX.Element 
                   Create new prompt
                 </button>
               </div>
+              {setupSubmitted && !selectedPromptId && (
+                <p className="text-xs font-body text-[var(--status-error)] mt-0.5">Select a prompt</p>
+              )}
               <FormDialog
                 open={showCreatePrompt}
                 onClose={() => setShowCreatePrompt(false)}
@@ -446,6 +458,7 @@ export function ExperimentForm({ onCreated }: ExperimentFormProps): JSX.Element 
               <button
                 onClick={() => setStep('review')}
                 disabled={selections.length === 0 || overBudget}
+                title={selections.length === 0 ? 'Select at least one strategy' : overBudget ? 'Total cost exceeds budget limit' : undefined}
                 className="flex-1 py-2.5 font-ui text-sm font-medium bg-[var(--accent-gold)] text-[var(--surface-primary)] rounded-page hover:opacity-90 disabled:opacity-50 transition-opacity"
               >
                 Review
@@ -492,12 +505,12 @@ export function ExperimentForm({ onCreated }: ExperimentFormProps): JSX.Element 
               const strategy = strategies.find(s => s.id === sel.strategyId);
               if (!strategy) return null;
               return (
-                <div key={sel.strategyId} className="space-y-2">
-                  <h4 className="text-lg font-display font-medium text-[var(--text-muted)]">
+                <details key={sel.strategyId} className="space-y-2">
+                  <summary className="text-lg font-display font-medium text-[var(--text-muted)] cursor-pointer hover:text-[var(--text-secondary)]">
                     {strategy.name} config
-                  </h4>
+                  </summary>
                   <StrategyConfigDisplay config={strategy.config} />
-                </div>
+                </details>
               );
             })}
 
