@@ -77,9 +77,11 @@ adminTest.describe('Evolution Runs (T4, T7, T8, T10)', { tag: '@evolution' }, ()
 
     // Uncheck "Hide test content" so seeded test data is visible
     const hideTestCheckbox = adminPage.locator('[data-testid="filter-filterTestContent"] input[type="checkbox"]');
+    // eslint-disable-next-line flakiness/no-point-in-time-checks -- control flow, not assertion
     if (await hideTestCheckbox.isChecked()) {
       await hideTestCheckbox.click();
-      await adminPage.waitForTimeout(500);
+      // Wait for table to reload after filter change
+      await table.waitFor({ state: 'visible' });
     }
 
     // Use the status filter dropdown
@@ -109,9 +111,11 @@ adminTest.describe('Evolution Runs (T4, T7, T8, T10)', { tag: '@evolution' }, ()
 
     // Uncheck "Hide test content" so seeded test data is visible
     const hideTestCheckbox = adminPage.locator('[data-testid="filter-filterTestContent"] input[type="checkbox"]');
+    // eslint-disable-next-line flakiness/no-point-in-time-checks -- control flow, not assertion
     if (await hideTestCheckbox.isChecked()) {
       await hideTestCheckbox.click();
-      await adminPage.waitForTimeout(500);
+      // Wait for table to reload after filter change
+      await table.waitFor({ state: 'visible' });
     }
 
     // Click the completed run row
