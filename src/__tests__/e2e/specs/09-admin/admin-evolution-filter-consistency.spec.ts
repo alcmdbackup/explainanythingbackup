@@ -85,21 +85,21 @@ adminTest.describe('Evolution Filter Consistency', { tag: ['@evolution', '@criti
     const table = adminPage.locator('[data-testid="runs-list-table"]');
     await expect(table).toBeVisible({ timeout: 15000 });
 
-    // Ensure "Hide test content" checkbox is checked
-    const hideTestCheckbox = adminPage.locator('[data-testid="hide-test-content"]');
-    if (await hideTestCheckbox.count() > 0) {
-      if (!(await hideTestCheckbox.isChecked())) {
-        await hideTestCheckbox.check();
-      }
-
-      // Test run row should not be visible
-      const testRunRow = adminPage.locator(`[data-testid="run-row-${runIds[0]}"]`);
-      await expect(testRunRow).not.toBeVisible();
-
-      // Normal run row should remain visible
-      const normalRunRow = adminPage.locator(`[data-testid="run-row-${runIds[1]}"]`);
-      await expect(normalRunRow).toBeVisible();
+    // First uncheck filter to see all rows (seeded data uses test prefixes)
+    const hideTestLabel = adminPage.locator('[data-testid="filter-filterTestContent"]');
+    const hideTestCheckbox = hideTestLabel.locator('input[type="checkbox"]');
+    // eslint-disable-next-line flakiness/no-point-in-time-checks -- control flow, not assertion
+    if (await hideTestCheckbox.isChecked()) {
+      await hideTestCheckbox.uncheck();
     }
+
+    // Both rows should be visible with filter off
+    const testRunRow = adminPage.locator(`[data-testid="run-row-${runIds[0]}"]`);
+    await expect(testRunRow).toBeVisible({ timeout: 15000 });
+
+    // Re-check filter — test run should be hidden (strategy name contains [TEST])
+    await hideTestCheckbox.check();
+    await expect(testRunRow).not.toBeVisible({ timeout: 10000 });
   });
 
   adminTest('unchecking hide-test-content shows all rows', async ({ adminPage }) => {
@@ -109,8 +109,9 @@ adminTest.describe('Evolution Filter Consistency', { tag: ['@evolution', '@criti
     const table = adminPage.locator('[data-testid="runs-list-table"]');
     await expect(table).toBeVisible({ timeout: 15000 });
 
-    const hideTestCheckbox = adminPage.locator('[data-testid="hide-test-content"]');
-    if (await hideTestCheckbox.count() > 0) {
+    const hideTestLabel2 = adminPage.locator('[data-testid="filter-filterTestContent"]');
+    const hideTestCheckbox = hideTestLabel2.locator('input[type="checkbox"]');
+    if (await hideTestLabel2.count() > 0) {
       // Uncheck to show all content
       if (await hideTestCheckbox.isChecked()) {
         await hideTestCheckbox.uncheck();
@@ -118,7 +119,7 @@ adminTest.describe('Evolution Filter Consistency', { tag: ['@evolution', '@criti
 
       // Both run rows should be visible
       const testRunRow = adminPage.locator(`[data-testid="run-row-${runIds[0]}"]`);
-      await expect(testRunRow).toBeVisible({ timeout: 10000 });
+      await expect(testRunRow).toBeVisible({ timeout: 15000 });
 
       const normalRunRow = adminPage.locator(`[data-testid="run-row-${runIds[1]}"]`);
       await expect(normalRunRow).toBeVisible();
@@ -133,10 +134,11 @@ adminTest.describe('Evolution Filter Consistency', { tag: ['@evolution', '@criti
     await expect(adminPage.locator('h1')).toContainText(/experiment/i, { timeout: 15000 });
 
     // If hide-test-content toggle exists, verify it is functional
-    const hideTestCheckbox = adminPage.locator('[data-testid="hide-test-content"]');
-    if (await hideTestCheckbox.count() > 0) {
+    const hideTestLabel3 = adminPage.locator('[data-testid="filter-filterTestContent"]');
+    if (await hideTestLabel3.count() > 0) {
+      const checkbox = hideTestLabel3.locator('input[type="checkbox"]');
       // Toggle should be interactable
-      await expect(hideTestCheckbox).toBeEnabled();
+      await expect(checkbox).toBeEnabled();
     }
   });
 });

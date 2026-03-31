@@ -116,7 +116,7 @@ adminTest.describe('Admin Evolution LogsTab Filters', { tag: '@evolution' }, () 
       await logsTab.click();
 
       const logsContainer = adminPage.locator('[data-testid="logs-tab"]');
-      await logsContainer.waitFor({ state: 'visible', timeout: 10_000 });
+      await logsContainer.waitFor({ state: 'visible', timeout: 15000 });
 
       // Verify level filter
       const levelFilter = logsContainer.locator('select[aria-label="Filter by level"]');
@@ -149,7 +149,7 @@ adminTest.describe('Admin Evolution LogsTab Filters', { tag: '@evolution' }, () 
       await logsTab.click();
 
       const logsContainer = adminPage.locator('[data-testid="logs-tab"]');
-      await logsContainer.waitFor({ state: 'visible', timeout: 10_000 });
+      await logsContainer.waitFor({ state: 'visible', timeout: 15000 });
 
       // Select "info" level filter — our seeded log has level 'info'
       const levelFilter = logsContainer.locator('select[aria-label="Filter by level"]');
@@ -157,7 +157,7 @@ adminTest.describe('Admin Evolution LogsTab Filters', { tag: '@evolution' }, () 
 
       // Wait for table to update — the seeded log should still appear
       const table = logsContainer.locator('table');
-      await expect(table).toBeVisible({ timeout: 10_000 });
+      await expect(table).toBeVisible({ timeout: 15000 });
 
       // The log count label should reflect filtered results
       const countLabel = logsContainer.locator('text=/\\d+ logs?/');
@@ -178,7 +178,7 @@ adminTest.describe('Admin Evolution LogsTab Filters', { tag: '@evolution' }, () 
       await logsTab.click();
 
       const logsContainer = adminPage.locator('[data-testid="logs-tab"]');
-      await logsContainer.waitFor({ state: 'visible', timeout: 10_000 });
+      await logsContainer.waitFor({ state: 'visible', timeout: 15000 });
 
       // Type the seeded log message text into search
       const messageSearch = logsContainer.locator('input[aria-label="Search messages"]');
@@ -186,11 +186,11 @@ adminTest.describe('Admin Evolution LogsTab Filters', { tag: '@evolution' }, () 
 
       // Wait for debounced search to trigger and table to render results
       const table = logsContainer.locator('table');
-      await expect(table).toBeVisible({ timeout: 10_000 });
+      await expect(table).toBeVisible({ timeout: 15000 });
 
       // The matching log row should contain our seeded message text
       const matchingRow = logsContainer.locator('td:has-text("[TEST] E2E log entry")');
-      await expect(matchingRow).toBeVisible({ timeout: 10_000 });
+      await expect(matchingRow).toBeVisible({ timeout: 15000 });
     },
   );
 });

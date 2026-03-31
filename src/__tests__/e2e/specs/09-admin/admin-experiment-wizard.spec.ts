@@ -79,8 +79,8 @@ adminTest.describe('Experiment Creation Wizard', { tag: '@evolution' }, () => {
 
     await expect(adminPage.locator('h1')).toContainText('Start Experiment');
 
-    // Before clicking Next, validation errors should not be visible
-    const validationError = adminPage.locator('ul.text-xs li, [role="alert"]');
+    // Before clicking Next, validation error list items should not be visible
+    const validationError = adminPage.locator('ul.text-xs li');
     await expect(validationError).not.toBeVisible();
 
     // Click Next without filling in required fields (name and prompt are required)
@@ -88,9 +88,8 @@ adminTest.describe('Experiment Creation Wizard', { tag: '@evolution' }, () => {
     await expect(nextButton).toBeVisible({ timeout: 10000 });
     await nextButton.click();
 
-    // Now validation errors should appear (ExperimentForm shows setup errors as list items)
-    const errorAfterClick = adminPage.locator('ul li:has-text("Enter an experiment name")');
-    await expect(errorAfterClick).toBeVisible({ timeout: 5000 });
+    // Now validation errors should appear (ExperimentForm shows inline error text)
+    await expect(adminPage.locator('p:has-text("Enter an experiment name")')).toBeVisible({ timeout: 5000 });
   });
 
   adminTest('runs-per-strategy spinner works', async ({ adminPage }) => {
@@ -133,8 +132,8 @@ adminTest.describe('Experiment Creation Wizard', { tag: '@evolution' }, () => {
     await expect(adminPage.locator('h1')).toContainText('Start Experiment');
 
     // ExperimentForm renders as a single-page form with required sections
-    await expect(adminPage.locator('text=Experiment Name')).toBeVisible({ timeout: 10000 });
-    await expect(adminPage.locator('text=Prompt')).toBeVisible();
-    await expect(adminPage.locator('text=Budget per Run')).toBeVisible();
+    await expect(adminPage.getByText('Experiment Name', { exact: true })).toBeVisible({ timeout: 10000 });
+    await expect(adminPage.getByText('Prompt', { exact: true })).toBeVisible();
+    await expect(adminPage.getByText('Budget per Run ($)', { exact: true })).toBeVisible();
   });
 });

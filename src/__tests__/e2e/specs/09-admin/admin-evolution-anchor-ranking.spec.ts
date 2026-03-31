@@ -24,12 +24,14 @@ adminTest.describe('Arena Leaderboard Anchor Badge', { tag: '@evolution' }, () =
     );
 
     // Create test prompt
-    const { data: prompt } = await supabase
+    const ts = Date.now();
+    const { data: prompt, error: promptErr } = await supabase
       .from('evolution_prompts')
-      .insert({ prompt: '[E2E] Anchor test prompt', name: `[E2E] Anchor Test ${Date.now()}`, status: 'active' })
+      .insert({ prompt: `[E2E] Anchor test prompt ${ts}`, name: `[E2E] Anchor Test ${ts}`, status: 'active' })
       .select('id')
       .single();
-    promptId = prompt!.id as string;
+    if (promptErr || !prompt) throw new Error(`Failed to seed prompt: ${promptErr?.message ?? 'null data'}`);
+    promptId = prompt.id as string;
     trackEvolutionId('prompt', promptId);
 
     // Create a dummy run for the arena entries

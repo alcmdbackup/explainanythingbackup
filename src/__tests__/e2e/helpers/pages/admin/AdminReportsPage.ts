@@ -39,8 +39,7 @@ export class AdminReportsPage extends AdminBasePage {
    * Navigate to the content reports page.
    */
   async gotoReports() {
-    const baseUrl = process.env.BASE_URL || 'http://localhost:3008';
-    await this.page.goto(`${baseUrl}/admin/content/reports`, { waitUntil: 'domcontentloaded' });
+    await this.page.goto('/admin/content/reports', { waitUntil: 'domcontentloaded' });
     await this.table.waitFor({ state: 'visible' });
   }
 

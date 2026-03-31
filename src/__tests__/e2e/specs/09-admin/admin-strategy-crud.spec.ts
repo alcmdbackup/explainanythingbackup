@@ -72,6 +72,9 @@ adminTest.describe('Strategy Registry CRUD', () => {
     // Submit via Save button
     await dialog.getByRole('button', { name: /save/i }).click();
 
+    // Wait for dialog to close (save completed)
+    await expect(dialog).not.toBeVisible({ timeout: 15000 });
+
     // Uncheck "Hide test content" to see [E2E] prefixed strategies
     const hideTestCheckbox = adminPage.locator('[data-testid="filter-filterTestContent"] input[type="checkbox"]');
     if (await hideTestCheckbox.isChecked()) {

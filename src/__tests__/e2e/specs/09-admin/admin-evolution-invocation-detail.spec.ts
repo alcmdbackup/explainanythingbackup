@@ -129,7 +129,7 @@ adminTest.describe('Evolution Invocation Detail', { tag: '@evolution' }, () => {
     await expect(table.locator('th:has-text("Agent")')).toBeVisible();
     await expect(table.locator('th:has-text("Cost")')).toBeVisible();
     await expect(table.locator('th:has-text("Duration")')).toBeVisible();
-    await expect(table.locator('th:has-text("Success")')).toBeVisible();
+    await expect(table.locator('th:has-text("Status")')).toBeVisible();
   });
 
   adminTest('clicking invocation row navigates to detail', async ({ adminPage }) => {

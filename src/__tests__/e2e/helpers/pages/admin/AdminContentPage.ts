@@ -53,9 +53,9 @@ export class AdminContentPage extends AdminBasePage {
    * Navigate to the content management page.
    */
   async gotoContent() {
-    await this.goto();
-    await this.goToContent();
-    await this.table.waitFor({ state: 'visible' });
+    // Navigate directly to content page (avoids hydration race with dashboard nav click)
+    await this.page.goto('/admin/content', { waitUntil: 'domcontentloaded' });
+    await this.table.waitFor({ state: 'visible', timeout: 30000 });
   }
 
   /**

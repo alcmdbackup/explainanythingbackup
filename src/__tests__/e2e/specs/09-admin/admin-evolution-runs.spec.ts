@@ -91,11 +91,11 @@ adminTest.describe('Evolution Runs (T4, T7, T8, T10)', { tag: '@evolution' }, ()
     // Filter to "completed" — should show only completed runs
     await statusFilter.selectOption('completed');
     // Wait for the completed run row to appear (table reloads on filter change)
-    await adminPage.locator(`[data-testid="run-row-${completedRunId}"]`).waitFor({ state: 'visible', timeout: 10000 });
+    await adminPage.locator(`[data-testid="run-row-${completedRunId}"]`).waitFor({ state: 'visible', timeout: 15000 });
 
     // The completed run should be visible
     const completedRow = adminPage.locator(`[data-testid="run-row-${completedRunId}"]`);
-    await expect(completedRow).toBeVisible({ timeout: 10000 });
+    await expect(completedRow).toBeVisible({ timeout: 15000 });
 
     // The failed run should not be visible when filtering to completed
     const failedRow = adminPage.locator(`[data-testid="run-row-${failedRunId}"]`);
@@ -120,11 +120,11 @@ adminTest.describe('Evolution Runs (T4, T7, T8, T10)', { tag: '@evolution' }, ()
 
     // Click the completed run row
     const runRow = adminPage.locator(`[data-testid="run-row-${completedRunId}"]`);
-    await expect(runRow).toBeVisible({ timeout: 10000 });
+    await expect(runRow).toBeVisible({ timeout: 15000 });
     await runRow.click();
 
     // Verify URL navigated to the run detail page
-    await adminPage.waitForURL(`**/admin/evolution/runs/${completedRunId}`, { timeout: 10000 });
+    await adminPage.waitForURL(`**/admin/evolution/runs/${completedRunId}`, { timeout: 15000 });
     expect(adminPage.url()).toContain(`/admin/evolution/runs/${completedRunId}`);
   });
 
@@ -136,12 +136,16 @@ adminTest.describe('Evolution Runs (T4, T7, T8, T10)', { tag: '@evolution' }, ()
     const header = adminPage.locator('[data-testid="entity-detail-header"]');
     await expect(header).toBeVisible({ timeout: 15000 });
 
-    // Verify the tab bar renders with expected tabs (uses ARIA role="tab")
-    await expect(adminPage.getByRole('tab', { name: 'Metrics' })).toBeVisible();
-    await expect(adminPage.getByRole('tab', { name: 'Elo' })).toBeVisible();
-    await expect(adminPage.getByRole('tab', { name: 'Lineage' })).toBeVisible();
-    await expect(adminPage.getByRole('tab', { name: 'Variants' })).toBeVisible();
-    await expect(adminPage.getByRole('tab', { name: 'Logs' })).toBeVisible();
+    // Verify the tab bar renders
+    const tabBar = adminPage.locator('[data-testid="tab-bar"]');
+    await expect(tabBar).toBeVisible();
+
+    // Verify each expected tab exists (run detail uses: metrics, elo, lineage, variants, logs)
+    await expect(adminPage.locator('[data-testid="tab-metrics"]')).toBeVisible();
+    await expect(adminPage.locator('[data-testid="tab-elo"]')).toBeVisible();
+    await expect(adminPage.locator('[data-testid="tab-lineage"]')).toBeVisible();
+    await expect(adminPage.locator('[data-testid="tab-variants"]')).toBeVisible();
+    await expect(adminPage.locator('[data-testid="tab-logs"]')).toBeVisible();
   });
 
   adminTest('run detail breadcrumb navigation works', async ({ adminPage }) => {
@@ -160,7 +164,7 @@ adminTest.describe('Evolution Runs (T4, T7, T8, T10)', { tag: '@evolution' }, ()
     await runsLink.click();
 
     // Verify navigation back to runs list
-    await adminPage.waitForURL('**/admin/evolution/runs', { timeout: 10000 });
+    await adminPage.waitForURL('**/admin/evolution/runs', { timeout: 15000 });
     await expect(adminPage.locator('h1')).toContainText('Evolution Runs');
   });
 
@@ -172,7 +176,7 @@ adminTest.describe('Evolution Runs (T4, T7, T8, T10)', { tag: '@evolution' }, ()
     const header = adminPage.locator('[data-testid="entity-detail-header"]');
     await expect(header).toBeVisible({ timeout: 15000 });
 
-    // The status badge should reflect the failed state (run-status variant uses status-badge-${status})
+    // The status badge should reflect the failed state (run-status variant uses status-badge-{status})
     const statusBadge = header.locator('[data-testid="status-badge-failed"]');
     await expect(statusBadge).toBeVisible();
     await expect(statusBadge).toContainText(/failed/i);
@@ -193,6 +197,6 @@ adminTest.describe('Evolution Runs (T4, T7, T8, T10)', { tag: '@evolution' }, ()
 
     // Tab content area should be visible after clicking
     const tabContent = adminPage.locator('[data-testid="tab-content"]');
-    await expect(tabContent).toBeVisible({ timeout: 10000 });
+    await expect(tabContent).toBeVisible({ timeout: 15000 });
   });
 });

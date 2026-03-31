@@ -64,7 +64,7 @@ describe('bootstrapMeanCI', () => {
     const values = [mv(100), mv(110), mv(105)];
     const result = bootstrapMeanCI(values, ITERATIONS, rng());
     expect(result.ci).not.toBeNull();
-    expect(result.sigma).toBeNull();
+    expect(result.sigma).toBeGreaterThan(0);
   });
 
   it('produces no NaN/Infinity (Box-Muller guard)', () => {
@@ -236,12 +236,14 @@ describe('aggregateMetrics', () => {
     expect(aggregateMetrics([])).toEqual({});
   });
 
-  it('returns null CIs for single run', () => {
+  it('derives CI from sigma for single run', () => {
     const data: RunMetricsWithRatings[] = [
       { metrics: { maxElo: mv(1500, 40) }, variantRatings: null },
     ];
     const result = aggregateMetrics(data, rng());
-    expect(result.maxElo?.ci).toBeNull();
+    expect(result.maxElo?.ci).not.toBeNull();
+    expect(result.maxElo?.ci![0]).toBeCloseTo(1500 - 1.96 * 40, 1);
+    expect(result.maxElo?.ci![1]).toBeCloseTo(1500 + 1.96 * 40, 1);
     expect(result.maxElo?.n).toBe(1);
   });
 
@@ -253,7 +255,7 @@ describe('aggregateMetrics', () => {
     ];
     const result = aggregateMetrics(data, rng());
     expect(result.maxElo?.ci).not.toBeNull();
-    expect(result.maxElo?.sigma).toBeNull();
+    expect(result.maxElo?.sigma).toBeGreaterThan(0);
   });
 
   it('uses bootstrapPercentileCI for maxElo when ratings available', () => {

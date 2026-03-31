@@ -178,8 +178,8 @@ adminTest.describe('Evolution Experiments List', { tag: '@evolution' }, () => {
     const breadcrumb = adminPage.locator('[data-testid="evolution-breadcrumb"]');
     await expect(breadcrumb).toBeVisible({ timeout: 15000 });
 
-    // Breadcrumb should contain "Dashboard" link
-    const dashLink = breadcrumb.locator('a:has-text("Dashboard")');
+    // Breadcrumb should contain "Evolution" link
+    const dashLink = breadcrumb.locator('a:has-text("Evolution")');
     await expect(dashLink).toBeVisible();
 
     // Click Dashboard breadcrumb

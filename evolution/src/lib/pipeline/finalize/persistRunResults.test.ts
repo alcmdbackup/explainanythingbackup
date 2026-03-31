@@ -1,6 +1,6 @@
 // Tests for V2 finalizeRun and syncToArena.
 
-import { finalizeRun, syncToArena } from './persistRunResults';
+import { finalizeRun, syncToArena, propagateMetrics } from './persistRunResults';
 import { DEFAULT_MU, DEFAULT_SIGMA, toEloScale } from '../../shared/computeRatings';
 import type { EvolutionResult, V2Match } from '../infra/types';
 import type { Variant } from '../../types';
@@ -779,5 +779,47 @@ describe('syncToArena logging', () => {
 
     expect(logger.info).toHaveBeenCalledWith('Arena sync preparation', expect.objectContaining({ phaseName: 'arena' }));
     expect(logger.info).toHaveBeenCalledWith('Arena sync complete', expect.objectContaining({ phaseName: 'arena' }));
+  });
+});
+
+describe('propagateMetrics', () => {
+  it('passes sigma through to writeMetric for bootstrap-aggregated metrics', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { getMetricsForEntities } = require('../../metrics/readMetrics');
+    const winnerEloSigma = 42.5;
+    // Simulate a single completed run with winner_elo that has sigma
+    const metricsMap = new Map([
+      [RUN_ID, [
+        { metric_name: 'winner_elo', value: 1500, sigma: winnerEloSigma, ci_lower: 1400, ci_upper: 1600, n: 1 },
+        { metric_name: 'cost', value: 0.005, sigma: null, ci_lower: null, ci_upper: null, n: 1 },
+        { metric_name: 'median_elo', value: 1450, sigma: 30, ci_lower: 1390, ci_upper: 1510, n: 1 },
+        { metric_name: 'total_matches', value: 10, sigma: null, ci_lower: null, ci_upper: null, n: 1 },
+        { metric_name: 'decisive_rate', value: 0.8, sigma: null, ci_lower: null, ci_upper: null, n: 1 },
+        { metric_name: 'variant_count', value: 3, sigma: null, ci_lower: null, ci_upper: null, n: 1 },
+        { metric_name: 'p90_elo', value: 1480, sigma: 35, ci_lower: 1410, ci_upper: 1550, n: 1 },
+        { metric_name: 'max_elo', value: 1520, sigma: 40, ci_lower: 1440, ci_upper: 1600, n: 1 },
+      ]],
+    ]);
+    getMetricsForEntities.mockResolvedValueOnce(metricsMap);
+
+    const supabase = {
+      from: jest.fn().mockReturnValue({
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            eq: jest.fn().mockResolvedValue({ data: [{ id: RUN_ID }], error: null }),
+          }),
+        }),
+      }),
+    } as unknown as SupabaseClient;
+
+    mockedWriteMetric.mockClear();
+    await propagateMetrics(supabase, 'experiment', EXP_ID);
+
+    // Find the avg_final_elo write call
+    const avgEloCall = mockedWriteMetric.mock.calls.find(c => c[3] === 'avg_final_elo');
+    expect(avgEloCall).toBeDefined();
+    // With 1 run, bootstrapMeanCI single-value path returns source sigma
+    const opts = avgEloCall![6];
+    expect(opts?.sigma).toBe(winnerEloSigma);
   });
 });

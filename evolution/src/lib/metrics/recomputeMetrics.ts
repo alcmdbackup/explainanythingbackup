@@ -138,6 +138,7 @@ async function recomputePropagatedMetrics(
     if (sourceRows.length === 0) continue;
     const aggregated = def.aggregate(sourceRows);
     await writeMetric(db, entityType, entityId, def.name as MetricName, aggregated.value, 'at_propagation', {
+      sigma: aggregated.sigma ?? undefined,
       ci_lower: aggregated.ci?.[0],
       ci_upper: aggregated.ci?.[1],
       n: aggregated.n,

@@ -106,10 +106,12 @@ export function bootstrapMeanCI(
 ): MetricValue {
   if (values.length < 2) {
     const v = values[0];
+    const s = v?.sigma ?? null;
+    const val = v?.value ?? 0;
     return {
-      value: v?.value ?? 0,
-      sigma: v?.sigma ?? null,
-      ci: null,
+      value: val,
+      sigma: s,
+      ci: s != null ? [val - 1.96 * s, val + 1.96 * s] : null,
       n: values.length,
     };
   }
@@ -137,10 +139,11 @@ export function bootstrapMeanCI(
 
   means.sort((a, b) => a - b);
   const mean = values.reduce((s, v) => s + v.value, 0) / n;
+  const bootstrapSE = Math.sqrt(means.reduce((s, m) => s + (m - mean) ** 2, 0) / (iterations - 1));
 
   return {
     value: mean,
-    sigma: null,
+    sigma: bootstrapSE,
     ci: [means[Math.floor(iterations * 0.025)]!, means[Math.floor(iterations * 0.975)]!],
     n,
   };

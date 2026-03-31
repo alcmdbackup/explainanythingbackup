@@ -65,9 +65,9 @@ export class AdminWhitelistPage extends AdminBasePage {
    * Navigate to the whitelist page.
    */
   async gotoWhitelist() {
-    await this.goto();
-    await this.goToWhitelist();
-    await this.table.waitFor({ state: 'visible' });
+    // Navigate directly to whitelist page (avoids hydration race with dashboard nav click)
+    await this.page.goto('/admin/whitelist', { waitUntil: 'domcontentloaded' });
+    await this.table.waitFor({ state: 'visible', timeout: 30000 });
   }
 
   /**

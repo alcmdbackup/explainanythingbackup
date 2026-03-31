@@ -16,9 +16,11 @@ adminTest.describe('Evolution Invocations (T25)', { tag: '@evolution' }, () => {
     await expect(adminPage.locator('h1')).toContainText('Invocations');
 
     // Verify expected column headers are present in the table
-    const expectedColumns = ['ID', 'Run ID', 'Agent', 'Iteration', 'Success', 'Cost', 'Duration', 'Created'];
+    const table = adminPage.locator('[data-testid="entity-list-table"]');
+    await expect(table).toBeVisible({ timeout: 15000 });
+    const expectedColumns = ['Run ID', 'Agent', 'Iteration', 'Status', 'Cost', 'Duration', 'Created'];
     for (const col of expectedColumns) {
-      await expect(adminPage.locator(`th:has-text("${col}")`)).toBeVisible();
+      await expect(table.locator(`th:has-text("${col}")`)).toBeVisible();
     }
 
     // Breadcrumb should be present

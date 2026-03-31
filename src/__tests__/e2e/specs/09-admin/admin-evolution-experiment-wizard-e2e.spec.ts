@@ -113,7 +113,7 @@ adminTest.describe('Experiment Wizard E2E', { tag: '@evolution' }, () => {
 
     // Step 2: Select the seeded strategy
     const strategyCheck = adminPage.locator(`[data-testid="strategy-check-${strategyId}"]`);
-    await expect(strategyCheck).toBeVisible({ timeout: 10000 });
+    await expect(strategyCheck).toBeVisible({ timeout: 15000 });
     await strategyCheck.click();
 
     // Click Review

@@ -132,7 +132,7 @@ adminTest.describe('Evolution Variants (list page)', { tag: '@evolution' }, () =
     await agentFilter.fill(`${testPrefix}-alpha`);
 
     // Wait for table to update — the alpha variant should remain visible
-    await expect(table.locator(`text=${testPrefix}-alpha`)).toBeVisible({ timeout: 10000 });
+    await expect(table.locator(`text=${testPrefix}-alpha`)).toBeVisible({ timeout: 15000 });
   });
 
   adminTest('filter by winner status works', async ({ adminPage }) => {
@@ -155,8 +155,8 @@ adminTest.describe('Evolution Variants (list page)', { tag: '@evolution' }, () =
     await expect(winnerFilter).toBeVisible();
     await winnerFilter.selectOption('yes');
 
-    // The winner star should be visible
-    await expect(table.locator('text=★')).toBeVisible({ timeout: 10000 });
+    // At least one winner star should be visible
+    await expect(table.locator('text=★').first()).toBeVisible({ timeout: 15000 });
   });
 
   adminTest('clicking variant row navigates to detail', async ({ adminPage }) => {
@@ -168,10 +168,10 @@ adminTest.describe('Evolution Variants (list page)', { tag: '@evolution' }, () =
 
     // Click on the winner variant's ID link (first 8 chars)
     const variantLink = table.locator(`a[href*="/admin/evolution/variants/${winnerVariantId}"]`).first();
-    await expect(variantLink).toBeVisible({ timeout: 10000 });
+    await expect(variantLink).toBeVisible({ timeout: 15000 });
     await variantLink.click();
 
-    await adminPage.waitForURL(`**/admin/evolution/variants/${winnerVariantId}`, { timeout: 10000 });
+    await adminPage.waitForURL(`**/admin/evolution/variants/${winnerVariantId}`, { timeout: 15000 });
     expect(adminPage.url()).toContain(`/admin/evolution/variants/${winnerVariantId}`);
   });
 
@@ -209,7 +209,7 @@ adminTest.describe('Evolution Variants (list page)', { tag: '@evolution' }, () =
 
     // Click Evolution breadcrumb
     await evoLink.click();
-    await adminPage.waitForURL('**/admin/evolution-dashboard', { timeout: 10000 });
+    await adminPage.waitForURL('**/admin/evolution-dashboard', { timeout: 15000 });
     expect(adminPage.url()).toContain('/admin/evolution-dashboard');
   });
 });

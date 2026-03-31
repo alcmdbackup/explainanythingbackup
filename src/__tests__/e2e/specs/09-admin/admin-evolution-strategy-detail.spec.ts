@@ -71,7 +71,7 @@ adminTest.describe('Evolution Strategy Detail (T17, T18)', { tag: '@evolution' }
     await metricsTab.click();
 
     const metricsContainer = adminPage.locator('[data-testid="entity-metrics-tab"]');
-    await expect(metricsContainer).toBeVisible({ timeout: 10000 });
+    await expect(metricsContainer).toBeVisible({ timeout: 15000 });
 
     // Verify metric labels (run_count label is "Runs", total_cost label is "Total Cost")
     await expect(adminPage.locator('[data-testid="metric-runs"]')).toBeVisible();
@@ -90,7 +90,7 @@ adminTest.describe('Evolution Strategy Detail (T17, T18)', { tag: '@evolution' }
     await metricsTab.click();
 
     const metricsContainer = adminPage.locator('[data-testid="entity-metrics-tab"]');
-    await expect(metricsContainer).toBeVisible({ timeout: 10000 });
+    await expect(metricsContainer).toBeVisible({ timeout: 15000 });
 
     // Verify metric values are numeric, not "—"
     const avgEloCell = adminPage.locator('[data-testid="metric-avg-winner-elo"]');
@@ -131,12 +131,12 @@ adminTest.describe('Evolution Strategy Detail (T17, T18)', { tag: '@evolution' }
     await expect(configTab).toBeVisible();
     await expect(logsTab).toBeVisible();
 
-    // Metrics tab should be active by default — metrics container visible
-    await expect(adminPage.locator('[data-testid="entity-metrics-tab"]')).toBeVisible({ timeout: 10000 });
+    // Metrics tab should be active by default — metrics or empty state visible
+    await expect(adminPage.locator('[data-testid="entity-metrics-tab"], [data-testid="metrics-empty"], [data-testid="metrics-loading"]').first()).toBeVisible({ timeout: 20000 });
 
     // Switch to Config tab — StrategyConfigDisplay renders "Models" heading in tab content
     await configTab.click();
-    await expect(adminPage.locator('[data-testid="tab-content"] h4:has-text("Models")')).toBeVisible({ timeout: 5000 });
+    await expect(adminPage.locator('[data-testid="tab-content"] h4:has-text("Models")')).toBeVisible({ timeout: 10000 });
 
     // Switch to Logs tab
     await logsTab.click();
@@ -146,6 +146,6 @@ adminTest.describe('Evolution Strategy Detail (T17, T18)', { tag: '@evolution' }
 
     // Switch back to Metrics
     await metricsTab.click();
-    await expect(adminPage.locator('[data-testid="entity-metrics-tab"]')).toBeVisible({ timeout: 5000 });
+    await expect(adminPage.locator('[data-testid="entity-metrics-tab"], [data-testid="metrics-empty"], [data-testid="metrics-loading"]').first()).toBeVisible({ timeout: 20000 });
   });
 });

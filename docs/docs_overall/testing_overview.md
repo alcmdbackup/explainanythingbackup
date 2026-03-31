@@ -35,6 +35,8 @@ Consolidated guide covering testing rules, tiers, and CI/CD workflows.
 14. **Mock helpers must unroute before routing.** All mock helper functions in `api-mocks.ts` must call `await page.unroute(pattern)` before `await page.route(pattern, ...)` to prevent handler stacking when a mock is called multiple times in the same test.
 15. **Restore global.fetch in unit tests.** Any test that assigns `global.fetch` must save the original and restore it in `afterEach`: `const originalFetch = global.fetch; afterEach(() => { global.fetch = originalFetch; });`
 16. **E2E specs that import database tools must have afterAll cleanup.** Any spec file importing `@supabase/supabase-js`, `test-data-factory`, or `evolution-test-helpers` must include a `test.afterAll` or `adminTest.afterAll` block that deletes created entities. Enforced by ESLint `flakiness/require-test-cleanup`.
+17. **Never hardcode URLs in Page Objects or fixtures.** Use `page.goto('/relative-path')` so Playwright resolves against the configured `baseURL`. Never construct absolute URLs with `process.env.BASE_URL || 'http://localhost:...'` — the fallback port will be wrong when the dev server runs on a dynamic port. If you need the base URL outside `page.goto()` (e.g., cookie domain), read it from `process.env.BASE_URL` which is set by `playwright.config.ts` from instance discovery. Enforced by ESLint `flakiness/no-hardcoded-base-url`.
+18. **Wait for hydration proof before interacting.** Visible !== interactive. After navigating to a page with dynamic imports or server-fetched data, wait for a data-dependent element (e.g., a table with rows, a loaded form) before clicking buttons or links. A button can be visible in SSR HTML but not wired to its React handler until hydration completes. Pattern: `await table.waitFor({ state: 'visible', timeout: 30000 }); await button.click();` Enforced by ESLint `flakiness/require-hydration-wait`.
 
 ### Enforcement Summary
 
@@ -53,6 +55,8 @@ Consolidated guide covering testing rules, tiers, and CI/CD workflows.
 | Rule 14: Unroute before route in mocks | Code review + `page.unroute()` in helpers | Edit-time |
 | Rule 15: Restore global.fetch | Code review + `afterEach` pattern | Edit-time |
 | Rule 16: E2E cleanup for DB imports | ESLint `flakiness/require-test-cleanup` | Lint (CI + IDE) |
+| Rule 17: No hardcoded URLs in POMs | ESLint `flakiness/no-hardcoded-base-url` | Lint (CI + IDE) |
+| Rule 18: Wait for hydration proof | ESLint `flakiness/require-hydration-wait` | Lint (CI + IDE) |
 | Column label uniqueness | ESLint `no-duplicate-column-labels` | Lint (CI + IDE) |
 
 ---
@@ -299,10 +303,13 @@ E2E tests run after lint/tsc/build/unit/integration checks pass. The dev server 
 |--------|-------|-----|
 | **Unit tests** | Same behavior | `--maxWorkers=2` |
 | **Integration** | Same behavior | Same behavior |
-| **E2E server** | `npm run dev` (HMR) | `npm run build && npm start` |
+| **E2E server** | `npm run dev` (HMR, strict mode) | `npm run build && npm start` |
 | **E2E retries** | 0 | 2 |
 | **E2E timeout** | 30s test / 10s expect | 60s test / 20s expect |
 | **E2E mode** | `E2E_TEST_MODE` via env | `E2E_TEST_MODE` inline at runtime |
+| **React strict mode** | Active (double-mount in dev) | Inactive (production build) |
+
+> **React Strict Mode Warning:** Local E2E tests run against `npm run dev` which enables React strict mode. This causes components to mount → unmount → remount on every render. Hooks using `useRef` to track mount state (e.g., `isMountedRef`) must reset to `true` in the effect setup, not just set `false` in cleanup. Pattern: `useEffect(() => { ref.current = true; return () => { ref.current = false; }; }, [])`. Without the setup reset, the ref stays `false` after the simulated unmount/remount, causing async callbacks to silently bail out.
 
 ---
 

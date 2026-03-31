@@ -10,6 +10,8 @@
  * - no-networkidle: Disallow waitForLoadState('networkidle') - use specific waits
  * - no-hardcoded-tmpdir: Disallow hardcoded /tmp/ paths - use os.tmpdir() with worker subdirs
  * - no-point-in-time-checks: Prefer auto-waiting assertions over point-in-time DOM checks
+ * - no-hardcoded-base-url: Disallow hardcoded localhost URLs - use Playwright baseURL
+ * - require-hydration-wait: Require waitFor between navigation and click in POMs
  *
  * See docs/docs_overall/testing_rules.md for acceptable exceptions.
  */
@@ -21,6 +23,8 @@ module.exports = {
     'no-silent-catch': require('./no-silent-catch'),
     'no-networkidle': require('./no-networkidle'),
     'no-hardcoded-tmpdir': require('./no-hardcoded-tmpdir'),
+    'no-hardcoded-base-url': require('./no-hardcoded-base-url'),
+    'require-hydration-wait': require('./require-hydration-wait'),
     'require-test-cleanup': require('./require-test-cleanup'),
     'no-duplicate-column-labels': require('./no-duplicate-column-labels'),
     'no-point-in-time-checks': require('./no-point-in-time-checks'),

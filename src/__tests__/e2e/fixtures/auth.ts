@@ -91,6 +91,7 @@ export const test = base.extend<{ authenticatedPage: Page }>({
     const projectRef = supabaseUrl.hostname.split('.')[0];
 
     // Dynamic domain and secure flag based on BASE_URL
+    // eslint-disable-next-line flakiness/no-hardcoded-base-url -- cookie domain needs full URL, BASE_URL set by playwright.config.ts
     const baseUrl = process.env.BASE_URL || 'http://localhost:3008';
     const cookieDomain = new URL(baseUrl).hostname;
     const isSecure = baseUrl.startsWith('https');

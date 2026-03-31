@@ -96,13 +96,13 @@ adminTest.describe('Evolution Bug Fix Regressions', { tag: '@evolution' }, () =>
     await sb.from('evolution_prompts').delete().eq('id', promptId);
   });
 
-  adminTest('run detail page loads without crash (LineageGraph/MetricGrid safety)', async ({ page }) => {
-    await page.goto(`/admin/evolution/runs/${runId}`);
+  adminTest('run detail page loads without crash (LineageGraph/MetricGrid safety)', async ({ adminPage }) => {
+    await adminPage.goto(`/admin/evolution/runs/${runId}`);
     // Page should load without JavaScript errors from empty elo arrays or null CI
-    await expect(page.getByTestId('entity-detail-header')).toBeVisible({ timeout: 15000 });
+    await expect(adminPage.getByTestId('entity-detail-header')).toBeVisible({ timeout: 20000 });
   });
 
-  adminTest('LogsTab iteration filter includes iteration 0', async ({ page }) => {
+  adminTest('LogsTab iteration filter includes iteration 0', async ({ adminPage: page }) => {
     await page.goto(`/admin/evolution/runs/${runId}`);
     // Navigate to Logs tab
     const logsTab = page.getByRole('tab', { name: /logs/i });

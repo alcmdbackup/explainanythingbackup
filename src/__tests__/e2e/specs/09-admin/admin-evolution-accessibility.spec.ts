@@ -68,12 +68,12 @@ adminTest.describe('Evolution Accessibility', { tag: '@evolution' }, () => {
     await adminPage.goto('/admin/evolution/strategies');
     await adminPage.waitForLoadState('domcontentloaded');
 
-    // Wait for the table to render
-    const table = adminPage.locator('table');
-    await expect(table.first()).toBeVisible({ timeout: 15000 });
+    // Wait for EntityListPage table to render with data (entity-list-table testid)
+    const table = adminPage.locator('[data-testid="entity-list-table"] table');
+    await expect(table).toBeVisible({ timeout: 20000 });
 
     // Get all <th> elements
-    const headers = table.first().locator('thead th');
+    const headers = table.locator('thead th');
     const headerCount = await headers.count();
     expect(headerCount).toBeGreaterThan(0);
 
@@ -88,10 +88,11 @@ adminTest.describe('Evolution Accessibility', { tag: '@evolution' }, () => {
     await adminPage.goto('/admin/evolution/prompts');
     await adminPage.waitForLoadState('domcontentloaded');
 
-    const table = adminPage.locator('table');
-    await expect(table.first()).toBeVisible({ timeout: 15000 });
+    // Wait for EntityListPage table to render with data
+    const table = adminPage.locator('[data-testid="entity-list-table"] table');
+    await expect(table).toBeVisible({ timeout: 20000 });
 
-    const headers = table.first().locator('thead th');
+    const headers = table.locator('thead th');
     const headerCount = await headers.count();
     expect(headerCount).toBeGreaterThan(0);
 
@@ -105,10 +106,11 @@ adminTest.describe('Evolution Accessibility', { tag: '@evolution' }, () => {
     await adminPage.goto('/admin/evolution/arena');
     await adminPage.waitForLoadState('domcontentloaded');
 
-    const table = adminPage.locator('table');
-    await expect(table.first()).toBeVisible({ timeout: 15000 });
+    // Wait for EntityListPage table to render with data
+    const table = adminPage.locator('[data-testid="entity-list-table"] table');
+    await expect(table).toBeVisible({ timeout: 20000 });
 
-    const headers = table.first().locator('thead th');
+    const headers = table.locator('thead th');
     const headerCount = await headers.count();
     expect(headerCount).toBeGreaterThan(0);
 
