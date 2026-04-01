@@ -2,6 +2,7 @@ import { Page } from '@playwright/test';
 import * as fs from 'fs';
 
 // Path to production test data file (written by global-setup, read by tests)
+// eslint-disable-next-line flakiness/no-hardcoded-tmpdir -- shared cross-worker file written once by global-setup, read-only by tests
 export const PROD_TEST_DATA_PATH = '/tmp/e2e-prod-test-data.json';
 
 /**

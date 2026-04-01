@@ -6,6 +6,7 @@
 
 import { adminTest, expect } from '../../fixtures/admin-auth';
 import { createClient } from '@supabase/supabase-js';
+import type { Database } from '@/lib/database.types';
 import * as dotenv from 'dotenv';
 import * as path from 'path';
 
@@ -15,7 +16,7 @@ adminTest.describe('Strategy Registry CRUD', () => {
   const testStrategyName = `[E2E] Test Strategy ${Date.now()}`;
 
   adminTest.afterAll(async () => {
-    const supabase = createClient(
+    const supabase = createClient<Database>(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!,
     );
@@ -77,6 +78,7 @@ adminTest.describe('Strategy Registry CRUD', () => {
 
     // Uncheck "Hide test content" to see [E2E] prefixed strategies
     const hideTestCheckbox = adminPage.locator('[data-testid="filter-filterTestContent"] input[type="checkbox"]');
+    // eslint-disable-next-line flakiness/no-point-in-time-checks -- control flow, not assertion
     if (await hideTestCheckbox.isChecked()) {
       await hideTestCheckbox.click();
     }

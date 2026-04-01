@@ -12,6 +12,8 @@
  * - no-point-in-time-checks: Prefer auto-waiting assertions over point-in-time DOM checks
  * - no-hardcoded-base-url: Disallow hardcoded localhost URLs - use Playwright baseURL
  * - require-hydration-wait: Require waitFor between navigation and click in POMs
+ * - require-serial-with-beforeall: Require serial mode for describe blocks with beforeAll
+ * - warn-slow-with-retries: Warn when test.slow() + retries >= 2 causes timeout cascade
  *
  * See docs/docs_overall/testing_rules.md for acceptable exceptions.
  */
@@ -28,5 +30,7 @@ module.exports = {
     'require-test-cleanup': require('./require-test-cleanup'),
     'no-duplicate-column-labels': require('./no-duplicate-column-labels'),
     'no-point-in-time-checks': require('./no-point-in-time-checks'),
+    'require-serial-with-beforeall': require('./require-serial-with-beforeall'),
+    'warn-slow-with-retries': require('./warn-slow-with-retries'),
   },
 };

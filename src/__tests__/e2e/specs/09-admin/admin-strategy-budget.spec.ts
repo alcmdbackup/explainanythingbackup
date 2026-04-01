@@ -5,13 +5,14 @@
 
 import { adminTest, expect } from '../../fixtures/admin-auth';
 import { createClient } from '@supabase/supabase-js';
+import type { Database } from '@/lib/database.types';
 import * as dotenv from 'dotenv';
 import * as path from 'path';
 
 dotenv.config({ path: path.resolve(process.cwd(), '.env.local') });
 
 function getServiceClient() {
-  return createClient(
+  return createClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
   );
@@ -78,18 +79,33 @@ async function seedArenaWithBudget(): Promise<SeededArenaData> {
       explanation_title: `[TEST] Budget Article ${ts}`,
       content: 'placeholder',
       status: 'published',
-      primary_topic_id: dummyTopic?.id,
+      primary_topic_id: dummyTopic!.id,
     })
     .select('id')
     .single();
 
+  // Create a strategy for the evolution run (strategy_id is a required UUID FK)
+  const { data: runStrategy, error: stratErr } = await supabase
+    .from('evolution_strategies')
+    .insert({
+      name: `[TEST] Budget Run Strategy ${ts}`,
+      label: 'test',
+      config: { generationModel: 'test', judgeModel: 'test', iterations: 1 },
+      config_hash: `test-budget-${ts}`,
+      created_by: 'e2e-test',
+    })
+    .select('id')
+    .single();
+  if (stratErr || !runStrategy) throw new Error(`Failed to seed strategy: ${stratErr?.message}`);
+
   const { data: run } = await supabase
     .from('evolution_runs')
     .insert({
-      explanation_id: dummyExplanation?.id,
+      explanation_id: dummyExplanation?.id ?? null,
       status: 'completed',
-      config: { budgetCapUsd: 0.25 },
+      strategy_id: runStrategy.id,
       pipeline_version: 'v2',
+      budget_cap_usd: 0.25,
       run_summary: { totalCostUsd: 0.10, totalVariants: 2 },
       created_at: new Date(Date.now() - 60000).toISOString(),
       completed_at: new Date().toISOString(),

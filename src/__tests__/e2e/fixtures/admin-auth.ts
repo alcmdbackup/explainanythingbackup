@@ -6,6 +6,7 @@
 
 import { test as base, expect, Page } from '@playwright/test';
 import { createClient } from '@supabase/supabase-js';
+import type { Database } from '@/lib/database.types';
 import * as dotenv from 'dotenv';
 import * as path from 'path';
 import { needsBypassCookie, loadBypassCookieState } from '../setup/vercel-bypass';
@@ -55,7 +56,7 @@ async function authenticateAdmin(retries = MAX_AUTH_RETRIES): Promise<AdminSessi
 
   console.log(`   Authenticating admin user: ${adminEmail}`);
 
-  const supabase = createClient(supabaseUrl, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!);
+  const supabase = createClient<Database>(supabaseUrl, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!);
 
   for (let attempt = 1; attempt <= retries; attempt++) {
     const { data, error } = await supabase.auth.signInWithPassword({

@@ -3,16 +3,19 @@
 
 import { adminTest, expect } from '../../fixtures/admin-auth';
 import { createClient } from '@supabase/supabase-js';
+import type { Database } from '@/lib/database.types';
 import { randomUUID } from 'crypto';
 
 function getServiceClient() {
-  return createClient(
+  return createClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
   );
 }
 
 adminTest.describe('Evolution Filter Consistency', { tag: ['@evolution', '@critical'] }, () => {
+  adminTest.describe.configure({ mode: 'serial' });
+
   const testPrefix = `e2e-filter-${Date.now()}`;
   let testStrategyId: string;
   let normalStrategyId: string;
@@ -113,6 +116,7 @@ adminTest.describe('Evolution Filter Consistency', { tag: ['@evolution', '@criti
     const hideTestCheckbox = hideTestLabel2.locator('input[type="checkbox"]');
     if (await hideTestLabel2.count() > 0) {
       // Uncheck to show all content
+      // eslint-disable-next-line flakiness/no-point-in-time-checks -- control flow, not assertion
       if (await hideTestCheckbox.isChecked()) {
         await hideTestCheckbox.uncheck();
       }

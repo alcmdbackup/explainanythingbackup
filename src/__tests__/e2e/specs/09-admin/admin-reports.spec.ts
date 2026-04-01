@@ -156,6 +156,7 @@ adminTest.describe('Admin Content Reports', () => {
       const detailsButton = reportsPage.getDetailsButton(testReportId);
 
       // If our test report is visible with details, test the modal
+      // eslint-disable-next-line flakiness/no-point-in-time-checks -- control flow, not assertion
       if (await detailsButton.isVisible()) {
         await reportsPage.openDetailsModal(testReportId);
         await expect(reportsPage.detailModal).toBeVisible();
@@ -166,6 +167,7 @@ adminTest.describe('Admin Content Reports', () => {
       } else {
         // Find any report with details
         const anyDetailsButton = reportsPage.page.locator('[data-testid^="admin-reports-details-"]').first();
+        // eslint-disable-next-line flakiness/no-point-in-time-checks -- control flow, not assertion
         if (await anyDetailsButton.isVisible()) {
           await anyDetailsButton.click();
           await expect(reportsPage.detailModal).toBeVisible();

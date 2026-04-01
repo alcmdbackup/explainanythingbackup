@@ -3,13 +3,14 @@
 
 import { adminTest, expect } from '../../fixtures/admin-auth';
 import { createClient } from '@supabase/supabase-js';
+import type { Database } from '@/lib/database.types';
 import { trackEvolutionId } from '../../helpers/evolution-test-data-factory';
 
 // Prefix avoids [TEST] substring so seeded data isn't filtered by the wizard's filterTestContent
 const TEST_PREFIX = 'E2E-Wizard';
 
 function getServiceClient() {
-  return createClient(
+  return createClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
   );

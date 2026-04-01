@@ -7,6 +7,7 @@ import * as fs from 'fs';
 
 const TEST_EVO_PREFIX = '[TEST_EVO]';
 
+// eslint-disable-next-line flakiness/no-hardcoded-tmpdir -- base path combined with worker-specific suffix below
 const TRACKED_IDS_BASE = '/tmp/e2e-tracked-evolution-ids';
 
 function getTrackedIdsFile(): string {
@@ -425,6 +426,7 @@ export async function cleanupAllTrackedEvolutionData(): Promise<number> {
     const files = fs.readdirSync('/tmp').filter((f) => f.startsWith(prefix) && f.endsWith('.txt'));
 
     for (const file of files) {
+      // eslint-disable-next-line flakiness/no-hardcoded-tmpdir -- path derived from worker-specific tracking file
       const content = fs.readFileSync(`/tmp/${file}`, 'utf-8');
       for (const line of content.split('\n').filter(Boolean)) {
         const [type, id] = line.split(':') as [EvolutionEntityType, string];
@@ -481,6 +483,7 @@ export async function cleanupAllTrackedEvolutionData(): Promise<number> {
     const prefix = 'e2e-tracked-evolution-ids-worker-';
     const files = fs.readdirSync('/tmp').filter((f) => f.startsWith(prefix) && f.endsWith('.txt'));
     for (const file of files) {
+      // eslint-disable-next-line flakiness/no-hardcoded-tmpdir -- path derived from worker-specific tracking file
       fs.unlinkSync(`/tmp/${file}`);
     }
   } catch (err) {

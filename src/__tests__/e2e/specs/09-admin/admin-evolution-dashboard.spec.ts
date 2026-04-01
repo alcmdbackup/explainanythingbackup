@@ -3,10 +3,11 @@
 
 import { adminTest, expect } from '../../fixtures/admin-auth';
 import { createClient } from '@supabase/supabase-js';
+import type { Database } from '@/lib/database.types';
 import { randomUUID } from 'crypto';
 
 function getServiceClient() {
-  return createClient(
+  return createClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
   );
@@ -14,6 +15,8 @@ function getServiceClient() {
 
 adminTest.describe('Evolution Dashboard (T1-T3)', { tag: '@evolution' }, () => {
   adminTest.describe('dashboard with seeded data', { tag: '@evolution' }, () => {
+    adminTest.describe.configure({ mode: 'serial' });
+
     const testPrefix = `e2e-dash-${Date.now()}`;
     let strategyId: string;
     let promptId: string;
@@ -106,6 +109,7 @@ adminTest.describe('Evolution Dashboard (T1-T3)', { tag: '@evolution' }, () => {
   });
 
   adminTest.describe('dashboard metric cards detail', { tag: '@evolution' }, () => {
+    adminTest.describe.configure({ mode: 'serial' });
     const testPrefix = `e2e-dash-metric-${Date.now()}`;
     let strategyId: string;
     let promptId: string;

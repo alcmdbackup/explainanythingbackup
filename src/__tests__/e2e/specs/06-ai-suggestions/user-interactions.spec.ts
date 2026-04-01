@@ -143,6 +143,7 @@ test.describe('AI Suggestions User Interactions', () => {
     await submitButton.click();
 
     // Try clicking again immediately (should be disabled or ignored)
+    // eslint-disable-next-line flakiness/no-point-in-time-checks -- control flow, not assertion
     if (await submitButton.isEnabled()) {
       await submitButton.click();
     }

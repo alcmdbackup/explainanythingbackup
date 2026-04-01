@@ -9,6 +9,7 @@
 
 import { adminTest, expect } from '../../fixtures/admin-auth';
 import { createClient } from '@supabase/supabase-js';
+import type { Database } from '@/lib/database.types';
 import * as dotenv from 'dotenv';
 import * as path from 'path';
 
@@ -17,7 +18,7 @@ dotenv.config({ path: path.resolve(process.cwd(), '.env.local') });
 // ─── Test data seeding helpers ───────────────────────────────────
 
 function getServiceClient() {
-  return createClient(
+  return createClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
   );
@@ -62,7 +63,7 @@ async function seedArenaData(): Promise<SeededArenaData> {
       explanation_title: '[TEST] Arena Source Link Article',
       content: 'placeholder',
       status: 'published',
-      primary_topic_id: dummyTopic?.id,
+      primary_topic_id: dummyTopic!.id,
     })
     .select('id')
     .single();
@@ -70,13 +71,28 @@ async function seedArenaData(): Promise<SeededArenaData> {
   let evolutionRunId: string | undefined;
 
   if (dummyExplanation) {
+    // Create a strategy for the evolution run (strategy_id is a required UUID FK)
+    const { data: strategy, error: stratErr } = await supabase
+      .from('evolution_strategies')
+      .insert({
+        name: `[TEST] Arena Strategy ${Date.now()}`,
+        label: 'test',
+        config: { generationModel: 'test', judgeModel: 'test', iterations: 1 },
+        config_hash: `test-arena-${Date.now()}`,
+        created_by: 'e2e-test',
+      })
+      .select('id')
+      .single();
+    if (stratErr) console.warn(`[seed] Strategy insert failed: ${stratErr.message}`);
+
     const { data: run } = await supabase
       .from('evolution_runs')
       .insert({
         explanation_id: dummyExplanation.id,
         status: 'completed',
-        config: { budgetCapUsd: 3.0 },
+        strategy_id: strategy?.id ?? '00000000-0000-0000-0000-000000000000',
         pipeline_version: 'v2',
+        budget_cap_usd: 3.0,
         run_summary: { totalCostUsd: 1.20, totalVariants: 3 },
         created_at: new Date(Date.now() - 120000).toISOString(),
         completed_at: new Date().toISOString(),
@@ -346,8 +362,7 @@ adminTest.describe('Admin Arena', { tag: '@evolution' }, () => {
   // ── 6. Run comparison → Elo ratings update ──
   // requires seeded data and real LLM judge call — skip in CI
 
-  // eslint-disable-next-line flakiness/no-test-skip -- requires real LLM judge, not available in CI
-  // eslint-disable-next-line flakiness/no-test-skip -- Arena detail UI not yet implemented
+  // eslint-disable-next-line flakiness/no-test-skip -- requires real LLM judge call, not available in CI
   adminTest.skip(
     'run comparison updates Elo ratings in leaderboard',
     async ({ adminPage }) => {
@@ -469,14 +484,12 @@ adminTest.describe('Admin Arena', { tag: '@evolution' }, () => {
   // ── 10. "Add to Arena" button on evolution run detail (completed runs only) ──
   // requires seeded data with a completed evolution run
 
-  // eslint-disable-next-line flakiness/no-test-skip -- requires completed evolution run data
-  // eslint-disable-next-line flakiness/no-test-skip -- Arena detail UI not yet implemented
+  // eslint-disable-next-line flakiness/no-test-skip -- requires seeded completed evolution run
   adminTest.skip(
     '"Add to Arena" button visible on completed evolution run detail page',
     async ({ adminPage }) => {
       if (!seededData.evolutionRunId) {
-        // eslint-disable-next-line flakiness/no-test-skip -- conditional skip when data unavailable
-  // eslint-disable-next-line flakiness/no-test-skip -- Arena detail UI not yet implemented
+        // eslint-disable-next-line flakiness/no-test-skip -- conditional skip when no evolution run data available
         adminTest.skip();
         return;
       }
@@ -612,7 +625,6 @@ async function cleanupPromptBankData(data: PromptBankSeededData | undefined) {
 }
 
 // Prompt Bank UI was planned but not yet implemented on the arena list page.
-// eslint-disable-next-line flakiness/no-test-skip -- Skip entire describe block until the feature ships.
 adminTest.describe.skip('Admin Arena — Prompt Bank UI', { tag: '@evolution' }, () => {
   adminTest.describe.configure({ mode: 'serial' });
 

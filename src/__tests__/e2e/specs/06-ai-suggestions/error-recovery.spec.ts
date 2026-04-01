@@ -74,7 +74,7 @@ test.describe('AI Suggestions Error Recovery @skip-prod', () => {
     await waitForSuggestionsError(page);
 
     // Error is displayed
-    expect(await page.locator('[data-testid="suggestions-error"]').isVisible()).toBe(true);
+    await expect(page.locator('[data-testid="suggestions-error"]')).toBeVisible();
 
     // Content unchanged
     const contentAfter = await getEditorTextContent(page);
@@ -129,7 +129,7 @@ test.describe('AI Suggestions Error Recovery @skip-prod', () => {
 
     // Error message should be visible
     const errorElement = page.locator('[data-testid="suggestions-error"]');
-    expect(await errorElement.isVisible()).toBe(true);
+    await expect(errorElement).toBeVisible();
   });
 
   test('should preserve original content on pipeline error', async ({ authenticatedPage: page }) => {

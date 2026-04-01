@@ -3,16 +3,19 @@
 
 import { adminTest, expect } from '../../fixtures/admin-auth';
 import { createClient } from '@supabase/supabase-js';
+import type { Database } from '@/lib/database.types';
 import { randomUUID } from 'crypto';
 
 function getServiceClient() {
-  return createClient(
+  return createClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
   );
 }
 
 adminTest.describe('Evolution Error States', { tag: '@evolution' }, () => {
+  adminTest.describe.configure({ mode: 'serial' });
+
   const testPrefix = `e2e-error-${Date.now()}`;
   let strategyId: string;
   let promptId: string;
@@ -78,7 +81,7 @@ adminTest.describe('Evolution Error States', { tag: '@evolution' }, () => {
     await expect(errorBanner).toContainText('Pipeline budget exceeded');
   });
 
-  /* eslint-disable flakiness/no-test-skip, @typescript-eslint/no-unused-vars -- variants-warning-banner and tab-variants testids not yet implemented */
+  /* eslint-disable flakiness/no-test-skip -- variants-warning-banner and tab-variants testids not yet implemented */
   adminTest.skip('failed run variants tab shows warning banner', async ({ adminPage }) => {
     await adminPage.goto(`/admin/evolution/runs/${failedRunId}`);
     await adminPage.waitForLoadState('domcontentloaded');

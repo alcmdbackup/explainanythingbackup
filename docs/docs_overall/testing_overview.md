@@ -45,19 +45,20 @@ Consolidated guide covering testing rules, tiers, and CI/CD workflows.
 | Rule 2: No fixed sleeps | ESLint `flakiness/no-wait-for-timeout` (catches `waitForTimeout` + `new Promise(setTimeout)`) | Lint (CI + IDE) |
 | Rule 6: Short timeouts | ESLint `flakiness/max-test-timeout` | Lint (CI + IDE) |
 | Rule 7: No silent errors | ESLint `flakiness/no-silent-catch` | Lint (CI + IDE) |
-| Rule 4: No point-in-time checks | ESLint `flakiness/no-point-in-time-checks` (warn) | Lint (CI + IDE) |
+| Rule 4: No point-in-time checks | ESLint `flakiness/no-point-in-time-checks` | Lint (CI + IDE) |
 | Rule 8: No test.skip | ESLint `flakiness/no-test-skip` | Lint (CI + IDE) |
 | Rule 9: No `networkidle` | ESLint `flakiness/no-networkidle` | Lint (CI + IDE) |
 | Rule 10: Unregister route mocks | Fixture teardown in `base.ts` + `auth.ts` (after `use()`) | Runtime (automatic) |
 | Rule 11: Per-worker temp files | ESLint `flakiness/no-hardcoded-tmpdir` + Claude hook warning | Lint + edit-time |
 | Rule 12: POM waits after actions | Claude hook heuristic check | Edit-time |
-| Rule 13: Serial mode for beforeAll suites | Code review + `test.describe.configure` | Edit-time |
+| Rule 13: Serial mode for beforeAll suites | ESLint `flakiness/require-serial-with-beforeall` | Lint (CI + IDE) |
 | Rule 14: Unroute before route in mocks | Code review + `page.unroute()` in helpers | Edit-time |
 | Rule 15: Restore global.fetch | Code review + `afterEach` pattern | Edit-time |
 | Rule 16: E2E cleanup for DB imports | ESLint `flakiness/require-test-cleanup` | Lint (CI + IDE) |
 | Rule 17: No hardcoded URLs in POMs | ESLint `flakiness/no-hardcoded-base-url` | Lint (CI + IDE) |
 | Rule 18: Wait for hydration proof | ESLint `flakiness/require-hydration-wait` | Lint (CI + IDE) |
-| Column label uniqueness | ESLint `no-duplicate-column-labels` | Lint (CI + IDE) |
+| Column label uniqueness | ESLint `flakiness/no-duplicate-column-labels` | Lint (CI + IDE) |
+| Timeout cascade detection | ESLint `flakiness/warn-slow-with-retries` (warn) | Lint (CI + IDE) |
 
 ---
 

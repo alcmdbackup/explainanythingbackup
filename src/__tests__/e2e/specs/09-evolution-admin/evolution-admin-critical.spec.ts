@@ -22,6 +22,7 @@ test.describe('Evolution Admin Critical Bugs', { tag: '@critical' }, () => {
 
     // Verify cost is displayed (either from metrics or fallback)
     const costLocator = page.locator('text=/\\$[0-9]/').first();
+    // eslint-disable-next-line flakiness/no-point-in-time-checks -- data extraction, not assertion
     const costText = await costLocator.count() > 0 ? await costLocator.textContent() : null;
     // Cost should exist somewhere on the page
     expect(costText).not.toBeNull();

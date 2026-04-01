@@ -109,7 +109,7 @@ test.describe('AI Suggestions Pipeline', () => {
 
       // Verify loading state appears
       await waitForSuggestionsLoading(page);
-      expect(await page.locator('[data-testid="suggestions-loading"]').isVisible()).toBe(true);
+      await expect(page.locator('[data-testid="suggestions-loading"]')).toBeVisible();
     });
 
     test('should display success message after suggestions applied', { tag: '@skip-prod' }, async ({ authenticatedPage: page }) => {
@@ -133,7 +133,7 @@ test.describe('AI Suggestions Pipeline', () => {
 
       // Verify success state appears
       await waitForSuggestionsSuccess(page);
-      expect(await page.locator('[data-testid="suggestions-success"]').isVisible()).toBe(true);
+      await expect(page.locator('[data-testid="suggestions-success"]')).toBeVisible();
     });
 
     test('should handle suggestion error gracefully', { tag: '@skip-prod' }, async ({ authenticatedPage: page }) => {
@@ -157,7 +157,7 @@ test.describe('AI Suggestions Pipeline', () => {
 
       // Verify error state appears
       await waitForSuggestionsError(page);
-      expect(await page.locator('[data-testid="suggestions-error"]').isVisible()).toBe(true);
+      await expect(page.locator('[data-testid="suggestions-error"]')).toBeVisible();
     });
   });
 

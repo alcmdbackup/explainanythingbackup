@@ -3,16 +3,19 @@
 
 import { adminTest, expect } from '../../fixtures/admin-auth';
 import { createClient } from '@supabase/supabase-js';
+import type { Database } from '@/lib/database.types';
 import { randomUUID } from 'crypto';
 
 function getServiceClient() {
-  return createClient(
+  return createClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
   );
 }
 
 adminTest.describe('Evolution Experiments List', { tag: '@evolution' }, () => {
+  adminTest.describe.configure({ mode: 'serial' });
+
   const testPrefix = `e2e-experiments-${Date.now()}`;
   let strategyId: string;
   let promptId: string;

@@ -114,6 +114,7 @@ test.describe('Save Blocking with Pending AI Suggestions', { tag: '@skip-prod' }
 
     // Verify publish button is disabled (if visible)
     const publishButton = page.locator('[data-testid="publish-button"]');
+    // eslint-disable-next-line flakiness/no-point-in-time-checks -- control flow, not assertion
     if (await publishButton.isVisible()) {
       await expect(publishButton).toBeDisabled();
 

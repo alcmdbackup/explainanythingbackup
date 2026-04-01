@@ -1,5 +1,6 @@
 import { test as base, expect, Page } from '@playwright/test';
 import { createClient } from '@supabase/supabase-js';
+import type { Database } from '@/lib/database.types';
 import * as dotenv from 'dotenv';
 import * as path from 'path';
 import { needsBypassCookie, loadBypassCookieState } from '../setup/vercel-bypass';
@@ -42,7 +43,7 @@ async function authenticateWithRetry(retries = MAX_AUTH_RETRIES): Promise<Sessio
   console.log(`   Authenticating with Supabase: ${supabaseUrl}`);
   console.log(`   Test user email: ${testEmail}`);
 
-  const supabase = createClient(
+  const supabase = createClient<Database>(
     supabaseUrl,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
   );

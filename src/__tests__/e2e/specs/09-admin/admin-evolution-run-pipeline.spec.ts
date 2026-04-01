@@ -3,12 +3,13 @@
 
 import { adminTest, expect } from '../../fixtures/admin-auth';
 import { createClient } from '@supabase/supabase-js';
+import type { Database } from '@/lib/database.types';
 import { trackEvolutionId } from '../../helpers/evolution-test-data-factory';
 
 const TEST_PREFIX = '[TEST_EVO] Pipeline';
 
 function getServiceClient() {
-  return createClient(
+  return createClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
   );
@@ -122,6 +123,7 @@ adminTest.describe('Evolution Run Pipeline', { tag: '@evolution' }, () => {
       refresh_token: authData.session.refresh_token,
       user: authData.user,
     };
+    // eslint-disable-next-line flakiness/no-point-in-time-checks -- Buffer.toString, not a Playwright method
     const base64 = Buffer.from(JSON.stringify(sessionData)).toString('base64');
     const base64url = base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
     const cookieValue = `base64-${base64url}`;
@@ -187,8 +189,9 @@ adminTest.describe('Evolution Run Pipeline', { tag: '@evolution' }, () => {
     expect(run).toBeTruthy();
     expect(run!.status).toBe('completed');
     expect(run!.run_summary).toBeTruthy();
-    expect(run!.run_summary.version).toBe(3);
-    expect(['iterations_complete', 'budget_exceeded', 'converged', 'time_limit']).toContain(run!.run_summary.stopReason);
+    const summary = run!.run_summary as { version: number; stopReason: string };
+    expect(summary.version).toBe(3);
+    expect(['iterations_complete', 'budget_exceeded', 'converged', 'time_limit']).toContain(summary.stopReason);
     expect(run!.completed_at).toBeTruthy();
   });
 
@@ -217,7 +220,7 @@ adminTest.describe('Evolution Run Pipeline', { tag: '@evolution' }, () => {
 
     expect(invocations).toBeTruthy();
     expect(invocations!.length).toBeGreaterThanOrEqual(1);
-    expect(invocations!.some(i => i.cost_usd > 0)).toBe(true);
+    expect(invocations!.some(i => (i.cost_usd ?? 0) > 0)).toBe(true);
     const agentNames = invocations!.map(i => i.agent_name);
     expect(agentNames.some(n => /generation|ranking/i.test(n))).toBe(true);
   });
