@@ -517,6 +517,51 @@ describe('v2StrategyConfigSchema', () => {
       generationModel: 'gpt-4o', judgeModel: 'gpt-4o', iterations: 0,
     })).toThrow();
   });
+
+  it('accepts valid generationGuidance', () => {
+    expect(() => v2StrategyConfigSchema.parse({
+      generationModel: 'gpt-4o', judgeModel: 'gpt-4o', iterations: 5,
+      generationGuidance: [{ strategy: 'structural_transform', percent: 100 }],
+    })).not.toThrow();
+  });
+
+  it('accepts undefined generationGuidance', () => {
+    const result = v2StrategyConfigSchema.parse({
+      generationModel: 'gpt-4o', judgeModel: 'gpt-4o', iterations: 5,
+    });
+    expect(result.generationGuidance).toBeUndefined();
+  });
+
+  it('rejects generationGuidance with negative percent', () => {
+    expect(() => v2StrategyConfigSchema.parse({
+      generationModel: 'gpt-4o', judgeModel: 'gpt-4o', iterations: 5,
+      generationGuidance: [{ strategy: 'x', percent: -10 }],
+    })).toThrow();
+  });
+
+  it('rejects generationGuidance with missing strategy field', () => {
+    expect(() => v2StrategyConfigSchema.parse({
+      generationModel: 'gpt-4o', judgeModel: 'gpt-4o', iterations: 5,
+      generationGuidance: [{ percent: 100 }],
+    })).toThrow();
+  });
+
+  it('rejects generationGuidance with non-number percent', () => {
+    expect(() => v2StrategyConfigSchema.parse({
+      generationModel: 'gpt-4o', judgeModel: 'gpt-4o', iterations: 5,
+      generationGuidance: [{ strategy: 'x', percent: 'fifty' }],
+    })).toThrow();
+  });
+
+  it('rejects generationGuidance with duplicate strategy names', () => {
+    expect(() => v2StrategyConfigSchema.parse({
+      generationModel: 'gpt-4o', judgeModel: 'gpt-4o', iterations: 5,
+      generationGuidance: [
+        { strategy: 'structural_transform', percent: 50 },
+        { strategy: 'structural_transform', percent: 50 },
+      ],
+    })).toThrow();
+  });
 });
 
 describe('evolutionConfigSchema', () => {
@@ -536,6 +581,13 @@ describe('evolutionConfigSchema', () => {
     expect(() => evolutionConfigSchema.parse({
       iterations: 5, budgetUsd: 0, judgeModel: 'gpt-4o', generationModel: 'gpt-4o',
     })).toThrow();
+  });
+
+  it('accepts generationGuidance in evolution config', () => {
+    expect(() => evolutionConfigSchema.parse({
+      iterations: 5, budgetUsd: 10, judgeModel: 'gpt-4o', generationModel: 'gpt-4o',
+      generationGuidance: [{ strategy: 'engagement_amplify', percent: 60 }, { strategy: 'tone_transform', percent: 40 }],
+    })).not.toThrow();
   });
 });
 

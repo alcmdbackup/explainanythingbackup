@@ -112,6 +112,61 @@ describe('evolveArticle', () => {
     ).rejects.toThrow('generationModel');
   });
 
+  it('rejects generationGuidance with percent sum = 99', async () => {
+    await expect(
+      evolveArticle('text', makeRawProvider(), makeMockDb(), 'r1', {
+        ...baseConfig,
+        generationGuidance: [
+          { strategy: 'structural_transform', percent: 50 },
+          { strategy: 'lexical_simplify', percent: 49 },
+        ],
+      }),
+    ).rejects.toThrow('percentages must sum to 100');
+  });
+
+  it('rejects generationGuidance with percent sum = 101', async () => {
+    await expect(
+      evolveArticle('text', makeRawProvider(), makeMockDb(), 'r1', {
+        ...baseConfig,
+        generationGuidance: [
+          { strategy: 'structural_transform', percent: 51 },
+          { strategy: 'lexical_simplify', percent: 50 },
+        ],
+      }),
+    ).rejects.toThrow('percentages must sum to 100');
+  });
+
+  it('rejects generationGuidance with unknown strategy name', async () => {
+    await expect(
+      evolveArticle('text', makeRawProvider(), makeMockDb(), 'r1', {
+        ...baseConfig,
+        generationGuidance: [{ strategy: 'nonexistent_strategy', percent: 100 }],
+      }),
+    ).rejects.toThrow('Unknown generation strategy');
+  });
+
+  it('rejects generationGuidance with empty array', async () => {
+    await expect(
+      evolveArticle('text', makeRawProvider(), makeMockDb(), 'r1', {
+        ...baseConfig,
+        generationGuidance: [],
+      }),
+    ).rejects.toThrow('at least 1 entry');
+  });
+
+  it('accepts generationGuidance with valid entries', async () => {
+    const result = await evolveArticle('text', makeRawProvider(), makeMockDb(), 'r1', {
+      ...baseConfig,
+      generationGuidance: [{ strategy: 'engagement_amplify', percent: 100 }],
+    });
+    expect(result.winner).toBeDefined();
+  });
+
+  it('accepts undefined generationGuidance (fallback)', async () => {
+    const result = await evolveArticle('text', makeRawProvider(), makeMockDb(), 'r1', baseConfig);
+    expect(result.winner).toBeDefined();
+  });
+
   // ─── Normal operation ──────────────────────────────────────
   it('completes 1-iteration run with baseline and stopReason=iterations_complete', async () => {
     const result = await evolveArticle(

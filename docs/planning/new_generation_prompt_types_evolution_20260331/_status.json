@@ -1,0 +1,23 @@
+{
+  "project": "feat/new_generation_prompt_types_evolution_20260331",
+  "branch": "feat/new_generation_prompt_types_evolution_20260331",
+  "created_at": "2026-03-31T14:59:07Z",
+  "prerequisites": {
+    "todos_created": "2026-03-31T14:59:07Z",
+    "getting_started_read": "2026-04-01T02:12:51Z",
+    "project_workflow_read": "2026-04-01T02:12:52Z",
+    "design_style_guide_read": "2026-04-01T02:27:15Z",
+    "testing_overview_read": "2026-04-01T03:00:14Z"
+  },
+  "relevantDocs": [
+    "evolution/docs/data_model.md",
+    "evolution/docs/architecture.md",
+    "evolution/docs/agents/overview.md",
+    "evolution/docs/strategies_and_experiments.md",
+    "evolution/docs/reference.md",
+    "evolution/docs/curriculum.md",
+    "evolution/docs/visualization.md",
+    "evolution/docs/logging.md",
+    "evolution/docs/rating_and_comparison.md"
+  ]
+}

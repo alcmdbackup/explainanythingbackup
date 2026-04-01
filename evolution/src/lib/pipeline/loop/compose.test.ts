@@ -157,4 +157,30 @@ describe('generate → rank composition', () => {
     expect(result.matches).toHaveLength(0);
     expect(result.converged).toBe(false);
   });
+
+  it('generationGuidance with single strategy produces only that strategy variants', async () => {
+    const llm = createV2MockLlm({
+      defaultText: validText,
+      rankingResponses: Array(20).fill('A'),
+    });
+
+    const guidanceConfig: EvolutionConfig = {
+      ...baseConfig,
+      generationGuidance: [{ strategy: 'structural_transform', percent: 100 }],
+    };
+
+    const genResult = await generateVariants('original text', 1, llm, guidanceConfig);
+    expect(genResult.variants.length).toBeGreaterThan(0);
+    // All variants should be from the specified strategy
+    for (const v of genResult.variants) {
+      expect(v.strategy).toBe('structural_transform');
+    }
+
+    // Verify ranking still works with guidance-selected variants
+    const result = await rankPool(
+      genResult.variants, new Map(), new Map(),
+      genResult.variants.map((v) => v.id), llm, guidanceConfig,
+    );
+    expect(result.ratingUpdates).toBeDefined();
+  });
 });

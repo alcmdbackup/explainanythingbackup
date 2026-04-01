@@ -32,7 +32,7 @@ Between iterations, the orchestrator checks for external kill signals by queryin
 
 `evolution/src/lib/pipeline/generate.ts`
 
-Generates fresh text variants by running three parallel LLM strategies against the original (or current best) text. The strategies are:
+Generates fresh text variants by running parallel LLM strategies against the original (or current best) text. There are 8 available strategies — 3 core and 5 extended:
 
 **structural_transform** aggressively restructures the text: reorder sections, merge or split paragraphs, invert hierarchy (conclusion-first, problem-solution, narrative arc). The prompt instructs the LLM to reimagine organization from scratch rather than making timid incremental changes.
 
@@ -40,7 +40,17 @@ Generates fresh text variants by running three parallel LLM strategies against t
 
 **grounding_enhance** makes abstract text concrete: add specific examples, include sensory details, strengthen real-world connections, ground concepts in experience.
 
-All three strategies run in parallel via `Promise.allSettled()`. Each result is independently format-validated; invalid outputs are silently discarded rather than retried. This means a generation phase can produce anywhere from zero to three variants.
+**engagement_amplify** boosts reader engagement through hooks, pacing, and rhetorical devices.
+
+**style_polish** refines prose style, improves flow, and strengthens voice.
+
+**argument_fortify** strengthens logical structure, evidence, and persuasiveness.
+
+**narrative_weave** weaves narrative threads, improves coherence, and adds storytelling elements.
+
+**tone_transform** shifts or unifies tone to match target audience and purpose.
+
+By default, only the 3 core strategies run (deterministic selection). When `generationGuidance` is set on the strategy config, strategies are chosen via weighted random selection based on the configured percentages. All selected strategies run in parallel via `Promise.allSettled()`. Each result is independently format-validated; invalid outputs are silently discarded rather than retried. This means a generation phase can produce anywhere from zero to N variants (where N is `strategiesPerRound`).
 
 ```typescript
 export async function generateVariants(

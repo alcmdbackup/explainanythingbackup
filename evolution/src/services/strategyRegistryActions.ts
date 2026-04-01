@@ -8,6 +8,7 @@ import { hashStrategyConfig, labelStrategyConfig } from '@evolution/lib/pipeline
 import type { V2StrategyConfig } from '@evolution/lib/pipeline/infra/types';
 import { createEntityLogger } from '@evolution/lib/pipeline/infra/createEntityLogger';
 import { z } from 'zod';
+import { generationGuidanceSchema } from '@evolution/lib/schemas';
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -37,6 +38,7 @@ const createStrategySchema = z.object({
   strategiesPerRound: z.number().int().min(1).max(20).optional(),
   budgetUsd: z.number().min(0.01).max(100).optional(),
   pipeline_type: z.string().max(50).optional(),
+  generationGuidance: generationGuidanceSchema.optional(),
 });
 
 const updateStrategySchema = z.object({
@@ -107,6 +109,7 @@ export const createStrategyAction = adminAction(
       iterations: parsed.iterations,
       strategiesPerRound: parsed.strategiesPerRound,
       budgetUsd: parsed.budgetUsd,
+      generationGuidance: parsed.generationGuidance,
     };
 
     const configHash = hashStrategyConfig(config);

@@ -130,6 +130,42 @@ describe('buildRunContext', () => {
     }
   });
 
+  it('passes generationGuidance from strategy config to EvolutionConfig', async () => {
+    const guidance = [
+      { strategy: 'engagement_amplify', percent: 60 },
+      { strategy: 'tone_transform', percent: 40 },
+    ];
+    const { db } = makeMockDb({
+      contentText: validText,
+      strategyConfig: {
+        generationModel: 'gpt-4.1-nano',
+        judgeModel: 'gpt-4.1-nano',
+        iterations: 1,
+        generationGuidance: guidance,
+      },
+    });
+    const run = makeClaimedRun();
+
+    const result = await buildRunContext('run-1', run, db, makeProvider());
+
+    expect('context' in result).toBe(true);
+    if ('context' in result) {
+      expect(result.context.config.generationGuidance).toEqual(guidance);
+    }
+  });
+
+  it('omits generationGuidance from config when strategy has none', async () => {
+    const { db } = makeMockDb({ contentText: validText });
+    const run = makeClaimedRun();
+
+    const result = await buildRunContext('run-1', run, db, makeProvider());
+
+    expect('context' in result).toBe(true);
+    if ('context' in result) {
+      expect(result.context.config.generationGuidance).toBeUndefined();
+    }
+  });
+
   it('returns error when content not found', async () => {
     const { db } = makeMockDb({ contentText: undefined });
     const run = makeClaimedRun();

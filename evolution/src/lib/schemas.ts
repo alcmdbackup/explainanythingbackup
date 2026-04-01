@@ -282,6 +282,26 @@ export const variantSchema = z.object({
 
 export type VariantSchema = z.infer<typeof variantSchema>;
 
+// ─── Generation Guidance ─────────────────────────────────────────
+
+export const generationGuidanceEntrySchema = z.object({
+  strategy: z.string().min(1),
+  percent: z.number().min(0).max(100),
+});
+
+export const generationGuidanceSchema = z
+  .array(generationGuidanceEntrySchema)
+  .min(1)
+  .refine(
+    (entries: Array<{ strategy: string; percent: number }>) => {
+      const names = entries.map((e) => e.strategy);
+      return new Set(names).size === names.length;
+    },
+    { message: 'Duplicate strategy names in generationGuidance' },
+  );
+
+export type GenerationGuidanceEntry = z.infer<typeof generationGuidanceEntrySchema>;
+
 // ─── V2 Strategy Config ─────────────────────────────────────────
 
 export const v2StrategyConfigSchema = z.object({
@@ -290,6 +310,7 @@ export const v2StrategyConfigSchema = z.object({
   iterations: z.number().int().min(1),
   strategiesPerRound: z.number().int().min(1).optional(),
   budgetUsd: z.number().min(0).optional(),
+  generationGuidance: generationGuidanceSchema.optional(),
 });
 
 export type V2StrategyConfigSchema = z.infer<typeof v2StrategyConfigSchema>;
@@ -304,6 +325,7 @@ export const evolutionConfigSchema = z.object({
   strategiesPerRound: z.number().int().min(1).optional(),
   calibrationOpponents: z.number().int().min(1).optional(),
   tournamentTopK: z.number().int().min(1).optional(),
+  generationGuidance: generationGuidanceSchema.optional(),
 });
 
 export type EvolutionConfigSchema = z.infer<typeof evolutionConfigSchema>;

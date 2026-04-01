@@ -13,6 +13,7 @@ import type { EntityLogger } from '../infra/createEntityLogger';
 import { GenerationAgent } from '../../core/agents/GenerationAgent';
 import { RankingAgent } from '../../core/agents/RankingAgent';
 import { selectWinner } from '../../shared/selectWinner';
+import { getKnownStrategyNames } from './generateVariants';
 
 // ─── Config validation ───────────────────────────────────────────
 
@@ -37,6 +38,21 @@ function validateConfig(config: EvolutionConfig): void {
   }
   if (config.tournamentTopK !== undefined && config.tournamentTopK < 1) {
     throw new Error(`Invalid tournamentTopK: ${config.tournamentTopK} (must be >= 1)`);
+  }
+  if (config.generationGuidance !== undefined) {
+    if (config.generationGuidance.length === 0) {
+      throw new Error('generationGuidance must have at least 1 entry when provided');
+    }
+    const percentSum = config.generationGuidance.reduce((sum: number, g: { percent: number }) => sum + g.percent, 0);
+    if (percentSum !== 100) {
+      throw new Error(`generationGuidance percentages must sum to 100, got ${percentSum}`);
+    }
+    const knownNames = getKnownStrategyNames();
+    for (const entry of config.generationGuidance) {
+      if (!knownNames.includes(entry.strategy)) {
+        throw new Error(`Unknown generation strategy in generationGuidance: '${entry.strategy}'`);
+      }
+    }
   }
 }
 

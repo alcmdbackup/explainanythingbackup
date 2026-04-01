@@ -181,11 +181,21 @@ The core algorithm in `evolveArticle()` runs a generate-rank-evolve loop for up 
 ### Generate Phase
 
 `generateVariants()` in `evolution/src/lib/pipeline/generate.ts` runs 3 strategies in
-parallel:
+parallel by default:
 
 - **structural_transform** — radical restructuring of organization and flow.
 - **lexical_simplify** — simplify language, replace jargon, shorten sentences.
 - **grounding_enhance** — add concrete examples and sensory details.
+
+Five additional strategies are available when `generationGuidance` is configured on the strategy config:
+
+- **engagement_amplify** — boost reader engagement through hooks, pacing, and rhetorical devices.
+- **style_polish** — refine prose style, improve flow, and strengthen voice.
+- **argument_fortify** — strengthen logical structure, evidence, and persuasiveness.
+- **narrative_weave** — weave narrative threads, improve coherence, and add storytelling elements.
+- **tone_transform** — shift or unify tone to match target audience and purpose.
+
+When `generationGuidance` is provided (an array of `{ strategy, percent }` entries summing to 100), strategies are selected via weighted random sampling instead of the default deterministic 3-strategy behavior.
 
 Each strategy produces one variant via its own LLM call with a strategy-specific system
 prompt. The number of strategies per round is configurable via

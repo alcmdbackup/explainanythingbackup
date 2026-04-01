@@ -28,6 +28,7 @@ interface StrategyConfig {
   singleArticle?: boolean;
   enabledAgents?: string[];
   agentModels?: Record<string, string>;
+  generationGuidance?: Array<{ strategy: string; percent: number }>;
 }
 
 interface StrategyConfigDisplayProps {
@@ -91,6 +92,16 @@ export function StrategyConfigDisplay({ config: raw, showRaw }: StrategyConfigDi
           )}
         </div>
       </div>
+      {config.generationGuidance && config.generationGuidance.length > 0 && (
+        <div className="space-y-2">
+          <h4 className="font-display text-lg font-medium text-[var(--text-muted)]">Generation Guidance</h4>
+          <div className="bg-[var(--surface-primary)] rounded-page p-3 space-y-1">
+            {config.generationGuidance.map((entry) => (
+              <ConfigRow key={entry.strategy} label={entry.strategy} value={`${entry.percent}%`} highlight={entry.percent >= 50} />
+            ))}
+          </div>
+        </div>
+      )}
       <div className="space-y-2">
         <h4 className="font-display text-lg font-medium text-[var(--text-muted)]">Agents</h4>
         <div className="bg-[var(--surface-primary)] rounded-page p-3 space-y-1">

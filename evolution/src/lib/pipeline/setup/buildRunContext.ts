@@ -167,6 +167,7 @@ export async function buildRunContext(
     strategiesPerRound: stratConfig.strategiesPerRound ?? 3,
     calibrationOpponents: 5,
     tournamentTopK: 5,
+    generationGuidance: stratConfig.generationGuidance,
   };
 
   const logger = createEntityLogger({

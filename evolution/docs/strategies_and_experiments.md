@@ -27,6 +27,7 @@ interface V2StrategyConfig {
   iterations: number;
   strategiesPerRound?: number;  // default 3
   budgetUsd?: number;
+  generationGuidance?: Array<{ strategy: string; percent: number }>;
 }
 ```
 
@@ -37,6 +38,11 @@ interface V2StrategyConfig {
 | `iterations`        | Number of generate-rank-evolve cycles      |
 | `strategiesPerRound`| Generation strategies per iteration round  |
 | `budgetUsd`         | Optional per-run budget cap                |
+| `generationGuidance`| Optional weighted strategy distribution. Array of `{ strategy, percent }` entries where percentages must sum to 100 and strategy names must be unique. Enables weighted random strategy selection from all 8 strategies instead of the default deterministic 3-strategy behavior. |
+
+#### Experimental Verification with generationGuidance
+
+To isolate and test a single generation strategy, create a strategy config with `generationGuidance` set to 100% for one strategy (e.g., `[{ strategy: "engagement_amplify", percent: 100 }]`) and `strategiesPerRound: 1`. This produces runs that use only that strategy, enabling controlled A/B comparison across strategies within an experiment.
 
 ### Config Hashing
 
