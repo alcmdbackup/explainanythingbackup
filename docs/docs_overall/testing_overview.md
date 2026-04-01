@@ -70,6 +70,8 @@ All test content uses the `[TEST]` prefix at the start of titles to:
 2. **Support cleanup** - Pattern matching on `[TEST]%` identifies content for deletion
 3. **Prevent pollution** - Real users never see test content in production
 
+> **Note:** Evolution-related test data also uses `[E2E]` and `[TEST_EVO]` prefixes. All three prefixes (`[TEST]`, `[E2E]`, `[TEST_EVO]`) are filtered by the test content filter in `evolution/src/services/shared.ts`.
+
 ### Title Format
 
 | Content Type | Format Example |

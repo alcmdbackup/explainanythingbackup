@@ -49,6 +49,12 @@ adminTest.describe('Prompt Registry CRUD', () => {
     await adminPage.getByRole('textbox', { name: /prompt/i }).first().fill('Explain photosynthesis to a 10-year-old');
     await adminPage.getByRole('button', { name: /save|submit|create/i }).click();
 
+    // Uncheck "Hide test content" to see [E2E] prefixed prompts
+    const hideTestCheckbox = adminPage.locator('[data-testid="filter-filterTestContent"] input[type="checkbox"]');
+    if (await hideTestCheckbox.isChecked()) {
+      await hideTestCheckbox.click();
+    }
+
     // Verify prompt appears in table
     await expect(adminPage.getByText(testPromptTitle)).toBeVisible({ timeout: 10000 });
 

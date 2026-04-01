@@ -15,9 +15,11 @@ describe('Evolution Test Content Filter Integration', () => {
 
   // Test data IDs
   const testStrategyId = crypto.randomUUID();
+  const e2eStrategyId = crypto.randomUUID();
   const realStrategyId = crypto.randomUUID();
   const promptId = crypto.randomUUID();
   const testRunId = crypto.randomUUID();
+  const e2eRunId = crypto.randomUUID();
   const realRunId = crypto.randomUUID();
 
   beforeAll(async () => {
@@ -28,7 +30,7 @@ describe('Evolution Test Content Filter Integration', () => {
       return;
     }
 
-    // Create two strategies: one with [TEST] in name, one without
+    // Create three strategies: [TEST], [E2E], and a real one
     const { error: stratErr } = await supabase
       .from('evolution_strategies')
       .insert([
@@ -38,6 +40,13 @@ describe('Evolution Test Content Filter Integration', () => {
           label: '[TEST] Filter Strategy',
           config: { test: true },
           config_hash: `test-filter-hash-${testStrategyId}`,
+        },
+        {
+          id: e2eStrategyId,
+          name: '[E2E] Anchor Strategy 1774967596078',
+          label: '[E2E] Anchor Strategy',
+          config: { test: true },
+          config_hash: `e2e-filter-hash-${e2eStrategyId}`,
         },
         {
           id: realStrategyId,
@@ -55,11 +64,12 @@ describe('Evolution Test Content Filter Integration', () => {
       .insert({ id: promptId, prompt: '[TEST] filter prompt', name: '[TEST] Filter Prompt' });
     if (promptErr) throw new Error(`Failed to create prompt: ${promptErr.message}`);
 
-    // Create runs: one linked to test strategy, one to real strategy
+    // Create runs: one linked to [TEST] strategy, one to [E2E] strategy, one to real strategy
     const { error: runErr } = await supabase
       .from('evolution_runs')
       .insert([
         { id: testRunId, strategy_id: testStrategyId, prompt_id: promptId, status: 'completed' },
+        { id: e2eRunId, strategy_id: e2eStrategyId, prompt_id: promptId, status: 'completed' },
         { id: realRunId, strategy_id: realStrategyId, prompt_id: promptId, status: 'completed' },
       ]);
     if (runErr) throw new Error(`Failed to create runs: ${runErr.message}`);
@@ -68,34 +78,34 @@ describe('Evolution Test Content Filter Integration', () => {
   afterAll(async () => {
     if (!tablesExist) return;
     await cleanupEvolutionData(supabase, {
-      runIds: [testRunId, realRunId],
-      strategyIds: [testStrategyId, realStrategyId],
+      runIds: [testRunId, e2eRunId, realRunId],
+      strategyIds: [testStrategyId, e2eStrategyId, realStrategyId],
       promptIds: [promptId],
     });
   });
 
-  it('two-step filter excludes test runs and keeps real runs', async () => {
+  it('two-step filter excludes test and E2E runs and keeps real runs', async () => {
     if (!tablesExist) return;
 
-    // Step 1: Fetch test strategy IDs (same as the action code)
+    // Step 1: Fetch test strategy IDs matching [TEST], [E2E], or [TEST_EVO] (same as getTestStrategyIds)
     const { data: testStrategies, error: tsErr } = await supabase
       .from('evolution_strategies')
       .select('id')
-      .ilike('name', '%[TEST]%');
+      .or('name.ilike.%[TEST]%,name.ilike.%[E2E]%,name.ilike.%[TEST_EVO]%,name.ilike.test');
 
     expect(tsErr).toBeNull();
-    expect(testStrategies!.length).toBeGreaterThan(0);
+    expect(testStrategies!.length).toBeGreaterThanOrEqual(2);
     const testIds = testStrategies!.map(s => s.id as string);
     expect(testIds).toContain(testStrategyId);
+    expect(testIds).toContain(e2eStrategyId);
     expect(testIds).not.toContain(realStrategyId);
 
     // Step 2: Query runs excluding test strategy IDs, scoped to our test data
-    // Scope to our test runs first to keep the query small, then exclude test strategies
     const { data: filteredRuns, error: runErr } = await supabase
       .from('evolution_runs')
       .select('id, strategy_id')
-      .in('id', [testRunId, realRunId])
-      .not('strategy_id', 'in', `(${testStrategyId})`);
+      .in('id', [testRunId, e2eRunId, realRunId])
+      .not('strategy_id', 'in', `(${testStrategyId},${e2eStrategyId})`);
 
     expect(runErr).toBeNull();
     expect(filteredRuns).toHaveLength(1);
@@ -114,14 +124,14 @@ describe('Evolution Test Content Filter Integration', () => {
     expect(error).toBeNull();
     expect(noMatch).toHaveLength(0);
 
-    // With no IDs to exclude, query should return both runs
+    // With no IDs to exclude, query should return all runs
     const { data: allRuns, error: runErr } = await supabase
       .from('evolution_runs')
       .select('id')
-      .in('id', [testRunId, realRunId]);
+      .in('id', [testRunId, e2eRunId, realRunId]);
 
     expect(runErr).toBeNull();
-    expect(allRuns).toHaveLength(2);
+    expect(allRuns).toHaveLength(3);
   });
 
   it('PostgREST inner join on evolution_strategies does not return HTTP 300', async () => {
@@ -154,8 +164,8 @@ describe('Evolution Test Content Filter Integration', () => {
     const { data: runs, error } = await supabase
       .from('evolution_runs')
       .select('id, status')
-      .not('strategy_id', 'in', `(${testStrategyId})`)
-      .in('id', [testRunId, realRunId]);
+      .not('strategy_id', 'in', `(${testStrategyId},${e2eStrategyId})`)
+      .in('id', [testRunId, e2eRunId, realRunId]);
 
     expect(error).toBeNull();
     expect(runs).toHaveLength(1);
