@@ -86,15 +86,17 @@ export function createV2LLMClient(
           const actual = calculateCost(prompt.length, response.length, pricing);
           costTracker.recordSpend(agentName, actual, margined);
 
-          // Fire-and-forget: persist cost to DB so it survives process crashes.
-          // Cost tracker is the source of truth; DB write is best-effort.
+          // Persist cost to DB so it survives process crashes.
+          // Awaited (not fire-and-forget) to prevent race with finalization cost write.
           if (db && runId) {
             const totalSpent = costTracker.getTotalSpent();
             const phaseCost = costTracker.getPhaseCosts()[agentName] ?? 0;
-            writeMetric(db, 'run', runId, 'cost' as MetricName, totalSpent, 'during_execution')
-              .catch((err) => logger?.warn('Fire-and-forget cost write failed', { phaseName: agentName, error: err instanceof Error ? err.message : String(err) }));
-            writeMetric(db, 'run', runId, `agentCost:${agentName}` as MetricName, phaseCost, 'during_execution')
-              .catch((err) => logger?.warn('Fire-and-forget agentCost write failed', { phaseName: agentName, error: err instanceof Error ? err.message : String(err) }));
+            try {
+              await writeMetric(db, 'run', runId, 'cost' as MetricName, totalSpent, 'during_execution');
+              await writeMetric(db, 'run', runId, `agentCost:${agentName}` as MetricName, phaseCost, 'during_execution');
+            } catch (err) {
+              logger?.warn('Cost write failed (non-fatal)', { phaseName: agentName, error: err instanceof Error ? err.message : String(err) });
+            }
           }
 
           logger?.info('LLM call succeeded', { phaseName: agentName, promptChars: prompt.length, responseChars: response.length, costUsd: actual, attempt });

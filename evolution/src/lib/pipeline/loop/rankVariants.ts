@@ -308,11 +308,6 @@ async function executeTriage(
     return !r || r.sigma >= CALIBRATED_SIGMA_THRESHOLD;
   });
 
-  // Compute top 20% cutoff for elimination
-  const allMus = [...localRatings.values()].map((r) => r.mu).sort((a, b) => b - a);
-  const top20Idx = Math.max(0, Math.floor(allMus.length * 0.2) - 1);
-  const top20Cutoff = allMus[top20Idx] ?? 0;
-
   const numOpponents = config.calibrationOpponents ?? 5;
 
   let consecutiveErrors = 0;
@@ -403,7 +398,11 @@ async function executeTriage(
       if (match.confidence >= DECISIVE_CONFIDENCE) decisiveCount++;
 
       // Elimination check (use successfulMatches instead of i to exclude failed comparisons)
+      // Recompute top 20% cutoff each check so it reflects current ratings (not stale initial values)
       const currentRating = localRatings.get(entrantId)!;
+      const currentMus = [...localRatings.values()].map((r) => r.mu).sort((a, b) => b - a);
+      const top20Idx = Math.max(0, Math.floor(currentMus.length * 0.2) - 1);
+      const top20Cutoff = currentMus[top20Idx] ?? 0;
       if (successfulMatches >= MIN_TRIAGE_OPPONENTS && currentRating.mu + 2 * currentRating.sigma < top20Cutoff) {
         eliminatedIds.add(entrantId);
         logger?.info('Triage elimination', { entrantId, muPlusSigma: currentRating.mu + 2 * currentRating.sigma, cutoff: top20Cutoff, phaseName: 'ranking' });

@@ -30,14 +30,24 @@ export async function createExperiment(
     throw new Error('Experiment name must be 1-200 characters');
   }
 
-  // Dedup: append incrementing suffix if name already exists
+  // Dedup: append incrementing suffix "(1)", "(2)", etc. if name already exists.
+  // Query existing names with this base to find the next available suffix.
   let finalName = trimmed;
-  const { count } = await db
+  const { data: existing } = await db
     .from('evolution_experiments')
-    .select('id', { count: 'exact', head: true })
-    .eq('name', trimmed);
-  if (count && count > 0) {
-    finalName = `${trimmed} (${count + 1})`;
+    .select('name')
+    .or(`name.eq.${trimmed},name.like.${trimmed} (%)`);
+  if (existing && existing.length > 0) {
+    const usedSuffixes = new Set<number>([0]); // 0 represents the base name
+    const suffixPattern = new RegExp(`^${trimmed.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} \\((\\d+)\\)$`);
+    for (const row of existing) {
+      const match = suffixPattern.exec(row.name);
+      if (match) usedSuffixes.add(parseInt(match[1]!, 10));
+    }
+    // Find the first unused suffix starting from 1
+    let suffix = 1;
+    while (usedSuffixes.has(suffix)) suffix++;
+    finalName = `${trimmed} (${suffix})`;
   }
 
   const expPayload = evolutionExperimentInsertSchema.parse({ name: finalName, prompt_id: promptId });
@@ -114,24 +124,25 @@ export async function computeExperimentMetrics(
   experimentId: string,
   db: SupabaseClient,
 ): Promise<ExperimentMetrics> {
+  // Use left join (not !inner) so runs without a winner variant are still included in cost totals
   const { data: rows, error } = await db
     .from('evolution_runs')
     .select(`
       id,
       run_summary,
-      evolution_variants!inner(elo_score)
+      evolution_variants!left(elo_score, is_winner)
     `)
     .eq('experiment_id', experimentId)
-    .eq('status', 'completed')
-    .eq('evolution_variants.is_winner', true);
+    .eq('status', 'completed');
 
   if (error || !rows) {
     return { maxElo: null, totalCost: 0, runs: [] };
   }
 
   const runs = rows.map((row) => {
-    const variants = row.evolution_variants as unknown as Array<{ elo_score: number }>;
-    const elo = variants?.[0]?.elo_score ?? null;
+    const variants = row.evolution_variants as unknown as Array<{ elo_score: number; is_winner: boolean }> | null;
+    const winner = variants?.find(v => v.is_winner);
+    const elo = winner?.elo_score ?? null;
     const summary = row.run_summary as Record<string, unknown> | null;
     const cost = typeof summary?.totalCost === 'number' ? summary.totalCost : 0;
     const eloPerDollar = elo !== null && cost > 0 ? elo / cost : null;

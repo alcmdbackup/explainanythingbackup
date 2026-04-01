@@ -18,7 +18,7 @@ function eloMetricValue(elo: number, sigma: number | undefined): MetricValue {
 export function computeWinnerElo(ctx: FinalizationContext): MetricValue | null {
   if (ctx.pool.length === 0) return null;
   const winner = ctx.pool.reduce((best, v) =>
-    (ctx.ratings.get(v.id)?.mu ?? 0) > (ctx.ratings.get(best.id)?.mu ?? 0) ? v : best);
+    (ctx.ratings.get(v.id)?.mu ?? -Infinity) > (ctx.ratings.get(best.id)?.mu ?? -Infinity) ? v : best);
   const rating = ctx.ratings.get(winner.id);
   if (rating?.mu == null) return null;
   return eloMetricValue(toEloScale(rating.mu), rating.sigma);

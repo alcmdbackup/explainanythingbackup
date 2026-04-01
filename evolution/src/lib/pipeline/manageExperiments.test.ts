@@ -35,14 +35,13 @@ function makeMockDb(options?: {
                 }
                 return { data: null, error: null };
               }),
-              eq: jest.fn(() => ({
-                eq: jest.fn(async () => ({
-                  data: options?.runRows ?? [],
-                  error: null,
-                })),
+              eq: jest.fn(async () => ({
+                data: options?.runRows ?? [],
+                error: null,
               })),
             };
           }),
+          or: jest.fn(async () => ({ data: [], error: null })),
         })),
         update: jest.fn((data: Record<string, unknown>) => {
           updates.push({ table, data });
@@ -137,8 +136,8 @@ describe('addRunToExperiment', () => {
 describe('computeExperimentMetrics', () => {
   it('returns correct metrics from completed runs', async () => {
     const runs = [
-      { id: 'r1', run_summary: { totalCost: 0.1 }, evolution_variants: [{ elo_score: 1400 }] },
-      { id: 'r2', run_summary: { totalCost: 0.2 }, evolution_variants: [{ elo_score: 1600 }] },
+      { id: 'r1', run_summary: { totalCost: 0.1 }, evolution_variants: [{ elo_score: 1400, is_winner: true }] },
+      { id: 'r2', run_summary: { totalCost: 0.2 }, evolution_variants: [{ elo_score: 1600, is_winner: true }] },
     ];
     const { db } = makeMockDb({ runRows: runs });
     const metrics = await computeExperimentMetrics('00000000-0000-4000-8000-000000000011', db);
@@ -157,7 +156,7 @@ describe('computeExperimentMetrics', () => {
 
   it('handles null run_summary', async () => {
     const runs = [
-      { id: 'r1', run_summary: null, evolution_variants: [{ elo_score: 1300 }] },
+      { id: 'r1', run_summary: null, evolution_variants: [{ elo_score: 1300, is_winner: true }] },
     ];
     const { db } = makeMockDb({ runRows: runs });
     const metrics = await computeExperimentMetrics('00000000-0000-4000-8000-000000000011', db);

@@ -11,6 +11,7 @@ export interface DashboardData {
   queueDepth: number;
   completedRuns: number;
   failedRuns: number;
+  totalRuns: number;
   totalCostUsd: number | null;
   avgCostPerRun: number | null;
   recentRuns: Array<{
@@ -171,6 +172,7 @@ export const getEvolutionDashboardDataAction = adminAction(
       queueDepth,
       completedRuns,
       failedRuns,
+      totalRuns: runs.length,
       totalCostUsd,
       avgCostPerRun,
       recentRuns: recentRuns.map(r => ({

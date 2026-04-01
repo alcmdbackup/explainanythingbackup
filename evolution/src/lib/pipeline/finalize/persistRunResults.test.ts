@@ -76,7 +76,7 @@ function makeResult(overrides?: Partial<EvolutionResult>): EvolutionResult {
     stopReason: 'iterations_complete',
     muHistory: [[30, 28, 25]],
     diversityHistory: [],
-    matchCounts: { BASELINE_ID: 2, GEN1_ID: 2, GEN2_ID: 2 },
+    matchCounts: { [BASELINE_ID]: 2, [GEN1_ID]: 2, [GEN2_ID]: 2 },
     ...overrides,
   };
 }
@@ -234,18 +234,9 @@ describe('finalizeRun', () => {
     expect(rows.every((r) => r.id !== ARENA_ID)).toBe(true);
   });
 
-  it('strategy aggregate update called with correct args', async () => {
+  it('deprecated update_strategy_aggregates RPC is no longer called', async () => {
     const { db, rpcCalls } = makeMockDb();
     await finalizeRun(RUN_ID, makeResult(), { experiment_id: null, explanation_id: null, strategy_id: STRAT_ID, prompt_id: null }, db, 120);
-    const rpc = rpcCalls.find((c) => c.fn === 'update_strategy_aggregates');
-    expect(rpc).toBeDefined();
-    expect(rpc!.args.p_strategy_id).toBe(STRAT_ID);
-    expect(rpc!.args.p_final_elo).toBe(toEloScale(30)); // winner mu = 30
-  });
-
-  it('null strategy_id skips aggregate update', async () => {
-    const { db, rpcCalls } = makeMockDb();
-    await finalizeRun(RUN_ID, makeResult(), { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
     const rpc = rpcCalls.find((c) => c.fn === 'update_strategy_aggregates');
     expect(rpc).toBeUndefined();
   });

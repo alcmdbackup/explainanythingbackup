@@ -100,7 +100,7 @@ function DashboardContent(): JSX.Element {
           <div>
             <h2 className="text-2xl font-display font-semibold text-[var(--text-primary)]">Recent Runs</h2>
             <p className="text-xs font-ui text-[var(--text-muted)]">
-              Showing {Math.min(recentRuns.length, 10)} most recent of {data.activeRuns + data.queueDepth + data.completedRuns + data.failedRuns} total
+              Showing {Math.min(recentRuns.length, 10)} most recent of {data.totalRuns ?? (data.activeRuns + data.queueDepth + data.completedRuns + data.failedRuns)} total
             </p>
           </div>
           <Link href="/admin/evolution/runs" className="text-sm text-[var(--accent-gold)] hover:underline">View all runs →</Link>

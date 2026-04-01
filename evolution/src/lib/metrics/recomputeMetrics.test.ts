@@ -142,10 +142,11 @@ describe('recomputeStaleMetrics', () => {
       p_metric_names: ['winner_elo', 'median_elo'],
     });
 
-    // writeMetric should be called for all 7 finalization metrics
-    expect(mockWriteMetric).toHaveBeenCalledTimes(7);
+    // writeMetric should be called for 5 finalization metrics (match-dependent metrics skipped)
+    expect(mockWriteMetric).toHaveBeenCalledTimes(5);
     const writtenNames = mockWriteMetric.mock.calls.map((c: unknown[]) => c[3]);
-    expect(writtenNames).toEqual(['winner_elo', 'median_elo', 'p90_elo', 'max_elo', 'total_matches', 'decisive_rate', 'variant_count']);
+    // total_matches and decisive_rate are skipped because matchHistory cannot be reconstructed from DB
+    expect(writtenNames).toEqual(['winner_elo', 'median_elo', 'p90_elo', 'max_elo', 'variant_count']);
   });
 
   it('recomputeRunEloMetrics reads variant mu/sigma and writes computed values', async () => {
@@ -159,8 +160,8 @@ describe('recomputeStaleMetrics', () => {
 
     await recomputeStaleMetrics(db, 'run', 'run-1', staleRows);
 
-    // All 7 finalization metrics are always recomputed together
-    expect(mockWriteMetric).toHaveBeenCalledTimes(7);
+    // 5 finalization metrics recomputed (match-dependent total_matches and decisive_rate skipped)
+    expect(mockWriteMetric).toHaveBeenCalledTimes(5);
 
     // Verify each call passes ('run', 'run-1', metric_name, value, 'at_finalization')
     for (const call of mockWriteMetric.mock.calls) {
@@ -250,7 +251,7 @@ describe('recomputeStaleMetrics', () => {
     await recomputeStaleMetrics(db, 'strategy', 'strat-1', staleRows);
   });
 
-  it('H4: recomputes total_matches and variant_count when stale (not just elo)', async () => {
+  it('H4: recomputes variant_count when stale but skips match-dependent metrics', async () => {
     const staleRows = [makeStaleRow('total_matches'), makeStaleRow('variant_count')];
     const { db } = makeMockDb({
       variants: [
@@ -261,12 +262,13 @@ describe('recomputeStaleMetrics', () => {
 
     await recomputeStaleMetrics(db, 'run', 'run-1', staleRows);
 
-    // All 7 finalization metrics should be recomputed (not just the 4 elo ones)
-    expect(mockWriteMetric).toHaveBeenCalledTimes(7);
+    // 5 metrics recomputed — total_matches and decisive_rate skipped (match-dependent)
+    expect(mockWriteMetric).toHaveBeenCalledTimes(5);
     const writtenNames = mockWriteMetric.mock.calls.map((c: unknown[]) => c[3]);
-    expect(writtenNames).toContain('total_matches');
     expect(writtenNames).toContain('variant_count');
-    expect(writtenNames).toContain('decisive_rate');
+    // Match-dependent metrics preserved with existing values (not overwritten with zeros)
+    expect(writtenNames).not.toContain('total_matches');
+    expect(writtenNames).not.toContain('decisive_rate');
   });
 
   it('experiment entity type with no completed runs — no errors', async () => {

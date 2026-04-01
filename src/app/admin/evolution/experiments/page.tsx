@@ -24,6 +24,7 @@ interface ExperimentSummary {
   name: string;
   status: string;
   created_at: string;
+  updated_at?: string;
   runCount: number;
 }
 
@@ -84,7 +85,7 @@ const COLUMNS: ColumnDef<ExperimentSummary>[] = [
     header: 'Status',
     render: (exp) => {
       const isStale = exp.status === 'running' &&
-        (Date.now() - new Date(exp.created_at).getTime()) > 60 * 60 * 1000;
+        (Date.now() - new Date(exp.updated_at ?? exp.created_at).getTime()) > 60 * 60 * 1000;
       return (
         <span className="inline-flex items-center text-xs">
           <StatusDot status={isStale ? 'stale' : exp.status} />
@@ -119,7 +120,7 @@ function emptyMessageForFilter(status: string): string {
 
 function emptySuggestionForFilter(status: string): string {
   if (status === 'all' || status === 'draft') {
-    return 'Start one at /admin/evolution/start-experiment';
+    return 'Start one from the experiment creation page.';
   }
   return 'Try adjusting filters to see results.';
 }

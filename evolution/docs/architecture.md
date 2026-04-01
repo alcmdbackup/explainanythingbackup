@@ -153,9 +153,9 @@ For prompt-based runs, `loadArenaEntries(promptId)` loads all non-archived varia
 pre-calibrated competitors alongside the baseline. (The former `evolution_arena_entries`
 table was consolidated into `evolution_variants` in migration `20260321000002`.)
 
-## The 3-Op Loop
+## The 2-Op Loop
 
-The core algorithm in `evolveArticle()` runs a generate-rank-evolve loop for up to
+The core algorithm in `runIterationLoop()` runs a generate→rank loop for up to
 `config.iterations` iterations (validated 1-100):
 
 ```
@@ -171,9 +171,6 @@ The core algorithm in `evolveArticle()` runs a generate-rank-evolve loop for up 
       |
       +-- RANK: rankPool()
       |   Triage new entrants → Swiss fine-ranking → convergence check
-      |
-      +-- EVOLVE: evolveVariants()
-      |   Mutation (clarity/structure) + crossover → 2-3 new variants
       |
       +-- Update pool, ratings, match history
 ```
@@ -251,26 +248,10 @@ and `matches` from all comparisons completed before the error. The loop handler 
 ratings and match history) before breaking out of the loop with
 `stopReason='budget_exceeded'`.
 
-### Evolve Phase
-
-`evolveVariants()` in `evolution/src/lib/pipeline/evolve.ts` applies genetic-algorithm-
-inspired operators to the highest-rated variants in the pool:
-
-- **Mutation** — selects a top-rated parent and applies either a `clarity` mutation
-  (simplify sentences, improve word precision) or a `structure` mutation (reorganize
-  flow, improve transitions). The mutation type alternates or is selected based on
-  available feedback about the variant's weakest dimension.
-- **Crossover** — selects two top-rated parents and asks the LLM to combine their best
-  elements into a new variant that preserves the strengths of both.
-
-Produces 2-3 new variants per iteration. All outputs pass through `validateFormat()`
-before entering the pool. Like the generate phase, budget errors during evolution
-terminate the loop with `stopReason='budget_exceeded'`.
-
 ### Phase Execution and Error Handling
 
 Each phase (generate, rank) is implemented as an Agent subclass (`GenerationAgent`,
-`RankingAgent`) in `evolution/src/lib/core/agents/`. The evolve phase calls pipeline functions directly. These agent classes extend the `Agent`
+`RankingAgent`) in `evolution/src/lib/core/agents/`. These agent classes extend the `Agent`
 base class and use its `Agent.run()` template method, which wraps execution with
 budget-error handling, invocation tracking via `createInvocation()`/`updateInvocation()`,
 and cost attribution. The `run()` method catches `BudgetExceededError` and
@@ -522,15 +503,14 @@ reasoning about behavior significantly easier.
 | `evolution/scripts/processRunQueue.ts` | Batch runner (multi-DB round-robin scheduler) |
 | `evolution/scripts/run-evolution-local.ts` | Local dev runner |
 | `evolution/src/lib/pipeline/claimAndExecuteRun.ts` | Core claim + execute (single entry point) |
-| `evolution/src/lib/pipeline/loop/runIterationLoop.ts` | Main loop orchestrator (`evolveArticle`) |
+| `evolution/src/lib/pipeline/loop/runIterationLoop.ts` | Main loop orchestrator (generate→rank loop) |
 | `evolution/src/lib/core/` | Entity base class, Agent base class, METRIC_CATALOG, entityRegistry |
-| `evolution/src/lib/pipeline/generate.ts` | Generate phase (GenerationAgent) |
-| `evolution/src/lib/pipeline/rank.ts` | Rank phase (RankingAgent, triage + Swiss) |
-| `evolution/src/lib/pipeline/evolve.ts` | Evolve phase (mutation + crossover) |
-| `evolution/src/lib/pipeline/finalize.ts` | Result persistence |
-| `evolution/src/lib/pipeline/arena.ts` | Arena load/sync |
-| `evolution/src/lib/pipeline/seed-article.ts` | Seed article generation |
-| `evolution/src/lib/pipeline/cost-tracker.ts` | Per-run budget tracking |
+| `evolution/src/lib/pipeline/loop/generateVariants.ts` | Generate phase |
+| `evolution/src/lib/pipeline/loop/rankVariants.ts` | Rank phase (triage + Swiss) |
+| `evolution/src/lib/pipeline/finalize/persistRunResults.ts` | Result persistence + arena sync |
+| `evolution/src/lib/pipeline/setup/buildRunContext.ts` | Run context setup + arena pool loading |
+| `evolution/src/lib/pipeline/setup/generateSeedArticle.ts` | Seed article generation |
+| `evolution/src/lib/pipeline/infra/trackBudget.ts` | Per-run budget tracking |
 | `evolution/src/lib/pipeline/infra/createEntityLogger.ts` | Entity-aware structured logging factory |
 | `evolution/src/services/logActions.ts` | Multi-entity log query server actions |
 | `src/lib/services/llmSpendingGate.ts` | Global LLM spending gate |

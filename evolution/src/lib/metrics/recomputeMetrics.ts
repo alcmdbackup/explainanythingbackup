@@ -39,14 +39,17 @@ export async function recomputeStaleMetrics(
     }
     // Success: stale already cleared by the RPC — no further action needed
   } catch (err) {
-    // Re-mark stale so the next reader retries recomputation
+    // Re-mark only the specific claimed metrics as stale (not all metrics for this entity).
+    // Metrics that were successfully written before the error retain their correct values
+    // and stale=false status — only the unfinished ones need retry.
+    const claimedNames = (claimed as Array<{ metric_name: string }>).map(r => r.metric_name);
     try {
       await db
         .from('evolution_metrics')
         .update({ stale: true, updated_at: new Date().toISOString() })
         .eq('entity_type', entityType)
         .eq('entity_id', entityId)
-        .in('metric_name', staleNames);
+        .in('metric_name', claimedNames);
     } catch (_remarErr) {
       // Double-fault: re-mark failed too. Metrics stuck as stale=false but
       // values may be incorrect. Log but don't mask the original error.
@@ -54,6 +57,10 @@ export async function recomputeStaleMetrics(
     throw err;
   }
 }
+
+// Metrics that depend on matchHistory, which is not persisted to DB and cannot be reconstructed.
+// These are skipped during stale recomputation to preserve their existing (correct) values.
+const MATCH_DEPENDENT_METRICS = new Set(['total_matches', 'decisive_rate']);
 
 async function recomputeRunEloMetrics(db: SupabaseClient, runId: string): Promise<void> {
   // Read current variant ratings for this run
@@ -77,15 +84,23 @@ async function recomputeRunEloMetrics(db: SupabaseClient, runId: string): Promis
     pool.push({ id: v.id, text: '', version: 0, parentIds: [], strategy: '', createdAt: 0, iterationBorn: 0 });
   }
 
-  // Recompute elo metrics using finalization compute functions
+  // Read existing totalCost and iterationsRun from metrics table so we don't overwrite with zeros
+  const existingMetrics = await getMetricsForEntities(db, 'run', [runId], ['cost', 'total_matches']);
+  const runMetrics = existingMetrics.get(runId) ?? [];
+  const existingCost = runMetrics.find(m => m.metric_name === 'cost')?.value ?? 0;
+
   const ctx: FinalizationContext = {
-    result: { winner: pool[0]!, pool, ratings, matchHistory: [], totalCost: 0, iterationsRun: 0, stopReason: 'iterations_complete', muHistory: [], diversityHistory: [], matchCounts: {} },
+    result: { winner: pool[0]!, pool, ratings, matchHistory: [], totalCost: existingCost, iterationsRun: 0, stopReason: 'iterations_complete', muHistory: [], diversityHistory: [], matchCounts: {} },
     ratings,
     pool,
     matchHistory: [],
   };
 
   for (const def of getEntity('run').metrics.atFinalization) {
+    // Skip match-dependent metrics — matchHistory is not persisted to DB,
+    // so we cannot reconstruct it. Preserve existing values instead of overwriting with zeros.
+    if (MATCH_DEPENDENT_METRICS.has(def.name)) continue;
+
     const result = def.compute(ctx);
     if (result == null) continue;
     if (isMetricValue(result)) {

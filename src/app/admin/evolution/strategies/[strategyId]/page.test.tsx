@@ -49,6 +49,9 @@ jest.mock('@evolution/components/evolution', () => ({
   EntityMetricsTab: ({ entityType, entityId }: { entityType: string; entityId: string }) => (
     <div data-testid="entity-metrics-tab">{entityType}:{entityId}</div>
   ),
+  NotFoundCard: ({ entityType }: { entityType: string }) => (
+    <div data-testid="not-found-card">{entityType} not found</div>
+  ),
 }));
 
 jest.mock('@evolution/components/evolution/tabs/LogsTab', () => ({
@@ -131,11 +134,11 @@ describe('StrategyDetailPage', () => {
 
     render(<StrategyDetailPage />);
     await waitFor(() => {
-      expect(screen.getByText('Error')).toBeInTheDocument();
+      expect(screen.getByText('Strategy not found')).toBeInTheDocument();
     });
   });
 
-  it('shows default error message when no error message provided', async () => {
+  it('shows not found card when no error message provided', async () => {
     jest.mocked(getStrategyDetailAction).mockResolvedValueOnce({
       success: false,
       data: null,
@@ -144,7 +147,7 @@ describe('StrategyDetailPage', () => {
 
     render(<StrategyDetailPage />);
     await waitFor(() => {
-      expect(screen.getByText('Failed to load strategy')).toBeInTheDocument();
+      expect(screen.getByText('Strategy not found')).toBeInTheDocument();
     });
   });
 

@@ -146,7 +146,8 @@ export function EntityListPage<T>(props: EntityListPageProps<T>): JSX.Element {
       const result = await loadDataRef.current(managedFilterValues, managedPage, pageSize);
       setManagedItems(result.items);
       setManagedTotal(result.total);
-    } catch {
+    } catch (err) {
+      console.error('[EntityListPage] loadData failed:', err);
       toast.error('Failed to load data');
     }
     setManagedLoading(false);

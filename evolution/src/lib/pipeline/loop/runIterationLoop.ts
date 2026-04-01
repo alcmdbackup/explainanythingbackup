@@ -239,7 +239,11 @@ export async function evolveArticle(
     iterationsRun = iter;
   }
 
-  if (iterationsRun === 0) iterationsRun = resolvedConfig.iterations;
+  // Only set iterationsRun to the configured max when the loop completed normally.
+  // Early breaks (abort, kill, deadline) before any iteration completes leave iterationsRun=0, which is correct.
+  if (iterationsRun === 0 && stopReason === 'iterations_complete') {
+    iterationsRun = resolvedConfig.iterations;
+  }
 
   // ─── Winner determination ──────────────────────────────────
   const winResult = selectWinner(pool, ratings);

@@ -423,8 +423,8 @@ export const getEvolutionRunLogsAction = adminAction(
     if (filters?.iteration !== undefined) query = query.eq('iteration', filters.iteration);
     if (filters?.variantId) query = query.eq('variant_id', filters.variantId);
 
-    const limit = filters?.limit ?? 200;
-    const offset = filters?.offset ?? 0;
+    const limit = Math.max(1, Math.min(filters?.limit ?? 200, 1000));
+    const offset = Math.max(0, filters?.offset ?? 0);
     query = query.range(offset, offset + limit - 1);
 
     const { data, error, count } = await query;

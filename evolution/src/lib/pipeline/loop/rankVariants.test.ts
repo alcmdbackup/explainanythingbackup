@@ -472,7 +472,7 @@ describe('rankPool', () => {
       // v5 is new entrant with weak text, will lose comparisons
       const llm = createV2MockLlm();
       // Make v5 always lose: LLM returns B as winner
-      llm.completeStructured.mockResolvedValue({ winner: 'B', confidence: 0.95 });
+      llm.complete.mockResolvedValue('B');
       const { logger, calls } = createMockEntityLogger();
 
       await rankPool(pool, ratings, new Map(), ['v5'], llm, baseConfig, 0, undefined, logger);

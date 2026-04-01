@@ -165,17 +165,20 @@ describe('compareWithBiasMitigation', () => {
       expect(result2).toEqual(result1);
     });
 
-    it('cache key is order-invariant', async () => {
+    it('cache key is order-dependent (same order hits, reversed order misses)', async () => {
       const cache = new Map<string, ComparisonResult>();
-      const callLLM = mockCallLLM(['A', 'B']);
+      const callLLM = mockCallLLM(['A', 'B', 'A', 'B']);
 
       await compareWithBiasMitigation('text1', 'text2', callLLM, cache);
       expect(callLLM).toHaveBeenCalledTimes(2);
 
-      // Same texts in reversed order should hit cache
-      const result = await compareWithBiasMitigation('text2', 'text1', callLLM, cache);
+      // Same order should hit cache
+      await compareWithBiasMitigation('text1', 'text2', callLLM, cache);
       expect(callLLM).toHaveBeenCalledTimes(2); // still 2, cache hit
-      expect(result).toBeDefined();
+
+      // Reversed order should NOT hit cache (winner is relative to call order)
+      await compareWithBiasMitigation('text2', 'text1', callLLM, cache);
+      expect(callLLM).toHaveBeenCalledTimes(4); // 2 new LLM calls
     });
 
     it('does NOT cache partial failures', async () => {

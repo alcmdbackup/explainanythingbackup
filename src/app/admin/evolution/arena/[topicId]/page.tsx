@@ -103,6 +103,15 @@ export default function ArenaTopicDetailPage(): JSX.Element {
   const sortIndicator = (key: SortKey) =>
     sortKey === key ? (sortDir === 'asc' ? ' \u25B2' : ' \u25BC') : '';
 
+  const sortableThProps = (key: SortKey) => ({
+    className: 'py-2 pr-3 cursor-pointer select-none hover:text-[var(--text-primary)]',
+    onClick: () => handleSort(key),
+    onKeyDown: (e: { key: string; preventDefault: () => void }) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleSort(key); } },
+    tabIndex: 0,
+    'aria-sort': (sortKey === key ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none') as 'ascending' | 'descending' | 'none',
+    role: 'columnheader' as const,
+  });
+
   useEffect(() => {
     async function load() {
       setLoading(true);
@@ -169,7 +178,7 @@ export default function ArenaTopicDetailPage(): JSX.Element {
         <MetricGrid
           metrics={[
             { label: 'Status', value: topic.status },
-            { label: 'Entries', value: entries.length },
+            { label: 'Entries', value: totalEntries },
           ]}
           columns={2}
           variant="card"
@@ -209,12 +218,12 @@ export default function ArenaTopicDetailPage(): JSX.Element {
                 <tr className="text-left text-xs text-[var(--text-muted)] uppercase tracking-wide border-b border-[var(--border-default)]">
                   <th className="py-2 pr-3">Rank</th>
                   <th className="py-2 pr-3">Content</th>
-                  <th className="py-2 pr-3 cursor-pointer select-none hover:text-[var(--text-primary)]" onClick={() => handleSort('elo_score')}>Elo{sortIndicator('elo_score')}</th>
+                  <th {...sortableThProps('elo_score')}>Elo{sortIndicator('elo_score')}</th>
                   <th className="py-2 pr-3">95% CI</th>
-                  <th className="py-2 pr-3 cursor-pointer select-none hover:text-[var(--text-primary)]" onClick={() => handleSort('sigma')}>Elo ± σ{sortIndicator('sigma')}</th>
-                  <th className="py-2 pr-3 cursor-pointer select-none hover:text-[var(--text-primary)]" onClick={() => handleSort('arena_match_count')}>Matches{sortIndicator('arena_match_count')}</th>
-                  <th className="py-2 pr-3 cursor-pointer select-none hover:text-[var(--text-primary)]" onClick={() => handleSort('generation_method')}>Method{sortIndicator('generation_method')}</th>
-                  <th className="py-2 cursor-pointer select-none hover:text-[var(--text-primary)]" onClick={() => handleSort('cost_usd')}>Cost{sortIndicator('cost_usd')}</th>
+                  <th {...sortableThProps('sigma')}>Elo ± σ{sortIndicator('sigma')}</th>
+                  <th {...sortableThProps('arena_match_count')}>Matches{sortIndicator('arena_match_count')}</th>
+                  <th {...sortableThProps('generation_method')}>Method{sortIndicator('generation_method')}</th>
+                  <th {...sortableThProps('cost_usd')}>Cost{sortIndicator('cost_usd')}</th>
                 </tr>
               </thead>
               <tbody>

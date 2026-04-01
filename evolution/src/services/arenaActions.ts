@@ -150,8 +150,9 @@ export const getArenaEntriesAction = adminAction(
 
     if (!input.includeArchived) query = query.is('archived_at', null);
 
-    if (input.limit != null && input.offset != null) {
-      query = query.range(input.offset, input.offset + input.limit - 1);
+    if (input.limit != null) {
+      const offset = input.offset ?? 0;
+      query = query.range(offset, offset + input.limit - 1);
     }
 
     const { data, error, count } = await query;

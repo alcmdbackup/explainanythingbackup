@@ -19,7 +19,8 @@ const BULLET_PATTERN = /^\s*[-*+]\s/m;
 const NUMBERED_LIST_PATTERN = /^\s*\d+[.)]\s/m;
 const TABLE_PATTERN = /^\|.+\|/m;
 const HORIZONTAL_RULE_PATTERN = /^\s*[-*_](\s*[-*_]){2,}\s*$/m;
-const SENTENCE_END_PATTERN = /[.!?][""\u201d\u2019]?(?:\s|$)/g;
+// Matches sentence-ending punctuation, excluding common abbreviations (Dr., Mr., etc.)
+const SENTENCE_END_PATTERN = /(?<!\b(?:Dr|Mr|Mrs|Ms|Jr|Sr|vs|etc|e\.g|i\.e|U\.S|Prof|Gen|Gov|Rev|St|Lt|Sgt|Corp|Inc|Ltd|Co|No|Vol|Fig|approx))[.!?][""\u201d\u2019]?(?:\s|$)/g;
 
 /**
  * Strip fenced code blocks from text so formatting rules are not applied to code.
@@ -120,9 +121,10 @@ function getValidationMode(): string {
 function findH1Lines(lines: string[]): number[] {
   const h1Lines: number[] = [];
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]!;
+    const line = lines[i]!.trimStart();
     // Match "# Title" but NOT "## ", "### ", "#### ", etc.
     // A true H1 starts with "# " and the character after the space is NOT '#'.
+    // trimStart() handles leading whitespace that would otherwise cause false negatives.
     if (line.startsWith('# ') && line[2] !== '#') {
       h1Lines.push(i);
     }

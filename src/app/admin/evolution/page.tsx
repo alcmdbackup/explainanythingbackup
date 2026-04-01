@@ -1,6 +1,6 @@
-// Redirects /admin/evolution to the evolution dashboard since there's no index page.
+// Redirects /admin/evolution to the experiments list as the default evolution page.
 import { redirect } from 'next/navigation';
 
 export default function EvolutionIndexPage() {
-  redirect('/admin/evolution-dashboard');
+  redirect('/admin/evolution/experiments');
 }

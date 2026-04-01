@@ -215,17 +215,17 @@ export async function finalizeRun(
 
     // Run-level finalization metrics
     for (const def of getEntity('run').metrics.atFinalization) {
-      const result = def.compute(finCtx);
-      if (result == null) continue;
-      if (isMetricValue(result)) {
-        await writeMetric(db, 'run', runId, def.name as MetricName, result.value, 'at_finalization', {
-          sigma: result.sigma ?? undefined,
-          ci_lower: result.ci?.[0],
-          ci_upper: result.ci?.[1],
-          n: result.n,
+      const metricResult = def.compute(finCtx);
+      if (metricResult == null) continue;
+      if (isMetricValue(metricResult)) {
+        await writeMetric(db, 'run', runId, def.name as MetricName, metricResult.value, 'at_finalization', {
+          sigma: metricResult.sigma ?? undefined,
+          ci_lower: metricResult.ci?.[0],
+          ci_upper: metricResult.ci?.[1],
+          n: metricResult.n,
         });
       } else {
-        await writeMetric(db, 'run', runId, def.name as MetricName, result, 'at_finalization');
+        await writeMetric(db, 'run', runId, def.name as MetricName, metricResult, 'at_finalization');
       }
     }
 
@@ -281,24 +281,7 @@ export async function finalizeRun(
     });
   }
 
-  // Step 6a: Strategy aggregate update (legacy — will be removed in Phase 6)
-  if (run.strategy_id) {
-    try {
-      await db.rpc('update_strategy_aggregates', {
-        p_strategy_id: run.strategy_id,
-        p_cost_usd: result.totalCost,
-        p_final_elo: toEloScale(winnerMu),
-      });
-      const stratLogger = createEntityLogger({
-        entityType: 'strategy',
-        entityId: run.strategy_id,
-        strategyId: run.strategy_id,
-      }, db);
-      stratLogger.info('Strategy aggregates updated', { totalCost: result.totalCost, finalElo: toEloScale(winnerMu) });
-    } catch (err) {
-      logger?.warn('Strategy aggregate update failed', { phaseName: 'finalize', error: (err instanceof Error ? err.message : String(err)).slice(0, 500) });
-    }
-  }
+  // Step 6a: (Removed) update_strategy_aggregates RPC was deprecated — propagateMetrics handles this now.
 
   // Step 6b: Experiment auto-completion (only if ALL sibling runs are done)
   if (run.experiment_id) {
@@ -387,6 +370,8 @@ export async function syncToArena(
         elo_score: r ? toEloScale(r.mu) : 1200,
         mu: r?.mu ?? 25,
         sigma: r?.sigma ?? 8.333,
+        // arena_match_count: matches played in THIS run only (not cumulative).
+        // The DB RPC accumulates this into the arena entry's lifetime total.
         arena_match_count: variantMatchCounts.get(v.id) ?? 0,
         generation_method: 'pipeline',
       };

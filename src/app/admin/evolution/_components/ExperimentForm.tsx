@@ -203,7 +203,10 @@ export function ExperimentForm({ onCreated }: ExperimentFormProps): JSX.Element 
                   className={`text-xs font-ui mt-0.5 block ${
                     i <= currentIdx ? 'text-[var(--accent-gold)]' : 'text-[var(--text-muted)]'
                   } ${isCompleted ? 'cursor-pointer hover:underline' : ''}`}
+                  role={isCompleted ? 'button' : undefined}
+                  tabIndex={isCompleted ? 0 : undefined}
                   onClick={isCompleted ? () => setStep(s) : undefined}
+                  onKeyDown={isCompleted ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setStep(s); } } : undefined}
                 >{STEP_LABELS[s]}</span>
               </div>
             );

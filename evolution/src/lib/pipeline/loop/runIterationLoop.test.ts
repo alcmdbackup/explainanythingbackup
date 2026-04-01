@@ -592,11 +592,12 @@ describe('evolveArticle', () => {
       { deadlineMs: Date.now() - 1000 },
     );
     expect(result.stopReason).toBe('time_limit');
+    expect(result.iterationsRun).toBe(0);
     expect(result.pool.length).toBeGreaterThanOrEqual(1);
     expect(result.winner.strategy).toBe('baseline');
   });
 
-  it('abort signal → stopReason=killed', async () => {
+  it('abort signal → stopReason=killed, iterationsRun=0', async () => {
     const ac = new AbortController();
     ac.abort();
     const result = await evolveArticle(
@@ -608,6 +609,7 @@ describe('evolveArticle', () => {
       { signal: ac.signal },
     );
     expect(result.stopReason).toBe('killed');
+    expect(result.iterationsRun).toBe(0);
   });
 
   it('deadline far future → normal completion', async () => {
