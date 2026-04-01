@@ -110,6 +110,7 @@ test.describe('Search and Generate Flow', () => {
     });
 
     test('should display full content after streaming completes', { tag: '@critical' }, async ({ authenticatedPage: page }, testInfo) => {
+      test.setTimeout(60000);
       // Firefox is slower with SSE streaming
       if (testInfo.project.name === 'firefox') test.slow();
 
@@ -133,7 +134,7 @@ test.describe('Search and Generate Flow', () => {
       await resultsPage.navigate('quantum entanglement');
 
       // Wait for streaming to start (title appears)
-      await resultsPage.waitForStreamingStart();
+      await resultsPage.waitForStreamingStart(60000);
 
       // Wait for content to render during streaming (SSE delivers content chunks)
       // The visibility wait is the assertion — once the element is visible, content was rendered.

@@ -82,11 +82,11 @@ adminTest.describe('Evolution Filter Consistency', { tag: ['@evolution', '@criti
   });
 
   adminTest('runs page with hide-test-content checked hides test items', async ({ adminPage }) => {
-    await adminPage.goto('/admin/evolution/runs');
+    await adminPage.goto('/admin/evolution/runs', { timeout: 30000 });
     await adminPage.waitForLoadState('domcontentloaded');
 
     const table = adminPage.locator('[data-testid="runs-list-table"]');
-    await expect(table).toBeVisible({ timeout: 15000 });
+    await expect(table).toBeVisible({ timeout: 30000 });
 
     // First uncheck filter to see all rows (seeded data uses test prefixes)
     const hideTestLabel = adminPage.locator('[data-testid="filter-filterTestContent"]');

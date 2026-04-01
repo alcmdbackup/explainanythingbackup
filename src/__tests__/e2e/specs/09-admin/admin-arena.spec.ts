@@ -51,22 +51,24 @@ async function seedArenaData(): Promise<SeededArenaData> {
   if (topicError || !topic) throw new Error(`Failed to seed topic: ${topicError?.message}`);
 
   // 2. Create a companion evolution run so the evolution entry has a valid source link
-  const { data: dummyTopic } = await supabase
+  const { data: dummyTopic, error: topicErr } = await supabase
     .from('topics')
-    .insert({ topic_title: '[TEST] Arena Source Link Topic', topic_description: 'temp' })
+    .insert({ topic_title: `[TEST] Arena Source Link Topic ${ts}`, topic_description: 'temp' })
     .select('id')
     .single();
+  if (topicErr || !dummyTopic) throw new Error(`Failed to seed dummy topic: ${topicErr?.message}`);
 
-  const { data: dummyExplanation } = await supabase
+  const { data: dummyExplanation, error: explErr } = await supabase
     .from('explanations')
     .insert({
-      explanation_title: '[TEST] Arena Source Link Article',
+      explanation_title: `[TEST] Arena Source Link Article ${ts}`,
       content: 'placeholder',
       status: 'published',
-      primary_topic_id: dummyTopic!.id,
+      primary_topic_id: dummyTopic.id,
     })
     .select('id')
     .single();
+  if (explErr || !dummyExplanation) throw new Error(`Failed to seed dummy explanation: ${explErr?.message}`);
 
   let evolutionRunId: string | undefined;
 
@@ -83,14 +85,14 @@ async function seedArenaData(): Promise<SeededArenaData> {
       })
       .select('id')
       .single();
-    if (stratErr) console.warn(`[seed] Strategy insert failed: ${stratErr.message}`);
+    if (stratErr || !strategy) throw new Error(`Failed to seed strategy: ${stratErr?.message}`);
 
     const { data: run } = await supabase
       .from('evolution_runs')
       .insert({
         explanation_id: dummyExplanation.id,
         status: 'completed',
-        strategy_id: strategy?.id ?? '00000000-0000-0000-0000-000000000000',
+        strategy_id: strategy.id,
         pipeline_version: 'v2',
         budget_cap_usd: 3.0,
         run_summary: { totalCostUsd: 1.20, totalVariants: 3 },

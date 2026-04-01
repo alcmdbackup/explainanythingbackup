@@ -8,7 +8,7 @@ test.describe('Explore Page Pagination', { tag: '@critical' }, () => {
   test.setTimeout(30000);
 
   test('explore page renders initial explanations or empty state', async ({ authenticatedPage }) => {
-    await authenticatedPage.goto('/explanations');
+    await authenticatedPage.goto('/explanations', { timeout: 30000 });
     await authenticatedPage.waitForLoadState('domcontentloaded');
 
     const heading = authenticatedPage.locator('h1', { hasText: 'Explore' });
@@ -30,7 +30,7 @@ test.describe('Explore Page Pagination', { tag: '@critical' }, () => {
   });
 
   test('load-more button loads additional content when available', async ({ authenticatedPage }) => {
-    await authenticatedPage.goto('/explanations');
+    await authenticatedPage.goto('/explanations', { timeout: 30000 });
     await authenticatedPage.waitForLoadState('domcontentloaded');
 
     const loadMoreBtn = authenticatedPage.getByTestId('load-more-btn');
@@ -49,7 +49,7 @@ test.describe('Explore Page Pagination', { tag: '@critical' }, () => {
   });
 
   test('explore page filter pills navigate to sort=top', async ({ authenticatedPage }) => {
-    await authenticatedPage.goto('/explanations');
+    await authenticatedPage.goto('/explanations', { timeout: 30000 });
     await authenticatedPage.waitForLoadState('domcontentloaded');
 
     const topButton = authenticatedPage.locator('button', { hasText: 'Top' }).first();

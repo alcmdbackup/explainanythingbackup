@@ -85,7 +85,7 @@ test.describe('Import Articles Feature', () => {
             const importPage = new ImportPage(authenticatedPage);
 
             // Navigate to home page
-            await authenticatedPage.goto('/');
+            await authenticatedPage.goto('/', { timeout: 30000 });
             await authenticatedPage.waitForLoadState('domcontentloaded');
 
             // Open import modal

@@ -42,7 +42,7 @@ adminTest.describe('Strategy Registry CRUD', () => {
 
   adminTest('create strategy with form dialog @critical', async ({ adminPage }) => {
     // Navigate to strategies page
-    await adminPage.goto('/admin/evolution/strategies');
+    await adminPage.goto('/admin/evolution/strategies', { timeout: 30000 });
     await expect(adminPage.locator('main').getByRole('heading', { name: 'Strategies' })).toBeVisible({ timeout: 15000 });
 
     // Open create dialog via header action button
@@ -73,8 +73,8 @@ adminTest.describe('Strategy Registry CRUD', () => {
     // Submit via Save button
     await dialog.getByRole('button', { name: /save/i }).click();
 
-    // Wait for dialog to close (save completed)
-    await expect(dialog).not.toBeVisible({ timeout: 15000 });
+    // Wait for dialog to close (save completed — may be slow through proxy)
+    await expect(dialog).not.toBeVisible({ timeout: 30000 });
 
     // Uncheck "Hide test content" to see [E2E] prefixed strategies
     const hideTestCheckbox = adminPage.locator('[data-testid="filter-filterTestContent"] input[type="checkbox"]');
@@ -88,7 +88,7 @@ adminTest.describe('Strategy Registry CRUD', () => {
   });
 
   adminTest('model dropdown includes gpt-oss-20b without slash', async ({ adminPage }) => {
-    await adminPage.goto('/admin/evolution/strategies');
+    await adminPage.goto('/admin/evolution/strategies', { timeout: 30000 });
     await expect(adminPage.locator('main').getByRole('heading', { name: 'Strategies' })).toBeVisible({ timeout: 15000 });
 
     // Open create dialog

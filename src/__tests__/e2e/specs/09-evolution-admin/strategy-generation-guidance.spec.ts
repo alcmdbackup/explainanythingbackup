@@ -1,9 +1,11 @@
 // Verify the generationGuidance field appears on the strategy creation form
 // and that add/remove/percent controls work correctly.
-import { test, expect } from '@playwright/test';
+import { adminTest as test, expect } from '../../fixtures/admin-auth';
 
 test.describe('Strategy creation generationGuidance UI', () => {
-  test('strategy form shows generation guidance field with add/remove controls', async ({ page }) => {
+  test.describe.configure({ mode: 'serial' });
+
+  test('strategy form shows generation guidance field with add/remove controls', async ({ adminPage: page }) => {
     // Navigate to strategies page
     await page.goto('/admin/evolution/strategies');
 
@@ -56,6 +58,7 @@ test.describe('Strategy creation generationGuidance UI', () => {
     await expect(dialog.getByTestId('guidance-strategy-1')).not.toBeVisible();
 
     // Take screenshot for verification
+    // eslint-disable-next-line flakiness/no-hardcoded-tmpdir -- per-worker screenshot path
     await page.screenshot({ path: `/tmp/strategy-guidance-form-${test.info().workerIndex}.png`, fullPage: true });
   });
 });

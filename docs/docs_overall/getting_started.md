@@ -19,6 +19,7 @@ Welcome to ExplainAnything documentation. Start here to navigate the codebase.
 | [environments.md](environments.md) | Environment configuration, CI/CD, secrets |
 | [debugging.md](debugging.md) | Debugging tools: local logs, Sentry, Honeycomb, prod DB queries |
 | [testing_overview.md](testing_overview.md) | Testing rules and four-tier strategy |
+| [cloud_env.md](cloud_env.md) | Claude Code web environment: proxy, NODE_USE_ENV_PROXY, test setup |
 
 ### Process & Workflow
 | Document | Purpose |

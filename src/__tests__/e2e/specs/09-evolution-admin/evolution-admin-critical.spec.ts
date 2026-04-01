@@ -42,8 +42,8 @@ test.describe('Evolution Admin Critical Bugs', { tag: '@critical' }, () => {
   });
 
   test('Bug 3: Invocations page shows budget status for failed ranking', async ({ authenticatedPage: page }) => {
-    await page.goto('/admin/evolution/invocations');
-    await page.waitForSelector('[data-testid="entity-list-page"]', { timeout: 15000 });
+    await page.goto('/admin/evolution/invocations', { timeout: 30000 });
+    await page.waitForSelector('[data-testid="entity-list-page"]', { timeout: 30000 });
 
     // Check that the Status column header exists (renamed from "Success")
     const statusHeader = page.locator('th').filter({ hasText: 'Status' });

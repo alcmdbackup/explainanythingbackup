@@ -170,6 +170,6 @@ adminTest.describe('Experiment Wizard E2E', { tag: '@evolution' }, () => {
     const header = adminPage.locator('[data-testid="entity-detail-header"]');
     await expect(header).toBeVisible({ timeout: 15000 });
 
-    await expect(adminPage.locator('body')).toContainText(TEST_PREFIX);
+    await expect(adminPage.locator('body')).toContainText(TEST_PREFIX, { timeout: 15000 });
   });
 });

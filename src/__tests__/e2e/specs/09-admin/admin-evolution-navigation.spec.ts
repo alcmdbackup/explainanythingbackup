@@ -81,13 +81,13 @@ adminTest.describe('Evolution Navigation', { tag: ['@evolution', '@critical'] },
   });
 
   adminTest('experiment list rows link to experiment detail pages', async ({ adminPage }) => {
-    await adminPage.goto('/admin/evolution/experiments');
+    await adminPage.goto('/admin/evolution/experiments', { timeout: 30000 });
     await adminPage.waitForLoadState('domcontentloaded');
 
     await expect(adminPage.locator('h1')).toContainText(/experiment/i, { timeout: 15000 });
 
     // Wait for skeleton to finish loading
-    await expect(adminPage.locator('[data-testid="entity-list-table"]')).toBeVisible({ timeout: 15000 });
+    await expect(adminPage.locator('[data-testid="entity-list-table"]')).toBeVisible({ timeout: 30000 });
 
     // Click the seeded experiment row (EntityTable renders rows as tr>td links)
     const experimentRow = adminPage.locator(`a[href*="/admin/evolution/experiments/${experimentId}"]`).first();
@@ -100,7 +100,7 @@ adminTest.describe('Evolution Navigation', { tag: ['@evolution', '@critical'] },
   });
 
   adminTest('strategy list rows link to strategy detail pages', async ({ adminPage }) => {
-    await adminPage.goto('/admin/evolution/strategies');
+    await adminPage.goto('/admin/evolution/strategies', { timeout: 30000 });
     await adminPage.waitForLoadState('domcontentloaded');
 
     await expect(adminPage.locator('h1')).toContainText(/strateg/i, { timeout: 15000 });
@@ -119,11 +119,11 @@ adminTest.describe('Evolution Navigation', { tag: ['@evolution', '@critical'] },
   });
 
   adminTest('run detail header shows cross-links to strategy and experiment', async ({ adminPage }) => {
-    await adminPage.goto(`/admin/evolution/runs/${runId}`);
+    await adminPage.goto(`/admin/evolution/runs/${runId}`, { timeout: 30000 });
     await adminPage.waitForLoadState('domcontentloaded');
 
     const header = adminPage.locator('[data-testid="entity-detail-header"]');
-    await expect(header).toBeVisible({ timeout: 15000 });
+    await expect(header).toBeVisible({ timeout: 30000 });
 
     // Verify cross-link to strategy exists
     const strategyLink = adminPage.locator(`a[href*="/admin/evolution/strategies/${strategyId}"]`);
@@ -136,7 +136,7 @@ adminTest.describe('Evolution Navigation', { tag: ['@evolution', '@critical'] },
 
   adminTest('breadcrumb root consistently says "Evolution"', async ({ adminPage }) => {
     // Check breadcrumb on run detail page
-    await adminPage.goto(`/admin/evolution/runs/${runId}`);
+    await adminPage.goto(`/admin/evolution/runs/${runId}`, { timeout: 30000 });
     await adminPage.waitForLoadState('domcontentloaded');
 
     const breadcrumb = adminPage.locator('[data-testid="evolution-breadcrumb"]');
@@ -148,10 +148,10 @@ adminTest.describe('Evolution Navigation', { tag: ['@evolution', '@critical'] },
   });
 
   adminTest('404 within evolution area shows Next.js 404 page', async ({ adminPage }) => {
-    await adminPage.goto('/admin/evolution/nonexistent-page-xyz');
+    await adminPage.goto('/admin/evolution/nonexistent-page-xyz', { timeout: 30000 });
     await adminPage.waitForLoadState('domcontentloaded');
 
     // Next.js renders a default 404 page for unknown routes (no sidebar layout)
-    await expect(adminPage.getByText('404')).toBeVisible({ timeout: 15000 });
+    await expect(adminPage.getByText('404')).toBeVisible({ timeout: 30000 });
   });
 });

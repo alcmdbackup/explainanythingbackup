@@ -46,7 +46,7 @@ export class AdminCandidatesPage extends AdminBasePage {
    */
   async gotoCandidates() {
     // Navigate directly to candidates tab (avoids hydration race with dashboard nav click)
-    await this.page.goto('/admin/whitelist?tab=candidates', { waitUntil: 'domcontentloaded' });
+    await this.page.goto('/admin/whitelist?tab=candidates', { waitUntil: 'domcontentloaded', timeout: 30000 });
     // Wait for candidates table (dynamic import + API call)
     await this.table.waitFor({ state: 'visible', timeout: 30000 });
   }

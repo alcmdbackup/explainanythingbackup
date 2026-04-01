@@ -105,11 +105,11 @@ adminTest.describe('Admin Evolution LogsTab Filters', { tag: '@evolution' }, () 
   adminTest(
     'LogsTab renders with iteration, message search, and variant ID filters',
     async ({ adminPage }) => {
-      await adminPage.goto(`/admin/evolution/runs/${seeded.runId}`);
+      await adminPage.goto(`/admin/evolution/runs/${seeded.runId}`, { timeout: 30000 });
       await adminPage.waitForLoadState('domcontentloaded');
 
       // Wait for run detail to load (tab bar only renders after data loads)
-      await adminPage.locator('[data-testid="entity-detail-header"]').waitFor({ state: 'visible', timeout: 15_000 });
+      await adminPage.locator('[data-testid="entity-detail-header"]').waitFor({ state: 'visible', timeout: 30_000 });
 
       // Click logs tab
       const logsTab = adminPage.locator('[data-testid="tab-logs"]');
@@ -140,11 +140,11 @@ adminTest.describe('Admin Evolution LogsTab Filters', { tag: '@evolution' }, () 
   adminTest(
     'LogsTab level filter shows filtered results',
     async ({ adminPage }) => {
-      await adminPage.goto(`/admin/evolution/runs/${seeded.runId}`);
+      await adminPage.goto(`/admin/evolution/runs/${seeded.runId}`, { timeout: 30000 });
       await adminPage.waitForLoadState('domcontentloaded');
 
       // Wait for run detail to load, then click logs tab
-      await adminPage.locator('[data-testid="entity-detail-header"]').waitFor({ state: 'visible', timeout: 15_000 });
+      await adminPage.locator('[data-testid="entity-detail-header"]').waitFor({ state: 'visible', timeout: 30_000 });
       const logsTab = adminPage.locator('[data-testid="tab-logs"]');
       await expect(logsTab).toBeVisible();
       await logsTab.click();
@@ -169,11 +169,11 @@ adminTest.describe('Admin Evolution LogsTab Filters', { tag: '@evolution' }, () 
   adminTest(
     'LogsTab message search filters by text',
     async ({ adminPage }) => {
-      await adminPage.goto(`/admin/evolution/runs/${seeded.runId}`);
+      await adminPage.goto(`/admin/evolution/runs/${seeded.runId}`, { timeout: 30000 });
       await adminPage.waitForLoadState('domcontentloaded');
 
       // Wait for run detail to load, then click logs tab
-      await adminPage.locator('[data-testid="entity-detail-header"]').waitFor({ state: 'visible', timeout: 15_000 });
+      await adminPage.locator('[data-testid="entity-detail-header"]').waitFor({ state: 'visible', timeout: 30_000 });
       const logsTab = adminPage.locator('[data-testid="tab-logs"]');
       await expect(logsTab).toBeVisible();
       await logsTab.click();

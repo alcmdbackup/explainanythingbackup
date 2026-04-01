@@ -160,6 +160,8 @@ export default defineConfig({
         NEXT_PUBLIC_USE_AI_API_ROUTE: 'true',
         // Enable E2E test mode for SSE streaming bypass (dev server only, CI uses inline env)
         ...(process.env.CI ? {} : { E2E_TEST_MODE: 'true' }),
+        // Propagate proxy settings so dev server's fetch() works through egress proxy
+        ...(process.env.NODE_USE_ENV_PROXY ? { NODE_USE_ENV_PROXY: '1' } : {}),
       },
     },
   }),

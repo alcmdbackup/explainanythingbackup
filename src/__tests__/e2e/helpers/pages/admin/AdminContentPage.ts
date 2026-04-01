@@ -54,7 +54,7 @@ export class AdminContentPage extends AdminBasePage {
    */
   async gotoContent() {
     // Navigate directly to content page (avoids hydration race with dashboard nav click)
-    await this.page.goto('/admin/content', { waitUntil: 'domcontentloaded' });
+    await this.page.goto('/admin/content', { waitUntil: 'domcontentloaded', timeout: 30000 });
     await this.table.waitFor({ state: 'visible', timeout: 30000 });
   }
 

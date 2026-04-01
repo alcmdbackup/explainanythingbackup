@@ -340,6 +340,7 @@ adminTest.describe('Evolution Run Pipeline', { tag: '@evolution' }, () => {
     await expect(header).toBeVisible({ timeout: 15000 });
 
     const metricsTab = adminPage.locator('[data-testid="tab-metrics"]');
+    await expect(metricsTab).toBeVisible({ timeout: 10000 });
     await metricsTab.click();
 
     const metricsContainer = adminPage.locator('[data-testid="entity-metrics-tab"]');
@@ -385,10 +386,11 @@ adminTest.describe('Evolution Run Pipeline', { tag: '@evolution' }, () => {
     await expect(header).toBeVisible({ timeout: 15000 });
 
     const logsTab = adminPage.locator('[data-testid="tab-logs"]');
+    await expect(logsTab).toBeVisible({ timeout: 10000 });
     await logsTab.click();
 
     // Verify at least one log entry row is visible
     const logRows = adminPage.locator('[data-testid="tab-content"] tr, [data-testid="tab-content"] [data-testid^="log-"]');
-    await expect(logRows.first()).toBeVisible({ timeout: 15000 });
+    await expect(logRows.first()).toBeVisible({ timeout: 30000 });
   });
 });

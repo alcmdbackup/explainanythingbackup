@@ -21,7 +21,7 @@ const MALFORMED_URL = 'not-a-valid-url';
 test.describe('Add Sources Feature', () => {
   test.describe('Source Input Flow', () => {
     test('should expand sources section when clicking "+ Add sources"', async ({ authenticatedPage }) => {
-      await authenticatedPage.goto('/');
+      await authenticatedPage.goto('/', { timeout: 30000 });
       await authenticatedPage.waitForLoadState('domcontentloaded');
 
       // Click the add sources toggle
@@ -31,13 +31,13 @@ test.describe('Add Sources Feature', () => {
 
       // Source input should now be visible
       const sourceInput = authenticatedPage.locator('[data-testid="home-source-url-input"]');
-      await expect(sourceInput).toBeVisible({ timeout: 5000 });
+      await expect(sourceInput).toBeVisible({ timeout: 15000 });
     });
 
     test('should add Wikipedia source successfully (regression test)', async ({ authenticatedPage }) => {
       test.setTimeout(45000); // Allow extra time for source fetch in CI
 
-      await authenticatedPage.goto('/');
+      await authenticatedPage.goto('/', { timeout: 30000 });
       await authenticatedPage.waitForLoadState('domcontentloaded');
 
       // Expand sources section
@@ -47,7 +47,7 @@ test.describe('Add Sources Feature', () => {
 
       // Enter Wikipedia URL
       const sourceInput = authenticatedPage.locator('[data-testid="home-source-url-input"]');
-      await expect(sourceInput).toBeVisible({ timeout: 5000 });
+      await expect(sourceInput).toBeVisible({ timeout: 15000 });
       await sourceInput.fill(WIKIPEDIA_URL);
       await sourceInput.blur();
 
@@ -74,7 +74,7 @@ test.describe('Add Sources Feature', () => {
     });
 
     test('should show validation error for invalid URL format', async ({ authenticatedPage }) => {
-      await authenticatedPage.goto('/');
+      await authenticatedPage.goto('/', { timeout: 30000 });
       await authenticatedPage.waitForLoadState('domcontentloaded');
 
       // Expand sources section
@@ -83,7 +83,7 @@ test.describe('Add Sources Feature', () => {
 
       // Enter invalid URL
       const sourceInput = authenticatedPage.locator('[data-testid="home-source-url-input"]');
-      await expect(sourceInput).toBeVisible({ timeout: 5000 });
+      await expect(sourceInput).toBeVisible({ timeout: 15000 });
       await sourceInput.fill(MALFORMED_URL);
       await sourceInput.blur();
 
@@ -103,7 +103,7 @@ test.describe('Add Sources Feature', () => {
     test('should handle failed source fetch gracefully', async ({ authenticatedPage }) => {
       test.setTimeout(45000);
 
-      await authenticatedPage.goto('/');
+      await authenticatedPage.goto('/', { timeout: 30000 });
       await authenticatedPage.waitForLoadState('domcontentloaded');
 
       // Expand sources section
@@ -112,7 +112,7 @@ test.describe('Add Sources Feature', () => {
 
       // Enter a URL that will fail to fetch (non-existent domain)
       const sourceInput = authenticatedPage.locator('[data-testid="home-source-url-input"]');
-      await expect(sourceInput).toBeVisible({ timeout: 5000 });
+      await expect(sourceInput).toBeVisible({ timeout: 15000 });
       await sourceInput.fill('https://this-domain-definitely-does-not-exist-12345.com/article');
       await sourceInput.blur();
 
@@ -132,7 +132,7 @@ test.describe('Add Sources Feature', () => {
     test('should allow removing a source chip', async ({ authenticatedPage }) => {
       test.setTimeout(45000);
 
-      await authenticatedPage.goto('/');
+      await authenticatedPage.goto('/', { timeout: 30000 });
       await authenticatedPage.waitForLoadState('domcontentloaded');
 
       // Expand sources section
@@ -141,7 +141,7 @@ test.describe('Add Sources Feature', () => {
 
       // Add a source
       const sourceInput = authenticatedPage.locator('[data-testid="home-source-url-input"]');
-      await expect(sourceInput).toBeVisible({ timeout: 5000 });
+      await expect(sourceInput).toBeVisible({ timeout: 15000 });
       await sourceInput.fill(WIKIPEDIA_URL);
       await sourceInput.blur();
 
@@ -163,17 +163,20 @@ test.describe('Add Sources Feature', () => {
 
   test.describe('Sources with Search', () => {
     test('should include sources when submitting search', { tag: '@critical' }, async ({ authenticatedPage }) => {
-      test.setTimeout(45000);
+      test.setTimeout(60000);
 
-      await authenticatedPage.goto('/');
+      await authenticatedPage.goto('/', { timeout: 30000 });
       await authenticatedPage.waitForLoadState('domcontentloaded');
+      // Rule 18: wait for hydration before clicking toggle
+      await authenticatedPage.locator('[data-testid="home-search-input"]').waitFor({ state: 'visible', timeout: 15000 });
 
       // Add a source first
       const toggle = authenticatedPage.locator('[data-testid="home-add-source-button"]');
+      await expect(toggle).toBeVisible({ timeout: 10000 });
       await toggle.click();
 
       const sourceInput = authenticatedPage.locator('[data-testid="home-source-url-input"]');
-      await expect(sourceInput).toBeVisible({ timeout: 5000 });
+      await expect(sourceInput).toBeVisible({ timeout: 15000 });
       await sourceInput.fill(WIKIPEDIA_URL);
       await sourceInput.blur();
 

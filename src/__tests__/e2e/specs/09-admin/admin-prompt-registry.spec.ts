@@ -41,8 +41,8 @@ adminTest.describe('Prompt Registry CRUD', () => {
 
   adminTest('create, edit, and delete a prompt @critical', async ({ adminPage }) => {
     // Navigate to prompts page
-    await adminPage.goto('/admin/evolution/prompts');
-    await expect(adminPage.locator('main').getByRole('heading', { name: 'Prompts' })).toBeVisible();
+    await adminPage.goto('/admin/evolution/prompts', { timeout: 30000 });
+    await expect(adminPage.locator('main').getByRole('heading', { name: 'Prompts' })).toBeVisible({ timeout: 15000 });
 
     // Create prompt
     await adminPage.getByTestId('header-action').click();
