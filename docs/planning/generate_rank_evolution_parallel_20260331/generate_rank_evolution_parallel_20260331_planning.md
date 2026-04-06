@@ -929,18 +929,53 @@ Iter 2's snapshot is the most useful — it shows the surviving pool after iter 
 
 **Admin UI: new "Snapshots" tab on run detail page**
 
-V1 (minimal effort): collapsible JSON viewer rendering the raw `IterationSnapshot` array. Quick to build, fully functional for debugging.
+Each iteration snapshot renders as a formatted table:
 
-V2 (polished): formatted table with sortable columns (mu, sigma, matchCount), variant IDs as links to variant detail pages, separate section for discarded variants with reason. Upgrade from v1 if it proves useful.
+```
+┌─ Snapshots ─────────────────────────────────────────────────┐
+│                                                              │
+│ Iteration 1 — start (2026-04-06 14:23:45)                   │
+│ ┌────────────────────────────────────────────────────────┐  │
+│ │ Variant ID    │ Strategy   │ mu     │ sigma │ matches │  │
+│ │ baseline      │ baseline   │ 25.00  │ 8.33  │ 0       │  │
+│ └────────────────────────────────────────────────────────┘  │
+│                                                              │
+│ Iteration 2 — start (2026-04-06 14:24:12)                   │
+│ ┌────────────────────────────────────────────────────────┐  │
+│ │ Variant ID    │ Strategy   │ mu     │ sigma │ matches │  │
+│ │ v1 (link)     │ struct     │ 31.20  │ 4.30  │ 6       │  │
+│ │ v2 (link)     │ lex        │ 28.10  │ 5.50  │ 5       │  │
+│ │ v3 (link)     │ ground     │ 26.80  │ 6.20  │ 4       │  │
+│ │ baseline      │ baseline   │ 22.45  │ 5.12  │ 4       │  │
+│ │ ...                                                    │  │
+│ └────────────────────────────────────────────────────────┘  │
+│                                                              │
+│ Discarded after iter 1 (1 variant):                          │
+│ ┌────────────────────────────────────────────────────────┐  │
+│ │ Variant ID    │ mu     │ Reason                       │  │
+│ │ v7 (link)     │ 18.20  │ budget interrupted, mu < cutoff│  │
+│ └────────────────────────────────────────────────────────┘  │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
+```
+
+**Table features:**
+- Variant ID is a link to the variant detail page
+- Default sort: by mu descending
+- Click column header to re-sort by mu, sigma, or matches
+- Strategy column joined from `evolution_variants` (since snapshot only stores IDs)
+- Discarded variants shown in a separate section below the iter 2 table with reason
 
 **Implementation:**
 - [ ] DB migration: `ALTER TABLE evolution_runs ADD COLUMN iteration_snapshots JSONB DEFAULT '[]'::jsonb`
 - [ ] Define `iterationSnapshotSchema` Zod schema
 - [ ] In `runIterationLoop.ts`: helper `recordSnapshot(iteration, pool, ratings, matchCounts, options)` that builds the snapshot object and pushes to an in-memory array
 - [ ] Persist all snapshots to the run row at run finalization (single UPDATE, not per-iteration)
-- [ ] Server action: `getRunSnapshotsAction(runId): Promise<IterationSnapshot[]>`
+- [ ] Server action: `getRunSnapshotsAction(runId): Promise<IterationSnapshot[]>` — joins snapshot variant IDs to `evolution_variants` to fetch strategy and other display fields
 - [ ] Frontend: new `<SnapshotsTab>` component, registered in run detail page tab list
-- [ ] Start with raw JSON viewer (v1); upgrade to formatted table later if needed
+- [ ] Build sortable table component (or reuse existing one if `EntityListPage` patterns apply)
+- [ ] Variant IDs render as `<Link href="/admin/variants/[id]">` with truncated UUID display
+- [ ] Discarded variants section: shown only on iter 2 snapshot if `discardedVariantIds` is non-empty
 
 #### 8d: Remove "anchor" concept entirely
 
