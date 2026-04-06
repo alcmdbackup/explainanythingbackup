@@ -4,11 +4,17 @@
 The evolution pipeline currently runs generate and rank operations sequentially, which makes some runs very slow. This project replaces the two-phase ranking architecture (triage + Swiss) with a two-iteration approach: (1) N parallel `generateFromSeedArticle` agents that each generate and roughly rank one variant via binary search, followed by (2) a single `swissRankingAgent` that refines the survivors via Swiss-style fine-ranking until convergence.
 
 ## Requirements (from GH Issue #914)
-- New `generateFromSeedArticle` agent: generates ONE variant with one strategy, then ranks it via binary search
+- New `generateFromSeedArticle` agent: generates ONE variant with one strategy, then ranks it via binary search to convergence (or one of the other stop conditions)
 - New `swissRankingAgent`: refines all eligible (top-15%) variants via Swiss pairing until convergence
-- Two-iteration architecture: iteration 1 = N parallel generation agents, iteration 2 = 1 swiss agent
+- Two-iteration architecture: iteration 1 = N parallel `generateFromSeedArticle` agents (each running fully); iteration 2 = 1 `swissRankingAgent` (single agent with internally parallel pairs per round)
 - Solves cold-start problem: iteration 1 has limited opponents, iteration 2 fills in the cross-variant comparisons
-- Discard rule: variants not fully ranked in iteration 1 are discarded (only cost data kept)
+- Iter 1 discard rule: budget-interrupted variants are kept only if their **actual mu** is in top 15% (not optimistic upper bound)
+- Iter 2 discard rule: never discard
+- Remove "anchor" concept entirely from code and admin UI (the new opponent selection formula handles this naturally)
+- Both agents are fully integrated `Agent` subclasses with metrics, detail view configs, and execution detail schemas
+- Track generation vs ranking cost separately within `generateFromSeedArticle` invocation, and aggregate at run level
+- Capture pool snapshots at the start of each iteration for debugging
+- Detailed opponent selection logging for debugging (candidates considered, scores, selection reason)
 - Maintain budget tracking, checkpoint behavior, iteration/execution_order DB tracking
 
 ## Problem
@@ -340,16 +346,16 @@ The discard rule is different for iteration 1 and iteration 2.
 
 #### Iteration 1: `generateFromSeedArticle` budget interruption
 
-When a variant's binary search is interrupted by budget exhaustion (`status === 'budget'`), do a **final eligibility check** against the post-merge global ratings:
+When a variant's binary search is interrupted by budget exhaustion (`status === 'budget'`), do a **final eligibility check** against the post-merge global ratings using the variant's actual mu (not optimistic upper bound):
 
 ```
-if (variant.mu + ELIMINATION_CI * variant.sigma < top15Cutoff):
-  discard variant  // can't reach top 15% even optimistically
+if (variant.mu < top15Cutoff):
+  discard variant  // actual rating is not in top 15%
 else:
-  keep variant     // potentially in top 15%, partial rating is good enough
+  keep variant     // actual rating is in top 15%
 ```
 
-This is the same elimination check the binary search loop uses internally — applied once more after budget interruption to decide whether the partial rating is good enough to keep.
+**Note:** This is stricter than the elimination check used inside the binary search loop, which uses `mu + 2σ` (optimistic upper bound). The post-budget check uses bare `mu` because we want to discard variants that don't actually reach the top 15%, not variants that *might* reach it. A variant interrupted by budget has whatever rating it ended up with — we use that rating directly to decide if it's worth keeping.
 
 The other status outcomes (`converged`, `eliminated`, `no_more_opponents`) never trigger discard:
 - `converged`: variant has a confident rating, keep
@@ -382,7 +388,7 @@ What is **NOT** removed:
 - [ ] In iteration 1 loop: after end-of-iter-1 merge, iterate over all `'budget'`-status agent results
 - [ ] For each, look up the variant's current global rating
 - [ ] Compute current `top15Cutoff` from global ratings
-- [ ] If `mu + ELIMINATION_CI * sigma < top15Cutoff`: add to `discardedVariantIds`
+- [ ] If `mu < top15Cutoff` (use bare mu, not mu+2σ): add to `discardedVariantIds`
 - [ ] Otherwise: keep the variant (no action needed)
 - [ ] After all checks: remove `discardedVariantIds` from `pool`, `ratings`, `matchCounts`
 - [ ] In SwissRankingAgent: NO discard logic. Apply rating updates as normal, even on budget interruption.
@@ -653,16 +659,17 @@ for (const match of allMatches) {
 }
 
 // Step 3: Final eligibility check for budget-interrupted variants
-// If post-merge rating shows "definitely not in top 15%", discard.
-// Otherwise keep — partial rating is good enough for a potential top variant.
+// Use the variant's actual mu (not optimistic upper bound) — we want to
+// discard variants whose rating doesn't reach the top 15%, not variants
+// that might possibly reach it with more comparisons.
 const top15Cutoff = computeTop15Cutoff(ratings)
 const discardedVariantIds = new Set<string>()
 for (const variant of budgetInterruptedVariants) {
   const r = ratings.get(variant.id) ?? createRating()
-  if (r.mu + ELIMINATION_CI * r.sigma < top15Cutoff) {
+  if (r.mu < top15Cutoff) {
     discardedVariantIds.add(variant.id)
   }
-  // else: keep — it might be in top 15%, partial rating is acceptable
+  // else: keep — actual rating is in top 15%
 }
 
 // Step 4: Remove discarded variants from pool/ratings/matchCounts
@@ -818,8 +825,9 @@ Changes needed:
 - [ ] "iteration 2: ratings updated even when round fails halfway through"
 
 #### Unit Tests — Discard Rule (asymmetric for iter 1 and iter 2)
-- [ ] "iteration 1: budget-interrupted variant with mu+2σ < top15Cutoff is discarded"
-- [ ] "iteration 1: budget-interrupted variant with mu+2σ ≥ top15Cutoff is KEPT"
+- [ ] "iteration 1: budget-interrupted variant with mu < top15Cutoff is discarded"
+- [ ] "iteration 1: budget-interrupted variant with mu ≥ top15Cutoff is KEPT"
+- [ ] "iteration 1: discard uses bare mu, NOT mu+2σ (stricter than internal elimination check)"
 - [ ] "iteration 1: discard eligibility checked AFTER end-of-iter merge (uses post-merge global ratings)"
 - [ ] "iteration 1: converged/eliminated/no_more_opponents variants are never discarded"
 - [ ] "iteration 2: SwissRankingAgent never discards variants on budget interruption"
@@ -835,17 +843,91 @@ Changes needed:
 - [ ] "iteration 2 swiss agent runs after iteration 1 completes"
 - [ ] "iteration 2 sees all surviving iter 1 variants in pool"
 
+#### Unit Tests — Agent infrastructure (Phase 8)
+- [ ] "generateFromSeedArticle defines name, executionDetailSchema, invocationMetrics, detailViewConfig"
+- [ ] "swissRankingAgent defines name, executionDetailSchema, invocationMetrics, detailViewConfig"
+- [ ] "execution detail validates against schema for both agents"
+- [ ] "run-level totalGenerationCost and totalRankingCost computed correctly"
+- [ ] "pool snapshot captured at start of iteration 1 (after baseline)"
+- [ ] "pool snapshot captured at start of iteration 2 (after iter 1 discard rule)"
+- [ ] "no anchor references in selectOpponent or related code"
+- [ ] "selectOpponent debug log includes all candidates with scores and selection reason"
+
 #### Integration Tests
 - [ ] End-to-end: full two-iteration run with 9 variants produces converged rankings
 - [ ] Budget tracking accurate across both iterations
 - [ ] Cold start handled: iter 1 variants exit with `no_more_opponents` but iter 2 refines them to convergence
 - [ ] Warm pool: iter 2 converges quickly using established ratings
+- [ ] Pool snapshots persist correctly to DB and render in admin UI
+- [ ] Run row shows totalGenerationCost and totalRankingCost separately
 
-### Phase 8: Metrics & Observability
+### Phase 8: Agent Infrastructure (metrics, detail views, anchor removal, pool snapshots)
+
+#### 8a: Both agents fully integrated as proper Agent subclasses
+
+Both `generateFromSeedArticle` and `swissRankingAgent` extend the `Agent<Input, Output, Detail>` base class. They must define all standard agent properties:
+
+- [ ] `name` constant (e.g., `'generate_from_seed_article'`, `'swiss_ranking'`)
+- [ ] `executionDetailSchema` Zod schema for validating execution detail
+- [ ] `invocationMetrics: FinalizationMetricDef[]` — metrics computed per invocation at finalization (cost, comparisons run, status counts, etc.)
+- [ ] `detailViewConfig: DetailFieldDef[]` — admin UI configuration for displaying execution detail
+- [ ] Register both agents in any agent catalog/registry that exists
+- [ ] Make sure invocation rows for both agents show up in admin UI with appropriate detail views
+
+#### 8b: Cost tracking (per-agent and aggregate)
+
+Per-invocation breakdown (already in plan):
+- [ ] `generationCost` and `rankingCost` separate fields in `generateFromSeedArticle` execution detail
+- [ ] `rankingCost` in `swissRankingAgent` execution detail (no generation cost)
+- [ ] Top-level `cost_usd` is the sum (matches existing column semantics)
+
+Run-level aggregates (new):
+- [ ] At end of run, compute totals across all invocations: `totalGenerationCost`, `totalRankingCost` (iter 1 binary search + iter 2 Swiss)
+- [ ] Store on the run row or in run-level metrics
+- [ ] Display in admin UI run detail view
+
+#### 8c: Pool snapshots at start of each iteration
+
+We need to be able to inspect what the pool looked like at the start of iter 1 and iter 2 for debugging.
+
+- [ ] Capture `pool` and `ratings` snapshots at the start of iteration 1 and iteration 2
+- [ ] Persist as JSON to a new field (or rows) in the run record. Options:
+  - Add `iteration_pool_snapshots` JSONB column on `evolution_runs` (array of `{ iteration, pool: Variant[], ratings: Record<id, Rating> }`)
+  - Or new table `evolution_iteration_snapshots` with one row per (run, iteration)
+- [ ] Recommendation: JSONB column on existing run row (single write per iteration, no new table)
+- [ ] Snapshot is taken AFTER discard rule applies in iter 1, AFTER iter 2 completes (so snapshots show clean state at iteration boundaries)
+- [ ] Admin UI: show snapshot in run detail view (collapsible JSON viewer)
+
+#### 8d: Remove "anchor" concept entirely
+
+The current `rankVariants.ts` has an "anchor" concept used in stratified opponent selection (low-sigma variants designated as anchors). Our new opponent selection formula doesn't need this — the formula picks low-sigma opponents naturally.
+
+- [ ] Search the codebase for `anchor` references in evolution code
+- [ ] Remove anchor selection logic from any function we keep
+- [ ] Remove anchor display elements from admin UI (likely in `LogsTab`, `RankingDetailView`, or similar)
+- [ ] Remove any anchor-related fields from execution details (e.g., `lowSigmaOpponentsCount`)
+- [ ] Remove anchor-related metrics
+- [ ] Update doc references
+
+#### 8e: Detailed opponent selection logging
+
+For debugging, log enough information to reproduce/audit each opponent selection decision:
+
+- [ ] In `selectOpponent`, when called inside `rankSingleVariant`, log at debug level:
+  - The variant's current `mu`, `sigma`
+  - The list of candidate opponents considered (id, mu, sigma)
+  - The score computed for each candidate (including pWin, entropy, score)
+  - The picked opponent's id and score
+  - Why others were rejected (already-compared vs lower score)
+- [ ] Log at info level (less verbose) per comparison: variant, opponent, match outcome
+- [ ] Use structured fields in the log context dict (not concatenated strings) so admin UI / log queries can filter
+- [ ] Sample or limit at high pool sizes (don't log 100 candidate scores per comparison if pool grows)
+
+#### 8f: Run-level aggregate metrics
 - [ ] Add `numVariants` and `strategies` to run-level config logging
 - [ ] Add per-agent fields to invocation execution detail: `strategy`, `status`, `comparisonsRun`
-- [ ] Add `generationCost`, `rankingCost` (separate, not summed) to invocation cost breakdown
-- [ ] Run-level aggregates: count of converged/eliminated/no_more_opponents/budget across all agents
+- [ ] Run-level aggregates: count of converged/eliminated/no_more_opponents/budget across all iter 1 agents
+- [ ] Run-level aggregates: total Swiss comparisons, Swiss exit reason, Swiss rounds run (from iter 2 invocation detail)
 
 ## Files Affected
 
@@ -858,9 +940,11 @@ Changes needed:
 - `evolution/src/lib/pipeline/loop/rankSingleVariant.test.ts`
 
 ### Modified Files
-- `evolution/src/lib/pipeline/loop/runIterationLoop.ts` — Parallel agent dispatch, context snapshots
-- `evolution/src/lib/schemas.ts` — `generateFromSeedExecutionDetailSchema`, `numVariants` and `strategies` config fields
+- `evolution/src/lib/pipeline/loop/runIterationLoop.ts` — Two-iteration parallel dispatch, context snapshots, pool snapshots, run-level cost aggregation
+- `evolution/src/lib/schemas.ts` — `generateFromSeedExecutionDetailSchema`, `swissRankingExecutionDetailSchema`, `numVariants` and `strategies` config fields
 - `evolution/src/lib/pipeline/loop/runIterationLoop.test.ts` — Update tests for parallel structure
+- Admin UI files referencing "anchor" — remove anchor display and metrics (search for `anchor` in `evolution/src/components/`)
+- DB migration: add `iteration_pool_snapshots` JSONB column to `evolution_runs` (or new `evolution_iteration_snapshots` table)
 
 ### Files to Remove
 - `evolution/src/lib/core/agents/GenerationAgent.ts` — Replaced by generateFromSeedArticle
