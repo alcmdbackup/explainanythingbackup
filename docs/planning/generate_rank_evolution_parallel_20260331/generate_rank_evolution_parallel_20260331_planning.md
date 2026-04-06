@@ -242,24 +242,51 @@ With `k=0`, the perfectly-aligned-but-noisy D wins by entropy alone. With any `k
 - Within the agent's binary search loop: opponent selection uses local ratings, comparisons mutate local ratings sequentially (no race within an agent's loop)
 - Match results collected in the agent's local `matchBuffer`
 - The shared `pool` is still shared (variants get added so other agents can see them as opponents), but `ratings` is local
-- After all agents settle: collect all `matchBuffer`s from non-discarded agents, concatenate, shuffle, apply updates sequentially to the GLOBAL `ratings` map
+- After all agents settle: collect ALL `matchBuffer`s, including from budget-discarded agents (see "Always apply paid-for matches" below)
+- Concatenate, shuffle, apply updates sequentially to the GLOBAL `ratings` map
 - Iteration 2 uses these merged global ratings
 
 **Iteration 2 details:**
 - Within a Swiss round: pairs run in parallel, results collected
 - After the round completes: shuffle the round's match results, apply to ratings in random order
+- Apply happens BEFORE any budget/convergence check, so successful matches in a budget-failing round are still applied
 - Next round's pairing uses the updated ratings
 - This preserves Swiss's round-by-round adaptive pairing while removing within-round ordering bias
+
+**Always apply paid-for matches (budget exhaustion safety):**
+
+A successful comparison (LLM returned a judgment) is information we already paid for. The OpenSkill update from that match must always be applied to global ratings, even if the wider operation (the agent or the Swiss round) fails afterwards due to budget exhaustion.
+
+This means:
+
+| Failure scenario | What we currently risk losing | What this rule preserves |
+|-----------------|-------------------------------|--------------------------|
+| Iteration 1 agent hits budget after N successful comparisons | The N successful matches' updates to opponents | All N matches are still merged into global ratings (the variant itself is still discarded per discard rule) |
+| Swiss round has 5 pairs, 2 fail with budget, 3 succeed | The 3 successful matches' updates | All 3 successful matches are applied before checking the budget rejection |
+
+**Iteration 1 behavior with budget-discarded variants:**
+
+When variant V is discarded due to budget but had completed 3 comparisons against opponents X, Y, Z:
+1. The 3 matches are included in the merge buffer alongside non-discarded agents' matches
+2. After shuffling, all matches (including V's) are applied to the GLOBAL ratings map
+3. This temporarily creates a rating entry for V in global ratings
+4. AFTER the merge: remove V's entry from `pool`, `ratings`, and `matchCounts`
+5. The opponents X, Y, Z retain their updates from V's matches
+6. The matches themselves remain in `matchHistory` (referencing V's ID even though V is no longer in the pool — Option 1: keep, downstream code filters as needed)
+
+This ensures we don't waste paid-for information when a variant is interrupted.
 
 **Implementation:**
 - [ ] Add `matchBuffer: V2Match[]` to `generateFromSeedArticle` agent state
 - [ ] Each agent gets `localRatings = new Map(globalRatings)` at dispatch
 - [ ] Inside the binary-search loop, mutate `localRatings` (not global)
-- [ ] After all iter 1 agents settle: `mergeMatchesRandomly(allBuffers, globalRatings)`
-- [ ] Inside SwissRankingAgent: per-round shuffling of pair results before applying
+- [ ] Agent always returns its `matchBuffer` in the result, regardless of `status` (`'converged'`, `'eliminated'`, `'exhausted'`, OR `'budget'`)
+- [ ] After all iter 1 agents settle: `mergeMatchesRandomly(allBuffers, globalRatings)` — includes buffers from `'budget'` agents
+- [ ] After merge: identify `discardedVariantIds` (those with `status === 'budget'`) and remove from `pool`, `ratings`, `matchCounts`. Leave matches in `matchHistory` referencing the discarded IDs.
+- [ ] Inside SwissRankingAgent: extract successful matches from `Promise.allSettled` results, shuffle, and apply BEFORE checking for budget rejection in the same round
 - [ ] `mergeMatchesRandomly()` helper: shuffle array in place (Fisher-Yates), then iterate and call `updateRating`/`updateDraw` for each
 - [ ] Use a seeded random source if we want reproducibility for tests; otherwise `Math.random`
-- [ ] Add metric: `matchesAppliedInRandomOrder: number` to confirm the merge happened
+- [ ] Add metric: `matchesAppliedFromBudgetDiscarded: number` to track how often this rule fires
 
 **Note on opponent selection accuracy:** Because each iter 1 agent uses local ratings, two agents may make slightly different opponent selection decisions for the same variant in the pool. This is acceptable — the binary search is still mathematically valid for each variant, and the final merge produces consistent global ratings.
 
@@ -380,7 +407,8 @@ interface GenerateFromSeedInput {
 interface GenerateFromSeedOutput {
   variant: Variant;
   status: 'converged' | 'eliminated' | 'exhausted' | 'budget';
-  matches: V2Match[];
+  matches: V2Match[];  // ALWAYS populated, even when status === 'budget'
+                       // (paid-for matches must always reach the global merge)
 }
 ```
 
@@ -456,11 +484,12 @@ class SwissRankingAgent extends Agent<SwissRankingInput, SwissRankingOutput, Swi
       if (pairs.length === 0) { exitReason = 'no_pairs'; break; }
 
       // Pairs are non-overlapping → run in parallel
+      // Promise.allSettled never rejects: gives one entry per pair
       const pairResults = await Promise.allSettled(
         pairs.map(([a, b]) => compareAndBuildMatch(a, b, input))
       );
 
-      // Collect successful matches into a round buffer (no rating updates yet)
+      // Collect SUCCESSFUL matches into a round buffer (failures may exist)
       const roundMatches: Array<{ match: V2Match; idA: string; idB: string }> = [];
       for (const result of pairResults) {
         if (result.status === 'fulfilled') {
@@ -468,12 +497,24 @@ class SwissRankingAgent extends Agent<SwissRankingInput, SwissRankingOutput, Swi
         }
       }
 
-      // Bias prevention: shuffle round matches before applying updates
+      // CRITICAL: Always apply paid-for matches BEFORE checking budget rejections.
+      // If we hit budget mid-round, we may have 3 successful and 2 failed pairs;
+      // those 3 successful matches MUST be applied to ratings.
       shuffleInPlace(roundMatches);
       for (const { match, idA, idB } of roundMatches) {
         matches.push(match);
         completedPairs.add(pairKey(idA, idB));
         applyRatingUpdate(match, input.ratings, input.matchCounts);
+      }
+
+      // NOW check for budget rejection — successful matches are already applied
+      const budgetReject = pairResults.find(
+        (r): r is PromiseRejectedResult =>
+          r.status === 'rejected' && r.reason instanceof BudgetExceededError
+      );
+      if (budgetReject) {
+        exitReason = 'budget';
+        break;
       }
 
       // Convergence check: all eligible variants have sigma < threshold
@@ -514,7 +555,7 @@ interface SwissRankingInput {
 - [ ] Define `SwissRankingInput`, `SwissRankingOutput`, `SwissRankingDetail` types
 - [ ] Define Zod schema `swissRankingExecutionDetailSchema`
 - [ ] Stop conditions: `converged`, `budget`, `no_pairs`, `max_rounds` (default 20)
-- [ ] Handle `BudgetExceededError`: collect partial results, return with status
+- [ ] Handle `BudgetExceededError`: extract successful matches from `Promise.allSettled`, apply them BEFORE breaking the round loop. The order is: collect successful matches → shuffle → apply updates → THEN check for budget rejection. This guarantees paid-for matches are never lost.
 
 ### Phase 4: Two-Iteration Loop
 
@@ -553,8 +594,37 @@ const iter1Promises = Array.from({ length: numVariants }, (_, i) => {
 
 const iter1Results = await Promise.allSettled(iter1Promises);
 
-// Apply discard rule: for each agent result, if status !== 'budget', keep the variant.
-// If status === 'budget', remove the variant from pool/ratings/matchCounts.
+// CRITICAL ORDER: collect ALL matches first (including from budget-discarded
+// agents), then apply, then discard. This ensures paid-for matches always
+// reach the global ratings before any variant is removed.
+
+// Step 1: Collect all match buffers regardless of status
+const allMatches: V2Match[] = [];
+const discardedVariantIds = new Set<string>();
+for (const result of iter1Results) {
+  if (result.status === 'fulfilled' && result.value.success) {
+    const output = result.value.result;  // GenerateFromSeedOutput
+    allMatches.push(...output.matches);
+    if (output.status === 'budget') {
+      discardedVariantIds.add(output.variant.id);
+    }
+  }
+}
+
+// Step 2: Shuffle and apply matches to global ratings (bias prevention)
+shuffleInPlace(allMatches);
+for (const match of allMatches) {
+  matchHistory.push(match);
+  applyRatingUpdate(match, ratings, matchCounts);
+}
+
+// Step 3: NOW remove discarded variants from pool/ratings/matchCounts
+// The matches stay in matchHistory; opponents retain their updates
+for (const id of discardedVariantIds) {
+  pool.removeBy(v => v.id === id);
+  ratings.delete(id);
+  matchCounts.delete(id);
+}
 
 // ─── Iteration 2: Swiss refinement of survivors ───
 const swissCtx: AgentContext = {
@@ -686,9 +756,17 @@ Changes needed:
 #### Unit Tests — Bias Prevention
 - [ ] "iteration 1: each agent uses local ratings copy, doesn't mutate global"
 - [ ] "iteration 1: end-of-iteration merge applies all matches in random order to global"
-- [ ] "iteration 1: discarded variants' matches are NOT applied to global"
 - [ ] "iteration 2: per-round shuffle: same matches in different orders produce different (but valid) ratings"
 - [ ] "shuffleInPlace produces uniform distribution over many calls" — Fisher-Yates correctness
+
+#### Unit Tests — Budget Safety (paid-for matches always applied)
+- [ ] "iteration 1: budget-discarded agent's matches ARE included in global merge"
+- [ ] "iteration 1: opponent ratings reflect comparisons against budget-discarded variants"
+- [ ] "iteration 1: discarded variant is removed from pool AFTER merge completes"
+- [ ] "iteration 1: matchHistory retains matches referencing discarded variant IDs"
+- [ ] "iteration 2: round with 5 pairs (3 success, 2 budget reject): all 3 successful matches applied before exit"
+- [ ] "iteration 2: budget exit happens AFTER round matches are applied to ratings"
+- [ ] "iteration 2: ratings updated even when round fails halfway through"
 
 #### Unit Tests — Parallel Agents (iteration 1) + Two-Iteration Loop
 - [ ] "N agents dispatched in parallel in iteration 1"
