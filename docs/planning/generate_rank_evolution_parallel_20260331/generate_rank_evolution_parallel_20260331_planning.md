@@ -1001,6 +1001,18 @@ Changes needed:
 - [ ] "no anchor references in selectOpponent or related code"
 - [ ] "selectOpponent debug log includes all candidates with scores and selection reason"
 
+#### Unit Tests — Per-invocation ranking detail
+- [ ] "rankSingleVariant builds comparisons array with one entry per comparison"
+- [ ] "each comparison entry includes opponent, score, pWin, before/after state"
+- [ ] "comparisons array order is chronological (matches loop iteration order)"
+- [ ] "initial state captures localPoolSize, localPoolVariantIds, initialTop15Cutoff"
+- [ ] "final state captures stopReason, totalComparisons, finalLocalMu/Sigma"
+- [ ] "execution detail validates against generateFromSeedRankingDetailSchema"
+- [ ] "execution detail is persisted to evolution_agent_invocations.execution_detail JSONB"
+- [ ] "debug log fired for each candidate considered in selectOpponent"
+- [ ] "debug log fired after each comparison with state diff"
+- [ ] "info log fired at binary search exit with final state"
+
 #### Unit Tests — `persisted` flag
 - [ ] "newly generated variant has persisted=false in DB"
 - [ ] "variant with status converged is marked persisted=true at finalization"
@@ -1272,19 +1284,164 @@ The current `rankVariants.ts` has an "anchor" concept used in stratified opponen
 - [ ] Remove anchor-related metrics
 - [ ] Update doc references
 
-#### 8e: Detailed opponent selection logging
+#### 8e: Detailed per-invocation tracking for `generateFromSeedArticle`
 
-For debugging, log enough information to reproduce/audit each opponent selection decision:
+We need to be able to reconstruct exactly what happened during a single agent's binary search loop after the run completes. Two layers of tracking:
 
-- [ ] In `selectOpponent`, when called inside `rankSingleVariant`, log at debug level:
-  - The variant's current `mu`, `sigma`
-  - The list of candidate opponents considered (id, mu, sigma)
-  - The score computed for each candidate (including pWin, entropy, score)
-  - The picked opponent's id and score
-  - Why others were rejected (already-compared vs lower score)
-- [ ] Log at info level (less verbose) per comparison: variant, opponent, match outcome
-- [ ] Use structured fields in the log context dict (not concatenated strings) so admin UI / log queries can filter
-- [ ] Sample or limit at high pool sizes (don't log 100 candidate scores per comparison if pool grows)
+**Layer 1: Debug logs (`logger.debug`)** — verbose, per-comparison, real-time
+- Visible in admin UI's `LogsTab`
+- Filtered by debug level (off by default in production)
+- For active debugging during a run
+
+**Layer 2: Execution detail JSONB blob** — structured, persistent, queryable
+- Always stored on the `evolution_agent_invocations.execution_detail` field
+- Visible in admin UI's invocation detail page via custom `detailViewConfig`
+- For post-mortem analysis
+
+**Execution detail structure for `generateFromSeedArticle`:**
+
+```typescript
+interface GenerateFromSeedRankingDetail {
+  variantId: string
+  strategy: string
+
+  // Start state
+  localPoolSize: number
+  localPoolVariantIds: string[]
+  initialTop15Cutoff: number
+
+  // Per-comparison timeline (all in chronological order)
+  comparisons: Array<{
+    round: number               // 1-indexed
+    opponentId: string
+    selectionScore: number      // entropy / sigma^k
+    pWin: number                // expected win probability before the comparison
+
+    // Local state before comparison
+    variantMuBefore: number
+    variantSigmaBefore: number
+    opponentMuBefore: number
+    opponentSigmaBefore: number
+
+    // Outcome from LLM
+    outcome: 'win' | 'loss' | 'draw'
+    confidence: number
+
+    // Local state after comparison (post-OpenSkill-update)
+    variantMuAfter: number
+    variantSigmaAfter: number
+    opponentMuAfter: number
+    opponentSigmaAfter: number
+    top15CutoffAfter: number    // recomputed cutoff
+
+    // Stop check values at this point (helps debug "why didn't this stop?")
+    muPlusTwoSigma: number      // for elimination check
+    eliminated: boolean         // would elimination fire here?
+    converged: boolean          // would convergence fire here?
+  }>
+
+  // Final state
+  stopReason: 'converged' | 'eliminated' | 'no_more_opponents' | 'budget'
+  totalComparisons: number
+  finalLocalMu: number
+  finalLocalSigma: number
+  finalLocalTop15Cutoff: number
+  rankingDurationMs: number
+  rankingCost: number
+}
+```
+
+For typical 5-10 comparisons per variant, this is ~2-3 KB of JSONB per invocation. Cheap to store.
+
+**Note on local vs global:** The execution detail captures the AGENT'S LOCAL VIEW during the loop. After end-of-iter-1 randomized merge, the GLOBAL ratings will be slightly different. The execution detail reflects what the agent saw and decided based on, not the final global state. This is exactly what we want for debugging — "why did this agent stop here?"
+
+**Debug logging during the loop:**
+
+```typescript
+// Inside selectOpponent
+logger.debug('Selecting opponent', {
+  variantId, comparisonRound,
+  candidatesConsidered: candidates.map(c => ({
+    id: c.id, mu: c.mu, sigma: c.sigma,
+    score: c.score, pWin: c.pWin,
+    excluded: completedPairs.has(c.id),
+  })),
+  pickedOpponent: bestId,
+  pickedScore: bestScore,
+  phaseName: 'ranking',
+})
+
+// After updating local ratings
+logger.debug('Comparison complete', {
+  variantId, comparisonRound,
+  opponentId, outcome, confidence,
+  variantMuBefore, variantMuAfter,
+  variantSigmaBefore, variantSigmaAfter,
+  newTop15Cutoff,
+  phaseName: 'ranking',
+})
+
+// At loop exit
+logger.info('Binary search exit', {
+  variantId, stopReason, totalComparisons,
+  finalMu, finalSigma,
+  phaseName: 'ranking',
+})
+```
+
+**Implementation tasks:**
+- [ ] Define `generateFromSeedRankingDetailSchema` Zod schema with all fields above
+- [ ] In `rankSingleVariant`, build the `comparisons` array as the loop runs (capture before/after state for each)
+- [ ] Capture initial state (poolSize, top15Cutoff, variant ids) at loop start
+- [ ] Capture final state (stopReason, totalComparisons, finalMu, finalSigma) at loop exit
+- [ ] Return the detail object alongside the matchBuffer
+- [ ] In `generateFromSeedArticle.execute()`, embed the ranking detail in `execution_detail.ranking`
+- [ ] Add debug-level logs at the three points above (`Selecting opponent`, `Comparison complete`, `Binary search exit`)
+- [ ] Use structured fields in log context (not concatenated strings) for filterable queries
+- [ ] At high pool sizes (>50 candidates), sample candidate logging (e.g., top 10 by score) to avoid log bloat
+- [ ] Update `detailViewConfig` so admin UI renders the comparisons array as a sortable table
+
+**Admin UI: invocation detail page for `generateFromSeedArticle`**
+
+```
+┌─ generateFromSeedArticle invocation #4 (iteration=1, execution_order=4) ─┐
+│                                                                          │
+│ Variant: v4 (link)        Strategy: structural_transform                 │
+│ Stop reason: converged    Total comparisons: 7                           │
+│ Generation cost: $0.001   Ranking cost: $0.024   Duration: 18.3s         │
+│                                                                          │
+│ ─── Generation ─────────────────────────────────────────────────────────  │
+│ Strategy: structural_transform                                           │
+│ Format valid: yes                                                        │
+│ Text length: 2,847 chars                                                 │
+│                                                                          │
+│ ─── Ranking (binary search local view) ────────────────────────────────  │
+│                                                                          │
+│ Initial state:                                                           │
+│   Local pool size: 5  (baseline + 4 arena entries)                       │
+│   Initial top15 cutoff: 28.5                                             │
+│   Variant starting mu/σ: 25.00 / 8.33                                    │
+│                                                                          │
+│ Comparisons:                                                             │
+│ ┌─────┬───────────┬───────┬──────┬─────┬────────────────┬──────────────┐ │
+│ │ #   │ Opponent  │ Score │ pWin │ Out │ μ before→after │ σ before→after│ │
+│ │ 1   │ arena_a   │ 0.235 │ 0.50 │ win │ 25.00 → 28.20  │ 8.33 → 7.10  │ │
+│ │ 2   │ arena_b   │ 0.198 │ 0.46 │ win │ 28.20 → 30.45  │ 7.10 → 6.20  │ │
+│ │ 3   │ arena_c   │ 0.171 │ 0.55 │ los │ 30.45 → 28.10  │ 6.20 → 5.50  │ │
+│ │ 4   │ baseline  │ 0.152 │ 0.61 │ win │ 28.10 → 29.85  │ 5.50 → 4.90  │ │
+│ │ 5   │ arena_d   │ 0.139 │ 0.49 │ win │ 29.85 → 31.20  │ 4.90 → 4.30  │ │
+│ │ 6   │ ...       │ ...   │ ...  │ ... │ ...            │ ...          │ │
+│ │ 7   │ ...       │ ...   │ ...  │ ... │ 32.10 → 32.45  │ 3.20 → 2.85  │ │
+│ └─────┴───────────┴───────┴──────┴─────┴────────────────┴──────────────┘ │
+│                                                                          │
+│ Final local state:                                                       │
+│   μ: 32.45    σ: 2.85    top15 cutoff: 30.20                             │
+│   Stop reason: converged (σ < 3.0)                                       │
+│                                                                          │
+└──────────────────────────────────────────────────────────────────────────┘
+```
+
+The table is sortable by round, opponent, score, or any state column. This view tells the admin exactly what the agent did and why it made each decision, all from the invocation row.
 
 #### 8f: Run-level aggregate metrics
 - [ ] Add `numVariants` and `strategies` to run-level config logging
