@@ -73,44 +73,147 @@ No triage, no Swiss, no eligibility, no anchors as a separate concept. One loop,
 
 **Sequential within a variant:** Each variant picks one opponent at a time, awaits the comparison, updates ratings, then picks the next opponent. This guarantees every comparison is maximally informative (closest to current mu) and supports early elimination via the top-15% CI check after each match. Parallelism comes from running multiple agents (each owning one variant) in parallel. Batch-K closest opponents within a single variant is a possible future optimization for additional wall-clock speedup but is not in scope for this project.
 
-### Opponent selection: lowest-sigma anchor within variant's neighborhood
+### Opponent selection: information-gain scoring
+
+Instead of a hard range cutoff plus sort by sigma, score each opponent by a continuous formula that combines outcome uncertainty and opponent reliability. Pick the highest scorer. One tunable knob (`SIGMA_WEIGHT`) controls the trade-off.
 
 ```typescript
-function selectOpponent(variant, pool, ratings, completedPairs, multiplier = 2):
-  const range = max(MIN_RANGE, variant.sigma * multiplier)
-  candidates = []
+const SIGMA_WEIGHT = 1.0  // single tuning knob — controls reliability vs closeness trade-off
+
+function selectOpponent(variant, pool, ratings, completedPairs):
+  let bestScore = -Infinity
+  let bestId = null
+
   for opp in pool:
     if opp.id == variant.id: continue
     if completedPairs.has(pair(variant, opp)): continue
 
     const oppRating = ratings.get(opp.id) ?? createRating()
-    if abs(variant.mu - oppRating.mu) > range: continue
 
-    candidates.push({ id: opp.id, sigma: oppRating.sigma })
+    // Bradley-Terry win probability (existing OpenSkill math)
+    const pWin = 1 / (1 + Math.exp(-(variant.mu - oppRating.mu) / BETA))
 
-  if candidates.length === 0: return null
+    // Outcome entropy: peaks at pWin=0.5, approaches 0 at extremes
+    const entropy = -pWin * Math.log(pWin) - (1 - pWin) * Math.log(1 - pWin)
 
-  // Lowest sigma = most reliable anchor
-  candidates.sort((a, b) => a.sigma - b.sigma)
-  return candidates[0].id
+    // Score: high entropy (close match) × high reliability (low opponent sigma)
+    // SIGMA_WEIGHT=1 → equal weighting; >1 favors reliability; <1 favors closeness
+    const score = entropy / Math.pow(oppRating.sigma, SIGMA_WEIGHT)
+
+    if (score > bestScore) {
+      bestScore = score
+      bestId = opp.id
+    }
+
+  return bestId  // null if no uncompared opponents exist
 ```
 
-**How the range adapts:**
+**Two factors, one product:**
 
-The variant's own sigma drives the range. As the variant gets more comparisons, sigma drops, and the search narrows.
+| Factor | Behavior | Why |
+|--------|----------|-----|
+| `entropy(pWin)` | Peaks at pWin=0.5, → 0 at extremes | Close matches give the most information about variant's true rank |
+| `1 / opp.sigma` | High when opponent has low sigma | Reliable opponents anchor the comparison; uncertain ones add noise |
 
-| Variant sigma | Range (multiplier=2) | Search behavior |
-|---------------|----------------------|-----------------|
-| 8.3 (fresh) | 16.6 | Wide — exploring |
-| 6.0 | 12.0 | Narrowing |
-| 4.0 | 8.0 | Tighter |
-| 3.0 (converged) | 6.0 | Neighbors only |
+The product naturally favors opponents that are simultaneously close in mu AND well-established. Either factor alone is insufficient: a close opponent with high sigma gives a noisy signal, and a precise opponent far away gives a foregone-conclusion result.
 
-This is exactly binary-search behavior: each comparison narrows the variant's uncertainty, which shrinks the search range, which focuses subsequent comparisons closer to the true rank.
+**Cold start:** All variants have similar mu (default 25) and similar sigma (default 8.33). All scores are nearly equal. Pick first by iteration order. This is fine — cold start is inherently uninformative.
 
-**Cold start:** All variants have sigma=8.33, so the range is 16.66 — wide enough that all opponents qualify. As ratings spread, the range filter starts having an effect.
+**Adaptive narrowing:** As the variant's mu shifts and sigma drops through successive comparisons, the entropy term naturally focuses on opponents whose mu is close to the new estimate. There is no explicit range cutoff; the entropy gradient does the narrowing.
 
-**Why lowest-sigma anchor:** A well-established opponent (low sigma) provides a reliable signal. Comparing against an uncertain opponent moves both ratings and gives a noisier anchor for the binary search.
+**Far opponents:** Low entropy gives them low scores. They lose to closer opponents but remain candidates if no closer opponents are uncompared. This is more graceful than a hard cutoff that would prematurely declare "exhausted."
+
+**Constants used:** `BETA` (from OpenSkill, = 25 × √2 ≈ 35.4) and `SIGMA_WEIGHT` (single tuning knob, default 1.0). No `MIN_RANGE`, no `RANGE_MULTIPLIER`, no hard cutoff.
+
+### Parameter analysis: one knob is enough
+
+**Why one knob, not two:**
+
+The most general two-knob form is `score = entropy^a / sigma^b`. But ranking is invariant under monotonic transformations — only the ordering of scores matters for `argmax`, not the absolute values. Raising both sides to `1/a`:
+
+```
+score^(1/a) = entropy / sigma^(b/a)
+```
+
+Since `score^(1/a)` is monotonic in `score` (for `a > 0`), the opponent that maximizes `score` also maximizes `score^(1/a)`. They produce identical rankings.
+
+Let `k = b/a`. The single-knob equivalent is:
+
+```
+score = entropy / sigma^k
+```
+
+Two knobs collapse to one because `a` and `b` only matter through their ratio.
+
+**What `SIGMA_WEIGHT` (k) means:**
+
+| k | Behavior |
+|---|----------|
+| **0** | Pure entropy. Closest mu wins, ignore reliability. |
+| **0.5** | Mild reliability preference (square root). |
+| **1.0** (default) | Equal weighting between entropy and reliability. |
+| **2.0** | Strong reliability preference (sigma squared in denominator). |
+| **∞** | Pure reliability. Lowest sigma wins, ignore closeness. |
+
+Increasing `SIGMA_WEIGHT` makes the formula more conservative — prefer well-established opponents even at the cost of close matches. Decreasing it makes the formula more exploratory — accept noisier opponents if they're close in mu.
+
+**Why 1.0 is a good default:**
+
+The two factors live on similar dynamic ranges:
+- `entropy(pWin)` ranges from 0 (foregone) to ln(2) ≈ 0.693 (pure 50/50). About a ~7x span ignoring the foregone limit.
+- `1 / opp.sigma` ranges roughly from 0.12 (sigma=8.33, fresh) to 0.5 (sigma=2, well-established). About a 4x span.
+
+Both factors span similar dynamic ranges. With `k=1`, neither dominates.
+
+**Sensitivity analysis:**
+
+Variant V at mu=25, σ=4. Three candidates:
+
+| Opp | mu | sigma | Description |
+|-----|-----|-------|-------------|
+| A | 25 | 8 | Close but noisy |
+| B | 20 | 2 | Slightly far, precise |
+| C | 30 | 3 | Slightly far, moderate |
+
+| k | A score | B score | C score | Winner |
+|---|---------|---------|---------|--------|
+| **0.5** | 0.693/√8 = 0.245 | 0.687/√2 = 0.486 | 0.687/√3 = 0.397 | B |
+| **1.0** (default) | 0.693/8 = 0.087 | 0.687/2 = 0.344 | 0.687/3 = 0.229 | B |
+| **2.0** | 0.693/64 = 0.011 | 0.687/4 = 0.172 | 0.687/9 = 0.076 | B |
+
+The ranking (B > C > A) is stable across `k` values from 0.5 to 2.0. The formula is robust because the underlying ordering reflects real properties — B is genuinely the best opponent regardless of how we weight the factors. `SIGMA_WEIGHT` only matters at the margins where two candidates have nearly equal scores.
+
+**A case where k actually matters:**
+
+Variant V at mu=25, σ=4. Two candidates:
+- D: mu=25, σ=6 (perfectly close, moderately noisy)
+- E: mu=22, σ=2 (slightly far, very reliable)
+
+| k | D score | E score | Winner |
+|---|---------|---------|--------|
+| **0.5** | 0.693/√6 = 0.283 | 0.690/√2 = 0.488 | E |
+| **1.0** | 0.693/6 = 0.116 | 0.690/2 = 0.345 | E |
+| **0.0** (pure entropy) | 0.693 | 0.690 | D |
+
+With `k=0`, the perfectly-aligned-but-noisy D wins by entropy alone. With any `k > 0`, the more reliable E wins. This shows the knob does have effect for marginal cases.
+
+**Recommendation:** Ship with `SIGMA_WEIGHT = 1.0`. Track metrics so we can tune empirically. The constant lives in `rankSingleVariant.ts` as a top-level `const` — easy to change in a follow-up PR if metrics suggest it.
+
+**Metrics to track for tuning:**
+- Average comparisons per variant to convergence
+- Distribution of opponent sigmas selected (histogram)
+- Distribution of pWin values seen (are we mostly making 50/50 matches or 70/30?)
+- Variance in final ratings across runs (high variance suggests order bias, not parameter issue)
+
+**Constants we genuinely need:**
+
+| Constant | Source | Tunable? |
+|----------|--------|----------|
+| `BETA` (= 25√2) | OpenSkill standard | No — fixing this would change rating semantics |
+| `SIGMA_WEIGHT` (= 1.0) | This project | Yes — single knob for entropy/reliability trade-off |
+| `CONVERGENCE_THRESHOLD` (= 3.0) | Existing pipeline | Same as current — could tune |
+| `TOP_PERCENTILE` (= 0.15) | Existing pipeline | Same as current — could tune |
+| `ELIMINATION_CI` (= 2 sigmas) | Existing pipeline | Same as current — could tune |
 
 ### Stop conditions
 
@@ -316,10 +419,11 @@ async function rankSingleVariant(
 The function runs the binary-search loop sequentially: pick opponent → compare → update ratings → check stop conditions → repeat. Multiple variants are ranked concurrently because multiple agents run in parallel, NOT because this function does any internal parallelism.
 
 - [ ] Create `rankSingleVariant.ts`
-- [ ] Implement `selectOpponent()` using `variant.sigma * RANGE_MULTIPLIER` with `MIN_RANGE` floor (see "Opponent selection" above)
+- [ ] Implement `selectOpponent()` using `score = entropy(pWin) / sigma^SIGMA_WEIGHT` (see "Opponent selection: information-gain scoring" above)
 - [ ] Implement the main ranking loop with all 4 stop conditions
 - [ ] Compute `top15Cutoff` from current ratings, recomputed after each comparison
-- [ ] Add new constants: `MIN_RANGE` (default 5), `RANGE_MULTIPLIER` (default 2), `TOP_PERCENTILE` (default 0.15), `ELIMINATION_CI` (default 2), `CONVERGENCE_THRESHOLD` (default 3.0)
+- [ ] Reuse existing `BETA` constant (= 25 × √2) from computeRatings.ts for the Bradley-Terry formula
+- [ ] Add new constants: `SIGMA_WEIGHT` (default 1.0), `TOP_PERCENTILE` (default 0.15), `ELIMINATION_CI` (default 2), `CONVERGENCE_THRESHOLD` (default 3.0). No `MIN_RANGE` or `RANGE_MULTIPLIER` — the scoring formula handles selection without a hard cutoff.
 - [ ] Use existing `compareWithBiasMitigation()` for individual comparisons (2-pass A/B reversal already in place)
 - [ ] Use existing `updateRating()` and `updateDraw()` from computeRatings.ts
 - [ ] Return `status: 'budget'` if BudgetExceededError is caught — the agent will report this and the discard rule will remove the variant
@@ -555,11 +659,13 @@ Changes needed:
 - [ ] "returns status: 'generation_failed' on format validation failure"
 
 #### Unit Tests — Binary-Search Ranking
-- [ ] "selectOpponent returns lowest-sigma in-range candidate"
-- [ ] "selectOpponent range scales with variant's sigma"
-- [ ] "selectOpponent returns null when no candidates in range"
+- [ ] "selectOpponent picks highest-score opponent (entropy / sigma)"
+- [ ] "selectOpponent prefers close+reliable over close+noisy"
+- [ ] "selectOpponent prefers close+reliable over far+precise"
+- [ ] "selectOpponent picks far opponent when no closer ones available"
+- [ ] "selectOpponent returns null when no uncompleted opponents exist"
 - [ ] "selectOpponent excludes already-compared pairs"
-- [ ] "selectOpponent enforces MIN_RANGE floor"
+- [ ] "selectOpponent uses default rating for unrated opponents"
 - [ ] "rankSingleVariant exits on convergence"
 - [ ] "rankSingleVariant exits on elimination via top-15% CI"
 - [ ] "rankSingleVariant exits on opponent exhaustion"
@@ -677,7 +783,7 @@ Changes needed:
 
 ## Resolved Decisions
 - `numVariants` default: **9**, configurable per experiment via `EvolutionConfig`
-- `MIN_RANGE` and `RANGE_MULTIPLIER`: Ship with **5** and **2** as constants. Not user-configurable. Add metrics to enable empirical tuning later.
+- Opponent selection: continuous scoring `entropy(pWin) / sigma^SIGMA_WEIGHT`. Single tunable knob `SIGMA_WEIGHT = 1.0`. No `MIN_RANGE`, no `RANGE_MULTIPLIER`. The two-knob form `entropy^a / sigma^b` collapses to one knob via the monotonic transformation `score^(1/a)`. See "Parameter analysis" section.
 - Two-iteration architecture handles cold start: iter 1 = parallel generation/binary-search, iter 2 = SwissRankingAgent for refinement. Future multi-cycle iterations (with feedback agents, etc.) can be added later.
 
 ## Open Questions
