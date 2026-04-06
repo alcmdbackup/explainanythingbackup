@@ -80,6 +80,15 @@ No triage, no Swiss, no eligibility, no anchors as a separate concept. One loop,
 
 **Sequential within a variant:** Each variant picks one opponent at a time, awaits the comparison, updates ratings, then picks the next opponent. This guarantees every comparison is maximally informative (closest to current mu) and supports early elimination via the top-15% CI check after each match. Parallelism comes from running multiple agents (each owning one variant) in parallel. Batch-K closest opponents within a single variant is a possible future optimization for additional wall-clock speedup but is not in scope for this project.
 
+**Speed vs cost tradeoff (sequential vs batched within a single variant):**
+
+| Approach | Comparisons to converge | Wall-clock time | Cost (LLM calls) |
+|----------|------------------------|-----------------|------------------|
+| Sequential (1 opponent at a time, current design) | ~8 comparisons (each maximally informative) | ~24s (8 × 3s sequential) | 1x baseline |
+| Batched K=4 / quartile (parallel comparisons per round) | ~13 comparisons (some less informative due to bracketing) | ~9-12s (3-4 parallel rounds × 3s) | ~60% more LLM calls |
+
+The sequential approach minimizes total LLM calls (~8) but takes ~24s wall-clock per variant. A batched approach uses ~13 comparisons (60% more cost) but completes in ~9-12s (~2-3x faster wall-clock). For this project we ship sequential; batched is a future optimization if wall-clock matters more than cost.
+
 ### Opponent selection: information-gain scoring
 
 Instead of a hard range cutoff plus sort by sigma, score each opponent by a continuous formula that combines outcome uncertainty and opponent reliability. Pick the highest scorer. One tunable knob (`SIGMA_WEIGHT`) controls the trade-off.
@@ -890,7 +899,8 @@ Changes needed:
 - [ ] "execution detail validates against schema for both agents"
 - [ ] "run-level totalGenerationCost and totalRankingCost computed correctly"
 - [ ] "pool snapshot captured at start of iteration 1 (after baseline)"
-- [ ] "pool snapshot captured at start of iteration 2 (after iter 1 discard rule)"
+- [ ] "pool snapshot captured at end of iteration 1 / start of iteration 2 (after iter 1 discard rule)"
+- [ ] "pool snapshot captured at end of iteration 2 (after Swiss completes, before run finalization)"
 - [ ] "no anchor references in selectOpponent or related code"
 - [ ] "selectOpponent debug log includes all candidates with scores and selection reason"
 
@@ -1055,11 +1065,12 @@ We need to be able to inspect what the pool looked like at the start of iter 1 a
 ```typescript
 interface IterationSnapshot {
   iteration: number          // 1 or 2
+  phase: 'start' | 'end'     // captured at iteration start or end
   capturedAt: string         // ISO timestamp
   poolVariantIds: string[]   // ordering matches pool array
   ratings: Record<string, { mu: number, sigma: number }>
   matchCounts: Record<string, number>
-  discardedVariantIds?: string[]  // iter 2 only — IDs removed by iter 1 discard rule
+  discardedVariantIds?: string[]  // iter 1 end only — IDs removed by iter 1 discard rule
 }
 ```
 
@@ -1083,13 +1094,16 @@ Stores an array of `IterationSnapshot` objects (typically 2 entries). Reasoning:
 | Snapshot | When | Captures |
 |----------|------|----------|
 | Iter 1 start | Before dispatching iter 1 agents (just baseline + initial pool) | Initial state |
-| Iter 2 start | After iter 1 merge + discard rule applies, before dispatching swiss agent | Post-iter-1 state, including which variants were discarded |
+| Iter 1 end / Iter 2 start | After iter 1 merge + discard rule applies, before dispatching swiss agent | Post-iter-1 state, including which variants were discarded |
+| Iter 2 end | After SwissRankingAgent completes, before run finalization | Final state with refined ratings |
 
-Iter 2's snapshot is the most useful — it shows the surviving pool after iter 1 did its work.
+The iter 1 end snapshot and iter 2 start snapshot are the same moment in time (no gap between them), so we only store one snapshot for that boundary. Total snapshots per run: **3 logical states, 3 stored snapshot rows** (iter 1 start, iter 1 end ≡ iter 2 start, iter 2 end). Or **2 stored snapshot rows** if we treat iter 1 end and iter 2 start as a single snapshot tagged with both labels.
+
+Iter 2's start snapshot is the most useful for debugging cold start. Iter 2's end snapshot is the most useful for verifying refinement results.
 
 **Admin UI: new "Snapshots" tab on run detail page**
 
-Each iteration snapshot renders as a formatted table:
+Each iteration snapshot renders as a formatted table. The tab shows iteration 1 start, iteration 1 end (= iteration 2 start), and iteration 2 end:
 
 ```
 ┌─ Snapshots ─────────────────────────────────────────────────┐
@@ -1100,7 +1114,7 @@ Each iteration snapshot renders as a formatted table:
 │ │ baseline      │ baseline   │ 25.00  │ 8.33  │ 0       │  │
 │ └────────────────────────────────────────────────────────┘  │
 │                                                              │
-│ Iteration 2 — start (2026-04-06 14:24:12)                   │
+│ Iteration 1 — end / Iteration 2 — start (2026-04-06 14:24:12)│
 │ ┌────────────────────────────────────────────────────────┐  │
 │ │ Variant ID    │ Strategy   │ mu     │ sigma │ matches │  │
 │ │ v1 (link)     │ struct     │ 31.20  │ 4.30  │ 6       │  │
@@ -1116,6 +1130,16 @@ Each iteration snapshot renders as a formatted table:
 │ │ v7 (link)     │ 18.20  │ budget interrupted, mu < cutoff│  │
 │ └────────────────────────────────────────────────────────┘  │
 │                                                              │
+│ Iteration 2 — end (2026-04-06 14:26:48)                     │
+│ ┌────────────────────────────────────────────────────────┐  │
+│ │ Variant ID    │ Strategy   │ mu     │ sigma │ matches │  │
+│ │ v1 (link)     │ struct     │ 33.10  │ 2.80  │ 11      │  │
+│ │ v2 (link)     │ lex        │ 29.50  │ 2.95  │ 10      │  │
+│ │ v3 (link)     │ ground     │ 27.20  │ 3.10  │ 9       │  │
+│ │ baseline      │ baseline   │ 21.80  │ 4.50  │ 5       │  │
+│ │ ...                                                    │  │
+│ └────────────────────────────────────────────────────────┘  │
+│                                                              │
 └──────────────────────────────────────────────────────────────┘
 ```
 
@@ -1128,8 +1152,11 @@ Each iteration snapshot renders as a formatted table:
 
 **Implementation:**
 - [ ] DB migration: `ALTER TABLE evolution_runs ADD COLUMN iteration_snapshots JSONB DEFAULT '[]'::jsonb`
-- [ ] Define `iterationSnapshotSchema` Zod schema
-- [ ] In `runIterationLoop.ts`: helper `recordSnapshot(iteration, pool, ratings, matchCounts, options)` that builds the snapshot object and pushes to an in-memory array
+- [ ] Define `iterationSnapshotSchema` Zod schema (includes `phase: 'start' | 'end'`)
+- [ ] In `runIterationLoop.ts`: helper `recordSnapshot(iteration, phase, pool, ratings, matchCounts, options)` that builds the snapshot object and pushes to an in-memory array
+- [ ] Call `recordSnapshot(1, 'start', ...)` before dispatching iter 1 agents
+- [ ] Call `recordSnapshot(1, 'end', ..., { discardedVariantIds })` after iter 1 merge + discard rule (this is also iter 2 start)
+- [ ] Call `recordSnapshot(2, 'end', ...)` after SwissRankingAgent completes
 - [ ] Persist all snapshots to the run row at run finalization (single UPDATE, not per-iteration)
 - [ ] Server action: `getRunSnapshotsAction(runId): Promise<IterationSnapshot[]>` — joins snapshot variant IDs to `evolution_variants` to fetch strategy and other display fields
 - [ ] Frontend: new `<SnapshotsTab>` component, registered in run detail page tab list
