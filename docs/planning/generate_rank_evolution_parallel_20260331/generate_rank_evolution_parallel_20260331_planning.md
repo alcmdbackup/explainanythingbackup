@@ -1,12 +1,12 @@
 # Generate Rank Evolution Parallel Plan
 
 ## Background
-The evolution pipeline currently runs generate and rank operations sequentially, which makes some runs very slow. This project replaces the two-phase ranking architecture (triage + Swiss) with a two-iteration approach: (1) N parallel `generateFromSeedArticle` agents that each generate and roughly rank one variant via binary search, followed by (2) a single `swissRankingAgent` that refines the survivors via Swiss-style fine-ranking until convergence.
+The evolution pipeline currently runs generate and rank operations sequentially, which makes some runs very slow. This project replaces the two-phase ranking architecture (triage + Swiss) with a two-iteration approach: (1) N parallel `generateFromSeedArticle` agents that each generate and roughly rank one variant via binary search, followed by (2) a single `SwissRankingAgent` that refines the survivors via Swiss-style fine-ranking until convergence.
 
 ## Requirements (from GH Issue #914)
 - New `generateFromSeedArticle` agent: generates ONE variant with one strategy, then ranks it via binary search to convergence (or one of the other stop conditions)
-- New `swissRankingAgent`: refines all eligible (top-15%) variants via Swiss pairing until convergence
-- Two-iteration architecture: iteration 1 = N parallel `generateFromSeedArticle` agents (each running fully); iteration 2 = 1 `swissRankingAgent` (single agent with internally parallel pairs per round)
+- New `SwissRankingAgent`: refines all eligible (top-15%) variants via Swiss pairing until convergence
+- Two-iteration architecture: iteration 1 = N parallel `generateFromSeedArticle` agents (each running fully); iteration 2 = 1 `SwissRankingAgent` (single agent with internally parallel pairs per round)
 - Solves cold-start problem: iteration 1 has limited opponents, iteration 2 fills in the cross-variant comparisons
 - Iter 1 discard rule: budget-interrupted variants are kept only if their **actual mu** is in top 15% (not optimistic upper bound)
 - Iter 2 discard rule: never discard
@@ -24,7 +24,7 @@ The proposed fix splits this into two distinct iterations with different paralle
 
 **Iteration 1 (parallel exploration):** N agents generate one variant each and rank it via binary search. This is maximally parallel — N invocations run concurrently. But it has a cold-start problem: when all N agents start at the same time, the pool is just `[baseline]`, so each agent's variant has nothing to compare against except baseline. As agents complete and add their variants to the shared pool, later-completing agents see slightly more opponents, but cross-variant comparisons in iteration 1 are limited.
 
-**Iteration 2 (sequential refinement):** A single `swissRankingAgent` ranks all variants above the top-15% threshold using Swiss-style pairing until they converge (sigma < threshold). This fills in the cross-variant comparisons that iteration 1 couldn't do. By this point all variants have rough ratings from iteration 1, so eligibility and pairing work as expected.
+**Iteration 2 (sequential refinement):** A single `SwissRankingAgent` ranks all variants above the top-15% threshold using Swiss-style pairing until they converge (sigma < threshold). This fills in the cross-variant comparisons that iteration 1 couldn't do. By this point all variants have rough ratings from iteration 1, so eligibility and pairing work as expected.
 
 This hybrid captures the wall-clock benefit of parallelism (iteration 1) while still producing high-quality rankings (iteration 2).
 
@@ -227,8 +227,38 @@ With `k=0`, the perfectly-aligned-but-noisy D wins by entropy alone. With any `k
 |-----------|-------|---------------|--------|
 | **Eliminated** | `mu + 2σ < top15Cutoff` | Weak variant after 2-5 comparisons | Stop, mark eliminated |
 | **Converged** | `sigma < CONVERGENCE_THRESHOLD` (default 3.0) | Strong variant after 5-15 comparisons | Stop, fully ranked |
-| **No more opponents** | `selectOpponent()` returns null | No opponents in mutual neighborhood | Stop, fully ranked but with whatever sigma remains |
-| **Budget** | `costTracker.reserve()` throws | Any time | Stop, status depends on completion |
+| **No more opponents** | `selectOpponent()` returns null | All other variants in pool already compared, or pool too small | Stop, fully ranked but with whatever sigma remains |
+| **Budget** | `costTracker.reserve()` throws | Any time | Stop, final disposition decided after iter 1 merge by checking `mu < top15Cutoff` |
+
+### State tracking — explicit vs implicit
+
+State for each variant is tracked in a mix of explicit and implicit ways:
+
+| State | Tracking | Where stored |
+|-------|----------|--------------|
+| Variant exists | Implicit | Row in `evolution_variants` (always written when generated) |
+| In active pool | Implicit | Presence in in-memory `pool` array |
+| Current rating | Explicit | `ratings: Map<id, {mu, sigma}>` (in-memory) |
+| Match count | Explicit | `matchCounts: Map<id, number>` (in-memory) |
+| Eliminated | Explicit | `eliminatedIds: Set<id>` (in-memory) — used by `selectWinner` to skip |
+| Discarded (post-iter-1) | Implicit | Variant absent from `pool`/`ratings`/`matchCounts` after the discard rule applies |
+| Agent stop status | Explicit | `status` field in agent return value, persisted to invocation `execution_detail` JSONB |
+
+**Per-variant state** (rating, match count, eliminated) lives in in-memory maps and is recomputed each run from match data. **Per-invocation status** (how the agent exited) is persisted in the invocation row's `execution_detail` JSONB. **Discarded** has no explicit marker — the variant is just absent from the in-memory pool after iter 1 finishes.
+
+The pool snapshot tab (Phase 8c) makes the implicit "discarded" state inspectable: the iter 2 snapshot lists which variants survived iter 1 and which were removed (with reason).
+
+### Persistence by stop condition
+
+| Stop condition | `evolution_variants` row | In-memory pool | `selectWinner` candidate |
+|----------------|--------------------------|----------------|--------------------------|
+| `converged` | ✅ | ✅ | ✅ |
+| `eliminated` | ✅ | ✅ | ❌ (in `eliminatedIds`) |
+| `no_more_opponents` | ✅ | ✅ | ✅ |
+| `budget` (mu ≥ top15Cutoff) | ✅ | ✅ | ✅ |
+| `budget` (mu < top15Cutoff) | ✅ | ❌ removed | ❌ |
+
+Variants are always saved to `evolution_variants` when generated. Discarded variants stay in the DB but are removed from the in-memory pool. Their cost is tracked at the invocation level (in `evolution_agent_invocations`), not lost.
 
 ### Deferred rating updates (bias prevention)
 
@@ -296,9 +326,9 @@ This ensures we don't waste paid-for information when a variant is interrupted.
 
 **Note on opponent selection accuracy:** Because each iter 1 agent uses local ratings, two agents may make slightly different opponent selection decisions for the same variant in the pool. This is acceptable — the binary search is still mathematically valid for each variant, and the final merge produces consistent global ratings.
 
-### Iteration 2: `swissRankingAgent`
+### Iteration 2: `SwissRankingAgent`
 
-After all `generateFromSeedArticle` agents complete in iteration 1, the pool contains ~9 variants with rough ratings (most stopped with high sigma because there were no more opponents available during cold start). Iteration 2 dispatches a single `swissRankingAgent` to refine the survivors.
+After all `generateFromSeedArticle` agents complete in iteration 1, the pool contains ~9 variants with rough ratings (most stopped with high sigma because there were no more opponents available during cold start). Iteration 2 dispatches a single `SwissRankingAgent` to refine the survivors.
 
 ```
 swissRankingAgent.run(input, ctx):
@@ -333,12 +363,20 @@ swissRankingAgent.run(input, ctx):
 - Recomputed each round (variants may move in/out of eligible set as ratings change)
 - Excludes eliminated variants from iteration 1
 
-**Convergence:**
-- All eligible variants have `sigma < CONVERGENCE_THRESHOLD` (default 3.0)
-- Or 2 consecutive rounds with no new pairs to evaluate
-- Or budget exhausted
+**Stop conditions for `SwissRankingAgent`:**
 
-**Cost:** Iteration 2 adds another ranking pass on the top variants. Budget impact is moderate — the eligible set is small (top 15% of 10 = top 1-2 variants, fallback to top-3 minimum), so each Swiss round is 1-2 pairs.
+| Condition | Trigger | What it means |
+|-----------|---------|---------------|
+| `converged` | All eligible variants have `sigma < CONVERGENCE_THRESHOLD` | Top variants are confidently ranked |
+| `no_pairs` | `swissPairing()` returns empty array | Every unique pair from the eligible set has already been compared (across all rounds, tracked via `completedPairs`) |
+| `max_rounds` | Hit `MAX_SWISS_ROUNDS` (default 20) | Safety cap, should be rare |
+| `budget` | `BudgetExceededError` mid-round | Out of budget. Successful matches in the failing round are still applied. |
+
+**Why we don't re-compare the same pair:** The `compareWithBiasMitigation` LRU cache uses an order-invariant key (sorted SHA-256 of the two texts), so re-comparing returns the cached result without an LLM call. But applying the same match result twice tells OpenSkill the comparison happened twice — that's mathematically wrong, double-counting the same evidence. So `completedPairs` strictly excludes already-compared pairs across all rounds.
+
+**Implication for small pools:** With 3 eligible variants there are only 3 unique pairs (`AB, AC, BC`). After one full round, all 3 are in `completedPairs` and the next round returns `no_pairs`. The agent exits without reaching `sigma < 3.0` because all available information has been extracted. This is the correct behavior — re-comparing wouldn't add information, just create math errors.
+
+**Cost:** Iteration 2 adds another ranking pass on the top variants. Budget impact is moderate — the eligible set is small (top 15% of 10 = top 1-2 variants, fallback to top-3 minimum). For small eligible sets, the agent typically exits via `no_pairs` after compactly burning through all unique pairs.
 
 ### Discard Rule
 
@@ -364,7 +402,7 @@ The other status outcomes (`converged`, `eliminated`, `no_more_opponents`) never
 
 **Why check after merge?** Because merge applies all matches from all agents to the global ratings, including matches from the budget-interrupted variant itself. The variant's post-merge rating is its best possible estimate. We use that for the eligibility check.
 
-#### Iteration 2: `swissRankingAgent` never discards
+#### Iteration 2: `SwissRankingAgent` never discards
 
 Variants in iteration 2 already have ratings from iteration 1. They're "real" articles. Budget interruption during Swiss refinement just means the ratings are less refined than they could be — but the variants themselves remain valid pool members with their current ratings.
 
@@ -498,9 +536,9 @@ The function runs the binary-search loop sequentially: pick opponent → compare
 
 **Concurrency safety:** Multiple `rankSingleVariant()` calls run concurrently from different agents. They share `pool`, `ratings`, `matchCounts`, `cache`. All mutations are synchronous between awaits (Node.js event loop). Two variants comparing against the same opponent concurrently is acceptable — the rating updates produce valid Bayesian posteriors regardless of order.
 
-### Phase 3: New `swissRankingAgent`
+### Phase 3: New `SwissRankingAgent`
 
-**Target file:** `evolution/src/lib/core/agents/swissRankingAgent.ts` (new)
+**Target file:** `evolution/src/lib/core/agents/SwissRankingAgent.ts` (new)
 
 **What it does:** A single agent that runs Swiss-style fine-ranking on the top-15% of the pool until convergence. Called in iteration 2 after all `generateFromSeedArticle` agents complete.
 
@@ -586,7 +624,7 @@ interface SwissRankingInput {
 **New constant:** `MAX_PAIRS_PER_ROUND = 20` (default, matches LLM semaphore limit)
 
 **Implementation:**
-- [ ] Create `swissRankingAgent.ts` with the agent class
+- [ ] Create `SwissRankingAgent.ts` with the agent class
 - [ ] Copy `swissPairing()` function from old `rankVariants.ts` (don't reference, copy)
 - [ ] Implement `computeEligible()`: top-15% by mu, with `MIN_SWISS_POOL` floor (default 3)
 - [ ] Implement `allConverged()`: check all eligible have sigma < threshold
@@ -602,7 +640,7 @@ interface SwissRankingInput {
 
 **What changes:** Replace the sequential generate→rank loop with two iterations:
 1. **Iteration 1:** N parallel `generateFromSeedArticle` agents
-2. **Iteration 2:** 1 `swissRankingAgent` (refines survivors)
+2. **Iteration 2:** 1 `SwissRankingAgent` (refines survivors)
 
 **Current structure (to be replaced):**
 ```typescript
@@ -707,7 +745,7 @@ Total variants generated = `numVariants`. With strategies cycling round-robin, y
 
 - [ ] Replace the iteration loop with two-iteration parallel dispatch
 - [ ] Iteration 1: dispatch N parallel `generateFromSeedArticle` agents
-- [ ] Iteration 2: dispatch single `swissRankingAgent`
+- [ ] Iteration 2: dispatch single `SwissRankingAgent`
 - [ ] Each agent gets its own AgentContext snapshot (frozen `iteration`, `executionOrder`) and assigned strategy
 - [ ] Use `Promise.allSettled` so one failed agent in iter 1 doesn't cancel others
 - [ ] Aggregate results: collect variants from all iter 1 agents, merge matches from both iterations
@@ -796,7 +834,7 @@ Changes needed:
 - [ ] "rankSingleVariant exits on budget exceeded with status: 'budget'"
 - [ ] "concurrent rankSingleVariant calls share ratings safely"
 
-#### Unit Tests — `swissRankingAgent`
+#### Unit Tests — `SwissRankingAgent`
 - [ ] "ranks only top-15% eligible variants"
 - [ ] "respects MIN_SWISS_POOL floor (3 variants minimum)"
 - [ ] "pairs within a round execute in parallel" — barrier pattern
@@ -865,7 +903,7 @@ Changes needed:
 
 #### 8a: Both agents fully integrated as proper Agent subclasses
 
-Both `generateFromSeedArticle` and `swissRankingAgent` extend the `Agent<Input, Output, Detail>` base class. They must define all standard agent properties:
+Both `generateFromSeedArticle` and `SwissRankingAgent` extend the `Agent<Input, Output, Detail>` base class. They must define all standard agent properties:
 
 - [ ] `name` constant (e.g., `'generate_from_seed_article'`, `'swiss_ranking'`)
 - [ ] `executionDetailSchema` Zod schema for validating execution detail
@@ -878,7 +916,7 @@ Both `generateFromSeedArticle` and `swissRankingAgent` extend the `Agent<Input, 
 
 Per-invocation breakdown (already in plan):
 - [ ] `generationCost` and `rankingCost` separate fields in `generateFromSeedArticle` execution detail
-- [ ] `rankingCost` in `swissRankingAgent` execution detail (no generation cost)
+- [ ] `rankingCost` in `SwissRankingAgent` execution detail (no generation cost)
 - [ ] Top-level `cost_usd` is the sum (matches existing column semantics)
 
 Run-level aggregates (new):
@@ -1013,7 +1051,7 @@ For debugging, log enough information to reproduce/audit each opponent selection
 ### New Files
 - `evolution/src/lib/core/agents/generateFromSeedArticle.ts` — Single-variant agent (iteration 1)
 - `evolution/src/lib/core/agents/generateFromSeedArticle.test.ts`
-- `evolution/src/lib/core/agents/swissRankingAgent.ts` — Swiss refinement agent (iteration 2)
+- `evolution/src/lib/core/agents/SwissRankingAgent.ts` — Swiss refinement agent (iteration 2)
 - `evolution/src/lib/core/agents/swissRankingAgent.test.ts`
 - `evolution/src/lib/pipeline/loop/rankSingleVariant.ts` — Binary-search ranking
 - `evolution/src/lib/pipeline/loop/rankSingleVariant.test.ts`
@@ -1073,7 +1111,7 @@ For debugging, log enough information to reproduce/audit each opponent selection
 
 ## Documentation Updates
 - [ ] `evolution/docs/architecture.md` — Replace generate→rank flow with two-iteration architecture (parallel iter 1 + Swiss iter 2)
-- [ ] `evolution/docs/agents/overview.md` — Document `generateFromSeedArticle` and `swissRankingAgent` agents
+- [ ] `evolution/docs/agents/overview.md` — Document `generateFromSeedArticle` and `SwissRankingAgent` agents
 - [ ] `evolution/docs/rating_and_comparison.md` — Replace triage + Swiss with binary-search (iter 1) and Swiss refinement (iter 2), discard rule
 - [ ] `evolution/docs/metrics.md` — New per-agent and per-iteration metrics
 - [ ] `docs/feature_deep_dives/evolution_metrics.md` — New execution detail structure
@@ -1087,6 +1125,7 @@ For debugging, log enough information to reproduce/audit each opponent selection
 ## Open Questions
 - Default for `MAX_SWISS_ROUNDS` in iteration 2: 20 (matching today's behavior)?
 - Should iteration 2 budget allocation be a fraction of total budget, or share the global pool?
+- Is `CONVERGENCE_THRESHOLD = 3.0` actually achievable in iteration 2 with small eligible sets (3-5 variants)? With 3 variants there are only 3 unique pairs — after compactly running them, the agent exits via `no_pairs` rather than `converged`. May need to either accept this or relax the threshold for iter 2 specifically.
 
 ## Review & Discussion
 [Populated by /plan-review with agent scores, reasoning, and gap resolutions]
