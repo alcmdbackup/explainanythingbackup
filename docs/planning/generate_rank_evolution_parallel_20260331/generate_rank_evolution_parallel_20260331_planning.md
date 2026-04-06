@@ -77,24 +77,28 @@ For more variants, dispatch more agents (N=9 → 9 agents, optionally cycling th
 
 ### Unified binary-search ranking
 
-Each agent runs a single loop on its single variant. **The local ratings are frozen** — no OpenSkill updates happen during the loop. Match outcomes are buffered and applied to global ratings (in randomized order) at end of iter 1.
+Each agent runs a single loop on its single variant. The agent **mutates local ratings during the loop** for adaptive selection and stop checks. Raw match outcomes are also **buffered separately**, to be fed to global ratings (in randomized order) at end of iter 1.
 
 ```
 while not stopped:
-  opponent = selectOpponent(variant, localPool, FROZEN_localRatings, completedPairs)
+  opponent = selectOpponent(variant, localPool, localRatings, completedPairs)
   if opponent === null: stop "no_more_opponents"
 
   match = await compare(variant, opponent)
-  matchBuffer.push(match)              // store raw outcome — no rating update
+  matchBuffer.push(match)               // raw outcome → for global merge
+  updateRating(localRatings, match)     // mutate local for agent-internal decisions
   completedPairs.add(pair(variant, opponent))
 
-  // Stop checks use FROZEN local ratings
-  if FROZEN variant.mu + 2σ < FROZEN top15Cutoff: stop "eliminated"  // rare in iter 1
-  if FROZEN variant.sigma < CONVERGENCE_THRESHOLD: stop "converged"   // never in iter 1 (sigma is constant)
+  // Stop checks use LOCAL ratings (which DO change as the loop progresses)
+  if local.mu + 2σ < local.top15Cutoff: stop "eliminated"
+  if local.sigma < CONVERGENCE_THRESHOLD: stop "converged"
   if budget exhausted: stop "budget"
 ```
 
-**In iter 1, convergence and elimination effectively don't fire** because the local ratings never change. The variant's sigma stays at the default 8.33, well above the convergence threshold of 3.0. Variants exit via `no_more_opponents` (most common) or `budget`. The "binary search" reduces to "compare against every opponent in static score order until exhausted." This is fine — iter 1's job is to generate variants and gather raw match data; iter 2 does the actual ranking work using updated global ratings.
+**Two views, one merge:**
+- `matchBuffer` is the raw record of what happened (winner, loser, confidence). This is what gets fed to global ratings at end of iter 1.
+- `localRatings` is the agent's internal view of "what would my rating be if these matches happened in chronological order?" Used only for stop decisions and opponent selection. Discarded when the agent returns.
+- The discrepancy between local-chronological and global-randomized is bounded and acceptable (~0.1-0.5 mu difference).
 
 No triage, no anchor concept, no separate eligibility data structure. One loop, four stop conditions.
 
@@ -307,15 +311,30 @@ Variants are always saved to `evolution_variants` when generated. The `persisted
 | **Iteration 1** (parallel agents, each running binary search) | End of iteration 1 (after all agents complete) | All match results from all agents |
 | **Iteration 2** (Swiss agent, parallel pairs within rounds) | End of each Swiss round | Match results from that round's parallel pairs |
 
-**Iteration 1 details:**
-- Each `generateFromSeedArticle` agent operates on a LOCAL deep-clone of BOTH `pool` and `ratings`, captured at iteration start. **These local clones are read-only throughout the agent's lifecycle** — no OpenSkill updates happen locally.
-- The agent generates one variant and adds it to its OWN local pool only
-- Within the agent's binary search loop: opponent selection uses the FROZEN local ratings; comparisons produce match outcomes that are appended to a `matchBuffer`. **No OpenSkill `updateRating()` calls happen during the loop.**
-- Stop condition checks (`elimination`, `convergence`) read the FROZEN local ratings. In practice this means iter 1 variants almost always exit via `no_more_opponents` or `budget` — convergence and elimination effectively don't fire in iter 1 because the variant's mu/sigma never change locally. Iter 2 (Swiss) is where convergence and elimination matter.
+**Iteration 1 details (local mutation + randomized global merge):**
+- Each `generateFromSeedArticle` agent operates on a LOCAL deep-clone of BOTH `pool` and `ratings`, captured at iteration start
+- The agent generates one variant and adds it to its OWN local pool
+- Within the agent's binary search loop:
+  - Opponent selection uses local ratings (which mutate as the loop progresses)
+  - Each comparison produces a match outcome
+  - The raw match outcome is **appended to a `matchBuffer`** (for the global merge later)
+  - The match is **also applied to local ratings** via `updateRating()` for agent-internal adaptation
+- Stop condition checks (`elimination`, `convergence`) read the local ratings, which DO change as the loop progresses. This means iter 1 variants CAN exit via `converged` or `eliminated` (not just `no_more_opponents` or `budget`). Early termination saves budget when the variant clearly doesn't need more comparisons.
 - Variants generated by other parallel agents are NOT visible — each agent sees only `[baseline + arena entries + its own variant]`
-- Match results collected in the agent's local `matchBuffer`
-- After all agents settle: combine all generated variants into the global `pool`; collect ALL `matchBuffer`s (including from budget-status agents); concatenate, shuffle, apply OpenSkill updates sequentially to the GLOBAL `ratings` map. **This is the FIRST and ONLY time OpenSkill updates run for iter 1 matches.**
+- After all agents settle: combine all generated variants into the global `pool`; collect ALL `matchBuffer`s (including from budget-status agents); concatenate, shuffle, **apply OpenSkill updates to the GLOBAL `ratings` map in randomized order**. The agent's local ratings are discarded — global ratings are the source of truth.
 - Iteration 2 uses the merged global pool and ratings
+
+**Two views of ratings — explicit separation:**
+
+| | Local ratings (per-agent) | Global ratings (single source of truth) |
+|---|---|---|
+| Where | Inside `rankSingleVariant` for one agent | `ratings` Map in the iteration loop |
+| Mutation | Updates after every comparison in the agent's loop | Updated once, in randomized order, at end of iter 1 |
+| Order | Chronological (the order LLM returned results) | Random (Fisher-Yates shuffle of all matches) |
+| Used for | Agent-internal decisions: opponent selection, stop condition checks (eliminated/converged) | Final pool state, discard rule, iter 2 input, run output |
+| Lifetime | Discarded when agent's `execute()` returns | Persists throughout the run |
+
+**Bounded divergence:** Local and global ratings will end up slightly different because they apply the same matches in different orders. The differences are small (~0.1-0.5 mu, ~0.05-0.2 sigma) and only affect agent-internal stop decisions, not the final output. The randomized global merge prevents systematic ordering bias across the run.
 
 **Iteration 2 details:**
 - Within a Swiss round: pairs run in parallel, results collected
@@ -485,27 +504,29 @@ What is **NOT** removed:
 ```typescript
 class GenerateFromSeedArticleAgent extends Agent<GenerateFromSeedInput, GenerateFromSeedOutput, GenerateFromSeedDetail> {
   async execute(input, ctx) {
-    // Step 0: Deep-clone the iteration-start snapshot into local READ-ONLY state.
-    // These local copies are NEVER mutated during the agent's lifecycle.
-    // OpenSkill updates only happen at end of iteration 1 against global ratings.
+    // Step 0: Deep-clone the iteration-start snapshot into local mutable state.
+    // The agent will mutate localRatings during binary search (for adaptive
+    // selection and stop checks). Global ratings are NOT touched by the agent.
     const localPool: Variant[] = [...input.initialPool];
-    const localRatings = new Map(input.initialRatings);  // FROZEN
-    const localMatchCounts = new Map(input.initialMatchCounts);  // FROZEN
+    const localRatings = new Map(input.initialRatings);
+    const localMatchCounts = new Map(input.initialMatchCounts);
 
     // Phase 1: Generate one variant using the assigned strategy
     const { variant, generationCost, generationDetail } = await runSingleGeneration(input, ctx);
 
-    // Phase 2: Add variant to localPool (mutated once, never again).
-    // Rank via binary search using FROZEN local ratings for selection
-    // and stop checks. The function returns a buffer of raw match outcomes;
-    // it does NOT call updateRating() during the loop.
+    // Phase 2: Add variant to localPool. Rank via binary search using local
+    // ratings for selection and stop checks. The function:
+    //  - Mutates localRatings as it goes (chronological order)
+    //  - Returns the raw match outcomes in matchBuffer
+    // The matchBuffer is what gets fed to global ratings via the randomized
+    // merge at end of iter 1. The local ratings are discarded.
     localPool.push(variant);
     const { status, matches, rankingCost, rankingDetail } = await rankSingleVariant(
       variant, localPool, localRatings, localMatchCounts, input.cache, ctx,
     );
 
     return {
-      result: { variant, status, matches },  // matches = raw match outcomes, no rating updates applied
+      result: { variant, status, matches },  // matches = raw match outcomes for global merge
       detail: {
         generation: { cost: generationCost, ...generationDetail },
         ranking: { cost: rankingCost, ...rankingDetail },
@@ -564,23 +585,31 @@ async function rankSingleVariant(
 }>
 ```
 
-The function runs the binary-search loop sequentially: pick opponent → compare → buffer raw match → check stop conditions → repeat. **No OpenSkill updates happen inside this function.** The local ratings passed in are read-only; the function buffers raw match outcomes and returns them. Multiple variants are ranked concurrently because multiple agents run in parallel, NOT because this function does any internal parallelism.
+The function runs the binary-search loop sequentially: pick opponent → compare → buffer raw match → mutate local ratings via OpenSkill update → check stop conditions → repeat. The local ratings passed in are mutated during the loop (for agent-internal decisions). The function buffers raw match outcomes separately and returns them for the global merge. Multiple variants are ranked concurrently because multiple agents run in parallel, NOT because this function does any internal parallelism.
 
 - [ ] Create `rankSingleVariant.ts`
 - [ ] Implement `selectOpponent()` using `score = entropy(pWin) / sigma^SIGMA_WEIGHT` (see "Opponent selection: information-gain scoring" above)
 - [ ] Implement the main ranking loop with all 4 stop conditions
-- [ ] Compute `top15Cutoff` from local ratings ONCE at loop start (these ratings are frozen — no need to recompute)
+- [ ] Compute `top15Cutoff` from local ratings, recomputed after each rating update inside the loop
 - [ ] Reuse existing `BETA` constant (= 25 × √2) from computeRatings.ts for the Bradley-Terry formula
 - [ ] Add new constants: `SIGMA_WEIGHT` (default 1.0), `TOP_PERCENTILE` (default 0.15), `ELIMINATION_CI` (default 2), `CONVERGENCE_THRESHOLD` (default 3.0). No `MIN_RANGE` or `RANGE_MULTIPLIER` — the scoring formula handles selection without a hard cutoff.
 - [ ] Use existing `compareWithBiasMitigation()` for individual comparisons (2-pass A/B reversal already in place)
-- [ ] **Do NOT call `updateRating()` or `updateDraw()` inside the loop** — match outcomes are appended to a buffer; OpenSkill updates only happen at end of iteration 1 against the global ratings
-- [ ] Return the match buffer in the `matches` field of the result
+- [ ] **Two parallel paths after each comparison:**
+  - Append the raw match outcome to `matchBuffer` (for the global merge later)
+  - Call `updateRating()` / `updateDraw()` on the LOCAL ratings (for agent-internal decisions: opponent selection, stop checks)
+- [ ] Return the `matchBuffer` in the `matches` field of the result. The local ratings are NOT returned — they're discarded.
 - [ ] Return `status: 'budget'` if BudgetExceededError is caught — the agent will report this and the discard rule will remove the variant
 - [ ] Track and return `comparisonsRun` count
 
-**Top 15% cutoff:** Computed ONCE at loop start from the frozen local ratings. Since no rating updates happen during the loop, the cutoff doesn't change — there's no need to recompute. (In iter 2 / SwissRankingAgent, where ratings update between rounds, the cutoff IS recomputed each round.)
+**Top 15% cutoff:** Computed from local ratings, recomputed after each rating update inside the loop. The cutoff drives the elimination check; using stale values could keep weak variants alive longer than needed. Compute cost is negligible.
 
-**Concurrency safety:** Multiple `rankSingleVariant()` calls run concurrently from different agents. Each call operates on its agent's LOCAL `pool`, `ratings`, and `matchCounts` (deep-cloned at iteration start, never mutated). There is no shared mutable state across agents during iter 1 — no race conditions to worry about. The `cache` is shared (order-invariant keys make this safe), but all other state is local per agent.
+**Concurrency safety:** Multiple `rankSingleVariant()` calls run concurrently from different agents. Each call operates on its agent's LOCAL `pool`, `ratings`, and `matchCounts` (deep-cloned at iteration start). The local mutations are private to each agent — no shared mutable state across agents during iter 1, no race conditions. The `cache` is shared (order-invariant keys make this safe), but all other state is local per agent.
+
+**Why local mutation is safe under randomized global merge:** The bias prevention principle says global ratings must be updated in randomized order to avoid systematic ordering bias from parallel completion timing. Local mutations don't violate this because:
+1. Each agent's local state is private — no other agent reads or writes it
+2. Local state is discarded at agent exit, never persisted
+3. Global ratings are updated EXCLUSIVELY by the randomized merge step
+4. Local mutation timing affects only the agent's internal decisions (early termination), not the final output
 
 ### Phase 3: New `SwissRankingAgent`
 
@@ -920,12 +949,15 @@ Changes needed:
 - [ ] "skips already-completed pairs across rounds"
 
 #### Unit Tests — Bias Prevention
-- [ ] "iteration 1: agent operates on a deep-cloned local snapshot of ratings"
-- [ ] "iteration 1: agent's local ratings map is identical before and after binary search loop completes (no mutation)"
-- [ ] "iteration 1: rankSingleVariant does NOT call updateRating during the loop"
-- [ ] "iteration 1: rankSingleVariant returns raw match outcomes in buffer (no rating updates applied)"
-- [ ] "iteration 1: variant's sigma stays at default 8.33 throughout loop (no convergence in iter 1)"
-- [ ] "iteration 1: end-of-iteration merge applies all matches in random order to global"
+- [ ] "iteration 1: agent operates on a deep-cloned local snapshot of ratings (not the input)"
+- [ ] "iteration 1: agent's local ratings ARE mutated during binary search (chronological order)"
+- [ ] "iteration 1: rankSingleVariant calls updateRating after each comparison (mutates local)"
+- [ ] "iteration 1: rankSingleVariant returns raw match outcomes in buffer (separate from local mutations)"
+- [ ] "iteration 1: agent's local rating mutation does NOT affect input ratings or other agents' state"
+- [ ] "iteration 1: end-of-iteration global merge applies all matches in random order to global ratings"
+- [ ] "iteration 1: global ratings differ from any single agent's local ratings (because order is randomized)"
+- [ ] "iteration 1: variant CAN exit via converged when local sigma drops below threshold"
+- [ ] "iteration 1: variant CAN exit via eliminated when local mu+2σ drops below local top15Cutoff"
 - [ ] "iteration 2: per-round shuffle: same matches in different orders produce different (but valid) ratings"
 - [ ] "shuffleInPlace produces uniform distribution over many calls" — Fisher-Yates correctness
 
