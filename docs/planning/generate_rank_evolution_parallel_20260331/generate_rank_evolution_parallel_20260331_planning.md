@@ -958,13 +958,46 @@ WHERE run_id = $1 AND persisted = true
 SELECT SUM(cost_usd) FROM evolution_agent_invocations WHERE run_id = $1
 ```
 
+**Important note on write timing:** Today, `evolution_variants` rows are only written at run finalization (`persistRunResults.ts:191` does a bulk UPSERT). They are NOT written incrementally during the run. This simplifies the persisted flag implementation: the write happens once, and we set the flag correctly at that moment.
+
 **Implementation:**
 - [ ] DB migration: `ALTER TABLE evolution_variants ADD COLUMN persisted BOOLEAN NOT NULL DEFAULT false`
-- [ ] Generation code: rely on the column default (no explicit `persisted: false` needed)
-- [ ] In iter 1 loop, after discard rule: bulk update `evolution_variants SET persisted = true WHERE id IN (...survivingIds)`
-- [ ] In run finalization: same bulk update as a safety net (idempotent)
-- [ ] Update existing metric queries to filter by `persisted = true` (where appropriate — count metrics yes, cost metrics no)
-- [ ] Pool snapshot tab: show `persisted` status for each variant, group discarded ones
+- [ ] In `persistRunResults.ts`:
+  - For each variant in `localPool` (the surviving in-memory pool): write with `persisted: true`
+  - For each variant in the new `discardedVariants` array (passed in from runIterationLoop): write with `persisted: false`. These rows preserve generation cost, text, and metadata for debugging.
+  - This requires `EvolutionResult` to carry the discarded variants alongside the surviving pool
+- [ ] In `runIterationLoop.ts`: after iter 1 discard rule, store removed variants in a `discardedVariants: Variant[]` field on the result
+- [ ] Update `evolutionVariantInsertSchema` to include `persisted: boolean` field
+
+**Audit of existing metric/query call sites — what needs filtering:**
+
+| File | Line | What it does | Filter `persisted = true`? |
+|------|------|--------------|----------------------------|
+| `lib/metrics/experimentMetrics.ts` | 270 (`computeRunMetrics`) | Reads variants for run-level elo stats (median, p90, max, totalVariants) | **YES** — these are metrics |
+| `lib/metrics/recomputeMetrics.ts` | 61 (`recomputeRunEloMetrics`) | Rebuilds in-memory pool from DB to recompute finalization metrics | **YES** — discarded variants shouldn't enter the recomputed pool |
+| `lib/metrics/recomputeMetrics.ts` | 159 (`recomputeInvocationMetrics`) | Per-invocation metric recompute, builds pool from DB | **YES** — same reason |
+| `lib/metrics/computations/finalization.ts` | (multiple) | `computeWinnerElo`, `computeMedianElo`, `computeP90Elo`, `computeMaxElo` — work on `ctx.pool` (in-memory) | **NO** — in-memory pool has already had discarded variants removed by the iter 1 loop. No filter needed here. |
+| `lib/pipeline/finalize/persistRunResults.ts` | 191 | UPSERT write path | **N/A** — this is the write, sets `persisted` flag for each variant |
+| `lib/pipeline/setup/buildRunContext.ts` | 40 (`loadArenaEntries`) | Loads arena entries to seed initial pool | **NO** — already filters by `synced_to_arena = true`; only persisted variants ever get synced to arena |
+| `services/evolutionActions.ts` | 347 (`getEvolutionVariantsAction`) | Admin variant list per run | **NO** (display) — admins should see all variants; differentiate visually |
+| `services/evolutionActions.ts` | 505 (paginated variant list) | Admin variant page with filters | **Add `persisted` as optional filter** so admin UI can toggle |
+| `services/variantDetailActions.ts` | 61, 103, 112, 139, 177, 191 | Single variant detail lookups | **NO** (display) — admin needs to view discarded variants for debugging |
+| `services/evolutionVisualizationActions.ts` | 224 (`getEvolutionRunLineageAction`) | Lineage graph rendering | **NO** (display) — show all in lineage; differentiate visually with `persisted` field included in the response |
+| `services/arenaActions.ts` | 82, 145, 168 | Arena queries | **NO** — already filter by `synced_to_arena = true` |
+| `lib/pipeline/manageExperiments.ts` | 122-126 | Joins variants by `is_winner = true` | **NO** — winners are by definition persisted (they survived to be selected) |
+
+**Implementation tasks for the audit:**
+- [ ] `experimentMetrics.ts:270` — add `.eq('persisted', true)` to the variants query in `computeRunMetrics`
+- [ ] `recomputeMetrics.ts:61` — add `.eq('persisted', true)` to the variants query in `recomputeRunEloMetrics`
+- [ ] `recomputeMetrics.ts:159` — add `.eq('persisted', true)` to the variants query in `recomputeInvocationMetrics`
+- [ ] `evolutionActions.ts:505` — add optional `persisted?: boolean` parameter; if specified, add `.eq('persisted', value)`. Default behavior: no filter (admin sees all).
+- [ ] `evolutionActions.ts:347` — add `persisted` to the SELECT fields so admin UI can display it
+- [ ] `evolutionVisualizationActions.ts:224` — add `persisted` to the SELECT fields so the lineage graph can visually distinguish discarded variants
+- [ ] `variantDetailActions.ts` — add `persisted` to the SELECT fields in `getVariantDetailAction` so admin UI shows the flag
+
+**Pool snapshot tab integration:**
+- [ ] Snapshot tab queries already include all in-pool variants. The discarded section uses the `discardedVariantIds` field from the snapshot, which will correlate with `persisted = false` rows in the DB.
+- [ ] Snapshot tab can fetch `persisted` from `evolution_variants` for each ID to verify consistency.
 
 
 
