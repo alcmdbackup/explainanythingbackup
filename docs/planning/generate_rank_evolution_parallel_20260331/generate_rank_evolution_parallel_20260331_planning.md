@@ -334,28 +334,57 @@ swissRankingAgent.run(input, ctx):
 
 ### Discard Rule
 
-**Any variant that has not finished ranking is discarded from pool and final result. Only cost data survives.**
+The discard rule is different for iteration 1 and iteration 2.
 
-"Finished ranking" means the variant exited via Eliminated, Converged, or Exhausted. NOT via Budget (interrupted).
+#### Iteration 1: `generateFromSeedArticle` budget interruption
 
-What survives:
-- Variant in pool with ratings and match history
-- All matches from completed comparisons (even for discarded variants — the opponent's side of the match is still valid data)
-- Cost tracked in costTracker and invocation DB row
+When a variant's binary search is interrupted by budget exhaustion (`status === 'budget'`), do a **final eligibility check** against the post-merge global ratings:
 
-What is discarded:
-- The variant itself (removed from pool)
-- Its rating entry (removed from ratings map)
-- Its match count entry
+```
+if (variant.mu + ELIMINATION_CI * variant.sigma < top15Cutoff):
+  discard variant  // can't reach top 15% even optimistically
+else:
+  keep variant     // potentially in top 15%, partial rating is good enough
+```
 
-This applies when:
-- Budget exhausted mid-ranking → that variant's ranking didn't finish, discard
-- Run killed/aborted mid-ranking → same
+This is the same elimination check the binary search loop uses internally — applied once more after budget interruption to decide whether the partial rating is good enough to keep.
 
-Implementation:
-- [ ] Track ranking completion per variant: add a `Set<string> rankedIds` in the agent that records each variant that exited via Eliminated/Converged/Exhausted
-- [ ] After agent completes, remove any new variant from pool/ratings/matchCounts that is in `newVariantIds` but NOT in `rankedIds`
-- [ ] Log discarded variant count at warn level
+The other status outcomes (`converged`, `eliminated`, `exhausted`) never trigger discard:
+- `converged`: variant has a confident rating, keep
+- `eliminated`: variant exited because it failed the elimination check during the loop. The variant is kept in the pool but flagged as eliminated (it cannot win selectWinner). This matches today's behavior.
+- `exhausted`: no more opponents, partial rating is the best we can do, keep
+
+**Why check after merge?** Because merge applies all matches from all agents to the global ratings, including matches from the budget-interrupted variant itself. The variant's post-merge rating is its best possible estimate. We use that for the eligibility check.
+
+#### Iteration 2: `swissRankingAgent` never discards
+
+Variants in iteration 2 already have ratings from iteration 1. They're "real" articles. Budget interruption during Swiss refinement just means the ratings are less refined than they could be — but the variants themselves remain valid pool members with their current ratings.
+
+No discard. Ever. Iteration 2 only adds information (more comparisons, refined ratings); it never removes variants.
+
+#### What gets discarded when iteration 1 discards a variant
+
+For variants that fail the post-merge eligibility check:
+- **Removed from `pool`**
+- **Removed from `ratings` map**
+- **Removed from `matchCounts` map**
+
+What is **NOT** removed:
+- **Matches in `matchHistory`** stay (they reference the discarded ID, downstream code filters as needed)
+- **Cost in `costTracker`** is global, already counted
+- **Opponent rating updates** from comparisons against the discarded variant are preserved (the merge applied them before discard)
+- **Invocation row** in DB is preserved (records that the agent ran, what it cost)
+
+#### Implementation
+
+- [ ] In iteration 1 loop: after end-of-iter-1 merge, iterate over all `'budget'`-status agent results
+- [ ] For each, look up the variant's current global rating
+- [ ] Compute current `top15Cutoff` from global ratings
+- [ ] If `mu + ELIMINATION_CI * sigma < top15Cutoff`: add to `discardedVariantIds`
+- [ ] Otherwise: keep the variant (no action needed)
+- [ ] After all checks: remove `discardedVariantIds` from `pool`, `ratings`, `matchCounts`
+- [ ] In SwissRankingAgent: NO discard logic. Apply rating updates as normal, even on budget interruption.
+- [ ] Log discarded variant count at warn level (iter 1 only)
 
 ## Options Considered
 - [ ] **Option A: Sequential (status quo)** — No parallelism. Simple but slow.
@@ -594,19 +623,20 @@ const iter1Promises = Array.from({ length: numVariants }, (_, i) => {
 
 const iter1Results = await Promise.allSettled(iter1Promises);
 
-// CRITICAL ORDER: collect ALL matches first (including from budget-discarded
-// agents), then apply, then discard. This ensures paid-for matches always
-// reach the global ratings before any variant is removed.
+// CRITICAL ORDER: collect ALL matches first (including from budget-status
+// agents), then apply, then check eligibility for discard. This ensures
+// paid-for matches always reach the global ratings BEFORE we use those
+// ratings to decide what to discard.
 
-// Step 1: Collect all match buffers regardless of status
+// Step 1: Collect all match buffers AND track which variants had budget interruption
 const allMatches: V2Match[] = [];
-const discardedVariantIds = new Set<string>();
+const budgetInterruptedVariants: Variant[] = [];
 for (const result of iter1Results) {
   if (result.status === 'fulfilled' && result.value.success) {
     const output = result.value.result;  // GenerateFromSeedOutput
     allMatches.push(...output.matches);
     if (output.status === 'budget') {
-      discardedVariantIds.add(output.variant.id);
+      budgetInterruptedVariants.push(output.variant);
     }
   }
 }
@@ -618,7 +648,20 @@ for (const match of allMatches) {
   applyRatingUpdate(match, ratings, matchCounts);
 }
 
-// Step 3: NOW remove discarded variants from pool/ratings/matchCounts
+// Step 3: Final eligibility check for budget-interrupted variants
+// If post-merge rating shows "definitely not in top 15%", discard.
+// Otherwise keep — partial rating is good enough for a potential top variant.
+const top15Cutoff = computeTop15Cutoff(ratings)
+const discardedVariantIds = new Set<string>()
+for (const variant of budgetInterruptedVariants) {
+  const r = ratings.get(variant.id) ?? createRating()
+  if (r.mu + ELIMINATION_CI * r.sigma < top15Cutoff) {
+    discardedVariantIds.add(variant.id)
+  }
+  // else: keep — it might be in top 15%, partial rating is acceptable
+}
+
+// Step 4: Remove discarded variants from pool/ratings/matchCounts
 // The matches stay in matchHistory; opponents retain their updates
 for (const id of discardedVariantIds) {
   pool.removeBy(v => v.id === id);
@@ -760,13 +803,20 @@ Changes needed:
 - [ ] "shuffleInPlace produces uniform distribution over many calls" — Fisher-Yates correctness
 
 #### Unit Tests — Budget Safety (paid-for matches always applied)
-- [ ] "iteration 1: budget-discarded agent's matches ARE included in global merge"
-- [ ] "iteration 1: opponent ratings reflect comparisons against budget-discarded variants"
-- [ ] "iteration 1: discarded variant is removed from pool AFTER merge completes"
+- [ ] "iteration 1: budget-status agent's matches ARE included in global merge"
+- [ ] "iteration 1: opponent ratings reflect comparisons against budget-interrupted variants"
 - [ ] "iteration 1: matchHistory retains matches referencing discarded variant IDs"
 - [ ] "iteration 2: round with 5 pairs (3 success, 2 budget reject): all 3 successful matches applied before exit"
 - [ ] "iteration 2: budget exit happens AFTER round matches are applied to ratings"
 - [ ] "iteration 2: ratings updated even when round fails halfway through"
+
+#### Unit Tests — Discard Rule (asymmetric for iter 1 and iter 2)
+- [ ] "iteration 1: budget-interrupted variant with mu+2σ < top15Cutoff is discarded"
+- [ ] "iteration 1: budget-interrupted variant with mu+2σ ≥ top15Cutoff is KEPT"
+- [ ] "iteration 1: discard eligibility checked AFTER end-of-iter merge (uses post-merge global ratings)"
+- [ ] "iteration 1: converged/eliminated/exhausted variants are never discarded"
+- [ ] "iteration 2: SwissRankingAgent never discards variants on budget interruption"
+- [ ] "iteration 2: variants persist with their current ratings even when Swiss is interrupted mid-round"
 
 #### Unit Tests — Parallel Agents (iteration 1) + Two-Iteration Loop
 - [ ] "N agents dispatched in parallel in iteration 1"
