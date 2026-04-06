@@ -10,6 +10,7 @@ The evolution pipeline currently runs generate and rank operations sequentially,
 - Solves cold-start problem: iteration 1 has limited opponents, iteration 2 fills in the cross-variant comparisons
 - Iter 1 discard rule: budget-interrupted variants are kept only if their **actual mu** is in top 15% (not optimistic upper bound)
 - Iter 2 discard rule: never discard
+- New `persisted` boolean column on `evolution_variants` (defaults false). Set to true when variant survives iter 1 discard rule. Most metrics filter by `persisted = true`; cost metrics do not.
 - Remove "anchor" concept entirely from code and admin UI (the new opponent selection formula handles this naturally)
 - Both agents are fully integrated `Agent` subclasses with metrics, detail view configs, and execution detail schemas
 - Track generation vs ranking cost separately within `generateFromSeedArticle` invocation, and aggregate at run level
@@ -250,15 +251,17 @@ The pool snapshot tab (Phase 8c) makes the implicit "discarded" state inspectabl
 
 ### Persistence by stop condition
 
-| Stop condition | `evolution_variants` row | In-memory pool | `selectWinner` candidate |
-|----------------|--------------------------|----------------|--------------------------|
-| `converged` | ✅ | ✅ | ✅ |
-| `eliminated` | ✅ | ✅ | ❌ (in `eliminatedIds`) |
-| `no_more_opponents` | ✅ | ✅ | ✅ |
-| `budget` (mu ≥ top15Cutoff) | ✅ | ✅ | ✅ |
-| `budget` (mu < top15Cutoff) | ✅ | ❌ removed | ❌ |
+| Stop condition | `evolution_variants` row | `persisted` flag | In-memory pool | `selectWinner` candidate |
+|----------------|--------------------------|------------------|----------------|--------------------------|
+| `converged` | ✅ | true | ✅ | ✅ |
+| `eliminated` | ✅ | true | ✅ | ❌ (in `eliminatedIds`) |
+| `no_more_opponents` | ✅ | true | ✅ | ✅ |
+| `budget` (mu ≥ top15Cutoff) | ✅ | true | ✅ | ✅ |
+| `budget` (mu < top15Cutoff) | ✅ | **false** | ❌ removed | ❌ |
 
-Variants are always saved to `evolution_variants` when generated. Discarded variants stay in the DB but are removed from the in-memory pool. Their cost is tracked at the invocation level (in `evolution_agent_invocations`), not lost.
+Variants are always saved to `evolution_variants` when generated. The `persisted` boolean flag distinguishes "survived to final pool" (true) from "generated but discarded" (false). Discarded variants stay in the DB row with `persisted: false` so their generation cost is still queryable. Cost is also tracked at the invocation level (in `evolution_agent_invocations`), not lost.
+
+**Metrics rule:** Filter by `persisted = true` for most metrics (variant counts, rating stats, comparison counts). Do NOT filter for cost metrics — discarded variants cost real money.
 
 ### Deferred rating updates (bias prevention)
 
@@ -883,13 +886,24 @@ Changes needed:
 
 #### Unit Tests — Agent infrastructure (Phase 8)
 - [ ] "generateFromSeedArticle defines name, executionDetailSchema, invocationMetrics, detailViewConfig"
-- [ ] "swissRankingAgent defines name, executionDetailSchema, invocationMetrics, detailViewConfig"
+- [ ] "SwissRankingAgent defines name, executionDetailSchema, invocationMetrics, detailViewConfig"
 - [ ] "execution detail validates against schema for both agents"
 - [ ] "run-level totalGenerationCost and totalRankingCost computed correctly"
 - [ ] "pool snapshot captured at start of iteration 1 (after baseline)"
 - [ ] "pool snapshot captured at start of iteration 2 (after iter 1 discard rule)"
 - [ ] "no anchor references in selectOpponent or related code"
 - [ ] "selectOpponent debug log includes all candidates with scores and selection reason"
+
+#### Unit Tests — `persisted` flag
+- [ ] "newly generated variant has persisted=false in DB"
+- [ ] "variant with status converged is marked persisted=true after iter 1"
+- [ ] "variant with status eliminated is marked persisted=true after iter 1"
+- [ ] "variant with status no_more_opponents is marked persisted=true after iter 1"
+- [ ] "variant with status budget and mu ≥ top15Cutoff is marked persisted=true"
+- [ ] "variant with status budget and mu < top15Cutoff stays persisted=false (discarded)"
+- [ ] "run finalization re-applies persisted=true to all in-pool variants (idempotent safety net)"
+- [ ] "metric query filtering by persisted=true excludes discarded variants"
+- [ ] "cost query NOT filtering by persisted includes discarded variant costs"
 
 #### Integration Tests
 - [ ] End-to-end: full two-iteration run with 9 variants produces converged rankings
@@ -899,7 +913,60 @@ Changes needed:
 - [ ] Pool snapshots persist correctly to DB and render in admin UI
 - [ ] Run row shows totalGenerationCost and totalRankingCost separately
 
-### Phase 8: Agent Infrastructure (metrics, detail views, anchor removal, pool snapshots)
+### Phase 8: Agent Infrastructure (persistence flag, metrics, detail views, anchor removal, pool snapshots)
+
+#### 8z: `persisted` flag on `evolution_variants`
+
+Add an explicit flag to mark variants that survived the discard rule. This makes the implicit "in pool / not in pool" distinction queryable post-run, and lets metrics filter to only the variants that are part of the final result.
+
+**Schema change:**
+```sql
+ALTER TABLE evolution_variants
+ADD COLUMN persisted BOOLEAN NOT NULL DEFAULT false;
+```
+
+**Lifecycle:**
+1. **Generation:** Variant inserted with `persisted: false` (default)
+2. **After iter 1 discard rule:** Bulk UPDATE surviving pool variants to `persisted: true`
+3. **Run finalization:** Bulk UPDATE all current pool variants to `persisted: true` (idempotent safety net in case step 2 failed)
+
+**Meaning:** `persisted = true` means "this variant survived to the final run pool." It's true for all stop conditions except `budget` with `mu < top15Cutoff`.
+
+| Stop condition | `persisted` |
+|---|---|
+| `converged` | true |
+| `eliminated` (in pool but flagged) | true |
+| `no_more_opponents` | true |
+| `budget` (mu ≥ top15Cutoff, kept) | true |
+| `budget` (mu < top15Cutoff, discarded) | false |
+
+**Why default false:**
+- Safer — variants must be explicitly committed to the final pool
+- Crashed runs leave variants as `persisted: false`, distinguishable from successful runs
+- Failed discard query leaves variants as `persisted: false` (not falsely shown as final)
+
+**Metric implications:**
+- Most metrics filter by `persisted = true` (e.g., variant counts, mu/sigma stats, comparisons per variant)
+- Cost metrics do NOT filter — discarded variants still cost real money to generate and partially rank
+
+```sql
+-- Variants in final result
+SELECT COUNT(*) FROM evolution_variants
+WHERE run_id = $1 AND persisted = true
+
+-- Total cost (no filter)
+SELECT SUM(cost_usd) FROM evolution_agent_invocations WHERE run_id = $1
+```
+
+**Implementation:**
+- [ ] DB migration: `ALTER TABLE evolution_variants ADD COLUMN persisted BOOLEAN NOT NULL DEFAULT false`
+- [ ] Generation code: rely on the column default (no explicit `persisted: false` needed)
+- [ ] In iter 1 loop, after discard rule: bulk update `evolution_variants SET persisted = true WHERE id IN (...survivingIds)`
+- [ ] In run finalization: same bulk update as a safety net (idempotent)
+- [ ] Update existing metric queries to filter by `persisted = true` (where appropriate — count metrics yes, cost metrics no)
+- [ ] Pool snapshot tab: show `persisted` status for each variant, group discarded ones
+
+
 
 #### 8a: Both agents fully integrated as proper Agent subclasses
 
@@ -1062,6 +1129,7 @@ For debugging, log enough information to reproduce/audit each opponent selection
 - `evolution/src/lib/pipeline/loop/runIterationLoop.test.ts` — Update tests for parallel structure
 - Admin UI files referencing "anchor" — remove anchor display and metrics (search for `anchor` in `evolution/src/components/`)
 - DB migration: add `iteration_snapshots` JSONB column to `evolution_runs`
+- DB migration: add `persisted` BOOLEAN column to `evolution_variants` (default false)
 
 ### Files to Remove
 - `evolution/src/lib/core/agents/GenerationAgent.ts` — Replaced by generateFromSeedArticle
