@@ -59,7 +59,7 @@ Each agent runs a single loop on its single variant:
 ```
 while not stopped:
   opponent = selectOpponent(variant, pool, ratings, completedPairs)
-  if opponent === null: stop "exhausted"
+  if opponent === null: stop "no_more_opponents"
 
   match = await compare(variant, opponent)
   updateRatings(variant, opponent, match)
@@ -121,7 +121,7 @@ The product naturally favors opponents that are simultaneously close in mu AND w
 
 **Adaptive narrowing:** As the variant's mu shifts and sigma drops through successive comparisons, the entropy term naturally focuses on opponents whose mu is close to the new estimate. There is no explicit range cutoff; the entropy gradient does the narrowing.
 
-**Far opponents:** Low entropy gives them low scores. They lose to closer opponents but remain candidates if no closer opponents are uncompared. This is more graceful than a hard cutoff that would prematurely declare "exhausted."
+**Far opponents:** Low entropy gives them low scores. They lose to closer opponents but remain candidates if no closer opponents are uncompared. This is more graceful than a hard cutoff that would prematurely declare "no more opponents."
 
 **Constants used:** `BETA` (from OpenSkill, = 25 × √2 ≈ 35.4) and `SIGMA_WEIGHT` (single tuning knob, default 1.0). No `MIN_RANGE`, no `RANGE_MULTIPLIER`, no hard cutoff.
 
@@ -221,7 +221,7 @@ With `k=0`, the perfectly-aligned-but-noisy D wins by entropy alone. With any `k
 |-----------|-------|---------------|--------|
 | **Eliminated** | `mu + 2σ < top15Cutoff` | Weak variant after 2-5 comparisons | Stop, mark eliminated |
 | **Converged** | `sigma < CONVERGENCE_THRESHOLD` (default 3.0) | Strong variant after 5-15 comparisons | Stop, fully ranked |
-| **Exhausted** | `selectOpponent()` returns null | No opponents in mutual neighborhood | Stop, fully ranked but with whatever sigma remains |
+| **No more opponents** | `selectOpponent()` returns null | No opponents in mutual neighborhood | Stop, fully ranked but with whatever sigma remains |
 | **Budget** | `costTracker.reserve()` throws | Any time | Stop, status depends on completion |
 
 ### Deferred rating updates (bias prevention)
@@ -280,7 +280,7 @@ This ensures we don't waste paid-for information when a variant is interrupted.
 - [ ] Add `matchBuffer: V2Match[]` to `generateFromSeedArticle` agent state
 - [ ] Each agent gets `localRatings = new Map(globalRatings)` at dispatch
 - [ ] Inside the binary-search loop, mutate `localRatings` (not global)
-- [ ] Agent always returns its `matchBuffer` in the result, regardless of `status` (`'converged'`, `'eliminated'`, `'exhausted'`, OR `'budget'`)
+- [ ] Agent always returns its `matchBuffer` in the result, regardless of `status` (`'converged'`, `'eliminated'`, `'no_more_opponents'`, OR `'budget'`)
 - [ ] After all iter 1 agents settle: `mergeMatchesRandomly(allBuffers, globalRatings)` — includes buffers from `'budget'` agents
 - [ ] After merge: identify `discardedVariantIds` (those with `status === 'budget'`) and remove from `pool`, `ratings`, `matchCounts`. Leave matches in `matchHistory` referencing the discarded IDs.
 - [ ] Inside SwissRankingAgent: extract successful matches from `Promise.allSettled` results, shuffle, and apply BEFORE checking for budget rejection in the same round
@@ -292,7 +292,7 @@ This ensures we don't waste paid-for information when a variant is interrupted.
 
 ### Iteration 2: `swissRankingAgent`
 
-After all `generateFromSeedArticle` agents complete in iteration 1, the pool contains ~9 variants with rough ratings (most exhausted with high sigma due to cold start). Iteration 2 dispatches a single `swissRankingAgent` to refine the survivors.
+After all `generateFromSeedArticle` agents complete in iteration 1, the pool contains ~9 variants with rough ratings (most stopped with high sigma because there were no more opponents available during cold start). Iteration 2 dispatches a single `swissRankingAgent` to refine the survivors.
 
 ```
 swissRankingAgent.run(input, ctx):
@@ -349,10 +349,10 @@ else:
 
 This is the same elimination check the binary search loop uses internally — applied once more after budget interruption to decide whether the partial rating is good enough to keep.
 
-The other status outcomes (`converged`, `eliminated`, `exhausted`) never trigger discard:
+The other status outcomes (`converged`, `eliminated`, `no_more_opponents`) never trigger discard:
 - `converged`: variant has a confident rating, keep
 - `eliminated`: variant exited because it failed the elimination check during the loop. The variant is kept in the pool but flagged as eliminated (it cannot win selectWinner). This matches today's behavior.
-- `exhausted`: no more opponents, partial rating is the best we can do, keep
+- `no_more_opponents`: ran out of opponents to compare against, partial rating is the best we can do, keep
 
 **Why check after merge?** Because merge applies all matches from all agents to the global ratings, including matches from the budget-interrupted variant itself. The variant's post-merge rating is its best possible estimate. We use that for the eligibility check.
 
@@ -435,7 +435,7 @@ interface GenerateFromSeedInput {
 
 interface GenerateFromSeedOutput {
   variant: Variant;
-  status: 'converged' | 'eliminated' | 'exhausted' | 'budget';
+  status: 'converged' | 'eliminated' | 'no_more_opponents' | 'budget';
   matches: V2Match[];  // ALWAYS populated, even when status === 'budget'
                        // (paid-for matches must always reach the global merge)
 }
@@ -467,7 +467,7 @@ async function rankSingleVariant(
   config: EvolutionConfig,
   logger: EntityLogger,
 ): Promise<{
-  status: 'converged' | 'eliminated' | 'exhausted' | 'budget';
+  status: 'converged' | 'eliminated' | 'no_more_opponents' | 'budget';
   matches: V2Match[];
   comparisonsRun: number;
 }>
@@ -757,7 +757,7 @@ const ctx2: AgentContext = { ...baseCtx, iteration: 2, executionOrder: ++executi
 
 Changes needed:
 - [ ] Add `agentIndex: number` to log context for each parallel agent (1..N)
-- [ ] Log per-variant ranking outcome (eliminated/converged/exhausted/discarded) at info level
+- [ ] Log per-variant ranking outcome (eliminated/converged/no_more_opponents/discarded) at info level
 - [ ] Log opponent selection at debug level (which opponent picked, why)
 - [ ] Log discarded variant count (from discard rule) at warn level
 
@@ -814,7 +814,7 @@ Changes needed:
 - [ ] "iteration 1: budget-interrupted variant with mu+2σ < top15Cutoff is discarded"
 - [ ] "iteration 1: budget-interrupted variant with mu+2σ ≥ top15Cutoff is KEPT"
 - [ ] "iteration 1: discard eligibility checked AFTER end-of-iter merge (uses post-merge global ratings)"
-- [ ] "iteration 1: converged/eliminated/exhausted variants are never discarded"
+- [ ] "iteration 1: converged/eliminated/no_more_opponents variants are never discarded"
 - [ ] "iteration 2: SwissRankingAgent never discards variants on budget interruption"
 - [ ] "iteration 2: variants persist with their current ratings even when Swiss is interrupted mid-round"
 
@@ -831,14 +831,14 @@ Changes needed:
 #### Integration Tests
 - [ ] End-to-end: full two-iteration run with 9 variants produces converged rankings
 - [ ] Budget tracking accurate across both iterations
-- [ ] Cold start handled: iter 1 variants are exhausted but iter 2 refines them to convergence
+- [ ] Cold start handled: iter 1 variants exit with `no_more_opponents` but iter 2 refines them to convergence
 - [ ] Warm pool: iter 2 converges quickly using established ratings
 
 ### Phase 8: Metrics & Observability
 - [ ] Add `numVariants` and `strategies` to run-level config logging
 - [ ] Add per-agent fields to invocation execution detail: `strategy`, `status`, `comparisonsRun`
 - [ ] Add `generationCost`, `rankingCost` (separate, not summed) to invocation cost breakdown
-- [ ] Run-level aggregates: count of converged/eliminated/exhausted/budget across all agents
+- [ ] Run-level aggregates: count of converged/eliminated/no_more_opponents/budget across all agents
 
 ## Files Affected
 
