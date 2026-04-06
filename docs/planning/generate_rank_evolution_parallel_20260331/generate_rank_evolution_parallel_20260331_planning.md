@@ -890,13 +890,57 @@ Run-level aggregates (new):
 
 We need to be able to inspect what the pool looked like at the start of iter 1 and iter 2 for debugging.
 
-- [ ] Capture `pool` and `ratings` snapshots at the start of iteration 1 and iteration 2
-- [ ] Persist as JSON to a new field (or rows) in the run record. Options:
-  - Add `iteration_pool_snapshots` JSONB column on `evolution_runs` (array of `{ iteration, pool: Variant[], ratings: Record<id, Rating> }`)
-  - Or new table `evolution_iteration_snapshots` with one row per (run, iteration)
-- [ ] Recommendation: JSONB column on existing run row (single write per iteration, no new table)
-- [ ] Snapshot is taken AFTER discard rule applies in iter 1, AFTER iter 2 completes (so snapshots show clean state at iteration boundaries)
-- [ ] Admin UI: show snapshot in run detail view (collapsible JSON viewer)
+**Snapshot type (lean — IDs + dynamic state only, no duplicated variant text):**
+
+```typescript
+interface IterationSnapshot {
+  iteration: number          // 1 or 2
+  capturedAt: string         // ISO timestamp
+  poolVariantIds: string[]   // ordering matches pool array
+  ratings: Record<string, { mu: number, sigma: number }>
+  matchCounts: Record<string, number>
+  discardedVariantIds?: string[]  // iter 2 only — IDs removed by iter 1 discard rule
+}
+```
+
+Variant text lives on `evolution_variants` rows; the snapshot stores only IDs. For 9 variants, snapshot size is ~1 KB. Two snapshots per run = ~2 KB.
+
+**Storage: JSONB column on `evolution_runs`**
+
+```sql
+ALTER TABLE evolution_runs
+ADD COLUMN iteration_snapshots JSONB DEFAULT '[]'::jsonb;
+```
+
+Stores an array of `IterationSnapshot` objects (typically 2 entries). Reasoning:
+- 1-2 snapshots per run, always read with the run row
+- No independent queries needed
+- One ALTER TABLE migration vs new table + FK + RLS
+- Write-once per iteration, never updated
+
+**When snapshots are taken:**
+
+| Snapshot | When | Captures |
+|----------|------|----------|
+| Iter 1 start | Before dispatching iter 1 agents (just baseline + initial pool) | Initial state |
+| Iter 2 start | After iter 1 merge + discard rule applies, before dispatching swiss agent | Post-iter-1 state, including which variants were discarded |
+
+Iter 2's snapshot is the most useful — it shows the surviving pool after iter 1 did its work.
+
+**Admin UI: new "Snapshots" tab on run detail page**
+
+V1 (minimal effort): collapsible JSON viewer rendering the raw `IterationSnapshot` array. Quick to build, fully functional for debugging.
+
+V2 (polished): formatted table with sortable columns (mu, sigma, matchCount), variant IDs as links to variant detail pages, separate section for discarded variants with reason. Upgrade from v1 if it proves useful.
+
+**Implementation:**
+- [ ] DB migration: `ALTER TABLE evolution_runs ADD COLUMN iteration_snapshots JSONB DEFAULT '[]'::jsonb`
+- [ ] Define `iterationSnapshotSchema` Zod schema
+- [ ] In `runIterationLoop.ts`: helper `recordSnapshot(iteration, pool, ratings, matchCounts, options)` that builds the snapshot object and pushes to an in-memory array
+- [ ] Persist all snapshots to the run row at run finalization (single UPDATE, not per-iteration)
+- [ ] Server action: `getRunSnapshotsAction(runId): Promise<IterationSnapshot[]>`
+- [ ] Frontend: new `<SnapshotsTab>` component, registered in run detail page tab list
+- [ ] Start with raw JSON viewer (v1); upgrade to formatted table later if needed
 
 #### 8d: Remove "anchor" concept entirely
 
@@ -944,7 +988,7 @@ For debugging, log enough information to reproduce/audit each opponent selection
 - `evolution/src/lib/schemas.ts` — `generateFromSeedExecutionDetailSchema`, `swissRankingExecutionDetailSchema`, `numVariants` and `strategies` config fields
 - `evolution/src/lib/pipeline/loop/runIterationLoop.test.ts` — Update tests for parallel structure
 - Admin UI files referencing "anchor" — remove anchor display and metrics (search for `anchor` in `evolution/src/components/`)
-- DB migration: add `iteration_pool_snapshots` JSONB column to `evolution_runs` (or new `evolution_iteration_snapshots` table)
+- DB migration: add `iteration_snapshots` JSONB column to `evolution_runs`
 
 ### Files to Remove
 - `evolution/src/lib/core/agents/GenerationAgent.ts` — Replaced by generateFromSeedArticle
