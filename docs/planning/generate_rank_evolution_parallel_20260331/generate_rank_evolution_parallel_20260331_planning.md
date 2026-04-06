@@ -300,8 +300,8 @@ swissRankingAgent.run(input, ctx):
 
   1. Compute eligible variants: top-15% by mu (filters out eliminated and clearly weak)
   2. Loop until all eligible variants converged or budget exhausted:
-     a. Compute Swiss pairing: pair eligible variants by uncertainty × sigma weight
-     b. Run pairs in parallel (non-overlapping, safe under Node.js)
+     a. Compute pairing: top-K candidate pairs by score (overlapping variants ALLOWED)
+     b. Run all pairs in parallel (safe under Node.js — see below)
      c. Collect match results into a buffer
      d. Shuffle the buffer (Fisher-Yates), apply rating updates sequentially in random order
      e. Recompute eligibility (some variants may now be in top-15%, others not)
@@ -313,12 +313,14 @@ swissRankingAgent.run(input, ctx):
 - Swiss pairing requires global state (pair selection considers all eligible variants)
 - Rounds are sequential (each round's pairing depends on previous round's ratings)
 
-**Pairs WITHIN a round run in parallel:**
-- Swiss greedy pairing guarantees each variant appears in at most one pair per round (uses `used` set when selecting)
-- Non-overlapping pairs → no shared variant state to race on
+**Pairs WITHIN a round run in parallel (overlapping variants allowed):**
+- Pairing returns top-K candidate pairs by score, with NO non-overlapping constraint. A variant can appear in multiple pairs in the same round.
+- Default `MAX_PAIRS_PER_ROUND = 20` (matches LLM semaphore limit). For typical eligible sets (3-5 variants), this means all `N*(N-1)/2` candidate pairs run in one round.
 - Run via `Promise.allSettled(pairs.map(comparePair))` so one budget error doesn't cancel others
-- Apply all rating updates after the batch settles
-- This is the same parallelization pattern we considered for the original parallel-Swiss phase, now applied inside the SwissRankingAgent
+- Match results buffered until all pairs settle — no in-flight rating updates
+- After batch settles: shuffle the buffer (Fisher-Yates) and apply rating updates sequentially
+- Safety: because updates are buffered and applied serially after the parallel batch, there is no race on shared rating state. Two pairs both involving variant X just produce two sequential updates to X's rating in random order — both are valid Bayesian operations.
+- Tradeoff: pairs in the same round were computed against start-of-round priors, not the post-update priors that sequential rounds would use. Slightly different rating path, same mathematical validity, much faster wall-clock.
 
 **Eligibility:**
 - Top-15% by mu using current ratings
@@ -570,10 +572,12 @@ interface SwissRankingInput {
 ```
 
 **Reuse from existing code:**
-- Swiss pairing algorithm: extract `swissPairing()` from the existing `rankVariants.ts:234-276` (we'll delete that file but copy this function)
-- `pairKey()` for completed-pair tracking
+- Swiss pair scoring (`outcomeUncertainty * sigmaWeight`): extract from existing `rankVariants.ts:234-276`. **Modify** to drop the non-overlapping `used` set — return top-K candidates by score with overlap allowed.
+- `pairKey()` for completed-pair tracking (still excludes pairs already compared across rounds)
 - `compareWithBiasMitigation()` for individual comparisons (existing, untouched)
 - Rating updates from `computeRatings.ts` (existing)
+
+**New constant:** `MAX_PAIRS_PER_ROUND = 20` (default, matches LLM semaphore limit)
 
 **Implementation:**
 - [ ] Create `swissRankingAgent.ts` with the agent class
@@ -789,7 +793,10 @@ Changes needed:
 - [ ] "ranks only top-15% eligible variants"
 - [ ] "respects MIN_SWISS_POOL floor (3 variants minimum)"
 - [ ] "pairs within a round execute in parallel" — barrier pattern
+- [ ] "pairing allows overlapping variants (a variant can appear in multiple pairs per round)"
+- [ ] "pairing returns up to MAX_PAIRS_PER_ROUND candidates by score"
 - [ ] "round match results are shuffled before applying rating updates"
+- [ ] "two pairs sharing a variant: rating updates apply sequentially without race"
 - [ ] "exits on convergence (all eligible sigma < threshold)"
 - [ ] "exits on no_pairs after 2 stale rounds"
 - [ ] "exits on budget exceeded"
