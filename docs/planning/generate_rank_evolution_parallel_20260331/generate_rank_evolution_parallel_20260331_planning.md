@@ -173,7 +173,7 @@ return { variant, status, surfaced, matches: surfaced ? matchBuffer : [] }
 
 No triage, no anchor concept, no separate eligibility data structure. One loop, four stop conditions.
 
-**Note on eligibility:** The "top 15%" concept still exists — both the elimination check (`mu + 2σ < top15Cutoff`) inside the binary search and the iter 2 SwissRankingAgent's eligible-variants computation use it. But it is **never persisted as a separate DB column or table**. It's always computed on-the-fly from current ratings via `computeTop15Cutoff(ratings)`. There is no `eligible: boolean` field on variants, no `evolution_eligibility` table, nothing.
+**Note on eligibility:** The "top 15%" concept still exists — both the elimination check (`mu + 2σ < top15Cutoff`) inside the binary search and the swiss iteration's eligibility computation use it. But it is **never persisted as a separate DB column or table**. It's always computed on-the-fly from current ratings via `computeTop15Cutoff(ratings)`. There is no `eligible: boolean` field on variants, no `evolution_eligibility` table, nothing.
 
 **Sequential within a variant:** Each variant picks one opponent at a time, awaits the comparison, updates ratings, then picks the next opponent. This guarantees every comparison is maximally informative (closest to current mu) and supports early elimination via the top-15% CI check after each match. Parallelism comes from running multiple agents (each owning one variant) in parallel. Batch-K closest opponents within a single variant is a possible future optimization for additional wall-clock speedup but is not in scope for this project.
 
@@ -335,7 +335,7 @@ With `k=0`, the perfectly-aligned-but-noisy D wins by entropy alone. With any `k
 | **Eliminated** | `mu + 2σ < top15Cutoff` | Weak variant after 2-5 comparisons | Stop, mark eliminated |
 | **Converged** | `sigma < CONVERGENCE_THRESHOLD` (default 3.0) | Strong variant after 5-15 comparisons | Stop, fully ranked |
 | **No more opponents** | `selectOpponent()` returns null | All other variants in pool already compared, or pool too small | Stop, fully ranked but with whatever sigma remains |
-| **Budget** | `costTracker.reserve()` throws | Any time | Stop, final disposition decided after iter 1 merge by checking `mu < top15Cutoff` |
+| **Budget** | `costTracker.reserve()` throws | Any time | Stop. Agent makes its own surface/discard decision using local ratings: surface if `mu >= top15Cutoff`, discard otherwise. |
 
 ### State tracking — explicit vs implicit
 
@@ -351,9 +351,9 @@ State for each variant is tracked in a mix of explicit and implicit ways:
 | Discarded (post-iter-1) | Implicit | Variant absent from `pool`/`ratings`/`matchCounts` after the discard rule applies |
 | Agent stop status | Explicit | `status` field in agent return value, persisted to invocation `execution_detail` JSONB |
 
-**Per-variant state** (rating, match count, eliminated) lives in in-memory maps and is recomputed each run from match data. **Per-invocation status** (how the agent exited) is persisted in the invocation row's `execution_detail` JSONB. **Discarded** has no explicit marker — the variant is just absent from the in-memory pool after iter 1 finishes.
+**Per-variant state** (rating, match count, eliminated) lives in in-memory maps and is recomputed each run from match data. **Per-invocation status** (how the agent exited) is persisted in the invocation row's `execution_detail` JSONB. **Discarded** has an explicit marker at the DB level via `persisted: false`, and at the in-memory level the variant is simply absent from the pool.
 
-The pool snapshot tab (Phase 8c) makes the implicit "discarded" state inspectable: the iter 2 snapshot lists which variants survived iter 1 and which were removed (with reason).
+The pool snapshot tab (Phase 9c) makes the discard decisions inspectable: each iteration's end snapshot lists which variants survived and which were discarded (with per-agent reason).
 
 ### Persistence by stop condition
 
@@ -379,7 +379,7 @@ Variants are always saved to `evolution_variants` when generated. The `persisted
 
 | Phase | Sync point | What gets buffered |
 |-------|------------|--------------------|
-| **Iteration 1** (parallel agents, each running binary search) | End of iteration 1 (after all agents complete) | All match results from all agents |
+| **Generate iteration** (N parallel agents, each running binary search) | End of iteration (by MergeRatingsAgent) | Match buffers from surfaced agents only |
 | **Iteration 2** (Swiss agent, parallel pairs within rounds) | End of each Swiss round | Match results from that round's parallel pairs |
 
 **Iteration 1 details (local mutation + randomized global merge):**
@@ -390,7 +390,7 @@ Variants are always saved to `evolution_variants` when generated. The `persisted
   - Each comparison produces a match outcome
   - The raw match outcome is **appended to a `matchBuffer`** (for the global merge later)
   - The match is **also applied to local ratings** via `updateRating()` for agent-internal adaptation
-- Stop condition checks (`elimination`, `convergence`) read the local ratings, which DO change as the loop progresses. This means iter 1 variants CAN exit via `converged` or `eliminated` (not just `no_more_opponents` or `budget`). Early termination saves budget when the variant clearly doesn't need more comparisons.
+- Stop condition checks (`elimination`, `convergence`) read the local ratings, which DO change as the loop progresses. This means generate iteration variants CAN exit via `converged` or `eliminated` (not just `no_more_opponents` or `budget`). Early termination saves budget when the variant clearly doesn't need more comparisons.
 - Variants generated by other parallel agents are NOT visible — each agent sees only `[baseline + arena entries + its own variant]`
 - After all agents settle: combine all generated variants into the global `pool`; collect ALL `matchBuffer`s (including from budget-status agents); concatenate, shuffle, **apply OpenSkill updates to the GLOBAL `ratings` map in randomized order**. The agent's local ratings are discarded — global ratings are the source of truth.
 - Iteration 2 uses the merged global pool and ratings
@@ -400,9 +400,9 @@ Variants are always saved to `evolution_variants` when generated. The `persisted
 | | Local ratings (per-agent) | Global ratings (single source of truth) |
 |---|---|---|
 | Where | Inside `rankSingleVariant` for one agent | `ratings` Map in the iteration loop |
-| Mutation | Updates after every comparison in the agent's loop | Updated once, in randomized order, at end of iter 1 |
+| Mutation | Updates after every comparison in the agent's loop | Updated by the MergeRatingsAgent in randomized order, once per iteration |
 | Order | Chronological (the order LLM returned results) | Random (Fisher-Yates shuffle of all matches) |
-| Used for | Agent-internal decisions: opponent selection, stop condition checks (eliminated/converged) | Final pool state, discard rule, iter 2 input, run output |
+| Used for | Agent-internal decisions: opponent selection, stop condition checks (eliminated/converged), surface/discard decision | Final pool state, next iteration's eligibility computation, run output |
 | Lifetime | Discarded when agent's `execute()` returns | Persists throughout the run |
 
 **Bounded divergence:** Local and global ratings will end up slightly different because they apply the same matches in different orders. The differences are small (~0.1-0.5 mu, ~0.05-0.2 sigma) and only affect agent-internal stop decisions, not the final output. The randomized global merge prevents systematic ordering bias across the run.
@@ -551,14 +551,18 @@ The lost matches are an explicit tradeoff for keeping the discard decision local
 
 #### Implementation
 
-- [ ] In iteration 1 loop: after end-of-iter-1 merge, iterate over all `'budget'`-status agent results
-- [ ] For each, look up the variant's current global rating
-- [ ] Compute current `top15Cutoff` from global ratings
-- [ ] If `mu < top15Cutoff` (use bare mu, not mu+2σ): add to `discardedVariantIds`
-- [ ] Otherwise: keep the variant (no action needed)
-- [ ] After all checks: remove `discardedVariantIds` from `pool`, `ratings`, `matchCounts`
-- [ ] In SwissRankingAgent: NO discard logic. Apply rating updates as normal, even on budget interruption.
-- [ ] Log discarded variant count at warn level (iter 1 only)
+- [ ] Inside `generateFromSeedArticle.execute()`, after the binary-search loop exits:
+  - Read the agent's local `top15Cutoff` from the final state of `localRatings`
+  - Check: if `status === 'budget'` AND `localRatings.get(variant.id).mu < localTop15Cutoff` → set `surfaced = false`
+  - Otherwise → set `surfaced = true`
+- [ ] Agent return value: `{ variant, status, surfaced, matches: surfaced ? matchBuffer : [] }`
+- [ ] Orchestrator's generate iteration loop: partition agent results by `surfaced` field
+  - Surfaced: pass variants and match buffers to the merge agent
+  - Discarded: track separately for run finalization (`discardedVariants: Variant[]`)
+- [ ] In `MergeRatingsAgent`: NO discard logic. The agent only receives surfaced work.
+- [ ] In `SwissRankingAgent`: NO discard logic. Swiss never makes surface/discard decisions.
+- [ ] Log discarded variant count at warn level (generate iterations only — swiss iterations never discard)
+- [ ] Record the discard decision in the agent's execution detail: `surfaced: boolean`, `discardReason?: { localMu, localTop15Cutoff }` if applicable
 
 ## Options Considered
 - [ ] **Option A: Sequential (status quo)** — No parallelism. Simple but slow.
@@ -593,7 +597,7 @@ class GenerateFromSeedArticleAgent extends Agent<GenerateFromSeedInput, Generate
     //  - Mutates localRatings as it goes (chronological order)
     //  - Returns the raw match outcomes in matchBuffer
     // The matchBuffer is what gets fed to global ratings via the randomized
-    // merge at end of iter 1. The local ratings are discarded.
+    // merge at end of iteration. The local ratings are discarded.
     localPool.push(variant);
     const { status, matches, rankingCost, rankingDetail } = await rankSingleVariant(
       variant, localPool, localRatings, localMatchCounts, input.cache, ctx,
@@ -677,7 +681,7 @@ The function runs the binary-search loop sequentially: pick opponent → compare
 
 **Top 15% cutoff:** Computed from local ratings, recomputed after each rating update inside the loop. The cutoff drives the elimination check; using stale values could keep weak variants alive longer than needed. Compute cost is negligible.
 
-**Concurrency safety:** Multiple `rankSingleVariant()` calls run concurrently from different agents. Each call operates on its agent's LOCAL `pool`, `ratings`, and `matchCounts` (deep-cloned at iteration start). The local mutations are private to each agent — no shared mutable state across agents during iter 1, no race conditions. The `cache` is shared (order-invariant keys make this safe), but all other state is local per agent.
+**Concurrency safety:** Multiple `rankSingleVariant()` calls run concurrently from different agents in the same generate iteration. Each call operates on its agent's LOCAL `pool`, `ratings`, and `matchCounts` (deep-cloned at iteration start). The local mutations are private to each agent — no shared mutable state across agents within an iteration, no race conditions. The `cache` is shared (order-invariant keys make this safe), but all other state is local per agent.
 
 **Why local mutation is safe under randomized global merge:** The bias prevention principle says global ratings must be updated in randomized order to avoid systematic ordering bias from parallel completion timing. Local mutations don't violate this because:
 1. Each agent's local state is private — no other agent reads or writes it
@@ -1324,9 +1328,9 @@ Changes needed:
 - [ ] "SwissRankingAgent defines name, executionDetailSchema, invocationMetrics, detailViewConfig"
 - [ ] "execution detail validates against schema for both agents"
 - [ ] "run-level totalGenerationCost and totalRankingCost computed correctly"
-- [ ] "pool snapshot captured at start of iteration 1 (after baseline)"
-- [ ] "pool snapshot captured at end of iteration 1 / start of iteration 2 (after iter 1 discard rule)"
-- [ ] "pool snapshot captured at end of iteration 2 (after Swiss completes, before run finalization)"
+- [ ] "pool snapshot captured at start of each iteration (before dispatching work agents)"
+- [ ] "pool snapshot captured at end of each iteration (after merge agent completes)"
+- [ ] "pool snapshot captured at end of each iteration (after merge agent completes)"
 - [ ] "no anchor references in selectOpponent or related code"
 - [ ] "selectOpponent debug log includes all candidates with scores and selection reason"
 
@@ -1366,8 +1370,8 @@ Changes needed:
 #### Integration Tests
 - [ ] End-to-end: full two-iteration run with 9 variants produces converged rankings
 - [ ] Budget tracking accurate across both iterations
-- [ ] Cold start handled: iter 1 variants exit with `no_more_opponents` but iter 2 refines them to convergence
-- [ ] Warm pool: iter 2 converges quickly using established ratings
+- [ ] Cold start handled: first generate iteration's variants exit with `no_more_opponents`; subsequent swiss iterations refine them to convergence
+- [ ] Warm pool: swiss iterations converge quickly using established ratings
 - [ ] Pool snapshots persist correctly to DB and render in admin UI
 - [ ] Run row shows totalGenerationCost and totalRankingCost separately
 
@@ -1385,7 +1389,7 @@ ADD COLUMN persisted BOOLEAN NOT NULL DEFAULT false;
 
 **Lifecycle:**
 1. **Generation:** Variant inserted with `persisted: false` (default)
-2. **After iter 1 discard rule:** Bulk UPDATE surviving pool variants to `persisted: true`
+2. **Write at run finalization:** persistRunResults writes all variants in pool with `persisted: true` and all discarded variants with `persisted: false`
 3. **Run finalization:** Bulk UPDATE all current pool variants to `persisted: true` (idempotent safety net in case step 2 failed)
 
 **Meaning:** `persisted = true` means "this variant survived to the final run pool." It's true for all stop conditions except `budget` with `mu < top15Cutoff`.
@@ -1438,7 +1442,7 @@ SELECT SUM(cost_usd) FROM evolution_agent_invocations WHERE run_id = $1
 | `lib/metrics/experimentMetrics.ts` | 270 (`computeRunMetrics`) | Reads variants for run-level elo stats (median, p90, max, totalVariants) | **YES (always)** — metrics never include discarded |
 | `lib/metrics/recomputeMetrics.ts` | 61 (`recomputeRunEloMetrics`) | Rebuilds in-memory pool from DB to recompute finalization metrics | **YES (always)** — discarded variants shouldn't enter the recomputed pool |
 | `lib/metrics/recomputeMetrics.ts` | 159 (`recomputeInvocationMetrics`) | Per-invocation metric recompute, builds pool from DB | **YES (always)** — same reason |
-| `lib/metrics/computations/finalization.ts` | (multiple) | `computeWinnerElo`, `computeMedianElo`, `computeP90Elo`, `computeMaxElo` — work on `ctx.pool` (in-memory) | **NO** — in-memory pool has already had discarded variants removed by the iter 1 loop. No filter needed here. |
+| `lib/metrics/computations/finalization.ts` | (multiple) | `computeWinnerElo`, `computeMedianElo`, `computeP90Elo`, `computeMaxElo` — work on `ctx.pool` (in-memory) | **NO** — in-memory pool only contains surfaced variants (discarded ones never get added). No filter needed here. |
 | `lib/pipeline/finalize/persistRunResults.ts` | 191 | UPSERT write path | **N/A** — this is the write, sets `persisted` flag for each variant |
 | `lib/pipeline/setup/buildRunContext.ts` | 40 (`loadArenaEntries`) | Loads arena entries to seed initial pool | **NO** — already filters by `synced_to_arena = true`; only persisted variants ever get synced to arena |
 | `services/evolutionActions.ts` | 347 (`getEvolutionVariantsAction`) | Admin variant list per run (run detail page) | **YES (default), with toggle** — default filter persisted=true, admin UI can disable filter to show all |
@@ -1492,29 +1496,31 @@ Per-invocation breakdown (already in plan):
 - [ ] Top-level `cost_usd` is the sum (matches existing column semantics)
 
 Run-level aggregates (new):
-- [ ] At end of run, compute totals across all invocations: `totalGenerationCost`, `totalRankingCost` (iter 1 binary search + iter 2 Swiss)
+- [ ] At end of run, compute totals across all invocations: `totalGenerationCost` (from generateFromSeedArticle agents), `totalRankingCost` (binary search inside generate agents + SwissRankingAgent comparisons + MergeRatingsAgent duration is free)
 - [ ] Store on the run row or in run-level metrics
 - [ ] Display in admin UI run detail view
 
-#### 9c: Pool snapshots at start of each iteration
+#### 9c: Pool snapshots at start and end of each iteration
 
-We need to be able to inspect what the pool looked like at the start of iter 1 and iter 2 for debugging.
+We need to be able to inspect what the pool looked like at the start and end of each iteration for debugging.
 
 **Snapshot type (lean — IDs + dynamic state only, no duplicated variant text):**
 
 ```typescript
 interface IterationSnapshot {
-  iteration: number          // 1 or 2
+  iteration: number          // sequential iteration number (1, 2, 3, ...)
+  iterationType: 'generate' | 'swiss'
   phase: 'start' | 'end'     // captured at iteration start or end
   capturedAt: string         // ISO timestamp
   poolVariantIds: string[]   // ordering matches pool array
   ratings: Record<string, { mu: number, sigma: number }>
   matchCounts: Record<string, number>
-  discardedVariantIds?: string[]  // iter 1 end only — IDs removed by iter 1 discard rule
+  discardedVariantIds?: string[]  // generate iteration end only — IDs that were discarded by their owning agents
+  discardReasons?: Record<string, { mu: number, top15Cutoff: number }>  // per-discarded-variant detail
 }
 ```
 
-Variant text lives on `evolution_variants` rows; the snapshot stores only IDs. For 9 variants, snapshot size is ~1 KB. Two snapshots per run = ~2 KB.
+Variant text lives on `evolution_variants` rows; the snapshot stores only IDs. For 9 variants, snapshot size is ~1 KB. A typical run has ~8 snapshots (2 per iteration × 4 iterations) = ~8 KB.
 
 **Storage: JSONB column on `evolution_runs`**
 
@@ -1523,62 +1529,61 @@ ALTER TABLE evolution_runs
 ADD COLUMN iteration_snapshots JSONB DEFAULT '[]'::jsonb;
 ```
 
-Stores an array of `IterationSnapshot` objects (typically 2 entries). Reasoning:
-- 1-2 snapshots per run, always read with the run row
+Stores an array of `IterationSnapshot` objects. Reasoning:
+- Always read with the run row
 - No independent queries needed
 - One ALTER TABLE migration vs new table + FK + RLS
 - Write-once per iteration, never updated
 
 **When snapshots are taken:**
 
+For each iteration the orchestrator dispatches:
+
 | Snapshot | When | Captures |
 |----------|------|----------|
-| Iter 1 start | Before dispatching iter 1 agents (just baseline + initial pool) | Initial state |
-| Iter 1 end / Iter 2 start | After iter 1 merge + discard rule applies, before dispatching swiss agent | Post-iter-1 state, including which variants were discarded |
-| Iter 2 end | After SwissRankingAgent completes, before run finalization | Final state with refined ratings |
+| Iteration N start | Before dispatching the work agent(s) | Pool state going INTO the iteration |
+| Iteration N end | After the MergeRatingsAgent completes | Pool state coming OUT of the iteration, including any discards (generate iterations) |
 
-The iter 1 end snapshot and iter 2 start snapshot are the same moment in time (no gap between them), so we only store one snapshot for that boundary. Total snapshots per run: **3 logical states, 3 stored snapshot rows** (iter 1 start, iter 1 end ≡ iter 2 start, iter 2 end). Or **2 stored snapshot rows** if we treat iter 1 end and iter 2 start as a single snapshot tagged with both labels.
-
-Iter 2's start snapshot is the most useful for debugging cold start. Iter 2's end snapshot is the most useful for verifying refinement results.
+For a typical run (4 iterations: 1 generate + 3 swiss) that's 8 snapshots total.
 
 **Admin UI: new "Snapshots" tab on run detail page**
 
-Each iteration snapshot renders as a formatted table. The tab shows iteration 1 start, iteration 1 end (= iteration 2 start), and iteration 2 end:
+Each iteration shows a start and end snapshot as formatted tables, grouped by iteration number:
 
 ```
 ┌─ Snapshots ─────────────────────────────────────────────────┐
 │                                                              │
-│ Iteration 1 — start (2026-04-06 14:23:45)                   │
-│ ┌────────────────────────────────────────────────────────┐  │
-│ │ Variant ID    │ Strategy   │ mu     │ sigma │ matches │  │
-│ │ baseline      │ baseline   │ 25.00  │ 8.33  │ 0       │  │
-│ └────────────────────────────────────────────────────────┘  │
+│ ▼ Iteration 1 — generate                                    │
 │                                                              │
-│ Iteration 1 — end / Iteration 2 — start (2026-04-06 14:24:12)│
-│ ┌────────────────────────────────────────────────────────┐  │
-│ │ Variant ID    │ Strategy   │ mu     │ sigma │ matches │  │
-│ │ v1 (link)     │ struct     │ 31.20  │ 4.30  │ 6       │  │
-│ │ v2 (link)     │ lex        │ 28.10  │ 5.50  │ 5       │  │
-│ │ v3 (link)     │ ground     │ 26.80  │ 6.20  │ 4       │  │
-│ │ baseline      │ baseline   │ 22.45  │ 5.12  │ 4       │  │
-│ │ ...                                                    │  │
-│ └────────────────────────────────────────────────────────┘  │
+│   START (2026-04-07 14:23:45)                                │
+│   ┌────────────┬───────────┬───────┬───────┬──────────┐    │
+│   │ Variant ID │ Strategy  │ mu    │ sigma │ matches  │    │
+│   │ baseline   │ baseline  │ 25.00 │ 8.33  │ 0        │    │
+│   └────────────┴───────────┴───────┴───────┴──────────┘    │
 │                                                              │
-│ Discarded after iter 1 (1 variant):                          │
-│ ┌────────────────────────────────────────────────────────┐  │
-│ │ Variant ID    │ mu     │ Reason                       │  │
-│ │ v7 (link)     │ 18.20  │ budget interrupted, mu < cutoff│  │
-│ └────────────────────────────────────────────────────────┘  │
+│   END (2026-04-07 14:24:12)                                  │
+│   ┌────────────┬───────────┬───────┬───────┬──────────┐    │
+│   │ v1 (link)  │ struct    │ 31.20 │ 4.30  │ 6        │    │
+│   │ v2 (link)  │ lex       │ 28.10 │ 5.50  │ 5        │    │
+│   │ v3 (link)  │ ground    │ 26.80 │ 6.20  │ 4        │    │
+│   │ baseline   │ baseline  │ 22.45 │ 5.12  │ 4        │    │
+│   │ ...                                                │    │
+│   └────────────┴───────────┴───────┴───────┴──────────┘    │
 │                                                              │
-│ Iteration 2 — end (2026-04-06 14:26:48)                     │
-│ ┌────────────────────────────────────────────────────────┐  │
-│ │ Variant ID    │ Strategy   │ mu     │ sigma │ matches │  │
-│ │ v1 (link)     │ struct     │ 33.10  │ 2.80  │ 11      │  │
-│ │ v2 (link)     │ lex        │ 29.50  │ 2.95  │ 10      │  │
-│ │ v3 (link)     │ ground     │ 27.20  │ 3.10  │ 9       │  │
-│ │ baseline      │ baseline   │ 21.80  │ 4.50  │ 5       │  │
-│ │ ...                                                    │  │
-│ └────────────────────────────────────────────────────────┘  │
+│   Discarded during iteration 1 (1 variant):                  │
+│   ┌────────────┬───────┬─────────────────────────────┐      │
+│   │ v7 (link)  │ 18.20 │ budget, local mu < cutoff   │      │
+│   └────────────┴───────┴─────────────────────────────┘      │
+│                                                              │
+│ ▼ Iteration 2 — swiss                                        │
+│   START ...                                                  │
+│   END ...                                                    │
+│                                                              │
+│ ▼ Iteration 3 — swiss                                        │
+│   ...                                                        │
+│                                                              │
+│ ▼ Iteration 4 — swiss (final)                                │
+│   ...                                                        │
 │                                                              │
 └──────────────────────────────────────────────────────────────┘
 ```
@@ -1588,21 +1593,21 @@ Each iteration snapshot renders as a formatted table. The tab shows iteration 1 
 - Default sort: by mu descending
 - Click column header to re-sort by mu, sigma, or matches
 - Strategy column joined from `evolution_variants` (since snapshot only stores IDs)
-- Discarded variants shown in a separate section below the iter 2 table with reason
+- Discarded variants shown only on generate iteration end snapshots (swiss never discards)
+- Iterations are collapsible — click to expand/collapse
 
 **Implementation:**
 - [ ] DB migration: `ALTER TABLE evolution_runs ADD COLUMN iteration_snapshots JSONB DEFAULT '[]'::jsonb`
-- [ ] Define `iterationSnapshotSchema` Zod schema (includes `phase: 'start' | 'end'`)
-- [ ] In `runIterationLoop.ts`: helper `recordSnapshot(iteration, phase, pool, ratings, matchCounts, options)` that builds the snapshot object and pushes to an in-memory array
-- [ ] Call `recordSnapshot(1, 'start', ...)` before dispatching iter 1 agents
-- [ ] Call `recordSnapshot(1, 'end', ..., { discardedVariantIds })` after iter 1 merge + discard rule (this is also iter 2 start)
-- [ ] Call `recordSnapshot(2, 'end', ...)` after SwissRankingAgent completes
+- [ ] Define `iterationSnapshotSchema` Zod schema (includes `iterationType`, `phase`)
+- [ ] In `runIterationLoop.ts`: helper `recordSnapshot(iteration, iterationType, phase, pool, ratings, matchCounts, options)` that builds the snapshot object and pushes to an in-memory array
+- [ ] Call `recordSnapshot(n, type, 'start', ...)` at the top of each iteration
+- [ ] Call `recordSnapshot(n, type, 'end', ..., { discardedVariantIds, discardReasons })` after the merge agent completes
 - [ ] Persist all snapshots to the run row at run finalization (single UPDATE, not per-iteration)
 - [ ] Server action: `getRunSnapshotsAction(runId): Promise<IterationSnapshot[]>` — joins snapshot variant IDs to `evolution_variants` to fetch strategy and other display fields
 - [ ] Frontend: new `<SnapshotsTab>` component, registered in run detail page tab list
-- [ ] Build sortable table component (or reuse existing one if `EntityListPage` patterns apply)
+- [ ] Build sortable, collapsible iteration groups
 - [ ] Variant IDs render as `<Link href="/admin/variants/[id]">` with truncated UUID display
-- [ ] Discarded variants section: shown only on iter 2 snapshot if `discardedVariantIds` is non-empty
+- [ ] Discarded variants section: shown only on generate iteration end snapshots
 
 #### 9d: Remove "anchor" concept entirely
 
@@ -1777,8 +1782,8 @@ The table is sortable by round, opponent, score, or any state column. This view 
 #### 9f: Run-level aggregate metrics
 - [ ] Add `numVariants` and `strategies` to run-level config logging
 - [ ] Add per-agent fields to invocation execution detail: `strategy`, `status`, `comparisonsRun`
-- [ ] Run-level aggregates: count of converged/eliminated/no_more_opponents/budget across all iter 1 agents
-- [ ] Run-level aggregates: total Swiss comparisons, Swiss exit reason, Swiss rounds run (from iter 2 invocation detail)
+- [ ] Run-level aggregates: count of converged/eliminated/no_more_opponents/budget-surfaced/budget-discarded across all generate iteration agents
+- [ ] Run-level aggregates: total swiss comparisons (sum across all swiss iterations), swiss iteration count, total swiss duration
 
 ## Files Affected
 
@@ -1860,9 +1865,9 @@ The table is sortable by round, opponent, score, or any state column. This view 
   - Wall-clock time visibly reduced vs old architecture
 
 ## Documentation Updates
-- [ ] `evolution/docs/architecture.md` — Replace generate→rank flow with two-iteration architecture (parallel iter 1 + Swiss iter 2)
+- [ ] `evolution/docs/architecture.md` — Replace generate→rank flow with orchestrator-driven iteration architecture (generate iteration + swiss iterations, each with its own work agent(s) + merge agent)
 - [ ] `evolution/docs/agents/overview.md` — Document `generateFromSeedArticle` and `SwissRankingAgent` agents
-- [ ] `evolution/docs/rating_and_comparison.md` — Replace triage + Swiss with binary-search (iter 1) and Swiss refinement (iter 2), discard rule
+- [ ] `evolution/docs/rating_and_comparison.md` — Replace triage + Swiss with binary-search (in generate iterations) + swiss pair comparisons (in swiss iterations), local discard rule in generate agents
 - [ ] `evolution/docs/metrics.md` — New per-agent and per-iteration metrics
 - [ ] `docs/feature_deep_dives/evolution_metrics.md` — New execution detail structure
 - [ ] `evolution/docs/logging.md` — Interleaved log behavior under parallel agents
