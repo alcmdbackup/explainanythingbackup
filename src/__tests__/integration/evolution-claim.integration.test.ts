@@ -142,6 +142,9 @@ describe('Evolution Claim Integration (Bug #1)', () => {
         config: {},
         logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
         initialPool: [],
+        // randomSeed is required by the orchestrator (Phase E of the parallel pipeline);
+        // claimAndExecuteRun calls randomSeed.toString() so undefined would throw.
+        randomSeed: BigInt(0),
       },
     });
 

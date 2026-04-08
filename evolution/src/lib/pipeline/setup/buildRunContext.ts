@@ -104,6 +104,7 @@ async function resolveContent(
   db: SupabaseClient,
   llm: RawLLMProvider,
   logger?: EntityLogger,
+  generationModel?: string,
 ): Promise<string | null> {
   if (run.explanation_id != null) {
     const { data, error } = await db
@@ -127,7 +128,9 @@ async function resolveContent(
     if (error || !data?.prompt) return null;
     const promptText = typeof data.prompt === 'string' ? data.prompt : null;
     if (!promptText) return null;
-    const seed = await generateSeedArticle(promptText, llm, logger);
+    // Pass generationModel so the seed step uses the strategy's configured model
+    // instead of falling through to the raw provider's deepseek-chat default.
+    const seed = await generateSeedArticle(promptText, llm, logger, generationModel);
     logger?.info('Content resolved from seed generation', { contentLength: seed.content.length, source: 'prompt', phaseName: 'setup' });
     return seed.content;
   }
@@ -186,8 +189,9 @@ export async function buildRunContext(
     phaseName: 'setup',
   });
 
-  // Resolve content
-  const originalText = await resolveContent(claimedRun, db, llmProvider, logger);
+  // Resolve content (pass generationModel so seed-article LLM calls use the strategy's
+  // configured model rather than the raw provider's deepseek-chat default).
+  const originalText = await resolveContent(claimedRun, db, llmProvider, logger, config.generationModel);
   if (!originalText) {
     const reason = claimedRun.explanation_id != null
       ? `Explanation ${claimedRun.explanation_id} not found`
@@ -225,10 +229,12 @@ export async function buildRunContext(
     if (existing !== null && existing !== undefined && existing !== '') {
       randomSeed = BigInt(existing);
     } else {
-      // Auto-generate a 64-bit seed via two 32-bit random ints (Math.random is fine — only the
-      // initial seed needs to be unpredictable; downstream RNGs are deterministic from this).
-      const high = BigInt(Math.floor(Math.random() * 0xffffffff));
-      const low = BigInt(Math.floor(Math.random() * 0xffffffff));
+      // Auto-generate a 63-bit seed (signed BIGINT range). Math.random is fine here —
+      // only the initial seed needs to be unpredictable; downstream RNGs are
+      // deterministic from this. We cap the high half at 31 bits so the combined
+      // 63-bit value always fits in PostgreSQL signed BIGINT (max 2^63 - 1).
+      const high = BigInt(Math.floor(Math.random() * 0x7fffffff)); // 31 bits, signed-safe
+      const low = BigInt(Math.floor(Math.random() * 0xffffffff));   // 32 bits unsigned
       randomSeed = (high << BigInt(32)) | low;
       // Persist it back to the run row so reproduction is possible.
       await db
