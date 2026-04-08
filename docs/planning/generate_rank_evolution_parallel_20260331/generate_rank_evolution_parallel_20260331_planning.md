@@ -2648,4 +2648,52 @@ Required test that was missing from Phase 8:
 - [ ] `computeRatings.test.ts`: "concurrent `compareWithBiasMitigation` calls for the same pair return consistent results" — launch N=20 concurrent `getOrCompute` promises for the same input, assert all return the same result. Does not require that LLM is only called once (that's the Gap P decision), just that results are consistent.
 
 ## Review & Discussion
-[Populated by /plan-review with agent scores, reasoning, and gap resolutions]
+
+### /plan-review results
+
+**Iteration 1** (initial review):
+
+| Perspective | Score | Critical Gaps |
+|-------------|-------|---------------|
+| Security & Technical | 4/5 | 3 gaps |
+| Architecture & Integration | 3/5 | 6 gaps |
+| Testing & CI/CD | 2/5 | 6 gaps |
+
+Total: 15 critical gaps. Rollout concerns (5 gaps) deferred to implementation-time decisions per user direction. Remaining 10 correctness/integration/verification gaps addressed in "Critical Fixes — from plan-review iteration 1" section (H through Q).
+
+**Iteration 2** (after fixes):
+
+| Perspective | Score | Critical Gaps |
+|-------------|-------|---------------|
+| Security & Technical | **5/5** | 0 |
+| Architecture & Integration | **5/5** | 0 |
+| Testing & CI/CD | **5/5** | 0 |
+
+✅ **Consensus reached.** All reviewers voted 5/5 with zero blocking gaps remaining. The plan is ready to execute.
+
+### Minor issues surfaced during review (non-blocking)
+
+Several minor polish items were noted across reviews. These are not blockers but should be addressed during implementation:
+
+- **invocationId empty-string sentinel** (Fix H): Using `invocationId ?? ''` when createInvocation returns null is a weak sentinel. Prefer either making `invocationId` nullable in AgentContext, or throwing if createInvocation returns null.
+- **markRunFailed race** (Fix I): Make the UPDATE conditional (`WHERE error_code IS NULL`) to prove race-freedom rather than relying on prose description.
+- **sync_to_arena parameter cleanup** (Fix J): Remove the now-unused `p_matches` parameter in a follow-up to avoid wasted JSONB serialization.
+- **Rating deep-clone pattern** (Fix N): Use `{ ...rating }` rather than explicit field enumeration to handle OpenSkill variants carrying extra fields (`z`, `tau`, etc.).
+- **bigint serialization** (Fix E): `randomSeed: bigint` in AgentContext needs a serializer for EntityLogger or any JSON path, since bigint isn't JSON-serializable by default.
+- **Reserve→commit cycle audit** (Fix O): Extend the synchronicity invariant to cover the full reserve→commit cycle, not just reserve() in isolation.
+- **Base-class AgentContext test** (Fix H): Add a direct test that `Agent.run()` threads `invocationId` from createInvocation into the extended ctx before calling execute().
+
+### Deferred items (rollout concerns)
+
+Per user direction, the following items were raised but are explicitly deferred to implementation-time decisions, not tracked as gaps in this plan:
+
+- Feature flag for old vs new pipeline runtime toggle
+- Shadow mode / A/B comparison against existing pipeline
+- Migration ordering / staged rollout plan
+- Rollback strategy (code revert + schema forward-compat)
+- In-flight run handling during deployment
+- Monitoring/alerting updates for new cost/latency characteristics
+- Dashboard migration during transition
+- End-to-end tests against real LLM providers in staging
+
+These are legitimate concerns that should be addressed before production deployment, but do not block the plan itself from being considered implementation-ready.
