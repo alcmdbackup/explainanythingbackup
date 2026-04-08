@@ -379,6 +379,68 @@ describe('finalizeRun', () => {
     );
     expect(finalizationCalls.length).toBe(0);
   });
+
+  // ─── Run-level cost aggregates (Phase 9b/9f) ──────────────────────
+
+  it('writes total_generation_cost and total_ranking_cost from invocation rows', async () => {
+    mockedWriteMetric.mockClear();
+    // Custom DB mock that returns mixed-agent invocations from the select query.
+    const invocationRows = [
+      {
+        id: 'inv-1', agent_name: 'generate_from_seed_article',
+        cost_usd: 0.10,
+        execution_detail: { generation: { cost: 0.03 }, ranking: { cost: 0.07 } },
+      },
+      {
+        id: 'inv-2', agent_name: 'generate_from_seed_article',
+        cost_usd: 0.04,
+        execution_detail: { generation: { cost: 0.04 }, ranking: { cost: 0 } },
+      },
+      { id: 'inv-3', agent_name: 'swiss_ranking', cost_usd: 0.20, execution_detail: null },
+      { id: 'inv-4', agent_name: 'merge_ratings', cost_usd: 0, execution_detail: null },
+    ];
+
+    const db = {
+      from: jest.fn((table: string) => {
+        const chain: Record<string, jest.Mock> = {};
+        const self = () => chain;
+        for (const m of ['eq', 'neq', 'in', 'is', 'select', 'single', 'order', 'limit', 'range']) {
+          chain[m] = jest.fn(self);
+        }
+        // The invocation select must resolve to invocationRows; everything else
+        // falls back to the default { id: 'mock' } row used by the rest of finalizeRun.
+        chain.then = jest.fn((resolve: (v: unknown) => void) => {
+          if (table === 'evolution_agent_invocations') {
+            resolve({ data: invocationRows, error: null });
+          } else {
+            resolve({ data: [{ id: 'mock' }], error: null });
+          }
+        });
+        return {
+          update: jest.fn(() => chain),
+          upsert: jest.fn(() => Promise.resolve({ error: null })),
+          select: jest.fn(() => chain),
+        };
+      }),
+      rpc: jest.fn(async () => ({ error: null })),
+    } as never;
+
+    await finalizeRun(RUN_ID, makeResult(), { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
+
+    const genCostCall = mockedWriteMetric.mock.calls.find(
+      ([, entityType, , name]) => entityType === 'run' && name === 'total_generation_cost',
+    );
+    const rankCostCall = mockedWriteMetric.mock.calls.find(
+      ([, entityType, , name]) => entityType === 'run' && name === 'total_ranking_cost',
+    );
+
+    expect(genCostCall).toBeDefined();
+    expect(rankCostCall).toBeDefined();
+    // generation: 0.03 + 0.04 = 0.07
+    // ranking:    0.07 + 0    + 0.20 (swiss) = 0.27
+    expect((genCostCall![4] as number)).toBeCloseTo(0.07, 4);
+    expect((rankCostCall![4] as number)).toBeCloseTo(0.27, 4);
+  });
 });
 
 // ─── syncToArena helpers ────────────────────────────────────────

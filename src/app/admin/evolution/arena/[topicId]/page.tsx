@@ -71,14 +71,9 @@ export default function ArenaTopicDetailPage(): JSX.Element {
   // Top 15% eligibility cutoff
   const eloCutoff = useMemo(() => computeEloCutoff(entries), [entries]);
 
-  // Anchor threshold: bottom 25th percentile of sigma (lowest sigma = most converged)
-  const anchorSet = useMemo(() => {
-    const sigmas = entries.map(e => e.sigma).filter((s): s is number => s != null).sort((a, b) => a - b);
-    if (sigmas.length < 4) return new Set<string>();
-    const p25Idx = Math.floor(sigmas.length * 0.25);
-    const threshold = sigmas[p25Idx]!;
-    return new Set(entries.filter(e => e.sigma != null && e.sigma <= threshold).map(e => e.id));
-  }, [entries]);
+  // Anchor concept removed (Phase 9d, generate_rank_evolution_parallel_20260331).
+  // The new opponent-selection formula in rankSingleVariant naturally prefers low-sigma
+  // opponents via entropy/sigma^k scoring, so explicit "anchor" designation is unnecessary.
 
   const eligibleSet = useMemo(() => {
     if (eloCutoff == null) return null;
@@ -195,11 +190,6 @@ export default function ArenaTopicDetailPage(): JSX.Element {
       <div className="bg-[var(--surface-elevated)] border border-[var(--border-default)] rounded-book p-6 shadow-warm-lg">
         <div className="flex items-center gap-3 mb-4">
           <h2 className="text-2xl font-display font-bold text-[var(--text-primary)]">Leaderboard</h2>
-          {anchorSet.size > 0 && (
-            <span className="text-xs font-ui bg-[var(--accent-gold)]/15 text-[var(--accent-gold)] px-2 py-0.5 rounded-full" data-testid="anchor-count">
-              {anchorSet.size} anchor{anchorSet.size !== 1 ? 's' : ''}
-            </span>
-          )}
         </div>
         {eloCutoff != null && (
           <p className="text-xs font-ui text-[var(--text-muted)] mb-3" data-testid="cutoff-info">
@@ -249,11 +239,6 @@ export default function ArenaTopicDetailPage(): JSX.Element {
                         {entry.elo_score != null && entry.sigma != null
                           ? (formatEloWithUncertainty(entry.elo_score, entry.sigma * ELO_SIGMA_SCALE) ?? '—')
                           : '—'}
-                        {anchorSet.has(entry.id) && (
-                          <span className="ml-1.5 text-xs font-ui bg-[var(--accent-gold)]/15 text-[var(--accent-gold)] px-1.5 py-0.5 rounded-full" data-testid="anchor-badge">
-                            Anchor
-                          </span>
-                        )}
                       </td>
                       <td className="py-2 pr-3 font-mono">{entry.arena_match_count}</td>
                       <td className="py-2 pr-3 text-[var(--text-secondary)]">{entry.generation_method}</td>

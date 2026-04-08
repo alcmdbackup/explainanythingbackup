@@ -22,6 +22,8 @@ export interface VariantFullDetail {
   createdAt: string;
   runStatus: string;
   runCreatedAt: string;
+  /** Whether this variant survived to the final pool. False = discarded by its owning generate agent. */
+  persisted: boolean;
 }
 
 export interface VariantRelative {
@@ -87,6 +89,8 @@ export const getVariantFullDetailAction = adminAction('getVariantFullDetailActio
     createdAt: variant.created_at,
     runStatus: runResult.data?.status ?? 'unknown',
     runCreatedAt: runResult.data?.created_at ?? variant.created_at,
+    // Default to true for legacy variants written before the persisted column existed.
+    persisted: variant.persisted ?? true,
   };
 });
 

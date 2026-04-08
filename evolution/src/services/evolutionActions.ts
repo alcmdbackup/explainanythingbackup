@@ -49,6 +49,8 @@ export interface EvolutionVariant {
   match_count: number;
   is_winner: boolean;
   created_at: string;
+  /** Whether this variant survived the discard rule and is part of the final pool. */
+  persisted?: boolean;
 }
 
 export interface AgentCostBreakdown {
@@ -95,6 +97,8 @@ const listVariantsInputSchema = z.object({
   agentName: z.string().optional(),
   isWinner: z.boolean().optional(),
   filterTestContent: z.boolean().optional(),
+  /** Default false — only return variants that survived to the final pool. */
+  includeDiscarded: z.boolean().optional().default(false),
   limit: z.number().int().min(1).max(200).default(50),
   offset: z.number().int().min(0).default(0),
 });
@@ -339,15 +343,95 @@ export const getEvolutionRunByIdAction = adminAction(
   },
 );
 
+// ─── Iteration Snapshots ────────────────────────────────────────
+
+export interface IterationSnapshotRow {
+  iteration: number;
+  iterationType: 'generate' | 'swiss';
+  phase: 'start' | 'end';
+  capturedAt: string;
+  poolVariantIds: string[];
+  ratings: Record<string, { mu: number; sigma: number }>;
+  matchCounts: Record<string, number>;
+  discardedVariantIds?: string[];
+  discardReasons?: Record<string, { mu: number; top15Cutoff: number }>;
+}
+
+export interface SnapshotVariantInfo {
+  id: string;
+  agentName: string;
+  persisted: boolean;
+}
+
+export interface RunSnapshotsResult {
+  snapshots: IterationSnapshotRow[];
+  variantInfo: Record<string, SnapshotVariantInfo>;
+}
+
+/**
+ * Fetch the iteration_snapshots JSONB from the run row, plus a per-variant info map
+ * (strategy + persisted) joined from evolution_variants for snapshot table display.
+ */
+export const getRunSnapshotsAction = adminAction(
+  'getRunSnapshotsAction',
+  async (runId: string, ctx: AdminContext): Promise<RunSnapshotsResult> => {
+    if (!validateUuid(runId)) throw new Error('Invalid runId');
+    const { data: runRow, error: runErr } = await ctx.supabase
+      .from('evolution_runs')
+      .select('iteration_snapshots')
+      .eq('id', runId)
+      .single();
+    if (runErr) throw runErr;
+
+    const rawSnapshots = (runRow?.iteration_snapshots ?? []) as IterationSnapshotRow[];
+    if (!Array.isArray(rawSnapshots) || rawSnapshots.length === 0) {
+      return { snapshots: [], variantInfo: {} };
+    }
+
+    // Collect every variant ID referenced across all snapshots so we can join in one query.
+    const variantIds = new Set<string>();
+    for (const snap of rawSnapshots) {
+      for (const id of snap.poolVariantIds ?? []) variantIds.add(id);
+      for (const id of snap.discardedVariantIds ?? []) variantIds.add(id);
+    }
+
+    let variantInfo: Record<string, SnapshotVariantInfo> = {};
+    if (variantIds.size > 0) {
+      const { data: vRows } = await ctx.supabase
+        .from('evolution_variants')
+        .select('id, agent_name, persisted')
+        .in('id', Array.from(variantIds));
+      variantInfo = Object.fromEntries(
+        (vRows ?? []).map((v: { id: string; agent_name: string; persisted?: boolean | null }) => [
+          v.id,
+          { id: v.id, agentName: v.agent_name ?? '—', persisted: v.persisted ?? true },
+        ]),
+      );
+    }
+
+    return { snapshots: rawSnapshots, variantInfo };
+  },
+);
+
 export const getEvolutionVariantsAction = adminAction(
   'getEvolutionVariantsAction',
-  async (runId: string, ctx: AdminContext): Promise<EvolutionVariant[]> => {
+  async (
+    args: string | { runId: string; includeDiscarded?: boolean },
+    ctx: AdminContext,
+  ): Promise<EvolutionVariant[]> => {
+    // Backward-compat: accept either a bare runId or { runId, includeDiscarded }.
+    const runId = typeof args === 'string' ? args : args.runId;
+    const includeDiscarded = typeof args === 'string' ? false : (args.includeDiscarded ?? false);
     if (!validateUuid(runId)) throw new Error('Invalid runId');
-    const { data, error } = await ctx.supabase
+    let query = ctx.supabase
       .from('evolution_variants')
-      .select('id, run_id, explanation_id, variant_content, elo_score, generation, agent_name, match_count, is_winner, created_at')
-      .eq('run_id', runId)
-      .order('elo_score', { ascending: false });
+      .select('id, run_id, explanation_id, variant_content, elo_score, generation, agent_name, match_count, is_winner, created_at, persisted')
+      .eq('run_id', runId);
+    if (!includeDiscarded) {
+      // Default behavior: only show variants that survived to the final pool.
+      query = query.eq('persisted', true);
+    }
+    const { data, error } = await query.order('elo_score', { ascending: false });
     if (error) throw error;
     return (data ?? []) as EvolutionVariant[];
   },
@@ -508,6 +592,10 @@ export const listVariantsAction = adminAction(
     if (parsed.runId) query = query.eq('run_id', parsed.runId);
     if (parsed.agentName) query = query.eq('agent_name', parsed.agentName);
     if (parsed.isWinner !== undefined) query = query.eq('is_winner', parsed.isWinner);
+    if (!parsed.includeDiscarded) {
+      // Default: only show variants that survived to the final pool.
+      query = query.eq('persisted', true);
+    }
     if (parsed.filterTestContent && testRunIds.length > 0) {
       query = query.not('run_id', 'in', `(${testRunIds.join(',')})`);
     }

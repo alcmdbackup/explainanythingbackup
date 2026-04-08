@@ -53,6 +53,21 @@ export function VariantDetailContent({ variant }: VariantDetailContentProps): JS
         ]}
       />
 
+      {variant.persisted === false && (
+        <div
+          className="rounded-book border border-[var(--status-error)] bg-[var(--status-error)]/10 p-3"
+          data-testid="variant-discarded-banner"
+        >
+          <p className="text-sm font-ui font-medium text-[var(--status-error)]">
+            Discarded variant
+          </p>
+          <p className="text-xs font-ui text-[var(--text-secondary)] mt-1">
+            This variant was discarded by its owning generate agent (local mu below the
+            top-15% cutoff at budget exhaustion). It is not included in run-level metrics.
+          </p>
+        </div>
+      )}
+
       <EntityDetailTabs tabs={TABS} activeTab={activeTab} onTabChange={setActiveTab}>
         {activeTab === 'metrics' && <EntityMetricsTab entityType="variant" entityId={variant.id} />}
         {activeTab === 'content' && <VariantContentSection content={variant.variantContent} />}

@@ -1,16 +1,16 @@
 # Agents and Pipeline Operations
 
-This document covers the V2 pipeline's operational components: the phase functions that generate, rank, and evolve text variants, plus the supporting infrastructure for format validation, cost tracking, invocation logging, and LLM communication. For the overall system design, see [Architecture](../architecture.md). For rating math details, see [Rating and Comparison](../rating_and_comparison.md).
+This document covers the V2 pipeline's operational components: the three concrete agent classes that drive the orchestrator-driven iteration loop, plus the supporting infrastructure for format validation, cost tracking, invocation logging, and LLM communication. For the overall system design, see [Architecture](../architecture.md). For rating math details, see [Rating and Comparison](../rating_and_comparison.md).
 
-## V2 Agent-Based Orchestrator
+## V2 Orchestrator-Driven Iteration Loop
 
-V1 used a supervisor-agent architecture: a supervisor dispatched work to an agent pool, collected results through a reducer, and persisted intermediate state via checkpoints. V2 replaces that with a flat orchestrator backed by two concrete Agent subclasses. The `evolveArticle()` function in `evolution/src/lib/pipeline/evolve-article.ts` drives a generate-rank-evolve loop:
+`evolveArticle()` in `evolution/src/lib/pipeline/loop/runIterationLoop.ts` dispatches a sequence of iterations chosen by `nextIteration()`. Each iteration is one of two types — both have the uniform shape **work agent(s) + merge agent**:
 
-1. `GenerationAgent` — create new text variants from the original
-2. `RankingAgent` — compare and rate all variants in the pool
-3. `evolveVariants()` — mutate and crossover the top-rated variants (uses pipeline functions directly, no separate agent class)
+1. **`GenerateFromSeedArticleAgent`** — one parallel agent per generated variant. Generates ONE variant via a single strategy, then ranks it via binary search against a deep-cloned local snapshot of the iteration-start pool/ratings/matchCounts. Owns its own surface/discard decision (budget + local mu < top-15% cutoff = discard).
+2. **`SwissRankingAgent`** — one swiss iteration's worth of parallel pair comparisons over the eligible set. Returns the raw match buffer; never applies rating updates.
+3. **`MergeRatingsAgent`** — reusable. Concatenates match buffers from one or more work agents, shuffles in seeded Fisher-Yates order, applies OpenSkill updates to the global ratings sequentially, and writes one row per match to `evolution_arena_comparisons` (sole writer of in-run match rows).
 
-There is no agent pool, no reducer, and no checkpoint persistence between iterations. The orchestrator manages the pool, ratings map, and cost tracker as local state. This design is simpler to reason about and debug, at the cost of not being resumable mid-run.
+The first iteration is always `generate`; subsequent iterations are `swiss` until the orchestrator decides convergence/no_pairs/budget/kill/deadline. There is no agent pool, no reducer, and no checkpoint persistence between iterations. The orchestrator manages the pool, ratings map, and cost tracker as local state. This design is simpler to reason about and debug, at the cost of not being resumable mid-run.
 
 ```typescript
 export async function evolveArticle(
@@ -23,7 +23,7 @@ export async function evolveArticle(
 ): Promise<EvolutionResult>
 ```
 
-Each iteration calls the generate and rank phases through their respective agent classes (`GenerationAgent`, `RankingAgent`), each using the `Agent.run()` template method which wraps budget-error handling (discussed below). The evolve phase calls pipeline functions directly. The loop runs for `config.iterations` rounds or until budget exhaustion or external kill signal. Config validation enforces hard bounds: iterations must be 1-100, budget must be positive and at most $50, and both `judgeModel` and `generationModel` must be non-empty strings.
+Each iteration dispatches its work agent(s) and merge agent through the `Agent.run()` template method, which wraps budget-error handling (discussed below) and invocation lifecycle. The loop runs until convergence, no remaining swiss pairs, budget exhaustion, kill signal, or wall-clock deadline. `config.iterations` is now optional (kept for backward compat with the strategy config hash); the orchestrator decides when to stop. Config validation enforces hard bounds: budget must be positive and at most $50, both `judgeModel` and `generationModel` must be non-empty, and `numVariants` (default 9) must be 1-100.
 
 Between iterations, the orchestrator checks for external kill signals by querying the run's status in the database. If the status has been set to `failed` or `cancelled` (by a user or admin action), the loop terminates gracefully with whatever results have been accumulated so far. Kill detection errors are swallowed — the pipeline continues if the database is temporarily unreachable.
 

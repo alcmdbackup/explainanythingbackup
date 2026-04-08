@@ -327,7 +327,7 @@ async function createRunRecord(
     const strategyConfigId = await upsertStrategy(supabase, {
       generationModel: config.generationModel,
       judgeModel: config.judgeModel,
-      iterations: config.iterations,
+      iterations: config.iterations ?? 1,
     });
 
     const { error } = await supabase.from('evolution_runs').insert({

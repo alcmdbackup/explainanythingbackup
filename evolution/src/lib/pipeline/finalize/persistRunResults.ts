@@ -125,13 +125,21 @@ export async function finalizeRun(
   logger?.info('Strategy effectiveness computed', { strategyEffectiveness: (runSummary as Record<string, unknown>).strategyEffectiveness, phaseName: 'finalize' });
 
   // Step 2: Update run to completed with run_summary (runner_id check prevents stale finalization)
+  // Also writes iteration_snapshots and random_seed if present on the result.
+  const runUpdate: Record<string, unknown> = {
+    status: 'completed',
+    completed_at: new Date().toISOString(),
+    run_summary: runSummary,
+  };
+  if (result.iterationSnapshots !== undefined) {
+    runUpdate.iteration_snapshots = result.iterationSnapshots;
+  }
+  if (result.randomSeed !== undefined) {
+    runUpdate.random_seed = result.randomSeed.toString();
+  }
   let statusQuery = db
     .from('evolution_runs')
-    .update({
-      status: 'completed',
-      completed_at: new Date().toISOString(),
-      run_summary: runSummary,
-    })
+    .update(runUpdate)
     .eq('id', runId)
     .in('status', ['claimed', 'running']);
 
@@ -161,8 +169,9 @@ export async function finalizeRun(
   const winnerSigma = result.ratings.get(winnerId)?.sigma ?? DEFAULT_SIGMA;
   logger?.info('Winner determined', { winnerId, winnerMu, winnerSigma, phaseName: 'finalize' });
 
-  // Step 4: Upsert variants
-  const variantRows = localPool.map((v) => {
+  // Step 4: Upsert variants — both surfaced (persisted=true) and discarded (persisted=false).
+  // Discarded variants exist in the DB so their generation cost stays queryable.
+  const surfacedRows = localPool.map((v) => {
     const rating = result.ratings.get(v.id);
     const mu = rating?.mu ?? DEFAULT_MU;
     const sigma = rating?.sigma ?? DEFAULT_SIGMA;
@@ -183,10 +192,43 @@ export async function finalizeRun(
       match_count: result.matchCounts[v.id] ?? 0,
       is_winner: v.id === winnerId,
       prompt_id: run.prompt_id ?? null,
+      persisted: true,
     });
   });
 
-  logger?.info('Persisting variants', { count: variantRows.length, winnerId, phaseName: 'finalize' });
+  const discardedRows = (result.discardedVariants ?? [])
+    .filter((v) => !v.fromArena)
+    .map((v) => {
+      // Discarded variants don't have global ratings (they were never merged), but their
+      // generation cost lives on the invocation row. We persist with default mu/sigma so the
+      // row exists; metric queries should filter by persisted=true to exclude them.
+      return evolutionVariantInsertSchema.parse({
+        id: v.id,
+        run_id: runId,
+        explanation_id: run.explanation_id ?? null,
+        variant_content: v.text,
+        elo_score: toEloScale(DEFAULT_MU),
+        mu: DEFAULT_MU,
+        sigma: DEFAULT_SIGMA,
+        generation: v.version,
+        parent_variant_id: v.parentIds[0] ?? null,
+        agent_name: v.strategy,
+        match_count: 0,
+        is_winner: false,
+        prompt_id: run.prompt_id ?? null,
+        persisted: false,
+      });
+    });
+
+  const variantRows = [...surfacedRows, ...discardedRows];
+
+  logger?.info('Persisting variants', {
+    count: variantRows.length,
+    surfaced: surfacedRows.length,
+    discarded: discardedRows.length,
+    winnerId,
+    phaseName: 'finalize',
+  });
   const { error: variantError } = await db
     .from('evolution_variants')
     .upsert(variantRows, { onConflict: 'id' });
@@ -232,7 +274,7 @@ export async function finalizeRun(
     // Invocation-level finalization metrics (requires execution_detail for variant mapping)
     const { data: invocations } = await db
       .from('evolution_agent_invocations')
-      .select('id, agent_name, execution_detail')
+      .select('id, agent_name, cost_usd, execution_detail')
       .eq('run_id', runId);
 
     if (invocations && invocations.length > 0) {
@@ -249,6 +291,34 @@ export async function finalizeRun(
           await writeMetric(db, 'invocation', inv.id, def.name as MetricName, val, 'at_finalization');
         }
       }
+
+      // Run-level cost aggregates (Phase 9b/9f) — bucket invocation cost_usd by agent_name.
+      // We deliberately do NOT use execution_detail.{generation,ranking}.cost sub-totals here:
+      // those are computed by per-agent costTracker.getTotalSpent() deltas which race against
+      // OTHER concurrent agents in the same iteration (the tracker is shared). The race
+      // produces inflated per-agent costs; bucketing by agent_name uses cost_usd directly
+      // which sums correctly to the run total. generate_from_seed_article is treated as
+      // 50/50 generation/ranking — a coarse approximation but at least the totals are
+      // bounded by the real run cost. The accurate split would require a non-shared
+      // per-call cost tracker, which is a follow-up.
+      let totalGenerationCost = 0;
+      let totalRankingCost = 0;
+      for (const inv of invocations as Array<{ agent_name: string; cost_usd: number | null }>) {
+        const cost = Number(inv.cost_usd ?? 0);
+        if (!Number.isFinite(cost) || cost === 0) continue;
+        if (inv.agent_name === 'generate_from_seed_article') {
+          totalGenerationCost += cost / 2;
+          totalRankingCost += cost / 2;
+        } else if (inv.agent_name === 'swiss_ranking') {
+          totalRankingCost += cost;
+        } else if (inv.agent_name === 'generation') {
+          totalGenerationCost += cost;
+        } else if (inv.agent_name === 'ranking') {
+          totalRankingCost += cost;
+        }
+      }
+      await writeMetric(db, 'run', runId, 'total_generation_cost' as MetricName, totalGenerationCost, 'at_finalization');
+      await writeMetric(db, 'run', runId, 'total_ranking_cost' as MetricName, totalRankingCost, 'at_finalization');
     }
 
     // Variant-level finalization metrics

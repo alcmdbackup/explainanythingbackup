@@ -59,19 +59,18 @@ export interface StrategyMetricsResult {
 
 // ─── Supabase type (minimal interface for testability) ──────────
 
+interface ChainableQuery extends Promise<{ data: unknown[]; error: unknown }> {
+  eq: (col: string, val: unknown) => ChainableQuery;
+  order?: (col: string, opts: { ascending: boolean }) => {
+    limit: (n: number) => {
+      maybeSingle: () => Promise<{ data: unknown; error: unknown }>;
+    };
+  };
+}
 interface SupabaseClient {
   rpc: (fn: string, params: Record<string, unknown>) => Promise<{ data: unknown; error: unknown }>;
   from: (table: string) => {
-    select: (columns: string) => {
-      eq: (col: string, val: unknown) => {
-        order?: (col: string, opts: { ascending: boolean }) => {
-          limit: (n: number) => {
-            maybeSingle: () => Promise<{ data: unknown; error: unknown }>;
-          };
-        };
-        [key: string]: unknown;
-      } & Promise<{ data: unknown[]; error: unknown }>;
-    };
+    select: (columns: string) => ChainableQuery;
   };
 }
 
@@ -269,10 +268,14 @@ export async function computeRunMetrics(
 ): Promise<RunMetricsWithRatings> {
   const metrics: MetricsBag = {};
   // V2: query evolution_variants directly (no checkpoints, no compute_run_variant_stats RPC)
-  const variantsResult = await Promise.resolve(supabase
+  // Filter persisted=true: discarded variants are excluded from run metrics. Their generation
+  // cost lives on invocation rows, not on this aggregate.
+  const variantsQuery = supabase
     .from('evolution_variants')
     .select('elo_score')
-    .eq('run_id', runId)) as unknown as { data: Array<{ elo_score: number }> | null };
+    .eq('run_id', runId)
+    .eq('persisted', true);
+  const variantsResult = (await variantsQuery) as unknown as { data: Array<{ elo_score: number }> | null };
   const variants = variantsResult?.data;
 
   if (variants && variants.length > 0) {

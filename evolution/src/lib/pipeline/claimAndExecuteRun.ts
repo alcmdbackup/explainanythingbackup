@@ -8,6 +8,7 @@ import { allowedLLMModelSchema } from '@/lib/schemas/schemas';
 import { buildRunContext, type ClaimedRun } from './setup/buildRunContext';
 import { evolveArticle } from './loop/runIterationLoop';
 import { finalizeRun, syncToArena } from './finalize/persistRunResults';
+import { classifyError } from './classifyError';
 
 export type { ClaimedRun } from './setup/buildRunContext';
 
@@ -62,19 +63,26 @@ async function markRunFailed(
   db: SupabaseClient,
   runId: string,
   errorMessage: string,
+  errorCode?: string,
+  errorDetails?: Record<string, unknown>,
 ): Promise<void> {
   const truncated = errorMessage.slice(0, 2000);
   try {
+    // Conditional WHERE error_code IS NULL to prove race-freedom: if persistRunResults
+    // already wrote an error_code, this UPDATE is a no-op rather than overwriting it.
     await db
       .from('evolution_runs')
       .update({
         status: 'failed',
         error_message: truncated,
+        error_code: errorCode ?? 'unhandled_error',
+        ...(errorDetails ? { error_details: errorDetails } : {}),
         completed_at: new Date().toISOString(),
         runner_id: null,
       })
       .eq('id', runId)
-      .in('status', ['pending', 'claimed', 'running']);
+      .in('status', ['pending', 'claimed', 'running'])
+      .is('error_code', null);
   } catch (err) {
     logger.error(`Failed to mark run ${runId} as failed`, { error: String(err) });
   }
@@ -170,8 +178,13 @@ export async function claimAndExecuteRun(
     return { claimed: true, runId, stopReason: pipelineResult.stopReason, durationMs: Date.now() - startMs };
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
-    logger.error('Evolution pipeline failed', { runId, error: msg });
-    await markRunFailed(supabase, runId, msg);
+    const code = classifyError(error);
+    const details: Record<string, unknown> = {};
+    if (error instanceof Error && error.stack) {
+      details.stack = error.stack.slice(0, 1000);
+    }
+    logger.error('Evolution pipeline failed', { runId, error: msg, errorCode: code });
+    await markRunFailed(supabase, runId, msg, code, details);
     return { claimed: true, runId, error: msg.slice(0, 2000), durationMs: Date.now() - startMs };
   } finally {
     if (heartbeatInterval) {
@@ -208,8 +221,8 @@ async function executePipeline(
     throw new Error(contextResult.error);
   }
 
-  const { originalText, config, logger: runLogger, initialPool } = contextResult.context;
-  runLogger.info('Run context built', { initialPoolSize: initialPool.length, phaseName: 'setup' });
+  const { originalText, config, logger: runLogger, initialPool, randomSeed } = contextResult.context;
+  runLogger.info('Run context built', { initialPoolSize: initialPool.length, phaseName: 'setup', randomSeed: randomSeed.toString() });
 
   runLogger.info('Starting evolution loop', {
     iterations: config.iterations, budgetUsd: config.budgetUsd,
@@ -223,6 +236,7 @@ async function executePipeline(
     strategyId: claimedRun.strategy_id,
     deadlineMs,
     signal,
+    randomSeed,
   });
   runLogger.info('Evolution loop completed', {
     stopReason: result.stopReason, iterations: result.iterationsRun,

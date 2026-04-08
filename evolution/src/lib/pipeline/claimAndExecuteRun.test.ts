@@ -156,6 +156,7 @@ describe('claimAndExecuteRun', () => {
           config: { iterations: 1, budgetUsd: 2, judgeModel: 'gpt-4.1-nano', generationModel: 'gpt-4.1-nano' },
           logger: { info: jest.fn(), warn: jest.fn() },
           initialPool: [],
+          randomSeed: BigInt(0),
         },
       });
       mockEvolveArticle.mockResolvedValue({
@@ -329,6 +330,7 @@ describe('claimAndExecuteRun', () => {
           config: { iterations: 1, budgetUsd: 2, judgeModel: 'gpt-4.1-nano', generationModel: 'gpt-4.1-nano' },
           logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
           initialPool: [],
+          randomSeed: BigInt(0),
         },
       });
       mockEvolveArticle.mockResolvedValue({
@@ -379,6 +381,7 @@ describe('claimAndExecuteRun', () => {
           config: { iterations: 1, budgetUsd: 1, judgeModel: 'gpt-4.1-nano', generationModel: 'gpt-4.1-nano' },
           logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
           initialPool: [],
+          randomSeed: BigInt(0),
         },
       });
       mockEvolveArticle.mockResolvedValue({

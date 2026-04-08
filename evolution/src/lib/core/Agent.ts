@@ -20,13 +20,19 @@ export abstract class Agent<TInput, TOutput, TDetail extends ExecutionDetailBase
       ctx.db, ctx.runId, ctx.iteration, this.name, ctx.executionOrder,
     );
 
+    // Thread invocationId into ctx so execute() can pass it on every callLLM
+    // for llmCallTracking joins (Critical Fix H). Empty string sentinel when
+    // createInvocation returned null — agents should still function but lose
+    // the invocation FK on llmCallTracking rows.
+    const extendedCtx: AgentContext = { ...ctx, invocationId: invocationId ?? '' };
+
     const costBefore = ctx.costTracker.getTotalSpent();
     const startMs = Date.now();
 
     ctx.logger.info(`Agent ${this.name} starting`, { phaseName: this.name, iteration: ctx.iteration });
 
     try {
-      const output = await this.execute(input, ctx);
+      const output = await this.execute(input, extendedCtx);
       const cost = ctx.costTracker.getTotalSpent() - costBefore;
       const durationMs = Date.now() - startMs;
 

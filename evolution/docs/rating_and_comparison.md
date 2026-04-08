@@ -1,9 +1,32 @@
 # Rating and Comparison
 
-This document covers the ranking subsystem: Bayesian ratings, the two-phase ranking
-pipeline, bias-mitigated comparisons, winner parsing, and comparison caching. Together
-these components turn pairwise LLM judgments into stable skill estimates for every
-text variant in the pool.
+This document covers the ranking subsystem: Bayesian ratings, ranking algorithms,
+bias-mitigated comparisons, winner parsing, and comparison caching. Together these
+components turn pairwise LLM judgments into stable skill estimates for every text
+variant in the pool.
+
+> **Architecture note (Phase: orchestrator-driven parallel pipeline).** Ranking is
+> now split across two distinct algorithms, each owned by a different agent:
+>
+> - **Binary-search single-variant ranking** (`rankSingleVariant`) lives inside
+>   `GenerateFromSeedArticleAgent`. Each parallel generate agent ranks its newly
+>   generated variant against a deep-cloned local snapshot of the iteration-start
+>   pool/ratings/matchCounts, using a continuous opponent-selection formula
+>   (`entropy(pWin) / sigma^SIGMA_WEIGHT`). Stops on convergence, elimination, opponent
+>   exhaustion, or budget. The agent owns the surface/discard decision locally.
+>
+> - **Swiss pair comparisons** (`SwissRankingAgent`) refine the eligible top-15% pool
+>   in subsequent iterations. Pairs are computed by `swissPairing()` (overlap allowed,
+>   capped at `MAX_PAIRS_PER_ROUND`), dispatched in parallel, and the raw match buffer
+>   is handed to `MergeRatingsAgent` which applies OpenSkill updates to the global
+>   ratings in randomized (Fisher-Yates) order. The merge agent is dispatched
+>   unconditionally so paid-for matches always reach global ratings even on budget exit.
+>
+> The legacy two-phase `triage + Swiss` flow described in the "Two-Phase Ranking
+> Pipeline" section below has been replaced by this orchestrator-driven model. The
+> opponent-selection rationale (low-sigma preference, information-gain reasoning) still
+> applies — it is now realised through the continuous entropy/sigma formula instead of
+> stratified quartile sampling.
 
 ## OpenSkill (Weng-Lin Bayesian) Ratings
 

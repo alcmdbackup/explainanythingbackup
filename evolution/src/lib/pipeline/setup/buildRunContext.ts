@@ -93,6 +93,8 @@ export interface RunContext {
   config: EvolutionConfig;
   logger: EntityLogger;
   initialPool: Array<ArenaTextVariation & { mu?: number; sigma?: number }>;
+  /** Run-level random seed (BIGINT) for reproducible Fisher-Yates shuffles + agent tiebreaks. */
+  randomSeed: bigint;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────
@@ -211,7 +213,38 @@ export async function buildRunContext(
     }
   }
 
+  // Read existing random_seed if present (e.g., for reproducing a prior run), otherwise generate.
+  let randomSeed: bigint;
+  try {
+    const { data: runRow } = await db
+      .from('evolution_runs')
+      .select('random_seed')
+      .eq('id', runId)
+      .single();
+    const existing = runRow?.random_seed as string | number | null | undefined;
+    if (existing !== null && existing !== undefined && existing !== '') {
+      randomSeed = BigInt(existing);
+    } else {
+      // Auto-generate a 64-bit seed via two 32-bit random ints (Math.random is fine — only the
+      // initial seed needs to be unpredictable; downstream RNGs are deterministic from this).
+      const high = BigInt(Math.floor(Math.random() * 0xffffffff));
+      const low = BigInt(Math.floor(Math.random() * 0xffffffff));
+      randomSeed = (high << BigInt(32)) | low;
+      // Persist it back to the run row so reproduction is possible.
+      await db
+        .from('evolution_runs')
+        .update({ random_seed: randomSeed.toString() })
+        .eq('id', runId);
+    }
+  } catch (err) {
+    logger.warn('random_seed read/write failed; using fallback constant', {
+      phaseName: 'setup',
+      error: (err instanceof Error ? err.message : String(err)).slice(0, 500),
+    });
+    randomSeed = BigInt(42);
+  }
+
   return {
-    context: { originalText, config, logger, initialPool },
+    context: { originalText, config, logger, initialPool, randomSeed },
   };
 }
