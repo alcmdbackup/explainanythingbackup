@@ -63,11 +63,13 @@ export async function recomputeStaleMetrics(
 const MATCH_DEPENDENT_METRICS = new Set(['total_matches', 'decisive_rate']);
 
 async function recomputeRunEloMetrics(db: SupabaseClient, runId: string): Promise<void> {
-  // Read current variant ratings for this run
+  // Read current variant ratings for this run.
+  // Filter persisted=true: discarded variants must not enter the recomputed pool.
   const { data: variants, error: variantError } = await db
     .from('evolution_variants')
     .select('id, mu, sigma')
-    .eq('run_id', runId);
+    .eq('run_id', runId)
+    .eq('persisted', true);
   if (variantError) throw new Error(`Failed to read variants for run ${runId}: ${variantError.message}`);
 
   if (!variants || variants.length === 0) return;
@@ -174,7 +176,8 @@ async function recomputeInvocationMetrics(db: SupabaseClient, invocationId: stri
   const { data: variants, error: variantError } = await db
     .from('evolution_variants')
     .select('id, mu, sigma')
-    .eq('run_id', inv.run_id);
+    .eq('run_id', inv.run_id)
+    .eq('persisted', true);
   if (variantError || !variants || variants.length === 0) return;
 
   const ratings = new Map<string, Rating>();

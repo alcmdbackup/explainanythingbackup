@@ -1,7 +1,7 @@
 // Tests for MergeRatingsAgent: shuffle, OpenSkill apply, before/after snapshots,
 // arena_comparisons writes (Critical Fix J), iteration type handling.
 
-import { MergeRatingsAgent, type MergeMatchEntry } from './MergeRatingsAgent';
+import { MergeRatingsAgent, type MergeMatchEntry, type MergeRatingsInput } from './MergeRatingsAgent';
 import type { AgentContext } from '../types';
 import type { Variant } from '../../types';
 import type { Rating } from '../../shared/computeRatings';
@@ -75,12 +75,12 @@ beforeEach(() => {
 // ─── Tests ────────────────────────────────────────────────────────
 
 describe('MergeRatingsAgent', () => {
-  const baseInput = () => {
+  const baseInput = (): MergeRatingsInput => {
     const baseline = mkVariant('baseline');
     return {
-      iterationType: 'generate' as const,
-      matchBuffers: [],
-      newVariants: [],
+      iterationType: 'generate',
+      matchBuffers: [] as MergeMatchEntry[][],
+      newVariants: [] as Variant[],
       pool: [baseline],
       ratings: new Map<string, Rating>([['baseline', createRating()]]),
       matchCounts: new Map<string, number>(),

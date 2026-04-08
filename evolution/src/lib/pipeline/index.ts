@@ -84,8 +84,13 @@ export { createExperiment, addRunToExperiment, computeExperimentMetrics } from '
 export type { ExperimentMetrics } from './manageExperiments';
 
 // ─── Entity/Agent classes ────────────────────────────────────────
-export { GenerationAgent, type GenerationInput } from '../core/agents/GenerationAgent';
-export { RankingAgent, type RankingInput, type RankResult } from '../core/agents/RankingAgent';
+// Parallelized pipeline (generate_rank_evolution_parallel_20260331).
+export { GenerateFromSeedArticleAgent } from '../core/agents/generateFromSeedArticle';
+export type { GenerateFromSeedInput, GenerateFromSeedOutput } from '../core/agents/generateFromSeedArticle';
+export { SwissRankingAgent } from '../core/agents/SwissRankingAgent';
+export type { SwissRankingInput, SwissRankingOutput } from '../core/agents/SwissRankingAgent';
+export { MergeRatingsAgent } from '../core/agents/MergeRatingsAgent';
+export type { MergeRatingsInput, MergeRatingsOutput, MergeMatchEntry } from '../core/agents/MergeRatingsAgent';
 
 // ─── Pipeline schemas (Phase 2) ─────────────────────────────────
 export {

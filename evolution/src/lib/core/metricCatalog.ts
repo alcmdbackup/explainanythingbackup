@@ -70,6 +70,16 @@ export const METRIC_CATALOG = {
     timing: 'at_finalization',
     description: 'Total pairwise comparisons performed by this ranking invocation',
   },
+  total_generation_cost: {
+    name: 'total_generation_cost', label: 'Generation Cost', category: 'cost', formatter: 'cost',
+    timing: 'at_finalization',
+    description: 'Sum of LLM cost from generate_from_seed_article agents (text generation only)',
+  },
+  total_ranking_cost: {
+    name: 'total_ranking_cost', label: 'Ranking Cost', category: 'cost', formatter: 'cost',
+    timing: 'at_finalization',
+    description: 'Sum of LLM cost from rankSingleVariant binary search + SwissRankingAgent comparisons',
+  },
 
   // === Propagation-phase metrics (derived — entities override name/label) ===
   run_count: {

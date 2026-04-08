@@ -41,6 +41,8 @@ export interface LineageNode {
   eloScore: number;
   isWinner: boolean;
   parentId: string | null;
+  /** False = discarded by owning generate agent. Defaults true for legacy variants. */
+  persisted?: boolean;
 }
 
 /** V2 lineage data format compatible with LineageGraph component. */
@@ -54,6 +56,8 @@ export interface LineageData {
     isWinner: boolean;
     treeDepth?: number | null;
     revisionAction?: string | null;
+    /** False = discarded variant — rendered with reduced opacity / dashed border. */
+    persisted?: boolean;
   }[];
   edges: { source: string; target: string }[];
   treeSearchPath?: string[];
@@ -224,7 +228,7 @@ export const getEvolutionRunLineageAction = adminAction(
 
     const { data, error } = await ctx.supabase
       .from('evolution_variants')
-      .select('id, generation, agent_name, elo_score, is_winner, parent_variant_id')
+      .select('id, generation, agent_name, elo_score, is_winner, parent_variant_id, persisted')
       .eq('run_id', runId)
       .order('generation', { ascending: true });
 
@@ -237,6 +241,8 @@ export const getEvolutionRunLineageAction = adminAction(
       eloScore: v.elo_score,
       isWinner: v.is_winner,
       parentId: v.parent_variant_id,
+      // Default true for legacy rows that pre-date the persisted column.
+      persisted: (v as { persisted?: boolean | null }).persisted ?? true,
     }));
   },
 );

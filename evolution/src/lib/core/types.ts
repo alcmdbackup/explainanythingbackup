@@ -147,6 +147,9 @@ export interface AgentContext {
   invocationId: string;
   /** Seeded RNG sub-seed derived from the run's random_seed via deriveSeed(). */
   randomSeed: bigint;
+  /** 1-based index of this agent within a parallel-dispatch batch (Phase 7 logging).
+   *  Set by the orchestrator for parallel generate iterations; undefined for solo agents. */
+  agentIndex?: number;
 }
 
 export interface AgentOutput<TOutput, TDetail> {

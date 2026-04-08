@@ -3,8 +3,9 @@
 import { Agent } from './Agent';
 import type { AgentContext, AgentOutput, DetailFieldDef } from './types';
 import { BudgetExceededError, BudgetExceededWithPartialResults, ExecutionDetailBase } from '../types';
-import { GenerationAgent } from './agents/GenerationAgent';
-import { RankingAgent } from './agents/RankingAgent';
+import { GenerateFromSeedArticleAgent } from './agents/generateFromSeedArticle';
+import { SwissRankingAgent } from './agents/SwissRankingAgent';
+import { MergeRatingsAgent } from './agents/MergeRatingsAgent';
 import { z } from 'zod';
 
 // ─── Mock dependencies ──────────────────────────────────────────
@@ -293,14 +294,20 @@ describe('Agent abstract class', () => {
   });
 
   describe('detailViewConfig on concrete agents', () => {
-    it('GenerationAgent has a non-empty detailViewConfig', () => {
-      const agent = new GenerationAgent();
+    it('GenerateFromSeedArticleAgent has a non-empty detailViewConfig', () => {
+      const agent = new GenerateFromSeedArticleAgent();
       expect(Array.isArray(agent.detailViewConfig)).toBe(true);
       expect(agent.detailViewConfig.length).toBeGreaterThan(0);
     });
 
-    it('RankingAgent has a non-empty detailViewConfig', () => {
-      const agent = new RankingAgent();
+    it('SwissRankingAgent has a non-empty detailViewConfig', () => {
+      const agent = new SwissRankingAgent();
+      expect(Array.isArray(agent.detailViewConfig)).toBe(true);
+      expect(agent.detailViewConfig.length).toBeGreaterThan(0);
+    });
+
+    it('MergeRatingsAgent has a non-empty detailViewConfig', () => {
+      const agent = new MergeRatingsAgent();
       expect(Array.isArray(agent.detailViewConfig)).toBe(true);
       expect(agent.detailViewConfig.length).toBeGreaterThan(0);
     });

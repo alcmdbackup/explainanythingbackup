@@ -2,6 +2,18 @@
 
 The evolution pipeline uses a centralized metrics system stored in a single `evolution_metrics` EAV (entity-attribute-value) table. Metrics are computed at three lifecycle stages, support lazy recomputation via stale flags, and propagate from child entities (runs) to parent entities (strategies, experiments) using configurable aggregation.
 
+> **Parallel pipeline additions:** the orchestrator-driven pipeline adds two run-level
+> finalization metrics — `total_generation_cost` and `total_ranking_cost` — that split
+> LLM spend by purpose. They are computed in `persistRunResults.finalizeRun()` from the
+> per-invocation `cost_usd` column, attributing
+> `generate_from_seed_article.execution_detail.generation.cost` to generation and
+> `.ranking.cost` plus `swiss_ranking.cost_usd` to ranking. Most metrics filter
+> variants by `persisted = true` so discarded variants do not pollute aggregates; the
+> cost metric does **not** filter, since discarded variants still cost real LLM money
+> to generate and partially rank. The `format_rejection_rate` and `total_comparisons`
+> invocation metrics now handle both legacy and new execution-detail shapes via
+> `detailType` discrimination.
+
 For how metrics feed into strategy comparison, see [Strategies & Experiments](./strategies_and_experiments.md). For the database schema of the metrics table, see [Data Model](./data_model.md).
 
 ---

@@ -22,12 +22,14 @@ import { EloTab } from '@evolution/components/evolution/tabs/EloTab';
 import { LineageTab } from '@evolution/components/evolution/tabs/LineageTab';
 import { VariantsTab } from '@evolution/components/evolution/tabs/VariantsTab';
 import { LogsTab } from '@evolution/components/evolution/tabs/LogsTab';
+import { SnapshotsTab } from '@evolution/components/evolution/tabs/SnapshotsTab';
 
 const TABS: TabDef[] = [
   { id: 'metrics', label: 'Metrics' },
   { id: 'elo', label: 'Elo' },
   { id: 'lineage', label: 'Lineage' },
   { id: 'variants', label: 'Variants' },
+  { id: 'snapshots', label: 'Snapshots' },
   { id: 'logs', label: 'Logs' },
 ];
 
@@ -108,6 +110,7 @@ export default function EvolutionRunDetailPage(): JSX.Element {
         {activeTab === 'elo' && <EloTab runId={runId} />}
         {activeTab === 'lineage' && <LineageTab runId={runId} />}
         {activeTab === 'variants' && <VariantsTab runId={runId} runStatus={run.status} />}
+        {activeTab === 'snapshots' && <SnapshotsTab runId={runId} />}
         {activeTab === 'logs' && <LogsTab entityType="run" entityId={runId} />}
       </EntityDetailTabs>
     </div>

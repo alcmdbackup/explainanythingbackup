@@ -148,31 +148,28 @@ describe('computeRunMetrics', () => {
     variants?: Array<{ elo_score: number }>;
     invocations?: Array<{ agent_name: string; cost_usd: number }>;
   }) {
+    // Build a thenable that chains .eq() any number of times.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    function chainable<T>(data: T): any {
+      const result = { data, error: null };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const obj: any = {
+        eq: () => obj,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        then: (onFulfilled?: any, onRejected?: any) =>
+          Promise.resolve(result).then(onFulfilled, onRejected),
+      };
+      return obj;
+    }
     return {
       from: jest.fn().mockImplementation((table: string) => {
         if (table === 'evolution_variants') {
-          return {
-            select: () => ({
-              eq: () =>
-                Promise.resolve({
-                  data: config.variants ?? [],
-                  error: null,
-                }),
-            }),
-          };
+          return { select: () => chainable(config.variants ?? []) };
         }
         if (table === 'evolution_agent_invocations') {
-          return {
-            select: () => ({
-              eq: () =>
-                Promise.resolve({
-                  data: config.invocations ?? [],
-                  error: null,
-                }),
-            }),
-          };
+          return { select: () => chainable(config.invocations ?? []) };
         }
-        return { select: () => ({ eq: () => Promise.resolve({ data: [], error: null }) }) };
+        return { select: () => chainable([]) };
       }),
     };
   }

@@ -6,8 +6,10 @@
 // See planning doc: docs/planning/generate_rank_evolution_parallel_20260331/_planning.md
 
 import { Agent } from '../Agent';
-import type { AgentContext, AgentOutput, DetailFieldDef } from '../types';
+import type { AgentContext, AgentOutput, DetailFieldDef, FinalizationMetricDef } from '../types';
 import type { ExecutionDetailBase, Variant, EvolutionLLMClient, LLMCompletionOptions } from '../../types';
+import { METRIC_CATALOG } from '../metricCatalog';
+import { computeFormatRejectionRate } from '../../metrics/computations/finalizationInvocation';
 import { createVariant } from '../../types';
 import type { Rating, ComparisonResult } from '../../shared/computeRatings';
 import { createRating } from '../../shared/computeRatings';
@@ -100,6 +102,13 @@ export class GenerateFromSeedArticleAgent extends Agent<
 > {
   readonly name = 'generate_from_seed_article';
   readonly executionDetailSchema = generateFromSeedExecutionDetailSchema;
+
+  readonly invocationMetrics: FinalizationMetricDef[] = [
+    {
+      ...METRIC_CATALOG.format_rejection_rate,
+      compute: (ctx) => computeFormatRejectionRate(ctx, ctx.currentInvocationId ?? null),
+    },
+  ];
 
   readonly detailViewConfig: DetailFieldDef[] = [
     { key: 'strategy', label: 'Strategy', type: 'badge' },

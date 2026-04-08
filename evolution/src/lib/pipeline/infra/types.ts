@@ -30,13 +30,20 @@ export interface EvolutionResult {
   totalCost: number;
   /** Actual iterations completed (distinct from config.iterations). */
   iterationsRun: number;
-  stopReason: 'budget_exceeded' | 'iterations_complete' | 'converged' | 'killed' | 'time_limit';
+  stopReason: 'budget_exceeded' | 'iterations_complete' | 'converged' | 'killed' | 'time_limit' | 'no_pairs';
   /** muHistory[i] = array of mu values for top-K variants after iteration i. */
   muHistory: number[][];
   /** diversityHistory[i] = pairwise text diversity score after iteration i. */
   diversityHistory: number[];
   /** Per-variant match counts (total comparisons played). */
   matchCounts: Record<string, number>;
+  /** Variants that were generated but discarded by their owning agent (Phase 1+).
+   *  Persisted at finalization with persisted=false so generation cost stays queryable. */
+  discardedVariants?: z.infer<typeof variantSchema>[];
+  /** Iteration snapshots captured at the start and end of every orchestrator iteration. */
+  iterationSnapshots?: import('../../schemas').IterationSnapshot[];
+  /** Random seed used for the run (for reproducibility). */
+  randomSeed?: bigint;
 }
 
 // ─── V2 Strategy Config ──────────────────────────────────────────

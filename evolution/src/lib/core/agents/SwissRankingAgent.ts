@@ -7,8 +7,10 @@
 // See planning doc: docs/planning/generate_rank_evolution_parallel_20260331/_planning.md
 
 import { Agent } from '../Agent';
-import type { AgentContext, AgentOutput, DetailFieldDef } from '../types';
+import type { AgentContext, AgentOutput, DetailFieldDef, FinalizationMetricDef } from '../types';
 import type { ExecutionDetailBase, Variant, EvolutionLLMClient, LLMCompletionOptions } from '../../types';
+import { METRIC_CATALOG } from '../metricCatalog';
+import { computeTotalComparisons } from '../../metrics/computations/finalizationInvocation';
 import { BudgetExceededError } from '../../types';
 import type { Rating, ComparisonResult } from '../../shared/computeRatings';
 import { compareWithBiasMitigation } from '../../shared/computeRatings';
@@ -57,6 +59,13 @@ export class SwissRankingAgent extends Agent<
 > {
   readonly name = 'swiss_ranking';
   readonly executionDetailSchema = swissRankingExecutionDetailSchema;
+
+  readonly invocationMetrics: FinalizationMetricDef[] = [
+    {
+      ...METRIC_CATALOG.total_comparisons,
+      compute: (ctx) => computeTotalComparisons(ctx, ctx.currentInvocationId ?? null),
+    },
+  ];
 
   readonly detailViewConfig: DetailFieldDef[] = [
     { key: 'status', label: 'Status', type: 'badge' },

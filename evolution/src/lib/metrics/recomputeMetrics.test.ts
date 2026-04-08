@@ -79,9 +79,15 @@ function makeMockDb(options?: {
       if (table === 'evolution_variants') {
         return {
           select: jest.fn(() => ({
-            eq: jest.fn(() =>
-              Promise.resolve({ data: options?.variants ?? [], error: null }),
-            ),
+            // Chain supports .eq(run_id).eq(persisted) per Phase 9z filter.
+            eq: jest.fn(() => ({
+              eq: jest.fn(() =>
+                Promise.resolve({ data: options?.variants ?? [], error: null }),
+              ),
+              // Backward-compat: still allow single-eq awaitable.
+              then: (resolve: (v: { data: unknown[]; error: null }) => unknown) =>
+                resolve({ data: options?.variants ?? [], error: null }),
+            })),
           })),
         };
       }

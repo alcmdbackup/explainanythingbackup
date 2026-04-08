@@ -121,6 +121,16 @@ export const evolutionRunFullDbSchema = evolutionRunInsertSchema.extend({
   completed_at: z.string().nullable().default(null),
   created_at: z.string(),
   last_heartbeat: z.string().nullable().default(null),
+  // Run-level error surface (Phase 9, generate_rank_evolution_parallel_20260331).
+  error_code: z.string().nullable().optional(),
+  error_details: z.record(z.string(), z.unknown()).nullable().optional(),
+  failed_at_iteration: z.number().int().nullable().optional(),
+  failed_at_invocation: z.string().uuid().nullable().optional(),
+  // Reproducibility seed (BIGINT in DB; TS read as string).
+  random_seed: z.string().nullable().optional(),
+  // Iteration snapshots persisted at finalization (JSONB array on the run row).
+  // Validated separately on read via iterationSnapshotSchema (declared later in this file).
+  iteration_snapshots: z.array(z.unknown()).nullable().optional(),
 });
 
 export type EvolutionRunInsert = z.infer<typeof evolutionRunInsertSchema>;
@@ -149,6 +159,10 @@ export const evolutionVariantInsertSchema = z.object({
   archived_at: z.string().nullable().optional(),
   model: z.string().max(200).optional().nullable(),
   evolution_explanation_id: z.string().uuid().optional().nullable(),
+  /** Whether this variant survived to the final pool. False = generated but discarded by
+   *  its owning generateFromSeedArticle agent (budget + low local mu). Default false on
+   *  insert; the finalization step writes true for surfaced variants. */
+  persisted: z.boolean().optional().default(false),
 });
 
 export const evolutionVariantFullDbSchema = evolutionVariantInsertSchema.extend({
