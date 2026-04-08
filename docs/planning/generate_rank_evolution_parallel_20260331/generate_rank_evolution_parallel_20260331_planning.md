@@ -2372,5 +2372,280 @@ try {
 - [ ] Test: a killed run exits cleanly at the next iteration boundary
 - [ ] Test: a run that crashes mid-iteration has correct invocation rows persisted
 
+## Critical Fixes — from plan-review iteration 1
+
+Additional fixes identified during multi-agent plan review. Rollout concerns (feature flags, shadow mode, migration ordering, staged rollout) are explicitly deferred to implementation-time decisions and not addressed here.
+
+### H. Thread `invocationId` into `AgentContext`
+
+**Problem:** Gaps B and F require agents to call `callLLM(..., { evolutionInvocationId: ctx.invocationId, onUsage: ... })`, but `Agent.run()` in `evolution/src/lib/core/Agent.ts:19` creates `invocationId` as a LOCAL variable and never threads it into `execute()`. Without a fix, every LLM call from the new agents will have `evolutionInvocationId: undefined`, breaking `llmCallTracking` joins, per-invocation cost attribution, and the Matches/LLM-calls admin tabs.
+
+**Fix:** Extend `AgentContext` to carry `invocationId`, and set it in `Agent.run()` after `createInvocation()` returns, before calling `execute()`:
+
+```typescript
+// evolution/src/lib/core/types.ts
+export interface AgentContext {
+  db: SupabaseClient;
+  runId: string;
+  iteration: number;
+  executionOrder: number;
+  invocationId: string;          // NEW — set by Agent.run() before execute()
+  randomSeed: bigint;            // NEW — from Gap E
+  logger: EntityLogger;
+  costTracker: V2CostTracker;
+  config: EvolutionConfig;
+}
+
+// evolution/src/lib/core/Agent.ts
+async run(input: TInput, ctx: AgentContext): Promise<AgentResult<TOutput>> {
+  const invocationId = await createInvocation(
+    ctx.db, ctx.runId, ctx.iteration, this.name, ctx.executionOrder,
+  );
+
+  // Attach invocationId to ctx before passing to execute()
+  const extendedCtx: AgentContext = { ...ctx, invocationId: invocationId ?? '' };
+
+  // ... rest of run() uses extendedCtx
+  const output = await this.execute(input, extendedCtx);
+  // ...
+}
+```
+
+- [ ] Update `AgentContext` type to include `invocationId: string`
+- [ ] Update `Agent.run()` to populate `invocationId` in extendedCtx before calling `execute()`
+- [ ] Update existing GenerationAgent and RankingAgent tests for the new field (they don't read it; tests just need to pass the new type)
+- [ ] All new agents (generateFromSeedArticle, SwissRankingAgent, MergeRatingsAgent) use `ctx.invocationId` when calling `callLLM`
+
+### I. `error_message` column already exists — avoid collision
+
+**Problem:** `evolution_runs.error_message` is already a column today (populated by `markRunFailed` in `claimAndExecuteRun.ts:72`). The planned `ADD COLUMN error_message TEXT` migration would fail or be a no-op.
+
+**Fix:** Only add the NEW error fields. Don't re-add `error_message`:
+
+```sql
+ALTER TABLE evolution_runs
+  ADD COLUMN error_code TEXT,
+  -- error_message already exists — skipped
+  ADD COLUMN error_details JSONB,
+  ADD COLUMN failed_at_iteration INT,
+  ADD COLUMN failed_at_invocation UUID REFERENCES evolution_agent_invocations(id) ON DELETE SET NULL;
+```
+
+**Reconcile with `markRunFailed`:** The existing code path in `claimAndExecuteRun.ts:72` writes `error_message` with a short description. Update it to also populate `error_code = 'unhandled_error'` (or whatever is appropriate) so existing failure paths are consistent with the new taxonomy. Both the existing `markRunFailed` path and the new `persistRunResults` error path set the same columns — ensure they don't race by making `markRunFailed` the fallback only if `persistRunResults` hasn't already written.
+
+- [ ] Migration: skip `error_message`, add only the 4 new columns
+- [ ] Update `markRunFailed` to also set `error_code`
+- [ ] Ensure error-writing paths don't race (persistRunResults writes first on normal error flow; markRunFailed only fires on exceptions before persistRunResults runs)
+
+### J. Arena comparisons double-write with `sync_to_arena`
+
+**Problem:** `sync_to_arena` RPC in `supabase/migrations/20260322000006_evolution_fresh_schema.sql:285` inserts matches from `matchHistory` into `evolution_arena_comparisons` at run finalization. Gap C's `MergeRatingsAgent` ALSO writes to the same table. Result: every match is inserted twice — once with `prompt_id = NULL` (from merge agent) and once with `prompt_id = run.prompt_id` (from sync_to_arena).
+
+**Fix:** Move arena comparison row writes ENTIRELY to `MergeRatingsAgent`. Update `sync_to_arena` RPC to skip the arena comparison insert loop — it should only handle the variant sync (setting `synced_to_arena = true` on `evolution_variants`). The rows already exist from the merge agent's writes; `sync_to_arena` just needs to UPDATE them to backfill `prompt_id` for runs that sync to arena.
+
+```sql
+-- New migration: modify sync_to_arena to UPDATE prompt_id instead of INSERT matches
+CREATE OR REPLACE FUNCTION sync_to_arena(
+  p_run_id UUID,
+  p_prompt_id UUID,
+  p_entries JSONB,
+  p_matches JSONB  -- now unused, kept for compat; will be removed in follow-up
+)
+RETURNS void
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  -- Sync variants (existing logic, unchanged)
+  -- ... UPDATE evolution_variants SET synced_to_arena = true, ... ...
+
+  -- Backfill prompt_id for arena_comparisons rows that were written by MergeRatingsAgent
+  UPDATE evolution_arena_comparisons
+  SET prompt_id = p_prompt_id
+  WHERE run_id = p_run_id AND prompt_id IS NULL;
+END;
+$$;
+```
+
+- [ ] New migration: redefine `sync_to_arena` to UPDATE arena_comparisons.prompt_id instead of INSERT matches
+- [ ] `MergeRatingsAgent` is the sole writer of arena_comparison rows
+- [ ] Verify arena leaderboard query still works (it filters `prompt_id IS NOT NULL` implicitly via joins — rows with null prompt_id are hidden until sync_to_arena runs)
+- [ ] Test: run with prompt_id → matches have prompt_id after sync. Run without prompt_id → matches have null prompt_id forever (arena invisible, in-run queries still work)
+
+### K. `persisted` backfill for historical variants
+
+**Problem:** The `persisted` migration sets default `false`, meaning every historical variant becomes "discarded" instantly. Once metric queries add `.eq('persisted', true)`, all pre-change runs vanish from the admin UI and metrics computation.
+
+**Fix:** Backfill `persisted = true` for all historical variants in the same migration:
+
+```sql
+ALTER TABLE evolution_variants
+  ADD COLUMN persisted BOOLEAN NOT NULL DEFAULT false;
+
+-- Backfill: every variant from a pre-change run is implicitly "persisted"
+-- (the old pipeline had no discard rule, so every variant was in the final pool)
+UPDATE evolution_variants
+  SET persisted = true
+  WHERE created_at < (SELECT now());  -- everything existing at migration time
+```
+
+For safety, also backfill runs in any terminal state just in case the query above is slow or interrupted:
+
+```sql
+UPDATE evolution_variants
+  SET persisted = true
+  WHERE run_id IN (
+    SELECT id FROM evolution_runs
+    WHERE status IN ('completed', 'running', 'failed', 'killed')
+  )
+  AND persisted = false;
+```
+
+- [ ] Migration includes backfill UPDATE in the same transaction as the ALTER TABLE
+- [ ] After backfill, `persisted = false` is only for variants created AFTER the migration AND discarded by their generateFromSeedArticle agent
+- [ ] Test: migration runs → historical runs still visible in admin UI with all variants marked persisted
+
+### L. Keep legacy execution_detail schemas for historical rendering
+
+**Problem:** The plan deletes `GenerationAgent.ts`, `RankingAgent.ts`, etc. But `evolution_agent_invocations` rows for historical runs have `agent_name = 'generation'` or `'ranking'` with execution_detail matching the OLD schemas. If we delete the schemas, the admin invocation detail view (and `recomputeInvocationMetrics`) crashes on historical data.
+
+**Fix:** Keep the old execution detail schemas in a new legacy module. The admin UI checks `agent_name` and picks the appropriate schema. Old agent CLASS files (GenerationAgent.ts, RankingAgent.ts) can still be deleted — we just keep the schemas for rendering.
+
+```typescript
+// evolution/src/lib/legacy-schemas.ts
+import { generationExecutionDetailSchema, rankingExecutionDetailSchema } from '...';
+
+export const legacyExecutionDetailSchemas = {
+  generation: generationExecutionDetailSchema,
+  ranking: rankingExecutionDetailSchema,
+} as const;
+
+// Admin UI: detailViewRouter for agent_name → schema
+const SCHEMA_BY_AGENT_NAME = {
+  generate_from_seed_article: generateFromSeedExecutionDetailSchema,
+  swiss_ranking: swissRankingExecutionDetailSchema,
+  merge_ratings: mergeRatingsExecutionDetailSchema,
+  // Legacy
+  generation: legacyExecutionDetailSchemas.generation,
+  ranking: legacyExecutionDetailSchemas.ranking,
+};
+```
+
+- [ ] Extract `generationExecutionDetailSchema` and `rankingExecutionDetailSchema` from the current schema files BEFORE deleting the agent files
+- [ ] Create `evolution/src/lib/legacy-schemas.ts` that re-exports them
+- [ ] Update admin invocation detail view (and any other detail renderer) to look up schema by `agent_name` via a router map that includes both new and legacy schemas
+- [ ] `recomputeInvocationMetrics` similarly uses the legacy schemas for old rows
+- [ ] Safe to delete `GenerationAgent.ts`, `RankingAgent.ts`, `rankVariants.ts`, `generateVariants.ts` CLASS/helper files — their SCHEMAS live on in `legacy-schemas.ts`
+
+### M. Config compatibility for `iterations` field
+
+**Problem:** The plan "removes `iterations` from required config." But `validateConfig()` in `runIterationLoop.ts:19` hard-throws when iterations is missing or invalid. Every existing test and run sets iterations. Deleting the field breaks backward compatibility.
+
+**Fix:** Keep `iterations` in the config schema as an optional, deprecated field. Accept it but don't use it (the new orchestrator's `nextIteration()` decides when to stop). Add `numVariants` as a new field with default 9. Update `validateConfig()` to:
+- Accept either or both
+- Log a deprecation warning if `iterations` is set but `numVariants` isn't
+- Throw only if neither is set AND numVariants has no default
+
+```typescript
+// EvolutionConfig schema update
+export const evolutionConfigSchema = z.object({
+  // ...existing fields...
+  iterations: z.number().int().min(1).max(100).optional(),  // DEPRECATED, ignored by new orchestrator
+  numVariants: z.number().int().min(1).max(100).default(9),  // NEW
+  strategies: z.array(z.string()).default(['structural_transform', 'lexical_simplify', 'grounding_enhance']),
+  // ...
+});
+```
+
+- [ ] Keep `iterations` as optional in schema (don't remove)
+- [ ] Add `numVariants` with default 9
+- [ ] Add `strategies` with sensible default
+- [ ] `validateConfig()` only throws on genuinely invalid values
+- [ ] Deprecation log if `iterations` is set
+- [ ] Existing tests that set `iterations` keep passing
+- [ ] Existing runs in the DB with `iterations` in their config continue to work
+
+### N. Deep-clone of Rating objects (not just the Map)
+
+**Problem:** The plan's `new Map(input.initialRatings)` is a SHALLOW clone — both maps reference the same Rating `{mu, sigma}` objects. If `updateRating()` from OpenSkill ever mutates in place instead of returning new objects, one agent's local mutation corrupts every other agent's "local" state. The plan never verifies OpenSkill's mutation semantics.
+
+**Fix:** Always deep-clone Rating objects when cloning the ratings Map. Specify this explicitly in `generateFromSeedArticle.execute()`:
+
+```typescript
+// Deep-clone ratings — Rating values are objects, shallow Map clone isn't enough
+const localRatings = new Map<string, Rating>(
+  Array.from(input.initialRatings.entries()).map(([id, rating]) => [
+    id,
+    { mu: rating.mu, sigma: rating.sigma }  // explicit copy of the Rating object
+  ])
+);
+```
+
+This is a ~3 line change but must be in the spec so implementers don't accidentally write `new Map(input.initialRatings)`.
+
+**Verification task:** Add a test that asserts OpenSkill's `rate()` returns new objects rather than mutating. If it ever changes, this test catches it immediately.
+
+- [ ] `generateFromSeedArticle.execute()`: deep-clone Rating objects when building localRatings
+- [ ] Deep-clone pattern also applied in any other place that clones ratings maps
+- [ ] Add test: "OpenSkill rate() returns new Rating objects without mutating inputs"
+- [ ] Add test: "agent's local ratings changes do not affect input.initialRatings"
+
+### O. Budget `reserve()` atomicity under burst dispatch
+
+**Problem:** The plan asserts `V2CostTracker.reserve()` is "synchronous and parallel-safe" but never verifies this is true under burst dispatch (N parallel agents all calling `reserve()` during iteration start). If there's any `await` inside reserve() between the budget-check and the commit, budget can be over-committed.
+
+**Fix:** Explicitly verify and document that `reserve()` is a single synchronous block in the existing `V2CostTracker` implementation:
+
+- [ ] Audit `evolution/src/lib/pipeline/infra/trackBudget.ts:reserve()` to confirm it is purely synchronous (no `await`, no `Promise`, no setTimeout)
+- [ ] Add a JSDoc comment in trackBudget.ts asserting this invariant
+- [ ] Add a unit test: "reserve() is synchronous — 100 parallel calls never over-commit the budget"
+- [ ] If the audit finds any async operation, fix it before proceeding with Phase 1
+
+### P. Shared cache in-flight dedup (optional, small impact)
+
+**Problem:** The `ComparisonCache` (order-invariant keyed) is shared across all agents. Two parallel agents requesting the same comparison simultaneously both miss the cache and both call the LLM. Cache keys are order-invariant so the second one eventually finds the first one's result, but the duplicate LLM call already happened.
+
+**Fix (lightweight):** Accept the small duplication cost for now. The probability of two parallel agents requesting the exact same text pair is very low (only if cross-agent variant IDs match up — which shouldn't happen since each agent has its own variant). Document the tradeoff.
+
+**Fix (thorough):** Add an in-flight promise map to the cache:
+
+```typescript
+interface ComparisonCache {
+  get(...): ComparisonResult | undefined;
+  set(...): void;
+  inFlight: Map<string, Promise<ComparisonResult>>;  // NEW
+
+  // compareWithBiasMitigation wraps cache access:
+  async getOrCompute(key: string, compute: () => Promise<ComparisonResult>): Promise<ComparisonResult> {
+    const cached = cache.get(key);
+    if (cached) return cached;
+
+    const inFlight = this.inFlight.get(key);
+    if (inFlight) return await inFlight;  // dedupe
+
+    const promise = compute();
+    this.inFlight.set(key, promise);
+    try {
+      const result = await promise;
+      cache.set(key, result);
+      return result;
+    } finally {
+      this.inFlight.delete(key);
+    }
+  }
+}
+```
+
+**Decision:** Start with the lightweight fix (accept dedup). If we observe duplicate LLM calls in production metrics, implement the thorough fix. Add a metric to count cache misses vs in-flight dedupes.
+
+- [ ] Add a log at debug level when cache misses happen during parallel execution
+- [ ] Add a metric: `cacheConcurrentMiss` — counts how often two agents both miss the same key within a short window
+- [ ] If the metric shows meaningful duplicate LLM spend, implement in-flight dedup in a follow-up
+
+### Q. Concurrency test for shared cache
+
+Required test that was missing from Phase 8:
+
+- [ ] `computeRatings.test.ts`: "concurrent `compareWithBiasMitigation` calls for the same pair return consistent results" — launch N=20 concurrent `getOrCompute` promises for the same input, assert all return the same result. Does not require that LLM is only called once (that's the Gap P decision), just that results are consistent.
+
 ## Review & Discussion
 [Populated by /plan-review with agent scores, reasoning, and gap resolutions]
