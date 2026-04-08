@@ -18,7 +18,8 @@ import { getKnownStrategyNames } from './generateVariants';
 // ─── Config validation ───────────────────────────────────────────
 
 function validateConfig(config: EvolutionConfig): void {
-  if (config.iterations < 1 || config.iterations > 100) {
+  // iterations is now optional (deprecated). Only validate range if present.
+  if (config.iterations !== undefined && (config.iterations < 1 || config.iterations > 100)) {
     throw new Error(`Invalid iterations: ${config.iterations} (must be 1-100)`);
   }
   if (config.budgetUsd <= 0 || config.budgetUsd > 50) {
@@ -93,9 +94,11 @@ export async function evolveArticle(
 ): Promise<EvolutionResult> {
   validateConfig(config);
 
-  // Apply defaults
+  // Apply defaults. iterations is now optional; default to 5 for the legacy loop only.
+  // Phase 5 (orchestrator-driven) will replace this whole code path and ignore iterations.
   const resolvedConfig: EvolutionConfig = {
     ...config,
+    iterations: config.iterations ?? 5,
     strategiesPerRound: config.strategiesPerRound ?? 3,
     calibrationOpponents: config.calibrationOpponents ?? 5,
     tournamentTopK: config.tournamentTopK ?? 5,
@@ -175,7 +178,10 @@ export async function evolveArticle(
     logger.info(`Starting iteration ${iter}`, { iteration: iter, phaseName: 'loop' });
 
     const newVariantIds: string[] = [];
-    const agentCtx = { db, runId, iteration: iter, executionOrder: 0, logger, costTracker, config: resolvedConfig };
+    // NOTE: invocationId is populated by Agent.run() per call (Critical Fix H).
+    // randomSeed is a placeholder until the orchestrator wires the run-level seed
+    // through deriveSeed() in Phase 5; the legacy GenerationAgent/RankingAgent do not consume it.
+    const agentCtx = { db, runId, iteration: iter, executionOrder: 0, logger, costTracker, config: resolvedConfig, invocationId: '', randomSeed: BigInt(0) };
 
     // ─── Generate phase ──────────────────────────────────────
     agentCtx.executionOrder = ++executionOrder;

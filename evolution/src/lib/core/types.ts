@@ -142,6 +142,11 @@ export interface AgentContext {
   logger: EntityLogger;
   costTracker: V2CostTracker;
   config: EvolutionConfig;
+  /** Invocation row UUID — populated by Agent.run() before execute() is called.
+   *  May be empty string if createInvocation() returned null (DB write failed). */
+  invocationId: string;
+  /** Seeded RNG sub-seed derived from the run's random_seed via deriveSeed(). */
+  randomSeed: bigint;
 }
 
 export interface AgentOutput<TOutput, TDetail> {

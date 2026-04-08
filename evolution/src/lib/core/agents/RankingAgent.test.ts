@@ -39,6 +39,8 @@ function createMockContext(overrides?: Partial<AgentContext>): AgentContext {
       judgeModel: 'gpt-4o',
       generationModel: 'gpt-4o',
     },
+    invocationId: '',
+    randomSeed: BigInt(0),
     ...overrides,
   };
 }

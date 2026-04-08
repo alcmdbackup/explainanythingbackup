@@ -71,6 +71,8 @@ function createMockContext(overrides?: Partial<AgentContext>): AgentContext {
       judgeModel: 'gpt-4o',
       generationModel: 'gpt-4o',
     },
+    invocationId: '',
+    randomSeed: BigInt(0),
     ...overrides,
   };
 }
@@ -263,6 +265,30 @@ describe('Agent abstract class', () => {
         expect.stringContaining('writing null detail to DB'),
         expect.any(Object),
       );
+    });
+  });
+
+  describe('run() - threads invocationId into ctx (Critical Fix H)', () => {
+    it('passes the createInvocation result through to execute() via ctx.invocationId', async () => {
+      let observedInvocationId: string | undefined;
+      const agent = new TestAgent(async (_input, ctx) => {
+        observedInvocationId = ctx.invocationId;
+        return { result: 'ok', detail: { detailType: 'test', totalCost: 0 } };
+      });
+      const ctx = createMockContext();
+      await agent.run('hello', ctx);
+      expect(observedInvocationId).toBe('inv-123');
+    });
+
+    it('passes empty string when createInvocation returns null', async () => {
+      (createInvocation as jest.Mock).mockResolvedValueOnce(null);
+      let observedInvocationId: string | undefined;
+      const agent = new TestAgent(async (_input, ctx) => {
+        observedInvocationId = ctx.invocationId;
+        return { result: 'ok', detail: { detailType: 'test', totalCost: 0 } };
+      });
+      await agent.run('hello', createMockContext());
+      expect(observedInvocationId).toBe('');
     });
   });
 

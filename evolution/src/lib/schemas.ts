@@ -317,15 +317,31 @@ export type V2StrategyConfigSchema = z.infer<typeof v2StrategyConfigSchema>;
 
 // ─── Evolution Config ────────────────────────────────────────────
 
+/** Default strategies for the parallelized generate iteration. */
+export const DEFAULT_GENERATE_STRATEGIES = [
+  'structural_transform',
+  'lexical_simplify',
+  'grounding_enhance',
+] as const;
+
 export const evolutionConfigSchema = z.object({
-  iterations: z.number().int().min(1).max(100),
+  /** @deprecated Ignored by the orchestrator-driven loop. Kept for backward compat. */
+  iterations: z.number().int().min(1).max(100).optional(),
   budgetUsd: z.number().gt(0).lte(50),
   judgeModel: z.string(),
   generationModel: z.string(),
+  /** @deprecated Pre-parallel pipeline strategies-per-round (3 by default). Replaced by numVariants. */
   strategiesPerRound: z.number().int().min(1).optional(),
+  /** @deprecated Triage calibration opponent count (legacy ranking). */
   calibrationOpponents: z.number().int().min(1).optional(),
+  /** @deprecated Top-K eligibility floor (legacy ranking). */
   tournamentTopK: z.number().int().min(1).optional(),
+  /** Optional weighted strategy selection from main (predates parallel pipeline). */
   generationGuidance: generationGuidanceSchema.optional(),
+  /** Number of parallel generateFromSeedArticle agents per generate iteration (default 9). */
+  numVariants: z.number().int().min(1).max(100).optional(),
+  /** Strategy names to round-robin across the N parallel generate agents. */
+  strategies: z.array(z.string().min(1)).optional(),
 });
 
 export type EvolutionConfigSchema = z.infer<typeof evolutionConfigSchema>;
@@ -612,6 +628,150 @@ export const metaReviewExecutionDetailSchema = executionDetailBaseSchema.extend(
   }),
 });
 
+// ─── New parallel pipeline agents (generate_rank_evolution_parallel_20260331) ─────
+
+/** generateFromSeedArticle: ranking comparison record (one per binary-search comparison). */
+export const generateFromSeedComparisonSchema = z.object({
+  round: z.number().int().min(1),
+  opponentId: z.string(),
+  selectionScore: z.number(),
+  pWin: z.number().min(0).max(1),
+  variantMuBefore: z.number(),
+  variantSigmaBefore: z.number().min(0),
+  opponentMuBefore: z.number(),
+  opponentSigmaBefore: z.number().min(0),
+  outcome: z.enum(['win', 'loss', 'draw']),
+  confidence: z.number().min(0).max(1),
+  variantMuAfter: z.number(),
+  variantSigmaAfter: z.number().min(0),
+  opponentMuAfter: z.number(),
+  opponentSigmaAfter: z.number().min(0),
+  top15CutoffAfter: z.number(),
+  muPlusTwoSigma: z.number(),
+  eliminated: z.boolean(),
+  converged: z.boolean(),
+});
+
+export const generateFromSeedRankingDetailSchema = z.object({
+  variantId: z.string(),
+  localPoolSize: z.number().int().min(0),
+  localPoolVariantIds: z.array(z.string()),
+  initialTop15Cutoff: z.number(),
+  comparisons: z.array(generateFromSeedComparisonSchema),
+  stopReason: z.enum(['converged', 'eliminated', 'no_more_opponents', 'budget']),
+  totalComparisons: z.number().int().min(0),
+  finalLocalMu: z.number(),
+  finalLocalSigma: z.number().min(0),
+  finalLocalTop15Cutoff: z.number(),
+});
+
+export const generateFromSeedExecutionDetailSchema = executionDetailBaseSchema.extend({
+  detailType: z.literal('generate_from_seed_article'),
+  variantId: z.string().nullable(),
+  strategy: z.string(),
+  generation: z.object({
+    cost: z.number().min(0),
+    promptLength: z.number().int().min(0),
+    textLength: z.number().int().min(0).optional(),
+    formatValid: z.boolean(),
+    formatIssues: z.array(z.string()).optional(),
+    error: z.string().optional(),
+  }),
+  ranking: generateFromSeedRankingDetailSchema.extend({
+    cost: z.number().min(0),
+  }).nullable(),
+  surfaced: z.boolean(),
+  discardReason: z.object({
+    localMu: z.number(),
+    localTop15Cutoff: z.number(),
+  }).optional(),
+});
+
+/** SwissRankingAgent execution detail. */
+export const swissRankingExecutionDetailSchema = executionDetailBaseSchema.extend({
+  detailType: z.literal('swiss_ranking'),
+  eligibleIds: z.array(z.string()),
+  eligibleCount: z.number().int().min(0),
+  pairsConsidered: z.number().int().min(0),
+  pairsDispatched: z.number().int().min(0),
+  pairsSucceeded: z.number().int().min(0),
+  pairsFailedBudget: z.number().int().min(0),
+  pairsFailedOther: z.number().int().min(0),
+  matchesProduced: z.array(z.object({
+    winnerId: z.string(),
+    loserId: z.string(),
+    result: z.enum(['win', 'draw']),
+    confidence: z.number().min(0).max(1),
+  })),
+  matchesProducedTotal: z.number().int().min(0),
+  matchesTruncated: z.boolean(),
+  status: z.enum(['success', 'budget', 'no_pairs']),
+});
+
+/** MergeRatingsAgent execution detail. */
+export const mergeRatingsExecutionDetailSchema = executionDetailBaseSchema.extend({
+  detailType: z.literal('merge_ratings'),
+  iterationType: z.enum(['generate', 'swiss']),
+  before: z.object({
+    poolSize: z.number().int().min(0),
+    variants: z.array(z.object({
+      id: z.string(),
+      mu: z.number(),
+      sigma: z.number().min(0),
+      matchCount: z.number().int().min(0),
+    })),
+    top15Cutoff: z.number(),
+  }),
+  input: z.object({
+    matchBufferCount: z.number().int().min(0),
+    totalMatchesIn: z.number().int().min(0),
+    matchesPerBuffer: z.array(z.number().int().min(0)),
+    newVariantsAdded: z.number().int().min(0),
+  }),
+  matchesApplied: z.array(z.object({
+    indexInShuffledOrder: z.number().int().min(0),
+    winnerId: z.string(),
+    loserId: z.string(),
+    result: z.enum(['win', 'draw']),
+    confidence: z.number().min(0).max(1),
+  })),
+  matchesAppliedTotal: z.number().int().min(0),
+  matchesAppliedTruncated: z.boolean(),
+  after: z.object({
+    poolSize: z.number().int().min(0),
+    variants: z.array(z.object({
+      id: z.string(),
+      mu: z.number(),
+      sigma: z.number().min(0),
+      matchCount: z.number().int().min(0),
+      muDelta: z.number(),
+      sigmaDelta: z.number(),
+    })),
+    top15Cutoff: z.number(),
+    top15CutoffDelta: z.number(),
+  }),
+  variantsAddedToPool: z.array(z.string()),
+  durationMs: z.number().min(0),
+});
+
+/** IterationSnapshot — captured at the start and end of every orchestrator iteration. */
+export const iterationSnapshotSchema = z.object({
+  iteration: z.number().int().min(1),
+  iterationType: z.enum(['generate', 'swiss']),
+  phase: z.enum(['start', 'end']),
+  capturedAt: z.string(),
+  poolVariantIds: z.array(z.string()),
+  ratings: z.record(z.string(), z.object({ mu: z.number(), sigma: z.number().min(0) })),
+  matchCounts: z.record(z.string(), z.number().int().min(0)),
+  discardedVariantIds: z.array(z.string()).optional(),
+  discardReasons: z.record(z.string(), z.object({
+    mu: z.number(),
+    top15Cutoff: z.number(),
+  })).optional(),
+});
+
+export type IterationSnapshot = z.infer<typeof iterationSnapshotSchema>;
+
 export const agentExecutionDetailSchema = z.discriminatedUnion('detailType', [
   generationExecutionDetailSchema,
   iterativeEditingExecutionDetailSchema,
@@ -624,6 +784,9 @@ export const agentExecutionDetailSchema = z.discriminatedUnion('detailType', [
   rankingExecutionDetailSchema,
   proximityExecutionDetailSchema,
   metaReviewExecutionDetailSchema,
+  generateFromSeedExecutionDetailSchema,
+  swissRankingExecutionDetailSchema,
+  mergeRatingsExecutionDetailSchema,
 ]);
 
 export type AgentExecutionDetailSchema = z.infer<typeof agentExecutionDetailSchema>;
