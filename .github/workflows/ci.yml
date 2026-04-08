@@ -107,6 +107,31 @@ jobs:
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      - name: Repair remote-only migration history
+        # When staging's supabase_migrations table has rows that don't exist as local
+        # files (e.g. CI auto-renamed timestamps on a previous run, or a hotfix was
+        # applied directly), `supabase db push` aborts with "Remote migration versions
+        # not found in local migrations directory". Mark each remote-only version as
+        # reverted so the push can proceed. The actual schema rows aren't dropped —
+        # we're only repairing the migration ledger entry. Ported from the
+        # deploy/main-to-production-mar29 branch where this pattern was first used.
+        run: |
+          REMOTE=$(supabase migration list 2>/dev/null \
+            | grep -oE '[0-9]{14}' | sort -u || true)
+          LOCAL=$(ls supabase/migrations/*.sql 2>/dev/null \
+            | grep -oE '[0-9]{14}' | sort -u || true)
+          REMOTE_ONLY=$(comm -23 <(echo "$REMOTE") <(echo "$LOCAL"))
+          if [ -z "$REMOTE_ONLY" ]; then
+            echo "No remote-only migrations to repair"
+            exit 0
+          fi
+          for ver in $REMOTE_ONLY; do
+            echo "Repairing remote-only migration: $ver"
+            supabase migration repair --status reverted "$ver" || true
+          done
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
       - name: Apply migrations to staging
         run: supabase db push --include-all
         env:
