@@ -217,3 +217,128 @@ For a 5-iteration run at ~120s/iteration: **~150-300s saved (25-30% reduction)**
 - `src/lib/services/llmSpendingGate.ts` — Global daily/monthly budget gate
 - `src/lib/services/llms.ts` — LLM provider routing, semaphore integration
 - Test files: generateVariants.test.ts, rankVariants.test.ts, runIterationLoop.test.ts, computeRatings.test.ts, GenerationAgent.test.ts, RankingAgent.test.ts
+
+---
+
+## Wall-clock analysis: existing vs new pipeline
+
+After completing the initial architecture plan, a question arose: does the new architecture actually deliver the promised speedup, or is the apparent speedup an artifact of doing less ranking work? This section analyzes both pipelines' wall-clock behavior in two regimes — cold start and warm start — to determine where the new design's speedup comes from.
+
+### Assumptions used throughout
+
+- LLM comparison (2-pass A/B reversal): ~3s per comparison
+- LLM generation call: ~3s
+- `LLMSemaphore` caps concurrent LLM calls at 20
+- Binary search converges in ~8 comparisons per variant when enough opponents are available
+- Triage runs ~5 comparisons per new variant
+- Swiss fine-ranking runs 15-40 comparisons per iteration (budget-dependent)
+
+### Regime 1: Cold start (initial pool = just baseline)
+
+This is the "first run for a new topic" case. No arena entries loaded. Each iter 1 agent starts with `initialPool = [baseline]` only.
+
+**Existing pipeline (5 iterations, 9 variants total):**
+
+| Component | Time |
+|-----------|------|
+| Generation (5 iterations × 3 strategies, parallel within iter) | ~15s |
+| Triage (5 iters × 3 new variants × 5 opponents, sequential) | ~225s |
+| Swiss (5 iters × ~25 comparisons, sequential) | ~375s |
+| **Total wall-clock** | **~10 minutes** |
+| **Total LLM calls** | **~150-200** |
+| **Avg variant sigma at end** | **~3 (converged)** |
+
+**New pipeline (cold start):**
+
+Each of the 9 parallel agents has `initialPool = [baseline]` → only 1 opponent available. Binary search picks baseline → compares → exits via `no_more_opponents` after 1 comparison.
+
+| Component | Time |
+|-----------|------|
+| Iteration 1 (9 agents in parallel) | 1 gen call + 1 comparison ≈ 6s per agent, all parallel → **~6s** |
+| Iteration 2 (swiss on top-3 eligible) | 3 pairs in parallel → **~3s** |
+| Iteration 3 (exhausted pairs) | no_pairs → done |
+| **Total wall-clock** | **~10 seconds** |
+| **Total LLM calls** | **~21** |
+| **Avg variant sigma at end** | **~5-7 (mostly not converged)** |
+
+**Cold start verdict:** The new pipeline is ~60x faster, but **the speedup is mostly scope reduction** — it does 10x fewer ranking comparisons because cold-start forces most agents to exit after 1 comparison. Variants exit with sigma ~5-7 instead of ~3, meaning the winner selection is much less confident (large CI overlap between top variants).
+
+**This is not really a parallelization win in cold start — it's a quality reduction dressed up as one.** If we want high-confidence winners from cold-start runs, the new pipeline doesn't deliver.
+
+### Regime 2: Warm start (initial pool = baseline + 20 arena entries)
+
+This is the "repeat topic with populated arena" case. 20 variants with established ratings (from prior runs) are loaded at iteration start. `numVariants = 30` for this scenario.
+
+**Existing pipeline (10 iterations, 30 variants total):**
+
+| Component | Time |
+|-----------|------|
+| Per iteration | Gen: ~3s, triage: ~45s, swiss: ~75s ≈ **~123s** |
+| 10 iterations sequential | **~20.5 minutes** |
+| **Total LLM calls** | **~400** |
+| **Avg variant sigma at end** | **~3 (converged)** |
+
+**New pipeline (warm start, 30 variants):**
+
+Each agent has `initialPool = [baseline + 20 arena entries] = 21 opponents`. Binary search has real work to do.
+
+- **Iteration 1:** 30 parallel agents, each running ~8 comparisons (binary search convergence) + 1 gen call
+  - Per-agent critical path: ~27s (sequential within agent)
+  - LLM semaphore caps concurrency at 20, so 30 agents queue slightly
+  - Wall-clock: ~40s (accounting for semaphore contention)
+- **Iteration 2 (swiss):** Top-15% of ~51 variants = ~8 eligible → 28 unique pairs, capped at 20
+  - 20 pairs run in parallel → ~3s
+- **Iteration 3 (swiss):** Remaining 8 pairs → ~3s
+- **Iteration 4:** no_pairs → done
+
+| Component | Time |
+|-----------|------|
+| Iteration 1 (parallel generate+rank) | **~40s** |
+| Iteration 2 (swiss, 20 pairs) | **~3s** |
+| Iteration 3 (swiss, 8 pairs) | **~3s** |
+| **Total wall-clock** | **~46 seconds** |
+| **Total LLM calls** | **~300** (30 gen + 240 binary-search + 28 swiss) |
+| **Avg variant sigma at end** | **~3 (converged)** |
+
+**Warm start verdict:** The new pipeline is **~26x faster with equal or better quality**. The speedup comes from three real wins:
+
+1. **Parallel agent dispatch vs sequential iterations.** The existing pipeline's fundamental bottleneck is iteration sequencing — 10 × 123s = 1230s because each iteration waits for the previous to finish. The new pipeline runs all 30 generate agents in parallel; critical path is one agent's binary search (~27-40s), not 10 iterations stacked.
+
+2. **Binary search is more efficient than triage + Swiss.** Per variant, the new algorithm converges in ~8 comparisons where the old approach uses ~15-20 (triage + Swiss sampling). The algorithm itself does less work for the same convergence target.
+
+3. **Eliminating cross-iteration ranking overhead.** The existing pipeline re-ranks the entire pool after each new variant batch. The new pipeline ranks each variant once (in iter 1) and then refines only the top-15% in swiss iterations.
+
+### The fundamental question
+
+**What fraction of production runs are warm-start vs cold-start?**
+
+- If most runs are **warm-start** (arena is populated, prompts are repeat customers): the new pipeline is a huge win with no quality tradeoff. 20-40x speedup with equivalent ranking quality.
+- If most runs are **cold-start** (new topics, one-off experiments): the new pipeline trades quality for speed. The speedup is real but comes from doing less work, not from parallelism.
+- If runs are **mixed**: the tradeoff is scenario-dependent. Warm runs get a huge win, cold runs get a different kind of win.
+
+### Where the original research estimate came from
+
+The research doc originally estimated "~25-30% speedup" from Idea A (cross-iteration overlap). That estimate was based on overlapping generation time with ranking time, NOT on replacing the ranking algorithm itself. It was a conservative, surgical change.
+
+The new plan is a much bigger architectural change that delivers **much larger speedups in the warm-start regime** by fundamentally restructuring the pipeline. The speedup gap between "Idea A" (25-30%) and "new pipeline" (20-40x warm, 60x cold) is driven by:
+
+- Idea A overlaps gen and rank but keeps iteration sequencing → capped at ~30% savings
+- New pipeline parallelizes across iterations AND replaces the ranking algorithm → uncapped speedup
+
+### What to measure before committing
+
+Before fully committing to the new architecture, it would be worth measuring:
+
+1. **Typical initial pool size for production runs.** Query recent `evolution_runs` and count arena entries loaded. If the average is 15-20, we're mostly warm-start → new pipeline is a clear win. If the average is 0-2, we're mostly cold-start → need to decide on the quality tradeoff.
+
+2. **Real comparison latency.** We assume ~3s per comparison. If the actual 2-pass reversal takes ~6s, all numbers double but ratios stay the same.
+
+3. **Semaphore contention at scale.** With 30+ parallel agents, does the 20-slot semaphore create bottlenecks that erode the parallelism win? Or does it throttle reasonably?
+
+### Verdict
+
+**The wall-clock speedup is real and significant in the warm-start regime**, and comes from legitimate parallelization + algorithmic improvements, not just from doing less work. The cold-start regime delivers a different kind of speedup that involves a quality tradeoff.
+
+The new architecture is the right call **if production runs are predominantly warm-start**. If production runs are predominantly cold-start, we should explicitly acknowledge the quality tradeoff and decide whether it's acceptable (much faster, less confident rankings) or whether a simpler design like Idea A would be a better fit.
+
+**Recommendation:** Before merging the implementation, run an empirical measurement on production run data to determine the warm-start vs cold-start distribution. That measurement drives the risk assessment.
