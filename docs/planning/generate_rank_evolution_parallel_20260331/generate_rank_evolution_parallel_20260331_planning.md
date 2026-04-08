@@ -1367,6 +1367,49 @@ Changes needed:
 - [ ] "lineage action returns persisted field for each variant (no filter)"
 - [ ] "variant detail action returns persisted field for any variant id"
 
+#### Unit Tests — onUsage cost attribution
+- [ ] "generateFromSeedArticle accumulates generation cost via onUsage callback"
+- [ ] "generateFromSeedArticle accumulates ranking cost via onUsage callback"
+- [ ] "generation and ranking costs are separate in execution detail"
+- [ ] "cost attribution is correct under N parallel agents (no cross-contamination)"
+- [ ] "failed agent still reports accurate partial cost"
+- [ ] "every LLM call passes evolutionInvocationId for llmCallTracking join"
+
+#### Unit Tests — evolution_arena_comparisons extension
+- [ ] "MergeRatingsAgent writes one row per match to evolution_arena_comparisons"
+- [ ] "row includes iteration and invocation_id"
+- [ ] "row captures mu/sigma before and after for both entries"
+- [ ] "prompt_id is nullable (in-run matches without arena prompt)"
+- [ ] "arena sync continues to populate the table with only the legacy columns"
+- [ ] "variant matches query returns rows ordered by iteration"
+
+#### Unit Tests — Run-level error surface
+- [ ] "normal completion leaves error_code NULL"
+- [ ] "orchestrator catches exceptions and sets error_code via classifyError"
+- [ ] "error_message is a human-readable summary"
+- [ ] "error_details JSONB contains stack trace and context"
+- [ ] "failed_at_iteration captures the iteration number"
+- [ ] "failed_at_invocation FK points to the last invocation"
+- [ ] "classifyError maps BudgetExceededError to appropriate code"
+- [ ] "classifyError maps timeout errors to appropriate code"
+- [ ] "unknown errors map to 'unhandled_error'"
+
+#### Unit Tests — RNG seed + reproducibility
+- [ ] "random_seed is generated at run creation if not provided"
+- [ ] "random_seed is passed to AgentContext as bigint"
+- [ ] "deriveSeed produces deterministic sub-seeds from parent + namespace"
+- [ ] "SeededRandom.shuffle is deterministic given the same seed"
+- [ ] "two runs with the same seed produce identical match order in merge agents"
+- [ ] "two runs with the same seed produce identical final ratings (when LLM mocked)"
+- [ ] "MergeRatingsAgent uses seeded RNG (not Math.random) for Fisher-Yates"
+
+#### Unit Tests — LLM prompt/response capture via llmCallTracking
+- [ ] "generateFromSeedArticle calls callLLM with evolutionInvocationId in options"
+- [ ] "SwissRankingAgent calls callLLM with evolutionInvocationId in options"
+- [ ] "llmCallTracking row written for every LLM call made by an agent"
+- [ ] "llmCallTracking can be joined to evolution_agent_invocations via evolution_invocation_id"
+- [ ] "admin UI variant detail surfaces LLM calls via existing llmCallTracking query"
+
 #### Integration Tests
 - [ ] End-to-end: full two-iteration run with 9 variants produces converged rankings
 - [ ] Budget tracking accurate across both iterations
@@ -1797,21 +1840,32 @@ The table is sortable by round, opponent, score, or any state column. This view 
 - `evolution/src/lib/pipeline/loop/rankSingleVariant.ts` — Binary-search ranking (called by generateFromSeedArticle)
 - `evolution/src/lib/pipeline/loop/rankSingleVariant.test.ts`
 - `evolution/src/lib/pipeline/loop/swissPairing.ts` — Swiss pair selection (overlap allowed, capped) (extracted from old rankVariants.ts)
-- `evolution/src/lib/pipeline/loop/shuffleInPlace.ts` — Fisher-Yates helper for bias prevention
+- `evolution/src/lib/shared/seededRandom.ts` — SeededRandom class + deriveSeed() helper for reproducibility
+- `evolution/src/lib/shared/seededRandom.test.ts`
+- `evolution/src/lib/pipeline/classifyError.ts` — Map exceptions to RunErrorCode taxonomy
+- `evolution/src/lib/pipeline/classifyError.test.ts`
 
 ### Modified Files
-- `evolution/src/lib/pipeline/loop/runIterationLoop.ts` — Orchestrator-driven iteration loop, `nextIteration()` decision, frozen snapshots per agent, pool snapshots, cost aggregation
-- `evolution/src/lib/schemas.ts` — `generateFromSeedExecutionDetailSchema`, `swissRankingExecutionDetailSchema`, `mergeRatingsExecutionDetailSchema`, `numVariants` and `strategies` config fields
+- `evolution/src/lib/pipeline/loop/runIterationLoop.ts` — Orchestrator-driven iteration loop, `nextIteration()` decision, frozen snapshots per agent, pool snapshots, cost via onUsage
+- `evolution/src/lib/pipeline/claimAndExecuteRun.ts` — Populate random_seed in ensureRunSetup; wrap orchestrator in try/catch for structured error capture
+- `evolution/src/lib/schemas.ts` — `generateFromSeedExecutionDetailSchema`, `swissRankingExecutionDetailSchema`, `mergeRatingsExecutionDetailSchema`, `numVariants` and `strategies` config fields; make `evolutionArenaComparisonInsertSchema.prompt_id` nullable; add new columns to match insert schema; add `random_seed`, error fields to `evolutionRunFullDbSchema`
+- `evolution/src/lib/types.ts` — Add `RunErrorCode` type, update `AgentContext` to include `randomSeed: bigint`
 - `evolution/src/lib/pipeline/loop/runIterationLoop.test.ts` — Update tests for iteration model
-- `evolution/src/lib/pipeline/finalize/persistRunResults.ts` — Write surfaced and discarded variants with appropriate `persisted` flag
+- `evolution/src/lib/pipeline/finalize/persistRunResults.ts` — Write surfaced and discarded variants with appropriate `persisted` flag; write error fields; write snapshots; write random_seed
+- `evolution/src/lib/core/entities/VariantEntity.ts` — Verify cascade delete still works with new arena_comparisons columns
 - Admin UI files referencing "anchor" — remove anchor display and metrics (search for `anchor` in `evolution/src/components/`)
 - Admin UI variant table components — add `persisted` column and "Include discarded" toggle (run detail Variants tab, paginated variant list, snapshot tab)
-- Admin UI variant detail page — add `persisted` badge/banner
+- Admin UI variant detail page — add `persisted` badge/banner; add Matches tab (from extended arena_comparisons); add LLM calls tab (from llmCallTracking)
 - Admin UI lineage graph component — render `persisted = false` nodes with reduced opacity and dashed border
-- Admin UI invocation detail page — custom detailViewConfig for each of the three new agent types (generateFromSeedArticle, SwissRankingAgent, MergeRatingsAgent)
+- Admin UI invocation detail page — custom detailViewConfig for each of the three new agent types; add LLM calls section (from llmCallTracking filtered by evolution_invocation_id)
+- Admin UI run detail page — error banner when error_code is populated; Reproduce button using random_seed; SnapshotsTab
 - DB migration: add `iteration_snapshots` JSONB column to `evolution_runs`
 - DB migration: add `persisted` BOOLEAN column to `evolution_variants` (default false)
+- DB migration: add error fields (`error_code`, `error_message`, `error_details`, `failed_at_iteration`, `failed_at_invocation`) to `evolution_runs`
+- DB migration: add `random_seed` BIGINT column to `evolution_runs`
+- DB migration: make `prompt_id` nullable on `evolution_arena_comparisons`; add in-run observability columns (iteration, invocation_id, mu/sigma before/after for both entries)
 - Backend services: update `getEvolutionVariantsAction`, paginated variants action, `getVariantDetailAction`, `getEvolutionRunLineageAction` to add `persisted` to selects and add `includeDiscarded` parameter where needed
+- Backend services: new `getVariantMatchesAction`, `getVariantLlmCallsAction`, `getInvocationLlmCallsAction` for the new admin UI tabs
 
 ### Files to Remove
 - `evolution/src/lib/core/agents/GenerationAgent.ts` — Replaced by generateFromSeedArticle
@@ -1879,11 +1933,444 @@ The table is sortable by round, opponent, score, or any state column. This view 
 - **Three agent types:** `generateFromSeedArticle`, `SwissRankingAgent`, `MergeRatingsAgent`. Each is a proper Agent subclass with execution detail schema, metrics, and detail view config.
 - **Discard lives in the generate agent**, not the merge agent. Each `generateFromSeedArticle` invocation makes its own surface/discard decision using its local ratings. The merge agent only sees surfaced work.
 - **The "round" concept is eliminated.** Each iteration is one work+merge unit. What we previously called "Swiss rounds" are now just "swiss iterations."
+- **No resume semantics.** Confirmed: the existing pipeline has no checkpoint/resume — `evolution_checkpoints` table and `checkpoint_and_continue` RPC were dropped. The heartbeat is purely a liveness signal. Runs that die are dead; snapshots can be written only at finalization without regression.
+- **Per-phase cost attribution uses `onUsage` callback**, not `costTracker.getTotalSpent()` deltas. Each LLM call reports its exact cost via the callback; agents accumulate locally. `costTracker` stays for global budget enforcement only.
+- **In-run matches persisted by extending `evolution_arena_comparisons`**, not by creating a new table. `prompt_id` becomes nullable; add `iteration`, `invocation_id`, and mu/sigma before/after columns. Written by `MergeRatingsAgent` as it applies updates.
+- **Run-level error surface** via new columns on `evolution_runs`: `error_code`, `error_message`, `error_details`, `failed_at_iteration`, `failed_at_invocation`. Error code taxonomy defined in `RunErrorCode` type.
+- **RNG seed for reproducibility** via new `random_seed` column on `evolution_runs`. Seeded RNG threaded through merge agent's Fisher-Yates shuffle and agent tiebreaks. Per-agent sub-seeds derived deterministically to support parallelism.
+- **LLM prompts/responses** captured via existing `llmCallTracking` infrastructure. Agents pass `evolutionInvocationId: ctx.invocationId` on every `callLLM` to populate the existing FK.
 
 ## Open Questions
 - Default for max iterations (safety cap on orchestrator loop): something like 20 to prevent runaway loops?
 - Should we track per-iteration budget spend separately to detect budget spikes in specific iteration types?
 - Is `CONVERGENCE_THRESHOLD = 3.0` actually achievable for typical small pools (3-5 eligible variants)? With 3 variants there are only 3 unique pairs — after compactly running them, we exit via `no_pairs` rather than `converged`. May need to accept this or relax the threshold.
+- RNG seed: should we auto-generate if not user-provided, or require it in config? (Suggest auto-generate, expose in UI for reproducibility)
+
+## Critical Gaps — Design Additions
+
+These were identified during a design review and should be addressed before implementation.
+
+### A. No resume semantics (confirmed)
+
+The existing pipeline has no checkpoint/resume behavior — `evolution_checkpoints` table and `checkpoint_and_continue` RPC were both dropped in migration `20260322000006_evolution_fresh_schema.sql`. The heartbeat (`last_heartbeat` on `evolution_runs`) is purely a liveness signal so stale runs can be reclaimed, not a resume point.
+
+**What this means for the plan:**
+- Runs do not resume. If a run dies, it's dead.
+- Snapshots can be written only at finalization — no need for incremental persistence.
+- `completedPairs` lives only in memory during the run.
+- Crash-loss of observability matches current behavior; no regression.
+
+### B. Per-phase cost attribution via `onUsage` callback
+
+**Problem with the previous approach:** Reading `costTracker.getTotalSpent()` deltas before/after each phase is meaningless under parallel agents — another agent's spend lands between the two reads, so the delta attributes cost incorrectly.
+
+**Solution:** Use the existing `CallLLMOptions.onUsage` callback in `src/lib/services/llms.ts`:
+
+```typescript
+export interface CallLLMOptions {
+  onUsage?: (usage: LLMUsageMetadata) => void;  // fires after each LLM call with exact cost
+  evolutionInvocationId?: string;
+}
+```
+
+Each agent accumulates its own cost locally:
+
+```typescript
+// Inside generateFromSeedArticle.execute()
+let localGenerationCost = 0;
+let localRankingCost = 0;
+
+// Generation phase
+await llm.complete(prompt, 'evolution_generate_from_seed', {
+  onUsage: (usage) => { localGenerationCost += usage.estimatedCostUsd; },
+  evolutionInvocationId: ctx.invocationId,
+});
+
+// Ranking phase
+for each comparison:
+  await llm.complete(prompt, 'evolution_generate_from_seed', {
+    onUsage: (usage) => { localRankingCost += usage.estimatedCostUsd; },
+    evolutionInvocationId: ctx.invocationId,
+  });
+
+return {
+  detail: {
+    generation: { cost: localGenerationCost, ... },
+    ranking: { cost: localRankingCost, ... },
+  },
+};
+```
+
+**Benefits:**
+- Exact per-phase cost attribution, no racing deltas
+- Works under any degree of parallelism
+- Failed agents still report accurate partial costs (whatever accumulated before the error)
+- `evolutionInvocationId` gets persisted to `llmCallTracking`, linking every LLM call to its agent
+
+**`costTracker` still exists** for global budget enforcement via `reserve()` — that's orthogonal to attribution.
+
+- [ ] Update `generateFromSeedArticle` to use `onUsage` for per-phase cost
+- [ ] Update `SwissRankingAgent` to use `onUsage` for ranking cost
+- [ ] Update `MergeRatingsAgent` — cost is always $0, no LLM calls
+- [ ] Pass `evolutionInvocationId: ctx.invocationId` on every LLM call
+
+### C. Extend `evolution_arena_comparisons` for in-run match persistence
+
+**Why extend instead of creating a new table:** The `evolution_arena_comparisons` table already exists and is used for cross-run arena comparisons. Creating a parallel `evolution_matches` table would fragment the match data across two tables. Extending the existing table keeps all matches in one place.
+
+**Current table columns** (from `evolution_arena_comparisons`):
+- `id`, `prompt_id` (required), `entry_a`, `entry_b`, `winner`, `confidence`, `run_id`, `status`, `created_at`
+
+**Schema changes:**
+
+```sql
+-- Make prompt_id nullable so in-run matches without an arena prompt can be persisted
+ALTER TABLE evolution_arena_comparisons
+  ALTER COLUMN prompt_id DROP NOT NULL;
+
+-- Add in-run observability columns
+ALTER TABLE evolution_arena_comparisons
+  ADD COLUMN iteration INT,
+  ADD COLUMN invocation_id UUID REFERENCES evolution_agent_invocations(id) ON DELETE SET NULL,
+
+  -- Rating state before each match (captured by merge agent)
+  ADD COLUMN entry_a_mu_before NUMERIC,
+  ADD COLUMN entry_a_sigma_before NUMERIC,
+  ADD COLUMN entry_b_mu_before NUMERIC,
+  ADD COLUMN entry_b_sigma_before NUMERIC,
+
+  -- Rating state after each match (captured by merge agent)
+  ADD COLUMN entry_a_mu_after NUMERIC,
+  ADD COLUMN entry_a_sigma_after NUMERIC,
+  ADD COLUMN entry_b_mu_after NUMERIC,
+  ADD COLUMN entry_b_sigma_after NUMERIC;
+
+CREATE INDEX idx_arena_comparisons_run_iteration
+  ON evolution_arena_comparisons (run_id, iteration);
+CREATE INDEX idx_arena_comparisons_invocation
+  ON evolution_arena_comparisons (invocation_id);
+```
+
+**Not added:**
+- `judge_model` — already on `evolution_runs`, no need to duplicate per match
+- `merge_apply_order` — recoverable via RNG seed (see section E); adding a column is overkill
+
+**Write path:** The `MergeRatingsAgent` writes one row per match as it applies updates in the shuffled order. Single bulk insert per merge invocation.
+
+**Backward compatibility:**
+- Existing `sync_to_arena` RPC keeps working — it just writes the old columns; new columns default to NULL
+- Existing arena leaderboard queries filter by `prompt_id IS NOT NULL` (implicit — they join to prompts)
+- `VariantEntity.delete` cascade still works (unchanged)
+
+**Query patterns:**
+
+```sql
+-- All matches for a run, in rating-update order
+SELECT * FROM evolution_arena_comparisons
+WHERE run_id = $1
+ORDER BY iteration, created_at;
+
+-- All matches involving a specific variant
+SELECT * FROM evolution_arena_comparisons
+WHERE entry_a = $1 OR entry_b = $1;
+
+-- Rating trajectory for a variant
+SELECT
+  iteration,
+  CASE WHEN entry_a = $1 THEN entry_a_mu_after ELSE entry_b_mu_after END as mu_after,
+  CASE WHEN entry_a = $1 THEN entry_a_sigma_after ELSE entry_b_sigma_after END as sigma_after
+FROM evolution_arena_comparisons
+WHERE entry_a = $1 OR entry_b = $1
+ORDER BY iteration, created_at;
+
+-- Cross-run arena leaderboard (existing, unchanged — filters null prompt_id)
+SELECT * FROM evolution_arena_comparisons
+WHERE prompt_id = $1;
+```
+
+**Tasks:**
+- [ ] Migration: `ALTER TABLE` statements above
+- [ ] Update `evolutionArenaComparisonInsertSchema` in `evolution/src/lib/schemas.ts` to make `prompt_id` nullable and add new columns
+- [ ] `MergeRatingsAgent.execute()` writes to `evolution_arena_comparisons` as part of applying each match
+- [ ] Variant detail admin UI gets a "Matches" tab showing all matches involving this variant, with mu/sigma trajectory
+- [ ] Invocation detail admin UI cross-references to matches via `invocation_id`
+
+### D. Run-level error surface
+
+**New fields on `evolution_runs`:**
+
+```sql
+ALTER TABLE evolution_runs
+  ADD COLUMN error_code TEXT,           -- from taxonomy below
+  ADD COLUMN error_message TEXT,        -- human-readable summary
+  ADD COLUMN error_details JSONB,       -- structured detail (stack, context)
+  ADD COLUMN failed_at_iteration INT,
+  ADD COLUMN failed_at_invocation UUID REFERENCES evolution_agent_invocations(id) ON DELETE SET NULL;
+```
+
+**Error code taxonomy:**
+
+```typescript
+type RunErrorCode =
+  // Setup failures (before any work)
+  | 'invalid_config'
+  | 'missing_seed_article'
+  | 'budget_too_small'
+
+  // Generation failures
+  | 'all_generation_failed'
+  | 'generation_llm_error'
+
+  // Ranking failures
+  | 'swiss_all_pairs_failed'
+
+  // Budget failures
+  | 'budget_exceeded_during_generate'
+  | 'budget_exceeded_during_swiss'
+  | 'budget_exceeded_before_first_variant'
+
+  // Orchestration failures
+  | 'merge_agent_crashed'
+  | 'invocation_row_write_failed'
+  | 'dispatcher_unhandled_error'
+
+  // External / infrastructure
+  | 'killed_externally'
+  | 'wall_clock_deadline_exceeded'
+  | 'unhandled_error'
+```
+
+**Population:**
+- Orchestrator's main loop is wrapped in `try/catch`
+- `classifyError()` maps exceptions to the taxonomy
+- `persistRunResults` writes the error fields along with the result
+- Normal completion leaves all error fields `NULL`
+
+**`status` column semantics:**
+- `status = 'completed'` → `error_code` is NULL
+- `status = 'failed'` → `error_code` is populated
+- `status = 'killed'` → `error_code = 'killed_externally'` or `'wall_clock_deadline_exceeded'`
+
+**Admin UI:**
+- Run detail page: error banner at top when `error_code != NULL`, with link to failing invocation
+- Run list: error column visible in failed-run rows
+- Filter by error_code for debugging patterns
+
+**Tasks:**
+- [ ] Migration: add columns
+- [ ] Update `evolutionRunFullDbSchema` to include error fields
+- [ ] Define `RunErrorCode` type in `evolution/src/lib/types.ts`
+- [ ] Implement `classifyError(e: unknown): RunErrorCode` in `evolution/src/lib/pipeline/classifyError.ts`
+- [ ] Wrap orchestrator loop in try/catch, set error fields on failure
+- [ ] Update `persistRunResults` to write error fields
+- [ ] Admin UI: add error banner to run detail page
+
+### E. RNG seed for reproducibility
+
+**Problem:** Fisher-Yates shuffle in merge agent, opponent selection tiebreaks, and strategy round-robin all introduce non-determinism. Two runs of the same pipeline with the same inputs can produce different outputs. There's no way to reproduce a specific failed run for debugging.
+
+**Solution:** Capture a per-run seed and thread it through every source of randomness.
+
+**New field on `evolution_runs`:**
+
+```sql
+ALTER TABLE evolution_runs
+  ADD COLUMN random_seed BIGINT;
+```
+
+Populated on run creation (either user-provided for reproducing an earlier run, or auto-generated).
+
+**New utility:** `evolution/src/lib/shared/seededRandom.ts`
+
+```typescript
+// Simple xoshiro256** or mulberry32 seeded PRNG
+export class SeededRandom {
+  constructor(seed: number | bigint) { ... }
+  next(): number { ... }                 // [0, 1)
+  nextInt(max: number): number { ... }   // [0, max)
+  shuffle<T>(array: T[]): T[] { ... }    // Fisher-Yates in place
+}
+
+// Deterministic sub-seed derivation for parallel agents
+export function deriveSeed(parentSeed: bigint, ...namespace: string[]): bigint {
+  // Hash the parent seed with a namespace (e.g., "iter1-exec3")
+  // Returns a deterministic derived seed
+}
+```
+
+**Usage:**
+- Orchestrator creates `const rng = new SeededRandom(run.random_seed)` at start
+- Agents receive a derived sub-seed via `AgentContext`:
+  ```typescript
+  const agentCtx = {
+    ...baseCtx,
+    iteration,
+    executionOrder,
+    randomSeed: deriveSeed(run.random_seed, `iter${iteration}`, `exec${executionOrder}`)
+  }
+  ```
+- Each agent creates its own `SeededRandom` from its sub-seed
+- `MergeRatingsAgent` uses its sub-seed for the Fisher-Yates shuffle
+- `generateFromSeedArticle` uses its sub-seed for opponent selection tiebreaks
+
+**Why sub-seeds:** A single shared RNG would produce different outputs depending on which agent consumed bits first — non-deterministic under parallel execution. Deriving sub-seeds from the run seed + agent identity makes each agent fully deterministic regardless of dispatch timing.
+
+**Reproducing a run:**
+- Copy `run.random_seed` from a failed run
+- Set it on a new run config
+- Run the pipeline with the same inputs
+- Same shuffle orders, same selections, same final ratings
+- Caveat: LLM responses may still differ (temperature > 0), which is a separate concern
+
+**Admin UI:**
+- Run detail page shows `random_seed` as a copyable field
+- "Reproduce this run" button that copies the seed and opens the create-run form pre-filled
+
+**Tasks:**
+- [ ] Migration: add `random_seed` column
+- [ ] Create `seededRandom.ts` with `SeededRandom` class and `deriveSeed()` helper
+- [ ] Populate `random_seed` at run creation (in `ensureRunSetup` or wherever runs are created)
+- [ ] Update `AgentContext` to include `randomSeed: bigint`
+- [ ] `MergeRatingsAgent` uses the seed for Fisher-Yates
+- [ ] `generateFromSeedArticle` uses the seed for any tiebreaks in opponent selection
+- [ ] Admin UI: show seed on run detail page, add reproduce button
+- [ ] Test: two runs with the same seed produce identical outputs (when LLM responses are mocked)
+
+### F. LLM prompts/responses — wire up existing infrastructure
+
+**Good news:** `llmCallTracking` already exists and already captures `prompt`, `content` (response), `raw_api_response`, token counts, and cost. It even has an `evolution_invocation_id` FK column.
+
+**What we need to do in the new agents:** Pass `ctx.invocationId` as `options.evolutionInvocationId` on every LLM call.
+
+```typescript
+await llm.complete(prompt, 'evolution_generate_from_seed', {
+  evolutionInvocationId: ctx.invocationId,  // ← this is the only thing we need to add
+  onUsage: (usage) => { localCost += usage.estimatedCostUsd; },
+});
+```
+
+**Admin UI implications:**
+- Variant detail page: new "LLM calls" tab showing all calls where `evolution_invocation_id = (any invocation involving this variant)`
+- Match row in `evolution_arena_comparisons`: joins to `evolution_agent_invocations` → `llmCallTracking` to show the exact prompt/response that produced the comparison judgment
+- Invocation detail page: "LLM calls" section showing prompts and responses per call
+
+**No new tables, no new infrastructure.** Just wire up the existing FK.
+
+**Tasks:**
+- [ ] `generateFromSeedArticle`: pass `evolutionInvocationId` on all LLM calls
+- [ ] `SwissRankingAgent`: pass `evolutionInvocationId` on all LLM calls
+- [ ] Admin UI: add LLM calls tab to variant detail, invocation detail, match detail
+
+### G. Existing lifecycle integration
+
+**Where the new code fits in `claimAndExecuteRun.ts`:**
+
+```
+claim_evolution_run RPC (existing, unchanged)
+  ↓
+ensureRunSetup (existing — extend to generate random_seed)
+  ↓
+startHeartbeat (existing, unchanged)
+  ↓
+runIterationLoop (REPLACED with new orchestrator-driven loop)
+  ↓
+persistRunResults (existing, extended with error fields + random_seed + snapshots + discarded variants)
+  ↓
+stopHeartbeat, finalize run status
+```
+
+**What stays unchanged:**
+
+| Component | Status |
+|-----------|--------|
+| `claim_evolution_run` RPC (advisory lock + SKIP LOCKED) | Unchanged |
+| Heartbeat interval (30s ping to `last_heartbeat`) | Unchanged |
+| `isRunKilled()` DB polling for kill detection | Unchanged |
+| Abort signal handling from parent process | Unchanged |
+| Wall clock deadline handling | Unchanged |
+| `createInvocation` / `updateInvocation` per-agent writes | Unchanged (Agent base class template) |
+| Cost tracking via `V2CostTracker` | Unchanged (budget enforcement layer) |
+| Concurrent run limit (`EVOLUTION_MAX_CONCURRENT_RUNS`) | Unchanged |
+| Global spending gate (`LLMSpendingGate`) | Unchanged |
+| LLM semaphore (`LLMSemaphore`) | Unchanged |
+
+**What changes:**
+
+| Component | Change |
+|-----------|--------|
+| `runIterationLoop` function | Replaced with orchestrator-driven version (new `nextIteration()` logic) |
+| `persistRunResults` | Extended to write snapshots, error fields, seed, discarded variants |
+| `ensureRunSetup` | Extended to generate and persist `random_seed` |
+| `evolution_runs` schema | +5 error fields, +random_seed, +iteration_snapshots, +5 more |
+| `evolution_variants` schema | +persisted boolean |
+| `evolution_arena_comparisons` schema | +9 new columns, nullable prompt_id |
+| `evolution_agent_invocations` | Unchanged structure; new agent types populate it |
+| Agent class files | GenerationAgent.ts, RankingAgent.ts removed; three new agent files added |
+| `generateVariants.ts`, `rankVariants.ts` | Removed; logic moved to new agents |
+
+**Kill detection placement:**
+
+The orchestrator's `nextIteration()` function checks kill signals at iteration boundaries (same pattern as today's loop checking `isRunKilled()` at iteration starts):
+
+```typescript
+function nextIteration(): 'generate' | 'swiss' | 'done' {
+  // Check kill signals BEFORE dispatching next iteration
+  if (options?.signal?.aborted) { exitReason = 'killed'; return 'done'; }
+  if (await isRunKilled(db, runId)) { exitReason = 'killed'; return 'done'; }
+  if (options?.deadlineMs && Date.now() >= options.deadlineMs) { exitReason = 'time_limit'; return 'done'; }
+
+  // Then the normal decision logic
+  if (state.iterationCount === 0) return 'generate';
+  if (budgetExhausted) return 'done';
+  // ...
+}
+```
+
+Kill doesn't interrupt in-flight agents (same as today). A killed run just exits cleanly at the next iteration boundary. If an abort signal is set mid-iteration, in-flight work completes normally and is merged normally — the exit happens at the next `nextIteration()` call.
+
+**Invocation write timing:**
+
+The existing `Agent.run()` template method writes `createInvocation()` BEFORE calling `execute()` and `updateInvocation()` AFTER. This is per-invocation, not per-run — so every agent that starts has a row in `evolution_agent_invocations` with whatever cost/status it had when it ran. **Even on run failure, individual agent rows are persisted.**
+
+**Snapshot write timing:**
+
+Snapshots are built in memory during the run and persisted once at finalization (in `persistRunResults`). Since there's no resume support, losing snapshots on crash matches current behavior for any partial state. No need for incremental writes.
+
+**Error propagation:**
+
+```typescript
+// In claimAndExecuteRun.ts
+try {
+  await ensureRunSetup(...);
+  const iterationResult = await runIterationLoop(...);
+  await persistRunResults({
+    ...iterationResult,
+    error_code: null,
+    status: 'completed',
+  });
+} catch (e) {
+  const errorCode = classifyError(e);
+  const errorMessage = e instanceof Error ? e.message : String(e);
+  await persistRunResults({
+    // partial state from whatever we captured
+    error_code: errorCode,
+    error_message: errorMessage,
+    error_details: { stack: e instanceof Error ? e.stack : undefined, ... },
+    failed_at_iteration: currentIteration,
+    failed_at_invocation: lastInvocationId,
+    status: 'failed',
+  });
+}
+```
+
+**Tasks:**
+- [ ] Update `claimAndExecuteRun.ts` to populate `random_seed` in `ensureRunSetup`
+- [ ] Update `claimAndExecuteRun.ts` error handling to capture structured error info
+- [ ] Update `runIterationLoop.ts` to the new orchestrator-driven loop (Phase 5)
+- [ ] Update `persistRunResults.ts` to write new fields (error, seed, snapshots, discarded variants, persisted flags)
+- [ ] Verify heartbeat, kill detection, deadline handling still work with the new loop
+- [ ] Test: a killed run exits cleanly at the next iteration boundary
+- [ ] Test: a run that crashes mid-iteration has correct invocation rows persisted
 
 ## Review & Discussion
 [Populated by /plan-review with agent scores, reasoning, and gap resolutions]
