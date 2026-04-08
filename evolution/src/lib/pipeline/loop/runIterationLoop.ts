@@ -266,7 +266,11 @@ export async function evolveArticle(
       stopReason = 'budget_exceeded';
       return 'done';
     }
-    if (iteration >= MAX_ORCHESTRATOR_ITERATIONS) return 'done';
+    if (iteration >= MAX_ORCHESTRATOR_ITERATIONS) {
+      logger.warn('Max orchestrator iterations reached', { iteration, max: MAX_ORCHESTRATOR_ITERATIONS, phaseName: 'loop' });
+      stopReason = 'iterations_complete';
+      return 'done';
+    }
 
     const eligibleIds = computeEligibleIds(pool, ratings);
     if (eligibleIds.length < 2) return 'done';
@@ -361,6 +365,11 @@ export async function evolveArticle(
           } else if (out.variant && !out.surfaced) {
             discardedVariants.push(out.variant);
             discardedIds.push(out.variant.id);
+            // Plumb the local mu / top15Cutoff snapshot from the agent into the
+            // iteration-end snapshot so SnapshotsTab can show real numbers.
+            if (out.discardReason) {
+              discardReasonsMap[out.variant.id] = out.discardReason;
+            }
           }
         } else if (r.status === 'fulfilled' && r.value.budgetExceeded) {
           // Agent hit budget at the Agent.run boundary (not internally caught).

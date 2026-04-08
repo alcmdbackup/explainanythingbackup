@@ -77,6 +77,9 @@ export type GenerateFromSeedOutput = {
   status: RankSingleVariantStatus | 'generation_failed';
   surfaced: boolean;
   matches: V2Match[];
+  /** Populated when surfaced=false: the local mu and top-15% cutoff at the time of discard.
+   *  Used by the orchestrator to populate iterationSnapshots.discardReasons for the SnapshotsTab. */
+  discardReason?: { mu: number; top15Cutoff: number };
 };
 
 export type GenerateFromSeedExecutionDetail = z.infer<typeof generateFromSeedExecutionDetailSchema>
@@ -327,6 +330,11 @@ export class GenerateFromSeedArticleAgent extends Agent<
         status: rankResult.status,
         surfaced,
         matches: surfaced ? rankResult.matches : [],
+        // Plumb the discard reason out of the agent so the orchestrator can populate
+        // iterationSnapshots.discardReasons (consumed by the SnapshotsTab).
+        ...(discardReason !== undefined && {
+          discardReason: { mu: discardReason.localMu, top15Cutoff: discardReason.localTop15Cutoff },
+        }),
       },
       detail,
       childVariantIds: surfaced ? [variant.id] : [],

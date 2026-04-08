@@ -292,26 +292,23 @@ export async function finalizeRun(
         }
       }
 
-      // Run-level cost aggregates (Phase 9b/9f) — split generation vs ranking spend across
-      // the parallel pipeline. generate_from_seed_article carries both generation+ranking cost
-      // in its execution_detail.{generation,ranking}.cost; swiss_ranking is pure ranking;
-      // merge_ratings is free. Legacy generation/ranking agents are bucketed by name.
+      // Run-level cost aggregates (Phase 9b/9f) — bucket invocation cost_usd by agent_name.
+      // We deliberately do NOT use execution_detail.{generation,ranking}.cost sub-totals here:
+      // those are computed by per-agent costTracker.getTotalSpent() deltas which race against
+      // OTHER concurrent agents in the same iteration (the tracker is shared). The race
+      // produces inflated per-agent costs; bucketing by agent_name uses cost_usd directly
+      // which sums correctly to the run total. generate_from_seed_article is treated as
+      // 50/50 generation/ranking — a coarse approximation but at least the totals are
+      // bounded by the real run cost. The accurate split would require a non-shared
+      // per-call cost tracker, which is a follow-up.
       let totalGenerationCost = 0;
       let totalRankingCost = 0;
-      for (const inv of invocations as Array<{ agent_name: string; cost_usd: number | null; execution_detail: unknown }>) {
+      for (const inv of invocations as Array<{ agent_name: string; cost_usd: number | null }>) {
         const cost = Number(inv.cost_usd ?? 0);
         if (!Number.isFinite(cost) || cost === 0) continue;
         if (inv.agent_name === 'generate_from_seed_article') {
-          // Split cost using execution_detail when available; otherwise count it all as generation.
-          const detail = inv.execution_detail as { generation?: { cost?: number }; ranking?: { cost?: number } } | null;
-          const genCost = Number(detail?.generation?.cost ?? 0);
-          const rankCost = Number(detail?.ranking?.cost ?? 0);
-          if (genCost + rankCost > 0) {
-            totalGenerationCost += genCost;
-            totalRankingCost += rankCost;
-          } else {
-            totalGenerationCost += cost;
-          }
+          totalGenerationCost += cost / 2;
+          totalRankingCost += cost / 2;
         } else if (inv.agent_name === 'swiss_ranking') {
           totalRankingCost += cost;
         } else if (inv.agent_name === 'generation') {
