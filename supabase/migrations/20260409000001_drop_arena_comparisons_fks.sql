@@ -16,11 +16,8 @@ ALTER TABLE evolution_arena_comparisons DROP CONSTRAINT IF EXISTS evolution_aren
 ALTER TABLE evolution_arena_comparisons DROP CONSTRAINT IF EXISTS evolution_arena_comparisons_entry_b_fkey;
 
 -- Rollback: re-add as NOT VALID to skip validating existing rows (some may be orphaned):
--- First delete orphaned rows:
---   DELETE FROM evolution_arena_comparisons
---   WHERE entry_a NOT IN (SELECT id FROM evolution_variants)
---      OR entry_b NOT IN (SELECT id FROM evolution_variants);
--- Then re-add constraints:
+-- First purge orphaned rows (entry_a/entry_b not in evolution_variants) using a manual query,
+-- then re-add the constraints as NOT VALID:
 -- ALTER TABLE evolution_arena_comparisons ADD CONSTRAINT evolution_arena_comparisons_entry_a_fkey
 --   FOREIGN KEY (entry_a) REFERENCES evolution_variants(id) ON DELETE CASCADE NOT VALID;
 -- ALTER TABLE evolution_arena_comparisons ADD CONSTRAINT evolution_arena_comparisons_entry_b_fkey
