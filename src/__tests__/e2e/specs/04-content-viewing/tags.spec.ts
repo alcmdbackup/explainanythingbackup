@@ -170,7 +170,7 @@ test.describe('Tag Management', () => {
 
       // Open add tag input
       await resultsPage.clickAddTagTrigger();
-      expect(await resultsPage.isAddTagInputVisible()).toBe(true);
+      await expect.poll(() => resultsPage.isAddTagInputVisible()).toBe(true);
 
       // Click cancel
       await resultsPage.clickCancelAddTag();

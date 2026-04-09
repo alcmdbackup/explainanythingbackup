@@ -76,8 +76,9 @@ adminTest.describe('Admin Content Management', () => {
       // Filter by draft
       await contentPage.filterByStatus('draft');
 
-      // All visible rows should be draft
-      const statusCells = contentPage.table.locator('tbody tr td:nth-child(4) span');
+      // All visible rows should be draft — use stable data-testid
+      // (replaces brittle td:nth-child(4) which would break if columns reordered)
+      const statusCells = contentPage.table.locator('[data-testid^="admin-content-status-badge-"]');
       const count = await statusCells.count();
       for (let i = 0; i < count; i++) {
         const cell = statusCells.nth(i);
@@ -92,9 +93,10 @@ adminTest.describe('Admin Content Management', () => {
       const contentPage = new AdminContentPage(adminPage);
       await contentPage.gotoContent();
 
-      // Get first explanation ID from table
+      // Get first explanation ID from table — use stable data-testid prefix
+      // (replaces brittle td:nth-child(2) which would break if columns reordered)
       const firstRow = contentPage.table.locator('tbody tr').first();
-      const idCell = firstRow.locator('td:nth-child(2)');
+      const idCell = firstRow.locator('[data-testid^="admin-content-id-"]');
       const idText = await idCell.textContent();
       const explanationId = parseInt(idText || '0', 10);
 
@@ -252,9 +254,9 @@ adminTest.describe('Admin Content Management', () => {
       const contentPage = new AdminContentPage(adminPage);
       await contentPage.gotoContent();
 
-      // Get first explanation ID
+      // Get first explanation ID — use stable data-testid prefix
       const firstRow = contentPage.table.locator('tbody tr').first();
-      const idCell = firstRow.locator('td:nth-child(2)');
+      const idCell = firstRow.locator('[data-testid^="admin-content-id-"]');
       const idText = await idCell.textContent();
       const explanationId = parseInt(idText || '0', 10);
 

@@ -294,7 +294,12 @@ export function ExplanationTable({ onSelectExplanation }: ExplanationTableProps)
                       className="rounded"
                     />
                   </td>
-                  <td className="p-3 text-[var(--text-muted)]">{exp.id}</td>
+                  <td
+                    className="p-3 text-[var(--text-muted)]"
+                    data-testid={`admin-content-id-${exp.id}`}
+                  >
+                    {exp.id}
+                  </td>
                   <td className="p-3">
                     <button
                       onClick={() => onSelectExplanation?.(exp)}
@@ -305,11 +310,14 @@ export function ExplanationTable({ onSelectExplanation }: ExplanationTableProps)
                     </button>
                   </td>
                   <td className="p-3">
-                    <span className={`px-2 py-1 rounded text-xs ${
-                      exp.status === 'published'
-                        ? 'bg-green-800 text-green-100'
-                        : 'bg-orange-800 text-orange-100'
-                    }`}>
+                    <span
+                      className={`px-2 py-1 rounded text-xs ${
+                        exp.status === 'published'
+                          ? 'bg-green-800 text-green-100'
+                          : 'bg-orange-800 text-orange-100'
+                      }`}
+                      data-testid={`admin-content-status-badge-${exp.id}`}
+                    >
                       {exp.status}
                     </span>
                   </td>
