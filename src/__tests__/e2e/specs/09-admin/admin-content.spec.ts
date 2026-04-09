@@ -55,6 +55,9 @@ adminTest.describe('Admin Content Management', () => {
       const contentPage = new AdminContentPage(adminPage);
       await contentPage.gotoContent();
 
+      // Disable "Filter test content" so [TEST]-prefixed seed rows are visible
+      await adminPage.getByTestId('admin-content-filter-test-content').uncheck();
+
       // Search for our test explanation
       await contentPage.search('[TEST] Admin Test Visible');
 

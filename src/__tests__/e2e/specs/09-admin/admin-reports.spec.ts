@@ -62,7 +62,7 @@ adminTest.describe('Admin Content Reports', () => {
       await reportsPage.filterByStatus('pending');
 
       // All visible status badges should be pending
-      const statusBadges = reportsPage.table.locator('tbody tr td:nth-child(4) span');
+      const statusBadges = reportsPage.table.locator('tbody tr td:nth-child(5) span');
       const count = await statusBadges.count();
       for (let i = 0; i < Math.min(count, 5); i++) {
         const badge = statusBadges.nth(i);
