@@ -284,6 +284,18 @@ test.describe('Action Buttons', () => {
       await resultsPage.clickFormatToggle();
       expect(await resultsPage.isMarkdownMode()).toBe(true);
 
+      // Wait for the rendered markdown content to be re-mounted (it can briefly
+      // show the "Content will appear here..." placeholder before re-rendering)
+      await authenticatedPage.waitForFunction(
+        (sel) => {
+          const el = document.querySelector(sel);
+          const txt = el?.textContent ?? '';
+          return txt.length > 0 && !txt.includes('Content will appear here');
+        },
+        '[data-testid="explanation-content"]',
+        { timeout: 5000 }
+      );
+
       // Verify content is still preserved after round-trip
       const restoredContent = await resultsPage.getContent();
       expect(restoredContent).toEqual(initialContent);

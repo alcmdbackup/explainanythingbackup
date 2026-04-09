@@ -144,6 +144,9 @@ adminTest.describe('Admin Content Management', () => {
 
       // Reload to see the hidden state
       await contentPage.gotoContent();
+      // Re-disable filter and enable "Show hidden" so the hidden [TEST] row is visible
+      await adminPage.getByTestId('admin-content-filter-test-content').uncheck();
+      await contentPage.toggleShowHidden();
       await contentPage.search('[TEST] Admin Hide Test');
 
       // Verify restore button appears (meaning it's hidden)
