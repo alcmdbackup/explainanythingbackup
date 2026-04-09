@@ -28,9 +28,10 @@ describe('RunEntity', () => {
     expect(entity.children.every(c => c.cascade === 'delete')).toBe(true);
   });
 
-  it('has 1 execution + 7 finalization + 0 propagation metrics', () => {
+  it('has 1 execution + 9 finalization + 0 propagation metrics', () => {
     expect(entity.metrics.duringExecution).toHaveLength(1);
-    expect(entity.metrics.atFinalization).toHaveLength(7);
+    // 7 ratings/match metrics + 2 cost-split metrics (total_generation_cost, total_ranking_cost)
+    expect(entity.metrics.atFinalization).toHaveLength(9);
     expect(entity.metrics.atPropagation).toHaveLength(0);
   });
 

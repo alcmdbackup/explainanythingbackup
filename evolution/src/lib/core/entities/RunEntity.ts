@@ -43,6 +43,12 @@ export class RunEntity extends Entity<EvolutionRunFullDb> {
       { ...METRIC_CATALOG.total_matches, compute: computeTotalMatches },
       { ...METRIC_CATALOG.decisive_rate, compute: computeDecisiveRate },
       { ...METRIC_CATALOG.variant_count, compute: computeVariantCount },
+      // Phase 9b/9f run-level cost split — written directly by persistRunResults from
+      // invocation cost_usd (not via the registry compute path), but registered here
+      // so validateTiming() doesn't reject the writeMetric call as "Unknown metric".
+      // The compute fn returns null so the registry-driven loop doesn't double-write.
+      { ...METRIC_CATALOG.total_generation_cost, compute: () => null },
+      { ...METRIC_CATALOG.total_ranking_cost, compute: () => null },
     ],
     atPropagation: [],
   };

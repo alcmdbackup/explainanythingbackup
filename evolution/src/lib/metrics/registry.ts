@@ -81,6 +81,15 @@ export const METRIC_REGISTRY: Record<EntityType, EntityMetricRegistry> = {
         listView: true, compute: computeDecisiveRate },
       { name: 'variant_count', label: 'Variants', category: 'count', formatter: 'integer',
         listView: true, compute: computeVariantCount },
+      // Phase 9b/9f run-level cost split — written directly by persistRunResults from
+      // invocation cost_usd buckets. compute returns null so the registry-driven loop
+      // doesn't double-write; persistRunResults writes via writeMetric() explicitly.
+      // Registered here so validateTiming() doesn't reject the explicit write as
+      // "Unknown metric" (the validator queries this registry, not RunEntity).
+      { name: 'total_generation_cost', label: 'Generation Cost', category: 'cost', formatter: 'cost',
+        compute: () => null },
+      { name: 'total_ranking_cost', label: 'Ranking Cost', category: 'cost', formatter: 'cost',
+        compute: () => null },
     ],
     atPropagation: [],
   },

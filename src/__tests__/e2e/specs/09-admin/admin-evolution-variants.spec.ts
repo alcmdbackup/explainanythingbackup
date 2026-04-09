@@ -62,7 +62,9 @@ adminTest.describe('Evolution Variants (list page)', { tag: '@evolution' }, () =
     });
     if (rErr) throw new Error(`Seed run: ${rErr.message}`);
 
-    // Seed variants — one winner, one non-winner, with different agents
+    // Seed variants — one winner, one non-winner, with different agents.
+    // persisted=true is required: the variants list page filters by persisted=true
+    // by default (Phase 9z); seeded test variants must mimic surfaced variants.
     winnerVariantId = randomUUID();
     nonWinnerVariantId = randomUUID();
     const variantInserts = [
@@ -75,6 +77,7 @@ adminTest.describe('Evolution Variants (list page)', { tag: '@evolution' }, () =
         agent_name: `${testPrefix}-alpha`,
         match_count: 5,
         is_winner: true,
+        persisted: true,
       },
       {
         id: nonWinnerVariantId,
@@ -85,6 +88,7 @@ adminTest.describe('Evolution Variants (list page)', { tag: '@evolution' }, () =
         agent_name: `${testPrefix}-beta`,
         match_count: 3,
         is_winner: false,
+        persisted: true,
       },
     ];
     const { error: vErr } = await sb.from('evolution_variants').insert(variantInserts);
