@@ -28,6 +28,7 @@ test.describe('Error Handling @skip-prod', () => {
 
       // Wait for either error or content to appear (or neither)
       const state = await waitForState(page, {
+        // eslint-disable-next-line flakiness/no-point-in-time-checks -- control flow, not assertion
         error: async () => await page.locator('[data-testid="error-message"]').isVisible(),
         content: async () => await resultsPage.hasContent(),
       });
@@ -105,6 +106,7 @@ test.describe('Error Handling @skip-prod', () => {
 
       // Wait for error or content to appear
       const state = await waitForState(page, {
+        // eslint-disable-next-line flakiness/no-point-in-time-checks -- control flow, not assertion
         error: async () => await page.locator('[data-testid="error-message"]').isVisible(),
         content: async () => await resultsPage.hasContent(),
       });

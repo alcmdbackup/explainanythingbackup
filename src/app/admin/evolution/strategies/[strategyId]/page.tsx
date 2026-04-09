@@ -11,6 +11,7 @@ import {
   EntityDetailTabs,
   useTabState,
   EntityMetricsTab,
+  NotFoundCard,
   type TabDef,
 } from '@evolution/components/evolution';
 import { LogsTab } from '@evolution/components/evolution/tabs/LogsTab';
@@ -84,10 +85,13 @@ export default function StrategyDetailPage(): JSX.Element {
 
   if (error || !strategy) {
     return (
-      <div className="p-8 text-center">
-        <h2 className="text-2xl font-display font-bold text-[var(--status-error)] mb-4">Error</h2>
-        <p className="text-sm text-[var(--text-secondary)]">{error ?? 'Strategy not found'}</p>
-      </div>
+      <NotFoundCard
+        entityType="Strategy"
+        breadcrumbs={[
+          { label: 'Evolution', href: '/admin/evolution-dashboard' },
+          { label: 'Strategies', href: '/admin/evolution/strategies' },
+        ]}
+      />
     );
   }
 

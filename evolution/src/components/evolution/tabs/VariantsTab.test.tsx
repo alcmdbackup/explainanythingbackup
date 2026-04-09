@@ -174,4 +174,42 @@ describe('VariantsTab', () => {
     expect(screen.getByText('1350')).toBeInTheDocument();
     expect(screen.queryByText('1200')).toBeNull();
   });
+
+  it('passes includeDiscarded=false to action by default and toggles to true on click', async () => {
+    const mock = evolutionActions.getEvolutionVariantsAction as jest.Mock;
+    mock.mockResolvedValue({ success: true, data: mockVariants, error: null });
+
+    render(<VariantsTab runId="run-1" />);
+    await waitFor(() => expect(screen.getByTestId('variants-tab')).toBeInTheDocument());
+
+    expect(mock).toHaveBeenCalledWith({ runId: 'run-1', includeDiscarded: false });
+
+    const checkbox = screen.getByTestId('include-discarded-toggle').querySelector('input')!;
+    fireEvent.click(checkbox);
+
+    await waitFor(() =>
+      expect(mock).toHaveBeenCalledWith({ runId: 'run-1', includeDiscarded: true }),
+    );
+  });
+
+  it('renders persisted=true with check and persisted=false with X', async () => {
+    const variantsMixed: EvolutionVariant[] = [
+      { ...mockVariants[0]!, persisted: true },
+      { ...mockVariants[1]!, persisted: false },
+    ];
+    (evolutionActions.getEvolutionVariantsAction as jest.Mock).mockResolvedValue({
+      success: true,
+      data: variantsMixed,
+      error: null,
+    });
+
+    render(<VariantsTab runId="run-1" />);
+    await waitFor(() => expect(screen.getByTestId('variants-tab')).toBeInTheDocument());
+
+    // First variant id starts with "aaaa-1"
+    const firstCell = screen.getByTestId(`persisted-${variantsMixed[0]!.id.substring(0, 6)}`);
+    const secondCell = screen.getByTestId(`persisted-${variantsMixed[1]!.id.substring(0, 6)}`);
+    expect(firstCell.textContent).toContain('✓');
+    expect(secondCell.textContent).toContain('✗');
+  });
 });

@@ -1,5 +1,5 @@
 ---
-description: Rebase off remote main, simplify code, run code review, run all checks (lint/tsc/build/unit/integration/E2E critical), update docs, fix issues, commit, create PR, and monitor CI until all checks pass
+description: Rebase off remote main, simplify code, run code review, run all checks (lint/typecheck/build/unit/ESM/integration/E2E critical), update docs, fix issues, commit, create PR, and monitor CI until all checks pass
 argument-hint: [--e2e]
 allowed-tools: Bash(git:*), Bash(npm:*), Bash(npx:*), Bash(gh:*), Read, Edit, Write, Grep, Glob, AskUserQuestion, Task
 ---
@@ -56,9 +56,9 @@ If no Verification section found → warn "No Verification section in plan — s
 **Step 0b: Run automated tests**
 
 Execute each test listed in the Verification section:
-- Unit tests: `npm run test:unit` (or specific grep/file path from plan)
+- Unit tests: `npm run test` (or specific grep/file path from plan)
 - Integration tests: `npm run test:integration` (or specific grep/file path from plan)
-- E2E tests: `npm run test:e2e -- --grep @relevant` (or specific spec file from plan)
+- E2E tests: `npm run test:e2e:critical` (or specific spec file from plan)
 
 Collect pass/fail results for each.
 
@@ -631,15 +631,26 @@ Issues to IGNORE:
 
 ### 4. Run All Checks (collect all failures)
 
-Run ALL 5 checks without stopping on failure. Collect every failure into a summary table, then fix all issues at once:
+<!-- SYNC-POINT: These checks use the same npm scripts as CI (ci.yml).
+     CI adds flags: --changedSince (unit), --shard (E2E), --maxWorkers=2
+     Finalize runs FULL suites for strict pre-PR verification.
+     If you change check commands, update ci.yml and testing_overview.md -->
 
+Run ALL 6 checks using parallel phases. Each phase MUST be a single Bash tool call (PIDs don't persist across calls):
+
+**Phase A** — lint + typecheck + build in parallel (all independent):
 ```bash
-# Run all 5 — capture exit codes, do NOT stop on failure
-npm run lint;                LINT_RC=$?
-npx tsc --noEmit;            TSC_RC=$?
-npm run build;               BUILD_RC=$?
-npm run test:unit;           UNIT_RC=$?
-npm run test:integration;    INT_RC=$?
+npm run lint & LINT_PID=$!; npm run typecheck & TSC_PID=$!; npm run build & BUILD_PID=$!; wait $LINT_PID; LINT_RC=$?; wait $TSC_PID; TSC_RC=$?; wait $BUILD_PID; BUILD_RC=$?
+```
+
+**Phase B** — unit + ESM in parallel:
+```bash
+npm run test & UNIT_PID=$!; npm run test:esm & ESM_PID=$!; wait $UNIT_PID; UNIT_RC=$?; wait $ESM_PID; ESM_RC=$?
+```
+
+**Phase C** — integration (sequential, DB conflicts):
+```bash
+npm run test:integration; INT_RC=$?
 ```
 
 Display results:
@@ -650,21 +661,22 @@ Lint:              ✓ PASSED / ✗ FAILED
 TypeScript:        ✓ PASSED / ✗ FAILED
 Build:             ✓ PASSED / ✗ FAILED
 Unit Tests:        ✓ PASSED / ✗ FAILED
+ESM Tests:         ✓ PASSED / ✗ FAILED
 Integration Tests: ✓ PASSED / ✗ FAILED
 ──────────────────────────────────────
 ```
 
 If any check failed:
 1. Fix ALL failing issues at once (regardless of whether they originated from this branch or pre-existed)
-2. Re-run ALL 5 checks (not just the ones that failed)
-3. Repeat until all 5 pass
+2. Re-run ALL 6 checks (not just the ones that failed)
+3. Repeat until all 6 pass
 
 ### 5. E2E Critical Tests
 
 Always run E2E critical tests — no flag required:
 
 ```bash
-npm run test:e2e -- --grep @critical
+npm run test:e2e:critical
 ```
 
 Fix any failures before proceeding.
@@ -672,7 +684,7 @@ Fix any failures before proceeding.
 If `$ARGUMENTS` contains `--e2e`, ALSO run the full E2E suite after critical tests pass:
 
 ```bash
-npm run test:e2e
+npm run test:e2e:full
 ```
 
 ### 6. Documentation Updates
@@ -817,6 +829,7 @@ gh pr create --base main --title "[Project] ${PROJECT_NAME}" --body "$(cat <<'EO
 - TypeScript: ✓
 - Build: ✓
 - Unit Tests: ✓
+- ESM Tests: ✓
 - Integration Tests: ✓
 - E2E Critical: ✓
 - E2E Full: [✓ / skipped (no --e2e flag)]
@@ -915,7 +928,7 @@ Use **AskUserQuestion**:
 If "Fix and retry":
 1. Analyze the failure logs to identify root causes
 2. Fix ALL issues locally (regardless of origin — pre-existing bugs included)
-3. Re-run ALL local checks: Step 4 (all 5 checks) + Step 5 (E2E critical). Re-run everything, not just the checks that failed.
+3. Re-run ALL local checks: Step 4 (all 6 checks) + Step 5 (E2E critical). Re-run everything, not just the checks that failed.
 4. **Never use `gh run rerun`** — always push new commits to trigger a full CI run. Re-running stale commits can mask issues introduced by fixes.
 5. Commit fixes:
    ```bash

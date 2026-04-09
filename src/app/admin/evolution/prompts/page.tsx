@@ -3,7 +3,7 @@
 
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { toast } from 'sonner';
 import { EntityListPage } from '@evolution/components/evolution';
 import type { RowAction, FilterDef, ColumnDef } from '@evolution/components/evolution';
@@ -74,6 +74,7 @@ type DialogState =
   | { kind: 'delete'; row: PromptListItem };
 
 export default function PromptsPage(): JSX.Element {
+  useEffect(() => { document.title = 'Prompts | Evolution'; }, []);
   const [dialog, setDialog] = useState<DialogState>({ kind: 'none' });
 
   const close = useCallback(() => setDialog({ kind: 'none' }), []);

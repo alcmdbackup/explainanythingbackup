@@ -8,6 +8,7 @@ import { hashStrategyConfig, labelStrategyConfig } from '@evolution/lib/pipeline
 import type { V2StrategyConfig } from '@evolution/lib/pipeline/infra/types';
 import { createEntityLogger } from '@evolution/lib/pipeline/infra/createEntityLogger';
 import { z } from 'zod';
+import { generationGuidanceSchema } from '@evolution/lib/schemas';
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -21,9 +22,6 @@ export interface StrategyListItem {
   pipeline_type: string | null;
   status: string;
   created_by: string;
-  run_count: number;
-  total_cost_usd: number;
-  avg_final_elo: number | null;
   first_used_at: string;
   last_used_at: string;
   created_at: string;
@@ -40,6 +38,7 @@ const createStrategySchema = z.object({
   strategiesPerRound: z.number().int().min(1).max(20).optional(),
   budgetUsd: z.number().min(0.01).max(100).optional(),
   pipeline_type: z.string().max(50).optional(),
+  generationGuidance: generationGuidanceSchema.optional(),
 });
 
 const updateStrategySchema = z.object({
@@ -76,7 +75,7 @@ export const listStrategiesAction = adminAction(
     const { data, error, count } = await query;
     if (error) throw error;
 
-    return { items: (data ?? []) as StrategyListItem[], total: count ?? 0 };
+    return { items: data ?? [], total: count ?? 0 };
   },
 );
 
@@ -94,7 +93,7 @@ export const getStrategyDetailAction = adminAction(
       if (error.code === 'PGRST116') throw new Error('Strategy not found');
       throw new Error('Failed to load strategy');
     }
-    return data as StrategyListItem;
+    return data;
   },
 );
 
@@ -110,6 +109,7 @@ export const createStrategyAction = adminAction(
       iterations: parsed.iterations,
       strategiesPerRound: parsed.strategiesPerRound,
       budgetUsd: parsed.budgetUsd,
+      generationGuidance: parsed.generationGuidance,
     };
 
     const configHash = hashStrategyConfig(config);
@@ -137,7 +137,7 @@ export const createStrategyAction = adminAction(
     }, ctx.supabase);
     stratLogger.info('Strategy created', { name: parsed.name, pipelineType: parsed.pipeline_type ?? 'full' });
 
-    return data as StrategyListItem;
+    return data;
   },
 );
 
@@ -171,7 +171,7 @@ export const updateStrategyAction = adminAction(
     }, ctx.supabase);
     stratLogger.info('Strategy updated', { updatedFields: Object.keys(updates) });
 
-    return data as StrategyListItem;
+    return data;
   },
 );
 
@@ -218,7 +218,7 @@ export const cloneStrategyAction = adminAction(
     }, ctx.supabase);
     cloneLogger.info('Strategy cloned', { sourceId: input.sourceId, name: input.newName });
 
-    return data as StrategyListItem;
+    return data;
   },
 );
 

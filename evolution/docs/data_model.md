@@ -18,7 +18,7 @@ Stores strategy configurations with aggregated performance metrics. Strategies a
 | `name` | TEXT | NOT NULL | Human-readable name |
 | `label` | TEXT | NOT NULL, default `''` | Short label for UI |
 | `description` | TEXT | | Optional long description |
-| `config` | JSONB | NOT NULL | Full strategy configuration |
+| `config` | JSONB | NOT NULL | Full strategy configuration (`V2StrategyConfig`: generationModel, judgeModel, iterations, strategiesPerRound, budgetUsd, generationGuidance). See [Strategies](./strategies_and_experiments.md) for field details. |
 | `config_hash` | TEXT | NOT NULL, UNIQUE | SHA-256 hash for dedup |
 | `is_predefined` | BOOLEAN | NOT NULL, default `false` | System-provided strategy |
 | `pipeline_type` | TEXT | default `'full'` | `'full'` or `'single'` |
@@ -336,6 +336,20 @@ Cancels an experiment and fails all its pending/claimed/running runs in a single
 ### `mark_elo_metrics_stale()` *(trigger function)*
 
 Fired by a trigger on `evolution_variants` when `mu` or `sigma` changes on a variant belonging to a completed run. Cascades staleness to run, strategy, and experiment metrics in `evolution_metrics` by setting `stale=true`. This enables lazy recomputation — metrics are only recomputed when read by a server action.
+
+### `lock_stale_metrics(p_entity_type TEXT, p_entity_id UUID)`
+
+Atomic claim-and-clear for stale metric recomputation. In a single statement, UPDATEs `stale=false` on matching rows and RETURNs the claimed rows. This ensures exactly one concurrent caller processes each stale batch — no advisory locks or `SELECT FOR UPDATE SKIP LOCKED` needed. If recomputation fails, the caller's catch block re-marks the rows `stale=true` so they are retried on the next read.
+
+```sql
+-- Atomic claim-and-clear pattern:
+UPDATE evolution_metrics
+SET stale = false, updated_at = now()
+WHERE entity_type = p_entity_type
+  AND entity_id = p_entity_id
+  AND stale = true
+RETURNING *;
+```
 
 ### `get_run_total_cost(p_run_id UUID)`
 

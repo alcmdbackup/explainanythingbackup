@@ -137,7 +137,7 @@ function ResultsPageContent() {
                 status
             });
         }, []),
-        onSourcesLoad: useCallback(setSources, [])
+        onSourcesLoad: useCallback(setSources, [setSources])
     });
 
     // Text reveal animation settings

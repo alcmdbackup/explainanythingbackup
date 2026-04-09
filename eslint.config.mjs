@@ -52,6 +52,9 @@ const eslintConfig = [
       "flakiness/max-test-timeout": "error",
       "flakiness/no-test-skip": "error",
       "flakiness/require-test-cleanup": "error",
+      "flakiness/no-point-in-time-checks": "error",
+      "flakiness/require-serial-with-beforeall": "error",
+      "flakiness/warn-slow-with-retries": "warn",
     },
   },
   // Flakiness prevention for all E2E files (specs + helpers)
@@ -64,7 +67,19 @@ const eslintConfig = [
       "flakiness/no-wait-for-timeout": "error",
       "flakiness/no-silent-catch": "error",
       "flakiness/no-networkidle": "error",
-      "flakiness/no-hardcoded-tmpdir": "warn",
+      "flakiness/no-hardcoded-tmpdir": "error",
+      "flakiness/no-hardcoded-base-url": "error",
+      "flakiness/require-hydration-wait": "error",
+    },
+  },
+  // Column label uniqueness for UI table definitions
+  {
+    files: ["src/**/*.ts", "src/**/*.tsx", "evolution/src/**/*.ts", "evolution/src/**/*.tsx"],
+    plugins: {
+      flakiness: flakinessRules,
+    },
+    rules: {
+      "flakiness/no-duplicate-column-labels": "error",
     },
   },
   // Promise handling rules to catch silent error swallowing
@@ -75,9 +90,8 @@ const eslintConfig = [
     rules: {
       // Prevent empty catch blocks - catches `catch {}` but not `.catch(() => {})`
       "no-empty": ["error", { allowEmptyCatch: false }],
-      // Warn when promises don't have proper error handling
-      // Set to 'warn' to allow gradual adoption
-      "promise/catch-or-return": "warn",
+      // Enforce proper promise error handling (migration complete — zero violations)
+      "promise/catch-or-return": "error",
     },
   },
   // Design system enforcement for all source files
@@ -96,8 +110,18 @@ const eslintConfig = [
       "design-system/prefer-design-radius": "warn",
       // New rules for typography consistency
       "design-system/enforce-heading-typography": "warn",
-      "design-system/enforce-prose-font": "warn",
+      "design-system/enforce-prose-font": "error",
       "design-system/no-inline-typography": "error",
+    },
+  },
+  // Enforce typed Supabase clients to prevent schema drift
+  {
+    files: ["scripts/**/*.ts", "src/__tests__/**/*.ts", "evolution/scripts/**/*.ts"],
+    rules: {
+      "no-restricted-syntax": ["error", {
+        selector: "CallExpression[callee.name='createClient']:not([typeArguments])",
+        message: "Use createClient<Database>() instead of untyped createClient(). Import Database from '@/lib/database.types'.",
+      }],
     },
   },
   // Boundary enforcement: evolution/ must not import app-layer modules from src/

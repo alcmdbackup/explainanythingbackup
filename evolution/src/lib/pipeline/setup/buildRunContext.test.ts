@@ -130,6 +130,42 @@ describe('buildRunContext', () => {
     }
   });
 
+  it('passes generationGuidance from strategy config to EvolutionConfig', async () => {
+    const guidance = [
+      { strategy: 'engagement_amplify', percent: 60 },
+      { strategy: 'tone_transform', percent: 40 },
+    ];
+    const { db } = makeMockDb({
+      contentText: validText,
+      strategyConfig: {
+        generationModel: 'gpt-4.1-nano',
+        judgeModel: 'gpt-4.1-nano',
+        iterations: 1,
+        generationGuidance: guidance,
+      },
+    });
+    const run = makeClaimedRun();
+
+    const result = await buildRunContext('run-1', run, db, makeProvider());
+
+    expect('context' in result).toBe(true);
+    if ('context' in result) {
+      expect(result.context.config.generationGuidance).toEqual(guidance);
+    }
+  });
+
+  it('omits generationGuidance from config when strategy has none', async () => {
+    const { db } = makeMockDb({ contentText: validText });
+    const run = makeClaimedRun();
+
+    const result = await buildRunContext('run-1', run, db, makeProvider());
+
+    expect('context' in result).toBe(true);
+    if ('context' in result) {
+      expect(result.context.config.generationGuidance).toBeUndefined();
+    }
+  });
+
   it('returns error when content not found', async () => {
     const { db } = makeMockDb({ contentText: undefined });
     const run = makeClaimedRun();
@@ -163,6 +199,23 @@ describe('buildRunContext', () => {
     expect('context' in result).toBe(true);
     if ('context' in result) {
       expect(result.context.config.budgetUsd).toBe(7.5);
+    }
+  });
+
+  it('generated random_seed always fits in PostgreSQL signed BIGINT range', async () => {
+    // Regression: prior implementation built (high<<32 | low) with both halves up to
+    // 0xffffffff, which produced unsigned 64-bit values up to 2^64 - 1. PostgreSQL BIGINT
+    // is signed (max 2^63 - 1 ≈ 9.22e18), so writes failed with "out of range for type bigint".
+    // Run the generator many times to catch any path that could exceed the bound.
+    const MAX_BIGINT = BigInt('9223372036854775807');
+    for (let i = 0; i < 1000; i++) {
+      const { db } = makeMockDb({ contentText: validText });
+      const run = makeClaimedRun();
+      const result = await buildRunContext('run-1', run, db, makeProvider());
+      if ('context' in result) {
+        expect(result.context.randomSeed).toBeGreaterThanOrEqual(BigInt(0));
+        expect(result.context.randomSeed).toBeLessThanOrEqual(MAX_BIGINT);
+      }
     }
   });
 });

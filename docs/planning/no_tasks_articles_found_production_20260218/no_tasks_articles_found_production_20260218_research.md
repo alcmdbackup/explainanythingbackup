@@ -92,7 +92,7 @@ All actions use:
 From `docs/docs_overall/environments.md`:
 - **Dev DB** (`ifubinffdbyewoezcidz`): Used by local, tests, CI, Vercel preview
 - **Prod DB** (`qbxhivoezkfbjbsctdzo`): Used by Vercel production only
-- Evolution batch runner (`evolution-batch.yml`): Uses **Development environment secrets** → targets dev DB only
+- Evolution batch runner (`evolution-batch.yml`): Uses **Staging environment secrets** → targets dev DB only
 
 ### 5. Pipeline Persistence Architecture
 

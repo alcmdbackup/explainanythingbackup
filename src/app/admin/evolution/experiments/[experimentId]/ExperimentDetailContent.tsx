@@ -4,6 +4,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { EntityDetailHeader, EntityDetailTabs, useTabState, EntityMetricsTab } from '@evolution/components/evolution';
 import { StatusBadge } from '@evolution/components/evolution';
@@ -54,13 +55,18 @@ interface Props {
 export function ExperimentDetailContent({ experiment }: Props): JSX.Element {
   const [activeTab, setActiveTab] = useTabState(TABS);
   const [cancelling, setCancelling] = useState(false);
+  const router = useRouter();
   const isActive = ACTIVE_STATES.has(experiment.status);
 
   const handleCancel = async () => {
     setCancelling(true);
     const result = await cancelExperimentAction({ experimentId: experiment.id });
-    if (result.success) toast.success('Experiment cancelled');
-    else toast.error(result.error?.message ?? 'Failed to cancel');
+    if (result.success) {
+      toast.success('Experiment cancelled');
+      router.refresh();
+    } else {
+      toast.error(result.error?.message ?? 'Failed to cancel');
+    }
     setCancelling(false);
   };
 

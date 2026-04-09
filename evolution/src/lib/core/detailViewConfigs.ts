@@ -3,8 +3,127 @@
 
 import type { DetailFieldDef } from './types';
 
-/** Config-driven field definitions for rendering execution detail, keyed by detailType. */
+/** Config-driven field definitions for rendering execution detail, keyed by detailType (or agent_name). */
 export const DETAIL_VIEW_CONFIGS: Record<string, DetailFieldDef[]> = {
+  // ─── Parallel pipeline (generate_rank_evolution_parallel_20260331) ───
+  generate_from_seed_article: [
+    { key: 'strategy', label: 'Strategy', type: 'badge' },
+    { key: 'variantId', label: 'Variant ID', type: 'text' },
+    { key: 'surfaced', label: 'Surfaced', type: 'boolean' },
+    {
+      key: 'generation', label: 'Generation', type: 'object',
+      children: [
+        { key: 'cost', label: 'Cost', type: 'number', formatter: 'cost' },
+        { key: 'promptLength', label: 'Prompt Length', type: 'number' },
+        { key: 'textLength', label: 'Text Length', type: 'number' },
+        { key: 'formatValid', label: 'Format Valid', type: 'boolean' },
+      ],
+    },
+    {
+      key: 'ranking', label: 'Ranking (binary search local view)', type: 'object',
+      children: [
+        { key: 'cost', label: 'Ranking Cost', type: 'number', formatter: 'cost' },
+        { key: 'localPoolSize', label: 'Local Pool Size', type: 'number' },
+        { key: 'initialTop15Cutoff', label: 'Initial Top-15% Cutoff', type: 'number' },
+        { key: 'stopReason', label: 'Stop Reason', type: 'badge' },
+        { key: 'totalComparisons', label: 'Total Comparisons', type: 'number' },
+        { key: 'finalLocalMu', label: 'Final Local μ', type: 'number' },
+        { key: 'finalLocalSigma', label: 'Final Local σ', type: 'number' },
+      ],
+    },
+    {
+      key: 'ranking.comparisons', label: 'Comparisons', type: 'table',
+      columns: [
+        { key: 'round', label: '#' },
+        { key: 'opponentId', label: 'Opponent' },
+        { key: 'selectionScore', label: 'Score' },
+        { key: 'pWin', label: 'pWin' },
+        { key: 'outcome', label: 'Out' },
+        { key: 'variantMuAfter', label: 'μ after' },
+        { key: 'variantSigmaAfter', label: 'σ after' },
+      ],
+    },
+    { key: 'totalCost', label: 'Total Cost', type: 'number', formatter: 'cost' },
+  ],
+  swiss_ranking: [
+    { key: 'status', label: 'Status', type: 'badge' },
+    { key: 'eligibleCount', label: 'Eligible Count', type: 'number' },
+    { key: 'pairsConsidered', label: 'Pairs Considered', type: 'number' },
+    { key: 'pairsDispatched', label: 'Pairs Dispatched', type: 'number' },
+    { key: 'pairsSucceeded', label: 'Pairs Succeeded', type: 'number' },
+    { key: 'pairsFailedBudget', label: 'Pairs Failed (Budget)', type: 'number' },
+    { key: 'pairsFailedOther', label: 'Pairs Failed (Other)', type: 'number' },
+    { key: 'matchesProducedTotal', label: 'Matches Produced', type: 'number' },
+    {
+      key: 'matchesProduced', label: 'Matches', type: 'table',
+      columns: [
+        { key: 'winnerId', label: 'Winner' },
+        { key: 'loserId', label: 'Loser' },
+        { key: 'result', label: 'Result' },
+        { key: 'confidence', label: 'Confidence' },
+      ],
+    },
+    { key: 'totalCost', label: 'Total Cost', type: 'number', formatter: 'cost' },
+  ],
+  merge_ratings: [
+    { key: 'iterationType', label: 'Iteration Type', type: 'badge' },
+    {
+      key: 'before', label: 'Pool Before Merge', type: 'object',
+      children: [
+        { key: 'poolSize', label: 'Pool Size', type: 'number' },
+        { key: 'top15Cutoff', label: 'Top-15% Cutoff', type: 'number' },
+      ],
+    },
+    {
+      key: 'before.variants', label: 'Variants Before', type: 'table',
+      columns: [
+        { key: 'id', label: 'ID' },
+        { key: 'mu', label: 'μ' },
+        { key: 'sigma', label: 'σ' },
+        { key: 'matchCount', label: 'Matches' },
+      ],
+    },
+    {
+      key: 'input', label: 'Merge Input', type: 'object',
+      children: [
+        { key: 'matchBufferCount', label: 'Buffer Count', type: 'number' },
+        { key: 'totalMatchesIn', label: 'Total Matches', type: 'number' },
+        { key: 'newVariantsAdded', label: 'New Variants', type: 'number' },
+      ],
+    },
+    {
+      key: 'matchesApplied', label: 'Matches Applied (shuffled)', type: 'table',
+      columns: [
+        { key: 'indexInShuffledOrder', label: '#' },
+        { key: 'winnerId', label: 'Winner' },
+        { key: 'loserId', label: 'Loser' },
+        { key: 'result', label: 'Result' },
+        { key: 'confidence', label: 'Confidence' },
+      ],
+    },
+    {
+      key: 'after', label: 'Pool After Merge', type: 'object',
+      children: [
+        { key: 'poolSize', label: 'Pool Size', type: 'number' },
+        { key: 'top15Cutoff', label: 'Top-15% Cutoff', type: 'number' },
+        { key: 'top15CutoffDelta', label: 'Cutoff Δ', type: 'number' },
+      ],
+    },
+    {
+      key: 'after.variants', label: 'Variants After', type: 'table',
+      columns: [
+        { key: 'id', label: 'ID' },
+        { key: 'mu', label: 'μ' },
+        { key: 'muDelta', label: 'Δμ' },
+        { key: 'sigma', label: 'σ' },
+        { key: 'sigmaDelta', label: 'Δσ' },
+        { key: 'matchCount', label: 'Matches' },
+      ],
+    },
+    { key: 'durationMs', label: 'Duration (ms)', type: 'number' },
+    { key: 'totalCost', label: 'Total Cost', type: 'number', formatter: 'cost' },
+  ],
+  // ─── Legacy detail types (kept for historical invocation rendering) ───
   generation: [
     {
       key: 'strategies', label: 'Strategies', type: 'table',

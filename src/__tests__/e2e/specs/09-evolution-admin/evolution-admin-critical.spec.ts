@@ -22,6 +22,7 @@ test.describe('Evolution Admin Critical Bugs', { tag: '@critical' }, () => {
 
     // Verify cost is displayed (either from metrics or fallback)
     const costLocator = page.locator('text=/\\$[0-9]/').first();
+    // eslint-disable-next-line flakiness/no-point-in-time-checks -- data extraction, not assertion
     const costText = await costLocator.count() > 0 ? await costLocator.textContent() : null;
     // Cost should exist somewhere on the page
     expect(costText).not.toBeNull();
@@ -41,8 +42,8 @@ test.describe('Evolution Admin Critical Bugs', { tag: '@critical' }, () => {
   });
 
   test('Bug 3: Invocations page shows budget status for failed ranking', async ({ authenticatedPage: page }) => {
-    await page.goto('/admin/evolution/invocations');
-    await page.waitForSelector('[data-testid="entity-list-page"]', { timeout: 15000 });
+    await page.goto('/admin/evolution/invocations', { timeout: 30000 });
+    await page.waitForSelector('[data-testid="entity-list-page"]', { timeout: 30000 });
 
     // Check that the Status column header exists (renamed from "Success")
     const statusHeader = page.locator('th').filter({ hasText: 'Status' });

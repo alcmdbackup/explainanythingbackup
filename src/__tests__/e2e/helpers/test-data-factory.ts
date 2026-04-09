@@ -1,4 +1,5 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import type { Database } from '@/lib/database.types';
 import { Pinecone } from '@pinecone-database/pinecone';
 import * as fs from 'fs';
 
@@ -12,6 +13,7 @@ export const TEST_CONTENT_PREFIX = '[TEST]';
  * Base path for tracking created explanation IDs per Playwright worker.
  * Each worker writes to its own file; global-teardown globs all worker files.
  */
+// eslint-disable-next-line flakiness/no-hardcoded-tmpdir -- base path combined with worker-specific suffix in getTrackedIdsFile()
 const TRACKED_IDS_BASE = '/tmp/e2e-tracked-explanation-ids';
 
 function getTrackedIdsFile(): string {
@@ -30,7 +32,7 @@ function getSupabase(): SupabaseClient {
     if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
       throw new Error('SUPABASE_SERVICE_ROLE_KEY is required for test data factory');
     }
-    supabaseInstance = createClient(
+    supabaseInstance = createClient<Database>(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY
     );
@@ -128,26 +130,6 @@ export async function createTestExplanation(
 
   if (error) {
     throw new Error(`Failed to create test explanation: ${error.message}`);
-  }
-
-  // Verify the row is readable via anon key (catches RLS/replication lag issues)
-  const anonClient = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  );
-  for (let attempt = 0; attempt < 5; attempt++) {
-    const { data: check } = await anonClient
-      .from('explanations')
-      .select('id')
-      .eq('id', data.id)
-      .eq('delete_status', 'visible')
-      .limit(1);
-    if (check && check.length > 0) break;
-    if (attempt === 4) {
-      console.warn(`[test-data-factory] Explanation ${data.id} not visible via anon key after 5 attempts`);
-    }
-    // eslint-disable-next-line flakiness/no-wait-for-timeout -- readback verification delay, not a test wait
-    await new Promise(r => setTimeout(r, 200));
   }
 
   // Auto-track for defense-in-depth cleanup
@@ -346,6 +328,7 @@ export function getTrackedExplanationIds(): number[] {
     const files = fs.readdirSync('/tmp').filter(f => f.startsWith(prefix) && f.endsWith('.txt'));
     const allIds: number[] = [];
     for (const file of files) {
+      // eslint-disable-next-line flakiness/no-hardcoded-tmpdir -- path derived from worker-specific tracking file
       const content = fs.readFileSync(`/tmp/${file}`, 'utf-8');
       const ids = content.split('\n').filter(Boolean).map(Number).filter(n => !isNaN(n));
       allIds.push(...ids);
@@ -365,6 +348,7 @@ export function clearTrackedExplanationIds(): void {
     const prefix = 'e2e-tracked-explanation-ids-worker-';
     const files = fs.readdirSync('/tmp').filter(f => f.startsWith(prefix) && f.endsWith('.txt'));
     for (const file of files) {
+      // eslint-disable-next-line flakiness/no-hardcoded-tmpdir -- path derived from worker-specific tracking file
       fs.unlinkSync(`/tmp/${file}`);
     }
   } catch (err) {
@@ -397,6 +381,7 @@ export async function cleanupAllTrackedExplanations(): Promise<number> {
 // Admin-specific test data helpers
 // ============================================================================
 
+// eslint-disable-next-line flakiness/no-hardcoded-tmpdir -- single shared file cleaned up in global-teardown
 const TRACKED_REPORTS_FILE = '/tmp/e2e-tracked-report-ids.txt';
 
 /**

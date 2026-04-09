@@ -4,6 +4,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { cancelExperimentAction } from '@evolution/services/experimentActions';
@@ -19,6 +20,7 @@ interface ExperimentOverviewCardProps {
 
 export function ExperimentOverviewCard({ experiment }: ExperimentOverviewCardProps) {
   const [cancelling, setCancelling] = useState(false);
+  const router = useRouter();
   const isActive = ACTIVE_STATES.has(experiment.status);
 
   const runs = experiment.evolution_runs ?? [];
@@ -30,6 +32,7 @@ export function ExperimentOverviewCard({ experiment }: ExperimentOverviewCardPro
     const result = await cancelExperimentAction({ experimentId: experiment.id });
     if (result.success) {
       toast.success('Experiment cancelled');
+      router.refresh();
     } else {
       toast.error(result.error?.message ?? 'Failed to cancel');
     }

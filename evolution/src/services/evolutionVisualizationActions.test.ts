@@ -161,7 +161,7 @@ describe('evolutionVisualizationActions', () => {
       expect(result.success).toBe(true);
       expect(result.data!.activeRuns).toBe(0);
       expect(result.data!.totalCostUsd).toBe(0);
-      expect(result.data!.avgCostPerRun).toBe(0);
+      expect(result.data!.avgCostPerRun).toBeNull();
       expect(result.data!.recentRuns).toEqual([]);
     });
 

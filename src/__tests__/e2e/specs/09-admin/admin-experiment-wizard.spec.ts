@@ -3,6 +3,7 @@
 
 import { adminTest, expect } from '../../fixtures/admin-auth';
 import { createClient } from '@supabase/supabase-js';
+import type { Database } from '@/lib/database.types';
 import * as dotenv from 'dotenv';
 import * as path from 'path';
 
@@ -10,7 +11,7 @@ dotenv.config({ path: path.resolve(process.cwd(), '.env.local') });
 
 adminTest.describe('Experiment Creation Wizard', { tag: '@evolution' }, () => {
   adminTest.afterAll(async () => {
-    const supabase = createClient(
+    const supabase = createClient<Database>(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!,
     );
@@ -36,120 +37,104 @@ adminTest.describe('Experiment Creation Wizard', { tag: '@evolution' }, () => {
   });
 
   adminTest('creates experiment via wizard flow', async ({ adminPage }) => {
-    // Navigate to experiment creation page
-    await adminPage.goto('/admin/evolution/experiments/new');
+    // Navigate to start experiment page (the wizard lives at /admin/evolution/start-experiment)
+    await adminPage.goto('/admin/evolution/start-experiment');
     await adminPage.waitForLoadState('domcontentloaded');
 
-    // Wizard form should render
-    await expect(adminPage.locator('main h1').first()).toContainText('Create Experiment');
+    // Page heading
+    await expect(adminPage.locator('h1')).toContainText('Start Experiment');
 
-    // Step 1: Fill in experiment name
-    const nameInput = adminPage.getByTestId('experiment-name-input');
+    // Step 1 (Setup): Fill in experiment name
+    const nameInput = adminPage.locator('input[placeholder*="Model comparison"]');
     await expect(nameInput).toBeVisible({ timeout: 10000 });
     const experimentName = `[E2E] Wizard Test ${Date.now()}`;
     await nameInput.fill(experimentName);
 
-    // Step 2: Select a prompt from the dropdown
-    const promptSelect = adminPage.getByTestId('prompt-select');
-    await expect(promptSelect).toBeVisible();
-    await promptSelect.click();
-    // Pick the first available prompt option
-    const firstPromptOption = adminPage.getByTestId('prompt-option').first();
-    await firstPromptOption.click();
+    // Select first prompt via radio button
+    const firstPromptRadio = adminPage.locator('input[type="radio"][name="prompt"]').first();
+    await expect(firstPromptRadio).toBeVisible();
+    await firstPromptRadio.check();
 
-    // Step 3: Select a strategy
-    const strategySelect = adminPage.getByTestId('strategy-select');
-    await expect(strategySelect).toBeVisible();
-    await strategySelect.click();
-    const firstStrategyOption = adminPage.getByTestId('strategy-option').first();
-    await firstStrategyOption.click();
+    // Click "Next: Select Strategies"
+    await adminPage.locator('button:has-text("Next: Select Strategies")').click();
 
-    // Submit the form
-    await adminPage.getByTestId('create-experiment-submit').click();
+    // Step 2 (Strategies): Select first strategy via checkbox
+    const firstStrategyCheck = adminPage.locator('input[type="checkbox"][data-testid^="strategy-check-"]').first();
+    await expect(firstStrategyCheck).toBeVisible({ timeout: 10000 });
+    await firstStrategyCheck.check();
+
+    // Click "Review"
+    await adminPage.locator('button:has-text("Review")').click();
+
+    // Step 3 (Review): Submit
+    await adminPage.locator('[data-testid="experiment-submit-btn"]').click();
 
     // Verify success toast appears
-    const toast = adminPage.locator('[data-testid="toast-success"], [role="status"]');
-    await expect(toast).toBeVisible({ timeout: 15000 });
-    await expect(toast).toContainText(/created|success/i);
+    const toast = adminPage.locator('[data-sonner-toast] [data-title], [role="status"]');
+    await expect(toast.first()).toBeVisible({ timeout: 15000 });
   });
 
   adminTest('validation errors hidden until first Next click', async ({ adminPage }) => {
-    await adminPage.goto('/admin/evolution/experiments/new');
+    await adminPage.goto('/admin/evolution/start-experiment');
     await adminPage.waitForLoadState('domcontentloaded');
 
-    await expect(adminPage.locator('main h1').first()).toContainText('Create Experiment');
+    await expect(adminPage.locator('h1')).toContainText('Start Experiment');
 
-    // Before clicking Next, validation errors should not be visible
-    const validationError = adminPage.locator('[data-testid="validation-error"], .text-red-500, [role="alert"]');
+    // Before clicking Next, validation error list items should not be visible
+    const validationError = adminPage.locator('ul.text-xs li');
     await expect(validationError).not.toBeVisible();
 
-    // Click Next without filling in required fields
-    const nextButton = adminPage.locator('[data-testid="wizard-next-btn"], button:has-text("Next")');
-    if (await nextButton.count() > 0) {
-      await nextButton.first().click();
+    // Click Next without filling in required fields (name and prompt are required)
+    const nextButton = adminPage.locator('button:has-text("Next: Select Strategies")');
+    await expect(nextButton).toBeVisible({ timeout: 10000 });
+    await nextButton.click();
 
-      // Now validation errors should appear
-      const errorAfterClick = adminPage.locator('[data-testid="validation-error"], .text-red-500, [role="alert"]');
-      await expect(errorAfterClick.first()).toBeVisible({ timeout: 5000 });
-    }
+    // Now validation errors should appear (ExperimentForm shows inline error text)
+    await expect(adminPage.locator('p:has-text("Enter an experiment name")')).toBeVisible({ timeout: 5000 });
   });
 
   adminTest('runs-per-strategy spinner works', async ({ adminPage }) => {
-    await adminPage.goto('/admin/evolution/experiments/new');
+    await adminPage.goto('/admin/evolution/start-experiment');
     await adminPage.waitForLoadState('domcontentloaded');
 
-    await expect(adminPage.locator('main h1').first()).toContainText('Create Experiment');
+    await expect(adminPage.locator('h1')).toContainText('Start Experiment');
 
-    // Fill experiment name first
-    const nameInput = adminPage.getByTestId('experiment-name-input');
+    // Step 1 (Setup): Fill experiment name
+    const nameInput = adminPage.locator('input[placeholder*="Model comparison"]');
     await expect(nameInput).toBeVisible({ timeout: 10000 });
     await nameInput.fill(`[E2E] Wizard Test ${Date.now()}`);
 
-    // Select a prompt
-    const promptSelect = adminPage.getByTestId('prompt-select');
-    await expect(promptSelect).toBeVisible();
-    await promptSelect.click();
-    const firstPromptOption = adminPage.getByTestId('prompt-option').first();
-    await firstPromptOption.click();
+    // Select first prompt
+    const firstPromptRadio = adminPage.locator('input[type="radio"][name="prompt"]').first();
+    await expect(firstPromptRadio).toBeVisible();
+    await firstPromptRadio.check();
 
-    // Select a strategy
-    const strategySelect = adminPage.getByTestId('strategy-select');
-    await expect(strategySelect).toBeVisible();
-    await strategySelect.click();
-    const firstStrategyOption = adminPage.getByTestId('strategy-option').first();
-    await firstStrategyOption.click();
+    // Click Next to go to strategies step
+    await adminPage.locator('button:has-text("Next: Select Strategies")').click();
 
-    // Find the runs-per-strategy input and set it to 3
-    const runsInput = adminPage.locator('[data-testid="runs-per-strategy-input"], input[name="runsPerStrategy"]');
-    await expect(runsInput.first()).toBeVisible({ timeout: 5000 });
-    await runsInput.first().fill('3');
+    // Step 2 (Strategies): Select first strategy
+    const firstStrategyCheck = adminPage.locator('input[type="checkbox"][data-testid^="strategy-check-"]').first();
+    await expect(firstStrategyCheck).toBeVisible({ timeout: 10000 });
+    await firstStrategyCheck.check();
 
-    // Verify the total runs counter reflects the updated value
-    const totalRuns = adminPage.locator('[data-testid="total-runs-count"], [data-testid="total-runs"]');
-    if (await totalRuns.count() > 0) {
-      const totalText = await totalRuns.first().textContent();
-      expect(totalText).toBeDefined();
-      // Total runs should contain the digit 3 (or a multiple if multiple strategies)
-      expect(totalText!.length).toBeGreaterThan(0);
-    }
+    // Find the runs count input (appears after selecting a strategy, testid is runs-count-${id})
+    const runsInput = adminPage.locator('input[data-testid^="runs-count-"]').first();
+    await expect(runsInput).toBeVisible({ timeout: 5000 });
+    await runsInput.fill('3');
+
+    // Verify the total runs counter text updates (shown in the header as "X total runs")
+    await expect(adminPage.locator('text=3 total runs')).toBeVisible({ timeout: 5000 });
   });
 
-  adminTest('step indicator shows labels', async ({ adminPage }) => {
-    await adminPage.goto('/admin/evolution/experiments/new');
+  adminTest('form shows all required sections', async ({ adminPage }) => {
+    await adminPage.goto('/admin/evolution/start-experiment');
     await adminPage.waitForLoadState('domcontentloaded');
 
-    await expect(adminPage.locator('main h1').first()).toContainText('Create Experiment');
+    await expect(adminPage.locator('h1')).toContainText('Start Experiment');
 
-    // Step indicator should be visible with step labels
-    const stepIndicator = adminPage.locator('[data-testid="step-indicator"], [data-testid="wizard-steps"], nav[aria-label="Wizard steps"]');
-    if (await stepIndicator.count() > 0) {
-      await expect(stepIndicator.first()).toBeVisible();
-
-      // Should contain step label text for the wizard steps
-      const indicatorText = await stepIndicator.first().textContent();
-      expect(indicatorText).toBeDefined();
-      // At minimum, the current step label should be visible
-      expect(indicatorText!.length).toBeGreaterThan(0);
-    }
+    // ExperimentForm renders as a single-page form with required sections
+    await expect(adminPage.getByText('Experiment Name', { exact: true })).toBeVisible({ timeout: 10000 });
+    await expect(adminPage.getByText('Prompt', { exact: true })).toBeVisible();
+    await expect(adminPage.getByText('Budget per Run ($)', { exact: true })).toBeVisible();
   });
 });

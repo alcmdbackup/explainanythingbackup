@@ -1,6 +1,6 @@
 # CI workflow optimized for cost reduction (76% savings target)
-# - Fast path: docs/migrations only → lint+tsc (~1 min)
-# - Full path: code changes → all tests (~2.5-3 min)
+# - Fast path: docs only → lint+tsc (~1 min)
+# - Full path: code or migration changes → all tests (~2.5-3 min)
 
 name: CI
 
@@ -38,9 +38,12 @@ jobs:
             echo "has_migrations=false" >> $GITHUB_OUTPUT
           fi
           CODE_CHANGED=$(echo "$CHANGED" | grep -E '\.(ts|tsx|js|jsx|json|css)$' || true)
-          if [ -z "$CODE_CHANGED" ]; then
+          if [ -z "$CODE_CHANGED" ] && [ -z "$MIGRATION_CHANGED" ]; then
             echo "path=fast" >> $GITHUB_OUTPUT
             echo "::notice ::Fast path - no code changes detected"
+          elif [ -z "$CODE_CHANGED" ] && [ -n "$MIGRATION_CHANGED" ]; then
+            echo "path=full" >> $GITHUB_OUTPUT
+            echo "::notice ::Full path - migration changes require test validation"
           else
             # Classify changes as evolution-only, non-evolution-only, or full
             EVOLUTION_ONLY_PATHS="evolution|arena|strategy-resolution|manual-experiment|src/app/admin/quality/optimization/"
@@ -90,20 +93,6 @@ jobs:
         run: |
           CHANGED=$(git diff --name-only --diff-filter=AM "origin/${BASE_REF}...HEAD" -- supabase/migrations/)
           if [ -z "$CHANGED" ]; then exit 0; fi
-          # Skip files whose content already exists on the base branch under a
-          # different filename (happens when CI auto-renames migration timestamps).
-          BASE_BLOBS=$(git ls-tree origin/${BASE_REF} supabase/migrations/ | awk '{print $3}')
-          TRULY_NEW=""
-          for f in $CHANGED; do
-            BLOB=$(git hash-object "$f" 2>/dev/null || true)
-            if echo "$BASE_BLOBS" | grep -qF "$BLOB"; then
-              echo "Skipping $f (content already on ${BASE_REF} under different name)"
-            else
-              TRULY_NEW="$TRULY_NEW $f"
-            fi
-          done
-          CHANGED=$(echo "$TRULY_NEW" | xargs)
-          if [ -z "$CHANGED" ]; then exit 0; fi
           # Allowlist: DROP FUNCTION/VIEW/INDEX/TRIGGER IF EXISTS (standard RPC/view replacement)
           # Block: DROP TABLE, DROP COLUMN, RENAME TABLE/COLUMN, TRUNCATE, DELETE FROM
           BLOCKED=$(echo "$CHANGED" | xargs grep -niE '(DROP\s+(TABLE|COLUMN)|RENAME\s+(TABLE|COLUMN)|TRUNCATE|DELETE\s+FROM)' \
@@ -118,11 +107,15 @@ jobs:
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
-      - name: Repair renamed remote migrations
+      - name: Repair remote-only migration history
+        # When staging's supabase_migrations table has rows that don't exist as local
+        # files (e.g. CI auto-renamed timestamps on a previous run, or a hotfix was
+        # applied directly), `supabase db push` aborts with "Remote migration versions
+        # not found in local migrations directory". Mark each remote-only version as
+        # reverted so the push can proceed. The actual schema rows aren't dropped —
+        # we're only repairing the migration ledger entry. Ported from the
+        # deploy/main-to-production-mar29 branch where this pattern was first used.
         run: |
-          # When CI auto-renames migration timestamps, the remote supabase_migrations
-          # table has versions that don't match local filenames (same SQL, different name).
-          # Mark remote-only versions as reverted so `supabase db push` can proceed.
           REMOTE=$(supabase migration list 2>/dev/null \
             | grep -oE '[0-9]{14}' | sort -u || true)
           LOCAL=$(ls supabase/migrations/*.sql 2>/dev/null \
@@ -210,7 +203,9 @@ jobs:
           path: tsconfig.ci.tsbuildinfo
           key: tsc-cache-${{ runner.os }}-${{ hashFiles('tsconfig.ci.json', 'package-lock.json') }}
 
-      - run: npx tsc --incremental --tsBuildInfoFile tsconfig.ci.tsbuildinfo --noEmit --project tsconfig.ci.json
+      # SYNC-POINT: Uses npm run typecheck (same as finalize.md Step 4)
+      # tsconfig.ci.json has incremental:true + tsBuildInfoFile — no CLI flags needed
+      - run: npm run typecheck
 
   lint:
     name: Lint
@@ -281,6 +276,9 @@ jobs:
       PINECONE_API_KEY: ${{ secrets.PINECONE_API_KEY }}
       PINECONE_INDEX_NAME_ALL: ${{ secrets.PINECONE_INDEX_NAME_ALL }}
       PINECONE_NAMESPACE: ${{ secrets.PINECONE_NAMESPACE }}
+      DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -298,7 +296,7 @@ jobs:
     needs: [detect-changes, unit-tests]
     if: >-
       !cancelled() && !failure()
-      && github.base_ref == 'production' &&
+      && (github.base_ref == 'production' || github.base_ref == 'main') &&
       (needs.detect-changes.outputs.path == 'evolution-only' || needs.detect-changes.outputs.path == 'full')
     environment: staging
     env:
@@ -309,6 +307,9 @@ jobs:
       PINECONE_API_KEY: ${{ secrets.PINECONE_API_KEY }}
       PINECONE_INDEX_NAME_ALL: ${{ secrets.PINECONE_INDEX_NAME_ALL }}
       PINECONE_NAMESPACE: ${{ secrets.PINECONE_NAMESPACE }}
+      DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -337,6 +338,9 @@ jobs:
       PINECONE_API_KEY: ${{ secrets.PINECONE_API_KEY }}
       PINECONE_INDEX_NAME_ALL: ${{ secrets.PINECONE_INDEX_NAME_ALL }}
       PINECONE_NAMESPACE: ${{ secrets.PINECONE_NAMESPACE }}
+      DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -364,6 +368,9 @@ jobs:
       PINECONE_API_KEY: ${{ secrets.PINECONE_API_KEY }}
       PINECONE_INDEX_NAME_ALL: ${{ secrets.PINECONE_INDEX_NAME_ALL }}
       PINECONE_NAMESPACE: ${{ secrets.PINECONE_NAMESPACE }}
+      DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
       TEST_USER_EMAIL: ${{ secrets.TEST_USER_EMAIL }}
       TEST_USER_PASSWORD: ${{ secrets.TEST_USER_PASSWORD }}
       TEST_USER_ID: ${{ secrets.TEST_USER_ID }}
@@ -425,7 +432,7 @@ jobs:
     needs: [detect-changes, unit-tests]
     if: >-
       !cancelled() && !failure()
-      && github.base_ref == 'production' &&
+      && (github.base_ref == 'production' || github.base_ref == 'main') &&
       (needs.detect-changes.outputs.path == 'evolution-only' || needs.detect-changes.outputs.path == 'full')
     environment: staging
     env:
@@ -436,6 +443,9 @@ jobs:
       PINECONE_API_KEY: ${{ secrets.PINECONE_API_KEY }}
       PINECONE_INDEX_NAME_ALL: ${{ secrets.PINECONE_INDEX_NAME_ALL }}
       PINECONE_NAMESPACE: ${{ secrets.PINECONE_NAMESPACE }}
+      DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
       TEST_USER_EMAIL: ${{ secrets.TEST_USER_EMAIL }}
       TEST_USER_PASSWORD: ${{ secrets.TEST_USER_PASSWORD }}
       TEST_USER_ID: ${{ secrets.TEST_USER_ID }}
@@ -512,6 +522,9 @@ jobs:
       PINECONE_API_KEY: ${{ secrets.PINECONE_API_KEY }}
       PINECONE_INDEX_NAME_ALL: ${{ secrets.PINECONE_INDEX_NAME_ALL }}
       PINECONE_NAMESPACE: ${{ secrets.PINECONE_NAMESPACE }}
+      DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
       TEST_USER_EMAIL: ${{ secrets.TEST_USER_EMAIL }}
       TEST_USER_PASSWORD: ${{ secrets.TEST_USER_PASSWORD }}
       TEST_USER_ID: ${{ secrets.TEST_USER_ID }}

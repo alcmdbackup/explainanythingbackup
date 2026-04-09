@@ -50,6 +50,18 @@ describe('writeMetrics', () => {
     }], 'during_execution')).rejects.toThrow('Failed to write metrics: DB down');
   });
 
+  it('rejects NaN metric value', async () => {
+    const { db } = makeMockDb();
+    await expect(writeMetric(db, 'run', '00000000-0000-0000-0000-000000000001', 'cost' as any, NaN, 'during_execution'))
+      .rejects.toThrow('writeMetric: value must be finite');
+  });
+
+  it('rejects Infinity metric value', async () => {
+    const { db } = makeMockDb();
+    await expect(writeMetric(db, 'run', '00000000-0000-0000-0000-000000000001', 'cost' as any, Infinity, 'during_execution'))
+      .rejects.toThrow('writeMetric: value must be finite');
+  });
+
   it('handles null sigma/ci fields correctly', async () => {
     const { db, upsertedRows } = makeMockDb();
     await writeMetrics(db, [{
@@ -100,5 +112,20 @@ describe('writeMetric timing validation', () => {
     await expect(writeMetric(
       db, 'run', '00000000-0000-0000-0000-000000000001', 'totally_fake' as never, 1, 'during_execution',
     )).rejects.toThrow(/Unknown metric/);
+  });
+
+  // Regression test for Finding 11: agent-contributed metrics must pass validation
+  it('accepts format_rejection_rate for invocation at_finalization', async () => {
+    const { db } = makeMockDb();
+    await expect(writeMetric(
+      db, 'invocation', '00000000-0000-0000-0000-000000000001', 'format_rejection_rate', 0.33, 'at_finalization',
+    )).resolves.not.toThrow();
+  });
+
+  it('accepts total_comparisons for invocation at_finalization', async () => {
+    const { db } = makeMockDb();
+    await expect(writeMetric(
+      db, 'invocation', '00000000-0000-0000-0000-000000000001', 'total_comparisons', 15, 'at_finalization',
+    )).resolves.not.toThrow();
   });
 });

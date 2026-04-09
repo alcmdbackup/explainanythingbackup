@@ -1,5 +1,6 @@
 import { test as base, expect, Page } from '@playwright/test';
 import { createClient } from '@supabase/supabase-js';
+import type { Database } from '@/lib/database.types';
 import * as dotenv from 'dotenv';
 import * as path from 'path';
 import { needsBypassCookie, loadBypassCookieState } from '../setup/vercel-bypass';
@@ -42,7 +43,7 @@ async function authenticateWithRetry(retries = MAX_AUTH_RETRIES): Promise<Sessio
   console.log(`   Authenticating with Supabase: ${supabaseUrl}`);
   console.log(`   Test user email: ${testEmail}`);
 
-  const supabase = createClient(
+  const supabase = createClient<Database>(
     supabaseUrl,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
   );
@@ -91,6 +92,7 @@ export const test = base.extend<{ authenticatedPage: Page }>({
     const projectRef = supabaseUrl.hostname.split('.')[0];
 
     // Dynamic domain and secure flag based on BASE_URL
+    // eslint-disable-next-line flakiness/no-hardcoded-base-url -- cookie domain needs full URL, BASE_URL set by playwright.config.ts
     const baseUrl = process.env.BASE_URL || 'http://localhost:3008';
     const cookieDomain = new URL(baseUrl).hostname;
     const isSecure = baseUrl.startsWith('https');

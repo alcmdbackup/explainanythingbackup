@@ -1,6 +1,6 @@
 // Seed article generation for prompt-based V2 runs. 2 LLM calls: title → article.
 
-import { FORMAT_RULES } from '../../shared/enforceVariantFormat';
+import { FORMAT_RULES, validateFormat } from '../../shared/enforceVariantFormat';
 import type { EntityLogger } from '../infra/createEntityLogger';
 
 const SEED_TIMEOUT_MS = 60_000;
@@ -69,45 +69,40 @@ export interface SeedResult {
 /**
  * Generate a seed article from a topic prompt via 2 LLM calls.
  * Uses raw LLM provider (not V2 EvolutionLLMClient — pre-pipeline, no cost tracking).
+ *
+ * The optional `model` argument lets callers force the strategy's `generationModel`
+ * instead of falling through to whatever default the raw provider picks (which is
+ * `deepseek-chat` in `claimAndExecuteRun.ts`). Tests that configure a strategy with
+ * a different model — and that don't have DeepSeek credentials configured — would
+ * otherwise hit a `DEEPSEEK_API_KEY not found` error before the pipeline even starts.
  */
 export async function generateSeedArticle(
   promptText: string,
   llm: { complete(prompt: string, label: string, opts?: { model?: string }): Promise<string> },
   logger?: EntityLogger,
+  model?: string,
 ): Promise<SeedResult> {
-  logger?.debug('Starting seed title generation', { phaseName: 'seed_setup' });
-  // Generate title
-  const titleRaw = await withTimeout(
-    llm.complete(buildTitlePrompt(promptText), 'seed_title'),
+  const opts = model ? { model } : undefined;
+  logger?.debug('Starting seed title generation', { phaseName: 'seed_setup', model });
+  let title = await withTimeout(
+    generateTitle(promptText, (p) => llm.complete(p, 'seed_title', opts)),
     'title generation',
   );
-
-  // Parse title: try JSON object, fall back to plain text
-  let title: string;
-  try {
-    const parsed = JSON.parse(titleRaw);
-    if (typeof parsed === 'object' && parsed !== null) {
-      title = (parsed.title1 ?? parsed.title ?? '').toString();
-    } else if (typeof parsed === 'string') {
-      title = parsed;
-    } else {
-      title = titleRaw.replace(/["\n]/g, '').trim().slice(0, 200);
-    }
-  } catch {
-    title = titleRaw.replace(/["\n]/g, '').trim().slice(0, 200);
-  }
-
   if (!title) title = promptText.slice(0, 100);
   logger?.debug('Seed title generated', { titleLength: title.length, phaseName: 'seed_setup' });
 
   // Generate article
-  logger?.debug('Starting seed article generation', { phaseName: 'seed_setup' });
+  logger?.debug('Starting seed article generation', { phaseName: 'seed_setup', model });
   const articleContent = await withTimeout(
-    llm.complete(buildArticlePrompt(title), 'seed_article'),
+    llm.complete(buildArticlePrompt(title), 'seed_article', opts),
     'article generation',
   );
 
   const content = `# ${title}\n\n${articleContent}`;
+  const formatResult = validateFormat(content);
+  if (!formatResult.valid) {
+    logger?.warn('Seed article format validation issues', { issues: formatResult.issues, phaseName: 'seed_setup' });
+  }
   logger?.info('Seed article complete', { title, contentLength: content.length, phaseName: 'seed_setup' });
   return { title, content };
 }

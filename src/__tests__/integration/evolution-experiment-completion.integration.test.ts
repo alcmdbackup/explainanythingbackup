@@ -51,7 +51,7 @@ function makeResult(overrides?: Partial<EvolutionResult>): EvolutionResult {
     stopReason: 'iterations_complete',
     muHistory: [[30, 25]],
     diversityHistory: [],
-    matchCounts: { BASELINE_ID: 1, GEN1_ID: 1 },
+    matchCounts: { [BASELINE_ID]: 1, [GEN1_ID]: 1 },
     ...overrides,
   };
 }
@@ -187,7 +187,7 @@ describe('Evolution Experiment Completion Integration (Bug #4)', () => {
     );
   });
 
-  it('calls strategy aggregate update before experiment completion', async () => {
+  it('calls complete_experiment_if_done when strategy_id is set', async () => {
     const { db, rpcCalls } = makeMockDb();
 
     await finalizeRun(
@@ -199,14 +199,11 @@ describe('Evolution Experiment Completion Integration (Bug #4)', () => {
       mockLogger as never,
     );
 
+    // update_strategy_aggregates was removed (C11) — propagateMetrics handles this now
     const strategyRpc = rpcCalls.find((c) => c.fn === 'update_strategy_aggregates');
-    const completionRpc = rpcCalls.find((c) => c.fn === 'complete_experiment_if_done');
-    expect(strategyRpc).toBeDefined();
-    expect(completionRpc).toBeDefined();
+    expect(strategyRpc).toBeUndefined();
 
-    // Strategy aggregate should be called before experiment completion
-    const stratIdx = rpcCalls.indexOf(strategyRpc!);
-    const compIdx = rpcCalls.indexOf(completionRpc!);
-    expect(stratIdx).toBeLessThan(compIdx);
+    const completionRpc = rpcCalls.find((c) => c.fn === 'complete_experiment_if_done');
+    expect(completionRpc).toBeDefined();
   });
 });

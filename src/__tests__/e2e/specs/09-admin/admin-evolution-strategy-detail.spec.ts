@@ -3,15 +3,18 @@
 
 import { adminTest, expect } from '../../fixtures/admin-auth';
 import { createClient } from '@supabase/supabase-js';
+import type { Database } from '@/lib/database.types';
 
 function getServiceClient() {
-  return createClient(
+  return createClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
   );
 }
 
 adminTest.describe('Evolution Strategy Detail (T17, T18)', { tag: '@evolution' }, () => {
+  adminTest.describe.configure({ mode: 'serial' });
+
   const testPrefix = `e2e-strat-${Date.now()}`;
   let strategyId: string;
 
@@ -32,10 +35,21 @@ adminTest.describe('Evolution Strategy Detail (T17, T18)', { tag: '@evolution' }
       .single();
     if (error) throw new Error(`Seed strategy: ${error.message}`);
     strategyId = strategy.id;
+
+    // Seed propagation metrics so detail/list pages show real values (not "—")
+    const metricRows = [
+      { entity_type: 'strategy', entity_id: strategyId, metric_name: 'run_count', value: 3 },
+      { entity_type: 'strategy', entity_id: strategyId, metric_name: 'total_cost', value: 0.045 },
+      { entity_type: 'strategy', entity_id: strategyId, metric_name: 'avg_final_elo', value: 1350, sigma: 42, ci_lower: 1308, ci_upper: 1392, aggregation_method: 'bootstrap_mean' },
+      { entity_type: 'strategy', entity_id: strategyId, metric_name: 'best_final_elo', value: 1480, sigma: 55, ci_lower: 1425, ci_upper: 1535 },
+    ];
+    const { error: mErr } = await sb.from('evolution_metrics').insert(metricRows);
+    if (mErr) throw new Error(`Seed metrics: ${mErr.message}`);
   });
 
   adminTest.afterAll(async () => {
     const sb = getServiceClient();
+    await sb.from('evolution_metrics').delete().eq('entity_id', strategyId);
     await sb.from('evolution_strategies').delete().eq('id', strategyId);
   });
 
@@ -55,16 +69,50 @@ adminTest.describe('Evolution Strategy Detail (T17, T18)', { tag: '@evolution' }
     await expect(statusBadge).toBeVisible();
     await expect(statusBadge).toContainText('active');
 
-    // Configuration section should render with config keys
-    await expect(adminPage.locator('text=Configuration')).toBeVisible();
+    // Metrics tab should be present (detail page uses tabbed interface)
+    const metricsTab = adminPage.locator('[data-testid="tab-metrics"]');
+    await metricsTab.click();
 
-    // Metrics grid should be present
-    const metricsGrid = adminPage.locator('[data-testid="strategy-metrics"]');
-    await expect(metricsGrid).toBeVisible();
+    const metricsContainer = adminPage.locator('[data-testid="entity-metrics-tab"]');
+    await expect(metricsContainer).toBeVisible({ timeout: 15000 });
 
-    // Verify some metric labels
-    await expect(adminPage.locator('[data-testid="metric-run-count"]')).toBeVisible();
+    // Verify metric labels (run_count label is "Runs", total_cost label is "Total Cost")
+    await expect(adminPage.locator('[data-testid="metric-runs"]')).toBeVisible();
     await expect(adminPage.locator('[data-testid="metric-total-cost"]')).toBeVisible();
+  });
+
+  adminTest('strategy metrics tab shows propagated values with CI', async ({ adminPage }) => {
+    await adminPage.goto(`/admin/evolution/strategies/${strategyId}`);
+    await adminPage.waitForLoadState('domcontentloaded');
+
+    const header = adminPage.locator('[data-testid="entity-detail-header"]');
+    await expect(header).toBeVisible({ timeout: 15000 });
+
+    // Metrics tab should be default (first tab)
+    const metricsTab = adminPage.locator('[data-testid="tab-metrics"]');
+    await metricsTab.click();
+
+    const metricsContainer = adminPage.locator('[data-testid="entity-metrics-tab"]');
+    await expect(metricsContainer).toBeVisible({ timeout: 15000 });
+
+    // Verify metric values are numeric, not "—"
+    const avgEloCell = adminPage.locator('[data-testid="metric-avg-winner-elo"]');
+    await expect(avgEloCell).toBeVisible();
+    await expect(avgEloCell).not.toContainText('—');
+    // Should contain a CI range display (brackets from MetricGrid)
+    await expect(avgEloCell).toContainText('[');
+
+    const bestEloCell = adminPage.locator('[data-testid="metric-best-winner-elo"]');
+    await expect(bestEloCell).toBeVisible();
+    await expect(bestEloCell).not.toContainText('—');
+
+    const runsCell = adminPage.locator('[data-testid="metric-runs"]');
+    await expect(runsCell).toBeVisible();
+    await expect(runsCell).toContainText('3');
+
+    const costCell = adminPage.locator('[data-testid="metric-total-cost"]');
+    await expect(costCell).toBeVisible();
+    await expect(costCell).not.toContainText('—');
   });
 
   adminTest('strategy detail tab navigation works', async ({ adminPage }) => {
@@ -75,26 +123,32 @@ adminTest.describe('Evolution Strategy Detail (T17, T18)', { tag: '@evolution' }
     const header = adminPage.locator('[data-testid="entity-detail-header"]');
     await expect(header).toBeVisible({ timeout: 15000 });
 
-    // Verify tab bar renders with Overview and Logs tabs
+    // Verify tab bar renders with Metrics, Runs, Config, and Logs tabs
     const tabBar = adminPage.locator('[data-testid="tab-bar"]');
     await expect(tabBar).toBeVisible();
 
-    const overviewTab = adminPage.locator('[data-testid="tab-overview"]');
+    const metricsTab = adminPage.locator('[data-testid="tab-metrics"]');
+    const configTab = adminPage.locator('[data-testid="tab-config"]');
     const logsTab = adminPage.locator('[data-testid="tab-logs"]');
-    await expect(overviewTab).toBeVisible();
+    await expect(metricsTab).toBeVisible();
+    await expect(configTab).toBeVisible();
     await expect(logsTab).toBeVisible();
 
-    // Overview tab should be active by default — config section visible
-    await expect(adminPage.locator('text=Configuration')).toBeVisible();
+    // Metrics tab should be active by default — metrics or empty state visible
+    await expect(adminPage.locator('[data-testid="entity-metrics-tab"], [data-testid="metrics-empty"], [data-testid="metrics-loading"]').first()).toBeVisible({ timeout: 20000 });
+
+    // Switch to Config tab — StrategyConfigDisplay renders "Models" heading in tab content
+    await configTab.click();
+    await expect(adminPage.locator('[data-testid="tab-content"] h4:has-text("Models")')).toBeVisible({ timeout: 10000 });
 
     // Switch to Logs tab
     await logsTab.click();
 
-    // Tab content should change — Configuration section should no longer be visible
-    await expect(adminPage.locator('text=Configuration')).not.toBeVisible({ timeout: 5000 });
+    // Tab content should change — Config's "Models" heading should no longer be visible
+    await expect(adminPage.locator('[data-testid="tab-content"] h4:has-text("Models")')).not.toBeVisible({ timeout: 5000 });
 
-    // Switch back to Overview
-    await overviewTab.click();
-    await expect(adminPage.locator('text=Configuration')).toBeVisible({ timeout: 5000 });
+    // Switch back to Metrics
+    await metricsTab.click();
+    await expect(adminPage.locator('[data-testid="entity-metrics-tab"], [data-testid="metrics-empty"], [data-testid="metrics-loading"]').first()).toBeVisible({ timeout: 20000 });
   });
 });

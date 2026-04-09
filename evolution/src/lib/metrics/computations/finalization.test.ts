@@ -6,7 +6,7 @@ import {
   computeTotalMatches, computeDecisiveRate, computeVariantCount,
 } from './finalization';
 import type { ExecutionContext } from '../types';
-import { toEloScale, DEFAULT_MU } from '@evolution/lib/shared/computeRatings';
+import { toEloScale, DEFAULT_MU, ELO_SIGMA_SCALE } from '@evolution/lib/shared/computeRatings';
 import type { FinalizationContext } from '../types';
 import type { Variant } from '@evolution/lib/types';
 import type { V2Match } from '@evolution/lib/pipeline/infra/types';
@@ -29,9 +29,17 @@ function makeCtx(overrides: Partial<FinalizationContext> = {}): FinalizationCont
 }
 
 describe('computeWinnerElo', () => {
-  it('returns toEloScale of highest-mu variant', () => {
+  it('returns MetricValue with correct elo and sigma', () => {
     const ctx = makeCtx();
-    expect(computeWinnerElo(ctx)).toBe(toEloScale(30));
+    const result = computeWinnerElo(ctx);
+    expect(result).not.toBeNull();
+    expect(result!.value).toBe(toEloScale(30));
+    expect(result!.sigma).toBe(5 * ELO_SIGMA_SCALE);
+    expect(result!.ci).toEqual([
+      toEloScale(30) - 1.96 * 5 * ELO_SIGMA_SCALE,
+      toEloScale(30) + 1.96 * 5 * ELO_SIGMA_SCALE,
+    ]);
+    expect(result!.n).toBe(1);
   });
 
   it('returns null for empty pool', () => {
@@ -40,16 +48,23 @@ describe('computeWinnerElo', () => {
 });
 
 describe('computeMedianElo', () => {
-  it('correct for odd pool size', () => {
+  it('returns MetricValue with sigma from median variant (odd pool)', () => {
     const ctx = makeCtx();
-    const elos = [toEloScale(20), toEloScale(25), toEloScale(30)].sort((a, b) => a - b);
-    expect(computeMedianElo(ctx)).toBe(elos[Math.floor(elos.length * 0.5)]);
+    const result = computeMedianElo(ctx);
+    expect(result).not.toBeNull();
+    // Sorted elos: [toEloScale(20), toEloScale(25), toEloScale(30)] — median is toEloScale(25)
+    expect(result!.value).toBe(toEloScale(25));
+    expect(result!.sigma).toBe(5 * ELO_SIGMA_SCALE); // sigma from variant 'b'
+    expect(result!.ci).not.toBeNull();
   });
 
-  it('correct for even pool size', () => {
+  it('returns MetricValue for even pool size', () => {
     const pool = [makeVariant('a'), makeVariant('b')];
-    const ratings = new Map([['a', { mu: 30, sigma: 5 }], ['b', { mu: 20, sigma: 5 }]]);
-    expect(computeMedianElo(makeCtx({ pool, ratings }))).toBeDefined();
+    const ratings = new Map([['a', { mu: 30, sigma: 5 }], ['b', { mu: 20, sigma: 3 }]]);
+    const result = computeMedianElo(makeCtx({ pool, ratings }));
+    expect(result).not.toBeNull();
+    expect(result!.value).toBe((toEloScale(20) + toEloScale(30)) / 2);
+    expect(result!.sigma).toBe((3 + 5) / 2 * ELO_SIGMA_SCALE); // average sigma
   });
 
   it('returns null for empty pool', () => {
@@ -58,10 +73,13 @@ describe('computeMedianElo', () => {
 });
 
 describe('computeP90Elo', () => {
-  it('correct percentile calculation', () => {
+  it('returns MetricValue with sigma from P90 variant', () => {
     const ctx = makeCtx();
-    const elos = [toEloScale(20), toEloScale(25), toEloScale(30)].sort((a, b) => a - b);
-    expect(computeP90Elo(ctx)).toBe(elos[Math.floor(elos.length * 0.9)]);
+    const result = computeP90Elo(ctx);
+    expect(result).not.toBeNull();
+    // Sorted: [toEloScale(20), toEloScale(25), toEloScale(30)] — P90 index = ceil(3*0.9)-1 = 2
+    expect(result!.value).toBe(toEloScale(30));
+    expect(result!.sigma).toBe(5 * ELO_SIGMA_SCALE);
   });
 
   it('returns null for empty pool', () => {
@@ -70,8 +88,15 @@ describe('computeP90Elo', () => {
 });
 
 describe('computeMaxElo', () => {
-  it('returns highest elo', () => {
-    expect(computeMaxElo(makeCtx())).toBe(toEloScale(30));
+  it('returns MetricValue with sigma from max variant', () => {
+    const result = computeMaxElo(makeCtx());
+    expect(result).not.toBeNull();
+    expect(result!.value).toBe(toEloScale(30));
+    expect(result!.sigma).toBe(5 * ELO_SIGMA_SCALE);
+    expect(result!.ci).toEqual([
+      toEloScale(30) - 1.96 * 5 * ELO_SIGMA_SCALE,
+      toEloScale(30) + 1.96 * 5 * ELO_SIGMA_SCALE,
+    ]);
   });
 
   it('returns null for empty pool', () => {

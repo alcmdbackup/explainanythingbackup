@@ -92,3 +92,4 @@ evolution/.next/
 .playwright-mcp
 .npm-cache/
 npm-install.log
+screenshots/

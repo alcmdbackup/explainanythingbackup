@@ -35,8 +35,11 @@ function ContentLink({ entryId, content }: { entryId: string; content: string })
 
 export default function ArenaTopicDetailPage(): JSX.Element {
   const { topicId } = useParams<{ topicId: string }>();
+  const PAGE_SIZE = 20;
   const [topic, setTopic] = useState<ArenaTopic | null>(null);
   const [entries, setEntries] = useState<ArenaEntry[]>([]);
+  const [totalEntries, setTotalEntries] = useState(0);
+  const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [hasMetrics, setHasMetrics] = useState(false);
@@ -68,14 +71,9 @@ export default function ArenaTopicDetailPage(): JSX.Element {
   // Top 15% eligibility cutoff
   const eloCutoff = useMemo(() => computeEloCutoff(entries), [entries]);
 
-  // Anchor threshold: bottom 25th percentile of sigma (lowest sigma = most converged)
-  const anchorSet = useMemo(() => {
-    const sigmas = entries.map(e => e.sigma).filter((s): s is number => s != null).sort((a, b) => a - b);
-    if (sigmas.length < 4) return new Set<string>();
-    const p25Idx = Math.floor(sigmas.length * 0.25);
-    const threshold = sigmas[p25Idx]!;
-    return new Set(entries.filter(e => e.sigma != null && e.sigma <= threshold).map(e => e.id));
-  }, [entries]);
+  // Anchor concept removed (Phase 9d, generate_rank_evolution_parallel_20260331).
+  // The new opponent-selection formula in rankSingleVariant naturally prefers low-sigma
+  // opponents via entropy/sigma^k scoring, so explicit "anchor" designation is unnecessary.
 
   const eligibleSet = useMemo(() => {
     if (eloCutoff == null) return null;
@@ -95,15 +93,27 @@ export default function ArenaTopicDetailPage(): JSX.Element {
     }
   };
 
+  const totalPages = Math.ceil(totalEntries / PAGE_SIZE);
+
   const sortIndicator = (key: SortKey) =>
     sortKey === key ? (sortDir === 'asc' ? ' \u25B2' : ' \u25BC') : '';
+
+  const sortableThProps = (key: SortKey) => ({
+    className: 'py-2 pr-3 cursor-pointer select-none hover:text-[var(--text-primary)]',
+    onClick: () => handleSort(key),
+    onKeyDown: (e: { key: string; preventDefault: () => void }) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleSort(key); } },
+    tabIndex: 0,
+    'aria-sort': (sortKey === key ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none') as 'ascending' | 'descending' | 'none',
+    role: 'columnheader' as const,
+  });
 
   useEffect(() => {
     async function load() {
       setLoading(true);
+      const offset = (page - 1) * PAGE_SIZE;
       const [topicResult, entriesResult, metricsResult] = await Promise.all([
         getArenaTopicDetailAction(topicId),
-        getArenaEntriesAction({ topicId }),
+        getArenaEntriesAction({ topicId, limit: PAGE_SIZE, offset }),
         getEntityMetricsAction('prompt', topicId),
       ]);
 
@@ -112,19 +122,20 @@ export default function ArenaTopicDetailPage(): JSX.Element {
         setLoading(false);
         return;
       }
-      if (!entriesResult.success) {
+      if (!entriesResult.success || !entriesResult.data) {
         setError(entriesResult.error?.message ?? 'Failed to load entries');
         setLoading(false);
         return;
       }
 
       setTopic(topicResult.data);
-      setEntries(entriesResult.data ?? []);
+      setEntries(entriesResult.data.items);
+      setTotalEntries(entriesResult.data.total);
       setHasMetrics(metricsResult.success && (metricsResult.data?.length ?? 0) > 0);
       setLoading(false);
     }
     load();
-  }, [topicId]);
+  }, [topicId, page]);
 
   if (loading) {
     return (
@@ -162,7 +173,7 @@ export default function ArenaTopicDetailPage(): JSX.Element {
         <MetricGrid
           metrics={[
             { label: 'Status', value: topic.status },
-            { label: 'Entries', value: entries.length },
+            { label: 'Entries', value: totalEntries },
           ]}
           columns={2}
           variant="card"
@@ -179,11 +190,6 @@ export default function ArenaTopicDetailPage(): JSX.Element {
       <div className="bg-[var(--surface-elevated)] border border-[var(--border-default)] rounded-book p-6 shadow-warm-lg">
         <div className="flex items-center gap-3 mb-4">
           <h2 className="text-2xl font-display font-bold text-[var(--text-primary)]">Leaderboard</h2>
-          {anchorSet.size > 0 && (
-            <span className="text-xs font-ui bg-[var(--accent-gold)]/15 text-[var(--accent-gold)] px-2 py-0.5 rounded-full" data-testid="anchor-count">
-              {anchorSet.size} anchor{anchorSet.size !== 1 ? 's' : ''}
-            </span>
-          )}
         </div>
         {eloCutoff != null && (
           <p className="text-xs font-ui text-[var(--text-muted)] mb-3" data-testid="cutoff-info">
@@ -202,12 +208,12 @@ export default function ArenaTopicDetailPage(): JSX.Element {
                 <tr className="text-left text-xs text-[var(--text-muted)] uppercase tracking-wide border-b border-[var(--border-default)]">
                   <th className="py-2 pr-3">Rank</th>
                   <th className="py-2 pr-3">Content</th>
-                  <th className="py-2 pr-3 cursor-pointer select-none hover:text-[var(--text-primary)]" onClick={() => handleSort('elo_score')}>Elo{sortIndicator('elo_score')}</th>
+                  <th {...sortableThProps('elo_score')}>Elo{sortIndicator('elo_score')}</th>
                   <th className="py-2 pr-3">95% CI</th>
-                  <th className="py-2 pr-3 cursor-pointer select-none hover:text-[var(--text-primary)]" onClick={() => handleSort('sigma')}>Elo ± σ{sortIndicator('sigma')}</th>
-                  <th className="py-2 pr-3 cursor-pointer select-none hover:text-[var(--text-primary)]" onClick={() => handleSort('arena_match_count')}>Matches{sortIndicator('arena_match_count')}</th>
-                  <th className="py-2 pr-3 cursor-pointer select-none hover:text-[var(--text-primary)]" onClick={() => handleSort('generation_method')}>Method{sortIndicator('generation_method')}</th>
-                  <th className="py-2 cursor-pointer select-none hover:text-[var(--text-primary)]" onClick={() => handleSort('cost_usd')}>Cost{sortIndicator('cost_usd')}</th>
+                  <th {...sortableThProps('sigma')}>Elo ± σ{sortIndicator('sigma')}</th>
+                  <th {...sortableThProps('arena_match_count')}>Matches{sortIndicator('arena_match_count')}</th>
+                  <th {...sortableThProps('generation_method')}>Method{sortIndicator('generation_method')}</th>
+                  <th {...sortableThProps('cost_usd')}>Cost{sortIndicator('cost_usd')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -233,11 +239,6 @@ export default function ArenaTopicDetailPage(): JSX.Element {
                         {entry.elo_score != null && entry.sigma != null
                           ? (formatEloWithUncertainty(entry.elo_score, entry.sigma * ELO_SIGMA_SCALE) ?? '—')
                           : '—'}
-                        {anchorSet.has(entry.id) && (
-                          <span className="ml-1.5 text-xs font-ui bg-[var(--accent-gold)]/15 text-[var(--accent-gold)] px-1.5 py-0.5 rounded-full" data-testid="anchor-badge">
-                            Anchor
-                          </span>
-                        )}
                       </td>
                       <td className="py-2 pr-3 font-mono">{entry.arena_match_count}</td>
                       <td className="py-2 pr-3 text-[var(--text-secondary)]">{entry.generation_method}</td>
@@ -252,6 +253,46 @@ export default function ArenaTopicDetailPage(): JSX.Element {
                 })}
               </tbody>
             </table>
+            {/* Pagination controls */}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-center gap-2 py-4 border-t border-[var(--border-default)]">
+                <button
+                  onClick={() => setPage(p => Math.max(1, p - 1))}
+                  disabled={page <= 1}
+                  className="px-3 py-1 text-xs font-ui border border-[var(--border-default)] rounded disabled:opacity-40"
+                >
+                  &lsaquo; Prev
+                </button>
+                {Array.from({ length: totalPages }, (_, i) => i + 1)
+                  .filter(p => Math.abs(p - page) <= 3 || p === 1 || p === totalPages)
+                  .map((p, idx, arr) => {
+                    const prev = arr[idx - 1];
+                    const showEllipsis = prev != null && p - prev > 1;
+                    return (
+                      <span key={p}>
+                        {showEllipsis && <span className="text-xs text-[var(--text-muted)]">…</span>}
+                        <button
+                          onClick={() => setPage(p)}
+                          className={`px-3 py-1 text-xs font-ui border rounded ${
+                            p === page
+                              ? 'bg-[var(--accent-gold)] text-[var(--surface-primary)] border-[var(--accent-gold)]'
+                              : 'border-[var(--border-default)]'
+                          }`}
+                        >
+                          {p}
+                        </button>
+                      </span>
+                    );
+                  })}
+                <button
+                  onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                  disabled={page >= totalPages}
+                  className="px-3 py-1 text-xs font-ui border border-[var(--border-default)] rounded disabled:opacity-40"
+                >
+                  Next &rsaquo;
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>

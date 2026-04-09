@@ -47,6 +47,7 @@ const COLUMNS: ColumnDef<ArenaTopic>[] = [
 ];
 
 export default function ArenaListPage(): JSX.Element {
+  useEffect(() => { document.title = 'Arena | Evolution'; }, []);
   const [topics, setTopics] = useState<ArenaTopic[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterValues, setFilterValues] = useState<Record<string, string>>({ status: '', filterTestContent: 'true' });

@@ -25,12 +25,13 @@ export function VariantsTab({ runId, runStatus }: VariantsTabProps): JSX.Element
   const [error, setError] = useState<string | null>(null);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [strategyFilter, setStrategyFilter] = useState<string>('');
+  const [includeDiscarded, setIncludeDiscarded] = useState(false);
   const initialVariantApplied = useRef(false);
 
   useEffect(() => {
     async function load(): Promise<void> {
       setLoading(true);
-      const result = await getEvolutionVariantsAction(runId);
+      const result = await getEvolutionVariantsAction({ runId, includeDiscarded });
       if (result.success && result.data) {
         setVariants(result.data);
       } else {
@@ -39,7 +40,7 @@ export function VariantsTab({ runId, runStatus }: VariantsTabProps): JSX.Element
       setLoading(false);
     }
     load();
-  }, [runId]);
+  }, [runId, includeDiscarded]);
 
   useEffect(() => {
     if (!initialVariant || loading || initialVariantApplied.current || variants.length === 0) return;
@@ -80,11 +81,11 @@ export function VariantsTab({ runId, runStatus }: VariantsTabProps): JSX.Element
   return (
     <div className="space-y-4" data-testid="variants-tab">
       {runStatus === 'failed' && (
-        <div role="alert" data-testid="variants-warning-banner" className="rounded-book border border-[var(--status-warning)] bg-[var(--status-warning)]/10 p-3 text-sm font-ui text-[var(--status-warning)]">
+        <div className="rounded-book border border-[var(--status-warning)] bg-[var(--status-warning)]/10 p-3 text-sm font-ui text-[var(--status-warning)]">
           This run failed. Variant data may be incomplete or from a partial execution.
         </div>
       )}
-      <div className="flex items-center justify-between relative z-10">
+      <div className="flex items-center justify-between relative z-10 gap-3">
         <select
           value={strategyFilter}
           onChange={e => setStrategyFilter(e.target.value)}
@@ -93,6 +94,15 @@ export function VariantsTab({ runId, runStatus }: VariantsTabProps): JSX.Element
           <option value="">All strategies</option>
           {strategies.map(s => <option key={s} value={s}>{s}</option>)}
         </select>
+        <label className="flex items-center gap-2 text-xs font-ui text-[var(--text-secondary)] cursor-pointer" data-testid="include-discarded-toggle">
+          <input
+            type="checkbox"
+            checked={includeDiscarded}
+            onChange={e => setIncludeDiscarded(e.target.checked)}
+            className="cursor-pointer"
+          />
+          Include discarded variants
+        </label>
       </div>
 
       <div className="overflow-x-auto border border-[var(--border-default)] rounded-book">
@@ -104,13 +114,14 @@ export function VariantsTab({ runId, runStatus }: VariantsTabProps): JSX.Element
               <th className="px-2 py-2 text-right" title="Run-local matches only (excludes arena matches)">Matches</th>
               <th className="px-2 py-2 text-left">Strategy</th>
               <th className="px-2 py-2 text-right">Gen</th>
+              <th className="px-2 py-2 text-center" title="Persisted to final pool (false = discarded)">Persisted</th>
               <th className="px-2 py-2 text-left">Actions</th>
             </tr>
           </thead>
           <tbody>
             {filtered.length === 0 && !loading && (
               <tr>
-                <td colSpan={6} className="px-4 py-8 text-center text-sm font-ui text-[var(--text-muted)]">
+                <td colSpan={7} className="px-4 py-8 text-center text-sm font-ui text-[var(--text-muted)]">
                   No variants match this filter.
                 </td>
               </tr>
@@ -131,6 +142,13 @@ export function VariantsTab({ runId, runStatus }: VariantsTabProps): JSX.Element
                   <td className="px-2 py-2 text-right text-[var(--text-muted)]">{v.match_count}</td>
                   <td className="px-2 py-2 font-mono text-xs">{v.agent_name || '—'}</td>
                   <td className="px-2 py-2 text-right text-[var(--text-muted)]">{v.generation}</td>
+                  <td className="px-2 py-2 text-center" data-testid={`persisted-${v.id.substring(0, 6)}`}>
+                    {v.persisted === false ? (
+                      <span className="text-xs font-ui text-[var(--status-error)]" title="Discarded — not in final pool">✗</span>
+                    ) : (
+                      <span className="text-xs font-ui text-[var(--status-success)]" title="Surfaced to final pool">✓</span>
+                    )}
+                  </td>
                   <td className="px-2 py-2">
                     <span className="flex items-center gap-2">
                       <button
@@ -151,7 +169,7 @@ export function VariantsTab({ runId, runStatus }: VariantsTabProps): JSX.Element
                 </tr>
                 {expandedIds.has(v.id) && (
                   <tr key={`${v.id}-text`}>
-                    <td colSpan={6} className="p-4 bg-[var(--surface-secondary)]">
+                    <td colSpan={7} className="p-4 bg-[var(--surface-secondary)]">
                       <pre className="whitespace-pre-wrap text-xs text-[var(--text-secondary)] max-h-64 overflow-y-auto">
                         {v.variant_content}
                       </pre>

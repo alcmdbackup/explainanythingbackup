@@ -9,8 +9,10 @@ import {
   toEloScale,
   formatElo,
   stripMarkdownTitle,
+  compareWithBiasMitigation,
   DEFAULT_CONVERGENCE_SIGMA,
   type Rating,
+  type ComparisonResult,
 } from './computeRatings';
 
 describe('createRating', () => {
@@ -256,5 +258,39 @@ describe('performance', () => {
     const elapsed = performance.now() - start;
     // 200ms threshold accommodates slower CI runners while ensuring reasonable performance
     expect(elapsed).toBeLessThan(200);
+  });
+});
+
+// Critical Fix Q (generate_rank_evolution_parallel_20260331): N concurrent
+// compareWithBiasMitigation calls for the same input must return consistent results.
+// This guards the shared comparison cache against torn state under parallel agent dispatch.
+describe('compareWithBiasMitigation cache concurrency', () => {
+  it('N=20 concurrent calls for the same pair return consistent results', async () => {
+    // Stub LLM that always returns "A WINS" so the bias-mitigated 2-pass
+    // aggregation produces a deterministic result. The forward call sees A=textA,
+    // the reverse call sees A=textB — both return "A WINS" causing a TIE in the
+    // aggregator, but we only care that all 20 callers see the SAME result.
+    let callCount = 0;
+    const llm = async (_prompt: string): Promise<string> => {
+      callCount++;
+      // small async tick so concurrent callers actually overlap
+      await new Promise((r) => setTimeout(r, 1));
+      return 'A WINS';
+    };
+    const cache = new Map<string, ComparisonResult>();
+    const promises = Array.from({ length: 20 }, () =>
+      compareWithBiasMitigation('text alpha', 'text beta', llm, cache),
+    );
+    const results = await Promise.all(promises);
+    // All 20 results must be structurally identical (winnerId, confidence, result type).
+    const first = results[0]!;
+    for (const r of results) {
+      expect(r.confidence).toBe(first.confidence);
+      expect((r as { winnerId?: string }).winnerId).toBe((first as { winnerId?: string }).winnerId);
+    }
+    // Sanity: cache write happened (callCount > 0). The plan deliberately does
+    // NOT require dedup of the LLM call itself (Gap P decision) — we only assert
+    // result consistency.
+    expect(callCount).toBeGreaterThan(0);
   });
 });

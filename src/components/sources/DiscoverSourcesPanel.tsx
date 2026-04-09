@@ -192,6 +192,7 @@ function SourceSection({
               {/* Favicon */}
               <div className="flex-shrink-0 w-5 h-5 rounded overflow-hidden bg-[var(--surface-page)] flex items-center justify-center">
                 {source.favicon_url ? (
+                  // eslint-disable-next-line @next/next/no-img-element -- external source favicon from arbitrary domain
                   <img src={source.favicon_url} alt="" className="w-4 h-4" loading="lazy" />
                 ) : (
                   <span className="text-xs font-ui text-[var(--text-muted)] uppercase">

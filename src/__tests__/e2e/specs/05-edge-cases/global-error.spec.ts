@@ -119,12 +119,10 @@ test.describe('Error Boundary', () => {
       // Navigate to test page WITHOUT the throw parameter
       await page.goto('/test-global-error');
 
-      // Wait for the normal page content
-      await page.waitForLoadState('domcontentloaded');
-
-      // Verify we're on the test page, not the error page
-      const pageContent = await page.textContent('body');
-      expect(pageContent).toContain('Global Error Test Page');
+      // Wait for hydration to complete — domcontentloaded fires before RSC hydration,
+      // so we must wait for the actual rendered content instead
+      const body = page.locator('body');
+      await expect(body).toContainText('Global Error Test Page', { timeout: 15000 });
 
       // Error boundary should NOT be visible
       const errorContainer = page.locator(

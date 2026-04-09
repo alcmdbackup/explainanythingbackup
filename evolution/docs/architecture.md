@@ -1,8 +1,8 @@
 # Architecture
 
 This document describes the V2 Evolution pipeline architecture: entry points, execution
-flow, the generate-rank-evolve loop, budget management, and integration with the main
-application.
+flow, the orchestrator-driven iteration loop, budget management, and integration with
+the main application.
 
 ## Entry Points
 
@@ -153,119 +153,131 @@ For prompt-based runs, `loadArenaEntries(promptId)` loads all non-archived varia
 pre-calibrated competitors alongside the baseline. (The former `evolution_arena_entries`
 table was consolidated into `evolution_variants` in migration `20260321000002`.)
 
-## The 3-Op Loop
+## The Orchestrator-Driven Iteration Loop
 
-The core algorithm in `evolveArticle()` runs a generate-rank-evolve loop for up to
-`config.iterations` iterations (validated 1-100):
+The core algorithm in `evolveArticle()` runs a sequence of iterations dispatched by the
+`nextIteration()` decision function. Each iteration is one of two types:
+
+| Iteration type | Work agent(s)                                       | Merge                | Discard rule                                           |
+|----------------|-----------------------------------------------------|----------------------|--------------------------------------------------------|
+| **Generate**   | `numVariants` parallel `GenerateFromSeedArticleAgent` | 1 `MergeRatingsAgent` | Each agent decides locally (using its own snapshot)   |
+| **Swiss**      | 1 `SwissRankingAgent` (parallel pairs internally)    | 1 `MergeRatingsAgent` | None — paid-for matches always reach global ratings    |
 
 ```
-  for each iteration:
+  loop:
       |
-      +-- Abort signal check → exits with stopReason='killed' if signal aborted
-      +-- Kill check: isRunKilled() → reads evolution_runs.status
-      |   (exits with stopReason='killed' if status is 'failed' or 'cancelled')
-      +-- Deadline check → exits with stopReason='time_limit' if wall clock exceeded
+      +-- nextIteration() decision (kill/abort/deadline checks happen here)
+      |     iter==0          → 'generate'
+      |     budgetExhausted  → 'done' (stopReason='budget_exceeded')
+      |     no eligible <2   → 'done'
+      |     all converged    → 'done' (stopReason='converged')
+      |     no candidatePairs→ 'done' (stopReason='no_pairs')
+      |     else             → 'swiss'
       |
-      +-- GENERATE: generateVariants()
-      |   3 parallel strategies → 3 new variants
+      +-- recordSnapshot(iter, type, 'start')
       |
-      +-- RANK: rankPool()
-      |   Triage new entrants → Swiss fine-ranking → convergence check
+      +-- if 'generate':
+      |     Spawn N parallel GenerateFromSeedArticleAgent invocations,
+      |     each with its own deep-cloned local pool/ratings/matchCounts
+      |     and a frozen iteration-start snapshot. Each agent generates ONE
+      |     variant via a single strategy, then ranks it via binary search
+      |     against its local snapshot. Each agent owns its own
+      |     surface/discard decision (budget + local mu < top15Cutoff = discard).
+      |     Then dispatch MergeRatingsAgent over the surfaced agents' match
+      |     buffers in randomized (Fisher-Yates) order.
       |
-      +-- EVOLVE: evolveVariants()
-      |   Mutation (clarity/structure) + crossover → 2-3 new variants
+      +-- if 'swiss':
+      |     SwissRankingAgent computes Swiss-style pairs over the eligible
+      |     set (overlap allowed, capped at MAX_PAIRS_PER_ROUND), runs them
+      |     in parallel via Promise.allSettled, returns the raw match buffer.
+      |     MergeRatingsAgent is dispatched UNCONDITIONALLY — even if the
+      |     swiss agent reports status='budget', the matches it completed
+      |     must reach global ratings before the loop exits.
       |
-      +-- Update pool, ratings, match history
+      +-- recordSnapshot(iter, type, 'end', { discardedVariantIds, discardReasons })
 ```
 
-### Generate Phase
+The first iteration is always `generate`. Subsequent iterations are `swiss` until the
+`nextIteration()` decision returns `done`. For a typical 9-variant run, the sequence is:
 
-`generateVariants()` in `evolution/src/lib/pipeline/generate.ts` runs 3 strategies in
-parallel:
+```
+Iteration 1: generate (9 parallel agents + merge)
+Iteration 2: swiss   (1 agent w/ parallel pairs + merge)
+Iteration 3: swiss   (1 agent w/ parallel pairs + merge)
+... until convergence / no_pairs / budget / kill / deadline
+```
 
-- **structural_transform** — radical restructuring of organization and flow.
-- **lexical_simplify** — simplify language, replace jargon, shorten sentences.
-- **grounding_enhance** — add concrete examples and sensory details.
+### Three Agent Types
 
-Each strategy produces one variant via its own LLM call with a strategy-specific system
-prompt. The number of strategies per round is configurable via
-`config.strategiesPerRound` (default 3). All outputs go through `validateFormat()` before
-entering the pool — variants that fail format validation are silently discarded. If
-budget runs out mid-generation, any variants already generated are preserved via
-`BudgetExceededWithPartialResults`, a specialized error that extends `BudgetExceededError`
-and carries partial results.
+All three agents extend the `Agent` base class (`evolution/src/lib/core/Agent.ts`) and
+get the standard `Agent.run()` template-method treatment: invocation row creation, cost
+delta computation, execution-detail validation, and budget-error handling.
 
-### Rank Phase
+Five extended strategies (`engagement_amplify`, `style_polish`, `argument_fortify`,
+`narrative_weave`, `tone_transform`) remain available alongside the three core strategies
+(`structural_transform`, `lexical_simplify`, `grounding_enhance`). When the strategy config
+sets `generationGuidance` (an array of `{ strategy, percent }` entries summing to 100),
+strategies are selected via weighted random sampling instead of the default round-robin
+across `config.strategies`.
 
-`rankPool()` in `evolution/src/lib/pipeline/rank.ts` operates in two sub-phases:
+**`GenerateFromSeedArticleAgent`** (`evolution/src/lib/core/agents/generateFromSeedArticle.ts`)
+— ONE variant per invocation. Generates the variant via a single strategy
+(`structural_transform`, `lexical_simplify`, `grounding_enhance`, …), then ranks it via
+binary search (`rankSingleVariant`) against a deep-cloned local snapshot of the
+iteration-start pool/ratings/matchCounts. The agent owns the surface/discard decision:
 
-**Triage** — only runs when there are both existing and new variants (skipped entirely
-on the first iteration when all variants are new). For each new entrant whose sigma is
-at or above `CALIBRATED_SIGMA_THRESHOLD` (5.0), the system runs pairwise comparisons
-against stratified opponents selected from the existing pool. Opponent selection uses
-sigma-weighted sorting within each quartile slice, preferring low-sigma anchors for
-faster calibration. Triage has two early termination conditions:
+- `converged` / `eliminated` / `no_more_opponents` → surface
+- `budget` and local `mu >= top15Cutoff` → surface
+- `budget` and local `mu < top15Cutoff` → **discard** (variant returned with `surfaced: false`,
+  matches array empty — they never reach the merge agent)
 
-- **Elimination**: if after 2+ opponents, `mu + 2*sigma < top20Cutoff` (the mu of the
-  variant at the 80th percentile), the entrant is eliminated. Eliminated variants are
-  excluded from fine-ranking but remain in the pool with their ratings intact.
-- **Decisive early exit**: if after 2+ opponents, all matches had confidence >= 0.7 and
-  the average confidence >= 0.8, triage ends early for that entrant (it has been
-  sufficiently calibrated).
+The execution detail records the full per-comparison timeline (`generateFromSeedRankingDetailSchema`)
+including opponent, score, before/after mu/sigma, and the final stop reason.
 
-All comparisons use `compareWithBiasMitigation()`, which handles position-bias
-correction in the LLM judge's A-vs-B evaluations.
+**`SwissRankingAgent`** (`evolution/src/lib/core/agents/SwissRankingAgent.ts`) — ONE
+swiss iteration's worth of parallel pair comparisons. Takes the orchestrator-computed
+`eligibleIds` plus `completedPairs` set, runs `swissPairing()` to pick new pairs,
+dispatches them in parallel via `Promise.allSettled`, and returns the raw match buffer.
+Does **not** apply rating updates — that's the merge agent's job. Status:
 
-**Swiss fine-ranking** — pairs non-eliminated eligible variants using Swiss-system
-tournament pairing, where variants with similar ratings are matched against each other.
-This is more efficient than round-robin because it concentrates comparisons where they
-matter most — near rating boundaries. The phase runs up to 20 Swiss rounds, capped by
-the budget tier's max comparisons. After each match, ratings are updated using the
-OpenSkill (Weng-Lin) Bayesian rating system. Draws are supported and update both
-ratings symmetrically.
+- `success` — every pair completed
+- `budget` — at least one pair failed with `BudgetExceededError`; successful matches still returned
+- `no_pairs` — no candidate pairs left
 
-Budget tiers control comparison intensity:
+**`MergeRatingsAgent`** (`evolution/src/lib/core/agents/MergeRatingsAgent.ts`) — Reusable
+merge step. Concatenates match buffers from one or more work agents, shuffles them via
+Fisher-Yates (using a seeded RNG derived from the run's `random_seed`), and applies
+OpenSkill updates to the global ratings sequentially in shuffled order. Adds new
+variants from `input.newVariants` to the global pool. Writes one row per match to
+`evolution_arena_comparisons` with `prompt_id=NULL` for in-run observability (Critical
+Fix J — sole writer of in-run match rows; `sync_to_arena` later backfills `prompt_id`).
+Captures before/after pool snapshots in the execution detail. Never discards.
 
-| Budget Used | Tier   | Max Comparisons |
-|-------------|--------|-----------------|
-| < 50%       | Low    | 40              |
-| 50-80%      | Medium | 25              |
-| > 80%       | High   | 15              |
+### Per-Agent Frozen Snapshot
 
-**Partial results on budget errors** — When a `BudgetExceededError` occurs during triage
-or Swiss fine-ranking, partial rating updates and matches accumulated so far are not lost.
-`rankPool()` catches the budget error and throws `BudgetExceededWithPartialResults` with a
-partial `RankResult` containing the accumulated `ratingUpdates`, `matchCountIncrements`,
-and `matches` from all comparisons completed before the error. The loop handler in
-`runIterationLoop.ts` extracts and applies these partial results (updating the pool's
-ratings and match history) before breaking out of the loop with
-`stopReason='budget_exceeded'`.
+In a generate iteration, each parallel `GenerateFromSeedArticleAgent` receives a
+deep-cloned snapshot of `pool`, `ratings`, and `matchCounts` taken at iteration start
+(before any agent runs). This means agent N+1 cannot see agent N's variant during the
+same iteration — they all rank against the same starting state. The merge agent then
+reconciles the surfaced agents' results in randomized order to remove sequencing bias.
 
-### Evolve Phase
-
-`evolveVariants()` in `evolution/src/lib/pipeline/evolve.ts` applies genetic-algorithm-
-inspired operators to the highest-rated variants in the pool:
-
-- **Mutation** — selects a top-rated parent and applies either a `clarity` mutation
-  (simplify sentences, improve word precision) or a `structure` mutation (reorganize
-  flow, improve transitions). The mutation type alternates or is selected based on
-  available feedback about the variant's weakest dimension.
-- **Crossover** — selects two top-rated parents and asks the LLM to combine their best
-  elements into a new variant that preserves the strengths of both.
-
-Produces 2-3 new variants per iteration. All outputs pass through `validateFormat()`
-before entering the pool. Like the generate phase, budget errors during evolution
-terminate the loop with `stopReason='budget_exceeded'`.
+`deepCloneRatings()` (Critical Fix N) duplicates each `Rating` object so agents never
+share references with each other or with the orchestrator's global state.
 
 ### Phase Execution and Error Handling
 
-Each phase (generate, rank) is implemented as an Agent subclass (`GenerationAgent`,
-`RankingAgent`) in `evolution/src/lib/core/agents/`. The evolve phase calls pipeline functions directly. These agent classes extend the `Agent`
-base class and use its `Agent.run()` template method, which wraps execution with
-budget-error handling, invocation tracking via `createInvocation()`/`updateInvocation()`,
-and cost attribution. The `run()` method catches `BudgetExceededError` and
-`BudgetExceededWithPartialResults` separately — the latter extends the former, so order
-matters. Invocation records link to `llmCallTracking` rows for full cost attribution.
+Each agent extends the `Agent` base class. `Agent.run()` wraps `execute()` with:
+
+- Invocation row creation (`createInvocation()`) — populates `ctx.invocationId` so
+  every LLM call can pass it for `llmCallTracking` joins (Critical Fix H).
+- Cost delta computation (`costTracker.getTotalSpent()` before/after).
+- `BudgetExceededError` and `BudgetExceededWithPartialResults` handling — the latter
+  must be checked first since it subclasses the former.
+- Execution detail Zod validation (failures logged but not fatal).
+- `updateInvocation()` with `cost_usd`, `success`, `execution_detail`, `duration_ms`.
+
+The orchestrator uses `Promise.allSettled` for parallel generate dispatch so a single
+agent failure does not cancel the others.
 
 ### Execution Detail Flow
 
@@ -461,6 +473,8 @@ All evolution LLM calls use `call_source='evolution_<label>'` for cost attributi
 the system user UUID `'00000000-0000-4000-8000-000000000001'` since there is no
 human user in the loop.
 
+`createV2LLMClient` now accepts optional `db` and `runId` parameters. When provided, cost metrics are persisted to the database after each successful LLM call in a fire-and-forget write (errors are logged but do not fail the call). This provides per-LLM-call cost granularity beyond the phase-level cost tracking.
+
 ### Database Foreign Keys
 
 - `evolution_runs.explanation_id` references the main `explanations` table.
@@ -485,13 +499,23 @@ The current V2 architecture replaced a fundamentally different V1 design.
 - Checkpoint system for resuming interrupted runs.
 - Complex inter-agent communication and state management.
 
-### V2 (Current)
+### V2 (Current — orchestrator-driven parallel pipeline)
 
-- **Monolithic orchestrator** — `evolveArticle()` owns the entire loop.
-- **2 agent classes** — `GenerationAgent`, `RankingAgent` using `Agent.run()` template method.
+- **Orchestrator-driven loop** — `evolveArticle()` dispatches a sequence of iterations
+  via `nextIteration()`, each iteration being one of two types (generate or swiss).
+- **3 agent classes** — `GenerateFromSeedArticleAgent`, `SwissRankingAgent`,
+  `MergeRatingsAgent`, all using the `Agent.run()` template method.
+- **Discard inside the work agent** — each generate agent owns its surface/discard
+  decision using its own deep-cloned local rating snapshot. Discarded variants are
+  persisted to DB with `persisted=false` so generation cost stays queryable.
+- **Per-call AgentContext snapshots** — concurrent agents each receive a frozen
+  `AgentContext` (not a shared mutable object). Cross-agent state is rendezvoused
+  via the merge agent in randomized order.
 - **No checkpoints** — atomic execution; if it fails, the run fails.
-- **No agent pool** — strategies are hardcoded, not dynamically assigned.
-- **Budget-aware** — reserve-before-spend pattern, budget tiers, graceful degradation.
+- **Budget-aware** — reserve-before-spend pattern, paid-for matches always reach the
+  global ratings (merge agent dispatched UNCONDITIONALLY after a swiss iteration).
+- **Reproducible** — `random_seed` is generated/persisted per run; `deriveSeed()` gives
+  each agent a deterministic sub-seed.
 - **Arena integration** — cross-run competition via variants with `synced_to_arena=true`.
 
 The key design trade-off: V2 sacrifices resumability for simplicity. A crashed V2 run
@@ -510,15 +534,19 @@ reasoning about behavior significantly easier.
 | `evolution/scripts/processRunQueue.ts` | Batch runner (multi-DB round-robin scheduler) |
 | `evolution/scripts/run-evolution-local.ts` | Local dev runner |
 | `evolution/src/lib/pipeline/claimAndExecuteRun.ts` | Core claim + execute (single entry point) |
-| `evolution/src/lib/pipeline/loop/runIterationLoop.ts` | Main loop orchestrator (`evolveArticle`) |
+| `evolution/src/lib/pipeline/loop/runIterationLoop.ts` | Main loop orchestrator (`evolveArticle`) — `nextIteration()` decision, parallel generate dispatch, swiss/merge sequencing |
 | `evolution/src/lib/core/` | Entity base class, Agent base class, METRIC_CATALOG, entityRegistry |
-| `evolution/src/lib/pipeline/generate.ts` | Generate phase (GenerationAgent) |
-| `evolution/src/lib/pipeline/rank.ts` | Rank phase (RankingAgent, triage + Swiss) |
-| `evolution/src/lib/pipeline/evolve.ts` | Evolve phase (mutation + crossover) |
-| `evolution/src/lib/pipeline/finalize.ts` | Result persistence |
-| `evolution/src/lib/pipeline/arena.ts` | Arena load/sync |
-| `evolution/src/lib/pipeline/seed-article.ts` | Seed article generation |
-| `evolution/src/lib/pipeline/cost-tracker.ts` | Per-run budget tracking |
+| `evolution/src/lib/core/agents/generateFromSeedArticle.ts` | One generate agent = one variant (single-strategy generate + binary-search rank + local discard) |
+| `evolution/src/lib/core/agents/SwissRankingAgent.ts` | One swiss iteration's worth of parallel pair comparisons |
+| `evolution/src/lib/core/agents/MergeRatingsAgent.ts` | Reusable shuffled OpenSkill merge (sole writer of in-run `evolution_arena_comparisons`) |
+| `evolution/src/lib/pipeline/loop/rankSingleVariant.ts` | Binary-search ranking algorithm for one variant against a local snapshot |
+| `evolution/src/lib/pipeline/loop/swissPairing.ts` | Swiss-style pair selection (overlap allowed, capped) |
+| `evolution/src/lib/shared/seededRandom.ts` | `SeededRandom` + `deriveSeed()` for reproducible Fisher-Yates shuffles |
+| `evolution/src/lib/pipeline/classifyError.ts` | Map exceptions to `RunErrorCode` taxonomy |
+| `evolution/src/lib/pipeline/finalize/persistRunResults.ts` | Result persistence (variants, snapshots, error fields, run-level metric aggregates) |
+| `evolution/src/lib/pipeline/setup/buildRunContext.ts` | Run context setup + arena pool loading + random_seed init |
+| `evolution/src/lib/pipeline/setup/generateSeedArticle.ts` | Seed article generation |
+| `evolution/src/lib/pipeline/infra/trackBudget.ts` | Per-run budget tracking |
 | `evolution/src/lib/pipeline/infra/createEntityLogger.ts` | Entity-aware structured logging factory |
 | `evolution/src/services/logActions.ts` | Multi-entity log query server actions |
 | `src/lib/services/llmSpendingGate.ts` | Global LLM spending gate |

@@ -212,7 +212,7 @@ on:
 jobs:
   deploy-staging:
     runs-on: ubuntu-latest
-    environment: Development
+    environment: staging
     steps:
       - uses: actions/checkout@v4
 

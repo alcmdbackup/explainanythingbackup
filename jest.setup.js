@@ -8,6 +8,7 @@ process.env.OPENAI_API_KEY = 'test-openai-key';
 process.env.ANTHROPIC_API_KEY = 'test-anthropic-key';
 process.env.PINECONE_API_KEY = 'test-pinecone-key';
 process.env.PINECONE_INDEX_NAME_ALL = 'test-index';
+process.env.EVOLUTION_ASSERTIONS = 'true';
 
 // Polyfills for Node environment (required by langchain/langsmith)
 const { TextEncoder, TextDecoder } = require('util');

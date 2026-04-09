@@ -35,6 +35,7 @@ const mockVariant: VariantFullDetail = {
   createdAt: '2026-03-01T00:00:00Z',
   runStatus: 'completed',
   runCreatedAt: '2026-03-01T00:00:00Z',
+  persisted: true,
 };
 
 describe('VariantDetailContent', () => {

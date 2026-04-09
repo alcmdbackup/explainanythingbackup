@@ -238,6 +238,13 @@ export function parseWinner(response: string): string | null {
   const hasTextB = upper.includes('TEXT B');
   if (hasTextA && !hasTextB) return 'A';
   if (hasTextB && !hasTextA) return 'B';
+  // Both mentioned — check for winner phrasing patterns
+  if (hasTextA && hasTextB) {
+    const winnerA = /TEXT A\s*(IS|WINS|IS BETTER|IS SUPERIOR)/i.test(upper);
+    const winnerB = /TEXT B\s*(IS|WINS|IS BETTER|IS SUPERIOR)/i.test(upper);
+    if (winnerA && !winnerB) return 'A';
+    if (winnerB && !winnerA) return 'B';
+  }
 
   if (upper.includes('TIE') || upper.includes('DRAW') || upper.includes('EQUAL')) return 'TIE';
 
@@ -248,10 +255,11 @@ export function parseWinner(response: string): string | null {
   return null;
 }
 
-/** Order-invariant cache key from two texts (SHA-256 of sorted pair). */
+/** Order-dependent cache key from two texts (SHA-256 of ordered pair).
+ *  The key preserves call order so that compare(A,B) and compare(B,A) produce
+ *  distinct cache entries, since the winner field ('A'/'B') is relative to call order. */
 function makeCacheKey(textA: string, textB: string): string {
-  const sorted = [textA, textB].sort();
-  const payload = `${sorted[0]!.length}:${sorted[0]!}|${sorted[1]!.length}:${sorted[1]!}`;
+  const payload = `${textA.length}:${textA}|${textB.length}:${textB}`;
   return createHash('sha256').update(payload).digest('hex');
 }
 

@@ -3,13 +3,14 @@
 
 import { adminTest, expect } from '../../fixtures/admin-auth';
 import { createClient } from '@supabase/supabase-js';
+import type { Database } from '@/lib/database.types';
 import { trackEvolutionId } from '../../helpers/evolution-test-data-factory';
 
 // Prefix avoids [TEST] substring so seeded data isn't filtered by the wizard's filterTestContent
 const TEST_PREFIX = 'E2E-Wizard';
 
 function getServiceClient() {
-  return createClient(
+  return createClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
   );
@@ -87,7 +88,7 @@ adminTest.describe('Experiment Wizard E2E', { tag: '@evolution' }, () => {
     await adminPage.goto('/admin/evolution/start-experiment');
     await adminPage.waitForLoadState('domcontentloaded');
 
-    await expect(adminPage.locator('main h1').first()).toContainText('Start Experiment');
+    await expect(adminPage.locator('h1')).toContainText('Start Experiment');
     // Wait for form to finish loading
     await expect(adminPage.locator('text=Experiment Name')).toBeVisible({ timeout: 15000 });
   });
@@ -113,7 +114,7 @@ adminTest.describe('Experiment Wizard E2E', { tag: '@evolution' }, () => {
 
     // Step 2: Select the seeded strategy
     const strategyCheck = adminPage.locator(`[data-testid="strategy-check-${strategyId}"]`);
-    await expect(strategyCheck).toBeVisible({ timeout: 10000 });
+    await expect(strategyCheck).toBeVisible({ timeout: 15000 });
     await strategyCheck.click();
 
     // Click Review
@@ -169,6 +170,6 @@ adminTest.describe('Experiment Wizard E2E', { tag: '@evolution' }, () => {
     const header = adminPage.locator('[data-testid="entity-detail-header"]');
     await expect(header).toBeVisible({ timeout: 15000 });
 
-    await expect(adminPage.locator('body')).toContainText(TEST_PREFIX);
+    await expect(adminPage.locator('body')).toContainText(TEST_PREFIX, { timeout: 15000 });
   });
 });

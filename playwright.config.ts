@@ -76,6 +76,12 @@ if (!process.env.CI) {
 const instanceURL = discoverInstanceURL();
 const baseURL = process.env.BASE_URL || instanceURL || 'http://localhost:3008';
 
+// Export resolved baseURL so test helpers (AdminBasePage, admin-auth fixture) use the correct URL
+// instead of falling back to hardcoded port 3008 when process.env.BASE_URL is unset
+if (!process.env.BASE_URL && instanceURL) {
+  process.env.BASE_URL = baseURL;
+}
+
 // Detect production environment for extended timeouts and serial execution
 const isProduction = baseURL.includes('vercel.app') || baseURL.includes('explainanything');
 
@@ -86,7 +92,7 @@ export default defineConfig({
   fullyParallel: isProduction ? false : true,  // Serial execution in production to avoid rate limiting
   forbidOnly: !!process.env.CI,
   retries: isProduction ? 3 : (process.env.CI ? 2 : 0),  // More retries for real AI flakiness
-  workers: 2,
+  workers: process.env.CI ? 2 : 3,
   reporter: [
     ['html'],
     ['json', { outputFile: 'test-results/results.json' }],
@@ -154,6 +160,8 @@ export default defineConfig({
         NEXT_PUBLIC_USE_AI_API_ROUTE: 'true',
         // Enable E2E test mode for SSE streaming bypass (dev server only, CI uses inline env)
         ...(process.env.CI ? {} : { E2E_TEST_MODE: 'true' }),
+        // Propagate proxy settings so dev server's fetch() works through egress proxy
+        ...(process.env.NODE_USE_ENV_PROXY ? { NODE_USE_ENV_PROXY: '1' } : {}),
       },
     },
   }),

@@ -303,7 +303,7 @@ describe('LoginPage', () => {
     it('should show contact admin text instead of forgot password link', () => {
       render(<LoginPage />);
 
-      expect(screen.getByText('Contact admin to reset password')).toBeInTheDocument();
+      expect(screen.getByText('Forgot password? Contact your admin')).toBeInTheDocument();
       expect(screen.queryByRole('link', { name: /forgot password/i })).not.toBeInTheDocument();
     });
   });

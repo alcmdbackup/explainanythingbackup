@@ -274,7 +274,7 @@ Create `test:integration:evolution` script in package.json with pattern:
 
 ### 6D. Fix nightly missing env vars + admin seeding
 
-Add to `e2e-nightly.yml`: `PINECONE_NAMESPACE`, `ADMIN_TEST_EMAIL`, `ADMIN_TEST_PASSWORD`, `NEXT_PUBLIC_USE_AI_API_ROUTE`, and the `seed-admin-test-user.ts` step.
+Add to `e2e-nightly.yml`: `PINECONE_NAMESPACE`, `TEST_USER_EMAIL`, `TEST_USER_PASSWORD`, `NEXT_PUBLIC_USE_AI_API_ROUTE`, and the `seed-admin-test-user.ts` step.
 
 ---
 

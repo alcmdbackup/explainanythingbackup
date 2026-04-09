@@ -84,7 +84,7 @@ export function EntityTable<T>({
             const href = getRowHref?.(item);
             return (
               <tr
-                key={i}
+                key={(item as Record<string, unknown>).id as string ?? i}
                 className="border-b border-[var(--border-default)] last:border-0 hover:bg-[var(--surface-elevated)] transition-colors"
               >
                 {columns.map((col) => (

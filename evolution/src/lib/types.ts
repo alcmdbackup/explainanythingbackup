@@ -4,6 +4,7 @@
 import { z } from 'zod';
 
 import type { AllowedLLMModelType } from '@/lib/schemas/schemas';
+import type { Database } from '@/lib/database.types';
 
 import { v4 as uuidv4 } from 'uuid';
 import type { Rating } from './shared/computeRatings';
@@ -599,11 +600,19 @@ export const PIPELINE_TYPES = ['full', 'single'] as const satisfies readonly Pip
 export interface PromptMetadata {
   id: string;
   prompt: string;
-  title: string;
+  name: string;
   status: 'active' | 'archived';
   deleted_at: string | null;
+  archived_at: string | null;
   created_at: string;
 }
+
+// Compile-time assertion: PromptMetadata fields must be a subset of the DB-generated type.
+// If a migration renames/drops a column, tsc will fail here until the interface is updated.
+type _DbPromptRow = Database['public']['Tables']['evolution_prompts']['Row'];
+type _AssertPromptMetadata = keyof PromptMetadata extends keyof _DbPromptRow ? true : never;
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const _checkPromptMetadata: _AssertPromptMetadata = true;
 
 export const BASELINE_STRATEGY = 'original_baseline' as const;
 

@@ -5,13 +5,14 @@
 
 import { adminTest, expect } from '../../fixtures/admin-auth';
 import { createClient } from '@supabase/supabase-js';
+import type { Database } from '@/lib/database.types';
 import * as dotenv from 'dotenv';
 import * as path from 'path';
 
 dotenv.config({ path: path.resolve(process.cwd(), '.env.local') });
 
 function getServiceClient() {
-  return createClient(
+  return createClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
   );
@@ -83,10 +84,10 @@ adminTest.describe('Admin Strategy Registry - Origin Filter', { tag: '@evolution
     { tag: '@critical' },
     async ({ adminPage }) => {
       await adminPage.goto('/admin/evolution/strategies');
-      await adminPage.waitForLoadState('domcontentloaded');
+      await expect(adminPage.locator('[data-testid="entity-list-page"]')).toBeVisible({ timeout: 15000 });
 
-      const originFilter = adminPage.locator('[data-testid="created-by-filter"]');
-      await expect(originFilter).toBeVisible();
+      const originFilter = adminPage.locator('[data-testid="filter-created_by"]');
+      await expect(originFilter).toBeVisible({ timeout: 10000 });
 
       // Should have All, Admin, System, Experiment, Batch options
       const options = originFilter.locator('option');
@@ -101,10 +102,10 @@ adminTest.describe('Admin Strategy Registry - Origin Filter', { tag: '@evolution
       await adminPage.waitForLoadState('domcontentloaded');
 
       // Select "Experiment" filter
-      await adminPage.locator('[data-testid="created-by-filter"]').selectOption('experiment');
+      await adminPage.locator('[data-testid="filter-created_by"]').selectOption('experiment');
 
       // Wait for table to reload after filter change
-      const table = adminPage.locator('[data-testid="strategies-table"]');
+      const table = adminPage.locator('[data-testid="entity-list-table"]');
       await table.waitFor({ state: 'visible' });
     },
   );

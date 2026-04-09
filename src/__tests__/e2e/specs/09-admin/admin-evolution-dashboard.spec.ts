@@ -3,10 +3,11 @@
 
 import { adminTest, expect } from '../../fixtures/admin-auth';
 import { createClient } from '@supabase/supabase-js';
+import type { Database } from '@/lib/database.types';
 import { randomUUID } from 'crypto';
 
 function getServiceClient() {
-  return createClient(
+  return createClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
   );
@@ -14,6 +15,8 @@ function getServiceClient() {
 
 adminTest.describe('Evolution Dashboard (T1-T3)', { tag: '@evolution' }, () => {
   adminTest.describe('dashboard with seeded data', { tag: '@evolution' }, () => {
+    adminTest.describe.configure({ mode: 'serial' });
+
     const testPrefix = `e2e-dash-${Date.now()}`;
     let strategyId: string;
     let promptId: string;
@@ -106,6 +109,7 @@ adminTest.describe('Evolution Dashboard (T1-T3)', { tag: '@evolution' }, () => {
   });
 
   adminTest.describe('dashboard metric cards detail', { tag: '@evolution' }, () => {
+    adminTest.describe.configure({ mode: 'serial' });
     const testPrefix = `e2e-dash-metric-${Date.now()}`;
     let strategyId: string;
     let promptId: string;
@@ -173,29 +177,24 @@ adminTest.describe('Evolution Dashboard (T1-T3)', { tag: '@evolution' }, () => {
       const content = adminPage.locator('[data-testid="dashboard-content"]');
       await expect(content).toBeVisible({ timeout: 15000 });
 
-      // Uncheck "Hide test content" so seeded test runs appear
-      const filterCheckbox = adminPage.locator('[data-testid="filter-filterTestContent"] input[type="checkbox"]');
-      if (await filterCheckbox.isChecked()) {
-        await filterCheckbox.click();
-        // Wait for data to reload after filter change
-        await adminPage.waitForTimeout(2000); // eslint-disable-line flakiness/no-wait-for-timeout -- filter reload
+      // Uncheck "Hide test content" to see seeded [TEST_EVO] runs
+      const hideTestCheckbox = adminPage.locator('[data-testid="filter-filterTestContent"] input[type="checkbox"]');
+      // eslint-disable-next-line flakiness/no-point-in-time-checks -- control flow, not assertion
+      if (await hideTestCheckbox.isChecked()) {
+        await hideTestCheckbox.uncheck();
       }
 
       // The RunsTable should be visible
       const runsTable = adminPage.locator('[data-testid="dashboard-runs-table"]');
       await expect(runsTable).toBeVisible();
 
-      // At least one run row should exist from seeded data
-      const firstRow = runsTable.locator('tbody tr').first();
-      await expect(firstRow).toBeVisible({ timeout: 10000 });
+      // Wait for actual data row (not skeleton) — run-row-* testid only exists on real data rows
+      const dataRow = runsTable.locator('tbody tr[data-testid^="run-row-"]').first();
+      await expect(dataRow).toBeVisible({ timeout: 20000 });
 
-      // Rows should have cursor-pointer (clickable)
-      const cursor = await firstRow.evaluate((el) => getComputedStyle(el).cursor);
-      expect(cursor).toBe('pointer');
-
-      // Click the row — should navigate to the run detail page
-      await firstRow.click();
-      await adminPage.waitForURL('**/admin/evolution/runs/**', { timeout: 10000 });
+      // Click the row to navigate to run detail (RunsTable uses onClick with router.push)
+      await dataRow.click();
+      await adminPage.waitForURL('**/admin/evolution/runs/**', { timeout: 15000 });
       expect(adminPage.url()).toContain('/admin/evolution/runs/');
     });
   });

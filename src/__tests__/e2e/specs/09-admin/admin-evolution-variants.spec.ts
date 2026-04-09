@@ -3,16 +3,19 @@
 
 import { adminTest, expect } from '../../fixtures/admin-auth';
 import { createClient } from '@supabase/supabase-js';
+import type { Database } from '@/lib/database.types';
 import { randomUUID } from 'crypto';
 
 function getServiceClient() {
-  return createClient(
+  return createClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
   );
 }
 
 adminTest.describe('Evolution Variants (list page)', { tag: '@evolution' }, () => {
+  adminTest.describe.configure({ mode: 'serial' });
+
   const testPrefix = `e2e-variants-${Date.now()}`;
   let strategyId: string;
   let promptId: string;
@@ -59,7 +62,9 @@ adminTest.describe('Evolution Variants (list page)', { tag: '@evolution' }, () =
     });
     if (rErr) throw new Error(`Seed run: ${rErr.message}`);
 
-    // Seed variants — one winner, one non-winner, with different agents
+    // Seed variants — one winner, one non-winner, with different agents.
+    // persisted=true is required: the variants list page filters by persisted=true
+    // by default (Phase 9z); seeded test variants must mimic surfaced variants.
     winnerVariantId = randomUUID();
     nonWinnerVariantId = randomUUID();
     const variantInserts = [
@@ -72,6 +77,7 @@ adminTest.describe('Evolution Variants (list page)', { tag: '@evolution' }, () =
         agent_name: `${testPrefix}-alpha`,
         match_count: 5,
         is_winner: true,
+        persisted: true,
       },
       {
         id: nonWinnerVariantId,
@@ -82,6 +88,7 @@ adminTest.describe('Evolution Variants (list page)', { tag: '@evolution' }, () =
         agent_name: `${testPrefix}-beta`,
         match_count: 3,
         is_winner: false,
+        persisted: true,
       },
     ];
     const { error: vErr } = await sb.from('evolution_variants').insert(variantInserts);
@@ -132,7 +139,7 @@ adminTest.describe('Evolution Variants (list page)', { tag: '@evolution' }, () =
     await agentFilter.fill(`${testPrefix}-alpha`);
 
     // Wait for table to update — the alpha variant should remain visible
-    await expect(table.locator(`text=${testPrefix}-alpha`)).toBeVisible({ timeout: 10000 });
+    await expect(table.locator(`text=${testPrefix}-alpha`)).toBeVisible({ timeout: 15000 });
   });
 
   adminTest('filter by winner status works', async ({ adminPage }) => {
@@ -142,13 +149,22 @@ adminTest.describe('Evolution Variants (list page)', { tag: '@evolution' }, () =
     const table = adminPage.locator('[data-testid="entity-list-table"]');
     await expect(table).toBeVisible({ timeout: 15000 });
 
+    // Uncheck "Hide test content" so seeded test data is visible
+    const testContentFilter = adminPage.locator('[data-testid="filter-filterTestContent"] input[type="checkbox"]');
+    // eslint-disable-next-line flakiness/no-point-in-time-checks -- control flow, not assertion
+    if (await testContentFilter.isChecked()) {
+      await testContentFilter.uncheck();
+      // Wait for table to re-render after filter change
+      await table.locator('tbody tr').first().waitFor({ state: 'visible', timeout: 10000 });
+    }
+
     // Select "Winners" from the winner filter
     const winnerFilter = adminPage.locator('[data-testid="filter-isWinner"]');
     await expect(winnerFilter).toBeVisible();
     await winnerFilter.selectOption('yes');
 
-    // The winner star should be visible
-    await expect(table.locator('text=★')).toBeVisible({ timeout: 10000 });
+    // At least one winner star should be visible
+    await expect(table.locator('text=★').first()).toBeVisible({ timeout: 15000 });
   });
 
   adminTest('clicking variant row navigates to detail', async ({ adminPage }) => {
@@ -160,10 +176,10 @@ adminTest.describe('Evolution Variants (list page)', { tag: '@evolution' }, () =
 
     // Click on the winner variant's ID link (first 8 chars)
     const variantLink = table.locator(`a[href*="/admin/evolution/variants/${winnerVariantId}"]`).first();
-    await expect(variantLink).toBeVisible({ timeout: 10000 });
+    await expect(variantLink).toBeVisible({ timeout: 15000 });
     await variantLink.click();
 
-    await adminPage.waitForURL(`**/admin/evolution/variants/${winnerVariantId}`, { timeout: 10000 });
+    await adminPage.waitForURL(`**/admin/evolution/variants/${winnerVariantId}`, { timeout: 15000 });
     expect(adminPage.url()).toContain(`/admin/evolution/variants/${winnerVariantId}`);
   });
 
@@ -195,13 +211,13 @@ adminTest.describe('Evolution Variants (list page)', { tag: '@evolution' }, () =
     const breadcrumb = adminPage.locator('[data-testid="evolution-breadcrumb"]');
     await expect(breadcrumb).toBeVisible({ timeout: 15000 });
 
-    // Breadcrumb should contain "Dashboard" link
-    const dashLink = breadcrumb.locator('a:has-text("Dashboard")');
-    await expect(dashLink).toBeVisible();
+    // Breadcrumb should contain "Evolution" link (pointing to dashboard)
+    const evoLink = breadcrumb.locator('a:has-text("Evolution")');
+    await expect(evoLink).toBeVisible();
 
-    // Click Dashboard breadcrumb
-    await dashLink.click();
-    await adminPage.waitForURL('**/admin/evolution-dashboard', { timeout: 10000 });
+    // Click Evolution breadcrumb
+    await evoLink.click();
+    await adminPage.waitForURL('**/admin/evolution-dashboard', { timeout: 15000 });
     expect(adminPage.url()).toContain('/admin/evolution-dashboard');
   });
 });

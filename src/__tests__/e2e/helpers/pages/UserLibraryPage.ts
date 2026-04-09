@@ -12,7 +12,7 @@ export class UserLibraryPage extends BasePage {
   }
 
   async navigate() {
-    await this.page.goto('/userlibrary');
+    await this.page.goto('/userlibrary', { timeout: 30000 });
     await this.page.waitForLoadState('domcontentloaded');
   }
 

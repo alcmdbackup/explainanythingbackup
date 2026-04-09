@@ -1,4 +1,5 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import type { Database } from '@/lib/database.types';
 import * as dotenv from 'dotenv';
 import * as path from 'path';
 import { readdirSync, readFileSync } from 'fs';
@@ -19,6 +20,7 @@ function discoverInstanceURL(): string | null {
     // Try to find an instance matching our project root
     for (const file of instanceFiles) {
       try {
+        // eslint-disable-next-line flakiness/no-hardcoded-tmpdir -- reading tmux instance files from /tmp (single-process global-setup)
         const info = JSON.parse(readFileSync(`/tmp/${file}`, 'utf-8'));
         if (info.project_root === cwd) {
           return info.frontend_url;
@@ -29,6 +31,7 @@ function discoverInstanceURL(): string | null {
     }
 
     // Fallback to first available instance
+    // eslint-disable-next-line flakiness/no-hardcoded-tmpdir -- reading tmux instance files from /tmp (single-process global-setup)
     const firstInfo = JSON.parse(readFileSync(`/tmp/${instanceFiles[0]}`, 'utf-8'));
     return firstInfo.frontend_url;
   } catch (err) {
@@ -168,6 +171,7 @@ async function globalSetup() {
   // Wait for server to be ready (especially important for production builds in CI)
   // Priority: BASE_URL env > instance discovery > hardcoded fallback
   const instanceURL = discoverInstanceURL();
+  // eslint-disable-next-line flakiness/no-hardcoded-base-url -- global setup URL resolution mirrors playwright.config.ts
   const baseUrl = process.env.BASE_URL || instanceURL || 'http://localhost:3008';
   console.log(`   Using server: ${baseUrl}${instanceURL && !process.env.BASE_URL ? ' (discovered from instance)' : ''}`);
   // Use /api/health endpoint which is excluded from auth middleware
@@ -190,9 +194,11 @@ async function globalSetup() {
       const instanceFiles = fs.readdirSync('/tmp').filter((f: string) => f.startsWith('claude-instance-'));
       for (const file of instanceFiles) {
         try {
+          // eslint-disable-next-line flakiness/no-hardcoded-tmpdir -- reading tmux instance files (single-process global-setup, not parallel)
           const info = JSON.parse(fs.readFileSync(`/tmp/${file}`, 'utf-8'));
           const instanceId = info.instance_id;
           if (instanceId) {
+            // eslint-disable-next-line flakiness/no-hardcoded-tmpdir -- tmux idle timestamp file (single-process global-setup, not parallel)
             const timestampFile = `/tmp/claude-idle-${instanceId}.timestamp`;
             if (fs.existsSync(timestampFile)) {
               const now = new Date();
@@ -221,7 +227,7 @@ async function globalSetup() {
     }
 
     // Create client with timeout to prevent hanging
-    const prodSupabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, serviceRoleKey, {
+    const prodSupabase = createClient<Database>(process.env.NEXT_PUBLIC_SUPABASE_URL!, serviceRoleKey, {
       global: { fetch: (url, options) => fetch(url, { ...options, signal: AbortSignal.timeout(10000) }) }
     });
 
@@ -287,7 +293,7 @@ async function globalSetup() {
  * Uses upsert to be idempotent - safe to run multiple times.
  */
 async function seedSharedFixtures() {
-  const supabase = createClient(
+  const supabase = createClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   );
@@ -468,6 +474,7 @@ Quantum entanglement is a phenomenon in quantum physics where two or more partic
 
   // Write the explanation ID to temp file for tests to read
   const fs = await import('fs');
+  // eslint-disable-next-line flakiness/no-hardcoded-tmpdir -- shared cross-worker file written once by global-setup, read-only by tests
   const testDataPath = '/tmp/e2e-prod-test-data.json';
   fs.writeFileSync(testDataPath, JSON.stringify({
     explanationId: explanation.id,

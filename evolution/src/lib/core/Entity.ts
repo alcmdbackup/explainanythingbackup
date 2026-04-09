@@ -9,13 +9,20 @@ import type {
   ColumnDef, FilterDef, SortDef, FieldDef, TabDef, EntityLink,
   EntityMetricRegistry, ListFilters, PaginatedResult,
 } from './types';
-import { writeMetric } from '../metrics/writeMetrics';
-import { getMetricsForEntities } from '../metrics/readMetrics';
 
 // Lazy import to break circular dependency: Entity → entityRegistry → entity subclasses → Entity
 function getEntity(type: import('./types').EntityType) {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   return require('./entityRegistry').getEntity(type) as Entity<unknown>;
+}
+
+/** Runtime type guard to extract a FK string from an untyped DB row, replacing double casts. */
+function extractFk(row: unknown, key: string): string | undefined {
+  if (typeof row === 'object' && row !== null && key in row) {
+    const val = (row as Record<string, unknown>)[key];
+    return typeof val === 'string' ? val : undefined;
+  }
+  return undefined;
 }
 
 // ─── Abstract Entity ─────────────────────────────────────────────
@@ -133,7 +140,7 @@ export abstract class Entity<TRow> {
       if (!payload?._skipStaleMarking) {
         for (const parent of this.parents) {
           const row = await db.from(this.table).select(parent.foreignKey).eq('id', id).single();
-          const parentId = (row.data as Record<string, unknown> | null)?.[parent.foreignKey] as string | undefined;
+          const parentId = extractFk(row.data, parent.foreignKey);
           if (parentId) {
             await db.from('evolution_metrics')
               .update({ stale: true, updated_at: new Date().toISOString() })
@@ -174,60 +181,6 @@ export abstract class Entity<TRow> {
     throw new Error(`Unknown action '${key}' on ${this.type}`);
   }
 
-  // === METRIC PROPAGATION ===
-  async propagateMetricsToParents(entityId: string, db: SupabaseClient): Promise<void> {
-    for (const parent of this.parents) {
-      const row = await db.from(this.table).select(parent.foreignKey).eq('id', entityId).single();
-      if (row.error) {
-        console.warn(`[Entity.propagateMetrics] Failed to fetch parent FK for ${this.type}/${entityId}: ${row.error.message}`);
-        continue;
-      }
-      const parentId = (row.data as unknown as Record<string, unknown> | null)?.[parent.foreignKey] as string | undefined;
-      if (!parentId) continue;
-
-      const parentEntity = getEntity(parent.parentType);
-      const propagationDefs = parentEntity.metrics.atPropagation
-        .filter(def => def.sourceEntity === this.type);
-
-      for (const def of propagationDefs) {
-        const childIds = await db.from(this.table)
-          .select('id')
-          .eq(parent.foreignKey, parentId);
-        if (childIds.error) {
-          console.warn(`[Entity.propagateMetrics] Failed to fetch child IDs for ${this.type}/${parentId}: ${childIds.error.message}`);
-          continue;
-        }
-        const ids = childIds.data?.map((r: { id: string }) => r.id) ?? [];
-        const metricsMap = await getMetricsForEntities(
-          db, this.type as import('../metrics/types').EntityType, ids, [def.sourceMetric],
-        );
-        // Flatten all metric rows from all child entities
-        const allRows: import('../metrics/types').MetricRow[] = [];
-        for (const rows of metricsMap.values()) {
-          allRows.push(...rows);
-        }
-        const aggregated = def.aggregate(allRows);
-        const metricValue = typeof aggregated === 'number' ? aggregated : aggregated.value;
-        const opts: Record<string, unknown> = { aggregation_method: def.aggregationMethod };
-        if (typeof aggregated !== 'number') {
-          if (aggregated.sigma != null) opts.sigma = aggregated.sigma;
-          if (aggregated.ci?.[0] != null) opts.ci_lower = aggregated.ci[0];
-          if (aggregated.ci?.[1] != null) opts.ci_upper = aggregated.ci[1];
-          if (aggregated.n != null) opts.n = aggregated.n;
-        }
-        await writeMetric(
-          db,
-          parent.parentType as import('../metrics/types').EntityType,
-          parentId!,
-          def.name as import('../metrics/types').MetricName,
-          metricValue,
-          def.timing as import('../metrics/types').MetricTiming,
-          opts as import('../metrics/writeMetrics').WriteMetricOpts,
-        );
-      }
-    }
-  }
-
   async markParentMetricsStale(entityId: string, db: SupabaseClient): Promise<void> {
     for (const parent of this.parents) {
       const row = await db.from(this.table).select(parent.foreignKey).eq('id', entityId).single();
@@ -235,7 +188,7 @@ export abstract class Entity<TRow> {
         console.warn(`[Entity.markStale] Failed to fetch parent FK for ${this.type}/${entityId}: ${row.error.message}`);
         continue;
       }
-      const parentId = (row.data as unknown as Record<string, unknown> | null)?.[parent.foreignKey] as string | undefined;
+      const parentId = extractFk(row.data, parent.foreignKey);
       if (!parentId) continue;
 
       const parentEntity = getEntity(parent.parentType);

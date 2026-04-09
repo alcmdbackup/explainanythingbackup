@@ -22,8 +22,9 @@ export const STATIC_METRIC_NAMES = [
   // Run
   'cost', 'winner_elo', 'median_elo', 'p90_elo', 'max_elo',
   'total_matches', 'decisive_rate', 'variant_count',
+  'total_generation_cost', 'total_ranking_cost',
   // Invocation
-  'best_variant_elo', 'avg_variant_elo',
+  'best_variant_elo', 'avg_variant_elo', 'format_rejection_rate', 'total_comparisons',
   // Strategy/Experiment aggregates
   'run_count', 'total_cost', 'avg_cost_per_run',
   'avg_final_elo', 'best_final_elo', 'worst_final_elo',
@@ -54,7 +55,12 @@ export interface ExecutionMetricDef extends MetricDefBase {
 }
 
 export interface FinalizationMetricDef extends MetricDefBase {
-  compute: (ctx: FinalizationContext) => number | null;
+  compute: (ctx: FinalizationContext) => MetricValue | number | null;
+}
+
+/** Type guard to distinguish MetricValue from bare number returns. */
+export function isMetricValue(v: MetricValue | number | null): v is MetricValue {
+  return v !== null && typeof v === 'object' && 'value' in v;
 }
 
 export interface PropagationMetricDef extends MetricDefBase {

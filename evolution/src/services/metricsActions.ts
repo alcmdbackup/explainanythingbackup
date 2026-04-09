@@ -88,6 +88,24 @@ async function _getBatchMetricsImpl(
     const { getMetricsForEntities } = await import('@evolution/lib/metrics/readMetrics');
     const metricsMap = await getMetricsForEntities(supabase, parsedType as EntityType, entityIds, metricNames);
 
+    // Check for stale rows per entity and recompute if needed
+    const staleEntities: { id: string; staleRows: MetricRow[] }[] = [];
+    for (const [id, rows] of metricsMap) {
+      const staleRows = rows.filter(m => m.stale);
+      if (staleRows.length > 0) staleEntities.push({ id, staleRows });
+    }
+
+    if (staleEntities.length > 0) {
+      await Promise.all(staleEntities.map(({ id, staleRows }) =>
+        recomputeStaleMetrics(supabase, parsedType as EntityType, id, staleRows),
+      ));
+      // Re-read fresh metrics after recomputation
+      const freshMap = await getMetricsForEntities(supabase, parsedType as EntityType, entityIds, metricNames);
+      const result: Record<string, MetricRow[]> = {};
+      for (const [id, rows] of freshMap) result[id] = rows;
+      return { success: true, data: result, error: null };
+    }
+
     const result: Record<string, MetricRow[]> = {};
     for (const [id, rows] of metricsMap) {
       result[id] = rows;

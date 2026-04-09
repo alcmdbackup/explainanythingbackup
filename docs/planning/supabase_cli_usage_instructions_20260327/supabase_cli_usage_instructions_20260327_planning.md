@@ -105,7 +105,7 @@ The Supabase CLI has 13+ `inspect db` commands for database debugging (long-runn
 - [ ] Test `npm run query:staging "DELETE FROM explanations"` is rejected by DB role (MANUAL OPS — post-merge)
 
 **CI & Rollback:**
-- [x] No CI workflow changes needed — `query:staging` is a local dev tool, not used in CI pipelines. If staging credentials are needed in CI later, add `STAGING_READONLY_DATABASE_URL` to GitHub Development environment secrets.
+- [x] No CI workflow changes needed — `query:staging` is a local dev tool, not used in CI pipelines. If staging credentials are needed in CI later, add `STAGING_READONLY_DATABASE_URL` to GitHub Staging environment secrets.
 - [x] Rollback plan: if hook causes false positives, revert `block-supabase-writes.sh` to previous version via `git checkout origin/main -- .claude/hooks/block-supabase-writes.sh`
 
 ### Phase 2: Documentation Updates

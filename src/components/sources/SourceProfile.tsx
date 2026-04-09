@@ -31,7 +31,7 @@ export default function SourceProfile({ data }: SourceProfileProps) {
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={source.favicon_url} alt="" className="w-8 h-8" />
               ) : (
-                <span className="text-lg font-display font-bold text-[var(--text-muted)] uppercase">
+                <span className="text-lg font-body font-bold text-[var(--text-muted)] uppercase">
                   {source.domain.charAt(0)}
                 </span>
               )}

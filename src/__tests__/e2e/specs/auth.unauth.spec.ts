@@ -38,8 +38,11 @@ test.describe('Unauthenticated User Tests', () => {
     // Either redirect to login OR show authentication error
     const state = await waitForState(page, {
       redirected: async () => /\/(login|auth)/.test(page.url()),
+      // eslint-disable-next-line flakiness/no-point-in-time-checks -- control flow in waitForState, not assertion
       error: async () => await page.locator('[data-testid="library-error"]').isVisible(),
+      // eslint-disable-next-line flakiness/no-point-in-time-checks -- control flow in waitForState, not assertion
       loginPrompt: async () => await page.locator('text=/log in|sign in|authentication|please log in/i').isVisible(),
+      // eslint-disable-next-line flakiness/no-point-in-time-checks -- control flow in waitForState, not assertion
       loadingStuck: async () => await page.locator('[data-testid="library-loading"]').isVisible(),
     }, { timeout: 10000 });
 
@@ -128,7 +131,9 @@ test.describe('Unauthenticated User Tests', () => {
 
     // Wait for form to process (either error appears or button becomes enabled again)
     await waitForState(page, {
+      // eslint-disable-next-line flakiness/no-point-in-time-checks -- control flow in waitForState, not assertion
       error: async () => await page.locator('[data-testid="login-error"]').isVisible(),
+      // eslint-disable-next-line flakiness/no-point-in-time-checks -- control flow in waitForState, not assertion
       ready: async () => await page.locator('[data-testid="login-submit"]').isVisible(),
     }, { timeout: 5000 });
 
@@ -146,7 +151,9 @@ test.describe('Unauthenticated User Tests', () => {
 
     // Wait for form to process (either error appears or button becomes enabled again)
     await waitForState(page, {
+      // eslint-disable-next-line flakiness/no-point-in-time-checks -- control flow in waitForState, not assertion
       error: async () => await page.locator('[data-testid="login-error"]').isVisible(),
+      // eslint-disable-next-line flakiness/no-point-in-time-checks -- control flow in waitForState, not assertion
       ready: async () => await page.locator('[data-testid="login-submit"]').isVisible(),
     }, { timeout: 5000 });
 

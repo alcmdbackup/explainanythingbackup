@@ -9,6 +9,11 @@
  * - no-silent-catch: Disallow .catch(() => {}) - use safe helpers instead
  * - no-networkidle: Disallow waitForLoadState('networkidle') - use specific waits
  * - no-hardcoded-tmpdir: Disallow hardcoded /tmp/ paths - use os.tmpdir() with worker subdirs
+ * - no-point-in-time-checks: Prefer auto-waiting assertions over point-in-time DOM checks
+ * - no-hardcoded-base-url: Disallow hardcoded localhost URLs - use Playwright baseURL
+ * - require-hydration-wait: Require waitFor between navigation and click in POMs
+ * - require-serial-with-beforeall: Require serial mode for describe blocks with beforeAll
+ * - warn-slow-with-retries: Warn when test.slow() + retries >= 2 causes timeout cascade
  *
  * See docs/docs_overall/testing_rules.md for acceptable exceptions.
  */
@@ -20,7 +25,12 @@ module.exports = {
     'no-silent-catch': require('./no-silent-catch'),
     'no-networkidle': require('./no-networkidle'),
     'no-hardcoded-tmpdir': require('./no-hardcoded-tmpdir'),
+    'no-hardcoded-base-url': require('./no-hardcoded-base-url'),
+    'require-hydration-wait': require('./require-hydration-wait'),
     'require-test-cleanup': require('./require-test-cleanup'),
     'no-duplicate-column-labels': require('./no-duplicate-column-labels'),
+    'no-point-in-time-checks': require('./no-point-in-time-checks'),
+    'require-serial-with-beforeall': require('./require-serial-with-beforeall'),
+    'warn-slow-with-retries': require('./warn-slow-with-retries'),
   },
 };

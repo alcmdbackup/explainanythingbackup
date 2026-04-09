@@ -35,6 +35,7 @@ export function LogsTab({ entityType, entityId }: LogsTabProps): JSX.Element {
   const [loading, setLoading] = useState(true);
   const [offset, setOffset] = useState(0);
   const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [maxIterationSeen, setMaxIterationSeen] = useState(0);
 
   // Filters
   const [levelFilter, setLevelFilter] = useState('');
@@ -65,6 +66,9 @@ export function LogsTab({ entityType, entityId }: LogsTabProps): JSX.Element {
     if (result.success && result.data) {
       setLogs(result.data.items);
       setTotal(result.data.total);
+      // Track max iteration across all fetches so the filter dropdown isn't limited to current page
+      const pageMax = result.data.items.reduce((max, l) => (l.iteration != null && l.iteration > max ? l.iteration : max), 0);
+      setMaxIterationSeen(prev => Math.max(prev, pageMax));
     }
     setLoading(false);
   }, [entityType, entityId, offset, levelFilter, entityTypeFilter, agentFilter, iterationFilter, variantIdFilter, debouncedMessage]);
@@ -128,7 +132,7 @@ export function LogsTab({ entityType, entityId }: LogsTabProps): JSX.Element {
           >
             <option value="">All iterations</option>
             {Array.from(
-              { length: Math.max(logs.reduce((max, l) => (l.iteration != null && l.iteration > max ? l.iteration : max), 0), 1) + 1 },
+              { length: Math.max(maxIterationSeen, 1) + 1 },
               (_, i) => <option key={i} value={i}>{i}</option>,
             )}
           </select>

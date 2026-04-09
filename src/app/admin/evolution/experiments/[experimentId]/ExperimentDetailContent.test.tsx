@@ -3,6 +3,12 @@
 import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
 import { ExperimentDetailContent, type V2Experiment } from './ExperimentDetailContent';
 
+jest.mock('next/navigation', () => ({
+  useRouter: () => ({ push: jest.fn(), replace: jest.fn(), prefetch: jest.fn(), refresh: jest.fn() }),
+  usePathname: () => '/admin/evolution/experiments/exp-1',
+  useSearchParams: () => new URLSearchParams(),
+}));
+
 jest.mock('sonner', () => ({
   toast: { success: jest.fn(), error: jest.fn() },
 }));

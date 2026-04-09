@@ -24,7 +24,7 @@
 - Reviewed E2E test configuration and fixtures
 - Identified that all E2E tests run against Dev database
 - Found commit `879b72d` that skipped non-admin redirect test
-- Confirmed post-deploy smoke tests lack `ADMIN_TEST_EMAIL`/`ADMIN_TEST_PASSWORD` secrets
+- Confirmed post-deploy smoke tests lack `TEST_USER_EMAIL`/`TEST_USER_PASSWORD` secrets
 
 ### Testing Gap Summary
 | Test Type | Database | Admin Test Status |
@@ -39,5 +39,5 @@
 - [x] Verify admin access works on production
 
 ### Future Improvements (Optional)
-- [ ] Add `ADMIN_TEST_EMAIL`/`ADMIN_TEST_PASSWORD` to Production GitHub secrets
+- [ ] Add `TEST_USER_EMAIL`/`TEST_USER_PASSWORD` to Production GitHub secrets
 - [ ] Add `@smoke` tag to admin test for post-deploy verification

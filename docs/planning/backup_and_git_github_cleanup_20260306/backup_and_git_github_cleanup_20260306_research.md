@@ -42,7 +42,7 @@ The enforce-bypass-safety.sh hook is NOT the cause — /finalize and /mainToProd
 
 ### GitHub Actions Secrets
 - **Repository-level**: OPENAI_API_KEY, DEEPSEEK_API_KEY, PINECONE_API_KEY
-- **Development environment**: Supabase creds, Pinecone config, test user creds
+- **Staging environment**: Supabase creds, Pinecone config, test user creds
 - **Production environment**: Supabase creds, test user creds, VERCEL_AUTOMATION_BYPASS_SECRET
 
 ## GitHub Actions Monitoring

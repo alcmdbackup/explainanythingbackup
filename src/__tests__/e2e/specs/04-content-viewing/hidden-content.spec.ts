@@ -7,6 +7,7 @@
  */
 import { test, expect } from '../../fixtures/auth';
 import { createClient } from '@supabase/supabase-js';
+import type { Database } from '@/lib/database.types';
 import * as dotenv from 'dotenv';
 import * as path from 'path';
 
@@ -24,7 +25,7 @@ function createServiceClient() {
     throw new Error('Missing SUPABASE_SERVICE_ROLE_KEY for test setup');
   }
 
-  return createClient(url, serviceKey);
+  return createClient<Database>(url, serviceKey);
 }
 
 test.describe('Hidden Content Visibility', () => {
