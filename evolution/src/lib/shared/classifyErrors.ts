@@ -15,30 +15,21 @@ import { APIConnectionError, RateLimitError, InternalServerError } from 'openai'
 export function isTransientError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
 
-  // OpenAI SDK typed error classes
-  if (error instanceof APIConnectionError) return true;
-  if (error instanceof RateLimitError) return true;
-  if (error instanceof InternalServerError) return true;
+  // OpenAI SDK typed error classes (covers DeepSeek too; timeout extends APIConnectionError)
+  if (
+    error instanceof APIConnectionError ||
+    error instanceof RateLimitError ||
+    error instanceof InternalServerError
+  ) return true;
 
   // Walk the cause chain — middleware/wrappers may nest the original SDK error
-  if ('cause' in error && error.cause instanceof Error) {
-    return isTransientError(error.cause);
-  }
+  if ('cause' in error && error.cause instanceof Error) return isTransientError(error.cause);
 
   const msg = error.message.toLowerCase();
-  // Socket/network errors
-  if (msg.includes('socket timeout')) return true;
-  if (msg.includes('llm call timeout')) return true;
-  if (msg.includes('econnreset')) return true;
-  if (msg.includes('econnrefused')) return true;
-  if (msg.includes('etimedout')) return true;
-  if (msg.includes('fetch failed')) return true;
-  // HTTP status codes (for non-SDK errors)
-  if (/\b(429|408|500|502|503|504)\b/.test(msg)) return true;
-  if (msg.includes('rate limit')) return true;
-  if (msg.includes('internal server error')) return true;
-  if (msg.includes('bad gateway')) return true;
-  if (msg.includes('service unavailable')) return true;
-  if (msg.includes('gateway timeout')) return true;
-  return false;
+  const transientPhrases = [
+    'socket timeout', 'llm call timeout', 'econnreset', 'econnrefused',
+    'etimedout', 'fetch failed', 'rate limit', 'internal server error',
+    'bad gateway', 'service unavailable', 'gateway timeout',
+  ];
+  return transientPhrases.some(p => msg.includes(p)) || /\b(429|408|500|502|503|504)\b/.test(msg);
 }
