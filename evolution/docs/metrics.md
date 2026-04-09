@@ -84,7 +84,7 @@ All metrics are declared in a typed registry keyed by entity type. Each definiti
 | `total_matches` | match | at_finalization | Total pairwise comparisons |
 | `decisive_rate` | match | at_finalization | Fraction of matches with confidence > 0.6 |
 | `variant_count` | count | at_finalization | Number of variants in the final pool |
-| `agentCost:<agent_class>` | cost | during_execution | Per-agent-class cost breakdown (dynamic key) — written by `experimentMetrics.ts` for strategy/experiment aggregations only. **Not** the same as the per-purpose `generation_cost`/`ranking_cost` above; that path is fully static and typed. |
+| `agentCost:<name>` | cost | during_execution | Per-phase cost breakdown (dynamic key). **Filtered from UI display** — `EntityMetricsTab` excludes `agentCost:*` metrics; use `total_generation_cost`/`total_ranking_cost` for UI display instead. |
 
 ### Invocation Metrics
 
@@ -251,7 +251,7 @@ Each propagation metric definition specifies a `sourceMetric` (which child metri
 
 **File:** `evolution/src/components/evolution/tabs/EntityMetricsTab.tsx`
 
-A shared tab component that reads all metrics for an entity and displays them in a `MetricGrid`. Used on run, strategy, experiment, and invocation detail pages.
+A shared tab component that reads all metrics for an entity and displays them in a `MetricGrid`. Used on run, strategy, experiment, and invocation detail pages. Filters out `agentCost:*` metrics before rendering (they are superseded by `total_generation_cost`/`total_ranking_cost`). Each metric is mapped to a `MetricItem` with an `id` field set to `metric_name` to avoid React key collisions when multiple metrics resolve to the same display label.
 
 ---
 

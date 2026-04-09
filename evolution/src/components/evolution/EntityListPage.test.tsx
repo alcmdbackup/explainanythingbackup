@@ -90,6 +90,84 @@ describe('EntityListPage', () => {
     expect(onPageChange).toHaveBeenCalledWith(3);
   });
 
+  it('jump-to-page Go navigates to valid page number', () => {
+    const onPageChange = jest.fn();
+    render(
+      <EntityListPage
+        title="Runs"
+        columns={columns}
+        items={items}
+        loading={false}
+        totalCount={200}
+        page={1}
+        pageSize={20}
+        onPageChange={onPageChange}
+      />
+    );
+    const input = screen.getByLabelText('Jump to page');
+    fireEvent.change(input, { target: { value: '5' } });
+    fireEvent.submit(input.closest('form')!);
+    expect(onPageChange).toHaveBeenCalledWith(5);
+  });
+
+  it('jump-to-page clamps below 1 to 1', () => {
+    const onPageChange = jest.fn();
+    render(
+      <EntityListPage
+        title="Runs"
+        columns={columns}
+        items={items}
+        loading={false}
+        totalCount={200}
+        page={3}
+        pageSize={20}
+        onPageChange={onPageChange}
+      />
+    );
+    const input = screen.getByLabelText('Jump to page');
+    fireEvent.change(input, { target: { value: '-5' } });
+    fireEvent.submit(input.closest('form')!);
+    expect(onPageChange).toHaveBeenCalledWith(1);
+  });
+
+  it('jump-to-page clamps above totalPages to totalPages', () => {
+    const onPageChange = jest.fn();
+    render(
+      <EntityListPage
+        title="Runs"
+        columns={columns}
+        items={items}
+        loading={false}
+        totalCount={200}
+        page={1}
+        pageSize={20}
+        onPageChange={onPageChange}
+      />
+    );
+    const input = screen.getByLabelText('Jump to page');
+    fireEvent.change(input, { target: { value: '999' } });
+    fireEvent.submit(input.closest('form')!);
+    expect(onPageChange).toHaveBeenCalledWith(10); // 200/20 = 10 pages
+  });
+
+  it('Last button navigates to last page', () => {
+    const onPageChange = jest.fn();
+    render(
+      <EntityListPage
+        title="Runs"
+        columns={columns}
+        items={items}
+        loading={false}
+        totalCount={200}
+        page={1}
+        pageSize={20}
+        onPageChange={onPageChange}
+      />
+    );
+    fireEvent.click(screen.getByLabelText('Last page'));
+    expect(onPageChange).toHaveBeenCalledWith(10);
+  });
+
   it('renders actions slot', () => {
     render(
       <EntityListPage

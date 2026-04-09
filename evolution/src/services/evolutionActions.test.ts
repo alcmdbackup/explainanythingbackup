@@ -1034,4 +1034,79 @@ describe('evolutionActions', () => {
       }
     });
   });
+
+  // ─── NOT IN array format (hide test content) ────────────────────
+  // Tests verify the correct Supabase .not() call format using the same
+  // createTableAwareMock pattern as other tests in this file.
+
+  describe('NOT IN filter format', () => {
+    beforeEach(() => {
+      // The 'auth integration' test sets mockRejectedValue on requireAdmin.
+      // jest.clearAllMocks() (from outer beforeEach) doesn't restore implementations,
+      // so we must re-set the resolved value explicitly here.
+      (requireAdmin as jest.Mock).mockResolvedValue('test-admin-user-id');
+    });
+
+    it('passes parenthesized string to .not() for getEvolutionRunsAction', async () => {
+      const runs = [{ ...MOCK_RUN, strategy_id: VALID_UUID_3 }];
+      let notCallArgs: unknown[] | undefined;
+
+      const mock = createTableAwareMock([
+        // evolution_runs — intercept .not() call
+        (b) => {
+          const originalNot = b.not as jest.Mock;
+          b.not = jest.fn((...args: unknown[]) => {
+            notCallArgs = args;
+            return originalNot(...args);
+          });
+          b.then = jest.fn((resolve: (v: unknown) => void) =>
+            resolve({ data: runs, error: null, count: 1 })
+          );
+        },
+        // evolution_agent_invocations (costs)
+        (b) => { b.then = jest.fn((resolve: (v: unknown) => void) => resolve({ data: [], error: null })); },
+        // evolution_strategies
+        (b) => { b.then = jest.fn((resolve: (v: unknown) => void) => resolve({ data: [], error: null })); },
+      ]);
+      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+      const result = await getEvolutionRunsAction({ filterTestContent: true });
+
+      expect(result.success).toBe(true);
+      expect(mock.from).toHaveBeenCalled();
+      // .not() must have been called with parenthesized string (PostgREST requires `(id1,id2)`)
+      expect(notCallArgs).toBeDefined();
+      expect(notCallArgs![0]).toBe('strategy_id');
+      expect(notCallArgs![1]).toBe('in');
+      // Value must be parenthesized string like "(id1,id2)", NOT a bare array
+      expect(typeof notCallArgs![2]).toBe('string');
+      expect(notCallArgs![2] as string).toMatch(/^\(.+\)$/);
+    });
+
+    it('skips .not() when test strategy IDs list is empty', async () => {
+      const { getTestStrategyIds } = jest.requireMock('./shared') as {
+        getTestStrategyIds: jest.Mock;
+      };
+      getTestStrategyIds.mockResolvedValueOnce([]);
+
+      let notWasCalled = false;
+      const mock = createTableAwareMock([
+        (b) => {
+          const originalNot = b.not as jest.Mock;
+          b.not = jest.fn((...args: unknown[]) => { notWasCalled = true; return originalNot(...args); });
+          b.then = jest.fn((resolve: (v: unknown) => void) =>
+            resolve({ data: [MOCK_RUN], error: null, count: 1 })
+          );
+        },
+        (b) => { b.then = jest.fn((resolve: (v: unknown) => void) => resolve({ data: [], error: null })); },
+        (b) => { b.then = jest.fn((resolve: (v: unknown) => void) => resolve({ data: [], error: null })); },
+      ]);
+      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+      await getEvolutionRunsAction({ filterTestContent: true });
+
+      // With empty IDs, .not() should not be called at all
+      expect(notWasCalled).toBe(false);
+    });
+  });
 });

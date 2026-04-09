@@ -98,23 +98,16 @@ describe('EntityMetricsTab', () => {
     });
   });
 
-  it('renders both static generation_cost (per-purpose) and dynamic agentCost:* (per-agent-class) under Cost group', async () => {
-    // Phase 1e regression: per the per-purpose cost split fix, the metrics tab must
-    // render BOTH the new static generation_cost / ranking_cost rows (written by
-    // createLLMClient via writeMetricMax) AND the legacy agentCost:* dynamic rows
-    // (written by experimentMetrics.ts for per-agent-class aggregation on
-    // strategy/experiment entities). The two namespaces are orthogonal:
-    // - generation_cost = per LLM-call purpose (static, typed) — 'cost' formatter (2 decimals)
-    // - agentCost:generate_from_seed_article = per agent class (dynamic, prefix-based)
-    //   — uses 'costDetailed' formatter (3 decimals) via DYNAMIC_METRIC_PREFIXES resolver.
-    // Use values that produce distinct text in each formatter so test selectors don't collide.
+  it('filters out agentCost:* metrics, keeping generation_cost/ranking_cost', async () => {
+    // Run-level per-purpose cost metrics are named generation_cost/ranking_cost (label: "Generation Cost"/"Ranking Cost")
+    // agentCost:* are legacy per-phase metrics that should be hidden from the UI
     getEntityMetricsAction.mockResolvedValue({
       success: true,
       data: [
-        makeRow({ metric_name: 'generation_cost', value: 1.23 }),     // → $1.23 (cost, 2dp)
-        makeRow({ metric_name: 'ranking_cost', value: 4.56 }),        // → $4.56 (cost, 2dp)
-        makeRow({ metric_name: 'agentCost:generate_from_seed_article', value: 0.077 }), // → $0.077 (costDetailed, 3dp)
-        makeRow({ metric_name: 'agentCost:swiss_ranking', value: 0.055 }),              // → $0.055 (costDetailed, 3dp)
+        makeRow({ metric_name: 'agentCost:generation', value: 0.0085 }),
+        makeRow({ metric_name: 'agentCost:ranking', value: 0.0413 }),
+        makeRow({ metric_name: 'generation_cost', value: 0.1565 }),
+        makeRow({ metric_name: 'ranking_cost', value: 0.1565 }),
       ],
       error: null,
     });
@@ -122,11 +115,11 @@ describe('EntityMetricsTab', () => {
     await waitFor(() => {
       expect(screen.getByTestId('entity-metrics-tab')).toBeInTheDocument();
     });
-    // Static per-purpose metrics — 2 decimals via formatCost
-    expect(screen.getByText('$1.23')).toBeInTheDocument(); // generation_cost
-    expect(screen.getByText('$4.56')).toBeInTheDocument(); // ranking_cost
-    // Dynamic per-agent-class metrics — 3 decimals via formatCostDetailed (DYNAMIC_METRIC_PREFIXES path)
-    expect(screen.getByText('$0.077')).toBeInTheDocument(); // agentCost:generate_from_seed_article
-    expect(screen.getByText('$0.055')).toBeInTheDocument(); // agentCost:swiss_ranking
+    // generation_cost and ranking_cost render as "Generation Cost" / "Ranking Cost"
+    // agentCost:* are filtered out so there should be exactly one card per label
+    const generationCells = screen.getAllByText('Generation Cost');
+    expect(generationCells).toHaveLength(1);
+    const rankingCells = screen.getAllByText('Ranking Cost');
+    expect(rankingCells).toHaveLength(1);
   });
 });

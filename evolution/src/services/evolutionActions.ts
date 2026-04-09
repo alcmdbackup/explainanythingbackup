@@ -214,7 +214,7 @@ export const getEvolutionRunsAction = adminAction(
 
     let query = supabase
       .from('evolution_runs')
-      .select('id, status, strategy_id, experiment_id, prompt_id, budget_cap_usd, error_message, created_at, completed_at, archived, pipeline_version, runner_id, run_summary, last_heartbeat', { count: 'exact' });
+      .select('id, status, strategy_id, experiment_id, prompt_id, budget_cap_usd, error_message, created_at, completed_at, archived, pipeline_version, runner_id, run_summary, last_heartbeat, explanation_id', { count: 'exact' });
 
     if (filters?.status) query = query.eq('status', filters.status);
     if (filters?.strategy_id) {
@@ -275,7 +275,7 @@ export const getEvolutionRunsAction = adminAction(
         : Promise.resolve(new Map<string, string>()),
       explanationIds.length > 0
         ? supabase.from('explanations').select('id, explanation_title').in('id', explanationIds)
-            .then(({ data }) => new Map((data ?? []).map(e => [String(e.id), e.explanation_title as string])))
+            .then(({ data, error }) => { if (error) throw error; return new Map((data ?? []).map(e => [String(e.id), e.explanation_title as string])); })
         : Promise.resolve(new Map<string, string>()),
     ]);
 
@@ -411,18 +411,15 @@ export const getRunSnapshotsAction = adminAction(
       for (const id of snap.discardedVariantIds ?? []) variantIds.add(id);
     }
 
-    let variantInfo: Record<string, SnapshotVariantInfo> = {};
+    const variantInfo: Record<string, SnapshotVariantInfo> = {};
     if (variantIds.size > 0) {
       const { data: vRows } = await ctx.supabase
         .from('evolution_variants')
         .select('id, agent_name, persisted')
         .in('id', Array.from(variantIds));
-      variantInfo = Object.fromEntries(
-        (vRows ?? []).map((v: { id: string; agent_name: string; persisted?: boolean | null }) => [
-          v.id,
-          { id: v.id, agentName: v.agent_name ?? '—', persisted: v.persisted ?? true },
-        ]),
-      );
+      for (const v of (vRows ?? []) as Array<{ id: string; agent_name: string; persisted?: boolean | null }>) {
+        variantInfo[v.id] = { id: v.id, agentName: v.agent_name ?? '—', persisted: v.persisted ?? true };
+      }
     }
 
     return { snapshots: rawSnapshots, variantInfo };

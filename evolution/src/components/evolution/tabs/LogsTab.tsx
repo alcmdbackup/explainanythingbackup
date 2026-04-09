@@ -36,6 +36,7 @@ export function LogsTab({ entityType, entityId }: LogsTabProps): JSX.Element {
   const [offset, setOffset] = useState(0);
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [maxIterationSeen, setMaxIterationSeen] = useState(0);
+  const [jumpInput, setJumpInput] = useState('');
 
   // Filters
   const [levelFilter, setLevelFilter] = useState('');
@@ -45,21 +46,32 @@ export function LogsTab({ entityType, entityId }: LogsTabProps): JSX.Element {
   const [messageSearch, setMessageSearch] = useState('');
   const [variantIdFilter, setVariantIdFilter] = useState('');
   const [debouncedMessage, setDebouncedMessage] = useState('');
+  const [debouncedAgent, setDebouncedAgent] = useState('');
+  const [debouncedVariantId, setDebouncedVariantId] = useState('');
 
-  // Debounce message search
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedMessage(messageSearch), 300);
     return () => clearTimeout(timer);
   }, [messageSearch]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedAgent(agentFilter), 300);
+    return () => clearTimeout(timer);
+  }, [agentFilter]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedVariantId(variantIdFilter), 300);
+    return () => clearTimeout(timer);
+  }, [variantIdFilter]);
 
   const load = useCallback(async () => {
     setLoading(true);
     const filters: LogFilters = { limit: PAGE_SIZE, offset };
     if (levelFilter) filters.level = levelFilter;
     if (entityTypeFilter) filters.entityType = entityTypeFilter;
-    if (agentFilter) filters.agentName = agentFilter;
+    if (debouncedAgent) filters.agentName = debouncedAgent;
     if (iterationFilter) filters.iteration = parseInt(iterationFilter, 10);
-    if (variantIdFilter) filters.variantId = variantIdFilter;
+    if (debouncedVariantId) filters.variantId = debouncedVariantId;
     if (debouncedMessage) filters.messageSearch = debouncedMessage;
 
     const result = await getEntityLogsAction({ entityType, entityId, filters });
@@ -71,16 +83,16 @@ export function LogsTab({ entityType, entityId }: LogsTabProps): JSX.Element {
       setMaxIterationSeen(prev => Math.max(prev, pageMax));
     }
     setLoading(false);
-  }, [entityType, entityId, offset, levelFilter, entityTypeFilter, agentFilter, iterationFilter, variantIdFilter, debouncedMessage]);
+  }, [entityType, entityId, offset, levelFilter, entityTypeFilter, debouncedAgent, iterationFilter, debouncedVariantId, debouncedMessage]);
 
   useEffect(() => {
     load();
   }, [load]);
 
-  // Reset offset when filters change
+  // Reset offset when filters change (use debounced values for text inputs)
   useEffect(() => {
     setOffset(0);
-  }, [levelFilter, entityTypeFilter, agentFilter, iterationFilter, variantIdFilter, debouncedMessage]);
+  }, [levelFilter, entityTypeFilter, debouncedAgent, iterationFilter, debouncedVariantId, debouncedMessage]);
 
   const totalPages = Math.ceil(total / PAGE_SIZE);
   const currentPage = Math.floor(offset / PAGE_SIZE) + 1;
@@ -133,7 +145,7 @@ export function LogsTab({ entityType, entityId }: LogsTabProps): JSX.Element {
             <option value="">All iterations</option>
             {Array.from(
               { length: Math.max(maxIterationSeen, 1) + 1 },
-              (_, i) => <option key={i} value={i}>{i}</option>,
+              (_, i) => <option key={i} value={String(i)}>{i}</option>,
             )}
           </select>
 
@@ -221,7 +233,7 @@ export function LogsTab({ entityType, entityId }: LogsTabProps): JSX.Element {
       )}
 
       {totalPages > 1 && (
-        <div className="flex items-center justify-between text-xs text-[var(--text-muted)]">
+        <div className="flex items-center gap-2 text-xs text-[var(--text-muted)]">
           <button
             className="px-3 py-1 rounded border border-[var(--border-default)] disabled:opacity-40"
             disabled={offset === 0}
@@ -237,6 +249,35 @@ export function LogsTab({ entityType, entityId }: LogsTabProps): JSX.Element {
           >
             Next
           </button>
+          <button
+            className="px-3 py-1 rounded border border-[var(--border-default)] disabled:opacity-40"
+            disabled={offset + PAGE_SIZE >= total}
+            onClick={() => setOffset((totalPages - 1) * PAGE_SIZE)}
+            aria-label="Last page"
+          >
+            Last
+          </button>
+          <form
+            className="flex items-center gap-1"
+            onSubmit={(e) => {
+              e.preventDefault();
+              const n = parseInt(jumpInput, 10);
+              if (!isNaN(n)) { setOffset((Math.max(1, Math.min(n, totalPages)) - 1) * PAGE_SIZE); }
+              setJumpInput('');
+            }}
+          >
+            <input
+              type="number"
+              min={1}
+              max={totalPages}
+              value={jumpInput}
+              onChange={(e) => setJumpInput(e.target.value)}
+              placeholder="Page"
+              aria-label="Jump to page"
+              className="w-14 px-2 py-1 rounded border border-[var(--border-default)] bg-[var(--surface-input)] text-[var(--text-primary)] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+            />
+            <button type="submit" className="px-2 py-1 rounded border border-[var(--border-default)]">Go</button>
+          </form>
         </div>
       )}
     </div>

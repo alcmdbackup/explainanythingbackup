@@ -106,7 +106,7 @@ export const getExperimentAction = adminAction(
 /** List experiments with optional status filter. */
 export const listExperimentsAction = adminAction(
   'listExperiments',
-  async (input: { status?: string; filterTestContent?: boolean } | undefined, ctx: AdminContext): Promise<ExperimentSummary[]> => {
+  async (input: { status?: string; filterTestContent?: boolean; name?: string } | undefined, ctx: AdminContext): Promise<ExperimentSummary[]> => {
     let query = ctx.supabase
       .from('evolution_experiments')
       .select('*, evolution_runs(id)')
@@ -118,6 +118,10 @@ export const listExperimentsAction = adminAction(
     if (input?.filterTestContent) {
       query = applyTestContentNameFilter(query);
     }
+    if (input?.name) {
+      const escaped = input.name.replace(/[%_\\]/g, '\\$&');
+      query = query.ilike('name', `%${escaped}%`);
+    }
 
     const { data, error } = await query;
     if (error) throw new Error(`Failed to list experiments: ${error.message}`);
@@ -127,17 +131,12 @@ export const listExperimentsAction = adminAction(
       runCount: Array.isArray(exp.evolution_runs) ? (exp.evolution_runs as unknown[]).length : 0,
     })) as Array<ExperimentSummary & Record<string, unknown>>;
 
-    // Batch-fetch list-view metrics from evolution_metrics (propagated cost split, elo, etc.).
     const metricNames = getListViewMetrics('experiment').map(d => d.name);
-    if (items.length > 0 && metricNames.length > 0) {
-      const metricsByExp = await getMetricsForEntities(
-        ctx.supabase, 'experiment', items.map(e => e.id), metricNames,
-      );
-      for (const exp of items) {
-        exp.metrics = metricsByExp.get(exp.id) ?? [];
-      }
-    } else {
-      for (const exp of items) exp.metrics = [];
+    const metricsByExp = (items.length > 0 && metricNames.length > 0)
+      ? await getMetricsForEntities(ctx.supabase, 'experiment', items.map(e => e.id), metricNames)
+      : new Map<string, MetricRow[]>();
+    for (const exp of items) {
+      exp.metrics = metricsByExp.get(exp.id) ?? [];
     }
 
     return items as ExperimentSummary[];

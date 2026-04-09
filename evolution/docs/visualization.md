@@ -144,10 +144,10 @@ Props:
 - `entityId: string` — UUID of the entity whose logs to display
 
 Features:
-- **Filter bar**: Two-row layout. Row 1: log level dropdown, entity type dropdown (hidden for invocation pages), iteration dropdown (values 1-20), phase/agent name text filter. Row 2: message text search (debounced 300ms), variant ID filter. All filters apply server-side via `getEntityLogsAction`.
+- **Filter bar**: Two-row layout. Row 1: log level dropdown, entity type dropdown (hidden for invocation pages), iteration dropdown (string values to match selected state), phase/agent name text filter (debounced 300ms, uses `ilike` partial match). Row 2: message text search (debounced 300ms, ilike), variant ID filter (debounced 300ms). All filters apply server-side via `getEntityLogsAction`.
 - **Entity-type badges**: Color-coded badges (blue for run, purple for invocation, green for experiment, amber for strategy) in each log row showing which entity emitted the log.
 - **Expandable context**: Clicking a log row toggles a JSON viewer for the `context` JSONB field.
-- **Pagination**: Previous/Next pagination with 100 logs per page.
+- **Pagination**: Previous/Next/Last pagination with jump-to-page number input; 100 logs per page.
 - **Aggregation**: For non-invocation entities, logs include all descendant entity logs (e.g., a run's logs tab shows both run-level and invocation-level logs).
 
 Data is fetched via `getEntityLogsAction` from `evolution/src/services/logActions.ts`.
@@ -231,6 +231,8 @@ const { data, count } = await ctx.supabase
 ```
 
 Maximum page size is capped at 200 items. The `EntityListPage` component enforces a client-side cap of 100.
+
+The `EntityListPage` pagination bar includes Prev/Next/Last buttons plus a jump-to-page number input that clamps to `[1, totalPages]`. The same pattern is implemented in `LogsTab` for log pagination.
 
 ### Enrichment Pattern
 

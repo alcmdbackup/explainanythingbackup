@@ -63,9 +63,11 @@ adminTest.describe('Prompt Registry CRUD', () => {
     // Edit prompt
     const row = adminPage.locator('tr', { hasText: testPromptTitle });
     await row.getByText('Edit').click();
-    await adminPage.getByRole('textbox', { name: /name/i }).first().clear();
-    await adminPage.getByRole('textbox', { name: /name/i }).first().fill(`${testPromptTitle} (edited)`);
-    await adminPage.getByRole('button', { name: /save|submit/i }).click();
+    // Scope to dialog to avoid matching page-level filter inputs (e.g. the "Name" search filter)
+    const editDialog = adminPage.getByRole('dialog');
+    await editDialog.getByRole('textbox', { name: /name/i }).first().clear();
+    await editDialog.getByRole('textbox', { name: /name/i }).first().fill(`${testPromptTitle} (edited)`);
+    await editDialog.getByRole('button', { name: /save|submit/i }).click();
 
     // Verify edit
     await expect(adminPage.getByText(`${testPromptTitle} (edited)`)).toBeVisible({ timeout: 10000 });
@@ -80,5 +82,17 @@ adminTest.describe('Prompt Registry CRUD', () => {
 
     // Verify deleted (row should disappear from table — allow time for server action + reload)
     await expect(adminPage.locator('[data-testid="entity-list-table"]').getByText(`${testPromptTitle} (edited)`)).not.toBeVisible({ timeout: 15000 });
+  });
+
+  adminTest('name search filter input is visible', { tag: '@critical' }, async ({ adminPage }) => {
+    await adminPage.goto('/admin/evolution/prompts');
+    await adminPage.waitForLoadState('domcontentloaded');
+
+    const entityList = adminPage.locator('[data-testid="entity-list-page"]');
+    await expect(entityList).toBeVisible({ timeout: 15000 });
+
+    // Name search input should render
+    const nameInput = adminPage.locator('input[placeholder="Search..."]');
+    await expect(nameInput).toBeVisible({ timeout: 10000 });
   });
 });

@@ -1,15 +1,14 @@
-'use client';
 // Generic metrics tab for any evolution entity type. Fetches from evolution_metrics table,
 // groups by category, and renders using MetricGrid with CI data and aggregation badges.
+'use client';
 
 import { useEffect, useState } from 'react';
 import { MetricGrid, type MetricItem } from '@evolution/components/evolution';
 import { getEntityMetricsAction } from '@evolution/services/metricsActions';
 import { getEntityMetricDef } from '@evolution/lib/core/entityRegistry';
 import { METRIC_FORMATTERS } from '@evolution/lib/core/metricCatalog';
-import type { MetricFormatter } from '@evolution/lib/core/types';
-import { DYNAMIC_METRIC_PREFIXES, type EntityType, type MetricRow } from '@evolution/lib/metrics/types';
-import type { EntityType as CoreEntityType } from '@evolution/lib/core/types';
+import type { EntityType, MetricFormatter } from '@evolution/lib/core/types';
+import { DYNAMIC_METRIC_PREFIXES, type MetricRow } from '@evolution/lib/metrics/types';
 
 interface EntityMetricsTabProps {
   entityType: EntityType;
@@ -28,21 +27,21 @@ const CATEGORY_LABELS: Record<Category, string> = {
 const CATEGORY_ORDER: Category[] = ['rating', 'cost', 'match', 'count'];
 
 function resolveCategory(metricName: string, entityType: EntityType): Category {
-  const def = getEntityMetricDef(entityType as CoreEntityType, metricName);
+  const def = getEntityMetricDef(entityType, metricName);
   if (def) return def.category;
   if (DYNAMIC_METRIC_PREFIXES.some(p => metricName.startsWith(p))) return 'cost';
   return 'count';
 }
 
 function resolveFormatter(metricName: string, entityType: EntityType): (v: number) => string {
-  const def = getEntityMetricDef(entityType as CoreEntityType, metricName);
+  const def = getEntityMetricDef(entityType, metricName);
   if (def) return METRIC_FORMATTERS[def.formatter as MetricFormatter];
   if (DYNAMIC_METRIC_PREFIXES.some(p => metricName.startsWith(p))) return METRIC_FORMATTERS.costDetailed;
   return METRIC_FORMATTERS.integer;
 }
 
 function resolveLabel(metricName: string, entityType: EntityType): string {
-  const def = getEntityMetricDef(entityType as CoreEntityType, metricName);
+  const def = getEntityMetricDef(entityType, metricName);
   if (def) return def.label;
   // Dynamic metric: prettify "agentCost:generation" → "Generation Cost"
   const colonIdx = metricName.indexOf(':');
@@ -56,6 +55,7 @@ function resolveLabel(metricName: string, entityType: EntityType): string {
 function toMetricItem(row: MetricRow, entityType: EntityType): MetricItem & { category: Category; aggregation?: string } {
   const formatter = resolveFormatter(row.metric_name, entityType);
   return {
+    id: row.metric_name,
     label: resolveLabel(row.metric_name, entityType),
     value: formatter(row.value),
     ci: row.ci_lower != null && row.ci_upper != null ? [row.ci_lower, row.ci_upper] : undefined,
@@ -107,8 +107,10 @@ export function EntityMetricsTab({ entityType, entityId }: EntityMetricsTabProps
     );
   }
 
+  // Filter out agentCost:* metrics — superseded by total_generation_cost/total_ranking_cost
+  const filteredMetrics = metrics.filter(m => !m.metric_name.startsWith('agentCost:'));
   // Group by category
-  const items = metrics.map(m => toMetricItem(m, entityType));
+  const items = filteredMetrics.map(m => toMetricItem(m, entityType));
   const grouped = new Map<Category, (MetricItem & { aggregation?: string })[]>();
   for (const item of items) {
     const { category, ...rest } = item;

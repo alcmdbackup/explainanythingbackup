@@ -73,7 +73,7 @@ Central table for pipeline executions. Each run belongs to exactly one strategy 
 | Column | Type | Constraints | Description |
 |--------|------|-------------|-------------|
 | `id` | UUID | PK | |
-| `explanation_id` | INT | | Legacy FK to `explanations` table |
+| `explanation_id` | BIGINT | FK -> `explanations(id)`, NULLABLE, ON DELETE SET NULL | Link to seed article in main app's `explanations` table |
 | `prompt_id` | UUID | FK -> `evolution_prompts(id)` | |
 | `experiment_id` | UUID | FK -> `evolution_experiments(id)` | NULL for standalone runs |
 | `strategy_id` | UUID | NOT NULL, FK -> `evolution_strategies(id)` | Enforced NOT NULL since 20260318 |

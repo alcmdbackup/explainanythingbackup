@@ -18,24 +18,22 @@ import {
   type EvolutionRun,
 } from '@evolution/services/evolutionActions';
 import { executeEntityAction } from '@evolution/services/entityActions';
+import { listStrategiesAction } from '@evolution/services/strategyRegistryActions';
 import { createRunsMetricColumns } from '@evolution/lib/metrics/metricColumns';
 
-const filters: FilterDef[] = [
-  {
-    key: 'status',
-    label: 'Status',
-    type: 'select',
-    options: [
-      { label: 'All statuses', value: '' },
-      { label: 'Pending', value: 'pending' },
-      { label: 'Claimed', value: 'claimed' },
-      { label: 'Running', value: 'running' },
-      { label: 'Completed', value: 'completed' },
-      { label: 'Failed', value: 'failed' },
-    ],
-  },
-  { key: 'filterTestContent', label: 'Hide test content', type: 'checkbox', defaultChecked: true },
-];
+const STATUS_FILTER: FilterDef = {
+  key: 'status',
+  label: 'Status',
+  type: 'select',
+  options: [
+    { label: 'All statuses', value: '' },
+    { label: 'Pending', value: 'pending' },
+    { label: 'Claimed', value: 'claimed' },
+    { label: 'Running', value: 'running' },
+    { label: 'Completed', value: 'completed' },
+    { label: 'Failed', value: 'failed' },
+  ],
+};
 
 const pageSize = 20;
 
@@ -43,26 +41,40 @@ type RunAction = { kind: 'none' } | { kind: 'kill'; run: EvolutionRun } | { kind
 
 export default function EvolutionRunsPage(): JSX.Element {
   useEffect(() => { document.title = 'Runs | Evolution'; }, []);
-  const [runs, setRuns] = useState<(EvolutionRun)[]>([]);
+  const [runs, setRuns] = useState<EvolutionRun[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [pendingAction, setPendingAction] = useState<RunAction>({ kind: 'none' });
-  const [filterValues, setFilterValues] = useState<Record<string, string>>(() => {
-    const defaults: Record<string, string> = {};
-    for (const f of filters) {
-      if (f.type === 'checkbox' && f.defaultChecked) {
-        defaults[f.key] = 'true';
-      }
-    }
-    return defaults;
-  });
+  const [strategyOptions, setStrategyOptions] = useState<{ value: string; label: string }[]>([]);
+  const [filterValues, setFilterValues] = useState<Record<string, string>>({ filterTestContent: 'true' });
   const [page, setPage] = useState(1);
+
+  // Build dynamic filter list including loaded strategy options
+  const filters: FilterDef[] = [
+    STATUS_FILTER,
+    { key: 'filterTestContent', label: 'Hide test content', type: 'checkbox', defaultChecked: true },
+    {
+      key: 'strategy_id',
+      label: 'Strategy',
+      type: 'select',
+      options: [{ label: 'All strategies', value: '' }, ...strategyOptions],
+    },
+  ];
+
+  useEffect(() => {
+    listStrategiesAction({ limit: 200, offset: 0 }).then(res => {
+      if (res.success && res.data) {
+        setStrategyOptions(res.data.items.map(s => ({ value: s.id, label: s.name })));
+      }
+    }).catch(() => { /* non-critical: strategy filter silently unavailable */ });
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
     const result = await getEvolutionRunsAction({
       status: filterValues.status || undefined,
       filterTestContent: filterValues.filterTestContent === 'true',
+      strategy_id: filterValues.strategy_id || undefined,
       limit: pageSize,
       offset: (page - 1) * pageSize,
     });
@@ -110,11 +122,10 @@ export default function EvolutionRunsPage(): JSX.Element {
   );
 
   const confirmOpen = pendingAction.kind === 'kill' || pendingAction.kind === 'delete';
+  const runIdShort = pendingAction.kind !== 'none' ? pendingAction.run.id.substring(0, 8) : '';
   const confirmProps = pendingAction.kind === 'kill'
-    ? { title: 'Kill Run', message: `Kill run ${pendingAction.run.id.substring(0, 8)}?`, confirmLabel: 'Kill', onConfirm: handleKill, danger: true }
-    : pendingAction.kind === 'delete'
-      ? { title: 'Delete Run', message: `Delete run ${pendingAction.run.id.substring(0, 8)} and all its variants/invocations?`, confirmLabel: 'Delete', onConfirm: handleDelete, danger: true }
-      : { title: '', message: '', onConfirm: async () => {}, danger: false };
+    ? { title: 'Kill Run', message: `Kill run ${runIdShort}?`, confirmLabel: 'Kill', onConfirm: handleKill, danger: true }
+    : { title: 'Delete Run', message: `Delete run ${runIdShort} and all its variants/invocations?`, confirmLabel: 'Delete', onConfirm: handleDelete, danger: true };
 
   return (
     <div className="space-y-6">
