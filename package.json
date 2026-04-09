@@ -10,7 +10,7 @@
     "build": "next build",
     "analyze": "ANALYZE=true next build",
     "start": "next start",
-    "lint": "next lint",
+    "lint": "next lint && npm run check:stale-specs",
     "typecheck": "tsc --noEmit --project tsconfig.ci.json",
     "test": "jest --forceExit --maxWorkers=4",
     "test:watch": "jest --watch",
@@ -37,6 +37,7 @@
     "db:types": "npx supabase gen types --lang typescript --project-id ifubinffdbyewoezcidz > src/lib/database.types.ts",
     "query:prod": "npx tsx scripts/query-db.ts --prod",
     "query:staging": "npx tsx scripts/query-db.ts --staging",
+    "check:stale-specs": "npx tsx scripts/check-stale-specs.ts",
     "prepare": "git config core.hooksPath .githooks || true"
   },
   "dependencies": {
