@@ -55,8 +55,8 @@ adminTest.describe('Admin Content Management', () => {
       const contentPage = new AdminContentPage(adminPage);
       await contentPage.gotoContent();
 
-      // Disable "Filter test content" so [TEST]-prefixed seed rows are visible
-      await adminPage.getByTestId('admin-content-filter-test-content').uncheck();
+      // Reset UI default filters so [TEST]-prefixed seed rows are visible
+      await contentPage.resetFilters();
 
       // Search for our test explanation
       await contentPage.search('[TEST] Admin Test Visible');
@@ -126,8 +126,8 @@ adminTest.describe('Admin Content Management', () => {
       const contentPage = new AdminContentPage(adminPage);
       await contentPage.gotoContent();
 
-      // Disable "Filter test content" so [TEST]-prefixed seed rows are visible
-      await adminPage.getByTestId('admin-content-filter-test-content').uncheck();
+      // Reset UI default filters so [TEST]-prefixed seed rows are visible
+      await contentPage.resetFilters();
 
       // Search for our test explanation
       await contentPage.search('[TEST] Admin Hide Test');
@@ -144,9 +144,10 @@ adminTest.describe('Admin Content Management', () => {
 
       // Reload to see the hidden state
       await contentPage.gotoContent();
-      // Re-disable filter and enable "Show hidden" so the hidden [TEST] row is visible
-      await adminPage.getByTestId('admin-content-filter-test-content').uncheck();
-      await contentPage.toggleShowHidden();
+      // Re-reset filters and enable "Show hidden" so the hidden [TEST] row is visible
+      // (after gotoContent reload, React state defaults are restored)
+      await contentPage.resetFilters();
+      await contentPage.enableShowHidden();
       await contentPage.search('[TEST] Admin Hide Test');
 
       // Verify restore button appears (meaning it's hidden)
@@ -176,8 +177,8 @@ adminTest.describe('Admin Content Management', () => {
       const contentPage = new AdminContentPage(adminPage);
       await contentPage.gotoContent();
 
-      // Disable "Filter test content" so [TEST]-prefixed seed rows are visible
-      await adminPage.getByTestId('admin-content-filter-test-content').uncheck();
+      // Reset UI default filters so [TEST]-prefixed seed rows are visible
+      await contentPage.resetFilters();
 
       // Search for our test explanation
       await contentPage.search('[TEST] Admin Modal Test');
@@ -224,8 +225,8 @@ adminTest.describe('Admin Content Management', () => {
       const contentPage = new AdminContentPage(adminPage);
       await contentPage.gotoContent();
 
-      // Disable "Filter test content" so [TEST]-prefixed seed rows are visible
-      await adminPage.getByTestId('admin-content-filter-test-content').uncheck();
+      // Reset UI default filters so [TEST]-prefixed seed rows are visible
+      await contentPage.resetFilters();
 
       // Search for our test explanations
       await contentPage.search('[TEST] Bulk Test');
