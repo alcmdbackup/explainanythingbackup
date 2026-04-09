@@ -9,11 +9,16 @@ import { logAdminAction } from '@/lib/services/auditLog';
 import { createEntityLogger } from '@evolution/lib/pipeline/infra/createEntityLogger';
 import type { EvolutionRunSummary } from '@evolution/lib/types';
 import { EvolutionRunSummarySchema } from '@evolution/lib/types';
+import { getMetricsForEntities } from '@evolution/lib/metrics/readMetrics';
+import { getListViewMetrics } from '@evolution/lib/metrics/registry';
+import type { MetricRow } from '@evolution/lib/metrics/types';
 import { z } from 'zod';
 
 // ─── Types ───────────────────────────────────────────────────────
 
-/** V2 run shape — no total_cost_usd column, no phase column, no config JSONB. */
+/** V2 run shape — no total_cost_usd column, no phase column, no config JSONB.
+ * Cost is sourced from `evolution_metrics` (the `cost`, `generation_cost`, `ranking_cost`
+ * rows) via the `metrics` enriched field, not from a per-row aggregate. */
 export interface EvolutionRun {
   id: string;
   explanation_id: number | null;
@@ -31,7 +36,7 @@ export interface EvolutionRun {
   runner_id: string | null;
   last_heartbeat: string | null;
   /** Enriched fields (not DB columns) */
-  total_cost_usd?: number;
+  metrics?: MetricRow[];
   experiment_name?: string | null;
   strategy_name?: string | null;
   prompt_name?: string | null;
@@ -231,22 +236,26 @@ export const getEvolutionRunsAction = adminAction(
 
     const typedRuns = (runs ?? []) as EvolutionRun[];
 
-    // Batch-fetch costs from evolution_agent_invocations (source of truth for LLM spend)
+    // Batch-fetch list-view metrics from evolution_metrics (single source of truth for cost
+    // and the per-purpose generation_cost / ranking_cost split, plus other listView: true metrics).
+    // Wrapped in try/catch so a transient batch-read failure degrades to "no cost shown"
+    // instead of crashing the entire runs list page (which would make the admin UI unusable).
     const runIds = typedRuns.map(r => r.id);
     if (runIds.length > 0) {
-      const { data: costs, error: costError } = await supabase
-        .from('evolution_agent_invocations')
-        .select('run_id, cost_usd')
-        .in('run_id', runIds);
-      if (costError) throw costError;
-
-      const costMap = new Map<string, number>();
-      for (const row of costs ?? []) {
-        costMap.set(row.run_id, (costMap.get(row.run_id) ?? 0) + Number(row.cost_usd ?? 0));
-      }
-
-      for (const run of typedRuns) {
-        run.total_cost_usd = costMap.get(run.id) ?? 0;
+      try {
+        const metricNames = getListViewMetrics('run').map(d => d.name);
+        const metricsByRun = await getMetricsForEntities(supabase, 'run', runIds, metricNames);
+        for (const run of typedRuns) {
+          run.metrics = metricsByRun.get(run.id) ?? [];
+        }
+      } catch (err) {
+        logger.warn('getEvolutionRunsAction: metric batch fetch failed (degraded)', {
+          error: err instanceof Error ? err.message : String(err),
+          runCount: runIds.length,
+        });
+        for (const run of typedRuns) {
+          run.metrics = [];
+        }
       }
     }
 
@@ -319,13 +328,20 @@ export const getEvolutionRunByIdAction = adminAction(
 
     const run = data as EvolutionRun;
 
-    // Fetch cost from evolution_agent_invocations (source of truth for LLM spend)
-    const { data: costRows, error: costError } = await ctx.supabase
-      .from('evolution_agent_invocations')
-      .select('cost_usd')
-      .eq('run_id', runId);
-    if (costError) throw costError;
-    run.total_cost_usd = (costRows ?? []).reduce((sum, r) => sum + Number(r.cost_usd ?? 0), 0);
+    // Fetch list-view metrics (cost / generation_cost / ranking_cost / etc.) from evolution_metrics.
+    // Wrapped in try/catch so a transient batch-read failure degrades to "no cost shown" instead
+    // of crashing the run detail page.
+    try {
+      const metricNames = getListViewMetrics('run').map(d => d.name);
+      const metricsByRun = await getMetricsForEntities(ctx.supabase, 'run', [runId], metricNames);
+      run.metrics = metricsByRun.get(runId) ?? [];
+    } catch (err) {
+      logger.warn('getEvolutionRunByIdAction: metric fetch failed (degraded)', {
+        error: err instanceof Error ? err.message : String(err),
+        runId,
+      });
+      run.metrics = [];
+    }
 
     // Fetch strategy + prompt names
     const [stratResult, promptResult] = await Promise.all([

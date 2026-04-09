@@ -15,18 +15,11 @@ import { ConfirmDialog } from '@evolution/components/evolution';
 import {
   listExperimentsAction,
   cancelExperimentAction,
+  type ExperimentSummary,
 } from '@evolution/services/experimentActions';
 import { executeEntityAction } from '@evolution/services/entityActions';
 import { buildExperimentUrl } from '@evolution/lib/utils/evolutionUrls';
-
-interface ExperimentSummary {
-  id: string;
-  name: string;
-  status: string;
-  created_at: string;
-  updated_at?: string;
-  runCount: number;
-}
+import { createMetricColumns } from '@evolution/lib/metrics/metricColumns';
 
 const STATE_COLORS: Record<string, string> = {
   draft: 'var(--text-muted)',
@@ -209,8 +202,18 @@ export default function ExperimentsListPage(): JSX.Element {
     if (res.success) { toast.success('Experiment deleted'); load(); } else { toast.error(res.error?.message ?? 'Delete failed'); }
   };
 
+  // Drop the propagated `run_count` metric column since the page's COLUMNS already
+  // includes a `runCount` column with header "Runs" sourced from the SQL join
+  // (`evolution_runs(id)`), which counts ALL runs in any state. The propagated
+  // `run_count` metric only counts runs that have written a `cost` row, so the two
+  // disagree for pending/queued runs — and the join-based count is more useful
+  // for the experiments list. The propagated metric still appears on the metrics tab.
+  const metricColumns = createMetricColumns<ExperimentSummary>('experiment')
+    .filter(col => col.key !== 'metric_run_count');
+
   const columnsWithActions: ColumnDef<ExperimentSummary>[] = [
     ...COLUMNS,
+    ...metricColumns,
     {
       key: 'actions',
       header: '',

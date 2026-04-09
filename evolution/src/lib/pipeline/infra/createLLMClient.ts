@@ -9,8 +9,8 @@ import { isTransientError } from '../../shared/classifyErrors';
 import { getModelPricing, type ModelPricing } from '@/config/llmPricing';
 import type { V2CostTracker } from './trackBudget';
 import type { EntityLogger } from './createEntityLogger';
-import { writeMetric } from '../../metrics/writeMetrics';
-import type { MetricName } from '../../metrics/types';
+import { writeMetricMax } from '../../metrics/writeMetrics';
+import { type AgentName, COST_METRIC_BY_AGENT } from '../../core/agentNames';
 
 // ─── Cost estimation ─────────────────────────────────────────────
 
@@ -28,10 +28,9 @@ const MAX_RETRIES = 3;
 const BACKOFF_MS = [1000, 2000, 4000];
 const PER_CALL_TIMEOUT_MS = 60_000;
 
-/** Estimated output tokens by label. */
-const OUTPUT_TOKEN_ESTIMATES: Record<string, number> = {
+/** Estimated output tokens by label. Keys must be valid AgentName values. */
+const OUTPUT_TOKEN_ESTIMATES: Partial<Record<AgentName, number>> = {
   generation: 1000,
-  evolution: 1000,
   ranking: 100,
 };
 
@@ -42,7 +41,7 @@ const OUTPUT_TOKEN_ESTIMATES: Record<string, number> = {
  * The raw provider is a simple { complete(prompt, label, opts?) } function.
  */
 export function createV2LLMClient(
-  rawProvider: { complete(prompt: string, label: string, opts?: { model?: string }): Promise<string> },
+  rawProvider: { complete(prompt: string, label: AgentName, opts?: { model?: string }): Promise<string> },
   costTracker: V2CostTracker,
   defaultModel: string,
   logger?: EntityLogger,
@@ -52,7 +51,7 @@ export function createV2LLMClient(
   return {
     async complete(
       prompt: string,
-      agentName: string,
+      agentName: AgentName,
       options?: LLMCompletionOptions,
     ): Promise<string> {
       const model = (options?.model as string) ?? defaultModel;
@@ -86,14 +85,19 @@ export function createV2LLMClient(
           const actual = calculateCost(prompt.length, response.length, pricing);
           costTracker.recordSpend(agentName, actual, margined);
 
-          // Persist cost to DB so it survives process crashes.
-          // Awaited (not fire-and-forget) to prevent race with finalization cost write.
+          // Persist cost to DB via writeMetricMax (race-fixed via Postgres GREATEST upsert).
+          // Per-purpose write only happens for agentNames with a COST_METRIC_BY_AGENT entry
+          // (currently 'generation' and 'ranking'); seed-phase calls bypass this entirely
+          // since they go through the V1 callLLM path, not createV2LLMClient.
           if (db && runId) {
             const totalSpent = costTracker.getTotalSpent();
             const phaseCost = costTracker.getPhaseCosts()[agentName] ?? 0;
             try {
-              await writeMetric(db, 'run', runId, 'cost' as MetricName, totalSpent, 'during_execution');
-              await writeMetric(db, 'run', runId, `agentCost:${agentName}` as MetricName, phaseCost, 'during_execution');
+              await writeMetricMax(db, 'run', runId, 'cost', totalSpent, 'during_execution');
+              const costMetricName = COST_METRIC_BY_AGENT[agentName];
+              if (costMetricName) {
+                await writeMetricMax(db, 'run', runId, costMetricName, phaseCost, 'during_execution');
+              }
             } catch (err) {
               logger?.warn('Cost write failed (non-fatal)', { phaseName: agentName, error: err instanceof Error ? err.message : String(err) });
             }

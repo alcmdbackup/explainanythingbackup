@@ -10,8 +10,18 @@ export const METRIC_CATALOG = {
   // === Execution-phase metrics ===
   cost: {
     name: 'cost', label: 'Cost', category: 'cost', formatter: 'cost',
+    timing: 'during_execution', listView: false,
+    description: 'Total LLM spend for this entity. Run-list shows it via the custom Spent column with budget warning + progress bar (RunsTable base column), not via createRunsMetricColumns.',
+  },
+  generation_cost: {
+    name: 'generation_cost', label: 'Generation Cost', category: 'cost', formatter: 'cost',
     timing: 'during_execution', listView: true,
-    description: 'Total LLM spend for this entity',
+    description: 'LLM spend on generation calls in this run',
+  },
+  ranking_cost: {
+    name: 'ranking_cost', label: 'Ranking Cost', category: 'cost', formatter: 'cost',
+    timing: 'during_execution', listView: true,
+    description: 'LLM spend on ranking calls in this run (incl. SwissRankingAgent + binary-search comparisons)',
   },
 
   // === Finalization-phase metrics ===
@@ -70,16 +80,6 @@ export const METRIC_CATALOG = {
     timing: 'at_finalization',
     description: 'Total pairwise comparisons performed by this ranking invocation',
   },
-  total_generation_cost: {
-    name: 'total_generation_cost', label: 'Generation Cost', category: 'cost', formatter: 'cost',
-    timing: 'at_finalization',
-    description: 'Sum of LLM cost from generate_from_seed_article agents (text generation only)',
-  },
-  total_ranking_cost: {
-    name: 'total_ranking_cost', label: 'Ranking Cost', category: 'cost', formatter: 'cost',
-    timing: 'at_finalization',
-    description: 'Sum of LLM cost from rankSingleVariant binary search + SwissRankingAgent comparisons',
-  },
 
   // === Propagation-phase metrics (derived — entities override name/label) ===
   run_count: {
@@ -96,6 +96,26 @@ export const METRIC_CATALOG = {
     name: 'avg_cost_per_run', label: 'Avg Cost/Run', category: 'cost', formatter: 'cost',
     timing: 'at_propagation',
     description: 'Average cost per child run',
+  },
+  total_generation_cost: {
+    name: 'total_generation_cost', label: 'Total Generation Cost', category: 'cost', formatter: 'cost',
+    timing: 'at_propagation', listView: true,
+    description: 'Sum of generation_cost across all child runs',
+  },
+  avg_generation_cost_per_run: {
+    name: 'avg_generation_cost_per_run', label: 'Avg Generation Cost/Run', category: 'cost', formatter: 'cost',
+    timing: 'at_propagation',
+    description: 'Average generation_cost per child run',
+  },
+  total_ranking_cost: {
+    name: 'total_ranking_cost', label: 'Total Ranking Cost', category: 'cost', formatter: 'cost',
+    timing: 'at_propagation', listView: true,
+    description: 'Sum of ranking_cost across all child runs',
+  },
+  avg_ranking_cost_per_run: {
+    name: 'avg_ranking_cost_per_run', label: 'Avg Ranking Cost/Run', category: 'cost', formatter: 'cost',
+    timing: 'at_propagation',
+    description: 'Average ranking_cost per child run',
   },
   avg_final_elo: {
     name: 'avg_final_elo', label: 'Avg Winner Elo', category: 'rating', formatter: 'elo',

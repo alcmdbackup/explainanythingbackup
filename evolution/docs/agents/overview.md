@@ -267,17 +267,19 @@ All database writes are fire-and-forget: the insert is wrapped in `Promise.resol
 
 ```typescript
 export function createV2LLMClient(
-  rawProvider: { complete(prompt: string, label: string, opts?: { model?: string }): Promise<string> },
+  rawProvider: { complete(prompt: string, label: AgentName, opts?: { model?: string }): Promise<string> },
   costTracker: V2CostTracker,
   defaultModel: string,
 ): EvolutionLLMClient
 ```
 
+**Typed agent labels.** The second argument to `complete()` is `AgentName`, a typed union (`'generation' | 'ranking' | 'seed_title' | 'seed_article'`) defined in `evolution/src/lib/core/agentNames.ts`. Typos at the call site are caught at compile time. The `COST_METRIC_BY_AGENT` lookup maps each label to a static cost metric name (`'generation_cost'`, `'ranking_cost'`); calls labeled `'seed_title'`/`'seed_article'` skip the per-purpose metric write since setup-phase calls go through the V1 `callLLM` path, not `createV2LLMClient`. As a result, `generateFromSeedArticle` reports per-purpose costs accurately (no more 50/50 approximation): every `'generation'` call increments `generation_cost` and every `'ranking'` call (including binary-search comparisons inside `rankSingleVariant`) increments `ranking_cost`.
+
 **Retry policy.** Transient errors (network failures, rate limits) are retried up to 3 times with exponential backoff: 1s, 2s, 4s. Each individual call has a 60-second timeout. `BudgetExceededError` is never retried since it represents a deliberate resource limit, not a transient failure.
 
-**Cost tracking.** Before each call, the client estimates cost from the prompt length and expected output tokens (using chars/4 as a token approximation). After a successful call, actual cost is computed from input and output character counts and recorded via the cost tracker. The cost tracker checks the pre-call estimate against remaining budget and throws `BudgetExceededError` before the LLM call even happens if the estimate would exceed the budget — this prevents wasting money on calls that would push past the limit.
+**Cost tracking.** Before each call, the client estimates cost from the prompt length and expected output tokens (using chars/4 as a token approximation). After a successful call, actual cost is computed from input and output character counts and recorded via the cost tracker. The tracker buckets per-call cost under the typed agent label in `phaseCosts[label]` (race-free per-key accumulator under Node's single-threaded event loop). The client then writes `cost`, `generation_cost`, and `ranking_cost` to `evolution_metrics` via `writeMetricMax` — a Postgres RPC using `ON CONFLICT DO UPDATE SET value = GREATEST(...)` so concurrent out-of-order writes can never overwrite a larger value with a smaller one.
 
-Model pricing is maintained in a lookup table covering common models (GPT-4.1 variants, GPT-4o variants, DeepSeek, Claude Sonnet 4, Claude Haiku 4.5). Unknown models use the most expensive pricing as a conservative fallback, with a `console.warn` alerting operators. Expected output tokens are estimated by label: generation and evolution calls assume 1000 tokens, ranking calls assume 100 tokens.
+Model pricing is maintained in a lookup table covering common models (GPT-4.1 variants, GPT-4o variants, DeepSeek, Claude Sonnet 4, Claude Haiku 4.5). Unknown models use the most expensive pricing as a conservative fallback, with a `console.warn` alerting operators. Expected output tokens are estimated by label: generation calls assume 1000 tokens, ranking calls assume 100 tokens.
 
 For cost optimization details including the budget tier system and model pricing, see [Cost Optimization](../cost_optimization.md).
 

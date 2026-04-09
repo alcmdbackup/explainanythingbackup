@@ -2,18 +2,19 @@
 
 import { BudgetExceededError } from '../../types';
 import type { EntityLogger } from './createEntityLogger';
+import type { AgentName } from '../../core/agentNames';
 
 // ─── Interface ───────────────────────────────────────────────────
 
 export interface V2CostTracker {
   /** Reserve budget before LLM call. Returns margined amount (1.3x). Synchronous. */
-  reserve(phase: string, estimatedCost: number): number;
+  reserve(phase: AgentName, estimatedCost: number): number;
   /** Record actual spend after LLM success. Deducts reservation, adds actual. */
-  recordSpend(phase: string, actualCost: number, reservedAmount: number): void;
+  recordSpend(phase: AgentName, actualCost: number, reservedAmount: number): void;
   /** Release reservation on LLM failure without spending. */
-  release(phase: string, reservedAmount: number): void;
+  release(phase: AgentName, reservedAmount: number): void;
   getTotalSpent(): number;
-  getPhaseCosts(): Record<string, number>;
+  getPhaseCosts(): Partial<Record<AgentName, number>>;
   getAvailableBudget(): number;
 }
 
@@ -47,14 +48,14 @@ export function createCostTracker(budgetUsd: number, logger?: EntityLogger): V2C
   }
   let totalSpent = 0;
   let totalReserved = 0;
-  const phaseCosts: Record<string, number> = {};
+  const phaseCosts: Partial<Record<AgentName, number>> = {};
   let warned50 = false;
   let warned80 = false;
 
   return {
     // INVARIANT: reserve() must remain synchronous to maintain parallel safety
     // under Node.js single-threaded event loop. Do not add awaits to this function.
-    reserve(phase: string, estimatedCost: number): number {
+    reserve(phase: AgentName, estimatedCost: number): number {
       const margined = estimatedCost * RESERVE_MARGIN;
       if (totalSpent + totalReserved + margined > budgetUsd) {
         logger?.warn('Budget exceeded on reserve', { phaseName: phase, totalSpent, reserved: totalReserved + margined, budgetUsd });
@@ -64,7 +65,7 @@ export function createCostTracker(budgetUsd: number, logger?: EntityLogger): V2C
       return margined;
     },
 
-    recordSpend(phase: string, actualCost: number, reservedAmount: number): void {
+    recordSpend(phase: AgentName, actualCost: number, reservedAmount: number): void {
       totalReserved = Math.max(0, totalReserved - reservedAmount);
       totalSpent += actualCost;
       phaseCosts[phase] = (phaseCosts[phase] ?? 0) + actualCost;
@@ -100,7 +101,7 @@ export function createCostTracker(budgetUsd: number, logger?: EntityLogger): V2C
       }
     },
 
-    release(_phase: string, reservedAmount: number): void {
+    release(_phase: AgentName, reservedAmount: number): void {
       totalReserved = Math.max(0, totalReserved - reservedAmount);
     },
 
@@ -108,7 +109,7 @@ export function createCostTracker(budgetUsd: number, logger?: EntityLogger): V2C
       return totalSpent;
     },
 
-    getPhaseCosts(): Record<string, number> {
+    getPhaseCosts(): Partial<Record<AgentName, number>> {
       return { ...phaseCosts };
     },
 

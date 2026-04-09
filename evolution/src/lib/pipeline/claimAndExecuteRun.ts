@@ -9,6 +9,8 @@ import { buildRunContext, type ClaimedRun } from './setup/buildRunContext';
 import { evolveArticle } from './loop/runIterationLoop';
 import { finalizeRun, syncToArena } from './finalize/persistRunResults';
 import { classifyError } from './classifyError';
+import type { AgentName } from '../core/agentNames';
+import { writeMetricMax } from '../metrics/writeMetrics';
 
 export type { ClaimedRun } from './setup/buildRunContext';
 
@@ -156,7 +158,7 @@ export async function claimAndExecuteRun(
 
   try {
     const llmProvider: LLMProvider = {
-      async complete(prompt: string, label: string, opts?: { model?: string }): Promise<string> {
+      async complete(prompt: string, label: AgentName, opts?: { model?: string }): Promise<string> {
         return callLLM(
           prompt,
           `evolution_${label}`,
@@ -196,7 +198,7 @@ export async function claimAndExecuteRun(
 // ─── Shared execution logic ──────────────────────────────────────
 
 interface LLMProvider {
-  complete(prompt: string, label: string, opts?: { model?: string }): Promise<string>;
+  complete(prompt: string, label: AgentName, opts?: { model?: string }): Promise<string>;
 }
 
 /** Build context, run evolution loop, finalize, sync arena. Re-throws on failure. */
@@ -214,6 +216,21 @@ async function executePipeline(
     .from('evolution_runs')
     .update({ status: 'running' })
     .eq('id', runId);
+
+  // Ensure cost metric rows exist even for runs that fail before any LLM call.
+  // GREATEST upsert means these zeros never overwrite real values written later.
+  // Per supabase/migrations/20260323000002_fix_stale_claim_expiry.sql, runs with
+  // stale heartbeats become status='failed' and are never re-claimed, so each runId
+  // corresponds to exactly one execution attempt — no reset/DELETE needed.
+  for (const metricName of ['cost', 'generation_cost', 'ranking_cost'] as const) {
+    try {
+      await writeMetricMax(db, 'run', runId, metricName, 0, 'during_execution');
+    } catch (e) {
+      logger.warn('Cost metric zero-init failed (non-fatal)', {
+        runId, metricName, err: e instanceof Error ? e.message : String(e),
+      });
+    }
+  }
 
   const contextResult = await buildRunContext(runId, claimedRun, db, llmProvider);
   if ('error' in contextResult) {

@@ -119,3 +119,42 @@ export async function writeMetric(
     source: opts?.source,
   }], timing);
 }
+
+/**
+ * Race-fixed upsert for monotonically-increasing metrics. Calls the `upsert_metric_max`
+ * Postgres RPC which uses ON CONFLICT DO UPDATE SET value = GREATEST(...) so concurrent
+ * out-of-order writes can never overwrite a larger value with a smaller one.
+ *
+ * Validates timing the same way `writeMetric` does — the metric must be declared in the
+ * appropriate phase of `METRIC_REGISTRY` for its entity type.
+ */
+export async function writeMetricMax(
+  db: SupabaseClient,
+  entityType: EntityType,
+  entityId: string,
+  metricName: MetricName,
+  value: number,
+  timing: MetricTiming,
+): Promise<void> {
+  if (!Number.isFinite(value)) {
+    throw new Error(`writeMetricMax: value must be finite, got ${value} for metric '${metricName}' on ${entityType}/${entityId}`);
+  }
+  validateTiming([{
+    entity_type: entityType,
+    entity_id: entityId,
+    metric_name: metricName,
+    value,
+  }], timing);
+
+  const { error } = await db.rpc('upsert_metric_max', {
+    p_entity_type: entityType,
+    p_entity_id: entityId,
+    p_metric_name: metricName,
+    p_value: value,
+    p_source: timing,
+  });
+
+  if (error) {
+    throw new Error(`Failed to write max metric '${metricName}': ${error.message}`);
+  }
+}

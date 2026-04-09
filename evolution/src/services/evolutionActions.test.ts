@@ -1,5 +1,5 @@
 // Tests for V2 evolution run server actions: list, get, cost breakdown, logs, kill, variants, archive.
-// Verifies V2 schema (no total_cost_usd column on runs, strategy_id, run_summary, budget_cap_usd).
+// Verifies V2 schema (cost sourced from evolution_metrics rows, strategy_id, run_summary, budget_cap_usd).
 
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import { requireAdmin } from '@/lib/services/adminAuth';
@@ -91,10 +91,12 @@ describe('evolutionActions', () => {
   describe('getEvolutionRunsAction', () => {
     it('returns runs enriched with costs and strategy names', async () => {
       const runs = [MOCK_RUN];
-      const costRows = [{ run_id: VALID_UUID, cost_usd: 1.5 }, { run_id: VALID_UUID, cost_usd: 1.0 }];
       const strategies = [{ id: VALID_UUID_2, name: 'My Strategy' }];
+      const metricsRows = [
+        { entity_id: VALID_UUID, metric_name: 'cost', value: 2.5, sigma: null, ci_lower: null, ci_upper: null, n: 1, source: 'during_execution', stale: false },
+      ];
 
-      // from() calls in order: evolution_runs, evolution_agent_invocations (costs), evolution_strategies
+      // from() calls in order: evolution_runs, evolution_metrics (cost), evolution_strategies
       const mock = createTableAwareMock([
         // evolution_runs
         (b) => {
@@ -102,10 +104,10 @@ describe('evolutionActions', () => {
             resolve({ data: runs, error: null })
           );
         },
-        // evolution_agent_invocations (costs)
+        // evolution_metrics (list-view metrics for runs)
         (b) => {
           b.then = jest.fn((resolve: (v: unknown) => void) =>
-            resolve({ data: costRows, error: null })
+            resolve({ data: metricsRows, error: null })
           );
         },
         // evolution_strategies (for strategy names)
@@ -121,29 +123,12 @@ describe('evolutionActions', () => {
 
       expect(result.success).toBe(true);
       expect(result.data!.items).toHaveLength(1);
-      expect(result.data!.items[0]!.total_cost_usd).toBe(2.5);
+      const costRow = result.data!.items[0]!.metrics?.find(m => m.metric_name === 'cost');
+      expect(costRow?.value).toBe(2.5);
       expect(result.data!.items[0]!.strategy_name).toBe('My Strategy');
     });
 
-    it('returns zero cost when invocations have null cost_usd', async () => {
-      const runs = [MOCK_RUN];
-      const costRows = [{ run_id: VALID_UUID, cost_usd: null }, { run_id: VALID_UUID, cost_usd: 0.5 }];
-      const strategies = [{ id: VALID_UUID_2, name: 'My Strategy' }];
-
-      const mock = createTableAwareMock([
-        (b) => { b.then = jest.fn((resolve: (v: unknown) => void) => resolve({ data: runs, error: null })); },
-        (b) => { b.then = jest.fn((resolve: (v: unknown) => void) => resolve({ data: costRows, error: null })); },
-        (b) => { b.then = jest.fn((resolve: (v: unknown) => void) => resolve({ data: strategies, error: null })); },
-      ]);
-      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-
-      const result = await getEvolutionRunsAction(undefined);
-
-      expect(result.success).toBe(true);
-      expect(result.data!.items[0]!.total_cost_usd).toBe(0.5);
-    });
-
-    it('returns zero cost when no invocations exist for a run', async () => {
+    it('returns empty metrics array when no metric rows exist for a run', async () => {
       const runs = [MOCK_RUN];
 
       const mock = createTableAwareMock([
@@ -156,7 +141,7 @@ describe('evolutionActions', () => {
       const result = await getEvolutionRunsAction(undefined);
 
       expect(result.success).toBe(true);
-      expect(result.data!.items[0]!.total_cost_usd).toBe(0);
+      expect(result.data!.items[0]!.metrics).toEqual([]);
     });
 
     it('returns error on DB failure', async () => {
@@ -234,18 +219,20 @@ describe('evolutionActions', () => {
   // ─── getEvolutionRunByIdAction ───────────────────────────────
 
   describe('getEvolutionRunByIdAction', () => {
-    it('returns run with total_cost_usd and strategy_name', async () => {
+    it('returns run with metrics array and strategy_name', async () => {
+      const metricsRows = [
+        { entity_id: VALID_UUID, metric_name: 'cost', value: 1.23, sigma: null, ci_lower: null, ci_upper: null, n: 1, source: 'during_execution', stale: false },
+      ];
       const mock = createTableAwareMock([
         // evolution_runs single
         (b) => {
           b.single = jest.fn().mockResolvedValue({ data: MOCK_RUN, error: null });
         },
-        // evolution_agent_invocations (cost query)
+        // evolution_metrics (list-view metrics for the run)
         (b) => {
-          b.eq = jest.fn().mockResolvedValue({
-            data: [{ cost_usd: 0.73 }, { cost_usd: 0.50 }],
-            error: null,
-          });
+          b.then = jest.fn((resolve: (v: unknown) => void) =>
+            resolve({ data: metricsRows, error: null }),
+          );
         },
         // evolution_strategies single
         (b) => {
@@ -258,7 +245,8 @@ describe('evolutionActions', () => {
 
       expect(result.success).toBe(true);
       expect(result.data!.id).toBe(VALID_UUID);
-      expect(result.data!.total_cost_usd).toBe(1.23);
+      const costRow = result.data!.metrics?.find(m => m.metric_name === 'cost');
+      expect(costRow?.value).toBe(1.23);
       expect(result.data!.strategy_name).toBe('Strategy Alpha');
     });
 

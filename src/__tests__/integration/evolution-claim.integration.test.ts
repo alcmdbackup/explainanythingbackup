@@ -41,6 +41,11 @@ jest.mock('@evolution/lib/pipeline/finalize/persistRunResults', () => ({
   syncToArena: (...args: unknown[]) => mockSyncToArena(...args),
 }));
 
+const mockWriteMetricMax = jest.fn().mockResolvedValue(undefined);
+jest.mock('@evolution/lib/metrics/writeMetrics', () => ({
+  writeMetricMax: (...args: unknown[]) => mockWriteMetricMax(...args),
+}));
+
 import { claimAndExecuteRun } from '@evolution/lib/pipeline/claimAndExecuteRun';
 
 // ─── Helpers ─────────────────────────────────────────────────
@@ -189,5 +194,69 @@ describe('Evolution Claim Integration (Bug #1)', () => {
 
     const callArgs = mockRpc.mock.calls[0][1];
     expect(callArgs).not.toHaveProperty('p_run_id');
+  });
+
+  // ─── Phase 4b: empty-run cost zero-init ─────────────────────────
+  // Verifies that executePipeline calls writeMetricMax for cost / generation_cost / ranking_cost
+  // BEFORE buildRunContext, so even runs that fail before any LLM call have rows in
+  // evolution_metrics for downstream propagation. The fix lives in
+  // evolution/src/lib/pipeline/claimAndExecuteRun.ts inside executePipeline().
+
+  it('writes zero-init for cost / generation_cost / ranking_cost before buildRunContext', async () => {
+    const claimedRow = {
+      id: 'run-zero-init',
+      explanation_id: null,
+      prompt_id: null,
+      experiment_id: null,
+      strategy_id: 'strat-1',
+      budget_cap_usd: 1.0,
+    };
+    mockRpc.mockResolvedValue({ data: [claimedRow], error: null });
+
+    // buildRunContext will throw — simulating a failure before any LLM call. The
+    // zero-init writes must STILL have happened BEFORE this point.
+    mockBuildRunContext.mockRejectedValue(new Error('simulated buildRunContext failure'));
+
+    await claimAndExecuteRun({ runnerId: 'runner-zero-init' });
+
+    // Three writeMetricMax calls expected: cost, generation_cost, ranking_cost — all with value=0
+    expect(mockWriteMetricMax).toHaveBeenCalledTimes(3);
+    const metricNames = mockWriteMetricMax.mock.calls.map((c) => c[3]);
+    expect(metricNames).toEqual(['cost', 'generation_cost', 'ranking_cost']);
+    for (const call of mockWriteMetricMax.mock.calls) {
+      expect(call[1]).toBe('run');               // entityType
+      expect(call[2]).toBe('run-zero-init');      // entityId
+      expect(call[4]).toBe(0);                    // value
+      expect(call[5]).toBe('during_execution');   // timing
+    }
+
+    // Verify ordering: all 3 zero-init calls happened BEFORE buildRunContext
+    const initOrders = mockWriteMetricMax.mock.invocationCallOrder;
+    const buildOrder = mockBuildRunContext.mock.invocationCallOrder[0]!;
+    for (const initOrder of initOrders) {
+      expect(initOrder).toBeLessThan(buildOrder);
+    }
+  });
+
+  it('zero-init is non-fatal: writeMetricMax failure does not abort the pipeline', async () => {
+    const claimedRow = {
+      id: 'run-init-fail',
+      explanation_id: null,
+      prompt_id: null,
+      experiment_id: null,
+      strategy_id: 'strat-1',
+      budget_cap_usd: 1.0,
+    };
+    mockRpc.mockResolvedValue({ data: [claimedRow], error: null });
+
+    mockWriteMetricMax.mockRejectedValueOnce(new Error('simulated DB blip'));
+    mockBuildRunContext.mockRejectedValue(new Error('subsequent failure to short-circuit'));
+
+    // Should NOT throw despite the writeMetricMax rejection
+    const result = await claimAndExecuteRun({ runnerId: 'runner-init-fail' });
+    expect(result.claimed).toBe(true); // claim succeeded; pipeline failed downstream as expected
+
+    // All 3 zero-init calls were still attempted (try/catch around each)
+    expect(mockWriteMetricMax).toHaveBeenCalledTimes(3);
   });
 });

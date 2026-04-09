@@ -2,6 +2,7 @@
 
 import { FORMAT_RULES, validateFormat } from '../../shared/enforceVariantFormat';
 import type { EntityLogger } from '../infra/createEntityLogger';
+import type { AgentName } from '../../core/agentNames';
 
 const SEED_TIMEOUT_MS = 60_000;
 
@@ -78,7 +79,7 @@ export interface SeedResult {
  */
 export async function generateSeedArticle(
   promptText: string,
-  llm: { complete(prompt: string, label: string, opts?: { model?: string }): Promise<string> },
+  llm: { complete(prompt: string, label: AgentName, opts?: { model?: string }): Promise<string> },
   logger?: EntityLogger,
   model?: string,
 ): Promise<SeedResult> {

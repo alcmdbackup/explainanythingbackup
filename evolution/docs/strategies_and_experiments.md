@@ -120,15 +120,18 @@ For scalar metrics (cost, totalVariants, eloPer$), `bootstrapMeanCI()` resamples
 
 Strategy metrics in `evolution_metrics` include:
 
-| metric_name       | Description                                            |
-|-------------------|--------------------------------------------------------|
-| `cost`            | Total cost across all runs (aggregation: sum)          |
-| `run_count`       | Total completed runs (aggregation: count)              |
-| `avg_final_elo`   | Mean final Elo with bootstrap CI                       |
-| `best_final_elo`  | Highest final Elo achieved (aggregation: max)          |
-| `worst_final_elo` | Lowest final Elo achieved (aggregation: min)           |
-| `medianElo`       | Median Elo with percentile bootstrap CI                |
-| `eloPer$`         | Efficiency metric with bootstrap CI                    |
+| metric_name                     | Source metric (run) | Aggregation     | Description                                  |
+|---------------------------------|---------------------|-----------------|----------------------------------------------|
+| `total_cost`                    | `cost`              | sum             | Total cost across all runs                   |
+| `avg_cost_per_run`              | `cost`              | avg             | Mean cost per run                            |
+| `total_generation_cost`         | `generation_cost`   | sum             | Total generation spend across runs           |
+| `avg_generation_cost_per_run`   | `generation_cost`   | avg             | Mean generation spend per run                |
+| `total_ranking_cost`            | `ranking_cost`      | sum             | Total ranking spend across runs              |
+| `avg_ranking_cost_per_run`      | `ranking_cost`      | avg             | Mean ranking spend per run                   |
+| `run_count`                     | `cost`              | count           | Total completed runs                         |
+| `avg_final_elo`                 | `winner_elo`        | bootstrap_mean  | Mean final Elo with bootstrap CI             |
+| `best_final_elo`                | `winner_elo`        | max             | Highest final Elo achieved                   |
+| `worst_final_elo`               | `winner_elo`        | min             | Lowest final Elo achieved                    |
 
 The derived metric **eloPer$** is computed as:
 

@@ -292,33 +292,11 @@ export async function finalizeRun(
         }
       }
 
-      // Run-level cost aggregates (Phase 9b/9f) — bucket invocation cost_usd by agent_name.
-      // We deliberately do NOT use execution_detail.{generation,ranking}.cost sub-totals here:
-      // those are computed by per-agent costTracker.getTotalSpent() deltas which race against
-      // OTHER concurrent agents in the same iteration (the tracker is shared). The race
-      // produces inflated per-agent costs; bucketing by agent_name uses cost_usd directly
-      // which sums correctly to the run total. generate_from_seed_article is treated as
-      // 50/50 generation/ranking — a coarse approximation but at least the totals are
-      // bounded by the real run cost. The accurate split would require a non-shared
-      // per-call cost tracker, which is a follow-up.
-      let totalGenerationCost = 0;
-      let totalRankingCost = 0;
-      for (const inv of invocations as Array<{ agent_name: string; cost_usd: number | null }>) {
-        const cost = Number(inv.cost_usd ?? 0);
-        if (!Number.isFinite(cost) || cost === 0) continue;
-        if (inv.agent_name === 'generate_from_seed_article') {
-          totalGenerationCost += cost / 2;
-          totalRankingCost += cost / 2;
-        } else if (inv.agent_name === 'swiss_ranking') {
-          totalRankingCost += cost;
-        } else if (inv.agent_name === 'generation') {
-          totalGenerationCost += cost;
-        } else if (inv.agent_name === 'ranking') {
-          totalRankingCost += cost;
-        }
-      }
-      await writeMetric(db, 'run', runId, 'total_generation_cost' as MetricName, totalGenerationCost, 'at_finalization');
-      await writeMetric(db, 'run', runId, 'total_ranking_cost' as MetricName, totalRankingCost, 'at_finalization');
+      // Note: per-purpose cost split (generation_cost / ranking_cost) is no longer
+      // computed here. createLLMClient writes those metrics live during execution via
+      // writeMetricMax (race-fixed Postgres GREATEST upsert) keyed by the typed AgentName
+      // label passed to llm.complete(). Propagation to strategy/experiment picks them up
+      // automatically via the new SHARED_PROPAGATION_DEFS entries.
     }
 
     // Variant-level finalization metrics

@@ -1,6 +1,7 @@
 'use client';
 // Shared configurable runs table for evolution dashboard and pipeline runs pages.
-// V2 schema: no phase/current_iteration columns; cost comes from enriched total_cost_usd field.
+// V2 schema: no phase/current_iteration columns; cost is read from the run's `metrics`
+// array (looking up the `cost` metric row from `evolution_metrics`).
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -9,6 +10,11 @@ import { TableSkeleton } from './TableSkeleton';
 import { EmptyState } from '../primitives/EmptyState';
 import { buildExplanationUrl, buildRunUrl } from '@evolution/lib/utils/evolutionUrls';
 import { formatCost, formatDate } from '@evolution/lib/utils/formatters';
+import type { MetricRow } from '@evolution/lib/metrics/types';
+
+function getMetricValue(metrics: MetricRow[] | undefined, name: string): number {
+  return metrics?.find(m => m.metric_name === name)?.value ?? 0;
+}
 
 function getProgressBarColor(pct: number): string {
   if (pct >= 0.9) return 'bg-[var(--status-error)]';
@@ -35,7 +41,8 @@ export interface BaseRun {
   id: string;
   explanation_id: number | null;
   status: string;
-  total_cost_usd?: number;
+  /** Metric rows from evolution_metrics, including cost / generation_cost / ranking_cost. */
+  metrics?: MetricRow[];
   budget_cap_usd: number;
   error_message: string | null;
   completed_at: string | null;
@@ -109,7 +116,7 @@ export function getBaseColumns<T extends BaseRun>(): RunsColumnDef<T>[] {
       header: 'Spent',
       align: 'right',
       render: (run) => {
-        const cost = run.total_cost_usd ?? 0;
+        const cost = getMetricValue(run.metrics, 'cost');
         const pct = run.budget_cap_usd > 0 ? cost / run.budget_cap_usd : 0;
         const isActive = run.status === 'running' || run.status === 'claimed';
         return (
