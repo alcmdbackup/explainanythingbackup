@@ -236,7 +236,7 @@ detect-changes → typecheck + lint (parallel)
 | **Branch** | PR branch | main | production |
 | **Test types** | Unit → Integration + E2E (parallel) | E2E only | E2E `@smoke` only |
 | **Target** | Local build | Local build | Live production URL |
-| **Secrets** | Development environment | Development environment | Production environment |
+| **Secrets** | Staging environment | Staging environment | Production environment |
 | **Browsers** | Chromium | Chromium + Firefox | Chromium |
 
 > **Note:** CI and Nightly workflows build and run the app locally on the GitHub runner (`npm run build && npm start`). They do NOT test against any deployed environment. Only the Post-Deploy Smoke workflow tests against a live deployment.
@@ -253,12 +253,13 @@ Available to all workflows - API keys that don't change between environments:
 |--------|---------|
 | `OPENAI_API_KEY` | OpenAI API key |
 | `DEEPSEEK_API_KEY` | DeepSeek API key (evolution pipeline) |
+| `ANTHROPIC_API_KEY` | Anthropic API key (Claude models) |
 | `OPENROUTER_API_KEY` | OpenRouter API key (openai/gpt-oss-20b) |
 | `PINECONE_API_KEY` | Pinecone API key |
 
-#### Development Environment Secrets
+#### Staging Environment Secrets
 
-Used by `ci.yml` and `e2e-nightly.yml` with `environment: Development`:
+Used by `ci.yml` and `e2e-nightly.yml` with `environment: staging`:
 
 | Secret | Value |
 |--------|-------|

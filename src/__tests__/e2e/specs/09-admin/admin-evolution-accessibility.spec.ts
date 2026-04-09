@@ -3,16 +3,19 @@
 
 import { adminTest, expect } from '../../fixtures/admin-auth';
 import { createClient } from '@supabase/supabase-js';
+import type { Database } from '@/lib/database.types';
 import { randomUUID } from 'crypto';
 
 function getServiceClient() {
-  return createClient(
+  return createClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
   );
 }
 
 adminTest.describe('Evolution Accessibility', { tag: '@evolution' }, () => {
+  adminTest.describe.configure({ mode: 'serial' });
+
   const testPrefix = `e2e-a11y-${Date.now()}`;
   let strategyId: string;
   let promptId: string;
@@ -68,19 +71,12 @@ adminTest.describe('Evolution Accessibility', { tag: '@evolution' }, () => {
     await adminPage.goto('/admin/evolution/strategies');
     await adminPage.waitForLoadState('domcontentloaded');
 
-    // Uncheck "Hide test content" so seeded test data appears
-    const filterCheckbox = adminPage.locator('[data-testid="filter-filterTestContent"] input[type="checkbox"]');
-    await expect(filterCheckbox).toBeVisible({ timeout: 10000 });
-    if (await filterCheckbox.isChecked()) {
-      await filterCheckbox.click();
-    }
-
-    // Wait for the table to render
-    const table = adminPage.locator('table');
-    await expect(table.first()).toBeVisible({ timeout: 15000 });
+    // Wait for EntityListPage table to render with data (entity-list-table testid)
+    const table = adminPage.locator('[data-testid="entity-list-table"] table');
+    await expect(table).toBeVisible({ timeout: 20000 });
 
     // Get all <th> elements
-    const headers = table.first().locator('thead th');
+    const headers = table.locator('thead th');
     const headerCount = await headers.count();
     expect(headerCount).toBeGreaterThan(0);
 
@@ -95,17 +91,11 @@ adminTest.describe('Evolution Accessibility', { tag: '@evolution' }, () => {
     await adminPage.goto('/admin/evolution/prompts');
     await adminPage.waitForLoadState('domcontentloaded');
 
-    // Uncheck "Hide test content" so seeded test data appears
-    const filterCheckbox = adminPage.locator('[data-testid="filter-filterTestContent"] input[type="checkbox"]');
-    await expect(filterCheckbox).toBeVisible({ timeout: 10000 });
-    if (await filterCheckbox.isChecked()) {
-      await filterCheckbox.click();
-    }
+    // Wait for EntityListPage table to render with data
+    const table = adminPage.locator('[data-testid="entity-list-table"] table');
+    await expect(table).toBeVisible({ timeout: 20000 });
 
-    const table = adminPage.locator('table');
-    await expect(table.first()).toBeVisible({ timeout: 15000 });
-
-    const headers = table.first().locator('thead th');
+    const headers = table.locator('thead th');
     const headerCount = await headers.count();
     expect(headerCount).toBeGreaterThan(0);
 
@@ -119,17 +109,11 @@ adminTest.describe('Evolution Accessibility', { tag: '@evolution' }, () => {
     await adminPage.goto('/admin/evolution/arena');
     await adminPage.waitForLoadState('domcontentloaded');
 
-    // Uncheck "Hide test content" so seeded test data appears
-    const filterCheckbox = adminPage.locator('[data-testid="filter-filterTestContent"] input[type="checkbox"]');
-    await expect(filterCheckbox).toBeVisible({ timeout: 10000 });
-    if (await filterCheckbox.isChecked()) {
-      await filterCheckbox.click();
-    }
+    // Wait for EntityListPage table to render with data
+    const table = adminPage.locator('[data-testid="entity-list-table"] table');
+    await expect(table).toBeVisible({ timeout: 20000 });
 
-    const table = adminPage.locator('table');
-    await expect(table.first()).toBeVisible({ timeout: 15000 });
-
-    const headers = table.first().locator('thead th');
+    const headers = table.locator('thead th');
     const headerCount = await headers.count();
     expect(headerCount).toBeGreaterThan(0);
 

@@ -275,17 +275,25 @@ test.describe('Action Buttons', () => {
         { timeout: 5000 }
       );
 
-      // Verify content is preserved (editor should still have content)
-      const plaintextContent = await resultsPage.getContent();
+      // Verify content is preserved (in plaintext mode, content lives in the textarea,
+      // not in [data-testid="explanation-content"], so read the textarea value directly)
+      const plaintextContent = await textarea.inputValue();
       expect(plaintextContent).toBeTruthy();
 
       // Toggle back to markdown mode
       await resultsPage.clickFormatToggle();
       expect(await resultsPage.isMarkdownMode()).toBe(true);
 
-      // Verify content is still preserved after round-trip
-      const restoredContent = await resultsPage.getContent();
-      expect(restoredContent).toEqual(initialContent);
+      // Verify content is still preserved after round-trip. The markdown re-render
+      // briefly shows a "Content will appear here..." placeholder before remounting,
+      // and a strict equality check races with that re-mount. Use polling expect()
+      // so Playwright auto-retries until the real content reappears.
+      await expect
+        .poll(
+          async () => await resultsPage.getContent(),
+          { timeout: 10000 }
+        )
+        .toEqual(initialContent);
     });
   });
 

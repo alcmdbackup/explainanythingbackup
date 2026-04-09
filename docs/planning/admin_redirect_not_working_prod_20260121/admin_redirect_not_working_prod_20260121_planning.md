@@ -20,7 +20,7 @@ Add the user directly to the production `admin_users` table via Supabase SQL Edi
 **Cons**: Manual process, could be forgotten again for new admins
 
 ### Option 2: Add Production Admin Test Credentials (Recommended Long-term)
-Configure `ADMIN_TEST_EMAIL` and `ADMIN_TEST_PASSWORD` in the Production GitHub environment secrets so smoke tests can verify admin access works.
+Configure `TEST_USER_EMAIL` and `TEST_USER_PASSWORD` in the Production GitHub environment secrets so smoke tests can verify admin access works.
 
 **Pros**: Catches this issue automatically in post-deploy tests
 **Cons**: Requires creating/maintaining a production admin test user
@@ -47,7 +47,7 @@ ON CONFLICT (user_id) DO NOTHING;
 ```
 
 ### Phase 2: Testing Gap Fix (Code Change)
-1. Add `ADMIN_TEST_EMAIL` and `ADMIN_TEST_PASSWORD` to Production environment secrets in GitHub
+1. Add `TEST_USER_EMAIL` and `TEST_USER_PASSWORD` to Production environment secrets in GitHub
 2. Ensure a corresponding admin user exists in production (can be same as TEST_USER or separate)
 3. Add `@smoke` tag to critical admin test in `admin-auth.spec.ts`
 4. Update post-deploy smoke workflow to run admin tests
@@ -69,5 +69,5 @@ ON CONFLICT (user_id) DO NOTHING;
 - [ ] Run post-deploy smoke test and verify it includes admin test
 
 ## Documentation Updates
-- `docs/docs_overall/environments.md` - Add `ADMIN_TEST_EMAIL`/`ADMIN_TEST_PASSWORD` to Production environment secrets table
+- `docs/docs_overall/environments.md` - Add `TEST_USER_EMAIL`/`TEST_USER_PASSWORD` to Production environment secrets table
 - Add note about ensuring admin users exist in both Dev and Prod databases

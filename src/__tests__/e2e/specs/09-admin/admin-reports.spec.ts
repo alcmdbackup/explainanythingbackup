@@ -62,7 +62,7 @@ adminTest.describe('Admin Content Reports', () => {
       await reportsPage.filterByStatus('pending');
 
       // All visible status badges should be pending
-      const statusBadges = reportsPage.table.locator('tbody tr td:nth-child(4) span');
+      const statusBadges = reportsPage.table.locator('tbody tr td:nth-child(5) span');
       const count = await statusBadges.count();
       for (let i = 0; i < Math.min(count, 5); i++) {
         const badge = statusBadges.nth(i);
@@ -156,6 +156,7 @@ adminTest.describe('Admin Content Reports', () => {
       const detailsButton = reportsPage.getDetailsButton(testReportId);
 
       // If our test report is visible with details, test the modal
+      // eslint-disable-next-line flakiness/no-point-in-time-checks -- control flow, not assertion
       if (await detailsButton.isVisible()) {
         await reportsPage.openDetailsModal(testReportId);
         await expect(reportsPage.detailModal).toBeVisible();
@@ -166,6 +167,7 @@ adminTest.describe('Admin Content Reports', () => {
       } else {
         // Find any report with details
         const anyDetailsButton = reportsPage.page.locator('[data-testid^="admin-reports-details-"]').first();
+        // eslint-disable-next-line flakiness/no-point-in-time-checks -- control flow, not assertion
         if (await anyDetailsButton.isVisible()) {
           await anyDetailsButton.click();
           await expect(reportsPage.detailModal).toBeVisible();

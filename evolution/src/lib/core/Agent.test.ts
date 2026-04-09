@@ -3,8 +3,9 @@
 import { Agent } from './Agent';
 import type { AgentContext, AgentOutput, DetailFieldDef } from './types';
 import { BudgetExceededError, BudgetExceededWithPartialResults, ExecutionDetailBase } from '../types';
-import { GenerationAgent } from './agents/GenerationAgent';
-import { RankingAgent } from './agents/RankingAgent';
+import { GenerateFromSeedArticleAgent } from './agents/generateFromSeedArticle';
+import { SwissRankingAgent } from './agents/SwissRankingAgent';
+import { MergeRatingsAgent } from './agents/MergeRatingsAgent';
 import { z } from 'zod';
 
 // ─── Mock dependencies ──────────────────────────────────────────
@@ -71,6 +72,8 @@ function createMockContext(overrides?: Partial<AgentContext>): AgentContext {
       judgeModel: 'gpt-4o',
       generationModel: 'gpt-4o',
     },
+    invocationId: '',
+    randomSeed: BigInt(0),
     ...overrides,
   };
 }
@@ -245,15 +248,66 @@ describe('Agent abstract class', () => {
     });
   });
 
+  describe('run() - detail parse failure writes null detail to DB', () => {
+    it('writes undefined execution_detail when detail fails schema validation', async () => {
+      const agent = new TestAgent(async () => ({
+        result: 'ok',
+        detail: { detailType: 'wrong', totalCost: 'not-a-number' } as any,
+      }));
+      const ctx = createMockContext();
+
+      const result = await agent.run('hello', ctx);
+
+      expect(result.success).toBe(true);
+      // Verify that execution_detail is undefined (not the invalid detail)
+      const updateCall = updateInvocation.mock.calls[0][2];
+      expect(updateCall.execution_detail).toBeUndefined();
+      expect(ctx.logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('writing null detail to DB'),
+        expect.any(Object),
+      );
+    });
+  });
+
+  describe('run() - threads invocationId into ctx (Critical Fix H)', () => {
+    it('passes the createInvocation result through to execute() via ctx.invocationId', async () => {
+      let observedInvocationId: string | undefined;
+      const agent = new TestAgent(async (_input, ctx) => {
+        observedInvocationId = ctx.invocationId;
+        return { result: 'ok', detail: { detailType: 'test', totalCost: 0 } };
+      });
+      const ctx = createMockContext();
+      await agent.run('hello', ctx);
+      expect(observedInvocationId).toBe('inv-123');
+    });
+
+    it('passes empty string when createInvocation returns null', async () => {
+      (createInvocation as jest.Mock).mockResolvedValueOnce(null);
+      let observedInvocationId: string | undefined;
+      const agent = new TestAgent(async (_input, ctx) => {
+        observedInvocationId = ctx.invocationId;
+        return { result: 'ok', detail: { detailType: 'test', totalCost: 0 } };
+      });
+      await agent.run('hello', createMockContext());
+      expect(observedInvocationId).toBe('');
+    });
+  });
+
   describe('detailViewConfig on concrete agents', () => {
-    it('GenerationAgent has a non-empty detailViewConfig', () => {
-      const agent = new GenerationAgent();
+    it('GenerateFromSeedArticleAgent has a non-empty detailViewConfig', () => {
+      const agent = new GenerateFromSeedArticleAgent();
       expect(Array.isArray(agent.detailViewConfig)).toBe(true);
       expect(agent.detailViewConfig.length).toBeGreaterThan(0);
     });
 
-    it('RankingAgent has a non-empty detailViewConfig', () => {
-      const agent = new RankingAgent();
+    it('SwissRankingAgent has a non-empty detailViewConfig', () => {
+      const agent = new SwissRankingAgent();
+      expect(Array.isArray(agent.detailViewConfig)).toBe(true);
+      expect(agent.detailViewConfig.length).toBeGreaterThan(0);
+    });
+
+    it('MergeRatingsAgent has a non-empty detailViewConfig', () => {
+      const agent = new MergeRatingsAgent();
       expect(Array.isArray(agent.detailViewConfig)).toBe(true);
       expect(agent.detailViewConfig.length).toBeGreaterThan(0);
     });

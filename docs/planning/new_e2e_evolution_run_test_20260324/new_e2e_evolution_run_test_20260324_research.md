@@ -86,7 +86,7 @@ This test should use `{ tag: '@evolution' }` to run on production PRs. It should
 **Secrets available in CI**:
 - `OPENAI_API_KEY` — repository-level, available in all workflows
 - `SUPABASE_SERVICE_ROLE_KEY` — environment-level (staging for main PRs, production for nightly)
-- `ADMIN_TEST_EMAIL` / `ADMIN_TEST_PASSWORD` — for admin auth fixture
+- `TEST_USER_EMAIL` / `TEST_USER_PASSWORD` — for admin auth fixture
 
 **Timeout**: Evolution runs with $0.02 budget and 1 iteration should complete in 30-60 seconds. CI timeout for evolution tests is 30 minutes. Test should use `test.slow()` to triple the default timeout.
 

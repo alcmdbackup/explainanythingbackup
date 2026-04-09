@@ -1,4 +1,4 @@
-// Unit tests for stale metric recomputation with SKIP LOCKED concurrency protection.
+// Unit tests for stale metric recomputation with atomic claim-and-clear concurrency protection.
 
 import { recomputeStaleMetrics } from './recomputeMetrics';
 import type { MetricRow, EntityType } from './types';
@@ -79,9 +79,15 @@ function makeMockDb(options?: {
       if (table === 'evolution_variants') {
         return {
           select: jest.fn(() => ({
-            eq: jest.fn(() =>
-              Promise.resolve({ data: options?.variants ?? [], error: null }),
-            ),
+            // Chain supports .eq(run_id).eq(persisted) per Phase 9z filter.
+            eq: jest.fn(() => ({
+              eq: jest.fn(() =>
+                Promise.resolve({ data: options?.variants ?? [], error: null }),
+              ),
+              // Backward-compat: still allow single-eq awaitable.
+              then: (resolve: (v: { data: unknown[]; error: null }) => unknown) =>
+                resolve({ data: options?.variants ?? [], error: null }),
+            })),
           })),
         };
       }
@@ -142,10 +148,11 @@ describe('recomputeStaleMetrics', () => {
       p_metric_names: ['winner_elo', 'median_elo'],
     });
 
-    // writeMetric should be called for all 7 finalization metrics
-    expect(mockWriteMetric).toHaveBeenCalledTimes(7);
+    // writeMetric should be called for 5 finalization metrics (match-dependent metrics skipped)
+    expect(mockWriteMetric).toHaveBeenCalledTimes(5);
     const writtenNames = mockWriteMetric.mock.calls.map((c: unknown[]) => c[3]);
-    expect(writtenNames).toEqual(['winner_elo', 'median_elo', 'p90_elo', 'max_elo', 'total_matches', 'decisive_rate', 'variant_count']);
+    // total_matches and decisive_rate are skipped because matchHistory cannot be reconstructed from DB
+    expect(writtenNames).toEqual(['winner_elo', 'median_elo', 'p90_elo', 'max_elo', 'variant_count']);
   });
 
   it('recomputeRunEloMetrics reads variant mu/sigma and writes computed values', async () => {
@@ -159,8 +166,8 @@ describe('recomputeStaleMetrics', () => {
 
     await recomputeStaleMetrics(db, 'run', 'run-1', staleRows);
 
-    // All 7 finalization metrics are always recomputed together
-    expect(mockWriteMetric).toHaveBeenCalledTimes(7);
+    // 5 finalization metrics recomputed (match-dependent total_matches and decisive_rate skipped)
+    expect(mockWriteMetric).toHaveBeenCalledTimes(5);
 
     // Verify each call passes ('run', 'run-1', metric_name, value, 'at_finalization')
     for (const call of mockWriteMetric.mock.calls) {
@@ -173,7 +180,7 @@ describe('recomputeStaleMetrics', () => {
     }
   });
 
-  it('clears stale flag after successful recompute', async () => {
+  it('does not issue update call on success — RPC already cleared stale', async () => {
     const staleRows = [makeStaleRow('winner_elo')];
     const { db, updateCalls } = makeMockDb({
       variants: [{ id: 'v1', mu: 25, sigma: 8 }],
@@ -181,9 +188,24 @@ describe('recomputeStaleMetrics', () => {
 
     await recomputeStaleMetrics(db, 'run', 'run-1', staleRows);
 
-    // The update call should set stale: false
+    // No update call needed — the RPC atomically set stale=false
+    expect(updateCalls).toHaveLength(0);
+  });
+
+  it('re-marks stale=true on recomputation failure so next reader retries', async () => {
+    const staleRows = [makeStaleRow('winner_elo')];
+    const { db, updateCalls } = makeMockDb({
+      variants: [{ id: 'v1', mu: 25, sigma: 8 }],
+    });
+
+    // Make writeMetric throw to simulate recomputation failure
+    mockWriteMetric.mockRejectedValueOnce(new Error('DB write failed'));
+
+    await expect(recomputeStaleMetrics(db, 'run', 'run-1', staleRows)).rejects.toThrow('DB write failed');
+
+    // Should have re-marked stale=true in the catch block
     expect(updateCalls).toHaveLength(1);
-    expect(updateCalls[0]!.payload).toMatchObject({ stale: false });
+    expect(updateCalls[0]!.payload).toMatchObject({ stale: true });
   });
 
   it('handles empty variant array gracefully — no errors', async () => {
@@ -206,7 +228,7 @@ describe('recomputeStaleMetrics', () => {
     expect(rpcCalls).toHaveLength(0);
   });
 
-  it('returns early when SKIP LOCKED returns empty (no rows locked)', async () => {
+  it('returns early when claim-and-clear returns empty (another request claimed)', async () => {
     const staleRows = [makeStaleRow('winner_elo')];
     const { db, updateCalls } = makeMockDb({ lockResult: [] });
 
@@ -217,7 +239,7 @@ describe('recomputeStaleMetrics', () => {
     expect(updateCalls).toHaveLength(0);
   });
 
-  it('returns early when SKIP LOCKED returns null', async () => {
+  it('returns early when claim-and-clear returns null', async () => {
     const staleRows = [makeStaleRow('winner_elo')];
     const { db, updateCalls } = makeMockDb({ lockResult: null });
 
@@ -235,7 +257,7 @@ describe('recomputeStaleMetrics', () => {
     await recomputeStaleMetrics(db, 'strategy', 'strat-1', staleRows);
   });
 
-  it('H4: recomputes total_matches and variant_count when stale (not just elo)', async () => {
+  it('H4: recomputes variant_count when stale but skips match-dependent metrics', async () => {
     const staleRows = [makeStaleRow('total_matches'), makeStaleRow('variant_count')];
     const { db } = makeMockDb({
       variants: [
@@ -246,12 +268,13 @@ describe('recomputeStaleMetrics', () => {
 
     await recomputeStaleMetrics(db, 'run', 'run-1', staleRows);
 
-    // All 7 finalization metrics should be recomputed (not just the 4 elo ones)
-    expect(mockWriteMetric).toHaveBeenCalledTimes(7);
+    // 5 metrics recomputed — total_matches and decisive_rate skipped (match-dependent)
+    expect(mockWriteMetric).toHaveBeenCalledTimes(5);
     const writtenNames = mockWriteMetric.mock.calls.map((c: unknown[]) => c[3]);
-    expect(writtenNames).toContain('total_matches');
     expect(writtenNames).toContain('variant_count');
-    expect(writtenNames).toContain('decisive_rate');
+    // Match-dependent metrics preserved with existing values (not overwritten with zeros)
+    expect(writtenNames).not.toContain('total_matches');
+    expect(writtenNames).not.toContain('decisive_rate');
   });
 
   it('experiment entity type with no completed runs — no errors', async () => {

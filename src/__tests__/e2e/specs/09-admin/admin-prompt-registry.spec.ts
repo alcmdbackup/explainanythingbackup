@@ -6,6 +6,7 @@
 
 import { adminTest, expect } from '../../fixtures/admin-auth';
 import { createClient } from '@supabase/supabase-js';
+import type { Database } from '@/lib/database.types';
 import * as dotenv from 'dotenv';
 import * as path from 'path';
 
@@ -15,7 +16,7 @@ adminTest.describe('Prompt Registry CRUD', () => {
   const testPromptTitle = `[E2E] Test Prompt ${Date.now()}`;
 
   adminTest.afterAll(async () => {
-    const supabase = createClient(
+    const supabase = createClient<Database>(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!,
     );
@@ -40,14 +41,21 @@ adminTest.describe('Prompt Registry CRUD', () => {
 
   adminTest('create, edit, and delete a prompt @critical', async ({ adminPage }) => {
     // Navigate to prompts page
-    await adminPage.goto('/admin/evolution/prompts');
-    await expect(adminPage.getByText('Prompts')).toBeVisible();
+    await adminPage.goto('/admin/evolution/prompts', { timeout: 30000 });
+    await expect(adminPage.locator('main').getByRole('heading', { name: 'Prompts' })).toBeVisible({ timeout: 15000 });
 
     // Create prompt
     await adminPage.getByTestId('header-action').click();
     await adminPage.getByRole('textbox', { name: /name/i }).first().fill(testPromptTitle);
     await adminPage.getByRole('textbox', { name: /prompt/i }).first().fill('Explain photosynthesis to a 10-year-old');
     await adminPage.getByRole('button', { name: /save|submit|create/i }).click();
+
+    // Uncheck "Hide test content" to see [E2E] prefixed prompts
+    const hideTestCheckbox = adminPage.locator('[data-testid="filter-filterTestContent"] input[type="checkbox"]');
+    // eslint-disable-next-line flakiness/no-point-in-time-checks -- control flow, not assertion
+    if (await hideTestCheckbox.isChecked()) {
+      await hideTestCheckbox.click();
+    }
 
     // Verify prompt appears in table
     await expect(adminPage.getByText(testPromptTitle)).toBeVisible({ timeout: 10000 });
@@ -65,9 +73,12 @@ adminTest.describe('Prompt Registry CRUD', () => {
     // Delete prompt
     const editedRow = adminPage.locator('tr', { hasText: `${testPromptTitle} (edited)` });
     await editedRow.getByText('Delete').click();
-    await adminPage.getByRole('button', { name: /delete/i }).last().click();
+    // Wait for confirmation dialog, then click the danger/confirm delete button
+    const confirmDialog = adminPage.locator('div[role="dialog"]');
+    await expect(confirmDialog).toBeVisible();
+    await confirmDialog.getByRole('button', { name: /delete/i }).click();
 
-    // Verify deleted (row should disappear)
-    await expect(adminPage.getByText(`${testPromptTitle} (edited)`)).not.toBeVisible({ timeout: 5000 });
+    // Verify deleted (row should disappear from table — allow time for server action + reload)
+    await expect(adminPage.locator('[data-testid="entity-list-table"]').getByText(`${testPromptTitle} (edited)`)).not.toBeVisible({ timeout: 15000 });
   });
 });

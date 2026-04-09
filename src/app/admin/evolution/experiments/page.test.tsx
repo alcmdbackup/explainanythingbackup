@@ -66,13 +66,13 @@ describe('ExperimentsListPage', () => {
     expect(checkbox.checked).toBe(true);
   });
 
-  it('F31: status filter has all 5 options (All, Draft, Running, Completed, Cancelled)', () => {
+  it('F31: status filter has all 6 options including Stale', () => {
     render(<ExperimentsListPage />);
     const select = screen.getByTestId('filter-status');
     const options = select.querySelectorAll('option');
     const labels = Array.from(options).map(o => o.textContent);
-    expect(labels).toEqual(['All', 'Draft', 'Running', 'Completed', 'Cancelled']);
-    expect(options).toHaveLength(5);
+    expect(labels).toEqual(['All', 'Draft', 'Running', 'Stale', 'Completed', 'Cancelled']);
+    expect(options).toHaveLength(6);
   });
 
   it('H1: shows error toast when fetch fails', async () => {

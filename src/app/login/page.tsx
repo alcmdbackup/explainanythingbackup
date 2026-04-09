@@ -231,7 +231,7 @@ export default function LoginPage() {
                 </div>
 
                 <span className="text-sm atlas-ui text-[var(--text-muted)]">
-                  Contact admin to reset password
+                  Forgot password? Contact your admin
                 </span>
               </div>
             )}

@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import type { Database } from '@/lib/database.types';
 import * as dotenv from 'dotenv';
 import * as path from 'path';
 import { cleanupBypassCookieFile } from './vercel-bypass';
@@ -57,9 +58,11 @@ async function globalTeardown() {
       const instanceFiles = fs.readdirSync('/tmp').filter((f: string) => f.startsWith('claude-instance-'));
       for (const file of instanceFiles) {
         try {
+          // eslint-disable-next-line flakiness/no-hardcoded-tmpdir -- reading tmux instance files (single-process global-teardown, not parallel)
           const info = JSON.parse(fs.readFileSync(`/tmp/${file}`, 'utf-8'));
           const instanceId = info.instance_id;
           if (instanceId) {
+            // eslint-disable-next-line flakiness/no-hardcoded-tmpdir -- tmux idle timestamp file (single-process global-teardown, not parallel)
             const timestampFile = `/tmp/claude-idle-${instanceId}.timestamp`;
             if (fs.existsSync(timestampFile)) {
               const now = new Date();
@@ -90,7 +93,7 @@ async function globalTeardown() {
   }
 
   // Create client with timeout to prevent hanging
-  const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, serviceRoleKey, {
+  const supabase = createClient<Database>(process.env.NEXT_PUBLIC_SUPABASE_URL!, serviceRoleKey, {
     global: { fetch: (url, options) => fetch(url, { ...options, signal: AbortSignal.timeout(10000) }) }
   });
 
@@ -134,6 +137,7 @@ async function globalTeardown() {
 
   // Clean up production test explanation if it exists
   const fs = await import('fs');
+  // eslint-disable-next-line flakiness/no-hardcoded-tmpdir -- shared cross-worker file written by global-setup, cleaned here
   const testDataPath = '/tmp/e2e-prod-test-data.json';
   try {
     if (fs.existsSync(testDataPath)) {
@@ -297,10 +301,14 @@ async function globalTeardown() {
   // Step 6b: Clean tracked evolution data (defense-in-depth)
   try {
     console.log('   Cleaning tracked evolution data (defense-in-depth)...');
-    const { cleanupAllTrackedEvolutionData } = await import('../helpers/evolution-test-data-factory');
-    const evolutionCleanedCount = await cleanupAllTrackedEvolutionData();
-    if (evolutionCleanedCount > 0) {
-      console.log(`   ✓ Cleaned ${evolutionCleanedCount} tracked evolution records`);
+    const mod = await import('../helpers/evolution-test-data-factory');
+    if (typeof mod.cleanupAllTrackedEvolutionData === 'function') {
+      const evolutionCleanedCount = await mod.cleanupAllTrackedEvolutionData();
+      if (evolutionCleanedCount > 0) {
+        console.log(`   ✓ Cleaned ${evolutionCleanedCount} tracked evolution records`);
+      }
+    } else {
+      console.warn('   ⚠ cleanupAllTrackedEvolutionData not found in module (skipping)');
     }
   } catch (error) {
     console.error('❌ Step 6b (tracked evolution cleanup) failed:', error);

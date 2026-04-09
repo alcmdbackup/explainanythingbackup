@@ -168,6 +168,7 @@ test.describe('AI Suggestions State Management', { tag: '@skip-prod' }, () => {
 
       // Click accept all if button exists
       const acceptAllButton = page.locator('[data-testid="accept-all-diffs-button"]');
+      // eslint-disable-next-line flakiness/no-point-in-time-checks -- control flow, not assertion
       if (await acceptAllButton.isVisible()) {
         await acceptAllButton.click();
 
@@ -212,6 +213,7 @@ test.describe('AI Suggestions State Management', { tag: '@skip-prod' }, () => {
 
       // Click reject all if button exists
       const rejectAllButton = page.locator('[data-testid="reject-all-diffs-button"]');
+      // eslint-disable-next-line flakiness/no-point-in-time-checks -- control flow, not assertion
       if (await rejectAllButton.isVisible()) {
         await rejectAllButton.click();
 

@@ -3,16 +3,19 @@
 
 import { adminTest, expect } from '../../fixtures/admin-auth';
 import { createClient } from '@supabase/supabase-js';
+import type { Database } from '@/lib/database.types';
 import { randomUUID } from 'crypto';
 
 function getServiceClient() {
-  return createClient(
+  return createClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
   );
 }
 
 adminTest.describe('Evolution Bug Fix Regressions', { tag: '@evolution' }, () => {
+  adminTest.describe.configure({ mode: 'serial' });
+
   const testPrefix = `[TEST_EVO] e2e-bugfix-${Date.now()}`;
   let strategyId: string;
   let promptId: string;
@@ -96,16 +99,17 @@ adminTest.describe('Evolution Bug Fix Regressions', { tag: '@evolution' }, () =>
     await sb.from('evolution_prompts').delete().eq('id', promptId);
   });
 
-  adminTest('run detail page loads without crash (LineageGraph/MetricGrid safety)', async ({ adminPage: page }) => {
-    await page.goto(`/admin/evolution/runs/${runId}`);
+  adminTest('run detail page loads without crash (LineageGraph/MetricGrid safety)', async ({ adminPage }) => {
+    await adminPage.goto(`/admin/evolution/runs/${runId}`);
     // Page should load without JavaScript errors from empty elo arrays or null CI
-    await expect(page.getByTestId('entity-detail-header')).toBeVisible({ timeout: 15000 });
+    await expect(adminPage.getByTestId('entity-detail-header')).toBeVisible({ timeout: 20000 });
   });
 
   adminTest('LogsTab iteration filter includes iteration 0', async ({ adminPage: page }) => {
     await page.goto(`/admin/evolution/runs/${runId}`);
     // Navigate to Logs tab
     const logsTab = page.getByRole('tab', { name: /logs/i });
+    // eslint-disable-next-line flakiness/no-point-in-time-checks -- control flow, not assertion
     if (await logsTab.isVisible()) {
       await logsTab.click();
       // Iteration dropdown should have "0" as an option

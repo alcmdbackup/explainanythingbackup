@@ -15,10 +15,10 @@ export class SearchPage extends BasePage {
   }
 
   async navigate() {
-    await this.page.goto('/');
+    await this.page.goto('/', { timeout: 30000 });
     // Wait for DOM content instead of networkidle (which can hang in CI)
     await this.page.waitForLoadState('domcontentloaded');
-    await this.page.locator(this.searchInput).waitFor({ state: 'visible' });
+    await this.page.locator(this.searchInput).waitFor({ state: 'visible', timeout: 15000 });
 
     // Wait for Next.js/React hydration to complete
     // React attaches __reactFiber properties to DOM elements after hydration
@@ -31,6 +31,14 @@ export class SearchPage extends BasePage {
       this.searchInput,
       { timeout: 10000 }
     );
+
+    // Wait for auth to resolve (Logout link appears once useUserAuth completes)
+    // This prevents "Loading authentication..." errors on SSE streaming endpoints
+    try {
+      await this.page.locator('nav >> text=Logout').waitFor({ state: 'visible', timeout: 10000 });
+    } catch {
+      // Auth may not be available (unauthenticated tests) — continue
+    }
   }
 
   async search(query: string) {

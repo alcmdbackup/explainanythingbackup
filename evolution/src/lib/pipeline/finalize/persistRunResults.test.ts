@@ -1,6 +1,6 @@
 // Tests for V2 finalizeRun and syncToArena.
 
-import { finalizeRun, syncToArena } from './persistRunResults';
+import { finalizeRun, syncToArena, propagateMetrics } from './persistRunResults';
 import { DEFAULT_MU, DEFAULT_SIGMA, toEloScale } from '../../shared/computeRatings';
 import type { EvolutionResult, V2Match } from '../infra/types';
 import type { Variant } from '../../types';
@@ -76,7 +76,7 @@ function makeResult(overrides?: Partial<EvolutionResult>): EvolutionResult {
     stopReason: 'iterations_complete',
     muHistory: [[30, 28, 25]],
     diversityHistory: [],
-    matchCounts: { BASELINE_ID: 2, GEN1_ID: 2, GEN2_ID: 2 },
+    matchCounts: { [BASELINE_ID]: 2, [GEN1_ID]: 2, [GEN2_ID]: 2 },
     ...overrides,
   };
 }
@@ -234,18 +234,9 @@ describe('finalizeRun', () => {
     expect(rows.every((r) => r.id !== ARENA_ID)).toBe(true);
   });
 
-  it('strategy aggregate update called with correct args', async () => {
+  it('deprecated update_strategy_aggregates RPC is no longer called', async () => {
     const { db, rpcCalls } = makeMockDb();
     await finalizeRun(RUN_ID, makeResult(), { experiment_id: null, explanation_id: null, strategy_id: STRAT_ID, prompt_id: null }, db, 120);
-    const rpc = rpcCalls.find((c) => c.fn === 'update_strategy_aggregates');
-    expect(rpc).toBeDefined();
-    expect(rpc!.args.p_strategy_id).toBe(STRAT_ID);
-    expect(rpc!.args.p_final_elo).toBe(toEloScale(30)); // winner mu = 30
-  });
-
-  it('null strategy_id skips aggregate update', async () => {
-    const { db, rpcCalls } = makeMockDb();
-    await finalizeRun(RUN_ID, makeResult(), { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
     const rpc = rpcCalls.find((c) => c.fn === 'update_strategy_aggregates');
     expect(rpc).toBeUndefined();
   });
@@ -387,6 +378,68 @@ describe('finalizeRun', () => {
       ([, , , , , timing]) => timing === 'at_finalization',
     );
     expect(finalizationCalls.length).toBe(0);
+  });
+
+  // ─── Run-level cost aggregates (Phase 9b/9f) ──────────────────────
+
+  it('writes total_generation_cost and total_ranking_cost from invocation rows', async () => {
+    mockedWriteMetric.mockClear();
+    // Custom DB mock that returns mixed-agent invocations from the select query.
+    const invocationRows = [
+      {
+        id: 'inv-1', agent_name: 'generate_from_seed_article',
+        cost_usd: 0.10,
+        execution_detail: { generation: { cost: 0.03 }, ranking: { cost: 0.07 } },
+      },
+      {
+        id: 'inv-2', agent_name: 'generate_from_seed_article',
+        cost_usd: 0.04,
+        execution_detail: { generation: { cost: 0.04 }, ranking: { cost: 0 } },
+      },
+      { id: 'inv-3', agent_name: 'swiss_ranking', cost_usd: 0.20, execution_detail: null },
+      { id: 'inv-4', agent_name: 'merge_ratings', cost_usd: 0, execution_detail: null },
+    ];
+
+    const db = {
+      from: jest.fn((table: string) => {
+        const chain: Record<string, jest.Mock> = {};
+        const self = () => chain;
+        for (const m of ['eq', 'neq', 'in', 'is', 'select', 'single', 'order', 'limit', 'range']) {
+          chain[m] = jest.fn(self);
+        }
+        // The invocation select must resolve to invocationRows; everything else
+        // falls back to the default { id: 'mock' } row used by the rest of finalizeRun.
+        chain.then = jest.fn((resolve: (v: unknown) => void) => {
+          if (table === 'evolution_agent_invocations') {
+            resolve({ data: invocationRows, error: null });
+          } else {
+            resolve({ data: [{ id: 'mock' }], error: null });
+          }
+        });
+        return {
+          update: jest.fn(() => chain),
+          upsert: jest.fn(() => Promise.resolve({ error: null })),
+          select: jest.fn(() => chain),
+        };
+      }),
+      rpc: jest.fn(async () => ({ error: null })),
+    } as never;
+
+    await finalizeRun(RUN_ID, makeResult(), { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
+
+    const genCostCall = mockedWriteMetric.mock.calls.find(
+      ([, entityType, , name]) => entityType === 'run' && name === 'total_generation_cost',
+    );
+    const rankCostCall = mockedWriteMetric.mock.calls.find(
+      ([, entityType, , name]) => entityType === 'run' && name === 'total_ranking_cost',
+    );
+
+    expect(genCostCall).toBeDefined();
+    expect(rankCostCall).toBeDefined();
+    // generation: 0.03 + 0.04 = 0.07
+    // ranking:    0.07 + 0    + 0.20 (swiss) = 0.27
+    expect((genCostCall![4] as number)).toBeCloseTo(0.07, 4);
+    expect((rankCostCall![4] as number)).toBeCloseTo(0.27, 4);
   });
 });
 
@@ -779,5 +832,47 @@ describe('syncToArena logging', () => {
 
     expect(logger.info).toHaveBeenCalledWith('Arena sync preparation', expect.objectContaining({ phaseName: 'arena' }));
     expect(logger.info).toHaveBeenCalledWith('Arena sync complete', expect.objectContaining({ phaseName: 'arena' }));
+  });
+});
+
+describe('propagateMetrics', () => {
+  it('passes sigma through to writeMetric for bootstrap-aggregated metrics', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { getMetricsForEntities } = require('../../metrics/readMetrics');
+    const winnerEloSigma = 42.5;
+    // Simulate a single completed run with winner_elo that has sigma
+    const metricsMap = new Map([
+      [RUN_ID, [
+        { metric_name: 'winner_elo', value: 1500, sigma: winnerEloSigma, ci_lower: 1400, ci_upper: 1600, n: 1 },
+        { metric_name: 'cost', value: 0.005, sigma: null, ci_lower: null, ci_upper: null, n: 1 },
+        { metric_name: 'median_elo', value: 1450, sigma: 30, ci_lower: 1390, ci_upper: 1510, n: 1 },
+        { metric_name: 'total_matches', value: 10, sigma: null, ci_lower: null, ci_upper: null, n: 1 },
+        { metric_name: 'decisive_rate', value: 0.8, sigma: null, ci_lower: null, ci_upper: null, n: 1 },
+        { metric_name: 'variant_count', value: 3, sigma: null, ci_lower: null, ci_upper: null, n: 1 },
+        { metric_name: 'p90_elo', value: 1480, sigma: 35, ci_lower: 1410, ci_upper: 1550, n: 1 },
+        { metric_name: 'max_elo', value: 1520, sigma: 40, ci_lower: 1440, ci_upper: 1600, n: 1 },
+      ]],
+    ]);
+    getMetricsForEntities.mockResolvedValueOnce(metricsMap);
+
+    const supabase = {
+      from: jest.fn().mockReturnValue({
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            eq: jest.fn().mockResolvedValue({ data: [{ id: RUN_ID }], error: null }),
+          }),
+        }),
+      }),
+    } as unknown as SupabaseClient;
+
+    mockedWriteMetric.mockClear();
+    await propagateMetrics(supabase, 'experiment', EXP_ID);
+
+    // Find the avg_final_elo write call
+    const avgEloCall = mockedWriteMetric.mock.calls.find(c => c[3] === 'avg_final_elo');
+    expect(avgEloCall).toBeDefined();
+    // With 1 run, bootstrapMeanCI single-value path returns source sigma
+    const opts = avgEloCall![6];
+    expect(opts?.sigma).toBe(winnerEloSigma);
   });
 });

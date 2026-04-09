@@ -4,6 +4,11 @@ import { createV2LLMClient } from './createLLMClient';
 import { createCostTracker } from './trackBudget';
 import { BudgetExceededError } from '../../types';
 
+// Mock writeMetric for fire-and-forget cost write tests
+jest.mock('../../metrics/writeMetrics', () => ({
+  writeMetric: jest.fn(async () => {}),
+}));
+
 // Mock error classification to control transient detection
 jest.mock('../../shared/classifyErrors', () => ({
   isTransientError: (err: unknown) => {
@@ -105,6 +110,22 @@ describe('V2 LLM Client', () => {
     expect(ct.getAvailableBudget()).toBeCloseTo(10);
   });
 
+  it('rejects empty string LLM response', async () => {
+    const ct = createCostTracker(10);
+    const provider = makeProvider(async () => '');
+    const llm = createV2LLMClient(provider, ct, 'gpt-4.1-nano');
+
+    await expect(llm.complete('test', 'generation')).rejects.toThrow('Empty LLM response');
+  });
+
+  it('rejects whitespace-only LLM response', async () => {
+    const ct = createCostTracker(10);
+    const provider = makeProvider(async () => '   \n  ');
+    const llm = createV2LLMClient(provider, ct, 'gpt-4.1-nano');
+
+    await expect(llm.complete('test', 'generation')).rejects.toThrow('Empty LLM response');
+  });
+
   it('unknown model uses fallback pricing from shared config', async () => {
     const ct = createCostTracker(10);
     const provider = makeProvider();
@@ -173,6 +194,44 @@ describe('V2 LLM Client', () => {
     // Correct: (1000 * 0.14 + 100 * 0.28) / 1_000_000 = (140 + 28) / 1_000_000 = 0.000168
     const spent = ct.getTotalSpent();
     expect(spent).toBeCloseTo(0.000168, 5);
+  });
+
+  it('writes cost metric to DB after each successful LLM call when db/runId provided', async () => {
+    jest.useRealTimers(); // Need real timers for fire-and-forget promise resolution
+    const ct = createCostTracker(10);
+    const provider = makeProvider(async () => 'response text');
+    const mockDb = {} as never;
+
+    const { writeMetric: mockWriteMetric } = require('../../metrics/writeMetrics') as { writeMetric: jest.Mock };
+
+    const llm = createV2LLMClient(provider, ct, 'gpt-4.1-nano', undefined, mockDb, 'run-abc');
+    await llm.complete('test prompt', 'generation');
+
+    // Wait a tick for fire-and-forget promises
+    await new Promise(resolve => setTimeout(resolve, 10));
+
+    // Should have 2 fire-and-forget writes: cost + agentCost:generation
+    const metricNames = mockWriteMetric.mock.calls.map((c: unknown[]) => c[3]);
+    expect(metricNames).toContain('cost');
+    expect(metricNames).toContain('agentCost:generation');
+  });
+
+  it('suppresses errors from fire-and-forget cost writes', async () => {
+    jest.useRealTimers();
+    const ct = createCostTracker(10);
+    const provider = makeProvider(async () => 'response text');
+
+    const { writeMetric: mockWriteMetric } = require('../../metrics/writeMetrics') as { writeMetric: jest.Mock };
+    mockWriteMetric.mockRejectedValue(new Error('DB connection lost'));
+
+    const llm = createV2LLMClient(provider, ct, 'gpt-4.1-nano', undefined, {} as never, 'run-abc');
+
+    // Should not throw despite writeMetric rejecting
+    const result = await llm.complete('test prompt', 'generation');
+    expect(result).toBe('response text');
+
+    await new Promise(resolve => setTimeout(resolve, 10));
+    mockWriteMetric.mockResolvedValue(undefined); // Reset for other tests
   });
 
   it('Bug #5: pricing for all common models matches shared config', async () => {

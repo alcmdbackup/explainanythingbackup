@@ -1,11 +1,16 @@
 // V2 LLM client wrapper with retry on transient errors and cost tracking integration.
+// Writes cost metrics to DB after each successful LLM call (fire-and-forget) so cost
+// survives sudden process crashes.
 
+import type { SupabaseClient } from '@supabase/supabase-js';
 import type { EvolutionLLMClient, LLMCompletionOptions } from '../../types';
 import { BudgetExceededError } from '../../types';
 import { isTransientError } from '../../shared/classifyErrors';
 import { getModelPricing, type ModelPricing } from '@/config/llmPricing';
 import type { V2CostTracker } from './trackBudget';
 import type { EntityLogger } from './createEntityLogger';
+import { writeMetric } from '../../metrics/writeMetrics';
+import type { MetricName } from '../../metrics/types';
 
 // ─── Cost estimation ─────────────────────────────────────────────
 
@@ -41,6 +46,8 @@ export function createV2LLMClient(
   costTracker: V2CostTracker,
   defaultModel: string,
   logger?: EntityLogger,
+  db?: SupabaseClient,
+  runId?: string,
 ): EvolutionLLMClient {
   return {
     async complete(
@@ -70,9 +77,28 @@ export function createV2LLMClient(
             }),
           ]);
 
+          // Validate response is non-empty string
+          if (typeof response !== 'string' || response.trim().length === 0) {
+            throw new Error('Empty LLM response');
+          }
+
           // Success — record actual cost
           const actual = calculateCost(prompt.length, response.length, pricing);
           costTracker.recordSpend(agentName, actual, margined);
+
+          // Persist cost to DB so it survives process crashes.
+          // Awaited (not fire-and-forget) to prevent race with finalization cost write.
+          if (db && runId) {
+            const totalSpent = costTracker.getTotalSpent();
+            const phaseCost = costTracker.getPhaseCosts()[agentName] ?? 0;
+            try {
+              await writeMetric(db, 'run', runId, 'cost' as MetricName, totalSpent, 'during_execution');
+              await writeMetric(db, 'run', runId, `agentCost:${agentName}` as MetricName, phaseCost, 'during_execution');
+            } catch (err) {
+              logger?.warn('Cost write failed (non-fatal)', { phaseName: agentName, error: err instanceof Error ? err.message : String(err) });
+            }
+          }
+
           logger?.info('LLM call succeeded', { phaseName: agentName, promptChars: prompt.length, responseChars: response.length, costUsd: actual, attempt });
           return response;
         } catch (error) {

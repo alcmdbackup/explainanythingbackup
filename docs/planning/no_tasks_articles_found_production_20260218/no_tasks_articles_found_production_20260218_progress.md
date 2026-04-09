@@ -9,7 +9,7 @@
 
 ### Issues Encountered
 - Cannot verify production data directly (Supabase MCP connected to dev only)
-- Evolution batch runner uses Development environment secrets → runs target dev DB
+- Evolution batch runner uses Staging environment secrets → runs target dev DB
 
 ## Phase 2: Fix Implementation
 ### Work Done

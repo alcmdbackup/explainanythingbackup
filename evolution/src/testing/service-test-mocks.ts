@@ -104,16 +104,17 @@ export function createSupabaseChainMock(
     return obj;
   };
 
-  const chain = chainable();
-
   return {
-    from: jest.fn(() => ({
-      ...chain,
-      insert: jest.fn(() => chain),
-      update: jest.fn(() => chain),
-      delete: jest.fn(() => chain),
-      upsert: jest.fn(() => chain),
-    })),
+    from: jest.fn(() => {
+      const chain = chainable();
+      return {
+        ...chain,
+        insert: jest.fn(() => chain),
+        update: jest.fn(() => chain),
+        delete: jest.fn(() => chain),
+        upsert: jest.fn(() => chain),
+      };
+    }),
     rpc: jest.fn().mockResolvedValue(terminalResult),
   } as unknown as jest.Mocked<SupabaseClient>;
 }

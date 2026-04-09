@@ -21,9 +21,10 @@ import { test, expect } from '@playwright/test';
 const isCI = !!process.env.CI;
 
 test.describe('Error Boundary', () => {
-test.describe('Error Boundary', () => {
   // eslint-disable-next-line flakiness/no-test-skip -- debug route auth-excluded only in dev mode
   test.skip(isCI, 'Debug route requires dev mode (auth-excluded only when NODE_ENV !== production)');
+
+  test.describe('Error Boundary', () => {
     test('should display error page when unhandled error occurs in page', async ({
       page,
     }) => {
@@ -119,12 +120,10 @@ test.describe('Error Boundary', () => {
       // Navigate to test page WITHOUT the throw parameter
       await page.goto('/test-global-error');
 
-      // Wait for the normal page content
-      await page.waitForLoadState('domcontentloaded');
-
-      // Verify we're on the test page, not the error page
-      const pageContent = await page.textContent('body');
-      expect(pageContent).toContain('Global Error Test Page');
+      // Wait for hydration to complete — domcontentloaded fires before RSC hydration,
+      // so we must wait for the actual rendered content instead
+      const body = page.locator('body');
+      await expect(body).toContainText('Global Error Test Page', { timeout: 15000 });
 
       // Error boundary should NOT be visible
       const errorContainer = page.locator(

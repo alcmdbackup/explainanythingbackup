@@ -108,8 +108,10 @@ export function useExplanationLoader(
     const { withRequestId } = useClientPassRequestId(userId);
 
     // Track mount status to prevent setState after unmount
+    // Must reset to true on setup for React 18 strict mode (cleanup runs between simulated unmount/remount)
     const isMountedRef = useRef(true);
     useEffect(() => {
+        isMountedRef.current = true;
         return () => { isMountedRef.current = false; };
     }, []);
 

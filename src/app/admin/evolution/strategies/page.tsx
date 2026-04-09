@@ -3,12 +3,13 @@
 
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { toast } from 'sonner';
 import { EntityListPage } from '@evolution/components/evolution';
 import type { RowAction, FilterDef, ColumnDef } from '@evolution/components/evolution';
 import type { FieldDef } from '@evolution/components/evolution';
 import { createMetricColumns } from '@evolution/lib/metrics/metricColumns';
+import { getListViewMetrics } from '@evolution/lib/metrics/registry';
 import {
   listStrategiesAction,
   createStrategyAction,
@@ -16,8 +17,10 @@ import {
   cloneStrategyAction,
   type StrategyListItem,
 } from '@evolution/services/strategyRegistryActions';
+import { getBatchMetricsAction } from '@evolution/services/metricsActions';
 import { executeEntityAction } from '@evolution/services/entityActions';
 import { MODEL_OPTIONS } from '@/lib/utils/modelOptions';
+import type { MetricRow } from '@evolution/lib/metrics/types';
 
 const loadData = async (filters: Record<string, string>, page: number, pageSize: number) => {
   const result = await listStrategiesAction({
@@ -29,7 +32,21 @@ const loadData = async (filters: Record<string, string>, page: number, pageSize:
     filterTestContent: filters.filterTestContent === 'true',
   });
   if (!result.success) throw new Error(result.error?.message ?? 'Load failed');
-  return { items: result.data!.items, total: result.data!.total };
+
+  const items = result.data!.items;
+
+  // Batch-fetch list-view metrics for strategies
+  const metricNames = getListViewMetrics('strategy').map(d => d.name);
+  if (items.length > 0 && metricNames.length > 0) {
+    const metricsResult = await getBatchMetricsAction('strategy', items.map(s => s.id), metricNames);
+    const metricsMap = metricsResult.success && metricsResult.data ? metricsResult.data : {};
+    return {
+      items: items.map(s => ({ ...s, metrics: (metricsMap[s.id] ?? []) as MetricRow[] })),
+      total: result.data!.total,
+    };
+  }
+
+  return { items, total: result.data!.total };
 };
 
 const baseColumns: ColumnDef<StrategyListItem>[] = [
@@ -37,7 +54,6 @@ const baseColumns: ColumnDef<StrategyListItem>[] = [
   { key: 'label', header: 'Label', render: (row) => <span className="truncate block max-w-[200px]" title={row.label}>{row.label}</span> },
   { key: 'pipeline_type', header: 'Pipeline', render: (row) => row.pipeline_type ?? '—' },
   { key: 'status', header: 'Status', render: (row) => row.status },
-  { key: 'avg_final_elo', header: 'Avg Elo', render: (row) => (row.avg_final_elo != null ? row.avg_final_elo.toFixed(0) : '—') },
 ];
 const columns: ColumnDef<StrategyListItem>[] = [...baseColumns, ...createMetricColumns<StrategyListItem>('strategy')];
 
@@ -61,8 +77,109 @@ const filters: FilterDef[] = [
       { label: 'Single', value: 'single' },
     ],
   },
+  {
+    key: 'created_by',
+    label: 'Origin',
+    type: 'select',
+    options: [
+      { label: 'All', value: '' },
+      { label: 'Admin', value: 'admin' },
+      { label: 'System', value: 'system' },
+      { label: 'Experiment', value: 'experiment' },
+      { label: 'Batch', value: 'batch' },
+    ],
+  },
   { key: 'filterTestContent', label: 'Hide test content', type: 'checkbox', defaultChecked: true },
 ];
+
+// Available generation strategy names for the guidance selector.
+const GENERATION_STRATEGIES = [
+  'structural_transform',
+  'lexical_simplify',
+  'grounding_enhance',
+  'engagement_amplify',
+  'style_polish',
+  'argument_fortify',
+  'narrative_weave',
+  'tone_transform',
+] as const;
+
+type GuidanceEntry = { strategy: string; percent: number };
+
+/** Custom form field for generationGuidance: add/remove strategy rows with percent inputs. */
+function GenerationGuidanceField(
+  { value, onChange }: { value: unknown; onChange: (v: unknown) => void },
+): JSX.Element {
+  const entries = (Array.isArray(value) ? value : []) as GuidanceEntry[];
+  const usedStrategies = new Set(entries.map((e) => e.strategy));
+  const available = GENERATION_STRATEGIES.filter((s) => !usedStrategies.has(s));
+  const total = entries.reduce((sum, e) => sum + (e.percent || 0), 0);
+
+  const addEntry = () => {
+    if (available.length === 0) return;
+    onChange([...entries, { strategy: available[0], percent: 0 }]);
+  };
+
+  const removeEntry = (idx: number) => {
+    onChange(entries.filter((_, i) => i !== idx));
+  };
+
+  const updateEntry = (idx: number, field: 'strategy' | 'percent', val: string | number) => {
+    const updated = entries.map((e, i) => (i === idx ? { ...e, [field]: val } : e));
+    onChange(updated);
+  };
+
+  return (
+    <div className="space-y-2" data-testid="generation-guidance-field">
+      {entries.map((entry, idx) => (
+        <div key={idx} className="flex items-center gap-2">
+          <select
+            value={entry.strategy}
+            onChange={(e) => updateEntry(idx, 'strategy', e.target.value)}
+            className="flex-1 rounded-book border border-[var(--border-default)] bg-[var(--surface-input)] p-1.5 font-mono text-xs text-[var(--text-primary)]"
+            data-testid={`guidance-strategy-${idx}`}
+          >
+            <option value={entry.strategy}>{entry.strategy}</option>
+            {available.map((s) => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+          </select>
+          <input
+            type="number"
+            min={0}
+            max={100}
+            value={entry.percent}
+            onChange={(e) => updateEntry(idx, 'percent', parseInt(e.target.value, 10) || 0)}
+            className="w-20 rounded-book border border-[var(--border-default)] bg-[var(--surface-input)] p-1.5 font-mono text-xs text-[var(--text-primary)] text-right"
+            data-testid={`guidance-percent-${idx}`}
+          />
+          <span className="font-ui text-xs text-[var(--text-muted)]">%</span>
+          <button
+            type="button"
+            onClick={() => removeEntry(idx)}
+            className="font-ui text-xs text-[var(--status-error)] hover:underline"
+            data-testid={`guidance-remove-${idx}`}
+          >
+            Remove
+          </button>
+        </div>
+      ))}
+      {available.length > 0 && (
+        <button
+          type="button"
+          onClick={addEntry}
+          className="font-ui text-xs text-[var(--accent-gold)] hover:underline"
+          data-testid="guidance-add"
+        >
+          + Add strategy
+        </button>
+      )}
+      <div className={`font-ui text-xs ${total === 100 ? 'text-[var(--status-success)]' : total > 0 ? 'text-[var(--status-error)]' : 'text-[var(--text-muted)]'}`} data-testid="guidance-total">
+        Total: {total}%{total > 0 && total !== 100 ? ' (must equal 100%)' : ''}
+      </div>
+    </div>
+  );
+}
 
 const createFields: FieldDef[] = [
   { name: 'name', label: 'Name', type: 'text', required: true, placeholder: 'Strategy name' },
@@ -70,6 +187,12 @@ const createFields: FieldDef[] = [
   { name: 'generationModel', label: 'Generation Model', type: 'select', required: true, options: [{ label: 'Select a model...', value: '' }, ...MODEL_OPTIONS.map(m => ({ label: m, value: m }))] },
   { name: 'judgeModel', label: 'Judge Model', type: 'select', required: true, options: [{ label: 'Select a model...', value: '' }, ...MODEL_OPTIONS.map(m => ({ label: m, value: m }))] },
   { name: 'iterations', label: 'Iterations', type: 'number', required: true },
+  {
+    name: 'generationGuidance',
+    label: 'Generation Guidance (optional)',
+    type: 'custom',
+    render: (value, onChange) => <GenerationGuidanceField value={value} onChange={onChange} />,
+  },
 ];
 
 type DialogState =
@@ -80,6 +203,7 @@ type DialogState =
   | { kind: 'delete'; row: StrategyListItem };
 
 export default function StrategiesPage(): JSX.Element {
+  useEffect(() => { document.title = 'Strategies | Evolution'; }, []);
   const [dialog, setDialog] = useState<DialogState>({ kind: 'none' });
 
   const close = (): void => setDialog({ kind: 'none' });
@@ -98,17 +222,22 @@ export default function StrategiesPage(): JSX.Element {
         generationModel: dialog.row.config?.generationModel ?? '',
         judgeModel: dialog.row.config?.judgeModel ?? '',
         iterations: dialog.row.config?.iterations ?? 10,
+        generationGuidance: (dialog.row.config as Record<string, unknown>)?.generationGuidance ?? [],
       }
     : {};
 
   const handleFormSubmit = async (values: Record<string, unknown>) => {
     if (dialog.kind === 'create') {
+      const guidance = Array.isArray(values.generationGuidance) && (values.generationGuidance as GuidanceEntry[]).length > 0
+        ? (values.generationGuidance as GuidanceEntry[])
+        : undefined;
       const result = await createStrategyAction({
         name: values.name as string,
         description: values.description as string,
         generationModel: values.generationModel as string,
         judgeModel: values.judgeModel as string,
         iterations: values.iterations as number,
+        generationGuidance: guidance,
       });
       if (!result.success) throw new Error(result.error?.message ?? 'Create failed');
       toast.success('Strategy created');
@@ -181,6 +310,14 @@ export default function StrategiesPage(): JSX.Element {
         fields: dialog.kind === 'create' ? createFields : createFields.slice(0, 2),
         initial: formInitial,
         onSubmit: handleFormSubmit,
+        validate: (values) => {
+          const guidance = values.generationGuidance as GuidanceEntry[] | undefined;
+          if (guidance && guidance.length > 0) {
+            const total = guidance.reduce((sum, e) => sum + (e.percent || 0), 0);
+            if (total !== 100) return `Generation guidance percentages must sum to 100% (currently ${total}%)`;
+          }
+          return null;
+        },
       } : undefined}
       confirmDialog={confirmOpen ? {
         open: true,

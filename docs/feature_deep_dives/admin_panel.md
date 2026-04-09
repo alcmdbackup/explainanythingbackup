@@ -466,5 +466,5 @@ Admin tests require an admin test user seeded in the database. This is handled b
 2. `.github/workflows/ci.yml` - Calls seeding script in CI pipeline
 
 The admin test user credentials are:
-- Email: From `ADMIN_TEST_EMAIL` environment variable
-- Password: From `ADMIN_TEST_PASSWORD` environment variable
+- Email: From `TEST_USER_EMAIL` environment variable
+- Password: From `TEST_USER_PASSWORD` environment variable

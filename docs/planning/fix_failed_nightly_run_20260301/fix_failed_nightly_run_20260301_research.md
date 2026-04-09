@@ -129,7 +129,7 @@ The gap is isolated to the nightly workflow.
 ### Relevant Docs
 - docs/docs_overall/testing_overview.md — CI/CD workflows, nightly behavior, @skip-prod tag docs (stale)
 - docs/feature_deep_dives/testing_setup.md — Test tiers, E2E patterns, AI suggestion test helpers (stale)
-- docs/docs_overall/environments.md — GitHub secrets, Production vs Development env config
+- docs/docs_overall/environments.md — GitHub secrets, Production vs Staging env config
 - docs/docs_overall/debugging.md — Debugging tools and four-phase methodology
 
 ## Code Files Read

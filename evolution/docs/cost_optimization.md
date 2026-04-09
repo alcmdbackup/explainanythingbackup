@@ -72,6 +72,18 @@ The tracker is designed as a plain closure (not a class) returned by the factory
 
 > **Warning:** The 1.3x margin is a heuristic. Actual costs can still exceed the budget if the LLM returns significantly more tokens than estimated. The tracker logs overruns but does not roll back completed calls. Monitor the `[V2CostTracker] Budget overrun` log message in production to detect models or prompts that consistently exceed estimates.
 
+### Budget Postcondition Assertions
+
+The cost tracker includes runtime postcondition assertions to detect invariant violations:
+
+- **Precondition:** `createCostTracker(budgetUsd)` rejects NaN, Infinity, negative, and zero values.
+- **Core invariant (unconditional):** After every `recordSpend()`, if `totalSpent + totalReserved > budgetUsd * 1.01`, an error is logged. This runs in all environments to detect overruns without crashing the pipeline.
+- **Strict assertions (gated):** When `EVOLUTION_ASSERTIONS=true` (set in test/dev environments), the tracker throws on postcondition violations:
+  - `totalReserved >= 0` after `reserve()`, `recordSpend()`, and `release()`
+  - `Number.isFinite(totalSpent)` after `recordSpend()`
+
+Set `EVOLUTION_ASSERTIONS=true` in CI via `jest.setup.js` to catch invariant violations in tests.
+
 ---
 
 ## Budget Pressure Tiers

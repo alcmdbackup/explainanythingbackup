@@ -187,7 +187,7 @@ export default function ExplanationsTablePage({
                                             onClick={() => window.location.href = `/results?explanation_id=${explanation.id}`}
                                         >
                                             <td data-testid="explanation-title" className="px-6 py-4 whitespace-nowrap">
-                                                <span className="font-display font-medium text-[var(--text-primary)]">
+                                                <span className="font-body font-medium text-[var(--text-primary)]">
                                                     {explanation.explanation_title}
                                                 </span>
                                             </td>

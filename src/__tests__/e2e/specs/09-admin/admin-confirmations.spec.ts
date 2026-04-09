@@ -55,8 +55,10 @@ adminTest.describe('Admin Confirmation Dialogs', { tag: '@critical' }, () => {
   });
 
   adminTest('content modal hide shows confirmation dialog', async ({ adminPage }) => {
-    await adminPage.goto('/admin/content');
+    await adminPage.goto('/admin/content', { timeout: 30000 });
     await adminPage.waitForLoadState('domcontentloaded');
+    // Rule 18: wait for hydration proof before interaction
+    await adminPage.locator('table, [data-testid="admin-content-table"]').first().waitFor({ state: 'visible', timeout: 15000 });
 
     const viewBtn = adminPage.getByRole('button', { name: /view|detail/i }).first();
     const viewVisible = await safeIsVisible(viewBtn, 'content-view-btn', 10000);

@@ -12,9 +12,10 @@ import { logger as serverLogger } from '@/lib/server_utilities';
 import { getEntity } from '../../core/entityRegistry';
 import { writeMetric } from '../../metrics/writeMetrics';
 import { getMetricsForEntities } from '../../metrics/readMetrics';
-import type { FinalizationContext, MetricRow, MetricName } from '../../metrics/types';
+import { type FinalizationContext, type MetricRow, type MetricName, isMetricValue } from '../../metrics/types';
 
 import { evolutionVariantInsertSchema, EvolutionRunSummaryV3Schema } from '../../schemas';
+import { selectWinner } from '../../shared/selectWinner';
 
 /** V2 baseline strategy name (V1 uses 'original_baseline'). */
 const V2_BASELINE_STRATEGY = 'baseline';
@@ -124,13 +125,21 @@ export async function finalizeRun(
   logger?.info('Strategy effectiveness computed', { strategyEffectiveness: (runSummary as Record<string, unknown>).strategyEffectiveness, phaseName: 'finalize' });
 
   // Step 2: Update run to completed with run_summary (runner_id check prevents stale finalization)
+  // Also writes iteration_snapshots and random_seed if present on the result.
+  const runUpdate: Record<string, unknown> = {
+    status: 'completed',
+    completed_at: new Date().toISOString(),
+    run_summary: runSummary,
+  };
+  if (result.iterationSnapshots !== undefined) {
+    runUpdate.iteration_snapshots = result.iterationSnapshots;
+  }
+  if (result.randomSeed !== undefined) {
+    runUpdate.random_seed = result.randomSeed.toString();
+  }
   let statusQuery = db
     .from('evolution_runs')
-    .update({
-      status: 'completed',
-      completed_at: new Date().toISOString(),
-      run_summary: runSummary,
-    })
+    .update(runUpdate)
     .eq('id', runId)
     .in('status', ['claimed', 'running']);
 
@@ -154,25 +163,15 @@ export async function finalizeRun(
   }
 
   // Step 3: Determine winner (highest mu, tie-break by lowest sigma)
-  let winnerId = localPool[0]!.id;
-  let bestMu = -Infinity;
-  let bestSigma = Infinity;
-  for (const v of localPool) {
-    const r = result.ratings.get(v.id);
-    const mu = r?.mu ?? -Infinity;
-    const sigma = r?.sigma ?? Infinity;
-    if (mu > bestMu || (mu === bestMu && sigma < bestSigma)) {
-      bestMu = mu;
-      bestSigma = sigma;
-      winnerId = v.id;
-    }
-  }
+  const winResult = selectWinner(localPool, result.ratings);
+  const winnerId = winResult.winnerId;
   const winnerMu = result.ratings.get(winnerId)?.mu ?? DEFAULT_MU;
   const winnerSigma = result.ratings.get(winnerId)?.sigma ?? DEFAULT_SIGMA;
   logger?.info('Winner determined', { winnerId, winnerMu, winnerSigma, phaseName: 'finalize' });
 
-  // Step 4: Upsert variants
-  const variantRows = localPool.map((v) => {
+  // Step 4: Upsert variants — both surfaced (persisted=true) and discarded (persisted=false).
+  // Discarded variants exist in the DB so their generation cost stays queryable.
+  const surfacedRows = localPool.map((v) => {
     const rating = result.ratings.get(v.id);
     const mu = rating?.mu ?? DEFAULT_MU;
     const sigma = rating?.sigma ?? DEFAULT_SIGMA;
@@ -193,10 +192,43 @@ export async function finalizeRun(
       match_count: result.matchCounts[v.id] ?? 0,
       is_winner: v.id === winnerId,
       prompt_id: run.prompt_id ?? null,
+      persisted: true,
     });
   });
 
-  logger?.info('Persisting variants', { count: variantRows.length, winnerId, phaseName: 'finalize' });
+  const discardedRows = (result.discardedVariants ?? [])
+    .filter((v) => !v.fromArena)
+    .map((v) => {
+      // Discarded variants don't have global ratings (they were never merged), but their
+      // generation cost lives on the invocation row. We persist with default mu/sigma so the
+      // row exists; metric queries should filter by persisted=true to exclude them.
+      return evolutionVariantInsertSchema.parse({
+        id: v.id,
+        run_id: runId,
+        explanation_id: run.explanation_id ?? null,
+        variant_content: v.text,
+        elo_score: toEloScale(DEFAULT_MU),
+        mu: DEFAULT_MU,
+        sigma: DEFAULT_SIGMA,
+        generation: v.version,
+        parent_variant_id: v.parentIds[0] ?? null,
+        agent_name: v.strategy,
+        match_count: 0,
+        is_winner: false,
+        prompt_id: run.prompt_id ?? null,
+        persisted: false,
+      });
+    });
+
+  const variantRows = [...surfacedRows, ...discardedRows];
+
+  logger?.info('Persisting variants', {
+    count: variantRows.length,
+    surfaced: surfacedRows.length,
+    discarded: discardedRows.length,
+    winnerId,
+    phaseName: 'finalize',
+  });
   const { error: variantError } = await db
     .from('evolution_variants')
     .upsert(variantRows, { onConflict: 'id' });
@@ -225,16 +257,24 @@ export async function finalizeRun(
 
     // Run-level finalization metrics
     for (const def of getEntity('run').metrics.atFinalization) {
-      const value = def.compute(finCtx);
-      if (value != null) {
-        await writeMetric(db, 'run', runId, def.name as MetricName, value, 'at_finalization');
+      const metricResult = def.compute(finCtx);
+      if (metricResult == null) continue;
+      if (isMetricValue(metricResult)) {
+        await writeMetric(db, 'run', runId, def.name as MetricName, metricResult.value, 'at_finalization', {
+          sigma: metricResult.sigma ?? undefined,
+          ci_lower: metricResult.ci?.[0],
+          ci_upper: metricResult.ci?.[1],
+          n: metricResult.n,
+        });
+      } else {
+        await writeMetric(db, 'run', runId, def.name as MetricName, metricResult, 'at_finalization');
       }
     }
 
     // Invocation-level finalization metrics (requires execution_detail for variant mapping)
     const { data: invocations } = await db
       .from('evolution_agent_invocations')
-      .select('id, agent_name, execution_detail')
+      .select('id, agent_name, cost_usd, execution_detail')
       .eq('run_id', runId);
 
     if (invocations && invocations.length > 0) {
@@ -245,22 +285,50 @@ export async function finalizeRun(
       for (const inv of invocations) {
         const invCtx = { ...invFinCtx, currentInvocationId: inv.id };
         for (const def of getEntity('invocation').metrics.atFinalization) {
-          const value = def.compute(invCtx);
-          if (value != null) {
-            await writeMetric(db, 'invocation', inv.id, def.name as MetricName, value, 'at_finalization');
-          }
+          const result = def.compute(invCtx);
+          if (result == null) continue;
+          const val = isMetricValue(result) ? result.value : result;
+          await writeMetric(db, 'invocation', inv.id, def.name as MetricName, val, 'at_finalization');
         }
       }
+
+      // Run-level cost aggregates (Phase 9b/9f) — bucket invocation cost_usd by agent_name.
+      // We deliberately do NOT use execution_detail.{generation,ranking}.cost sub-totals here:
+      // those are computed by per-agent costTracker.getTotalSpent() deltas which race against
+      // OTHER concurrent agents in the same iteration (the tracker is shared). The race
+      // produces inflated per-agent costs; bucketing by agent_name uses cost_usd directly
+      // which sums correctly to the run total. generate_from_seed_article is treated as
+      // 50/50 generation/ranking — a coarse approximation but at least the totals are
+      // bounded by the real run cost. The accurate split would require a non-shared
+      // per-call cost tracker, which is a follow-up.
+      let totalGenerationCost = 0;
+      let totalRankingCost = 0;
+      for (const inv of invocations as Array<{ agent_name: string; cost_usd: number | null }>) {
+        const cost = Number(inv.cost_usd ?? 0);
+        if (!Number.isFinite(cost) || cost === 0) continue;
+        if (inv.agent_name === 'generate_from_seed_article') {
+          totalGenerationCost += cost / 2;
+          totalRankingCost += cost / 2;
+        } else if (inv.agent_name === 'swiss_ranking') {
+          totalRankingCost += cost;
+        } else if (inv.agent_name === 'generation') {
+          totalGenerationCost += cost;
+        } else if (inv.agent_name === 'ranking') {
+          totalRankingCost += cost;
+        }
+      }
+      await writeMetric(db, 'run', runId, 'total_generation_cost' as MetricName, totalGenerationCost, 'at_finalization');
+      await writeMetric(db, 'run', runId, 'total_ranking_cost' as MetricName, totalRankingCost, 'at_finalization');
     }
 
     // Variant-level finalization metrics
     for (const v of localPool) {
       const varCtx: FinalizationContext = { ...finCtx, currentVariantCost: v.costUsd ?? null };
       for (const def of getEntity('variant').metrics.atFinalization) {
-        const value = def.compute(varCtx);
-        if (value != null) {
-          await writeMetric(db, 'variant', v.id, def.name as MetricName, value, 'at_finalization');
-        }
+        const result = def.compute(varCtx);
+        if (result == null) continue;
+        const val = isMetricValue(result) ? result.value : result;
+        await writeMetric(db, 'variant', v.id, def.name as MetricName, val, 'at_finalization');
       }
     }
 
@@ -283,24 +351,7 @@ export async function finalizeRun(
     });
   }
 
-  // Step 6a: Strategy aggregate update (legacy — will be removed in Phase 6)
-  if (run.strategy_id) {
-    try {
-      await db.rpc('update_strategy_aggregates', {
-        p_strategy_id: run.strategy_id,
-        p_cost_usd: result.totalCost,
-        p_final_elo: toEloScale(winnerMu),
-      });
-      const stratLogger = createEntityLogger({
-        entityType: 'strategy',
-        entityId: run.strategy_id,
-        strategyId: run.strategy_id,
-      }, db);
-      stratLogger.info('Strategy aggregates updated', { totalCost: result.totalCost, finalElo: toEloScale(winnerMu) });
-    } catch (err) {
-      logger?.warn('Strategy aggregate update failed', { phaseName: 'finalize', error: (err instanceof Error ? err.message : String(err)).slice(0, 500) });
-    }
-  }
+  // Step 6a: (Removed) update_strategy_aggregates RPC was deprecated — propagateMetrics handles this now.
 
   // Step 6b: Experiment auto-completion (only if ALL sibling runs are done)
   if (run.experiment_id) {
@@ -323,7 +374,7 @@ export async function finalizeRun(
 }
 
 /** Aggregate child run metrics into a parent entity (strategy or experiment). */
-async function propagateMetrics(
+export async function propagateMetrics(
   db: SupabaseClient,
   entityType: 'strategy' | 'experiment',
   entityId: string,
@@ -350,6 +401,7 @@ async function propagateMetrics(
     if (sourceRows.length === 0) continue;
     const aggregated = def.aggregate(sourceRows);
     await writeMetric(db, entityType, entityId, def.name as MetricName, aggregated.value, 'at_propagation', {
+      sigma: aggregated.sigma ?? undefined,
       ci_lower: aggregated.ci?.[0],
       ci_upper: aggregated.ci?.[1],
       n: aggregated.n,
@@ -388,6 +440,8 @@ export async function syncToArena(
         elo_score: r ? toEloScale(r.mu) : 1200,
         mu: r?.mu ?? 25,
         sigma: r?.sigma ?? 8.333,
+        // arena_match_count: matches played in THIS run only (not cumulative).
+        // The DB RPC accumulates this into the arena entry's lifetime total.
         arena_match_count: variantMatchCounts.get(v.id) ?? 0,
         generation_method: 'pipeline',
       };

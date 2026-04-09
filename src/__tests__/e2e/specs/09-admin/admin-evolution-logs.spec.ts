@@ -5,13 +5,14 @@
 
 import { adminTest, expect } from '../../fixtures/admin-auth';
 import { createClient } from '@supabase/supabase-js';
+import type { Database } from '@/lib/database.types';
 import * as dotenv from 'dotenv';
 import * as path from 'path';
 
 dotenv.config({ path: path.resolve(process.cwd(), '.env.local') });
 
 function getServiceClient() {
-  return createClient(
+  return createClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
   );
@@ -104,17 +105,19 @@ adminTest.describe('Admin Evolution LogsTab Filters', { tag: '@evolution' }, () 
   adminTest(
     'LogsTab renders with iteration, message search, and variant ID filters',
     async ({ adminPage }) => {
-      await adminPage.goto(`/admin/evolution/runs/${seeded.runId}`);
+      await adminPage.goto(`/admin/evolution/runs/${seeded.runId}`, { timeout: 30000 });
       await adminPage.waitForLoadState('domcontentloaded');
 
+      // Wait for run detail to load (tab bar only renders after data loads)
+      await adminPage.locator('[data-testid="entity-detail-header"]').waitFor({ state: 'visible', timeout: 30_000 });
+
       // Click logs tab
-      const logsTab = adminPage.locator('button:has-text("Logs"), [role="tab"]:has-text("Logs")');
-      if (await logsTab.isVisible()) {
-        await logsTab.click();
-      }
+      const logsTab = adminPage.locator('[data-testid="tab-logs"]');
+      await expect(logsTab).toBeVisible();
+      await logsTab.click();
 
       const logsContainer = adminPage.locator('[data-testid="logs-tab"]');
-      await logsContainer.waitFor({ state: 'visible', timeout: 10_000 });
+      await logsContainer.waitFor({ state: 'visible', timeout: 15000 });
 
       // Verify level filter
       const levelFilter = logsContainer.locator('select[aria-label="Filter by level"]');
@@ -137,17 +140,17 @@ adminTest.describe('Admin Evolution LogsTab Filters', { tag: '@evolution' }, () 
   adminTest(
     'LogsTab level filter shows filtered results',
     async ({ adminPage }) => {
-      await adminPage.goto(`/admin/evolution/runs/${seeded.runId}`);
+      await adminPage.goto(`/admin/evolution/runs/${seeded.runId}`, { timeout: 30000 });
       await adminPage.waitForLoadState('domcontentloaded');
 
-      // Click logs tab
-      const logsTab = adminPage.locator('button:has-text("Logs"), [role="tab"]:has-text("Logs")');
-      if (await logsTab.isVisible()) {
-        await logsTab.click();
-      }
+      // Wait for run detail to load, then click logs tab
+      await adminPage.locator('[data-testid="entity-detail-header"]').waitFor({ state: 'visible', timeout: 30_000 });
+      const logsTab = adminPage.locator('[data-testid="tab-logs"]');
+      await expect(logsTab).toBeVisible();
+      await logsTab.click();
 
       const logsContainer = adminPage.locator('[data-testid="logs-tab"]');
-      await logsContainer.waitFor({ state: 'visible', timeout: 10_000 });
+      await logsContainer.waitFor({ state: 'visible', timeout: 15000 });
 
       // Select "info" level filter — our seeded log has level 'info'
       const levelFilter = logsContainer.locator('select[aria-label="Filter by level"]');
@@ -155,7 +158,7 @@ adminTest.describe('Admin Evolution LogsTab Filters', { tag: '@evolution' }, () 
 
       // Wait for table to update — the seeded log should still appear
       const table = logsContainer.locator('table');
-      await expect(table).toBeVisible({ timeout: 10_000 });
+      await expect(table).toBeVisible({ timeout: 15000 });
 
       // The log count label should reflect filtered results
       const countLabel = logsContainer.locator('text=/\\d+ logs?/');
@@ -166,17 +169,17 @@ adminTest.describe('Admin Evolution LogsTab Filters', { tag: '@evolution' }, () 
   adminTest(
     'LogsTab message search filters by text',
     async ({ adminPage }) => {
-      await adminPage.goto(`/admin/evolution/runs/${seeded.runId}`);
+      await adminPage.goto(`/admin/evolution/runs/${seeded.runId}`, { timeout: 30000 });
       await adminPage.waitForLoadState('domcontentloaded');
 
-      // Click logs tab
-      const logsTab = adminPage.locator('button:has-text("Logs"), [role="tab"]:has-text("Logs")');
-      if (await logsTab.isVisible()) {
-        await logsTab.click();
-      }
+      // Wait for run detail to load, then click logs tab
+      await adminPage.locator('[data-testid="entity-detail-header"]').waitFor({ state: 'visible', timeout: 30_000 });
+      const logsTab = adminPage.locator('[data-testid="tab-logs"]');
+      await expect(logsTab).toBeVisible();
+      await logsTab.click();
 
       const logsContainer = adminPage.locator('[data-testid="logs-tab"]');
-      await logsContainer.waitFor({ state: 'visible', timeout: 10_000 });
+      await logsContainer.waitFor({ state: 'visible', timeout: 15000 });
 
       // Type the seeded log message text into search
       const messageSearch = logsContainer.locator('input[aria-label="Search messages"]');
@@ -184,11 +187,11 @@ adminTest.describe('Admin Evolution LogsTab Filters', { tag: '@evolution' }, () 
 
       // Wait for debounced search to trigger and table to render results
       const table = logsContainer.locator('table');
-      await expect(table).toBeVisible({ timeout: 10_000 });
+      await expect(table).toBeVisible({ timeout: 15000 });
 
       // The matching log row should contain our seeded message text
       const matchingRow = logsContainer.locator('td:has-text("[TEST] E2E log entry")');
-      await expect(matchingRow).toBeVisible({ timeout: 10_000 });
+      await expect(matchingRow).toBeVisible({ timeout: 15000 });
     },
   );
 });

@@ -231,8 +231,8 @@ Main pipeline uses `@critical` subset which already has both evolution and non-e
       TEST_USER_EMAIL: ${{ secrets.TEST_USER_EMAIL }}
       TEST_USER_PASSWORD: ${{ secrets.TEST_USER_PASSWORD }}
       TEST_USER_ID: ${{ secrets.TEST_USER_ID }}
-      ADMIN_TEST_EMAIL: ${{ secrets.ADMIN_TEST_EMAIL }}
-      ADMIN_TEST_PASSWORD: ${{ secrets.ADMIN_TEST_PASSWORD }}
+      TEST_USER_EMAIL: ${{ secrets.TEST_USER_EMAIL }}
+      TEST_USER_PASSWORD: ${{ secrets.TEST_USER_PASSWORD }}
       NEXT_PUBLIC_USE_AI_API_ROUTE: 'true'
     steps:
       - uses: actions/checkout@v4
@@ -298,8 +298,8 @@ Main pipeline uses `@critical` subset which already has both evolution and non-e
       TEST_USER_EMAIL: ${{ secrets.TEST_USER_EMAIL }}
       TEST_USER_PASSWORD: ${{ secrets.TEST_USER_PASSWORD }}
       TEST_USER_ID: ${{ secrets.TEST_USER_ID }}
-      ADMIN_TEST_EMAIL: ${{ secrets.ADMIN_TEST_EMAIL }}
-      ADMIN_TEST_PASSWORD: ${{ secrets.ADMIN_TEST_PASSWORD }}
+      TEST_USER_EMAIL: ${{ secrets.TEST_USER_EMAIL }}
+      TEST_USER_PASSWORD: ${{ secrets.TEST_USER_PASSWORD }}
       NEXT_PUBLIC_USE_AI_API_ROUTE: 'true'
     steps:
       - uses: actions/checkout@v4

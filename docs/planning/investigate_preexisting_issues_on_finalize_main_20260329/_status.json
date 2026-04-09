@@ -1,0 +1,18 @@
+{
+  "branch": "feat/investigate_preexisting_issues_on_finalize_main_20260329",
+  "created_at": "2026-03-29T00:00:00Z",
+  "prerequisites": {
+    "getting_started_read": "2026-03-30T09:36:55Z",
+    "project_workflow_read": "2026-03-30T09:36:56Z",
+    "todos_created": "2026-03-30T09:37:00Z",
+    "testing_overview_read": "2026-03-30T09:39:44Z",
+    "design_style_guide_read": "2026-03-30T09:42:10Z"
+  },
+  "relevantDocs": [
+    "docs/docs_overall/testing_overview.md",
+    "docs/feature_deep_dives/testing_setup.md",
+    "docs/docs_overall/environments.md",
+    "evolution/docs/architecture.md",
+    "docs/docs_overall/debugging.md"
+  ]
+}

@@ -13,19 +13,20 @@ import {
   type TestTag,
 } from '../../helpers/test-data-factory';
 import { createClient } from '@supabase/supabase-js';
+import type { Database } from '@/lib/database.types';
 
 /**
  * Associates an existing tag with an explanation via the junction table.
  */
 async function associateTagWithExplanation(explanationId: string, tagId: string): Promise<void> {
-  const supabase = createClient(
+  const supabase = createClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   );
 
   const { error } = await supabase.from('explanation_tags').insert({
-    explanation_id: explanationId,
-    tag_id: tagId,
+    explanation_id: Number(explanationId),
+    tag_id: Number(tagId),
   });
 
   if (error) {
@@ -181,6 +182,7 @@ test.describe('Tag Management', () => {
   });
 
   test.describe('Changes Panel (P2)', () => {
+    test.describe.configure({ mode: 'serial' });
     // These tests need an explanation WITH a tag to test tag removal
     let taggedExplanation: TestExplanation;
     let testTag: TestTag;

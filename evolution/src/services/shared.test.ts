@@ -1,6 +1,6 @@
-// Tests for shared utilities: validateUuid(), UUID_REGEX, UUID_V4_REGEX, isTestContentName().
+// Tests for shared utilities: validateUuid(), UUID_REGEX, UUID_V4_REGEX, isTestContentName(), applyTestContentNameFilter().
 
-import { validateUuid, UUID_REGEX, UUID_V4_REGEX, isTestContentName } from './shared';
+import { validateUuid, UUID_REGEX, UUID_V4_REGEX, isTestContentName, applyTestContentNameFilter } from './shared';
 
 describe('validateUuid', () => {
   const VALID_V4 = '550e8400-e29b-41d4-a716-446655440000';
@@ -73,6 +73,16 @@ describe('isTestContentName', () => {
     expect(isTestContentName('[test] lowercase')).toBe(true);
   });
 
+  it('matches [E2E] prefix', () => {
+    expect(isTestContentName('[E2E] Anchor Strategy 1774967596078')).toBe(true);
+    expect(isTestContentName('[e2e] lowercase')).toBe(true);
+  });
+
+  it('matches [TEST_EVO] prefix', () => {
+    expect(isTestContentName('[TEST_EVO] Strategy suffix')).toBe(true);
+    expect(isTestContentName('[test_evo] lowercase')).toBe(true);
+  });
+
   it('matches timestamp-based auto-generated names', () => {
     expect(isTestContentName('nav2-1774498767678-strat')).toBe(true);
     expect(isTestContentName('nav2-1774498767678-exp')).toBe(true);
@@ -92,5 +102,27 @@ describe('isTestContentName', () => {
     expect(isTestContentName(null)).toBe(false);
     expect(isTestContentName(undefined)).toBe(false);
     expect(isTestContentName('')).toBe(false);
+  });
+});
+
+describe('applyTestContentNameFilter', () => {
+  it('chains .not() calls for all test prefixes', () => {
+    const notCalls: [string, string, string][] = [];
+    const mockQuery: { not: jest.Mock } = {
+      not: jest.fn((...args: [string, string, string]) => {
+        notCalls.push(args);
+        return mockQuery;
+      }),
+    };
+
+    const result = applyTestContentNameFilter(mockQuery);
+
+    expect(result).toBe(mockQuery);
+    expect(notCalls).toEqual([
+      ['name', 'ilike', '%[TEST]%'],
+      ['name', 'ilike', '%[E2E]%'],
+      ['name', 'ilike', '%[TEST_EVO]%'],
+      ['name', 'ilike', 'test'],
+    ]);
   });
 });

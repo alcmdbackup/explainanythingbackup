@@ -56,6 +56,7 @@ export function LineageTab({ runId }: LineageTabProps): JSX.Element {
     elo: n.eloScore,
     iterationBorn: n.generation,
     isWinner: n.isWinner,
+    persisted: n.persisted ?? true,
   }));
 
   const graphEdges = nodes

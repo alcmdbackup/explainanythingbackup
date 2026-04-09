@@ -11,8 +11,9 @@ export interface DashboardData {
   queueDepth: number;
   completedRuns: number;
   failedRuns: number;
-  totalCostUsd: number;
-  avgCostPerRun: number;
+  totalRuns: number;
+  totalCostUsd: number | null;
+  avgCostPerRun: number | null;
   recentRuns: Array<{
     id: string;
     status: string;
@@ -40,6 +41,8 @@ export interface LineageNode {
   eloScore: number;
   isWinner: boolean;
   parentId: string | null;
+  /** False = discarded by owning generate agent. Defaults true for legacy variants. */
+  persisted?: boolean;
 }
 
 /** V2 lineage data format compatible with LineageGraph component. */
@@ -53,6 +56,8 @@ export interface LineageData {
     isWinner: boolean;
     treeDepth?: number | null;
     revisionAction?: string | null;
+    /** False = discarded variant — rendered with reduced opacity / dashed border. */
+    persisted?: boolean;
   }[];
   edges: { source: string; target: string }[];
   treeSearchPath?: string[];
@@ -99,30 +104,35 @@ export const getEvolutionDashboardDataAction = adminAction(
     const completedRuns = runs.filter(r => r.status === 'completed').length;
     const failedRuns = runs.filter(r => r.status === 'failed').length;
 
-    // Total cost from evolution_metrics, with fallback to evolution_run_costs view
-    // when metrics writes fail (Bug 1: cost always $0.00)
-    let totalCostUsd = 0;
+    // Total cost from evolution_metrics, with fallback to evolution_run_costs view.
+    // Returns null on query failure to distinguish errors from genuinely $0.00.
+    let totalCostUsd: number | null = 0;
     if (filteredRunIds.length > 0) {
-      const { data: costMetrics } = await supabase
-        .from('evolution_metrics')
-        .select('value')
-        .eq('entity_type', 'run')
-        .eq('metric_name', 'cost')
-        .in('entity_id', filteredRunIds);
-      totalCostUsd = (costMetrics ?? []).reduce((sum, m) => sum + (Number(m.value) || 0), 0);
+      try {
+        const { data: costMetrics } = await supabase
+          .from('evolution_metrics')
+          .select('value')
+          .eq('entity_type', 'run')
+          .eq('metric_name', 'cost')
+          .in('entity_id', filteredRunIds);
+        totalCostUsd = (costMetrics ?? []).reduce((sum, m) => sum + (Number(m.value) || 0), 0);
 
-      // Fallback: if metrics-based cost is $0, use evolution_run_costs view
-      // which aggregates directly from evolution_agent_invocations.cost_usd
-      if (totalCostUsd === 0) {
-        const { data: viewCosts } = await supabase
-          .from('evolution_run_costs')
-          .select('total_cost_usd')
-          .in('run_id', filteredRunIds);
-        totalCostUsd = (viewCosts ?? []).reduce((sum, c) => sum + (Number(c.total_cost_usd) || 0), 0);
+        // Fallback: if metrics-based cost is $0, use evolution_run_costs view
+        // which aggregates directly from evolution_agent_invocations.cost_usd
+        if (totalCostUsd === 0) {
+          const { data: viewCosts } = await supabase
+            .from('evolution_run_costs')
+            .select('total_cost_usd')
+            .in('run_id', filteredRunIds);
+          totalCostUsd = (viewCosts ?? []).reduce((sum, c) => sum + (Number(c.total_cost_usd) || 0), 0);
+        }
+      } catch (err) {
+        console.error('[Dashboard] Cost aggregation failed:', err);
+        totalCostUsd = null;
       }
     }
     const runCount = completedRuns + failedRuns;
-    const avgCostPerRun = runCount > 0 ? totalCostUsd / runCount : 0;
+    const avgCostPerRun = runCount > 0 && totalCostUsd != null ? totalCostUsd / runCount : null;
 
     // Enrich recent runs with strategy names and costs
     const recentRuns = (recentResult.data ?? []) as unknown as Array<{
@@ -166,6 +176,7 @@ export const getEvolutionDashboardDataAction = adminAction(
       queueDepth,
       completedRuns,
       failedRuns,
+      totalRuns: runs.length,
       totalCostUsd,
       avgCostPerRun,
       recentRuns: recentRuns.map(r => ({
@@ -217,7 +228,7 @@ export const getEvolutionRunLineageAction = adminAction(
 
     const { data, error } = await ctx.supabase
       .from('evolution_variants')
-      .select('id, generation, agent_name, elo_score, is_winner, parent_variant_id')
+      .select('id, generation, agent_name, elo_score, is_winner, parent_variant_id, persisted')
       .eq('run_id', runId)
       .order('generation', { ascending: true });
 
@@ -230,6 +241,8 @@ export const getEvolutionRunLineageAction = adminAction(
       eloScore: v.elo_score,
       isWinner: v.is_winner,
       parentId: v.parent_variant_id,
+      // Default true for legacy rows that pre-date the persisted column.
+      persisted: (v as { persisted?: boolean | null }).persisted ?? true,
     }));
   },
 );

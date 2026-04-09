@@ -201,6 +201,7 @@ export function ExplanationTable({ onSelectExplanation }: ExplanationTableProps)
             type="checkbox"
             checked={filterTestContent}
             onChange={(e) => { setFilterTestContent(e.target.checked); setPage(0); }}
+            data-testid="admin-content-filter-test-content"
             className="rounded"
           />
           Filter test content

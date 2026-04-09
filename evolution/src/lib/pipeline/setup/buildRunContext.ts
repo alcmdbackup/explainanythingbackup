@@ -51,6 +51,8 @@ export async function loadArenaEntries(
   const ratings = new Map<string, Rating>();
 
   for (const entry of data) {
+    const rawMu = entry.mu as number | null;
+    const rawSigma = entry.sigma as number | null;
     variants.push({
       id: entry.id,
       text: entry.variant_content,
@@ -63,8 +65,8 @@ export async function loadArenaEntries(
       arenaMatchCount: entry.arena_match_count ?? 0,
     });
     ratings.set(entry.id, {
-      mu: entry.mu ?? DEFAULT_MU,
-      sigma: entry.sigma ?? DEFAULT_SIGMA,
+      mu: Number.isFinite(rawMu) ? rawMu! : DEFAULT_MU,
+      sigma: Number.isFinite(rawSigma) ? rawSigma! : DEFAULT_SIGMA,
     });
   }
 
@@ -91,6 +93,8 @@ export interface RunContext {
   config: EvolutionConfig;
   logger: EntityLogger;
   initialPool: Array<ArenaTextVariation & { mu?: number; sigma?: number }>;
+  /** Run-level random seed (BIGINT) for reproducible Fisher-Yates shuffles + agent tiebreaks. */
+  randomSeed: bigint;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────
@@ -100,6 +104,7 @@ async function resolveContent(
   db: SupabaseClient,
   llm: RawLLMProvider,
   logger?: EntityLogger,
+  generationModel?: string,
 ): Promise<string | null> {
   if (run.explanation_id != null) {
     const { data, error } = await db
@@ -108,8 +113,10 @@ async function resolveContent(
       .eq('id', run.explanation_id)
       .single();
     if (error || !data?.content) return null;
-    logger?.info('Content resolved from explanation', { contentLength: (data.content as string).length, source: 'explanation', phaseName: 'setup' });
-    return data.content as string;
+    const content = typeof data.content === 'string' ? data.content : null;
+    if (!content) return null;
+    logger?.info('Content resolved from explanation', { contentLength: content.length, source: 'explanation', phaseName: 'setup' });
+    return content;
   }
 
   if (run.prompt_id != null) {
@@ -119,7 +126,11 @@ async function resolveContent(
       .eq('id', run.prompt_id)
       .single();
     if (error || !data?.prompt) return null;
-    const seed = await generateSeedArticle(data.prompt as string, llm, logger);
+    const promptText = typeof data.prompt === 'string' ? data.prompt : null;
+    if (!promptText) return null;
+    // Pass generationModel so the seed step uses the strategy's configured model
+    // instead of falling through to the raw provider's deepseek-chat default.
+    const seed = await generateSeedArticle(promptText, llm, logger, generationModel);
     logger?.info('Content resolved from seed generation', { contentLength: seed.content.length, source: 'prompt', phaseName: 'setup' });
     return seed.content;
   }
@@ -161,6 +172,7 @@ export async function buildRunContext(
     strategiesPerRound: stratConfig.strategiesPerRound ?? 3,
     calibrationOpponents: 5,
     tournamentTopK: 5,
+    generationGuidance: stratConfig.generationGuidance,
   };
 
   const logger = createEntityLogger({
@@ -177,8 +189,9 @@ export async function buildRunContext(
     phaseName: 'setup',
   });
 
-  // Resolve content
-  const originalText = await resolveContent(claimedRun, db, llmProvider, logger);
+  // Resolve content (pass generationModel so seed-article LLM calls use the strategy's
+  // configured model rather than the raw provider's deepseek-chat default).
+  const originalText = await resolveContent(claimedRun, db, llmProvider, logger, config.generationModel);
   if (!originalText) {
     const reason = claimedRun.explanation_id != null
       ? `Explanation ${claimedRun.explanation_id} not found`
@@ -204,7 +217,40 @@ export async function buildRunContext(
     }
   }
 
+  // Read existing random_seed if present (e.g., for reproducing a prior run), otherwise generate.
+  let randomSeed: bigint;
+  try {
+    const { data: runRow } = await db
+      .from('evolution_runs')
+      .select('random_seed')
+      .eq('id', runId)
+      .single();
+    const existing = runRow?.random_seed as string | number | null | undefined;
+    if (existing !== null && existing !== undefined && existing !== '') {
+      randomSeed = BigInt(existing);
+    } else {
+      // Auto-generate a 63-bit seed (signed BIGINT range). Math.random is fine here —
+      // only the initial seed needs to be unpredictable; downstream RNGs are
+      // deterministic from this. We cap the high half at 31 bits so the combined
+      // 63-bit value always fits in PostgreSQL signed BIGINT (max 2^63 - 1).
+      const high = BigInt(Math.floor(Math.random() * 0x7fffffff)); // 31 bits, signed-safe
+      const low = BigInt(Math.floor(Math.random() * 0xffffffff));   // 32 bits unsigned
+      randomSeed = (high << BigInt(32)) | low;
+      // Persist it back to the run row so reproduction is possible.
+      await db
+        .from('evolution_runs')
+        .update({ random_seed: randomSeed.toString() })
+        .eq('id', runId);
+    }
+  } catch (err) {
+    logger.warn('random_seed read/write failed; using fallback constant', {
+      phaseName: 'setup',
+      error: (err instanceof Error ? err.message : String(err)).slice(0, 500),
+    });
+    randomSeed = BigInt(42);
+  }
+
   return {
-    context: { originalText, config, logger, initialPool },
+    context: { originalText, config, logger, initialPool, randomSeed },
   };
 }

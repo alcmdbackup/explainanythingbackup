@@ -227,6 +227,11 @@ export const cancelExperimentAction = adminAction(
     }, ctx.supabase);
     expLogger.warn('Experiment cancelled', { experimentId: input.experimentId });
 
+    // Revalidate the experiment detail page so server component re-fetches
+    const { revalidatePath } = await import('next/cache');
+    revalidatePath(`/admin/evolution/experiments/${input.experimentId}`);
+    revalidatePath('/admin/evolution/experiments');
+
     return { cancelled: true };
   },
 );

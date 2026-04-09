@@ -5,6 +5,7 @@
 
 import type { AgentName } from '../types';
 import type { V2StrategyConfig } from '../pipeline/infra/types';
+import type { Database } from '@/lib/database.types';
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -36,17 +37,18 @@ export interface StrategyConfigRow {
   pipeline_type: 'full' | 'single' | null;
   status: 'active' | 'archived';
   created_by: 'system' | 'admin' | 'experiment' | 'batch';
-  run_count: number;
-  total_cost_usd: number;
-  avg_final_elo: number | null;
   avg_elo_per_dollar: number | null;
-  best_final_elo: number | null;
-  worst_final_elo: number | null;
   stddev_final_elo: number | null;
   first_used_at: string;
   last_used_at: string;
   created_at: string;
 }
+
+// Compile-time assertion: StrategyConfigRow fields must be a subset of the DB-generated type.
+type _DbStrategyRow = Database['public']['Tables']['evolution_strategies']['Row'];
+type _AssertStrategyConfigRow = keyof StrategyConfigRow extends keyof _DbStrategyRow ? true : never;
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const _checkStrategyConfigRow: _AssertStrategyConfigRow = true;
 
 // ─── Normalization ───────────────────────────────────────────────
 

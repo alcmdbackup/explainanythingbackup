@@ -7,7 +7,11 @@ Consolidated guide covering testing rules, tiers, and CI/CD workflows.
 1. **Start from a known state every test.** Create all needed data in the test (or via API/seed), and reset/cleanup DB + auth/session so tests don't depend on order or shared accounts.
 2. **Never use fixed sleeps.** Wait only on observable conditions: element is visible/enabled, URL changed, specific network response completed, websocket event received, etc.
 3. **Use stable selectors only.** Prefer `data-testid` (or equivalent); avoid brittle CSS/XPath based on layout/text unless it's an accessibility role/name that's truly stable.
-4. **Make async explicit.** After actions, assert the next expected state (auto-waiting assertions) and/or wait for the relevant request: "click → wait for /api/foo 200 → expect success UI."
+4. **Make async explicit — use auto-waiting assertions, not point-in-time checks.** After actions, assert the next expected state using Playwright's `expect(locator)` assertions which retry automatically until met or timeout. **Never use point-in-time methods for assertions** — they execute once and race with React hydration and streaming:
+   - `page.textContent()`, `page.isVisible()`, `locator.innerText()`, `locator.inputValue()` → run once, return immediately
+   - `expect(locator).toContainText()`, `expect(locator).toBeVisible()`, `expect(locator).toHaveValue()` → retry until true or timeout
+   - `waitForLoadState('domcontentloaded')` fires before RSC hydration — wait for specific content instead
+   - Pattern: "click → `expect(locator).toBeVisible()` → `expect(locator).toContainText('expected')`"
 5. **Isolate external dependencies.** Mock/stub third-party services (payments, email, maps, feature flags) and make backend responses deterministic; avoid real timeouts to external systems.
 6. **Keep timeouts short** - 60 seconds max per test
 7. **Never silently swallow errors.** Use helpers from `src/__tests__/e2e/helpers/error-utils.ts` instead of bare `.catch(() => {})`:
@@ -31,6 +35,8 @@ Consolidated guide covering testing rules, tiers, and CI/CD workflows.
 14. **Mock helpers must unroute before routing.** All mock helper functions in `api-mocks.ts` must call `await page.unroute(pattern)` before `await page.route(pattern, ...)` to prevent handler stacking when a mock is called multiple times in the same test.
 15. **Restore global.fetch in unit tests.** Any test that assigns `global.fetch` must save the original and restore it in `afterEach`: `const originalFetch = global.fetch; afterEach(() => { global.fetch = originalFetch; });`
 16. **E2E specs that import database tools must have afterAll cleanup.** Any spec file importing `@supabase/supabase-js`, `test-data-factory`, or `evolution-test-helpers` must include a `test.afterAll` or `adminTest.afterAll` block that deletes created entities. Enforced by ESLint `flakiness/require-test-cleanup`.
+17. **Never hardcode URLs in Page Objects or fixtures.** Use `page.goto('/relative-path')` so Playwright resolves against the configured `baseURL`. Never construct absolute URLs with `process.env.BASE_URL || 'http://localhost:...'` — the fallback port will be wrong when the dev server runs on a dynamic port. If you need the base URL outside `page.goto()` (e.g., cookie domain), read it from `process.env.BASE_URL` which is set by `playwright.config.ts` from instance discovery. Enforced by ESLint `flakiness/no-hardcoded-base-url`.
+18. **Wait for hydration proof before interacting.** Visible !== interactive. After navigating to a page with dynamic imports or server-fetched data, wait for a data-dependent element (e.g., a table with rows, a loaded form) before clicking buttons or links. A button can be visible in SSR HTML but not wired to its React handler until hydration completes. Pattern: `await table.waitFor({ state: 'visible', timeout: 30000 }); await button.click();` Enforced by ESLint `flakiness/require-hydration-wait`.
 
 ### Enforcement Summary
 
@@ -39,16 +45,20 @@ Consolidated guide covering testing rules, tiers, and CI/CD workflows.
 | Rule 2: No fixed sleeps | ESLint `flakiness/no-wait-for-timeout` (catches `waitForTimeout` + `new Promise(setTimeout)`) | Lint (CI + IDE) |
 | Rule 6: Short timeouts | ESLint `flakiness/max-test-timeout` | Lint (CI + IDE) |
 | Rule 7: No silent errors | ESLint `flakiness/no-silent-catch` | Lint (CI + IDE) |
+| Rule 4: No point-in-time checks | ESLint `flakiness/no-point-in-time-checks` | Lint (CI + IDE) |
 | Rule 8: No test.skip | ESLint `flakiness/no-test-skip` | Lint (CI + IDE) |
 | Rule 9: No `networkidle` | ESLint `flakiness/no-networkidle` | Lint (CI + IDE) |
 | Rule 10: Unregister route mocks | Fixture teardown in `base.ts` + `auth.ts` (after `use()`) | Runtime (automatic) |
 | Rule 11: Per-worker temp files | ESLint `flakiness/no-hardcoded-tmpdir` + Claude hook warning | Lint + edit-time |
 | Rule 12: POM waits after actions | Claude hook heuristic check | Edit-time |
-| Rule 13: Serial mode for beforeAll suites | Code review + `test.describe.configure` | Edit-time |
+| Rule 13: Serial mode for beforeAll suites | ESLint `flakiness/require-serial-with-beforeall` | Lint (CI + IDE) |
 | Rule 14: Unroute before route in mocks | Code review + `page.unroute()` in helpers | Edit-time |
 | Rule 15: Restore global.fetch | Code review + `afterEach` pattern | Edit-time |
 | Rule 16: E2E cleanup for DB imports | ESLint `flakiness/require-test-cleanup` | Lint (CI + IDE) |
-| Column label uniqueness | ESLint `no-duplicate-column-labels` | Lint (CI + IDE) |
+| Rule 17: No hardcoded URLs in POMs | ESLint `flakiness/no-hardcoded-base-url` | Lint (CI + IDE) |
+| Rule 18: Wait for hydration proof | ESLint `flakiness/require-hydration-wait` | Lint (CI + IDE) |
+| Column label uniqueness | ESLint `flakiness/no-duplicate-column-labels` | Lint (CI + IDE) |
+| Timeout cascade detection | ESLint `flakiness/warn-slow-with-retries` (warn) | Lint (CI + IDE) |
 
 ---
 
@@ -60,6 +70,8 @@ All test content uses the `[TEST]` prefix at the start of titles to:
 1. **Enable discovery filtering** - Test content is excluded from Explore page, vector search, related content, and user query matching
 2. **Support cleanup** - Pattern matching on `[TEST]%` identifies content for deletion
 3. **Prevent pollution** - Real users never see test content in production
+
+> **Note:** Evolution-related test data also uses `[E2E]` and `[TEST_EVO]` prefixes. All three prefixes (`[TEST]`, `[E2E]`, `[TEST_EVO]`) are filtered by the test content filter in `evolution/src/services/shared.ts`.
 
 ### Title Format
 
@@ -245,6 +257,22 @@ npx supabase inspect db long-running-queries --linked
 | E2E (UI) | `npm run test:e2e:ui` | Interactive UI mode |
 | E2E (headed) | `npm run test:e2e:headed` | Visible browser |
 | All | `npm run test:all` | Unit + Integration |
+| Typecheck | `npm run typecheck` | TypeScript check (incremental) |
+| Unit (changed) | `npm run test:changed` | Only tests affected by branch changes |
+
+### Check Parity: Local vs CI
+
+| Check | Local (/finalize) | CI (main) | CI (prod) |
+|-------|-------------------|-----------|-----------|
+| Lint | `npm run lint` | `npm run lint` | `npm run lint` |
+| TypeScript | `npm run typecheck` | `npm run typecheck` | `npm run typecheck` |
+| Build | `npm run build` | ✗ skipped | ✗ skipped |
+| Unit | `npm run test` | `test:ci --changedSince` | same |
+| ESM | `npm run test:esm` | `npm run test:esm` | `npm run test:esm` |
+| Integration | `test:integration` (all) | `:critical` (5) | `:evolution` + `:non-evolution` |
+| E2E | `test:e2e:critical` | `test:e2e:critical` | `:evolution` + `:non-evolution --shard` |
+
+**Intentional differences**: CI uses `--changedSince` (unit), `--shard` (E2E), `--maxWorkers=2`. Local runs full suites for strict pre-PR verification.
 
 ### E2E Tests in Skill Workflows
 
@@ -278,10 +306,13 @@ E2E tests run after lint/tsc/build/unit/integration checks pass. The dev server 
 |--------|-------|-----|
 | **Unit tests** | Same behavior | `--maxWorkers=2` |
 | **Integration** | Same behavior | Same behavior |
-| **E2E server** | `npm run dev` (HMR) | `npm run build && npm start` |
+| **E2E server** | `npm run dev` (HMR, strict mode) | `npm run build && npm start` |
 | **E2E retries** | 0 | 2 |
 | **E2E timeout** | 30s test / 10s expect | 60s test / 20s expect |
 | **E2E mode** | `E2E_TEST_MODE` via env | `E2E_TEST_MODE` inline at runtime |
+| **React strict mode** | Active (double-mount in dev) | Inactive (production build) |
+
+> **React Strict Mode Warning:** Local E2E tests run against `npm run dev` which enables React strict mode. This causes components to mount → unmount → remount on every render. Hooks using `useRef` to track mount state (e.g., `isMountedRef`) must reset to `true` in the effect setup, not just set `false` in cleanup. Pattern: `useEffect(() => { ref.current = true; return () => { ref.current = false; }; }, [])`. Without the setup reset, the ref stays `false` after the simulated unmount/remount, causing async callbacks to silently bail out.
 
 ---
 
@@ -297,7 +328,7 @@ The CI workflow detects what files changed to optimize costs:
 
 | Path | Trigger | Jobs Run |
 |------|---------|----------|
-| **Fast** | Only docs/migrations changed (no `.ts`, `.tsx`, `.js`, `.jsx`, `.json`, `.css`) | lint + tsc only (~1 min) |
+| **Fast** | Only docs changed (no code files, no migrations) | lint + tsc only (~1 min) |
 | **Full** | Any code file changed | All tests (~2.5-3 min) |
 
 **Full Path Pipeline:**
@@ -357,7 +388,7 @@ detect-changes → typecheck + lint (parallel)
 | **Code checkout** | PR branch | production (`ref: production`) | production |
 | **Test types** | Unit → Integration → E2E | E2E only | E2E `@smoke` only |
 | **Target** | Local build | Live production URL | Live production URL |
-| **Secrets** | Development environment | Production environment | Production environment |
+| **Secrets** | Staging environment | Production environment | Production environment |
 | **Browsers** | Chromium | Chromium + Firefox | Chromium |
 | **E2E_TEST_MODE** | Yes (mocked SSE) | No (real AI) | No (real AI) |
 | **@skip-prod** | N/A (isProduction=false) | CLI `--grep-invert` + config `grepInvert` | N/A (only @smoke runs) |
@@ -386,10 +417,13 @@ Available to all workflows - API keys that don't change between environments:
 |--------|---------|
 | `OPENAI_API_KEY` | OpenAI API key |
 | `PINECONE_API_KEY` | Pinecone API key |
+| `DEEPSEEK_API_KEY` | DeepSeek API key (evolution LLM provider) |
+| `ANTHROPIC_API_KEY` | Anthropic API key (Claude models) |
+| `OPENROUTER_API_KEY` | OpenRouter API key (gpt-oss-20b) |
 
-### Development Environment Secrets
+### Staging Environment Secrets
 
-Used by `ci.yml` with `environment: Development`:
+Used by `ci.yml` with `environment: staging`:
 
 | Secret | Value |
 |--------|-------|

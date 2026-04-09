@@ -1,9 +1,32 @@
 # Rating and Comparison
 
-This document covers the ranking subsystem: Bayesian ratings, the two-phase ranking
-pipeline, bias-mitigated comparisons, winner parsing, and comparison caching. Together
-these components turn pairwise LLM judgments into stable skill estimates for every
-text variant in the pool.
+This document covers the ranking subsystem: Bayesian ratings, ranking algorithms,
+bias-mitigated comparisons, winner parsing, and comparison caching. Together these
+components turn pairwise LLM judgments into stable skill estimates for every text
+variant in the pool.
+
+> **Architecture note (Phase: orchestrator-driven parallel pipeline).** Ranking is
+> now split across two distinct algorithms, each owned by a different agent:
+>
+> - **Binary-search single-variant ranking** (`rankSingleVariant`) lives inside
+>   `GenerateFromSeedArticleAgent`. Each parallel generate agent ranks its newly
+>   generated variant against a deep-cloned local snapshot of the iteration-start
+>   pool/ratings/matchCounts, using a continuous opponent-selection formula
+>   (`entropy(pWin) / sigma^SIGMA_WEIGHT`). Stops on convergence, elimination, opponent
+>   exhaustion, or budget. The agent owns the surface/discard decision locally.
+>
+> - **Swiss pair comparisons** (`SwissRankingAgent`) refine the eligible top-15% pool
+>   in subsequent iterations. Pairs are computed by `swissPairing()` (overlap allowed,
+>   capped at `MAX_PAIRS_PER_ROUND`), dispatched in parallel, and the raw match buffer
+>   is handed to `MergeRatingsAgent` which applies OpenSkill updates to the global
+>   ratings in randomized (Fisher-Yates) order. The merge agent is dispatched
+>   unconditionally so paid-for matches always reach global ratings even on budget exit.
+>
+> The legacy two-phase `triage + Swiss` flow described in the "Two-Phase Ranking
+> Pipeline" section below has been replaced by this orchestrator-driven model. The
+> opponent-selection rationale (low-sigma preference, information-gain reasoning) still
+> applies — it is now realised through the continuous entropy/sigma formula instead of
+> stratified quartile sampling.
 
 ## OpenSkill (Weng-Lin Bayesian) Ratings
 
@@ -65,6 +88,17 @@ export function isConverged(r: Rating, threshold?: number): boolean;
 calls reduce sigma for every participant, even losers -- uncertainty always decreases when
 you observe an outcome.
 
+### Rating Invariants (Property-Tested)
+
+The following invariants are verified by property-based tests in `computeRatings.property.test.ts` using `fast-check` against the real openskill library:
+
+- **Sigma decrease:** Both players' sigma decreases after `updateRating()` and `updateDraw()` (for sigma >= 1.0; below 1.0, openskill's convergence floor may cause sigma to increase).
+- **Finite outputs:** All mu and sigma values after any rating update are finite numbers.
+- **Draw symmetry:** `updateDraw(a, b)` and `updateDraw(b, a)` produce symmetric results.
+- **Elo monotonicity:** `toEloScale()` is monotonically increasing in mu.
+- **Elo range:** `toEloScale()` output is always in [0, 3000].
+- **Aggregation shape:** `aggregateWinners()` always returns a valid `ComparisonResult` with winner in {A, B, TIE}, confidence in [0, 1], and turns = 2.
+
 ### Elo Scale Conversion
 
 For display purposes (leaderboards, the [Arena](./arena.md) UI), raw mu is projected onto
@@ -82,6 +116,28 @@ in USD, giving a cost-efficiency metric surfaced in the Arena dashboard.
 
 > **Note:** The constant `16` equals `400 / DEFAULT_MU`. This maps the openskill mu range
 > onto a span similar to chess Elo, where a 400-point gap corresponds to ~10:1 win odds.
+
+---
+
+## Elo Confidence Intervals
+
+Run-level elo metrics carry uncertainty information derived from the source variant's Bayesian sigma. This propagates the rating system's built-in uncertainty into the metrics layer.
+
+### Run-Level CI (From Variant Sigma)
+
+For run-level metrics like `winner_elo`, the CI is computed directly from the winning variant's sigma:
+
+```
+eloSigma = variant.sigma * ELO_SIGMA_SCALE   (ELO_SIGMA_SCALE = 16)
+ci_lower = elo - 1.96 * eloSigma
+ci_upper = elo + 1.96 * eloSigma
+```
+
+These are stored in the `sigma`, `ci_lower`, and `ci_upper` columns of the `evolution_metrics` row. A variant with low sigma (well-calibrated) produces a tight CI; a variant with high sigma (few matches) produces a wide CI.
+
+### Propagated CI (Bootstrap)
+
+At the strategy and experiment level, elo metrics are aggregated across multiple runs using `bootstrap_mean` aggregation. The CI at these levels comes from `bootstrapMeanCI()` — a resampling-based estimate of the mean's uncertainty — not from the per-variant sigma. This is appropriate because the cross-run variance (different runs producing different winner elos) is the dominant source of uncertainty at the aggregate level.
 
 ---
 

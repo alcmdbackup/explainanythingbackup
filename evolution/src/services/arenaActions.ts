@@ -136,23 +136,28 @@ export const createArenaTopicAction = adminAction(
 export const getArenaEntriesAction = adminAction(
   'getArenaEntries',
   async (
-    input: { topicId: string; includeArchived?: boolean },
+    input: { topicId: string; includeArchived?: boolean; limit?: number; offset?: number },
     ctx: AdminContext,
-  ): Promise<ArenaEntry[]> => {
+  ): Promise<{ items: ArenaEntry[]; total: number }> => {
     if (!validateUuid(input.topicId)) throw new Error('Invalid topicId');
 
     let query = ctx.supabase
       .from('evolution_variants')
-      .select('*')
+      .select('*', { count: 'exact' })
       .eq('prompt_id', input.topicId)
       .eq('synced_to_arena', true)
       .order('elo_score', { ascending: false });
 
     if (!input.includeArchived) query = query.is('archived_at', null);
 
-    const { data, error } = await query;
+    if (input.limit != null) {
+      const offset = input.offset ?? 0;
+      query = query.range(offset, offset + input.limit - 1);
+    }
+
+    const { data, error, count } = await query;
     if (error) throw error;
-    return (data ?? []) as ArenaEntry[];
+    return { items: (data ?? []) as ArenaEntry[], total: count ?? 0 };
   },
 );
 

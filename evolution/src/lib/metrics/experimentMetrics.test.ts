@@ -64,7 +64,7 @@ describe('bootstrapMeanCI', () => {
     const values = [mv(100), mv(110), mv(105)];
     const result = bootstrapMeanCI(values, ITERATIONS, rng());
     expect(result.ci).not.toBeNull();
-    expect(result.sigma).toBeNull();
+    expect(result.sigma).toBeGreaterThan(0);
   });
 
   it('produces no NaN/Infinity (Box-Muller guard)', () => {
@@ -148,31 +148,28 @@ describe('computeRunMetrics', () => {
     variants?: Array<{ elo_score: number }>;
     invocations?: Array<{ agent_name: string; cost_usd: number }>;
   }) {
+    // Build a thenable that chains .eq() any number of times.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    function chainable<T>(data: T): any {
+      const result = { data, error: null };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const obj: any = {
+        eq: () => obj,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        then: (onFulfilled?: any, onRejected?: any) =>
+          Promise.resolve(result).then(onFulfilled, onRejected),
+      };
+      return obj;
+    }
     return {
       from: jest.fn().mockImplementation((table: string) => {
         if (table === 'evolution_variants') {
-          return {
-            select: () => ({
-              eq: () =>
-                Promise.resolve({
-                  data: config.variants ?? [],
-                  error: null,
-                }),
-            }),
-          };
+          return { select: () => chainable(config.variants ?? []) };
         }
         if (table === 'evolution_agent_invocations') {
-          return {
-            select: () => ({
-              eq: () =>
-                Promise.resolve({
-                  data: config.invocations ?? [],
-                  error: null,
-                }),
-            }),
-          };
+          return { select: () => chainable(config.invocations ?? []) };
         }
-        return { select: () => ({ eq: () => Promise.resolve({ data: [], error: null }) }) };
+        return { select: () => chainable([]) };
       }),
     };
   }
@@ -236,12 +233,14 @@ describe('aggregateMetrics', () => {
     expect(aggregateMetrics([])).toEqual({});
   });
 
-  it('returns null CIs for single run', () => {
+  it('derives CI from sigma for single run', () => {
     const data: RunMetricsWithRatings[] = [
       { metrics: { maxElo: mv(1500, 40) }, variantRatings: null },
     ];
     const result = aggregateMetrics(data, rng());
-    expect(result.maxElo?.ci).toBeNull();
+    expect(result.maxElo?.ci).not.toBeNull();
+    expect(result.maxElo?.ci![0]).toBeCloseTo(1500 - 1.96 * 40, 1);
+    expect(result.maxElo?.ci![1]).toBeCloseTo(1500 + 1.96 * 40, 1);
     expect(result.maxElo?.n).toBe(1);
   });
 
@@ -253,7 +252,7 @@ describe('aggregateMetrics', () => {
     ];
     const result = aggregateMetrics(data, rng());
     expect(result.maxElo?.ci).not.toBeNull();
-    expect(result.maxElo?.sigma).toBeNull();
+    expect(result.maxElo?.sigma).toBeGreaterThan(0);
   });
 
   it('uses bootstrapPercentileCI for maxElo when ratings available', () => {

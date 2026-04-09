@@ -128,16 +128,17 @@ export function TextRevealPlugin({ isStreaming, animationEffect }: TextRevealPlu
       }
     );
 
+    const rafIds = rafIdsRef.current;
     return () => {
       unregisterParagraph();
       unregisterHeading();
       unregisterQuote();
       unregisterList();
       // Cancel any pending requestAnimationFrame calls
-      for (const rafId of rafIdsRef.current) {
+      for (const rafId of rafIds) {
         cancelAnimationFrame(rafId);
       }
-      rafIdsRef.current.clear();
+      rafIds.clear();
     };
   }, [editor, isStreaming, animationEffect]);
 

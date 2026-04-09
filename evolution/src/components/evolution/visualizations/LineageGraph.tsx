@@ -125,12 +125,15 @@ export function LineageGraph({ nodes, edges, treeSearchPath }: LineageGraphProps
       .attr('stroke', 'var(--accent-gold)')
       .attr('stroke-width', 2.5);
 
-    // Node circles
+    // Node circles. Discarded variants (persisted=false) render at reduced opacity with a
+    // dashed border so admins can spot them in the lineage graph at a glance.
     nodeGroups.append('circle')
       .attr('r', d => scaleRadius(d.elo))
       .attr('fill', d => STRATEGY_PALETTE[d.strategy] ?? 'var(--text-muted)')
-      .attr('stroke', 'var(--surface-elevated)')
-      .attr('stroke-width', 2);
+      .attr('fill-opacity', d => d.persisted === false ? 0.4 : 1)
+      .attr('stroke', d => d.persisted === false ? 'var(--status-error)' : 'var(--surface-elevated)')
+      .attr('stroke-width', 2)
+      .attr('stroke-dasharray', d => d.persisted === false ? '3,2' : 'none');
 
     // Labels
     nodeGroups.append('text')

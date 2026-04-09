@@ -40,11 +40,12 @@ const filters: FilterDef[] = [
   { key: 'filterTestContent', label: 'Hide test content', type: 'checkbox', defaultChecked: true },
 ];
 
-const pageSize = 50;
+const pageSize = 20;
 
 type RunAction = { kind: 'none' } | { kind: 'kill'; run: EvolutionRun } | { kind: 'delete'; run: EvolutionRun };
 
 export default function EvolutionRunsPage(): JSX.Element {
+  useEffect(() => { document.title = 'Runs | Evolution'; }, []);
   const [runs, setRuns] = useState<(EvolutionRun & { metrics?: MetricRow[] })[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);

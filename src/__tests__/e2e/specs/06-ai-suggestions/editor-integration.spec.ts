@@ -246,7 +246,7 @@ test.describe('AI Suggestions Editor Integration', { tag: '@skip-prod' }, () => 
 
       // Wait for error state
       await waitForSuggestionsError(page);
-      expect(await page.locator('[data-testid="suggestions-error"]').isVisible()).toBe(true);
+      await expect(page.locator('[data-testid="suggestions-error"]')).toBeVisible();
 
       // Verify no diff nodes appeared
       const counts = await getDiffCounts(page);

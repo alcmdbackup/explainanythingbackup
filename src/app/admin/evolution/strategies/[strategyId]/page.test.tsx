@@ -25,9 +25,6 @@ jest.mock('@evolution/services/strategyRegistryActions', () => ({
       pipeline_type: 'full',
       status: 'active',
       created_by: 'admin',
-      run_count: 3,
-      total_cost_usd: 7.5,
-      avg_final_elo: 1500,
       first_used_at: '2026-03-01T00:00:00Z',
       last_used_at: '2026-03-01T12:00:00Z',
       created_at: '2026-02-15T00:00:00Z',
@@ -51,6 +48,9 @@ jest.mock('@evolution/components/evolution', () => ({
   },
   EntityMetricsTab: ({ entityType, entityId }: { entityType: string; entityId: string }) => (
     <div data-testid="entity-metrics-tab">{entityType}:{entityId}</div>
+  ),
+  NotFoundCard: ({ entityType }: { entityType: string }) => (
+    <div data-testid="not-found-card">{entityType} not found</div>
   ),
 }));
 
@@ -134,11 +134,11 @@ describe('StrategyDetailPage', () => {
 
     render(<StrategyDetailPage />);
     await waitFor(() => {
-      expect(screen.getByText('Error')).toBeInTheDocument();
+      expect(screen.getByText('Strategy not found')).toBeInTheDocument();
     });
   });
 
-  it('shows default error message when no error message provided', async () => {
+  it('shows not found card when no error message provided', async () => {
     jest.mocked(getStrategyDetailAction).mockResolvedValueOnce({
       success: false,
       data: null,
@@ -147,7 +147,7 @@ describe('StrategyDetailPage', () => {
 
     render(<StrategyDetailPage />);
     await waitFor(() => {
-      expect(screen.getByText('Failed to load strategy')).toBeInTheDocument();
+      expect(screen.getByText('Strategy not found')).toBeInTheDocument();
     });
   });
 

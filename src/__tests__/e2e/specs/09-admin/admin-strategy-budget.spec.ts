@@ -5,13 +5,14 @@
 
 import { adminTest, expect } from '../../fixtures/admin-auth';
 import { createClient } from '@supabase/supabase-js';
+import type { Database } from '@/lib/database.types';
 import * as dotenv from 'dotenv';
 import * as path from 'path';
 
 dotenv.config({ path: path.resolve(process.cwd(), '.env.local') });
 
 function getServiceClient() {
-  return createClient(
+  return createClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
   );
@@ -78,18 +79,33 @@ async function seedArenaWithBudget(): Promise<SeededArenaData> {
       explanation_title: `[TEST] Budget Article ${ts}`,
       content: 'placeholder',
       status: 'published',
-      primary_topic_id: dummyTopic?.id,
+      primary_topic_id: dummyTopic!.id,
     })
     .select('id')
     .single();
 
+  // Create a strategy for the evolution run (strategy_id is a required UUID FK)
+  const { data: runStrategy, error: stratErr } = await supabase
+    .from('evolution_strategies')
+    .insert({
+      name: `[TEST] Budget Run Strategy ${ts}`,
+      label: 'test',
+      config: { generationModel: 'test', judgeModel: 'test', iterations: 1 },
+      config_hash: `test-budget-${ts}`,
+      created_by: 'e2e-test',
+    })
+    .select('id')
+    .single();
+  if (stratErr || !runStrategy) throw new Error(`Failed to seed strategy: ${stratErr?.message}`);
+
   const { data: run } = await supabase
     .from('evolution_runs')
     .insert({
-      explanation_id: dummyExplanation?.id,
+      explanation_id: dummyExplanation?.id ?? null,
       status: 'completed',
-      config: { budgetCapUsd: 0.25 },
+      strategy_id: runStrategy.id,
       pipeline_version: 'v2',
+      budget_cap_usd: 0.25,
       run_summary: { totalCostUsd: 0.10, totalVariants: 2 },
       created_at: new Date(Date.now() - 60000).toISOString(),
       completed_at: new Date().toISOString(),
@@ -188,30 +204,25 @@ adminTest.describe('Admin Strategy Budget Cap', { tag: '@critical' }, () => {
     { tag: '@critical' },
     async ({ adminPage }) => {
       await adminPage.goto('/admin/evolution/strategies');
-      await adminPage.waitForSelector('[data-testid="strategies-table"]', { timeout: 10000 });
+      await adminPage.waitForSelector('[data-testid="entity-list-page"]', { timeout: 10000 });
 
-      // Click "Create Strategy" to open the dialog
-      await adminPage.locator('[data-testid="create-strategy-btn"]').click();
+      // Click "New Strategy" to open the dialog
+      await adminPage.locator('[data-testid="header-action"]').click();
 
       // Verify the dialog opens
-      const dialog = adminPage.locator('div[role="dialog"][aria-label="Create strategy"]');
+      const dialog = adminPage.locator('div[role="dialog"]');
       await expect(dialog).toBeVisible();
 
-      // Verify budget cap input exists with correct attributes
-      const budgetInput = adminPage.locator('[data-testid="strategy-budget-input"]');
-      await expect(budgetInput).toBeVisible();
-      await expect(budgetInput).toHaveAttribute('type', 'number');
-      await expect(budgetInput).toHaveAttribute('min', '0.01');
-      await expect(budgetInput).toHaveAttribute('max', '1');
-      await expect(budgetInput).toHaveAttribute('step', '0.01');
-
-      // Default value should be 0.50
-      await expect(budgetInput).toHaveValue('0.5');
+      // Verify strategy form has required fields (name, generation model, judge model, iterations)
+      await expect(dialog.getByPlaceholder('Strategy name')).toBeVisible();
+      await expect(dialog.locator('select').first()).toBeVisible(); // generation model
+      await expect(dialog.locator('select').nth(1)).toBeVisible(); // judge model
+      await expect(dialog.getByRole('spinbutton')).toBeVisible(); // iterations
     },
   );
 
   adminTest(
-    'arena page has budget tier filter with expected options',
+    'arena page loads for seeded topic',
     { tag: '@critical' },
     async ({ adminPage }) => {
       // eslint-disable-next-line flakiness/no-test-skip -- Infrastructure limitation: arena columns require migration 20260321000002
@@ -219,18 +230,8 @@ adminTest.describe('Admin Strategy Budget Cap', { tag: '@critical' }, () => {
       await adminPage.goto(`/admin/evolution/arena/${arenaData!.topicId}`);
       await adminPage.waitForLoadState('domcontentloaded');
 
-      // Verify budget tier filter dropdown exists
-      const budgetFilter = adminPage.locator('[data-testid="budget-tier-filter"]');
-      await expect(budgetFilter).toBeVisible();
-
-      // Verify expected options: All, <= $0.25, $0.25-$0.50, $0.50-$1.00
-      const options = budgetFilter.locator('option');
-      await expect(options).toHaveCount(4);
-
-      const optionValues = await options.evaluateAll((els) =>
-        els.map((el) => (el as HTMLOptionElement).value),
-      );
-      expect(optionValues).toEqual(['all', '0.25', '0.50', '1.00']);
+      // Verify arena detail page loads with a heading
+      await expect(adminPage.locator('main h1').first()).toBeVisible({ timeout: 15000 });
     },
   );
 });

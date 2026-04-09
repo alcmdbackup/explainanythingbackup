@@ -8,6 +8,7 @@ import { allowedLLMModelSchema } from '@/lib/schemas/schemas';
 import { buildRunContext, type ClaimedRun } from './setup/buildRunContext';
 import { evolveArticle } from './loop/runIterationLoop';
 import { finalizeRun, syncToArena } from './finalize/persistRunResults';
+import { classifyError } from './classifyError';
 
 export type { ClaimedRun } from './setup/buildRunContext';
 
@@ -62,19 +63,26 @@ async function markRunFailed(
   db: SupabaseClient,
   runId: string,
   errorMessage: string,
+  errorCode?: string,
+  errorDetails?: Record<string, unknown>,
 ): Promise<void> {
   const truncated = errorMessage.slice(0, 2000);
   try {
+    // Conditional WHERE error_code IS NULL to prove race-freedom: if persistRunResults
+    // already wrote an error_code, this UPDATE is a no-op rather than overwriting it.
     await db
       .from('evolution_runs')
       .update({
         status: 'failed',
         error_message: truncated,
+        error_code: errorCode ?? 'unhandled_error',
+        ...(errorDetails ? { error_details: errorDetails } : {}),
         completed_at: new Date().toISOString(),
         runner_id: null,
       })
       .eq('id', runId)
-      .in('status', ['pending', 'claimed', 'running']);
+      .in('status', ['pending', 'claimed', 'running'])
+      .is('error_code', null);
   } catch (err) {
     logger.error(`Failed to mark run ${runId} as failed`, { error: String(err) });
   }
@@ -109,19 +117,28 @@ export async function claimAndExecuteRun(
     return { claimed: false, error: `Failed to claim run: ${claimError.message}` };
   }
 
-  const claimedRow = (claimedRows as unknown as ClaimedRun[])?.[0];
-  if (!claimedRow) {
+  // Validate RPC response shape instead of unsafe `as unknown as` cast
+  const rows = Array.isArray(claimedRows) ? claimedRows : [];
+  const claimedRow = rows[0] as Record<string, unknown> | undefined;
+  if (!claimedRow || typeof claimedRow.id !== 'string' || typeof claimedRow.strategy_id !== 'string') {
+    if (claimedRow) {
+      logger.error('Evolution runner claim RPC returned invalid row shape', {
+        runnerId: options.runnerId,
+        keys: Object.keys(claimedRow),
+      });
+    }
     return { claimed: false };
   }
 
   const runId = claimedRow.id;
+  const rawBudget = Number(claimedRow.budget_cap_usd);
   const claimedRun: ClaimedRun = {
     id: runId,
-    explanation_id: claimedRow.explanation_id ?? null,
-    prompt_id: claimedRow.prompt_id ?? null,
-    experiment_id: claimedRow.experiment_id ?? null,
+    explanation_id: (claimedRow.explanation_id as number | null) ?? null,
+    prompt_id: (claimedRow.prompt_id as string | null) ?? null,
+    experiment_id: (claimedRow.experiment_id as string | null) ?? null,
     strategy_id: claimedRow.strategy_id,
-    budget_cap_usd: Number(claimedRow.budget_cap_usd) || 1.0,
+    budget_cap_usd: Number.isFinite(rawBudget) && rawBudget > 0 ? rawBudget : 1.0,
   };
 
   logger.info('Claimed evolution run', { runId, runnerId: options.runnerId });
@@ -161,8 +178,13 @@ export async function claimAndExecuteRun(
     return { claimed: true, runId, stopReason: pipelineResult.stopReason, durationMs: Date.now() - startMs };
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
-    logger.error('Evolution pipeline failed', { runId, error: msg });
-    await markRunFailed(supabase, runId, msg);
+    const code = classifyError(error);
+    const details: Record<string, unknown> = {};
+    if (error instanceof Error && error.stack) {
+      details.stack = error.stack.slice(0, 1000);
+    }
+    logger.error('Evolution pipeline failed', { runId, error: msg, errorCode: code });
+    await markRunFailed(supabase, runId, msg, code, details);
     return { claimed: true, runId, error: msg.slice(0, 2000), durationMs: Date.now() - startMs };
   } finally {
     if (heartbeatInterval) {
@@ -199,8 +221,8 @@ async function executePipeline(
     throw new Error(contextResult.error);
   }
 
-  const { originalText, config, logger: runLogger, initialPool } = contextResult.context;
-  runLogger.info('Run context built', { initialPoolSize: initialPool.length, phaseName: 'setup' });
+  const { originalText, config, logger: runLogger, initialPool, randomSeed } = contextResult.context;
+  runLogger.info('Run context built', { initialPoolSize: initialPool.length, phaseName: 'setup', randomSeed: randomSeed.toString() });
 
   runLogger.info('Starting evolution loop', {
     iterations: config.iterations, budgetUsd: config.budgetUsd,
@@ -214,6 +236,7 @@ async function executePipeline(
     strategyId: claimedRun.strategy_id,
     deadlineMs,
     signal,
+    randomSeed,
   });
   runLogger.info('Evolution loop completed', {
     stopReason: result.stopReason, iterations: result.iterationsRun,

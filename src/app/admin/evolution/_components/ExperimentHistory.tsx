@@ -85,7 +85,7 @@ function ExperimentRow({ experiment, onRefresh }: ExperimentRowProps): JSX.Eleme
           <span className="text-[var(--text-muted)]">
             {new Date(experiment.created_at).toLocaleDateString()}
           </span>
-          {TERMINAL_STATUSES.includes(experiment.status) && experiment.status !== 'cancelled' && (
+          {!TERMINAL_STATUSES.includes(experiment.status) && (
             <button
               onClick={handleCancel}
               disabled={actionLoading}

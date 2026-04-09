@@ -24,10 +24,10 @@ describe('formatters', () => {
       expect(formatCost(1.234)).toBe('$1.23');
       expect(formatCost(0)).toBe('$0.00');
     });
-    it('handles null/undefined/NaN', () => {
-      expect(formatCost(null)).toBe('$0.00');
-      expect(formatCost(undefined)).toBe('$0.00');
-      expect(formatCost(NaN)).toBe('$0.00');
+    it('handles null/undefined/NaN as missing data', () => {
+      expect(formatCost(null)).toBe('—');
+      expect(formatCost(undefined)).toBe('—');
+      expect(formatCost(NaN)).toBe('—');
     });
   });
 
@@ -37,7 +37,7 @@ describe('formatters', () => {
       expect(formatCostDetailed(0)).toBe('$0.000');
     });
     it('handles null', () => {
-      expect(formatCostDetailed(null)).toBe('$0.000');
+      expect(formatCostDetailed(null)).toBe('—');
     });
   });
 
@@ -47,7 +47,7 @@ describe('formatters', () => {
       expect(formatCostMicro(0.0018)).toBe('$0.0018');
     });
     it('handles null', () => {
-      expect(formatCostMicro(null)).toBe('$0.0000');
+      expect(formatCostMicro(null)).toBe('—');
     });
   });
 

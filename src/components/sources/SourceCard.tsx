@@ -39,6 +39,7 @@ export default function SourceCard({
         {/* Favicon */}
         <div className="flex-shrink-0 w-8 h-8 rounded-md bg-[var(--surface-page)] flex items-center justify-center overflow-hidden">
           {faviconUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element -- external source favicon from arbitrary domain
             <img
               src={faviconUrl}
               alt=""
@@ -65,7 +66,7 @@ export default function SourceCard({
         {/* Citation count badge */}
         <div className="flex-shrink-0 text-right">
           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[var(--accent-gold)]/10 text-[var(--accent-gold)]">
-            <span className="text-sm font-display font-bold">{totalCitations}</span>
+            <span className="text-sm font-body font-bold">{totalCitations}</span>
             <span className="text-xs font-ui">citations</span>
           </span>
           <p className="text-xs font-ui text-[var(--text-muted)] mt-1">
