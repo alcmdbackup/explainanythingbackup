@@ -275,8 +275,9 @@ test.describe('Action Buttons', () => {
         { timeout: 5000 }
       );
 
-      // Verify content is preserved (editor should still have content)
-      const plaintextContent = await resultsPage.getContent();
+      // Verify content is preserved (in plaintext mode, content lives in the textarea,
+      // not in [data-testid="explanation-content"], so read the textarea value directly)
+      const plaintextContent = await textarea.inputValue();
       expect(plaintextContent).toBeTruthy();
 
       // Toggle back to markdown mode
