@@ -153,7 +153,7 @@ for i in $(seq 1 $NUM_WORKTREES); do
     echo "Setting up configuration..."
 
     # Copy environment files if they exist
-    for env_file in .env.local .env.test .env.stage .env.prod; do
+    for env_file in .env.local .env.test .env.stage .env.prod .env.staging.readonly .env.prod.readonly; do
         if [ -f "$GIT_ROOT/$env_file" ]; then
             echo "  Copying $env_file..."
             cp "$GIT_ROOT/$env_file" "$WORKTREE_PATH/"

@@ -28,6 +28,7 @@ export function isTransientError(error: unknown): boolean {
   const msg = error.message.toLowerCase();
   // Socket/network errors
   if (msg.includes('socket timeout')) return true;
+  if (msg.includes('llm call timeout')) return true;
   if (msg.includes('econnreset')) return true;
   if (msg.includes('econnrefused')) return true;
   if (msg.includes('etimedout')) return true;

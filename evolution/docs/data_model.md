@@ -174,8 +174,8 @@ Pairwise comparison results between arena entries.
 |--------|------|-------------|-------------|
 | `id` | UUID | PK | |
 | `prompt_id` | UUID | NOT NULL, FK -> `evolution_prompts(id)` ON DELETE CASCADE | |
-| `entry_a` | UUID | NOT NULL, FK -> `evolution_variants(id)` ON DELETE CASCADE | |
-| `entry_b` | UUID | NOT NULL, FK -> `evolution_variants(id)` ON DELETE CASCADE | |
+| `entry_a` | UUID | NOT NULL | Variant ID (FK dropped in migration 20260409000001 — app-layer integrity via VariantEntity.ts) |
+| `entry_b` | UUID | NOT NULL | Variant ID (FK dropped in migration 20260409000001 — app-layer integrity via VariantEntity.ts) |
 | `winner` | TEXT | NOT NULL, CHECK `('a','b','draw')` | |
 | `confidence` | NUMERIC | NOT NULL, default `0` | Judge confidence 0-1 |
 | `run_id` | UUID | FK -> `evolution_runs(id)` ON DELETE SET NULL | |

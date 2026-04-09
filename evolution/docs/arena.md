@@ -134,15 +134,15 @@ Stores pairwise comparison results from pipeline runs.
 |-----------|------------------|--------------------------------------------|
 | id        | uuid PK          | Auto-generated                             |
 | prompt_id | uuid FK           | References `evolution_prompts.id`          |
-| entry_a   | uuid FK           | References `evolution_variants.id`         |
-| entry_b   | uuid FK           | References `evolution_variants.id`         |
+| entry_a   | uuid (app-enforced) | References `evolution_variants.id` (DB FK dropped in migration 20260409000001) |
+| entry_b   | uuid (app-enforced) | References `evolution_variants.id` (DB FK dropped in migration 20260409000001) |
 | winner    | text              | `a`, `b`, or `draw`                       |
 | confidence| float             | Judge confidence in [0, 1]                |
 | run_id    | uuid              | Pipeline run that produced this comparison |
 | status    | text              | Comparison status                          |
 | created_at| timestamptz       | Row creation time                          |
 
-The `entry_a` and `entry_b` foreign keys now point to `evolution_variants.id` (previously `evolution_arena_entries.id`). Comparisons link back to the originating run via `run_id`, allowing you to trace which runs contributed to an entry's rating.
+The `entry_a` and `entry_b` columns reference `evolution_variants.id` (previously `evolution_arena_entries.id`), but the DB foreign key constraints were dropped in migration `20260409000001` to allow in-run writes before variants are persisted. Referential integrity is enforced at the application layer via `VariantEntity.ts`. Comparisons link back to the originating run via `run_id`, allowing you to trace which runs contributed to an entry's rating.
 
 ## Arena entries vs evolution_variants
 
