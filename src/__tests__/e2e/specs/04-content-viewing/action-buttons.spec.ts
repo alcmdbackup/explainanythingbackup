@@ -254,9 +254,26 @@ test.describe('Action Buttons', () => {
       await authenticatedPage.goto(`/results?explanation_id=${testExplanation.id}`);
       await resultsPage.waitForAnyContent(60000);
 
+      // Wait for the "Content will appear here..." placeholder to be GONE before
+      // snapshotting initialContent. waitForAnyContent only waits for the
+      // explanation-content container to become visible, but during initial page
+      // load that container holds the placeholder text first. Without this wait,
+      // initialContent gets snapshotted as the placeholder string and the
+      // round-trip equality check at the bottom of this test compares actual
+      // content against the placeholder forever.
+      await authenticatedPage.waitForFunction(
+        () => {
+          const el = document.querySelector('[data-testid="explanation-content"]');
+          return el && !(el.textContent ?? '').includes('Content will appear here');
+        },
+        undefined,
+        { timeout: 30000 }
+      );
+
       // Get initial content using ResultsPage.getContent()
       const initialContent = await resultsPage.getContent();
       expect(initialContent).toBeTruthy();
+      expect(initialContent).not.toContain('Content will appear here');
 
       // Toggle to plain text mode
       await resultsPage.clickFormatToggle();
