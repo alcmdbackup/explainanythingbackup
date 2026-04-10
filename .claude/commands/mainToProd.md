@@ -305,8 +305,10 @@ else
 
   # ---- 6.3e: Run local checks on the backport branch ----
   # Includes build because backport commits often touch components.
+  # Uses `npm test` (not `npm run test:unit` — that script doesn't exist in
+  # package.json; the unit test runner is `test`).
   # Hard exit on failure — without this, 6.3f would push a broken PR.
-  if ! (npm run lint && npm run typecheck && npm run build && npm run test:unit); then
+  if ! (npm run lint && npm run typecheck && npm run build && npm test); then
     echo "ERROR: local checks failed on backport branch — refusing to push."
     echo "Backport branch '$BACKPORT_BRANCH' is left in place for inspection."
     exit 1
