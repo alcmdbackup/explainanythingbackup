@@ -701,6 +701,27 @@ export const generateFromSeedExecutionDetailSchema = executionDetailBaseSchema.e
   }).optional(),
 });
 
+/** CreateSeedArticleAgent execution detail. */
+export const createSeedArticleExecutionDetailSchema = executionDetailBaseSchema.extend({
+  detailType: z.literal('create_seed_article'),
+  generation: z.object({
+    cost: z.number().min(0),
+    promptLength: z.number().int().min(0),
+    titleLength: z.number().int().min(0).optional(),
+    contentLength: z.number().int().min(0).optional(),
+    formatValid: z.boolean(),
+    error: z.string().optional(),
+  }),
+  ranking: generateFromSeedRankingDetailSchema.extend({
+    cost: z.number().min(0),
+  }).nullable(),
+  surfaced: z.boolean(),
+  discardReason: z.object({
+    localMu: z.number(),
+    localTop15Cutoff: z.number(),
+  }).optional(),
+});
+
 /** SwissRankingAgent execution detail. */
 export const swissRankingExecutionDetailSchema = executionDetailBaseSchema.extend({
   detailType: z.literal('swiss_ranking'),
@@ -799,6 +820,7 @@ export const agentExecutionDetailSchema = z.discriminatedUnion('detailType', [
   proximityExecutionDetailSchema,
   metaReviewExecutionDetailSchema,
   generateFromSeedExecutionDetailSchema,
+  createSeedArticleExecutionDetailSchema,
   swissRankingExecutionDetailSchema,
   mergeRatingsExecutionDetailSchema,
 ]);

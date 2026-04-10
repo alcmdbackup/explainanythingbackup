@@ -6,7 +6,6 @@ import type { EvolutionConfig, V2StrategyConfig } from '../infra/types';
 import type { Rating } from '../../shared/computeRatings';
 import { DEFAULT_MU, DEFAULT_SIGMA } from '../../shared/computeRatings';
 import type { EntityLogger } from '../infra/createEntityLogger';
-import { generateSeedArticle } from './generateSeedArticle';
 import { createEntityLogger } from '../infra/createEntityLogger';
 import { v2StrategyConfigSchema } from '../../schemas';
 
@@ -89,34 +88,41 @@ type RawLLMProvider = {
 };
 
 export interface RunContext {
-  originalText: string;
+  /** Resolved base article text. Null when seedPrompt is set and no arena seed exists yet. */
+  originalText: string | null;
   config: EvolutionConfig;
   logger: EntityLogger;
   initialPool: Array<ArenaTextVariation & { mu?: number; sigma?: number }>;
   /** Run-level random seed (BIGINT) for reproducible Fisher-Yates shuffles + agent tiebreaks. */
   randomSeed: bigint;
+  /** Set for prompt_id runs when no arena seed exists: CreateSeedArticleAgent generates one in iter 1. */
+  seedPrompt?: string;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────
 
+interface ResolvedContent {
+  originalText: string | null;
+  seedPrompt?: string;
+}
+
 async function resolveContent(
   run: ClaimedRun,
   db: SupabaseClient,
-  llm: RawLLMProvider,
+  _llm: RawLLMProvider,
   logger?: EntityLogger,
-  generationModel?: string,
-): Promise<string | null> {
+): Promise<ResolvedContent> {
   if (run.explanation_id != null) {
     const { data, error } = await db
       .from('explanations')
       .select('content')
       .eq('id', run.explanation_id)
       .single();
-    if (error || !data?.content) return null;
+    if (error || !data?.content) return { originalText: null };
     const content = typeof data.content === 'string' ? data.content : null;
-    if (!content) return null;
+    if (!content) return { originalText: null };
     logger?.info('Content resolved from explanation', { contentLength: content.length, source: 'explanation', phaseName: 'setup' });
-    return content;
+    return { originalText: content };
   }
 
   if (run.prompt_id != null) {
@@ -125,17 +131,34 @@ async function resolveContent(
       .select('prompt')
       .eq('id', run.prompt_id)
       .single();
-    if (error || !data?.prompt) return null;
+    if (error || !data?.prompt) return { originalText: null };
     const promptText = typeof data.prompt === 'string' ? data.prompt : null;
-    if (!promptText) return null;
-    // Pass generationModel so the seed step uses the strategy's configured model
-    // instead of falling through to the raw provider's deepseek-chat default.
-    const seed = await generateSeedArticle(promptText, llm, logger, generationModel);
-    logger?.info('Content resolved from seed generation', { contentLength: seed.content.length, source: 'prompt', phaseName: 'setup' });
-    return seed.content;
+    if (!promptText) return { originalText: null };
+
+    // Check for existing designated seed article in arena (generation_method='seed', not archived).
+    // Pick the highest-rated one so each run builds on the best-known starting point.
+    const { data: seedEntry } = await db
+      .from('evolution_variants')
+      .select('variant_content')
+      .eq('prompt_id', run.prompt_id)
+      .eq('synced_to_arena', true)
+      .eq('generation_method', 'seed')
+      .is('archived_at', null)
+      .order('elo_score', { ascending: false })
+      .limit(1)
+      .single();
+
+    if (seedEntry?.variant_content) {
+      logger?.info('Content resolved from arena seed article', { contentLength: seedEntry.variant_content.length, source: 'arena_seed', phaseName: 'setup' });
+      return { originalText: seedEntry.variant_content };
+    }
+
+    // No arena seed — defer generation to CreateSeedArticleAgent in iteration 1.
+    logger?.info('No arena seed found; deferring seed generation to CreateSeedArticleAgent', { promptId: run.prompt_id, phaseName: 'setup' });
+    return { originalText: null, seedPrompt: promptText };
   }
 
-  return null;
+  return { originalText: null };
 }
 
 // ─── Public API ──────────────────────────────────────────────────
@@ -189,10 +212,8 @@ export async function buildRunContext(
     phaseName: 'setup',
   });
 
-  // Resolve content (pass generationModel so seed-article LLM calls use the strategy's
-  // configured model rather than the raw provider's deepseek-chat default).
-  const originalText = await resolveContent(claimedRun, db, llmProvider, logger, config.generationModel);
-  if (!originalText) {
+  const { originalText, seedPrompt } = await resolveContent(claimedRun, db, llmProvider, logger);
+  if (!originalText && !seedPrompt) {
     const reason = claimedRun.explanation_id != null
       ? `Explanation ${claimedRun.explanation_id} not found`
       : claimedRun.prompt_id != null
@@ -251,6 +272,6 @@ export async function buildRunContext(
   }
 
   return {
-    context: { originalText, config, logger, initialPool, randomSeed },
+    context: { originalText, config, logger, initialPool, randomSeed, seedPrompt },
   };
 }

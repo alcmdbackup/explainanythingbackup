@@ -10,10 +10,10 @@ import type { MetricName } from '../metrics/types';
 export const AGENT_NAMES = ['generation', 'ranking', 'seed_title', 'seed_article'] as const;
 export type AgentName = typeof AGENT_NAMES[number];
 
-/** Maps each agent label to its run-level per-purpose cost metric.
- * Partial: 'seed_title'/'seed_article' are intentionally omitted — their costs are
- * tracked only via the run's aggregate `cost` metric, not per-purpose. */
+/** Maps each agent label to its run-level per-purpose cost metric. */
 export const COST_METRIC_BY_AGENT: Partial<Record<AgentName, MetricName>> = {
   generation: 'generation_cost',
   ranking: 'ranking_cost',
+  seed_title: 'seed_cost',
+  seed_article: 'seed_cost',
 };

@@ -399,6 +399,7 @@ export async function syncToArena(
   ratings: Map<string, Rating>,
   matchHistory: V2Match[],
   supabase: SupabaseClient,
+  isSeeded: boolean,
   logger?: EntityLogger,
 ): Promise<void> {
   // Compute per-variant match counts from match history
@@ -424,7 +425,7 @@ export async function syncToArena(
         // arena_match_count: matches played in THIS run only (not cumulative).
         // The DB RPC accumulates this into the arena entry's lifetime total.
         arena_match_count: variantMatchCounts.get(v.id) ?? 0,
-        generation_method: 'pipeline',
+        generation_method: isSeeded && v.strategy === V2_BASELINE_STRATEGY ? 'seed' : 'pipeline',
       };
     });
 

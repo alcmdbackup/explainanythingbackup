@@ -222,7 +222,7 @@ async function executePipeline(
   // Per supabase/migrations/20260323000002_fix_stale_claim_expiry.sql, runs with
   // stale heartbeats become status='failed' and are never re-claimed, so each runId
   // corresponds to exactly one execution attempt — no reset/DELETE needed.
-  for (const metricName of ['cost', 'generation_cost', 'ranking_cost'] as const) {
+  for (const metricName of ['cost', 'generation_cost', 'ranking_cost', 'seed_cost'] as const) {
     try {
       await writeMetricMax(db, 'run', runId, metricName, 0, 'during_execution');
     } catch (e) {
@@ -238,15 +238,15 @@ async function executePipeline(
     throw new Error(contextResult.error);
   }
 
-  const { originalText, config, logger: runLogger, initialPool, randomSeed } = contextResult.context;
-  runLogger.info('Run context built', { initialPoolSize: initialPool.length, phaseName: 'setup', randomSeed: randomSeed.toString() });
+  const { originalText, config, logger: runLogger, initialPool, randomSeed, seedPrompt } = contextResult.context;
+  runLogger.info('Run context built', { initialPoolSize: initialPool.length, phaseName: 'setup', randomSeed: randomSeed.toString(), seeded: !!seedPrompt });
 
   runLogger.info('Starting evolution loop', {
     iterations: config.iterations, budgetUsd: config.budgetUsd,
     generationModel: config.generationModel, judgeModel: config.judgeModel,
     phaseName: 'loop',
   });
-  const result = await evolveArticle(originalText, llmProvider, db, runId, config, {
+  const result = await evolveArticle(originalText ?? '', llmProvider, db, runId, config, {
     logger: runLogger,
     initialPool: initialPool.length > 0 ? initialPool : undefined,
     experimentId: claimedRun.experiment_id ?? undefined,
@@ -254,6 +254,7 @@ async function executePipeline(
     deadlineMs,
     signal,
     randomSeed,
+    seedPrompt,
   });
   runLogger.info('Evolution loop completed', {
     stopReason: result.stopReason, iterations: result.iterationsRun,
@@ -271,7 +272,7 @@ async function executePipeline(
 
   if (claimedRun.prompt_id) {
     try {
-      await syncToArena(runId, claimedRun.prompt_id, result.pool, result.ratings, result.matchHistory, db, runLogger);
+      await syncToArena(runId, claimedRun.prompt_id, result.pool, result.ratings, result.matchHistory, db, result.isSeeded ?? false, runLogger);
     } catch (err) {
       runLogger.warn('Arena sync failed', { phaseName: 'arena', error: (err instanceof Error ? err.message : String(err)).slice(0, 500) });
     }

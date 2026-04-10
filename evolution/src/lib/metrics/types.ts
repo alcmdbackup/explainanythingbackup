@@ -21,7 +21,7 @@ export type MetricTiming = 'during_execution' | 'at_finalization' | 'at_propagat
 // Type-safe metric names — typos caught at compile time
 export const STATIC_METRIC_NAMES = [
   // Run (live during-execution)
-  'cost', 'generation_cost', 'ranking_cost',
+  'cost', 'generation_cost', 'ranking_cost', 'seed_cost',
   // Run (at-finalization)
   'winner_elo', 'median_elo', 'p90_elo', 'max_elo',
   'total_matches', 'decisive_rate', 'variant_count',
@@ -31,6 +31,7 @@ export const STATIC_METRIC_NAMES = [
   'run_count', 'total_cost', 'avg_cost_per_run',
   'total_generation_cost', 'avg_generation_cost_per_run',
   'total_ranking_cost', 'avg_ranking_cost_per_run',
+  'total_seed_cost', 'avg_seed_cost_per_run',
   'avg_final_elo', 'best_final_elo', 'worst_final_elo',
   'avg_median_elo', 'avg_p90_elo', 'best_max_elo',
   'avg_matches_per_run', 'avg_decisive_rate',

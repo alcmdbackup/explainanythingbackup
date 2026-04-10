@@ -343,3 +343,139 @@ describe('loadArenaEntries', () => {
     expect(supabase._chain.is).toHaveBeenCalledWith('archived_at', null);
   });
 });
+
+// ─── buildRunContext seed-reuse behavior ────────────────────────────────────────
+
+/**
+ * Mock DB that handles the dual evolution_variants usage:
+ * 1. Seed query: .select().eq().eq().eq().is().order().limit().single() — return seedEntry
+ * 2. loadArenaEntries: .select().eq().eq().is()  (awaited at .is()) — return []
+ */
+function makeSeedAwareDb(opts: {
+  seedEntry?: { variant_content: string } | null;
+  promptText?: string;
+}): SupabaseClient {
+  return {
+    from: jest.fn((table: string) => {
+      const chain: Record<string, jest.Mock> = {} as Record<string, jest.Mock>;
+
+      chain.select = jest.fn(() => chain);
+      chain.eq = jest.fn(() => chain);
+      chain.insert = jest.fn(() => ({
+        select: jest.fn(() => ({
+          single: jest.fn(async () => ({ data: { id: 'log-1' }, error: null })),
+        })),
+      }));
+      chain.update = jest.fn(() => ({
+        eq: jest.fn(() => Promise.resolve({ error: null, data: null })),
+      }));
+
+      // .is() returns a thenable-chain so:
+      //   - seed query can continue: .is().order().limit().single()
+      //   - loadArenaEntries awaits .is() directly
+      chain.is = jest.fn(() => {
+        const thenableChain: Record<string, unknown> = {};
+        thenableChain.order = jest.fn(() => thenableChain);
+        thenableChain.limit = jest.fn(() => thenableChain);
+        // Called at end of seed query chain
+        thenableChain.single = jest.fn(async () => ({
+          data: opts.seedEntry ?? null,
+          error: null,
+        }));
+        // Called when loadArenaEntries awaits .is() directly
+        thenableChain.then = (
+          resolve: (v: { data: unknown[]; error: null }) => unknown,
+          _reject?: unknown,
+        ) => Promise.resolve({ data: [], error: null }).then(resolve);
+        return thenableChain;
+      });
+
+      // .single() for non-variants tables
+      chain.single = jest.fn(async () => {
+        if (table === 'evolution_strategies') {
+          return {
+            data: { config: { generationModel: 'gpt-4o', judgeModel: 'gpt-4o', iterations: 1 } },
+            error: null,
+          };
+        }
+        if (table === 'evolution_prompts') {
+          return { data: { prompt: opts.promptText ?? 'test prompt text' }, error: null };
+        }
+        if (table === 'evolution_runs') {
+          return { data: { random_seed: null }, error: null };
+        }
+        return { data: null, error: null };
+      });
+
+      return chain;
+    }),
+  } as unknown as SupabaseClient;
+}
+
+const promptRun = makeClaimedRun({ explanation_id: null, prompt_id: 'prompt-abc' });
+
+describe('buildRunContext — seed reuse', () => {
+  it('explanation-based run: returns originalText from DB, no seedPrompt', async () => {
+    const db = makeMockDb({ contentText: validText });
+    const result = await buildRunContext('run-1', makeClaimedRun(), db.db, makeProvider());
+    expect('context' in result).toBe(true);
+    if ('context' in result) {
+      expect(result.context.originalText).toBe(validText);
+      expect(result.context.seedPrompt).toBeUndefined();
+    }
+  });
+
+  it('prompt-based run, arena has seed: returns originalText=seedContent, no seedPrompt', async () => {
+    const seedContent = '# Seed Article\n\n## Intro\n\nSeed text.';
+    const db = makeSeedAwareDb({ seedEntry: { variant_content: seedContent } });
+    const result = await buildRunContext('run-1', promptRun, db, makeProvider());
+    expect('context' in result).toBe(true);
+    if ('context' in result) {
+      expect(result.context.originalText).toBe(seedContent);
+      expect(result.context.seedPrompt).toBeUndefined();
+    }
+  });
+
+  it('prompt-based run, no arena seed: originalText=null, seedPrompt=promptText', async () => {
+    const db = makeSeedAwareDb({ seedEntry: null, promptText: 'Explain neural networks' });
+    const result = await buildRunContext('run-1', promptRun, db, makeProvider());
+    expect('context' in result).toBe(true);
+    if ('context' in result) {
+      expect(result.context.originalText).toBeNull();
+      expect(result.context.seedPrompt).toBe('Explain neural networks');
+    }
+  });
+
+  it('seed query uses order(elo_score DESC) and limit(1)', async () => {
+    const db = makeSeedAwareDb({ seedEntry: null });
+    const fromSpy = db.from as jest.Mock;
+    await buildRunContext('run-1', promptRun, db, makeProvider());
+
+    // Verify at least one call to evolution_variants was made
+    const tables = (fromSpy.mock.calls as Array<[string]>).map(([t]) => t);
+    expect(tables).toContain('evolution_variants');
+
+    // For each evolution_variants call, check if the thenableChain had .order() called
+    type ChainResult = { is: { mock: { results: Array<{ value: { order: { mock: { calls: unknown[] } }; limit: { mock: { calls: unknown[] } } } }> } } };
+    const variantChains = (fromSpy.mock.results as Array<{ value: ChainResult }>)
+      .filter((_r, i) => (fromSpy.mock.calls as Array<[string]>)[i]?.[0] === 'evolution_variants')
+      .map((r) => r.value);
+
+    const orderWasCalled = variantChains.some((chain) =>
+      chain.is.mock.results.some((r) => r.value?.order?.mock?.calls?.length > 0)
+    );
+    expect(orderWasCalled).toBe(true);
+  });
+
+  it('prompt-based run, archived seed is excluded (returns seedPrompt)', async () => {
+    // The query uses .is('archived_at', null) so archived entries are excluded.
+    // Simulate by returning null (no unarchived seed found).
+    const db = makeSeedAwareDb({ seedEntry: null });
+    const result = await buildRunContext('run-1', promptRun, db, makeProvider());
+    expect('context' in result).toBe(true);
+    if ('context' in result) {
+      expect(result.context.originalText).toBeNull();
+      expect(result.context.seedPrompt).toBeDefined();
+    }
+  });
+});

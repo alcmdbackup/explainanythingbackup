@@ -30,7 +30,7 @@ export interface EvolutionResult {
   totalCost: number;
   /** Actual iterations completed (distinct from config.iterations). */
   iterationsRun: number;
-  stopReason: 'budget_exceeded' | 'iterations_complete' | 'converged' | 'killed' | 'time_limit' | 'no_pairs';
+  stopReason: 'budget_exceeded' | 'iterations_complete' | 'converged' | 'killed' | 'time_limit' | 'no_pairs' | 'seed_failed';
   /** muHistory[i] = array of mu values for top-K variants after iteration i. */
   muHistory: number[][];
   /** diversityHistory[i] = pairwise text diversity score after iteration i. */
@@ -44,6 +44,8 @@ export interface EvolutionResult {
   iterationSnapshots?: import('../../schemas').IterationSnapshot[];
   /** Random seed used for the run (for reproducibility). */
   randomSeed?: bigint;
+  /** True when a CreateSeedArticleAgent successfully generated the baseline for this run. */
+  isSeeded?: boolean;
 }
 
 // ─── V2 Strategy Config ──────────────────────────────────────────

@@ -12,14 +12,9 @@ import { METRIC_CATALOG } from '../metricCatalog';
 import { computeFormatRejectionRate } from '../../metrics/computations/finalizationInvocation';
 import { createVariant } from '../../types';
 import type { Rating, ComparisonResult } from '../../shared/computeRatings';
-import { createRating } from '../../shared/computeRatings';
 import type { V2Match } from '../../pipeline/infra/types';
-import {
-  rankSingleVariant,
-  computeTop15Cutoff,
-  type RankSingleVariantStatus,
-  type RankSingleVariantDetail,
-} from '../../pipeline/loop/rankSingleVariant';
+import { type RankSingleVariantStatus } from '../../pipeline/loop/rankSingleVariant';
+import { rankNewVariant } from '../../pipeline/loop/rankNewVariant';
 import { generateFromSeedExecutionDetailSchema } from '../../schemas';
 import { validateFormat } from '../../shared/enforceVariantFormat';
 import { buildEvolutionPrompt } from '../../pipeline/loop/buildPrompts';
@@ -273,37 +268,20 @@ export class GenerateFromSeedArticleAgent extends Agent<
       version: 0,
     });
 
-    // Step 2: add to local pool, give it a fresh rating, run binary search.
-    localPool.push(variant);
-    localRatings.set(variant.id, createRating());
-
-    const costBeforeRank = ctx.costTracker.getTotalSpent();
-
-    const rankResult = await rankSingleVariant({
+    // Steps 2 + 3: add to local pool, rank via binary search, apply surface/discard decision.
+    const { rankingCost, rankResult, surfaced, discardReason } = await rankNewVariant({
       variant,
-      pool: localPool,
-      ratings: localRatings,
-      matchCounts: localMatchCounts,
+      localPool,
+      localRatings,
+      localMatchCounts,
       completedPairs,
       cache,
       llm,
       config: ctx.config,
       invocationId: ctx.invocationId,
       logger: ctx.logger,
+      costTracker: ctx.costTracker,
     });
-
-    const rankingCost = ctx.costTracker.getTotalSpent() - costBeforeRank;
-
-    // Step 3: agent's surface/discard decision (Phase 1 spec).
-    const localCutoff = computeTop15Cutoff(localRatings);
-    const localVariantMu = localRatings.get(variant.id)!.mu;
-
-    let surfaced = true;
-    let discardReason: { localMu: number; localTop15Cutoff: number } | undefined;
-    if (rankResult.status === 'budget' && localVariantMu < localCutoff) {
-      surfaced = false;
-      discardReason = { localMu: localVariantMu, localTop15Cutoff: localCutoff };
-    }
 
     const detail: GenerateFromSeedExecutionDetail = {
       detailType: 'generate_from_seed_article',
@@ -342,5 +320,3 @@ export class GenerateFromSeedArticleAgent extends Agent<
   }
 }
 
-// Suppress unused-import warnings when types stay narrow.
-export type _RankDetailRef = RankSingleVariantDetail;

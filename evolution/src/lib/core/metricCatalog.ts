@@ -23,6 +23,11 @@ export const METRIC_CATALOG = {
     timing: 'during_execution', listView: true,
     description: 'LLM spend on ranking calls in this run (incl. SwissRankingAgent + binary-search comparisons)',
   },
+  seed_cost: {
+    name: 'seed_cost', label: 'Seed Cost', category: 'cost', formatter: 'cost',
+    timing: 'during_execution', listView: true,
+    description: 'LLM spend on seed article generation (seed_title + seed_article calls in CreateSeedArticleAgent)',
+  },
 
   // === Finalization-phase metrics ===
   winner_elo: {
@@ -116,6 +121,16 @@ export const METRIC_CATALOG = {
     name: 'avg_ranking_cost_per_run', label: 'Avg Ranking Cost/Run', category: 'cost', formatter: 'cost',
     timing: 'at_propagation',
     description: 'Average ranking_cost per child run',
+  },
+  total_seed_cost: {
+    name: 'total_seed_cost', label: 'Total Seed Cost', category: 'cost', formatter: 'cost',
+    timing: 'at_propagation', listView: true,
+    description: 'Sum of seed_cost across all child runs',
+  },
+  avg_seed_cost_per_run: {
+    name: 'avg_seed_cost_per_run', label: 'Avg Seed Cost/Run', category: 'cost', formatter: 'cost',
+    timing: 'at_propagation',
+    description: 'Average seed_cost per child run',
   },
   avg_final_elo: {
     name: 'avg_final_elo', label: 'Avg Winner Elo', category: 'rating', formatter: 'elo',

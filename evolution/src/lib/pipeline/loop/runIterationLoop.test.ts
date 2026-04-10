@@ -15,6 +15,7 @@ jest.mock('../../core/agents/generateFromSeedArticle', () => ({
     name: 'generate_from_seed_article',
     run: (input: unknown, ctx: unknown) => mockGenerateRun(input, ctx),
   })),
+  deepCloneRatings: jest.fn((m: Map<string, unknown>) => new Map(m)),
 }));
 
 jest.mock('../../core/agents/SwissRankingAgent', () => ({
@@ -28,6 +29,14 @@ jest.mock('../../core/agents/MergeRatingsAgent', () => ({
   MergeRatingsAgent: jest.fn().mockImplementation(() => ({
     name: 'merge_ratings',
     run: (input: unknown, ctx: unknown) => mockMergeRun(input, ctx),
+  })),
+}));
+
+const mockSeedRun = jest.fn();
+jest.mock('../../core/agents/createSeedArticle', () => ({
+  CreateSeedArticleAgent: jest.fn().mockImplementation(() => ({
+    name: 'create_seed_article',
+    run: (input: unknown, ctx: unknown) => mockSeedRun(input, ctx),
   })),
 }));
 
@@ -122,9 +131,26 @@ function mergeSuccess(opts?: { mutatePool?: (pool: unknown[], ratings: Map<strin
   });
 }
 
+function seedSuccess(variantId: string, surfaced = true) {
+  return {
+    success: true,
+    result: {
+      variant: { id: variantId, text: `seed-text-${variantId}`, version: 0, parentIds: [], strategy: 'seed_article', createdAt: 0, iterationBorn: 1 },
+      status: 'converged',
+      surfaced,
+      matches: [],
+    },
+    cost: 0.01,
+    durationMs: 5,
+    invocationId: 'inv-seed',
+  };
+}
+
 beforeEach(() => {
   jest.clearAllMocks();
   mockMergeRun.mockImplementation(mergeSuccess());
+  // Default: seed agent not called (seedPrompt absent in most tests)
+  mockSeedRun.mockResolvedValue(seedSuccess('seed-v1'));
 });
 
 // ─── Tests ──────────────────────────────────────────────────────────
@@ -320,5 +346,141 @@ describe('evolveArticle (orchestrator)', () => {
     expect(ids).toContain('v1');
     expect(ids).toContain('v3');
     expect(ids).not.toContain('boom');
+  });
+});
+
+// ─── Seed agent behavior ─────────────────────────────────────────────
+
+describe('evolveArticle — seed agent (seedPrompt option)', () => {
+  it('without seedPrompt: baseline is added to pool immediately, seed agent never runs', async () => {
+    mockGenerateRun.mockResolvedValue(generateSuccess('vn'));
+    mockSwissRun.mockResolvedValue({
+      success: true, result: { pairs: [], matches: [], status: 'no_pairs' },
+      cost: 0, durationMs: 1, invocationId: 'inv-swiss',
+    });
+
+    const result = await evolveArticle('original text', makeProvider(), makeDb() as never, 'run-1', makeConfig());
+
+    expect(mockSeedRun).not.toHaveBeenCalled();
+    const baselineVariant = result.pool.find((v) => v.strategy === 'baseline');
+    expect(baselineVariant).toBeDefined();
+    expect(baselineVariant?.text).toBe('original text');
+    expect(result.isSeeded).toBeFalsy();
+  });
+
+  it('with seedPrompt: seed agent runs before generate agents in iteration 1', async () => {
+    mockSeedRun.mockResolvedValue(seedSuccess('seed-v1'));
+    mockGenerateRun.mockResolvedValue(generateSuccess('gen-v'));
+    mockSwissRun.mockResolvedValue({
+      success: true, result: { pairs: [], matches: [], status: 'no_pairs' },
+      cost: 0, durationMs: 1, invocationId: 'inv-swiss',
+    });
+
+    await evolveArticle('', makeProvider(), makeDb() as never, 'run-1', makeConfig(), { seedPrompt: 'Explain quantum computing' });
+
+    expect(mockSeedRun).toHaveBeenCalledTimes(1);
+    const seedInput = mockSeedRun.mock.calls[0][0] as { promptText: string };
+    expect(seedInput.promptText).toBe('Explain quantum computing');
+  });
+
+  it('seed success: seedVariant + baseline added to pool, isSeeded=true in result', async () => {
+    mockSeedRun.mockResolvedValue(seedSuccess('seed-v1'));
+    mockGenerateRun.mockResolvedValue(generateSuccess('gen-v'));
+    mockSwissRun.mockResolvedValue({
+      success: true, result: { pairs: [], matches: [], status: 'no_pairs' },
+      cost: 0, durationMs: 1, invocationId: 'inv-swiss',
+    });
+
+    const result = await evolveArticle('', makeProvider(), makeDb() as never, 'run-1', makeConfig(), { seedPrompt: 'test' });
+
+    expect(result.isSeeded).toBe(true);
+    // Seed variant and baseline both in pool
+    const seedVariant = result.pool.find((v) => v.strategy === 'seed_article');
+    const baseline = result.pool.find((v) => v.strategy === 'baseline');
+    expect(seedVariant).toBeDefined();
+    expect(baseline).toBeDefined();
+    // Baseline text matches seed text
+    expect(baseline?.text).toBe('seed-text-seed-v1');
+  });
+
+  it('generate agents after seed use the seed text as originalText', async () => {
+    mockSeedRun.mockResolvedValue(seedSuccess('seed-v1'));
+    mockGenerateRun.mockResolvedValue(generateSuccess('gen-v'));
+    mockSwissRun.mockResolvedValue({
+      success: true, result: { pairs: [], matches: [], status: 'no_pairs' },
+      cost: 0, durationMs: 1, invocationId: 'inv-swiss',
+    });
+
+    await evolveArticle('ORIGINAL', makeProvider(), makeDb() as never, 'run-1', makeConfig(), { seedPrompt: 'test prompt' });
+
+    const genInput = mockGenerateRun.mock.calls[0][0] as { originalText: string };
+    // Should use seed text, not the empty original
+    expect(genInput.originalText).toBe('seed-text-seed-v1');
+  });
+
+  it('seed agent failure (budget): stopReason=seed_failed, loop exits without generate', async () => {
+    mockSeedRun.mockResolvedValue({
+      success: true,
+      result: { variant: null, status: 'budget', surfaced: false, matches: [] },
+      cost: 0.002, durationMs: 3, invocationId: 'inv-seed',
+    });
+
+    const result = await evolveArticle('', makeProvider(), makeDb() as never, 'run-1', makeConfig(), { seedPrompt: 'test' });
+
+    expect(result.stopReason).toBe('seed_failed');
+    expect(mockGenerateRun).not.toHaveBeenCalled();
+  });
+
+  it('seed agent discarded (surfaced=false): stopReason=seed_failed', async () => {
+    mockSeedRun.mockResolvedValue(seedSuccess('seed-v1', false /* surfaced=false */));
+
+    const result = await evolveArticle('', makeProvider(), makeDb() as never, 'run-1', makeConfig(), { seedPrompt: 'test' });
+
+    expect(result.stopReason).toBe('seed_failed');
+    expect(mockGenerateRun).not.toHaveBeenCalled();
+  });
+
+  it('seed agent only runs once across iterations', async () => {
+    mockSeedRun.mockResolvedValue(seedSuccess('seed-v1'));
+    // Two generate iterations: iteration 1 runs seed + generate, iteration 2 just swiss/done
+    mockGenerateRun
+      .mockResolvedValue(generateSuccess('gen-v'));
+    let swissCallCount = 0;
+    mockSwissRun.mockImplementation(async () => {
+      swissCallCount++;
+      // First swiss: return pairs to trigger a second loop; second: no_pairs to stop
+      if (swissCallCount < 2) {
+        return {
+          success: true,
+          result: { pairs: [{ a: 'seed-v1', b: 'gen-v', matches: [] }], matches: [], status: 'completed' },
+          cost: 0, durationMs: 1, invocationId: 'inv-swiss',
+        };
+      }
+      return {
+        success: true, result: { pairs: [], matches: [], status: 'no_pairs' },
+        cost: 0, durationMs: 1, invocationId: 'inv-swiss',
+      };
+    });
+
+    await evolveArticle('', makeProvider(), makeDb() as never, 'run-1', makeConfig(), { seedPrompt: 'test' });
+
+    // Seed agent invoked exactly once
+    expect(mockSeedRun).toHaveBeenCalledTimes(1);
+  });
+
+  it('with seedPrompt: no baseline in pool before seed agent runs', async () => {
+    // The seed agent should receive an empty initialPool (or arena entries only — no baseline)
+    mockSeedRun.mockResolvedValue(seedSuccess('seed-v1'));
+    mockGenerateRun.mockResolvedValue(generateSuccess('gen-v'));
+    mockSwissRun.mockResolvedValue({
+      success: true, result: { pairs: [], matches: [], status: 'no_pairs' },
+      cost: 0, durationMs: 1, invocationId: 'inv-swiss',
+    });
+
+    await evolveArticle('', makeProvider(), makeDb() as never, 'run-1', makeConfig(), { seedPrompt: 'test' });
+
+    const seedInput = mockSeedRun.mock.calls[0][0] as { initialPool: Array<{ strategy: string }> };
+    const baselineInSeedInput = seedInput.initialPool.filter((v) => v.strategy === 'baseline');
+    expect(baselineInSeedInput).toHaveLength(0);
   });
 });

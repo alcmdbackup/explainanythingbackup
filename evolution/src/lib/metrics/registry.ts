@@ -43,6 +43,10 @@ const SHARED_PROPAGATION_DEFS: EntityMetricRegistry['atPropagation'] = [
     sourceMetric: 'ranking_cost', sourceEntity: 'run', aggregate: aggregateSum, aggregationMethod: 'sum' },
   { name: 'avg_ranking_cost_per_run', label: 'Avg Ranking Cost/Run', category: 'cost', formatter: 'cost',
     sourceMetric: 'ranking_cost', sourceEntity: 'run', aggregate: aggregateAvg, aggregationMethod: 'avg' },
+  { name: 'total_seed_cost', label: 'Total Seed Cost', category: 'cost', formatter: 'cost', listView: true,
+    sourceMetric: 'seed_cost', sourceEntity: 'run', aggregate: aggregateSum, aggregationMethod: 'sum' },
+  { name: 'avg_seed_cost_per_run', label: 'Avg Seed Cost/Run', category: 'cost', formatter: 'cost',
+    sourceMetric: 'seed_cost', sourceEntity: 'run', aggregate: aggregateAvg, aggregationMethod: 'avg' },
   // Rating — from run.winner_elo
   { name: 'avg_final_elo', label: 'Avg Winner Elo', category: 'rating', formatter: 'elo', listView: true,
     sourceMetric: 'winner_elo', sourceEntity: 'run', aggregate: aggregateBootstrapMean, aggregationMethod: 'bootstrap_mean' },
@@ -85,6 +89,8 @@ export const METRIC_REGISTRY: Record<EntityType, EntityMetricRegistry> = {
       { name: 'generation_cost', label: 'Generation Cost', category: 'cost', formatter: 'cost',
         listView: true, compute: () => 0 },
       { name: 'ranking_cost', label: 'Ranking Cost', category: 'cost', formatter: 'cost',
+        listView: true, compute: () => 0 },
+      { name: 'seed_cost', label: 'Seed Cost', category: 'cost', formatter: 'cost',
         listView: true, compute: () => 0 },
     ],
     atFinalization: [

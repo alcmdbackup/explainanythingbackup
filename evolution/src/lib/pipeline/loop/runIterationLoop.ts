@@ -19,7 +19,8 @@ import { createCostTracker } from '../infra/trackBudget';
 import { createV2LLMClient } from '../infra/createLLMClient';
 import type { EntityLogger } from '../infra/createEntityLogger';
 import { selectWinner } from '../../shared/selectWinner';
-import { GenerateFromSeedArticleAgent } from '../../core/agents/generateFromSeedArticle';
+import { GenerateFromSeedArticleAgent, deepCloneRatings } from '../../core/agents/generateFromSeedArticle';
+import { CreateSeedArticleAgent } from '../../core/agents/createSeedArticle';
 import { SwissRankingAgent, type SwissRankingMatchEntry } from '../../core/agents/SwissRankingAgent';
 import { MergeRatingsAgent, type MergeMatchEntry } from '../../core/agents/MergeRatingsAgent';
 import { swissPairing, pairKey, MAX_PAIRS_PER_ROUND } from './swissPairing';
@@ -167,6 +168,8 @@ export async function evolveArticle(
     deadlineMs?: number;
     signal?: AbortSignal;
     randomSeed?: bigint;
+    /** When set, skip eager baseline creation and run CreateSeedArticleAgent in iteration 1. */
+    seedPrompt?: string;
   },
 ): Promise<EvolutionResult> {
   validateConfig(config);
@@ -212,17 +215,19 @@ export async function evolveArticle(
   const iterationSnapshots: IterationSnapshot[] = [];
   const discardedVariants: Variant[] = [];
 
-  // Insert baseline
-  const baseline = createVariant({
-    text: originalText,
-    strategy: 'baseline',
-    iterationBorn: 0,
-    parentIds: [],
-    version: 0,
-  });
-  pool.push(baseline);
-  ratings.set(baseline.id, createRating());
-  logger.debug('Baseline variant added', { variantId: baseline.id, poolSize: pool.length, phaseName: 'initialization' });
+  // Insert baseline — deferred when seedPrompt is set (CreateSeedArticleAgent creates it in iter 1).
+  if (!options?.seedPrompt) {
+    const baseline = createVariant({
+      text: originalText,
+      strategy: 'baseline',
+      iterationBorn: 0,
+      parentIds: [],
+      version: 0,
+    });
+    pool.push(baseline);
+    ratings.set(baseline.id, createRating());
+    logger.debug('Baseline variant added', { variantId: baseline.id, poolSize: pool.length, phaseName: 'initialization' });
+  }
 
   // Prepend initial pool entries (e.g., arena entries with existing ratings)
   if (options?.initialPool) {
@@ -241,6 +246,9 @@ export async function evolveArticle(
   let iteration = 0;
   let executionOrder = 0;
   let budgetExhausted = false;
+  let isSeeded = false;
+  // currentOriginalText is the base article for variant generation; set by seed agent when present.
+  let currentOriginalText = originalText;
 
   // ─── nextIteration() decision function ───────────────────────────
   async function nextIteration(): Promise<'generate' | 'swiss' | 'done'> {
@@ -300,6 +308,68 @@ export async function evolveArticle(
     iterationSnapshots.push(recordSnapshot(iteration, iterType, 'start', pool, ratings, matchCounts));
 
     if (iterType === 'generate') {
+      // Seed agent: runs once at start of iteration 1 for prompt-based runs without an arena seed.
+      if (options?.seedPrompt && !isSeeded) {
+        const seedExecOrder = ++executionOrder;
+        const seedCtx: AgentContext = {
+          db, runId, iteration,
+          executionOrder: seedExecOrder,
+          invocationId: '',
+          randomSeed: deriveSeed(randomSeed, `iter${iteration}`, `seed${seedExecOrder}`),
+          logger, costTracker, config: resolvedConfig,
+        };
+        const seedAgent = new CreateSeedArticleAgent();
+        const seedResult = await seedAgent.run({
+          promptText: options.seedPrompt,
+          llm,
+          initialPool: [...pool],
+          initialRatings: deepCloneRatings(ratings),
+          initialMatchCounts: new Map(matchCounts),
+          cache: comparisonCache,
+        }, seedCtx);
+
+        if (!seedResult.success || !seedResult.result?.variant || !seedResult.result.surfaced) {
+          logger.warn('Seed agent failed or variant discarded — stopping run', {
+            phaseName: 'seed_generation',
+            success: seedResult.success,
+            budgetExceeded: seedResult.budgetExceeded,
+          });
+          stopReason = 'seed_failed';
+          break;
+        }
+
+        const seedVariant = seedResult.result.variant;
+        currentOriginalText = seedVariant.text;
+
+        // Add seed variant to pool with fresh rating.
+        pool.push(seedVariant);
+        ratings.set(seedVariant.id, createRating());
+        matchCounts.set(seedVariant.id, 0);
+
+        // Create and add baseline from seed text.
+        const seedBaseline = createVariant({
+          text: seedVariant.text,
+          strategy: 'baseline',
+          iterationBorn: iteration,
+          parentIds: [],
+          version: 0,
+        });
+        pool.push(seedBaseline);
+        ratings.set(seedBaseline.id, createRating());
+        matchCounts.set(seedBaseline.id, 0);
+
+        // Buffer seed's matches for MergeRatingsAgent at end of this iteration.
+        if (seedResult.result.matches.length > 0) {
+          allMatches.push(...seedResult.result.matches);
+        }
+
+        isSeeded = true;
+        logger.info('Seed agent succeeded; baseline created from seed', {
+          seedVariantId: seedVariant.id, baselineId: seedBaseline.id,
+          poolSize: pool.length, phaseName: 'seed_generation',
+        });
+      }
+
       // Capture iteration-start snapshot for the parallel agents
       const initialPoolSnapshot: Variant[] = [...pool];
       const initialRatingsSnapshot = new Map(ratings);
@@ -333,7 +403,7 @@ export async function evolveArticle(
         };
         const agent = new GenerateFromSeedArticleAgent();
         return agent.run({
-          originalText,
+          originalText: currentOriginalText ?? '',
           strategy,
           llm,
           initialPool: initialPoolSnapshot,
@@ -500,18 +570,23 @@ export async function evolveArticle(
   }
 
   // ─── Winner determination ──────────────────────────────────
-  const winResult = selectWinner(pool, ratings);
-  const winner = pool.find((v) => v.id === winResult.winnerId) ?? pool[0]!;
+  // Pool may be empty when seed generation failed before any variants were added.
+  // finalizeRun handles empty pool by marking the run failed.
+  let winner: Variant | undefined;
+  if (pool.length > 0) {
+    const winResult = selectWinner(pool, ratings);
+    winner = pool.find((v) => v.id === winResult.winnerId) ?? pool[0];
+    logger.info('Winner determined', { winnerId: winner?.id, winnerMu: winResult.mu, winnerSigma: winResult.sigma, phaseName: 'winner_determination' });
+  }
 
-  logger.info('Winner determined', { winnerId: winner.id, winnerMu: winResult.mu, winnerSigma: winResult.sigma, phaseName: 'winner_determination' });
   logger.info('Evolution complete', {
     stopReason, iterations: iteration, poolSize: pool.length,
-    totalCost: costTracker.getTotalSpent(), winnerId: winner.id,
+    totalCost: costTracker.getTotalSpent(), winnerId: winner?.id,
     phaseName: 'evolution_complete',
   });
 
   return {
-    winner,
+    winner: winner!,
     pool,
     ratings,
     matchHistory: allMatches,
@@ -524,5 +599,6 @@ export async function evolveArticle(
     discardedVariants,
     iterationSnapshots,
     randomSeed,
+    isSeeded: isSeeded || undefined,
   };
 }
