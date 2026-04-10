@@ -10,7 +10,7 @@ import { createEntityLogger } from '../infra/createEntityLogger';
 import { isArenaEntry, type ArenaTextVariation } from '../setup/buildRunContext';
 import { logger as serverLogger } from '@/lib/server_utilities';
 import { getEntity } from '../../core/entityRegistry';
-import { writeMetric } from '../../metrics/writeMetrics';
+import { writeMetric, writeMetricMax } from '../../metrics/writeMetrics';
 import { getMetricsForEntities } from '../../metrics/readMetrics';
 import { type FinalizationContext, type MetricRow, type MetricName, isMetricValue } from '../../metrics/types';
 
@@ -250,9 +250,12 @@ export async function finalizeRun(
       matchHistory: result.matchHistory,
     };
 
-    // Ensure cost metric exists (may have been skipped if iteration loop broke early)
+    // Ensure cost metric exists (may have been skipped if iteration loop broke early).
+    // Use writeMetricMax (GREATEST upsert) to avoid downgrading a higher value that was
+    // written live by createLLMClient during execution (e.g. when parallel agents accumulate
+    // more spend than costTracker.getTotalSpent() reflects at finalization time).
     if (result.totalCost != null && !isNaN(result.totalCost)) {
-      await writeMetric(db, 'run', runId, 'cost' as MetricName, result.totalCost, 'during_execution');
+      await writeMetricMax(db, 'run', runId, 'cost' as MetricName, result.totalCost, 'during_execution');
     }
 
     // Run-level finalization metrics

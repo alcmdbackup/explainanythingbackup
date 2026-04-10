@@ -18,6 +18,48 @@ export interface V2CostTracker {
   getAvailableBudget(): number;
 }
 
+/** Per-invocation cost scope: delegates budget gating to shared tracker, tracks own spend separately. */
+export interface AgentCostScope extends V2CostTracker {
+  /** Returns only this agent's LLM costs, independent of other concurrent agents. */
+  getOwnSpent(): number;
+}
+
+// ─── Agent Cost Scope ─────────────────────────────────────────────
+
+/**
+ * Wraps a shared V2CostTracker so budget gating (reserve/release) remains shared
+ * while cost attribution (recordSpend) is tracked independently per invocation.
+ * Fixes parallel-execution delta bug where getTotalSpent() delta captured sibling costs.
+ */
+export function createAgentCostScope(shared: V2CostTracker): AgentCostScope {
+  let ownSpent = 0;
+
+  return {
+    reserve(phase: AgentName, estimatedCost: number): number {
+      return shared.reserve(phase, estimatedCost);
+    },
+    recordSpend(phase: AgentName, actualCost: number, reservedAmount: number): void {
+      ownSpent += actualCost;
+      shared.recordSpend(phase, actualCost, reservedAmount);
+    },
+    release(phase: AgentName, reservedAmount: number): void {
+      shared.release(phase, reservedAmount);
+    },
+    getTotalSpent(): number {
+      return shared.getTotalSpent();
+    },
+    getPhaseCosts(): Partial<Record<AgentName, number>> {
+      return shared.getPhaseCosts();
+    },
+    getAvailableBudget(): number {
+      return shared.getAvailableBudget();
+    },
+    getOwnSpent(): number {
+      return ownSpent;
+    },
+  };
+}
+
 // ─── Constants ───────────────────────────────────────────────────
 
 /** Safety margin multiplier for budget reservations. */
