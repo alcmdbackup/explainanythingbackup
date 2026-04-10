@@ -30,23 +30,23 @@ Rejected alternatives:
 - [x] `persistRunResults.ts:255`: `writeMetric` → `writeMetricMax`
 
 ### Phase 2: Implement agent cost scope
-- [ ] Add to `evolution/src/lib/pipeline/infra/trackBudget.ts`:
+- [x] Add to `evolution/src/lib/pipeline/infra/trackBudget.ts`:
   - `AgentCostScope` interface extending `V2CostTracker` with `getOwnSpent(): number`
   - `createAgentCostScope(shared: V2CostTracker): AgentCostScope` — delegates all methods to shared, intercepts `recordSpend` to track `ownSpent`
-- [ ] Update `evolution/src/lib/core/Agent.ts`:
+- [x] Update `evolution/src/lib/core/Agent.ts`:
   - Remove `const costBefore = ctx.costTracker.getTotalSpent()`
   - After `createInvocation` resolves: `const costScope = createAgentCostScope(ctx.costTracker)`
   - Pass `costScope` as `costTracker` in `extendedCtx`
   - Replace `getTotalSpent() - costBefore` with `costScope.getOwnSpent()` in both success and error paths
 
 ### Phase 3: Tests
-- [ ] `evolution/src/lib/pipeline/infra/trackBudget.test.ts` — new tests for `createAgentCostScope`:
+- [x] `evolution/src/lib/pipeline/infra/trackBudget.test.ts` — new tests for `createAgentCostScope`:
   - `getOwnSpent()` returns only this scope's costs, not other scopes'
   - `getTotalSpent()` returns the shared tracker total
   - Two scopes on same shared tracker: each `getOwnSpent()` independent; `getTotalSpent()` = combined
   - `reserve()` on scope blocks when shared budget exhausted
   - `release()` on scope decrements shared `totalReserved`
-- [ ] `evolution/src/lib/core/Agent.test.ts` — update cost tracking:
+- [x] `evolution/src/lib/core/Agent.test.ts` — update cost tracking:
   - Remove "computes cost as difference in total spent" (tests the buggy delta)
   - Add: two parallel `agent.run()` on same shared tracker — each `cost_usd` reflects only that agent's calls
   - Add: agent completes mid-way through another agent's execution — `cost_usd` unaffected by other agent's spend
@@ -56,80 +56,80 @@ Rejected alternatives:
 ### Phase 2 — Agent Cost Scope
 
 **`evolution/src/lib/pipeline/infra/trackBudget.test.ts`** — new `createAgentCostScope` suite:
-- [ ] `getOwnSpent()` returns 0 before any recordSpend
-- [ ] `getOwnSpent()` increments only for this scope's `recordSpend()` calls
-- [ ] Two scopes on same shared tracker: each `getOwnSpent()` is independent (scope A's spend doesn't appear in scope B)
-- [ ] `getTotalSpent()` on scope returns the shared tracker total (includes all scopes' spend)
-- [ ] `getAvailableBudget()` reflects the shared available budget after both scopes spend
-- [ ] `reserve()` delegates to shared tracker — throws `BudgetExceededError` when shared budget exhausted, even if this scope has spent nothing
-- [ ] `release()` decrements shared `totalReserved` (verified via `getAvailableBudget()`)
-- [ ] `getPhaseCosts()` returns shared phase costs, not just this scope's
+- [x] `getOwnSpent()` returns 0 before any recordSpend
+- [x] `getOwnSpent()` increments only for this scope's `recordSpend()` calls
+- [x] Two scopes on same shared tracker: each `getOwnSpent()` is independent (scope A's spend doesn't appear in scope B)
+- [x] `getTotalSpent()` on scope returns the shared tracker total (includes all scopes' spend)
+- [x] `getAvailableBudget()` reflects the shared available budget after both scopes spend
+- [x] `reserve()` delegates to shared tracker — throws `BudgetExceededError` when shared budget exhausted, even if this scope has spent nothing
+- [x] `release()` decrements shared `totalReserved` (verified via `getAvailableBudget()`)
+- [x] `getPhaseCosts()` returns shared phase costs, not just this scope's
 
 **`evolution/src/lib/core/Agent.test.ts`** — cost tracking update:
-- [ ] Remove existing "computes cost as difference in total spent" test (was testing the buggy delta)
-- [ ] `cost_usd` on successful invocation = `scope.getOwnSpent()` (not global delta)
-- [ ] Two agents run **concurrently** (`Promise.all([agentA.run(input, ctx), agentB.run(input, ctx)])` started before either resolves, with mocked `execute()` using `Promise.resolve` to yield between steps) — each `cost_usd` reflects only its own calls; `cost_usd_A + cost_usd_B = totalSpent`
-- [ ] Interleaved spend: Agent B's `recordSpend()` injected mid-way through Agent A's execution (via Promise ordering) — Agent A's final `cost_usd` unchanged
-- [ ] `cost_usd` correct on error path (BudgetExceededError) — only this agent's pre-error spend (note: `recordSpend()` is not called after the error is thrown; `ownSpent` reflects only completed LLM calls)
+- [x] Remove existing "computes cost as difference in total spent" test (was testing the buggy delta)
+- [x] `cost_usd` on successful invocation = `scope.getOwnSpent()` (not global delta)
+- [x] Two agents run **concurrently** (`Promise.all([agentA.run(input, ctx), agentB.run(input, ctx)])` started before either resolves, with mocked `execute()` using `Promise.resolve` to yield between steps) — each `cost_usd` reflects only its own calls; `cost_usd_A + cost_usd_B = totalSpent`
+- [x] Interleaved spend: Agent B's `recordSpend()` injected mid-way through Agent A's execution (via Promise ordering) — Agent A's final `cost_usd` unchanged
+- [x] `cost_usd` correct on error path (BudgetExceededError) — only this agent's pre-error spend (note: `recordSpend()` is not called after the error is thrown; `ownSpent` reflects only completed LLM calls)
 
 ---
 
 ### Phase 4 — rankNewVariant + CreateSeedArticleAgent
 
 **`evolution/src/lib/pipeline/loop/rankNewVariant.test.ts`** — new file:
-- [ ] Adds variant to local pool and assigns `createRating()` before calling `rankSingleVariant`
-- [ ] `surfaced = true` when `rankResult.status` = `converged`, `eliminated`, or `no_more_opponents`
-- [ ] `surfaced = false` when `status = 'budget'` AND `localMu < top15Cutoff`; `discardReason` populated
-- [ ] `surfaced = true` when `status = 'budget'` AND `localMu >= top15Cutoff` (above cutoff, keep despite budget)
-- [ ] Empty pool: exits immediately with `no_more_opponents`, `surfaced = true`, zero ranking cost
-- [ ] `rankingCost` = cost delta incurred during `rankSingleVariant` call
-- [ ] Input `localPool`/`localRatings`/`localMatchCounts` mutated (local state updated by ranking)
-- [ ] `BudgetExceededError` thrown by `rankSingleVariant` surfaces as `status = 'budget'`
+- [x] Adds variant to local pool and assigns `createRating()` before calling `rankSingleVariant`
+- [x] `surfaced = true` when `rankResult.status` = `converged`, `eliminated`, or `no_more_opponents`
+- [x] `surfaced = false` when `status = 'budget'` AND `localMu < top15Cutoff`; `discardReason` populated
+- [x] `surfaced = true` when `status = 'budget'` AND `localMu >= top15Cutoff` (above cutoff, keep despite budget)
+- [x] Empty pool: exits immediately with `no_more_opponents`, `surfaced = true`, zero ranking cost
+- [x] `rankingCost` = cost delta incurred during `rankSingleVariant` call
+- [x] Input `localPool`/`localRatings`/`localMatchCounts` mutated (local state updated by ranking)
+- [x] `BudgetExceededError` thrown by `rankSingleVariant` surfaces as `status = 'budget'`
 
 **`evolution/src/lib/core/agents/generateFromSeedArticle.test.ts`** — regression after refactor:
-- [ ] All existing tests pass unchanged (behavior preserved after extracting `rankNewVariant`)
+- [x] All existing tests pass unchanged (behavior preserved after extracting `rankNewVariant`)
 
 **`evolution/src/lib/core/agents/createSeedArticle.test.ts`** — new file:
-- [ ] Makes `seed_title` LLM call first, then `seed_article` LLM call
-- [ ] Creates variant from generated content with `strategy: 'create_seed_article'`
-- [ ] Calls `rankNewVariant()` with the seed variant and provided pool snapshot
-- [ ] `surfaced = true` when pool is empty (no_more_opponents, unconditional surface)
-- [ ] `surfaced = false` when pool has arena entries, budget exhausted, seed mu below cutoff
-- [ ] Format validation failure on article → `result.status = 'generation_failed'`, no ranking call
-- [ ] `BudgetExceededError` on title call → `result.status = 'budget'`, `cost_usd` = 0
-- [ ] `BudgetExceededError` on article call → `result.status = 'budget'`, `cost_usd` = title cost only
-- [ ] Input `initialPool`/`initialRatings` snapshots not mutated
-- [ ] `cost_usd` (via `Agent.run()` scope) reflects only this agent's two LLM calls — not sibling agents
+- [x] Makes `seed_title` LLM call first, then `seed_article` LLM call
+- [x] Creates variant from generated content with `strategy: 'create_seed_article'`
+- [x] Calls `rankNewVariant()` with the seed variant and provided pool snapshot
+- [x] `surfaced = true` when pool is empty (no_more_opponents, unconditional surface)
+- [x] `surfaced = false` when pool has arena entries, budget exhausted, seed mu below cutoff
+- [x] Format validation failure on article → `result.status = 'generation_failed'`, no ranking call
+- [x] `BudgetExceededError` on title call → `result.status = 'budget'`, `cost_usd` = 0
+- [x] `BudgetExceededError` on article call → `result.status = 'budget'`, `cost_usd` = title cost only
+- [x] Input `initialPool`/`initialRatings` snapshots not mutated
+- [x] `cost_usd` (via `Agent.run()` scope) reflects only this agent's two LLM calls — not sibling agents
 
 **`evolution/src/lib/pipeline/setup/buildRunContext.test.ts`** — additions:
-- [ ] `explanation_id`-based run: `seedPrompt` absent in returned context, `originalText` from explanations table, LLM provider never called
-- [ ] `prompt_id`-based run, arena has one `generation_method = 'seed'` entry: `seedPrompt` absent, `originalText` = that variant's content, LLM provider never called
-- [ ] `prompt_id`-based run, arena has multiple `generation_method = 'seed'` entries: `originalText` = content of the highest `elo_score` entry
-- [ ] `prompt_id`-based run, no seed in arena: `seedPrompt` = full prompt text, `originalText` absent, LLM provider never called (deferred to CreateSeedArticleAgent)
-- [ ] `prompt_id`-based run, seed entry has `archived_at` set (archived): not selected; treated as no-seed case
+- [x] `explanation_id`-based run: `seedPrompt` absent in returned context, `originalText` from explanations table, LLM provider never called
+- [x] `prompt_id`-based run, arena has one `generation_method = 'seed'` entry: `seedPrompt` absent, `originalText` = that variant's content, LLM provider never called
+- [x] `prompt_id`-based run, arena has multiple `generation_method = 'seed'` entries: `originalText` = content of the highest `elo_score` entry
+- [x] `prompt_id`-based run, no seed in arena: `seedPrompt` = full prompt text, `originalText` absent, LLM provider never called (deferred to CreateSeedArticleAgent)
+- [x] `prompt_id`-based run, seed entry has `archived_at` set (archived): not selected; treated as no-seed case
 
 **`evolution/src/lib/pipeline/loop/runIterationLoop.test.ts`** — additions:
-- [ ] `seedPrompt` absent: iteration 1 dispatches generation agents normally, no seed agent run
-- [ ] `seedPrompt` present: `CreateSeedArticleAgent` runs before generation agents in iteration 1
-- [ ] Seed variant in pool before generation agents receive their input snapshot
-- [ ] Generation agents' `initialPool` includes the seed variant
-- [ ] `originalText` passed to generation agents = seed content
-- [ ] Seed agent budget failure (`status = 'budget'`): run stops, no generation agents dispatched
-- [ ] `seedPrompt` only triggers seed agent in iteration 1 — not in subsequent iterations
-- [ ] When `seedPrompt` present: baseline variant created AFTER seed agent from `seedVariant.text` (not at initialization); assert `baseline.text === seedVariant.text`
-- [ ] When `seedPrompt` absent: baseline created at initialization as usual
-- [ ] `EvolutionResult.isSeeded = true` when seed agent ran; `false`/`undefined` otherwise
-- [ ] Seed agent `surfaced = false` (budget exhausted, below cutoff): run still stops (`stopReason = 'seed_failed'`); **baseline is NOT created** (no originalText available); `isSeeded = false`
-- [ ] Seed agent `status = 'generation_failed'`: same as budget failure — run stops, no baseline created
+- [x] `seedPrompt` absent: iteration 1 dispatches generation agents normally, no seed agent run
+- [x] `seedPrompt` present: `CreateSeedArticleAgent` runs before generation agents in iteration 1
+- [x] Seed variant in pool before generation agents receive their input snapshot
+- [x] Generation agents' `initialPool` includes the seed variant
+- [x] `originalText` passed to generation agents = seed content
+- [x] Seed agent budget failure (`status = 'budget'`): run stops, no generation agents dispatched
+- [x] `seedPrompt` only triggers seed agent in iteration 1 — not in subsequent iterations
+- [x] When `seedPrompt` present: baseline variant created AFTER seed agent from `seedVariant.text` (not at initialization); assert `baseline.text === seedVariant.text`
+- [x] When `seedPrompt` absent: baseline created at initialization as usual
+- [x] `EvolutionResult.isSeeded = true` when seed agent ran; `false`/`undefined` otherwise
+- [x] Seed agent `surfaced = false` (budget exhausted, below cutoff): run still stops (`stopReason = 'seed_failed'`); **baseline is NOT created** (no originalText available); `isSeeded = false`
+- [x] Seed agent `status = 'generation_failed'`: same as budget failure — run stops, no baseline created
 
 **`evolution/src/lib/pipeline/finalize/persistRunResults.test.ts`** — additions:
-- [ ] When `isSeeded = true`: baseline variant (`strategy = 'baseline'`) synced with `generation_method = 'seed'`; regular variants get `'pipeline'`
-- [ ] When `isSeeded = false` (explanation-based): baseline variant synced with `generation_method = 'pipeline'` — not 'seed'
-- [ ] Arena entries (fromArena=true) still excluded from new entries, regardless of `isSeeded`
-- [ ] Baseline variant created from seed `originalText` still present in pool and ranked correctly
+- [x] When `isSeeded = true`: baseline variant (`strategy = 'baseline'`) synced with `generation_method = 'seed'`; regular variants get `'pipeline'`
+- [x] When `isSeeded = false` (explanation-based): baseline variant synced with `generation_method = 'pipeline'` — not 'seed'
+- [x] Arena entries (fromArena=true) still excluded from new entries, regardless of `isSeeded`
+- [x] Baseline variant created from seed `originalText` still present in pool and ranked correctly
 
 **`evolution/src/lib/pipeline/loop/runIterationLoop.test.ts`** — additional cases:
-- [ ] After seed agent succeeds, baseline variant is created from seed `originalText` and added to pool before generation dispatch
+- [x] After seed agent succeeds, baseline variant is created from seed `originalText` and added to pool before generation dispatch
 
 ---
 
@@ -137,15 +137,15 @@ Rejected alternatives:
 
 **`src/__tests__/integration/evolution-cost-attribution.integration.test.ts`** — new file:
 - Uses mocked `V2CostTracker.recordSpend()` to inject predictable costs (avoids real API flakiness while preserving cost accounting logic)
-- [ ] N agents run concurrently on same shared tracker — `SUM(cost_usd)` across invocations = `totalSpent` (`.toBeCloseTo(expected, 4)`); no double-counting
-- [ ] Per-agent `cost_usd` values are distinct and positive; no two invocations report the same cost value when costs are unique
+- [x] N agents run concurrently on same shared tracker — `SUM(cost_usd)` across invocations = `totalSpent` (`.toBeCloseTo(expected, 4)`); no double-counting
+- [x] Per-agent `cost_usd` values are distinct and positive; no two invocations report the same cost value when costs are unique
 
 **`src/__tests__/integration/evolution-seed-cost.integration.test.ts`** — new file:
 - Uses mocked LLM client with deterministic responses (avoids real API; preserves cost propagation logic)
-- [ ] Prompt-based run (first time, empty arena): `seed_cost` metric populated at run level; propagated to strategy/experiment level via `SHARED_PROPAGATION_DEFS`; `generation_method = 'seed'` variant in arena; `create_seed_article` invocation row created; `seed_cost` value ≈ `invocation.cost_usd` (`.toBeCloseTo(..., 4)`)
-- [ ] Prompt-based run (second time, arena has seed): no `create_seed_article` invocation; `seed_cost = 0`; `originalText` matches prior seed
-- [ ] `explanation_id`-based run: no `create_seed_article` invocation; `seed_cost` absent or 0; baseline synced with `generation_method = 'pipeline'`
-- [ ] Two concurrent prompt-based runs on same prompt (both start with empty arena): both runs complete without error; assert arena has exactly 2 `generation_method = 'seed'` entries for the prompt BEFORE cleanup; test cleanup removes both entries after assertion
+- [x] Prompt-based run (first time, empty arena): `seed_cost` metric populated at run level; propagated to strategy/experiment level via `SHARED_PROPAGATION_DEFS`; `generation_method = 'seed'` variant in arena; `create_seed_article` invocation row created; `seed_cost` value ≈ `invocation.cost_usd` (`.toBeCloseTo(..., 4)`)
+- [x] Prompt-based run (second time, arena has seed): no `create_seed_article` invocation; `seed_cost = 0`; `originalText` matches prior seed
+- [x] `explanation_id`-based run: no `create_seed_article` invocation; `seed_cost` absent or 0; baseline synced with `generation_method = 'pipeline'`
+- [x] Two concurrent prompt-based runs on same prompt (both start with empty arena): both runs complete without error; assert arena has exactly 2 `generation_method = 'seed'` entries for the prompt BEFORE cleanup; test cleanup removes both entries after assertion
 
 ---
 
@@ -195,16 +195,16 @@ The helper includes the full surface/discard logic: `computeTop15Cutoff` check, 
 
 **`seed_cost` metric propagation:** `seed_cost` follows the same pattern as `generation_cost` / `ranking_cost` — live-written per LLM call by `createLLMClient.ts`, and propagated to strategy/experiment level via `SHARED_PROPAGATION_DEFS` in `registry.ts`. Add `seed_cost` to `SHARED_PROPAGATION_DEFS`.
 
-- [ ] **`evolution/src/lib/pipeline/loop/rankNewVariant.ts`**: extract inline ranking block from `generateFromSeedArticle.ts:276-305` into shared `rankNewVariant()` helper with the signature above
-- [ ] **`evolution/src/lib/core/agents/generateFromSeedArticle.ts`**: refactor to call `rankNewVariant()` instead of inline block (no behavior change)
-- [ ] **`evolution/src/lib/core/agentNames.ts`**: add `create_seed_article` to `AGENT_NAMES`; add `create_seed_article: 'seed_cost'` to `COST_METRIC_BY_AGENT`
-- [ ] **`evolution/src/lib/metrics/registry.ts`** (and METRIC_CATALOG): add `seed_cost` metric following same three-tier pattern as `generation_cost`; add to `SHARED_PROPAGATION_DEFS` for strategy/experiment propagation
-- [ ] **`evolution/src/lib/schemas.ts`**: add `createSeedArticleExecutionDetailSchema`
-- [ ] **`evolution/src/lib/core/agents/createSeedArticle.ts`**: new `CreateSeedArticleAgent` — `execute()` calls `generateTitle` + article LLM call (V2 client, `seed_title`/`seed_article` labels); then calls `rankNewVariant()` against the provided pool snapshot; returns `GenerateFromSeedOutput`-shaped result
-- [ ] **`evolution/src/lib/pipeline/setup/buildRunContext.ts`**: for `prompt_id`-based runs, query arena for `generation_method = 'seed'` ordered by `elo_score DESC` first — if found, return `originalText = variant.content`; otherwise skip `generateSeedArticle`, add `seedPrompt?: string` to `RunContext`, return raw prompt text there
-- [ ] **`evolution/src/lib/pipeline/loop/runIterationLoop.ts`**: at the start of iteration 1, if `options.seedPrompt` present — run `CreateSeedArticleAgent` with the loaded arena entries as `initialPool`; on failure set `stopReason = 'seed_failed'` and exit; on success add seed variant to pool, set local `originalText`; generation agents proceed normally; seed agent NOT re-run in subsequent iterations
-- [ ] **`evolution/src/lib/pipeline/finalize/persistRunResults.ts`**: add `isSeeded: boolean` to `syncToArena` signature — new signature: `syncToArena(runId, promptId, pool, ratings, matchHistory, supabase, isSeeded, logger?)`; when `isSeeded && variant.strategy === 'baseline'`, use `generation_method: 'seed'`; all other variants keep `'pipeline'`
-- [ ] **`evolution/src/lib/pipeline/claimAndExecuteRun.ts`**: add `seed_cost` to zero-init metric list (lines 225-233)
+- [x] **`evolution/src/lib/pipeline/loop/rankNewVariant.ts`**: extract inline ranking block from `generateFromSeedArticle.ts:276-305` into shared `rankNewVariant()` helper with the signature above
+- [x] **`evolution/src/lib/core/agents/generateFromSeedArticle.ts`**: refactor to call `rankNewVariant()` instead of inline block (no behavior change)
+- [x] **`evolution/src/lib/core/agentNames.ts`**: add `create_seed_article` to `AGENT_NAMES`; add `create_seed_article: 'seed_cost'` to `COST_METRIC_BY_AGENT`
+- [x] **`evolution/src/lib/metrics/registry.ts`** (and METRIC_CATALOG): add `seed_cost` metric following same three-tier pattern as `generation_cost`; add to `SHARED_PROPAGATION_DEFS` for strategy/experiment propagation
+- [x] **`evolution/src/lib/schemas.ts`**: add `createSeedArticleExecutionDetailSchema`
+- [x] **`evolution/src/lib/core/agents/createSeedArticle.ts`**: new `CreateSeedArticleAgent` — `execute()` calls `generateTitle` + article LLM call (V2 client, `seed_title`/`seed_article` labels); then calls `rankNewVariant()` against the provided pool snapshot; returns `GenerateFromSeedOutput`-shaped result
+- [x] **`evolution/src/lib/pipeline/setup/buildRunContext.ts`**: for `prompt_id`-based runs, query arena for `generation_method = 'seed'` ordered by `elo_score DESC` first — if found, return `originalText = variant.content`; otherwise skip `generateSeedArticle`, add `seedPrompt?: string` to `RunContext`, return raw prompt text there
+- [x] **`evolution/src/lib/pipeline/loop/runIterationLoop.ts`**: at the start of iteration 1, if `options.seedPrompt` present — run `CreateSeedArticleAgent` with the loaded arena entries as `initialPool`; on failure set `stopReason = 'seed_failed'` and exit; on success add seed variant to pool, set local `originalText`; generation agents proceed normally; seed agent NOT re-run in subsequent iterations
+- [x] **`evolution/src/lib/pipeline/finalize/persistRunResults.ts`**: add `isSeeded: boolean` to `syncToArena` signature — new signature: `syncToArena(runId, promptId, pool, ratings, matchHistory, supabase, isSeeded, logger?)`; when `isSeeded && variant.strategy === 'baseline'`, use `generation_method: 'seed'`; all other variants keep `'pipeline'`
+- [x] **`evolution/src/lib/pipeline/claimAndExecuteRun.ts`**: add `seed_cost` to zero-init metric list (lines 225-233)
 
 **isSeeded flag threading (full call chain):**
 1. `buildRunContext` returns `seedPrompt?: string` in `RunContext` — if present, this run is seeded
@@ -219,16 +219,16 @@ The current baseline creation at `runIterationLoop.ts:216-225` runs at initializ
 ## Verification
 
 ### A) Playwright Verification
-- [ ] Not applicable — no UI changes
+- [x] Not applicable — no UI changes
 
 ### B) Automated Tests
-- [ ] `npm run test:unit -- --testPathPattern="trackBudget|Agent|rankNewVariant|createSeedArticle|generateFromSeedArticle|buildRunContext|runIterationLoop|persistRunResults"`
-- [ ] `npm run test:integration -- --testPathPattern="evolution-cost-attribution|evolution-seed-cost"`
+- [x] `npm run test:unit -- --testPathPattern="trackBudget|Agent|rankNewVariant|createSeedArticle|generateFromSeedArticle|buildRunContext|runIterationLoop|persistRunResults"`
+- [x] `npm run test:integration -- --testPathPattern="evolution-cost-attribution|evolution-seed-cost"`
 
 ## Documentation Updates
 - [x] `evolution/docs/cost_optimization.md` — update to describe agent cost scope pattern
-- [ ] `evolution/docs/agents/overview.md` — note that `cost_usd` now reflects only that agent's LLM calls; add `CreateSeedArticleAgent` entry
-- [ ] `evolution/docs/metrics.md` — document `seed_cost` metric and the fact that seed was previously excluded
+- [x] `evolution/docs/agents/overview.md` — note that `cost_usd` now reflects only that agent's LLM calls; add `CreateSeedArticleAgent` entry
+- [x] `evolution/docs/metrics.md` — document `seed_cost` metric and the fact that seed was previously excluded
 
 ## Key Files
 - `evolution/src/lib/pipeline/infra/trackBudget.ts` — add `AgentCostScope` + `createAgentCostScope()`
