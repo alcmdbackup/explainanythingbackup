@@ -10,7 +10,7 @@
     "build": "next build",
     "analyze": "ANALYZE=true next build",
     "start": "next start",
-    "lint": "next lint",
+    "lint": "next lint && npm run check:stale-specs",
     "typecheck": "tsc --noEmit --project tsconfig.ci.json",
     "test": "jest --forceExit --maxWorkers=4",
     "test:watch": "jest --watch",
@@ -32,11 +32,12 @@
     "test:integration:non-evolution": "jest --config jest.integration.config.js --testPathIgnorePatterns=\"evolution-|arena-actions|manual-experiment|strategy-resolution\"",
     "test:v1-regression": "jest --testPathPatterns='evolution/src/lib/' --testPathIgnorePatterns='v2/'",
     "test:esm": "npx tsx --test --test-name-pattern='.*' src/editorFiles/markdownASTdiff/markdownASTdiff.esm.test.ts",
-    "test:eslint-rules": "node eslint-rules/no-hardcoded-colors.test.js && node eslint-rules/no-arbitrary-text-sizes.test.js && node eslint-rules/prefer-design-system-fonts.test.js && node eslint-rules/prefer-warm-shadows.test.js && node eslint-rules/no-tailwind-color-classes.test.js && node eslint-rules/prefer-design-radius.test.js && node eslint-rules/enforce-heading-typography.test.js && node eslint-rules/enforce-prose-font.test.js && node eslint-rules/no-inline-typography.test.js && node eslint-rules/no-duplicate-column-labels.test.js",
+    "test:eslint-rules": "node eslint-rules/no-hardcoded-colors.test.js && node eslint-rules/no-arbitrary-text-sizes.test.js && node eslint-rules/prefer-design-system-fonts.test.js && node eslint-rules/prefer-warm-shadows.test.js && node eslint-rules/no-tailwind-color-classes.test.js && node eslint-rules/prefer-design-radius.test.js && node eslint-rules/enforce-heading-typography.test.js && node eslint-rules/enforce-prose-font.test.js && node eslint-rules/no-inline-typography.test.js && node eslint-rules/no-duplicate-column-labels.test.js && node eslint-rules/no-nth-child-cell-selector.test.js && node eslint-rules/no-duplicate-describe-name.test.js && node eslint-rules/no-point-in-time-pom-helpers.test.js && node eslint-rules/require-reset-filters.test.js",
     "test:changed": "jest --forceExit --maxWorkers=4 --changedSince=origin/main",
     "db:types": "npx supabase gen types --lang typescript --project-id ifubinffdbyewoezcidz > src/lib/database.types.ts",
     "query:prod": "npx tsx scripts/query-db.ts --prod",
     "query:staging": "npx tsx scripts/query-db.ts --staging",
+    "check:stale-specs": "npx tsx scripts/check-stale-specs.ts",
     "prepare": "git config core.hooksPath .githooks || true"
   },
   "dependencies": {

@@ -10,13 +10,13 @@ test.describe('Authentication Flow', { tag: '@critical' }, () => {
       const loginPage = new LoginPage(authenticatedPage);
 
       // Verify initial login
-      expect(await loginPage.isLoggedIn()).toBe(true);
+      await expect.poll(() => loginPage.isLoggedIn()).toBe(true);
 
       // Refresh page
       await authenticatedPage.reload();
 
       // Verify still logged in
-      expect(await loginPage.isLoggedIn()).toBe(true);
+      await expect.poll(() => loginPage.isLoggedIn()).toBe(true);
 
       // Should still be on home page (not redirected to login)
       expect(authenticatedPage.url()).not.toContain('/login');
@@ -39,7 +39,7 @@ test.describe('Authentication Flow', { tag: '@critical' }, () => {
       const loginPage = new LoginPage(authenticatedPage);
 
       // Verify initial login
-      expect(await loginPage.isLoggedIn()).toBe(true);
+      await expect.poll(() => loginPage.isLoggedIn()).toBe(true);
 
       // Click logout button
       const logoutButton = authenticatedPage.locator('[data-testid="logout-button"]');
@@ -52,7 +52,7 @@ test.describe('Authentication Flow', { tag: '@critical' }, () => {
       await logoutButton.waitFor({ state: 'hidden', timeout: 10000 });
 
       // Verify session cleared
-      expect(await loginPage.isLoggedIn()).toBe(false);
+      await expect.poll(() => loginPage.isLoggedIn()).toBe(false);
     });
   });
 

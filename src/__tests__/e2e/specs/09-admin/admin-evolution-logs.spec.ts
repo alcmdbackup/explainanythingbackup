@@ -166,6 +166,7 @@ adminTest.describe('Admin Evolution LogsTab Filters', { tag: '@evolution' }, () 
     },
   );
 
+  // eslint-disable-next-line flakiness/require-reset-filters -- false positive: this test searches a logs UI with [TEST] text, not the explanations table; no filterTestContent default applies to logs
   adminTest(
     'LogsTab message search filters by text',
     async ({ adminPage }) => {

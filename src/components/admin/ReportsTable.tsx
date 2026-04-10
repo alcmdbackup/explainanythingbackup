@@ -183,7 +183,10 @@ export function ReportsTable({ initialStatus = 'pending' }: ReportsTableProps) {
                     )}
                   </td>
                   <td className="p-3">
-                    <span className={`px-2 py-1 rounded text-xs ${STATUS_STYLES[report.status]}`}>
+                    <span
+                      className={`px-2 py-1 rounded text-xs ${STATUS_STYLES[report.status]}`}
+                      data-testid={`admin-reports-status-badge-${report.id}`}
+                    >
                       {report.status}
                     </span>
                   </td>

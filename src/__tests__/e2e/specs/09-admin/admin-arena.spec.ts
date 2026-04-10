@@ -372,6 +372,10 @@ adminTest.describe('Admin Arena', { tag: '@evolution' }, () => {
       await adminPage.waitForLoadState('domcontentloaded');
 
       // Capture initial Elo text of rank-0 entry
+      // TODO(fix_flaky_tests_20260408): replace td:nth-child(4) with a stable
+      // data-testid on the Elo cell in the leaderboard component (out of scope
+      // for the cherry-pick + rules PR; tracked as follow-up cleanup)
+      // eslint-disable-next-line flakiness/no-nth-child-cell-selector
       const eloCell = adminPage.locator('[data-testid="lb-row-0"] td:nth-child(4)');
       const initialEloText = await eloCell.textContent();
 

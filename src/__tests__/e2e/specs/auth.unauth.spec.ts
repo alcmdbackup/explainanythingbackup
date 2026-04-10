@@ -112,13 +112,13 @@ test.describe('Unauthenticated User Tests', () => {
     await page.locator('[data-testid="login-error"]').waitFor({ state: 'visible', timeout: 30000 });
 
     // Verify error is shown
-    expect(await loginPage.isErrorVisible()).toBe(true);
+    await expect.poll(() => loginPage.isErrorVisible()).toBe(true);
 
     // Verify no redirect occurred
     expect(page.url()).toContain('/login');
 
     // Verify no session created
-    expect(await loginPage.isLoggedIn()).toBe(false);
+    await expect.poll(() => loginPage.isLoggedIn()).toBe(false);
   });
 
   test('should handle empty email submission', async ({ page }) => {
@@ -167,14 +167,14 @@ test.describe('Remember Me Feature', () => {
     const loginPage = new LoginPage(page);
     await loginPage.navigate();
 
-    expect(await loginPage.isRememberMeVisible()).toBe(true);
+    await expect.poll(() => loginPage.isRememberMeVisible()).toBe(true);
   });
 
   test('should have remember me unchecked by default', async ({ page }) => {
     const loginPage = new LoginPage(page);
     await loginPage.navigate();
 
-    expect(await loginPage.isRememberMeChecked()).toBe(false);
+    await expect.poll(() => loginPage.isRememberMeChecked()).toBe(false);
   });
 
   test('should toggle remember me checkbox', async ({ page }) => {
@@ -182,15 +182,15 @@ test.describe('Remember Me Feature', () => {
     await loginPage.navigate();
 
     // Initially unchecked
-    expect(await loginPage.isRememberMeChecked()).toBe(false);
+    await expect.poll(() => loginPage.isRememberMeChecked()).toBe(false);
 
     // Toggle on
     await loginPage.toggleRememberMe();
-    expect(await loginPage.isRememberMeChecked()).toBe(true);
+    await expect.poll(() => loginPage.isRememberMeChecked()).toBe(true);
 
     // Toggle off
     await loginPage.toggleRememberMe();
-    expect(await loginPage.isRememberMeChecked()).toBe(false);
+    await expect.poll(() => loginPage.isRememberMeChecked()).toBe(false);
   });
 
   test('should store remember me preference as true when checked', async ({ page }) => {
