@@ -100,31 +100,38 @@ export class CreateSeedArticleAgent extends Agent<
     const localRatings = deepCloneRatings(initialRatings);
     const localMatchCounts = new Map(initialMatchCounts);
     const completedPairs = new Set<string>();
-
+    const model = ctx.config.generationModel as LLMCompletionOptions['model'];
     const costBeforeGen = ctx.costTracker.getTotalSpent();
+
+    const makeGenerationErrorDetail = (
+      err: unknown,
+      generationCost: number,
+      extraFields?: Partial<CreateSeedArticleExecutionDetail['generation']>,
+    ): CreateSeedArticleExecutionDetail => ({
+      detailType: 'create_seed_article',
+      totalCost: generationCost,
+      generation: {
+        cost: generationCost,
+        promptLength: promptText.length,
+        formatValid: false,
+        error: (err instanceof Error ? err.message : String(err)).slice(0, 500),
+        ...extraFields,
+      },
+      ranking: null,
+      surfaced: false,
+    });
 
     // Step 1a: generate title
     let title: string;
     try {
       title = await generateTitle(
         promptText,
-        (p) => llm.complete(p, 'seed_title', { model: ctx.config.generationModel as LLMCompletionOptions['model'], invocationId: ctx.invocationId }),
+        (p) => llm.complete(p, 'seed_title', { model, invocationId: ctx.invocationId }),
       );
       if (!title) title = promptText.slice(0, 100);
     } catch (err) {
       const generationCost = ctx.costTracker.getTotalSpent() - costBeforeGen;
-      const detail: CreateSeedArticleExecutionDetail = {
-        detailType: 'create_seed_article',
-        totalCost: generationCost,
-        generation: {
-          cost: generationCost,
-          promptLength: promptText.length,
-          formatValid: false,
-          error: (err instanceof Error ? err.message : String(err)).slice(0, 500),
-        },
-        ranking: null,
-        surfaced: false,
-      };
+      const detail = makeGenerationErrorDetail(err, generationCost);
       if (err instanceof BudgetExceededError) {
         return { result: { variant: null, status: 'budget', surfaced: false, matches: [] }, detail };
       }
@@ -137,23 +144,11 @@ export class CreateSeedArticleAgent extends Agent<
       articleContent = await llm.complete(
         buildArticlePrompt(title),
         'seed_article',
-        { model: ctx.config.generationModel as LLMCompletionOptions['model'], invocationId: ctx.invocationId },
+        { model, invocationId: ctx.invocationId },
       );
     } catch (err) {
       const generationCost = ctx.costTracker.getTotalSpent() - costBeforeGen;
-      const detail: CreateSeedArticleExecutionDetail = {
-        detailType: 'create_seed_article',
-        totalCost: generationCost,
-        generation: {
-          cost: generationCost,
-          promptLength: promptText.length,
-          titleLength: title.length,
-          formatValid: false,
-          error: (err instanceof Error ? err.message : String(err)).slice(0, 500),
-        },
-        ranking: null,
-        surfaced: false,
-      };
+      const detail = makeGenerationErrorDetail(err, generationCost, { titleLength: title.length });
       if (err instanceof BudgetExceededError) {
         return { result: { variant: null, status: 'budget', surfaced: false, matches: [] }, detail };
       }
@@ -171,13 +166,7 @@ export class CreateSeedArticleAgent extends Agent<
       const detail: CreateSeedArticleExecutionDetail = {
         detailType: 'create_seed_article',
         totalCost: generationCost,
-        generation: {
-          cost: generationCost,
-          promptLength: promptText.length,
-          titleLength: title.length,
-          contentLength: content.length,
-          formatValid: false,
-        },
+        generation: { cost: generationCost, promptLength: promptText.length, titleLength: title.length, contentLength: content.length, formatValid: false },
         ranking: null,
         surfaced: false,
       };

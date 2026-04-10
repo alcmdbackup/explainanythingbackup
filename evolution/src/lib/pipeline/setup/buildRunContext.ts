@@ -214,11 +214,14 @@ export async function buildRunContext(
 
   const { originalText, seedPrompt } = await resolveContent(claimedRun, db, llmProvider, logger);
   if (!originalText && !seedPrompt) {
-    const reason = claimedRun.explanation_id != null
-      ? `Explanation ${claimedRun.explanation_id} not found`
-      : claimedRun.prompt_id != null
-        ? `Prompt ${claimedRun.prompt_id} not found`
-        : 'No content source: both explanation_id and prompt_id are null';
+    let reason: string;
+    if (claimedRun.explanation_id != null) {
+      reason = `Explanation ${claimedRun.explanation_id} not found`;
+    } else if (claimedRun.prompt_id != null) {
+      reason = `Prompt ${claimedRun.prompt_id} not found`;
+    } else {
+      reason = 'No content source: both explanation_id and prompt_id are null';
+    }
     return { error: reason };
   }
 
@@ -238,7 +241,7 @@ export async function buildRunContext(
     }
   }
 
-  // Read existing random_seed if present (e.g., for reproducing a prior run), otherwise generate.
+  // Load existing random_seed for run reproduction, or auto-generate and persist a new one.
   let randomSeed: bigint;
   try {
     const { data: runRow } = await db
@@ -247,21 +250,14 @@ export async function buildRunContext(
       .eq('id', runId)
       .single();
     const existing = runRow?.random_seed as string | number | null | undefined;
-    if (existing !== null && existing !== undefined && existing !== '') {
+    if (existing != null && existing !== '') {
       randomSeed = BigInt(existing);
     } else {
-      // Auto-generate a 63-bit seed (signed BIGINT range). Math.random is fine here —
-      // only the initial seed needs to be unpredictable; downstream RNGs are
-      // deterministic from this. We cap the high half at 31 bits so the combined
-      // 63-bit value always fits in PostgreSQL signed BIGINT (max 2^63 - 1).
-      const high = BigInt(Math.floor(Math.random() * 0x7fffffff)); // 31 bits, signed-safe
-      const low = BigInt(Math.floor(Math.random() * 0xffffffff));   // 32 bits unsigned
+      // 63-bit seed: high 31 bits (signed-safe) + low 32 bits fits in PostgreSQL BIGINT.
+      const high = BigInt(Math.floor(Math.random() * 0x7fffffff));
+      const low = BigInt(Math.floor(Math.random() * 0xffffffff));
       randomSeed = (high << BigInt(32)) | low;
-      // Persist it back to the run row so reproduction is possible.
-      await db
-        .from('evolution_runs')
-        .update({ random_seed: randomSeed.toString() })
-        .eq('id', runId);
+      await db.from('evolution_runs').update({ random_seed: randomSeed.toString() }).eq('id', runId);
     }
   } catch (err) {
     logger.warn('random_seed read/write failed; using fallback constant', {

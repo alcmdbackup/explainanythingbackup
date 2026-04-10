@@ -154,25 +154,16 @@ export class GenerateFromSeedArticleAgent extends Agent<
   ): Promise<AgentOutput<GenerateFromSeedOutput, GenerateFromSeedExecutionDetail>> {
     const { originalText, strategy, llm, initialPool, initialRatings, initialMatchCounts, cache } = input;
 
-    // Step 0: deep-clone the iteration-start snapshot into local mutable state.
-    // CRITICAL: deep-clone the Rating values, not just the Map (Fix N).
+    // Deep-clone the iteration-start snapshot into local mutable state.
+    // CRITICAL: deep-clone the Rating values, not just the Map, to prevent cross-agent mutation.
     const localPool: Variant[] = [...initialPool];
     const localRatings = deepCloneRatings(initialRatings);
     const localMatchCounts = new Map(initialMatchCounts);
     const completedPairs = new Set<string>();
 
-    // Track per-phase costs via cost tracker spend deltas. The V2 LLM client routes
-    // every spend through ctx.costTracker; reading getTotalSpent() before/after each
-    // phase gives us a per-phase delta. Under parallel agents this is racy ONLY across
-    // agents — but we mitigate by snapshotting BEFORE each phase against the shared tracker
-    // and computing local deltas for THIS agent's phases. We can't fully isolate parallel
-    // costs without per-call onUsage, so we instead aggregate ranking + generation in a
-    // single agent-local accumulator using the BEFORE/AFTER snapshots; the merge with the
-    // global tracker happens via Agent.run() ceremony.
-    //
-    // For attribution purposes inside execution_detail, we use the synchronous before/after
-    // delta against ctx.costTracker around each phase. This is approximate under parallelism
-    // but bounded by the small number of LLM calls per agent.
+    // Cost deltas (before/after each phase) are approximate under parallelism but bounded
+    // by the small number of LLM calls per agent. The Agent.run() ceremony uses getOwnSpent()
+    // from the cost scope for accurate per-invocation totals.
     const costBeforeGen = ctx.costTracker.getTotalSpent();
 
     // Step 1: generate one variant
@@ -205,7 +196,6 @@ export class GenerateFromSeedArticleAgent extends Agent<
       });
     } catch (err) {
       const generationCost = ctx.costTracker.getTotalSpent() - costBeforeGen;
-      const isBudget = err instanceof BudgetExceededError;
       const detail: GenerateFromSeedExecutionDetail = {
         detailType: 'generate_from_seed_article',
         totalCost: generationCost,
@@ -220,16 +210,8 @@ export class GenerateFromSeedArticleAgent extends Agent<
         ranking: null,
         surfaced: false,
       };
-      if (isBudget) {
-        return {
-          result: { variant: null, status: 'budget', surfaced: false, matches: [] },
-          detail,
-        };
-      }
-      return {
-        result: { variant: null, status: 'generation_failed', surfaced: false, matches: [] },
-        detail,
-      };
+      const status = err instanceof BudgetExceededError ? 'budget' : 'generation_failed';
+      return { result: { variant: null, status, surfaced: false, matches: [] }, detail };
     }
 
     const fmt = validateFormat(generated);

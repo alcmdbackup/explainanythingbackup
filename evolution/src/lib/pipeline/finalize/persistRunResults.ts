@@ -20,6 +20,7 @@ import { selectWinner } from '../../shared/selectWinner';
 /** V2 baseline strategy name (V1 uses 'original_baseline'). */
 const V2_BASELINE_STRATEGY = 'baseline';
 
+
 interface RunContext {
   experiment_id: string | null;
   explanation_id: number | null;
@@ -321,20 +322,17 @@ export async function finalizeRun(
       await propagateMetrics(db, 'experiment', run.experiment_id);
     }
   } catch (metricsErr) {
-    const errMsg = metricsErr instanceof Error ? metricsErr.message : String(metricsErr);
-    const errStack = metricsErr instanceof Error ? metricsErr.stack?.slice(0, 1000) : undefined;
+    const isErr = metricsErr instanceof Error;
     logger?.warn('Finalization metrics write failed', {
       phaseName: 'finalize',
-      error: errMsg.slice(0, 500),
-      errorType: metricsErr instanceof Error ? metricsErr.constructor.name : typeof metricsErr,
-      errorStack: errStack,
+      error: (isErr ? metricsErr.message : String(metricsErr)).slice(0, 500),
+      errorType: isErr ? metricsErr.constructor.name : typeof metricsErr,
+      errorStack: isErr ? metricsErr.stack?.slice(0, 1000) : undefined,
       runId,
     });
   }
 
-  // Step 6a: (Removed) update_strategy_aggregates RPC was deprecated — propagateMetrics handles this now.
-
-  // Step 6b: Experiment auto-completion (only if ALL sibling runs are done)
+  // Step 6: Experiment auto-completion (only if ALL sibling runs are done)
   if (run.experiment_id) {
     try {
       await db.rpc('complete_experiment_if_done', {

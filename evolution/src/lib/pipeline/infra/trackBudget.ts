@@ -35,28 +35,16 @@ export function createAgentCostScope(shared: V2CostTracker): AgentCostScope {
   let ownSpent = 0;
 
   return {
-    reserve(phase: AgentName, estimatedCost: number): number {
-      return shared.reserve(phase, estimatedCost);
-    },
+    reserve: shared.reserve.bind(shared),
     recordSpend(phase: AgentName, actualCost: number, reservedAmount: number): void {
       ownSpent += actualCost;
       shared.recordSpend(phase, actualCost, reservedAmount);
     },
-    release(phase: AgentName, reservedAmount: number): void {
-      shared.release(phase, reservedAmount);
-    },
-    getTotalSpent(): number {
-      return shared.getTotalSpent();
-    },
-    getPhaseCosts(): Partial<Record<AgentName, number>> {
-      return shared.getPhaseCosts();
-    },
-    getAvailableBudget(): number {
-      return shared.getAvailableBudget();
-    },
-    getOwnSpent(): number {
-      return ownSpent;
-    },
+    release: shared.release.bind(shared),
+    getTotalSpent: shared.getTotalSpent.bind(shared),
+    getPhaseCosts: shared.getPhaseCosts.bind(shared),
+    getAvailableBudget: shared.getAvailableBudget.bind(shared),
+    getOwnSpent(): number { return ownSpent; },
   };
 }
 

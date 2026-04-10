@@ -21,12 +21,9 @@ export abstract class Agent<TInput, TOutput, TDetail extends ExecutionDetailBase
       ctx.db, ctx.runId, ctx.iteration, this.name, ctx.executionOrder,
     );
 
-    // Thread invocationId into ctx so execute() can pass it on every callLLM
-    // for llmCallTracking joins (Critical Fix H). Empty string sentinel when
-    // createInvocation returned null — agents should still function but lose
-    // the invocation FK on llmCallTracking rows.
-    // Per-invocation cost scope: delegates budget gating to shared tracker,
-    // tracks this agent's own spend independently (fixes parallel delta bug).
+    // Per-invocation cost scope: delegates budget gating to shared tracker while
+    // tracking this agent's own spend independently (fixes parallel delta bug).
+    // invocationId empty string sentinel: agents still function but lose the FK on llmCallTracking rows.
     const costScope = createAgentCostScope(ctx.costTracker);
     const extendedCtx: AgentContext = { ...ctx, invocationId: invocationId ?? '', costTracker: costScope };
 
@@ -40,7 +37,7 @@ export abstract class Agent<TInput, TOutput, TDetail extends ExecutionDetailBase
       const durationMs = Date.now() - startMs;
 
       const { detail } = output;
-      if (detail && detail.totalCost === 0) detail.totalCost = cost;
+      if (detail?.totalCost === 0) detail.totalCost = cost;
 
       const parseResult = this.executionDetailSchema.safeParse(detail);
       if (!parseResult.success) {
@@ -67,7 +64,7 @@ export abstract class Agent<TInput, TOutput, TDetail extends ExecutionDetailBase
       const errorMessage = error instanceof Error ? error.message : String(error);
       await updateInvocation(ctx.db, invocationId, { cost_usd: cost, success: false, error_message: errorMessage, duration_ms: durationMs });
 
-      // Check BudgetExceededWithPartialResults BEFORE BudgetExceededError (subclass first)
+      // Subclass check must come before superclass check
       if (error instanceof BudgetExceededWithPartialResults) {
         return { success: false, result: null, cost, durationMs, invocationId, budgetExceeded: true, partialResult: error.partialData };
       }

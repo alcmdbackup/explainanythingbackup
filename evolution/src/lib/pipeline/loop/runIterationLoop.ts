@@ -76,6 +76,10 @@ async function isRunKilled(db: SupabaseClient, runId: string, logger?: EntityLog
 /** Hard cap on orchestrator iterations to prevent runaway loops. */
 const MAX_ORCHESTRATOR_ITERATIONS = 20;
 
+function topKMuValues(ratings: ReadonlyMap<string, Rating>, k: number): number[] {
+  return [...ratings.values()].map((r) => r.mu).sort((a, b) => b - a).slice(0, k);
+}
+
 // ─── Snapshot helpers ────────────────────────────────────────────
 
 function recordSnapshot(
@@ -90,14 +94,9 @@ function recordSnapshot(
     discardReasons?: Record<string, { mu: number; top15Cutoff: number }>;
   },
 ): IterationSnapshot {
-  const ratingsObj: Record<string, { mu: number; sigma: number }> = {};
-  for (const [id, r] of ratings.entries()) {
-    ratingsObj[id] = { mu: r.mu, sigma: r.sigma };
-  }
-  const matchCountsObj: Record<string, number> = {};
-  for (const [id, c] of matchCounts.entries()) {
-    matchCountsObj[id] = c;
-  }
+  const ratingsObj = Object.fromEntries(
+    [...ratings.entries()].map(([id, r]) => [id, { mu: r.mu, sigma: r.sigma }]),
+  );
   return {
     iteration,
     iterationType,
@@ -105,7 +104,7 @@ function recordSnapshot(
     capturedAt: new Date().toISOString(),
     poolVariantIds: pool.map((v) => v.id),
     ratings: ratingsObj,
-    matchCounts: matchCountsObj,
+    matchCounts: Object.fromEntries(matchCounts),
     ...(options?.discardedVariantIds !== undefined && { discardedVariantIds: options.discardedVariantIds }),
     ...(options?.discardReasons !== undefined && { discardReasons: options.discardReasons }),
   };
@@ -473,7 +472,7 @@ export async function evolveArticle(
 
       // Track top-K mu history and snapshot iteration end (with discarded info).
       const topK = resolvedConfig.tournamentTopK ?? 5;
-      const muValues = [...ratings.values()].map((r) => r.mu).sort((a, b) => b - a).slice(0, topK);
+      const muValues = topKMuValues(ratings, topK);
       muHistory.push(muValues);
 
       iterationSnapshots.push(recordSnapshot(iteration, 'generate', 'end', pool, ratings, matchCounts, {
@@ -551,7 +550,7 @@ export async function evolveArticle(
       }
 
       const topK = resolvedConfig.tournamentTopK ?? 5;
-      const muValues = [...ratings.values()].map((r) => r.mu).sort((a, b) => b - a).slice(0, topK);
+      const muValues = topKMuValues(ratings, topK);
       muHistory.push(muValues);
 
       iterationSnapshots.push(recordSnapshot(iteration, 'swiss', 'end', pool, ratings, matchCounts));

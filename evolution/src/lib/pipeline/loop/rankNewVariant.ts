@@ -80,13 +80,12 @@ export async function rankNewVariant({
 
   const localCutoff = computeTop15Cutoff(localRatings);
   const localVariantMu = localRatings.get(variant.id)!.mu;
+  const belowCutoffOnBudget = rankResult.status === 'budget' && localVariantMu < localCutoff;
 
-  let surfaced = true;
-  let discardReason: { localMu: number; localTop15Cutoff: number } | undefined;
-  if (rankResult.status === 'budget' && localVariantMu < localCutoff) {
-    surfaced = false;
-    discardReason = { localMu: localVariantMu, localTop15Cutoff: localCutoff };
-  }
+  const surfaced = !belowCutoffOnBudget;
+  const discardReason = belowCutoffOnBudget
+    ? { localMu: localVariantMu, localTop15Cutoff: localCutoff }
+    : undefined;
 
   return { rankingCost, rankResult, surfaced, discardReason };
 }
