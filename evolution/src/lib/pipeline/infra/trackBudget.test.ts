@@ -1,6 +1,6 @@
 // Tests for V2 cost tracker with reserve-before-spend pattern.
 
-import { createCostTracker } from './trackBudget';
+import { createCostTracker, createAgentCostScope } from './trackBudget';
 import { BudgetExceededError } from '../../types';
 import { createMockEntityLogger } from '../../../testing/evolution-test-helpers';
 
@@ -210,5 +210,93 @@ describe('V2CostTracker', () => {
       'Budget 80% consumed',
       expect.objectContaining({ totalSpent: 0.85, budgetUsd: 1.0 }),
     );
+  });
+});
+
+describe('createAgentCostScope', () => {
+  it('getOwnSpent() = 0 before any spend', () => {
+    const shared = createCostTracker(1.0);
+    const scope = createAgentCostScope(shared);
+    expect(scope.getOwnSpent()).toBe(0);
+  });
+
+  it('getOwnSpent() increments only for this scope\'s recordSpend() calls', () => {
+    const shared = createCostTracker(1.0);
+    const scope = createAgentCostScope(shared);
+    const m = scope.reserve('generation', 0.1);
+    scope.recordSpend('generation', 0.08, m);
+    expect(scope.getOwnSpent()).toBeCloseTo(0.08);
+    // shared total also updated
+    expect(shared.getTotalSpent()).toBeCloseTo(0.08);
+  });
+
+  it('two scopes on same tracker: getOwnSpent() independent; getTotalSpent() = combined', () => {
+    const shared = createCostTracker(1.0);
+    const scopeA = createAgentCostScope(shared);
+    const scopeB = createAgentCostScope(shared);
+
+    const mA = scopeA.reserve('generation', 0.1);
+    const mB = scopeB.reserve('ranking', 0.1);
+    scopeA.recordSpend('generation', 0.15, mA);
+    scopeB.recordSpend('ranking', 0.20, mB);
+
+    expect(scopeA.getOwnSpent()).toBeCloseTo(0.15);
+    expect(scopeB.getOwnSpent()).toBeCloseTo(0.20);
+    expect(shared.getTotalSpent()).toBeCloseTo(0.35);
+  });
+
+  it('getAvailableBudget() reflects shared budget after both scopes spend', () => {
+    const shared = createCostTracker(1.0);
+    const scopeA = createAgentCostScope(shared);
+    const scopeB = createAgentCostScope(shared);
+
+    const mA = scopeA.reserve('generation', 0.1);
+    const mB = scopeB.reserve('ranking', 0.1);
+    scopeA.recordSpend('generation', 0.15, mA);
+    scopeB.recordSpend('ranking', 0.20, mB);
+
+    // Both scopes see the same shared available budget
+    expect(scopeA.getAvailableBudget()).toBeCloseTo(0.65);
+    expect(scopeB.getAvailableBudget()).toBeCloseTo(0.65);
+  });
+
+  it('reserve() throws BudgetExceededError when shared budget exhausted', () => {
+    const shared = createCostTracker(0.2);
+    const scopeA = createAgentCostScope(shared);
+    const scopeB = createAgentCostScope(shared);
+
+    // scopeA uses nearly all budget
+    const mA = scopeA.reserve('generation', 0.1); // reserves 0.13
+    scopeA.recordSpend('generation', 0.18, mA); // spent 0.18
+
+    // scopeB should be blocked even though it spent nothing
+    expect(() => scopeB.reserve('ranking', 0.05)).toThrow(BudgetExceededError);
+  });
+
+  it('release() decrements shared totalReserved', () => {
+    const shared = createCostTracker(0.2);
+    const scope = createAgentCostScope(shared);
+
+    const m = scope.reserve('generation', 0.1); // 0.13 reserved
+    scope.release('generation', m);
+    // After release, full budget available again
+    expect(scope.getAvailableBudget()).toBeCloseTo(0.2);
+    expect(scope.getOwnSpent()).toBe(0);
+  });
+
+  it('getPhaseCosts() returns shared phase costs across all scopes', () => {
+    const shared = createCostTracker(1.0);
+    const scopeA = createAgentCostScope(shared);
+    const scopeB = createAgentCostScope(shared);
+
+    const mA = scopeA.reserve('generation', 0.1);
+    scopeA.recordSpend('generation', 0.05, mA);
+    const mB = scopeB.reserve('ranking', 0.1);
+    scopeB.recordSpend('ranking', 0.03, mB);
+
+    // Both scopes return the same shared phase costs
+    expect(scopeA.getPhaseCosts()['generation']).toBeCloseTo(0.05);
+    expect(scopeA.getPhaseCosts()['ranking']).toBeCloseTo(0.03);
+    expect(scopeB.getPhaseCosts()['generation']).toBeCloseTo(0.05);
   });
 });
