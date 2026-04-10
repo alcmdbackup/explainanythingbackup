@@ -1,0 +1,25 @@
+{
+  "branch": "feat/better_cost_estimation_reservation_20260409",
+  "created_at": "2026-04-09T12:00:00Z",
+  "prerequisites": {},
+  "relevantDocs": [
+    "evolution/docs/README.md",
+    "evolution/docs/architecture.md",
+    "evolution/docs/cost_optimization.md",
+    "evolution/docs/data_model.md",
+    "evolution/docs/arena.md",
+    "evolution/docs/rating_and_comparison.md",
+    "evolution/docs/strategies_and_experiments.md",
+    "evolution/docs/reference.md",
+    "evolution/docs/entities.md",
+    "evolution/docs/metrics.md",
+    "evolution/docs/logging.md",
+    "evolution/docs/visualization.md",
+    "evolution/docs/curriculum.md",
+    "evolution/docs/minicomputer_deployment.md",
+    "evolution/docs/agents/overview.md",
+    "docs/docs_overall/llm_provider_limits.md",
+    "docs/feature_deep_dives/evolution_metrics.md",
+    "docs/docs_overall/testing_overview.md"
+  ]
+}
