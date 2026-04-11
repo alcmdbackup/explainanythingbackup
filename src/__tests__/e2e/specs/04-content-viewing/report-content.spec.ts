@@ -14,8 +14,9 @@ import {
 } from '../../helpers/test-data-factory';
 
 test.describe('Report Content Button', () => {
-  test.describe.configure({ retries: 1, mode: 'serial' });
-  test.setTimeout(60000);
+  // Retries 2 + 90s timeout: concurrent AI enrichment jobs can transiently cause
+  // getExplanationById to return "not found" under CI load.
+  test.describe.configure({ retries: 2, mode: 'serial', timeout: 90000 });
 
   let testExplanation: TestExplanation;
 

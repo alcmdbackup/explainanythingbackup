@@ -195,6 +195,9 @@ adminTest.describe('Admin Content Management', () => {
       await adminPage.waitForSelector('[data-sonner-toast]', { timeout: 5000 });
       await expect(adminPage.locator('[data-sonner-toast]')).toContainText('hidden successfully');
 
+      // Table remounts after hide (refreshKey change) — reset filters and show hidden
+      await contentPage.resetFilters();
+      await contentPage.enableShowHidden();
       // Search again and open modal
       await contentPage.search('[TEST] Admin Modal Test');
       await contentPage.openDetailModal(expId);

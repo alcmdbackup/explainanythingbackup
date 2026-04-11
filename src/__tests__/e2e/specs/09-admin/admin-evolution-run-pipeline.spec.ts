@@ -159,6 +159,16 @@ adminTest.describe('Evolution Run Pipeline', { tag: '@evolution' }, () => {
       const { data } = await sb.from('evolution_runs').select('status').eq('id', runId).single();
       return data?.status;
     }, { timeout: 120_000, intervals: [3_000] }).toBe('completed');
+
+    // 7. Wait for at least one log entry to be committed — guards against a race where the run
+    //    status flips to 'completed' before the final log flush lands in evolution_logs.
+    await expect.poll(async () => {
+      const { count } = await sb
+        .from('evolution_logs')
+        .select('*', { count: 'exact', head: true })
+        .eq('run_id', runId);
+      return count ?? 0;
+    }, { timeout: 30_000, intervals: [2_000] }).toBeGreaterThan(0);
   });
 
   adminTest.afterAll(async () => {
@@ -332,4 +342,66 @@ adminTest.describe('Evolution Run Pipeline', { tag: '@evolution' }, () => {
     expect(synced!.length).toBeGreaterThanOrEqual(1);
   });
 
+  adminTest('run detail page renders metrics', async ({ adminPage }) => {
+    await adminPage.goto(`/admin/evolution/runs/${runId}`);
+    await adminPage.waitForLoadState('domcontentloaded');
+
+    const header = adminPage.locator('[data-testid="entity-detail-header"]');
+    await expect(header).toBeVisible({ timeout: 15000 });
+
+    const metricsTab = adminPage.locator('[data-testid="tab-metrics"]');
+    await expect(metricsTab).toBeVisible({ timeout: 10000 });
+    await metricsTab.click();
+
+    const metricsContainer = adminPage.locator('[data-testid="entity-metrics-tab"]');
+    await expect(metricsContainer).toBeVisible({ timeout: 15000 });
+
+    await expect(adminPage.locator('[data-testid="metric-cost"]')).toBeVisible();
+    await expect(adminPage.locator('[data-testid="metric-winner-elo"]')).toBeVisible();
+  });
+
+  adminTest('experiment detail page renders metrics', async ({ adminPage }) => {
+    await adminPage.goto(`/admin/evolution/experiments/${experimentId}`);
+    await adminPage.waitForLoadState('domcontentloaded');
+
+    const header = adminPage.locator('[data-testid="entity-detail-header"]');
+    await expect(header).toBeVisible({ timeout: 15000 });
+
+    const metricsTab = adminPage.locator('[data-testid="tab-metrics"]');
+    await metricsTab.click();
+
+    await expect(adminPage.locator('[data-testid="metric-total-cost"]')).toBeVisible({ timeout: 15000 });
+    await expect(adminPage.locator('[data-testid="metric-runs"]')).toBeVisible();
+  });
+
+  adminTest('strategy detail page renders metrics', async ({ adminPage }) => {
+    await adminPage.goto(`/admin/evolution/strategies/${strategyId}`);
+    await adminPage.waitForLoadState('domcontentloaded');
+
+    const header = adminPage.locator('[data-testid="entity-detail-header"]');
+    await expect(header).toBeVisible({ timeout: 15000 });
+
+    const metricsTab = adminPage.locator('[data-testid="tab-metrics"]');
+    await metricsTab.click();
+
+    await expect(adminPage.locator('[data-testid="metric-total-cost"]')).toBeVisible({ timeout: 15000 });
+    await expect(adminPage.locator('[data-testid="metric-runs"]')).toBeVisible();
+  });
+
+  adminTest('logs tab has entries', async ({ adminPage }) => {
+    // Navigate directly to the logs tab via URL to avoid click-timing race
+    await adminPage.goto(`/admin/evolution/runs/${runId}?tab=logs`);
+    await adminPage.waitForLoadState('domcontentloaded');
+
+    const header = adminPage.locator('[data-testid="entity-detail-header"]');
+    await expect(header).toBeVisible({ timeout: 15000 });
+
+    // Wait for LogsTab skeleton to disappear — indicates getEntityLogsAction completed.
+    // 90s timeout: the action can be slow under CI load but always calls setLoading(false).
+    await expect(adminPage.locator('[data-testid="logs-tab"] .animate-pulse')).toBeHidden({ timeout: 90000 });
+
+    // Once loading is done, log rows must be visible (beforeAll confirmed logs > 0 in DB)
+    const logRows = adminPage.locator('[data-testid="logs-tab"] tr');
+    await expect(logRows.first()).toBeVisible({ timeout: 5000 });
+  });
 });

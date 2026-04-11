@@ -282,29 +282,39 @@ export class ResultsPage extends BasePage {
 
   // Wait for any content to render (handles both streaming and DB load scenarios)
   async waitForAnyContent(timeout = 60000) {
-    // Wait directly for title OR content to be visible
-    // This is more robust than checking loading indicator first, since the title
-    // only renders when BOTH the data is loaded AND isPageLoading is false in React state
-    await Promise.race([
-      this.page.locator(this.explanationTitle).waitFor({ state: 'visible', timeout }),
-      this.page.locator(this.explanationContent).waitFor({ state: 'visible', timeout }),
-    ]).catch(async (error) => {
-      // If page was closed, just re-throw the original error
+    // Race content appearance against error-message appearance so we fail fast
+    // instead of waiting the full timeout when the server returns an error state.
+    // The title only renders when BOTH data is loaded AND isPageLoading is false.
+    type Result =
+      | { kind: 'content' }
+      | { kind: 'error'; text: string }
+      | { kind: 'timeout' };
+
+    const result = await Promise.race<Result>([
+      this.page.locator(this.explanationTitle).waitFor({ state: 'visible', timeout })
+        .then(() => ({ kind: 'content' as const })),
+      this.page.locator(this.explanationContent).waitFor({ state: 'visible', timeout })
+        .then(() => ({ kind: 'content' as const })),
+      this.page.locator('[data-testid="error-message"]').waitFor({ state: 'visible', timeout })
+        .then(async () => {
+          const text = await this.page.locator('[data-testid="error-message"]').first().textContent().catch(() => '');
+          return { kind: 'error' as const, text: text ?? '' };
+        }),
+    ]).catch((error: Error) => {
+      // If page was closed, re-throw immediately
       if (error.message?.includes('closed') || error.message?.includes('Target')) {
         throw error;
       }
-      // If neither appears, check if there's an error state or empty state
-      try {
-        const hasError = await this.page.locator('[data-testid="error-message"]').count() > 0;
-        if (hasError) {
-          throw new Error('Page loaded with error state instead of content');
-        }
-      } catch (err) {
-        if (err instanceof Error && err.message.includes('error state')) throw err;
-        console.warn('[ResultsPage.waitForAnyContent] Error check failed (page may be closed):', err instanceof Error ? err.message : err);
-      }
-      throw new Error('Timeout waiting for explanation content to appear');
+      return { kind: 'timeout' as const };
     });
+
+    if (result.kind === 'error') {
+      throw new Error(`Page loaded with error state instead of content: ${result.text}`);
+    }
+    if (result.kind === 'timeout') {
+      throw new Error('Timeout waiting for explanation content to appear');
+    }
+    // result.kind === 'content' — success
   }
 
   // Wait for lifecycle phase to be 'viewing' (state machine ready for edit mode)

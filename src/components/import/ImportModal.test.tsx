@@ -9,7 +9,11 @@ import ImportModal from './ImportModal';
 // Mock server actions
 jest.mock('@/actions/importActions', () => ({
     processImport: jest.fn(),
-    detectImportSource: jest.fn(),
+}));
+
+// Mock detectSource (now called client-side directly)
+jest.mock('@/lib/services/importSourceDetect', () => ({
+    detectSource: jest.fn(),
 }));
 
 // Mock Supabase client
@@ -21,7 +25,8 @@ jest.mock('@/lib/supabase', () => ({
     },
 }));
 
-import { processImport, detectImportSource } from '@/actions/importActions';
+import { processImport } from '@/actions/importActions';
+import { detectSource } from '@/lib/services/importSourceDetect';
 import { supabase_browser } from '@/lib/supabase';
 
 describe('ImportModal', () => {
@@ -39,10 +44,7 @@ describe('ImportModal', () => {
             error: null,
         });
         // Default: source detection returns 'other'
-        (detectImportSource as jest.Mock).mockResolvedValue({
-            source: 'other',
-            error: null,
-        });
+        (detectSource as jest.Mock).mockReturnValue('other');
     });
 
     // ========================================================================
@@ -106,63 +108,23 @@ describe('ImportModal', () => {
             expect(processBtn).not.toBeDisabled();
         });
 
-        it('calls detectImportSource when content exceeds 100 chars', async () => {
+        it('calls detectSource when content exceeds 100 chars', () => {
             render(<ImportModal {...defaultProps} />);
             const textarea = screen.getByTestId('import-content');
 
-            // Use fireEvent.change for speed - user.type is too slow for 105 chars in CI
             const longContent = 'a'.repeat(105);
             fireEvent.change(textarea, { target: { value: longContent } });
 
-            await waitFor(() => {
-                expect(detectImportSource).toHaveBeenCalledWith(longContent);
-            });
+            expect(detectSource).toHaveBeenCalledWith(longContent);
         });
 
-        it('does not call detectImportSource for content under 100 chars', async () => {
-            const user = userEvent.setup();
-            render(<ImportModal {...defaultProps} />);
-            const textarea = screen.getByRole('textbox');
-
-            await user.type(textarea, 'Short content');
-
-            await waitFor(() => {
-                expect(detectImportSource).not.toHaveBeenCalled();
-            });
-        });
-
-        it('shows "Detecting..." indicator during detection', async () => {
-            // Make detection take some time so we can catch the "Detecting..." state
-            (detectImportSource as jest.Mock).mockImplementation(
-                () => new Promise((resolve) => setTimeout(() => resolve({ source: 'chatgpt', error: null }), 100))
-            );
-
+        it('does not call detectSource for content under 100 chars', () => {
             render(<ImportModal {...defaultProps} />);
             const textarea = screen.getByTestId('import-content');
 
-            // Use fireEvent.change for speed - user.type is too slow for 105 chars in CI
-            const longContent = 'a'.repeat(105);
-            fireEvent.change(textarea, { target: { value: longContent } });
+            fireEvent.change(textarea, { target: { value: 'Short content' } });
 
-            await waitFor(() => {
-                expect(screen.getByText('Detecting...')).toBeInTheDocument();
-            });
-        });
-
-        it('detection errors are silently ignored', async () => {
-            (detectImportSource as jest.Mock).mockRejectedValue(new Error('Detection failed'));
-
-            render(<ImportModal {...defaultProps} />);
-            const textarea = screen.getByTestId('import-content');
-
-            // Use fireEvent.change for speed - user.type is too slow for 105 chars in CI
-            const longContent = 'a'.repeat(105);
-            fireEvent.change(textarea, { target: { value: longContent } });
-
-            // Should not show error - detection errors are ignored
-            await waitFor(() => {
-                expect(screen.queryByText(/detection failed/i)).not.toBeInTheDocument();
-            });
+            expect(detectSource).not.toHaveBeenCalled();
         });
     });
 
@@ -177,11 +139,8 @@ describe('ImportModal', () => {
             expect(screen.getByRole('combobox')).toHaveTextContent('Other AI');
         });
 
-        it('updates source dropdown when detection completes', async () => {
-            (detectImportSource as jest.Mock).mockResolvedValue({
-                source: 'chatgpt',
-                error: null,
-            });
+        it('updates source dropdown based on detectSource result', () => {
+            (detectSource as jest.Mock).mockReturnValue('chatgpt');
 
             render(<ImportModal {...defaultProps} />);
             const textarea = screen.getByRole('textbox');
@@ -189,9 +148,7 @@ describe('ImportModal', () => {
             const longContent = 'a'.repeat(105);
             fireEvent.change(textarea, { target: { value: longContent } });
 
-            await waitFor(() => {
-                expect(screen.getByRole('combobox')).toHaveTextContent('ChatGPT');
-            });
+            expect(screen.getByRole('combobox')).toHaveTextContent('ChatGPT');
         });
     });
 
