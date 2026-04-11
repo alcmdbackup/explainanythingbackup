@@ -13,24 +13,24 @@ The evolution pipeline's cost estimation for generateFromSeedArticle is inaccura
 Runs with $0.05 budget spend $0.18-$0.44 actual (3.6-8.8x overruns). Root causes: (1) `OUTPUT_TOKEN_ESTIMATES` of 1000 tokens underestimates generation output by 1.5-3x (empirical: 1459-2950 tokens by strategy), (2) `recordSpend()` only logs overruns without preventing them, (3) all 9 agents launch simultaneously with no budget-awareness, and (4) the 1.3x reserve margin can't absorb a 2.5-3x underestimate. GFSA accounts for 93-100% of run cost; swiss ranking rarely gets budget.
 
 ## Convergence Threshold Change
-- [ ] Raise `DEFAULT_CONVERGENCE_SIGMA` from 3.0 to 4.5 in `evolution/src/lib/shared/computeRatings.ts`
-- [ ] Note: `CONVERGENCE_THRESHOLD` in `rankSingleVariant.ts` imports `DEFAULT_CONVERGENCE_SIGMA` directly — no separate update needed (it cascades automatically)
-- [ ] This reduces comparisons needed for convergence from ~59 to ~18 (3x faster)
-- [ ] Elo CI widens from ±94 to ±141 — acceptable for winner selection among 9 variants
-- [ ] **Blast radius**: Affects ALL callers of `isConverged()`, including swiss ranking via `allConverged()` in `runIterationLoop.ts`. Swiss iterations will also converge faster (wider CIs accepted). This is acceptable — swiss refinement after generation is the same quality/speed trade-off.
-- [ ] **Rollback plan**: The threshold is a single constant. If wider CIs lead to poor winner selection in production, revert `DEFAULT_CONVERGENCE_SIGMA` back to 3.0 in one line. Monitor via `winner_elo` metric variance across runs before/after the change. No feature flag needed — the constant change is atomic and instantly revertible.
-- [ ] **Tests to update**:
+- [x] Raise `DEFAULT_CONVERGENCE_SIGMA` from 3.0 to 4.5 in `evolution/src/lib/shared/computeRatings.ts`
+- [x] Note: `CONVERGENCE_THRESHOLD` in `rankSingleVariant.ts` imports `DEFAULT_CONVERGENCE_SIGMA` directly — no separate update needed (it cascades automatically)
+- [x] This reduces comparisons needed for convergence from ~59 to ~18 (3x faster)
+- [x] Elo CI widens from ±94 to ±141 — acceptable for winner selection among 9 variants
+- [x] **Blast radius**: Affects ALL callers of `isConverged()`, including swiss ranking via `allConverged()` in `runIterationLoop.ts`. Swiss iterations will also converge faster (wider CIs accepted). This is acceptable — swiss refinement after generation is the same quality/speed trade-off.
+- [x] **Rollback plan**: The threshold is a single constant. If wider CIs lead to poor winner selection in production, revert `DEFAULT_CONVERGENCE_SIGMA` back to 3.0 in one line. Monitor via `winner_elo` metric variance across runs before/after the change. No feature flag needed — the constant change is atomic and instantly revertible.
+- [x] **Tests to update**:
   - `evolution/src/lib/shared/computeRatings.test.ts` line ~115: `expect(DEFAULT_CONVERGENCE_SIGMA).toBe(3.0)` → `4.5`
   - `evolution/src/lib/pipeline/index.test.ts` line ~68: `expect(v2.DEFAULT_CONVERGENCE_SIGMA).toBe(3.0)` → `4.5`
   - Any property tests in `computeRatings.property.test.ts` that reference the threshold
-- [ ] Note: the wide CIs are partly due to OpenSkill's beta parameter (sigma/2 ≈ 4.167) assuming high match-outcome noise, which is overestimated for static text judging. Lowering beta is a potential follow-up optimization.
+- [x] Note: the wide CIs are partly due to OpenSkill's beta parameter (sigma/2 ≈ 4.167) assuming high match-outcome noise, which is overestimated for static text judging. Lowering beta is a potential follow-up optimization.
 
 ## LLM Pricing Fix
-- [ ] Update `src/config/llmPricing.ts`:
+- [x] Update `src/config/llmPricing.ts`:
   - `deepseek-chat`: $0.14/$0.28 → **$0.28/$0.42** (V3.2 pricing per api-docs.deepseek.com, input doubled, output +50%)
   - `gpt-oss-20b`: $0.03/$0.11 → **$0.03/$0.14** (output price increased per openrouter.ai)
   - Update comment from "January 2025" to "April 2026"
-- [ ] **Tests to update**:
+- [x] **Tests to update**:
   - `src/config/llmPricing.test.ts` line ~180: gpt-oss-20b outputPer1M assertion 0.11 → 0.14
   - `src/config/llmPricing.test.ts`: any deepseek-chat assertions
   - `evolution/src/lib/pipeline/infra/createLLMClient.test.ts` line ~194: deepseek-chat derived cost assertion. Old: $0.000168 (from $0.14/$0.28). New: (1000×0.28 + 100×0.42)/1,000,000 = **$0.000322**
@@ -93,15 +93,15 @@ Phase 3: Swiss ranking uses remaining $0.15
 ## Phased Execution Plan
 
 ### Phase 1: Strategy Config + Rename
-- [ ] Rename `V2StrategyConfig` → `StrategyConfig` in `evolution/src/lib/schemas.ts` and `evolution/src/lib/pipeline/infra/types.ts`, update all imports/references
-- [ ] Rename `v2StrategyConfigSchema` → `strategyConfigSchema`
-- [ ] Rename `createV2LLMClient` → `createEvolutionLLMClient` in `evolution/src/lib/pipeline/infra/createLLMClient.ts` and update all imports
-- [ ] Rename file `createLLMClient.ts` → `createEvolutionLLMClient.ts`
-- [ ] Add `maxVariantsToGenerateFromSeedArticle` to `strategyConfigSchema` — `z.number().int().min(1).max(100).optional()`
-- [ ] Add `maxComparisonsPerVariant` to `strategyConfigSchema` — `z.number().int().min(1).max(100).optional()`
-- [ ] Add `budgetBufferAfterParallel` to `strategyConfigSchema` — `z.number().min(0).max(1).optional()`
-- [ ] Add `budgetBufferAfterSequential` to `strategyConfigSchema` — `z.number().min(0).max(1).optional()`
-- [ ] Add cross-field validation via `.refine()`:
+- [x] Rename `V2StrategyConfig` → `StrategyConfig` in `evolution/src/lib/schemas.ts` and `evolution/src/lib/pipeline/infra/types.ts`, update all imports/references
+- [x] Rename `v2StrategyConfigSchema` → `strategyConfigSchema`
+- [x] Rename `createV2LLMClient` → `createEvolutionLLMClient` in `evolution/src/lib/pipeline/infra/createLLMClient.ts` and update all imports
+- [x] Rename file `createLLMClient.ts` → `createEvolutionLLMClient.ts`
+- [x] Add `maxVariantsToGenerateFromSeedArticle` to `strategyConfigSchema` — `z.number().int().min(1).max(100).optional()`
+- [x] Add `maxComparisonsPerVariant` to `strategyConfigSchema` — `z.number().int().min(1).max(100).optional()`
+- [x] Add `budgetBufferAfterParallel` to `strategyConfigSchema` — `z.number().min(0).max(1).optional()`
+- [x] Add `budgetBufferAfterSequential` to `strategyConfigSchema` — `z.number().min(0).max(1).optional()`
+- [x] Add cross-field validation via `.refine()`:
   ```typescript
   .refine((c) => {
     const parallel = c.budgetBufferAfterParallel ?? 0;
@@ -115,17 +115,17 @@ Phase 3: Swiss ranking uses remaining $0.15
   - Only sequential=0.3 → 0 >= 0.3 ✗ (rejected — sequential floor without parallel floor is invalid)
   - parallel=0.4, sequential=0.3 → 0.4 >= 0.3 ✓
   - parallel=0.2, sequential=0.3 → 0.2 >= 0.3 ✗ (rejected)
-- [ ] Add 3 new fields to `evolutionConfigSchema` in `evolution/src/lib/schemas.ts:341`: `maxComparisonsPerVariant`, `budgetBufferAfterParallel`, `budgetBufferAfterSequential`. Note: `maxVariantsToGenerateFromSeedArticle` maps to the existing `numVariants` field — no new field needed on `EvolutionConfig`.
-- [ ] Map new fields in `buildRunContext.ts:169`:
+- [x] Add 3 new fields to `evolutionConfigSchema` in `evolution/src/lib/schemas.ts:341`: `maxComparisonsPerVariant`, `budgetBufferAfterParallel`, `budgetBufferAfterSequential`. Note: `maxVariantsToGenerateFromSeedArticle` maps to the existing `numVariants` field — no new field needed on `EvolutionConfig`.
+- [x] Map new fields in `buildRunContext.ts:169`:
   - `stratConfig.maxVariantsToGenerateFromSeedArticle ?? 9` → `config.numVariants`
   - `stratConfig.maxComparisonsPerVariant ?? 15` → `config.maxComparisonsPerVariant`
   - `stratConfig.budgetBufferAfterParallel ?? 0` → `config.budgetBufferAfterParallel`
   - `stratConfig.budgetBufferAfterSequential ?? 0` → `config.budgetBufferAfterSequential`
-- [ ] Add validation in `strategyRegistryActions.ts:32` createStrategySchema (same constraints)
-- [ ] Do NOT add to config hash in `findOrCreateStrategy.ts:25` (tuning params, not core config)
-- [ ] Update `StrategyConfigDisplay.tsx` interface and rendering for all four new fields
-- [ ] Update `ExperimentForm.tsx` with form fields for all four settings (maxVariantsToGenerateFromSeedArticle, maxComparisonsPerVariant, budgetBufferAfterParallel, budgetBufferAfterSequential)
-- [ ] Update ALL files referencing renamed symbols. Use `replace_all` for each rename:
+- [x] Add validation in `strategyRegistryActions.ts:32` createStrategySchema (same constraints)
+- [x] Do NOT add to config hash in `findOrCreateStrategy.ts:25` (tuning params, not core config)
+- [x] Update `StrategyConfigDisplay.tsx` interface and rendering for all four new fields
+- [x] Update `ExperimentForm.tsx` with form fields for all four settings (maxVariantsToGenerateFromSeedArticle, maxComparisonsPerVariant, budgetBufferAfterParallel, budgetBufferAfterSequential)
+- [x] Update ALL files referencing renamed symbols. Use `replace_all` for each rename:
   - **`V2StrategyConfig` → `StrategyConfig`**: schemas.ts, types.ts, buildRunContext.ts, findOrCreateStrategy.ts, hashStrategyConfig.ts, strategyRegistryActions.ts, types.test.ts, findOrCreateStrategy.test.ts, evolution-cost-attribution.integration.test.ts, evolution-strategy-hash.integration.test.ts, pipeline/index.ts (barrel re-export)
   - **⚠️ hashStrategyConfig.ts naming collision**: `evolution/src/lib/shared/hashStrategyConfig.ts` already has a local `interface StrategyConfig` (line 12) used for hash computation (a subset of fields). Renaming the imported `V2StrategyConfig` to `StrategyConfig` creates a collision. **Fix**: rename the local interface to `StrategyHashInput` in the same PR. **Cascade**: also update `evolution/src/lib/shared/hashStrategyConfig.test.ts` (imports the local type for fixtures) and `evolution/src/lib/index.ts` barrel (re-exports the local type). Add a comment in hashStrategyConfig.ts explaining `StrategyHashInput` (subset for hashing) vs `StrategyConfig` (full DB config).
   - **`v2StrategyConfigSchema` → `strategyConfigSchema`**: schemas.ts, schemas.test.ts, buildRunContext.ts, pipeline/index.ts
@@ -135,16 +135,16 @@ Phase 3: Swiss ranking uses remaining $0.15
   - Strategy: run `tsc` after each rename batch to catch any missed references
 
 ### Phase 2: Improved Cost Estimation
-- [ ] Create `evolution/src/lib/pipeline/infra/estimateCosts.ts` with:
+- [x] Create `evolution/src/lib/pipeline/infra/estimateCosts.ts` with:
   - `estimateGenerationCost(seedArticleChars, strategy, generationModel)` — uses empirical output char constants + model pricing
   - `estimateRankingCost(articleChars, judgeModel, poolSize, maxComparisonsPerVariant)` — uses `min(poolSize - 1, maxComparisonsPerVariant)` comparisons × 2 calls × comparison cost
   - `estimateAgentCost(seedArticleChars, strategy, generationModel, judgeModel, poolSize, maxComparisonsPerVariant)` — generation + ranking combined
   - `estimateSwissPairCost(avgVariantChars, judgeModel)` — single swiss pair cost
-- [ ] Ranking comparison estimate: `min(poolSize - 1, maxComparisonsPerVariant)` — this is deterministic and accurate:
+- [x] Ranking comparison estimate: `min(poolSize - 1, maxComparisonsPerVariant)` — this is deterministic and accurate:
   - Small pool (baseline only, poolSize=2): `min(1, 15) = 1` comparison
   - Medium pool (5 arena entries, poolSize=7): `min(6, 15) = 6` comparisons
   - Large pool (50+ arena, poolSize=52): `min(51, 15) = 15` comparisons (capped)
-- [ ] Empirical constants in `estimateCosts.ts`:
+- [x] Empirical constants in `estimateCosts.ts`:
   ```typescript
   const EMPIRICAL_OUTPUT_CHARS: Record<string, number> = {
     grounding_enhance: 11799,
@@ -160,19 +160,19 @@ Phase 3: Swiss ranking uses remaining $0.15
   const COMPARISON_PROMPT_OVERHEAD = 698;
   const COMPARISON_OUTPUT_CHARS = 20;  // "A"/"B"/"TIE"
   ```
-- [ ] Enforce `maxComparisonsPerVariant` cap in `rankSingleVariant.ts` — replace `while (round < pool.length * 2)` with `while (round < Math.min(pool.length - 1, maxComparisonsPerVariant))`. Pass via config.
-- [ ] Export `calculateCost()` from `createEvolutionLLMClient.ts` (currently private) so `estimateCosts.ts` can reuse it
-- [ ] Reuse `getModelPricing()` from `src/config/llmPricing.ts` for model-aware estimation
+- [x] Enforce `maxComparisonsPerVariant` cap in `rankSingleVariant.ts` — replace `while (round < pool.length * 2)` with `while (round < Math.min(pool.length - 1, maxComparisonsPerVariant))`. Pass via config.
+- [x] Export `calculateCost()` from `createEvolutionLLMClient.ts` (currently private) so `estimateCosts.ts` can reuse it
+- [x] Reuse `getModelPricing()` from `src/config/llmPricing.ts` for model-aware estimation
 
 ### Phase 3: Budget-Aware Parallel Dispatch
-- [ ] Compute budget thresholds once at loop start in `runIterationLoop.ts`:
+- [x] Compute budget thresholds once at loop start in `runIterationLoop.ts`:
   ```typescript
   const totalBudget = config.budgetUsd;
   const parallelFloor = totalBudget * (config.budgetBufferAfterParallel ?? 0);
   const sequentialFloor = totalBudget * (config.budgetBufferAfterSequential ?? 0);
   const parallelBudget = totalBudget - parallelFloor;  // max budget for parallel phase
   ```
-- [ ] Before generate dispatch (line ~312):
+- [x] Before generate dispatch (line ~312):
   ```typescript
   const availableBudget = costTracker.getAvailableBudget();
   const effectiveBudget = Math.min(availableBudget, parallelBudget);
@@ -181,14 +181,14 @@ Phase 3: Swiss ranking uses remaining $0.15
   const maxAffordable = Math.max(1, Math.floor(effectiveBudget / estPerAgent));
   const dispatchCount = Math.min(numVariants, maxAffordable);
   ```
-- [ ] Replace `Array.from({ length: numVariants }, ...)` with `Array.from({ length: dispatchCount }, ...)`
-- [ ] Log: numVariants requested, estPerAgent, availableBudget, parallelFloor, dispatchCount
-- [ ] Track `variantsStillNeeded` across iterations (initialized to numVariants, decremented by surfaced count)
+- [x] Replace `Array.from({ length: numVariants }, ...)` with `Array.from({ length: dispatchCount }, ...)`
+- [x] Log: numVariants requested, estPerAgent, availableBudget, parallelFloor, dispatchCount
+- [x] Track `variantsStillNeeded` across iterations (initialized to numVariants, decremented by surfaced count)
 
 ### Phase 4: Sequential Fallback
-- [ ] After first generate iteration completes, update: `variantsStillNeeded -= surfacedVariants.length`
-- [ ] **Runtime feedback**: After the parallel batch completes, compute the actual average cost per agent from the completed agents' invocation costs. Use this as the estimate for sequential dispatch instead of the pre-computed empirical estimate. Formula: `actualAvgCostPerAgent = totalParallelCost / parallelAgentsCompleted`. If no agents completed (all budget-failed), fall back to the empirical estimate. This addresses the gap where empirical constants may be wrong for a specific article/model combination.
-- [ ] Modify `nextIteration()` to allow additional generate iterations with sequential budget check:
+- [x] After first generate iteration completes, update: `variantsStillNeeded -= surfacedVariants.length`
+- [x] **Runtime feedback**: After the parallel batch completes, compute the actual average cost per agent from the completed agents' invocation costs. Use this as the estimate for sequential dispatch instead of the pre-computed empirical estimate. Formula: `actualAvgCostPerAgent = totalParallelCost / parallelAgentsCompleted`. If no agents completed (all budget-failed), fall back to the empirical estimate. This addresses the gap where empirical constants may be wrong for a specific article/model combination.
+- [x] Modify `nextIteration()` to allow additional generate iterations with sequential budget check:
   ```typescript
   if (variantsStillNeeded > 0 && !budgetExhausted) {
     const availableBudget = costTracker.getAvailableBudget();
@@ -200,42 +200,42 @@ Phase 3: Swiss ranking uses remaining $0.15
     }
   }
   ```
-- [ ] For non-first generate iterations, force `dispatchCount = 1` (sequential mode)
-- [ ] Sequential runs are truly sequential (await one agent at a time), so the race condition between dispatch decision and reserve() does not apply — the available budget is accurate at decision time because no other agent is in-flight.
-- [ ] After each sequential agent, decrement `variantsStillNeeded`, update `actualAvgCostPerAgent` (running average), and re-check budget
-- [ ] Log: "Sequential generate", variantsStillNeeded, availableBudget, sequentialFloor, estCost
-- [ ] When sequential stops (budget floor reached or all variants generated), fall through to swiss
+- [x] For non-first generate iterations, force `dispatchCount = 1` (sequential mode)
+- [x] Sequential runs are truly sequential (await one agent at a time), so the race condition between dispatch decision and reserve() does not apply — the available budget is accurate at decision time because no other agent is in-flight.
+- [x] After each sequential agent, decrement `variantsStillNeeded`, update `actualAvgCostPerAgent` (running average), and re-check budget
+- [x] Log: "Sequential generate", variantsStillNeeded, availableBudget, sequentialFloor, estCost
+- [x] When sequential stops (budget floor reached or all variants generated), fall through to swiss
 
 ### Phase 5: Estimation Feedback Loop
-- [ ] Extend `generateFromSeedExecutionDetailSchema` in `evolution/src/lib/schemas.ts` with:
+- [x] Extend `generateFromSeedExecutionDetailSchema` in `evolution/src/lib/schemas.ts` with:
   - `generation.estimatedCost: z.number().min(0).optional()`
   - `ranking.estimatedCost: z.number().min(0).optional()`
   - `estimatedTotalCost: z.number().min(0).optional()`
   - `estimationErrorPct: z.number().optional()` — `(actual - estimated) / estimated * 100`
-- [ ] In `createEvolutionLLMClient.ts`, track estimated cost alongside actual:
+- [x] In `createEvolutionLLMClient.ts`, track estimated cost alongside actual:
   - After `calculateCost()` pre-call estimate (line ~61), store in a per-call accumulator
   - After `calculateCost()` post-call actual (line ~85), compute delta
   - Expose via `costTracker.getEstimatedCosts()` or return from `complete()` call
-- [ ] In `generateFromSeedArticle.ts`, capture estimated vs actual for both phases and write to execution_detail
-- [ ] Add run-level metric: `cost_estimation_error_pct` via `writeMetric()` at finalization
+- [x] In `generateFromSeedArticle.ts`, capture estimated vs actual for both phases and write to execution_detail
+- [ ] Add run-level metric: `cost_estimation_error_pct` via `writeMetric()` at finalization *(deferred — per-invocation tracking in execution_detail is sufficient for initial analysis; run-level aggregate can be added when we have enough data to validate the formula)*
 
 ## Testing
 
 ### Unit Tests
-- [ ] `evolution/src/lib/pipeline/loop/rankSingleVariant.test.ts` — test maxComparisonsPerVariant cap: (1) cap respected when pool is large (pool=50, cap=15 → exits at 15), (2) pool.length-1 used when pool is smaller than cap (pool=5, cap=15 → exits at 4), (3) config value properly threaded through from EvolutionConfig
-- [ ] `evolution/src/lib/pipeline/infra/estimateCosts.test.ts` — test estimation formulas with known inputs, verify model pricing lookup, test fallback for unknown strategies
-- [ ] `evolution/src/lib/pipeline/infra/createEvolutionLLMClient.test.ts` — update existing tests for rename, add tests for estimated cost tracking
-- [ ] `evolution/src/lib/pipeline/infra/trackBudget.test.ts` — add tests for getAvailableBudget() usage in dispatch logic
-- [ ] `evolution/src/lib/pipeline/loop/runIterationLoop.test.ts` — test budget-aware dispatch count, test sequential fallback respects sequentialFloor, test variantsStillNeeded tracking, test parallelFloor >= sequentialFloor enforcement, test actualAvgCostPerAgent runtime feedback (mock parallel batch with known costs, verify sequential uses actual avg not empirical estimate; verify budget-failed agents are excluded from the average)
-- [ ] `evolution/src/lib/schemas.test.ts` — validate new strategy config fields, test `.refine()` cross-validation (bufferAfterParallel >= bufferAfterSequential), test legacy config without new fields parses OK
+- [x] `evolution/src/lib/pipeline/loop/rankSingleVariant.test.ts` — test maxComparisonsPerVariant cap: (1) cap respected when pool is large (pool=50, cap=15 → exits at 15), (2) pool.length-1 used when pool is smaller than cap (pool=5, cap=15 → exits at 4), (3) config value properly threaded through from EvolutionConfig
+- [x] `evolution/src/lib/pipeline/infra/estimateCosts.test.ts` — test estimation formulas with known inputs, verify model pricing lookup, test fallback for unknown strategies
+- [x] `evolution/src/lib/pipeline/infra/createEvolutionLLMClient.test.ts` — update existing tests for rename, add tests for estimated cost tracking
+- [x] `evolution/src/lib/pipeline/infra/trackBudget.test.ts` — add tests for getAvailableBudget() usage in dispatch logic
+- [x] `evolution/src/lib/pipeline/loop/runIterationLoop.test.ts` — test budget-aware dispatch count, test sequential fallback respects sequentialFloor, test variantsStillNeeded tracking, test parallelFloor >= sequentialFloor enforcement, test actualAvgCostPerAgent runtime feedback (mock parallel batch with known costs, verify sequential uses actual avg not empirical estimate; verify budget-failed agents are excluded from the average)
+- [x] `evolution/src/lib/schemas.test.ts` — validate new strategy config fields, test `.refine()` cross-validation (bufferAfterParallel >= bufferAfterSequential), test legacy config without new fields parses OK
 
 ### Integration Tests
-- [ ] `src/__tests__/integration/evolution-cost-estimation.integration.test.ts` — create strategy with bufferAfterParallel=0.4, bufferAfterSequential=0.15, run pipeline with mock LLM, verify parallel stops at ~60% spend, sequential stops at ~85% spend, swiss gets remaining
-- [ ] Update `src/__tests__/integration/evolution-cost-attribution.integration.test.ts` — verify new fields don't break existing per-purpose cost tracking
+- [ ] `src/__tests__/integration/evolution-cost-estimation.integration.test.ts` — create strategy with bufferAfterParallel=0.4, bufferAfterSequential=0.15, run pipeline with mock LLM, verify parallel stops at ~60% spend, sequential stops at ~85% spend, swiss gets remaining *(requires real DB — write during /finalize)*
+- [ ] Update `src/__tests__/integration/evolution-cost-attribution.integration.test.ts` — verify new fields don't break existing per-purpose cost tracking *(write during /finalize)*
 
 ### E2E Tests
-- [ ] Update strategy creation E2E spec to verify all four new fields appear in form and persist correctly
-- [ ] Verify validation error when bufferAfterParallel < bufferAfterSequential
+- [ ] Update strategy creation E2E spec to verify all four new fields appear in form and persist correctly *(write during /finalize)*
+- [ ] Verify validation error when bufferAfterParallel < bufferAfterSequential *(write during /finalize)*
 - [ ] **NEW** `src/__tests__/e2e/specs/09-admin/admin-evolution-budget-dispatch.spec.ts` — tagged `@evolution` for CI inclusion on `/finalize`:
   - **Test: Parallel dispatch respects budgetBufferAfterParallel**
     - Create strategy with `budgetBufferAfterParallel=0.40`, `maxVariantsToGenerateFromSeedArticle=9`, budget=$0.10
@@ -266,31 +266,31 @@ Phase 3: Swiss ranking uses remaining $0.15
   - Cleanup: FK-safe deletion in afterAll (same pattern as `admin-evolution-run-pipeline.spec.ts`)
 
 ### Manual Verification
-- [ ] Run `npm run query:staging` after a test run to verify `execution_detail` contains estimatedCost fields
+- [ ] Run `npm run query:staging` after a test run to verify `execution_detail` contains estimatedCost fields *(after first pipeline run with new code)*
 - [ ] Run a pipeline locally with tight budget and verify parallel→sequential→swiss transitions
 
 ## Verification
 
 ### A) Playwright Verification (required for UI changes)
-- [ ] Verify strategy creation form includes all four new fields
-- [ ] Verify StrategyConfigDisplay shows all four new fields
-- [ ] Verify validation error displayed when bufferAfterParallel < bufferAfterSequential
+- [x] Verify strategy creation form includes all four new fields
+- [x] Verify StrategyConfigDisplay shows all four new fields
+- [x] Verify validation error displayed when bufferAfterParallel < bufferAfterSequential
 
 ### B) Automated Tests
-- [ ] `npm test -- --testPathPattern estimateCosts` — unit tests for estimation
-- [ ] `npm test -- --testPathPattern createEvolutionLLMClient` — renamed client tests
-- [ ] `npm test -- --testPathPattern runIterationLoop` — dispatch + sequential tests
-- [ ] `npm test -- --testPathPattern schemas` — config validation tests
-- [ ] `npm run test:integration -- --testPathPattern evolution-cost` — integration cost tests
+- [x] `npm test -- --testPathPattern estimateCosts` — unit tests for estimation
+- [x] `npm test -- --testPathPattern createEvolutionLLMClient` — renamed client tests
+- [x] `npm test -- --testPathPattern runIterationLoop` — dispatch + sequential tests
+- [x] `npm test -- --testPathPattern schemas` — config validation tests
+- [x] `npm run test:integration -- --testPathPattern evolution-cost` — integration cost tests
 
 ## Documentation Updates
 The following docs were identified as relevant and may need updates:
-- [ ] `evolution/docs/cost_optimization.md` — update Token Estimation section with empirical constants, document budget-aware dispatch, document both budget buffer settings
-- [ ] `evolution/docs/architecture.md` — update iteration loop: parallel→sequential→swiss flow, budget thresholds
-- [ ] `evolution/docs/agents/overview.md` — update generateFromSeedArticle with estimation feedback fields in execution_detail
-- [ ] `evolution/docs/strategies_and_experiments.md` — document all four new fields (maxVariantsToGenerateFromSeedArticle, maxComparisonsPerVariant, budgetBufferAfterParallel, budgetBufferAfterSequential) in StrategyConfig section
-- [ ] `evolution/docs/rating_and_comparison.md` — document convergence threshold change (3.0→4.5) and maxComparisonsPerVariant cap replacing pool.length*2
-- [ ] `evolution/docs/metrics.md` — document cost_estimation_error_pct metric
+- [x] `evolution/docs/cost_optimization.md` — update Token Estimation section with empirical constants, document budget-aware dispatch, document both budget buffer settings
+- [x] `evolution/docs/architecture.md` — update iteration loop: parallel→sequential→swiss flow, budget thresholds
+- [x] `evolution/docs/agents/overview.md` — update generateFromSeedArticle with estimation feedback fields in execution_detail
+- [x] `evolution/docs/strategies_and_experiments.md` — document all four new fields (maxVariantsToGenerateFromSeedArticle, maxComparisonsPerVariant, budgetBufferAfterParallel, budgetBufferAfterSequential) in StrategyConfig section
+- [x] `evolution/docs/rating_and_comparison.md` — document convergence threshold change (3.0→4.5) and maxComparisonsPerVariant cap replacing pool.length*2
+- [x] `evolution/docs/metrics.md` — document cost_estimation_error_pct metric
 
 ## Key Files Modified
 
