@@ -80,7 +80,8 @@ adminTest.describe('Evolution Navigation', { tag: ['@evolution', '@critical'] },
     await sb.from('evolution_prompts').delete().eq('id', promptId);
   });
 
-  adminTest('experiment list rows link to experiment detail pages', async ({ adminPage }) => {
+  adminTest('list→detail nav: experiment and strategy list rows link to their detail pages', async ({ adminPage }) => {
+    // Experiment list → detail
     await adminPage.goto('/admin/evolution/experiments', { timeout: 30000 });
     await adminPage.waitForLoadState('domcontentloaded');
 
@@ -97,9 +98,8 @@ adminTest.describe('Evolution Navigation', { tag: ['@evolution', '@critical'] },
     // Should navigate to experiment detail
     await adminPage.waitForURL(`**/admin/evolution/experiments/${experimentId}`, { timeout: 30000 });
     expect(adminPage.url()).toContain(`/admin/evolution/experiments/${experimentId}`);
-  });
 
-  adminTest('strategy list rows link to strategy detail pages', async ({ adminPage }) => {
+    // Strategy list → detail
     await adminPage.goto('/admin/evolution/strategies', { timeout: 30000 });
     await adminPage.waitForLoadState('domcontentloaded');
 
@@ -118,7 +118,7 @@ adminTest.describe('Evolution Navigation', { tag: ['@evolution', '@critical'] },
     expect(adminPage.url()).toContain(`/admin/evolution/strategies/${strategyId}`);
   });
 
-  adminTest('run detail header shows cross-links to strategy and experiment', async ({ adminPage }) => {
+  adminTest('cross-links+breadcrumb: run detail shows cross-links to strategy/experiment and breadcrumb says "Evolution"', async ({ adminPage }) => {
     await adminPage.goto(`/admin/evolution/runs/${runId}`, { timeout: 30000 });
     await adminPage.waitForLoadState('domcontentloaded');
 
@@ -132,26 +132,16 @@ adminTest.describe('Evolution Navigation', { tag: ['@evolution', '@critical'] },
     // Verify cross-link to experiment exists
     const experimentLink = adminPage.locator(`a[href*="/admin/evolution/experiments/${experimentId}"]`);
     await expect(experimentLink).toBeVisible();
-  });
-
-  adminTest('breadcrumb root consistently says "Evolution"', async ({ adminPage }) => {
-    // Check breadcrumb on run detail page
-    await adminPage.goto(`/admin/evolution/runs/${runId}`, { timeout: 30000 });
-    await adminPage.waitForLoadState('domcontentloaded');
-
-    const breadcrumb = adminPage.locator('[data-testid="evolution-breadcrumb"]');
-    await expect(breadcrumb).toBeVisible({ timeout: 15000 });
 
     // Root breadcrumb segment should contain "Evolution"
+    const breadcrumb = adminPage.locator('[data-testid="evolution-breadcrumb"]');
+    await expect(breadcrumb).toBeVisible({ timeout: 15000 });
     const rootLink = breadcrumb.locator('a').first();
     await expect(rootLink).toContainText('Evolution');
-  });
 
-  adminTest('404 within evolution area shows Next.js 404 page', async ({ adminPage }) => {
+    // 404 within evolution area shows Next.js 404 page
     await adminPage.goto('/admin/evolution/nonexistent-page-xyz', { timeout: 30000 });
     await adminPage.waitForLoadState('domcontentloaded');
-
-    // Next.js renders a default 404 page for unknown routes (no sidebar layout)
     await expect(adminPage.getByText('404')).toBeVisible({ timeout: 30000 });
   });
 });

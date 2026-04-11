@@ -1,11 +1,11 @@
 import { test, expect } from '../../fixtures/auth';
 import { LoginPage } from '../../helpers/pages/LoginPage';
 
-test.describe('Authentication Flow', { tag: '@critical' }, () => {
+test.describe('Authentication Flow', () => {
   // NOTE: Login tests moved to auth.unauth.spec.ts since they require unauthenticated state
 
   test.describe('Session Management', () => {
-    test('should persist session after page refresh', async ({ authenticatedPage }) => {
+    test('should persist session after page refresh', { tag: '@critical' }, async ({ authenticatedPage }) => {
       // authenticatedPage is already logged in via fixture
       const loginPage = new LoginPage(authenticatedPage);
 
@@ -22,7 +22,7 @@ test.describe('Authentication Flow', { tag: '@critical' }, () => {
       expect(authenticatedPage.url()).not.toContain('/login');
     });
 
-    test('should access protected route when authenticated', async ({ authenticatedPage }) => {
+    test('should access protected route when authenticated', { tag: '@critical' }, async ({ authenticatedPage }) => {
       // Navigate to protected route
       await authenticatedPage.goto('/userlibrary');
 

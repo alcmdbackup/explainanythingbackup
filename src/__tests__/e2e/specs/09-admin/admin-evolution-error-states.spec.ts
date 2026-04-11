@@ -68,7 +68,7 @@ adminTest.describe('Evolution Error States', { tag: '@evolution' }, () => {
     await sb.from('evolution_prompts').delete().eq('id', promptId);
   });
 
-  adminTest('failed run detail shows error message text', async ({ adminPage }) => {
+  adminTest('failed run shows error message', async ({ adminPage }) => {
     await adminPage.goto(`/admin/evolution/runs/${failedRunId}`);
     await adminPage.waitForLoadState('domcontentloaded');
 
@@ -79,36 +79,8 @@ adminTest.describe('Evolution Error States', { tag: '@evolution' }, () => {
     const errorBanner = adminPage.locator('[data-testid="run-error-banner"]');
     await expect(errorBanner).toBeVisible();
     await expect(errorBanner).toContainText('Pipeline budget exceeded');
-  });
 
-  /* eslint-disable flakiness/no-test-skip -- variants-warning-banner and tab-variants testids not yet implemented */
-  adminTest.skip('failed run variants tab shows warning banner', async ({ adminPage }) => {
-    await adminPage.goto(`/admin/evolution/runs/${failedRunId}`);
-    await adminPage.waitForLoadState('domcontentloaded');
-
-    const header = adminPage.locator('[data-testid="entity-detail-header"]');
-    await expect(header).toBeVisible({ timeout: 15000 });
-
-    // Navigate to variants tab
-    const variantsTab = adminPage.locator('[data-testid="tab-variants"]');
-    await expect(variantsTab).toBeVisible();
-    await variantsTab.click();
-
-    // Warning banner should indicate the run failed
-    const warningBanner = adminPage.locator('[data-testid="variants-warning-banner"], [role="alert"]');
-    await expect(warningBanner).toBeVisible({ timeout: 10000 });
-    await expect(warningBanner).toContainText(/fail|error|incomplete/i);
-  });
-  /* eslint-enable flakiness/no-test-skip, @typescript-eslint/no-unused-vars */
-
-  adminTest('empty metrics tab shows appropriate empty state', async ({ adminPage }) => {
-    await adminPage.goto(`/admin/evolution/runs/${failedRunId}`);
-    await adminPage.waitForLoadState('domcontentloaded');
-
-    const header = adminPage.locator('[data-testid="entity-detail-header"]');
-    await expect(header).toBeVisible({ timeout: 15000 });
-
-    // Navigate to metrics tab
+    // Navigate to metrics tab — should show empty state (no metrics for failed run)
     const metricsTab = adminPage.locator('[data-testid="tab-metrics"]');
     await expect(metricsTab).toBeVisible();
     await metricsTab.click();

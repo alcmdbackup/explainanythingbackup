@@ -12,7 +12,7 @@ import {
   type TestExplanation,
 } from '../../helpers/test-data-factory';
 
-test.describe('User Library Management', { tag: '@critical' }, () => {
+test.describe('User Library Management', () => {
   // Run tests serially to avoid shared data contention
   test.describe.configure({ mode: 'serial' });
 
@@ -44,7 +44,7 @@ test.describe('User Library Management', { tag: '@critical' }, () => {
     });
   }
 
-  test('should display user library page after authentication', async ({ authenticatedPage }) => {
+  test('should display user library page after authentication', { tag: '@critical' }, async ({ authenticatedPage }) => {
     await libraryPage.navigate();
     await waitForCards(authenticatedPage);
 
@@ -62,7 +62,7 @@ test.describe('User Library Management', { tag: '@critical' }, () => {
     expect(pageTitle).toContain('My Library');
   });
 
-  test('should display FeedCard components for saved explanations', async ({ authenticatedPage }) => {
+  test('should display FeedCard components for saved explanations', { tag: '@critical' }, async ({ authenticatedPage }) => {
     await libraryPage.navigate();
     await waitForCards(authenticatedPage);
 
@@ -71,7 +71,7 @@ test.describe('User Library Management', { tag: '@critical' }, () => {
     expect(cardCount).toBeGreaterThan(0);
   });
 
-  test('should navigate to results page when clicking card', async ({ authenticatedPage }) => {
+  test('should navigate to results page when clicking card', { tag: '@critical' }, async ({ authenticatedPage }) => {
     await libraryPage.navigate();
     await waitForCards(authenticatedPage);
 

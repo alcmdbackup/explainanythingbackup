@@ -211,13 +211,13 @@ test('import creates explanation', async ({ page }) => {
 ### Test Statistics
 - **Unit**: ~310 colocated `.test.ts` files (src + evolution + scripts), including 65 evolution-specific
 - **ESM**: 1 file for AST diffing (bypasses Jest ESM limitations)
-- **Integration**: 32 test files in `src/__tests__/integration/`
+- **Integration**: 31 test files in `src/__tests__/integration/`
   - **Critical**: 5 tests (auth-flow, explanation-generation, streaming-api, error-handling, vector-matching)
-  - **Evolution**: 16 files (claim, budget, costs, completion, watchdog, strategy-hash, strategy-aggregates, cancel-experiment, sync-arena, entity-logger, experiment-lifecycle, metrics-recomputation, cost-cascade, visualization-data, experiment-create-complete, arena-comparison). Auto-skip when evolution DB tables not yet migrated.
-  - **Full**: All 32 tests
-- **E2E**: 48 spec files in `__tests__/e2e/specs/`
-  - **Critical**: `@critical` tagged tests via `{ tag: '@critical' }` (run on PRs to main). Evolution Phase 1-2 E2E specs are tagged `@critical`.
-  - **Evolution**: `@evolution` tagged specs (dashboard, runs, strategies, arena, experiments, invocations, variants, experiments-list, invocation-detail, logs, run pipeline, experiment wizard). Includes 5 new specs + 1 accessibility spec added in `09-admin/`.
+  - **Evolution**: 15 files (claim, budget, costs, watchdog, strategy-hash, strategy-aggregates, cancel-experiment, sync-arena, entity-logger, experiment-lifecycle, metrics-recomputation, cost-cascade, visualization-data, experiment-create-complete, arena-comparison). Auto-skip when evolution DB tables not yet migrated.
+  - **Full**: All 31 tests
+- **E2E**: 44 spec files in `__tests__/e2e/specs/`
+  - **Critical**: `@critical` tagged tests (~18 tests, run on PRs to main). Covers auth session, library, unauth redirects, admin smoke, search/generate. Evolution specs are **not** @critical — they run under @evolution.
+  - **Evolution**: `@evolution` tagged specs (~45 tests). All evolution admin pages: dashboard, runs, experiments, strategies, arena, variants, logs, invocations, run-pipeline, experiment-wizard, filter-consistency, navigation, strategy-budget, accessibility, UI regression fixes.
   - **Full**: All tests (run on PRs to production)
 
 ### E2E Test Tagging Strategy
@@ -226,7 +226,7 @@ Tests use Playwright's `{ tag: '@tagname' }` parameter (not inline in test name 
 
 | Tag | Purpose | When Runs |
 |-----|---------|-----------|
-| `@critical` | Core user flows, must-not-break tests | PRs to `main` (fast feedback) |
+| `@critical` | Core user flows, must-not-break tests (~18 tests) | PRs to `main` (fast feedback, target < 3 min) |
 | `@smoke` | Health checks against live production | Post-deploy smoke tests |
 | `@prod-ai` | Tests requiring real AI (no E2E_TEST_MODE mock) | Nightly only |
 | `@skip-prod` | Tests that require mocked APIs and cannot run against production (e.g., AI suggestion tests that mock browser-level routes unavailable in production) | Excluded from nightly and post-deploy via `--grep-invert` CLI flag and `grepInvert` config |
@@ -378,8 +378,8 @@ detect-changes → typecheck + lint (parallel)
 
 | Target Branch | Integration | E2E | Sharding |
 |---------------|------------|-----|----------|
-| `main` | Critical (5 tests) | Critical (`@critical` tagged) | None |
-| `production` | Full (26 tests) | Full (all tests) | 4 shards |
+| `main` | Critical (5 tests) | Critical (`@critical` tagged, ~18 tests) | None |
+| `production` | Full (31 tests) | Full (all tests) | 4 shards |
 
 **Key Optimizations:**
 - Unit tests run only on affected files (`--changedSince`)

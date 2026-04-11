@@ -4,7 +4,7 @@
 import { adminTest, expect } from '../../fixtures/admin-auth';
 
 adminTest.describe('Evolution Invocations (T25)', { tag: '@evolution' }, () => {
-  adminTest('invocations list renders with columns', async ({ adminPage }) => {
+  adminTest('invocations list smoke: page loads with columns, breadcrumb, filters, and cost/iteration formatting', async ({ adminPage }) => {
     await adminPage.goto('/admin/evolution/invocations');
     await adminPage.waitForLoadState('domcontentloaded');
 
@@ -27,20 +27,12 @@ adminTest.describe('Evolution Invocations (T25)', { tag: '@evolution' }, () => {
     const breadcrumb = adminPage.locator('[data-testid="evolution-breadcrumb"]');
     await expect(breadcrumb).toBeVisible();
     await expect(breadcrumb).toContainText('Invocations');
-  });
 
-  adminTest('invocations list has Cost column with formatted values', async ({ adminPage }) => {
-    await adminPage.goto('/admin/evolution/invocations');
-    await adminPage.waitForLoadState('domcontentloaded');
+    // Agent name filter input should render
+    const agentInput = adminPage.locator('input[placeholder="Filter by agent..."]');
+    await expect(agentInput).toBeVisible({ timeout: 10000 });
 
-    const entityList = adminPage.locator('[data-testid="entity-list-page"]');
-    await expect(entityList).toBeVisible({ timeout: 15000 });
-
-    // The Cost column header should be present
-    const costHeader = adminPage.locator('th:has-text("Cost")');
-    await expect(costHeader).toBeVisible();
-
-    // If rows exist, cost cells should contain a dollar sign or dash
+    // If rows exist, cost and iteration cells should contain expected formats
     const rows = entityList.locator('tbody tr');
     const rowCount = await rows.count();
     if (rowCount > 0) {
@@ -50,24 +42,7 @@ adminTest.describe('Evolution Invocations (T25)', { tag: '@evolution' }, () => {
       const costText = await firstCostCell.textContent();
       // formatCostDetailed returns either "$0.0000" style or "—"
       expect(costText?.trim()).toMatch(/^\$|—/);
-    }
-  });
 
-  adminTest('invocations list has Iteration column with values', async ({ adminPage }) => {
-    await adminPage.goto('/admin/evolution/invocations');
-    await adminPage.waitForLoadState('domcontentloaded');
-
-    const entityList = adminPage.locator('[data-testid="entity-list-page"]');
-    await expect(entityList).toBeVisible({ timeout: 15000 });
-
-    // The Iteration column header should be present
-    const iterationHeader = adminPage.locator('th:has-text("Iteration")');
-    await expect(iterationHeader).toBeVisible();
-
-    // If rows exist, iteration cells should contain a number or dash
-    const rows = entityList.locator('tbody tr');
-    const rowCount = await rows.count();
-    if (rowCount > 0) {
       // Iteration is the 4th column (0-indexed: 3)
       const firstIterationCell = rows.first().locator('td').nth(3);
       await expect(firstIterationCell).toBeVisible();
@@ -75,26 +50,6 @@ adminTest.describe('Evolution Invocations (T25)', { tag: '@evolution' }, () => {
       // iteration renders as a number or '—'
       expect(iterText?.trim()).toMatch(/^\d+$|—/);
     }
-  });
-
-  adminTest('agent name filter input is visible', { tag: '@critical' }, async ({ adminPage }) => {
-    await adminPage.goto('/admin/evolution/invocations');
-    await adminPage.waitForLoadState('domcontentloaded');
-
-    const entityList = adminPage.locator('[data-testid="entity-list-page"]');
-    await expect(entityList).toBeVisible({ timeout: 15000 });
-
-    // Agent name filter input should render
-    const agentInput = adminPage.locator('input[placeholder="Filter by agent..."]');
-    await expect(agentInput).toBeVisible({ timeout: 10000 });
-  });
-
-  adminTest('jump-to-page input renders when pagination visible', async ({ adminPage }) => {
-    await adminPage.goto('/admin/evolution/invocations');
-    await adminPage.waitForLoadState('domcontentloaded');
-
-    const entityList = adminPage.locator('[data-testid="entity-list-page"]');
-    await expect(entityList).toBeVisible({ timeout: 15000 });
 
     // If there are multiple pages, jump-to-page renders; otherwise just verify filter bar works
     const pagination = adminPage.locator('[data-testid="pagination"]');

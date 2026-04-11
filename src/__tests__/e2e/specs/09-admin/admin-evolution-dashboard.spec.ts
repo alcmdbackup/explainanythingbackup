@@ -66,7 +66,7 @@ adminTest.describe('Evolution Dashboard (T1-T3)', { tag: '@evolution' }, () => {
       await sb.from('evolution_prompts').delete().eq('id', promptId);
     });
 
-    adminTest('dashboard shows metric cards with seeded data', async ({ adminPage }) => {
+    adminTest('metric cards+empty state: dashboard shows metric cards and handles empty state gracefully', async ({ adminPage }) => {
       await adminPage.goto('/admin/evolution-dashboard');
       await adminPage.waitForLoadState('domcontentloaded');
 
@@ -84,26 +84,6 @@ adminTest.describe('Evolution Dashboard (T1-T3)', { tag: '@evolution' }, () => {
       await expect(adminPage.locator('[data-testid="metric-total-cost"]')).toBeVisible();
 
       // Error state should not be showing
-      await expect(adminPage.locator('text=Failed to load')).not.toBeVisible();
-    });
-  });
-
-  adminTest.describe('dashboard empty state', { tag: '@evolution' }, () => {
-    adminTest('dashboard handles empty state gracefully', async ({ adminPage }) => {
-      await adminPage.goto('/admin/evolution-dashboard');
-      await adminPage.waitForLoadState('domcontentloaded');
-
-      // Either dashboard content loads with zero metrics or we see "No data available"
-      const content = adminPage.locator('[data-testid="dashboard-content"]');
-      const emptyMsg = adminPage.locator('text=No data available');
-
-      const loaded = await Promise.race([
-        content.waitFor({ state: 'visible', timeout: 15000 }).then(() => 'content'),
-        emptyMsg.waitFor({ state: 'visible', timeout: 15000 }).then(() => 'empty'),
-      ]);
-      expect(['content', 'empty']).toContain(loaded);
-
-      // Error state should not appear
       await expect(adminPage.locator('text=Failed to load')).not.toBeVisible();
     });
   });
@@ -154,7 +134,7 @@ adminTest.describe('Evolution Dashboard (T1-T3)', { tag: '@evolution' }, () => {
       await sb.from('evolution_prompts').delete().eq('id', promptId);
     });
 
-    adminTest('dashboard renders individual metric card labels', async ({ adminPage }) => {
+    adminTest('detail labels: dashboard renders all 6 metric card labels and recent runs table is clickable', async ({ adminPage }) => {
       await adminPage.goto('/admin/evolution-dashboard');
       await adminPage.waitForLoadState('domcontentloaded');
 
@@ -168,14 +148,6 @@ adminTest.describe('Evolution Dashboard (T1-T3)', { tag: '@evolution' }, () => {
       await expect(adminPage.locator('[data-testid="metric-failed-runs"]')).toBeVisible();
       await expect(adminPage.locator('[data-testid="metric-total-cost"]')).toBeVisible();
       await expect(adminPage.locator('[data-testid="metric-avg-cost"]')).toBeVisible();
-    });
-
-    adminTest('dashboard recent runs table rows are clickable', async ({ adminPage }) => {
-      await adminPage.goto('/admin/evolution-dashboard');
-      await adminPage.waitForLoadState('domcontentloaded');
-
-      const content = adminPage.locator('[data-testid="dashboard-content"]');
-      await expect(content).toBeVisible({ timeout: 15000 });
 
       // Uncheck "Hide test content" to see seeded [TEST_EVO] runs
       const hideTestCheckbox = adminPage.locator('[data-testid="filter-filterTestContent"] input[type="checkbox"]');

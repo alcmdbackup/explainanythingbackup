@@ -1,0 +1,17 @@
+{
+  "branch": "feat/reduce_tests_run_PRs_main_20260410",
+  "created_at": "2026-04-10T00:00:00.000Z",
+  "prerequisites": {
+    "testing_overview_read": "2026-04-11T02:57:35Z",
+    "getting_started_read": "2026-04-11T05:42:55Z",
+    "project_workflow_read": "2026-04-11T05:42:55Z",
+    "todos_created": "2026-04-11T05:43:00Z",
+    "testing_setup_read": "2026-04-11T12:08:56Z"
+  },
+  "relevantDocs": [
+    "docs/feature_deep_dives/testing_setup.md",
+    "docs/docs_overall/testing_overview.md",
+    "docs/docs_overall/environments.md",
+    "docs/docs_overall/debugging.md"
+  ]
+}

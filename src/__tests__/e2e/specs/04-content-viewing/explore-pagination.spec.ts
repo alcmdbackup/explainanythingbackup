@@ -3,7 +3,7 @@
 import { test, expect } from '../../fixtures/auth';
 import { safeIsVisible } from '../../helpers/error-utils';
 
-test.describe('Explore Page Pagination', { tag: '@critical' }, () => {
+test.describe('Explore Page Pagination', () => {
   test.describe.configure({ retries: 1 });
   test.setTimeout(30000);
 

@@ -175,7 +175,7 @@ async function cleanupArena(data: SeededArenaData | undefined) {
 
 // ─── Tests ───────────────────────────────────────────────────────
 
-adminTest.describe('Admin Strategy Budget Cap', { tag: '@critical' }, () => {
+adminTest.describe('Admin Strategy Budget Cap', { tag: '@evolution' }, () => {
   adminTest.describe.configure({ mode: 'serial' });
 
   const seededStrategyIds: string[] = [];
@@ -201,7 +201,6 @@ adminTest.describe('Admin Strategy Budget Cap', { tag: '@critical' }, () => {
 
   adminTest(
     'strategy form shows budget cap input with correct constraints',
-    { tag: '@critical' },
     async ({ adminPage }) => {
       await adminPage.goto('/admin/evolution/strategies');
       await adminPage.waitForSelector('[data-testid="entity-list-page"]', { timeout: 10000 });
@@ -223,7 +222,6 @@ adminTest.describe('Admin Strategy Budget Cap', { tag: '@critical' }, () => {
 
   adminTest(
     'arena page loads for seeded topic',
-    { tag: '@critical' },
     async ({ adminPage }) => {
       // eslint-disable-next-line flakiness/no-test-skip -- Infrastructure limitation: arena columns require migration 20260321000002
       adminTest.skip(!arenaData, 'Arena seed failed — migration 20260321000002 not applied');

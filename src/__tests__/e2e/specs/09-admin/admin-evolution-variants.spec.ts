@@ -104,15 +104,7 @@ adminTest.describe('Evolution Variants (list page)', { tag: '@evolution' }, () =
     await sb.from('evolution_prompts').delete().eq('id', promptId);
   });
 
-  adminTest('variants page renders table', async ({ adminPage }) => {
-    await adminPage.goto('/admin/evolution/variants');
-    await adminPage.waitForLoadState('domcontentloaded');
-
-    const table = adminPage.locator('[data-testid="entity-list-table"]');
-    await expect(table).toBeVisible({ timeout: 15000 });
-  });
-
-  adminTest('variant data columns display correctly', async ({ adminPage }) => {
+  adminTest('page+columns: variants page renders table with correct column headers', async ({ adminPage }) => {
     await adminPage.goto('/admin/evolution/variants');
     await adminPage.waitForLoadState('domcontentloaded');
 
@@ -124,9 +116,15 @@ adminTest.describe('Evolution Variants (list page)', { tag: '@evolution' }, () =
     await expect(table.locator('th:has-text("Rating")')).toBeVisible();
     await expect(table.locator('th:has-text("Matches")')).toBeVisible();
     await expect(table.locator('th:has-text("Generation")')).toBeVisible();
+
+    // Hide test content filter should be visible
+    const filterBar = adminPage.locator('[data-testid="filter-bar"]');
+    await expect(filterBar).toBeVisible({ timeout: 15000 });
+    const testContentFilter = adminPage.locator('[data-testid="filter-filterTestContent"]');
+    await expect(testContentFilter).toBeVisible();
   });
 
-  adminTest('filter by agent name shows matching variants', async ({ adminPage }) => {
+  adminTest('filters: agent name and winner status filters work', async ({ adminPage }) => {
     await adminPage.goto('/admin/evolution/variants');
     await adminPage.waitForLoadState('domcontentloaded');
 
@@ -140,14 +138,9 @@ adminTest.describe('Evolution Variants (list page)', { tag: '@evolution' }, () =
 
     // Wait for table to update — the alpha variant should remain visible
     await expect(table.locator(`text=${testPrefix}-alpha`)).toBeVisible({ timeout: 15000 });
-  });
 
-  adminTest('filter by winner status works', async ({ adminPage }) => {
-    await adminPage.goto('/admin/evolution/variants');
-    await adminPage.waitForLoadState('domcontentloaded');
-
-    const table = adminPage.locator('[data-testid="entity-list-table"]');
-    await expect(table).toBeVisible({ timeout: 15000 });
+    // Clear the agent filter and test winner filter
+    await agentFilter.fill('');
 
     // Uncheck "Hide test content" so seeded test data is visible
     const testContentFilter = adminPage.locator('[data-testid="filter-filterTestContent"] input[type="checkbox"]');
@@ -167,7 +160,7 @@ adminTest.describe('Evolution Variants (list page)', { tag: '@evolution' }, () =
     await expect(table.locator('text=★').first()).toBeVisible({ timeout: 15000 });
   });
 
-  adminTest('clicking variant row navigates to detail', async ({ adminPage }) => {
+  adminTest('nav+pagination: clicking variant row navigates to detail and breadcrumb links to Evolution', async ({ adminPage }) => {
     await adminPage.goto('/admin/evolution/variants');
     await adminPage.waitForLoadState('domcontentloaded');
 
@@ -181,20 +174,8 @@ adminTest.describe('Evolution Variants (list page)', { tag: '@evolution' }, () =
 
     await adminPage.waitForURL(`**/admin/evolution/variants/${winnerVariantId}`, { timeout: 15000 });
     expect(adminPage.url()).toContain(`/admin/evolution/variants/${winnerVariantId}`);
-  });
 
-  adminTest('hide test content filter is visible', async ({ adminPage }) => {
-    await adminPage.goto('/admin/evolution/variants');
-    await adminPage.waitForLoadState('domcontentloaded');
-
-    const filterBar = adminPage.locator('[data-testid="filter-bar"]');
-    await expect(filterBar).toBeVisible({ timeout: 15000 });
-
-    const testContentFilter = adminPage.locator('[data-testid="filter-filterTestContent"]');
-    await expect(testContentFilter).toBeVisible();
-  });
-
-  adminTest('pagination renders when onPageChange is set', async ({ adminPage }) => {
+    // Navigate back to list and verify breadcrumb
     await adminPage.goto('/admin/evolution/variants');
     await adminPage.waitForLoadState('domcontentloaded');
 
@@ -202,11 +183,6 @@ adminTest.describe('Evolution Variants (list page)', { tag: '@evolution' }, () =
     // With just 2 seeded variants it may not show — verify the list page renders at minimum.
     const listPage = adminPage.locator('[data-testid="entity-list-page"]');
     await expect(listPage).toBeVisible({ timeout: 15000 });
-  });
-
-  adminTest('breadcrumb navigation works', async ({ adminPage }) => {
-    await adminPage.goto('/admin/evolution/variants');
-    await adminPage.waitForLoadState('domcontentloaded');
 
     const breadcrumb = adminPage.locator('[data-testid="evolution-breadcrumb"]');
     await expect(breadcrumb).toBeVisible({ timeout: 15000 });
