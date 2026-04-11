@@ -193,6 +193,10 @@ const createFields: FieldDef[] = [
     type: 'custom',
     render: (value, onChange) => <GenerationGuidanceField value={value} onChange={onChange} />,
   },
+  { name: 'maxVariantsToGenerateFromSeedArticle', label: 'Max Variants to Generate', type: 'number', placeholder: '9 (default)' },
+  { name: 'maxComparisonsPerVariant', label: 'Max Comparisons per Variant', type: 'number', placeholder: '15 (default)' },
+  { name: 'budgetBufferAfterParallel', label: 'Budget Buffer After Parallel (0-1)', type: 'number', placeholder: '0 (default)' },
+  { name: 'budgetBufferAfterSequential', label: 'Budget Buffer After Sequential (0-1)', type: 'number', placeholder: '0 (default)' },
 ];
 
 type DialogState =
@@ -238,6 +242,10 @@ export default function StrategiesPage(): JSX.Element {
         judgeModel: values.judgeModel as string,
         iterations: values.iterations as number,
         generationGuidance: guidance,
+        maxVariantsToGenerateFromSeedArticle: values.maxVariantsToGenerateFromSeedArticle as number | undefined,
+        maxComparisonsPerVariant: values.maxComparisonsPerVariant as number | undefined,
+        budgetBufferAfterParallel: values.budgetBufferAfterParallel as number | undefined,
+        budgetBufferAfterSequential: values.budgetBufferAfterSequential as number | undefined,
       });
       if (!result.success) throw new Error(result.error?.message ?? 'Create failed');
       toast.success('Strategy created');

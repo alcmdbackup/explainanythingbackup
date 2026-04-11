@@ -2,7 +2,7 @@
 
 import { createHash } from 'crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { V2StrategyConfig } from '../infra/types';
+import type { StrategyConfig } from '../infra/types';
 import { evolutionStrategyInsertSchema } from '../../schemas';
 
 // ─── Internal helpers ────────────────────────────────────────────
@@ -22,7 +22,7 @@ function shortenModel(model: string): string {
  * Hashes ONLY: generationModel, judgeModel, iterations.
  * V2-only fields (strategiesPerRound, budgetUsd) are excluded from hash.
  */
-export function hashStrategyConfig(config: V2StrategyConfig): string {
+export function hashStrategyConfig(config: StrategyConfig): string {
   const normalized = {
     generationModel: config.generationModel,
     judgeModel: config.judgeModel,
@@ -32,7 +32,7 @@ export function hashStrategyConfig(config: V2StrategyConfig): string {
 }
 
 /** Auto-generated label: "Gen: model | Judge: model | N iters". */
-export function labelStrategyConfig(config: V2StrategyConfig): string {
+export function labelStrategyConfig(config: StrategyConfig): string {
   const parts = [
     `Gen: ${shortenModel(config.generationModel)}`,
     `Judge: ${shortenModel(config.judgeModel)}`,
@@ -52,7 +52,7 @@ export function labelStrategyConfig(config: V2StrategyConfig): string {
  */
 export async function upsertStrategy(
   db: SupabaseClient,
-  config: V2StrategyConfig,
+  config: StrategyConfig,
 ): Promise<string> {
   const hash = hashStrategyConfig(config);
   const label = labelStrategyConfig(config);

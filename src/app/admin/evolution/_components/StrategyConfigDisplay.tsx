@@ -29,6 +29,10 @@ interface StrategyConfig {
   enabledAgents?: string[];
   agentModels?: Record<string, string>;
   generationGuidance?: Array<{ strategy: string; percent: number }>;
+  maxVariantsToGenerateFromSeedArticle?: number;
+  maxComparisonsPerVariant?: number;
+  budgetBufferAfterParallel?: number;
+  budgetBufferAfterSequential?: number;
 }
 
 interface StrategyConfigDisplayProps {
@@ -80,6 +84,18 @@ export function StrategyConfigDisplay({ config: raw, showRaw }: StrategyConfigDi
           <ConfigRow label="Iterations" value={String(config.iterations ?? '—')} />
           {config.budgetUsd != null && (
             <ConfigRow label="Budget" value={`$${config.budgetUsd.toFixed(2)}`} highlight />
+          )}
+          {config.maxVariantsToGenerateFromSeedArticle != null && (
+            <ConfigRow label="Max Variants" value={String(config.maxVariantsToGenerateFromSeedArticle)} />
+          )}
+          {config.maxComparisonsPerVariant != null && (
+            <ConfigRow label="Max Comparisons/Variant" value={String(config.maxComparisonsPerVariant)} />
+          )}
+          {config.budgetBufferAfterParallel != null && config.budgetBufferAfterParallel > 0 && (
+            <ConfigRow label="Buffer After Parallel" value={`${(config.budgetBufferAfterParallel * 100).toFixed(0)}%`} highlight />
+          )}
+          {config.budgetBufferAfterSequential != null && config.budgetBufferAfterSequential > 0 && (
+            <ConfigRow label="Buffer After Sequential" value={`${(config.budgetBufferAfterSequential * 100).toFixed(0)}%`} highlight />
           )}
           {config.singleArticle && <ConfigRow label="Mode" value="Single Article" highlight />}
           {hasAgentOverrides && (

@@ -174,10 +174,10 @@ function makeCallLLM(
       // symmetry but the V2 LLM client routes spend through costTracker.recordSpend internally.
       // The caller can also subtract pre/post tracker spend as a fallback. We accept the
       // unused onUsage callback param to satisfy the spec; future work may surface
-      // per-call usage events from createV2LLMClient via an explicit hook.
+      // per-call usage events from createEvolutionLLMClient via an explicit hook.
     } as LLMCompletionOptions);
     // Note: onUsage param is currently unused. cost attribution flows through V2CostTracker
-    // and the per-LLM-call writeMetric in createV2LLMClient. Per-phase costs in
+    // and the per-LLM-call writeMetric in createEvolutionLLMClient. Per-phase costs in
     // generateFromSeedArticle are computed via getTotalSpent() deltas around each phase.
   };
 }

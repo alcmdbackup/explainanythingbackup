@@ -4,12 +4,13 @@
  */
 
 import type { AgentName } from '../types';
-import type { V2StrategyConfig } from '../pipeline/infra/types';
 import type { Database } from '@/lib/database.types';
 
 // ─── Types ──────────────────────────────────────────────────────
 
-export interface StrategyConfig {
+/** Subset of strategy fields used for config identity hashing. Separate from the full
+ *  StrategyConfig type (from pipeline/infra/types.ts) which is the DB-stored config. */
+export interface StrategyHashInput {
   generationModel: string;
   judgeModel: string;
   agentModels?: Record<string, string>;
@@ -32,7 +33,7 @@ export interface StrategyConfigRow {
   name: string;
   description: string | null;
   label: string;
-  config: V2StrategyConfig;
+  config: StrategyHashInput;
   is_predefined: boolean;
   pipeline_type: 'full' | 'single' | null;
   status: 'active' | 'archived';
@@ -69,7 +70,7 @@ function shortenModel(model: string): string {
 }
 
 /** Auto-generated label: "Gen: model | Judge: model | N iters | Overrides: ..." */
-export function labelStrategyConfig(config: StrategyConfig): string {
+export function labelStrategyConfig(config: StrategyHashInput): string {
   const parts = [
     `Gen: ${shortenModel(config.generationModel)}`,
     `Judge: ${shortenModel(config.judgeModel)}`,
@@ -100,7 +101,7 @@ export function labelStrategyConfig(config: StrategyConfig): string {
 }
 
 /** Generate a default name like "Strategy abc123 (mini, 5it)". Users can edit later. */
-export function defaultStrategyName(config: StrategyConfig, hash: string): string {
+export function defaultStrategyName(config: StrategyHashInput, hash: string): string {
   const genModel = config.generationModel.split('-').pop() ?? 'unknown';
   return `Strategy ${hash.slice(0, 6)} (${genModel}, ${config.iterations}it)`;
 }

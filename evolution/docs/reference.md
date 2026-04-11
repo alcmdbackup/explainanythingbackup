@@ -24,13 +24,13 @@ The core pipeline implements the generate-rank-evolve loop and all supporting in
 | `cost-tracker.ts` | `createCostTracker` — per-run budget tracker using a reserve-before-spend pattern. `reserve()` is synchronous (critical for parallel safety under Node.js event loop). Applies a 1.3x margin on reservations. `recordSpend()` settles actual cost. `release()` frees reservation on failure. Throws `BudgetExceededError` when `spent + reserved + margined > budgetUsd`. |
 | `run-logger.ts` | `createRunLogger` — structured logging adapter; writes iteration-level log rows to `evolution_run_logs` with phase, message, and optional metadata JSON. |
 | `invocations.ts` | `createInvocation` / `updateInvocation` — records individual LLM calls to `evolution_invocations` with prompt text, response, model, token counts, cost, and latency for post-hoc cost auditing. |
-| `infra/createLLMClient.ts` | `createV2LLMClient` — LLM abstraction with built-in retry (3 attempts, exponential backoff: 1s/2s/4s), 60-second per-call timeout, and cost tracker integration. Supports model pricing for `gpt-4.1-nano`, `gpt-4.1-mini`, `gpt-4.1`, `gpt-4o`, `gpt-4o-mini`, `deepseek-chat`, `claude-sonnet-4-20250514`, `claude-haiku-4-5-20251001`. Falls back to most-expensive pricing ($15/$60 per 1M tokens) for unknown models. Cost estimation uses chars/4 as token approximation. |
+| `infra/createEvolutionLLMClient.ts` | `createEvolutionLLMClient` — LLM abstraction with built-in retry (3 attempts, exponential backoff: 1s/2s/4s), 60-second per-call timeout, and cost tracker integration. Supports model pricing for `gpt-4.1-nano`, `gpt-4.1-mini`, `gpt-4.1`, `gpt-4o`, `gpt-4o-mini`, `deepseek-chat`, `claude-sonnet-4-20250514`, `claude-haiku-4-5-20251001`. Falls back to most-expensive pricing ($15/$60 per 1M tokens) for unknown models. Cost estimation uses chars/4 as token approximation. |
 | `seed-article.ts` | `generateSeedArticle` — produces the initial "generation 0" variant from the source prompt when no existing explanation content is available. Returns `SeedResult` with the generated text and cost. |
 | `strategy.ts` | `hashStrategyConfig` / `upsertStrategy` / `labelStrategyConfig` — strategy fingerprinting via deterministic JSON hash; upserts to `evolution_strategies` table with deduplication. |
 | `experiments.ts` | `createExperiment` / `addRunToExperiment` / `computeExperimentMetrics` — experiment grouping for A/B analysis. Returns `ExperimentMetrics` with aggregate Elo, cost, and convergence stats per strategy arm. |
 | `prompts.ts` | Prompt template construction for generation and evolution phases; injects FORMAT_RULES and strategy-specific instructions. |
 | `errors.ts` | `BudgetExceededWithPartialResults` — extends `BudgetExceededError` for mid-generation budget breaches with salvageable output. Carries `partialVariants: Variant[]` so the pipeline can finalize with whatever was produced before the budget ran out. |
-| `types.ts` | V2-specific types: `EvolutionConfig` (run configuration), `EvolutionResult` (pipeline output including winner, pool, ratings, matchHistory, totalCost, iterationsRun, stopReason, muHistory, diversityHistory, matchCounts), `V2Match` (winnerId/loserId/result/confidence/judgeModel/reversed), `V2StrategyConfig` (generationModel, judgeModel, iterations, budgetUsd, generationGuidance). |
+| `types.ts` | V2-specific types: `EvolutionConfig` (run configuration), `EvolutionResult` (pipeline output including winner, pool, ratings, matchHistory, totalCost, iterationsRun, stopReason, muHistory, diversityHistory, matchCounts), `V2Match` (winnerId/loserId/result/confidence/judgeModel/reversed), `StrategyConfig` (generationModel, judgeModel, iterations, budgetUsd, generationGuidance). |
 
 ### Core (`evolution/src/lib/core/`)
 
@@ -123,9 +123,9 @@ Public API for the evolution subsystem. Re-exports from:
 ### `evolution/src/lib/pipeline/index.ts`
 
 V2 pipeline barrel. Re-exports everything from `lib/index.ts` plus V2-specific exports:
-- **V2 types**: `V2Match`, `EvolutionConfig`, `EvolutionResult`, `V2StrategyConfig`
+- **V2 types**: `V2Match`, `EvolutionConfig`, `EvolutionResult`, `StrategyConfig`
 - **Pipeline functions**: `claimAndExecuteRun`, `evolveArticle`, `generateSeedArticle`, `finalizeRun`
-- **Infrastructure**: `createCostTracker`, `createV2LLMClient`, `createInvocation`, `updateInvocation`, `createRunLogger`
+- **Infrastructure**: `createCostTracker`, `createEvolutionLLMClient`, `createInvocation`, `updateInvocation`, `createRunLogger`
 - **Strategy**: `hashStrategyConfig`, `labelStrategyConfig`, `upsertStrategy`
 - **Arena**: `loadArenaEntries`, `syncToArena`, `isArenaEntry`
 - **Experiments**: `createExperiment`, `addRunToExperiment`, `computeExperimentMetrics`
@@ -232,7 +232,7 @@ The `formatValidator` checks output against these rules. Behavior is controlled 
 
 ### LLM Model Pricing
 
-The V2 LLM client (`evolution/src/lib/pipeline/infra/createLLMClient.ts`) uses hard-coded pricing for cost estimation. Cost is calculated as `chars/4` to approximate token count.
+The V2 LLM client (`evolution/src/lib/pipeline/infra/createEvolutionLLMClient.ts`) uses hard-coded pricing for cost estimation. Cost is calculated as `chars/4` to approximate token count.
 
 | Model | Input (per 1M tokens) | Output (per 1M tokens) |
 |-------|----------------------|------------------------|
@@ -493,7 +493,7 @@ Defined in `evolution/src/testing/evolution-test-helpers.ts`. Factory functions 
 
 | Helper | Purpose |
 |--------|---------|
-| `createTestStrategyConfig` | Builds a valid `V2StrategyConfig` with sensible defaults (gpt-4.1-mini, 3 iterations, $1 budget). Accepts partial overrides. |
+| `createTestStrategyConfig` | Builds a valid `StrategyConfig` with sensible defaults (gpt-4.1-mini, 3 iterations, $1 budget). Accepts partial overrides. |
 | `createTestPrompt` | Builds a test prompt metadata object with auto-generated ID and placeholder text. |
 | `createTestEvolutionRun` | Builds a complete evolution run DB row with all required fields (id, status, strategy_id, budget, timestamps). Accepts partial overrides for testing specific states. |
 | `createTestVariant` | Builds a `Variant` with auto-generated UUID, placeholder content, empty parentIds, and generation 0. Accepts content and parentIds overrides. |

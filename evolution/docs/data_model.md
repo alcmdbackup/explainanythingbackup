@@ -18,7 +18,7 @@ Stores strategy configurations with aggregated performance metrics. Strategies a
 | `name` | TEXT | NOT NULL | Human-readable name |
 | `label` | TEXT | NOT NULL, default `''` | Short label for UI |
 | `description` | TEXT | | Optional long description |
-| `config` | JSONB | NOT NULL | Full strategy configuration (`V2StrategyConfig`: generationModel, judgeModel, iterations, strategiesPerRound, budgetUsd, generationGuidance). See [Strategies](./strategies_and_experiments.md) for field details. |
+| `config` | JSONB | NOT NULL | Full strategy configuration (`StrategyConfig`: generationModel, judgeModel, iterations, strategiesPerRound, budgetUsd, generationGuidance). See [Strategies](./strategies_and_experiments.md) for field details. |
 | `config_hash` | TEXT | NOT NULL, UNIQUE | SHA-256 hash for dedup |
 | `is_predefined` | BOOLEAN | NOT NULL, default `false` | System-provided strategy |
 | `pipeline_type` | TEXT | default `'full'` | `'full'` or `'single'` |

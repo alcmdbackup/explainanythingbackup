@@ -16,12 +16,12 @@ Each strategy encapsulates:
 - How many generate-rank-evolve iterations to run.
 - Optional parameters for round sizing and budget caps.
 
-### V2StrategyConfig
+### StrategyConfig
 
 The canonical type lives in `evolution/src/lib/pipeline/types.ts`:
 
 ```ts
-interface V2StrategyConfig {
+interface StrategyConfig {
   generationModel: string;
   judgeModel: string;
   iterations: number;
@@ -50,7 +50,7 @@ Each strategy config is identified by a 12-character hex hash derived from SHA-2
 
 ```ts
 // evolution/src/lib/pipeline/strategy.ts
-function hashStrategyConfig(config: V2StrategyConfig): string {
+function hashStrategyConfig(config: StrategyConfig): string {
   const normalized = {
     generationModel: config.generationModel,
     judgeModel: config.judgeModel,
@@ -517,7 +517,7 @@ When a variant's `mu` or `sigma` changes post-completion (e.g., from arena match
 | `evolution/src/lib/pipeline/experiments.ts` | Core experiment functions (create, addRun, computeMetrics) |
 | `evolution/src/lib/pipeline/strategy.ts` | Strategy hashing, labeling, and upsert-by-hash |
 | `evolution/src/lib/pipeline/finalize.ts` | Run finalization: auto-completion, aggregate updates |
-| `evolution/src/lib/pipeline/infra/types.ts` | `V2StrategyConfig`, `EvolutionConfig`, `EvolutionResult` types |
+| `evolution/src/lib/pipeline/infra/types.ts` | `StrategyConfig`, `EvolutionConfig`, `EvolutionResult` types |
 | `evolution/src/experiments/evolution/experimentMetrics.ts` | Bootstrap CI functions, MetricValue type |
 | `evolution/src/lib/metrics/registry.ts` | Declarative metric registry with compute functions |
 | `evolution/src/lib/metrics/writeMetrics.ts` | UPSERT metrics to evolution_metrics table |

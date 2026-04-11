@@ -181,7 +181,7 @@ Follows the same pattern as all evolution tables: deny-all default, `service_rol
 
 ## Per-LLM-Call Cost Persistence
 
-Cost metrics are now written to the database after each successful LLM call via `createV2LLMClient`. When the client is constructed with optional `db` and `runId` parameters, each LLM call writes its cost to `evolution_agent_invocations` fire-and-forget (errors are logged but do not fail the call). This provides fine-grained cost tracking independent of the phase-level cost metric writes.
+Cost metrics are now written to the database after each successful LLM call via `createEvolutionLLMClient`. When the client is constructed with optional `db` and `runId` parameters, each LLM call writes its cost to `evolution_agent_invocations` fire-and-forget (errors are logged but do not fail the call). This provides fine-grained cost tracking independent of the phase-level cost metric writes.
 
 ---
 

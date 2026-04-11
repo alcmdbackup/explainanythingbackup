@@ -41,8 +41,8 @@ jest.mock('../../core/agents/createSeedArticle', () => ({
 }));
 
 // Stub the LLM client factory so we don't need a real provider.
-jest.mock('../infra/createLLMClient', () => ({
-  createV2LLMClient: jest.fn().mockReturnValue({
+jest.mock('../infra/createEvolutionLLMClient', () => ({
+  createEvolutionLLMClient: jest.fn().mockReturnValue({
     complete: jest.fn(),
     completeStructured: jest.fn(),
   }),

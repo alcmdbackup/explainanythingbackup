@@ -40,7 +40,7 @@ const OUTPUT_TOKEN_ESTIMATES: Partial<Record<AgentName, number>> = {
  * Create a V2 EvolutionLLMClient wrapping a raw LLM provider with retry + cost tracking.
  * The raw provider is a simple { complete(prompt, label, opts?) } function.
  */
-export function createV2LLMClient(
+export function createEvolutionLLMClient(
   rawProvider: { complete(prompt: string, label: AgentName, opts?: { model?: string }): Promise<string> },
   costTracker: V2CostTracker,
   defaultModel: string,
@@ -88,7 +88,7 @@ export function createV2LLMClient(
           // Persist cost to DB via writeMetricMax (race-fixed via Postgres GREATEST upsert).
           // Per-purpose write only happens for agentNames with a COST_METRIC_BY_AGENT entry
           // (currently 'generation' and 'ranking'); seed-phase calls bypass this entirely
-          // since they go through the V1 callLLM path, not createV2LLMClient.
+          // since they go through the V1 callLLM path, not createEvolutionLLMClient.
           if (db && runId) {
             const totalSpent = costTracker.getTotalSpent();
             const phaseCost = costTracker.getPhaseCosts()[agentName] ?? 0;

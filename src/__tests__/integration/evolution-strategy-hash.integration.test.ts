@@ -8,7 +8,7 @@ import {
   cleanupEvolutionData,
 } from '@evolution/testing/evolution-test-helpers';
 import { upsertStrategy } from '@evolution/lib/pipeline/setup/findOrCreateStrategy';
-import type { V2StrategyConfig } from '@evolution/lib/pipeline/infra/types';
+import type { StrategyConfig } from '@evolution/lib/pipeline/infra/types';
 
 describe('Evolution Strategy Hash Integration Tests', () => {
   let supabase: SupabaseClient;
@@ -31,7 +31,7 @@ describe('Evolution Strategy Hash Integration Tests', () => {
   it('same config produces same strategy ID', async () => {
     if (!tablesExist) return;
 
-    const config: V2StrategyConfig = {
+    const config: StrategyConfig = {
       generationModel: 'gpt-4.1-mini',
       judgeModel: 'gpt-4.1-nano',
       iterations: 3,
@@ -50,12 +50,12 @@ describe('Evolution Strategy Hash Integration Tests', () => {
   it('different iterations produces different strategy', async () => {
     if (!tablesExist) return;
 
-    const configA: V2StrategyConfig = {
+    const configA: StrategyConfig = {
       generationModel: 'gpt-4.1-mini',
       judgeModel: 'gpt-4.1-nano',
       iterations: 5,
     };
-    const configB: V2StrategyConfig = {
+    const configB: StrategyConfig = {
       generationModel: 'gpt-4.1-mini',
       judgeModel: 'gpt-4.1-nano',
       iterations: 10,
@@ -73,12 +73,12 @@ describe('Evolution Strategy Hash Integration Tests', () => {
   it('budget is excluded from hash — same strategy returned', async () => {
     if (!tablesExist) return;
 
-    const configNoBudget: V2StrategyConfig = {
+    const configNoBudget: StrategyConfig = {
       generationModel: 'gpt-4.1-mini',
       judgeModel: 'gpt-4.1-nano',
       iterations: 7,
     };
-    const configWithBudget: V2StrategyConfig = {
+    const configWithBudget: StrategyConfig = {
       generationModel: 'gpt-4.1-mini',
       judgeModel: 'gpt-4.1-nano',
       iterations: 7,

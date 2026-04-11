@@ -316,18 +316,31 @@ export const generationGuidanceSchema = z
 
 export type GenerationGuidanceEntry = z.infer<typeof generationGuidanceEntrySchema>;
 
-// ─── V2 Strategy Config ─────────────────────────────────────────
+// ─── Strategy Config ──────────────────────────────────────────
 
-export const v2StrategyConfigSchema = z.object({
+export const strategyConfigSchema = z.object({
   generationModel: z.string(),
   judgeModel: z.string(),
   iterations: z.number().int().min(1),
   strategiesPerRound: z.number().int().min(1).optional(),
   budgetUsd: z.number().min(0).optional(),
   generationGuidance: generationGuidanceSchema.optional(),
-});
+  /** Max generateFromSeedArticle agents per run. Excludes seed article. Default 9. */
+  maxVariantsToGenerateFromSeedArticle: z.number().int().min(1).max(100).optional(),
+  /** Hard cap on pairwise comparisons per variant during ranking. Default 15. */
+  maxComparisonsPerVariant: z.number().int().min(1).max(100).optional(),
+  /** Fraction of budget to reserve after parallel generation (0-1). Default 0. */
+  budgetBufferAfterParallel: z.number().min(0).max(1).optional(),
+  /** Fraction of budget to reserve after sequential generation (0-1). Default 0. */
+  budgetBufferAfterSequential: z.number().min(0).max(1).optional(),
+}).refine((c) => {
+  const parallel = c.budgetBufferAfterParallel ?? 0;
+  const sequential = c.budgetBufferAfterSequential ?? 0;
+  return parallel >= sequential;
+}, { message: 'budgetBufferAfterParallel must be >= budgetBufferAfterSequential' });
 
-export type V2StrategyConfigSchema = z.infer<typeof v2StrategyConfigSchema>;
+/** @deprecated Use StrategyConfig from pipeline/infra/types.ts instead. */
+export type StrategyConfigSchema = z.infer<typeof strategyConfigSchema>;
 
 // ─── Evolution Config ────────────────────────────────────────────
 
@@ -356,6 +369,12 @@ export const evolutionConfigSchema = z.object({
   numVariants: z.number().int().min(1).max(100).optional(),
   /** Strategy names to round-robin across the N parallel generate agents. */
   strategies: z.array(z.string().min(1)).optional(),
+  /** Hard cap on pairwise comparisons per variant during ranking (default 15). */
+  maxComparisonsPerVariant: z.number().int().min(1).max(100).optional(),
+  /** Fraction of budget to reserve after parallel generation (0-1, default 0). */
+  budgetBufferAfterParallel: z.number().min(0).max(1).optional(),
+  /** Fraction of budget to reserve after sequential generation (0-1, default 0). */
+  budgetBufferAfterSequential: z.number().min(0).max(1).optional(),
 });
 
 export type EvolutionConfigSchema = z.infer<typeof evolutionConfigSchema>;

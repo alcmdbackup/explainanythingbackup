@@ -12,7 +12,7 @@ import { createRating, isConverged, DEFAULT_CONVERGENCE_SIGMA } from '../../shar
 import type { EvolutionConfig, EvolutionResult, V2Match } from '../infra/types';
 
 import { createCostTracker } from '../infra/trackBudget';
-import { createV2LLMClient } from '../infra/createLLMClient';
+import { createEvolutionLLMClient } from '../infra/createEvolutionLLMClient';
 import type { EntityLogger } from '../infra/createEntityLogger';
 import { selectWinner } from '../../shared/selectWinner';
 import { GenerateFromSeedArticleAgent, deepCloneRatings } from '../../core/agents/generateFromSeedArticle';
@@ -183,7 +183,7 @@ export async function evolveArticle(
   const noopLogger: EntityLogger = { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} };
   const logger = options?.logger ?? noopLogger;
   const costTracker = createCostTracker(resolvedConfig.budgetUsd);
-  const llm = createV2LLMClient(llmProvider, costTracker, resolvedConfig.generationModel, logger, db, runId);
+  const llm = createEvolutionLLMClient(llmProvider, costTracker, resolvedConfig.generationModel, logger, db, runId);
   const randomSeed = options?.randomSeed ?? BigInt(0);
 
   logger.info('Config validation passed', {

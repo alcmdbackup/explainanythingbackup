@@ -7,7 +7,7 @@ import type { Rating } from '../../shared/computeRatings';
 import { DEFAULT_MU, DEFAULT_SIGMA } from '../../shared/computeRatings';
 import type { EntityLogger } from '../infra/createEntityLogger';
 import { createEntityLogger } from '../infra/createEntityLogger';
-import { v2StrategyConfigSchema } from '../../schemas';
+import { strategyConfigSchema } from '../../schemas';
 
 // ─── Arena Types ────────────────────────────────────────────────
 
@@ -170,7 +170,7 @@ export async function buildRunContext(
   if (stratError || !strategyRow) {
     return { error: `Strategy ${claimedRun.strategy_id} not found: ${stratError?.message ?? 'missing'}` };
   }
-  const configParsed = v2StrategyConfigSchema.safeParse(strategyRow.config);
+  const configParsed = strategyConfigSchema.safeParse(strategyRow.config);
   if (!configParsed.success) {
     return { error: `Strategy ${claimedRun.strategy_id} has invalid config` };
   }
@@ -184,6 +184,10 @@ export async function buildRunContext(
     calibrationOpponents: 5,
     tournamentTopK: 5,
     generationGuidance: stratConfig.generationGuidance,
+    numVariants: stratConfig.maxVariantsToGenerateFromSeedArticle ?? 9,
+    maxComparisonsPerVariant: stratConfig.maxComparisonsPerVariant ?? 15,
+    budgetBufferAfterParallel: stratConfig.budgetBufferAfterParallel ?? 0,
+    budgetBufferAfterSequential: stratConfig.budgetBufferAfterSequential ?? 0,
   };
 
   const logger = createEntityLogger({
