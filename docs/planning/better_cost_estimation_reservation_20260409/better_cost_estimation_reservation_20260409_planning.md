@@ -236,7 +236,7 @@ Phase 3: Swiss ranking uses remaining $0.15
 ### E2E Tests
 - [ ] Update strategy creation E2E spec to verify all four new fields appear in form and persist correctly *(write during /finalize)*
 - [ ] Verify validation error when bufferAfterParallel < bufferAfterSequential *(write during /finalize)*
-- [ ] **NEW** `src/__tests__/e2e/specs/09-admin/admin-evolution-budget-dispatch.spec.ts` — tagged `@evolution` for CI inclusion on `/finalize`:
+- [x] **NEW** `src/__tests__/e2e/specs/09-admin/admin-evolution-budget-dispatch.spec.ts` — tagged `@evolution` for CI inclusion on `/finalize`:
   - **Test: Parallel dispatch respects budgetBufferAfterParallel**
     - Create strategy with `budgetBufferAfterParallel=0.40`, `maxVariantsToGenerateFromSeedArticle=9`, budget=$0.10
     - Trigger pipeline via `POST /api/evolution/run` with auth cookie
