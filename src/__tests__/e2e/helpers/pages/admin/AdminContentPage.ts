@@ -53,11 +53,15 @@ export class AdminContentPage extends AdminBasePage {
 
   /**
    * Navigate to the content management page.
+   * Waits for the initial data load to complete before returning so callers
+   * can immediately interact with filters without racing the first fetch.
    */
   async gotoContent() {
     // Navigate directly to content page (avoids hydration race with dashboard nav click)
     await this.page.goto('/admin/content', { waitUntil: 'domcontentloaded', timeout: 30000 });
     await this.table.waitFor({ state: 'visible', timeout: 30000 });
+    // Wait for initial data load to finish (avoids race with concurrent filter-triggered fetch)
+    await expect(this.table.locator('tbody')).not.toContainText('Loading...', { timeout: 30000 });
   }
 
   /**
@@ -123,10 +127,16 @@ export class AdminContentPage extends AdminBasePage {
 
   /**
    * Filter by status.
+   * Waits for the select value to update and for the reload to complete.
    */
   async filterByStatus(status: 'draft' | 'published' | '') {
     await this.statusFilter.selectOption(status);
-    await expect(this.table.locator('tbody')).not.toContainText('Loading...');
+    // Confirm select value changed (ensures React event fired)
+    const expectedValue = status === '' ? '' : status;
+    await expect(this.statusFilter).toHaveValue(expectedValue, { timeout: 5000 });
+    // Wait for table to show loading, then finish loading
+    await expect(this.table.locator('tbody')).toContainText('Loading...', { timeout: 5000 }).catch(() => {});
+    await expect(this.table.locator('tbody')).not.toContainText('Loading...', { timeout: 15000 });
   }
 
   /**
@@ -180,18 +190,30 @@ export class AdminContentPage extends AdminBasePage {
 
   /**
    * Hide explanation from detail modal.
+   * Clicks the Hide button, confirms in the ConfirmDialog, then waits for the modal to close.
+   * FocusTrap is configured with allowOutsideClick:true so the Radix portal ConfirmDialog
+   * receives click events normally.
    */
   async hideFromModal() {
     await this.modalHideButton.click();
-    await expect(this.detailModal).not.toBeVisible();
+    // The Hide button opens a ConfirmDialog — confirm it
+    const confirmDialog = this.page.getByRole('dialog').filter({ hasText: 'Hide Explanation?' });
+    await expect(confirmDialog).toBeVisible({ timeout: 5000 });
+    await confirmDialog.getByRole('button', { name: /^Hide$/i }).click();
+    await expect(this.detailModal).not.toBeVisible({ timeout: 10000 });
   }
 
   /**
    * Restore explanation from detail modal.
+   * Clicks the Restore button, confirms in the ConfirmDialog, then waits for the modal to close.
    */
   async restoreFromModal() {
     await this.modalRestoreButton.click();
-    await expect(this.detailModal).not.toBeVisible();
+    // The Restore button opens a ConfirmDialog — confirm it
+    const confirmDialog = this.page.getByRole('dialog').filter({ hasText: 'Restore Explanation?' });
+    await expect(confirmDialog).toBeVisible({ timeout: 5000 });
+    await confirmDialog.getByRole('button', { name: /^Restore$/i }).click();
+    await expect(this.detailModal).not.toBeVisible({ timeout: 10000 });
   }
 
   /**
