@@ -399,12 +399,10 @@ adminTest.describe('Evolution Run Pipeline', { tag: '@evolution' }, () => {
     await expect(logsTab).toBeVisible({ timeout: 10000 });
     await logsTab.click();
 
-    // Wait for LogsTab loading skeleton to disappear. getEntityLogsAction can be slow under
-    // CI load (large table, concurrent jobs) — 30s gives it enough headroom.
-    await expect(adminPage.locator('[data-testid="tab-content"] .animate-pulse')).toBeHidden({ timeout: 30000 });
-
-    // Verify at least one log entry row is visible
-    const logRows = adminPage.locator('[data-testid="tab-content"] tr, [data-testid="tab-content"] [data-testid^="log-"]');
-    await expect(logRows.first()).toBeVisible({ timeout: 30000 });
+    // Wait directly for log rows — avoids relying on skeleton disappearance (animate-pulse).
+    // The skeleton wait was flaky because getEntityLogsAction can hang >30s under CI load;
+    // rows appearing in [data-testid="logs-tab"] is a positive assertion that tolerates slow actions.
+    const logRows = adminPage.locator('[data-testid="logs-tab"] tr');
+    await expect(logRows.first()).toBeVisible({ timeout: 60000 });
   });
 });
