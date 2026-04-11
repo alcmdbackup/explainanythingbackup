@@ -16,6 +16,7 @@ import { generateFromSeedExecutionDetailSchema } from '../../schemas';
 import { validateFormat } from '../../shared/enforceVariantFormat';
 import { buildEvolutionPrompt } from '../../pipeline/loop/buildPrompts';
 import { BudgetExceededError } from '../../types';
+import { estimateGenerationCost, estimateRankingCost } from '../../pipeline/infra/estimateCosts';
 import type { z } from 'zod';
 
 // ─── Strategy registry ────────────────────────────────────────────
@@ -241,18 +242,39 @@ export class GenerateFromSeedArticleAgent extends Agent<
       costTracker: ctx.costTracker,
     });
 
+    // Compute estimated costs for the feedback loop
+    const estGenCost = estimateGenerationCost(
+      originalText.length, strategy, ctx.config.generationModel,
+    );
+    const estRankCost = estimateRankingCost(
+      variant.text.length, ctx.config.judgeModel,
+      localPool.length, ctx.config.maxComparisonsPerVariant ?? 15,
+    );
+    const estTotalCost = estGenCost + estRankCost;
+    const actualTotalCost = generationCost + rankingCost;
+    const estimationErrorPct = estTotalCost > 0
+      ? ((actualTotalCost - estTotalCost) / estTotalCost) * 100
+      : 0;
+
     const detail: GenerateFromSeedExecutionDetail = {
       detailType: 'generate_from_seed_article',
-      totalCost: generationCost + rankingCost,
+      totalCost: actualTotalCost,
       variantId: variant.id,
       strategy,
       generation: {
         cost: generationCost,
+        estimatedCost: estGenCost,
         promptLength: prompt.length,
         textLength: variant.text.length,
         formatValid: true,
       },
-      ranking: { cost: rankingCost, ...rankResult.detail },
+      ranking: {
+        cost: rankingCost,
+        estimatedCost: estRankCost,
+        ...rankResult.detail,
+      },
+      estimatedTotalCost: estTotalCost,
+      estimationErrorPct: Math.round(estimationErrorPct * 100) / 100,
       surfaced,
       ...(discardReason !== undefined && { discardReason }),
     };

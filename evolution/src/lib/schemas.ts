@@ -704,6 +704,7 @@ export const generateFromSeedExecutionDetailSchema = executionDetailBaseSchema.e
   strategy: z.string(),
   generation: z.object({
     cost: z.number().min(0),
+    estimatedCost: z.number().min(0).optional(),
     promptLength: z.number().int().min(0),
     textLength: z.number().int().min(0).optional(),
     formatValid: z.boolean(),
@@ -712,7 +713,10 @@ export const generateFromSeedExecutionDetailSchema = executionDetailBaseSchema.e
   }),
   ranking: generateFromSeedRankingDetailSchema.extend({
     cost: z.number().min(0),
+    estimatedCost: z.number().min(0).optional(),
   }).nullable(),
+  estimatedTotalCost: z.number().min(0).optional(),
+  estimationErrorPct: z.number().optional(),
   surfaced: z.boolean(),
   discardReason: z.object({
     localMu: z.number(),
