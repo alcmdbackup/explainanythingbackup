@@ -18,7 +18,8 @@ import {
     SelectValue,
 } from '@/components/ui/select';
 import { Spinner } from '@/components/ui/spinner';
-import { processImport, detectImportSource } from '@/actions/importActions';
+import { processImport } from '@/actions/importActions';
+import { detectSource } from '@/lib/services/importArticle';
 import { supabase_browser } from '@/lib/supabase';
 import { type ImportSource } from '@/lib/schemas/schemas';
 
@@ -28,7 +29,7 @@ interface ImportModalProps {
     onProcessed: (data: { title: string; content: string; source: ImportSource }) => void;
 }
 
-type ModalState = 'idle' | 'detecting' | 'processing' | 'error';
+type ModalState = 'idle' | 'processing' | 'error';
 
 const SOURCE_LABELS: Record<ImportSource, string> = {
     chatgpt: 'ChatGPT',
@@ -44,22 +45,13 @@ export default function ImportModal({ open, onOpenChange, onProcessed }: ImportM
     const [state, setState] = useState<ModalState>('idle');
     const [error, setError] = useState<string | null>(null);
 
-    const handleContentChange = useCallback(async (value: string) => {
+    const handleContentChange = useCallback((value: string) => {
         setContent(value);
         setError(null);
 
-        // Auto-detect source when content is pasted (debounced)
+        // Auto-detect source when content is pasted (client-side, synchronous)
         if (value.trim().length > 100) {
-            setState('detecting');
-            try {
-                const result = await detectImportSource(value);
-                if (!result.error) {
-                    setSource(result.source);
-                }
-            } catch {
-                // Ignore detection errors
-            }
-            setState('idle');
+            setSource(detectSource(value));
         }
     }, []);
 
@@ -174,12 +166,6 @@ export default function ImportModal({ open, onOpenChange, onProcessed }: ImportM
                                 </SelectItem>
                             </SelectContent>
                         </Select>
-                        {state === 'detecting' && (
-                            <span data-testid="import-detecting" className="text-xs text-[var(--text-muted)] flex items-center gap-1">
-                                <Spinner variant="circle" size={12} />
-                                Detecting...
-                            </span>
-                        )}
                     </div>
 
                     {/* Error message */}
