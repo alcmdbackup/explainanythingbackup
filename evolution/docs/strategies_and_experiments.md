@@ -28,6 +28,10 @@ interface StrategyConfig {
   strategiesPerRound?: number;  // default 3
   budgetUsd?: number;
   generationGuidance?: Array<{ strategy: string; percent: number }>;
+  maxVariantsToGenerateFromSeedArticle?: number;  // default 9
+  maxComparisonsPerVariant?: number;               // default 15
+  budgetBufferAfterParallel?: number;              // 0-1, default 0
+  budgetBufferAfterSequential?: number;            // 0-1, default 0
 }
 ```
 
@@ -39,6 +43,10 @@ interface StrategyConfig {
 | `strategiesPerRound`| Generation strategies per iteration round  |
 | `budgetUsd`         | Optional per-run budget cap                |
 | `generationGuidance`| Optional weighted strategy distribution. Array of `{ strategy, percent }` entries where percentages must sum to 100 and strategy names must be unique. Enables weighted random strategy selection from all 8 strategies instead of the default deterministic 3-strategy behavior. |
+| `maxVariantsToGenerateFromSeedArticle` | Max generateFromSeedArticle agents per run. Excludes seed article. Default 9. |
+| `maxComparisonsPerVariant` | Hard cap on pairwise comparisons per variant during ranking. Default 15. Used for deterministic cost estimation: `min(poolSize - 1, maxComparisonsPerVariant)`. |
+| `budgetBufferAfterParallel` | Fraction (0-1) of budget to reserve after parallel generation. Parallel dispatch stops when remaining budget would drop below this threshold, then switches to sequential. Default 0 (no buffer). |
+| `budgetBufferAfterSequential` | Fraction (0-1) of budget to reserve after sequential generation. Sequential stops when next agent would breach this floor. Remaining budget available for swiss ranking. Must be <= `budgetBufferAfterParallel`. Default 0. |
 
 #### Experimental Verification with generationGuidance
 

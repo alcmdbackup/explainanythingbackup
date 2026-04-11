@@ -64,7 +64,7 @@ export type Rating = { mu: number; sigma: number };
 |----------------------------|---------|-------------------------------------------|
 | `DEFAULT_MU`               | 25      | Starting skill estimate                   |
 | `DEFAULT_SIGMA`            | 8.333   | Starting uncertainty (25/3)               |
-| `DEFAULT_CONVERGENCE_SIGMA`| 3.0     | Sigma below which rating is "settled"     |
+| `DEFAULT_CONVERGENCE_SIGMA`| 4.5     | Sigma below which rating is "settled" (raised from 3.0 for faster convergence ~18 vs ~59 comparisons; widens Elo CI from ±94 to ±141) |
 | `ELO_SIGMA_SCALE`          | 16      | Conversion factor (400 / DEFAULT_MU)      |
 | `DECISIVE_CONFIDENCE_THRESHOLD` | 0.6 | Arena-level decisive match threshold     |
 
