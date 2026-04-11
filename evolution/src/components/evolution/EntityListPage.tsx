@@ -111,16 +111,14 @@ export function EntityListPage<T>(props: EntityListPageProps<T>): JSX.Element {
   const [managedTotal, setManagedTotal] = useState(0);
   const [managedLoading, setManagedLoading] = useState(true);
   const [managedFilterValues, setManagedFilterValues] = useState<Record<string, string>>(() => {
-    if (!isSelfManaged) return {};
     const defaults: Record<string, string> = {};
     for (const f of props.filters ?? []) {
-      if (f.type === 'checkbox' && f.defaultChecked) {
-        defaults[f.key] = 'true';
-      }
+      if (f.type === 'checkbox' && f.defaultChecked) defaults[f.key] = 'true';
     }
     return defaults;
   });
   const [managedPage, setManagedPage] = useState(1);
+  const [jumpInput, setJumpInput] = useState('');
 
   // Resolve controlled vs self-managed values
   const items = isSelfManaged ? managedItems : (props.items ?? []);
@@ -149,8 +147,9 @@ export function EntityListPage<T>(props: EntityListPageProps<T>): JSX.Element {
     } catch (err) {
       console.error('[EntityListPage] loadData failed:', err);
       toast.error('Failed to load data');
+    } finally {
+      setManagedLoading(false);
     }
-    setManagedLoading(false);
   }, [managedFilterValues, managedPage, pageSize]);
 
   useEffect(() => {
@@ -324,6 +323,40 @@ export function EntityListPage<T>(props: EntityListPageProps<T>): JSX.Element {
             >
               Next<svg className="w-3 h-3 inline-block ml-1" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M4 2l4 4-4 4" /></svg>
             </button>
+            <button
+              onClick={() => onPageChange(totalPages)}
+              disabled={page >= totalPages}
+              className="px-3 py-1.5 text-xs font-ui text-[var(--text-muted)] border border-[var(--border-default)] rounded-page hover:bg-[var(--surface-elevated)] hover:text-[var(--accent-gold)] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              aria-label="Last page"
+            >
+              Last
+            </button>
+            <form
+              className="flex items-center gap-1"
+              onSubmit={(e) => {
+                e.preventDefault();
+                const n = parseInt(jumpInput, 10);
+                if (!isNaN(n)) { onPageChange(Math.max(1, Math.min(n, totalPages))); }
+                setJumpInput('');
+              }}
+            >
+              <input
+                type="number"
+                min={1}
+                max={totalPages}
+                value={jumpInput}
+                onChange={(e) => setJumpInput(e.target.value)}
+                placeholder="Page"
+                aria-label="Jump to page"
+                className="w-14 px-2 py-1 text-xs border border-[var(--border-default)] rounded-page bg-[var(--surface-input)] text-[var(--text-primary)] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+              />
+              <button
+                type="submit"
+                className="px-2 py-1 text-xs font-ui text-[var(--text-muted)] border border-[var(--border-default)] rounded-page hover:bg-[var(--surface-elevated)] hover:text-[var(--accent-gold)] transition-colors"
+              >
+                Go
+              </button>
+            </form>
           </div>
         )}
       </div>

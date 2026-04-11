@@ -24,7 +24,7 @@ test.describe('Error Boundary', () => {
   // eslint-disable-next-line flakiness/no-test-skip -- debug route auth-excluded only in dev mode
   test.skip(isCI, 'Debug route requires dev mode (auth-excluded only when NODE_ENV !== production)');
 
-  test.describe('Error Boundary', () => {
+  test.describe('Error Display', () => {
     test('should display error page when unhandled error occurs in page', async ({
       page,
     }) => {

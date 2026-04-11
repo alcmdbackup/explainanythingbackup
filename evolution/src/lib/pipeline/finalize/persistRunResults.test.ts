@@ -7,12 +7,13 @@ import type { Variant } from '../../types';
 import type { Rating } from '../../shared/computeRatings';
 import type { ArenaTextVariation } from '../setup/buildRunContext';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { writeMetric } from '../../metrics/writeMetrics';
+import { writeMetric, writeMetricMax } from '../../metrics/writeMetrics';
 import { createMockEntityLogger } from '../../../testing/evolution-test-helpers';
 
 jest.mock('../../metrics/writeMetrics', () => ({
   writeMetric: jest.fn().mockResolvedValue(undefined),
   writeMetrics: jest.fn().mockResolvedValue(undefined),
+  writeMetricMax: jest.fn().mockResolvedValue(undefined),
 }));
 
 jest.mock('../../metrics/readMetrics', () => ({
@@ -20,6 +21,7 @@ jest.mock('../../metrics/readMetrics', () => ({
 }));
 
 const mockedWriteMetric = writeMetric as jest.MockedFunction<typeof writeMetric>;
+const mockedWriteMetricMax = writeMetricMax as jest.MockedFunction<typeof writeMetricMax>;
 
 // Valid UUIDs for test fixtures
 const RUN_ID = '00000000-0000-4000-8000-000000000001';
@@ -313,12 +315,12 @@ describe('finalizeRun', () => {
     expect(metricNames).toContain('variant_count');
   });
 
-  it('writeMetric called with cost during_execution to ensure propagation source exists', async () => {
-    mockedWriteMetric.mockClear();
+  it('writeMetricMax called with cost during_execution to ensure propagation source exists', async () => {
+    mockedWriteMetricMax.mockClear();
     const { db } = makeMockDb();
     const result = makeResult();
     await finalizeRun(RUN_ID, result, { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
-    const costCalls = mockedWriteMetric.mock.calls.filter(
+    const costCalls = mockedWriteMetricMax.mock.calls.filter(
       ([, entityType, , name, , timing]) => entityType === 'run' && name === 'cost' && timing === 'during_execution',
     );
     expect(costCalls).toHaveLength(1);
@@ -382,39 +384,22 @@ describe('finalizeRun', () => {
 
   // ─── Run-level cost aggregates (Phase 9b/9f) ──────────────────────
 
-  it('writes total_generation_cost and total_ranking_cost from invocation rows', async () => {
+  it('does NOT write total_generation_cost or total_ranking_cost on the run entity', async () => {
+    // Per the per-purpose cost split fix: generation_cost / ranking_cost are written
+    // live by createLLMClient via writeMetricMax during execution. The 50/50 finalization
+    // bucketing (and the run-level total_*_cost writes) was deleted. Propagation reads
+    // the run-level rows and writes total_*_cost on strategy/experiment, not on runs.
     mockedWriteMetric.mockClear();
-    // Custom DB mock that returns mixed-agent invocations from the select query.
-    const invocationRows = [
-      {
-        id: 'inv-1', agent_name: 'generate_from_seed_article',
-        cost_usd: 0.10,
-        execution_detail: { generation: { cost: 0.03 }, ranking: { cost: 0.07 } },
-      },
-      {
-        id: 'inv-2', agent_name: 'generate_from_seed_article',
-        cost_usd: 0.04,
-        execution_detail: { generation: { cost: 0.04 }, ranking: { cost: 0 } },
-      },
-      { id: 'inv-3', agent_name: 'swiss_ranking', cost_usd: 0.20, execution_detail: null },
-      { id: 'inv-4', agent_name: 'merge_ratings', cost_usd: 0, execution_detail: null },
-    ];
 
     const db = {
-      from: jest.fn((table: string) => {
+      from: jest.fn(() => {
         const chain: Record<string, jest.Mock> = {};
         const self = () => chain;
         for (const m of ['eq', 'neq', 'in', 'is', 'select', 'single', 'order', 'limit', 'range']) {
           chain[m] = jest.fn(self);
         }
-        // The invocation select must resolve to invocationRows; everything else
-        // falls back to the default { id: 'mock' } row used by the rest of finalizeRun.
         chain.then = jest.fn((resolve: (v: unknown) => void) => {
-          if (table === 'evolution_agent_invocations') {
-            resolve({ data: invocationRows, error: null });
-          } else {
-            resolve({ data: [{ id: 'mock' }], error: null });
-          }
+          resolve({ data: [{ id: 'mock' }], error: null });
         });
         return {
           update: jest.fn(() => chain),
@@ -434,12 +419,8 @@ describe('finalizeRun', () => {
       ([, entityType, , name]) => entityType === 'run' && name === 'total_ranking_cost',
     );
 
-    expect(genCostCall).toBeDefined();
-    expect(rankCostCall).toBeDefined();
-    // generation: 0.03 + 0.04 = 0.07
-    // ranking:    0.07 + 0    + 0.20 (swiss) = 0.27
-    expect((genCostCall![4] as number)).toBeCloseTo(0.07, 4);
-    expect((rankCostCall![4] as number)).toBeCloseTo(0.27, 4);
+    expect(genCostCall).toBeUndefined();
+    expect(rankCostCall).toBeUndefined();
   });
 });
 
@@ -468,7 +449,7 @@ describe('syncToArena', () => {
       { winnerId: V1_ID, loserId: V_NEW_ID, result: 'win' as const, confidence: 0.8, judgeModel: 'gpt-4.1-nano', reversed: false },
     ];
 
-    await syncToArena(RUN_ID, PROMPT_ID, pool, ratings, matches, supabase);
+    await syncToArena(RUN_ID, PROMPT_ID, pool, ratings, matches, supabase, false);
 
     expect(supabase.rpc).toHaveBeenCalledWith('sync_to_arena', expect.objectContaining({
       p_prompt_id: PROMPT_ID,
@@ -490,7 +471,7 @@ describe('syncToArena', () => {
       { winnerId: V_ARENA_ID, loserId: V_NEW_ID, result: 'win' as const, confidence: 0.8, judgeModel: 'gpt-4.1-nano', reversed: false },
     ];
 
-    await syncToArena(RUN_ID, PROMPT_ID, pool, ratings, matches, supabase);
+    await syncToArena(RUN_ID, PROMPT_ID, pool, ratings, matches, supabase, false);
 
     const call = (supabase.rpc as jest.Mock).mock.calls[0];
     const entries = call[1].p_entries;
@@ -511,7 +492,7 @@ describe('syncToArena', () => {
       { winnerId: 'a', loserId: 'b', result: 'draw' as const, confidence: 0.5, judgeModel: 'gpt-4.1-nano', reversed: false },
     ];
 
-    await syncToArena(RUN_ID, PROMPT_ID, [], new Map(), matches, supabase);
+    await syncToArena(RUN_ID, PROMPT_ID, [], new Map(), matches, supabase, false);
 
     const call = (supabase.rpc as jest.Mock).mock.calls[0];
     expect(call[1].p_matches[0].winner).toBe('draw');
@@ -521,7 +502,7 @@ describe('syncToArena', () => {
     const supabase = createMockArenaSupabase();
     const pool = [makeVariant(V_NO_RATING_ID)];
 
-    await syncToArena(RUN_ID, PROMPT_ID, pool, new Map(), [], supabase);
+    await syncToArena(RUN_ID, PROMPT_ID, pool, new Map(), [], supabase, false);
 
     const call = (supabase.rpc as jest.Mock).mock.calls[0];
     expect(call[1].p_entries[0].variant_content).toBeDefined();
@@ -535,7 +516,7 @@ describe('syncToArena', () => {
     const consoleSpy = jest.spyOn(console, 'warn').mockImplementation();
     const supabase = createMockArenaSupabase({ rpcResult: { error: { message: 'RPC failed' } } });
 
-    await syncToArena(RUN_ID, PROMPT_ID, [], new Map(), [], supabase);
+    await syncToArena(RUN_ID, PROMPT_ID, [], new Map(), [], supabase, false);
 
     expect(consoleSpy).toHaveBeenCalledWith(
       expect.stringContaining('sync_to_arena failed after retry'),
@@ -552,7 +533,7 @@ describe('syncToArena', () => {
       { winnerId: 'z-id', loserId: 'a-id', result: 'draw' as const, confidence: 0.5, judgeModel: 'gpt-4.1-nano', reversed: false },
     ];
 
-    await syncToArena(RUN_ID, PROMPT_ID, [], new Map(), matches, supabase);
+    await syncToArena(RUN_ID, PROMPT_ID, [], new Map(), matches, supabase, false);
 
     const call = (supabase.rpc as jest.Mock).mock.calls[0];
     const match = call[1].p_matches[0];
@@ -568,7 +549,7 @@ describe('syncToArena', () => {
       { winnerId: 'winner-id', loserId: 'loser-id', result: 'win' as const, confidence: 0.9, judgeModel: 'gpt-4.1-nano', reversed: false },
     ];
 
-    await syncToArena(RUN_ID, PROMPT_ID, [], new Map(), matches, supabase);
+    await syncToArena(RUN_ID, PROMPT_ID, [], new Map(), matches, supabase, false);
 
     const call = (supabase.rpc as jest.Mock).mock.calls[0];
     const match = call[1].p_matches[0];
@@ -584,7 +565,7 @@ describe('syncToArena', () => {
       { winnerId: 'a', loserId: 'b', result: 'win' as const, confidence: 0.8, judgeModel: 'gpt-4.1-nano', reversed: false },
     ];
 
-    await syncToArena(RUN_ID, PROMPT_ID, [], new Map(), matches, supabase);
+    await syncToArena(RUN_ID, PROMPT_ID, [], new Map(), matches, supabase, false);
 
     const call = (supabase.rpc as jest.Mock).mock.calls[0];
     expect(call[1].p_matches).toHaveLength(1);
@@ -727,7 +708,7 @@ describe('syncToArena match count computation', () => {
       { winnerId: V_NEW_ID, loserId: V1_ID, result: 'draw' as const, confidence: 0.5, judgeModel: 'gpt-4.1-nano', reversed: false },
     ];
 
-    await syncToArena(RUN_ID, PROMPT_ID, pool, ratings, matches, supabase);
+    await syncToArena(RUN_ID, PROMPT_ID, pool, ratings, matches, supabase, false);
 
     const call = (supabase.rpc as jest.Mock).mock.calls[0];
     const entries = call[1].p_entries as Array<{ id: string; arena_match_count: number }>;
@@ -748,7 +729,7 @@ describe('syncToArena match count computation', () => {
       { winnerId: V1_ID, loserId: V_NEW_ID, result: 'win' as const, confidence: 0.9, judgeModel: 'gpt-4.1-nano', reversed: false },
     ];
 
-    await syncToArena(RUN_ID, PROMPT_ID, pool, ratings, matches, supabase);
+    await syncToArena(RUN_ID, PROMPT_ID, pool, ratings, matches, supabase, false);
 
     const call = (supabase.rpc as jest.Mock).mock.calls[0];
     const entries = call[1].p_entries as Array<{ id: string; arena_match_count: number }>;
@@ -770,7 +751,7 @@ describe('syncToArena arena updates', () => {
       { winnerId: V_ARENA_ID, loserId: V1_ID, result: 'win' as const, confidence: 0.7, judgeModel: 'gpt-4.1-nano', reversed: false },
     ];
 
-    await syncToArena(RUN_ID, PROMPT_ID, pool, ratings, matches, supabase);
+    await syncToArena(RUN_ID, PROMPT_ID, pool, ratings, matches, supabase, false);
 
     const call = (supabase.rpc as jest.Mock).mock.calls[0];
     const arenaUpdates = call[1].p_arena_updates;
@@ -790,7 +771,7 @@ describe('syncToArena arena updates', () => {
       { winnerId: V_NEW_ID, loserId: V1_ID, result: 'win' as const, confidence: 0.8, judgeModel: 'gpt-4.1-nano', reversed: false },
     ];
 
-    await syncToArena(RUN_ID, PROMPT_ID, pool, ratings, matches, supabase);
+    await syncToArena(RUN_ID, PROMPT_ID, pool, ratings, matches, supabase, false);
 
     const call = (supabase.rpc as jest.Mock).mock.calls[0];
     const arenaUpdates = call[1].p_arena_updates;
@@ -807,7 +788,7 @@ describe('syncToArena arena updates', () => {
       { winnerId: V_ARENA_ID, loserId: V_NEW_ID, result: 'win' as const, confidence: 0.8, judgeModel: 'gpt-4.1-nano', reversed: false },
     ];
 
-    await syncToArena(RUN_ID, PROMPT_ID, pool, ratings, matches, supabase);
+    await syncToArena(RUN_ID, PROMPT_ID, pool, ratings, matches, supabase, false);
 
     const call = (supabase.rpc as jest.Mock).mock.calls[0];
     const arenaUpdates = call[1].p_arena_updates;
@@ -828,10 +809,72 @@ describe('syncToArena logging', () => {
     const pool: Variant[] = [makeVariant(V1_ID, 'test', { text: '# New' })];
     const ratings = new Map<string, Rating>([[V1_ID, { mu: 28, sigma: 7 }]]);
 
-    await syncToArena(RUN_ID, PROMPT_ID, pool, ratings, [], supabase, logger);
+    await syncToArena(RUN_ID, PROMPT_ID, pool, ratings, [], supabase, false, logger);
 
     expect(logger.info).toHaveBeenCalledWith('Arena sync preparation', expect.objectContaining({ phaseName: 'arena' }));
     expect(logger.info).toHaveBeenCalledWith('Arena sync complete', expect.objectContaining({ phaseName: 'arena' }));
+  });
+});
+
+describe('syncToArena — isSeeded flag', () => {
+  it('isSeeded=true: baseline variant gets generation_method=seed', async () => {
+    const supabase = createMockArenaSupabase();
+    const pool: Variant[] = [
+      makeVariant(V1_ID, 'baseline', { text: '# Seed' }),        // baseline → seed
+      makeVariant(V_NEW_ID, 'structural_transform', { text: '# Gen' }), // non-baseline → pipeline
+    ];
+    const ratings = new Map<string, Rating>([
+      [V1_ID, { mu: 25, sigma: 8 }],
+      [V_NEW_ID, { mu: 24, sigma: 8 }],
+    ]);
+
+    await syncToArena(RUN_ID, PROMPT_ID, pool, ratings, [], supabase, true /* isSeeded */);
+
+    const call = (supabase.rpc as jest.Mock).mock.calls[0];
+    const entries = call[1].p_entries as Array<{ id: string; generation_method: string }>;
+    const baseline = entries.find((e) => e.id === V1_ID);
+    const nonBaseline = entries.find((e) => e.id === V_NEW_ID);
+    expect(baseline?.generation_method).toBe('seed');
+    expect(nonBaseline?.generation_method).toBe('pipeline');
+  });
+
+  it('isSeeded=false: all variants get generation_method=pipeline regardless of strategy', async () => {
+    const supabase = createMockArenaSupabase();
+    const pool: Variant[] = [
+      makeVariant(V1_ID, 'baseline', { text: '# Base' }),
+      makeVariant(V_NEW_ID, 'structural_transform', { text: '# Gen' }),
+    ];
+    const ratings = new Map<string, Rating>([
+      [V1_ID, { mu: 25, sigma: 8 }],
+      [V_NEW_ID, { mu: 24, sigma: 8 }],
+    ]);
+
+    await syncToArena(RUN_ID, PROMPT_ID, pool, ratings, [], supabase, false /* isSeeded */);
+
+    const call = (supabase.rpc as jest.Mock).mock.calls[0];
+    const entries = call[1].p_entries as Array<{ id: string; generation_method: string }>;
+    for (const e of entries) {
+      expect(e.generation_method).toBe('pipeline');
+    }
+  });
+
+  it('arena entries are excluded from p_entries regardless of isSeeded value', async () => {
+    const supabase = createMockArenaSupabase();
+    const pool: Variant[] = [
+      makeVariant(V_NEW_ID, 'baseline', { text: '# Base' }),
+      makeArenaVariant({ id: V_ARENA_ID, text: '# Arena', arenaMatchCount: 5 }),
+    ];
+    const ratings = new Map<string, Rating>([
+      [V_NEW_ID, { mu: 25, sigma: 8 }],
+      [V_ARENA_ID, { mu: 30, sigma: 4 }],
+    ]);
+
+    await syncToArena(RUN_ID, PROMPT_ID, pool, ratings, [], supabase, true /* isSeeded */);
+
+    const call = (supabase.rpc as jest.Mock).mock.calls[0];
+    const entries = call[1].p_entries as Array<{ id: string }>;
+    expect(entries.every((e) => e.id !== V_ARENA_ID)).toBe(true);
+    expect(entries.some((e) => e.id === V_NEW_ID)).toBe(true);
   });
 });
 

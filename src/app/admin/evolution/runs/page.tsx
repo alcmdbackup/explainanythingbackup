@@ -18,27 +18,22 @@ import {
   type EvolutionRun,
 } from '@evolution/services/evolutionActions';
 import { executeEntityAction } from '@evolution/services/entityActions';
+import { listStrategiesAction } from '@evolution/services/strategyRegistryActions';
 import { createRunsMetricColumns } from '@evolution/lib/metrics/metricColumns';
-import type { MetricRow } from '@evolution/lib/metrics/types';
-import { getListViewMetrics } from '@evolution/lib/metrics/registry';
-import { getBatchMetricsAction } from '@evolution/services/metricsActions';
 
-const filters: FilterDef[] = [
-  {
-    key: 'status',
-    label: 'Status',
-    type: 'select',
-    options: [
-      { label: 'All statuses', value: '' },
-      { label: 'Pending', value: 'pending' },
-      { label: 'Claimed', value: 'claimed' },
-      { label: 'Running', value: 'running' },
-      { label: 'Completed', value: 'completed' },
-      { label: 'Failed', value: 'failed' },
-    ],
-  },
-  { key: 'filterTestContent', label: 'Hide test content', type: 'checkbox', defaultChecked: true },
-];
+const STATUS_FILTER: FilterDef = {
+  key: 'status',
+  label: 'Status',
+  type: 'select',
+  options: [
+    { label: 'All statuses', value: '' },
+    { label: 'Pending', value: 'pending' },
+    { label: 'Claimed', value: 'claimed' },
+    { label: 'Running', value: 'running' },
+    { label: 'Completed', value: 'completed' },
+    { label: 'Failed', value: 'failed' },
+  ],
+};
 
 const pageSize = 20;
 
@@ -46,39 +41,48 @@ type RunAction = { kind: 'none' } | { kind: 'kill'; run: EvolutionRun } | { kind
 
 export default function EvolutionRunsPage(): JSX.Element {
   useEffect(() => { document.title = 'Runs | Evolution'; }, []);
-  const [runs, setRuns] = useState<(EvolutionRun & { metrics?: MetricRow[] })[]>([]);
+  const [runs, setRuns] = useState<EvolutionRun[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [pendingAction, setPendingAction] = useState<RunAction>({ kind: 'none' });
-  const [filterValues, setFilterValues] = useState<Record<string, string>>(() => {
-    const defaults: Record<string, string> = {};
-    for (const f of filters) {
-      if (f.type === 'checkbox' && f.defaultChecked) {
-        defaults[f.key] = 'true';
-      }
-    }
-    return defaults;
-  });
+  const [strategyOptions, setStrategyOptions] = useState<{ value: string; label: string }[]>([]);
+  const [filterValues, setFilterValues] = useState<Record<string, string>>({ filterTestContent: 'true' });
   const [page, setPage] = useState(1);
+
+  // Build dynamic filter list including loaded strategy options
+  const filters: FilterDef[] = [
+    STATUS_FILTER,
+    { key: 'filterTestContent', label: 'Hide test content', type: 'checkbox', defaultChecked: true },
+    {
+      key: 'strategy_id',
+      label: 'Strategy',
+      type: 'select',
+      options: [{ label: 'All strategies', value: '' }, ...strategyOptions],
+    },
+  ];
+
+  useEffect(() => {
+    listStrategiesAction({ limit: 200, offset: 0 }).then(res => {
+      if (res.success && res.data) {
+        setStrategyOptions(res.data.items.map(s => ({ value: s.id, label: s.name })));
+      }
+    }).catch(() => { /* non-critical: strategy filter silently unavailable */ });
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
     const result = await getEvolutionRunsAction({
       status: filterValues.status || undefined,
       filterTestContent: filterValues.filterTestContent === 'true',
+      strategy_id: filterValues.strategy_id || undefined,
       limit: pageSize,
       offset: (page - 1) * pageSize,
     });
     if (result.success && result.data) {
-      const items = result.data.items;
+      // getEvolutionRunsAction already enriches runs with `metrics` from evolution_metrics
+      // (cost / generation_cost / ranking_cost / etc. via getMetricsForEntities).
       setTotal(result.data.total);
-
-      // Batch-fetch list-view metrics
-      const metricNames = getListViewMetrics('run').map(d => d.name);
-      const metricsResult = await getBatchMetricsAction('run', items.map(r => r.id), metricNames);
-      const metricsMap = metricsResult.success && metricsResult.data ? metricsResult.data : {};
-
-      setRuns(items.map(r => ({ ...r, metrics: metricsMap[r.id] ?? [] })));
+      setRuns(result.data.items);
     } else if (!result.success) {
       toast.error(result.error?.message ?? 'Failed to load runs');
     }
@@ -106,7 +110,7 @@ export default function EvolutionRunsPage(): JSX.Element {
     if (result.success) { toast.success('Run deleted'); load(); } else { toast.error(result.error?.message ?? 'Delete failed'); }
   };
 
-  const renderActions = (run: EvolutionRun & { metrics?: MetricRow[] }): React.ReactNode => (
+  const renderActions = (run: EvolutionRun): React.ReactNode => (
     <div className="flex gap-2">
       {['pending', 'claimed', 'running'].includes(run.status) && (
         <button onClick={() => setPendingAction({ kind: 'kill', run })} className="font-ui text-xs text-[var(--status-error)]">Kill</button>
@@ -118,11 +122,10 @@ export default function EvolutionRunsPage(): JSX.Element {
   );
 
   const confirmOpen = pendingAction.kind === 'kill' || pendingAction.kind === 'delete';
+  const runIdShort = pendingAction.kind !== 'none' ? pendingAction.run.id.substring(0, 8) : '';
   const confirmProps = pendingAction.kind === 'kill'
-    ? { title: 'Kill Run', message: `Kill run ${pendingAction.run.id.substring(0, 8)}?`, confirmLabel: 'Kill', onConfirm: handleKill, danger: true }
-    : pendingAction.kind === 'delete'
-      ? { title: 'Delete Run', message: `Delete run ${pendingAction.run.id.substring(0, 8)} and all its variants/invocations?`, confirmLabel: 'Delete', onConfirm: handleDelete, danger: true }
-      : { title: '', message: '', onConfirm: async () => {}, danger: false };
+    ? { title: 'Kill Run', message: `Kill run ${runIdShort}?`, confirmLabel: 'Kill', onConfirm: handleKill, danger: true }
+    : { title: 'Delete Run', message: `Delete run ${runIdShort} and all its variants/invocations?`, confirmLabel: 'Delete', onConfirm: handleDelete, danger: true };
 
   return (
     <div className="space-y-6">
@@ -131,7 +134,7 @@ export default function EvolutionRunsPage(): JSX.Element {
         { label: 'Runs' },
       ]} />
 
-      <EntityListPage<EvolutionRun & { metrics?: MetricRow[] }>
+      <EntityListPage<EvolutionRun>
         title="Evolution Runs"
         filters={filters}
         items={runs}

@@ -53,8 +53,22 @@ const eslintConfig = [
       "flakiness/no-test-skip": "error",
       "flakiness/require-test-cleanup": "error",
       "flakiness/no-point-in-time-checks": "error",
+      "flakiness/no-point-in-time-pom-helpers": "error",
+      "flakiness/no-nth-child-cell-selector": "error",
+      "flakiness/no-duplicate-describe-name": "error",
       "flakiness/require-serial-with-beforeall": "error",
       "flakiness/warn-slow-with-retries": "warn",
+    },
+  },
+  // Admin-only rule: require resetFilters() in specs that seed [TEST] data.
+  // Scoped to 09-admin/ because that's where filterTestContent default lives.
+  {
+    files: ["src/__tests__/e2e/specs/09-admin/**/*.spec.ts"],
+    plugins: {
+      flakiness: flakinessRules,
+    },
+    rules: {
+      "flakiness/require-reset-filters": "error",
     },
   },
   // Flakiness prevention for all E2E files (specs + helpers)

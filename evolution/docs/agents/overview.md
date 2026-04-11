@@ -6,6 +6,7 @@ This document covers the V2 pipeline's operational components: the three concret
 
 `evolveArticle()` in `evolution/src/lib/pipeline/loop/runIterationLoop.ts` dispatches a sequence of iterations chosen by `nextIteration()`. Each iteration is one of two types — both have the uniform shape **work agent(s) + merge agent**:
 
+0. **`CreateSeedArticleAgent`** — runs **once**, at the start of iteration 1, for prompt-based runs where no arena seed exists. Makes two LLM calls (`seed_title` then `seed_article`) to generate the initial article from the prompt text, then ranks the result via `rankNewVariant()` against the loaded arena snapshot. If the seed agent fails (`budget` or `generation_failed`), the run stops immediately with `stopReason = 'seed_failed'`. On success, sets `originalText` for the iteration and marks `isSeeded = true` in the result. LLM spend is tracked via `seed_cost` in `evolution_metrics`.
 1. **`GenerateFromSeedArticleAgent`** — one parallel agent per generated variant. Generates ONE variant via a single strategy, then ranks it via binary search against a deep-cloned local snapshot of the iteration-start pool/ratings/matchCounts. Owns its own surface/discard decision (budget + local mu < top-15% cutoff = discard).
 2. **`SwissRankingAgent`** — one swiss iteration's worth of parallel pair comparisons over the eligible set. Returns the raw match buffer; never applies rating updates.
 3. **`MergeRatingsAgent`** — reusable. Concatenates match buffers from one or more work agents, shuffles in seeded Fisher-Yates order, applies OpenSkill updates to the global ratings sequentially, and writes one row per match to `evolution_arena_comparisons` (sole writer of in-run match rows).
@@ -210,6 +211,8 @@ Two abstract members configure agent-specific observability:
 - **`detailViewConfig: DetailFieldDef[]`** — config-driven field definitions used by the admin UI to render the invocation detail panel without custom per-agent components. Consumed by `ConfigDrivenDetailRenderer` in `src/app/admin/evolution/invocations/[invocationId]/ConfigDrivenDetailRenderer.tsx`.
 - **`invocationMetrics?: FinalizationMetricDef[]`** — optional list of agent-specific metric definitions (e.g. `format_rejection_rate` for GenerationAgent, `total_comparisons` for RankingAgent). These are merged into `InvocationEntity` at startup via `agentRegistry.ts`.
 
+**Per-invocation cost scope.** `Agent.run()` creates a per-invocation `AgentCostScope` (via `createAgentCostScope(ctx.costTracker)`) and passes it as `costTracker` in `extendedCtx`. The scope delegates `reserve()`, `release()`, and `getTotalSpent()` to the shared tracker (budget gate remains shared) but intercepts `recordSpend()` to track a private `ownSpent` counter. `cost_usd` on the invocation row is now `scope.getOwnSpent()` — only this agent's LLM calls — instead of a global delta. Under parallel dispatch, sibling agents' spend no longer bleeds into each invocation's `cost_usd`.
+
 The `run()` method wraps each phase with budget-error handling, invocation cost tracking, and metric recording. It now additionally:
 
 - Tracks wall-clock duration and writes `duration_ms` to the invocation row.
@@ -267,17 +270,19 @@ All database writes are fire-and-forget: the insert is wrapped in `Promise.resol
 
 ```typescript
 export function createV2LLMClient(
-  rawProvider: { complete(prompt: string, label: string, opts?: { model?: string }): Promise<string> },
+  rawProvider: { complete(prompt: string, label: AgentName, opts?: { model?: string }): Promise<string> },
   costTracker: V2CostTracker,
   defaultModel: string,
 ): EvolutionLLMClient
 ```
 
+**Typed agent labels.** The second argument to `complete()` is `AgentName`, a typed union (`'generation' | 'ranking' | 'seed_title' | 'seed_article'`) defined in `evolution/src/lib/core/agentNames.ts`. Typos at the call site are caught at compile time. The `COST_METRIC_BY_AGENT` lookup maps each label to a static cost metric name: `'generation'` → `'generation_cost'`, `'ranking'` → `'ranking_cost'`, `'seed_title'`/`'seed_article'` → `'seed_cost'`. As a result, `generateFromSeedArticle` reports per-purpose costs accurately (no more 50/50 approximation): every `'generation'` call increments `generation_cost`, every `'ranking'` call increments `ranking_cost`, and seed LLM calls (via `CreateSeedArticleAgent`) increment `seed_cost`.
+
 **Retry policy.** Transient errors (network failures, rate limits) are retried up to 3 times with exponential backoff: 1s, 2s, 4s. Each individual call has a 60-second timeout. `BudgetExceededError` is never retried since it represents a deliberate resource limit, not a transient failure.
 
-**Cost tracking.** Before each call, the client estimates cost from the prompt length and expected output tokens (using chars/4 as a token approximation). After a successful call, actual cost is computed from input and output character counts and recorded via the cost tracker. The cost tracker checks the pre-call estimate against remaining budget and throws `BudgetExceededError` before the LLM call even happens if the estimate would exceed the budget — this prevents wasting money on calls that would push past the limit.
+**Cost tracking.** Before each call, the client estimates cost from the prompt length and expected output tokens (using chars/4 as a token approximation). After a successful call, actual cost is computed from input and output character counts and recorded via the cost tracker. The tracker buckets per-call cost under the typed agent label in `phaseCosts[label]` (race-free per-key accumulator under Node's single-threaded event loop). The client then writes `cost`, `generation_cost`, and `ranking_cost` to `evolution_metrics` via `writeMetricMax` — a Postgres RPC using `ON CONFLICT DO UPDATE SET value = GREATEST(...)` so concurrent out-of-order writes can never overwrite a larger value with a smaller one.
 
-Model pricing is maintained in a lookup table covering common models (GPT-4.1 variants, GPT-4o variants, DeepSeek, Claude Sonnet 4, Claude Haiku 4.5). Unknown models use the most expensive pricing as a conservative fallback, with a `console.warn` alerting operators. Expected output tokens are estimated by label: generation and evolution calls assume 1000 tokens, ranking calls assume 100 tokens.
+Model pricing is maintained in a lookup table covering common models (GPT-4.1 variants, GPT-4o variants, DeepSeek, Claude Sonnet 4, Claude Haiku 4.5). Unknown models use the most expensive pricing as a conservative fallback, with a `console.warn` alerting operators. Expected output tokens are estimated by label: generation calls assume 1000 tokens, ranking calls assume 100 tokens.
 
 For cost optimization details including the budget tier system and model pricing, see [Cost Optimization](../cost_optimization.md).
 

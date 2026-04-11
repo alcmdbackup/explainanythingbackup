@@ -33,7 +33,15 @@ export class RunEntity extends Entity<EvolutionRunFullDb> {
 
   readonly metrics: EntityMetricRegistry = {
     duringExecution: [
-      { ...METRIC_CATALOG.cost, listView: false, compute: computeRunCost },
+      // listView: false on cost — RunsTable's base column shows it with budget warning UI.
+      { ...METRIC_CATALOG.cost, compute: computeRunCost },
+      // Per-purpose cost split — written live by createLLMClient via writeMetricMax
+      // (race-fixed Postgres GREATEST upsert). compute returns 0 because the value is
+      // persisted directly via writeMetricMax; if anything ever triggers a registry-driven
+      // recompute, GREATEST will keep the larger live-written value.
+      { ...METRIC_CATALOG.generation_cost, compute: () => 0 },
+      { ...METRIC_CATALOG.ranking_cost, compute: () => 0 },
+      { ...METRIC_CATALOG.seed_cost, compute: () => 0 },
     ],
     atFinalization: [
       { ...METRIC_CATALOG.winner_elo, compute: computeWinnerElo },
@@ -43,12 +51,6 @@ export class RunEntity extends Entity<EvolutionRunFullDb> {
       { ...METRIC_CATALOG.total_matches, compute: computeTotalMatches },
       { ...METRIC_CATALOG.decisive_rate, compute: computeDecisiveRate },
       { ...METRIC_CATALOG.variant_count, compute: computeVariantCount },
-      // Phase 9b/9f run-level cost split — written directly by persistRunResults from
-      // invocation cost_usd (not via the registry compute path), but registered here
-      // so validateTiming() doesn't reject the writeMetric call as "Unknown metric".
-      // The compute fn returns null so the registry-driven loop doesn't double-write.
-      { ...METRIC_CATALOG.total_generation_cost, compute: () => null },
-      { ...METRIC_CATALOG.total_ranking_cost, compute: () => null },
     ],
     atPropagation: [],
   };

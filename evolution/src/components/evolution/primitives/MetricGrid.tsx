@@ -4,6 +4,7 @@
 import type { ReactNode } from 'react';
 
 export interface MetricItem {
+  id?: string;
   label: string;
   value: ReactNode;
   ci?: [number, number];
@@ -50,7 +51,6 @@ export function MetricGrid({
   const gridCols = COLUMN_CLASSES[columns] ?? COLUMN_CLASSES[4];
   const cellClass = CELL_CLASSES[variant] ?? '';
   const valueClass = VALUE_CLASSES[size] ?? VALUE_CLASSES.sm;
-  const labelMargin = variant === 'bordered' ? 'mb-1' : '';
 
   return (
     <div
@@ -59,11 +59,11 @@ export function MetricGrid({
     >
       {metrics.map((metric) => (
         <div
-          key={metric.label}
+          key={metric.id ?? metric.label}
           className={cellClass || undefined}
           data-testid={`metric-${metric.label.toLowerCase().replace(/\s+/g, '-')}`}
         >
-          <span className={`text-xs font-ui text-[var(--text-muted)] uppercase tracking-wide ${labelMargin}`}>
+          <span className={`text-xs font-ui text-[var(--text-muted)] uppercase tracking-wide${variant === 'bordered' ? ' mb-1' : ''}`}>
             {metric.label}
           </span>
           <p className={valueClass}>

@@ -1,0 +1,44 @@
+# Allowlist for check-stale-specs.ts — testid prefixes to skip when checking
+# whether spec data-testid references have a corresponding source definition.
+#
+# Each line is a testid prefix. If a spec testid starts with a line in this file,
+# the script considers it satisfied and does not flag it as stale.
+#
+# Use this for testids that are computed at runtime in source files (e.g., via
+# props or ternaries) and can't be statically matched by the script's heuristic,
+# OR for known TODO placeholders for unimplemented features.
+#
+# Format: one prefix per line. Lines starting with `#` are comments. Blank lines ignored.
+
+# === TODO placeholders for unimplemented Arena UI (admin-arena.spec.ts) ===
+# These tests are eslint-disabled with `flakiness/no-test-skip -- Arena detail UI
+# not yet implemented`. The testids are placeholders for planned UI; allowlisted
+# until the Arena detail page is built.
+add-from-run-btn
+add-to-arena-btn
+cost-elo-chart
+delete-entry-
+diff-view
+judge-model-select
+method-summary-table
+new-topic-btn
+new-topic-prompt
+new-topic-submit
+prompt-bank-section
+rounds-select
+run-all-comparisons-btn
+run-comparison-btn
+run-comparison-submit
+source-link-
+status-badge-failed
+variants-warning-banner
+
+# === Follow-up cleanup debt — track in fix_flaky_tests_20260408 follow-up ===
+# These testids are referenced in specs but no source file produces them. They
+# represent legacy stale references that should be either fixed (testid renamed
+# in source/spec) or deleted (spec is testing a removed feature). Allowlisted
+# here so the script can guard against NEW stale refs being introduced; the
+# existing debt is tracked separately.
+accept-all-diffs-button
+reject-all-diffs-button
+import-modal

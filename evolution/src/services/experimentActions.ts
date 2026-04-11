@@ -11,6 +11,21 @@ import {
   computeExperimentMetrics,
 } from '@evolution/lib/pipeline/manageExperiments';
 import { createEntityLogger } from '@evolution/lib/pipeline/infra/createEntityLogger';
+import { getMetricsForEntities } from '@evolution/lib/metrics/readMetrics';
+import { getListViewMetrics } from '@evolution/lib/metrics/registry';
+import type { MetricRow } from '@evolution/lib/metrics/types';
+
+/** Shape returned by listExperimentsAction; the page renders this directly. */
+export interface ExperimentSummary {
+  id: string;
+  name: string;
+  status: string;
+  created_at: string;
+  updated_at?: string;
+  runCount: number;
+  /** List-view metric rows from evolution_metrics (cost split, elo, etc.). */
+  metrics: MetricRow[];
+}
 
 const addRunInputSchema = z.object({
   experimentId: z.string().uuid(),
@@ -91,7 +106,7 @@ export const getExperimentAction = adminAction(
 /** List experiments with optional status filter. */
 export const listExperimentsAction = adminAction(
   'listExperiments',
-  async (input: { status?: string; filterTestContent?: boolean } | undefined, ctx: AdminContext) => {
+  async (input: { status?: string; filterTestContent?: boolean; name?: string } | undefined, ctx: AdminContext): Promise<ExperimentSummary[]> => {
     let query = ctx.supabase
       .from('evolution_experiments')
       .select('*, evolution_runs(id)')
@@ -103,14 +118,28 @@ export const listExperimentsAction = adminAction(
     if (input?.filterTestContent) {
       query = applyTestContentNameFilter(query);
     }
+    if (input?.name) {
+      const escaped = input.name.replace(/[%_\\]/g, '\\$&');
+      query = query.ilike('name', `%${escaped}%`);
+    }
 
     const { data, error } = await query;
     if (error) throw new Error(`Failed to list experiments: ${error.message}`);
 
-    return (data ?? []).map((exp: Record<string, unknown>) => ({
+    const items = (data ?? []).map((exp: Record<string, unknown>) => ({
       ...exp,
       runCount: Array.isArray(exp.evolution_runs) ? (exp.evolution_runs as unknown[]).length : 0,
-    }));
+    })) as Array<ExperimentSummary & Record<string, unknown>>;
+
+    const metricNames = getListViewMetrics('experiment').map(d => d.name);
+    const metricsByExp = (items.length > 0 && metricNames.length > 0)
+      ? await getMetricsForEntities(ctx.supabase, 'experiment', items.map(e => e.id), metricNames)
+      : new Map<string, MetricRow[]>();
+    for (const exp of items) {
+      exp.metrics = metricsByExp.get(exp.id) ?? [];
+    }
+
+    return items as ExperimentSummary[];
   },
 );
 

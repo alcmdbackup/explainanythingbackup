@@ -3,6 +3,7 @@
 
 import * as fc from 'fast-check';
 import { createCostTracker } from './trackBudget';
+import type { AgentName } from '../../core/agentNames';
 
 describe('trackBudget property tests', () => {
   it('core invariant: totalSpent + reserved ≤ budgetUsd after any operation sequence', () => {
@@ -11,7 +12,7 @@ describe('trackBudget property tests', () => {
         fc.double({ min: 0.01, max: 50, noNaN: true }),
         fc.array(
           fc.record({
-            phase: fc.constantFrom('generation', 'ranking', 'evolution'),
+            phase: fc.constantFrom<AgentName>('generation', 'ranking'),
             estimatedCost: fc.double({ min: 0.0001, max: 0.1, noNaN: true }),
             actualFraction: fc.double({ min: 0.5, max: 1.5, noNaN: true }),
           }),
@@ -19,7 +20,7 @@ describe('trackBudget property tests', () => {
         ),
         (budgetUsd, ops) => {
           const tracker = createCostTracker(budgetUsd);
-          const reservations: { phase: string; reserved: number }[] = [];
+          const reservations: { phase: AgentName; reserved: number }[] = [];
 
           for (const op of ops) {
             try {
@@ -47,7 +48,7 @@ describe('trackBudget property tests', () => {
         fc.double({ min: 0.001, max: 1, noNaN: true }),
         (cost) => {
           const tracker = createCostTracker(100);
-          const reserved = tracker.reserve('test', cost);
+          const reserved = tracker.reserve('generation',cost);
           expect(reserved).toBeCloseTo(cost * 1.3, 10);
         },
       ),
@@ -63,9 +64,9 @@ describe('trackBudget property tests', () => {
         (estimatedCost, fraction) => {
           const tracker = createCostTracker(100);
           const availableBefore = tracker.getAvailableBudget();
-          const reserved = tracker.reserve('test', estimatedCost);
+          const reserved = tracker.reserve('generation',estimatedCost);
           const actual = estimatedCost * fraction;
-          tracker.recordSpend('test', actual, reserved);
+          tracker.recordSpend('generation',actual, reserved);
           const availableAfter = tracker.getAvailableBudget();
 
           // available should decrease by actual cost (reservation released, actual added)
@@ -81,7 +82,7 @@ describe('trackBudget property tests', () => {
       fc.property(
         fc.array(
           fc.record({
-            phase: fc.constantFrom('generation', 'ranking', 'evolution'),
+            phase: fc.constantFrom<AgentName>('generation', 'ranking'),
             cost: fc.double({ min: 0.0001, max: 0.1, noNaN: true }),
           }),
           { minLength: 1, maxLength: 20 },
@@ -110,8 +111,8 @@ describe('trackBudget property tests', () => {
         (estimatedCost) => {
           const tracker = createCostTracker(100);
           const availableBefore = tracker.getAvailableBudget();
-          const reserved = tracker.reserve('test', estimatedCost);
-          tracker.release('test', reserved);
+          const reserved = tracker.reserve('generation',estimatedCost);
+          tracker.release('generation',reserved);
           const availableAfter = tracker.getAvailableBudget();
           expect(availableAfter).toBeCloseTo(availableBefore, 10);
         },
@@ -122,7 +123,7 @@ describe('trackBudget property tests', () => {
 
   it('budget exceeded throws when reserve exceeds remaining', () => {
     const tracker = createCostTracker(0.01);
-    expect(() => tracker.reserve('test', 1.0)).toThrow();
+    expect(() => tracker.reserve('generation',1.0)).toThrow();
   });
 
   it('rejects negative budget', () => {

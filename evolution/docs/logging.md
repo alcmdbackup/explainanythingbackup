@@ -135,10 +135,10 @@ interface LogsTabProps {
 
 ### Features
 
-- **Filter bar**: Log level dropdown, entity type dropdown (hidden for invocation pages since they only have one entity type), and agent name text input.
+- **Filter bar**: Log level dropdown, entity type dropdown (hidden for invocation pages), iteration dropdown, agent name text input (debounced 300ms, partial `ilike` match), message search (debounced 300ms, ilike), variant ID filter (debounced 300ms).
 - **Entity-type badges**: Color-coded badges per log row — blue (run), purple (invocation), green (experiment), amber (strategy).
 - **Expandable context**: Click a row to toggle a JSON viewer for the `context` JSONB payload.
-- **Pagination**: 100 logs per page with Previous/Next navigation.
+- **Pagination**: 100 logs per page with Prev/Next/Last navigation and a jump-to-page number input.
 
 ## getEntityLogsAction Server Action
 

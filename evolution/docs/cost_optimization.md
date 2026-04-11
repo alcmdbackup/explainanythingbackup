@@ -4,6 +4,22 @@ The evolution system uses a two-layer budget model to prevent runaway LLM spendi
 
 For how costs fit into the pipeline lifecycle, see [Architecture](./architecture.md). For the database tables that store cost data, see [Data Model](./data_model.md).
 
+> **Per-purpose cost split.** Every LLM call passes a typed `AgentName` label as the
+> second argument to `llm.complete()` (defined in `evolution/src/lib/core/agentNames.ts`,
+> currently `'generation' | 'ranking' | 'seed_title' | 'seed_article'`). The V2 cost
+> tracker buckets per-call costs under this label in `phaseCosts[label]` (race-free
+> per-key accumulator under Node single-threaded execution). After every call,
+> `createLLMClient.ts` writes `cost`, `generation_cost`, and `ranking_cost` to
+> `evolution_metrics` via `writeMetricMax` — a Postgres RPC using
+> `ON CONFLICT DO UPDATE SET value = GREATEST(...)` so concurrent out-of-order writes
+> can never overwrite a larger value with a smaller one. The `COST_METRIC_BY_AGENT`
+> lookup determines which static metric name receives the per-purpose write.
+>
+> **Local integration test setup:** Run `supabase db reset` (or
+> `supabase migration up --local`) before `npm run test:integration` to ensure the
+> `upsert_metric_max` RPC is available in the local DB. CI applies migrations to staging
+> automatically via `.github/workflows/ci.yml` `deploy-migrations` job.
+
 ---
 
 ## Two-Layer Budget Flow
@@ -241,6 +257,22 @@ When handling errors in pipeline code, the typical pattern is:
 2. Catch `BudgetExceededError` -- no partial results available, mark the run as `failed`
 3. Catch `LLMKillSwitchError` -- abort immediately, do not retry
 4. Catch `GlobalBudgetExceededError` -- log the cap details, mark the run as `failed`
+
+---
+
+## Agent Cost Scope Pattern
+
+Under parallel agent dispatch, a shared `V2CostTracker` serves two purposes: **budget gating** (must be shared, synchronous `reserve()`) and **cost attribution** (should be per-agent). Without isolation, `getTotalSpent()` deltas absorbed sibling agents' costs — `cost_usd` on invocations was timing-dependent and could be nearly double the true value.
+
+**Solution:** `createAgentCostScope(shared: V2CostTracker): AgentCostScope` (in `trackBudget.ts`) wraps the shared tracker in a per-invocation scope:
+
+- `reserve()`, `release()`, `getTotalSpent()`, `getAvailableBudget()`, `getPhaseCosts()` — **delegated** to shared tracker; budget gating is unchanged
+- `recordSpend()` — **intercepted**: calls shared tracker AND increments a private `ownSpent` counter
+- `getOwnSpent()` — returns only this scope's LLM costs, independent of other agents
+
+`Agent.run()` creates a scope per invocation and passes it as `costTracker` in `extendedCtx`. The `cost_usd` written to `evolution_agent_invocations` uses `detail.totalCost` (computed as a delta inside `execute()`) as the primary source, falling back to `scope.getOwnSpent()` for agents that call `recordSpend()` directly through the scope.
+
+> **Pre-baked LLM clients:** Some agents receive an `llm` client created with the original shared tracker (before the scope exists). These clients record spend on the shared tracker, bypassing the scope's `recordSpend()` intercept. In these cases, `scope.getOwnSpent()` returns 0. The `detail.totalCost` fallback handles this correctly — `execute()` captures `getTotalSpent()` before and after its own work, so the delta is correct even when the LLM client bypasses the scope.
 
 ---
 

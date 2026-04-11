@@ -701,6 +701,27 @@ export const generateFromSeedExecutionDetailSchema = executionDetailBaseSchema.e
   }).optional(),
 });
 
+/** CreateSeedArticleAgent execution detail. */
+export const createSeedArticleExecutionDetailSchema = executionDetailBaseSchema.extend({
+  detailType: z.literal('create_seed_article'),
+  generation: z.object({
+    cost: z.number().min(0),
+    promptLength: z.number().int().min(0),
+    titleLength: z.number().int().min(0).optional(),
+    contentLength: z.number().int().min(0).optional(),
+    formatValid: z.boolean(),
+    error: z.string().optional(),
+  }),
+  ranking: generateFromSeedRankingDetailSchema.extend({
+    cost: z.number().min(0),
+  }).nullable(),
+  surfaced: z.boolean(),
+  discardReason: z.object({
+    localMu: z.number(),
+    localTop15Cutoff: z.number(),
+  }).optional(),
+});
+
 /** SwissRankingAgent execution detail. */
 export const swissRankingExecutionDetailSchema = executionDetailBaseSchema.extend({
   detailType: z.literal('swiss_ranking'),
@@ -799,6 +820,7 @@ export const agentExecutionDetailSchema = z.discriminatedUnion('detailType', [
   proximityExecutionDetailSchema,
   metaReviewExecutionDetailSchema,
   generateFromSeedExecutionDetailSchema,
+  createSeedArticleExecutionDetailSchema,
   swissRankingExecutionDetailSchema,
   mergeRatingsExecutionDetailSchema,
 ]);
@@ -850,7 +872,6 @@ export const EvolutionRunSummaryV3Schema = z.object({
 /** TrueSkill default sigma used for V1/V2 → V3 migration: ordinal + 3*sigma ≈ mu */
 const V2_DEFAULT_SIGMA = DEFAULT_SIGMA;
 
-/** Type alias for the V3 run summary (used by the transform output). */
 interface EvolutionRunSummaryV3 {
   version: 3;
   stopReason: string;
@@ -871,6 +892,11 @@ interface EvolutionRunSummaryV3 {
     priorityImprovements: string[];
   } | null;
   actionCounts?: Record<string, number>;
+}
+
+/** Shared transform helper: convert a legacy ordinal/elo value to a mu estimate. */
+function legacyToMu(ordinal: number): number {
+  return ordinal + 3 * V2_DEFAULT_SIGMA;
 }
 
 /** Legacy V2 schema with ordinal field names. Auto-transforms to V3 on parse. */
@@ -911,16 +937,14 @@ const EvolutionRunSummaryV2Schema = z.object({
   finalPhase: v2.finalPhase,
   totalIterations: v2.totalIterations,
   durationSeconds: v2.durationSeconds,
-  muHistory: v2.ordinalHistory.map((ord) => [ord + 3 * V2_DEFAULT_SIGMA]),
+  muHistory: v2.ordinalHistory.map((ord) => [legacyToMu(ord)]),
   diversityHistory: v2.diversityHistory,
   matchStats: v2.matchStats,
-  topVariants: v2.topVariants.map((tv) => ({
-    id: tv.id, strategy: tv.strategy, mu: tv.ordinal + 3 * V2_DEFAULT_SIGMA, isBaseline: tv.isBaseline,
-  })),
+  topVariants: v2.topVariants.map((tv) => ({ id: tv.id, strategy: tv.strategy, mu: legacyToMu(tv.ordinal), isBaseline: tv.isBaseline })),
   baselineRank: v2.baselineRank,
-  baselineMu: v2.baselineOrdinal != null ? v2.baselineOrdinal + 3 * V2_DEFAULT_SIGMA : null,
+  baselineMu: v2.baselineOrdinal != null ? legacyToMu(v2.baselineOrdinal) : null,
   strategyEffectiveness: Object.fromEntries(
-    Object.entries(v2.strategyEffectiveness).map(([k, v]) => [k, { count: v.count, avgMu: v.avgOrdinal + 3 * V2_DEFAULT_SIGMA }]),
+    Object.entries(v2.strategyEffectiveness).map(([k, v]) => [k, { count: v.count, avgMu: legacyToMu(v.avgOrdinal) }]),
   ),
   metaFeedback: v2.metaFeedback,
 }));
@@ -963,16 +987,14 @@ const EvolutionRunSummaryV1Schema = z.object({
   finalPhase: v1.finalPhase,
   totalIterations: v1.totalIterations,
   durationSeconds: v1.durationSeconds,
-  muHistory: v1.eloHistory.map((ord) => [ord + 3 * V2_DEFAULT_SIGMA]),
+  muHistory: v1.eloHistory.map((ord) => [legacyToMu(ord)]),
   diversityHistory: v1.diversityHistory,
   matchStats: v1.matchStats,
-  topVariants: v1.topVariants.map((tv) => ({
-    id: tv.id, strategy: tv.strategy, mu: tv.elo + 3 * V2_DEFAULT_SIGMA, isBaseline: tv.isBaseline,
-  })),
+  topVariants: v1.topVariants.map((tv) => ({ id: tv.id, strategy: tv.strategy, mu: legacyToMu(tv.elo), isBaseline: tv.isBaseline })),
   baselineRank: v1.baselineRank,
-  baselineMu: v1.baselineElo != null ? v1.baselineElo + 3 * V2_DEFAULT_SIGMA : null,
+  baselineMu: v1.baselineElo != null ? legacyToMu(v1.baselineElo) : null,
   strategyEffectiveness: Object.fromEntries(
-    Object.entries(v1.strategyEffectiveness).map(([k, v]) => [k, { count: v.count, avgMu: v.avgElo + 3 * V2_DEFAULT_SIGMA }]),
+    Object.entries(v1.strategyEffectiveness).map(([k, v]) => [k, { count: v.count, avgMu: legacyToMu(v.avgElo) }]),
   ),
   metaFeedback: v1.metaFeedback,
 }));

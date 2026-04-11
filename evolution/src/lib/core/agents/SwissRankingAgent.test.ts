@@ -235,4 +235,27 @@ describe('SwissRankingAgent', () => {
     const cmp = jest.requireMock('../../shared/computeRatings').compareWithBiasMitigation as jest.Mock;
     expect(cmp).toHaveBeenCalled();
   });
+
+  it('passes the typed AgentName label "ranking" via callLLM (drift catcher)', async () => {
+    // Drift catcher: per the per-purpose cost split fix, this agent must always pass
+    // the literal string 'ranking' as the second arg to llm.complete() so the V2 cost
+    // tracker buckets the call under phaseCosts['ranking'] and writes ranking_cost via
+    // writeMetricMax. The label is set inside the callLLM wrapper passed to
+    // compareWithBiasMitigation. Override the mock once so the wrapper actually fires
+    // llm.complete, then assert the second arg is 'ranking'.
+    const llm = mkLlm();
+    const input = buildInput({ llm });
+    const cmp = jest.requireMock('../../shared/computeRatings').compareWithBiasMitigation as jest.Mock;
+    cmp.mockImplementationOnce(async (_a: string, _b: string, callLLM: (p: string) => Promise<string>) => {
+      // Actually invoke the wrapper so llm.complete sees the 'ranking' label
+      await callLLM('test prompt');
+      return { winner: 'A', confidence: 0.9, turns: 2 };
+    });
+    mockComparisonResults = [{ winner: 'A', confidence: 0.9, turns: 2 }];
+    const agent = new SwissRankingAgent();
+    await agent.run(input, makeCtx());
+    const calls = (llm.complete as jest.Mock).mock.calls;
+    expect(calls.length).toBeGreaterThan(0);
+    expect(calls[0]![1]).toBe('ranking');
+  });
 });

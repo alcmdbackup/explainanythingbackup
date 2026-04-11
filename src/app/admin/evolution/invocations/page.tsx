@@ -23,6 +23,7 @@ const FILTERS: FilterDef[] = [
       { label: 'Failed', value: 'failed' },
     ],
   },
+  { key: 'agentName', label: 'Agent Name', type: 'text', placeholder: 'Filter by agent...' },
 ];
 
 const COLUMNS: ColumnDef<InvocationListEntry>[] = [
@@ -98,6 +99,7 @@ export default function InvocationsListPage(): JSX.Element {
     const result = await listInvocationsAction({
       filterTestContent: filters.filterTestContent === 'true',
       successFilter: (filters.successFilter as 'all' | 'success' | 'failed') || undefined,
+      agentName: filters.agentName || undefined,
       limit: PAGE_SIZE,
       offset: (currentPage - 1) * PAGE_SIZE,
     });

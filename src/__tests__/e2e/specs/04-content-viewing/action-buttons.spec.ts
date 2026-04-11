@@ -173,7 +173,7 @@ test.describe('Action Buttons', () => {
 
       // Enter edit mode
       await resultsPage.clickEditButton();
-      expect(await resultsPage.isInEditMode()).toBe(true);
+      await expect.poll(() => resultsPage.isInEditMode()).toBe(true);
 
       // Exit edit mode
       await resultsPage.clickEditButton();
@@ -220,11 +220,11 @@ test.describe('Action Buttons', () => {
 
       // Toggle to plain text first
       await resultsPage.clickFormatToggle();
-      expect(await resultsPage.isPlainTextMode()).toBe(true);
+      await expect.poll(() => resultsPage.isPlainTextMode()).toBe(true);
 
       // Toggle back to markdown
       await resultsPage.clickFormatToggle();
-      expect(await resultsPage.isMarkdownMode()).toBe(true);
+      await expect.poll(() => resultsPage.isMarkdownMode()).toBe(true);
     });
 
     test('should allow editing in plain text mode', async ({ authenticatedPage }) => {
@@ -236,11 +236,11 @@ test.describe('Action Buttons', () => {
 
       // Toggle to plain text mode
       await resultsPage.clickFormatToggle();
-      expect(await resultsPage.isPlainTextMode()).toBe(true);
+      await expect.poll(() => resultsPage.isPlainTextMode()).toBe(true);
 
       // Enter edit mode
       await resultsPage.clickEditButton();
-      expect(await resultsPage.isInEditMode()).toBe(true);
+      await expect.poll(() => resultsPage.isInEditMode()).toBe(true);
 
       // Verify RawMarkdownEditor textarea is rendered in plain text mode
       const editor = authenticatedPage.locator('[data-testid="raw-markdown-editor"]');
@@ -254,13 +254,30 @@ test.describe('Action Buttons', () => {
       await authenticatedPage.goto(`/results?explanation_id=${testExplanation.id}`);
       await resultsPage.waitForAnyContent(60000);
 
+      // Wait for the "Content will appear here..." placeholder to be GONE before
+      // snapshotting initialContent. waitForAnyContent only waits for the
+      // explanation-content container to become visible, but during initial page
+      // load that container holds the placeholder text first. Without this wait,
+      // initialContent gets snapshotted as the placeholder string and the
+      // round-trip equality check at the bottom of this test compares actual
+      // content against the placeholder forever.
+      await authenticatedPage.waitForFunction(
+        () => {
+          const el = document.querySelector('[data-testid="explanation-content"]');
+          return el && !(el.textContent ?? '').includes('Content will appear here');
+        },
+        undefined,
+        { timeout: 30000 }
+      );
+
       // Get initial content using ResultsPage.getContent()
       const initialContent = await resultsPage.getContent();
       expect(initialContent).toBeTruthy();
+      expect(initialContent).not.toContain('Content will appear here');
 
       // Toggle to plain text mode
       await resultsPage.clickFormatToggle();
-      expect(await resultsPage.isPlainTextMode()).toBe(true);
+      await expect.poll(() => resultsPage.isPlainTextMode()).toBe(true);
 
       // Wait for textarea to render with content (React state propagation after toggle)
       const textarea = authenticatedPage.locator('[data-testid="raw-markdown-editor"]');
@@ -282,7 +299,7 @@ test.describe('Action Buttons', () => {
 
       // Toggle back to markdown mode
       await resultsPage.clickFormatToggle();
-      expect(await resultsPage.isMarkdownMode()).toBe(true);
+      await expect.poll(() => resultsPage.isMarkdownMode()).toBe(true);
 
       // Verify content is still preserved after round-trip. The markdown re-render
       // briefly shows a "Content will appear here..." placeholder before remounting,

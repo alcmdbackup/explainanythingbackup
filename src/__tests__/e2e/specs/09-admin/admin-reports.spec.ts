@@ -61,8 +61,10 @@ adminTest.describe('Admin Content Reports', () => {
       // Filter by pending
       await reportsPage.filterByStatus('pending');
 
-      // All visible status badges should be pending
-      const statusBadges = reportsPage.table.locator('tbody tr td:nth-child(5) span');
+      // All visible status badges should be pending — use stable data-testid
+      // (added in Phase 1.5/3 of fix_flaky_tests_20260408 to replace brittle
+      // td:nth-child(N) which broke when columns were added/reordered)
+      const statusBadges = reportsPage.table.locator('[data-testid^="admin-reports-status-badge-"]');
       const count = await statusBadges.count();
       for (let i = 0; i < Math.min(count, 5); i++) {
         const badge = statusBadges.nth(i);

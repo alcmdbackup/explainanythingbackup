@@ -1,5 +1,9 @@
 // Entity registry: lazy-initialized singleton mapping EntityType → Entity instance.
 // Static imports are safe here: circular refs resolve because getEntity() is only called at runtime.
+//
+// NOTE: This file is one of TWO parallel metric registries in the codebase. The other is
+// `evolution/src/lib/metrics/registry.ts` (flat METRIC_REGISTRY). Both must be kept in
+// sync manually until they're consolidated in a follow-up project.
 
 import type { Entity } from './Entity';
 import type { EntityType, EntityMetricRegistry, CatalogMetricDef } from './types';

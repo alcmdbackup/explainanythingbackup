@@ -5,13 +5,37 @@ Consolidated guide covering testing rules, tiers, and CI/CD workflows.
 ## Testing Rules
 
 1. **Start from a known state every test.** Create all needed data in the test (or via API/seed), and reset/cleanup DB + auth/session so tests don't depend on order or shared accounts.
+   - **UI default state counts as known state.** For tests that interact with filtered, sorted, or paginated list views, after navigation but before asserting on seeded rows, explicitly reset:
+     - default filter checkboxes (e.g. "Hide test content" → uncheck)
+     - search input (clear it)
+     - sort/order (click default header)
+     - pagination (return to page 1)
+   - Provide a `resetFilters()` POM helper for any admin list page used by tests, and call it immediately after `goto<Page>()`. The four `admin-content.spec.ts` failures in PR #930 post-merge were all caused by `ExplanationTable.filterTestContent` defaulting to `true` and hiding the very `[TEST]`-prefixed rows the tests had just seeded — DB was correct, UI default was not. Enforced for admin specs by ESLint `flakiness/require-reset-filters`.
 2. **Never use fixed sleeps.** Wait only on observable conditions: element is visible/enabled, URL changed, specific network response completed, websocket event received, etc.
 3. **Use stable selectors only.** Prefer `data-testid` (or equivalent); avoid brittle CSS/XPath based on layout/text unless it's an accessibility role/name that's truly stable.
+   - **Forbidden: ordinal table cell selectors.** `td:nth-child(N)` and `tr:nth-child(N)` silently break when columns are added, removed, or reordered. The resulting failure is content-based (wrong assertion on wrong column), not "not found", which makes it harder to diagnose. Use one of:
+     - `getByRole('cell', { name: 'Status' })` (preferred — semantic + stable across reorders)
+     - `[data-testid="status-cell"]` per cell
+     - `getByRole('columnheader', { name: 'Status' })` to find the column index dynamically, then index siblings
+   - The `admin-reports.spec.ts:65` failure in PR #930 post-merge was exactly this: `td:nth-child(4)` pointed at the **Details** column after a column was added; the Status badges the test was reading were actually in column `(5)`. Enforced by ESLint `flakiness/no-nth-child-cell-selector`.
 4. **Make async explicit — use auto-waiting assertions, not point-in-time checks.** After actions, assert the next expected state using Playwright's `expect(locator)` assertions which retry automatically until met or timeout. **Never use point-in-time methods for assertions** — they execute once and race with React hydration and streaming:
    - `page.textContent()`, `page.isVisible()`, `locator.innerText()`, `locator.inputValue()` → run once, return immediately
    - `expect(locator).toContainText()`, `expect(locator).toBeVisible()`, `expect(locator).toHaveValue()` → retry until true or timeout
    - `waitForLoadState('domcontentloaded')` fires before RSC hydration — wait for specific content instead
    - Pattern: "click → `expect(locator).toBeVisible()` → `expect(locator).toContainText('expected')`"
+   - **POM helper return values are point-in-time too.** Custom POM helpers that return `Promise<string>` (or any computed value) are point-in-time checks when used like `expect(await helper()).toEqual(x)` — the helper runs once, the value is captured, and the assertion never retries. Two correct patterns:
+     1. **Preferred:** rewrite the helper to return a `Locator`, then `await expect(locator).toHaveText(x)` so Playwright auto-retries.
+     2. **When the value needs computation** (parsing HTML, joining text from multiple elements, stripping whitespace): use `expect.poll`:
+        ```typescript
+        // Wrong — point-in-time, races with re-render
+        expect(await resultsPage.getContent()).toEqual(initialContent);
+
+        // Right — Playwright retries the helper until it matches or timeout
+        await expect
+          .poll(() => resultsPage.getContent(), { timeout: 10000 })
+          .toEqual(initialContent);
+        ```
+   - The `action-buttons.spec.ts:250` "Format Toggle preserve content" test went through three rounds of fixes before landing on `expect.poll`. Rounds 1 and 2 patched symptoms (read from textarea, wait for placeholder gone); only round 3 fixed the underlying point-in-time-check anti-pattern. Enforced by ESLint `flakiness/no-point-in-time-pom-helpers` (camelCase POM instances ending in `Page`).
 5. **Isolate external dependencies.** Mock/stub third-party services (payments, email, maps, feature flags) and make backend responses deterministic; avoid real timeouts to external systems.
 6. **Keep timeouts short** - 60 seconds max per test
 7. **Never silently swallow errors.** Use helpers from `src/__tests__/e2e/helpers/error-utils.ts` instead of bare `.catch(() => {})`:
@@ -23,6 +47,8 @@ Consolidated guide covering testing rules, tiers, and CI/CD workflows.
    - Feature not yet implemented
    - Infrastructure limitation (e.g., Supabase SSR cookies)
    - Known bug being tracked separately
+   - **`test.skip(condition, ...)` scope is the surrounding `describe`, not all nested children.** When `test.skip` is legitimately used, it applies only to tests that are **direct siblings** of the skip call inside the same `describe` block. It does **not** apply to tests inside nested inner describes' siblings. Place the skip in the outermost `describe` you want it to cover.
+   - **Forbidden: same-name stacked describes.** Nesting `test.describe('Error Boundary', () => { test.describe('Error Boundary', () => { ... }) })` is confusing in test output (`Error Boundary > Error Boundary > test name`) and trivially leads to scope-related skip bugs. If you must nest, give each level a distinct name. The `global-error.spec.ts` "Error Recovery" / "Normal Operation" failures in PR #930 post-merge happened because the inner `describe('Error Boundary')` had `test.skip(isCI, ...)` but the outer `describe('Error Boundary')`'s direct child tests escaped the skip and ran in CI against an auth-gated debug route. Enforced by ESLint `flakiness/no-duplicate-describe-name`.
 9. **Never use `waitForLoadState('networkidle')`.** It waits for "no network requests for 500ms" which is unreliable in CI — background polling, analytics, or SSE connections prevent it from settling, causing tests to hang or pass prematurely. Use specific waits instead:
    - `page.waitForSelector('[data-testid="..."]')` - Wait for specific element
    - `locator.waitFor({ state: 'visible' })` - Wait for element state
@@ -37,6 +63,7 @@ Consolidated guide covering testing rules, tiers, and CI/CD workflows.
 16. **E2E specs that import database tools must have afterAll cleanup.** Any spec file importing `@supabase/supabase-js`, `test-data-factory`, or `evolution-test-helpers` must include a `test.afterAll` or `adminTest.afterAll` block that deletes created entities. Enforced by ESLint `flakiness/require-test-cleanup`.
 17. **Never hardcode URLs in Page Objects or fixtures.** Use `page.goto('/relative-path')` so Playwright resolves against the configured `baseURL`. Never construct absolute URLs with `process.env.BASE_URL || 'http://localhost:...'` — the fallback port will be wrong when the dev server runs on a dynamic port. If you need the base URL outside `page.goto()` (e.g., cookie domain), read it from `process.env.BASE_URL` which is set by `playwright.config.ts` from instance discovery. Enforced by ESLint `flakiness/no-hardcoded-base-url`.
 18. **Wait for hydration proof before interacting.** Visible !== interactive. After navigating to a page with dynamic imports or server-fetched data, wait for a data-dependent element (e.g., a table with rows, a loaded form) before clicking buttons or links. A button can be visible in SSR HTML but not wired to its React handler until hydration completes. Pattern: `await table.waitFor({ state: 'visible', timeout: 30000 }); await button.click();` Enforced by ESLint `flakiness/require-hydration-wait`.
+19. **Stale specs must be deleted with the feature.** When removing a feature, delete its E2E specs in the same commit/PR as the feature removal. Orphaned specs cannot pass and pollute CI noise once the next branch tries to run them. Enforced by `npm run check:stale-specs`, which fails any PR whose specs reference `data-testid` values that no source file under `src/components/`, `src/app/`, `src/lib/`, `src/hooks/`, `src/editorFiles/`, or `evolution/src/` produces. PR #930 post-merge had to delete `admin-evolution-anchor-ranking.spec.ts` (added in #855) because the "anchor" concept was removed in #929 but its 111-line spec was not.
 
 ### Enforcement Summary
 
@@ -46,7 +73,12 @@ Consolidated guide covering testing rules, tiers, and CI/CD workflows.
 | Rule 6: Short timeouts | ESLint `flakiness/max-test-timeout` | Lint (CI + IDE) |
 | Rule 7: No silent errors | ESLint `flakiness/no-silent-catch` | Lint (CI + IDE) |
 | Rule 4: No point-in-time checks | ESLint `flakiness/no-point-in-time-checks` | Lint (CI + IDE) |
+| Rule 4 (extended): No `expect(await pomHelper())` | ESLint `flakiness/no-point-in-time-pom-helpers` | Lint (CI + IDE) |
+| Rule 3 (extended): No `nth-child` cell selectors | ESLint `flakiness/no-nth-child-cell-selector` | Lint (CI + IDE) |
+| Rule 1 (extended): Reset filters in admin list tests | ESLint `flakiness/require-reset-filters` (admin specs only) | Lint (CI + IDE) |
 | Rule 8: No test.skip | ESLint `flakiness/no-test-skip` | Lint (CI + IDE) |
+| Rule 8 (extended): No same-name nested describes | ESLint `flakiness/no-duplicate-describe-name` | Lint (CI + IDE) |
+| Rule 19 (new): No stale specs | `npm run check:stale-specs` script | Lint chain (CI) |
 | Rule 9: No `networkidle` | ESLint `flakiness/no-networkidle` | Lint (CI + IDE) |
 | Rule 10: Unregister route mocks | Fixture teardown in `base.ts` + `auth.ts` (after `use()`) | Runtime (automatic) |
 | Rule 11: Per-worker temp files | ESLint `flakiness/no-hardcoded-tmpdir` + Claude hook warning | Lint + edit-time |
@@ -59,6 +91,8 @@ Consolidated guide covering testing rules, tiers, and CI/CD workflows.
 | Rule 18: Wait for hydration proof | ESLint `flakiness/require-hydration-wait` | Lint (CI + IDE) |
 | Column label uniqueness | ESLint `flakiness/no-duplicate-column-labels` | Lint (CI + IDE) |
 | Timeout cascade detection | ESLint `flakiness/warn-slow-with-retries` (warn) | Lint (CI + IDE) |
+| Test/CI file edits require testing_setup_read  | Claude PreToolUse hook (`check-workflow-ready.sh`) | Edit-time |
+| Test/CI file edits require environments_read   | Claude PreToolUse hook (`check-workflow-ready.sh`) | Edit-time |
 
 ---
 

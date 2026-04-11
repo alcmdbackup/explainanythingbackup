@@ -109,4 +109,17 @@ export class AdminBasePage {
     await this.backToApp.click();
     await this.page.waitForURL('**/');
   }
+
+  /**
+   * Reset the page's default filter state to a known baseline so seeded
+   * test data is visible. Subclasses override to uncheck "Hide test content",
+   * clear search inputs, reset sort/pagination, etc. Base class is no-op
+   * so admin pages without default filters work without an override.
+   *
+   * Tests must call resetFilters() immediately after navigation, before
+   * asserting on seeded rows. See testing_overview.md Rule 1.
+   */
+  async resetFilters(): Promise<void> {
+    // No-op default. Override in subclass.
+  }
 }

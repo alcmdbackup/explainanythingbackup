@@ -15,18 +15,11 @@ import { ConfirmDialog } from '@evolution/components/evolution';
 import {
   listExperimentsAction,
   cancelExperimentAction,
+  type ExperimentSummary,
 } from '@evolution/services/experimentActions';
 import { executeEntityAction } from '@evolution/services/entityActions';
 import { buildExperimentUrl } from '@evolution/lib/utils/evolutionUrls';
-
-interface ExperimentSummary {
-  id: string;
-  name: string;
-  status: string;
-  created_at: string;
-  updated_at?: string;
-  runCount: number;
-}
+import { createMetricColumns } from '@evolution/lib/metrics/metricColumns';
 
 const STATE_COLORS: Record<string, string> = {
   draft: 'var(--text-muted)',
@@ -53,6 +46,7 @@ const FILTERS: FilterDef[] = [
     ],
   },
   { key: 'filterTestContent', label: 'Hide test content', type: 'checkbox', defaultChecked: true },
+  { key: 'name', label: 'Name', type: 'text', placeholder: 'Search...' },
 ];
 
 function StatusDot({ status }: { status: string }): JSX.Element {
@@ -107,22 +101,22 @@ const COLUMNS: ColumnDef<ExperimentSummary>[] = [
   },
 ];
 
+const EMPTY_MESSAGES: Record<string, string> = {
+  draft: 'No draft experiments.',
+  running: 'No experiments running.',
+  stale: 'No stale experiments. All running experiments are healthy.',
+  completed: 'No completed experiments.',
+  cancelled: 'No cancelled experiments.',
+};
+
 function emptyMessageForFilter(status: string): string {
-  switch (status) {
-    case 'draft': return 'No draft experiments.';
-    case 'running': return 'No experiments running.';
-    case 'stale': return 'No stale experiments. All running experiments are healthy.';
-    case 'completed': return 'No completed experiments.';
-    case 'cancelled': return 'No cancelled experiments.';
-    default: return 'No experiments found.';
-  }
+  return EMPTY_MESSAGES[status] ?? 'No experiments found.';
 }
 
 function emptySuggestionForFilter(status: string): string {
-  if (status === 'all' || status === 'draft') {
-    return 'Start one from the experiment creation page.';
-  }
-  return 'Try adjusting filters to see results.';
+  return status === 'all' || status === 'draft'
+    ? 'Start one from the experiment creation page.'
+    : 'Try adjusting filters to see results.';
 }
 
 export default function ExperimentsListPage(): JSX.Element {
@@ -134,26 +128,20 @@ export default function ExperimentsListPage(): JSX.Element {
   const [loading, setLoading] = useState(true);
   const [deleteTarget, setDeleteTarget] = useState<ExperimentSummary | null>(null);
   const [filterValues, setFilterValues] = useState<Record<string, string>>(() => {
-    const defaults: Record<string, string> = { status: 'all' };
-    for (const f of FILTERS) {
-      if (f.type === 'checkbox' && f.defaultChecked) {
-        defaults[f.key] = 'true';
-      }
-    }
-    // Read initial filter values from URL search params
     const urlStatus = searchParams.get('status');
-    if (urlStatus && FILTERS[0]?.options?.some(o => o.value === urlStatus)) {
-      defaults.status = urlStatus;
-    }
-    return defaults;
+    return {
+      status: urlStatus && FILTERS[0]?.options?.some(o => o.value === urlStatus) ? urlStatus : 'all',
+      filterTestContent: 'true',
+    };
   });
 
   const load = useCallback(async () => {
     setLoading(true);
     const statusVal = filterValues.status;
     const isStaleFilter = statusVal === 'stale';
-    const params: { status?: string; filterTestContent?: boolean } = {
+    const params: { status?: string; filterTestContent?: boolean; name?: string } = {
       filterTestContent: filterValues.filterTestContent === 'true',
+      name: filterValues.name || undefined,
     };
     if (statusVal && statusVal !== 'all') {
       // 'stale' is computed client-side (running > 60min), not a DB status
@@ -165,7 +153,7 @@ export default function ExperimentsListPage(): JSX.Element {
       if (isStaleFilter) {
         const staleThreshold = 60 * 60 * 1000; // 60 minutes
         items = items.filter(exp =>
-          Date.now() - new Date(exp.created_at).getTime() > staleThreshold
+          Date.now() - new Date(exp.updated_at ?? exp.created_at).getTime() > staleThreshold
         );
       }
       setExperiments(items);
@@ -209,8 +197,18 @@ export default function ExperimentsListPage(): JSX.Element {
     if (res.success) { toast.success('Experiment deleted'); load(); } else { toast.error(res.error?.message ?? 'Delete failed'); }
   };
 
+  // Drop the propagated `run_count` metric column since the page's COLUMNS already
+  // includes a `runCount` column with header "Runs" sourced from the SQL join
+  // (`evolution_runs(id)`), which counts ALL runs in any state. The propagated
+  // `run_count` metric only counts runs that have written a `cost` row, so the two
+  // disagree for pending/queued runs — and the join-based count is more useful
+  // for the experiments list. The propagated metric still appears on the metrics tab.
+  const metricColumns = createMetricColumns<ExperimentSummary>('experiment')
+    .filter(col => col.key !== 'metric_run_count');
+
   const columnsWithActions: ColumnDef<ExperimentSummary>[] = [
     ...COLUMNS,
+    ...metricColumns,
     {
       key: 'actions',
       header: '',

@@ -56,7 +56,11 @@ describe('METRIC_CATALOG', () => {
       (d): d is typeof d & { listView: true } => 'listView' in d && d.listView === true,
     );
     expect(listViewMetrics.length).toBeGreaterThan(0);
-    expect(listViewMetrics.map(d => d.name)).toContain('cost');
+    // 'cost' is intentionally listView: false on the catalog because RunsTable's base column
+    // renders it with the budget warning + progress bar UI; it's not driven by createMetricColumns.
+    expect(listViewMetrics.map(d => d.name)).not.toContain('cost');
+    expect(listViewMetrics.map(d => d.name)).toContain('generation_cost');
+    expect(listViewMetrics.map(d => d.name)).toContain('ranking_cost');
     expect(listViewMetrics.map(d => d.name)).toContain('run_count');
   });
 });

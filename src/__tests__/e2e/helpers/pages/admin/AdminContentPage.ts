@@ -11,6 +11,7 @@ export class AdminContentPage extends AdminBasePage {
   readonly searchInput: Locator;
   readonly statusFilter: Locator;
   readonly showHiddenCheckbox: Locator;
+  readonly filterTestContentCheckbox: Locator;
   readonly bulkHideButton: Locator;
   readonly table: Locator;
   readonly selectAllCheckbox: Locator;
@@ -33,6 +34,7 @@ export class AdminContentPage extends AdminBasePage {
     this.searchInput = page.getByTestId('admin-content-search');
     this.statusFilter = page.getByTestId('admin-content-status-filter');
     this.showHiddenCheckbox = page.getByTestId('admin-content-show-hidden');
+    this.filterTestContentCheckbox = page.getByTestId('admin-content-filter-test-content');
     this.bulkHideButton = page.getByTestId('admin-content-bulk-hide');
     this.table = page.getByTestId('admin-content-table');
     this.selectAllCheckbox = page.getByTestId('admin-content-select-all');
@@ -128,10 +130,35 @@ export class AdminContentPage extends AdminBasePage {
   }
 
   /**
-   * Toggle show hidden checkbox.
+   * Toggle show hidden checkbox. (Existing helper kept for backwards compat
+   * with tests that legitimately want to toggle.)
    */
   async toggleShowHidden() {
     await this.showHiddenCheckbox.click();
+    await expect(this.table.locator('tbody')).not.toContainText('Loading...');
+  }
+
+  /**
+   * Reset the admin-content page's default filter state to a known baseline.
+   * Uses Playwright's auto-waiting idempotent setChecked(false) — safe to
+   * call regardless of current checkbox state. See testing_overview.md Rule 1.
+   *
+   * NOTE: uses setChecked() not isChecked()-then-uncheck() to avoid the
+   * existing flakiness/no-point-in-time-checks lint rule, which flags
+   * `if (await checkbox.isChecked())` patterns.
+   */
+  async resetFilters(): Promise<void> {
+    await this.filterTestContentCheckbox.setChecked(false);
+  }
+
+  /**
+   * Enable "Show hidden" so hidden rows are visible in the table. Idempotent
+   * via setChecked(true). Use when a test specifically needs to see hidden
+   * content (e.g., after hiding then verifying); resetFilters() does NOT
+   * enable this by default to avoid surprising tests that don't want it.
+   */
+  async enableShowHidden(): Promise<void> {
+    await this.showHiddenCheckbox.setChecked(true);
     await expect(this.table.locator('tbody')).not.toContainText('Loading...');
   }
 

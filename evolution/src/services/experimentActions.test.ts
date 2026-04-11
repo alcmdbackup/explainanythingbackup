@@ -178,18 +178,38 @@ describe('experimentActions', () => {
   // ─── listExperimentsAction ──────────────────────────────────
 
   describe('listExperimentsAction', () => {
+    /** Mock that routes to different chain mocks based on table name. */
+    function makeRoutedMock(handlers: Record<string, () => Record<string, jest.Mock>>) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      mockSupabase.from = jest.fn((table: string) => {
+        const handler = handlers[table];
+        if (handler) return handler();
+        // Default chain that resolves to empty
+        const empty: Record<string, jest.Mock> = {};
+        const self = () => empty;
+        for (const m of ['select', 'eq', 'in', 'not', 'order']) empty[m] = jest.fn(self);
+        empty.then = jest.fn((resolve: (v: unknown) => void) => resolve({ data: [], error: null }));
+        return empty;
+      }) as any;
+    }
+
+    function makeChain(data: unknown, error: unknown = null): Record<string, jest.Mock> {
+      const chain: Record<string, jest.Mock> = {};
+      const self = () => chain;
+      for (const m of ['select', 'eq', 'in', 'not', 'order']) chain[m] = jest.fn(self);
+      chain.then = jest.fn((resolve: (v: unknown) => void) => resolve({ data, error }));
+      return chain;
+    }
+
     it('lists all experiments without filter', async () => {
       const experiments = [
         { id: VALID_UUID, name: 'Exp1', evolution_runs: [{ id: 'r1' }, { id: 'r2' }] },
         { id: VALID_UUID_2, name: 'Exp2', evolution_runs: [] },
       ];
-      const chain = {
-        select: jest.fn().mockReturnThis(),
-        eq: jest.fn().mockReturnThis(),
-        order: jest.fn().mockReturnThis(),
-        then: jest.fn((resolve: (v: unknown) => void) => resolve({ data: experiments, error: null })),
-      };
-      mockSupabase.from = jest.fn().mockReturnValue(chain);
+      makeRoutedMock({
+        evolution_experiments: () => makeChain(experiments),
+        evolution_metrics: () => makeChain([]),
+      });
 
       const result = await listExperimentsAction(undefined);
 
@@ -197,30 +217,25 @@ describe('experimentActions', () => {
       expect(result.data).toHaveLength(2);
       expect(result.data![0]!.runCount).toBe(2);
       expect(result.data![1]!.runCount).toBe(0);
+      expect(result.data![0]!.metrics).toEqual([]);
     });
 
     it('filters experiments by status when provided', async () => {
-      const chain = {
-        select: jest.fn().mockReturnThis(),
-        eq: jest.fn().mockReturnThis(),
-        order: jest.fn().mockReturnThis(),
-        then: jest.fn((resolve: (v: unknown) => void) => resolve({ data: [], error: null })),
-      };
-      mockSupabase.from = jest.fn().mockReturnValue(chain);
+      const expChain = makeChain([]);
+      makeRoutedMock({
+        evolution_experiments: () => expChain,
+        evolution_metrics: () => makeChain([]),
+      });
 
       await listExperimentsAction({ status: 'running' });
 
-      expect(chain.eq).toHaveBeenCalledWith('status', 'running');
+      expect(expChain.eq).toHaveBeenCalledWith('status', 'running');
     });
 
     it('returns error on DB failure', async () => {
-      const chain = {
-        select: jest.fn().mockReturnThis(),
-        eq: jest.fn().mockReturnThis(),
-        order: jest.fn().mockReturnThis(),
-        then: jest.fn((resolve: (v: unknown) => void) => resolve({ data: null, error: { message: 'timeout' } })),
-      };
-      mockSupabase.from = jest.fn().mockReturnValue(chain);
+      makeRoutedMock({
+        evolution_experiments: () => makeChain(null, { message: 'timeout' }),
+      });
 
       const result = await listExperimentsAction(undefined);
 
@@ -229,13 +244,10 @@ describe('experimentActions', () => {
     });
 
     it('returns empty array when no data', async () => {
-      const chain = {
-        select: jest.fn().mockReturnThis(),
-        eq: jest.fn().mockReturnThis(),
-        order: jest.fn().mockReturnThis(),
-        then: jest.fn((resolve: (v: unknown) => void) => resolve({ data: null, error: null })),
-      };
-      mockSupabase.from = jest.fn().mockReturnValue(chain);
+      makeRoutedMock({
+        evolution_experiments: () => makeChain(null),
+        evolution_metrics: () => makeChain([]),
+      });
 
       const result = await listExperimentsAction(undefined);
 
@@ -251,6 +263,7 @@ describe('experimentActions', () => {
       const chain = {
         select: jest.fn().mockReturnThis(),
         eq: jest.fn().mockReturnThis(),
+        in: jest.fn().mockReturnThis(),
         not: jest.fn().mockReturnThis(),
         order: jest.fn().mockReturnThis(),
         then: jest.fn((resolve: (v: unknown) => void) => resolve({ data: [], error: null })),
@@ -270,6 +283,7 @@ describe('experimentActions', () => {
       const chain = {
         select: jest.fn().mockReturnThis(),
         eq: jest.fn().mockReturnThis(),
+        in: jest.fn().mockReturnThis(),
         not: jest.fn().mockReturnThis(),
         order: jest.fn().mockReturnThis(),
         then: jest.fn((resolve: (v: unknown) => void) => resolve({ data: [], error: null })),
@@ -290,6 +304,7 @@ describe('experimentActions', () => {
       const chain = {
         select: jest.fn().mockReturnThis(),
         eq: jest.fn().mockReturnThis(),
+        in: jest.fn().mockReturnThis(),
         not: jest.fn().mockReturnThis(),
         order: jest.fn().mockReturnThis(),
         then: jest.fn((resolve: (v: unknown) => void) => resolve({ data: [], error: null })),
@@ -309,6 +324,7 @@ describe('experimentActions', () => {
       const chain = {
         select: jest.fn().mockReturnThis(),
         eq: jest.fn().mockReturnThis(),
+        in: jest.fn().mockReturnThis(),
         not: jest.fn().mockReturnThis(),
         order: jest.fn().mockReturnThis(),
         then: jest.fn((resolve: (v: unknown) => void) => resolve({ data: [], error: null })),
@@ -329,6 +345,7 @@ describe('experimentActions', () => {
       const chain = {
         select: jest.fn().mockReturnThis(),
         eq: jest.fn().mockReturnThis(),
+        in: jest.fn().mockReturnThis(),
         not: jest.fn().mockReturnThis(),
         order: jest.fn().mockReturnThis(),
         then: jest.fn((resolve: (v: unknown) => void) => resolve({ data: [], error: null })),
@@ -348,6 +365,7 @@ describe('experimentActions', () => {
       const chain = {
         select: jest.fn().mockReturnThis(),
         eq: jest.fn().mockReturnThis(),
+        in: jest.fn().mockReturnThis(),
         not: jest.fn().mockReturnThis(),
         order: jest.fn().mockReturnThis(),
         then: jest.fn((resolve: (v: unknown) => void) => resolve({ data: [], error: null })),
@@ -539,8 +557,16 @@ describe('experimentActions', () => {
       const chain = {
         select: jest.fn().mockReturnThis(),
         eq: jest.fn().mockReturnThis(),
+        in: jest.fn().mockReturnThis(),
         order: jest.fn().mockReturnThis(),
-        then: jest.fn((resolve: (v: unknown) => void) => resolve({ data: experiments, error: null })),
+        then: jest.fn((resolve: (v: unknown) => void) => {
+          // First call returns experiments; subsequent (metrics) call returns []
+          if (chain.select.mock.calls.length === 1) {
+            resolve({ data: experiments, error: null });
+          } else {
+            resolve({ data: [], error: null });
+          }
+        }),
       };
       mockSupabase.from = jest.fn().mockReturnValue(chain);
 

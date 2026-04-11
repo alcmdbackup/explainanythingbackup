@@ -1,5 +1,5 @@
 // E2E tests for the invocations list page.
-// Verifies the page loads, table renders, and expected columns are present.
+// Verifies the page loads, table renders, expected columns, and agent name filter.
 
 import { adminTest, expect } from '../../fixtures/admin-auth';
 
@@ -74,6 +74,34 @@ adminTest.describe('Evolution Invocations (T25)', { tag: '@evolution' }, () => {
       const iterText = await firstIterationCell.textContent();
       // iteration renders as a number or '—'
       expect(iterText?.trim()).toMatch(/^\d+$|—/);
+    }
+  });
+
+  adminTest('agent name filter input is visible', { tag: '@critical' }, async ({ adminPage }) => {
+    await adminPage.goto('/admin/evolution/invocations');
+    await adminPage.waitForLoadState('domcontentloaded');
+
+    const entityList = adminPage.locator('[data-testid="entity-list-page"]');
+    await expect(entityList).toBeVisible({ timeout: 15000 });
+
+    // Agent name filter input should render
+    const agentInput = adminPage.locator('input[placeholder="Filter by agent..."]');
+    await expect(agentInput).toBeVisible({ timeout: 10000 });
+  });
+
+  adminTest('jump-to-page input renders when pagination visible', async ({ adminPage }) => {
+    await adminPage.goto('/admin/evolution/invocations');
+    await adminPage.waitForLoadState('domcontentloaded');
+
+    const entityList = adminPage.locator('[data-testid="entity-list-page"]');
+    await expect(entityList).toBeVisible({ timeout: 15000 });
+
+    // If there are multiple pages, jump-to-page renders; otherwise just verify filter bar works
+    const pagination = adminPage.locator('[data-testid="pagination"]');
+    const hasPagination = await pagination.isVisible();
+    if (hasPagination) {
+      const jumpInput = adminPage.locator('input[aria-label="Jump to page"]');
+      await expect(jumpInput).toBeVisible();
     }
   });
 });

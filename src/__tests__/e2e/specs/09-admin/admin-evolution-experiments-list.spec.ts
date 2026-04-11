@@ -205,4 +205,16 @@ adminTest.describe('Evolution Experiments List', { tag: '@evolution' }, () => {
     // We verify the title "Experiments" renders as evidence the page loaded.
     await expect(listPage.locator('h1:has-text("Experiments")')).toBeVisible();
   });
+
+  adminTest('name search filter input is visible', { tag: '@critical' }, async ({ adminPage }) => {
+    await adminPage.goto('/admin/evolution/experiments');
+    await adminPage.waitForLoadState('domcontentloaded');
+
+    const listPage = adminPage.locator('[data-testid="entity-list-page"]');
+    await expect(listPage).toBeVisible({ timeout: 15000 });
+
+    // Name search input should render
+    const nameInput = adminPage.locator('input[placeholder="Search..."]').first();
+    await expect(nameInput).toBeVisible({ timeout: 10000 });
+  });
 });

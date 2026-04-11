@@ -39,6 +39,7 @@ const listInvocationsInputSchema = z.object({
   runId: z.string().uuid().optional(),
   filterTestContent: z.boolean().optional(),
   successFilter: z.enum(['all', 'success', 'failed']).optional(),
+  agentName: z.string().optional(),
   limit: z.number().int().min(1).max(200).default(50),
   offset: z.number().int().min(0).default(0),
 });
@@ -78,6 +79,10 @@ export const listInvocationsAction = adminAction(
     if (parsed.runId) query = query.eq('run_id', parsed.runId);
     if (parsed.successFilter === 'success') query = query.eq('success', true);
     if (parsed.successFilter === 'failed') query = query.eq('success', false);
+    if (parsed.agentName) {
+      const escaped = parsed.agentName.replace(/[%_\\]/g, '\\$&');
+      query = query.ilike('agent_name', `%${escaped}%`);
+    }
     if (parsed.filterTestContent && testRunIds.length > 0) {
       query = query.not('run_id', 'in', `(${testRunIds.join(',')})`);
     }

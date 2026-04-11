@@ -6,6 +6,7 @@ import type { AgentContext, AgentResult, AgentOutput, DetailFieldDef, Finalizati
 import type { ExecutionDetailBase } from '../types';
 import { BudgetExceededError, BudgetExceededWithPartialResults } from '../types';
 import { createInvocation, updateInvocation } from '../pipeline/infra/trackInvocations';
+import { createAgentCostScope } from '../pipeline/infra/trackBudget';
 
 export abstract class Agent<TInput, TOutput, TDetail extends ExecutionDetailBase = ExecutionDetailBase> {
   abstract readonly name: string;
@@ -20,24 +21,24 @@ export abstract class Agent<TInput, TOutput, TDetail extends ExecutionDetailBase
       ctx.db, ctx.runId, ctx.iteration, this.name, ctx.executionOrder,
     );
 
-    // Thread invocationId into ctx so execute() can pass it on every callLLM
-    // for llmCallTracking joins (Critical Fix H). Empty string sentinel when
-    // createInvocation returned null — agents should still function but lose
-    // the invocation FK on llmCallTracking rows.
-    const extendedCtx: AgentContext = { ...ctx, invocationId: invocationId ?? '' };
+    // Per-invocation cost scope: delegates budget gating to shared tracker while
+    // tracking this agent's own spend independently (fixes parallel delta bug).
+    // invocationId empty string sentinel: agents still function but lose the FK on llmCallTracking rows.
+    const costScope = createAgentCostScope(ctx.costTracker);
+    const extendedCtx: AgentContext = { ...ctx, invocationId: invocationId ?? '', costTracker: costScope };
 
-    const costBefore = ctx.costTracker.getTotalSpent();
     const startMs = Date.now();
 
     ctx.logger.info(`Agent ${this.name} starting`, { phaseName: this.name, iteration: ctx.iteration });
 
     try {
       const output = await this.execute(input, extendedCtx);
-      const cost = ctx.costTracker.getTotalSpent() - costBefore;
       const durationMs = Date.now() - startMs;
-
       const { detail } = output;
-      if (detail && detail.totalCost === 0) detail.totalCost = cost;
+
+      // Prefer detail.totalCost over getOwnSpent() — pre-baked LLM clients record spend
+      // on the original shared tracker and bypass the scope.
+      const cost = (detail?.totalCost ?? 0) > 0 ? detail!.totalCost : costScope.getOwnSpent();
 
       const parseResult = this.executionDetailSchema.safeParse(detail);
       if (!parseResult.success) {
@@ -59,12 +60,12 @@ export abstract class Agent<TInput, TOutput, TDetail extends ExecutionDetailBase
       return { success: true, result: output.result, cost, durationMs, invocationId };
 
     } catch (error) {
-      const cost = ctx.costTracker.getTotalSpent() - costBefore;
+      const cost = costScope.getOwnSpent();
       const durationMs = Date.now() - startMs;
       const errorMessage = error instanceof Error ? error.message : String(error);
       await updateInvocation(ctx.db, invocationId, { cost_usd: cost, success: false, error_message: errorMessage, duration_ms: durationMs });
 
-      // Check BudgetExceededWithPartialResults BEFORE BudgetExceededError (subclass first)
+      // BudgetExceededWithPartialResults extends BudgetExceededError — check subclass first
       if (error instanceof BudgetExceededWithPartialResults) {
         return { success: false, result: null, cost, durationMs, invocationId, budgetExceeded: true, partialResult: error.partialData };
       }

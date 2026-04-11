@@ -73,7 +73,17 @@ function DashboardContent(): JSX.Element {
     id: r.id,
     explanation_id: r.explanation_id ?? null,
     status: r.status,
-    total_cost_usd: r.total_cost_usd,
+    // Map the visualization action's `total_cost_usd` (sourced from the evolution_run_costs view)
+    // into a synthetic `cost` metric row so RunsTable's metrics-array-based cost column renders.
+    metrics: [
+      {
+        id: `${r.id}-cost`, entity_type: 'run' as const, entity_id: r.id, metric_name: 'cost',
+        value: r.total_cost_usd ?? 0, sigma: null, ci_lower: null, ci_upper: null, n: 1,
+        origin_entity_type: null, origin_entity_id: null, aggregation_method: null,
+        source: 'view', stale: false,
+        created_at: r.created_at, updated_at: r.created_at,
+      },
+    ],
     budget_cap_usd: r.budget_cap_usd ?? 0,
     error_message: r.error_message ?? null,
     completed_at: r.completed_at,
