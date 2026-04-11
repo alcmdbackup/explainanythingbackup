@@ -410,7 +410,7 @@ Evolution E2E specs include accessibility tests using Playwright's accessibility
 
 **What's @critical:** Auth session persistence, protected route access, library page + card display + navigation, unauth redirect tests (via `chromium-unauth` project), admin smoke, search/generate core flow.
 
-**What's @evolution (not @critical):** All evolution admin pages — dashboard, runs, experiments, strategies, arena, variants, logs, invocations, wizard, run-pipeline, filter/navigation, accessibility, budget, UI regression fixes. These run on PRs to `production` and nightly.
+**What's @evolution (not @critical):** All evolution admin pages — dashboard, runs, experiments, strategies, arena, variants, logs, invocations, wizard, run-pipeline, filter/navigation, accessibility, budget, budget-dispatch, UI regression fixes. These run on PRs to `production`, nightly, and locally during `/finalize` when `evolution/` files are changed.
 
 The `chromium-unauth` Playwright project also filters to `grep: /@critical/`, so only the 2 `@critical` unauth tests run in the critical suite (not all 13 unauth tests).
 
