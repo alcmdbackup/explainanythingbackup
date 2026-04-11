@@ -6,7 +6,8 @@
 
 import { useState, useCallback } from 'react';
 import { type ImportSource } from '@/lib/schemas/schemas';
-import { processImport, detectImportSource } from '@/actions/importActions';
+import { processImport } from '@/actions/importActions';
+import { detectSource } from '@/lib/services/importArticle';
 import { supabase_browser } from '@/lib/supabase';
 import { Spinner } from '@/components/ui/spinner';
 
@@ -21,7 +22,7 @@ interface HomeImportPanelProps {
   className?: string;
 }
 
-type PanelState = 'idle' | 'detecting' | 'processing' | 'error';
+type PanelState = 'idle' | 'processing' | 'error';
 
 const SOURCE_LABELS: Record<ImportSource, string> = {
   chatgpt: 'ChatGPT',
@@ -41,23 +42,14 @@ export default function HomeImportPanel({
   const [error, setError] = useState<string | null>(null);
   const [wasAutoDetected, setWasAutoDetected] = useState(false);
 
-  const handleContentChange = useCallback(async (value: string) => {
+  const handleContentChange = useCallback((value: string) => {
     setContent(value);
     setError(null);
 
-    // Auto-detect source when content is pasted (100+ characters)
+    // Auto-detect source when content is pasted (client-side, synchronous)
     if (value.trim().length > 100) {
-      setState('detecting');
-      try {
-        const result = await detectImportSource(value);
-        if (!result.error) {
-          setSource(result.source);
-          setWasAutoDetected(true);
-        }
-      } catch {
-        // Ignore detection errors
-      }
-      setState('idle');
+      setSource(detectSource(value));
+      setWasAutoDetected(true);
     } else {
       setWasAutoDetected(false);
     }
@@ -158,12 +150,6 @@ export default function HomeImportPanel({
           <option value="gemini">{SOURCE_LABELS.gemini}</option>
           <option value="other">{SOURCE_LABELS.other}</option>
         </select>
-        {state === 'detecting' && (
-          <span className="text-xs text-[var(--text-muted)] flex items-center gap-1">
-            <Spinner variant="circle" size={12} />
-            Detecting...
-          </span>
-        )}
         {wasAutoDetected && state === 'idle' && (
           <span className="text-xs text-[var(--text-muted)]">(auto-detected)</span>
         )}

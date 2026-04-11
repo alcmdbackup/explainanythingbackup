@@ -159,6 +159,16 @@ adminTest.describe('Evolution Run Pipeline', { tag: '@evolution' }, () => {
       const { data } = await sb.from('evolution_runs').select('status').eq('id', runId).single();
       return data?.status;
     }, { timeout: 120_000, intervals: [3_000] }).toBe('completed');
+
+    // 7. Wait for at least one log entry to be committed — guards against a race where the run
+    //    status flips to 'completed' before the final log flush lands in evolution_logs.
+    await expect.poll(async () => {
+      const { count } = await sb
+        .from('evolution_logs')
+        .select('*', { count: 'exact', head: true })
+        .eq('run_id', runId);
+      return count ?? 0;
+    }, { timeout: 30_000, intervals: [2_000] }).toBeGreaterThan(0);
   });
 
   adminTest.afterAll(async () => {
@@ -389,8 +399,12 @@ adminTest.describe('Evolution Run Pipeline', { tag: '@evolution' }, () => {
     await expect(logsTab).toBeVisible({ timeout: 10000 });
     await logsTab.click();
 
+    // Wait for LogsTab loading skeleton to disappear (component starts with loading:true and
+    // renders an animate-pulse div until the server action resolves — no tr rows exist yet)
+    await expect(adminPage.locator('[data-testid="tab-content"] .animate-pulse')).toBeHidden({ timeout: 15000 });
+
     // Verify at least one log entry row is visible
     const logRows = adminPage.locator('[data-testid="tab-content"] tr, [data-testid="tab-content"] [data-testid^="log-"]');
-    await expect(logRows.first()).toBeVisible({ timeout: 30000 });
+    await expect(logRows.first()).toBeVisible({ timeout: 15000 });
   });
 });
