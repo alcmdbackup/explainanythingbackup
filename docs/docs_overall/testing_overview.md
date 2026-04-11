@@ -91,6 +91,8 @@ Consolidated guide covering testing rules, tiers, and CI/CD workflows.
 | Rule 18: Wait for hydration proof | ESLint `flakiness/require-hydration-wait` | Lint (CI + IDE) |
 | Column label uniqueness | ESLint `flakiness/no-duplicate-column-labels` | Lint (CI + IDE) |
 | Timeout cascade detection | ESLint `flakiness/warn-slow-with-retries` (warn) | Lint (CI + IDE) |
+| Test/CI file edits require testing_setup_read  | Claude PreToolUse hook (`check-workflow-ready.sh`) | Edit-time |
+| Test/CI file edits require environments_read   | Claude PreToolUse hook (`check-workflow-ready.sh`) | Edit-time |
 
 ---
 

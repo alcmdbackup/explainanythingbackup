@@ -73,6 +73,10 @@ if [ "$TOOL_NAME" = "Read" ]; then
     FIELD_TO_UPDATE=".prerequisites.project_workflow_read"
   elif [[ "$FILE_PATH" == *"testing_overview.md"* ]]; then
     FIELD_TO_UPDATE=".prerequisites.testing_overview_read"
+  elif [[ "$FILE_PATH" == *"testing_setup.md"* ]]; then
+    FIELD_TO_UPDATE=".prerequisites.testing_setup_read"
+  elif [[ "$FILE_PATH" == *"docs/docs_overall/environments.md"* ]]; then
+    FIELD_TO_UPDATE=".prerequisites.environments_read"
   elif [[ "$FILE_PATH" == *"design_style_guide.md"* ]]; then
     FIELD_TO_UPDATE=".prerequisites.design_style_guide_read"
   fi
