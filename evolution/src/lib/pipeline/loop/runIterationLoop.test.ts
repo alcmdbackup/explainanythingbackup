@@ -46,6 +46,7 @@ jest.mock('../infra/createEvolutionLLMClient', () => ({
     complete: jest.fn(),
     completeStructured: jest.fn(),
   }),
+  calculateCost: jest.fn().mockReturnValue(0.001),
 }));
 
 jest.mock('../infra/trackBudget', () => ({
