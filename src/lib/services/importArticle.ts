@@ -10,97 +10,10 @@ import { callLLM, DEFAULT_MODEL } from './llms';
 import { type ImportSource } from '@/lib/schemas/schemas';
 import { withLogging } from '@/lib/logging/server/automaticServerLoggingBase';
 
+// Re-export the client-safe detectSource so server-side code can still import from here
+export { detectSource } from './importSourceDetect';
+
 const FILE_DEBUG = true;
-
-/**
- * Heuristic patterns for detecting AI source
- */
-const SOURCE_PATTERNS: Record<Exclude<ImportSource, 'generated'>, RegExp[]> = {
-    chatgpt: [
-        /^(Certainly!|Sure!|Of course!|Absolutely!)/i,
-        /I'd be happy to help/i,
-        /Here's (a|an|the|my)/i,
-        /Let me (help|explain|break)/i,
-        /Great question!/i,
-    ],
-    claude: [
-        /I'll help you/i,
-        /I can help with that/i,
-        /Here's (a|an|my) (detailed|comprehensive|thorough)/i,
-        /Let me (walk|guide) you through/i,
-        /I'd be glad to/i,
-    ],
-    gemini: [
-        /Here's (some information|what I found)/i,
-        /Based on (my|the) (knowledge|information)/i,
-        /I can provide/i,
-    ],
-    other: []
-};
-
-/**
- * Closing phrase patterns to help with detection
- */
-const CLOSING_PATTERNS: RegExp[] = [
-    /Let me know if you (have|need|want)/i,
-    /Hope this helps!/i,
-    /Feel free to ask/i,
-    /Would you like me to/i,
-    /Is there anything else/i,
-];
-
-/**
- * Detects the likely source of AI-generated content
- *
- * @param content - Raw pasted content from user
- * @returns Detected source with confidence, or 'other' if uncertain
- */
-export function detectSource(content: string): ImportSource {
-    const scores: Record<Exclude<ImportSource, 'generated' | 'other'>, number> = {
-        chatgpt: 0,
-        claude: 0,
-        gemini: 0,
-    };
-
-    // Check opening patterns (weighted more heavily)
-    const firstParagraph = content.slice(0, 500);
-
-    for (const [source, patterns] of Object.entries(SOURCE_PATTERNS)) {
-        if (source === 'other' || source === 'generated') continue;
-
-        for (const pattern of patterns) {
-            if (pattern.test(firstParagraph)) {
-                scores[source as keyof typeof scores] += 2;
-            }
-            // Also check full content with lower weight
-            if (pattern.test(content)) {
-                scores[source as keyof typeof scores] += 1;
-            }
-        }
-    }
-
-    // Check closing patterns (any AI source)
-    const hasClosingPattern = CLOSING_PATTERNS.some(p => p.test(content));
-    if (hasClosingPattern) {
-        // Boost all scores slightly since this confirms AI origin
-        Object.keys(scores).forEach(key => {
-            scores[key as keyof typeof scores] += 0.5;
-        });
-    }
-
-    // Find highest scoring source
-    const entries = Object.entries(scores) as [keyof typeof scores, number][];
-    const sorted = entries.sort((a, b) => b[1] - a[1]);
-    const [topSource, topScore] = sorted[0]!;
-    const [, secondScore] = sorted[1]!;
-
-    // Require minimum score and clear winner
-    if (topScore >= 2 && topScore > secondScore) {
-        return topSource;
-    }
-
-    return 'other';
-}
 
 /**
  * Schema for LLM reformatting response
