@@ -5,7 +5,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import HomeImportPanel from '../HomeImportPanel';
 import { processImport } from '@/actions/importActions';
-import { detectSource } from '@/lib/services/importArticle';
+import { detectSource } from '@/lib/services/importSourceDetect';
 import { supabase_browser } from '@/lib/supabase';
 
 // Mock dependencies
@@ -13,7 +13,7 @@ jest.mock('@/actions/importActions', () => ({
   processImport: jest.fn(),
 }));
 
-jest.mock('@/lib/services/importArticle', () => ({
+jest.mock('@/lib/services/importSourceDetect', () => ({
   detectSource: jest.fn(),
 }));
 

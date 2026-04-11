@@ -7,7 +7,7 @@
 import { useState, useCallback } from 'react';
 import { type ImportSource } from '@/lib/schemas/schemas';
 import { processImport } from '@/actions/importActions';
-import { detectSource } from '@/lib/services/importArticle';
+import { detectSource } from '@/lib/services/importSourceDetect';
 import { supabase_browser } from '@/lib/supabase';
 import { Spinner } from '@/components/ui/spinner';
 

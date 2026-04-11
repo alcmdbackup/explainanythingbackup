@@ -12,7 +12,7 @@ jest.mock('@/actions/importActions', () => ({
 }));
 
 // Mock detectSource (now called client-side directly)
-jest.mock('@/lib/services/importArticle', () => ({
+jest.mock('@/lib/services/importSourceDetect', () => ({
     detectSource: jest.fn(),
 }));
 
@@ -26,7 +26,7 @@ jest.mock('@/lib/supabase', () => ({
 }));
 
 import { processImport } from '@/actions/importActions';
-import { detectSource } from '@/lib/services/importArticle';
+import { detectSource } from '@/lib/services/importSourceDetect';
 import { supabase_browser } from '@/lib/supabase';
 
 describe('ImportModal', () => {
