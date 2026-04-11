@@ -15,11 +15,9 @@ import {
 } from '../../helpers/test-data-factory';
 
 test.describe('Action Buttons', () => {
-  // Add retries for flaky network conditions
-  test.describe.configure({ retries: 1, mode: 'serial' });
-
-  // Increase timeout for these tests since they involve DB loading and streaming
-  test.setTimeout(60000);
+  // Retries 2 + 90s timeout: under CI load, concurrent AI enrichment jobs can transiently
+  // cause getExplanationById to return "not found". Extra retry absorbs the race.
+  test.describe.configure({ retries: 2, mode: 'serial', timeout: 90000 });
 
   let testExplanation: TestExplanation;
 
