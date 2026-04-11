@@ -76,4 +76,33 @@ describe('MetricGrid', () => {
     const grid = container.querySelector('[data-testid="metric-grid"]');
     expect(grid?.className).toContain('sm:grid-cols-4');
   });
+
+  it('renders two items with same label but different id without React key collision', () => {
+    const spy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const metrics = [
+      { id: 'total_generation_cost', label: 'Generation Cost', value: '$0.15' },
+      { id: 'total_ranking_cost', label: 'Generation Cost', value: '$0.16' },
+    ];
+    render(<MetricGrid metrics={metrics} columns={2} />);
+    // Both items should render
+    const cells = screen.getAllByText('Generation Cost');
+    expect(cells).toHaveLength(2);
+    // No React key warning
+    expect(spy).not.toHaveBeenCalledWith(
+      expect.stringContaining('key')
+    );
+    spy.mockRestore();
+  });
+
+  it('falls back to label as key when id is not provided', () => {
+    const spy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const metrics = [
+      { label: 'Unique A', value: '1' },
+      { label: 'Unique B', value: '2' },
+    ];
+    render(<MetricGrid metrics={metrics} columns={2} />);
+    expect(screen.getByText('Unique A')).toBeInTheDocument();
+    expect(screen.getByText('Unique B')).toBeInTheDocument();
+    spy.mockRestore();
+  });
 });

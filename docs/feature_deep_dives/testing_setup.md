@@ -321,6 +321,49 @@ import remarkParse from 'remark-parse';
 
 ## E2E Patterns
 
+### `expect.poll` for POM Helper Assertions
+
+Custom POM helpers that return `Promise<T>` should be asserted with `expect.poll`, NOT `expect(await helper())`. The latter captures the value once and races with React hydration / streaming. Enforced by ESLint `flakiness/no-point-in-time-pom-helpers` (testing_overview.md Rule 4).
+
+```typescript
+// Wrong — point-in-time, races with re-render
+expect(await resultsPage.isPlainTextMode()).toBe(true);
+expect(await resultsPage.getContent()).toEqual(initialContent);
+
+// Right — Playwright retries the helper until it matches or timeout
+await expect.poll(() => resultsPage.isPlainTextMode()).toBe(true);
+await expect
+  .poll(() => resultsPage.getContent(), { timeout: 10000 })
+  .toEqual(initialContent);
+```
+
+The `flakiness/no-point-in-time-pom-helpers` rule fires on `expect(await <camelCasePomInstance>.<method>())` patterns. Playwright's bare `page` fixture is excluded (no uppercase letter before `Page`), so `expect(await page.title()).toBe('foo')` is allowed. Use `expect.poll` anyway for genuine assertion-style checks.
+
+### `resetFilters()` POM Convention for Admin List Pages
+
+Admin list pages with default UI filters (`filterTestContent=true` on the explanations table, etc.) hide seeded `[TEST]`-prefixed rows. Tests must reset the UI's default filter state immediately after navigation, before asserting on seeded rows. The `AdminBasePage.resetFilters()` method is no-op by default; subclasses override to uncheck their specific default filters using Playwright's auto-waiting idempotent `setChecked(false)`. Enforced by ESLint `flakiness/require-reset-filters` for `09-admin/**/*.spec.ts`.
+
+```typescript
+// AdminContentPage.ts override
+async resetFilters(): Promise<void> {
+  // setChecked is auto-waiting + idempotent — safe to call regardless of state.
+  // Do NOT use isChecked()-then-uncheck — that pattern is flagged by the
+  // existing flakiness/no-point-in-time-checks rule.
+  await this.filterTestContentCheckbox.setChecked(false);
+}
+
+// In a test:
+adminTest('seeds and filters', async ({ adminPage }) => {
+  const contentPage = new AdminContentPage(adminPage);
+  await contentPage.gotoContent();
+  await contentPage.resetFilters();          // ← REQUIRED before seeded-row assertions
+  await contentPage.search('[TEST] foo');
+  // ...
+});
+```
+
+For tests that need hidden content visible (e.g. after hiding then verifying), use the separate `enableShowHidden()` helper rather than folding it into `resetFilters()`. This avoids surprising tests that don't want hidden content visible.
+
 ### Page Object Models
 
 ```typescript

@@ -1,6 +1,6 @@
 // Tests for shared LogsTab component.
 
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
 import { LogsTab } from './LogsTab';
 
 const mockLogs = [
@@ -152,5 +152,117 @@ describe('LogsTab', () => {
     await waitFor(() => {
       expect(screen.getByText('1 log')).toBeInTheDocument();
     });
+  });
+
+  // ─── Phase 3: Filter correctness tests ──────────────────────────
+
+  it('iteration dropdown options have string values so selected item highlights correctly', async () => {
+    render(<LogsTab entityType="run" entityId="run-1" />);
+    await waitFor(() => expect(screen.getByLabelText('Filter by iteration')).toBeInTheDocument());
+
+    const select = screen.getByLabelText('Filter by iteration') as HTMLSelectElement;
+    const options = Array.from(select.querySelectorAll('option'));
+    // All options must have string values (not numbers) to match the string state
+    const numberedOptions = options.filter(o => o.value !== '');
+    expect(numberedOptions.length).toBeGreaterThan(0);
+    numberedOptions.forEach(o => {
+      expect(typeof o.value).toBe('string');
+    });
+  });
+
+  it('level filter change triggers reload with correct filter arg', async () => {
+    const { getEntityLogsAction } = jest.requireMock('@evolution/services/logActions');
+    getEntityLogsAction.mockClear();
+
+    render(<LogsTab entityType="run" entityId="run-1" />);
+    await waitFor(() => expect(screen.getByLabelText('Filter by level')).toBeInTheDocument());
+
+    const callsBefore = getEntityLogsAction.mock.calls.length;
+    const select = screen.getByLabelText('Filter by level');
+    fireEvent.change(select, { target: { value: 'error' } });
+
+    await waitFor(() => {
+      expect(getEntityLogsAction.mock.calls.length).toBeGreaterThan(callsBefore);
+    });
+    const lastCall = getEntityLogsAction.mock.calls[getEntityLogsAction.mock.calls.length - 1]![0];
+    expect(lastCall.filters.level).toBe('error');
+  });
+
+  it('"All levels" selection sends undefined level to server action', async () => {
+    const { getEntityLogsAction } = jest.requireMock('@evolution/services/logActions');
+    getEntityLogsAction.mockClear();
+
+    render(<LogsTab entityType="run" entityId="run-1" />);
+    await waitFor(() => expect(screen.getByLabelText('Filter by level')).toBeInTheDocument());
+
+    // Set to 'error' first, then back to 'All'
+    const select = screen.getByLabelText('Filter by level');
+    fireEvent.change(select, { target: { value: 'error' } });
+    await waitFor(() => {
+      const calls = getEntityLogsAction.mock.calls;
+      const last = calls[calls.length - 1]![0];
+      expect(last.filters.level).toBe('error');
+    });
+
+    fireEvent.change(select, { target: { value: '' } });
+    await waitFor(() => {
+      const calls = getEntityLogsAction.mock.calls;
+      const last = calls[calls.length - 1]![0];
+      // Empty string → falsy → not included in filters
+      expect(last.filters.level).toBeUndefined();
+    });
+  });
+
+  it('agent filter is debounced — does not call action immediately on each keystroke', async () => {
+    jest.useFakeTimers();
+    const { getEntityLogsAction } = jest.requireMock('@evolution/services/logActions');
+
+    render(<LogsTab entityType="run" entityId="run-1" />);
+    // Wait for initial load
+    await act(async () => { jest.runAllTimers(); });
+    await waitFor(() => expect(screen.getByLabelText('Filter by agent name')).toBeInTheDocument());
+
+    getEntityLogsAction.mockClear();
+    const input = screen.getByLabelText('Filter by agent name');
+
+    // Type characters — action should NOT be called immediately
+    fireEvent.change(input, { target: { value: 'gen' } });
+    expect(getEntityLogsAction).not.toHaveBeenCalled();
+
+    // Advance timers to trigger debounce
+    await act(async () => { jest.advanceTimersByTime(350); });
+
+    await waitFor(() => {
+      expect(getEntityLogsAction).toHaveBeenCalled();
+    });
+    const lastCall = getEntityLogsAction.mock.calls[getEntityLogsAction.mock.calls.length - 1]![0];
+    expect(lastCall.filters.agentName).toBe('gen');
+
+    jest.useRealTimers();
+  });
+
+  it('variant ID filter is debounced', async () => {
+    jest.useFakeTimers();
+    const { getEntityLogsAction } = jest.requireMock('@evolution/services/logActions');
+
+    render(<LogsTab entityType="run" entityId="run-1" />);
+    await act(async () => { jest.runAllTimers(); });
+    await waitFor(() => expect(screen.getByPlaceholderText('Variant ID...')).toBeInTheDocument());
+
+    getEntityLogsAction.mockClear();
+    const input = screen.getByPlaceholderText('Variant ID...');
+
+    fireEvent.change(input, { target: { value: 'abc' } });
+    expect(getEntityLogsAction).not.toHaveBeenCalled();
+
+    await act(async () => { jest.advanceTimersByTime(350); });
+
+    await waitFor(() => {
+      expect(getEntityLogsAction).toHaveBeenCalled();
+    });
+    const lastCall = getEntityLogsAction.mock.calls[getEntityLogsAction.mock.calls.length - 1]![0];
+    expect(lastCall.filters.variantId).toBe('abc');
+
+    jest.useRealTimers();
   });
 });

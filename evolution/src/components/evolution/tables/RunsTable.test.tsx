@@ -12,12 +12,33 @@ jest.mock('@evolution/lib/utils/formatters', () => ({
   formatDate: (d: string) => new Date(d).toLocaleDateString(),
 }));
 
+function makeMetric(name: string, value: number) {
+  return {
+    id: `${name}-id`,
+    entity_type: 'run' as const,
+    entity_id: 'run-id',
+    metric_name: name,
+    value,
+    sigma: null,
+    ci_lower: null,
+    ci_upper: null,
+    n: 1,
+    origin_entity_type: null,
+    origin_entity_id: null,
+    aggregation_method: null,
+    source: 'during_execution',
+    stale: false,
+    created_at: '2026-03-19T00:00:00Z',
+    updated_at: '2026-03-19T00:00:00Z',
+  };
+}
+
 const mockRuns: BaseRun[] = [
   {
     id: 'run-1',
     explanation_id: 42,
     status: 'completed',
-    total_cost_usd: 0.45,
+    metrics: [makeMetric('cost', 0.45)],
     budget_cap_usd: 1.00,
     error_message: null,
     completed_at: '2026-03-19T01:00:00Z',
@@ -28,7 +49,7 @@ const mockRuns: BaseRun[] = [
     id: 'run-2',
     explanation_id: null,
     status: 'running',
-    total_cost_usd: 0.90,
+    metrics: [makeMetric('cost', 0.90)],
     budget_cap_usd: 1.00,
     error_message: null,
     completed_at: null,

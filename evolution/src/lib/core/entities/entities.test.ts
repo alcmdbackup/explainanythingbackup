@@ -28,10 +28,11 @@ describe('RunEntity', () => {
     expect(entity.children.every(c => c.cascade === 'delete')).toBe(true);
   });
 
-  it('has 1 execution + 9 finalization + 0 propagation metrics', () => {
-    expect(entity.metrics.duringExecution).toHaveLength(1);
-    // 7 ratings/match metrics + 2 cost-split metrics (total_generation_cost, total_ranking_cost)
-    expect(entity.metrics.atFinalization).toHaveLength(9);
+  it('has 4 execution + 7 finalization + 0 propagation metrics', () => {
+    // cost + generation_cost + ranking_cost + seed_cost (per-purpose split written live by createLLMClient)
+    expect(entity.metrics.duringExecution).toHaveLength(4);
+    // 7 ratings/match/count metrics — total_*_cost moved to strategy/experiment as propagated
+    expect(entity.metrics.atFinalization).toHaveLength(7);
     expect(entity.metrics.atPropagation).toHaveLength(0);
   });
 
@@ -69,12 +70,18 @@ describe('StrategyEntity', () => {
     expect(entity.children[0]!.cascade).toBe('delete');
   });
 
-  it('has 14 propagation metrics (same as SHARED_PROPAGATION_DEFS)', () => {
-    expect(entity.metrics.atPropagation).toHaveLength(14);
+  it('has 20 propagation metrics (incl. gen/rank/seed cost split entries)', () => {
+    expect(entity.metrics.atPropagation).toHaveLength(20);
     const names = entity.metrics.atPropagation.map(d => d.name);
     expect(names).toContain('run_count');
     expect(names).toContain('total_cost');
     expect(names).toContain('avg_final_elo');
+    expect(names).toContain('total_generation_cost');
+    expect(names).toContain('avg_generation_cost_per_run');
+    expect(names).toContain('total_ranking_cost');
+    expect(names).toContain('avg_ranking_cost_per_run');
+    expect(names).toContain('total_seed_cost');
+    expect(names).toContain('avg_seed_cost_per_run');
   });
 
   it('has rename field', () => {

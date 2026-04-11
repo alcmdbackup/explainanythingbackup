@@ -1,0 +1,28 @@
+{
+  "branch": "feat/fix_cost_reporting_evolution_generation_20260408",
+  "created_at": "2026-04-08T00:00:00Z",
+  "prerequisites": {
+    "testing_overview_read": "2026-04-09T02:57:05Z",
+    "getting_started_read": "2026-04-09T05:04:16Z",
+    "project_workflow_read": "2026-04-09T05:04:19Z",
+    "todos_created": "2026-04-09T05:05:48Z",
+    "design_style_guide_read": "2026-04-09T05:28:54Z"
+  },
+  "relevantDocs": [
+    "evolution/docs/README.md",
+    "evolution/docs/architecture.md",
+    "evolution/docs/data_model.md",
+    "evolution/docs/entities.md",
+    "evolution/docs/metrics.md",
+    "evolution/docs/visualization.md",
+    "evolution/docs/cost_optimization.md",
+    "evolution/docs/strategies_and_experiments.md",
+    "evolution/docs/rating_and_comparison.md",
+    "evolution/docs/arena.md",
+    "evolution/docs/logging.md",
+    "evolution/docs/curriculum.md",
+    "evolution/docs/reference.md",
+    "evolution/docs/minicomputer_deployment.md",
+    "evolution/docs/agents/overview.md"
+  ]
+}

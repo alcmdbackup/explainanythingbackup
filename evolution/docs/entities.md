@@ -31,8 +31,8 @@ flowchart TD
 
     COMP["`**ARENA COMPARISON**
     _evolution_arena_comparisons_`"]
-    COMP -- "entry_a FK" --> VAR
-    COMP -- "entry_b FK" --> VAR
+    COMP -- "entry_a (app-enforced)" --> VAR
+    COMP -- "entry_b (app-enforced)" --> VAR
 
     LOG["`**LOG**
     _evolution_logs_`"]
@@ -68,8 +68,8 @@ flowchart TD
 | Run | Agent Invocation | `invocation.run_id` | 1:N | One per agent per iteration, UNIQUE(run_id, iteration, agent_name) |
 | Agent Invocation | Variant | logical (agent_name + generation) | 1:N | Agents produce variants during execution |
 | Variant | Variant | `variant.parent_variant_id` | 0:1 | Self-referential lineage (crossover has multiple parents in pipeline state) |
-| Arena Comparison | Variant | `arena_comparison.entry_a` | N:1 | References a variant with `synced_to_arena=true` |
-| Arena Comparison | Variant | `arena_comparison.entry_b` | N:1 | References a variant with `synced_to_arena=true` |
+| Arena Comparison | Variant | `arena_comparison.entry_a` (app-enforced) | N:1 | DB FK dropped (migration 20260409000001); app-layer cleanup in VariantEntity.ts |
+| Arena Comparison | Variant | `arena_comparison.entry_b` (app-enforced) | N:1 | DB FK dropped (migration 20260409000001); app-layer cleanup in VariantEntity.ts |
 | Log | Run/Experiment/Strategy | denormalized FKs | N:1 | `entity_type` + `entity_id` identify direct emitter; ancestor FKs enable aggregation |
 | Metrics | Run/Strategy/Experiment | `entity_type` + `entity_id` | N:1 | Polymorphic — entity_type determines which entity the metric belongs to |
 
@@ -113,7 +113,7 @@ Prompt
 ├── Experiment (prompt_id) → cascade delete
 │   └── Run (experiment_id) → cascade delete
 │       ├── Variant (run_id) → cascade delete
-│       │   └── Arena Comparison (entry_a/entry_b) → cascade delete
+│       │   └── Arena Comparison (entry_a/entry_b) → explicit delete in VariantEntity.ts (DB FK removed)
 │       └── Invocation (run_id) → cascade delete
 └── Run (prompt_id) → cascade delete
         └── (same as above)

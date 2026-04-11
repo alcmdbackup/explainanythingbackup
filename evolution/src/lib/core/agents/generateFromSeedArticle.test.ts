@@ -311,4 +311,20 @@ describe('GenerateFromSeedArticleAgent', () => {
     expect(generationCall).toBeDefined();
     expect(generationCall![2]?.invocationId).toBe('inv-gfsa');
   });
+
+  it('passes the typed AgentName label "generation" (drift catcher)', async () => {
+    // Drift catcher: per the per-purpose cost split fix, this agent must always pass
+    // the literal string 'generation' as the second arg to llm.complete() so the
+    // V2 cost tracker buckets the call under phaseCosts['generation'] and writes
+    // generation_cost via writeMetricMax. If a future refactor passes a different
+    // label (e.g. 'gen', 'generate_from_seed_article', or any non-AgentName string),
+    // the typed parameter will reject it at compile time AND this test catches the
+    // semantic drift.
+    const llm = mkLlm();
+    const agent = new GenerateFromSeedArticleAgent();
+    await agent.run({ ...makeInput(), llm }, makeCtx());
+    const calls = (llm.complete as jest.Mock).mock.calls;
+    const labels = calls.map(c => c[1]);
+    expect(labels).toContain('generation');
+  });
 });

@@ -49,7 +49,8 @@ Store as `$PLAN_FILE`. If none found → display a warning ("No planning file fo
 
 Read the planning doc and extract the `## Verification` section. Identify:
 - Automated test commands/file paths (unit, integration, E2E)
-- Playwright verification specs (if any)
+- Playwright verification specs (if UI changes)
+- Manual Verification scenarios (hook tests, CLI tests, shell-script tests, or any scenario described as "attempt to do X → expect Y")
 
 If no Verification section found → warn "No Verification section in plan — skipping verification gate" and proceed to Step 1.
 
@@ -61,6 +62,29 @@ Execute each test listed in the Verification section:
 - E2E tests: `npm run test:e2e:critical` (or specific spec file from plan)
 
 Collect pass/fail results for each.
+
+**Step 0b.5: Run Manual Verification scenarios — THIS IS YOUR RESPONSIBILITY, NOT THE USER'S**
+
+> ⚠️ **CRITICAL**: If the plan contains "Manual Verification" items, YOU must run them. Do NOT skip them, do NOT ask the user to run them, and do NOT block finalization because they are unchecked. Manual verification is always Claude's responsibility to execute via bash scripts.
+
+For each scenario in the Manual Verification list:
+
+1. **Classify the scenario** — is it testing:
+   - A shell hook (check-workflow-ready.sh, track-prerequisites.sh, etc.)? → Test by piping mock JSON to the hook script via Bash
+   - A CLI command? → Run it via Bash
+   - A UI interaction? → Use Playwright MCP browser tools
+
+2. **Hook scenarios** (most common): Write and run a Bash test that:
+   - Creates a temp git repo with the appropriate branch and `_status.json` state
+   - Pipes the correct hook input JSON: `echo '{"cwd":"...","tool_name":"Edit","tool_input":{"file_path":"..."}}' | bash .claude/hooks/check-workflow-ready.sh`
+   - Asserts the output matches the expected behavior (deny with correct message, or allow with empty output)
+   - Cleans up the temp directory afterward
+
+3. **Batch all scenarios** into a single comprehensive test script. Run it once with Bash. Report pass/fail for each.
+
+4. **After all pass**: Check off every Manual Verification checkbox in the planning doc (`[ ]` → `[x]`). Do NOT leave them unchecked for the user to handle.
+
+5. **If any scenario fails**: That is a bug in the implementation — fix the code, re-run tests, and only proceed once all pass.
 
 **Step 0c: Run Playwright verification (if applicable)**
 
@@ -84,10 +108,11 @@ Display verification results summary:
 ```
 Verification Gate
 ──────────────────────────────────────
-Unit tests:        ✓ PASSED / ✗ FAILED
-Integration tests: ✓ PASSED / ✗ FAILED
-E2E tests:         ✓ PASSED / ✗ FAILED / ⊘ N/A
-Playwright:        ✓ PASSED / ✗ FAILED / ⊘ N/A
+Unit tests:           ✓ PASSED / ✗ FAILED / ⊘ N/A
+Integration tests:    ✓ PASSED / ✗ FAILED / ⊘ N/A
+E2E tests:            ✓ PASSED / ✗ FAILED / ⊘ N/A
+Manual scenarios:     ✓ N/N PASSED / ✗ FAILED / ⊘ N/A
+Playwright:           ✓ PASSED / ✗ FAILED / ⊘ N/A
 ──────────────────────────────────────
 ```
 

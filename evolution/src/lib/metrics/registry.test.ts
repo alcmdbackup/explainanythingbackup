@@ -32,9 +32,11 @@ describe('getEntityListViewMetrics', () => {
     expect(defs.length).toBeGreaterThan(0);
   });
 
-  it('does not include cost in run list view (cost shown via server action)', () => {
+  it('includes generation_cost / ranking_cost in run list view; cost shown via RunsTable base column with budget warning', () => {
     const names = getEntityListViewMetrics('run').map(d => d.name);
-    expect(names).not.toContain('cost');
+    expect(names).not.toContain('cost'); // shown via RunsTable base column, not via createMetricColumns
+    expect(names).toContain('generation_cost');
+    expect(names).toContain('ranking_cost');
   });
 
   it('returns metrics for strategy', () => {

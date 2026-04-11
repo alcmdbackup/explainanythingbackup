@@ -2,17 +2,44 @@
 
 The evolution pipeline uses a centralized metrics system stored in a single `evolution_metrics` EAV (entity-attribute-value) table. Metrics are computed at three lifecycle stages, support lazy recomputation via stale flags, and propagate from child entities (runs) to parent entities (strategies, experiments) using configurable aggregation.
 
-> **Parallel pipeline additions:** the orchestrator-driven pipeline adds two run-level
-> finalization metrics — `total_generation_cost` and `total_ranking_cost` — that split
-> LLM spend by purpose. They are computed in `persistRunResults.finalizeRun()` from the
-> per-invocation `cost_usd` column, attributing
-> `generate_from_seed_article.execution_detail.generation.cost` to generation and
-> `.ranking.cost` plus `swiss_ranking.cost_usd` to ranking. Most metrics filter
-> variants by `persisted = true` so discarded variants do not pollute aggregates; the
-> cost metric does **not** filter, since discarded variants still cost real LLM money
-> to generate and partially rank. The `format_rejection_rate` and `total_comparisons`
-> invocation metrics now handle both legacy and new execution-detail shapes via
-> `detailType` discrimination.
+> **Per-purpose cost split (live):** Two run-level metrics — `generation_cost` and
+> `ranking_cost` — track LLM spend per purpose. They are written **live** by
+> `createLLMClient.ts` after every LLM call via `writeMetricMax` (a Postgres RPC using
+> `ON CONFLICT DO UPDATE SET value = GREATEST(...)`) so concurrent out-of-order writes
+> can never overwrite a larger value with a smaller one. The agent label (`'generation'`
+> or `'ranking'`) is a typed `AgentName` constant passed at the call site — typos are
+> compile errors. The mapping from `AgentName` to its cost metric lives at
+> `evolution/src/lib/core/agentNames.ts` (`COST_METRIC_BY_AGENT`).
+>
+> Strategy/experiment-level totals (`total_generation_cost`, `avg_generation_cost_per_run`,
+> `total_ranking_cost`, `avg_ranking_cost_per_run`) propagate from these run-level rows
+> via `SHARED_PROPAGATION_DEFS` in `evolution/src/lib/metrics/registry.ts`. They mirror
+> the existing `total_cost` / `avg_cost_per_run` pattern.
+>
+> **Three-way cost split (`generation_cost` / `ranking_cost` / `seed_cost`):** A third
+> metric, `seed_cost`, tracks LLM spend by `CreateSeedArticleAgent` (the two calls that
+> generate a seed article title and body for prompt-based runs). Seed costs were
+> previously invisible — they occurred inside `buildRunContext` via the legacy V1
+> `callLLM` path before the V2CostTracker existed. After the Phase 4 refactor, seed
+> generation runs inside `runIterationLoop` where the cost tracker is live, and spend is
+> attributed to `seed_cost` via the same `COST_METRIC_BY_AGENT` mapping. For
+> explanation-based runs, `seed_cost` is always 0.
+>
+> **Run cost rows are written exactly once per run** via the live `writeMetricMax` path
+> during execution. Stale runs become `status='failed'` (per
+> `supabase/migrations/20260323000002_fix_stale_claim_expiry.sql`) and are never
+> re-claimed by `claim_evolution_run` (which selects only `status='pending'`), so no row
+> reset is needed at run start. To handle runs that fail before any LLM call, the
+> orchestrator zero-inits `cost`, `generation_cost`, `ranking_cost`, and `seed_cost` at
+> run start; `GREATEST` ensures the zeros never overwrite real values written later.
+>
+> The `format_rejection_rate` and `total_comparisons` invocation metrics handle both
+> legacy and new execution-detail shapes via `detailType` discrimination.
+>
+> **Note: dual registry.** Both `evolution/src/lib/metrics/registry.ts` (flat
+> `METRIC_REGISTRY`) and `evolution/src/lib/core/entityRegistry.ts` (Entity-class-based)
+> exist in parallel. They must be kept in sync manually until consolidated in a
+> follow-up project.
 
 For how metrics feed into strategy comparison, see [Strategies & Experiments](./strategies_and_experiments.md). For the database schema of the metrics table, see [Data Model](./data_model.md).
 
@@ -56,7 +83,10 @@ All metrics are declared in a typed registry keyed by entity type. Each definiti
 
 | Name | Category | Timing | Description |
 |------|----------|--------|-------------|
-| `cost` | cost | during_execution | Total USD spent (from cost tracker). Written incrementally during the iteration loop AND re-written at finalization as a safety net (using `during_execution` timing) to ensure the row exists even when the loop breaks early (`budget_exceeded`/`converged`). This is critical because `propagateMetrics()` uses `cost` as the source metric for `run_count`, `total_cost`, and `avg_cost_per_run` on strategy/experiment entities. `listView: false` — not shown in the entity list view. |
+| `cost` | cost | during_execution | Total USD spent (from cost tracker). Written via `writeMetricMax` after every LLM call. `listView: true`. |
+| `generation_cost` | cost | during_execution | LLM spend on generation calls in this run. Written via `writeMetricMax` after every `'generation'`-labeled LLM call. `listView: true`. |
+| `ranking_cost` | cost | during_execution | LLM spend on ranking calls in this run (incl. SwissRankingAgent + binary-search comparisons). Written via `writeMetricMax` after every `'ranking'`-labeled LLM call. `listView: true`. |
+| `seed_cost` | cost | during_execution | LLM spend on seed article generation (`CreateSeedArticleAgent`). Only non-zero for prompt-based runs. Written via `writeMetricMax` after every `'seed_title'`- or `'seed_article'`-labeled LLM call. `listView: true`. |
 | `winner_elo` | rating | at_finalization | Elo of the highest-mu variant. Includes sigma (variant sigma * ELO_SIGMA_SCALE) and 95% CI. |
 | `median_elo` | rating | at_finalization | 50th percentile Elo across all variants |
 | `p90_elo` | rating | at_finalization | 90th percentile Elo |
@@ -64,7 +94,7 @@ All metrics are declared in a typed registry keyed by entity type. Each definiti
 | `total_matches` | match | at_finalization | Total pairwise comparisons |
 | `decisive_rate` | match | at_finalization | Fraction of matches with confidence > 0.6 |
 | `variant_count` | count | at_finalization | Number of variants in the final pool |
-| `agentCost:<name>` | cost | during_execution | Per-phase cost breakdown (dynamic key) |
+| `agentCost:<name>` | cost | during_execution | Per-phase cost breakdown (dynamic key). **Filtered from UI display** — `EntityMetricsTab` excludes `agentCost:*` metrics; use `total_generation_cost`/`total_ranking_cost` for UI display instead. |
 
 ### Invocation Metrics
 
@@ -89,6 +119,12 @@ Both entity types share the same propagation definitions — they aggregate from
 | `run_count` | `cost` | count | Total completed runs |
 | `total_cost` | `cost` | sum | Cumulative cost |
 | `avg_cost_per_run` | `cost` | avg | Mean cost per run |
+| `total_generation_cost` | `generation_cost` | sum | Cumulative generation spend across runs (`listView: true`) |
+| `avg_generation_cost_per_run` | `generation_cost` | avg | Mean generation spend per run |
+| `total_ranking_cost` | `ranking_cost` | sum | Cumulative ranking spend across runs (`listView: true`) |
+| `avg_ranking_cost_per_run` | `ranking_cost` | avg | Mean ranking spend per run |
+| `total_seed_cost` | `seed_cost` | sum | Cumulative seed generation spend across runs (`listView: true`) |
+| `avg_seed_cost_per_run` | `seed_cost` | avg | Mean seed spend per run |
 | `avg_final_elo` | `winner_elo` | bootstrap_mean | Mean winner Elo with 95% CI |
 | `best_final_elo` | `winner_elo` | max | Highest winner Elo |
 | `worst_final_elo` | `winner_elo` | min | Lowest winner Elo |
@@ -227,7 +263,7 @@ Each propagation metric definition specifies a `sourceMetric` (which child metri
 
 **File:** `evolution/src/components/evolution/tabs/EntityMetricsTab.tsx`
 
-A shared tab component that reads all metrics for an entity and displays them in a `MetricGrid`. Used on run, strategy, experiment, and invocation detail pages.
+A shared tab component that reads all metrics for an entity and displays them in a `MetricGrid`. Used on run, strategy, experiment, and invocation detail pages. Filters out `agentCost:*` metrics before rendering (they are superseded by `total_generation_cost`/`total_ranking_cost`). Each metric is mapped to a `MetricItem` with an `id` field set to `metric_name` to avoid React key collisions when multiple metrics resolve to the same display label.
 
 ---
 

@@ -202,4 +202,16 @@ adminTest.describe('Evolution Runs (T4, T7, T8, T10)', { tag: '@evolution' }, ()
     const tabContent = adminPage.locator('[data-testid="tab-content"]');
     await expect(tabContent).toBeVisible({ timeout: 15000 });
   });
+
+  adminTest('runs list shows strategy filter dropdown', { tag: '@critical' }, async ({ adminPage }) => {
+    await adminPage.goto('/admin/evolution/runs');
+    await adminPage.waitForLoadState('domcontentloaded');
+
+    const entityList = adminPage.locator('[data-testid="entity-list-page"]');
+    await expect(entityList).toBeVisible({ timeout: 15000 });
+
+    // Strategy filter select should render (populated after strategies load)
+    const strategySelect = adminPage.locator('select').filter({ hasText: 'All strategies' });
+    await expect(strategySelect).toBeVisible({ timeout: 15000 });
+  });
 });

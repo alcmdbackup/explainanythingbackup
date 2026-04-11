@@ -146,7 +146,7 @@ test.describe('Error Handling @skip-prod', () => {
       await resultsPage.waitForError(30000);
 
       // Verify error is displayed
-      expect(await resultsPage.isErrorVisible()).toBe(true);
+      await expect.poll(() => resultsPage.isErrorVisible()).toBe(true);
 
       // Clear route and set up success mock
       await page.unrouteAll({ behavior: 'wait' });

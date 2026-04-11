@@ -10,6 +10,7 @@ import { toEloScale, DEFAULT_MU, ELO_SIGMA_SCALE } from '@evolution/lib/shared/c
 import type { FinalizationContext } from '../types';
 import type { Variant } from '@evolution/lib/types';
 import type { V2Match } from '@evolution/lib/pipeline/infra/types';
+import type { AgentName } from '@evolution/lib/core/agentNames';
 
 function makeVariant(id: string): Variant {
   return { id, text: '', version: 0, parentIds: [], strategy: 'test', createdAt: 0, iterationBorn: 0 };
@@ -136,7 +137,11 @@ describe('computeVariantCount', () => {
 
 // ─── Execution-phase metrics ─────────────────────────────────────
 
-function makeExecCtx(totalSpent: number, phaseCosts: Record<string, number>, phaseName: string): ExecutionContext {
+function makeExecCtx(
+  totalSpent: number,
+  phaseCosts: Partial<Record<AgentName, number>>,
+  phaseName: AgentName,
+): ExecutionContext {
   return {
     costTracker: {
       getTotalSpent: () => totalSpent,

@@ -13,9 +13,9 @@ All pages live under `src/app/admin/evolution/` (Next.js App Router). A shared `
 | Route | Description | Key data |
 |---|---|---|
 | `/admin/evolution-dashboard` | Aggregate metrics across all runs and experiments. Auto-refreshes every 15 seconds. Cost queries use `evolution_metrics` (the `evolution_run_costs` view was dropped). | Run counts by status, cost totals from `evolution_metrics`, recent activity |
-| `/admin/evolution/runs` | Paginated run list with status filtering and "Hide test content" checkbox. Test content filter uses an inner join on `evolution_strategies` to exclude runs whose strategy name contains `[TEST]`. | Status badge, iteration count, cost, created date |
+| `/admin/evolution/runs` | Paginated run list with status filtering and "Hide test content" checkbox. Test content filter uses an inner join on `evolution_strategies` to exclude runs whose strategy name contains `[TEST]`. **Cost columns** (`Cost`, `Generation Cost`, `Ranking Cost`) are sourced from the run's `metrics` array (batch-fetched from `evolution_metrics` via `getMetricsForEntities`), not from a per-row aggregate. | Status badge, iteration count, cost / generation cost / ranking cost, created date |
 | `/admin/evolution/runs/[runId]` | Run detail with tabs: **Overview**, **Elo**, **Lineage**, **Variants**, **Logs**. Auto-refreshes while run is in progress. | Full run metrics, lineage graph, variant list |
-| `/admin/evolution/experiments` | Experiment list with status filter, "Hide test content" checkbox, and standard table layout (ID, Name, Status, Runs, Created, Cancel action columns). | Name, status, run count, created date |
+| `/admin/evolution/experiments` | Experiment list with status filter, "Hide test content" checkbox, and standard table layout (ID, Name, Status, Runs, Created columns). Now uses `createMetricColumns<ExperimentSummary>('experiment')` to render propagated metric columns (Total Cost, Total Generation Cost, Total Ranking Cost, etc.) automatically from the entity registry. Cancel/Delete action column appears after the metric columns. | Name, status, run count, total/gen/rank cost, created date |
 | `/admin/evolution/experiments/[experimentId]` | Experiment detail with tabs: **Overview**, **Analysis**, **Runs**, **Logs**. | Experiment config, cost analysis, linked runs, aggregated logs |
 | `/admin/evolution/start-experiment` | Three-step creation wizard: select strategy, configure parameters, confirm and launch. | Strategy registry, prompt templates |
 | `/admin/evolution/arena` | Arena topics list showing active matchmaking topics. | Topic name, entry count, match count |
@@ -144,10 +144,10 @@ Props:
 - `entityId: string` — UUID of the entity whose logs to display
 
 Features:
-- **Filter bar**: Two-row layout. Row 1: log level dropdown, entity type dropdown (hidden for invocation pages), iteration dropdown (values 1-20), phase/agent name text filter. Row 2: message text search (debounced 300ms), variant ID filter. All filters apply server-side via `getEntityLogsAction`.
+- **Filter bar**: Two-row layout. Row 1: log level dropdown, entity type dropdown (hidden for invocation pages), iteration dropdown (string values to match selected state), phase/agent name text filter (debounced 300ms, uses `ilike` partial match). Row 2: message text search (debounced 300ms, ilike), variant ID filter (debounced 300ms). All filters apply server-side via `getEntityLogsAction`.
 - **Entity-type badges**: Color-coded badges (blue for run, purple for invocation, green for experiment, amber for strategy) in each log row showing which entity emitted the log.
 - **Expandable context**: Clicking a log row toggles a JSON viewer for the `context` JSONB field.
-- **Pagination**: Previous/Next pagination with 100 logs per page.
+- **Pagination**: Previous/Next/Last pagination with jump-to-page number input; 100 logs per page.
 - **Aggregation**: For non-invocation entities, logs include all descendant entity logs (e.g., a run's logs tab shows both run-level and invocation-level logs).
 
 Data is fetched via `getEntityLogsAction` from `evolution/src/services/logActions.ts`.
@@ -231,6 +231,8 @@ const { data, count } = await ctx.supabase
 ```
 
 Maximum page size is capped at 200 items. The `EntityListPage` component enforces a client-side cap of 100.
+
+The `EntityListPage` pagination bar includes Prev/Next/Last buttons plus a jump-to-page number input that clamps to `[1, totalPages]`. The same pattern is implemented in `LogsTab` for log pagination.
 
 ### Enrichment Pattern
 

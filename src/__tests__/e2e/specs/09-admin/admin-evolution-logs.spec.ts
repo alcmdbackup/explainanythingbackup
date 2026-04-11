@@ -166,6 +166,7 @@ adminTest.describe('Admin Evolution LogsTab Filters', { tag: '@evolution' }, () 
     },
   );
 
+  // eslint-disable-next-line flakiness/require-reset-filters -- false positive: this test searches a logs UI with [TEST] text, not the explanations table; no filterTestContent default applies to logs
   adminTest(
     'LogsTab message search filters by text',
     async ({ adminPage }) => {
@@ -192,6 +193,35 @@ adminTest.describe('Admin Evolution LogsTab Filters', { tag: '@evolution' }, () 
       // The matching log row should contain our seeded message text
       const matchingRow = logsContainer.locator('td:has-text("[TEST] E2E log entry")');
       await expect(matchingRow).toBeVisible({ timeout: 15000 });
+    },
+  );
+
+  adminTest(
+    'LogsTab agent name filter renders and accepts input',
+    { tag: '@critical' },
+    async ({ adminPage }) => {
+      await adminPage.goto(`/admin/evolution/runs/${seeded.runId}`, { timeout: 30000 });
+      await adminPage.waitForLoadState('domcontentloaded');
+
+      await adminPage.locator('[data-testid="entity-detail-header"]').waitFor({ state: 'visible', timeout: 30_000 });
+      const logsTab = adminPage.locator('[data-testid="tab-logs"]');
+      await expect(logsTab).toBeVisible();
+      await logsTab.click();
+
+      const logsContainer = adminPage.locator('[data-testid="logs-tab"]');
+      await logsContainer.waitFor({ state: 'visible', timeout: 15000 });
+
+      // Agent name filter input should be present
+      const agentInput = logsContainer.locator('input[aria-label="Filter by agent name"]');
+      await expect(agentInput).toBeVisible();
+
+      // Type a partial agent name — seeded log uses 'setup' as agent_name
+      await agentInput.fill('set');
+
+      // After debounce, table should update (may show the row or empty state)
+      const table = logsContainer.locator('table');
+      const empty = logsContainer.locator('text=No logs available.');
+      await expect(table.or(empty)).toBeVisible({ timeout: 10000 });
     },
   );
 });

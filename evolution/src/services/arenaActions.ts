@@ -232,7 +232,7 @@ const updatePromptSchema = z.object({
 export const listPromptsAction = adminAction(
   'listPrompts',
   async (
-    input: { limit: number; offset: number; status?: string; filterTestContent?: boolean },
+    input: { limit: number; offset: number; status?: string; filterTestContent?: boolean; name?: string },
     ctx: AdminContext,
   ): Promise<{ items: PromptListItem[]; total: number }> => {
     const limit = Math.min(Math.max(input.limit, 1), 200);
@@ -245,6 +245,10 @@ export const listPromptsAction = adminAction(
 
     if (input.status) query = query.eq('status', input.status);
     if (input.filterTestContent) query = applyTestContentNameFilter(query);
+    if (input.name) {
+      const escaped = input.name.replace(/[%_\\]/g, '\\$&');
+      query = query.ilike('name', `%${escaped}%`);
+    }
 
     query = query.order('created_at', { ascending: false })
       .range(offset, offset + limit - 1);

@@ -66,7 +66,10 @@ export const getEntityLogsAction = adminAction(
 
     // Apply filters
     if (filters?.level) query = query.eq('level', filters.level);
-    if (filters?.agentName) query = query.eq('agent_name', filters.agentName);
+    if (filters?.agentName) {
+      const escapedAgent = filters.agentName.replace(/[%_\\]/g, '\\$&');
+      query = query.ilike('agent_name', `%${escapedAgent}%`);
+    }
     if (filters?.iteration !== undefined) query = query.eq('iteration', filters.iteration);
     if (filters?.entityType) query = query.eq('entity_type', filters.entityType);
     if (filters?.variantId) query = query.eq('variant_id', filters.variantId);

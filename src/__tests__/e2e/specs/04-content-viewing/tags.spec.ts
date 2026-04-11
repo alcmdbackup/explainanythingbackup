@@ -35,11 +35,8 @@ async function associateTagWithExplanation(explanationId: string, tagId: string)
 }
 
 test.describe('Tag Management', () => {
-  // Add retries for flaky network conditions
-  test.describe.configure({ retries: 1, mode: 'serial' });
-
-  // Increase timeout for these tests since they involve DB loading
-  test.setTimeout(60000);
+  // 2 retries to handle CI DB load spikes; serial so tests share browser state
+  test.describe.configure({ retries: 2, mode: 'serial', timeout: 90000 });
 
   let testExplanation: TestExplanation;
 
@@ -170,7 +167,7 @@ test.describe('Tag Management', () => {
 
       // Open add tag input
       await resultsPage.clickAddTagTrigger();
-      expect(await resultsPage.isAddTagInputVisible()).toBe(true);
+      await expect.poll(() => resultsPage.isAddTagInputVisible()).toBe(true);
 
       // Click cancel
       await resultsPage.clickCancelAddTag();

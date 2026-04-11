@@ -6,6 +6,7 @@ import type { TextVariation, AgentExecutionDetail } from '../types';
 import type { Rating } from '../shared/computeRatings';
 import type { EvolutionResult, V2Match } from '../pipeline/infra/types';
 import type { MetricValue } from './experimentMetrics';
+import type { AgentName } from '../core/agentNames';
 
 // ─── Entity & Metric Name Types ─────────────────────────────────
 
@@ -19,20 +20,31 @@ export type MetricTiming = 'during_execution' | 'at_finalization' | 'at_propagat
 
 // Type-safe metric names — typos caught at compile time
 export const STATIC_METRIC_NAMES = [
-  // Run
-  'cost', 'winner_elo', 'median_elo', 'p90_elo', 'max_elo',
+  // Run (live during-execution)
+  'cost', 'generation_cost', 'ranking_cost', 'seed_cost',
+  // Run (at-finalization)
+  'winner_elo', 'median_elo', 'p90_elo', 'max_elo',
   'total_matches', 'decisive_rate', 'variant_count',
-  'total_generation_cost', 'total_ranking_cost',
   // Invocation
   'best_variant_elo', 'avg_variant_elo', 'format_rejection_rate', 'total_comparisons',
   // Strategy/Experiment aggregates
   'run_count', 'total_cost', 'avg_cost_per_run',
+  'total_generation_cost', 'avg_generation_cost_per_run',
+  'total_ranking_cost', 'avg_ranking_cost_per_run',
+  'total_seed_cost', 'avg_seed_cost_per_run',
   'avg_final_elo', 'best_final_elo', 'worst_final_elo',
   'avg_median_elo', 'avg_p90_elo', 'best_max_elo',
   'avg_matches_per_run', 'avg_decisive_rate',
   'total_variant_count', 'avg_variant_count',
 ] as const;
 export type StaticMetricName = typeof STATIC_METRIC_NAMES[number];
+/**
+ * Dynamic per-agent-class cost metric prefix. Used by `experimentMetrics.ts` ONLY
+ * for aggregating invocation `cost_usd` by `agent_name` (e.g. `agentCost:generate_from_seed_article`).
+ *
+ * Per-LLM-call cost attribution uses static `*_cost` names via `COST_METRIC_BY_AGENT`
+ * in `evolution/src/lib/core/agentNames.ts`. The two namespaces are orthogonal.
+ */
 export type DynamicMetricName = `agentCost:${string}`;
 export type MetricName = StaticMetricName | DynamicMetricName;
 
@@ -83,8 +95,8 @@ export interface EntityMetricRegistry {
 // ─── Computation Contexts ───────────────────────────────────────
 
 export interface ExecutionContext {
-  costTracker: { getTotalSpent(): number; getPhaseCosts(): Record<string, number> };
-  phaseName: string;
+  costTracker: { getTotalSpent(): number; getPhaseCosts(): Partial<Record<AgentName, number>> };
+  phaseName: AgentName;
 }
 
 export interface FinalizationContext {

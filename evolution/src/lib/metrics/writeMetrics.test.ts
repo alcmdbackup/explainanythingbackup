@@ -1,6 +1,6 @@
-// Unit tests for writeMetrics and writeMetric functions.
+// Unit tests for writeMetrics, writeMetric, and writeMetricMax functions.
 
-import { writeMetrics, writeMetric } from './writeMetrics';
+import { writeMetrics, writeMetric, writeMetricMax } from './writeMetrics';
 
 function makeMockDb(options?: { upsertError?: string }) {
   const upsertedRows: unknown[] = [];
@@ -15,6 +15,20 @@ function makeMockDb(options?: { upsertError?: string }) {
       })),
     } as never,
     upsertedRows,
+  };
+}
+
+function makeMockRpcDb(options?: { rpcError?: string }) {
+  const rpcCalls: Array<{ fn: string; args: Record<string, unknown> }> = [];
+  return {
+    db: {
+      rpc: jest.fn(async (fn: string, args: Record<string, unknown>) => {
+        rpcCalls.push({ fn, args });
+        if (options?.rpcError) return { error: { message: options.rpcError } };
+        return { error: null };
+      }),
+    } as never,
+    rpcCalls,
   };
 }
 
@@ -127,5 +141,78 @@ describe('writeMetric timing validation', () => {
     await expect(writeMetric(
       db, 'invocation', '00000000-0000-0000-0000-000000000001', 'total_comparisons', 15, 'at_finalization',
     )).resolves.not.toThrow();
+  });
+});
+
+describe('writeMetricMax', () => {
+  it('routes through db.rpc("upsert_metric_max") with correct args', async () => {
+    const { db, rpcCalls } = makeMockRpcDb();
+    await writeMetricMax(
+      db, 'run', '00000000-0000-0000-0000-000000000001', 'cost', 0.05, 'during_execution',
+    );
+    expect(rpcCalls).toHaveLength(1);
+    expect(rpcCalls[0]!.fn).toBe('upsert_metric_max');
+    expect(rpcCalls[0]!.args).toEqual({
+      p_entity_type: 'run',
+      p_entity_id: '00000000-0000-0000-0000-000000000001',
+      p_metric_name: 'cost',
+      p_value: 0.05,
+      p_source: 'during_execution',
+    });
+  });
+
+  it('writes generation_cost and ranking_cost (the per-purpose metrics)', async () => {
+    const { db, rpcCalls } = makeMockRpcDb();
+    await writeMetricMax(db, 'run', '00000000-0000-0000-0000-000000000001', 'generation_cost', 0.04, 'during_execution');
+    await writeMetricMax(db, 'run', '00000000-0000-0000-0000-000000000001', 'ranking_cost', 0.02, 'during_execution');
+    expect(rpcCalls).toHaveLength(2);
+    expect(rpcCalls[0]!.args.p_metric_name).toBe('generation_cost');
+    expect(rpcCalls[0]!.args.p_value).toBe(0.04);
+    expect(rpcCalls[1]!.args.p_metric_name).toBe('ranking_cost');
+    expect(rpcCalls[1]!.args.p_value).toBe(0.02);
+  });
+
+  it('throws on RPC error', async () => {
+    const { db } = makeMockRpcDb({ rpcError: 'connection refused' });
+    await expect(writeMetricMax(
+      db, 'run', '00000000-0000-0000-0000-000000000001', 'cost', 0.05, 'during_execution',
+    )).rejects.toThrow('Failed to write max metric \'cost\': connection refused');
+  });
+
+  it('rejects NaN value', async () => {
+    const { db } = makeMockRpcDb();
+    await expect(writeMetricMax(
+      db, 'run', '00000000-0000-0000-0000-000000000001', 'cost', NaN, 'during_execution',
+    )).rejects.toThrow(/value must be finite/);
+  });
+
+  it('rejects Infinity value', async () => {
+    const { db } = makeMockRpcDb();
+    await expect(writeMetricMax(
+      db, 'run', '00000000-0000-0000-0000-000000000001', 'cost', Infinity, 'during_execution',
+    )).rejects.toThrow(/value must be finite/);
+  });
+
+  it('rejects metric written with wrong timing (validates same as writeMetric)', async () => {
+    const { db } = makeMockRpcDb();
+    // winner_elo is at_finalization, not during_execution
+    await expect(writeMetricMax(
+      db, 'run', '00000000-0000-0000-0000-000000000001', 'winner_elo', 1500, 'during_execution',
+    )).rejects.toThrow(/different phase/);
+  });
+
+  it('rejects unknown metric name', async () => {
+    const { db } = makeMockRpcDb();
+    await expect(writeMetricMax(
+      db, 'run', '00000000-0000-0000-0000-000000000001', 'totally_fake' as never, 1, 'during_execution',
+    )).rejects.toThrow(/Unknown metric/);
+  });
+
+  it('does NOT call rpc when validation fails (atomic: validate first)', async () => {
+    const { db, rpcCalls } = makeMockRpcDb();
+    await expect(writeMetricMax(
+      db, 'run', '00000000-0000-0000-0000-000000000001', 'cost', NaN, 'during_execution',
+    )).rejects.toThrow();
+    expect(rpcCalls).toHaveLength(0);
   });
 });

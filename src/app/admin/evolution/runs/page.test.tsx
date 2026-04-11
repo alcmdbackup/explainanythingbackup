@@ -35,7 +35,15 @@ jest.mock('@evolution/services/evolutionActions', () => ({
           run_summary: null,
           runner_id: null,
           last_heartbeat: null,
-          total_cost_usd: 2.50,
+          metrics: [
+            {
+              id: 'cost-id', entity_type: 'run', entity_id: 'run-1', metric_name: 'cost',
+              value: 2.50, sigma: null, ci_lower: null, ci_upper: null, n: 1,
+              origin_entity_type: null, origin_entity_id: null, aggregation_method: null,
+              source: 'during_execution', stale: false,
+              created_at: '2026-03-01T00:00:00Z', updated_at: '2026-03-01T12:00:00Z',
+            },
+          ],
           strategy_name: 'Test Strategy',
         },
       ],

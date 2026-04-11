@@ -97,4 +97,29 @@ describe('EntityMetricsTab', () => {
       expect(screen.getByText('$2.50')).toBeInTheDocument();
     });
   });
+
+  it('filters out agentCost:* metrics, keeping generation_cost/ranking_cost', async () => {
+    // Run-level per-purpose cost metrics are named generation_cost/ranking_cost (label: "Generation Cost"/"Ranking Cost")
+    // agentCost:* are legacy per-phase metrics that should be hidden from the UI
+    getEntityMetricsAction.mockResolvedValue({
+      success: true,
+      data: [
+        makeRow({ metric_name: 'agentCost:generation', value: 0.0085 }),
+        makeRow({ metric_name: 'agentCost:ranking', value: 0.0413 }),
+        makeRow({ metric_name: 'generation_cost', value: 0.1565 }),
+        makeRow({ metric_name: 'ranking_cost', value: 0.1565 }),
+      ],
+      error: null,
+    });
+    render(<EntityMetricsTab entityType="run" entityId="00000000-0000-0000-0000-000000000001" />);
+    await waitFor(() => {
+      expect(screen.getByTestId('entity-metrics-tab')).toBeInTheDocument();
+    });
+    // generation_cost and ranking_cost render as "Generation Cost" / "Ranking Cost"
+    // agentCost:* are filtered out so there should be exactly one card per label
+    const generationCells = screen.getAllByText('Generation Cost');
+    expect(generationCells).toHaveLength(1);
+    const rankingCells = screen.getAllByText('Ranking Cost');
+    expect(rankingCells).toHaveLength(1);
+  });
 });

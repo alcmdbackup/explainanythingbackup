@@ -71,7 +71,7 @@ fi
 
 # Allow edits to most config files (but not package.json or tsconfig)
 if [[ "$FILE_PATH" == *".json" ]] || [[ "$FILE_PATH" == *".yaml" ]] || [[ "$FILE_PATH" == *".yml" ]] || [[ "$FILE_PATH" == *".toml" ]]; then
-  if [[ "$FILE_PATH" != *"package.json"* ]] && [[ "$FILE_PATH" != *"tsconfig"* ]]; then
+  if [[ "$FILE_PATH" != *"package.json"* ]] && [[ "$FILE_PATH" != *"tsconfig"* ]] && [[ "$FILE_PATH" != *".github/workflows/"* ]]; then
     exit 0
   fi
 fi
@@ -172,7 +172,7 @@ if [ -z "$TODOS_CREATED" ]; then
 fi
 
 if [ ${#MISSING[@]} -gt 0 ]; then
-  MISSING_LIST=$(printf '%s\\n' "${MISSING[@]}" | sed 's/^/  - /')
+  MISSING_LIST=$(printf '%s\n' "${MISSING[@]}" | sed 's/^/  - /')
   cat << EOF
 {
   "hookSpecificOutput": {
@@ -185,8 +185,8 @@ EOF
   exit 0
 fi
 
-# --- Test File Prerequisite Check ---
-# Only enforce testing_overview.md for test files
+# --- Test File / CI File Prerequisite Check ---
+# Enforces testing_overview.md, testing_setup.md, and environments.md for test and CI files
 
 is_test_file() {
   local path="$1"
@@ -204,19 +204,30 @@ is_test_file() {
   [[ "$path" == *"jest.config"* ]] && return 0
   [[ "$path" == *"jest.setup"* ]] && return 0
   [[ "$path" == *"playwright.config"* ]] && return 0
+  [[ "$path" == *"jest.shims"* ]] && return 0
+  [[ "$path" == *"jest.integration-setup"* ]] && return 0
+  [[ "$path" == *".github/workflows/"* ]] && return 0
   return 1
 }
 
 if is_test_file "$FILE_PATH"; then
   TESTING_OVERVIEW_READ=$(jq -r '.prerequisites.testing_overview_read // empty' "$STATUS_FILE" 2>/dev/null)
+  TESTING_SETUP_READ=$(jq -r '.prerequisites.testing_setup_read // empty' "$STATUS_FILE" 2>/dev/null)
+  ENVIRONMENTS_READ=$(jq -r '.prerequisites.environments_read // empty' "$STATUS_FILE" 2>/dev/null)
 
-  if [ -z "$TESTING_OVERVIEW_READ" ]; then
-    cat << 'EOF'
+  MISSING_TEST_REQS=()
+  [ -z "$TESTING_OVERVIEW_READ" ] && MISSING_TEST_REQS+=("docs/docs_overall/testing_overview.md")
+  [ -z "$TESTING_SETUP_READ" ] && MISSING_TEST_REQS+=("docs/feature_deep_dives/testing_setup.md")
+  [ -z "$ENVIRONMENTS_READ" ] && MISSING_TEST_REQS+=("docs/docs_overall/environments.md")
+
+  if [ ${#MISSING_TEST_REQS[@]} -gt 0 ]; then
+    MISSING_LIST=$(printf '%s\n' "${MISSING_TEST_REQS[@]}" | sed 's/^/  - /')
+    cat << EOF
 {
   "hookSpecificOutput": {
     "hookEventName": "PreToolUse",
     "permissionDecision": "deny",
-    "permissionDecisionReason": "Test file prerequisite not met.\n\nBefore editing test files, read:\n  /docs/docs_overall/testing_overview.md\n\nThis ensures familiarity with:\n- [TEST] prefix convention\n- Auto-tracking cleanup system\n- Testing tiers and commands\n- CI/CD workflow behavior"
+    "permissionDecisionReason": "Test/CI file prerequisites not met.\n\nBefore editing test or CI files, read:\n${MISSING_LIST}\n\nThis ensures familiarity with:\n- Testing tiers, rules, and CI workflows\n- Test infrastructure setup and configuration\n- Environment configuration and secrets"
   }
 }
 EOF

@@ -6,8 +6,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { toast } from 'sonner';
 import { EntityListPage } from '@evolution/components/evolution';
-import type { RowAction, FilterDef, ColumnDef } from '@evolution/components/evolution';
-import type { FieldDef } from '@evolution/components/evolution';
+import type { RowAction, FilterDef, ColumnDef, FieldDef } from '@evolution/components/evolution';
 import {
   listPromptsAction,
   createPromptAction,
@@ -16,20 +15,17 @@ import {
 } from '@evolution/services/arenaActions';
 import { executeEntityAction } from '@evolution/services/entityActions';
 
-// ─── Load data adapter ────────────────────────────────────────────
-
 const loadData = async (filters: Record<string, string>, page: number, pageSize: number) => {
   const result = await listPromptsAction({
     limit: pageSize,
     offset: (page - 1) * pageSize,
     status: filters.status || undefined,
     filterTestContent: filters.filterTestContent === 'true',
+    name: filters.name || undefined,
   });
   if (!result.success) throw new Error(result.error?.message ?? 'Load failed');
   return { items: result.data!.items, total: result.data!.total };
 };
-
-// ─── Column + filter definitions ──────────────────────────────────
 
 const columns: ColumnDef<PromptListItem>[] = [
   { key: 'name', header: 'Name', render: (row) => row.name },
@@ -56,16 +52,13 @@ const filters: FilterDef[] = [
     ],
   },
   { key: 'filterTestContent', label: 'Hide test content', type: 'checkbox', defaultChecked: true },
+  { key: 'name', label: 'Name', type: 'text', placeholder: 'Search...' },
 ];
-
-// ─── Form fields ──────────────────────────────────────────────────
 
 const createFields: FieldDef[] = [
   { name: 'name', label: 'Name', type: 'text', required: true, placeholder: 'Prompt name' },
   { name: 'prompt', label: 'Prompt', type: 'textarea', required: true, placeholder: 'Enter prompt text' },
 ];
-
-// ─── Component ────────────────────────────────────────────────────
 
 type DialogState =
   | { kind: 'none' }
@@ -79,47 +72,25 @@ export default function PromptsPage(): JSX.Element {
 
   const close = useCallback(() => setDialog({ kind: 'none' }), []);
 
-  // ─── Row actions ──────────────────────────────────────────────
-
   const rowActions: RowAction<PromptListItem>[] = [
-    {
-      label: 'Edit',
-      onClick: (row) => setDialog({ kind: 'edit', row }),
-    },
-    {
-      label: 'Delete',
-      onClick: (row) => setDialog({ kind: 'delete', row }),
-      danger: true,
-    },
+    { label: 'Edit', onClick: (row) => setDialog({ kind: 'edit', row }) },
+    { label: 'Delete', onClick: (row) => setDialog({ kind: 'delete', row }), danger: true },
   ];
 
-  // ─── Create / Edit form ───────────────────────────────────────
-
   const formOpen = dialog.kind === 'create' || dialog.kind === 'edit';
-  const formInitial = dialog.kind === 'edit'
-    ? { name: dialog.row.name, prompt: dialog.row.prompt }
-    : {};
+  const formInitial = dialog.kind === 'edit' ? { name: dialog.row.name, prompt: dialog.row.prompt } : {};
 
   const handleFormSubmit = async (values: Record<string, unknown>) => {
     if (dialog.kind === 'create') {
-      const result = await createPromptAction({
-        name: values.name as string,
-        prompt: values.prompt as string,
-      });
+      const result = await createPromptAction({ name: values.name as string, prompt: values.prompt as string });
       if (!result.success) throw new Error(result.error?.message ?? 'Create failed');
       toast.success('Prompt created');
     } else if (dialog.kind === 'edit') {
-      const result = await updatePromptAction({
-        id: dialog.row.id,
-        name: values.name as string,
-        prompt: values.prompt as string,
-      });
+      const result = await updatePromptAction({ id: dialog.row.id, name: values.name as string, prompt: values.prompt as string });
       if (!result.success) throw new Error(result.error?.message ?? 'Update failed');
       toast.success('Prompt updated');
     }
   };
-
-  // ─── Delete confirm ──────────────────────────────────────────
 
   const handleDelete = async () => {
     if (dialog.kind !== 'delete') return;
@@ -127,8 +98,6 @@ export default function PromptsPage(): JSX.Element {
     if (!result.success) throw new Error(result.error?.message ?? 'Delete failed');
     toast.success('Prompt deleted');
   };
-
-  // ─── Render ───────────────────────────────────────────────────
 
   return (
     <EntityListPage<PromptListItem>

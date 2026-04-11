@@ -9,6 +9,8 @@ import { buildRunContext, type ClaimedRun } from './setup/buildRunContext';
 import { evolveArticle } from './loop/runIterationLoop';
 import { finalizeRun, syncToArena } from './finalize/persistRunResults';
 import { classifyError } from './classifyError';
+import type { AgentName } from '../core/agentNames';
+import { writeMetricMax } from '../metrics/writeMetrics';
 
 export type { ClaimedRun } from './setup/buildRunContext';
 
@@ -156,7 +158,7 @@ export async function claimAndExecuteRun(
 
   try {
     const llmProvider: LLMProvider = {
-      async complete(prompt: string, label: string, opts?: { model?: string }): Promise<string> {
+      async complete(prompt: string, label: AgentName, opts?: { model?: string }): Promise<string> {
         return callLLM(
           prompt,
           `evolution_${label}`,
@@ -179,24 +181,21 @@ export async function claimAndExecuteRun(
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     const code = classifyError(error);
-    const details: Record<string, unknown> = {};
-    if (error instanceof Error && error.stack) {
-      details.stack = error.stack.slice(0, 1000);
-    }
+    const details: Record<string, unknown> = error instanceof Error && error.stack
+      ? { stack: error.stack.slice(0, 1000) }
+      : {};
     logger.error('Evolution pipeline failed', { runId, error: msg, errorCode: code });
     await markRunFailed(supabase, runId, msg, code, details);
     return { claimed: true, runId, error: msg.slice(0, 2000), durationMs: Date.now() - startMs };
   } finally {
-    if (heartbeatInterval) {
-      clearInterval(heartbeatInterval);
-    }
+    if (heartbeatInterval) clearInterval(heartbeatInterval);
   }
 }
 
 // ─── Shared execution logic ──────────────────────────────────────
 
 interface LLMProvider {
-  complete(prompt: string, label: string, opts?: { model?: string }): Promise<string>;
+  complete(prompt: string, label: AgentName, opts?: { model?: string }): Promise<string>;
 }
 
 /** Build context, run evolution loop, finalize, sync arena. Re-throws on failure. */
@@ -215,21 +214,36 @@ async function executePipeline(
     .update({ status: 'running' })
     .eq('id', runId);
 
+  // Ensure cost metric rows exist even for runs that fail before any LLM call.
+  // GREATEST upsert means these zeros never overwrite real values written later.
+  // Per supabase/migrations/20260323000002_fix_stale_claim_expiry.sql, runs with
+  // stale heartbeats become status='failed' and are never re-claimed, so each runId
+  // corresponds to exactly one execution attempt — no reset/DELETE needed.
+  for (const metricName of ['cost', 'generation_cost', 'ranking_cost', 'seed_cost'] as const) {
+    try {
+      await writeMetricMax(db, 'run', runId, metricName, 0, 'during_execution');
+    } catch (e) {
+      logger.warn('Cost metric zero-init failed (non-fatal)', {
+        runId, metricName, err: e instanceof Error ? e.message : String(e),
+      });
+    }
+  }
+
   const contextResult = await buildRunContext(runId, claimedRun, db, llmProvider);
   if ('error' in contextResult) {
     await markRunFailed(db, runId, contextResult.error);
     throw new Error(contextResult.error);
   }
 
-  const { originalText, config, logger: runLogger, initialPool, randomSeed } = contextResult.context;
-  runLogger.info('Run context built', { initialPoolSize: initialPool.length, phaseName: 'setup', randomSeed: randomSeed.toString() });
+  const { originalText, config, logger: runLogger, initialPool, randomSeed, seedPrompt } = contextResult.context;
+  runLogger.info('Run context built', { initialPoolSize: initialPool.length, phaseName: 'setup', randomSeed: randomSeed.toString(), seeded: !!seedPrompt });
 
   runLogger.info('Starting evolution loop', {
     iterations: config.iterations, budgetUsd: config.budgetUsd,
     generationModel: config.generationModel, judgeModel: config.judgeModel,
     phaseName: 'loop',
   });
-  const result = await evolveArticle(originalText, llmProvider, db, runId, config, {
+  const result = await evolveArticle(originalText ?? '', llmProvider, db, runId, config, {
     logger: runLogger,
     initialPool: initialPool.length > 0 ? initialPool : undefined,
     experimentId: claimedRun.experiment_id ?? undefined,
@@ -237,6 +251,7 @@ async function executePipeline(
     deadlineMs,
     signal,
     randomSeed,
+    seedPrompt,
   });
   runLogger.info('Evolution loop completed', {
     stopReason: result.stopReason, iterations: result.iterationsRun,
@@ -254,7 +269,7 @@ async function executePipeline(
 
   if (claimedRun.prompt_id) {
     try {
-      await syncToArena(runId, claimedRun.prompt_id, result.pool, result.ratings, result.matchHistory, db, runLogger);
+      await syncToArena(runId, claimedRun.prompt_id, result.pool, result.ratings, result.matchHistory, db, result.isSeeded ?? false, runLogger);
     } catch (err) {
       runLogger.warn('Arena sync failed', { phaseName: 'arena', error: (err instanceof Error ? err.message : String(err)).slice(0, 500) });
     }
@@ -264,4 +279,3 @@ async function executePipeline(
 
   return { stopReason: result.stopReason };
 }
-

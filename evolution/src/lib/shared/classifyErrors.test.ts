@@ -26,6 +26,7 @@ describe('isTransientError', () => {
 
   it.each([
     'Socket timeout',
+    'LLM call timeout (60s)',
     'ECONNRESET',
     'ECONNREFUSED',
     'ETIMEDOUT',

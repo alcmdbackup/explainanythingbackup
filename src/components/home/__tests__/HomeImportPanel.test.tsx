@@ -4,13 +4,17 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import HomeImportPanel from '../HomeImportPanel';
-import { processImport, detectImportSource } from '@/actions/importActions';
+import { processImport } from '@/actions/importActions';
+import { detectSource } from '@/lib/services/importSourceDetect';
 import { supabase_browser } from '@/lib/supabase';
 
 // Mock dependencies
 jest.mock('@/actions/importActions', () => ({
   processImport: jest.fn(),
-  detectImportSource: jest.fn(),
+}));
+
+jest.mock('@/lib/services/importSourceDetect', () => ({
+  detectSource: jest.fn(),
 }));
 
 jest.mock('@/lib/supabase', () => ({
@@ -22,7 +26,7 @@ jest.mock('@/lib/supabase', () => ({
 }));
 
 const mockProcessImport = processImport as jest.MockedFunction<typeof processImport>;
-const mockDetectImportSource = detectImportSource as jest.MockedFunction<typeof detectImportSource>;
+const mockDetectSource = detectSource as jest.MockedFunction<typeof detectSource>;
 const mockGetUser = supabase_browser.auth.getUser as jest.MockedFunction<typeof supabase_browser.auth.getUser>;
 
 describe('HomeImportPanel', () => {
@@ -112,75 +116,58 @@ describe('HomeImportPanel', () => {
   });
 
   describe('AI Source Detection', () => {
-    it('should trigger auto-detection when content exceeds 100 characters', async () => {
-      const user = userEvent.setup();
-      mockDetectImportSource.mockResolvedValue({ source: 'chatgpt', error: null });
+    it('should trigger auto-detection when content exceeds 100 characters', () => {
+      mockDetectSource.mockReturnValue('chatgpt');
 
       render(<HomeImportPanel {...defaultProps} />);
 
-      await user.type(screen.getByTestId('home-import-input'), generateContent(101));
-
-      await waitFor(() => {
-        expect(mockDetectImportSource).toHaveBeenCalledWith(generateContent(101));
+      fireEvent.change(screen.getByTestId('home-import-input'), {
+        target: { value: generateContent(101) },
       });
+
+      expect(mockDetectSource).toHaveBeenCalledWith(generateContent(101));
     });
 
-    it('should update source dropdown when auto-detected', async () => {
-      const user = userEvent.setup();
-      mockDetectImportSource.mockResolvedValue({ source: 'claude', error: null });
+    it('should update source dropdown when auto-detected', () => {
+      mockDetectSource.mockReturnValue('claude');
 
       render(<HomeImportPanel {...defaultProps} />);
 
-      await user.type(screen.getByTestId('home-import-input'), generateContent(101));
-
-      await waitFor(() => {
-        expect(screen.getByTestId('home-import-source')).toHaveValue('claude');
+      fireEvent.change(screen.getByTestId('home-import-input'), {
+        target: { value: generateContent(101) },
       });
+
+      expect(screen.getByTestId('home-import-source')).toHaveValue('claude');
     });
 
-    it('should show "(auto-detected)" hint after detection', async () => {
-      const user = userEvent.setup();
-      mockDetectImportSource.mockResolvedValue({ source: 'gemini', error: null });
+    it('should show "(auto-detected)" hint after detection', () => {
+      mockDetectSource.mockReturnValue('gemini');
 
       render(<HomeImportPanel {...defaultProps} />);
 
-      await user.type(screen.getByTestId('home-import-input'), generateContent(101));
-
-      await waitFor(() => {
-        expect(screen.getByText('(auto-detected)')).toBeInTheDocument();
+      fireEvent.change(screen.getByTestId('home-import-input'), {
+        target: { value: generateContent(101) },
       });
+
+      expect(screen.getByText('(auto-detected)')).toBeInTheDocument();
     });
 
     it('should hide "(auto-detected)" hint when user manually changes source', async () => {
       const user = userEvent.setup();
-      mockDetectImportSource.mockResolvedValue({ source: 'chatgpt', error: null });
+      mockDetectSource.mockReturnValue('chatgpt');
 
       render(<HomeImportPanel {...defaultProps} />);
 
-      await user.type(screen.getByTestId('home-import-input'), generateContent(101));
-
-      await waitFor(() => {
-        expect(screen.getByText('(auto-detected)')).toBeInTheDocument();
+      fireEvent.change(screen.getByTestId('home-import-input'), {
+        target: { value: generateContent(101) },
       });
+
+      expect(screen.getByText('(auto-detected)')).toBeInTheDocument();
 
       // Manually change source
       await user.selectOptions(screen.getByTestId('home-import-source'), 'claude');
 
       expect(screen.queryByText('(auto-detected)')).not.toBeInTheDocument();
-    });
-
-    it('should not crash if detection fails', async () => {
-      const user = userEvent.setup();
-      mockDetectImportSource.mockRejectedValue(new Error('Detection failed'));
-
-      render(<HomeImportPanel {...defaultProps} />);
-
-      await user.type(screen.getByTestId('home-import-input'), generateContent(101));
-
-      // Should not throw, source remains at default
-      await waitFor(() => {
-        expect(screen.getByTestId('home-import-source')).toHaveValue('other');
-      });
     });
   });
 

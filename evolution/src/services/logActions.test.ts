@@ -100,7 +100,7 @@ describe('getEntityLogsAction', () => {
   it('applies agentName filter', async () => {
     const { ctx, chainMethods } = makeMockCtx();
     await handler({ entityType: 'run', entityId: 'a0000000-0000-0000-0000-000000000001', filters: { agentName: 'GenerationAgent' } }, ctx);
-    expect(chainMethods.eq).toHaveBeenCalledWith('agent_name', 'GenerationAgent');
+    expect(chainMethods.ilike).toHaveBeenCalledWith('agent_name', '%GenerationAgent%');
   });
 
   it('applies entityType filter', async () => {
@@ -130,7 +130,7 @@ describe('getEntityLogsAction', () => {
       filters: { level: 'warn', agentName: 'RankingAgent', iteration: 2, variantId: 'v-1' },
     }, ctx);
     expect(chainMethods.eq).toHaveBeenCalledWith('level', 'warn');
-    expect(chainMethods.eq).toHaveBeenCalledWith('agent_name', 'RankingAgent');
+    expect(chainMethods.ilike).toHaveBeenCalledWith('agent_name', '%RankingAgent%');
     expect(chainMethods.eq).toHaveBeenCalledWith('iteration', 2);
     expect(chainMethods.eq).toHaveBeenCalledWith('variant_id', 'v-1');
   });

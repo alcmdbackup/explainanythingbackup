@@ -1,4 +1,8 @@
 // Declarative metric registry: defines all metrics per entity type, their timing, and compute functions.
+//
+// NOTE: This file is one of TWO parallel metric registries in the codebase. The other is
+// `evolution/src/lib/core/entityRegistry.ts` (Entity-class-based). Both must be kept in
+// sync manually until they're consolidated in a follow-up project.
 
 import type { EntityType, EntityMetricRegistry, MetricDefBase } from './types';
 import { DYNAMIC_METRIC_PREFIXES } from './types';
@@ -30,6 +34,19 @@ const SHARED_PROPAGATION_DEFS: EntityMetricRegistry['atPropagation'] = [
     sourceMetric: 'cost', sourceEntity: 'run', aggregate: aggregateSum, aggregationMethod: 'sum' },
   { name: 'avg_cost_per_run', label: 'Avg Cost/Run', category: 'cost', formatter: 'cost',
     sourceMetric: 'cost', sourceEntity: 'run', aggregate: aggregateAvg, aggregationMethod: 'avg' },
+  // Per-purpose cost split (mirrors total_cost / avg_cost_per_run pattern)
+  { name: 'total_generation_cost', label: 'Total Generation Cost', category: 'cost', formatter: 'cost', listView: true,
+    sourceMetric: 'generation_cost', sourceEntity: 'run', aggregate: aggregateSum, aggregationMethod: 'sum' },
+  { name: 'avg_generation_cost_per_run', label: 'Avg Generation Cost/Run', category: 'cost', formatter: 'cost',
+    sourceMetric: 'generation_cost', sourceEntity: 'run', aggregate: aggregateAvg, aggregationMethod: 'avg' },
+  { name: 'total_ranking_cost', label: 'Total Ranking Cost', category: 'cost', formatter: 'cost', listView: true,
+    sourceMetric: 'ranking_cost', sourceEntity: 'run', aggregate: aggregateSum, aggregationMethod: 'sum' },
+  { name: 'avg_ranking_cost_per_run', label: 'Avg Ranking Cost/Run', category: 'cost', formatter: 'cost',
+    sourceMetric: 'ranking_cost', sourceEntity: 'run', aggregate: aggregateAvg, aggregationMethod: 'avg' },
+  { name: 'total_seed_cost', label: 'Total Seed Cost', category: 'cost', formatter: 'cost', listView: true,
+    sourceMetric: 'seed_cost', sourceEntity: 'run', aggregate: aggregateSum, aggregationMethod: 'sum' },
+  { name: 'avg_seed_cost_per_run', label: 'Avg Seed Cost/Run', category: 'cost', formatter: 'cost',
+    sourceMetric: 'seed_cost', sourceEntity: 'run', aggregate: aggregateAvg, aggregationMethod: 'avg' },
   // Rating — from run.winner_elo
   { name: 'avg_final_elo', label: 'Avg Winner Elo', category: 'rating', formatter: 'elo', listView: true,
     sourceMetric: 'winner_elo', sourceEntity: 'run', aggregate: aggregateBootstrapMean, aggregationMethod: 'bootstrap_mean' },
@@ -65,6 +82,16 @@ export const METRIC_REGISTRY: Record<EntityType, EntityMetricRegistry> = {
     duringExecution: [
       { name: 'cost', label: 'Total Cost', category: 'cost', formatter: 'cost',
         listView: false, compute: computeRunCost },
+      // Per-purpose cost split — written live by createLLMClient via writeMetricMax
+      // (race-fixed Postgres GREATEST upsert). compute returns 0 because the value is
+      // persisted directly via writeMetricMax; if anything ever triggers a registry-driven
+      // recompute, GREATEST will keep the larger live-written value.
+      { name: 'generation_cost', label: 'Generation Cost', category: 'cost', formatter: 'cost',
+        listView: true, compute: () => 0 },
+      { name: 'ranking_cost', label: 'Ranking Cost', category: 'cost', formatter: 'cost',
+        listView: true, compute: () => 0 },
+      { name: 'seed_cost', label: 'Seed Cost', category: 'cost', formatter: 'cost',
+        listView: true, compute: () => 0 },
     ],
     atFinalization: [
       { name: 'winner_elo', label: 'Winner Elo', category: 'rating', formatter: 'elo',
@@ -81,15 +108,6 @@ export const METRIC_REGISTRY: Record<EntityType, EntityMetricRegistry> = {
         listView: true, compute: computeDecisiveRate },
       { name: 'variant_count', label: 'Variants', category: 'count', formatter: 'integer',
         listView: true, compute: computeVariantCount },
-      // Phase 9b/9f run-level cost split — written directly by persistRunResults from
-      // invocation cost_usd buckets. compute returns null so the registry-driven loop
-      // doesn't double-write; persistRunResults writes via writeMetric() explicitly.
-      // Registered here so validateTiming() doesn't reject the explicit write as
-      // "Unknown metric" (the validator queries this registry, not RunEntity).
-      { name: 'total_generation_cost', label: 'Generation Cost', category: 'cost', formatter: 'cost',
-        compute: () => null },
-      { name: 'total_ranking_cost', label: 'Ranking Cost', category: 'cost', formatter: 'cost',
-        compute: () => null },
     ],
     atPropagation: [],
   },

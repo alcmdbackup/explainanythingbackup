@@ -173,8 +173,9 @@ test.describe('Browser Tracing Endpoint', () => {
     });
 
     // 200 = configured and working
+    // 400 = OTEL configured but backend rejected invalid payload (endpoint exists)
     // 503 = endpoint exists but OTEL not configured
-    // Both indicate endpoint is deployed correctly
-    expect([200, 503]).toContain(response.status());
+    // All indicate endpoint is deployed correctly
+    expect([200, 400, 503]).toContain(response.status());
   });
 });

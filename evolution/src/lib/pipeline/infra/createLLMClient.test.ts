@@ -4,9 +4,9 @@ import { createV2LLMClient } from './createLLMClient';
 import { createCostTracker } from './trackBudget';
 import { BudgetExceededError } from '../../types';
 
-// Mock writeMetric for fire-and-forget cost write tests
+// Mock writeMetricMax for cost write tests (createLLMClient now uses race-fixed GREATEST upsert)
 jest.mock('../../metrics/writeMetrics', () => ({
-  writeMetric: jest.fn(async () => {}),
+  writeMetricMax: jest.fn(async () => {}),
 }));
 
 // Mock error classification to control transient detection
@@ -141,7 +141,7 @@ describe('V2 LLM Client', () => {
     const provider = makeProvider();
     const llm = createV2LLMClient(provider, ct, 'gpt-4.1-nano');
 
-    await expect(llm.completeStructured('test', {} as never, 'schema', 'agent')).rejects.toThrow(
+    await expect(llm.completeStructured('test', {} as never, 'schema', 'generation')).rejects.toThrow(
       'completeStructured not supported in V2',
     );
   });
@@ -197,32 +197,30 @@ describe('V2 LLM Client', () => {
   });
 
   it('writes cost metric to DB after each successful LLM call when db/runId provided', async () => {
-    jest.useRealTimers(); // Need real timers for fire-and-forget promise resolution
+    jest.useRealTimers();
     const ct = createCostTracker(10);
     const provider = makeProvider(async () => 'response text');
     const mockDb = {} as never;
 
-    const { writeMetric: mockWriteMetric } = require('../../metrics/writeMetrics') as { writeMetric: jest.Mock };
+    const { writeMetricMax: mockWriteMetricMax } = require('../../metrics/writeMetrics') as { writeMetricMax: jest.Mock };
+    mockWriteMetricMax.mockClear();
 
     const llm = createV2LLMClient(provider, ct, 'gpt-4.1-nano', undefined, mockDb, 'run-abc');
     await llm.complete('test prompt', 'generation');
 
-    // Wait a tick for fire-and-forget promises
-    await new Promise(resolve => setTimeout(resolve, 10));
-
-    // Should have 2 fire-and-forget writes: cost + agentCost:generation
-    const metricNames = mockWriteMetric.mock.calls.map((c: unknown[]) => c[3]);
+    // Should write cost (always) + generation_cost (because agentName='generation' is in COST_METRIC_BY_AGENT)
+    const metricNames = mockWriteMetricMax.mock.calls.map((c: unknown[]) => c[3]);
     expect(metricNames).toContain('cost');
-    expect(metricNames).toContain('agentCost:generation');
+    expect(metricNames).toContain('generation_cost');
   });
 
-  it('suppresses errors from fire-and-forget cost writes', async () => {
+  it('suppresses errors from cost writes (non-fatal)', async () => {
     jest.useRealTimers();
     const ct = createCostTracker(10);
     const provider = makeProvider(async () => 'response text');
 
-    const { writeMetric: mockWriteMetric } = require('../../metrics/writeMetrics') as { writeMetric: jest.Mock };
-    mockWriteMetric.mockRejectedValue(new Error('DB connection lost'));
+    const { writeMetricMax: mockWriteMetricMax } = require('../../metrics/writeMetrics') as { writeMetricMax: jest.Mock };
+    mockWriteMetricMax.mockRejectedValue(new Error('DB connection lost'));
 
     const llm = createV2LLMClient(provider, ct, 'gpt-4.1-nano', undefined, {} as never, 'run-abc');
 
@@ -231,7 +229,7 @@ describe('V2 LLM Client', () => {
     expect(result).toBe('response text');
 
     await new Promise(resolve => setTimeout(resolve, 10));
-    mockWriteMetric.mockResolvedValue(undefined); // Reset for other tests
+    mockWriteMetricMax.mockResolvedValue(undefined); // Reset for other tests
   });
 
   it('Bug #5: pricing for all common models matches shared config', async () => {

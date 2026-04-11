@@ -421,10 +421,17 @@ export interface LLMCompletionOptions {
   comparisonSubtype?: 'simple' | 'structured' | 'flow';
 }
 
+// Note: imported lazily to avoid the name collision with the legacy AgentName
+// declared above. The two types are unrelated:
+//  - Legacy AgentName (above) is the V1 enum used by `enabledAgents` config.
+//  - LlmCallAgentName (below) is the typed second-arg label of llm.complete()
+//    used by the V2 LLM client; defined in evolution/src/lib/core/agentNames.ts.
+import type { AgentName as LlmCallAgentName } from './core/agentNames';
+
 export interface EvolutionLLMClient {
   complete(
     prompt: string,
-    agentName: string,
+    agentName: LlmCallAgentName,
     options?: LLMCompletionOptions,
   ): Promise<string>;
 
@@ -432,7 +439,7 @@ export interface EvolutionLLMClient {
     prompt: string,
     schema: z.ZodType<T>,
     schemaName: string,
-    agentName: string,
+    agentName: LlmCallAgentName,
     options?: LLMCompletionOptions,
   ): Promise<T>;
 }
