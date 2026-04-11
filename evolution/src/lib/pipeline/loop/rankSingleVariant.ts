@@ -257,9 +257,11 @@ export async function rankSingleVariant(
   let status: RankSingleVariantStatus = 'no_more_opponents';
   let round = 0;
 
+  const maxComparisons = config.maxComparisonsPerVariant ?? 15;
+
   try {
-    // Hard cap on iterations as a safety net (should exit naturally well before this).
-    while (round < pool.length * 2) {
+    // Cap comparisons at min(pool opponents, maxComparisonsPerVariant).
+    while (round < Math.min(pool.length - 1, maxComparisons)) {
       round++;
       const variantRating = ratings.get(variant.id)!;
       const sel = selectOpponent(variant, variantRating, pool, ratings, completedPairs);

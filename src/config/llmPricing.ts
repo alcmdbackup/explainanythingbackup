@@ -10,7 +10,7 @@ export interface ModelPricing {
   reasoningPer1M?: number;
 }
 
-// Pricing as of January 2025 - update as needed
+// Pricing as of April 2026 - update as needed
 export const LLM_PRICING: Record<string, ModelPricing> = {
   // OpenAI GPT-4.1 (latest)
   'gpt-4.1': { inputPer1M: 2.00, outputPer1M: 8.00 },
@@ -58,10 +58,10 @@ export const LLM_PRICING: Record<string, ModelPricing> = {
   'o3-mini': { inputPer1M: 1.10, outputPer1M: 4.40 },
 
   // DeepSeek
-  'deepseek-chat': { inputPer1M: 0.14, outputPer1M: 0.28 },
+  'deepseek-chat': { inputPer1M: 0.28, outputPer1M: 0.42 }, // V3.2 pricing per api-docs.deepseek.com
 
   // OpenRouter (GPT-OSS-20B via OpenRouter)
-  'gpt-oss-20b': { inputPer1M: 0.03, outputPer1M: 0.11 },
+  'gpt-oss-20b': { inputPer1M: 0.03, outputPer1M: 0.14 }, // per openrouter.ai
 
   // Local models (Ollama) — free
   'LOCAL_qwen2.5:14b': { inputPer1M: 0, outputPer1M: 0 },

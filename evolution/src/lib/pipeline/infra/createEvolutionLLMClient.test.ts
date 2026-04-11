@@ -182,8 +182,7 @@ describe('V2 LLM Client', () => {
   });
 
   it('Bug #5: pipeline pricing matches shared config for deepseek-chat', async () => {
-    // Shared config: deepseek-chat input=$0.14/1M, output=$0.28/1M
-    // Old hardcoded value was input=$0.27/1M, output=$1.10/1M (2x too high)
+    // Shared config: deepseek-chat input=$0.28/1M, output=$0.42/1M (V3.2 pricing)
     const ct = createCostTracker(10);
     const provider = makeProvider(async () => 'x'.repeat(400)); // ~100 output tokens
     const llm = createEvolutionLLMClient(provider, ct, 'deepseek-chat');
@@ -191,9 +190,9 @@ describe('V2 LLM Client', () => {
     const prompt = 'y'.repeat(4000); // ~1000 input tokens
     await llm.complete(prompt, 'generation');
 
-    // Correct: (1000 * 0.14 + 100 * 0.28) / 1_000_000 = (140 + 28) / 1_000_000 = 0.000168
+    // Correct: (1000 * 0.28 + 100 * 0.42) / 1_000_000 = (280 + 42) / 1_000_000 = 0.000322
     const spent = ct.getTotalSpent();
-    expect(spent).toBeCloseTo(0.000168, 5);
+    expect(spent).toBeCloseTo(0.000322, 5);
   });
 
   it('writes cost metric to DB after each successful LLM call when db/runId provided', async () => {

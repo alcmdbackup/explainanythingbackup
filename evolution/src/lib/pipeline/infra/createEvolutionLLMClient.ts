@@ -15,7 +15,7 @@ import { type AgentName, COST_METRIC_BY_AGENT } from '../../core/agentNames';
 // ─── Cost estimation ─────────────────────────────────────────────
 
 /** Calculate cost from character counts (chars/4 ≈ tokens for English text). Rounded to 6 decimal places. */
-function calculateCost(inputChars: number, outputChars: number, pricing: ModelPricing): number {
+export function calculateCost(inputChars: number, outputChars: number, pricing: ModelPricing): number {
   const inputTokens = Math.ceil(inputChars / 4);
   const outputTokens = Math.ceil(outputChars / 4);
   const rawCost = (inputTokens * pricing.inputPer1M + outputTokens * pricing.outputPer1M) / 1_000_000;
