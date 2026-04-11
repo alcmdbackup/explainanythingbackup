@@ -29,7 +29,7 @@ Topic: ${topic}
 Respond with ONLY the title text, nothing else. No quotes, no prefixes, no explanation.`;
 }
 
-function buildArticlePrompt(title: string): string {
+export function buildArticlePrompt(title: string): string {
   return `Write a clear, comprehensive explanation of the topic below.
 
 Title: ${title}

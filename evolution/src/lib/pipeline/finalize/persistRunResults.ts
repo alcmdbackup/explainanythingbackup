@@ -10,15 +10,15 @@ import { createEntityLogger } from '../infra/createEntityLogger';
 import { isArenaEntry, type ArenaTextVariation } from '../setup/buildRunContext';
 import { logger as serverLogger } from '@/lib/server_utilities';
 import { getEntity } from '../../core/entityRegistry';
-import { writeMetric } from '../../metrics/writeMetrics';
+import { writeMetric, writeMetricMax } from '../../metrics/writeMetrics';
 import { getMetricsForEntities } from '../../metrics/readMetrics';
-import { type FinalizationContext, type MetricRow, type MetricName, isMetricValue } from '../../metrics/types';
-
+import { type FinalizationContext, type MetricRow, type MetricName, type AggregationMethod, isMetricValue } from '../../metrics/types';
 import { evolutionVariantInsertSchema, EvolutionRunSummaryV3Schema } from '../../schemas';
 import { selectWinner } from '../../shared/selectWinner';
 
 /** V2 baseline strategy name (V1 uses 'original_baseline'). */
 const V2_BASELINE_STRATEGY = 'baseline';
+
 
 interface RunContext {
   experiment_id: string | null;
@@ -250,9 +250,12 @@ export async function finalizeRun(
       matchHistory: result.matchHistory,
     };
 
-    // Ensure cost metric exists (may have been skipped if iteration loop broke early)
+    // Ensure cost metric exists (may have been skipped if iteration loop broke early).
+    // Use writeMetricMax (GREATEST upsert) to avoid downgrading a higher value that was
+    // written live by createLLMClient during execution (e.g. when parallel agents accumulate
+    // more spend than costTracker.getTotalSpent() reflects at finalization time).
     if (result.totalCost != null && !isNaN(result.totalCost)) {
-      await writeMetric(db, 'run', runId, 'cost' as MetricName, result.totalCost, 'during_execution');
+      await writeMetricMax(db, 'run', runId, 'cost' as MetricName, result.totalCost, 'during_execution');
     }
 
     // Run-level finalization metrics
@@ -318,20 +321,17 @@ export async function finalizeRun(
       await propagateMetrics(db, 'experiment', run.experiment_id);
     }
   } catch (metricsErr) {
-    const errMsg = metricsErr instanceof Error ? metricsErr.message : String(metricsErr);
-    const errStack = metricsErr instanceof Error ? metricsErr.stack?.slice(0, 1000) : undefined;
+    const err = metricsErr instanceof Error ? metricsErr : null;
     logger?.warn('Finalization metrics write failed', {
       phaseName: 'finalize',
-      error: errMsg.slice(0, 500),
-      errorType: metricsErr instanceof Error ? metricsErr.constructor.name : typeof metricsErr,
-      errorStack: errStack,
+      error: (err ? err.message : String(metricsErr)).slice(0, 500),
+      errorType: err ? err.constructor.name : typeof metricsErr,
+      errorStack: err?.stack?.slice(0, 1000),
       runId,
     });
   }
 
-  // Step 6a: (Removed) update_strategy_aggregates RPC was deprecated — propagateMetrics handles this now.
-
-  // Step 6b: Experiment auto-completion (only if ALL sibling runs are done)
+  // Step 6: Experiment auto-completion (only if ALL sibling runs are done)
   if (run.experiment_id) {
     try {
       await db.rpc('complete_experiment_if_done', {
@@ -383,7 +383,7 @@ export async function propagateMetrics(
       ci_lower: aggregated.ci?.[0],
       ci_upper: aggregated.ci?.[1],
       n: aggregated.n,
-      aggregation_method: def.aggregationMethod as import('../../metrics/types').AggregationMethod,
+      aggregation_method: def.aggregationMethod as AggregationMethod,
     });
   }
 }
@@ -396,6 +396,7 @@ export async function syncToArena(
   ratings: Map<string, Rating>,
   matchHistory: V2Match[],
   supabase: SupabaseClient,
+  isSeeded: boolean,
   logger?: EntityLogger,
 ): Promise<void> {
   // Compute per-variant match counts from match history
@@ -421,7 +422,7 @@ export async function syncToArena(
         // arena_match_count: matches played in THIS run only (not cumulative).
         // The DB RPC accumulates this into the arena entry's lifetime total.
         arena_match_count: variantMatchCounts.get(v.id) ?? 0,
-        generation_method: 'pipeline',
+        generation_method: isSeeded && v.strategy === V2_BASELINE_STRATEGY ? 'seed' : 'pipeline',
       };
     });
 

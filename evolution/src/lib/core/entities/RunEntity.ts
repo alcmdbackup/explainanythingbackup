@@ -41,6 +41,7 @@ export class RunEntity extends Entity<EvolutionRunFullDb> {
       // recompute, GREATEST will keep the larger live-written value.
       { ...METRIC_CATALOG.generation_cost, compute: () => 0 },
       { ...METRIC_CATALOG.ranking_cost, compute: () => 0 },
+      { ...METRIC_CATALOG.seed_cost, compute: () => 0 },
     ],
     atFinalization: [
       { ...METRIC_CATALOG.winner_elo, compute: computeWinnerElo },

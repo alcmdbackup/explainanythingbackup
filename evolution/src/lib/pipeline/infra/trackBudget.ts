@@ -18,6 +18,36 @@ export interface V2CostTracker {
   getAvailableBudget(): number;
 }
 
+/** Per-invocation cost scope: delegates budget gating to shared tracker, tracks own spend separately. */
+export interface AgentCostScope extends V2CostTracker {
+  /** Returns only this agent's LLM costs, independent of other concurrent agents. */
+  getOwnSpent(): number;
+}
+
+// ─── Agent Cost Scope ─────────────────────────────────────────────
+
+/**
+ * Wraps a shared V2CostTracker so budget gating (reserve/release) remains shared
+ * while cost attribution (recordSpend) is tracked independently per invocation.
+ * Fixes parallel-execution delta bug where getTotalSpent() delta captured sibling costs.
+ */
+export function createAgentCostScope(shared: V2CostTracker): AgentCostScope {
+  let ownSpent = 0;
+
+  return {
+    reserve: shared.reserve.bind(shared),
+    recordSpend(phase: AgentName, actualCost: number, reservedAmount: number): void {
+      ownSpent += actualCost;
+      shared.recordSpend(phase, actualCost, reservedAmount);
+    },
+    release: shared.release.bind(shared),
+    getTotalSpent: shared.getTotalSpent.bind(shared),
+    getPhaseCosts: shared.getPhaseCosts.bind(shared),
+    getAvailableBudget: shared.getAvailableBudget.bind(shared),
+    getOwnSpent(): number { return ownSpent; },
+  };
+}
+
 // ─── Constants ───────────────────────────────────────────────────
 
 /** Safety margin multiplier for budget reservations. */
@@ -71,25 +101,23 @@ export function createCostTracker(budgetUsd: number, logger?: EntityLogger): V2C
       phaseCosts[phase] = (phaseCosts[phase] ?? 0) + actualCost;
 
       if (totalSpent > budgetUsd) {
-        const msg = `Budget overrun: spent $${totalSpent.toFixed(4)} > cap $${budgetUsd.toFixed(4)} (overage: $${(totalSpent - budgetUsd).toFixed(4)})`;
+        const overage = totalSpent - budgetUsd;
+        const msg = `Budget overrun: spent $${totalSpent.toFixed(4)} > cap $${budgetUsd.toFixed(4)} (overage: $${overage.toFixed(4)})`;
         if (logger) {
-          logger.error(msg, { phaseName: phase, totalSpent, budgetUsd, overage: totalSpent - budgetUsd });
+          logger.error(msg, { phaseName: phase, totalSpent, budgetUsd, overage });
         } else {
           console.error(`[V2CostTracker] ${msg}`);
         }
       }
 
-      // Postcondition: guard against NaN propagation from bad actualCost
       assertPostcondition(Number.isFinite(totalSpent), `totalSpent not finite after recordSpend: ${totalSpent}`, logger);
 
-      // Core budget invariant (unconditional — runs in all environments)
       if (totalSpent + totalReserved > budgetUsd * 1.01) {
         logger?.error('Budget invariant violated: totalSpent + totalReserved > budgetUsd * 1.01', {
           phaseName: phase, totalSpent, totalReserved, budgetUsd,
         });
       }
 
-      // Threshold warnings
       const pct = totalSpent / budgetUsd;
       if (!warned50 && pct >= 0.5) {
         warned50 = true;

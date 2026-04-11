@@ -260,6 +260,22 @@ When handling errors in pipeline code, the typical pattern is:
 
 ---
 
+## Agent Cost Scope Pattern
+
+Under parallel agent dispatch, a shared `V2CostTracker` serves two purposes: **budget gating** (must be shared, synchronous `reserve()`) and **cost attribution** (should be per-agent). Without isolation, `getTotalSpent()` deltas absorbed sibling agents' costs — `cost_usd` on invocations was timing-dependent and could be nearly double the true value.
+
+**Solution:** `createAgentCostScope(shared: V2CostTracker): AgentCostScope` (in `trackBudget.ts`) wraps the shared tracker in a per-invocation scope:
+
+- `reserve()`, `release()`, `getTotalSpent()`, `getAvailableBudget()`, `getPhaseCosts()` — **delegated** to shared tracker; budget gating is unchanged
+- `recordSpend()` — **intercepted**: calls shared tracker AND increments a private `ownSpent` counter
+- `getOwnSpent()` — returns only this scope's LLM costs, independent of other agents
+
+`Agent.run()` creates a scope per invocation and passes it as `costTracker` in `extendedCtx`. The `cost_usd` written to `evolution_agent_invocations` uses `detail.totalCost` (computed as a delta inside `execute()`) as the primary source, falling back to `scope.getOwnSpent()` for agents that call `recordSpend()` directly through the scope.
+
+> **Pre-baked LLM clients:** Some agents receive an `llm` client created with the original shared tracker (before the scope exists). These clients record spend on the shared tracker, bypassing the scope's `recordSpend()` intercept. In these cases, `scope.getOwnSpent()` returns 0. The `detail.totalCost` fallback handles this correctly — `execute()` captures `getTotalSpent()` before and after its own work, so the delta is correct even when the LLM client bypasses the scope.
+
+---
+
 ## Budget Event Logging
 
 > **Note:** The `evolution_budget_events` table was dropped during the V2 schema consolidation and no longer exists. The reserve/spend/release pattern is still used in-memory by the `V2CostTracker` (see Layer 1 above), but individual budget events are no longer persisted to a dedicated table. Cost auditing now relies on `evolution_agent_invocations` records and the cost aggregation mechanisms described below.

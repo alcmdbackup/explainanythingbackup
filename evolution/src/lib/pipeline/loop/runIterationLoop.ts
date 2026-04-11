@@ -1,12 +1,8 @@
-// Orchestrator-driven evolution loop (Phase 5, generate_rank_evolution_parallel_20260331).
-//
-// Replaces the legacy generate→rank loop with a sequence of iterations dispatched by
-// nextIteration(). Each iteration is one of two types:
+// Orchestrator-driven evolution loop.
+// Each iteration is one of two types:
 //   - Generate: N parallel GenerateFromSeedArticleAgent invocations + 1 MergeRatingsAgent
 //   - Swiss:    1 SwissRankingAgent invocation + 1 MergeRatingsAgent
-//
-// The first iteration is always generate; subsequent iterations are swiss until convergence,
-// no_pairs, budget exhaustion, kill, or wall-clock deadline.
+// The first iteration is always generate; subsequent iterations are swiss until a stop condition.
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Variant } from '../../types';
@@ -19,7 +15,8 @@ import { createCostTracker } from '../infra/trackBudget';
 import { createV2LLMClient } from '../infra/createLLMClient';
 import type { EntityLogger } from '../infra/createEntityLogger';
 import { selectWinner } from '../../shared/selectWinner';
-import { GenerateFromSeedArticleAgent } from '../../core/agents/generateFromSeedArticle';
+import { GenerateFromSeedArticleAgent, deepCloneRatings } from '../../core/agents/generateFromSeedArticle';
+import { CreateSeedArticleAgent } from '../../core/agents/createSeedArticle';
 import { SwissRankingAgent, type SwissRankingMatchEntry } from '../../core/agents/SwissRankingAgent';
 import { MergeRatingsAgent, type MergeMatchEntry } from '../../core/agents/MergeRatingsAgent';
 import { swissPairing, pairKey, MAX_PAIRS_PER_ROUND } from './swissPairing';
@@ -53,12 +50,7 @@ function validateConfig(config: EvolutionConfig): void {
 
 async function isRunKilled(db: SupabaseClient, runId: string, logger?: EntityLogger): Promise<boolean> {
   try {
-    const { data, error } = await db
-      .from('evolution_runs')
-      .select('status')
-      .eq('id', runId)
-      .single();
-
+    const { data, error } = await db.from('evolution_runs').select('status').eq('id', runId).single();
     if (error) {
       logger?.warn('Kill detection DB error (continuing)', { phaseName: 'kill_check' });
       return false;
@@ -75,6 +67,10 @@ async function isRunKilled(db: SupabaseClient, runId: string, logger?: EntityLog
 /** Hard cap on orchestrator iterations to prevent runaway loops. */
 const MAX_ORCHESTRATOR_ITERATIONS = 20;
 
+function topKMuValues(ratings: ReadonlyMap<string, Rating>, k: number): number[] {
+  return [...ratings.values()].map((r) => r.mu).sort((a, b) => b - a).slice(0, k);
+}
+
 // ─── Snapshot helpers ────────────────────────────────────────────
 
 function recordSnapshot(
@@ -89,14 +85,9 @@ function recordSnapshot(
     discardReasons?: Record<string, { mu: number; top15Cutoff: number }>;
   },
 ): IterationSnapshot {
-  const ratingsObj: Record<string, { mu: number; sigma: number }> = {};
-  for (const [id, r] of ratings.entries()) {
-    ratingsObj[id] = { mu: r.mu, sigma: r.sigma };
-  }
-  const matchCountsObj: Record<string, number> = {};
-  for (const [id, c] of matchCounts.entries()) {
-    matchCountsObj[id] = c;
-  }
+  const ratingsObj = Object.fromEntries(
+    [...ratings.entries()].map(([id, r]) => [id, { mu: r.mu, sigma: r.sigma }]),
+  );
   return {
     iteration,
     iterationType,
@@ -104,7 +95,7 @@ function recordSnapshot(
     capturedAt: new Date().toISOString(),
     poolVariantIds: pool.map((v) => v.id),
     ratings: ratingsObj,
-    matchCounts: matchCountsObj,
+    matchCounts: Object.fromEntries(matchCounts),
     ...(options?.discardedVariantIds !== undefined && { discardedVariantIds: options.discardedVariantIds }),
     ...(options?.discardReasons !== undefined && { discardReasons: options.discardReasons }),
   };
@@ -167,6 +158,8 @@ export async function evolveArticle(
     deadlineMs?: number;
     signal?: AbortSignal;
     randomSeed?: bigint;
+    /** When set, skip eager baseline creation and run CreateSeedArticleAgent in iteration 1. */
+    seedPrompt?: string;
   },
 ): Promise<EvolutionResult> {
   validateConfig(config);
@@ -212,27 +205,23 @@ export async function evolveArticle(
   const iterationSnapshots: IterationSnapshot[] = [];
   const discardedVariants: Variant[] = [];
 
-  // Insert baseline
-  const baseline = createVariant({
-    text: originalText,
-    strategy: 'baseline',
-    iterationBorn: 0,
-    parentIds: [],
-    version: 0,
-  });
-  pool.push(baseline);
-  ratings.set(baseline.id, createRating());
-  logger.debug('Baseline variant added', { variantId: baseline.id, poolSize: pool.length, phaseName: 'initialization' });
+  // Insert baseline — deferred when seedPrompt is set (CreateSeedArticleAgent creates it in iter 1).
+  if (!options?.seedPrompt) {
+    const baseline = createVariant({ text: originalText, strategy: 'baseline', iterationBorn: 0, parentIds: [], version: 0 });
+    pool.push(baseline);
+    ratings.set(baseline.id, createRating());
+    logger.debug('Baseline variant added', { variantId: baseline.id, poolSize: pool.length, phaseName: 'initialization' });
+  }
 
-  // Prepend initial pool entries (e.g., arena entries with existing ratings)
+  // Load initial pool entries (e.g., arena entries with existing ratings).
   if (options?.initialPool) {
     for (const entry of options.initialPool) {
       pool.push(entry);
-      if (entry.mu !== undefined && entry.sigma !== undefined) {
-        ratings.set(entry.id, { mu: entry.mu, sigma: entry.sigma });
-      } else {
-        ratings.set(entry.id, createRating());
-      }
+      ratings.set(entry.id,
+        entry.mu !== undefined && entry.sigma !== undefined
+          ? { mu: entry.mu, sigma: entry.sigma }
+          : createRating(),
+      );
     }
     logger.info('Initial pool loaded', { entriesLoaded: options.initialPool.length, poolSize: pool.length, phaseName: 'initialization' });
   }
@@ -241,6 +230,9 @@ export async function evolveArticle(
   let iteration = 0;
   let executionOrder = 0;
   let budgetExhausted = false;
+  let isSeeded = false;
+  // currentOriginalText is the base article for variant generation; set by seed agent when present.
+  let currentOriginalText = originalText;
 
   // ─── nextIteration() decision function ───────────────────────────
   async function nextIteration(): Promise<'generate' | 'swiss' | 'done'> {
@@ -300,6 +292,68 @@ export async function evolveArticle(
     iterationSnapshots.push(recordSnapshot(iteration, iterType, 'start', pool, ratings, matchCounts));
 
     if (iterType === 'generate') {
+      // Seed agent: runs once at start of iteration 1 for prompt-based runs without an arena seed.
+      if (options?.seedPrompt && !isSeeded) {
+        const seedExecOrder = ++executionOrder;
+        const seedCtx: AgentContext = {
+          db, runId, iteration,
+          executionOrder: seedExecOrder,
+          invocationId: '',
+          randomSeed: deriveSeed(randomSeed, `iter${iteration}`, `seed${seedExecOrder}`),
+          logger, costTracker, config: resolvedConfig,
+        };
+        const seedAgent = new CreateSeedArticleAgent();
+        const seedResult = await seedAgent.run({
+          promptText: options.seedPrompt,
+          llm,
+          initialPool: [...pool],
+          initialRatings: deepCloneRatings(ratings),
+          initialMatchCounts: new Map(matchCounts),
+          cache: comparisonCache,
+        }, seedCtx);
+
+        if (!seedResult.success || !seedResult.result?.variant || !seedResult.result.surfaced) {
+          logger.warn('Seed agent failed or variant discarded — stopping run', {
+            phaseName: 'seed_generation',
+            success: seedResult.success,
+            budgetExceeded: seedResult.budgetExceeded,
+          });
+          stopReason = 'seed_failed';
+          break;
+        }
+
+        const seedVariant = seedResult.result.variant;
+        currentOriginalText = seedVariant.text;
+
+        // Add seed variant to pool with fresh rating.
+        pool.push(seedVariant);
+        ratings.set(seedVariant.id, createRating());
+        matchCounts.set(seedVariant.id, 0);
+
+        // Create and add baseline from seed text.
+        const seedBaseline = createVariant({
+          text: seedVariant.text,
+          strategy: 'baseline',
+          iterationBorn: iteration,
+          parentIds: [],
+          version: 0,
+        });
+        pool.push(seedBaseline);
+        ratings.set(seedBaseline.id, createRating());
+        matchCounts.set(seedBaseline.id, 0);
+
+        // Buffer seed's matches for MergeRatingsAgent at end of this iteration.
+        if (seedResult.result.matches.length > 0) {
+          allMatches.push(...seedResult.result.matches);
+        }
+
+        isSeeded = true;
+        logger.info('Seed agent succeeded; baseline created from seed', {
+          seedVariantId: seedVariant.id, baselineId: seedBaseline.id,
+          poolSize: pool.length, phaseName: 'seed_generation',
+        });
+      }
+
       // Capture iteration-start snapshot for the parallel agents
       const initialPoolSnapshot: Variant[] = [...pool];
       const initialRatingsSnapshot = new Map(ratings);
@@ -333,7 +387,7 @@ export async function evolveArticle(
         };
         const agent = new GenerateFromSeedArticleAgent();
         return agent.run({
-          originalText,
+          originalText: currentOriginalText ?? '',
           strategy,
           llm,
           initialPool: initialPoolSnapshot,
@@ -345,44 +399,38 @@ export async function evolveArticle(
 
       const results = await Promise.allSettled(dispatchPromises);
 
-      // Collect surfaced variants and their match buffers; also track discarded.
       const surfacedVariants: Variant[] = [];
       const surfacedBuffers: MergeMatchEntry[][] = [];
       const discardedIds: string[] = [];
       const discardReasonsMap: Record<string, { mu: number; top15Cutoff: number }> = {};
 
       for (const r of results) {
-        if (r.status === 'fulfilled' && r.value.success && r.value.result) {
-          const out = r.value.result;
-          if (out.surfaced && out.variant) {
-            surfacedVariants.push(out.variant);
-            const buf: MergeMatchEntry[] = out.matches.map((m) => ({
-              match: m,
-              idA: m.winnerId,
-              idB: m.loserId,
-            }));
-            surfacedBuffers.push(buf);
-          } else if (out.variant && !out.surfaced) {
-            discardedVariants.push(out.variant);
-            discardedIds.push(out.variant.id);
-            // Plumb the local mu / top15Cutoff snapshot from the agent into the
-            // iteration-end snapshot so SnapshotsTab can show real numbers.
-            if (out.discardReason) {
-              discardReasonsMap[out.variant.id] = out.discardReason;
-            }
-          }
-        } else if (r.status === 'fulfilled' && r.value.budgetExceeded) {
-          // Agent hit budget at the Agent.run boundary (not internally caught).
-          budgetExhausted = true;
-        } else if (r.status === 'rejected') {
+        if (r.status === 'rejected') {
           logger.warn('generateFromSeedArticle agent rejected', {
             phaseName: 'generation',
             error: (r.reason instanceof Error ? r.reason.message : String(r.reason)).slice(0, 500),
           });
+          continue;
+        }
+        if (r.value.budgetExceeded) {
+          budgetExhausted = true;
+          continue;
+        }
+        if (!r.value.success || !r.value.result) continue;
+
+        const out = r.value.result;
+        if (out.surfaced && out.variant) {
+          surfacedVariants.push(out.variant);
+          surfacedBuffers.push(out.matches.map((m) => ({ match: m, idA: m.winnerId, idB: m.loserId })));
+        } else if (out.variant && !out.surfaced) {
+          discardedVariants.push(out.variant);
+          discardedIds.push(out.variant.id);
+          if (out.discardReason) {
+            discardReasonsMap[out.variant.id] = out.discardReason;
+          }
         }
       }
 
-      // Dispatch the merge agent (always — even if no buffers, for snapshot purposes).
       const mergeExecOrder = ++executionOrder;
       const mergeCtx: AgentContext = {
         db, runId, iteration,
@@ -403,7 +451,7 @@ export async function evolveArticle(
 
       // Track top-K mu history and snapshot iteration end (with discarded info).
       const topK = resolvedConfig.tournamentTopK ?? 5;
-      const muValues = [...ratings.values()].map((r) => r.mu).sort((a, b) => b - a).slice(0, topK);
+      const muValues = topKMuValues(ratings, topK);
       muHistory.push(muValues);
 
       iterationSnapshots.push(recordSnapshot(iteration, 'generate', 'end', pool, ratings, matchCounts, {
@@ -449,8 +497,7 @@ export async function evolveArticle(
         break;
       }
 
-      // Dispatch merge agent UNCONDITIONALLY — paid-for matches must reach global ratings
-      // before we exit on budget.
+      // Merge unconditionally — paid-for matches must reach global ratings before budget exit.
       const mergeExecOrder = ++executionOrder;
       const mergeCtx: AgentContext = {
         db, runId, iteration,
@@ -461,11 +508,7 @@ export async function evolveArticle(
       };
       const mergeAgent = new MergeRatingsAgent();
       const mergeBuffers: MergeMatchEntry[][] = [
-        swissOutput.matches.map((m: SwissRankingMatchEntry) => ({
-          match: m.match,
-          idA: m.idA,
-          idB: m.idB,
-        })),
+        swissOutput.matches.map((m: SwissRankingMatchEntry) => ({ match: m.match, idA: m.idA, idB: m.idB })),
       ];
       const mergeResult = await mergeAgent.run({
         iterationType: 'swiss',
@@ -481,7 +524,7 @@ export async function evolveArticle(
       }
 
       const topK = resolvedConfig.tournamentTopK ?? 5;
-      const muValues = [...ratings.values()].map((r) => r.mu).sort((a, b) => b - a).slice(0, topK);
+      const muValues = topKMuValues(ratings, topK);
       muHistory.push(muValues);
 
       iterationSnapshots.push(recordSnapshot(iteration, 'swiss', 'end', pool, ratings, matchCounts));
@@ -500,18 +543,23 @@ export async function evolveArticle(
   }
 
   // ─── Winner determination ──────────────────────────────────
-  const winResult = selectWinner(pool, ratings);
-  const winner = pool.find((v) => v.id === winResult.winnerId) ?? pool[0]!;
+  // Pool may be empty when seed generation failed before any variants were added.
+  // finalizeRun handles empty pool by marking the run failed.
+  let winner: Variant | undefined;
+  if (pool.length > 0) {
+    const winResult = selectWinner(pool, ratings);
+    winner = pool.find((v) => v.id === winResult.winnerId) ?? pool[0];
+    logger.info('Winner determined', { winnerId: winner?.id, winnerMu: winResult.mu, winnerSigma: winResult.sigma, phaseName: 'winner_determination' });
+  }
 
-  logger.info('Winner determined', { winnerId: winner.id, winnerMu: winResult.mu, winnerSigma: winResult.sigma, phaseName: 'winner_determination' });
   logger.info('Evolution complete', {
     stopReason, iterations: iteration, poolSize: pool.length,
-    totalCost: costTracker.getTotalSpent(), winnerId: winner.id,
+    totalCost: costTracker.getTotalSpent(), winnerId: winner?.id,
     phaseName: 'evolution_complete',
   });
 
   return {
-    winner,
+    winner: winner!,
     pool,
     ratings,
     matchHistory: allMatches,
@@ -524,5 +572,6 @@ export async function evolveArticle(
     discardedVariants,
     iterationSnapshots,
     randomSeed,
+    isSeeded: isSeeded || undefined,
   };
 }

@@ -197,12 +197,12 @@ describe('Evolution Claim Integration (Bug #1)', () => {
   });
 
   // ─── Phase 4b: empty-run cost zero-init ─────────────────────────
-  // Verifies that executePipeline calls writeMetricMax for cost / generation_cost / ranking_cost
+  // Verifies that executePipeline calls writeMetricMax for cost / generation_cost / ranking_cost / seed_cost
   // BEFORE buildRunContext, so even runs that fail before any LLM call have rows in
   // evolution_metrics for downstream propagation. The fix lives in
   // evolution/src/lib/pipeline/claimAndExecuteRun.ts inside executePipeline().
 
-  it('writes zero-init for cost / generation_cost / ranking_cost before buildRunContext', async () => {
+  it('writes zero-init for cost / generation_cost / ranking_cost / seed_cost before buildRunContext', async () => {
     const claimedRow = {
       id: 'run-zero-init',
       explanation_id: null,
@@ -219,10 +219,10 @@ describe('Evolution Claim Integration (Bug #1)', () => {
 
     await claimAndExecuteRun({ runnerId: 'runner-zero-init' });
 
-    // Three writeMetricMax calls expected: cost, generation_cost, ranking_cost — all with value=0
-    expect(mockWriteMetricMax).toHaveBeenCalledTimes(3);
+    // Four writeMetricMax calls expected: cost, generation_cost, ranking_cost, seed_cost — all with value=0
+    expect(mockWriteMetricMax).toHaveBeenCalledTimes(4);
     const metricNames = mockWriteMetricMax.mock.calls.map((c) => c[3]);
-    expect(metricNames).toEqual(['cost', 'generation_cost', 'ranking_cost']);
+    expect(metricNames).toEqual(['cost', 'generation_cost', 'ranking_cost', 'seed_cost']);
     for (const call of mockWriteMetricMax.mock.calls) {
       expect(call[1]).toBe('run');               // entityType
       expect(call[2]).toBe('run-zero-init');      // entityId
@@ -256,7 +256,7 @@ describe('Evolution Claim Integration (Bug #1)', () => {
     const result = await claimAndExecuteRun({ runnerId: 'runner-init-fail' });
     expect(result.claimed).toBe(true); // claim succeeded; pipeline failed downstream as expected
 
-    // All 3 zero-init calls were still attempted (try/catch around each)
-    expect(mockWriteMetricMax).toHaveBeenCalledTimes(3);
+    // All 4 zero-init calls were still attempted (try/catch around each)
+    expect(mockWriteMetricMax).toHaveBeenCalledTimes(4);
   });
 });

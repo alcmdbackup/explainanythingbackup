@@ -3,6 +3,7 @@
 import { Agent } from './Agent';
 import type { AgentContext, AgentOutput, DetailFieldDef } from './types';
 import { BudgetExceededError, BudgetExceededWithPartialResults, ExecutionDetailBase } from '../types';
+import { createCostTracker } from '../pipeline/infra/trackBudget';
 import { GenerateFromSeedArticleAgent } from './agents/generateFromSeedArticle';
 import { SwissRankingAgent } from './agents/SwissRankingAgent';
 import { MergeRatingsAgent } from './agents/MergeRatingsAgent';
@@ -184,18 +185,89 @@ describe('Agent abstract class', () => {
   });
 
   describe('cost tracking', () => {
-    it('computes cost as difference in total spent', async () => {
-      let callCount = 0;
-      const agent = new TestAgent();
-      const ctx = createMockContext();
-      (ctx.costTracker.getTotalSpent as jest.Mock).mockImplementation(() => {
-        callCount++;
-        return callCount === 1 ? 1.0 : 1.5; // before=1.0, after=1.5 → cost=0.5
+    it('cost_usd = own scope spend, not global tracker delta', async () => {
+      const shared = createCostTracker(10.0);
+      // Pre-load sibling spend on shared tracker (simulates parallel agent)
+      const preReserve = shared.reserve('generation', 0.2);
+      shared.recordSpend('generation', 0.30, preReserve);
+
+      const agent = new TestAgent(async (_input, ctx) => {
+        // This agent's one LLM call
+        const reserved = ctx.costTracker.reserve('ranking', 0.05);
+        ctx.costTracker.recordSpend('ranking', 0.08, reserved);
+        return { result: 'ok', detail: { detailType: 'test', totalCost: 0 } };
       });
 
-      const result = await agent.run('hello', ctx);
+      const result = await agent.run('hello', createMockContext({ costTracker: shared }));
 
-      expect(result.cost).toBe(0.5);
+      // Should report only this agent's 0.08, not the global delta of 0.38
+      expect(result.cost).toBeCloseTo(0.08);
+    });
+
+    it('concurrent agents: each cost_usd reflects only its own calls; A + B = totalSpent', async () => {
+      const shared = createCostTracker(10.0);
+
+      const agentA = new TestAgent(async (_input, ctx) => {
+        const reserved = ctx.costTracker.reserve('generation', 0.1);
+        await Promise.resolve();
+        ctx.costTracker.recordSpend('generation', 0.15, reserved);
+        return { result: 'A', detail: { detailType: 'test', totalCost: 0 } };
+      });
+
+      const agentB = new TestAgent(async (_input, ctx) => {
+        const reserved = ctx.costTracker.reserve('ranking', 0.1);
+        await Promise.resolve();
+        ctx.costTracker.recordSpend('ranking', 0.20, reserved);
+        return { result: 'B', detail: { detailType: 'test', totalCost: 0 } };
+      });
+
+      const [resultA, resultB] = await Promise.all([
+        agentA.run('a', createMockContext({ costTracker: shared })),
+        agentB.run('b', createMockContext({ costTracker: shared })),
+      ]);
+
+      expect(resultA.cost).toBeCloseTo(0.15);
+      expect(resultB.cost).toBeCloseTo(0.20);
+      expect(resultA.cost! + resultB.cost!).toBeCloseTo(shared.getTotalSpent());
+    });
+
+    it('sibling recordSpend injected mid-agent does not affect agent cost', async () => {
+      const shared = createCostTracker(10.0);
+      let injectResolve!: () => void;
+      const injectPoint = new Promise<void>(resolve => { injectResolve = resolve; });
+
+      const agentA = new TestAgent(async (_input, ctx) => {
+        const reserved = ctx.costTracker.reserve('generation', 0.1);
+        await injectPoint;
+        ctx.costTracker.recordSpend('generation', 0.12, reserved);
+        return { result: 'A', detail: { detailType: 'test', totalCost: 0 } };
+      });
+
+      const resultAPromise = agentA.run('a', createMockContext({ costTracker: shared }));
+
+      // Inject sibling spend while A is mid-execution
+      const siblingReserve = shared.reserve('ranking', 0.1);
+      shared.recordSpend('ranking', 0.25, siblingReserve);
+      injectResolve();
+
+      const resultA = await resultAPromise;
+      expect(resultA.cost).toBeCloseTo(0.12); // NOT 0.37
+    });
+
+    it('error path: cost = spend recorded before error', async () => {
+      const shared = createCostTracker(10.0);
+
+      const agent = new TestAgent(async (_input, ctx) => {
+        const reserved = ctx.costTracker.reserve('generation', 0.05);
+        ctx.costTracker.recordSpend('generation', 0.07, reserved);
+        throw new BudgetExceededError('generation', 0.07, 0.065, 10.0);
+      });
+
+      const result = await agent.run('hello', createMockContext({ costTracker: shared }));
+
+      expect(result.success).toBe(false);
+      expect(result.budgetExceeded).toBe(true);
+      expect(result.cost).toBeCloseTo(0.07);
     });
   });
 

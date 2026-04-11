@@ -1,9 +1,6 @@
 // generateFromSeedArticle: one parallel agent per generated variant.
 // Generates ONE variant via a single strategy, then ranks it via binary search against
-// a deep-cloned local snapshot of the iteration-start pool/ratings/matchCounts. Owns its
-// own surface/discard decision (Critical Fix N: deep-clone Rating objects).
-//
-// See planning doc: docs/planning/generate_rank_evolution_parallel_20260331/_planning.md
+// a deep-cloned local snapshot of the iteration-start pool/ratings/matchCounts.
 
 import { Agent } from '../Agent';
 import type { AgentContext, AgentOutput, DetailFieldDef, FinalizationMetricDef } from '../types';
@@ -12,14 +9,9 @@ import { METRIC_CATALOG } from '../metricCatalog';
 import { computeFormatRejectionRate } from '../../metrics/computations/finalizationInvocation';
 import { createVariant } from '../../types';
 import type { Rating, ComparisonResult } from '../../shared/computeRatings';
-import { createRating } from '../../shared/computeRatings';
 import type { V2Match } from '../../pipeline/infra/types';
-import {
-  rankSingleVariant,
-  computeTop15Cutoff,
-  type RankSingleVariantStatus,
-  type RankSingleVariantDetail,
-} from '../../pipeline/loop/rankSingleVariant';
+import { type RankSingleVariantStatus } from '../../pipeline/loop/rankSingleVariant';
+import { rankNewVariant } from '../../pipeline/loop/rankNewVariant';
 import { generateFromSeedExecutionDetailSchema } from '../../schemas';
 import { validateFormat } from '../../shared/enforceVariantFormat';
 import { buildEvolutionPrompt } from '../../pipeline/loop/buildPrompts';
@@ -159,46 +151,32 @@ export class GenerateFromSeedArticleAgent extends Agent<
   ): Promise<AgentOutput<GenerateFromSeedOutput, GenerateFromSeedExecutionDetail>> {
     const { originalText, strategy, llm, initialPool, initialRatings, initialMatchCounts, cache } = input;
 
-    // Step 0: deep-clone the iteration-start snapshot into local mutable state.
-    // CRITICAL: deep-clone the Rating values, not just the Map (Fix N).
+    // Deep-clone the iteration-start snapshot; Rating values must be deep-cloned to prevent
+    // cross-agent mutation under parallel execution.
     const localPool: Variant[] = [...initialPool];
     const localRatings = deepCloneRatings(initialRatings);
     const localMatchCounts = new Map(initialMatchCounts);
     const completedPairs = new Set<string>();
-
-    // Track per-phase costs via cost tracker spend deltas. The V2 LLM client routes
-    // every spend through ctx.costTracker; reading getTotalSpent() before/after each
-    // phase gives us a per-phase delta. Under parallel agents this is racy ONLY across
-    // agents — but we mitigate by snapshotting BEFORE each phase against the shared tracker
-    // and computing local deltas for THIS agent's phases. We can't fully isolate parallel
-    // costs without per-call onUsage, so we instead aggregate ranking + generation in a
-    // single agent-local accumulator using the BEFORE/AFTER snapshots; the merge with the
-    // global tracker happens via Agent.run() ceremony.
-    //
-    // For attribution purposes inside execution_detail, we use the synchronous before/after
-    // delta against ctx.costTracker around each phase. This is approximate under parallelism
-    // but bounded by the small number of LLM calls per agent.
     const costBeforeGen = ctx.costTracker.getTotalSpent();
 
-    // Step 1: generate one variant
+    const makeEarlyExitDetail = (
+      generationCost: number,
+      genFields: GenerateFromSeedExecutionDetail['generation'],
+    ): GenerateFromSeedExecutionDetail => ({
+      detailType: 'generate_from_seed_article',
+      totalCost: generationCost,
+      variantId: null,
+      strategy,
+      generation: genFields,
+      ranking: null,
+      surfaced: false,
+    });
+
     const prompt = buildPromptForStrategy(originalText, strategy);
     if (prompt === null) {
-      // Unknown strategy — fail fast.
-      const detail: GenerateFromSeedExecutionDetail = {
-        detailType: 'generate_from_seed_article',
-        totalCost: 0,
-        variantId: null,
-        strategy,
-        generation: {
-          cost: 0, promptLength: 0, formatValid: false,
-          error: `Unknown strategy: ${strategy}`,
-        },
-        ranking: null,
-        surfaced: false,
-      };
       return {
         result: { variant: null, status: 'generation_failed', surfaced: false, matches: [] },
-        detail,
+        detail: makeEarlyExitDetail(0, { cost: 0, promptLength: 0, formatValid: false, error: `Unknown strategy: ${strategy}` }),
       };
     }
 
@@ -210,30 +188,15 @@ export class GenerateFromSeedArticleAgent extends Agent<
       });
     } catch (err) {
       const generationCost = ctx.costTracker.getTotalSpent() - costBeforeGen;
-      const isBudget = err instanceof BudgetExceededError;
-      const detail: GenerateFromSeedExecutionDetail = {
-        detailType: 'generate_from_seed_article',
-        totalCost: generationCost,
-        variantId: null,
-        strategy,
-        generation: {
+      const status = err instanceof BudgetExceededError ? 'budget' : 'generation_failed';
+      return {
+        result: { variant: null, status, surfaced: false, matches: [] },
+        detail: makeEarlyExitDetail(generationCost, {
           cost: generationCost,
           promptLength: prompt.length,
           formatValid: false,
           error: (err instanceof Error ? err.message : String(err)).slice(0, 500),
-        },
-        ranking: null,
-        surfaced: false,
-      };
-      if (isBudget) {
-        return {
-          result: { variant: null, status: 'budget', surfaced: false, matches: [] },
-          detail,
-        };
-      }
-      return {
-        result: { variant: null, status: 'generation_failed', surfaced: false, matches: [] },
-        detail,
+        }),
       };
     }
 
@@ -244,24 +207,15 @@ export class GenerateFromSeedArticleAgent extends Agent<
       ctx.logger.warn('generateFromSeedArticle: format validation failed', {
         phaseName: 'generation', strategy, issues: fmt.issues,
       });
-      const detail: GenerateFromSeedExecutionDetail = {
-        detailType: 'generate_from_seed_article',
-        totalCost: generationCost,
-        variantId: null,
-        strategy,
-        generation: {
+      return {
+        result: { variant: null, status: 'generation_failed', surfaced: false, matches: [] },
+        detail: makeEarlyExitDetail(generationCost, {
           cost: generationCost,
           promptLength: prompt.length,
           textLength: generated.length,
           formatValid: false,
           formatIssues: fmt.issues,
-        },
-        ranking: null,
-        surfaced: false,
-      };
-      return {
-        result: { variant: null, status: 'generation_failed', surfaced: false, matches: [] },
-        detail,
+        }),
       };
     }
 
@@ -273,37 +227,19 @@ export class GenerateFromSeedArticleAgent extends Agent<
       version: 0,
     });
 
-    // Step 2: add to local pool, give it a fresh rating, run binary search.
-    localPool.push(variant);
-    localRatings.set(variant.id, createRating());
-
-    const costBeforeRank = ctx.costTracker.getTotalSpent();
-
-    const rankResult = await rankSingleVariant({
+    const { rankingCost, rankResult, surfaced, discardReason } = await rankNewVariant({
       variant,
-      pool: localPool,
-      ratings: localRatings,
-      matchCounts: localMatchCounts,
+      localPool,
+      localRatings,
+      localMatchCounts,
       completedPairs,
       cache,
       llm,
       config: ctx.config,
       invocationId: ctx.invocationId,
       logger: ctx.logger,
+      costTracker: ctx.costTracker,
     });
-
-    const rankingCost = ctx.costTracker.getTotalSpent() - costBeforeRank;
-
-    // Step 3: agent's surface/discard decision (Phase 1 spec).
-    const localCutoff = computeTop15Cutoff(localRatings);
-    const localVariantMu = localRatings.get(variant.id)!.mu;
-
-    let surfaced = true;
-    let discardReason: { localMu: number; localTop15Cutoff: number } | undefined;
-    if (rankResult.status === 'budget' && localVariantMu < localCutoff) {
-      surfaced = false;
-      discardReason = { localMu: localVariantMu, localTop15Cutoff: localCutoff };
-    }
 
     const detail: GenerateFromSeedExecutionDetail = {
       detailType: 'generate_from_seed_article',
@@ -316,10 +252,7 @@ export class GenerateFromSeedArticleAgent extends Agent<
         textLength: variant.text.length,
         formatValid: true,
       },
-      ranking: {
-        cost: rankingCost,
-        ...rankResult.detail,
-      },
+      ranking: { cost: rankingCost, ...rankResult.detail },
       surfaced,
       ...(discardReason !== undefined && { discardReason }),
     };
@@ -330,8 +263,6 @@ export class GenerateFromSeedArticleAgent extends Agent<
         status: rankResult.status,
         surfaced,
         matches: surfaced ? rankResult.matches : [],
-        // Plumb the discard reason out of the agent so the orchestrator can populate
-        // iterationSnapshots.discardReasons (consumed by the SnapshotsTab).
         ...(discardReason !== undefined && {
           discardReason: { mu: discardReason.localMu, top15Cutoff: discardReason.localTop15Cutoff },
         }),
@@ -342,5 +273,3 @@ export class GenerateFromSeedArticleAgent extends Agent<
   }
 }
 
-// Suppress unused-import warnings when types stay narrow.
-export type _RankDetailRef = RankSingleVariantDetail;
