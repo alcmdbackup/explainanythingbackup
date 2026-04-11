@@ -131,11 +131,9 @@ export class AdminContentPage extends AdminBasePage {
    */
   async filterByStatus(status: 'draft' | 'published' | '') {
     await this.statusFilter.selectOption(status);
-    // Confirm select value changed (ensures React event fired)
-    const expectedValue = status === '' ? '' : status;
-    await expect(this.statusFilter).toHaveValue(expectedValue, { timeout: 5000 });
-    // Wait for table to show loading, then finish loading
-    await expect(this.table.locator('tbody')).toContainText('Loading...', { timeout: 5000 }).catch(() => {});
+    // Confirm select value changed (ensures React onChange fired)
+    await expect(this.statusFilter).toHaveValue(status, { timeout: 5000 });
+    // Wait for table data to finish loading (not.toContainText passes immediately if never loading)
     await expect(this.table.locator('tbody')).not.toContainText('Loading...', { timeout: 15000 });
   }
 
