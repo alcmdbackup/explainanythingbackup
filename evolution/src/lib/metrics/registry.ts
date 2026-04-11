@@ -10,6 +10,7 @@ import {
   computeRunCost,
   computeWinnerElo, computeMedianElo, computeP90Elo, computeMaxElo,
   computeTotalMatches, computeDecisiveRate, computeVariantCount,
+  computeCostEstimationErrorPct,
 } from './computations/finalization';
 import {
   computeBestVariantElo, computeAvgVariantElo, computeInvocationVariantCount,
@@ -108,6 +109,8 @@ export const METRIC_REGISTRY: Record<EntityType, EntityMetricRegistry> = {
         listView: true, compute: computeDecisiveRate },
       { name: 'variant_count', label: 'Variants', category: 'count', formatter: 'integer',
         listView: true, compute: computeVariantCount },
+      { name: 'cost_estimation_error_pct', label: 'Estimation Error %', category: 'cost', formatter: 'percent',
+        compute: computeCostEstimationErrorPct },
     ],
     atPropagation: [],
   },

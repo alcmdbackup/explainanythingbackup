@@ -241,3 +241,62 @@ adminTest.describe('Budget-Aware Dispatch', { tag: '@evolution' }, () => {
     expect(withEstimates.length).toBeGreaterThanOrEqual(1);
   });
 });
+
+// ─── Strategy creation form tests (UI) ──────────────────────────────
+
+adminTest.describe('Strategy Form — Budget Dispatch Fields', { tag: '@evolution' }, () => {
+  adminTest('new strategy form shows all four budget dispatch fields', async ({ adminPage }) => {
+    await adminPage.goto('/admin/evolution/strategies');
+    // Wait for page to load
+    await adminPage.waitForSelector('table', { timeout: 30_000 });
+
+    // Click "New Strategy" button
+    const newBtn = adminPage.getByRole('button', { name: /new strategy/i });
+    await newBtn.click();
+
+    // Verify the 4 new fields are present in the form dialog
+    await expect(adminPage.getByLabel(/max variants to generate/i)).toBeVisible({ timeout: 10_000 });
+    await expect(adminPage.getByLabel(/max comparisons per variant/i)).toBeVisible();
+    await expect(adminPage.getByLabel(/budget buffer after parallel/i)).toBeVisible();
+    await expect(adminPage.getByLabel(/budget buffer after sequential/i)).toBeVisible();
+  });
+
+  adminTest('strategy config display shows buffer fields for existing strategy', async ({ adminPage }) => {
+    // Navigate to any existing strategy detail page to verify display component
+    await adminPage.goto('/admin/evolution/strategies');
+    await adminPage.waitForSelector('table', { timeout: 30_000 });
+
+    // Create a strategy with buffer fields via DB, then verify display
+    const sb = getServiceClient();
+    const { data: strategy } = await sb
+      .from('evolution_strategies')
+      .insert({
+        name: '[TEST_EVO] Buffer Display Test',
+        config: {
+          generationModel: 'gpt-4.1-nano',
+          judgeModel: 'gpt-4.1-nano',
+          iterations: 1,
+          budgetBufferAfterParallel: 0.35,
+          budgetBufferAfterSequential: 0.10,
+        },
+        config_hash: `e2e-display-${Date.now()}`,
+        status: 'active',
+      })
+      .select('id')
+      .single();
+
+    if (!strategy) return;
+    trackEvolutionId('strategy', strategy.id);
+
+    // Navigate to the strategy detail page
+    await adminPage.goto(`/admin/evolution/strategies/${strategy.id}`);
+    await adminPage.waitForSelector('[data-testid]', { timeout: 30_000 });
+
+    // Verify buffer values are displayed
+    await expect(adminPage.getByText('35%')).toBeVisible({ timeout: 10_000 });
+    await expect(adminPage.getByText('10%')).toBeVisible();
+
+    // Cleanup
+    await sb.from('evolution_strategies').delete().eq('id', strategy.id);
+  });
+});

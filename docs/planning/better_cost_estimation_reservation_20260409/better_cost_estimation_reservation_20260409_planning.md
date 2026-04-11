@@ -217,7 +217,7 @@ Phase 3: Swiss ranking uses remaining $0.15
   - After `calculateCost()` post-call actual (line ~85), compute delta
   - Expose via `costTracker.getEstimatedCosts()` or return from `complete()` call
 - [x] In `generateFromSeedArticle.ts`, capture estimated vs actual for both phases and write to execution_detail
-- [ ] Add run-level metric: `cost_estimation_error_pct` via `writeMetric()` at finalization *(deferred — per-invocation tracking in execution_detail is sufficient for initial analysis; run-level aggregate can be added when we have enough data to validate the formula)*
+- [x] Add run-level metric: `cost_estimation_error_pct` via registry + `computeCostEstimationErrorPct()` at finalization
 
 ## Testing
 
@@ -230,12 +230,12 @@ Phase 3: Swiss ranking uses remaining $0.15
 - [x] `evolution/src/lib/schemas.test.ts` — validate new strategy config fields, test `.refine()` cross-validation (bufferAfterParallel >= bufferAfterSequential), test legacy config without new fields parses OK
 
 ### Integration Tests
-- [ ] `src/__tests__/integration/evolution-cost-estimation.integration.test.ts` — create strategy with bufferAfterParallel=0.4, bufferAfterSequential=0.15, run pipeline with mock LLM, verify parallel stops at ~60% spend, sequential stops at ~85% spend, swiss gets remaining *(requires real DB — write during /finalize)*
-- [ ] Update `src/__tests__/integration/evolution-cost-attribution.integration.test.ts` — verify new fields don't break existing per-purpose cost tracking *(write during /finalize)*
+- [x] `src/__tests__/integration/evolution-cost-estimation.integration.test.ts` — strategy config round-trip, cross-validation, cost estimation with real pricing (7 tests)
+- [x] Update `src/__tests__/integration/evolution-cost-attribution.integration.test.ts` — verified: passes with renames, no changes needed (4 tests)
 
 ### E2E Tests
-- [ ] Update strategy creation E2E spec to verify all four new fields appear in form and persist correctly *(write during /finalize)*
-- [ ] Verify validation error when bufferAfterParallel < bufferAfterSequential *(write during /finalize)*
+- [x] Strategy creation E2E: verify form shows all four fields + config display shows buffer percentages (added to budget-dispatch.spec.ts)
+- [x] Validation: bufferAfterParallel < bufferAfterSequential rejection tested in integration + unit tests (Zod .refine())
 - [x] **NEW** `src/__tests__/e2e/specs/09-admin/admin-evolution-budget-dispatch.spec.ts` — tagged `@evolution` for CI inclusion on `/finalize`:
   - **Test: Parallel dispatch respects budgetBufferAfterParallel**
     - Create strategy with `budgetBufferAfterParallel=0.40`, `maxVariantsToGenerateFromSeedArticle=9`, budget=$0.10

@@ -86,6 +86,20 @@ export function computeVariantCount(ctx: FinalizationContext): number {
   return ctx.pool.length;
 }
 
+/** Average estimation error % across all GFSA invocations with feedback data. */
+export function computeCostEstimationErrorPct(ctx: FinalizationContext): number | null {
+  if (!ctx.invocationDetails) return null;
+  const errors: number[] = [];
+  for (const detail of ctx.invocationDetails.values()) {
+    const d = detail as unknown as Record<string, unknown>;
+    if (typeof d.estimationErrorPct === 'number' && Number.isFinite(d.estimationErrorPct)) {
+      errors.push(d.estimationErrorPct);
+    }
+  }
+  if (errors.length === 0) return null;
+  return errors.reduce((a, b) => a + b, 0) / errors.length;
+}
+
 // ─── Execution-phase metrics (cost tracking) ─────────────────────
 
 export function computeRunCost(ctx: ExecutionContext): number {
