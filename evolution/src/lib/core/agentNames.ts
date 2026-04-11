@@ -7,7 +7,7 @@ import type { MetricName } from '../metrics/types';
 // current call site (incl. seed-phase calls in generateSeedArticle.ts which still
 // need 'seed_title'/'seed_article'). Only generation and ranking get persisted as
 // dedicated cost metrics — seed-phase costs roll up into the run's overall `cost`.
-export const AGENT_NAMES = ['generation', 'ranking', 'seed_title', 'seed_article'] as const;
+export const AGENT_NAMES = ['generation', 'ranking', 'seed_title', 'seed_article', 'evolution'] as const;
 export type AgentName = typeof AGENT_NAMES[number];
 
 /** Maps each agent label to its run-level per-purpose cost metric. */
