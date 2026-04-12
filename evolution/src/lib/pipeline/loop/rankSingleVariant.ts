@@ -174,10 +174,10 @@ function makeCallLLM(
       // symmetry but the V2 LLM client routes spend through costTracker.recordSpend internally.
       // The caller can also subtract pre/post tracker spend as a fallback. We accept the
       // unused onUsage callback param to satisfy the spec; future work may surface
-      // per-call usage events from createV2LLMClient via an explicit hook.
+      // per-call usage events from createEvolutionLLMClient via an explicit hook.
     } as LLMCompletionOptions);
     // Note: onUsage param is currently unused. cost attribution flows through V2CostTracker
-    // and the per-LLM-call writeMetric in createV2LLMClient. Per-phase costs in
+    // and the per-LLM-call writeMetric in createEvolutionLLMClient. Per-phase costs in
     // generateFromSeedArticle are computed via getTotalSpent() deltas around each phase.
   };
 }
@@ -257,9 +257,11 @@ export async function rankSingleVariant(
   let status: RankSingleVariantStatus = 'no_more_opponents';
   let round = 0;
 
+  const maxComparisons = config.maxComparisonsPerVariant ?? 15;
+
   try {
-    // Hard cap on iterations as a safety net (should exit naturally well before this).
-    while (round < pool.length * 2) {
+    // Cap comparisons at min(pool opponents, maxComparisonsPerVariant).
+    while (round < Math.min(pool.length - 1, maxComparisons)) {
       round++;
       const variantRating = ratings.get(variant.id)!;
       const sel = selectOpponent(variant, variantRating, pool, ratings, completedPairs);

@@ -111,8 +111,8 @@ describe('isConverged', () => {
     expect(isConverged({ mu: 25, sigma: 4 }, 3)).toBe(false);
   });
 
-  it('DEFAULT_CONVERGENCE_SIGMA is 3.0', () => {
-    expect(DEFAULT_CONVERGENCE_SIGMA).toBe(3.0);
+  it('DEFAULT_CONVERGENCE_SIGMA is 4.5', () => {
+    expect(DEFAULT_CONVERGENCE_SIGMA).toBe(4.5);
   });
 });
 

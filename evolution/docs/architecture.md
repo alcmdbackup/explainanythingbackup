@@ -473,7 +473,7 @@ All evolution LLM calls use `call_source='evolution_<label>'` for cost attributi
 the system user UUID `'00000000-0000-4000-8000-000000000001'` since there is no
 human user in the loop.
 
-`createV2LLMClient` now accepts optional `db` and `runId` parameters. When provided, cost metrics are persisted to the database after each successful LLM call in a fire-and-forget write (errors are logged but do not fail the call). This provides per-LLM-call cost granularity beyond the phase-level cost tracking.
+`createEvolutionLLMClient` now accepts optional `db` and `runId` parameters. When provided, cost metrics are persisted to the database after each successful LLM call in a fire-and-forget write (errors are logged but do not fail the call). This provides per-LLM-call cost granularity beyond the phase-level cost tracking.
 
 ### Database Foreign Keys
 

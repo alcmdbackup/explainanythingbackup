@@ -29,7 +29,7 @@ import {
   EvolutionRunSummarySchema,
   // Phase 2: Internal pipeline schemas
   variantSchema,
-  v2StrategyConfigSchema,
+  strategyConfigSchema,
   evolutionConfigSchema,
   v2MatchSchema,
   evolutionResultSchema,
@@ -505,56 +505,56 @@ describe('variantSchema', () => {
   });
 });
 
-describe('v2StrategyConfigSchema', () => {
+describe('strategyConfigSchema', () => {
   it('parses valid config', () => {
-    expect(() => v2StrategyConfigSchema.parse({
+    expect(() => strategyConfigSchema.parse({
       generationModel: 'gpt-4o', judgeModel: 'gpt-4o', iterations: 5,
     })).not.toThrow();
   });
 
   it('rejects iterations < 1', () => {
-    expect(() => v2StrategyConfigSchema.parse({
+    expect(() => strategyConfigSchema.parse({
       generationModel: 'gpt-4o', judgeModel: 'gpt-4o', iterations: 0,
     })).toThrow();
   });
 
   it('accepts valid generationGuidance', () => {
-    expect(() => v2StrategyConfigSchema.parse({
+    expect(() => strategyConfigSchema.parse({
       generationModel: 'gpt-4o', judgeModel: 'gpt-4o', iterations: 5,
       generationGuidance: [{ strategy: 'structural_transform', percent: 100 }],
     })).not.toThrow();
   });
 
   it('accepts undefined generationGuidance', () => {
-    const result = v2StrategyConfigSchema.parse({
+    const result = strategyConfigSchema.parse({
       generationModel: 'gpt-4o', judgeModel: 'gpt-4o', iterations: 5,
     });
     expect(result.generationGuidance).toBeUndefined();
   });
 
   it('rejects generationGuidance with negative percent', () => {
-    expect(() => v2StrategyConfigSchema.parse({
+    expect(() => strategyConfigSchema.parse({
       generationModel: 'gpt-4o', judgeModel: 'gpt-4o', iterations: 5,
       generationGuidance: [{ strategy: 'x', percent: -10 }],
     })).toThrow();
   });
 
   it('rejects generationGuidance with missing strategy field', () => {
-    expect(() => v2StrategyConfigSchema.parse({
+    expect(() => strategyConfigSchema.parse({
       generationModel: 'gpt-4o', judgeModel: 'gpt-4o', iterations: 5,
       generationGuidance: [{ percent: 100 }],
     })).toThrow();
   });
 
   it('rejects generationGuidance with non-number percent', () => {
-    expect(() => v2StrategyConfigSchema.parse({
+    expect(() => strategyConfigSchema.parse({
       generationModel: 'gpt-4o', judgeModel: 'gpt-4o', iterations: 5,
       generationGuidance: [{ strategy: 'x', percent: 'fifty' }],
     })).toThrow();
   });
 
   it('rejects generationGuidance with duplicate strategy names', () => {
-    expect(() => v2StrategyConfigSchema.parse({
+    expect(() => strategyConfigSchema.parse({
       generationModel: 'gpt-4o', judgeModel: 'gpt-4o', iterations: 5,
       generationGuidance: [
         { strategy: 'structural_transform', percent: 50 },

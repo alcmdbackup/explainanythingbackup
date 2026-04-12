@@ -121,8 +121,8 @@ describe('generate-article', () => {
 
     it('should calculate cost for deepseek-chat', () => {
       const cost = calculateLLMCost('deepseek-chat', 10000, 5000, 0);
-      // (10000/1M * 0.14) + (5000/1M * 0.28) = 0.0014 + 0.0014 = 0.0028
-      expect(cost).toBeCloseTo(0.0028, 6);
+      // (10000/1M * 0.28) + (5000/1M * 0.42) = 0.0028 + 0.0021 = 0.0049
+      expect(cost).toBeCloseTo(0.0049, 6);
     });
   });
 

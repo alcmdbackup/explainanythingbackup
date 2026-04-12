@@ -12,7 +12,7 @@ import { createRating, isConverged, DEFAULT_CONVERGENCE_SIGMA } from '../../shar
 import type { EvolutionConfig, EvolutionResult, V2Match } from '../infra/types';
 
 import { createCostTracker } from '../infra/trackBudget';
-import { createV2LLMClient } from '../infra/createLLMClient';
+import { createEvolutionLLMClient } from '../infra/createEvolutionLLMClient';
 import type { EntityLogger } from '../infra/createEntityLogger';
 import { selectWinner } from '../../shared/selectWinner';
 import { GenerateFromSeedArticleAgent, deepCloneRatings } from '../../core/agents/generateFromSeedArticle';
@@ -24,6 +24,7 @@ import { computeTop15Cutoff } from './rankSingleVariant';
 import { DEFAULT_GENERATE_STRATEGIES, type IterationSnapshot } from '../../schemas';
 import { deriveSeed } from '../../shared/seededRandom';
 import type { AgentContext } from '../../core/types';
+import { estimateAgentCost } from '../infra/estimateCosts';
 
 // ─── Config validation ───────────────────────────────────────────
 
@@ -183,7 +184,7 @@ export async function evolveArticle(
   const noopLogger: EntityLogger = { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} };
   const logger = options?.logger ?? noopLogger;
   const costTracker = createCostTracker(resolvedConfig.budgetUsd);
-  const llm = createV2LLMClient(llmProvider, costTracker, resolvedConfig.generationModel, logger, db, runId);
+  const llm = createEvolutionLLMClient(llmProvider, costTracker, resolvedConfig.generationModel, logger, db, runId);
   const randomSeed = options?.randomSeed ?? BigInt(0);
 
   logger.info('Config validation passed', {
@@ -233,6 +234,14 @@ export async function evolveArticle(
   let isSeeded = false;
   // currentOriginalText is the base article for variant generation; set by seed agent when present.
   let currentOriginalText = originalText;
+  let variantsStillNeeded = numVariants;
+  let actualAvgCostPerAgent: number | null = null; // Runtime feedback from parallel batch
+
+  // Budget thresholds for parallel→sequential→swiss flow
+  const totalBudget = resolvedConfig.budgetUsd;
+  const parallelFloor = totalBudget * (resolvedConfig.budgetBufferAfterParallel ?? 0);
+  const sequentialFloor = totalBudget * (resolvedConfig.budgetBufferAfterSequential ?? 0);
+  const parallelBudget = totalBudget - parallelFloor;
 
   // ─── nextIteration() decision function ───────────────────────────
   async function nextIteration(): Promise<'generate' | 'swiss' | 'done'> {
@@ -258,6 +267,19 @@ export async function evolveArticle(
       stopReason = 'budget_exceeded';
       return 'done';
     }
+
+    // Sequential generate fallback: if variants still needed and budget allows
+    if (variantsStillNeeded > 0) {
+      const availBudget = costTracker.getAvailableBudget();
+      const estCost = actualAvgCostPerAgent ?? estimateAgentCost(
+        originalText.length, strategies[0]!, resolvedConfig.generationModel,
+        resolvedConfig.judgeModel, pool.length, resolvedConfig.maxComparisonsPerVariant ?? 15,
+      );
+      if (availBudget - estCost >= sequentialFloor) {
+        return 'generate';
+      }
+    }
+
     if (iteration >= MAX_ORCHESTRATOR_ITERATIONS) {
       logger.warn('Max orchestrator iterations reached', { iteration, max: MAX_ORCHESTRATOR_ITERATIONS, phaseName: 'loop' });
       stopReason = 'iterations_complete';
@@ -359,17 +381,42 @@ export async function evolveArticle(
       const initialRatingsSnapshot = new Map(ratings);
       const initialMatchCountsSnapshot = new Map(matchCounts);
 
-      // Dispatch N parallel GenerateFromSeedArticleAgent invocations.
-      // Each parallel agent gets a 1-based agentIndex so that interleaved logs from concurrent
-      // agents can still be filtered down to a single agent's timeline (Phase 7 — logging
-      // under concurrency).
+      // Budget-aware dispatch: compute how many agents we can afford.
+      const isFirstGenerate = iteration === 1;
+      let dispatchCount: number;
+      if (isFirstGenerate) {
+        // Parallel dispatch: respect budgetBufferAfterParallel
+        const availBudget = costTracker.getAvailableBudget();
+        const effectiveBudget = Math.min(availBudget, parallelBudget);
+        const maxComp = resolvedConfig.maxComparisonsPerVariant ?? 15;
+        const estPerAgent = estimateAgentCost(
+          originalText.length, strategies[0]!, resolvedConfig.generationModel,
+          resolvedConfig.judgeModel, pool.length, maxComp,
+        );
+        const maxAffordable = Math.max(1, Math.floor(effectiveBudget / estPerAgent));
+        dispatchCount = Math.min(numVariants, maxAffordable);
+        logger.info('Budget-aware parallel dispatch', {
+          iteration, numVariantsRequested: numVariants, estPerAgent,
+          availableBudget: availBudget, parallelBudget, parallelFloor,
+          maxAffordable, dispatchCount, phaseName: 'generation',
+        });
+      } else {
+        // Sequential fallback: one agent at a time
+        dispatchCount = 1;
+        logger.info('Sequential generate fallback', {
+          iteration, variantsStillNeeded,
+          availableBudget: costTracker.getAvailableBudget(),
+          sequentialFloor, phaseName: 'generation',
+        });
+      }
+
       logger.info('Dispatching generate iteration', {
         iteration,
-        numAgents: numVariants,
-        strategies: Array.from({ length: numVariants }, (_, i) => strategies[i % strategies.length]!),
+        numAgents: dispatchCount,
+        strategies: Array.from({ length: dispatchCount }, (_, i) => strategies[i % strategies.length]!),
         phaseName: 'generation',
       });
-      const dispatchPromises = Array.from({ length: numVariants }, (_, i) => {
+      const dispatchPromises = Array.from({ length: dispatchCount }, (_, i) => {
         const strategy = strategies[i % strategies.length]!;
         const execOrder = ++executionOrder;
         const agentIndex = i + 1;
@@ -428,6 +475,21 @@ export async function evolveArticle(
           if (out.discardReason) {
             discardReasonsMap[out.variant.id] = out.discardReason;
           }
+        }
+      }
+
+      // Track variants generated and compute runtime cost feedback
+      variantsStillNeeded -= surfacedVariants.length;
+      if (isFirstGenerate) {
+        // Compute actualAvgCostPerAgent from successful agents for sequential dispatch estimates
+        const completedCosts: number[] = [];
+        for (const r of results) {
+          if (r.status === 'fulfilled' && r.value.success && r.value.cost > 0) {
+            completedCosts.push(r.value.cost);
+          }
+        }
+        if (completedCosts.length > 0) {
+          actualAvgCostPerAgent = completedCosts.reduce((a, b) => a + b, 0) / completedCosts.length;
         }
       }
 

@@ -20,8 +20,10 @@ export const ELO_SIGMA_SCALE = 400 / DEFAULT_MU;
 /** Default sigma for a fresh rating (openskill default). */
 export const DEFAULT_SIGMA = 25 / 3; // ≈ 8.333
 
-/** Sigma threshold below which a rating is considered converged. */
-export const DEFAULT_CONVERGENCE_SIGMA = 3.0;
+/** Sigma threshold below which a rating is considered converged.
+ *  Raised from 3.0 to 4.5 to reduce comparisons needed (~59 → ~18).
+ *  Widens Elo CI from ±94 to ±141 — acceptable for winner selection. */
+export const DEFAULT_CONVERGENCE_SIGMA = 4.5;
 
 /** Create a fresh rating with default mu/sigma. */
 export function createRating(): Rating {

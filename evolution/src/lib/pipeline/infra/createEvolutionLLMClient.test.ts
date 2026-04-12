@@ -1,6 +1,6 @@
 // Tests for V2 LLM client wrapper with retry and cost tracking.
 
-import { createV2LLMClient } from './createLLMClient';
+import { createEvolutionLLMClient } from './createEvolutionLLMClient';
 import { createCostTracker } from './trackBudget';
 import { BudgetExceededError } from '../../types';
 
@@ -34,7 +34,7 @@ describe('V2 LLM Client', () => {
   it('successful call records spend', async () => {
     const ct = createCostTracker(10);
     const provider = makeProvider();
-    const llm = createV2LLMClient(provider, ct, 'gpt-4.1-nano');
+    const llm = createEvolutionLLMClient(provider, ct, 'gpt-4.1-nano');
 
     await llm.complete('test prompt', 'generation');
     expect(ct.getTotalSpent()).toBeGreaterThan(0);
@@ -49,7 +49,7 @@ describe('V2 LLM Client', () => {
       if (callCount <= 2) throw new Error('transient error');
       return 'success';
     });
-    const llm = createV2LLMClient(provider, ct, 'gpt-4.1-nano');
+    const llm = createEvolutionLLMClient(provider, ct, 'gpt-4.1-nano');
 
     const promise = llm.complete('test', 'generation');
     // Advance past backoff timers
@@ -65,7 +65,7 @@ describe('V2 LLM Client', () => {
     const provider = makeProvider(async () => {
       throw new Error('fatal error');
     });
-    const llm = createV2LLMClient(provider, ct, 'gpt-4.1-nano');
+    const llm = createEvolutionLLMClient(provider, ct, 'gpt-4.1-nano');
 
     await expect(llm.complete('test', 'generation')).rejects.toThrow('fatal error');
     expect(provider.complete).toHaveBeenCalledTimes(1);
@@ -76,7 +76,7 @@ describe('V2 LLM Client', () => {
     const provider = makeProvider(async () => {
       throw new BudgetExceededError('gen', 9, 1, 10);
     });
-    const llm = createV2LLMClient(provider, ct, 'gpt-4.1-nano');
+    const llm = createEvolutionLLMClient(provider, ct, 'gpt-4.1-nano');
 
     await expect(llm.complete('test', 'generation')).rejects.toThrow(BudgetExceededError);
     expect(provider.complete).toHaveBeenCalledTimes(1);
@@ -92,7 +92,7 @@ describe('V2 LLM Client', () => {
         throw new Error('transient error');
       }),
     };
-    const llm = createV2LLMClient(provider, ct, 'gpt-4.1-nano');
+    const llm = createEvolutionLLMClient(provider, ct, 'gpt-4.1-nano');
 
     await expect(llm.complete('x', 'generation')).rejects.toThrow('transient error');
     expect(callCount).toBe(4); // 1 initial + 3 retries
@@ -103,7 +103,7 @@ describe('V2 LLM Client', () => {
     const provider = makeProvider(async () => {
       throw new Error('fatal error');
     });
-    const llm = createV2LLMClient(provider, ct, 'gpt-4.1-nano');
+    const llm = createEvolutionLLMClient(provider, ct, 'gpt-4.1-nano');
 
     await expect(llm.complete('test', 'generation')).rejects.toThrow();
     // Available budget should be restored (release called)
@@ -113,7 +113,7 @@ describe('V2 LLM Client', () => {
   it('rejects empty string LLM response', async () => {
     const ct = createCostTracker(10);
     const provider = makeProvider(async () => '');
-    const llm = createV2LLMClient(provider, ct, 'gpt-4.1-nano');
+    const llm = createEvolutionLLMClient(provider, ct, 'gpt-4.1-nano');
 
     await expect(llm.complete('test', 'generation')).rejects.toThrow('Empty LLM response');
   });
@@ -121,7 +121,7 @@ describe('V2 LLM Client', () => {
   it('rejects whitespace-only LLM response', async () => {
     const ct = createCostTracker(10);
     const provider = makeProvider(async () => '   \n  ');
-    const llm = createV2LLMClient(provider, ct, 'gpt-4.1-nano');
+    const llm = createEvolutionLLMClient(provider, ct, 'gpt-4.1-nano');
 
     await expect(llm.complete('test', 'generation')).rejects.toThrow('Empty LLM response');
   });
@@ -129,7 +129,7 @@ describe('V2 LLM Client', () => {
   it('unknown model uses fallback pricing from shared config', async () => {
     const ct = createCostTracker(10);
     const provider = makeProvider();
-    const llm = createV2LLMClient(provider, ct, 'unknown-model-xyz');
+    const llm = createEvolutionLLMClient(provider, ct, 'unknown-model-xyz');
 
     await llm.complete('test', 'generation');
     // Should still track cost using default fallback pricing
@@ -139,7 +139,7 @@ describe('V2 LLM Client', () => {
   it('completeStructured throws not supported', async () => {
     const ct = createCostTracker(10);
     const provider = makeProvider();
-    const llm = createV2LLMClient(provider, ct, 'gpt-4.1-nano');
+    const llm = createEvolutionLLMClient(provider, ct, 'gpt-4.1-nano');
 
     await expect(llm.completeStructured('test', {} as never, 'schema', 'generation')).rejects.toThrow(
       'completeStructured not supported in V2',
@@ -155,7 +155,7 @@ describe('V2 LLM Client', () => {
         // Intentionally never resolves
       })),
     };
-    const llm = createV2LLMClient(provider, ct, 'gpt-4.1-nano');
+    const llm = createEvolutionLLMClient(provider, ct, 'gpt-4.1-nano');
 
     // The timeout is 60s, but we mock setTimeout to make it instant
     // Use fake timers just for the timeout advancement
@@ -169,7 +169,7 @@ describe('V2 LLM Client', () => {
   it('cost estimation formula: inputTokens * inputRate + outputTokens * outputRate', async () => {
     const ct = createCostTracker(10);
     const provider = makeProvider(async () => 'x'.repeat(400)); // 400 chars = ~100 output tokens
-    const llm = createV2LLMClient(provider, ct, 'gpt-4.1-nano');
+    const llm = createEvolutionLLMClient(provider, ct, 'gpt-4.1-nano');
 
     const prompt = 'y'.repeat(4000); // 4000 chars = ~1000 input tokens
     await llm.complete(prompt, 'generation');
@@ -182,18 +182,17 @@ describe('V2 LLM Client', () => {
   });
 
   it('Bug #5: pipeline pricing matches shared config for deepseek-chat', async () => {
-    // Shared config: deepseek-chat input=$0.14/1M, output=$0.28/1M
-    // Old hardcoded value was input=$0.27/1M, output=$1.10/1M (2x too high)
+    // Shared config: deepseek-chat input=$0.28/1M, output=$0.42/1M (V3.2 pricing)
     const ct = createCostTracker(10);
     const provider = makeProvider(async () => 'x'.repeat(400)); // ~100 output tokens
-    const llm = createV2LLMClient(provider, ct, 'deepseek-chat');
+    const llm = createEvolutionLLMClient(provider, ct, 'deepseek-chat');
 
     const prompt = 'y'.repeat(4000); // ~1000 input tokens
     await llm.complete(prompt, 'generation');
 
-    // Correct: (1000 * 0.14 + 100 * 0.28) / 1_000_000 = (140 + 28) / 1_000_000 = 0.000168
+    // Correct: (1000 * 0.28 + 100 * 0.42) / 1_000_000 = (280 + 42) / 1_000_000 = 0.000322
     const spent = ct.getTotalSpent();
-    expect(spent).toBeCloseTo(0.000168, 5);
+    expect(spent).toBeCloseTo(0.000322, 5);
   });
 
   it('writes cost metric to DB after each successful LLM call when db/runId provided', async () => {
@@ -205,7 +204,7 @@ describe('V2 LLM Client', () => {
     const { writeMetricMax: mockWriteMetricMax } = require('../../metrics/writeMetrics') as { writeMetricMax: jest.Mock };
     mockWriteMetricMax.mockClear();
 
-    const llm = createV2LLMClient(provider, ct, 'gpt-4.1-nano', undefined, mockDb, 'run-abc');
+    const llm = createEvolutionLLMClient(provider, ct, 'gpt-4.1-nano', undefined, mockDb, 'run-abc');
     await llm.complete('test prompt', 'generation');
 
     // Should write cost (always) + generation_cost (because agentName='generation' is in COST_METRIC_BY_AGENT)
@@ -222,7 +221,7 @@ describe('V2 LLM Client', () => {
     const { writeMetricMax: mockWriteMetricMax } = require('../../metrics/writeMetrics') as { writeMetricMax: jest.Mock };
     mockWriteMetricMax.mockRejectedValue(new Error('DB connection lost'));
 
-    const llm = createV2LLMClient(provider, ct, 'gpt-4.1-nano', undefined, {} as never, 'run-abc');
+    const llm = createEvolutionLLMClient(provider, ct, 'gpt-4.1-nano', undefined, {} as never, 'run-abc');
 
     // Should not throw despite writeMetric rejecting
     const result = await llm.complete('test prompt', 'generation');
@@ -239,7 +238,7 @@ describe('V2 LLM Client', () => {
     for (const model of models) {
       const ct = createCostTracker(100);
       const provider = makeProvider(async () => 'x'.repeat(400));
-      const llm = createV2LLMClient(provider, ct, model);
+      const llm = createEvolutionLLMClient(provider, ct, model);
       await llm.complete('y'.repeat(4000), 'generation');
 
       // Verify cost matches shared pricing

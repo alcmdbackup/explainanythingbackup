@@ -122,7 +122,7 @@ export { FORMAT_RULES } from './shared/enforceVariantFormat';
 
 // ─── Strategy config ────────────────────────────────────────────
 export { labelStrategyConfig, defaultStrategyName } from './shared/hashStrategyConfig';
-export type { StrategyConfig, StrategyConfigRow } from './shared/hashStrategyConfig';
+export type { StrategyHashInput, StrategyConfigRow } from './shared/hashStrategyConfig';
 
 // ─── Reversal comparison ────────────────────────────────────────
 export { run2PassReversal } from './shared/computeRatings';

@@ -956,9 +956,9 @@ describe('llms', () => {
         false,
       );
 
-      // gpt-oss-20b: (10000/1M * 0.03) + (5000/1M * 0.11) = 0.0003 + 0.00055 = 0.00085
+      // gpt-oss-20b: (10000/1M * 0.03) + (5000/1M * 0.14) = 0.0003 + 0.0007 = 0.001
       const insertCall = mockSupabase.insert.mock.calls[0][0];
-      expect(insertCall.estimated_cost_usd).toBeCloseTo(0.00085, 6);
+      expect(insertCall.estimated_cost_usd).toBeCloseTo(0.001, 6);
     });
   });
 

@@ -266,10 +266,10 @@ All database writes are fire-and-forget: the insert is wrapped in `Promise.resol
 
 `evolution/src/lib/pipeline/llm-client.ts`
 
-`createV2LLMClient()` wraps a raw LLM provider with retry logic and cost tracking.
+`createEvolutionLLMClient()` wraps a raw LLM provider with retry logic and cost tracking.
 
 ```typescript
-export function createV2LLMClient(
+export function createEvolutionLLMClient(
   rawProvider: { complete(prompt: string, label: AgentName, opts?: { model?: string }): Promise<string> },
   costTracker: V2CostTracker,
   defaultModel: string,

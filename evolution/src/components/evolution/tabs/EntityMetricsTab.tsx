@@ -96,7 +96,7 @@ export function EntityMetricsTab({ entityType, entityId }: EntityMetricsTabProps
   }
 
   if (error) {
-    return <p className="text-[var(--status-error)] font-ui text-sm">{error}</p>;
+    return <p className="text-[var(--status-error)] font-ui text-sm" data-testid="metrics-error">{error}</p>;
   }
 
   if (metrics.length === 0) {

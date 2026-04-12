@@ -16,18 +16,22 @@ Each strategy encapsulates:
 - How many generate-rank-evolve iterations to run.
 - Optional parameters for round sizing and budget caps.
 
-### V2StrategyConfig
+### StrategyConfig
 
 The canonical type lives in `evolution/src/lib/pipeline/types.ts`:
 
 ```ts
-interface V2StrategyConfig {
+interface StrategyConfig {
   generationModel: string;
   judgeModel: string;
   iterations: number;
   strategiesPerRound?: number;  // default 3
   budgetUsd?: number;
   generationGuidance?: Array<{ strategy: string; percent: number }>;
+  maxVariantsToGenerateFromSeedArticle?: number;  // default 9
+  maxComparisonsPerVariant?: number;               // default 15
+  budgetBufferAfterParallel?: number;              // 0-1, default 0
+  budgetBufferAfterSequential?: number;            // 0-1, default 0
 }
 ```
 
@@ -39,6 +43,10 @@ interface V2StrategyConfig {
 | `strategiesPerRound`| Generation strategies per iteration round  |
 | `budgetUsd`         | Optional per-run budget cap                |
 | `generationGuidance`| Optional weighted strategy distribution. Array of `{ strategy, percent }` entries where percentages must sum to 100 and strategy names must be unique. Enables weighted random strategy selection from all 8 strategies instead of the default deterministic 3-strategy behavior. |
+| `maxVariantsToGenerateFromSeedArticle` | Max generateFromSeedArticle agents per run. Excludes seed article. Default 9. |
+| `maxComparisonsPerVariant` | Hard cap on pairwise comparisons per variant during ranking. Default 15. Used for deterministic cost estimation: `min(poolSize - 1, maxComparisonsPerVariant)`. |
+| `budgetBufferAfterParallel` | Fraction (0-1) of budget to reserve after parallel generation. Parallel dispatch stops when remaining budget would drop below this threshold, then switches to sequential. Default 0 (no buffer). |
+| `budgetBufferAfterSequential` | Fraction (0-1) of budget to reserve after sequential generation. Sequential stops when next agent would breach this floor. Remaining budget available for swiss ranking. Must be <= `budgetBufferAfterParallel`. Default 0. |
 
 #### Experimental Verification with generationGuidance
 
@@ -50,7 +58,7 @@ Each strategy config is identified by a 12-character hex hash derived from SHA-2
 
 ```ts
 // evolution/src/lib/pipeline/strategy.ts
-function hashStrategyConfig(config: V2StrategyConfig): string {
+function hashStrategyConfig(config: StrategyConfig): string {
   const normalized = {
     generationModel: config.generationModel,
     judgeModel: config.judgeModel,
@@ -517,7 +525,7 @@ When a variant's `mu` or `sigma` changes post-completion (e.g., from arena match
 | `evolution/src/lib/pipeline/experiments.ts` | Core experiment functions (create, addRun, computeMetrics) |
 | `evolution/src/lib/pipeline/strategy.ts` | Strategy hashing, labeling, and upsert-by-hash |
 | `evolution/src/lib/pipeline/finalize.ts` | Run finalization: auto-completion, aggregate updates |
-| `evolution/src/lib/pipeline/infra/types.ts` | `V2StrategyConfig`, `EvolutionConfig`, `EvolutionResult` types |
+| `evolution/src/lib/pipeline/infra/types.ts` | `StrategyConfig`, `EvolutionConfig`, `EvolutionResult` types |
 | `evolution/src/experiments/evolution/experimentMetrics.ts` | Bootstrap CI functions, MetricValue type |
 | `evolution/src/lib/metrics/registry.ts` | Declarative metric registry with compute functions |
 | `evolution/src/lib/metrics/writeMetrics.ts` | UPSERT metrics to evolution_metrics table |

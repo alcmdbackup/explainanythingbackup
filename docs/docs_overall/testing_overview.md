@@ -304,7 +304,8 @@ npx supabase inspect db long-running-queries --linked
 | Unit | `npm run test` | `test:ci --changedSince` | same |
 | ESM | `npm run test:esm` | `npm run test:esm` | `npm run test:esm` |
 | Integration | `test:integration` (all) | `:critical` (5) | `:evolution` + `:non-evolution` |
-| E2E | `test:e2e:critical` | `test:e2e:critical` | `:evolution` + `:non-evolution --shard` |
+| E2E Critical | `test:e2e:critical` | `test:e2e:critical` | `:evolution` + `:non-evolution --shard` |
+| E2E Evolution | `test:e2e:evolution` (if `evolution/` changed) | `test:e2e:evolution` (if evolution path) | included in full suite |
 
 **Intentional differences**: CI uses `--changedSince` (unit), `--shard` (E2E), `--maxWorkers=2`. Local runs full suites for strict pre-PR verification.
 
@@ -314,7 +315,7 @@ Both `/finalize` and `/mainToProd` include E2E tests as part of their standard v
 
 | Skill | E2E Behavior | Flag | Duration |
 |-------|-------------|------|----------|
-| `/finalize` | Critical (`@critical` tagged) always runs | `--e2e` adds full suite | ~1.5 min (critical) |
+| `/finalize` | Critical (`@critical`) always runs. Evolution (`@evolution`) runs if `evolution/` files changed. | `--e2e` adds full suite | ~1.5 min (critical) + ~3 min (evolution, conditional) |
 | `/mainToProd` | Full suite always runs (no flag needed) | N/A | ~5 min |
 
 E2E tests run after lint/tsc/build/unit/integration checks pass. The dev server is managed automatically via tmux (local) or webServer (CI).

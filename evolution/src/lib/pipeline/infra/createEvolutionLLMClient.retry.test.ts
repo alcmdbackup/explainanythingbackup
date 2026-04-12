@@ -3,7 +3,7 @@
 // classifyErrors module-wide (jest.mock() is hoisted), which would prevent testing the real
 // isTransientError implementation. Here we import the real function with no mocking.
 
-import { createV2LLMClient } from './createLLMClient';
+import { createEvolutionLLMClient } from './createEvolutionLLMClient';
 import { createCostTracker } from './trackBudget';
 
 // Mock only writeMetric — classifyErrors is intentionally NOT mocked here
@@ -29,7 +29,7 @@ describe('V2 LLM Client — timeout retry (real isTransientError)', () => {
         return 'success response';
       }),
     };
-    const llm = createV2LLMClient(provider, ct, 'gpt-4.1-nano');
+    const llm = createEvolutionLLMClient(provider, ct, 'gpt-4.1-nano');
 
     const promise = llm.complete('test prompt', 'generation');
     // Advance past the 1s backoff between attempt 1 and attempt 2

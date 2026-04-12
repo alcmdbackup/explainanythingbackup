@@ -24,7 +24,7 @@ export const STATIC_METRIC_NAMES = [
   'cost', 'generation_cost', 'ranking_cost', 'seed_cost',
   // Run (at-finalization)
   'winner_elo', 'median_elo', 'p90_elo', 'max_elo',
-  'total_matches', 'decisive_rate', 'variant_count',
+  'total_matches', 'decisive_rate', 'variant_count', 'cost_estimation_error_pct',
   // Invocation
   'best_variant_elo', 'avg_variant_elo', 'format_rejection_rate', 'total_comparisons',
   // Strategy/Experiment aggregates

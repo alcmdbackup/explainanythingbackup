@@ -100,7 +100,7 @@ export function FormDialog({
 
   return (
     <Dialog open={open} onOpenChange={(isOpen) => { if (!isOpen) onClose(); }}>
-      <DialogContent className="w-full max-w-lg rounded-book bg-[var(--surface-secondary)] p-6 shadow-warm-lg border-[var(--border-default)]">
+      <DialogContent className="w-full max-w-lg max-h-[85vh] overflow-y-auto rounded-book bg-[var(--surface-secondary)] p-6 shadow-warm-lg border-[var(--border-default)]">
         <DialogHeader>
           <DialogTitle className="font-display text-xl font-semibold text-[var(--text-primary)]">{title}</DialogTitle>
         </DialogHeader>

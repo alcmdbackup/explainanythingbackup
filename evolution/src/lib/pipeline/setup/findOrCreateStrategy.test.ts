@@ -1,10 +1,10 @@
 // Tests for V2 forked strategy config utilities.
 
 import { hashStrategyConfig, labelStrategyConfig, upsertStrategy } from './findOrCreateStrategy';
-import type { V2StrategyConfig } from '../infra/types';
+import type { StrategyConfig } from '../infra/types';
 
 describe('V2 hashStrategyConfig', () => {
-  const baseConfig: V2StrategyConfig = {
+  const baseConfig: StrategyConfig = {
     generationModel: 'gpt-4.1-mini',
     judgeModel: 'gpt-4.1-nano',
     iterations: 5,
@@ -20,7 +20,7 @@ describe('V2 hashStrategyConfig', () => {
   });
 
   it('excludes V2-only fields from hash', () => {
-    const withExtras: V2StrategyConfig = {
+    const withExtras: StrategyConfig = {
       ...baseConfig,
       strategiesPerRound: 2,
       budgetUsd: 5.0,
@@ -29,14 +29,14 @@ describe('V2 hashStrategyConfig', () => {
   });
 
   it('changes hash when core fields differ', () => {
-    const different: V2StrategyConfig = { ...baseConfig, iterations: 10 };
+    const different: StrategyConfig = { ...baseConfig, iterations: 10 };
     expect(hashStrategyConfig(different)).not.toBe(hashStrategyConfig(baseConfig));
   });
 });
 
 describe('V2 labelStrategyConfig', () => {
   it('produces correct format', () => {
-    const config: V2StrategyConfig = {
+    const config: StrategyConfig = {
       generationModel: 'gpt-4.1-mini',
       judgeModel: 'gpt-4.1-nano',
       iterations: 5,
@@ -46,7 +46,7 @@ describe('V2 labelStrategyConfig', () => {
   });
 
   it('includes budget when set', () => {
-    const config: V2StrategyConfig = {
+    const config: StrategyConfig = {
       generationModel: 'gpt-4.1-mini',
       judgeModel: 'gpt-4.1-nano',
       iterations: 5,
@@ -57,7 +57,7 @@ describe('V2 labelStrategyConfig', () => {
   });
 
   it('shortens deepseek models', () => {
-    const config: V2StrategyConfig = {
+    const config: StrategyConfig = {
       generationModel: 'deepseek-chat',
       judgeModel: 'gpt-4.1-nano',
       iterations: 3,
@@ -67,7 +67,7 @@ describe('V2 labelStrategyConfig', () => {
   });
 
   it('shortens claude models', () => {
-    const config: V2StrategyConfig = {
+    const config: StrategyConfig = {
       generationModel: 'claude-3.5-sonnet',
       judgeModel: 'gpt-4.1-nano',
       iterations: 3,
@@ -78,7 +78,7 @@ describe('V2 labelStrategyConfig', () => {
 });
 
 describe('V2 upsertStrategy', () => {
-  const baseConfig: V2StrategyConfig = {
+  const baseConfig: StrategyConfig = {
     generationModel: 'gpt-4.1-mini',
     judgeModel: 'gpt-4.1-nano',
     iterations: 5,

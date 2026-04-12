@@ -216,7 +216,7 @@ adminTest.describe('Admin Strategy Budget Cap', { tag: '@evolution' }, () => {
       await expect(dialog.getByPlaceholder('Strategy name')).toBeVisible();
       await expect(dialog.locator('select').first()).toBeVisible(); // generation model
       await expect(dialog.locator('select').nth(1)).toBeVisible(); // judge model
-      await expect(dialog.getByRole('spinbutton')).toBeVisible(); // iterations
+      await expect(dialog.getByRole('spinbutton', { name: /iterations/i })).toBeVisible(); // iterations
     },
   );
 

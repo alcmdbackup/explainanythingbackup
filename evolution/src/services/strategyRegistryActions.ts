@@ -5,7 +5,7 @@
 import { adminAction, type AdminContext } from './adminAction';
 import { validateUuid, applyTestContentNameFilter } from './shared';
 import { hashStrategyConfig, labelStrategyConfig } from '@evolution/lib/pipeline/setup/findOrCreateStrategy';
-import type { V2StrategyConfig } from '@evolution/lib/pipeline/infra/types';
+import type { StrategyConfig } from '@evolution/lib/pipeline/infra/types';
 import { createEntityLogger } from '@evolution/lib/pipeline/infra/createEntityLogger';
 import { z } from 'zod';
 import { generationGuidanceSchema } from '@evolution/lib/schemas';
@@ -17,7 +17,7 @@ export interface StrategyListItem {
   name: string;
   label: string;
   description: string | null;
-  config: V2StrategyConfig;
+  config: StrategyConfig;
   config_hash: string;
   pipeline_type: string | null;
   status: string;
@@ -39,7 +39,15 @@ const createStrategySchema = z.object({
   budgetUsd: z.number().min(0.01).max(100).optional(),
   pipeline_type: z.string().max(50).optional(),
   generationGuidance: generationGuidanceSchema.optional(),
-});
+  maxVariantsToGenerateFromSeedArticle: z.number().int().min(1).max(100).optional(),
+  maxComparisonsPerVariant: z.number().int().min(1).max(100).optional(),
+  budgetBufferAfterParallel: z.number().min(0).max(1).optional(),
+  budgetBufferAfterSequential: z.number().min(0).max(1).optional(),
+}).refine((c) => {
+  const parallel = c.budgetBufferAfterParallel ?? 0;
+  const sequential = c.budgetBufferAfterSequential ?? 0;
+  return parallel >= sequential;
+}, { message: 'budgetBufferAfterParallel must be >= budgetBufferAfterSequential' });
 
 const updateStrategySchema = z.object({
   id: z.string().uuid(),
@@ -103,13 +111,17 @@ export const createStrategyAction = adminAction(
   async (input: z.input<typeof createStrategySchema>, ctx: AdminContext): Promise<StrategyListItem> => {
     const parsed = createStrategySchema.parse(input);
 
-    const config: V2StrategyConfig = {
+    const config: StrategyConfig = {
       generationModel: parsed.generationModel,
       judgeModel: parsed.judgeModel,
       iterations: parsed.iterations,
       strategiesPerRound: parsed.strategiesPerRound,
       budgetUsd: parsed.budgetUsd,
       generationGuidance: parsed.generationGuidance,
+      maxVariantsToGenerateFromSeedArticle: parsed.maxVariantsToGenerateFromSeedArticle,
+      maxComparisonsPerVariant: parsed.maxComparisonsPerVariant,
+      budgetBufferAfterParallel: parsed.budgetBufferAfterParallel,
+      budgetBufferAfterSequential: parsed.budgetBufferAfterSequential,
     };
 
     const configHash = hashStrategyConfig(config);
@@ -192,7 +204,7 @@ export const cloneStrategyAction = adminAction(
 
     if (fetchError || !source) throw new Error(`Source strategy not found: ${input.sourceId}`);
 
-    const config = source.config as V2StrategyConfig;
+    const config = source.config as StrategyConfig;
     const configHash = hashStrategyConfig(config);
 
     const { data, error } = await ctx.supabase

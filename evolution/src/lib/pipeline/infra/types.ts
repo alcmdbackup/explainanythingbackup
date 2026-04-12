@@ -4,7 +4,7 @@ import { z } from 'zod';
 import {
   v2MatchSchema,
   evolutionConfigSchema,
-  v2StrategyConfigSchema,
+  strategyConfigSchema,
   variantSchema,
   ratingSchema,
 } from '../../schemas';
@@ -50,4 +50,4 @@ export interface EvolutionResult {
 
 // ─── V2 Strategy Config ──────────────────────────────────────────
 /** V2 strategy config — structurally incompatible with V1 StrategyConfig (separate type). */
-export type V2StrategyConfig = z.infer<typeof v2StrategyConfigSchema>;
+export type StrategyConfig = z.infer<typeof strategyConfigSchema>;

@@ -696,7 +696,7 @@ If any check failed:
 2. Re-run ALL 6 checks (not just the ones that failed)
 3. Repeat until all 6 pass
 
-### 5. E2E Critical Tests
+### 5. E2E Tests
 
 Always run E2E critical tests — no flag required:
 
@@ -706,7 +706,16 @@ npm run test:e2e:critical
 
 Fix any failures before proceeding.
 
-If `$ARGUMENTS` contains `--e2e`, ALSO run the full E2E suite after critical tests pass:
+If the branch has changed any files under `evolution/`, also run E2E evolution tests:
+
+```bash
+# Check if evolution code changed
+git diff --name-only origin/main | grep -q '^evolution/' && npm run test:e2e:evolution
+```
+
+Fix any failures before proceeding.
+
+If `$ARGUMENTS` contains `--e2e`, ALSO run the full E2E suite after critical and evolution tests pass:
 
 ```bash
 npm run test:e2e:full
@@ -857,6 +866,7 @@ gh pr create --base main --title "[Project] ${PROJECT_NAME}" --body "$(cat <<'EO
 - ESM Tests: ✓
 - Integration Tests: ✓
 - E2E Critical: ✓
+- E2E Evolution: [✓ / skipped (no evolution/ changes)]
 - E2E Full: [✓ / skipped (no --e2e flag)]
 
 ### Documentation Updates
