@@ -47,6 +47,7 @@ interface StrategyConfig {
 | `maxComparisonsPerVariant` | Hard cap on pairwise comparisons per variant during ranking. Default 15. Used for deterministic cost estimation: `min(poolSize - 1, maxComparisonsPerVariant)`. |
 | `budgetBufferAfterParallel` | Fraction (0-1) of budget to reserve after parallel generation. Parallel dispatch stops when remaining budget would drop below this threshold, then switches to sequential. Default 0 (no buffer). |
 | `budgetBufferAfterSequential` | Fraction (0-1) of budget to reserve after sequential generation. Sequential stops when next agent would breach this floor. Remaining budget available for swiss ranking. Must be <= `budgetBufferAfterParallel`. Default 0. |
+| `generationTemperature` | Optional LLM temperature (0-2) for generation calls. Omit for provider default. Validated against model's `maxTemperature` from registry (e.g., Claude max 1.0, o3-mini rejects temperature entirely). Judge/ranking calls always use temperature=0 regardless of this setting. |
 
 #### Experimental Verification with generationGuidance
 
