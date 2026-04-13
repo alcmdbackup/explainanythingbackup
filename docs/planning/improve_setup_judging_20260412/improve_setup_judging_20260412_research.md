@@ -21,14 +21,14 @@ Improve the evolution pipeline's setup and judging by adding cheap judge models 
 - **Files**: `evolution/src/lib/shared/computeRatings.ts` lines 38, 50 — two one-line changes
 - **Local BETA constants** in `rankSingleVariant.ts` (line 26) and `swissPairing.ts` (line 16) are for win-probability calculations, NOT openskill — leave unchanged.
 
-### 2. New Cheap Judge Models
-Two models via OpenRouter:
-- **`qwen/qwen3-8b`**: $0.05/M input, $0.40/M output — very cheap judge
-- **`google/gemini-2.0-flash-lite-001`**: $0.075/M input, $0.30/M output — cheap with 1M context
+### 2. New Cheap Models (3 selected)
+| Model | ID | Input $/M | Output $/M | Provider | Context |
+|-------|----|-----------|------------|----------|---------|
+| GPT-5 Nano | `gpt-5-nano` | $0.05 | $0.40 | OpenAI direct | 400K |
+| Gemini 2.5 Flash Lite | `google/gemini-2.5-flash-lite` | $0.10 | $0.40 | OpenRouter | 1M |
+| Qwen3 8B | `qwen/qwen3-8b` | $0.05 | $0.40 | OpenRouter | 40K |
 
-Both route through OpenRouter API (`https://openrouter.ai/api/v1`). Existing `isOpenRouterModel()` needs expansion from exact-match to a Set/prefix lookup.
-
-Model name transformation for OpenRouter: internal `qwen/qwen3-8b` → API sends as-is (OpenRouter uses `provider/model` format natively, unlike gpt-oss-20b which gets prefixed with `openai/`).
+`gpt-5-nano` already routes through OpenAI client (just needs schema + pricing). The two OpenRouter models use `provider/model` format natively — no prefix transformation needed (unlike `gpt-oss-20b` which gets `openai/` prefixed). Existing `isOpenRouterModel()` needs expansion from exact-match to registry-based lookup.
 
 ### 3. Central Model Registry
 Currently model info is scattered across 3 files:
