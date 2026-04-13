@@ -40,7 +40,7 @@ describe('computeWinnerElo', () => {
     const result = computeWinnerElo(ctx);
     expect(result).not.toBeNull();
     expect(result!.value).toBe(1280);
-    expect(result!.sigma).toBe(80);
+    expect(result!.uncertainty).toBe(80);
     expect(result!.ci).toEqual([
       1280 - 1.96 * 80,
       1280 + 1.96 * 80,
@@ -60,7 +60,7 @@ describe('computeMedianElo', () => {
     expect(result).not.toBeNull();
     // Sorted elos: [1120, 1200, 1280] — median is 1200
     expect(result!.value).toBe(1200);
-    expect(result!.sigma).toBe(80); // uncertainty from variant 'b'
+    expect(result!.uncertainty).toBe(80); // uncertainty from variant 'b'
     expect(result!.ci).not.toBeNull();
   });
 
@@ -75,7 +75,7 @@ describe('computeMedianElo', () => {
     const result = computeMedianElo(makeCtx({ pool, ratings }));
     expect(result).not.toBeNull();
     expect(result!.value).toBe((1120 + 1280) / 2);
-    expect(result!.sigma).toBe((48 + 80) / 2); // average uncertainty
+    expect(result!.uncertainty).toBe((48 + 80) / 2); // average uncertainty
   });
 
   it('returns null for empty pool', () => {
@@ -90,7 +90,7 @@ describe('computeP90Elo', () => {
     expect(result).not.toBeNull();
     // Sorted: [1120, 1200, 1280] — P90 index = ceil(3*0.9)-1 = 2
     expect(result!.value).toBe(1280);
-    expect(result!.sigma).toBe(80);
+    expect(result!.uncertainty).toBe(80);
   });
 
   it('returns null for empty pool', () => {
@@ -103,7 +103,7 @@ describe('computeMaxElo', () => {
     const result = computeMaxElo(makeCtx());
     expect(result).not.toBeNull();
     expect(result!.value).toBe(1280);
-    expect(result!.sigma).toBe(80);
+    expect(result!.uncertainty).toBe(80);
     expect(result!.ci).toEqual([
       1280 - 1.96 * 80,
       1280 + 1.96 * 80,

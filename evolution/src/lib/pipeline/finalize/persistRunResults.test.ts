@@ -885,21 +885,21 @@ describe('syncToArena — isSeeded flag', () => {
 });
 
 describe('propagateMetrics', () => {
-  it('passes sigma through to writeMetric for bootstrap-aggregated metrics', async () => {
+  it('passes uncertainty through to writeMetric for bootstrap-aggregated metrics', async () => {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { getMetricsForEntities } = require('../../metrics/readMetrics');
-    const winnerEloSigma = 42.5;
-    // Simulate a single completed run with winner_elo that has sigma
+    const winnerEloUncertainty = 42.5;
+    // Simulate a single completed run with winner_elo that has uncertainty
     const metricsMap = new Map([
       [RUN_ID, [
-        { metric_name: 'winner_elo', value: 1500, sigma: winnerEloSigma, ci_lower: 1400, ci_upper: 1600, n: 1 },
-        { metric_name: 'cost', value: 0.005, sigma: null, ci_lower: null, ci_upper: null, n: 1 },
-        { metric_name: 'median_elo', value: 1450, sigma: 30, ci_lower: 1390, ci_upper: 1510, n: 1 },
-        { metric_name: 'total_matches', value: 10, sigma: null, ci_lower: null, ci_upper: null, n: 1 },
-        { metric_name: 'decisive_rate', value: 0.8, sigma: null, ci_lower: null, ci_upper: null, n: 1 },
-        { metric_name: 'variant_count', value: 3, sigma: null, ci_lower: null, ci_upper: null, n: 1 },
-        { metric_name: 'p90_elo', value: 1480, sigma: 35, ci_lower: 1410, ci_upper: 1550, n: 1 },
-        { metric_name: 'max_elo', value: 1520, sigma: 40, ci_lower: 1440, ci_upper: 1600, n: 1 },
+        { metric_name: 'winner_elo', value: 1500, uncertainty: winnerEloUncertainty, ci_lower: 1400, ci_upper: 1600, n: 1 },
+        { metric_name: 'cost', value: 0.005, uncertainty: null, ci_lower: null, ci_upper: null, n: 1 },
+        { metric_name: 'median_elo', value: 1450, uncertainty: 30, ci_lower: 1390, ci_upper: 1510, n: 1 },
+        { metric_name: 'total_matches', value: 10, uncertainty: null, ci_lower: null, ci_upper: null, n: 1 },
+        { metric_name: 'decisive_rate', value: 0.8, uncertainty: null, ci_lower: null, ci_upper: null, n: 1 },
+        { metric_name: 'variant_count', value: 3, uncertainty: null, ci_lower: null, ci_upper: null, n: 1 },
+        { metric_name: 'p90_elo', value: 1480, uncertainty: 35, ci_lower: 1410, ci_upper: 1550, n: 1 },
+        { metric_name: 'max_elo', value: 1520, uncertainty: 40, ci_lower: 1440, ci_upper: 1600, n: 1 },
       ]],
     ]);
     getMetricsForEntities.mockResolvedValueOnce(metricsMap);
@@ -922,6 +922,6 @@ describe('propagateMetrics', () => {
     expect(avgEloCall).toBeDefined();
     // With 1 run, bootstrapMeanCI single-value path returns source sigma
     const opts = avgEloCall![6];
-    expect(opts?.sigma).toBe(winnerEloSigma);
+    expect(opts?.uncertainty).toBe(winnerEloUncertainty);
   });
 });

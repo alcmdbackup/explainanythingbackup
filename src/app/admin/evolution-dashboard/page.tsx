@@ -78,7 +78,7 @@ function DashboardContent(): JSX.Element {
     metrics: [
       {
         id: `${r.id}-cost`, entity_type: 'run' as const, entity_id: r.id, metric_name: 'cost',
-        value: r.total_cost_usd ?? 0, sigma: null, ci_lower: null, ci_upper: null, n: 1,
+        value: r.total_cost_usd ?? 0, uncertainty: null, ci_lower: null, ci_upper: null, n: 1,
         origin_entity_type: null, origin_entity_id: null, aggregation_method: null,
         source: 'view', stale: false,
         created_at: r.created_at, updated_at: r.created_at,

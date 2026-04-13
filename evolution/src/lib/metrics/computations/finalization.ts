@@ -9,7 +9,7 @@ function eloMetricValue(elo: number, uncertainty: number | undefined): MetricVal
   const eloUncertainty = uncertainty ?? null;
   return {
     value: elo,
-    sigma: eloUncertainty,
+    uncertainty: eloUncertainty,
     ci: eloUncertainty != null ? [elo - 1.96 * eloUncertainty, elo + 1.96 * eloUncertainty] : null,
     n: 1,
   };

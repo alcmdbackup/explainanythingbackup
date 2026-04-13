@@ -235,11 +235,11 @@ adminTest.describe('Evolution Run Pipeline', { tag: '@evolution' }, () => {
     expect(agentNames.some(n => /generation|ranking/i.test(n))).toBe(true);
   });
 
-  adminTest('run metrics were computed with sigma/CI on elo', async () => {
+  adminTest('run metrics were computed with uncertainty/CI on elo', async () => {
     const sb = getServiceClient();
     const { data: metrics } = await sb
       .from('evolution_metrics')
-      .select('metric_name, value, sigma, ci_lower, ci_upper')
+      .select('metric_name, value, uncertainty, ci_lower, ci_upper')
       .eq('entity_type', 'run')
       .eq('entity_id', runId);
 
@@ -254,10 +254,10 @@ adminTest.describe('Evolution Run Pipeline', { tag: '@evolution' }, () => {
     expect(cost!.value).toBeGreaterThan(0);
     expect(cost!.value).toBeLessThan(0.02);
 
-    // Elo metrics should have sigma and CI bounds
+    // Elo metrics should have uncertainty and CI bounds
     const winnerElo = metrics!.find(m => m.metric_name === 'winner_elo');
     expect(winnerElo).toBeTruthy();
-    expect(winnerElo!.sigma).not.toBeNull();
+    expect(winnerElo!.uncertainty).not.toBeNull();
     expect(winnerElo!.ci_lower).not.toBeNull();
     expect(winnerElo!.ci_upper).not.toBeNull();
     expect(winnerElo!.ci_lower).toBeLessThan(winnerElo!.value);
@@ -268,7 +268,7 @@ adminTest.describe('Evolution Run Pipeline', { tag: '@evolution' }, () => {
     const sb = getServiceClient();
     const { data: metrics } = await sb
       .from('evolution_metrics')
-      .select('metric_name, value, sigma, ci_lower, ci_upper')
+      .select('metric_name, value, uncertainty, ci_lower, ci_upper')
       .eq('entity_type', 'strategy')
       .eq('entity_id', strategyId);
 
@@ -285,7 +285,7 @@ adminTest.describe('Evolution Run Pipeline', { tag: '@evolution' }, () => {
     const totalCost = metrics!.find(m => m.metric_name === 'total_cost');
     expect(totalCost!.value).toBeGreaterThan(0);
 
-    // best_final_elo should exist (sigma propagation is inconsistent — tracked separately)
+    // best_final_elo should exist (uncertainty propagation is inconsistent — tracked separately)
     const bestElo = metrics!.find(m => m.metric_name === 'best_final_elo');
     expect(bestElo).toBeTruthy();
   });
@@ -301,7 +301,7 @@ adminTest.describe('Evolution Run Pipeline', { tag: '@evolution' }, () => {
 
     const { data: metrics } = await sb
       .from('evolution_metrics')
-      .select('metric_name, value, sigma, ci_lower, ci_upper')
+      .select('metric_name, value, uncertainty, ci_lower, ci_upper')
       .eq('entity_type', 'experiment')
       .eq('entity_id', experimentId);
 
@@ -323,7 +323,7 @@ adminTest.describe('Evolution Run Pipeline', { tag: '@evolution' }, () => {
     // avg_final_elo should have CI from bootstrap propagation
     const avgElo = metrics!.find(m => m.metric_name === 'avg_final_elo');
     expect(avgElo).toBeTruthy();
-    expect(avgElo!.sigma).not.toBeNull();
+    expect(avgElo!.uncertainty).not.toBeNull();
     expect(avgElo!.ci_lower).not.toBeNull();
     expect(avgElo!.ci_upper).not.toBeNull();
     expect(avgElo!.ci_lower).toBeLessThanOrEqual(avgElo!.value);

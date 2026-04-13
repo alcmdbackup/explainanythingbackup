@@ -117,7 +117,7 @@ export const MetricRowSchema = z.object({
   entity_id: z.string().uuid(),
   metric_name: z.string().min(1).max(200),
   value: z.number(),
-  sigma: z.number().nullable(),
+  uncertainty: z.number().nullable(),
   ci_lower: z.number().nullable(),
   ci_upper: z.number().nullable(),
   n: z.number().int().min(0),
@@ -143,7 +143,7 @@ export type { MetricItem } from '@evolution/components/evolution';
 export function toMetricValue(row: MetricRow): MetricValue {
   return {
     value: row.value,
-    sigma: row.sigma,
+    uncertainty: row.uncertainty,
     ci: row.ci_lower != null && row.ci_upper != null ? [row.ci_lower, row.ci_upper] : null,
     n: row.n,
   };

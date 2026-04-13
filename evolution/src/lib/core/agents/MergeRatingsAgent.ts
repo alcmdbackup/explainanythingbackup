@@ -210,14 +210,14 @@ export class MergeRatingsAgent extends Agent<
       confidence: number;
       iteration: number;
       invocation_id: string | null;
-      entry_a_mu_before: number;
-      entry_a_sigma_before: number;
-      entry_b_mu_before: number;
-      entry_b_sigma_before: number;
-      entry_a_mu_after: number;
-      entry_a_sigma_after: number;
-      entry_b_mu_after: number;
-      entry_b_sigma_after: number;
+      entry_a_elo_before: number;
+      entry_a_uncertainty_before: number;
+      entry_b_elo_before: number;
+      entry_b_uncertainty_before: number;
+      entry_a_elo_after: number;
+      entry_a_uncertainty_after: number;
+      entry_b_elo_after: number;
+      entry_b_uncertainty_after: number;
       status: string;
     }
     const arenaRows: ArenaRowPayload[] = [];
@@ -275,10 +275,6 @@ export class MergeRatingsAgent extends Agent<
       const winnerSlot: 'a' | 'b' | 'draw' = match.result === 'draw'
         ? 'draw'
         : (match.winnerId === idA ? 'a' : 'b');
-      const aBeforeDb = ratingToDb(aBefore);
-      const bBeforeDb = ratingToDb(bBefore);
-      const aAfterDb = ratingToDb(aAfter);
-      const bAfterDb = ratingToDb(bAfter);
       arenaRows.push({
         run_id: ctx.runId,
         entry_a: idA,
@@ -287,14 +283,14 @@ export class MergeRatingsAgent extends Agent<
         confidence: match.confidence,
         iteration: ctx.iteration,
         invocation_id: ctx.invocationId === '' ? null : ctx.invocationId,
-        entry_a_mu_before: aBeforeDb.mu,
-        entry_a_sigma_before: aBeforeDb.sigma,
-        entry_b_mu_before: bBeforeDb.mu,
-        entry_b_sigma_before: bBeforeDb.sigma,
-        entry_a_mu_after: aAfterDb.mu,
-        entry_a_sigma_after: aAfterDb.sigma,
-        entry_b_mu_after: bAfterDb.mu,
-        entry_b_sigma_after: bAfterDb.sigma,
+        entry_a_elo_before: aBefore.elo,
+        entry_a_uncertainty_before: aBefore.uncertainty,
+        entry_b_elo_before: bBefore.elo,
+        entry_b_uncertainty_before: bBefore.uncertainty,
+        entry_a_elo_after: aAfter.elo,
+        entry_a_uncertainty_after: aAfter.uncertainty,
+        entry_b_elo_after: bAfter.elo,
+        entry_b_uncertainty_after: bAfter.uncertainty,
         status: 'completed',
       });
     }

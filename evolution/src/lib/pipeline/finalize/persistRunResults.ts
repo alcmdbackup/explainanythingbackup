@@ -265,7 +265,7 @@ export async function finalizeRun(
       if (metricResult == null) continue;
       if (isMetricValue(metricResult)) {
         await writeMetric(db, 'run', runId, def.name as MetricName, metricResult.value, 'at_finalization', {
-          sigma: metricResult.sigma ?? undefined,
+          uncertainty: metricResult.uncertainty ?? undefined,
           ci_lower: metricResult.ci?.[0],
           ci_upper: metricResult.ci?.[1],
           n: metricResult.n,
@@ -380,7 +380,7 @@ export async function propagateMetrics(
     if (sourceRows.length === 0) continue;
     const aggregated = def.aggregate(sourceRows);
     await writeMetric(db, entityType, entityId, def.name as MetricName, aggregated.value, 'at_propagation', {
-      sigma: aggregated.sigma ?? undefined,
+      uncertainty: aggregated.uncertainty ?? undefined,
       ci_lower: aggregated.ci?.[0],
       ci_upper: aggregated.ci?.[1],
       n: aggregated.n,

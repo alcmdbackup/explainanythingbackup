@@ -586,7 +586,7 @@ export type Database = {
           entity_id: string
           metric_name: string
           value: number
-          sigma: number | null
+          uncertainty: number | null
           ci_lower: number | null
           ci_upper: number | null
           n: number
@@ -604,7 +604,7 @@ export type Database = {
           entity_id: string
           metric_name: string
           value: number
-          sigma?: number | null
+          uncertainty?: number | null
           ci_lower?: number | null
           ci_upper?: number | null
           n?: number
@@ -622,7 +622,7 @@ export type Database = {
           entity_id?: string
           metric_name?: string
           value?: number
-          sigma?: number | null
+          uncertainty?: number | null
           ci_lower?: number | null
           ci_upper?: number | null
           n?: number

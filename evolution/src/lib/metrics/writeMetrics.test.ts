@@ -76,18 +76,18 @@ describe('writeMetrics', () => {
       .rejects.toThrow('writeMetric: value must be finite');
   });
 
-  it('handles null sigma/ci fields correctly', async () => {
+  it('handles null uncertainty/ci fields correctly', async () => {
     const { db, upsertedRows } = makeMockDb();
     await writeMetrics(db, [{
       entity_type: 'run',
       entity_id: '00000000-0000-0000-0000-000000000001',
       metric_name: 'cost',
       value: 1.5,
-      sigma: undefined,
+      uncertainty: undefined,
       ci_lower: undefined,
     }], 'during_execution');
     const row = upsertedRows[0] as Record<string, unknown>;
-    expect(row.sigma).toBeNull();
+    expect(row.uncertainty).toBeNull();
     expect(row.ci_lower).toBeNull();
   });
 
