@@ -3,7 +3,7 @@
 ## Background
 Improve the evolution pipeline's setup and judging by adding cheap judge models (Qwen 8B, Google), centralizing model configuration into a registry with max temperature validation, setting judge temperature to 0, adding configurable generation temperature to strategy config, and changing OpenSkill beta to 0.
 
-## Requirements (from GH Issue #TBD)
+## Requirements (from GH Issue #961)
 - Change beta to 0 in my Openskill implementation
 - I want to speed up judging for evolution. Add want to add two models - Qwen 8b, a Google one. Both cost around $.10 per M input or less. Help me find these actual models and add support for these in my evolution system, including in model dropdown list on strategy creation.
 - Refactor to consolidate my model information into a central model registry.
