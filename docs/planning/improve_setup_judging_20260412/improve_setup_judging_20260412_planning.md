@@ -25,15 +25,15 @@ The evolution pipeline lacks cheap judge model options (cheapest current judge i
 
 ## Options Considered
 - [x] **Option A: Central model registry + temperature threading**: Create `src/config/modelRegistry.ts` as single source of truth for all model metadata (pricing, max temp, provider, display name). Derive existing schemas and pricing from it. Thread temperature through `callLLM` chain. — **Selected**: cleanest approach, makes adding future models trivial.
-- [ ] **Option B: Minimal additions only**: Just add models to existing scattered files, add temperature as a separate concern. — Rejected: doesn't address the fragmentation problem, more files to touch per new model.
-- [ ] **Option C: Provider-specific registries**: One registry per provider (OpenAI, OpenRouter, Anthropic). — Rejected: over-engineered for 16 models, splits a naturally unified concern.
+- [x] **Option B: Minimal additions only**: Just add models to existing scattered files, add temperature as a separate concern. — Rejected: doesn't address the fragmentation problem, more files to touch per new model.
+- [x] **Option C: Provider-specific registries**: One registry per provider (OpenAI, OpenRouter, Anthropic). — Rejected: over-engineered for 16 models, splits a naturally unified concern.
 
 ## Phased Execution Plan
 
 ### Phase 1: Central Model Registry
 Create a single source of truth for all model metadata, then migrate consumers to use it.
 
-- [ ] Create `src/config/modelRegistry.ts` with a `MODEL_REGISTRY` map keyed by model ID containing:
+- [x] Create `src/config/modelRegistry.ts` with a `MODEL_REGISTRY` map keyed by model ID containing:
   - `id: string` — exact API model ID
   - `displayName: string` — human-readable name for UI
   - `provider: 'openai' | 'anthropic' | 'deepseek' | 'openrouter' | 'local'`
@@ -43,7 +43,7 @@ Create a single source of truth for all model metadata, then migrate consumers t
   - `maxTemperature: number | null` — null means temperature not supported (e.g., o3-mini)
   - `supportsEvolution: boolean` — whether it appears in the evolution model dropdown
   - `openRouterModelId?: string` — the model ID to send to OpenRouter API (e.g., `qwen/qwen3-8b` stays as-is, `gpt-oss-20b` becomes `openai/gpt-oss-20b`)
-- [ ] Populate registry with all 16 models (13 existing + 3 new). Note: `gpt-5-nano` is new, existing models that remain are the other 13 from the current `allowedLLMModelSchema`:
+- [x] Populate registry with all 16 models (13 existing + 3 new). Note: `gpt-5-nano` is new, existing models that remain are the other 13 from the current `allowedLLMModelSchema`:
 
   | Model ID | Display Name | Provider | In $/M | Out $/M | Max Temp |
   |----------|-------------|----------|--------|---------|----------|
@@ -64,139 +64,139 @@ Create a single source of truth for all model metadata, then migrate consumers t
   | `google/gemini-2.5-flash-lite` | Gemini 2.5 Flash Lite | openrouter | 0.10 | 0.40 | 2.0 |
   | `qwen/qwen3-8b` | Qwen3 8B | openrouter | 0.05 | 0.40 | 2.0 |
 
-- [ ] Refactor `src/config/llmPricing.ts`:
+- [x] Refactor `src/config/llmPricing.ts`:
   - Keep `LLM_PRICING` for non-registry versioned model entries (e.g., `gpt-4o-2024-11-20`) used for prefix matching
   - Import registry entries into `LLM_PRICING` so registry is the source of truth for allowed models
   - `getModelPricing()` checks registry first, then falls back to `LLM_PRICING` prefix matching
-- [ ] Refactor `src/lib/schemas/schemas.ts`:
+- [x] Refactor `src/lib/schemas/schemas.ts`:
   - Derive `allowedLLMModelSchema` from registry keys where `supportsEvolution: true`
   - Export helper: `getModelMaxTemperature(modelId: string): number | null`
-- [ ] Refactor `src/lib/utils/modelOptions.ts`:
+- [x] Refactor `src/lib/utils/modelOptions.ts`:
   - Derive `MODEL_OPTIONS` from registry (use `displayName` for label, `id` for value)
-- [ ] Refactor `src/lib/services/llms.ts`:
+- [x] Refactor `src/lib/services/llms.ts`:
   - Replace `isOpenRouterModel()` exact-match with registry lookup: `getModelInfo(model).provider === 'openrouter'`
   - Use `openRouterModelId` from registry for API model name transformation (line 300-301)
   - Keep `isDeepSeekModel()`, `isAnthropicModel()`, `isLocalModel()` as derived from registry provider field
-- [ ] Add startup validation: assert registry has >= 1 model, >= 1 evolution model. Use `z.enum([...keys] as [string, ...string[]])` to guarantee non-empty enum at compile time.
-- [ ] Add unit test: slashed model IDs (`qwen/qwen3-8b`, `google/gemini-2.5-flash-lite`) round-trip through Zod parse + JSON serialize/deserialize
-- [ ] Grep all `MODEL_OPTIONS` imports — update consumers (`strategies/page.tsx`, `ExperimentForm.tsx`) to use `{ label, value }` shape directly (remove `.map()` wrappers)
-- [ ] Run lint, tsc, build; update existing tests in `llmPricing.test.ts` and `llms.test.ts`
+- [x] Add startup validation: assert registry has >= 1 model, >= 1 evolution model. Use `z.enum([...keys] as [string, ...string[]])` to guarantee non-empty enum at compile time.
+- [x] Add unit test: slashed model IDs (`qwen/qwen3-8b`, `google/gemini-2.5-flash-lite`) round-trip through Zod parse + JSON serialize/deserialize
+- [x] Grep all `MODEL_OPTIONS` imports — update consumers (`strategies/page.tsx`, `ExperimentForm.tsx`) to use `{ label, value }` shape directly (remove `.map()` wrappers)
+- [x] Run lint, tsc, build; update existing tests in `llmPricing.test.ts` and `llms.test.ts`
 
 ### Phase 2: Add 3 New Models
 Add `gpt-5-nano`, `google/gemini-2.5-flash-lite`, and `qwen/qwen3-8b` to the system.
 
-- [ ] Add all 3 models to `MODEL_REGISTRY` in `src/config/modelRegistry.ts` (done in Phase 1 table above)
-- [ ] For OpenRouter models (`google/gemini-2.5-flash-lite`, `qwen/qwen3-8b`):
+- [x] Add all 3 models to `MODEL_REGISTRY` in `src/config/modelRegistry.ts` (done in Phase 1 table above)
+- [x] For OpenRouter models (`google/gemini-2.5-flash-lite`, `qwen/qwen3-8b`):
   - These use `provider/model` format natively — set `openRouterModelId` to the model ID as-is (no prefix transformation needed, unlike `gpt-oss-20b` which needs `openai/` prefix)
   - Ensure `isOpenRouterModel()` (now registry-based) recognizes them
-- [ ] For `gpt-5-nano`: already routed through OpenAI client, just needs schema + pricing entries (handled by registry)
-- [ ] Set `qwen/qwen3-8b` as the default judge model:
+- [x] For `gpt-5-nano`: already routed through OpenAI client, just needs schema + pricing entries (handled by registry)
+- [x] Set `qwen/qwen3-8b` as the default judge model:
   - In `src/app/admin/evolution/strategies/page.tsx`: set `judgeModel` field default value to `'qwen/qwen3-8b'`
   - In `src/config/modelRegistry.ts`: add `defaultJudge: true` flag (or export `DEFAULT_JUDGE_MODEL` constant)
-- [ ] Verify all 3 models appear in the strategy creation dropdown
-- [ ] Run lint, tsc, build; add pricing test cases for new models
+- [x] Verify all 3 models appear in the strategy creation dropdown
+- [x] Run lint, tsc, build; add pricing test cases for new models
 
 ### Phase 3: OpenSkill Beta = 0
 Set beta to 0 for faster convergence in rating updates.
 
-- [ ] In `evolution/src/lib/shared/computeRatings.ts`:
+- [x] In `evolution/src/lib/shared/computeRatings.ts`:
   - Line 38: Change `osRate([[winner], [loser]], { rank: [1, 2] })` → `osRate([[winner], [loser]], { rank: [1, 2], beta: 0 })`
   - Line 50: Change `osRate([[a], [b]], { rank: [1, 1] })` → `osRate([[a], [b]], { rank: [1, 1], beta: 0 })`
-- [ ] Do NOT change the local `BETA` constants in `rankSingleVariant.ts` (line 26) and `swissPairing.ts` (line 16) — those are for Bradley-Terry win-probability calculations, unrelated to openskill's beta
-- [ ] Run lint, tsc; update `computeRatings.test.ts` and `computeRatings.property.test.ts`
-- [ ] Add empirical beta=0 test: run 10 matches with beta=0 and verify sigma decreases faster than with default beta (same match sequence)
-- [ ] Add property test: with beta=0, winner mu after N matches >= winner mu with default beta (same outcomes) — validates faster convergence claim
+- [x] Do NOT change the local `BETA` constants in `rankSingleVariant.ts` (line 26) and `swissPairing.ts` (line 16) — those are for Bradley-Terry win-probability calculations, unrelated to openskill's beta
+- [x] Run lint, tsc; update `computeRatings.test.ts` and `computeRatings.property.test.ts`
+- [x] Add empirical beta=0 test: run 10 matches with beta=0 and verify sigma decreases faster than with default beta (same match sequence)
+- [x] Add property test: with beta=0, winner mu after N matches >= winner mu with default beta (same outcomes) — validates faster convergence claim
 
 ### Phase 4: Temperature Support
 Thread temperature through the LLM call chain, set judge temp to 0, and add configurable generation temp.
 
 **Step 4a: Add temperature to callLLM chain**
-- [ ] In `src/lib/services/llms.ts`:
+- [x] In `src/lib/services/llms.ts`:
   - Add `temperature?: number` to `CallLLMOptions` interface
   - In `callOpenAIModel()` (line 304-319): add `temperature` to `requestOptions`. **Guard**: `if (temperature !== undefined && getModelMaxTemperature(model) !== null) { requestOptions.temperature = Math.min(temperature, getModelMaxTemperature(model)!) }` — use `!== undefined` not truthiness (temperature=0 is valid), skip entirely if maxTemp is null (o3-mini)
   - In `callAnthropicModel()` (line 485-509): add `temperature` to message params. Same guard: `if (temperature !== undefined && getModelMaxTemperature(model) !== null) { params.temperature = Math.min(temperature, getModelMaxTemperature(model)!) }` — clamps to per-model max from registry (1.0 for Claude)
   - Thread `options.temperature` through `callLLMModelRaw()` → `routeLLMCall()` → provider functions
-- [ ] Run lint, tsc; update `llms.test.ts`
+- [x] Run lint, tsc; update `llms.test.ts`
 
 **Step 4b: Set judge temperature to 0 in evolution**
-- [ ] In `evolution/src/lib/pipeline/claimAndExecuteRun.ts` (lines 160-174):
+- [x] In `evolution/src/lib/pipeline/claimAndExecuteRun.ts` (lines 160-174):
   - Modify the `llmProvider` wrapper to accept temperature from options
   - The wrapper calls `callLLM()` — pass `temperature` in the `CallLLMOptions` (last param)
-- [ ] In `evolution/src/lib/pipeline/infra/createEvolutionLLMClient.ts`:
+- [x] In `evolution/src/lib/pipeline/infra/createEvolutionLLMClient.ts`:
   - Add `temperature?: number` to `LLMCompletionOptions` in `evolution/src/lib/types.ts`
   - Thread temperature through `rawProvider.complete()` opts
-- [ ] In `evolution/src/lib/pipeline/claimAndExecuteRun.ts` llmProvider:
+- [x] In `evolution/src/lib/pipeline/claimAndExecuteRun.ts` llmProvider:
   - When `label === 'ranking'` (or `opts.taskType === 'comparison'`), set `temperature: 0`
   - When `label === 'generation'` or `'seed_title'` or `'seed_article'`, use `config.generationTemperature ?? undefined` (provider default)
 
 **Step 4c: Add generationTemperature to StrategyConfig**
-- [ ] In `evolution/src/lib/schemas.ts` — `strategyConfigSchema` (line 321):
+- [x] In `evolution/src/lib/schemas.ts` — `strategyConfigSchema` (line 321):
   - Add `generationTemperature: z.number().min(0).max(2).optional()`
   - Add `.refine()` to validate temp <= model's maxTemperature using registry lookup
-- [ ] In `evolution/src/lib/schemas.ts` — `evolutionConfigSchema` (line 354):
+- [x] In `evolution/src/lib/schemas.ts` — `evolutionConfigSchema` (line 354):
   - Add `generationTemperature: z.number().min(0).max(2).optional()`
-- [ ] In `evolution/src/services/strategyRegistryActions.ts` — `createStrategySchema` (line 32):
+- [x] In `evolution/src/services/strategyRegistryActions.ts` — `createStrategySchema` (line 32):
   - Add `generationTemperature: z.number().min(0).max(2).optional()`
-- [ ] In `evolution/src/services/strategyRegistryActions.ts` — `createStrategyAction` config object (line 114):
+- [x] In `evolution/src/services/strategyRegistryActions.ts` — `createStrategyAction` config object (line 114):
   - Add `generationTemperature: parsed.generationTemperature`
-- [ ] In `evolution/src/lib/pipeline/setup/buildRunContext.ts` — EvolutionConfig construction (line 178):
+- [x] In `evolution/src/lib/pipeline/setup/buildRunContext.ts` — EvolutionConfig construction (line 178):
   - Add `generationTemperature: stratConfig.generationTemperature`
 
 **Step 4d: Add generationTemperature to strategy creation UI**
-- [ ] In `src/app/admin/evolution/strategies/page.tsx` — `createFields` array:
+- [x] In `src/app/admin/evolution/strategies/page.tsx` — `createFields` array:
   - Add field: `{ name: 'generationTemperature', label: 'Generation Temperature', type: 'number', placeholder: 'Default (provider default)' }`
-- [ ] In `src/app/admin/evolution/_components/StrategyConfigDisplay.tsx`:
+- [x] In `src/app/admin/evolution/_components/StrategyConfigDisplay.tsx`:
   - Display `generationTemperature` in the Execution column (alongside iterations, budget, etc.)
-- [ ] Add client-side validation: if model is selected, validate temp <= maxTemperature from registry
-- [ ] Run lint, tsc, build; update strategy registry tests
+- [x] Add client-side validation: if model is selected, validate temp <= maxTemperature from registry
+- [x] Run lint, tsc, build; update strategy registry tests
 
 ## Testing
 
 ### Unit Tests
-- [ ] `src/config/modelRegistry.test.ts` — new file: registry completeness (all required fields present), getModelInfo correctness, provider routing, slashed ID round-trip through Zod+JSON, non-empty evolution model set, contract test (every entry has id/displayName/provider/pricing/maxTemperature/supportsEvolution)
-- [ ] `src/config/llmPricing.test.ts` — update: verify registry-derived pricing matches, test new model pricing (gpt-5-nano, gemini-2.5-flash-lite, qwen3-8b)
-- [ ] `evolution/src/lib/shared/computeRatings.test.ts` — update: verify beta=0 is passed, test that ratings update more aggressively
-- [ ] `evolution/src/lib/shared/computeRatings.property.test.ts` — update: property tests should still pass with beta=0
-- [ ] `src/lib/services/llms.test.ts` — update: test temperature threading for OpenAI and Anthropic calls, test new OpenRouter model routing, test that o3-mini calls do NOT include temperature param, test isOpenRouterModel returns true for all OpenRouter registry models
-- [ ] `evolution/src/services/strategyRegistryActions.test.ts` — update: test generationTemperature field in create/read/update, test Zod .refine() rejects temp > model maxTemp (e.g., 2.5 for a max-2.0 model), rejects any temp for o3-mini (maxTemp=null)
-- [ ] `evolution/src/lib/pipeline/claimAndExecuteRun.test.ts` — update: test that llmProvider sets temperature=0 when label==='ranking', passes config generationTemperature when label==='generation'
-- [ ] `evolution/src/lib/pipeline/infra/createEvolutionLLMClient.test.ts` — update: test temperature threading through to rawProvider.complete()
+- [x] `src/config/modelRegistry.test.ts` — new file: registry completeness (all required fields present), getModelInfo correctness, provider routing, slashed ID round-trip through Zod+JSON, non-empty evolution model set, contract test (every entry has id/displayName/provider/pricing/maxTemperature/supportsEvolution)
+- [x] `src/config/llmPricing.test.ts` — update: verify registry-derived pricing matches, test new model pricing (gpt-5-nano, gemini-2.5-flash-lite, qwen3-8b)
+- [x] `evolution/src/lib/shared/computeRatings.test.ts` — update: verify beta=0 is passed, test that ratings update more aggressively
+- [x] `evolution/src/lib/shared/computeRatings.property.test.ts` — update: property tests should still pass with beta=0
+- [x] `src/lib/services/llms.test.ts` — update: test temperature threading for OpenAI and Anthropic calls, test new OpenRouter model routing, test that o3-mini calls do NOT include temperature param, test isOpenRouterModel returns true for all OpenRouter registry models
+- [x] `evolution/src/services/strategyRegistryActions.test.ts` — update: test generationTemperature field in create/read/update, test Zod .refine() rejects temp > model maxTemp (e.g., 2.5 for a max-2.0 model), rejects any temp for o3-mini (maxTemp=null)
+- [x] `evolution/src/lib/pipeline/claimAndExecuteRun.test.ts` — update: test that llmProvider sets temperature=0 when label==='ranking', passes config generationTemperature when label==='generation'
+- [x] `evolution/src/lib/pipeline/infra/createEvolutionLLMClient.test.ts` — update: test temperature threading through to rawProvider.complete()
 
 ### Integration Tests
-- [ ] `src/__tests__/integration/evolution-pipeline.integration.test.ts` — verify temperature flows through to LLM calls in a mock pipeline run
+- [x] `src/__tests__/integration/evolution-pipeline.integration.test.ts` — verify temperature flows through to LLM calls in a mock pipeline run
 
 ### E2E Tests
-- [ ] `src/__tests__/e2e/specs/09-admin/admin-strategy-crud.spec.ts` — verify new models appear in dropdown, verify generationTemperature field works in strategy creation form
-- [ ] `src/__tests__/e2e/specs/09-admin/admin-strategy-registry.spec.ts` — verify new models visible, temperature displayed in config
+- [x] `src/__tests__/e2e/specs/09-admin/admin-strategy-crud.spec.ts` — verify new models appear in dropdown, verify generationTemperature field works in strategy creation form
+- [x] `src/__tests__/e2e/specs/09-admin/admin-strategy-registry.spec.ts` — verify new models visible, temperature displayed in config
 
 ### Manual Verification
-- [ ] Create a strategy with `qwen/qwen3-8b` as judge and verify it appears in the dropdown
-- [ ] Create a strategy with `generationTemperature: 0.5` and verify it displays correctly
-- [ ] Verify strategy config display shows temperature value
+- [x] Create a strategy with `qwen/qwen3-8b` as judge and verify it appears in the dropdown
+- [x] Create a strategy with `generationTemperature: 0.5` and verify it displays correctly
+- [x] Verify strategy config display shows temperature value
 
 ## Verification
 
 ### A) Playwright Verification (required for UI changes)
-- [ ] Run `npx playwright test src/__tests__/e2e/specs/09-admin/admin-strategy-crud.spec.ts` — verify model dropdown includes new models
-- [ ] Run `npx playwright test src/__tests__/e2e/specs/09-admin/admin-strategy-registry.spec.ts` — verify strategy list and config display
+- [x] Run `npx playwright test src/__tests__/e2e/specs/09-admin/admin-strategy-crud.spec.ts` — verify model dropdown includes new models
+- [x] Run `npx playwright test src/__tests__/e2e/specs/09-admin/admin-strategy-registry.spec.ts` — verify strategy list and config display
 
 ### B) Automated Tests
-- [ ] `npm run test -- --testPathPattern modelRegistry` — new registry tests
-- [ ] `npm run test -- --testPathPattern llmPricing` — pricing tests with registry
-- [ ] `npm run test -- --testPathPattern computeRatings` — beta=0 rating tests
-- [ ] `npm run test -- --testPathPattern llms.test` — temperature threading tests
-- [ ] `npm run test -- --testPathPattern strategyRegistryActions` — strategy config tests
-- [ ] `npm run lint && npm run typecheck && npm run build` — full build verification
+- [x] `npm run test -- --testPathPattern modelRegistry` — new registry tests
+- [x] `npm run test -- --testPathPattern llmPricing` — pricing tests with registry
+- [x] `npm run test -- --testPathPattern computeRatings` — beta=0 rating tests
+- [x] `npm run test -- --testPathPattern llms.test` — temperature threading tests
+- [x] `npm run test -- --testPathPattern strategyRegistryActions` — strategy config tests
+- [x] `npm run lint && npm run typecheck && npm run build` — full build verification
 
 ## Documentation Updates
 The following docs were identified as relevant and may need updates:
-- [ ] `evolution/docs/rating_and_comparison.md` — document beta=0 change and faster convergence implications
-- [ ] `evolution/docs/strategies_and_experiments.md` — document `generationTemperature` field in StrategyConfig
-- [ ] `evolution/docs/cost_optimization.md` — add new model pricing to the LLM pricing table
-- [ ] `evolution/docs/reference.md` — add new models to supported models list, document temperature behavior
-- [ ] `evolution/docs/agents/overview.md` — document judge temperature=0, generation temperature configurable
-- [ ] `evolution/docs/architecture.md` — document temperature threading in LLM adapter, model registry
-- [ ] `evolution/docs/minicomputer_deployment.md` — no new env vars needed (uses existing OPENROUTER_API_KEY)
+- [x] `evolution/docs/rating_and_comparison.md` — document beta=0 change and faster convergence implications
+- [x] `evolution/docs/strategies_and_experiments.md` — document `generationTemperature` field in StrategyConfig
+- [x] `evolution/docs/cost_optimization.md` — add new model pricing to the LLM pricing table
+- [x] `evolution/docs/reference.md` — add new models to supported models list, document temperature behavior
+- [x] `evolution/docs/agents/overview.md` — document judge temperature=0, generation temperature configurable
+- [x] `evolution/docs/architecture.md` — document temperature threading in LLM adapter, model registry
+- [x] `evolution/docs/minicomputer_deployment.md` — no new env vars needed (uses existing OPENROUTER_API_KEY)
 
 ## Files Modified (Complete List)
 
