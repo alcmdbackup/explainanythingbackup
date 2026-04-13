@@ -34,7 +34,7 @@ Refactor the rating system boundary. OpenSkill stays internal; everything extern
   - Add `fromEloScale(elo): number` private internal helper for Elo→mu conversion: `(elo - 1200) / 16 + 25`
   - Export a new `toDisplayElo(elo): number` that clamps to [0, 3000] — used only for UI formatting
   - Rename constants: `DEFAULT_ELO=1200`, `DEFAULT_UNCERTAINTY=400/3` (exact fraction, not rounded), `DEFAULT_CONVERGENCE_UNCERTAINTY=72`, `ELO_SIGMA_SCALE=16` (kept as internal constant for DB boundary conversions)
-  - Keep `computeEloPerDollar()` — parameter changes from `mu` to `elo`
+  - Update `computeEloPerDollar()` — parameter changes from `mu` to `elo`, **remove internal `toEloScale(mu)` call** (elo is already Elo-scale), body becomes `(elo - 1200) / cost`
 - [ ] Update `evolution/src/lib/shared/selectWinner.ts`:
   - Change from "highest mu, sigma tiebreak" to "highest elo, uncertainty tiebreak (lower wins)"
   - Update `SelectWinnerResult` type: `{winnerId, elo, uncertainty}` instead of `{winnerId, mu, sigma}`
@@ -43,11 +43,17 @@ Refactor the rating system boundary. OpenSkill stays internal; everything extern
   - `EvolutionRunSummary` V4: rename `muHistory`→`eloHistory`, `topVariants[].mu`→`topVariants[].elo`, `baselineMu`→`baselineElo`, `strategyEffectiveness[].avgMu`→`strategyEffectiveness[].avgElo`
   - Update `DebateExecutionDetail`, `EvolutionExecutionDetail` mu→elo fields
   - Update `IterationSnapshot.ratings` from `{mu, sigma}` to `{elo, uncertainty}`
-  - Update any `EloAttribution` interface: `deltaMu`→`deltaElo`, `sigmaDelta`→`uncertaintyDelta`
+  - Update `EloAttribution` interface: `deltaMu`→`deltaElo`, `sigmaDelta`→`uncertaintyDelta`. **Remove the `* ELO_SCALE` multiplication** in the computation site — since `deltaElo` is already Elo-scale (it's a difference of Rating.elo values), the `gain` field needs no further scaling. Verify all sites that compute EloAttribution.
+  - Update `RankingExecutionDetail.ratingBefore`/`ratingAfter` from `{mu, sigma}` to `{elo, uncertainty}` with `.or()` backward compat in Zod schema
+  - Update `MetaReviewExecutionDetail`: rename `strategyMus`→`strategyElos`, `muRange`→`eloRange`
+  - Update `DiffMetrics.eloChanges` computation: if it currently calls `toEloScale()`, remove that call since ratings are already Elo-scale
+  - Update `SerializedPipelineState.ratings` from `Record<string, {mu, sigma}>` to `Record<string, {elo, uncertainty}>` with Zod `.transform()` backward compat for in-flight checkpoints (old format: convert mu→elo, sigma→uncertainty at deserialization time)
 - [ ] Update `evolution/src/lib/schemas.ts`:
   - Add V4 run summary schema with `version: 4` discriminant and `eloHistory` field. **V4 is distinguished from V3 by `version: 4` literal** — the Zod union tries V4 first (requires `version: 4`), then V3 (requires `version: 3`), so a V3 row can never accidentally match V4.
   - V3→V4 transform: apply `toEloScale()` to each mu value in `muHistory`, `topVariants[].mu`, `baselineMu`, `strategyEffectiveness[].avgMu`
-  - Keep V1/V2/V3→V4 migration chain: V1 `eloHistory`→V4 `eloHistory` (V1 values are already Elo-scale, pass through), V2 `ordinalHistory`→V4, V3 `muHistory`→V4 (apply toEloScale)
+  - **V1→V4 migration path** (CRITICAL — V1 values are NOT raw Elo): The existing V1→V3 transform applies `legacyToMu()` which adds `3 * DEFAULT_SIGMA ≈ 25` to V1 values. V1 `eloHistory` values are small ordinals (~0-50), NOT 1200-scale Elo. So V1→V4 must go through V1→V3→V4 (legacyToMu then toEloScale). **Do NOT short-circuit V1 directly to V4** — the V1 field name `eloHistory` is misleading; the values are ordinal-scale.
+  - **Union ordering safeguard**: V4 schema MUST precede V1 in the Zod union array. Add a comment `// ORDER MATTERS: V4 must be first, V1 last (V1.version is optional)` to prevent accidental reordering. V4 requires `version: z.literal(4)`, V3 requires `version: z.literal(3)`, V2 requires `version: z.literal(2)`, V1 has `version: z.literal(1).optional()` — only V1 can match without a version field.
+  - V2 `ordinalHistory`→V4: V2→V3 (legacyToMu) then V3→V4 (toEloScale), same as existing chain
   - **Execution detail schemas**: keep old field names (`variantMuBefore`, etc.) as **accepted aliases** via `.or()` for backward compat with existing JSONB data, but new writes use `variantEloBefore`, `variantUncertaintyBefore`, etc.
   - Rename `finalLocalMu`→`finalLocalElo`, `finalLocalSigma`→`finalLocalUncertainty` (with `.or()` fallback for old data)
   - Rename `discardReason.localMu`→`discardReason.localElo` (with `.or()` fallback)
@@ -79,7 +85,9 @@ Update all pipeline code to use the new Rating type.
   - `topKMuValues()` → `topKEloValues()` — extract `r.elo` instead of `r.mu`
   - `muHistory` → `eloHistory` throughout
   - Eligibility check: `r.elo + ELIGIBILITY_Z_SCORE * r.uncertainty >= top15Cutoff` (cutoff now in Elo scale)
-  - `discardReasonsMap` key: `mu` → `elo`
+  - `computeTop15Cutoff()`: now returns Elo-scale values (~1200-1600) instead of mu-scale (~25-50). All consumers already updated since they use Rating.elo.
+  - `discardReasonsMap` key: `mu` → `elo`, `top15Cutoff` values are now Elo-scale
+  - **Backward compat for stored snapshots**: old `IterationSnapshot.discardReasons` has mu-scale `{mu, top15Cutoff}`. Zod schema `.transform()` converts old format: `{elo: toEloScale(old.mu), top15Cutoff: toEloScale(old.top15Cutoff)}`
   - Winner log: `winnerMu`→`winnerElo`, `winnerSigma`→`winnerUncertainty`
 - [ ] Update `evolution/src/lib/pipeline/setup/buildRunContext.ts`:
   - Arena entry loading: read `mu`/`sigma` from DB (columns unchanged), convert to Rating `{elo, uncertainty}` at boundary using internal `toEloScale(mu)` and `sigma * ELO_SIGMA_SCALE`
@@ -115,12 +123,15 @@ Update all pipeline code to use the new Rating type.
   - `sigma` field in MetricValue → `uncertainty`. Note: in MetricValue context, `uncertainty` represents EITHER Elo-scale rating uncertainty (for run-level elo metrics) OR bootstrap standard error (for propagated aggregates). Both are uncertainty measures used for CI computation; the dual meaning is acceptable since the CI formula `[value ± 1.96 * uncertainty]` applies to both.
 - [ ] Update `evolution/src/lib/metrics/experimentMetrics.ts`:
   - `MetricValue.sigma` → `MetricValue.uncertainty`
-  - `bootstrapPercentileCI` param `allRunRatings: Array<Array<{elo, uncertainty}>>` — sample in Elo space directly: `elo + (uncertainty/1.96) * z` where z is Box-Muller normal. No mu conversion needed since ratings are already Elo-scale.
+  - `bootstrapPercentileCI` param `allRunRatings: Array<Array<{elo, uncertainty}>>` — sample in Elo space directly: `elo + uncertainty * z` where z is Box-Muller normal. `uncertainty` is Elo-scale sigma (NOT CI half-width), so no 1.96 division needed. Remove `toEloScale()` inside the loop since `v.elo` is already Elo.
 - [ ] Update `evolution/src/lib/metrics/writeMetrics.ts`:
   - `WriteMetricOpts.sigma` → `WriteMetricOpts.uncertainty`
   - DB column `evolution_metrics.sigma` rename to `uncertainty` (in Phase 4 migration)
 - [ ] Update `evolution/src/lib/metrics/types.ts`:
-  - MetricRow: `sigma` → `uncertainty`
+  - MetricRow Zod schema: `sigma` → `uncertainty`
+  - `toMetricValue()` helper: reads `row.uncertainty` instead of `row.sigma` (this maps directly to the renamed DB column after Phase 4 migration)
+- [ ] Update `evolution/src/lib/metrics/readMetrics.ts`:
+  - Supabase `.select()` calls: if using explicit column lists, update `sigma` → `uncertainty`. If using `*`, no change needed (auto-picks up renamed column).
 - [ ] Update `evolution/src/lib/metrics/recomputeMetrics.ts`:
   - DB reads use new column names
 
@@ -195,7 +206,7 @@ Update all test files with mu/sigma references. Tests should be updated incremen
 - [ ] `evolution/src/lib/shared/computeRatings.test.ts` — all assertions use elo/uncertainty
 - [ ] `evolution/src/lib/shared/computeRatings.property.test.ts` — property tests use elo/uncertainty
 - [ ] `evolution/src/lib/shared/selectWinner.test.ts` — elo/uncertainty assertions
-- [ ] `src/testing/mocks/openskill.ts` — mock returns elo/uncertainty (internally still uses mu/sigma math)
+- [ ] `src/testing/mocks/openskill.ts` — mock stays returning `{mu, sigma}` (openskill API requirement). `computeRatings.ts` handles the conversion internally. No change to mock return types needed; only update test assertions that previously checked `.mu`/`.sigma` on the Rating type returned by computeRatings wrappers.
 - [ ] `evolution/src/lib/schemas.test.ts` — V4 schema, execution detail field renames
 - [ ] `evolution/src/lib/utils/formatters.test.ts` — param renames
 
@@ -207,6 +218,8 @@ Update all test files with mu/sigma references. Tests should be updated incremen
 - [ ] `evolution/src/lib/pipeline/setup/buildRunContext.test.ts` — DB boundary conversion
 - [ ] `evolution/src/lib/pipeline/finalize/persistRunResults.test.ts` — elo/uncertainty, eloHistory
 - [ ] `evolution/src/lib/pipeline/loop/evolution-seed-cost.integration.test.ts` — if mu/sigma refs
+- [ ] `evolution/src/lib/pipeline/infra/types.test.ts` — muHistory property type
+- [ ] `evolution/src/lib/pipeline/claimAndExecuteRun.test.ts` — muHistory in fixtures
 
 **Agents (Phase 3):**
 - [ ] `evolution/src/lib/core/agents/generateFromSeedArticle.test.ts` — elo/uncertainty
@@ -252,6 +265,12 @@ Update all test files with mu/sigma references. Tests should be updated incremen
 - [ ] `src/__tests__/e2e/specs/09-admin/admin-evolution-arena-detail.spec.ts` — if mu/sigma refs
 - [ ] `src/__tests__/e2e/specs/09-admin/admin-evolution-invocation-detail.spec.ts` — if mu/sigma refs
 - [ ] `src/__tests__/e2e/specs/09-admin/admin-arena.spec.ts` — if mu/sigma refs
+- [ ] `src/__tests__/e2e/specs/09-admin/admin-strategy-budget.spec.ts` — mu/sigma in variant fixture
+- [ ] `src/__tests__/e2e/specs/09-admin/admin-evolution-logs.spec.ts` — run_summary with muHistory
+- [ ] `src/__tests__/e2e/specs/09-admin/admin-evolution-strategy-detail.spec.ts` — sigma in metric fixtures
+
+**Integration (additional):**
+- [ ] `src/__tests__/integration/evolution-claim.integration.test.ts` — muHistory in fixture
 
 **V3→V4 migration validation:**
 - [ ] Add a dedicated test in `evolution/src/lib/schemas.test.ts` that verifies V3 run_summary data with `muHistory: [[25, 30, 28]]` correctly transforms to V4 `eloHistory: [[1200, 1280, 1248]]` via `toEloScale()`
@@ -349,6 +368,11 @@ Existing JSONB in `evolution_agent_invocations.execution_detail` contains old fi
 ### Atomic Phase Execution
 Phases 1-3 must be implemented and committed together — they share the `Rating` type boundary. Phase 1 alone would break compilation of Phase 2-3 files. Within a single commit, update computeRatings.ts + all consumers + all tests simultaneously.
 
+**CI gating**: All Phase 1-3 changes MUST be in a single PR. The PR description must note "Atomic refactor — do not split." TypeScript compilation (`npm run tsc`) enforces this — splitting would produce compile errors on the missing Rating fields.
+
+### Bootstrap Sampling in Elo Space
+`bootstrapPercentileCI` currently samples `v.mu + v.sigma * z`. After the change, ratings are `{elo, uncertainty}` where uncertainty = sigma × 16 (Elo-scale). The sampling formula becomes `v.elo + v.uncertainty * z` — this works directly because `uncertainty` IS the Elo-scale standard deviation. No division by 1.96 needed (uncertainty is sigma-equivalent, not CI half-width). The `toEloScale()` call inside the loop is also removed since `v.elo` is already Elo.
+
 ## Review & Discussion
 
 ### Iteration 1 (Security: 3/5, Architecture: 3/5, Testing: 2/5)
@@ -366,3 +390,19 @@ Phases 1-3 must be implemented and committed together — they share the `Rating
 10. **No V3→V4 migration validation** (Testing) — Fixed: dedicated tests added for V3→V4 transform correctness and V1 pass-through.
 11. **sync_to_arena RPC contradiction** (Security minor→fixed) — Clarified: RPC stays unchanged, TypeScript keeps sending mu/sigma in JSON.
 12. **Atomic phase execution** (Architecture) — Added to Key Design Decisions: Phases 1-3 must be committed together.
+
+### Iteration 2 (Security: 3/5, Architecture: 3/5, Testing: 4/5)
+
+**Critical gaps fixed:**
+1. **V1→V4 migration math error** (Security) — Fixed: V1 `eloHistory` values are ordinal-scale (~0-50), NOT 1200-scale Elo. Must go through V1→V3 (legacyToMu) then V3→V4 (toEloScale). Added explicit warning and correct chain. Added union ordering safeguard comment.
+2. **top15Cutoff scale change unaddressed** (Architecture) — Fixed: computeTop15Cutoff now returns Elo-scale; added backward-compat transform for old mu-scale values in stored snapshots.
+3. **EloAttribution double-scaling** (Architecture) — Fixed: removed `* ELO_SCALE` multiplication since deltaElo is already scaled. Documented at the change site.
+4. **SerializedPipelineState checkpoint** (Architecture) — Fixed: added to Phase 1 types.ts updates with Zod backward-compat transform.
+5. **toMetricValue/readMetrics query mapping** (Architecture) — Fixed: added toMetricValue update and readMetrics select column update to Phase 3.
+6. **6 missing test files** (Testing) — Fixed: added types.test.ts, claimAndExecuteRun.test.ts, admin-strategy-budget.spec.ts, evolution-claim.integration.test.ts, admin-evolution-logs.spec.ts, admin-evolution-strategy-detail.spec.ts. Total now 48.
+7. **No CI gating for atomic phases** (Testing) — Fixed: added CI gating requirement to Key Design Decisions.
+8. **computeEloPerDollar body unchanged** (Security minor) — Fixed: body becomes `(elo - 1200) / cost`, remove internal toEloScale call.
+9. **openskill mock description misleading** (Testing minor) — Fixed: mock stays returning {mu, sigma}; computeRatings handles conversion.
+10. **bootstrapPercentileCI sampling formula** (Architecture minor) — Fixed: `elo + uncertainty * z` (no 1.96 division). Added Key Design Decision section explaining the math.
+11. **RankingExecutionDetail, MetaReviewExecutionDetail** (Architecture minor) — Fixed: added to Phase 1 types.ts updates.
+12. **DiffMetrics.eloChanges double-conversion** (Architecture minor) — Fixed: remove toEloScale call since ratings already Elo-scale.
