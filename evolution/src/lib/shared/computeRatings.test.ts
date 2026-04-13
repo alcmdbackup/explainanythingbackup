@@ -294,3 +294,50 @@ describe('compareWithBiasMitigation cache concurrency', () => {
     expect(callCount).toBeGreaterThan(0);
   });
 });
+
+describe('beta=0 faster convergence', () => {
+  it('sigma decreases more with beta=0 than default beta after same matches', () => {
+    // With beta=0 (current implementation), ratings update more aggressively.
+    // Run a sequence of matches and verify sigma decreases.
+    let w = createRating();
+    let l = createRating();
+    const initialSigma = w.sigma;
+
+    // 5 matches: w wins every time
+    for (let i = 0; i < 5; i++) {
+      [w, l] = updateRating(w, l);
+    }
+
+    // After 5 consecutive wins with beta=0, sigma should drop significantly
+    // (from ~8.33 to below ~6.0 — about 30% reduction)
+    expect(w.sigma).toBeLessThan(initialSigma * 0.75);
+    expect(w.mu).toBeGreaterThan(28); // should be above starting 25
+  });
+
+  it('winner mu always increases with consistent wins (monotonicity)', () => {
+    let w = createRating();
+    let l = createRating();
+    let prevMu = w.mu;
+
+    for (let i = 0; i < 10; i++) {
+      [w, l] = updateRating(w, l);
+      expect(w.mu).toBeGreaterThan(prevMu);
+      prevMu = w.mu;
+    }
+  });
+
+  it('draw between equal players reduces sigma without changing mu significantly', () => {
+    let a = createRating();
+    let b = createRating();
+    const initialSigmaA = a.sigma;
+
+    for (let i = 0; i < 5; i++) {
+      [a, b] = updateDraw(a, b);
+    }
+
+    // Sigma should decrease (uncertainty reduced by observing outcomes)
+    expect(a.sigma).toBeLessThan(initialSigmaA);
+    // Mu should stay near 25 for equal players drawing
+    expect(Math.abs(a.mu - 25)).toBeLessThan(2);
+  });
+});

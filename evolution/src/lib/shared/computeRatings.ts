@@ -35,7 +35,7 @@ export function createRating(): Rating {
  * Both players' sigma decreases (uncertainty reduced by observing outcome).
  */
 export function updateRating(winner: Rating, loser: Rating): [Rating, Rating] {
-  const result = osRate([[winner], [loser]], { rank: [1, 2] });
+  const result = osRate([[winner], [loser]], { rank: [1, 2], beta: 0 });
   const newWinner = result[0]?.[0];
   const newLoser = result[1]?.[0];
   if (!newWinner || !newLoser) return [winner, loser];
@@ -47,7 +47,7 @@ export function updateRating(winner: Rating, loser: Rating): [Rating, Rating] {
  * Both players move toward each other slightly, sigma decreases.
  */
 export function updateDraw(a: Rating, b: Rating): [Rating, Rating] {
-  const result = osRate([[a], [b]], { rank: [1, 1] });
+  const result = osRate([[a], [b]], { rank: [1, 1], beta: 0 });
   const newA = result[0]?.[0];
   const newB = result[1]?.[0];
   if (!newA || !newB) return [a, b];

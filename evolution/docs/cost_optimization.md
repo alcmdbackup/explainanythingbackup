@@ -186,14 +186,16 @@ Prices per 1M tokens (USD). The table includes 30+ model entries; these are the 
 
 | Model               | Input / 1M | Output / 1M |
 |---------------------|-----------|-------------|
+| qwen/qwen3-8b      | $0.05     | $0.40       |
+| gpt-5-nano          | $0.05     | $0.40       |
+| google/gemini-2.5-flash-lite | $0.10 | $0.40 |
 | gpt-4.1-nano        | $0.10     | $0.40       |
 | gpt-4.1-mini        | $0.40     | $1.60       |
 | gpt-4.1             | $2.00     | $8.00       |
 | gpt-4o              | $2.50     | $10.00      |
 | gpt-4o-mini         | $0.15     | $0.60       |
-| deepseek-chat       | $0.14     | $0.28       |
+| deepseek-chat       | $0.28     | $0.42       |
 | claude-sonnet-4     | $3.00     | $15.00      |
-| claude-3-5-haiku    | $0.80     | $4.00       |
 | Unknown (fallback)  | $10.00    | $30.00      |
 
 Model lookup uses exact match first, then longest-prefix match (e.g., `gpt-4o-2024-11-20` matches the `gpt-4o` entry). Unknown models fall back to conservative default pricing ($10/$30 per 1M tokens).

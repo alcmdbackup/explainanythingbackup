@@ -33,6 +33,7 @@ interface StrategyConfig {
   maxComparisonsPerVariant?: number;
   budgetBufferAfterParallel?: number;
   budgetBufferAfterSequential?: number;
+  generationTemperature?: number;
 }
 
 interface StrategyConfigDisplayProps {
@@ -96,6 +97,9 @@ export function StrategyConfigDisplay({ config: raw, showRaw }: StrategyConfigDi
           )}
           {config.budgetBufferAfterSequential != null && config.budgetBufferAfterSequential > 0 && (
             <ConfigRow label="Buffer After Sequential" value={`${(config.budgetBufferAfterSequential * 100).toFixed(0)}%`} highlight />
+          )}
+          {config.generationTemperature != null && (
+            <ConfigRow label="Gen Temperature" value={String(config.generationTemperature)} />
           )}
           {config.singleArticle && <ConfigRow label="Mode" value="Single Article" highlight />}
           {hasAgentOverrides && (

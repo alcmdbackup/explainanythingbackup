@@ -184,7 +184,7 @@ export async function evolveArticle(
   const noopLogger: EntityLogger = { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} };
   const logger = options?.logger ?? noopLogger;
   const costTracker = createCostTracker(resolvedConfig.budgetUsd);
-  const llm = createEvolutionLLMClient(llmProvider, costTracker, resolvedConfig.generationModel, logger, db, runId);
+  const llm = createEvolutionLLMClient(llmProvider, costTracker, resolvedConfig.generationModel, logger, db, runId, resolvedConfig.generationTemperature);
   const randomSeed = options?.randomSeed ?? BigInt(0);
 
   logger.info('Config validation passed', {
