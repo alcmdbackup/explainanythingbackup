@@ -57,10 +57,15 @@ Refactor the rating system boundary. OpenSkill stays internal; everything extern
   - **Execution detail schemas**: keep old field names (`variantMuBefore`, etc.) as **accepted aliases** via `.or()` for backward compat with existing JSONB data, but new writes use `variantEloBefore`, `variantUncertaintyBefore`, etc.
   - Rename `finalLocalMu`→`finalLocalElo`, `finalLocalSigma`→`finalLocalUncertainty` (with `.or()` fallback for old data)
   - Rename `discardReason.localMu`→`discardReason.localElo` (with `.or()` fallback)
+  - Rename `RankingExecutionDetail.top20Cutoff` field — convert stored value to Elo-scale for new writes, add `.or()` backward compat for existing mu-scale values in JSONB
   - Rename `muDelta`→`eloDelta`, `sigmaDelta`→`uncertaintyDelta` (with `.or()` fallback)
   - Update `ratingSchema` from `{mu, sigma}` to `{elo, uncertainty}`
 - [ ] Update `evolution/src/lib/pipeline/infra/types.ts`:
   - Rename `muHistory: number[][]` → `eloHistory: number[][]` in `EvolutionResult`
+- [ ] Update `evolution/src/lib/index.ts` (barrel export):
+  - Rename exported constants: `DEFAULT_MU`→`DEFAULT_ELO`, `DEFAULT_SIGMA`→`DEFAULT_UNCERTAINTY`, `DEFAULT_CONVERGENCE_SIGMA`→`DEFAULT_CONVERGENCE_UNCERTAINTY`
+  - Remove `toEloScale` from public exports (now private internal)
+  - Add `toDisplayElo` to public exports
 - [ ] Update `evolution/src/lib/utils/formatters.ts`:
   - `elo95CI(sigma)` — rename param to `uncertainty` (already expects Elo-scale value)
   - `formatEloCIRange(elo, sigma)` — rename param to `uncertainty`
@@ -110,6 +115,9 @@ Update all pipeline code to use the new Rating type.
   - Display labels: change μ→"Elo", σ→"±", Δμ→"ΔElo", Δσ→"Δ±"
 - [ ] Update `evolution/src/lib/core/agents/generateFromSeedArticle.ts`:
   - `discardReason.localMu` → `discardReason.localElo`
+- [ ] Update `evolution/src/lib/core/agents/createSeedArticle.ts` (if exists — shares same discardReason pattern):
+  - `discardReason.localMu` → `discardReason.localElo`
+  - Same `.or()` backward compat in Zod schema as generateFromSeedArticle
 - [ ] Update `evolution/src/lib/core/detailViewConfigs.ts`:
   - All display labels: μ→"Elo", σ→"Uncertainty", Δμ→"Δ Elo", Δσ→"Δ Uncertainty"
   - "Final Local μ"→"Final Local Elo", "Final Local σ"→"Final Local Uncertainty"
@@ -274,7 +282,7 @@ Update all test files with mu/sigma references. Tests should be updated incremen
 
 **V3→V4 migration validation:**
 - [ ] Add a dedicated test in `evolution/src/lib/schemas.test.ts` that verifies V3 run_summary data with `muHistory: [[25, 30, 28]]` correctly transforms to V4 `eloHistory: [[1200, 1280, 1248]]` via `toEloScale()`
-- [ ] Test that V1 `eloHistory` data passes through to V4 without double-conversion
+- [ ] Test that V1 `eloHistory` data correctly transforms through V1→V3→V4 chain without treating ordinals as Elo values (V1 values are small ordinals, not 1200-scale Elo)
 
 ### Phase 8: Documentation
 - [ ] Update all 13 evolution docs to use Elo/uncertainty terminology (see Documentation Updates section)
@@ -406,3 +414,11 @@ Phases 1-3 must be implemented and committed together — they share the `Rating
 10. **bootstrapPercentileCI sampling formula** (Architecture minor) — Fixed: `elo + uncertainty * z` (no 1.96 division). Added Key Design Decision section explaining the math.
 11. **RankingExecutionDetail, MetaReviewExecutionDetail** (Architecture minor) — Fixed: added to Phase 1 types.ts updates.
 12. **DiffMetrics.eloChanges double-conversion** (Architecture minor) — Fixed: remove toEloScale call since ratings already Elo-scale.
+
+### Iteration 3 (Security: 5/5, Architecture: 4/5, Testing: 5/5)
+
+**Minor gaps fixed:**
+1. **createSeedArticle.ts agent missing** (Architecture) — Fixed: added to Phase 3 agents list with same discardReason pattern.
+2. **RankingExecutionDetail.top20Cutoff** (Architecture) — Fixed: added to Phase 1 schemas.ts Elo-scale conversion with backward compat.
+3. **Barrel export (index.ts)** (Security minor) — Fixed: added to Phase 1 with constant renames and toEloScale removal.
+4. **V1 test description misleading** (Security minor) — Fixed: reworded to clarify V1→V3→V4 chain.
