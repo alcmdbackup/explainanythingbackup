@@ -1,0 +1,401 @@
+{
+  "model": "qwen/qwen3-8b",
+  "thinkingConfigs": [
+    "ON-temp0",
+    "OFF-temp0",
+    "OFF-temp0.7",
+    "OFF-temp1.0"
+  ],
+  "pairs": [
+    "A-vs-B (large gap, 25 mu)",
+    "C-vs-D (close pair, 0.09 mu)"
+  ],
+  "callsPerConfig": 3,
+  "temperature": 0,
+  "groups": [
+    {
+      "pair": "A-vs-B (large gap, 25 mu)",
+      "config": "ON-temp0",
+      "results": [
+        {
+          "thinkingConfig": "ON-temp0",
+          "temperature": 0,
+          "callIndex": 0,
+          "forwardRaw": "A",
+          "reverseRaw": "B",
+          "forwardParsed": "A",
+          "reverseParsed": "B",
+          "aggregatedWinner": "A",
+          "confidence": 1,
+          "durationMs": 9482,
+          "forwardDurationMs": 9231,
+          "reverseDurationMs": 9482
+        },
+        {
+          "thinkingConfig": "ON-temp0",
+          "temperature": 0,
+          "callIndex": 1,
+          "forwardRaw": "A",
+          "reverseRaw": "B",
+          "forwardParsed": "A",
+          "reverseParsed": "B",
+          "aggregatedWinner": "A",
+          "confidence": 1,
+          "durationMs": 10847,
+          "forwardDurationMs": 7837,
+          "reverseDurationMs": 10847
+        },
+        {
+          "thinkingConfig": "ON-temp0",
+          "temperature": 0,
+          "callIndex": 2,
+          "forwardRaw": "A",
+          "reverseRaw": "B",
+          "forwardParsed": "A",
+          "reverseParsed": "B",
+          "aggregatedWinner": "A",
+          "confidence": 1,
+          "durationMs": 9323,
+          "forwardDurationMs": 7848,
+          "reverseDurationMs": 9323
+        }
+      ]
+    },
+    {
+      "pair": "A-vs-B (large gap, 25 mu)",
+      "config": "OFF-temp0",
+      "results": [
+        {
+          "thinkingConfig": "OFF-temp0",
+          "temperature": 0,
+          "callIndex": 0,
+          "forwardRaw": "A",
+          "reverseRaw": "Your answer: B",
+          "forwardParsed": "A",
+          "reverseParsed": null,
+          "aggregatedWinner": "A",
+          "confidence": 0.3,
+          "durationMs": 1090,
+          "forwardDurationMs": 1090,
+          "reverseDurationMs": 1046
+        },
+        {
+          "thinkingConfig": "OFF-temp0",
+          "temperature": 0,
+          "callIndex": 1,
+          "forwardRaw": "A",
+          "reverseRaw": "Your answer: B",
+          "forwardParsed": "A",
+          "reverseParsed": null,
+          "aggregatedWinner": "A",
+          "confidence": 0.3,
+          "durationMs": 1095,
+          "forwardDurationMs": 471,
+          "reverseDurationMs": 1095
+        },
+        {
+          "thinkingConfig": "OFF-temp0",
+          "temperature": 0,
+          "callIndex": 2,
+          "forwardRaw": "A",
+          "reverseRaw": "Your answer: B",
+          "forwardParsed": "A",
+          "reverseParsed": null,
+          "aggregatedWinner": "A",
+          "confidence": 0.3,
+          "durationMs": 1372,
+          "forwardDurationMs": 1372,
+          "reverseDurationMs": 692
+        }
+      ]
+    },
+    {
+      "pair": "A-vs-B (large gap, 25 mu)",
+      "config": "OFF-temp0.7",
+      "results": [
+        {
+          "thinkingConfig": "OFF-temp0.7",
+          "temperature": 0.7,
+          "callIndex": 0,
+          "forwardRaw": "A",
+          "reverseRaw": "Your answer: B",
+          "forwardParsed": "A",
+          "reverseParsed": null,
+          "aggregatedWinner": "A",
+          "confidence": 0.3,
+          "durationMs": 859,
+          "forwardDurationMs": 859,
+          "reverseDurationMs": 750
+        },
+        {
+          "thinkingConfig": "OFF-temp0.7",
+          "temperature": 0.7,
+          "callIndex": 1,
+          "forwardRaw": "A",
+          "reverseRaw": "Your answer: B",
+          "forwardParsed": "A",
+          "reverseParsed": null,
+          "aggregatedWinner": "A",
+          "confidence": 0.3,
+          "durationMs": 1134,
+          "forwardDurationMs": 984,
+          "reverseDurationMs": 1134
+        },
+        {
+          "thinkingConfig": "OFF-temp0.7",
+          "temperature": 0.7,
+          "callIndex": 2,
+          "forwardRaw": "A",
+          "reverseRaw": "Your answer: B",
+          "forwardParsed": "A",
+          "reverseParsed": null,
+          "aggregatedWinner": "A",
+          "confidence": 0.3,
+          "durationMs": 1103,
+          "forwardDurationMs": 910,
+          "reverseDurationMs": 1103
+        }
+      ]
+    },
+    {
+      "pair": "A-vs-B (large gap, 25 mu)",
+      "config": "OFF-temp1.0",
+      "results": [
+        {
+          "thinkingConfig": "OFF-temp1.0",
+          "temperature": 1,
+          "callIndex": 0,
+          "forwardRaw": "A",
+          "reverseRaw": "Your answer: B",
+          "forwardParsed": "A",
+          "reverseParsed": null,
+          "aggregatedWinner": "A",
+          "confidence": 0.3,
+          "durationMs": 1369,
+          "forwardDurationMs": 418,
+          "reverseDurationMs": 1369
+        },
+        {
+          "thinkingConfig": "OFF-temp1.0",
+          "temperature": 1,
+          "callIndex": 1,
+          "forwardRaw": "A",
+          "reverseRaw": "Your answer: B",
+          "forwardParsed": "A",
+          "reverseParsed": null,
+          "aggregatedWinner": "A",
+          "confidence": 0.3,
+          "durationMs": 1082,
+          "forwardDurationMs": 972,
+          "reverseDurationMs": 1082
+        },
+        {
+          "thinkingConfig": "OFF-temp1.0",
+          "temperature": 1,
+          "callIndex": 2,
+          "forwardRaw": "A",
+          "reverseRaw": "Your answer: B",
+          "forwardParsed": "A",
+          "reverseParsed": null,
+          "aggregatedWinner": "A",
+          "confidence": 0.3,
+          "durationMs": 1133,
+          "forwardDurationMs": 583,
+          "reverseDurationMs": 1133
+        }
+      ]
+    },
+    {
+      "pair": "C-vs-D (close pair, 0.09 mu)",
+      "config": "ON-temp0",
+      "results": [
+        {
+          "thinkingConfig": "ON-temp0",
+          "temperature": 0,
+          "callIndex": 0,
+          "forwardRaw": "A",
+          "reverseRaw": "B",
+          "forwardParsed": "A",
+          "reverseParsed": "B",
+          "aggregatedWinner": "A",
+          "confidence": 1,
+          "durationMs": 17465,
+          "forwardDurationMs": 12485,
+          "reverseDurationMs": 17465
+        },
+        {
+          "thinkingConfig": "ON-temp0",
+          "temperature": 0,
+          "callIndex": 1,
+          "forwardRaw": "A",
+          "reverseRaw": "B",
+          "forwardParsed": "A",
+          "reverseParsed": "B",
+          "aggregatedWinner": "A",
+          "confidence": 1,
+          "durationMs": 11985,
+          "forwardDurationMs": 11985,
+          "reverseDurationMs": 7032
+        },
+        {
+          "thinkingConfig": "ON-temp0",
+          "temperature": 0,
+          "callIndex": 2,
+          "forwardRaw": "A",
+          "reverseRaw": "B",
+          "forwardParsed": "A",
+          "reverseParsed": "B",
+          "aggregatedWinner": "A",
+          "confidence": 1,
+          "durationMs": 11385,
+          "forwardDurationMs": 7112,
+          "reverseDurationMs": 11385
+        }
+      ]
+    },
+    {
+      "pair": "C-vs-D (close pair, 0.09 mu)",
+      "config": "OFF-temp0",
+      "results": [
+        {
+          "thinkingConfig": "OFF-temp0",
+          "temperature": 0,
+          "callIndex": 0,
+          "forwardRaw": "A",
+          "reverseRaw": "Your answer: B",
+          "forwardParsed": "A",
+          "reverseParsed": null,
+          "aggregatedWinner": "A",
+          "confidence": 0.3,
+          "durationMs": 1162,
+          "forwardDurationMs": 1162,
+          "reverseDurationMs": 925
+        },
+        {
+          "thinkingConfig": "OFF-temp0",
+          "temperature": 0,
+          "callIndex": 1,
+          "forwardRaw": "Your answer: A",
+          "reverseRaw": "Your answer: B",
+          "forwardParsed": null,
+          "reverseParsed": null,
+          "aggregatedWinner": "TIE",
+          "confidence": 0,
+          "durationMs": 859,
+          "forwardDurationMs": 857,
+          "reverseDurationMs": 859
+        },
+        {
+          "thinkingConfig": "OFF-temp0",
+          "temperature": 0,
+          "callIndex": 2,
+          "forwardRaw": "A",
+          "reverseRaw": "Your answer: B",
+          "forwardParsed": "A",
+          "reverseParsed": null,
+          "aggregatedWinner": "A",
+          "confidence": 0.3,
+          "durationMs": 913,
+          "forwardDurationMs": 738,
+          "reverseDurationMs": 913
+        }
+      ]
+    },
+    {
+      "pair": "C-vs-D (close pair, 0.09 mu)",
+      "config": "OFF-temp0.7",
+      "results": [
+        {
+          "thinkingConfig": "OFF-temp0.7",
+          "temperature": 0.7,
+          "callIndex": 0,
+          "forwardRaw": "A",
+          "reverseRaw": "Your answer: B",
+          "forwardParsed": "A",
+          "reverseParsed": null,
+          "aggregatedWinner": "A",
+          "confidence": 0.3,
+          "durationMs": 1251,
+          "forwardDurationMs": 987,
+          "reverseDurationMs": 1251
+        },
+        {
+          "thinkingConfig": "OFF-temp0.7",
+          "temperature": 0.7,
+          "callIndex": 1,
+          "forwardRaw": "A",
+          "reverseRaw": "Your answer: B",
+          "forwardParsed": "A",
+          "reverseParsed": null,
+          "aggregatedWinner": "A",
+          "confidence": 0.3,
+          "durationMs": 1075,
+          "forwardDurationMs": 624,
+          "reverseDurationMs": 1075
+        },
+        {
+          "thinkingConfig": "OFF-temp0.7",
+          "temperature": 0.7,
+          "callIndex": 2,
+          "forwardRaw": "A",
+          "reverseRaw": "Your answer: B",
+          "forwardParsed": "A",
+          "reverseParsed": null,
+          "aggregatedWinner": "A",
+          "confidence": 0.3,
+          "durationMs": 1300,
+          "forwardDurationMs": 1300,
+          "reverseDurationMs": 665
+        }
+      ]
+    },
+    {
+      "pair": "C-vs-D (close pair, 0.09 mu)",
+      "config": "OFF-temp1.0",
+      "results": [
+        {
+          "thinkingConfig": "OFF-temp1.0",
+          "temperature": 1,
+          "callIndex": 0,
+          "forwardRaw": "A",
+          "reverseRaw": "Your answer: **B**\n\nText B is better because it offers a more polished, structured, and comprehensive explanation of the Federal Reserve. It provides greater detail, uses more precise terminology, and",
+          "forwardParsed": "A",
+          "reverseParsed": null,
+          "aggregatedWinner": "A",
+          "confidence": 0.3,
+          "durationMs": 2131,
+          "forwardDurationMs": 916,
+          "reverseDurationMs": 2131
+        },
+        {
+          "thinkingConfig": "OFF-temp1.0",
+          "temperature": 1,
+          "callIndex": 1,
+          "forwardRaw": "A",
+          "reverseRaw": "Your answer: B",
+          "forwardParsed": "A",
+          "reverseParsed": null,
+          "aggregatedWinner": "A",
+          "confidence": 0.3,
+          "durationMs": 1482,
+          "forwardDurationMs": 1482,
+          "reverseDurationMs": 1176
+        },
+        {
+          "thinkingConfig": "OFF-temp1.0",
+          "temperature": 1,
+          "callIndex": 2,
+          "forwardRaw": "A",
+          "reverseRaw": "Your answer: B",
+          "forwardParsed": "A",
+          "reverseParsed": null,
+          "aggregatedWinner": "A",
+          "confidence": 0.3,
+          "durationMs": 1162,
+          "forwardDurationMs": 1162,
+          "reverseDurationMs": 1156
+        }
+      ]
+    }
+  ]
+}
