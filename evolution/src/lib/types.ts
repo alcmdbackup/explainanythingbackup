@@ -419,6 +419,8 @@ export interface LLMCompletionOptions {
   taskType?: 'comparison' | 'generation';
   /** Comparison output complexity: simple=10 tokens (A/B/TIE), structured=50 (dimension scores), flow=150 (full rubric). */
   comparisonSubtype?: 'simple' | 'structured' | 'flow';
+  /** LLM sampling temperature. Omit to use provider default. */
+  temperature?: number;
 }
 
 // Note: imported lazily to avoid the name collision with the legacy AgentName

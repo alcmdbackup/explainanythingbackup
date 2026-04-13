@@ -188,6 +188,7 @@ export async function buildRunContext(
     maxComparisonsPerVariant: stratConfig.maxComparisonsPerVariant ?? 15,
     budgetBufferAfterParallel: stratConfig.budgetBufferAfterParallel ?? 0,
     budgetBufferAfterSequential: stratConfig.budgetBufferAfterSequential ?? 0,
+    generationTemperature: stratConfig.generationTemperature,
   };
 
   const logger = createEntityLogger({

@@ -333,6 +333,8 @@ export const strategyConfigSchema = z.object({
   budgetBufferAfterParallel: z.number().min(0).max(1).optional(),
   /** Fraction of budget to reserve after sequential generation (0-1). Default 0. */
   budgetBufferAfterSequential: z.number().min(0).max(1).optional(),
+  /** Temperature for generation LLM calls (0-2). Omit for provider default. Ranking always uses 0. */
+  generationTemperature: z.number().min(0).max(2).optional(),
 }).refine((c) => {
   const parallel = c.budgetBufferAfterParallel ?? 0;
   const sequential = c.budgetBufferAfterSequential ?? 0;
@@ -375,6 +377,8 @@ export const evolutionConfigSchema = z.object({
   budgetBufferAfterParallel: z.number().min(0).max(1).optional(),
   /** Fraction of budget to reserve after sequential generation (0-1, default 0). */
   budgetBufferAfterSequential: z.number().min(0).max(1).optional(),
+  /** Temperature for generation LLM calls (0-2). Omit for provider default. Ranking always uses 0. */
+  generationTemperature: z.number().min(0).max(2).optional(),
 });
 
 export type EvolutionConfigSchema = z.infer<typeof evolutionConfigSchema>;

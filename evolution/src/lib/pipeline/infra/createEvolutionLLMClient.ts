@@ -41,12 +41,14 @@ const OUTPUT_TOKEN_ESTIMATES: Partial<Record<AgentName, number>> = {
  * The raw provider is a simple { complete(prompt, label, opts?) } function.
  */
 export function createEvolutionLLMClient(
-  rawProvider: { complete(prompt: string, label: AgentName, opts?: { model?: string }): Promise<string> },
+  rawProvider: { complete(prompt: string, label: AgentName, opts?: { model?: string; temperature?: number }): Promise<string> },
   costTracker: V2CostTracker,
   defaultModel: string,
   logger?: EntityLogger,
   db?: SupabaseClient,
   runId?: string,
+  /** Temperature for generation calls. Ranking calls always use 0. undefined = provider default. */
+  generationTemperature?: number,
 ): EvolutionLLMClient {
   return {
     async complete(
@@ -55,6 +57,10 @@ export function createEvolutionLLMClient(
       options?: LLMCompletionOptions,
     ): Promise<string> {
       const model = (options?.model as string) ?? defaultModel;
+      // Inject temperature: ranking always 0, generation uses configured temp (or provider default)
+      const temperature = agentName === 'ranking'
+        ? 0
+        : (options?.temperature ?? generationTemperature);
       const pricing = getModelPricing(model);
       const outputEstimate = OUTPUT_TOKEN_ESTIMATES[agentName] ?? 1000;
       // outputEstimate is in tokens; multiply by 4 to convert to chars for calculateCost
@@ -70,7 +76,7 @@ export function createEvolutionLLMClient(
         try {
           logger?.debug('LLM call attempt', { phaseName: agentName, attempt, model });
           const response = await Promise.race([
-            rawProvider.complete(prompt, agentName, { model }),
+            rawProvider.complete(prompt, agentName, { model, temperature }),
             new Promise<never>((_, reject) => {
               timeoutId = setTimeout(() => reject(new Error('LLM call timeout (60s)')), PER_CALL_TIMEOUT_MS);
             }),

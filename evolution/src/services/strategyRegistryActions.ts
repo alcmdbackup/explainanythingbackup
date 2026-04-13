@@ -43,6 +43,7 @@ const createStrategySchema = z.object({
   maxComparisonsPerVariant: z.number().int().min(1).max(100).optional(),
   budgetBufferAfterParallel: z.number().min(0).max(1).optional(),
   budgetBufferAfterSequential: z.number().min(0).max(1).optional(),
+  generationTemperature: z.number().min(0).max(2).optional(),
 }).refine((c) => {
   const parallel = c.budgetBufferAfterParallel ?? 0;
   const sequential = c.budgetBufferAfterSequential ?? 0;
@@ -122,6 +123,7 @@ export const createStrategyAction = adminAction(
       maxComparisonsPerVariant: parsed.maxComparisonsPerVariant,
       budgetBufferAfterParallel: parsed.budgetBufferAfterParallel,
       budgetBufferAfterSequential: parsed.budgetBufferAfterSequential,
+      generationTemperature: parsed.generationTemperature,
     };
 
     const configHash = hashStrategyConfig(config);

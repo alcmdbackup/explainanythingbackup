@@ -197,6 +197,7 @@ const createFields: FieldDef[] = [
   { name: 'maxComparisonsPerVariant', label: 'Max Comparisons per Variant', type: 'number', placeholder: '15 (default)' },
   { name: 'budgetBufferAfterParallel', label: 'Budget Buffer After Parallel (0-1)', type: 'number', placeholder: '0 (default)' },
   { name: 'budgetBufferAfterSequential', label: 'Budget Buffer After Sequential (0-1)', type: 'number', placeholder: '0 (default)' },
+  { name: 'generationTemperature', label: 'Generation Temperature (0-2)', type: 'number', placeholder: 'Provider default' },
 ];
 
 type DialogState =

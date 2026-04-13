@@ -15,7 +15,7 @@ import { withLogging } from '@/lib/logging/server/automaticServerLoggingBase';
 import { ServiceError } from '@/lib/errors/serviceError';
 import { ERROR_CODES } from '@/lib/errorHandling';
 import { calculateLLMCost } from '@/config/llmPricing';
-import { isOpenRouterModel as registryIsOpenRouterModel, getOpenRouterApiModelId } from '@/config/modelRegistry';
+import { isOpenRouterModel as registryIsOpenRouterModel, getOpenRouterApiModelId, getModelMaxTemperature } from '@/config/modelRegistry';
 import { getLLMSemaphore } from './llmSemaphore';
 import { getSpendingGate } from './llmSpendingGate';
 
@@ -31,6 +31,8 @@ export interface LLMUsageMetadata {
 export interface CallLLMOptions {
   onUsage?: (usage: LLMUsageMetadata) => void;
   evolutionInvocationId?: string;
+  /** LLM sampling temperature. Omit to use provider default. Clamped to model's maxTemperature. */
+  temperature?: number;
 }
 
 type ResponseObject = z.ZodObject<any> | null;
@@ -311,6 +313,15 @@ async function callOpenAIModel(
             stream: streaming
         };
 
+        // Apply temperature if provided and model supports it (maxTemperature !== null)
+        if (options?.temperature !== undefined) {
+            const maxTemp = getModelMaxTemperature(validatedModel);
+            if (maxTemp !== null && maxTemp !== undefined) {
+                requestOptions.temperature = Math.min(options.temperature, maxTemp);
+            }
+            // If maxTemp is null (e.g. o3-mini), omit temperature entirely — API rejects it
+        }
+
         if (response_obj && response_obj_name) {
             if (isDeepSeekModel(validatedModel) || isLocalModel(validatedModel) || isOpenRouterModel(validatedModel)) {
                 requestOptions.response_format = { type: 'json_object' };
@@ -474,6 +485,15 @@ async function callAnthropicModel(
             'llm.streaming': streaming ? 'true' : 'false'
         });
 
+        // Compute temperature for Anthropic: clamp to model's max (1.0 for Claude)
+        let anthropicTemp: number | undefined;
+        if (options?.temperature !== undefined) {
+            const maxTemp = getModelMaxTemperature(validatedModel);
+            if (maxTemp !== null && maxTemp !== undefined) {
+                anthropicTemp = Math.min(options.temperature, maxTemp);
+            }
+        }
+
         let response: string;
         let usage: { input_tokens: number; output_tokens: number };
         let promptTokens = 0;
@@ -488,6 +508,7 @@ async function callAnthropicModel(
                     max_tokens: 8192,
                     system: systemMessage,
                     messages: [{ role: 'user', content: prompt }],
+                    ...(anthropicTemp !== undefined ? { temperature: anthropicTemp } : {}),
                 });
                 for await (const event of stream) {
                     if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
@@ -504,6 +525,7 @@ async function callAnthropicModel(
                     max_tokens: 8192,
                     system: systemMessage,
                     messages: [{ role: 'user', content: prompt }],
+                    ...(anthropicTemp !== undefined ? { temperature: anthropicTemp } : {}),
                 });
                 response = message.content[0]?.type === 'text' ? message.content[0].text : '';
                 usage = message.usage;

@@ -158,7 +158,7 @@ export async function claimAndExecuteRun(
 
   try {
     const llmProvider: LLMProvider = {
-      async complete(prompt: string, label: AgentName, opts?: { model?: string }): Promise<string> {
+      async complete(prompt: string, label: AgentName, opts?: { model?: string; temperature?: number }): Promise<string> {
         return callLLM(
           prompt,
           `evolution_${label}`,
@@ -169,7 +169,7 @@ export async function claimAndExecuteRun(
           null,
           null,
           false,
-          {},
+          { temperature: opts?.temperature },
         );
       },
     };
