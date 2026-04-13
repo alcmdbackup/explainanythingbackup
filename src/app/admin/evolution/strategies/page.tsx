@@ -20,6 +20,7 @@ import {
 import { getBatchMetricsAction } from '@evolution/services/metricsActions';
 import { executeEntityAction } from '@evolution/services/entityActions';
 import { MODEL_OPTIONS } from '@/lib/utils/modelOptions';
+import { DEFAULT_JUDGE_MODEL } from '@/config/modelRegistry';
 import type { MetricRow } from '@evolution/lib/metrics/types';
 
 const loadData = async (filters: Record<string, string>, page: number, pageSize: number) => {
@@ -229,7 +230,7 @@ export default function StrategiesPage(): JSX.Element {
         iterations: dialog.row.config?.iterations ?? 10,
         generationGuidance: (dialog.row.config as Record<string, unknown>)?.generationGuidance ?? [],
       }
-    : {};
+    : { judgeModel: DEFAULT_JUDGE_MODEL };
 
   const handleFormSubmit = async (values: Record<string, unknown>) => {
     if (dialog.kind === 'create') {
@@ -247,6 +248,7 @@ export default function StrategiesPage(): JSX.Element {
         maxComparisonsPerVariant: values.maxComparisonsPerVariant ? Number(values.maxComparisonsPerVariant) : undefined,
         budgetBufferAfterParallel: values.budgetBufferAfterParallel ? Number(values.budgetBufferAfterParallel) : undefined,
         budgetBufferAfterSequential: values.budgetBufferAfterSequential ? Number(values.budgetBufferAfterSequential) : undefined,
+        generationTemperature: values.generationTemperature ? Number(values.generationTemperature) : undefined,
       });
       if (!result.success) throw new Error(result.error?.message ?? 'Create failed');
       toast.success('Strategy created');

@@ -154,4 +154,24 @@ describe('computeRatings property tests', () => {
       );
     });
   });
+
+  describe('beta=0 convergence', () => {
+    it('winner mu monotonically increases over N consecutive wins', () => {
+      fc.assert(
+        fc.property(
+          fc.integer({ min: 3, max: 20 }),
+          (matchCount: number) => {
+            let w = { mu: DEFAULT_MU, sigma: 25 / 3 };
+            let l = { mu: DEFAULT_MU, sigma: 25 / 3 };
+            let prevMu = w.mu;
+            for (let i = 0; i < matchCount; i++) {
+              [w, l] = updateRating(w, l);
+              expect(w.mu).toBeGreaterThan(prevMu);
+              prevMu = w.mu;
+            }
+          },
+        ),
+      );
+    });
+  });
 });

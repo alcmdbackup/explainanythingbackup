@@ -3,6 +3,7 @@
 
 import { z } from 'zod';
 import { DEFAULT_SIGMA } from './shared/computeRatings';
+import { getModelMaxTemperature } from '@/config/modelRegistry';
 
 // ═══════════════════════════════════════════════════════════════════
 // Shared enums & helpers
@@ -339,7 +340,13 @@ export const strategyConfigSchema = z.object({
   const parallel = c.budgetBufferAfterParallel ?? 0;
   const sequential = c.budgetBufferAfterSequential ?? 0;
   return parallel >= sequential;
-}, { message: 'budgetBufferAfterParallel must be >= budgetBufferAfterSequential' });
+}, { message: 'budgetBufferAfterParallel must be >= budgetBufferAfterSequential' }).refine((c) => {
+  if (c.generationTemperature == null) return true;
+  const maxTemp = getModelMaxTemperature(c.generationModel);
+  if (maxTemp === undefined) return true; // unknown model — let it through
+  if (maxTemp === null) return false; // model doesn't support temperature
+  return c.generationTemperature <= maxTemp;
+}, { message: 'generationTemperature exceeds the model\'s maximum temperature' });
 
 /** @deprecated Use StrategyConfig from pipeline/infra/types.ts instead. */
 export type StrategyConfigSchema = z.infer<typeof strategyConfigSchema>;
