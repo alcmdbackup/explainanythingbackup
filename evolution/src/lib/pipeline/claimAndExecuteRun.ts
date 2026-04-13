@@ -195,7 +195,7 @@ export async function claimAndExecuteRun(
 // ─── Shared execution logic ──────────────────────────────────────
 
 interface LLMProvider {
-  complete(prompt: string, label: AgentName, opts?: { model?: string }): Promise<string>;
+  complete(prompt: string, label: AgentName, opts?: { model?: string; temperature?: number }): Promise<string>;
 }
 
 /** Build context, run evolution loop, finalize, sync arena. Re-throws on failure. */
