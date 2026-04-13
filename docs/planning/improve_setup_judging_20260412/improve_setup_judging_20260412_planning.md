@@ -13,7 +13,7 @@ Improve the evolution pipeline's setup and judging by adding cheap judge models 
 - Add the ability to configure (optionally) a generation temperature for generation models, from the strategy config. Make sure to find the max temperature for all of our available models and add them to our model registry, to validate the user's input from the strategy creation screen to make sure temp is a valid value.
 
 ## Problem
-The evolution pipeline lacks cheap judge model options (cheapest current judge is gpt-4.1-nano at $0.10/M), model metadata is scattered across 3+ files making new model additions error-prone, temperature is not configurable (neither for judges nor generators), and OpenSkill uses a default beta that adds unnecessary performance variability noise to text quality ratings, slowing convergence.
+The evolution pipeline lacks cheap judge model options (cheapest current judge is gpt-4.1-nano at $0.10/M), model metadata is scattered across 3+ files making new model additions error-prone, temperature is not configurable (neither for judges nor generators), and OpenSkill uses a default beta that adds unnecessary performance variability noise to text quality ratings, slowing convergence. The default judge model should be the cheapest viable option (`qwen/qwen3-8b` at $0.05/M).
 
 ## New Models to Add
 
@@ -87,6 +87,9 @@ Add `gpt-5-nano`, `google/gemini-2.5-flash-lite`, and `qwen/qwen3-8b` to the sys
   - These use `provider/model` format natively — set `openRouterModelId` to the model ID as-is (no prefix transformation needed, unlike `gpt-oss-20b` which needs `openai/` prefix)
   - Ensure `isOpenRouterModel()` (now registry-based) recognizes them
 - [ ] For `gpt-5-nano`: already routed through OpenAI client, just needs schema + pricing entries (handled by registry)
+- [ ] Set `qwen/qwen3-8b` as the default judge model:
+  - In `src/app/admin/evolution/strategies/page.tsx`: set `judgeModel` field default value to `'qwen/qwen3-8b'`
+  - In `src/config/modelRegistry.ts`: add `defaultJudge: true` flag (or export `DEFAULT_JUDGE_MODEL` constant)
 - [ ] Verify all 3 models appear in the strategy creation dropdown
 - [ ] Run lint, tsc, build; add pricing test cases for new models
 
