@@ -158,7 +158,9 @@ Thread temperature through the LLM call chain, set judge temp to 0, and add conf
 - [ ] `evolution/src/lib/shared/computeRatings.test.ts` — update: verify beta=0 is passed, test that ratings update more aggressively
 - [ ] `evolution/src/lib/shared/computeRatings.property.test.ts` — update: property tests should still pass with beta=0
 - [ ] `src/lib/services/llms.test.ts` — update: test temperature threading for OpenAI and Anthropic calls, test new OpenRouter model routing, test that o3-mini calls do NOT include temperature param, test isOpenRouterModel returns true for all OpenRouter registry models
-- [ ] `evolution/src/services/strategyRegistryActions.test.ts` — update: test generationTemperature field in create/read/update
+- [ ] `evolution/src/services/strategyRegistryActions.test.ts` — update: test generationTemperature field in create/read/update, test Zod .refine() rejects temp > model maxTemp (e.g., 2.5 for a max-2.0 model), rejects any temp for o3-mini (maxTemp=null)
+- [ ] `evolution/src/lib/pipeline/claimAndExecuteRun.test.ts` — update: test that llmProvider sets temperature=0 when label==='ranking', passes config generationTemperature when label==='generation'
+- [ ] `evolution/src/lib/pipeline/infra/createEvolutionLLMClient.test.ts` — update: test temperature threading through to rawProvider.complete()
 
 ### Integration Tests
 - [ ] `src/__tests__/integration/evolution-pipeline.integration.test.ts` — verify temperature flows through to LLM calls in a mock pipeline run
