@@ -320,6 +320,8 @@ Both `/finalize` and `/mainToProd` include E2E tests as part of their standard v
 
 E2E tests run after lint/tsc/build/unit/integration checks pass. The dev server is managed automatically via tmux (local) or webServer (CI).
 
+**Local-first CI retry**: Both `/finalize` and `/mainToProd` enforce a gated CI retry process. After any CI failure: (1) parse specific failing tests from CI logs, (2) classify as pre-existing vs new, (3) fix issues, (4) run ONLY the failing tests locally to verify the fix, (5) run a 5x stability check to catch flakiness, (6) re-run ALL local checks, (7) only then push to CI again. Flaky test fixes must address root causes (per testing_overview.md rules) — retries, timeouts, sleeps, and skips are automatically detected and rejected.
+
 ---
 
 ## Test Configuration
