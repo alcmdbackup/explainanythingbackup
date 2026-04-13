@@ -43,7 +43,7 @@ Create a single source of truth for all model metadata, then migrate consumers t
   - `maxTemperature: number | null` — null means temperature not supported (e.g., o3-mini)
   - `supportsEvolution: boolean` — whether it appears in the evolution model dropdown
   - `openRouterModelId?: string` — the model ID to send to OpenRouter API (e.g., `qwen/qwen3-8b` stays as-is, `gpt-oss-20b` becomes `openai/gpt-oss-20b`)
-- [ ] Populate registry with all 17 models (14 existing + 3 new):
+- [ ] Populate registry with all 16 models (13 existing + 3 new). Note: `gpt-5-nano` is new, existing models that remain are the other 13 from the current `allowedLLMModelSchema`:
 
   | Model ID | Display Name | Provider | In $/M | Out $/M | Max Temp |
   |----------|-------------|----------|--------|---------|----------|
@@ -77,6 +77,9 @@ Create a single source of truth for all model metadata, then migrate consumers t
   - Replace `isOpenRouterModel()` exact-match with registry lookup: `getModelInfo(model).provider === 'openrouter'`
   - Use `openRouterModelId` from registry for API model name transformation (line 300-301)
   - Keep `isDeepSeekModel()`, `isAnthropicModel()`, `isLocalModel()` as derived from registry provider field
+- [ ] Add startup validation: assert registry has >= 1 model, >= 1 evolution model. Use `z.enum([...keys] as [string, ...string[]])` to guarantee non-empty enum at compile time.
+- [ ] Add unit test: slashed model IDs (`qwen/qwen3-8b`, `google/gemini-2.5-flash-lite`) round-trip through Zod parse + JSON serialize/deserialize
+- [ ] Grep all `MODEL_OPTIONS` imports — update consumers (`strategies/page.tsx`, `ExperimentForm.tsx`) to use `{ label, value }` shape directly (remove `.map()` wrappers)
 - [ ] Run lint, tsc, build; update existing tests in `llmPricing.test.ts` and `llms.test.ts`
 
 ### Phase 2: Add 3 New Models
@@ -101,6 +104,8 @@ Set beta to 0 for faster convergence in rating updates.
   - Line 50: Change `osRate([[a], [b]], { rank: [1, 1] })` → `osRate([[a], [b]], { rank: [1, 1], beta: 0 })`
 - [ ] Do NOT change the local `BETA` constants in `rankSingleVariant.ts` (line 26) and `swissPairing.ts` (line 16) — those are for Bradley-Terry win-probability calculations, unrelated to openskill's beta
 - [ ] Run lint, tsc; update `computeRatings.test.ts` and `computeRatings.property.test.ts`
+- [ ] Add empirical beta=0 test: run 10 matches with beta=0 and verify sigma decreases faster than with default beta (same match sequence)
+- [ ] Add property test: with beta=0, winner mu after N matches >= winner mu with default beta (same outcomes) — validates faster convergence claim
 
 ### Phase 4: Temperature Support
 Thread temperature through the LLM call chain, set judge temp to 0, and add configurable generation temp.
@@ -108,8 +113,8 @@ Thread temperature through the LLM call chain, set judge temp to 0, and add conf
 **Step 4a: Add temperature to callLLM chain**
 - [ ] In `src/lib/services/llms.ts`:
   - Add `temperature?: number` to `CallLLMOptions` interface
-  - In `callOpenAIModel()` (line 304-319): add `temperature` to `requestOptions` when provided
-  - In `callAnthropicModel()` (line 485-509): add `temperature` to message params when provided
+  - In `callOpenAIModel()` (line 304-319): add `temperature` to `requestOptions`. **Guard**: `if (temperature !== undefined && getModelMaxTemperature(model) !== null) { requestOptions.temperature = Math.min(temperature, getModelMaxTemperature(model)!) }` — use `!== undefined` not truthiness (temperature=0 is valid), skip entirely if maxTemp is null (o3-mini)
+  - In `callAnthropicModel()` (line 485-509): add `temperature` to message params. Same guard: `if (temperature !== undefined && getModelMaxTemperature(model) !== null) { params.temperature = Math.min(temperature, getModelMaxTemperature(model)!) }` — clamps to per-model max from registry (1.0 for Claude)
   - Thread `options.temperature` through `callLLMModelRaw()` → `routeLLMCall()` → provider functions
 - [ ] Run lint, tsc; update `llms.test.ts`
 
@@ -148,11 +153,11 @@ Thread temperature through the LLM call chain, set judge temp to 0, and add conf
 ## Testing
 
 ### Unit Tests
-- [ ] `src/config/modelRegistry.test.ts` — new file: test registry completeness, all models have required fields, getModelInfo returns correct data, provider routing is correct
+- [ ] `src/config/modelRegistry.test.ts` — new file: registry completeness (all required fields present), getModelInfo correctness, provider routing, slashed ID round-trip through Zod+JSON, non-empty evolution model set, contract test (every entry has id/displayName/provider/pricing/maxTemperature/supportsEvolution)
 - [ ] `src/config/llmPricing.test.ts` — update: verify registry-derived pricing matches, test new model pricing (gpt-5-nano, gemini-2.5-flash-lite, qwen3-8b)
 - [ ] `evolution/src/lib/shared/computeRatings.test.ts` — update: verify beta=0 is passed, test that ratings update more aggressively
 - [ ] `evolution/src/lib/shared/computeRatings.property.test.ts` — update: property tests should still pass with beta=0
-- [ ] `src/lib/services/llms.test.ts` — update: test temperature threading for OpenAI and Anthropic calls, test new OpenRouter model routing
+- [ ] `src/lib/services/llms.test.ts` — update: test temperature threading for OpenAI and Anthropic calls, test new OpenRouter model routing, test that o3-mini calls do NOT include temperature param, test isOpenRouterModel returns true for all OpenRouter registry models
 - [ ] `evolution/src/services/strategyRegistryActions.test.ts` — update: test generationTemperature field in create/read/update
 
 ### Integration Tests
@@ -211,11 +216,40 @@ The following docs were identified as relevant and may need updates:
 | `evolution/src/lib/pipeline/infra/createEvolutionLLMClient.ts` | Thread temperature through |
 | `evolution/src/lib/pipeline/claimAndExecuteRun.ts` | Judge temp=0, generation temp=configurable |
 | `evolution/src/lib/pipeline/setup/buildRunContext.ts` | Map generationTemperature to EvolutionConfig |
-| `evolution/src/lib/pipeline/setup/findOrCreateStrategy.ts` | No change (temperature NOT in hash — same model+iterations = same strategy) |
+| `evolution/src/lib/pipeline/setup/findOrCreateStrategy.ts` | No change (temperature NOT in hash — same model+iterations = same strategy). **Known limitation**: two strategies differing only by temperature share a hash; to A/B test temperatures, use different strategy names with identical model+iterations. |
 | `evolution/src/services/strategyRegistryActions.ts` | Add generationTemperature to create schema + action |
 | `evolution/src/services/strategyRegistryActions.test.ts` | Test generationTemperature field |
 | `src/app/admin/evolution/strategies/page.tsx` | Add generationTemperature form field |
 | `src/app/admin/evolution/_components/StrategyConfigDisplay.tsx` | Display generationTemperature |
 
 ## Review & Discussion
-[This section is populated by /plan-review with agent scores, reasoning, and gap resolutions per iteration]
+
+### Iteration 1 (Scores: Security 3/5, Architecture 4/5, Testing 3/5)
+
+**Critical gaps identified and resolved:**
+
+1. **[Security] o3-mini temperature incompatibility** — o3-mini rejects the `temperature` parameter entirely. 
+   **Fix**: In Step 4a, when building `requestOptions` in `callOpenAIModel()`, check `maxTemperature` from registry: if `null`, do NOT include `temperature` in the request at all. This covers o3-mini and any future models that don't support temperature.
+
+2. **[Security] Slashed model IDs (qwen/qwen3-8b)** — IDs with `/` propagate to Zod enums, JSONB storage, and code paths.
+   **Fix**: Zod `z.enum()` accepts arbitrary strings (no slash issue). PostgreSQL JSONB stores/retrieves strings verbatim. Grep codebase for any `model.split('/')` or URL-path construction from model IDs — verified: `isOpenRouterModel()` uses exact equality, no splitting. OpenRouter API expects the slashed format. The `openRouterModelId` field in registry explicitly handles the API-facing model name. Add to Phase 1: a unit test asserting slashed model IDs round-trip through Zod parse + JSON serialize/deserialize.
+
+3. **[Security] Default judge reliability (qwen3-8b via OpenRouter)** — OpenRouter availability is less guaranteed than direct APIs.
+   **Fix**: The default is only a UI pre-fill for the strategy creation form. Users can always choose a different model. If OpenRouter is down at runtime, the existing retry logic (3 attempts, exponential backoff) in `createEvolutionLLMClient.ts` handles transient failures. No automatic fallback needed — the run fails with a clear error, and the user can re-run or switch judges.
+
+4. **[Security] Registry corruption crashes app at import time** — empty or malformed registry produces a zero-member Zod enum.
+   **Fix**: Add to Phase 1: registry validation at module load — `if (Object.keys(MODEL_REGISTRY).length === 0) throw new Error(...)`. Also add a unit test that the registry always has >= 1 model with `supportsEvolution: true`. The Zod enum derivation uses `z.enum([...keys] as [string, ...string[]])` which TypeScript enforces has at least one element.
+
+5. **[Architecture] MODEL_OPTIONS shape change from string[] to {label, value}[]** — breaking interface change.
+   **Fix**: Grep all imports of `MODEL_OPTIONS` during Phase 1. Currently imported in: `modelOptions.ts` (definition), `strategies/page.tsx` (dropdown), `ExperimentForm.tsx` (dropdown). Both UI consumers already wrap it as `MODEL_OPTIONS.map(m => ({ label: m, value: m }))`. The registry change will export `MODEL_OPTIONS` as `Array<{ label: string; value: string }>` directly, and the UI consumers can use it without `.map()`. Update both consumers in Phase 1. Add to Phase 1 checklist: grep all MODEL_OPTIONS imports and update each.
+
+6. **[Architecture] Slashed model IDs in z.enum and DB** — already addressed in gap #2 above. Zod and JSONB handle slashes fine. Added unit test.
+
+7. **[Testing] No integration test for new OpenRouter models** — routing and API compatibility unverified.
+   **Fix**: Add to Testing section: a unit test in `llms.test.ts` that verifies `isOpenRouterModel()` returns true for all OpenRouter registry models and false for non-OpenRouter models. For real API compatibility, rely on E2E tests creating strategies with the new models. No real-API integration test needed (OpenRouter is mocked in integration tests just like OpenAI).
+
+8. **[Testing] No before/after empirical validation for beta=0** — behavioral change needs comparison.
+   **Fix**: Add to Phase 3 testing: a unit test that runs 10 matches with beta=0 and verifies sigma decreases faster than with default beta (using the same match sequence). Also add a property test: with beta=0, winner mu after N matches is always >= winner mu with default beta (for the same match outcomes). This validates the "faster convergence" claim empirically in the test suite.
+
+9. **[Testing] No registry contract/snapshot test** — registry shape consumed by multiple modules.
+   **Fix**: Add to `modelRegistry.test.ts`: a test that verifies every registry entry has all required fields (id, displayName, provider, inputPer1M, outputPer1M, maxTemperature, supportsEvolution). Also test that `getEvolutionModels()` returns a non-empty array and every returned ID is a valid string. This catches registry corruption before it hits consumers.
