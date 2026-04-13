@@ -15,6 +15,7 @@ import { withLogging } from '@/lib/logging/server/automaticServerLoggingBase';
 import { ServiceError } from '@/lib/errors/serviceError';
 import { ERROR_CODES } from '@/lib/errorHandling';
 import { calculateLLMCost } from '@/config/llmPricing';
+import { isOpenRouterModel as registryIsOpenRouterModel, getOpenRouterApiModelId } from '@/config/modelRegistry';
 import { getLLMSemaphore } from './llmSemaphore';
 import { getSpendingGate } from './llmSpendingGate';
 
@@ -245,7 +246,7 @@ function getOpenRouterClient(): OpenAI {
 }
 
 export function isOpenRouterModel(model: string): boolean {
-    return model === 'gpt-oss-20b';
+    return registryIsOpenRouterModel(model);
 }
 
 let anthropicClient: Anthropic | null = null;
@@ -298,7 +299,7 @@ async function callOpenAIModel(
         const apiModel = isLocalModel(validatedModel)
             ? validatedModel.replace(/^LOCAL_/, '')
             : isOpenRouterModel(validatedModel)
-                ? `openai/${validatedModel}`
+                ? getOpenRouterApiModelId(validatedModel)
                 : validatedModel;
 
         const requestOptions: OpenAI.Chat.ChatCompletionCreateParams = {
