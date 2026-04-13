@@ -8,7 +8,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Variant } from '../../types';
 import { createVariant } from '../../types';
 import type { Rating, ComparisonResult } from '../../shared/computeRatings';
-import { createRating, isConverged, DEFAULT_CONVERGENCE_SIGMA } from '../../shared/computeRatings';
+import { createRating, isConverged, DEFAULT_CONVERGENCE_UNCERTAINTY } from '../../shared/computeRatings';
 import type { EvolutionConfig, EvolutionResult, V2Match } from '../infra/types';
 
 import { createCostTracker } from '../infra/trackBudget';
@@ -68,8 +68,8 @@ async function isRunKilled(db: SupabaseClient, runId: string, logger?: EntityLog
 /** Hard cap on orchestrator iterations to prevent runaway loops. */
 const MAX_ORCHESTRATOR_ITERATIONS = 20;
 
-function topKMuValues(ratings: ReadonlyMap<string, Rating>, k: number): number[] {
-  return [...ratings.values()].map((r) => r.mu).sort((a, b) => b - a).slice(0, k);
+function topKEloValues(ratings: ReadonlyMap<string, Rating>, k: number): number[] {
+  return [...ratings.values()].map((r) => r.elo).sort((a, b) => b - a).slice(0, k);
 }
 
 // ─── Snapshot helpers ────────────────────────────────────────────
@@ -83,11 +83,11 @@ function recordSnapshot(
   matchCounts: ReadonlyMap<string, number>,
   options?: {
     discardedVariantIds?: string[];
-    discardReasons?: Record<string, { mu: number; top15Cutoff: number }>;
+    discardReasons?: Record<string, { elo: number; top15Cutoff: number }>;
   },
 ): IterationSnapshot {
   const ratingsObj = Object.fromEntries(
-    [...ratings.entries()].map(([id, r]) => [id, { mu: r.mu, sigma: r.sigma }]),
+    [...ratings.entries()].map(([id, r]) => [id, { elo: r.elo, uncertainty: r.uncertainty }]),
   );
   return {
     iteration,
@@ -112,19 +112,19 @@ function computeEligibleIds(
   ratings: ReadonlyMap<string, Rating>,
 ): string[] {
   if (pool.length < 2) return [];
-  const sortedByMu = pool
-    .map((v) => ({ id: v.id, mu: ratings.get(v.id)?.mu ?? 0 }))
-    .sort((a, b) => b.mu - a.mu);
+  const sortedByElo = pool
+    .map((v) => ({ id: v.id, elo: ratings.get(v.id)?.elo ?? 0 }))
+    .sort((a, b) => b.elo - a.elo);
   const top15Cutoff = computeTop15Cutoff(ratings);
 
-  const eligible = sortedByMu.filter(({ id }) => {
+  const eligible = sortedByElo.filter(({ id }) => {
     const r = ratings.get(id);
     if (!r) return false;
-    return r.mu + ELIGIBILITY_Z_SCORE * r.sigma >= top15Cutoff;
+    return r.elo + ELIGIBILITY_Z_SCORE * r.uncertainty >= top15Cutoff;
   });
 
   if (eligible.length < MIN_SWISS_POOL) {
-    return sortedByMu.slice(0, MIN_SWISS_POOL).map((e) => e.id);
+    return sortedByElo.slice(0, MIN_SWISS_POOL).map((e) => e.id);
   }
   return eligible.map((e) => e.id);
 }
@@ -136,7 +136,7 @@ function allConverged(
   if (eligibleIds.length === 0) return false;
   return eligibleIds.every((id) => {
     const r = ratings.get(id);
-    return r ? isConverged(r, DEFAULT_CONVERGENCE_SIGMA) : false;
+    return r ? isConverged(r, DEFAULT_CONVERGENCE_UNCERTAINTY) : false;
   });
 }
 
@@ -153,7 +153,7 @@ export async function evolveArticle(
   config: EvolutionConfig,
   options?: {
     logger?: EntityLogger;
-    initialPool?: Array<Variant & { mu?: number; sigma?: number }>;
+    initialPool?: Array<Variant & { elo?: number; uncertainty?: number }>;
     experimentId?: string;
     strategyId?: string;
     deadlineMs?: number;
@@ -199,7 +199,7 @@ export async function evolveArticle(
   const ratings = new Map<string, Rating>();
   const matchCounts = new Map<string, number>();
   const allMatches: V2Match[] = [];
-  const muHistory: number[][] = [];
+  const eloHistory: number[][] = [];
   const diversityHistory: number[] = [];
   const comparisonCache = new Map<string, ComparisonResult>();
   const completedPairs = new Set<string>();
@@ -219,8 +219,8 @@ export async function evolveArticle(
     for (const entry of options.initialPool) {
       pool.push(entry);
       ratings.set(entry.id,
-        entry.mu !== undefined && entry.sigma !== undefined
-          ? { mu: entry.mu, sigma: entry.sigma }
+        entry.elo !== undefined && entry.uncertainty !== undefined
+          ? { elo: entry.elo, uncertainty: entry.uncertainty }
           : createRating(),
       );
     }
@@ -449,7 +449,7 @@ export async function evolveArticle(
       const surfacedVariants: Variant[] = [];
       const surfacedBuffers: MergeMatchEntry[][] = [];
       const discardedIds: string[] = [];
-      const discardReasonsMap: Record<string, { mu: number; top15Cutoff: number }> = {};
+      const discardReasonsMap: Record<string, { elo: number; top15Cutoff: number }> = {};
 
       for (const r of results) {
         if (r.status === 'rejected') {
@@ -511,10 +511,10 @@ export async function evolveArticle(
 
       if (mergeResult.budgetExceeded) budgetExhausted = true;
 
-      // Track top-K mu history and snapshot iteration end (with discarded info).
+      // Track top-K elo history and snapshot iteration end (with discarded info).
       const topK = resolvedConfig.tournamentTopK ?? 5;
-      const muValues = topKMuValues(ratings, topK);
-      muHistory.push(muValues);
+      const eloValues = topKEloValues(ratings, topK);
+      eloHistory.push(eloValues);
 
       iterationSnapshots.push(recordSnapshot(iteration, 'generate', 'end', pool, ratings, matchCounts, {
         discardedVariantIds: discardedIds,
@@ -525,7 +525,7 @@ export async function evolveArticle(
         iteration,
         surfaced: surfacedVariants.length,
         discarded: discardedIds.length,
-        topMuValues: muValues.slice(0, 5),
+        topEloValues: eloValues.slice(0, 5),
         phaseName: 'generation',
       });
     } else if (iterType === 'swiss') {
@@ -586,15 +586,15 @@ export async function evolveArticle(
       }
 
       const topK = resolvedConfig.tournamentTopK ?? 5;
-      const muValues = topKMuValues(ratings, topK);
-      muHistory.push(muValues);
+      const eloValues = topKEloValues(ratings, topK);
+      eloHistory.push(eloValues);
 
       iterationSnapshots.push(recordSnapshot(iteration, 'swiss', 'end', pool, ratings, matchCounts));
 
       logger.info('Swiss iteration complete', {
         iteration,
         matchesApplied: swissOutput.matches.length,
-        topMuValues: muValues.slice(0, 5),
+        topEloValues: eloValues.slice(0, 5),
         phaseName: 'ranking',
       });
 
@@ -611,7 +611,7 @@ export async function evolveArticle(
   if (pool.length > 0) {
     const winResult = selectWinner(pool, ratings);
     winner = pool.find((v) => v.id === winResult.winnerId) ?? pool[0];
-    logger.info('Winner determined', { winnerId: winner?.id, winnerMu: winResult.mu, winnerSigma: winResult.sigma, phaseName: 'winner_determination' });
+    logger.info('Winner determined', { winnerId: winner?.id, winnerElo: winResult.elo, winnerUncertainty: winResult.uncertainty, phaseName: 'winner_determination' });
   }
 
   logger.info('Evolution complete', {
@@ -628,7 +628,7 @@ export async function evolveArticle(
     totalCost: costTracker.getTotalSpent(),
     iterationsRun: iteration,
     stopReason,
-    muHistory,
+    eloHistory,
     diversityHistory,
     matchCounts: Object.fromEntries(matchCounts),
     discardedVariants,

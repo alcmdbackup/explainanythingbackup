@@ -1,17 +1,17 @@
 // Unit tests for invocation-level finalization metric compute functions.
 
 import { computeBestVariantElo, computeAvgVariantElo, computeInvocationVariantCount } from './finalizationInvocation';
-import { toEloScale } from '@evolution/lib/shared/computeRatings';
 import type { FinalizationContext } from '../types';
+import type { Rating } from '@evolution/lib/shared/computeRatings';
 import type { GenerationExecutionDetail } from '@evolution/lib/types';
 
 function makeCtx(
   invocationDetails: Map<string, GenerationExecutionDetail>,
-  ratings: Map<string, { mu: number; sigma: number }>,
+  ratings: Map<string, Rating>,
   invocationId?: string,
 ): FinalizationContext {
   return {
-    result: { winner: { id: 'w', text: '', version: 0, parentIds: [], strategy: '', createdAt: 0, iterationBorn: 0 }, pool: [], ratings, matchHistory: [], totalCost: 0, iterationsRun: 1, stopReason: 'iterations_complete', muHistory: [], diversityHistory: [], matchCounts: {} },
+    result: { winner: { id: 'w', text: '', version: 0, parentIds: [], strategy: '', createdAt: 0, iterationBorn: 0 }, pool: [], ratings, matchHistory: [], totalCost: 0, iterationsRun: 1, stopReason: 'iterations_complete', eloHistory: [], diversityHistory: [], matchCounts: {} },
     ratings,
     pool: [],
     matchHistory: [],
@@ -41,9 +41,13 @@ describe('computeBestVariantElo', () => {
       { name: 'strat2', status: 'success', variantId: 'v2' },
     ]);
     const details = new Map([['inv1', detail]]);
-    const ratings = new Map([['v1', { mu: 30, sigma: 5 }], ['v2', { mu: 35, sigma: 5 }]]);
+    // mu=30→elo=1280, mu=35→elo=1360
+    const ratings = new Map<string, Rating>([
+      ['v1', { elo: 1280, uncertainty: 80 }],
+      ['v2', { elo: 1360, uncertainty: 80 }],
+    ]);
     const ctx = makeCtx(details, ratings, 'inv1');
-    expect(computeBestVariantElo(ctx, 'inv1')).toBe(toEloScale(35));
+    expect(computeBestVariantElo(ctx, 'inv1')).toBe(1360);
   });
 
   it('returns null for invocation with no successful variants', () => {
@@ -66,9 +70,13 @@ describe('computeAvgVariantElo', () => {
       { name: 'strat2', status: 'success', variantId: 'v2' },
     ]);
     const details = new Map([['inv1', detail]]);
-    const ratings = new Map([['v1', { mu: 30, sigma: 5 }], ['v2', { mu: 20, sigma: 5 }]]);
+    // mu=30→elo=1280, mu=20→elo=1120
+    const ratings = new Map<string, Rating>([
+      ['v1', { elo: 1280, uncertainty: 80 }],
+      ['v2', { elo: 1120, uncertainty: 80 }],
+    ]);
     const ctx = makeCtx(details, ratings, 'inv1');
-    expect(computeAvgVariantElo(ctx, 'inv1')).toBe((toEloScale(30) + toEloScale(20)) / 2);
+    expect(computeAvgVariantElo(ctx, 'inv1')).toBe((1280 + 1120) / 2);
   });
 
   it('returns null for invocation with no successful variants', () => {

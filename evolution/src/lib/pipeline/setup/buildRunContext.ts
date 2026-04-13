@@ -4,7 +4,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Variant } from '../../types';
 import type { EvolutionConfig } from '../infra/types';
 import type { Rating } from '../../shared/computeRatings';
-import { DEFAULT_MU, DEFAULT_SIGMA } from '../../shared/computeRatings';
+import { dbToRating, _INTERNAL_DEFAULT_MU, _INTERNAL_DEFAULT_SIGMA } from '../../shared/computeRatings';
 import type { EntityLogger } from '../infra/createEntityLogger';
 import { createEntityLogger } from '../infra/createEntityLogger';
 import { strategyConfigSchema } from '../../schemas';
@@ -63,10 +63,10 @@ export async function loadArenaEntries(
       fromArena: true,
       arenaMatchCount: entry.arena_match_count ?? 0,
     });
-    ratings.set(entry.id, {
-      mu: Number.isFinite(rawMu) ? rawMu! : DEFAULT_MU,
-      sigma: Number.isFinite(rawSigma) ? rawSigma! : DEFAULT_SIGMA,
-    });
+    ratings.set(entry.id, dbToRating(
+      Number.isFinite(rawMu) ? rawMu! : _INTERNAL_DEFAULT_MU,
+      Number.isFinite(rawSigma) ? rawSigma! : _INTERNAL_DEFAULT_SIGMA,
+    ));
   }
 
   return { variants, ratings };
@@ -92,7 +92,7 @@ export interface RunContext {
   originalText: string | null;
   config: EvolutionConfig;
   logger: EntityLogger;
-  initialPool: Array<ArenaTextVariation & { mu?: number; sigma?: number }>;
+  initialPool: Array<ArenaTextVariation & { elo?: number; uncertainty?: number }>;
   /** Run-level random seed (BIGINT) for reproducible Fisher-Yates shuffles + agent tiebreaks. */
   randomSeed: bigint;
   /** Set for prompt_id runs when no arena seed exists: CreateSeedArticleAgent generates one in iter 1. */
@@ -216,14 +216,14 @@ export async function buildRunContext(
   }
 
   // Load arena entries
-  let initialPool: Array<ArenaTextVariation & { mu?: number; sigma?: number }> = [];
+  let initialPool: Array<ArenaTextVariation & { elo?: number; uncertainty?: number }> = [];
   if (claimedRun.prompt_id) {
     try {
       const arena = await loadArenaEntries(claimedRun.prompt_id, db);
       initialPool = arena.variants.map((v) => ({
         ...v,
-        mu: arena.ratings.get(v.id)?.mu,
-        sigma: arena.ratings.get(v.id)?.sigma,
+        elo: arena.ratings.get(v.id)?.elo,
+        uncertainty: arena.ratings.get(v.id)?.uncertainty,
       }));
       logger.info(`Loaded ${initialPool.length} arena entries into initial pool`, { phaseName: 'arena' });
     } catch (err) {

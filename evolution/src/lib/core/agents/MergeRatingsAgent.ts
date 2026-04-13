@@ -9,7 +9,7 @@ import { Agent } from '../Agent';
 import type { AgentContext, AgentOutput, DetailFieldDef } from '../types';
 import type { ExecutionDetailBase, Variant } from '../../types';
 import type { Rating } from '../../shared/computeRatings';
-import { createRating, updateRating, updateDraw } from '../../shared/computeRatings';
+import { createRating, updateRating, updateDraw, ratingToDb } from '../../shared/computeRatings';
 import type { V2Match } from '../../pipeline/infra/types';
 import { computeTop15Cutoff } from '../../pipeline/loop/rankSingleVariant';
 import { mergeRatingsExecutionDetailSchema } from '../../schemas';
@@ -52,8 +52,8 @@ export type MergeRatingsExecutionDetail = z.infer<typeof mergeRatingsExecutionDe
 
 interface VariantSnapshotEntry {
   id: string;
-  mu: number;
-  sigma: number;
+  elo: number;
+  uncertainty: number;
   matchCount: number;
 }
 
@@ -66,8 +66,8 @@ function captureVariants(
     const r = ratings.get(v.id) ?? createRating();
     return {
       id: v.id,
-      mu: r.mu,
-      sigma: r.sigma,
+      elo: r.elo,
+      uncertainty: r.uncertainty,
       matchCount: matchCounts.get(v.id) ?? 0,
     };
   });
@@ -76,14 +76,14 @@ function captureVariants(
 function diffVariants(
   before: VariantSnapshotEntry[],
   after: VariantSnapshotEntry[],
-): Array<VariantSnapshotEntry & { muDelta: number; sigmaDelta: number }> {
+): Array<VariantSnapshotEntry & { eloDelta: number; uncertaintyDelta: number }> {
   const beforeMap = new Map(before.map((v) => [v.id, v]));
   return after.map((a) => {
     const b = beforeMap.get(a.id);
     return {
       ...a,
-      muDelta: b ? a.mu - b.mu : 0,
-      sigmaDelta: b ? a.sigma - b.sigma : 0,
+      eloDelta: b ? a.elo - b.elo : 0,
+      uncertaintyDelta: b ? a.uncertainty - b.uncertainty : 0,
     };
   });
 }
@@ -111,8 +111,8 @@ export class MergeRatingsAgent extends Agent<
       key: 'before.variants', label: 'Variants Before', type: 'table',
       columns: [
         { key: 'id', label: 'ID' },
-        { key: 'mu', label: 'μ' },
-        { key: 'sigma', label: 'σ' },
+        { key: 'elo', label: 'Elo' },
+        { key: 'uncertainty', label: 'Uncertainty' },
         { key: 'matchCount', label: 'Matches' },
       ],
     },
@@ -146,10 +146,10 @@ export class MergeRatingsAgent extends Agent<
       key: 'after.variants', label: 'Variants After', type: 'table',
       columns: [
         { key: 'id', label: 'ID' },
-        { key: 'mu', label: 'μ' },
-        { key: 'muDelta', label: 'Δμ' },
-        { key: 'sigma', label: 'σ' },
-        { key: 'sigmaDelta', label: 'Δσ' },
+        { key: 'elo', label: 'Elo' },
+        { key: 'eloDelta', label: 'ΔElo' },
+        { key: 'uncertainty', label: 'Uncertainty' },
+        { key: 'uncertaintyDelta', label: 'ΔUncertainty' },
         { key: 'matchCount', label: 'Matches' },
       ],
     },
@@ -275,6 +275,10 @@ export class MergeRatingsAgent extends Agent<
       const winnerSlot: 'a' | 'b' | 'draw' = match.result === 'draw'
         ? 'draw'
         : (match.winnerId === idA ? 'a' : 'b');
+      const aBeforeDb = ratingToDb(aBefore);
+      const bBeforeDb = ratingToDb(bBefore);
+      const aAfterDb = ratingToDb(aAfter);
+      const bAfterDb = ratingToDb(bAfter);
       arenaRows.push({
         run_id: ctx.runId,
         entry_a: idA,
@@ -283,14 +287,14 @@ export class MergeRatingsAgent extends Agent<
         confidence: match.confidence,
         iteration: ctx.iteration,
         invocation_id: ctx.invocationId === '' ? null : ctx.invocationId,
-        entry_a_mu_before: aBefore.mu,
-        entry_a_sigma_before: aBefore.sigma,
-        entry_b_mu_before: bBefore.mu,
-        entry_b_sigma_before: bBefore.sigma,
-        entry_a_mu_after: aAfter.mu,
-        entry_a_sigma_after: aAfter.sigma,
-        entry_b_mu_after: bAfter.mu,
-        entry_b_sigma_after: bAfter.sigma,
+        entry_a_mu_before: aBeforeDb.mu,
+        entry_a_sigma_before: aBeforeDb.sigma,
+        entry_b_mu_before: bBeforeDb.mu,
+        entry_b_sigma_before: bBeforeDb.sigma,
+        entry_a_mu_after: aAfterDb.mu,
+        entry_a_sigma_after: aAfterDb.sigma,
+        entry_b_mu_after: bAfterDb.mu,
+        entry_b_sigma_after: bAfterDb.sigma,
         status: 'completed',
       });
     }

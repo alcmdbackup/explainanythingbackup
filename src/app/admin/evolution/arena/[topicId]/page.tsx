@@ -19,7 +19,7 @@ import {
   type ArenaTopic,
   type ArenaEntry,
 } from '@evolution/services/arenaActions';
-import { formatElo, stripMarkdownTitle, ELO_SIGMA_SCALE } from '@evolution/lib/shared/computeRatings';
+import { formatElo, stripMarkdownTitle, _INTERNAL_ELO_SIGMA_SCALE } from '@evolution/lib/shared/computeRatings';
 import { formatEloCIRange, formatEloWithUncertainty } from '@evolution/lib/utils/formatters';
 import { computeEloCutoff } from './arenaCutoff';
 
@@ -232,12 +232,12 @@ export default function ArenaTopicDetailPage(): JSX.Element {
                       <td className="py-2 pr-3 font-mono">{formatElo(entry.elo_score)}</td>
                       <td className="py-2 pr-3 font-mono text-[var(--text-secondary)]">
                         {entry.elo_score != null && entry.sigma != null
-                          ? (formatEloCIRange(entry.elo_score, entry.sigma * ELO_SIGMA_SCALE) ?? '\u2014')
+                          ? (formatEloCIRange(entry.elo_score, entry.sigma * _INTERNAL_ELO_SIGMA_SCALE) ?? '\u2014')
                           : '\u2014'}
                       </td>
                       <td className="py-2 pr-3 font-mono">
                         {entry.elo_score != null && entry.sigma != null
-                          ? (formatEloWithUncertainty(entry.elo_score, entry.sigma * ELO_SIGMA_SCALE) ?? '—')
+                          ? (formatEloWithUncertainty(entry.elo_score, entry.sigma * _INTERNAL_ELO_SIGMA_SCALE) ?? '—')
                           : '—'}
                       </td>
                       <td className="py-2 pr-3 font-mono">{entry.arena_match_count}</td>

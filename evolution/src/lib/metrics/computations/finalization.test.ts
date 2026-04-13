@@ -6,8 +6,8 @@ import {
   computeTotalMatches, computeDecisiveRate, computeVariantCount,
 } from './finalization';
 import type { ExecutionContext } from '../types';
-import { toEloScale, DEFAULT_MU, ELO_SIGMA_SCALE } from '@evolution/lib/shared/computeRatings';
 import type { FinalizationContext } from '../types';
+import type { Rating } from '@evolution/lib/shared/computeRatings';
 import type { Variant } from '@evolution/lib/types';
 import type { V2Match } from '@evolution/lib/pipeline/infra/types';
 import type { AgentName } from '@evolution/lib/core/agentNames';
@@ -18,10 +18,15 @@ function makeVariant(id: string): Variant {
 
 function makeCtx(overrides: Partial<FinalizationContext> = {}): FinalizationContext {
   const pool = overrides.pool ?? [makeVariant('a'), makeVariant('b'), makeVariant('c')];
-  const ratings = overrides.ratings ?? new Map([['a', { mu: 30, sigma: 5 }], ['b', { mu: 25, sigma: 5 }], ['c', { mu: 20, sigma: 5 }]]);
+  // elos: a=1280 (mu=30), b=1200 (mu=25), c=1120 (mu=20); uncertainty=80 (sigma=5)
+  const ratings: Map<string, Rating> = overrides.ratings ?? new Map<string, Rating>([
+    ['a', { elo: 1280, uncertainty: 80 }],
+    ['b', { elo: 1200, uncertainty: 80 }],
+    ['c', { elo: 1120, uncertainty: 80 }],
+  ]);
   const matchHistory = overrides.matchHistory ?? [];
   return {
-    result: { winner: pool[0]!, pool, ratings, matchHistory, totalCost: 0, iterationsRun: 1, stopReason: 'iterations_complete', muHistory: [], diversityHistory: [], matchCounts: {} },
+    result: { winner: pool[0]!, pool, ratings, matchHistory, totalCost: 0, iterationsRun: 1, stopReason: 'iterations_complete', eloHistory: [], diversityHistory: [], matchCounts: {} },
     ratings,
     pool,
     matchHistory,
@@ -30,15 +35,15 @@ function makeCtx(overrides: Partial<FinalizationContext> = {}): FinalizationCont
 }
 
 describe('computeWinnerElo', () => {
-  it('returns MetricValue with correct elo and sigma', () => {
+  it('returns MetricValue with correct elo and uncertainty', () => {
     const ctx = makeCtx();
     const result = computeWinnerElo(ctx);
     expect(result).not.toBeNull();
-    expect(result!.value).toBe(toEloScale(30));
-    expect(result!.sigma).toBe(5 * ELO_SIGMA_SCALE);
+    expect(result!.value).toBe(1280);
+    expect(result!.sigma).toBe(80);
     expect(result!.ci).toEqual([
-      toEloScale(30) - 1.96 * 5 * ELO_SIGMA_SCALE,
-      toEloScale(30) + 1.96 * 5 * ELO_SIGMA_SCALE,
+      1280 - 1.96 * 80,
+      1280 + 1.96 * 80,
     ]);
     expect(result!.n).toBe(1);
   });
@@ -49,23 +54,28 @@ describe('computeWinnerElo', () => {
 });
 
 describe('computeMedianElo', () => {
-  it('returns MetricValue with sigma from median variant (odd pool)', () => {
+  it('returns MetricValue with uncertainty from median variant (odd pool)', () => {
     const ctx = makeCtx();
     const result = computeMedianElo(ctx);
     expect(result).not.toBeNull();
-    // Sorted elos: [toEloScale(20), toEloScale(25), toEloScale(30)] — median is toEloScale(25)
-    expect(result!.value).toBe(toEloScale(25));
-    expect(result!.sigma).toBe(5 * ELO_SIGMA_SCALE); // sigma from variant 'b'
+    // Sorted elos: [1120, 1200, 1280] — median is 1200
+    expect(result!.value).toBe(1200);
+    expect(result!.sigma).toBe(80); // uncertainty from variant 'b'
     expect(result!.ci).not.toBeNull();
   });
 
   it('returns MetricValue for even pool size', () => {
     const pool = [makeVariant('a'), makeVariant('b')];
-    const ratings = new Map([['a', { mu: 30, sigma: 5 }], ['b', { mu: 20, sigma: 3 }]]);
+    // a: mu=30 → elo=1280, sigma=5 → uncertainty=80
+    // b: mu=20 → elo=1120, sigma=3 → uncertainty=48
+    const ratings = new Map<string, Rating>([
+      ['a', { elo: 1280, uncertainty: 80 }],
+      ['b', { elo: 1120, uncertainty: 48 }],
+    ]);
     const result = computeMedianElo(makeCtx({ pool, ratings }));
     expect(result).not.toBeNull();
-    expect(result!.value).toBe((toEloScale(20) + toEloScale(30)) / 2);
-    expect(result!.sigma).toBe((3 + 5) / 2 * ELO_SIGMA_SCALE); // average sigma
+    expect(result!.value).toBe((1120 + 1280) / 2);
+    expect(result!.sigma).toBe((48 + 80) / 2); // average uncertainty
   });
 
   it('returns null for empty pool', () => {
@@ -74,13 +84,13 @@ describe('computeMedianElo', () => {
 });
 
 describe('computeP90Elo', () => {
-  it('returns MetricValue with sigma from P90 variant', () => {
+  it('returns MetricValue with uncertainty from P90 variant', () => {
     const ctx = makeCtx();
     const result = computeP90Elo(ctx);
     expect(result).not.toBeNull();
-    // Sorted: [toEloScale(20), toEloScale(25), toEloScale(30)] — P90 index = ceil(3*0.9)-1 = 2
-    expect(result!.value).toBe(toEloScale(30));
-    expect(result!.sigma).toBe(5 * ELO_SIGMA_SCALE);
+    // Sorted: [1120, 1200, 1280] — P90 index = ceil(3*0.9)-1 = 2
+    expect(result!.value).toBe(1280);
+    expect(result!.sigma).toBe(80);
   });
 
   it('returns null for empty pool', () => {
@@ -89,14 +99,14 @@ describe('computeP90Elo', () => {
 });
 
 describe('computeMaxElo', () => {
-  it('returns MetricValue with sigma from max variant', () => {
+  it('returns MetricValue with uncertainty from max variant', () => {
     const result = computeMaxElo(makeCtx());
     expect(result).not.toBeNull();
-    expect(result!.value).toBe(toEloScale(30));
-    expect(result!.sigma).toBe(5 * ELO_SIGMA_SCALE);
+    expect(result!.value).toBe(1280);
+    expect(result!.sigma).toBe(80);
     expect(result!.ci).toEqual([
-      toEloScale(30) - 1.96 * 5 * ELO_SIGMA_SCALE,
-      toEloScale(30) + 1.96 * 5 * ELO_SIGMA_SCALE,
+      1280 - 1.96 * 80,
+      1280 + 1.96 * 80,
     ]);
   });
 

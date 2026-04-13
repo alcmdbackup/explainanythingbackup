@@ -3,7 +3,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Variant } from '../../types';
 import type { Rating } from '../../shared/computeRatings';
-import { toEloScale, DEFAULT_MU, DEFAULT_SIGMA } from '../../shared/computeRatings';
+import { ratingToDb, DEFAULT_ELO, DEFAULT_UNCERTAINTY, createRating } from '../../shared/computeRatings';
 import type { EvolutionResult, V2Match } from '../infra/types';
 import type { EntityLogger } from '../infra/createEntityLogger';
 import { createEntityLogger } from '../infra/createEntityLogger';
@@ -42,35 +42,36 @@ function buildRunSummary(
     ? matchHistory.filter((m) => m.confidence > 0.6).length / totalMatches
     : 0;
 
-  // Top variants (top 5 by mu)
+  // Top variants (top 5 by elo). Note: V3 schema still names fields mu/avgMu/baselineMu — those
+  // fields are now populated with Elo-scale values (DB JSONB field-name change deferred to V4).
   const sorted = [...pool]
-    .map((v) => ({ v, mu: ratings.get(v.id)?.mu ?? DEFAULT_MU }))
-    .sort((a, b) => b.mu - a.mu)
+    .map((v) => ({ v, elo: ratings.get(v.id)?.elo ?? DEFAULT_ELO }))
+    .sort((a, b) => b.elo - a.elo)
     .slice(0, 5);
 
   const topVariants = sorted.map((s) => ({
     id: s.v.id,
     strategy: s.v.strategy,
-    mu: s.mu,
+    mu: s.elo,
     isBaseline: s.v.strategy === V2_BASELINE_STRATEGY,
   }));
 
-  // Baseline rank/mu
+  // Baseline rank/elo (written to `baselineMu` field until V4 schema change)
   const baselineVariant = pool.find((v) => v.strategy === V2_BASELINE_STRATEGY);
-  const baselineMu = baselineVariant ? (ratings.get(baselineVariant.id)?.mu ?? DEFAULT_MU) : null;
-  const baselineRank = baselineMu != null
-    ? pool.filter((v) => (ratings.get(v.id)?.mu ?? DEFAULT_MU) > baselineMu).length + 1
+  const baselineElo = baselineVariant ? (ratings.get(baselineVariant.id)?.elo ?? DEFAULT_ELO) : null;
+  const baselineRank = baselineElo != null
+    ? pool.filter((v) => (ratings.get(v.id)?.elo ?? DEFAULT_ELO) > baselineElo).length + 1
     : null;
 
-  // Strategy effectiveness (single-pass aggregation)
+  // Strategy effectiveness (single-pass aggregation) — avgMu field now stores Elo mean.
   const strategyEffectiveness = pool.reduce<Record<string, { count: number; avgMu: number }>>((acc, v) => {
-    const mu = ratings.get(v.id)?.mu ?? DEFAULT_MU;
+    const elo = ratings.get(v.id)?.elo ?? DEFAULT_ELO;
     const prev = acc[v.strategy];
     if (prev) {
       const newCount = prev.count + 1;
-      acc[v.strategy] = { count: newCount, avgMu: prev.avgMu + (mu - prev.avgMu) / newCount };
+      acc[v.strategy] = { count: newCount, avgMu: prev.avgMu + (elo - prev.avgMu) / newCount };
     } else {
-      acc[v.strategy] = { count: 1, avgMu: mu };
+      acc[v.strategy] = { count: 1, avgMu: elo };
     }
     return acc;
   }, {});
@@ -81,12 +82,12 @@ function buildRunSummary(
     finalPhase: 'COMPETITION',
     totalIterations: result.iterationsRun,
     durationSeconds,
-    muHistory: result.muHistory,
+    muHistory: result.eloHistory,
     diversityHistory: result.diversityHistory,
     matchStats: { totalMatches, avgConfidence, decisiveRate },
     topVariants,
     baselineRank,
-    baselineMu,
+    baselineMu: baselineElo,
     strategyEffectiveness,
     metaFeedback: null,
   };
@@ -162,30 +163,29 @@ export async function finalizeRun(
     return; // Skip variant persistence
   }
 
-  // Step 3: Determine winner (highest mu, tie-break by lowest sigma)
+  // Step 3: Determine winner (highest elo, tie-break by lowest uncertainty)
   const winResult = selectWinner(localPool, result.ratings);
   const winnerId = winResult.winnerId;
-  const winnerMu = result.ratings.get(winnerId)?.mu ?? DEFAULT_MU;
-  const winnerSigma = result.ratings.get(winnerId)?.sigma ?? DEFAULT_SIGMA;
-  logger?.info('Winner determined', { winnerId, winnerMu, winnerSigma, phaseName: 'finalize' });
+  const winnerElo = result.ratings.get(winnerId)?.elo ?? DEFAULT_ELO;
+  const winnerUncertainty = result.ratings.get(winnerId)?.uncertainty ?? DEFAULT_UNCERTAINTY;
+  logger?.info('Winner determined', { winnerId, winnerElo, winnerUncertainty, phaseName: 'finalize' });
 
   // Step 4: Upsert variants — both surfaced (persisted=true) and discarded (persisted=false).
   // Discarded variants exist in the DB so their generation cost stays queryable.
   const surfacedRows = localPool.map((v) => {
     const rating = result.ratings.get(v.id);
-    const mu = rating?.mu ?? DEFAULT_MU;
-    const sigma = rating?.sigma ?? DEFAULT_SIGMA;
     if (!rating) {
       logger?.warn('Missing rating for variant, using default', { variantId: v.id, phaseName: 'finalize' });
     }
+    const db = ratingToDb(rating ?? createRating());
     return evolutionVariantInsertSchema.parse({
       id: v.id,
       run_id: runId,
       explanation_id: run.explanation_id ?? null,
       variant_content: v.text,
-      elo_score: toEloScale(mu),
-      mu,
-      sigma,
+      elo_score: db.elo_score,
+      mu: db.mu,
+      sigma: db.sigma,
       generation: v.version,
       parent_variant_id: v.parentIds[0] ?? null,
       agent_name: v.strategy,
@@ -202,14 +202,15 @@ export async function finalizeRun(
       // Discarded variants don't have global ratings (they were never merged), but their
       // generation cost lives on the invocation row. We persist with default mu/sigma so the
       // row exists; metric queries should filter by persisted=true to exclude them.
+      const db = ratingToDb(createRating());
       return evolutionVariantInsertSchema.parse({
         id: v.id,
         run_id: runId,
         explanation_id: run.explanation_id ?? null,
         variant_content: v.text,
-        elo_score: toEloScale(DEFAULT_MU),
-        mu: DEFAULT_MU,
-        sigma: DEFAULT_SIGMA,
+        elo_score: db.elo_score,
+        mu: db.mu,
+        sigma: db.sigma,
         generation: v.version,
         parent_variant_id: v.parentIds[0] ?? null,
         agent_name: v.strategy,
@@ -412,13 +413,13 @@ export async function syncToArena(
   const newEntries = pool
     .filter((v) => !isArenaEntry(v))
     .map((v) => {
-      const r = ratings.get(v.id);
+      const db = ratingToDb(ratings.get(v.id) ?? createRating());
       return {
         id: v.id,
         variant_content: v.text,
-        elo_score: r ? toEloScale(r.mu) : 1200,
-        mu: r?.mu ?? 25,
-        sigma: r?.sigma ?? 8.333,
+        elo_score: db.elo_score,
+        mu: db.mu,
+        sigma: db.sigma,
         // arena_match_count: matches played in THIS run only (not cumulative).
         // The DB RPC accumulates this into the arena entry's lifetime total.
         arena_match_count: variantMatchCounts.get(v.id) ?? 0,
@@ -431,12 +432,12 @@ export async function syncToArena(
     .filter((v): v is ArenaTextVariation => isArenaEntry(v))
     .filter((v) => (variantMatchCounts.get(v.id) ?? 0) > 0)
     .map((v) => {
-      const r = ratings.get(v.id);
+      const db = ratingToDb(ratings.get(v.id) ?? createRating());
       return {
         id: v.id,
-        mu: r?.mu ?? 25,
-        sigma: r?.sigma ?? 8.333,
-        elo_score: r ? toEloScale(r.mu) : 1200,
+        mu: db.mu,
+        sigma: db.sigma,
+        elo_score: db.elo_score,
         arena_match_count: (v.arenaMatchCount ?? 0) + (variantMatchCounts.get(v.id) ?? 0),
       };
     });

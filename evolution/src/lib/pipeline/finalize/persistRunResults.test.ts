@@ -1,7 +1,7 @@
 // Tests for V2 finalizeRun and syncToArena.
 
 import { finalizeRun, syncToArena, propagateMetrics } from './persistRunResults';
-import { DEFAULT_MU, DEFAULT_SIGMA, toEloScale } from '../../shared/computeRatings';
+import { _INTERNAL_DEFAULT_MU, _INTERNAL_DEFAULT_SIGMA, DEFAULT_ELO } from '../../shared/computeRatings';
 import type { EvolutionResult, V2Match } from '../infra/types';
 import type { Variant } from '../../types';
 import type { Rating } from '../../shared/computeRatings';
@@ -57,10 +57,12 @@ function makeResult(overrides?: Partial<EvolutionResult>): EvolutionResult {
     makeVariant(GEN1_ID, 'structural_transform'),
     makeVariant(GEN2_ID, 'lexical_simplify'),
   ];
+  // mu=25→elo=1200, mu=30→elo=1280, mu=28→elo=1248
+  // sigma=5→uncertainty=80, sigma=4→uncertainty=64, sigma=4.5→uncertainty=72
   const ratings = new Map<string, Rating>([
-    [BASELINE_ID, { mu: 25, sigma: 5 }],
-    [GEN1_ID, { mu: 30, sigma: 4 }],
-    [GEN2_ID, { mu: 28, sigma: 4.5 }],
+    [BASELINE_ID, { elo: 1200, uncertainty: 80 }],
+    [GEN1_ID, { elo: 1280, uncertainty: 64 }],
+    [GEN2_ID, { elo: 1248, uncertainty: 72 }],
   ]);
   const matchHistory: V2Match[] = [
     { winnerId: GEN1_ID, loserId: BASELINE_ID, result: 'win', confidence: 0.9, judgeModel: 'gpt-4.1-nano', reversed: false },
@@ -76,7 +78,7 @@ function makeResult(overrides?: Partial<EvolutionResult>): EvolutionResult {
     totalCost: 0.15,
     iterationsRun: 3,
     stopReason: 'iterations_complete',
-    muHistory: [[30, 28, 25]],
+    eloHistory: [[1280, 1248, 1200]],
     diversityHistory: [],
     matchCounts: { [BASELINE_ID]: 2, [GEN1_ID]: 2, [GEN2_ID]: 2 },
     ...overrides,
@@ -189,7 +191,8 @@ describe('finalizeRun', () => {
     await finalizeRun(RUN_ID, makeResult(), { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
     const summary = updates.find((u) => u.data.run_summary)?.data.run_summary as Record<string, unknown>;
     const topVariants = summary.topVariants as Array<{ isBaseline: boolean; mu: number }>;
-    expect(topVariants[0]!.mu).toBe(30); // gen-1 highest
+    // Legacy column name `mu` now stores elo value (see persistRunResults buildRunSummary)
+    expect(topVariants[0]!.mu).toBe(1280); // gen-1 highest (elo)
     const baseline = topVariants.find((v) => v.isBaseline);
     expect(baseline).toBeDefined();
   });
@@ -199,7 +202,8 @@ describe('finalizeRun', () => {
     await finalizeRun(RUN_ID, makeResult(), { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
     const summary = updates.find((u) => u.data.run_summary)?.data.run_summary as Record<string, unknown>;
     expect(summary.baselineRank).toBe(3); // 3rd of 3
-    expect(summary.baselineMu).toBe(25);
+    // baselineMu legacy column now stores elo (mu=25 → elo=1200)
+    expect(summary.baselineMu).toBe(1200);
   });
 
   it('strategyEffectiveness computed', async () => {
@@ -208,7 +212,8 @@ describe('finalizeRun', () => {
     const summary = updates.find((u) => u.data.run_summary)?.data.run_summary as Record<string, unknown>;
     const se = summary.strategyEffectiveness as Record<string, { count: number; avgMu: number }>;
     expect(se['baseline']!.count).toBe(1);
-    expect(se['baseline']!.avgMu).toBe(25);
+    // avgMu legacy column now stores elo (mu=25 → elo=1200)
+    expect(se['baseline']!.avgMu).toBe(1200);
     expect(se['structural_transform']!.count).toBe(1);
   });
 
@@ -226,8 +231,8 @@ describe('finalizeRun', () => {
       makeVariant(ARENA_ID, 'test', { fromArena: true }),
     ];
     const ratings = new Map<string, Rating>([
-      ['00000000-0000-4000-8000-000000000030', { mu: 30, sigma: 4 }],
-      [ARENA_ID, { mu: 28, sigma: 4 }],
+      ['00000000-0000-4000-8000-000000000030', { elo: 1280, uncertainty: 64 }],
+      [ARENA_ID, { elo: 1248, uncertainty: 64 }],
     ]);
     const result = makeResult({ pool, ratings });
     const { db, upserts } = makeMockDb();
@@ -259,9 +264,9 @@ describe('finalizeRun', () => {
     const { db, upserts } = makeMockDb();
     await finalizeRun(RUN_ID, result, { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
     const rows = (upserts.find((u) => u.table === 'evolution_variants')?.data ?? []) as Array<Record<string, unknown>>;
-    expect(rows[0]!.elo_score).toBe(toEloScale(DEFAULT_MU));
-    expect(rows[0]!.mu).toBe(DEFAULT_MU);
-    expect(rows[0]!.sigma).toBe(DEFAULT_SIGMA);
+    expect(rows[0]!.elo_score).toBe(DEFAULT_ELO);
+    expect(rows[0]!.mu).toBe(_INTERNAL_DEFAULT_MU);
+    expect(rows[0]!.sigma).toBe(_INTERNAL_DEFAULT_SIGMA);
   });
 
   // Regression: winner tie-breaking should use lowest sigma when mu is equal
@@ -273,8 +278,8 @@ describe('finalizeRun', () => {
       makeVariant(V_LOW_SIGMA, 'test'),
     ];
     const ratings = new Map<string, Rating>([
-      [V_HIGH_SIGMA, { mu: 30, sigma: 6 }],
-      [V_LOW_SIGMA, { mu: 30, sigma: 3 }],
+      [V_HIGH_SIGMA, { elo: 1280, uncertainty: 96 }],
+      [V_LOW_SIGMA, { elo: 1280, uncertainty: 48 }],
     ]);
     const result = makeResult({ pool, ratings });
     const { db, upserts } = makeMockDb();
@@ -282,7 +287,7 @@ describe('finalizeRun', () => {
     const rows = (upserts.find((u) => u.table === 'evolution_variants')?.data ?? []) as Array<Record<string, unknown>>;
     const winners = rows.filter((r) => r.is_winner === true);
     expect(winners).toHaveLength(1);
-    // V_LOW_SIGMA should win because same mu but lower sigma
+    // V_LOW_SIGMA should win because same elo but lower uncertainty
     expect(winners[0]!.id).toBe(V_LOW_SIGMA);
   });
 
@@ -444,7 +449,7 @@ describe('syncToArena', () => {
   it('calls sync_to_arena RPC with correct params', async () => {
     const supabase = createMockArenaSupabase();
     const pool: Variant[] = [makeVariant(V1_ID, 'test', { text: '# New' })];
-    const ratings = new Map<string, Rating>([[V1_ID, { mu: 28, sigma: 7 }]]);
+    const ratings = new Map<string, Rating>([[V1_ID, { elo: 1248, uncertainty: 112 }]]);
     const matches: V2Match[] = [
       { winnerId: V1_ID, loserId: V_NEW_ID, result: 'win' as const, confidence: 0.8, judgeModel: 'gpt-4.1-nano', reversed: false },
     ];
@@ -464,8 +469,8 @@ describe('syncToArena', () => {
       makeArenaVariant({ id: V_ARENA_ID, text: '# Arena', arenaMatchCount: 10 }),
     ];
     const ratings = new Map<string, Rating>([
-      [V_NEW_ID, { mu: 25, sigma: 8 }],
-      [V_ARENA_ID, { mu: 30, sigma: 4 }],
+      [V_NEW_ID, { elo: 1200, uncertainty: 128 }],
+      [V_ARENA_ID, { elo: 1280, uncertainty: 64 }],
     ]);
     const matches: V2Match[] = [
       { winnerId: V_ARENA_ID, loserId: V_NEW_ID, result: 'win' as const, confidence: 0.8, judgeModel: 'gpt-4.1-nano', reversed: false },
@@ -481,6 +486,7 @@ describe('syncToArena', () => {
     const arenaUpdates = call[1].p_arena_updates;
     expect(arenaUpdates).toHaveLength(1);
     expect(arenaUpdates[0].id).toBe(V_ARENA_ID);
+    // DB columns still mu/sigma — elo=1280→mu=30, uncertainty=64→sigma=4
     expect(arenaUpdates[0].mu).toBe(30);
     expect(arenaUpdates[0].sigma).toBe(4);
     expect(arenaUpdates[0].arena_match_count).toBe(11); // 10 existing + 1 new
@@ -509,7 +515,7 @@ describe('syncToArena', () => {
     expect(call[1].p_entries[0].elo_score).toBe(1200);
     expect(call[1].p_entries[0].arena_match_count).toBe(0);
     expect(call[1].p_entries[0].mu).toBe(25);
-    expect(call[1].p_entries[0].sigma).toBe(8.333);
+    expect(call[1].p_entries[0].sigma).toBeCloseTo(25 / 3, 3);
   });
 
   it('logs warning on RPC error after retry without throwing', async () => {
@@ -580,8 +586,8 @@ describe('finalizeRun bug fixes', () => {
     const arenaVariant: Variant = { ...makeVariant(ARENA_ID, 'test'), fromArena: true };
     const pool = [makeVariant(LOCAL_ID, 'test'), arenaVariant];
     const ratings = new Map<string, Rating>([
-      [LOCAL_ID, { mu: 30, sigma: 4 }],
-      [ARENA_ID, { mu: 50, sigma: 2 }],
+      [LOCAL_ID, { elo: 1280, uncertainty: 64 }],
+      [ARENA_ID, { elo: 1600, uncertainty: 32 }],
     ]);
     const result = makeResult({ pool, ratings });
     const { db, updates } = makeMockDb();
@@ -699,8 +705,8 @@ describe('syncToArena match count computation', () => {
       makeVariant(V_NEW_ID, 'test', { text: '# V_NEW' }),
     ];
     const ratings = new Map<string, Rating>([
-      [V1_ID, { mu: 28, sigma: 7 }],
-      [V_NEW_ID, { mu: 25, sigma: 8 }],
+      [V1_ID, { elo: 1248, uncertainty: 112 }],
+      [V_NEW_ID, { elo: 1200, uncertainty: 128 }],
     ]);
     const matches: V2Match[] = [
       { winnerId: V1_ID, loserId: V_NEW_ID, result: 'win' as const, confidence: 0.8, judgeModel: 'gpt-4.1-nano', reversed: false },
@@ -723,7 +729,7 @@ describe('syncToArena match count computation', () => {
   it('F38: confidence-0 matches do not count toward arena_match_count', async () => {
     const supabase = createMockArenaSupabase();
     const pool: Variant[] = [makeVariant(V1_ID, 'test', { text: '# V1' })];
-    const ratings = new Map<string, Rating>([[V1_ID, { mu: 28, sigma: 7 }]]);
+    const ratings = new Map<string, Rating>([[V1_ID, { elo: 1248, uncertainty: 112 }]]);
     const matches: V2Match[] = [
       { winnerId: V1_ID, loserId: V_NEW_ID, result: 'win' as const, confidence: 0, judgeModel: 'gpt-4.1-nano', reversed: false },
       { winnerId: V1_ID, loserId: V_NEW_ID, result: 'win' as const, confidence: 0.9, judgeModel: 'gpt-4.1-nano', reversed: false },
@@ -745,7 +751,7 @@ describe('syncToArena arena updates', () => {
     const pool: Variant[] = [
       makeArenaVariant({ id: V_ARENA_ID, text: '# Arena', arenaMatchCount: 20 }),
     ];
-    const ratings = new Map<string, Rating>([[V_ARENA_ID, { mu: 28, sigma: 5 }]]);
+    const ratings = new Map<string, Rating>([[V_ARENA_ID, { elo: 1248, uncertainty: 80 }]]);
     const matches: V2Match[] = [
       { winnerId: V_ARENA_ID, loserId: V_NEW_ID, result: 'win' as const, confidence: 0.8, judgeModel: 'gpt-4.1-nano', reversed: false },
       { winnerId: V_ARENA_ID, loserId: V1_ID, result: 'win' as const, confidence: 0.7, judgeModel: 'gpt-4.1-nano', reversed: false },
@@ -765,7 +771,7 @@ describe('syncToArena arena updates', () => {
     const pool: Variant[] = [
       makeArenaVariant({ id: V_ARENA_ID, text: '# Arena', arenaMatchCount: 10 }),
     ];
-    const ratings = new Map<string, Rating>([[V_ARENA_ID, { mu: 28, sigma: 5 }]]);
+    const ratings = new Map<string, Rating>([[V_ARENA_ID, { elo: 1248, uncertainty: 80 }]]);
     // No matches involving V_ARENA_ID
     const matches: V2Match[] = [
       { winnerId: V_NEW_ID, loserId: V1_ID, result: 'win' as const, confidence: 0.8, judgeModel: 'gpt-4.1-nano', reversed: false },
@@ -783,7 +789,7 @@ describe('syncToArena arena updates', () => {
     const pool: Variant[] = [
       makeArenaVariant({ id: V_ARENA_ID, text: '# Arena', arenaMatchCount: 5 }),
     ];
-    const ratings = new Map<string, Rating>([[V_ARENA_ID, { mu: 28, sigma: 5 }]]);
+    const ratings = new Map<string, Rating>([[V_ARENA_ID, { elo: 1248, uncertainty: 80 }]]);
     const matches: V2Match[] = [
       { winnerId: V_ARENA_ID, loserId: V_NEW_ID, result: 'win' as const, confidence: 0.8, judgeModel: 'gpt-4.1-nano', reversed: false },
     ];
@@ -807,7 +813,7 @@ describe('syncToArena logging', () => {
     const supabase = createMockArenaSupabase();
     const { logger } = createMockEntityLogger();
     const pool: Variant[] = [makeVariant(V1_ID, 'test', { text: '# New' })];
-    const ratings = new Map<string, Rating>([[V1_ID, { mu: 28, sigma: 7 }]]);
+    const ratings = new Map<string, Rating>([[V1_ID, { elo: 1248, uncertainty: 112 }]]);
 
     await syncToArena(RUN_ID, PROMPT_ID, pool, ratings, [], supabase, false, logger);
 
@@ -824,8 +830,8 @@ describe('syncToArena — isSeeded flag', () => {
       makeVariant(V_NEW_ID, 'structural_transform', { text: '# Gen' }), // non-baseline → pipeline
     ];
     const ratings = new Map<string, Rating>([
-      [V1_ID, { mu: 25, sigma: 8 }],
-      [V_NEW_ID, { mu: 24, sigma: 8 }],
+      [V1_ID, { elo: 1200, uncertainty: 128 }],
+      [V_NEW_ID, { elo: 1184, uncertainty: 128 }],
     ]);
 
     await syncToArena(RUN_ID, PROMPT_ID, pool, ratings, [], supabase, true /* isSeeded */);
@@ -845,8 +851,8 @@ describe('syncToArena — isSeeded flag', () => {
       makeVariant(V_NEW_ID, 'structural_transform', { text: '# Gen' }),
     ];
     const ratings = new Map<string, Rating>([
-      [V1_ID, { mu: 25, sigma: 8 }],
-      [V_NEW_ID, { mu: 24, sigma: 8 }],
+      [V1_ID, { elo: 1200, uncertainty: 128 }],
+      [V_NEW_ID, { elo: 1184, uncertainty: 128 }],
     ]);
 
     await syncToArena(RUN_ID, PROMPT_ID, pool, ratings, [], supabase, false /* isSeeded */);
@@ -865,8 +871,8 @@ describe('syncToArena — isSeeded flag', () => {
       makeArenaVariant({ id: V_ARENA_ID, text: '# Arena', arenaMatchCount: 5 }),
     ];
     const ratings = new Map<string, Rating>([
-      [V_NEW_ID, { mu: 25, sigma: 8 }],
-      [V_ARENA_ID, { mu: 30, sigma: 4 }],
+      [V_NEW_ID, { elo: 1200, uncertainty: 128 }],
+      [V_ARENA_ID, { elo: 1280, uncertainty: 64 }],
     ]);
 
     await syncToArena(RUN_ID, PROMPT_ID, pool, ratings, [], supabase, true /* isSeeded */);

@@ -609,11 +609,11 @@ describe('v2MatchSchema', () => {
 
 describe('ratingSchema', () => {
   it('parses valid rating', () => {
-    expect(() => ratingSchema.parse({ mu: 25, sigma: 8.333 })).not.toThrow();
+    expect(() => ratingSchema.parse({ elo: 1200, uncertainty: 133.33 })).not.toThrow();
   });
 
-  it('rejects non-positive sigma', () => {
-    expect(() => ratingSchema.parse({ mu: 25, sigma: 0 })).toThrow();
+  it('rejects non-positive uncertainty', () => {
+    expect(() => ratingSchema.parse({ elo: 1200, uncertainty: 0 })).toThrow();
   });
 });
 
@@ -679,7 +679,7 @@ describe('agentExecutionDetailSchema (discriminated union)', () => {
         variantId: UUID1, opponents: [UUID2],
         matches: [{ opponentId: UUID2, winner: UUID1, confidence: 0.8, cacheHit: false }],
         eliminated: false,
-        ratingBefore: { mu: 25, sigma: 8 }, ratingAfter: { mu: 26, sigma: 7 },
+        ratingBefore: { elo: 1200, uncertainty: 128 }, ratingAfter: { elo: 1216, uncertainty: 112 },
       }],
       fineRanking: { rounds: 3, exitReason: 'convergence', convergenceStreak: 5 },
       budgetPressure: 0.3, budgetTier: 'medium', top20Cutoff: 20,

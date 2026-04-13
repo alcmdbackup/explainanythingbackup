@@ -52,28 +52,28 @@ export function formatScore(value: number | null | undefined): string {
   return value.toFixed(2);
 }
 
-/** Format a numeric score — 1 decimal place. Used for dimension scores, Mu ratings. */
+/** Format a numeric score — 1 decimal place. Used for dimension scores, Elo ratings. */
 export function formatScore1(value: number | null | undefined): string {
   if (value == null || isNaN(value)) return '—';
   return value.toFixed(1);
 }
 
-/** Compute 95% confidence interval half-width from sigma (already in Elo scale). */
-export function elo95CI(sigma: number): number {
-  return Math.round(1.96 * sigma);
+/** Compute 95% confidence interval half-width from uncertainty (Elo-scale standard deviation). */
+export function elo95CI(uncertainty: number): number {
+  return Math.round(1.96 * uncertainty);
 }
 
-/** Format Elo with 95% CI range as "[lo, hi]". Returns null if sigma is unavailable. */
-export function formatEloCIRange(elo: number, sigma: number | null | undefined): string | null {
-  if (sigma == null || sigma <= 0) return null;
-  const half = elo95CI(sigma);
+/** Format Elo with 95% CI range as "[lo, hi]". Returns null if uncertainty is unavailable. */
+export function formatEloCIRange(elo: number, uncertainty: number | null | undefined): string | null {
+  if (uncertainty == null || uncertainty <= 0) return null;
+  const half = elo95CI(uncertainty);
   return `[${Math.round(elo - half)}, ${Math.round(elo + half)}]`;
 }
 
-/** Format Elo with uncertainty as "1200 ± 45". sigmaElo must be pre-scaled (Elo scale). */
-export function formatEloWithUncertainty(elo: number, sigmaElo: number | null | undefined): string | null {
-  if (sigmaElo == null || sigmaElo <= 0) return null;
-  const half = elo95CI(sigmaElo);
+/** Format Elo with uncertainty as "1200 ± 45". uncertainty must be Elo-scale. */
+export function formatEloWithUncertainty(elo: number, uncertainty: number | null | undefined): string | null {
+  if (uncertainty == null || uncertainty <= 0) return null;
+  const half = elo95CI(uncertainty);
   return `${Math.round(elo)} ± ${half}`;
 }
 

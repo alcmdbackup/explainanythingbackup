@@ -32,7 +32,7 @@ export type CreateSeedArticleOutput = {
   status: RankSingleVariantStatus | 'generation_failed';
   surfaced: boolean;
   matches: V2Match[];
-  discardReason?: { mu: number; top15Cutoff: number };
+  discardReason?: { elo: number; top15Cutoff: number };
 };
 
 export type CreateSeedArticleExecutionDetail = z.infer<typeof createSeedArticleExecutionDetailSchema>
@@ -66,8 +66,8 @@ export class CreateSeedArticleAgent extends Agent<
         { key: 'localPoolSize', label: 'Local Pool Size', type: 'number' },
         { key: 'stopReason', label: 'Stop Reason', type: 'badge' },
         { key: 'totalComparisons', label: 'Total Comparisons', type: 'number' },
-        { key: 'finalLocalMu', label: 'Final Local μ', type: 'number' },
-        { key: 'finalLocalSigma', label: 'Final Local σ', type: 'number' },
+        { key: 'finalLocalElo', label: 'Final Local Elo', type: 'number' },
+        { key: 'finalLocalUncertainty', label: 'Final Local Uncertainty', type: 'number' },
       ],
     },
     { key: 'totalCost', label: 'Total Cost', type: 'number', formatter: 'cost' },
@@ -191,7 +191,7 @@ export class CreateSeedArticleAgent extends Agent<
         surfaced,
         matches: surfaced ? rankResult.matches : [],
         ...(discardReason !== undefined && {
-          discardReason: { mu: discardReason.localMu, top15Cutoff: discardReason.localTop15Cutoff },
+          discardReason: { elo: discardReason.localElo, top15Cutoff: discardReason.localTop15Cutoff },
         }),
       },
       detail,

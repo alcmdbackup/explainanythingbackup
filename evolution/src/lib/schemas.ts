@@ -2,7 +2,7 @@
 // Dependency rule: schemas.ts → types.ts → index.ts (never reverse).
 
 import { z } from 'zod';
-import { DEFAULT_SIGMA } from './shared/computeRatings';
+import { _INTERNAL_DEFAULT_SIGMA } from './shared/computeRatings';
 import { getModelMaxTemperature } from '@/config/modelRegistry';
 
 // ═══════════════════════════════════════════════════════════════════
@@ -406,8 +406,8 @@ export type V2MatchSchema = z.infer<typeof v2MatchSchema>;
 // ─── Rating ──────────────────────────────────────────────────────
 
 export const ratingSchema = z.object({
-  mu: z.number(),
-  sigma: z.number().positive(),
+  elo: z.number(),
+  uncertainty: z.number().positive(),
 });
 
 export type RatingSchema = z.infer<typeof ratingSchema>;
@@ -680,18 +680,18 @@ export const generateFromSeedComparisonSchema = z.object({
   opponentId: z.string(),
   selectionScore: z.number(),
   pWin: z.number().min(0).max(1),
-  variantMuBefore: z.number(),
-  variantSigmaBefore: z.number().min(0),
-  opponentMuBefore: z.number(),
-  opponentSigmaBefore: z.number().min(0),
+  variantEloBefore: z.number(),
+  variantUncertaintyBefore: z.number().min(0),
+  opponentEloBefore: z.number(),
+  opponentUncertaintyBefore: z.number().min(0),
   outcome: z.enum(['win', 'loss', 'draw']),
   confidence: z.number().min(0).max(1),
-  variantMuAfter: z.number(),
-  variantSigmaAfter: z.number().min(0),
-  opponentMuAfter: z.number(),
-  opponentSigmaAfter: z.number().min(0),
+  variantEloAfter: z.number(),
+  variantUncertaintyAfter: z.number().min(0),
+  opponentEloAfter: z.number(),
+  opponentUncertaintyAfter: z.number().min(0),
   top15CutoffAfter: z.number(),
-  muPlusTwoSigma: z.number(),
+  eloPlusTwoUncertainty: z.number(),
   eliminated: z.boolean(),
   converged: z.boolean(),
 });
@@ -704,8 +704,8 @@ export const generateFromSeedRankingDetailSchema = z.object({
   comparisons: z.array(generateFromSeedComparisonSchema),
   stopReason: z.enum(['converged', 'eliminated', 'no_more_opponents', 'budget']),
   totalComparisons: z.number().int().min(0),
-  finalLocalMu: z.number(),
-  finalLocalSigma: z.number().min(0),
+  finalLocalElo: z.number(),
+  finalLocalUncertainty: z.number().min(0),
   finalLocalTop15Cutoff: z.number(),
 });
 
@@ -730,7 +730,7 @@ export const generateFromSeedExecutionDetailSchema = executionDetailBaseSchema.e
   estimationErrorPct: z.number().optional(),
   surfaced: z.boolean(),
   discardReason: z.object({
-    localMu: z.number(),
+    localElo: z.number(),
     localTop15Cutoff: z.number(),
   }).optional(),
 });
@@ -751,7 +751,7 @@ export const createSeedArticleExecutionDetailSchema = executionDetailBaseSchema.
   }).nullable(),
   surfaced: z.boolean(),
   discardReason: z.object({
-    localMu: z.number(),
+    localElo: z.number(),
     localTop15Cutoff: z.number(),
   }).optional(),
 });
@@ -785,8 +785,8 @@ export const mergeRatingsExecutionDetailSchema = executionDetailBaseSchema.exten
     poolSize: z.number().int().min(0),
     variants: z.array(z.object({
       id: z.string(),
-      mu: z.number(),
-      sigma: z.number().min(0),
+      elo: z.number(),
+      uncertainty: z.number().min(0),
       matchCount: z.number().int().min(0),
     })),
     top15Cutoff: z.number(),
@@ -810,11 +810,11 @@ export const mergeRatingsExecutionDetailSchema = executionDetailBaseSchema.exten
     poolSize: z.number().int().min(0),
     variants: z.array(z.object({
       id: z.string(),
-      mu: z.number(),
-      sigma: z.number().min(0),
+      elo: z.number(),
+      uncertainty: z.number().min(0),
       matchCount: z.number().int().min(0),
-      muDelta: z.number(),
-      sigmaDelta: z.number(),
+      eloDelta: z.number(),
+      uncertaintyDelta: z.number(),
     })),
     top15Cutoff: z.number(),
     top15CutoffDelta: z.number(),
@@ -830,11 +830,11 @@ export const iterationSnapshotSchema = z.object({
   phase: z.enum(['start', 'end']),
   capturedAt: z.string(),
   poolVariantIds: z.array(z.string()),
-  ratings: z.record(z.string(), z.object({ mu: z.number(), sigma: z.number().min(0) })),
+  ratings: z.record(z.string(), z.object({ elo: z.number(), uncertainty: z.number().min(0) })),
   matchCounts: z.record(z.string(), z.number().int().min(0)),
   discardedVariantIds: z.array(z.string()).optional(),
   discardReasons: z.record(z.string(), z.object({
-    mu: z.number(),
+    elo: z.number(),
     top15Cutoff: z.number(),
   })).optional(),
 });
@@ -904,7 +904,7 @@ export const EvolutionRunSummaryV3Schema = z.object({
 }).strict();
 
 /** TrueSkill default sigma used for V1/V2 → V3 migration: ordinal + 3*sigma ≈ mu */
-const V2_DEFAULT_SIGMA = DEFAULT_SIGMA;
+const V2_DEFAULT_SIGMA = _INTERNAL_DEFAULT_SIGMA;
 
 interface EvolutionRunSummaryV3 {
   version: 3;

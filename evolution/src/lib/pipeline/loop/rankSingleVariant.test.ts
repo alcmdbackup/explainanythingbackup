@@ -8,7 +8,7 @@ import {
   computeTop15Cutoff,
   rankSingleVariant,
   CONVERGENCE_THRESHOLD,
-  BETA,
+  BETA_ELO,
 } from './rankSingleVariant';
 import { createRating, type Rating, type ComparisonResult } from '../../shared/computeRatings';
 import { BudgetExceededError } from '../../types';
@@ -69,23 +69,23 @@ describe('computeTop15Cutoff', () => {
     expect(computeTop15Cutoff(new Map())).toBe(0);
   });
 
-  it('returns the only mu when one rating exists', () => {
-    const m = new Map<string, Rating>([['a', { mu: 30, sigma: 5 }]]);
-    expect(computeTop15Cutoff(m)).toBe(30);
+  it('returns the only elo when one rating exists', () => {
+    const m = new Map<string, Rating>([['a', { elo: 1280, uncertainty: 80 }]]);
+    expect(computeTop15Cutoff(m)).toBe(1280);
   });
 
-  it('returns the top-15% (top 1 of 7) mu', () => {
+  it('returns the top-15% (top 1 of 7) elo', () => {
     const m = new Map<string, Rating>([
-      ['a', { mu: 10, sigma: 5 }],
-      ['b', { mu: 20, sigma: 5 }],
-      ['c', { mu: 30, sigma: 5 }],
-      ['d', { mu: 40, sigma: 5 }],
-      ['e', { mu: 50, sigma: 5 }],
-      ['f', { mu: 60, sigma: 5 }],
-      ['g', { mu: 70, sigma: 5 }],
+      ['a', { elo: 960, uncertainty: 80 }],
+      ['b', { elo: 1120, uncertainty: 80 }],
+      ['c', { elo: 1280, uncertainty: 80 }],
+      ['d', { elo: 1440, uncertainty: 80 }],
+      ['e', { elo: 1600, uncertainty: 80 }],
+      ['f', { elo: 1760, uncertainty: 80 }],
+      ['g', { elo: 1920, uncertainty: 80 }],
     ]);
-    // floor(7 * 0.15) = 1, idx = max(0, 1-1) = 0 → mus[0] = 70
-    expect(computeTop15Cutoff(m)).toBe(70);
+    // floor(7 * 0.15) = 1, idx = max(0, 1-1) = 0 → elos[0] = 1920 (sorted desc)
+    expect(computeTop15Cutoff(m)).toBe(1920);
   });
 });
 
@@ -93,7 +93,7 @@ describe('computeTop15Cutoff', () => {
 
 describe('selectOpponent', () => {
   const variant = mkVariant('V');
-  const variantRating: Rating = { mu: 25, sigma: 4 };
+  const variantRating: Rating = { elo: 1200, uncertainty: 64 };
 
   it('returns null when only the variant is in the pool', () => {
     const pool = [variant];
@@ -103,39 +103,39 @@ describe('selectOpponent', () => {
 
   it('returns null when all opponents have been compared', () => {
     const pool = [variant, mkVariant('A')];
-    const ratings = new Map<string, Rating>([['V', variantRating], ['A', { mu: 25, sigma: 5 }]]);
+    const ratings = new Map<string, Rating>([['V', variantRating], ['A', { elo: 1200, uncertainty: 80 }]]);
     const completed = new Set<string>(['A|V']); // sorted key — 'A' < 'V'
     expect(selectOpponent(variant, variantRating, pool, ratings, completed)).toBeNull();
   });
 
   it('picks an opponent over a self-match', () => {
     const pool = [variant, mkVariant('A')];
-    const ratings = new Map<string, Rating>([['V', variantRating], ['A', { mu: 25, sigma: 5 }]]);
+    const ratings = new Map<string, Rating>([['V', variantRating], ['A', { elo: 1200, uncertainty: 80 }]]);
     const result = selectOpponent(variant, variantRating, pool, ratings, new Set());
     expect(result).not.toBeNull();
     expect(result!.id).toBe('A');
   });
 
   it('prefers close+reliable over close+noisy', () => {
-    // Both at mu=25 (close), but A has lower sigma → higher score (entropy/sigma^k).
+    // Both at elo=1200 (close), but RELIABLE has lower uncertainty → higher score (entropy/uncertainty^k).
     const pool = [variant, mkVariant('NOISY'), mkVariant('RELIABLE')];
     const ratings = new Map<string, Rating>([
       ['V', variantRating],
-      ['NOISY', { mu: 25, sigma: 8 }],
-      ['RELIABLE', { mu: 25, sigma: 2 }],
+      ['NOISY', { elo: 1200, uncertainty: 128 }],
+      ['RELIABLE', { elo: 1200, uncertainty: 32 }],
     ]);
     const result = selectOpponent(variant, variantRating, pool, ratings, new Set());
     expect(result!.id).toBe('RELIABLE');
   });
 
   it('prefers close+reliable over very-far+precise (entropy collapses for far opponents)', () => {
-    // CLOSE: mu=25, sigma=3 (close, reliable). FAR: mu=-50, sigma=1 (very far).
-    // FAR's pWin is near-1, so entropy → 0 and the score collapses despite tiny sigma.
+    // CLOSE: elo=1200, uncertainty=48 (close, reliable). FAR: elo=0, uncertainty=16 (very far).
+    // FAR's pWin is near-1, so entropy → 0 and the score collapses despite tiny uncertainty.
     const pool = [variant, mkVariant('CLOSE'), mkVariant('FAR')];
     const ratings = new Map<string, Rating>([
       ['V', variantRating],
-      ['CLOSE', { mu: 25, sigma: 3 }],
-      ['FAR', { mu: -50, sigma: 1 }],
+      ['CLOSE', { elo: 1200, uncertainty: 48 }],
+      ['FAR', { elo: 0, uncertainty: 16 }],
     ]);
     const result = selectOpponent(variant, variantRating, pool, ratings, new Set());
     expect(result!.id).toBe('CLOSE');
@@ -145,7 +145,7 @@ describe('selectOpponent', () => {
     const pool = [variant, mkVariant('FAR')];
     const ratings = new Map<string, Rating>([
       ['V', variantRating],
-      ['FAR', { mu: -50, sigma: 5 }],
+      ['FAR', { elo: 0, uncertainty: 80 }],
     ]);
     const result = selectOpponent(variant, variantRating, pool, ratings, new Set());
     expect(result!.id).toBe('FAR');
@@ -163,8 +163,8 @@ describe('selectOpponent', () => {
     const pool = [variant, mkVariant('A'), mkVariant('B')];
     const ratings = new Map<string, Rating>([
       ['V', variantRating],
-      ['A', { mu: 25, sigma: 5 }],
-      ['B', { mu: 25, sigma: 4 }],
+      ['A', { elo: 1200, uncertainty: 80 }],
+      ['B', { elo: 1200, uncertainty: 64 }],
     ]);
     const completed = new Set<string>(['B|V']); // V vs B done — only A remains
     const result = selectOpponent(variant, variantRating, pool, ratings, completed);
@@ -181,9 +181,9 @@ describe('rankSingleVariant', () => {
     const pool = [variant, ...opponents];
     const ratings = new Map<string, Rating>([
       ['V', createRating()],
-      ['A', { mu: 25, sigma: 5 }],
-      ['B', { mu: 25, sigma: 5 }],
-      ['C', { mu: 25, sigma: 5 }],
+      ['A', { elo: 1200, uncertainty: 80 }],
+      ['B', { elo: 1200, uncertainty: 80 }],
+      ['C', { elo: 1200, uncertainty: 80 }],
     ]);
     return {
       variant,
@@ -217,18 +217,18 @@ describe('rankSingleVariant', () => {
     expect(result.comparisonsRun).toBe(0);
   });
 
-  it('exits via converged when sigma drops below threshold', async () => {
+  it('exits via converged when uncertainty drops below threshold', async () => {
     const params = buildParams();
-    // Force decisive wins so sigma shrinks fast.
+    // Force decisive wins so uncertainty shrinks fast.
     mockComparisonQueue = Array.from({ length: 20 }, () => ({ winner: 'A' as const, confidence: 1.0, turns: 2 }));
     const result = await rankSingleVariant(params);
     // Either converged or no_more_opponents — both are valid exits with this small pool.
     // We assert at least that the loop ran some comparisons.
     expect(['converged', 'no_more_opponents']).toContain(result.status);
     expect(result.matches.length).toBeGreaterThan(0);
-    // Final sigma should be below initial sigma
-    const finalSigma = params.ratings.get('V')!.sigma;
-    expect(finalSigma).toBeLessThan(8.333);
+    // Final uncertainty should be below initial (400/3 ≈ 133.33)
+    const finalUncertainty = params.ratings.get('V')!.uncertainty;
+    expect(finalUncertainty).toBeLessThan(400 / 3);
   });
 
   it('exits via no_more_opponents after exhausting the pool', async () => {
@@ -236,7 +236,7 @@ describe('rankSingleVariant', () => {
     // 3 opponents, 3 comparisons, then exit.
     mockComparisonQueue = Array.from({ length: 3 }, () => ({ winner: 'A' as const, confidence: 1.0, turns: 2 }));
     const result = await rankSingleVariant(params);
-    // Could be converged early (due to sigma collapse) OR no_more_opponents.
+    // Could be converged early (due to uncertainty collapse) OR no_more_opponents.
     expect(['no_more_opponents', 'converged']).toContain(result.status);
     expect(result.comparisonsRun).toBeLessThanOrEqual(3);
   });
@@ -251,17 +251,17 @@ describe('rankSingleVariant', () => {
     expect(result.detail.stopReason).toBe('budget');
   });
 
-  it('exits via eliminated when mu+2sigma drops below top15Cutoff', async () => {
-    // Set up: variant V starts at mu=25 sigma=8.333, top15 cutoff is 50 (very high).
-    // Force losses to push V's mu down, eventually mu+2sigma < cutoff.
+  it('exits via eliminated when elo+2uncertainty drops below top15Cutoff', async () => {
+    // Set up: variant V starts at elo=1200 uncertainty=133.33, top15 cutoff is 1600 (very high).
+    // Force losses to push V's elo down, eventually elo+2uncertainty < cutoff.
     const variant = mkVariant('V');
     const opp = mkVariant('TOP');
     const ratings = new Map<string, Rating>([
       ['V', createRating()],
-      ['TOP', { mu: 50, sigma: 1 }],
+      ['TOP', { elo: 1600, uncertainty: 16 }],
     ]);
     const pool = [variant, opp];
-    // V loses every match (B wins each comparison). Multiple losses in a row collapse mu.
+    // V loses every match (B wins each comparison). Multiple losses in a row collapse elo.
     mockComparisonQueue = Array.from({ length: 10 }, () => ({ winner: 'B' as const, confidence: 1.0, turns: 2 }));
     const params = {
       variant, pool, ratings,
@@ -284,8 +284,8 @@ describe('rankSingleVariant', () => {
     mockComparisonQueue = [{ winner: 'A', confidence: 1.0, turns: 2 }];
     await rankSingleVariant(params);
     const afterV = params.ratings.get('V')!;
-    expect(afterV.mu).not.toBe(initialV.mu);
-    expect(afterV.sigma).toBeLessThan(initialV.sigma);
+    expect(afterV.elo).not.toBe(initialV.elo);
+    expect(afterV.uncertainty).toBeLessThan(initialV.uncertainty);
   });
 
   it('does NOT mutate other agents\' ratings (callers are responsible for cloning)', async () => {
@@ -294,7 +294,7 @@ describe('rankSingleVariant', () => {
     const variant = mkVariant('V');
     const sharedRatings = new Map<string, Rating>([
       ['V', createRating()],
-      ['A', { mu: 25, sigma: 5 }],
+      ['A', { elo: 1200, uncertainty: 80 }],
     ]);
     const params = {
       variant,
@@ -310,7 +310,7 @@ describe('rankSingleVariant', () => {
     mockComparisonQueue = [{ winner: 'A', confidence: 1.0, turns: 2 }];
     await rankSingleVariant(params);
     // Document mutation behavior — sharedRatings was modified.
-    expect(sharedRatings.get('V')!.sigma).toBeLessThan(8.333);
+    expect(sharedRatings.get('V')!.uncertainty).toBeLessThan(400 / 3);
   });
 
   it('records detailed comparison entries with before/after state', async () => {
@@ -323,8 +323,8 @@ describe('rankSingleVariant', () => {
     expect(first.opponentId).toBeDefined();
     expect(first.outcome).toBe('win');
     expect(first.confidence).toBe(0.9);
-    expect(first.variantMuAfter).not.toBe(first.variantMuBefore); // mu changed
-    expect(first.variantSigmaAfter).toBeLessThan(first.variantSigmaBefore);
+    expect(first.variantEloAfter).not.toBe(first.variantEloBefore); // elo changed
+    expect(first.variantUncertaintyAfter).toBeLessThan(first.variantUncertaintyBefore);
   });
 
   it('updates completedPairs after each comparison', async () => {
@@ -360,14 +360,14 @@ describe('rankSingleVariant', () => {
       { winner: 'TIE', confidence: 0, turns: 2 }, // failure
       { winner: 'A', confidence: 1.0, turns: 2 },
     ];
-    const initialMu = params.ratings.get('V')!.mu;
+    const initialElo = params.ratings.get('V')!.elo;
     const result = await rankSingleVariant(params);
     expect(result.detail.comparisons.length).toBeGreaterThanOrEqual(1);
     // First comparison was a failure — confidence 0
     expect(result.detail.comparisons[0]!.confidence).toBe(0);
-    // After second non-failure comparison, mu should change.
+    // After second non-failure comparison, elo should change.
     if (result.detail.comparisons.length >= 2) {
-      expect(params.ratings.get('V')!.mu).not.toBe(initialMu);
+      expect(params.ratings.get('V')!.elo).not.toBe(initialElo);
     }
   });
 });

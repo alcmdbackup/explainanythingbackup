@@ -17,9 +17,9 @@ describe('V2 types', () => {
     expectTypeOf<Variant>().toEqualTypeOf<V1Variant>();
   });
 
-  it('Rating has mu and sigma', () => {
-    expectTypeOf<Rating>().toHaveProperty('mu');
-    expectTypeOf<Rating>().toHaveProperty('sigma');
+  it('Rating has elo and uncertainty', () => {
+    expectTypeOf<Rating>().toHaveProperty('elo');
+    expectTypeOf<Rating>().toHaveProperty('uncertainty');
   });
 
   it('EvolutionConfig has all required fields', () => {
@@ -49,7 +49,7 @@ describe('V2 types', () => {
     expectTypeOf<EvolutionResult>().toHaveProperty('totalCost');
     expectTypeOf<EvolutionResult>().toHaveProperty('iterationsRun');
     expectTypeOf<EvolutionResult>().toHaveProperty('stopReason');
-    expectTypeOf<EvolutionResult>().toHaveProperty('muHistory');
+    expectTypeOf<EvolutionResult>().toHaveProperty('eloHistory');
     expectTypeOf<EvolutionResult>().toHaveProperty('diversityHistory');
   });
 

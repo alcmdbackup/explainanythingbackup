@@ -5,7 +5,7 @@ import { type EntityType, type MetricRow, type FinalizationContext, type MetricN
 import { getEntity } from '../core/entityRegistry';
 import { writeMetric } from './writeMetrics';
 import { getMetricsForEntities } from './readMetrics';
-import { DEFAULT_MU } from '@evolution/lib/shared/computeRatings';
+import { dbToRating, _INTERNAL_DEFAULT_MU, _INTERNAL_DEFAULT_SIGMA } from '@evolution/lib/shared/computeRatings';
 import type { Rating } from '@evolution/lib/shared/computeRatings';
 import type { Variant } from '@evolution/lib/types';
 
@@ -79,10 +79,10 @@ async function recomputeRunEloMetrics(db: SupabaseClient, runId: string): Promis
   for (const v of variants) {
     const rawMu = v.mu as number | null;
     const rawSigma = v.sigma as number | null;
-    ratings.set(v.id, {
-      mu: Number.isFinite(rawMu) ? rawMu! : DEFAULT_MU,
-      sigma: Number.isFinite(rawSigma) ? rawSigma! : DEFAULT_MU / 3,
-    });
+    ratings.set(v.id, dbToRating(
+      Number.isFinite(rawMu) ? rawMu! : _INTERNAL_DEFAULT_MU,
+      Number.isFinite(rawSigma) ? rawSigma! : _INTERNAL_DEFAULT_SIGMA,
+    ));
     pool.push({ id: v.id, text: '', version: 0, parentIds: [], strategy: '', createdAt: 0, iterationBorn: 0 });
   }
 
@@ -92,7 +92,7 @@ async function recomputeRunEloMetrics(db: SupabaseClient, runId: string): Promis
   const existingCost = runMetrics.find(m => m.metric_name === 'cost')?.value ?? 0;
 
   const ctx: FinalizationContext = {
-    result: { winner: pool[0]!, pool, ratings, matchHistory: [], totalCost: existingCost, iterationsRun: 0, stopReason: 'iterations_complete', muHistory: [], diversityHistory: [], matchCounts: {} },
+    result: { winner: pool[0]!, pool, ratings, matchHistory: [], totalCost: existingCost, iterationsRun: 0, stopReason: 'iterations_complete', eloHistory: [], diversityHistory: [], matchCounts: {} },
     ratings,
     pool,
     matchHistory: [],
@@ -183,13 +183,13 @@ async function recomputeInvocationMetrics(db: SupabaseClient, invocationId: stri
   const ratings = new Map<string, Rating>();
   const pool: Variant[] = [];
   for (const v of variants) {
-    ratings.set(v.id, { mu: v.mu ?? DEFAULT_MU, sigma: v.sigma ?? DEFAULT_MU / 3 });
+    ratings.set(v.id, dbToRating(v.mu ?? _INTERNAL_DEFAULT_MU, v.sigma ?? _INTERNAL_DEFAULT_SIGMA));
     pool.push({ id: v.id, text: '', version: 0, parentIds: [], strategy: '', createdAt: 0, iterationBorn: 0 });
   }
 
   const detailsMap = new Map([[inv.id, inv.execution_detail]]);
   const ctx: FinalizationContext = {
-    result: { winner: pool[0]!, pool, ratings, matchHistory: [], totalCost: 0, iterationsRun: 0, stopReason: 'iterations_complete', muHistory: [], diversityHistory: [], matchCounts: {} },
+    result: { winner: pool[0]!, pool, ratings, matchHistory: [], totalCost: 0, iterationsRun: 0, stopReason: 'iterations_complete', eloHistory: [], diversityHistory: [], matchCounts: {} },
     ratings,
     pool,
     matchHistory: [],
