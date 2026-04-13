@@ -19,7 +19,7 @@ import {
   type ArenaTopic,
   type ArenaEntry,
 } from '@evolution/services/arenaActions';
-import { formatElo, stripMarkdownTitle, _INTERNAL_ELO_SIGMA_SCALE } from '@evolution/lib/shared/computeRatings';
+import { formatElo, stripMarkdownTitle } from '@evolution/lib/shared/computeRatings';
 import { formatEloCIRange, formatEloWithUncertainty } from '@evolution/lib/utils/formatters';
 import { computeEloCutoff } from './arenaCutoff';
 
@@ -45,7 +45,7 @@ export default function ArenaTopicDetailPage(): JSX.Element {
   const [hasMetrics, setHasMetrics] = useState(false);
 
   // Sort state for leaderboard columns (F41)
-  type SortKey = 'elo_score' | 'sigma' | 'arena_match_count' | 'generation_method' | 'cost_usd';
+  type SortKey = 'elo_score' | 'uncertainty' | 'arena_match_count' | 'generation_method' | 'cost_usd';
   const [sortKey, setSortKey] = useState<SortKey>('elo_score');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
 
@@ -210,7 +210,7 @@ export default function ArenaTopicDetailPage(): JSX.Element {
                   <th className="py-2 pr-3">Content</th>
                   <th {...sortableThProps('elo_score')}>Elo{sortIndicator('elo_score')}</th>
                   <th className="py-2 pr-3">95% CI</th>
-                  <th {...sortableThProps('sigma')}>Elo ± σ{sortIndicator('sigma')}</th>
+                  <th {...sortableThProps('uncertainty')}>Elo ± Uncertainty{sortIndicator('uncertainty')}</th>
                   <th {...sortableThProps('arena_match_count')}>Matches{sortIndicator('arena_match_count')}</th>
                   <th {...sortableThProps('generation_method')}>Method{sortIndicator('generation_method')}</th>
                   <th {...sortableThProps('cost_usd')}>Cost{sortIndicator('cost_usd')}</th>
@@ -231,13 +231,13 @@ export default function ArenaTopicDetailPage(): JSX.Element {
                       </td>
                       <td className="py-2 pr-3 font-mono">{formatElo(entry.elo_score)}</td>
                       <td className="py-2 pr-3 font-mono text-[var(--text-secondary)]">
-                        {entry.elo_score != null && entry.sigma != null
-                          ? (formatEloCIRange(entry.elo_score, entry.sigma * _INTERNAL_ELO_SIGMA_SCALE) ?? '\u2014')
+                        {entry.elo_score != null && entry.uncertainty != null
+                          ? (formatEloCIRange(entry.elo_score, entry.uncertainty) ?? '\u2014')
                           : '\u2014'}
                       </td>
                       <td className="py-2 pr-3 font-mono">
-                        {entry.elo_score != null && entry.sigma != null
-                          ? (formatEloWithUncertainty(entry.elo_score, entry.sigma * _INTERNAL_ELO_SIGMA_SCALE) ?? '—')
+                        {entry.elo_score != null && entry.uncertainty != null
+                          ? (formatEloWithUncertainty(entry.elo_score, entry.uncertainty) ?? '—')
                           : '—'}
                       </td>
                       <td className="py-2 pr-3 font-mono">{entry.arena_match_count}</td>

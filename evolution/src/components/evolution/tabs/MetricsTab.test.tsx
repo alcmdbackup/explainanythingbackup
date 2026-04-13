@@ -77,7 +77,7 @@ describe('MetricsTab', () => {
     await waitFor(() => expect(screen.getByText('DB error')).toBeInTheDocument());
   });
 
-  it('renders top variants table with rank and mu', async () => {
+  it('renders top variants table with rank and elo', async () => {
     getEvolutionRunSummaryAction.mockResolvedValue({
       success: true, data: mockSummary, error: null,
     });
@@ -87,8 +87,10 @@ describe('MetricsTab', () => {
 
     render(<MetricsTab runId="run-1" />);
     await waitFor(() => expect(screen.getByText('Top Variants')).toBeInTheDocument());
-    expect(screen.getByText('27.50')).toBeInTheDocument();
-    expect(screen.getByText('25.00')).toBeInTheDocument();
+    // mu 27.5 (legacy) → 1200 + (27.5-25)*16 = 1240
+    expect(screen.getByText('1240')).toBeInTheDocument();
+    // mu 25.0 (legacy) → 1200 + (25-25)*16 = 1200
+    expect(screen.getByText('1200')).toBeInTheDocument();
   });
 
   it('renders strategy effectiveness table', async () => {

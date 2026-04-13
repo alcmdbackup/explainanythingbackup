@@ -29,9 +29,9 @@ export interface DashboardData {
 
 export interface EloHistoryPoint {
   iteration: number;
-  mu: number;
-  /** Top-K mu values for this iteration (when available from V3 run_summary). */
-  mus?: number[];
+  elo: number;
+  /** Top-K Elo values for this iteration (when available from V3 run_summary). */
+  elos?: number[];
 }
 
 export interface LineageNode {
@@ -212,11 +212,17 @@ export const getEvolutionRunEloHistoryAction = adminAction(
     const parsed = EvolutionRunSummarySchema.safeParse(data.run_summary);
     if (!parsed.success) return [];
 
-    return (parsed.data.muHistory ?? []).map((mus, i) => ({
-      iteration: i + 1,
-      mu: mus[0] ?? 0,
-      mus: mus.length > 1 ? mus : undefined,
-    }));
+    // muHistory field stores Elo values for new runs; legacy runs stored TrueSkill mu (~25-50).
+    // Heuristic: values < 100 are mu-scale; convert to Elo via 1200 + (mu-25)*16.
+    const toElo = (v: number): number => (v < 100 ? 1200 + (v - 25) * 16 : v);
+    return (parsed.data.muHistory ?? []).map((vals, i) => {
+      const elos = vals.map(toElo);
+      return {
+        iteration: i + 1,
+        elo: elos[0] ?? 0,
+        elos: elos.length > 1 ? elos : undefined,
+      };
+    });
   },
 );
 

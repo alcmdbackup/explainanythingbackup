@@ -19,8 +19,8 @@ interface VariantRow {
   id: string;
   shortId: string;
   agentName: string;
-  mu: number;
-  sigma: number;
+  elo: number;
+  uncertainty: number;
   matchCount: number;
   persisted: boolean;
 }
@@ -30,18 +30,18 @@ function buildRows(
   info: Record<string, SnapshotVariantInfo>,
 ): VariantRow[] {
   return (snap.poolVariantIds ?? []).map((id) => {
-    const r = snap.ratings?.[id] ?? { mu: 25, sigma: 8.333 };
+    const r = snap.ratings?.[id] ?? { elo: 1200, uncertainty: 400 / 3 };
     const v = info[id];
     return {
       id,
       shortId: id.substring(0, 8),
       agentName: v?.agentName ?? '—',
-      mu: r.mu,
-      sigma: r.sigma,
+      elo: r.elo,
+      uncertainty: r.uncertainty,
       matchCount: snap.matchCounts?.[id] ?? 0,
       persisted: v?.persisted ?? true,
     };
-  }).sort((a, b) => b.mu - a.mu);
+  }).sort((a, b) => b.elo - a.elo);
 }
 
 function VariantTable({ rows }: { rows: VariantRow[] }): JSX.Element {
@@ -55,8 +55,8 @@ function VariantTable({ rows }: { rows: VariantRow[] }): JSX.Element {
           <tr>
             <th className="px-2 py-1 text-left">Variant</th>
             <th className="px-2 py-1 text-left">Strategy</th>
-            <th className="px-2 py-1 text-right">μ</th>
-            <th className="px-2 py-1 text-right">σ</th>
+            <th className="px-2 py-1 text-right">Elo</th>
+            <th className="px-2 py-1 text-right">Uncertainty</th>
             <th className="px-2 py-1 text-right">Matches</th>
             <th className="px-2 py-1 text-center">Persisted</th>
           </tr>
@@ -74,8 +74,8 @@ function VariantTable({ rows }: { rows: VariantRow[] }): JSX.Element {
                 </Link>
               </td>
               <td className="px-2 py-1 text-[var(--text-secondary)]">{r.agentName}</td>
-              <td className="px-2 py-1 text-right">{r.mu.toFixed(2)}</td>
-              <td className="px-2 py-1 text-right">{r.sigma.toFixed(2)}</td>
+              <td className="px-2 py-1 text-right">{Math.round(r.elo)}</td>
+              <td className="px-2 py-1 text-right">{Math.round(r.uncertainty)}</td>
               <td className="px-2 py-1 text-right text-[var(--text-muted)]">{r.matchCount}</td>
               <td className="px-2 py-1 text-center">
                 {r.persisted ? (
@@ -196,7 +196,7 @@ export function SnapshotsTab({ runId }: SnapshotsTabProps): JSX.Element {
                               <thead className="bg-[var(--surface-elevated)]">
                                 <tr>
                                   <th className="px-2 py-1 text-left">Variant</th>
-                                  <th className="px-2 py-1 text-right">Local μ</th>
+                                  <th className="px-2 py-1 text-right">Local Elo</th>
                                   <th className="px-2 py-1 text-right">Top-15 Cutoff</th>
                                 </tr>
                               </thead>
@@ -215,10 +215,10 @@ export function SnapshotsTab({ runId }: SnapshotsTabProps): JSX.Element {
                                         </Link>
                                       </td>
                                       <td className="px-2 py-1 text-right">
-                                        {reason?.mu != null ? reason.mu.toFixed(2) : '—'}
+                                        {reason?.elo != null ? Math.round(reason.elo) : '—'}
                                       </td>
                                       <td className="px-2 py-1 text-right">
-                                        {reason?.top15Cutoff != null ? reason.top15Cutoff.toFixed(2) : '—'}
+                                        {reason?.top15Cutoff != null ? Math.round(reason.top15Cutoff) : '—'}
                                       </td>
                                     </tr>
                                   );
