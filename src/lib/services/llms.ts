@@ -15,6 +15,15 @@ import { withLogging } from '@/lib/logging/server/automaticServerLoggingBase';
 import { ServiceError } from '@/lib/errors/serviceError';
 import { ERROR_CODES } from '@/lib/errorHandling';
 import { calculateLLMCost } from '@/config/llmPricing';
+import { isOpenRouterModel as registryIsOpenRouterModel, getOpenRouterApiModelId, getModelMaxTemperature } from '@/config/modelRegistry';
+
+/** Clamp temperature to model's max. Returns undefined if model doesn't support temperature or temp not set. */
+function clampTemperature(temperature: number | undefined, model: string): number | undefined {
+    if (temperature === undefined) return undefined;
+    const maxTemp = getModelMaxTemperature(model);
+    if (maxTemp === null || maxTemp === undefined) return undefined;
+    return Math.min(temperature, maxTemp);
+}
 import { getLLMSemaphore } from './llmSemaphore';
 import { getSpendingGate } from './llmSpendingGate';
 
@@ -30,6 +39,8 @@ export interface LLMUsageMetadata {
 export interface CallLLMOptions {
   onUsage?: (usage: LLMUsageMetadata) => void;
   evolutionInvocationId?: string;
+  /** LLM sampling temperature. Omit to use provider default. Clamped to model's maxTemperature. */
+  temperature?: number;
 }
 
 type ResponseObject = z.ZodObject<any> | null;
@@ -245,7 +256,7 @@ function getOpenRouterClient(): OpenAI {
 }
 
 export function isOpenRouterModel(model: string): boolean {
-    return model === 'gpt-oss-20b';
+    return registryIsOpenRouterModel(model);
 }
 
 let anthropicClient: Anthropic | null = null;
@@ -298,7 +309,7 @@ async function callOpenAIModel(
         const apiModel = isLocalModel(validatedModel)
             ? validatedModel.replace(/^LOCAL_/, '')
             : isOpenRouterModel(validatedModel)
-                ? `openai/${validatedModel}`
+                ? getOpenRouterApiModelId(validatedModel)
                 : validatedModel;
 
         const requestOptions: OpenAI.Chat.ChatCompletionCreateParams = {
@@ -309,6 +320,11 @@ async function callOpenAIModel(
             ],
             stream: streaming
         };
+
+        const clampedTemp = clampTemperature(options?.temperature, validatedModel);
+        if (clampedTemp !== undefined) {
+            requestOptions.temperature = clampedTemp;
+        }
 
         if (response_obj && response_obj_name) {
             if (isDeepSeekModel(validatedModel) || isLocalModel(validatedModel) || isOpenRouterModel(validatedModel)) {
@@ -473,6 +489,8 @@ async function callAnthropicModel(
             'llm.streaming': streaming ? 'true' : 'false'
         });
 
+        const anthropicTemp = clampTemperature(options?.temperature, validatedModel);
+
         let response: string;
         let usage: { input_tokens: number; output_tokens: number };
         let promptTokens = 0;
@@ -487,6 +505,7 @@ async function callAnthropicModel(
                     max_tokens: 8192,
                     system: systemMessage,
                     messages: [{ role: 'user', content: prompt }],
+                    ...(anthropicTemp !== undefined ? { temperature: anthropicTemp } : {}),
                 });
                 for await (const event of stream) {
                     if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
@@ -503,6 +522,7 @@ async function callAnthropicModel(
                     max_tokens: 8192,
                     system: systemMessage,
                     messages: [{ role: 'user', content: prompt }],
+                    ...(anthropicTemp !== undefined ? { temperature: anthropicTemp } : {}),
                 });
                 response = message.content[0]?.type === 'text' ? message.content[0].text : '';
                 usage = message.usage;

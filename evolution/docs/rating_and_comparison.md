@@ -67,6 +67,7 @@ export type Rating = { mu: number; sigma: number };
 | `DEFAULT_CONVERGENCE_SIGMA`| 4.5     | Sigma below which rating is "settled" (raised from 3.0 for faster convergence ~18 vs ~59 comparisons; widens Elo CI from ±94 to ±141) |
 | `ELO_SIGMA_SCALE`          | 16      | Conversion factor (400 / DEFAULT_MU)      |
 | `DECISIVE_CONFIDENCE_THRESHOLD` | 0.6 | Arena-level decisive match threshold     |
+| `beta` (openskill)         | 0       | Performance variability (passed to `osRate()`). Set to 0 for zero assumed noise — ratings update more aggressively per match, converging faster. Safe for text quality ranking where 2-pass reversal mitigates judge noise. |
 
 ### Core Functions
 

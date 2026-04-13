@@ -20,6 +20,7 @@ import {
 import { getBatchMetricsAction } from '@evolution/services/metricsActions';
 import { executeEntityAction } from '@evolution/services/entityActions';
 import { MODEL_OPTIONS } from '@/lib/utils/modelOptions';
+import { DEFAULT_JUDGE_MODEL } from '@/config/modelRegistry';
 import type { MetricRow } from '@evolution/lib/metrics/types';
 
 const loadData = async (filters: Record<string, string>, page: number, pageSize: number) => {
@@ -184,8 +185,8 @@ function GenerationGuidanceField(
 const createFields: FieldDef[] = [
   { name: 'name', label: 'Name', type: 'text', required: true, placeholder: 'Strategy name' },
   { name: 'description', label: 'Description', type: 'textarea', placeholder: 'Optional description' },
-  { name: 'generationModel', label: 'Generation Model', type: 'select', required: true, options: [{ label: 'Select a model...', value: '' }, ...MODEL_OPTIONS.map(m => ({ label: m, value: m }))] },
-  { name: 'judgeModel', label: 'Judge Model', type: 'select', required: true, options: [{ label: 'Select a model...', value: '' }, ...MODEL_OPTIONS.map(m => ({ label: m, value: m }))] },
+  { name: 'generationModel', label: 'Generation Model', type: 'select', required: true, options: [{ label: 'Select a model...', value: '' }, ...MODEL_OPTIONS] },
+  { name: 'judgeModel', label: 'Judge Model', type: 'select', required: true, options: [{ label: 'Select a model...', value: '' }, ...MODEL_OPTIONS] },
   { name: 'iterations', label: 'Iterations', type: 'number', required: true },
   {
     name: 'generationGuidance',
@@ -197,6 +198,7 @@ const createFields: FieldDef[] = [
   { name: 'maxComparisonsPerVariant', label: 'Max Comparisons per Variant', type: 'number', placeholder: '15 (default)' },
   { name: 'budgetBufferAfterParallel', label: 'Budget Buffer After Parallel (0-1)', type: 'number', placeholder: '0 (default)' },
   { name: 'budgetBufferAfterSequential', label: 'Budget Buffer After Sequential (0-1)', type: 'number', placeholder: '0 (default)' },
+  { name: 'generationTemperature', label: 'Generation Temperature (0-2)', type: 'number', placeholder: 'Provider default' },
 ];
 
 type DialogState =
@@ -228,7 +230,7 @@ export default function StrategiesPage(): JSX.Element {
         iterations: dialog.row.config?.iterations ?? 10,
         generationGuidance: (dialog.row.config as Record<string, unknown>)?.generationGuidance ?? [],
       }
-    : {};
+    : { judgeModel: DEFAULT_JUDGE_MODEL };
 
   const handleFormSubmit = async (values: Record<string, unknown>) => {
     if (dialog.kind === 'create') {
@@ -246,6 +248,7 @@ export default function StrategiesPage(): JSX.Element {
         maxComparisonsPerVariant: values.maxComparisonsPerVariant ? Number(values.maxComparisonsPerVariant) : undefined,
         budgetBufferAfterParallel: values.budgetBufferAfterParallel ? Number(values.budgetBufferAfterParallel) : undefined,
         budgetBufferAfterSequential: values.budgetBufferAfterSequential ? Number(values.budgetBufferAfterSequential) : undefined,
+        generationTemperature: values.generationTemperature ? Number(values.generationTemperature) : undefined,
       });
       if (!result.success) throw new Error(result.error?.message ?? 'Create failed');
       toast.success('Strategy created');

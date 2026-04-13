@@ -84,7 +84,7 @@ export interface ClaimedRun {
 }
 
 type RawLLMProvider = {
-  complete(prompt: string, label: string, opts?: { model?: string }): Promise<string>;
+  complete(prompt: string, label: string, opts?: { model?: string; temperature?: number }): Promise<string>;
 };
 
 export interface RunContext {
@@ -188,6 +188,7 @@ export async function buildRunContext(
     maxComparisonsPerVariant: stratConfig.maxComparisonsPerVariant ?? 15,
     budgetBufferAfterParallel: stratConfig.budgetBufferAfterParallel ?? 0,
     budgetBufferAfterSequential: stratConfig.budgetBufferAfterSequential ?? 0,
+    generationTemperature: stratConfig.generationTemperature,
   };
 
   const logger = createEntityLogger({
