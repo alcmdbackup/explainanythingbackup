@@ -1,0 +1,25 @@
+{
+  "branch": "feat/improve_setup_judging_20260412",
+  "created_at": "2026-04-12T00:00:00.000Z",
+  "prerequisites": {},
+  "relevantDocs": [
+    "evolution/docs/README.md",
+    "evolution/docs/architecture.md",
+    "evolution/docs/data_model.md",
+    "evolution/docs/arena.md",
+    "evolution/docs/rating_and_comparison.md",
+    "evolution/docs/strategies_and_experiments.md",
+    "evolution/docs/cost_optimization.md",
+    "evolution/docs/entities.md",
+    "evolution/docs/metrics.md",
+    "evolution/docs/logging.md",
+    "evolution/docs/visualization.md",
+    "evolution/docs/reference.md",
+    "evolution/docs/curriculum.md",
+    "evolution/docs/minicomputer_deployment.md",
+    "evolution/docs/agents/overview.md",
+    "docs/docs_overall/testing_overview.md",
+    "docs/docs_overall/environments.md",
+    "docs/feature_deep_dives/testing_setup.md"
+  ]
+}
