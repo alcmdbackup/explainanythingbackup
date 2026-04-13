@@ -14,14 +14,13 @@ export interface ModelPricing {
 }
 
 // Build pricing from registry (source of truth for registered models)
-const registryPricing: Record<string, ModelPricing> = {};
-for (const info of Object.values(MODEL_REGISTRY)) {
-  registryPricing[info.id] = {
+const registryPricing: Record<string, ModelPricing> = Object.fromEntries(
+  Object.values(MODEL_REGISTRY).map(info => [info.id, {
     inputPer1M: info.inputPer1M,
     outputPer1M: info.outputPer1M,
-    ...(info.reasoningPer1M != null ? { reasoningPer1M: info.reasoningPer1M } : {}),
-  };
-}
+    ...(info.reasoningPer1M != null && { reasoningPer1M: info.reasoningPer1M }),
+  }]),
+);
 
 // Versioned model variants for prefix-match fallback (not in registry)
 const VERSIONED_PRICING: Record<string, ModelPricing> = {

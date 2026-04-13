@@ -57,7 +57,6 @@ export function createEvolutionLLMClient(
       options?: LLMCompletionOptions,
     ): Promise<string> {
       const model = (options?.model as string) ?? defaultModel;
-      // Inject temperature: ranking always 0, generation uses configured temp (or provider default)
       const temperature = agentName === 'ranking'
         ? 0
         : (options?.temperature ?? generationTemperature);

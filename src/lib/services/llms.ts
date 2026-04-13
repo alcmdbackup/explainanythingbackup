@@ -16,6 +16,14 @@ import { ServiceError } from '@/lib/errors/serviceError';
 import { ERROR_CODES } from '@/lib/errorHandling';
 import { calculateLLMCost } from '@/config/llmPricing';
 import { isOpenRouterModel as registryIsOpenRouterModel, getOpenRouterApiModelId, getModelMaxTemperature } from '@/config/modelRegistry';
+
+/** Clamp temperature to model's max. Returns undefined if model doesn't support temperature or temp not set. */
+function clampTemperature(temperature: number | undefined, model: string): number | undefined {
+    if (temperature === undefined) return undefined;
+    const maxTemp = getModelMaxTemperature(model);
+    if (maxTemp === null || maxTemp === undefined) return undefined;
+    return Math.min(temperature, maxTemp);
+}
 import { getLLMSemaphore } from './llmSemaphore';
 import { getSpendingGate } from './llmSpendingGate';
 
@@ -313,13 +321,9 @@ async function callOpenAIModel(
             stream: streaming
         };
 
-        // Apply temperature if provided and model supports it (maxTemperature !== null)
-        if (options?.temperature !== undefined) {
-            const maxTemp = getModelMaxTemperature(validatedModel);
-            if (maxTemp !== null && maxTemp !== undefined) {
-                requestOptions.temperature = Math.min(options.temperature, maxTemp);
-            }
-            // If maxTemp is null (e.g. o3-mini), omit temperature entirely — API rejects it
+        const clampedTemp = clampTemperature(options?.temperature, validatedModel);
+        if (clampedTemp !== undefined) {
+            requestOptions.temperature = clampedTemp;
         }
 
         if (response_obj && response_obj_name) {
@@ -485,14 +489,7 @@ async function callAnthropicModel(
             'llm.streaming': streaming ? 'true' : 'false'
         });
 
-        // Compute temperature for Anthropic: clamp to model's max (1.0 for Claude)
-        let anthropicTemp: number | undefined;
-        if (options?.temperature !== undefined) {
-            const maxTemp = getModelMaxTemperature(validatedModel);
-            if (maxTemp !== null && maxTemp !== undefined) {
-                anthropicTemp = Math.min(options.temperature, maxTemp);
-            }
-        }
+        const anthropicTemp = clampTemperature(options?.temperature, validatedModel);
 
         let response: string;
         let usage: { input_tokens: number; output_tokens: number };

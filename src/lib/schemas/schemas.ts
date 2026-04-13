@@ -71,9 +71,8 @@ export type TimePeriod = 'hour' | 'today' | 'week' | 'month' | 'all';
 /** Restricts model parameter to approved models — derived from the central model registry. */
 import { getEvolutionModelIds } from '@/config/modelRegistry';
 
-const _evolutionModelIds = getEvolutionModelIds();
 export const allowedLLMModelSchema = z.enum(
-  _evolutionModelIds as [string, ...string[]],
+  getEvolutionModelIds() as [string, ...string[]],
 );
 
 export type AllowedLLMModelType = z.infer<typeof allowedLLMModelSchema>;

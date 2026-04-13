@@ -118,13 +118,10 @@ export const MODEL_REGISTRY: Record<string, ModelInfo> = {
 
 // ─── Startup validation ─────────────────────────────────────────
 
-const registryKeys = Object.keys(MODEL_REGISTRY);
-if (registryKeys.length === 0) {
+if (Object.keys(MODEL_REGISTRY).length === 0) {
   throw new Error('MODEL_REGISTRY is empty — at least one model must be defined');
 }
-
-const evolutionModels = registryKeys.filter(k => MODEL_REGISTRY[k]!.supportsEvolution);
-if (evolutionModels.length === 0) {
+if (!Object.values(MODEL_REGISTRY).some(m => m.supportsEvolution)) {
   throw new Error('MODEL_REGISTRY has no models with supportsEvolution=true');
 }
 
