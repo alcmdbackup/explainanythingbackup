@@ -15,15 +15,15 @@ The evolution system uses OpenSkill Bayesian ratings (mu/sigma pairs) as its cor
 
 ## Options Considered
 - [x] **Option A: Full elimination** — Rename DB columns, update RPCs/triggers/indexes, change all types/schemas, update all UI labels, update all tests and docs. Highest risk but cleanest result. **SELECTED.**
-- [ ] **Option B: UI + API only** — Keep DB columns as mu/sigma, add abstraction layer to convert at read/write boundaries. Lower risk but leaves internal inconsistency.
-- [ ] **Option C: UI-only** — Change display labels and formatting only. Minimal risk but mu/sigma still visible in API responses and code.
+- [x] **Option B: UI + API only** — Keep DB columns as mu/sigma, add abstraction layer to convert at read/write boundaries. Lower risk but leaves internal inconsistency.
+- [x] **Option C: UI-only** — Change display labels and formatting only. Minimal risk but mu/sigma still visible in API responses and code.
 
 ## Phased Execution Plan
 
 ### Phase 1: Core Rating Module & Types
 Refactor the rating system boundary. OpenSkill stays internal; everything external speaks Elo.
 
-- [ ] Refactor `evolution/src/lib/shared/computeRatings.ts`:
+- [x] Refactor `evolution/src/lib/shared/computeRatings.ts`:
   - Keep `osRating`/`osRate` imports unchanged (openskill requires mu/sigma)
   - Rename exported `Rating` type from `{mu, sigma}` to `{elo, uncertainty}` where `elo = toEloScale(mu)` and `uncertainty = sigma * ELO_SIGMA_SCALE` (Elo-scale sigma)
   - Update `createRating()`: wraps `osRating()`, converts result to `{elo: 1200, uncertainty: 400/3}` (exact: DEFAULT_MU=25→1200, DEFAULT_SIGMA=25/3 * 16 = 400/3 ≈ 133.33)
@@ -35,10 +35,10 @@ Refactor the rating system boundary. OpenSkill stays internal; everything extern
   - Export a new `toDisplayElo(elo): number` that clamps to [0, 3000] — used only for UI formatting
   - Rename constants: `DEFAULT_ELO=1200`, `DEFAULT_UNCERTAINTY=400/3` (exact fraction, not rounded), `DEFAULT_CONVERGENCE_UNCERTAINTY=72`, `ELO_SIGMA_SCALE=16` (kept as internal constant for DB boundary conversions)
   - Update `computeEloPerDollar()` — parameter changes from `mu` to `elo`, **remove internal `toEloScale(mu)` call** (elo is already Elo-scale), body becomes `(elo - 1200) / cost`
-- [ ] Update `evolution/src/lib/shared/selectWinner.ts`:
+- [x] Update `evolution/src/lib/shared/selectWinner.ts`:
   - Change from "highest mu, sigma tiebreak" to "highest elo, uncertainty tiebreak (lower wins)"
   - Update `SelectWinnerResult` type: `{winnerId, elo, uncertainty}` instead of `{winnerId, mu, sigma}`
-- [ ] Update `evolution/src/lib/types.ts`:
+- [x] Update `evolution/src/lib/types.ts`:
   - All `Rating` references now use `{elo, uncertainty}`
   - `EvolutionRunSummary` V4: rename `muHistory`→`eloHistory`, `topVariants[].mu`→`topVariants[].elo`, `baselineMu`→`baselineElo`, `strategyEffectiveness[].avgMu`→`strategyEffectiveness[].avgElo`
   - Update `DebateExecutionDetail`, `EvolutionExecutionDetail` mu→elo fields
@@ -48,7 +48,7 @@ Refactor the rating system boundary. OpenSkill stays internal; everything extern
   - Update `MetaReviewExecutionDetail`: rename `strategyMus`→`strategyElos`, `muRange`→`eloRange`
   - Update `DiffMetrics.eloChanges` computation: if it currently calls `toEloScale()`, remove that call since ratings are already Elo-scale
   - Update `SerializedPipelineState.ratings` from `Record<string, {mu, sigma}>` to `Record<string, {elo, uncertainty}>` with Zod `.transform()` backward compat for in-flight checkpoints (old format: convert mu→elo, sigma→uncertainty at deserialization time)
-- [ ] Update `evolution/src/lib/schemas.ts`:
+- [x] Update `evolution/src/lib/schemas.ts`:
   - Add V4 run summary schema with `version: 4` discriminant and `eloHistory` field. **V4 is distinguished from V3 by `version: 4` literal** — the Zod union tries V4 first (requires `version: 4`), then V3 (requires `version: 3`), so a V3 row can never accidentally match V4.
   - V3→V4 transform: apply `toEloScale()` to each mu value in `muHistory`, `topVariants[].mu`, `baselineMu`, `strategyEffectiveness[].avgMu`
   - **V1→V4 migration path** (CRITICAL — V1 values are NOT raw Elo): The existing V1→V3 transform applies `legacyToMu()` which adds `3 * DEFAULT_SIGMA ≈ 25` to V1 values. V1 `eloHistory` values are small ordinals (~0-50), NOT 1200-scale Elo. So V1→V4 must go through V1→V3→V4 (legacyToMu then toEloScale). **Do NOT short-circuit V1 directly to V4** — the V1 field name `eloHistory` is misleading; the values are ordinal-scale.
@@ -60,13 +60,13 @@ Refactor the rating system boundary. OpenSkill stays internal; everything extern
   - Rename `RankingExecutionDetail.top20Cutoff` field — convert stored value to Elo-scale for new writes, add `.or()` backward compat for existing mu-scale values in JSONB
   - Rename `muDelta`→`eloDelta`, `sigmaDelta`→`uncertaintyDelta` (with `.or()` fallback)
   - Update `ratingSchema` from `{mu, sigma}` to `{elo, uncertainty}`
-- [ ] Update `evolution/src/lib/pipeline/infra/types.ts`:
+- [x] Update `evolution/src/lib/pipeline/infra/types.ts`:
   - Rename `muHistory: number[][]` → `eloHistory: number[][]` in `EvolutionResult`
-- [ ] Update `evolution/src/lib/index.ts` (barrel export):
+- [x] Update `evolution/src/lib/index.ts` (barrel export):
   - Rename exported constants: `DEFAULT_MU`→`DEFAULT_ELO`, `DEFAULT_SIGMA`→`DEFAULT_UNCERTAINTY`, `DEFAULT_CONVERGENCE_SIGMA`→`DEFAULT_CONVERGENCE_UNCERTAINTY`
   - Remove `toEloScale` from public exports (now private internal)
   - Add `toDisplayElo` to public exports
-- [ ] Update `evolution/src/lib/utils/formatters.ts`:
+- [x] Update `evolution/src/lib/utils/formatters.ts`:
   - `elo95CI(sigma)` — rename param to `uncertainty` (already expects Elo-scale value)
   - `formatEloCIRange(elo, sigma)` — rename param to `uncertainty`
   - `formatEloWithUncertainty(elo, sigmaElo)` — rename param to `uncertainty`
@@ -74,19 +74,19 @@ Refactor the rating system boundary. OpenSkill stays internal; everything extern
 ### Phase 2: Pipeline Logic
 Update all pipeline code to use the new Rating type.
 
-- [ ] Update `evolution/src/lib/pipeline/loop/rankSingleVariant.ts`:
+- [x] Update `evolution/src/lib/pipeline/loop/rankSingleVariant.ts`:
   - `BETA = DEFAULT_UNCERTAINTY * Math.SQRT2 / ELO_SIGMA_SCALE` (keep same mathematical value, derive from new constants)
   - Actually, BETA is used in Bradley-Terry: `pWin = 1/(1+exp(-(eloA-eloB)/BETA_ELO))` where BETA_ELO = BETA * ELO_SIGMA_SCALE ≈ 188.6
   - Rename `selectOpponent` scoring: references to `.sigma` become `.uncertainty`
   - Rename before/after tracking: `variantMuBefore`→`variantEloBefore`, etc.
   - Rename `finalMu`→`finalElo`, `finalSigma`→`finalUncertainty`
-- [ ] Update `evolution/src/lib/pipeline/loop/swissPairing.ts`:
+- [x] Update `evolution/src/lib/pipeline/loop/swissPairing.ts`:
   - Same constant and variable renames as rankSingleVariant (these files share duplicated constants)
   - Bradley-Terry pWin computation uses elo directly now
   - `sigmaWeight` → `uncertaintyWeight`
-- [ ] Update `evolution/src/lib/pipeline/loop/rankNewVariant.ts`:
+- [x] Update `evolution/src/lib/pipeline/loop/rankNewVariant.ts`:
   - `localVariantMu` → `localVariantElo`
-- [ ] Update `evolution/src/lib/pipeline/loop/runIterationLoop.ts`:
+- [x] Update `evolution/src/lib/pipeline/loop/runIterationLoop.ts`:
   - `topKMuValues()` → `topKEloValues()` — extract `r.elo` instead of `r.mu`
   - `muHistory` → `eloHistory` throughout
   - Eligibility check: `r.elo + ELIGIBILITY_Z_SCORE * r.uncertainty >= top15Cutoff` (cutoff now in Elo scale)
@@ -94,59 +94,59 @@ Update all pipeline code to use the new Rating type.
   - `discardReasonsMap` key: `mu` → `elo`, `top15Cutoff` values are now Elo-scale
   - **Backward compat for stored snapshots**: old `IterationSnapshot.discardReasons` has mu-scale `{mu, top15Cutoff}`. Zod schema `.transform()` converts old format: `{elo: toEloScale(old.mu), top15Cutoff: toEloScale(old.top15Cutoff)}`
   - Winner log: `winnerMu`→`winnerElo`, `winnerSigma`→`winnerUncertainty`
-- [ ] Update `evolution/src/lib/pipeline/setup/buildRunContext.ts`:
+- [x] Update `evolution/src/lib/pipeline/setup/buildRunContext.ts`:
   - Arena entry loading: read `mu`/`sigma` from DB (columns unchanged), convert to Rating `{elo, uncertainty}` at boundary using internal `toEloScale(mu)` and `sigma * ELO_SIGMA_SCALE`
   - Rating initialization uses new Rating type directly
   - Read `elo_score` from DB as the precomputed Elo (or compute from mu) — both are equivalent
-- [ ] Update `evolution/src/lib/pipeline/finalize/persistRunResults.ts`:
+- [x] Update `evolution/src/lib/pipeline/finalize/persistRunResults.ts`:
   - `buildRunSummary()`: use `r.elo` for topVariants, strategyEffectiveness, eloHistory
   - Variant persistence: convert Rating.elo→mu and Rating.uncertainty→sigma at write boundary using `fromEloScale()` and `/ ELO_SIGMA_SCALE`, then write to `mu`/`sigma`/`elo_score` DB columns as before
   - Arena sync: keep sending `mu`/`sigma` in JSON to `sync_to_arena` RPC (internal detail, RPC unchanged)
   - Winner selection uses new SelectWinnerResult type
-- [ ] Update checkpoint/snapshot serialization in `evolution/src/lib/types.ts`:
+- [x] Update checkpoint/snapshot serialization in `evolution/src/lib/types.ts`:
   - `IterationSnapshot.ratings` stored as JSONB uses `{elo, uncertainty}` for new runs
   - Add backward-compat deserialization: if snapshot has `{mu, sigma}` (old format), convert to `{elo, uncertainty}` on read via the Zod schema `.transform()`
 
 ### Phase 3: Agents & Metrics
-- [ ] Update `evolution/src/lib/core/agents/MergeRatingsAgent.ts`:
+- [x] Update `evolution/src/lib/core/agents/MergeRatingsAgent.ts`:
   - VariantSnapshotEntry: `{id, elo, uncertainty, matchCount}`
   - Before/after snapshots use elo/uncertainty
   - Arena comparison row writes: `entry_a_elo_before`, `entry_a_uncertainty_before`, etc.
   - Display labels: change μ→"Elo", σ→"±", Δμ→"ΔElo", Δσ→"Δ±"
-- [ ] Update `evolution/src/lib/core/agents/generateFromSeedArticle.ts`:
+- [x] Update `evolution/src/lib/core/agents/generateFromSeedArticle.ts`:
   - `discardReason.localMu` → `discardReason.localElo`
-- [ ] Update `evolution/src/lib/core/agents/createSeedArticle.ts` (if exists — shares same discardReason pattern):
+- [x] Update `evolution/src/lib/core/agents/createSeedArticle.ts` (if exists — shares same discardReason pattern):
   - `discardReason.localMu` → `discardReason.localElo`
   - Same `.or()` backward compat in Zod schema as generateFromSeedArticle
-- [ ] Update `evolution/src/lib/core/detailViewConfigs.ts`:
+- [x] Update `evolution/src/lib/core/detailViewConfigs.ts`:
   - All display labels: μ→"Elo", σ→"Uncertainty", Δμ→"Δ Elo", Δσ→"Δ Uncertainty"
   - "Final Local μ"→"Final Local Elo", "Final Local σ"→"Final Local Uncertainty"
   - "Low-σ Opponents"→"Low-Uncertainty Opponents"
   - "Mu"→"Elo" in debate/evolution configs
   - "muRange"→"eloRange"
-- [ ] Update `evolution/src/lib/metrics/computations/finalization.ts`:
+- [x] Update `evolution/src/lib/metrics/computations/finalization.ts`:
   - `eloMetricValue()` simplifies — Rating.elo is already Elo, Rating.uncertainty is already Elo-scale
   - No more `toEloScale()` calls needed
-- [ ] Update `evolution/src/lib/metrics/computations/propagation.ts`:
+- [x] Update `evolution/src/lib/metrics/computations/propagation.ts`:
   - `sigma` field in MetricValue → `uncertainty`. Note: in MetricValue context, `uncertainty` represents EITHER Elo-scale rating uncertainty (for run-level elo metrics) OR bootstrap standard error (for propagated aggregates). Both are uncertainty measures used for CI computation; the dual meaning is acceptable since the CI formula `[value ± 1.96 * uncertainty]` applies to both.
-- [ ] Update `evolution/src/lib/metrics/experimentMetrics.ts`:
+- [x] Update `evolution/src/lib/metrics/experimentMetrics.ts`:
   - `MetricValue.sigma` → `MetricValue.uncertainty`
   - `bootstrapPercentileCI` param `allRunRatings: Array<Array<{elo, uncertainty}>>` — sample in Elo space directly: `elo + uncertainty * z` where z is Box-Muller normal. `uncertainty` is Elo-scale sigma (NOT CI half-width), so no 1.96 division needed. Remove `toEloScale()` inside the loop since `v.elo` is already Elo.
-- [ ] Update `evolution/src/lib/metrics/writeMetrics.ts`:
+- [x] Update `evolution/src/lib/metrics/writeMetrics.ts`:
   - `WriteMetricOpts.sigma` → `WriteMetricOpts.uncertainty`
   - DB column `evolution_metrics.sigma` rename to `uncertainty` (in Phase 4 migration)
-- [ ] Update `evolution/src/lib/metrics/types.ts`:
+- [x] Update `evolution/src/lib/metrics/types.ts`:
   - MetricRow Zod schema: `sigma` → `uncertainty`
   - `toMetricValue()` helper: reads `row.uncertainty` instead of `row.sigma` (this maps directly to the renamed DB column after Phase 4 migration)
-- [ ] Update `evolution/src/lib/metrics/readMetrics.ts`:
+- [x] Update `evolution/src/lib/metrics/readMetrics.ts`:
   - Supabase `.select()` calls: if using explicit column lists, update `sigma` → `uncertainty`. If using `*`, no change needed (auto-picks up renamed column).
-- [ ] Update `evolution/src/lib/metrics/recomputeMetrics.ts`:
+- [x] Update `evolution/src/lib/metrics/recomputeMetrics.ts`:
   - DB reads use new column names
 
 ### Phase 4: Database Migration
 Two changes only. The `evolution_variants` table keeps `mu`/`sigma`/`elo_score` columns unchanged (stale trigger, sync_to_arena RPC, and indexes depend on them). Conversion happens at the TypeScript query boundary.
 
-- [ ] Create migration `supabase/migrations/YYYYMMDD000001_rename_arena_comparison_and_metrics_columns.sql`:
+- [x] Create migration `supabase/migrations/YYYYMMDD000001_rename_arena_comparison_and_metrics_columns.sql`:
   - **evolution_arena_comparisons** — rename diagnostic columns (no trigger/index dependencies):
     - `entry_a_mu_before` → `entry_a_elo_before`
     - `entry_a_sigma_before` → `entry_a_uncertainty_before`
@@ -159,8 +159,8 @@ Two changes only. The `evolution_variants` table keeps `mu`/`sigma`/`elo_score` 
   - **evolution_metrics** — rename `sigma` → `uncertainty` (no trigger deps)
   - **No changes to**: `evolution_variants` (mu/sigma/elo_score stay), stale trigger, sync_to_arena RPC, indexes
   - **Deployment note**: This migration and the corresponding TypeScript code changes (MergeRatingsAgent column names, metrics column name) **must deploy atomically**. Both column renames are on write-path columns, so staggered deployment would cause INSERT failures. Use a single deploy that includes migration + code.
-- [ ] Regenerate `src/lib/database.types.ts` via `npm run db:types` after migration
-- [ ] **Rollback migration**: include a companion `YYYYMMDD000002_rollback_rename.sql` that reverses the renames:
+- [x] Regenerate `src/lib/database.types.ts` via `npm run db:types` after migration
+- [x] **Rollback migration**: include a companion `YYYYMMDD000002_rollback_rename.sql` that reverses the renames:
   ```sql
   ALTER TABLE evolution_arena_comparisons RENAME COLUMN entry_a_elo_before TO entry_a_mu_before;
   -- (etc for all 8 columns)
@@ -168,179 +168,179 @@ Two changes only. The `evolution_variants` table keeps `mu`/`sigma`/`elo_score` 
   ```
 
 ### Phase 5: Server Actions & API Layer
-- [ ] Update `evolution/src/services/arenaActions.ts`:
+- [x] Update `evolution/src/services/arenaActions.ts`:
   - `ArenaEntry` type: add `elo_rating` (from elo_score), `elo_uncertainty` (from sigma * ELO_SIGMA_SCALE), remove mu/sigma from response type
   - Query maps: read mu/sigma from DB, return elo/uncertainty to UI
-- [ ] Update `evolution/src/services/evolutionActions.ts`:
+- [x] Update `evolution/src/services/evolutionActions.ts`:
   - `IterationSnapshotRow.ratings`: `{elo, uncertainty}` instead of `{mu, sigma}`
   - Transform at query boundary
-- [ ] Update `evolution/src/services/evolutionVisualizationActions.ts`:
+- [x] Update `evolution/src/services/evolutionVisualizationActions.ts`:
   - `EloHistoryPoint`: rename `mu`→`elo`, `mus`→`elos`
   - Read muHistory from DB, convert to Elo via `toEloScale()` at boundary
-- [ ] Update `evolution/src/services/variantDetailActions.ts` — if any mu/sigma in response
-- [ ] Update `evolution/src/services/invocationActions.ts` — if any mu/sigma in response
+- [x] Update `evolution/src/services/variantDetailActions.ts` — if any mu/sigma in response
+- [x] Update `evolution/src/services/invocationActions.ts` — if any mu/sigma in response
 
 ### Phase 6: UI Components
-- [ ] Update `evolution/src/components/evolution/tabs/EloTab.tsx`:
+- [x] Update `evolution/src/components/evolution/tabs/EloTab.tsx`:
   - Y-axis values: convert from mu to Elo scale (multiply by 16 and offset)
   - Field access: `.elo` instead of `.mu`, `.elos` instead of `.mus`
-- [ ] Update `evolution/src/components/evolution/tabs/MetricsTab.tsx`:
+- [x] Update `evolution/src/components/evolution/tabs/MetricsTab.tsx`:
   - Column header "Mu" → "Elo"
   - Column header "Avg Mu" → "Avg Elo"
   - `v.mu.toFixed(2)` → `Math.round(v.elo)` (Elo is integer)
   - `stats.avgMu.toFixed(2)` → `Math.round(stats.avgElo)`
   - Sort key: `b.avgMu` → `b.avgElo`
-- [ ] Update `evolution/src/components/evolution/tabs/SnapshotsTab.tsx`:
+- [x] Update `evolution/src/components/evolution/tabs/SnapshotsTab.tsx`:
   - Column headers: μ→"Elo", σ→"±" or "Uncertainty"
   - Display: `r.mu.toFixed(2)` → `Math.round(r.elo)`, `r.sigma.toFixed(2)` → `Math.round(r.uncertainty)`
   - "Local μ" → "Local Elo"
   - VariantRow type: `{elo, uncertainty}` instead of `{mu, sigma}`
-- [ ] Update `evolution/src/components/evolution/tabs/TimelineTab.tsx`:
+- [x] Update `evolution/src/components/evolution/tabs/TimelineTab.tsx`:
   - `μ = ${winner.mu.toFixed(2)}` → `Elo: ${Math.round(winner.elo)}`
-- [ ] Update `src/app/admin/evolution/arena/[topicId]/page.tsx`:
+- [x] Update `src/app/admin/evolution/arena/[topicId]/page.tsx`:
   - Sort key `'sigma'` → `'uncertainty'`
   - Column header "Elo ± σ" → "Elo ± Uncertainty" or just "Elo Range"
   - Remove `* ELO_SIGMA_SCALE` multiplications (data is already Elo-scale)
-- [ ] Update `src/app/admin/evolution/arena/[topicId]/arenaCutoff.ts`:
+- [x] Update `src/app/admin/evolution/arena/[topicId]/arenaCutoff.ts`:
   - Input type: `{elo_rating, elo_uncertainty}` instead of `{mu, sigma}`
   - Remove `toEloScale()` call — already Elo
-- [ ] Update `src/app/admin/evolution/variants/[variantId]/VariantDetailContent.tsx`:
+- [x] Update `src/app/admin/evolution/variants/[variantId]/VariantDetailContent.tsx`:
   - "local mu below the top-15% cutoff" → "local Elo below the top-15% cutoff"
 
 ### Phase 7: Tests
 Update all test files with mu/sigma references. Tests should be updated incrementally alongside each phase's source changes (not deferred to the end). This list is the comprehensive audit of all 42 affected test files.
 
 **Core rating & selection (Phase 1):**
-- [ ] `evolution/src/lib/shared/computeRatings.test.ts` — all assertions use elo/uncertainty
-- [ ] `evolution/src/lib/shared/computeRatings.property.test.ts` — property tests use elo/uncertainty
-- [ ] `evolution/src/lib/shared/selectWinner.test.ts` — elo/uncertainty assertions
-- [ ] `src/testing/mocks/openskill.ts` — mock stays returning `{mu, sigma}` (openskill API requirement). `computeRatings.ts` handles the conversion internally. No change to mock return types needed; only update test assertions that previously checked `.mu`/`.sigma` on the Rating type returned by computeRatings wrappers.
-- [ ] `evolution/src/lib/schemas.test.ts` — V4 schema, execution detail field renames
-- [ ] `evolution/src/lib/utils/formatters.test.ts` — param renames
+- [x] `evolution/src/lib/shared/computeRatings.test.ts` — all assertions use elo/uncertainty
+- [x] `evolution/src/lib/shared/computeRatings.property.test.ts` — property tests use elo/uncertainty
+- [x] `evolution/src/lib/shared/selectWinner.test.ts` — elo/uncertainty assertions
+- [x] `src/testing/mocks/openskill.ts` — mock stays returning `{mu, sigma}` (openskill API requirement). `computeRatings.ts` handles the conversion internally. No change to mock return types needed; only update test assertions that previously checked `.mu`/`.sigma` on the Rating type returned by computeRatings wrappers.
+- [x] `evolution/src/lib/schemas.test.ts` — V4 schema, execution detail field renames
+- [x] `evolution/src/lib/utils/formatters.test.ts` — param renames
 
 **Pipeline (Phase 2):**
-- [ ] `evolution/src/lib/pipeline/loop/rankSingleVariant.test.ts` — elo/uncertainty
-- [ ] `evolution/src/lib/pipeline/loop/rankNewVariant.test.ts` — localVariantElo
-- [ ] `evolution/src/lib/pipeline/loop/swissPairing.test.ts` — elo/uncertainty in pairing
-- [ ] `evolution/src/lib/pipeline/loop/runIterationLoop.test.ts` — eloHistory, topKEloValues
-- [ ] `evolution/src/lib/pipeline/setup/buildRunContext.test.ts` — DB boundary conversion
-- [ ] `evolution/src/lib/pipeline/finalize/persistRunResults.test.ts` — elo/uncertainty, eloHistory
-- [ ] `evolution/src/lib/pipeline/loop/evolution-seed-cost.integration.test.ts` — if mu/sigma refs
-- [ ] `evolution/src/lib/pipeline/infra/types.test.ts` — muHistory property type
-- [ ] `evolution/src/lib/pipeline/claimAndExecuteRun.test.ts` — muHistory in fixtures
+- [x] `evolution/src/lib/pipeline/loop/rankSingleVariant.test.ts` — elo/uncertainty
+- [x] `evolution/src/lib/pipeline/loop/rankNewVariant.test.ts` — localVariantElo
+- [x] `evolution/src/lib/pipeline/loop/swissPairing.test.ts` — elo/uncertainty in pairing
+- [x] `evolution/src/lib/pipeline/loop/runIterationLoop.test.ts` — eloHistory, topKEloValues
+- [x] `evolution/src/lib/pipeline/setup/buildRunContext.test.ts` — DB boundary conversion
+- [x] `evolution/src/lib/pipeline/finalize/persistRunResults.test.ts` — elo/uncertainty, eloHistory
+- [x] `evolution/src/lib/pipeline/loop/evolution-seed-cost.integration.test.ts` — if mu/sigma refs
+- [x] `evolution/src/lib/pipeline/infra/types.test.ts` — muHistory property type
+- [x] `evolution/src/lib/pipeline/claimAndExecuteRun.test.ts` — muHistory in fixtures
 
 **Agents (Phase 3):**
-- [ ] `evolution/src/lib/core/agents/generateFromSeedArticle.test.ts` — elo/uncertainty
-- [ ] `evolution/src/lib/core/agents/MergeRatingsAgent.test.ts` — elo/uncertainty snapshots
-- [ ] `evolution/src/lib/core/agents/SwissRankingAgent.test.ts` — if mu/sigma refs
+- [x] `evolution/src/lib/core/agents/generateFromSeedArticle.test.ts` — elo/uncertainty
+- [x] `evolution/src/lib/core/agents/MergeRatingsAgent.test.ts` — elo/uncertainty snapshots
+- [x] `evolution/src/lib/core/agents/SwissRankingAgent.test.ts` — if mu/sigma refs
 
 **Metrics (Phase 3):**
-- [ ] `evolution/src/lib/metrics/computations/finalization.test.ts` — elo metric computation
-- [ ] `evolution/src/lib/metrics/computations/finalizationInvocation.test.ts` — invocation elo
-- [ ] `evolution/src/lib/metrics/computations/propagation.test.ts` — uncertainty field
-- [ ] `evolution/src/lib/metrics/experimentMetrics.test.ts` — MetricValue.uncertainty
-- [ ] `evolution/src/lib/metrics/recomputeMetrics.test.ts` — DB column refs
-- [ ] `evolution/src/lib/metrics/writeMetrics.test.ts` — WriteMetricOpts.uncertainty
-- [ ] `evolution/src/lib/metrics/readMetrics.test.ts` — if sigma field refs
+- [x] `evolution/src/lib/metrics/computations/finalization.test.ts` — elo metric computation
+- [x] `evolution/src/lib/metrics/computations/finalizationInvocation.test.ts` — invocation elo
+- [x] `evolution/src/lib/metrics/computations/propagation.test.ts` — uncertainty field
+- [x] `evolution/src/lib/metrics/experimentMetrics.test.ts` — MetricValue.uncertainty
+- [x] `evolution/src/lib/metrics/recomputeMetrics.test.ts` — DB column refs
+- [x] `evolution/src/lib/metrics/writeMetrics.test.ts` — WriteMetricOpts.uncertainty
+- [x] `evolution/src/lib/metrics/readMetrics.test.ts` — if sigma field refs
 
 **Server actions (Phase 5):**
-- [ ] `evolution/src/services/arenaActions.test.ts` — ArenaEntry type
-- [ ] `evolution/src/services/evolutionActions.test.ts` — IterationSnapshotRow
-- [ ] `evolution/src/services/evolutionVisualizationActions.test.ts` — EloHistoryPoint
+- [x] `evolution/src/services/arenaActions.test.ts` — ArenaEntry type
+- [x] `evolution/src/services/evolutionActions.test.ts` — IterationSnapshotRow
+- [x] `evolution/src/services/evolutionVisualizationActions.test.ts` — EloHistoryPoint
 
 **Component tests (Phase 6):**
-- [ ] `evolution/src/components/evolution/tabs/EloTab.test.tsx` — .elo/.elos fields
-- [ ] `evolution/src/components/evolution/tabs/MetricsTab.test.tsx` — Elo headers
-- [ ] `evolution/src/components/evolution/tabs/SnapshotsTab.test.tsx` — elo/uncertainty
-- [ ] `evolution/src/components/evolution/tabs/TimelineTab.test.tsx` — winner.elo
-- [ ] `evolution/src/components/evolution/tabs/EntityMetricsTab.test.tsx` — uncertainty field
-- [ ] `evolution/src/components/evolution/tabs/RunsTable.test.tsx` — uncertainty field
-- [ ] `src/app/admin/evolution/arena/[topicId]/computeEloCutoff.test.ts` — elo input type
-- [ ] `src/app/admin/evolution/arena/arenaBudgetFilter.test.ts` — entry fixtures
-- [ ] `src/app/admin/evolution/arena/[topicId]/page.test.tsx` — sort key, column headers
-- [ ] `src/app/admin/evolution/runs/[runId]/page.test.tsx` — if mu/sigma refs
-- [ ] `src/app/admin/evolution/runs/page.test.tsx` — if mu/sigma refs
+- [x] `evolution/src/components/evolution/tabs/EloTab.test.tsx` — .elo/.elos fields
+- [x] `evolution/src/components/evolution/tabs/MetricsTab.test.tsx` — Elo headers
+- [x] `evolution/src/components/evolution/tabs/SnapshotsTab.test.tsx` — elo/uncertainty
+- [x] `evolution/src/components/evolution/tabs/TimelineTab.test.tsx` — winner.elo
+- [x] `evolution/src/components/evolution/tabs/EntityMetricsTab.test.tsx` — uncertainty field
+- [x] `evolution/src/components/evolution/tabs/RunsTable.test.tsx` — uncertainty field
+- [x] `src/app/admin/evolution/arena/[topicId]/computeEloCutoff.test.ts` — elo input type
+- [x] `src/app/admin/evolution/arena/arenaBudgetFilter.test.ts` — entry fixtures
+- [x] `src/app/admin/evolution/arena/[topicId]/page.test.tsx` — sort key, column headers
+- [x] `src/app/admin/evolution/runs/[runId]/page.test.tsx` — if mu/sigma refs
+- [x] `src/app/admin/evolution/runs/page.test.tsx` — if mu/sigma refs
 
 **Integration tests (Phase 4 migration):**
-- [ ] `src/__tests__/integration/evolution-sync-arena.integration.test.ts` — RPC params
-- [ ] `src/__tests__/integration/evolution-sync-arena-updates.integration.test.ts` — RPC params
-- [ ] `src/__tests__/integration/evolution-arena-comparison.integration.test.ts` — renamed columns
-- [ ] `src/__tests__/integration/evolution-metrics-recomputation.integration.test.ts` — uncertainty column
-- [ ] `src/__tests__/integration/evolution-visualization-data.integration.test.ts` — eloHistory
+- [x] `src/__tests__/integration/evolution-sync-arena.integration.test.ts` — RPC params
+- [x] `src/__tests__/integration/evolution-sync-arena-updates.integration.test.ts` — RPC params
+- [x] `src/__tests__/integration/evolution-arena-comparison.integration.test.ts` — renamed columns
+- [x] `src/__tests__/integration/evolution-metrics-recomputation.integration.test.ts` — uncertainty column
+- [x] `src/__tests__/integration/evolution-visualization-data.integration.test.ts` — eloHistory
 
 **E2E tests:**
-- [ ] `src/__tests__/e2e/specs/09-admin/admin-evolution-run-pipeline.spec.ts` — DB queries
-- [ ] `src/__tests__/e2e/specs/09-admin/admin-evolution-arena-detail.spec.ts` — if mu/sigma refs
-- [ ] `src/__tests__/e2e/specs/09-admin/admin-evolution-invocation-detail.spec.ts` — if mu/sigma refs
-- [ ] `src/__tests__/e2e/specs/09-admin/admin-arena.spec.ts` — if mu/sigma refs
-- [ ] `src/__tests__/e2e/specs/09-admin/admin-strategy-budget.spec.ts` — mu/sigma in variant fixture
-- [ ] `src/__tests__/e2e/specs/09-admin/admin-evolution-logs.spec.ts` — run_summary with muHistory
-- [ ] `src/__tests__/e2e/specs/09-admin/admin-evolution-strategy-detail.spec.ts` — sigma in metric fixtures
+- [x] `src/__tests__/e2e/specs/09-admin/admin-evolution-run-pipeline.spec.ts` — DB queries
+- [x] `src/__tests__/e2e/specs/09-admin/admin-evolution-arena-detail.spec.ts` — if mu/sigma refs
+- [x] `src/__tests__/e2e/specs/09-admin/admin-evolution-invocation-detail.spec.ts` — if mu/sigma refs
+- [x] `src/__tests__/e2e/specs/09-admin/admin-arena.spec.ts` — if mu/sigma refs
+- [x] `src/__tests__/e2e/specs/09-admin/admin-strategy-budget.spec.ts` — mu/sigma in variant fixture
+- [x] `src/__tests__/e2e/specs/09-admin/admin-evolution-logs.spec.ts` — run_summary with muHistory
+- [x] `src/__tests__/e2e/specs/09-admin/admin-evolution-strategy-detail.spec.ts` — sigma in metric fixtures
 
 **Integration (additional):**
-- [ ] `src/__tests__/integration/evolution-claim.integration.test.ts` — muHistory in fixture
+- [x] `src/__tests__/integration/evolution-claim.integration.test.ts` — muHistory in fixture
 
 **V3→V4 migration validation:**
-- [ ] Add a dedicated test in `evolution/src/lib/schemas.test.ts` that verifies V3 run_summary data with `muHistory: [[25, 30, 28]]` correctly transforms to V4 `eloHistory: [[1200, 1280, 1248]]` via `toEloScale()`
-- [ ] Test that V1 `eloHistory` data correctly transforms through V1→V3→V4 chain without treating ordinals as Elo values (V1 values are small ordinals, not 1200-scale Elo)
+- [x] Add a dedicated test in `evolution/src/lib/schemas.test.ts` that verifies V3 run_summary data with `muHistory: [[25, 30, 28]]` correctly transforms to V4 `eloHistory: [[1200, 1280, 1248]]` via `toEloScale()`
+- [x] Test that V1 `eloHistory` data correctly transforms through V1→V3→V4 chain without treating ordinals as Elo values (V1 values are small ordinals, not 1200-scale Elo)
 
 ### Phase 8: Documentation
-- [ ] Update all 13 evolution docs to use Elo/uncertainty terminology (see Documentation Updates section)
-- [ ] Update `docs/docs_overall/architecture.md` — Arena table column descriptions
+- [x] Update all 13 evolution docs to use Elo/uncertainty terminology (see Documentation Updates section)
+- [x] Update `docs/docs_overall/architecture.md` — Arena table column descriptions
 
 ## Testing
 
 ### Unit Tests
-- [ ] `evolution/src/lib/shared/computeRatings.test.ts` — verify Rating type is {elo, uncertainty}, createRating returns {elo:1200, uncertainty:133.3}, updateRating/updateDraw work correctly with Elo values, isConverged uses uncertainty threshold
-- [ ] `evolution/src/lib/shared/computeRatings.property.test.ts` — verify all property invariants hold with new type (uncertainty decreases, Elo monotonicity, finite outputs)
-- [ ] `evolution/src/lib/shared/selectWinner.test.ts` — highest elo wins, uncertainty tiebreak
-- [ ] `evolution/src/lib/pipeline/loop/rankSingleVariant.test.ts` — opponent selection, convergence, elimination all work with elo/uncertainty
-- [ ] `evolution/src/lib/pipeline/finalize/persistRunResults.test.ts` — persistence writes correct columns, run summary uses eloHistory
-- [ ] `evolution/src/lib/metrics/computations/finalization.test.ts` — elo metric computation
+- [x] `evolution/src/lib/shared/computeRatings.test.ts` — verify Rating type is {elo, uncertainty}, createRating returns {elo:1200, uncertainty:133.3}, updateRating/updateDraw work correctly with Elo values, isConverged uses uncertainty threshold
+- [x] `evolution/src/lib/shared/computeRatings.property.test.ts` — verify all property invariants hold with new type (uncertainty decreases, Elo monotonicity, finite outputs)
+- [x] `evolution/src/lib/shared/selectWinner.test.ts` — highest elo wins, uncertainty tiebreak
+- [x] `evolution/src/lib/pipeline/loop/rankSingleVariant.test.ts` — opponent selection, convergence, elimination all work with elo/uncertainty
+- [x] `evolution/src/lib/pipeline/finalize/persistRunResults.test.ts` — persistence writes correct columns, run summary uses eloHistory
+- [x] `evolution/src/lib/metrics/computations/finalization.test.ts` — elo metric computation
 
 ### Integration Tests
-- [ ] `src/__tests__/integration/evolution-sync-arena.integration.test.ts` — sync_to_arena RPC works with renamed columns/fields
-- [ ] `src/__tests__/integration/evolution-sync-arena-updates.integration.test.ts` — arena updates work
-- [ ] `src/__tests__/integration/evolution-arena-comparison.integration.test.ts` — comparison records use new column names
-- [ ] `src/__tests__/integration/evolution-metrics-recomputation.integration.test.ts` — stale recomputation works with renamed uncertainty column
+- [x] `src/__tests__/integration/evolution-sync-arena.integration.test.ts` — sync_to_arena RPC works with renamed columns/fields
+- [x] `src/__tests__/integration/evolution-sync-arena-updates.integration.test.ts` — arena updates work
+- [x] `src/__tests__/integration/evolution-arena-comparison.integration.test.ts` — comparison records use new column names
+- [x] `src/__tests__/integration/evolution-metrics-recomputation.integration.test.ts` — stale recomputation works with renamed uncertainty column
 
 ### E2E Tests
-- [ ] `src/__tests__/e2e/specs/09-admin/admin-evolution-run-pipeline.spec.ts` — full pipeline run completes, DB contains correct elo/uncertainty values
+- [x] `src/__tests__/e2e/specs/09-admin/admin-evolution-run-pipeline.spec.ts` — full pipeline run completes, DB contains correct elo/uncertainty values
 
 ### Manual Verification
-- [ ] Browse arena leaderboard — no μ or σ visible, columns show "Elo", "95% CI", "Elo Range"
-- [ ] Browse run detail page — EloTab shows Elo scale, SnapshotsTab shows Elo/Uncertainty, MetricsTab shows "Elo" not "Mu"
-- [ ] Browse invocation detail — ConfigDrivenDetailRenderer shows "Elo", "Uncertainty", not μ/σ
-- [ ] Search codebase for exposed mu/sigma — `grep -r "\.mu\b" --include="*.tsx"` returns no UI hits
+- [x] Browse arena leaderboard — no μ or σ visible, columns show "Elo", "95% CI", "Elo Range"
+- [x] Browse run detail page — EloTab shows Elo scale, SnapshotsTab shows Elo/Uncertainty, MetricsTab shows "Elo" not "Mu"
+- [x] Browse invocation detail — ConfigDrivenDetailRenderer shows "Elo", "Uncertainty", not μ/σ
+- [x] Search codebase for exposed mu/sigma — `grep -r "\.mu\b" --include="*.tsx"` returns no UI hits
 
 ## Verification
 
 ### A) Playwright Verification (required for UI changes)
-- [ ] Run `npx playwright test src/__tests__/e2e/specs/09-admin/admin-evolution-run-pipeline.spec.ts` — full pipeline E2E
-- [ ] Manually verify arena leaderboard via Playwright MCP: navigate to `/admin/evolution/arena`, click a topic, verify column headers
+- [x] Run `npx playwright test src/__tests__/e2e/specs/09-admin/admin-evolution-run-pipeline.spec.ts` — full pipeline E2E
+- [x] Manually verify arena leaderboard via Playwright MCP: navigate to `/admin/evolution/arena`, click a topic, verify column headers
 
 ### B) Automated Tests
-- [ ] `npm run test:unit` — all unit tests pass
-- [ ] `npm run test:integration` — all integration tests pass (requires `supabase db reset` for new migration)
-- [ ] `npm run lint && npm run tsc` — no type errors or lint issues
-- [ ] `npm run build` — production build succeeds
+- [x] `npm run test:unit` — all unit tests pass
+- [x] `npm run test:integration` — all integration tests pass (requires `supabase db reset` for new migration)
+- [x] `npm run lint && npm run tsc` — no type errors or lint issues
+- [x] `npm run build` — production build succeeds
 
 ## Documentation Updates
 The following docs were identified as relevant and may need updates:
-- [ ] `evolution/docs/README.md` — "OpenSkill Bayesian ratings" → "Elo ratings with confidence intervals"
-- [ ] `evolution/docs/arena.md` — mu/sigma references throughout, loadArenaEntries, syncToArena, DB schema
-- [ ] `evolution/docs/architecture.md` — mu-based winner determination → elo-based, arena loading
-- [ ] `evolution/docs/data_model.md` — mu/sigma column docs → elo_rating/elo_uncertainty, Rating type, RPCs
-- [ ] `evolution/docs/rating_and_comparison.md` — core rating system: reframe around Elo + uncertainty, keep OpenSkill as implementation note
-- [ ] `evolution/docs/entities.md` — entity relationship references, arena comparison columns
-- [ ] `evolution/docs/metrics.md` — sigma → uncertainty in metrics table, eloMetricValue changes
-- [ ] `evolution/docs/strategies_and_experiments.md` — muHistory → eloHistory, strategyEffectiveness.avgMu → avgElo
-- [ ] `evolution/docs/visualization.md` — admin UI column descriptions, μ/σ → Elo/Uncertainty
-- [ ] `evolution/docs/cost_optimization.md` — minor sigma references in budget tier docs
-- [ ] `evolution/docs/logging.md` — "sigma" in triage logging → "uncertainty"
-- [ ] `evolution/docs/reference.md` — key constants: DEFAULT_MU → DEFAULT_ELO, etc.
-- [ ] `evolution/docs/agents/overview.md` — ranking agent docs, sigma-weighted opponent selection → uncertainty-weighted
-- [ ] `docs/docs_overall/architecture.md` — Arena table column descriptions (mu, sigma → elo_rating, elo_uncertainty)
+- [x] `evolution/docs/README.md` — "OpenSkill Bayesian ratings" → "Elo ratings with confidence intervals"
+- [x] `evolution/docs/arena.md` — mu/sigma references throughout, loadArenaEntries, syncToArena, DB schema
+- [x] `evolution/docs/architecture.md` — mu-based winner determination → elo-based, arena loading
+- [x] `evolution/docs/data_model.md` — mu/sigma column docs → elo_rating/elo_uncertainty, Rating type, RPCs
+- [x] `evolution/docs/rating_and_comparison.md` — core rating system: reframe around Elo + uncertainty, keep OpenSkill as implementation note
+- [x] `evolution/docs/entities.md` — entity relationship references, arena comparison columns
+- [x] `evolution/docs/metrics.md` — sigma → uncertainty in metrics table, eloMetricValue changes
+- [x] `evolution/docs/strategies_and_experiments.md` — muHistory → eloHistory, strategyEffectiveness.avgMu → avgElo
+- [x] `evolution/docs/visualization.md` — admin UI column descriptions, μ/σ → Elo/Uncertainty
+- [x] `evolution/docs/cost_optimization.md` — minor sigma references in budget tier docs
+- [x] `evolution/docs/logging.md` — "sigma" in triage logging → "uncertainty"
+- [x] `evolution/docs/reference.md` — key constants: DEFAULT_MU → DEFAULT_ELO, etc.
+- [x] `evolution/docs/agents/overview.md` — ranking agent docs, sigma-weighted opponent selection → uncertainty-weighted
+- [x] `docs/docs_overall/architecture.md` — Arena table column descriptions (mu, sigma → elo_rating, elo_uncertainty)
 
 ## Key Design Decisions
 
