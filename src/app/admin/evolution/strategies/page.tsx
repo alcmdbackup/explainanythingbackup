@@ -199,16 +199,14 @@ function BudgetFloorsField({
   onChange,
   generationModel,
   judgeModel,
-  maxComparisonsPerVariant,
 }: {
   value: unknown;
   onChange: (v: unknown) => void;
   generationModel?: string;
   judgeModel?: string;
-  maxComparisonsPerVariant?: number;
 }): JSX.Element {
   const v = (value as BudgetFloorsValue | undefined) ?? { mode: 'fraction', parallelValue: null, sequentialValue: null };
-  const [preview, setPreview] = useState<{ estimatedAgentCostUsd: number; assumptions: { seedArticleChars: number; strategy: string; poolSize: number; maxComparisonsPerVariant: number } } | null>(null);
+  const [preview, setPreview] = useState<{ estimatedAgentCostUsd: number; assumptions: { seedArticleChars: number; strategy: string; comparisonsUsed: number } } | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
 
   // Debounced preview fetch when in agentMultiple mode and models are set.
@@ -224,7 +222,6 @@ function BudgetFloorsField({
         const result = await estimateAgentCostPreviewAction({
           generationModel,
           judgeModel,
-          maxComparisonsPerVariant,
         });
         // Discard out-of-order responses (race condition guard)
         if (requestId !== previewRequestCounter) return;
@@ -242,7 +239,7 @@ function BudgetFloorsField({
       }
     }, 300);
     return () => clearTimeout(timer);
-  }, [v.mode, generationModel, judgeModel, maxComparisonsPerVariant]);
+  }, [v.mode, generationModel, judgeModel]);
 
   const update = (patch: Partial<BudgetFloorsValue>) => onChange({ ...v, ...patch });
 
@@ -296,7 +293,7 @@ function BudgetFloorsField({
             <>
               Estimated cost per generateFromSeedArticle: {fmtCost(preview.estimatedAgentCostUsd)}
               <div className="mt-1 font-mono">
-                Based on: {preview.assumptions.seedArticleChars.toLocaleString()}-char seed • {preview.assumptions.strategy} • pool={preview.assumptions.poolSize} • {preview.assumptions.maxComparisonsPerVariant} cmp
+                Based on: {preview.assumptions.seedArticleChars.toLocaleString()}-char seed • {preview.assumptions.strategy} strategy • {preview.assumptions.comparisonsUsed} ranking comparisons
               </div>
             </>
           ) : previewError ? (
@@ -372,9 +369,6 @@ let previewRequestCounter = 0;
 function buildCreateFields(formValues: Record<string, unknown>): FieldDef[] {
   const generationModel = (formValues.generationModel as string) || undefined;
   const judgeModel = (formValues.judgeModel as string) || undefined;
-  const maxComparisonsPerVariant = formValues.maxComparisonsPerVariant != null
-    ? Number(formValues.maxComparisonsPerVariant)
-    : undefined;
 
   return [
     { name: 'name', label: 'Name', type: 'text', required: true, placeholder: 'Strategy name' },
@@ -400,7 +394,6 @@ function buildCreateFields(formValues: Record<string, unknown>): FieldDef[] {
           onChange={onChange}
           generationModel={generationModel}
           judgeModel={judgeModel}
-          maxComparisonsPerVariant={maxComparisonsPerVariant}
         />
       ),
     },

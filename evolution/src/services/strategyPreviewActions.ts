@@ -11,15 +11,20 @@ import { allowedLLMModelSchema } from '@/lib/schemas/schemas';
 
 // ─── Schemas ────────────────────────────────────────────────────
 
-/** Representative defaults used by the preview — see returned `assumptions` for values. */
+/** Representative defaults used by the preview — see returned `assumptions` for values.
+ *  We assume a fixed 15 ranking comparisons per agent rather than deriving from
+ *  pool size / numVariants. Rationale: actual comparisons per agent vary by
+ *  dispatch stage (first parallel agent sees pool=1 → 0 comparisons; later
+ *  sequential agents see a growing pool). A flat representative number keeps
+ *  the preview stable and predictable for budget planning. */
 const REPRESENTATIVE_SEED_CHARS = 5000;
 const REPRESENTATIVE_STRATEGY = 'grounding_enhance'; // Most expensive of 3 core strategies
-const REPRESENTATIVE_POOL_SIZE = 1;                 // Only baseline at parallel dispatch time
+const REPRESENTATIVE_COMPARISONS = 15;
 
 const previewInputSchema = z.object({
   generationModel: allowedLLMModelSchema,
   judgeModel: allowedLLMModelSchema,
-  maxComparisonsPerVariant: z.number().int().min(1).max(50).optional(),
+  /** Override the representative seed article size. Defaults to 5000 chars. */
   seedArticleChars: z.number().int().min(100).max(100000).optional(),
 });
 
@@ -28,8 +33,8 @@ export interface AgentCostPreview {
   assumptions: {
     seedArticleChars: number;
     strategy: string;
-    poolSize: number;
-    maxComparisonsPerVariant: number;
+    /** Representative ranking comparisons per agent used by the preview. */
+    comparisonsUsed: number;
   };
 }
 
@@ -50,15 +55,18 @@ export const estimateAgentCostPreviewAction = adminAction(
     const parsed = previewInputSchema.parse(input);
 
     const seedArticleChars = parsed.seedArticleChars ?? REPRESENTATIVE_SEED_CHARS;
-    const maxComparisonsPerVariant = parsed.maxComparisonsPerVariant ?? 15;
+    // To force `estimateAgentCost` to use exactly REPRESENTATIVE_COMPARISONS comparisons,
+    // pass poolSize = REPRESENTATIVE_COMPARISONS + 1 (so poolSize - 1 = 15) and cap at 15.
+    // The internal logic is `min(poolSize - 1, maxComparisonsPerVariant)`.
+    const poolSizeForEstimate = REPRESENTATIVE_COMPARISONS + 1;
 
     const estimatedAgentCostUsd = estimateAgentCost(
       seedArticleChars,
       REPRESENTATIVE_STRATEGY,
       parsed.generationModel,
       parsed.judgeModel,
-      REPRESENTATIVE_POOL_SIZE,
-      maxComparisonsPerVariant,
+      poolSizeForEstimate,
+      REPRESENTATIVE_COMPARISONS,
     );
 
     return {
@@ -66,8 +74,7 @@ export const estimateAgentCostPreviewAction = adminAction(
       assumptions: {
         seedArticleChars,
         strategy: REPRESENTATIVE_STRATEGY,
-        poolSize: REPRESENTATIVE_POOL_SIZE,
-        maxComparisonsPerVariant,
+        comparisonsUsed: REPRESENTATIVE_COMPARISONS,
       },
     };
   },

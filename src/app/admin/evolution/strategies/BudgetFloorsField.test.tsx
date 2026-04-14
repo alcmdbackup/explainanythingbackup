@@ -58,8 +58,7 @@ describe('BudgetFloorsField rendering', () => {
         assumptions: {
           seedArticleChars: 5000,
           strategy: 'grounding_enhance',
-          poolSize: 1,
-          maxComparisonsPerVariant: 15,
+          comparisonsUsed: 15,
         },
       },
     } as Awaited<ReturnType<typeof estimateAgentCostPreviewAction>>);
@@ -110,7 +109,7 @@ describe('BudgetFloorsField rendering', () => {
 
     // And the "Based on" assumption chip should be visible
     expect(preview.textContent).toMatch(/grounding_enhance/);
-    expect(preview.textContent).toMatch(/pool=1/);
+    expect(preview.textContent).toMatch(/15 ranking comparisons/);
   });
 
   it('enforces sequential ≤ parallel validation on submit', async () => {

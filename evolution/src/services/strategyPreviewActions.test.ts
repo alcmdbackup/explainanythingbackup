@@ -26,15 +26,14 @@ import { estimateAgentCostPreviewAction } from './strategyPreviewActions';
 import * as estimateCosts from '../lib/pipeline/infra/estimateCosts';
 
 describe('estimateAgentCostPreviewAction', () => {
-  it('wraps estimateAgentCost with representative defaults', async () => {
+  it('wraps estimateAgentCost with 15 representative comparisons', async () => {
     const spy = jest.spyOn(estimateCosts, 'estimateAgentCost');
 
     const result = await (estimateAgentCostPreviewAction as unknown as (
       input: Parameters<typeof estimateAgentCostPreviewAction>[0],
-    ) => Promise<{ estimatedAgentCostUsd: number; assumptions: { seedArticleChars: number; strategy: string; poolSize: number; maxComparisonsPerVariant: number } }>)({
+    ) => Promise<{ estimatedAgentCostUsd: number; assumptions: { seedArticleChars: number; strategy: string; comparisonsUsed: number } }>)({
       generationModel: 'qwen-2.5-7b-instruct',
       judgeModel: 'qwen-2.5-7b-instruct',
-      maxComparisonsPerVariant: 15,
     });
 
     expect(spy).toHaveBeenCalledTimes(1);
@@ -43,34 +42,16 @@ describe('estimateAgentCostPreviewAction', () => {
       'grounding_enhance',     // representative strategy (most expensive of 3 core)
       'qwen-2.5-7b-instruct',  // generationModel pass-through
       'qwen-2.5-7b-instruct',  // judgeModel pass-through
-      1,                       // poolSize default (only baseline at parallel dispatch time)
-      15,                      // maxComparisonsPerVariant pass-through
+      16,                      // poolSize = comparisons+1, so min(15, 15)=15 comparisons
+      15,                      // maxComparisonsPerVariant = REPRESENTATIVE_COMPARISONS
     );
     expect(result.estimatedAgentCostUsd).toBeGreaterThan(0);
     expect(result.assumptions).toEqual({
       seedArticleChars: 5000,
       strategy: 'grounding_enhance',
-      poolSize: 1,
-      maxComparisonsPerVariant: 15,
+      comparisonsUsed: 15,
     });
 
-    spy.mockRestore();
-  });
-
-  it('defaults maxComparisonsPerVariant to 15 when omitted', async () => {
-    const spy = jest.spyOn(estimateCosts, 'estimateAgentCost');
-    await (estimateAgentCostPreviewAction as unknown as (input: unknown) => Promise<{ assumptions: { maxComparisonsPerVariant: number } }>)({
-      generationModel: 'qwen-2.5-7b-instruct',
-      judgeModel: 'qwen-2.5-7b-instruct',
-    });
-    expect(spy).toHaveBeenCalledWith(
-      expect.any(Number),
-      expect.any(String),
-      expect.any(String),
-      expect.any(String),
-      expect.any(Number),
-      15,
-    );
     spy.mockRestore();
   });
 
@@ -88,14 +69,6 @@ describe('estimateAgentCostPreviewAction', () => {
     await expect((estimateAgentCostPreviewAction as unknown as (input: unknown) => Promise<unknown>)({
       generationModel: 'not-a-real-model',
       judgeModel: 'qwen-2.5-7b-instruct',
-    })).rejects.toThrow();
-  });
-
-  it('rejects out-of-range maxComparisonsPerVariant (>50)', async () => {
-    await expect((estimateAgentCostPreviewAction as unknown as (input: unknown) => Promise<unknown>)({
-      generationModel: 'qwen-2.5-7b-instruct',
-      judgeModel: 'qwen-2.5-7b-instruct',
-      maxComparisonsPerVariant: 100,
     })).rejects.toThrow();
   });
 
