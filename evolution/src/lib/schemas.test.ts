@@ -121,8 +121,8 @@ function createValidRunSummaryV3() {
     diversityHistory: [0.5, 0.6, 0.7],
     matchStats: { totalMatches: 10, avgConfidence: 0.75, decisiveRate: 0.8 },
     topVariants: [{ id: UUID1, strategy: 'generation', mu: 28, isBaseline: false }],
-    baselineRank: 3,
-    baselineMu: 25,
+    baselineRank: 3,         // legacy alias — preprocess renames to seedVariantRank
+    baselineMu: 25,          // legacy alias — preprocess renames to seedVariantElo
     strategyEffectiveness: { generation: { count: 5, avgMu: 26 } },
     metaFeedback: {
       successfulStrategies: ['paraphrase'],

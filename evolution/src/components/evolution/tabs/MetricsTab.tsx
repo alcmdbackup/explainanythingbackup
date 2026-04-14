@@ -68,7 +68,7 @@ export function MetricsTab({ runId }: MetricsTabProps): JSX.Element {
     { label: 'Stop Reason', value: summary.stopReason },
     { label: 'Avg Confidence', value: `${(summary.matchStats.avgConfidence * 100).toFixed(1)}%` },
     { label: 'Decisive Rate', value: `${(summary.matchStats.decisiveRate * 100).toFixed(1)}%` },
-    { label: 'Baseline Rank', value: summary.baselineRank ?? '—' },
+    { label: 'Seed Variant Rank', value: summary.seedVariantRank ?? '—' },
   ];
 
   return (
@@ -86,7 +86,7 @@ export function MetricsTab({ runId }: MetricsTabProps): JSX.Element {
                   <th scope="col" className="px-3 py-2 text-left">Rank</th>
                   <th scope="col" className="px-3 py-2 text-left">Strategy</th>
                   <th scope="col" className="px-3 py-2 text-right">Elo</th>
-                  <th scope="col" className="px-3 py-2 text-center">Baseline?</th>
+                  <th scope="col" className="px-3 py-2 text-center">Seed?</th>
                 </tr>
               </thead>
               <tbody>
@@ -99,7 +99,7 @@ export function MetricsTab({ runId }: MetricsTabProps): JSX.Element {
                     <td className="px-3 py-2 text-[var(--text-muted)]">#{i + 1}</td>
                     <td className="px-3 py-2 font-mono text-xs">{v.strategy}</td>
                     <td className="px-3 py-2 text-right font-semibold">{Math.round(elo)}</td>
-                    <td className="px-3 py-2 text-center">{v.isBaseline ? '✓' : ''}</td>
+                    <td className="px-3 py-2 text-center">{v.isSeedVariant ? '✓' : ''}</td>
                   </tr>
                   );
                 })}

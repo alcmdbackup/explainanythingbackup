@@ -16,8 +16,16 @@ import { type FinalizationContext, type MetricRow, type MetricName, type Aggrega
 import { evolutionVariantInsertSchema, EvolutionRunSummaryV3Schema } from '../../schemas';
 import { selectWinner } from '../../shared/selectWinner';
 
-/** V2 baseline strategy name (V1 uses 'original_baseline'). */
-const V2_BASELINE_STRATEGY = 'baseline';
+/** Seed variant strategy name (formerly 'baseline'; renamed 2026-04-14 to disambiguate from V1 'original_baseline'
+ *  and to clarify its role as the persisted seed article for a prompt). */
+export const SEED_VARIANT_STRATEGY = 'seed_variant';
+/** @deprecated Legacy alias; admin UI dual-accept reads both 'baseline' (legacy rows) and 'seed_variant' (current). */
+const LEGACY_BASELINE_STRATEGY = 'baseline';
+
+/** True if `strategy` denotes the seed variant — accepts both new and legacy names for back-compat. */
+function isSeedVariantStrategy(strategy: string | undefined): boolean {
+  return strategy === SEED_VARIANT_STRATEGY || strategy === LEGACY_BASELINE_STRATEGY;
+}
 
 
 interface RunContext {
@@ -52,14 +60,14 @@ function buildRunSummary(
     id: s.v.id,
     strategy: s.v.strategy,
     elo: s.elo,
-    isBaseline: s.v.strategy === V2_BASELINE_STRATEGY,
+    isSeedVariant: isSeedVariantStrategy(s.v.strategy),
   }));
 
-  // Baseline rank/elo
-  const baselineVariant = pool.find((v) => v.strategy === V2_BASELINE_STRATEGY);
-  const baselineElo = baselineVariant ? (ratings.get(baselineVariant.id)?.elo ?? DEFAULT_ELO) : null;
-  const baselineRank = baselineElo != null
-    ? pool.filter((v) => (ratings.get(v.id)?.elo ?? DEFAULT_ELO) > baselineElo).length + 1
+  // Seed variant rank/elo (renamed from baselineRank/baselineElo).
+  const seedVariantPoolEntry = pool.find((v) => isSeedVariantStrategy(v.strategy));
+  const seedVariantElo = seedVariantPoolEntry ? (ratings.get(seedVariantPoolEntry.id)?.elo ?? DEFAULT_ELO) : null;
+  const seedVariantRank = seedVariantElo != null
+    ? pool.filter((v) => (ratings.get(v.id)?.elo ?? DEFAULT_ELO) > seedVariantElo).length + 1
     : null;
 
   // Strategy effectiveness (single-pass aggregation) — avgElo mean.
@@ -85,8 +93,8 @@ function buildRunSummary(
     diversityHistory: result.diversityHistory,
     matchStats: { totalMatches, avgConfidence, decisiveRate },
     topVariants,
-    baselineRank,
-    baselineElo,
+    seedVariantRank,
+    seedVariantElo,
     strategyEffectiveness,
     metaFeedback: null,
   };
@@ -102,8 +110,14 @@ export async function finalizeRun(
   logger?: EntityLogger,
   runnerId?: string,
 ): Promise<void> {
-  // Filter out arena-loaded entries
-  const localPool = result.pool.filter((v) => !v.fromArena);
+  // summaryPool: the pool used for run_summary, winner selection, and metric loops.
+  // Includes the reused seed (it's a real participant in the run) but excludes other
+  // arena entries (those are reference points, already persisted elsewhere).
+  const summaryPool = result.pool.filter((v) => !v.fromArena || v.reusedFromSeed);
+  // localPool: variants that need a NEW evolution_variants INSERT this run.
+  // Excludes both arena entries AND the reused seed (which already has a DB row;
+  // its rating updates flow through arenaUpdates / optimistic-concurrency UPDATE).
+  const localPool = result.pool.filter((v) => !v.fromArena && !v.reusedFromSeed);
 
   if (localPool.length === 0) {
     if (result.pool.length > 0) {
@@ -118,8 +132,9 @@ export async function finalizeRun(
     return;
   }
 
-  // Step 1: Build run summary (exclude arena entries from stats) and validate
-  const filteredResult = { ...result, pool: localPool };
+  // Step 1: Build run summary using summaryPool (includes the reused seed so it appears
+  // in topVariants / seedVariantRank / seedVariantElo / strategyEffectiveness) and validate.
+  const filteredResult = { ...result, pool: summaryPool };
   const runSummary = buildRunSummary(filteredResult, durationSeconds);
   EvolutionRunSummaryV3Schema.parse(runSummary);
   logger?.info('Strategy effectiveness computed', { strategyEffectiveness: (runSummary as Record<string, unknown>).strategyEffectiveness, phaseName: 'finalize' });
@@ -162,8 +177,12 @@ export async function finalizeRun(
     return; // Skip variant persistence
   }
 
-  // Step 3: Determine winner (highest elo, tie-break by lowest uncertainty)
-  const winResult = selectWinner(localPool, result.ratings);
+  // Step 3: Determine winner (highest elo, tie-break by lowest uncertainty).
+  // Use summaryPool so the reused seed can be the winner if it has the highest elo.
+  // Note: when the seed is the winner, its `is_winner` flag is NOT written to a new
+  // evolution_variants row (the seed is excluded from localPool/INSERT). Its winner
+  // status is reflected in run_summary.topVariants[0].isSeedVariant=true instead.
+  const winResult = selectWinner(summaryPool, result.ratings);
   const winnerId = winResult.winnerId;
   const winnerElo = result.ratings.get(winnerId)?.elo ?? DEFAULT_ELO;
   const winnerUncertainty = result.ratings.get(winnerId)?.uncertainty ?? DEFAULT_UNCERTAINTY;
@@ -246,7 +265,9 @@ export async function finalizeRun(
     const finCtx: FinalizationContext = {
       result: filteredResult,
       ratings: result.ratings,
-      pool: localPool,
+      // summaryPool — metric loops should include the reused seed (it's a real participant
+      // and its variant-level metrics belong on the existing seed row).
+      pool: summaryPool,
       matchHistory: result.matchHistory,
     };
 
@@ -302,8 +323,9 @@ export async function finalizeRun(
       // automatically via the new SHARED_PROPAGATION_DEFS entries.
     }
 
-    // Variant-level finalization metrics
-    for (const v of localPool) {
+    // Variant-level finalization metrics — iterate summaryPool so the reused seed
+    // gets its variant metrics updated on its existing arena row.
+    for (const v of summaryPool) {
       const varCtx: FinalizationContext = { ...finCtx, currentVariantCost: v.costUsd ?? null };
       for (const def of getEntity('variant').metrics.atFinalization) {
         const result = def.compute(varCtx);
@@ -388,7 +410,24 @@ export async function propagateMetrics(
   }
 }
 
-/** Sync pipeline results to arena: upsert entries, insert matches, update Elo. */
+/** Snapshot of the reused seed at run-start, used for optimistic-concurrency UPDATE at finalize. */
+export interface ReusedSeedSnapshot {
+  id: string;
+  /** Lossless mu string (Postgres NUMERIC) loaded at resolveContent time. */
+  muRaw: string;
+  /** Lossless sigma string. */
+  sigmaRaw: string;
+  /** arena_match_count loaded at run-start; UPDATE WHERE clause includes this to catch concurrent races. */
+  arena_match_count: number;
+}
+
+/** Sync pipeline results to arena: upsert entries, insert matches, update Elo.
+ *
+ * `reusedSeedSnapshot`: when set, the run reused a persisted seed variant. Its post-run
+ * rating is written back via an optimistic-concurrency UPDATE (separate from the RPC's
+ * `p_arena_updates` which would last-writer-wins overwrite a concurrent runner's update).
+ * If the WHERE-equality guard fails (another runner wrote between load and finalize), we
+ * skip the update and emit the `evolution.seed_rating.collision` log signal. */
 export async function syncToArena(
   runId: string,
   promptId: string,
@@ -398,6 +437,7 @@ export async function syncToArena(
   supabase: SupabaseClient,
   isSeeded: boolean,
   logger?: EntityLogger,
+  reusedSeedSnapshot?: ReusedSeedSnapshot,
 ): Promise<void> {
   // Compute per-variant match counts from match history
   const variantMatchCounts = new Map<string, number>();
@@ -408,9 +448,11 @@ export async function syncToArena(
     }
   }
 
-  // Build entries: all non-arena variants
+  // Build entries: variants that need a NEW arena row INSERT.
+  // Excludes arena entries (already exist) AND the reused seed (its rating is updated
+  // via optimistic-concurrency UPDATE below; an INSERT would create a duplicate row).
   const newEntries = pool
-    .filter((v) => !isArenaEntry(v))
+    .filter((v) => !isArenaEntry(v) && !v.reusedFromSeed)
     .map((v) => {
       const db = ratingToDb(ratings.get(v.id) ?? createRating());
       return {
@@ -422,11 +464,12 @@ export async function syncToArena(
         // arena_match_count: matches played in THIS run only (not cumulative).
         // The DB RPC accumulates this into the arena entry's lifetime total.
         arena_match_count: variantMatchCounts.get(v.id) ?? 0,
-        generation_method: isSeeded && v.strategy === V2_BASELINE_STRATEGY ? 'seed' : 'pipeline',
+        generation_method: isSeeded && isSeedVariantStrategy(v.strategy) ? 'seed' : 'pipeline',
       };
     });
 
-  // Build arena updates: existing arena entries that participated in matches this run
+  // Build arena updates: existing arena entries (NOT the reused seed) that participated
+  // in matches this run. The reused seed gets its own optimistic-concurrency UPDATE below.
   const arenaUpdates = pool
     .filter((v): v is ArenaTextVariation => isArenaEntry(v))
     .filter((v) => (variantMatchCounts.get(v.id) ?? 0) > 0)
@@ -458,6 +501,7 @@ export async function syncToArena(
 
   // Try sync with 1 retry (idempotent RPC using ON CONFLICT DO UPDATE)
   let lastError: { message: string } | null = null;
+  let rpcSucceeded = false;
   for (let attempt = 0; attempt < 2; attempt++) {
     const { error } = await supabase.rpc('sync_to_arena', {
       p_prompt_id: promptId,
@@ -469,7 +513,8 @@ export async function syncToArena(
 
     if (!error) {
       logger?.info('Arena sync complete', { entrySynced: newEntries.length, arenaUpdated: arenaUpdates.length, matchesSynced: matches.length, phaseName: 'arena' });
-      return;
+      rpcSucceeded = true;
+      break;
     }
     lastError = error;
 
@@ -481,11 +526,62 @@ export async function syncToArena(
   }
 
   // Arena sync is non-critical — log but don't re-throw
-  if (lastError) {
+  if (!rpcSucceeded && lastError) {
     if (logger) {
       logger.error('Arena sync failed after retry', { error: lastError.message, runId, promptId, entryCount: newEntries.length, phaseName: 'arena' });
     } else {
       serverLogger.warn('sync_to_arena failed after retry', { error: lastError.message, runId, promptId, entryCount: newEntries.length });
+    }
+  }
+
+  // Optimistic-concurrency UPDATE for the reused seed (separate from the RPC so we can
+  // enforce mu=loaded_mu AND sigma=loaded_sigma AND arena_match_count=loaded_match_count).
+  // If a concurrent runner wrote between our load and this UPDATE, the WHERE clause
+  // mismatches → 0 rows affected → we skip and log; their write wins. Avoids silent
+  // last-writer-wins overwrites.
+  if (reusedSeedSnapshot) {
+    const seedPoolEntry = pool.find((v) => v.id === reusedSeedSnapshot.id && v.reusedFromSeed);
+    const matchesThisRun = variantMatchCounts.get(reusedSeedSnapshot.id) ?? 0;
+    if (seedPoolEntry && matchesThisRun > 0) {
+      const newRating = ratings.get(seedPoolEntry.id) ?? createRating();
+      const newDb = ratingToDb(newRating);
+      const newArenaMatchCount = reusedSeedSnapshot.arena_match_count + matchesThisRun;
+      // Postgres NUMERIC equality is exact; we pass loaded mu/sigma as the lossless
+      // string form to avoid JS-float precision loss in the round-trip.
+      const { count, error: updateError } = await supabase
+        .from('evolution_variants')
+        .update({
+          mu: newDb.mu,
+          sigma: newDb.sigma,
+          elo_score: newDb.elo_score,
+          arena_match_count: newArenaMatchCount,
+        }, { count: 'exact' })
+        .eq('id', reusedSeedSnapshot.id)
+        .eq('mu', reusedSeedSnapshot.muRaw)
+        .eq('sigma', reusedSeedSnapshot.sigmaRaw)
+        .eq('arena_match_count', reusedSeedSnapshot.arena_match_count);
+
+      if (updateError) {
+        logger?.warn('Reused-seed rating UPDATE failed (non-fatal)', {
+          phaseName: 'arena', seedId: reusedSeedSnapshot.id,
+          error: updateError.message.slice(0, 500),
+        });
+      } else if (count === 0) {
+        // Optimistic-concurrency collision: another runner updated the row between our load and write.
+        // Their rating evidence wins; we surface this so collision frequency can be monitored.
+        logger?.warn('evolution.seed_rating.collision: reused-seed UPDATE matched 0 rows; concurrent runner won', {
+          phaseName: 'arena', seedId: reusedSeedSnapshot.id,
+          loadedMu: reusedSeedSnapshot.muRaw, loadedSigma: reusedSeedSnapshot.sigmaRaw,
+          loadedArenaMatchCount: reusedSeedSnapshot.arena_match_count,
+          attemptedMu: newDb.mu, attemptedSigma: newDb.sigma,
+          attemptedArenaMatchCount: newArenaMatchCount, matchesThisRun,
+        });
+      } else {
+        logger?.info('Reused-seed rating updated', {
+          phaseName: 'arena', seedId: reusedSeedSnapshot.id,
+          newMu: newDb.mu, newSigma: newDb.sigma, matchesThisRun, newArenaMatchCount,
+        });
+      }
     }
   }
 }

@@ -357,20 +357,20 @@ export function TimelineTab({ runId, run }: TimelineTabProps): JSX.Element {
             {winner != null && (
               <OutcomeCard
                 label="Winner"
-                value={winner.isBaseline ? 'baseline' : (winner.strategy ?? '—')}
+                value={winner.isSeedVariant ? 'seed variant' : (winner.strategy ?? '—')}
                 sub={(() => {
                   // topVariants stored as Elo-scale; legacy mu-scale values (<100) heuristically converted.
                   const raw = winner.elo;
                   const elo = raw < 100 ? 1200 + (raw - 25) * 16 : raw;
                   return `Elo: ${Math.round(elo)}`;
                 })()}
-                href={winner.isBaseline ? undefined : buildVariantDetailUrl(winner.id)}
+                href={winner.isSeedVariant ? undefined : buildVariantDetailUrl(winner.id)}
               />
             )}
-            {summary.baselineRank != null && (
+            {summary.seedVariantRank != null && (
               <OutcomeCard
-                label="Baseline Rank"
-                value={`#${summary.baselineRank + 1}`}
+                label="Seed Variant Rank"
+                value={`#${summary.seedVariantRank + 1}`}
               />
             )}
           </div>

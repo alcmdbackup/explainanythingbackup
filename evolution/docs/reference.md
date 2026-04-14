@@ -174,6 +174,7 @@ Validation throws plain `Error` with a descriptive message on constraint violati
 | `ANTHROPIC_API_KEY` | -- | Anthropic API key for Claude models |
 | `LOCAL_LLM_BASE_URL` | `http://localhost:11434/v1` | Base URL for local LLM endpoints (Ollama-compatible) |
 | `EVOLUTION_LOG_LEVEL` | `info` | Minimum log level for EntityLogger output: `debug`, `info`, `warn`, `error`. Controls pipeline log volume. |
+| `EVOLUTION_REUSE_SEED_RATING` | `true` | When `true` (default), runs against a prompt with a persisted seed reuse the seed row's UUID and `mu`/`sigma` rating; post-run rating updates flow back to the seed row via optimistic-concurrency UPDATE. Set to `false` to revert to the legacy behavior (fresh baseline UUID + default rating + new arena INSERT per run). Acts as a runtime kill-switch for the seed-reuse routing without redeploying. Read once at `buildRunContext.resolveContent` per run. |
 
 ### EntityLogger
 
