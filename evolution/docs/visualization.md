@@ -27,7 +27,7 @@ All pages live under `src/app/admin/evolution/` (Next.js App Router). A shared `
 | `/admin/evolution/strategies` | CRUD interface for `evolution_strategies` table. | Strategy name, config JSON, status |
 | `/admin/evolution/strategies/[strategyId]` | Strategy detail with tabs: **Overview**, **Runs**, and **Logs**. The **Runs** tab shows runs filtered by `strategy_id`. | Strategy config, linked runs, aggregated logs across all runs using this strategy |
 | `/admin/evolution/invocations` | Invocation list with "Hide test content" checkbox. Filter uses nested inner join through `evolution_runs` → `evolution_strategies` to exclude invocations from test runs. | Agent name, iteration, success, cost, duration |
-| `/admin/evolution/invocations/[invocationId]` | Invocation detail (server wrapper + `InvocationDetailContent` client component) with **Overview** and **Logs** tabs. | Input/output text, token breakdown, invocation-level logs |
+| `/admin/evolution/invocations/[invocationId]` | Invocation detail (server wrapper + `InvocationDetailContent` client component) with **Overview**, **Metrics**, **Logs** tabs, plus a **Timeline** tab conditionally rendered for `generate_from_seed_article` invocations. The Timeline tab (`InvocationTimelineTab.tsx`) shows a two-segment phase bar (generation blue + ranking purple) with per-comparison sub-bars inside the ranking segment, built from the new `durationMs` fields on the execution_detail schema. Handles running invocations, pre-instrumentation historical rows (proportional-share fallback), discarded variants (generation only), and bucket-aggregates when >20 comparisons. | Input/output text, token breakdown, invocation-level logs, per-phase and per-comparison timing bars |
 
 ---
 

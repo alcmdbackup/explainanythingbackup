@@ -245,7 +245,7 @@ adminTest.describe('Budget-Aware Dispatch', { tag: '@evolution' }, () => {
 // ─── Strategy creation form tests (UI) ──────────────────────────────
 
 adminTest.describe('Strategy Form — Budget Dispatch Fields', { tag: '@evolution' }, () => {
-  adminTest('new strategy form shows all four budget dispatch fields', async ({ adminPage }) => {
+  adminTest('new strategy form shows budget dispatch fields', async ({ adminPage }) => {
     await adminPage.goto('/admin/evolution/strategies');
     // Wait for page to load
     await adminPage.waitForSelector('table', { timeout: 30_000 });
@@ -254,11 +254,13 @@ adminTest.describe('Strategy Form — Budget Dispatch Fields', { tag: '@evolutio
     const newBtn = adminPage.getByRole('button', { name: /new strategy/i });
     await newBtn.click();
 
-    // Verify the 4 new fields are present in the form dialog
+    // Verify fields are present in the form dialog
     await expect(adminPage.getByLabel(/max variants to generate/i)).toBeVisible({ timeout: 10_000 });
     await expect(adminPage.getByLabel(/max comparisons per variant/i)).toBeVisible();
-    await expect(adminPage.getByLabel(/budget buffer after parallel/i)).toBeVisible();
-    await expect(adminPage.getByLabel(/budget buffer after sequential/i)).toBeVisible();
+    // Budget Floors is now a composite custom field (mode dropdown + 2 inputs)
+    await expect(adminPage.getByTestId('budget-floors-mode')).toBeVisible();
+    await expect(adminPage.getByTestId('budget-floors-parallel')).toBeVisible();
+    await expect(adminPage.getByTestId('budget-floors-sequential')).toBeVisible();
   });
 
   adminTest('strategy config display shows buffer fields for existing strategy', async ({ adminPage }) => {

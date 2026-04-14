@@ -1,0 +1,67 @@
+{
+  "description": "Representative evolution_strategies configs snapshotted for offline schema migration testing. Values are illustrative — names/descriptions sanitized. Used by budget-floor-migration.integration.test.ts to ensure the Zod preprocess migrates legacy `budgetBufferAfter*` fields to new `minBudgetAfter*Fraction` fields without breaking real production shapes.",
+  "fixtures": [
+    {
+      "label": "legacy-only config (pre-Phase-3)",
+      "config": {
+        "generationModel": "gpt-4.1-nano",
+        "judgeModel": "gpt-4.1-nano",
+        "iterations": 3,
+        "strategiesPerRound": 3,
+        "budgetUsd": 1.0,
+        "maxVariantsToGenerateFromSeedArticle": 9,
+        "maxComparisonsPerVariant": 15,
+        "budgetBufferAfterParallel": 0.40,
+        "budgetBufferAfterSequential": 0.15
+      }
+    },
+    {
+      "label": "legacy with generation guidance",
+      "config": {
+        "generationModel": "gpt-4.1-mini",
+        "judgeModel": "qwen/qwen3-8b",
+        "iterations": 5,
+        "budgetUsd": 2.0,
+        "maxVariantsToGenerateFromSeedArticle": 6,
+        "maxComparisonsPerVariant": 10,
+        "generationGuidance": [
+          { "strategy": "grounding_enhance", "percent": 50 },
+          { "strategy": "structural_transform", "percent": 50 }
+        ],
+        "budgetBufferAfterParallel": 0.30,
+        "budgetBufferAfterSequential": 0.10
+      }
+    },
+    {
+      "label": "legacy minimal (no floors)",
+      "config": {
+        "generationModel": "deepseek-chat",
+        "judgeModel": "deepseek-chat",
+        "iterations": 2,
+        "budgetUsd": 0.5
+      }
+    },
+    {
+      "label": "new dual-unit fraction mode",
+      "config": {
+        "generationModel": "qwen-2.5-7b-instruct",
+        "judgeModel": "qwen-2.5-7b-instruct",
+        "iterations": 4,
+        "budgetUsd": 1.5,
+        "minBudgetAfterParallelFraction": 0.35,
+        "minBudgetAfterSequentialFraction": 0.12
+      }
+    },
+    {
+      "label": "new dual-unit agent-multiple mode",
+      "config": {
+        "generationModel": "qwen-2.5-7b-instruct",
+        "judgeModel": "qwen-2.5-7b-instruct",
+        "iterations": 3,
+        "budgetUsd": 1.0,
+        "minBudgetAfterParallelAgentMultiple": 3,
+        "minBudgetAfterSequentialAgentMultiple": 1
+      }
+    }
+  ]
+}
