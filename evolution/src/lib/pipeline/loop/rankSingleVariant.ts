@@ -67,6 +67,8 @@ export interface RankSingleVariantComparisonRecord {
   eloPlusTwoUncertainty: number;
   eliminated: boolean;
   converged: boolean;
+  /** Wall-clock duration of this comparison (both 2-pass reversal LLM calls). */
+  durationMs?: number;
 }
 
 export interface RankSingleVariantDetail {
@@ -302,6 +304,7 @@ export async function rankSingleVariant(
       const opponentUncertaintyBefore = opponentRatingBefore.uncertainty;
 
       let comparisonResult: ComparisonResult;
+      const comparisonStartTime = Date.now();
       try {
         comparisonResult = await compareWithBiasMitigation(
           variant.text,
@@ -320,6 +323,7 @@ export async function rankSingleVariant(
         // Non-budget LLM error — record as zero-confidence draw and continue.
         comparisonResult = { winner: 'TIE', confidence: 0, turns: 2 };
       }
+      const comparisonDurationMs = Date.now() - comparisonStartTime;
 
       const match = buildMatch(comparisonResult, variant.id, opp.id, config.judgeModel);
       matchBuffer.push(match);
@@ -390,6 +394,7 @@ export async function rankSingleVariant(
         eloPlusTwoUncertainty,
         eliminated,
         converged,
+        durationMs: comparisonDurationMs,
       });
 
       logger?.debug('rankSingleVariant: comparison complete', {

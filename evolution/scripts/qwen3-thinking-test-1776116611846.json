@@ -1,0 +1,472 @@
+{
+  "model": "qwen/qwen3-8b",
+  "thinkingConfigs": [
+    "thinking-ON (default)",
+    "thinking-OFF",
+    "thinking-LOW"
+  ],
+  "pairs": [
+    "A-vs-B (large gap, 25 mu)",
+    "C-vs-D (close pair, 0.09 mu)"
+  ],
+  "callsPerConfig": 5,
+  "temperature": 0,
+  "groups": [
+    {
+      "pair": "A-vs-B (large gap, 25 mu)",
+      "config": "thinking-ON (default)",
+      "results": [
+        {
+          "thinkingConfig": "thinking-ON (default)",
+          "temperature": 0,
+          "callIndex": 0,
+          "forwardRaw": "A",
+          "reverseRaw": "B",
+          "forwardParsed": "A",
+          "reverseParsed": "B",
+          "aggregatedWinner": "A",
+          "confidence": 1,
+          "durationMs": 11081,
+          "forwardDurationMs": 8375,
+          "reverseDurationMs": 11081
+        },
+        {
+          "thinkingConfig": "thinking-ON (default)",
+          "temperature": 0,
+          "callIndex": 1,
+          "forwardRaw": "A",
+          "reverseRaw": "B",
+          "forwardParsed": "A",
+          "reverseParsed": "B",
+          "aggregatedWinner": "A",
+          "confidence": 1,
+          "durationMs": 8147,
+          "forwardDurationMs": 8147,
+          "reverseDurationMs": 6831
+        },
+        {
+          "thinkingConfig": "thinking-ON (default)",
+          "temperature": 0,
+          "callIndex": 2,
+          "forwardRaw": "A",
+          "reverseRaw": "B",
+          "forwardParsed": "A",
+          "reverseParsed": "B",
+          "aggregatedWinner": "A",
+          "confidence": 1,
+          "durationMs": 9743,
+          "forwardDurationMs": 7738,
+          "reverseDurationMs": 9743
+        },
+        {
+          "thinkingConfig": "thinking-ON (default)",
+          "temperature": 0,
+          "callIndex": 3,
+          "forwardRaw": "A",
+          "reverseRaw": "B",
+          "forwardParsed": "A",
+          "reverseParsed": "B",
+          "aggregatedWinner": "A",
+          "confidence": 1,
+          "durationMs": 7904,
+          "forwardDurationMs": 7904,
+          "reverseDurationMs": 6456
+        },
+        {
+          "thinkingConfig": "thinking-ON (default)",
+          "temperature": 0,
+          "callIndex": 4,
+          "forwardRaw": "A",
+          "reverseRaw": "B",
+          "forwardParsed": "A",
+          "reverseParsed": "B",
+          "aggregatedWinner": "A",
+          "confidence": 1,
+          "durationMs": 10147,
+          "forwardDurationMs": 10147,
+          "reverseDurationMs": 8005
+        }
+      ]
+    },
+    {
+      "pair": "A-vs-B (large gap, 25 mu)",
+      "config": "thinking-OFF",
+      "results": [
+        {
+          "thinkingConfig": "thinking-OFF",
+          "temperature": 0,
+          "callIndex": 0,
+          "forwardRaw": "A",
+          "reverseRaw": "Your answer: B",
+          "forwardParsed": "A",
+          "reverseParsed": null,
+          "aggregatedWinner": "A",
+          "confidence": 0.3,
+          "durationMs": 1062,
+          "forwardDurationMs": 1062,
+          "reverseDurationMs": 705
+        },
+        {
+          "thinkingConfig": "thinking-OFF",
+          "temperature": 0,
+          "callIndex": 1,
+          "forwardRaw": "A",
+          "reverseRaw": "Your answer: B",
+          "forwardParsed": "A",
+          "reverseParsed": null,
+          "aggregatedWinner": "A",
+          "confidence": 0.3,
+          "durationMs": 1243,
+          "forwardDurationMs": 621,
+          "reverseDurationMs": 1243
+        },
+        {
+          "thinkingConfig": "thinking-OFF",
+          "temperature": 0,
+          "callIndex": 2,
+          "forwardRaw": "A",
+          "reverseRaw": "Your answer: B",
+          "forwardParsed": "A",
+          "reverseParsed": null,
+          "aggregatedWinner": "A",
+          "confidence": 0.3,
+          "durationMs": 1146,
+          "forwardDurationMs": 1146,
+          "reverseDurationMs": 894
+        },
+        {
+          "thinkingConfig": "thinking-OFF",
+          "temperature": 0,
+          "callIndex": 3,
+          "forwardRaw": "A",
+          "reverseRaw": "Your answer: B",
+          "forwardParsed": "A",
+          "reverseParsed": null,
+          "aggregatedWinner": "A",
+          "confidence": 0.3,
+          "durationMs": 1107,
+          "forwardDurationMs": 1107,
+          "reverseDurationMs": 924
+        },
+        {
+          "thinkingConfig": "thinking-OFF",
+          "temperature": 0,
+          "callIndex": 4,
+          "forwardRaw": "A",
+          "reverseRaw": "Your answer: B",
+          "forwardParsed": "A",
+          "reverseParsed": null,
+          "aggregatedWinner": "A",
+          "confidence": 0.3,
+          "durationMs": 929,
+          "forwardDurationMs": 929,
+          "reverseDurationMs": 903
+        }
+      ]
+    },
+    {
+      "pair": "A-vs-B (large gap, 25 mu)",
+      "config": "thinking-LOW",
+      "results": [
+        {
+          "thinkingConfig": "thinking-LOW",
+          "temperature": 0,
+          "callIndex": 0,
+          "forwardRaw": "A",
+          "reverseRaw": "B",
+          "forwardParsed": "A",
+          "reverseParsed": "B",
+          "aggregatedWinner": "A",
+          "confidence": 1,
+          "durationMs": 8415,
+          "forwardDurationMs": 7046,
+          "reverseDurationMs": 8415
+        },
+        {
+          "thinkingConfig": "thinking-LOW",
+          "temperature": 0,
+          "callIndex": 1,
+          "forwardRaw": "A",
+          "reverseRaw": "B",
+          "forwardParsed": "A",
+          "reverseParsed": "B",
+          "aggregatedWinner": "A",
+          "confidence": 1,
+          "durationMs": 8488,
+          "forwardDurationMs": 7631,
+          "reverseDurationMs": 8488
+        },
+        {
+          "thinkingConfig": "thinking-LOW",
+          "temperature": 0,
+          "callIndex": 2,
+          "forwardRaw": "A",
+          "reverseRaw": "B",
+          "forwardParsed": "A",
+          "reverseParsed": "B",
+          "aggregatedWinner": "A",
+          "confidence": 1,
+          "durationMs": 7702,
+          "forwardDurationMs": 7702,
+          "reverseDurationMs": 6596
+        },
+        {
+          "thinkingConfig": "thinking-LOW",
+          "temperature": 0,
+          "callIndex": 3,
+          "forwardRaw": "A",
+          "reverseRaw": "B",
+          "forwardParsed": "A",
+          "reverseParsed": "B",
+          "aggregatedWinner": "A",
+          "confidence": 1,
+          "durationMs": 8578,
+          "forwardDurationMs": 8178,
+          "reverseDurationMs": 8578
+        },
+        {
+          "thinkingConfig": "thinking-LOW",
+          "temperature": 0,
+          "callIndex": 4,
+          "forwardRaw": "A",
+          "reverseRaw": "B",
+          "forwardParsed": "A",
+          "reverseParsed": "B",
+          "aggregatedWinner": "A",
+          "confidence": 1,
+          "durationMs": 9346,
+          "forwardDurationMs": 7275,
+          "reverseDurationMs": 9346
+        }
+      ]
+    },
+    {
+      "pair": "C-vs-D (close pair, 0.09 mu)",
+      "config": "thinking-ON (default)",
+      "results": [
+        {
+          "thinkingConfig": "thinking-ON (default)",
+          "temperature": 0,
+          "callIndex": 0,
+          "forwardRaw": "A",
+          "reverseRaw": "B",
+          "forwardParsed": "A",
+          "reverseParsed": "B",
+          "aggregatedWinner": "A",
+          "confidence": 1,
+          "durationMs": 9210,
+          "forwardDurationMs": 7403,
+          "reverseDurationMs": 9210
+        },
+        {
+          "thinkingConfig": "thinking-ON (default)",
+          "temperature": 0,
+          "callIndex": 1,
+          "forwardRaw": "A",
+          "reverseRaw": "B",
+          "forwardParsed": "A",
+          "reverseParsed": "B",
+          "aggregatedWinner": "A",
+          "confidence": 1,
+          "durationMs": 7111,
+          "forwardDurationMs": 7111,
+          "reverseDurationMs": 6562
+        },
+        {
+          "thinkingConfig": "thinking-ON (default)",
+          "temperature": 0,
+          "callIndex": 2,
+          "forwardRaw": "A",
+          "reverseRaw": "B",
+          "forwardParsed": "A",
+          "reverseParsed": "B",
+          "aggregatedWinner": "A",
+          "confidence": 1,
+          "durationMs": 7714,
+          "forwardDurationMs": 7714,
+          "reverseDurationMs": 7428
+        },
+        {
+          "thinkingConfig": "thinking-ON (default)",
+          "temperature": 0,
+          "callIndex": 3,
+          "forwardRaw": "A",
+          "reverseRaw": "B",
+          "forwardParsed": "A",
+          "reverseParsed": "B",
+          "aggregatedWinner": "A",
+          "confidence": 1,
+          "durationMs": 9299,
+          "forwardDurationMs": 5774,
+          "reverseDurationMs": 9299
+        },
+        {
+          "thinkingConfig": "thinking-ON (default)",
+          "temperature": 0,
+          "callIndex": 4,
+          "forwardRaw": "A",
+          "reverseRaw": "B",
+          "forwardParsed": "A",
+          "reverseParsed": "B",
+          "aggregatedWinner": "A",
+          "confidence": 1,
+          "durationMs": 7787,
+          "forwardDurationMs": 7787,
+          "reverseDurationMs": 6660
+        }
+      ]
+    },
+    {
+      "pair": "C-vs-D (close pair, 0.09 mu)",
+      "config": "thinking-OFF",
+      "results": [
+        {
+          "thinkingConfig": "thinking-OFF",
+          "temperature": 0,
+          "callIndex": 0,
+          "forwardRaw": "A",
+          "reverseRaw": "Your answer: B",
+          "forwardParsed": "A",
+          "reverseParsed": null,
+          "aggregatedWinner": "A",
+          "confidence": 0.3,
+          "durationMs": 1108,
+          "forwardDurationMs": 1108,
+          "reverseDurationMs": 1104
+        },
+        {
+          "thinkingConfig": "thinking-OFF",
+          "temperature": 0,
+          "callIndex": 1,
+          "forwardRaw": "A",
+          "reverseRaw": "Your answer: B",
+          "forwardParsed": "A",
+          "reverseParsed": null,
+          "aggregatedWinner": "A",
+          "confidence": 0.3,
+          "durationMs": 1114,
+          "forwardDurationMs": 1114,
+          "reverseDurationMs": 1097
+        },
+        {
+          "thinkingConfig": "thinking-OFF",
+          "temperature": 0,
+          "callIndex": 2,
+          "forwardRaw": "A",
+          "reverseRaw": "Your answer: B",
+          "forwardParsed": "A",
+          "reverseParsed": null,
+          "aggregatedWinner": "A",
+          "confidence": 0.3,
+          "durationMs": 1101,
+          "forwardDurationMs": 1101,
+          "reverseDurationMs": 970
+        },
+        {
+          "thinkingConfig": "thinking-OFF",
+          "temperature": 0,
+          "callIndex": 3,
+          "forwardRaw": "A",
+          "reverseRaw": "Your answer: B",
+          "forwardParsed": "A",
+          "reverseParsed": null,
+          "aggregatedWinner": "A",
+          "confidence": 0.3,
+          "durationMs": 1485,
+          "forwardDurationMs": 1485,
+          "reverseDurationMs": 1140
+        },
+        {
+          "thinkingConfig": "thinking-OFF",
+          "temperature": 0,
+          "callIndex": 4,
+          "forwardRaw": "A",
+          "reverseRaw": "Your answer: B",
+          "forwardParsed": "A",
+          "reverseParsed": null,
+          "aggregatedWinner": "A",
+          "confidence": 0.3,
+          "durationMs": 1067,
+          "forwardDurationMs": 931,
+          "reverseDurationMs": 1067
+        }
+      ]
+    },
+    {
+      "pair": "C-vs-D (close pair, 0.09 mu)",
+      "config": "thinking-LOW",
+      "results": [
+        {
+          "thinkingConfig": "thinking-LOW",
+          "temperature": 0,
+          "callIndex": 0,
+          "forwardRaw": "A",
+          "reverseRaw": "B",
+          "forwardParsed": "A",
+          "reverseParsed": "B",
+          "aggregatedWinner": "A",
+          "confidence": 1,
+          "durationMs": 9135,
+          "forwardDurationMs": 9135,
+          "reverseDurationMs": 7040
+        },
+        {
+          "thinkingConfig": "thinking-LOW",
+          "temperature": 0,
+          "callIndex": 1,
+          "forwardRaw": "A",
+          "reverseRaw": "B",
+          "forwardParsed": "A",
+          "reverseParsed": "B",
+          "aggregatedWinner": "A",
+          "confidence": 1,
+          "durationMs": 17416,
+          "forwardDurationMs": 17416,
+          "reverseDurationMs": 7208
+        },
+        {
+          "thinkingConfig": "thinking-LOW",
+          "temperature": 0,
+          "callIndex": 2,
+          "forwardRaw": "A",
+          "reverseRaw": "B",
+          "forwardParsed": "A",
+          "reverseParsed": "B",
+          "aggregatedWinner": "A",
+          "confidence": 1,
+          "durationMs": 10816,
+          "forwardDurationMs": 8989,
+          "reverseDurationMs": 10816
+        },
+        {
+          "thinkingConfig": "thinking-LOW",
+          "temperature": 0,
+          "callIndex": 3,
+          "forwardRaw": "A",
+          "reverseRaw": "B",
+          "forwardParsed": "A",
+          "reverseParsed": "B",
+          "aggregatedWinner": "A",
+          "confidence": 1,
+          "durationMs": 9358,
+          "forwardDurationMs": 7174,
+          "reverseDurationMs": 9358
+        },
+        {
+          "thinkingConfig": "thinking-LOW",
+          "temperature": 0,
+          "callIndex": 4,
+          "forwardRaw": "A\n\n**Reasoning:**  \nText A is more comprehensive, structured with detailed subsections (e.g., \"Structure,\" \"Core Functions,\" \"Economic Role\"), and provides in-depth explanations of the Fed's roles, to",
+          "reverseRaw": "B",
+          "forwardParsed": "A",
+          "reverseParsed": "B",
+          "aggregatedWinner": "A",
+          "confidence": 1,
+          "durationMs": 16087,
+          "forwardDurationMs": 16087,
+          "reverseDurationMs": 6899
+        }
+      ]
+    }
+  ]
+}

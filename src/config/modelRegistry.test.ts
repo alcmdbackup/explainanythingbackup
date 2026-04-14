@@ -191,8 +191,36 @@ describe('modelRegistry', () => {
       expect(getEvolutionModelIds()).toContain(DEFAULT_JUDGE_MODEL);
     });
 
-    it('is qwen/qwen3-8b', () => {
-      expect(DEFAULT_JUDGE_MODEL).toBe('qwen/qwen3-8b');
+    it('is qwen-2.5-7b-instruct', () => {
+      expect(DEFAULT_JUDGE_MODEL).toBe('qwen-2.5-7b-instruct');
+    });
+  });
+
+  describe('qwen-2.5-7b-instruct entry', () => {
+    it('is registered as an openrouter model', () => {
+      const info = getModelInfo('qwen-2.5-7b-instruct');
+      expect(info).toBeDefined();
+      expect(info!.provider).toBe('openrouter');
+      expect(info!.displayName).toBe('Qwen 2.5 7B Instruct');
+    });
+
+    it('has correct pricing ($0.04 input / $0.10 output per 1M)', () => {
+      const info = getModelInfo('qwen-2.5-7b-instruct');
+      expect(info!.inputPer1M).toBe(0.04);
+      expect(info!.outputPer1M).toBe(0.10);
+    });
+
+    it('has maxTemperature 2.0', () => {
+      expect(getModelMaxTemperature('qwen-2.5-7b-instruct')).toBe(2.0);
+    });
+
+    it('supportsEvolution is true', () => {
+      expect(getEvolutionModelIds()).toContain('qwen-2.5-7b-instruct');
+    });
+
+    it('routes to openrouter with qwen/qwen-2.5-7b-instruct api model', () => {
+      expect(isOpenRouterModel('qwen-2.5-7b-instruct')).toBe(true);
+      expect(getOpenRouterApiModelId('qwen-2.5-7b-instruct')).toBe('qwen/qwen-2.5-7b-instruct');
     });
   });
 });

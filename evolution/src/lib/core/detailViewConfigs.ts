@@ -17,6 +17,7 @@ export const DETAIL_VIEW_CONFIGS: Record<string, DetailFieldDef[]> = {
         { key: 'promptLength', label: 'Prompt Length', type: 'number' },
         { key: 'textLength', label: 'Text Length', type: 'number' },
         { key: 'formatValid', label: 'Format Valid', type: 'boolean' },
+        { key: 'durationMs', label: 'Duration (ms)', type: 'number' },
       ],
     },
     {
@@ -29,6 +30,7 @@ export const DETAIL_VIEW_CONFIGS: Record<string, DetailFieldDef[]> = {
         { key: 'totalComparisons', label: 'Total Comparisons', type: 'number' },
         { key: 'finalLocalElo', label: 'Final Local Elo', type: 'number' },
         { key: 'finalLocalUncertainty', label: 'Final Local Uncertainty', type: 'number' },
+        { key: 'durationMs', label: 'Duration (ms)', type: 'number' },
       ],
     },
     {
@@ -41,6 +43,7 @@ export const DETAIL_VIEW_CONFIGS: Record<string, DetailFieldDef[]> = {
         { key: 'outcome', label: 'Out' },
         { key: 'variantEloAfter', label: 'Elo after' },
         { key: 'variantUncertaintyAfter', label: 'Uncertainty after' },
+        { key: 'durationMs', label: 'ms' },
       ],
     },
     { key: 'totalCost', label: 'Total Cost', type: 'number', formatter: 'cost' },

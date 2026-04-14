@@ -317,9 +317,42 @@ export const generationGuidanceSchema = z
 
 export type GenerationGuidanceEntry = z.infer<typeof generationGuidanceEntrySchema>;
 
+// ─── Budget Floor Migration Helpers ───────────────────────────
+
+/**
+ * Preprocess legacy budget buffer fields into the new min-budget-floor shape.
+ * - If new `minBudgetAfter*Fraction` is set → it wins, legacy is overwritten to match.
+ * - If only legacy `budgetBufferAfter*` is set → copy into new Fraction field.
+ * - Legacy aliases are kept in the output for ONE release cycle (rollback safety).
+ * - Agent-multiple mode has no legacy equivalent — legacy aliases stay undefined.
+ */
+function preprocessBudgetFloor(input: unknown): unknown {
+  if (typeof input !== 'object' || input === null) return input;
+  const c = { ...(input as Record<string, unknown>) };
+
+  // Legacy → new (only if new is absent)
+  if (c.minBudgetAfterParallelFraction === undefined && c.budgetBufferAfterParallel !== undefined) {
+    c.minBudgetAfterParallelFraction = c.budgetBufferAfterParallel;
+  }
+  if (c.minBudgetAfterSequentialFraction === undefined && c.budgetBufferAfterSequential !== undefined) {
+    c.minBudgetAfterSequentialFraction = c.budgetBufferAfterSequential;
+  }
+
+  // Sync legacy alias from new Fraction for rollback safety (one-release deprecation).
+  // If in agent-multiple mode, legacy stays undefined — there is no fraction equivalent.
+  if (c.minBudgetAfterParallelFraction !== undefined) {
+    c.budgetBufferAfterParallel = c.minBudgetAfterParallelFraction;
+  }
+  if (c.minBudgetAfterSequentialFraction !== undefined) {
+    c.budgetBufferAfterSequential = c.minBudgetAfterSequentialFraction;
+  }
+
+  return c;
+}
+
 // ─── Strategy Config ──────────────────────────────────────────
 
-export const strategyConfigSchema = z.object({
+const strategyConfigBaseSchema = z.object({
   generationModel: z.string(),
   judgeModel: z.string(),
   iterations: z.number().int().min(1),
@@ -330,23 +363,62 @@ export const strategyConfigSchema = z.object({
   maxVariantsToGenerateFromSeedArticle: z.number().int().min(1).max(100).optional(),
   /** Hard cap on pairwise comparisons per variant during ranking. Default 15. */
   maxComparisonsPerVariant: z.number().int().min(1).max(100).optional(),
-  /** Fraction of budget to reserve after parallel generation (0-1). Default 0. */
+  /** Minimum budget to reserve after parallel generation, as fraction of totalBudget (0-1). Exactly one of *Fraction or *AgentMultiple may be set per phase. */
+  minBudgetAfterParallelFraction: z.number().min(0).max(1).optional(),
+  /** Minimum budget to reserve after parallel generation, as multiple of estimated agent cost. Lazy-resolved at runtime. */
+  minBudgetAfterParallelAgentMultiple: z.number().min(0).optional(),
+  /** Minimum budget to reserve after sequential generation, as fraction of totalBudget (0-1). */
+  minBudgetAfterSequentialFraction: z.number().min(0).max(1).optional(),
+  /** Minimum budget to reserve after sequential generation, as multiple of actualAvgCostPerAgent (runtime). Falls back to initial estimate if unavailable. */
+  minBudgetAfterSequentialAgentMultiple: z.number().min(0).optional(),
+  /** @deprecated Use minBudgetAfterParallelFraction. Kept in output for one release (rollback safety). */
   budgetBufferAfterParallel: z.number().min(0).max(1).optional(),
-  /** Fraction of budget to reserve after sequential generation (0-1). Default 0. */
+  /** @deprecated Use minBudgetAfterSequentialFraction. Kept in output for one release (rollback safety). */
   budgetBufferAfterSequential: z.number().min(0).max(1).optional(),
   /** Temperature for generation LLM calls (0-2). Omit for provider default. Ranking always uses 0. */
   generationTemperature: z.number().min(0).max(2).optional(),
 }).refine((c) => {
-  const parallel = c.budgetBufferAfterParallel ?? 0;
-  const sequential = c.budgetBufferAfterSequential ?? 0;
-  return parallel >= sequential;
-}, { message: 'budgetBufferAfterParallel must be >= budgetBufferAfterSequential' }).refine((c) => {
+  // Exactly one parallel unit may be set (both unset is allowed).
+  return !(c.minBudgetAfterParallelFraction != null && c.minBudgetAfterParallelAgentMultiple != null);
+}, { message: 'Only one of minBudgetAfterParallelFraction or minBudgetAfterParallelAgentMultiple may be set' }).refine((c) => {
+  // Exactly one sequential unit may be set (both unset is allowed).
+  return !(c.minBudgetAfterSequentialFraction != null && c.minBudgetAfterSequentialAgentMultiple != null);
+}, { message: 'Only one of minBudgetAfterSequentialFraction or minBudgetAfterSequentialAgentMultiple may be set' }).refine((c) => {
+  // Same unit mode across phases — but only enforced if BOTH phases have a value set.
+  // If sequential is fully unset (both fields null), any parallel mode is allowed.
+  const parallelIsFraction = c.minBudgetAfterParallelFraction != null;
+  const parallelIsMultiple = c.minBudgetAfterParallelAgentMultiple != null;
+  const sequentialIsFraction = c.minBudgetAfterSequentialFraction != null;
+  const sequentialIsMultiple = c.minBudgetAfterSequentialAgentMultiple != null;
+  // Only enforce same-mode when both phases have a value
+  if (!sequentialIsFraction && !sequentialIsMultiple) return true;
+  if (!parallelIsFraction && !parallelIsMultiple) return true;
+  // Both set: modes must match
+  if (parallelIsFraction && sequentialIsFraction) return true;
+  if (parallelIsMultiple && sequentialIsMultiple) return true;
+  return false;
+}, { message: 'Parallel and sequential budget floors must use the same unit mode (both fraction or both agent-multiple)' }).refine((c) => {
+  // Ordering: parallel floor must be >= sequential floor. Unset parallel implicitly = 0,
+  // so a positive sequential without a parallel setting is rejected.
+  const pF = c.minBudgetAfterParallelFraction;
+  const pM = c.minBudgetAfterParallelAgentMultiple;
+  const sF = c.minBudgetAfterSequentialFraction;
+  const sM = c.minBudgetAfterSequentialAgentMultiple;
+  if (pF != null && sF != null) return pF >= sF;
+  if (pM != null && sM != null) return pM >= sM;
+  const sequentialSetAboveZero = (sF != null && sF > 0) || (sM != null && sM > 0);
+  const parallelUnset = pF == null && pM == null;
+  if (sequentialSetAboveZero && parallelUnset) return false;
+  return true;
+}, { message: 'Parallel floor must be >= sequential floor (or parallel must be set when sequential is set)' }).refine((c) => {
   if (c.generationTemperature == null) return true;
   const maxTemp = getModelMaxTemperature(c.generationModel);
   if (maxTemp === undefined) return true; // unknown model — let it through
   if (maxTemp === null) return false; // model doesn't support temperature
   return c.generationTemperature <= maxTemp;
 }, { message: 'generationTemperature exceeds the model\'s maximum temperature' });
+
+export const strategyConfigSchema = z.preprocess(preprocessBudgetFloor, strategyConfigBaseSchema);
 
 /** @deprecated Use StrategyConfig from pipeline/infra/types.ts instead. */
 export type StrategyConfigSchema = z.infer<typeof strategyConfigSchema>;
@@ -360,7 +432,7 @@ export const DEFAULT_GENERATE_STRATEGIES = [
   'grounding_enhance',
 ] as const;
 
-export const evolutionConfigSchema = z.object({
+const evolutionConfigBaseSchema = z.object({
   /** @deprecated Ignored by the orchestrator-driven loop. Kept for backward compat. */
   iterations: z.number().int().min(1).max(100).optional(),
   budgetUsd: z.number().gt(0).lte(50),
@@ -380,13 +452,23 @@ export const evolutionConfigSchema = z.object({
   strategies: z.array(z.string().min(1)).optional(),
   /** Hard cap on pairwise comparisons per variant during ranking (default 15). */
   maxComparisonsPerVariant: z.number().int().min(1).max(100).optional(),
-  /** Fraction of budget to reserve after parallel generation (0-1, default 0). */
+  /** Minimum budget to reserve after parallel generation, as fraction of totalBudget (0-1). */
+  minBudgetAfterParallelFraction: z.number().min(0).max(1).optional(),
+  /** Minimum budget to reserve after parallel generation, as multiple of estimated agent cost. */
+  minBudgetAfterParallelAgentMultiple: z.number().min(0).optional(),
+  /** Minimum budget to reserve after sequential generation, as fraction of totalBudget (0-1). */
+  minBudgetAfterSequentialFraction: z.number().min(0).max(1).optional(),
+  /** Minimum budget to reserve after sequential generation, as multiple of actualAvgCostPerAgent. */
+  minBudgetAfterSequentialAgentMultiple: z.number().min(0).optional(),
+  /** @deprecated Use minBudgetAfterParallelFraction. Kept in output for one release (rollback safety). */
   budgetBufferAfterParallel: z.number().min(0).max(1).optional(),
-  /** Fraction of budget to reserve after sequential generation (0-1, default 0). */
+  /** @deprecated Use minBudgetAfterSequentialFraction. Kept in output for one release (rollback safety). */
   budgetBufferAfterSequential: z.number().min(0).max(1).optional(),
   /** Temperature for generation LLM calls (0-2). Omit for provider default. Ranking always uses 0. */
   generationTemperature: z.number().min(0).max(2).optional(),
 });
+
+export const evolutionConfigSchema = z.preprocess(preprocessBudgetFloor, evolutionConfigBaseSchema);
 
 export type EvolutionConfigSchema = z.infer<typeof evolutionConfigSchema>;
 
@@ -707,6 +789,12 @@ const generateFromSeedComparisonInnerSchema = z.object({
   eloPlusTwoUncertainty: z.number(),
   eliminated: z.boolean(),
   converged: z.boolean(),
+  /** Wall-clock duration of this comparison (both 2-pass reversal LLM calls, parallel). Optional — historical invocations have no timing data. */
+  durationMs: z.number().int().min(0).optional(),
+  /** Forward-pass LLM call duration. Optional — historical invocations have no timing data. */
+  forwardCallDurationMs: z.number().int().min(0).optional(),
+  /** Reverse-pass LLM call duration. Optional — historical invocations have no timing data. */
+  reverseCallDurationMs: z.number().int().min(0).optional(),
 });
 
 export const generateFromSeedComparisonSchema = z.preprocess(
@@ -735,6 +823,8 @@ const generateFromSeedRankingDetailInnerSchema = z.object({
   finalLocalElo: z.number(),
   finalLocalUncertainty: z.number().min(0),
   finalLocalTop15Cutoff: z.number(),
+  /** Wall-clock duration of the full ranking phase for this variant. Optional — historical invocations have no timing data. */
+  durationMs: z.number().int().min(0).optional(),
 });
 
 const rankingDetailRenameKeys = renameKeys({
@@ -759,6 +849,8 @@ export const generateFromSeedExecutionDetailSchema = executionDetailBaseSchema.e
     formatValid: z.boolean(),
     formatIssues: z.array(z.string()).optional(),
     error: z.string().optional(),
+    /** Wall-clock duration of the generation phase. Optional — historical invocations have no timing. */
+    durationMs: z.number().int().min(0).optional(),
   }),
   ranking: z.preprocess(
     rankingDetailRenameKeys,

@@ -15,7 +15,7 @@ import { withLogging } from '@/lib/logging/server/automaticServerLoggingBase';
 import { ServiceError } from '@/lib/errors/serviceError';
 import { ERROR_CODES } from '@/lib/errorHandling';
 import { calculateLLMCost } from '@/config/llmPricing';
-import { isOpenRouterModel as registryIsOpenRouterModel, getOpenRouterApiModelId, getModelMaxTemperature } from '@/config/modelRegistry';
+import { isOpenRouterModel as registryIsOpenRouterModel, getOpenRouterApiModelId, getModelMaxTemperature, getModelDefaultReasoningEffort } from '@/config/modelRegistry';
 
 /** Clamp temperature to model's max. Returns undefined if model doesn't support temperature or temp not set. */
 function clampTemperature(temperature: number | undefined, model: string): number | undefined {
@@ -41,6 +41,10 @@ export interface CallLLMOptions {
   evolutionInvocationId?: string;
   /** LLM sampling temperature. Omit to use provider default. Clamped to model's maxTemperature. */
   temperature?: number;
+  /** Reasoning effort for reasoning-capable models (OpenRouter thinking/reasoning models,
+   *  OpenAI o-series). Values: 'none' | 'low' | 'medium' | 'high'. Omit to use the model's
+   *  registry default. Ignored for non-reasoning models. */
+  reasoningEffort?: 'none' | 'low' | 'medium' | 'high';
 }
 
 type ResponseObject = z.ZodObject<any> | null;
@@ -324,6 +328,24 @@ async function callOpenAIModel(
         const clampedTemp = clampTemperature(options?.temperature, validatedModel);
         if (clampedTemp !== undefined) {
             requestOptions.temperature = clampedTemp;
+        }
+
+        // Reasoning effort — for OpenAI o-series models we pass `reasoning_effort` directly
+        // (SDK-supported). For OpenRouter models that accept `reasoning.effort`, we include
+        // it as an extra request field (the SDK tolerates unknown fields on OpenAI-compatible
+        // endpoints). Caller override wins over the registry default.
+        const effectiveReasoningEffort = options?.reasoningEffort ?? getModelDefaultReasoningEffort(validatedModel);
+        if (effectiveReasoningEffort) {
+            if (isOpenRouterModel(validatedModel)) {
+                // OpenRouter unified API: { reasoning: { effort: 'low'|... } }
+                (requestOptions as unknown as Record<string, unknown>).reasoning = { effort: effectiveReasoningEffort };
+            } else {
+                // OpenAI o-series: reasoning_effort parameter on the top-level request.
+                // 'none' is not a valid OpenAI value, so omit it.
+                if (effectiveReasoningEffort !== 'none') {
+                    (requestOptions as unknown as Record<string, unknown>).reasoning_effort = effectiveReasoningEffort;
+                }
+            }
         }
 
         if (response_obj && response_obj_name) {

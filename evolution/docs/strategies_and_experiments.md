@@ -30,23 +30,31 @@ interface StrategyConfig {
   generationGuidance?: Array<{ strategy: string; percent: number }>;
   maxVariantsToGenerateFromSeedArticle?: number;  // default 9
   maxComparisonsPerVariant?: number;               // default 15
-  budgetBufferAfterParallel?: number;              // 0-1, default 0
-  budgetBufferAfterSequential?: number;            // 0-1, default 0
+  // Budget floors — pick ONE unit mode, parallel + sequential must match.
+  minBudgetAfterParallelFraction?: number;         // 0-1 of totalBudget
+  minBudgetAfterParallelAgentMultiple?: number;    // N × initial agent cost
+  minBudgetAfterSequentialFraction?: number;       // 0-1 of totalBudget
+  minBudgetAfterSequentialAgentMultiple?: number;  // N × actual avg cost (runtime)
+  /** @deprecated Kept for 1-release backward compat. Preprocess migrates to *Fraction. */
+  budgetBufferAfterParallel?: number;
+  /** @deprecated Kept for 1-release backward compat. Preprocess migrates to *Fraction. */
+  budgetBufferAfterSequential?: number;
 }
 ```
 
 | Field               | Purpose                                    |
 |---------------------|--------------------------------------------|
 | `generationModel`   | LLM used for text generation calls         |
-| `judgeModel`        | LLM used for pairwise comparison/judging   |
+| `judgeModel`        | LLM used for pairwise comparison/judging. Default: `qwen-2.5-7b-instruct` (see `DEFAULT_JUDGE_MODEL` in `src/config/modelRegistry.ts`). Selected based on empirical judge-agreement research (see `docs/research/judge_agreement_summary_tables.md`) — 100% decisive on both large-gap and close-pair comparisons with ~1.7s median latency and no thinking-mode overhead. |
 | `iterations`        | Number of generate-rank-evolve cycles      |
 | `strategiesPerRound`| Generation strategies per iteration round  |
 | `budgetUsd`         | Optional per-run budget cap                |
 | `generationGuidance`| Optional weighted strategy distribution. Array of `{ strategy, percent }` entries where percentages must sum to 100 and strategy names must be unique. Enables weighted random strategy selection from all 8 strategies instead of the default deterministic 3-strategy behavior. |
 | `maxVariantsToGenerateFromSeedArticle` | Max generateFromSeedArticle agents per run. Excludes seed article. Default 9. |
 | `maxComparisonsPerVariant` | Hard cap on pairwise comparisons per variant during ranking. Default 15. Used for deterministic cost estimation: `min(poolSize - 1, maxComparisonsPerVariant)`. |
-| `budgetBufferAfterParallel` | Fraction (0-1) of budget to reserve after parallel generation. Parallel dispatch stops when remaining budget would drop below this threshold, then switches to sequential. Default 0 (no buffer). |
-| `budgetBufferAfterSequential` | Fraction (0-1) of budget to reserve after sequential generation. Sequential stops when next agent would breach this floor. Remaining budget available for swiss ranking. Must be <= `budgetBufferAfterParallel`. Default 0. |
+| `minBudgetAfterParallelFraction` / `minBudgetAfterParallelAgentMultiple` | Minimum budget to reserve for later phases after parallel generation. Specified as either a fraction of total budget (0-1) or a multiple of estimated agent cost (≥ 0). Exactly one unit per strategy. Parallel uses the initial `estimateAgentCost()` output. |
+| `minBudgetAfterSequentialFraction` / `minBudgetAfterSequentialAgentMultiple` | Minimum budget to reserve after sequential generation. Same two-unit system. Sequential uses `actualAvgCostPerAgent` from the parallel batch when available, falling back to initial estimate. Must be ≤ parallel floor (same unit). |
+| `budgetBufferAfterParallel` / `budgetBufferAfterSequential` | **Deprecated**. Auto-migrated to `minBudgetAfter*Fraction` via Zod preprocess; kept in output for one release cycle. |
 | `generationTemperature` | Optional LLM temperature (0-2) for generation calls. Omit for provider default. Validated against model's `maxTemperature` from registry (e.g., Claude max 1.0, o3-mini rejects temperature entirely). Judge/ranking calls always use temperature=0 regardless of this setting. |
 
 #### Experimental Verification with generationGuidance

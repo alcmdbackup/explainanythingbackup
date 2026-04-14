@@ -117,6 +117,7 @@ export class GenerateFromSeedArticleAgent extends Agent<
         { key: 'promptLength', label: 'Prompt Length', type: 'number' },
         { key: 'textLength', label: 'Text Length', type: 'number' },
         { key: 'formatValid', label: 'Format Valid', type: 'boolean' },
+        { key: 'durationMs', label: 'Duration (ms)', type: 'number' },
       ],
     },
     {
@@ -129,6 +130,7 @@ export class GenerateFromSeedArticleAgent extends Agent<
         { key: 'totalComparisons', label: 'Total Comparisons', type: 'number' },
         { key: 'finalLocalElo', label: 'Final Local Elo', type: 'number' },
         { key: 'finalLocalUncertainty', label: 'Final Local Uncertainty', type: 'number' },
+        { key: 'durationMs', label: 'Duration (ms)', type: 'number' },
       ],
     },
     {
@@ -141,6 +143,7 @@ export class GenerateFromSeedArticleAgent extends Agent<
         { key: 'outcome', label: 'Out' },
         { key: 'variantEloAfter', label: 'Elo after' },
         { key: 'variantUncertaintyAfter', label: 'Uncertainty after' },
+        { key: 'durationMs', label: 'ms' },
       ],
     },
     { key: 'totalCost', label: 'Total Cost', type: 'number', formatter: 'cost' },
@@ -159,6 +162,7 @@ export class GenerateFromSeedArticleAgent extends Agent<
     const localMatchCounts = new Map(initialMatchCounts);
     const completedPairs = new Set<string>();
     const costBeforeGen = ctx.costTracker.getTotalSpent();
+    const generationStartTime = Date.now();
 
     const makeEarlyExitDetail = (
       generationCost: number,
@@ -203,6 +207,7 @@ export class GenerateFromSeedArticleAgent extends Agent<
 
     const fmt = validateFormat(generated);
     const generationCost = ctx.costTracker.getTotalSpent() - costBeforeGen;
+    const generationDurationMs = Date.now() - generationStartTime;
 
     if (!fmt.valid) {
       ctx.logger.warn('generateFromSeedArticle: format validation failed', {
@@ -228,6 +233,7 @@ export class GenerateFromSeedArticleAgent extends Agent<
       version: 0,
     });
 
+    const rankingStartTime = Date.now();
     const { rankingCost, rankResult, surfaced, discardReason } = await rankNewVariant({
       variant,
       localPool,
@@ -241,6 +247,7 @@ export class GenerateFromSeedArticleAgent extends Agent<
       logger: ctx.logger,
       costTracker: ctx.costTracker,
     });
+    const rankingDurationMs = Date.now() - rankingStartTime;
 
     // Compute estimated costs for the feedback loop
     const estGenCost = estimateGenerationCost(
@@ -267,10 +274,12 @@ export class GenerateFromSeedArticleAgent extends Agent<
         promptLength: prompt.length,
         textLength: variant.text.length,
         formatValid: true,
+        durationMs: generationDurationMs,
       },
       ranking: {
         cost: rankingCost,
         estimatedCost: estRankCost,
+        durationMs: rankingDurationMs,
         ...rankResult.detail,
       },
       estimatedTotalCost: estTotalCost,

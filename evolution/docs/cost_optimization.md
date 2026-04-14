@@ -158,8 +158,14 @@ Key functions: `estimateGenerationCost()`, `estimateRankingCost()`, `estimateAge
 ### Budget-Aware Dispatch
 
 The orchestrator computes two budget floors from strategy config:
-- `parallelFloor = budget × budgetBufferAfterParallel` — parallel generation stops here
-- `sequentialFloor = budget × budgetBufferAfterSequential` — sequential generation stops here
+- `parallelFloor` — parallel generation dispatches only up to `budget - parallelFloor` worth of agents
+- `sequentialFloor` — sequential generation stops when the next agent would breach this floor
+
+Each floor may be specified in either of two mutually-exclusive units (StrategyConfig fields):
+- **Fraction of budget**: `minBudgetAfterParallelFraction` / `minBudgetAfterSequentialFraction` (0-1). Resolves to `budget × fraction`.
+- **Multiple of agent cost**: `minBudgetAfterParallelAgentMultiple` / `minBudgetAfterSequentialAgentMultiple` (≥ 0). Resolves to `estAgentCost × N`. Parallel uses the initial `estimateAgentCost()` output. Sequential uses `actualAvgCostPerAgent` once available (live feedback from the parallel batch), falling back to the initial estimate.
+
+Legacy field names `budgetBufferAfterParallel` / `budgetBufferAfterSequential` are migrated to `minBudgetAfter*Fraction` automatically via Zod preprocess, and kept as output aliases for one release cycle to enable safe rollback.
 
 ```
 |--- Parallel (budget > parallelFloor) ---|--- Sequential (budget > sequentialFloor) ---|--- Swiss ---|
@@ -186,6 +192,7 @@ Prices per 1M tokens (USD). The table includes 30+ model entries; these are the 
 
 | Model               | Input / 1M | Output / 1M |
 |---------------------|-----------|-------------|
+| qwen-2.5-7b-instruct (**default judge**) | $0.04 | $0.10 |
 | qwen/qwen3-8b      | $0.05     | $0.40       |
 | gpt-5-nano          | $0.05     | $0.40       |
 | google/gemini-2.5-flash-lite | $0.10 | $0.40 |

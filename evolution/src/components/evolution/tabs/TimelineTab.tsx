@@ -14,6 +14,7 @@ import {
   buildInvocationUrl,
   buildVariantDetailUrl,
 } from '@evolution/lib/utils/evolutionUrls';
+import { GanttBar } from '@evolution/components/evolution/visualizations/GanttBar';
 
 export interface TimelineTabProps {
   runId: string;
@@ -72,10 +73,6 @@ function InvocationBar({ inv, runStartMs, totalMs }: BarProps): JSX.Element {
   const kind = agentKind(inv.agent_name);
   const { label, color } = KIND_CONFIG[kind];
   const offsetMs = new Date(inv.created_at).getTime() - runStartMs;
-  const widthMs = inv.duration_ms ?? 0;
-  const leftPct = Math.min(100, Math.max(0, (offsetMs / totalMs) * 100));
-  // Minimum 0.5% width so short agents are visible; cap at remaining space.
-  const widthPct = Math.min(Math.max((widthMs / totalMs) * 100, 0.5), 100 - leftPct);
 
   const tooltip = [
     inv.agent_name,
@@ -97,30 +94,19 @@ function InvocationBar({ inv, runStartMs, totalMs }: BarProps): JSX.Element {
         </span>
       </div>
 
-      {/* Bar track */}
-      <div className="flex-1 relative h-5 rounded" style={{ backgroundColor: 'color-mix(in srgb, var(--surface-secondary) 80%, transparent)' }}>
-        <Link
-          href={buildInvocationUrl(inv.id)}
-          title={tooltip}
-          style={{ left: `${leftPct}%`, width: `${widthPct}%`, backgroundColor: color }}
-          className="absolute inset-y-0 rounded hover:brightness-110 transition-[filter] flex items-center overflow-hidden z-10"
-          data-testid={`timeline-bar-${inv.id}`}
-        >
-          {widthPct > 6 && (
-            <span className="pl-1.5 text-xs font-mono text-white/90 truncate pointer-events-none">
-              {fmtMs(inv.duration_ms)}
-            </span>
-          )}
-        </Link>
-        {/* Failed indicator */}
-        {!inv.success && (
-          <span
-            style={{ left: `${leftPct + widthPct + 0.5}%` }}
-            className="absolute inset-y-0 flex items-center text-[var(--status-error)] text-xs"
-            title={inv.error_message ?? 'failed'}
-          >✗</span>
-        )}
-      </div>
+      {/* Bar track — delegated to GanttBar primitive */}
+      <GanttBar
+        startMs={offsetMs}
+        durationMs={inv.duration_ms}
+        totalMs={totalMs}
+        color={color}
+        label={fmtMs(inv.duration_ms)}
+        href={buildInvocationUrl(inv.id)}
+        tooltip={tooltip}
+        failed={!inv.success}
+        errorMessage={inv.error_message ?? undefined}
+        testId={`timeline-bar-${inv.id}`}
+      />
 
       {/* Right duration label */}
       <div className="w-14 shrink-0 text-right">

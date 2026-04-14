@@ -186,8 +186,12 @@ export async function buildRunContext(
     generationGuidance: stratConfig.generationGuidance,
     numVariants: stratConfig.maxVariantsToGenerateFromSeedArticle ?? 9,
     maxComparisonsPerVariant: stratConfig.maxComparisonsPerVariant ?? 15,
-    budgetBufferAfterParallel: stratConfig.budgetBufferAfterParallel ?? 0,
-    budgetBufferAfterSequential: stratConfig.budgetBufferAfterSequential ?? 0,
+    // Budget floors — preprocess in schemas.ts already migrates legacy fields into
+    // minBudgetAfter*Fraction. Pass all four fields through; pipeline resolves lazily.
+    minBudgetAfterParallelFraction: stratConfig.minBudgetAfterParallelFraction,
+    minBudgetAfterParallelAgentMultiple: stratConfig.minBudgetAfterParallelAgentMultiple,
+    minBudgetAfterSequentialFraction: stratConfig.minBudgetAfterSequentialFraction,
+    minBudgetAfterSequentialAgentMultiple: stratConfig.minBudgetAfterSequentialAgentMultiple,
     generationTemperature: stratConfig.generationTemperature,
   };
 

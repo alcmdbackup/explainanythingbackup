@@ -64,14 +64,18 @@ export function FormDialog({
 
   const updateField = useCallback(
     (name: string, value: unknown) => {
-      setValues((prev) => {
-        const next = { ...prev, [name]: value };
-        onFormChange?.(next);
-        return next;
-      });
+      setValues((prev) => ({ ...prev, [name]: value }));
     },
-    [onFormChange],
+    [],
   );
+
+  // Notify parent of form changes via effect (avoids setState-in-render when
+  // the parent's onFormChange triggers its own setState — which would fire
+  // during FormDialog's render phase if called inside the setValues updater).
+  useEffect(() => {
+    onFormChange?.(values);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [values]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
