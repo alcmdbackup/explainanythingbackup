@@ -948,17 +948,7 @@ export type AgentExecutionDetailSchema = z.infer<typeof agentExecutionDetailSche
  *  values (<100) are handled by display-layer heuristics in MetricsTab/visualizationActions. */
 const topVariantRename = renameKeys({ mu: 'elo' });
 const strategyEffectivenessEntryRename = renameKeys({ avgMu: 'avgElo' });
-const runSummaryV3Rename = (val: unknown): unknown => {
-  if (typeof val !== 'object' || val === null || Array.isArray(val)) return val;
-  const obj = val as Record<string, unknown>;
-  const out: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(obj)) {
-    if (k === 'muHistory') out.eloHistory = v;
-    else if (k === 'baselineMu') out.baselineElo = v;
-    else out[k] = v;
-  }
-  return out;
-};
+const runSummaryV3Rename = renameKeys({ muHistory: 'eloHistory', baselineMu: 'baselineElo' });
 
 const _EvolutionRunSummaryV3Inner = z.object({
   version: z.literal(3),
