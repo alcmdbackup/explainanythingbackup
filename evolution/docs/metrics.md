@@ -87,7 +87,7 @@ All metrics are declared in a typed registry keyed by entity type. Each definiti
 | `generation_cost` | cost | during_execution | LLM spend on generation calls in this run. Written via `writeMetricMax` after every `'generation'`-labeled LLM call. `listView: true`. |
 | `ranking_cost` | cost | during_execution | LLM spend on ranking calls in this run (incl. SwissRankingAgent + binary-search comparisons). Written via `writeMetricMax` after every `'ranking'`-labeled LLM call. `listView: true`. |
 | `seed_cost` | cost | during_execution | LLM spend on seed article generation (`CreateSeedArticleAgent`). Only non-zero for prompt-based runs. Written via `writeMetricMax` after every `'seed_title'`- or `'seed_article'`-labeled LLM call. `listView: true`. |
-| `winner_elo` | rating | at_finalization | Elo of the highest-mu variant. Includes sigma (variant sigma * ELO_SIGMA_SCALE) and 95% CI. |
+| `winner_elo` | rating | at_finalization | Elo of the highest-`elo` variant. Includes `uncertainty` (Elo-scale) and 95% CI = elo ± 1.96 × uncertainty. |
 | `median_elo` | rating | at_finalization | 50th percentile Elo across all variants |
 | `p90_elo` | rating | at_finalization | 90th percentile Elo |
 | `max_elo` | rating | at_finalization | Highest Elo in the pool |
@@ -100,8 +100,8 @@ All metrics are declared in a typed registry keyed by entity type. Each definiti
 
 | Name | Category | Timing | Description |
 |------|----------|--------|-------------|
-| `best_variant_elo` | rating | at_finalization | Highest elo among variants produced by this invocation. Also marked stale by the trigger when variant mu/sigma changes. |
-| `avg_variant_elo` | rating | at_finalization | Average elo of variants from this invocation. Also marked stale by the trigger when variant mu/sigma changes. |
+| `best_variant_elo` | rating | at_finalization | Highest elo among variants produced by this invocation. Also marked stale by the trigger when a variant's DB `mu`/`sigma` columns (backing `Rating`) change. |
+| `avg_variant_elo` | rating | at_finalization | Average elo of variants from this invocation. Also marked stale by the trigger when a variant's DB `mu`/`sigma` columns change. |
 | `variant_count` | count | at_finalization | Number of variants created by this invocation |
 
 ### Variant Metrics
@@ -150,7 +150,7 @@ Both entity types share the same propagation definitions — they aggregate from
 | `entity_id` | UUID | ID of the entity this metric belongs to |
 | `metric_name` | TEXT | Registry-validated metric name |
 | `value` | DOUBLE PRECISION | The metric value |
-| `sigma` | DOUBLE PRECISION | Rating uncertainty (nullable) |
+| `uncertainty` | DOUBLE PRECISION | Elo-scale rating uncertainty (nullable; renamed from `sigma`) |
 | `ci_lower` | DOUBLE PRECISION | 95% CI lower bound (nullable) |
 | `ci_upper` | DOUBLE PRECISION | 95% CI upper bound (nullable) |
 | `n` | INT | Observation count (default 1) |
@@ -181,18 +181,18 @@ Follows the same pattern as all evolution tables: deny-all default, `service_rol
 
 ## Per-LLM-Call Cost Persistence
 
-Cost metrics are now written to the database after each successful LLM call via `createV2LLMClient`. When the client is constructed with optional `db` and `runId` parameters, each LLM call writes its cost to `evolution_agent_invocations` fire-and-forget (errors are logged but do not fail the call). This provides fine-grained cost tracking independent of the phase-level cost metric writes.
+Cost metrics are now written to the database after each successful LLM call via `createEvolutionLLMClient`. When the client is constructed with optional `db` and `runId` parameters, each LLM call writes its cost to `evolution_agent_invocations` fire-and-forget (errors are logged but do not fail the call). This provides fine-grained cost tracking independent of the phase-level cost metric writes.
 
 ---
 
 ## Elo CI on Run Metrics
 
-Run-level elo metrics (e.g., `winner_elo`) now carry sigma and 95% confidence intervals derived from the source variant's Bayesian uncertainty:
+Run-level elo metrics (e.g., `winner_elo`) now carry `uncertainty` and 95% confidence intervals derived directly from the source variant's Elo-scale uncertainty:
 
-- **eloSigma** = `variant.sigma * ELO_SIGMA_SCALE` (where `ELO_SIGMA_SCALE = 16`)
-- **CI** = `[elo - 1.96 * eloSigma, elo + 1.96 * eloSigma]`
+- **uncertainty** = `variant.uncertainty` (already Elo-scale; no scaling needed)
+- **CI** = `[elo - 1.96 * uncertainty, elo + 1.96 * uncertainty]`
 
-These values are stored in the `sigma`, `ci_lower`, and `ci_upper` columns of the metric row. Propagated metrics at the strategy/experiment level use bootstrap CI instead (computed by `bootstrapMeanCI()` from multiple run values), not the per-variant sigma.
+These values are stored in the `uncertainty`, `ci_lower`, and `ci_upper` columns of the metric row. Propagated metrics at the strategy/experiment level use bootstrap CI instead (computed by `bootstrapMeanCI()` from multiple run values), not the per-variant uncertainty.
 
 ---
 
@@ -222,7 +222,7 @@ The upsert uses `ON CONFLICT (entity_type, entity_id, metric_name)` so repeated 
 
 **File:** `evolution/src/lib/metrics/recomputeMetrics.ts`
 
-When a variant's `mu` or `sigma` changes after run completion (e.g., from arena matches), a database trigger (`mark_elo_metrics_stale`) sets `stale=true` on **all** dependent run, strategy, and experiment metrics (not just elo-category metrics).
+When a variant's DB `mu` or `sigma` columns change after run completion (e.g., from arena matches — these columns back the public `Rating {elo, uncertainty}` via `dbToRating`), a database trigger (`mark_elo_metrics_stale`) sets `stale=true` on **all** dependent run, strategy, and experiment metrics (not just elo-category metrics).
 
 On the next read, server actions detect stale rows and call `recomputeStaleMetrics()`:
 

@@ -128,29 +128,59 @@ The `budgetFraction` is computed by the pipeline supervisor before each ranking 
 
 ---
 
-## Token Estimation
+## Cost Estimation
 
-**File:** `evolution/src/lib/pipeline/llm-client.ts`
+### Per-Call Estimation (Reserve-Before-Spend)
 
-Cost estimation before an LLM call uses a simple heuristic: **1 token ~ 4 characters** for English text. Input tokens are derived from prompt length (`Math.ceil(chars / 4)`), and output tokens use fixed estimates per agent:
+**File:** `evolution/src/lib/pipeline/infra/createEvolutionLLMClient.ts`
 
-| Agent Phase | Estimated Output Tokens |
-|-------------|------------------------|
-| generation  | 1000                   |
-| evolution   | 1000                   |
-| ranking     | 100                    |
+Before each LLM call, cost is estimated using **1 token ~ 4 characters** and fixed output token estimates (1000 for generation, 100 for ranking). This feeds `costTracker.reserve()` with a 1.3x margin. After the call, actual costs replace the estimate via `recordSpend()`.
 
-The estimated cost formula:
+### Pre-Dispatch Estimation (Budget-Aware)
+
+**File:** `evolution/src/lib/pipeline/infra/estimateCosts.ts`
+
+Before dispatching generateFromSeedArticle agents, the orchestrator uses empirical cost estimation to determine how many agents the budget can support. This uses:
+
+- **Empirical output characters per strategy** (measured from staging DB):
+
+| Strategy | Avg Output Chars | ~Tokens |
+|----------|-----------------|---------|
+| grounding_enhance | 11,799 | 2,950 |
+| structural_transform | 9,956 | 2,489 |
+| lexical_simplify | 5,836 | 1,459 |
+| default (other strategies) | 9,197 | 2,299 |
+
+- **Deterministic ranking cost**: `min(poolSize - 1, maxComparisonsPerVariant)` comparisons × 2 LLM calls (bias mitigation) × comparison cost. Comparison prompt = 698 chars overhead + 2 × article length.
+
+Key functions: `estimateGenerationCost()`, `estimateRankingCost()`, `estimateAgentCost()`, `estimateSwissPairCost()`.
+
+### Budget-Aware Dispatch
+
+The orchestrator computes two budget floors from strategy config:
+- `parallelFloor` — parallel generation dispatches only up to `budget - parallelFloor` worth of agents
+- `sequentialFloor` — sequential generation stops when the next agent would breach this floor
+
+Each floor may be specified in either of two mutually-exclusive units (StrategyConfig fields):
+- **Fraction of budget**: `minBudgetAfterParallelFraction` / `minBudgetAfterSequentialFraction` (0-1). Resolves to `budget × fraction`.
+- **Multiple of agent cost**: `minBudgetAfterParallelAgentMultiple` / `minBudgetAfterSequentialAgentMultiple` (≥ 0). Resolves to `estAgentCost × N`. Parallel uses the initial `estimateAgentCost()` output. Sequential uses `actualAvgCostPerAgent` once available (live feedback from the parallel batch), falling back to the initial estimate.
+
+Legacy field names `budgetBufferAfterParallel` / `budgetBufferAfterSequential` are migrated to `minBudgetAfter*Fraction` automatically via Zod preprocess, and kept as output aliases for one release cycle to enable safe rollback.
 
 ```
-cost = (inputTokens * inputPer1M + outputTokens * outputPer1M) / 1,000,000
+|--- Parallel (budget > parallelFloor) ---|--- Sequential (budget > sequentialFloor) ---|--- Swiss ---|
 ```
 
-This estimate feeds into `costTracker.reserve()` (with the 1.3x margin applied on top). After the call completes, actual token counts from the API response replace the estimate via `recordSpend()`.
+After the parallel batch, runtime feedback (`actualAvgCostPerAgent` from completed agents) replaces the empirical estimate for sequential dispatch decisions.
 
-The 4-chars-per-token heuristic is a rough approximation for English text. It works reasonably well for the evolution pipeline because prompts are predominantly natural language (article text, critique instructions, comparison prompts). For code-heavy content or non-Latin scripts, actual token counts may diverge significantly from this estimate -- the 1.3x safety margin in the cost tracker is designed to absorb this variance.
+### Estimation Feedback Loop
 
-> **Warning:** The output token estimates are static defaults. A generation agent producing a 5000-word article will use far more than the estimated 1000 output tokens. The system handles this correctly through the reserve/spend reconciliation pattern, but it means the reservation may undercount, and the budget overrun log message is expected for long-form generation calls.
+Each generateFromSeedArticle invocation records `estimatedCost` and `estimationErrorPct` in its `execution_detail` JSONB for post-hoc analysis. Query via:
+```sql
+SELECT (execution_detail->'generation'->>'estimatedCost')::NUMERIC,
+       (execution_detail->>'estimationErrorPct')::NUMERIC
+FROM evolution_agent_invocations WHERE agent_name = 'generate_from_seed_article';
+```
 
 ---
 
@@ -162,14 +192,17 @@ Prices per 1M tokens (USD). The table includes 30+ model entries; these are the 
 
 | Model               | Input / 1M | Output / 1M |
 |---------------------|-----------|-------------|
+| qwen-2.5-7b-instruct (**default judge**) | $0.04 | $0.10 |
+| qwen/qwen3-8b      | $0.05     | $0.40       |
+| gpt-5-nano          | $0.05     | $0.40       |
+| google/gemini-2.5-flash-lite | $0.10 | $0.40 |
 | gpt-4.1-nano        | $0.10     | $0.40       |
 | gpt-4.1-mini        | $0.40     | $1.60       |
 | gpt-4.1             | $2.00     | $8.00       |
 | gpt-4o              | $2.50     | $10.00      |
 | gpt-4o-mini         | $0.15     | $0.60       |
-| deepseek-chat       | $0.14     | $0.28       |
+| deepseek-chat       | $0.28     | $0.42       |
 | claude-sonnet-4     | $3.00     | $15.00      |
-| claude-3-5-haiku    | $0.80     | $4.00       |
 | Unknown (fallback)  | $10.00    | $30.00      |
 
 Model lookup uses exact match first, then longest-prefix match (e.g., `gpt-4o-2024-11-20` matches the `gpt-4o` entry). Unknown models fall back to conservative default pricing ($10/$30 per 1M tokens).

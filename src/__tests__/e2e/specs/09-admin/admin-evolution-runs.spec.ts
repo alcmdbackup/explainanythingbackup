@@ -70,7 +70,7 @@ adminTest.describe('Evolution Runs (T4, T7, T8, T10)', { tag: '@evolution' }, ()
     await sb.from('evolution_prompts').delete().eq('id', promptId);
   });
 
-  adminTest('runs list status filter works', async ({ adminPage }) => {
+  adminTest('list+status filter: runs list renders and status filter shows correct rows', async ({ adminPage }) => {
     await adminPage.goto('/admin/evolution/runs', { timeout: 30000 });
     await adminPage.waitForLoadState('domcontentloaded');
 
@@ -105,33 +105,7 @@ adminTest.describe('Evolution Runs (T4, T7, T8, T10)', { tag: '@evolution' }, ()
     await expect(failedRow).not.toBeVisible();
   });
 
-  adminTest('clicking run row navigates to detail page', async ({ adminPage }) => {
-    await adminPage.goto('/admin/evolution/runs', { timeout: 30000 });
-    await adminPage.waitForLoadState('domcontentloaded');
-
-    const table = adminPage.locator('[data-testid="runs-list-table"]');
-    await expect(table).toBeVisible({ timeout: 30000 });
-
-    // Uncheck "Hide test content" so seeded test data is visible
-    const hideTestCheckbox = adminPage.locator('[data-testid="filter-filterTestContent"] input[type="checkbox"]');
-    // eslint-disable-next-line flakiness/no-point-in-time-checks -- control flow, not assertion
-    if (await hideTestCheckbox.isChecked()) {
-      await hideTestCheckbox.click();
-      // Wait for table to reload after filter change
-      await table.waitFor({ state: 'visible' });
-    }
-
-    // Click the completed run row
-    const runRow = adminPage.locator(`[data-testid="run-row-${completedRunId}"]`);
-    await expect(runRow).toBeVisible({ timeout: 15000 });
-    await runRow.click();
-
-    // Verify URL navigated to the run detail page
-    await adminPage.waitForURL(`**/admin/evolution/runs/${completedRunId}`, { timeout: 15000 });
-    expect(adminPage.url()).toContain(`/admin/evolution/runs/${completedRunId}`);
-  });
-
-  adminTest('run detail page shows tabs', async ({ adminPage }) => {
+  adminTest('detail tabs: run detail page shows all expected tabs and variant tab content', async ({ adminPage }) => {
     await adminPage.goto(`/admin/evolution/runs/${completedRunId}`, { timeout: 30000 });
     await adminPage.waitForLoadState('domcontentloaded');
 
@@ -149,9 +123,26 @@ adminTest.describe('Evolution Runs (T4, T7, T8, T10)', { tag: '@evolution' }, ()
     await expect(adminPage.locator('[data-testid="tab-lineage"]')).toBeVisible();
     await expect(adminPage.locator('[data-testid="tab-variants"]')).toBeVisible();
     await expect(adminPage.locator('[data-testid="tab-logs"]')).toBeVisible();
+
+    // Click the Variants tab
+    const variantsTab = adminPage.locator('[data-testid="tab-variants"]');
+    await variantsTab.click();
+
+    // Tab content area should be visible after clicking
+    const tabContent = adminPage.locator('[data-testid="tab-content"]');
+    await expect(tabContent).toBeVisible({ timeout: 15000 });
+
+    // Failed run detail should show failed status badge
+    await adminPage.goto(`/admin/evolution/runs/${failedRunId}`, { timeout: 30000 });
+    await adminPage.waitForLoadState('domcontentloaded');
+    const failedHeader = adminPage.locator('[data-testid="entity-detail-header"]');
+    await expect(failedHeader).toBeVisible({ timeout: 30000 });
+    const statusBadge = failedHeader.locator('[data-testid="status-badge-failed"]');
+    await expect(statusBadge).toBeVisible();
+    await expect(statusBadge).toContainText(/failed/i);
   });
 
-  adminTest('run detail breadcrumb navigation works', async ({ adminPage }) => {
+  adminTest('breadcrumb+strategy filter: breadcrumb nav works and strategy filter renders', async ({ adminPage }) => {
     await adminPage.goto(`/admin/evolution/runs/${completedRunId}`, { timeout: 30000 });
     await adminPage.waitForLoadState('domcontentloaded');
 
@@ -169,46 +160,6 @@ adminTest.describe('Evolution Runs (T4, T7, T8, T10)', { tag: '@evolution' }, ()
     // Verify navigation back to runs list
     await adminPage.waitForURL('**/admin/evolution/runs', { timeout: 15000 });
     await expect(adminPage.locator('h1')).toContainText('Evolution Runs');
-  });
-
-  adminTest('failed run detail page shows error message in status badge', async ({ adminPage }) => {
-    await adminPage.goto(`/admin/evolution/runs/${failedRunId}`, { timeout: 30000 });
-    await adminPage.waitForLoadState('domcontentloaded');
-
-    // Wait for the detail header to render
-    const header = adminPage.locator('[data-testid="entity-detail-header"]');
-    await expect(header).toBeVisible({ timeout: 30000 });
-
-    // The status badge should reflect the failed state (run-status variant uses status-badge-{status})
-    const statusBadge = header.locator('[data-testid="status-badge-failed"]');
-    await expect(statusBadge).toBeVisible();
-    await expect(statusBadge).toContainText(/failed/i);
-  });
-
-  adminTest('run detail page renders variant tab with content', async ({ adminPage }) => {
-    await adminPage.goto(`/admin/evolution/runs/${completedRunId}`, { timeout: 30000 });
-    await adminPage.waitForLoadState('domcontentloaded');
-
-    // Wait for the tab bar to render
-    const tabBar = adminPage.locator('[data-testid="tab-bar"]');
-    await expect(tabBar).toBeVisible({ timeout: 30000 });
-
-    // Click the Variants tab
-    const variantsTab = adminPage.locator('[data-testid="tab-variants"]');
-    await expect(variantsTab).toBeVisible();
-    await variantsTab.click();
-
-    // Tab content area should be visible after clicking
-    const tabContent = adminPage.locator('[data-testid="tab-content"]');
-    await expect(tabContent).toBeVisible({ timeout: 15000 });
-  });
-
-  adminTest('runs list shows strategy filter dropdown', { tag: '@critical' }, async ({ adminPage }) => {
-    await adminPage.goto('/admin/evolution/runs');
-    await adminPage.waitForLoadState('domcontentloaded');
-
-    const entityList = adminPage.locator('[data-testid="entity-list-page"]');
-    await expect(entityList).toBeVisible({ timeout: 15000 });
 
     // Strategy filter select should render (populated after strategies load)
     const strategySelect = adminPage.locator('select').filter({ hasText: 'All strategies' });

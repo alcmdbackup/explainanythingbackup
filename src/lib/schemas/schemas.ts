@@ -68,16 +68,12 @@ export type SortMode = 'new' | 'top';
 /** Time period for filtering "top" explanations */
 export type TimePeriod = 'hour' | 'today' | 'week' | 'month' | 'all';
 
-/** Restricts model parameter to approved models (OpenAI, DeepSeek, Anthropic, OpenRouter, local) */
-export const allowedLLMModelSchema = z.enum([
-  "gpt-4o-mini", "gpt-4o", "gpt-4.1-nano", "gpt-4.1-mini", "gpt-4.1",
-  "gpt-5.2", "gpt-5.2-pro", "gpt-5-mini", "gpt-5-nano",
-  "o3-mini",
-  "deepseek-chat",
-  "claude-sonnet-4-20250514",
-  "gpt-oss-20b",
-  "LOCAL_qwen2.5:14b",
-]);
+/** Restricts model parameter to approved models — derived from the central model registry. */
+import { getEvolutionModelIds } from '@/config/modelRegistry';
+
+export const allowedLLMModelSchema = z.enum(
+  getEvolutionModelIds() as [string, ...string[]],
+);
 
 export type AllowedLLMModelType = z.infer<typeof allowedLLMModelSchema>;
 

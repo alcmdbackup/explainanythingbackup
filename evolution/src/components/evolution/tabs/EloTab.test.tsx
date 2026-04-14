@@ -22,9 +22,9 @@ describe('EloTab', () => {
     getEvolutionRunEloHistoryAction.mockResolvedValue({
       success: true,
       data: [
-        { iteration: 1, mu: 25.0 },
-        { iteration: 2, mu: 26.5 },
-        { iteration: 3, mu: 27.1 },
+        { iteration: 1, elo: 1200 },
+        { iteration: 2, elo: 1224 },
+        { iteration: 3, elo: 1234 },
       ],
       error: null,
     });
@@ -45,13 +45,13 @@ describe('EloTab', () => {
     await waitFor(() => expect(screen.getByTestId('elo-tab-empty')).toBeInTheDocument());
   });
 
-  it('renders multi-line chart with top-K mus data', async () => {
+  it('renders multi-line chart with top-K elos data', async () => {
     getEvolutionRunEloHistoryAction.mockResolvedValue({
       success: true,
       data: [
-        { iteration: 1, mu: 25.0, mus: [25.0, 24.5, 23.8] },
-        { iteration: 2, mu: 26.5, mus: [26.5, 25.1, 24.0] },
-        { iteration: 3, mu: 27.1, mus: [27.1, 26.0, 25.2] },
+        { iteration: 1, elo: 1200, elos: [1200, 1192, 1181] },
+        { iteration: 2, elo: 1224, elos: [1224, 1202, 1184] },
+        { iteration: 3, elo: 1234, elos: [1234, 1216, 1203] },
       ],
       error: null,
     });
@@ -64,12 +64,12 @@ describe('EloTab', () => {
     expect(svg?.querySelectorAll('polyline')).toHaveLength(3);
   });
 
-  it('renders single-line chart with legacy data (no mus field)', async () => {
+  it('renders single-line chart with legacy data (no elos field)', async () => {
     getEvolutionRunEloHistoryAction.mockResolvedValue({
       success: true,
       data: [
-        { iteration: 1, mu: 25.0 },
-        { iteration: 2, mu: 26.5 },
+        { iteration: 1, elo: 1200 },
+        { iteration: 2, elo: 1224 },
       ],
       error: null,
     });

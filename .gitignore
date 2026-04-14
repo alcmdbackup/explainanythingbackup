@@ -94,3 +94,5 @@ evolution/.next/
 npm-install.log
 screenshots/
 docs/planning/testing_fixes_20260329/
+timeline-*.png
+.claude/scheduled_tasks.lock

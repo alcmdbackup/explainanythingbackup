@@ -49,8 +49,7 @@ Store as `$PLAN_FILE`. If none found → display a warning ("No planning file fo
 
 Read the planning doc and extract the `## Verification` section. Identify:
 - Automated test commands/file paths (unit, integration, E2E)
-- Playwright verification specs (if UI changes)
-- Manual Verification scenarios (hook tests, CLI tests, shell-script tests, or any scenario described as "attempt to do X → expect Y")
+- Playwright verification specs (if any)
 
 If no Verification section found → warn "No Verification section in plan — skipping verification gate" and proceed to Step 1.
 
@@ -62,29 +61,6 @@ Execute each test listed in the Verification section:
 - E2E tests: `npm run test:e2e:critical` (or specific spec file from plan)
 
 Collect pass/fail results for each.
-
-**Step 0b.5: Run Manual Verification scenarios — THIS IS YOUR RESPONSIBILITY, NOT THE USER'S**
-
-> ⚠️ **CRITICAL**: If the plan contains "Manual Verification" items, YOU must run them. Do NOT skip them, do NOT ask the user to run them, and do NOT block finalization because they are unchecked. Manual verification is always Claude's responsibility to execute via bash scripts.
-
-For each scenario in the Manual Verification list:
-
-1. **Classify the scenario** — is it testing:
-   - A shell hook (check-workflow-ready.sh, track-prerequisites.sh, etc.)? → Test by piping mock JSON to the hook script via Bash
-   - A CLI command? → Run it via Bash
-   - A UI interaction? → Use Playwright MCP browser tools
-
-2. **Hook scenarios** (most common): Write and run a Bash test that:
-   - Creates a temp git repo with the appropriate branch and `_status.json` state
-   - Pipes the correct hook input JSON: `echo '{"cwd":"...","tool_name":"Edit","tool_input":{"file_path":"..."}}' | bash .claude/hooks/check-workflow-ready.sh`
-   - Asserts the output matches the expected behavior (deny with correct message, or allow with empty output)
-   - Cleans up the temp directory afterward
-
-3. **Batch all scenarios** into a single comprehensive test script. Run it once with Bash. Report pass/fail for each.
-
-4. **After all pass**: Check off every Manual Verification checkbox in the planning doc (`[ ]` → `[x]`). Do NOT leave them unchecked for the user to handle.
-
-5. **If any scenario fails**: That is a bug in the implementation — fix the code, re-run tests, and only proceed once all pass.
 
 **Step 0c: Run Playwright verification (if applicable)**
 
@@ -108,11 +84,10 @@ Display verification results summary:
 ```
 Verification Gate
 ──────────────────────────────────────
-Unit tests:           ✓ PASSED / ✗ FAILED / ⊘ N/A
-Integration tests:    ✓ PASSED / ✗ FAILED / ⊘ N/A
-E2E tests:            ✓ PASSED / ✗ FAILED / ⊘ N/A
-Manual scenarios:     ✓ N/N PASSED / ✗ FAILED / ⊘ N/A
-Playwright:           ✓ PASSED / ✗ FAILED / ⊘ N/A
+Unit tests:        ✓ PASSED / ✗ FAILED
+Integration tests: ✓ PASSED / ✗ FAILED
+E2E tests:         ✓ PASSED / ✗ FAILED / ⊘ N/A
+Playwright:        ✓ PASSED / ✗ FAILED / ⊘ N/A
 ──────────────────────────────────────
 ```
 
@@ -654,7 +629,7 @@ Issues to IGNORE:
 - Issues silenced by lint-ignore comments
 - Intentional functionality changes related to the broader change
 
-### 4. Run All Checks (collect all failures)
+### 4. Run All Non-E2E Checks (collect all failures)
 
 <!-- SYNC-POINT: These checks use the same npm scripts as CI (ci.yml).
      CI adds flags: --changedSince (unit), --shard (E2E), --maxWorkers=2
@@ -692,11 +667,28 @@ Integration Tests: ✓ PASSED / ✗ FAILED
 ```
 
 If any check failed:
-1. Fix ALL failing issues at once (regardless of whether they originated from this branch or pre-existed)
-2. Re-run ALL 6 checks (not just the ones that failed)
-3. Repeat until all 6 pass
 
-### 5. E2E Critical Tests
+1. **Classify failures**: Check if main's CI is also failing:
+   ```bash
+   MAIN_STATUS=$(gh run list --branch main --workflow ci.yml --limit 1 --json conclusion -q '.[0].conclusion // "unknown"' 2>/dev/null || echo "unknown")
+   ```
+   If `MAIN_STATUS` is "failure", compare failing tests against main's failures (same approach as Step 8d-2). Tests failing on BOTH main and this branch are **pre-existing**.
+
+2. **Surface pre-existing failures**: If pre-existing failures found, use **AskUserQuestion**:
+   - Question: "These test failures also exist on main (pre-existing): [list]. How should I handle them?"
+   - Options: "Fix them anyway" / "Skip pre-existing, fix only new failures" / "Abort"
+
+3. **Fix** all applicable failing issues at once
+
+4. **Targeted verify**: Run ONLY the specific failing tests locally with `--retries=0` to confirm the fix works. GATE: all must pass before proceeding.
+
+5. **Stability check**: Run each previously-failing test 5 times (same protocol as Step 8d-6). If any run fails, investigate root cause — do NOT add retries/sleeps/skips.
+
+6. **Full verify**: Re-run ALL 6 non-E2E checks (not just the ones that failed)
+
+7. Repeat until all 6 pass
+
+### 5. Run E2E Tests
 
 Always run E2E critical tests — no flag required:
 
@@ -706,7 +698,22 @@ npm run test:e2e:critical
 
 Fix any failures before proceeding.
 
-If `$ARGUMENTS` contains `--e2e`, ALSO run the full E2E suite after critical tests pass:
+Then check if evolution files changed and run evolution E2E if so:
+
+```bash
+EVOLUTION_PATHS="evolution|arena|strategy-resolution|manual-experiment|src/app/admin/quality/optimization/"
+EVOLUTION_CHANGED=$(git diff --name-only origin/main | grep -E "$EVOLUTION_PATHS" || true)
+```
+
+If `EVOLUTION_CHANGED` is non-empty, ALSO run evolution E2E tests:
+
+```bash
+npm run test:e2e:evolution
+```
+
+Fix any failures before proceeding.
+
+If `$ARGUMENTS` contains `--e2e`, ALSO run the full E2E suite after critical and evolution tests pass:
 
 ```bash
 npm run test:e2e:full
@@ -904,11 +911,21 @@ This blocks until all checks complete or 15 minutes elapse. Check the exit code:
 
 **Step 8c: Diagnose failures**
 
-Get structured failure details:
+Get CI run details and failure logs:
 
 ```bash
-gh pr checks --json name,bucket,link,state
+# Get CI run IDs for this branch (may have multiple workflows)
+BRANCH=$(git branch --show-current)
+RUNS=$(gh run list --branch "$BRANCH" --limit 5 --json databaseId,name,conclusion,status 2>/dev/null || echo "[]")
+
+# Display structured summary
+echo "$RUNS" | jq -r '.[] | "\(.conclusion // .status)\t\(.name)"'
+
+# Extract failed run IDs
+FAILED_RUN_IDS=$(echo "$RUNS" | jq -r '.[] | select(.conclusion == "failure") | .databaseId' || true)
 ```
+
+If `RUNS` is empty or `[]`, display "No CI runs found for branch" and return to Step 8b (re-watch).
 
 Display a summary table:
 ```
@@ -922,14 +939,8 @@ PR Check Results
 ──────────────────────────────────────
 ```
 
-Then get failure logs. Try `gh run view --log-failed` first; fall back to `gh run list` if it fails:
-
+Then get failure logs for each failed run:
 ```bash
-# Get unique run IDs for failed checks
-FAILED_RUN_IDS=$(gh pr checks --json link,bucket \
-  --jq 'map(select(.bucket == "fail") | .link | capture("runs/(?<id>[0-9]+)") | .id) | unique | .[]')
-
-# Get failure logs for each run
 for run_id in $FAILED_RUN_IDS; do
   gh run view "$run_id" --log-failed
 done
@@ -937,47 +948,158 @@ done
 
 If `--log-failed` produces no useful output, try:
 ```bash
-BRANCH=$(git branch --show-current)
 gh run list --branch "$BRANCH" --status failure --json databaseId,name,conclusion
 # Then for each: gh run view <id> --log
 ```
 
-**Step 8d: Fix, commit, and push**
+**Step 8d: Gated CI retry flow**
 
-Use **AskUserQuestion**:
-- Question: "PR checks failed: [list failed check names]. Failure logs retrieved. How would you like to proceed?"
+This step has 8 sub-steps with 3 hard gates. **Never use `gh run rerun`** — always push new commits to trigger a full CI run.
+
+**Step 8d-1: Parse failing tests from CI logs**
+```bash
+FAILED_SPECS=""
+FAILED_TESTS=""
+for run_id in $FAILED_RUN_IDS; do
+  LOGS=$(gh run view "$run_id" --log-failed 2>&1 || true)
+  
+  # If --log-failed returned empty, fall back to full log
+  if [ -z "$LOGS" ] || [ "$LOGS" = "No failed steps" ]; then
+    LOGS=$(gh run view "$run_id" --log 2>&1 | tail -500 || true)
+  fi
+  
+  # Playwright spec files
+  SPECS=$(echo "$LOGS" | grep -oE 'src/__tests__/e2e/specs/[^ ]*\.spec\.ts' | sort -u || true)
+  FAILED_SPECS="$FAILED_SPECS $SPECS"
+  
+  # Jest test files
+  TESTS=$(echo "$LOGS" | grep -oE 'FAIL\s+[^ ]*\.test\.ts' | sed 's/FAIL\s*//' | sort -u || true)
+  FAILED_TESTS="$FAILED_TESTS $TESTS"
+done
+
+# Deduplicate
+FAILED_SPECS=$(echo "$FAILED_SPECS" | tr ' ' '\n' | sort -u | grep -v '^$' || true)
+FAILED_TESTS=$(echo "$FAILED_TESTS" | tr ' ' '\n' | sort -u | grep -v '^$' || true)
+```
+
+If BOTH `FAILED_SPECS` and `FAILED_TESTS` are empty (could not parse test names from logs):
+- Display: "Could not extract specific failing test names from CI logs. Will skip targeted verify and stability check, proceeding directly to full verify."
+- Skip Steps 8d-5 and 8d-6, proceed to Step 8d-7 (full verify).
+
+**Step 8d-2: Classify failures — pre-existing vs new**
+```bash
+MAIN_STATUS=$(gh run list --branch main --workflow ci.yml --limit 1 --json conclusion -q '.[0].conclusion // "unknown"' 2>/dev/null || echo "unknown")
+```
+
+If `MAIN_STATUS` is "unknown" or empty → skip pre-existing detection, treat all failures as new. Proceed to Step 8d-4.
+
+If `MAIN_STATUS` is "success" → all failures are new. Proceed to Step 8d-4.
+
+If `MAIN_STATUS` is "failure":
+```bash
+MAIN_RUN_ID=$(gh run list --branch main --workflow ci.yml --limit 1 --json databaseId -q '.[0].databaseId // empty' 2>/dev/null || true)
+if [ -n "$MAIN_RUN_ID" ]; then
+  MAIN_LOGS=$(gh run view "$MAIN_RUN_ID" --log-failed 2>&1 || true)
+  MAIN_FAILED_SPECS=$(echo "$MAIN_LOGS" | grep -oE 'src/__tests__/e2e/specs/[^ ]*\.spec\.ts' | sort -u || true)
+  MAIN_FAILED_TESTS=$(echo "$MAIN_LOGS" | grep -oE 'FAIL\s+[^ ]*\.test\.ts' | sed 's/FAIL\s*//' | sort -u || true)
+  # Tests in BOTH branch failures and main failures = pre-existing
+  PRE_EXISTING=$(comm -12 <(echo "$FAILED_SPECS $FAILED_TESTS" | tr ' ' '\n' | sort) <(echo "$MAIN_FAILED_SPECS $MAIN_FAILED_TESTS" | tr ' ' '\n' | sort) || true)
+fi
+```
+
+**Step 8d-3: Surface pre-existing failures to user**
+
+If pre-existing failures found, use **AskUserQuestion**:
+- Question: "These test failures also exist on main (pre-existing): [list]. How should I handle them?"
 - Options:
-  1. "Fix and retry" — fix the issues, re-run local checks (Step 4), commit, push, and re-monitor
-  2. "Abort monitoring" — stop monitoring, leave PR as-is for manual intervention
+  1. "Fix them anyway" — fix all failures including pre-existing
+  2. "Skip pre-existing, fix only new failures" — note in PR description
+  3. "Abort" — stop finalization
 
-If "Fix and retry":
-1. Analyze the failure logs to identify root causes
-2. Fix ALL issues locally (regardless of origin — pre-existing bugs included)
-3. Re-run ALL local checks: Step 4 (all 6 checks) + Step 5 (E2E critical). Re-run everything, not just the checks that failed.
-4. **Never use `gh run rerun`** — always push new commits to trigger a full CI run. Re-running stale commits can mask issues introduced by fixes.
-5. Commit fixes:
-   ```bash
-   git add -A
-   git commit -m "fix: address CI failures (iteration N)"
-   ```
-6. Push:
-   ```bash
-   git push
-   ```
-7. Backup push (non-fatal — YOU MUST run this step, but if it fails, log the error and continue):
-   ```bash
-   git -c http.postBuffer=524288000 push backup HEAD --force-with-lease --no-verify
-   ```
-   Verify exit code. If non-zero, display "WARNING: Backup push failed with exit code $?" and continue.
-8. Return to Step 8a (wait 30s, then re-watch)
+**Step 8d-4: Fix the issues**
+- Analyze root causes from CI logs
+- Apply fixes to identified issues
+- If test is flaky (passes locally, fails in CI or vice versa), follow the flakiness protocol in Step 8d-6
 
-**Maximum iterations**: 5 fix-push-watch cycles. After 5 failures:
+**Step 8d-5: Targeted verify — GATE**
 
-Use **AskUserQuestion**:
-- Question: "PR checks have failed 5 times. How would you like to proceed?"
-- Options:
-  1. "Continue trying" — reset counter and keep going
-  2. "Abort monitoring" — stop and leave PR for manual review
+Run ONLY the specific failing tests locally with `--retries=0`:
+```bash
+# E2E failures
+npx playwright test <specific-spec-file> --project=chromium --retries=0
+
+# Unit/integration failures
+npx jest <specific-test-file>
+```
+**HARD GATE**: Every previously-failing test must pass. If any fail, return to Step 8d-4. Do NOT proceed to Step 8d-6.
+
+**Step 8d-6: Flakiness stability check — GATE**
+
+Run each previously-failing test 5 times to confirm stability. Applies to ALL test types:
+
+For E2E tests:
+```bash
+for i in 1 2 3 4 5; do
+  npx playwright test <file> --project=chromium --retries=0 --workers=1 || { echo "FLAKY on run $i"; break; }
+done
+```
+
+For unit/integration tests:
+```bash
+for i in 1 2 3 4 5; do
+  npx jest <file> --forceExit || { echo "FLAKY on run $i"; break; }
+done
+```
+
+E2E stability runs use `--workers=1` to simulate CI-like serial execution and catch concurrency-related flakiness.
+
+If any run fails, the fix is **insufficient** — the test is still flaky:
+1. Do NOT add retries, increase timeouts, wrap in try/catch, add sleeps, or mark as skipped
+2. Investigate the root cause using testing_overview.md rules:
+   - Start from known state — reset filters, clear DB state between tests (Rule 1)
+   - Point-in-time checks → use `expect(locator)` auto-waiting assertions (Rule 4)
+   - Missing hydration waits → wait for data-dependent element before interacting (Rule 18)
+   - Stacked route mocks → `page.unroute()` before `page.route()` (Rule 10)
+   - Shared mutable state → `test.describe.configure({ mode: 'serial' })` (Rule 13)
+   - Missing POM waits → POM methods must wait after actions (Rule 12)
+   - `networkidle` usage → use specific element/response waits (Rule 9)
+3. Scan the diff for anti-patterns:
+   ```bash
+   git diff | grep -E 'waitForTimeout|new Promise.*setTimeout|setTimeout.*[0-9]{4}|\.sleep\(|\.skip\(|retries:\s*[1-9]|test\.fixme'
+   ```
+   If any anti-pattern found, automatically rework the fix — do not ask user.
+4. After reworking, return to Step 8d-5 (targeted verify)
+5. If 3+ rework iterations fail to stabilize the test, THEN escalate to user:
+   - AskUserQuestion: "Test [name] remains flaky after 3 fix attempts. Root cause appears to be [diagnosis]. Options?"
+   - Options: "Continue investigating" / "Skip this test and note in PR" / "Abort"
+
+**Step 8d-7: Full verify — GATE**
+
+Re-run ALL local checks: Step 4 (Run All Non-E2E Checks) + Step 5 (Run E2E Tests, including evolution if applicable).
+**HARD GATE**: All checks must pass. If any fail, return to Step 8d-4 for the new failures.
+
+**Step 8d-8: Push**
+```bash
+git add -A
+git commit -m "fix: address CI failures (iteration N)"
+git push
+```
+Backup push (non-fatal — YOU MUST run this step, but if it fails, log the error and continue):
+```bash
+git -c http.postBuffer=524288000 push backup HEAD --force-with-lease --no-verify
+```
+Verify exit code. If non-zero, display "WARNING: Backup push failed with exit code $?" and continue.
+Return to Step 8a (wait 30s, then re-watch).
+
+**Persistence rule**: The CI monitor loop (Steps 8a→8b→8c→8d→8a) MUST keep running until all CI checks pass (exit code 0 from `gh pr checks --watch`). Do NOT stop monitoring or leave the PR in a failing state. The only acceptable exit conditions are:
+1. **All CI checks pass** — proceed to Step 8e (success)
+2. **User explicitly chooses "Abort"** — only offered after 5+ failed iterations or for pre-existing failures in Step 8d-3
+
+After 5 failed iterations, use **AskUserQuestion**:
+- "Continue trying" (default, recommended) — reset counter and keep going
+- "Abort monitoring" — stop and leave PR for manual review
+
+Do NOT treat 5 iterations as a hard stop. The default expectation is to keep fixing and retrying until CI is green.
 
 **Step 8e: Success**
 

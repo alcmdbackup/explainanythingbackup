@@ -8,11 +8,11 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Variant } from '../../types';
 import { createVariant } from '../../types';
 import type { Rating, ComparisonResult } from '../../shared/computeRatings';
-import { createRating, isConverged, DEFAULT_CONVERGENCE_SIGMA } from '../../shared/computeRatings';
+import { createRating, isConverged, DEFAULT_CONVERGENCE_UNCERTAINTY } from '../../shared/computeRatings';
 import type { EvolutionConfig, EvolutionResult, V2Match } from '../infra/types';
 
 import { createCostTracker } from '../infra/trackBudget';
-import { createV2LLMClient } from '../infra/createLLMClient';
+import { createEvolutionLLMClient } from '../infra/createEvolutionLLMClient';
 import type { EntityLogger } from '../infra/createEntityLogger';
 import { selectWinner } from '../../shared/selectWinner';
 import { GenerateFromSeedArticleAgent, deepCloneRatings } from '../../core/agents/generateFromSeedArticle';
@@ -24,6 +24,8 @@ import { computeTop15Cutoff } from './rankSingleVariant';
 import { DEFAULT_GENERATE_STRATEGIES, type IterationSnapshot } from '../../schemas';
 import { deriveSeed } from '../../shared/seededRandom';
 import type { AgentContext } from '../../core/types';
+import { estimateAgentCost } from '../infra/estimateCosts';
+import { resolveParallelFloor, resolveSequentialFloor } from './budgetFloorResolvers';
 
 // ─── Config validation ───────────────────────────────────────────
 
@@ -67,8 +69,8 @@ async function isRunKilled(db: SupabaseClient, runId: string, logger?: EntityLog
 /** Hard cap on orchestrator iterations to prevent runaway loops. */
 const MAX_ORCHESTRATOR_ITERATIONS = 20;
 
-function topKMuValues(ratings: ReadonlyMap<string, Rating>, k: number): number[] {
-  return [...ratings.values()].map((r) => r.mu).sort((a, b) => b - a).slice(0, k);
+function topKEloValues(ratings: ReadonlyMap<string, Rating>, k: number): number[] {
+  return [...ratings.values()].map((r) => r.elo).sort((a, b) => b - a).slice(0, k);
 }
 
 // ─── Snapshot helpers ────────────────────────────────────────────
@@ -82,11 +84,11 @@ function recordSnapshot(
   matchCounts: ReadonlyMap<string, number>,
   options?: {
     discardedVariantIds?: string[];
-    discardReasons?: Record<string, { mu: number; top15Cutoff: number }>;
+    discardReasons?: Record<string, { elo: number; top15Cutoff: number }>;
   },
 ): IterationSnapshot {
   const ratingsObj = Object.fromEntries(
-    [...ratings.entries()].map(([id, r]) => [id, { mu: r.mu, sigma: r.sigma }]),
+    [...ratings.entries()].map(([id, r]) => [id, { elo: r.elo, uncertainty: r.uncertainty }]),
   );
   return {
     iteration,
@@ -111,19 +113,19 @@ function computeEligibleIds(
   ratings: ReadonlyMap<string, Rating>,
 ): string[] {
   if (pool.length < 2) return [];
-  const sortedByMu = pool
-    .map((v) => ({ id: v.id, mu: ratings.get(v.id)?.mu ?? 0 }))
-    .sort((a, b) => b.mu - a.mu);
+  const sortedByElo = pool
+    .map((v) => ({ id: v.id, elo: ratings.get(v.id)?.elo ?? 0 }))
+    .sort((a, b) => b.elo - a.elo);
   const top15Cutoff = computeTop15Cutoff(ratings);
 
-  const eligible = sortedByMu.filter(({ id }) => {
+  const eligible = sortedByElo.filter(({ id }) => {
     const r = ratings.get(id);
     if (!r) return false;
-    return r.mu + ELIGIBILITY_Z_SCORE * r.sigma >= top15Cutoff;
+    return r.elo + ELIGIBILITY_Z_SCORE * r.uncertainty >= top15Cutoff;
   });
 
   if (eligible.length < MIN_SWISS_POOL) {
-    return sortedByMu.slice(0, MIN_SWISS_POOL).map((e) => e.id);
+    return sortedByElo.slice(0, MIN_SWISS_POOL).map((e) => e.id);
   }
   return eligible.map((e) => e.id);
 }
@@ -135,7 +137,7 @@ function allConverged(
   if (eligibleIds.length === 0) return false;
   return eligibleIds.every((id) => {
     const r = ratings.get(id);
-    return r ? isConverged(r, DEFAULT_CONVERGENCE_SIGMA) : false;
+    return r ? isConverged(r, DEFAULT_CONVERGENCE_UNCERTAINTY) : false;
   });
 }
 
@@ -152,7 +154,7 @@ export async function evolveArticle(
   config: EvolutionConfig,
   options?: {
     logger?: EntityLogger;
-    initialPool?: Array<Variant & { mu?: number; sigma?: number }>;
+    initialPool?: Array<Variant & { elo?: number; uncertainty?: number }>;
     experimentId?: string;
     strategyId?: string;
     deadlineMs?: number;
@@ -183,7 +185,7 @@ export async function evolveArticle(
   const noopLogger: EntityLogger = { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} };
   const logger = options?.logger ?? noopLogger;
   const costTracker = createCostTracker(resolvedConfig.budgetUsd);
-  const llm = createV2LLMClient(llmProvider, costTracker, resolvedConfig.generationModel, logger, db, runId);
+  const llm = createEvolutionLLMClient(llmProvider, costTracker, resolvedConfig.generationModel, logger, db, runId, resolvedConfig.generationTemperature);
   const randomSeed = options?.randomSeed ?? BigInt(0);
 
   logger.info('Config validation passed', {
@@ -198,7 +200,7 @@ export async function evolveArticle(
   const ratings = new Map<string, Rating>();
   const matchCounts = new Map<string, number>();
   const allMatches: V2Match[] = [];
-  const muHistory: number[][] = [];
+  const eloHistory: number[][] = [];
   const diversityHistory: number[] = [];
   const comparisonCache = new Map<string, ComparisonResult>();
   const completedPairs = new Set<string>();
@@ -218,8 +220,8 @@ export async function evolveArticle(
     for (const entry of options.initialPool) {
       pool.push(entry);
       ratings.set(entry.id,
-        entry.mu !== undefined && entry.sigma !== undefined
-          ? { mu: entry.mu, sigma: entry.sigma }
+        entry.elo !== undefined && entry.uncertainty !== undefined
+          ? { elo: entry.elo, uncertainty: entry.uncertainty }
           : createRating(),
       );
     }
@@ -233,6 +235,24 @@ export async function evolveArticle(
   let isSeeded = false;
   // currentOriginalText is the base article for variant generation; set by seed agent when present.
   let currentOriginalText = originalText;
+  let variantsStillNeeded = numVariants;
+  let actualAvgCostPerAgent: number | null = null; // Runtime feedback from parallel batch
+
+  // Budget thresholds for parallel→sequential→swiss flow.
+  // Supports two unit modes per phase (see schemas.ts for full semantics):
+  //   - Fraction: floor = totalBudget * fraction (0-1)
+  //   - Agent-multiple: floor = agentCost * N (N = "keep room for N more agents")
+  // Parallel uses initial cost estimate (no runtime data available yet).
+  // Sequential uses runtime `actualAvgCostPerAgent` feedback, falling back to initial.
+  const totalBudget = resolvedConfig.budgetUsd;
+  const initialAgentCostEstimate = estimateAgentCost(
+    originalText.length, strategies[0]!, resolvedConfig.generationModel,
+    resolvedConfig.judgeModel, 1, resolvedConfig.maxComparisonsPerVariant ?? 15,
+  );
+
+  // Parallel dispatch only happens on iteration 1, so parallelFloor is stable once computed.
+  const parallelFloor = resolveParallelFloor(resolvedConfig, totalBudget, initialAgentCostEstimate);
+  const parallelBudget = totalBudget - parallelFloor;
 
   // ─── nextIteration() decision function ───────────────────────────
   async function nextIteration(): Promise<'generate' | 'swiss' | 'done'> {
@@ -258,6 +278,19 @@ export async function evolveArticle(
       stopReason = 'budget_exceeded';
       return 'done';
     }
+
+    // Sequential generate fallback: if variants still needed and budget allows
+    if (variantsStillNeeded > 0) {
+      const availBudget = costTracker.getAvailableBudget();
+      const estCost = actualAvgCostPerAgent ?? estimateAgentCost(
+        originalText.length, strategies[0]!, resolvedConfig.generationModel,
+        resolvedConfig.judgeModel, pool.length, resolvedConfig.maxComparisonsPerVariant ?? 15,
+      );
+      if (availBudget - estCost >= resolveSequentialFloor(resolvedConfig, totalBudget, initialAgentCostEstimate, actualAvgCostPerAgent)) {
+        return 'generate';
+      }
+    }
+
     if (iteration >= MAX_ORCHESTRATOR_ITERATIONS) {
       logger.warn('Max orchestrator iterations reached', { iteration, max: MAX_ORCHESTRATOR_ITERATIONS, phaseName: 'loop' });
       stopReason = 'iterations_complete';
@@ -359,17 +392,42 @@ export async function evolveArticle(
       const initialRatingsSnapshot = new Map(ratings);
       const initialMatchCountsSnapshot = new Map(matchCounts);
 
-      // Dispatch N parallel GenerateFromSeedArticleAgent invocations.
-      // Each parallel agent gets a 1-based agentIndex so that interleaved logs from concurrent
-      // agents can still be filtered down to a single agent's timeline (Phase 7 — logging
-      // under concurrency).
+      // Budget-aware dispatch: compute how many agents we can afford.
+      const isFirstGenerate = iteration === 1;
+      let dispatchCount: number;
+      if (isFirstGenerate) {
+        // Parallel dispatch: respect minBudgetAfterParallel floor
+        const availBudget = costTracker.getAvailableBudget();
+        const effectiveBudget = Math.min(availBudget, parallelBudget);
+        const maxComp = resolvedConfig.maxComparisonsPerVariant ?? 15;
+        const estPerAgent = estimateAgentCost(
+          originalText.length, strategies[0]!, resolvedConfig.generationModel,
+          resolvedConfig.judgeModel, pool.length, maxComp,
+        );
+        const maxAffordable = Math.max(1, Math.floor(effectiveBudget / estPerAgent));
+        dispatchCount = Math.min(numVariants, maxAffordable);
+        logger.info('Budget-aware parallel dispatch', {
+          iteration, numVariantsRequested: numVariants, estPerAgent,
+          availableBudget: availBudget, parallelBudget, parallelFloor,
+          maxAffordable, dispatchCount, phaseName: 'generation',
+        });
+      } else {
+        // Sequential fallback: one agent at a time
+        dispatchCount = 1;
+        logger.info('Sequential generate fallback', {
+          iteration, variantsStillNeeded,
+          availableBudget: costTracker.getAvailableBudget(),
+          sequentialFloor: resolveSequentialFloor(resolvedConfig, totalBudget, initialAgentCostEstimate, actualAvgCostPerAgent), phaseName: 'generation',
+        });
+      }
+
       logger.info('Dispatching generate iteration', {
         iteration,
-        numAgents: numVariants,
-        strategies: Array.from({ length: numVariants }, (_, i) => strategies[i % strategies.length]!),
+        numAgents: dispatchCount,
+        strategies: Array.from({ length: dispatchCount }, (_, i) => strategies[i % strategies.length]!),
         phaseName: 'generation',
       });
-      const dispatchPromises = Array.from({ length: numVariants }, (_, i) => {
+      const dispatchPromises = Array.from({ length: dispatchCount }, (_, i) => {
         const strategy = strategies[i % strategies.length]!;
         const execOrder = ++executionOrder;
         const agentIndex = i + 1;
@@ -402,7 +460,7 @@ export async function evolveArticle(
       const surfacedVariants: Variant[] = [];
       const surfacedBuffers: MergeMatchEntry[][] = [];
       const discardedIds: string[] = [];
-      const discardReasonsMap: Record<string, { mu: number; top15Cutoff: number }> = {};
+      const discardReasonsMap: Record<string, { elo: number; top15Cutoff: number }> = {};
 
       for (const r of results) {
         if (r.status === 'rejected') {
@@ -431,6 +489,21 @@ export async function evolveArticle(
         }
       }
 
+      // Track variants generated and compute runtime cost feedback
+      variantsStillNeeded -= surfacedVariants.length;
+      if (isFirstGenerate) {
+        // Compute actualAvgCostPerAgent from successful agents for sequential dispatch estimates
+        const completedCosts: number[] = [];
+        for (const r of results) {
+          if (r.status === 'fulfilled' && r.value.success && r.value.cost > 0) {
+            completedCosts.push(r.value.cost);
+          }
+        }
+        if (completedCosts.length > 0) {
+          actualAvgCostPerAgent = completedCosts.reduce((a, b) => a + b, 0) / completedCosts.length;
+        }
+      }
+
       const mergeExecOrder = ++executionOrder;
       const mergeCtx: AgentContext = {
         db, runId, iteration,
@@ -449,10 +522,10 @@ export async function evolveArticle(
 
       if (mergeResult.budgetExceeded) budgetExhausted = true;
 
-      // Track top-K mu history and snapshot iteration end (with discarded info).
+      // Track top-K elo history and snapshot iteration end (with discarded info).
       const topK = resolvedConfig.tournamentTopK ?? 5;
-      const muValues = topKMuValues(ratings, topK);
-      muHistory.push(muValues);
+      const eloValues = topKEloValues(ratings, topK);
+      eloHistory.push(eloValues);
 
       iterationSnapshots.push(recordSnapshot(iteration, 'generate', 'end', pool, ratings, matchCounts, {
         discardedVariantIds: discardedIds,
@@ -463,7 +536,7 @@ export async function evolveArticle(
         iteration,
         surfaced: surfacedVariants.length,
         discarded: discardedIds.length,
-        topMuValues: muValues.slice(0, 5),
+        topEloValues: eloValues.slice(0, 5),
         phaseName: 'generation',
       });
     } else if (iterType === 'swiss') {
@@ -524,15 +597,15 @@ export async function evolveArticle(
       }
 
       const topK = resolvedConfig.tournamentTopK ?? 5;
-      const muValues = topKMuValues(ratings, topK);
-      muHistory.push(muValues);
+      const eloValues = topKEloValues(ratings, topK);
+      eloHistory.push(eloValues);
 
       iterationSnapshots.push(recordSnapshot(iteration, 'swiss', 'end', pool, ratings, matchCounts));
 
       logger.info('Swiss iteration complete', {
         iteration,
         matchesApplied: swissOutput.matches.length,
-        topMuValues: muValues.slice(0, 5),
+        topEloValues: eloValues.slice(0, 5),
         phaseName: 'ranking',
       });
 
@@ -549,7 +622,7 @@ export async function evolveArticle(
   if (pool.length > 0) {
     const winResult = selectWinner(pool, ratings);
     winner = pool.find((v) => v.id === winResult.winnerId) ?? pool[0];
-    logger.info('Winner determined', { winnerId: winner?.id, winnerMu: winResult.mu, winnerSigma: winResult.sigma, phaseName: 'winner_determination' });
+    logger.info('Winner determined', { winnerId: winner?.id, winnerElo: winResult.elo, winnerUncertainty: winResult.uncertainty, phaseName: 'winner_determination' });
   }
 
   logger.info('Evolution complete', {
@@ -566,7 +639,7 @@ export async function evolveArticle(
     totalCost: costTracker.getTotalSpent(),
     iterationsRun: iteration,
     stopReason,
-    muHistory,
+    eloHistory,
     diversityHistory,
     matchCounts: Object.fromEntries(matchCounts),
     discardedVariants,

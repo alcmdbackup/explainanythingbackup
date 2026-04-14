@@ -1,8 +1,6 @@
 // Core metrics computation for evolution experiments: per-run stats, bootstrap CIs, and aggregation.
 // Shared by experiment detail, strategy detail, cron analysis, and backfill script.
 
-import { toEloScale } from '@evolution/lib/shared/computeRatings';
-
 // ─── Types ──────────────────────────────────────────────────────
 
 /** Canonical metric names. Agent costs use template literal pattern. */
@@ -18,7 +16,7 @@ export type MetricName =
 /** A single metric measurement with optional uncertainty and CI. */
 export interface MetricValue {
   value: number;
-  sigma: number | null;
+  uncertainty: number | null;
   ci: [number, number] | null;
   n: number;
 }
@@ -29,7 +27,7 @@ export type MetricsBag = { [K in MetricName]?: MetricValue | null };
 /** Per-run metrics plus variant ratings for percentile uncertainty propagation. */
 export interface RunMetricsWithRatings {
   metrics: MetricsBag;
-  variantRatings: Array<{ mu: number; sigma: number }> | null;
+  variantRatings: Array<{ elo: number; uncertainty: number }> | null;
 }
 
 /** Experiment-level metrics result (per-run, no cross-run CIs). */
@@ -77,8 +75,8 @@ interface SupabaseClient {
 // ─── Helpers ────────────────────────────────────────────────────
 
 /** Shorthand for a single-observation metric with no uncertainty. */
-function scalar(value: number, sigma: number | null = null): MetricValue {
-  return { value, sigma, ci: null, n: 1 };
+function scalar(value: number, uncertainty: number | null = null): MetricValue {
+  return { value, uncertainty, ci: null, n: 1 };
 }
 
 // ─── Seeded PRNG ────────────────────────────────────────────────
@@ -95,8 +93,8 @@ export function createSeededRng(seed: number): () => number {
 // ─── Bootstrap Functions ────────────────────────────────────────
 
 /**
- * Bootstrap CI for scalar metrics. Auto-detects sigma presence for uncertainty propagation.
- * When sigma > 0, draws from Normal(value, sigma) via Box-Muller per resample.
+ * Bootstrap CI for scalar metrics. Auto-detects uncertainty presence for uncertainty propagation.
+ * When uncertainty > 0, draws from Normal(value, uncertainty) via Box-Muller per resample.
  */
 export function bootstrapMeanCI(
   values: MetricValue[],
@@ -105,17 +103,17 @@ export function bootstrapMeanCI(
 ): MetricValue {
   if (values.length < 2) {
     const v = values[0];
-    const s = v?.sigma ?? null;
+    const s = v?.uncertainty ?? null;
     const val = v?.value ?? 0;
     return {
       value: val,
-      sigma: s,
+      uncertainty: s,
       ci: s != null ? [val - 1.96 * s, val + 1.96 * s] : null,
       n: values.length,
     };
   }
 
-  const hasSigma = values.some((v) => v.sigma != null && v.sigma > 0);
+  const hasUncertainty = values.some((v) => v.uncertainty != null && v.uncertainty > 0);
   const means: number[] = [];
   const n = values.length;
 
@@ -124,11 +122,11 @@ export function bootstrapMeanCI(
     for (let j = 0; j < n; j++) {
       const idx = Math.floor(rng() * n);
       const v = values[idx]!;
-      if (hasSigma && v.sigma != null && v.sigma > 0) {
+      if (hasUncertainty && v.uncertainty != null && v.uncertainty > 0) {
         const u1 = Math.max(Number.EPSILON, rng());
         const u2 = rng();
         const z = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
-        sum += v.value + v.sigma * z;
+        sum += v.value + v.uncertainty * z;
       } else {
         sum += v.value;
       }
@@ -142,7 +140,7 @@ export function bootstrapMeanCI(
 
   return {
     value: mean,
-    sigma: bootstrapSE,
+    uncertainty: bootstrapSE,
     ci: [means[Math.floor(iterations * 0.025)]!, means[Math.floor(iterations * 0.975)]!],
     n,
   };
@@ -150,11 +148,11 @@ export function bootstrapMeanCI(
 
 /**
  * Bootstrap CI for percentile metrics across runs, propagating within-run rating uncertainty.
- * Each iteration resamples runs, draws variant skills from Normal(mu, sigma), computes percentile.
- * Uses posterior mean (mu) for Elo conversion via toEloScale.
+ * Each iteration resamples runs, draws variant skills from Normal(elo, uncertainty), computes percentile.
+ * Ratings are already in Elo scale — no conversion needed.
  */
 export function bootstrapPercentileCI(
-  allRunRatings: Array<Array<{ mu: number; sigma: number }>>,
+  allRunRatings: Array<Array<{ elo: number; uncertainty: number }>>,
   percentile: number,
   iterations = 1000,
   rng: () => number = Math.random,
@@ -174,7 +172,7 @@ export function bootstrapPercentileCI(
         const u1 = Math.max(Number.EPSILON, rng());
         const u2 = rng();
         const z = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
-        sampledElos.push(toEloScale(v.mu + v.sigma * z));
+        sampledElos.push(v.elo + v.uncertainty * z);
       }
       sampledElos.sort((a, b) => a - b);
       const idx = Math.min(
@@ -188,14 +186,14 @@ export function bootstrapPercentileCI(
   percentileValues.sort((a, b) => a - b);
 
   const actuals = validRuns.map((variants) => {
-    const elos = variants.map((v) => toEloScale(v.mu)).sort((a, b) => a - b);
+    const elos = variants.map((v) => v.elo).sort((a, b) => a - b);
     return elos[Math.min(Math.floor(percentile * elos.length), elos.length - 1)]!;
   });
   const mean = actuals.reduce((s, v) => s + v, 0) / actuals.length;
 
   return {
     value: mean,
-    sigma: null,
+    uncertainty: null,
     ci: nRuns < 2
       ? null
       : [

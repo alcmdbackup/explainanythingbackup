@@ -56,7 +56,7 @@ test.describe('AI Suggestions Pipeline', () => {
   // ============= Panel Interaction Tests =============
 
   test.describe('Panel Interaction', () => {
-    test('should display AI suggestions panel', { tag: ['@critical', '@prod-ai'] }, async ({ authenticatedPage: page }) => {
+    test('should display AI suggestions panel', { tag: '@prod-ai' }, async ({ authenticatedPage: page }) => {
       test.slow();
 
       const resultsPage = new ResultsPage(page);

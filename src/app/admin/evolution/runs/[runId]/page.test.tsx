@@ -115,14 +115,14 @@ describe('EvolutionRunDetailPage', () => {
     expect(screen.getByTestId('tab-logs')).toBeInTheDocument();
   });
 
-  it('defaults to metrics tab', async () => {
+  it('defaults to timeline tab', async () => {
     render(<EvolutionRunDetailPage />);
     await waitFor(() => {
-      expect(screen.getByTestId('tab-metrics')).toBeInTheDocument();
+      expect(screen.getByTestId('tab-timeline')).toBeInTheDocument();
     });
-    // Overview tab should be active (has accent-gold class)
-    const metricsTab = screen.getByTestId('tab-metrics');
-    expect(metricsTab.className).toContain('accent-gold');
+    // Timeline tab should be active by default (has accent-gold class)
+    const timelineTab = screen.getByTestId('tab-timeline');
+    expect(timelineTab.className).toContain('accent-gold');
   });
 
   // ─── F19: Failed run error banner ───────────────────────────

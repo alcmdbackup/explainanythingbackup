@@ -1,5 +1,5 @@
 ---
-description: Merge main into production, resolve conflicts (preferring main), run checks (including E2E), create PR, and backport any post-merge fixes to main
+description: Merge main into production, resolve conflicts (preferring main), run checks (including E2E), and create PR
 allowed-tools: Bash(git:*), Bash(gh:*), Bash(npm:*), Bash(npx:*), Read, Glob, mcp__filesystem__write_file
 ---
 
@@ -72,7 +72,7 @@ After resolving:
 git add -A
 ```
 
-### 4. Run All Verification Checks (collect all failures)
+### 4. Run All Non-E2E Checks (collect all failures)
 
 Run ALL 5 checks without stopping on failure. Collect every failure into a summary table, then fix all issues at once:
 
@@ -81,7 +81,7 @@ Run ALL 5 checks without stopping on failure. Collect every failure into a summa
 npm run lint;                LINT_RC=$?
 npx tsc --noEmit;            TSC_RC=$?
 npm run build;               BUILD_RC=$?
-npm run test:unit;           UNIT_RC=$?
+npm run test;                UNIT_RC=$?
 npm run test:integration;    INT_RC=$?
 ```
 
@@ -98,11 +98,28 @@ Integration Tests: ✓ PASSED / ✗ FAILED
 ```
 
 If any check failed:
-1. Fix ALL failing issues at once
-2. Re-run ALL 5 checks (not just the ones that failed)
-3. Repeat until all 5 pass
 
-### 4.5. E2E Tests
+1. **Classify failures**: Check if main's CI is also failing:
+   ```bash
+   MAIN_STATUS=$(gh run list --branch main --workflow ci.yml --limit 1 --json conclusion -q '.[0].conclusion // "unknown"' 2>/dev/null || echo "unknown")
+   ```
+   If `MAIN_STATUS` is "failure", compare failing tests against main's failures (same approach as Step 6.2d-2). Tests failing on BOTH main and this branch are **pre-existing**.
+
+2. **Surface pre-existing failures**: If pre-existing failures found, use **AskUserQuestion**:
+   - Question: "These test failures also exist on main (pre-existing): [list]. How should I handle them?"
+   - Options: "Fix them anyway" / "Skip pre-existing, fix only new failures" / "Abort"
+
+3. **Fix** all applicable failing issues at once
+
+4. **Targeted verify**: Run ONLY the specific failing tests locally to confirm the fix works. GATE: all must pass before proceeding.
+
+5. **Stability check**: Run each previously-failing test 5 times (same protocol as Step 6.2d-6). If any run fails, investigate root cause — do NOT add retries/sleeps/skips.
+
+6. **Full verify**: Re-run ALL 5 non-E2E checks (not just the ones that failed)
+
+7. Repeat until all 5 pass
+
+### 4.5. Run E2E Tests
 
 Always run the full E2E suite — no flag required:
 
@@ -121,20 +138,6 @@ git commit -m "Release: main → production ($(date '+%b %d') - <brief descripti
 <list key PRs merged>
 
 Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>"
-```
-
-After committing, **record the deploy-merge SHA** so Step 6.3 (backport)
-has an unambiguous reference. Use `git rev-parse --git-path` so the path
-resolves correctly in BOTH primary checkouts (`.git/maintoprod-deploy-merge-sha`)
-AND linked worktrees, where `.git` is a FILE not a directory and the path
-becomes `.git/worktrees/<name>/maintoprod-deploy-merge-sha`. Without this,
-`echo > .git/maintoprod-deploy-merge-sha` fails with "Not a directory" in
-any worktree invocation.
-
-```bash
-DEPLOY_MERGE_COMMIT=$(git rev-parse HEAD)
-SHA_FILE=$(git rev-parse --git-path maintoprod-deploy-merge-sha)
-echo "$DEPLOY_MERGE_COMMIT" > "$SHA_FILE"
 ```
 
 ### 6. Push and Create PR
@@ -196,203 +199,133 @@ timeout 900 gh pr checks --watch
 | 124 | Timeout (15 min elapsed) | Ask user: "CI timed out. Wait longer or abort?" |
 | 8 | Checks still pending | Re-run `gh pr checks --watch` |
 
-**Step 6.2c: Diagnose and fix failures**
+**Step 6.2c: Diagnose failures**
+
+Get CI run details and failure logs:
 
 ```bash
-gh pr checks --json name,bucket,link,state
+BRANCH=$(git branch --show-current)
+RUNS=$(gh run list --branch "$BRANCH" --limit 5 --json databaseId,name,conclusion,status 2>/dev/null || echo "[]")
+echo "$RUNS" | jq -r '.[] | "\(.conclusion // .status)\t\(.name)"'
+FAILED_RUN_IDS=$(echo "$RUNS" | jq -r '.[] | select(.conclusion == "failure") | .databaseId' || true)
 ```
 
-Get failure logs:
-```bash
-FAILED_RUN_IDS=$(gh pr checks --json link,bucket \
-  --jq 'map(select(.bucket == "fail") | .link | capture("runs/(?<id>[0-9]+)") | .id) | unique | .[]')
+If `RUNS` is empty or `[]`, display "No CI runs found for branch" and return to Step 6.2b (re-watch).
 
+Get failure logs for each failed run:
+```bash
 for run_id in $FAILED_RUN_IDS; do
   gh run view "$run_id" --log-failed
 done
 ```
 
-**Step 6.2d: Fix, commit, and push**
-
-1. Analyze the failure logs to identify root causes
-2. Fix ALL issues locally
-3. Re-run ALL local checks: Step 4 (all 5 checks) + Step 4.5 (E2E). Re-run everything, not just the checks that failed.
-4. **Never use `gh run rerun`** — always push new commits to trigger a full CI run. Re-running stale commits can mask issues introduced by fixes.
-5. Commit fixes:
-   ```bash
-   git add -A
-   git commit -m "fix: address CI failures (iteration N)"
-   ```
-6. Push:
-   ```bash
-   git push
-   ```
-7. Backup push (non-fatal):
-   ```bash
-   git -c http.postBuffer=524288000 push backup HEAD --force-with-lease --no-verify
-   ```
-   Verify exit code. If non-zero, display "WARNING: Backup push failed with exit code $?" and continue.
-8. Return to Step 6.2a (wait 30s, then re-watch)
-
-**Maximum iterations**: 5 fix-push-watch cycles. After 5 failures, ask user: "CI checks have failed 5 times. Continue trying or abort monitoring?"
-
-### 6.3. Backport Fixes to Main (REQUIRED)
-
-After the production PR's CI checks all pass, identify any commits added to
-the deploy branch beyond the deploy-merge SHA captured in Step 5 — these are
-the post-merge fixes from steps 4, 4.5, and 6.2d. Backport them to main.
-
-This step is REQUIRED. The skill does not return successfully unless either
-(a) a backport PR was created and pushed, or (b) zero fix commits were found
-beyond the deploy-merge SHA (clean release).
-
-**Step 6.3a — Identify fix commits (uses authoritative `git rev-list --count`, not grep):**
-
+If `--log-failed` produces no useful output, try:
 ```bash
-# Use git rev-parse --git-path so this works in both primary checkouts
-# AND linked worktrees (where .git is a FILE, not a directory)
-SHA_FILE=$(git rev-parse --git-path maintoprod-deploy-merge-sha)
-if [ ! -f "$SHA_FILE" ]; then
-  echo "ERROR: $SHA_FILE missing — Step 5 did not run."
-  exit 1
-fi
-DEPLOY_MERGE_COMMIT=$(cat "$SHA_FILE")
-
-# Use git rev-list --count for an authoritative count (NOT `grep -c .` which
-# produces a multi-line "0\n0" when the input is empty)
-FIX_COUNT=$(git rev-list --count "${DEPLOY_MERGE_COMMIT}..HEAD")
-
-echo "Found $FIX_COUNT fix commits to backport"
+gh run list --branch "$BRANCH" --status failure --json databaseId,name,conclusion
+# Then for each: gh run view <id> --log
 ```
 
-**Step 6.3b — Branch on FIX_COUNT. CRITICAL: the entire 6.3c-6.3h block must be inside the `else` branch, not a sequence of separate code blocks.**
+**Step 6.2d: Gated CI retry flow**
 
+This step has 8 sub-steps with 3 hard gates. **Never use `gh run rerun`** — always push new commits to trigger a full CI run.
+
+**Step 6.2d-1: Parse failing tests from CI logs**
 ```bash
-if [ "$FIX_COUNT" -eq 0 ]; then
-  # ============================================================
-  # Clean release path
-  # ============================================================
-  echo "Clean release — zero fix commits. Skipping backport."
-  BACKPORT_PR_URL="none — clean release"
-else
-  # ============================================================
-  # Backport path — Steps 6.3c through 6.3h
-  # ============================================================
-  FIX_COMMITS=$(git rev-list --reverse "${DEPLOY_MERGE_COMMIT}..HEAD")
-
-  # ---- 6.3c: Create the backport branch off latest main ----
-  # Timestamp suffix (HHMM) prevents same-day re-run collision
-  git fetch origin main
-  BACKPORT_BRANCH="fix/maintoprod-backport-$(date +%b%d-%H%M | tr '[:upper:]' '[:lower:]')"
-  git checkout -b "$BACKPORT_BRANCH" origin/main
-
-  # ---- 6.3d: Cherry-pick each fix commit in order ----
-  # CRITICAL: use process substitution `< <(...)` NOT a pipe `| while`.
-  # A piped while-loop runs in a SUBSHELL, so `exit 1` inside it only kills
-  # the subshell — execution would silently fall through to 6.3e/6.3f and
-  # produce a broken backport PR on cherry-pick conflict. Process substitution
-  # keeps the loop in the parent shell so `exit 1` works as expected.
-  while IFS= read -r sha; do
-    [ -z "$sha" ] && continue
-    if ! git cherry-pick "$sha"; then
-      echo "ERROR: cherry-pick conflict on $sha"
-      echo "Resolve manually, then run: git cherry-pick --continue"
-      echo "After all picks succeed, run steps 6.3e-6.3g manually."
-      rm -f "${BODY_TMP:-}"
-      exit 1
-    fi
-  done < <(printf '%s\n' "$FIX_COMMITS")
-
-  # ---- 6.3e: Run local checks on the backport branch ----
-  # Includes build because backport commits often touch components.
-  # Uses `npm test` (not `npm run test:unit` — that script doesn't exist in
-  # package.json; the unit test runner is `test`).
-  # Hard exit on failure — without this, 6.3f would push a broken PR.
-  if ! (npm run lint && npm run typecheck && npm run build && npm test); then
-    echo "ERROR: local checks failed on backport branch — refusing to push."
-    echo "Backport branch '$BACKPORT_BRANCH' is left in place for inspection."
-    exit 1
+FAILED_SPECS=""
+FAILED_TESTS=""
+for run_id in $FAILED_RUN_IDS; do
+  LOGS=$(gh run view "$run_id" --log-failed 2>&1 || true)
+  if [ -z "$LOGS" ] || [ "$LOGS" = "No failed steps" ]; then
+    LOGS=$(gh run view "$run_id" --log 2>&1 | tail -500 || true)
   fi
-
-  # ---- 6.3f: Push and create the backport PR ----
-  git push -u origin HEAD
-
-  # Backup push — fetch first so --force-with-lease is properly scoped
-  git fetch backup 2>/dev/null || echo "WARNING: backup fetch failed; --force-with-lease may degrade"
-  git -c http.postBuffer=524288000 push backup HEAD --force-with-lease --no-verify || \
-    echo "WARNING: backup push failed; continuing"
-
-  # Pre-compute the commit list for the PR body.
-  # CRITICAL: use `origin/main..HEAD` NOT `${DEPLOY_MERGE_COMMIT}..HEAD`.
-  # The backport branch is based on origin/main (not on the deploy branch),
-  # so DEPLOY_MERGE_COMMIT is not an ancestor of HEAD on this branch.
-  COMMIT_LIST=$(git log --format='- %h %s' origin/main..HEAD)
-
-  # Use --body-file with a temp file to avoid heredoc-in-markdown EOF
-  # whitespace bugs entirely. The temp file is shell-trapped for cleanup.
-  BODY_TMP=$(mktemp)
-  trap "rm -f \"$BODY_TMP\"" EXIT
-  {
-    echo "## Summary"
-    echo ""
-    echo "Backports post-merge fix commits from the $(date '+%b %d') main→production"
-    echo "release deploy branch back to main, so the next branch off main starts clean."
-    echo ""
-    echo "## Commits backported"
-    echo "$COMMIT_LIST"
-    echo ""
-    echo "## Why"
-    echo "Fixes made on the deploy branch during /mainToProd verification do not"
-    echo "automatically reach main. Without this backport, the next feature branch"
-    echo "off main reintroduces the same issues."
-    echo ""
-    echo "## Test plan"
-    echo "- [x] Local lint, typecheck, build, unit tests pass"
-    echo "- [ ] CI passes on this PR"
-    echo ""
-    echo "🤖 Generated with [Claude Code](https://claude.com/claude-code)"
-  } > "$BODY_TMP"
-
-  # Capture only the PR URL. gh prints "Creating pull request..." to STDERR
-  # before the URL on stdout, so capture stdout only (no 2>&1) and take the
-  # last line. Use `set -o pipefail` so a `gh pr create` failure isn't masked
-  # by the `| tail -1` pipe.
-  BACKPORT_PR_URL=$(set -o pipefail; gh pr create --base main --head "$BACKPORT_BRANCH" \
-    --title "fix: backport mainToProd fixes from $(date '+%b %d') release" \
-    --body-file "$BODY_TMP" | tail -1)
-  if [ -z "$BACKPORT_PR_URL" ]; then
-    echo "ERROR: gh pr create failed or returned empty URL"
-    rm -f "$BODY_TMP"
-    exit 1
-  fi
-
-  rm -f "$BODY_TMP"
-  trap - EXIT
-
-  # ---- 6.3g: BACKPORT_PR_URL is now set for Step 7's summary ----
-
-  # ---- 6.3h: No-op — Step 7's `git checkout <original-branch>` handles
-  # the return to the operator's starting branch.
-fi
+  SPECS=$(echo "$LOGS" | grep -oE 'src/__tests__/e2e/specs/[^ ]*\.spec\.ts' | sort -u || true)
+  FAILED_SPECS="$FAILED_SPECS $SPECS"
+  TESTS=$(echo "$LOGS" | grep -oE 'FAIL\s+[^ ]*\.test\.ts' | sed 's/FAIL\s*//' | sort -u || true)
+  FAILED_TESTS="$FAILED_TESTS $TESTS"
+done
+FAILED_SPECS=$(echo "$FAILED_SPECS" | tr ' ' '\n' | sort -u | grep -v '^$' || true)
+FAILED_TESTS=$(echo "$FAILED_TESTS" | tr ' ' '\n' | sort -u | grep -v '^$' || true)
 ```
+
+If BOTH `FAILED_SPECS` and `FAILED_TESTS` are empty → skip Steps 6.2d-5 and 6.2d-6, proceed to Step 6.2d-7 (full verify).
+
+**Step 6.2d-2: Classify failures — pre-existing vs new**
+```bash
+MAIN_STATUS=$(gh run list --branch main --workflow ci.yml --limit 1 --json conclusion -q '.[0].conclusion // "unknown"' 2>/dev/null || echo "unknown")
+```
+If "unknown" or empty → treat all as new. If "success" → all are new. If "failure" → compare with main's failing tests (same pattern as 6.2d-1 on main's logs).
+
+**Step 6.2d-3: Surface pre-existing failures to user**
+
+If pre-existing failures found, use **AskUserQuestion**:
+- Question: "These test failures also exist on main (pre-existing): [list]. How should I handle them?"
+- Options: "Fix them anyway" / "Skip pre-existing, fix only new failures" / "Abort"
+
+**Step 6.2d-4: Fix the issues**
+- Analyze root causes from CI logs
+- Apply fixes to identified issues
+
+**Step 6.2d-5: Targeted verify — GATE**
+
+Run ONLY the specific failing tests locally with `--retries=0`:
+```bash
+npx playwright test <specific-spec-file> --project=chromium --retries=0
+npx jest <specific-test-file>
+```
+**HARD GATE**: Every previously-failing test must pass. If any fail, return to Step 6.2d-4.
+
+**Step 6.2d-6: Flakiness stability check — GATE**
+
+Run each previously-failing test 5 times to confirm stability:
+```bash
+# E2E: use --workers=1 for CI-like conditions
+for i in 1 2 3 4 5; do
+  npx playwright test <file> --project=chromium --retries=0 --workers=1 || { echo "FLAKY on run $i"; break; }
+done
+# Unit/integration:
+for i in 1 2 3 4 5; do
+  npx jest <file> --forceExit || { echo "FLAKY on run $i"; break; }
+done
+```
+
+If any run fails, the fix is insufficient — the test is still flaky:
+1. Do NOT add retries, increase timeouts, wrap in try/catch, add sleeps, or mark as skipped
+2. Investigate root cause using testing_overview.md rules (Rule 1, 4, 9, 10, 12, 13, 18)
+3. Scan diff for anti-patterns: `git diff | grep -E 'waitForTimeout|new Promise.*setTimeout|setTimeout.*[0-9]{4}|\.sleep\(|\.skip\(|retries:\s*[1-9]|test\.fixme'`
+4. If anti-pattern found, automatically rework — do not ask user
+5. After reworking, return to Step 6.2d-5
+6. If 3+ rework iterations fail to stabilize, THEN escalate to user
+
+**Step 6.2d-7: Full verify — GATE**
+
+Re-run ALL local checks: Step 4 (Run All Non-E2E Checks) + Step 4.5 (Run E2E Tests).
+**HARD GATE**: All checks must pass. If any fail, return to Step 6.2d-4.
+
+**Step 6.2d-8: Push**
+```bash
+git add -A
+git commit -m "fix: address CI failures (iteration N)"
+git push
+```
+Backup push (non-fatal):
+```bash
+git -c http.postBuffer=524288000 push backup HEAD --force-with-lease --no-verify
+```
+Return to Step 6.2a (wait 30s, then re-watch).
+
+**Persistence rule**: The CI monitor loop (Steps 6.2a→6.2b→6.2c→6.2d→6.2a) MUST keep running until all CI checks pass. Do NOT stop monitoring or leave the PR in a failing state. The only acceptable exit conditions are:
+1. **All CI checks pass** — proceed to Step 7
+2. **User explicitly chooses "Abort"** — only offered after 5+ failed iterations or for pre-existing failures in Step 6.2d-3
+
+After 5 failed iterations, use **AskUserQuestion**:
+- "Continue trying" (default, recommended) — reset counter and keep going
+- "Abort monitoring" — stop and leave PR for manual review
 
 ### 7. Verify and Cleanup
 
 ```bash
-# Verify production PR is mergeable
+# Verify PR is mergeable
 gh pr view --json mergeable,mergeStateStatus
-
-# Display final summary
-echo "═══════════════════════════════════════════"
-echo "  /mainToProd complete"
-echo "═══════════════════════════════════════════"
-echo "  Production PR: <url from step 6>"
-echo "  Backport PR:   ${BACKPORT_PR_URL}"
-echo "═══════════════════════════════════════════"
-
-# Clean up the deploy-merge SHA cache file from Step 5
-# (use the same git-path resolver to handle worktrees correctly)
-rm -f "$(git rev-parse --git-path maintoprod-deploy-merge-sha)"
 
 # Return to original branch
 git checkout <original-branch>
@@ -419,9 +352,6 @@ git stash pop
 - PR CI checks all pass (or user chose to abort monitoring)
 - `mergeable: MERGEABLE` status
 - PR URL displayed
-- **Backport PR to main created** (if any post-merge fix commits were made),
-  OR explicitly noted as "clean release — zero fix commits". The skill does
-  not return successfully if Step 6.3 is skipped.
 
 ## Troubleshooting
 

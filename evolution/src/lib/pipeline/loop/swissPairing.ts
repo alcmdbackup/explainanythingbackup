@@ -10,10 +10,10 @@
 //     so there's no race on rating state.
 
 import type { Rating } from '../../shared/computeRatings';
-import { createRating, DEFAULT_SIGMA } from '../../shared/computeRatings';
+import { createRating, DEFAULT_UNCERTAINTY } from '../../shared/computeRatings';
 
-/** Bradley-Terry beta for win-probability scaling (DEFAULT_SIGMA * sqrt(2) ≈ 11.785). */
-const BETA = DEFAULT_SIGMA * Math.SQRT2;
+/** Bradley-Terry beta in Elo space (DEFAULT_UNCERTAINTY * sqrt(2) ≈ 188.56). */
+const BETA_ELO = DEFAULT_UNCERTAINTY * Math.SQRT2;
 
 /** Cap on candidate pairs returned per swiss iteration (matches LLM semaphore limit). */
 export const MAX_PAIRS_PER_ROUND = 20;
@@ -57,11 +57,11 @@ export function swissPairing(
       const rA = ratings.get(idA) ?? createRating();
       const rB = ratings.get(idB) ?? createRating();
 
-      // Bradley-Terry win probability
-      const pWin = 1 / (1 + Math.exp(-(rA.mu - rB.mu) / BETA));
-      const outcomeUncertainty = 1 - Math.abs(2 * pWin - 1);
-      const sigmaWeight = (rA.sigma + rB.sigma) / 2;
-      const score = outcomeUncertainty * sigmaWeight;
+      // Bradley-Terry win probability (Elo space)
+      const pWin = 1 / (1 + Math.exp(-(rA.elo - rB.elo) / BETA_ELO));
+      const outcomeUncertaintyVal = 1 - Math.abs(2 * pWin - 1);
+      const uncertaintyWeight = (rA.uncertainty + rB.uncertainty) / 2;
+      const score = outcomeUncertaintyVal * uncertaintyWeight;
 
       candidates.push({ idA, idB, score });
     }

@@ -1,0 +1,14 @@
+{
+  "branch": "feat/enforce_run_fix_failing_tests_locally_before_push_ci_20260412",
+  "created_at": "2026-04-12T00:00:00Z",
+  "prerequisites": {
+    "testing_overview_read": "2026-04-13T04:07:29Z"
+  },
+  "relevantDocs": [
+    "docs/docs_overall/testing_overview.md",
+    "docs/feature_deep_dives/testing_setup.md",
+    "docs/docs_overall/environments.md",
+    "docs/docs_overall/debugging.md",
+    "docs/feature_deep_dives/debugging_skill.md"
+  ]
+}

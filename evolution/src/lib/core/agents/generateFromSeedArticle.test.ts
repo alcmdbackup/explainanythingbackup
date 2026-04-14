@@ -96,14 +96,14 @@ beforeEach(() => {
 
 describe('deepCloneRatings', () => {
   it('produces a new map with copied Rating objects', () => {
-    const src = new Map<string, Rating>([['a', { mu: 30, sigma: 5 }]]);
+    const src = new Map<string, Rating>([['a', { elo: 1280, uncertainty: 80 }]]);
     const clone = deepCloneRatings(src);
     expect(clone).not.toBe(src);
     expect(clone.get('a')).not.toBe(src.get('a')); // Different object reference
-    expect(clone.get('a')).toEqual({ mu: 30, sigma: 5 });
+    expect(clone.get('a')).toEqual({ elo: 1280, uncertainty: 80 });
     // Mutating the clone does NOT affect the source
-    clone.get('a')!.mu = 99;
-    expect(src.get('a')!.mu).toBe(30);
+    clone.get('a')!.elo = 2384;
+    expect(src.get('a')!.elo).toBe(1280);
   });
 });
 
@@ -208,10 +208,10 @@ describe('GenerateFromSeedArticleAgent', () => {
       mkVariant('C'),
     ];
     const ratings = new Map<string, Rating>([
-      ['baseline', { mu: 25, sigma: 5 }],
-      ['A', { mu: 25, sigma: 4 }],
-      ['B', { mu: 25, sigma: 4 }],
-      ['C', { mu: 25, sigma: 4 }],
+      ['baseline', { elo: 1200, uncertainty: 80 }],
+      ['A', { elo: 1200, uncertainty: 64 }],
+      ['B', { elo: 1200, uncertainty: 64 }],
+      ['C', { elo: 1200, uncertainty: 64 }],
     ]);
     input.initialRatings = ratings;
     mockComparisonQueue = Array.from({ length: 10 }, () => ({ winner: 'A' as const, confidence: 1.0, turns: 2 }));
@@ -231,9 +231,9 @@ describe('GenerateFromSeedArticleAgent', () => {
   });
 
   it('discarded variant has empty matches array in return value', async () => {
-    // Set up so the binary search hits budget AND mu < cutoff.
-    // We need: ranking phase budget exceeded, with low local mu.
-    // Force losses against high-mu opponent to push V's mu down, then trigger budget.
+    // Set up so the binary search hits budget AND elo < cutoff.
+    // We need: ranking phase budget exceeded, with low local elo.
+    // Force losses against high-elo opponent to push V's elo down, then trigger budget.
     const input = makeInput();
     input.initialPool = [
       mkVariant('baseline'),
@@ -243,13 +243,13 @@ describe('GenerateFromSeedArticleAgent', () => {
       mkVariant('TOP4'),
     ];
     input.initialRatings = new Map<string, Rating>([
-      ['baseline', { mu: 25, sigma: 4 }],
-      ['TOP1', { mu: 80, sigma: 1 }],
-      ['TOP2', { mu: 80, sigma: 1 }],
-      ['TOP3', { mu: 80, sigma: 1 }],
-      ['TOP4', { mu: 80, sigma: 1 }],
+      ['baseline', { elo: 1200, uncertainty: 64 }],
+      ['TOP1', { elo: 2080, uncertainty: 16 }],
+      ['TOP2', { elo: 2080, uncertainty: 16 }],
+      ['TOP3', { elo: 2080, uncertainty: 16 }],
+      ['TOP4', { elo: 2080, uncertainty: 16 }],
     ]);
-    // V loses two comparisons (mu drops well below TOP1-4 mu of 80, so cutoff stays high),
+    // V loses two comparisons (elo drops well below TOP1-4 elo of 2080, so cutoff stays high),
     // then budget hits.
     mockComparisonQueue = [
       { winner: 'B' as const, confidence: 1.0, turns: 2 },
@@ -272,7 +272,7 @@ describe('GenerateFromSeedArticleAgent', () => {
     if (result.result?.surfaced === false) {
       expect(result.result?.matches).toEqual([]);
     } else {
-      // If surfaced (mu didn't drop enough), test is non-blocking — surface decision is correct.
+      // If surfaced (elo didn't drop enough), test is non-blocking — surface decision is correct.
       expect(result.result?.surfaced).toBe(true);
     }
   });

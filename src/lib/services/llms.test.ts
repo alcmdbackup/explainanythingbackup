@@ -956,9 +956,63 @@ describe('llms', () => {
         false,
       );
 
-      // gpt-oss-20b: (10000/1M * 0.03) + (5000/1M * 0.11) = 0.0003 + 0.00055 = 0.00085
+      // gpt-oss-20b: (10000/1M * 0.03) + (5000/1M * 0.14) = 0.0003 + 0.0007 = 0.001
       const insertCall = mockSupabase.insert.mock.calls[0][0];
-      expect(insertCall.estimated_cost_usd).toBeCloseTo(0.00085, 6);
+      expect(insertCall.estimated_cost_usd).toBeCloseTo(0.001, 6);
+    });
+  });
+
+  describe('reasoning_effort threading (Phase 5)', () => {
+    beforeEach(() => {
+      process.env.OPENROUTER_API_KEY = 'test-openrouter-key';
+      process.env.OPENAI_API_KEY = 'test-openai-key';
+    });
+
+    it('applies registry default (low) for gpt-oss-20b as OpenRouter reasoning.effort', async () => {
+      mockCreateSpy.mockResolvedValueOnce({
+        choices: [{ message: { content: 'resp' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
+        model: 'openai/gpt-oss-20b',
+      });
+      await callLLM('p', 'src', '00000000-0000-4000-8000-000000000001', 'gpt-oss-20b', false, null, null, null, false);
+      const request = mockCreateSpy.mock.calls[0][0] as Record<string, unknown>;
+      expect(request.reasoning).toEqual({ effort: 'low' });
+      // OpenAI o-series reasoning_effort param should NOT be set on OpenRouter models
+      expect(request.reasoning_effort).toBeUndefined();
+    });
+
+    it('applies registry default (none) for qwen3-8b — disables thinking entirely', async () => {
+      mockCreateSpy.mockResolvedValueOnce({
+        choices: [{ message: { content: 'resp' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
+        model: 'qwen/qwen3-8b',
+      });
+      await callLLM('p', 'src', '00000000-0000-4000-8000-000000000001', 'qwen/qwen3-8b', false, null, null, null, false);
+      const request = mockCreateSpy.mock.calls[0][0] as Record<string, unknown>;
+      expect(request.reasoning).toEqual({ effort: 'none' });
+    });
+
+    it('caller override wins over registry default', async () => {
+      mockCreateSpy.mockResolvedValueOnce({
+        choices: [{ message: { content: 'resp' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
+        model: 'openai/gpt-oss-20b',
+      });
+      await callLLM('p', 'src', '00000000-0000-4000-8000-000000000001', 'gpt-oss-20b', false, null, null, null, false, { reasoningEffort: 'medium' });
+      const request = mockCreateSpy.mock.calls[0][0] as Record<string, unknown>;
+      expect(request.reasoning).toEqual({ effort: 'medium' });
+    });
+
+    it('does not set reasoning for non-reasoning models (gpt-4.1-mini)', async () => {
+      mockCreateSpy.mockResolvedValueOnce({
+        choices: [{ message: { content: 'resp' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
+        model: 'gpt-4.1-mini',
+      });
+      await callLLM('p', 'src', '00000000-0000-4000-8000-000000000001', 'gpt-4.1-mini', false, null, null, null, false);
+      const request = mockCreateSpy.mock.calls[0][0] as Record<string, unknown>;
+      expect(request.reasoning).toBeUndefined();
+      expect(request.reasoning_effort).toBeUndefined();
     });
   });
 

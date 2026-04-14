@@ -419,6 +419,12 @@ export interface LLMCompletionOptions {
   taskType?: 'comparison' | 'generation';
   /** Comparison output complexity: simple=10 tokens (A/B/TIE), structured=50 (dimension scores), flow=150 (full rubric). */
   comparisonSubtype?: 'simple' | 'structured' | 'flow';
+  /** LLM sampling temperature. Omit to use provider default. */
+  temperature?: number;
+  /** Reasoning effort for reasoning-capable models (o1, o3, gpt-oss-20b, qwen3-8b).
+   *  'none' disables reasoning entirely where supported; 'low' minimizes overhead.
+   *  Ignored for models that don't support reasoning. */
+  reasoningEffort?: 'none' | 'low' | 'medium' | 'high';
 }
 
 // Note: imported lazily to avoid the name collision with the legacy AgentName
@@ -649,14 +655,16 @@ export interface AgentAttribution {
 
 export { EvolutionRunSummaryV3Schema, EvolutionRunSummarySchema } from './schemas';
 
-/** V3: mu-based run summary. New runs write this directly. */
+/** V3: Elo-based run summary. New runs write this directly.
+ *  Schema retains `version: 3` discriminant; field names renamed mu→elo for consistency
+ *  (V4 bump deferred — legacy key names are normalized via z.preprocess in schemas.ts). */
 export interface EvolutionRunSummary {
   version: 3;
   stopReason: string;
   finalPhase: PipelinePhase;
   totalIterations: number;
   durationSeconds: number;
-  muHistory: number[][];
+  eloHistory: number[][];
   diversityHistory: number[];
   matchStats: {
     totalMatches: number;
@@ -666,14 +674,14 @@ export interface EvolutionRunSummary {
   topVariants: Array<{
     id: string;
     strategy: string;
-    mu: number;
+    elo: number;
     isBaseline: boolean;
   }>;
   baselineRank: number | null;
-  baselineMu: number | null;
+  baselineElo: number | null;
   strategyEffectiveness: Record<string, {
     count: number;
-    avgMu: number;
+    avgElo: number;
   }>;
   metaFeedback: {
     successfulStrategies: string[];

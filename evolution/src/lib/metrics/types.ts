@@ -24,7 +24,7 @@ export const STATIC_METRIC_NAMES = [
   'cost', 'generation_cost', 'ranking_cost', 'seed_cost',
   // Run (at-finalization)
   'winner_elo', 'median_elo', 'p90_elo', 'max_elo',
-  'total_matches', 'decisive_rate', 'variant_count',
+  'total_matches', 'decisive_rate', 'variant_count', 'cost_estimation_error_pct',
   // Invocation
   'best_variant_elo', 'avg_variant_elo', 'format_rejection_rate', 'total_comparisons',
   // Strategy/Experiment aggregates
@@ -111,13 +111,16 @@ export interface FinalizationContext {
 
 // ─── DB Row Schema (Zod) ────────────────────────────────────────
 
+// The MetricRow shape uses `uncertainty` (application-layer field name).
+// DB column is still named `sigma` (RENAME DDL blocked by CI safety check);
+// readMetrics.ts + metricsActions.ts rename `sigma`→`uncertainty` at the query boundary.
 export const MetricRowSchema = z.object({
   id: z.string().uuid(),
   entity_type: z.enum(ENTITY_TYPES),
   entity_id: z.string().uuid(),
   metric_name: z.string().min(1).max(200),
   value: z.number(),
-  sigma: z.number().nullable(),
+  uncertainty: z.number().nullable(),
   ci_lower: z.number().nullable(),
   ci_upper: z.number().nullable(),
   n: z.number().int().min(0),
@@ -143,7 +146,7 @@ export type { MetricItem } from '@evolution/components/evolution';
 export function toMetricValue(row: MetricRow): MetricValue {
   return {
     value: row.value,
-    sigma: row.sigma,
+    uncertainty: row.uncertainty,
     ci: row.ci_lower != null && row.ci_upper != null ? [row.ci_lower, row.ci_upper] : null,
     n: row.n,
   };

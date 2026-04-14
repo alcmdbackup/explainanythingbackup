@@ -17,9 +17,11 @@ import {
   cloneStrategyAction,
   type StrategyListItem,
 } from '@evolution/services/strategyRegistryActions';
+import { estimateAgentCostPreviewAction } from '@evolution/services/strategyPreviewActions';
 import { getBatchMetricsAction } from '@evolution/services/metricsActions';
 import { executeEntityAction } from '@evolution/services/entityActions';
 import { MODEL_OPTIONS } from '@/lib/utils/modelOptions';
+import { DEFAULT_JUDGE_MODEL } from '@/config/modelRegistry';
 import type { MetricRow } from '@evolution/lib/metrics/types';
 
 const loadData = async (filters: Record<string, string>, page: number, pageSize: number) => {
@@ -181,19 +183,223 @@ function GenerationGuidanceField(
   );
 }
 
-const createFields: FieldDef[] = [
-  { name: 'name', label: 'Name', type: 'text', required: true, placeholder: 'Strategy name' },
-  { name: 'description', label: 'Description', type: 'textarea', placeholder: 'Optional description' },
-  { name: 'generationModel', label: 'Generation Model', type: 'select', required: true, options: [{ label: 'Select a model...', value: '' }, ...MODEL_OPTIONS.map(m => ({ label: m, value: m }))] },
-  { name: 'judgeModel', label: 'Judge Model', type: 'select', required: true, options: [{ label: 'Select a model...', value: '' }, ...MODEL_OPTIONS.map(m => ({ label: m, value: m }))] },
-  { name: 'iterations', label: 'Iterations', type: 'number', required: true },
-  {
-    name: 'generationGuidance',
-    label: 'Generation Guidance (optional)',
-    type: 'custom',
-    render: (value, onChange) => <GenerationGuidanceField value={value} onChange={onChange} />,
-  },
-];
+// ─── Budget Floors composite field ───────────────────────────
+// Schema has 4 optional fields (fraction vs agentMultiple × parallel vs sequential),
+// but exactly one mode is active per strategy. The UI exposes a single mode dropdown
+// + two value inputs, and submits only the two fields matching the chosen mode.
+
+type BudgetFloorsValue = {
+  mode: 'fraction' | 'agentMultiple';
+  parallelValue: number | null;
+  sequentialValue: number | null;
+};
+
+function BudgetFloorsField({
+  value,
+  onChange,
+  generationModel,
+  judgeModel,
+}: {
+  value: unknown;
+  onChange: (v: unknown) => void;
+  generationModel?: string;
+  judgeModel?: string;
+}): JSX.Element {
+  const v = (value as BudgetFloorsValue | undefined) ?? { mode: 'fraction', parallelValue: null, sequentialValue: null };
+  const [preview, setPreview] = useState<{ estimatedAgentCostUsd: number; assumptions: { seedArticleChars: number; strategy: string; comparisonsUsed: number } } | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+
+  // Debounced preview fetch when in agentMultiple mode and models are set.
+  useEffect(() => {
+    if (v.mode !== 'agentMultiple' || !generationModel || !judgeModel) {
+      setPreview(null);
+      setPreviewError(null);
+      return;
+    }
+    const requestId = ++previewRequestCounter;
+    const timer = setTimeout(async () => {
+      try {
+        const result = await estimateAgentCostPreviewAction({
+          generationModel,
+          judgeModel,
+        });
+        // Discard out-of-order responses (race condition guard)
+        if (requestId !== previewRequestCounter) return;
+        if (result.success && result.data) {
+          setPreview(result.data);
+          setPreviewError(null);
+        } else if (!result.success) {
+          setPreview(null);
+          setPreviewError(result.error?.message ?? 'Preview request failed');
+        }
+      } catch (err) {
+        if (requestId !== previewRequestCounter) return;
+        setPreview(null);
+        setPreviewError(err instanceof Error ? err.message : String(err));
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [v.mode, generationModel, judgeModel]);
+
+  const update = (patch: Partial<BudgetFloorsValue>) => onChange({ ...v, ...patch });
+
+  const handleModeChange = (newMode: 'fraction' | 'agentMultiple') => {
+    if (newMode === v.mode) return;
+    // Clear values — a fraction value is not the same as an agentMultiple value
+    onChange({ mode: newMode, parallelValue: null, sequentialValue: null });
+  };
+
+  const parseNum = (s: string): number | null => {
+    if (s === '') return null;
+    const n = parseFloat(s);
+    return Number.isFinite(n) ? n : null;
+  };
+
+  const fmtCost = (c: number) => `$${c.toFixed(4)}`;
+
+  const rangeLabel = v.mode === 'fraction' ? '(0-1)' : '(≥ 0)';
+  const step = v.mode === 'fraction' ? 0.05 : 0.5;
+
+  // Cross-field error: sequential > parallel
+  const orderingError =
+    v.parallelValue != null && v.sequentialValue != null && v.parallelValue < v.sequentialValue
+      ? `Sequential floor (${v.sequentialValue}) must be ≤ parallel floor (${v.parallelValue})`
+      : null;
+
+  const floorForParallel =
+    v.mode === 'agentMultiple' && preview != null && v.parallelValue != null
+      ? preview.estimatedAgentCostUsd * v.parallelValue
+      : null;
+  const floorForSequential =
+    v.mode === 'agentMultiple' && preview != null && v.sequentialValue != null
+      ? preview.estimatedAgentCostUsd * v.sequentialValue
+      : null;
+
+  return (
+    <div className="space-y-3" data-testid="budget-floors-field">
+      <select
+        value={v.mode}
+        onChange={(e) => handleModeChange(e.target.value as 'fraction' | 'agentMultiple')}
+        className="w-full rounded-book border border-[var(--border-default)] bg-[var(--surface-input)] p-2 font-ui text-sm text-[var(--text-primary)]"
+        data-testid="budget-floors-mode"
+      >
+        <option value="fraction">Fraction of budget</option>
+        <option value="agentMultiple">Multiple of agent cost</option>
+      </select>
+
+      {v.mode === 'agentMultiple' && (
+        <div className="rounded-book border border-[var(--border-subtle)] bg-[var(--surface-elevated)] p-2 font-ui text-xs text-[var(--text-muted)]" data-testid="budget-floors-preview">
+          {preview ? (
+            <>
+              Estimated cost per generateFromSeedArticle: {fmtCost(preview.estimatedAgentCostUsd)}
+              <div className="mt-1 font-mono">
+                Based on: {preview.assumptions.seedArticleChars.toLocaleString()}-char seed • {preview.assumptions.strategy} strategy • {preview.assumptions.comparisonsUsed} ranking comparisons
+              </div>
+            </>
+          ) : previewError ? (
+            <span className="text-[var(--status-error)]" data-testid="budget-floors-preview-error">
+              Cost preview failed: {previewError}
+            </span>
+          ) : generationModel && judgeModel ? (
+            <span>Loading cost estimate…</span>
+          ) : (
+            <span>Select generation and judge models to see cost preview</span>
+          )}
+        </div>
+      )}
+
+      <div>
+        <label className="block font-ui text-xs text-[var(--text-secondary)]">
+          Min budget after parallel {rangeLabel}
+        </label>
+        <div className="flex items-center gap-2">
+          <input
+            type="number"
+            min={0}
+            max={v.mode === 'fraction' ? 1 : undefined}
+            step={step}
+            value={v.parallelValue ?? ''}
+            onChange={(e) => update({ parallelValue: parseNum(e.target.value) })}
+            className="w-32 rounded-book border border-[var(--border-default)] bg-[var(--surface-input)] p-1.5 font-mono text-xs text-[var(--text-primary)]"
+            data-testid="budget-floors-parallel"
+          />
+          {floorForParallel != null && (
+            <span className="font-mono text-xs text-[var(--text-muted)]">= ~{fmtCost(floorForParallel)} floor</span>
+          )}
+        </div>
+      </div>
+
+      <div>
+        <label className="block font-ui text-xs text-[var(--text-secondary)]">
+          Min budget after sequential {rangeLabel}
+        </label>
+        <div className="flex items-center gap-2">
+          <input
+            type="number"
+            min={0}
+            max={v.mode === 'fraction' ? 1 : undefined}
+            step={step}
+            value={v.sequentialValue ?? ''}
+            onChange={(e) => update({ sequentialValue: parseNum(e.target.value) })}
+            className="w-32 rounded-book border border-[var(--border-default)] bg-[var(--surface-input)] p-1.5 font-mono text-xs text-[var(--text-primary)]"
+            data-testid="budget-floors-sequential"
+          />
+          {floorForSequential != null && (
+            <span className="font-mono text-xs text-[var(--text-muted)]">
+              = ~{fmtCost(floorForSequential)} floor <span className="italic">(adjusts at runtime)</span>
+            </span>
+          )}
+        </div>
+      </div>
+
+      {orderingError && (
+        <div className="font-ui text-xs text-[var(--status-error)]" data-testid="budget-floors-error">
+          {orderingError}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Counter for debounced preview requests — last-wins via ID check.
+let previewRequestCounter = 0;
+
+/** Build the create/edit fields array, capturing current form values so the
+ *  composite Budget Floors field can show a live cost preview. */
+function buildCreateFields(formValues: Record<string, unknown>): FieldDef[] {
+  const generationModel = (formValues.generationModel as string) || undefined;
+  const judgeModel = (formValues.judgeModel as string) || undefined;
+
+  return [
+    { name: 'name', label: 'Name', type: 'text', required: true, placeholder: 'Strategy name' },
+    { name: 'description', label: 'Description', type: 'textarea', placeholder: 'Optional description' },
+    { name: 'generationModel', label: 'Generation Model', type: 'select', required: true, options: [{ label: 'Select a model...', value: '' }, ...MODEL_OPTIONS] },
+    { name: 'judgeModel', label: 'Judge Model', type: 'select', required: true, options: [{ label: 'Select a model...', value: '' }, ...MODEL_OPTIONS] },
+    { name: 'iterations', label: 'Iterations', type: 'number', required: true },
+    {
+      name: 'generationGuidance',
+      label: 'Generation Guidance (optional)',
+      type: 'custom',
+      render: (value, onChange) => <GenerationGuidanceField value={value} onChange={onChange} />,
+    },
+    { name: 'maxVariantsToGenerateFromSeedArticle', label: 'Max Variants to Generate', type: 'number', placeholder: '9 (default)' },
+    { name: 'maxComparisonsPerVariant', label: 'Max Comparisons per Variant', type: 'number', placeholder: '15 (default)' },
+    {
+      name: 'budgetFloors',
+      label: 'Budget Floors',
+      type: 'custom',
+      render: (value, onChange) => (
+        <BudgetFloorsField
+          value={value}
+          onChange={onChange}
+          generationModel={generationModel}
+          judgeModel={judgeModel}
+        />
+      ),
+    },
+    { name: 'generationTemperature', label: 'Generation Temperature (0-2)', type: 'number', placeholder: 'Provider default' },
+  ];
+}
 
 type DialogState =
   | { kind: 'none' }
@@ -202,9 +408,43 @@ type DialogState =
   | { kind: 'clone'; row: StrategyListItem }
   | { kind: 'delete'; row: StrategyListItem };
 
+/** Derive the composite budgetFloors form value from a loaded StrategyConfig. */
+function deriveBudgetFloorsFormValue(config: Record<string, unknown> | undefined): BudgetFloorsValue {
+  if (!config) return { mode: 'fraction', parallelValue: null, sequentialValue: null };
+  const pF = config.minBudgetAfterParallelFraction as number | undefined;
+  const pM = config.minBudgetAfterParallelAgentMultiple as number | undefined;
+  const sF = config.minBudgetAfterSequentialFraction as number | undefined;
+  const sM = config.minBudgetAfterSequentialAgentMultiple as number | undefined;
+  if (pM != null || sM != null) {
+    return { mode: 'agentMultiple', parallelValue: pM ?? null, sequentialValue: sM ?? null };
+  }
+  return { mode: 'fraction', parallelValue: pF ?? null, sequentialValue: sF ?? null };
+}
+
+/** Expand composite form value into the 2-of-4 schema fields matching the chosen mode. */
+function expandBudgetFloorsToConfig(v: BudgetFloorsValue | undefined): {
+  minBudgetAfterParallelFraction?: number;
+  minBudgetAfterParallelAgentMultiple?: number;
+  minBudgetAfterSequentialFraction?: number;
+  minBudgetAfterSequentialAgentMultiple?: number;
+} {
+  if (!v) return {};
+  if (v.mode === 'fraction') {
+    return {
+      minBudgetAfterParallelFraction: v.parallelValue ?? undefined,
+      minBudgetAfterSequentialFraction: v.sequentialValue ?? undefined,
+    };
+  }
+  return {
+    minBudgetAfterParallelAgentMultiple: v.parallelValue ?? undefined,
+    minBudgetAfterSequentialAgentMultiple: v.sequentialValue ?? undefined,
+  };
+}
+
 export default function StrategiesPage(): JSX.Element {
   useEffect(() => { document.title = 'Strategies | Evolution'; }, []);
   const [dialog, setDialog] = useState<DialogState>({ kind: 'none' });
+  const [formValues, setFormValues] = useState<Record<string, unknown>>({});
 
   const close = (): void => setDialog({ kind: 'none' });
 
@@ -223,10 +463,16 @@ export default function StrategiesPage(): JSX.Element {
         judgeModel: dialog.row.config?.judgeModel ?? '',
         iterations: dialog.row.config?.iterations ?? 10,
         generationGuidance: (dialog.row.config as Record<string, unknown>)?.generationGuidance ?? [],
+        maxVariantsToGenerateFromSeedArticle: (dialog.row.config as Record<string, unknown>)?.maxVariantsToGenerateFromSeedArticle,
+        maxComparisonsPerVariant: (dialog.row.config as Record<string, unknown>)?.maxComparisonsPerVariant,
+        budgetFloors: deriveBudgetFloorsFormValue(dialog.row.config as Record<string, unknown> | undefined),
+        generationTemperature: (dialog.row.config as Record<string, unknown>)?.generationTemperature,
       }
-    : {};
+    : { judgeModel: DEFAULT_JUDGE_MODEL, budgetFloors: { mode: 'fraction', parallelValue: null, sequentialValue: null } };
 
   const handleFormSubmit = async (values: Record<string, unknown>) => {
+    const budgetFloorFields = expandBudgetFloorsToConfig(values.budgetFloors as BudgetFloorsValue | undefined);
+
     if (dialog.kind === 'create') {
       const guidance = Array.isArray(values.generationGuidance) && (values.generationGuidance as GuidanceEntry[]).length > 0
         ? (values.generationGuidance as GuidanceEntry[])
@@ -238,6 +484,10 @@ export default function StrategiesPage(): JSX.Element {
         judgeModel: values.judgeModel as string,
         iterations: values.iterations as number,
         generationGuidance: guidance,
+        maxVariantsToGenerateFromSeedArticle: values.maxVariantsToGenerateFromSeedArticle ? Number(values.maxVariantsToGenerateFromSeedArticle) : undefined,
+        maxComparisonsPerVariant: values.maxComparisonsPerVariant ? Number(values.maxComparisonsPerVariant) : undefined,
+        ...budgetFloorFields,
+        generationTemperature: values.generationTemperature ? Number(values.generationTemperature) : undefined,
       });
       if (!result.success) throw new Error(result.error?.message ?? 'Create failed');
       toast.success('Strategy created');
@@ -307,14 +557,20 @@ export default function StrategiesPage(): JSX.Element {
         open: true,
         onClose: close,
         title: dialog.kind === 'create' ? 'New Strategy' : 'Edit Strategy',
-        fields: dialog.kind === 'create' ? createFields : createFields.slice(0, 2),
+        fields: buildCreateFields(formValues),
         initial: formInitial,
         onSubmit: handleFormSubmit,
+        onFormChange: setFormValues,
         validate: (values) => {
           const guidance = values.generationGuidance as GuidanceEntry[] | undefined;
           if (guidance && guidance.length > 0) {
             const total = guidance.reduce((sum, e) => sum + (e.percent || 0), 0);
             if (total !== 100) return `Generation guidance percentages must sum to 100% (currently ${total}%)`;
+          }
+          // Budget floors ordering guard
+          const bf = values.budgetFloors as BudgetFloorsValue | undefined;
+          if (bf && bf.parallelValue != null && bf.sequentialValue != null && bf.parallelValue < bf.sequentialValue) {
+            return `Sequential floor (${bf.sequentialValue}) must be ≤ parallel floor (${bf.parallelValue})`;
           }
           return null;
         },

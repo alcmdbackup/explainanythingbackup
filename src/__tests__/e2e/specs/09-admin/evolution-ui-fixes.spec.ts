@@ -3,7 +3,7 @@
 import { adminTest, expect } from '../../fixtures/admin-auth';
 import { safeIsVisible, safeWaitFor } from '../../helpers/error-utils';
 
-adminTest.describe('Evolution UI Fixes', { tag: '@critical' }, () => {
+adminTest.describe('Evolution UI Fixes', { tag: '@evolution' }, () => {
   adminTest.describe.configure({ retries: 1, mode: 'serial' });
   adminTest.setTimeout(30000);
 

@@ -2,14 +2,14 @@
 
 import { expectTypeOf } from 'expect-type';
 import type { Variant as V1Variant, Match as V1Match } from '../../types';
-import type { StrategyConfig as V1StrategyConfig } from '../../shared/hashStrategyConfig';
+import type { StrategyHashInput as V1StrategyConfig } from '../../shared/hashStrategyConfig';
 import type {
   Variant,
   Rating,
   V2Match,
   EvolutionConfig,
   EvolutionResult,
-  V2StrategyConfig,
+  StrategyConfig,
 } from './types';
 
 describe('V2 types', () => {
@@ -17,9 +17,9 @@ describe('V2 types', () => {
     expectTypeOf<Variant>().toEqualTypeOf<V1Variant>();
   });
 
-  it('Rating has mu and sigma', () => {
-    expectTypeOf<Rating>().toHaveProperty('mu');
-    expectTypeOf<Rating>().toHaveProperty('sigma');
+  it('Rating has elo and uncertainty', () => {
+    expectTypeOf<Rating>().toHaveProperty('elo');
+    expectTypeOf<Rating>().toHaveProperty('uncertainty');
   });
 
   it('EvolutionConfig has all required fields', () => {
@@ -49,7 +49,7 @@ describe('V2 types', () => {
     expectTypeOf<EvolutionResult>().toHaveProperty('totalCost');
     expectTypeOf<EvolutionResult>().toHaveProperty('iterationsRun');
     expectTypeOf<EvolutionResult>().toHaveProperty('stopReason');
-    expectTypeOf<EvolutionResult>().toHaveProperty('muHistory');
+    expectTypeOf<EvolutionResult>().toHaveProperty('eloHistory');
     expectTypeOf<EvolutionResult>().toHaveProperty('diversityHistory');
   });
 
@@ -57,7 +57,7 @@ describe('V2 types', () => {
     expectTypeOf<V2Match>().not.toEqualTypeOf<V1Match>();
   });
 
-  it('V2StrategyConfig is NOT assignable to V1 StrategyConfig', () => {
-    expectTypeOf<V2StrategyConfig>().not.toEqualTypeOf<V1StrategyConfig>();
+  it('StrategyConfig is NOT assignable to V1 StrategyConfig', () => {
+    expectTypeOf<StrategyConfig>().not.toEqualTypeOf<V1StrategyConfig>();
   });
 });

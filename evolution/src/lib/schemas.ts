@@ -2,7 +2,8 @@
 // Dependency rule: schemas.ts → types.ts → index.ts (never reverse).
 
 import { z } from 'zod';
-import { DEFAULT_SIGMA } from './shared/computeRatings';
+import { _INTERNAL_DEFAULT_SIGMA } from './shared/computeRatings';
+import { getModelMaxTemperature } from '@/config/modelRegistry';
 
 // ═══════════════════════════════════════════════════════════════════
 // Shared enums & helpers
@@ -316,18 +317,111 @@ export const generationGuidanceSchema = z
 
 export type GenerationGuidanceEntry = z.infer<typeof generationGuidanceEntrySchema>;
 
-// ─── V2 Strategy Config ─────────────────────────────────────────
+// ─── Budget Floor Migration Helpers ───────────────────────────
 
-export const v2StrategyConfigSchema = z.object({
+/**
+ * Preprocess legacy budget buffer fields into the new min-budget-floor shape.
+ * - If new `minBudgetAfter*Fraction` is set → it wins, legacy is overwritten to match.
+ * - If only legacy `budgetBufferAfter*` is set → copy into new Fraction field.
+ * - Legacy aliases are kept in the output for ONE release cycle (rollback safety).
+ * - Agent-multiple mode has no legacy equivalent — legacy aliases stay undefined.
+ */
+function preprocessBudgetFloor(input: unknown): unknown {
+  if (typeof input !== 'object' || input === null) return input;
+  const c = { ...(input as Record<string, unknown>) };
+
+  // Legacy → new (only if new is absent)
+  if (c.minBudgetAfterParallelFraction === undefined && c.budgetBufferAfterParallel !== undefined) {
+    c.minBudgetAfterParallelFraction = c.budgetBufferAfterParallel;
+  }
+  if (c.minBudgetAfterSequentialFraction === undefined && c.budgetBufferAfterSequential !== undefined) {
+    c.minBudgetAfterSequentialFraction = c.budgetBufferAfterSequential;
+  }
+
+  // Sync legacy alias from new Fraction for rollback safety (one-release deprecation).
+  // If in agent-multiple mode, legacy stays undefined — there is no fraction equivalent.
+  if (c.minBudgetAfterParallelFraction !== undefined) {
+    c.budgetBufferAfterParallel = c.minBudgetAfterParallelFraction;
+  }
+  if (c.minBudgetAfterSequentialFraction !== undefined) {
+    c.budgetBufferAfterSequential = c.minBudgetAfterSequentialFraction;
+  }
+
+  return c;
+}
+
+// ─── Strategy Config ──────────────────────────────────────────
+
+const strategyConfigBaseSchema = z.object({
   generationModel: z.string(),
   judgeModel: z.string(),
   iterations: z.number().int().min(1),
   strategiesPerRound: z.number().int().min(1).optional(),
   budgetUsd: z.number().min(0).optional(),
   generationGuidance: generationGuidanceSchema.optional(),
-});
+  /** Max generateFromSeedArticle agents per run. Excludes seed article. Default 9. */
+  maxVariantsToGenerateFromSeedArticle: z.number().int().min(1).max(100).optional(),
+  /** Hard cap on pairwise comparisons per variant during ranking. Default 15. */
+  maxComparisonsPerVariant: z.number().int().min(1).max(100).optional(),
+  /** Minimum budget to reserve after parallel generation, as fraction of totalBudget (0-1). Exactly one of *Fraction or *AgentMultiple may be set per phase. */
+  minBudgetAfterParallelFraction: z.number().min(0).max(1).optional(),
+  /** Minimum budget to reserve after parallel generation, as multiple of estimated agent cost. Lazy-resolved at runtime. */
+  minBudgetAfterParallelAgentMultiple: z.number().min(0).optional(),
+  /** Minimum budget to reserve after sequential generation, as fraction of totalBudget (0-1). */
+  minBudgetAfterSequentialFraction: z.number().min(0).max(1).optional(),
+  /** Minimum budget to reserve after sequential generation, as multiple of actualAvgCostPerAgent (runtime). Falls back to initial estimate if unavailable. */
+  minBudgetAfterSequentialAgentMultiple: z.number().min(0).optional(),
+  /** @deprecated Use minBudgetAfterParallelFraction. Kept in output for one release (rollback safety). */
+  budgetBufferAfterParallel: z.number().min(0).max(1).optional(),
+  /** @deprecated Use minBudgetAfterSequentialFraction. Kept in output for one release (rollback safety). */
+  budgetBufferAfterSequential: z.number().min(0).max(1).optional(),
+  /** Temperature for generation LLM calls (0-2). Omit for provider default. Ranking always uses 0. */
+  generationTemperature: z.number().min(0).max(2).optional(),
+}).refine((c) => {
+  // Exactly one parallel unit may be set (both unset is allowed).
+  return !(c.minBudgetAfterParallelFraction != null && c.minBudgetAfterParallelAgentMultiple != null);
+}, { message: 'Only one of minBudgetAfterParallelFraction or minBudgetAfterParallelAgentMultiple may be set' }).refine((c) => {
+  // Exactly one sequential unit may be set (both unset is allowed).
+  return !(c.minBudgetAfterSequentialFraction != null && c.minBudgetAfterSequentialAgentMultiple != null);
+}, { message: 'Only one of minBudgetAfterSequentialFraction or minBudgetAfterSequentialAgentMultiple may be set' }).refine((c) => {
+  // Same unit mode across phases — but only enforced if BOTH phases have a value set.
+  // If sequential is fully unset (both fields null), any parallel mode is allowed.
+  const parallelIsFraction = c.minBudgetAfterParallelFraction != null;
+  const parallelIsMultiple = c.minBudgetAfterParallelAgentMultiple != null;
+  const sequentialIsFraction = c.minBudgetAfterSequentialFraction != null;
+  const sequentialIsMultiple = c.minBudgetAfterSequentialAgentMultiple != null;
+  // Only enforce same-mode when both phases have a value
+  if (!sequentialIsFraction && !sequentialIsMultiple) return true;
+  if (!parallelIsFraction && !parallelIsMultiple) return true;
+  // Both set: modes must match
+  if (parallelIsFraction && sequentialIsFraction) return true;
+  if (parallelIsMultiple && sequentialIsMultiple) return true;
+  return false;
+}, { message: 'Parallel and sequential budget floors must use the same unit mode (both fraction or both agent-multiple)' }).refine((c) => {
+  // Ordering: parallel floor must be >= sequential floor. Unset parallel implicitly = 0,
+  // so a positive sequential without a parallel setting is rejected.
+  const pF = c.minBudgetAfterParallelFraction;
+  const pM = c.minBudgetAfterParallelAgentMultiple;
+  const sF = c.minBudgetAfterSequentialFraction;
+  const sM = c.minBudgetAfterSequentialAgentMultiple;
+  if (pF != null && sF != null) return pF >= sF;
+  if (pM != null && sM != null) return pM >= sM;
+  const sequentialSetAboveZero = (sF != null && sF > 0) || (sM != null && sM > 0);
+  const parallelUnset = pF == null && pM == null;
+  if (sequentialSetAboveZero && parallelUnset) return false;
+  return true;
+}, { message: 'Parallel floor must be >= sequential floor (or parallel must be set when sequential is set)' }).refine((c) => {
+  if (c.generationTemperature == null) return true;
+  const maxTemp = getModelMaxTemperature(c.generationModel);
+  if (maxTemp === undefined) return true; // unknown model — let it through
+  if (maxTemp === null) return false; // model doesn't support temperature
+  return c.generationTemperature <= maxTemp;
+}, { message: 'generationTemperature exceeds the model\'s maximum temperature' });
 
-export type V2StrategyConfigSchema = z.infer<typeof v2StrategyConfigSchema>;
+export const strategyConfigSchema = z.preprocess(preprocessBudgetFloor, strategyConfigBaseSchema);
+
+/** @deprecated Use StrategyConfig from pipeline/infra/types.ts instead. */
+export type StrategyConfigSchema = z.infer<typeof strategyConfigSchema>;
 
 // ─── Evolution Config ────────────────────────────────────────────
 
@@ -338,7 +432,7 @@ export const DEFAULT_GENERATE_STRATEGIES = [
   'grounding_enhance',
 ] as const;
 
-export const evolutionConfigSchema = z.object({
+const evolutionConfigBaseSchema = z.object({
   /** @deprecated Ignored by the orchestrator-driven loop. Kept for backward compat. */
   iterations: z.number().int().min(1).max(100).optional(),
   budgetUsd: z.number().gt(0).lte(50),
@@ -356,7 +450,25 @@ export const evolutionConfigSchema = z.object({
   numVariants: z.number().int().min(1).max(100).optional(),
   /** Strategy names to round-robin across the N parallel generate agents. */
   strategies: z.array(z.string().min(1)).optional(),
+  /** Hard cap on pairwise comparisons per variant during ranking (default 15). */
+  maxComparisonsPerVariant: z.number().int().min(1).max(100).optional(),
+  /** Minimum budget to reserve after parallel generation, as fraction of totalBudget (0-1). */
+  minBudgetAfterParallelFraction: z.number().min(0).max(1).optional(),
+  /** Minimum budget to reserve after parallel generation, as multiple of estimated agent cost. */
+  minBudgetAfterParallelAgentMultiple: z.number().min(0).optional(),
+  /** Minimum budget to reserve after sequential generation, as fraction of totalBudget (0-1). */
+  minBudgetAfterSequentialFraction: z.number().min(0).max(1).optional(),
+  /** Minimum budget to reserve after sequential generation, as multiple of actualAvgCostPerAgent. */
+  minBudgetAfterSequentialAgentMultiple: z.number().min(0).optional(),
+  /** @deprecated Use minBudgetAfterParallelFraction. Kept in output for one release (rollback safety). */
+  budgetBufferAfterParallel: z.number().min(0).max(1).optional(),
+  /** @deprecated Use minBudgetAfterSequentialFraction. Kept in output for one release (rollback safety). */
+  budgetBufferAfterSequential: z.number().min(0).max(1).optional(),
+  /** Temperature for generation LLM calls (0-2). Omit for provider default. Ranking always uses 0. */
+  generationTemperature: z.number().min(0).max(2).optional(),
 });
+
+export const evolutionConfigSchema = z.preprocess(preprocessBudgetFloor, evolutionConfigBaseSchema);
 
 export type EvolutionConfigSchema = z.infer<typeof evolutionConfigSchema>;
 
@@ -376,8 +488,8 @@ export type V2MatchSchema = z.infer<typeof v2MatchSchema>;
 // ─── Rating ──────────────────────────────────────────────────────
 
 export const ratingSchema = z.object({
-  mu: z.number(),
-  sigma: z.number().positive(),
+  elo: z.number(),
+  uncertainty: z.number().positive(),
 });
 
 export type RatingSchema = z.infer<typeof ratingSchema>;
@@ -403,7 +515,7 @@ export const evolutionResultSchema = z.object({
   totalCost: z.number().min(0),
   iterationsRun: z.number().int().min(0),
   stopReason: z.enum(['budget_exceeded', 'iterations_complete', 'converged', 'killed', 'time_limit']),
-  muHistory: z.array(z.array(z.number())),
+  eloHistory: z.array(z.array(z.number())),
   diversityHistory: z.array(z.number()),
   matchCounts: z.record(z.string(), z.number().int().min(0)),
 });
@@ -644,29 +756,63 @@ export const metaReviewExecutionDetailSchema = executionDetailBaseSchema.extend(
 
 // ─── New parallel pipeline agents (generate_rank_evolution_parallel_20260331) ─────
 
+/** Shallow key-rename preprocessor for Zod backward-compat normalization.
+ *  Leaves non-object values untouched; replaces old key names with new ones. */
+function renameKeys(mapping: Record<string, string>): (val: unknown) => unknown {
+  return (val: unknown) => {
+    if (typeof val !== 'object' || val === null || Array.isArray(val)) return val;
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(val as Record<string, unknown>)) {
+      out[mapping[k] ?? k] = v;
+    }
+    return out;
+  };
+}
+
 /** generateFromSeedArticle: ranking comparison record (one per binary-search comparison). */
-export const generateFromSeedComparisonSchema = z.object({
+const generateFromSeedComparisonInnerSchema = z.object({
   round: z.number().int().min(1),
   opponentId: z.string(),
   selectionScore: z.number(),
   pWin: z.number().min(0).max(1),
-  variantMuBefore: z.number(),
-  variantSigmaBefore: z.number().min(0),
-  opponentMuBefore: z.number(),
-  opponentSigmaBefore: z.number().min(0),
+  variantEloBefore: z.number(),
+  variantUncertaintyBefore: z.number().min(0),
+  opponentEloBefore: z.number(),
+  opponentUncertaintyBefore: z.number().min(0),
   outcome: z.enum(['win', 'loss', 'draw']),
   confidence: z.number().min(0).max(1),
-  variantMuAfter: z.number(),
-  variantSigmaAfter: z.number().min(0),
-  opponentMuAfter: z.number(),
-  opponentSigmaAfter: z.number().min(0),
+  variantEloAfter: z.number(),
+  variantUncertaintyAfter: z.number().min(0),
+  opponentEloAfter: z.number(),
+  opponentUncertaintyAfter: z.number().min(0),
   top15CutoffAfter: z.number(),
-  muPlusTwoSigma: z.number(),
+  eloPlusTwoUncertainty: z.number(),
   eliminated: z.boolean(),
   converged: z.boolean(),
+  /** Wall-clock duration of this comparison (both 2-pass reversal LLM calls, parallel). Optional — historical invocations have no timing data. */
+  durationMs: z.number().int().min(0).optional(),
+  /** Forward-pass LLM call duration. Optional — historical invocations have no timing data. */
+  forwardCallDurationMs: z.number().int().min(0).optional(),
+  /** Reverse-pass LLM call duration. Optional — historical invocations have no timing data. */
+  reverseCallDurationMs: z.number().int().min(0).optional(),
 });
 
-export const generateFromSeedRankingDetailSchema = z.object({
+export const generateFromSeedComparisonSchema = z.preprocess(
+  renameKeys({
+    variantMuBefore: 'variantEloBefore',
+    variantSigmaBefore: 'variantUncertaintyBefore',
+    opponentMuBefore: 'opponentEloBefore',
+    opponentSigmaBefore: 'opponentUncertaintyBefore',
+    variantMuAfter: 'variantEloAfter',
+    variantSigmaAfter: 'variantUncertaintyAfter',
+    opponentMuAfter: 'opponentEloAfter',
+    opponentSigmaAfter: 'opponentUncertaintyAfter',
+    muPlusTwoSigma: 'eloPlusTwoUncertainty',
+  }),
+  generateFromSeedComparisonInnerSchema,
+);
+
+const generateFromSeedRankingDetailInnerSchema = z.object({
   variantId: z.string(),
   localPoolSize: z.number().int().min(0),
   localPoolVariantIds: z.array(z.string()),
@@ -674,10 +820,22 @@ export const generateFromSeedRankingDetailSchema = z.object({
   comparisons: z.array(generateFromSeedComparisonSchema),
   stopReason: z.enum(['converged', 'eliminated', 'no_more_opponents', 'budget']),
   totalComparisons: z.number().int().min(0),
-  finalLocalMu: z.number(),
-  finalLocalSigma: z.number().min(0),
+  finalLocalElo: z.number(),
+  finalLocalUncertainty: z.number().min(0),
   finalLocalTop15Cutoff: z.number(),
+  /** Wall-clock duration of the full ranking phase for this variant. Optional — historical invocations have no timing data. */
+  durationMs: z.number().int().min(0).optional(),
 });
+
+const rankingDetailRenameKeys = renameKeys({
+  finalLocalMu: 'finalLocalElo',
+  finalLocalSigma: 'finalLocalUncertainty',
+});
+
+export const generateFromSeedRankingDetailSchema = z.preprocess(
+  rankingDetailRenameKeys,
+  generateFromSeedRankingDetailInnerSchema,
+);
 
 export const generateFromSeedExecutionDetailSchema = executionDetailBaseSchema.extend({
   detailType: z.literal('generate_from_seed_article'),
@@ -685,20 +843,32 @@ export const generateFromSeedExecutionDetailSchema = executionDetailBaseSchema.e
   strategy: z.string(),
   generation: z.object({
     cost: z.number().min(0),
+    estimatedCost: z.number().min(0).optional(),
     promptLength: z.number().int().min(0),
     textLength: z.number().int().min(0).optional(),
     formatValid: z.boolean(),
     formatIssues: z.array(z.string()).optional(),
     error: z.string().optional(),
+    /** Wall-clock duration of the generation phase. Optional — historical invocations have no timing. */
+    durationMs: z.number().int().min(0).optional(),
   }),
-  ranking: generateFromSeedRankingDetailSchema.extend({
-    cost: z.number().min(0),
-  }).nullable(),
+  ranking: z.preprocess(
+    rankingDetailRenameKeys,
+    generateFromSeedRankingDetailInnerSchema.extend({
+      cost: z.number().min(0),
+      estimatedCost: z.number().min(0).optional(),
+    }),
+  ).nullable(),
+  estimatedTotalCost: z.number().min(0).optional(),
+  estimationErrorPct: z.number().optional(),
   surfaced: z.boolean(),
-  discardReason: z.object({
-    localMu: z.number(),
-    localTop15Cutoff: z.number(),
-  }).optional(),
+  discardReason: z.preprocess(
+    renameKeys({ localMu: 'localElo' }),
+    z.object({
+      localElo: z.number(),
+      localTop15Cutoff: z.number(),
+    }),
+  ).optional(),
 });
 
 /** CreateSeedArticleAgent execution detail. */
@@ -712,14 +882,20 @@ export const createSeedArticleExecutionDetailSchema = executionDetailBaseSchema.
     formatValid: z.boolean(),
     error: z.string().optional(),
   }),
-  ranking: generateFromSeedRankingDetailSchema.extend({
-    cost: z.number().min(0),
-  }).nullable(),
+  ranking: z.preprocess(
+    rankingDetailRenameKeys,
+    generateFromSeedRankingDetailInnerSchema.extend({
+      cost: z.number().min(0),
+    }),
+  ).nullable(),
   surfaced: z.boolean(),
-  discardReason: z.object({
-    localMu: z.number(),
-    localTop15Cutoff: z.number(),
-  }).optional(),
+  discardReason: z.preprocess(
+    renameKeys({ localMu: 'localElo' }),
+    z.object({
+      localElo: z.number(),
+      localTop15Cutoff: z.number(),
+    }),
+  ).optional(),
 });
 
 /** SwissRankingAgent execution detail. */
@@ -743,18 +919,31 @@ export const swissRankingExecutionDetailSchema = executionDetailBaseSchema.exten
   status: z.enum(['success', 'budget', 'no_pairs']),
 });
 
-/** MergeRatingsAgent execution detail. */
+/** MergeRatingsAgent execution detail.
+ *  Backward compat: accepts legacy `mu`/`sigma`/`muDelta`/`sigmaDelta` field names
+ *  inside before.variants / after.variants and normalizes to `elo`/`uncertainty`/etc. */
+const beforeVariantRenameKeys = renameKeys({ mu: 'elo', sigma: 'uncertainty' });
+const afterVariantRenameKeys = renameKeys({
+  mu: 'elo',
+  sigma: 'uncertainty',
+  muDelta: 'eloDelta',
+  sigmaDelta: 'uncertaintyDelta',
+});
+
 export const mergeRatingsExecutionDetailSchema = executionDetailBaseSchema.extend({
   detailType: z.literal('merge_ratings'),
   iterationType: z.enum(['generate', 'swiss']),
   before: z.object({
     poolSize: z.number().int().min(0),
-    variants: z.array(z.object({
-      id: z.string(),
-      mu: z.number(),
-      sigma: z.number().min(0),
-      matchCount: z.number().int().min(0),
-    })),
+    variants: z.array(z.preprocess(
+      beforeVariantRenameKeys,
+      z.object({
+        id: z.string(),
+        elo: z.number(),
+        uncertainty: z.number().min(0),
+        matchCount: z.number().int().min(0),
+      }),
+    )),
     top15Cutoff: z.number(),
   }),
   input: z.object({
@@ -774,14 +963,17 @@ export const mergeRatingsExecutionDetailSchema = executionDetailBaseSchema.exten
   matchesAppliedTruncated: z.boolean(),
   after: z.object({
     poolSize: z.number().int().min(0),
-    variants: z.array(z.object({
-      id: z.string(),
-      mu: z.number(),
-      sigma: z.number().min(0),
-      matchCount: z.number().int().min(0),
-      muDelta: z.number(),
-      sigmaDelta: z.number(),
-    })),
+    variants: z.array(z.preprocess(
+      afterVariantRenameKeys,
+      z.object({
+        id: z.string(),
+        elo: z.number(),
+        uncertainty: z.number().min(0),
+        matchCount: z.number().int().min(0),
+        eloDelta: z.number(),
+        uncertaintyDelta: z.number(),
+      }),
+    )),
     top15Cutoff: z.number(),
     top15CutoffDelta: z.number(),
   }),
@@ -789,20 +981,30 @@ export const mergeRatingsExecutionDetailSchema = executionDetailBaseSchema.exten
   durationMs: z.number().min(0),
 });
 
-/** IterationSnapshot — captured at the start and end of every orchestrator iteration. */
+/** IterationSnapshot — captured at the start and end of every orchestrator iteration.
+ *  Backward compat: accepts legacy `{mu, sigma}` ratings and `{mu, top15Cutoff}` discardReasons. */
+const snapshotRatingRename = renameKeys({ mu: 'elo', sigma: 'uncertainty' });
+const snapshotDiscardReasonRename = renameKeys({ mu: 'elo' });
+
 export const iterationSnapshotSchema = z.object({
   iteration: z.number().int().min(1),
   iterationType: z.enum(['generate', 'swiss']),
   phase: z.enum(['start', 'end']),
   capturedAt: z.string(),
   poolVariantIds: z.array(z.string()),
-  ratings: z.record(z.string(), z.object({ mu: z.number(), sigma: z.number().min(0) })),
+  ratings: z.record(z.string(), z.preprocess(
+    snapshotRatingRename,
+    z.object({ elo: z.number(), uncertainty: z.number().min(0) }),
+  )),
   matchCounts: z.record(z.string(), z.number().int().min(0)),
   discardedVariantIds: z.array(z.string()).optional(),
-  discardReasons: z.record(z.string(), z.object({
-    mu: z.number(),
-    top15Cutoff: z.number(),
-  })).optional(),
+  discardReasons: z.record(z.string(), z.preprocess(
+    snapshotDiscardReasonRename,
+    z.object({
+      elo: z.number(),
+      top15Cutoff: z.number(),
+    }),
+  )).optional(),
 });
 
 export type IterationSnapshot = z.infer<typeof iterationSnapshotSchema>;
@@ -831,14 +1033,22 @@ export type AgentExecutionDetailSchema = z.infer<typeof agentExecutionDetailSche
 // Run Summary Schemas (moved from types.ts)
 // ═══════════════════════════════════════════════════════════════════
 
-/** V3: mu-based run summary. New runs write this directly. */
-export const EvolutionRunSummaryV3Schema = z.object({
+/** V3: run summary. New runs write Elo-scale fields directly.
+ *  Backward compat: legacy V3 runs wrote these as `muHistory`/`baselineMu`/`avgMu`/`mu`; the
+ *  preprocess step renames those to `eloHistory`/`baselineElo`/`avgElo`/`elo`. Values in
+ *  legacy payloads are already Elo-scale (per persistRunResults refactor); truly old mu-scale
+ *  values (<100) are handled by display-layer heuristics in MetricsTab/visualizationActions. */
+const topVariantRename = renameKeys({ mu: 'elo' });
+const strategyEffectivenessEntryRename = renameKeys({ avgMu: 'avgElo' });
+const runSummaryV3Rename = renameKeys({ muHistory: 'eloHistory', baselineMu: 'baselineElo' });
+
+const _EvolutionRunSummaryV3Inner = z.object({
   version: z.literal(3),
   stopReason: z.string().max(200),
   finalPhase: pipelinePhaseEnum,
   totalIterations: z.number().int().min(0).max(100),
   durationSeconds: z.number().min(0),
-  muHistory: z.union([
+  eloHistory: z.union([
     z.array(z.array(z.number())),  // New format: number[][] (top-K per iteration)
     z.array(z.number()).transform(arr => arr.map(v => [v]))  // Legacy: number[] → wrap each as [v]
   ]).pipe(z.array(z.array(z.number())).max(100)),
@@ -848,18 +1058,24 @@ export const EvolutionRunSummaryV3Schema = z.object({
     avgConfidence: z.number().min(0).max(1),
     decisiveRate: z.number().min(0).max(1),
   }),
-  topVariants: z.array(z.object({
-    id: z.string().max(200),
-    strategy: z.string().max(100),
-    mu: z.number(),
-    isBaseline: z.boolean(),
-  })).max(10),
+  topVariants: z.array(z.preprocess(
+    topVariantRename,
+    z.object({
+      id: z.string().max(200),
+      strategy: z.string().max(100),
+      elo: z.number(),
+      isBaseline: z.boolean(),
+    }),
+  )).max(10),
   baselineRank: z.number().int().min(1).nullable(),
-  baselineMu: z.number().nullable(),
-  strategyEffectiveness: z.record(z.string(), z.object({
-    count: z.number().int().min(0),
-    avgMu: z.number(),
-  })),
+  baselineElo: z.number().nullable(),
+  strategyEffectiveness: z.record(z.string(), z.preprocess(
+    strategyEffectivenessEntryRename,
+    z.object({
+      count: z.number().int().min(0),
+      avgElo: z.number(),
+    }),
+  )),
   metaFeedback: z.object({
     successfulStrategies: z.array(z.string().min(1).max(200)).max(10),
     recurringWeaknesses: z.array(z.string().min(1).max(200)).max(10),
@@ -869,8 +1085,10 @@ export const EvolutionRunSummaryV3Schema = z.object({
   actionCounts: z.record(z.string(), z.number().int().min(0)).optional(),
 }).strict();
 
+export const EvolutionRunSummaryV3Schema = z.preprocess(runSummaryV3Rename, _EvolutionRunSummaryV3Inner);
+
 /** TrueSkill default sigma used for V1/V2 → V3 migration: ordinal + 3*sigma ≈ mu */
-const V2_DEFAULT_SIGMA = DEFAULT_SIGMA;
+const V2_DEFAULT_SIGMA = _INTERNAL_DEFAULT_SIGMA;
 
 interface EvolutionRunSummaryV3 {
   version: 3;
@@ -878,13 +1096,13 @@ interface EvolutionRunSummaryV3 {
   finalPhase: 'EXPANSION' | 'COMPETITION';
   totalIterations: number;
   durationSeconds: number;
-  muHistory: number[][];
+  eloHistory: number[][];
   diversityHistory: number[];
   matchStats: { totalMatches: number; avgConfidence: number; decisiveRate: number };
-  topVariants: Array<{ id: string; strategy: string; mu: number; isBaseline: boolean }>;
+  topVariants: Array<{ id: string; strategy: string; elo: number; isBaseline: boolean }>;
   baselineRank: number | null;
-  baselineMu: number | null;
-  strategyEffectiveness: Record<string, { count: number; avgMu: number }>;
+  baselineElo: number | null;
+  strategyEffectiveness: Record<string, { count: number; avgElo: number }>;
   metaFeedback: {
     successfulStrategies: string[];
     recurringWeaknesses: string[];
@@ -937,14 +1155,14 @@ const EvolutionRunSummaryV2Schema = z.object({
   finalPhase: v2.finalPhase,
   totalIterations: v2.totalIterations,
   durationSeconds: v2.durationSeconds,
-  muHistory: v2.ordinalHistory.map((ord) => [legacyToMu(ord)]),
+  eloHistory: v2.ordinalHistory.map((ord) => [legacyToMu(ord)]),
   diversityHistory: v2.diversityHistory,
   matchStats: v2.matchStats,
-  topVariants: v2.topVariants.map((tv) => ({ id: tv.id, strategy: tv.strategy, mu: legacyToMu(tv.ordinal), isBaseline: tv.isBaseline })),
+  topVariants: v2.topVariants.map((tv) => ({ id: tv.id, strategy: tv.strategy, elo: legacyToMu(tv.ordinal), isBaseline: tv.isBaseline })),
   baselineRank: v2.baselineRank,
-  baselineMu: v2.baselineOrdinal != null ? legacyToMu(v2.baselineOrdinal) : null,
+  baselineElo: v2.baselineOrdinal != null ? legacyToMu(v2.baselineOrdinal) : null,
   strategyEffectiveness: Object.fromEntries(
-    Object.entries(v2.strategyEffectiveness).map(([k, v]) => [k, { count: v.count, avgMu: legacyToMu(v.avgOrdinal) }]),
+    Object.entries(v2.strategyEffectiveness).map(([k, v]) => [k, { count: v.count, avgElo: legacyToMu(v.avgOrdinal) }]),
   ),
   metaFeedback: v2.metaFeedback,
 }));
@@ -987,14 +1205,14 @@ const EvolutionRunSummaryV1Schema = z.object({
   finalPhase: v1.finalPhase,
   totalIterations: v1.totalIterations,
   durationSeconds: v1.durationSeconds,
-  muHistory: v1.eloHistory.map((ord) => [legacyToMu(ord)]),
+  eloHistory: v1.eloHistory.map((ord) => [legacyToMu(ord)]),
   diversityHistory: v1.diversityHistory,
   matchStats: v1.matchStats,
-  topVariants: v1.topVariants.map((tv) => ({ id: tv.id, strategy: tv.strategy, mu: legacyToMu(tv.elo), isBaseline: tv.isBaseline })),
+  topVariants: v1.topVariants.map((tv) => ({ id: tv.id, strategy: tv.strategy, elo: legacyToMu(tv.elo), isBaseline: tv.isBaseline })),
   baselineRank: v1.baselineRank,
-  baselineMu: v1.baselineElo != null ? legacyToMu(v1.baselineElo) : null,
+  baselineElo: v1.baselineElo != null ? legacyToMu(v1.baselineElo) : null,
   strategyEffectiveness: Object.fromEntries(
-    Object.entries(v1.strategyEffectiveness).map(([k, v]) => [k, { count: v.count, avgMu: legacyToMu(v.avgElo) }]),
+    Object.entries(v1.strategyEffectiveness).map(([k, v]) => [k, { count: v.count, avgElo: legacyToMu(v.avgElo) }]),
   ),
   metaFeedback: v1.metaFeedback,
 }));

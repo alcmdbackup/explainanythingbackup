@@ -64,14 +64,18 @@ export function FormDialog({
 
   const updateField = useCallback(
     (name: string, value: unknown) => {
-      setValues((prev) => {
-        const next = { ...prev, [name]: value };
-        onFormChange?.(next);
-        return next;
-      });
+      setValues((prev) => ({ ...prev, [name]: value }));
     },
-    [onFormChange],
+    [],
   );
+
+  // Notify parent of form changes via effect (avoids setState-in-render when
+  // the parent's onFormChange triggers its own setState — which would fire
+  // during FormDialog's render phase if called inside the setValues updater).
+  useEffect(() => {
+    onFormChange?.(values);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [values]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -100,7 +104,7 @@ export function FormDialog({
 
   return (
     <Dialog open={open} onOpenChange={(isOpen) => { if (!isOpen) onClose(); }}>
-      <DialogContent className="w-full max-w-lg rounded-book bg-[var(--surface-secondary)] p-6 shadow-warm-lg border-[var(--border-default)]">
+      <DialogContent className="w-full max-w-lg max-h-[85vh] overflow-y-auto rounded-book bg-[var(--surface-secondary)] p-6 shadow-warm-lg border-[var(--border-default)]">
         <DialogHeader>
           <DialogTitle className="font-display text-xl font-semibold text-[var(--text-primary)]">{title}</DialogTitle>
         </DialogHeader>

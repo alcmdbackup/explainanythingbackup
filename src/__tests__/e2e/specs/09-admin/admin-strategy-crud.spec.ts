@@ -66,7 +66,7 @@ adminTest.describe('Strategy Registry CRUD', () => {
     if (validJudge) await judgeModelSelect.selectOption({ label: validJudge });
 
     // Fill iterations — use random value to avoid UNIQUE(config_hash) collision with existing strategies
-    const iterInput = dialog.getByRole('spinbutton');
+    const iterInput = dialog.getByRole('spinbutton', { name: /iterations/i });
     const randomIters = Math.floor(Math.random() * 90) + 10; // 10-99
     await iterInput.fill(String(randomIters));
 

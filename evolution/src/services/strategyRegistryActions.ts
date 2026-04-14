@@ -5,7 +5,7 @@
 import { adminAction, type AdminContext } from './adminAction';
 import { validateUuid, applyTestContentNameFilter } from './shared';
 import { hashStrategyConfig, labelStrategyConfig } from '@evolution/lib/pipeline/setup/findOrCreateStrategy';
-import type { V2StrategyConfig } from '@evolution/lib/pipeline/infra/types';
+import type { StrategyConfig } from '@evolution/lib/pipeline/infra/types';
 import { createEntityLogger } from '@evolution/lib/pipeline/infra/createEntityLogger';
 import { z } from 'zod';
 import { generationGuidanceSchema } from '@evolution/lib/schemas';
@@ -17,7 +17,7 @@ export interface StrategyListItem {
   name: string;
   label: string;
   description: string | null;
-  config: V2StrategyConfig;
+  config: StrategyConfig;
   config_hash: string;
   pipeline_type: string | null;
   status: string;
@@ -39,7 +39,48 @@ const createStrategySchema = z.object({
   budgetUsd: z.number().min(0.01).max(100).optional(),
   pipeline_type: z.string().max(50).optional(),
   generationGuidance: generationGuidanceSchema.optional(),
-});
+  maxVariantsToGenerateFromSeedArticle: z.number().int().min(1).max(100).optional(),
+  maxComparisonsPerVariant: z.number().int().min(1).max(100).optional(),
+  // Budget floors (dual-unit). See evolution/src/lib/schemas.ts for full semantics.
+  minBudgetAfterParallelFraction: z.number().min(0).max(1).optional(),
+  minBudgetAfterParallelAgentMultiple: z.number().min(0).optional(),
+  minBudgetAfterSequentialFraction: z.number().min(0).max(1).optional(),
+  minBudgetAfterSequentialAgentMultiple: z.number().min(0).optional(),
+  /** @deprecated Kept for backward-compat on inputs. Preprocessed to minBudgetAfterParallelFraction. */
+  budgetBufferAfterParallel: z.number().min(0).max(1).optional(),
+  /** @deprecated Kept for backward-compat on inputs. Preprocessed to minBudgetAfterSequentialFraction. */
+  budgetBufferAfterSequential: z.number().min(0).max(1).optional(),
+  generationTemperature: z.number().min(0).max(2).optional(),
+}).refine((c) => {
+  // Exactly one parallel unit may be set
+  return !(c.minBudgetAfterParallelFraction != null && c.minBudgetAfterParallelAgentMultiple != null);
+}, { message: 'Only one of minBudgetAfterParallelFraction or minBudgetAfterParallelAgentMultiple may be set' }).refine((c) => {
+  // Exactly one sequential unit may be set
+  return !(c.minBudgetAfterSequentialFraction != null && c.minBudgetAfterSequentialAgentMultiple != null);
+}, { message: 'Only one of minBudgetAfterSequentialFraction or minBudgetAfterSequentialAgentMultiple may be set' }).refine((c) => {
+  // Same unit mode across phases (when both set)
+  const pF = c.minBudgetAfterParallelFraction != null;
+  const pM = c.minBudgetAfterParallelAgentMultiple != null;
+  const sF = c.minBudgetAfterSequentialFraction != null;
+  const sM = c.minBudgetAfterSequentialAgentMultiple != null;
+  if (!sF && !sM) return true;
+  if (!pF && !pM) return true;
+  if (pF && sF) return true;
+  if (pM && sM) return true;
+  return false;
+}, { message: 'Parallel and sequential budget floors must use the same unit mode' }).refine((c) => {
+  // Ordering: parallel >= sequential. Unset parallel implicitly 0; reject sequential-only > 0.
+  const pF = c.minBudgetAfterParallelFraction ?? c.budgetBufferAfterParallel;
+  const pM = c.minBudgetAfterParallelAgentMultiple;
+  const sF = c.minBudgetAfterSequentialFraction ?? c.budgetBufferAfterSequential;
+  const sM = c.minBudgetAfterSequentialAgentMultiple;
+  if (pF != null && sF != null) return pF >= sF;
+  if (pM != null && sM != null) return pM >= sM;
+  const sequentialSetAboveZero = (sF != null && sF > 0) || (sM != null && sM > 0);
+  const parallelUnset = pF == null && pM == null;
+  if (sequentialSetAboveZero && parallelUnset) return false;
+  return true;
+}, { message: 'Parallel floor must be >= sequential floor' });
 
 const updateStrategySchema = z.object({
   id: z.string().uuid(),
@@ -103,13 +144,21 @@ export const createStrategyAction = adminAction(
   async (input: z.input<typeof createStrategySchema>, ctx: AdminContext): Promise<StrategyListItem> => {
     const parsed = createStrategySchema.parse(input);
 
-    const config: V2StrategyConfig = {
+    const config: StrategyConfig = {
       generationModel: parsed.generationModel,
       judgeModel: parsed.judgeModel,
       iterations: parsed.iterations,
       strategiesPerRound: parsed.strategiesPerRound,
       budgetUsd: parsed.budgetUsd,
       generationGuidance: parsed.generationGuidance,
+      maxVariantsToGenerateFromSeedArticle: parsed.maxVariantsToGenerateFromSeedArticle,
+      maxComparisonsPerVariant: parsed.maxComparisonsPerVariant,
+      // Budget floors — prefer new fields, fall back to legacy inputs if provided
+      minBudgetAfterParallelFraction: parsed.minBudgetAfterParallelFraction ?? parsed.budgetBufferAfterParallel,
+      minBudgetAfterParallelAgentMultiple: parsed.minBudgetAfterParallelAgentMultiple,
+      minBudgetAfterSequentialFraction: parsed.minBudgetAfterSequentialFraction ?? parsed.budgetBufferAfterSequential,
+      minBudgetAfterSequentialAgentMultiple: parsed.minBudgetAfterSequentialAgentMultiple,
+      generationTemperature: parsed.generationTemperature,
     };
 
     const configHash = hashStrategyConfig(config);
@@ -192,7 +241,7 @@ export const cloneStrategyAction = adminAction(
 
     if (fetchError || !source) throw new Error(`Source strategy not found: ${input.sourceId}`);
 
-    const config = source.config as V2StrategyConfig;
+    const config = source.config as StrategyConfig;
     const configHash = hashStrategyConfig(config);
 
     const { data, error } = await ctx.supabase

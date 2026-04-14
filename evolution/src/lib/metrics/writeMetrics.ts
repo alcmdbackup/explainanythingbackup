@@ -6,7 +6,7 @@ import type { MetricName, MetricTiming, EntityType, AggregationMethod, EntityMet
 import { DYNAMIC_METRIC_PREFIXES } from './types';
 
 export interface WriteMetricOpts {
-  sigma?: number;
+  uncertainty?: number;
   ci_lower?: number;
   ci_upper?: number;
   n?: number;
@@ -21,7 +21,7 @@ interface MetricRowInput {
   entity_id: string;
   metric_name: string;
   value: number;
-  sigma?: number | null;
+  uncertainty?: number | null;
   ci_lower?: number | null;
   ci_upper?: number | null;
   n?: number;
@@ -66,12 +66,14 @@ export async function writeMetrics(
   if (rows.length === 0) return;
   validateTiming(rows, timing);
 
+  // DB column is named `sigma` (not renamed due to CI safety check).
+  // Application layer exposes this as `uncertainty`; we map at the query boundary.
   const upsertRows = rows.map(r => ({
     entity_type: r.entity_type,
     entity_id: r.entity_id,
     metric_name: r.metric_name,
     value: r.value,
-    sigma: r.sigma ?? null,
+    sigma: r.uncertainty ?? null,
     ci_lower: r.ci_lower ?? null,
     ci_upper: r.ci_upper ?? null,
     n: r.n ?? 1,
@@ -109,7 +111,7 @@ export async function writeMetric(
     entity_id: entityId,
     metric_name: metricName,
     value,
-    sigma: opts?.sigma,
+    uncertainty: opts?.uncertainty,
     ci_lower: opts?.ci_lower,
     ci_upper: opts?.ci_upper,
     n: opts?.n,

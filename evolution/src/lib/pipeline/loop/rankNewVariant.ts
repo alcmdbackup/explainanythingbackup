@@ -38,7 +38,7 @@ export interface RankNewVariantResult {
     detail: RankSingleVariantDetail;
   };
   surfaced: boolean;
-  discardReason?: { localMu: number; localTop15Cutoff: number };
+  discardReason?: { localElo: number; localTop15Cutoff: number };
 }
 
 /**
@@ -79,12 +79,12 @@ export async function rankNewVariant({
   const rankingCost = costTracker.getTotalSpent() - costBeforeRank;
 
   const localCutoff = computeTop15Cutoff(localRatings);
-  const localVariantMu = localRatings.get(variant.id)!.mu;
+  const localVariantElo = localRatings.get(variant.id)!.elo;
 
   // Discard only when budget-stopped AND below the top-15% cutoff.
-  const discard = rankResult.status === 'budget' && localVariantMu < localCutoff;
+  const discard = rankResult.status === 'budget' && localVariantElo < localCutoff;
   const surfaced = !discard;
-  const discardReason = discard ? { localMu: localVariantMu, localTop15Cutoff: localCutoff } : undefined;
+  const discardReason = discard ? { localElo: localVariantElo, localTop15Cutoff: localCutoff } : undefined;
 
   return { rankingCost, rankResult, surfaced, discardReason };
 }

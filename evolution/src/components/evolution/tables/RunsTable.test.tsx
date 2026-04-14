@@ -19,7 +19,7 @@ function makeMetric(name: string, value: number) {
     entity_id: 'run-id',
     metric_name: name,
     value,
-    sigma: null,
+    uncertainty: null,
     ci_lower: null,
     ci_upper: null,
     n: 1,

@@ -15,13 +15,13 @@ ExplainAnything uses a **four-tier testing strategy**:
 ### Test Statistics
 - **Unit**: ~290 colocated `.test.ts` files (src + evolution + scripts), including 49 evolution-specific (1082 test cases)
 - **ESM**: 1 file for AST diffing (bypasses Jest ESM limitations)
-- **Integration**: 27 test files in `src/__tests__/integration/`
+- **Integration**: 31 test files in `src/__tests__/integration/`
   - **Critical** (run on PRs to main): 5 tests
-  - **Full** (run on PRs to production): All 27 tests
-  - **Evolution** (11 files): Auto-skip when evolution DB tables not yet migrated. Covers claim, budget, costs, completion, watchdog, strategy hashing/aggregates, cancel experiment, arena sync, entity logging, experiment lifecycle.
-- **E2E**: 48 spec files in `__tests__/e2e/specs/`
-  - **Critical** (`{ tag: '@critical' }` parameter): Run on PRs to main. Evolution Phase 1-2 E2E specs are tagged `@critical`.
-  - **Evolution** (`{ tag: '@evolution' }` parameter): Dashboard, runs, strategies, arena, experiments, invocations, run pipeline, experiment wizard, accessibility
+  - **Full** (run on PRs to production): All 31 tests
+  - **Evolution** (15 files): Auto-skip when evolution DB tables not yet migrated. Covers claim, budget, costs, watchdog, strategy hashing/aggregates, cancel experiment, arena sync, entity logging, experiment lifecycle, metrics-recomputation, cost-cascade, visualization-data, experiment-create-complete, arena-comparison.
+- **E2E**: 58 spec files in `__tests__/e2e/specs/`
+  - **Critical** (`{ tag: '@critical' }` parameter): Run on PRs to main (~18 tests). Core user flows: auth session, library browsing, unauth redirects, search/generate, admin smoke.
+  - **Evolution** (`{ tag: '@evolution' }` parameter): Dashboard, runs, strategies, arena, experiments, invocations, variants, logs, run pipeline, experiment wizard, accessibility, strategy budget, navigation, filter-consistency, error-states, and more.
   - **Full**: All tests (run on PRs to production)
 - **Exploratory**: `/user-test` skill for AI-driven exploration (see [User Testing](./user_testing.md))
 
@@ -165,9 +165,10 @@ src/__tests__/
     │   ├── global-setup.ts            # Global setup (e.g., Vercel bypass)
     │   ├── global-teardown.ts         # E2E cleanup: Pinecone vectors, tracked IDs
     │   └── vercel-bypass.ts           # Vercel deployment protection bypass
-    └── specs/                         # 36 spec files organized by feature
+    └── specs/                         # 58 spec files organized by feature
         ├── 01-auth/
-        │   └── auth.spec.ts
+        │   ├── auth.spec.ts
+        │   └── auth-redirect-security.spec.ts
         ├── 01-home/
         │   └── home-tabs.spec.ts
         ├── 02-search-generate/
@@ -179,6 +180,7 @@ src/__tests__/
         │   ├── viewing.spec.ts
         │   ├── tags.spec.ts
         │   ├── action-buttons.spec.ts
+        │   ├── explore-pagination.spec.ts
         │   ├── hidden-content.spec.ts
         │   └── report-content.spec.ts
         ├── 05-edge-cases/
@@ -199,28 +201,40 @@ src/__tests__/
         ├── 08-sources/
         │   └── add-sources.spec.ts
         ├── 09-admin/
-        │   ├── admin-auth.spec.ts
-        │   ├── admin-content.spec.ts
-        │   ├── admin-reports.spec.ts
-        │   ├── admin-users.spec.ts
         │   ├── admin-arena.spec.ts
-        │   ├── admin-article-variant-detail.spec.ts
         │   ├── admin-auth.spec.ts
-        │   ├── admin-budget-events.spec.ts
         │   ├── admin-candidates.spec.ts
+        │   ├── admin-confirmations.spec.ts
         │   ├── admin-content.spec.ts
-        │   ├── admin-evolution.spec.ts
-        │   ├── admin-evolution-visualization.spec.ts
-        │   ├── admin-experiment-detail.spec.ts
-        │   ├── admin-evolution-run-pipeline.spec.ts
+        │   ├── admin-evolution-accessibility.spec.ts
+        │   ├── admin-evolution-arena-detail.spec.ts
+        │   ├── admin-evolution-cost-split.spec.ts
+        │   ├── admin-evolution-dashboard.spec.ts
+        │   ├── admin-evolution-error-states.spec.ts
         │   ├── admin-evolution-experiment-wizard-e2e.spec.ts
+        │   ├── admin-evolution-experiments-list.spec.ts
+        │   ├── admin-evolution-filter-consistency.spec.ts
+        │   ├── admin-evolution-invocation-detail.spec.ts
+        │   ├── admin-evolution-invocations.spec.ts
+        │   ├── admin-evolution-logs.spec.ts
+        │   ├── admin-evolution-navigation.spec.ts
+        │   ├── admin-evolution-run-pipeline.spec.ts
+        │   ├── admin-evolution-runs.spec.ts
+        │   ├── admin-evolution-strategy-detail.spec.ts
+        │   ├── admin-evolution-variants.spec.ts
         │   ├── admin-prompt-registry.spec.ts
         │   ├── admin-reports.spec.ts
         │   ├── admin-strategy-budget.spec.ts
         │   ├── admin-strategy-crud.spec.ts
         │   ├── admin-strategy-registry.spec.ts
         │   ├── admin-users.spec.ts
-        │   └── admin-whitelist.spec.ts
+        │   ├── admin-whitelist.spec.ts
+        │   └── evolution-ui-fixes.spec.ts
+        ├── 09-evolution-admin/
+        │   ├── evolution-admin-critical.spec.ts
+        │   └── strategy-generation-guidance.spec.ts
+        ├── 10-accessibility/
+        │   └── accessibility.spec.ts
         ├── smoke.spec.ts              # Quick sanity checks
         └── auth.unauth.spec.ts        # Unauthenticated flow tests
 ```
@@ -390,9 +404,15 @@ export class SearchPage extends BasePage {
 
 Evolution E2E specs include accessibility tests using Playwright's accessibility snapshot feature (`page.accessibility.snapshot()`). These tests verify ARIA roles, labels, and keyboard navigation across evolution admin pages (tab lists, sortable tables, form controls). The accessibility spec lives in `09-admin/admin-evolution-accessibility.spec.ts`.
 
-### `@critical` Tagging for Evolution
+### `@critical` Tagging Strategy
 
-Evolution Phase 1-2 E2E specs are tagged `{ tag: '@critical' }` so they run on every PR to `main`. This ensures core evolution flows (dashboard, runs, experiments, arena) are always validated in CI.
+`@critical` marks only the fastest, highest-signal tests (~18 total) that run on every PR to `main`. The goal is fast feedback (target < 3 min), not exhaustive coverage — that's what `@evolution` and the full suite are for.
+
+**What's @critical:** Auth session persistence, protected route access, library page + card display + navigation, unauth redirect tests (via `chromium-unauth` project), admin smoke, search/generate core flow.
+
+**What's @evolution (not @critical):** All evolution admin pages — dashboard, runs, experiments, strategies, arena, variants, logs, invocations, wizard, run-pipeline, filter/navigation, accessibility, budget, budget-dispatch, UI regression fixes. These run on PRs to `production`, nightly, and locally during `/finalize` when `evolution/` files are changed.
+
+The `chromium-unauth` Playwright project also filters to `grep: /@critical/`, so only the 2 `@critical` unauth tests run in the critical suite (not all 13 unauth tests).
 
 ### Auth Fixture
 
@@ -412,7 +432,7 @@ export const test = base.extend<{ authenticatedPage: Page }>({
 |---------|---------|
 | `setup` | Auth once, saves to `.auth/user.json` |
 | `chromium` | Authenticated tests (depends on setup) |
-| `chromium-unauth` | Tests auth redirects with empty state |
+| `chromium-unauth` | Tests auth redirects with empty state; `grep: /@critical/` limits to `@critical`-tagged unauth tests in the critical suite |
 | `firefox` | Nightly runs only |
 
 ---

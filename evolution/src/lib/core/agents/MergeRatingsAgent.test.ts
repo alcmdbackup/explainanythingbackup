@@ -126,9 +126,9 @@ describe('MergeRatingsAgent', () => {
     const dbState: SupabaseMockState = { inserts: [], insertError: null };
     const agent = new MergeRatingsAgent();
     await agent.run(input, makeCtx(dbState));
-    // v1's mu should rise after winning (it was tied at default 25).
-    expect(input.ratings.get('v1')!.mu).toBeGreaterThan(25);
-    expect(input.ratings.get('baseline')!.mu).toBeLessThan(25);
+    // v1's elo should rise after winning (it was tied at default 1200).
+    expect(input.ratings.get('v1')!.elo).toBeGreaterThan(1200);
+    expect(input.ratings.get('baseline')!.elo).toBeLessThan(1200);
   });
 
   it('writes one arena_comparisons row per match (Critical Fix J)', async () => {
@@ -149,7 +149,7 @@ describe('MergeRatingsAgent', () => {
     expect(dbState.inserts[0]!.table).toBe('evolution_arena_comparisons');
     const rows = dbState.inserts[0]!.rows as Array<Record<string, unknown>>;
     expect(rows.length).toBe(2);
-    // Each row should have iteration, invocation_id, mu/sigma before/after.
+    // Each row should have iteration, invocation_id, elo/uncertainty before/after.
     expect(rows[0]!.iteration).toBe(1);
     expect(rows[0]!.invocation_id).toBe('inv-merge');
     expect(rows[0]!.entry_a_mu_before).toBeDefined();
@@ -205,8 +205,8 @@ describe('MergeRatingsAgent', () => {
     await agent.run(i1, makeCtx(dbState));
     await agent.run(i2, makeCtx(dbState));
     // Same seed → identical resulting ratings
-    expect(i1.ratings.get('A')!.mu).toBe(i2.ratings.get('A')!.mu);
-    expect(i1.ratings.get('B')!.mu).toBe(i2.ratings.get('B')!.mu);
+    expect(i1.ratings.get('A')!.elo).toBe(i2.ratings.get('A')!.elo);
+    expect(i1.ratings.get('B')!.elo).toBe(i2.ratings.get('B')!.elo);
   });
 
   it('captures BEFORE and AFTER variant snapshots in execution detail', async () => {
@@ -284,7 +284,7 @@ describe('MergeRatingsAgent', () => {
     const agent = new MergeRatingsAgent();
     await agent.run(input, makeCtx(dbState));
     // v1 was just added with default rating. Should remain unchanged.
-    expect(input.ratings.get('v1')!.mu).toBe(25);
+    expect(input.ratings.get('v1')!.elo).toBe(1200);
   });
 
   it('appends matches to matchHistory in shuffled order', async () => {

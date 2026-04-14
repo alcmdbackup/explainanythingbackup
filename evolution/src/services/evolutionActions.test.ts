@@ -93,7 +93,7 @@ describe('evolutionActions', () => {
       const runs = [MOCK_RUN];
       const strategies = [{ id: VALID_UUID_2, name: 'My Strategy' }];
       const metricsRows = [
-        { entity_id: VALID_UUID, metric_name: 'cost', value: 2.5, sigma: null, ci_lower: null, ci_upper: null, n: 1, source: 'during_execution', stale: false },
+        { entity_id: VALID_UUID, metric_name: 'cost', value: 2.5, uncertainty: null, ci_lower: null, ci_upper: null, n: 1, source: 'during_execution', stale: false },
       ];
 
       // from() calls in order: evolution_runs, evolution_metrics (cost), evolution_strategies
@@ -221,7 +221,7 @@ describe('evolutionActions', () => {
   describe('getEvolutionRunByIdAction', () => {
     it('returns run with metrics array and strategy_name', async () => {
       const metricsRows = [
-        { entity_id: VALID_UUID, metric_name: 'cost', value: 1.23, sigma: null, ci_lower: null, ci_upper: null, n: 1, source: 'during_execution', stale: false },
+        { entity_id: VALID_UUID, metric_name: 'cost', value: 1.23, uncertainty: null, ci_lower: null, ci_upper: null, n: 1, source: 'during_execution', stale: false },
       ];
       const mock = createTableAwareMock([
         // evolution_runs single

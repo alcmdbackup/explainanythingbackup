@@ -6,14 +6,14 @@ import {
 } from './propagation';
 import type { MetricRow } from '../types';
 
-function makeRow(value: number, sigma: number | null = null): MetricRow {
+function makeRow(value: number, uncertainty: number | null = null): MetricRow {
   return {
     id: crypto.randomUUID(),
     entity_type: 'run',
     entity_id: crypto.randomUUID(),
     metric_name: 'cost',
     value,
-    sigma,
+    uncertainty,
     ci_lower: null,
     ci_upper: null,
     n: 1,
@@ -51,7 +51,7 @@ describe('aggregateAvg', () => {
     expect(result.ci).not.toBeNull();
     expect(result.ci![0]).toBeLessThan(20);
     expect(result.ci![1]).toBeGreaterThan(20);
-    expect(result.sigma).not.toBeNull();
+    expect(result.uncertainty).not.toBeNull();
   });
 
   it('returns null CI for n=1', () => {
@@ -70,17 +70,17 @@ describe('aggregateMax', () => {
     expect(aggregateMax([makeRow(5), makeRow(10), makeRow(3)]).value).toBe(10);
   });
 
-  it('propagates sigma from max source row', () => {
+  it('propagates uncertainty from max source row', () => {
     const result = aggregateMax([makeRow(5, 2.0), makeRow(10, 3.5), makeRow(3, 1.0)]);
     expect(result.value).toBe(10);
-    expect(result.sigma).toBe(3.5);
+    expect(result.uncertainty).toBe(3.5);
     expect(result.ci).toEqual([10 - 1.96 * 3.5, 10 + 1.96 * 3.5]);
   });
 
-  it('returns null sigma/ci when max row has no sigma', () => {
+  it('returns null uncertainty/ci when max row has no uncertainty', () => {
     const result = aggregateMax([makeRow(5), makeRow(10), makeRow(3)]);
     expect(result.value).toBe(10);
-    expect(result.sigma).toBeNull();
+    expect(result.uncertainty).toBeNull();
     expect(result.ci).toBeNull();
   });
 
@@ -95,10 +95,10 @@ describe('aggregateMin', () => {
     expect(aggregateMin([makeRow(5), makeRow(10), makeRow(3)]).value).toBe(3);
   });
 
-  it('propagates sigma from min source row', () => {
+  it('propagates uncertainty from min source row', () => {
     const result = aggregateMin([makeRow(5, 2.0), makeRow(10, 3.5), makeRow(3, 1.0)]);
     expect(result.value).toBe(3);
-    expect(result.sigma).toBe(1.0);
+    expect(result.uncertainty).toBe(1.0);
     expect(result.ci).toEqual([3 - 1.96 * 1.0, 3 + 1.96 * 1.0]);
   });
 
