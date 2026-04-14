@@ -237,10 +237,44 @@ export async function evolveArticle(
   let variantsStillNeeded = numVariants;
   let actualAvgCostPerAgent: number | null = null; // Runtime feedback from parallel batch
 
-  // Budget thresholds for parallel→sequential→swiss flow
+  // Budget thresholds for parallel→sequential→swiss flow.
+  // Supports two unit modes per phase (see schemas.ts for full semantics):
+  //   - Fraction: floor = totalBudget * fraction (0-1)
+  //   - Agent-multiple: floor = agentCost * N (N = "keep room for N more agents")
+  // Parallel uses initial cost estimate (no runtime data available yet).
+  // Sequential uses runtime `actualAvgCostPerAgent` feedback, falling back to initial.
   const totalBudget = resolvedConfig.budgetUsd;
-  const parallelFloor = totalBudget * (resolvedConfig.budgetBufferAfterParallel ?? 0);
-  const sequentialFloor = totalBudget * (resolvedConfig.budgetBufferAfterSequential ?? 0);
+  const initialAgentCostEstimate = estimateAgentCost(
+    originalText.length, strategies[0]!, resolvedConfig.generationModel,
+    resolvedConfig.judgeModel, 1, resolvedConfig.maxComparisonsPerVariant ?? 15,
+  );
+
+  function resolveParallelFloor(): number {
+    if (resolvedConfig.minBudgetAfterParallelFraction != null) {
+      return totalBudget * resolvedConfig.minBudgetAfterParallelFraction;
+    }
+    if (resolvedConfig.minBudgetAfterParallelAgentMultiple != null) {
+      if (!Number.isFinite(initialAgentCostEstimate) || initialAgentCostEstimate <= 0) return 0;
+      return initialAgentCostEstimate * resolvedConfig.minBudgetAfterParallelAgentMultiple;
+    }
+    return 0;
+  }
+
+  function resolveSequentialFloor(): number {
+    if (resolvedConfig.minBudgetAfterSequentialFraction != null) {
+      return totalBudget * resolvedConfig.minBudgetAfterSequentialFraction;
+    }
+    if (resolvedConfig.minBudgetAfterSequentialAgentMultiple != null) {
+      const useActual = actualAvgCostPerAgent != null && Number.isFinite(actualAvgCostPerAgent) && actualAvgCostPerAgent > 0;
+      const agentCost = useActual ? (actualAvgCostPerAgent as number) : initialAgentCostEstimate;
+      if (!Number.isFinite(agentCost) || agentCost <= 0) return 0;
+      return agentCost * resolvedConfig.minBudgetAfterSequentialAgentMultiple;
+    }
+    return 0;
+  }
+
+  // Parallel dispatch only happens on iteration 1, so parallelFloor is stable once computed.
+  const parallelFloor = resolveParallelFloor();
   const parallelBudget = totalBudget - parallelFloor;
 
   // ─── nextIteration() decision function ───────────────────────────
@@ -275,7 +309,7 @@ export async function evolveArticle(
         originalText.length, strategies[0]!, resolvedConfig.generationModel,
         resolvedConfig.judgeModel, pool.length, resolvedConfig.maxComparisonsPerVariant ?? 15,
       );
-      if (availBudget - estCost >= sequentialFloor) {
+      if (availBudget - estCost >= resolveSequentialFloor()) {
         return 'generate';
       }
     }
@@ -385,7 +419,7 @@ export async function evolveArticle(
       const isFirstGenerate = iteration === 1;
       let dispatchCount: number;
       if (isFirstGenerate) {
-        // Parallel dispatch: respect budgetBufferAfterParallel
+        // Parallel dispatch: respect minBudgetAfterParallel floor
         const availBudget = costTracker.getAvailableBudget();
         const effectiveBudget = Math.min(availBudget, parallelBudget);
         const maxComp = resolvedConfig.maxComparisonsPerVariant ?? 15;
@@ -406,7 +440,7 @@ export async function evolveArticle(
         logger.info('Sequential generate fallback', {
           iteration, variantsStillNeeded,
           availableBudget: costTracker.getAvailableBudget(),
-          sequentialFloor, phaseName: 'generation',
+          sequentialFloor: resolveSequentialFloor(), phaseName: 'generation',
         });
       }
 

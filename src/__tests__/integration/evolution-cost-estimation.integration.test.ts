@@ -99,6 +99,108 @@ describe('Strategy config with budget dispatch fields', () => {
     });
     expect(result.success).toBe(true);
   });
+
+  // ─── Dual-unit budget floor tests ───
+  describe('dual-unit budget floor (Phase 3)', () => {
+    const baseConfig = {
+      generationModel: 'gpt-4.1-nano',
+      judgeModel: 'gpt-4.1-nano',
+      iterations: 1,
+    };
+
+    it('preprocess migrates legacy budgetBufferAfterParallel to minBudgetAfterParallelFraction', () => {
+      const result = strategyConfigSchema.safeParse({
+        ...baseConfig,
+        budgetBufferAfterParallel: 0.40,
+        budgetBufferAfterSequential: 0.15,
+      });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.minBudgetAfterParallelFraction).toBe(0.40);
+        expect(result.data.minBudgetAfterSequentialFraction).toBe(0.15);
+        // Legacy aliases kept in output for 1-release rollback safety
+        expect(result.data.budgetBufferAfterParallel).toBe(0.40);
+        expect(result.data.budgetBufferAfterSequential).toBe(0.15);
+      }
+    });
+
+    it('preprocess: new field wins when both legacy and new are set', () => {
+      const result = strategyConfigSchema.safeParse({
+        ...baseConfig,
+        budgetBufferAfterParallel: 0.10,
+        minBudgetAfterParallelFraction: 0.50,
+      });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.minBudgetAfterParallelFraction).toBe(0.50);
+        // Legacy alias is synced to new value
+        expect(result.data.budgetBufferAfterParallel).toBe(0.50);
+      }
+    });
+
+    it('accepts agent-multiple mode', () => {
+      const result = strategyConfigSchema.safeParse({
+        ...baseConfig,
+        minBudgetAfterParallelAgentMultiple: 3,
+        minBudgetAfterSequentialAgentMultiple: 1,
+      });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.minBudgetAfterParallelAgentMultiple).toBe(3);
+        expect(result.data.minBudgetAfterSequentialAgentMultiple).toBe(1);
+        // Agent-multiple mode has no legacy equivalent
+        expect(result.data.budgetBufferAfterParallel).toBeUndefined();
+      }
+    });
+
+    it('rejects both units set in same phase (parallel)', () => {
+      const result = strategyConfigSchema.safeParse({
+        ...baseConfig,
+        minBudgetAfterParallelFraction: 0.40,
+        minBudgetAfterParallelAgentMultiple: 3,
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('rejects mixed unit modes across phases', () => {
+      const result = strategyConfigSchema.safeParse({
+        ...baseConfig,
+        minBudgetAfterParallelFraction: 0.40,
+        minBudgetAfterSequentialAgentMultiple: 2,
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('rejects agent-multiple ordering violation (parallel=1, sequential=3)', () => {
+      const result = strategyConfigSchema.safeParse({
+        ...baseConfig,
+        minBudgetAfterParallelAgentMultiple: 1,
+        minBudgetAfterSequentialAgentMultiple: 3,
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('parallel-only is valid (sequential unset)', () => {
+      const result = strategyConfigSchema.safeParse({
+        ...baseConfig,
+        minBudgetAfterParallelFraction: 0.30,
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('rejects sequential-only with no parallel (preserves existing semantic)', () => {
+      const result = strategyConfigSchema.safeParse({
+        ...baseConfig,
+        minBudgetAfterSequentialFraction: 0.20,
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('empty config (no floors) is valid', () => {
+      const result = strategyConfigSchema.safeParse(baseConfig);
+      expect(result.success).toBe(true);
+    });
+  });
 });
 
 describe('Cost estimation functions with real pricing', () => {
