@@ -186,34 +186,31 @@ describe('finalizeRun', () => {
     expect(matchStats.decisiveRate).toBeCloseTo(2 / 3); // 0.9 and 0.7 > 0.6
   });
 
-  it('topVariants: top 5 by mu with isBaseline flag', async () => {
+  it('topVariants: top 5 by elo with isBaseline flag', async () => {
     const { db, updates } = makeMockDb();
     await finalizeRun(RUN_ID, makeResult(), { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
     const summary = updates.find((u) => u.data.run_summary)?.data.run_summary as Record<string, unknown>;
-    const topVariants = summary.topVariants as Array<{ isBaseline: boolean; mu: number }>;
-    // Legacy column name `mu` now stores elo value (see persistRunResults buildRunSummary)
-    expect(topVariants[0]!.mu).toBe(1280); // gen-1 highest (elo)
+    const topVariants = summary.topVariants as Array<{ isBaseline: boolean; elo: number }>;
+    expect(topVariants[0]!.elo).toBe(1280); // gen-1 highest (elo)
     const baseline = topVariants.find((v) => v.isBaseline);
     expect(baseline).toBeDefined();
   });
 
-  it('baselineRank/baselineMu correct', async () => {
+  it('baselineRank/baselineElo correct', async () => {
     const { db, updates } = makeMockDb();
     await finalizeRun(RUN_ID, makeResult(), { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
     const summary = updates.find((u) => u.data.run_summary)?.data.run_summary as Record<string, unknown>;
     expect(summary.baselineRank).toBe(3); // 3rd of 3
-    // baselineMu legacy column now stores elo (mu=25 → elo=1200)
-    expect(summary.baselineMu).toBe(1200);
+    expect(summary.baselineElo).toBe(1200);
   });
 
   it('strategyEffectiveness computed', async () => {
     const { db, updates } = makeMockDb();
     await finalizeRun(RUN_ID, makeResult(), { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
     const summary = updates.find((u) => u.data.run_summary)?.data.run_summary as Record<string, unknown>;
-    const se = summary.strategyEffectiveness as Record<string, { count: number; avgMu: number }>;
+    const se = summary.strategyEffectiveness as Record<string, { count: number; avgElo: number }>;
     expect(se['baseline']!.count).toBe(1);
-    // avgMu legacy column now stores elo (mu=25 → elo=1200)
-    expect(se['baseline']!.avgMu).toBe(1200);
+    expect(se['baseline']!.avgElo).toBe(1200);
     expect(se['structural_transform']!.count).toBe(1);
   });
 

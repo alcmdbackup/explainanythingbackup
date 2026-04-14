@@ -146,7 +146,7 @@ describe('Evolution Visualization Data Integration Tests', () => {
     const parsed = EvolutionRunSummarySchema.safeParse(data!.run_summary);
     if (parsed.success) {
       const summary = parsed.data;
-      const eloHistory = (summary.muHistory ?? []).map(
+      const eloHistory = (summary.eloHistory ?? []).map(
         (mus: number[], i: number) => ({ iteration: i + 1, mu: mus[0] ?? 0 }),
       );
 

@@ -373,8 +373,8 @@ export function TimelineTab({ runId, run }: TimelineTabProps): JSX.Element {
                 label="Winner"
                 value={winner.isBaseline ? 'baseline' : (winner.strategy ?? '—')}
                 sub={(() => {
-                  // topVariants `mu` field may hold Elo values (new runs) or legacy mu.
-                  const raw = (winner as { elo?: number; mu: number }).elo ?? winner.mu;
+                  // topVariants stored as Elo-scale; legacy mu-scale values (<100) heuristically converted.
+                  const raw = winner.elo;
                   const elo = raw < 100 ? 1200 + (raw - 25) * 16 : raw;
                   return `Elo: ${Math.round(elo)}`;
                 })()}

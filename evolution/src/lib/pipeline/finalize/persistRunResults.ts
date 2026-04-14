@@ -42,8 +42,7 @@ function buildRunSummary(
     ? matchHistory.filter((m) => m.confidence > 0.6).length / totalMatches
     : 0;
 
-  // Top variants (top 5 by elo). Note: V3 schema still names fields mu/avgMu/baselineMu — those
-  // fields are now populated with Elo-scale values (DB JSONB field-name change deferred to V4).
+  // Top variants (top 5 by elo).
   const sorted = [...pool]
     .map((v) => ({ v, elo: ratings.get(v.id)?.elo ?? DEFAULT_ELO }))
     .sort((a, b) => b.elo - a.elo)
@@ -52,26 +51,26 @@ function buildRunSummary(
   const topVariants = sorted.map((s) => ({
     id: s.v.id,
     strategy: s.v.strategy,
-    mu: s.elo,
+    elo: s.elo,
     isBaseline: s.v.strategy === V2_BASELINE_STRATEGY,
   }));
 
-  // Baseline rank/elo (written to `baselineMu` field until V4 schema change)
+  // Baseline rank/elo
   const baselineVariant = pool.find((v) => v.strategy === V2_BASELINE_STRATEGY);
   const baselineElo = baselineVariant ? (ratings.get(baselineVariant.id)?.elo ?? DEFAULT_ELO) : null;
   const baselineRank = baselineElo != null
     ? pool.filter((v) => (ratings.get(v.id)?.elo ?? DEFAULT_ELO) > baselineElo).length + 1
     : null;
 
-  // Strategy effectiveness (single-pass aggregation) — avgMu field now stores Elo mean.
-  const strategyEffectiveness = pool.reduce<Record<string, { count: number; avgMu: number }>>((acc, v) => {
+  // Strategy effectiveness (single-pass aggregation) — avgElo mean.
+  const strategyEffectiveness = pool.reduce<Record<string, { count: number; avgElo: number }>>((acc, v) => {
     const elo = ratings.get(v.id)?.elo ?? DEFAULT_ELO;
     const prev = acc[v.strategy];
     if (prev) {
       const newCount = prev.count + 1;
-      acc[v.strategy] = { count: newCount, avgMu: prev.avgMu + (elo - prev.avgMu) / newCount };
+      acc[v.strategy] = { count: newCount, avgElo: prev.avgElo + (elo - prev.avgElo) / newCount };
     } else {
-      acc[v.strategy] = { count: 1, avgMu: elo };
+      acc[v.strategy] = { count: 1, avgElo: elo };
     }
     return acc;
   }, {});
@@ -82,12 +81,12 @@ function buildRunSummary(
     finalPhase: 'COMPETITION',
     totalIterations: result.iterationsRun,
     durationSeconds,
-    muHistory: result.eloHistory,
+    eloHistory: result.eloHistory,
     diversityHistory: result.diversityHistory,
     matchStats: { totalMatches, avgConfidence, decisiveRate },
     topVariants,
     baselineRank,
-    baselineMu: baselineElo,
+    baselineElo,
     strategyEffectiveness,
     metaFeedback: null,
   };

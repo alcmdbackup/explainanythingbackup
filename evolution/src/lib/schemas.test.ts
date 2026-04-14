@@ -426,8 +426,8 @@ describe('EvolutionRunSummary schemas', () => {
     };
     const result = EvolutionRunSummarySchema.parse(v2);
     expect(result.version).toBe(3);
-    expect(result.muHistory.length).toBe(2);
-    expect(result.topVariants[0]!.mu).toBeGreaterThan(15);
+    expect(result.eloHistory.length).toBe(2);
+    expect(result.topVariants[0]!.elo).toBeGreaterThan(15);
   });
 
   it('transforms V1 summary to V3', () => {
@@ -447,7 +447,7 @@ describe('EvolutionRunSummary schemas', () => {
     };
     const result = EvolutionRunSummarySchema.parse(v1);
     expect(result.version).toBe(3);
-    expect(result.muHistory.length).toBe(2);
+    expect(result.eloHistory.length).toBe(2);
   });
 
   it('rejects completely invalid data', () => {
@@ -467,7 +467,7 @@ describe('evolutionResultSchema.stopReason', () => {
     matchHistory: [],
     totalCost: 0.5,
     iterationsRun: 3,
-    muHistory: [],
+    eloHistory: [],
     diversityHistory: [],
     matchCounts: {},
   };

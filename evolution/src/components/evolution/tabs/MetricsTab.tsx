@@ -91,9 +91,8 @@ export function MetricsTab({ runId }: MetricsTabProps): JSX.Element {
               </thead>
               <tbody>
                 {summary.topVariants.map((v, i) => {
-                  // topVariants JSONB field is still named `mu` but new runs write Elo values.
-                  // Heuristic: values < 100 are legacy mu-scale; convert to Elo.
-                  const raw = (v as { elo?: number; mu: number }).elo ?? v.mu;
+                  // topVariants stored as Elo-scale; legacy mu-scale values (<100) heuristically converted.
+                  const raw = v.elo;
                   const elo = raw < 100 ? 1200 + (raw - 25) * 16 : raw;
                   return (
                   <tr key={v.id} className="border-t border-[var(--border-default)]">
@@ -126,8 +125,8 @@ export function MetricsTab({ runId }: MetricsTabProps): JSX.Element {
               <tbody>
                 {Object.entries(summary.strategyEffectiveness)
                   .map(([strategy, stats]) => {
-                    // Backward compat: `avgMu` field may hold Elo values (new runs) or mu (legacy).
-                    const raw = (stats as { avgElo?: number; avgMu: number }).avgElo ?? stats.avgMu;
+                    // Backward compat: schema normalizes legacy avgMu to avgElo. Legacy mu-scale values heuristically converted.
+                    const raw = stats.avgElo;
                     const avgElo = raw < 100 ? 1200 + (raw - 25) * 16 : raw;
                     return [strategy, stats, avgElo] as const;
                   })

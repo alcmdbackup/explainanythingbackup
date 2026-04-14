@@ -194,7 +194,7 @@ export const getEvolutionDashboardDataAction = adminAction(
   },
 );
 
-/** Get Elo/mu history for a run from run_summary.muHistory. */
+/** Get Elo history for a run from run_summary.eloHistory (legacy muHistory normalized via schema preprocess). */
 export const getEvolutionRunEloHistoryAction = adminAction(
   'getEvolutionRunEloHistory',
   async (runId: string, ctx: AdminContext): Promise<EloHistoryPoint[]> => {
@@ -212,10 +212,10 @@ export const getEvolutionRunEloHistoryAction = adminAction(
     const parsed = EvolutionRunSummarySchema.safeParse(data.run_summary);
     if (!parsed.success) return [];
 
-    // muHistory field stores Elo values for new runs; legacy runs stored TrueSkill mu (~25-50).
+    // eloHistory stores Elo values for new runs; legacy runs stored TrueSkill mu (~25-50).
     // Heuristic: values < 100 are mu-scale; convert to Elo via 1200 + (mu-25)*16.
     const toElo = (v: number): number => (v < 100 ? 1200 + (v - 25) * 16 : v);
-    return (parsed.data.muHistory ?? []).map((vals, i) => {
+    return (parsed.data.eloHistory ?? []).map((vals, i) => {
       const elos = vals.map(toElo);
       return {
         iteration: i + 1,

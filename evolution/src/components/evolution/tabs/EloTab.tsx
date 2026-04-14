@@ -1,6 +1,6 @@
 'use client';
-// Elo/mu history chart for a run, using run_summary.muHistory from V2 schema.
-// Renders a simple SVG line chart showing mu progression across iterations.
+// Elo history chart for a run, using run_summary.eloHistory from V3 schema.
+// Renders a simple SVG line chart showing Elo progression across iterations.
 
 import { useEffect, useState } from 'react';
 import {
