@@ -29,6 +29,15 @@ The arena provides a unified cross-method comparison layer on top of the evoluti
 
 Arena entries are not a separate table. They are rows in `evolution_variants` with `synced_to_arena = true`. Each run loads existing arena-synced variants into its pool, ranks everything together, then syncs new variants and match results back. Over time the arena accumulates a reliable leaderboard per prompt.
 
+> **Seed variant reuse (2026-04-14):** When a prompt has a persisted `generation_method='seed'`
+> arena entry, runs against that prompt **reuse the seed row's UUID and persisted mu/sigma**
+> as `pool[0]` (`strategy='seed_variant'`, `reusedFromSeed=true`). The seed is filtered out of
+> `loadArenaEntries` (via `excludeId`) so it isn't double-loaded. Post-run rating updates land
+> on the existing seed row via an optimistic-concurrency `UPDATE … WHERE id+mu+sigma+arena_match_count`
+> — no new arena INSERT per run. On collision (concurrent runner wrote first), the UPDATE matches
+> 0 rows and we log `evolution.seed_rating.collision`. Gated by `EVOLUTION_REUSE_SEED_RATING`
+> (default `true`).
+
 ## Loading arena entries
 
 `loadArenaEntries` pulls active entries from the database into the pipeline's working pool. Arena entries participate in ranking alongside freshly generated variants but are distinguished by a `fromArena` flag.

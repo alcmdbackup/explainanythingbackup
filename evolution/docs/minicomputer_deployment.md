@@ -47,6 +47,7 @@ chmod 600 .env.local .env.evolution-prod
 |----------|---------|---------|
 | `LOCAL_LLM_BASE_URL` | Ollama or other local LLM endpoint | `http://localhost:11434/v1` |
 | `EVOLUTION_MAX_CONCURRENT_RUNS` | Max parallel runs across all runners | `5` |
+| `EVOLUTION_REUSE_SEED_RATING` | Reuse persisted seed row's UUID + rating across runs (kill-switch); set to `false` to revert to legacy fresh-baseline behavior without redeploying. | `true` |
 
 ## CLI Runner Scripts
 

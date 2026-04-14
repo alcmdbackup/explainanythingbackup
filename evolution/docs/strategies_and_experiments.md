@@ -432,7 +432,9 @@ The V3 summary contains:
 | `eloHistory` | `number[][]` | Top-K `elo` values per iteration (see below; renamed from `muHistory`) |
 | `diversityHistory` | `number[]` | Diversity scores per iteration (see caveat below) |
 | `matchStats` | object | `{ totalMatches, avgConfidence, decisiveRate }` |
-| `topVariants` | array | Up to 10 entries: `{ id, strategy, elo, isBaseline }` |
+| `topVariants` | array | Up to 10 entries: `{ id, strategy, elo, isSeedVariant }` (renamed from `isBaseline` 2026-04-14; legacy rows with `isBaseline` are auto-mapped on read) |
+| `seedVariantRank` | number \| null | Final rank of the persisted seed variant (renamed from `baselineRank`). |
+| `seedVariantElo` | number \| null | Final Elo of the persisted seed variant (renamed from `baselineElo`). |
 | `strategyEffectiveness` | record | Per-strategy `{ count, avgElo }` |
 | `metaFeedback` | object or null | Always `null` in current implementation |
 

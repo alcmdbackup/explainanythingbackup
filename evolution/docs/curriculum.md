@@ -226,7 +226,7 @@ Key terms used throughout the Evolution documentation and codebase.
 | Term | Definition |
 |------|------------|
 | **Arena** | Persistent cross-run leaderboard using Elo ratings with per-variant uncertainty (OpenSkill internally). Allows variants from different runs to be compared. See [Arena](./arena.md). |
-| **Baseline** | The initial article variant in a run (version 0, strategy='baseline'). Every run starts with one baseline variant before generating alternatives. |
+| **Seed variant** | The initial article variant in a run (version 0, `strategy='seed_variant'`). Every prompt-based run starts with one seed variant before generating alternatives. **Renamed from "baseline" 2026-04-14**; admin UI dual-accepts both names for one release cycle. When a persisted seed exists for the prompt (`generation_method='seed'`), the run reuses its UUID + rating instead of creating a fresh one — see [arena.md](./arena.md). |
 | **Budget pressure** | Dynamic scaling of comparison counts based on how much of the run budget has been consumed. Three tiers — low, medium, high — progressively reduce comparison work to stay within budget. See [Cost Optimization](./cost_optimization.md). |
 | **Convergence** | The primary stop condition. Triggered when 2 consecutive rounds produce all eligible variant `uncertainty` values below `DEFAULT_CONVERGENCE_UNCERTAINTY` (72, Elo-scale), meaning ratings have stabilized. See [Rating & Comparison](./rating_and_comparison.md). |
 | **Elimination** | Removing a variant from further comparisons because it is statistically unlikely to be competitive. Rule: variant is eliminated when `r.elo + 2 * r.uncertainty < top20Cutoff`. |
