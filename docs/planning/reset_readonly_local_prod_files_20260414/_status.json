@@ -1,0 +1,29 @@
+{
+  "branch": "feat/reset_readonly_local_prod_files_20260414",
+  "created_at": "2026-04-14T13:02:33Z",
+  "prerequisites": {
+    "environments_read": "2026-04-14T13:10:18Z"
+  },
+  "relevantDocs": [
+    "docs/docs_overall/debugging.md",
+    "docs/docs_overall/environments.md",
+    "docs/docs_overall/cloud_env.md",
+    "docs/docs_overall/testing_overview.md",
+    "docs/feature_deep_dives/testing_setup.md",
+    "evolution/docs/README.md",
+    "evolution/docs/architecture.md",
+    "evolution/docs/data_model.md",
+    "evolution/docs/arena.md",
+    "evolution/docs/rating_and_comparison.md",
+    "evolution/docs/strategies_and_experiments.md",
+    "evolution/docs/cost_optimization.md",
+    "evolution/docs/metrics.md",
+    "evolution/docs/logging.md",
+    "evolution/docs/visualization.md",
+    "evolution/docs/curriculum.md",
+    "evolution/docs/entities.md",
+    "evolution/docs/reference.md",
+    "evolution/docs/minicomputer_deployment.md",
+    "evolution/docs/agents/overview.md"
+  ]
+}
