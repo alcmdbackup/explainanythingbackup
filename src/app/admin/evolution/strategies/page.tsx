@@ -209,11 +209,13 @@ function BudgetFloorsField({
 }): JSX.Element {
   const v = (value as BudgetFloorsValue | undefined) ?? { mode: 'fraction', parallelValue: null, sequentialValue: null };
   const [preview, setPreview] = useState<{ estimatedAgentCostUsd: number; assumptions: { seedArticleChars: number; strategy: string; poolSize: number; maxComparisonsPerVariant: number } } | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
 
   // Debounced preview fetch when in agentMultiple mode and models are set.
   useEffect(() => {
     if (v.mode !== 'agentMultiple' || !generationModel || !judgeModel) {
       setPreview(null);
+      setPreviewError(null);
       return;
     }
     const requestId = ++previewRequestCounter;
@@ -226,9 +228,17 @@ function BudgetFloorsField({
         });
         // Discard out-of-order responses (race condition guard)
         if (requestId !== previewRequestCounter) return;
-        if (result.success && result.data) setPreview(result.data);
-      } catch {
-        // Silent fail — preview is best-effort
+        if (result.success && result.data) {
+          setPreview(result.data);
+          setPreviewError(null);
+        } else if (!result.success) {
+          setPreview(null);
+          setPreviewError(result.error?.message ?? 'Preview request failed');
+        }
+      } catch (err) {
+        if (requestId !== previewRequestCounter) return;
+        setPreview(null);
+        setPreviewError(err instanceof Error ? err.message : String(err));
       }
     }, 300);
     return () => clearTimeout(timer);
@@ -289,6 +299,10 @@ function BudgetFloorsField({
                 Based on: {preview.assumptions.seedArticleChars.toLocaleString()}-char seed • {preview.assumptions.strategy} • pool={preview.assumptions.poolSize} • {preview.assumptions.maxComparisonsPerVariant} cmp
               </div>
             </>
+          ) : previewError ? (
+            <span className="text-[var(--status-error)]" data-testid="budget-floors-preview-error">
+              Cost preview failed: {previewError}
+            </span>
           ) : generationModel && judgeModel ? (
             <span>Loading cost estimate…</span>
           ) : (

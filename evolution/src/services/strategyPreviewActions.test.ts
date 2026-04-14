@@ -5,8 +5,21 @@
 //
 // The adminAction factory is mocked to extract the handler for direct testing.
 
+// Mock adminAction to match the real factory's arity-detection semantics.
+// A 1-arg handler is treated as ctx-only; the real factory passes `ctx` as the
+// first arg. Our handler is 2-arg (input, _ctx) so it gets (input, ctx).
+// This mock simulates that behavior so regressions in the arity of the action
+// handler are caught at test time.
+const fakeAdminCtx = { supabase: {}, adminUserId: 'test-admin' };
 jest.mock('./adminAction', () => ({
-  adminAction: (_name: string, handler: Function) => handler,
+  adminAction: (_name: string, handler: Function) => {
+    if (handler.length <= 1) {
+      // Simulate the real factory: ctx-only call when arity is 1.
+      // If our action accidentally has this shape, input lands in ctx and Zod fails.
+      return (input: unknown) => handler(fakeAdminCtx); // intentionally swallow `input`
+    }
+    return (input: unknown) => handler(input, fakeAdminCtx);
+  },
 }));
 
 import { estimateAgentCostPreviewAction } from './strategyPreviewActions';
@@ -92,6 +105,19 @@ describe('estimateAgentCostPreviewAction', () => {
       judgeModel: 'qwen-2.5-7b-instruct',
       seedArticleChars: 50,
     })).rejects.toThrow();
+  });
+
+  // Regression test for the arity bug that made the cost preview silently
+  // fail on production. If someone changes the handler to `async (input) => ...`
+  // (dropping the `_ctx` param), the mock above would route input into ctx and
+  // this test will fail with a Zod error.
+  it('handler has 2-arg shape so adminAction dispatches input correctly (REGRESSION)', async () => {
+    const result = await (estimateAgentCostPreviewAction as unknown as (input: unknown) => Promise<{ estimatedAgentCostUsd: number }>)({
+      generationModel: 'qwen-2.5-7b-instruct',
+      judgeModel: 'qwen-2.5-7b-instruct',
+    });
+    // If the arity is wrong, Zod throws on empty input before this line.
+    expect(result.estimatedAgentCostUsd).toBeGreaterThan(0);
   });
 
   it('returns different cost estimates for different generation models (sanity check)', async () => {

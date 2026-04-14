@@ -5,7 +5,7 @@
 'use server';
 
 import { z } from 'zod';
-import { adminAction } from './adminAction';
+import { adminAction, type AdminContext } from './adminAction';
 import { estimateAgentCost } from '../lib/pipeline/infra/estimateCosts';
 import { allowedLLMModelSchema } from '@/lib/schemas/schemas';
 
@@ -40,8 +40,12 @@ export interface AgentCostPreview {
  *  when a user specifies budget floors in "Multiple of agent cost" mode. */
 export const estimateAgentCostPreviewAction = adminAction(
   'estimateAgentCostPreview',
+  // The second `_ctx` param is REQUIRED for adminAction's arity detection —
+  // a 1-arg handler is treated as ctx-only, causing client input to be passed
+  // as ctx and Zod parsing to fail silently.
   async (
     input: z.input<typeof previewInputSchema>,
+    _ctx: AdminContext,
   ): Promise<AgentCostPreview> => {
     const parsed = previewInputSchema.parse(input);
 
