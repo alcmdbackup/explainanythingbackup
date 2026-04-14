@@ -37,10 +37,14 @@ check_server_health() {
     return 1
   fi
 
-  # Quick health check - server should respond within 2 seconds
-  if curl -s -o /dev/null --connect-timeout 2 --max-time 2 "http://localhost:$port" 2>/dev/null; then
-    return 0
-  fi
+  # Health check - use /api/health (no page compilation) with generous timeout
+  # and retry to tolerate dev-server slowness under E2E load.
+  for i in 1 2 3; do
+    if curl -s -o /dev/null --connect-timeout 2 --max-time 10 "http://localhost:$port/api/health" 2>/dev/null; then
+      return 0
+    fi
+    sleep 1
+  done
 
   return 1
 }
