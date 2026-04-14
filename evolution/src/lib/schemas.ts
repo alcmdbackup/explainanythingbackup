@@ -776,6 +776,12 @@ export const generateFromSeedComparisonSchema = z.object({
   muPlusTwoSigma: z.number(),
   eliminated: z.boolean(),
   converged: z.boolean(),
+  /** Wall-clock duration of this comparison (both 2-pass reversal LLM calls, parallel). Optional — historical invocations have no timing data. */
+  durationMs: z.number().int().min(0).optional(),
+  /** Forward-pass LLM call duration. Optional — historical invocations have no timing data. */
+  forwardCallDurationMs: z.number().int().min(0).optional(),
+  /** Reverse-pass LLM call duration. Optional — historical invocations have no timing data. */
+  reverseCallDurationMs: z.number().int().min(0).optional(),
 });
 
 export const generateFromSeedRankingDetailSchema = z.object({
@@ -789,6 +795,8 @@ export const generateFromSeedRankingDetailSchema = z.object({
   finalLocalMu: z.number(),
   finalLocalSigma: z.number().min(0),
   finalLocalTop15Cutoff: z.number(),
+  /** Wall-clock duration of the full ranking phase for this variant. Optional — historical invocations have no timing data. */
+  durationMs: z.number().int().min(0).optional(),
 });
 
 export const generateFromSeedExecutionDetailSchema = executionDetailBaseSchema.extend({
@@ -803,6 +811,8 @@ export const generateFromSeedExecutionDetailSchema = executionDetailBaseSchema.e
     formatValid: z.boolean(),
     formatIssues: z.array(z.string()).optional(),
     error: z.string().optional(),
+    /** Wall-clock duration of the generation phase. Optional — historical invocations have no timing. */
+    durationMs: z.number().int().min(0).optional(),
   }),
   ranking: generateFromSeedRankingDetailSchema.extend({
     cost: z.number().min(0),
