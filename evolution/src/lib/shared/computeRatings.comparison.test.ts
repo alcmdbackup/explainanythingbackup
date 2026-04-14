@@ -70,6 +70,97 @@ describe('parseWinner', () => {
     expect(parseWinner('It is a draw')).toBe('TIE');
     expect(parseWinner('They are equal')).toBe('TIE');
   });
+
+  // "Your answer: X" pattern — observed in Qwen3 8B with thinking mode disabled.
+  // Forward pass returns clean "A", reverse pass returns "Your answer: B" 100% of the time.
+  describe('"Your answer: X" pattern', () => {
+    it('parses "Your answer: B"', () => {
+      expect(parseWinner('Your answer: B')).toBe('B');
+    });
+
+    it('parses "Your answer: A"', () => {
+      expect(parseWinner('Your answer: A')).toBe('A');
+    });
+
+    it('parses lowercase "your answer: b"', () => {
+      expect(parseWinner('your answer: b')).toBe('B');
+    });
+
+    it('parses with extra internal whitespace', () => {
+      expect(parseWinner('Your answer:  A  ')).toBe('A');
+      expect(parseWinner('Your answer :  B')).toBe('B');
+    });
+
+    it('parses with CRLF line ending', () => {
+      expect(parseWinner('Your answer: B\r\n')).toBe('B');
+    });
+
+    it('parses with markdown bold "**B**"', () => {
+      expect(parseWinner('Your answer: **B**')).toBe('B');
+      expect(parseWinner('Your answer: **A**')).toBe('A');
+    });
+
+    it('parses with trailing explanation text', () => {
+      expect(parseWinner('Your answer: B\n\nText B is more concise.')).toBe('B');
+      expect(parseWinner('Your answer: **B**\n\nText B is better structured.')).toBe('B');
+    });
+
+    // Negative tests — do NOT match word-boundary-violating letters
+    it('does NOT match "Your answer: Apple" as A', () => {
+      // "Your answer:" prefix matches, but the lookahead (?![A-Z]) fails because 'P' follows 'A'.
+      // The fallback first-word check sees "YOUR" and returns null.
+      expect(parseWinner('Your answer: Apple')).toBeNull();
+    });
+
+    it('does NOT match "Your answer: Bother" as B', () => {
+      expect(parseWinner('Your answer: Bother')).toBeNull();
+    });
+
+    it('does NOT match "Your answer depends on context" (no colon-letter)', () => {
+      expect(parseWinner('Your answer depends on context')).toBeNull();
+    });
+
+    it('does NOT match "My answer is A" (wrong prefix)', () => {
+      // "My answer is A" — firstWord is "MY", no TEXT A/B, no TIE keywords. Returns null.
+      expect(parseWinner('My answer is A')).toBeNull();
+    });
+  });
+
+  // Regression: confirm existing inputs still return the same results after adding
+  // the "Your answer: X" fallback. The new pattern must not interfere with existing matches.
+  describe('regression: existing patterns unchanged', () => {
+    it('clean single tokens', () => {
+      expect(parseWinner('A')).toBe('A');
+      expect(parseWinner('B')).toBe('B');
+      expect(parseWinner('TIE')).toBe('TIE');
+    });
+
+    it('TEXT A/B phrase matches still work', () => {
+      expect(parseWinner('Text A is better')).toBe('A');
+      expect(parseWinner('Text B wins')).toBe('B');
+      expect(parseWinner('Text A is better than Text B')).toBe('A');
+    });
+
+    it('first-word match still works', () => {
+      expect(parseWinner('A is better than B')).toBe('A');
+      expect(parseWinner('B wins')).toBe('B');
+    });
+
+    it('DRAW/EQUAL keywords still return TIE', () => {
+      expect(parseWinner('draw')).toBe('TIE');
+      expect(parseWinner('It is a draw')).toBe('TIE');
+      expect(parseWinner('They are equal')).toBe('TIE');
+    });
+
+    it('ambiguous/unparseable still returns null', () => {
+      // "Neither A nor B is good" — no "TEXT A"/"TEXT B" substrings, no TIE keyword,
+      // first word "NEITHER" doesn't match A/B. Returns null.
+      expect(parseWinner('Neither A nor B is good')).toBeNull();
+      expect(parseWinner('Actually neither is great')).toBeNull();
+      expect(parseWinner('maybe')).toBeNull();
+      expect(parseWinner('')).toBeNull();
+    });
+  });
 });
 
 describe('compareWithBiasMitigation', () => {

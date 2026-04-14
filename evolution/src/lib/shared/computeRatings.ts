@@ -250,6 +250,13 @@ export function parseWinner(response: string): string | null {
 
   if (upper.includes('TIE') || upper.includes('DRAW') || upper.includes('EQUAL')) return 'TIE';
 
+  // Scoped fallback for "Your answer: A/B" format (observed in Qwen3 8B with thinking
+  // disabled). Requires the literal "Your answer:" prefix and a word boundary after
+  // the captured letter so that "Your answer: Apple" does NOT match 'A' and
+  // "Your answer: Bother" does NOT match 'B'. Allows optional markdown bold (`**`).
+  const yourAnswerMatch = /^\s*YOUR ANSWER\s*:\s*\*{0,2}\s*([AB])(?![A-Z])/.exec(upper);
+  if (yourAnswerMatch) return yourAnswerMatch[1]!;
+
   const firstWord = upper.split(/\s/)[0]!;
   if (['A', 'A.', 'A,'].includes(firstWord)) return 'A';
   if (['B', 'B.', 'B,'].includes(firstWord)) return 'B';
