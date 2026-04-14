@@ -102,7 +102,7 @@ For detailed implementation of each feature, see [feature_deep_dives/](../featur
 Key features include:
 - [Evolution Architecture](../../evolution/docs/architecture.md) — V2 3-op flat loop (generate→rank→evolve), kill mechanism, runner lifecycle
 - [Evolution Data Model](../../evolution/docs/data_model.md) — Prompt + strategy = run architecture, arena, and strategy registry
-- [Arena](../../evolution/docs/arena.md) — Cross-method quality comparison with OpenSkill rankings and cost-efficiency metrics
+- [Arena](../../evolution/docs/arena.md) — Cross-method quality comparison with Elo rankings (per-variant uncertainty; OpenSkill internally) and cost-efficiency metrics
 - [Source Management](../feature_deep_dives/manage_sources.md) — CRUD operations, discovery pipeline, leaderboard, unified SourceCombobox
 - [Add Sources & Citations](../feature_deep_dives/add_sources_citations.md) — URL-based source input, content extraction, inline citations
 
@@ -157,7 +157,7 @@ See [environments.md](environments.md) for database config, env vars, Vercel set
 | Table | Purpose |
 |-------|---------|
 | `evolution_prompts` | Prompt-based grouping for cross-method comparison |
-| `evolution_variants` | Variants with arena columns (mu, sigma, elo_score, synced_to_arena, generation_method, model, cost_usd, arena_match_count, archived_at) when `synced_to_arena = true` |
+| `evolution_variants` | Variants with arena columns (`mu`, `sigma` — legacy DB columns that back the public `Rating {elo, uncertainty}` via `dbToRating` — `elo_score`, `synced_to_arena`, `generation_method`, `model`, `cost_usd`, `arena_match_count`, `archived_at`) when `synced_to_arena = true` |
 | `evolution_arena_comparisons` | Head-to-head match results with confidence scores |
 
 ### Source Management Tables

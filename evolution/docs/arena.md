@@ -1,6 +1,6 @@
 # Arena System
 
-The arena provides a unified cross-method comparison layer on top of the evolution pipeline. While individual runs produce variants within a single strategy or model, the arena aggregates results across runs into a persistent leaderboard using OpenSkill (Weng-Lin Bayesian) ratings. This lets you answer questions like "across all runs for this prompt, which variant is best?" regardless of which strategy or model produced it.
+The arena provides a unified cross-method comparison layer on top of the evolution pipeline. While individual runs produce variants within a single strategy or model, the arena aggregates results across runs into a persistent leaderboard using Elo ratings with per-variant uncertainty (OpenSkill / Weng-Lin Bayesian under the hood). This lets you answer questions like "across all runs for this prompt, which variant is best?" regardless of which strategy or model produced it.
 
 ## How it works
 
@@ -46,7 +46,7 @@ Key behaviors:
 
 - Queries `evolution_variants` filtered by `synced_to_arena = true`, `prompt_id`, and `archived_at IS NULL`
 - Sets `fromArena: true` on each returned variant
-- Pre-seeds ratings from stored `mu`/`sigma` values rather than using defaults (mu=25, sigma=8.333). This preserves rating history so arena entries are not treated as brand-new
+- Pre-seeds ratings from stored `evolution_variants.mu`/`sigma` columns (lifted to the public `{elo, uncertainty}` shape via `dbToRating`) rather than using defaults (`elo=1200, uncertainty=400/3`). This preserves rating history so arena entries are not treated as brand-new
 - Sets `strategy` to `arena_<generation_method>` for traceability
 - Returns an empty set (no error thrown) if the query fails or returns no rows
 
@@ -72,7 +72,7 @@ export async function syncToArena(
 Key behaviors:
 
 - Filters out variants where `fromArena === true` (they already exist in the arena) for the new-entries array
-- Builds a separate `arenaUpdates` array for existing arena entries, containing only mutable rating fields (`mu`, `sigma`, `elo_score`, `arena_match_count`). Immutable fields (content, generation_method, model, etc.) are preserved.
+- Builds a separate `arenaUpdates` array for existing arena entries, containing only mutable rating fields (`mu`, `sigma`, `elo_score`, `arena_match_count`). These are projected from the in-memory `Rating {elo, uncertainty}` via `ratingToDb` — the DB columns remain `mu`/`sigma` because the stale trigger and `sync_to_arena` RPC depend on them. Immutable fields (content, generation_method, model, etc.) are preserved.
 - Upserts each new variant into `evolution_variants` with `synced_to_arena = true` and its current `mu`, `sigma`, and Elo-scale rating
 - Builds match records from the run's match history, including cross-pool comparisons between new variants and existing arena entries
 - Calls `sync_to_arena` RPC with both `p_entries` (new variants) and `p_arena_updates` (existing arena entry rating updates), which handles upserting variants, updating arena ratings, and inserting comparisons atomically
@@ -82,13 +82,9 @@ Key behaviors:
 
 ### Elo scale conversion
 
-Arena entries store both OpenSkill ratings (`mu`, `sigma`) and an Elo-scale rating for human readability. The conversion (from `evolution/src/lib/shared/rating.ts`):
+Arena entries store the legacy OpenSkill-scale columns (`mu`, `sigma`) alongside the Elo-scale `elo_score` for human readability. At the application layer, those DB columns are lifted to `Rating {elo, uncertainty}` via `dbToRating()` on read and projected back via `ratingToDb()` on write.
 
-```
-elo_rating = clamp(0, 3000, 1200 + (mu - 25) * 16)
-```
-
-A fresh entry with default mu=25 maps to Elo 1200. See [Rating System](./rating_and_comparison.md) for the full rating model.
+A fresh entry (default OpenSkill `mu=25`) maps to Elo 1200. A fresh variant via the public API starts at `{elo: 1200, uncertainty: 400/3}`. See [Rating System](./rating_and_comparison.md) for the full rating model.
 
 ## Database schema
 
@@ -114,8 +110,8 @@ Arena entries are rows in `evolution_variants` with `synced_to_arena = true`. Th
 
 | Column             | Type        | Description                                      |
 |--------------------|-------------|--------------------------------------------------|
-| mu                 | float       | OpenSkill mu (skill estimate)                    |
-| sigma              | float       | OpenSkill sigma (uncertainty)                    |
+| mu                 | float       | OpenSkill mu (legacy DB column; lifted to `Rating.elo` via `dbToRating`) |
+| sigma              | float       | OpenSkill sigma (legacy DB column; lifted to `Rating.uncertainty` via `dbToRating`) |
 | prompt_id          | uuid FK     | References `evolution_prompts.id`                |
 | synced_to_arena    | boolean     | `true` = this variant is an arena entry          |
 | arena_match_count  | int         | Total comparisons this entry has participated in (computed from match history, not hardcoded) |
@@ -149,7 +145,7 @@ The `entry_a` and `entry_b` columns reference `evolution_variants.id` (previousl
 Arena entries and pipeline variants live in the **same table** (`evolution_variants`). The `synced_to_arena` boolean flag distinguishes them:
 
 - **`synced_to_arena = false` (default)** -- regular pipeline variants, scoped to a single run. Deleted or archived with the run.
-- **`synced_to_arena = true`** -- arena entries that persist across runs. Ratings (`mu`, `sigma`) and `arena_match_count` accumulate over time.
+- **`synced_to_arena = true`** -- arena entries that persist across runs. The DB columns `mu`, `sigma` (which back the public `{elo, uncertainty}` Rating) and `arena_match_count` accumulate over time.
 
 When arena entries are loaded into a run, they receive temporary `Variant` wrappers with `fromArena: true`. After rating completes, new variants are upserted with `synced_to_arena = true` and match results are recorded. The `isArenaEntry()` type guard in `evolution/src/lib/pipeline/arena.ts` distinguishes them at runtime:
 
@@ -168,7 +164,7 @@ The arena admin pages provide leaderboard views and topic management.
 | Route                                      | Purpose                                              |
 |-------------------------------------------|------------------------------------------------------|
 | `/admin/evolution/arena`                  | List all arena topics with entry counts              |
-| `/admin/evolution/arena/[topicId]`        | Leaderboard for a topic: sortable columns for Elo (rounded to integers), 95% CI (`formatEloCIRange(elo, sigma)`), Elo ± σ (`formatEloWithUncertainty(elo, sigma * ELO_SIGMA_SCALE)`), Matches, Method, Cost (shows "N/A" — cost data unavailable at variant level). Entries below the top 15% eligibility cutoff (mean + 1.04×stdDev of Elo scores) are dimmed. Markdown is stripped from content previews via `stripMarkdownTitle()`. |
+| `/admin/evolution/arena/[topicId]`        | Leaderboard for a topic: sortable columns for Elo (rounded to integers), 95% CI (`formatEloCIRange(elo, uncertainty)`), Elo ± Uncertainty (`formatEloWithUncertainty(elo, uncertainty)`), Matches, Method, Cost (shows "N/A" — cost data unavailable at variant level). Entries below the top 15% eligibility cutoff (mean + 1.04×stdDev of Elo scores) are dimmed. Markdown is stripped from content previews via `stripMarkdownTitle()`. |
 | `/admin/evolution/arena/entries/[entryId]`| Entry detail: content, rating history, comparisons   |
 
 **Source files:**
@@ -195,5 +191,5 @@ The prompt registry actions (`listPromptsAction`, `createPromptAction`, `updateP
 ## Cross-references
 
 - [Architecture](./architecture.md) -- where the arena fits in the overall pipeline
-- [Rating System](./rating_and_comparison.md) -- OpenSkill rating mechanics, match scheduling, convergence
+- [Rating System](./rating_and_comparison.md) -- Elo/uncertainty rating mechanics (OpenSkill internally), match scheduling, convergence
 - [Data Model](./data_model.md) -- full database schema including arena tables

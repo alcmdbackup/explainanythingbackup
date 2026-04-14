@@ -15,9 +15,9 @@ The core pipeline implements the generate-rank-evolve loop and all supporting in
 | File | Purpose |
 |------|---------|
 | `claimAndExecuteRun.ts` | `claimAndExecuteRun` — top-level orchestrator and single public entry point. Claims a pending run via RPC, starts 30s heartbeat, builds run context (resolves content from `explanations` or `evolution_prompts` table, or generates seed article), loads strategy config, constructs `EvolutionConfig`, calls `evolveArticle`, then `finalizeRun` and `syncToArena`. Accepts optional `db` for multi-DB batch runners and optional `dryRun` flag. Exports `ClaimedRun`, `RunnerOptions`, `RunnerResult` types. |
-| `loop/runIterationLoop.ts` | `evolveArticle` — main loop entry point. Validates `EvolutionConfig` constraints (see Configuration section), creates cost tracker and run logger, then iterates: generate new variants, rank via calibration + tournament, evolve top performers. Returns `EvolutionResult` with winner, pool, ratings, match history, cost, stop reason, and convergence metrics (muHistory, diversityHistory). |
+| `loop/runIterationLoop.ts` | `evolveArticle` — main loop entry point. Validates `EvolutionConfig` constraints (see Configuration section), creates cost tracker and run logger, then iterates: generate new variants, rank via calibration + tournament, evolve top performers. Returns `EvolutionResult` with winner, pool, ratings, match history, cost, stop reason, and convergence metrics (eloHistory, diversityHistory). |
 | `generate.ts` | Text generation phase; produces new variants from 8 available strategies (3 core + 5 extended) using the configured generation model. When `generationGuidance` is set on the strategy config, uses weighted random selection; otherwise falls back to deterministic 3-strategy behavior. FORMAT_RULES are injected into the generation prompt. |
-| `rank.ts` | Ranking phase; runs two-stage comparison: (1) calibration against N opponents for initial seeding, (2) Swiss-style tournament among top-K candidates. Updates TrueSkill ratings after each match. |
+| `rank.ts` | Ranking phase; runs two-stage comparison: (1) calibration against N opponents for initial seeding, (2) Swiss-style tournament among top-K candidates. Updates `Rating {elo, uncertainty}` after each match (OpenSkill internally). |
 | `evolve.ts` | Evolution phase; creates offspring variants by combining/mutating top-ranked parents. Uses the generation model with evolution-specific prompts that include parent text and critique feedback. |
 | `finalize.ts` | `finalizeRun` — post-loop cleanup: persists final variants to `evolution_variants`, ratings and match history to their respective tables, updates the run row with `completed` status, total cost, iteration count, and stop reason. |
 | `arena.ts` | `syncToArena` / `loadArenaEntries` / `isArenaEntry` — marks the winning variant (and optionally runner-up) as `synced_to_arena=true` in `evolution_variants` for cross-run arena competition. Arena entries are keyed by topic (derived from prompt). See [Arena](arena.md). |
@@ -30,7 +30,7 @@ The core pipeline implements the generate-rank-evolve loop and all supporting in
 | `experiments.ts` | `createExperiment` / `addRunToExperiment` / `computeExperimentMetrics` — experiment grouping for A/B analysis. Returns `ExperimentMetrics` with aggregate Elo, cost, and convergence stats per strategy arm. |
 | `prompts.ts` | Prompt template construction for generation and evolution phases; injects FORMAT_RULES and strategy-specific instructions. |
 | `errors.ts` | `BudgetExceededWithPartialResults` — extends `BudgetExceededError` for mid-generation budget breaches with salvageable output. Carries `partialVariants: Variant[]` so the pipeline can finalize with whatever was produced before the budget ran out. |
-| `types.ts` | V2-specific types: `EvolutionConfig` (run configuration), `EvolutionResult` (pipeline output including winner, pool, ratings, matchHistory, totalCost, iterationsRun, stopReason, muHistory, diversityHistory, matchCounts), `V2Match` (winnerId/loserId/result/confidence/judgeModel/reversed), `StrategyConfig` (generationModel, judgeModel, iterations, budgetUsd, generationGuidance). |
+| `types.ts` | V2-specific types: `EvolutionConfig` (run configuration), `EvolutionResult` (pipeline output including winner, pool, ratings, matchHistory, totalCost, iterationsRun, stopReason, eloHistory, diversityHistory, matchCounts), `V2Match` (winnerId/loserId/result/confidence/judgeModel/reversed), `StrategyConfig` (generationModel, judgeModel, iterations, budgetUsd, generationGuidance). |
 
 ### Core (`evolution/src/lib/core/`)
 
@@ -54,14 +54,14 @@ Utilities shared between the pipeline, services, and UI layers. These modules ha
 
 | File | Purpose |
 |------|---------|
-| `rating.ts` | OpenSkill (Weng-Lin Bayesian) rating system wrapping the `openskill` library. `createRating()` returns `{mu: 25, sigma: 8.333}`. `updateRating(winner, loser)` and `updateDraw(a, b)` return updated pairs. `isConverged(rating)` checks sigma < 3.0. `toEloScale(rating)` converts to traditional Elo range. `computeEloPerDollar(elo, cost)` measures cost-efficiency. Constants: `DEFAULT_MU=25`, `DEFAULT_SIGMA=25/3`, `DEFAULT_CONVERGENCE_SIGMA=3.0`, `ELO_SIGMA_SCALE=400/25`. See [Rating and Comparison](rating_and_comparison.md). |
+| `rating.ts` | Elo-scale rating system. `createRating()` returns `{elo: 1200, uncertainty: 400/3 ≈ 133.33}`. `updateRating(winner, loser)` and `updateDraw(a, b)` return updated pairs. `isConverged(rating, threshold?)` checks `uncertainty < DEFAULT_CONVERGENCE_UNCERTAINTY` (threshold is Elo-scale). `toDisplayElo(elo)` clamps to `[0, 3000]` for UI. `dbToRating(mu, sigma)` / `ratingToDb(r)` bridge the unchanged `evolution_variants.mu`/`sigma` DB columns. A private `toEloScale()` helper is retained internally. `computeEloPerDollar(elo, cost)` measures cost-efficiency. Constants: `DEFAULT_ELO=1200`, `DEFAULT_UNCERTAINTY=400/3`, `DEFAULT_CONVERGENCE_UNCERTAINTY=72`, `BETA_ELO=DEFAULT_UNCERTAINTY * sqrt(2)`. Internally wraps the `openskill` (Weng-Lin Bayesian) library via the `computeRatings.ts` adapter. See [Rating and Comparison](rating_and_comparison.md). |
 | `computeRatings.ts` | `formatElo(elo)` — formats Elo values as rounded integers for display. `stripMarkdownTitle(text)` — removes leading markdown heading syntax from content strings for clean display in tables and previews. |
 | `reversalComparison.ts` | `run2PassReversal` — runs the same comparison twice with prompt order reversed (A vs B, then B vs A) to detect and mitigate position bias. Accepts `ReversalConfig` for controlling tie-breaking and confidence thresholds. |
 | `comparisonCache.ts` | `ComparisonCache` — in-memory LRU cache for pairwise comparison results keyed by `(variantIdA, variantIdB)`. Prevents redundant LLM comparison calls within a run. Max size controlled by `MAX_CACHE_SIZE` constant. Exports `CachedMatch` type. |
 | `formatValidator.ts` | `validateFormat` — checks generated text against FORMAT_RULES. Returns `FormatResult` with pass/fail and violation details. Reads `FORMAT_VALIDATION_MODE` env var at call time: `reject` (default) throws on violation, `warn` logs but passes, `off` skips validation entirely. |
 | `formatValidationRules.ts` | Individual validation rule definitions: no bullet points (`- ` or `* `), no numbered lists (`1. `), no tables (`|`), paragraph structure (min 2 sentences), heading hierarchy (H1 title required, body uses H2/H3). |
 | `formatRules.ts` | `FORMAT_RULES` constant — the prose-only format instructions string injected into all generation and evolution prompts. Defined as a template literal with clear delimiters. |
-| `selectWinner.ts` | `selectWinner(pool, ratings)` — unified winner determination. Highest mu wins, sigma tiebreak. Unrated variants get `mu=-Infinity`. Replaces duplicated inline logic in `runIterationLoop.ts` and `persistRunResults.ts`. |
+| `selectWinner.ts` | `selectWinner(pool, ratings)` — unified winner determination. Highest `elo` wins, lowest `uncertainty` tiebreak. Unrated variants get `elo=-Infinity`. Returns `SelectWinnerResult = {winnerId, elo, uncertainty}`. Replaces duplicated inline logic in `runIterationLoop.ts` and `persistRunResults.ts`. |
 | `textVariationFactory.ts` | `createVariant` — factory for constructing `Variant` objects with UUID-based ID generation, parent tracking, generation metadata, and strategy attribution. |
 | `errorClassification.ts` | `isTransientError` — classifies errors as transient (network timeouts, rate limits, 5xx responses) vs permanent (auth failures, invalid requests, content policy violations) for the retry logic in `llm-client.ts`. |
 | `strategyConfig.ts` | `labelStrategyConfig` / `defaultStrategyName` — generates human-readable labels from strategy config objects (e.g., "gpt-4.1-mini / 5 iter / $2.00"). Exports `StrategyConfig` and `StrategyConfigRow` types. |
@@ -89,7 +89,7 @@ Server actions and the server-side runner core. All server actions use Next.js `
 |------|---------|
 | `claimAndExecuteRun.ts` | `claimAndExecuteRun` — server-side runner entry point. Calls `claim_evolution_run` RPC (concurrent limit enforced server-side via advisory lock), starts 30s heartbeat, calls `executePipeline()` internally which orchestrates the full pipeline lifecycle. Handles errors and marks run failed on unrecoverable exceptions. Uses a system UUID (`00000000-0000-4000-8000-000000000001`) for LLM call tracking. Accepts optional `db` (SupabaseClient) and `dryRun` (boolean) options. |
 | `evolutionActions.ts` | Server actions for run management: create new runs, list runs with status/pagination filtering, cancel in-progress runs, retry failed runs, fetch run summaries. |
-| `evolutionVisualizationActions.ts` | Server actions powering the Elo charts and convergence visualizations: mu history time series, diversity trend data, per-iteration cost breakdowns, rating distribution histograms. |
+| `evolutionVisualizationActions.ts` | Server actions powering the Elo charts and convergence visualizations: `eloHistory` time series, diversity trend data, per-iteration cost breakdowns, rating distribution histograms. |
 | `arenaActions.ts` | Server actions for the arena subsystem: list arena topics, fetch leaderboard rankings for a topic, get arena entry details with comparison history. Arena entries are now `evolution_variants` rows with `synced_to_arena=true` (the `evolution_arena_entries` table was consolidated into `evolution_variants` in migration `20260321000002`). |
 | `variantDetailActions.ts` | Server actions for variant inspection: full variant text with metadata, parent lineage chain, match history (wins/losses/draws), text diffs between parent and child. |
 | `experimentActionsV2.ts` | Server actions for experiment management: create experiments with strategy arms, list experiments, fetch experiment detail with per-arm metrics, add/remove runs from experiments. |
@@ -116,7 +116,7 @@ Central type definitions shared across all layers. Key exports include `Variant`
 
 Public API for the evolution subsystem. Re-exports from:
 - **Types**: `Variant`, `ExecutionContext`, `ReadonlyPipelineState`, `EvolutionRunStatus`, `Match`, `Critique`, `MetaFeedback`, `EvolutionLLMClient`, `EvolutionLogger`, `CostTracker`, `BudgetExceededError`, `LLMRefusalError`, and schemas
-- **Rating**: `createRating`, `updateRating`, `updateDraw`, `isConverged`, `toEloScale`, `computeEloPerDollar`, constants
+- **Rating**: `createRating`, `updateRating`, `updateDraw`, `isConverged`, `toDisplayElo`, `dbToRating`, `ratingToDb`, `computeEloPerDollar`, constants (`DEFAULT_ELO`, `DEFAULT_UNCERTAINTY`, `DEFAULT_CONVERGENCE_UNCERTAINTY`, `BETA_ELO`)
 - **Comparison**: `buildComparisonPrompt`, `parseWinner`, `compareWithBiasMitigation`, `ComparisonCache`
 - **Shared utilities**: `isTransientError`, `createVariant`, `validateFormat`, `FORMAT_RULES`, `labelStrategyConfig`, `run2PassReversal`
 
@@ -549,7 +549,7 @@ Property-based tests using `fast-check@^3` validate invariants of pure functions
 |-------|----------|
 | System architecture and data flow | [Architecture](architecture.md) |
 | Database schema, RPCs, migrations | [Data Model](data_model.md) |
-| TrueSkill rating and comparison system | [Rating and Comparison](rating_and_comparison.md) |
+| Elo rating (with uncertainty) and comparison system | [Rating and Comparison](rating_and_comparison.md) |
 | Cost tracking and budget enforcement | [Cost Optimization](cost_optimization.md) |
 | Strategies, experiments, and A/B testing | [Strategies & Experiments](strategies_and_experiments.md) |
 | Arena cross-run competition | [Arena](arena.md) |
