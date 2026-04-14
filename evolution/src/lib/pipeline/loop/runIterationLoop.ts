@@ -25,6 +25,7 @@ import { DEFAULT_GENERATE_STRATEGIES, type IterationSnapshot } from '../../schem
 import { deriveSeed } from '../../shared/seededRandom';
 import type { AgentContext } from '../../core/types';
 import { estimateAgentCost } from '../infra/estimateCosts';
+import { resolveParallelFloor, resolveSequentialFloor } from './budgetFloorResolvers';
 
 // ─── Config validation ───────────────────────────────────────────
 
@@ -249,32 +250,8 @@ export async function evolveArticle(
     resolvedConfig.judgeModel, 1, resolvedConfig.maxComparisonsPerVariant ?? 15,
   );
 
-  function resolveParallelFloor(): number {
-    if (resolvedConfig.minBudgetAfterParallelFraction != null) {
-      return totalBudget * resolvedConfig.minBudgetAfterParallelFraction;
-    }
-    if (resolvedConfig.minBudgetAfterParallelAgentMultiple != null) {
-      if (!Number.isFinite(initialAgentCostEstimate) || initialAgentCostEstimate <= 0) return 0;
-      return initialAgentCostEstimate * resolvedConfig.minBudgetAfterParallelAgentMultiple;
-    }
-    return 0;
-  }
-
-  function resolveSequentialFloor(): number {
-    if (resolvedConfig.minBudgetAfterSequentialFraction != null) {
-      return totalBudget * resolvedConfig.minBudgetAfterSequentialFraction;
-    }
-    if (resolvedConfig.minBudgetAfterSequentialAgentMultiple != null) {
-      const useActual = actualAvgCostPerAgent != null && Number.isFinite(actualAvgCostPerAgent) && actualAvgCostPerAgent > 0;
-      const agentCost = useActual ? (actualAvgCostPerAgent as number) : initialAgentCostEstimate;
-      if (!Number.isFinite(agentCost) || agentCost <= 0) return 0;
-      return agentCost * resolvedConfig.minBudgetAfterSequentialAgentMultiple;
-    }
-    return 0;
-  }
-
   // Parallel dispatch only happens on iteration 1, so parallelFloor is stable once computed.
-  const parallelFloor = resolveParallelFloor();
+  const parallelFloor = resolveParallelFloor(resolvedConfig, totalBudget, initialAgentCostEstimate);
   const parallelBudget = totalBudget - parallelFloor;
 
   // ─── nextIteration() decision function ───────────────────────────
@@ -309,7 +286,7 @@ export async function evolveArticle(
         originalText.length, strategies[0]!, resolvedConfig.generationModel,
         resolvedConfig.judgeModel, pool.length, resolvedConfig.maxComparisonsPerVariant ?? 15,
       );
-      if (availBudget - estCost >= resolveSequentialFloor()) {
+      if (availBudget - estCost >= resolveSequentialFloor(resolvedConfig, totalBudget, initialAgentCostEstimate, actualAvgCostPerAgent)) {
         return 'generate';
       }
     }
@@ -440,7 +417,7 @@ export async function evolveArticle(
         logger.info('Sequential generate fallback', {
           iteration, variantsStillNeeded,
           availableBudget: costTracker.getAvailableBudget(),
-          sequentialFloor: resolveSequentialFloor(), phaseName: 'generation',
+          sequentialFloor: resolveSequentialFloor(resolvedConfig, totalBudget, initialAgentCostEstimate, actualAvgCostPerAgent), phaseName: 'generation',
         });
       }
 
