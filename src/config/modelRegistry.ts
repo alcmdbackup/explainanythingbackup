@@ -108,6 +108,11 @@ export const MODEL_REGISTRY: Record<string, ModelInfo> = {
     inputPer1M: 0.05, outputPer1M: 0.40, maxTemperature: 2.0, supportsEvolution: true,
     openRouterModelId: 'qwen/qwen3-8b',
   },
+  'qwen-2.5-7b-instruct': {
+    id: 'qwen-2.5-7b-instruct', displayName: 'Qwen 2.5 7B Instruct', provider: 'openrouter',
+    inputPer1M: 0.04, outputPer1M: 0.10, maxTemperature: 2.0, supportsEvolution: true,
+    openRouterModelId: 'qwen/qwen-2.5-7b-instruct',
+  },
 
   // Local (Ollama)
   'LOCAL_qwen2.5:14b': {
@@ -127,7 +132,7 @@ if (!Object.values(MODEL_REGISTRY).some(m => m.supportsEvolution)) {
 
 // ─── Default judge model ────────────────────────────────────────
 
-export const DEFAULT_JUDGE_MODEL = 'qwen/qwen3-8b';
+export const DEFAULT_JUDGE_MODEL = 'qwen-2.5-7b-instruct';
 
 // ─── Lookup helpers ─────────────────────────────────────────────
 

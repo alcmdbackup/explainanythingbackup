@@ -38,7 +38,7 @@ interface StrategyConfig {
 | Field               | Purpose                                    |
 |---------------------|--------------------------------------------|
 | `generationModel`   | LLM used for text generation calls         |
-| `judgeModel`        | LLM used for pairwise comparison/judging   |
+| `judgeModel`        | LLM used for pairwise comparison/judging. Default: `qwen-2.5-7b-instruct` (see `DEFAULT_JUDGE_MODEL` in `src/config/modelRegistry.ts`). Selected based on empirical judge-agreement research (see `docs/research/judge_agreement_summary_tables.md`) — 100% decisive on both large-gap and close-pair comparisons with ~1.7s median latency and no thinking-mode overhead. |
 | `iterations`        | Number of generate-rank-evolve cycles      |
 | `strategiesPerRound`| Generation strategies per iteration round  |
 | `budgetUsd`         | Optional per-run budget cap                |

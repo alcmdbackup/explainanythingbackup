@@ -83,7 +83,7 @@ async function callModel(
   };
   if (config.reasoning) params.reasoning = config.reasoning;
 
-  const resp = await c.chat.completions.create(params as OpenAI.Chat.ChatCompletionCreateParams);
+  const resp = await c.chat.completions.create(params as unknown as OpenAI.Chat.ChatCompletionCreateParamsNonStreaming);
   const durationMs = Date.now() - start;
   const text = resp.choices[0]?.message?.content?.trim() ?? '';
 
@@ -185,17 +185,18 @@ async function runComparison(
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
-function mode<T>(arr: T[]): T {
+function mode<T extends string>(arr: T[]): T {
   const counts = new Map<T, number>();
   for (const v of arr) counts.set(v, (counts.get(v) ?? 0) + 1);
-  let best = arr[0]!; let bc = 0;
+  let best: T = arr[0] as T;
+  let bc = 0;
   for (const [v, c] of counts) { if (c > bc) { best = v; bc = c; } }
   return best;
 }
 
 function median(arr: number[]): number {
   const s = [...arr].sort((a, b) => a - b);
-  return s[Math.floor(s.length / 2)]!;
+  return s[Math.floor(s.length / 2)] ?? 0;
 }
 
 // ── Main ─────────────────────────────────────────────────────────────
@@ -220,7 +221,7 @@ async function main() {
   let callsPerTemp = CALLS_PER_TEMP;
   const cIdx = args.indexOf('--calls');
   if (cIdx !== -1 && args[cIdx + 1]) {
-    callsPerTemp = parseInt(args[cIdx + 1], 10);
+    callsPerTemp = parseInt(args[cIdx + 1]!, 10);
     args.splice(cIdx, 2);
   }
 

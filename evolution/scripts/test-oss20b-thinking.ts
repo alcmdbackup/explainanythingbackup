@@ -63,7 +63,7 @@ async function callModel(prompt: string, temperature: number, reasoning: Record<
     temperature,
   };
   if (reasoning) params.reasoning = reasoning;
-  const resp = await c.chat.completions.create(params as OpenAI.Chat.ChatCompletionCreateParams);
+  const resp = await c.chat.completions.create(params as unknown as OpenAI.Chat.ChatCompletionCreateParamsNonStreaming);
   return { text: resp.choices[0]?.message?.content?.trim() ?? '', durationMs: Date.now() - start };
 }
 
@@ -141,7 +141,7 @@ async function main() {
 
   let callsPer = 5;
   const cIdx = args.indexOf('--calls');
-  if (cIdx !== -1 && args[cIdx + 1]) callsPer = parseInt(args[cIdx + 1], 10);
+  if (cIdx !== -1 && args[cIdx + 1]) callsPer = parseInt(args[cIdx + 1]!, 10);
 
   const total = pairs.length * THINKING_CONFIGS.length * callsPer * 2;
   console.log('=== gpt-oss-20b Thinking Mode Test ===');
@@ -217,10 +217,11 @@ async function main() {
   console.log(`\nResults saved to: ${outputPath}`);
 }
 
-function mode<T>(arr: T[]): T {
+function mode<T extends string>(arr: T[]): T {
   const counts = new Map<T, number>();
   for (const v of arr) counts.set(v, (counts.get(v) ?? 0) + 1);
-  let best = arr[0]!; let bc = 0;
+  let best: T = arr[0] as T;
+  let bc = 0;
   for (const [v, c] of counts) { if (c > bc) { best = v; bc = c; } }
   return best;
 }

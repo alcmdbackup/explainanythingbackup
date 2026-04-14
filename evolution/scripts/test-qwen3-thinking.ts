@@ -82,16 +82,17 @@ async function callQwen3(
   }
 
   const resp = await client.chat.completions.create(
-    requestParams as OpenAI.Chat.ChatCompletionCreateParams,
+    requestParams as unknown as OpenAI.Chat.ChatCompletionCreateParamsNonStreaming,
   );
 
   const durationMs = Date.now() - start;
   const text = resp.choices[0]?.message?.content?.trim() ?? '';
 
-  // Extract usage for logging
-  const usage = resp.usage;
-  const reasoningTokens = (usage as Record<string, unknown>)?.reasoning_tokens ??
-    ((usage?.completion_tokens_details as Record<string, unknown>)?.reasoning_tokens) ?? 0;
+  // Extract usage for logging (reasoningTokens computed but not currently returned)
+  const usage = resp.usage as unknown as Record<string, unknown> | undefined;
+  const _reasoningTokens = (usage?.reasoning_tokens as number | undefined) ??
+    ((usage?.completion_tokens_details as Record<string, unknown> | undefined)?.reasoning_tokens as number | undefined) ?? 0;
+  void _reasoningTokens;
 
   return { text, durationMs };
 }
@@ -262,7 +263,7 @@ async function main() {
   let callsPerConfig = CALLS_PER_CONFIG;
   const callsIdx = args.indexOf('--calls');
   if (callsIdx !== -1 && args[callsIdx + 1]) {
-    callsPerConfig = parseInt(args[callsIdx + 1], 10);
+    callsPerConfig = parseInt(args[callsIdx + 1]!, 10);
     if (isNaN(callsPerConfig) || callsPerConfig < 1) { console.error('--calls must be a positive integer'); process.exit(1); }
   }
 

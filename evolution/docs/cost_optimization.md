@@ -186,6 +186,7 @@ Prices per 1M tokens (USD). The table includes 30+ model entries; these are the 
 
 | Model               | Input / 1M | Output / 1M |
 |---------------------|-----------|-------------|
+| qwen-2.5-7b-instruct (**default judge**) | $0.04 | $0.10 |
 | qwen/qwen3-8b      | $0.05     | $0.40       |
 | gpt-5-nano          | $0.05     | $0.40       |
 | google/gemini-2.5-flash-lite | $0.10 | $0.40 |
