@@ -158,8 +158,14 @@ Key functions: `estimateGenerationCost()`, `estimateRankingCost()`, `estimateAge
 ### Budget-Aware Dispatch
 
 The orchestrator computes two budget floors from strategy config:
-- `parallelFloor = budget × budgetBufferAfterParallel` — parallel generation stops here
-- `sequentialFloor = budget × budgetBufferAfterSequential` — sequential generation stops here
+- `parallelFloor` — parallel generation dispatches only up to `budget - parallelFloor` worth of agents
+- `sequentialFloor` — sequential generation stops when the next agent would breach this floor
+
+Each floor may be specified in either of two mutually-exclusive units (StrategyConfig fields):
+- **Fraction of budget**: `minBudgetAfterParallelFraction` / `minBudgetAfterSequentialFraction` (0-1). Resolves to `budget × fraction`.
+- **Multiple of agent cost**: `minBudgetAfterParallelAgentMultiple` / `minBudgetAfterSequentialAgentMultiple` (≥ 0). Resolves to `estAgentCost × N`. Parallel uses the initial `estimateAgentCost()` output. Sequential uses `actualAvgCostPerAgent` once available (live feedback from the parallel batch), falling back to the initial estimate.
+
+Legacy field names `budgetBufferAfterParallel` / `budgetBufferAfterSequential` are migrated to `minBudgetAfter*Fraction` automatically via Zod preprocess, and kept as output aliases for one release cycle to enable safe rollback.
 
 ```
 |--- Parallel (budget > parallelFloor) ---|--- Sequential (budget > sequentialFloor) ---|--- Swiss ---|
