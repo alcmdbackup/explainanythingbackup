@@ -174,9 +174,9 @@ describe('ArenaTopicDetailPage', () => {
     await waitFor(() => {
       expect(screen.getByTestId('leaderboard-table')).toBeInTheDocument();
     });
-    const eloSigmaHeader = screen.getByText(/Elo ± σ/);
-    await user.click(eloSigmaHeader);
-    expect(eloSigmaHeader.textContent).toContain('\u25BC'); // defaults to desc
+    const eloUncertaintyHeader = screen.getByText(/Elo ± Uncertainty/);
+    await user.click(eloUncertaintyHeader);
+    expect(eloUncertaintyHeader.textContent).toContain('\u25BC'); // defaults to desc
     // Elo should no longer show indicator
     const eloHeader = screen.getAllByText(/Elo/).find(el => !el.textContent?.includes('±'))!;
     expect(eloHeader.textContent).not.toContain('\u25B2');

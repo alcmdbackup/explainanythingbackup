@@ -1,5 +1,5 @@
 // Unit tests for the OpenSkill rating wrapper module.
-// Verifies pairwise updates, draws, mu, convergence, backward compat, and performance.
+// Verifies pairwise updates, draws, elo, convergence, backward compat, and performance.
 
 import {
   createRating,
@@ -10,90 +10,92 @@ import {
   formatElo,
   stripMarkdownTitle,
   compareWithBiasMitigation,
-  DEFAULT_CONVERGENCE_SIGMA,
+  DEFAULT_CONVERGENCE_UNCERTAINTY,
+  DEFAULT_ELO,
+  DEFAULT_UNCERTAINTY,
   type Rating,
   type ComparisonResult,
 } from './computeRatings';
 
 describe('createRating', () => {
-  it('returns default mu ≈ 25 and sigma ≈ 8.333', () => {
+  it('returns default elo ≈ 1200 and uncertainty ≈ 133.33', () => {
     const r = createRating();
-    expect(r.mu).toBeCloseTo(25, 0);
-    expect(r.sigma).toBeCloseTo(25 / 3, 1);
+    expect(r.elo).toBeCloseTo(1200, 0);
+    expect(r.uncertainty).toBeCloseTo(400 / 3, 1);
   });
 });
 
 describe('updateRating', () => {
-  it('winner mu increases, loser mu decreases', () => {
+  it('winner elo increases, loser elo decreases', () => {
     const w = createRating();
     const l = createRating();
     const [newW, newL] = updateRating(w, l);
-    expect(newW.mu).toBeGreaterThan(w.mu);
-    expect(newL.mu).toBeLessThan(l.mu);
+    expect(newW.elo).toBeGreaterThan(w.elo);
+    expect(newL.elo).toBeLessThan(l.elo);
   });
 
-  it('both sigmas shrink after match', () => {
+  it('both uncertainties shrink after match', () => {
     const w = createRating();
     const l = createRating();
     const [newW, newL] = updateRating(w, l);
-    expect(newW.sigma).toBeLessThan(w.sigma);
-    expect(newL.sigma).toBeLessThan(l.sigma);
+    expect(newW.uncertainty).toBeLessThan(w.uncertainty);
+    expect(newL.uncertainty).toBeLessThan(l.uncertainty);
   });
 
-  it('stronger player wins → smaller mu shift than equal match', () => {
-    const strong: Rating = { mu: 35, sigma: 4 };
-    const weak: Rating = { mu: 15, sigma: 4 };
+  it('stronger player wins → smaller elo shift than equal match', () => {
+    const strong: Rating = { elo: 1360, uncertainty: 64 };
+    const weak: Rating = { elo: 1040, uncertainty: 64 };
     const [newStrong] = updateRating(strong, weak);
-    // Expected win → small mu gain
-    expect(newStrong.mu - strong.mu).toBeLessThan(2);
+    // Expected win → small elo gain (< 2 mu = < 32 elo)
+    expect(newStrong.elo - strong.elo).toBeLessThan(32);
   });
 
-  it('upset (weak beats strong) → larger mu shift', () => {
-    const strong: Rating = { mu: 35, sigma: 4 };
-    const weak: Rating = { mu: 15, sigma: 4 };
+  it('upset (weak beats strong) → larger elo shift', () => {
+    const strong: Rating = { elo: 1360, uncertainty: 64 };
+    const weak: Rating = { elo: 1040, uncertainty: 64 };
     const [newWeak] = updateRating(weak, strong);
-    // Upset → larger mu gain than expected win
+    // Upset → larger elo gain than expected win
     const [newStrong2] = updateRating(strong, weak);
-    expect(newWeak.mu - weak.mu).toBeGreaterThan(newStrong2.mu - strong.mu);
+    expect(newWeak.elo - weak.elo).toBeGreaterThan(newStrong2.elo - strong.elo);
   });
 });
 
 describe('updateDraw', () => {
-  it('equal players: draw does not significantly change mu', () => {
+  it('equal players: draw does not significantly change elo', () => {
     const a = createRating();
     const b = createRating();
     const [newA, newB] = updateDraw(a, b);
-    expect(Math.abs(newA.mu - a.mu)).toBeLessThan(1);
-    expect(Math.abs(newB.mu - b.mu)).toBeLessThan(1);
+    expect(Math.abs(newA.elo - a.elo)).toBeLessThan(16);
+    expect(Math.abs(newB.elo - b.elo)).toBeLessThan(16);
   });
 
   it('unequal players: draw moves both toward each other', () => {
-    const high: Rating = { mu: 35, sigma: 5 };
-    const low: Rating = { mu: 15, sigma: 5 };
+    const high: Rating = { elo: 1360, uncertainty: 80 };
+    const low: Rating = { elo: 1040, uncertainty: 80 };
     const [newHigh, newLow] = updateDraw(high, low);
-    expect(newHigh.mu).toBeLessThan(high.mu);
-    expect(newLow.mu).toBeGreaterThan(low.mu);
+    expect(newHigh.elo).toBeLessThan(high.elo);
+    expect(newLow.elo).toBeGreaterThan(low.elo);
   });
 
-  it('both sigmas shrink after draw', () => {
+  it('both uncertainties shrink after draw', () => {
     const a = createRating();
     const b = createRating();
     const [newA, newB] = updateDraw(a, b);
-    expect(newA.sigma).toBeLessThan(a.sigma);
-    expect(newB.sigma).toBeLessThan(b.sigma);
+    expect(newA.uncertainty).toBeLessThan(a.uncertainty);
+    expect(newB.uncertainty).toBeLessThan(b.uncertainty);
   });
 });
 
-describe('mu-based ranking', () => {
-  it('higher mu means higher skill (sigma irrelevant for ranking)', () => {
-    const low: Rating = { mu: 20, sigma: 3 };
-    const high: Rating = { mu: 30, sigma: 3 };
-    expect(high.mu).toBeGreaterThan(low.mu);
+describe('elo-based ranking', () => {
+  it('higher elo means higher skill (uncertainty irrelevant for ranking)', () => {
+    const low: Rating = { elo: 1120, uncertainty: 48 };
+    const high: Rating = { elo: 1280, uncertainty: 48 };
+    expect(high.elo).toBeGreaterThan(low.elo);
   });
 
-  it('fresh rating has mu = 25', () => {
+  it('fresh rating has elo = 1200', () => {
     const r = createRating();
-    expect(r.mu).toBeCloseTo(25, 0);
+    expect(r.elo).toBeCloseTo(1200, 0);
   });
 });
 
@@ -102,42 +104,46 @@ describe('isConverged', () => {
     expect(isConverged(createRating())).toBe(false);
   });
 
-  it('returns true when sigma < default threshold', () => {
-    expect(isConverged({ mu: 25, sigma: 2.5 })).toBe(true);
+  it('returns true when uncertainty < default threshold', () => {
+    expect(isConverged({ elo: 1200, uncertainty: 40 })).toBe(true);
   });
 
   it('respects custom threshold', () => {
-    expect(isConverged({ mu: 25, sigma: 4 }, 5)).toBe(true);
-    expect(isConverged({ mu: 25, sigma: 4 }, 3)).toBe(false);
+    expect(isConverged({ elo: 1200, uncertainty: 64 }, 80)).toBe(true);
+    expect(isConverged({ elo: 1200, uncertainty: 64 }, 48)).toBe(false);
   });
 
-  it('DEFAULT_CONVERGENCE_SIGMA is 4.5', () => {
-    expect(DEFAULT_CONVERGENCE_SIGMA).toBe(4.5);
+  it('DEFAULT_CONVERGENCE_UNCERTAINTY is 72', () => {
+    expect(DEFAULT_CONVERGENCE_UNCERTAINTY).toBe(72);
+  });
+
+  it('DEFAULT_ELO is 1200 and DEFAULT_UNCERTAINTY is 400/3', () => {
+    expect(DEFAULT_ELO).toBe(1200);
+    expect(DEFAULT_UNCERTAINTY).toBeCloseTo(400 / 3, 5);
   });
 });
 
-describe('sigma convergence over multiple matches', () => {
-  it('sigma monotonically decreases with consecutive matches', () => {
+describe('uncertainty convergence over multiple matches', () => {
+  it('uncertainty monotonically decreases with consecutive matches', () => {
     let a = createRating();
     let b = createRating();
-    const sigmaHistory: number[] = [a.sigma];
+    const uncertaintyHistory: number[] = [a.uncertainty];
 
     for (let i = 0; i < 10; i++) {
       [a, b] = updateRating(a, b);
-      sigmaHistory.push(a.sigma);
+      uncertaintyHistory.push(a.uncertainty);
     }
 
-    // Each sigma should be less than or equal to previous
-    for (let i = 1; i < sigmaHistory.length; i++) {
-      expect(sigmaHistory[i]!).toBeLessThanOrEqual(sigmaHistory[i - 1]!);
+    // Each uncertainty should be less than or equal to previous
+    for (let i = 1; i < uncertaintyHistory.length; i++) {
+      expect(uncertaintyHistory[i]!).toBeLessThanOrEqual(uncertaintyHistory[i - 1]!);
     }
   });
 });
 
 describe('toEloScale', () => {
   it('fresh rating mu (25) maps to Elo 1200', () => {
-    const r = createRating();
-    const eloScale = toEloScale(r.mu);
+    const eloScale = toEloScale(25);
     expect(eloScale).toBeCloseTo(1200, -1);
   });
 
@@ -168,41 +174,40 @@ describe('toEloScale', () => {
 });
 
 
-describe('mu-based Elo is always inside 95% CI', () => {
-  it('toEloScale(mu) is between ci_lower and ci_upper for various ratings', () => {
+describe('elo display inside 95% CI', () => {
+  it('rating.elo is between ci_lower and ci_upper for various ratings', () => {
     const testCases: Rating[] = [
-      { mu: 25, sigma: 8.333 },  // fresh
-      { mu: 28, sigma: 3 },      // converged winner
-      { mu: 22, sigma: 7 },      // uncertain
-      { mu: 35, sigma: 2 },      // strong converged
-      { mu: 15, sigma: 5 },      // below average
+      { elo: 1200, uncertainty: 400 / 3 },  // fresh
+      { elo: 1248, uncertainty: 48 },        // converged winner
+      { elo: 1152, uncertainty: 112 },       // uncertain
+      { elo: 1360, uncertainty: 32 },        // strong converged
+      { elo: 1040, uncertainty: 80 },        // below average
     ];
     for (const r of testCases) {
-      const displayElo = toEloScale(r.mu);
-      const ciLower = toEloScale(r.mu - 1.96 * r.sigma);
-      const ciUpper = toEloScale(r.mu + 1.96 * r.sigma);
-      expect(displayElo).toBeGreaterThanOrEqual(ciLower);
-      expect(displayElo).toBeLessThanOrEqual(ciUpper);
+      const ciLower = r.elo - 1.96 * r.uncertainty;
+      const ciUpper = r.elo + 1.96 * r.uncertainty;
+      expect(r.elo).toBeGreaterThanOrEqual(ciLower);
+      expect(r.elo).toBeLessThanOrEqual(ciUpper);
     }
   });
 });
 
 describe('edge cases', () => {
-  it('handles extreme mu values', () => {
-    const extreme: Rating = { mu: 100, sigma: 1 };
-    const low: Rating = { mu: -50, sigma: 1 };
+  it('handles extreme elo values', () => {
+    const extreme: Rating = { elo: 2400, uncertainty: 16 };
+    const low: Rating = { elo: 0, uncertainty: 16 };
     const [newW, newL] = updateRating(extreme, low);
-    expect(newW.mu).toBeGreaterThan(extreme.mu);
-    expect(Number.isFinite(newW.mu)).toBe(true);
-    expect(Number.isFinite(newL.mu)).toBe(true);
+    expect(newW.elo).toBeGreaterThan(extreme.elo);
+    expect(Number.isFinite(newW.elo)).toBe(true);
+    expect(Number.isFinite(newL.elo)).toBe(true);
   });
 
-  it('handles very small sigma', () => {
-    const a: Rating = { mu: 25, sigma: 0.1 };
-    const b: Rating = { mu: 25, sigma: 0.1 };
+  it('handles very small uncertainty', () => {
+    const a: Rating = { elo: 1200, uncertainty: 1.6 };
+    const b: Rating = { elo: 1200, uncertainty: 1.6 };
     const [newA, newB] = updateRating(a, b);
-    expect(Number.isFinite(newA.mu)).toBe(true);
-    expect(Number.isFinite(newB.mu)).toBe(true);
+    expect(Number.isFinite(newA.elo)).toBe(true);
+    expect(Number.isFinite(newB.elo)).toBe(true);
   });
 });
 
@@ -296,48 +301,48 @@ describe('compareWithBiasMitigation cache concurrency', () => {
 });
 
 describe('beta=0 faster convergence', () => {
-  it('sigma decreases more with beta=0 than default beta after same matches', () => {
+  it('uncertainty decreases more with beta=0 than default beta after same matches', () => {
     // With beta=0 (current implementation), ratings update more aggressively.
-    // Run a sequence of matches and verify sigma decreases.
+    // Run a sequence of matches and verify uncertainty decreases.
     let w = createRating();
     let l = createRating();
-    const initialSigma = w.sigma;
+    const initialUncertainty = w.uncertainty;
 
     // 5 matches: w wins every time
     for (let i = 0; i < 5; i++) {
       [w, l] = updateRating(w, l);
     }
 
-    // After 5 consecutive wins with beta=0, sigma should drop significantly
-    // (from ~8.33 to below ~6.0 — about 30% reduction)
-    expect(w.sigma).toBeLessThan(initialSigma * 0.75);
-    expect(w.mu).toBeGreaterThan(28); // should be above starting 25
+    // After 5 consecutive wins with beta=0, uncertainty should drop significantly
+    // (from ~133.3 to below ~100 — about 30% reduction)
+    expect(w.uncertainty).toBeLessThan(initialUncertainty * 0.75);
+    expect(w.elo).toBeGreaterThan(1248); // should be above starting 1200 (mu>28 → elo>1248)
   });
 
-  it('winner mu always increases with consistent wins (monotonicity)', () => {
+  it('winner elo always increases with consistent wins (monotonicity)', () => {
     let w = createRating();
     let l = createRating();
-    let prevMu = w.mu;
+    let prevElo = w.elo;
 
     for (let i = 0; i < 10; i++) {
       [w, l] = updateRating(w, l);
-      expect(w.mu).toBeGreaterThan(prevMu);
-      prevMu = w.mu;
+      expect(w.elo).toBeGreaterThan(prevElo);
+      prevElo = w.elo;
     }
   });
 
-  it('draw between equal players reduces sigma without changing mu significantly', () => {
+  it('draw between equal players reduces uncertainty without changing elo significantly', () => {
     let a = createRating();
     let b = createRating();
-    const initialSigmaA = a.sigma;
+    const initialUncertaintyA = a.uncertainty;
 
     for (let i = 0; i < 5; i++) {
       [a, b] = updateDraw(a, b);
     }
 
-    // Sigma should decrease (uncertainty reduced by observing outcomes)
-    expect(a.sigma).toBeLessThan(initialSigmaA);
-    // Mu should stay near 25 for equal players drawing
-    expect(Math.abs(a.mu - 25)).toBeLessThan(2);
+    // Uncertainty should decrease (uncertainty reduced by observing outcomes)
+    expect(a.uncertainty).toBeLessThan(initialUncertaintyA);
+    // Elo should stay near 1200 for equal players drawing (|mu-25|<2 → |elo-1200|<32)
+    expect(Math.abs(a.elo - 1200)).toBeLessThan(32);
   });
 });

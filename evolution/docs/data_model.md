@@ -2,7 +2,7 @@
 
 The evolution pipeline persists all state in Supabase (Postgres). This document covers the V2 schema (post-20260315 clean-slate migration), entity relationships, RPC functions, RLS policies, type definitions, and schema evolution history.
 
-For how these tables are used at runtime, see [Architecture](./architecture.md). For the rating columns (mu, sigma, elo_rating), see [Rating System](./rating_and_comparison.md).
+For how these tables are used at runtime, see [Architecture](./architecture.md). For the rating columns (`mu`, `sigma`, `elo_score`) — see [Rating System](./rating_and_comparison.md). Note that `evolution_variants.mu`/`sigma` are kept as DB columns (the stale trigger and `sync_to_arena` RPC depend on them), but the TypeScript layer exposes them as the abstract `Rating = {elo, uncertainty}` type via the `dbToRating` / `ratingToDb` boundary helpers.
 
 ---
 
@@ -101,14 +101,14 @@ Text variants produced during a pipeline run. Since migration 20260321000002, th
 | `run_id` | UUID | FK -> `evolution_runs(id)` ON DELETE CASCADE | |
 | `explanation_id` | INT | | Legacy link |
 | `variant_content` | TEXT | NOT NULL | The generated text |
-| `elo_score` | NUMERIC | NOT NULL, default `1200` | Elo-scale score (converted from TrueSkill mu) |
+| `elo_score` | NUMERIC | NOT NULL, default `1200` | Display Elo-scale score (projected from OpenSkill `mu`; matches the public `Rating.elo` up to display clamping) |
 | `generation` | INT | NOT NULL, default `0` | Iteration when created |
 | `parent_variant_id` | UUID | | Self-referential FK, see [Lineage](#lineage) |
 | `agent_name` | TEXT | | Creating agent/strategy name |
 | `match_count` | INT | NOT NULL, default `0` | |
-| `is_winner` | BOOLEAN | NOT NULL, default `false` | Highest mu at finalization |
-| `mu` | NUMERIC | NOT NULL, default `25` | TrueSkill mu (arena rating) |
-| `sigma` | NUMERIC | NOT NULL, default `8.333` | TrueSkill sigma (uncertainty) |
+| `is_winner` | BOOLEAN | NOT NULL, default `false` | Highest `elo` at finalization |
+| `mu` | NUMERIC | NOT NULL, default `25` | OpenSkill mu (legacy DB column; backs the public `Rating.elo` via `dbToRating` — unchanged because the stale trigger and `sync_to_arena` RPC depend on it) |
+| `sigma` | NUMERIC | NOT NULL, default `8.333` | OpenSkill sigma (legacy DB column; backs the public `Rating.uncertainty` via `dbToRating`) |
 | `prompt_id` | UUID | FK -> `evolution_prompts(id)` ON DELETE CASCADE | Arena prompt association |
 | `synced_to_arena` | BOOLEAN | NOT NULL, default `false` | Whether this variant is visible in the arena |
 | `arena_match_count` | INT | NOT NULL, default `0` | Number of arena comparison matches |
@@ -207,7 +207,7 @@ Unified EAV (entity-attribute-value) table for all evolution metrics. Replaces s
 | `entity_id` | UUID | NOT NULL | FK to the entity's primary key |
 | `metric_name` | TEXT | NOT NULL | e.g. `'cost'`, `'winner_elo'`, `'median_elo'`, `'agentCost:generation'` |
 | `value` | DOUBLE PRECISION | NOT NULL | Metric value |
-| `sigma` | DOUBLE PRECISION | | Rating uncertainty from source variant (nullable) |
+| `uncertainty` | DOUBLE PRECISION | | Elo-scale rating uncertainty from source variant (nullable; renamed from `sigma`) |
 | `ci_lower` | DOUBLE PRECISION | | 95% CI lower bound (nullable) |
 | `ci_upper` | DOUBLE PRECISION | | 95% CI upper bound (nullable) |
 | `n` | INT | default `1` | Sample size / observation count |
@@ -240,7 +240,7 @@ Follows the existing evolution table pattern:
 
 #### Stale Flag Trigger
 
-The `mark_elo_metrics_stale()` trigger fires when a variant's `mu` or `sigma` changes on a completed run. It cascades staleness:
+The `mark_elo_metrics_stale()` trigger fires when a variant's `mu` or `sigma` DB columns change on a completed run (these columns are unchanged; the TypeScript Rating abstraction sits above them). It cascades staleness:
 
 1. Marks run-level elo metrics as stale (where `entity_type='run'` and `entity_id` matches the variant's `run_id`)
 2. Marks strategy-level metrics as stale (via the run's `strategy_id`)
@@ -335,7 +335,7 @@ Cancels an experiment and fails all its pending/claimed/running runs in a single
 
 ### `mark_elo_metrics_stale()` *(trigger function)*
 
-Fired by a trigger on `evolution_variants` when `mu` or `sigma` changes on a variant belonging to a completed run. Cascades staleness to run, strategy, and experiment metrics in `evolution_metrics` by setting `stale=true`. This enables lazy recomputation — metrics are only recomputed when read by a server action.
+Fired by a trigger on `evolution_variants` when the `mu` or `sigma` DB columns change on a variant belonging to a completed run (the public `Rating` abstraction sits above these columns — they remain as the trigger's anchor). Cascades staleness to run, strategy, and experiment metrics in `evolution_metrics` by setting `stale=true`. This enables lazy recomputation — metrics are only recomputed when read by a server action.
 
 ### `lock_stale_metrics(p_entity_type TEXT, p_entity_id UUID)`
 
@@ -449,11 +449,11 @@ export interface Variant {
 
 ### `Rating`
 
-TrueSkill rating pair (`mu`, `sigma`). See [Rating System](./rating_and_comparison.md) for the full rating model. The `elo_score` column in `evolution_variants` is an Elo-scale conversion via `toEloScale(mu)`. Arena ratings also use the `mu` and `sigma` columns on `evolution_variants` directly.
+Public rating type `{elo, uncertainty}` (both Elo-scale). See [Rating System](./rating_and_comparison.md) for the full rating model. The `elo_score` column in `evolution_variants` is a display-clamped version of `Rating.elo`. Arena ratings are persisted via the legacy `mu`/`sigma` DB columns on `evolution_variants`; the application layer translates via `dbToRating` / `ratingToDb` at the boundary.
 
 ### Run Summary V3
 
-The `run_summary` JSONB column on `evolution_runs` stores an `EvolutionRunSummary` object. Current version is V3 with mu-based fields:
+The `run_summary` JSONB column on `evolution_runs` stores an `EvolutionRunSummary` object. Current version is V3 with Elo-based fields:
 
 ```typescript
 export interface EvolutionRunSummary {
@@ -462,21 +462,21 @@ export interface EvolutionRunSummary {
   finalPhase: PipelinePhase;
   totalIterations: number;
   durationSeconds: number;
-  muHistory: number[];
+  eloHistory: number[];
   diversityHistory: number[];
   matchStats: { totalMatches: number; avgConfidence: number; decisiveRate: number };
-  topVariants: Array<{ id: string; strategy: string; mu: number; isBaseline: boolean }>;
+  topVariants: Array<{ id: string; strategy: string; elo: number; isBaseline: boolean }>;
   baselineRank: number | null;
-  baselineMu: number | null;
-  strategyEffectiveness: Record<string, { count: number; avgMu: number }>;
+  baselineElo: number | null;
+  strategyEffectiveness: Record<string, { count: number; avgElo: number }>;
   metaFeedback: { successfulStrategies; recurringWeaknesses; patternsToAvoid; priorityImprovements } | null;
   actionCounts?: Record<string, number>;
 }
 ```
 
 **Auto-migration on read**: The `EvolutionRunSummarySchema` is a Zod discriminated union that transforms legacy formats to V3:
-- **V1** (Elo fields: `eloHistory`, `baselineElo`, `avgElo`) -> V3 via `elo + 3 * defaultSigma`
-- **V2** (ordinal fields: `ordinalHistory`, `baselineOrdinal`, `avgOrdinal`) -> V3 via `ordinal + 3 * defaultSigma`
+- Legacy summaries written with `muHistory` / `baselineMu` / `avgMu` OpenSkill-scale fields are projected to the current Elo-scale `eloHistory` / `baselineElo` / `avgElo` shape on read.
+- Earlier ordinal-based shapes are likewise migrated forward.
 - **V3** passes through directly
 
 This means database rows written by older pipeline versions are transparently upgraded when read by TypeScript code. No backfill migration needed.

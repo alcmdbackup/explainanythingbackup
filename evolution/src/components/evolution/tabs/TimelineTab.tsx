@@ -358,7 +358,12 @@ export function TimelineTab({ runId, run }: TimelineTabProps): JSX.Element {
               <OutcomeCard
                 label="Winner"
                 value={winner.isBaseline ? 'baseline' : (winner.strategy ?? '—')}
-                sub={`μ = ${winner.mu.toFixed(2)}`}
+                sub={(() => {
+                  // topVariants stored as Elo-scale; legacy mu-scale values (<100) heuristically converted.
+                  const raw = winner.elo;
+                  const elo = raw < 100 ? 1200 + (raw - 25) * 16 : raw;
+                  return `Elo: ${Math.round(elo)}`;
+                })()}
                 href={winner.isBaseline ? undefined : buildVariantDetailUrl(winner.id)}
               />
             )}

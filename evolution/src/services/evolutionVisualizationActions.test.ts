@@ -305,8 +305,8 @@ describe('evolutionVisualizationActions', () => {
 
       expect(result.success).toBe(true);
       expect(result.data).toHaveLength(4);
-      expect(result.data![0]).toEqual({ iteration: 1, mu: 1100 });
-      expect(result.data![3]).toEqual({ iteration: 4, mu: 1250 });
+      expect(result.data![0]).toEqual({ iteration: 1, elo: 1100, elos: undefined });
+      expect(result.data![3]).toEqual({ iteration: 4, elo: 1250, elos: undefined });
     });
 
     it('returns empty array when run_summary is null', async () => {

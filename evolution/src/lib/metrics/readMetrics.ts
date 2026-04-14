@@ -1,9 +1,23 @@
 // Read metrics from evolution_metrics table with chunked batch support.
+// DB column is `sigma` (not renamed); we rename to `uncertainty` in-place on read.
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { EntityType, MetricRow } from './types';
 
 const CHUNK_SIZE = 100;
+
+/** Rename `sigma` column to `uncertainty` field on raw DB rows. Pass-through if already renamed. */
+function renameSigma<T extends Record<string, unknown>>(row: T): T {
+  if ('sigma' in row && !('uncertainty' in row)) {
+    const { sigma, ...rest } = row;
+    return { ...rest, uncertainty: sigma } as unknown as T;
+  }
+  return row;
+}
+
+function renameRows(data: unknown[]): MetricRow[] {
+  return (data as Record<string, unknown>[]).map(renameSigma) as MetricRow[];
+}
 
 export async function getEntityMetrics(
   db: SupabaseClient,
@@ -19,7 +33,7 @@ export async function getEntityMetrics(
   if (error) {
     throw new Error(`Failed to read metrics: ${error.message}`);
   }
-  return (data ?? []) as MetricRow[];
+  return renameRows(data ?? []);
 }
 
 export async function getMetric(
@@ -39,7 +53,7 @@ export async function getMetric(
   if (error) {
     throw new Error(`Failed to read metric: ${error.message}`);
   }
-  return (data as MetricRow) ?? null;
+  return data ? (renameSigma(data as Record<string, unknown>) as MetricRow) : null;
 }
 
 export async function getMetricsForEntities(
@@ -65,7 +79,7 @@ export async function getMetricsForEntities(
       throw new Error(`Failed to batch read metrics: ${error.message}`);
     }
 
-    for (const row of (data ?? []) as MetricRow[]) {
+    for (const row of renameRows(data ?? [])) {
       const existing = result.get(row.entity_id);
       if (existing) {
         existing.push(row);

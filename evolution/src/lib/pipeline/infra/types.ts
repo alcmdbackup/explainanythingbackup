@@ -31,8 +31,8 @@ export interface EvolutionResult {
   /** Actual iterations completed (distinct from config.iterations). */
   iterationsRun: number;
   stopReason: 'budget_exceeded' | 'iterations_complete' | 'converged' | 'killed' | 'time_limit' | 'no_pairs' | 'seed_failed';
-  /** muHistory[i] = array of mu values for top-K variants after iteration i. */
-  muHistory: number[][];
+  /** eloHistory[i] = array of elo values for top-K variants after iteration i. */
+  eloHistory: number[][];
   /** diversityHistory[i] = pairwise text diversity score after iteration i. */
   diversityHistory: number[];
   /** Per-variant match counts (total comparisons played). */

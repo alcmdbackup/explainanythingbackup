@@ -11,24 +11,24 @@ import type { EvolutionConfig } from '../infra/types';
 
 let mockRankStatus: string = 'converged';
 let mockRankMatches: unknown[] = [];
-let mockRatingMuAfterRank: number = 25;
-let mockCutoff: number = 20;
+let mockRatingEloAfterRank: number = 1200;
+let mockCutoff: number = 1120; // Elo scale (was 20 mu)
 
 jest.mock('./rankSingleVariant', () => {
   const actual = jest.requireActual('./rankSingleVariant') as typeof import('./rankSingleVariant');
   return {
     ...actual,
     rankSingleVariant: jest.fn(async ({ variant, ratings }) => {
-      // Simulate rating update by setting mu on the passed-in ratings map
+      // Simulate rating update by setting elo on the passed-in ratings map
       const existing = ratings.get(variant.id);
       if (existing) {
-        existing.mu = mockRatingMuAfterRank;
+        existing.elo = mockRatingEloAfterRank;
       }
       return {
         status: mockRankStatus,
         matches: mockRankMatches,
         comparisonsRun: mockRankMatches.length,
-        detail: { localPoolSize: 2, stopReason: mockRankStatus, totalComparisons: mockRankMatches.length, finalLocalMu: mockRatingMuAfterRank, finalLocalSigma: 8 },
+        detail: { localPoolSize: 2, stopReason: mockRankStatus, totalComparisons: mockRankMatches.length, finalLocalElo: mockRatingEloAfterRank, finalLocalUncertainty: 128 },
       };
     }),
     computeTop15Cutoff: jest.fn(() => mockCutoff),
@@ -91,8 +91,8 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockRankStatus = 'converged';
   mockRankMatches = [];
-  mockRatingMuAfterRank = 25;
-  mockCutoff = 20;
+  mockRatingEloAfterRank = 1200;
+  mockCutoff = 1120;
 });
 
 describe('rankNewVariant', () => {
@@ -118,7 +118,7 @@ describe('rankNewVariant', () => {
       // Simulate spend during ranking
       tracker.recordSpend('ranking' as never, 0.005, 0.005);
       const existing = ratings.get(variant.id);
-      if (existing) existing.mu = mockRatingMuAfterRank;
+      if (existing) existing.elo = mockRatingEloAfterRank;
       return { status: 'converged', matches: [], comparisonsRun: 1, detail: {} };
     });
 
@@ -141,28 +141,28 @@ describe('rankNewVariant', () => {
     expect(result.discardReason).toBeUndefined();
   });
 
-  it('surfaced=true on budget status when mu >= top15Cutoff', async () => {
+  it('surfaced=true on budget status when elo >= top15Cutoff', async () => {
     mockRankStatus = 'budget';
-    mockRatingMuAfterRank = 25;
-    mockCutoff = 20; // mu (25) >= cutoff (20)
+    mockRatingEloAfterRank = 1200;
+    mockCutoff = 1120; // elo (1200) >= cutoff (1120)
     const result = await rankNewVariant(makeInput());
     expect(result.surfaced).toBe(true);
     expect(result.discardReason).toBeUndefined();
   });
 
-  it('surfaced=false on budget status when mu < top15Cutoff, sets discardReason', async () => {
+  it('surfaced=false on budget status when elo < top15Cutoff, sets discardReason', async () => {
     mockRankStatus = 'budget';
-    mockRatingMuAfterRank = 15;
-    mockCutoff = 30; // mu (15) < cutoff (30)
+    mockRatingEloAfterRank = 1040;
+    mockCutoff = 1280; // elo (1040) < cutoff (1280)
     const result = await rankNewVariant(makeInput());
     expect(result.surfaced).toBe(false);
-    expect(result.discardReason).toEqual({ localMu: 15, localTop15Cutoff: 30 });
+    expect(result.discardReason).toEqual({ localElo: 1040, localTop15Cutoff: 1280 });
   });
 
-  it('surfaced=true on eliminated status (discard only on budget+lowMu)', async () => {
+  it('surfaced=true on eliminated status (discard only on budget+lowElo)', async () => {
     mockRankStatus = 'eliminated';
-    mockRatingMuAfterRank = 5;
-    mockCutoff = 30;
+    mockRatingEloAfterRank = 880;
+    mockCutoff = 1280;
     const result = await rankNewVariant(makeInput());
     // eliminated does NOT trigger discard — only budget+lowMu does
     expect(result.surfaced).toBe(true);

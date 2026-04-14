@@ -2,15 +2,15 @@
 
 import type { ExecutionContext, FinalizationContext } from '../types';
 import type { MetricValue } from '../experimentMetrics';
-import { toEloScale, DEFAULT_MU, ELO_SIGMA_SCALE } from '@evolution/lib/shared/computeRatings';
+import { DEFAULT_ELO } from '@evolution/lib/shared/computeRatings';
 
-/** Convert variant sigma to Elo-scale sigma and build a MetricValue with 95% CI. */
-function eloMetricValue(elo: number, sigma: number | undefined): MetricValue {
-  const eloSigma = sigma != null ? sigma * ELO_SIGMA_SCALE : null;
+/** Build a MetricValue with 95% CI from Elo-space rating values. */
+function eloMetricValue(elo: number, uncertainty: number | undefined): MetricValue {
+  const eloUncertainty = uncertainty ?? null;
   return {
     value: elo,
-    sigma: eloSigma,
-    ci: eloSigma != null ? [elo - 1.96 * eloSigma, elo + 1.96 * eloSigma] : null,
+    uncertainty: eloUncertainty,
+    ci: eloUncertainty != null ? [elo - 1.96 * eloUncertainty, elo + 1.96 * eloUncertainty] : null,
     n: 1,
   };
 }
@@ -18,10 +18,10 @@ function eloMetricValue(elo: number, sigma: number | undefined): MetricValue {
 export function computeWinnerElo(ctx: FinalizationContext): MetricValue | null {
   if (ctx.pool.length === 0) return null;
   const winner = ctx.pool.reduce((best, v) =>
-    (ctx.ratings.get(v.id)?.mu ?? -Infinity) > (ctx.ratings.get(best.id)?.mu ?? -Infinity) ? v : best);
+    (ctx.ratings.get(v.id)?.elo ?? -Infinity) > (ctx.ratings.get(best.id)?.elo ?? -Infinity) ? v : best);
   const rating = ctx.ratings.get(winner.id);
-  if (rating?.mu == null) return null;
-  return eloMetricValue(toEloScale(rating.mu), rating.sigma);
+  if (rating?.elo == null) return null;
+  return eloMetricValue(rating.elo, rating.uncertainty);
 }
 
 export function computeMedianElo(ctx: FinalizationContext): MetricValue | null {
@@ -30,19 +30,19 @@ export function computeMedianElo(ctx: FinalizationContext): MetricValue | null {
   const sorted = ctx.pool
     .map(v => {
       const r = ctx.ratings.get(v.id);
-      return { elo: toEloScale(r?.mu ?? DEFAULT_MU), sigma: r?.sigma };
+      return { elo: r?.elo ?? DEFAULT_ELO, uncertainty: r?.uncertainty };
     })
     .sort((a, b) => a.elo - b.elo);
   const mid = Math.floor(sorted.length / 2);
   if (sorted.length % 2 === 1) {
-    return eloMetricValue(sorted[mid]!.elo, sorted[mid]!.sigma);
+    return eloMetricValue(sorted[mid]!.elo, sorted[mid]!.uncertainty);
   }
-  // Even length: average the two middle values and their sigmas
+  // Even length: average the two middle values and their uncertainties
   const elo = (sorted[mid - 1]!.elo + sorted[mid]!.elo) / 2;
-  const s1 = sorted[mid - 1]!.sigma;
-  const s2 = sorted[mid]!.sigma;
-  const avgSigma = s1 != null && s2 != null ? (s1 + s2) / 2 : (s1 ?? s2);
-  return eloMetricValue(elo, avgSigma);
+  const u1 = sorted[mid - 1]!.uncertainty;
+  const u2 = sorted[mid]!.uncertainty;
+  const avgUncertainty = u1 != null && u2 != null ? (u1 + u2) / 2 : (u1 ?? u2);
+  return eloMetricValue(elo, avgUncertainty);
 }
 
 export function computeP90Elo(ctx: FinalizationContext): MetricValue | null {
@@ -50,26 +50,26 @@ export function computeP90Elo(ctx: FinalizationContext): MetricValue | null {
   const sorted = ctx.pool
     .map(v => {
       const r = ctx.ratings.get(v.id);
-      return { elo: toEloScale(r?.mu ?? DEFAULT_MU), sigma: r?.sigma };
+      return { elo: r?.elo ?? DEFAULT_ELO, uncertainty: r?.uncertainty };
     })
     .sort((a, b) => a.elo - b.elo);
   const idx = Math.min(Math.ceil(sorted.length * 0.9) - 1, sorted.length - 1);
-  return eloMetricValue(sorted[idx]!.elo, sorted[idx]!.sigma);
+  return eloMetricValue(sorted[idx]!.elo, sorted[idx]!.uncertainty);
 }
 
 export function computeMaxElo(ctx: FinalizationContext): MetricValue | null {
   if (ctx.pool.length === 0) return null;
   let maxElo = -Infinity;
-  let maxSigma: number | undefined;
+  let maxUncertainty: number | undefined;
   for (const v of ctx.pool) {
     const r = ctx.ratings.get(v.id);
-    const elo = toEloScale(r?.mu ?? DEFAULT_MU);
+    const elo = r?.elo ?? DEFAULT_ELO;
     if (elo > maxElo) {
       maxElo = elo;
-      maxSigma = r?.sigma;
+      maxUncertainty = r?.uncertainty;
     }
   }
-  return eloMetricValue(maxElo, maxSigma);
+  return eloMetricValue(maxElo, maxUncertainty);
 }
 
 export function computeTotalMatches(ctx: FinalizationContext): number {

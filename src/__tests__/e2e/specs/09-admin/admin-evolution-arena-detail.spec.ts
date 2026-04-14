@@ -90,18 +90,18 @@ adminTest.describe('Evolution Arena Detail', { tag: '@evolution' }, () => {
     await sb.from('evolution_prompts').delete().eq('id', promptId);
   });
 
-  adminTest('columns+sort: leaderboard renders with Elo ± σ column, sortable headers, non-zero match counts, and non-zero entry rows', async ({ adminPage }) => {
+  adminTest('columns+sort: leaderboard renders with Elo ± Uncertainty column, sortable headers, non-zero match counts, and non-zero entry rows', async ({ adminPage }) => {
     await adminPage.goto(`/admin/evolution/arena/${promptId}`);
     await adminPage.waitForLoadState('domcontentloaded');
 
     const leaderboardTable = adminPage.locator('[data-testid="leaderboard-table"]');
     await expect(leaderboardTable).toBeVisible({ timeout: 15000 });
 
-    // "Elo ± σ" column should exist
+    // "Elo ± Uncertainty" column should exist
     const headers = leaderboardTable.locator('thead th');
     const headerTexts = await headers.allTextContents();
     const headerString = headerTexts.join(' | ');
-    expect(headerString).toContain('Elo ± σ');
+    expect(headerString).toContain('Elo ± Uncertainty');
 
     // Separate "Mu" and "Sigma" columns should no longer exist
     const exactMu = headerTexts.some(h => h.trim() === 'Mu' || h.trim().startsWith('Mu'));
@@ -136,7 +136,7 @@ adminTest.describe('Evolution Arena Detail', { tag: '@evolution' }, () => {
     const firstRowBefore = await leaderboardTable.locator('tbody tr').first().textContent();
 
     // Click the "Elo" column header to change sort order
-    // Use .first() because multiple headers contain "Elo" (e.g. "Elo", "Elo ± σ")
+    // Use .first() because multiple headers contain "Elo" (e.g. "Elo", "Elo ± Uncertainty")
     const eloHeader = leaderboardTable.locator('thead th:has-text("Elo")').first();
     await expect(eloHeader).toBeVisible();
     await eloHeader.click();

@@ -4,7 +4,28 @@
 
 import { adminAction, type AdminContext } from './adminAction';
 import { validateUuid, applyTestContentNameFilter } from './shared';
+import { _INTERNAL_ELO_SIGMA_SCALE } from '@evolution/lib/shared/computeRatings';
 import { z } from 'zod';
+
+/** Transform raw DB row (with mu/sigma) to ArenaEntry (with elo/uncertainty). */
+function toArenaEntry(row: Record<string, unknown>): ArenaEntry {
+  const sigma = row.sigma as number | null;
+  return {
+    id: row.id as string,
+    prompt_id: row.prompt_id as string,
+    run_id: row.run_id as string | null,
+    variant_content: row.variant_content as string,
+    synced_to_arena: row.synced_to_arena as boolean,
+    generation_method: row.generation_method as string,
+    model: row.model as string | null,
+    cost_usd: row.cost_usd as number | null,
+    elo_score: row.elo_score as number,
+    uncertainty: sigma != null ? sigma * _INTERNAL_ELO_SIGMA_SCALE : 0,
+    arena_match_count: row.arena_match_count as number,
+    archived_at: row.archived_at as string | null,
+    created_at: row.created_at as string,
+  };
+}
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -27,8 +48,8 @@ export interface ArenaEntry {
   model: string | null;
   cost_usd: number | null;
   elo_score: number;
-  mu: number;
-  sigma: number;
+  /** Elo-scale uncertainty (converted from DB sigma × 16). */
+  uncertainty: number;
   arena_match_count: number;
   archived_at: string | null;
   created_at: string;
@@ -157,7 +178,7 @@ export const getArenaEntriesAction = adminAction(
 
     const { data, error, count } = await query;
     if (error) throw error;
-    return { items: (data ?? []) as ArenaEntry[], total: count ?? 0 };
+    return { items: (data ?? []).map(toArenaEntry), total: count ?? 0 };
   },
 );
 
@@ -171,7 +192,7 @@ export const getArenaEntryDetailAction = adminAction(
       .eq('id', entryId)
       .single();
     if (error) throw error;
-    return data as ArenaEntry;
+    return toArenaEntry(data);
   },
 );
 

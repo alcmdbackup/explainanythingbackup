@@ -19,7 +19,7 @@ All pages live under `src/app/admin/evolution/` (Next.js App Router). A shared `
 | `/admin/evolution/experiments/[experimentId]` | Experiment detail with tabs: **Overview**, **Analysis**, **Runs**, **Logs**. | Experiment config, cost analysis, linked runs, aggregated logs |
 | `/admin/evolution/start-experiment` | Three-step creation wizard: select strategy, configure parameters, confirm and launch. | Strategy registry, prompt templates |
 | `/admin/evolution/arena` | Arena topics list showing active matchmaking topics. | Topic name, entry count, match count |
-| `/admin/evolution/arena/[topicId]` | Topic leaderboard sorted by Elo rating. Columns: Elo, 95% CI (formatted via `formatEloCIRange(elo, sigma)`), Elo ± σ (formatted via `formatEloWithUncertainty(elo, sigma * ELO_SIGMA_SCALE)`), Matches, Method, Cost. Entries below the top 15% eligibility cutoff (mean + 1.04×stdDev of Elo scores) are dimmed. Cutoff logic is in `src/app/admin/evolution/arena/[topicId]/arenaCutoff.ts`. | TrueSkill ratings, match history |
+| `/admin/evolution/arena/[topicId]` | Topic leaderboard sorted by Elo rating. Columns: Elo, 95% CI (formatted via `formatEloCIRange(elo, uncertainty)`), Elo ± Uncertainty (formatted via `formatEloWithUncertainty(elo, uncertainty)`), Matches, Method, Cost. Entries below the top 15% eligibility cutoff (mean + 1.04×stdDev of Elo scores) are dimmed. Cutoff logic is in `src/app/admin/evolution/arena/[topicId]/arenaCutoff.ts`. | Elo ratings with uncertainty, match history |
 | `/admin/evolution/arena/entries/[entryId]` | Individual arena entry detail with match history and rating trajectory. | Entry metrics, per-match results |
 | `/admin/evolution/variants` | Paginated variant list across all runs with "Hide test content" checkbox. Filter uses nested inner join through `evolution_runs` → `evolution_strategies` to exclude variants from test runs. | Variant name, strategy, iteration, Elo |
 | `/admin/evolution/variants/[variantId]` | Variant detail with full prompt text, metrics, lineage context, and a **Matches** tab showing match history from arena comparisons. | Prompt content, parent chain, comparison results, match history |
@@ -91,7 +91,7 @@ Each `MetricItem` can include:
 - `ci`: Confidence interval displayed as `[lower, upper]` — now populated from `ci_lower`/`ci_upper` in `evolution_metrics`
 - `n`: Sample size from the metrics row; when low, an asterisk is appended to signal insufficient data
 - `prefix`: Optional prefix string (e.g., "$" for cost values)
-- `sigma`: Rating uncertainty carried through from source variant
+- `uncertainty`: Elo-scale rating uncertainty carried through from source variant (renamed from `sigma`)
 
 Columns are configurable (2-5) with responsive breakpoints.
 

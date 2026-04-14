@@ -62,7 +62,7 @@ export function VariantDetailContent({ variant }: VariantDetailContentProps): JS
             Discarded variant
           </p>
           <p className="text-xs font-ui text-[var(--text-secondary)] mt-1">
-            This variant was discarded by its owning generate agent (local mu below the
+            This variant was discarded by its owning generate agent (local Elo below the
             top-15% cutoff at budget exhaustion). It is not included in run-level metrics.
           </p>
         </div>

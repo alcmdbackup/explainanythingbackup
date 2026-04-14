@@ -95,7 +95,7 @@ The end-to-end flow from trigger to completion:
        |
        +-- loadArenaEntries(promptId)
        |     +-- Load non-archived arena variants from evolution_variants (synced_to_arena=true)
-       |     +-- Attach pre-seeded mu/sigma ratings, set fromArena=true
+       |     +-- Attach pre-seeded ratings (DB mu/sigma → {elo, uncertainty} via dbToRating), set fromArena=true
        |
        +-- evolveArticle()          [evolution/src/lib/pipeline/loop/runIterationLoop.ts]
        |     +-- (3-op loop — see next section)
@@ -149,7 +149,7 @@ If neither `explanation_id` nor `prompt_id` is set, the run fails immediately.
 
 For prompt-based runs, `loadArenaEntries(promptId)` loads all non-archived variants from
 `evolution_variants` where `synced_to_arena=true`. Each entry becomes an `ArenaTextVariation`
-(with `fromArena: true`) carrying its existing mu/sigma ratings. These enter the pool as
+(with `fromArena: true`) carrying its existing Elo-scale `{elo, uncertainty}` rating (lifted from the unchanged DB `mu`/`sigma` columns). These enter the pool as
 pre-calibrated competitors alongside the baseline. (The former `evolution_arena_entries`
 table was consolidated into `evolution_variants` in migration `20260321000002`.)
 
@@ -182,7 +182,7 @@ The core algorithm in `evolveArticle()` runs a sequence of iterations dispatched
       |     and a frozen iteration-start snapshot. Each agent generates ONE
       |     variant via a single strategy, then ranks it via binary search
       |     against its local snapshot. Each agent owns its own
-      |     surface/discard decision (budget + local mu < top15Cutoff = discard).
+      |     surface/discard decision (budget + local elo < top15Cutoff = discard).
       |     Then dispatch MergeRatingsAgent over the surfaced agents' match
       |     buffers in randomized (Fisher-Yates) order.
       |
@@ -227,12 +227,12 @@ binary search (`rankSingleVariant`) against a deep-cloned local snapshot of the
 iteration-start pool/ratings/matchCounts. The agent owns the surface/discard decision:
 
 - `converged` / `eliminated` / `no_more_opponents` → surface
-- `budget` and local `mu >= top15Cutoff` → surface
-- `budget` and local `mu < top15Cutoff` → **discard** (variant returned with `surfaced: false`,
+- `budget` and local `elo >= top15Cutoff` → surface
+- `budget` and local `elo < top15Cutoff` → **discard** (variant returned with `surfaced: false`,
   matches array empty — they never reach the merge agent)
 
 The execution detail records the full per-comparison timeline (`generateFromSeedRankingDetailSchema`)
-including opponent, score, before/after mu/sigma, and the final stop reason.
+including opponent, score, before/after `elo`/`uncertainty`, and the final stop reason.
 
 **`SwissRankingAgent`** (`evolution/src/lib/core/agents/SwissRankingAgent.ts`) — ONE
 swiss iteration's worth of parallel pair comparisons. Takes the orchestrator-computed
@@ -247,7 +247,8 @@ Does **not** apply rating updates — that's the merge agent's job. Status:
 **`MergeRatingsAgent`** (`evolution/src/lib/core/agents/MergeRatingsAgent.ts`) — Reusable
 merge step. Concatenates match buffers from one or more work agents, shuffles them via
 Fisher-Yates (using a seeded RNG derived from the run's `random_seed`), and applies
-OpenSkill updates to the global ratings sequentially in shuffled order. Adds new
+rating updates (OpenSkill internally; public `{elo, uncertainty}` at the boundary) to the
+global ratings sequentially in shuffled order. Adds new
 variants from `input.newVariants` to the global pool. Writes one row per match to
 `evolution_arena_comparisons` with `prompt_id=NULL` for in-run observability (Critical
 Fix J — sole writer of in-run match rows; `sync_to_arena` later backfills `prompt_id`).
@@ -323,15 +324,15 @@ requires **2 consecutive rounds** where all eligible variants have converged.
 
 A variant is **eligible** for convergence checking if it is:
 - Not eliminated during triage, AND
-- Either `mu + 1.04*sigma >= top15Cutoff` OR in the top-K set (default K=5)
+- Either `r.elo + 1.04 * r.uncertainty >= top15Cutoff` OR in the top-K set (default K=5), all Elo-scale
 
-A single variant is **converged** when its sigma drops below
-`DEFAULT_CONVERGENCE_SIGMA` (3.0).
+A single variant is **converged** when its `uncertainty` drops below
+`DEFAULT_CONVERGENCE_UNCERTAINTY` (72, Elo-scale).
 
 ```
-eligible = !eliminated AND (mu + 1.04*sigma >= top15Cutoff OR in topK)
-converged = sigma < 3.0
-pool_converged = 2 consecutive rounds where ALL eligible sigmas < 3.0
+eligible = !eliminated AND (r.elo + 1.04 * r.uncertainty >= top15Cutoff OR in topK)
+converged = r.uncertainty < 72
+pool_converged = 2 consecutive rounds where ALL eligible uncertainties < 72
 ```
 
 > **Note:** Convergence is checked within a single `rankPool()` call across its Swiss
@@ -406,9 +407,11 @@ its local budget or the global daily/monthly cap, whichever is reached first.
 
 After the loop exits, the winner is selected from the full pool:
 
-1. Highest mu (mean skill rating).
-2. Tie-break: lowest sigma (most certain rating).
+1. Highest `elo` (mean skill rating, Elo-scale).
+2. Tie-break: lowest `uncertainty` (most certain rating).
 3. Fallback: `pool[0]` (the baseline) if no variant has a rating.
+
+The `SelectWinnerResult` type is `{winnerId, elo, uncertainty}`.
 
 This means the baseline can win if no evolved variant outperforms it — which is the
 correct outcome. The winner selection operates on the full pool including arena entries.
@@ -538,7 +541,7 @@ reasoning about behavior significantly easier.
 | `evolution/src/lib/core/` | Entity base class, Agent base class, METRIC_CATALOG, entityRegistry |
 | `evolution/src/lib/core/agents/generateFromSeedArticle.ts` | One generate agent = one variant (single-strategy generate + binary-search rank + local discard) |
 | `evolution/src/lib/core/agents/SwissRankingAgent.ts` | One swiss iteration's worth of parallel pair comparisons |
-| `evolution/src/lib/core/agents/MergeRatingsAgent.ts` | Reusable shuffled OpenSkill merge (sole writer of in-run `evolution_arena_comparisons`) |
+| `evolution/src/lib/core/agents/MergeRatingsAgent.ts` | Reusable shuffled rating merge — OpenSkill internally, public `{elo, uncertainty}` at boundary (sole writer of in-run `evolution_arena_comparisons`) |
 | `evolution/src/lib/pipeline/loop/rankSingleVariant.ts` | Binary-search ranking algorithm for one variant against a local snapshot |
 | `evolution/src/lib/pipeline/loop/swissPairing.ts` | Swiss-style pair selection (overlap allowed, capped) |
 | `evolution/src/lib/shared/seededRandom.ts` | `SeededRandom` + `deriveSeed()` for reproducible Fisher-Yates shuffles |
@@ -587,5 +590,5 @@ Individual agent invocations can emit their own logs by creating an `EntityLogge
 - [Agents](./agents/overview.md) — LLM agent design and prompting
 - [Cost Optimization](./cost_optimization.md) — budget strategies and cost reduction
 - [Arena](./arena.md) — arena system and cross-run competition
-- [Rating and Comparison](./rating_and_comparison.md) — OpenSkill rating mechanics
+- [Rating and Comparison](./rating_and_comparison.md) — Elo/uncertainty rating mechanics (OpenSkill internally)
 - [Strategies & Experiments](./strategies_and_experiments.md) — experiment and strategy management

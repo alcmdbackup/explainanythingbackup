@@ -26,10 +26,10 @@ jest.mock('../../pipeline/loop/rankNewVariant', () => ({
       status: mockRankStatus,
       matches: mockRankMatches,
       comparisonsRun: 1,
-      detail: { localPoolSize: 2, stopReason: mockRankStatus, totalComparisons: 1, finalLocalMu: 25, finalLocalSigma: 8 },
+      detail: { localPoolSize: 2, stopReason: mockRankStatus, totalComparisons: 1, finalLocalElo: 1200, finalLocalUncertainty: 128 },
     },
     surfaced: mockRankSurfaced,
-    discardReason: mockRankSurfaced ? undefined : { localMu: 10, localTop15Cutoff: 30 },
+    discardReason: mockRankSurfaced ? undefined : { localElo: 1040, localTop15Cutoff: 1280 },
   })),
 }));
 
