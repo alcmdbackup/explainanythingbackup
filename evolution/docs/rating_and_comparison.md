@@ -5,6 +5,13 @@ bias-mitigated comparisons, winner parsing, and comparison caching. Together the
 components turn pairwise LLM judgments into stable skill estimates for every text
 variant in the pool.
 
+> **Related research:** Empirical judge model agreement data (80 calls/model,
+> 4 temperatures, 2 variant pairs) across 5 judge models (nano, mini, deepseek,
+> gpt-oss-20b, qwen3-8b, qwen-2.5-7b) is preserved in
+> [`docs/research/judge_agreement_summary_tables.md`](../../docs/research/judge_agreement_summary_tables.md).
+> The beta=0 choice, Qwen 2.5 7B default judge, and parseWinner "Your answer:"
+> fallback all trace to findings in that document.
+
 > **Architecture note (Phase: orchestrator-driven parallel pipeline).** Ranking is
 > now split across two distinct algorithms, each owned by a different agent:
 >
@@ -67,7 +74,7 @@ export type Rating = { mu: number; sigma: number };
 | `DEFAULT_CONVERGENCE_SIGMA`| 4.5     | Sigma below which rating is "settled" (raised from 3.0 for faster convergence ~18 vs ~59 comparisons; widens Elo CI from ±94 to ±141) |
 | `ELO_SIGMA_SCALE`          | 16      | Conversion factor (400 / DEFAULT_MU)      |
 | `DECISIVE_CONFIDENCE_THRESHOLD` | 0.6 | Arena-level decisive match threshold     |
-| `beta` (openskill)         | 0       | Performance variability (passed to `osRate()`). Set to 0 for zero assumed noise — ratings update more aggressively per match, converging faster. Safe for text quality ranking where 2-pass reversal mitigates judge noise. |
+| `beta` (openskill)         | 0       | Performance variability (passed to `osRate()`). Set to 0 for zero assumed noise — ratings update more aggressively per match, converging faster. Safe for text quality ranking where 2-pass reversal mitigates judge noise. See [`docs/research/judging_accuracy_20260412.md`](../../docs/research/judging_accuracy_20260412.md) for empirical calibration data. |
 
 ### Core Functions
 
