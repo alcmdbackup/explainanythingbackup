@@ -651,14 +651,16 @@ export interface AgentAttribution {
 
 export { EvolutionRunSummaryV3Schema, EvolutionRunSummarySchema } from './schemas';
 
-/** V3: mu-based run summary. New runs write this directly. */
+/** V3: Elo-based run summary. New runs write this directly.
+ *  Schema retains `version: 3` discriminant; field names renamed mu→elo for consistency
+ *  (V4 bump deferred — legacy key names are normalized via z.preprocess in schemas.ts). */
 export interface EvolutionRunSummary {
   version: 3;
   stopReason: string;
   finalPhase: PipelinePhase;
   totalIterations: number;
   durationSeconds: number;
-  muHistory: number[][];
+  eloHistory: number[][];
   diversityHistory: number[];
   matchStats: {
     totalMatches: number;
@@ -668,14 +670,14 @@ export interface EvolutionRunSummary {
   topVariants: Array<{
     id: string;
     strategy: string;
-    mu: number;
+    elo: number;
     isBaseline: boolean;
   }>;
   baselineRank: number | null;
-  baselineMu: number | null;
+  baselineElo: number | null;
   strategyEffectiveness: Record<string, {
     count: number;
-    avgMu: number;
+    avgElo: number;
   }>;
   metaFeedback: {
     successfulStrategies: string[];

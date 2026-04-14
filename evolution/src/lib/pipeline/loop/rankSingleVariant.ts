@@ -15,29 +15,30 @@ import { BudgetExceededError } from '../../types';
 import type { Rating, ComparisonResult } from '../../shared/computeRatings';
 import {
   createRating, updateRating, updateDraw,
-  compareWithBiasMitigation, DEFAULT_SIGMA, DEFAULT_CONVERGENCE_SIGMA,
+  compareWithBiasMitigation, DEFAULT_UNCERTAINTY, DEFAULT_CONVERGENCE_UNCERTAINTY,
+  _INTERNAL_ELO_SIGMA_SCALE,
 } from '../../shared/computeRatings';
 import type { EvolutionConfig, V2Match } from '../infra/types';
 import type { EntityLogger } from '../infra/createEntityLogger';
 
 // ─── Tunable constants ────────────────────────────────────────────
 
-/** Bradley-Terry beta for win-probability scaling (DEFAULT_SIGMA * sqrt(2) ≈ 11.785). */
-export const BETA = DEFAULT_SIGMA * Math.SQRT2;
+/** Bradley-Terry beta in Elo space (DEFAULT_UNCERTAINTY * sqrt(2) ≈ 188.56). */
+export const BETA_ELO = DEFAULT_UNCERTAINTY * Math.SQRT2;
 
-/** Single tunable knob for opponent scoring: entropy / sigma^SIGMA_WEIGHT.
- *  Higher values prefer reliable (low-sigma) opponents; lower values prefer close matches.
+/** Single tunable knob for opponent scoring: entropy / uncertainty^UNCERTAINTY_WEIGHT.
+ *  Higher values prefer reliable (low-uncertainty) opponents; lower values prefer close matches.
  *  See "Parameter analysis" in the planning doc. */
-export const SIGMA_WEIGHT = 1.0;
+export const UNCERTAINTY_WEIGHT = 1.0;
 
 /** Top-percentile cutoff for elimination check. 0.15 = top 15%. */
 export const TOP_PERCENTILE = 0.15;
 
-/** Sigma multiplier for the elimination upper-bound check (mu + ELIMINATION_CI*sigma < cutoff). */
+/** Uncertainty multiplier for the elimination upper-bound check (elo + ELIMINATION_CI*uncertainty < cutoff). */
 export const ELIMINATION_CI = 2;
 
-/** Convergence threshold for sigma — variant exits when its local sigma drops below this. */
-export const CONVERGENCE_THRESHOLD = DEFAULT_CONVERGENCE_SIGMA;
+/** Convergence threshold for uncertainty — variant exits when its local uncertainty drops below this. */
+export const CONVERGENCE_THRESHOLD = DEFAULT_CONVERGENCE_UNCERTAINTY;
 
 // ─── Public types ─────────────────────────────────────────────────
 
@@ -52,18 +53,18 @@ export interface RankSingleVariantComparisonRecord {
   opponentId: string;
   selectionScore: number;
   pWin: number;
-  variantMuBefore: number;
-  variantSigmaBefore: number;
-  opponentMuBefore: number;
-  opponentSigmaBefore: number;
+  variantEloBefore: number;
+  variantUncertaintyBefore: number;
+  opponentEloBefore: number;
+  opponentUncertaintyBefore: number;
   outcome: 'win' | 'loss' | 'draw';
   confidence: number;
-  variantMuAfter: number;
-  variantSigmaAfter: number;
-  opponentMuAfter: number;
-  opponentSigmaAfter: number;
+  variantEloAfter: number;
+  variantUncertaintyAfter: number;
+  opponentEloAfter: number;
+  opponentUncertaintyAfter: number;
   top15CutoffAfter: number;
-  muPlusTwoSigma: number;
+  eloPlusTwoUncertainty: number;
   eliminated: boolean;
   converged: boolean;
 }
@@ -77,8 +78,8 @@ export interface RankSingleVariantDetail {
   comparisons: RankSingleVariantComparisonRecord[];
   stopReason: RankSingleVariantStatus;
   totalComparisons: number;
-  finalLocalMu: number;
-  finalLocalSigma: number;
+  finalLocalElo: number;
+  finalLocalUncertainty: number;
   finalLocalTop15Cutoff: number;
 }
 
@@ -96,14 +97,14 @@ function pairKey(a: string, b: string): string {
   return a < b ? `${a}|${b}` : `${b}|${a}`;
 }
 
-/** Compute the top-15% (by mu) cutoff from a ratings map. */
+/** Compute the top-15% (by elo) cutoff from a ratings map. */
 export function computeTop15Cutoff(ratings: ReadonlyMap<string, Rating>): number {
-  const mus: number[] = [];
-  for (const r of ratings.values()) mus.push(r.mu);
-  if (mus.length === 0) return 0;
-  mus.sort((a, b) => b - a);
-  const idx = Math.max(0, Math.floor(mus.length * TOP_PERCENTILE) - 1);
-  return mus[idx] ?? 0;
+  const elos: number[] = [];
+  for (const r of ratings.values()) elos.push(r.elo);
+  if (elos.length === 0) return 0;
+  elos.sort((a, b) => b - a);
+  const idx = Math.max(0, Math.floor(elos.length * TOP_PERCENTILE) - 1);
+  return elos[idx] ?? 0;
 }
 
 interface OpponentCandidate {
@@ -116,7 +117,7 @@ interface OpponentCandidate {
 
 /**
  * Score every uncompared opponent and return the highest-scoring one.
- * Score = entropy(pWin) / sigma^SIGMA_WEIGHT. Returns null if no eligible opponents.
+ * Score = entropy(pWin) / sigma^UNCERTAINTY_WEIGHT. Returns null if no eligible opponents.
  */
 export function selectOpponent(
   variant: Variant,
@@ -135,14 +136,14 @@ export function selectOpponent(
     if (completedPairs.has(pairKey(variant.id, opp.id))) continue;
 
     const oppRating = ratings.get(opp.id) ?? createRating();
-    // Bradley-Terry win probability
-    const pWin = 1 / (1 + Math.exp(-(variantRating.mu - oppRating.mu) / BETA));
+    // Bradley-Terry win probability (Elo space)
+    const pWin = 1 / (1 + Math.exp(-(variantRating.elo - oppRating.elo) / BETA_ELO));
     // Outcome entropy: peaks at pWin=0.5, → 0 at extremes. Guard against log(0).
     const safeP = Math.min(Math.max(pWin, 1e-9), 1 - 1e-9);
     const entropy = -safeP * Math.log(safeP) - (1 - safeP) * Math.log(1 - safeP);
-    // Score: entropy * 1/sigma^k. Avoid divide-by-zero with min sigma 0.0001.
-    const sigma = Math.max(oppRating.sigma, 1e-4);
-    const score = entropy / Math.pow(sigma, SIGMA_WEIGHT);
+    // Score: entropy * 1/uncertainty^k. Avoid divide-by-zero with min uncertainty 0.0001.
+    const uncertainty = Math.max(oppRating.uncertainty, 1e-4);
+    const score = entropy / Math.pow(uncertainty, UNCERTAINTY_WEIGHT);
 
     candidates.push({ id: opp.id, rating: oppRating, pWin, entropy, score });
 
@@ -281,7 +282,7 @@ export async function rankSingleVariant(
           .slice()
           .sort((a, b) => b.score - a.score)
           .slice(0, 10)
-          .map(c => ({ id: c.id, mu: c.rating.mu, sigma: c.rating.sigma, score: c.score, pWin: c.pWin })),
+          .map(c => ({ id: c.id, elo: c.rating.elo, uncertainty: c.rating.uncertainty, score: c.score, pWin: c.pWin })),
         pickedOpponent: sel.id,
         pickedScore: sel.score,
         phaseName: 'ranking',
@@ -294,11 +295,11 @@ export async function rankSingleVariant(
         break;
       }
 
-      const variantMuBefore = variantRating.mu;
-      const variantSigmaBefore = variantRating.sigma;
+      const variantEloBefore = variantRating.elo;
+      const variantUncertaintyBefore = variantRating.uncertainty;
       const opponentRatingBefore = ratings.get(opp.id) ?? createRating();
-      const opponentMuBefore = opponentRatingBefore.mu;
-      const opponentSigmaBefore = opponentRatingBefore.sigma;
+      const opponentEloBefore = opponentRatingBefore.elo;
+      const opponentUncertaintyBefore = opponentRatingBefore.uncertainty;
 
       let comparisonResult: ComparisonResult;
       try {
@@ -330,20 +331,20 @@ export async function rankSingleVariant(
       const isDraw = match.confidence < 0.3 || match.result === 'draw';
       const isFailure = match.confidence === 0;
 
-      let variantMuAfter = variantMuBefore;
-      let variantSigmaAfter = variantSigmaBefore;
-      let opponentMuAfter = opponentMuBefore;
-      let opponentSigmaAfter = opponentSigmaBefore;
+      let variantEloAfter = variantEloBefore;
+      let variantUncertaintyAfter = variantUncertaintyBefore;
+      let opponentEloAfter = opponentEloBefore;
+      let opponentUncertaintyAfter = opponentUncertaintyBefore;
 
       if (!isFailure) {
         if (isDraw) {
           const [newA, newB] = updateDraw(variantRating, opponentRatingBefore);
           ratings.set(variant.id, newA);
           ratings.set(opp.id, newB);
-          variantMuAfter = newA.mu;
-          variantSigmaAfter = newA.sigma;
-          opponentMuAfter = newB.mu;
-          opponentSigmaAfter = newB.sigma;
+          variantEloAfter = newA.elo;
+          variantUncertaintyAfter = newA.uncertainty;
+          opponentEloAfter = newB.elo;
+          opponentUncertaintyAfter = newB.uncertainty;
         } else {
           const winnerRating = match.winnerId === variant.id ? variantRating : opponentRatingBefore;
           const loserRating = match.winnerId === variant.id ? opponentRatingBefore : variantRating;
@@ -351,24 +352,24 @@ export async function rankSingleVariant(
           ratings.set(match.winnerId, newW);
           ratings.set(match.loserId, newL);
           if (match.winnerId === variant.id) {
-            variantMuAfter = newW.mu;
-            variantSigmaAfter = newW.sigma;
-            opponentMuAfter = newL.mu;
-            opponentSigmaAfter = newL.sigma;
+            variantEloAfter = newW.elo;
+            variantUncertaintyAfter = newW.uncertainty;
+            opponentEloAfter = newL.elo;
+            opponentUncertaintyAfter = newL.uncertainty;
           } else {
-            variantMuAfter = newL.mu;
-            variantSigmaAfter = newL.sigma;
-            opponentMuAfter = newW.mu;
-            opponentSigmaAfter = newW.sigma;
+            variantEloAfter = newL.elo;
+            variantUncertaintyAfter = newL.uncertainty;
+            opponentEloAfter = newW.elo;
+            opponentUncertaintyAfter = newW.uncertainty;
           }
         }
       }
 
       // Recompute cutoff and stop checks against the LATEST local ratings.
       const top15CutoffAfter = computeTop15Cutoff(ratings);
-      const muPlusTwoSigma = variantMuAfter + ELIMINATION_CI * variantSigmaAfter;
-      const eliminated = muPlusTwoSigma < top15CutoffAfter;
-      const converged = variantSigmaAfter < CONVERGENCE_THRESHOLD;
+      const eloPlusTwoUncertainty = variantEloAfter + ELIMINATION_CI * variantUncertaintyAfter;
+      const eliminated = eloPlusTwoUncertainty < top15CutoffAfter;
+      const converged = variantUncertaintyAfter < CONVERGENCE_THRESHOLD;
 
       const outcome: 'win' | 'loss' | 'draw' = isDraw
         ? 'draw'
@@ -379,21 +380,21 @@ export async function rankSingleVariant(
         opponentId: opp.id,
         selectionScore: sel.score,
         pWin: sel.pWin,
-        variantMuBefore, variantSigmaBefore,
-        opponentMuBefore, opponentSigmaBefore,
+        variantEloBefore, variantUncertaintyBefore,
+        opponentEloBefore, opponentUncertaintyBefore,
         outcome,
         confidence: match.confidence,
-        variantMuAfter, variantSigmaAfter,
-        opponentMuAfter, opponentSigmaAfter,
+        variantEloAfter, variantUncertaintyAfter,
+        opponentEloAfter, opponentUncertaintyAfter,
         top15CutoffAfter,
-        muPlusTwoSigma,
+        eloPlusTwoUncertainty,
         eliminated,
         converged,
       });
 
       logger?.debug('rankSingleVariant: comparison complete', {
         variantId: variant.id, round, opponentId: opp.id, outcome, confidence: match.confidence,
-        variantMuBefore, variantMuAfter, variantSigmaBefore, variantSigmaAfter,
+        variantEloBefore, variantEloAfter, variantUncertaintyBefore, variantUncertaintyAfter,
         top15CutoffAfter, phaseName: 'ranking',
       });
 
@@ -421,8 +422,8 @@ export async function rankSingleVariant(
     variantId: variant.id,
     stopReason: status,
     totalComparisons: comparisons.length,
-    finalMu: finalRating.mu,
-    finalSigma: finalRating.sigma,
+    finalElo: finalRating.elo,
+    finalUncertainty: finalRating.uncertainty,
     phaseName: 'ranking',
   });
 
@@ -438,8 +439,8 @@ export async function rankSingleVariant(
       comparisons,
       stopReason: status,
       totalComparisons: comparisons.length,
-      finalLocalMu: finalRating.mu,
-      finalLocalSigma: finalRating.sigma,
+      finalLocalElo: finalRating.elo,
+      finalLocalUncertainty: finalRating.uncertainty,
       finalLocalTop15Cutoff,
     },
   };

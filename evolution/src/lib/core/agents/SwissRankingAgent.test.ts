@@ -83,9 +83,9 @@ describe('SwissRankingAgent', () => {
       completedPairs: new Set<string>(),
       pool: variants,
       ratings: new Map<string, Rating>([
-        ['a', { mu: 25, sigma: 5 }],
-        ['b', { mu: 25, sigma: 5 }],
-        ['c', { mu: 25, sigma: 5 }],
+        ['a', { elo: 1200, uncertainty: 80 }],
+        ['b', { elo: 1200, uncertainty: 80 }],
+        ['c', { elo: 1200, uncertainty: 80 }],
       ]),
       cache: new Map<string, ComparisonResult>(),
       llm: mkLlm(),
@@ -201,7 +201,7 @@ describe('SwissRankingAgent', () => {
     // Use many variants to push past 50 successful matches.
     const ids = Array.from({ length: 12 }, (_, i) => `v${i}`); // 12 variants → 66 pairs, capped to 20 by MAX_PAIRS_PER_ROUND
     const variants = ids.map(mkVariant);
-    const ratings = new Map<string, Rating>(ids.map((id) => [id, { mu: 25, sigma: 5 }]));
+    const ratings = new Map<string, Rating>(ids.map((id) => [id, { elo: 1200, uncertainty: 80 }]));
     mockComparisonResults = Array.from({ length: 70 }, () => ({ winner: 'A' as const, confidence: 0.9, turns: 2 }));
     const agent = new SwissRankingAgent();
     await agent.run({

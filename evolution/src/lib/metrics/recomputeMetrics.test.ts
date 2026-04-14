@@ -46,7 +46,7 @@ function makeStaleRow(name: string, entityType: EntityType = 'run', entityId = '
     entity_id: entityId,
     metric_name: name,
     value: 0,
-    sigma: null,
+    uncertainty: null,
     ci_lower: null,
     ci_upper: null,
     n: 0,

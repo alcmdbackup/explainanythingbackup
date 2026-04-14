@@ -9,7 +9,7 @@ Deep dive into the evolution pipeline's structured logging system: entity hierar
 > from the EntityLogger are tagged with the agent's `invocationId` (and therefore its
 > iteration + execution_order via the invocation row), so admins can filter
 > interleaved logs down to a single agent's timeline. Per-comparison detail (opponent
-> selection scores, before/after mu/sigma per round, stop reason) is captured in the
+> selection scores, before/after `elo`/`uncertainty` per round, stop reason) is captured in the
 > `execution_detail.ranking.comparisons[]` array on the invocation row, not in
 > separate log rows — this avoids log bloat under N parallel agents while keeping the
 > full timeline replayable from the admin UI.
@@ -184,11 +184,11 @@ During triage in `executeTriage()`, a debug-level log is emitted per entrant aft
 | Field | Type | Description |
 |-------|------|-------------|
 | `variantId` | string | The entrant being calibrated |
-| `opponentSigmas` | number[] | Sigma values of the selected opponents |
-| `sigmaBefore` | number | The entrant's sigma before triage matches |
-| `lowSigmaOpponents` | number | Count of opponents with sigma in the bottom 25th percentile (anchors) |
+| `opponentUncertainties` | number[] | Elo-scale uncertainty values of the selected opponents |
+| `uncertaintyBefore` | number | The entrant's Elo-scale uncertainty before triage matches |
+| `lowUncertaintyOpponents` | number | Count of opponents with uncertainty in the bottom 25th percentile (anchors) |
 
-This log helps diagnose whether sigma-weighted opponent selection is working as expected and how many anchor opponents each entrant faces.
+This log helps diagnose whether uncertainty-weighted opponent selection is working as expected and how many anchor opponents each entrant faces.
 
 ## Key Files
 

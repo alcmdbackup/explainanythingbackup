@@ -16,8 +16,8 @@ import {
 const ITERATIONS = 100;
 const rng = () => createSeededRng(42);
 
-function mv(value: number, sigma: number | null = null): MetricValue {
-  return { value, sigma, ci: null, n: 1 };
+function mv(value: number, uncertainty: number | null = null): MetricValue {
+  return { value, uncertainty, ci: null, n: 1 };
 }
 
 // ─── bootstrapMeanCI ────────────────────────────────────────────
@@ -50,21 +50,21 @@ describe('bootstrapMeanCI', () => {
     expect(widthLarge).toBeLessThan(widthSmall);
   });
 
-  it('CI is wider when sigma is large vs sigma near 0', () => {
-    const noSigma = [mv(100), mv(110), mv(105)];
-    const highSigma = [mv(100, 20), mv(110, 20), mv(105, 20)];
-    const ciNoSigma = bootstrapMeanCI(noSigma, ITERATIONS, rng());
-    const ciHighSigma = bootstrapMeanCI(highSigma, ITERATIONS, rng());
-    const widthNoSigma = ciNoSigma.ci![1] - ciNoSigma.ci![0];
-    const widthHighSigma = ciHighSigma.ci![1] - ciHighSigma.ci![0];
-    expect(widthHighSigma).toBeGreaterThan(widthNoSigma);
+  it('CI is wider when uncertainty is large vs uncertainty near 0', () => {
+    const noUncertainty = [mv(100), mv(110), mv(105)];
+    const highUncertainty = [mv(100, 20), mv(110, 20), mv(105, 20)];
+    const ciNoUncertainty = bootstrapMeanCI(noUncertainty, ITERATIONS, rng());
+    const ciHighUncertainty = bootstrapMeanCI(highUncertainty, ITERATIONS, rng());
+    const widthNoUncertainty = ciNoUncertainty.ci![1] - ciNoUncertainty.ci![0];
+    const widthHighUncertainty = ciHighUncertainty.ci![1] - ciHighUncertainty.ci![0];
+    expect(widthHighUncertainty).toBeGreaterThan(widthNoUncertainty);
   });
 
-  it('falls back to plain bootstrap when sigma is null', () => {
+  it('falls back to plain bootstrap when uncertainty is null', () => {
     const values = [mv(100), mv(110), mv(105)];
     const result = bootstrapMeanCI(values, ITERATIONS, rng());
     expect(result.ci).not.toBeNull();
-    expect(result.sigma).toBeGreaterThan(0);
+    expect(result.uncertainty).toBeGreaterThan(0);
   });
 
   it('produces no NaN/Infinity (Box-Muller guard)', () => {
@@ -79,8 +79,8 @@ describe('bootstrapMeanCI', () => {
 // ─── bootstrapPercentileCI ──────────────────────────────────────
 
 describe('bootstrapPercentileCI', () => {
-  const makeRatings = (mu: number, sigma: number, count: number) =>
-    Array.from({ length: count }, (_, i) => ({ mu: mu + i * 0.5, sigma }));
+  const makeRatings = (elo: number, uncertainty: number, count: number) =>
+    Array.from({ length: count }, (_, i) => ({ elo: elo + i * 8, uncertainty }));
 
   it('returns null for empty input', () => {
     expect(bootstrapPercentileCI([], 0.5, ITERATIONS, rng())).toBeNull();
@@ -91,41 +91,41 @@ describe('bootstrapPercentileCI', () => {
   });
 
   it('CI contains true percentile for known distribution', () => {
-    const run1 = makeRatings(20, 2, 10);
-    const run2 = makeRatings(21, 2, 10);
-    const run3 = makeRatings(19, 2, 10);
+    const run1 = makeRatings(1120, 32, 10);
+    const run2 = makeRatings(1136, 32, 10);
+    const run3 = makeRatings(1104, 32, 10);
     const result = bootstrapPercentileCI([run1, run2, run3], 0.5, ITERATIONS, rng());
     expect(result).not.toBeNull();
     expect(result!.ci).not.toBeNull();
     expect(Number.isFinite(result!.value)).toBe(true);
   });
 
-  it('CI is wider when variant sigmas are large', () => {
-    const smallSigma = [makeRatings(20, 0.5, 10), makeRatings(21, 0.5, 10)];
-    const largeSigma = [makeRatings(20, 8, 10), makeRatings(21, 8, 10)];
-    const ciSmall = bootstrapPercentileCI(smallSigma, 0.5, ITERATIONS, rng());
-    const ciLarge = bootstrapPercentileCI(largeSigma, 0.5, ITERATIONS, rng());
+  it('CI is wider when variant uncertainties are large', () => {
+    const smallUncertainty = [makeRatings(1120, 8, 10), makeRatings(1136, 8, 10)];
+    const largeUncertainty = [makeRatings(1120, 128, 10), makeRatings(1136, 128, 10)];
+    const ciSmall = bootstrapPercentileCI(smallUncertainty, 0.5, ITERATIONS, rng());
+    const ciLarge = bootstrapPercentileCI(largeUncertainty, 0.5, ITERATIONS, rng());
     const widthSmall = ciSmall!.ci![1] - ciSmall!.ci![0];
     const widthLarge = ciLarge!.ci![1] - ciLarge!.ci![0];
     expect(widthLarge).toBeGreaterThan(widthSmall);
   });
 
   it('single-variant-per-run returns that element', () => {
-    const runs = [[{ mu: 25, sigma: 2 }], [{ mu: 30, sigma: 2 }]];
+    const runs = [[{ elo: 1200, uncertainty: 32 }], [{ elo: 1280, uncertainty: 32 }]];
     const result = bootstrapPercentileCI(runs, 0.5, ITERATIONS, rng());
     expect(result).not.toBeNull();
     expect(Number.isFinite(result!.value)).toBe(true);
   });
 
   it('filters out empty variant arrays', () => {
-    const runs = [makeRatings(20, 2, 10), [], makeRatings(22, 2, 10)];
+    const runs = [makeRatings(1120, 32, 10), [], makeRatings(1152, 32, 10)];
     const result = bootstrapPercentileCI(runs, 0.5, ITERATIONS, rng());
     expect(result).not.toBeNull();
     expect(result!.n).toBe(2); // empty array filtered
   });
 
   it('produces no NaN/Infinity', () => {
-    const runs = [makeRatings(20, 5, 5), makeRatings(22, 5, 5)];
+    const runs = [makeRatings(1120, 80, 5), makeRatings(1152, 80, 5)];
     const result = bootstrapPercentileCI(runs, 0.9, 500, rng());
     expect(Number.isFinite(result!.value)).toBe(true);
     expect(Number.isFinite(result!.ci![0])).toBe(true);
@@ -133,7 +133,7 @@ describe('bootstrapPercentileCI', () => {
   });
 
   it('returns null CI for single run', () => {
-    const result = bootstrapPercentileCI([makeRatings(20, 2, 10)], 0.5, ITERATIONS, rng());
+    const result = bootstrapPercentileCI([makeRatings(1120, 32, 10)], 0.5, ITERATIONS, rng());
     expect(result).not.toBeNull();
     expect(result!.ci).toBeNull();
     expect(result!.n).toBe(1);
@@ -233,7 +233,7 @@ describe('aggregateMetrics', () => {
     expect(aggregateMetrics([])).toEqual({});
   });
 
-  it('derives CI from sigma for single run', () => {
+  it('derives CI from uncertainty for single run', () => {
     const data: RunMetricsWithRatings[] = [
       { metrics: { maxElo: mv(1500, 40) }, variantRatings: null },
     ];
@@ -252,24 +252,24 @@ describe('aggregateMetrics', () => {
     ];
     const result = aggregateMetrics(data, rng());
     expect(result.maxElo?.ci).not.toBeNull();
-    expect(result.maxElo?.sigma).toBeGreaterThan(0);
+    expect(result.maxElo?.uncertainty).toBeGreaterThan(0);
   });
 
   it('uses bootstrapPercentileCI for maxElo when ratings available', () => {
     const makeRatings = (base: number) =>
-      Array.from({ length: 5 }, (_, i) => ({ mu: base + i * 2, sigma: 2 }));
+      Array.from({ length: 5 }, (_, i) => ({ elo: base + i * 32, uncertainty: 32 }));
     const data: RunMetricsWithRatings[] = [
-      { metrics: { maxElo: mv(1500) }, variantRatings: makeRatings(20) },
-      { metrics: { maxElo: mv(1480) }, variantRatings: makeRatings(18) },
-      { metrics: { maxElo: mv(1520) }, variantRatings: makeRatings(22) },
+      { metrics: { maxElo: mv(1500) }, variantRatings: makeRatings(1120) },
+      { metrics: { maxElo: mv(1480) }, variantRatings: makeRatings(1088) },
+      { metrics: { maxElo: mv(1520) }, variantRatings: makeRatings(1152) },
     ];
     const result = aggregateMetrics(data, rng());
     expect(result.maxElo).not.toBeNull();
     expect(result.maxElo?.ci).not.toBeNull();
-    expect(result.maxElo?.sigma).toBeNull();
+    expect(result.maxElo?.uncertainty).toBeNull();
   });
 
-  it('uses plain bootstrap for cost (no sigma)', () => {
+  it('uses plain bootstrap for cost (no uncertainty)', () => {
     const data: RunMetricsWithRatings[] = [
       { metrics: { cost: mv(2.0) }, variantRatings: null },
       { metrics: { cost: mv(2.5) }, variantRatings: null },
@@ -282,11 +282,11 @@ describe('aggregateMetrics', () => {
 
   it('uses bootstrapPercentileCI for medianElo when ratings available', () => {
     const makeRatings = (base: number) =>
-      Array.from({ length: 5 }, (_, i) => ({ mu: base + i * 2, sigma: 2 }));
+      Array.from({ length: 5 }, (_, i) => ({ elo: base + i * 32, uncertainty: 32 }));
     const data: RunMetricsWithRatings[] = [
-      { metrics: { medianElo: mv(1300) }, variantRatings: makeRatings(15) },
-      { metrics: { medianElo: mv(1320) }, variantRatings: makeRatings(18) },
-      { metrics: { medianElo: mv(1310) }, variantRatings: makeRatings(16) },
+      { metrics: { medianElo: mv(1300) }, variantRatings: makeRatings(1040) },
+      { metrics: { medianElo: mv(1320) }, variantRatings: makeRatings(1088) },
+      { metrics: { medianElo: mv(1310) }, variantRatings: makeRatings(1056) },
     ];
     const result = aggregateMetrics(data, rng());
     expect(result.medianElo).not.toBeNull();
@@ -295,7 +295,7 @@ describe('aggregateMetrics', () => {
 
   it('falls back to plain bootstrap for medianElo when < 2 runs have ratings', () => {
     const data: RunMetricsWithRatings[] = [
-      { metrics: { medianElo: mv(1300) }, variantRatings: [{ mu: 20, sigma: 3 }] },
+      { metrics: { medianElo: mv(1300) }, variantRatings: [{ elo: 1120, uncertainty: 48 }] },
       { metrics: { medianElo: mv(1320) }, variantRatings: null },
       { metrics: { medianElo: mv(1310) }, variantRatings: null },
     ];
@@ -306,20 +306,19 @@ describe('aggregateMetrics', () => {
     expect(result.medianElo?.n).toBe(3);
   });
 
-  it('uses mu-based Elo for aggregated medianElo', () => {
-    // High sigma variants: mu-based Elo is driven by mu, not sigma
-    // toEloScale(mu) = 800 + mu * 16; median variant at base+4 → 800 + 24*16 = 1184
-    const makeHighSigmaRatings = (base: number) =>
-      Array.from({ length: 5 }, (_, i) => ({ mu: base + i * 2, sigma: 8 }));
+  it('uses elo-based value for aggregated medianElo', () => {
+    // High uncertainty variants: aggregated value is driven by elo, not uncertainty.
+    // Median variant at base+64 (index 2 of 5) — value should reflect that.
+    const makeHighUncertaintyRatings = (base: number) =>
+      Array.from({ length: 5 }, (_, i) => ({ elo: base + i * 32, uncertainty: 128 }));
     const data: RunMetricsWithRatings[] = [
-      { metrics: { medianElo: mv(1000) }, variantRatings: makeHighSigmaRatings(20) },
-      { metrics: { medianElo: mv(1020) }, variantRatings: makeHighSigmaRatings(22) },
-      { metrics: { medianElo: mv(1010) }, variantRatings: makeHighSigmaRatings(21) },
+      { metrics: { medianElo: mv(1000) }, variantRatings: makeHighUncertaintyRatings(1120) },
+      { metrics: { medianElo: mv(1020) }, variantRatings: makeHighUncertaintyRatings(1152) },
+      { metrics: { medianElo: mv(1010) }, variantRatings: makeHighUncertaintyRatings(1136) },
     ];
     const result = aggregateMetrics(data, rng());
-    // mu-based median: toEloScale(base + 4) for 5 variants
-    // = 800 + (base+4) * 16 ≈ 800 + 24*16 = 1184
-    expect(result.medianElo!.value).toBeGreaterThan(1000);
+    // Elo-based median: base + 64 for 5 variants ≈ 1184+ — much higher than 1010
+    expect(result.medianElo!.value).toBeGreaterThan(1100);
   });
 
   it('handles mixed agent costs across runs', () => {

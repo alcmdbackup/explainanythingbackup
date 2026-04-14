@@ -93,7 +93,7 @@ export type {
 } from './schemas';
 
 // ─── Rating ──────────────────────────────────────────────────────
-export { createRating, updateRating, updateDraw, isConverged, toEloScale, computeEloPerDollar, DEFAULT_MU, DEFAULT_SIGMA, DEFAULT_CONVERGENCE_SIGMA } from './shared/computeRatings';
+export { createRating, updateRating, updateDraw, isConverged, toEloScale, toDisplayElo, dbToRating, ratingToDb, computeEloPerDollar, DEFAULT_ELO, DEFAULT_UNCERTAINTY, DEFAULT_CONVERGENCE_UNCERTAINTY, _INTERNAL_DEFAULT_MU, _INTERNAL_DEFAULT_SIGMA, _INTERNAL_ELO_SIGMA_SCALE } from './shared/computeRatings';
 export type { Rating } from './shared/computeRatings';
 
 // ─── Comparison ──────────────────────────────────────────────────

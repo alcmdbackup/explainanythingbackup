@@ -1,9 +1,9 @@
 # Rating and Comparison
 
-This document covers the ranking subsystem: Bayesian ratings, ranking algorithms,
-bias-mitigated comparisons, winner parsing, and comparison caching. Together these
-components turn pairwise LLM judgments into stable skill estimates for every text
-variant in the pool.
+This document covers the ranking subsystem: Elo ratings with per-variant uncertainty,
+ranking algorithms, bias-mitigated comparisons, winner parsing, and comparison caching.
+Together these components turn pairwise LLM judgments into stable skill estimates for
+every text variant in the pool.
 
 > **Architecture note (Phase: orchestrator-driven parallel pipeline).** Ranking is
 > now split across two distinct algorithms, each owned by a different agent:
@@ -12,68 +12,77 @@ variant in the pool.
 >   `GenerateFromSeedArticleAgent`. Each parallel generate agent ranks its newly
 >   generated variant against a deep-cloned local snapshot of the iteration-start
 >   pool/ratings/matchCounts, using a continuous opponent-selection formula
->   (`entropy(pWin) / sigma^SIGMA_WEIGHT`). Stops on convergence, elimination, opponent
->   exhaustion, or budget. The agent owns the surface/discard decision locally.
+>   (`entropy(pWin) / uncertainty^UNCERTAINTY_WEIGHT`). Stops on convergence, elimination,
+>   opponent exhaustion, or budget. The agent owns the surface/discard decision locally.
 >
 > - **Swiss pair comparisons** (`SwissRankingAgent`) refine the eligible top-15% pool
 >   in subsequent iterations. Pairs are computed by `swissPairing()` (overlap allowed,
 >   capped at `MAX_PAIRS_PER_ROUND`), dispatched in parallel, and the raw match buffer
->   is handed to `MergeRatingsAgent` which applies OpenSkill updates to the global
->   ratings in randomized (Fisher-Yates) order. The merge agent is dispatched
->   unconditionally so paid-for matches always reach global ratings even on budget exit.
+>   is handed to `MergeRatingsAgent` which applies rating updates (OpenSkill internally,
+>   projected into Elo space) to the global ratings in randomized (Fisher-Yates) order.
+>   The merge agent is dispatched unconditionally so paid-for matches always reach global
+>   ratings even on budget exit.
 >
 > The legacy two-phase `triage + Swiss` flow described in the "Two-Phase Ranking
 > Pipeline" section below has been replaced by this orchestrator-driven model. The
-> opponent-selection rationale (low-sigma preference, information-gain reasoning) still
-> applies — it is now realised through the continuous entropy/sigma formula instead of
-> stratified quartile sampling.
+> opponent-selection rationale (low-uncertainty preference, information-gain reasoning)
+> still applies — it is now realised through the continuous entropy/uncertainty formula
+> instead of stratified quartile sampling.
 
-## OpenSkill (Weng-Lin Bayesian) Ratings
+## Elo Ratings with Uncertainty
 
 **Source:** `evolution/src/lib/shared/rating.ts`
 
-The system uses [OpenSkill](https://github.com/philihp/openskill.js) (Weng-Lin Bayesian
-model) instead of traditional Elo. Each variant carries two numbers:
+The public API is framed in Elo terms. Each variant carries two numbers:
 
-| Field   | Meaning                   | Default      |
-|---------|---------------------------|--------------|
-| `mu`    | Skill estimate (center)   | 25           |
-| `sigma` | Uncertainty (spread)      | 25/3 = 8.333 |
+| Field         | Meaning                                           | Default             |
+|---------------|---------------------------------------------------|---------------------|
+| `elo`         | Skill estimate (center), Elo-scale                | 1200                |
+| `uncertainty` | Standard deviation around `elo`, Elo-scale        | 400/3 ≈ 133.33      |
 
-Sigma shrinks with every match. When `sigma < CONVERGENCE_SIGMA (3.0)`, the rating is
-considered converged -- enough data has been observed to be confident in the estimate.
+`uncertainty` shrinks with every match. When `uncertainty < DEFAULT_CONVERGENCE_UNCERTAINTY (72)`,
+the rating is considered converged -- enough data has been observed to be confident in
+the estimate.
 
-### Why Bayesian Instead of Elo
+> **Implementation note.** Under the hood, rating updates use
+> [OpenSkill](https://github.com/philihp/openskill.js) (Weng-Lin Bayesian model). The
+> OpenSkill `mu`/`sigma` fields are encapsulated inside `computeRatings.ts` (the adapter);
+> the public API exposes only Elo-scale `{elo, uncertainty}`. The DB boundary (see
+> `dbToRating` / `ratingToDb`) converts between the legacy `evolution_variants.mu`/`sigma`
+> columns and the public `Rating` type — those columns are unchanged to preserve the
+> stale trigger and `sync_to_arena` RPC.
+
+### Why Track Uncertainty
 
 Traditional Elo has no concept of uncertainty: a new player and a 1000-game veteran both
-update by the same K-factor formula. Weng-Lin tracks sigma explicitly, so new entrants
-see large rating swings (high sigma = uncertain) while established variants barely move
-(low sigma = confident). This property is critical for the evolution pipeline, where new
-variants are generated every iteration and must be calibrated quickly against the existing
-pool without destabilizing established rankings.
+update by the same K-factor formula. Tracking `uncertainty` explicitly lets new entrants
+see large rating swings (high uncertainty) while established variants barely move (low
+uncertainty). This property is critical for the evolution pipeline, where new variants
+are generated every iteration and must be calibrated quickly against the existing pool
+without destabilizing established rankings.
 
 The `Rating` type is a simple object:
 
 ```typescript
-export type Rating = { mu: number; sigma: number };
+export type Rating = { elo: number; uncertainty: number };
 ```
 
 ### Constants Reference
 
-| Constant                   | Value   | Purpose                                   |
-|----------------------------|---------|-------------------------------------------|
-| `DEFAULT_MU`               | 25      | Starting skill estimate                   |
-| `DEFAULT_SIGMA`            | 8.333   | Starting uncertainty (25/3)               |
-| `DEFAULT_CONVERGENCE_SIGMA`| 4.5     | Sigma below which rating is "settled" (raised from 3.0 for faster convergence ~18 vs ~59 comparisons; widens Elo CI from ±94 to ±141) |
-| `ELO_SIGMA_SCALE`          | 16      | Conversion factor (400 / DEFAULT_MU)      |
-| `DECISIVE_CONFIDENCE_THRESHOLD` | 0.6 | Arena-level decisive match threshold     |
-| `beta` (openskill)         | 0       | Performance variability (passed to `osRate()`). Set to 0 for zero assumed noise — ratings update more aggressively per match, converging faster. Safe for text quality ranking where 2-pass reversal mitigates judge noise. |
+| Constant                          | Value    | Purpose                                                                 |
+|-----------------------------------|----------|-------------------------------------------------------------------------|
+| `DEFAULT_ELO`                     | 1200     | Starting skill estimate (Elo-scale)                                     |
+| `DEFAULT_UNCERTAINTY`             | 400/3 ≈ 133.33 | Starting uncertainty (Elo-scale)                                  |
+| `DEFAULT_CONVERGENCE_UNCERTAINTY` | 72       | Uncertainty below which rating is "settled" (Elo-scale; formerly `DEFAULT_CONVERGENCE_SIGMA=4.5`, scaled by 16) |
+| `DECISIVE_CONFIDENCE_THRESHOLD`   | 0.6      | Arena-level decisive match threshold                                    |
+| `BETA_ELO`                        | `DEFAULT_UNCERTAINTY * sqrt(2)` ≈ 188.6 | Bradley-Terry scale (Elo space)                          |
+| `beta` (openskill, internal)      | 0        | Performance variability passed to `osRate()`. Zero assumed noise — ratings update aggressively per match. Safe for text quality ranking where 2-pass reversal mitigates judge noise. |
 
 ### Core Functions
 
 ```typescript
-/** Create a fresh rating with default mu/sigma. */
-export function createRating(): Rating;
+/** Create a fresh rating with default elo/uncertainty. */
+export function createRating(): Rating; // {elo: 1200, uncertainty: 400/3}
 
 /** Update ratings after a decisive match. Returns [newWinner, newLoser]. */
 export function updateRating(winner: Rating, loser: Rating): [Rating, Rating];
@@ -81,64 +90,74 @@ export function updateRating(winner: Rating, loser: Rating): [Rating, Rating];
 /** Update ratings after a draw. Returns [newA, newB]. */
 export function updateDraw(a: Rating, b: Rating): [Rating, Rating];
 
-/** Check if a rating has converged (sigma below threshold). */
+/** Check if a rating has converged (uncertainty below Elo-scale threshold). */
 export function isConverged(r: Rating, threshold?: number): boolean;
 ```
 
-`updateRating()` and `updateDraw()` are thin wrappers around `openskill.rate()`. Both
-calls reduce sigma for every participant, even losers -- uncertainty always decreases when
-you observe an outcome.
+`updateRating()` and `updateDraw()` wrap the internal OpenSkill adapter (converting
+`{elo, uncertainty}` → OpenSkill space, applying `osRate()`, converting back). Both
+calls reduce `uncertainty` for every participant, even losers -- uncertainty always
+decreases when you observe an outcome.
 
 ### Rating Invariants (Property-Tested)
 
 The following invariants are verified by property-based tests in `computeRatings.property.test.ts` using `fast-check` against the real openskill library:
 
-- **Sigma decrease:** Both players' sigma decreases after `updateRating()` and `updateDraw()` (for sigma >= 1.0; below 1.0, openskill's convergence floor may cause sigma to increase).
-- **Finite outputs:** All mu and sigma values after any rating update are finite numbers.
+- **Uncertainty decrease:** Both players' uncertainty decreases after `updateRating()` and `updateDraw()` (above OpenSkill's internal convergence floor; very low uncertainties may fluctuate slightly).
+- **Finite outputs:** All `elo` and `uncertainty` values after any rating update are finite numbers.
 - **Draw symmetry:** `updateDraw(a, b)` and `updateDraw(b, a)` produce symmetric results.
-- **Elo monotonicity:** `toEloScale()` is monotonically increasing in mu.
-- **Elo range:** `toEloScale()` output is always in [0, 3000].
+- **Display-Elo monotonicity:** `toDisplayElo()` is monotonically increasing in `elo`.
+- **Display-Elo range:** `toDisplayElo()` output is always in [0, 3000].
 - **Aggregation shape:** `aggregateWinners()` always returns a valid `ComparisonResult` with winner in {A, B, TIE}, confidence in [0, 1], and turns = 2.
 
-### Elo Scale Conversion
+### Display Clamping
 
-For display purposes (leaderboards, the [Arena](./arena.md) UI), raw mu is projected onto
-a 0-3000 Elo-like scale:
+For UI display (leaderboards, the [Arena](./arena.md) UI), raw `elo` is clamped to a
+0-3000 range via `toDisplayElo(elo)`:
 
 ```
-eloScore = 1200 + (mu - 25) * 16
+displayElo = clamp(elo, 0, 3000)
 ```
 
-Clamped to `[0, 3000]`. A fresh variant starts at 1200. The conversion lives in
-`toEloScale()` and is purely cosmetic -- all internal ranking math operates on `{mu, sigma}`.
+A fresh variant starts at 1200. The clamp is purely cosmetic -- all internal ranking math
+operates on unclamped `{elo, uncertainty}`.
 
 A related helper, `computeEloPerDollar()`, divides the Elo delta above 1200 by total cost
 in USD, giving a cost-efficiency metric surfaced in the Arena dashboard.
 
-> **Note:** The constant `16` equals `400 / DEFAULT_MU`. This maps the openskill mu range
-> onto a span similar to chess Elo, where a 400-point gap corresponds to ~10:1 win odds.
+> **Note:** A 400-Elo gap corresponds to ~10:1 win odds, matching chess convention.
+
+> **DB boundary helpers:** `dbToRating(mu, sigma)` lifts the unchanged
+> `evolution_variants.mu`/`sigma` columns to `{elo, uncertainty}`, and `ratingToDb(r)`
+> projects a public `Rating` back down for persistence. A private `toEloScale()` helper
+> implements the underlying conversion. These helpers are the only code paths that
+> should touch OpenSkill-scale numbers.
 
 ---
 
 ## Elo Confidence Intervals
 
-Run-level elo metrics carry uncertainty information derived from the source variant's Bayesian sigma. This propagates the rating system's built-in uncertainty into the metrics layer.
+Run-level elo metrics carry uncertainty information derived directly from the source
+variant's `uncertainty` field. This propagates the rating system's built-in uncertainty
+into the metrics layer.
 
-### Run-Level CI (From Variant Sigma)
+### Run-Level CI (From Variant Uncertainty)
 
-For run-level metrics like `winner_elo`, the CI is computed directly from the winning variant's sigma:
+For run-level metrics like `winner_elo`, the 95% CI is computed directly from the winning
+variant's Elo-scale uncertainty:
 
 ```
-eloSigma = variant.sigma * ELO_SIGMA_SCALE   (ELO_SIGMA_SCALE = 16)
-ci_lower = elo - 1.96 * eloSigma
-ci_upper = elo + 1.96 * eloSigma
+ci_lower = elo - 1.96 * uncertainty
+ci_upper = elo + 1.96 * uncertainty
 ```
 
-These are stored in the `sigma`, `ci_lower`, and `ci_upper` columns of the `evolution_metrics` row. A variant with low sigma (well-calibrated) produces a tight CI; a variant with high sigma (few matches) produces a wide CI.
+These are stored in the `uncertainty`, `ci_lower`, and `ci_upper` columns of the
+`evolution_metrics` row. A variant with low uncertainty (well-calibrated) produces a
+tight CI; a variant with high uncertainty (few matches) produces a wide CI.
 
 ### Propagated CI (Bootstrap)
 
-At the strategy and experiment level, elo metrics are aggregated across multiple runs using `bootstrap_mean` aggregation. The CI at these levels comes from `bootstrapMeanCI()` — a resampling-based estimate of the mean's uncertainty — not from the per-variant sigma. This is appropriate because the cross-run variance (different runs producing different winner elos) is the dominant source of uncertainty at the aggregate level.
+At the strategy and experiment level, elo metrics are aggregated across multiple runs using `bootstrap_mean` aggregation. The CI at these levels comes from `bootstrapMeanCI()` — a resampling-based estimate of the mean's uncertainty — not from the per-variant uncertainty. This is appropriate because the cross-run variance (different runs producing different winner elos) is the dominant source of uncertainty at the aggregate level.
 
 ---
 
@@ -187,7 +206,8 @@ Triage gives each new variant a quick skill estimate by matching it against a st
 sample of existing variants. This avoids wasting expensive Swiss rounds on variants that
 are clearly weak.
 
-**Entry criteria:** variants whose `sigma >= 5.0` (the `CALIBRATED_SIGMA_THRESHOLD`).
+**Entry criteria:** variants whose Elo-scale uncertainty is above the calibration
+threshold (formerly `sigma >= 5.0`, now the Elo-scale equivalent).
 Already-calibrated variants skip triage entirely.
 
 **Opponent selection** (`selectOpponents()`): for `n=5` calibration opponents, the system
@@ -197,7 +217,7 @@ picks from the sorted pool:
 - 2 from the middle
 - 1 from the bottom quartile (preferring fellow new entrants)
 
-Within each quartile slice, candidates are sub-sorted by sigma ascending before picking, so **low-sigma opponents are preferred**. This sigma-weighted selection means new entrants are more likely to face well-calibrated anchors. Matching against a low-sigma opponent is roughly 2x more effective per match due to cubic scaling -- the information gain scales as sigma_opponent^3 / c^3, so halving opponent sigma yields ~8x less noise per comparison.
+Within each quartile slice, candidates are sub-sorted by uncertainty ascending before picking, so **low-uncertainty opponents are preferred**. This uncertainty-weighted selection means new entrants are more likely to face well-calibrated anchors. Matching against a low-uncertainty opponent is roughly 2x more effective per match due to cubic scaling -- the information gain scales as uncertainty_opponent^3 / c^3, so halving opponent uncertainty yields ~8x less noise per comparison.
 
 This stratified approach ensures new variants are tested against a representative cross-
 section rather than clustered at one skill level. When the pool is too small for proper
@@ -212,9 +232,9 @@ The number of calibration opponents defaults to 5 but is configurable via
 
 1. **Decisive exit:** at least 2 matches with confidence >= 0.7 AND average confidence
    across all matches >= 0.8. The variant's skill is sufficiently clear.
-2. **Elimination:** `mu + 2*sigma < top20Cutoff`. Even the optimistic bound (mu plus two
-   standard deviations) falls below the top 20% of the pool. The variant is marked
-   eliminated and excluded from Phase 2.
+2. **Elimination:** `elo + 2 * uncertainty < top20Cutoff`. Even the optimistic bound (elo
+   plus two standard deviations) falls below the top 20% of the pool. The variant is
+   marked eliminated and excluded from Phase 2.
 
 ### Phase 2 -- Swiss Fine-Ranking
 
@@ -222,37 +242,38 @@ Swiss-system pairing matches similarly-rated variants to maximize information ga
 comparison. Only variants that survived triage participate.
 
 **Eligibility filter:** a variant enters Phase 2 if it was not eliminated AND either:
-- `mu + ELIGIBILITY_Z_SCORE * sigma >= top15Cutoff` (upper-bound estimate reaches the top 15%), OR
-- it is in the current top-K by mu (default K=5, configurable via `config.tournamentTopK`)
+- `r.elo + ELIGIBILITY_Z_SCORE * r.uncertainty >= top15Cutoff` (upper-bound estimate reaches the top 15%, all Elo-scale), OR
+- it is in the current top-K by `elo` (default K=5, configurable via `config.tournamentTopK`)
 
-`ELIGIBILITY_Z_SCORE` is 1.04 (the 85th percentile z-score). `top15Cutoff` is the mu of
-the variant at the 15th percentile of non-eliminated variants, recomputed each Swiss round
-as ratings change. This upper-bound check asks: could this variant plausibly be in the top
-tier? If the optimistic projection of its skill reaches the cutoff, it remains eligible.
+`ELIGIBILITY_Z_SCORE` is 1.04 (the 85th percentile z-score). `top15Cutoff` is the `elo`
+of the variant at the 15th percentile of non-eliminated variants, recomputed each Swiss
+round as ratings change. This upper-bound check asks: could this variant plausibly be in
+the top tier? If the optimistic projection of its skill reaches the cutoff, it remains
+eligible.
 
-The top-K safety net ensures the current best variants by mu always participate in
-fine-ranking regardless of their sigma, which matters when a strong variant has been
-recently generated and still has high uncertainty.
+The top-K safety net ensures the current best variants by `elo` always participate in
+fine-ranking regardless of their uncertainty, which matters when a strong variant has
+been recently generated and still has high uncertainty.
 
 **Minimum pool floor:** if fewer than 3 variants pass the eligibility filter, the system
-falls back to the top-3 variants by mu. This prevents degenerate rounds where too few
+falls back to the top-3 variants by `elo`. This prevents degenerate rounds where too few
 variants are eligible for meaningful pairwise comparisons.
 
 Both `topKIds` and `top15Cutoff` are recomputed at the start of each Swiss round, so
 eligibility adapts as ratings shift during fine-ranking.
 
-**Bradley-Terry pairing.** For each candidate pair `(A, B)`:
+**Bradley-Terry pairing.** For each candidate pair `(A, B)`, in Elo space:
 
 ```
-pWin = 1 / (1 + exp(-(muA - muB) / BETA))
+pWin = 1 / (1 + exp(-(eloA - eloB) / BETA_ELO))
 ```
 
-where `BETA = DEFAULT_SIGMA * sqrt(2)` (approximately 11.785). The pairing score combines
-outcome uncertainty with average sigma:
+where `BETA_ELO = DEFAULT_UNCERTAINTY * sqrt(2) ≈ 188.6`. The pairing score combines
+outcome uncertainty with average rating uncertainty:
 
 ```
 outcomeUncertainty = 1 - |2 * pWin - 1|
-pairScore = outcomeUncertainty * avgSigma
+pairScore = outcomeUncertainty * avgUncertainty
 ```
 
 Pairs with the highest score are selected greedily (descending score, no variant used
@@ -262,7 +283,7 @@ order-invariant keys) are excluded from candidate generation, preventing rematch
 **Termination.** The Swiss loop runs up to 20 rounds and exits when:
 
 - The budget-tier comparison limit is reached (see below), or
-- All eligible variants have `sigma < CONVERGENCE_SIGMA` for 2 consecutive rounds, or
+- All eligible variants have `uncertainty < DEFAULT_CONVERGENCE_UNCERTAINTY` for 2 consecutive rounds, or
 - No new pairs remain
 
 **Budget tiers** control the maximum number of comparisons in Phase 2:
@@ -473,7 +494,7 @@ The ranking subsystem sits between generation and selection in the
 [pipeline loop](./architecture.md). After the generation phase produces new text variants,
 `rankPool()` is called to integrate them into the existing rating pool. The function:
 
-1. Initializes fresh `{mu: 25, sigma: 8.333}` ratings for any variant not yet rated.
+1. Initializes fresh `{elo: 1200, uncertainty: 400/3}` ratings for any variant not yet rated.
 2. Runs triage to calibrate new entrants (or skips it on the first iteration when all
    variants are new).
 3. Runs Swiss fine-ranking to refine ratings among survivors.

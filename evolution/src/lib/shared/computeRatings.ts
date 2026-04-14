@@ -5,63 +5,131 @@ import { rating as osRating, rate as osRate } from 'openskill';
 import { createHash } from 'crypto';
 
 // ═══════════════════════════════════════════════════════════════════
-// Rating (OpenSkill / Weng-Lin Bayesian)
+// Rating (OpenSkill / Weng-Lin Bayesian — internal adapter)
 // ═══════════════════════════════════════════════════════════════════
+// OpenSkill works with {mu, sigma} internally. This module converts
+// to/from {elo, uncertainty} at the boundary so all external code
+// speaks Elo + confidence intervals.
 
-/** Bayesian rating with skill estimate (mu) and uncertainty (sigma). */
-export type Rating = { mu: number; sigma: number };
+/** Rating with Elo score and uncertainty (Elo-scale standard deviation). */
+export type Rating = { elo: number; uncertainty: number };
 
-/** Default mu for a fresh rating (openskill default). */
-export const DEFAULT_MU = 25;
+/** Default Elo for a fresh rating (maps from openskill mu=25). */
+export const DEFAULT_ELO = 1200;
 
-/** Scale factor for converting sigma to Elo-scale uncertainty. */
-export const ELO_SIGMA_SCALE = 400 / DEFAULT_MU;
+// --- Internal constants for openskill ↔ Elo conversion ---
+/** @internal Scale factor: 400 / 25 = 16. One mu unit = 16 Elo points. */
+const ELO_SIGMA_SCALE = 400 / 25; // = 16
 
-/** Default sigma for a fresh rating (openskill default). */
-export const DEFAULT_SIGMA = 25 / 3; // ≈ 8.333
+/** @internal Default openskill mu. */
+const INTERNAL_DEFAULT_MU = 25;
 
-/** Sigma threshold below which a rating is considered converged.
- *  Raised from 3.0 to 4.5 to reduce comparisons needed (~59 → ~18).
- *  Widens Elo CI from ±94 to ±141 — acceptable for winner selection. */
-export const DEFAULT_CONVERGENCE_SIGMA = 4.5;
+/** @internal Default openskill sigma. */
+const INTERNAL_DEFAULT_SIGMA = 25 / 3; // ≈ 8.333
 
-/** Create a fresh rating with default mu/sigma. */
+/** Default uncertainty for a fresh rating (Elo-scale: sigma * 16 = 400/3 ≈ 133.33). */
+export const DEFAULT_UNCERTAINTY = INTERNAL_DEFAULT_SIGMA * ELO_SIGMA_SCALE; // 400/3
+
+/** Uncertainty threshold below which a rating is considered converged (Elo-scale).
+ *  Equivalent to old sigma threshold of 4.5: 4.5 * 16 = 72. */
+export const DEFAULT_CONVERGENCE_UNCERTAINTY = 4.5 * ELO_SIGMA_SCALE; // 72
+
+// --- Legacy aliases for DB boundary code ---
+// These are needed by buildRunContext.ts and persistRunResults.ts which read/write
+// mu/sigma columns in the database. They should NOT be used outside DB boundary code.
+/** @internal Openskill default mu — for DB boundary conversion only. */
+export const _INTERNAL_DEFAULT_MU = INTERNAL_DEFAULT_MU;
+/** @internal Openskill default sigma — for DB boundary conversion only. */
+export const _INTERNAL_DEFAULT_SIGMA = INTERNAL_DEFAULT_SIGMA;
+/** @internal Elo↔mu scale factor — for DB boundary conversion only. */
+export const _INTERNAL_ELO_SIGMA_SCALE = ELO_SIGMA_SCALE;
+
+// --- Internal conversion helpers ---
+/** @internal Convert Elo to openskill mu (unclamped). */
+function fromEloScale(elo: number): number {
+  return (elo - DEFAULT_ELO) / ELO_SIGMA_SCALE + INTERNAL_DEFAULT_MU;
+}
+
+/** @internal Convert openskill mu to Elo (unclamped). */
+function toEloScaleInternal(mu: number): number {
+  return DEFAULT_ELO + (mu - INTERNAL_DEFAULT_MU) * ELO_SIGMA_SCALE;
+}
+
+/** Convert openskill mu to Elo, clamped to [0, 3000]. Used at DB boundary
+ *  (buildRunContext, persistRunResults) to convert stored mu values. */
+export function toEloScale(mu: number): number {
+  return Math.max(0, Math.min(3000, toEloScaleInternal(mu)));
+}
+
+/** Clamp an Elo value to [0, 3000] for display purposes only. */
+export function toDisplayElo(elo: number): number {
+  return Math.max(0, Math.min(3000, elo));
+}
+
+/** Convert a {mu, sigma} pair from the database to a Rating. */
+export function dbToRating(mu: number, sigma: number): Rating {
+  return {
+    elo: toEloScaleInternal(mu),
+    uncertainty: sigma * ELO_SIGMA_SCALE,
+  };
+}
+
+/** Convert a Rating back to {mu, sigma} for database writes. */
+export function ratingToDb(r: Rating): { mu: number; sigma: number; elo_score: number } {
+  return {
+    mu: fromEloScale(r.elo),
+    sigma: r.uncertainty / ELO_SIGMA_SCALE,
+    elo_score: toEloScale(fromEloScale(r.elo)),
+  };
+}
+
+/** Create a fresh rating with default Elo and uncertainty. */
 export function createRating(): Rating {
-  return osRating();
+  const raw = osRating();
+  return {
+    elo: toEloScaleInternal(raw.mu),
+    uncertainty: raw.sigma * ELO_SIGMA_SCALE,
+  };
 }
 
 /**
  * Update ratings after a decisive match. Returns [newWinner, newLoser].
- * Both players' sigma decreases (uncertainty reduced by observing outcome).
+ * Both players' uncertainty decreases (reduced by observing outcome).
  */
 export function updateRating(winner: Rating, loser: Rating): [Rating, Rating] {
-  const result = osRate([[winner], [loser]], { rank: [1, 2], beta: 0 });
-  const newWinner = result[0]?.[0];
-  const newLoser = result[1]?.[0];
-  if (!newWinner || !newLoser) return [winner, loser];
-  return [newWinner, newLoser];
+  // Convert to openskill {mu, sigma} for the library call
+  const wMu = { mu: fromEloScale(winner.elo), sigma: winner.uncertainty / ELO_SIGMA_SCALE };
+  const lMu = { mu: fromEloScale(loser.elo), sigma: loser.uncertainty / ELO_SIGMA_SCALE };
+  const result = osRate([[wMu], [lMu]], { rank: [1, 2], beta: 0 });
+  const newW = result[0]?.[0];
+  const newL = result[1]?.[0];
+  if (!newW || !newL) return [winner, loser];
+  return [
+    { elo: toEloScaleInternal(newW.mu), uncertainty: newW.sigma * ELO_SIGMA_SCALE },
+    { elo: toEloScaleInternal(newL.mu), uncertainty: newL.sigma * ELO_SIGMA_SCALE },
+  ];
 }
 
 /**
  * Update ratings after a draw. Returns [newA, newB].
- * Both players move toward each other slightly, sigma decreases.
+ * Both players move toward each other slightly, uncertainty decreases.
  */
 export function updateDraw(a: Rating, b: Rating): [Rating, Rating] {
-  const result = osRate([[a], [b]], { rank: [1, 1], beta: 0 });
+  const aMu = { mu: fromEloScale(a.elo), sigma: a.uncertainty / ELO_SIGMA_SCALE };
+  const bMu = { mu: fromEloScale(b.elo), sigma: b.uncertainty / ELO_SIGMA_SCALE };
+  const result = osRate([[aMu], [bMu]], { rank: [1, 1], beta: 0 });
   const newA = result[0]?.[0];
   const newB = result[1]?.[0];
   if (!newA || !newB) return [a, b];
-  return [newA, newB];
+  return [
+    { elo: toEloScaleInternal(newA.mu), uncertainty: newA.sigma * ELO_SIGMA_SCALE },
+    { elo: toEloScaleInternal(newB.mu), uncertainty: newB.sigma * ELO_SIGMA_SCALE },
+  ];
 }
 
-/** Check if a rating has converged (sigma below threshold). */
-export function isConverged(r: Rating, threshold: number = DEFAULT_CONVERGENCE_SIGMA): boolean {
-  return r.sigma < threshold;
-}
-
-/** Map mu to the 0–3000 Elo scale: 1200 + (mu - 25) * 16, clamped to [0, 3000]. */
-export function toEloScale(mu: number): number {
-  return Math.max(0, Math.min(3000, 1200 + (mu - DEFAULT_MU) * ELO_SIGMA_SCALE));
+/** Check if a rating has converged (uncertainty below threshold). */
+export function isConverged(r: Rating, threshold: number = DEFAULT_CONVERGENCE_UNCERTAINTY): boolean {
+  return r.uncertainty < threshold;
 }
 
 /** Format an Elo value as a rounded integer string for display. */
@@ -77,10 +145,10 @@ export function stripMarkdownTitle(text: string): string {
 
 export const DECISIVE_CONFIDENCE_THRESHOLD = 0.6;
 
-/** Returns null if cost is missing or zero. */
-export function computeEloPerDollar(mu: number, totalCostUsd: number | null): number | null {
+/** Returns null if cost is missing or zero. Elo is already in Elo scale. */
+export function computeEloPerDollar(elo: number, totalCostUsd: number | null): number | null {
   if (totalCostUsd == null || totalCostUsd === 0) return null;
-  return (toEloScale(mu) - 1200) / totalCostUsd;
+  return (elo - DEFAULT_ELO) / totalCostUsd;
 }
 
 // ═══════════════════════════════════════════════════════════════════

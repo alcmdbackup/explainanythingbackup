@@ -19,7 +19,7 @@ function makeRow(overrides: Partial<MetricRow> = {}): MetricRow {
     entity_id: '00000000-0000-0000-0000-000000000001',
     metric_name: 'cost',
     value: 1.5,
-    sigma: null,
+    uncertainty: null,
     ci_lower: null,
     ci_upper: null,
     n: 1,

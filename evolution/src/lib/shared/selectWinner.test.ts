@@ -1,54 +1,54 @@
-// Unit tests for the unified selectWinner function — highest mu, sigma tiebreak,
+// Unit tests for the unified selectWinner function — highest elo, uncertainty tiebreak,
 // unrated handling, empty pool, and all-unrated fallback.
 
 import { selectWinner } from './selectWinner';
 import type { Rating } from './computeRatings';
 
 describe('selectWinner', () => {
-  it('selects the variant with highest mu', () => {
+  it('selects the variant with highest elo', () => {
     const pool = [{ id: 'a' }, { id: 'b' }, { id: 'c' }];
     const ratings = new Map<string, Rating>([
-      ['a', { mu: 20, sigma: 5 }],
-      ['b', { mu: 30, sigma: 5 }],
-      ['c', { mu: 25, sigma: 5 }],
+      ['a', { elo: 1120, uncertainty: 80 }],
+      ['b', { elo: 1280, uncertainty: 80 }],
+      ['c', { elo: 1200, uncertainty: 80 }],
     ]);
     const result = selectWinner(pool, ratings);
     expect(result.winnerId).toBe('b');
-    expect(result.mu).toBe(30);
-    expect(result.sigma).toBe(5);
+    expect(result.elo).toBe(1280);
+    expect(result.uncertainty).toBe(80);
   });
 
-  it('breaks ties by lowest sigma', () => {
+  it('breaks ties by lowest uncertainty', () => {
     const pool = [{ id: 'a' }, { id: 'b' }, { id: 'c' }];
     const ratings = new Map<string, Rating>([
-      ['a', { mu: 25, sigma: 8 }],
-      ['b', { mu: 25, sigma: 3 }],
-      ['c', { mu: 25, sigma: 5 }],
+      ['a', { elo: 1200, uncertainty: 128 }],
+      ['b', { elo: 1200, uncertainty: 48 }],
+      ['c', { elo: 1200, uncertainty: 80 }],
     ]);
     const result = selectWinner(pool, ratings);
     expect(result.winnerId).toBe('b');
-    expect(result.sigma).toBe(3);
+    expect(result.uncertainty).toBe(48);
   });
 
-  it('treats unrated variants as mu=-Infinity, sigma=Infinity', () => {
+  it('treats unrated variants as elo=-Infinity, uncertainty=Infinity', () => {
     const pool = [{ id: 'a' }, { id: 'b' }];
     const ratings = new Map<string, Rating>([
-      ['a', { mu: 10, sigma: 8 }],
+      ['a', { elo: 960, uncertainty: 128 }],
       // 'b' is unrated
     ]);
     const result = selectWinner(pool, ratings);
     expect(result.winnerId).toBe('a');
-    expect(result.mu).toBe(10);
+    expect(result.elo).toBe(960);
   });
 
   it('falls back to first variant when all are unrated', () => {
     const pool = [{ id: 'x' }, { id: 'y' }, { id: 'z' }];
     const ratings = new Map<string, Rating>();
     const result = selectWinner(pool, ratings);
-    // All have mu=-Infinity; first one wins (stable)
+    // All have elo=-Infinity; first one wins (stable)
     expect(result.winnerId).toBe('x');
-    expect(result.mu).toBe(-Infinity);
-    expect(result.sigma).toBe(Infinity);
+    expect(result.elo).toBe(-Infinity);
+    expect(result.uncertainty).toBe(Infinity);
   });
 
   it('throws on empty pool', () => {
@@ -58,23 +58,23 @@ describe('selectWinner', () => {
 
   it('works with single variant', () => {
     const pool = [{ id: 'only' }];
-    const ratings = new Map<string, Rating>([['only', { mu: 25, sigma: 8.333 }]]);
+    const ratings = new Map<string, Rating>([['only', { elo: 1200, uncertainty: 400 / 3 }]]);
     const result = selectWinner(pool, ratings);
     expect(result.winnerId).toBe('only');
-    expect(result.mu).toBe(25);
+    expect(result.elo).toBe(1200);
   });
 
-  it('postcondition: winner.mu >= all rated variants mu', () => {
+  it('postcondition: winner.elo >= all rated variants elo', () => {
     const pool = [{ id: 'a' }, { id: 'b' }, { id: 'c' }, { id: 'd' }];
     const ratings = new Map<string, Rating>([
-      ['a', { mu: 15, sigma: 5 }],
-      ['b', { mu: 30, sigma: 3 }],
-      ['c', { mu: 25, sigma: 4 }],
+      ['a', { elo: 1040, uncertainty: 80 }],
+      ['b', { elo: 1280, uncertainty: 48 }],
+      ['c', { elo: 1200, uncertainty: 64 }],
       // 'd' unrated
     ]);
     const result = selectWinner(pool, ratings);
     for (const [, r] of ratings) {
-      expect(result.mu).toBeGreaterThanOrEqual(r.mu);
+      expect(result.elo).toBeGreaterThanOrEqual(r.elo);
     }
   });
 });

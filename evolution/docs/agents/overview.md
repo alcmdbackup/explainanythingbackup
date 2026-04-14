@@ -7,9 +7,9 @@ This document covers the V2 pipeline's operational components: the three concret
 `evolveArticle()` in `evolution/src/lib/pipeline/loop/runIterationLoop.ts` dispatches a sequence of iterations chosen by `nextIteration()`. Each iteration is one of two types — both have the uniform shape **work agent(s) + merge agent**:
 
 0. **`CreateSeedArticleAgent`** — runs **once**, at the start of iteration 1, for prompt-based runs where no arena seed exists. Makes two LLM calls (`seed_title` then `seed_article`) to generate the initial article from the prompt text, then ranks the result via `rankNewVariant()` against the loaded arena snapshot. If the seed agent fails (`budget` or `generation_failed`), the run stops immediately with `stopReason = 'seed_failed'`. On success, sets `originalText` for the iteration and marks `isSeeded = true` in the result. LLM spend is tracked via `seed_cost` in `evolution_metrics`.
-1. **`GenerateFromSeedArticleAgent`** — one parallel agent per generated variant. Generates ONE variant via a single strategy, then ranks it via binary search against a deep-cloned local snapshot of the iteration-start pool/ratings/matchCounts. Owns its own surface/discard decision (budget + local mu < top-15% cutoff = discard).
+1. **`GenerateFromSeedArticleAgent`** — one parallel agent per generated variant. Generates ONE variant via a single strategy, then ranks it via binary search against a deep-cloned local snapshot of the iteration-start pool/ratings/matchCounts. Owns its own surface/discard decision (budget + local `elo` < top-15% cutoff = discard).
 2. **`SwissRankingAgent`** — one swiss iteration's worth of parallel pair comparisons over the eligible set. Returns the raw match buffer; never applies rating updates.
-3. **`MergeRatingsAgent`** — reusable. Concatenates match buffers from one or more work agents, shuffles in seeded Fisher-Yates order, applies OpenSkill updates to the global ratings sequentially, and writes one row per match to `evolution_arena_comparisons` (sole writer of in-run match rows).
+3. **`MergeRatingsAgent`** — reusable. Concatenates match buffers from one or more work agents, shuffles in seeded Fisher-Yates order, applies rating updates to the global ratings sequentially (OpenSkill internally; public `{elo, uncertainty}` at the boundary), and writes one row per match to `evolution_arena_comparisons` (sole writer of in-run match rows).
 
 The first iteration is always `generate`; subsequent iterations are `swiss` until the orchestrator decides convergence/no_pairs/budget/kill/deadline. There is no agent pool, no reducer, and no checkpoint persistence between iterations. The orchestrator manages the pool, ratings map, and cost tracker as local state. This design is simpler to reason about and debug, at the cost of not being resumable mid-run.
 
@@ -20,7 +20,7 @@ export async function evolveArticle(
   db: SupabaseClient,
   runId: string,
   config: EvolutionConfig,
-  options?: { logger?: RunLogger; initialPool?: Array<Variant & { mu?: number; sigma?: number }> },
+  options?: { logger?: RunLogger; initialPool?: Array<Variant & { elo?: number; uncertainty?: number }> },
 ): Promise<EvolutionResult>
 ```
 
@@ -78,19 +78,19 @@ Ranks all variants in the pool through a two-phase process: triage for new entra
 
 ### Triage phase
 
-New entrants (variants with sigma >= 5.0, meaning uncalibrated) face a gauntlet of stratified opponents drawn from the existing pool. For a default of 5 opponents, the selection is: 2 from the top quartile, 2 from the middle, and 1 from the bottom (preferring fellow new entrants for the bottom slot).
+New entrants (uncalibrated variants — uncertainty above the calibration threshold, all Elo-scale) face a gauntlet of stratified opponents drawn from the existing pool. For a default of 5 opponents, the selection is: 2 from the top quartile, 2 from the middle, and 1 from the bottom (preferring fellow new entrants for the bottom slot).
 
 Two exit conditions short-circuit triage per entrant:
 
 **Early exit.** After at least 2 matches, if the entrant has 2 or more decisive matches (confidence >= 0.7) AND average confidence across all matches is >= 0.8, triage ends. The entrant's rating is calibrated enough for fine-ranking.
 
-**Elimination.** After at least 2 matches, if `mu + 2*sigma < top20Cutoff` (where the cutoff is the mu of the variant at the 20th percentile), the entrant is eliminated from fine-ranking entirely. It will remain in the pool but will not consume further comparison budget.
+**Elimination.** After at least 2 matches, if `r.elo + 2 * r.uncertainty < top20Cutoff` (where the cutoff is the `elo` of the variant at the 20th percentile, all Elo-scale), the entrant is eliminated from fine-ranking entirely. It will remain in the pool but will not consume further comparison budget.
 
 ### Swiss fine-ranking phase
 
-After triage, fine-ranking runs on the competitive subset: variants that are not eliminated AND either have `mu >= 3 * sigma` (reasonably calibrated) or are in the top-K by mu.
+After triage, fine-ranking runs on the competitive subset: variants that are not eliminated AND are either reasonably calibrated (low `uncertainty`) or are in the top-K by `elo`.
 
-Pairing uses Bradley-Terry win probability to maximize information gain. For each potential pair, a score combines outcome uncertainty (how close to a coin flip the predicted result is) with average sigma (how uncertain the ratings still are). Pairs are greedily selected by descending score, ensuring each variant appears in at most one match per round.
+Pairing uses Bradley-Terry win probability (in Elo space, with `BETA_ELO`) to maximize information gain. For each potential pair, a score combines outcome uncertainty (how close to a coin flip the predicted result is) with average rating uncertainty (how uncertain the ratings still are). Pairs are greedily selected by descending score, ensuring each variant appears in at most one match per round.
 
 Fine-ranking runs for up to 20 Swiss rounds, subject to a comparison budget that depends on cost pressure:
 
@@ -100,7 +100,7 @@ Fine-ranking runs for up to 20 Swiss rounds, subject to a comparison budget that
 | Medium (50-80% spent) | 25 |
 | High (> 80% spent) | 15 |
 
-Convergence is declared when all eligible variants' sigmas drop below the convergence threshold for two consecutive rounds.
+Convergence is declared when all eligible variants' `uncertainty` values drop below `DEFAULT_CONVERGENCE_UNCERTAINTY` (72, Elo-scale) for two consecutive rounds.
 
 ```typescript
 export interface RankResult {
@@ -113,7 +113,7 @@ export interface RankResult {
 
 **Draw logic.** A match is treated as a draw when confidence < 0.3 (in fine-ranking) or when `winnerId === loserId` (a legacy V1 pattern preserved for compatibility). In triage, draws occur when confidence is exactly 0 or `winnerId === loserId`. Draws update both variants' ratings symmetrically via `updateDraw()`.
 
-The Swiss pairing algorithm works by scoring every possible pair of eligible variants. The score for a pair is `outcomeUncertainty * averageSigma`, where outcome uncertainty is `1 - |2 * P(win) - 1|` using Bradley-Terry probability and average sigma is the mean of both variants' sigma values. This prioritizes matches between closely rated but still uncertain variants, maximizing the information gained per comparison. Pairs are then greedily assigned in descending score order, with each variant used at most once per round. Already-completed pairs (tracked by a pair key set) are excluded from consideration.
+The Swiss pairing algorithm works by scoring every possible pair of eligible variants. The score for a pair is `outcomeUncertainty * averageUncertainty`, where outcome uncertainty is `1 - |2 * P(win) - 1|` using Bradley-Terry probability in Elo space (`pWin = 1 / (1 + exp(-(eloA - eloB) / BETA_ELO))`) and average uncertainty is the mean of both variants' Elo-scale `uncertainty` values. This prioritizes matches between closely rated but still uncertain variants, maximizing the information gained per comparison. Pairs are then greedily assigned in descending score order, with each variant used at most once per round. Already-completed pairs (tracked by a pair key set) are excluded from consideration.
 
 The budget tier is determined by how much of the total run budget has been consumed. The function `getBudgetTier()` maps budget fraction to a tier: >= 80% spent is "high" pressure, >= 50% is "medium", and below 50% is "low". This ensures that late-stage iterations, when the budget is nearly exhausted, spend fewer comparisons on fine-ranking — preserving budget for the remaining generate and evolve phases.
 
@@ -122,7 +122,7 @@ The budget tier is determined by how much of the total run budget has been consu
 
 `evolution/src/lib/pipeline/evolve.ts`
 
-Evolves existing high-quality variants through mutation and crossover. Selects the top 2 parents by mu from the current pool and applies up to four strategies:
+Evolves existing high-quality variants through mutation and crossover. Selects the top 2 parents by `elo` from the current pool and applies up to four strategies:
 
 **mutate_clarity** (always runs, on parent 0). Simplifies complex sentences, removes ambiguous phrasing, improves word choice for precision.
 
@@ -148,7 +148,7 @@ export async function evolveVariants(
 ): Promise<Variant[]>
 ```
 
-Unlike `generateVariants()` which runs strategies in parallel, `evolveVariants()` runs them sequentially. Each LLM output is format-validated; failures are silently discarded. New variants inherit `parentIds` from the selected parents and have `version` set to `maxVersion + 1` of the parents.
+Unlike `generateVariants()` which runs strategies in parallel, `evolveVariants()` runs them sequentially. Each LLM output is format-validated; failures are silently discarded. New variants inherit `parentIds` from the selected parents and have `version` set to `maxVersion + 1` of the parents. (The "top 2 by `elo`" selection uses the public `Rating.elo` — formerly `mu` in the OpenSkill scale.)
 
 `BudgetExceededError` propagates directly to the caller (no partial-results wrapping). If budget runs out after the first mutation succeeds but before crossover, the successfully created variants are lost. This is acceptable because the orchestrator's `executePhase()` wrapper handles the budget error at the iteration level.
 

@@ -85,19 +85,24 @@ export function MetricsTab({ runId }: MetricsTabProps): JSX.Element {
                 <tr>
                   <th scope="col" className="px-3 py-2 text-left">Rank</th>
                   <th scope="col" className="px-3 py-2 text-left">Strategy</th>
-                  <th scope="col" className="px-3 py-2 text-right">Mu</th>
+                  <th scope="col" className="px-3 py-2 text-right">Elo</th>
                   <th scope="col" className="px-3 py-2 text-center">Baseline?</th>
                 </tr>
               </thead>
               <tbody>
-                {summary.topVariants.map((v, i) => (
+                {summary.topVariants.map((v, i) => {
+                  // topVariants stored as Elo-scale; legacy mu-scale values (<100) heuristically converted.
+                  const raw = v.elo;
+                  const elo = raw < 100 ? 1200 + (raw - 25) * 16 : raw;
+                  return (
                   <tr key={v.id} className="border-t border-[var(--border-default)]">
                     <td className="px-3 py-2 text-[var(--text-muted)]">#{i + 1}</td>
                     <td className="px-3 py-2 font-mono text-xs">{v.strategy}</td>
-                    <td className="px-3 py-2 text-right font-semibold">{v.mu.toFixed(2)}</td>
+                    <td className="px-3 py-2 text-right font-semibold">{Math.round(elo)}</td>
                     <td className="px-3 py-2 text-center">{v.isBaseline ? '✓' : ''}</td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -114,17 +119,23 @@ export function MetricsTab({ runId }: MetricsTabProps): JSX.Element {
                 <tr>
                   <th scope="col" className="px-3 py-2 text-left">Strategy</th>
                   <th scope="col" className="px-3 py-2 text-right">Count</th>
-                  <th scope="col" className="px-3 py-2 text-right">Avg Mu</th>
+                  <th scope="col" className="px-3 py-2 text-right">Avg Elo</th>
                 </tr>
               </thead>
               <tbody>
                 {Object.entries(summary.strategyEffectiveness)
-                  .sort(([, a], [, b]) => b.avgMu - a.avgMu)
-                  .map(([strategy, stats]) => (
+                  .map(([strategy, stats]) => {
+                    // Backward compat: schema normalizes legacy avgMu to avgElo. Legacy mu-scale values heuristically converted.
+                    const raw = stats.avgElo;
+                    const avgElo = raw < 100 ? 1200 + (raw - 25) * 16 : raw;
+                    return [strategy, stats, avgElo] as const;
+                  })
+                  .sort((a, b) => b[2] - a[2])
+                  .map(([strategy, stats, avgElo]) => (
                     <tr key={strategy} className="border-t border-[var(--border-default)]">
                       <td className="px-3 py-2 font-mono text-xs">{strategy}</td>
                       <td className="px-3 py-2 text-right text-[var(--text-muted)]">{stats.count}</td>
-                      <td className="px-3 py-2 text-right font-semibold">{stats.avgMu.toFixed(2)}</td>
+                      <td className="px-3 py-2 text-right font-semibold">{Math.round(avgElo)}</td>
                     </tr>
                   ))}
               </tbody>
