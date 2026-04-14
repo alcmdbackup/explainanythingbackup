@@ -41,7 +41,7 @@ const OUTPUT_TOKEN_ESTIMATES: Partial<Record<AgentName, number>> = {
  * The raw provider is a simple { complete(prompt, label, opts?) } function.
  */
 export function createEvolutionLLMClient(
-  rawProvider: { complete(prompt: string, label: AgentName, opts?: { model?: string; temperature?: number }): Promise<string> },
+  rawProvider: { complete(prompt: string, label: AgentName, opts?: { model?: string; temperature?: number; reasoningEffort?: 'none' | 'low' | 'medium' | 'high' }): Promise<string> },
   costTracker: V2CostTracker,
   defaultModel: string,
   logger?: EntityLogger,
@@ -60,6 +60,7 @@ export function createEvolutionLLMClient(
       const temperature = agentName === 'ranking'
         ? 0
         : (options?.temperature ?? generationTemperature);
+      const reasoningEffort = options?.reasoningEffort;
       const pricing = getModelPricing(model);
       const outputEstimate = OUTPUT_TOKEN_ESTIMATES[agentName] ?? 1000;
       // outputEstimate is in tokens; multiply by 4 to convert to chars for calculateCost
@@ -75,7 +76,7 @@ export function createEvolutionLLMClient(
         try {
           logger?.debug('LLM call attempt', { phaseName: agentName, attempt, model });
           const response = await Promise.race([
-            rawProvider.complete(prompt, agentName, { model, temperature }),
+            rawProvider.complete(prompt, agentName, { model, temperature, reasoningEffort }),
             new Promise<never>((_, reject) => {
               timeoutId = setTimeout(() => reject(new Error('LLM call timeout (60s)')), PER_CALL_TIMEOUT_MS);
             }),

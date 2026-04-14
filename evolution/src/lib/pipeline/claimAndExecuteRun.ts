@@ -158,7 +158,7 @@ export async function claimAndExecuteRun(
 
   try {
     const llmProvider: LLMProvider = {
-      async complete(prompt: string, label: AgentName, opts?: { model?: string; temperature?: number }): Promise<string> {
+      async complete(prompt: string, label: AgentName, opts?: { model?: string; temperature?: number; reasoningEffort?: 'none' | 'low' | 'medium' | 'high' }): Promise<string> {
         return callLLM(
           prompt,
           `evolution_${label}`,
@@ -169,7 +169,7 @@ export async function claimAndExecuteRun(
           null,
           null,
           false,
-          { temperature: opts?.temperature },
+          { temperature: opts?.temperature, reasoningEffort: opts?.reasoningEffort },
         );
       },
     };
@@ -195,7 +195,7 @@ export async function claimAndExecuteRun(
 // ─── Shared execution logic ──────────────────────────────────────
 
 interface LLMProvider {
-  complete(prompt: string, label: AgentName, opts?: { model?: string; temperature?: number }): Promise<string>;
+  complete(prompt: string, label: AgentName, opts?: { model?: string; temperature?: number; reasoningEffort?: 'none' | 'low' | 'medium' | 'high' }): Promise<string>;
 }
 
 /** Build context, run evolution loop, finalize, sync arena. Re-throws on failure. */

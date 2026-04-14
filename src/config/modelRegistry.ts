@@ -27,6 +27,13 @@ export interface ModelInfo {
    * Only set for openrouter provider models.
    */
   openRouterModelId?: string;
+  /**
+   * Default reasoning config for models that support thinking/reasoning modes.
+   * Applied as a fallback when the caller does not specify `reasoningEffort`.
+   * Not set for models that don't support reasoning.
+   * See evolution/docs/cost_optimization.md for the impact on latency/cost.
+   */
+  defaultReasoningEffort?: 'none' | 'low' | 'medium' | 'high';
 }
 
 // ─── Registry ───────────────────────────────────────────────────
@@ -97,6 +104,9 @@ export const MODEL_REGISTRY: Record<string, ModelInfo> = {
     id: 'gpt-oss-20b', displayName: 'GPT-OSS 20B', provider: 'openrouter',
     inputPer1M: 0.03, outputPer1M: 0.14, maxTemperature: 2.0, supportsEvolution: true,
     openRouterModelId: 'openai/gpt-oss-20b',
+    // OSS 20B has mandatory reasoning; 'low' is the minimum effective setting.
+    // Default medium can take 6-16s per call and emit 2-4k reasoning tokens.
+    defaultReasoningEffort: 'low',
   },
   'google/gemini-2.5-flash-lite': {
     id: 'google/gemini-2.5-flash-lite', displayName: 'Gemini 2.5 Flash Lite', provider: 'openrouter',
@@ -107,6 +117,10 @@ export const MODEL_REGISTRY: Record<string, ModelInfo> = {
     id: 'qwen/qwen3-8b', displayName: 'Qwen3 8B', provider: 'openrouter',
     inputPer1M: 0.05, outputPer1M: 0.40, maxTemperature: 2.0, supportsEvolution: true,
     openRouterModelId: 'qwen/qwen3-8b',
+    // Qwen3 allows fully disabling thinking mode. Thinking ON emits ~900 reasoning
+    // tokens per call (~98% of output) and takes ~8s; thinking OFF emits ~5 tokens
+    // and completes in ~1s. No quality loss observed for judge use case.
+    defaultReasoningEffort: 'none',
   },
   'qwen-2.5-7b-instruct': {
     id: 'qwen-2.5-7b-instruct', displayName: 'Qwen 2.5 7B Instruct', provider: 'openrouter',
@@ -144,6 +158,12 @@ export function getModelInfo(modelId: string): ModelInfo | undefined {
 /** Get max temperature for a model. Returns undefined for unknown models, null for models that don't support temperature. */
 export function getModelMaxTemperature(modelId: string): number | null | undefined {
   return MODEL_REGISTRY[modelId]?.maxTemperature;
+}
+
+/** Get default reasoning effort for a reasoning-capable model.
+ *  Returns undefined for unknown models or models that don't support reasoning. */
+export function getModelDefaultReasoningEffort(modelId: string): 'none' | 'low' | 'medium' | 'high' | undefined {
+  return MODEL_REGISTRY[modelId]?.defaultReasoningEffort;
 }
 
 /** Get all model IDs that support evolution (for schema derivation). */

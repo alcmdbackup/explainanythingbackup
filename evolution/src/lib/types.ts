@@ -421,6 +421,10 @@ export interface LLMCompletionOptions {
   comparisonSubtype?: 'simple' | 'structured' | 'flow';
   /** LLM sampling temperature. Omit to use provider default. */
   temperature?: number;
+  /** Reasoning effort for reasoning-capable models (o1, o3, gpt-oss-20b, qwen3-8b).
+   *  'none' disables reasoning entirely where supported; 'low' minimizes overhead.
+   *  Ignored for models that don't support reasoning. */
+  reasoningEffort?: 'none' | 'low' | 'medium' | 'high';
 }
 
 // Note: imported lazily to avoid the name collision with the legacy AgentName
