@@ -5,12 +5,21 @@ import { EntityDetailHeader, MetricGrid, EntityDetailTabs, useTabState, EntityMe
 import { formatCostDetailed } from '@evolution/lib/utils/formatters';
 import { InvocationExecutionDetail } from './InvocationExecutionDetail';
 import { LogsTab } from '@evolution/components/evolution/tabs/LogsTab';
+import { InvocationTimelineTab } from '@evolution/components/evolution/tabs/InvocationTimelineTab';
 
-const TABS: TabDef[] = [
-  { id: 'overview', label: 'Overview' },
-  { id: 'metrics', label: 'Metrics' },
-  { id: 'logs', label: 'Logs' },
-];
+const TIMELINE_AGENTS = new Set<string>(['generate_from_seed_article']);
+
+function buildTabs(agentName: string): TabDef[] {
+  const tabs: TabDef[] = [
+    { id: 'overview', label: 'Overview' },
+    { id: 'metrics', label: 'Metrics' },
+  ];
+  if (TIMELINE_AGENTS.has(agentName)) {
+    tabs.push({ id: 'timeline', label: 'Timeline' });
+  }
+  tabs.push({ id: 'logs', label: 'Logs' });
+  return tabs;
+}
 
 interface InvocationData {
   id: string;
@@ -31,7 +40,8 @@ interface Props {
 }
 
 export function InvocationDetailContent({ invocation: inv }: Props): JSX.Element {
-  const [activeTab, setActiveTab] = useTabState(TABS);
+  const tabs = buildTabs(inv.agent_name);
+  const [activeTab, setActiveTab] = useTabState(tabs);
 
   return (
     <>
@@ -50,7 +60,7 @@ export function InvocationDetailContent({ invocation: inv }: Props): JSX.Element
         ]}
       />
 
-      <EntityDetailTabs tabs={TABS} activeTab={activeTab} onTabChange={setActiveTab}>
+      <EntityDetailTabs tabs={tabs} activeTab={activeTab} onTabChange={setActiveTab}>
         {activeTab === 'overview' && (
           <div className="space-y-6">
             <MetricGrid
@@ -78,6 +88,7 @@ export function InvocationDetailContent({ invocation: inv }: Props): JSX.Element
           </div>
         )}
         {activeTab === 'metrics' && <EntityMetricsTab entityType="invocation" entityId={inv.id} />}
+        {activeTab === 'timeline' && <InvocationTimelineTab invocation={inv} />}
         {activeTab === 'logs' && <LogsTab entityType="invocation" entityId={inv.id} />}
       </EntityDetailTabs>
     </>
