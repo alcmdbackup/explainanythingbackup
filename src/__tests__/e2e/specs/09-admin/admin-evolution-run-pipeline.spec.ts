@@ -239,7 +239,7 @@ adminTest.describe('Evolution Run Pipeline', { tag: '@evolution' }, () => {
     const sb = getServiceClient();
     const { data: metrics } = await sb
       .from('evolution_metrics')
-      .select('metric_name, value, uncertainty, ci_lower, ci_upper')
+      .select('metric_name, value, sigma, ci_lower, ci_upper')
       .eq('entity_type', 'run')
       .eq('entity_id', runId);
 
@@ -257,7 +257,7 @@ adminTest.describe('Evolution Run Pipeline', { tag: '@evolution' }, () => {
     // Elo metrics should have uncertainty and CI bounds
     const winnerElo = metrics!.find(m => m.metric_name === 'winner_elo');
     expect(winnerElo).toBeTruthy();
-    expect(winnerElo!.uncertainty).not.toBeNull();
+    expect(winnerElo!.sigma).not.toBeNull();
     expect(winnerElo!.ci_lower).not.toBeNull();
     expect(winnerElo!.ci_upper).not.toBeNull();
     expect(winnerElo!.ci_lower).toBeLessThan(winnerElo!.value);
@@ -268,7 +268,7 @@ adminTest.describe('Evolution Run Pipeline', { tag: '@evolution' }, () => {
     const sb = getServiceClient();
     const { data: metrics } = await sb
       .from('evolution_metrics')
-      .select('metric_name, value, uncertainty, ci_lower, ci_upper')
+      .select('metric_name, value, sigma, ci_lower, ci_upper')
       .eq('entity_type', 'strategy')
       .eq('entity_id', strategyId);
 
@@ -301,7 +301,7 @@ adminTest.describe('Evolution Run Pipeline', { tag: '@evolution' }, () => {
 
     const { data: metrics } = await sb
       .from('evolution_metrics')
-      .select('metric_name, value, uncertainty, ci_lower, ci_upper')
+      .select('metric_name, value, sigma, ci_lower, ci_upper')
       .eq('entity_type', 'experiment')
       .eq('entity_id', experimentId);
 
@@ -323,7 +323,7 @@ adminTest.describe('Evolution Run Pipeline', { tag: '@evolution' }, () => {
     // avg_final_elo should have CI from bootstrap propagation
     const avgElo = metrics!.find(m => m.metric_name === 'avg_final_elo');
     expect(avgElo).toBeTruthy();
-    expect(avgElo!.uncertainty).not.toBeNull();
+    expect(avgElo!.sigma).not.toBeNull();
     expect(avgElo!.ci_lower).not.toBeNull();
     expect(avgElo!.ci_upper).not.toBeNull();
     expect(avgElo!.ci_lower).toBeLessThanOrEqual(avgElo!.value);

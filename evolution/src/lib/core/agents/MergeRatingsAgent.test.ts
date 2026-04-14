@@ -152,8 +152,8 @@ describe('MergeRatingsAgent', () => {
     // Each row should have iteration, invocation_id, elo/uncertainty before/after.
     expect(rows[0]!.iteration).toBe(1);
     expect(rows[0]!.invocation_id).toBe('inv-merge');
-    expect(rows[0]!.entry_a_elo_before).toBeDefined();
-    expect(rows[0]!.entry_a_elo_after).toBeDefined();
+    expect(rows[0]!.entry_a_mu_before).toBeDefined();
+    expect(rows[0]!.entry_a_mu_after).toBeDefined();
   });
 
   it('does NOT throw when arena_comparisons insert fails (best-effort)', async () => {

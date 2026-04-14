@@ -87,7 +87,8 @@ describe('writeMetrics', () => {
       ci_lower: undefined,
     }], 'during_execution');
     const row = upsertedRows[0] as Record<string, unknown>;
-    expect(row.uncertainty).toBeNull();
+    // DB column is named `sigma` (not renamed); writeMetrics maps uncertainty→sigma on upsert.
+    expect(row.sigma).toBeNull();
     expect(row.ci_lower).toBeNull();
   });
 

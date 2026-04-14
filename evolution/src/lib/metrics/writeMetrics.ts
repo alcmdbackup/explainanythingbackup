@@ -66,12 +66,14 @@ export async function writeMetrics(
   if (rows.length === 0) return;
   validateTiming(rows, timing);
 
+  // DB column is named `sigma` (not renamed due to CI safety check).
+  // Application layer exposes this as `uncertainty`; we map at the query boundary.
   const upsertRows = rows.map(r => ({
     entity_type: r.entity_type,
     entity_id: r.entity_id,
     metric_name: r.metric_name,
     value: r.value,
-    uncertainty: r.uncertainty ?? null,
+    sigma: r.uncertainty ?? null,
     ci_lower: r.ci_lower ?? null,
     ci_upper: r.ci_upper ?? null,
     n: r.n ?? 1,

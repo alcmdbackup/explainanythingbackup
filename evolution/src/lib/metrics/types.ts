@@ -111,6 +111,9 @@ export interface FinalizationContext {
 
 // ─── DB Row Schema (Zod) ────────────────────────────────────────
 
+// The MetricRow shape uses `uncertainty` (application-layer field name).
+// DB column is still named `sigma` (RENAME DDL blocked by CI safety check);
+// readMetrics.ts + metricsActions.ts rename `sigma`→`uncertainty` at the query boundary.
 export const MetricRowSchema = z.object({
   id: z.string().uuid(),
   entity_type: z.enum(ENTITY_TYPES),
