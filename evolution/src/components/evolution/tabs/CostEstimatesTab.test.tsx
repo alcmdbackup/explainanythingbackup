@@ -110,12 +110,29 @@ describe('CostEstimatesTab — Run view', () => {
     expect(screen.getByTestId('cost-estimates-invocations')).toBeInTheDocument();
   });
 
-  it('shows pre-instrumentation badge when summary is empty', async () => {
+  it('shows pre-instrumentation badge when neither run-level summary NOR per-invocation estimates exist', async () => {
     getRunCostEstimatesAction.mockResolvedValue({ success: true, data: makeBaseRunData({
       summary: { totalCost: null, estimatedCost: null, absError: null, errorPct: null, budgetCap: null },
+      invocations: [
+        // No generationEstimate / rankingEstimate on any invocation
+        { id: 'inv-1', agentName: 'generate_from_seed_article', iteration: 1, strategy: null,
+          generationEstimate: null, generationActual: 0.05, rankingEstimate: null, rankingActual: 0.02,
+          totalCost: 0.07, estimationErrorPct: null },
+      ],
     }), error: null });
     render(<CostEstimatesTab entityType="run" entityId="run-1" />);
     await waitFor(() => expect(screen.getByTestId('cost-estimates-pre-instrumentation')).toBeInTheDocument());
+  });
+
+  it('shows rollup-missing badge when run-level summary is empty but per-invocation estimates exist', async () => {
+    getRunCostEstimatesAction.mockResolvedValue({ success: true, data: makeBaseRunData({
+      summary: { totalCost: 0.1, estimatedCost: null, absError: null, errorPct: null, budgetCap: 1.0 },
+      // makeBaseRunData's default invocations include generationEstimate / rankingEstimate values
+    }), error: null });
+    render(<CostEstimatesTab entityType="run" entityId="run-1" />);
+    await waitFor(() => expect(screen.getByTestId('cost-estimates-rollup-missing')).toBeInTheDocument());
+    // And NOT the pre-instrumentation badge
+    expect(screen.queryByTestId('cost-estimates-pre-instrumentation')).not.toBeInTheDocument();
   });
 
   it.each([

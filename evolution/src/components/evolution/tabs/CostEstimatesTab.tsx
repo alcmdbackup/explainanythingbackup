@@ -63,13 +63,22 @@ function RunCostEstimatesView({ runId }: { runId: string }): JSX.Element {
 
   const { summary, costByAgent, invocations, histogram, budgetFloorSensitivity } = data;
 
-  const hasAnyEstimateData = summary.estimatedCost != null || summary.errorPct != null;
+  const hasRunLevelEstimate = summary.estimatedCost != null || summary.errorPct != null;
+  const hasPerInvocationEstimate = invocations.some(
+    (i) => i.generationEstimate != null || i.rankingEstimate != null,
+  );
+  const hasAnyEstimateData = hasRunLevelEstimate || hasPerInvocationEstimate;
 
   return (
     <div className="space-y-6" data-testid="cost-estimates-tab">
       {!hasAnyEstimateData && (
         <Badge tone="info" testId="cost-estimates-pre-instrumentation">
           No estimation data (pre-instrumentation run)
+        </Badge>
+      )}
+      {!hasRunLevelEstimate && hasPerInvocationEstimate && (
+        <Badge tone="warning" testId="cost-estimates-rollup-missing">
+          Run-level estimation roll-up missing — per-invocation data shown below
         </Badge>
       )}
 
