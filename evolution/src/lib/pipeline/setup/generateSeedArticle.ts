@@ -99,7 +99,11 @@ export async function generateSeedArticle(
     'article generation',
   );
 
-  const content = `# ${title}\n\n${articleContent}`;
+  // Strip a leading H1 from the LLM output before prepending our title — many models
+  // ignore the "no title" instruction and emit their own H1, producing duplicated headers
+  // in the persisted seed (e.g. "# Fed\n\n# Fed\n\n…"). 2026-04-14.
+  const articleBody = articleContent.replace(/^\s*#\s+[^\n]*\n+/, '');
+  const content = `# ${title}\n\n${articleBody}`;
   const formatResult = validateFormat(content);
   if (!formatResult.valid) {
     logger?.warn('Seed article format validation issues', { issues: formatResult.issues, phaseName: 'seed_setup' });

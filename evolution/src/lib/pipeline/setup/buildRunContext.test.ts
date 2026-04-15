@@ -354,9 +354,20 @@ describe('loadArenaEntries', () => {
  * 2. loadArenaEntries: .select().eq().eq().is()  (awaited at .is()) — return []
  */
 function makeSeedAwareDb(opts: {
-  seedEntry?: { variant_content: string } | null;
+  seedEntry?: { variant_content: string; id?: string; mu?: number; sigma?: number; arena_match_count?: number; synced_to_arena?: boolean } | null;
   promptText?: string;
 }): SupabaseClient {
+  // Default the new fields so existing test cases continue to satisfy resolveContent's
+  // synced_to_arena invariant. Tests that want to assert seed-row-row reuse can override.
+  const enrichedSeed = opts.seedEntry ? {
+    id: 'seed-id',
+    mu: 25,
+    sigma: 8.333,
+    arena_match_count: 0,
+    synced_to_arena: true,
+    ...opts.seedEntry,
+  } : opts.seedEntry;
+  opts = { ...opts, seedEntry: enrichedSeed };
   return {
     from: jest.fn((table: string) => {
       const chain: Record<string, jest.Mock> = {} as Record<string, jest.Mock>;
@@ -478,6 +489,54 @@ describe('buildRunContext — seed reuse', () => {
     if ('context' in result) {
       expect(result.context.originalText).toBeNull();
       expect(result.context.seedPrompt).toBeDefined();
+    }
+  });
+
+  // ─── 2026-04-14: seedVariantRow load + EVOLUTION_REUSE_SEED_RATING gate ───
+
+  it('seed exists + EVOLUTION_REUSE_SEED_RATING=true: returns seedVariantRow with mu/sigma/match_count', async () => {
+    const prevFlag = process.env.EVOLUTION_REUSE_SEED_RATING;
+    process.env.EVOLUTION_REUSE_SEED_RATING = 'true';
+    try {
+      const db = makeSeedAwareDb({ seedEntry: {
+        id: 'seed-uuid-1', variant_content: '# Seed', mu: 18.75, sigma: 7.15, arena_match_count: 5, synced_to_arena: true,
+      } });
+      const result = await buildRunContext('run-1', promptRun, db, makeProvider());
+      expect('context' in result).toBe(true);
+      if ('context' in result) {
+        expect(result.context.seedVariantRow).toBeDefined();
+        expect(result.context.seedVariantRow?.id).toBe('seed-uuid-1');
+        expect(result.context.seedVariantRow?.mu).toBeCloseTo(18.75);
+        expect(result.context.seedVariantRow?.sigma).toBeCloseTo(7.15);
+        expect(result.context.seedVariantRow?.arena_match_count).toBe(5);
+        // Lossless string form preserved for optimistic-concurrency UPDATE.
+        expect(result.context.seedVariantRow?.muRaw).toBe('18.75');
+        expect(result.context.seedVariantRow?.sigmaRaw).toBe('7.15');
+      }
+    } finally {
+      if (prevFlag === undefined) delete process.env.EVOLUTION_REUSE_SEED_RATING;
+      else process.env.EVOLUTION_REUSE_SEED_RATING = prevFlag;
+    }
+  });
+
+  it('seed exists + EVOLUTION_REUSE_SEED_RATING=false: seedVariantRow is undefined (fallback)', async () => {
+    const prevFlag = process.env.EVOLUTION_REUSE_SEED_RATING;
+    process.env.EVOLUTION_REUSE_SEED_RATING = 'false';
+    try {
+      const db = makeSeedAwareDb({ seedEntry: {
+        id: 'seed-uuid-1', variant_content: '# Seed', mu: 18.75, sigma: 7.15, arena_match_count: 5, synced_to_arena: true,
+      } });
+      const result = await buildRunContext('run-1', promptRun, db, makeProvider());
+      expect('context' in result).toBe(true);
+      if ('context' in result) {
+        // originalText still resolved (text reuse is independent of rating reuse)
+        expect(result.context.originalText).toBe('# Seed');
+        // But seedVariantRow is omitted → runIterationLoop falls through to fresh-baseline path
+        expect(result.context.seedVariantRow).toBeUndefined();
+      }
+    } finally {
+      if (prevFlag === undefined) delete process.env.EVOLUTION_REUSE_SEED_RATING;
+      else process.env.EVOLUTION_REUSE_SEED_RATING = prevFlag;
     }
   });
 });

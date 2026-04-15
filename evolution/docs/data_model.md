@@ -465,9 +465,9 @@ export interface EvolutionRunSummary {
   eloHistory: number[];
   diversityHistory: number[];
   matchStats: { totalMatches: number; avgConfidence: number; decisiveRate: number };
-  topVariants: Array<{ id: string; strategy: string; elo: number; isBaseline: boolean }>;
-  baselineRank: number | null;
-  baselineElo: number | null;
+  topVariants: Array<{ id: string; strategy: string; elo: number; isSeedVariant: boolean }>;
+  seedVariantRank: number | null;
+  seedVariantElo: number | null;
   strategyEffectiveness: Record<string, { count: number; avgElo: number }>;
   metaFeedback: { successfulStrategies; recurringWeaknesses; patternsToAvoid; priorityImprovements } | null;
   actionCounts?: Record<string, number>;
@@ -475,7 +475,8 @@ export interface EvolutionRunSummary {
 ```
 
 **Auto-migration on read**: The `EvolutionRunSummarySchema` is a Zod discriminated union that transforms legacy formats to V3:
-- Legacy summaries written with `muHistory` / `baselineMu` / `avgMu` OpenSkill-scale fields are projected to the current Elo-scale `eloHistory` / `baselineElo` / `avgElo` shape on read.
+- Legacy summaries written with `muHistory` / `baselineMu` / `avgMu` OpenSkill-scale fields are projected to the current Elo-scale `eloHistory` / `seedVariantElo` / `avgElo` shape on read.
+- 2026-04-14: legacy V3 rows with `baselineRank` / `baselineElo` / `topVariants[].isBaseline` are auto-mapped to `seedVariantRank` / `seedVariantElo` / `isSeedVariant`. New writes emit only the new names.
 - Earlier ordinal-based shapes are likewise migrated forward.
 - **V3** passes through directly
 

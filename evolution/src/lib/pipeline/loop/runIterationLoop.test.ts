@@ -136,7 +136,7 @@ function seedSuccess(variantId: string, surfaced = true) {
   return {
     success: true,
     result: {
-      variant: { id: variantId, text: `seed-text-${variantId}`, version: 0, parentIds: [], strategy: 'seed_article', createdAt: 0, iterationBorn: 1 },
+      variant: { id: variantId, text: `seed-text-${variantId}`, version: 0, parentIds: [], strategy: 'seed_variant', createdAt: 0, iterationBorn: 1 },
       status: 'converged',
       surfaced,
       matches: [],
@@ -363,10 +363,43 @@ describe('evolveArticle — seed agent (seedPrompt option)', () => {
     const result = await evolveArticle('original text', makeProvider(), makeDb() as never, 'run-1', makeConfig());
 
     expect(mockSeedRun).not.toHaveBeenCalled();
-    const baselineVariant = result.pool.find((v) => v.strategy === 'baseline');
-    expect(baselineVariant).toBeDefined();
-    expect(baselineVariant?.text).toBe('original text');
+    const seedVariant = result.pool.find((v) => v.strategy === 'seed_variant');
+    expect(seedVariant).toBeDefined();
+    expect(seedVariant?.text).toBe('original text');
+    expect(seedVariant?.reusedFromSeed).toBeFalsy(); // fresh, not a reused seed
     expect(result.isSeeded).toBeFalsy();
+  });
+
+  it('with seedVariantRow: pool[0] reuses seed UUID + dbToRating(mu, sigma); reusedFromSeed=true', async () => {
+    mockGenerateRun.mockResolvedValue(generateSuccess('vn'));
+    mockSwissRun.mockResolvedValue({
+      success: true, result: { pairs: [], matches: [], status: 'no_pairs' },
+      cost: 0, durationMs: 1, invocationId: 'inv-swiss',
+    });
+
+    const SEED_ID = 'seed-uuid-fed';
+    const result = await evolveArticle('seed article text', makeProvider(), makeDb() as never, 'run-1', makeConfig(), {
+      seedVariantRow: {
+        id: SEED_ID,
+        mu: 18.75,
+        sigma: 7.15,
+        arena_match_count: 5,
+        muRaw: '18.75',
+        sigmaRaw: '7.15',
+      },
+    });
+
+    const seedEntry = result.pool.find((v) => v.id === SEED_ID);
+    expect(seedEntry).toBeDefined();
+    expect(seedEntry?.strategy).toBe('seed_variant');
+    expect(seedEntry?.reusedFromSeed).toBe(true);
+    expect(seedEntry?.fromArena).toBeFalsy(); // mutex with reusedFromSeed
+    expect(seedEntry?.arenaMatchCount).toBe(5);
+    // Rating reflects dbToRating(18.75, 7.15) — Elo ≈ 1200 + (18.75-25)*16 = 1100; uncertainty = 7.15*16 ≈ 114.4
+    const rating = result.ratings.get(SEED_ID);
+    expect(rating).toBeDefined();
+    expect(rating?.elo).toBeCloseTo(1100, 0);
+    expect(rating?.uncertainty).toBeCloseTo(114.4, 0);
   });
 
   it('with seedPrompt: seed agent runs before generate agents in iteration 1', async () => {
@@ -384,7 +417,7 @@ describe('evolveArticle — seed agent (seedPrompt option)', () => {
     expect(seedInput.promptText).toBe('Explain quantum computing');
   });
 
-  it('seed success: seedVariant + baseline added to pool, isSeeded=true in result', async () => {
+  it('seed success: ONE seed_variant added to pool (no duplicate seedBaseline), isSeeded=true', async () => {
     mockSeedRun.mockResolvedValue(seedSuccess('seed-v1'));
     mockGenerateRun.mockResolvedValue(generateSuccess('gen-v'));
     mockSwissRun.mockResolvedValue({
@@ -395,13 +428,12 @@ describe('evolveArticle — seed agent (seedPrompt option)', () => {
     const result = await evolveArticle('', makeProvider(), makeDb() as never, 'run-1', makeConfig(), { seedPrompt: 'test' });
 
     expect(result.isSeeded).toBe(true);
-    // Seed variant and baseline both in pool
-    const seedVariant = result.pool.find((v) => v.strategy === 'seed_article');
-    const baseline = result.pool.find((v) => v.strategy === 'baseline');
-    expect(seedVariant).toBeDefined();
-    expect(baseline).toBeDefined();
-    // Baseline text matches seed text
-    expect(baseline?.text).toBe('seed-text-seed-v1');
+    // The seed agent's output IS the single seed_variant pool entry — no duplicate
+    // seedBaseline shadow row (eliminated 2026-04-14 to avoid double-counting the seed).
+    const seedVariants = result.pool.filter((v) => v.strategy === 'seed_variant');
+    expect(seedVariants).toHaveLength(1);
+    expect(seedVariants[0]?.id).toBe('seed-v1');
+    expect(seedVariants[0]?.text).toBe('seed-text-seed-v1');
   });
 
   it('generate agents after seed use the seed text as originalText', async () => {
@@ -481,7 +513,7 @@ describe('evolveArticle — seed agent (seedPrompt option)', () => {
     await evolveArticle('', makeProvider(), makeDb() as never, 'run-1', makeConfig(), { seedPrompt: 'test' });
 
     const seedInput = mockSeedRun.mock.calls[0][0] as { initialPool: Array<{ strategy: string }> };
-    const baselineInSeedInput = seedInput.initialPool.filter((v) => v.strategy === 'baseline');
-    expect(baselineInSeedInput).toHaveLength(0);
+    const seedVariantInSeedInput = seedInput.initialPool.filter((v) => v.strategy === 'seed_variant');
+    expect(seedVariantInSeedInput).toHaveLength(0);
   });
 });

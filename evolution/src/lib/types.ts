@@ -675,10 +675,10 @@ export interface EvolutionRunSummary {
     id: string;
     strategy: string;
     elo: number;
-    isBaseline: boolean;
+    isSeedVariant: boolean;
   }>;
-  baselineRank: number | null;
-  baselineElo: number | null;
+  seedVariantRank: number | null;
+  seedVariantElo: number | null;
   strategyEffectiveness: Record<string, {
     count: number;
     avgElo: number;

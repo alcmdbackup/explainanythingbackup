@@ -1,0 +1,50 @@
+name: Verify Seed Reuse
+
+# Manually triggered post-deploy verification: confirms a specific run reused the
+# persisted seed row (no duplicate baseline INSERT, seed row's arena_match_count grew).
+# Non-blocking — operator runs after deploying the seed-reuse change to verify behavior
+# on a real run. See scripts/verify-seed-reuse.ts and evolution/docs/reference.md.
+
+on:
+  workflow_dispatch:
+    inputs:
+      run-id:
+        description: 'evolution_runs.id to verify (UUID)'
+        required: true
+        type: string
+      target:
+        description: 'Database target'
+        required: true
+        type: choice
+        default: staging
+        options:
+          - staging
+          - prod
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - name: Materialize ${{ inputs.target }} readonly env file
+        env:
+          STAGING_READONLY_DATABASE_URL: ${{ secrets.STAGING_READONLY_DATABASE_URL }}
+          PROD_READONLY_DATABASE_URL: ${{ secrets.PROD_READONLY_DATABASE_URL }}
+        run: |
+          if [ "${{ inputs.target }}" = "staging" ]; then
+            echo "STAGING_READONLY_DATABASE_URL=$STAGING_READONLY_DATABASE_URL" > .env.staging.readonly
+          else
+            echo "PROD_READONLY_DATABASE_URL=$PROD_READONLY_DATABASE_URL" > .env.prod.readonly
+          fi
+
+      - name: Run verify-seed-reuse.ts
+        run: npx tsx scripts/verify-seed-reuse.ts --run-id=${{ inputs.run-id }} --target=${{ inputs.target }}

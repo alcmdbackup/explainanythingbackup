@@ -235,8 +235,11 @@ async function executePipeline(
     throw new Error(contextResult.error);
   }
 
-  const { originalText, config, logger: runLogger, initialPool, randomSeed, seedPrompt } = contextResult.context;
-  runLogger.info('Run context built', { initialPoolSize: initialPool.length, phaseName: 'setup', randomSeed: randomSeed.toString(), seeded: !!seedPrompt });
+  const { originalText, config, logger: runLogger, initialPool, randomSeed, seedPrompt, seedVariantRow } = contextResult.context;
+  runLogger.info('Run context built', {
+    initialPoolSize: initialPool.length, phaseName: 'setup', randomSeed: randomSeed.toString(),
+    seeded: !!seedPrompt, reusedSeedId: seedVariantRow?.id,
+  });
 
   runLogger.info('Starting evolution loop', {
     iterations: config.iterations, budgetUsd: config.budgetUsd,
@@ -252,6 +255,7 @@ async function executePipeline(
     signal,
     randomSeed,
     seedPrompt,
+    seedVariantRow,
   });
   runLogger.info('Evolution loop completed', {
     stopReason: result.stopReason, iterations: result.iterationsRun,
@@ -269,7 +273,16 @@ async function executePipeline(
 
   if (claimedRun.prompt_id) {
     try {
-      await syncToArena(runId, claimedRun.prompt_id, result.pool, result.ratings, result.matchHistory, db, result.isSeeded ?? false, runLogger);
+      const reusedSeedSnapshot = seedVariantRow ? {
+        id: seedVariantRow.id,
+        muRaw: seedVariantRow.muRaw,
+        sigmaRaw: seedVariantRow.sigmaRaw,
+        arena_match_count: seedVariantRow.arena_match_count,
+      } : undefined;
+      await syncToArena(
+        runId, claimedRun.prompt_id, result.pool, result.ratings, result.matchHistory,
+        db, result.isSeeded ?? false, runLogger, reusedSeedSnapshot,
+      );
     } catch (err) {
       runLogger.warn('Arena sync failed', { phaseName: 'arena', error: (err instanceof Error ? err.message : String(err)).slice(0, 500) });
     }

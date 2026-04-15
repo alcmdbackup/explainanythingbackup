@@ -293,6 +293,8 @@ export const variantSchema = z.object({
   iterationBorn: z.number().int().min(0),
   costUsd: z.number().min(0).optional(),
   fromArena: z.boolean().optional(),
+  reusedFromSeed: z.boolean().optional(),
+  arenaMatchCount: z.number().int().min(0).optional(),
 });
 
 export type VariantSchema = z.infer<typeof variantSchema>;
@@ -1038,9 +1040,17 @@ export type AgentExecutionDetailSchema = z.infer<typeof agentExecutionDetailSche
  *  preprocess step renames those to `eloHistory`/`baselineElo`/`avgElo`/`elo`. Values in
  *  legacy payloads are already Elo-scale (per persistRunResults refactor); truly old mu-scale
  *  values (<100) are handled by display-layer heuristics in MetricsTab/visualizationActions. */
-const topVariantRename = renameKeys({ mu: 'elo' });
+const topVariantRename = renameKeys({ mu: 'elo', isBaseline: 'isSeedVariant' });
 const strategyEffectivenessEntryRename = renameKeys({ avgMu: 'avgElo' });
-const runSummaryV3Rename = renameKeys({ muHistory: 'eloHistory', baselineMu: 'baselineElo' });
+// 2026-04-14: rename baseline → seed variant. Legacy V3 rows still use baselineRank/baselineElo;
+// preprocess maps them so .strict() schema accepts both shapes. New writes emit new names only.
+// renameKeys is single-pass, so map every legacy alias directly to the current key name.
+const runSummaryV3Rename = renameKeys({
+  muHistory: 'eloHistory',
+  baselineMu: 'seedVariantElo',     // legacy mu-scale → current
+  baselineElo: 'seedVariantElo',    // legacy V3 elo-scale → current
+  baselineRank: 'seedVariantRank',
+});
 
 const _EvolutionRunSummaryV3Inner = z.object({
   version: z.literal(3),
@@ -1064,11 +1074,11 @@ const _EvolutionRunSummaryV3Inner = z.object({
       id: z.string().max(200),
       strategy: z.string().max(100),
       elo: z.number(),
-      isBaseline: z.boolean(),
+      isSeedVariant: z.boolean(),
     }),
   )).max(10),
-  baselineRank: z.number().int().min(1).nullable(),
-  baselineElo: z.number().nullable(),
+  seedVariantRank: z.number().int().min(1).nullable(),
+  seedVariantElo: z.number().nullable(),
   strategyEffectiveness: z.record(z.string(), z.preprocess(
     strategyEffectivenessEntryRename,
     z.object({
@@ -1099,9 +1109,9 @@ interface EvolutionRunSummaryV3 {
   eloHistory: number[][];
   diversityHistory: number[];
   matchStats: { totalMatches: number; avgConfidence: number; decisiveRate: number };
-  topVariants: Array<{ id: string; strategy: string; elo: number; isBaseline: boolean }>;
-  baselineRank: number | null;
-  baselineElo: number | null;
+  topVariants: Array<{ id: string; strategy: string; elo: number; isSeedVariant: boolean }>;
+  seedVariantRank: number | null;
+  seedVariantElo: number | null;
   strategyEffectiveness: Record<string, { count: number; avgElo: number }>;
   metaFeedback: {
     successfulStrategies: string[];
@@ -1158,9 +1168,9 @@ const EvolutionRunSummaryV2Schema = z.object({
   eloHistory: v2.ordinalHistory.map((ord) => [legacyToMu(ord)]),
   diversityHistory: v2.diversityHistory,
   matchStats: v2.matchStats,
-  topVariants: v2.topVariants.map((tv) => ({ id: tv.id, strategy: tv.strategy, elo: legacyToMu(tv.ordinal), isBaseline: tv.isBaseline })),
-  baselineRank: v2.baselineRank,
-  baselineElo: v2.baselineOrdinal != null ? legacyToMu(v2.baselineOrdinal) : null,
+  topVariants: v2.topVariants.map((tv) => ({ id: tv.id, strategy: tv.strategy, elo: legacyToMu(tv.ordinal), isSeedVariant: tv.isBaseline })),
+  seedVariantRank: v2.baselineRank,
+  seedVariantElo: v2.baselineOrdinal != null ? legacyToMu(v2.baselineOrdinal) : null,
   strategyEffectiveness: Object.fromEntries(
     Object.entries(v2.strategyEffectiveness).map(([k, v]) => [k, { count: v.count, avgElo: legacyToMu(v.avgOrdinal) }]),
   ),
@@ -1208,9 +1218,9 @@ const EvolutionRunSummaryV1Schema = z.object({
   eloHistory: v1.eloHistory.map((ord) => [legacyToMu(ord)]),
   diversityHistory: v1.diversityHistory,
   matchStats: v1.matchStats,
-  topVariants: v1.topVariants.map((tv) => ({ id: tv.id, strategy: tv.strategy, elo: legacyToMu(tv.elo), isBaseline: tv.isBaseline })),
-  baselineRank: v1.baselineRank,
-  baselineElo: v1.baselineElo != null ? legacyToMu(v1.baselineElo) : null,
+  topVariants: v1.topVariants.map((tv) => ({ id: tv.id, strategy: tv.strategy, elo: legacyToMu(tv.elo), isSeedVariant: tv.isBaseline })),
+  seedVariantRank: v1.baselineRank,
+  seedVariantElo: v1.baselineElo != null ? legacyToMu(v1.baselineElo) : null,
   strategyEffectiveness: Object.fromEntries(
     Object.entries(v1.strategyEffectiveness).map(([k, v]) => [k, { count: v.count, avgElo: legacyToMu(v.avgElo) }]),
   ),

@@ -8,7 +8,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Variant } from '../../types';
 import { createVariant } from '../../types';
 import type { Rating, ComparisonResult } from '../../shared/computeRatings';
-import { createRating, isConverged, DEFAULT_CONVERGENCE_UNCERTAINTY } from '../../shared/computeRatings';
+import { createRating, dbToRating, isConverged, DEFAULT_CONVERGENCE_UNCERTAINTY } from '../../shared/computeRatings';
 import type { EvolutionConfig, EvolutionResult, V2Match } from '../infra/types';
 
 import { createCostTracker } from '../infra/trackBudget';
@@ -162,6 +162,16 @@ export async function evolveArticle(
     randomSeed?: bigint;
     /** When set, skip eager baseline creation and run CreateSeedArticleAgent in iteration 1. */
     seedPrompt?: string;
+    /** When set, the persisted seed for this prompt — pool[0] reuses its UUID and rating
+     *  instead of creating a fresh baseline. Post-run rating updates route through arenaUpdates. */
+    seedVariantRow?: {
+      id: string;
+      mu: number;
+      sigma: number;
+      arena_match_count: number;
+      muRaw: string;
+      sigmaRaw: string;
+    };
   },
 ): Promise<EvolutionResult> {
   validateConfig(config);
@@ -207,12 +217,38 @@ export async function evolveArticle(
   const iterationSnapshots: IterationSnapshot[] = [];
   const discardedVariants: Variant[] = [];
 
-  // Insert baseline — deferred when seedPrompt is set (CreateSeedArticleAgent creates it in iter 1).
+  // Insert seed variant — deferred when seedPrompt is set (CreateSeedArticleAgent creates it in iter 1).
   if (!options?.seedPrompt) {
-    const baseline = createVariant({ text: originalText, strategy: 'baseline', iterationBorn: 0, parentIds: [], version: 0 });
-    pool.push(baseline);
-    ratings.set(baseline.id, createRating());
-    logger.debug('Baseline variant added', { variantId: baseline.id, poolSize: pool.length, phaseName: 'initialization' });
+    const seedRow = options?.seedVariantRow;
+    if (seedRow) {
+      // Reuse the persisted seed: same UUID, persisted mu/sigma → run-level rating, reusedFromSeed flag
+      // routes post-run match updates through arenaUpdates (UPSERT) instead of a new INSERT.
+      const seedVariant: Variant = {
+        id: seedRow.id,
+        text: originalText,
+        version: 0,
+        parentIds: [],
+        strategy: 'seed_variant',
+        createdAt: Date.now() / 1000,
+        iterationBorn: 0,
+        reusedFromSeed: true,
+        arenaMatchCount: seedRow.arena_match_count,
+      };
+      pool.push(seedVariant);
+      ratings.set(seedVariant.id, dbToRating(seedRow.mu, seedRow.sigma));
+      logger.debug('Seed variant reused from persisted row', {
+        variantId: seedVariant.id, mu: seedRow.mu, sigma: seedRow.sigma,
+        arenaMatchCount: seedRow.arena_match_count, poolSize: pool.length,
+        phaseName: 'initialization',
+      });
+    } else {
+      // No persisted seed (first-run for this prompt OR explanation_id flow OR flag disabled):
+      // create a fresh seed_variant with default rating.
+      const seedVariant = createVariant({ text: originalText, strategy: 'seed_variant', iterationBorn: 0, parentIds: [], version: 0 });
+      pool.push(seedVariant);
+      ratings.set(seedVariant.id, createRating());
+      logger.debug('Fresh seed variant added (no persisted seed)', { variantId: seedVariant.id, poolSize: pool.length, phaseName: 'initialization' });
+    }
   }
 
   // Load initial pool entries (e.g., arena entries with existing ratings).
@@ -358,22 +394,13 @@ export async function evolveArticle(
         const seedVariant = seedResult.result.variant;
         currentOriginalText = seedVariant.text;
 
-        // Add seed variant to pool with fresh rating.
+        // Add seed variant to pool with fresh rating. This SAME variant serves as both
+        // the source text for transforms AND the run's seed_variant pool member.
+        // (Previously a separate seedBaseline duplicate was created — eliminated to avoid
+        // two pool entries representing the same article.)
         pool.push(seedVariant);
         ratings.set(seedVariant.id, createRating());
         matchCounts.set(seedVariant.id, 0);
-
-        // Create and add baseline from seed text.
-        const seedBaseline = createVariant({
-          text: seedVariant.text,
-          strategy: 'baseline',
-          iterationBorn: iteration,
-          parentIds: [],
-          version: 0,
-        });
-        pool.push(seedBaseline);
-        ratings.set(seedBaseline.id, createRating());
-        matchCounts.set(seedBaseline.id, 0);
 
         // Buffer seed's matches for MergeRatingsAgent at end of this iteration.
         if (seedResult.result.matches.length > 0) {
@@ -381,8 +408,8 @@ export async function evolveArticle(
         }
 
         isSeeded = true;
-        logger.info('Seed agent succeeded; baseline created from seed', {
-          seedVariantId: seedVariant.id, baselineId: seedBaseline.id,
+        logger.info('Seed agent succeeded; using seed variant directly (no duplicate)', {
+          seedVariantId: seedVariant.id,
           poolSize: pool.length, phaseName: 'seed_generation',
         });
       }

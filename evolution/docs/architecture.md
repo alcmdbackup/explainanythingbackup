@@ -409,7 +409,14 @@ After the loop exits, the winner is selected from the full pool:
 
 1. Highest `elo` (mean skill rating, Elo-scale).
 2. Tie-break: lowest `uncertainty` (most certain rating).
-3. Fallback: `pool[0]` (the baseline) if no variant has a rating.
+3. Fallback: `pool[0]` (the seed variant — formerly called "baseline"; renamed 2026-04-14) if no variant has a rating.
+
+> **Seed variant (formerly "baseline"):** The first pool member, derived from the prompt's
+> persisted seed article. For prompt-based runs with an existing seed (`generation_method='seed'`,
+> `synced_to_arena=true`), the run **reuses the seed row's UUID and persisted mu/sigma rating**
+> instead of creating a fresh baseline; post-run rating updates flow back to the same row via
+> an optimistic-concurrency UPDATE. Gated by `EVOLUTION_REUSE_SEED_RATING` (default `true`).
+> See [reference.md](./reference.md) for env var details.
 
 The `SelectWinnerResult` type is `{winnerId, elo, uncertainty}`.
 

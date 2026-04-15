@@ -102,7 +102,11 @@ function makeDb(opts: { hasSeedInArena?: boolean; explanationContent?: string; p
         t.order = jest.fn(() => t);
         t.limit = jest.fn(() => t);
         t.single = jest.fn(async () => ({
-          data: opts.hasSeedInArena ? { variant_content: SEED_CONTENT } : null,
+          // Enriched 2026-04-14: seed query now reads id/mu/sigma/arena_match_count/synced_to_arena
+          // for seed-rating reuse via SeedVariantRow.
+          data: opts.hasSeedInArena
+            ? { id: 'seed-row-uuid', variant_content: SEED_CONTENT, mu: 25, sigma: 8.333, arena_match_count: 0, synced_to_arena: true }
+            : null,
           error: null,
         }));
         t.then = (resolve: (v: { data: unknown[]; error: null }) => unknown) =>
@@ -235,7 +239,7 @@ describe('seed cost integration — evolveArticle seed agent flow', () => {
 
     expect(mockSeedRun).not.toHaveBeenCalled();
     // Baseline should be created from seed content
-    const baseline = result.pool.find((v) => v.strategy === 'baseline');
+    const baseline = result.pool.find((v) => v.strategy === 'seed_variant');
     expect(baseline?.text).toBe(SEED_CONTENT);
     expect(result.isSeeded).toBeFalsy();
   });
@@ -252,7 +256,7 @@ describe('seed cost integration — evolveArticle seed agent flow', () => {
     );
 
     expect(mockSeedRun).not.toHaveBeenCalled();
-    const baseline = result.pool.find((v) => v.strategy === 'baseline');
+    const baseline = result.pool.find((v) => v.strategy === 'seed_variant');
     expect(baseline?.text).toBe(explanationContent);
     expect(result.isSeeded).toBeFalsy();
   });

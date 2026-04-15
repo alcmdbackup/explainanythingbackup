@@ -53,7 +53,7 @@ function makeVariant(id: string, strategy = 'test', opts?: Partial<Variant>): Va
 
 function makeResult(overrides?: Partial<EvolutionResult>): EvolutionResult {
   const pool = [
-    makeVariant(BASELINE_ID, 'baseline'),
+    makeVariant(BASELINE_ID, 'seed_variant'),
     makeVariant(GEN1_ID, 'structural_transform'),
     makeVariant(GEN2_ID, 'lexical_simplify'),
   ];
@@ -186,22 +186,22 @@ describe('finalizeRun', () => {
     expect(matchStats.decisiveRate).toBeCloseTo(2 / 3); // 0.9 and 0.7 > 0.6
   });
 
-  it('topVariants: top 5 by elo with isBaseline flag', async () => {
+  it('topVariants: top 5 by elo with isSeedVariant flag (renamed from isBaseline)', async () => {
     const { db, updates } = makeMockDb();
     await finalizeRun(RUN_ID, makeResult(), { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
     const summary = updates.find((u) => u.data.run_summary)?.data.run_summary as Record<string, unknown>;
-    const topVariants = summary.topVariants as Array<{ isBaseline: boolean; elo: number }>;
+    const topVariants = summary.topVariants as Array<{ isSeedVariant: boolean; elo: number }>;
     expect(topVariants[0]!.elo).toBe(1280); // gen-1 highest (elo)
-    const baseline = topVariants.find((v) => v.isBaseline);
-    expect(baseline).toBeDefined();
+    const seedVariant = topVariants.find((v) => v.isSeedVariant);
+    expect(seedVariant).toBeDefined();
   });
 
-  it('baselineRank/baselineElo correct', async () => {
+  it('seedVariantRank/seedVariantElo correct (renamed from baselineRank/baselineElo)', async () => {
     const { db, updates } = makeMockDb();
     await finalizeRun(RUN_ID, makeResult(), { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
     const summary = updates.find((u) => u.data.run_summary)?.data.run_summary as Record<string, unknown>;
-    expect(summary.baselineRank).toBe(3); // 3rd of 3
-    expect(summary.baselineElo).toBe(1200);
+    expect(summary.seedVariantRank).toBe(3); // 3rd of 3
+    expect(summary.seedVariantElo).toBe(1200);
   });
 
   it('strategyEffectiveness computed', async () => {
@@ -209,8 +209,8 @@ describe('finalizeRun', () => {
     await finalizeRun(RUN_ID, makeResult(), { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
     const summary = updates.find((u) => u.data.run_summary)?.data.run_summary as Record<string, unknown>;
     const se = summary.strategyEffectiveness as Record<string, { count: number; avgElo: number }>;
-    expect(se['baseline']!.count).toBe(1);
-    expect(se['baseline']!.avgElo).toBe(1200);
+    expect(se['seed_variant']!.count).toBe(1);
+    expect(se['seed_variant']!.avgElo).toBe(1200);
     expect(se['structural_transform']!.count).toBe(1);
   });
 
@@ -823,7 +823,7 @@ describe('syncToArena — isSeeded flag', () => {
   it('isSeeded=true: baseline variant gets generation_method=seed', async () => {
     const supabase = createMockArenaSupabase();
     const pool: Variant[] = [
-      makeVariant(V1_ID, 'baseline', { text: '# Seed' }),        // baseline → seed
+      makeVariant(V1_ID, 'seed_variant', { text: '# Seed' }),        // baseline → seed
       makeVariant(V_NEW_ID, 'structural_transform', { text: '# Gen' }), // non-baseline → pipeline
     ];
     const ratings = new Map<string, Rating>([
@@ -844,7 +844,7 @@ describe('syncToArena — isSeeded flag', () => {
   it('isSeeded=false: all variants get generation_method=pipeline regardless of strategy', async () => {
     const supabase = createMockArenaSupabase();
     const pool: Variant[] = [
-      makeVariant(V1_ID, 'baseline', { text: '# Base' }),
+      makeVariant(V1_ID, 'seed_variant', { text: '# Base' }),
       makeVariant(V_NEW_ID, 'structural_transform', { text: '# Gen' }),
     ];
     const ratings = new Map<string, Rating>([
@@ -864,7 +864,7 @@ describe('syncToArena — isSeeded flag', () => {
   it('arena entries are excluded from p_entries regardless of isSeeded value', async () => {
     const supabase = createMockArenaSupabase();
     const pool: Variant[] = [
-      makeVariant(V_NEW_ID, 'baseline', { text: '# Base' }),
+      makeVariant(V_NEW_ID, 'seed_variant', { text: '# Base' }),
       makeArenaVariant({ id: V_ARENA_ID, text: '# Arena', arenaMatchCount: 5 }),
     ];
     const ratings = new Map<string, Rating>([
@@ -878,6 +878,112 @@ describe('syncToArena — isSeeded flag', () => {
     const entries = call[1].p_entries as Array<{ id: string }>;
     expect(entries.every((e) => e.id !== V_ARENA_ID)).toBe(true);
     expect(entries.some((e) => e.id === V_NEW_ID)).toBe(true);
+  });
+});
+
+// ─── 2026-04-14: reusedFromSeed routing ─────────────────────────
+
+describe('syncToArena — reusedFromSeed routing', () => {
+  function makeReusedSeedSupabase(opts: { updateCount?: number; updateError?: { message: string } | null } = {}) {
+    let eqDepth = 0;
+    const mockUpdateChain: { eq: jest.Mock } = { eq: jest.fn() };
+    mockUpdateChain.eq.mockImplementation(() => {
+      eqDepth++;
+      if (eqDepth === 4) {
+        return Promise.resolve({ count: opts.updateCount ?? 1, error: opts.updateError ?? null });
+      }
+      return mockUpdateChain;
+    });
+    return {
+      rpc: jest.fn().mockResolvedValue({ error: null }),
+      from: jest.fn().mockReturnValue({
+        update: jest.fn().mockReturnValue(mockUpdateChain),
+      }),
+    } as unknown as jest.Mocked<SupabaseClient>;
+  }
+
+  const SEED_ID = 'seed-uuid-fed';
+  function makeReusedSeedPool(): Variant[] {
+    return [
+      { ...makeVariant(SEED_ID, 'seed_variant', { text: '# Seed' }), reusedFromSeed: true, arenaMatchCount: 5 },
+      makeVariant(V_NEW_ID, 'structural_transform', { text: '# Gen' }),
+    ];
+  }
+
+  it('reusedFromSeed variant is excluded from p_entries (no duplicate INSERT)', async () => {
+    const supabase = makeReusedSeedSupabase();
+    const pool = makeReusedSeedPool();
+    const ratings = new Map<string, Rating>([
+      [SEED_ID, { elo: 1300, uncertainty: 100 }],
+      [V_NEW_ID, { elo: 1184, uncertainty: 128 }],
+    ]);
+    const matches = [{ winnerId: SEED_ID, loserId: V_NEW_ID, confidence: 0.8, result: 'win' as const, judgeModel: 'm', reversed: false }];
+    await syncToArena(RUN_ID, PROMPT_ID, pool, ratings, matches, supabase, false, undefined, {
+      id: SEED_ID, muRaw: '25', sigmaRaw: '8.333', arena_match_count: 5,
+    });
+    const rpcCall = (supabase.rpc as jest.Mock).mock.calls[0];
+    const entries = rpcCall[1].p_entries as Array<{ id: string }>;
+    expect(entries.some((e) => e.id === SEED_ID)).toBe(false);
+    expect(entries.some((e) => e.id === V_NEW_ID)).toBe(true);
+  });
+
+  it('reusedFromSeed + matches > 0: emits optimistic-concurrency UPDATE with id+mu+sigma+arena_match_count', async () => {
+    const supabase = makeReusedSeedSupabase({ updateCount: 1 });
+    const pool = makeReusedSeedPool();
+    const ratings = new Map<string, Rating>([
+      [SEED_ID, { elo: 1300, uncertainty: 100 }],
+      [V_NEW_ID, { elo: 1184, uncertainty: 128 }],
+    ]);
+    const matches = [{ winnerId: SEED_ID, loserId: V_NEW_ID, confidence: 0.8, result: 'win' as const, judgeModel: 'm', reversed: false }];
+    await syncToArena(RUN_ID, PROMPT_ID, pool, ratings, matches, supabase, false, undefined, {
+      id: SEED_ID, muRaw: '18.747996042000842', sigmaRaw: '7.155040669655484', arena_match_count: 5,
+    });
+    expect((supabase.from as jest.Mock)).toHaveBeenCalledWith('evolution_variants');
+    const updateChain = (supabase.from as jest.Mock).mock.results[0]?.value as { update: jest.Mock };
+    expect(updateChain.update).toHaveBeenCalled();
+    const updateChainResult = updateChain.update.mock.results[0]?.value as { eq: jest.Mock };
+    // 4x .eq() calls: id, mu, sigma, arena_match_count
+    expect(updateChainResult.eq).toHaveBeenCalledTimes(4);
+    expect(updateChainResult.eq).toHaveBeenNthCalledWith(1, 'id', SEED_ID);
+    expect(updateChainResult.eq).toHaveBeenNthCalledWith(2, 'mu', '18.747996042000842');
+    expect(updateChainResult.eq).toHaveBeenNthCalledWith(3, 'sigma', '7.155040669655484');
+    expect(updateChainResult.eq).toHaveBeenNthCalledWith(4, 'arena_match_count', 5);
+  });
+
+  it('optimistic-concurrency collision: 0-row UPDATE → WARN log + collision metric, no throw', async () => {
+    const supabase = makeReusedSeedSupabase({ updateCount: 0 });
+    const pool = makeReusedSeedPool();
+    const ratings = new Map<string, Rating>([
+      [SEED_ID, { elo: 1300, uncertainty: 100 }],
+      [V_NEW_ID, { elo: 1184, uncertainty: 128 }],
+    ]);
+    const matches = [{ winnerId: SEED_ID, loserId: V_NEW_ID, confidence: 0.8, result: 'win' as const, judgeModel: 'm', reversed: false }];
+    const warnCalls: Array<{ msg: string; ctx: Record<string, unknown> }> = [];
+    const logger = {
+      info: jest.fn(), debug: jest.fn(), error: jest.fn(),
+      warn: jest.fn((msg: string, ctx: Record<string, unknown>) => { warnCalls.push({ msg, ctx }); }),
+    };
+    await syncToArena(RUN_ID, PROMPT_ID, pool, ratings, matches, supabase, false, logger, {
+      id: SEED_ID, muRaw: '18.75', sigmaRaw: '7.15', arena_match_count: 5,
+    });
+    const collisionWarn = warnCalls.find((w) => w.msg.includes('evolution.seed_rating.collision'));
+    expect(collisionWarn).toBeDefined();
+    expect(collisionWarn?.ctx.seedId).toBe(SEED_ID);
+    expect(collisionWarn?.ctx.loadedMu).toBe('18.75');
+  });
+
+  it('reusedFromSeed + matches = 0: no UPDATE emitted (seed untouched)', async () => {
+    const supabase = makeReusedSeedSupabase();
+    const pool = makeReusedSeedPool();
+    const ratings = new Map<string, Rating>([
+      [SEED_ID, { elo: 1100, uncertainty: 114 }],
+      [V_NEW_ID, { elo: 1184, uncertainty: 128 }],
+    ]);
+    // No matches involving the seed
+    await syncToArena(RUN_ID, PROMPT_ID, pool, ratings, [], supabase, false, undefined, {
+      id: SEED_ID, muRaw: '18.75', sigmaRaw: '7.15', arena_match_count: 5,
+    });
+    expect((supabase.from as jest.Mock)).not.toHaveBeenCalled();
   });
 });
 
