@@ -6,7 +6,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { EvolutionLLMClient, LLMCompletionOptions } from '../../types';
 import { BudgetExceededError } from '../../types';
 import { isTransientError } from '../../shared/classifyErrors';
-import { getModelPricing, type ModelPricing } from '@/config/llmPricing';
+import { getModelPricing, calculateLLMCost, type ModelPricing } from '@/config/llmPricing';
 import type { V2CostTracker } from './trackBudget';
 import type { EntityLogger } from './createEntityLogger';
 import { writeMetricMax } from '../../metrics/writeMetrics';
@@ -117,8 +117,9 @@ export function createEvolutionLLMClient(
           ]);
 
           // Discriminate raw-provider shape: bare string (legacy) vs {text, usage} (new).
-          // Phase 2 will use `usage` to drive recordSpend via calculateLLMCost;
-          // Phase 1 accepts the shape but still uses the chars/4 heuristic below.
+          // When usage is present we compute actual cost from real provider-billed tokens
+          // via calculateLLMCost — the same helper llmCallTracking.estimated_cost_usd uses.
+          // Falls back to chars/4 heuristic only when the raw provider didn't supply usage.
           const response: string = typeof rawResponse === 'string' ? rawResponse : rawResponse.text;
           const usage: RawProviderUsage | null = typeof rawResponse === 'string' ? null : rawResponse.usage;
 
@@ -127,9 +128,13 @@ export function createEvolutionLLMClient(
             throw new Error('Empty LLM response');
           }
 
-          // Success — record actual cost (Phase 1: still chars/4; Phase 2 will swap to token-based).
-          void usage; // reserved for Phase 2 swap
-          const actual = calculateCost(prompt.length, response.length, pricing);
+          // Success — record actual cost.
+          // Prefer token-based cost from provider usage (fixes Bug A: string-length heuristic
+          // was 30-800% inflated for deepseek-chat and similar models). Fall back to chars/4
+          // only when the raw provider predates the {text, usage} contract.
+          const actual = usage && Number.isFinite(usage.promptTokens) && Number.isFinite(usage.completionTokens)
+            ? calculateLLMCost(model, usage.promptTokens, usage.completionTokens, usage.reasoningTokens ?? 0)
+            : calculateCost(prompt.length, response.length, pricing);
           costTracker.recordSpend(agentName, actual, margined);
 
           // Persist cost to DB via writeMetricMax (race-fixed via Postgres GREATEST upsert).
@@ -150,7 +155,16 @@ export function createEvolutionLLMClient(
             }
           }
 
-          logger?.info('LLM call succeeded', { phaseName: agentName, promptChars: prompt.length, responseChars: response.length, costUsd: actual, attempt });
+          logger?.info('LLM call succeeded', {
+            phaseName: agentName,
+            promptChars: prompt.length,
+            responseChars: response.length,
+            promptTokens: usage?.promptTokens ?? null,
+            completionTokens: usage?.completionTokens ?? null,
+            costSource: usage ? 'usage' : 'chars',
+            costUsd: actual,
+            attempt,
+          });
           return response;
         } catch (error) {
           if (error instanceof BudgetExceededError) {
