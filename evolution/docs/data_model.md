@@ -248,6 +248,31 @@ The `mark_elo_metrics_stale()` trigger fires when a variant's `mu` or `sigma` DB
 
 This enables lazy recomputation: metrics are only recomputed when a server action reads them and detects `stale=true`.
 
+### `evolution_cost_calibration`
+
+Per-slice cost-calibration stats refreshed nightly from `evolution_agent_invocations.execution_detail`.
+Replaces the hardcoded `EMPIRICAL_OUTPUT_CHARS` and `OUTPUT_TOKEN_ESTIMATES` constants when
+`COST_CALIBRATION_ENABLED=true`; otherwise constants stay authoritative. See
+[cost_optimization.md → Cost Calibration Table](./cost_optimization.md#cost-calibration-table-shadow-deploy-2026-04-14).
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `strategy` | TEXT | NOT NULL, PK, default `'__unspecified__'` | Strategy label (sentinel when not applicable) |
+| `generation_model` | TEXT | NOT NULL, PK, default `'__unspecified__'` | Generation LLM model |
+| `judge_model` | TEXT | NOT NULL, PK, default `'__unspecified__'` | Judge LLM model |
+| `phase` | TEXT | NOT NULL, PK, CHECK IN `('generation','ranking','seed_title','seed_article')` | Pipeline phase |
+| `avg_output_chars` | NUMERIC | NOT NULL | Mean output chars for this slice |
+| `avg_input_overhead_chars` | NUMERIC | NOT NULL | Mean input overhead beyond variable content |
+| `avg_cost_per_call` | NUMERIC | NOT NULL | Mean USD cost per LLM call |
+| `n_samples` | INT | NOT NULL CHECK ≥ 1 | Invocations contributing to this row |
+| `last_refreshed_at` | TIMESTAMPTZ | NOT NULL, default `now()` | When the refresh script last wrote this row |
+
+**Primary key:** `(strategy, generation_model, judge_model, phase)`.
+
+Populated by `evolution/scripts/refreshCostCalibration.ts` (daily cron). RLS: deny-all +
+`service_role_all` + conditional `readonly_local` SELECT (pattern matches other evolution
+tables). Loader singleton lives in `evolution/src/lib/pipeline/infra/costCalibrationLoader.ts`.
+
 ---
 
 ## Entity Relationships

@@ -196,10 +196,11 @@ adminTest.describe('Evolution per-purpose cost split (T-cost-split)', { tag: '@e
     await metricsTab.click();
 
     // EntityMetricsTab fetches metrics client-side via useEffect — wait for the
-    // data to load (may take several seconds in CI with cold server actions).
+    // data to load (may take several seconds in CI with cold server actions;
+    // borderline on the default 30s after the cost-estimates tab expansion).
     const tabContent = adminPage.locator('[data-testid="entity-metrics-tab"]');
-    await expect(tabContent).toBeVisible({ timeout: 30000 });
-    await expect(tabContent).toContainText('Generation Cost', { timeout: 10000 });
+    await expect(tabContent).toBeVisible({ timeout: 60000 });
+    await expect(tabContent).toContainText('Generation Cost', { timeout: 15000 });
     await expect(tabContent).toContainText('Ranking Cost');
     await expect(tabContent).toContainText('$0.43');
     await expect(tabContent).toContainText('$0.36');

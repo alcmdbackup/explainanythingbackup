@@ -175,6 +175,9 @@ Validation throws plain `Error` with a descriptive message on constraint violati
 | `LOCAL_LLM_BASE_URL` | `http://localhost:11434/v1` | Base URL for local LLM endpoints (Ollama-compatible) |
 | `EVOLUTION_LOG_LEVEL` | `info` | Minimum log level for EntityLogger output: `debug`, `info`, `warn`, `error`. Controls pipeline log volume. |
 | `EVOLUTION_REUSE_SEED_RATING` | `true` | When `true` (default), runs against a prompt with a persisted seed reuse the seed row's UUID and `mu`/`sigma` rating; post-run rating updates flow back to the seed row via optimistic-concurrency UPDATE. Set to `false` to revert to the legacy behavior (fresh baseline UUID + default rating + new arena INSERT per run). Acts as a runtime kill-switch for the seed-reuse routing without redeploying. Read once at `buildRunContext.resolveContent` per run. |
+| `COST_CALIBRATION_ENABLED` | `false` | When `'true'`, consult `evolution_cost_calibration` values for cost estimates; otherwise the hardcoded `EMPIRICAL_OUTPUT_CHARS` / `OUTPUT_TOKEN_ESTIMATES` constants remain authoritative. Sub-minute kill switch if the refresh job ever produces bad data. |
+| `COST_CALIBRATION_TTL_MS` | `300000` | In-memory cache TTL for `costCalibrationLoader`. Past TTL, the next reader triggers a promise-coalesced DB refresh. |
+| `COST_CALIBRATION_SAMPLE_DAYS` | `14` | Window in days for `refreshCostCalibration.ts` aggregation of historical `evolution_agent_invocations`. |
 
 ### EntityLogger
 

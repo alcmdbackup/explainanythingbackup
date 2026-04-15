@@ -11,6 +11,7 @@ import {
   EntityDetailTabs,
   useTabState,
   EntityMetricsTab,
+  CostEstimatesTab,
   NotFoundCard,
   type TabDef,
 } from '@evolution/components/evolution';
@@ -50,6 +51,7 @@ function StrategyRunsTab({ strategyId }: { strategyId: string }): JSX.Element {
 
 const TABS: TabDef[] = [
   { id: 'metrics', label: 'Metrics' },
+  { id: 'cost-estimates', label: 'Cost Estimates' },
   { id: 'runs', label: 'Runs' },
   { id: 'config', label: 'Configuration' },
   { id: 'logs', label: 'Logs' },
@@ -124,6 +126,7 @@ export default function StrategyDetailPage(): JSX.Element {
 
       <EntityDetailTabs tabs={TABS} activeTab={activeTab} onTabChange={setActiveTab}>
         {activeTab === 'metrics' && <EntityMetricsTab entityType="strategy" entityId={strategyId} />}
+        {activeTab === 'cost-estimates' && <CostEstimatesTab entityType="strategy" entityId={strategyId} />}
         {activeTab === 'runs' && <StrategyRunsTab strategyId={strategyId} />}
         {activeTab === 'config' && (
           <div className="space-y-6">

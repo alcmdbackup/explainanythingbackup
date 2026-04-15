@@ -11,6 +11,7 @@ import {
   useTabState,
   StatusBadge,
   EntityMetricsTab,
+  CostEstimatesTab,
   NotFoundCard,
   type TabDef,
 } from '@evolution/components/evolution';
@@ -28,6 +29,7 @@ import { TimelineTab } from '@evolution/components/evolution/tabs/TimelineTab';
 const TABS: TabDef[] = [
   { id: 'timeline', label: 'Timeline' },
   { id: 'metrics', label: 'Metrics' },
+  { id: 'cost-estimates', label: 'Cost Estimates' },
   { id: 'elo', label: 'Elo' },
   { id: 'lineage', label: 'Lineage' },
   { id: 'variants', label: 'Variants' },
@@ -110,6 +112,7 @@ export default function EvolutionRunDetailPage(): JSX.Element {
       <EntityDetailTabs tabs={TABS} activeTab={activeTab} onTabChange={setActiveTab}>
         {activeTab === 'timeline' && <TimelineTab runId={runId} run={run} />}
         {activeTab === 'metrics' && <EntityMetricsTab entityType="run" entityId={runId} />}
+        {activeTab === 'cost-estimates' && <CostEstimatesTab entityType="run" entityId={runId} />}
         {activeTab === 'elo' && <EloTab runId={runId} />}
         {activeTab === 'lineage' && <LineageTab runId={runId} />}
         {activeTab === 'variants' && <VariantsTab runId={runId} runStatus={run.status} />}

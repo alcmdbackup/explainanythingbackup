@@ -182,6 +182,36 @@ SELECT (execution_detail->'generation'->>'estimatedCost')::NUMERIC,
 FROM evolution_agent_invocations WHERE agent_name = 'generate_from_seed_article';
 ```
 
+Finalization rolls these up into run-level metrics (`cost_estimation_error_pct`,
+`estimated_cost`, `generation_estimation_error_pct`, `ranking_estimation_error_pct`,
+`estimation_abs_error_usd`) and strategy/experiment propagation metrics. The
+**Cost Estimates tab** on run and strategy detail pages (see
+[Visualization](./visualization.md)) renders these plus a projected-vs-actual
+**Budget Floor Sensitivity** module that answers: *how many extra/fewer sequential
+invocations ran (and how much wall time was added/saved) because we over/under-
+estimated agent invocation cost?*
+
+### Cost Calibration Table (shadow-deploy, 2026-04-14)
+
+Adds a DB-backed replacement for the hardcoded `EMPIRICAL_OUTPUT_CHARS` and
+`OUTPUT_TOKEN_ESTIMATES` constants so calibration updates don't require code deploys.
+
+- **Table:** `evolution_cost_calibration` keyed on
+  `(strategy, generation_model, judge_model, phase)`.
+- **Refresh:** `evolution/scripts/refreshCostCalibration.ts` (daily cron) aggregates
+  the last `COST_CALIBRATION_SAMPLE_DAYS` days (default 14) of
+  `evolution_agent_invocations.execution_detail` into per-slice upserts.
+- **Loader:** `evolution/src/lib/pipeline/infra/costCalibrationLoader.ts` — in-memory
+  singleton Map with `COST_CALIBRATION_TTL_MS` (default 5 min) TTL. Promise-coalesced
+  refresh for thundering-herd protection. Distinct fallback paths for row-missing
+  (silent) vs DB error (log + last-known-good). Aggregated 60s-window
+  observability log (`cost_calibration_lookup`).
+- **Kill switch:** `COST_CALIBRATION_ENABLED` env var (default `'false'`). When unset
+  or `'false'`, the loader returns null and `estimateCosts.ts` + `createEvolutionLLMClient.ts`
+  use the existing hardcoded constants — identical to pre-calibration behavior.
+  Flip to `'true'` only after two weeks of populated data and verification via the
+  Cost Estimates tab.
+
 ---
 
 ## LLM Pricing Table

@@ -403,6 +403,12 @@ its local budget or the global daily/monthly cap, whichever is reached first.
   V2CostTracker.recordSpend() or release()
 ```
 
+> **Estimation accuracy:** see [Cost Optimization → Estimation Feedback Loop](./cost_optimization.md#estimation-feedback-loop)
+> for how `V2CostTracker.reserve()` deltas land in `evolution_metrics`, the
+> `agent_cost_projected` / `agent_cost_actual` observable metrics, and the Cost Estimates
+> tab's projected-vs-actual Budget Floor Sensitivity module
+> (cost_estimate_accuracy_analysis_20260414).
+
 ## Winner Determination
 
 After the loop exits, the winner is selected from the full pool:

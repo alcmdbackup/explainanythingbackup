@@ -1,8 +1,14 @@
 // Empirical cost estimation functions for evolution pipeline budget-aware dispatch.
 // Uses actual output length data per strategy + model pricing to estimate per-agent costs.
+//
+// Calibration: when COST_CALIBRATION_ENABLED='true', the costCalibrationLoader's
+// per-(strategy × generation_model) sample replaces EMPIRICAL_OUTPUT_CHARS below.
+// Default (env unset): hardcoded EMPIRICAL_OUTPUT_CHARS values drive estimates —
+// same behavior as before this file adopted the loader.
 
 import { getModelPricing } from '@/config/llmPricing';
 import { calculateCost } from './createEvolutionLLMClient';
+import { getCalibrationRow } from './costCalibrationLoader';
 
 // ─── Empirical Constants ──────────────────────────────────────────
 
@@ -38,10 +44,14 @@ export function estimateGenerationCost(
   seedArticleChars: number,
   strategy: string,
   generationModel: string,
+  judgeModel?: string,
 ): number {
   const pricing = getModelPricing(generationModel);
   const inputChars = seedArticleChars + GENERATION_PROMPT_OVERHEAD;
-  const outputChars = EMPIRICAL_OUTPUT_CHARS[strategy] ?? DEFAULT_OUTPUT_CHARS;
+  const calibrated = getCalibrationRow(strategy, generationModel, judgeModel ?? '__unspecified__', 'generation');
+  const outputChars = calibrated?.avgOutputChars
+    ?? EMPIRICAL_OUTPUT_CHARS[strategy]
+    ?? DEFAULT_OUTPUT_CHARS;
   return calculateCost(inputChars, outputChars, pricing);
 }
 
@@ -77,9 +87,12 @@ export function estimateAgentCost(
   poolSize: number,
   maxComparisonsPerVariant: number,
 ): number {
-  const genCost = estimateGenerationCost(seedArticleChars, strategy, generationModel);
-  // For ranking, use the expected variant length (same as empirical output for this strategy)
-  const variantChars = EMPIRICAL_OUTPUT_CHARS[strategy] ?? DEFAULT_OUTPUT_CHARS;
+  const genCost = estimateGenerationCost(seedArticleChars, strategy, generationModel, judgeModel);
+  // For ranking, use the expected variant length (calibration-aware, falls back to empirical).
+  const calibrated = getCalibrationRow(strategy, generationModel, judgeModel, 'generation');
+  const variantChars = calibrated?.avgOutputChars
+    ?? EMPIRICAL_OUTPUT_CHARS[strategy]
+    ?? DEFAULT_OUTPUT_CHARS;
   const rankCost = estimateRankingCost(variantChars, judgeModel, poolSize, maxComparisonsPerVariant);
   return genCost + rankCost;
 }

@@ -35,6 +35,14 @@ interface RunContext {
   prompt_id: string | null;
 }
 
+/** Compute median of a non-empty number array. */
+function median(sorted: number[]): number {
+  const n = sorted.length;
+  if (n === 0) return 0;
+  const mid = Math.floor(n / 2);
+  return n % 2 === 1 ? sorted[mid]! : (sorted[mid - 1]! + sorted[mid]!) / 2;
+}
+
 function buildRunSummary(
   result: EvolutionResult,
   durationSeconds: number,
@@ -97,6 +105,7 @@ function buildRunSummary(
     seedVariantElo,
     strategyEffectiveness,
     metaFeedback: null,
+    ...(result.budgetFloorConfig ? { budgetFloorConfig: result.budgetFloorConfig } : {}),
   };
 }
 
@@ -262,6 +271,40 @@ export async function finalizeRun(
 
   // Step 5: Write finalization metrics (run, invocation, variant)
   try {
+    // Pre-fetch invocation data so the run-level finalization loop has access to
+    // execution_detail (for cost_estimation_error_pct, estimated_cost, etc.) and can
+    // derive sequential GFSA durations (for the Budget Floor Sensitivity module).
+    const { data: invocations } = await db
+      .from('evolution_agent_invocations')
+      .select('id, agent_name, cost_usd, execution_detail, iteration, duration_ms')
+      .eq('run_id', runId);
+
+    const detailsMap = invocations && invocations.length > 0
+      ? new Map(
+          (invocations as Array<{ id: string; execution_detail: unknown }>).map(
+            (inv) => [inv.id, inv.execution_detail],
+          ),
+        )
+      : undefined;
+
+    // Sequential GFSA durations: iteration >= 2 AND agent_name='generate_from_seed_article'
+    // (iteration 1 is the parallel batch; later iterations are the sequential fallback path).
+    const sequentialGfsaDurations: number[] = ((invocations ?? []) as Array<{
+      agent_name?: string; iteration?: number; duration_ms?: number | null;
+    }>)
+      .filter((inv) =>
+        inv.agent_name === 'generate_from_seed_article' &&
+        typeof inv.iteration === 'number' && inv.iteration >= 2 &&
+        typeof inv.duration_ms === 'number' && Number.isFinite(inv.duration_ms),
+      )
+      .map((inv) => inv.duration_ms as number)
+      .sort((a, b) => a - b);
+    const medianSequentialGfsaDurationMs = sequentialGfsaDurations.length > 0
+      ? median(sequentialGfsaDurations) : null;
+    const avgSequentialGfsaDurationMs = sequentialGfsaDurations.length > 0
+      ? sequentialGfsaDurations.reduce((a, b) => a + b, 0) / sequentialGfsaDurations.length
+      : null;
+
     const finCtx: FinalizationContext = {
       result: filteredResult,
       ratings: result.ratings,
@@ -269,6 +312,15 @@ export async function finalizeRun(
       // and its variant-level metrics belong on the existing seed row).
       pool: summaryPool,
       matchHistory: result.matchHistory,
+      invocationDetails: detailsMap as FinalizationContext['invocationDetails'],
+      budgetFloorObservables: result.budgetFloorObservables ? {
+        initialAgentCostEstimate: result.budgetFloorObservables.initialAgentCostEstimate,
+        actualAvgCostPerAgent: result.budgetFloorObservables.actualAvgCostPerAgent,
+        parallelDispatched: result.budgetFloorObservables.parallelDispatched,
+        sequentialDispatched: result.budgetFloorObservables.sequentialDispatched,
+        medianSequentialGfsaDurationMs,
+        avgSequentialGfsaDurationMs,
+      } : undefined,
     };
 
     // Ensure cost metric exists (may have been skipped if iteration loop broke early).
@@ -279,7 +331,8 @@ export async function finalizeRun(
       await writeMetricMax(db, 'run', runId, 'cost' as MetricName, result.totalCost, 'during_execution');
     }
 
-    // Run-level finalization metrics
+    // Run-level finalization metrics (now with invocationDetails + budgetFloorObservables
+    // available, so cost_estimation_* and budget-floor metrics resolve correctly).
     for (const def of getEntity('run').metrics.atFinalization) {
       const metricResult = def.compute(finCtx);
       if (metricResult == null) continue;
@@ -295,17 +348,8 @@ export async function finalizeRun(
       }
     }
 
-    // Invocation-level finalization metrics (requires execution_detail for variant mapping)
-    const { data: invocations } = await db
-      .from('evolution_agent_invocations')
-      .select('id, agent_name, cost_usd, execution_detail')
-      .eq('run_id', runId);
-
     if (invocations && invocations.length > 0) {
-      const detailsMap = new Map(
-        invocations.map((inv: { id: string; execution_detail: unknown }) => [inv.id, inv.execution_detail]),
-      );
-      const invFinCtx: FinalizationContext = { ...finCtx, invocationDetails: detailsMap as FinalizationContext['invocationDetails'] };
+      const invFinCtx: FinalizationContext = finCtx;
       for (const inv of invocations) {
         const invCtx = { ...invFinCtx, currentInvocationId: inv.id };
         for (const def of getEntity('invocation').metrics.atFinalization) {

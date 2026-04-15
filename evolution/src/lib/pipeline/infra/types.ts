@@ -46,6 +46,26 @@ export interface EvolutionResult {
   randomSeed?: bigint;
   /** True when a CreateSeedArticleAgent successfully generated the baseline for this run. */
   isSeeded?: boolean;
+  /** Budget-floor-related observables captured during dispatch for post-hoc
+   *  projected-vs-actual analysis. Written as first-class evolution_metrics rows
+   *  during finalizeRun via BudgetFloorObservables. */
+  budgetFloorObservables?: {
+    initialAgentCostEstimate: number;
+    actualAvgCostPerAgent: number | null;
+    parallelDispatched: number;
+    sequentialDispatched: number;
+  };
+  /** Static floor config captured at run start — written into run_summary.budgetFloorConfig. */
+  budgetFloorConfig?: {
+    minBudgetAfterParallelFraction?: number;
+    minBudgetAfterParallelAgentMultiple?: number;
+    minBudgetAfterSequentialFraction?: number;
+    minBudgetAfterSequentialAgentMultiple?: number;
+    numVariants: number;
+  };
+  /** Wall-clock durations (ms) of sequential-phase GFSA invocations, in dispatch order.
+   *  Computed in runIterationLoop; persistRunResults derives median/avg metrics from it. */
+  sequentialGfsaDurationsMs?: number[];
 }
 
 // ─── V2 Strategy Config ──────────────────────────────────────────

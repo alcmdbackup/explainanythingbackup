@@ -273,6 +273,9 @@ export async function evolveArticle(
   let currentOriginalText = originalText;
   let variantsStillNeeded = numVariants;
   let actualAvgCostPerAgent: number | null = null; // Runtime feedback from parallel batch
+  // Dispatch-count observables for projected-vs-actual Budget Floor Sensitivity.
+  let parallelDispatchedCount = 0;
+  let sequentialDispatchedCount = 0;
 
   // Budget thresholds for parallel→sequential→swiss flow.
   // Supports two unit modes per phase (see schemas.ts for full semantics):
@@ -433,6 +436,7 @@ export async function evolveArticle(
         );
         const maxAffordable = Math.max(1, Math.floor(effectiveBudget / estPerAgent));
         dispatchCount = Math.min(numVariants, maxAffordable);
+        parallelDispatchedCount = dispatchCount;
         logger.info('Budget-aware parallel dispatch', {
           iteration, numVariantsRequested: numVariants, estPerAgent,
           availableBudget: availBudget, parallelBudget, parallelFloor,
@@ -441,6 +445,7 @@ export async function evolveArticle(
       } else {
         // Sequential fallback: one agent at a time
         dispatchCount = 1;
+        sequentialDispatchedCount += 1;
         logger.info('Sequential generate fallback', {
           iteration, variantsStillNeeded,
           availableBudget: costTracker.getAvailableBudget(),
@@ -673,5 +678,18 @@ export async function evolveArticle(
     iterationSnapshots,
     randomSeed,
     isSeeded: isSeeded || undefined,
+    budgetFloorObservables: {
+      initialAgentCostEstimate,
+      actualAvgCostPerAgent,
+      parallelDispatched: parallelDispatchedCount,
+      sequentialDispatched: sequentialDispatchedCount,
+    },
+    budgetFloorConfig: {
+      minBudgetAfterParallelFraction: resolvedConfig.minBudgetAfterParallelFraction,
+      minBudgetAfterParallelAgentMultiple: resolvedConfig.minBudgetAfterParallelAgentMultiple,
+      minBudgetAfterSequentialFraction: resolvedConfig.minBudgetAfterSequentialFraction,
+      minBudgetAfterSequentialAgentMultiple: resolvedConfig.minBudgetAfterSequentialAgentMultiple,
+      numVariants,
+    },
   };
 }

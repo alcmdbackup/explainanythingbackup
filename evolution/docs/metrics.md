@@ -136,6 +136,50 @@ Both entity types share the same propagation definitions — they aggregate from
 | `avg_decisive_rate` | `decisive_rate` | bootstrap_mean | Mean decisive rate with CI |
 | `total_variant_count` | `variant_count` | sum | Total variants across all runs |
 | `avg_variant_count` | `variant_count` | avg | Mean variants per run |
+| `avg_cost_estimation_error_pct` | `cost_estimation_error_pct` | avg | Mean estimation error % across runs (`listView: true`) |
+| `avg_generation_estimation_error_pct` | `generation_estimation_error_pct` | avg | Mean generation-phase estimation error % |
+| `avg_ranking_estimation_error_pct` | `ranking_estimation_error_pct` | avg | Mean ranking-phase estimation error % |
+| `avg_estimation_abs_error_usd` | `estimation_abs_error_usd` | avg | Mean absolute estimation error (USD) |
+| `total_estimated_cost` | `estimated_cost` | sum | Cumulative estimated cost across runs |
+| `avg_estimated_cost` | `estimated_cost` | avg | Mean estimated cost per run |
+| `avg_agent_cost_projected` | `agent_cost_projected` | avg | Mean pre-dispatch projected agent cost |
+| `avg_agent_cost_actual` | `agent_cost_actual` | avg | Mean runtime-measured actual agent cost |
+| `avg_parallel_dispatched` | `parallel_dispatched` | avg | Mean parallel GFSA dispatches per run |
+| `avg_sequential_dispatched` | `sequential_dispatched` | avg | Mean sequential GFSA dispatches per run |
+| `avg_median_sequential_gfsa_duration_ms` | `median_sequential_gfsa_duration_ms` | avg | Mean median sequential GFSA duration (ms) |
+
+> **Cost estimate-accuracy propagation uses `aggregateAvg`, not `aggregateBootstrapMean`.**
+> Bootstrap CI is reserved for elo/quality metrics. If CI rendering is added later for
+> cost metrics, add a separate `*_ci` metric rather than flipping the aggregator — this
+> keeps propagation semantics stable. See
+> `docs/planning/cost_estimate_accuracy_analysis_20260414/` for the decision rationale.
+
+### Run-level cost-estimation metrics (cost_estimate_accuracy_analysis_20260414)
+
+Computed at finalization from GFSA `execution_detail` JSONB plus budget-floor
+observables passed through `FinalizationContext.budgetFloorObservables`:
+
+| Name | Source | Description |
+|------|--------|-------------|
+| `cost_estimation_error_pct` | `execution_detail.estimationErrorPct` | Mean per-invocation estimation error %. `listView: true`. |
+| `estimated_cost` | `execution_detail.estimatedTotalCost` | Sum across GFSA invocations |
+| `estimation_abs_error_usd` | `execution_detail.{estimatedTotalCost, totalCost}` | Mean abs error |
+| `generation_estimation_error_pct` | `execution_detail.generation.{cost, estimatedCost}` | Mean generation-phase error |
+| `ranking_estimation_error_pct` | `execution_detail.ranking.{cost, estimatedCost}` | Mean ranking-phase error |
+| `agent_cost_projected` | `BudgetFloorObservables.initialAgentCostEstimate` | Pre-dispatch estimate |
+| `agent_cost_actual` | `BudgetFloorObservables.actualAvgCostPerAgent` | Runtime-measured (null if parallel had no successes) |
+| `parallel_dispatched` | `BudgetFloorObservables.parallelDispatched` | GFSA count in parallel phase |
+| `sequential_dispatched` | `BudgetFloorObservables.sequentialDispatched` | GFSA count in sequential phase |
+| `median_sequential_gfsa_duration_ms` | `evolution_agent_invocations.duration_ms` | Median wall-clock of sequential GFSA |
+| `avg_sequential_gfsa_duration_ms` | `evolution_agent_invocations.duration_ms` | Mean wall-clock of sequential GFSA |
+
+The Cost Estimates tab on run/strategy detail pages (see `visualization.md`) reads
+these to render summary cards, Cost-by-Agent rollups, projected-vs-actual Budget
+Floor Sensitivity, error histogram, and per-invocation table.
+
+Run Summary JSONB (`run_summary.budgetFloorConfig`) carries the static floor config
+(multipliers + numVariants) for the sensitivity module. Older runs with no
+`budgetFloorConfig` cause the sensitivity section to be hidden.
 
 ---
 

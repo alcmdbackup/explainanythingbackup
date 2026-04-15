@@ -1093,6 +1093,19 @@ const _EvolutionRunSummaryV3Inner = z.object({
     priorityImprovements: z.array(z.string().min(1).max(200)).max(10),
   }).nullable(),
   actionCounts: z.record(z.string(), z.number().int().min(0)).optional(),
+  // Static floor config captured at run start so the Cost Estimates tab can render
+  // the projected-vs-actual Budget Floor Sensitivity module post-hoc. Optional for
+  // backward compatibility — runs finalized before this field existed omit it.
+  // Observable numerics (initial_agent_cost_estimate, actual_avg_cost_per_agent,
+  // parallel_dispatched, sequential_dispatched, duration medians/means) are written
+  // as first-class evolution_metrics rows, not here.
+  budgetFloorConfig: z.object({
+    minBudgetAfterParallelFraction: z.number().min(0).max(1).optional(),
+    minBudgetAfterParallelAgentMultiple: z.number().min(0).optional(),
+    minBudgetAfterSequentialFraction: z.number().min(0).max(1).optional(),
+    minBudgetAfterSequentialAgentMultiple: z.number().min(0).optional(),
+    numVariants: z.number().int().min(0),
+  }).optional(),
 }).strict();
 
 export const EvolutionRunSummaryV3Schema = z.preprocess(runSummaryV3Rename, _EvolutionRunSummaryV3Inner);
@@ -1120,6 +1133,13 @@ interface EvolutionRunSummaryV3 {
     priorityImprovements: string[];
   } | null;
   actionCounts?: Record<string, number>;
+  budgetFloorConfig?: {
+    minBudgetAfterParallelFraction?: number;
+    minBudgetAfterParallelAgentMultiple?: number;
+    minBudgetAfterSequentialFraction?: number;
+    minBudgetAfterSequentialAgentMultiple?: number;
+    numVariants: number;
+  };
 }
 
 /** Shared transform helper: convert a legacy ordinal/elo value to a mu estimate. */

@@ -453,6 +453,62 @@ describe('EvolutionRunSummary schemas', () => {
   it('rejects completely invalid data', () => {
     expect(() => EvolutionRunSummarySchema.parse({ foo: 'bar' })).toThrow();
   });
+
+  // cost_estimate_accuracy_analysis_20260414: budgetFloorConfig optional V3 field.
+  // Backward compat: existing V3 rows without this field continue to parse cleanly.
+  describe('budgetFloorConfig (cost_estimate_accuracy_analysis_20260414)', () => {
+    it('V3 without budgetFloorConfig parses cleanly (backward compat)', () => {
+      const summary = createValidRunSummaryV3();
+      expect(() => EvolutionRunSummaryV3Schema.parse(summary)).not.toThrow();
+      const parsed = EvolutionRunSummaryV3Schema.parse(summary);
+      expect((parsed as Record<string, unknown>).budgetFloorConfig).toBeUndefined();
+    });
+
+    it('V3 with full budgetFloorConfig parses and round-trips', () => {
+      const summary = {
+        ...createValidRunSummaryV3(),
+        budgetFloorConfig: {
+          minBudgetAfterParallelAgentMultiple: 3,
+          minBudgetAfterSequentialAgentMultiple: 1,
+          numVariants: 9,
+        },
+      };
+      const parsed = EvolutionRunSummaryV3Schema.parse(summary) as Record<string, unknown>;
+      expect(parsed.budgetFloorConfig).toEqual({
+        minBudgetAfterParallelAgentMultiple: 3,
+        minBudgetAfterSequentialAgentMultiple: 1,
+        numVariants: 9,
+      });
+    });
+
+    it('V3 with Fraction-mode floor config parses', () => {
+      const summary = {
+        ...createValidRunSummaryV3(),
+        budgetFloorConfig: {
+          minBudgetAfterParallelFraction: 0.35,
+          minBudgetAfterSequentialFraction: 0.12,
+          numVariants: 9,
+        },
+      };
+      expect(() => EvolutionRunSummaryV3Schema.parse(summary)).not.toThrow();
+    });
+
+    it('rejects out-of-range fraction values', () => {
+      const summary = {
+        ...createValidRunSummaryV3(),
+        budgetFloorConfig: { minBudgetAfterParallelFraction: 1.5, numVariants: 9 },
+      };
+      expect(() => EvolutionRunSummaryV3Schema.parse(summary)).toThrow();
+    });
+
+    it('requires numVariants in budgetFloorConfig', () => {
+      const summary = {
+        ...createValidRunSummaryV3(),
+        budgetFloorConfig: { minBudgetAfterParallelAgentMultiple: 3 },
+      };
+      expect(() => EvolutionRunSummaryV3Schema.parse(summary)).toThrow();
+    });
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════════

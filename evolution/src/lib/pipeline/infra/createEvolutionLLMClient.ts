@@ -11,6 +11,7 @@ import type { V2CostTracker } from './trackBudget';
 import type { EntityLogger } from './createEntityLogger';
 import { writeMetricMax } from '../../metrics/writeMetrics';
 import { type AgentName, COST_METRIC_BY_AGENT } from '../../core/agentNames';
+import { getCalibrationRow } from './costCalibrationLoader';
 
 // ─── Cost estimation ─────────────────────────────────────────────
 
@@ -62,9 +63,21 @@ export function createEvolutionLLMClient(
         : (options?.temperature ?? generationTemperature);
       const reasoningEffort = options?.reasoningEffort;
       const pricing = getModelPricing(model);
-      const outputEstimate = OUTPUT_TOKEN_ESTIMATES[agentName] ?? 1000;
-      // outputEstimate is in tokens; multiply by 4 to convert to chars for calculateCost
-      const estimated = calculateCost(prompt.length, outputEstimate * 4, pricing);
+      // Calibration-aware per-call estimate. When COST_CALIBRATION_ENABLED='true' and the
+      // loader has a row for this (agentName, model), use avg_output_chars directly.
+      // Otherwise fall back to OUTPUT_TOKEN_ESTIMATES (tokens × 4 chars/token).
+      const calibrated = (() => {
+        const phase = agentName === 'generation' ? 'generation'
+          : agentName === 'ranking' ? 'ranking'
+          : agentName === 'seed_title' ? 'seed_title'
+          : agentName === 'seed_article' ? 'seed_article'
+          : null;
+        if (!phase) return null;
+        return getCalibrationRow('__unspecified__', model, '__unspecified__', phase);
+      })();
+      const outputChars = calibrated?.avgOutputChars
+        ?? (OUTPUT_TOKEN_ESTIMATES[agentName] ?? 1000) * 4;
+      const estimated = calculateCost(prompt.length, outputChars, pricing);
 
       // Reserve budget (synchronous — parallel safe)
       const margined = costTracker.reserve(agentName, estimated);
