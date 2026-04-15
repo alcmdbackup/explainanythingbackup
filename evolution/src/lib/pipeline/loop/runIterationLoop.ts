@@ -379,6 +379,9 @@ export async function evolveArticle(
           invocationId: '',
           randomSeed: deriveSeed(randomSeed, `iter${iteration}`, `seed${seedExecOrder}`),
           logger, costTracker, config: resolvedConfig,
+          rawProvider: llmProvider,
+          defaultModel: resolvedConfig.generationModel,
+          generationTemperature: resolvedConfig.generationTemperature,
         };
         const seedAgent = new CreateSeedArticleAgent();
         const seedResult = await seedAgent.run({
@@ -480,6 +483,9 @@ export async function evolveArticle(
           costTracker,
           config: resolvedConfig,
           agentIndex,
+          rawProvider: llmProvider,
+          defaultModel: resolvedConfig.generationModel,
+          generationTemperature: resolvedConfig.generationTemperature,
         };
         const agent = new GenerateFromSeedArticleAgent();
         return agent.run({

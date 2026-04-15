@@ -97,6 +97,8 @@ export class MergeRatingsAgent extends Agent<
 > {
   readonly name = 'merge_ratings';
   readonly executionDetailSchema = mergeRatingsExecutionDetailSchema;
+  /** MergeRatings applies rating updates locally — no LLM calls. Skip the scoped client build. */
+  readonly usesLLM = false;
 
   readonly detailViewConfig: DetailFieldDef[] = [
     { key: 'iterationType', label: 'Iteration Type', type: 'badge' },
