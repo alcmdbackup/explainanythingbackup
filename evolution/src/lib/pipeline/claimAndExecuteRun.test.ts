@@ -192,7 +192,7 @@ describe('claimAndExecuteRun', () => {
         null,
         null,
         false,
-        {},
+        expect.objectContaining({ onUsage: expect.any(Function) }),
       );
     });
 
@@ -212,8 +212,38 @@ describe('claimAndExecuteRun', () => {
         null,
         null,
         false,
-        {},
+        expect.objectContaining({ onUsage: expect.any(Function) }),
       );
+    });
+
+    it('adapter returns { text, usage } from callLLM usage metadata', async () => {
+      // Make callLLM invoke onUsage with known usage before returning
+      (callLLM as jest.Mock).mockImplementationOnce(async (
+        _prompt: string,
+        _source: string,
+        _user: string,
+        _model: string,
+        _streaming: boolean,
+        _setText: unknown,
+        _ro: unknown,
+        _ron: unknown,
+        _debug: boolean,
+        opts?: { onUsage?: (u: { promptTokens: number; completionTokens: number; totalTokens: number; reasoningTokens: number; estimatedCostUsd: number; model: string }) => void },
+      ) => {
+        opts?.onUsage?.({
+          promptTokens: 123, completionTokens: 456, totalTokens: 579,
+          reasoningTokens: 0, estimatedCostUsd: 0.001, model: 'deepseek-chat',
+        });
+        return 'the text';
+      });
+
+      await claimAndExecuteRun({ runnerId: 'test-runner' });
+      const provider = mockBuildRunContext.mock.calls[0][3];
+      const result = await provider.complete('p', 'generation');
+
+      expect(result.text).toBe('the text');
+      expect(result.usage.promptTokens).toBe(123);
+      expect(result.usage.completionTokens).toBe(456);
     });
 
     it('returns completed result after successful pipeline execution', async () => {

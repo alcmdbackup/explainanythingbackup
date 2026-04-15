@@ -158,8 +158,13 @@ export async function claimAndExecuteRun(
 
   try {
     const llmProvider: LLMProvider = {
-      async complete(prompt: string, label: AgentName, opts?: { model?: string; temperature?: number; reasoningEffort?: 'none' | 'low' | 'medium' | 'high' }): Promise<string> {
-        return callLLM(
+      async complete(
+        prompt: string,
+        label: AgentName,
+        opts?: { model?: string; temperature?: number; reasoningEffort?: 'none' | 'low' | 'medium' | 'high' },
+      ): Promise<{ text: string; usage: { promptTokens: number; completionTokens: number; reasoningTokens?: number } }> {
+        let capturedUsage: { promptTokens: number; completionTokens: number; reasoningTokens?: number } | null = null;
+        const text = await callLLM(
           prompt,
           `evolution_${label}`,
           EVOLUTION_SYSTEM_USERID,
@@ -169,8 +174,23 @@ export async function claimAndExecuteRun(
           null,
           null,
           false,
-          { temperature: opts?.temperature, reasoningEffort: opts?.reasoningEffort },
+          {
+            temperature: opts?.temperature,
+            reasoningEffort: opts?.reasoningEffort,
+            onUsage: (u) => {
+              capturedUsage = {
+                promptTokens: u.promptTokens,
+                completionTokens: u.completionTokens,
+                reasoningTokens: u.reasoningTokens > 0 ? u.reasoningTokens : undefined,
+              };
+            },
+          },
         );
+        // onUsage fires inside saveTrackingAndNotify which is awaited by the LLM call path,
+        // so capturedUsage is populated by the time callLLM returns. Fallback to zeros if
+        // somehow absent (keeps downstream code safe; Phase 2 will treat missing as "skip token path").
+        const usage = capturedUsage ?? { promptTokens: 0, completionTokens: 0 };
+        return { text, usage };
       },
     };
 
@@ -195,7 +215,11 @@ export async function claimAndExecuteRun(
 // ─── Shared execution logic ──────────────────────────────────────
 
 interface LLMProvider {
-  complete(prompt: string, label: AgentName, opts?: { model?: string; temperature?: number; reasoningEffort?: 'none' | 'low' | 'medium' | 'high' }): Promise<string>;
+  complete(
+    prompt: string,
+    label: AgentName,
+    opts?: { model?: string; temperature?: number; reasoningEffort?: 'none' | 'low' | 'medium' | 'high' },
+  ): Promise<{ text: string; usage: { promptTokens: number; completionTokens: number; reasoningTokens?: number } }>;
 }
 
 /** Build context, run evolution loop, finalize, sync arena. Re-throws on failure. */

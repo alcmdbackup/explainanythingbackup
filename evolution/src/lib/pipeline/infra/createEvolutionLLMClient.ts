@@ -37,12 +37,33 @@ const OUTPUT_TOKEN_ESTIMATES: Partial<Record<AgentName, number>> = {
 
 // ─── Public API ──────────────────────────────────────────────────
 
+/** Token usage metadata returned alongside the response text from a provider call. */
+export interface RawProviderUsage {
+  promptTokens: number;
+  completionTokens: number;
+  reasoningTokens?: number;
+}
+
+/** Raw provider response — legacy bare string, or new {text, usage} shape. Discriminated at runtime. */
+export type RawProviderResponse = string | { text: string; usage: RawProviderUsage };
+
+/** Raw provider shape consumed by createEvolutionLLMClient. May return either shape above. */
+export interface RawLLMProvider {
+  complete(
+    prompt: string,
+    label: AgentName,
+    opts?: { model?: string; temperature?: number; reasoningEffort?: 'none' | 'low' | 'medium' | 'high' },
+  ): Promise<RawProviderResponse>;
+}
+
 /**
  * Create a V2 EvolutionLLMClient wrapping a raw LLM provider with retry + cost tracking.
- * The raw provider is a simple { complete(prompt, label, opts?) } function.
+ * The raw provider is a simple { complete(prompt, label, opts?) } function. It may return
+ * either a bare string (legacy) or `{ text, usage }` (new path — usage drives token-based
+ * recordSpend in Phase 2).
  */
 export function createEvolutionLLMClient(
-  rawProvider: { complete(prompt: string, label: AgentName, opts?: { model?: string; temperature?: number; reasoningEffort?: 'none' | 'low' | 'medium' | 'high' }): Promise<string> },
+  rawProvider: RawLLMProvider,
   costTracker: V2CostTracker,
   defaultModel: string,
   logger?: EntityLogger,
@@ -88,19 +109,26 @@ export function createEvolutionLLMClient(
         let timeoutId: NodeJS.Timeout | undefined;
         try {
           logger?.debug('LLM call attempt', { phaseName: agentName, attempt, model });
-          const response = await Promise.race([
+          const rawResponse = await Promise.race([
             rawProvider.complete(prompt, agentName, { model, temperature, reasoningEffort }),
             new Promise<never>((_, reject) => {
               timeoutId = setTimeout(() => reject(new Error('LLM call timeout (60s)')), PER_CALL_TIMEOUT_MS);
             }),
           ]);
 
-          // Validate response is non-empty string
+          // Discriminate raw-provider shape: bare string (legacy) vs {text, usage} (new).
+          // Phase 2 will use `usage` to drive recordSpend via calculateLLMCost;
+          // Phase 1 accepts the shape but still uses the chars/4 heuristic below.
+          const response: string = typeof rawResponse === 'string' ? rawResponse : rawResponse.text;
+          const usage: RawProviderUsage | null = typeof rawResponse === 'string' ? null : rawResponse.usage;
+
+          // Validate response is a non-empty string
           if (typeof response !== 'string' || response.trim().length === 0) {
             throw new Error('Empty LLM response');
           }
 
-          // Success — record actual cost
+          // Success — record actual cost (Phase 1: still chars/4; Phase 2 will swap to token-based).
+          void usage; // reserved for Phase 2 swap
           const actual = calculateCost(prompt.length, response.length, pricing);
           costTracker.recordSpend(agentName, actual, margined);
 

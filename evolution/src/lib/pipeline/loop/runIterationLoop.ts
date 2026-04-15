@@ -148,7 +148,13 @@ function allConverged(
  */
 export async function evolveArticle(
   originalText: string,
-  llmProvider: { complete(prompt: string, label: string, opts?: { model?: string }): Promise<string> },
+  llmProvider: {
+    complete(
+      prompt: string,
+      label: string,
+      opts?: { model?: string },
+    ): Promise<string | { text: string; usage: { promptTokens: number; completionTokens: number; reasoningTokens?: number } }>;
+  },
   db: SupabaseClient,
   runId: string,
   config: EvolutionConfig,

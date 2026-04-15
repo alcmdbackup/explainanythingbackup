@@ -77,16 +77,23 @@ export interface SeedResult {
  * a different model — and that don't have DeepSeek credentials configured — would
  * otherwise hit a `DEEPSEEK_API_KEY not found` error before the pipeline even starts.
  */
+type RawProviderResponse = string | { text: string; usage: { promptTokens: number; completionTokens: number; reasoningTokens?: number } };
+
+/** Extract text from either legacy bare-string response or new {text, usage} shape. */
+function unwrapText(r: RawProviderResponse): string {
+  return typeof r === 'string' ? r : r.text;
+}
+
 export async function generateSeedArticle(
   promptText: string,
-  llm: { complete(prompt: string, label: AgentName, opts?: { model?: string }): Promise<string> },
+  llm: { complete(prompt: string, label: AgentName, opts?: { model?: string }): Promise<RawProviderResponse> },
   logger?: EntityLogger,
   model?: string,
 ): Promise<SeedResult> {
   const opts = model ? { model } : undefined;
   logger?.debug('Starting seed title generation', { phaseName: 'seed_setup', model });
   let title = await withTimeout(
-    generateTitle(promptText, (p) => llm.complete(p, 'seed_title', opts)),
+    generateTitle(promptText, async (p) => unwrapText(await llm.complete(p, 'seed_title', opts))),
     'title generation',
   );
   if (!title) title = promptText.slice(0, 100);
@@ -94,10 +101,10 @@ export async function generateSeedArticle(
 
   // Generate article
   logger?.debug('Starting seed article generation', { phaseName: 'seed_setup', model });
-  const articleContent = await withTimeout(
+  const articleContent = unwrapText(await withTimeout(
     llm.complete(buildArticlePrompt(title), 'seed_article', opts),
     'article generation',
-  );
+  ));
 
   // Strip a leading H1 from the LLM output before prepending our title — many models
   // ignore the "no title" instruction and emit their own H1, producing duplicated headers
