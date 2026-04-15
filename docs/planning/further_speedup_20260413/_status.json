@@ -1,0 +1,22 @@
+{
+  "branch": "feat/further_speedup_20260413",
+  "created_at": "2026-04-13T00:00:00Z",
+  "prerequisites": {},
+  "relevantDocs": [
+    "evolution/docs/README.md",
+    "evolution/docs/architecture.md",
+    "evolution/docs/cost_optimization.md",
+    "evolution/docs/data_model.md",
+    "evolution/docs/curriculum.md",
+    "evolution/docs/minicomputer_deployment.md",
+    "evolution/docs/agents/overview.md",
+    "evolution/docs/logging.md",
+    "evolution/docs/entities.md",
+    "evolution/docs/metrics.md",
+    "evolution/docs/arena.md",
+    "evolution/docs/reference.md",
+    "evolution/docs/visualization.md",
+    "evolution/docs/rating_and_comparison.md",
+    "evolution/docs/strategies_and_experiments.md"
+  ]
+}

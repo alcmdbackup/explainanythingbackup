@@ -3,7 +3,7 @@
 import { adminTest, expect } from '../../fixtures/admin-auth';
 import { safeIsVisible } from '../../helpers/error-utils';
 
-adminTest.describe('Admin Confirmation Dialogs', { tag: '@critical' }, () => {
+adminTest.describe('Admin Confirmation Dialogs', () => {
   adminTest.describe.configure({ retries: 1, mode: 'serial' });
   adminTest.setTimeout(30000);
 

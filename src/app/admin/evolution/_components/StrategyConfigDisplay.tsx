@@ -29,6 +29,17 @@ interface StrategyConfig {
   enabledAgents?: string[];
   agentModels?: Record<string, string>;
   generationGuidance?: Array<{ strategy: string; percent: number }>;
+  maxVariantsToGenerateFromSeedArticle?: number;
+  maxComparisonsPerVariant?: number;
+  /** @deprecated Use minBudgetAfterParallelFraction. Kept for backward compat. */
+  budgetBufferAfterParallel?: number;
+  /** @deprecated Use minBudgetAfterSequentialFraction. Kept for backward compat. */
+  budgetBufferAfterSequential?: number;
+  minBudgetAfterParallelFraction?: number;
+  minBudgetAfterParallelAgentMultiple?: number;
+  minBudgetAfterSequentialFraction?: number;
+  minBudgetAfterSequentialAgentMultiple?: number;
+  generationTemperature?: number;
 }
 
 interface StrategyConfigDisplayProps {
@@ -80,6 +91,43 @@ export function StrategyConfigDisplay({ config: raw, showRaw }: StrategyConfigDi
           <ConfigRow label="Iterations" value={String(config.iterations ?? '—')} />
           {config.budgetUsd != null && (
             <ConfigRow label="Budget" value={`$${config.budgetUsd.toFixed(2)}`} highlight />
+          )}
+          {config.maxVariantsToGenerateFromSeedArticle != null && (
+            <ConfigRow label="Max Variants" value={String(config.maxVariantsToGenerateFromSeedArticle)} />
+          )}
+          {config.maxComparisonsPerVariant != null && (
+            <ConfigRow label="Max Comparisons/Variant" value={String(config.maxComparisonsPerVariant)} />
+          )}
+          {/* Budget floors — prefer new fields, fall back to legacy aliases */}
+          {(() => {
+            const pF = config.minBudgetAfterParallelFraction ?? config.budgetBufferAfterParallel;
+            const pM = config.minBudgetAfterParallelAgentMultiple;
+            const sF = config.minBudgetAfterSequentialFraction ?? config.budgetBufferAfterSequential;
+            const sM = config.minBudgetAfterSequentialAgentMultiple;
+            const budgetUsd = config.budgetUsd;
+            const fmtFraction = (v: number) =>
+              budgetUsd != null
+                ? `${(v * 100).toFixed(0)}% of budget ($${(v * budgetUsd).toFixed(3)})`
+                : `${(v * 100).toFixed(0)}% of budget`;
+            return (
+              <>
+                {pF != null && pF > 0 && (
+                  <ConfigRow label="Min After Parallel" value={fmtFraction(pF)} highlight />
+                )}
+                {pM != null && pM > 0 && (
+                  <ConfigRow label="Min After Parallel" value={`${pM}× agent cost (runtime)`} highlight />
+                )}
+                {sF != null && sF > 0 && (
+                  <ConfigRow label="Min After Sequential" value={fmtFraction(sF)} highlight />
+                )}
+                {sM != null && sM > 0 && (
+                  <ConfigRow label="Min After Sequential" value={`${sM}× agent cost (runtime)`} highlight />
+                )}
+              </>
+            );
+          })()}
+          {config.generationTemperature != null && (
+            <ConfigRow label="Gen Temperature" value={String(config.generationTemperature)} />
           )}
           {config.singleArticle && <ConfigRow label="Mode" value="Single Article" highlight />}
           {hasAgentOverrides && (

@@ -93,40 +93,40 @@ adminTest.describe('Evolution Experiments List', { tag: '@evolution' }, () => {
     await sb.from('evolution_prompts').delete().eq('id', promptId);
   });
 
-  adminTest('experiments page renders', async ({ adminPage }) => {
+  adminTest('columns+row: table renders with data and correct column headers', async ({ adminPage }) => {
     await adminPage.goto('/admin/evolution/experiments');
     await adminPage.waitForLoadState('domcontentloaded');
 
     const listPage = adminPage.locator('[data-testid="entity-list-page"]');
     await expect(listPage).toBeVisible({ timeout: 15000 });
-  });
-
-  adminTest('experiment list table renders with data', async ({ adminPage }) => {
-    await adminPage.goto('/admin/evolution/experiments');
-    await adminPage.waitForLoadState('domcontentloaded');
 
     const table = adminPage.locator('[data-testid="entity-list-table"]');
     await expect(table).toBeVisible({ timeout: 15000 });
 
     // Verify at least one experiment row is present (the active one)
     await expect(table.locator(`text=${testPrefix}-active-experiment`)).toBeVisible({ timeout: 10000 });
-  });
-
-  adminTest('experiment columns render correctly', async ({ adminPage }) => {
-    await adminPage.goto('/admin/evolution/experiments');
-    await adminPage.waitForLoadState('domcontentloaded');
-
-    const table = adminPage.locator('[data-testid="entity-list-table"]');
-    await expect(table).toBeVisible({ timeout: 15000 });
 
     // Verify column headers
     await expect(table.locator('th:has-text("Name")')).toBeVisible();
     await expect(table.locator('th:has-text("Status")')).toBeVisible();
     await expect(table.locator('th:has-text("Runs")')).toBeVisible();
     await expect(table.locator('th:has-text("Created")')).toBeVisible();
+
+    // Verify title renders
+    await expect(listPage.locator('h1:has-text("Experiments")')).toBeVisible();
+
+    // Filter bar and both filter inputs should be visible
+    const filterBar = adminPage.locator('[data-testid="filter-bar"]');
+    await expect(filterBar).toBeVisible();
+    await expect(adminPage.locator('[data-testid="filter-status"]')).toBeVisible();
+    await expect(adminPage.locator('[data-testid="filter-filterTestContent"]')).toBeVisible();
+
+    // Name search input should render
+    const nameInput = adminPage.locator('input[placeholder="Search..."]').first();
+    await expect(nameInput).toBeVisible({ timeout: 10000 });
   });
 
-  adminTest('filter by status shows correct experiments', async ({ adminPage }) => {
+  adminTest('status filter: shows correct experiments by status', async ({ adminPage }) => {
     await adminPage.goto('/admin/evolution/experiments');
     await adminPage.waitForLoadState('domcontentloaded');
 
@@ -146,7 +146,7 @@ adminTest.describe('Evolution Experiments List', { tag: '@evolution' }, () => {
     await expect(table.locator(`text=${testPrefix}-cancelled-experiment`)).toBeVisible({ timeout: 10000 });
   });
 
-  adminTest('clicking experiment row navigates to detail', async ({ adminPage }) => {
+  adminTest('breadcrumb nav: clicking experiment row navigates to detail and breadcrumb links to Evolution', async ({ adminPage }) => {
     await adminPage.goto('/admin/evolution/experiments');
     await adminPage.waitForLoadState('domcontentloaded');
 
@@ -160,21 +160,8 @@ adminTest.describe('Evolution Experiments List', { tag: '@evolution' }, () => {
 
     await adminPage.waitForURL(`**/admin/evolution/experiments/${activeExperimentId}`, { timeout: 10000 });
     expect(adminPage.url()).toContain(`/admin/evolution/experiments/${activeExperimentId}`);
-  });
 
-  adminTest('filter bar is visible with status and test content filters', async ({ adminPage }) => {
-    await adminPage.goto('/admin/evolution/experiments');
-    await adminPage.waitForLoadState('domcontentloaded');
-
-    const filterBar = adminPage.locator('[data-testid="filter-bar"]');
-    await expect(filterBar).toBeVisible({ timeout: 15000 });
-
-    // Verify both filters exist
-    await expect(adminPage.locator('[data-testid="filter-status"]')).toBeVisible();
-    await expect(adminPage.locator('[data-testid="filter-filterTestContent"]')).toBeVisible();
-  });
-
-  adminTest('breadcrumb navigation works', async ({ adminPage }) => {
+    // Navigate back to list and verify breadcrumb
     await adminPage.goto('/admin/evolution/experiments');
     await adminPage.waitForLoadState('domcontentloaded');
 
@@ -189,32 +176,5 @@ adminTest.describe('Evolution Experiments List', { tag: '@evolution' }, () => {
     await dashLink.click();
     await adminPage.waitForURL('**/admin/evolution-dashboard', { timeout: 10000 });
     expect(adminPage.url()).toContain('/admin/evolution-dashboard');
-  });
-
-  adminTest('empty message shows when no experiments match filter', async ({ adminPage }) => {
-    await adminPage.goto('/admin/evolution/experiments');
-    await adminPage.waitForLoadState('domcontentloaded');
-
-    const listPage = adminPage.locator('[data-testid="entity-list-page"]');
-    await expect(listPage).toBeVisible({ timeout: 15000 });
-
-    // The page renders — with data the table shows; the empty state message
-    // ("No experiments found.") appears only when query returns zero results.
-    // The EntityListPage component renders emptyMessage in the EntityTable when items is empty.
-    // This test verifies the page can handle displaying the empty state text.
-    // We verify the title "Experiments" renders as evidence the page loaded.
-    await expect(listPage.locator('h1:has-text("Experiments")')).toBeVisible();
-  });
-
-  adminTest('name search filter input is visible', { tag: '@critical' }, async ({ adminPage }) => {
-    await adminPage.goto('/admin/evolution/experiments');
-    await adminPage.waitForLoadState('domcontentloaded');
-
-    const listPage = adminPage.locator('[data-testid="entity-list-page"]');
-    await expect(listPage).toBeVisible({ timeout: 15000 });
-
-    // Name search input should render
-    const nameInput = adminPage.locator('input[placeholder="Search..."]').first();
-    await expect(nameInput).toBeVisible({ timeout: 10000 });
   });
 });

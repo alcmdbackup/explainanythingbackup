@@ -4,10 +4,10 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Variant } from '../../types';
 import type { EvolutionConfig } from '../infra/types';
 import type { Rating } from '../../shared/computeRatings';
-import { DEFAULT_MU, DEFAULT_SIGMA } from '../../shared/computeRatings';
+import { dbToRating, _INTERNAL_DEFAULT_MU, _INTERNAL_DEFAULT_SIGMA } from '../../shared/computeRatings';
 import type { EntityLogger } from '../infra/createEntityLogger';
 import { createEntityLogger } from '../infra/createEntityLogger';
-import { v2StrategyConfigSchema } from '../../schemas';
+import { strategyConfigSchema } from '../../schemas';
 
 // ─── Arena Types ────────────────────────────────────────────────
 
@@ -63,10 +63,10 @@ export async function loadArenaEntries(
       fromArena: true,
       arenaMatchCount: entry.arena_match_count ?? 0,
     });
-    ratings.set(entry.id, {
-      mu: Number.isFinite(rawMu) ? rawMu! : DEFAULT_MU,
-      sigma: Number.isFinite(rawSigma) ? rawSigma! : DEFAULT_SIGMA,
-    });
+    ratings.set(entry.id, dbToRating(
+      Number.isFinite(rawMu) ? rawMu! : _INTERNAL_DEFAULT_MU,
+      Number.isFinite(rawSigma) ? rawSigma! : _INTERNAL_DEFAULT_SIGMA,
+    ));
   }
 
   return { variants, ratings };
@@ -84,7 +84,7 @@ export interface ClaimedRun {
 }
 
 type RawLLMProvider = {
-  complete(prompt: string, label: string, opts?: { model?: string }): Promise<string>;
+  complete(prompt: string, label: string, opts?: { model?: string; temperature?: number }): Promise<string>;
 };
 
 export interface RunContext {
@@ -92,7 +92,7 @@ export interface RunContext {
   originalText: string | null;
   config: EvolutionConfig;
   logger: EntityLogger;
-  initialPool: Array<ArenaTextVariation & { mu?: number; sigma?: number }>;
+  initialPool: Array<ArenaTextVariation & { elo?: number; uncertainty?: number }>;
   /** Run-level random seed (BIGINT) for reproducible Fisher-Yates shuffles + agent tiebreaks. */
   randomSeed: bigint;
   /** Set for prompt_id runs when no arena seed exists: CreateSeedArticleAgent generates one in iter 1. */
@@ -170,7 +170,7 @@ export async function buildRunContext(
   if (stratError || !strategyRow) {
     return { error: `Strategy ${claimedRun.strategy_id} not found: ${stratError?.message ?? 'missing'}` };
   }
-  const configParsed = v2StrategyConfigSchema.safeParse(strategyRow.config);
+  const configParsed = strategyConfigSchema.safeParse(strategyRow.config);
   if (!configParsed.success) {
     return { error: `Strategy ${claimedRun.strategy_id} has invalid config` };
   }
@@ -184,6 +184,15 @@ export async function buildRunContext(
     calibrationOpponents: 5,
     tournamentTopK: 5,
     generationGuidance: stratConfig.generationGuidance,
+    numVariants: stratConfig.maxVariantsToGenerateFromSeedArticle ?? 9,
+    maxComparisonsPerVariant: stratConfig.maxComparisonsPerVariant ?? 15,
+    // Budget floors — preprocess in schemas.ts already migrates legacy fields into
+    // minBudgetAfter*Fraction. Pass all four fields through; pipeline resolves lazily.
+    minBudgetAfterParallelFraction: stratConfig.minBudgetAfterParallelFraction,
+    minBudgetAfterParallelAgentMultiple: stratConfig.minBudgetAfterParallelAgentMultiple,
+    minBudgetAfterSequentialFraction: stratConfig.minBudgetAfterSequentialFraction,
+    minBudgetAfterSequentialAgentMultiple: stratConfig.minBudgetAfterSequentialAgentMultiple,
+    generationTemperature: stratConfig.generationTemperature,
   };
 
   const logger = createEntityLogger({
@@ -211,14 +220,14 @@ export async function buildRunContext(
   }
 
   // Load arena entries
-  let initialPool: Array<ArenaTextVariation & { mu?: number; sigma?: number }> = [];
+  let initialPool: Array<ArenaTextVariation & { elo?: number; uncertainty?: number }> = [];
   if (claimedRun.prompt_id) {
     try {
       const arena = await loadArenaEntries(claimedRun.prompt_id, db);
       initialPool = arena.variants.map((v) => ({
         ...v,
-        mu: arena.ratings.get(v.id)?.mu,
-        sigma: arena.ratings.get(v.id)?.sigma,
+        elo: arena.ratings.get(v.id)?.elo,
+        uncertainty: arena.ratings.get(v.id)?.uncertainty,
       }));
       logger.info(`Loaded ${initialPool.length} arena entries into initial pool`, { phaseName: 'arena' });
     } catch (err) {

@@ -7,13 +7,13 @@ import {
   labelStrategyConfig,
   defaultStrategyName,
   normalizeEnabledAgents,
-  type StrategyConfig,
+  type StrategyHashInput,
   type StrategyConfigRow,
 } from './hashStrategyConfig';
 import type { PromptMetadata, PipelineType } from '../types';
 
 describe('strategyConfig', () => {
-  const baseConfig: StrategyConfig = {
+  const baseConfig: StrategyHashInput = {
     generationModel: 'deepseek-chat',
     judgeModel: 'gpt-4.1-nano',
     iterations: 10,
@@ -36,7 +36,7 @@ describe('strategyConfig', () => {
     });
 
     it('includes agent overrides when present', () => {
-      const config: StrategyConfig = {
+      const config: StrategyHashInput = {
         ...baseConfig,
         agentModels: { generation: 'gpt-4o' },
       };
@@ -46,7 +46,7 @@ describe('strategyConfig', () => {
     });
 
     it('includes budget when budgetCapUsd is set', () => {
-      const config: StrategyConfig = { ...baseConfig, budgetCapUsd: 0.25 };
+      const config: StrategyHashInput = { ...baseConfig, budgetCapUsd: 0.25 };
       const label = labelStrategyConfig(config);
       expect(label).toContain('Budget: $0.25');
     });
@@ -62,7 +62,7 @@ describe('strategyConfig', () => {
     });
 
     it('shortens common model prefixes', () => {
-      const config: StrategyConfig = {
+      const config: StrategyHashInput = {
         ...baseConfig,
         generationModel: 'claude-3.5-sonnet',
         judgeModel: 'deepseek-reasoner',
@@ -73,7 +73,7 @@ describe('strategyConfig', () => {
     });
 
     it('includes agent count when enabledAgents is set', () => {
-      const config: StrategyConfig = {
+      const config: StrategyHashInput = {
         ...baseConfig,
         enabledAgents: ['reflection', 'debate', 'evolution'],
       };
@@ -82,7 +82,7 @@ describe('strategyConfig', () => {
     });
 
     it('includes single-article when set', () => {
-      const config: StrategyConfig = { ...baseConfig, singleArticle: true };
+      const config: StrategyHashInput = { ...baseConfig, singleArticle: true };
       const label = labelStrategyConfig(config);
       expect(label).toContain('single-article');
     });
@@ -104,7 +104,7 @@ describe('strategyConfig', () => {
     });
 
     it('extracts last segment of model name', () => {
-      const config: StrategyConfig = {
+      const config: StrategyHashInput = {
         ...baseConfig,
         generationModel: 'gpt-4-turbo-preview',
       };

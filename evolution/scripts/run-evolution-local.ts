@@ -17,7 +17,6 @@ import Anthropic from '@anthropic-ai/sdk';
 dotenv.config({ path: path.resolve(__dirname, '..', '.env.local') });
 
 import { calculateLLMCost } from '../../src/config/llmPricing';
-import { toEloScale } from '../src/lib/shared/computeRatings';
 import {
   evolveArticle,
   generateSeedArticle,
@@ -448,14 +447,14 @@ async function main() {
     const durationMs = Date.now() - startMs;
 
     const rankings = [...result.ratings.entries()]
-      .map(([id, r]) => ({ id, mu: r.mu }))
-      .sort((a, b) => b.mu - a.mu)
-      .map(({ id, mu }, rank) => {
+      .map(([id, r]) => ({ id, elo: r.elo }))
+      .sort((a, b) => b.elo - a.elo)
+      .map(({ id, elo }, rank) => {
         const variant = result.pool.find((v) => v.id === id);
         return {
           rank: rank + 1,
           id,
-          elo: Math.round(toEloScale(mu)),
+          elo: Math.round(elo),
           strategy: variant?.strategy ?? 'unknown',
           textPreview: variant?.text.slice(0, 120) ?? '',
         };

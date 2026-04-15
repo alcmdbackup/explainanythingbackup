@@ -367,10 +367,36 @@ export interface IterationSnapshotRow {
   phase: 'start' | 'end';
   capturedAt: string;
   poolVariantIds: string[];
-  ratings: Record<string, { mu: number; sigma: number }>;
+  ratings: Record<string, { elo: number; uncertainty: number }>;
   matchCounts: Record<string, number>;
   discardedVariantIds?: string[];
-  discardReasons?: Record<string, { mu: number; top15Cutoff: number }>;
+  discardReasons?: Record<string, { elo: number; top15Cutoff: number }>;
+}
+
+/** Legacy JSONB shape — prior snapshots stored mu/sigma in TrueSkill scale (mu≈25, sigma≈8.333).
+ * Convert to Elo using the same mapping the pipeline uses: elo = 1200 + (mu - 25) * 16. */
+function normalizeSnapshotRow(raw: unknown): IterationSnapshotRow {
+  const snap = raw as IterationSnapshotRow & {
+    ratings?: Record<string, { elo?: number; uncertainty?: number; mu?: number; sigma?: number }>;
+    discardReasons?: Record<string, { elo?: number; top15Cutoff: number; mu?: number }>;
+  };
+  const ratings: Record<string, { elo: number; uncertainty: number }> = {};
+  for (const [id, r] of Object.entries(snap.ratings ?? {})) {
+    const elo = r.elo ?? (r.mu != null ? 1200 + (r.mu - 25) * 16 : 1200);
+    const uncertainty = r.uncertainty ?? (r.sigma != null ? r.sigma * 16 : 400 / 3);
+    ratings[id] = { elo, uncertainty };
+  }
+  let discardReasons: Record<string, { elo: number; top15Cutoff: number }> | undefined;
+  if (snap.discardReasons) {
+    discardReasons = {};
+    for (const [id, r] of Object.entries(snap.discardReasons)) {
+      const elo = r.elo ?? (r.mu != null ? 1200 + (r.mu - 25) * 16 : 1200);
+      // top15Cutoff: if old mu-scale (< 100 heuristic) convert; else pass through as Elo.
+      const top15Cutoff = r.top15Cutoff < 100 ? 1200 + (r.top15Cutoff - 25) * 16 : r.top15Cutoff;
+      discardReasons[id] = { elo, top15Cutoff };
+    }
+  }
+  return { ...snap, ratings, discardReasons };
 }
 
 export interface SnapshotVariantInfo {
@@ -399,10 +425,12 @@ export const getRunSnapshotsAction = adminAction(
       .single();
     if (runErr) throw runErr;
 
-    const rawSnapshots = (runRow?.iteration_snapshots ?? []) as IterationSnapshotRow[];
-    if (!Array.isArray(rawSnapshots) || rawSnapshots.length === 0) {
+    const rawSnapshotsArray = (runRow?.iteration_snapshots ?? []) as unknown[];
+    if (!Array.isArray(rawSnapshotsArray) || rawSnapshotsArray.length === 0) {
       return { snapshots: [], variantInfo: {} };
     }
+    // Transform legacy {mu, sigma} to {elo, uncertainty} for consistent consumer shape.
+    const rawSnapshots = rawSnapshotsArray.map(normalizeSnapshotRow);
 
     // Collect every variant ID referenced across all snapshots so we can join in one query.
     const variantIds = new Set<string>();

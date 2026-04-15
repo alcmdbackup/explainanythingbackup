@@ -16,29 +16,46 @@ Each strategy encapsulates:
 - How many generate-rank-evolve iterations to run.
 - Optional parameters for round sizing and budget caps.
 
-### V2StrategyConfig
+### StrategyConfig
 
 The canonical type lives in `evolution/src/lib/pipeline/types.ts`:
 
 ```ts
-interface V2StrategyConfig {
+interface StrategyConfig {
   generationModel: string;
   judgeModel: string;
   iterations: number;
   strategiesPerRound?: number;  // default 3
   budgetUsd?: number;
   generationGuidance?: Array<{ strategy: string; percent: number }>;
+  maxVariantsToGenerateFromSeedArticle?: number;  // default 9
+  maxComparisonsPerVariant?: number;               // default 15
+  // Budget floors — pick ONE unit mode, parallel + sequential must match.
+  minBudgetAfterParallelFraction?: number;         // 0-1 of totalBudget
+  minBudgetAfterParallelAgentMultiple?: number;    // N × initial agent cost
+  minBudgetAfterSequentialFraction?: number;       // 0-1 of totalBudget
+  minBudgetAfterSequentialAgentMultiple?: number;  // N × actual avg cost (runtime)
+  /** @deprecated Kept for 1-release backward compat. Preprocess migrates to *Fraction. */
+  budgetBufferAfterParallel?: number;
+  /** @deprecated Kept for 1-release backward compat. Preprocess migrates to *Fraction. */
+  budgetBufferAfterSequential?: number;
 }
 ```
 
 | Field               | Purpose                                    |
 |---------------------|--------------------------------------------|
 | `generationModel`   | LLM used for text generation calls         |
-| `judgeModel`        | LLM used for pairwise comparison/judging   |
+| `judgeModel`        | LLM used for pairwise comparison/judging. Default: `qwen-2.5-7b-instruct` (see `DEFAULT_JUDGE_MODEL` in `src/config/modelRegistry.ts`). Selected based on empirical judge-agreement research (see `docs/research/judge_agreement_summary_tables.md`) — 100% decisive on both large-gap and close-pair comparisons with ~1.7s median latency and no thinking-mode overhead. |
 | `iterations`        | Number of generate-rank-evolve cycles      |
 | `strategiesPerRound`| Generation strategies per iteration round  |
 | `budgetUsd`         | Optional per-run budget cap                |
 | `generationGuidance`| Optional weighted strategy distribution. Array of `{ strategy, percent }` entries where percentages must sum to 100 and strategy names must be unique. Enables weighted random strategy selection from all 8 strategies instead of the default deterministic 3-strategy behavior. |
+| `maxVariantsToGenerateFromSeedArticle` | Max generateFromSeedArticle agents per run. Excludes seed article. Default 9. |
+| `maxComparisonsPerVariant` | Hard cap on pairwise comparisons per variant during ranking. Default 15. Used for deterministic cost estimation: `min(poolSize - 1, maxComparisonsPerVariant)`. |
+| `minBudgetAfterParallelFraction` / `minBudgetAfterParallelAgentMultiple` | Minimum budget to reserve for later phases after parallel generation. Specified as either a fraction of total budget (0-1) or a multiple of estimated agent cost (≥ 0). Exactly one unit per strategy. Parallel uses the initial `estimateAgentCost()` output. |
+| `minBudgetAfterSequentialFraction` / `minBudgetAfterSequentialAgentMultiple` | Minimum budget to reserve after sequential generation. Same two-unit system. Sequential uses `actualAvgCostPerAgent` from the parallel batch when available, falling back to initial estimate. Must be ≤ parallel floor (same unit). |
+| `budgetBufferAfterParallel` / `budgetBufferAfterSequential` | **Deprecated**. Auto-migrated to `minBudgetAfter*Fraction` via Zod preprocess; kept in output for one release cycle. |
+| `generationTemperature` | Optional LLM temperature (0-2) for generation calls. Omit for provider default. Validated against model's `maxTemperature` from registry (e.g., Claude max 1.0, o3-mini rejects temperature entirely). Judge/ranking calls always use temperature=0 regardless of this setting. |
 
 #### Experimental Verification with generationGuidance
 
@@ -50,7 +67,7 @@ Each strategy config is identified by a 12-character hex hash derived from SHA-2
 
 ```ts
 // evolution/src/lib/pipeline/strategy.ts
-function hashStrategyConfig(config: V2StrategyConfig): string {
+function hashStrategyConfig(config: StrategyConfig): string {
   const normalized = {
     generationModel: config.generationModel,
     judgeModel: config.judgeModel,
@@ -114,7 +131,7 @@ Strategy aggregate metrics are stored in the `evolution_metrics` table with `ent
 
 Aggregation uses **bootstrap confidence intervals** (via `bootstrapMeanCI()` and `bootstrapPercentileCI()`) when 2+ runs are available. This replaces the previous Welford's online algorithm, enabling proper 95% CIs that propagate within-run rating uncertainty.
 
-For scalar metrics (cost, totalVariants, eloPer$), `bootstrapMeanCI()` resamples with replacement and optionally draws from `Normal(value, sigma)` when rating uncertainty is present. For Elo percentile metrics (medianElo, p90Elo, maxElo), `bootstrapPercentileCI()` propagates both between-run and within-run uncertainty.
+For scalar metrics (cost, totalVariants, eloPer$), `bootstrapMeanCI()` resamples with replacement and optionally draws from `Normal(value, uncertainty)` when rating uncertainty is present. For Elo percentile metrics (medianElo, p90Elo, maxElo), `bootstrapPercentileCI()` propagates both between-run and within-run uncertainty.
 
 ### Metric Rows
 
@@ -281,7 +298,7 @@ Each completed evolution run produces metrics persisted to the `evolution_metric
 
 The computation draws from two source tables:
 
-- **`evolution_variants`** — fetches `mu`, `sigma`, and `elo_score` for all variants in the run
+- **`evolution_variants`** — fetches the legacy DB `mu`, `sigma`, and `elo_score` columns for all variants in the run (lifted to `Rating {elo, uncertainty}` at the application layer via `dbToRating`)
 - **`evolution_agent_invocations`** — fetches `agent_name` and `cost_usd` for cost breakdown
 
 Cost metrics are also written incrementally during execution (after each pipeline phase completes), so in-progress runs have up-to-date cost in the metrics table.
@@ -298,7 +315,7 @@ Cost metrics are also written incrementally during execution (after each pipelin
 | `eloPer$` | scalar | `(maxElo - 1200) / cost` — efficiency metric |
 | `agentCost:<name>` | scalar | Per-agent cost breakdown (template literal key) |
 
-Each metric is stored as a row in `evolution_metrics` with columns `value`, `sigma` (rating uncertainty from the source variant, nullable), `ci_lower`/`ci_upper` (confidence interval bounds, null at per-run level), and `n` (observation count, always 1 for single-run metrics). The `stale` flag supports lazy recomputation when source data changes (e.g., variant ratings updated by arena matches).
+Each metric is stored as a row in `evolution_metrics` with columns `value`, `uncertainty` (Elo-scale rating uncertainty from the source variant, nullable; renamed from `sigma`), `ci_lower`/`ci_upper` (confidence interval bounds, null at per-run level), and `n` (observation count, always 1 for single-run metrics). The `stale` flag supports lazy recomputation when source data changes (e.g., variant ratings updated by arena matches).
 
 The `eloPer$` metric uses 1200 as the baseline Elo — this is the starting Elo for all variants. A run that produces no improvement above baseline yields `eloPer$ = 0`.
 
@@ -355,7 +372,7 @@ export function bootstrapMeanCI(
 
 Algorithm:
 1. Draw 1000 bootstrap samples (resample with replacement from input values)
-2. For each resample, if the metric carries `sigma > 0`, draw from `Normal(value, sigma)` using the Box-Muller transform instead of using the raw value. This propagates within-run rating uncertainty into the aggregate CI.
+2. For each resample, if the metric carries `uncertainty > 0`, draw from `Normal(value, uncertainty)` using the Box-Muller transform instead of using the raw value. This propagates within-run rating uncertainty into the aggregate CI.
 3. Compute the mean of each bootstrap sample
 4. Return the 95% CI as `[2.5th percentile, 97.5th percentile]` of the 1000 bootstrap means
 
@@ -370,7 +387,7 @@ Used for Elo percentile metrics: `medianElo`, `p90Elo`, `maxElo`.
 ```typescript
 // evolution/src/experiments/evolution/experimentMetrics.ts
 export function bootstrapPercentileCI(
-  allRunRatings: Array<Array<{ mu: number; sigma: number }>>,
+  allRunRatings: Array<Array<{ elo: number; uncertainty: number }>>,
   percentile: number,
   iterations = 1000,
   rng: () => number = Math.random,
@@ -380,7 +397,7 @@ export function bootstrapPercentileCI(
 This function propagates two levels of uncertainty:
 
 1. **Between-run uncertainty**: resamples which runs are included (bootstrap over runs)
-2. **Within-run uncertainty**: for each variant, draws a skill sample from `Normal(mu, sigma)` using Box-Muller, then converts to Elo scale via `toEloScale()`
+2. **Within-run uncertainty**: for each variant, draws a skill sample from `Normal(elo, uncertainty)` using Box-Muller (all Elo-scale)
 
 Each of the 1000 iterations resamples runs, draws variant skills with noise, computes the target percentile within each resampled run, then averages across runs. The final CI is the `[2.5th, 97.5th]` percentile of these 1000 averages.
 
@@ -395,7 +412,7 @@ The `aggregateMetrics()` function routes each metric to the appropriate bootstra
 | `maxElo` | `bootstrapPercentileCI` | 1.0 |
 | All others | `bootstrapMeanCI` | N/A |
 
-Percentile bootstrap requires `variantRatings` (mu/sigma pairs) from each run. If fewer than 2 runs have valid ratings, the percentile metrics fall back to `bootstrapMeanCI`.
+Percentile bootstrap requires `variantRatings` (`{elo, uncertainty}` pairs) from each run. If fewer than 2 runs have valid ratings, the percentile metrics fall back to `bootstrapMeanCI`.
 
 ---
 
@@ -412,18 +429,18 @@ The V3 summary contains:
 | `version` | `3` | Schema version literal |
 | `stopReason` | string | `budget_exceeded`, `iterations_complete`, `converged`, or `killed` |
 | `totalIterations` | number | Actual iterations completed |
-| `muHistory` | `number[][]` | Top-K mu values per iteration (see below) |
+| `eloHistory` | `number[][]` | Top-K `elo` values per iteration (see below; renamed from `muHistory`) |
 | `diversityHistory` | `number[]` | Diversity scores per iteration (see caveat below) |
 | `matchStats` | object | `{ totalMatches, avgConfidence, decisiveRate }` |
-| `topVariants` | array | Up to 10 entries: `{ id, strategy, mu, isBaseline }` |
-| `strategyEffectiveness` | record | Per-strategy `{ count, avgMu }` |
+| `topVariants` | array | Up to 10 entries: `{ id, strategy, elo, isBaseline }` |
+| `strategyEffectiveness` | record | Per-strategy `{ count, avgElo }` |
 | `metaFeedback` | object or null | Always `null` in current implementation |
 
 ### Zod validation
 
 The V3 schema (`EvolutionRunSummaryV3Schema` in `evolution/src/lib/types.ts`) enforces strict limits:
 
-- `muHistory`: max 100 entries
+- `eloHistory`: max 100 entries
 - `topVariants`: max 10 entries
 - String fields: max 200 characters
 - `totalIterations`: integer, 0-100
@@ -437,32 +454,28 @@ Older run summaries are automatically migrated on read via a Zod union with `.tr
 ```typescript
 // evolution/src/lib/types.ts
 export const EvolutionRunSummarySchema = z.union([
-  EvolutionRunSummaryV3Schema,      // version: 3 — native mu-based
+  EvolutionRunSummaryV3Schema,      // version: 3 — native Elo-based (current)
   EvolutionRunSummaryV2Schema,      // version: 2 — ordinal-based → V3
-  EvolutionRunSummaryV1Schema,      // version: 1 — Elo-based → V3
+  EvolutionRunSummaryV1Schema,      // version: 1 — legacy Elo shape → V3
 ]);
 ```
 
-The migration formula converts legacy rating values to mu:
-
-```
-mu = elo_or_ordinal + 3 * DEFAULT_SIGMA
-```
-
-Where `DEFAULT_SIGMA = 25 / 3` (approximately 8.333), so the offset is approximately 25. V1 schemas have `version: 1` (optional — early V1 data may omit it). V2 schemas have `version: 2`. The union tries V3 first, then V2, then V1; the first successful parse wins.
+On read, older shapes (including the prior OpenSkill-mu-based schema that used
+`muHistory` / `avgMu` / `baselineMu`) are projected forward into the current Elo-scale
+fields. The union tries V3 first, then V2, then V1; the first successful parse wins.
 
 ---
 
-## muHistory Tracking
+## eloHistory Tracking
 
-The `muHistory` array records the skill distribution of top variants after each iteration's ranking phase. It is built in the main evolution loop (`evolution/src/lib/pipeline/evolve-article.ts`):
+The `eloHistory` array records the skill distribution of top variants after each iteration's ranking phase. It is built in the main evolution loop (`evolution/src/lib/pipeline/evolve-article.ts`):
 
-1. After each iteration's ranking completes, collect all current mu values from the ratings map
+1. After each iteration's ranking completes, collect all current `elo` values from the ratings map
 2. Sort descending by skill estimate
 3. Slice to top-K where K = `tournamentTopK` (default 5 from [config](./architecture.md))
-4. Push the array of K mu values as one entry in `muHistory`
+4. Push the array of K `elo` values as one entry in `eloHistory`
 
-This produces a 2D array: `muHistory[iteration][rank]`. The visualization layer uses this to plot convergence curves — how quickly the top variants' skill estimates stabilize. See [Visualization](./visualization.md) for how this data is rendered.
+This produces a 2D array: `eloHistory[iteration][rank]`. The visualization layer uses this to plot convergence curves — how quickly the top variants' skill estimates stabilize. See [Visualization](./visualization.md) for how this data is rendered. (Formerly `muHistory`.)
 
 ---
 
@@ -484,27 +497,27 @@ In `buildRunSummary()` (`evolution/src/lib/pipeline/finalize.ts`), strategy effe
 
 ```typescript
 // evolution/src/lib/pipeline/finalize.ts — inside buildRunSummary()
-const strategyEffectiveness = pool.reduce<Record<string, { count: number; avgMu: number }>>(
+const strategyEffectiveness = pool.reduce<Record<string, { count: number; avgElo: number }>>(
   (acc, v) => {
-    const mu = ratings.get(v.id)?.mu ?? DEFAULT_MU;
+    const elo = ratings.get(v.id)?.elo ?? DEFAULT_ELO;
     const prev = acc[v.strategy];
     if (prev) {
       const newCount = prev.count + 1;
-      acc[v.strategy] = { count: newCount, avgMu: prev.avgMu + (mu - prev.avgMu) / newCount };
+      acc[v.strategy] = { count: newCount, avgElo: prev.avgElo + (elo - prev.avgElo) / newCount };
     } else {
-      acc[v.strategy] = { count: 1, avgMu: mu };
+      acc[v.strategy] = { count: 1, avgElo: elo };
     }
     return acc;
   }, {});
 ```
 
-This groups variants by their strategy name and computes a running average mu. Welford's method avoids the numerical instability of summing then dividing — each new observation incrementally adjusts the mean.
+This groups variants by their strategy name and computes a running average `elo`. Welford's method avoids the numerical instability of summing then dividing — each new observation incrementally adjusts the mean.
 
 ### Aggregate computation
 
 After persisting the run, `finalizeRun()` calls `propagateMetrics()` in TypeScript. This function reads the child run's metrics from the `evolution_metrics` table and writes aggregated strategy-level and experiment-level metrics back to the same table using bootstrap confidence intervals.
 
-When a variant's `mu` or `sigma` changes post-completion (e.g., from arena matches), a DB trigger marks dependent run, strategy, and experiment metrics as `stale`. On the next read, the server action detects stale metrics and triggers lazy recomputation via `propagateMetrics()`.
+When a variant's DB `mu` or `sigma` columns change post-completion (these columns back `Rating {elo, uncertainty}` via `dbToRating`; e.g., from arena matches), a DB trigger marks dependent run, strategy, and experiment metrics as `stale`. On the next read, the server action detects stale metrics and triggers lazy recomputation via `propagateMetrics()`.
 
 ---
 
@@ -517,7 +530,7 @@ When a variant's `mu` or `sigma` changes post-completion (e.g., from arena match
 | `evolution/src/lib/pipeline/experiments.ts` | Core experiment functions (create, addRun, computeMetrics) |
 | `evolution/src/lib/pipeline/strategy.ts` | Strategy hashing, labeling, and upsert-by-hash |
 | `evolution/src/lib/pipeline/finalize.ts` | Run finalization: auto-completion, aggregate updates |
-| `evolution/src/lib/pipeline/infra/types.ts` | `V2StrategyConfig`, `EvolutionConfig`, `EvolutionResult` types |
+| `evolution/src/lib/pipeline/infra/types.ts` | `StrategyConfig`, `EvolutionConfig`, `EvolutionResult` types |
 | `evolution/src/experiments/evolution/experimentMetrics.ts` | Bootstrap CI functions, MetricValue type |
 | `evolution/src/lib/metrics/registry.ts` | Declarative metric registry with compute functions |
 | `evolution/src/lib/metrics/writeMetrics.ts` | UPSERT metrics to evolution_metrics table |
@@ -531,5 +544,5 @@ When a variant's `mu` or `sigma` changes post-completion (e.g., from arena match
 - [Architecture](./architecture.md) — pipeline phases and configuration
 - [Data Model](./data_model.md) — database tables referenced by metrics
 - [Metrics](./metrics.md) — metrics system architecture, registry, and DB schema
-- [Visualization](./visualization.md) — how metrics and muHistory are rendered in the UI
+- [Visualization](./visualization.md) — how metrics and eloHistory are rendered in the UI
 - [Cost Optimization](./cost_optimization.md) — budget tracking and spending gates

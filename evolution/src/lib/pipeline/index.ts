@@ -1,7 +1,7 @@
 // V2 barrel module. Single entry point for all V2 consumers.
 
 // ─── Types ──────────────────────────────────────────────────────
-export type { V2Match, EvolutionConfig, EvolutionResult, V2StrategyConfig } from './infra/types';
+export type { V2Match, EvolutionConfig, EvolutionResult, StrategyConfig } from './infra/types';
 export type { Variant, EvolutionLLMClient, LLMCompletionOptions } from '../types';
 /** @deprecated Use Variant */ export type { TextVariation } from '../types';
 export type { Rating, ComparisonResult, CachedMatch, ReversalConfig } from '../shared/computeRatings';
@@ -16,12 +16,17 @@ export {
   updateRating,
   updateDraw,
   toEloScale,
+  toDisplayElo,
+  dbToRating,
+  ratingToDb,
   isConverged,
   computeEloPerDollar,
-  DEFAULT_MU,
-  DEFAULT_SIGMA,
-  DEFAULT_CONVERGENCE_SIGMA,
-  ELO_SIGMA_SCALE,
+  DEFAULT_ELO,
+  DEFAULT_UNCERTAINTY,
+  DEFAULT_CONVERGENCE_UNCERTAINTY,
+  _INTERNAL_DEFAULT_MU,
+  _INTERNAL_DEFAULT_SIGMA,
+  _INTERNAL_ELO_SIGMA_SCALE,
   DECISIVE_CONFIDENCE_THRESHOLD,
   compareWithBiasMitigation,
   parseWinner,
@@ -53,7 +58,7 @@ export type { V2CostTracker } from './infra/trackBudget';
 export { createCostTracker } from './infra/trackBudget';
 
 // ─── V2 LLM client (M3) ─────────────────────────────────────────
-export { createV2LLMClient } from './infra/createLLMClient';
+export { createEvolutionLLMClient } from './infra/createEvolutionLLMClient';
 
 // ─── V2 invocations + logging (M3) ──────────────────────────────
 export { createInvocation, updateInvocation } from './infra/trackInvocations';
@@ -95,7 +100,7 @@ export type { MergeRatingsInput, MergeRatingsOutput, MergeMatchEntry } from '../
 // ─── Pipeline schemas (Phase 2) ─────────────────────────────────
 export {
   variantSchema,
-  v2StrategyConfigSchema,
+  strategyConfigSchema,
   evolutionConfigSchema,
   v2MatchSchema,
   evolutionResultSchema,

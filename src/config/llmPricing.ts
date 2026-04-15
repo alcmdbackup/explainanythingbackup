@@ -1,8 +1,11 @@
 /**
  * LLM token pricing configuration.
- * Used to calculate estimated costs for API calls.
+ * Registry models are imported as the source of truth; versioned variants
+ * are kept here for prefix-match fallback (e.g. gpt-4o-2024-11-20 → gpt-4o pricing).
  * Prices are per 1M tokens in USD.
  */
+
+import { MODEL_REGISTRY } from './modelRegistry';
 
 export interface ModelPricing {
   inputPer1M: number;
@@ -10,30 +13,26 @@ export interface ModelPricing {
   reasoningPer1M?: number;
 }
 
-// Pricing as of January 2025 - update as needed
-export const LLM_PRICING: Record<string, ModelPricing> = {
-  // OpenAI GPT-4.1 (latest)
-  'gpt-4.1': { inputPer1M: 2.00, outputPer1M: 8.00 },
-  'gpt-4.1-mini': { inputPer1M: 0.40, outputPer1M: 1.60 },
-  'gpt-4.1-nano': { inputPer1M: 0.10, outputPer1M: 0.40 },
+// Build pricing from registry (source of truth for registered models)
+const registryPricing: Record<string, ModelPricing> = Object.fromEntries(
+  Object.values(MODEL_REGISTRY).map(info => [info.id, {
+    inputPer1M: info.inputPer1M,
+    outputPer1M: info.outputPer1M,
+    ...(info.reasoningPer1M != null && { reasoningPer1M: info.reasoningPer1M }),
+  }]),
+);
 
-  // OpenAI GPT-5 (latest)
-  'gpt-5.2': { inputPer1M: 1.75, outputPer1M: 14.00 },
-  'gpt-5.2-pro': { inputPer1M: 3.50, outputPer1M: 28.00 },
-  'gpt-5-mini': { inputPer1M: 0.25, outputPer1M: 2.00 },
-  'gpt-5-nano': { inputPer1M: 0.05, outputPer1M: 0.40 },
-
-  // OpenAI GPT-4o
-  'gpt-4o': { inputPer1M: 2.50, outputPer1M: 10.00 },
+// Versioned model variants for prefix-match fallback (not in registry)
+const VERSIONED_PRICING: Record<string, ModelPricing> = {
+  // OpenAI GPT-4o versioned
   'gpt-4o-2024-11-20': { inputPer1M: 2.50, outputPer1M: 10.00 },
   'gpt-4o-2024-08-06': { inputPer1M: 2.50, outputPer1M: 10.00 },
   'gpt-4o-2024-05-13': { inputPer1M: 5.00, outputPer1M: 15.00 },
 
-  // OpenAI GPT-4o-mini
-  'gpt-4o-mini': { inputPer1M: 0.15, outputPer1M: 0.60 },
+  // OpenAI GPT-4o-mini versioned
   'gpt-4o-mini-2024-07-18': { inputPer1M: 0.15, outputPer1M: 0.60 },
 
-  // OpenAI o1 reasoning models (longer prefixes first for correct prefix matching)
+  // OpenAI o1 reasoning models
   'o1-mini': { inputPer1M: 3.00, outputPer1M: 12.00, reasoningPer1M: 12.00 },
   'o1-mini-2024-09-12': { inputPer1M: 3.00, outputPer1M: 12.00, reasoningPer1M: 12.00 },
   'o1-preview': { inputPer1M: 15.00, outputPer1M: 60.00, reasoningPer1M: 60.00 },
@@ -54,21 +53,6 @@ export const LLM_PRICING: Record<string, ModelPricing> = {
   'gpt-3.5-turbo': { inputPer1M: 0.50, outputPer1M: 1.50 },
   'gpt-3.5-turbo-0125': { inputPer1M: 0.50, outputPer1M: 1.50 },
 
-  // OpenAI o3 reasoning models
-  'o3-mini': { inputPer1M: 1.10, outputPer1M: 4.40 },
-
-  // DeepSeek
-  'deepseek-chat': { inputPer1M: 0.14, outputPer1M: 0.28 },
-
-  // OpenRouter (GPT-OSS-20B via OpenRouter)
-  'gpt-oss-20b': { inputPer1M: 0.03, outputPer1M: 0.11 },
-
-  // Local models (Ollama) — free
-  'LOCAL_qwen2.5:14b': { inputPer1M: 0, outputPer1M: 0 },
-
-  // Anthropic Claude 4
-  'claude-sonnet-4-20250514': { inputPer1M: 3.00, outputPer1M: 15.00 },
-
   // Anthropic Claude 3.5
   'claude-3-5-sonnet-20241022': { inputPer1M: 3.00, outputPer1M: 15.00 },
   'claude-3-5-sonnet-20240620': { inputPer1M: 3.00, outputPer1M: 15.00 },
@@ -78,6 +62,12 @@ export const LLM_PRICING: Record<string, ModelPricing> = {
   'claude-3-opus-20240229': { inputPer1M: 15.00, outputPer1M: 75.00 },
   'claude-3-sonnet-20240229': { inputPer1M: 3.00, outputPer1M: 15.00 },
   'claude-3-haiku-20240307': { inputPer1M: 0.25, outputPer1M: 1.25 },
+};
+
+// Merge: registry entries take precedence, then versioned fallbacks
+export const LLM_PRICING: Record<string, ModelPricing> = {
+  ...VERSIONED_PRICING,
+  ...registryPricing,
 };
 
 // Default pricing for unknown models (conservative estimate)

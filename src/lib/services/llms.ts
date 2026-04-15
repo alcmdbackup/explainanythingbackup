@@ -15,6 +15,15 @@ import { withLogging } from '@/lib/logging/server/automaticServerLoggingBase';
 import { ServiceError } from '@/lib/errors/serviceError';
 import { ERROR_CODES } from '@/lib/errorHandling';
 import { calculateLLMCost } from '@/config/llmPricing';
+import { isOpenRouterModel as registryIsOpenRouterModel, getOpenRouterApiModelId, getModelMaxTemperature, getModelDefaultReasoningEffort } from '@/config/modelRegistry';
+
+/** Clamp temperature to model's max. Returns undefined if model doesn't support temperature or temp not set. */
+function clampTemperature(temperature: number | undefined, model: string): number | undefined {
+    if (temperature === undefined) return undefined;
+    const maxTemp = getModelMaxTemperature(model);
+    if (maxTemp === null || maxTemp === undefined) return undefined;
+    return Math.min(temperature, maxTemp);
+}
 import { getLLMSemaphore } from './llmSemaphore';
 import { getSpendingGate } from './llmSpendingGate';
 
@@ -30,6 +39,12 @@ export interface LLMUsageMetadata {
 export interface CallLLMOptions {
   onUsage?: (usage: LLMUsageMetadata) => void;
   evolutionInvocationId?: string;
+  /** LLM sampling temperature. Omit to use provider default. Clamped to model's maxTemperature. */
+  temperature?: number;
+  /** Reasoning effort for reasoning-capable models (OpenRouter thinking/reasoning models,
+   *  OpenAI o-series). Values: 'none' | 'low' | 'medium' | 'high'. Omit to use the model's
+   *  registry default. Ignored for non-reasoning models. */
+  reasoningEffort?: 'none' | 'low' | 'medium' | 'high';
 }
 
 type ResponseObject = z.ZodObject<any> | null;
@@ -245,7 +260,7 @@ function getOpenRouterClient(): OpenAI {
 }
 
 export function isOpenRouterModel(model: string): boolean {
-    return model === 'gpt-oss-20b';
+    return registryIsOpenRouterModel(model);
 }
 
 let anthropicClient: Anthropic | null = null;
@@ -298,7 +313,7 @@ async function callOpenAIModel(
         const apiModel = isLocalModel(validatedModel)
             ? validatedModel.replace(/^LOCAL_/, '')
             : isOpenRouterModel(validatedModel)
-                ? `openai/${validatedModel}`
+                ? getOpenRouterApiModelId(validatedModel)
                 : validatedModel;
 
         const requestOptions: OpenAI.Chat.ChatCompletionCreateParams = {
@@ -309,6 +324,29 @@ async function callOpenAIModel(
             ],
             stream: streaming
         };
+
+        const clampedTemp = clampTemperature(options?.temperature, validatedModel);
+        if (clampedTemp !== undefined) {
+            requestOptions.temperature = clampedTemp;
+        }
+
+        // Reasoning effort — for OpenAI o-series models we pass `reasoning_effort` directly
+        // (SDK-supported). For OpenRouter models that accept `reasoning.effort`, we include
+        // it as an extra request field (the SDK tolerates unknown fields on OpenAI-compatible
+        // endpoints). Caller override wins over the registry default.
+        const effectiveReasoningEffort = options?.reasoningEffort ?? getModelDefaultReasoningEffort(validatedModel);
+        if (effectiveReasoningEffort) {
+            if (isOpenRouterModel(validatedModel)) {
+                // OpenRouter unified API: { reasoning: { effort: 'low'|... } }
+                (requestOptions as unknown as Record<string, unknown>).reasoning = { effort: effectiveReasoningEffort };
+            } else {
+                // OpenAI o-series: reasoning_effort parameter on the top-level request.
+                // 'none' is not a valid OpenAI value, so omit it.
+                if (effectiveReasoningEffort !== 'none') {
+                    (requestOptions as unknown as Record<string, unknown>).reasoning_effort = effectiveReasoningEffort;
+                }
+            }
+        }
 
         if (response_obj && response_obj_name) {
             if (isDeepSeekModel(validatedModel) || isLocalModel(validatedModel) || isOpenRouterModel(validatedModel)) {
@@ -473,6 +511,8 @@ async function callAnthropicModel(
             'llm.streaming': streaming ? 'true' : 'false'
         });
 
+        const anthropicTemp = clampTemperature(options?.temperature, validatedModel);
+
         let response: string;
         let usage: { input_tokens: number; output_tokens: number };
         let promptTokens = 0;
@@ -487,6 +527,7 @@ async function callAnthropicModel(
                     max_tokens: 8192,
                     system: systemMessage,
                     messages: [{ role: 'user', content: prompt }],
+                    ...(anthropicTemp !== undefined ? { temperature: anthropicTemp } : {}),
                 });
                 for await (const event of stream) {
                     if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
@@ -503,6 +544,7 @@ async function callAnthropicModel(
                     max_tokens: 8192,
                     system: systemMessage,
                     messages: [{ role: 'user', content: prompt }],
+                    ...(anthropicTemp !== undefined ? { temperature: anthropicTemp } : {}),
                 });
                 response = message.content[0]?.type === 'text' ? message.content[0].text : '';
                 usage = message.usage;

@@ -113,15 +113,7 @@ adminTest.describe('Evolution Invocation Detail', { tag: '@evolution' }, () => {
     await sb.from('evolution_prompts').delete().eq('id', promptId);
   });
 
-  adminTest('invocations page renders table', async ({ adminPage }) => {
-    await adminPage.goto('/admin/evolution/invocations');
-    await adminPage.waitForLoadState('domcontentloaded');
-
-    const table = adminPage.locator('[data-testid="entity-list-table"]');
-    await expect(table).toBeVisible({ timeout: 15000 });
-  });
-
-  adminTest('invocation table shows seeded data', async ({ adminPage }) => {
+  adminTest('page+columns: invocations page renders table with correct column headers', async ({ adminPage }) => {
     await adminPage.goto('/admin/evolution/invocations');
     await adminPage.waitForLoadState('domcontentloaded');
 
@@ -135,7 +127,7 @@ adminTest.describe('Evolution Invocation Detail', { tag: '@evolution' }, () => {
     await expect(table.locator('th:has-text("Status")')).toBeVisible();
   });
 
-  adminTest('clicking invocation row navigates to detail', async ({ adminPage }) => {
+  adminTest('row nav: clicking invocation row navigates to detail page', async ({ adminPage }) => {
     await adminPage.goto('/admin/evolution/invocations');
     await adminPage.waitForLoadState('domcontentloaded');
 
@@ -151,7 +143,7 @@ adminTest.describe('Evolution Invocation Detail', { tag: '@evolution' }, () => {
     expect(adminPage.url()).toContain(`/admin/evolution/invocations/${successInvocationId}`);
   });
 
-  adminTest('invocation detail shows agent name', async ({ adminPage }) => {
+  adminTest('detail fields: invocation detail shows agent, cost, duration, breadcrumb, and metrics', async ({ adminPage }) => {
     await adminPage.goto(`/admin/evolution/invocations/${successInvocationId}`);
     await adminPage.waitForLoadState('domcontentloaded');
 
@@ -163,50 +155,20 @@ adminTest.describe('Evolution Invocation Detail', { tag: '@evolution' }, () => {
     const metricGrid = adminPage.locator('[data-testid="metric-grid"]');
     await expect(metricGrid).toBeVisible({ timeout: 10000 });
     await expect(metricGrid.locator(`text=${testPrefix}-generation`)).toBeVisible();
-  });
-
-  adminTest('invocation detail shows cost', async ({ adminPage }) => {
-    await adminPage.goto(`/admin/evolution/invocations/${successInvocationId}`);
-    await adminPage.waitForLoadState('domcontentloaded');
-
-    const metricGrid = adminPage.locator('[data-testid="metric-grid"]');
-    await expect(metricGrid).toBeVisible({ timeout: 15000 });
 
     // The cost metric label should be present
     const costMetric = adminPage.locator('[data-testid="metric-cost"]');
     await expect(costMetric).toBeVisible();
-  });
-
-  adminTest('invocation detail shows duration', async ({ adminPage }) => {
-    await adminPage.goto(`/admin/evolution/invocations/${successInvocationId}`);
-    await adminPage.waitForLoadState('domcontentloaded');
-
-    const metricGrid = adminPage.locator('[data-testid="metric-grid"]');
-    await expect(metricGrid).toBeVisible({ timeout: 15000 });
 
     // The duration metric label should be present
     const durationMetric = adminPage.locator('[data-testid="metric-duration"]');
     await expect(durationMetric).toBeVisible();
-  });
-
-  adminTest('invocation detail breadcrumb shows Invocations link', async ({ adminPage }) => {
-    await adminPage.goto(`/admin/evolution/invocations/${successInvocationId}`);
-    await adminPage.waitForLoadState('domcontentloaded');
-
-    const breadcrumb = adminPage.locator('[data-testid="evolution-breadcrumb"]');
-    await expect(breadcrumb).toBeVisible({ timeout: 15000 });
 
     // Breadcrumb should contain "Invocations" link
+    const breadcrumb = adminPage.locator('[data-testid="evolution-breadcrumb"]');
+    await expect(breadcrumb).toBeVisible({ timeout: 15000 });
     const invocationsLink = breadcrumb.locator('a:has-text("Invocations")');
     await expect(invocationsLink).toBeVisible();
-  });
-
-  adminTest('invocation metrics tab shows best_variant_elo, avg_variant_elo, variant_count', async ({ adminPage }) => {
-    await adminPage.goto(`/admin/evolution/invocations/${successInvocationId}`);
-    await adminPage.waitForLoadState('domcontentloaded');
-
-    const header = adminPage.locator('[data-testid="entity-detail-header"]');
-    await expect(header).toBeVisible({ timeout: 15000 });
 
     // Switch to the Metrics tab
     const metricsTab = adminPage.locator('[data-testid="tab-metrics"]');
@@ -232,21 +194,9 @@ adminTest.describe('Evolution Invocation Detail', { tag: '@evolution' }, () => {
     const variantCount = adminPage.locator('[data-testid="metric-variants-produced"]');
     await expect(variantCount).toBeVisible();
     await expect(variantCount).toContainText('4');
-  });
 
-  adminTest('back navigation from detail to list via breadcrumb', async ({ adminPage }) => {
-    await adminPage.goto(`/admin/evolution/invocations/${successInvocationId}`);
-    await adminPage.waitForLoadState('domcontentloaded');
-
-    const breadcrumb = adminPage.locator('[data-testid="evolution-breadcrumb"]');
-    await expect(breadcrumb).toBeVisible({ timeout: 15000 });
-
-    // Click the "Invocations" breadcrumb link
-    const invocationsLink = breadcrumb.locator('a:has-text("Invocations")');
-    await expect(invocationsLink).toBeVisible();
+    // Click the "Invocations" breadcrumb link to navigate back
     await invocationsLink.click();
-
-    // Verify navigation back to invocations list
     await adminPage.waitForURL('**/admin/evolution/invocations', { timeout: 10000 });
     expect(adminPage.url()).toContain('/admin/evolution/invocations');
   });

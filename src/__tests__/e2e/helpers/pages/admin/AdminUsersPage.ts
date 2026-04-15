@@ -62,8 +62,6 @@ export class AdminUsersPage extends AdminBasePage {
     await this.goto();
     await this.goToUsers();
     await this.table.waitFor({ state: 'visible' });
-    // Wait for initial data load to complete before proceeding
-    await expect(this.table.locator('tbody')).not.toContainText('Loading...', { timeout: 30000 });
   }
 
   /**

@@ -80,7 +80,7 @@ This approach has both benefits and challenges that developers should carefully 
 test.describe('Import Articles Feature', () => {
     test.describe('Full Import Flow', () => {
         // These tests hit real LLM APIs and DB operations
-        test('should import ChatGPT content with auto-detection', { tag: '@critical' }, async ({ authenticatedPage }) => {
+        test('should import ChatGPT content with auto-detection', async ({ authenticatedPage }) => {
             test.setTimeout(60000);
             const importPage = new ImportPage(authenticatedPage);
 

@@ -80,7 +80,7 @@ adminTest.describe('Admin Strategy Registry - Origin Filter', { tag: '@evolution
   });
 
   adminTest(
-    'page shows Origin filter dropdown',
+    'filter exists+filter works: Origin filter dropdown shows correct options and filters by created_by value',
     { tag: '@critical' },
     async ({ adminPage }) => {
       await adminPage.goto('/admin/evolution/strategies');
@@ -92,17 +92,10 @@ adminTest.describe('Admin Strategy Registry - Origin Filter', { tag: '@evolution
       // Should have All, Admin, System, Experiment, Batch options
       const options = originFilter.locator('option');
       await expect(options).toHaveCount(5);
-    },
-  );
 
-  adminTest(
-    'Origin filter filters strategies by created_by value',
-    async ({ adminPage }) => {
-      await adminPage.goto('/admin/evolution/strategies');
+      // Select "Experiment" filter and verify table updates
       await adminPage.waitForLoadState('domcontentloaded');
-
-      // Select "Experiment" filter
-      await adminPage.locator('[data-testid="filter-created_by"]').selectOption('experiment');
+      await originFilter.selectOption('experiment');
 
       // Wait for table to reload after filter change
       const table = adminPage.locator('[data-testid="entity-list-table"]');

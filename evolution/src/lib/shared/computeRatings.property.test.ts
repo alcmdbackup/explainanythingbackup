@@ -1,5 +1,5 @@
 // Property-based tests for rating math using fast-check against the real openskill library.
-// Validates invariants: sigma decrease, finite outputs, monotonicity, symmetry.
+// Validates invariants: uncertainty decrease, finite outputs, monotonicity, symmetry.
 
 jest.unmock('openskill');
 
@@ -9,29 +9,31 @@ import {
   updateDraw,
   toEloScale,
   aggregateWinners,
-  DEFAULT_MU,
+  DEFAULT_ELO,
 } from './computeRatings';
 import type { Rating } from './computeRatings';
 
+// Elo scale: elo in [0, 2000] corresponds to mu in [-75, 75] (mu range broader than [0,50] of old test)
+// Match old range mu in [0,50], sigma in [0.1,25] → elo in [800,1600], uncertainty in [1.6,400]
 const ratingArb = fc.record({
-  mu: fc.double({ min: 0, max: 50, noNaN: true }),
-  sigma: fc.double({ min: 0.1, max: 25, noNaN: true }),
+  elo: fc.double({ min: 800, max: 1600, noNaN: true }),
+  uncertainty: fc.double({ min: 1.6, max: 400, noNaN: true }),
 });
 
 describe('computeRatings property tests', () => {
   describe('updateRating', () => {
-    it('sigma decreases for both players after a decisive match (sigma >= 1)', () => {
+    it('uncertainty decreases for both players after a decisive match (uncertainty >= 16)', () => {
       // OpenSkill's sigma can increase for extremely low sigma values (convergence floor).
-      // Use sigma >= 1 to match realistic pipeline conditions.
+      // Use uncertainty >= 16 (sigma >= 1) to match realistic pipeline conditions.
       const realisticRating = fc.record({
-        mu: fc.double({ min: 0, max: 50, noNaN: true }),
-        sigma: fc.double({ min: 1, max: 25, noNaN: true }),
+        elo: fc.double({ min: 800, max: 1600, noNaN: true }),
+        uncertainty: fc.double({ min: 16, max: 400, noNaN: true }),
       });
       fc.assert(
         fc.property(realisticRating, realisticRating, (winner: Rating, loser: Rating) => {
           const [newWinner, newLoser] = updateRating(winner, loser);
-          expect(newWinner.sigma).toBeLessThanOrEqual(winner.sigma);
-          expect(newLoser.sigma).toBeLessThanOrEqual(loser.sigma);
+          expect(newWinner.uncertainty).toBeLessThanOrEqual(winner.uncertainty);
+          expect(newLoser.uncertainty).toBeLessThanOrEqual(loser.uncertainty);
         }),
         { numRuns: 100 },
       );
@@ -41,10 +43,10 @@ describe('computeRatings property tests', () => {
       fc.assert(
         fc.property(ratingArb, ratingArb, (winner: Rating, loser: Rating) => {
           const [newWinner, newLoser] = updateRating(winner, loser);
-          expect(Number.isFinite(newWinner.mu)).toBe(true);
-          expect(Number.isFinite(newWinner.sigma)).toBe(true);
-          expect(Number.isFinite(newLoser.mu)).toBe(true);
-          expect(Number.isFinite(newLoser.sigma)).toBe(true);
+          expect(Number.isFinite(newWinner.elo)).toBe(true);
+          expect(Number.isFinite(newWinner.uncertainty)).toBe(true);
+          expect(Number.isFinite(newLoser.elo)).toBe(true);
+          expect(Number.isFinite(newLoser.uncertainty)).toBe(true);
         }),
         { numRuns: 100 },
       );
@@ -57,25 +59,25 @@ describe('computeRatings property tests', () => {
         fc.property(ratingArb, ratingArb, (a: Rating, b: Rating) => {
           const [newA, newB] = updateDraw(a, b);
           const [newB2, newA2] = updateDraw(b, a);
-          expect(newA.mu).toBeCloseTo(newA2.mu, 10);
-          expect(newA.sigma).toBeCloseTo(newA2.sigma, 10);
-          expect(newB.mu).toBeCloseTo(newB2.mu, 10);
-          expect(newB.sigma).toBeCloseTo(newB2.sigma, 10);
+          expect(newA.elo).toBeCloseTo(newA2.elo, 8);
+          expect(newA.uncertainty).toBeCloseTo(newA2.uncertainty, 8);
+          expect(newB.elo).toBeCloseTo(newB2.elo, 8);
+          expect(newB.uncertainty).toBeCloseTo(newB2.uncertainty, 8);
         }),
         { numRuns: 100 },
       );
     });
 
-    it('both sigmas decrease (sigma >= 1)', () => {
+    it('both uncertainties decrease (uncertainty >= 16)', () => {
       const realisticRating = fc.record({
-        mu: fc.double({ min: 0, max: 50, noNaN: true }),
-        sigma: fc.double({ min: 1, max: 25, noNaN: true }),
+        elo: fc.double({ min: 800, max: 1600, noNaN: true }),
+        uncertainty: fc.double({ min: 16, max: 400, noNaN: true }),
       });
       fc.assert(
         fc.property(realisticRating, realisticRating, (a: Rating, b: Rating) => {
           const [newA, newB] = updateDraw(a, b);
-          expect(newA.sigma).toBeLessThanOrEqual(a.sigma);
-          expect(newB.sigma).toBeLessThanOrEqual(b.sigma);
+          expect(newA.uncertainty).toBeLessThanOrEqual(a.uncertainty);
+          expect(newB.uncertainty).toBeLessThanOrEqual(b.uncertainty);
         }),
         { numRuns: 100 },
       );
@@ -111,8 +113,8 @@ describe('computeRatings property tests', () => {
       );
     });
 
-    it('DEFAULT_MU maps to 1200', () => {
-      expect(toEloScale(DEFAULT_MU)).toBe(1200);
+    it('mu=25 maps to DEFAULT_ELO (1200)', () => {
+      expect(toEloScale(25)).toBe(DEFAULT_ELO);
     });
   });
 
@@ -149,6 +151,26 @@ describe('computeRatings property tests', () => {
             expect(result.confidence).toBeGreaterThanOrEqual(0);
             expect(result.confidence).toBeLessThanOrEqual(1);
             expect(result.turns).toBe(2);
+          },
+        ),
+      );
+    });
+  });
+
+  describe('beta=0 convergence', () => {
+    it('winner elo monotonically increases over N consecutive wins', () => {
+      fc.assert(
+        fc.property(
+          fc.integer({ min: 3, max: 20 }),
+          (matchCount: number) => {
+            let w: Rating = { elo: DEFAULT_ELO, uncertainty: 400 / 3 };
+            let l: Rating = { elo: DEFAULT_ELO, uncertainty: 400 / 3 };
+            let prevElo = w.elo;
+            for (let i = 0; i < matchCount; i++) {
+              [w, l] = updateRating(w, l);
+              expect(w.elo).toBeGreaterThan(prevElo);
+              prevElo = w.elo;
+            }
           },
         ),
       );

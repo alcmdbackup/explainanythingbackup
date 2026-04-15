@@ -1,6 +1,6 @@
 # Evolution System Documentation
 
-The Evolution system is an automated text quality improvement pipeline that uses evolutionary algorithms (generate → rank → evolve) with OpenSkill Bayesian ratings to iteratively improve explanatory articles.
+The Evolution system is an automated text quality improvement pipeline that uses evolutionary algorithms (generate → rank → evolve) with Elo ratings (centered on 1200, with per-variant uncertainty giving confidence intervals) to iteratively improve explanatory articles.
 
 ## Reading Order
 
@@ -12,7 +12,7 @@ Start with the data model, then follow execution flow through agents, cost, and 
 | 2 | [Architecture](./architecture.md) | Execution flow, 3-op loop, budget, runner lifecycle |
 | 3 | [Agents](./agents/overview.md) | Operations, format validation, invocations |
 | 4 | [Cost Optimization](./cost_optimization.md) | Cost tracker, pricing, spending gate |
-| 5 | [Rating & Comparison](./rating_and_comparison.md) | OpenSkill, ranking, bias mitigation |
+| 5 | [Rating & Comparison](./rating_and_comparison.md) | Elo ratings, ranking, bias mitigation (OpenSkill internally) |
 | 6 | [Strategies & Experiments](./strategies_and_experiments.md) | Strategies, experiments, aggregates, bootstrap CIs, run summary |
 | 7 | [Metrics](./metrics.md) | Metrics system, registry, DB schema, stale recomputation |
 | 8 | [Arena](./arena.md) | Cross-run comparison, loading, syncing |
@@ -33,7 +33,7 @@ evolution/docs/
 ├── agents/
 │   └── overview.md                 — Agent operations and format validation
 ├── cost_optimization.md            — Spending tracking and budget gates
-├── rating_and_comparison.md        — OpenSkill ratings and bias mitigation
+├── rating_and_comparison.md        — Elo ratings and bias mitigation (OpenSkill as internal impl)
 ├── strategies_and_experiments.md   — Strategies, experiments, bootstrap CIs, run summary
 ├── metrics.md                      — Metrics system, registry, DB schema
 ├── arena.md                        — Cross-run arena comparison system
@@ -47,7 +47,7 @@ evolution/docs/
 
 ## Quick Orientation
 
-- **Unified arena rating**: OpenSkill Bayesian ratings enable cross-strategy comparison across independent runs via the [Arena](./arena.md) system.
+- **Unified arena rating**: Elo ratings with per-variant uncertainty (Bayesian ratings internally via OpenSkill) enable cross-strategy comparison across independent runs via the [Arena](./arena.md) system.
 - **Kill mechanism**: Mark a run as failed/cancelled; the runner detects this at iteration boundaries and halts gracefully (see [Architecture](./architecture.md)).
 - **Code layout**:
   - `evolution/src/lib/pipeline/` — core pipeline loop and operations

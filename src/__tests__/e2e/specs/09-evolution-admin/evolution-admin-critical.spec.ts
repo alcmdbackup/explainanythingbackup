@@ -3,7 +3,7 @@
 
 import { test, expect } from '../../fixtures/auth';
 
-test.describe('Evolution Admin Critical Bugs', { tag: '@critical' }, () => {
+test.describe('Evolution Admin Critical Bugs', { tag: '@evolution' }, () => {
   test.describe.configure({ mode: 'serial', retries: 2 });
 
   test('Bug 1: Run detail shows non-zero cost via fallback', async ({ authenticatedPage: page }) => {

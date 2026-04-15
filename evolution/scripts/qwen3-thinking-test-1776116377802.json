@@ -1,0 +1,117 @@
+{
+  "model": "qwen/qwen3-8b",
+  "thinkingConfigs": [
+    "thinking-ON (default)",
+    "thinking-OFF",
+    "thinking-LOW"
+  ],
+  "pairs": [
+    "A-vs-B (large gap, 25 mu)"
+  ],
+  "callsPerConfig": 2,
+  "temperature": 0,
+  "groups": [
+    {
+      "pair": "A-vs-B (large gap, 25 mu)",
+      "config": "thinking-ON (default)",
+      "results": [
+        {
+          "thinkingConfig": "thinking-ON (default)",
+          "temperature": 0,
+          "callIndex": 0,
+          "forwardRaw": "A",
+          "reverseRaw": "B",
+          "forwardParsed": "A",
+          "reverseParsed": "B",
+          "aggregatedWinner": "A",
+          "confidence": 1,
+          "durationMs": 9119,
+          "forwardDurationMs": 8272,
+          "reverseDurationMs": 9118
+        },
+        {
+          "thinkingConfig": "thinking-ON (default)",
+          "temperature": 0,
+          "callIndex": 1,
+          "forwardRaw": "A",
+          "reverseRaw": "B",
+          "forwardParsed": "A",
+          "reverseParsed": "B",
+          "aggregatedWinner": "A",
+          "confidence": 1,
+          "durationMs": 9590,
+          "forwardDurationMs": 7505,
+          "reverseDurationMs": 9590
+        }
+      ]
+    },
+    {
+      "pair": "A-vs-B (large gap, 25 mu)",
+      "config": "thinking-OFF",
+      "results": [
+        {
+          "thinkingConfig": "thinking-OFF",
+          "temperature": 0,
+          "callIndex": 0,
+          "forwardRaw": "A",
+          "reverseRaw": "Your answer: B",
+          "forwardParsed": "A",
+          "reverseParsed": null,
+          "aggregatedWinner": "A",
+          "confidence": 0.3,
+          "durationMs": 1071,
+          "forwardDurationMs": 679,
+          "reverseDurationMs": 1071
+        },
+        {
+          "thinkingConfig": "thinking-OFF",
+          "temperature": 0,
+          "callIndex": 1,
+          "forwardRaw": "A",
+          "reverseRaw": "Your answer: B",
+          "forwardParsed": "A",
+          "reverseParsed": null,
+          "aggregatedWinner": "A",
+          "confidence": 0.3,
+          "durationMs": 995,
+          "forwardDurationMs": 995,
+          "reverseDurationMs": 663
+        }
+      ]
+    },
+    {
+      "pair": "A-vs-B (large gap, 25 mu)",
+      "config": "thinking-LOW",
+      "results": [
+        {
+          "thinkingConfig": "thinking-LOW",
+          "temperature": 0,
+          "callIndex": 0,
+          "forwardRaw": "A",
+          "reverseRaw": "B",
+          "forwardParsed": "A",
+          "reverseParsed": "B",
+          "aggregatedWinner": "A",
+          "confidence": 1,
+          "durationMs": 9422,
+          "forwardDurationMs": 8810,
+          "reverseDurationMs": 9422
+        },
+        {
+          "thinkingConfig": "thinking-LOW",
+          "temperature": 0,
+          "callIndex": 1,
+          "forwardRaw": "A",
+          "reverseRaw": "B",
+          "forwardParsed": "A",
+          "reverseParsed": "B",
+          "aggregatedWinner": "A",
+          "confidence": 1,
+          "durationMs": 8107,
+          "forwardDurationMs": 7115,
+          "reverseDurationMs": 8107
+        }
+      ]
+    }
+  ]
+}

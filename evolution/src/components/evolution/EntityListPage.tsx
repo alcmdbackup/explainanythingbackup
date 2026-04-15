@@ -79,6 +79,8 @@ export interface EntityListPageProps<T> {
     onSubmit: (values: Record<string, unknown>) => Promise<void>;
     validate?: (values: Record<string, unknown>) => string | null;
     children?: ReactNode;
+    /** Fires on any form field change; use to sync form state into parent useState. */
+    onFormChange?: (values: Record<string, unknown>) => void;
   };
   /** Confirm dialog props for delete/dangerous actions. */
   confirmDialog?: {
@@ -379,6 +381,7 @@ export function EntityListPage<T>(props: EntityListPageProps<T>): JSX.Element {
             initial={props.formDialog.initial}
             onSubmit={async (values) => { await props.formDialog!.onSubmit(values); doLoad(); props.onActionComplete?.(); }}
             validate={props.formDialog.validate}
+            onFormChange={props.formDialog.onFormChange}
           >
             {props.formDialog.children}
           </FormDialog>

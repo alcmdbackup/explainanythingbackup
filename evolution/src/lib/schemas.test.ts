@@ -29,7 +29,7 @@ import {
   EvolutionRunSummarySchema,
   // Phase 2: Internal pipeline schemas
   variantSchema,
-  v2StrategyConfigSchema,
+  strategyConfigSchema,
   evolutionConfigSchema,
   v2MatchSchema,
   evolutionResultSchema,
@@ -426,8 +426,8 @@ describe('EvolutionRunSummary schemas', () => {
     };
     const result = EvolutionRunSummarySchema.parse(v2);
     expect(result.version).toBe(3);
-    expect(result.muHistory.length).toBe(2);
-    expect(result.topVariants[0]!.mu).toBeGreaterThan(15);
+    expect(result.eloHistory.length).toBe(2);
+    expect(result.topVariants[0]!.elo).toBeGreaterThan(15);
   });
 
   it('transforms V1 summary to V3', () => {
@@ -447,7 +447,7 @@ describe('EvolutionRunSummary schemas', () => {
     };
     const result = EvolutionRunSummarySchema.parse(v1);
     expect(result.version).toBe(3);
-    expect(result.muHistory.length).toBe(2);
+    expect(result.eloHistory.length).toBe(2);
   });
 
   it('rejects completely invalid data', () => {
@@ -467,7 +467,7 @@ describe('evolutionResultSchema.stopReason', () => {
     matchHistory: [],
     totalCost: 0.5,
     iterationsRun: 3,
-    muHistory: [],
+    eloHistory: [],
     diversityHistory: [],
     matchCounts: {},
   };
@@ -505,56 +505,56 @@ describe('variantSchema', () => {
   });
 });
 
-describe('v2StrategyConfigSchema', () => {
+describe('strategyConfigSchema', () => {
   it('parses valid config', () => {
-    expect(() => v2StrategyConfigSchema.parse({
+    expect(() => strategyConfigSchema.parse({
       generationModel: 'gpt-4o', judgeModel: 'gpt-4o', iterations: 5,
     })).not.toThrow();
   });
 
   it('rejects iterations < 1', () => {
-    expect(() => v2StrategyConfigSchema.parse({
+    expect(() => strategyConfigSchema.parse({
       generationModel: 'gpt-4o', judgeModel: 'gpt-4o', iterations: 0,
     })).toThrow();
   });
 
   it('accepts valid generationGuidance', () => {
-    expect(() => v2StrategyConfigSchema.parse({
+    expect(() => strategyConfigSchema.parse({
       generationModel: 'gpt-4o', judgeModel: 'gpt-4o', iterations: 5,
       generationGuidance: [{ strategy: 'structural_transform', percent: 100 }],
     })).not.toThrow();
   });
 
   it('accepts undefined generationGuidance', () => {
-    const result = v2StrategyConfigSchema.parse({
+    const result = strategyConfigSchema.parse({
       generationModel: 'gpt-4o', judgeModel: 'gpt-4o', iterations: 5,
     });
     expect(result.generationGuidance).toBeUndefined();
   });
 
   it('rejects generationGuidance with negative percent', () => {
-    expect(() => v2StrategyConfigSchema.parse({
+    expect(() => strategyConfigSchema.parse({
       generationModel: 'gpt-4o', judgeModel: 'gpt-4o', iterations: 5,
       generationGuidance: [{ strategy: 'x', percent: -10 }],
     })).toThrow();
   });
 
   it('rejects generationGuidance with missing strategy field', () => {
-    expect(() => v2StrategyConfigSchema.parse({
+    expect(() => strategyConfigSchema.parse({
       generationModel: 'gpt-4o', judgeModel: 'gpt-4o', iterations: 5,
       generationGuidance: [{ percent: 100 }],
     })).toThrow();
   });
 
   it('rejects generationGuidance with non-number percent', () => {
-    expect(() => v2StrategyConfigSchema.parse({
+    expect(() => strategyConfigSchema.parse({
       generationModel: 'gpt-4o', judgeModel: 'gpt-4o', iterations: 5,
       generationGuidance: [{ strategy: 'x', percent: 'fifty' }],
     })).toThrow();
   });
 
   it('rejects generationGuidance with duplicate strategy names', () => {
-    expect(() => v2StrategyConfigSchema.parse({
+    expect(() => strategyConfigSchema.parse({
       generationModel: 'gpt-4o', judgeModel: 'gpt-4o', iterations: 5,
       generationGuidance: [
         { strategy: 'structural_transform', percent: 50 },
@@ -609,11 +609,11 @@ describe('v2MatchSchema', () => {
 
 describe('ratingSchema', () => {
   it('parses valid rating', () => {
-    expect(() => ratingSchema.parse({ mu: 25, sigma: 8.333 })).not.toThrow();
+    expect(() => ratingSchema.parse({ elo: 1200, uncertainty: 133.33 })).not.toThrow();
   });
 
-  it('rejects non-positive sigma', () => {
-    expect(() => ratingSchema.parse({ mu: 25, sigma: 0 })).toThrow();
+  it('rejects non-positive uncertainty', () => {
+    expect(() => ratingSchema.parse({ elo: 1200, uncertainty: 0 })).toThrow();
   });
 });
 
@@ -679,7 +679,7 @@ describe('agentExecutionDetailSchema (discriminated union)', () => {
         variantId: UUID1, opponents: [UUID2],
         matches: [{ opponentId: UUID2, winner: UUID1, confidence: 0.8, cacheHit: false }],
         eliminated: false,
-        ratingBefore: { mu: 25, sigma: 8 }, ratingAfter: { mu: 26, sigma: 7 },
+        ratingBefore: { elo: 1200, uncertainty: 128 }, ratingAfter: { elo: 1216, uncertainty: 112 },
       }],
       fineRanking: { rounds: 3, exitReason: 'convergence', convergenceStreak: 5 },
       budgetPressure: 0.3, budgetTier: 'medium', top20Cutoff: 20,

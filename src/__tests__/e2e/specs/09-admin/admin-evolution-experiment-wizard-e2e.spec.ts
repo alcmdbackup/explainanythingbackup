@@ -91,6 +91,31 @@ adminTest.describe('Experiment Wizard E2E', { tag: '@evolution' }, () => {
     await expect(adminPage.locator('h1')).toContainText('Start Experiment');
     // Wait for form to finish loading
     await expect(adminPage.locator('text=Experiment Name')).toBeVisible({ timeout: 15000 });
+    await expect(adminPage.getByText('Budget per Run ($)')).toBeVisible();
+  });
+
+  adminTest('validation errors hidden until first Next click', async ({ adminPage }) => {
+    await adminPage.goto('/admin/evolution/start-experiment');
+    await adminPage.waitForLoadState('domcontentloaded');
+    await adminPage.locator('text=Experiment Name').waitFor({ state: 'visible', timeout: 15000 });
+    await expect(adminPage.locator('p:has-text("Enter an experiment name")')).not.toBeVisible();
+    await adminPage.locator('button', { hasText: 'Next: Select Strategies' }).click();
+    await expect(adminPage.locator('p:has-text("Enter an experiment name")')).toBeVisible();
+  });
+
+  adminTest('runs-per-strategy spinner works', async ({ adminPage }) => {
+    await adminPage.goto('/admin/evolution/start-experiment');
+    await adminPage.waitForLoadState('domcontentloaded');
+    await adminPage.locator('text=Experiment Name').waitFor({ state: 'visible', timeout: 15000 });
+    await adminPage.locator('input[type="text"][placeholder*="Model comparison"]').fill(`${TEST_PREFIX} Spinner Test`);
+    const promptLabel = adminPage.locator('label').filter({ hasText: TEST_PREFIX }).filter({ hasText: 'Prompt' });
+    await promptLabel.click();
+    await adminPage.locator('button', { hasText: 'Next: Select Strategies' }).click();
+    const strategyCheck = adminPage.locator(`[data-testid="strategy-check-${strategyId}"]`);
+    await expect(strategyCheck).toBeVisible({ timeout: 15000 });
+    await strategyCheck.check();
+    await adminPage.locator(`input[data-testid^="runs-count-"]`).fill('3');
+    await expect(adminPage.locator('text=3 total runs')).toBeVisible();
   });
 
   adminTest('create experiment via wizard', async ({ adminPage }) => {

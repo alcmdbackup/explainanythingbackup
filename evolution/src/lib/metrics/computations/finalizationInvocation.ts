@@ -6,7 +6,6 @@
 // and NEW agent_name='generate_from_seed_article'/'swiss_ranking' (with single-variant detail).
 
 import type { FinalizationContext } from '../types';
-import { toEloScale } from '@evolution/lib/shared/computeRatings';
 import type { GenerationExecutionDetail, RankingExecutionDetail } from '@evolution/lib/types';
 
 interface NewGenerateFromSeedDetail {
@@ -41,9 +40,8 @@ function getInvocationVariantIds(ctx: FinalizationContext, invocationId: string 
 
 function getInvocationElos(ctx: FinalizationContext, invocationId: string | undefined | null): number[] {
   return getInvocationVariantIds(ctx, invocationId)
-    .map(id => ctx.ratings.get(id)?.mu)
-    .filter((mu): mu is number => mu != null)
-    .map(mu => toEloScale(mu));
+    .map(id => ctx.ratings.get(id)?.elo)
+    .filter((elo): elo is number => elo != null);
 }
 
 export function computeBestVariantElo(ctx: FinalizationContext, invocationId: string | undefined | null): number | null {

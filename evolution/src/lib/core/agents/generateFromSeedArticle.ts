@@ -16,6 +16,7 @@ import { generateFromSeedExecutionDetailSchema } from '../../schemas';
 import { validateFormat } from '../../shared/enforceVariantFormat';
 import { buildEvolutionPrompt } from '../../pipeline/loop/buildPrompts';
 import { BudgetExceededError } from '../../types';
+import { estimateGenerationCost, estimateRankingCost } from '../../pipeline/infra/estimateCosts';
 import type { z } from 'zod';
 
 // ─── Strategy registry ────────────────────────────────────────────
@@ -69,9 +70,9 @@ export type GenerateFromSeedOutput = {
   status: RankSingleVariantStatus | 'generation_failed';
   surfaced: boolean;
   matches: V2Match[];
-  /** Populated when surfaced=false: the local mu and top-15% cutoff at the time of discard.
+  /** Populated when surfaced=false: the local elo and top-15% cutoff at the time of discard.
    *  Used by the orchestrator to populate iterationSnapshots.discardReasons for the SnapshotsTab. */
-  discardReason?: { mu: number; top15Cutoff: number };
+  discardReason?: { elo: number; top15Cutoff: number };
 };
 
 export type GenerateFromSeedExecutionDetail = z.infer<typeof generateFromSeedExecutionDetailSchema>
@@ -116,6 +117,7 @@ export class GenerateFromSeedArticleAgent extends Agent<
         { key: 'promptLength', label: 'Prompt Length', type: 'number' },
         { key: 'textLength', label: 'Text Length', type: 'number' },
         { key: 'formatValid', label: 'Format Valid', type: 'boolean' },
+        { key: 'durationMs', label: 'Duration (ms)', type: 'number' },
       ],
     },
     {
@@ -126,8 +128,9 @@ export class GenerateFromSeedArticleAgent extends Agent<
         { key: 'initialTop15Cutoff', label: 'Initial Top-15% Cutoff', type: 'number' },
         { key: 'stopReason', label: 'Stop Reason', type: 'badge' },
         { key: 'totalComparisons', label: 'Total Comparisons', type: 'number' },
-        { key: 'finalLocalMu', label: 'Final Local μ', type: 'number' },
-        { key: 'finalLocalSigma', label: 'Final Local σ', type: 'number' },
+        { key: 'finalLocalElo', label: 'Final Local Elo', type: 'number' },
+        { key: 'finalLocalUncertainty', label: 'Final Local Uncertainty', type: 'number' },
+        { key: 'durationMs', label: 'Duration (ms)', type: 'number' },
       ],
     },
     {
@@ -138,8 +141,9 @@ export class GenerateFromSeedArticleAgent extends Agent<
         { key: 'selectionScore', label: 'Score' },
         { key: 'pWin', label: 'pWin' },
         { key: 'outcome', label: 'Out' },
-        { key: 'variantMuAfter', label: 'μ after' },
-        { key: 'variantSigmaAfter', label: 'σ after' },
+        { key: 'variantEloAfter', label: 'Elo after' },
+        { key: 'variantUncertaintyAfter', label: 'Uncertainty after' },
+        { key: 'durationMs', label: 'ms' },
       ],
     },
     { key: 'totalCost', label: 'Total Cost', type: 'number', formatter: 'cost' },
@@ -158,6 +162,7 @@ export class GenerateFromSeedArticleAgent extends Agent<
     const localMatchCounts = new Map(initialMatchCounts);
     const completedPairs = new Set<string>();
     const costBeforeGen = ctx.costTracker.getTotalSpent();
+    const generationStartTime = Date.now();
 
     const makeEarlyExitDetail = (
       generationCost: number,
@@ -202,6 +207,7 @@ export class GenerateFromSeedArticleAgent extends Agent<
 
     const fmt = validateFormat(generated);
     const generationCost = ctx.costTracker.getTotalSpent() - costBeforeGen;
+    const generationDurationMs = Date.now() - generationStartTime;
 
     if (!fmt.valid) {
       ctx.logger.warn('generateFromSeedArticle: format validation failed', {
@@ -227,6 +233,7 @@ export class GenerateFromSeedArticleAgent extends Agent<
       version: 0,
     });
 
+    const rankingStartTime = Date.now();
     const { rankingCost, rankResult, surfaced, discardReason } = await rankNewVariant({
       variant,
       localPool,
@@ -240,19 +247,43 @@ export class GenerateFromSeedArticleAgent extends Agent<
       logger: ctx.logger,
       costTracker: ctx.costTracker,
     });
+    const rankingDurationMs = Date.now() - rankingStartTime;
+
+    // Compute estimated costs for the feedback loop
+    const estGenCost = estimateGenerationCost(
+      originalText.length, strategy, ctx.config.generationModel,
+    );
+    const estRankCost = estimateRankingCost(
+      variant.text.length, ctx.config.judgeModel,
+      localPool.length, ctx.config.maxComparisonsPerVariant ?? 15,
+    );
+    const estTotalCost = estGenCost + estRankCost;
+    const actualTotalCost = generationCost + rankingCost;
+    const estimationErrorPct = estTotalCost > 0
+      ? ((actualTotalCost - estTotalCost) / estTotalCost) * 100
+      : 0;
 
     const detail: GenerateFromSeedExecutionDetail = {
       detailType: 'generate_from_seed_article',
-      totalCost: generationCost + rankingCost,
+      totalCost: actualTotalCost,
       variantId: variant.id,
       strategy,
       generation: {
         cost: generationCost,
+        estimatedCost: estGenCost,
         promptLength: prompt.length,
         textLength: variant.text.length,
         formatValid: true,
+        durationMs: generationDurationMs,
       },
-      ranking: { cost: rankingCost, ...rankResult.detail },
+      ranking: {
+        cost: rankingCost,
+        estimatedCost: estRankCost,
+        durationMs: rankingDurationMs,
+        ...rankResult.detail,
+      },
+      estimatedTotalCost: estTotalCost,
+      estimationErrorPct: Math.round(estimationErrorPct * 100) / 100,
       surfaced,
       ...(discardReason !== undefined && { discardReason }),
     };
@@ -264,7 +295,7 @@ export class GenerateFromSeedArticleAgent extends Agent<
         surfaced,
         matches: surfaced ? rankResult.matches : [],
         ...(discardReason !== undefined && {
-          discardReason: { mu: discardReason.localMu, top15Cutoff: discardReason.localTop15Cutoff },
+          discardReason: { elo: discardReason.localElo, top15Cutoff: discardReason.localTop15Cutoff },
         }),
       },
       detail,

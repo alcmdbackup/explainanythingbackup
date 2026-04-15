@@ -1,6 +1,6 @@
 'use client';
-// Elo/mu history chart for a run, using run_summary.muHistory from V2 schema.
-// Renders a simple SVG line chart showing mu progression across iterations.
+// Elo history chart for a run, using run_summary.eloHistory from V3 schema.
+// Renders a simple SVG line chart showing Elo progression across iterations.
 
 import { useEffect, useState } from 'react';
 import {
@@ -54,15 +54,15 @@ export function EloTab({ runId }: EloTabProps): JSX.Element {
   const chartW = width - padding.left - padding.right;
   const chartH = height - padding.top - padding.bottom;
 
-  // Determine number of lines: use mus array (top-K) if available, otherwise single line
-  const hasMultiLine = history.some(h => h.mus && h.mus.length > 1);
-  const lineCount = hasMultiLine ? Math.max(...history.map(h => h.mus?.length ?? 1)) : 1;
+  // Determine number of lines: use elos array (top-K) if available, otherwise single line
+  const hasMultiLine = history.some(h => h.elos && h.elos.length > 1);
+  const lineCount = hasMultiLine ? Math.max(...history.map(h => h.elos?.length ?? 1)) : 1;
 
-  // Collect all mu values for axis scaling
-  const allMuValues = history.flatMap(h => h.mus ?? [h.mu]);
-  const minMu = Math.min(...allMuValues) - 1;
-  const maxMu = Math.max(...allMuValues) + 1;
-  const muRange = maxMu - minMu || 1;
+  // Collect all Elo values for axis scaling
+  const allEloValues = history.flatMap(h => h.elos ?? [h.elo]);
+  const minElo = Math.min(...allEloValues) - 1;
+  const maxElo = Math.max(...allEloValues) + 1;
+  const eloRange = maxElo - minElo || 1;
 
   // Line colors for top-K variants (gold for #1, copper for rest, fading opacity)
   const lineColors = ['var(--accent-gold)', 'var(--accent-copper)', 'var(--text-secondary)', 'var(--text-muted)', 'var(--border-default)'];
@@ -70,10 +70,10 @@ export function EloTab({ runId }: EloTabProps): JSX.Element {
   // Build polyline points for each rank position
   const lineData = Array.from({ length: lineCount }, (_, rank) =>
     history.map((h, i) => {
-      const mu = h.mus?.[rank] ?? (rank === 0 ? h.mu : null);
-      if (mu == null) return null;
+      const elo = h.elos?.[rank] ?? (rank === 0 ? h.elo : null);
+      if (elo == null) return null;
       const x = padding.left + (i / Math.max(history.length - 1, 1)) * chartW;
-      const y = padding.top + chartH - ((mu - minMu) / muRange) * chartH;
+      const y = padding.top + chartH - ((elo - minElo) / eloRange) * chartH;
       return `${x},${y}`;
     }).filter(Boolean) as string[],
   );
@@ -88,11 +88,11 @@ export function EloTab({ runId }: EloTabProps): JSX.Element {
           {/* Y axis labels */}
           {[0, 0.25, 0.5, 0.75, 1].map(pct => {
             const y = padding.top + chartH * (1 - pct);
-            const val = minMu + muRange * pct;
+            const val = minElo + eloRange * pct;
             return (
               <g key={pct}>
                 <line x1={padding.left} y1={y} x2={width - padding.right} y2={y} stroke="var(--border-default)" strokeDasharray="4" />
-                <text x={padding.left - 8} y={y + 4} textAnchor="end" fill="var(--text-muted)" className="text-xs">{val.toFixed(1)}</text>
+                <text x={padding.left - 8} y={y + 4} textAnchor="end" fill="var(--text-muted)" className="text-xs">{Math.round(val)}</text>
               </g>
             );
           })}
@@ -119,7 +119,7 @@ export function EloTab({ runId }: EloTabProps): JSX.Element {
           {/* Dots for top-1 line only */}
           {history.map((h, i) => {
             const x = padding.left + (i / Math.max(history.length - 1, 1)) * chartW;
-            const y = padding.top + chartH - ((h.mu - minMu) / muRange) * chartH;
+            const y = padding.top + chartH - ((h.elo - minElo) / eloRange) * chartH;
             return <circle key={i} cx={x} cy={y} r="3" fill="var(--accent-gold)" />;
           })}
         </svg>

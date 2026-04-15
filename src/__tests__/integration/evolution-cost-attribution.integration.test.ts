@@ -19,7 +19,7 @@
 //              `npm run test:integration` to ensure the upsert_metric_max RPC exists.
 
 // Mock pricing module BEFORE importing anything that uses it.
-// jest.mock is hoisted, so this runs before the createV2LLMClient import below.
+// jest.mock is hoisted, so this runs before the createEvolutionLLMClient import below.
 jest.mock('@/config/llmPricing', () => {
   // Each call to getModelPricing returns the same fixed rate.
   // Using $1/1M tokens for both input and output makes per-call cost easy to compute:
@@ -36,7 +36,7 @@ import {
   evolutionTablesExist,
   cleanupEvolutionData,
 } from '@evolution/testing/evolution-test-helpers';
-import { createV2LLMClient } from '@evolution/lib/pipeline/infra/createLLMClient';
+import { createEvolutionLLMClient } from '@evolution/lib/pipeline/infra/createEvolutionLLMClient';
 import { createCostTracker } from '@evolution/lib/pipeline/infra/trackBudget';
 import type { AgentName } from '@evolution/lib/core/agentNames';
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -143,7 +143,7 @@ describe('Per-purpose cost attribution integration tests', () => {
     };
 
     const costTracker = createCostTracker(1.0); // $1 budget — way more than we need
-    const llm = createV2LLMClient(
+    const llm = createEvolutionLLMClient(
       rawProvider,
       costTracker,
       'gpt-4.1-nano', // model name doesn't matter — pricing is mocked
@@ -199,7 +199,7 @@ describe('Per-purpose cost attribution integration tests', () => {
       complete: jest.fn(async () => GEN_RESPONSE),
     };
     const costTracker = createCostTracker(1.0);
-    const llm = createV2LLMClient(rawProvider, costTracker, 'gpt-4.1-nano', undefined, supabase, runId);
+    const llm = createEvolutionLLMClient(rawProvider, costTracker, 'gpt-4.1-nano', undefined, supabase, runId);
 
     // Zero-init (like executePipeline does)
     const { writeMetricMax } = await import('@evolution/lib/metrics/writeMetrics');
@@ -232,7 +232,7 @@ describe('Per-purpose cost attribution integration tests', () => {
       complete: jest.fn(async () => RANK_RESPONSE),
     };
     const costTracker = createCostTracker(1.0);
-    const llm = createV2LLMClient(rawProvider, costTracker, 'gpt-4.1-nano', undefined, supabase, runId);
+    const llm = createEvolutionLLMClient(rawProvider, costTracker, 'gpt-4.1-nano', undefined, supabase, runId);
 
     // Zero-init
     const { writeMetricMax } = await import('@evolution/lib/metrics/writeMetrics');
@@ -266,7 +266,7 @@ describe('Per-purpose cost attribution integration tests', () => {
       complete: jest.fn(async () => GEN_RESPONSE),
     };
     const costTracker = createCostTracker(1.0);
-    const llm = createV2LLMClient(rawProvider, costTracker, 'gpt-4.1-nano', undefined, supabase, runId);
+    const llm = createEvolutionLLMClient(rawProvider, costTracker, 'gpt-4.1-nano', undefined, supabase, runId);
 
     // Call with seed_title and seed_article — these are valid AgentName values but
     // do NOT have entries in COST_METRIC_BY_AGENT, so per-purpose write should be skipped.

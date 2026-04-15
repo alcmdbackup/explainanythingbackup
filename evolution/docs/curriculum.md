@@ -56,11 +56,11 @@ By end of week 1, you should be able to:
    - How agent prompts are structured and what context they receive
 
 2. **[Rating & Comparison](./rating_and_comparison.md)** — The statistical engine behind ranking:
-   - OpenSkill (Weng-Lin Bayesian rating) with mu/sigma pairs
+   - Elo ratings with per-variant uncertainty — public `Rating = {elo, uncertainty}` (OpenSkill / Weng-Lin Bayesian internally)
    - Two-phase ranking: triage for new variants, then Swiss pairing for established ones
    - Bias mitigation via position randomization and multi-judge panels
-   - Convergence detection: 2 consecutive rounds where all eligible variant sigmas fall below 3.0
-   - Elimination rules: variant removed when mu + 2*sigma < top 20% cutoff
+   - Convergence detection: 2 consecutive rounds where all eligible variant `uncertainty` values fall below `DEFAULT_CONVERGENCE_UNCERTAINTY` (72, Elo-scale)
+   - Elimination rules: variant removed when `r.elo + 2 * r.uncertainty < top20Cutoff`
 
 3. **[Arena](./arena.md)** — Cross-run comparison:
    - How the arena maintains a persistent leaderboard across runs
@@ -75,13 +75,13 @@ By end of week 1, you should be able to:
 | 4 | `evolution/src/lib/pipeline/generate.ts` | Generation phase implementation — prompt construction, LLM invocation, variant creation and persistence. |
 | 5 | `evolution/src/lib/pipeline/rank.ts` | Ranking phase — pair selection (triage vs. Swiss), comparison execution, rating updates. |
 | 6 | `evolution/src/lib/pipeline/evolve.ts` | Evolution phase — selecting top variants, constructing improvement prompts, creating next-generation variants. |
-| 7 | `evolution/src/lib/shared/rating.ts` | OpenSkill rating math — mu/sigma updates, convergence checks, elimination logic. |
+| 7 | `evolution/src/lib/shared/rating.ts` | Public `Rating {elo, uncertainty}` API — rating updates, convergence checks, elimination logic. OpenSkill is the internal implementation. |
 
 ### Checkpoint
 
 By end of week 2, you should be able to:
 - Explain the difference between triage and Swiss pairing
-- Describe how mu and sigma change after a comparison
+- Describe how `elo` and `uncertainty` change after a comparison
 - Explain what convergence means and when it triggers run termination
 - Trace a variant from generation through ranking to evolution
 
@@ -187,7 +187,7 @@ By end of week 3, you should be able to:
 1. Open a completed run in the admin dashboard
 2. Find a variant from a later round (round 3+)
 3. Trace its `parent_variant_id` chain back to the original generated variant
-4. Note how ratings (mu/sigma) changed across generations
+4. Note how ratings (`elo` / `uncertainty`) changed across generations
 5. Read the evolution prompts to understand what feedback drove each improvement
 
 ### Checkpoint
@@ -212,7 +212,7 @@ The 10 most important source files, in recommended reading order. Each builds on
 | 4 | `evolution/src/lib/pipeline/generate.ts` | Generation phase — creating variants from prompts |
 | 5 | `evolution/src/lib/pipeline/rank.ts` | Ranking phase — pairwise comparisons and pair selection |
 | 6 | `evolution/src/lib/pipeline/evolve.ts` | Evolution phase — improving top variants |
-| 7 | `evolution/src/lib/shared/rating.ts` | OpenSkill rating — mu/sigma math and convergence |
+| 7 | `evolution/src/lib/shared/rating.ts` | Elo rating with uncertainty — public `{elo, uncertainty}` math, convergence, DB boundary helpers (OpenSkill internally) |
 | 8 | `evolution/src/lib/pipeline/cost-tracker.ts` | Budget management — spending gates and pressure tiers |
 | 9 | `evolution/src/lib/pipeline/finalize.ts` | Result persistence — writing final state |
 | 10 | `evolution/src/services/evolutionRunnerCore.ts` | Entry point — how runs are launched |
@@ -225,22 +225,23 @@ Key terms used throughout the Evolution documentation and codebase.
 
 | Term | Definition |
 |------|------------|
-| **Arena** | Persistent cross-run leaderboard using OpenSkill ratings. Allows variants from different runs to be compared. See [Arena](./arena.md). |
+| **Arena** | Persistent cross-run leaderboard using Elo ratings with per-variant uncertainty (OpenSkill internally). Allows variants from different runs to be compared. See [Arena](./arena.md). |
 | **Baseline** | The initial article variant in a run (version 0, strategy='baseline'). Every run starts with one baseline variant before generating alternatives. |
 | **Budget pressure** | Dynamic scaling of comparison counts based on how much of the run budget has been consumed. Three tiers — low, medium, high — progressively reduce comparison work to stay within budget. See [Cost Optimization](./cost_optimization.md). |
-| **Convergence** | The primary stop condition. Triggered when 2 consecutive rounds produce all eligible variant sigmas below 3.0, meaning ratings have stabilized. See [Rating & Comparison](./rating_and_comparison.md). |
-| **Elimination** | Removing a variant from further comparisons because it is statistically unlikely to be competitive. Rule: variant is eliminated when mu + 2*sigma < top 20% cutoff. |
+| **Convergence** | The primary stop condition. Triggered when 2 consecutive rounds produce all eligible variant `uncertainty` values below `DEFAULT_CONVERGENCE_UNCERTAINTY` (72, Elo-scale), meaning ratings have stabilized. See [Rating & Comparison](./rating_and_comparison.md). |
+| **Elimination** | Removing a variant from further comparisons because it is statistically unlikely to be competitive. Rule: variant is eliminated when `r.elo + 2 * r.uncertainty < top20Cutoff`. |
+| **Elo** | The public skill-estimate scale used throughout the Evolution system. Higher `elo` means the variant is rated as producing better articles. Fresh variants start at 1200. A 400-point gap corresponds to ~10:1 win odds (chess convention). |
 | **Experiment** | A collection of runs testing different strategies on the same prompt. Used for A/B testing model configurations. See [Strategies & Experiments](./strategies_and_experiments.md). |
 | **Invocation** | A single tracked LLM call within a run. Stored in the `evolution_agent_invocations` table with token counts, cost, model, and timing. |
-| **Mu (μ)** | The OpenSkill skill estimate. Higher mu means the variant is rated as producing better articles. Starts at 25.0 by default. |
-| **OpenSkill** | The Weng-Lin Bayesian rating system used to rank variants. Each variant has a mu (skill) and sigma (uncertainty) pair. See [Rating & Comparison](./rating_and_comparison.md). |
+| **OpenSkill** | The Weng-Lin Bayesian rating system used internally by `computeRatings.ts`. Its `mu`/`sigma` pair is hidden behind the public `Rating = {elo, uncertainty}` API and the `dbToRating` / `ratingToDb` boundary helpers. See [Rating & Comparison](./rating_and_comparison.md). |
 | **Pool** | The append-only collection of all variants in a run. New variants are added each round via generation and evolution; variants are never removed from the pool, only eliminated from active comparisons. |
 | **Prompt** | The question or topic that articles explain. Stored in the `evolution_prompts` table. Each run targets one prompt. |
-| **Sigma (σ)** | The OpenSkill uncertainty estimate. Lower sigma means the system is more confident in the variant's mu rating. Starts at 25/3 (~8.33) by default. |
+| **Rating** | Public type `{elo: number, uncertainty: number}` — both on the Elo scale. Defaults: `{elo: 1200, uncertainty: 400/3 ≈ 133.33}`. Replaces the former OpenSkill-native `{mu, sigma}` shape on the public API. |
 | **Strategy** | A model + configuration combination that defines how a run executes — which LLM to use, temperature, system prompts, and other parameters. |
 | **Swiss pairing** | Tournament-style matching where variants with similar ratings are paired for comparison. Produces more informative comparisons than random pairing. Used after triage. |
 | **Triage** | Initial calibration phase for newly created variants. Pairs new variants against stratified opponents (spread across the rating range) to quickly establish a rough rating before entering Swiss pairing. |
-| **Variant** | A text article generated or evolved during a run. Each variant has an OpenSkill rating, a parent reference (if evolved), and belongs to a specific round and run. |
+| **Uncertainty** | The Elo-scale standard deviation around a variant's `elo`. Lower means more confident in the estimate. Provides a 95% CI of `elo ± 1.96 * uncertainty`. Replaces the former `sigma` field on the public API. |
+| **Variant** | A text article generated or evolved during a run. Each variant has a `Rating {elo, uncertainty}`, a parent reference (if evolved), and belongs to a specific round and run. |
 
 ---
 

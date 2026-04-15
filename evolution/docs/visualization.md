@@ -14,12 +14,12 @@ All pages live under `src/app/admin/evolution/` (Next.js App Router). A shared `
 |---|---|---|
 | `/admin/evolution-dashboard` | Aggregate metrics across all runs and experiments. Auto-refreshes every 15 seconds. Cost queries use `evolution_metrics` (the `evolution_run_costs` view was dropped). | Run counts by status, cost totals from `evolution_metrics`, recent activity |
 | `/admin/evolution/runs` | Paginated run list with status filtering and "Hide test content" checkbox. Test content filter uses an inner join on `evolution_strategies` to exclude runs whose strategy name contains `[TEST]`. **Cost columns** (`Cost`, `Generation Cost`, `Ranking Cost`) are sourced from the run's `metrics` array (batch-fetched from `evolution_metrics` via `getMetricsForEntities`), not from a per-row aggregate. | Status badge, iteration count, cost / generation cost / ranking cost, created date |
-| `/admin/evolution/runs/[runId]` | Run detail with tabs: **Overview**, **Elo**, **Lineage**, **Variants**, **Logs**. Auto-refreshes while run is in progress. | Full run metrics, lineage graph, variant list |
+| `/admin/evolution/runs/[runId]` | Run detail with tabs: **Timeline**, **Overview**, **Elo**, **Lineage**, **Variants**, **Logs**. Auto-refreshes while run is in progress. **Timeline tab** shows a Gantt-style view of agent invocations grouped by iteration; bars are color-coded by agent kind (Generate/Swiss/Merge) and link to individual invocation detail pages. Run outcome (stop reason, winner, cost, match stats) is shown below the chart. | Full run metrics, Gantt timeline, lineage graph, variant list |
 | `/admin/evolution/experiments` | Experiment list with status filter, "Hide test content" checkbox, and standard table layout (ID, Name, Status, Runs, Created columns). Now uses `createMetricColumns<ExperimentSummary>('experiment')` to render propagated metric columns (Total Cost, Total Generation Cost, Total Ranking Cost, etc.) automatically from the entity registry. Cancel/Delete action column appears after the metric columns. | Name, status, run count, total/gen/rank cost, created date |
 | `/admin/evolution/experiments/[experimentId]` | Experiment detail with tabs: **Overview**, **Analysis**, **Runs**, **Logs**. | Experiment config, cost analysis, linked runs, aggregated logs |
 | `/admin/evolution/start-experiment` | Three-step creation wizard: select strategy, configure parameters, confirm and launch. | Strategy registry, prompt templates |
 | `/admin/evolution/arena` | Arena topics list showing active matchmaking topics. | Topic name, entry count, match count |
-| `/admin/evolution/arena/[topicId]` | Topic leaderboard sorted by Elo rating. Columns: Elo, 95% CI (formatted via `formatEloCIRange(elo, sigma)`), Elo ± σ (formatted via `formatEloWithUncertainty(elo, sigma * ELO_SIGMA_SCALE)`), Matches, Method, Cost. Entries below the top 15% eligibility cutoff (mean + 1.04×stdDev of Elo scores) are dimmed. Cutoff logic is in `src/app/admin/evolution/arena/[topicId]/arenaCutoff.ts`. | TrueSkill ratings, match history |
+| `/admin/evolution/arena/[topicId]` | Topic leaderboard sorted by Elo rating. Columns: Elo, 95% CI (formatted via `formatEloCIRange(elo, uncertainty)`), Elo ± Uncertainty (formatted via `formatEloWithUncertainty(elo, uncertainty)`), Matches, Method, Cost. Entries below the top 15% eligibility cutoff (mean + 1.04×stdDev of Elo scores) are dimmed. Cutoff logic is in `src/app/admin/evolution/arena/[topicId]/arenaCutoff.ts`. | Elo ratings with uncertainty, match history |
 | `/admin/evolution/arena/entries/[entryId]` | Individual arena entry detail with match history and rating trajectory. | Entry metrics, per-match results |
 | `/admin/evolution/variants` | Paginated variant list across all runs with "Hide test content" checkbox. Filter uses nested inner join through `evolution_runs` → `evolution_strategies` to exclude variants from test runs. | Variant name, strategy, iteration, Elo |
 | `/admin/evolution/variants/[variantId]` | Variant detail with full prompt text, metrics, lineage context, and a **Matches** tab showing match history from arena comparisons. | Prompt content, parent chain, comparison results, match history |
@@ -27,7 +27,7 @@ All pages live under `src/app/admin/evolution/` (Next.js App Router). A shared `
 | `/admin/evolution/strategies` | CRUD interface for `evolution_strategies` table. | Strategy name, config JSON, status |
 | `/admin/evolution/strategies/[strategyId]` | Strategy detail with tabs: **Overview**, **Runs**, and **Logs**. The **Runs** tab shows runs filtered by `strategy_id`. | Strategy config, linked runs, aggregated logs across all runs using this strategy |
 | `/admin/evolution/invocations` | Invocation list with "Hide test content" checkbox. Filter uses nested inner join through `evolution_runs` → `evolution_strategies` to exclude invocations from test runs. | Agent name, iteration, success, cost, duration |
-| `/admin/evolution/invocations/[invocationId]` | Invocation detail (server wrapper + `InvocationDetailContent` client component) with **Overview** and **Logs** tabs. | Input/output text, token breakdown, invocation-level logs |
+| `/admin/evolution/invocations/[invocationId]` | Invocation detail (server wrapper + `InvocationDetailContent` client component) with **Overview**, **Metrics**, **Logs** tabs, plus a **Timeline** tab conditionally rendered for `generate_from_seed_article` invocations. The Timeline tab (`InvocationTimelineTab.tsx`) shows a two-segment phase bar (generation blue + ranking purple) with per-comparison sub-bars inside the ranking segment, built from the new `durationMs` fields on the execution_detail schema. Handles running invocations, pre-instrumentation historical rows (proportional-share fallback), discarded variants (generation only), and bucket-aggregates when >20 comparisons. | Input/output text, token breakdown, invocation-level logs, per-phase and per-comparison timing bars |
 
 ---
 
@@ -91,7 +91,7 @@ Each `MetricItem` can include:
 - `ci`: Confidence interval displayed as `[lower, upper]` — now populated from `ci_lower`/`ci_upper` in `evolution_metrics`
 - `n`: Sample size from the metrics row; when low, an asterisk is appended to signal insufficient data
 - `prefix`: Optional prefix string (e.g., "$" for cost values)
-- `sigma`: Rating uncertainty carried through from source variant
+- `uncertainty`: Elo-scale rating uncertainty carried through from source variant (renamed from `sigma`)
 
 Columns are configurable (2-5) with responsive breakpoints.
 

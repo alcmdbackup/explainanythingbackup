@@ -319,7 +319,8 @@ describe('loadArenaEntries', () => {
     const supabase = createMockSupabase({ selectResult: { data: entries, error: null } });
     const result = await loadArenaEntries('prompt-1', supabase);
 
-    expect(result.ratings.get('e1')).toEqual({ mu: 30, sigma: 6 });
+    // mu=30 → elo=1200+(30-25)*16=1280; sigma=6 → uncertainty=6*16=96
+    expect(result.ratings.get('e1')).toEqual({ elo: 1280, uncertainty: 96 });
   });
 
   it('uses default mu/sigma when null in DB', async () => {
@@ -329,7 +330,8 @@ describe('loadArenaEntries', () => {
     const supabase = createMockSupabase({ selectResult: { data: entries, error: null } });
     const result = await loadArenaEntries('prompt-1', supabase);
 
-    expect(result.ratings.get('e1')).toEqual({ mu: 25, sigma: 25 / 3 });
+    // mu=25 (default) → elo=1200; sigma=25/3 (default) → uncertainty=400/3
+    expect(result.ratings.get('e1')).toEqual({ elo: 1200, uncertainty: 400 / 3 });
   });
 
   it('queries only non-archived entries for given topic', async () => {

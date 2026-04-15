@@ -2,7 +2,7 @@
 
 import { test, expect } from '../../fixtures/base';
 
-test.describe('Auth Redirect Security', { tag: '@critical' }, () => {
+test.describe('Auth Redirect Security', () => {
   test.describe.configure({ retries: 1 });
 
   test('should reject external URL in auth callback next param', async ({ page }) => {

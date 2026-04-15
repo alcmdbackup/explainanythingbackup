@@ -108,9 +108,9 @@ describe('LLM Pricing', () => {
 
     it('should calculate cost correctly for gpt-oss-20b (OpenRouter)', () => {
       // 10000 input + 5000 output
-      // (10000/1M * 0.03) + (5000/1M * 0.11) = 0.0003 + 0.00055 = 0.00085
+      // (10000/1M * 0.03) + (5000/1M * 0.14) = 0.0003 + 0.0007 = 0.001
       const cost = calculateLLMCost('gpt-oss-20b', 10000, 5000);
-      expect(cost).toBeCloseTo(0.00085, 6);
+      expect(cost).toBeCloseTo(0.001, 6);
     });
 
     it('should calculate cost correctly for gpt-5-mini', () => {
@@ -176,7 +176,7 @@ describe('LLM Pricing', () => {
     it('should have pricing for OpenRouter models', () => {
       expect(LLM_PRICING['gpt-oss-20b']).toBeDefined();
       expect(LLM_PRICING['gpt-oss-20b']!.inputPer1M).toBe(0.03);
-      expect(LLM_PRICING['gpt-oss-20b']!.outputPer1M).toBe(0.11);
+      expect(LLM_PRICING['gpt-oss-20b']!.outputPer1M).toBe(0.14);
     });
 
     it('should have $0 pricing for local models', () => {

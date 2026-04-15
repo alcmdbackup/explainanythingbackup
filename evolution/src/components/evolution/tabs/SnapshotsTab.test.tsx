@@ -27,7 +27,7 @@ const snapshots: IterationSnapshotRow[] = [
     phase: 'start',
     capturedAt: '2026-04-08T00:00:00Z',
     poolVariantIds: [v3Id],
-    ratings: { [v3Id]: { mu: 25, sigma: 8.333 } },
+    ratings: { [v3Id]: { elo: 1200, uncertainty: 133 } },
     matchCounts: { [v3Id]: 0 },
   },
   {
@@ -37,12 +37,12 @@ const snapshots: IterationSnapshotRow[] = [
     capturedAt: '2026-04-08T00:01:00Z',
     poolVariantIds: [v1Id, v3Id],
     ratings: {
-      [v1Id]: { mu: 31.2, sigma: 4.3 },
-      [v3Id]: { mu: 22.4, sigma: 5.1 },
+      [v1Id]: { elo: 1299, uncertainty: 69 },
+      [v3Id]: { elo: 1158, uncertainty: 82 },
     },
     matchCounts: { [v1Id]: 6, [v3Id]: 4 },
     discardedVariantIds: [v2Id],
-    discardReasons: { [v2Id]: { mu: 18.2, top15Cutoff: 27.5 } },
+    discardReasons: { [v2Id]: { elo: 1091, top15Cutoff: 1240 } },
   },
 ];
 
@@ -92,9 +92,9 @@ describe('SnapshotsTab', () => {
     await waitFor(() => expect(screen.getByTestId('snapshots-tab')).toBeInTheDocument());
 
     expect(screen.getByText(/Discarded during iteration 1/)).toBeInTheDocument();
-    // Local mu / cutoff cells from discardReasons
-    expect(screen.getByText('18.20')).toBeInTheDocument();
-    expect(screen.getByText('27.50')).toBeInTheDocument();
+    // Local Elo / cutoff cells from discardReasons
+    expect(screen.getByText('1091')).toBeInTheDocument();
+    expect(screen.getByText('1240')).toBeInTheDocument();
   });
 
   it('toggles iteration group on header click', async () => {

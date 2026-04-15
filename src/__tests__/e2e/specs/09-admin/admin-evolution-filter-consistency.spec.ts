@@ -81,7 +81,8 @@ adminTest.describe('Evolution Filter Consistency', { tag: ['@evolution', '@criti
     await sb.from('evolution_prompts').delete().eq('id', promptId);
   });
 
-  adminTest('runs page with hide-test-content checked hides test items', async ({ adminPage }) => {
+  adminTest('hide-test-content filter works on runs and experiments pages', async ({ adminPage }) => {
+    // --- Runs page: checked hides test items ---
     await adminPage.goto('/admin/evolution/runs', { timeout: 30000 });
     await adminPage.waitForLoadState('domcontentloaded');
 
@@ -103,34 +104,17 @@ adminTest.describe('Evolution Filter Consistency', { tag: ['@evolution', '@criti
     // Re-check filter — test run should be hidden (strategy name contains [TEST])
     await hideTestCheckbox.check();
     await expect(testRunRow).not.toBeVisible({ timeout: 10000 });
-  });
 
-  adminTest('unchecking hide-test-content shows all rows', async ({ adminPage }) => {
-    await adminPage.goto('/admin/evolution/runs');
-    await adminPage.waitForLoadState('domcontentloaded');
-
-    const table = adminPage.locator('[data-testid="runs-list-table"]');
-    await expect(table).toBeVisible({ timeout: 15000 });
-
-    const hideTestLabel2 = adminPage.locator('[data-testid="filter-filterTestContent"]');
-    const hideTestCheckbox = hideTestLabel2.locator('input[type="checkbox"]');
-    if (await hideTestLabel2.count() > 0) {
-      // Uncheck to show all content
-      // eslint-disable-next-line flakiness/no-point-in-time-checks -- control flow, not assertion
-      if (await hideTestCheckbox.isChecked()) {
-        await hideTestCheckbox.uncheck();
-      }
-
-      // Both run rows should be visible
-      const testRunRow = adminPage.locator(`[data-testid="run-row-${runIds[0]}"]`);
-      await expect(testRunRow).toBeVisible({ timeout: 15000 });
-
-      const normalRunRow = adminPage.locator(`[data-testid="run-row-${runIds[1]}"]`);
-      await expect(normalRunRow).toBeVisible();
+    // Uncheck to show all content — both run rows should be visible
+    // eslint-disable-next-line flakiness/no-point-in-time-checks -- control flow, not assertion
+    if (await hideTestCheckbox.isChecked()) {
+      await hideTestCheckbox.uncheck();
     }
-  });
+    await expect(testRunRow).toBeVisible({ timeout: 15000 });
+    const normalRunRow = adminPage.locator(`[data-testid="run-row-${runIds[1]}"]`);
+    await expect(normalRunRow).toBeVisible();
 
-  adminTest('filter consistent on experiments page', async ({ adminPage }) => {
+    // --- Experiments page: filter is functional ---
     await adminPage.goto('/admin/evolution/experiments');
     await adminPage.waitForLoadState('domcontentloaded');
 

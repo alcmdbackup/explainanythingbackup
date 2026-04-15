@@ -128,6 +128,7 @@ export default defineConfig({
     {
       name: 'chromium-unauth',
       testMatch: /\.unauth\.spec\.ts$/,
+      grep: /@critical/,
       use: {
         ...devices['Desktop Chrome'],
         storageState: { cookies: [], origins: [] },

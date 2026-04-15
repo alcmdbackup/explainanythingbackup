@@ -8,32 +8,31 @@ describe('computeEloCutoff', () => {
   });
 
   it('returns null for 1-2 entries (below MIN_ENTRIES_FOR_CUTOFF)', () => {
-    expect(computeEloCutoff([{ mu: 25, sigma: 8 }])).toBeNull();
-    expect(computeEloCutoff([{ mu: 25, sigma: 8 }, { mu: 30, sigma: 7 }])).toBeNull();
+    expect(computeEloCutoff([{ elo_score: 1200, uncertainty: 128 }])).toBeNull();
+    expect(computeEloCutoff([{ elo_score: 1200, uncertainty: 128 }, { elo_score: 1280, uncertainty: 112 }])).toBeNull();
   });
 
-  it('returns null when all entries have null mu/sigma', () => {
+  it('returns null when all entries have null elo_score/uncertainty', () => {
     expect(computeEloCutoff([
-      { mu: null, sigma: null },
-      { mu: null, sigma: null },
-      { mu: null, sigma: null },
+      { elo_score: null, uncertainty: null },
+      { elo_score: null, uncertainty: null },
+      { elo_score: null, uncertainty: null },
     ])).toBeNull();
   });
 
-  it('returns null when all entries have identical mu (stdDev=0)', () => {
+  it('returns null when all entries have identical elo (stdDev=0)', () => {
     expect(computeEloCutoff([
-      { mu: 25, sigma: 8 },
-      { mu: 25, sigma: 8 },
-      { mu: 25, sigma: 8 },
+      { elo_score: 1200, uncertainty: 128 },
+      { elo_score: 1200, uncertainty: 128 },
+      { elo_score: 1200, uncertainty: 128 },
     ])).toBeNull();
   });
 
   it('computes cutoff for 3+ entries with varying elo', () => {
-    // mu=25 -> elo=1200, mu=30 -> elo=1280, mu=35 -> elo=1360
     const entries = [
-      { mu: 25, sigma: 8 },
-      { mu: 30, sigma: 7 },
-      { mu: 35, sigma: 6 },
+      { elo_score: 1200, uncertainty: 128 },
+      { elo_score: 1280, uncertainty: 112 },
+      { elo_score: 1360, uncertainty: 96 },
     ];
     const cutoff = computeEloCutoff(entries);
     expect(cutoff).not.toBeNull();
@@ -44,12 +43,12 @@ describe('computeEloCutoff', () => {
     expect(cutoff!).toBeCloseTo(1347.93, 0);
   });
 
-  it('filters out entries with null mu/sigma', () => {
+  it('filters out entries with null elo_score/uncertainty', () => {
     const entries = [
-      { mu: 25, sigma: 8 },
-      { mu: null, sigma: null },
-      { mu: 30, sigma: 7 },
-      { mu: 35, sigma: 6 },
+      { elo_score: 1200, uncertainty: 128 },
+      { elo_score: null, uncertainty: null },
+      { elo_score: 1280, uncertainty: 112 },
+      { elo_score: 1360, uncertainty: 96 },
     ];
     const cutoff = computeEloCutoff(entries);
     expect(cutoff).not.toBeNull();
@@ -59,10 +58,10 @@ describe('computeEloCutoff', () => {
 
   it('returns null when valid entries < 3 after filtering nulls', () => {
     const entries = [
-      { mu: 25, sigma: 8 },
-      { mu: null, sigma: null },
-      { mu: 30, sigma: 7 },
-      { mu: null, sigma: null },
+      { elo_score: 1200, uncertainty: 128 },
+      { elo_score: null, uncertainty: null },
+      { elo_score: 1280, uncertainty: 112 },
+      { elo_score: null, uncertainty: null },
     ];
     expect(computeEloCutoff(entries)).toBeNull();
   });

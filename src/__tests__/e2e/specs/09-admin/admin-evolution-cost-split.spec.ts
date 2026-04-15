@@ -188,19 +188,24 @@ adminTest.describe('Evolution per-purpose cost split (T-cost-split)', { tag: '@e
   });
 
   adminTest('run detail metrics tab shows Generation Cost and Ranking Cost rows', async ({ adminPage }) => {
-    await adminPage.goto(`/admin/evolution/runs/${runId}`, { timeout: 30000 });
-    await adminPage.waitForLoadState('domcontentloaded');
+    // Navigate directly with the tab query param so useTabState picks up
+    // activeTab='metrics' on first render. Previously the test navigated to the
+    // base URL and clicked tab-metrics, but in Next.js 15 prod builds the
+    // router.replace('?tab=metrics') from useTabState produces an RSC soft-nav
+    // that re-executes the page; the metrics tab's useEffect can fail to fire
+    // under that race, leaving the tabpanel empty. Direct navigation avoids it.
+    await adminPage.goto(`/admin/evolution/runs/${runId}?tab=metrics`, { timeout: 30000 });
 
-    // Click the Metrics tab
+    // Wait for the tab bar to hydrate, confirming the metrics tab is selected.
     const metricsTab = adminPage.locator('[data-testid="tab-metrics"]');
     await expect(metricsTab).toBeVisible({ timeout: 30000 });
-    await metricsTab.click();
+    await expect(metricsTab).toHaveAttribute('aria-selected', 'true');
 
-    // EntityMetricsTab groups by category — both per-purpose cost metrics should
-    // appear under the Cost group with formatted dollar values
+    // EntityMetricsTab fetches metrics client-side via useEffect — wait for the
+    // data to load (may take several seconds in CI with cold server actions).
     const tabContent = adminPage.locator('[data-testid="entity-metrics-tab"]');
-    await expect(tabContent).toBeVisible({ timeout: 15000 });
-    await expect(tabContent).toContainText('Generation Cost');
+    await expect(tabContent).toBeVisible({ timeout: 30000 });
+    await expect(tabContent).toContainText('Generation Cost', { timeout: 10000 });
     await expect(tabContent).toContainText('Ranking Cost');
     await expect(tabContent).toContainText('$0.43');
     await expect(tabContent).toContainText('$0.36');

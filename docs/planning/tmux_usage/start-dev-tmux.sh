@@ -65,10 +65,13 @@ if ! grep -q '"dev:server"' "$PROJECT_ROOT/package.json"; then
   exit 1
 fi
 
-# Start Next.js dev server with unique port
+# Start Next.js dev server with unique port.
+# E2E env vars match playwright.config.ts webServer block — without these,
+# AIEditorPanel takes the RSC server-action path which Playwright can't mock,
+# and AI-suggestions E2E tests time out on the [data-diff-key] locator.
 cd "$PROJECT_ROOT"
 tmux new-session -d -s "$SERVER_SESSION" -c "$PROJECT_ROOT" \
-  "PORT=$SERVER_PORT npm run dev:server 2>&1 | tee $SERVER_LOG; echo 'Server exited with code: '\$?"
+  "PORT=$SERVER_PORT NEXT_PUBLIC_USE_AI_API_ROUTE=true E2E_TEST_MODE=true npm run dev:server 2>&1 | tee $SERVER_LOG; echo 'Server exited with code: '\$?"
 
 # --- C3 & H1: Wait for server to be ready before writing instance file ---
 echo "Waiting for server to start..."

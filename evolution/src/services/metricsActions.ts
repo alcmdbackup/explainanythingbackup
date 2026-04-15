@@ -38,7 +38,16 @@ async function _getEntityMetricsImpl(
       return { success: false, data: null, error: handleError(error, 'getEntityMetrics') };
     }
 
-    const rows = (metrics ?? []) as MetricRow[];
+    // Rename `sigma` DB column to `uncertainty` field on read.
+    // DB column is not renamed (CI safety check blocks DDL RENAME); mapping happens in TS.
+    const renameSigma = (r: Record<string, unknown>): MetricRow => {
+      if ('sigma' in r && !('uncertainty' in r)) {
+        const { sigma, ...rest } = r;
+        return { ...rest, uncertainty: sigma } as unknown as MetricRow;
+      }
+      return r as MetricRow;
+    };
+    const rows = (metrics ?? []).map((r) => renameSigma(r as Record<string, unknown>));
     const staleRows = rows.filter(m => m.stale);
 
     if (staleRows.length > 0) {
@@ -52,7 +61,7 @@ async function _getEntityMetricsImpl(
       if (freshError) {
         return { success: false, data: null, error: handleError(freshError, 'getEntityMetrics:reread') };
       }
-      return { success: true, data: (fresh ?? []) as MetricRow[], error: null };
+      return { success: true, data: (fresh ?? []).map((r) => renameSigma(r as Record<string, unknown>)), error: null };
     }
 
     return { success: true, data: rows, error: null };
