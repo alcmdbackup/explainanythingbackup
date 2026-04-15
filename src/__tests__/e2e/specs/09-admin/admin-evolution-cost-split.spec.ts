@@ -195,6 +195,12 @@ adminTest.describe('Evolution per-purpose cost split (T-cost-split)', { tag: '@e
     await expect(metricsTab).toBeVisible({ timeout: 30000 });
     await metricsTab.click();
 
+    // useTabState syncs the active tab to `?tab=metrics` in the URL via router.replace.
+    // Under Next.js 15 prod builds this soft-nav completes asynchronously; if we assert
+    // on tab content before it finishes, the tabpanel can still be the pre-swap stale
+    // Timeline content (or briefly empty), making the assertion race.
+    await adminPage.waitForURL(/[?&]tab=metrics/, { timeout: 15000 });
+
     // EntityMetricsTab fetches metrics client-side via useEffect — wait for the
     // data to load (may take several seconds in CI with cold server actions).
     const tabContent = adminPage.locator('[data-testid="entity-metrics-tab"]');
