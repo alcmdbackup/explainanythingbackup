@@ -6,6 +6,7 @@ import { VariantContentSection } from '@evolution/components/evolution/variant/V
 import { VariantLineageSection } from '@evolution/components/evolution/variant/VariantLineageSection';
 import { VariantMatchHistory } from '@evolution/components/evolution/variant/VariantMatchHistory';
 import type { VariantFullDetail } from '@evolution/services/variantDetailActions';
+import { formatEloWithUncertainty } from '@evolution/lib/utils/formatters';
 
 const TABS = [
   { id: 'content', label: 'Content' },
@@ -48,7 +49,12 @@ export function VariantDetailContent({ variant }: VariantDetailContentProps): JS
         metrics={[
           { label: 'Agent', value: variant.agentName || '—' },
           { label: 'Generation', value: String(variant.generation) },
-          { label: 'Rating', value: String(Math.round(variant.eloScore)) },
+          {
+            label: 'Rating',
+            value: variant.uncertainty != null
+              ? (formatEloWithUncertainty(variant.eloScore, variant.uncertainty) ?? String(Math.round(variant.eloScore)))
+              : String(Math.round(variant.eloScore)),
+          },
           { label: 'Matches', value: String(variant.matchCount) },
         ]}
       />

@@ -5,6 +5,7 @@
 import { adminAction, type AdminContext } from './adminAction';
 import { validateUuid, applyNonTestStrategyFilter } from './shared';
 import { EvolutionRunSummarySchema } from '@evolution/lib/types';
+import { dbToRating } from '@evolution/lib/shared/computeRatings';
 
 export interface DashboardData {
   activeRuns: number;
@@ -41,6 +42,8 @@ export interface LineageNode {
   generation: number;
   agentName: string;
   eloScore: number;
+  /** Elo-scale rating uncertainty (lifted from mu/sigma). Optional — legacy rows omit it. Phase 4b. */
+  uncertainty?: number;
   isWinner: boolean;
   parentId: string | null;
   /** False = discarded by owning generate agent. Defaults true for legacy variants. */
@@ -54,6 +57,8 @@ export interface LineageData {
     shortId: string;
     strategy: string;
     elo: number;
+    /** Elo-scale rating uncertainty (lifted from mu/sigma). Optional — legacy rows omit it. Phase 4b. */
+    uncertainty?: number;
     iterationBorn: number;
     isWinner: boolean;
     treeDepth?: number | null;
@@ -248,21 +253,28 @@ export const getEvolutionRunLineageAction = adminAction(
 
     const { data, error } = await ctx.supabase
       .from('evolution_variants')
-      .select('id, generation, agent_name, elo_score, is_winner, parent_variant_id, persisted')
+      .select('id, generation, agent_name, elo_score, mu, sigma, is_winner, parent_variant_id, persisted')
       .eq('run_id', runId)
       .order('generation', { ascending: true });
 
     if (error) throw error;
 
-    return (data ?? []).map(v => ({
-      id: v.id,
-      generation: v.generation,
-      agentName: v.agent_name,
-      eloScore: v.elo_score,
-      isWinner: v.is_winner,
-      parentId: v.parent_variant_id,
-      // Default true for legacy rows that pre-date the persisted column.
-      persisted: (v as { persisted?: boolean | null }).persisted ?? true,
-    }));
+    return (data ?? []).map(v => {
+      const row = v as { mu?: number | null; sigma?: number | null };
+      const uncertainty = row.mu != null && row.sigma != null
+        ? dbToRating(row.mu, row.sigma).uncertainty
+        : undefined;
+      return {
+        id: v.id,
+        generation: v.generation,
+        agentName: v.agent_name,
+        eloScore: v.elo_score,
+        ...(uncertainty != null ? { uncertainty } : {}),
+        isWinner: v.is_winner,
+        parentId: v.parent_variant_id,
+        // Default true for legacy rows that pre-date the persisted column.
+        persisted: (v as { persisted?: boolean | null }).persisted ?? true,
+      };
+    });
   },
 );

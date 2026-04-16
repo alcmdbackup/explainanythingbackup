@@ -186,6 +186,7 @@ export function LineageGraph({ nodes, edges, treeSearchPath }: LineageGraphProps
           <VariantCard
             shortId={selectedNode.shortId}
             elo={selectedNode.elo}
+            uncertainty={selectedNode.uncertainty}
             strategy={selectedNode.strategy}
             iterationBorn={selectedNode.iterationBorn}
             isWinner={selectedNode.isWinner}
