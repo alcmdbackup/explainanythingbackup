@@ -111,12 +111,15 @@ describe('listInvocationsAction', () => {
     await expect(listHandler({ limit: 10, offset: 0 }, ctx)).rejects.toEqual({ message: 'connection refused' });
   });
 
-  it('filters test content by excluding test strategy run IDs', async () => {
+  it('filters test content via embedded !inner join on is_test_content=false', async () => {
     const { ctx, chain } = makeMockCtx([{ id: '1' }], 1);
     await listHandler({ filterTestContent: true, limit: 10, offset: 0 }, ctx);
-    // Should call getTestStrategyIds and use the returned IDs to filter runs
-    const { getTestStrategyIds } = require('./shared');
-    expect(getTestStrategyIds).toHaveBeenCalled();
+    // Post-Phase 4a: uses PostgREST embedded-resource filter, not getTestStrategyIds.
+    expect(chain.select).toHaveBeenCalledWith(
+      expect.stringMatching(/evolution_runs!inner\(evolution_strategies!inner\(is_test_content\)\)/),
+      expect.anything(),
+    );
+    expect(chain.eq).toHaveBeenCalledWith('evolution_runs.evolution_strategies.is_test_content', false);
   });
 
   it('does not filter test content when filterTestContent is false', async () => {

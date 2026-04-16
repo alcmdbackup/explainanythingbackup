@@ -3,7 +3,7 @@
 // V2 rewrite: uses run_summary JSONB, cost view, and variant lineage instead of checkpoints.
 
 import { adminAction, type AdminContext } from './adminAction';
-import { validateUuid, getTestStrategyIds } from './shared';
+import { validateUuid, applyNonTestStrategyFilter } from './shared';
 import { EvolutionRunSummarySchema } from '@evolution/lib/types';
 
 export interface DashboardData {
@@ -70,26 +70,24 @@ export const getEvolutionDashboardDataAction = adminAction(
     const { supabase } = ctx;
     const filterTest = input?.filterTestContent ?? false;
 
-    // Fetch test strategy IDs first (small set), then exclude their runs.
-    // Uses shared helper that matches [TEST], exact "test"/"Test", and timestamp patterns.
-    let testStrategyIds: string[] = [];
-    if (filterTest) {
-      testStrategyIds = await getTestStrategyIds(supabase);
-    }
+    // Exclude test runs via PostgREST embedded !inner join against evolution_strategies.is_test_content.
+    // Replaces the prior .not.in(testStrategyIds) path that silently returned empty when
+    // the IN list grew past PostgREST URL limits.
+    let statusQuery = filterTest
+      ? supabase.from('evolution_runs').select('id, status, evolution_strategies!inner(is_test_content)')
+      : supabase.from('evolution_runs').select('id, status');
+    if (filterTest) statusQuery = applyNonTestStrategyFilter(statusQuery);
 
-    // Build queries — status needs id for cost metric lookup
-    let statusQuery = supabase.from('evolution_runs').select('id, status');
-    if (filterTest && testStrategyIds.length > 0) {
-      statusQuery = statusQuery.not('strategy_id', 'in', `(${testStrategyIds.join(',')})`);
-    }
-
-    let recentQuery = supabase.from('evolution_runs')
-      .select('id, status, strategy_id, budget_cap_usd, explanation_id, error_message, created_at, completed_at')
-      .order('created_at', { ascending: false })
-      .limit(10);
-    if (filterTest && testStrategyIds.length > 0) {
-      recentQuery = recentQuery.not('strategy_id', 'in', `(${testStrategyIds.join(',')})`);
-    }
+    let recentQuery = filterTest
+      ? supabase.from('evolution_runs')
+          .select('id, status, strategy_id, budget_cap_usd, explanation_id, error_message, created_at, completed_at, evolution_strategies!inner(is_test_content)')
+          .order('created_at', { ascending: false })
+          .limit(10)
+      : supabase.from('evolution_runs')
+          .select('id, status, strategy_id, budget_cap_usd, explanation_id, error_message, created_at, completed_at')
+          .order('created_at', { ascending: false })
+          .limit(10);
+    if (filterTest) recentQuery = applyNonTestStrategyFilter(recentQuery);
 
     const [statusResult, recentResult] = await Promise.all([
       statusQuery,

@@ -24,7 +24,9 @@ export function validateUuid(id: string, strict = false): boolean {
 /** Timestamp pattern for auto-generated test names (e.g., "nav2-1774498767678-strat"). */
 const TIMESTAMP_NAME_PATTERN = /^.*-\d{10,13}-.*$/;
 
-/** Check if a name matches test content patterns. */
+/** Check if a name matches test content patterns (display-only echo of the DB-side
+ *  evolution_is_test_name() function; that function is the canonical source of truth —
+ *  its value is persisted in evolution_strategies.is_test_content via a BEFORE trigger). */
 export function isTestContentName(name: string | null | undefined): boolean {
   if (!name) return false;
   const lower = name.toLowerCase();
@@ -37,19 +39,60 @@ export function isTestContentName(name: string | null | undefined): boolean {
   );
 }
 
+/** Shared anti-drift fixtures for the TS helper + Postgres function.
+ *  Integration test at src/__tests__/integration/evolution_is_test_name.integration.test.ts
+ *  verifies both code paths match this table exactly. */
+export const TEST_NAME_FIXTURES: Array<{ name: string; isTest: boolean; reason: string }> = [
+  { name: 'test', isTest: true, reason: 'exact lowercase' },
+  { name: 'TEST', isTest: true, reason: 'exact uppercase' },
+  { name: 'Test', isTest: true, reason: 'exact mixed' },
+  { name: '[TEST] Budget Run Strategy 1776204667937', isTest: true, reason: 'bracketed TEST' },
+  { name: '[E2E] Anchor Strategy 1775049144246', isTest: true, reason: 'bracketed E2E' },
+  { name: '[TEST_EVO] Buffer Display Test', isTest: true, reason: 'bracketed TEST_EVO' },
+  { name: 'e2e-nav-1775877428914-strategy', isTest: true, reason: 'timestamp pattern' },
+  { name: 'my-app-1234567890-prod', isTest: true, reason: 'timestamp pattern 10 digits' },
+  { name: 'my-app-1234567890123-prod', isTest: true, reason: 'timestamp pattern 13 digits' },
+  { name: 'Cheap judge, aggressive budget floor', isTest: false, reason: 'normal name' },
+  { name: 'Qwen 2.5 7b judge', isTest: false, reason: 'normal name with version numbers' },
+  { name: 'Renamed Strategy', isTest: false, reason: 'normal name' },
+  { name: '', isTest: false, reason: 'empty string' },
+  { name: 'contestant', isTest: false, reason: 'contains test substring but not exact' },
+];
+
 /**
- * Fetch IDs of strategies whose names match test content patterns.
- * Used by actions that filter runs/invocations by strategy_id.
+ * Fetch IDs of strategies flagged as test content via the `is_test_content` column
+ * (populated by the `evolution_is_test_name` Postgres function + trigger). Replaces the
+ * legacy two-step fetch + JS regex dance that diverged from the DB function on the
+ * timestamp-pattern case.
  */
 export async function getTestStrategyIds(supabase: SupabaseClient): Promise<string[]> {
   const { data: strategies } = await supabase
     .from('evolution_strategies')
-    .select('id, name')
-    .or('name.ilike.%[TEST]%,name.ilike.%[E2E]%,name.ilike.%[TEST_EVO]%,name.ilike.test');
+    .select('id')
+    .eq('is_test_content', true);
 
-  return (strategies ?? [])
-    .filter((s): s is { id: string; name: string } => isTestContentName(s.name))
-    .map(s => s.id);
+  return (strategies ?? []).map((s) => s.id as string);
+}
+
+/**
+ * Apply a test-content exclusion filter via PostgREST embedded-resource !inner join.
+ * For queries on tables that FK to evolution_strategies (evolution_runs,
+ * evolution_agent_invocations, and indirectly evolution_variants through runs).
+ *
+ * Usage:
+ *   let query = supabase.from('evolution_runs').select('<your fields>', { count: 'exact' });
+ *   if (filterTestContent) query = applyNonTestStrategyFilter(query);
+ *
+ * The !inner modifier is REQUIRED — without it, rows whose embed is filtered out still
+ * appear in the parent resultset (just with null embed). The !inner moves the filter
+ * into an INNER JOIN on the embedded resource, which correctly drops parent rows.
+ *
+ * Prerequisite migration: 20260325000001_drop_duplicate_strategy_fk.sql (removes the
+ * duplicate FK that previously caused PGRST201 on this join).
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Supabase query builder types are too deeply nested
+export function applyNonTestStrategyFilter(query: any): any {
+  return query.eq('evolution_strategies.is_test_content', false);
 }
 
 /**

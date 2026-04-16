@@ -497,9 +497,11 @@ describe('evolutionActions', () => {
       expect(result.success).toBe(false);
     });
 
-    it('filters test content by excluding test strategy run IDs', async () => {
-      const testStrategyId = '00000000-0000-0000-0000-000000000099';
-      const testRunId = '00000000-0000-0000-0000-000000000088';
+    it('applies PostgREST embedded !inner filter on evolution_strategies.is_test_content', async () => {
+      // Post-Phase 4a path: a single evolution_variants query using embedded resource
+      // select + .eq('evolution_runs.evolution_strategies.is_test_content', false).
+      // No separate getTestStrategyIds round-trip (that's what blew up when the IN list
+      // grew past PostgREST's URL ceiling).
       const variants = [
         {
           id: VALID_UUID_3,
@@ -513,27 +515,33 @@ describe('evolutionActions', () => {
           created_at: '2026-03-01T10:00:00Z',
         },
       ];
+      const selectCalls: string[] = [];
+      const eqCalls: Array<[string, unknown]> = [];
 
       const mock = createTableAwareMock([
-        // 1. evolution_runs (fetch test run IDs using test-strat-1 from mocked getTestStrategyIds)
+        // 1. evolution_variants (main query — only query needed now)
         (b) => {
-          b.then = jest.fn((resolve: (v: unknown) => void) =>
-            resolve({ data: [{ id: testRunId }], error: null })
-          );
-        },
-        // 2. evolution_variants (main query with .not run_id exclusion)
-        (b) => {
+          const origSelect = b.select as jest.Mock;
+          b.select = jest.fn((...args: unknown[]) => {
+            selectCalls.push(String(args[0]));
+            return origSelect(...args);
+          });
+          const origEq = b.eq as jest.Mock;
+          b.eq = jest.fn((...args: unknown[]) => {
+            eqCalls.push([String(args[0]), args[1]]);
+            return origEq(...args);
+          });
           b.then = jest.fn((resolve: (v: unknown) => void) =>
             resolve({ data: variants, error: null, count: 1 })
           );
         },
-        // 3. evolution_runs (enrichment)
+        // 2. evolution_runs (enrichment)
         (b) => {
           b.then = jest.fn((resolve: (v: unknown) => void) =>
             resolve({ data: [{ id: VALID_UUID, strategy_id: VALID_UUID_2 }], error: null })
           );
         },
-        // 4. evolution_strategies (strategy name enrichment)
+        // 3. evolution_strategies (strategy name enrichment)
         (b) => {
           b.then = jest.fn((resolve: (v: unknown) => void) =>
             resolve({ data: [{ id: VALID_UUID_2, name: 'Real Strategy' }], error: null })
@@ -545,10 +553,12 @@ describe('evolutionActions', () => {
       const result = await listVariantsAction({ filterTestContent: true, limit: 50, offset: 0 });
 
       expect(result.success).toBe(true);
-      // getTestStrategyIds is mocked via ./shared, so first supabase call fetches test run IDs
-      expect(mock.from.mock.calls[0][0]).toBe('evolution_runs');
-      // Second call is the main variants query
-      expect(mock.from.mock.calls[1][0]).toBe('evolution_variants');
+      // Main query is evolution_variants
+      expect(mock.from.mock.calls[0][0]).toBe('evolution_variants');
+      // Select string includes the embedded !inner join
+      expect(selectCalls[0]).toMatch(/evolution_runs!inner\(evolution_strategies!inner\(is_test_content\)\)/);
+      // Filter uses .eq on the embedded field, NOT .not.in
+      expect(eqCalls.some(([k, v]) => k === 'evolution_runs.evolution_strategies.is_test_content' && v === false)).toBe(true);
     });
   });
 
@@ -1047,25 +1057,30 @@ describe('evolutionActions', () => {
       (requireAdmin as jest.Mock).mockResolvedValue('test-admin-user-id');
     });
 
-    it('passes parenthesized string to .not() for getEvolutionRunsAction', async () => {
+    it('uses embedded !inner + .eq on is_test_content=false for getEvolutionRunsAction', async () => {
+      // Replaces the legacy .not('strategy_id', 'in', '(uuids)') path which blew past
+      // PostgREST's URL length ceiling with ~984 test strategies.
       const runs = [{ ...MOCK_RUN, strategy_id: VALID_UUID_3 }];
-      let notCallArgs: unknown[] | undefined;
+      const selectCalls: string[] = [];
+      const eqCalls: Array<[string, unknown]> = [];
 
       const mock = createTableAwareMock([
-        // evolution_runs — intercept .not() call
         (b) => {
-          const originalNot = b.not as jest.Mock;
-          b.not = jest.fn((...args: unknown[]) => {
-            notCallArgs = args;
-            return originalNot(...args);
+          const origSelect = b.select as jest.Mock;
+          b.select = jest.fn((...args: unknown[]) => {
+            selectCalls.push(String(args[0]));
+            return origSelect(...args);
+          });
+          const origEq = b.eq as jest.Mock;
+          b.eq = jest.fn((...args: unknown[]) => {
+            eqCalls.push([String(args[0]), args[1]]);
+            return origEq(...args);
           });
           b.then = jest.fn((resolve: (v: unknown) => void) =>
             resolve({ data: runs, error: null, count: 1 })
           );
         },
-        // evolution_agent_invocations (costs)
         (b) => { b.then = jest.fn((resolve: (v: unknown) => void) => resolve({ data: [], error: null })); },
-        // evolution_strategies
         (b) => { b.then = jest.fn((resolve: (v: unknown) => void) => resolve({ data: [], error: null })); },
       ]);
       (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
@@ -1073,14 +1088,8 @@ describe('evolutionActions', () => {
       const result = await getEvolutionRunsAction({ filterTestContent: true });
 
       expect(result.success).toBe(true);
-      expect(mock.from).toHaveBeenCalled();
-      // .not() must have been called with parenthesized string (PostgREST requires `(id1,id2)`)
-      expect(notCallArgs).toBeDefined();
-      expect(notCallArgs![0]).toBe('strategy_id');
-      expect(notCallArgs![1]).toBe('in');
-      // Value must be parenthesized string like "(id1,id2)", NOT a bare array
-      expect(typeof notCallArgs![2]).toBe('string');
-      expect(notCallArgs![2] as string).toMatch(/^\(.+\)$/);
+      expect(selectCalls[0]).toMatch(/evolution_strategies!inner\(is_test_content\)/);
+      expect(eqCalls.some(([k, v]) => k === 'evolution_strategies.is_test_content' && v === false)).toBe(true);
     });
 
     it('skips .not() when test strategy IDs list is empty', async () => {

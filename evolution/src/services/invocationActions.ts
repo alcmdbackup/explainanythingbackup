@@ -3,7 +3,7 @@
 // Provides paginated listing and single-invocation fetch for the admin UI.
 
 import { adminAction, type AdminContext } from './adminAction';
-import { validateUuid, getTestStrategyIds } from './shared';
+import { validateUuid } from './shared';
 import { z } from 'zod';
 
 // ─── Types ───────────────────────────────────────────────────────
@@ -57,20 +57,14 @@ export const listInvocationsAction = adminAction(
     const parsed = listInvocationsInputSchema.parse(input);
     const { supabase } = ctx;
 
-    // Fetch test strategy IDs → test run IDs, then exclude those invocations.
-    // This avoids nested !inner joins which depend on FK constraints + PostgREST schema cache.
-    const baseFields = 'id, run_id, agent_name, iteration, execution_order, success, cost_usd, duration_ms, error_message, created_at';
-    let testRunIds: string[] = [];
-    if (parsed.filterTestContent) {
-      const testStrategyIds = await getTestStrategyIds(supabase);
-      if (testStrategyIds.length > 0) {
-        const { data: testRuns } = await supabase
-          .from('evolution_runs')
-          .select('id')
-          .in('strategy_id', testStrategyIds);
-        testRunIds = (testRuns ?? []).map(r => r.id as string);
-      }
-    }
+    // Apply test-content filter via nested embedded !inner join:
+    //   evolution_agent_invocations -> evolution_runs -> evolution_strategies (is_test_content=false)
+    // Replaces the prior two-step round-trip (getTestStrategyIds then fetch run IDs then
+    // .not.in) that silently failed when the IN list exceeded PostgREST URL limits.
+    const wantsEmbed = !!parsed.filterTestContent;
+    const baseFields = wantsEmbed
+      ? 'id, run_id, agent_name, iteration, execution_order, success, cost_usd, duration_ms, error_message, created_at, evolution_runs!inner(evolution_strategies!inner(is_test_content))'
+      : 'id, run_id, agent_name, iteration, execution_order, success, cost_usd, duration_ms, error_message, created_at';
 
     let query = supabase
       .from('evolution_agent_invocations')
@@ -83,8 +77,8 @@ export const listInvocationsAction = adminAction(
       const escaped = parsed.agentName.replace(/[%_\\]/g, '\\$&');
       query = query.ilike('agent_name', `%${escaped}%`);
     }
-    if (parsed.filterTestContent && testRunIds.length > 0) {
-      query = query.not('run_id', 'in', `(${testRunIds.join(',')})`);
+    if (wantsEmbed) {
+      query = query.eq('evolution_runs.evolution_strategies.is_test_content', false);
     }
 
     query = query.order('created_at', { ascending: false })
@@ -93,7 +87,8 @@ export const listInvocationsAction = adminAction(
     const { data, error, count } = await query;
     if (error) throw error;
 
-    return { items: (data ?? []) as InvocationListEntry[], total: count ?? 0 };
+    // Cast via unknown — embedded-resource select doesn't parse cleanly into the generated types.
+    return { items: (data ?? []) as unknown as InvocationListEntry[], total: count ?? 0 };
   },
 );
 
