@@ -229,8 +229,7 @@ Cost metrics are now written to the database after each successful LLM call via 
 
 **Cost computation source (Phase 2):** actual cost uses real `usage.prompt_tokens`/`usage.completion_tokens` from the provider via `calculateLLMCost`, not the `response.length / 4` heuristic. Identical to how `llmCallTracking.estimated_cost_usd` is computed — the two should now match within rounding per `evolution_invocation_id`.
 
-**Per-invocation attribution under parallel dispatch (Phase 2.5):** `Agent.run()` builds a per-invocation `EvolutionLLMClient` bound to the `AgentCostScope` so each agent's `recordSpend` intercepts go through the scope. `cost_usd` is sourced from `scope.getOwnSpent()` rather than a before/after delta of the shared tracker, eliminating sibling cost bleed. Gated by `EVOLUTION_USE_SCOPE_OWNSPENT` env flag for rollback safety.
-
+**Per-invocation attribution under parallel dispatch (Phase 2.5):** `Agent.run()` builds a per-invocation `EvolutionLLMClient` bound to the `AgentCostScope` so each agent's `recordSpend` intercepts go through the scope. `cost_usd` is sourced from `scope.getOwnSpent()` rather than a before/after delta of the shared tracker, eliminating sibling cost bleed. 
 ---
 
 ## Elo CI on Run Metrics

@@ -423,7 +423,7 @@ SELECT
 ```
 Expected: both numbers match within rounding. Pre-fix on run `b0778925` they diverged 4.7×.
 
-**Rollback for Phase 2.5:** flip `EVOLUTION_USE_SCOPE_OWNSPENT=false` in Vercel env to revert to the legacy delta path (no redeploy needed).
+**Phase 2.5 is now permanent** — the `EVOLUTION_USE_SCOPE_OWNSPENT` rollback flag has been removed. `scope.getOwnSpent()` is the sole cost-attribution source. If a regression appears, inspect whether `ctx.rawProvider` is populated at the Agent.run call site (it must be, or the scope intercept won't fire and `getOwnSpent()` returns 0, falling back to `detail.totalCost`).
 
 ### Debugging "Hide test content" filter silently hiding rows
 

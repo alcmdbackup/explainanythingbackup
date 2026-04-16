@@ -335,7 +335,7 @@ Under parallel agent dispatch, a shared `V2CostTracker` serves two purposes: **b
 
 `Agent.run()` creates a scope per invocation, passes it as `costTracker` in `extendedCtx`, AND **builds the `EvolutionLLMClient` inside the scope** (from `ctx.rawProvider` + `ctx.defaultModel` via `createEvolutionLLMClient`). The per-invocation client's `recordSpend` calls go through the scope's intercept, so `scope.getOwnSpent()` is authoritative. `MergeRatingsAgent` opts out via `usesLLM = false` since it doesn't make LLM calls.
 
-The `cost_usd` written to `evolution_agent_invocations` comes from `scope.getOwnSpent()` — the direct sum of this invocation's `recordSpend` calls, with no sibling cost bleed even under parallel dispatch. The legacy `detail.totalCost` fallback (before/after-delta of shared `getTotalSpent()`) is retained behind the `EVOLUTION_USE_SCOPE_OWNSPENT` env flag for one-week rollback safety; flip to `'false'` in Vercel env (no redeploy) to revert to the delta path if needed. After one week of clean data, the fallback path will be removed.
+The `cost_usd` written to `evolution_agent_invocations` comes from `scope.getOwnSpent()` — the direct sum of this invocation's `recordSpend` calls, with no sibling cost bleed even under parallel dispatch. `detail.totalCost` is still populated (Agent.run falls back to it when `getOwnSpent()` returns 0, as with MergeRatingsAgent which makes no LLM calls).
 
 ---
 

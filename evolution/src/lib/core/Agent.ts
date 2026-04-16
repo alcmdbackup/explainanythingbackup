@@ -9,15 +9,6 @@ import { createInvocation, updateInvocation } from '../pipeline/infra/trackInvoc
 import { createAgentCostScope } from '../pipeline/infra/trackBudget';
 import { createEvolutionLLMClient } from '../pipeline/infra/createEvolutionLLMClient';
 
-/** Env flag controlling cost attribution source.
- *  - 'true' (default): prefer costScope.getOwnSpent() — the scope-routed per-invocation total.
- *  - 'false': fall back to legacy `detail.totalCost || getOwnSpent()` behavior for rollback.
- *  Flip via Vercel env without redeploying if the new path regresses in prod.
- */
-function useScopeOwnSpent(): boolean {
-  return (process.env.EVOLUTION_USE_SCOPE_OWNSPENT ?? 'true') !== 'false';
-}
-
 export abstract class Agent<TInput, TOutput, TDetail extends ExecutionDetailBase = ExecutionDetailBase> {
   abstract readonly name: string;
   abstract readonly executionDetailSchema: ZodSchema;
@@ -70,15 +61,11 @@ export abstract class Agent<TInput, TOutput, TDetail extends ExecutionDetailBase
       const durationMs = Date.now() - startMs;
       const { detail } = output;
 
-      // Phase 2.5: prefer scope.getOwnSpent() — the authoritative per-invocation total from
-      // recordSpend intercepts. Falls back to detail.totalCost only when the scope saw nothing
-      // (happens when the agent used a pre-baked LLM client that bypassed the scope intercept,
-      // which shouldn't happen after Phase 2.5 but is retained for safety).
-      // Gated via EVOLUTION_USE_SCOPE_OWNSPENT so we can flip back in Vercel without redeploying.
+      // Per-invocation cost from the scope's own intercept (authoritative). Falls back to
+      // detail.totalCost only when the scope saw zero spend (e.g. MergeRatingsAgent which
+      // doesn't issue LLM calls and therefore never triggers recordSpend through the scope).
       const ownSpent = costScope.getOwnSpent();
-      const cost = useScopeOwnSpent()
-        ? (ownSpent > 0 ? ownSpent : (detail?.totalCost ?? 0))
-        : ((detail?.totalCost ?? 0) > 0 ? detail!.totalCost : ownSpent);
+      const cost = ownSpent > 0 ? ownSpent : (detail?.totalCost ?? 0);
 
       const parseResult = this.executionDetailSchema.safeParse(detail);
       if (!parseResult.success) {
