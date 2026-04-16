@@ -8,7 +8,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 
 import { buildVariantDetailUrl } from '@evolution/lib/utils/evolutionUrls';
-import { formatElo } from '@evolution/lib/utils/formatters';
+import { formatElo, formatEloWithUncertainty } from '@evolution/lib/utils/formatters';
 import {
   getVariantChildrenAction,
   getVariantLineageChainAction,
@@ -94,7 +94,11 @@ export function VariantLineageSection({ variantId }: VariantLineageSectionProps)
                 >
                   <span className="font-mono text-[var(--accent-gold)]">{ancestor.id.substring(0, 8)}</span>
                   <span className="ml-2 text-[var(--text-muted)]">Gen {ancestor.generation}</span>
-                  <span className="ml-2 text-[var(--text-secondary)]">{formatElo(ancestor.eloScore)}</span>
+                  <span className="ml-2 text-[var(--text-secondary)]">
+                    {ancestor.uncertainty != null
+                      ? (formatEloWithUncertainty(ancestor.eloScore, ancestor.uncertainty) ?? formatElo(ancestor.eloScore))
+                      : formatElo(ancestor.eloScore)}
+                  </span>
                 </Link>
               </div>
             ))}
@@ -118,7 +122,11 @@ function RelativeCard({ relative }: { relative: VariantRelative }): JSX.Element 
           <span className="text-xs text-[var(--text-muted)]">Gen {relative.generation}</span>
           {relative.isWinner && <span className="text-[var(--status-success)]" title="Winner">★</span>}
         </div>
-        <span className="text-sm font-semibold text-[var(--text-primary)]">{formatElo(relative.eloScore)}</span>
+        <span className="text-sm font-semibold text-[var(--text-primary)]">
+          {relative.uncertainty != null
+            ? (formatEloWithUncertainty(relative.eloScore, relative.uncertainty) ?? formatElo(relative.eloScore))
+            : formatElo(relative.eloScore)}
+        </span>
       </div>
       {relative.preview && (
         <p className="text-xs text-[var(--text-muted)] mt-1 truncate">{relative.preview}</p>

@@ -10,6 +10,7 @@ import {
   type SnapshotVariantInfo,
 } from '@evolution/services/evolutionActions';
 import { buildVariantDetailUrl } from '@evolution/lib/utils/evolutionUrls';
+import { formatEloCIRange } from '@evolution/lib/utils/formatters';
 
 interface SnapshotsTabProps {
   runId: string;
@@ -55,8 +56,8 @@ function VariantTable({ rows }: { rows: VariantRow[] }): JSX.Element {
           <tr>
             <th className="px-2 py-1 text-left">Variant</th>
             <th className="px-2 py-1 text-left">Strategy</th>
-            <th className="px-2 py-1 text-right">Elo</th>
-            <th className="px-2 py-1 text-right">Uncertainty</th>
+            <th className="px-2 py-1 text-right" title="Elo ± rating uncertainty">Elo</th>
+            <th className="px-2 py-1 text-right" title="95% CI = Elo ± 1.96 × uncertainty">95% CI</th>
             <th className="px-2 py-1 text-right">Matches</th>
             <th className="px-2 py-1 text-center">Persisted</th>
           </tr>
@@ -74,8 +75,8 @@ function VariantTable({ rows }: { rows: VariantRow[] }): JSX.Element {
                 </Link>
               </td>
               <td className="px-2 py-1 text-[var(--text-secondary)]">{r.agentName}</td>
-              <td className="px-2 py-1 text-right">{Math.round(r.elo)}</td>
-              <td className="px-2 py-1 text-right">{Math.round(r.uncertainty)}</td>
+              <td className="px-2 py-1 text-right">{`${Math.round(r.elo)} ± ${Math.round(r.uncertainty)}`}</td>
+              <td className="px-2 py-1 text-right text-[var(--text-muted)]">{formatEloCIRange(r.elo, r.uncertainty) ?? '—'}</td>
               <td className="px-2 py-1 text-right text-[var(--text-muted)]">{r.matchCount}</td>
               <td className="px-2 py-1 text-center">
                 {r.persisted ? (

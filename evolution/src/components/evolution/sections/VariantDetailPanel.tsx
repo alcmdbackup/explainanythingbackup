@@ -11,6 +11,7 @@ import {
   type VariantRelative,
 } from '@evolution/services/variantDetailActions';
 import { buildRunUrl, buildVariantDetailUrl } from '@evolution/lib/utils/evolutionUrls';
+import { formatEloWithUncertainty } from '@evolution/lib/utils/formatters';
 
 interface VariantDetailPanelProps {
   runId: string;
@@ -71,7 +72,11 @@ export function VariantDetailPanel({ runId, variantId, agentName, generation }: 
           >
             {detail.id.substring(0, 8)}
           </Link>
-          <span className="font-mono text-[var(--text-muted)]">Rating {Math.round(detail.eloScore)}</span>
+          <span className="font-mono text-[var(--text-muted)]">
+            Rating {detail.uncertainty != null
+              ? (formatEloWithUncertainty(detail.eloScore, detail.uncertainty) ?? Math.round(detail.eloScore))
+              : Math.round(detail.eloScore)}
+          </span>
           <span className="text-[var(--text-muted)]">{effectiveAgent}</span>
           <span className="text-[var(--text-muted)]">gen {effectiveGen}</span>
         </div>
@@ -98,7 +103,11 @@ export function VariantDetailPanel({ runId, variantId, agentName, generation }: 
                 href={buildVariantDetailUrl(p.id)}
                 className="font-mono text-xs text-[var(--accent-gold)] hover:underline"
               >
-                {p.id.substring(0, 8)} (gen {p.generation}, {Math.round(p.eloScore)})
+                {p.id.substring(0, 8)} (gen {p.generation}, {
+                  p.uncertainty != null
+                    ? (formatEloWithUncertainty(p.eloScore, p.uncertainty) ?? Math.round(p.eloScore))
+                    : Math.round(p.eloScore)
+                })
               </Link>
             ))}
           </div>

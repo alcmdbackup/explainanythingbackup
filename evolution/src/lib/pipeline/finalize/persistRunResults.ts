@@ -64,12 +64,17 @@ function buildRunSummary(
     .sort((a, b) => b.elo - a.elo)
     .slice(0, 5);
 
-  const topVariants = sorted.map((s) => ({
-    id: s.v.id,
-    strategy: s.v.strategy,
-    elo: s.elo,
-    isSeedVariant: isSeedVariantStrategy(s.v.strategy),
-  }));
+  // Phase 4b: populate per-variant uncertainty on topVariants (direct from rating, Elo-scale).
+  const topVariants = sorted.map((s) => {
+    const r = ratings.get(s.v.id);
+    return {
+      id: s.v.id,
+      strategy: s.v.strategy,
+      elo: s.elo,
+      ...(r && Number.isFinite(r.uncertainty) ? { uncertainty: r.uncertainty } : {}),
+      isSeedVariant: isSeedVariantStrategy(s.v.strategy),
+    };
+  });
 
   // Seed variant rank/elo (renamed from baselineRank/baselineElo).
   const seedVariantPoolEntry = pool.find((v) => isSeedVariantStrategy(v.strategy));
@@ -78,18 +83,36 @@ function buildRunSummary(
     ? pool.filter((v) => (ratings.get(v.id)?.elo ?? DEFAULT_ELO) > seedVariantElo).length + 1
     : null;
 
-  // Strategy effectiveness (single-pass aggregation) — avgElo mean.
-  const strategyEffectiveness = pool.reduce<Record<string, { count: number; avgElo: number }>>((acc, v) => {
+  // Strategy effectiveness with Welford M2 (Phase 4b): tracks count + avgElo (online mean)
+  // AND M2 (sum of squared deviations from mean), which lets us emit
+  // seAvgElo = sqrt(M2 / (n*(n-1))) — the standard error of the mean Elo across variants
+  // in this strategy bucket. NOT per-variant rating uncertainty; it's the spread of variant
+  // Elos in this bucket (labelled as such in UI tooltips).
+  type StrategyAccum = { count: number; avgElo: number; m2: number };
+  const accum = pool.reduce<Record<string, StrategyAccum>>((acc, v) => {
     const elo = ratings.get(v.id)?.elo ?? DEFAULT_ELO;
     const prev = acc[v.strategy];
     if (prev) {
       const newCount = prev.count + 1;
-      acc[v.strategy] = { count: newCount, avgElo: prev.avgElo + (elo - prev.avgElo) / newCount };
+      const delta = elo - prev.avgElo;
+      const newAvg = prev.avgElo + delta / newCount;
+      const delta2 = elo - newAvg;
+      acc[v.strategy] = { count: newCount, avgElo: newAvg, m2: prev.m2 + delta * delta2 };
     } else {
-      acc[v.strategy] = { count: 1, avgElo: elo };
+      acc[v.strategy] = { count: 1, avgElo: elo, m2: 0 };
     }
     return acc;
   }, {});
+  const strategyEffectiveness: Record<string, { count: number; avgElo: number; seAvgElo?: number }> = {};
+  for (const [strat, a] of Object.entries(accum)) {
+    if (a.count >= 2) {
+      const variance = a.m2 / (a.count - 1); // sample variance
+      const seAvgElo = Math.sqrt(variance / a.count); // SE of the mean
+      strategyEffectiveness[strat] = { count: a.count, avgElo: a.avgElo, seAvgElo };
+    } else {
+      strategyEffectiveness[strat] = { count: a.count, avgElo: a.avgElo };
+    }
+  }
 
   return {
     version: 3,

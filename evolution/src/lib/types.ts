@@ -675,6 +675,8 @@ export interface EvolutionRunSummary {
     id: string;
     strategy: string;
     elo: number;
+    /** Per-variant rating uncertainty (Elo-scale). Optional — legacy rows omit it. Phase 4b. */
+    uncertainty?: number;
     isSeedVariant: boolean;
   }>;
   seedVariantRank: number | null;
@@ -682,6 +684,9 @@ export interface EvolutionRunSummary {
   strategyEffectiveness: Record<string, {
     count: number;
     avgElo: number;
+    /** Standard error of the mean Elo across variants in this strategy bucket — NOT rating CI.
+     *  Computed via Welford M2; populated only when count >= 2. Optional for legacy rows. Phase 4b. */
+    seAvgElo?: number;
   }>;
   metaFeedback: {
     successfulStrategies: string[];

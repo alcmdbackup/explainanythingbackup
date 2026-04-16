@@ -4,6 +4,14 @@
 
 import { adminAction, type AdminContext } from './adminAction';
 import { validateUuid } from './shared';
+import { dbToRating } from '../lib/shared/computeRatings';
+
+/** Lift optional mu/sigma from a DB row to the public Rating.uncertainty (Elo-scale).
+ *  Returns undefined when either is missing (legacy rows). */
+function liftUncertainty(row: { mu?: number | null; sigma?: number | null }): number | undefined {
+  if (row.mu == null || row.sigma == null) return undefined;
+  return dbToRating(row.mu, row.sigma).uncertainty;
+}
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -14,6 +22,8 @@ export interface VariantFullDetail {
   explanationTitle: string | null;
   variantContent: string;
   eloScore: number;
+  /** Elo-scale rating uncertainty (lifted from mu/sigma). Optional for legacy rows. */
+  uncertainty?: number;
   generation: number;
   agentName: string;
   matchCount: number;
@@ -29,6 +39,8 @@ export interface VariantFullDetail {
 export interface VariantRelative {
   id: string;
   eloScore: number;
+  /** Elo-scale rating uncertainty (lifted from mu/sigma). Optional for legacy rows. */
+  uncertainty?: number;
   generation: number;
   agentName: string;
   isWinner: boolean;
@@ -38,6 +50,8 @@ export interface VariantRelative {
 export interface VariantMatchEntry {
   opponentId: string;
   opponentElo: number | null;
+  /** Opponent's Elo-scale rating uncertainty. Optional for legacy rows. */
+  opponentUncertainty?: number;
   won: boolean;
   confidence: number;
 }
@@ -47,6 +61,8 @@ export interface LineageEntry {
   agentName: string;
   generation: number;
   eloScore: number;
+  /** Elo-scale rating uncertainty (lifted from mu/sigma). Optional for legacy rows. */
+  uncertainty?: number;
   preview: string;
 }
 
@@ -74,6 +90,7 @@ export const getVariantFullDetailAction = adminAction('getVariantFullDetailActio
       : Promise.resolve({ data: null, error: null }),
   ]);
 
+  const uncertainty = liftUncertainty(variant);
   return {
     id: variant.id,
     runId: variant.run_id,
@@ -81,6 +98,7 @@ export const getVariantFullDetailAction = adminAction('getVariantFullDetailActio
     explanationTitle: explResult.data?.explanation_title ?? null,
     variantContent: variant.variant_content,
     eloScore: variant.elo_score,
+    ...(uncertainty != null ? { uncertainty } : {}),
     generation: variant.generation,
     agentName: variant.agent_name,
     matchCount: variant.match_count,
@@ -114,15 +132,17 @@ export const getVariantParentsAction = adminAction('getVariantParentsAction', as
 
   const { data: parent, error } = await supabase
     .from('evolution_variants')
-    .select('id, elo_score, generation, agent_name, is_winner, variant_content')
+    .select('id, elo_score, mu, sigma, generation, agent_name, is_winner, variant_content')
     .eq('id', variant.parent_variant_id)
     .single();
 
   if (error || !parent) return [];
 
+  const parentUncertainty = liftUncertainty(parent as { mu?: number | null; sigma?: number | null });
   return [{
     id: parent.id,
     eloScore: parent.elo_score,
+    ...(parentUncertainty != null ? { uncertainty: parentUncertainty } : {}),
     generation: parent.generation,
     agentName: parent.agent_name,
     isWinner: parent.is_winner,
@@ -141,21 +161,25 @@ export const getVariantChildrenAction = adminAction('getVariantChildrenAction', 
 
   const { data, error } = await supabase
     .from('evolution_variants')
-    .select('id, elo_score, generation, agent_name, is_winner, variant_content')
+    .select('id, elo_score, mu, sigma, generation, agent_name, is_winner, variant_content')
     .eq('parent_variant_id', variantId)
     .order('elo_score', { ascending: false })
     .limit(20);
 
   if (error) throw error;
 
-  return (data ?? []).map(v => ({
-    id: v.id,
-    eloScore: v.elo_score,
-    generation: v.generation,
-    agentName: v.agent_name,
-    isWinner: v.is_winner,
-    preview: (v.variant_content ?? '').slice(0, 200),
-  }));
+  return (data ?? []).map(v => {
+    const u = liftUncertainty(v as { mu?: number | null; sigma?: number | null });
+    return {
+      id: v.id,
+      eloScore: v.elo_score,
+      ...(u != null ? { uncertainty: u } : {}),
+      generation: v.generation,
+      agentName: v.agent_name,
+      isWinner: v.is_winner,
+      preview: (v.variant_content ?? '').slice(0, 200),
+    };
+  });
 });
 
 // ─── 4. Variant Match History ──────────────────────────────────
@@ -193,16 +217,18 @@ export const getVariantLineageChainAction = adminAction('getVariantLineageChainA
     visited.add(currentParentId);
     const { data: ancestor } = await supabase
       .from('evolution_variants')
-      .select('id, agent_name, generation, elo_score, variant_content, parent_variant_id')
+      .select('id, agent_name, generation, elo_score, mu, sigma, variant_content, parent_variant_id')
       .eq('id', currentParentId)
       .single();
 
     if (!ancestor) break;
+    const ancUncertainty = liftUncertainty(ancestor as { mu?: number | null; sigma?: number | null });
     lineage.push({
       id: ancestor.id,
       agentName: ancestor.agent_name,
       generation: ancestor.generation,
       eloScore: ancestor.elo_score,
+      ...(ancUncertainty != null ? { uncertainty: ancUncertainty } : {}),
       preview: (ancestor.variant_content ?? '').slice(0, 200),
     });
     currentParentId = ancestor.parent_variant_id;

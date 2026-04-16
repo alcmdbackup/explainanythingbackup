@@ -10,7 +10,7 @@ import {
   type AgentCostBreakdown,
 } from '@evolution/services/evolutionActions';
 import type { EvolutionRunSummary } from '@evolution/lib/types';
-import { formatCost } from '@evolution/lib/utils/formatters';
+import { formatCost, formatEloWithUncertainty, formatEloCIRange } from '@evolution/lib/utils/formatters';
 
 interface MetricsTabProps {
   runId: string;
@@ -85,7 +85,8 @@ export function MetricsTab({ runId }: MetricsTabProps): JSX.Element {
                 <tr>
                   <th scope="col" className="px-3 py-2 text-left">Rank</th>
                   <th scope="col" className="px-3 py-2 text-left">Strategy</th>
-                  <th scope="col" className="px-3 py-2 text-right">Elo</th>
+                  <th scope="col" className="px-3 py-2 text-right" title="Elo ± rating uncertainty (per variant)">Elo</th>
+                  <th scope="col" className="px-3 py-2 text-right" title="95% CI = Elo ± 1.96 × uncertainty">95% CI</th>
                   <th scope="col" className="px-3 py-2 text-center">Seed?</th>
                 </tr>
               </thead>
@@ -94,11 +95,16 @@ export function MetricsTab({ runId }: MetricsTabProps): JSX.Element {
                   // topVariants stored as Elo-scale; legacy mu-scale values (<100) heuristically converted.
                   const raw = v.elo;
                   const elo = raw < 100 ? 1200 + (raw - 25) * 16 : raw;
+                  // Phase 4b: uncertainty is optional (absent on pre-Phase-4b rows).
+                  const u = v.uncertainty;
+                  const ratingLabel = u != null ? (formatEloWithUncertainty(elo, u) ?? Math.round(elo)) : Math.round(elo);
+                  const ciLabel = u != null ? (formatEloCIRange(elo, u) ?? '—') : '—';
                   return (
                   <tr key={v.id} className="border-t border-[var(--border-default)]">
                     <td className="px-3 py-2 text-[var(--text-muted)]">#{i + 1}</td>
                     <td className="px-3 py-2 font-mono text-xs">{v.strategy}</td>
-                    <td className="px-3 py-2 text-right font-semibold">{Math.round(elo)}</td>
+                    <td className="px-3 py-2 text-right font-semibold">{ratingLabel}</td>
+                    <td className="px-3 py-2 text-right text-xs text-[var(--text-muted)]">{ciLabel}</td>
                     <td className="px-3 py-2 text-center">{v.isSeedVariant ? '✓' : ''}</td>
                   </tr>
                   );
@@ -119,7 +125,7 @@ export function MetricsTab({ runId }: MetricsTabProps): JSX.Element {
                 <tr>
                   <th scope="col" className="px-3 py-2 text-left">Strategy</th>
                   <th scope="col" className="px-3 py-2 text-right">Count</th>
-                  <th scope="col" className="px-3 py-2 text-right">Avg Elo</th>
+                  <th scope="col" className="px-3 py-2 text-right" title="Mean Elo across variants in this strategy bucket, with SE of the mean when n≥2. Distinct from per-variant rating uncertainty — this is the spread of variant Elos in this bucket.">Avg Elo ± SE</th>
                 </tr>
               </thead>
               <tbody>
@@ -131,13 +137,21 @@ export function MetricsTab({ runId }: MetricsTabProps): JSX.Element {
                     return [strategy, stats, avgElo] as const;
                   })
                   .sort((a, b) => b[2] - a[2])
-                  .map(([strategy, stats, avgElo]) => (
+                  .map(([strategy, stats, avgElo]) => {
+                    // Phase 4b: seAvgElo = SE of the mean within this strategy bucket (NOT rating CI).
+                    // Only populated when count >= 2; older rows omit it.
+                    const se = stats.seAvgElo;
+                    const label = se != null && se > 0
+                      ? `${Math.round(avgElo)} ± ${Math.round(se)}`
+                      : String(Math.round(avgElo));
+                    return (
                     <tr key={strategy} className="border-t border-[var(--border-default)]">
                       <td className="px-3 py-2 font-mono text-xs">{strategy}</td>
                       <td className="px-3 py-2 text-right text-[var(--text-muted)]">{stats.count}</td>
-                      <td className="px-3 py-2 text-right font-semibold">{Math.round(avgElo)}</td>
+                      <td className="px-3 py-2 text-right font-semibold">{label}</td>
                     </tr>
-                  ))}
+                    );
+                  })}
               </tbody>
             </table>
           </div>
