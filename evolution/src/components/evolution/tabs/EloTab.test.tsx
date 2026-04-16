@@ -91,4 +91,36 @@ describe('EloTab', () => {
     render(<EloTab runId="run-1" />);
     await waitFor(() => expect(screen.getByText('Network error')).toBeInTheDocument());
   });
+
+  // Phase 4b: uncertainty band
+  it('renders uncertainty band polygon when uncertainties present', async () => {
+    getEvolutionRunEloHistoryAction.mockResolvedValue({
+      success: true,
+      data: [
+        { iteration: 1, elo: 1200, uncertainties: [50] },
+        { iteration: 2, elo: 1224, uncertainties: [40] },
+        { iteration: 3, elo: 1234, uncertainties: [30] },
+      ],
+      error: null,
+    });
+
+    render(<EloTab runId="run-1" />);
+    await waitFor(() => expect(screen.getByTestId('elo-tab')).toBeInTheDocument());
+    expect(screen.getByTestId('elo-uncertainty-band')).toBeInTheDocument();
+  });
+
+  it('does NOT render uncertainty band when uncertainties absent (legacy)', async () => {
+    getEvolutionRunEloHistoryAction.mockResolvedValue({
+      success: true,
+      data: [
+        { iteration: 1, elo: 1200 },
+        { iteration: 2, elo: 1224 },
+      ],
+      error: null,
+    });
+
+    render(<EloTab runId="run-1" />);
+    await waitFor(() => expect(screen.getByTestId('elo-tab')).toBeInTheDocument());
+    expect(screen.queryByTestId('elo-uncertainty-band')).not.toBeInTheDocument();
+  });
 });
