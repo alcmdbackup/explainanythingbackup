@@ -54,6 +54,10 @@ export interface EvolutionVariant {
   match_count: number;
   is_winner: boolean;
   created_at: string;
+  /** OpenSkill mu (legacy DB column; lift to Rating.elo via dbToRating at consumption boundary). */
+  mu?: number | null;
+  /** OpenSkill sigma (legacy DB column; lift to Rating.uncertainty via dbToRating). */
+  sigma?: number | null;
   /** Whether this variant survived the discard rule and is part of the final pool. */
   persisted?: boolean;
 }
@@ -94,6 +98,9 @@ export interface VariantListEntry {
   match_count: number;
   is_winner: boolean;
   created_at: string;
+  /** OpenSkill mu/sigma (legacy DB columns). Lift via dbToRating for the public Rating shape. */
+  mu?: number | null;
+  sigma?: number | null;
   strategy_name?: string | null;
 }
 
@@ -462,24 +469,39 @@ export const getRunSnapshotsAction = adminAction(
 export const getEvolutionVariantsAction = adminAction(
   'getEvolutionVariantsAction',
   async (
-    args: string | { runId: string; includeDiscarded?: boolean },
+    args: string | { runId?: string; strategyId?: string; includeDiscarded?: boolean },
     ctx: AdminContext,
   ): Promise<EvolutionVariant[]> => {
-    // Backward-compat: accept either a bare runId or { runId, includeDiscarded }.
+    // Backward-compat: accept either a bare runId string or an options object.
+    // Phase 4c: options object may specify runId XOR strategyId; strategyId returns
+    // all variants across all runs of the given strategy.
     const runId = typeof args === 'string' ? args : args.runId;
+    const strategyId = typeof args === 'string' ? undefined : args.strategyId;
     const includeDiscarded = typeof args === 'string' ? false : (args.includeDiscarded ?? false);
-    if (!validateUuid(runId)) throw new Error('Invalid runId');
+    if (runId && strategyId) throw new Error('Specify runId XOR strategyId, not both');
+    if (!runId && !strategyId) throw new Error('Must specify runId or strategyId');
+    if (runId && !validateUuid(runId)) throw new Error('Invalid runId');
+    if (strategyId && !validateUuid(strategyId)) throw new Error('Invalid strategyId');
+
+    // When filtering by strategy, embed the evolution_runs !inner join so Postgres/PostgREST
+    // filters the variants to those whose parent run has the given strategy_id.
+    const baseFields = 'id, run_id, explanation_id, variant_content, elo_score, mu, sigma, generation, agent_name, match_count, is_winner, created_at, persisted';
+    const selectFields = strategyId
+      ? `${baseFields}, evolution_runs!inner(strategy_id)`
+      : baseFields;
+
     let query = ctx.supabase
       .from('evolution_variants')
-      .select('id, run_id, explanation_id, variant_content, elo_score, generation, agent_name, match_count, is_winner, created_at, persisted')
-      .eq('run_id', runId);
+      .select(selectFields);
+    if (runId) query = query.eq('run_id', runId);
+    if (strategyId) query = query.eq('evolution_runs.strategy_id', strategyId);
     if (!includeDiscarded) {
       // Default behavior: only show variants that survived to the final pool.
       query = query.eq('persisted', true);
     }
     const { data, error } = await query.order('elo_score', { ascending: false });
     if (error) throw error;
-    return (data ?? []) as EvolutionVariant[];
+    return (data ?? []) as unknown as EvolutionVariant[];
   },
 );
 
@@ -622,8 +644,8 @@ export const listVariantsAction = adminAction(
     // .not.in) that silently failed when the IN list exceeded PostgREST URL limits.
     const wantsEmbed = !!parsed.filterTestContent;
     const baseFields = wantsEmbed
-      ? 'id, run_id, explanation_id, elo_score, generation, agent_name, match_count, is_winner, created_at, evolution_runs!inner(evolution_strategies!inner(is_test_content))'
-      : 'id, run_id, explanation_id, elo_score, generation, agent_name, match_count, is_winner, created_at';
+      ? 'id, run_id, explanation_id, elo_score, mu, sigma, generation, agent_name, match_count, is_winner, created_at, evolution_runs!inner(evolution_strategies!inner(is_test_content))'
+      : 'id, run_id, explanation_id, elo_score, mu, sigma, generation, agent_name, match_count, is_winner, created_at';
 
     let query = supabase
       .from('evolution_variants')

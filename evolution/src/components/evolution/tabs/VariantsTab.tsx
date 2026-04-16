@@ -1,6 +1,8 @@
 'use client';
 // Sortable variants table with strategy filtering and text expansion.
-// Displays all variants from an evolution run ranked by Elo score (V2 schema).
+// Displays all variants from an evolution run (runId) or strategy (strategyId — all runs
+// of that strategy) ranked by Elo score. Renders Elo with 95% CI via formatEloWithUncertainty
+// and formatEloCIRange (Phase 4b: per-variant Elo CI everywhere).
 
 import { Fragment, useEffect, useState, useMemo, useRef } from 'react';
 import Link from 'next/link';
@@ -11,13 +13,28 @@ import {
   type EvolutionVariant,
 } from '@evolution/services/evolutionActions';
 import { buildVariantDetailUrl } from '@evolution/lib/utils/evolutionUrls';
+import { formatEloWithUncertainty, formatEloCIRange } from '@evolution/lib/utils/formatters';
+import { dbToRating } from '@evolution/lib/shared/computeRatings';
 
 interface VariantsTabProps {
-  runId: string;
+  /** When set, load variants for a single run (original behavior). */
+  runId?: string;
+  /** When set (and runId is not), load variants across all runs of the given strategy. Phase 4c. */
+  strategyId?: string;
   runStatus?: string;
 }
 
-export function VariantsTab({ runId, runStatus }: VariantsTabProps): JSX.Element {
+/** Compute Elo-scale uncertainty from the DB mu/sigma columns, or null when either is missing
+ *  (legacy variant rows that predate the mu/sigma select — display bare Elo in that case). */
+function variantUncertainty(v: EvolutionVariant): number | null {
+  if (v.mu == null || v.sigma == null) return null;
+  return dbToRating(v.mu, v.sigma).uncertainty;
+}
+
+export function VariantsTab({ runId, strategyId, runStatus }: VariantsTabProps): JSX.Element {
+  if (!runId && !strategyId) {
+    throw new Error('VariantsTab: must specify runId or strategyId');
+  }
   const searchParams = useSearchParams();
   const initialVariant = searchParams.get('variant');
   const [variants, setVariants] = useState<EvolutionVariant[]>([]);
@@ -31,7 +48,9 @@ export function VariantsTab({ runId, runStatus }: VariantsTabProps): JSX.Element
   useEffect(() => {
     async function load(): Promise<void> {
       setLoading(true);
-      const result = await getEvolutionVariantsAction({ runId, includeDiscarded });
+      const result = await getEvolutionVariantsAction(
+        runId ? { runId, includeDiscarded } : { strategyId, includeDiscarded },
+      );
       if (result.success && result.data) {
         setVariants(result.data);
       } else {
@@ -40,7 +59,7 @@ export function VariantsTab({ runId, runStatus }: VariantsTabProps): JSX.Element
       setLoading(false);
     }
     load();
-  }, [runId, includeDiscarded]);
+  }, [runId, strategyId, includeDiscarded]);
 
   useEffect(() => {
     if (!initialVariant || loading || initialVariantApplied.current || variants.length === 0) return;
@@ -80,7 +99,7 @@ export function VariantsTab({ runId, runStatus }: VariantsTabProps): JSX.Element
 
   return (
     <div className="space-y-4" data-testid="variants-tab">
-      {runStatus === 'failed' && (
+      {runId && runStatus === 'failed' && (
         <div className="rounded-book border border-[var(--status-warning)] bg-[var(--status-warning)]/10 p-3 text-sm font-ui text-[var(--status-warning)]">
           This run failed. Variant data may be incomplete or from a partial execution.
         </div>
@@ -110,7 +129,8 @@ export function VariantsTab({ runId, runStatus }: VariantsTabProps): JSX.Element
           <thead className="bg-[var(--surface-elevated)]">
             <tr>
               <th className="px-2 py-2 text-left">Rank</th>
-              <th className="px-2 py-2 text-right">Rating</th>
+              <th className="px-2 py-2 text-right" title="Elo score ± uncertainty (standard deviation on the Elo scale)">Rating</th>
+              <th className="px-2 py-2 text-right" title="95% confidence interval: Elo ± 1.96 × uncertainty">95% CI</th>
               <th className="px-2 py-2 text-right" title="Run-local matches only (excludes arena matches)">Matches</th>
               <th className="px-2 py-2 text-left">Strategy</th>
               <th className="px-2 py-2 text-right">Gen</th>
@@ -121,7 +141,7 @@ export function VariantsTab({ runId, runStatus }: VariantsTabProps): JSX.Element
           <tbody>
             {filtered.length === 0 && !loading && (
               <tr>
-                <td colSpan={7} className="px-4 py-8 text-center text-sm font-ui text-[var(--text-muted)]">
+                <td colSpan={8} className="px-4 py-8 text-center text-sm font-ui text-[var(--text-muted)]">
                   No variants match this filter.
                 </td>
               </tr>
@@ -138,7 +158,20 @@ export function VariantsTab({ runId, runStatus }: VariantsTabProps): JSX.Element
                       <span className="ml-1.5 font-mono text-xs text-[var(--accent-gold)]">{v.id.substring(0, 6)}</span>
                     </span>
                   </td>
-                  <td className="px-2 py-2 text-right font-semibold">{Math.round(v.elo_score)}</td>
+                  <td className="px-2 py-2 text-right font-semibold" data-testid={`rating-${v.id.substring(0, 6)}`}>
+                    {(() => {
+                      const u = variantUncertainty(v);
+                      return u != null
+                        ? (formatEloWithUncertainty(v.elo_score, u) ?? Math.round(v.elo_score))
+                        : Math.round(v.elo_score);
+                    })()}
+                  </td>
+                  <td className="px-2 py-2 text-right text-xs text-[var(--text-muted)]" data-testid={`ci-${v.id.substring(0, 6)}`}>
+                    {(() => {
+                      const u = variantUncertainty(v);
+                      return u != null ? (formatEloCIRange(v.elo_score, u) ?? '—') : '—';
+                    })()}
+                  </td>
                   <td className="px-2 py-2 text-right text-[var(--text-muted)]">{v.match_count}</td>
                   <td className="px-2 py-2 font-mono text-xs">{v.agent_name || '—'}</td>
                   <td className="px-2 py-2 text-right text-[var(--text-muted)]">{v.generation}</td>
@@ -169,7 +202,7 @@ export function VariantsTab({ runId, runStatus }: VariantsTabProps): JSX.Element
                 </tr>
                 {expandedIds.has(v.id) && (
                   <tr key={`${v.id}-text`}>
-                    <td colSpan={7} className="p-4 bg-[var(--surface-secondary)]">
+                    <td colSpan={8} className="p-4 bg-[var(--surface-secondary)]">
                       <pre className="whitespace-pre-wrap text-xs text-[var(--text-secondary)] max-h-64 overflow-y-auto">
                         {v.variant_content}
                       </pre>

@@ -97,8 +97,10 @@ describe('VariantsTab', () => {
 
     render(<VariantsTab runId="run-1" />);
     await waitFor(() => expect(screen.getByTestId('variants-tab')).toBeInTheDocument());
-    // The Strategy column should show em-dash for empty agent_name
-    expect(screen.getByText('\u2014')).toBeInTheDocument();
+    // The Strategy column should show em-dash for empty agent_name.
+    // Multiple em-dashes may now appear (e.g. 95% CI column for variants without mu/sigma),
+    // so assert >= 1 instead of exactly 1.
+    expect(screen.getAllByText('\u2014').length).toBeGreaterThanOrEqual(1);
   });
 
   it('F26: strategy dropdown has no empty options when variants have empty/null agent_name', async () => {
@@ -211,5 +213,97 @@ describe('VariantsTab', () => {
     const secondCell = screen.getByTestId(`persisted-${variantsMixed[1]!.id.substring(0, 6)}`);
     expect(firstCell.textContent).toContain('✓');
     expect(secondCell.textContent).toContain('✗');
+  });
+
+  // Phase 4b: Elo CI rendering
+  it('renders Elo ± uncertainty + 95% CI when mu/sigma are populated', async () => {
+    const variants: EvolutionVariant[] = [
+      {
+        id: 'with-rating-1',
+        run_id: 'run-1',
+        explanation_id: 1,
+        variant_content: 'v1',
+        elo_score: 1300,
+        // dbToRating(30, 5) → Elo ~1320, uncertainty ~80 (OpenSkill → Elo scale via × 16 / 25-3=22)
+        // Use values that produce a known-readable uncertainty
+        mu: 30,
+        sigma: 5,
+        generation: 1,
+        agent_name: 'generation',
+        match_count: 3,
+        is_winner: false,
+        created_at: '2026-03-19T00:00:00Z',
+      },
+    ];
+    (evolutionActions.getEvolutionVariantsAction as jest.Mock).mockResolvedValue({
+      success: true, data: variants, error: null,
+    });
+    render(<VariantsTab runId="run-1" />);
+    await waitFor(() => expect(screen.getByTestId('variants-tab')).toBeInTheDocument());
+
+    const rating = screen.getByTestId('rating-with-r');
+    const ci = screen.getByTestId('ci-with-r');
+    // "± " appears in the rating cell (Elo ± half-width)
+    expect(rating.textContent).toMatch(/±/);
+    // CI cell shows "[lo, hi]"
+    expect(ci.textContent).toMatch(/\[-?\d+,\s*\d+\]/);
+  });
+
+  it('falls back to bare Elo when mu/sigma are missing (legacy rows)', async () => {
+    const variants: EvolutionVariant[] = [
+      {
+        id: 'legacy-1',
+        run_id: 'run-1',
+        explanation_id: 1,
+        variant_content: 'v1',
+        elo_score: 1250,
+        // No mu/sigma (legacy variant row)
+        generation: 1,
+        agent_name: 'generation',
+        match_count: 3,
+        is_winner: false,
+        created_at: '2026-03-19T00:00:00Z',
+      },
+    ];
+    (evolutionActions.getEvolutionVariantsAction as jest.Mock).mockResolvedValue({
+      success: true, data: variants, error: null,
+    });
+    render(<VariantsTab runId="run-1" />);
+    await waitFor(() => expect(screen.getByTestId('variants-tab')).toBeInTheDocument());
+
+    const rating = screen.getByTestId('rating-legacy');
+    const ci = screen.getByTestId('ci-legacy');
+    // No ± for legacy rows — just the bare rounded Elo.
+    expect(rating.textContent).not.toMatch(/±/);
+    expect(rating.textContent).toContain('1250');
+    // CI cell shows em-dash.
+    expect(ci.textContent).toBe('\u2014');
+  });
+
+  // Phase 4c: strategyId mode
+  it('loads variants via strategyId when strategyId prop is set (runId absent)', async () => {
+    const variants: EvolutionVariant[] = [];
+    (evolutionActions.getEvolutionVariantsAction as jest.Mock).mockResolvedValue({
+      success: true, data: variants, error: null,
+    });
+    render(<VariantsTab strategyId="strat-1" />);
+    await waitFor(() => expect(screen.getByTestId('variants-tab')).toBeInTheDocument());
+    // Assert the action was called with strategyId (not runId)
+    expect(evolutionActions.getEvolutionVariantsAction).toHaveBeenCalledWith(
+      expect.objectContaining({ strategyId: 'strat-1', includeDiscarded: false }),
+    );
+    expect(evolutionActions.getEvolutionVariantsAction).not.toHaveBeenCalledWith(
+      expect.objectContaining({ runId: expect.anything() }),
+    );
+  });
+
+  it('does NOT show failed-run banner when in strategyId mode (runStatus is run-only)', async () => {
+    (evolutionActions.getEvolutionVariantsAction as jest.Mock).mockResolvedValue({
+      success: true, data: [], error: null,
+    });
+    render(<VariantsTab strategyId="strat-1" runStatus="failed" />);
+    await waitFor(() => expect(screen.getByTestId('variants-tab')).toBeInTheDocument());
+    // The "This run failed" banner must not appear in strategyId mode
+    expect(screen.queryByText(/This run failed/)).not.toBeInTheDocument();
   });
 });
