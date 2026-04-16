@@ -32,12 +32,22 @@ export function ExperimentAnalysisCard({ experiment }: ExperimentAnalysisCardPro
     <div className="space-y-4">
       {/* Summary cards */}
       <MetricGrid
-        columns={4}
+        columns={5}
         variant="card"
         metrics={[
           { label: 'Completed Runs', value: String(metrics.runs.length) },
           { label: 'Total Cost', value: `$${metrics.totalCost.toFixed(2)}` },
           { label: 'Best Elo', value: fmtNum(metrics.maxElo) },
+          // Phase 4d: aggregate CI for mean Elo across runs in this experiment.
+          // Shown only when ≥2 runs have a recorded Elo — ± SE = sample stddev / sqrt(n).
+          {
+            label: 'Mean Elo ± SE',
+            value: metrics.meanElo == null
+              ? '--'
+              : metrics.seElo != null
+                ? `${Math.round(metrics.meanElo)} ± ${Math.round(metrics.seElo)}`
+                : String(Math.round(metrics.meanElo)),
+          },
           { label: 'Best Elo/$', value: fmtNum(
             metrics.runs.reduce<number | null>((best, r) => {
               if (r.eloPerDollar == null) return best;

@@ -8,6 +8,10 @@ import { createEntityLogger } from './infra/createEntityLogger';
 
 export interface ExperimentMetrics {
   maxElo: number | null;
+  /** Mean winner-Elo across completed runs. Null when no runs have a recorded Elo. Phase 4d. */
+  meanElo?: number | null;
+  /** Standard error of the mean Elo across runs (sample stddev / sqrt(n)). Null when n<2. Phase 4d. */
+  seElo?: number | null;
   totalCost: number;
   runs: Array<{
     runId: string;
@@ -154,5 +158,18 @@ export async function computeExperimentMetrics(
   const maxElo = elos.length > 0 ? Math.max(...elos) : null;
   const totalCost = runs.reduce((sum, r) => sum + r.cost, 0);
 
-  return { maxElo, totalCost, runs };
+  // Phase 4d: mean Elo + SE across runs in this experiment — aggregate CI for the
+  // ExperimentAnalysisCard summary. Only emitted when we have ≥ 2 completed runs with an Elo.
+  let meanElo: number | null = null;
+  let seElo: number | null = null;
+  if (elos.length >= 2) {
+    const n = elos.length;
+    meanElo = elos.reduce((a, b) => a + b, 0) / n;
+    const variance = elos.reduce((acc, e) => acc + (e - meanElo!) ** 2, 0) / (n - 1);
+    seElo = Math.sqrt(variance / n);
+  } else if (elos.length === 1) {
+    meanElo = elos[0]!;
+  }
+
+  return { maxElo, meanElo, seElo, totalCost, runs };
 }

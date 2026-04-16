@@ -95,7 +95,18 @@ describe('createMetricColumns — Phase 4d aggregate CI rendering', () => {
 
 describe('createRunsMetricColumns — Phase 4d (run list CI rendering)', () => {
   it('does not render CI for direct run-level metrics (no propagation aggregation)', () => {
-    const columns = createRunsMetricColumns<{ metrics: MetricRow[] }>();
+    type TestRun = {
+      id: string;
+      explanation_id: number | null;
+      status: string;
+      budget_cap_usd: number;
+      created_at: string;
+      completed_at: string | null;
+      error_message: string | null;
+      strategy_name?: string | null;
+      metrics: MetricRow[];
+    };
+    const columns = createRunsMetricColumns<TestRun>();
     const col = columns.find(c => c.key === 'metric_cost');
     if (!col) return; // cost may or may not be listView depending on registry.
 
@@ -107,7 +118,11 @@ describe('createRunsMetricColumns — Phase 4d (run list CI rendering)', () => {
       ci_lower: 0.01, ci_upper: 0.03,
       aggregation_method: null as unknown as MetricRow['aggregation_method'],
     });
-    const rendered = col.render!({ metrics: [row] } as unknown as { metrics: MetricRow[] });
+    const testRun: TestRun = {
+      id: '1', explanation_id: null, status: 'completed', budget_cap_usd: 1,
+      created_at: '', completed_at: null, error_message: null, metrics: [row],
+    };
+    const rendered = col.render!(testRun);
     // Rendered is a React element — extract its string. The CI must NOT appear.
     const el = rendered as { props?: { children?: string } };
     const text = typeof el === 'string' ? el : (el.props?.children ?? '');

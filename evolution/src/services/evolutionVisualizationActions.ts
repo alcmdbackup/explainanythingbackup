@@ -14,6 +14,8 @@ export interface DashboardData {
   totalRuns: number;
   totalCostUsd: number | null;
   avgCostPerRun: number | null;
+  /** Standard error of the mean run cost across completed+failed runs. Null when n<2. Phase 4d. */
+  seCostPerRun?: number | null;
   recentRuns: Array<{
     id: string;
     status: string;
@@ -105,6 +107,7 @@ export const getEvolutionDashboardDataAction = adminAction(
     // Total cost from evolution_metrics, with fallback to evolution_run_costs view.
     // Returns null on query failure to distinguish errors from genuinely $0.00.
     let totalCostUsd: number | null = 0;
+    let perRunCosts: number[] = []; // Phase 4d: per-run sample for SE computation
     if (filteredRunIds.length > 0) {
       try {
         const { data: costMetrics } = await supabase
@@ -113,7 +116,8 @@ export const getEvolutionDashboardDataAction = adminAction(
           .eq('entity_type', 'run')
           .eq('metric_name', 'cost')
           .in('entity_id', filteredRunIds);
-        totalCostUsd = (costMetrics ?? []).reduce((sum, m) => sum + (Number(m.value) || 0), 0);
+        perRunCosts = (costMetrics ?? []).map((m) => Number(m.value) || 0);
+        totalCostUsd = perRunCosts.reduce((sum, v) => sum + v, 0);
 
         // Fallback: if metrics-based cost is $0, use evolution_run_costs view
         // which aggregates directly from evolution_agent_invocations.cost_usd
@@ -122,7 +126,8 @@ export const getEvolutionDashboardDataAction = adminAction(
             .from('evolution_run_costs')
             .select('total_cost_usd')
             .in('run_id', filteredRunIds);
-          totalCostUsd = (viewCosts ?? []).reduce((sum, c) => sum + (Number(c.total_cost_usd) || 0), 0);
+          perRunCosts = (viewCosts ?? []).map((c) => Number(c.total_cost_usd) || 0);
+          totalCostUsd = perRunCosts.reduce((sum, v) => sum + v, 0);
         }
       } catch (err) {
         console.error('[Dashboard] Cost aggregation failed:', err);
@@ -131,6 +136,16 @@ export const getEvolutionDashboardDataAction = adminAction(
     }
     const runCount = completedRuns + failedRuns;
     const avgCostPerRun = runCount > 0 && totalCostUsd != null ? totalCostUsd / runCount : null;
+
+    // Phase 4d: SE of the mean run cost across the sampled runs. Only computed when we
+    // have ≥2 data points; enables the dashboard to render the aggregate with a
+    // confidence band rather than a point estimate.
+    let seCostPerRun: number | null = null;
+    if (perRunCosts.length >= 2 && avgCostPerRun != null) {
+      const n = perRunCosts.length;
+      const variance = perRunCosts.reduce((acc, c) => acc + (c - avgCostPerRun) ** 2, 0) / (n - 1);
+      seCostPerRun = Math.sqrt(variance / n);
+    }
 
     // Enrich recent runs with strategy names and costs
     const recentRuns = (recentResult.data ?? []) as unknown as Array<{
@@ -177,6 +192,7 @@ export const getEvolutionDashboardDataAction = adminAction(
       totalRuns: runs.length,
       totalCostUsd,
       avgCostPerRun,
+      seCostPerRun,
       recentRuns: recentRuns.map(r => ({
         id: r.id,
         status: r.status,

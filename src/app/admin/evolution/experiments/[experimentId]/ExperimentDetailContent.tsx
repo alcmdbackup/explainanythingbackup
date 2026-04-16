@@ -37,6 +37,8 @@ export interface V2Experiment {
   }>;
   metrics: {
     maxElo: number | null;
+    meanElo?: number | null;
+    seElo?: number | null;
     totalCost: number;
     runs: Array<{
       runId: string;
