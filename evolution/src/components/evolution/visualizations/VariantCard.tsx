@@ -2,6 +2,8 @@
 // Used in lineage graph tooltips and side panels.
 'use client';
 
+import { formatEloWithUncertainty } from '@evolution/lib/utils/formatters';
+
 /** Strategy-to-hex mapping for border accents and chart series. */
 export const STRATEGY_PALETTE: Record<string, string> = {
   structural_transform: '#3b82f6', // blue
@@ -21,6 +23,7 @@ export const STRATEGY_PALETTE: Record<string, string> = {
 export function VariantCard({
   shortId,
   elo,
+  uncertainty,
   strategy,
   iterationBorn,
   isWinner = false,
@@ -30,6 +33,8 @@ export function VariantCard({
 }: {
   shortId: string;
   elo: number;
+  /** Elo-scale rating uncertainty. When present, rating displays as "elo ± half-width". Phase 4b. */
+  uncertainty?: number;
   strategy: string;
   iterationBorn: number;
   isWinner?: boolean;
@@ -53,7 +58,9 @@ export function VariantCard({
           )}
         </span>
         <span className="text-sm font-semibold text-[var(--text-primary)]">
-          {Math.round(elo)}
+          {uncertainty != null
+            ? (formatEloWithUncertainty(elo, uncertainty) ?? Math.round(elo))
+            : Math.round(elo)}
         </span>
       </div>
       <div className="flex items-center justify-between text-xs text-[var(--text-muted)]">

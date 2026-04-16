@@ -57,8 +57,12 @@ export const listInvocationsAction = adminAction(
     const parsed = listInvocationsInputSchema.parse(input);
     const { supabase } = ctx;
 
-    // Fetch test strategy IDs → test run IDs, then exclude those invocations.
-    // This avoids nested !inner joins which depend on FK constraints + PostgREST schema cache.
+    // For invocations, the nested embed path (invocations → runs → strategies) doesn't work
+    // cleanly because evolution_agent_invocations has two FKs to evolution_runs (run_id +
+    // a legacy failed_at_invocation_fkey), causing PGRST201. Use the two-step approach instead:
+    // getTestStrategyIds() now reads the indexed is_test_content column (fast, small result),
+    // then we fetch test run IDs and exclude them. The IN list is bounded by test RUN count
+    // (smaller than the 984-strategy list that caused the original URL-length bug).
     const baseFields = 'id, run_id, agent_name, iteration, execution_order, success, cost_usd, duration_ms, error_message, created_at';
     let testRunIds: string[] = [];
     if (parsed.filterTestContent) {
@@ -93,7 +97,8 @@ export const listInvocationsAction = adminAction(
     const { data, error, count } = await query;
     if (error) throw error;
 
-    return { items: (data ?? []) as InvocationListEntry[], total: count ?? 0 };
+    // Cast via unknown — embedded-resource select doesn't parse cleanly into the generated types.
+    return { items: (data ?? []) as unknown as InvocationListEntry[], total: count ?? 0 };
   },
 );
 

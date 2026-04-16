@@ -143,7 +143,9 @@ function createConsoleLogger(): EntityLogger {
 // ─── LLM Provider ────────────────────────────────────────────────
 // Raw provider object matching V2's { complete(prompt, label, opts?) } interface.
 
-function createMockLLMProvider(): { complete(prompt: string, label: string, opts?: { model?: string }): Promise<string> } {
+type MockResponse = { text: string; usage: { promptTokens: number; completionTokens: number; reasoningTokens?: number } };
+
+function createMockLLMProvider(): { complete(prompt: string, label: string, opts?: { model?: string }): Promise<MockResponse> } {
   let callCount = 0;
 
   const textTemplates = [
@@ -161,17 +163,26 @@ function createMockLLMProvider(): { complete(prompt: string, label: string, opts
   ];
 
   return {
-    async complete(prompt: string, _label: string, _opts?: { model?: string }): Promise<string> {
+    async complete(prompt: string, _label: string, _opts?: { model?: string }): Promise<MockResponse> {
       callCount++;
       await new Promise((r) => setTimeout(r, 30 + Math.random() * 40));
 
+      let text: string;
       if (prompt.includes('OVERALL_WINNER') && prompt.includes('Evaluation Dimensions')) {
-        return structuredTemplates[(callCount - 1) % structuredTemplates.length]!;
+        text = structuredTemplates[(callCount - 1) % structuredTemplates.length]!;
+      } else if (prompt.includes('## Text A') && prompt.includes('## Text B')) {
+        text = comparisonResponses[(callCount - 1) % comparisonResponses.length]!;
+      } else {
+        text = textTemplates[(callCount - 1) % textTemplates.length]!;
       }
-      if (prompt.includes('## Text A') && prompt.includes('## Text B')) {
-        return comparisonResponses[(callCount - 1) % comparisonResponses.length]!;
-      }
-      return textTemplates[(callCount - 1) % textTemplates.length]!;
+
+      return {
+        text,
+        usage: {
+          promptTokens: Math.ceil(prompt.length / 4),
+          completionTokens: Math.ceil(text.length / 4),
+        },
+      };
     },
   };
 }

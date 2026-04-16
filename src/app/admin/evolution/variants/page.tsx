@@ -6,6 +6,8 @@ import { EvolutionBreadcrumb, EntityListPage } from '@evolution/components/evolu
 import { listVariantsAction, type VariantListEntry } from '@evolution/services/evolutionActions';
 import type { ColumnDef, FilterDef } from '@evolution/components/evolution';
 import { toast } from 'sonner';
+import { formatEloWithUncertainty, formatEloCIRange } from '@evolution/lib/utils/formatters';
+import { dbToRating } from '@evolution/lib/shared/computeRatings';
 
 const PAGE_SIZE = 20;
 
@@ -49,7 +51,21 @@ const COLUMNS: ColumnDef<VariantListEntry>[] = [
     header: 'Rating',
     align: 'right',
     sortable: true,
-    render: (v) => <span className="font-semibold">{Math.round(v.elo_score)}</span>,
+    render: (v) => {
+      const u = v.mu != null && v.sigma != null ? dbToRating(v.mu, v.sigma).uncertainty : null;
+      const label = u != null ? formatEloWithUncertainty(v.elo_score, u) : null;
+      return <span className="font-semibold">{label ?? Math.round(v.elo_score)}</span>;
+    },
+  },
+  {
+    key: 'ci_95',
+    header: '95% CI',
+    align: 'right',
+    render: (v) => {
+      const u = v.mu != null && v.sigma != null ? dbToRating(v.mu, v.sigma).uncertainty : null;
+      const ci = u != null ? formatEloCIRange(v.elo_score, u) : null;
+      return <span className="text-xs text-[var(--text-muted)]">{ci ?? '—'}</span>;
+    },
   },
   { key: 'match_count', header: 'Matches', align: 'right', render: (v) => v.match_count },
   { key: 'generation', header: 'Generation', align: 'right', render: (v) => v.generation },

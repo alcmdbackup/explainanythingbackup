@@ -230,13 +230,17 @@ describe('evolutionVisualizationActions', () => {
       expect(result.data!.recentRuns).toHaveLength(1);
       expect(result.data!.recentRuns[0]!.strategy_name).toBe('Real Strategy');
 
-      // getTestStrategyIds is mocked via ./shared, so first supabase call is the status query
+      // Post-Phase 4a: uses PostgREST embedded !inner join on
+      // evolution_strategies.is_test_content instead of .not.in(test-strat-ids).
       const fromCalls = mock.from.mock.calls;
       expect(fromCalls[0][0]).toBe('evolution_runs');
-      // Verify .not() was called on the status query with strategy_id exclusion
       const statusBuilder = mock.from.mock.results[0]!.value;
-      expect(statusBuilder.not).toHaveBeenCalledWith(
-        'strategy_id', 'in', expect.stringContaining('test-strat-1'),
+      // Verify select string includes the embedded resource
+      expect(statusBuilder.select).toHaveBeenCalledWith(
+        expect.stringMatching(/evolution_strategies!inner\(is_test_content\)/),
+      );
+      expect(statusBuilder.eq).toHaveBeenCalledWith(
+        'evolution_strategies.is_test_content', false,
       );
     });
 

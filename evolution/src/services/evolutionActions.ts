@@ -3,7 +3,7 @@
 // Provides CRUD for evolution runs, variant listing, cost breakdown, and logs.
 
 import { adminAction, type AdminContext } from './adminAction';
-import { validateUuid, getTestStrategyIds } from './shared';
+import { validateUuid, getTestStrategyIds, applyNonTestStrategyFilter } from './shared';
 import { logger } from '@/lib/server_utilities';
 import { logAdminAction } from '@/lib/services/auditLog';
 import { createEntityLogger } from '@evolution/lib/pipeline/infra/createEntityLogger';
@@ -54,6 +54,10 @@ export interface EvolutionVariant {
   match_count: number;
   is_winner: boolean;
   created_at: string;
+  /** OpenSkill mu (legacy DB column; lift to Rating.elo via dbToRating at consumption boundary). */
+  mu?: number | null;
+  /** OpenSkill sigma (legacy DB column; lift to Rating.uncertainty via dbToRating). */
+  sigma?: number | null;
   /** Whether this variant survived the discard rule and is part of the final pool. */
   persisted?: boolean;
 }
@@ -94,6 +98,9 @@ export interface VariantListEntry {
   match_count: number;
   is_winner: boolean;
   created_at: string;
+  /** OpenSkill mu/sigma (legacy DB columns). Lift via dbToRating for the public Rating shape. */
+  mu?: number | null;
+  sigma?: number | null;
   strategy_name?: string | null;
 }
 
@@ -206,15 +213,17 @@ export const getEvolutionRunsAction = adminAction(
     const limit = Math.min(Math.max(filters?.limit ?? 50, 1), 200);
     const offset = Math.max(filters?.offset ?? 0, 0);
 
-    // Fetch test strategy IDs using shared helper (matches [TEST], exact "test", timestamp patterns).
-    let testStrategyIds: string[] = [];
-    if (filters?.filterTestContent) {
-      testStrategyIds = await getTestStrategyIds(supabase);
-    }
-
+    // Apply test-content filter via PostgREST embedded !inner join (applyNonTestStrategyFilter).
+    // Prior implementation fetched test strategy IDs and did .not('strategy_id', 'in', '(uuids)'),
+    // which silently returned empty when the IN list grew past ~8KB of URL (984 test strategies
+    // produced ~36KB, blowing past PostgREST's URL ceiling).
+    const wantsEmbed = !!filters?.filterTestContent;
+    const selectFields = wantsEmbed
+      ? 'id, status, strategy_id, experiment_id, prompt_id, budget_cap_usd, error_message, created_at, completed_at, archived, pipeline_version, runner_id, run_summary, last_heartbeat, explanation_id, evolution_strategies!inner(is_test_content)'
+      : 'id, status, strategy_id, experiment_id, prompt_id, budget_cap_usd, error_message, created_at, completed_at, archived, pipeline_version, runner_id, run_summary, last_heartbeat, explanation_id';
     let query = supabase
       .from('evolution_runs')
-      .select('id, status, strategy_id, experiment_id, prompt_id, budget_cap_usd, error_message, created_at, completed_at, archived, pipeline_version, runner_id, run_summary, last_heartbeat, explanation_id', { count: 'exact' });
+      .select(selectFields, { count: 'exact' });
 
     if (filters?.status) query = query.eq('status', filters.status);
     if (filters?.strategy_id) {
@@ -225,8 +234,8 @@ export const getEvolutionRunsAction = adminAction(
       if (!validateUuid(filters.promptId)) throw new Error('Invalid promptId filter');
       query = query.eq('prompt_id', filters.promptId);
     }
-    if (filters?.filterTestContent && testStrategyIds.length > 0) {
-      query = query.not('strategy_id', 'in', `(${testStrategyIds.join(',')})`);
+    if (wantsEmbed) {
+      query = applyNonTestStrategyFilter(query);
     }
 
     query = query.order('created_at', { ascending: false }).range(offset, offset + limit - 1);
@@ -234,7 +243,10 @@ export const getEvolutionRunsAction = adminAction(
     const { data: runs, error, count } = await query;
     if (error) throw error;
 
-    const typedRuns = (runs ?? []) as EvolutionRun[];
+    // Cast via unknown because the embedded-resource select string doesn't match the
+    // generated database.types.ts parser (it parses the join keys as unknown types).
+    // The parent fields we care about (id, status, ...) are present; the embed is discarded.
+    const typedRuns = (runs ?? []) as unknown as EvolutionRun[];
 
     // Batch-fetch list-view metrics from evolution_metrics (single source of truth for cost
     // and the per-purpose generation_cost / ranking_cost split, plus other listView: true metrics).
@@ -457,24 +469,39 @@ export const getRunSnapshotsAction = adminAction(
 export const getEvolutionVariantsAction = adminAction(
   'getEvolutionVariantsAction',
   async (
-    args: string | { runId: string; includeDiscarded?: boolean },
+    args: string | { runId?: string; strategyId?: string; includeDiscarded?: boolean },
     ctx: AdminContext,
   ): Promise<EvolutionVariant[]> => {
-    // Backward-compat: accept either a bare runId or { runId, includeDiscarded }.
+    // Backward-compat: accept either a bare runId string or an options object.
+    // Phase 4c: options object may specify runId XOR strategyId; strategyId returns
+    // all variants across all runs of the given strategy.
     const runId = typeof args === 'string' ? args : args.runId;
+    const strategyId = typeof args === 'string' ? undefined : args.strategyId;
     const includeDiscarded = typeof args === 'string' ? false : (args.includeDiscarded ?? false);
-    if (!validateUuid(runId)) throw new Error('Invalid runId');
+    if (runId && strategyId) throw new Error('Specify runId XOR strategyId, not both');
+    if (!runId && !strategyId) throw new Error('Must specify runId or strategyId');
+    if (runId && !validateUuid(runId)) throw new Error('Invalid runId');
+    if (strategyId && !validateUuid(strategyId)) throw new Error('Invalid strategyId');
+
+    // When filtering by strategy, embed the evolution_runs !inner join so Postgres/PostgREST
+    // filters the variants to those whose parent run has the given strategy_id.
+    const baseFields = 'id, run_id, explanation_id, variant_content, elo_score, mu, sigma, generation, agent_name, match_count, is_winner, created_at, persisted';
+    const selectFields = strategyId
+      ? `${baseFields}, evolution_runs!inner(strategy_id)`
+      : baseFields;
+
     let query = ctx.supabase
       .from('evolution_variants')
-      .select('id, run_id, explanation_id, variant_content, elo_score, generation, agent_name, match_count, is_winner, created_at, persisted')
-      .eq('run_id', runId);
+      .select(selectFields);
+    if (runId) query = query.eq('run_id', runId);
+    if (strategyId) query = query.eq('evolution_runs.strategy_id', strategyId);
     if (!includeDiscarded) {
       // Default behavior: only show variants that survived to the final pool.
       query = query.eq('persisted', true);
     }
     const { data, error } = await query.order('elo_score', { ascending: false });
     if (error) throw error;
-    return (data ?? []) as EvolutionVariant[];
+    return (data ?? []) as unknown as EvolutionVariant[];
   },
 );
 
@@ -611,20 +638,14 @@ export const listVariantsAction = adminAction(
     const parsed = listVariantsInputSchema.parse(input);
     const { supabase } = ctx;
 
-    // Fetch test strategy IDs, then find their run IDs, then exclude those variants.
-    // This avoids nested !inner joins which depend on FK constraints + PostgREST schema cache.
-    const baseFields = 'id, run_id, explanation_id, elo_score, generation, agent_name, match_count, is_winner, created_at';
-    let testRunIds: string[] = [];
-    if (parsed.filterTestContent) {
-      const testStrategyIds = await getTestStrategyIds(supabase);
-      if (testStrategyIds.length > 0) {
-        const { data: testRuns } = await supabase
-          .from('evolution_runs')
-          .select('id')
-          .in('strategy_id', testStrategyIds);
-        testRunIds = (testRuns ?? []).map(r => r.id as string);
-      }
-    }
+    // Apply test-content filter via nested embedded !inner join:
+    //   evolution_variants -> evolution_runs -> evolution_strategies (is_test_content=false)
+    // Replaces the prior two-step round-trip (getTestStrategyIds then fetch run IDs then
+    // .not.in) that silently failed when the IN list exceeded PostgREST URL limits.
+    const wantsEmbed = !!parsed.filterTestContent;
+    const baseFields = wantsEmbed
+      ? 'id, run_id, explanation_id, elo_score, mu, sigma, generation, agent_name, match_count, is_winner, created_at, evolution_runs!inner(evolution_strategies!inner(is_test_content))'
+      : 'id, run_id, explanation_id, elo_score, mu, sigma, generation, agent_name, match_count, is_winner, created_at';
 
     let query = supabase
       .from('evolution_variants')
@@ -637,8 +658,8 @@ export const listVariantsAction = adminAction(
       // Default: only show variants that survived to the final pool.
       query = query.eq('persisted', true);
     }
-    if (parsed.filterTestContent && testRunIds.length > 0) {
-      query = query.not('run_id', 'in', `(${testRunIds.join(',')})`);
+    if (wantsEmbed) {
+      query = query.eq('evolution_runs.evolution_strategies.is_test_content', false);
     }
 
     query = query.order('created_at', { ascending: false })
@@ -647,7 +668,8 @@ export const listVariantsAction = adminAction(
     const { data, error, count } = await query;
     if (error) throw error;
 
-    const items = (data ?? []) as VariantListEntry[];
+    // Cast via unknown — embedded-resource select doesn't parse cleanly into the generated types.
+    const items = (data ?? []) as unknown as VariantListEntry[];
 
     // Post-fetch enrichment: batch-fetch strategy names via runs
     const runIds = [...new Set(items.map(v => v.run_id).filter(Boolean))];

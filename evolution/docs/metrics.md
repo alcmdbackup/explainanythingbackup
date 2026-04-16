@@ -227,6 +227,9 @@ Follows the same pattern as all evolution tables: deny-all default, `service_rol
 
 Cost metrics are now written to the database after each successful LLM call via `createEvolutionLLMClient`. When the client is constructed with optional `db` and `runId` parameters, each LLM call writes its cost to `evolution_agent_invocations` fire-and-forget (errors are logged but do not fail the call). This provides fine-grained cost tracking independent of the phase-level cost metric writes.
 
+**Cost computation source (Phase 2):** actual cost uses real `usage.prompt_tokens`/`usage.completion_tokens` from the provider via `calculateLLMCost`, not the `response.length / 4` heuristic. Identical to how `llmCallTracking.estimated_cost_usd` is computed — the two should now match within rounding per `evolution_invocation_id`.
+
+**Per-invocation attribution under parallel dispatch (Phase 2.5):** `Agent.run()` builds a per-invocation `EvolutionLLMClient` bound to the `AgentCostScope` so each agent's `recordSpend` intercepts go through the scope. `cost_usd` is sourced from `scope.getOwnSpent()` rather than a before/after delta of the shared tracker, eliminating sibling cost bleed. 
 ---
 
 ## Elo CI on Run Metrics
@@ -302,6 +305,12 @@ Each propagation metric definition specifies a `sourceMetric` (which child metri
 **File:** `evolution/src/lib/metrics/metricColumns.tsx`
 
 `createMetricColumns(entityType)` generates table column definitions from the registry for use in `EntityTable`. Only metrics with `listView: true` appear in list pages. Each column uses the registry's formatter for display. The run `cost` metric has `listView: false`, so it is excluded from list columns; cost is instead fetched directly from `evolution_agent_invocations` by the run list and detail pages.
+
+**Aggregate CI rendering (Phase 4d):** for metrics whose propagation `aggregationMethod` is `bootstrap_mean` / `bootstrap_percentile` / `avg` AND the row carries `ci_lower`/`ci_upper`, `createMetricColumns` appends a CI suffix: `[lo, hi]` for Elo-like formatters and `± half-width` for cost/percent. `max`/`min`/`sum`/`count` aggregations skip the suffix (no CI semantics). This silently adds aggregate CI to strategy list + experiment list columns whenever the bootstrap propagation produced one.
+
+**Dashboard inline CI (Phase 4d):** `getEvolutionDashboardDataAction` computes `seCostPerRun` inline from its per-run cost sample (sample stddev / sqrt(n), when n ≥ 2) and returns it alongside `avgCostPerRun`. The dashboard page renders `avgCost ± SE` when the SE is present.
+
+**Experiment analysis card (Phase 4d):** `computeExperimentMetrics` emits `meanElo` + `seElo` across completed runs in the experiment; `ExperimentAnalysisCard` renders a "Mean Elo ± SE" summary card.
 
 `createRunsMetricColumns()` generates run-specific metric columns for the runs table within experiment and strategy detail pages.
 

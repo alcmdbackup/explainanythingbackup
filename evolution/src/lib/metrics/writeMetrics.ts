@@ -160,3 +160,29 @@ export async function writeMetricMax(
     throw new Error(`Failed to write max metric '${metricName}': ${error.message}`);
   }
 }
+
+/**
+ * Plain upsert that overwrites the existing value regardless of whether it's larger or
+ * smaller. Use ONLY from one-off backfill/repair scripts — the live pipeline must keep
+ * using `writeMetricMax` to be concurrent-safe under the `recordSpend` accumulation
+ * path, where GREATEST guarantees monotone-increasing run-level cost metrics even with
+ * out-of-order writes.
+ *
+ * Backfill use case: correcting historically-inflated `cost_usd` values (Bug A / Bug B)
+ * where the correct value derived from `llmCallTracking` is LOWER than the stored value.
+ * `writeMetricMax` would be a no-op in that case because GREATEST keeps the old value.
+ */
+export async function writeMetricReplace(
+  db: SupabaseClient,
+  entityType: EntityType,
+  entityId: string,
+  metricName: MetricName,
+  value: number,
+  timing: MetricTiming,
+): Promise<void> {
+  if (!Number.isFinite(value)) {
+    throw new Error(`writeMetricReplace: value must be finite, got ${value} for metric '${metricName}' on ${entityType}/${entityId}`);
+  }
+  // Validate via writeMetric (reuses timing-phase check + does the plain upsert).
+  await writeMetric(db, entityType, entityId, metricName, value, timing);
+}

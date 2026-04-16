@@ -362,6 +362,11 @@ export function TimelineTab({ runId, run }: TimelineTabProps): JSX.Element {
                   // topVariants stored as Elo-scale; legacy mu-scale values (<100) heuristically converted.
                   const raw = winner.elo;
                   const elo = raw < 100 ? 1200 + (raw - 25) * 16 : raw;
+                  // Phase 4b: include ± uncertainty when the new optional field is populated.
+                  const u = winner.uncertainty;
+                  if (u != null && Number.isFinite(u) && u > 0) {
+                    return `Elo: ${Math.round(elo)} ± ${Math.round(1.96 * u)}`;
+                  }
                   return `Elo: ${Math.round(elo)}`;
                 })()}
                 href={winner.isSeedVariant ? undefined : buildVariantDetailUrl(winner.id)}

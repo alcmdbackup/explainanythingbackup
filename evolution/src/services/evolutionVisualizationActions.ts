@@ -3,8 +3,9 @@
 // V2 rewrite: uses run_summary JSONB, cost view, and variant lineage instead of checkpoints.
 
 import { adminAction, type AdminContext } from './adminAction';
-import { validateUuid, getTestStrategyIds } from './shared';
+import { validateUuid, applyNonTestStrategyFilter } from './shared';
 import { EvolutionRunSummarySchema } from '@evolution/lib/types';
+import { dbToRating } from '@evolution/lib/shared/computeRatings';
 
 export interface DashboardData {
   activeRuns: number;
@@ -14,6 +15,8 @@ export interface DashboardData {
   totalRuns: number;
   totalCostUsd: number | null;
   avgCostPerRun: number | null;
+  /** Standard error of the mean run cost across completed+failed runs. Null when n<2. Phase 4d. */
+  seCostPerRun?: number | null;
   recentRuns: Array<{
     id: string;
     status: string;
@@ -32,6 +35,8 @@ export interface EloHistoryPoint {
   elo: number;
   /** Top-K Elo values for this iteration (when available from V3 run_summary). */
   elos?: number[];
+  /** Phase 4b: parallel array of per-top-K rating uncertainties. EloTab renders a band when present. */
+  uncertainties?: number[];
 }
 
 export interface LineageNode {
@@ -39,6 +44,8 @@ export interface LineageNode {
   generation: number;
   agentName: string;
   eloScore: number;
+  /** Elo-scale rating uncertainty (lifted from mu/sigma). Optional — legacy rows omit it. Phase 4b. */
+  uncertainty?: number;
   isWinner: boolean;
   parentId: string | null;
   /** False = discarded by owning generate agent. Defaults true for legacy variants. */
@@ -52,6 +59,8 @@ export interface LineageData {
     shortId: string;
     strategy: string;
     elo: number;
+    /** Elo-scale rating uncertainty (lifted from mu/sigma). Optional — legacy rows omit it. Phase 4b. */
+    uncertainty?: number;
     iterationBorn: number;
     isWinner: boolean;
     treeDepth?: number | null;
@@ -70,26 +79,24 @@ export const getEvolutionDashboardDataAction = adminAction(
     const { supabase } = ctx;
     const filterTest = input?.filterTestContent ?? false;
 
-    // Fetch test strategy IDs first (small set), then exclude their runs.
-    // Uses shared helper that matches [TEST], exact "test"/"Test", and timestamp patterns.
-    let testStrategyIds: string[] = [];
-    if (filterTest) {
-      testStrategyIds = await getTestStrategyIds(supabase);
-    }
+    // Exclude test runs via PostgREST embedded !inner join against evolution_strategies.is_test_content.
+    // Replaces the prior .not.in(testStrategyIds) path that silently returned empty when
+    // the IN list grew past PostgREST URL limits.
+    let statusQuery = filterTest
+      ? supabase.from('evolution_runs').select('id, status, evolution_strategies!inner(is_test_content)')
+      : supabase.from('evolution_runs').select('id, status');
+    if (filterTest) statusQuery = applyNonTestStrategyFilter(statusQuery);
 
-    // Build queries — status needs id for cost metric lookup
-    let statusQuery = supabase.from('evolution_runs').select('id, status');
-    if (filterTest && testStrategyIds.length > 0) {
-      statusQuery = statusQuery.not('strategy_id', 'in', `(${testStrategyIds.join(',')})`);
-    }
-
-    let recentQuery = supabase.from('evolution_runs')
-      .select('id, status, strategy_id, budget_cap_usd, explanation_id, error_message, created_at, completed_at')
-      .order('created_at', { ascending: false })
-      .limit(10);
-    if (filterTest && testStrategyIds.length > 0) {
-      recentQuery = recentQuery.not('strategy_id', 'in', `(${testStrategyIds.join(',')})`);
-    }
+    let recentQuery = filterTest
+      ? supabase.from('evolution_runs')
+          .select('id, status, strategy_id, budget_cap_usd, explanation_id, error_message, created_at, completed_at, evolution_strategies!inner(is_test_content)')
+          .order('created_at', { ascending: false })
+          .limit(10)
+      : supabase.from('evolution_runs')
+          .select('id, status, strategy_id, budget_cap_usd, explanation_id, error_message, created_at, completed_at')
+          .order('created_at', { ascending: false })
+          .limit(10);
+    if (filterTest) recentQuery = applyNonTestStrategyFilter(recentQuery);
 
     const [statusResult, recentResult] = await Promise.all([
       statusQuery,
@@ -107,6 +114,7 @@ export const getEvolutionDashboardDataAction = adminAction(
     // Total cost from evolution_metrics, with fallback to evolution_run_costs view.
     // Returns null on query failure to distinguish errors from genuinely $0.00.
     let totalCostUsd: number | null = 0;
+    let perRunCosts: number[] = []; // Phase 4d: per-run sample for SE computation
     if (filteredRunIds.length > 0) {
       try {
         const { data: costMetrics } = await supabase
@@ -115,7 +123,8 @@ export const getEvolutionDashboardDataAction = adminAction(
           .eq('entity_type', 'run')
           .eq('metric_name', 'cost')
           .in('entity_id', filteredRunIds);
-        totalCostUsd = (costMetrics ?? []).reduce((sum, m) => sum + (Number(m.value) || 0), 0);
+        perRunCosts = (costMetrics ?? []).map((m) => Number(m.value) || 0);
+        totalCostUsd = perRunCosts.reduce((sum, v) => sum + v, 0);
 
         // Fallback: if metrics-based cost is $0, use evolution_run_costs view
         // which aggregates directly from evolution_agent_invocations.cost_usd
@@ -124,7 +133,8 @@ export const getEvolutionDashboardDataAction = adminAction(
             .from('evolution_run_costs')
             .select('total_cost_usd')
             .in('run_id', filteredRunIds);
-          totalCostUsd = (viewCosts ?? []).reduce((sum, c) => sum + (Number(c.total_cost_usd) || 0), 0);
+          perRunCosts = (viewCosts ?? []).map((c) => Number(c.total_cost_usd) || 0);
+          totalCostUsd = perRunCosts.reduce((sum, v) => sum + v, 0);
         }
       } catch (err) {
         console.error('[Dashboard] Cost aggregation failed:', err);
@@ -133,6 +143,16 @@ export const getEvolutionDashboardDataAction = adminAction(
     }
     const runCount = completedRuns + failedRuns;
     const avgCostPerRun = runCount > 0 && totalCostUsd != null ? totalCostUsd / runCount : null;
+
+    // Phase 4d: SE of the mean run cost across the sampled runs. Only computed when we
+    // have ≥2 data points; enables the dashboard to render the aggregate with a
+    // confidence band rather than a point estimate.
+    let seCostPerRun: number | null = null;
+    if (perRunCosts.length >= 2 && avgCostPerRun != null) {
+      const n = perRunCosts.length;
+      const variance = perRunCosts.reduce((acc, c) => acc + (c - avgCostPerRun) ** 2, 0) / (n - 1);
+      seCostPerRun = Math.sqrt(variance / n);
+    }
 
     // Enrich recent runs with strategy names and costs
     const recentRuns = (recentResult.data ?? []) as unknown as Array<{
@@ -179,6 +199,7 @@ export const getEvolutionDashboardDataAction = adminAction(
       totalRuns: runs.length,
       totalCostUsd,
       avgCostPerRun,
+      seCostPerRun,
       recentRuns: recentRuns.map(r => ({
         id: r.id,
         status: r.status,
@@ -215,12 +236,16 @@ export const getEvolutionRunEloHistoryAction = adminAction(
     // eloHistory stores Elo values for new runs; legacy runs stored TrueSkill mu (~25-50).
     // Heuristic: values < 100 are mu-scale; convert to Elo via 1200 + (mu-25)*16.
     const toElo = (v: number): number => (v < 100 ? 1200 + (v - 25) * 16 : v);
+    // Phase 4b: parallel uncertaintyHistory (optional). Already on Elo scale.
+    const uncertaintyArr = parsed.data.uncertaintyHistory;
     return (parsed.data.eloHistory ?? []).map((vals, i) => {
       const elos = vals.map(toElo);
+      const uncertainties = uncertaintyArr?.[i];
       return {
         iteration: i + 1,
         elo: elos[0] ?? 0,
         elos: elos.length > 1 ? elos : undefined,
+        ...(uncertainties && uncertainties.length > 0 ? { uncertainties } : {}),
       };
     });
   },
@@ -234,21 +259,28 @@ export const getEvolutionRunLineageAction = adminAction(
 
     const { data, error } = await ctx.supabase
       .from('evolution_variants')
-      .select('id, generation, agent_name, elo_score, is_winner, parent_variant_id, persisted')
+      .select('id, generation, agent_name, elo_score, mu, sigma, is_winner, parent_variant_id, persisted')
       .eq('run_id', runId)
       .order('generation', { ascending: true });
 
     if (error) throw error;
 
-    return (data ?? []).map(v => ({
-      id: v.id,
-      generation: v.generation,
-      agentName: v.agent_name,
-      eloScore: v.elo_score,
-      isWinner: v.is_winner,
-      parentId: v.parent_variant_id,
-      // Default true for legacy rows that pre-date the persisted column.
-      persisted: (v as { persisted?: boolean | null }).persisted ?? true,
-    }));
+    return (data ?? []).map(v => {
+      const row = v as { mu?: number | null; sigma?: number | null };
+      const uncertainty = row.mu != null && row.sigma != null
+        ? dbToRating(row.mu, row.sigma).uncertainty
+        : undefined;
+      return {
+        id: v.id,
+        generation: v.generation,
+        agentName: v.agent_name,
+        eloScore: v.elo_score,
+        ...(uncertainty != null ? { uncertainty } : {}),
+        isWinner: v.is_winner,
+        parentId: v.parent_variant_id,
+        // Default true for legacy rows that pre-date the persisted column.
+        persisted: (v as { persisted?: boolean | null }).persisted ?? true,
+      };
+    });
   },
 );

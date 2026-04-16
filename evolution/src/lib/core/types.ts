@@ -150,6 +150,21 @@ export interface AgentContext {
   /** 1-based index of this agent within a parallel-dispatch batch (Phase 7 logging).
    *  Set by the orchestrator for parallel generate iterations; undefined for solo agents. */
   agentIndex?: number;
+  /** Raw LLM provider propagated from the orchestrator. When set, Agent.run() builds a
+   *  per-invocation EvolutionLLMClient bound to the AgentCostScope (fixes Bug B: sibling
+   *  cost bleed under parallel dispatch). Optional for back-compat with existing tests
+   *  that pass a pre-built `llm` on Input. */
+  rawProvider?: {
+    complete(
+      prompt: string,
+      label: string,
+      opts?: { model?: string; temperature?: number; reasoningEffort?: 'none' | 'low' | 'medium' | 'high' },
+    ): Promise<string | { text: string; usage: { promptTokens: number; completionTokens: number; reasoningTokens?: number } }>;
+  };
+  /** Default model for the scoped LLM client. Required when rawProvider is set. */
+  defaultModel?: string;
+  /** Optional temperature override for generation-phase LLM calls. */
+  generationTemperature?: number;
 }
 
 export interface AgentOutput<TOutput, TDetail> {

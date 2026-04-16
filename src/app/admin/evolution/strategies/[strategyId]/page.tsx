@@ -16,6 +16,7 @@ import {
   type TabDef,
 } from '@evolution/components/evolution';
 import { LogsTab } from '@evolution/components/evolution/tabs/LogsTab';
+import { VariantsTab } from '@evolution/components/evolution/tabs/VariantsTab';
 import { StrategyConfigDisplay } from '@/app/admin/evolution/_components/StrategyConfigDisplay';
 import {
   getStrategyDetailAction,
@@ -53,6 +54,7 @@ const TABS: TabDef[] = [
   { id: 'metrics', label: 'Metrics' },
   { id: 'cost-estimates', label: 'Cost Estimates' },
   { id: 'runs', label: 'Runs' },
+  { id: 'variants', label: 'Variants' },
   { id: 'config', label: 'Configuration' },
   { id: 'logs', label: 'Logs' },
 ];
@@ -128,6 +130,7 @@ export default function StrategyDetailPage(): JSX.Element {
         {activeTab === 'metrics' && <EntityMetricsTab entityType="strategy" entityId={strategyId} />}
         {activeTab === 'cost-estimates' && <CostEstimatesTab entityType="strategy" entityId={strategyId} />}
         {activeTab === 'runs' && <StrategyRunsTab strategyId={strategyId} />}
+        {activeTab === 'variants' && <VariantsTab strategyId={strategyId} />}
         {activeTab === 'config' && (
           <div className="space-y-6">
             <StrategyConfigDisplay config={strategy.config ?? {}} />

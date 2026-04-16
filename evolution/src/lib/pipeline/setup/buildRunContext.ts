@@ -89,7 +89,11 @@ export interface ClaimedRun {
 }
 
 type RawLLMProvider = {
-  complete(prompt: string, label: string, opts?: { model?: string; temperature?: number }): Promise<string>;
+  complete(
+    prompt: string,
+    label: string,
+    opts?: { model?: string; temperature?: number },
+  ): Promise<string | { text: string; usage: { promptTokens: number; completionTokens: number; reasoningTokens?: number } }>;
 };
 
 /**

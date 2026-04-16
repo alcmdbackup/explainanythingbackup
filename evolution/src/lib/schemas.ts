@@ -1062,6 +1062,9 @@ const _EvolutionRunSummaryV3Inner = z.object({
     z.array(z.array(z.number())),  // New format: number[][] (top-K per iteration)
     z.array(z.number()).transform(arr => arr.map(v => [v]))  // Legacy: number[] → wrap each as [v]
   ]).pipe(z.array(z.array(z.number())).max(100)),
+  /** Phase 4b: parallel array — uncertainty per top-K entry per iteration. Optional;
+   *  legacy rows omit it. EloTab renders an uncertainty band when present. */
+  uncertaintyHistory: z.array(z.array(z.number().min(0))).max(100).optional(),
   diversityHistory: z.array(z.number()).max(100),
   matchStats: z.object({
     totalMatches: z.number().int().min(0),
@@ -1074,6 +1077,9 @@ const _EvolutionRunSummaryV3Inner = z.object({
       id: z.string().max(200),
       strategy: z.string().max(100),
       elo: z.number(),
+      // Per-variant rating uncertainty (Elo-scale). Optional for legacy rows that
+      // predate Phase 4b; consumers suppress the ± rendering when absent.
+      uncertainty: z.number().min(0).optional(),
       isSeedVariant: z.boolean(),
     }),
   )).max(10),
@@ -1084,6 +1090,11 @@ const _EvolutionRunSummaryV3Inner = z.object({
     z.object({
       count: z.number().int().min(0),
       avgElo: z.number(),
+      // Standard error of the mean Elo across variants in this strategy bucket.
+      // NOT per-variant rating uncertainty — it's the spread of variant Elos within
+      // this run's strategy group. Computed via Welford M2 in buildRunSummary.
+      // Only populated when count >= 2; optional for legacy rows.
+      seAvgElo: z.number().min(0).optional(),
     }),
   )),
   metaFeedback: z.object({
@@ -1120,12 +1131,14 @@ interface EvolutionRunSummaryV3 {
   totalIterations: number;
   durationSeconds: number;
   eloHistory: number[][];
+  /** Phase 4b: optional parallel array of per-top-K uncertainty values matching eloHistory. */
+  uncertaintyHistory?: number[][];
   diversityHistory: number[];
   matchStats: { totalMatches: number; avgConfidence: number; decisiveRate: number };
-  topVariants: Array<{ id: string; strategy: string; elo: number; isSeedVariant: boolean }>;
+  topVariants: Array<{ id: string; strategy: string; elo: number; uncertainty?: number; isSeedVariant: boolean }>;
   seedVariantRank: number | null;
   seedVariantElo: number | null;
-  strategyEffectiveness: Record<string, { count: number; avgElo: number }>;
+  strategyEffectiveness: Record<string, { count: number; avgElo: number; seAvgElo?: number }>;
   metaFeedback: {
     successfulStrategies: string[];
     recurringWeaknesses: string[];

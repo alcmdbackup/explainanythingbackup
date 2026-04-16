@@ -33,9 +33,12 @@ Stores strategy configurations with aggregated performance metrics. Strategies a
 | `avg_elo_per_dollar` | NUMERIC | | Reserved (not yet computed) |
 | `first_used_at` | TIMESTAMPTZ | NOT NULL, default `now()` | |
 | `last_used_at` | TIMESTAMPTZ | NOT NULL, default `now()` | Updated by `update_strategy_aggregates` |
+| `is_test_content` | BOOLEAN | NOT NULL, default `false` | Populated by a BEFORE trigger calling `evolution_is_test_name(name)`. Replaces the admin UI's client-side `.not.in(<test strategy uuids>)` filter, which silently hit PostgREST URL length limits once staging accumulated ~1000 test strategies. Migration `20260415000001`. |
 | `created_at` | TIMESTAMPTZ | NOT NULL, default `now()` | |
 
 > **Note:** `avg_final_elo` uses Welford's online algorithm via the `update_strategy_aggregates` RPC. The `stddev_final_elo` and `avg_elo_per_dollar` columns are reserved for future use.
+
+> **Test-content filter:** the `evolution_is_test_name(text)` IMMUTABLE Postgres function matches exact lowercase `test`, bracketed `[TEST]`/`[E2E]`/`[TEST_EVO]` substrings, and the timestamp pattern `^.*-\d{10,13}-.*$`. It's called by a BEFORE INSERT/UPDATE-of-name trigger on `evolution_strategies` that sets `is_test_content` via direct NEW mutation (no self-UPDATE, no recursion). The TS helper `isTestContentName` in `evolution/src/services/shared.ts` echoes this logic and is locked to the same fixture table via integration test for anti-drift protection. Admin UI filters via PostgREST embedded `!inner` join: `.select('..., evolution_strategies!inner(is_test_content)').eq('evolution_strategies.is_test_content', false)`.
 
 ### `evolution_prompts`
 
@@ -107,8 +110,8 @@ Text variants produced during a pipeline run. Since migration 20260321000002, th
 | `agent_name` | TEXT | | Creating agent/strategy name |
 | `match_count` | INT | NOT NULL, default `0` | |
 | `is_winner` | BOOLEAN | NOT NULL, default `false` | Highest `elo` at finalization |
-| `mu` | NUMERIC | NOT NULL, default `25` | OpenSkill mu (legacy DB column; backs the public `Rating.elo` via `dbToRating` — unchanged because the stale trigger and `sync_to_arena` RPC depend on it) |
-| `sigma` | NUMERIC | NOT NULL, default `8.333` | OpenSkill sigma (legacy DB column; backs the public `Rating.uncertainty` via `dbToRating`) |
+| `mu` | NUMERIC | NOT NULL, default `25` | OpenSkill mu (legacy DB column; backs the public `Rating.elo` via `dbToRating` — unchanged because the stale trigger and `sync_to_arena` RPC depend on it). Now selected by `getEvolutionVariantsAction`, `listVariantsAction`, and `variantDetailActions` so the admin UI can render per-variant Elo ± uncertainty via `formatEloWithUncertainty` + `formatEloCIRange` (Phase 4b). |
+| `sigma` | NUMERIC | NOT NULL, default `8.333` | OpenSkill sigma (legacy DB column; backs the public `Rating.uncertainty` via `dbToRating`). Selected by variant list/detail endpoints alongside `mu` for CI rendering (Phase 4b). |
 | `prompt_id` | UUID | FK -> `evolution_prompts(id)` ON DELETE CASCADE | Arena prompt association |
 | `synced_to_arena` | BOOLEAN | NOT NULL, default `false` | Whether this variant is visible in the arena |
 | `arena_match_count` | INT | NOT NULL, default `0` | Number of arena comparison matches |

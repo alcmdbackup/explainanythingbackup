@@ -131,6 +131,17 @@ adminTest.describe('Evolution Variants (list page)', { tag: '@evolution' }, () =
     const table = adminPage.locator('[data-testid="entity-list-table"]');
     await expect(table).toBeVisible({ timeout: 15000 });
 
+    // Uncheck "Hide test content" FIRST so seeded test data is visible.
+    // (The filter now works correctly after the is_test_content column fix;
+    // previously the huge IN-list URL silently returned all rows.)
+    const testContentFilter = adminPage.locator('[data-testid="filter-filterTestContent"] input[type="checkbox"]');
+    // eslint-disable-next-line flakiness/no-point-in-time-checks -- control flow, not assertion
+    if (await testContentFilter.isChecked()) {
+      await testContentFilter.uncheck();
+      // Wait for table to re-render after filter change
+      await table.locator('tbody tr').first().waitFor({ state: 'visible', timeout: 10000 });
+    }
+
     // Type the alpha agent name into the agent name filter
     const agentFilter = adminPage.locator('[data-testid="filter-agentName"]');
     await expect(agentFilter).toBeVisible();
@@ -141,15 +152,6 @@ adminTest.describe('Evolution Variants (list page)', { tag: '@evolution' }, () =
 
     // Clear the agent filter and test winner filter
     await agentFilter.fill('');
-
-    // Uncheck "Hide test content" so seeded test data is visible
-    const testContentFilter = adminPage.locator('[data-testid="filter-filterTestContent"] input[type="checkbox"]');
-    // eslint-disable-next-line flakiness/no-point-in-time-checks -- control flow, not assertion
-    if (await testContentFilter.isChecked()) {
-      await testContentFilter.uncheck();
-      // Wait for table to re-render after filter change
-      await table.locator('tbody tr').first().waitFor({ state: 'visible', timeout: 10000 });
-    }
 
     // Select "Winners" from the winner filter
     const winnerFilter = adminPage.locator('[data-testid="filter-isWinner"]');
@@ -166,6 +168,14 @@ adminTest.describe('Evolution Variants (list page)', { tag: '@evolution' }, () =
 
     const table = adminPage.locator('[data-testid="entity-list-table"]');
     await expect(table).toBeVisible({ timeout: 15000 });
+
+    // Uncheck "Hide test content" so seeded test variants are visible.
+    const testContentFilter = adminPage.locator('[data-testid="filter-filterTestContent"] input[type="checkbox"]');
+    // eslint-disable-next-line flakiness/no-point-in-time-checks -- control flow, not assertion
+    if (await testContentFilter.isChecked()) {
+      await testContentFilter.uncheck();
+      await table.locator('tbody tr').first().waitFor({ state: 'visible', timeout: 10000 });
+    }
 
     // Click on the winner variant's ID link (first 8 chars)
     const variantLink = table.locator(`a[href*="/admin/evolution/variants/${winnerVariantId}"]`).first();

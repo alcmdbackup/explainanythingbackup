@@ -63,13 +63,22 @@ function RunCostEstimatesView({ runId }: { runId: string }): JSX.Element {
 
   const { summary, costByAgent, invocations, histogram, budgetFloorSensitivity } = data;
 
-  const hasAnyEstimateData = summary.estimatedCost != null || summary.errorPct != null;
+  const hasRunLevelEstimate = summary.estimatedCost != null || summary.errorPct != null;
+  const hasPerInvocationEstimate = invocations.some(
+    (i) => i.generationEstimate != null || i.rankingEstimate != null,
+  );
+  const hasAnyEstimateData = hasRunLevelEstimate || hasPerInvocationEstimate;
 
   return (
     <div className="space-y-6" data-testid="cost-estimates-tab">
       {!hasAnyEstimateData && (
         <Badge tone="info" testId="cost-estimates-pre-instrumentation">
           No estimation data (pre-instrumentation run)
+        </Badge>
+      )}
+      {!hasRunLevelEstimate && hasPerInvocationEstimate && (
+        <Badge tone="warning" testId="cost-estimates-rollup-missing">
+          Run-level estimation roll-up missing — per-invocation data shown below
         </Badge>
       )}
 
@@ -128,6 +137,17 @@ function StrategyCostEstimatesView({ strategyId }: { strategyId: string }): JSX.
 
   const { summary, runs, sliceBreakdown, histogram, truncatedSlices } = data;
 
+  // Phase 4d: compute SE of the mean errorPct across runs client-side from the per-run samples
+  // already returned by the action. This gives the "Avg Error %" summary a CI band.
+  const errorPctSamples = runs.map((r) => r.errorPct).filter((x): x is number => typeof x === 'number');
+  const errorPctSE = (() => {
+    if (errorPctSamples.length < 2 || summary.errorPct == null) return null;
+    const n = errorPctSamples.length;
+    const mean = summary.errorPct;
+    const variance = errorPctSamples.reduce((acc, v) => acc + (v - mean) ** 2, 0) / (n - 1);
+    return Math.sqrt(variance / n);
+  })();
+
   return (
     <div className="space-y-6" data-testid="cost-estimates-tab">
       <SummarySection
@@ -135,7 +155,15 @@ function StrategyCostEstimatesView({ strategyId }: { strategyId: string }): JSX.
           { id: 'runCount', label: 'Runs', value: String(summary.runCount) },
           { id: 'totalCost', label: 'Total Cost', value: formatCostMaybe(summary.totalCost) },
           { id: 'estimatedCost', label: 'Total Estimated', value: formatCostMaybe(summary.estimatedCost) },
-          { id: 'errorPct', label: 'Avg Error %', value: formatPctWithTone(summary.errorPct) },
+          {
+            id: 'errorPct',
+            label: 'Avg Error %',
+            value: summary.errorPct == null
+              ? '—'
+              : errorPctSE != null
+                ? <span className="font-mono">{formatPctWithTone(summary.errorPct)} ± {errorPctSE.toFixed(1)}%</span>
+                : formatPctWithTone(summary.errorPct),
+          },
           { id: 'withEst', label: 'Runs w/ Estimates', value: String(summary.runsWithEstimates) },
         ]}
       />

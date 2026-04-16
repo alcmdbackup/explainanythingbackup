@@ -400,6 +400,39 @@ GROUP BY agent_name;
 | `release_failed` events | Release attempted on empty queue (double-release or no prior reserve) | Check agent error handling logic |
 | Budget exhausted well below cap | Reserved amount + spent amount fills budget | Compare `total_reserved_usd` to expected reservation sizes |
 
+### Debugging Cost Accuracy (Bug A / Bug B)
+
+The evolution pipeline has two historical cost-accuracy bugs. Both are fixed but worth knowing for debugging future regressions.
+
+**Bug A — per-invocation cost inflation from string-length math:** If `evolution_agent_invocations.cost_usd` disagrees with the summed `llmCallTracking.estimated_cost_usd` rows for the same `evolution_invocation_id`, you're seeing the legacy string-length cost path (now replaced in `createEvolutionLLMClient.ts` with token-based `calculateLLMCost`). Verify via:
+```sql
+SELECT inv.id, inv.cost_usd AS pipeline_cost,
+       COALESCE(SUM(llm.estimated_cost_usd), 0) AS billed_cost,
+       inv.cost_usd - COALESCE(SUM(llm.estimated_cost_usd), 0) AS diff
+FROM evolution_agent_invocations inv
+LEFT JOIN "llmCallTracking" llm ON llm.evolution_invocation_id = inv.id
+WHERE inv.run_id = '<run-id>' GROUP BY inv.id, inv.cost_usd;
+```
+Expected: `|diff| < 0.0001`.
+
+**Bug B — sibling cost bleed under parallel dispatch:** If sum of per-invocation `cost_usd` for a run far exceeds run-level `evolution_metrics.cost`, the per-invocation attribution is bleeding siblings' spend via the `detail.totalCost` before/after-delta path. Fixed by routing the LLM client through the `AgentCostScope` in `Agent.run()`. Verify:
+```sql
+SELECT
+  (SELECT SUM(cost_usd) FROM evolution_agent_invocations WHERE run_id = '<run-id>') AS sum_invocations,
+  (SELECT value FROM evolution_metrics WHERE entity_type='run' AND entity_id='<run-id>' AND metric_name='cost') AS run_cost;
+```
+Expected: both numbers match within rounding. Pre-fix on run `b0778925` they diverged 4.7×.
+
+**Phase 2.5 is now permanent** — the `EVOLUTION_USE_SCOPE_OWNSPENT` rollback flag has been removed. `scope.getOwnSpent()` is the sole cost-attribution source. If a regression appears, inspect whether `ctx.rawProvider` is populated at the Agent.run call site (it must be, or the scope intercept won't fire and `getOwnSpent()` returns 0, falling back to `detail.totalCost`).
+
+### Debugging "Hide test content" filter silently hiding rows
+
+If the `/admin/evolution/runs` "Hide test content" checkbox returns zero rows even with real non-test runs present, the legacy `.not('strategy_id', 'in', '(<uuids>)')` path was being generated with a huge IN list (~36 KB URL at 984 test strategies on staging) that silently blew past PostgREST's URL length ceiling. The replacement path uses an embedded `!inner` join on `evolution_strategies.is_test_content`. Test-strategy names are flagged by a Postgres BEFORE trigger calling `evolution_is_test_name(text)` — if a new pattern appears in `evolution/src/services/shared.ts:isTestContentName`, update `supabase/migrations/*_evolution_is_test_content.sql` to match, and extend the shared `TEST_NAME_FIXTURES` table (used by the anti-drift test in `evolution/src/services/shared.test.ts`).
+
+### Backfilling historical cost inaccuracies
+
+`evolution/scripts/backfillInvocationCostFromTokens.ts` repairs `evolution_agent_invocations.cost_usd` + run-level `cost`/`generation_cost`/`ranking_cost`/`seed_cost` metrics from `llmCallTracking`. Default is `--dry-run`; add `--apply` to write. Use `--run-id <uuid>` for single-run spot fixes. Uses `writeMetricReplace` (plain upsert) instead of `writeMetricMax` (GREATEST) so downward corrections actually land.
+
 ### Related
 
 - [Cost Optimization](../../evolution/docs/cost_optimization.md) — Budget event logger implementation details

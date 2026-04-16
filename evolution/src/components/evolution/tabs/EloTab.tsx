@@ -105,6 +105,30 @@ export function EloTab({ runId }: EloTabProps): JSX.Element {
               </text>
             );
           })}
+          {/* Phase 4b: shaded uncertainty band for top-1 line when uncertaintyHistory present */}
+          {history[0]?.uncertainties && (() => {
+            const upper = history.map((h, i) => {
+              const u = h.uncertainties?.[0] ?? 0;
+              const x = padding.left + (i / Math.max(history.length - 1, 1)) * chartW;
+              const yUp = padding.top + chartH - ((h.elo + 1.96 * u - minElo) / eloRange) * chartH;
+              return `${x},${Math.max(padding.top, yUp)}`;
+            });
+            const lower = history.map((h, i) => {
+              const u = h.uncertainties?.[0] ?? 0;
+              const x = padding.left + (i / Math.max(history.length - 1, 1)) * chartW;
+              const yLo = padding.top + chartH - ((h.elo - 1.96 * u - minElo) / eloRange) * chartH;
+              return `${x},${Math.min(padding.top + chartH, yLo)}`;
+            });
+            return (
+              <polygon
+                points={[...upper, ...lower.reverse()].join(' ')}
+                fill="var(--accent-gold)"
+                fillOpacity={0.1}
+                stroke="none"
+                data-testid="elo-uncertainty-band"
+              />
+            );
+          })()}
           {/* Lines for each rank position (top-K) */}
           {lineData.map((pts, rank) => (
             <polyline
