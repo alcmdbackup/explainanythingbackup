@@ -75,14 +75,22 @@ export function ExperimentAnalysisCard({ experiment }: ExperimentAnalysisCardPro
                 {metrics.runs
                   .slice()
                   .sort((a, b) => (b.elo ?? 0) - (a.elo ?? 0))
-                  .map((run) => (
+                  .map((run) => {
+                    // Phase 4b: per-run Elo ± uncertainty when winner variant's mu/sigma are available.
+                    const eloLabel = run.elo == null
+                      ? '--'
+                      : run.uncertainty != null && run.uncertainty > 0
+                        ? `${Math.round(run.elo)} ± ${Math.round(1.96 * run.uncertainty)}`
+                        : fmtNum(run.elo);
+                    return (
                     <tr key={run.runId} className="border-b border-[var(--border-default)] last:border-0">
                       <td className="py-1.5 pr-2 font-mono text-[var(--text-primary)]">{run.runId.slice(0, 8)}</td>
-                      <td className="py-1.5 pr-2 text-right font-mono text-[var(--text-secondary)]">{fmtNum(run.elo)}</td>
+                      <td className="py-1.5 pr-2 text-right font-mono text-[var(--text-secondary)]">{eloLabel}</td>
                       <td className="py-1.5 pr-2 text-right font-mono text-[var(--text-secondary)]">${fmtNum(run.cost, 3)}</td>
                       <td className="py-1.5 text-right font-mono text-[var(--text-secondary)]">{fmtNum(run.eloPerDollar)}</td>
                     </tr>
-                  ))}
+                    );
+                  })}
               </tbody>
             </table>
           </div>

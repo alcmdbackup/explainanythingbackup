@@ -665,6 +665,8 @@ export interface EvolutionRunSummary {
   totalIterations: number;
   durationSeconds: number;
   eloHistory: number[][];
+  /** Phase 4b: optional parallel array — per-top-K uncertainty values matching eloHistory. */
+  uncertaintyHistory?: number[][];
   diversityHistory: number[];
   matchStats: {
     totalMatches: number;

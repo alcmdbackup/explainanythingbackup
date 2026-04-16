@@ -3,6 +3,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { evolutionExperimentInsertSchema, evolutionRunInsertSchema } from '../schemas';
 import { createEntityLogger } from './infra/createEntityLogger';
+import { dbToRating } from '../shared/computeRatings';
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -16,6 +17,8 @@ export interface ExperimentMetrics {
   runs: Array<{
     runId: string;
     elo: number | null;
+    /** Per-run winner Elo uncertainty (lifted from winner variant's mu/sigma). Phase 4b. */
+    uncertainty?: number | null;
     cost: number;
     eloPerDollar: number | null;
   }>;
@@ -134,7 +137,7 @@ export async function computeExperimentMetrics(
     .select(`
       id,
       run_summary,
-      evolution_variants!left(elo_score, is_winner)
+      evolution_variants!left(elo_score, mu, sigma, is_winner)
     `)
     .eq('experiment_id', experimentId)
     .eq('status', 'completed');
@@ -144,14 +147,18 @@ export async function computeExperimentMetrics(
   }
 
   const runs = rows.map((row) => {
-    const variants = row.evolution_variants as unknown as Array<{ elo_score: number; is_winner: boolean }> | null;
+    const variants = row.evolution_variants as unknown as Array<{ elo_score: number; mu?: number | null; sigma?: number | null; is_winner: boolean }> | null;
     const winner = variants?.find(v => v.is_winner);
     const elo = winner?.elo_score ?? null;
+    // Phase 4b: lift the winner variant's mu/sigma to per-run uncertainty for the analysis card.
+    const uncertainty = winner?.mu != null && winner?.sigma != null
+      ? dbToRating(winner.mu, winner.sigma).uncertainty
+      : undefined;
     const summary = row.run_summary as Record<string, unknown> | null;
     const cost = typeof summary?.totalCost === 'number' ? summary.totalCost : 0;
     const eloPerDollar = elo !== null && cost > 0 ? elo / cost : null;
 
-    return { runId: row.id as string, elo, cost, eloPerDollar };
+    return { runId: row.id as string, elo, uncertainty, cost, eloPerDollar };
   });
 
   const elos = runs.map((r) => r.elo).filter((e): e is number => e !== null);

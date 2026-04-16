@@ -121,6 +121,7 @@ function buildRunSummary(
     totalIterations: result.iterationsRun,
     durationSeconds,
     eloHistory: result.eloHistory,
+    ...(result.uncertaintyHistory ? { uncertaintyHistory: result.uncertaintyHistory } : {}),
     diversityHistory: result.diversityHistory,
     matchStats: { totalMatches, avgConfidence, decisiveRate },
     topVariants,

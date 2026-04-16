@@ -43,6 +43,7 @@ export interface V2Experiment {
     runs: Array<{
       runId: string;
       elo: number | null;
+      uncertainty?: number | null;
       cost: number;
       eloPerDollar: number | null;
     }>;

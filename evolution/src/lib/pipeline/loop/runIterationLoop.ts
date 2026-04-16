@@ -73,6 +73,12 @@ function topKEloValues(ratings: ReadonlyMap<string, Rating>, k: number): number[
   return [...ratings.values()].map((r) => r.elo).sort((a, b) => b - a).slice(0, k);
 }
 
+/** Phase 4b: parallel array — uncertainty for the same top-K ranking by elo. Returned in
+ *  matching index order so EloTab can render an uncertainty band around each line. */
+function topKUncertainties(ratings: ReadonlyMap<string, Rating>, k: number): number[] {
+  return [...ratings.values()].sort((a, b) => b.elo - a.elo).slice(0, k).map((r) => r.uncertainty);
+}
+
 // ─── Snapshot helpers ────────────────────────────────────────────
 
 function recordSnapshot(
@@ -217,6 +223,9 @@ export async function evolveArticle(
   const matchCounts = new Map<string, number>();
   const allMatches: V2Match[] = [];
   const eloHistory: number[][] = [];
+  // Phase 4b: parallel array — uncertainty values matching topKEloValues' ranking by elo.
+  // Enables EloTab to render an uncertainty band around each line.
+  const uncertaintyHistory: number[][] = [];
   const diversityHistory: number[] = [];
   const comparisonCache = new Map<string, ComparisonResult>();
   const completedPairs = new Set<string>();
@@ -570,6 +579,7 @@ export async function evolveArticle(
       const topK = resolvedConfig.tournamentTopK ?? 5;
       const eloValues = topKEloValues(ratings, topK);
       eloHistory.push(eloValues);
+      uncertaintyHistory.push(topKUncertainties(ratings, topK));
 
       iterationSnapshots.push(recordSnapshot(iteration, 'generate', 'end', pool, ratings, matchCounts, {
         discardedVariantIds: discardedIds,
@@ -643,6 +653,7 @@ export async function evolveArticle(
       const topK = resolvedConfig.tournamentTopK ?? 5;
       const eloValues = topKEloValues(ratings, topK);
       eloHistory.push(eloValues);
+      uncertaintyHistory.push(topKUncertainties(ratings, topK));
 
       iterationSnapshots.push(recordSnapshot(iteration, 'swiss', 'end', pool, ratings, matchCounts));
 
@@ -684,6 +695,7 @@ export async function evolveArticle(
     iterationsRun: iteration,
     stopReason,
     eloHistory,
+    uncertaintyHistory,
     diversityHistory,
     matchCounts: Object.fromEntries(matchCounts),
     discardedVariants,

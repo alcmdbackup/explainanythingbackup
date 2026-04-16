@@ -35,6 +35,8 @@ export interface EloHistoryPoint {
   elo: number;
   /** Top-K Elo values for this iteration (when available from V3 run_summary). */
   elos?: number[];
+  /** Phase 4b: parallel array of per-top-K rating uncertainties. EloTab renders a band when present. */
+  uncertainties?: number[];
 }
 
 export interface LineageNode {
@@ -234,12 +236,16 @@ export const getEvolutionRunEloHistoryAction = adminAction(
     // eloHistory stores Elo values for new runs; legacy runs stored TrueSkill mu (~25-50).
     // Heuristic: values < 100 are mu-scale; convert to Elo via 1200 + (mu-25)*16.
     const toElo = (v: number): number => (v < 100 ? 1200 + (v - 25) * 16 : v);
+    // Phase 4b: parallel uncertaintyHistory (optional). Already on Elo scale.
+    const uncertaintyArr = parsed.data.uncertaintyHistory;
     return (parsed.data.eloHistory ?? []).map((vals, i) => {
       const elos = vals.map(toElo);
+      const uncertainties = uncertaintyArr?.[i];
       return {
         iteration: i + 1,
         elo: elos[0] ?? 0,
         elos: elos.length > 1 ? elos : undefined,
+        ...(uncertainties && uncertainties.length > 0 ? { uncertainties } : {}),
       };
     });
   },

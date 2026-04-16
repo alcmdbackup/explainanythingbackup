@@ -33,6 +33,9 @@ export interface EvolutionResult {
   stopReason: 'budget_exceeded' | 'iterations_complete' | 'converged' | 'killed' | 'time_limit' | 'no_pairs' | 'seed_failed';
   /** eloHistory[i] = array of elo values for top-K variants after iteration i. */
   eloHistory: number[][];
+  /** Phase 4b: parallel array — uncertainty values matching eloHistory[i] index-for-index.
+   *  Enables EloTab to render a shaded band around each line. Optional for back-compat. */
+  uncertaintyHistory?: number[][];
   /** diversityHistory[i] = pairwise text diversity score after iteration i. */
   diversityHistory: number[];
   /** Per-variant match counts (total comparisons played). */

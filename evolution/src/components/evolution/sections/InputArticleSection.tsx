@@ -6,6 +6,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { buildVariantDetailUrl } from '@evolution/lib/utils/evolutionUrls';
+import { formatEloWithUncertainty } from '@evolution/lib/utils/formatters';
 
 function ShortId({ id }: { id: string; runId?: string }): JSX.Element {
   return (
@@ -25,6 +26,8 @@ interface InputArticleSectionProps {
   text: string;
   textMissing?: boolean;
   elo: number | null;
+  /** Elo-scale rating uncertainty. When present, displays as "Elo {elo} ± {half}". Phase 4b. */
+  uncertainty?: number | null;
   runId?: string;
   previewLength?: number;
 }
@@ -35,6 +38,7 @@ export function InputArticleSection({
   text,
   textMissing,
   elo,
+  uncertainty,
   runId,
   previewLength = 300,
 }: InputArticleSectionProps): JSX.Element {
@@ -49,7 +53,11 @@ export function InputArticleSection({
         <ShortId id={variantId} runId={runId} />
         <span className="text-xs text-[var(--text-muted)]">{strategy}</span>
         {elo != null && (
-          <span className="text-xs text-[var(--text-muted)] font-mono">Elo {Math.round(elo)}</span>
+          <span className="text-xs text-[var(--text-muted)] font-mono">
+            Elo {uncertainty != null
+              ? (formatEloWithUncertainty(elo, uncertainty) ?? Math.round(elo))
+              : Math.round(elo)}
+          </span>
         )}
       </div>
 
