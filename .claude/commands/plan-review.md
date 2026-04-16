@@ -163,6 +163,7 @@ Display summary table:
 All reviewers voted 5/5. The plan has been approved.
 Iteration count: N
 ```
+→ Auto-push safeguard: capture `EXPECTED_HEAD=$(git rev-parse HEAD)` and run `EXPECTED_HEAD=$EXPECTED_HEAD bash .claude/lib/auto_push_on_consensus.sh`. Push failure never overturns the consensus verdict — it emits a warning and exits 0.
 → EXIT loop
 
 **ELIF iteration >= max_iterations:**

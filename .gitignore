@@ -62,6 +62,7 @@ client.log
 .claude/review-state/
 .claude/agents
 .claude/logs/
+.claude/metrics/
 
 # Evolution pipeline output
 evolution-output-*.json
