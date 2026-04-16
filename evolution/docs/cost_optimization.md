@@ -134,7 +134,7 @@ The `budgetFraction` is computed by the pipeline supervisor before each ranking 
 
 **File:** `evolution/src/lib/pipeline/infra/createEvolutionLLMClient.ts`
 
-Before each LLM call, cost is estimated using **1 token ~ 4 characters** and fixed output token estimates (1000 for generation, 100 for ranking). This feeds `costTracker.reserve()` with a 1.3x margin. After the call, actual costs replace the estimate via `recordSpend()`.
+Before each LLM call, cost is estimated using **1 token ~ 4 characters** and fixed output token estimates (1000 for generation, 100 for ranking). This feeds `costTracker.reserve()` with a 1.3x margin. After the call, actual costs are computed from the provider's **real token counts** (`usage.prompt_tokens` + `usage.completion_tokens`) via `calculateLLMCost` — the same helper `llmCallTracking.estimated_cost_usd` uses — and passed to `recordSpend()`. This replaced a string-length heuristic (`response.length / 4`) that inflated actual costs 30–800% for models whose responses don't have a clean 4 chars/token ratio.
 
 ### Pre-Dispatch Estimation (Budget-Aware)
 
@@ -333,9 +333,9 @@ Under parallel agent dispatch, a shared `V2CostTracker` serves two purposes: **b
 - `recordSpend()` — **intercepted**: calls shared tracker AND increments a private `ownSpent` counter
 - `getOwnSpent()` — returns only this scope's LLM costs, independent of other agents
 
-`Agent.run()` creates a scope per invocation and passes it as `costTracker` in `extendedCtx`. The `cost_usd` written to `evolution_agent_invocations` uses `detail.totalCost` (computed as a delta inside `execute()`) as the primary source, falling back to `scope.getOwnSpent()` for agents that call `recordSpend()` directly through the scope.
+`Agent.run()` creates a scope per invocation, passes it as `costTracker` in `extendedCtx`, AND **builds the `EvolutionLLMClient` inside the scope** (from `ctx.rawProvider` + `ctx.defaultModel` via `createEvolutionLLMClient`). The per-invocation client's `recordSpend` calls go through the scope's intercept, so `scope.getOwnSpent()` is authoritative. `MergeRatingsAgent` opts out via `usesLLM = false` since it doesn't make LLM calls.
 
-> **Pre-baked LLM clients:** Some agents receive an `llm` client created with the original shared tracker (before the scope exists). These clients record spend on the shared tracker, bypassing the scope's `recordSpend()` intercept. In these cases, `scope.getOwnSpent()` returns 0. The `detail.totalCost` fallback handles this correctly — `execute()` captures `getTotalSpent()` before and after its own work, so the delta is correct even when the LLM client bypasses the scope.
+The `cost_usd` written to `evolution_agent_invocations` comes from `scope.getOwnSpent()` — the direct sum of this invocation's `recordSpend` calls, with no sibling cost bleed even under parallel dispatch. The legacy `detail.totalCost` fallback (before/after-delta of shared `getTotalSpent()`) is retained behind the `EVOLUTION_USE_SCOPE_OWNSPENT` env flag for one-week rollback safety; flip to `'false'` in Vercel env (no redeploy) to revert to the delta path if needed. After one week of clean data, the fallback path will be removed.
 
 ---
 
