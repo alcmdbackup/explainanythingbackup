@@ -63,6 +63,7 @@ client.log
 .claude/agents
 .claude/logs/
 .claude/metrics/
+.claude/push-gate.json
 
 # Evolution pipeline output
 evolution-output-*.json

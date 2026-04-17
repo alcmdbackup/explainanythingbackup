@@ -142,6 +142,11 @@ Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>"
 
 ### 6. Push and Create PR
 
+Write the push gate file so the push hook allows the push:
+```bash
+echo "{\"commit\":\"$(git rev-parse HEAD)\",\"skill\":\"mainToProd\",\"timestamp\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" > .claude/push-gate.json
+```
+
 ```bash
 git push -u origin HEAD
 ```

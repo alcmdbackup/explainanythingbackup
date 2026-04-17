@@ -819,6 +819,11 @@ If still not clean → Display remaining files and abort finalization.
 
 ### 7. Push and Create PR
 
+Write the push gate file so the push hook allows the push:
+```bash
+echo "{\"commit\":\"$(git rev-parse HEAD)\",\"skill\":\"finalize\",\"timestamp\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" > .claude/push-gate.json
+```
+
 ```bash
 git push -u origin HEAD
 ```

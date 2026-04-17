@@ -88,6 +88,8 @@ See the planning doc for full bypass documentation.
 - Push to remote, then create a PR to pull into main branch (which is really staging)
 - Make sure to avoid merge conflicts
 - Do not worry about production, that will be taken care of later
+- **Push gate**: `git push` to `main` or `production` is blocked by a PreToolUse hook unless `/finalize` or `/mainToProd` wrote a valid `.claude/push-gate.json` matching the current HEAD. Feature branch pushes, bypass branch prefixes (`hotfix/`, `fix/`, `docs/`, `chore/`), tags, and backup mirror pushes are exempt.
+- **CI monitoring**: A Stop hook prevents Claude from finishing while a PR targeting `main` or `production` has failing or pending CI checks. Fails open if `gh` is unavailable.
 
 ---
 

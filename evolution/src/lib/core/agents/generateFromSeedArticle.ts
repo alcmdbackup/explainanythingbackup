@@ -161,7 +161,7 @@ export class GenerateFromSeedArticleAgent extends Agent<
     const localRatings = deepCloneRatings(initialRatings);
     const localMatchCounts = new Map(initialMatchCounts);
     const completedPairs = new Set<string>();
-    const costBeforeGen = ctx.costTracker.getTotalSpent();
+    const costBeforeGen = ctx.costTracker.getOwnSpent?.() ?? ctx.costTracker.getTotalSpent();
     const generationStartTime = Date.now();
 
     const makeEarlyExitDetail = (
@@ -192,7 +192,7 @@ export class GenerateFromSeedArticleAgent extends Agent<
         invocationId: ctx.invocationId,
       });
     } catch (err) {
-      const generationCost = ctx.costTracker.getTotalSpent() - costBeforeGen;
+      const generationCost = (ctx.costTracker.getOwnSpent?.() ?? ctx.costTracker.getTotalSpent()) - costBeforeGen;
       const status = err instanceof BudgetExceededError ? 'budget' : 'generation_failed';
       return {
         result: { variant: null, status, surfaced: false, matches: [] },
@@ -206,7 +206,7 @@ export class GenerateFromSeedArticleAgent extends Agent<
     }
 
     const fmt = validateFormat(generated);
-    const generationCost = ctx.costTracker.getTotalSpent() - costBeforeGen;
+    const generationCost = (ctx.costTracker.getOwnSpent?.() ?? ctx.costTracker.getTotalSpent()) - costBeforeGen;
     const generationDurationMs = Date.now() - generationStartTime;
 
     if (!fmt.valid) {
