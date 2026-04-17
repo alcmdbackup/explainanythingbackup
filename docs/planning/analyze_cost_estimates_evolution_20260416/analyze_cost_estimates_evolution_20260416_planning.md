@@ -7,6 +7,7 @@ The Cost Estimates tab for evolution run 9a49176c shows +136% estimation error, 
 - Fix sibling cost bleed in GFSA execution_detail so `generation.cost` and `ranking.cost` reflect only this agent's spend
 - Fix `estimationErrorPct` to use corrected actuals
 - Add a push gate hook that blocks `git push` to `main` or `production` unless `/finalize` or `/mainToProd` completed successfully
+- Add a Stop hook that prevents Claude from stopping while a PR targeting main/production has failing or pending CI checks
 
 ## Problem
 `generateFromSeedArticle.ts` and `rankNewVariant.ts` compute per-phase costs using `ctx.costTracker.getTotalSpent()` deltas. But `getTotalSpent()` on an `AgentCostScope` delegates to the **shared** tracker — under parallel dispatch of 9 agents, each agent's generation/ranking cost captures sibling agents' concurrent LLM spend (2-7x inflation). The resulting `estimationErrorPct` in execution_detail is wildly inaccurate, and this propagates to the `cost_estimation_error_pct` run metric and up to strategy/experiment aggregates.
@@ -65,6 +66,41 @@ Gate check:
 - [ ] Modify: `.gitignore` — add `.claude/push-gate.json`
 - [ ] Modify: `.claude/hooks/enforce-bypass-safety.sh` — block edits to `push-gate.json`
 
+### Phase 3: Stop hook for CI monitoring enforcement
+
+#### Design
+A Stop hook that prevents Claude from ending its response while a PR targeting `main` or `production` exists with failing or pending CI checks. This is a safety net — even if `/finalize` or `/mainToProd` skill logic has escape hatches, Claude physically cannot stop until CI is green.
+
+#### Hook logic: `.claude/hooks/enforce-ci-monitoring.sh`
+```
+Stop hook fires (Claude tries to finish responding)
+
+Quick exit checks:
+  - Branch is hotfix/*, fix/*, docs/*, chore/* → ALLOW stop
+  - No PR exists for current branch → ALLOW stop
+
+PR target check:
+  - Get PR base branch: gh pr view --json baseRefName -q '.baseRefName'
+  - Base is NOT main or production → ALLOW stop
+
+CI status check:
+  - Run: gh pr checks --json name,state,conclusion
+  - All checks conclusion=success → ALLOW stop
+  - Any check state=pending or conclusion=failure →
+      BLOCK: "PR #N targeting <base> has <N> failing/<N> pending CI checks: <list>.
+              Continue monitoring and fixing until all checks pass."
+  - No checks found yet (PR just created) →
+      BLOCK: "PR #N targeting <base> — CI checks haven't started yet. Wait and re-check."
+```
+
+#### Timeout handling
+- Hook timeout: 30 seconds (enough for `gh pr checks` API call)
+- If hook times out (e.g., GitHub API slow), Claude is allowed to stop (fail-open). The push gate is the hard backstop.
+
+#### Files to modify
+- [ ] New: `.claude/hooks/enforce-ci-monitoring.sh` — Stop hook script
+- [ ] Modify: `.claude/settings.json` — add Stop hook
+
 ## Testing
 
 ### Unit Tests
@@ -72,7 +108,7 @@ Gate check:
 - [ ] `rankNewVariant.test.ts` — verify `rankingCost` return uses own spend.
 - [ ] `trackBudget.test.ts` — test `getOwnSpent()` on base `V2CostTracker` returns `getTotalSpent()` (backward compat).
 
-### Hook Tests
+### Push Gate Hook Tests
 - [ ] Test hook allows feature branch pushes without gate file.
 - [ ] Test hook blocks `git push origin main` without gate file.
 - [ ] Test hook blocks push when gate file commit doesn't match HEAD.
@@ -80,6 +116,14 @@ Gate check:
 - [ ] Test hook allows `hotfix/`, `fix/`, `docs/`, `chore/` branches.
 - [ ] Test hook allows `git push backup ...`.
 - [ ] Test hook allows `git push --tags`.
+
+### Stop Hook Tests
+- [ ] Test hook allows stop when no PR exists.
+- [ ] Test hook allows stop when PR targets a non-main/production branch.
+- [ ] Test hook blocks stop when PR targeting main has pending checks.
+- [ ] Test hook blocks stop when PR targeting main has failed checks.
+- [ ] Test hook allows stop when all PR checks pass.
+- [ ] Test hook allows stop on hotfix/fix/docs/chore branches regardless of PR state.
 
 ### Integration Tests
 - [ ] Existing integration tests should pass unchanged.
@@ -89,6 +133,7 @@ Gate check:
 - [ ] Attempt `git push origin main` without running /finalize — verify blocked.
 - [ ] Run /finalize, then push — verify allowed.
 - [ ] Make a commit after /finalize, try push — verify blocked.
+- [ ] After /finalize creates PR, verify Claude cannot stop responding until CI is green.
 
 ## Verification
 
@@ -103,7 +148,7 @@ Gate check:
 ## Documentation Updates
 - [ ] Update `evolution/docs/cost_optimization.md` — note that execution_detail per-phase costs now use scope-isolated attribution.
 - [ ] Update `docs/docs_overall/debugging.md` — Bug B section: note the fix was extended to cover execution_detail.
-- [ ] Update `docs/docs_overall/project_workflow.md` — document the push gate requirement for main/production pushes.
+- [ ] Update `docs/docs_overall/project_workflow.md` — document the push gate and CI monitoring enforcement.
 
 ## Review & Discussion
 [Populated by /plan-review with agent scores, reasoning, and gap resolutions]
