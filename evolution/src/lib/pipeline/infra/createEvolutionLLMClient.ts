@@ -27,7 +27,7 @@ export function calculateCost(inputChars: number, outputChars: number, pricing: 
 
 const MAX_RETRIES = 3;
 const BACKOFF_MS = [1000, 2000, 4000];
-const PER_CALL_TIMEOUT_MS = 60_000;
+const PER_CALL_TIMEOUT_MS = 20_000;
 
 /** Estimated output tokens by label. Keys must be valid AgentName values. */
 const OUTPUT_TOKEN_ESTIMATES: Partial<Record<AgentName, number>> = {
@@ -112,7 +112,7 @@ export function createEvolutionLLMClient(
           const rawResponse = await Promise.race([
             rawProvider.complete(prompt, agentName, { model, temperature, reasoningEffort }),
             new Promise<never>((_, reject) => {
-              timeoutId = setTimeout(() => reject(new Error('LLM call timeout (60s)')), PER_CALL_TIMEOUT_MS);
+              timeoutId = setTimeout(() => reject(new Error('LLM call timeout (20s)')), PER_CALL_TIMEOUT_MS);
             }),
           ]);
 
