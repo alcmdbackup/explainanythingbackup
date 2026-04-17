@@ -175,7 +175,7 @@ After the parallel batch, runtime feedback (`actualAvgCostPerAgent` from complet
 
 ### Estimation Feedback Loop
 
-Each generateFromSeedArticle invocation records `estimatedCost` and `estimationErrorPct` in its `execution_detail` JSONB for post-hoc analysis. Query via:
+Each generateFromSeedArticle invocation records `estimatedCost` and `estimationErrorPct` in its `execution_detail` JSONB for post-hoc analysis. The per-phase `generation.cost` and `ranking.cost` in execution_detail use scope-isolated `getOwnSpent()` deltas (not shared `getTotalSpent()` deltas) so they reflect only this agent's own LLM spend under parallel dispatch. Query via:
 ```sql
 SELECT (execution_detail->'generation'->>'estimatedCost')::NUMERIC,
        (execution_detail->>'estimationErrorPct')::NUMERIC
