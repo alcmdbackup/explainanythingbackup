@@ -63,6 +63,8 @@ export interface GenerateFromSeedInput {
   initialMatchCounts: ReadonlyMap<string, number>;
   /** Shared comparison cache (order-invariant key — safe across parallel agents). */
   cache: Map<string, ComparisonResult>;
+  /** ID of the seed variant that this generation is derived from. */
+  seedVariantId: string;
 }
 
 export type GenerateFromSeedOutput = {
@@ -229,7 +231,7 @@ export class GenerateFromSeedArticleAgent extends Agent<
       text: generated.trim(),
       strategy,
       iterationBorn: ctx.iteration,
-      parentIds: [],
+      parentIds: [input.seedVariantId],
       version: 0,
     });
 

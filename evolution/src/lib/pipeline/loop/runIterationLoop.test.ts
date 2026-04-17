@@ -49,8 +49,8 @@ jest.mock('../infra/createEvolutionLLMClient', () => ({
   calculateCost: jest.fn().mockReturnValue(0.001),
 }));
 
-jest.mock('../infra/trackBudget', () => ({
-  createCostTracker: jest.fn(() => ({
+jest.mock('../infra/trackBudget', () => {
+  const mockTracker = () => ({
     reserve: jest.fn(),
     recordSpend: jest.fn(),
     release: jest.fn(),
@@ -58,8 +58,18 @@ jest.mock('../infra/trackBudget', () => ({
     getPhaseCosts: jest.fn(() => ({})),
     getAvailableBudget: jest.fn(() => 10),
     isExhausted: jest.fn(() => false),
-  })),
-}));
+  });
+  return {
+    createCostTracker: jest.fn(mockTracker),
+    createIterationBudgetTracker: jest.fn(mockTracker),
+    IterationBudgetExceededError: class IterationBudgetExceededError extends Error {
+      constructor(public agentName: string, public spent: number, public reserved: number, public cap: number, public iterationIndex: number) {
+        super(`Iteration budget exceeded`);
+        this.name = 'IterationBudgetExceededError';
+      }
+    },
+  };
+});
 
 // ─── Helpers ────────────────────────────────────────────────────────
 
@@ -79,7 +89,7 @@ function makeConfig(): EvolutionConfig {
     budgetUsd: 10,
     judgeModel: 'gpt-4o',
     generationModel: 'gpt-4o',
-    iterations: 5,
+    iterationConfigs: [{ agentType: 'generate', budgetPercent: 60 }, { agentType: 'swiss', budgetPercent: 40 }],
     strategiesPerRound: 3,
     calibrationOpponents: 5,
     tournamentTopK: 5,
@@ -205,7 +215,7 @@ describe('evolveArticle (orchestrator)', () => {
     ]);
   });
 
-  it('exits with stopReason=no_pairs when swiss has no candidate pairs', async () => {
+  it('swiss iteration records iteration_no_pairs when swiss has no candidate pairs', async () => {
     mockGenerateRun.mockResolvedValue(generateSuccess('v1'));
     mockSwissRun.mockResolvedValue({
       success: true,
@@ -214,7 +224,11 @@ describe('evolveArticle (orchestrator)', () => {
     });
 
     const result = await evolveArticle('seed', makeProvider(), makeDb() as never, 'run-1', makeConfig());
-    expect(result.stopReason).toBe('no_pairs');
+    // Run-level stopReason is 'completed' (all iterations dispatched).
+    expect(result.stopReason).toBe('completed');
+    // Per-iteration result captures the no_pairs stop.
+    const swissIter = result.iterationResults?.find((ir) => ir.agentType === 'swiss');
+    expect(swissIter?.stopReason).toBe('iteration_no_pairs');
   });
 
   it('captures one start + one end snapshot per iteration', async () => {
@@ -307,7 +321,7 @@ describe('evolveArticle (orchestrator)', () => {
 
   it('exits on wall-clock deadline at iteration boundary', async () => {
     const result = await evolveArticle('seed', makeProvider(), makeDb() as never, 'run-1', makeConfig(), { deadlineMs: Date.now() - 1000 });
-    expect(result.stopReason).toBe('time_limit');
+    expect(result.stopReason).toBe('deadline');
   });
 
   it('budget exhaustion during generate marks budgetExhausted and exits next loop', async () => {
@@ -324,7 +338,12 @@ describe('evolveArticle (orchestrator)', () => {
 
     const result = await evolveArticle('seed', makeProvider(), makeDb() as never, 'run-1', makeConfig());
 
-    expect(['budget_exceeded', 'no_pairs']).toContain(result.stopReason);
+    // With config-driven iterations, budget exhaustion during generate sets iteration_budget_exceeded;
+    // run-level stopReason is 'completed' since all config iterations are processed.
+    expect(result.stopReason).toBe('completed');
+    // Per-iteration result captures budget exceeded.
+    const genIter = result.iterationResults?.find((ir) => ir.agentType === 'generate');
+    expect(genIter?.stopReason).toBe('iteration_budget_exceeded');
     // Merge always dispatched (paid-for matches must reach global ratings)
     expect(mockMergeRun).toHaveBeenCalled();
   });
@@ -353,7 +372,7 @@ describe('evolveArticle (orchestrator)', () => {
 // ─── Seed agent behavior ─────────────────────────────────────────────
 
 describe('evolveArticle — seed agent (seedPrompt option)', () => {
-  it('without seedPrompt: baseline is added to pool immediately, seed agent never runs', async () => {
+  it('without seedVariantId: seed variant is NOT in pool (Phase 2 decoupling), seed agent never runs', async () => {
     mockGenerateRun.mockResolvedValue(generateSuccess('vn'));
     mockSwissRun.mockResolvedValue({
       success: true, result: { pairs: [], matches: [], status: 'no_pairs' },
@@ -363,14 +382,13 @@ describe('evolveArticle — seed agent (seedPrompt option)', () => {
     const result = await evolveArticle('original text', makeProvider(), makeDb() as never, 'run-1', makeConfig());
 
     expect(mockSeedRun).not.toHaveBeenCalled();
+    // Seed variant is no longer added to the pool (decoupled in Phase 2)
     const seedVariant = result.pool.find((v) => v.strategy === 'seed_variant');
-    expect(seedVariant).toBeDefined();
-    expect(seedVariant?.text).toBe('original text');
-    expect(seedVariant?.reusedFromSeed).toBeFalsy(); // fresh, not a reused seed
+    expect(seedVariant).toBeUndefined();
     expect(result.isSeeded).toBeFalsy();
   });
 
-  it('with seedVariantRow: pool[0] reuses seed UUID + dbToRating(mu, sigma); reusedFromSeed=true', async () => {
+  it('with seedVariantId: isSeeded is set and seedVariantId flows to generate agents', async () => {
     mockGenerateRun.mockResolvedValue(generateSuccess('vn'));
     mockSwissRun.mockResolvedValue({
       success: true, result: { pairs: [], matches: [], status: 'no_pairs' },
@@ -379,141 +397,19 @@ describe('evolveArticle — seed agent (seedPrompt option)', () => {
 
     const SEED_ID = 'seed-uuid-fed';
     const result = await evolveArticle('seed article text', makeProvider(), makeDb() as never, 'run-1', makeConfig(), {
-      seedVariantRow: {
-        id: SEED_ID,
-        mu: 18.75,
-        sigma: 7.15,
-        arena_match_count: 5,
-        muRaw: '18.75',
-        sigmaRaw: '7.15',
-      },
+      seedVariantId: SEED_ID,
     });
 
+    // Seed variant is NOT in the pool (decoupled in Phase 2)
     const seedEntry = result.pool.find((v) => v.id === SEED_ID);
-    expect(seedEntry).toBeDefined();
-    expect(seedEntry?.strategy).toBe('seed_variant');
-    expect(seedEntry?.reusedFromSeed).toBe(true);
-    expect(seedEntry?.fromArena).toBeFalsy(); // mutex with reusedFromSeed
-    expect(seedEntry?.arenaMatchCount).toBe(5);
-    // Rating reflects dbToRating(18.75, 7.15) — Elo ≈ 1200 + (18.75-25)*16 = 1100; uncertainty = 7.15*16 ≈ 114.4
-    const rating = result.ratings.get(SEED_ID);
-    expect(rating).toBeDefined();
-    expect(rating?.elo).toBeCloseTo(1100, 0);
-    expect(rating?.uncertainty).toBeCloseTo(114.4, 0);
-  });
-
-  it('with seedPrompt: seed agent runs before generate agents in iteration 1', async () => {
-    mockSeedRun.mockResolvedValue(seedSuccess('seed-v1'));
-    mockGenerateRun.mockResolvedValue(generateSuccess('gen-v'));
-    mockSwissRun.mockResolvedValue({
-      success: true, result: { pairs: [], matches: [], status: 'no_pairs' },
-      cost: 0, durationMs: 1, invocationId: 'inv-swiss',
-    });
-
-    await evolveArticle('', makeProvider(), makeDb() as never, 'run-1', makeConfig(), { seedPrompt: 'Explain quantum computing' });
-
-    expect(mockSeedRun).toHaveBeenCalledTimes(1);
-    const seedInput = mockSeedRun.mock.calls[0][0] as { promptText: string };
-    expect(seedInput.promptText).toBe('Explain quantum computing');
-  });
-
-  it('seed success: ONE seed_variant added to pool (no duplicate seedBaseline), isSeeded=true', async () => {
-    mockSeedRun.mockResolvedValue(seedSuccess('seed-v1'));
-    mockGenerateRun.mockResolvedValue(generateSuccess('gen-v'));
-    mockSwissRun.mockResolvedValue({
-      success: true, result: { pairs: [], matches: [], status: 'no_pairs' },
-      cost: 0, durationMs: 1, invocationId: 'inv-swiss',
-    });
-
-    const result = await evolveArticle('', makeProvider(), makeDb() as never, 'run-1', makeConfig(), { seedPrompt: 'test' });
-
+    expect(seedEntry).toBeUndefined();
+    // isSeeded flag should be set
     expect(result.isSeeded).toBe(true);
-    // The seed agent's output IS the single seed_variant pool entry — no duplicate
-    // seedBaseline shadow row (eliminated 2026-04-14 to avoid double-counting the seed).
-    const seedVariants = result.pool.filter((v) => v.strategy === 'seed_variant');
-    expect(seedVariants).toHaveLength(1);
-    expect(seedVariants[0]?.id).toBe('seed-v1');
-    expect(seedVariants[0]?.text).toBe('seed-text-seed-v1');
+    // Generate agents receive seedVariantId
+    const genInput = mockGenerateRun.mock.calls[0][0] as { seedVariantId: string };
+    expect(genInput.seedVariantId).toBe(SEED_ID);
   });
 
-  it('generate agents after seed use the seed text as originalText', async () => {
-    mockSeedRun.mockResolvedValue(seedSuccess('seed-v1'));
-    mockGenerateRun.mockResolvedValue(generateSuccess('gen-v'));
-    mockSwissRun.mockResolvedValue({
-      success: true, result: { pairs: [], matches: [], status: 'no_pairs' },
-      cost: 0, durationMs: 1, invocationId: 'inv-swiss',
-    });
-
-    await evolveArticle('ORIGINAL', makeProvider(), makeDb() as never, 'run-1', makeConfig(), { seedPrompt: 'test prompt' });
-
-    const genInput = mockGenerateRun.mock.calls[0][0] as { originalText: string };
-    // Should use seed text, not the empty original
-    expect(genInput.originalText).toBe('seed-text-seed-v1');
-  });
-
-  it('seed agent failure (budget): stopReason=seed_failed, loop exits without generate', async () => {
-    mockSeedRun.mockResolvedValue({
-      success: true,
-      result: { variant: null, status: 'budget', surfaced: false, matches: [] },
-      cost: 0.002, durationMs: 3, invocationId: 'inv-seed',
-    });
-
-    const result = await evolveArticle('', makeProvider(), makeDb() as never, 'run-1', makeConfig(), { seedPrompt: 'test' });
-
-    expect(result.stopReason).toBe('seed_failed');
-    expect(mockGenerateRun).not.toHaveBeenCalled();
-  });
-
-  it('seed agent discarded (surfaced=false): stopReason=seed_failed', async () => {
-    mockSeedRun.mockResolvedValue(seedSuccess('seed-v1', false /* surfaced=false */));
-
-    const result = await evolveArticle('', makeProvider(), makeDb() as never, 'run-1', makeConfig(), { seedPrompt: 'test' });
-
-    expect(result.stopReason).toBe('seed_failed');
-    expect(mockGenerateRun).not.toHaveBeenCalled();
-  });
-
-  it('seed agent only runs once across iterations', async () => {
-    mockSeedRun.mockResolvedValue(seedSuccess('seed-v1'));
-    // Two generate iterations: iteration 1 runs seed + generate, iteration 2 just swiss/done
-    mockGenerateRun
-      .mockResolvedValue(generateSuccess('gen-v'));
-    let swissCallCount = 0;
-    mockSwissRun.mockImplementation(async () => {
-      swissCallCount++;
-      // First swiss: return pairs to trigger a second loop; second: no_pairs to stop
-      if (swissCallCount < 2) {
-        return {
-          success: true,
-          result: { pairs: [{ a: 'seed-v1', b: 'gen-v', matches: [] }], matches: [], status: 'completed' },
-          cost: 0, durationMs: 1, invocationId: 'inv-swiss',
-        };
-      }
-      return {
-        success: true, result: { pairs: [], matches: [], status: 'no_pairs' },
-        cost: 0, durationMs: 1, invocationId: 'inv-swiss',
-      };
-    });
-
-    await evolveArticle('', makeProvider(), makeDb() as never, 'run-1', makeConfig(), { seedPrompt: 'test' });
-
-    // Seed agent invoked exactly once
-    expect(mockSeedRun).toHaveBeenCalledTimes(1);
-  });
-
-  it('with seedPrompt: no baseline in pool before seed agent runs', async () => {
-    // The seed agent should receive an empty initialPool (or arena entries only — no baseline)
-    mockSeedRun.mockResolvedValue(seedSuccess('seed-v1'));
-    mockGenerateRun.mockResolvedValue(generateSuccess('gen-v'));
-    mockSwissRun.mockResolvedValue({
-      success: true, result: { pairs: [], matches: [], status: 'no_pairs' },
-      cost: 0, durationMs: 1, invocationId: 'inv-swiss',
-    });
-
-    await evolveArticle('', makeProvider(), makeDb() as never, 'run-1', makeConfig(), { seedPrompt: 'test' });
-
-    const seedInput = mockSeedRun.mock.calls[0][0] as { initialPool: Array<{ strategy: string }> };
-    const seedVariantInSeedInput = seedInput.initialPool.filter((v) => v.strategy === 'seed_variant');
-    expect(seedVariantInSeedInput).toHaveLength(0);
-  });
+  // Seed generation tests moved to claimAndExecuteRun (pre-iteration setup).
+  // seedPrompt / seedVariantRow are no longer evolveArticle options.
 });

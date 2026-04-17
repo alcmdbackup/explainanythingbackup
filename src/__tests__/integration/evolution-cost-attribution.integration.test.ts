@@ -359,7 +359,7 @@ describe('Per-purpose cost attribution integration tests', () => {
       executionOrder: execOrder,
       logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
       costTracker: sharedTracker,
-      config: { iterations: 1, budgetUsd: 1, judgeModel: 'test', generationModel: 'test' },
+      config: { iterationConfigs: [{ agentType: 'generate' as const, budgetPercent: 100 }], budgetUsd: 1, judgeModel: 'test', generationModel: 'test' },
       invocationId: '',
       randomSeed: BigInt(0),
       rawProvider,

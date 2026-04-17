@@ -40,41 +40,47 @@ adminTest.describe('Strategy Registry CRUD', () => {
     }
   });
 
-  adminTest('create strategy with form dialog @critical', async ({ adminPage }) => {
+  adminTest('create strategy with wizard @critical', async ({ adminPage }) => {
     // Navigate to strategies page
     await adminPage.goto('/admin/evolution/strategies', { timeout: 30000 });
     await expect(adminPage.locator('main').getByRole('heading', { name: 'Strategies' })).toBeVisible({ timeout: 15000 });
 
-    // Open create dialog via header action button
+    // Click "New Strategy" — navigates to /strategies/new wizard
     await adminPage.locator('[data-testid="header-action"]').click();
-    const dialog = adminPage.locator('div[role="dialog"]');
-    await expect(dialog).toBeVisible();
+    await expect(adminPage).toHaveURL(/\/strategies\/new/, { timeout: 15000 });
 
-    // Fill in name
-    await dialog.getByPlaceholder('Strategy name').fill(testStrategyName);
+    // Step 1: Fill strategy config
+    await adminPage.getByPlaceholder(/name/i).fill(testStrategyName);
 
     // Select generation model (required)
-    const genModelSelect = dialog.locator('select').first();
+    const genModelSelect = adminPage.locator('select').first();
     const genOptions = await genModelSelect.locator('option').allTextContents();
     const validModel = genOptions.find(o => o !== 'Select a model...' && o.trim() !== '');
     if (validModel) await genModelSelect.selectOption({ label: validModel });
 
     // Select judge model (required)
-    const judgeModelSelect = dialog.locator('select').nth(1);
+    const judgeModelSelect = adminPage.locator('select').nth(1);
     const judgeOptions = await judgeModelSelect.locator('option').allTextContents();
     const validJudge = judgeOptions.find(o => o !== 'Select a model...' && o.trim() !== '');
     if (validJudge) await judgeModelSelect.selectOption({ label: validJudge });
 
-    // Fill iterations — use random value to avoid UNIQUE(config_hash) collision with existing strategies
-    const iterInput = dialog.getByRole('spinbutton', { name: /iterations/i });
-    const randomIters = Math.floor(Math.random() * 90) + 10; // 10-99
-    await iterInput.fill(String(randomIters));
+    // Set budget
+    const budgetInput = adminPage.getByLabel(/total budget/i);
+    await budgetInput.clear();
+    await budgetInput.fill('1.00');
 
-    // Submit via Save button
-    await dialog.getByRole('button', { name: /save/i }).click();
+    // Click Next to go to Step 2 (Iterations)
+    await adminPage.getByRole('button', { name: /next.*iterations/i }).click();
 
-    // Wait for dialog to close (save completed — may be slow through proxy)
-    await expect(dialog).not.toBeVisible({ timeout: 30000 });
+    // Step 2: Wait for iteration list to appear (use exact match to avoid step indicator conflict)
+    await expect(adminPage.getByText('Iterations', { exact: true })).toBeVisible({ timeout: 10000 });
+    await adminPage.getByRole('button', { name: /create strategy/i }).click();
+
+    // Should redirect to strategy detail page
+    await expect(adminPage).toHaveURL(/\/strategies\/[a-f0-9-]+/, { timeout: 30000 });
+
+    // Navigate back to strategies list and verify
+    await adminPage.goto('/admin/evolution/strategies', { timeout: 30000 });
 
     // Uncheck "Hide test content" to see [E2E] prefixed strategies
     const hideTestCheckbox = adminPage.locator('[data-testid="filter-filterTestContent"] input[type="checkbox"]');

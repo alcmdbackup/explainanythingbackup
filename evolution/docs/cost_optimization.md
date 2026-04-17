@@ -22,31 +22,38 @@ For how costs fit into the pipeline lifecycle, see [Architecture](./architecture
 
 ---
 
-## Two-Layer Budget Flow
+## Three-Layer Budget Flow
 
 ```
 LLM Call Request
        |
        v
-+------------------+     throws BudgetExceededError
-| Layer 1: Local   |----> (per-run cap exceeded)
-| V2CostTracker    |
-| (synchronous)    |
-+--------+---------+
-         | reserve OK
++------------------------+     throws BudgetExceededError
+| Layer 1a: Per-Run      |----> (run-level cap exceeded — stops entire run)
+| V2CostTracker          |
+| (synchronous)          |
++--------+---------------+
+         | run reserve OK
+         v
++------------------------+     throws IterationBudgetExceededError
+| Layer 1b: Per-Iteration|----> (iteration cap exceeded — stops this iteration only)
+| IterationBudgetTracker |
+| (synchronous)          |
++--------+---------------+
+         | iteration reserve OK
          v
 +------------------+     throws GlobalBudgetExceededError
 | Layer 2: Global  |----> (daily/monthly cap exceeded)
 | LLMSpendingGate  |
 | (DB + cache)     |     throws LLMKillSwitchError
 +--------+---------+----> (emergency stop)
-         | both pass
+         | all pass
          v
    Execute LLM Call
          |
          v
   +------+-------+
-  | Record spend  |  costTracker.recordSpend()
+  | Record spend  |  iterTracker.recordSpend() → costTracker.recordSpend()
   | Reconcile     |  gate.reconcileAfterCall()
   +--------------+
 ```
@@ -99,6 +106,38 @@ The cost tracker includes runtime postcondition assertions to detect invariant v
   - `Number.isFinite(totalSpent)` after `recordSpend()`
 
 Set `EVOLUTION_ASSERTIONS=true` in CI via `jest.setup.js` to catch invariant violations in tests.
+
+---
+
+## Layer 1b: Per-Iteration Budget Enforcement
+
+**File:** `evolution/src/lib/pipeline/infra/trackBudget.ts`
+
+Each iteration in `config.iterationConfigs[]` specifies a `budgetPercent` (1-100).
+At runtime, the dollar amount is computed as `(budgetPercent / 100) * totalBudgetUsd`.
+The `createIterationBudgetTracker(iterationBudgetUsd, runTracker, iterationIndex)` factory
+wraps the run-level `V2CostTracker` with an additional per-iteration budget check.
+
+### Reserve Sequence
+
+1. **Run-level check** — `runTracker.reserve()` is called first. If the run budget is
+   exhausted, `BudgetExceededError` is thrown (stops the entire run).
+2. **Iteration-level check** — if `iterSpent + iterReserved + margined > iterationBudgetUsd`,
+   the run-level reservation is released and `IterationBudgetExceededError` is thrown
+   (stops only the current iteration; the loop advances to the next `iterationConfig`).
+
+### IterationBudgetExceededError
+
+```typescript
+class IterationBudgetExceededError extends BudgetExceededError {
+  readonly iterationIndex: number;
+}
+```
+
+This error extends `BudgetExceededError` so existing catch blocks that handle budget
+errors will also catch iteration budget errors. The orchestrator catches
+`IterationBudgetExceededError` specifically at the iteration boundary to record
+`stopReason: 'iteration_budget_exceeded'` and continue to the next iteration.
 
 ---
 
@@ -289,14 +328,15 @@ Stored in the `llm_cost_config` table:
 
 ## Error Hierarchy
 
-Four error classes handle budget failures at different levels:
+Five error classes handle budget failures at different levels:
 
-| Error                            | Scope     | Source File                                  |
-|----------------------------------|-----------|----------------------------------------------|
-| `BudgetExceededError`            | Per-run   | `evolution/src/lib/types.ts`                 |
-| `BudgetExceededWithPartialResults` | Per-run | `evolution/src/lib/pipeline/errors.ts`       |
-| `GlobalBudgetExceededError`      | System    | `src/lib/errors/serviceError.ts`             |
-| `LLMKillSwitchError`            | System    | `src/lib/errors/serviceError.ts`             |
+| Error                            | Scope          | Source File                                  |
+|----------------------------------|----------------|----------------------------------------------|
+| `BudgetExceededError`            | Per-run        | `evolution/src/lib/types.ts`                 |
+| `IterationBudgetExceededError`   | Per-iteration  | `evolution/src/lib/pipeline/infra/trackBudget.ts` |
+| `BudgetExceededWithPartialResults` | Per-run      | `evolution/src/lib/pipeline/errors.ts`       |
+| `GlobalBudgetExceededError`      | System         | `src/lib/errors/serviceError.ts`             |
+| `LLMKillSwitchError`            | System         | `src/lib/errors/serviceError.ts`             |
 
 ```typescript
 // Per-run: thrown by V2CostTracker.reserve()

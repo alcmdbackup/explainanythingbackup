@@ -13,7 +13,7 @@ A **strategy** is a named, versioned configuration that fully specifies the mode
 Each strategy encapsulates:
 - Which LLM generates text variants.
 - Which LLM judges pairwise comparisons.
-- How many generate-rank-evolve iterations to run.
+- An ordered sequence of iterations, each specifying agent type (generate/swiss), budget percentage, and optional maxAgents.
 - Optional parameters for round sizing and budget caps.
 
 ### StrategyConfig
@@ -21,14 +21,19 @@ Each strategy encapsulates:
 The canonical type lives in `evolution/src/lib/pipeline/types.ts`:
 
 ```ts
+interface IterationConfig {
+  agentType: 'generate' | 'swiss';
+  budgetPercent: number;  // 1-100, all entries must sum to 100
+  maxAgents?: number;     // only for generate; caps parallel agents
+}
+
 interface StrategyConfig {
   generationModel: string;
   judgeModel: string;
-  iterations: number;
+  iterationConfigs: IterationConfig[];  // ordered sequence, min 1, max 20
   strategiesPerRound?: number;  // default 3
   budgetUsd?: number;
   generationGuidance?: Array<{ strategy: string; percent: number }>;
-  maxVariantsToGenerateFromSeedArticle?: number;  // default 9
   maxComparisonsPerVariant?: number;               // default 15
   // Budget floors — pick ONE unit mode, parallel + sequential must match.
   minBudgetAfterParallelFraction?: number;         // 0-1 of totalBudget
@@ -46,11 +51,10 @@ interface StrategyConfig {
 |---------------------|--------------------------------------------|
 | `generationModel`   | LLM used for text generation calls         |
 | `judgeModel`        | LLM used for pairwise comparison/judging. Default: `qwen-2.5-7b-instruct` (see `DEFAULT_JUDGE_MODEL` in `src/config/modelRegistry.ts`). Selected based on empirical judge-agreement research (see `docs/research/judge_agreement_summary_tables.md`) — 100% decisive on both large-gap and close-pair comparisons with ~1.7s median latency and no thinking-mode overhead. |
-| `iterations`        | Number of generate-rank-evolve cycles      |
+| `iterationConfigs`  | Ordered array of iteration definitions. Each entry specifies `agentType` (`generate` or `swiss`), `budgetPercent` (1-100, must sum to 100 across all entries), and optional `maxAgents` (generate only — caps parallel agent count). First entry must be `generate` (swiss on empty pool is invalid). Max 20 entries. Dollar amounts computed at runtime: `iterationBudgetUsd = (budgetPercent / 100) * totalBudgetUsd`. |
 | `strategiesPerRound`| Generation strategies per iteration round  |
-| `budgetUsd`         | Optional per-run budget cap                |
+| `budgetUsd`         | Optional per-run budget cap. Per-iteration amounts derived from `iterationConfigs[].budgetPercent`. |
 | `generationGuidance`| Optional weighted strategy distribution. Array of `{ strategy, percent }` entries where percentages must sum to 100 and strategy names must be unique. Enables weighted random strategy selection from all 8 strategies instead of the default deterministic 3-strategy behavior. |
-| `maxVariantsToGenerateFromSeedArticle` | Max generateFromSeedArticle agents per run. Excludes seed article. Default 9. |
 | `maxComparisonsPerVariant` | Hard cap on pairwise comparisons per variant during ranking. Default 15. Used for deterministic cost estimation: `min(poolSize - 1, maxComparisonsPerVariant)`. |
 | `minBudgetAfterParallelFraction` / `minBudgetAfterParallelAgentMultiple` | Minimum budget to reserve for later phases after parallel generation. Specified as either a fraction of total budget (0-1) or a multiple of estimated agent cost (≥ 0). Exactly one unit per strategy. Parallel uses the initial `estimateAgentCost()` output. |
 | `minBudgetAfterSequentialFraction` / `minBudgetAfterSequentialAgentMultiple` | Minimum budget to reserve after sequential generation. Same two-unit system. Sequential uses `actualAvgCostPerAgent` from the parallel batch when available, falling back to initial estimate. Must be ≤ parallel floor (same unit). |
@@ -61,17 +65,39 @@ interface StrategyConfig {
 
 To isolate and test a single generation strategy, create a strategy config with `generationGuidance` set to 100% for one strategy (e.g., `[{ strategy: "engagement_amplify", percent: 100 }]`) and `strategiesPerRound: 1`. This produces runs that use only that strategy, enabling controlled A/B comparison across strategies within an experiment.
 
+#### Example iterationConfigs
+
+A typical strategy with 1 generation round and 2 swiss rounds:
+```ts
+iterationConfigs: [
+  { agentType: 'generate', budgetPercent: 50 },
+  { agentType: 'swiss', budgetPercent: 30 },
+  { agentType: 'swiss', budgetPercent: 20 },
+]
+```
+
+A multi-generation strategy with interleaved swiss:
+```ts
+iterationConfigs: [
+  { agentType: 'generate', budgetPercent: 30, maxAgents: 5 },
+  { agentType: 'swiss', budgetPercent: 15 },
+  { agentType: 'generate', budgetPercent: 25, maxAgents: 3 },
+  { agentType: 'swiss', budgetPercent: 15 },
+  { agentType: 'swiss', budgetPercent: 15 },
+]
+```
+
 ### Config Hashing
 
-Each strategy config is identified by a 12-character hex hash derived from SHA-256 of `{generationModel, judgeModel, iterations}`. Only these three fields are hashed; `strategiesPerRound` and `budgetUsd` are excluded so that budget adjustments do not create duplicate strategies.
+Each strategy config is identified by a 12-character hex hash derived from SHA-256 of `{generationModel, judgeModel, iterationConfigs}`. These three fields are hashed; `strategiesPerRound` and `budgetUsd` are excluded so that budget adjustments do not create duplicate strategies. The full `iterationConfigs` array (agent types, budget percentages, maxAgents) is included, so changing the iteration sequence creates a new strategy.
 
 ```ts
-// evolution/src/lib/pipeline/strategy.ts
+// evolution/src/lib/pipeline/setup/findOrCreateStrategy.ts
 function hashStrategyConfig(config: StrategyConfig): string {
   const normalized = {
     generationModel: config.generationModel,
     judgeModel: config.judgeModel,
-    iterations: config.iterations,
+    iterationConfigs: config.iterationConfigs,
   };
   return createHash('sha256')
     .update(JSON.stringify(normalized))
@@ -85,10 +111,10 @@ function hashStrategyConfig(config: StrategyConfig): string {
 Every strategy receives a human-readable label generated from its config:
 
 ```
-Gen: 4.1-mini | Judge: 4.1-mini | 5 iters | Budget: $2.00
+Gen: 4.1-mini | Judge: 4.1-mini | 2×gen + 3×swiss
 ```
 
-Model names are shortened for display (`gpt-` prefix stripped, `claude-` becomes `cl-`, `deepseek-` becomes `ds-`). The label function is `labelStrategyConfig` in the same module.
+The iteration summary counts generate and swiss iterations from `iterationConfigs[]` (e.g., `2×gen + 3×swiss`). If `budgetUsd` is set, it's appended (e.g., `| Budget: $2.00`). Model names are shortened for display (`gpt-` prefix stripped, `claude-` becomes `cl-`, `deepseek-` becomes `ds-`). The label function is `labelStrategyConfig` in `findOrCreateStrategy.ts`.
 
 ### Upsert by Hash (Race-Safe)
 
@@ -100,7 +126,7 @@ An auto-generated name is also assigned during upsert:
 ```
 Strategy a1b2c3 (mini, 5it)
 ```
-This uses the first 6 characters of the config hash plus the generation model suffix and iteration count for quick identification.
+This uses the first 6 characters of the config hash plus the generation model suffix and `iterationConfigs.length` for quick identification.
 
 ### Strategy Status
 
@@ -117,7 +143,7 @@ The full set of strategy operations is exposed through `evolution/src/services/s
 
 - **listStrategiesAction** -- paginated listing with optional filters by status, created_by, and pipeline_type. Returns `{ items, total }` for pagination controls.
 - **getStrategyDetailAction** -- full detail for a single strategy by ID.
-- **createStrategyAction** -- validates input via Zod schema, computes config hash and auto-label, inserts the row.
+- **createStrategyAction** -- validates input via Zod schema (including `iterationConfigs` validation: sum to 100, first must be generate, max 20), computes config hash and auto-label, inserts the row. The admin UI provides a 2-step wizard at `/admin/evolution/strategies/new` for creating strategies with an interactive iteration builder.
 - **updateStrategyAction** -- partial updates to name, description, or status.
 - **cloneStrategyAction** -- duplicates an existing strategy with a new name, useful for creating variations of a known-good config.
 
@@ -284,8 +310,8 @@ On confirmation, the wizard calls `createExperimentAction` once, then calls `add
 After runs are enqueued, the pipeline worker picks them up in FIFO order. Each run executes independently:
 
 1. Worker claims a `pending` run (sets status to `claimed`).
-2. The run's strategy config determines model selection and iteration count.
-3. On completion, `finalizeRun` persists results, updates strategy aggregates, and triggers experiment auto-completion if applicable.
+2. The run's strategy config determines model selection and iteration sequence (`iterationConfigs[]`). Each iteration gets its own budget tracker computed from `budgetPercent`.
+3. On completion, `finalizeRun` persists results (including `iterationResults[]`), updates strategy aggregates, and triggers experiment auto-completion if applicable.
 4. If the run fails or is killed, it is marked `failed` with an error message.
 
 Administrators can monitor experiment progress through the admin UI, which polls `getExperimentAction` to display live status updates for each run.
@@ -530,14 +556,15 @@ When a variant's DB `mu` or `sigma` columns change post-completion (these column
 | `evolution/src/services/experimentActionsV2.ts` | Experiment lifecycle server actions (create, add run, get, list, cancel) |
 | `evolution/src/services/strategyRegistryActionsV2.ts` | Strategy CRUD server actions (list, create, update, clone) |
 | `evolution/src/lib/pipeline/experiments.ts` | Core experiment functions (create, addRun, computeMetrics) |
-| `evolution/src/lib/pipeline/strategy.ts` | Strategy hashing, labeling, and upsert-by-hash |
+| `evolution/src/lib/pipeline/setup/findOrCreateStrategy.ts` | Strategy hashing (includes `iterationConfigs`), labeling, and upsert-by-hash |
 | `evolution/src/lib/pipeline/finalize.ts` | Run finalization: auto-completion, aggregate updates |
-| `evolution/src/lib/pipeline/infra/types.ts` | `StrategyConfig`, `EvolutionConfig`, `EvolutionResult` types |
+| `evolution/src/lib/pipeline/infra/types.ts` | `StrategyConfig`, `EvolutionConfig`, `EvolutionResult` (with `iterationResults[]`), `IterationConfig`, `IterationResult`, `IterationStopReason` types |
 | `evolution/src/experiments/evolution/experimentMetrics.ts` | Bootstrap CI functions, MetricValue type |
 | `evolution/src/lib/metrics/registry.ts` | Declarative metric registry with compute functions |
 | `evolution/src/lib/metrics/writeMetrics.ts` | UPSERT metrics to evolution_metrics table |
 | `evolution/src/lib/metrics/recomputeMetrics.ts` | Stale metric recomputation with row-level locking |
 | `src/app/admin/evolution/start-experiment/page.tsx` | Experiment creation wizard UI |
+| `src/app/admin/evolution/strategies/new/page.tsx` | 2-step strategy creation wizard with iteration builder |
 
 ---
 

@@ -32,7 +32,7 @@ function makeCtx(overrides: Partial<FinalizationContext> = {}): FinalizationCont
   ]);
   const matchHistory = overrides.matchHistory ?? [];
   return {
-    result: { winner: pool[0]!, pool, ratings, matchHistory, totalCost: 0, iterationsRun: 1, stopReason: 'iterations_complete', eloHistory: [], diversityHistory: [], matchCounts: {} },
+    result: { winner: pool[0]!, pool, ratings, matchHistory, totalCost: 0, iterationsRun: 1, stopReason: 'completed', eloHistory: [], diversityHistory: [], matchCounts: {} },
     ratings,
     pool,
     matchHistory,

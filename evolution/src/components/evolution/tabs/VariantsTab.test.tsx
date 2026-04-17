@@ -97,10 +97,10 @@ describe('VariantsTab', () => {
 
     render(<VariantsTab runId="run-1" />);
     await waitFor(() => expect(screen.getByTestId('variants-tab')).toBeInTheDocument());
-    // The Strategy column should show em-dash for empty agent_name.
-    // Multiple em-dashes may now appear (e.g. 95% CI column for variants without mu/sigma),
-    // so assert >= 1 instead of exactly 1.
-    expect(screen.getAllByText('\u2014').length).toBeGreaterThanOrEqual(1);
+    // The Strategy column, Parent column, and 95% CI column may all show em-dash;
+    // at least one must be present for empty agent_name.
+    const dashes = screen.getAllByText('\u2014');
+    expect(dashes.length).toBeGreaterThanOrEqual(1);
   });
 
   it('F26: strategy dropdown has no empty options when variants have empty/null agent_name', async () => {
@@ -152,8 +152,10 @@ describe('VariantsTab', () => {
     render(<VariantsTab runId="run-1" />);
     await waitFor(() => expect(screen.getByTestId('variants-tab')).toBeInTheDocument());
 
-    const select = screen.getByRole('combobox');
-    const options = select.querySelectorAll('option');
+    const selects = screen.getAllByRole('combobox');
+    // First combobox is the strategy filter
+    const strategySelect = selects[0]!;
+    const options = strategySelect.querySelectorAll('option');
     // First option is "All strategies", rest should only be non-empty agent names
     for (const opt of Array.from(options)) {
       expect(opt.textContent!.trim()).not.toBe('');
@@ -172,7 +174,8 @@ describe('VariantsTab', () => {
     render(<VariantsTab runId="run-1" />);
     await waitFor(() => expect(screen.getByTestId('variants-tab')).toBeInTheDocument());
 
-    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'generation' } });
+    // First combobox is the strategy filter
+    fireEvent.change(screen.getAllByRole('combobox')[0]!, { target: { value: 'generation' } });
     expect(screen.getByText('1350')).toBeInTheDocument();
     expect(screen.queryByText('1200')).toBeNull();
   });

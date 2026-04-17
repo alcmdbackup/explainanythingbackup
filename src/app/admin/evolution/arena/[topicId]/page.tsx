@@ -21,6 +21,7 @@ import {
 } from '@evolution/services/arenaActions';
 import { formatElo, stripMarkdownTitle } from '@evolution/lib/shared/computeRatings';
 import { formatEloCIRange, formatEloWithUncertainty } from '@evolution/lib/utils/formatters';
+import { buildVariantDetailUrl } from '@evolution/lib/utils/evolutionUrls';
 import { computeEloCutoff } from './arenaCutoff';
 
 function ContentLink({ entryId, content }: { entryId: string; content: string }): JSX.Element {
@@ -212,7 +213,9 @@ export default function ArenaTopicDetailPage(): JSX.Element {
                   <th className="py-2 pr-3">95% CI</th>
                   <th {...sortableThProps('uncertainty')}>Elo ± Uncertainty{sortIndicator('uncertainty')}</th>
                   <th {...sortableThProps('arena_match_count')}>Matches{sortIndicator('arena_match_count')}</th>
+                  <th className="py-2 pr-3">Iteration</th>
                   <th {...sortableThProps('generation_method')}>Method{sortIndicator('generation_method')}</th>
+                  <th className="py-2 pr-3">Parent</th>
                   <th {...sortableThProps('cost_usd')}>Cost{sortIndicator('cost_usd')}</th>
                 </tr>
               </thead>
@@ -241,7 +244,30 @@ export default function ArenaTopicDetailPage(): JSX.Element {
                           : '—'}
                       </td>
                       <td className="py-2 pr-3 font-mono">{entry.arena_match_count}</td>
-                      <td className="py-2 pr-3 text-[var(--text-secondary)]">{entry.generation_method}</td>
+                      <td className="py-2 pr-3 font-mono text-[var(--text-muted)]">
+                        {entry.generation != null ? entry.generation : '—'}
+                      </td>
+                      <td className="py-2 pr-3 text-[var(--text-secondary)]">
+                        {entry.is_seed && (
+                          <span className="inline-block mr-1 px-1.5 py-0.5 text-xs font-semibold uppercase tracking-wider rounded bg-[var(--accent-gold)] text-[var(--surface-primary)]">
+                            seed
+                          </span>
+                        )}
+                        {entry.generation_method}
+                      </td>
+                      <td className="py-2 pr-3">
+                        {entry.parent_variant_id ? (
+                          <Link
+                            href={buildVariantDetailUrl(entry.parent_variant_id)}
+                            className="font-mono text-xs text-[var(--accent-gold)] hover:underline"
+                            title={entry.parent_variant_id}
+                          >
+                            {entry.parent_variant_id.substring(0, 6)}
+                          </Link>
+                        ) : (
+                          <span className="text-[var(--text-muted)]">—</span>
+                        )}
+                      </td>
                       <td className="py-2 font-mono">
                         {entry.cost_usd != null
                           ? `$${entry.cost_usd.toFixed(2)}`

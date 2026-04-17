@@ -18,25 +18,32 @@ function shortenModel(model: string): string {
 // ─── Public API ──────────────────────────────────────────────────
 
 /**
- * Generate a stable 12-char hash for a V2 strategy config.
- * Hashes ONLY: generationModel, judgeModel, iterations.
- * V2-only fields (strategiesPerRound, budgetUsd) are excluded from hash.
+ * Generate a stable 12-char hash for a strategy config.
+ * Hashes: generationModel, judgeModel, iterationConfigs (full array).
+ * Budget floors and other non-core fields are excluded.
  */
 export function hashStrategyConfig(config: StrategyConfig): string {
   const normalized = {
     generationModel: config.generationModel,
     judgeModel: config.judgeModel,
-    iterations: config.iterations,
+    iterationConfigs: config.iterationConfigs,
   };
   return createHash('sha256').update(JSON.stringify(normalized)).digest('hex').slice(0, 12);
 }
 
-/** Auto-generated label: "Gen: model | Judge: model | N iters". */
+/** Auto-generated label: "Gen: model | Judge: model | 2×gen + 3×swiss". */
 export function labelStrategyConfig(config: StrategyConfig): string {
+  const genCount = config.iterationConfigs.filter((ic) => ic.agentType === 'generate').length;
+  const swissCount = config.iterationConfigs.filter((ic) => ic.agentType === 'swiss').length;
+  const iterLabel = [
+    genCount > 0 ? `${genCount}×gen` : '',
+    swissCount > 0 ? `${swissCount}×swiss` : '',
+  ].filter(Boolean).join(' + ');
+
   const parts = [
     `Gen: ${shortenModel(config.generationModel)}`,
     `Judge: ${shortenModel(config.judgeModel)}`,
-    `${config.iterations} iters`,
+    iterLabel,
   ];
 
   if (config.budgetUsd != null) {
@@ -56,7 +63,7 @@ export async function upsertStrategy(
 ): Promise<string> {
   const hash = hashStrategyConfig(config);
   const label = labelStrategyConfig(config);
-  const name = `Strategy ${hash.slice(0, 6)} (${config.generationModel.split('-').pop()}, ${config.iterations}it)`;
+  const name = `Strategy ${hash.slice(0, 6)} (${config.generationModel.split('-').pop()}, ${config.iterationConfigs.length}it)`;
 
   const payload = evolutionStrategyInsertSchema.parse({ name, label, config, config_hash: hash });
   const { data, error } = await db

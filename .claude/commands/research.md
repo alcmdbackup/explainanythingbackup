@@ -40,9 +40,9 @@ ls -d docs/planning/*${PROJECT_NAME}* 2>/dev/null | head -1
 
 Read ALL files in the project folder to understand the research scope:
 
-1. **Read the research document** (`*_research.md` or `_research.md`) - see what's already been researched. If missing (fast-path `/initialize` skips this for `fix/`/`chore/`/`docs/`/`hotfix/`), lazy-create via `bash .claude/lib/scaffold_research.sh <project-folder> <project-name>` before reading.
-2. **Read the planning document** (`*_planning.md` or `_planning.md`) - understand the problem and goals.
-3. **Read the progress document** (`*_progress.md` or `_progress.md`) - check current status. If missing, lazy-create via `bash .claude/lib/scaffold_progress.sh <project-folder> <project-name>` before reading.
+1. **Read the research document** (`*_research.md` or `_research.md`) - see what's already been researched
+2. **Read the planning document** (`*_planning.md` or `_planning.md`) - understand the problem and goals
+3. **Read the progress document** (`*_progress.md` or `_progress.md`) - check current status
 
 Extract from these files:
 - The problem statement / goal

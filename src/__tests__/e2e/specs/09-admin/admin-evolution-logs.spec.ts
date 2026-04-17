@@ -35,7 +35,7 @@ async function seedRunWithLogs(): Promise<SeededData> {
       config_hash: `e2e-logs-${ts}`,
       name: `[TEST] Logs Strategy ${ts}`,
       label: 'Gen: test | Judge: test',
-      config: { generationModel: 'test', judgeModel: 'test', iterations: 1 },
+      config: { generationModel: 'test', judgeModel: 'test', iterationConfigs: [{ agentType: 'generate', budgetPercent: 60 }, { agentType: 'swiss', budgetPercent: 40 }] },
       created_by: 'admin',
     })
     .select('id')

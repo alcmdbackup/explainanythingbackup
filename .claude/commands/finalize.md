@@ -876,11 +876,8 @@ gh pr create --base main --title "[Project] ${PROJECT_NAME}" --body "$(cat <<'EO
 
 ## Planning
 - Folder: `docs/planning/${PROJECT_NAME}/`
-- Plan: `${PROJECT_NAME}_planning.md`
-[Include these bullets ONLY for files that exist in the project folder — fast-path branch types (fix/chore/docs/hotfix) created via the simplified /initialize may not have `_research.md` or `_progress.md`:]
-[If `[ -f docs/planning/<folder>/${PROJECT_NAME}_research.md ]`:]
 - Research: `${PROJECT_NAME}_research.md`
-[If `[ -f docs/planning/<folder>/${PROJECT_NAME}_progress.md ]`:]
+- Plan: `${PROJECT_NAME}_planning.md`
 - Progress: `${PROJECT_NAME}_progress.md`
 
 ---

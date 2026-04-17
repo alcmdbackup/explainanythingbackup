@@ -1,6 +1,6 @@
-// Tests for V2 cost tracker with reserve-before-spend pattern.
+// Tests for V2 cost tracker with reserve-before-spend pattern and per-iteration budget tracking.
 
-import { createCostTracker, createAgentCostScope } from './trackBudget';
+import { createCostTracker, createAgentCostScope, createIterationBudgetTracker, IterationBudgetExceededError } from './trackBudget';
 import { BudgetExceededError } from '../../types';
 import { createMockEntityLogger } from '../../../testing/evolution-test-helpers';
 
@@ -298,5 +298,92 @@ describe('createAgentCostScope', () => {
     expect(scopeA.getPhaseCosts()['generation']).toBeCloseTo(0.05);
     expect(scopeA.getPhaseCosts()['ranking']).toBeCloseTo(0.03);
     expect(scopeB.getPhaseCosts()['generation']).toBeCloseTo(0.05);
+  });
+});
+
+describe('createIterationBudgetTracker', () => {
+  it('reserve succeeds when within both iteration and run budgets', () => {
+    const run = createCostTracker(1.0);
+    const iter = createIterationBudgetTracker(0.5, run, 0);
+    const m = iter.reserve('generation', 0.1);
+    expect(m).toBeCloseTo(0.13);
+    expect(iter.getAvailableBudget()).toBeCloseTo(0.37); // 0.5 - 0.13
+  });
+
+  it('throws IterationBudgetExceededError when iteration budget exhausted', () => {
+    const run = createCostTracker(1.0);
+    const iter = createIterationBudgetTracker(0.1, run, 0);
+    expect(() => iter.reserve('generation', 0.1)).toThrow(IterationBudgetExceededError);
+    // Run-level reservation should NOT have been consumed.
+    expect(run.getAvailableBudget()).toBeCloseTo(1.0);
+  });
+
+  it('throws BudgetExceededError (not Iteration) when run budget exhausted first', () => {
+    const run = createCostTracker(0.1);
+    const iter = createIterationBudgetTracker(0.5, run, 0);
+    try {
+      iter.reserve('generation', 0.1);
+      fail('Should have thrown');
+    } catch (e) {
+      expect(e).toBeInstanceOf(BudgetExceededError);
+      expect(e).not.toBeInstanceOf(IterationBudgetExceededError);
+    }
+  });
+
+  it('recordSpend updates both iteration and run trackers', () => {
+    const run = createCostTracker(1.0);
+    const iter = createIterationBudgetTracker(0.5, run, 0);
+    const m = iter.reserve('generation', 0.1);
+    iter.recordSpend('generation', 0.08, m);
+    expect(iter.getTotalSpent()).toBeCloseTo(0.08); // iteration-level
+    expect(run.getTotalSpent()).toBeCloseTo(0.08);  // run-level
+  });
+
+  it('release frees both iteration and run reservations', () => {
+    const run = createCostTracker(1.0);
+    const iter = createIterationBudgetTracker(0.5, run, 0);
+    const m = iter.reserve('generation', 0.1);
+    iter.release('generation', m);
+    expect(iter.getAvailableBudget()).toBeCloseTo(0.5);
+    expect(run.getAvailableBudget()).toBeCloseTo(1.0);
+  });
+
+  it('getAvailableBudget returns min of iteration and run available', () => {
+    const run = createCostTracker(0.3);
+    const iter = createIterationBudgetTracker(0.5, run, 0);
+    // Run budget (0.3) is less than iteration budget (0.5), so run is the constraint.
+    expect(iter.getAvailableBudget()).toBeCloseTo(0.3);
+  });
+
+  it('getPhaseCosts tracks iteration-level costs independently', () => {
+    const run = createCostTracker(1.0);
+    const iter = createIterationBudgetTracker(0.5, run, 0);
+    const m = iter.reserve('generation', 0.1);
+    iter.recordSpend('generation', 0.08, m);
+    expect(iter.getPhaseCosts()['generation']).toBeCloseTo(0.08);
+  });
+
+  it('two iterations on same run tracker have independent iteration spend', () => {
+    const run = createCostTracker(1.0);
+    const iter1 = createIterationBudgetTracker(0.6, run, 0);
+    const iter2 = createIterationBudgetTracker(0.4, run, 1);
+
+    const m1 = iter1.reserve('generation', 0.1);
+    iter1.recordSpend('generation', 0.05, m1);
+
+    const m2 = iter2.reserve('ranking', 0.1);
+    iter2.recordSpend('ranking', 0.03, m2);
+
+    expect(iter1.getTotalSpent()).toBeCloseTo(0.05);
+    expect(iter2.getTotalSpent()).toBeCloseTo(0.03);
+    expect(run.getTotalSpent()).toBeCloseTo(0.08);
+  });
+
+  it('IterationBudgetExceededError extends BudgetExceededError', () => {
+    const err = new IterationBudgetExceededError('generation', 0.1, 0.2, 0.3, 2);
+    expect(err).toBeInstanceOf(BudgetExceededError);
+    expect(err).toBeInstanceOf(IterationBudgetExceededError);
+    expect(err.name).toBe('IterationBudgetExceededError');
+    expect(err.iterationIndex).toBe(2);
   });
 });

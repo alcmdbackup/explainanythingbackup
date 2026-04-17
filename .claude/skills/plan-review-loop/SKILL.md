@@ -131,7 +131,6 @@ interface AggregatedReview {
 ```
 IF lowest_score === 5 AND all_critical_gaps.length === 0:
   → APPROVE: Exit loop, document is ready
-  → Auto-push safeguard: capture `EXPECTED_HEAD=$(git rev-parse HEAD)` and run `EXPECTED_HEAD=$EXPECTED_HEAD bash .claude/lib/auto_push_on_consensus.sh`
 
 ELIF iteration >= max_iterations:
   → ESCALATE: Ask user for manual decision

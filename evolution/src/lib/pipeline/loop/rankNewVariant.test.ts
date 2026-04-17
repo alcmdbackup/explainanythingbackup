@@ -57,7 +57,7 @@ function makeCostTracker(initialSpent = 0): V2CostTracker & { _spent: number } {
 }
 
 const baseConfig: EvolutionConfig = {
-  iterations: 3,
+  iterationConfigs: [{ agentType: 'generate', budgetPercent: 60 }, { agentType: 'swiss', budgetPercent: 40 }],
   budgetUsd: 5,
   judgeModel: 'gpt-4o',
   generationModel: 'gpt-4o',

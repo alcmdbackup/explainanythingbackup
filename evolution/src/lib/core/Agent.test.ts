@@ -68,7 +68,7 @@ function createMockContext(overrides?: Partial<AgentContext>): AgentContext {
       getAvailableBudget: jest.fn().mockReturnValue(5),
     },
     config: {
-      iterations: 5,
+      iterationConfigs: [{ agentType: 'generate', budgetPercent: 60 }, { agentType: 'swiss', budgetPercent: 40 }],
       budgetUsd: 10,
       judgeModel: 'gpt-4o',
       generationModel: 'gpt-4o',

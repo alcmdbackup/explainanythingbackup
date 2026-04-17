@@ -16,6 +16,11 @@ import { buildVariantDetailUrl } from '@evolution/lib/utils/evolutionUrls';
 import { formatEloWithUncertainty, formatEloCIRange } from '@evolution/lib/utils/formatters';
 import { dbToRating } from '@evolution/lib/shared/computeRatings';
 
+/** Extended variant type with optional parent_variant_id for display. */
+interface VariantWithParent extends EvolutionVariant {
+  parent_variant_id?: string | null;
+}
+
 interface VariantsTabProps {
   /** When set, load variants for a single run (original behavior). */
   runId?: string;
@@ -37,11 +42,12 @@ export function VariantsTab({ runId, strategyId, runStatus }: VariantsTabProps):
   }
   const searchParams = useSearchParams();
   const initialVariant = searchParams.get('variant');
-  const [variants, setVariants] = useState<EvolutionVariant[]>([]);
+  const [variants, setVariants] = useState<VariantWithParent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [strategyFilter, setStrategyFilter] = useState<string>('');
+  const [iterationFilter, setIterationFilter] = useState<string>('');
   const [includeDiscarded, setIncludeDiscarded] = useState(false);
   const initialVariantApplied = useRef(false);
 
@@ -73,6 +79,11 @@ export function VariantsTab({ runId, strategyId, runStatus }: VariantsTabProps):
     return Array.from(set).sort();
   }, [variants]);
 
+  const iterations = useMemo(() => {
+    const set = new Set(variants.map(v => v.generation));
+    return Array.from(set).sort((a, b) => a - b);
+  }, [variants]);
+
   // Pre-compute rank map from unfiltered (sorted) list so ranks stay stable when filtering
   const rankMap = useMemo(() => {
     const map = new Map<string, number>();
@@ -81,9 +92,11 @@ export function VariantsTab({ runId, strategyId, runStatus }: VariantsTabProps):
   }, [variants]);
 
   const filtered = useMemo(() => {
-    if (!strategyFilter) return variants;
-    return variants.filter(v => v.agent_name === strategyFilter);
-  }, [variants, strategyFilter]);
+    let result = variants;
+    if (strategyFilter) result = result.filter(v => v.agent_name === strategyFilter);
+    if (iterationFilter) result = result.filter(v => String(v.generation) === iterationFilter);
+    return result;
+  }, [variants, strategyFilter, iterationFilter]);
 
   if (loading) {
     return (
@@ -105,14 +118,25 @@ export function VariantsTab({ runId, strategyId, runStatus }: VariantsTabProps):
         </div>
       )}
       <div className="flex items-center justify-between relative z-10 gap-3">
-        <select
-          value={strategyFilter}
-          onChange={e => setStrategyFilter(e.target.value)}
-          className="px-3 py-1.5 border border-[var(--border-default)] rounded-page bg-[var(--surface-secondary)] text-[var(--text-primary)] text-xs"
-        >
-          <option value="">All strategies</option>
-          {strategies.map(s => <option key={s} value={s}>{s}</option>)}
-        </select>
+        <div className="flex items-center gap-2">
+          <select
+            value={strategyFilter}
+            onChange={e => setStrategyFilter(e.target.value)}
+            className="px-3 py-1.5 border border-[var(--border-default)] rounded-page bg-[var(--surface-secondary)] text-[var(--text-primary)] text-xs"
+          >
+            <option value="">All strategies</option>
+            {strategies.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+          <select
+            value={iterationFilter}
+            onChange={e => setIterationFilter(e.target.value)}
+            className="px-3 py-1.5 border border-[var(--border-default)] rounded-page bg-[var(--surface-secondary)] text-[var(--text-primary)] text-xs"
+            data-testid="iteration-filter"
+          >
+            <option value="">All iterations</option>
+            {iterations.map(i => <option key={i} value={String(i)}>Iteration {i}</option>)}
+          </select>
+        </div>
         <label className="flex items-center gap-2 text-xs font-ui text-[var(--text-secondary)] cursor-pointer" data-testid="include-discarded-toggle">
           <input
             type="checkbox"
@@ -133,7 +157,8 @@ export function VariantsTab({ runId, strategyId, runStatus }: VariantsTabProps):
               <th className="px-2 py-2 text-right" title="95% confidence interval: Elo ± 1.96 × uncertainty">95% CI</th>
               <th className="px-2 py-2 text-right" title="Run-local matches only (excludes arena matches)">Matches</th>
               <th className="px-2 py-2 text-left">Strategy</th>
-              <th className="px-2 py-2 text-right">Gen</th>
+              <th className="px-2 py-2 text-right">Iteration</th>
+              <th className="px-2 py-2 text-left">Parent</th>
               <th className="px-2 py-2 text-center" title="Persisted to final pool (false = discarded)">Persisted</th>
               <th className="px-2 py-2 text-left">Actions</th>
             </tr>
@@ -175,6 +200,19 @@ export function VariantsTab({ runId, strategyId, runStatus }: VariantsTabProps):
                   <td className="px-2 py-2 text-right text-[var(--text-muted)]">{v.match_count}</td>
                   <td className="px-2 py-2 font-mono text-xs">{v.agent_name || '—'}</td>
                   <td className="px-2 py-2 text-right text-[var(--text-muted)]">{v.generation}</td>
+                  <td className="px-2 py-2">
+                    {(v as VariantWithParent).parent_variant_id ? (
+                      <Link
+                        href={buildVariantDetailUrl((v as VariantWithParent).parent_variant_id!)}
+                        className="font-mono text-xs text-[var(--accent-gold)] hover:underline"
+                        title={(v as VariantWithParent).parent_variant_id!}
+                      >
+                        {(v as VariantWithParent).parent_variant_id!.substring(0, 6)}
+                      </Link>
+                    ) : (
+                      <span className="text-[var(--text-muted)]">—</span>
+                    )}
+                  </td>
                   <td className="px-2 py-2 text-center" data-testid={`persisted-${v.id.substring(0, 6)}`}>
                     {v.persisted === false ? (
                       <span className="text-xs font-ui text-[var(--status-error)]" title="Discarded — not in final pool">✗</span>

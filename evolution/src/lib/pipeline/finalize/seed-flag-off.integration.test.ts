@@ -32,7 +32,7 @@ function makeDb() {
         return t;
       });
       chain.single = jest.fn(async () => {
-        if (table === 'evolution_strategies') return { data: { config: { generationModel: 'gpt-4o', judgeModel: 'gpt-4o', iterations: 1 } }, error: null };
+        if (table === 'evolution_strategies') return { data: { config: { generationModel: 'gpt-4o', judgeModel: 'gpt-4o', iterationConfigs: [{ agentType: 'generate', budgetPercent: 60 }, { agentType: 'swiss', budgetPercent: 40 }] } }, error: null };
         if (table === 'evolution_prompts') return { data: { prompt: PROMPT_TEXT }, error: null };
         if (table === 'evolution_runs') return { data: { random_seed: '42' }, error: null };
         return { data: null, error: null };

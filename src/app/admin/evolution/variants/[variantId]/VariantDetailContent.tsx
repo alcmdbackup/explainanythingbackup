@@ -1,10 +1,12 @@
 // Client component for variant detail: tabbed interface with metrics, content, and lineage.
 'use client';
 
+import Link from 'next/link';
 import { EntityDetailHeader, MetricGrid, EntityDetailTabs, useTabState, EntityMetricsTab } from '@evolution/components/evolution';
 import { VariantContentSection } from '@evolution/components/evolution/variant/VariantContentSection';
 import { VariantLineageSection } from '@evolution/components/evolution/variant/VariantLineageSection';
 import { VariantMatchHistory } from '@evolution/components/evolution/variant/VariantMatchHistory';
+import { buildVariantDetailUrl } from '@evolution/lib/utils/evolutionUrls';
 import type { VariantFullDetail } from '@evolution/services/variantDetailActions';
 import { formatEloWithUncertainty } from '@evolution/lib/utils/formatters';
 
@@ -43,7 +45,7 @@ export function VariantDetailContent({ variant }: VariantDetailContentProps): JS
       />
 
       <MetricGrid
-        columns={4}
+        columns={5}
         variant="bordered"
         size="lg"
         metrics={[
@@ -56,6 +58,17 @@ export function VariantDetailContent({ variant }: VariantDetailContentProps): JS
               : String(Math.round(variant.eloScore)),
           },
           { label: 'Matches', value: String(variant.matchCount) },
+          {
+            label: 'Parent Variant',
+            value: variant.parentVariantId ? (
+              <Link
+                href={buildVariantDetailUrl(variant.parentVariantId)}
+                className="text-[var(--accent-gold)] hover:underline font-mono"
+              >
+                {variant.parentVariantId.substring(0, 8)}
+              </Link>
+            ) : '—',
+          },
         ]}
       />
 

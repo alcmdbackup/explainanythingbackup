@@ -47,7 +47,7 @@ function makeCtx(shared: ReturnType<typeof createCostTracker>, idx: number): Age
     logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
     costTracker: shared,
     config: {
-      iterations: 1,
+      iterationConfigs: [{ agentType: 'generate', budgetPercent: 60 }, { agentType: 'swiss', budgetPercent: 40 }],
       budgetUsd: 5,
       judgeModel: 'gpt-4o',
       generationModel: 'gpt-4o',
@@ -109,6 +109,7 @@ describe('parallel cost attribution (integration)', () => {
           initialRatings: new Map(ratings),
           initialMatchCounts: new Map(),
           cache: new Map(),
+          seedVariantId: 'baseline',
         }, ctx);
       })
     );
@@ -150,6 +151,7 @@ describe('parallel cost attribution (integration)', () => {
       initialRatings: new Map(ratings),
       initialMatchCounts: new Map(),
       cache: new Map(),
+      seedVariantId: 'baseline',
     }, makeCtx(shared, 1));
 
     // Agent's cost should be only what IT spent, not the $0.5 sibling spend

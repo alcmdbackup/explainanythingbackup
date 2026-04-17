@@ -46,7 +46,7 @@ const mkVariant = (id: string, text = `text-${id}`): Variant => ({
 });
 
 const mkConfig = (): EvolutionConfig => ({
-  iterations: 5,
+  iterationConfigs: [{ agentType: 'generate', budgetPercent: 60 }, { agentType: 'swiss', budgetPercent: 40 }],
   budgetUsd: 10,
   judgeModel: 'gpt-4o',
   generationModel: 'gpt-4o',

@@ -54,7 +54,7 @@ function makeCtx(): AgentContext {
       getAvailableBudget: jest.fn(() => 10),
     } as unknown as AgentContext['costTracker'],
     config: {
-      iterations: 5,
+      iterationConfigs: [{ agentType: 'generate', budgetPercent: 60 }, { agentType: 'swiss', budgetPercent: 40 }],
       budgetUsd: 10,
       judgeModel: 'gpt-4o',
       generationModel: 'gpt-4o',

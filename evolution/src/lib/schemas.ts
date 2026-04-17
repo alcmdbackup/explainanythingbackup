@@ -352,17 +352,39 @@ function preprocessBudgetFloor(input: unknown): unknown {
   return c;
 }
 
+// ─── Iteration Config ─────────────────────────────────────────
+
+/** Iteration agent type enum. */
+export const iterationAgentTypeEnum = z.enum(['generate', 'swiss']);
+
+/** Per-iteration config within a strategy. Percentages are stored; dollar amounts computed at runtime. */
+export const iterationConfigSchema = z.object({
+  /** Agent type for this iteration. */
+  agentType: iterationAgentTypeEnum,
+  /** Percentage of total budget allocated to this iteration (1-100). Dollar amount = budgetPercent / 100 * totalBudgetUsd. */
+  budgetPercent: z.number().min(1).max(100),
+  /** Max parallel agents for generate iterations. Optional — without it, dispatches as many as budget allows. Must be undefined for swiss. */
+  maxAgents: z.number().int().min(1).max(100).optional(),
+}).refine(
+  (c) => c.agentType !== 'swiss' || c.maxAgents === undefined,
+  { message: 'maxAgents must not be set for swiss iterations' },
+);
+
+export type IterationConfig = z.infer<typeof iterationConfigSchema>;
+
+/** Max iterations allowed (safety cap). */
+export const MAX_ITERATION_CONFIGS = 20;
+
 // ─── Strategy Config ──────────────────────────────────────────
 
 const strategyConfigBaseSchema = z.object({
   generationModel: z.string(),
   judgeModel: z.string(),
-  iterations: z.number().int().min(1),
-  strategiesPerRound: z.number().int().min(1).optional(),
+  /** Total budget for the run in USD. Per-iteration amounts computed from iterationConfigs[].budgetPercent. */
   budgetUsd: z.number().min(0).optional(),
+  /** Generation strategies to round-robin across parallel generate agents. */
+  strategiesPerRound: z.number().int().min(1).optional(),
   generationGuidance: generationGuidanceSchema.optional(),
-  /** Max generateFromSeedArticle agents per run. Excludes seed article. Default 9. */
-  maxVariantsToGenerateFromSeedArticle: z.number().int().min(1).max(100).optional(),
   /** Hard cap on pairwise comparisons per variant during ranking. Default 15. */
   maxComparisonsPerVariant: z.number().int().min(1).max(100).optional(),
   /** Minimum budget to reserve after parallel generation, as fraction of totalBudget (0-1). Exactly one of *Fraction or *AgentMultiple may be set per phase. */
@@ -379,7 +401,24 @@ const strategyConfigBaseSchema = z.object({
   budgetBufferAfterSequential: z.number().min(0).max(1).optional(),
   /** Temperature for generation LLM calls (0-2). Omit for provider default. Ranking always uses 0. */
   generationTemperature: z.number().min(0).max(2).optional(),
+  /** Ordered sequence of iterations. Each specifies agent type, budget percentage, and optional maxAgents. */
+  iterationConfigs: z.array(iterationConfigSchema).min(1).max(MAX_ITERATION_CONFIGS),
 }).refine((c) => {
+  // Budget percentages must sum to 100 (with floating-point tolerance).
+  const sum = c.iterationConfigs.reduce((acc, ic) => acc + ic.budgetPercent, 0);
+  return Math.abs(sum - 100) < 0.01;
+}, { message: 'iterationConfigs budgetPercent values must sum to 100' }).refine((c) => {
+  // First iteration must be generate (swiss on empty pool is invalid).
+  return c.iterationConfigs[0]?.agentType === 'generate';
+}, { message: 'First iteration must be agentType generate (swiss on empty pool is invalid)' }).refine((c) => {
+  // No swiss iteration may precede all generate iterations.
+  let hasGenerate = false;
+  for (const ic of c.iterationConfigs) {
+    if (ic.agentType === 'generate') hasGenerate = true;
+    if (ic.agentType === 'swiss' && !hasGenerate) return false;
+  }
+  return true;
+}, { message: 'A swiss iteration cannot precede all generate iterations' }).refine((c) => {
   // Exactly one parallel unit may be set (both unset is allowed).
   return !(c.minBudgetAfterParallelFraction != null && c.minBudgetAfterParallelAgentMultiple != null);
 }, { message: 'Only one of minBudgetAfterParallelFraction or minBudgetAfterParallelAgentMultiple may be set' }).refine((c) => {
@@ -387,21 +426,17 @@ const strategyConfigBaseSchema = z.object({
   return !(c.minBudgetAfterSequentialFraction != null && c.minBudgetAfterSequentialAgentMultiple != null);
 }, { message: 'Only one of minBudgetAfterSequentialFraction or minBudgetAfterSequentialAgentMultiple may be set' }).refine((c) => {
   // Same unit mode across phases — but only enforced if BOTH phases have a value set.
-  // If sequential is fully unset (both fields null), any parallel mode is allowed.
   const parallelIsFraction = c.minBudgetAfterParallelFraction != null;
   const parallelIsMultiple = c.minBudgetAfterParallelAgentMultiple != null;
   const sequentialIsFraction = c.minBudgetAfterSequentialFraction != null;
   const sequentialIsMultiple = c.minBudgetAfterSequentialAgentMultiple != null;
-  // Only enforce same-mode when both phases have a value
   if (!sequentialIsFraction && !sequentialIsMultiple) return true;
   if (!parallelIsFraction && !parallelIsMultiple) return true;
-  // Both set: modes must match
   if (parallelIsFraction && sequentialIsFraction) return true;
   if (parallelIsMultiple && sequentialIsMultiple) return true;
   return false;
 }, { message: 'Parallel and sequential budget floors must use the same unit mode (both fraction or both agent-multiple)' }).refine((c) => {
-  // Ordering: parallel floor must be >= sequential floor. Unset parallel implicitly = 0,
-  // so a positive sequential without a parallel setting is rejected.
+  // Ordering: parallel floor must be >= sequential floor.
   const pF = c.minBudgetAfterParallelFraction;
   const pM = c.minBudgetAfterParallelAgentMultiple;
   const sF = c.minBudgetAfterSequentialFraction;
@@ -422,7 +457,6 @@ const strategyConfigBaseSchema = z.object({
 
 export const strategyConfigSchema = z.preprocess(preprocessBudgetFloor, strategyConfigBaseSchema);
 
-/** @deprecated Use StrategyConfig from pipeline/infra/types.ts instead. */
 export type StrategyConfigSchema = z.infer<typeof strategyConfigSchema>;
 
 // ─── Evolution Config ────────────────────────────────────────────
@@ -435,11 +469,11 @@ export const DEFAULT_GENERATE_STRATEGIES = [
 ] as const;
 
 const evolutionConfigBaseSchema = z.object({
-  /** @deprecated Ignored by the orchestrator-driven loop. Kept for backward compat. */
-  iterations: z.number().int().min(1).max(100).optional(),
   budgetUsd: z.number().gt(0).lte(50),
   judgeModel: z.string(),
   generationModel: z.string(),
+  /** Ordered iteration sequence — each specifies agent type, budget percentage, optional maxAgents. */
+  iterationConfigs: z.array(iterationConfigSchema).min(1).max(MAX_ITERATION_CONFIGS),
   /** @deprecated Pre-parallel pipeline strategies-per-round (3 by default). Replaced by numVariants. */
   strategiesPerRound: z.number().int().min(1).optional(),
   /** @deprecated Triage calibration opponent count (legacy ranking). */
@@ -448,7 +482,7 @@ const evolutionConfigBaseSchema = z.object({
   tournamentTopK: z.number().int().min(1).optional(),
   /** Optional weighted strategy selection from main (predates parallel pipeline). */
   generationGuidance: generationGuidanceSchema.optional(),
-  /** Number of parallel generateFromSeedArticle agents per generate iteration (default 9). */
+  /** @deprecated Replaced by maxAgents on iterationConfigs[]. Kept for legacy code paths. */
   numVariants: z.number().int().min(1).max(100).optional(),
   /** Strategy names to round-robin across the N parallel generate agents. */
   strategies: z.array(z.string().min(1)).optional(),
@@ -516,7 +550,7 @@ export const evolutionResultSchema = z.object({
   matchHistory: z.array(v2MatchSchema),
   totalCost: z.number().min(0),
   iterationsRun: z.number().int().min(0),
-  stopReason: z.enum(['budget_exceeded', 'iterations_complete', 'converged', 'killed', 'time_limit']),
+  stopReason: z.enum(['total_budget_exceeded', 'killed', 'deadline', 'completed', 'budget_exceeded', 'iterations_complete', 'converged', 'time_limit', 'no_pairs', 'seed_failed']),
   eloHistory: z.array(z.array(z.number())),
   diversityHistory: z.array(z.number()),
   matchCounts: z.record(z.string(), z.number().int().min(0)),
@@ -1007,6 +1041,12 @@ export const iterationSnapshotSchema = z.object({
       top15Cutoff: z.number(),
     }),
   )).optional(),
+  /** Per-iteration stop reason (only present on 'end' snapshots). */
+  stopReason: z.string().optional(),
+  /** Budget allocated for this iteration in USD. */
+  budgetAllocated: z.number().min(0).optional(),
+  /** Budget actually spent during this iteration in USD. */
+  budgetSpent: z.number().min(0).optional(),
 });
 
 export type IterationSnapshot = z.infer<typeof iterationSnapshotSchema>;

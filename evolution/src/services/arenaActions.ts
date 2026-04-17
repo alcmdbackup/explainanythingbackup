@@ -10,13 +10,15 @@ import { z } from 'zod';
 /** Transform raw DB row (with mu/sigma) to ArenaEntry (with elo/uncertainty). */
 function toArenaEntry(row: Record<string, unknown>): ArenaEntry {
   const sigma = row.sigma as number | null;
+  const generationMethod = row.generation_method as string;
   return {
     id: row.id as string,
     prompt_id: row.prompt_id as string,
     run_id: row.run_id as string | null,
     variant_content: row.variant_content as string,
     synced_to_arena: row.synced_to_arena as boolean,
-    generation_method: row.generation_method as string,
+    generation_method: generationMethod,
+    is_seed: generationMethod === 'seed',
     model: row.model as string | null,
     cost_usd: row.cost_usd as number | null,
     elo_score: row.elo_score as number,
@@ -24,6 +26,8 @@ function toArenaEntry(row: Record<string, unknown>): ArenaEntry {
     arena_match_count: row.arena_match_count as number,
     archived_at: row.archived_at as string | null,
     created_at: row.created_at as string,
+    generation: (row.generation as number | null) ?? null,
+    parent_variant_id: (row.parent_variant_id as string | null) ?? null,
   };
 }
 
@@ -45,6 +49,8 @@ export interface ArenaEntry {
   variant_content: string;
   synced_to_arena: boolean;
   generation_method: string;
+  /** True when this entry is the seed variant (generation_method === 'seed'). */
+  is_seed: boolean;
   model: string | null;
   cost_usd: number | null;
   elo_score: number;
@@ -53,6 +59,10 @@ export interface ArenaEntry {
   arena_match_count: number;
   archived_at: string | null;
   created_at: string;
+  /** Iteration (generation) number from the originating run. */
+  generation: number | null;
+  /** Parent variant ID for lineage display. */
+  parent_variant_id: string | null;
 }
 
 export interface ArenaComparison {

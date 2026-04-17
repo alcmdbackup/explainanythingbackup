@@ -153,7 +153,7 @@ describe('claimAndExecuteRun', () => {
       mockBuildRunContext.mockResolvedValue({
         context: {
           originalText: 'test text',
-          config: { iterations: 1, budgetUsd: 2, judgeModel: 'gpt-4.1-nano', generationModel: 'gpt-4.1-nano' },
+          config: { iterationConfigs: [{ agentType: 'generate' as const, budgetPercent: 60 }, { agentType: 'swiss' as const, budgetPercent: 40 }], budgetUsd: 2, judgeModel: 'gpt-4.1-nano', generationModel: 'gpt-4.1-nano' },
           logger: { info: jest.fn(), warn: jest.fn() },
           initialPool: [],
           randomSeed: BigInt(0),
@@ -166,7 +166,7 @@ describe('claimAndExecuteRun', () => {
         matchHistory: [],
         totalCost: 0.01,
         iterationsRun: 1,
-        stopReason: 'iterations_complete',
+        stopReason: 'completed',
         muHistory: [],
         diversityHistory: [],
         matchCounts: {},
@@ -251,7 +251,7 @@ describe('claimAndExecuteRun', () => {
 
       expect(result.claimed).toBe(true);
       expect(result.runId).toBe('run-123');
-      expect(result.stopReason).toBe('iterations_complete');
+      expect(result.stopReason).toBe('completed');
       expect(result.durationMs).toBeGreaterThanOrEqual(0);
     });
 
@@ -268,7 +268,7 @@ describe('claimAndExecuteRun', () => {
       const result = await claimAndExecuteRun({ runnerId: 'v2-test-runner-123' });
 
       expect(result.claimed).toBe(true);
-      expect(result.stopReason).toBe('iterations_complete');
+      expect(result.stopReason).toBe('completed');
       // runnerId is the 7th arg to finalizeRun
       expect(mockFinalizeRun).toHaveBeenCalledWith(
         'run-123',        // runId
@@ -357,7 +357,7 @@ describe('claimAndExecuteRun', () => {
       mockBuildRunContext.mockResolvedValue({
         context: {
           originalText: 'test text',
-          config: { iterations: 1, budgetUsd: 2, judgeModel: 'gpt-4.1-nano', generationModel: 'gpt-4.1-nano' },
+          config: { iterationConfigs: [{ agentType: 'generate' as const, budgetPercent: 60 }, { agentType: 'swiss' as const, budgetPercent: 40 }], budgetUsd: 2, judgeModel: 'gpt-4.1-nano', generationModel: 'gpt-4.1-nano' },
           logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
           initialPool: [],
           randomSeed: BigInt(0),
@@ -408,7 +408,7 @@ describe('claimAndExecuteRun', () => {
       mockBuildRunContext.mockResolvedValue({
         context: {
           originalText: 'text',
-          config: { iterations: 1, budgetUsd: 1, judgeModel: 'gpt-4.1-nano', generationModel: 'gpt-4.1-nano' },
+          config: { iterationConfigs: [{ agentType: 'generate' as const, budgetPercent: 60 }, { agentType: 'swiss' as const, budgetPercent: 40 }], budgetUsd: 1, judgeModel: 'gpt-4.1-nano', generationModel: 'gpt-4.1-nano' },
           logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
           initialPool: [],
           randomSeed: BigInt(0),
@@ -416,7 +416,7 @@ describe('claimAndExecuteRun', () => {
       });
       mockEvolveArticle.mockResolvedValue({
         winner: { id: 'v1' }, pool: [], ratings: new Map(), matchHistory: [],
-        totalCost: 0, iterationsRun: 1, stopReason: 'iterations_complete',
+        totalCost: 0, iterationsRun: 1, stopReason: 'completed',
         muHistory: [], diversityHistory: [], matchCounts: {},
       });
       mockFinalizeRun.mockResolvedValue(undefined);

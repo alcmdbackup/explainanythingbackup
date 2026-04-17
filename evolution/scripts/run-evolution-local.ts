@@ -337,7 +337,7 @@ async function createRunRecord(
     const strategyConfigId = await upsertStrategy(supabase, {
       generationModel: config.generationModel,
       judgeModel: config.judgeModel,
-      iterations: config.iterations ?? 1,
+      iterationConfigs: config.iterationConfigs,
     });
 
     const { error } = await supabase.from('evolution_runs').insert({
@@ -387,8 +387,25 @@ async function main() {
     runId: runId.slice(0, 8),
   });
 
+  // Build iterationConfigs from --iterations CLI arg: alternate generate/swiss pairs,
+  // splitting budget evenly across iterations with 60/40 gen/swiss within each pair.
+  const iterationConfigs: Array<{ agentType: 'generate' | 'swiss'; budgetPercent: number }> = [];
+  {
+    const totalIterations = args.iterations * 2; // each CLI "iteration" = 1 generate + 1 swiss
+    const perIteration = Math.floor(100 / totalIterations);
+    let remainder = 100 - perIteration * totalIterations;
+    for (let i = 0; i < args.iterations; i++) {
+      const genExtra = remainder > 0 ? 1 : 0;
+      if (remainder > 0) remainder--;
+      iterationConfigs.push({ agentType: 'generate', budgetPercent: perIteration + genExtra });
+      const swissExtra = remainder > 0 ? 1 : 0;
+      if (remainder > 0) remainder--;
+      iterationConfigs.push({ agentType: 'swiss', budgetPercent: perIteration + swissExtra });
+    }
+  }
+
   const config: EvolutionConfig = {
-    iterations: args.iterations,
+    iterationConfigs,
     budgetUsd: args.budget,
     judgeModel,
     generationModel: args.model,

@@ -8,6 +8,7 @@ import { hashStrategyConfig, labelStrategyConfig } from '@evolution/lib/pipeline
 import type { StrategyConfig } from '@evolution/lib/pipeline/infra/types';
 import { createEntityLogger } from '@evolution/lib/pipeline/infra/createEntityLogger';
 import { z } from 'zod';
+import { iterationConfigSchema } from '@evolution/lib/schemas';
 import { generationGuidanceSchema } from '@evolution/lib/schemas';
 
 // ─── Types ──────────────────────────────────────────────────────
@@ -34,12 +35,11 @@ const createStrategySchema = z.object({
   description: z.string().max(2000).optional(),
   generationModel: z.string().min(1).max(100),
   judgeModel: z.string().min(1).max(100),
-  iterations: z.number().int().min(1).max(100),
+  iterationConfigs: z.array(iterationConfigSchema).min(1).max(20),
   strategiesPerRound: z.number().int().min(1).max(20).optional(),
   budgetUsd: z.number().min(0.01).max(100).optional(),
   pipeline_type: z.string().max(50).optional(),
   generationGuidance: generationGuidanceSchema.optional(),
-  maxVariantsToGenerateFromSeedArticle: z.number().int().min(1).max(100).optional(),
   maxComparisonsPerVariant: z.number().int().min(1).max(100).optional(),
   // Budget floors (dual-unit). See evolution/src/lib/schemas.ts for full semantics.
   minBudgetAfterParallelFraction: z.number().min(0).max(1).optional(),
@@ -147,11 +147,10 @@ export const createStrategyAction = adminAction(
     const config: StrategyConfig = {
       generationModel: parsed.generationModel,
       judgeModel: parsed.judgeModel,
-      iterations: parsed.iterations,
+      iterationConfigs: parsed.iterationConfigs,
       strategiesPerRound: parsed.strategiesPerRound,
       budgetUsd: parsed.budgetUsd,
       generationGuidance: parsed.generationGuidance,
-      maxVariantsToGenerateFromSeedArticle: parsed.maxVariantsToGenerateFromSeedArticle,
       maxComparisonsPerVariant: parsed.maxComparisonsPerVariant,
       // Budget floors — prefer new fields, fall back to legacy inputs if provided
       minBudgetAfterParallelFraction: parsed.minBudgetAfterParallelFraction ?? parsed.budgetBufferAfterParallel,

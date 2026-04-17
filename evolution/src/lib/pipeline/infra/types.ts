@@ -21,6 +21,21 @@ export type V2Match = z.infer<typeof v2MatchSchema>;
 /** Simplified, flat run config for V2. Validated via evolutionConfigSchema. */
 export type EvolutionConfig = z.infer<typeof evolutionConfigSchema>;
 
+// ─── Iteration Stop Reasons ─────────────────────────────────────
+/** Per-iteration stop reason (distinct from run-level stopReason). */
+export type IterationStopReason = 'iteration_budget_exceeded' | 'iteration_converged' | 'iteration_no_pairs' | 'iteration_complete';
+
+/** Per-iteration result recorded in EvolutionResult.iterationResults. */
+export interface IterationResult {
+  iteration: number;
+  agentType: 'generate' | 'swiss';
+  stopReason: IterationStopReason;
+  budgetAllocated: number;
+  budgetSpent: number;
+  variantsCreated: number;
+  matchesCompleted: number;
+}
+
 // ─── V2 Evolution Result ─────────────────────────────────────────
 export interface EvolutionResult {
   winner: z.infer<typeof variantSchema>;
@@ -30,7 +45,9 @@ export interface EvolutionResult {
   totalCost: number;
   /** Actual iterations completed (distinct from config.iterations). */
   iterationsRun: number;
-  stopReason: 'budget_exceeded' | 'iterations_complete' | 'converged' | 'killed' | 'time_limit' | 'no_pairs' | 'seed_failed';
+  stopReason: 'total_budget_exceeded' | 'killed' | 'deadline' | 'completed';
+  /** Per-iteration results with stop reasons, budget usage, and counts. */
+  iterationResults?: IterationResult[];
   /** eloHistory[i] = array of elo values for top-K variants after iteration i. */
   eloHistory: number[][];
   /** Phase 4b: parallel array — uncertainty values matching eloHistory[i] index-for-index.

@@ -92,7 +92,7 @@ async function recomputeRunEloMetrics(db: SupabaseClient, runId: string): Promis
   const existingCost = runMetrics.find(m => m.metric_name === 'cost')?.value ?? 0;
 
   const ctx: FinalizationContext = {
-    result: { winner: pool[0]!, pool, ratings, matchHistory: [], totalCost: existingCost, iterationsRun: 0, stopReason: 'iterations_complete', eloHistory: [], diversityHistory: [], matchCounts: {} },
+    result: { winner: pool[0]!, pool, ratings, matchHistory: [], totalCost: existingCost, iterationsRun: 0, stopReason: 'completed', eloHistory: [], diversityHistory: [], matchCounts: {} },
     ratings,
     pool,
     matchHistory: [],
@@ -189,7 +189,7 @@ async function recomputeInvocationMetrics(db: SupabaseClient, invocationId: stri
 
   const detailsMap = new Map([[inv.id, inv.execution_detail]]);
   const ctx: FinalizationContext = {
-    result: { winner: pool[0]!, pool, ratings, matchHistory: [], totalCost: 0, iterationsRun: 0, stopReason: 'iterations_complete', eloHistory: [], diversityHistory: [], matchCounts: {} },
+    result: { winner: pool[0]!, pool, ratings, matchHistory: [], totalCost: 0, iterationsRun: 0, stopReason: 'completed', eloHistory: [], diversityHistory: [], matchCounts: {} },
     ratings,
     pool,
     matchHistory: [],

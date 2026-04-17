@@ -2,8 +2,10 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import Link from 'next/link';
 import { EvolutionBreadcrumb, EntityListPage } from '@evolution/components/evolution';
 import { listVariantsAction, type VariantListEntry } from '@evolution/services/evolutionActions';
+import { buildVariantDetailUrl } from '@evolution/lib/utils/evolutionUrls';
 import type { ColumnDef, FilterDef } from '@evolution/components/evolution';
 import { toast } from 'sonner';
 import { formatEloWithUncertainty, formatEloCIRange } from '@evolution/lib/utils/formatters';
@@ -69,6 +71,20 @@ const COLUMNS: ColumnDef<VariantListEntry>[] = [
   },
   { key: 'match_count', header: 'Matches', align: 'right', render: (v) => v.match_count },
   { key: 'generation', header: 'Generation', align: 'right', render: (v) => v.generation },
+  {
+    key: 'parent_variant_id',
+    header: 'Parent',
+    render: (v) =>
+      v.parent_variant_id ? (
+        <Link
+          href={buildVariantDetailUrl(v.parent_variant_id)}
+          className="font-mono text-xs text-[var(--accent-gold)] hover:underline"
+          title={v.parent_variant_id}
+        >
+          {v.parent_variant_id.substring(0, 6)}
+        </Link>
+      ) : <span className="text-[var(--text-muted)]">—</span>,
+  },
   {
     key: 'is_winner',
     header: 'Winner',

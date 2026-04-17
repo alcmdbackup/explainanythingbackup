@@ -169,6 +169,7 @@ export class StrategyEntity extends Entity<EvolutionStrategyFullDb> {
     { id: 'overview', label: 'Overview' },
     { id: 'metrics', label: 'Metrics' },
     { id: 'runs', label: 'Runs' },
+    { id: 'variants', label: 'Variants' },
     { id: 'logs', label: 'Logs' },
   ];
 

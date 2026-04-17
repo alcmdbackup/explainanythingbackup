@@ -24,6 +24,20 @@ export const NOOP_SPAN: Record<string, unknown> = {
 };
 
 // ─── Valid variant text ─────────────────────────────────────────
+// ─── Default iteration configs for tests ────────────────────────
+
+/** Standard 2-iteration config: 1 generate (60%) + 1 swiss (40%). */
+export const DEFAULT_TEST_ITERATION_CONFIGS = [
+  { agentType: 'generate' as const, budgetPercent: 60 },
+  { agentType: 'swiss' as const, budgetPercent: 40 },
+];
+
+/** Single generate iteration (100% budget). */
+export const SINGLE_GENERATE_ITERATION_CONFIG = [
+  { agentType: 'generate' as const, budgetPercent: 100 },
+];
+
+// ─── Valid variant text ─────────────────────────────────────────
 // ~300 char markdown that passes validateFormat() (has H1, section headings, paragraph prose).
 
 export const VALID_VARIANT_TEXT = `# Understanding Evolution Testing
@@ -161,7 +175,7 @@ export async function createTestStrategyConfig(
       config_hash: `test_hash_${uniqueSuffix}`,
       name: `[TEST] strategy_${uniqueSuffix}`,
       label: '[TEST] Strategy',
-      config: { generationModel: 'gpt-4.1-mini', judgeModel: 'gpt-4.1-nano', iterations: 1 },
+      config: { generationModel: 'gpt-4.1-mini', judgeModel: 'gpt-4.1-nano', iterationConfigs: [{ agentType: 'generate', budgetPercent: 60 }, { agentType: 'swiss', budgetPercent: 40 }] },
     })
     .select('id')
     .single();
@@ -551,7 +565,7 @@ export function createMockExecutionContext(
       explanationId: 1,
       runId: 'test-run-1',
       config: {
-        iterations: 50,
+        iterationConfigs: [{ agentType: 'generate' as const, budgetPercent: 60 }, { agentType: 'swiss' as const, budgetPercent: 40 }],
         budgetUsd: 5.00,
         judgeModel: 'gpt-4.1-nano',
         generationModel: 'gpt-4.1-mini',

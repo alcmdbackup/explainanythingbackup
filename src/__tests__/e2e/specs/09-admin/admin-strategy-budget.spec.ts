@@ -29,7 +29,7 @@ async function seedStrategyWithBudget(): Promise<{ id: string }> {
       config_hash: `e2e-budget-${ts}`,
       name: `[TEST] Budget Strategy ${ts}`,
       label: 'Gen: test | Judge: test | Budget: $0.50',
-      config: { generationModel: 'test', judgeModel: 'test', iterations: 50, budgetCapUsd: 0.50 },
+      config: { generationModel: 'test', judgeModel: 'test', iterationConfigs: [{ agentType: 'generate', budgetPercent: 60 }, { agentType: 'swiss', budgetPercent: 40 }], budgetCapUsd: 0.50 },
       created_by: 'admin',
       is_predefined: true,
     })
@@ -90,7 +90,7 @@ async function seedArenaWithBudget(): Promise<SeededArenaData> {
     .insert({
       name: `[TEST] Budget Run Strategy ${ts}`,
       label: 'test',
-      config: { generationModel: 'test', judgeModel: 'test', iterations: 1 },
+      config: { generationModel: 'test', judgeModel: 'test', iterationConfigs: [{ agentType: 'generate', budgetPercent: 60 }, { agentType: 'swiss', budgetPercent: 40 }] },
       config_hash: `test-budget-${ts}`,
       created_by: 'e2e-test',
     })
@@ -200,23 +200,17 @@ adminTest.describe('Admin Strategy Budget Cap', { tag: '@evolution' }, () => {
   });
 
   adminTest(
-    'strategy form shows budget cap input with correct constraints',
+    'strategy wizard shows budget and model fields with correct constraints',
     async ({ adminPage }) => {
-      await adminPage.goto('/admin/evolution/strategies');
-      await adminPage.waitForSelector('[data-testid="entity-list-page"]', { timeout: 10000 });
+      // Strategy creation now uses wizard at /strategies/new
+      await adminPage.goto('/admin/evolution/strategies/new');
+      await expect(adminPage.getByText('New Strategy')).toBeVisible({ timeout: 15000 });
 
-      // Click "New Strategy" to open the dialog
-      await adminPage.locator('[data-testid="header-action"]').click();
-
-      // Verify the dialog opens
-      const dialog = adminPage.locator('div[role="dialog"]');
-      await expect(dialog).toBeVisible();
-
-      // Verify strategy form has required fields (name, generation model, judge model, iterations)
-      await expect(dialog.getByPlaceholder('Strategy name')).toBeVisible();
-      await expect(dialog.locator('select').first()).toBeVisible(); // generation model
-      await expect(dialog.locator('select').nth(1)).toBeVisible(); // judge model
-      await expect(dialog.getByRole('spinbutton', { name: /iterations/i })).toBeVisible(); // iterations
+      // Verify wizard Step 1 has required fields (name, generation model, judge model, budget)
+      await expect(adminPage.getByPlaceholder('Strategy name')).toBeVisible();
+      await expect(adminPage.locator('select').first()).toBeVisible(); // generation model
+      await expect(adminPage.locator('select').nth(1)).toBeVisible(); // judge model
+      await expect(adminPage.getByLabel(/total budget/i)).toBeVisible(); // budget
     },
   );
 

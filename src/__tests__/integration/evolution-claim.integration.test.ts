@@ -144,7 +144,7 @@ describe('Evolution Claim Integration (Bug #1)', () => {
     mockBuildRunContext.mockResolvedValue({
       context: {
         originalText: 'Hello world',
-        config: {},
+        config: { iterationConfigs: [{ agentType: 'generate', budgetPercent: 60 }, { agentType: 'swiss', budgetPercent: 40 }], budgetUsd: 2.5, judgeModel: 'gpt-4.1-nano', generationModel: 'gpt-4.1-nano' },
         logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
         initialPool: [],
         // randomSeed is required by the orchestrator (Phase E of the parallel pipeline);

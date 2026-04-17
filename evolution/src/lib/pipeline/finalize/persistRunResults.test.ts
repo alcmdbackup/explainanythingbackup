@@ -77,7 +77,7 @@ function makeResult(overrides?: Partial<EvolutionResult>): EvolutionResult {
     matchHistory,
     totalCost: 0.15,
     iterationsRun: 3,
-    stopReason: 'iterations_complete',
+    stopReason: 'completed',
     eloHistory: [[1280, 1248, 1200]],
     diversityHistory: [],
     matchCounts: { [BASELINE_ID]: 2, [GEN1_ID]: 2, [GEN2_ID]: 2 },
@@ -136,7 +136,7 @@ describe('finalizeRun', () => {
     expect(runUpdate!.data.run_summary).toBeDefined();
     const summary = runUpdate!.data.run_summary as Record<string, unknown>;
     expect(summary.version).toBe(3);
-    expect(summary.stopReason).toBe('iterations_complete');
+    expect(summary.stopReason).toBe('completed');
   });
 
   it('persists all local pool variants', async () => {
@@ -192,16 +192,18 @@ describe('finalizeRun', () => {
     const summary = updates.find((u) => u.data.run_summary)?.data.run_summary as Record<string, unknown>;
     const topVariants = summary.topVariants as Array<{ isSeedVariant: boolean; elo: number }>;
     expect(topVariants[0]!.elo).toBe(1280); // gen-1 highest (elo)
+    // Seed variant is still in test data pool for backward compat; isSeedVariant flag works.
+    // In production, seed is no longer in pool (Phase 2 decoupling).
     const seedVariant = topVariants.find((v) => v.isSeedVariant);
     expect(seedVariant).toBeDefined();
   });
 
-  it('seedVariantRank/seedVariantElo correct (renamed from baselineRank/baselineElo)', async () => {
+  it('seedVariantRank/seedVariantElo are null (seed decoupled from pool in Phase 2)', async () => {
     const { db, updates } = makeMockDb();
     await finalizeRun(RUN_ID, makeResult(), { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
     const summary = updates.find((u) => u.data.run_summary)?.data.run_summary as Record<string, unknown>;
-    expect(summary.seedVariantRank).toBe(3); // 3rd of 3
-    expect(summary.seedVariantElo).toBe(1200);
+    expect(summary.seedVariantRank).toBeNull();
+    expect(summary.seedVariantElo).toBeNull();
   });
 
   it('strategyEffectiveness computed', async () => {
@@ -881,111 +883,8 @@ describe('syncToArena — isSeeded flag', () => {
   });
 });
 
-// ─── 2026-04-14: reusedFromSeed routing ─────────────────────────
-
-describe('syncToArena — reusedFromSeed routing', () => {
-  function makeReusedSeedSupabase(opts: { updateCount?: number; updateError?: { message: string } | null } = {}) {
-    let eqDepth = 0;
-    const mockUpdateChain: { eq: jest.Mock } = { eq: jest.fn() };
-    mockUpdateChain.eq.mockImplementation(() => {
-      eqDepth++;
-      if (eqDepth === 4) {
-        return Promise.resolve({ count: opts.updateCount ?? 1, error: opts.updateError ?? null });
-      }
-      return mockUpdateChain;
-    });
-    return {
-      rpc: jest.fn().mockResolvedValue({ error: null }),
-      from: jest.fn().mockReturnValue({
-        update: jest.fn().mockReturnValue(mockUpdateChain),
-      }),
-    } as unknown as jest.Mocked<SupabaseClient>;
-  }
-
-  const SEED_ID = 'seed-uuid-fed';
-  function makeReusedSeedPool(): Variant[] {
-    return [
-      { ...makeVariant(SEED_ID, 'seed_variant', { text: '# Seed' }), reusedFromSeed: true, arenaMatchCount: 5 },
-      makeVariant(V_NEW_ID, 'structural_transform', { text: '# Gen' }),
-    ];
-  }
-
-  it('reusedFromSeed variant is excluded from p_entries (no duplicate INSERT)', async () => {
-    const supabase = makeReusedSeedSupabase();
-    const pool = makeReusedSeedPool();
-    const ratings = new Map<string, Rating>([
-      [SEED_ID, { elo: 1300, uncertainty: 100 }],
-      [V_NEW_ID, { elo: 1184, uncertainty: 128 }],
-    ]);
-    const matches = [{ winnerId: SEED_ID, loserId: V_NEW_ID, confidence: 0.8, result: 'win' as const, judgeModel: 'm', reversed: false }];
-    await syncToArena(RUN_ID, PROMPT_ID, pool, ratings, matches, supabase, false, undefined, {
-      id: SEED_ID, muRaw: '25', sigmaRaw: '8.333', arena_match_count: 5,
-    });
-    const rpcCall = (supabase.rpc as jest.Mock).mock.calls[0];
-    const entries = rpcCall[1].p_entries as Array<{ id: string }>;
-    expect(entries.some((e) => e.id === SEED_ID)).toBe(false);
-    expect(entries.some((e) => e.id === V_NEW_ID)).toBe(true);
-  });
-
-  it('reusedFromSeed + matches > 0: emits optimistic-concurrency UPDATE with id+mu+sigma+arena_match_count', async () => {
-    const supabase = makeReusedSeedSupabase({ updateCount: 1 });
-    const pool = makeReusedSeedPool();
-    const ratings = new Map<string, Rating>([
-      [SEED_ID, { elo: 1300, uncertainty: 100 }],
-      [V_NEW_ID, { elo: 1184, uncertainty: 128 }],
-    ]);
-    const matches = [{ winnerId: SEED_ID, loserId: V_NEW_ID, confidence: 0.8, result: 'win' as const, judgeModel: 'm', reversed: false }];
-    await syncToArena(RUN_ID, PROMPT_ID, pool, ratings, matches, supabase, false, undefined, {
-      id: SEED_ID, muRaw: '18.747996042000842', sigmaRaw: '7.155040669655484', arena_match_count: 5,
-    });
-    expect((supabase.from as jest.Mock)).toHaveBeenCalledWith('evolution_variants');
-    const updateChain = (supabase.from as jest.Mock).mock.results[0]?.value as { update: jest.Mock };
-    expect(updateChain.update).toHaveBeenCalled();
-    const updateChainResult = updateChain.update.mock.results[0]?.value as { eq: jest.Mock };
-    // 4x .eq() calls: id, mu, sigma, arena_match_count
-    expect(updateChainResult.eq).toHaveBeenCalledTimes(4);
-    expect(updateChainResult.eq).toHaveBeenNthCalledWith(1, 'id', SEED_ID);
-    expect(updateChainResult.eq).toHaveBeenNthCalledWith(2, 'mu', '18.747996042000842');
-    expect(updateChainResult.eq).toHaveBeenNthCalledWith(3, 'sigma', '7.155040669655484');
-    expect(updateChainResult.eq).toHaveBeenNthCalledWith(4, 'arena_match_count', 5);
-  });
-
-  it('optimistic-concurrency collision: 0-row UPDATE → WARN log + collision metric, no throw', async () => {
-    const supabase = makeReusedSeedSupabase({ updateCount: 0 });
-    const pool = makeReusedSeedPool();
-    const ratings = new Map<string, Rating>([
-      [SEED_ID, { elo: 1300, uncertainty: 100 }],
-      [V_NEW_ID, { elo: 1184, uncertainty: 128 }],
-    ]);
-    const matches = [{ winnerId: SEED_ID, loserId: V_NEW_ID, confidence: 0.8, result: 'win' as const, judgeModel: 'm', reversed: false }];
-    const warnCalls: Array<{ msg: string; ctx: Record<string, unknown> }> = [];
-    const logger = {
-      info: jest.fn(), debug: jest.fn(), error: jest.fn(),
-      warn: jest.fn((msg: string, ctx: Record<string, unknown>) => { warnCalls.push({ msg, ctx }); }),
-    };
-    await syncToArena(RUN_ID, PROMPT_ID, pool, ratings, matches, supabase, false, logger, {
-      id: SEED_ID, muRaw: '18.75', sigmaRaw: '7.15', arena_match_count: 5,
-    });
-    const collisionWarn = warnCalls.find((w) => w.msg.includes('evolution.seed_rating.collision'));
-    expect(collisionWarn).toBeDefined();
-    expect(collisionWarn?.ctx.seedId).toBe(SEED_ID);
-    expect(collisionWarn?.ctx.loadedMu).toBe('18.75');
-  });
-
-  it('reusedFromSeed + matches = 0: no UPDATE emitted (seed untouched)', async () => {
-    const supabase = makeReusedSeedSupabase();
-    const pool = makeReusedSeedPool();
-    const ratings = new Map<string, Rating>([
-      [SEED_ID, { elo: 1100, uncertainty: 114 }],
-      [V_NEW_ID, { elo: 1184, uncertainty: 128 }],
-    ]);
-    // No matches involving the seed
-    await syncToArena(RUN_ID, PROMPT_ID, pool, ratings, [], supabase, false, undefined, {
-      id: SEED_ID, muRaw: '18.75', sigmaRaw: '7.15', arena_match_count: 5,
-    });
-    expect((supabase.from as jest.Mock)).not.toHaveBeenCalled();
-  });
-});
+// ─── 2026-04-14: reusedFromSeed routing (removed in Phase 2 seed decoupling) ──
+// Seed variant is no longer in the pool; optimistic-concurrency UPDATE tests removed.
 
 describe('propagateMetrics', () => {
   it('passes uncertainty through to writeMetric for bootstrap-aggregated metrics', async () => {

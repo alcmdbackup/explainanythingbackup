@@ -69,7 +69,7 @@ function makeMockDb(opts?: { contentText?: string; strategyConfig?: Record<strin
                 const config = opts?.strategyConfig ?? {
                   generationModel: 'gpt-4.1-nano',
                   judgeModel: 'gpt-4.1-nano',
-                  iterations: 1,
+                  iterationConfigs: [{ agentType: 'generate', budgetPercent: 60 }, { agentType: 'swiss', budgetPercent: 40 }],
                 };
                 return { data: { config }, error: null };
               }
@@ -101,7 +101,7 @@ describe('buildRunContext', () => {
     expect('context' in result).toBe(true);
     if ('context' in result) {
       expect(result.context.originalText).toBe(validText);
-      expect(result.context.config.iterations).toBe(1);
+      expect(result.context.config.iterationConfigs.length).toBe(2);
       expect(result.context.initialPool).toEqual([]);
     }
   });
@@ -140,7 +140,7 @@ describe('buildRunContext', () => {
       strategyConfig: {
         generationModel: 'gpt-4.1-nano',
         judgeModel: 'gpt-4.1-nano',
-        iterations: 1,
+        iterationConfigs: [{ agentType: 'generate', budgetPercent: 60 }, { agentType: 'swiss', budgetPercent: 40 }],
         generationGuidance: guidance,
       },
     });
@@ -407,7 +407,7 @@ function makeSeedAwareDb(opts: {
       chain.single = jest.fn(async () => {
         if (table === 'evolution_strategies') {
           return {
-            data: { config: { generationModel: 'gpt-4o', judgeModel: 'gpt-4o', iterations: 1 } },
+            data: { config: { generationModel: 'gpt-4o', judgeModel: 'gpt-4o', iterationConfigs: [{ agentType: 'generate', budgetPercent: 60 }, { agentType: 'swiss', budgetPercent: 40 }] } },
             error: null,
           };
         }

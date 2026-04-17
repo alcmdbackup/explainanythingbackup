@@ -154,6 +154,24 @@ Both entity types share the same propagation definitions — they aggregate from
 > keeps propagation semantics stable. See
 > `docs/planning/cost_estimate_accuracy_analysis_20260414/` for the decision rationale.
 
+### Per-Iteration Metrics in Snapshots
+
+Each iteration records an `IterationResult` in `EvolutionResult.iterationResults[]`:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `iteration` | number | Index into `iterationConfigs[]` |
+| `agentType` | `'generate' \| 'swiss'` | Agent type from the config |
+| `stopReason` | `IterationStopReason` | `'iteration_complete'`, `'iteration_budget_exceeded'`, `'iteration_converged'`, or `'iteration_no_pairs'` |
+| `budgetAllocated` | number | Dollar budget for this iteration (`budgetPercent / 100 * totalBudget`) |
+| `budgetSpent` | number | Actual USD spent during this iteration |
+| `variantsCreated` | number | Number of new variants produced |
+| `matchesCompleted` | number | Number of pairwise comparisons completed |
+
+These per-iteration results are available on the `EvolutionResult` returned by
+`evolveArticle()`. They are persisted in the run summary and used by the Timeline tab
+to render iteration cards with budget bars showing allocated vs. spent for each iteration.
+
 ### Run-level cost-estimation metrics (cost_estimate_accuracy_analysis_20260414)
 
 Computed at finalization from GFSA `execution_detail` JSONB plus budget-floor

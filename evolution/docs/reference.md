@@ -15,7 +15,7 @@ The core pipeline implements the generate-rank-evolve loop and all supporting in
 | File | Purpose |
 |------|---------|
 | `claimAndExecuteRun.ts` | `claimAndExecuteRun` — top-level orchestrator and single public entry point. Claims a pending run via RPC, starts 30s heartbeat, builds run context (resolves content from `explanations` or `evolution_prompts` table, or generates seed article), loads strategy config, constructs `EvolutionConfig`, calls `evolveArticle`, then `finalizeRun` and `syncToArena`. Accepts optional `db` for multi-DB batch runners and optional `dryRun` flag. Exports `ClaimedRun`, `RunnerOptions`, `RunnerResult` types. |
-| `loop/runIterationLoop.ts` | `evolveArticle` — main loop entry point. Validates `EvolutionConfig` constraints (see Configuration section), creates cost tracker and run logger, then iterates: generate new variants, rank via calibration + tournament, evolve top performers. Returns `EvolutionResult` with winner, pool, ratings, match history, cost, stop reason, and convergence metrics (eloHistory, diversityHistory). |
+| `loop/runIterationLoop.ts` | `evolveArticle` — main loop entry point. Validates `EvolutionConfig` constraints (see Configuration section), creates cost tracker and run logger, then iterates over `config.iterationConfigs[]`: dispatches generate or swiss agents per iteration with per-iteration budget tracking via `createIterationBudgetTracker`. Returns `EvolutionResult` with winner, pool, ratings, match history, cost, stop reason, iterationResults[], and convergence metrics (eloHistory, diversityHistory). |
 | `generate.ts` | Text generation phase; produces new variants from 8 available strategies (3 core + 5 extended) using the configured generation model. When `generationGuidance` is set on the strategy config, uses weighted random selection; otherwise falls back to deterministic 3-strategy behavior. FORMAT_RULES are injected into the generation prompt. |
 | `rank.ts` | Ranking phase; runs two-stage comparison: (1) calibration against N opponents for initial seeding, (2) Swiss-style tournament among top-K candidates. Updates `Rating {elo, uncertainty}` after each match (OpenSkill internally). |
 | `evolve.ts` | Evolution phase; creates offspring variants by combining/mutating top-ranked parents. Uses the generation model with evolution-specific prompts that include parent text and critique feedback. |
@@ -26,11 +26,11 @@ The core pipeline implements the generate-rank-evolve loop and all supporting in
 | `invocations.ts` | `createInvocation` / `updateInvocation` — records individual LLM calls to `evolution_invocations` with prompt text, response, model, token counts, cost, and latency for post-hoc cost auditing. |
 | `infra/createEvolutionLLMClient.ts` | `createEvolutionLLMClient` — LLM abstraction with built-in retry (3 attempts, exponential backoff: 1s/2s/4s), 20-second per-call timeout, and cost tracker integration. SDK-level retries are disabled (`maxRetries: 0`) so this retry loop is the sole retry layer — worst-case 87s per call. Supports model pricing for `gpt-4.1-nano`, `gpt-4.1-mini`, `gpt-4.1`, `gpt-4o`, `gpt-4o-mini`, `deepseek-chat`, `claude-sonnet-4-20250514`, `claude-haiku-4-5-20251001`. Falls back to most-expensive pricing ($15/$60 per 1M tokens) for unknown models. **Reservation** uses chars/4 as token approximation; **actual spend** uses real `usage.prompt_tokens`/`usage.completion_tokens` from the provider via `calculateLLMCost` (same helper `llmCallTracking` uses). Built per-invocation inside `Agent.run()` using the per-invocation `AgentCostScope` so parallel dispatch doesn't bleed sibling costs. |
 | `seed-article.ts` | `generateSeedArticle` — produces the initial "generation 0" variant from the source prompt when no existing explanation content is available. Returns `SeedResult` with the generated text and cost. |
-| `strategy.ts` | `hashStrategyConfig` / `upsertStrategy` / `labelStrategyConfig` — strategy fingerprinting via deterministic JSON hash; upserts to `evolution_strategies` table with deduplication. |
+| `strategy.ts` | `hashStrategyConfig` / `upsertStrategy` / `labelStrategyConfig` — strategy fingerprinting via deterministic JSON hash (includes `iterationConfigs[]`); upserts to `evolution_strategies` table with deduplication. Located at `setup/findOrCreateStrategy.ts`. |
 | `experiments.ts` | `createExperiment` / `addRunToExperiment` / `computeExperimentMetrics` — experiment grouping for A/B analysis. Returns `ExperimentMetrics` with aggregate Elo, cost, and convergence stats per strategy arm. |
 | `prompts.ts` | Prompt template construction for generation and evolution phases; injects FORMAT_RULES and strategy-specific instructions. |
 | `errors.ts` | `BudgetExceededWithPartialResults` — extends `BudgetExceededError` for mid-generation budget breaches with salvageable output. Carries `partialVariants: Variant[]` so the pipeline can finalize with whatever was produced before the budget ran out. |
-| `types.ts` | V2-specific types: `EvolutionConfig` (run configuration), `EvolutionResult` (pipeline output including winner, pool, ratings, matchHistory, totalCost, iterationsRun, stopReason, eloHistory, diversityHistory, matchCounts), `V2Match` (winnerId/loserId/result/confidence/judgeModel/reversed), `StrategyConfig` (generationModel, judgeModel, iterations, budgetUsd, generationGuidance). |
+| `types.ts` | V2-specific types: `EvolutionConfig` (run configuration with `iterationConfigs[]`), `EvolutionResult` (pipeline output including winner, pool, ratings, matchHistory, totalCost, iterationsRun, stopReason, iterationResults[], eloHistory, diversityHistory, matchCounts), `IterationResult` (per-iteration stop reason, budget allocated/spent, variants/matches), `IterationStopReason`, `V2Match` (winnerId/loserId/result/confidence/judgeModel/reversed), `StrategyConfig` (generationModel, judgeModel, iterationConfigs, budgetUsd, generationGuidance). |
 
 ### Core (`evolution/src/lib/core/`)
 
@@ -152,8 +152,8 @@ Validated at the entry point of `evolveArticle()` in `evolution/src/lib/pipeline
 
 | Field | Type | Range | Default | Description |
 |-------|------|-------|---------|-------------|
-| `iterations` | `number` | 1 -- 100 | Required | Number of generate/rank/evolve iterations |
-| `budgetUsd` | `number` | > 0, ≤ 50 | Required | Total budget cap in USD |
+| `iterationConfigs` | `IterationConfig[]` | 1 -- 20 entries, budgetPercent sum = 100 | Required | Ordered iteration sequence. Each: `{ agentType: 'generate'|'swiss', budgetPercent: 1-100, maxAgents?: 1-100 }`. First must be `generate`. |
+| `budgetUsd` | `number` | > 0, ≤ 50 | Required | Total budget cap in USD. Per-iteration amounts: `(budgetPercent / 100) * budgetUsd` |
 | `judgeModel` | `string` | Non-empty | Required | Model for pairwise comparison calls |
 | `generationModel` | `string` | Non-empty | Required | Model for text generation calls |
 | `strategiesPerRound` | `number?` | ≥ 1 | 3 | Generation strategies applied per iteration |
@@ -367,7 +367,8 @@ Stale runs are marked `failed` with an error message indicating abandonment (lik
 
 | Class | Module | Extends | Description |
 |-------|--------|---------|-------------|
-| `BudgetExceededError` | `evolution/src/lib/types.ts` | `Error` | Per-run budget cap exceeded. Carries `agentName`, `spent`, `reserved`, `cap` fields. |
+| `BudgetExceededError` | `evolution/src/lib/types.ts` | `Error` | Per-run budget cap exceeded. Carries `agentName`, `spent`, `reserved`, `cap` fields. Stops entire run. |
+| `IterationBudgetExceededError` | `evolution/src/lib/pipeline/infra/trackBudget.ts` | `BudgetExceededError` | Per-iteration budget exhausted. Carries `iterationIndex`. Stops only the current iteration; loop advances to next `iterationConfig`. |
 | `BudgetExceededWithPartialResults` | `evolution/src/lib/pipeline/errors.ts` | `BudgetExceededError` | Budget exceeded mid-generation with some variants already produced. Carries `partialVariants: Variant[]`. |
 | `GlobalBudgetExceededError` | `src/lib/errors/serviceError.ts` | `ServiceError` | System-wide monthly/daily LLM cost cap exceeded. Carries structured details (category, daily totals, caps). |
 | `LLMKillSwitchError` | `src/lib/errors/serviceError.ts` | `ServiceError` | Kill switch enabled in `llm_cost_config`. Blocks all LLM calls immediately. No constructor parameters. |
@@ -431,6 +432,7 @@ The admin UI is a Next.js App Router application. All pages are under `src/app/a
 | `/admin/evolution/prompts` | `evolution/prompts/page.tsx` | Prompt registry CRUD |
 | `/admin/evolution/prompts/[promptId]` | `evolution/prompts/[promptId]/page.tsx` | Prompt detail |
 | `/admin/evolution/strategies` | `evolution/strategies/page.tsx` | Strategy registry CRUD |
+| `/admin/evolution/strategies/new` | `evolution/strategies/new/page.tsx` | 2-step strategy creation wizard with iteration builder |
 | `/admin/evolution/strategies/[strategyId]` | `evolution/strategies/[strategyId]/page.tsx` | Strategy detail |
 | `/admin/evolution/invocations` | `evolution/invocations/page.tsx` | LLM invocation list (cost auditing) |
 | `/admin/evolution/invocations/[invocationId]` | `evolution/invocations/[invocationId]/page.tsx` | Invocation detail (prompt, response, tokens, cost, execution detail via `ConfigDrivenDetailRenderer`) |
@@ -449,7 +451,7 @@ Additional files:
 | (not-found) | `evolution/not-found.tsx` | Custom 404 page for unmatched evolution routes |
 | (loading) | `evolution/*/loading.tsx` | Per-route loading skeletons reusing `TableSkeleton` |
 
-Total: 17 pages (15 list/detail pairs + dashboard + wizard) + 1 API route.
+Total: 18 pages (15 list/detail pairs + dashboard + experiment wizard + strategy wizard) + 1 API route.
 
 **`ConfigDrivenDetailRenderer`** (`src/app/admin/evolution/invocations/[invocationId]/ConfigDrivenDetailRenderer.tsx`) — renders the agent-specific execution detail section on the invocation detail page. Reads field definitions from `DETAIL_VIEW_CONFIGS` (keyed by agent name) and renders each field generically, eliminating the need for a custom component per agent type.
 

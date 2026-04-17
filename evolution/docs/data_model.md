@@ -18,7 +18,7 @@ Stores strategy configurations with aggregated performance metrics. Strategies a
 | `name` | TEXT | NOT NULL | Human-readable name |
 | `label` | TEXT | NOT NULL, default `''` | Short label for UI |
 | `description` | TEXT | | Optional long description |
-| `config` | JSONB | NOT NULL | Full strategy configuration (`StrategyConfig`: generationModel, judgeModel, iterations, strategiesPerRound, budgetUsd, generationGuidance). See [Strategies](./strategies_and_experiments.md) for field details. |
+| `config` | JSONB | NOT NULL | Full strategy configuration (`StrategyConfig`: generationModel, judgeModel, iterationConfigs[], strategiesPerRound, budgetUsd, generationGuidance). `iterationConfigs` is an ordered array of `{ agentType, budgetPercent, maxAgents? }` objects defining the iteration sequence. See [Strategies](./strategies_and_experiments.md) for field details. |
 | `config_hash` | TEXT | NOT NULL, UNIQUE | SHA-256 hash for dedup |
 | `is_predefined` | BOOLEAN | NOT NULL, default `false` | System-provided strategy |
 | `pipeline_type` | TEXT | default `'full'` | `'full'` or `'single'` |
@@ -105,8 +105,8 @@ Text variants produced during a pipeline run. Since migration 20260321000002, th
 | `explanation_id` | INT | | Legacy link |
 | `variant_content` | TEXT | NOT NULL | The generated text |
 | `elo_score` | NUMERIC | NOT NULL, default `1200` | Display Elo-scale score (projected from OpenSkill `mu`; matches the public `Rating.elo` up to display clamping) |
-| `generation` | INT | NOT NULL, default `0` | Iteration when created |
-| `parent_variant_id` | UUID | | Self-referential FK, see [Lineage](#lineage) |
+| `generation` | INT | NOT NULL, default `0` | Maps to `Variant.iterationBorn` — the iteration index (0-based) from `iterationConfigs[]` when this variant was created |
+| `parent_variant_id` | UUID | | Self-referential FK. Populated for generated variants with the seed variant's ID. See [Lineage](#lineage) |
 | `agent_name` | TEXT | | Creating agent/strategy name |
 | `match_count` | INT | NOT NULL, default `0` | |
 | `is_winner` | BOOLEAN | NOT NULL, default `false` | Highest `elo` at finalization |
@@ -449,7 +449,7 @@ Variants track parentage differently in memory vs. the database:
 > ```
 > This means crossover lineage information (the second parent) is lost once a run is finalized.
 
-The `generation` column maps to `Variant.version` (the iteration when the variant was born), and `agent_name` maps to `Variant.strategy`.
+The `generation` column maps to `Variant.iterationBorn` (the iteration index from `iterationConfigs[]` when the variant was created), and `agent_name` maps to `Variant.strategy`. Generated variants have `parentIds` set to `[seedVariantId]` in memory, and `parent_variant_id` is populated with the seed variant's UUID at finalization.
 
 ---
 

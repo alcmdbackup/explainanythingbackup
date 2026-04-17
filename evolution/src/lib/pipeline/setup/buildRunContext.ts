@@ -248,7 +248,7 @@ export async function buildRunContext(
   }
   const stratConfig = configParsed.data;
   const config: EvolutionConfig = {
-    iterations: stratConfig.iterations,
+    iterationConfigs: stratConfig.iterationConfigs,
     budgetUsd: claimedRun.budget_cap_usd ?? 1.0,
     judgeModel: stratConfig.judgeModel,
     generationModel: stratConfig.generationModel,
@@ -256,7 +256,7 @@ export async function buildRunContext(
     calibrationOpponents: 5,
     tournamentTopK: 5,
     generationGuidance: stratConfig.generationGuidance,
-    numVariants: stratConfig.maxVariantsToGenerateFromSeedArticle ?? 9,
+    numVariants: 9, // deprecated — maxAgents on iterationConfigs replaces this
     maxComparisonsPerVariant: stratConfig.maxComparisonsPerVariant ?? 15,
     // Budget floors — preprocess in schemas.ts already migrates legacy fields into
     // minBudgetAfter*Fraction. Pass all four fields through; pipeline resolves lazily.
@@ -276,7 +276,7 @@ export async function buildRunContext(
   }, db);
 
   logger.info('Strategy config resolved', {
-    iterations: config.iterations, budgetUsd: config.budgetUsd,
+    iterationCount: config.iterationConfigs.length, budgetUsd: config.budgetUsd,
     generationModel: config.generationModel, judgeModel: config.judgeModel,
     phaseName: 'setup',
   });

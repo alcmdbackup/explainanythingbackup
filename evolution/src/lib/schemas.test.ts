@@ -61,7 +61,7 @@ const NOW = '2026-03-23T12:00:00Z';
 function createValidStrategyInsert() {
   return {
     name: 'test-strategy',
-    config: { generationModel: 'gpt-4o', judgeModel: 'gpt-4o', iterations: 3 },
+    config: { generationModel: 'gpt-4o', judgeModel: 'gpt-4o', iterationConfigs: [{ agentType: 'generate', budgetPercent: 60 }, { agentType: 'swiss', budgetPercent: 40 }] },
     config_hash: 'abc123def456',
   };
 }
@@ -562,86 +562,170 @@ describe('variantSchema', () => {
 });
 
 describe('strategyConfigSchema', () => {
+  const validBase = {
+    generationModel: 'gpt-4o', judgeModel: 'gpt-4o',
+    iterationConfigs: [{ agentType: 'generate', budgetPercent: 60 }, { agentType: 'swiss', budgetPercent: 40 }],
+  };
+
   it('parses valid config', () => {
-    expect(() => strategyConfigSchema.parse({
-      generationModel: 'gpt-4o', judgeModel: 'gpt-4o', iterations: 5,
-    })).not.toThrow();
+    expect(() => strategyConfigSchema.parse(validBase)).not.toThrow();
   });
 
-  it('rejects iterations < 1', () => {
+  it('rejects empty iterationConfigs', () => {
     expect(() => strategyConfigSchema.parse({
-      generationModel: 'gpt-4o', judgeModel: 'gpt-4o', iterations: 0,
+      ...validBase, iterationConfigs: [],
     })).toThrow();
   });
 
   it('accepts valid generationGuidance', () => {
     expect(() => strategyConfigSchema.parse({
-      generationModel: 'gpt-4o', judgeModel: 'gpt-4o', iterations: 5,
+      ...validBase,
       generationGuidance: [{ strategy: 'structural_transform', percent: 100 }],
     })).not.toThrow();
   });
 
   it('accepts undefined generationGuidance', () => {
-    const result = strategyConfigSchema.parse({
-      generationModel: 'gpt-4o', judgeModel: 'gpt-4o', iterations: 5,
-    });
+    const result = strategyConfigSchema.parse(validBase);
     expect(result.generationGuidance).toBeUndefined();
   });
 
   it('rejects generationGuidance with negative percent', () => {
     expect(() => strategyConfigSchema.parse({
-      generationModel: 'gpt-4o', judgeModel: 'gpt-4o', iterations: 5,
+      ...validBase,
       generationGuidance: [{ strategy: 'x', percent: -10 }],
     })).toThrow();
   });
 
   it('rejects generationGuidance with missing strategy field', () => {
     expect(() => strategyConfigSchema.parse({
-      generationModel: 'gpt-4o', judgeModel: 'gpt-4o', iterations: 5,
+      ...validBase,
       generationGuidance: [{ percent: 100 }],
     })).toThrow();
   });
 
   it('rejects generationGuidance with non-number percent', () => {
     expect(() => strategyConfigSchema.parse({
-      generationModel: 'gpt-4o', judgeModel: 'gpt-4o', iterations: 5,
+      ...validBase,
       generationGuidance: [{ strategy: 'x', percent: 'fifty' }],
     })).toThrow();
   });
 
   it('rejects generationGuidance with duplicate strategy names', () => {
     expect(() => strategyConfigSchema.parse({
-      generationModel: 'gpt-4o', judgeModel: 'gpt-4o', iterations: 5,
+      ...validBase,
       generationGuidance: [
         { strategy: 'structural_transform', percent: 50 },
         { strategy: 'structural_transform', percent: 50 },
       ],
     })).toThrow();
   });
+
+  // ─── iterationConfigs refinements ───────────────────────────────
+  it('rejects budgetPercent sum != 100 (under)', () => {
+    expect(() => strategyConfigSchema.parse({
+      ...validBase, iterationConfigs: [{ agentType: 'generate', budgetPercent: 50 }, { agentType: 'swiss', budgetPercent: 49 }],
+    })).toThrow();
+  });
+
+  it('rejects budgetPercent sum != 100 (over)', () => {
+    expect(() => strategyConfigSchema.parse({
+      ...validBase, iterationConfigs: [{ agentType: 'generate', budgetPercent: 60 }, { agentType: 'swiss', budgetPercent: 41 }],
+    })).toThrow();
+  });
+
+  it('accepts floating-point budget sum near 100', () => {
+    expect(() => strategyConfigSchema.parse({
+      ...validBase, iterationConfigs: [
+        { agentType: 'generate', budgetPercent: 33.33 },
+        { agentType: 'swiss', budgetPercent: 33.33 },
+        { agentType: 'swiss', budgetPercent: 33.34 },
+      ],
+    })).not.toThrow();
+  });
+
+  it('rejects swiss as first iteration', () => {
+    expect(() => strategyConfigSchema.parse({
+      ...validBase, iterationConfigs: [{ agentType: 'swiss', budgetPercent: 100 }],
+    })).toThrow();
+  });
+
+  it('rejects swiss before any generate', () => {
+    expect(() => strategyConfigSchema.parse({
+      ...validBase, iterationConfigs: [{ agentType: 'swiss', budgetPercent: 50 }, { agentType: 'generate', budgetPercent: 50 }],
+    })).toThrow();
+  });
+
+  it('accepts generate then swiss', () => {
+    expect(() => strategyConfigSchema.parse({
+      ...validBase, iterationConfigs: [{ agentType: 'generate', budgetPercent: 60 }, { agentType: 'swiss', budgetPercent: 40 }],
+    })).not.toThrow();
+  });
+
+  it('accepts generate-swiss-generate pattern', () => {
+    expect(() => strategyConfigSchema.parse({
+      ...validBase, iterationConfigs: [
+        { agentType: 'generate', budgetPercent: 40 },
+        { agentType: 'swiss', budgetPercent: 20 },
+        { agentType: 'generate', budgetPercent: 25 },
+        { agentType: 'swiss', budgetPercent: 15 },
+      ],
+    })).not.toThrow();
+  });
+
+  it('rejects maxAgents on swiss iteration', () => {
+    expect(() => strategyConfigSchema.parse({
+      ...validBase, iterationConfigs: [{ agentType: 'generate', budgetPercent: 60 }, { agentType: 'swiss', budgetPercent: 40, maxAgents: 5 }],
+    })).toThrow();
+  });
+
+  it('accepts maxAgents on generate iteration', () => {
+    expect(() => strategyConfigSchema.parse({
+      ...validBase, iterationConfigs: [{ agentType: 'generate', budgetPercent: 60, maxAgents: 9 }, { agentType: 'swiss', budgetPercent: 40 }],
+    })).not.toThrow();
+  });
+
+  it('accepts undefined maxAgents on generate iteration', () => {
+    const result = strategyConfigSchema.parse(validBase);
+    expect(result.iterationConfigs[0]!.maxAgents).toBeUndefined();
+  });
+
+  it('rejects budgetPercent of 0', () => {
+    expect(() => strategyConfigSchema.parse({
+      ...validBase, iterationConfigs: [{ agentType: 'generate', budgetPercent: 0 }, { agentType: 'swiss', budgetPercent: 100 }],
+    })).toThrow();
+  });
+
+  it('accepts single generate iteration at 100%', () => {
+    expect(() => strategyConfigSchema.parse({
+      ...validBase, iterationConfigs: [{ agentType: 'generate', budgetPercent: 100 }],
+    })).not.toThrow();
+  });
 });
 
 describe('evolutionConfigSchema', () => {
+  const iterConfigs = [{ agentType: 'generate' as const, budgetPercent: 60 }, { agentType: 'swiss' as const, budgetPercent: 40 }];
+
   it('parses valid config', () => {
     expect(() => evolutionConfigSchema.parse({
-      iterations: 5, budgetUsd: 10, judgeModel: 'gpt-4o', generationModel: 'gpt-4o',
+      iterationConfigs: iterConfigs, budgetUsd: 10, judgeModel: 'gpt-4o', generationModel: 'gpt-4o',
     })).not.toThrow();
   });
 
   it('rejects budgetUsd > 50', () => {
     expect(() => evolutionConfigSchema.parse({
-      iterations: 5, budgetUsd: 51, judgeModel: 'gpt-4o', generationModel: 'gpt-4o',
+      iterationConfigs: iterConfigs, budgetUsd: 51, judgeModel: 'gpt-4o', generationModel: 'gpt-4o',
     })).toThrow();
   });
 
   it('rejects budgetUsd = 0', () => {
     expect(() => evolutionConfigSchema.parse({
-      iterations: 5, budgetUsd: 0, judgeModel: 'gpt-4o', generationModel: 'gpt-4o',
+      iterationConfigs: iterConfigs, budgetUsd: 0, judgeModel: 'gpt-4o', generationModel: 'gpt-4o',
     })).toThrow();
   });
 
   it('accepts generationGuidance in evolution config', () => {
     expect(() => evolutionConfigSchema.parse({
-      iterations: 5, budgetUsd: 10, judgeModel: 'gpt-4o', generationModel: 'gpt-4o',
+      iterationConfigs: iterConfigs, budgetUsd: 10, judgeModel: 'gpt-4o', generationModel: 'gpt-4o',
       generationGuidance: [{ strategy: 'engagement_amplify', percent: 60 }, { strategy: 'tone_transform', percent: 40 }],
     })).not.toThrow();
   });

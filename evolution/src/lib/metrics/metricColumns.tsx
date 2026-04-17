@@ -2,9 +2,9 @@
 // Works with EntityTable ColumnDef and RunsTable RunsColumnDef.
 
 import React from 'react';
-import { getEntityListViewMetrics, getEntity } from '../core/entityRegistry';
+import { getEntityListViewMetrics } from '../core/entityRegistry';
 import { METRIC_FORMATTERS } from '../core/metricCatalog';
-import type { MetricFormatter, CatalogMetricDef } from '../core/types';
+import type { MetricFormatter } from '../core/types';
 import type { EntityType, MetricRow } from './types';
 import type { ColumnDef } from '@evolution/components/evolution';
 import type { RunsColumnDef, BaseRun } from '@evolution/components/evolution';
@@ -15,33 +15,18 @@ function findMetric(item: unknown, metricName: string): MetricRow | undefined {
   return metrics?.find(r => r.metric_name === metricName);
 }
 
-/** Phase 4d: look up the propagation aggregationMethod for a metric so we can render CI
- *  only for metrics whose source aggregation produces one (bootstrap_mean/percentile/avg).
- *  Returns null for non-propagated metrics (direct run-level values). */
-function getPropagationAggregationMethod(entityType: EntityType, metricName: string): string | null {
-  const m = getEntity(entityType as import('../core/types').EntityType).metrics.atPropagation
-    .find(d => d.name === metricName);
-  return m?.aggregationMethod ?? null;
-}
-
-/** Phase 4d: format a metric's CI suffix when the row carries ci_lower/ci_upper and the metric's
- *  aggregation method produces a CI. Returns empty string for non-CI metrics / missing CI data. */
-function formatCiSuffix(def: CatalogMetricDef, entityType: EntityType, row: MetricRow): string {
-  const lo = row.ci_lower;
-  const hi = row.ci_upper;
-  if (lo == null || hi == null || !Number.isFinite(lo) || !Number.isFinite(hi)) return '';
-  const aggMethod = getPropagationAggregationMethod(entityType, def.name);
-  if (aggMethod !== 'bootstrap_mean' && aggMethod !== 'bootstrap_percentile' && aggMethod !== 'avg') {
-    return '';
+/** Format CI suffix for a metric row based on its aggregation method. */
+function formatCISuffix(m: MetricRow): string {
+  if (m.ci_lower == null || m.ci_upper == null) return '';
+  if (m.aggregation_method === 'max' || m.aggregation_method === 'min') return '';
+  if (m.aggregation_method === 'bootstrap_mean' || m.aggregation_method === 'bootstrap_percentile') {
+    return ` [${Math.round(m.ci_lower)}, ${Math.round(m.ci_upper)}]`;
   }
-  // Elo-like metrics get the bracket range form "[lo, hi]"; currency and percent get the "± half"
-  // form since the magnitudes are familiar. Integer + score metrics follow the bracket form.
-  const fmt = METRIC_FORMATTERS[def.formatter as MetricFormatter];
-  if (def.formatter === 'cost' || def.formatter === 'costDetailed' || def.formatter === 'percent') {
-    const half = (hi - lo) / 2;
-    return ` ± ${fmt(half)}`;
+  if (m.aggregation_method === 'avg') {
+    const halfWidth = (m.ci_upper - m.ci_lower) / 2;
+    return ` ±${halfWidth.toFixed(1)}`;
   }
-  return ` [${fmt(lo)}, ${fmt(hi)}]`;
+  return '';
 }
 
 export function createMetricColumns<T>(
@@ -56,7 +41,7 @@ export function createMetricColumns<T>(
       const m = findMetric(item, def.name);
       if (m != null) {
         const base = METRIC_FORMATTERS[def.formatter as MetricFormatter](m.value);
-        return `${base}${formatCiSuffix(def, entityType, m)}`;
+        return `${base}${formatCISuffix(m)}`;
       }
       // Cost metrics default to $0.00 when no row exists, others show dash
       if (def.formatter === 'cost' || def.formatter === 'costDetailed') return METRIC_FORMATTERS[def.formatter as MetricFormatter](0);
@@ -73,7 +58,7 @@ export function createRunsMetricColumns<T extends BaseRun>(): RunsColumnDef<T>[]
     render: (item: T) => {
       const m = findMetric(item, def.name);
       const text = m != null
-        ? `${METRIC_FORMATTERS[def.formatter as MetricFormatter](m.value)}${formatCiSuffix(def, 'run', m)}`
+        ? METRIC_FORMATTERS[def.formatter as MetricFormatter](m.value)
         : (def.formatter === 'cost' || def.formatter === 'costDetailed')
           ? METRIC_FORMATTERS[def.formatter as MetricFormatter](0)
           : '—';

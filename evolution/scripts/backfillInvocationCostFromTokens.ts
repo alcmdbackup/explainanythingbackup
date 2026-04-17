@@ -216,11 +216,11 @@ async function applyPlan(db: SupabaseClient, plan: RunPlan): Promise<void> {
 
   // Overwrite run-level cost metrics. Uses plain UPSERT via writeMetric (writeMetricMax
   // would be a no-op when the corrected value is lower than what's already stored).
-  const { writeMetricReplace } = await import('../src/lib/metrics/writeMetrics');
-  await writeMetricReplace(db, 'run', plan.runId, 'cost', plan.runLevel.cost, 'during_execution');
-  await writeMetricReplace(db, 'run', plan.runId, 'generation_cost', plan.runLevel.generation_cost, 'during_execution');
-  await writeMetricReplace(db, 'run', plan.runId, 'ranking_cost', plan.runLevel.ranking_cost, 'during_execution');
-  await writeMetricReplace(db, 'run', plan.runId, 'seed_cost', plan.runLevel.seed_cost, 'during_execution');
+  const { writeMetric } = await import('../src/lib/metrics/writeMetrics');
+  await writeMetric(db, 'run', plan.runId, 'cost', plan.runLevel.cost, 'during_execution');
+  await writeMetric(db, 'run', plan.runId, 'generation_cost', plan.runLevel.generation_cost, 'during_execution');
+  await writeMetric(db, 'run', plan.runId, 'ranking_cost', plan.runLevel.ranking_cost, 'during_execution');
+  await writeMetric(db, 'run', plan.runId, 'seed_cost', plan.runLevel.seed_cost, 'during_execution');
 }
 
 async function main(): Promise<void> {

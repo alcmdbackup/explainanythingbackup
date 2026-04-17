@@ -60,6 +60,8 @@ export interface EvolutionVariant {
   sigma?: number | null;
   /** Whether this variant survived the discard rule and is part of the final pool. */
   persisted?: boolean;
+  /** Parent variant ID (for lineage display). */
+  parent_variant_id?: string | null;
 }
 
 export interface AgentCostBreakdown {
@@ -102,6 +104,7 @@ export interface VariantListEntry {
   mu?: number | null;
   sigma?: number | null;
   strategy_name?: string | null;
+  parent_variant_id?: string | null;
 }
 
 const listVariantsInputSchema = z.object({
@@ -485,7 +488,7 @@ export const getEvolutionVariantsAction = adminAction(
 
     // When filtering by strategy, embed the evolution_runs !inner join so Postgres/PostgREST
     // filters the variants to those whose parent run has the given strategy_id.
-    const baseFields = 'id, run_id, explanation_id, variant_content, elo_score, mu, sigma, generation, agent_name, match_count, is_winner, created_at, persisted';
+    const baseFields = 'id, run_id, explanation_id, variant_content, elo_score, mu, sigma, generation, agent_name, match_count, is_winner, created_at, persisted, parent_variant_id';
     const selectFields = strategyId
       ? `${baseFields}, evolution_runs!inner(strategy_id)`
       : baseFields;
@@ -644,8 +647,8 @@ export const listVariantsAction = adminAction(
     // .not.in) that silently failed when the IN list exceeded PostgREST URL limits.
     const wantsEmbed = !!parsed.filterTestContent;
     const baseFields = wantsEmbed
-      ? 'id, run_id, explanation_id, elo_score, mu, sigma, generation, agent_name, match_count, is_winner, created_at, evolution_runs!inner(evolution_strategies!inner(is_test_content))'
-      : 'id, run_id, explanation_id, elo_score, mu, sigma, generation, agent_name, match_count, is_winner, created_at';
+      ? 'id, run_id, explanation_id, elo_score, mu, sigma, generation, agent_name, match_count, is_winner, created_at, parent_variant_id, evolution_runs!inner(evolution_strategies!inner(is_test_content))'
+      : 'id, run_id, explanation_id, elo_score, mu, sigma, generation, agent_name, match_count, is_winner, created_at, parent_variant_id';
 
     let query = supabase
       .from('evolution_variants')

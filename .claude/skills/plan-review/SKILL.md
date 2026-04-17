@@ -95,7 +95,6 @@ Each agent returns structured JSON:
 ```
 ✅ CONSENSUS REACHED - Plan is ready for execution!
 ```
-→ Capture `EXPECTED_HEAD=$(git rev-parse HEAD)` and run: `EXPECTED_HEAD=$EXPECTED_HEAD bash .claude/lib/auto_push_on_consensus.sh`
 → EXIT loop
 
 **ELIF iteration >= 5:**

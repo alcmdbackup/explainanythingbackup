@@ -50,6 +50,7 @@ function StrategyRunsTab({ strategyId }: { strategyId: string }): JSX.Element {
   return <EntityTable columns={RUN_COLUMNS} items={runs} loading={loading} getRowHref={(r) => buildRunUrl(r.id)} emptyMessage="No runs for this strategy." />;
 }
 
+// Inline variants tab for strategy detail — fetches runs then loads variants for each run.
 const TABS: TabDef[] = [
   { id: 'metrics', label: 'Metrics' },
   { id: 'cost-estimates', label: 'Cost Estimates' },

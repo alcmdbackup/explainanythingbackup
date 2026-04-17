@@ -100,6 +100,8 @@ function RunCostEstimatesView({ runId }: { runId: string }): JSX.Element {
 
       <ErrorHistogramSection histogram={histogram} title="GFSA Error Distribution" />
 
+      <PerIterationSummarySection invocations={invocations} />
+
       <CostPerInvocationSection invocations={invocations} />
     </div>
   );
@@ -388,29 +390,107 @@ function ErrorHistogramSection({ histogram, title }: { histogram: HistogramBucke
   );
 }
 
+function PerIterationSummarySection({ invocations }: { invocations: RunCostEstimates['invocations'] }): JSX.Element {
+  const iterSummaries = useMemo(() => {
+    const map = new Map<number, { type: string; allocated: number; spent: number; count: number }>();
+    for (const inv of invocations) {
+      const iter = inv.iteration ?? -1;
+      const entry = map.get(iter) ?? { type: '—', allocated: 0, spent: 0, count: 0 };
+      entry.count += 1;
+      entry.spent += inv.totalCost ?? 0;
+      // Infer type from agent name
+      const name = inv.agentName.toLowerCase();
+      if (name.includes('generate')) entry.type = 'generate';
+      else if (name.includes('swiss')) entry.type = 'swiss';
+      map.set(iter, entry);
+    }
+    return Array.from(map.entries()).sort(([a], [b]) => a - b);
+  }, [invocations]);
+
+  if (iterSummaries.length === 0) return <></>;
+
+  return (
+    <div data-testid="cost-estimates-per-iteration">
+      <h3 className="text-xl font-display font-medium text-[var(--text-secondary)] mb-2">Per-Iteration Summary</h3>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left border-b border-[var(--border-default)]">
+              <th className="py-2 pr-3">Iteration</th>
+              <th className="py-2 pr-3">Type</th>
+              <th className="py-2 pr-3 text-right">Invocations</th>
+              <th className="py-2 pr-3 text-right">Cost</th>
+            </tr>
+          </thead>
+          <tbody>
+            {iterSummaries.map(([iter, s]) => (
+              <tr key={iter} className="border-b border-[var(--border-subtle)]">
+                <td className="py-1.5 pr-3 font-mono text-xs">{iter < 0 ? 'Setup' : iter}</td>
+                <td className="py-1.5 pr-3">
+                  <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider ${
+                    s.type === 'generate' ? 'bg-blue-500/20 text-blue-400' :
+                    s.type === 'swiss' ? 'bg-purple-500/20 text-purple-400' :
+                    'bg-gray-500/20 text-gray-400'
+                  }`}>
+                    {s.type}
+                  </span>
+                </td>
+                <td className="py-1.5 pr-3 text-right font-mono">{s.count}</td>
+                <td className="py-1.5 pr-3 text-right font-mono">{formatCostDetailed(s.spent)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 function CostPerInvocationSection({ invocations }: { invocations: RunCostEstimates['invocations'] }): JSX.Element {
   const [sortDir, setSortDir] = useState<'desc' | 'asc'>('desc');
+  const [iterFilter, setIterFilter] = useState<string>('');
+
+  const iterOptions = useMemo(() => {
+    const set = new Set(invocations.map(i => i.iteration).filter((v): v is number => v != null));
+    return Array.from(set).sort((a, b) => a - b);
+  }, [invocations]);
+
+  const filtered = useMemo(() => {
+    if (!iterFilter) return invocations;
+    return invocations.filter(i => String(i.iteration) === iterFilter);
+  }, [invocations, iterFilter]);
 
   const sorted = useMemo(() => {
-    const copy = [...invocations];
+    const copy = [...filtered];
     copy.sort((a, b) => {
       const ax = a.estimationErrorPct == null ? -Infinity : Math.abs(a.estimationErrorPct);
       const bx = b.estimationErrorPct == null ? -Infinity : Math.abs(b.estimationErrorPct);
       return sortDir === 'desc' ? bx - ax : ax - bx;
     });
     return copy;
-  }, [invocations, sortDir]);
+  }, [filtered, sortDir]);
 
   return (
     <div data-testid="cost-estimates-invocations">
       <div className="flex items-center justify-between mb-2">
-        <h3 className="text-xl font-display font-medium text-[var(--text-secondary)]">Cost per Invocation</h3>
+        <div className="flex items-center gap-3">
+          <h3 className="text-xl font-display font-medium text-[var(--text-secondary)]">Cost per Invocation</h3>
+          <select
+            value={iterFilter}
+            onChange={(e) => setIterFilter(e.target.value)}
+            className="px-2 py-1 border border-[var(--border-default)] rounded bg-[var(--surface-secondary)] text-[var(--text-primary)] text-xs"
+            data-testid="cost-iter-filter"
+          >
+            <option value="">All iterations</option>
+            {iterOptions.map(i => <option key={i} value={String(i)}>Iter {i}</option>)}
+          </select>
+        </div>
         <button
           type="button"
           className="text-xs underline text-[var(--text-secondary)]"
           onClick={() => setSortDir((d) => (d === 'desc' ? 'asc' : 'desc'))}
         >
-          sort |error%| {sortDir === 'desc' ? '↓' : '↑'}
+          sort |error%| {sortDir === 'desc' ? '\u2193' : '\u2191'}
         </button>
       </div>
       {sorted.length === 0 ? (

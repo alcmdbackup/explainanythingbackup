@@ -6,7 +6,7 @@
       "config": {
         "generationModel": "gpt-4.1-nano",
         "judgeModel": "gpt-4.1-nano",
-        "iterations": 3,
+        "iterationConfigs": [{"agentType": "generate", "budgetPercent": 60}, {"agentType": "swiss", "budgetPercent": 40}],
         "strategiesPerRound": 3,
         "budgetUsd": 1.0,
         "maxVariantsToGenerateFromSeedArticle": 9,
@@ -20,7 +20,7 @@
       "config": {
         "generationModel": "gpt-4.1-mini",
         "judgeModel": "qwen/qwen3-8b",
-        "iterations": 5,
+        "iterationConfigs": [{"agentType": "generate", "budgetPercent": 60}, {"agentType": "swiss", "budgetPercent": 40}],
         "budgetUsd": 2.0,
         "maxVariantsToGenerateFromSeedArticle": 6,
         "maxComparisonsPerVariant": 10,
@@ -37,7 +37,7 @@
       "config": {
         "generationModel": "deepseek-chat",
         "judgeModel": "deepseek-chat",
-        "iterations": 2,
+        "iterationConfigs": [{"agentType": "generate", "budgetPercent": 60}, {"agentType": "swiss", "budgetPercent": 40}],
         "budgetUsd": 0.5
       }
     },
@@ -46,7 +46,7 @@
       "config": {
         "generationModel": "qwen-2.5-7b-instruct",
         "judgeModel": "qwen-2.5-7b-instruct",
-        "iterations": 4,
+        "iterationConfigs": [{"agentType": "generate", "budgetPercent": 60}, {"agentType": "swiss", "budgetPercent": 40}],
         "budgetUsd": 1.5,
         "minBudgetAfterParallelFraction": 0.35,
         "minBudgetAfterSequentialFraction": 0.12
@@ -57,7 +57,7 @@
       "config": {
         "generationModel": "qwen-2.5-7b-instruct",
         "judgeModel": "qwen-2.5-7b-instruct",
-        "iterations": 3,
+        "iterationConfigs": [{"agentType": "generate", "budgetPercent": 60}, {"agentType": "swiss", "budgetPercent": 40}],
         "budgetUsd": 1.0,
         "minBudgetAfterParallelAgentMultiple": 3,
         "minBudgetAfterSequentialAgentMultiple": 1
