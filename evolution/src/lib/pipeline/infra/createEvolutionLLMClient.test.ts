@@ -157,14 +157,14 @@ describe('V2 LLM Client', () => {
     };
     const llm = createEvolutionLLMClient(provider, ct, 'gpt-4.1-nano');
 
-    // The timeout is 60s, but we mock setTimeout to make it instant
+    // The timeout is 20s, but we mock setTimeout to make it instant
     // Use fake timers just for the timeout advancement
     const promise = llm.complete('test', 'generation');
 
-    await expect(promise).rejects.toThrow('LLM call timeout (60s)');
+    await expect(promise).rejects.toThrow('LLM call timeout (20s)');
     // Budget should be released (not leaked)
     expect(ct.getAvailableBudget()).toBeCloseTo(10);
-  }, 70000);
+  }, 30000);
 
   it('cost estimation formula: inputTokens * inputRate + outputTokens * outputRate', async () => {
     const ct = createCostTracker(10);
