@@ -26,7 +26,7 @@ export interface RankNewVariantInput {
   config: EvolutionConfig;
   invocationId: string;
   logger: EntityLogger;
-  costTracker: V2CostTracker;
+  costTracker: V2CostTracker & { getOwnSpent?: () => number };
 }
 
 export interface RankNewVariantResult {
@@ -61,7 +61,7 @@ export async function rankNewVariant({
   localPool.push(variant);
   localRatings.set(variant.id, createRating());
 
-  const costBeforeRank = costTracker.getTotalSpent();
+  const costBeforeRank = costTracker.getOwnSpent?.() ?? costTracker.getTotalSpent();
 
   const rankResult = await rankSingleVariant({
     variant,
@@ -76,7 +76,7 @@ export async function rankNewVariant({
     logger,
   });
 
-  const rankingCost = costTracker.getTotalSpent() - costBeforeRank;
+  const rankingCost = (costTracker.getOwnSpent?.() ?? costTracker.getTotalSpent()) - costBeforeRank;
 
   const localCutoff = computeTop15Cutoff(localRatings);
   const localVariantElo = localRatings.get(variant.id)!.elo;

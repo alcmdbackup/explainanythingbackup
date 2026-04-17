@@ -140,7 +140,7 @@ export interface AgentContext {
   iteration: number;
   executionOrder: number;
   logger: EntityLogger;
-  costTracker: V2CostTracker;
+  costTracker: V2CostTracker & { getOwnSpent?: () => number };
   config: EvolutionConfig;
   /** Invocation row UUID — populated by Agent.run() before execute() is called.
    *  May be empty string if createInvocation() returned null (DB write failed). */
