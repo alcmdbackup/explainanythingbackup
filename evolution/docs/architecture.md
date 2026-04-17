@@ -140,8 +140,8 @@ Two mutually exclusive paths based on what the run targets:
 
 2. **prompt_id path** — uses `generateSeedArticle()` in
    `evolution/src/lib/pipeline/seed-article.ts` to create content from scratch via two
-   LLM calls (title generation, then article generation). Each call has a 60-second
-   timeout.
+   LLM calls (title generation, then article generation). Each call has a 20-second
+   timeout (with 3 retries at the evolution client layer).
 
 If neither `explanation_id` nor `prompt_id` is set, the run fails immediately.
 
