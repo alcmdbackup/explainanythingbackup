@@ -90,8 +90,8 @@ export type { ExperimentMetrics } from './manageExperiments';
 
 // ─── Entity/Agent classes ────────────────────────────────────────
 // Parallelized pipeline (generate_rank_evolution_parallel_20260331).
-export { GenerateFromSeedArticleAgent } from '../core/agents/generateFromSeedArticle';
-export type { GenerateFromSeedInput, GenerateFromSeedOutput } from '../core/agents/generateFromSeedArticle';
+export { GenerateFromPreviousArticleAgent } from '../core/agents/generateFromPreviousArticle';
+export type { GenerateFromPreviousInput, GenerateFromPreviousOutput } from '../core/agents/generateFromPreviousArticle';
 export { SwissRankingAgent } from '../core/agents/SwissRankingAgent';
 export type { SwissRankingInput, SwissRankingOutput } from '../core/agents/SwissRankingAgent';
 export { MergeRatingsAgent } from '../core/agents/MergeRatingsAgent';

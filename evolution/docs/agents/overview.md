@@ -11,7 +11,7 @@ Per-iteration dollar budgets are computed at runtime: `(budgetPercent / 100) * t
 Each iteration is one of two types — both have the uniform shape **work agent(s) + merge agent**:
 
 0. **`CreateSeedArticleAgent`** — runs **once**, at the start of iteration 1, for prompt-based runs where no arena seed exists. Makes two LLM calls (`seed_title` then `seed_article`) to generate the initial article from the prompt text, then ranks the result via `rankNewVariant()` against the loaded arena snapshot. If the seed agent fails (`budget` or `generation_failed`), the run stops immediately with `stopReason = 'seed_failed'`. On success, sets `originalText` for the iteration and marks `isSeeded = true` in the result. LLM spend is tracked via `seed_cost` in `evolution_metrics`.
-1. **`GenerateFromSeedArticleAgent`** — one parallel agent per generated variant. Generates ONE variant via a single strategy, then ranks it via binary search against a deep-cloned local snapshot of the iteration-start pool/ratings/matchCounts. Owns its own surface/discard decision (budget + local `elo` < top-15% cutoff = discard).
+1. **`GenerateFromPreviousArticleAgent`** — one parallel agent per generated variant. Generates ONE variant via a single strategy, then ranks it via binary search against a deep-cloned local snapshot of the iteration-start pool/ratings/matchCounts. Owns its own surface/discard decision (budget + local `elo` < top-15% cutoff = discard).
 2. **`SwissRankingAgent`** — one swiss iteration's worth of parallel pair comparisons over the eligible set. Returns the raw match buffer; never applies rating updates.
 3. **`MergeRatingsAgent`** — reusable. Concatenates match buffers from one or more work agents, shuffles in seeded Fisher-Yates order, applies rating updates to the global ratings sequentially (OpenSkill internally; public `{elo, uncertainty}` at the boundary), and writes one row per match to `evolution_arena_comparisons` (sole writer of in-run match rows).
 
@@ -325,7 +325,7 @@ export function createEvolutionLLMClient(
 ): EvolutionLLMClient
 ```
 
-**Typed agent labels.** The second argument to `complete()` is `AgentName`, a typed union (`'generation' | 'ranking' | 'seed_title' | 'seed_article'`) defined in `evolution/src/lib/core/agentNames.ts`. Typos at the call site are caught at compile time. The `COST_METRIC_BY_AGENT` lookup maps each label to a static cost metric name: `'generation'` → `'generation_cost'`, `'ranking'` → `'ranking_cost'`, `'seed_title'`/`'seed_article'` → `'seed_cost'`. As a result, `generateFromSeedArticle` reports per-purpose costs accurately (no more 50/50 approximation): every `'generation'` call increments `generation_cost`, every `'ranking'` call increments `ranking_cost`, and seed LLM calls (via `CreateSeedArticleAgent`) increment `seed_cost`.
+**Typed agent labels.** The second argument to `complete()` is `AgentName`, a typed union (`'generation' | 'ranking' | 'seed_title' | 'seed_article'`) defined in `evolution/src/lib/core/agentNames.ts`. Typos at the call site are caught at compile time. The `COST_METRIC_BY_AGENT` lookup maps each label to a static cost metric name: `'generation'` → `'generation_cost'`, `'ranking'` → `'ranking_cost'`, `'seed_title'`/`'seed_article'` → `'seed_cost'`. As a result, `generateFromPreviousArticle` reports per-purpose costs accurately (no more 50/50 approximation): every `'generation'` call increments `generation_cost`, every `'ranking'` call increments `ranking_cost`, and seed LLM calls (via `CreateSeedArticleAgent`) increment `seed_cost`.
 
 **Retry policy.** Transient errors (network failures, rate limits) are retried up to 3 times with exponential backoff: 1s, 2s, 4s. Each individual call has a 20-second timeout. SDK-level retries are set to 0 (`maxRetries: 0`) so the evolution client's retry loop is the sole retry layer — worst-case per-call latency is 87 seconds (4 attempts × 20s + 7s backoff). `BudgetExceededError` is never retried since it represents a deliberate resource limit, not a transient failure.
 
@@ -347,3 +347,22 @@ All generation and evolution prompts share a common structure built by `buildEvo
 5. An optional feedback section containing the weakest dimension and improvement suggestions from prior ranking
 
 Comparison prompts (used during ranking) evaluate variants across four dimensions: clarity, structure, engagement, and grammar. The judge LLM returns a winner designation and confidence score. The feedback section is optional and only populated after the first iteration, when ranking data from previous rounds can identify the weakest dimension and generate targeted suggestions for improvement.
+
+## Attribution Dimension (Phase 5)
+
+Variant-producing agents can declare an attribution dimension by overriding `Agent.getAttributionDimension(detail)` to return a grouping string pulled from the agent's `execution_detail`. The `experimentMetrics.computeRunMetrics` aggregator groups produced variants by `(agent_name, dimension_value)`, computes mean ELO delta (child minus parent) across each group, and emits two dynamic metric families:
+
+- `eloAttrDelta:<agentName>:<dimensionValue>` — mean delta + normal-approx 95% CI.
+- `eloAttrDeltaHist:<agentName>:<dimensionValue>:<lo>:<hi>` — fraction of produced variants whose delta fell into each fixed 10-ELO bucket.
+
+For `GenerateFromPreviousArticleAgent` the dimension is `execution_detail.strategy` (e.g., `lexical_simplify`). Swiss/merge agents return null and are excluded.
+
+Consumed by `StrategyEffectivenessChart` (bar chart with CI whiskers) and `EloDeltaHistogram` (10-ELO buckets) on the run/strategy/experiment detail pages.
+
+## Parent linkage (Phase 2)
+
+Generate iterations accept `sourceMode` (`'seed'` default or `'pool'`) and `qualityCutoff` (`{ mode: 'topN' | 'topPercent', value }`) on each `IterationConfig`. When `sourceMode='pool'`, `resolveParent` picks a parent uniformly at random from the top-N or top-X% of the run's pool ranked by current ELO. The first iteration is locked to seed (pool is empty).
+
+Seeded RNG derived from `(runId, iteration, executionOrder)` via FNV-1a ensures deterministic parent picks — identical retries pick identical parents. Arena variants (from cross-run pools) are implicitly excluded because `initialPool` is already scoped to the current run at iteration start.
+
+Discarded variants persist their local-rank ELO from the agent's binary-search ranking (not `createRating()` defaults), so Phase 3/5 metrics aren't survivorship-biased.

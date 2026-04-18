@@ -32,6 +32,42 @@ describe('V2 hashStrategyConfig', () => {
     const different: StrategyConfig = { ...baseConfig, iterationConfigs: [{ agentType: 'generate', budgetPercent: 100 }] };
     expect(hashStrategyConfig(different)).not.toBe(hashStrategyConfig(baseConfig));
   });
+
+  it('changes hash when qualityCutoff.value differs', () => {
+    const a: StrategyConfig = {
+      ...baseConfig,
+      iterationConfigs: [
+        { agentType: 'generate', budgetPercent: 50 },
+        { agentType: 'generate', budgetPercent: 50, sourceMode: 'pool', qualityCutoff: { mode: 'topN', value: 5 } },
+      ],
+    };
+    const b: StrategyConfig = {
+      ...baseConfig,
+      iterationConfigs: [
+        { agentType: 'generate', budgetPercent: 50 },
+        { agentType: 'generate', budgetPercent: 50, sourceMode: 'pool', qualityCutoff: { mode: 'topN', value: 10 } },
+      ],
+    };
+    expect(hashStrategyConfig(a)).not.toBe(hashStrategyConfig(b));
+  });
+
+  it('changes hash when sourceMode differs', () => {
+    const seedMode: StrategyConfig = {
+      ...baseConfig,
+      iterationConfigs: [
+        { agentType: 'generate', budgetPercent: 50 },
+        { agentType: 'generate', budgetPercent: 50, sourceMode: 'seed' },
+      ],
+    };
+    const poolMode: StrategyConfig = {
+      ...baseConfig,
+      iterationConfigs: [
+        { agentType: 'generate', budgetPercent: 50 },
+        { agentType: 'generate', budgetPercent: 50, sourceMode: 'pool', qualityCutoff: { mode: 'topPercent', value: 25 } },
+      ],
+    };
+    expect(hashStrategyConfig(seedMode)).not.toBe(hashStrategyConfig(poolMode));
+  });
 });
 
 describe('V2 labelStrategyConfig', () => {

@@ -56,7 +56,7 @@ const GEN_INVOCATIONS: InvocationListEntry[] = [
   {
     id: INV_ID_1,
     run_id: RUN_ID,
-    agent_name: 'GenerateFromSeedArticleAgent',
+    agent_name: 'GenerateFromPreviousArticleAgent',
     iteration: 1,
     execution_order: 0,
     success: true,
@@ -68,7 +68,7 @@ const GEN_INVOCATIONS: InvocationListEntry[] = [
   {
     id: INV_ID_2,
     run_id: RUN_ID,
-    agent_name: 'GenerateFromSeedArticleAgent',
+    agent_name: 'GenerateFromPreviousArticleAgent',
     iteration: 1,
     execution_order: 1,
     success: true,

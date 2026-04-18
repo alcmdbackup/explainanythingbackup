@@ -13,11 +13,11 @@ let _agents: AnyAgent[] | null = null;
 export function getAgentClasses(): AnyAgent[] {
   if (!_agents) {
     // Dynamic requires avoid circular deps at module load time
-    const { GenerateFromSeedArticleAgent } = require('./agents/generateFromSeedArticle');
+    const { GenerateFromPreviousArticleAgent } = require('./agents/generateFromPreviousArticle');
     const { SwissRankingAgent } = require('./agents/SwissRankingAgent');
     const { MergeRatingsAgent } = require('./agents/MergeRatingsAgent');
     _agents = [
-      new GenerateFromSeedArticleAgent(),
+      new GenerateFromPreviousArticleAgent(),
       new SwissRankingAgent(),
       new MergeRatingsAgent(),
     ];

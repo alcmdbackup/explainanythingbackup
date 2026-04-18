@@ -28,6 +28,9 @@ function toArenaEntry(row: Record<string, unknown>): ArenaEntry {
     created_at: row.created_at as string,
     generation: (row.generation as number | null) ?? null,
     parent_variant_id: (row.parent_variant_id as string | null) ?? null,
+    parent_elo: (row.parent_elo as number | null) ?? null,
+    parent_uncertainty: (row.parent_uncertainty as number | null) ?? null,
+    parent_run_id: (row.parent_run_id as string | null) ?? null,
   };
 }
 
@@ -63,6 +66,12 @@ export interface ArenaEntry {
   generation: number | null;
   /** Parent variant ID for lineage display. */
   parent_variant_id: string | null;
+  /** Parent's current ELO (mu preferred over elo_score). Used by VariantParentBadge. */
+  parent_elo: number | null;
+  /** Parent's uncertainty (sigma). */
+  parent_uncertainty: number | null;
+  /** Parent's run_id — detects cross-run parents. */
+  parent_run_id: string | null;
 }
 
 export interface ArenaComparison {
@@ -188,7 +197,37 @@ export const getArenaEntriesAction = adminAction(
 
     const { data, error, count } = await query;
     if (error) throw error;
-    return { items: (data ?? []).map(toArenaEntry), total: count ?? 0 };
+    const items = (data ?? []).map(toArenaEntry);
+
+    // Phase 3: batch-fetch parent ratings for VariantParentBadge.
+    const parentIds = [...new Set(items.map(v => v.parent_variant_id).filter((id): id is string => !!id))];
+    if (parentIds.length > 0) {
+      const { data: parents, error: parentError } = await ctx.supabase
+        .from('evolution_variants')
+        .select('id, mu, sigma, elo_score, run_id')
+        .in('id', parentIds);
+      if (parentError) throw parentError;
+      const parentMap = new Map(
+        (parents ?? []).map(p => [
+          p.id as string,
+          { elo: p.elo_score as number | null, mu: p.mu as number | null,
+            sigma: p.sigma as number | null, run_id: p.run_id as string | null },
+        ]),
+      );
+      for (const item of items) {
+        const parent = item.parent_variant_id ? parentMap.get(item.parent_variant_id) : null;
+        if (parent) {
+          // parent.mu is raw OpenSkill mu (~25); parent.elo_score is the ELO-scale projection (~1200).
+          // Prefer elo_score which is already in the right units; mu fallback converts via sigma scale.
+          item.parent_elo = parent.elo ?? null;
+          // Convert sigma -> Elo-scale uncertainty (matches toArenaEntry convention).
+          item.parent_uncertainty = parent.sigma != null ? parent.sigma * _INTERNAL_ELO_SIGMA_SCALE : null;
+          item.parent_run_id = parent.run_id;
+        }
+      }
+    }
+
+    return { items, total: count ?? 0 };
   },
 );
 

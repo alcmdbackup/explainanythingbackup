@@ -38,6 +38,7 @@ export const STATIC_METRIC_NAMES = [
   'avg_sequential_gfsa_duration_ms',
   // Invocation
   'best_variant_elo', 'avg_variant_elo', 'format_rejection_rate', 'total_comparisons',
+  'elo_delta_vs_parent',
   // Strategy/Experiment aggregates
   'run_count', 'total_cost', 'avg_cost_per_run',
   'total_generation_cost', 'avg_generation_cost_per_run',
@@ -63,16 +64,25 @@ export const STATIC_METRIC_NAMES = [
 export type StaticMetricName = typeof STATIC_METRIC_NAMES[number];
 /**
  * Dynamic per-agent-class cost metric prefix. Used by `experimentMetrics.ts` ONLY
- * for aggregating invocation `cost_usd` by `agent_name` (e.g. `agentCost:generate_from_seed_article`).
+ * for aggregating invocation `cost_usd` by `agent_name` (e.g. `agentCost:generate_from_previous_article`).
  *
  * Per-LLM-call cost attribution uses static `*_cost` names via `COST_METRIC_BY_AGENT`
  * in `evolution/src/lib/core/agentNames.ts`. The two namespaces are orthogonal.
  */
-export type DynamicMetricName = `agentCost:${string}`;
+export type DynamicMetricName =
+  | `agentCost:${string}`
+  /** Phase 5: per-agent, per-dimension mean ELO delta. `eloAttrDelta:<agentName>:<dimensionValue>`. */
+  | `eloAttrDelta:${string}`
+  /** Phase 5: per-agent ELO-delta histogram bucket. `eloAttrDeltaHist:<agentName>:<bucketStart>:<bucketEnd>`. */
+  | `eloAttrDeltaHist:${string}`;
 export type MetricName = StaticMetricName | DynamicMetricName;
 
 // Dynamic metric prefixes for runtime validation
-export const DYNAMIC_METRIC_PREFIXES = ['agentCost:'] as const;
+export const DYNAMIC_METRIC_PREFIXES = [
+  'agentCost:',
+  'eloAttrDelta:',
+  'eloAttrDeltaHist:',
+] as const;
 
 // ─── Metric Definition Types ────────────────────────────────────
 

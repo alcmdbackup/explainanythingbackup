@@ -1,5 +1,5 @@
 // Shared ranking helper: adds a variant to the local pool, runs binary search, and applies
-// surface/discard logic. Used by GenerateFromSeedArticleAgent and CreateSeedArticleAgent.
+// surface/discard logic. Used by GenerateFromPreviousArticleAgent and CreateSeedArticleAgent.
 
 import type { Variant, EvolutionLLMClient } from '../../types';
 import type { Rating, ComparisonResult } from '../../shared/computeRatings';

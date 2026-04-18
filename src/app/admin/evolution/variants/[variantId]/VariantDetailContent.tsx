@@ -6,9 +6,11 @@ import { EntityDetailHeader, MetricGrid, EntityDetailTabs, useTabState, EntityMe
 import { VariantContentSection } from '@evolution/components/evolution/variant/VariantContentSection';
 import { VariantLineageSection } from '@evolution/components/evolution/variant/VariantLineageSection';
 import { VariantMatchHistory } from '@evolution/components/evolution/variant/VariantMatchHistory';
+import { VariantParentBadge } from '@evolution/components/evolution/variant/VariantParentBadge';
 import { buildVariantDetailUrl } from '@evolution/lib/utils/evolutionUrls';
 import type { VariantFullDetail } from '@evolution/services/variantDetailActions';
 import { formatEloWithUncertainty } from '@evolution/lib/utils/formatters';
+import { bootstrapDeltaCI } from '@evolution/lib/shared/ratingDelta';
 
 const TABS = [
   { id: 'content', label: 'Content' },
@@ -23,6 +25,36 @@ interface VariantDetailContentProps {
 
 export function VariantDetailContent({ variant }: VariantDetailContentProps): JSX.Element {
   const [activeTab, setActiveTab] = useTabState(TABS);
+
+  const parentBadge = (() => {
+    if (!variant.parentVariantId) {
+      return (
+        <VariantParentBadge
+          parentId={null}
+          parentElo={null}
+          parentUncertainty={null}
+          delta={null}
+          deltaCi={null}
+        />
+      );
+    }
+    const childRating = { elo: variant.eloScore, uncertainty: variant.uncertainty ?? 0 };
+    const parentElo = variant.parentElo;
+    const parentUncertainty = variant.parentUncertainty;
+    const { delta, ci } = parentElo != null
+      ? bootstrapDeltaCI(childRating, { elo: parentElo, uncertainty: parentUncertainty ?? 0 })
+      : { delta: null, ci: null };
+    return (
+      <VariantParentBadge
+        parentId={variant.parentVariantId}
+        parentElo={parentElo}
+        parentUncertainty={parentUncertainty}
+        delta={delta}
+        deltaCi={ci}
+        crossRun={!!variant.parentRunId && variant.parentRunId !== variant.runId}
+      />
+    );
+  })();
 
   return (
     <div className="space-y-6" data-testid="variant-detail-content">
@@ -71,6 +103,10 @@ export function VariantDetailContent({ variant }: VariantDetailContentProps): JS
           },
         ]}
       />
+
+      <div className="text-sm font-ui" data-testid="variant-detail-parent-badge">
+        {parentBadge}
+      </div>
 
       {variant.persisted === false && (
         <div

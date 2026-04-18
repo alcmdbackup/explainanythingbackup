@@ -15,6 +15,7 @@ import {
   NotFoundCard,
   type TabDef,
 } from '@evolution/components/evolution';
+import { AttributionCharts } from '@evolution/components/evolution/tabs/AttributionCharts';
 import {
   getEvolutionRunByIdAction,
   type EvolutionRun,
@@ -111,7 +112,12 @@ export default function EvolutionRunDetailPage(): JSX.Element {
 
       <EntityDetailTabs tabs={TABS} activeTab={activeTab} onTabChange={setActiveTab}>
         {activeTab === 'timeline' && <TimelineTab runId={runId} run={run} />}
-        {activeTab === 'metrics' && <EntityMetricsTab entityType="run" entityId={runId} />}
+        {activeTab === 'metrics' && (
+          <div className="space-y-6">
+            <EntityMetricsTab entityType="run" entityId={runId} />
+            <AttributionCharts entityType="run" entityId={runId} />
+          </div>
+        )}
         {activeTab === 'cost-estimates' && <CostEstimatesTab entityType="run" entityId={runId} />}
         {activeTab === 'elo' && <EloTab runId={runId} />}
         {activeTab === 'lineage' && <LineageTab runId={runId} />}

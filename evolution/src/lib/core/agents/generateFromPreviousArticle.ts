@@ -1,5 +1,5 @@
-// generateFromSeedArticle: one parallel agent per generated variant.
-// Generates ONE variant via a single strategy, then ranks it via binary search against
+// generateFromPreviousArticle: one parallel agent per generated variant.
+// Generates ONE variant via a single tactic, then ranks it via binary search against
 // a deep-cloned local snapshot of the iteration-start pool/ratings/matchCounts.
 
 import { Agent } from '../Agent';
@@ -12,7 +12,7 @@ import type { Rating, ComparisonResult } from '../../shared/computeRatings';
 import type { V2Match } from '../../pipeline/infra/types';
 import { type RankSingleVariantStatus } from '../../pipeline/loop/rankSingleVariant';
 import { rankNewVariant } from '../../pipeline/loop/rankNewVariant';
-import { generateFromSeedExecutionDetailSchema } from '../../schemas';
+import { generateFromPreviousExecutionDetailSchema } from '../../schemas';
 import { validateFormat } from '../../shared/enforceVariantFormat';
 import { buildEvolutionPrompt } from '../../pipeline/loop/buildPrompts';
 import { BudgetExceededError } from '../../types';
@@ -31,8 +31,9 @@ function buildPromptForTactic(text: string, tactic: string): string | null {
 
 // ─── Public types ─────────────────────────────────────────────────
 
-export interface GenerateFromSeedInput {
-  originalText: string;
+export interface GenerateFromPreviousInput {
+  /** Text of the parent article this generation is derived from (seed or pool variant). */
+  parentText: string;
   /** One tactic name per agent invocation. */
   tactic: string;
   llm: EvolutionLLMClient;
@@ -43,11 +44,11 @@ export interface GenerateFromSeedInput {
   initialMatchCounts: ReadonlyMap<string, number>;
   /** Shared comparison cache (order-invariant key — safe across parallel agents). */
   cache: Map<string, ComparisonResult>;
-  /** ID of the seed variant that this generation is derived from. */
-  seedVariantId: string;
+  /** ID of the parent variant that this generation is derived from. */
+  parentVariantId: string;
 }
 
-export type GenerateFromSeedOutput = {
+export type GenerateFromPreviousOutput = {
   variant: Variant | null;
   status: RankSingleVariantStatus | 'generation_failed';
   surfaced: boolean;
@@ -55,9 +56,14 @@ export type GenerateFromSeedOutput = {
   /** Populated when surfaced=false: the local elo and top-15% cutoff at the time of discard.
    *  Used by the orchestrator to populate iterationSnapshots.discardReasons for the SnapshotsTab. */
   discardReason?: { elo: number; top15Cutoff: number };
+  /** Local-rank rating produced by the binary-search ranking phase. Populated whenever ranking
+   *  completed (surfaced or discarded). Absent on early-exit paths (generation_failed, format-invalid,
+   *  budget-exceeded-during-generation). Consumed by runIterationLoop to persist honest ELO on
+   *  discarded variants so Phase 3/5 metrics don't suffer survivorship bias. */
+  localRating?: Rating;
 };
 
-export type GenerateFromSeedExecutionDetail = z.infer<typeof generateFromSeedExecutionDetailSchema>
+export type GenerateFromPreviousExecutionDetail = z.infer<typeof generateFromPreviousExecutionDetailSchema>
   & ExecutionDetailBase;
 
 // ─── Helpers ──────────────────────────────────────────────────────
@@ -73,13 +79,17 @@ export function deepCloneRatings(src: ReadonlyMap<string, Rating>): Map<string, 
 
 // ─── Agent class ──────────────────────────────────────────────────
 
-export class GenerateFromSeedArticleAgent extends Agent<
-  GenerateFromSeedInput,
-  GenerateFromSeedOutput,
-  GenerateFromSeedExecutionDetail
+export class GenerateFromPreviousArticleAgent extends Agent<
+  GenerateFromPreviousInput,
+  GenerateFromPreviousOutput,
+  GenerateFromPreviousExecutionDetail
 > {
-  readonly name = 'generate_from_seed_article';
-  readonly executionDetailSchema = generateFromSeedExecutionDetailSchema;
+  readonly name = 'generate_from_previous_article';
+  readonly executionDetailSchema = generateFromPreviousExecutionDetailSchema;
+
+  getAttributionDimension(detail: GenerateFromPreviousExecutionDetail): string | null {
+    return detail?.tactic ?? null;
+  }
 
   readonly invocationMetrics: FinalizationMetricDef[] = [
     {
@@ -132,10 +142,10 @@ export class GenerateFromSeedArticleAgent extends Agent<
   ];
 
   async execute(
-    input: GenerateFromSeedInput,
+    input: GenerateFromPreviousInput,
     ctx: AgentContext,
-  ): Promise<AgentOutput<GenerateFromSeedOutput, GenerateFromSeedExecutionDetail>> {
-    const { originalText, tactic, llm, initialPool, initialRatings, initialMatchCounts, cache } = input;
+  ): Promise<AgentOutput<GenerateFromPreviousOutput, GenerateFromPreviousExecutionDetail>> {
+    const { parentText, tactic, llm, initialPool, initialRatings, initialMatchCounts, cache } = input;
 
     // Deep-clone the iteration-start snapshot; Rating values must be deep-cloned to prevent
     // cross-agent mutation under parallel execution.
@@ -148,9 +158,9 @@ export class GenerateFromSeedArticleAgent extends Agent<
 
     const makeEarlyExitDetail = (
       generationCost: number,
-      genFields: GenerateFromSeedExecutionDetail['generation'],
-    ): GenerateFromSeedExecutionDetail => ({
-      detailType: 'generate_from_seed_article',
+      genFields: GenerateFromPreviousExecutionDetail['generation'],
+    ): GenerateFromPreviousExecutionDetail => ({
+      detailType: 'generate_from_previous_article',
       totalCost: generationCost,
       variantId: null,
       tactic,
@@ -159,7 +169,7 @@ export class GenerateFromSeedArticleAgent extends Agent<
       surfaced: false,
     });
 
-    const prompt = buildPromptForTactic(originalText, tactic);
+    const prompt = buildPromptForTactic(parentText, tactic);
     if (prompt === null) {
       return {
         result: { variant: null, status: 'generation_failed', surfaced: false, matches: [] },
@@ -192,7 +202,7 @@ export class GenerateFromSeedArticleAgent extends Agent<
     const generationDurationMs = Date.now() - generationStartTime;
 
     if (!fmt.valid) {
-      ctx.logger.warn('generateFromSeedArticle: format validation failed', {
+      ctx.logger.warn('generateFromPreviousArticle: format validation failed', {
         phaseName: 'generation', tactic, issues: fmt.issues,
       });
       return {
@@ -211,8 +221,11 @@ export class GenerateFromSeedArticleAgent extends Agent<
       text: generated.trim(),
       tactic,
       iterationBorn: ctx.iteration,
-      parentIds: [input.seedVariantId],
+      // Empty parentVariantId happens on explanation-based runs (no seed variant row yet);
+      // drop it rather than persist an invalid UUID.
+      parentIds: input.parentVariantId ? [input.parentVariantId] : [],
       version: 0,
+      ...(ctx.invocationId ? { agentInvocationId: ctx.invocationId } : {}),
     });
 
     const rankingStartTime = Date.now();
@@ -233,7 +246,7 @@ export class GenerateFromSeedArticleAgent extends Agent<
 
     // Compute estimated costs for the feedback loop
     const estGenCost = estimateGenerationCost(
-      originalText.length, tactic, ctx.config.generationModel,
+      parentText.length, tactic, ctx.config.generationModel,
     );
     const estRankCost = estimateRankingCost(
       variant.text.length, ctx.config.judgeModel,
@@ -245,8 +258,8 @@ export class GenerateFromSeedArticleAgent extends Agent<
       ? ((actualTotalCost - estTotalCost) / estTotalCost) * 100
       : 0;
 
-    const detail: GenerateFromSeedExecutionDetail = {
-      detailType: 'generate_from_seed_article',
+    const detail: GenerateFromPreviousExecutionDetail = {
+      detailType: 'generate_from_previous_article',
       totalCost: actualTotalCost,
       variantId: variant.id,
       tactic,
@@ -276,6 +289,7 @@ export class GenerateFromSeedArticleAgent extends Agent<
         status: rankResult.status,
         surfaced,
         matches: surfaced ? rankResult.matches : [],
+        localRating: { elo: rankResult.detail.finalLocalElo, uncertainty: rankResult.detail.finalLocalUncertainty },
         ...(discardReason !== undefined && {
           discardReason: { elo: discardReason.localElo, top15Cutoff: discardReason.localTop15Cutoff },
         }),
@@ -285,4 +299,3 @@ export class GenerateFromSeedArticleAgent extends Agent<
     };
   }
 }
-

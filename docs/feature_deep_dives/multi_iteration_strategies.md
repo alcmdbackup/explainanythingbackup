@@ -12,7 +12,7 @@ on the strategy. Each `IterationConfig` entry specifies:
 - **`budgetPercent`**: 1-100 — percentage of total run budget allocated to this iteration.
   Dollar amount computed at runtime: `(budgetPercent / 100) * totalBudgetUsd`.
 - **`maxAgents`** (optional, generate only): caps the number of parallel
-  `GenerateFromSeedArticleAgent` invocations. Omit to dispatch as many as budget allows.
+  `GenerateFromPreviousArticleAgent` invocations. Omit to dispatch as many as budget allows.
 
 Budget percentages across all entries must sum to 100. The first entry must be `generate`
 (swiss on an empty pool is invalid). Max 20 entries per strategy.

@@ -100,7 +100,7 @@ export function estimateRankingCost(
 }
 
 /**
- * Estimate total cost of one generateFromSeedArticle agent (generation + ranking).
+ * Estimate total cost of one generateFromPreviousArticle agent (generation + ranking).
  * This is the primary function used by budget-aware dispatch.
  */
 export function estimateAgentCost(

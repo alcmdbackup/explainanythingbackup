@@ -29,6 +29,12 @@ export interface VariantFullDetail {
   matchCount: number;
   isWinner: boolean;
   parentVariantId: string | null;
+  /** Parent's current mu (application-layer ELO). Null when no parent or parent was deleted. */
+  parentElo: number | null;
+  /** Parent's sigma (uncertainty). Null when no parent. */
+  parentUncertainty: number | null;
+  /** Parent's run_id — used to detect cross-run parents for the "(other run)" badge. */
+  parentRunId: string | null;
   createdAt: string;
   runStatus: string;
   runCreatedAt: string;
@@ -66,6 +72,21 @@ export interface LineageEntry {
   preview: string;
 }
 
+export interface VariantChainNode {
+  id: string;
+  runId: string;
+  agentName: string;
+  generation: number;
+  eloScore: number;
+  /** Elo-scale rating uncertainty (lifted from mu/sigma). Optional for legacy rows. */
+  uncertainty?: number;
+  parentVariantId: string | null;
+  /** Full variant text. Used by Phase 4 lineage tab to render TextDiff between consecutive nodes. */
+  variantContent: string;
+  /** 0 at the leaf (query target); increments by 1 for each hop toward the root. */
+  depth: number;
+}
+
 // ─── 1. Full Variant Detail ─────────────────────────────────────
 
 export const getVariantFullDetailAction = adminAction('getVariantFullDetailAction', async (
@@ -83,10 +104,13 @@ export const getVariantFullDetailAction = adminAction('getVariantFullDetailActio
 
   if (error) throw error;
 
-  const [runResult, explResult] = await Promise.all([
+  const [runResult, explResult, parentResult] = await Promise.all([
     supabase.from('evolution_runs').select('status, created_at').eq('id', variant.run_id).single(),
     variant.explanation_id
       ? supabase.from('explanations').select('explanation_title').eq('id', variant.explanation_id).single()
+      : Promise.resolve({ data: null, error: null }),
+    variant.parent_variant_id
+      ? supabase.from('evolution_variants').select('mu, sigma, elo_score, run_id').eq('id', variant.parent_variant_id).single()
       : Promise.resolve({ data: null, error: null }),
   ]);
 
@@ -104,6 +128,11 @@ export const getVariantFullDetailAction = adminAction('getVariantFullDetailActio
     matchCount: variant.match_count,
     isWinner: variant.is_winner,
     parentVariantId: variant.parent_variant_id,
+    // parent.mu is raw OpenSkill (~25); elo_score is the ELO-scale projection (~1200). Use elo_score.
+    // sigma is converted via liftUncertainty to match the child's uncertainty scale.
+    parentElo: parentResult.data?.elo_score ?? null,
+    parentUncertainty: parentResult.data ? liftUncertainty({ mu: parentResult.data.mu, sigma: parentResult.data.sigma }) ?? null : null,
+    parentRunId: parentResult.data?.run_id ?? null,
     createdAt: variant.created_at,
     runStatus: runResult.data?.status ?? 'unknown',
     runCreatedAt: runResult.data?.created_at ?? variant.created_at,
@@ -235,4 +264,55 @@ export const getVariantLineageChainAction = adminAction('getVariantLineageChainA
   }
 
   return lineage;
+});
+
+// ─── 4. Full Variant Chain (Phase 4: recursive RPC with cycle protection) ───
+
+/**
+ * Fetches the full ancestor chain for a variant, root-first (seed → leaf).
+ * Uses Postgres RPC `get_variant_full_chain` which runs a WITH RECURSIVE
+ * walk with array-based cycle detection and a 20-hop cap.
+ */
+export const getVariantFullChainAction = adminAction('getVariantFullChainAction', async (
+  variantId: string,
+  ctx: AdminContext,
+): Promise<VariantChainNode[]> => {
+  if (!validateUuid(variantId)) throw new Error('Invalid variantId');
+  const { supabase } = ctx;
+
+  type ChainRpcRow = {
+    id: string;
+    run_id: string;
+    variant_content: string;
+    elo_score: number;
+    mu: number | null;
+    sigma: number | null;
+    generation: number;
+    agent_name: string | null;
+    parent_variant_id: string | null;
+    depth: number;
+  };
+  // RPC not declared in generated Database types — see migration
+  // 20260418000002_variants_get_full_chain_rpc.sql. Casting via unknown to the row shape.
+  const rpcResult = await supabase.rpc(
+    'get_variant_full_chain' as never,
+    { target_variant_id: variantId } as never,
+  ) as unknown as { data: ChainRpcRow[] | null; error: { message: string } | null };
+  if (rpcResult.error) throw rpcResult.error;
+
+  const rows = rpcResult.data ?? [];
+  return rows.map((r) => {
+    const uncertainty = liftUncertainty({ mu: r.mu, sigma: r.sigma });
+    return {
+      id: String(r.id),
+      runId: String(r.run_id),
+      agentName: String(r.agent_name ?? ''),
+      generation: Number(r.generation ?? 0),
+      eloScore: Number(r.elo_score ?? 0),
+      ...(uncertainty != null ? { uncertainty } : {}),
+      parentVariantId: r.parent_variant_id ? String(r.parent_variant_id) : null,
+      variantContent: String(r.variant_content ?? ''),
+      depth: Number(r.depth ?? 0),
+    };
+  });
 });

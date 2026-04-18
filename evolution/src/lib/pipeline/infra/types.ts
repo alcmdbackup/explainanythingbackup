@@ -60,6 +60,10 @@ export interface EvolutionResult {
   /** Variants that were generated but discarded by their owning agent (Phase 1+).
    *  Persisted at finalization with persisted=false so generation cost stays queryable. */
   discardedVariants?: z.infer<typeof variantSchema>[];
+  /** Per-discarded-variant local-rank rating from the agent's binary search, keyed by variantId.
+   *  Used by persistRunResults to give discarded rows honest (non-default) ELO so Phase 3/5
+   *  metrics don't suffer survivorship bias. Populated by runIterationLoop during dispatch. */
+  discardedLocalRatings?: Map<string, z.infer<typeof ratingSchema>>;
   /** Iteration snapshots captured at the start and end of every orchestrator iteration. */
   iterationSnapshots?: import('../../schemas').IterationSnapshot[];
   /** Random seed used for the run (for reproducibility). */

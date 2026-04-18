@@ -93,11 +93,15 @@ export async function createTestStrategy(
   const supabase = getEvolutionServiceClient();
   const suffix = generateTestSuffix();
 
+  // config_hash has a not-null constraint; use a random hex since this row is synthetic
+  // and intentionally will not collide with the deterministic hash of any real strategy.
+  const configHash = Math.random().toString(16).slice(2, 14).padEnd(12, '0');
   const { data, error } = await supabase
     .from('evolution_strategies')
     .insert({
       name: options?.name ?? `${TEST_EVO_PREFIX} Strategy ${suffix}`,
       config: options?.config ?? { type: 'test', maxIterations: 2 },
+      config_hash: configHash,
     })
     .select('id')
     .single();
@@ -494,4 +498,190 @@ export async function cleanupAllTrackedEvolutionData(): Promise<number> {
   }
 
   return totalCleaned;
+}
+
+// ============================================================================
+// Phase 5: Multi-hop run fixture for lineage + attribution E2E specs
+// ============================================================================
+
+export interface MultiHopFixture {
+  runId: string;
+  promptId: string;
+  strategyId: string;
+  /** Variants in chain order: [seed, v1, v2, leaf]. */
+  variantIds: string[];
+  /** Invocation IDs matching the generation of v1, v2, leaf respectively. */
+  invocationIds: string[];
+  /** Invocation that produced the leaf variant — used for invocation-detail spec. */
+  leafInvocationId: string;
+  cleanup: () => Promise<void>;
+}
+
+interface CreateMultiHopFixtureOptions {
+  /** Override the default generation strategy (defaults to lexical_simplify). */
+  strategy?: string;
+  /** Insert llmCallTracking rows linked to the leaf invocation for the Raw-LLM section spec. */
+  seedLlmCallTracking?: boolean;
+  /** Insert eloAttrDelta + eloAttrDeltaHist metric rows on the run entity so the
+   *  strategy-effectiveness-chart + histogram render without needing computeRunMetrics. */
+  seedAttributionMetrics?: boolean;
+}
+
+/**
+ * Seeds a 4-node lineage chain (seed → v1 → v2 → leaf) with matching agent invocations
+ * and optional llmCallTracking rows. Used by Phase 4/5/6 E2E specs:
+ * variantLineageTab, strategyEffectivenessChart, variantParentBadge, invocationDetailPrevious.
+ *
+ * Variant ELOs are chosen so that: seed=1200, v1=1240, v2=1270, leaf=1310 — each hop
+ * yields a positive delta so attribution metrics have non-trivial values.
+ */
+export async function createMultiHopFixture(
+  options: CreateMultiHopFixtureOptions = {},
+): Promise<MultiHopFixture> {
+  const supabase = getEvolutionServiceClient();
+  const strategy = options.strategy ?? 'lexical_simplify';
+  const suffix = generateTestSuffix();
+
+  // 1. Prompt + strategy + run.
+  // Unique prompt text per fixture — avoids uq_arena_topic_prompt collisions when
+  // multiple specs run createMultiHopFixture in parallel.
+  const prompt = await createTestPrompt({ prompt: `[TEST_EVO] multi-hop fixture prompt ${suffix}` });
+  const strategyRow = await createTestStrategy();
+  const run = await createTestRun({ promptId: prompt.id, strategyId: strategyRow.id });
+
+  // 2. Variants chain. seed has no parent; v1/v2/leaf link up.
+  const elos = [1200, 1240, 1270, 1310];
+  const mus = [0, 3, 6, 9]; // OpenSkill mu; maps to elo via dbToRating — arbitrary but increasing.
+  const sigmas = [5, 30, 25, 20];
+  const names = [`[TEST_EVO] seed ${suffix}`, `[TEST_EVO] v1 ${suffix}`,
+                 `[TEST_EVO] v2 ${suffix}`, `[TEST_EVO] leaf ${suffix}`];
+  const variantIds: string[] = [];
+  for (let i = 0; i < 4; i++) {
+    const parent = i === 0 ? null : variantIds[i - 1];
+    const { data, error } = await supabase
+      .from('evolution_variants')
+      .insert({
+        run_id: run.id,
+        prompt_id: prompt.id,
+        parent_variant_id: parent,
+        generation: i,
+        variant_content: `${names[i]} content — iteration ${i}`,
+        elo_score: elos[i],
+        mu: mus[i],
+        sigma: sigmas[i],
+        agent_name: i === 0 ? 'seed_variant' : strategy,
+        persisted: true,
+      })
+      .select('id')
+      .single();
+    if (error) throw new Error(`multi-hop variant[${i}] insert failed: ${error.message}`);
+    variantIds.push(data.id);
+    trackEvolutionId('variant', data.id);
+  }
+
+  // 3. Invocations for the 3 non-seed variants.
+  const invocationIds: string[] = [];
+  for (let i = 1; i < 4; i++) {
+    const { data, error } = await supabase
+      .from('evolution_agent_invocations')
+      .insert({
+        run_id: run.id,
+        agent_name: 'generate_from_previous_article',
+        iteration: i,
+        execution_order: i,
+        success: true,
+        cost_usd: 0.02,
+        duration_ms: 4000,
+        execution_detail: {
+          detailType: 'generate_from_previous_article',
+          strategy,
+          variantId: variantIds[i],
+          generation: { cost: 0.015, promptLength: 400, textLength: 600, formatValid: true, durationMs: 2500 },
+          ranking: { cost: 0.005, localPoolSize: i, initialTop15Cutoff: 0,
+                     totalComparisons: 2, stopReason: 'converged',
+                     finalLocalElo: elos[i]!, finalLocalUncertainty: sigmas[i]!,
+                     finalLocalTop15Cutoff: elos[i]! - 40, durationMs: 1500, comparisons: [] },
+          surfaced: true,
+          totalCost: 0.02,
+        },
+      })
+      .select('id')
+      .single();
+    if (error) throw new Error(`multi-hop invocation[${i}] insert failed: ${error.message}`);
+    invocationIds.push(data.id);
+    trackEvolutionId('invocation', data.id);
+
+    // Link the variant back to its producing invocation.
+    await supabase
+      .from('evolution_variants')
+      .update({ agent_invocation_id: data.id })
+      .eq('id', variantIds[i]);
+  }
+
+  const leafInvocationId = invocationIds[invocationIds.length - 1]!;
+
+  // 4. Optional: seed eloAttrDelta:* + eloAttrDeltaHist:* metric rows on the run entity.
+  if (options.seedAttributionMetrics) {
+    const metricKey = `generate_from_previous_article:${strategy}`;
+    const rows = [
+      {
+        entity_type: 'run', entity_id: run.id,
+        metric_name: `eloAttrDelta:${metricKey}`,
+        value: 36.67, sigma: 10, ci_lower: 15.7, ci_upper: 57.6, n: 3,
+        origin_entity_type: 'invocation', source: 'at_finalization',
+      },
+      {
+        entity_type: 'run', entity_id: run.id,
+        metric_name: `eloAttrDeltaHist:${metricKey}:30:40`,
+        value: 0.67, n: 2, source: 'at_finalization',
+      },
+      {
+        entity_type: 'run', entity_id: run.id,
+        metric_name: `eloAttrDeltaHist:${metricKey}:40:gtmax`,
+        value: 0.33, n: 1, source: 'at_finalization',
+      },
+    ];
+    const { error } = await supabase.from('evolution_metrics').insert(rows);
+    if (error) {
+      console.warn('[createMultiHopFixture] attribution metric insert failed:', error.message);
+    }
+  }
+
+  // 5. Optional: llmCallTracking rows for the leaf invocation (Raw-LLM section spec).
+  if (options.seedLlmCallTracking) {
+    const { error } = await supabase.from('llmCallTracking').insert({
+      evolution_invocation_id: leafInvocationId,
+      call_source: 'generation',
+      prompt: '[TEST_EVO] Rewrite this article to be simpler. Original text: ...',
+      content: '[TEST_EVO] Simplified article text for the leaf variant.',
+      raw_api_response: '{"model":"gpt-4.1-mini","usage":{"prompt_tokens":120,"completion_tokens":80}}',
+      model: 'gpt-4.1-mini',
+      prompt_tokens: 120,
+      completion_tokens: 80,
+      total_tokens: 200,
+      userid: '00000000-0000-0000-0000-000000000000',
+    });
+    if (error) {
+      console.warn('[createMultiHopFixture] llmCallTracking insert failed (non-fatal):', error.message);
+    }
+  }
+
+  return {
+    runId: run.id,
+    promptId: prompt.id,
+    strategyId: strategyRow.id,
+    variantIds,
+    invocationIds,
+    leafInvocationId,
+    cleanup: async () => {
+      // Cleanup is handled automatically by trackEvolutionId — each entity is registered
+      // and swept by global-teardown. This explicit cleanup is a defensive fallback.
+      await supabase.from('llmCallTracking').delete().eq('evolution_invocation_id', leafInvocationId);
+      await supabase.from('evolution_agent_invocations').delete().in('id', invocationIds);
+      await supabase.from('evolution_variants').delete().in('id', variantIds);
+      await run.cleanup();
+      await strategyRow.cleanup();
+      await prompt.cleanup();
+    },
+  };
 }

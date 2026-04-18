@@ -10,9 +10,9 @@ const mockGenerateRun = jest.fn();
 const mockSwissRun = jest.fn();
 const mockMergeRun = jest.fn();
 
-jest.mock('../../core/agents/generateFromSeedArticle', () => ({
-  GenerateFromSeedArticleAgent: jest.fn().mockImplementation(() => ({
-    name: 'generate_from_seed_article',
+jest.mock('../../core/agents/generateFromPreviousArticle', () => ({
+  GenerateFromPreviousArticleAgent: jest.fn().mockImplementation(() => ({
+    name: 'generate_from_previous_article',
     run: (input: unknown, ctx: unknown) => mockGenerateRun(input, ctx),
   })),
   deepCloneRatings: jest.fn((m: Map<string, unknown>) => new Map(m)),
@@ -405,9 +405,9 @@ describe('evolveArticle — seed agent (seedPrompt option)', () => {
     expect(seedEntry).toBeUndefined();
     // isSeeded flag should be set
     expect(result.isSeeded).toBe(true);
-    // Generate agents receive seedVariantId
-    const genInput = mockGenerateRun.mock.calls[0][0] as { seedVariantId: string };
-    expect(genInput.seedVariantId).toBe(SEED_ID);
+    // Generate agents receive parentVariantId (formerly seedVariantId)
+    const genInput = mockGenerateRun.mock.calls[0][0] as { parentVariantId: string };
+    expect(genInput.parentVariantId).toBe(SEED_ID);
   });
 
   // Seed generation tests moved to claimAndExecuteRun (pre-iteration setup).

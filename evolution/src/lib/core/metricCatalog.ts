@@ -80,6 +80,11 @@ export const METRIC_CATALOG = {
     timing: 'at_finalization',
     description: 'Fraction of generation strategies that failed format validation',
   },
+  elo_delta_vs_parent: {
+    name: 'elo_delta_vs_parent', label: 'ELO Δ vs. Parent', category: 'rating', formatter: 'elo',
+    timing: 'at_finalization',
+    description: 'Produced variant ELO minus parent ELO (live — stale-cascade fires on parent rating changes)',
+  },
   total_comparisons: {
     name: 'total_comparisons', label: 'Total Comparisons', category: 'match', formatter: 'integer',
     timing: 'at_finalization',

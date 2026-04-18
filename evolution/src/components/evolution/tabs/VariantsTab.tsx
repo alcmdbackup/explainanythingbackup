@@ -15,6 +15,8 @@ import {
 import { buildVariantDetailUrl } from '@evolution/lib/utils/evolutionUrls';
 import { formatEloWithUncertainty, formatEloCIRange } from '@evolution/lib/utils/formatters';
 import { dbToRating } from '@evolution/lib/shared/computeRatings';
+import { bootstrapDeltaCI } from '@evolution/lib/shared/ratingDelta';
+import { VariantParentBadge } from '@evolution/components/evolution/variant/VariantParentBadge';
 
 /** Extended variant type with optional parent_variant_id for display. */
 interface VariantWithParent extends EvolutionVariant {
@@ -201,17 +203,39 @@ export function VariantsTab({ runId, strategyId, runStatus }: VariantsTabProps):
                   <td className="px-2 py-2 font-mono text-xs">{v.agent_name || '—'}</td>
                   <td className="px-2 py-2 text-right text-[var(--text-muted)]">{v.generation}</td>
                   <td className="px-2 py-2">
-                    {(v as VariantWithParent).parent_variant_id ? (
-                      <Link
-                        href={buildVariantDetailUrl((v as VariantWithParent).parent_variant_id!)}
-                        className="font-mono text-xs text-[var(--accent-gold)] hover:underline"
-                        title={(v as VariantWithParent).parent_variant_id!}
-                      >
-                        {(v as VariantWithParent).parent_variant_id!.substring(0, 6)}
-                      </Link>
-                    ) : (
-                      <span className="text-[var(--text-muted)]">—</span>
-                    )}
+                    {(() => {
+                      const parentId = v.parent_variant_id ?? null;
+                      if (!parentId) {
+                        return (
+                          <VariantParentBadge
+                            parentId={null}
+                            parentElo={null}
+                            parentUncertainty={null}
+                            delta={null}
+                            deltaCi={null}
+                          />
+                        );
+                      }
+                      const childRating = v.mu != null && v.sigma != null
+                        ? dbToRating(v.mu, v.sigma)
+                        : { elo: v.elo_score, uncertainty: 0 };
+                      const parentElo = v.parent_elo ?? null;
+                      const parentUncertainty = v.parent_uncertainty ?? null;
+                      const { delta, ci } = parentElo != null
+                        ? bootstrapDeltaCI(childRating,
+                            { elo: parentElo, uncertainty: parentUncertainty ?? 0 })
+                        : { delta: null, ci: null };
+                      return (
+                        <VariantParentBadge
+                          parentId={parentId}
+                          parentElo={parentElo}
+                          parentUncertainty={parentUncertainty}
+                          delta={delta}
+                          deltaCi={ci}
+                          crossRun={!!v.parent_run_id && v.parent_run_id !== v.run_id}
+                        />
+                      );
+                    })()}
                   </td>
                   <td className="px-2 py-2 text-center" data-testid={`persisted-${v.id.substring(0, 6)}`}>
                     {v.persisted === false ? (

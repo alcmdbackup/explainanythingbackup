@@ -174,7 +174,7 @@ adminTest.describe('Budget-Aware Dispatch', { tag: '@evolution' }, () => {
       .from('evolution_agent_invocations')
       .select('id, agent_name, iteration')
       .eq('run_id', runId)
-      .eq('agent_name', 'generate_from_seed_article');
+      .eq('agent_name', 'generate_from_previous_article');
 
     expect(invocations).toBeTruthy();
     // Budget-aware dispatch should not exceed maxVariantsToGenerateFromSeedArticle (6).
@@ -205,7 +205,7 @@ adminTest.describe('Budget-Aware Dispatch', { tag: '@evolution' }, () => {
       .from('evolution_agent_invocations')
       .select('execution_detail')
       .eq('run_id', runId)
-      .eq('agent_name', 'generate_from_seed_article');
+      .eq('agent_name', 'generate_from_previous_article');
 
     expect(invocations).toBeTruthy();
     for (const inv of invocations!) {
@@ -223,7 +223,7 @@ adminTest.describe('Budget-Aware Dispatch', { tag: '@evolution' }, () => {
       .from('evolution_agent_invocations')
       .select('execution_detail')
       .eq('run_id', runId)
-      .eq('agent_name', 'generate_from_seed_article')
+      .eq('agent_name', 'generate_from_previous_article')
       .eq('success', true);
 
     expect(invocations).toBeTruthy();

@@ -118,3 +118,104 @@ export const getInvocationDetailAction = adminAction(
     return data as InvocationDetail;
   },
 );
+
+/** Phase 6: Raw LLM call rows for a given invocation. Prompts may contain source article PII —
+ *  UI must surface this via a disclosure banner. */
+export interface LLMCallRow {
+  id: number;
+  prompt: string;
+  content: string;
+  model: string | null;
+  call_source: string;
+  prompt_tokens: number | null;
+  completion_tokens: number | null;
+  total_tokens: number | null;
+  created_at: string;
+}
+
+export const getLLMCallsForInvocationAction = adminAction(
+  'getLLMCallsForInvocationAction',
+  async (invocationId: string, ctx: AdminContext): Promise<LLMCallRow[]> => {
+    if (!validateUuid(invocationId)) throw new Error('Invalid invocationId');
+    const { supabase } = ctx;
+
+    const { data, error } = await supabase
+      .from('llmCallTracking')
+      .select('id, prompt, content, model, call_source, prompt_tokens, completion_tokens, total_tokens, created_at')
+      .eq('evolution_invocation_id', invocationId)
+      .order('created_at', { ascending: true });
+
+    if (error) throw error;
+    return (data ?? []) as LLMCallRow[];
+  },
+);
+
+/** Phase 6: fetch the single variant produced by an invocation, plus its parent's mu/sigma.
+ *  Used to render the "Parent block" on the invocation detail page for
+ *  generate_from_previous_article invocations. Returns null when no variant was produced. */
+export interface InvocationVariantContext {
+  variantId: string;
+  /** The produced variant's run_id — compared against parentRunId to detect cross-run parents. */
+  variantRunId: string;
+  variantElo: number;
+  variantMu: number | null;
+  variantSigma: number | null;
+  parentVariantId: string | null;
+  parentElo: number | null;
+  parentMu: number | null;
+  parentSigma: number | null;
+  parentRunId: string | null;
+}
+
+export const getInvocationVariantContextAction = adminAction(
+  'getInvocationVariantContextAction',
+  async (invocationId: string, ctx: AdminContext): Promise<InvocationVariantContext | null> => {
+    if (!validateUuid(invocationId)) throw new Error('Invalid invocationId');
+    const { supabase } = ctx;
+
+    type InvocationVariantRow = {
+      id: string; run_id: string; elo_score: number; mu: number | null; sigma: number | null; parent_variant_id: string | null;
+    };
+    const { data: variantsData } = await supabase
+      .from('evolution_variants')
+      .select('id, run_id, elo_score, mu, sigma, parent_variant_id')
+      .eq('agent_invocation_id', invocationId)
+      .limit(1);
+    const variants = (variantsData ?? []) as unknown as InvocationVariantRow[];
+
+    const variant = variants?.[0];
+    if (!variant) return null;
+
+    let parentElo: number | null = null;
+    let parentMu: number | null = null;
+    let parentSigma: number | null = null;
+    let parentRunId: string | null = null;
+
+    if (variant.parent_variant_id) {
+      const { data: parent } = await supabase
+        .from('evolution_variants')
+        .select('elo_score, mu, sigma, run_id')
+        .eq('id', variant.parent_variant_id)
+        .single();
+      if (parent) {
+        parentElo = parent.elo_score ?? null;
+        parentMu = parent.mu ?? null;
+        parentSigma = parent.sigma ?? null;
+        parentRunId = parent.run_id ?? null;
+      }
+    }
+
+    return {
+      variantId: variant.id,
+      variantRunId: variant.run_id,
+      variantElo: variant.elo_score,
+      variantMu: variant.mu ?? null,
+      variantSigma: variant.sigma ?? null,
+      parentVariantId: variant.parent_variant_id,
+      parentElo,
+      parentMu,
+      parentSigma,
+      parentRunId,
+    };
+  },
+);

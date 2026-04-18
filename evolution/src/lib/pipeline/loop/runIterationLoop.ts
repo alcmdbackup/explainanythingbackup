@@ -12,14 +12,16 @@ import { createCostTracker, createIterationBudgetTracker, IterationBudgetExceede
 import { createEvolutionLLMClient } from '../infra/createEvolutionLLMClient';
 import type { EntityLogger } from '../infra/createEntityLogger';
 import { selectWinner } from '../../shared/selectWinner';
-import { GenerateFromSeedArticleAgent } from '../../core/agents/generateFromSeedArticle';
+import { GenerateFromPreviousArticleAgent } from '../../core/agents/generateFromPreviousArticle';
 import { SwissRankingAgent, type SwissRankingMatchEntry } from '../../core/agents/SwissRankingAgent';
 import { MergeRatingsAgent, type MergeMatchEntry } from '../../core/agents/MergeRatingsAgent';
 import { swissPairing, pairKey, MAX_PAIRS_PER_ROUND } from './swissPairing';
 import { computeTop15Cutoff } from './rankSingleVariant';
+import { resolveParent, hashSeed } from './resolveParent';
 import { DEFAULT_TACTICS, type IterationSnapshot } from '../../schemas';
 import { deriveSeed, SeededRandom } from '../../shared/seededRandom';
 import { selectTacticWeighted } from '../../core/tactics';
+import { createSeededRng } from '../../metrics/experimentMetrics';
 import type { AgentContext } from '../../core/types';
 import { estimateAgentCost } from '../infra/estimateCosts';
 
@@ -226,6 +228,7 @@ export async function evolveArticle(
   const completedPairs = new Set<string>();
   const iterationSnapshots: IterationSnapshot[] = [];
   const discardedVariants: Variant[] = [];
+  const discardedLocalRatings = new Map<string, Rating>();
   const iterationResults: IterationResult[] = [];
 
   // Seed variant is no longer added to the pool — it serves only as generation source text.
@@ -338,10 +341,24 @@ export async function evolveArticle(
           phaseName: 'generation',
         });
 
+        const iterSourceMode = iterCfg.sourceMode ?? 'seed';
+        const iterQualityCutoff = iterCfg.qualityCutoff;
+        const seedVariantForResolve = { id: options?.seedVariantId ?? '', text: originalText };
+
         const dispatchPromises = Array.from({ length: dispatchCount }, (_, i) => {
           const tactic = dispatchedTactics[i]!;
           const execOrder = ++executionOrder;
           const agentIndex = i + 1;
+          const pickRng = createSeededRng(hashSeed(runId, iteration, execOrder));
+          const resolved = resolveParent({
+            sourceMode: iterSourceMode,
+            qualityCutoff: iterQualityCutoff,
+            seedVariant: seedVariantForResolve,
+            pool: initialPoolSnapshot,
+            ratings: initialRatingsSnapshot,
+            rng: pickRng,
+            warn: (msg, c) => logger.warn(msg, { ...c, phaseName: 'generation', iteration, execOrder }),
+          });
           const ctxForAgent: AgentContext = {
             db,
             runId,
@@ -354,16 +371,16 @@ export async function evolveArticle(
             config: resolvedConfig,
             agentIndex,
           };
-          const agent = new GenerateFromSeedArticleAgent();
+          const agent = new GenerateFromPreviousArticleAgent();
           return agent.run({
-            originalText,
+            parentText: resolved.text,
             tactic,
             llm,
             initialPool: initialPoolSnapshot,
             initialRatings: initialRatingsSnapshot,
             initialMatchCounts: initialMatchCountsSnapshot,
             cache: comparisonCache,
-            seedVariantId: options?.seedVariantId ?? '',
+            parentVariantId: resolved.variantId,
           }, ctxForAgent);
         });
 
@@ -385,7 +402,7 @@ export async function evolveArticle(
               // Run-level budget exceeded — will be caught by outer try/catch.
               throw r.reason;
             }
-            logger.warn('generateFromSeedArticle agent rejected', {
+            logger.warn('generateFromPreviousArticle agent rejected', {
               phaseName: 'generation',
               error: (r.reason instanceof Error ? r.reason.message : String(r.reason)).slice(0, 500),
             });
@@ -406,6 +423,11 @@ export async function evolveArticle(
             discardedIds.push(out.variant.id);
             if (out.discardReason) {
               discardReasonsMap[out.variant.id] = out.discardReason;
+            }
+            // Capture local-rank ELO for honest Phase 3/5 metrics on discarded variants.
+            // `localRating` is absent on early-exit paths (generation_failed, format-invalid, budget).
+            if (out.localRating) {
+              discardedLocalRatings.set(out.variant.id, out.localRating);
             }
           }
         }
@@ -633,6 +655,7 @@ export async function evolveArticle(
     diversityHistory,
     matchCounts: Object.fromEntries(matchCounts),
     discardedVariants,
+    discardedLocalRatings,
     iterationSnapshots,
     randomSeed,
     isSeeded: options?.seedVariantId ? true : undefined,

@@ -10,7 +10,7 @@ import type { Rating, ComparisonResult } from '../../shared/computeRatings';
 import type { V2Match } from '../../pipeline/infra/types';
 import type { RankSingleVariantStatus } from '../../pipeline/loop/rankSingleVariant';
 import { rankNewVariant } from '../../pipeline/loop/rankNewVariant';
-import { deepCloneRatings } from './generateFromSeedArticle';
+import { deepCloneRatings } from './generateFromPreviousArticle';
 import { generateTitle, buildArticlePrompt } from '../../pipeline/setup/generateSeedArticle';
 import { validateFormat } from '../../shared/enforceVariantFormat';
 import { createSeedArticleExecutionDetailSchema } from '../../schemas';
@@ -154,6 +154,7 @@ export class CreateSeedArticleAgent extends Agent<
       iterationBorn: ctx.iteration,
       parentIds: [],
       version: 0,
+      ...(ctx.invocationId ? { agentInvocationId: ctx.invocationId } : {}),
     });
 
     const { rankingCost, rankResult, surfaced, discardReason } = await rankNewVariant({

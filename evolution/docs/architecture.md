@@ -163,7 +163,7 @@ declarative, config-driven dispatch.
 
 | Iteration type | Work agent(s)                                       | Merge                | Discard rule                                           |
 |----------------|-----------------------------------------------------|----------------------|--------------------------------------------------------|
-| **Generate**   | `numVariants` parallel `GenerateFromSeedArticleAgent` | 1 `MergeRatingsAgent` | Each agent decides locally (using its own snapshot)   |
+| **Generate**   | `numVariants` parallel `GenerateFromPreviousArticleAgent` | 1 `MergeRatingsAgent` | Each agent decides locally (using its own snapshot)   |
 | **Swiss**      | 1 `SwissRankingAgent` (parallel pairs internally)    | 1 `MergeRatingsAgent` | None — paid-for matches always reach global ratings    |
 
 ```
@@ -177,7 +177,7 @@ declarative, config-driven dispatch.
       +-- recordSnapshot(iterIdx, iterCfg.agentType, 'start')
       |
       +-- if iterCfg.agentType == 'generate':
-      |     Spawn N parallel GenerateFromSeedArticleAgent invocations
+      |     Spawn N parallel GenerateFromPreviousArticleAgent invocations
       |     (N limited by iterCfg.maxAgents if set, otherwise budget-constrained),
       |     each with its own deep-cloned local pool/ratings/matchCounts
       |     and a frozen iteration-start snapshot. Each agent generates ONE
@@ -235,7 +235,7 @@ stored in the `evolution_tactics` table. When the strategy config sets
 tactics are selected via weighted random sampling instead of the default round-robin
 across `config.strategies`.
 
-**`GenerateFromSeedArticleAgent`** (`evolution/src/lib/core/agents/generateFromSeedArticle.ts`)
+**`GenerateFromPreviousArticleAgent`** (`evolution/src/lib/core/agents/generateFromPreviousArticle.ts`)
 — ONE variant per invocation. Generates the variant via a single tactic
 (`structural_transform`, `lexical_simplify`, `grounding_enhance`, …), then ranks it via
 binary search (`rankSingleVariant`) against a deep-cloned local snapshot of the
@@ -246,7 +246,7 @@ iteration-start pool/ratings/matchCounts. The agent owns the surface/discard dec
 - `budget` and local `elo < top15Cutoff` → **discard** (variant returned with `surfaced: false`,
   matches array empty — they never reach the merge agent)
 
-The execution detail records the full per-comparison timeline (`generateFromSeedRankingDetailSchema`)
+The execution detail records the full per-comparison timeline (`rankNewVariantDetailSchema`)
 including opponent, score, before/after `elo`/`uncertainty`, and the final stop reason.
 
 **`SwissRankingAgent`** (`evolution/src/lib/core/agents/SwissRankingAgent.ts`) — ONE
@@ -271,7 +271,7 @@ Captures before/after pool snapshots in the execution detail. Never discards.
 
 ### Per-Agent Frozen Snapshot
 
-In a generate iteration, each parallel `GenerateFromSeedArticleAgent` receives a
+In a generate iteration, each parallel `GenerateFromPreviousArticleAgent` receives a
 deep-cloned snapshot of `pool`, `ratings`, and `matchCounts` taken at iteration start
 (before any agent runs). This means agent N+1 cannot see agent N's variant during the
 same iteration — they all rank against the same starting state. The merge agent then
@@ -458,7 +458,7 @@ After the loop exits, the winner is selected from the full pool:
 3. Fallback: `pool[0]` if no variant has a rating.
 
 > **Seed variant:** The seed variant is no longer added to the pool as a competitor. It serves
-> only as the **generation source text** for `GenerateFromSeedArticleAgent` invocations.
+> only as the **generation source text** for `GenerateFromPreviousArticleAgent` invocations.
 > Seed generation is handled in `claimAndExecuteRun` as pre-iteration setup. Generated
 > variants have `parentIds` set to `[seedVariantId]` for lineage tracking. The seed variant
 > receives an "arena badge" on the leaderboard for identification but does not participate
@@ -562,7 +562,7 @@ The current V2 architecture replaced a fundamentally different V1 design.
 - **Config-driven loop** — `evolveArticle()` iterates over `config.iterationConfigs[]`,
   each entry specifying an agent type (generate or swiss), budget percentage, and optional
   maxAgents. Per-iteration budgets are computed from percentages at runtime.
-- **3 agent classes** — `GenerateFromSeedArticleAgent`, `SwissRankingAgent`,
+- **3 agent classes** — `GenerateFromPreviousArticleAgent`, `SwissRankingAgent`,
   `MergeRatingsAgent`, all using the `Agent.run()` template method.
 - **Discard inside the work agent** — each generate agent owns its surface/discard
   decision using its own deep-cloned local rating snapshot. Discarded variants are
@@ -595,7 +595,7 @@ reasoning about behavior significantly easier.
 | `evolution/src/lib/pipeline/claimAndExecuteRun.ts` | Core claim + execute (single entry point) |
 | `evolution/src/lib/pipeline/loop/runIterationLoop.ts` | Main loop orchestrator (`evolveArticle`) — config-driven iteration dispatch over `iterationConfigs[]`, parallel generate dispatch, swiss/merge sequencing, per-iteration budget tracking |
 | `evolution/src/lib/core/` | Entity base class, Agent base class, METRIC_CATALOG, entityRegistry |
-| `evolution/src/lib/core/agents/generateFromSeedArticle.ts` | One generate agent = one variant (single-strategy generate + binary-search rank + local discard) |
+| `evolution/src/lib/core/agents/generateFromPreviousArticle.ts` | One generate agent = one variant (single-strategy generate + binary-search rank + local discard) |
 | `evolution/src/lib/core/agents/SwissRankingAgent.ts` | One swiss iteration's worth of parallel pair comparisons |
 | `evolution/src/lib/core/agents/MergeRatingsAgent.ts` | Reusable shuffled rating merge — OpenSkill internally, public `{elo, uncertainty}` at boundary (sole writer of in-run `evolution_arena_comparisons`) |
 | `evolution/src/lib/pipeline/loop/rankSingleVariant.ts` | Binary-search ranking algorithm for one variant against a local snapshot |

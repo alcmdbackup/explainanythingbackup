@@ -1,5 +1,5 @@
 'use client';
-// Timeline tab for a single generate_from_seed_article invocation.
+// Timeline tab for a single generate_from_previous_article invocation.
 // Renders a two-segment phase bar (generation + ranking) with per-comparison
 // sub-bars stacked within the ranking segment. Reads `execution_detail` directly
 // (NOT config-driven) because the visualization is bespoke.

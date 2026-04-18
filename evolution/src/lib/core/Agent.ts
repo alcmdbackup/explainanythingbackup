@@ -21,6 +21,24 @@ export abstract class Agent<TInput, TOutput, TDetail extends ExecutionDetailBase
    *  (e.g. MergeRatingsAgent). */
   readonly usesLLM: boolean = true;
 
+  /**
+   * Return the attribution dimension value for an invocation, or null when this agent
+   * doesn't participate in ELO-delta attribution (e.g. swiss/merge agents).
+   *
+   * CURRENT STATUS: the Phase 5 aggregator in `experimentMetrics.computeEloAttributionMetrics`
+   * reads `execution_detail.strategy` directly (ad-hoc pattern — option (b) in the plan).
+   * This method exists as a typed contract for future agents — wire it into the aggregator
+   * when adding a second attribution dimension (e.g., `temperatureBucket`), at which point
+   * the aggregator should call this method instead of hardcoding the field path.
+   *
+   * Default: null. Override in variant-producing agents.
+   * Example: `return detail.strategy ?? null;`
+   */
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  getAttributionDimension(_detail: TDetail): string | null {
+    return null;
+  }
+
   abstract execute(input: TInput, ctx: AgentContext): Promise<AgentOutput<TOutput, TDetail>>;
 
   async run(input: TInput, ctx: AgentContext): Promise<AgentResult<TOutput>> {

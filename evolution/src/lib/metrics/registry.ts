@@ -20,6 +20,7 @@ import {
 import {
   computeBestVariantElo, computeAvgVariantElo, computeInvocationVariantCount,
   computeFormatRejectionRate, computeTotalComparisons,
+  computeInvocationEloDeltaVsParent,
 } from './computations/finalizationInvocation';
 import {
   aggregateSum, aggregateAvg, aggregateMax, aggregateMin, aggregateCount,
@@ -183,6 +184,9 @@ export const METRIC_REGISTRY: Record<EntityType, EntityMetricRegistry> = {
       { name: 'total_comparisons', label: 'Total Comparisons', category: 'match', formatter: 'integer',
         description: 'Total pairwise comparisons performed by this ranking invocation',
         compute: (ctx) => computeTotalComparisons(ctx, ctx.currentInvocationId ?? null) },
+      { name: 'elo_delta_vs_parent', label: 'ELO Δ vs. Parent', category: 'rating', formatter: 'elo',
+        description: 'Produced variant ELO minus parent ELO (live — stale-cascade fires on parent rating changes)',
+        compute: (ctx) => computeInvocationEloDeltaVsParent(ctx, ctx.currentInvocationId ?? null) },
     ],
     atPropagation: [],
   },

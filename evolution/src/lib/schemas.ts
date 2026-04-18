@@ -161,9 +161,12 @@ export const evolutionVariantInsertSchema = z.object({
   model: z.string().max(200).optional().nullable(),
   evolution_explanation_id: z.string().uuid().optional().nullable(),
   /** Whether this variant survived to the final pool. False = generated but discarded by
-   *  its owning generateFromSeedArticle agent (budget + low local mu). Default false on
+   *  its owning generateFromPreviousArticle agent (budget + low local mu). Default false on
    *  insert; the finalization step writes true for surfaced variants. */
   persisted: z.boolean().optional().default(false),
+  /** Phase 5: ID of the agent invocation that produced this variant. Null for historic rows
+   *  (no backfill). Used by experimentMetrics to group variants by (agent_name, dimension). */
+  agent_invocation_id: z.string().uuid().nullable().optional(),
 });
 
 export const evolutionVariantFullDbSchema = evolutionVariantInsertSchema.extend({
@@ -295,6 +298,10 @@ export const variantSchema = z.object({
   fromArena: z.boolean().optional(),
   reusedFromSeed: z.boolean().optional(),
   arenaMatchCount: z.number().int().min(0).optional(),
+  /** ID of the agent invocation that produced this variant. Phase 5 attribution uses this
+   *  to group variants by (agentName, dimensionValue) for ELO-delta metrics. Optional at
+   *  the in-memory layer; persisted as `agent_invocation_id` in `evolution_variants`. */
+  agentInvocationId: z.string().optional(),
 });
 
 export type VariantSchema = z.infer<typeof variantSchema>;
@@ -367,6 +374,17 @@ function preprocessBudgetFloor(input: unknown): unknown {
 /** Iteration agent type enum. */
 export const iterationAgentTypeEnum = z.enum(['generate', 'swiss']);
 
+/** Source of the parent article for a generate iteration. 'seed' = the run's seed article; 'pool' = a variant drawn from the current run's pool. */
+export const sourceModeEnum = z.enum(['seed', 'pool']);
+
+/** Quality cutoff for pool-mode parent selection. topN = absolute count; topPercent = percentile. */
+export const qualityCutoffSchema = z.object({
+  mode: z.enum(['topN', 'topPercent']),
+  value: z.number().positive(),
+});
+
+export type QualityCutoff = z.infer<typeof qualityCutoffSchema>;
+
 /** Per-iteration config within a strategy. Percentages are stored; dollar amounts computed at runtime. */
 export const iterationConfigSchema = z.object({
   /** Agent type for this iteration. */
@@ -375,9 +393,22 @@ export const iterationConfigSchema = z.object({
   budgetPercent: z.number().min(1).max(100),
   /** Max parallel agents for generate iterations. Optional — without it, dispatches as many as budget allows. Must be undefined for swiss. */
   maxAgents: z.number().int().min(1).max(100).optional(),
+  /** Source of the parent article: 'seed' (default) or 'pool' (draw from current run's ranked pool). Only valid for generate iterations. */
+  sourceMode: sourceModeEnum.optional(),
+  /** Quality cutoff for pool-mode parent selection. Required when sourceMode='pool'. */
+  qualityCutoff: qualityCutoffSchema.optional(),
 }).refine(
   (c) => c.agentType !== 'swiss' || c.maxAgents === undefined,
   { message: 'maxAgents must not be set for swiss iterations' },
+).refine(
+  (c) => c.agentType !== 'swiss' || c.sourceMode === undefined,
+  { message: 'sourceMode only valid for generate iterations' },
+).refine(
+  (c) => c.agentType !== 'swiss' || c.qualityCutoff === undefined,
+  { message: 'qualityCutoff only valid for generate iterations' },
+).refine(
+  (c) => c.sourceMode !== 'pool' || c.qualityCutoff !== undefined,
+  { message: 'qualityCutoff required when sourceMode is pool' },
 );
 
 export type IterationConfig = z.infer<typeof iterationConfigSchema>;
@@ -421,6 +452,9 @@ const strategyConfigBaseSchema = z.object({
   // First iteration must be generate (swiss on empty pool is invalid).
   return c.iterationConfigs[0]?.agentType === 'generate';
 }, { message: 'First iteration must be agentType generate (swiss on empty pool is invalid)' }).refine((c) => {
+  // First iteration cannot use pool-mode (pool is empty at start).
+  return c.iterationConfigs[0]?.sourceMode !== 'pool';
+}, { message: 'First iteration cannot use sourceMode=pool (pool is empty at start); use seed mode' }).refine((c) => {
   // No swiss iteration may precede all generate iterations.
   let hasGenerate = false;
   for (const ic of c.iterationConfigs) {
@@ -814,8 +848,8 @@ function renameKeys(mapping: Record<string, string>): (val: unknown) => unknown 
   };
 }
 
-/** generateFromSeedArticle: ranking comparison record (one per binary-search comparison). */
-const generateFromSeedComparisonInnerSchema = z.object({
+/** generateFromPreviousArticle: ranking comparison record (one per binary-search comparison). */
+const rankNewVariantComparisonInnerSchema = z.object({
   round: z.number().int().min(1),
   opponentId: z.string(),
   selectionScore: z.number(),
@@ -842,7 +876,7 @@ const generateFromSeedComparisonInnerSchema = z.object({
   reverseCallDurationMs: z.number().int().min(0).optional(),
 });
 
-export const generateFromSeedComparisonSchema = z.preprocess(
+export const rankNewVariantComparisonSchema = z.preprocess(
   renameKeys({
     variantMuBefore: 'variantEloBefore',
     variantSigmaBefore: 'variantUncertaintyBefore',
@@ -854,15 +888,15 @@ export const generateFromSeedComparisonSchema = z.preprocess(
     opponentSigmaAfter: 'opponentUncertaintyAfter',
     muPlusTwoSigma: 'eloPlusTwoUncertainty',
   }),
-  generateFromSeedComparisonInnerSchema,
+  rankNewVariantComparisonInnerSchema,
 );
 
-const generateFromSeedRankingDetailInnerSchema = z.object({
+const rankNewVariantDetailInnerSchema = z.object({
   variantId: z.string(),
   localPoolSize: z.number().int().min(0),
   localPoolVariantIds: z.array(z.string()),
   initialTop15Cutoff: z.number(),
-  comparisons: z.array(generateFromSeedComparisonSchema),
+  comparisons: z.array(rankNewVariantComparisonSchema),
   stopReason: z.enum(['converged', 'eliminated', 'no_more_opponents', 'budget']),
   totalComparisons: z.number().int().min(0),
   finalLocalElo: z.number(),
@@ -877,13 +911,13 @@ const rankingDetailRenameKeys = renameKeys({
   finalLocalSigma: 'finalLocalUncertainty',
 });
 
-export const generateFromSeedRankingDetailSchema = z.preprocess(
+export const rankNewVariantDetailSchema = z.preprocess(
   rankingDetailRenameKeys,
-  generateFromSeedRankingDetailInnerSchema,
+  rankNewVariantDetailInnerSchema,
 );
 
-export const generateFromSeedExecutionDetailSchema = executionDetailBaseSchema.extend({
-  detailType: z.literal('generate_from_seed_article'),
+export const generateFromPreviousExecutionDetailSchema = executionDetailBaseSchema.extend({
+  detailType: z.literal('generate_from_previous_article'),
   variantId: z.string().nullable(),
   tactic: z.string(),
   generation: z.object({
@@ -899,7 +933,7 @@ export const generateFromSeedExecutionDetailSchema = executionDetailBaseSchema.e
   }),
   ranking: z.preprocess(
     rankingDetailRenameKeys,
-    generateFromSeedRankingDetailInnerSchema.extend({
+    rankNewVariantDetailInnerSchema.extend({
       cost: z.number().min(0),
       estimatedCost: z.number().min(0).optional(),
     }),
@@ -929,7 +963,7 @@ export const createSeedArticleExecutionDetailSchema = executionDetailBaseSchema.
   }),
   ranking: z.preprocess(
     rankingDetailRenameKeys,
-    generateFromSeedRankingDetailInnerSchema.extend({
+    rankNewVariantDetailInnerSchema.extend({
       cost: z.number().min(0),
     }),
   ).nullable(),
@@ -1072,7 +1106,7 @@ export const agentExecutionDetailSchema = z.discriminatedUnion('detailType', [
   rankingExecutionDetailSchema,
   proximityExecutionDetailSchema,
   metaReviewExecutionDetailSchema,
-  generateFromSeedExecutionDetailSchema,
+  generateFromPreviousExecutionDetailSchema,
   createSeedArticleExecutionDetailSchema,
   swissRankingExecutionDetailSchema,
   mergeRatingsExecutionDetailSchema,

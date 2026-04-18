@@ -12,7 +12,7 @@ import { classifyError } from './classifyError';
 import type { AgentName } from '../core/agentNames';
 import { writeMetricMax } from '../metrics/writeMetrics';
 import { CreateSeedArticleAgent } from '../core/agents/createSeedArticle';
-import { deepCloneRatings } from '../core/agents/generateFromSeedArticle';
+import { deepCloneRatings } from '../core/agents/generateFromPreviousArticle';
 import { createCostTracker } from './infra/trackBudget';
 import { createEvolutionLLMClient } from './infra/createEvolutionLLMClient';
 import { deriveSeed } from '../shared/seededRandom';

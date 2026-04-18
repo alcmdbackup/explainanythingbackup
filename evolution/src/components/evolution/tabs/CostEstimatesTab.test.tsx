@@ -31,15 +31,15 @@ function makeBaseRunData(overrides: Partial<RunCostEstimates> = {}): RunCostEsti
     runId: 'run-1',
     summary: { totalCost: 0.847, estimatedCost: 0.754, absError: 0.093, errorPct: 12.4, budgetCap: 1.0 },
     costByAgent: [
-      { agentName: 'generate_from_seed_article', invocations: 7, estimatedUsd: 0.72, actualUsd: 0.81, errorPct: 12.5, coverage: 'est+act' },
+      { agentName: 'generate_from_previous_article', invocations: 7, estimatedUsd: 0.72, actualUsd: 0.81, errorPct: 12.5, coverage: 'est+act' },
       { agentName: 'swiss_ranking', invocations: 4, estimatedUsd: null, actualUsd: 0.056, errorPct: null, coverage: 'actual-only' },
       { agentName: 'merge_ratings', invocations: 4, estimatedUsd: null, actualUsd: 0, errorPct: null, coverage: 'no-llm' },
     ],
     invocations: [
-      { id: 'inv-1', agentName: 'generate_from_seed_article', iteration: 1, tactic: 'grounding_enhance',
+      { id: 'inv-1', agentName: 'generate_from_previous_article', iteration: 1, tactic: 'grounding_enhance',
         generationEstimate: 0.06, generationActual: 0.082, rankingEstimate: 0.02, rankingActual: 0.024,
         totalCost: 0.106, estimationErrorPct: 31.3 },
-      { id: 'inv-2', agentName: 'generate_from_seed_article', iteration: 1, tactic: 'lexical_simplify',
+      { id: 'inv-2', agentName: 'generate_from_previous_article', iteration: 1, tactic: 'lexical_simplify',
         generationEstimate: 0.032, generationActual: 0.026, rankingEstimate: 0.02, rankingActual: 0.017,
         totalCost: 0.043, estimationErrorPct: -17.6 },
     ],
@@ -115,7 +115,7 @@ describe('CostEstimatesTab — Run view', () => {
       summary: { totalCost: null, estimatedCost: null, absError: null, errorPct: null, budgetCap: null },
       invocations: [
         // No generationEstimate / rankingEstimate on any invocation
-        { id: 'inv-1', agentName: 'generate_from_seed_article', iteration: 1, tactic: null,
+        { id: 'inv-1', agentName: 'generate_from_previous_article', iteration: 1, tactic: null,
           generationEstimate: null, generationActual: 0.05, rankingEstimate: null, rankingActual: 0.02,
           totalCost: 0.07, estimationErrorPct: null },
       ],

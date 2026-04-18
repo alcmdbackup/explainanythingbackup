@@ -6,7 +6,7 @@ import type { DetailFieldDef } from './types';
 /** Config-driven field definitions for rendering execution detail, keyed by detailType (or agent_name). */
 export const DETAIL_VIEW_CONFIGS: Record<string, DetailFieldDef[]> = {
   // ─── Parallel pipeline (generate_rank_evolution_parallel_20260331) ───
-  generate_from_seed_article: [
+  generate_from_previous_article: [
     { key: 'tactic', label: 'Tactic', type: 'badge' },
     { key: 'variantId', label: 'Variant ID', type: 'text' },
     { key: 'surfaced', label: 'Surfaced', type: 'boolean' },

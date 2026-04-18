@@ -377,3 +377,46 @@ A shared tab component that reads all metrics for an entity and displays them in
 - [Data Model](./data_model.md) — full database schema
 - [Entities](./entities.md) — entity relationships and the metrics table's polymorphic design
 - [Cost Optimization](./cost_optimization.md) — per-run cost tracking that feeds into metrics
+
+---
+
+## ELO-delta attribution metrics (Phase 5)
+
+Two dynamic metric families are emitted by `experimentMetrics.computeEloAttributionMetrics` during `computeRunMetrics`:
+
+### `eloAttrDelta:<agentName>:<dimensionValue>`
+
+Mean ELO delta (child - parent) across every invocation of `<agentName>` whose `execution_detail.<dimension>` equals `<dimensionValue>`. Dimension is pulled via `Agent.getAttributionDimension(detail)`. For `GenerateFromPreviousArticleAgent` the dimension is `execution_detail.strategy`.
+
+- `value`: arithmetic mean of per-invocation deltas.
+- `uncertainty`: sample standard deviation when `n >= 2`, else `null`.
+- `ci_lower`/`ci_upper`: normal-approximation 95% CI (`mean ± 1.96 * sd / sqrt(n)`) when `n >= 2`; `null` for `n == 1`.
+- `n`: count of invocations in the group.
+- `origin_entity_type`: `'invocation'`.
+
+### `eloAttrDeltaHist:<agentName>:<dimensionValue>:<lo>:<hi>`
+
+Fraction of invocations in the group whose delta fell into the half-open bucket `[lo, hi)`. Fixed 10-ELO buckets: `(-∞, -40)`, `[-40, -30)`, …, `[30, 40)`, `[40, +∞)`. The infinite edges are encoded as `ltmin` and `gtmax` in the metric name.
+
+- `value`: bucket fraction (count of deltas in bucket ÷ group size).
+- `n`: raw bucket count.
+
+### Prefix whitelist
+
+Both prefixes are registered in `DYNAMIC_METRIC_PREFIXES` in `evolution/src/lib/metrics/types.ts`. `writeMetrics` rejects any metric name not matching a static name or a whitelisted prefix.
+
+### Stale behavior
+
+The `mark_elo_metrics_stale()` trigger (migration `20260418000004_stale_trigger_elo_attr_delta.sql`) marks `eloAttrDelta:*` / `eloAttrDeltaHist:*` rows stale at the run/strategy/experiment level when any variant in the run has its `mu`/`sigma` change post-completion. This keeps the bar chart + histogram in sync with arena-match-driven parent rating drift.
+
+### Consuming UI
+
+- `StrategyEffectivenessChart` (`evolution/src/components/evolution/charts/StrategyEffectivenessChart.tsx`) — horizontal bar chart, one bar per `(agent, dimension)` group, 95% CI whiskers.
+- `EloDeltaHistogram` (`evolution/src/components/evolution/charts/EloDeltaHistogram.tsx`) — fixed-width 10-ELO buckets, fraction per bucket.
+- Wrapper `AttributionCharts` (`evolution/src/components/evolution/tabs/AttributionCharts.tsx`) — embedded in the Metrics tab of run, strategy, and experiment detail pages. Renders nothing when attribution rows are absent.
+
+### Interpretation caveats
+
+- Judge-dependent: every delta reflects preference by the configured judge model, not an absolute quality measure.
+- Conservative CI: bootstrap treats child + parent ELO as independent; they share a reference frame via pairwise matches, so the true CI is typically narrower.
+- Frozen-vs-live discussion: the current implementation always reads live parent ratings via JOIN at metric-compute time (not snapshot-at-birth). Combined with the stale cascade, this means the aggregate updates whenever any variant's rating changes.

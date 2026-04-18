@@ -4,7 +4,7 @@
 // It proves that LLM costs labeled 'generation' end up in the generation_cost row and
 // LLM costs labeled 'ranking' end up in the ranking_cost row — NOT a 50/50 split of
 // the run total. The bug being fixed: persistRunResults.finalizeRun() previously
-// applied a hardcoded `cost / 2` split to generate_from_seed_article invocation rows.
+// applied a hardcoded `cost / 2` split to generate_from_previous_article invocation rows.
 // The fix: createLLMClient writes per-purpose cost metrics live via writeMetricMax,
 // keyed by the typed AgentName label passed at the call site.
 //

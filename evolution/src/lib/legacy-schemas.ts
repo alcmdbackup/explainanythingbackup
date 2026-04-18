@@ -1,7 +1,7 @@
 // Legacy execution_detail schemas for historical evolution_agent_invocations rows.
 //
 // The new parallelized pipeline (generate_rank_evolution_parallel_20260331) replaces
-// GenerationAgent + RankingAgent with three new agents (generateFromSeedArticle,
+// GenerationAgent + RankingAgent with three new agents (generateFromPreviousArticle,
 // SwissRankingAgent, MergeRatingsAgent). Their CLASS files are deleted, but historical
 // invocation rows still carry agent_name='generation' / 'ranking' with execution_detail
 // matching the old schemas. The admin invocation detail view, ConfigDrivenDetailRenderer,

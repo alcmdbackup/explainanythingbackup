@@ -16,7 +16,7 @@ every text variant in the pool.
 > now split across two distinct algorithms, each owned by a different agent:
 >
 > - **Binary-search single-variant ranking** (`rankSingleVariant`) lives inside
->   `GenerateFromSeedArticleAgent`. Each parallel generate agent ranks its newly
+>   `GenerateFromPreviousArticleAgent`. Each parallel generate agent ranks its newly
 >   generated variant against a deep-cloned local snapshot of the iteration-start
 >   pool/ratings/matchCounts, using a continuous opponent-selection formula
 >   (`entropy(pWin) / uncertainty^UNCERTAINTY_WEIGHT`). Stops on convergence, elimination,

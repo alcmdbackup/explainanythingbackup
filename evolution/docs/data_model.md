@@ -582,3 +582,32 @@ The file `src/lib/database.types.ts` contains auto-generated TypeScript types fr
 - **Local**: `npm run db:types` (requires `SUPABASE_ACCESS_TOKEN`)
 - **CI**: Auto-generated on every PR push — the `generate-types` job regenerates and auto-commits if changed
 - **Merge conflicts**: `.gitattributes` auto-resolves in favor of incoming version
+
+---
+
+## `parent_variant_id` as the predecessor pointer (Phase 2+)
+
+Every variant carries a `parent_variant_id UUID NULL` column referencing another row in `evolution_variants` (self-FK is not currently declared in the generated types but is conventionally relied upon). Populated by:
+
+- `GenerateFromPreviousArticleAgent` (and the prior `generate_from_seed_article`): set to the agent's input parent — either the seed variant or a pool-drawn variant, per the iteration's `sourceMode`.
+- `CreateSeedArticleAgent`: `NULL` (root of the lineage chain).
+
+The single-pointer design means lineage is a tree (not a DAG). In-memory `Variant.parentIds` is an array for future multi-parent agents, but today only index 0 is persisted.
+
+## `agent_invocation_id` (Phase 5)
+
+Column added by `20260418000003_variants_add_agent_invocation_id.sql`:
+
+```sql
+ALTER TABLE evolution_variants
+  ADD COLUMN agent_invocation_id UUID
+  REFERENCES evolution_agent_invocations(id) ON DELETE SET NULL;
+```
+
+Threads each surfaced/discarded variant back to the agent invocation that produced it. Used by `experimentMetrics.computeEloAttributionMetrics` to group variants by `(agent_name, dimension)` for ELO-delta attribution. Historic rows have `NULL` here — no backfill per plan — and are naturally excluded from attribution aggregation.
+
+## Lineage chain walk
+
+The Postgres RPC `get_variant_full_chain(variant_id UUID)` (migration `20260418000002_variants_get_full_chain_rpc.sql`) walks `parent_variant_id` up to the root. Uses `WITH RECURSIVE` + array-path cycle detection + 20-hop cap (matches `iterationConfigs.max`). Returns rows ordered root-first.
+
+An index on `evolution_variants(parent_variant_id)` (migration `20260418000001`) keeps the walk fast.

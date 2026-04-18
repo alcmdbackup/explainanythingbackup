@@ -21,6 +21,9 @@ function makeEntry(overrides: Partial<ArenaEntry> = {}): ArenaEntry {
     created_at: '2026-03-01T00:00:00Z',
     generation: null,
     parent_variant_id: null,
+    parent_elo: null,
+    parent_uncertainty: null,
+    parent_run_id: null,
     ...overrides,
   };
 }

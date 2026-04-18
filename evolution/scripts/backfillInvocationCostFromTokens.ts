@@ -48,7 +48,7 @@ const SCRIPT_START = new Date();
 // Map evolution_agent_invocations.agent_name → which run-level cost metric the
 // invocation's cost rolls up into.
 const AGENT_TO_COST_METRIC: Record<string, 'generation_cost' | 'ranking_cost' | 'seed_cost' | null> = {
-  generate_from_seed_article: 'generation_cost',
+  generate_from_previous_article: 'generation_cost',
   swiss_ranking: 'ranking_cost',
   merge_ratings: null, // no LLM calls; contributes $0
   create_seed_article: 'seed_cost',

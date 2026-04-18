@@ -1,7 +1,7 @@
-// Tests for GenerateFromSeedArticleAgent: deep-clone safety, generation, ranking,
+// Tests for GenerateFromPreviousArticleAgent: deep-clone safety, generation, ranking,
 // surface/discard decision, format validation, budget handling.
 
-import { GenerateFromSeedArticleAgent, deepCloneRatings } from './generateFromSeedArticle';
+import { GenerateFromPreviousArticleAgent, deepCloneRatings } from './generateFromPreviousArticle';
 import { createRating, type Rating, type ComparisonResult } from '../../shared/computeRatings';
 import type { AgentContext } from '../types';
 import type { Variant, EvolutionLLMClient } from '../../types';
@@ -107,25 +107,25 @@ describe('deepCloneRatings', () => {
   });
 });
 
-describe('GenerateFromSeedArticleAgent', () => {
+describe('GenerateFromPreviousArticleAgent', () => {
   const makeInput = () => ({
-    originalText: 'Original article text.',
+    parentText: 'Original article text.',
     tactic: 'structural_transform',
     llm: mkLlm(),
     initialPool: [mkVariant('baseline')] as ReadonlyArray<Variant>,
     initialRatings: new Map<string, Rating>([['baseline', createRating()]]),
     initialMatchCounts: new Map<string, number>(),
     cache: new Map(),
-    seedVariantId: 'baseline',
+    parentVariantId: 'baseline',
   });
 
   it('has the correct name', () => {
-    const agent = new GenerateFromSeedArticleAgent();
-    expect(agent.name).toBe('generate_from_seed_article');
+    const agent = new GenerateFromPreviousArticleAgent();
+    expect(agent.name).toBe('generate_from_previous_article');
   });
 
   it('generates one variant via the assigned tactic and ranks it', async () => {
-    const agent = new GenerateFromSeedArticleAgent();
+    const agent = new GenerateFromPreviousArticleAgent();
     const result = await agent.run(makeInput(), makeCtx());
     expect(result.success).toBe(true);
     expect(result.result?.variant).not.toBeNull();
@@ -137,7 +137,7 @@ describe('GenerateFromSeedArticleAgent', () => {
     const input = makeInput();
     const inputRatings = input.initialRatings;
     const baselineBefore = { ...inputRatings.get('baseline')! };
-    const agent = new GenerateFromSeedArticleAgent();
+    const agent = new GenerateFromPreviousArticleAgent();
     await agent.run(input, makeCtx());
     // Input baseline rating must be unchanged.
     expect(inputRatings.get('baseline')).toEqual(baselineBefore);
@@ -146,7 +146,7 @@ describe('GenerateFromSeedArticleAgent', () => {
   it('does NOT mutate the input pool', async () => {
     const input = makeInput();
     const sizeBefore = input.initialPool.length;
-    const agent = new GenerateFromSeedArticleAgent();
+    const agent = new GenerateFromPreviousArticleAgent();
     await agent.run(input, makeCtx());
     expect(input.initialPool.length).toBe(sizeBefore);
   });
@@ -154,7 +154,7 @@ describe('GenerateFromSeedArticleAgent', () => {
   it('does NOT mutate the input matchCounts', async () => {
     const input = makeInput();
     const initialCounts = input.initialMatchCounts;
-    const agent = new GenerateFromSeedArticleAgent();
+    const agent = new GenerateFromPreviousArticleAgent();
     await agent.run(input, makeCtx());
     expect(initialCounts.size).toBe(0);
   });
@@ -162,7 +162,7 @@ describe('GenerateFromSeedArticleAgent', () => {
   it('returns generation_failed when format validation fails', async () => {
     mockFormatValid = false;
     mockFormatIssues = ['no_h1', 'too_few_sentences'];
-    const agent = new GenerateFromSeedArticleAgent();
+    const agent = new GenerateFromPreviousArticleAgent();
     const result = await agent.run(makeInput(), makeCtx());
     expect(result.success).toBe(true); // Agent.run() succeeds even if generation failed
     expect(result.result?.variant).toBeNull();
@@ -179,7 +179,7 @@ describe('GenerateFromSeedArticleAgent', () => {
       completeStructured: jest.fn(async () => { throw new Error('not used'); }),
     };
     const input = { ...makeInput(), llm };
-    const agent = new GenerateFromSeedArticleAgent();
+    const agent = new GenerateFromPreviousArticleAgent();
     const result = await agent.run(input, makeCtx());
     // Agent.run catches BudgetExceededError → success=false with budgetExceeded flag.
     // BUT the agent's execute() catches it internally and returns status:'budget' as success.
@@ -192,8 +192,8 @@ describe('GenerateFromSeedArticleAgent', () => {
   });
 
   it('returns generation_failed for unknown tactics', async () => {
-    const input = { ...makeInput(), tactic: 'unknown_strategy' };
-    const agent = new GenerateFromSeedArticleAgent();
+    const input = { ...makeInput(), tactic: 'unknown_tactic' };
+    const agent = new GenerateFromPreviousArticleAgent();
     const result = await agent.run(input, makeCtx());
     expect(result.result?.status).toBe('generation_failed');
     expect(result.result?.variant).toBeNull();
@@ -217,7 +217,7 @@ describe('GenerateFromSeedArticleAgent', () => {
     input.initialRatings = ratings;
     mockComparisonQueue = Array.from({ length: 10 }, () => ({ winner: 'A' as const, confidence: 1.0, turns: 2 }));
 
-    const agent = new GenerateFromSeedArticleAgent();
+    const agent = new GenerateFromPreviousArticleAgent();
     const result = await agent.run(input, makeCtx());
     expect(result.result?.surfaced).toBe(true);
     expect(['converged', 'no_more_opponents']).toContain(result.result?.status);
@@ -225,7 +225,7 @@ describe('GenerateFromSeedArticleAgent', () => {
 
   it('SURFACES variant on no_more_opponents', async () => {
     const input = makeInput(); // Only baseline in pool
-    const agent = new GenerateFromSeedArticleAgent();
+    const agent = new GenerateFromPreviousArticleAgent();
     const result = await agent.run(input, makeCtx());
     // 1 opponent → 1 comparison → no_more_opponents
     expect(result.result?.surfaced).toBe(true);
@@ -268,7 +268,7 @@ describe('GenerateFromSeedArticleAgent', () => {
       return { winner: 'B', confidence: 1.0, turns: 2 };
     });
 
-    const agent = new GenerateFromSeedArticleAgent();
+    const agent = new GenerateFromPreviousArticleAgent();
     const result = await agent.run(input, makeCtx());
     if (result.result?.surfaced === false) {
       expect(result.result?.matches).toEqual([]);
@@ -279,7 +279,7 @@ describe('GenerateFromSeedArticleAgent', () => {
   });
 
   it('includes execution detail with separate generation and ranking sections', async () => {
-    const agent = new GenerateFromSeedArticleAgent();
+    const agent = new GenerateFromPreviousArticleAgent();
     const ctx = makeCtx();
     const result = await agent.run(makeInput(), ctx);
     expect(result.success).toBe(true);
@@ -295,7 +295,7 @@ describe('GenerateFromSeedArticleAgent', () => {
     // updateInvocation(db, id, updates, logger?) — updates is index 2
     const update = lastCall[2];
     expect(update.execution_detail).toBeDefined();
-    expect(update.execution_detail.detailType).toBe('generate_from_seed_article');
+    expect(update.execution_detail.detailType).toBe('generate_from_previous_article');
     expect(update.execution_detail.generation).toBeDefined();
     expect(update.execution_detail.ranking).toBeDefined();
   });
@@ -303,7 +303,7 @@ describe('GenerateFromSeedArticleAgent', () => {
   it('passes ctx.invocationId to LLM calls (Critical Fix H)', async () => {
     const llm = mkLlm();
     const input = { ...makeInput(), llm };
-    const agent = new GenerateFromSeedArticleAgent();
+    const agent = new GenerateFromPreviousArticleAgent();
     await agent.run(input, makeCtx());
     // The first call (generation) should have invocationId in options.
     const calls = (llm.complete as jest.Mock).mock.calls;
@@ -318,11 +318,11 @@ describe('GenerateFromSeedArticleAgent', () => {
     // the literal string 'generation' as the second arg to llm.complete() so the
     // V2 cost tracker buckets the call under phaseCosts['generation'] and writes
     // generation_cost via writeMetricMax. If a future refactor passes a different
-    // label (e.g. 'gen', 'generate_from_seed_article', or any non-AgentName string),
+    // label (e.g. 'gen', 'generate_from_previous_article', or any non-AgentName string),
     // the typed parameter will reject it at compile time AND this test catches the
     // semantic drift.
     const llm = mkLlm();
-    const agent = new GenerateFromSeedArticleAgent();
+    const agent = new GenerateFromPreviousArticleAgent();
     await agent.run({ ...makeInput(), llm }, makeCtx());
     const calls = (llm.complete as jest.Mock).mock.calls;
     const labels = calls.map(c => c[1]);

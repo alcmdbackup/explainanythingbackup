@@ -49,9 +49,11 @@ interface CreateVariantParams {
   parentIds?: string[];
   version?: number;
   costUsd?: number;
+  /** Phase 5: ID of the agent invocation that produced this variant. */
+  agentInvocationId?: string;
 }
 
-export function createVariant({ text, tactic, iterationBorn, parentIds, version, costUsd }: CreateVariantParams): Variant {
+export function createVariant({ text, tactic, iterationBorn, parentIds, version, costUsd, agentInvocationId }: CreateVariantParams): Variant {
   return {
     id: uuidv4(),
     text,
@@ -61,6 +63,7 @@ export function createVariant({ text, tactic, iterationBorn, parentIds, version,
     version: version ?? 0,
     createdAt: Date.now() / 1000,
     ...(costUsd !== undefined && { costUsd }),
+    ...(agentInvocationId !== undefined && { agentInvocationId }),
   };
 }
 

@@ -21,9 +21,9 @@ jest.mock('../../core/agents/createSeedArticle', () => ({
   })),
 }));
 
-jest.mock('../../core/agents/generateFromSeedArticle', () => ({
-  GenerateFromSeedArticleAgent: jest.fn().mockImplementation(() => ({
-    name: 'generate_from_seed_article',
+jest.mock('../../core/agents/generateFromPreviousArticle', () => ({
+  GenerateFromPreviousArticleAgent: jest.fn().mockImplementation(() => ({
+    name: 'generate_from_previous_article',
     run: (input: unknown, ctx: unknown) => mockGenerateRun(input, ctx),
   })),
   deepCloneRatings: jest.fn((m: Map<string, unknown>) => new Map(m)),

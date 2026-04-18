@@ -167,12 +167,13 @@ describe('InvocationEntity', () => {
     expect(entity.parents[0]!.parentType).toBe('run');
   });
 
-  it('has 3 finalization metrics', () => {
-    expect(entity.metrics.atFinalization).toHaveLength(3);
+  it('has 4 finalization metrics', () => {
+    expect(entity.metrics.atFinalization).toHaveLength(4);
     const names = entity.metrics.atFinalization.map(d => d.name);
     expect(names).toContain('best_variant_elo');
     expect(names).toContain('avg_variant_elo');
     expect(names).toContain('variant_count');
+    expect(names).toContain('elo_delta_vs_parent');
   });
 
   it('has no actions', () => {

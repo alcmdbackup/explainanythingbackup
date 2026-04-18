@@ -21,8 +21,9 @@ import {
 } from '@evolution/services/arenaActions';
 import { formatElo, stripMarkdownTitle } from '@evolution/lib/shared/computeRatings';
 import { formatEloCIRange, formatEloWithUncertainty } from '@evolution/lib/utils/formatters';
-import { buildVariantDetailUrl } from '@evolution/lib/utils/evolutionUrls';
 import { computeEloCutoff } from './arenaCutoff';
+import { bootstrapDeltaCI } from '@evolution/lib/shared/ratingDelta';
+import { VariantParentBadge } from '@evolution/components/evolution/variant/VariantParentBadge';
 
 function ContentLink({ entryId, content }: { entryId: string; content: string }): JSX.Element {
   const cleaned = stripMarkdownTitle(content);
@@ -256,17 +257,36 @@ export default function ArenaTopicDetailPage(): JSX.Element {
                         {entry.generation_method}
                       </td>
                       <td className="py-2 pr-3">
-                        {entry.parent_variant_id ? (
-                          <Link
-                            href={buildVariantDetailUrl(entry.parent_variant_id)}
-                            className="font-mono text-xs text-[var(--accent-gold)] hover:underline"
-                            title={entry.parent_variant_id}
-                          >
-                            {entry.parent_variant_id.substring(0, 6)}
-                          </Link>
-                        ) : (
-                          <span className="text-[var(--text-muted)]">—</span>
-                        )}
+                        {(() => {
+                          if (!entry.parent_variant_id) {
+                            return (
+                              <VariantParentBadge
+                                parentId={null}
+                                parentElo={null}
+                                parentUncertainty={null}
+                                delta={null}
+                                deltaCi={null}
+                              />
+                            );
+                          }
+                          const childRating = { elo: entry.elo_score, uncertainty: entry.uncertainty ?? 0 };
+                          const parentElo = entry.parent_elo ?? null;
+                          const parentUncertainty = entry.parent_uncertainty ?? null;
+                          const { delta, ci } = parentElo != null
+                            ? bootstrapDeltaCI(childRating,
+                                { elo: parentElo, uncertainty: parentUncertainty ?? 0 })
+                            : { delta: null, ci: null };
+                          return (
+                            <VariantParentBadge
+                              parentId={entry.parent_variant_id}
+                              parentElo={parentElo}
+                              parentUncertainty={parentUncertainty}
+                              delta={delta}
+                              deltaCi={ci}
+                              crossRun={!!entry.parent_run_id && entry.parent_run_id !== entry.run_id}
+                            />
+                          );
+                        })()}
                       </td>
                       <td className="py-2 font-mono">
                         {entry.cost_usd != null

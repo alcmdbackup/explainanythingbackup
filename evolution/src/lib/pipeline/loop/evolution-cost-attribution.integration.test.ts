@@ -1,8 +1,8 @@
 // Integration test for parallel-agent cost attribution.
-// Verifies that concurrent GenerateFromSeedArticleAgent invocations each report only
+// Verifies that concurrent GenerateFromPreviousArticleAgent invocations each report only
 // their own LLM spend in cost_usd, not sibling spend — end-to-end through Agent.run().
 
-import { GenerateFromSeedArticleAgent } from '../../core/agents/generateFromSeedArticle';
+import { GenerateFromPreviousArticleAgent } from '../../core/agents/generateFromPreviousArticle';
 import { createCostTracker } from '../infra/trackBudget';
 import { createRating, type Rating } from '../../shared/computeRatings';
 import type { AgentContext } from '../../core/types';
@@ -84,7 +84,7 @@ describe('parallel cost attribution (integration)', () => {
         completeStructured: jest.fn(async () => { throw new Error('not used'); }),
         _expectedSpend: spend,
       };
-      return { agent: new GenerateFromSeedArticleAgent(), llm, expectedSpend: spend, idx };
+      return { agent: new GenerateFromPreviousArticleAgent(), llm, expectedSpend: spend, idx };
     });
 
     // Run all 3 agents concurrently against the shared tracker.
@@ -102,14 +102,14 @@ describe('parallel cost attribution (integration)', () => {
       agents.map(({ agent, llm, idx }) => {
         const ctx = makeCtx(shared, idx + 1);
         return agent.run({
-          originalText: `Article text for agent ${idx}`,
+          parentText: `Article text for agent ${idx}`,
           tactic: 'structural_transform',
           llm: llm as never,
           initialPool: pool as ReadonlyArray<Variant>,
           initialRatings: new Map(ratings),
           initialMatchCounts: new Map(),
           cache: new Map(),
-          seedVariantId: 'baseline',
+          parentVariantId: 'baseline',
         }, ctx);
       })
     );
@@ -142,16 +142,16 @@ describe('parallel cost attribution (integration)', () => {
       completeStructured: jest.fn(async () => { throw new Error('not used'); }),
     };
 
-    const agent = new GenerateFromSeedArticleAgent();
+    const agent = new GenerateFromPreviousArticleAgent();
     const result = await agent.run({
-      originalText: 'original',
+      parentText: 'original',
       tactic: 'structural_transform',
       llm: llm as never,
       initialPool: pool as ReadonlyArray<Variant>,
       initialRatings: new Map(ratings),
       initialMatchCounts: new Map(),
       cache: new Map(),
-      seedVariantId: 'baseline',
+      parentVariantId: 'baseline',
     }, makeCtx(shared, 1));
 
     // Agent's cost should be only what IT spent, not the $0.5 sibling spend

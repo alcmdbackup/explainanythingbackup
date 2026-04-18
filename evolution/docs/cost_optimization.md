@@ -179,7 +179,7 @@ Before each LLM call, cost is estimated using **1 token ~ 4 characters** and fix
 
 **File:** `evolution/src/lib/pipeline/infra/estimateCosts.ts`
 
-Before dispatching generateFromSeedArticle agents, the orchestrator uses empirical cost estimation to determine how many agents the budget can support. Per-tactic output size estimates drive the generation cost model. This uses:
+Before dispatching generateFromPreviousArticle agents, the orchestrator uses empirical cost estimation to determine how many agents the budget can support. Per-tactic output size estimates drive the generation cost model. This uses:
 
 - **Empirical output characters per tactic** (measured from staging DB; new tactics use `DEFAULT_OUTPUT_CHARS` until calibration data accumulates):
 
@@ -235,11 +235,11 @@ After the parallel batch, runtime feedback (`actualAvgCostPerAgent` from complet
 
 ### Estimation Feedback Loop
 
-Each generateFromSeedArticle invocation records `estimatedCost` and `estimationErrorPct` in its `execution_detail` JSONB for post-hoc analysis. The per-phase `generation.cost` and `ranking.cost` in execution_detail use scope-isolated `getOwnSpent()` deltas (not shared `getTotalSpent()` deltas) so they reflect only this agent's own LLM spend under parallel dispatch. Query via:
+Each generateFromPreviousArticle invocation records `estimatedCost` and `estimationErrorPct` in its `execution_detail` JSONB for post-hoc analysis. The per-phase `generation.cost` and `ranking.cost` in execution_detail use scope-isolated `getOwnSpent()` deltas (not shared `getTotalSpent()` deltas) so they reflect only this agent's own LLM spend under parallel dispatch. Query via:
 ```sql
 SELECT (execution_detail->'generation'->>'estimatedCost')::NUMERIC,
        (execution_detail->>'estimationErrorPct')::NUMERIC
-FROM evolution_agent_invocations WHERE agent_name = 'generate_from_seed_article';
+FROM evolution_agent_invocations WHERE agent_name = 'generate_from_previous_article';
 ```
 
 Finalization rolls these up into run-level metrics (`cost_estimation_error_pct`,

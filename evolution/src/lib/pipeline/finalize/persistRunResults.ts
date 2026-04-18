@@ -227,22 +227,28 @@ export async function finalizeRun(
       mu: db.mu,
       sigma: db.sigma,
       generation: v.iterationBorn,
-      parent_variant_id: v.parentIds[0] ?? null,
+      // Use truthy check ('' is not a valid UUID — coerce to null for seed-less explanation runs).
+      parent_variant_id: v.parentIds[0] || null,
       agent_name: v.tactic,
       match_count: result.matchCounts[v.id] ?? 0,
       is_winner: v.id === winnerId,
       prompt_id: run.prompt_id ?? null,
       persisted: true,
+      agent_invocation_id: v.agentInvocationId ?? null,
     });
   });
 
+  const discardedLocalRatings = result.discardedLocalRatings ?? new Map();
   const discardedRows = (result.discardedVariants ?? [])
     .filter((v) => !v.fromArena)
     .map((v) => {
-      // Discarded variants don't have global ratings (they were never merged), but their
-      // generation cost lives on the invocation row. We persist with default mu/sigma so the
-      // row exists; metric queries should filter by persisted=true to exclude them.
-      const db = ratingToDb(createRating());
+      // Discarded variants persist with their local-rank ELO (from binary-search ranking
+      // against a cloned local pool) when available. This removes survivorship bias from
+      // Phase 3/5 metrics — child.elo - parent.elo is meaningful for discards too.
+      // On early-exit paths (generation_failed, format-invalid, budget) where ranking
+      // never ran, fall back to defaults.
+      const localRating = discardedLocalRatings.get(v.id);
+      const db = ratingToDb(localRating ?? createRating());
       return evolutionVariantInsertSchema.parse({
         id: v.id,
         run_id: runId,
@@ -252,12 +258,14 @@ export async function finalizeRun(
         mu: db.mu,
         sigma: db.sigma,
         generation: v.iterationBorn,
-        parent_variant_id: v.parentIds[0] ?? null,
+        // Use truthy check ('' is not a valid UUID — coerce to null for seed-less explanation runs).
+        parent_variant_id: v.parentIds[0] || null,
         agent_name: v.tactic,
         match_count: 0,
         is_winner: false,
         prompt_id: run.prompt_id ?? null,
         persisted: false,
+        agent_invocation_id: v.agentInvocationId ?? null,
       });
     });
 
@@ -300,13 +308,13 @@ export async function finalizeRun(
         )
       : undefined;
 
-    // Sequential GFSA durations: iteration >= 2 AND agent_name='generate_from_seed_article'
+    // Sequential GFSA durations: iteration >= 2 AND agent_name='generate_from_previous_article'
     // (iteration 1 is the parallel batch; later iterations are the sequential fallback path).
     const sequentialGfsaDurations: number[] = ((invocations ?? []) as Array<{
       agent_name?: string; iteration?: number; duration_ms?: number | null;
     }>)
       .filter((inv) =>
-        inv.agent_name === 'generate_from_seed_article' &&
+        inv.agent_name === 'generate_from_previous_article' &&
         typeof inv.iteration === 'number' && inv.iteration >= 2 &&
         typeof inv.duration_ms === 'number' && Number.isFinite(inv.duration_ms),
       )

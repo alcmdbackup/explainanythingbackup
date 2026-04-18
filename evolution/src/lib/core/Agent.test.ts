@@ -4,7 +4,7 @@ import { Agent } from './Agent';
 import type { AgentContext, AgentOutput, DetailFieldDef } from './types';
 import { BudgetExceededError, BudgetExceededWithPartialResults, ExecutionDetailBase } from '../types';
 import { createCostTracker } from '../pipeline/infra/trackBudget';
-import { GenerateFromSeedArticleAgent } from './agents/generateFromSeedArticle';
+import { GenerateFromPreviousArticleAgent } from './agents/generateFromPreviousArticle';
 import { SwissRankingAgent } from './agents/SwissRankingAgent';
 import { MergeRatingsAgent } from './agents/MergeRatingsAgent';
 import { z } from 'zod';
@@ -425,8 +425,8 @@ describe('Agent abstract class', () => {
   });
 
   describe('detailViewConfig on concrete agents', () => {
-    it('GenerateFromSeedArticleAgent has a non-empty detailViewConfig', () => {
-      const agent = new GenerateFromSeedArticleAgent();
+    it('GenerateFromPreviousArticleAgent has a non-empty detailViewConfig', () => {
+      const agent = new GenerateFromPreviousArticleAgent();
       expect(Array.isArray(agent.detailViewConfig)).toBe(true);
       expect(agent.detailViewConfig.length).toBeGreaterThan(0);
     });
@@ -441,6 +441,36 @@ describe('Agent abstract class', () => {
       const agent = new MergeRatingsAgent();
       expect(Array.isArray(agent.detailViewConfig)).toBe(true);
       expect(agent.detailViewConfig.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe('getAttributionDimension (Phase 5)', () => {
+    it('GenerateFromPreviousArticleAgent returns detail.tactic', () => {
+      const agent = new GenerateFromPreviousArticleAgent();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const result = agent.getAttributionDimension({ tactic: 'lexical_simplify' } as any);
+      expect(result).toBe('lexical_simplify');
+    });
+
+    it('GenerateFromPreviousArticleAgent returns null when tactic absent', () => {
+      const agent = new GenerateFromPreviousArticleAgent();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const result = agent.getAttributionDimension({} as any);
+      expect(result).toBeNull();
+    });
+
+    it('SwissRankingAgent returns null (default — no attribution)', () => {
+      const agent = new SwissRankingAgent();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const result = agent.getAttributionDimension({} as any);
+      expect(result).toBeNull();
+    });
+
+    it('MergeRatingsAgent returns null (default — no attribution)', () => {
+      const agent = new MergeRatingsAgent();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const result = agent.getAttributionDimension({} as any);
+      expect(result).toBeNull();
     });
   });
 });

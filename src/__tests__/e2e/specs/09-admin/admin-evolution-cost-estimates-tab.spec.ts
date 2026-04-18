@@ -139,7 +139,7 @@ adminTest.describe('Evolution Cost Estimates tab', { tag: '@evolution' }, () => 
     // section is rendered for the AgentMultiple run.
     const seedGfsaInvocation = (runIdLocal: string) => ({
       run_id: runIdLocal,
-      agent_name: 'generate_from_seed_article',
+      agent_name: 'generate_from_previous_article',
       iteration: 1,
       execution_order: 1,
       success: true,

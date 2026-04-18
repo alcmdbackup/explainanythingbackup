@@ -12,6 +12,7 @@ import { EvolutionRunSummarySchema } from '@evolution/lib/types';
 import { getMetricsForEntities } from '@evolution/lib/metrics/readMetrics';
 import { getListViewMetrics } from '@evolution/lib/metrics/registry';
 import type { MetricRow } from '@evolution/lib/metrics/types';
+import { _INTERNAL_ELO_SIGMA_SCALE } from '@evolution/lib/shared/computeRatings';
 import { z } from 'zod';
 
 // ─── Types ───────────────────────────────────────────────────────
@@ -62,6 +63,12 @@ export interface EvolutionVariant {
   persisted?: boolean;
   /** Parent variant ID (for lineage display). */
   parent_variant_id?: string | null;
+  /** Parent's current ELO (mu) — populated by getEvolutionVariantsAction. Consumed by VariantParentBadge. */
+  parent_elo?: number | null;
+  /** Parent's uncertainty (sigma) — populated by getEvolutionVariantsAction. Consumed by VariantParentBadge. */
+  parent_uncertainty?: number | null;
+  /** Parent's run_id — used to detect cross-run parents. */
+  parent_run_id?: string | null;
 }
 
 export interface AgentCostBreakdown {
@@ -105,6 +112,12 @@ export interface VariantListEntry {
   sigma?: number | null;
   strategy_name?: string | null;
   parent_variant_id?: string | null;
+  /** Parent's current ELO + uncertainty (joined from evolution_variants). Null when no parent
+   *  (seed variant) or when the parent row was deleted/archived. Consumed by VariantParentBadge. */
+  parent_elo?: number | null;
+  parent_uncertainty?: number | null;
+  /** Parent's run_id — used to detect cross-run parents (annotated "(other run)" in the badge). */
+  parent_run_id?: string | null;
 }
 
 const listVariantsInputSchema = z.object({
@@ -504,7 +517,37 @@ export const getEvolutionVariantsAction = adminAction(
     }
     const { data, error } = await query.order('elo_score', { ascending: false });
     if (error) throw error;
-    return (data ?? []) as unknown as EvolutionVariant[];
+    const items = (data ?? []) as unknown as EvolutionVariant[];
+
+    // Batch-fetch parent ratings for VariantParentBadge (Phase 3).
+    const parentIds = [...new Set(items.map(v => v.parent_variant_id).filter((id): id is string => !!id))];
+    if (parentIds.length > 0) {
+      const { data: parentRows, error: parentError } = await ctx.supabase
+        .from('evolution_variants')
+        .select('id, mu, sigma, elo_score, run_id')
+        .in('id', parentIds);
+      if (parentError) throw parentError;
+
+      const parentMap = new Map(
+        (parentRows ?? []).map(p => [
+          p.id as string,
+          { elo: p.elo_score as number | null, mu: p.mu as number | null,
+            sigma: p.sigma as number | null, run_id: p.run_id as string | null },
+        ]),
+      );
+      for (const item of items) {
+        const parent = item.parent_variant_id ? parentMap.get(item.parent_variant_id) : null;
+        if (parent) {
+          // parent.elo_score is ELO-scale (~1200); parent.mu is raw OpenSkill (~25).
+          // Use elo_score; sigma converts to ELO-scale uncertainty via _INTERNAL_ELO_SIGMA_SCALE.
+          item.parent_elo = parent.elo ?? null;
+          item.parent_uncertainty = parent.sigma != null ? parent.sigma * _INTERNAL_ELO_SIGMA_SCALE : null;
+          item.parent_run_id = parent.run_id;
+        }
+      }
+    }
+
+    return items;
   },
 );
 
@@ -694,6 +737,33 @@ export const listVariantsAction = adminAction(
       for (const item of items) {
         const strategyId = runMap.get(item.run_id);
         item.strategy_name = strategyId ? strategyMap.get(strategyId) ?? null : null;
+      }
+    }
+
+    // Batch-fetch parent ratings for VariantParentBadge. A single JOIN by parent_variant_id.
+    const parentIds = [...new Set(items.map(v => v.parent_variant_id).filter((id): id is string => !!id))];
+    if (parentIds.length > 0) {
+      const { data: parentRows, error: parentError } = await supabase
+        .from('evolution_variants')
+        .select('id, mu, sigma, elo_score, run_id')
+        .in('id', parentIds);
+      if (parentError) throw parentError;
+
+      const parentMap = new Map(
+        (parentRows ?? []).map(p => [
+          p.id as string,
+          { elo: p.elo_score as number | null, mu: p.mu as number | null,
+            sigma: p.sigma as number | null, run_id: p.run_id as string | null },
+        ]),
+      );
+      for (const item of items) {
+        const parent = item.parent_variant_id ? parentMap.get(item.parent_variant_id) : null;
+        if (parent) {
+          // Prefer mu (application-layer ELO) over the legacy elo_score column.
+          item.parent_elo = parent.mu ?? parent.elo ?? null;
+          item.parent_uncertainty = parent.sigma ?? null;
+          item.parent_run_id = parent.run_id;
+        }
       }
     }
 

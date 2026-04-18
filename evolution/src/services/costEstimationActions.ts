@@ -414,7 +414,7 @@ export const getRunCostEstimatesAction = adminAction(
       .map((r) => r.estimationErrorPct)
       .filter((x): x is number => typeof x === 'number'));
 
-    const hasGfsaInvocations = invocations.some((i) => i.agent_name === 'generate_from_seed_article');
+    const hasGfsaInvocations = invocations.some((i) => i.agent_name === 'generate_from_previous_article');
 
     const budgetFloorSensitivity = computeBudgetFloorSensitivity({
       floorConfig: budgetFloorConfig,
@@ -503,7 +503,7 @@ export const getStrategyCostEstimatesAction = adminAction(
         .from('evolution_agent_invocations')
         .select('agent_name, cost_usd, execution_detail, run_id')
         .in('run_id', runIds)
-        .eq('agent_name', 'generate_from_seed_article');
+        .eq('agent_name', 'generate_from_previous_article');
 
       // Fetch strategy config once to get generation/judge model names.
       const { data: stratRow } = await ctx.supabase

@@ -17,6 +17,7 @@ import {
 } from '@evolution/components/evolution';
 import { LogsTab } from '@evolution/components/evolution/tabs/LogsTab';
 import { VariantsTab } from '@evolution/components/evolution/tabs/VariantsTab';
+import { AttributionCharts } from '@evolution/components/evolution/tabs/AttributionCharts';
 import { StrategyConfigDisplay } from '@/app/admin/evolution/_components/StrategyConfigDisplay';
 import {
   getStrategyDetailAction,
@@ -128,7 +129,12 @@ export default function StrategyDetailPage(): JSX.Element {
       />
 
       <EntityDetailTabs tabs={TABS} activeTab={activeTab} onTabChange={setActiveTab}>
-        {activeTab === 'metrics' && <EntityMetricsTab entityType="strategy" entityId={strategyId} />}
+        {activeTab === 'metrics' && (
+          <div className="space-y-6">
+            <EntityMetricsTab entityType="strategy" entityId={strategyId} />
+            <AttributionCharts entityType="strategy" entityId={strategyId} />
+          </div>
+        )}
         {activeTab === 'cost-estimates' && <CostEstimatesTab entityType="strategy" entityId={strategyId} />}
         {activeTab === 'runs' && <StrategyRunsTab strategyId={strategyId} />}
         {activeTab === 'variants' && <VariantsTab strategyId={strategyId} />}

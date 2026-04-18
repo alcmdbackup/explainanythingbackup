@@ -582,3 +582,45 @@ When a variant's DB `mu` or `sigma` columns change post-completion (these column
 - [Metrics](./metrics.md) — metrics system architecture, registry, and DB schema
 - [Visualization](./visualization.md) — how metrics and eloHistory are rendered in the UI
 - [Cost Optimization](./cost_optimization.md) — budget tracking and spending gates
+
+---
+
+## sourceMode + qualityCutoff (Phase 2)
+
+Each generate iteration accepts two optional fields on its `IterationConfig`:
+
+```ts
+interface IterationConfig {
+  agentType: 'generate' | 'swiss';
+  budgetPercent: number;
+  maxAgents?: number;
+  sourceMode?: 'seed' | 'pool';   // default 'seed'
+  qualityCutoff?: {
+    mode: 'topN' | 'topPercent';
+    value: number;                 // topN: integer >= 1; topPercent: 0 < x <= 100
+  };
+}
+```
+
+**Semantics**
+
+- `sourceMode: 'seed'` (default): each generation agent receives the seed article as its parent.
+- `sourceMode: 'pool'`: each agent receives a randomly-selected parent drawn from the current run's pool, filtered by `qualityCutoff`.
+- First iteration (index 0) is locked to `'seed'` by schema refine — the pool is empty at start.
+- `qualityCutoff` is required when `sourceMode === 'pool'`. For `mode: 'topN'` the value is an absolute count; for `mode: 'topPercent'` it is a percentile (1-100).
+- The parent pick uses a deterministic RNG seeded from `(runId, iteration, executionOrder)` via FNV-1a, so retries pick the same parent for the same tuple.
+- If no eligible parent exists (empty pool, all variants unrated, cutoff too strict), `resolveParent` falls back to seed and logs a warning.
+- `qualityCutoff.value` is part of the strategy-config hash: two configs that differ only by cutoff value produce different strategy IDs.
+
+**Example** — two-iteration strategy where iteration 2 re-generates from the top 3 pool variants:
+
+```ts
+iterationConfigs: [
+  { agentType: 'generate', budgetPercent: 40 },
+  { agentType: 'swiss',    budgetPercent: 20 },
+  { agentType: 'generate', budgetPercent: 40,
+    sourceMode: 'pool', qualityCutoff: { mode: 'topN', value: 3 } },
+]
+```
+
+**UI.** The strategy builder at `src/app/admin/evolution/strategies/new/page.tsx` renders a Source dropdown + quantity/unit controls for non-first generate iterations. Swiss iterations have no source controls.

@@ -23,6 +23,12 @@ interface IterationRow {
   agentType: 'generate' | 'swiss';
   budgetPercent: number;
   maxAgents?: number;
+  /** Phase 2: parent-article source for this generate iteration. Defaults to 'seed'.
+   *  Not applicable to swiss. First iteration is locked to 'seed' by schema refine. */
+  sourceMode?: 'seed' | 'pool';
+  /** Phase 2: quality cutoff for pool-mode. Required when sourceMode==='pool'. */
+  qualityCutoffMode?: 'topN' | 'topPercent';
+  qualityCutoffValue?: number;
 }
 
 interface StrategyFormState {
@@ -106,6 +112,15 @@ export default function NewStrategyPage(): JSX.Element {
         break;
       }
     }
+    // Phase 2: first-iteration and pool-mode validation.
+    if (iterations.length > 0 && iterations[0]?.sourceMode === 'pool') {
+      errors.push('First iteration cannot use pool-mode (pool is empty at start); use seed mode');
+    }
+    iterations.forEach((it, i) => {
+      if (it.sourceMode === 'pool' && (it.qualityCutoffValue == null || it.qualityCutoffValue <= 0)) {
+        errors.push(`Iteration ${i + 1}: pool mode requires a positive quality-cutoff value`);
+      }
+    });
     return errors;
   }, [iterations, percentValid, totalPercent]);
 
@@ -115,8 +130,18 @@ export default function NewStrategyPage(): JSX.Element {
     setIterations(prev => prev.map((it, i) => {
       if (i !== idx) return it;
       const updated = { ...it, ...patch };
-      // Clear maxAgents for swiss
-      if (updated.agentType === 'swiss') delete updated.maxAgents;
+      // Clear generate-only fields for swiss.
+      if (updated.agentType === 'swiss') {
+        delete updated.maxAgents;
+        delete updated.sourceMode;
+        delete updated.qualityCutoffMode;
+        delete updated.qualityCutoffValue;
+      }
+      // Clear cutoff fields when sourceMode isn't pool.
+      if (updated.sourceMode !== 'pool') {
+        delete updated.qualityCutoffMode;
+        delete updated.qualityCutoffValue;
+      }
       return updated;
     }));
   }, []);
@@ -169,6 +194,11 @@ export default function NewStrategyPage(): JSX.Element {
           agentType: it.agentType,
           budgetPercent: it.budgetPercent,
           ...(it.maxAgents != null && it.agentType === 'generate' ? { maxAgents: it.maxAgents } : {}),
+          ...(it.agentType === 'generate' && it.sourceMode ? { sourceMode: it.sourceMode } : {}),
+          ...(it.agentType === 'generate' && it.sourceMode === 'pool'
+              && it.qualityCutoffMode && it.qualityCutoffValue != null && it.qualityCutoffValue > 0
+            ? { qualityCutoff: { mode: it.qualityCutoffMode, value: it.qualityCutoffValue } }
+            : {}),
         })),
         maxComparisonsPerVariant: form.maxComparisonsPerVariant ? Number(form.maxComparisonsPerVariant) : undefined,
         generationTemperature: form.generationTemperature ? Number(form.generationTemperature) : undefined,
@@ -471,8 +501,9 @@ export default function NewStrategyPage(): JSX.Element {
                   return (
                     <div
                       key={idx}
-                      className="flex items-center gap-2 p-3 rounded-page border border-[var(--border-default)] bg-[var(--surface-primary)]"
+                      className="p-3 rounded-page border border-[var(--border-default)] bg-[var(--surface-primary)]"
                     >
+                    <div className="flex items-center gap-2">
                       <span className="font-mono text-xs text-[var(--text-muted)] w-6 text-center shrink-0">
                         #{idx + 1}
                       </span>
@@ -530,6 +561,55 @@ export default function NewStrategyPage(): JSX.Element {
                       >
                         Remove
                       </button>
+                    </div>
+                    {it.agentType === 'generate' && idx > 0 && (
+                      <div
+                        className="mt-2 pl-8 flex flex-wrap items-center gap-2 text-xs font-ui"
+                        data-testid={`iteration-source-controls-${idx}`}
+                      >
+                        <span className="text-[var(--text-muted)]">Source:</span>
+                        <select
+                          value={it.sourceMode ?? 'seed'}
+                          onChange={e => updateIteration(idx, { sourceMode: e.target.value as 'seed' | 'pool' })}
+                          className="px-2 py-1 text-xs font-ui bg-[var(--surface-primary)] border border-[var(--border-default)] rounded-page text-[var(--text-primary)] focus:border-[var(--accent-gold)] focus:outline-none"
+                          data-testid={`source-mode-select-${idx}`}
+                        >
+                          <option value="seed">Seed article</option>
+                          <option value="pool">This run&apos;s top variants</option>
+                        </select>
+                        {it.sourceMode === 'pool' && (
+                          <>
+                            <span className="ml-2 text-[var(--text-muted)]">Take top</span>
+                            <input
+                              type="number"
+                              min={1}
+                              max={100}
+                              step={1}
+                              value={it.qualityCutoffValue ?? ''}
+                              onChange={e => {
+                                const v = e.target.value ? Number(e.target.value) : undefined;
+                                updateIteration(idx, { qualityCutoffValue: v });
+                              }}
+                              placeholder="5"
+                              className="w-16 px-2 py-1 text-xs font-mono bg-[var(--surface-primary)] border border-[var(--border-default)] rounded-page text-[var(--text-primary)] text-right focus:border-[var(--accent-gold)] focus:outline-none"
+                              data-testid={`cutoff-value-${idx}`}
+                            />
+                            <select
+                              value={it.qualityCutoffMode ?? 'topN'}
+                              onChange={e => updateIteration(idx, { qualityCutoffMode: e.target.value as 'topN' | 'topPercent' })}
+                              className="px-2 py-1 text-xs font-ui bg-[var(--surface-primary)] border border-[var(--border-default)] rounded-page text-[var(--text-primary)] focus:border-[var(--accent-gold)] focus:outline-none"
+                              data-testid={`cutoff-mode-${idx}`}
+                            >
+                              <option value="topN">variants</option>
+                              <option value="topPercent">%</option>
+                            </select>
+                            <span className="text-[var(--text-muted)]" title="When to use pool-sourcing">
+                              &nbsp;· picks a random parent from the top of the run&apos;s ranked pool
+                            </span>
+                          </>
+                        )}
+                      </div>
+                    )}
                     </div>
                   );
                 })}
