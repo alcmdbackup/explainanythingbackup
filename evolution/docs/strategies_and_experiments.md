@@ -10,6 +10,8 @@ For related context see [Architecture](./architecture.md), [Data Model](./data_m
 
 A **strategy** is a named, versioned configuration that fully specifies the models and iteration count for an evolution run. Strategies are stored in the `evolution_strategies` table and referenced by every run via `strategy_id`. The strategy system was introduced in V2 to replace V1's ad-hoc config objects with a centralized registry that enables cross-run comparison and aggregate tracking.
 
+> **Naming convention:** *Strategy* = the `evolution_strategies` config entity (model, iterations, budget). *Tactic* = a text transformation applied during generation (e.g., `lexical_simplify`, `grounding_enhance`). A single strategy run uses multiple tactics per iteration. See `evolution/src/lib/core/tactics/` for the tactic registry.
+
 Each strategy encapsulates:
 - Which LLM generates text variants.
 - Which LLM judges pairwise comparisons.
@@ -52,18 +54,23 @@ interface StrategyConfig {
 | `generationModel`   | LLM used for text generation calls         |
 | `judgeModel`        | LLM used for pairwise comparison/judging. Default: `qwen-2.5-7b-instruct` (see `DEFAULT_JUDGE_MODEL` in `src/config/modelRegistry.ts`). Selected based on empirical judge-agreement research (see `docs/research/judge_agreement_summary_tables.md`) — 100% decisive on both large-gap and close-pair comparisons with ~1.7s median latency and no thinking-mode overhead. |
 | `iterationConfigs`  | Ordered array of iteration definitions. Each entry specifies `agentType` (`generate` or `swiss`), `budgetPercent` (1-100, must sum to 100 across all entries), and optional `maxAgents` (generate only — caps parallel agent count). First entry must be `generate` (swiss on empty pool is invalid). Max 20 entries. Dollar amounts computed at runtime: `iterationBudgetUsd = (budgetPercent / 100) * totalBudgetUsd`. |
-| `strategiesPerRound`| Generation strategies per iteration round  |
+| `strategiesPerRound`| Tactics applied per iteration round        |
 | `budgetUsd`         | Optional per-run budget cap. Per-iteration amounts derived from `iterationConfigs[].budgetPercent`. |
-| `generationGuidance`| Optional weighted strategy distribution. Array of `{ strategy, percent }` entries where percentages must sum to 100 and strategy names must be unique. Enables weighted random strategy selection from all 8 strategies instead of the default deterministic 3-strategy behavior. |
+| `generationGuidance`| Optional weighted tactic distribution. Array of `{ tactic, percent }` entries where percentages must sum to 100 and tactic names must be unique. Enables weighted random tactic selection from all 24 tactics via `selectTacticWeighted()` instead of the default deterministic 3-tactic behavior. |
+| `maxVariantsToGenerateFromSeedArticle` | Max generateFromSeedArticle agents per run. Excludes seed article. Default 9. |
 | `maxComparisonsPerVariant` | Hard cap on pairwise comparisons per variant during ranking. Default 15. Used for deterministic cost estimation: `min(poolSize - 1, maxComparisonsPerVariant)`. |
 | `minBudgetAfterParallelFraction` / `minBudgetAfterParallelAgentMultiple` | Minimum budget to reserve for later phases after parallel generation. Specified as either a fraction of total budget (0-1) or a multiple of estimated agent cost (≥ 0). Exactly one unit per strategy. Parallel uses the initial `estimateAgentCost()` output. |
 | `minBudgetAfterSequentialFraction` / `minBudgetAfterSequentialAgentMultiple` | Minimum budget to reserve after sequential generation. Same two-unit system. Sequential uses `actualAvgCostPerAgent` from the parallel batch when available, falling back to initial estimate. Must be ≤ parallel floor (same unit). |
 | `budgetBufferAfterParallel` / `budgetBufferAfterSequential` | **Deprecated**. Auto-migrated to `minBudgetAfter*Fraction` via Zod preprocess; kept in output for one release cycle. |
 | `generationTemperature` | Optional LLM temperature (0-2) for generation calls. Omit for provider default. Validated against model's `maxTemperature` from registry (e.g., Claude max 1.0, o3-mini rejects temperature entirely). Judge/ranking calls always use temperature=0 regardless of this setting. |
 
+#### Weighted Tactic Selection via generationGuidance
+
+When `generationGuidance` is set, `selectTacticWeighted()` (`evolution/src/lib/core/tactics/selectTacticWeighted.ts`) uses weighted random selection from all 24 tactics. The function builds a cumulative distribution from the `percent` values and draws a tactic per slot. This replaces the default deterministic round-robin behavior that cycles through 3 tactics.
+
 #### Experimental Verification with generationGuidance
 
-To isolate and test a single generation strategy, create a strategy config with `generationGuidance` set to 100% for one strategy (e.g., `[{ strategy: "engagement_amplify", percent: 100 }]`) and `strategiesPerRound: 1`. This produces runs that use only that strategy, enabling controlled A/B comparison across strategies within an experiment.
+To isolate and test a single tactic, create a strategy config with `generationGuidance` set to 100% for one tactic (e.g., `[{ strategy: "engagement_amplify", percent: 100 }]`) and `strategiesPerRound: 1`. This produces runs that use only that tactic, enabling controlled A/B comparison across tactics within an experiment.
 
 #### Example iterationConfigs
 
@@ -461,7 +468,7 @@ The V3 summary contains:
 | `topVariants` | array | Up to 10 entries: `{ id, strategy, elo, isSeedVariant }` (renamed from `isBaseline` 2026-04-14; legacy rows with `isBaseline` are auto-mapped on read) |
 | `seedVariantRank` | number \| null | Final rank of the persisted seed variant (renamed from `baselineRank`). |
 | `seedVariantElo` | number \| null | Final Elo of the persisted seed variant (renamed from `baselineElo`). |
-| `strategyEffectiveness` | record | Per-strategy `{ count, avgElo }` |
+| `strategyEffectiveness` | record | Per-tactic `{ count, avgElo }` (field name kept for backward compat) |
 | `metaFeedback` | object or null | Always `null` in current implementation |
 
 ### Zod validation
@@ -515,13 +522,13 @@ The `EvolutionResult` type declares `diversityHistory: number[]` and the evolve 
 
 ---
 
-## Strategy Effectiveness
+## Tactic Effectiveness
 
-Strategy effectiveness is computed at two levels: per-run (in the run summary) and aggregate (across runs via the metrics table).
+Tactic effectiveness is computed at two levels: per-run (in the run summary) and aggregate (across runs via the metrics table).
 
 ### Per-run computation
 
-In `buildRunSummary()` (`evolution/src/lib/pipeline/finalize.ts`), strategy effectiveness is computed via a single-pass aggregation using Welford's online mean algorithm:
+In `buildRunSummary()` (`evolution/src/lib/pipeline/finalize.ts`), tactic effectiveness is computed via a single-pass aggregation using Welford's online mean algorithm:
 
 ```typescript
 // evolution/src/lib/pipeline/finalize.ts — inside buildRunSummary()
@@ -539,7 +546,7 @@ const strategyEffectiveness = pool.reduce<Record<string, { count: number; avgElo
   }, {});
 ```
 
-This groups variants by their strategy name and computes a running average `elo`. Welford's method avoids the numerical instability of summing then dividing — each new observation incrementally adjusts the mean.
+This groups variants by their tactic name and computes a running average `elo`. Welford's method avoids the numerical instability of summing then dividing — each new observation incrementally adjusts the mean.
 
 ### Aggregate computation
 

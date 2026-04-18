@@ -288,7 +288,7 @@ export const variantSchema = z.object({
   text: z.string(),
   version: z.number().int().min(0),
   parentIds: z.array(z.string()),
-  strategy: z.string(),
+  tactic: z.string(),
   createdAt: z.number(),
   iterationBorn: z.number().int().min(0),
   costUsd: z.number().min(0).optional(),
@@ -301,20 +301,30 @@ export type VariantSchema = z.infer<typeof variantSchema>;
 
 // ─── Generation Guidance ─────────────────────────────────────────
 
-export const generationGuidanceEntrySchema = z.object({
-  strategy: z.string().min(1),
-  percent: z.number().min(0).max(100),
-});
+/** Accepts both legacy {strategy, percent} and new {tactic, percent} on read; canonical key is 'tactic'. */
+export const generationGuidanceEntrySchema = z.preprocess(
+  (val) => {
+    if (val && typeof val === 'object' && 'strategy' in val && !('tactic' in val)) {
+      const { strategy, ...rest } = val as Record<string, unknown>;
+      return { tactic: strategy, ...rest };
+    }
+    return val;
+  },
+  z.object({
+    tactic: z.string().min(1),
+    percent: z.number().min(0).max(100),
+  }),
+);
 
 export const generationGuidanceSchema = z
   .array(generationGuidanceEntrySchema)
   .min(1)
   .refine(
-    (entries: Array<{ strategy: string; percent: number }>) => {
-      const names = entries.map((e) => e.strategy);
+    (entries: Array<{ tactic: string; percent: number }>) => {
+      const names = entries.map((e) => e.tactic);
       return new Set(names).size === names.length;
     },
-    { message: 'Duplicate strategy names in generationGuidance' },
+    { message: 'Duplicate tactic names in generationGuidance' },
   );
 
 export type GenerationGuidanceEntry = z.infer<typeof generationGuidanceEntrySchema>;
@@ -461,12 +471,11 @@ export type StrategyConfigSchema = z.infer<typeof strategyConfigSchema>;
 
 // ─── Evolution Config ────────────────────────────────────────────
 
-/** Default strategies for the parallelized generate iteration. */
-export const DEFAULT_GENERATE_STRATEGIES = [
-  'structural_transform',
-  'lexical_simplify',
-  'grounding_enhance',
-] as const;
+// Re-export from the tactic registry (single source of truth).
+export { DEFAULT_TACTICS } from './core/tactics';
+
+/** @deprecated Use DEFAULT_TACTICS */
+export { DEFAULT_TACTICS as DEFAULT_GENERATE_STRATEGIES } from './core/tactics';
 
 const evolutionConfigBaseSchema = z.object({
   budgetUsd: z.number().gt(0).lte(50),
@@ -690,7 +699,7 @@ export const evolutionExecutionDetailSchema = executionDetailBaseSchema.extend({
   detailType: z.literal('evolution'),
   parents: z.array(z.object({ id: z.string(), mu: z.number() })),
   mutations: z.array(z.object({
-    strategy: z.string(),
+    tactic: z.string(),
     status: z.enum(['success', 'format_rejected', 'error']),
     variantId: z.string().optional(),
     textLength: z.number().int().min(0).optional(),
@@ -698,7 +707,7 @@ export const evolutionExecutionDetailSchema = executionDetailBaseSchema.extend({
   })),
   creativeExploration: z.boolean(),
   creativeReason: z.enum(['random', 'low_diversity']).optional(),
-  overrepresentedStrategies: z.array(z.string()).optional(),
+  overrepresentedTactics: z.array(z.string()).optional(),
   feedbackUsed: z.boolean(),
 });
 
@@ -781,11 +790,11 @@ export const metaReviewExecutionDetailSchema = executionDetailBaseSchema.extend(
   patternsToAvoid: z.array(z.string()),
   priorityImprovements: z.array(z.string()),
   analysis: z.object({
-    strategyMus: z.record(z.string(), z.number()),
+    tacticMus: z.record(z.string(), z.number()),
     bottomQuartileCount: z.number().int().min(0),
     poolDiversity: z.number().min(0),
     muRange: z.number().min(0),
-    activeStrategies: z.number().int().min(0),
+    activeTactics: z.number().int().min(0),
     topVariantAge: z.number().int().min(0),
   }),
 });
@@ -876,7 +885,7 @@ export const generateFromSeedRankingDetailSchema = z.preprocess(
 export const generateFromSeedExecutionDetailSchema = executionDetailBaseSchema.extend({
   detailType: z.literal('generate_from_seed_article'),
   variantId: z.string().nullable(),
-  strategy: z.string(),
+  tactic: z.string(),
   generation: z.object({
     cost: z.number().min(0),
     estimatedCost: z.number().min(0).optional(),
@@ -1080,16 +1089,20 @@ export type AgentExecutionDetailSchema = z.infer<typeof agentExecutionDetailSche
  *  preprocess step renames those to `eloHistory`/`baselineElo`/`avgElo`/`elo`. Values in
  *  legacy payloads are already Elo-scale (per persistRunResults refactor); truly old mu-scale
  *  values (<100) are handled by display-layer heuristics in MetricsTab/visualizationActions. */
-const topVariantRename = renameKeys({ mu: 'elo', isBaseline: 'isSeedVariant' });
-const strategyEffectivenessEntryRename = renameKeys({ avgMu: 'avgElo' });
-// 2026-04-14: rename baseline → seed variant. Legacy V3 rows still use baselineRank/baselineElo;
+const topVariantRename = renameKeys({ mu: 'elo', isBaseline: 'isSeedVariant', strategy: 'tactic' });
+const tacticEffectivenessEntryRename = renameKeys({ avgMu: 'avgElo' });
+// 2026-04-14: rename baseline → seed variant. 2026-04-17: rename strategy → tactic.
+// Legacy V3 rows still use baselineRank/baselineElo/strategyEffectiveness;
 // preprocess maps them so .strict() schema accepts both shapes. New writes emit new names only.
 // renameKeys is single-pass, so map every legacy alias directly to the current key name.
 const runSummaryV3Rename = renameKeys({
   muHistory: 'eloHistory',
-  baselineMu: 'seedVariantElo',     // legacy mu-scale → current
-  baselineElo: 'seedVariantElo',    // legacy V3 elo-scale → current
+  baselineMu: 'seedVariantElo',
+  baselineElo: 'seedVariantElo',
   baselineRank: 'seedVariantRank',
+  strategyEffectiveness: 'tacticEffectiveness',
+  // Note: strategyMus is NOT a V3 run summary field (it lives in metaReview execution detail).
+  // Do NOT include it here — the .strict() schema would reject the renamed tacticMus key.
 });
 
 const _EvolutionRunSummaryV3Inner = z.object({
@@ -1115,7 +1128,7 @@ const _EvolutionRunSummaryV3Inner = z.object({
     topVariantRename,
     z.object({
       id: z.string().max(200),
-      strategy: z.string().max(100),
+      tactic: z.string().max(100),
       elo: z.number(),
       // Per-variant rating uncertainty (Elo-scale). Optional for legacy rows that
       // predate Phase 4b; consumers suppress the ± rendering when absent.
@@ -1125,14 +1138,14 @@ const _EvolutionRunSummaryV3Inner = z.object({
   )).max(10),
   seedVariantRank: z.number().int().min(1).nullable(),
   seedVariantElo: z.number().nullable(),
-  strategyEffectiveness: z.record(z.string(), z.preprocess(
-    strategyEffectivenessEntryRename,
+  tacticEffectiveness: z.record(z.string(), z.preprocess(
+    tacticEffectivenessEntryRename,
     z.object({
       count: z.number().int().min(0),
       avgElo: z.number(),
-      // Standard error of the mean Elo across variants in this strategy bucket.
+      // Standard error of the mean Elo across variants in this tactic bucket.
       // NOT per-variant rating uncertainty — it's the spread of variant Elos within
-      // this run's strategy group. Computed via Welford M2 in buildRunSummary.
+      // this run's tactic group. Computed via Welford M2 in buildRunSummary.
       // Only populated when count >= 2; optional for legacy rows.
       seAvgElo: z.number().min(0).optional(),
     }),
@@ -1175,10 +1188,10 @@ interface EvolutionRunSummaryV3 {
   uncertaintyHistory?: number[][];
   diversityHistory: number[];
   matchStats: { totalMatches: number; avgConfidence: number; decisiveRate: number };
-  topVariants: Array<{ id: string; strategy: string; elo: number; uncertainty?: number; isSeedVariant: boolean }>;
+  topVariants: Array<{ id: string; tactic: string; elo: number; uncertainty?: number; isSeedVariant: boolean }>;
   seedVariantRank: number | null;
   seedVariantElo: number | null;
-  strategyEffectiveness: Record<string, { count: number; avgElo: number; seAvgElo?: number }>;
+  tacticEffectiveness: Record<string, { count: number; avgElo: number; seAvgElo?: number }>;
   metaFeedback: {
     successfulStrategies: string[];
     recurringWeaknesses: string[];
@@ -1241,10 +1254,10 @@ const EvolutionRunSummaryV2Schema = z.object({
   eloHistory: v2.ordinalHistory.map((ord) => [legacyToMu(ord)]),
   diversityHistory: v2.diversityHistory,
   matchStats: v2.matchStats,
-  topVariants: v2.topVariants.map((tv) => ({ id: tv.id, strategy: tv.strategy, elo: legacyToMu(tv.ordinal), isSeedVariant: tv.isBaseline })),
+  topVariants: v2.topVariants.map((tv) => ({ id: tv.id, tactic: tv.strategy, elo: legacyToMu(tv.ordinal), isSeedVariant: tv.isBaseline })),
   seedVariantRank: v2.baselineRank,
   seedVariantElo: v2.baselineOrdinal != null ? legacyToMu(v2.baselineOrdinal) : null,
-  strategyEffectiveness: Object.fromEntries(
+  tacticEffectiveness: Object.fromEntries(
     Object.entries(v2.strategyEffectiveness).map(([k, v]) => [k, { count: v.count, avgElo: legacyToMu(v.avgOrdinal) }]),
   ),
   metaFeedback: v2.metaFeedback,
@@ -1291,10 +1304,10 @@ const EvolutionRunSummaryV1Schema = z.object({
   eloHistory: v1.eloHistory.map((ord) => [legacyToMu(ord)]),
   diversityHistory: v1.diversityHistory,
   matchStats: v1.matchStats,
-  topVariants: v1.topVariants.map((tv) => ({ id: tv.id, strategy: tv.strategy, elo: legacyToMu(tv.elo), isSeedVariant: tv.isBaseline })),
+  topVariants: v1.topVariants.map((tv) => ({ id: tv.id, tactic: tv.strategy, elo: legacyToMu(tv.elo), isSeedVariant: tv.isBaseline })),
   seedVariantRank: v1.baselineRank,
   seedVariantElo: v1.baselineElo != null ? legacyToMu(v1.baselineElo) : null,
-  strategyEffectiveness: Object.fromEntries(
+  tacticEffectiveness: Object.fromEntries(
     Object.entries(v1.strategyEffectiveness).map(([k, v]) => [k, { count: v.count, avgElo: legacyToMu(v.avgElo) }]),
   ),
   metaFeedback: v1.metaFeedback,

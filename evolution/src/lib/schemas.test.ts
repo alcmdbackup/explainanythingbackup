@@ -120,10 +120,10 @@ function createValidRunSummaryV3() {
     muHistory: [25, 26, 27],
     diversityHistory: [0.5, 0.6, 0.7],
     matchStats: { totalMatches: 10, avgConfidence: 0.75, decisiveRate: 0.8 },
-    topVariants: [{ id: UUID1, strategy: 'generation', mu: 28, isBaseline: false }],
+    topVariants: [{ id: UUID1, tactic: 'generation', mu: 28, isBaseline: false }],
     baselineRank: 3,         // legacy alias — preprocess renames to seedVariantRank
     baselineMu: 25,          // legacy alias — preprocess renames to seedVariantElo
-    strategyEffectiveness: { generation: { count: 5, avgMu: 26 } },
+    tacticEffectiveness: { generation: { count: 5, avgMu: 26 } },
     metaFeedback: {
       successfulStrategies: ['paraphrase'],
       recurringWeaknesses: ['too verbose'],
@@ -517,7 +517,7 @@ describe('EvolutionRunSummary schemas', () => {
 
 describe('evolutionResultSchema.stopReason', () => {
   const baseResult = {
-    winner: { id: UUID1, text: 'text', version: 0, parentIds: [], strategy: 'baseline', createdAt: 1711152000, iterationBorn: 0 },
+    winner: { id: UUID1, text: 'text', version: 0, parentIds: [], tactic: 'baseline', createdAt: 1711152000, iterationBorn: 0 },
     pool: [],
     ratings: new Map(),
     matchHistory: [],
@@ -543,7 +543,7 @@ describe('evolutionResultSchema.stopReason', () => {
 describe('variantSchema', () => {
   const validVariant = {
     id: UUID1, text: 'Some text', version: 0, parentIds: [],
-    strategy: 'generation', createdAt: 1711152000, iterationBorn: 0,
+    tactic: 'generation', createdAt: 1711152000, iterationBorn: 0,
   };
 
   it('parses valid variant', () => {
@@ -580,7 +580,7 @@ describe('strategyConfigSchema', () => {
   it('accepts valid generationGuidance', () => {
     expect(() => strategyConfigSchema.parse({
       ...validBase,
-      generationGuidance: [{ strategy: 'structural_transform', percent: 100 }],
+      generationGuidance: [{ tactic: 'structural_transform', percent: 100 }],
     })).not.toThrow();
   });
 
@@ -592,11 +592,11 @@ describe('strategyConfigSchema', () => {
   it('rejects generationGuidance with negative percent', () => {
     expect(() => strategyConfigSchema.parse({
       ...validBase,
-      generationGuidance: [{ strategy: 'x', percent: -10 }],
+      generationGuidance: [{ tactic: 'x', percent: -10 }],
     })).toThrow();
   });
 
-  it('rejects generationGuidance with missing strategy field', () => {
+  it('rejects generationGuidance with missing tactic field', () => {
     expect(() => strategyConfigSchema.parse({
       ...validBase,
       generationGuidance: [{ percent: 100 }],
@@ -606,16 +606,16 @@ describe('strategyConfigSchema', () => {
   it('rejects generationGuidance with non-number percent', () => {
     expect(() => strategyConfigSchema.parse({
       ...validBase,
-      generationGuidance: [{ strategy: 'x', percent: 'fifty' }],
+      generationGuidance: [{ tactic: 'x', percent: 'fifty' }],
     })).toThrow();
   });
 
-  it('rejects generationGuidance with duplicate strategy names', () => {
+  it('rejects generationGuidance with duplicate tactic names', () => {
     expect(() => strategyConfigSchema.parse({
       ...validBase,
       generationGuidance: [
-        { strategy: 'structural_transform', percent: 50 },
-        { strategy: 'structural_transform', percent: 50 },
+        { tactic: 'structural_transform', percent: 50 },
+        { tactic: 'structural_transform', percent: 50 },
       ],
     })).toThrow();
   });
@@ -726,7 +726,7 @@ describe('evolutionConfigSchema', () => {
   it('accepts generationGuidance in evolution config', () => {
     expect(() => evolutionConfigSchema.parse({
       iterationConfigs: iterConfigs, budgetUsd: 10, judgeModel: 'gpt-4o', generationModel: 'gpt-4o',
-      generationGuidance: [{ strategy: 'engagement_amplify', percent: 60 }, { strategy: 'tone_transform', percent: 40 }],
+      generationGuidance: [{ tactic: 'engagement_amplify', percent: 60 }, { tactic: 'tone_transform', percent: 40 }],
     })).not.toThrow();
   });
 });
@@ -839,7 +839,7 @@ describe('agentExecutionDetailSchema (discriminated union)', () => {
     expect(() => evolutionExecutionDetailSchema.parse({
       detailType: 'evolution', totalCost: 0.06,
       parents: [{ id: UUID1, mu: 25 }],
-      mutations: [{ strategy: 'crossover', status: 'success', variantId: UUID2 }],
+      mutations: [{ tactic: 'crossover', status: 'success', variantId: UUID2 }],
       creativeExploration: false, feedbackUsed: true,
     })).not.toThrow();
   });
@@ -932,8 +932,8 @@ describe('agentExecutionDetailSchema (discriminated union)', () => {
       successfulStrategies: ['gen'], recurringWeaknesses: ['verbose'],
       patternsToAvoid: ['repetition'], priorityImprovements: ['flow'],
       analysis: {
-        strategyMus: { gen: 26 }, bottomQuartileCount: 2,
-        poolDiversity: 0.6, muRange: 5, activeStrategies: 3, topVariantAge: 2,
+        tacticMus: { gen: 26 }, bottomQuartileCount: 2,
+        poolDiversity: 0.6, muRange: 5, activeTactics: 3, topVariantAge: 2,
       },
     })).not.toThrow();
   });

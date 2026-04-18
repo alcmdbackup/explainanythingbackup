@@ -33,7 +33,7 @@ jest.mock('../../shared/enforceVariantFormat', () => ({
 
 const mkVariant = (id: string): Variant => ({
   id, text: `# Title\n\n## Section\nContent. More content.`,
-  version: 0, parentIds: [], strategy: 'baseline', createdAt: 0, iterationBorn: 0,
+  version: 0, parentIds: [], tactic: 'baseline', createdAt: 0, iterationBorn: 0,
 });
 
 function makeCtx(shared: ReturnType<typeof createCostTracker>, idx: number): AgentContext {
@@ -103,7 +103,7 @@ describe('parallel cost attribution (integration)', () => {
         const ctx = makeCtx(shared, idx + 1);
         return agent.run({
           originalText: `Article text for agent ${idx}`,
-          strategy: 'structural_transform',
+          tactic: 'structural_transform',
           llm: llm as never,
           initialPool: pool as ReadonlyArray<Variant>,
           initialRatings: new Map(ratings),
@@ -145,7 +145,7 @@ describe('parallel cost attribution (integration)', () => {
     const agent = new GenerateFromSeedArticleAgent();
     const result = await agent.run({
       originalText: 'original',
-      strategy: 'structural_transform',
+      tactic: 'structural_transform',
       llm: llm as never,
       initialPool: pool as ReadonlyArray<Variant>,
       initialRatings: new Map(ratings),

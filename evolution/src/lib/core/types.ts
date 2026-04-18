@@ -11,7 +11,7 @@ import type { MetricRow, ExecutionContext, FinalizationContext } from '../metric
 
 // ─── Entity Type ─────────────────────────────────────────────────
 
-export const CORE_ENTITY_TYPES = ['run', 'invocation', 'variant', 'strategy', 'experiment', 'prompt'] as const;
+export const CORE_ENTITY_TYPES = ['run', 'invocation', 'variant', 'strategy', 'experiment', 'prompt', 'tactic'] as const;
 export type EntityType = typeof CORE_ENTITY_TYPES[number];
 
 // ─── Relationships ───────────────────────────────────────────────

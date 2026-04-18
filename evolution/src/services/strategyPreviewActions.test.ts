@@ -31,7 +31,7 @@ describe('estimateAgentCostPreviewAction', () => {
 
     const result = await (estimateAgentCostPreviewAction as unknown as (
       input: Parameters<typeof estimateAgentCostPreviewAction>[0],
-    ) => Promise<{ estimatedAgentCostUsd: number; assumptions: { seedArticleChars: number; strategy: string; comparisonsUsed: number } }>)({
+    ) => Promise<{ estimatedAgentCostUsd: number; assumptions: { seedArticleChars: number; tactic: string; comparisonsUsed: number } }>)({
       generationModel: 'qwen-2.5-7b-instruct',
       judgeModel: 'qwen-2.5-7b-instruct',
     });
@@ -48,7 +48,7 @@ describe('estimateAgentCostPreviewAction', () => {
     expect(result.estimatedAgentCostUsd).toBeGreaterThan(0);
     expect(result.assumptions).toEqual({
       seedArticleChars: 5000,
-      strategy: 'grounding_enhance',
+      tactic: 'grounding_enhance',
       comparisonsUsed: 15,
     });
 

@@ -1,17 +1,17 @@
-// Tests for VariantCard component - verifies variant data display, strategy colors, and tree search info.
+// Tests for VariantCard component - verifies variant data display, tactic colors, and tree search info.
 
 import { render, screen } from '@testing-library/react';
-import { VariantCard, STRATEGY_PALETTE } from './VariantCard';
+import { VariantCard, TACTIC_PALETTE } from './VariantCard';
 
 describe('VariantCard', () => {
   const baseProps = {
     shortId: 'abc123',
     elo: 1234.56,
-    strategy: 'structural_transform',
+    tactic: 'structural_transform',
     iterationBorn: 3,
   };
 
-  it('renders variant ID, rounded elo, strategy, and iteration', () => {
+  it('renders variant ID, rounded elo, tactic, and iteration', () => {
     render(<VariantCard {...baseProps} />);
     expect(screen.getByText('abc123')).toBeInTheDocument();
     expect(screen.getByText('1235')).toBeInTheDocument();
@@ -19,15 +19,15 @@ describe('VariantCard', () => {
     expect(screen.getByText('iter 3')).toBeInTheDocument();
   });
 
-  it('applies strategy color as left border', () => {
+  it('applies tactic color as left border', () => {
     render(<VariantCard {...baseProps} />);
     const card = screen.getByTestId('variant-card-abc123');
     // jsdom converts hex to rgb
     expect(card.style.borderLeftColor).toBe('rgb(59, 130, 246)');
   });
 
-  it('falls back to CSS var for unknown strategy', () => {
-    render(<VariantCard {...baseProps} strategy="unknown_strat" />);
+  it('falls back to CSS var for unknown tactic', () => {
+    render(<VariantCard {...baseProps} tactic="unknown_strat" />);
     const card = screen.getByTestId('variant-card-abc123');
     expect(card.style.borderLeftColor).toBe('var(--border-default)');
   });

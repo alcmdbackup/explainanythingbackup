@@ -11,7 +11,7 @@ function makeCtx(
   invocationId?: string,
 ): FinalizationContext {
   return {
-    result: { winner: { id: 'w', text: '', version: 0, parentIds: [], strategy: '', createdAt: 0, iterationBorn: 0 }, pool: [], ratings, matchHistory: [], totalCost: 0, iterationsRun: 1, stopReason: 'completed', eloHistory: [], diversityHistory: [], matchCounts: {} },
+    result: { winner: { id: 'w', text: '', version: 0, parentIds: [], tactic: '', createdAt: 0, iterationBorn: 0 }, pool: [], ratings, matchHistory: [], totalCost: 0, iterationsRun: 1, stopReason: 'completed', eloHistory: [], diversityHistory: [], matchCounts: {} },
     ratings,
     pool: [],
     matchHistory: [],

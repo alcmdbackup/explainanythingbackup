@@ -10,7 +10,7 @@ import type { AgentName } from '../core/agentNames';
 
 // ─── Entity & Metric Name Types ─────────────────────────────────
 
-export const ENTITY_TYPES = ['run', 'invocation', 'variant', 'strategy', 'experiment', 'prompt'] as const;
+export const ENTITY_TYPES = ['run', 'invocation', 'variant', 'strategy', 'experiment', 'prompt', 'tactic'] as const;
 export type EntityType = typeof ENTITY_TYPES[number];
 
 export const AGGREGATION_METHODS = ['sum', 'avg', 'max', 'min', 'count', 'bootstrap_mean', 'bootstrap_percentile'] as const;

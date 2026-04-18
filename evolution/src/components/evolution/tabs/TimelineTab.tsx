@@ -472,7 +472,7 @@ export function TimelineTab({ runId, run }: TimelineTabProps): JSX.Element {
             {winner != null && (
               <OutcomeCard
                 label="Winner"
-                value={winner.isSeedVariant ? 'seed variant' : (winner.strategy ?? '—')}
+                value={winner.isSeedVariant ? 'seed variant' : (winner.tactic ?? '—')}
                 sub={(() => {
                   const raw = winner.elo;
                   const elo = raw < 100 ? 1200 + (raw - 25) * 16 : raw;

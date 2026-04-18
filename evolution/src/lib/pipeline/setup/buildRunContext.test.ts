@@ -132,8 +132,8 @@ describe('buildRunContext', () => {
 
   it('passes generationGuidance from strategy config to EvolutionConfig', async () => {
     const guidance = [
-      { strategy: 'engagement_amplify', percent: 60 },
-      { strategy: 'tone_transform', percent: 40 },
+      { tactic: 'engagement_amplify', percent: 60 },
+      { tactic: 'tone_transform', percent: 40 },
     ];
     const { db } = makeMockDb({
       contentText: validText,
@@ -228,7 +228,7 @@ function makeVariant(overrides: Partial<Variant> = {}): Variant {
     text: '# Test\n\n## Intro\n\nSome content here.',
     version: 1,
     parentIds: [],
-    strategy: 'structural_transform',
+    tactic: 'structural_transform',
     createdAt: Date.now() / 1000,
     iterationBorn: 1,
     ...overrides,
@@ -306,10 +306,10 @@ describe('loadArenaEntries', () => {
       text: '# Entry 1',
       version: 0,
       parentIds: [],
-      strategy: 'arena_pipeline',
+      tactic: 'arena_pipeline',
       fromArena: true,
     });
-    expect(result.variants[1]!.strategy).toBe('arena_unknown');
+    expect(result.variants[1]!.tactic).toBe('arena_unknown');
   });
 
   it('sets up ratings from DB mu/sigma', async () => {

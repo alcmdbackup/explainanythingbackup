@@ -237,7 +237,8 @@ Key terms used throughout the Evolution documentation and codebase.
 | **Pool** | The append-only collection of all variants in a run. New variants are added each round via generation and evolution; variants are never removed from the pool, only eliminated from active comparisons. |
 | **Prompt** | The question or topic that articles explain. Stored in the `evolution_prompts` table. Each run targets one prompt. |
 | **Rating** | Public type `{elo: number, uncertainty: number}` — both on the Elo scale. Defaults: `{elo: 1200, uncertainty: 400/3 ≈ 133.33}`. Replaces the former OpenSkill-native `{mu, sigma}` shape on the public API. |
-| **Strategy** | A model + configuration combination that defines how a run executes — which LLM to use, temperature, system prompts, and other parameters. |
+| **Strategy** | A named config entity (`evolution_strategies` table) that defines how a run executes — which LLM to use, iteration count, budget cap, and other parameters. Not to be confused with *tactic* (see below). |
+| **Tactic** | A text transformation applied during the generation phase (e.g., `lexical_simplify`, `grounding_enhance`, `compression_distill`). There are 24 tactics organized into 7 categories. A single strategy run uses multiple tactics per iteration. Defined in `evolution/src/lib/core/tactics/`. |
 | **Swiss pairing** | Tournament-style matching where variants with similar ratings are paired for comparison. Produces more informative comparisons than random pairing. Used after triage. |
 | **Triage** | Initial calibration phase for newly created variants. Pairs new variants against stratified opponents (spread across the rating range) to quickly establish a rough rating before entering Swiss pairing. |
 | **Uncertainty** | The Elo-scale standard deviation around a variant's `elo`. Lower means more confident in the estimate. Provides a 95% CI of `elo ± 1.96 * uncertainty`. Replaces the former `sigma` field on the public API. |

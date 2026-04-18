@@ -18,7 +18,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 export interface CalibrationRow {
-  strategy: string;
+  tactic: string;
   generationModel: string;
   judgeModel: string;
   phase: 'generation' | 'ranking' | 'seed_title' | 'seed_article';
@@ -32,8 +32,8 @@ export interface CalibrationRow {
 const SENTINEL = '__unspecified__';
 const DEFAULT_TTL_MS = 5 * 60 * 1000;
 
-function sliceKey(strategy: string, generationModel: string, judgeModel: string, phase: string): string {
-  return `${strategy}|${generationModel}|${judgeModel}|${phase}`;
+function sliceKey(tactic: string, generationModel: string, judgeModel: string, phase: string): string {
+  return `${tactic}|${generationModel}|${judgeModel}|${phase}`;
 }
 
 // ─── Module-level singleton state ───────────────────────────────
@@ -87,7 +87,7 @@ async function refreshFromDb(supabase: SupabaseClient): Promise<void> {
   }
   const next = new Map<string, CalibrationRow>();
   for (const row of (data ?? []) as Array<Record<string, unknown>>) {
-    const strategy = String(row.strategy ?? SENTINEL);
+    const tactic = String(row.strategy ?? SENTINEL);
     const generationModel = String(row.generation_model ?? SENTINEL);
     const judgeModel = String(row.judge_model ?? SENTINEL);
     const phase = String(row.phase ?? '') as CalibrationRow['phase'];
@@ -97,8 +97,8 @@ async function refreshFromDb(supabase: SupabaseClient): Promise<void> {
     const avgCostPerCall = Number(row.avg_cost_per_call);
     const nSamples = Number(row.n_samples);
     if (!Number.isFinite(avgOutputChars) || !Number.isFinite(avgCostPerCall)) continue;
-    next.set(sliceKey(strategy, generationModel, judgeModel, phase), {
-      strategy, generationModel, judgeModel, phase,
+    next.set(sliceKey(tactic, generationModel, judgeModel, phase), {
+      tactic, generationModel, judgeModel, phase,
       avgOutputChars,
       avgInputOverheadChars: Number.isFinite(avgInputOverheadChars) ? avgInputOverheadChars : 0,
       avgCostPerCall,
@@ -137,7 +137,7 @@ export async function hydrateCalibrationCache(supabase?: SupabaseClient): Promis
 /** Return a calibration row if cached, otherwise null. Loader callers should fall back
  *  to their hardcoded default when this returns null. Never throws. */
 export function getCalibrationRow(
-  strategy: string,
+  tactic: string,
   generationModel: string,
   judgeModel: string,
   phase: CalibrationRow['phase'],
@@ -149,9 +149,9 @@ export function getCalibrationRow(
   }
   // Try most-specific first, then widen by replacing dimensions with sentinel.
   const lookups: Array<[string, string, string]> = [
-    [strategy, generationModel, judgeModel],
-    [strategy, generationModel, SENTINEL],
-    [strategy, SENTINEL, SENTINEL],
+    [tactic, generationModel, judgeModel],
+    [tactic, generationModel, SENTINEL],
+    [tactic, SENTINEL, SENTINEL],
     [SENTINEL, generationModel, SENTINEL],
     [SENTINEL, SENTINEL, SENTINEL],
   ];
@@ -168,14 +168,14 @@ export function getCalibrationRow(
   return null;
 }
 
-/** Convenience: returns `avgOutputChars` for a (strategy, generation_model) slice,
- *  or null when unavailable. Callers fall back to their hardcoded strategy map. */
+/** Convenience: returns `avgOutputChars` for a (tactic, generation_model) slice,
+ *  or null when unavailable. Callers fall back to their hardcoded tactic map. */
 export function getOutputChars(
-  strategy: string,
+  tactic: string,
   generationModel: string,
   judgeModel: string,
 ): number | null {
-  const row = getCalibrationRow(strategy, generationModel, judgeModel, 'generation');
+  const row = getCalibrationRow(tactic, generationModel, judgeModel, 'generation');
   return row?.avgOutputChars ?? null;
 }
 

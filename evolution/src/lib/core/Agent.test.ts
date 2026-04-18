@@ -104,6 +104,7 @@ describe('Agent abstract class', () => {
       expect(typeof result.durationMs).toBe('number');
       expect(createInvocation).toHaveBeenCalledWith(
         ctx.db, 'run-123', 0, 'test_agent', 1,
+        undefined, undefined,
       );
       expect(updateInvocation).toHaveBeenCalledWith(
         ctx.db, 'inv-123', expect.objectContaining({

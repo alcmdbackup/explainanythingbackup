@@ -150,7 +150,7 @@ export class CreateSeedArticleAgent extends Agent<
 
     const variant = createVariant({
       text: content.trim(),
-      strategy: 'seed_variant',
+      tactic: 'seed_variant',
       iterationBorn: ctx.iteration,
       parentIds: [],
       version: 0,

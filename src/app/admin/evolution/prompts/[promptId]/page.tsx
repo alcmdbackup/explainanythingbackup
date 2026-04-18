@@ -6,6 +6,7 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { EntityDetailHeader, EvolutionBreadcrumb, MetricGrid, EntityMetricsTab } from '@evolution/components/evolution';
+import { TacticPromptPerformanceTable } from '@evolution/components/evolution/tabs/TacticPromptPerformanceTable';
 import type { MetricItem } from '@evolution/components/evolution';
 import { getPromptDetailAction, type PromptListItem } from '@evolution/services/arenaActions';
 
@@ -79,6 +80,13 @@ export default function PromptDetailPage(): JSX.Element {
       <div>
         <h3 className="text-xl font-display font-semibold text-[var(--text-primary)] mb-3">Evolution Metrics</h3>
         <EntityMetricsTab entityType="prompt" entityId={promptId} />
+      </div>
+
+      <div>
+        <h3 className="text-xl font-display font-semibold text-[var(--text-primary)] mb-3">Tactic Performance</h3>
+        <div className="bg-[var(--surface-elevated)] border border-[var(--border-default)] rounded-book p-4">
+          <TacticPromptPerformanceTable promptId={promptId} />
+        </div>
       </div>
 
       <div className="bg-[var(--surface-elevated)] border border-[var(--border-default)] rounded-book p-6">

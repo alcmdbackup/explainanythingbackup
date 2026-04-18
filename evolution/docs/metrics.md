@@ -172,6 +172,21 @@ These per-iteration results are available on the `EvolutionResult` returned by
 `evolveArticle()`. They are persisted in the run summary and used by the Timeline tab
 to render iteration cards with budget bars showing allocated vs. spent for each iteration.
 
+### Tactic Metrics
+
+Tactic-level metrics aggregate across all completed-run variants that used a given tactic (matched by `evolution_variants.agent_name`). Unlike strategy/experiment metrics which use `propagateMetrics()` (child entity metric row aggregation), tactic metrics use `computeTacticMetrics()` in `evolution/src/lib/metrics/computations/tacticMetrics.ts` which queries variants directly.
+
+| Name | Aggregation | Description |
+|------|-------------|-------------|
+| `avg_elo` | avg | Mean Elo across all variants produced by this tactic |
+| `best_elo` | max | Highest Elo among variants produced by this tactic |
+| `total_variants` | count | Total variants produced across all runs |
+| `total_cost` | sum | Cumulative generation cost (from `cost_usd` on variants) |
+| `run_count` | count | Number of distinct completed runs that used this tactic |
+| `winner_count` | count | Number of variants that were the run winner (`is_winner=true`) |
+
+Tactic metrics are recomputed via `computeTacticMetricsForRun()` at run finalization (after strategy/experiment propagation). The stale trigger (`mark_elo_metrics_stale`) cascades to tactic metrics when a variant's `mu`/`sigma` DB columns change: it looks up the tactic entity via `evolution_tactics.name = NEW.agent_name` and marks matching `entity_type='tactic'` metrics rows as stale. Stale tactic metrics are recomputed on next read by `recomputeStaleMetrics()`.
+
 ### Run-level cost-estimation metrics (cost_estimate_accuracy_analysis_20260414)
 
 Computed at finalization from GFSA `execution_detail` JSONB plus budget-floor
@@ -208,7 +223,7 @@ Run Summary JSONB (`run_summary.budgetFloorConfig`) carries the static floor con
 | Column | Type | Description |
 |--------|------|-------------|
 | `id` | UUID PK | Auto-generated |
-| `entity_type` | TEXT | `run`, `invocation`, `variant`, `strategy`, `experiment`, `prompt` |
+| `entity_type` | TEXT | `run`, `invocation`, `variant`, `strategy`, `experiment`, `prompt`, `tactic` |
 | `entity_id` | UUID | ID of the entity this metric belongs to |
 | `metric_name` | TEXT | Registry-validated metric name |
 | `value` | DOUBLE PRECISION | The metric value |

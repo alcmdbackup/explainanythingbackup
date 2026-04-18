@@ -483,7 +483,7 @@ async function main() {
           rank: rank + 1,
           id,
           elo: Math.round(elo),
-          strategy: variant?.strategy ?? 'unknown',
+          tactic: variant?.tactic ?? 'unknown',
           textPreview: variant?.text.slice(0, 120) ?? '',
         };
       });
@@ -500,7 +500,7 @@ async function main() {
       },
       rankings,
       winnerText: result.winner.text,
-      winnerStrategy: result.winner.strategy,
+      winnerStrategy: result.winner.tactic,
     };
     const outputPath = path.resolve(args.output);
     fs.writeFileSync(outputPath, JSON.stringify(output, null, 2));
@@ -522,7 +522,7 @@ async function main() {
       console.log('  Top Rankings:');
       for (const r of rankings.slice(0, 5)) {
         const preview = r.textPreview.slice(0, 60).replace(/\n/g, ' ');
-        console.log(`    #${r.rank} [${r.elo}] ${r.strategy.padEnd(22)} ${r.id.slice(0, 8)} "${preview}..."`);
+        console.log(`    #${r.rank} [${r.elo}] ${r.tactic.padEnd(22)} ${r.id.slice(0, 8)} "${preview}..."`);
       }
       console.log('');
     }

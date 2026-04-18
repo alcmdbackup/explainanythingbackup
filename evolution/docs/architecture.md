@@ -224,15 +224,19 @@ All three agents extend the `Agent` base class (`evolution/src/lib/core/Agent.ts
 get the standard `Agent.run()` template-method treatment: invocation row creation, cost
 delta computation, execution-detail validation, and budget-error handling.
 
-Five extended strategies (`engagement_amplify`, `style_polish`, `argument_fortify`,
-`narrative_weave`, `tone_transform`) remain available alongside the three core strategies
-(`structural_transform`, `lexical_simplify`, `grounding_enhance`). When the strategy config
-sets `generationGuidance` (an array of `{ strategy, percent }` entries summing to 100),
-strategies are selected via weighted random sampling instead of the default round-robin
+24 tactics are available: 3 core (`structural_transform`, `lexical_simplify`,
+`grounding_enhance`), 5 extended (`engagement_amplify`, `style_polish`,
+`argument_fortify`, `narrative_weave`, `tone_transform`), and 16 specialized across
+depth, audience, structural, quality, and meta categories (see
+[Agents Overview](./agents/overview.md) for the full list). Tactic definitions live in
+code at `evolution/src/lib/core/tactics/tacticRegistry.ts`; tactic entity identity is
+stored in the `evolution_tactics` table. When the strategy config sets
+`generationGuidance` (an array of `{ strategy, percent }` entries summing to 100),
+tactics are selected via weighted random sampling instead of the default round-robin
 across `config.strategies`.
 
 **`GenerateFromSeedArticleAgent`** (`evolution/src/lib/core/agents/generateFromSeedArticle.ts`)
-— ONE variant per invocation. Generates the variant via a single strategy
+— ONE variant per invocation. Generates the variant via a single tactic
 (`structural_transform`, `lexical_simplify`, `grounding_enhance`, …), then ranks it via
 binary search (`rankSingleVariant`) against a deep-cloned local snapshot of the
 iteration-start pool/ratings/matchCounts. The agent owns the surface/discard decision:

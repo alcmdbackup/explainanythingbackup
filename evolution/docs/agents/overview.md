@@ -37,13 +37,17 @@ Between iterations, the orchestrator checks for external kill signals by queryin
 
 `evolution/src/lib/pipeline/generate.ts`
 
-Generates fresh text variants by running parallel LLM strategies against the original (or current best) text. There are 8 available strategies — 3 core and 5 extended:
+Generates fresh text variants by running parallel LLM tactics against the original (or current best) text. There are 24 available tactics — 3 core, 5 extended, and 16 specialized across five categories. Tactic definitions live in code at `evolution/src/lib/core/tactics/generateTactics.ts`; tactic entity identity (UUIDs for metrics/admin) is stored in the `evolution_tactics` table and managed by `tacticRegistry.ts`.
+
+**Core (3)**
 
 **structural_transform** aggressively restructures the text: reorder sections, merge or split paragraphs, invert hierarchy (conclusion-first, problem-solution, narrative arc). The prompt instructs the LLM to reimagine organization from scratch rather than making timid incremental changes.
 
 **lexical_simplify** simplifies language: replace complex words with simpler alternatives, shorten long sentences, remove jargon, improve accessibility while preserving meaning.
 
 **grounding_enhance** makes abstract text concrete: add specific examples, include sensory details, strengthen real-world connections, ground concepts in experience.
+
+**Extended (5)**
 
 **engagement_amplify** boosts reader engagement through hooks, pacing, and rhetorical devices.
 
@@ -55,7 +59,49 @@ Generates fresh text variants by running parallel LLM strategies against the ori
 
 **tone_transform** shifts or unifies tone to match target audience and purpose.
 
-By default, only the 3 core strategies run (deterministic selection). When `generationGuidance` is set on the strategy config, strategies are chosen via weighted random selection based on the configured percentages. All selected strategies run in parallel via `Promise.allSettled()`. Each result is independently format-validated; invalid outputs are silently discarded rather than retried. This means a generation phase can produce anywhere from zero to N variants (where N is `strategiesPerRound`).
+**Depth & Knowledge (4)**
+
+**analogy_bridge** enriches text with vivid analogies and metaphors that connect abstract concepts to everyday experience.
+
+**expert_deepdive** adds technical depth: mechanisms, edge cases, caveats, and nuances that expert readers expect.
+
+**historical_context** weaves in origin stories, key figures, and timeline of discovery to explain why things are the way they are.
+
+**counterpoint_integrate** integrates counterpoints and addresses objections, making the text more intellectually honest.
+
+**Audience-Shift (3)**
+
+**pedagogy_scaffold** restructures text using teaching techniques: prerequisite sequencing, simple-to-complex progression, and bridge sentences.
+
+**curiosity_hook** maximizes curiosity via information gaps, open loops, surprising facts, and delayed key revelations.
+
+**practitioner_orient** shifts from theory to practice: decision frameworks, common pitfalls, and actionable guidance.
+
+**Structural Innovation (3)**
+
+**zoom_lens** alternates between macro (big picture, context) and micro (specific details, mechanisms) perspectives in a breathing rhythm.
+
+**progressive_disclosure** layers content so readers get a complete simple version first, with each subsequent section deepening one aspect.
+
+**contrast_frame** explains concepts through systematic comparison: what it is vs. what it is not, this approach vs. alternatives.
+
+**Quality & Precision (3)**
+
+**precision_tighten** eliminates hedge words, vague quantifiers, and weasel phrases; replaces each with specific, concrete claims.
+
+**coherence_thread** strengthens the logical thread from start to finish: topic sentences, transitional phrases, and paragraph-to-paragraph flow.
+
+**sensory_concretize** replaces abstract verbs and nouns with vivid, sensory-specific, action-oriented alternatives.
+
+**Meta/Experimental (3)**
+
+**compression_distill** distills text to 60-70% of original length, removing redundancy and filler while preserving all key content and section structure.
+
+**expansion_elaborate** identifies the thinnest section relative to its importance and triples its depth with explanation, context, and nuance.
+
+**first_principles** rebuilds every concept from foundations, assuming zero domain knowledge, deriving each idea step by step from everyday experience.
+
+By default, only the 3 core tactics run (deterministic selection). When `generationGuidance` is set on the strategy config, tactics are chosen via weighted random selection based on the configured percentages. All selected tactics run in parallel via `Promise.allSettled()`. Each result is independently format-validated; invalid outputs are silently discarded rather than retried. This means a generation phase can produce anywhere from zero to N variants (where N is `strategiesPerRound`).
 
 ```typescript
 export async function generateVariants(
@@ -67,11 +113,11 @@ export async function generateVariants(
 ): Promise<Variant[]>
 ```
 
-Each successfully validated variant is created with `strategy` set to the strategy name, `version` set to 0, and `parentIds` as an empty array (since these are root-level generations, not mutations of existing variants).
+Each successfully validated variant is created with `strategy` set to the tactic name, `version` set to 0, and `parentIds` as an empty array (since these are root-level generations, not mutations of existing variants).
 
 If budget is exhausted partway through the three parallel calls, `Promise.allSettled()` captures the `BudgetExceededError` as a rejected promise. The function collects any variants that completed successfully and throws `BudgetExceededWithPartialResults` containing those partial results, allowing the orchestrator to incorporate whatever was produced before the budget ran out.
 
-The number of active strategies is controlled by `config.strategiesPerRound` (default 3, capped at the total number of available strategies). Feedback from previous ranking rounds can optionally be passed in to guide generation: the weakest dimension identified by ranking plus specific improvement suggestions are appended to each strategy's prompt, giving the LLM targeted direction for improvement.
+The number of active tactics is controlled by `config.strategiesPerRound` (default 3, capped at the total number of available tactics). Feedback from previous ranking rounds can optionally be passed in to guide generation: the weakest dimension identified by ranking plus specific improvement suggestions are appended to each tactic's prompt, giving the LLM targeted direction for improvement.
 
 
 ## rankPool()
@@ -126,7 +172,7 @@ The budget tier is determined by how much of the total run budget has been consu
 
 `evolution/src/lib/pipeline/evolve.ts`
 
-Evolves existing high-quality variants through mutation and crossover. Selects the top 2 parents by `elo` from the current pool and applies up to four strategies:
+Evolves existing high-quality variants through mutation and crossover. Selects the top 2 parents by `elo` from the current pool and applies up to four tactics:
 
 **mutate_clarity** (always runs, on parent 0). Simplifies complex sentences, removes ambiguous phrasing, improves word choice for precision.
 
@@ -152,11 +198,11 @@ export async function evolveVariants(
 ): Promise<Variant[]>
 ```
 
-Unlike `generateVariants()` which runs strategies in parallel, `evolveVariants()` runs them sequentially. Each LLM output is format-validated; failures are silently discarded. New variants inherit `parentIds` from the selected parents and have `version` set to `maxVersion + 1` of the parents. (The "top 2 by `elo`" selection uses the public `Rating.elo` — formerly `mu` in the OpenSkill scale.)
+Unlike `generateVariants()` which runs tactics in parallel, `evolveVariants()` runs them sequentially. Each LLM output is format-validated; failures are silently discarded. New variants inherit `parentIds` from the selected parents and have `version` set to `maxVersion + 1` of the parents. (The "top 2 by `elo`" selection uses the public `Rating.elo` — formerly `mu` in the OpenSkill scale.)
 
 `BudgetExceededError` propagates directly to the caller (no partial-results wrapping). If budget runs out after the first mutation succeeds but before crossover, the successfully created variants are lost. This is acceptable because the orchestrator's `executePhase()` wrapper handles the budget error at the iteration level.
 
-The sequential execution means evolve is more vulnerable to budget exhaustion than generate (which runs in parallel and can salvage partial results). However, the most valuable strategies — clarity and structure mutation — run first, so if budget does run out mid-phase, the highest-priority variants are the ones most likely to have completed.
+The sequential execution means evolve is more vulnerable to budget exhaustion than generate (which runs in parallel and can salvage partial results). However, the most valuable tactics — clarity and structure mutation — run first, so if budget does run out mid-phase, the highest-priority variants are the ones most likely to have completed.
 
 
 ## Format Validation
@@ -294,9 +340,9 @@ For cost optimization details including the budget tier system and model pricing
 
 All generation and evolution prompts share a common structure built by `buildEvolutionPrompt()`. The function assembles:
 
-1. A strategy-specific preamble (system role)
+1. A tactic-specific preamble (system role)
 2. The source text under a labeled heading
-3. Strategy-specific instructions
+3. Tactic-specific instructions
 4. Format rules (the `FORMAT_RULES` constant) injected into every prompt to guide the LLM toward compliant output
 5. An optional feedback section containing the weakest dimension and improvement suggestions from prior ranking
 

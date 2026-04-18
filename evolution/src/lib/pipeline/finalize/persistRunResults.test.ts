@@ -44,7 +44,7 @@ function makeVariant(id: string, strategy = 'test', opts?: Partial<Variant>): Va
     text: `Content for ${id}`,
     version: 1,
     parentIds: [],
-    strategy,
+    tactic: strategy,
     createdAt: Date.now() / 1000,
     iterationBorn: 1,
     ...opts,
@@ -206,11 +206,11 @@ describe('finalizeRun', () => {
     expect(summary.seedVariantElo).toBeNull();
   });
 
-  it('strategyEffectiveness computed', async () => {
+  it('tacticEffectiveness computed', async () => {
     const { db, updates } = makeMockDb();
     await finalizeRun(RUN_ID, makeResult(), { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
     const summary = updates.find((u) => u.data.run_summary)?.data.run_summary as Record<string, unknown>;
-    const se = summary.strategyEffectiveness as Record<string, { count: number; avgElo: number }>;
+    const se = summary.tacticEffectiveness as Record<string, { count: number; avgElo: number }>;
     expect(se['seed_variant']!.count).toBe(1);
     expect(se['seed_variant']!.avgElo).toBe(1200);
     expect(se['structural_transform']!.count).toBe(1);
@@ -667,11 +667,11 @@ describe('finalizeRun bug fixes', () => {
 // ─── Finalization logging tests ─────────────────────────────────
 
 describe('finalizeRun logging', () => {
-  it('logger.info called with Strategy effectiveness computed', async () => {
+  it('logger.info called with Tactic effectiveness computed', async () => {
     const { db } = makeMockDb();
     const { logger } = createMockEntityLogger();
     await finalizeRun(RUN_ID, makeResult(), { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120, logger);
-    expect(logger.info).toHaveBeenCalledWith('Strategy effectiveness computed', expect.objectContaining({ phaseName: 'finalize' }));
+    expect(logger.info).toHaveBeenCalledWith('Tactic effectiveness computed', expect.objectContaining({ phaseName: 'finalize' }));
   });
 
   it('logger.info called with Winner determined', async () => {

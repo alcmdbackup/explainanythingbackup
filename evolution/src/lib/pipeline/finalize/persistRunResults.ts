@@ -22,9 +22,9 @@ export const SEED_VARIANT_STRATEGY = 'seed_variant';
 /** @deprecated Legacy alias; admin UI dual-accept reads both 'baseline' (legacy rows) and 'seed_variant' (current). */
 const LEGACY_BASELINE_STRATEGY = 'baseline';
 
-/** True if `strategy` denotes the seed variant — accepts both new and legacy names for back-compat. */
-function isSeedVariantStrategy(strategy: string | undefined): boolean {
-  return strategy === SEED_VARIANT_STRATEGY || strategy === LEGACY_BASELINE_STRATEGY;
+/** True if `tactic` denotes the seed variant — accepts both new and legacy names for back-compat. */
+function isSeedVariantTactic(tactic: string | undefined): boolean {
+  return tactic === SEED_VARIANT_STRATEGY || tactic === LEGACY_BASELINE_STRATEGY;
 }
 
 
@@ -69,43 +69,43 @@ function buildRunSummary(
     const r = ratings.get(s.v.id);
     return {
       id: s.v.id,
-      strategy: s.v.strategy,
+      tactic: s.v.tactic,
       elo: s.elo,
       ...(r && Number.isFinite(r.uncertainty) ? { uncertainty: r.uncertainty } : {}),
-      isSeedVariant: isSeedVariantStrategy(s.v.strategy),
+      isSeedVariant: isSeedVariantTactic(s.v.tactic),
     };
   });
 
   // Seed variant is no longer in the pool (decoupled in Phase 2), so rank/elo are null.
 
-  // Strategy effectiveness with Welford M2 (Phase 4b): tracks count + avgElo (online mean)
+  // Tactic effectiveness with Welford M2 (Phase 4b): tracks count + avgElo (online mean)
   // AND M2 (sum of squared deviations from mean), which lets us emit
   // seAvgElo = sqrt(M2 / (n*(n-1))) — the standard error of the mean Elo across variants
-  // in this strategy bucket. NOT per-variant rating uncertainty; it's the spread of variant
+  // in this tactic bucket. NOT per-variant rating uncertainty; it's the spread of variant
   // Elos in this bucket (labelled as such in UI tooltips).
   type StrategyAccum = { count: number; avgElo: number; m2: number };
   const accum = pool.reduce<Record<string, StrategyAccum>>((acc, v) => {
     const elo = ratings.get(v.id)?.elo ?? DEFAULT_ELO;
-    const prev = acc[v.strategy];
+    const prev = acc[v.tactic];
     if (prev) {
       const newCount = prev.count + 1;
       const delta = elo - prev.avgElo;
       const newAvg = prev.avgElo + delta / newCount;
       const delta2 = elo - newAvg;
-      acc[v.strategy] = { count: newCount, avgElo: newAvg, m2: prev.m2 + delta * delta2 };
+      acc[v.tactic] = { count: newCount, avgElo: newAvg, m2: prev.m2 + delta * delta2 };
     } else {
-      acc[v.strategy] = { count: 1, avgElo: elo, m2: 0 };
+      acc[v.tactic] = { count: 1, avgElo: elo, m2: 0 };
     }
     return acc;
   }, {});
-  const strategyEffectiveness: Record<string, { count: number; avgElo: number; seAvgElo?: number }> = {};
+  const tacticEffectiveness: Record<string, { count: number; avgElo: number; seAvgElo?: number }> = {};
   for (const [strat, a] of Object.entries(accum)) {
     if (a.count >= 2) {
       const variance = a.m2 / (a.count - 1); // sample variance
       const seAvgElo = Math.sqrt(variance / a.count); // SE of the mean
-      strategyEffectiveness[strat] = { count: a.count, avgElo: a.avgElo, seAvgElo };
+      tacticEffectiveness[strat] = { count: a.count, avgElo: a.avgElo, seAvgElo };
     } else {
-      strategyEffectiveness[strat] = { count: a.count, avgElo: a.avgElo };
+      tacticEffectiveness[strat] = { count: a.count, avgElo: a.avgElo };
     }
   }
 
@@ -122,13 +122,13 @@ function buildRunSummary(
     topVariants,
     seedVariantRank: null,
     seedVariantElo: null,
-    strategyEffectiveness,
+    tacticEffectiveness,
     metaFeedback: null,
     ...(result.budgetFloorConfig ? { budgetFloorConfig: result.budgetFloorConfig } : {}),
   };
 }
 
-/** Persist V2 results in V1-compatible format: run_summary, variants, strategy aggregates. */
+/** Persist V2 results in V1-compatible format: run_summary, variants, tactic aggregates. */
 export async function finalizeRun(
   runId: string,
   result: EvolutionResult,
@@ -163,7 +163,7 @@ export async function finalizeRun(
   const filteredResult = { ...result, pool: summaryPool };
   const runSummary = buildRunSummary(filteredResult, durationSeconds);
   EvolutionRunSummaryV3Schema.parse(runSummary);
-  logger?.info('Strategy effectiveness computed', { strategyEffectiveness: (runSummary as Record<string, unknown>).strategyEffectiveness, phaseName: 'finalize' });
+  logger?.info('Tactic effectiveness computed', { tacticEffectiveness: (runSummary as Record<string, unknown>).tacticEffectiveness, phaseName: 'finalize' });
 
   // Step 2: Update run to completed with run_summary (runner_id check prevents stale finalization)
   // Also writes iteration_snapshots and random_seed if present on the result.
@@ -228,7 +228,7 @@ export async function finalizeRun(
       sigma: db.sigma,
       generation: v.iterationBorn,
       parent_variant_id: v.parentIds[0] ?? null,
-      agent_name: v.strategy,
+      agent_name: v.tactic,
       match_count: result.matchCounts[v.id] ?? 0,
       is_winner: v.id === winnerId,
       prompt_id: run.prompt_id ?? null,
@@ -253,7 +253,7 @@ export async function finalizeRun(
         sigma: db.sigma,
         generation: v.iterationBorn,
         parent_variant_id: v.parentIds[0] ?? null,
-        agent_name: v.strategy,
+        agent_name: v.tactic,
         match_count: 0,
         is_winner: false,
         prompt_id: run.prompt_id ?? null,
@@ -397,6 +397,10 @@ export async function finalizeRun(
     if (run.experiment_id) {
       await propagateMetrics(db, 'experiment', run.experiment_id);
     }
+
+    // Propagation: tactic metrics (cross-run, variant-level aggregation — separate from strategy/experiment)
+    const { computeTacticMetricsForRun } = await import('../../metrics/computations/tacticMetrics');
+    await computeTacticMetricsForRun(db, runId);
   } catch (metricsErr) {
     const err = metricsErr instanceof Error ? metricsErr : null;
     logger?.warn('Finalization metrics write failed', {
@@ -503,7 +507,7 @@ export async function syncToArena(
         // arena_match_count: matches played in THIS run only (not cumulative).
         // The DB RPC accumulates this into the arena entry's lifetime total.
         arena_match_count: variantMatchCounts.get(v.id) ?? 0,
-        generation_method: isSeeded && isSeedVariantStrategy(v.strategy) ? 'seed' : 'pipeline',
+        generation_method: isSeeded && isSeedVariantTactic(v.tactic) ? 'seed' : 'pipeline',
       };
     });
 

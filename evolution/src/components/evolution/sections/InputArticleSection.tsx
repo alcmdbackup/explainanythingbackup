@@ -1,4 +1,4 @@
-// Shows the input variant an agent operated on, with preview, strategy badge, and Elo.
+// Shows the input variant an agent operated on, with preview, tactic badge, and Elo.
 // Used on the invocation detail page to provide context for what the agent saw.
 
 'use client';
@@ -22,7 +22,7 @@ function ShortId({ id }: { id: string; runId?: string }): JSX.Element {
 
 interface InputArticleSectionProps {
   variantId: string;
-  strategy: string;
+  tactic: string;
   text: string;
   textMissing?: boolean;
   elo: number | null;
@@ -34,7 +34,7 @@ interface InputArticleSectionProps {
 
 export function InputArticleSection({
   variantId,
-  strategy,
+  tactic,
   text,
   textMissing,
   elo,
@@ -51,7 +51,7 @@ export function InputArticleSection({
       <div className="flex items-center gap-2 mb-2">
         <span className="text-xs font-ui font-medium text-[var(--text-secondary)] uppercase tracking-wide">Input Variant</span>
         <ShortId id={variantId} runId={runId} />
-        <span className="text-xs text-[var(--text-muted)]">{strategy}</span>
+        <span className="text-xs text-[var(--text-muted)]">{tactic}</span>
         {elo != null && (
           <span className="text-xs text-[var(--text-muted)] font-mono">
             Elo {uncertainty != null

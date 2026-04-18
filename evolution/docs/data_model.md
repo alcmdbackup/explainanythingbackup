@@ -107,7 +107,7 @@ Text variants produced during a pipeline run. Since migration 20260321000002, th
 | `elo_score` | NUMERIC | NOT NULL, default `1200` | Display Elo-scale score (projected from OpenSkill `mu`; matches the public `Rating.elo` up to display clamping) |
 | `generation` | INT | NOT NULL, default `0` | Maps to `Variant.iterationBorn` — the iteration index (0-based) from `iterationConfigs[]` when this variant was created |
 | `parent_variant_id` | UUID | | Self-referential FK. Populated for generated variants with the seed variant's ID. See [Lineage](#lineage) |
-| `agent_name` | TEXT | | Creating agent/strategy name |
+| `agent_name` | TEXT | | Creating agent tactic name (e.g. `'structural_transform'`, `'lexical_simplify'`) |
 | `match_count` | INT | NOT NULL, default `0` | |
 | `is_winner` | BOOLEAN | NOT NULL, default `false` | Highest `elo` at finalization |
 | `mu` | NUMERIC | NOT NULL, default `25` | OpenSkill mu (legacy DB column; backs the public `Rating.elo` via `dbToRating` — unchanged because the stale trigger and `sync_to_arena` RPC depend on it). Now selected by `getEvolutionVariantsAction`, `listVariantsAction`, and `variantDetailActions` so the admin UI can render per-variant Elo ± uncertainty via `formatEloWithUncertainty` + `formatEloCIRange` (Phase 4b). |
@@ -122,6 +122,21 @@ Text variants produced during a pipeline run. Since migration 20260321000002, th
 | `evolution_explanation_id` | UUID | FK -> `evolution_explanations(id)` | NULLABLE (oneshot entries have none) |
 | `created_at` | TIMESTAMPTZ | NOT NULL | |
 
+### `evolution_tactics`
+
+Thin entity table for tactic identity. Tactic prompt definitions live in code (`evolution/src/lib/core/tactics/generateTactics.ts`); this table provides UUIDs for metrics, admin UI, and future FK references. Synced from code via `evolution/scripts/syncSystemTactics.ts`.
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | UUID | PK, default `gen_random_uuid()` | |
+| `name` | TEXT | NOT NULL, UNIQUE | Tactic identifier (e.g. `'structural_transform'`) |
+| `label` | TEXT | NOT NULL, default `''` | Human-readable display label |
+| `agent_type` | TEXT | NOT NULL | Agent group (e.g. `'generate_from_seed_article'`) |
+| `category` | TEXT | | Grouping: `'core'`, `'extended'`, `'depth'`, `'audience'`, `'structural'`, `'quality'`, `'meta'` |
+| `is_predefined` | BOOLEAN | NOT NULL, default `true` | System-provided tactic |
+| `status` | TEXT | NOT NULL, CHECK `('active','archived')` | |
+| `created_at` | TIMESTAMPTZ | NOT NULL, default `now()` | |
+
 ### `evolution_agent_invocations`
 
 Per-agent-per-iteration cost and execution records. Primary source for cost tracking.
@@ -133,6 +148,7 @@ Per-agent-per-iteration cost and execution records. Primary source for cost trac
 | `agent_name` | TEXT | NOT NULL | e.g. `'generation'`, `'ranking'` |
 | `iteration` | INT | NOT NULL, default `0` | |
 | `execution_order` | INT | NOT NULL, default `0` | Order within iteration |
+| `tactic` | TEXT | | Tactic name for generation invocations (e.g. `'structural_transform'`). NULL for ranking/merge agents. Indexed where non-null. |
 | `success` | BOOLEAN | NOT NULL, default `false` | |
 | `skipped` | BOOLEAN | NOT NULL, default `false` | |
 | `cost_usd` | NUMERIC | | LLM cost for this invocation |
@@ -206,7 +222,7 @@ Unified EAV (entity-attribute-value) table for all evolution metrics. Replaces s
 | Column | Type | Constraints | Description |
 |--------|------|-------------|-------------|
 | `id` | UUID | PK, default `gen_random_uuid()` | |
-| `entity_type` | TEXT | NOT NULL, CHECK `('run','invocation','variant','strategy','experiment','prompt')` | Type of entity this metric belongs to |
+| `entity_type` | TEXT | NOT NULL, CHECK `('run','invocation','variant','strategy','experiment','prompt','tactic')` | Type of entity this metric belongs to |
 | `entity_id` | UUID | NOT NULL | FK to the entity's primary key |
 | `metric_name` | TEXT | NOT NULL | e.g. `'cost'`, `'winner_elo'`, `'median_elo'`, `'agentCost:generation'` |
 | `value` | DOUBLE PRECISION | NOT NULL | Metric value |

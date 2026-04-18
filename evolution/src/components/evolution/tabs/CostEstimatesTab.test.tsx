@@ -36,10 +36,10 @@ function makeBaseRunData(overrides: Partial<RunCostEstimates> = {}): RunCostEsti
       { agentName: 'merge_ratings', invocations: 4, estimatedUsd: null, actualUsd: 0, errorPct: null, coverage: 'no-llm' },
     ],
     invocations: [
-      { id: 'inv-1', agentName: 'generate_from_seed_article', iteration: 1, strategy: 'grounding_enhance',
+      { id: 'inv-1', agentName: 'generate_from_seed_article', iteration: 1, tactic: 'grounding_enhance',
         generationEstimate: 0.06, generationActual: 0.082, rankingEstimate: 0.02, rankingActual: 0.024,
         totalCost: 0.106, estimationErrorPct: 31.3 },
-      { id: 'inv-2', agentName: 'generate_from_seed_article', iteration: 1, strategy: 'lexical_simplify',
+      { id: 'inv-2', agentName: 'generate_from_seed_article', iteration: 1, tactic: 'lexical_simplify',
         generationEstimate: 0.032, generationActual: 0.026, rankingEstimate: 0.02, rankingActual: 0.017,
         totalCost: 0.043, estimationErrorPct: -17.6 },
     ],
@@ -72,7 +72,7 @@ function makeStrategyData(overrides: Partial<StrategyCostEstimates> = {}): Strat
       { runId: 'r2', status: 'completed', createdAt: '2026-04-14T09:00:00Z', totalCost: 0.73, estimatedCost: 0.71, errorPct: 2.8 },
     ],
     sliceBreakdown: [
-      { strategy: 'grounding_enhance', generationModel: 'gpt-4o-mini', judgeModel: 'qwen-2.5-7b',
+      { tactic: 'grounding_enhance', generationModel: 'gpt-4o-mini', judgeModel: 'qwen-2.5-7b',
         runs: 28, avgActual: 0.71, avgErrorPct: 15.3 },
     ],
     histogram: [
@@ -115,7 +115,7 @@ describe('CostEstimatesTab — Run view', () => {
       summary: { totalCost: null, estimatedCost: null, absError: null, errorPct: null, budgetCap: null },
       invocations: [
         // No generationEstimate / rankingEstimate on any invocation
-        { id: 'inv-1', agentName: 'generate_from_seed_article', iteration: 1, strategy: null,
+        { id: 'inv-1', agentName: 'generate_from_seed_article', iteration: 1, tactic: null,
           generationEstimate: null, generationActual: 0.05, rankingEstimate: null, rankingActual: 0.02,
           totalCost: 0.07, estimationErrorPct: null },
       ],

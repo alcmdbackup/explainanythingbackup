@@ -17,8 +17,9 @@ import { SwissRankingAgent, type SwissRankingMatchEntry } from '../../core/agent
 import { MergeRatingsAgent, type MergeMatchEntry } from '../../core/agents/MergeRatingsAgent';
 import { swissPairing, pairKey, MAX_PAIRS_PER_ROUND } from './swissPairing';
 import { computeTop15Cutoff } from './rankSingleVariant';
-import { DEFAULT_GENERATE_STRATEGIES, type IterationSnapshot } from '../../schemas';
-import { deriveSeed } from '../../shared/seededRandom';
+import { DEFAULT_TACTICS, type IterationSnapshot } from '../../schemas';
+import { deriveSeed, SeededRandom } from '../../shared/seededRandom';
+import { selectTacticWeighted } from '../../core/tactics';
 import type { AgentContext } from '../../core/types';
 import { estimateAgentCost } from '../infra/estimateCosts';
 
@@ -183,9 +184,9 @@ export async function evolveArticle(
   validateConfig(config);
 
   const numVariants = config.numVariants ?? 9;
-  const strategies = config.strategies && config.strategies.length > 0
+  const tactics = config.strategies && config.strategies.length > 0
     ? config.strategies
-    : [...DEFAULT_GENERATE_STRATEGIES];
+    : [...DEFAULT_TACTICS];
 
   // Apply defaults for legacy fields too (some metric paths still read them).
   const resolvedConfig: EvolutionConfig = {
@@ -195,7 +196,7 @@ export async function evolveArticle(
     calibrationOpponents: config.calibrationOpponents ?? 5,
     tournamentTopK: config.tournamentTopK ?? 5,
     numVariants,
-    strategies,
+    strategies: tactics,
   };
 
   const noopLogger: EntityLogger = { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} };
@@ -207,7 +208,7 @@ export async function evolveArticle(
   logger.info('Config validation passed', {
     budgetUsd: resolvedConfig.budgetUsd,
     generationModel: resolvedConfig.generationModel, judgeModel: resolvedConfig.judgeModel,
-    numVariants, strategies,
+    numVariants, tactics,
     phaseName: 'config_validation',
   });
 
@@ -253,7 +254,7 @@ export async function evolveArticle(
 
   const totalBudget = resolvedConfig.budgetUsd;
   const initialAgentCostEstimate = estimateAgentCost(
-    originalText.length, strategies[0]!, resolvedConfig.generationModel,
+    originalText.length, tactics[0]!, resolvedConfig.generationModel,
     resolvedConfig.judgeModel, 1, resolvedConfig.maxComparisonsPerVariant ?? 15,
   );
 
@@ -304,7 +305,7 @@ export async function evolveArticle(
         const availBudget = iterTracker.getAvailableBudget();
         const maxComp = resolvedConfig.maxComparisonsPerVariant ?? 15;
         const estPerAgent = estimateAgentCost(
-          originalText.length, strategies[0]!, resolvedConfig.generationModel,
+          originalText.length, tactics[0]!, resolvedConfig.generationModel,
           resolvedConfig.judgeModel, pool.length, maxComp,
         );
         const maxAffordable = Math.max(1, Math.floor(availBudget / estPerAgent));
@@ -318,15 +319,27 @@ export async function evolveArticle(
           sequentialDispatchedCount += dispatchCount;
         }
 
+        // Select tactics: weighted random if generationGuidance is present, otherwise round-robin.
+        const guidance = resolvedConfig.generationGuidance;
+        const selectTactic = (i: number): string => {
+          if (guidance && guidance.length > 0) {
+            const rng = new SeededRandom(deriveSeed(randomSeed, `iter${iteration}`, `tactic_sel${i}`));
+            return selectTacticWeighted(guidance, rng);
+          }
+          return tactics[i % tactics.length]!;
+        };
+
+        const dispatchedTactics = Array.from({ length: dispatchCount }, (_, i) => selectTactic(i));
         logger.info('Dispatching generate iteration', {
           iteration, iterIdx, dispatchCount, maxAffordable, maxAgentsForIter,
           iterBudgetUsd, availBudget, estPerAgent,
-          strategies: Array.from({ length: dispatchCount }, (_, i) => strategies[i % strategies.length]!),
+          tactics: dispatchedTactics,
+          selectionMode: guidance ? 'weighted' : 'round-robin',
           phaseName: 'generation',
         });
 
         const dispatchPromises = Array.from({ length: dispatchCount }, (_, i) => {
-          const strategy = strategies[i % strategies.length]!;
+          const tactic = dispatchedTactics[i]!;
           const execOrder = ++executionOrder;
           const agentIndex = i + 1;
           const ctxForAgent: AgentContext = {
@@ -344,7 +357,7 @@ export async function evolveArticle(
           const agent = new GenerateFromSeedArticleAgent();
           return agent.run({
             originalText,
-            strategy,
+            tactic,
             llm,
             initialPool: initialPoolSnapshot,
             initialRatings: initialRatingsSnapshot,

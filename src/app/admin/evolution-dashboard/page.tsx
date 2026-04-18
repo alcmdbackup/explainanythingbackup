@@ -124,6 +124,13 @@ function DashboardContent(): JSX.Element {
         </div>
         <RunsTable runs={recentRuns} columns={getBaseColumns()} compact maxRows={10} testId="dashboard-runs-table" />
       </div>
+      <div className="flex gap-3 text-sm">
+        <Link href="/admin/evolution/tactics" className="text-[var(--accent-gold)] hover:underline">Tactics →</Link>
+        <Link href="/admin/evolution/strategies" className="text-[var(--accent-gold)] hover:underline">Strategies →</Link>
+        <Link href="/admin/evolution/experiments" className="text-[var(--accent-gold)] hover:underline">Experiments →</Link>
+        <Link href="/admin/evolution/prompts" className="text-[var(--accent-gold)] hover:underline">Prompts →</Link>
+        <Link href="/admin/evolution/arena" className="text-[var(--accent-gold)] hover:underline">Arena →</Link>
+      </div>
     </div>
   );
 }

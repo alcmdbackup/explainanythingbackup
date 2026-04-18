@@ -39,7 +39,7 @@ jest.mock('./rankSingleVariant', () => {
 
 const mkVariant = (id: string): Variant => ({
   id, text: `text-${id}`, version: 0, parentIds: [],
-  strategy: 'structural_transform', createdAt: 0, iterationBorn: 0,
+  tactic: 'structural_transform', createdAt: 0, iterationBorn: 0,
 });
 
 function makeCostTracker(initialSpent = 0): V2CostTracker & { _spent: number } {

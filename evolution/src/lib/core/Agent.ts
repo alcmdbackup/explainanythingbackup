@@ -24,8 +24,11 @@ export abstract class Agent<TInput, TOutput, TDetail extends ExecutionDetailBase
   abstract execute(input: TInput, ctx: AgentContext): Promise<AgentOutput<TOutput, TDetail>>;
 
   async run(input: TInput, ctx: AgentContext): Promise<AgentResult<TOutput>> {
+    // Extract tactic from input if present (GenerateFromSeedArticleAgent, future agents with tactics).
+    const tactic = (input as Record<string, unknown>)?.tactic as string | undefined;
     const invocationId = await createInvocation(
       ctx.db, ctx.runId, ctx.iteration, this.name, ctx.executionOrder,
+      undefined, tactic,
     );
 
     // Per-invocation cost scope: delegates budget gating to shared tracker while

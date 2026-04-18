@@ -179,16 +179,37 @@ Before each LLM call, cost is estimated using **1 token ~ 4 characters** and fix
 
 **File:** `evolution/src/lib/pipeline/infra/estimateCosts.ts`
 
-Before dispatching generateFromSeedArticle agents, the orchestrator uses empirical cost estimation to determine how many agents the budget can support. This uses:
+Before dispatching generateFromSeedArticle agents, the orchestrator uses empirical cost estimation to determine how many agents the budget can support. Per-tactic output size estimates drive the generation cost model. This uses:
 
-- **Empirical output characters per strategy** (measured from staging DB):
+- **Empirical output characters per tactic** (measured from staging DB; new tactics use `DEFAULT_OUTPUT_CHARS` until calibration data accumulates):
 
-| Strategy | Avg Output Chars | ~Tokens |
-|----------|-----------------|---------|
-| grounding_enhance | 11,799 | 2,950 |
-| structural_transform | 9,956 | 2,489 |
-| lexical_simplify | 5,836 | 1,459 |
-| default (other strategies) | 9,197 | 2,299 |
+| Tactic | Avg Output Chars | ~Tokens | Category |
+|--------|-----------------|---------|----------|
+| grounding_enhance | 11,799 | 2,950 | Core (measured) |
+| structural_transform | 9,956 | 2,489 | Core (measured) |
+| lexical_simplify | 5,836 | 1,459 | Core (measured) |
+| engagement_amplify | 9,197 | 2,299 | Extended (estimated) |
+| style_polish | 9,197 | 2,299 | Extended (estimated) |
+| argument_fortify | 9,197 | 2,299 | Extended (estimated) |
+| narrative_weave | 9,197 | 2,299 | Extended (estimated) |
+| tone_transform | 9,197 | 2,299 | Extended (estimated) |
+| analogy_bridge | 11,000 | 2,750 | Depth & Knowledge (estimated) |
+| expert_deepdive | 12,000 | 3,000 | Depth & Knowledge (estimated) |
+| historical_context | 11,000 | 2,750 | Depth & Knowledge (estimated) |
+| counterpoint_integrate | 10,500 | 2,625 | Depth & Knowledge (estimated) |
+| pedagogy_scaffold | 10,000 | 2,500 | Audience-Shift (estimated) |
+| curiosity_hook | 9,500 | 2,375 | Audience-Shift (estimated) |
+| practitioner_orient | 10,000 | 2,500 | Audience-Shift (estimated) |
+| zoom_lens | 10,000 | 2,500 | Structural Innovation (estimated) |
+| progressive_disclosure | 10,500 | 2,625 | Structural Innovation (estimated) |
+| contrast_frame | 9,500 | 2,375 | Structural Innovation (estimated) |
+| precision_tighten | 8,000 | 2,000 | Quality & Precision (estimated) |
+| coherence_thread | 9,500 | 2,375 | Quality & Precision (estimated) |
+| sensory_concretize | 9,200 | 2,300 | Quality & Precision (estimated) |
+| compression_distill | 5,500 | 1,375 | Meta/Experimental (estimated) |
+| expansion_elaborate | 13,000 | 3,250 | Meta/Experimental (estimated) |
+| first_principles | 11,000 | 2,750 | Meta/Experimental (estimated) |
+| default (unknown tactics) | 9,197 | 2,299 | Fallback |
 
 - **Deterministic ranking cost**: `min(poolSize - 1, maxComparisonsPerVariant)` comparisons × 2 LLM calls (bias mitigation) × comparison cost. Comparison prompt = 698 chars overhead + 2 × article length.
 
@@ -236,7 +257,7 @@ Adds a DB-backed replacement for the hardcoded `EMPIRICAL_OUTPUT_CHARS` and
 `OUTPUT_TOKEN_ESTIMATES` constants so calibration updates don't require code deploys.
 
 - **Table:** `evolution_cost_calibration` keyed on
-  `(strategy, generation_model, judge_model, phase)`.
+  `(strategy, generation_model, judge_model, phase)` (column named `strategy` for backward compat; values are tactic names).
 - **Refresh:** `evolution/scripts/refreshCostCalibration.ts` (daily cron) aggregates
   the last `COST_CALIBRATION_SAMPLE_DAYS` days (default 14) of
   `evolution_agent_invocations.execution_detail` into per-slice upserts.

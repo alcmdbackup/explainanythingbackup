@@ -19,7 +19,7 @@ import type { V2Match } from '@evolution/lib/pipeline/infra/types';
 import type { AgentName } from '@evolution/lib/core/agentNames';
 
 function makeVariant(id: string): Variant {
-  return { id, text: '', version: 0, parentIds: [], strategy: 'test', createdAt: 0, iterationBorn: 0 };
+  return { id, text: '', version: 0, parentIds: [], tactic: 'test', createdAt: 0, iterationBorn: 0 };
 }
 
 function makeCtx(overrides: Partial<FinalizationContext> = {}): FinalizationContext {

@@ -19,32 +19,12 @@ import { BudgetExceededError } from '../../types';
 import { estimateGenerationCost, estimateRankingCost } from '../../pipeline/infra/estimateCosts';
 import type { z } from 'zod';
 
-// ─── Strategy registry ────────────────────────────────────────────
-// Mirrors the legacy generateVariants.ts STRATEGIES but exposed as a per-strategy function
-// so we can dispatch one strategy per agent invocation.
+// ─── Tactic registry ────────────────────────────────────────────
 
-interface StrategyDef {
-  preamble: string;
-  instructions: string;
-}
+import { getTacticDef } from '../tactics';
 
-const STRATEGY_DEFS: Record<string, StrategyDef> = {
-  structural_transform: {
-    preamble: 'You are an expert writing editor. AGGRESSIVELY restructure this text with full creative freedom.',
-    instructions: 'Reorder sections, paragraphs, and ideas. Merge, split, or eliminate sections. Invert the structure (conclusion-first, bottom-up, problem-solution, narrative arc). Change heading hierarchy. Reorganize by chronological, thematic, comparative, or other principle. MUST preserve original intention, meaning, and all key points exactly. Do not add, remove, or alter the substance.\n\nOutput a radically restructured version. Same core message, completely different organization. Do NOT make timid, incremental changes — reimagine the organization from scratch.',
-  },
-  lexical_simplify: {
-    preamble: 'You are an expert writing editor. Simplify the language of this text.',
-    instructions: 'Replace complex words with simpler alternatives. Shorten overly long sentences. Remove unnecessary jargon. Improve accessibility. Maintain the meaning.\n\nOutput a lexically simplified version.',
-  },
-  grounding_enhance: {
-    preamble: 'You are an expert writing editor. Make this text more concrete and grounded.',
-    instructions: 'Add specific examples and details. Make abstract concepts concrete. Include sensory details. Strengthen connection to real-world experience. Maintaining the core message.\n\nOutput a more grounded and concrete version.',
-  },
-};
-
-function buildPromptForStrategy(text: string, strategy: string): string | null {
-  const def = STRATEGY_DEFS[strategy];
+function buildPromptForTactic(text: string, tactic: string): string | null {
+  const def = getTacticDef(tactic);
   if (!def) return null;
   return buildEvolutionPrompt(def.preamble, 'Original Text', text, def.instructions);
 }
@@ -53,8 +33,8 @@ function buildPromptForStrategy(text: string, strategy: string): string | null {
 
 export interface GenerateFromSeedInput {
   originalText: string;
-  /** One strategy name per agent invocation. */
-  strategy: string;
+  /** One tactic name per agent invocation. */
+  tactic: string;
   llm: EvolutionLLMClient;
   /** Iteration-start snapshot of the pool. Will be deep-cloned for local mutation. */
   initialPool: ReadonlyArray<Variant>;
@@ -109,7 +89,7 @@ export class GenerateFromSeedArticleAgent extends Agent<
   ];
 
   readonly detailViewConfig: DetailFieldDef[] = [
-    { key: 'strategy', label: 'Strategy', type: 'badge' },
+    { key: 'tactic', label: 'Tactic', type: 'badge' },
     { key: 'variantId', label: 'Variant ID', type: 'text' },
     { key: 'surfaced', label: 'Surfaced', type: 'boolean' },
     {
@@ -155,7 +135,7 @@ export class GenerateFromSeedArticleAgent extends Agent<
     input: GenerateFromSeedInput,
     ctx: AgentContext,
   ): Promise<AgentOutput<GenerateFromSeedOutput, GenerateFromSeedExecutionDetail>> {
-    const { originalText, strategy, llm, initialPool, initialRatings, initialMatchCounts, cache } = input;
+    const { originalText, tactic, llm, initialPool, initialRatings, initialMatchCounts, cache } = input;
 
     // Deep-clone the iteration-start snapshot; Rating values must be deep-cloned to prevent
     // cross-agent mutation under parallel execution.
@@ -173,17 +153,17 @@ export class GenerateFromSeedArticleAgent extends Agent<
       detailType: 'generate_from_seed_article',
       totalCost: generationCost,
       variantId: null,
-      strategy,
+      tactic,
       generation: genFields,
       ranking: null,
       surfaced: false,
     });
 
-    const prompt = buildPromptForStrategy(originalText, strategy);
+    const prompt = buildPromptForTactic(originalText, tactic);
     if (prompt === null) {
       return {
         result: { variant: null, status: 'generation_failed', surfaced: false, matches: [] },
-        detail: makeEarlyExitDetail(0, { cost: 0, promptLength: 0, formatValid: false, error: `Unknown strategy: ${strategy}` }),
+        detail: makeEarlyExitDetail(0, { cost: 0, promptLength: 0, formatValid: false, error: `Unknown tactic: ${tactic}` }),
       };
     }
 
@@ -213,7 +193,7 @@ export class GenerateFromSeedArticleAgent extends Agent<
 
     if (!fmt.valid) {
       ctx.logger.warn('generateFromSeedArticle: format validation failed', {
-        phaseName: 'generation', strategy, issues: fmt.issues,
+        phaseName: 'generation', tactic, issues: fmt.issues,
       });
       return {
         result: { variant: null, status: 'generation_failed', surfaced: false, matches: [] },
@@ -229,7 +209,7 @@ export class GenerateFromSeedArticleAgent extends Agent<
 
     const variant = createVariant({
       text: generated.trim(),
-      strategy,
+      tactic,
       iterationBorn: ctx.iteration,
       parentIds: [input.seedVariantId],
       version: 0,
@@ -253,7 +233,7 @@ export class GenerateFromSeedArticleAgent extends Agent<
 
     // Compute estimated costs for the feedback loop
     const estGenCost = estimateGenerationCost(
-      originalText.length, strategy, ctx.config.generationModel,
+      originalText.length, tactic, ctx.config.generationModel,
     );
     const estRankCost = estimateRankingCost(
       variant.text.length, ctx.config.judgeModel,
@@ -269,7 +249,7 @@ export class GenerateFromSeedArticleAgent extends Agent<
       detailType: 'generate_from_seed_article',
       totalCost: actualTotalCost,
       variantId: variant.id,
-      strategy,
+      tactic,
       generation: {
         cost: generationCost,
         estimatedCost: estGenCost,

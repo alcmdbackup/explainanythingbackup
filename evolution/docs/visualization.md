@@ -26,7 +26,9 @@ All pages live under `src/app/admin/evolution/` (Next.js App Router). A shared `
 | `/admin/evolution/prompts` | CRUD interface for `evolution_prompts` table. | Prompt name, template text, created/updated dates |
 | `/admin/evolution/strategies` | CRUD interface for `evolution_strategies` table. | Strategy name, config JSON, status |
 | `/admin/evolution/strategies/new` | 2-step strategy creation wizard. Step 1: select generation and judge models, set budget. Step 2: build the iteration sequence — add/remove/reorder `iterationConfig` entries, set agent type and budget percentage per iteration, optional maxAgents for generate iterations. Validates that percentages sum to 100 and first iteration is generate. | Model selection, iteration builder |
-| `/admin/evolution/strategies/[strategyId]` | Strategy detail with tabs: **Metrics**, **Cost Estimates**, **Runs**, **Variants**, **Configuration**, **Logs**. The **Runs** tab shows runs filtered by `strategy_id`. The **Variants** tab renders all variants across all runs of this strategy via `<VariantsTab strategyId=... />`. **Cost Estimates tab** renders a propagated summary (total/avg cost, avg estimation error %, runs-with-estimates count), a per-(strategy × generation_model × judge_model) slice breakdown capped at 50 rows, an error-distribution histogram, and a Runs table with drill-down links to each run's Cost Estimates tab; powered by `getStrategyCostEstimatesAction`. | Strategy config, linked runs, variants across runs, cost-estimate breakdown, aggregated logs across all runs using this strategy |
+| `/admin/evolution/tactics` | Tactic registry list showing all 24 tactics with per-tactic performance stats. | Tactic name, category, variant count, avg Elo |
+| `/admin/evolution/tactics/[tacticId]` | Tactic detail with prompt-level performance breakdown via `TacticPromptPerformanceTable`. | Per-prompt avg Elo, variant count, win rate |
+| `/admin/evolution/strategies/[strategyId]` | Strategy detail with tabs: **Metrics**, **Cost Estimates**, **Runs**, **Variants**, **Configuration**, **Logs**. The **Runs** tab shows runs filtered by `strategy_id`. The **Variants** tab renders all variants across all runs of this strategy via `<VariantsTab strategyId=... />`. **Cost Estimates tab** renders a propagated summary (total/avg cost, avg estimation error %, runs-with-estimates count), a per-(strategy × generation_model × judge_model) slice breakdown capped at 50 rows, an error-distribution histogram, and a Runs table with drill-down links to each run's Cost Estimates tab; powered by `getStrategyCostEstimatesAction`. | Strategy config, linked runs, variants across runs with Elo ± uncertainty + 95% CI, cost-estimate breakdown, aggregated logs across all runs using this strategy |
 | `/admin/evolution/invocations` | Invocation list with "Hide test content" checkbox. Filter uses nested inner join through `evolution_runs` → `evolution_strategies` to exclude invocations from test runs. | Agent name, iteration, success, cost, duration |
 | `/admin/evolution/invocations/[invocationId]` | Invocation detail (server wrapper + `InvocationDetailContent` client component) with **Overview**, **Metrics**, **Logs** tabs, plus a **Timeline** tab conditionally rendered for `generate_from_seed_article` invocations. The Timeline tab (`InvocationTimelineTab.tsx`) shows a two-segment phase bar (generation blue + ranking purple) with per-comparison sub-bars inside the ranking segment, built from the new `durationMs` fields on the execution_detail schema. Handles running invocations, pre-instrumentation historical rows (proportional-share fallback), discarded variants (generation only), and bucket-aggregates when >20 comparisons. | Input/output text, token breakdown, invocation-level logs, per-phase and per-comparison timing bars |
 
@@ -153,6 +155,10 @@ Features:
 
 Data is fetched via `getEntityLogsAction` from `evolution/src/services/logActions.ts`.
 
+### TacticPromptPerformanceTable
+
+Shared table component (`evolution/src/components/evolution/tabs/TacticPromptPerformanceTable.tsx`) that renders per-prompt tactic performance. Used on the tactic detail page (`/admin/evolution/tactics/[tacticId]`), the prompt detail page, and the experiment analysis card. Displays avg Elo, variant count, and win rate per prompt for a given tactic.
+
 ### EvolutionStatusBadge
 
 Color-coded status pill used across all pages. Maps run/experiment status values to badge colors (e.g., green for completed, yellow for running, red for failed).
@@ -171,7 +177,7 @@ The `LineageGraph` component (`evolution/src/components/evolution/visualizations
 
 - **Dynamic import**: D3 is loaded via `await import('d3')` inside the render callback. The component itself is loaded with `next/dynamic` with SSR disabled to avoid server-side DOM access.
 - **Layered layout**: Nodes are grouped into horizontal layers by `iterationBorn`. Each layer is spaced vertically, and nodes within a layer are spaced horizontally.
-- **Strategy colors**: Nodes are colored using `STRATEGY_PALETTE`, a map from strategy name to hex color, imported from `VariantCard`.
+- **Tactic colors**: Nodes are colored using `TACTIC_PALETTE`, a map from tactic name to hex color, imported from `evolution/src/lib/core/tactics/index.ts` (moved from `VariantCard.tsx`). Covers all 24 tactics organized by category (Core, Extended, Depth & Knowledge, Audience-Shift, Structural Innovation, Quality & Precision, Meta/Experimental) plus special variant types (seed_variant, legacy evolve, tree_search prefixed).
 - **Tree search path highlighting**: When `treeSearchPath` is provided, edges along the winning path are rendered in gold with increased stroke width. Non-path edges use the default border color.
 - **Zoom and pan**: D3 zoom behavior is attached to the SVG with scale extent `[0.3, 3]`.
 - **Node selection**: Clicking a node sets `selectedNode` state, which can display a `VariantCard` overlay with details.

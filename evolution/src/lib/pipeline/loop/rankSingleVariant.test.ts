@@ -42,7 +42,7 @@ jest.mock('../../shared/computeRatings', () => {
 // ─── Helpers ──────────────────────────────────────────────────────
 
 const mkVariant = (id: string, text = `text-${id}`): Variant => ({
-  id, text, version: 0, parentIds: [], strategy: 'baseline', createdAt: 0, iterationBorn: 0,
+  id, text, version: 0, parentIds: [], tactic: 'baseline', createdAt: 0, iterationBorn: 0,
 });
 
 const mkConfig = (): EvolutionConfig => ({

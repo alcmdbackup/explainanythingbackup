@@ -32,7 +32,7 @@ export interface CostInvocationRow {
   id: string;
   agentName: string;
   iteration: number | null;
-  strategy: string | null;
+  tactic: string | null;
   generationEstimate: number | null;
   generationActual: number | null;
   rankingEstimate: number | null;
@@ -93,7 +93,7 @@ export interface StrategyCostEstimates {
     errorPct: number | null;
   }>;
   sliceBreakdown: Array<{
-    strategy: string;
+    tactic: string;
     generationModel: string | null;
     judgeModel: string | null;
     runs: number;
@@ -242,12 +242,12 @@ function buildInvocationRows(invocations: InvRow[]): CostInvocationRow[] {
     const rankAct = typeof rank?.cost === 'number' ? rank.cost as number : null;
     const errPct = typeof d.estimationErrorPct === 'number' && Number.isFinite(d.estimationErrorPct)
       ? d.estimationErrorPct as number : null;
-    const strategy = typeof d.strategy === 'string' ? d.strategy as string : null;
+    const tactic = typeof d.strategy === 'string' ? d.strategy as string : null;
     return {
       id: inv.id,
       agentName: inv.agent_name ?? 'unknown',
       iteration: inv.iteration,
-      strategy,
+      tactic,
       generationEstimate: genEst,
       generationActual: genAct,
       rankingEstimate: rankEst,
@@ -496,7 +496,7 @@ export const getStrategyCostEstimatesAction = adminAction(
     const runsWithEstimates = runs.filter((r) => r.errorPct != null).length;
 
     // Slice breakdown — query GFSA invocations for this strategy's child runs and group.
-    type SliceBucket = { actuals: number[]; errors: number[]; strategy: string; generationModel: string | null; judgeModel: string | null };
+    type SliceBucket = { actuals: number[]; errors: number[]; tactic: string; generationModel: string | null; judgeModel: string | null };
     const slices = new Map<string, SliceBucket>();
     if (runIds.length > 0) {
       const { data: invs } = await ctx.supabase
@@ -515,13 +515,13 @@ export const getStrategyCostEstimatesAction = adminAction(
 
       for (const inv of (invs ?? []) as Array<{ agent_name: string; cost_usd: number | null; execution_detail: Record<string, unknown> | null }>) {
         const d = inv.execution_detail ?? {};
-        const strategy = typeof (d as Record<string, unknown>).strategy === 'string'
+        const tactic = typeof (d as Record<string, unknown>).strategy === 'string'
           ? ((d as Record<string, unknown>).strategy as string)
           : 'unknown';
-        const key = `${strategy}|${stratConfig.generationModel ?? ''}|${stratConfig.judgeModel ?? ''}`;
+        const key = `${tactic}|${stratConfig.generationModel ?? ''}|${stratConfig.judgeModel ?? ''}`;
         const slice = slices.get(key) ?? {
           actuals: [], errors: [],
-          strategy,
+          tactic,
           generationModel: stratConfig.generationModel ?? null,
           judgeModel: stratConfig.judgeModel ?? null,
         };
@@ -535,7 +535,7 @@ export const getStrategyCostEstimatesAction = adminAction(
     }
 
     const allSliceRows = [...slices.values()].map((s) => ({
-      strategy: s.strategy,
+      tactic: s.tactic,
       generationModel: s.generationModel,
       judgeModel: s.judgeModel,
       runs: s.actuals.length,

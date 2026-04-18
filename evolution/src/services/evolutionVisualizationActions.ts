@@ -57,7 +57,7 @@ export interface LineageData {
   nodes: {
     id: string;
     shortId: string;
-    strategy: string;
+    tactic: string;
     elo: number;
     /** Elo-scale rating uncertainty (lifted from mu/sigma). Optional — legacy rows omit it. Phase 4b. */
     uncertainty?: number;

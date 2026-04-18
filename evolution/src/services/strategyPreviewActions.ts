@@ -32,7 +32,7 @@ export interface AgentCostPreview {
   estimatedAgentCostUsd: number;
   assumptions: {
     seedArticleChars: number;
-    strategy: string;
+    tactic: string;
     /** Representative ranking comparisons per agent used by the preview. */
     comparisonsUsed: number;
   };
@@ -73,7 +73,7 @@ export const estimateAgentCostPreviewAction = adminAction(
       estimatedAgentCostUsd,
       assumptions: {
         seedArticleChars,
-        strategy: REPRESENTATIVE_STRATEGY,
+        tactic: REPRESENTATIVE_STRATEGY,
         comparisonsUsed: REPRESENTATIVE_COMPARISONS,
       },
     };

@@ -520,7 +520,7 @@ function CostPerInvocationSection({ invocations }: { invocations: RunCostEstimat
                       {r.agentName}
                     </Link>
                   </td>
-                  <td className="py-1 pr-3 font-mono text-xs">{r.strategy ?? '—'}</td>
+                  <td className="py-1 pr-3 font-mono text-xs">{r.tactic ?? '—'}</td>
                   <td className="py-1 pr-3 text-right font-mono">{r.generationEstimate != null ? formatCostDetailed(r.generationEstimate) : '—'}</td>
                   <td className="py-1 pr-3 text-right font-mono">{r.generationActual != null ? formatCostDetailed(r.generationActual) : '—'}</td>
                   <td className="py-1 pr-3 text-right font-mono">{r.rankingEstimate != null ? formatCostDetailed(r.rankingEstimate) : '—'}</td>
@@ -552,7 +552,7 @@ function SliceBreakdownSection({
           <table className="w-full text-sm">
             <thead>
               <tr className="text-left border-b border-[var(--border-default)]">
-                <th className="py-2 pr-4">Strategy</th>
+                <th className="py-2 pr-4">Tactic</th>
                 <th className="py-2 pr-4">Generation model</th>
                 <th className="py-2 pr-4">Judge model</th>
                 <th className="py-2 pr-4 text-right">Invocations</th>
@@ -563,7 +563,7 @@ function SliceBreakdownSection({
             <tbody>
               {rows.map((r, idx) => (
                 <tr key={idx} className="border-b border-[var(--border-subtle)]">
-                  <td className="py-1.5 pr-4 font-mono text-xs">{r.strategy}</td>
+                  <td className="py-1.5 pr-4 font-mono text-xs">{r.tactic}</td>
                   <td className="py-1.5 pr-4 font-mono text-xs">{r.generationModel ?? '—'}</td>
                   <td className="py-1.5 pr-4 font-mono text-xs">{r.judgeModel ?? '—'}</td>
                   <td className="py-1.5 pr-4 text-right font-mono">{r.runs}</td>

@@ -18,7 +18,7 @@ jest.mock('../../pipeline/infra/trackInvocations', () => ({
 // ─── Helpers ──────────────────────────────────────────────────────
 
 const mkVariant = (id: string): Variant => ({
-  id, text: `text-${id}`, version: 0, parentIds: [], strategy: 'baseline',
+  id, text: `text-${id}`, version: 0, parentIds: [], tactic: 'baseline',
   createdAt: 0, iterationBorn: 0,
 });
 

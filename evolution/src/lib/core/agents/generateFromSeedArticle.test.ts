@@ -42,7 +42,7 @@ jest.mock('../../shared/enforceVariantFormat', () => ({
 // ─── Helpers ──────────────────────────────────────────────────────
 
 const mkVariant = (id: string, text = `text-${id}`): Variant => ({
-  id, text, version: 0, parentIds: [], strategy: 'baseline', createdAt: 0, iterationBorn: 0,
+  id, text, version: 0, parentIds: [], tactic: 'baseline', createdAt: 0, iterationBorn: 0,
 });
 
 function makeCtx(overrides?: Partial<AgentContext>): AgentContext {
@@ -110,7 +110,7 @@ describe('deepCloneRatings', () => {
 describe('GenerateFromSeedArticleAgent', () => {
   const makeInput = () => ({
     originalText: 'Original article text.',
-    strategy: 'structural_transform',
+    tactic: 'structural_transform',
     llm: mkLlm(),
     initialPool: [mkVariant('baseline')] as ReadonlyArray<Variant>,
     initialRatings: new Map<string, Rating>([['baseline', createRating()]]),
@@ -124,12 +124,12 @@ describe('GenerateFromSeedArticleAgent', () => {
     expect(agent.name).toBe('generate_from_seed_article');
   });
 
-  it('generates one variant via the assigned strategy and ranks it', async () => {
+  it('generates one variant via the assigned tactic and ranks it', async () => {
     const agent = new GenerateFromSeedArticleAgent();
     const result = await agent.run(makeInput(), makeCtx());
     expect(result.success).toBe(true);
     expect(result.result?.variant).not.toBeNull();
-    expect(result.result?.variant?.strategy).toBe('structural_transform');
+    expect(result.result?.variant?.tactic).toBe('structural_transform');
     expect(result.result?.surfaced).toBe(true);
   });
 
@@ -191,8 +191,8 @@ describe('GenerateFromSeedArticleAgent', () => {
     }
   });
 
-  it('returns generation_failed for unknown strategies', async () => {
-    const input = { ...makeInput(), strategy: 'unknown_strategy' };
+  it('returns generation_failed for unknown tactics', async () => {
+    const input = { ...makeInput(), tactic: 'unknown_strategy' };
     const agent = new GenerateFromSeedArticleAgent();
     const result = await agent.run(input, makeCtx());
     expect(result.result?.status).toBe('generation_failed');

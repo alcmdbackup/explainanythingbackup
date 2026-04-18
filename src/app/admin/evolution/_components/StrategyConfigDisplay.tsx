@@ -34,7 +34,7 @@ interface StrategyConfig {
   singleArticle?: boolean;
   enabledAgents?: string[];
   agentModels?: Record<string, string>;
-  generationGuidance?: Array<{ strategy: string; percent: number }>;
+  generationGuidance?: Array<{ tactic: string; percent: number }>;
   maxVariantsToGenerateFromSeedArticle?: number;
   maxComparisonsPerVariant?: number;
   /** @deprecated Use minBudgetAfterParallelFraction. Kept for backward compat. */
@@ -152,7 +152,7 @@ export function StrategyConfigDisplay({ config: raw, showRaw }: StrategyConfigDi
           <h4 className="font-display text-lg font-medium text-[var(--text-muted)]">Generation Guidance</h4>
           <div className="bg-[var(--surface-primary)] rounded-page p-3 space-y-1">
             {config.generationGuidance.map((entry) => (
-              <ConfigRow key={entry.strategy} label={entry.strategy} value={`${entry.percent}%`} highlight={entry.percent >= 50} />
+              <ConfigRow key={entry.tactic} label={entry.tactic} value={`${entry.percent}%`} highlight={entry.percent >= 50} />
             ))}
           </div>
         </div>

@@ -44,18 +44,18 @@ export type Variant = VariantSchema;
 
 interface CreateVariantParams {
   text: string;
-  strategy: string;
+  tactic: string;
   iterationBorn: number;
   parentIds?: string[];
   version?: number;
   costUsd?: number;
 }
 
-export function createVariant({ text, strategy, iterationBorn, parentIds, version, costUsd }: CreateVariantParams): Variant {
+export function createVariant({ text, tactic, iterationBorn, parentIds, version, costUsd }: CreateVariantParams): Variant {
   return {
     id: uuidv4(),
     text,
-    strategy,
+    tactic,
     iterationBorn,
     parentIds: parentIds ?? [],
     version: version ?? 0,
@@ -249,7 +249,7 @@ export interface EvolutionExecutionDetail extends ExecutionDetailBase {
   detailType: 'evolution';
   parents: Array<{ id: string; mu: number }>;
   mutations: Array<{
-    strategy: string;
+    tactic: string;
     status: 'success' | 'format_rejected' | 'error';
     variantId?: string;
     textLength?: number;
@@ -675,7 +675,7 @@ export interface EvolutionRunSummary {
   };
   topVariants: Array<{
     id: string;
-    strategy: string;
+    tactic: string;
     elo: number;
     /** Per-variant rating uncertainty (Elo-scale). Optional — legacy rows omit it. Phase 4b. */
     uncertainty?: number;
@@ -683,10 +683,10 @@ export interface EvolutionRunSummary {
   }>;
   seedVariantRank: number | null;
   seedVariantElo: number | null;
-  strategyEffectiveness: Record<string, {
+  tacticEffectiveness: Record<string, {
     count: number;
     avgElo: number;
-    /** Standard error of the mean Elo across variants in this strategy bucket — NOT rating CI.
+    /** Standard error of the mean Elo across variants in this tactic bucket — NOT rating CI.
      *  Computed via Welford M2; populated only when count >= 2. Optional for legacy rows. Phase 4b. */
     seAvgElo?: number;
   }>;

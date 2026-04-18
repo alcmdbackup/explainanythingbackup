@@ -99,7 +99,7 @@ function makeConfig(): EvolutionConfig {
 }
 
 function mkVariant(id: string, mu = 25, sigma = 8.333) {
-  return { id, text: `text-${id}`, version: 0, parentIds: [], strategy: 'structural_transform', createdAt: 0, iterationBorn: 1, mu, sigma };
+  return { id, text: `text-${id}`, version: 0, parentIds: [], tactic: 'structural_transform', createdAt: 0, iterationBorn: 1, mu, sigma };
 }
 
 function makeProvider() {
@@ -146,7 +146,7 @@ function seedSuccess(variantId: string, surfaced = true) {
   return {
     success: true,
     result: {
-      variant: { id: variantId, text: `seed-text-${variantId}`, version: 0, parentIds: [], strategy: 'seed_variant', createdAt: 0, iterationBorn: 1 },
+      variant: { id: variantId, text: `seed-text-${variantId}`, version: 0, parentIds: [], tactic: 'seed_variant', createdAt: 0, iterationBorn: 1 },
       status: 'converged',
       surfaced,
       matches: [],
@@ -190,7 +190,7 @@ describe('evolveArticle (orchestrator)', () => {
     expect(result.iterationsRun).toBeGreaterThanOrEqual(1);
   });
 
-  it('dispatches N parallel generate agents in iteration 1 with cycling strategies', async () => {
+  it('dispatches N parallel generate agents in iteration 1 with cycling tactics', async () => {
     mockGenerateRun
       .mockResolvedValue(generateSuccess('vn'));
     mockSwissRun.mockResolvedValue({
@@ -204,8 +204,8 @@ describe('evolveArticle (orchestrator)', () => {
     await evolveArticle('seed', makeProvider(), makeDb() as never, 'run-1', cfg);
 
     expect(mockGenerateRun).toHaveBeenCalledTimes(6);
-    const strategies = mockGenerateRun.mock.calls.map((c) => (c[0] as { strategy: string }).strategy);
-    expect(strategies).toEqual([
+    const tactics = mockGenerateRun.mock.calls.map((c) => (c[0] as { tactic: string }).tactic);
+    expect(tactics).toEqual([
       'structural_transform',
       'lexical_simplify',
       'grounding_enhance',
@@ -383,7 +383,7 @@ describe('evolveArticle — seed agent (seedPrompt option)', () => {
 
     expect(mockSeedRun).not.toHaveBeenCalled();
     // Seed variant is no longer added to the pool (decoupled in Phase 2)
-    const seedVariant = result.pool.find((v) => v.strategy === 'seed_variant');
+    const seedVariant = result.pool.find((v) => v.tactic === 'seed_variant');
     expect(seedVariant).toBeUndefined();
     expect(result.isSeeded).toBeFalsy();
   });

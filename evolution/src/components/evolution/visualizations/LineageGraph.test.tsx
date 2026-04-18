@@ -6,8 +6,8 @@ import type { LineageData } from '@evolution/services/evolutionVisualizationActi
 // D3 is mocked via jest.config.js moduleNameMapper → src/testing/mocks/d3.ts
 
 const sampleNodes: LineageData['nodes'] = [
-  { id: 'v1-full-id', shortId: 'v1-full-', strategy: 'structural_transform', elo: 1250, iterationBorn: 1, isWinner: false },
-  { id: 'v2-full-id', shortId: 'v2-full-', strategy: 'lexical_simplify', elo: 1350, iterationBorn: 2, isWinner: true },
+  { id: 'v1-full-id', shortId: 'v1-full-', tactic: 'structural_transform', elo: 1250, iterationBorn: 1, isWinner: false },
+  { id: 'v2-full-id', shortId: 'v2-full-', tactic: 'lexical_simplify', elo: 1350, iterationBorn: 2, isWinner: true },
 ];
 
 const sampleEdges: LineageData['edges'] = [

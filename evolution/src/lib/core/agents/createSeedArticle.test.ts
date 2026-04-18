@@ -53,7 +53,7 @@ jest.mock('../../shared/enforceVariantFormat', () => ({
 
 const mkVariant = (id: string): Variant => ({
   id, text: `text-${id}`, version: 0, parentIds: [],
-  strategy: 'baseline', createdAt: 0, iterationBorn: 0,
+  tactic: 'baseline', createdAt: 0, iterationBorn: 0,
 });
 
 function makeCtx(overrides?: Partial<AgentContext>): AgentContext {
@@ -146,7 +146,7 @@ describe('CreateSeedArticleAgent', () => {
     const agent = new CreateSeedArticleAgent();
     const result = await agent.run(makeInput(), makeCtx());
     expect(result.success).toBe(true);
-    expect(result.result?.variant?.strategy).toBe('seed_variant');
+    expect(result.result?.variant?.tactic).toBe('seed_variant');
   });
 
   it('calls rankNewVariant with initial pool deep-cloned (does not mutate input)', async () => {

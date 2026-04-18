@@ -1,7 +1,7 @@
 'use client';
-// Sortable variants table with strategy filtering and text expansion.
-// Displays all variants from an evolution run (runId) or strategy (strategyId — all runs
-// of that strategy) ranked by Elo score. Renders Elo with 95% CI via formatEloWithUncertainty
+// Sortable variants table with tactic filtering and text expansion.
+// Displays all variants from an evolution run (runId) or tactic (strategyId — all runs
+// of that tactic) ranked by Elo score. Renders Elo with 95% CI via formatEloWithUncertainty
 // and formatEloCIRange (Phase 4b: per-variant Elo CI everywhere).
 
 import { Fragment, useEffect, useState, useMemo, useRef } from 'react';
@@ -124,7 +124,7 @@ export function VariantsTab({ runId, strategyId, runStatus }: VariantsTabProps):
             onChange={e => setStrategyFilter(e.target.value)}
             className="px-3 py-1.5 border border-[var(--border-default)] rounded-page bg-[var(--surface-secondary)] text-[var(--text-primary)] text-xs"
           >
-            <option value="">All strategies</option>
+            <option value="">All tactics</option>
             {strategies.map(s => <option key={s} value={s}>{s}</option>)}
           </select>
           <select
@@ -156,7 +156,7 @@ export function VariantsTab({ runId, strategyId, runStatus }: VariantsTabProps):
               <th className="px-2 py-2 text-right" title="Elo score ± uncertainty (standard deviation on the Elo scale)">Rating</th>
               <th className="px-2 py-2 text-right" title="95% confidence interval: Elo ± 1.96 × uncertainty">95% CI</th>
               <th className="px-2 py-2 text-right" title="Run-local matches only (excludes arena matches)">Matches</th>
-              <th className="px-2 py-2 text-left">Strategy</th>
+              <th className="px-2 py-2 text-left">Tactic</th>
               <th className="px-2 py-2 text-right">Iteration</th>
               <th className="px-2 py-2 text-left">Parent</th>
               <th className="px-2 py-2 text-center" title="Persisted to final pool (false = discarded)">Persisted</th>

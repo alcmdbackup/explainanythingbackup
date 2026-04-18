@@ -1,6 +1,6 @@
 'use client';
 // Run metrics tab using run_summary JSONB fields from V2 schema.
-// Displays iterations, duration, match stats, top variants, and strategy effectiveness.
+// Displays iterations, duration, match stats, top variants, and tactic effectiveness.
 
 import { useEffect, useState } from 'react';
 import { MetricGrid, type MetricItem } from '@evolution/components/evolution';
@@ -84,7 +84,7 @@ export function MetricsTab({ runId }: MetricsTabProps): JSX.Element {
               <thead className="bg-[var(--surface-elevated)]">
                 <tr>
                   <th scope="col" className="px-3 py-2 text-left">Rank</th>
-                  <th scope="col" className="px-3 py-2 text-left">Strategy</th>
+                  <th scope="col" className="px-3 py-2 text-left">Tactic</th>
                   <th scope="col" className="px-3 py-2 text-right" title="Elo ± rating uncertainty (per variant)">Elo</th>
                   <th scope="col" className="px-3 py-2 text-right" title="95% CI = Elo ± 1.96 × uncertainty">95% CI</th>
                   <th scope="col" className="px-3 py-2 text-center">Seed?</th>
@@ -102,7 +102,7 @@ export function MetricsTab({ runId }: MetricsTabProps): JSX.Element {
                   return (
                   <tr key={v.id} className="border-t border-[var(--border-default)]">
                     <td className="px-3 py-2 text-[var(--text-muted)]">#{i + 1}</td>
-                    <td className="px-3 py-2 font-mono text-xs">{v.strategy}</td>
+                    <td className="px-3 py-2 font-mono text-xs">{v.tactic}</td>
                     <td className="px-3 py-2 text-right font-semibold">{ratingLabel}</td>
                     <td className="px-3 py-2 text-right text-xs text-[var(--text-muted)]">{ciLabel}</td>
                     <td className="px-3 py-2 text-center">{v.isSeedVariant ? '✓' : ''}</td>
@@ -115,38 +115,38 @@ export function MetricsTab({ runId }: MetricsTabProps): JSX.Element {
         </div>
       )}
 
-      {/* Strategy Effectiveness */}
-      {Object.keys(summary.strategyEffectiveness).length > 0 && (
+      {/* Tactic Effectiveness */}
+      {Object.keys(summary.tacticEffectiveness).length > 0 && (
         <div>
-          <h4 className="text-lg font-display font-semibold text-[var(--text-primary)] mb-3">Strategy Effectiveness</h4>
+          <h4 className="text-lg font-display font-semibold text-[var(--text-primary)] mb-3">Tactic Effectiveness</h4>
           <div className="overflow-x-auto border border-[var(--border-default)] rounded-book">
             <table className="w-full text-sm">
               <thead className="bg-[var(--surface-elevated)]">
                 <tr>
-                  <th scope="col" className="px-3 py-2 text-left">Strategy</th>
+                  <th scope="col" className="px-3 py-2 text-left">Tactic</th>
                   <th scope="col" className="px-3 py-2 text-right">Count</th>
-                  <th scope="col" className="px-3 py-2 text-right" title="Mean Elo across variants in this strategy bucket, with SE of the mean when n≥2. Distinct from per-variant rating uncertainty — this is the spread of variant Elos in this bucket.">Avg Elo ± SE</th>
+                  <th scope="col" className="px-3 py-2 text-right" title="Mean Elo across variants in this tactic bucket, with SE of the mean when n≥2. Distinct from per-variant rating uncertainty — this is the spread of variant Elos in this bucket.">Avg Elo ± SE</th>
                 </tr>
               </thead>
               <tbody>
-                {Object.entries(summary.strategyEffectiveness)
-                  .map(([strategy, stats]) => {
+                {Object.entries(summary.tacticEffectiveness)
+                  .map(([tactic, stats]) => {
                     // Backward compat: schema normalizes legacy avgMu to avgElo. Legacy mu-scale values heuristically converted.
                     const raw = stats.avgElo;
                     const avgElo = raw < 100 ? 1200 + (raw - 25) * 16 : raw;
-                    return [strategy, stats, avgElo] as const;
+                    return [tactic, stats, avgElo] as const;
                   })
                   .sort((a, b) => b[2] - a[2])
-                  .map(([strategy, stats, avgElo]) => {
-                    // Phase 4b: seAvgElo = SE of the mean within this strategy bucket (NOT rating CI).
+                  .map(([tactic, stats, avgElo]) => {
+                    // Phase 4b: seAvgElo = SE of the mean within this tactic bucket (NOT rating CI).
                     // Only populated when count >= 2; older rows omit it.
                     const se = stats.seAvgElo;
                     const label = se != null && se > 0
                       ? `${Math.round(avgElo)} ± ${Math.round(se)}`
                       : String(Math.round(avgElo));
                     return (
-                    <tr key={strategy} className="border-t border-[var(--border-default)]">
-                      <td className="px-3 py-2 font-mono text-xs">{strategy}</td>
+                    <tr key={tactic} className="border-t border-[var(--border-default)]">
+                      <td className="px-3 py-2 font-mono text-xs">{tactic}</td>
                       <td className="px-3 py-2 text-right text-[var(--text-muted)]">{stats.count}</td>
                       <td className="px-3 py-2 text-right font-semibold">{label}</td>
                     </tr>

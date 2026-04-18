@@ -62,7 +62,7 @@ export async function loadArenaEntries(
       text: entry.variant_content,
       version: 0,
       parentIds: [],
-      strategy: `arena_${entry.generation_method ?? 'unknown'}`,
+      tactic: `arena_${entry.generation_method ?? 'unknown'}`,
       createdAt: Date.now() / 1000,
       iterationBorn: 0,
       fromArena: true,
@@ -247,6 +247,17 @@ export async function buildRunContext(
     return { error: `Strategy ${claimedRun.strategy_id} has invalid config` };
   }
   const stratConfig = configParsed.data;
+
+  // Validate tactic names in generationGuidance against code registry.
+  if (stratConfig.generationGuidance) {
+    const { isValidTactic } = await import('../../core/tactics');
+    for (const entry of stratConfig.generationGuidance) {
+      if (!isValidTactic(entry.tactic)) {
+        return { error: `Unknown tactic '${entry.tactic}' in generationGuidance` };
+      }
+    }
+  }
+
   const config: EvolutionConfig = {
     iterationConfigs: stratConfig.iterationConfigs,
     budgetUsd: claimedRun.budget_cap_usd ?? 1.0,

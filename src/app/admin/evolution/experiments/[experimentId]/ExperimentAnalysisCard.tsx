@@ -4,6 +4,7 @@
 'use client';
 
 import { MetricGrid } from '@evolution/components/evolution';
+import { TacticPromptPerformanceTable } from '@evolution/components/evolution/tabs/TacticPromptPerformanceTable';
 import type { V2Experiment } from './ExperimentDetailContent';
 
 interface ExperimentAnalysisCardProps {
@@ -96,6 +97,16 @@ export function ExperimentAnalysisCard({ experiment }: ExperimentAnalysisCardPro
           </div>
         </div>
       </div>
+
+      {/* Tactic Breakdown — shows which tactics perform best for this experiment's prompt */}
+      {experiment.prompt_id && (
+        <div className="border border-[var(--border-default)] rounded-page overflow-hidden bg-[var(--surface-secondary)]">
+          <div className="p-3">
+            <h3 className="text-xs font-ui font-semibold text-[var(--text-primary)] mb-2">Tactic Breakdown</h3>
+            <TacticPromptPerformanceTable promptId={experiment.prompt_id} />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
