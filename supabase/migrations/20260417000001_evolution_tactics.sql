@@ -22,11 +22,16 @@ DO $$ BEGIN
   END IF;
 END $$;
 
-CREATE POLICY service_role_all ON evolution_tactics
-  FOR ALL TO service_role USING (true) WITH CHECK (true);
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'evolution_tactics' AND policyname = 'service_role_all') THEN
+    CREATE POLICY service_role_all ON evolution_tactics
+      FOR ALL TO service_role USING (true) WITH CHECK (true);
+  END IF;
+END $$;
 
 DO $$ BEGIN
-  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'readonly_local') THEN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'readonly_local')
+     AND NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'evolution_tactics' AND policyname = 'readonly_select') THEN
     CREATE POLICY readonly_select ON evolution_tactics
       FOR SELECT TO readonly_local USING (true);
   END IF;
