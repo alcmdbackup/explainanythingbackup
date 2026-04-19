@@ -99,8 +99,7 @@ adminTest.describe('Budget-Aware Dispatch', { tag: '@evolution' }, () => {
         config: {
           generationModel: 'gpt-4.1-nano',
           judgeModel: 'gpt-4.1-nano',
-          iterations: 1,
-          maxVariantsToGenerateFromSeedArticle: 6,
+          iterationConfigs: [{ agentType: 'generate', budgetPercent: 60, maxAgents: 6 }, { agentType: 'swiss', budgetPercent: 40 }],
           maxComparisonsPerVariant: 3,
           budgetBufferAfterParallel: 0.50,
           budgetBufferAfterSequential: 0.20,
@@ -175,7 +174,7 @@ adminTest.describe('Budget-Aware Dispatch', { tag: '@evolution' }, () => {
       .from('evolution_agent_invocations')
       .select('id, agent_name, iteration')
       .eq('run_id', runId)
-      .eq('agent_name', 'generate_from_seed_article');
+      .eq('agent_name', 'generate_from_previous_article');
 
     expect(invocations).toBeTruthy();
     // Budget-aware dispatch should not exceed maxVariantsToGenerateFromSeedArticle (6).
@@ -197,7 +196,7 @@ adminTest.describe('Budget-Aware Dispatch', { tag: '@evolution' }, () => {
     const summary = run!.run_summary as { stopReason: string } | null;
     expect(summary).toBeTruthy();
     // Should stop due to budget or convergence, not timeout
-    expect(['budget_exceeded', 'converged', 'no_pairs', 'iterations_complete']).toContain(summary!.stopReason);
+    expect(['budget_exceeded', 'converged', 'no_pairs', 'iterations_complete', 'completed', 'total_budget_exceeded']).toContain(summary!.stopReason);
   });
 
   adminTest('maxComparisonsPerVariant caps ranking', async () => {
@@ -206,7 +205,7 @@ adminTest.describe('Budget-Aware Dispatch', { tag: '@evolution' }, () => {
       .from('evolution_agent_invocations')
       .select('execution_detail')
       .eq('run_id', runId)
-      .eq('agent_name', 'generate_from_seed_article');
+      .eq('agent_name', 'generate_from_previous_article');
 
     expect(invocations).toBeTruthy();
     for (const inv of invocations!) {
@@ -224,7 +223,7 @@ adminTest.describe('Budget-Aware Dispatch', { tag: '@evolution' }, () => {
       .from('evolution_agent_invocations')
       .select('execution_detail')
       .eq('run_id', runId)
-      .eq('agent_name', 'generate_from_seed_article')
+      .eq('agent_name', 'generate_from_previous_article')
       .eq('success', true);
 
     expect(invocations).toBeTruthy();
@@ -245,22 +244,18 @@ adminTest.describe('Budget-Aware Dispatch', { tag: '@evolution' }, () => {
 // ─── Strategy creation form tests (UI) ──────────────────────────────
 
 adminTest.describe('Strategy Form — Budget Dispatch Fields', { tag: '@evolution' }, () => {
-  adminTest('new strategy form shows budget dispatch fields', async ({ adminPage }) => {
-    await adminPage.goto('/admin/evolution/strategies');
-    // Wait for page to load
-    await adminPage.waitForSelector('table', { timeout: 30_000 });
+  adminTest('new strategy wizard shows budget dispatch fields', async ({ adminPage }) => {
+    // Strategy creation now uses wizard at /strategies/new
+    await adminPage.goto('/admin/evolution/strategies/new');
+    await expect(adminPage.getByText('New Strategy')).toBeVisible({ timeout: 15_000 });
 
-    // Click "New Strategy" button
-    const newBtn = adminPage.getByRole('button', { name: /new strategy/i });
-    await newBtn.click();
+    // Expand Advanced Settings to see budget floor fields
+    const details = adminPage.locator('details', { hasText: 'Advanced Settings' });
+    await details.click();
 
-    // Verify fields are present in the form dialog
-    await expect(adminPage.getByLabel(/max variants to generate/i)).toBeVisible({ timeout: 10_000 });
-    await expect(adminPage.getByLabel(/max comparisons per variant/i)).toBeVisible();
-    // Budget Floors is now a composite custom field (mode dropdown + 2 inputs)
-    await expect(adminPage.getByTestId('budget-floors-mode')).toBeVisible();
-    await expect(adminPage.getByTestId('budget-floors-parallel')).toBeVisible();
-    await expect(adminPage.getByTestId('budget-floors-sequential')).toBeVisible();
+    // Verify fields are present in the wizard Step 1
+    await expect(adminPage.getByText('Max Comparisons per Variant')).toBeVisible({ timeout: 10_000 });
+    await expect(adminPage.getByText('Budget Floor Mode')).toBeVisible();
   });
 
   adminTest('strategy config display shows buffer fields for existing strategy', async ({ adminPage }) => {
@@ -273,7 +268,7 @@ adminTest.describe('Strategy Form — Budget Dispatch Fields', { tag: '@evolutio
         config: {
           generationModel: 'gpt-4.1-nano',
           judgeModel: 'gpt-4.1-nano',
-          iterations: 1,
+          iterationConfigs: [{ agentType: 'generate', budgetPercent: 60 }, { agentType: 'swiss', budgetPercent: 40 }],
           budgetBufferAfterParallel: 0.35,
           budgetBufferAfterSequential: 0.10,
         },

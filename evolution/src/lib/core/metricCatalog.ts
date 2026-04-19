@@ -80,6 +80,11 @@ export const METRIC_CATALOG = {
     timing: 'at_finalization',
     description: 'Fraction of generation strategies that failed format validation',
   },
+  elo_delta_vs_parent: {
+    name: 'elo_delta_vs_parent', label: 'ELO Δ vs. Parent', category: 'rating', formatter: 'elo',
+    timing: 'at_finalization',
+    description: 'Produced variant ELO minus parent ELO (live — stale-cascade fires on parent rating changes)',
+  },
   total_comparisons: {
     name: 'total_comparisons', label: 'Total Comparisons', category: 'match', formatter: 'integer',
     timing: 'at_finalization',
@@ -181,6 +186,121 @@ export const METRIC_CATALOG = {
     name: 'avg_variant_count', label: 'Avg Variants/Run', category: 'count', formatter: 'integer',
     timing: 'at_propagation',
     description: 'Average variant_count per child run',
+  },
+
+  // === Cost Estimate Accuracy (cost_estimate_accuracy_analysis_20260414) ===
+  // Run-level finalization metrics
+  cost_estimation_error_pct: {
+    name: 'cost_estimation_error_pct', label: 'Estimation Error %', category: 'cost', formatter: 'percent',
+    timing: 'at_finalization', listView: true,
+    description: 'Mean per-invocation estimation error % across GFSA invocations in this run',
+  },
+  estimated_cost: {
+    name: 'estimated_cost', label: 'Estimated Cost', category: 'cost', formatter: 'cost',
+    timing: 'at_finalization',
+    description: 'Sum of estimatedTotalCost across GFSA invocations',
+  },
+  estimation_abs_error_usd: {
+    name: 'estimation_abs_error_usd', label: 'Estimation Abs Error', category: 'cost', formatter: 'costDetailed',
+    timing: 'at_finalization',
+    description: 'Mean |actual − estimated| USD across GFSA invocations',
+  },
+  generation_estimation_error_pct: {
+    name: 'generation_estimation_error_pct', label: 'Generation Estimation Error %', category: 'cost', formatter: 'percent',
+    timing: 'at_finalization',
+    description: 'Mean generation-phase estimation error % across GFSA invocations',
+  },
+  ranking_estimation_error_pct: {
+    name: 'ranking_estimation_error_pct', label: 'Ranking Estimation Error %', category: 'cost', formatter: 'percent',
+    timing: 'at_finalization',
+    description: 'Mean ranking-phase estimation error % across GFSA invocations',
+  },
+  agent_cost_projected: {
+    name: 'agent_cost_projected', label: 'Projected Agent Cost', category: 'cost', formatter: 'costDetailed',
+    timing: 'at_finalization',
+    description: 'Pre-dispatch estimateAgentCost output used for parallel floor math (USD)',
+  },
+  agent_cost_actual: {
+    name: 'agent_cost_actual', label: 'Actual Agent Cost (measured)', category: 'cost', formatter: 'costDetailed',
+    timing: 'at_finalization',
+    description: 'Runtime-measured average cost per successful parallel GFSA agent (USD); null when parallel produced no successful agents',
+  },
+  parallel_dispatched: {
+    name: 'parallel_dispatched', label: 'Parallel Dispatched', category: 'count', formatter: 'integer',
+    timing: 'at_finalization',
+    description: 'Number of GFSA agents dispatched in the parallel phase',
+  },
+  sequential_dispatched: {
+    name: 'sequential_dispatched', label: 'Sequential Dispatched', category: 'count', formatter: 'integer',
+    timing: 'at_finalization',
+    description: 'Number of GFSA agents dispatched in the sequential phase',
+  },
+  median_sequential_gfsa_duration_ms: {
+    name: 'median_sequential_gfsa_duration_ms', label: 'Median Seq GFSA Duration (ms)', category: 'count', formatter: 'integer',
+    timing: 'at_finalization',
+    description: 'Median wall-clock duration of sequential GFSA invocations (ms)',
+  },
+  avg_sequential_gfsa_duration_ms: {
+    name: 'avg_sequential_gfsa_duration_ms', label: 'Avg Seq GFSA Duration (ms)', category: 'count', formatter: 'integer',
+    timing: 'at_finalization',
+    description: 'Mean wall-clock duration of sequential GFSA invocations (ms)',
+  },
+
+  // Propagated (strategy + experiment)
+  avg_cost_estimation_error_pct: {
+    name: 'avg_cost_estimation_error_pct', label: 'Avg Estimation Error %', category: 'cost', formatter: 'percent',
+    timing: 'at_propagation', listView: true,
+    description: 'Mean cost_estimation_error_pct across child runs',
+  },
+  avg_generation_estimation_error_pct: {
+    name: 'avg_generation_estimation_error_pct', label: 'Avg Generation Error %', category: 'cost', formatter: 'percent',
+    timing: 'at_propagation',
+    description: 'Mean generation_estimation_error_pct across child runs',
+  },
+  avg_ranking_estimation_error_pct: {
+    name: 'avg_ranking_estimation_error_pct', label: 'Avg Ranking Error %', category: 'cost', formatter: 'percent',
+    timing: 'at_propagation',
+    description: 'Mean ranking_estimation_error_pct across child runs',
+  },
+  avg_estimation_abs_error_usd: {
+    name: 'avg_estimation_abs_error_usd', label: 'Avg Abs Error', category: 'cost', formatter: 'costDetailed',
+    timing: 'at_propagation',
+    description: 'Mean estimation_abs_error_usd across child runs',
+  },
+  total_estimated_cost: {
+    name: 'total_estimated_cost', label: 'Total Estimated Cost', category: 'cost', formatter: 'cost',
+    timing: 'at_propagation',
+    description: 'Sum of estimated_cost across child runs',
+  },
+  avg_estimated_cost: {
+    name: 'avg_estimated_cost', label: 'Avg Estimated Cost/Run', category: 'cost', formatter: 'cost',
+    timing: 'at_propagation',
+    description: 'Mean estimated_cost across child runs',
+  },
+  avg_agent_cost_projected: {
+    name: 'avg_agent_cost_projected', label: 'Avg Projected Agent Cost', category: 'cost', formatter: 'costDetailed',
+    timing: 'at_propagation',
+    description: 'Mean agent_cost_projected across child runs',
+  },
+  avg_agent_cost_actual: {
+    name: 'avg_agent_cost_actual', label: 'Avg Actual Agent Cost', category: 'cost', formatter: 'costDetailed',
+    timing: 'at_propagation',
+    description: 'Mean agent_cost_actual across child runs',
+  },
+  avg_parallel_dispatched: {
+    name: 'avg_parallel_dispatched', label: 'Avg Parallel Dispatched', category: 'count', formatter: 'integer',
+    timing: 'at_propagation',
+    description: 'Mean parallel_dispatched across child runs',
+  },
+  avg_sequential_dispatched: {
+    name: 'avg_sequential_dispatched', label: 'Avg Sequential Dispatched', category: 'count', formatter: 'integer',
+    timing: 'at_propagation',
+    description: 'Mean sequential_dispatched across child runs',
+  },
+  avg_median_sequential_gfsa_duration_ms: {
+    name: 'avg_median_sequential_gfsa_duration_ms', label: 'Avg Median Seq GFSA Duration (ms)', category: 'count', formatter: 'integer',
+    timing: 'at_propagation',
+    description: 'Mean median_sequential_gfsa_duration_ms across child runs',
   },
 } as const satisfies Record<string, CatalogMetricDef>;
 

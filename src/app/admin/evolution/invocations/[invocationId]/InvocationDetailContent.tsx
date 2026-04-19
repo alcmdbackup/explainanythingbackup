@@ -6,8 +6,9 @@ import { formatCostDetailed } from '@evolution/lib/utils/formatters';
 import { InvocationExecutionDetail } from './InvocationExecutionDetail';
 import { LogsTab } from '@evolution/components/evolution/tabs/LogsTab';
 import { InvocationTimelineTab } from '@evolution/components/evolution/tabs/InvocationTimelineTab';
+import { InvocationParentBlock } from '@evolution/components/evolution/tabs/InvocationParentBlock';
 
-const TIMELINE_AGENTS = new Set<string>(['generate_from_seed_article']);
+const TIMELINE_AGENTS = new Set<string>(['generate_from_previous_article']);
 
 function buildTabs(agentName: string): TabDef[] {
   const tabs: TabDef[] = [
@@ -42,6 +43,8 @@ interface Props {
 export function InvocationDetailContent({ invocation: inv }: Props): JSX.Element {
   const tabs = buildTabs(inv.agent_name);
   const [activeTab, setActiveTab] = useTabState(tabs);
+  const detail = inv.execution_detail as { detailType?: string; tactic?: string; sourceMode?: string } | null;
+  const isGenerateFromPrevious = detail?.detailType === 'generate_from_previous_article';
 
   return (
     <>
@@ -82,6 +85,14 @@ export function InvocationDetailContent({ invocation: inv }: Props): JSX.Element
                 <h2 className="text-2xl font-display font-semibold text-[var(--status-error)] mb-2">Error</h2>
                 <p className="text-sm text-[var(--text-secondary)] whitespace-pre-wrap">{inv.error_message}</p>
               </div>
+            )}
+
+            {isGenerateFromPrevious && (
+              <InvocationParentBlock
+                invocationId={inv.id}
+                tactic={detail?.tactic ?? null}
+                sourceMode={detail?.sourceMode ?? null}
+              />
             )}
 
             <InvocationExecutionDetail detail={inv.execution_detail} />

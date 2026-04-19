@@ -6,8 +6,8 @@ import type { DetailFieldDef } from './types';
 /** Config-driven field definitions for rendering execution detail, keyed by detailType (or agent_name). */
 export const DETAIL_VIEW_CONFIGS: Record<string, DetailFieldDef[]> = {
   // ─── Parallel pipeline (generate_rank_evolution_parallel_20260331) ───
-  generate_from_seed_article: [
-    { key: 'strategy', label: 'Strategy', type: 'badge' },
+  generate_from_previous_article: [
+    { key: 'tactic', label: 'Tactic', type: 'badge' },
     { key: 'variantId', label: 'Variant ID', type: 'text' },
     { key: 'surfaced', label: 'Surfaced', type: 'boolean' },
     {
@@ -235,7 +235,7 @@ export const DETAIL_VIEW_CONFIGS: Record<string, DetailFieldDef[]> = {
     {
       key: 'mutations', label: 'Mutations', type: 'table',
       columns: [
-        { key: 'strategy', label: 'Strategy' },
+        { key: 'tactic', label: 'Tactic' },
         { key: 'status', label: 'Status' },
         { key: 'variantId', label: 'Variant' },
         { key: 'textLength', label: 'Text Length' },

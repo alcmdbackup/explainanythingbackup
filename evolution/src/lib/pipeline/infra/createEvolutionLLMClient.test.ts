@@ -157,14 +157,14 @@ describe('V2 LLM Client', () => {
     };
     const llm = createEvolutionLLMClient(provider, ct, 'gpt-4.1-nano');
 
-    // The timeout is 60s, but we mock setTimeout to make it instant
+    // The timeout is 20s, but we mock setTimeout to make it instant
     // Use fake timers just for the timeout advancement
     const promise = llm.complete('test', 'generation');
 
-    await expect(promise).rejects.toThrow('LLM call timeout (60s)');
+    await expect(promise).rejects.toThrow('LLM call timeout (20s)');
     // Budget should be released (not leaked)
     expect(ct.getAvailableBudget()).toBeCloseTo(10);
-  }, 70000);
+  }, 30000);
 
   it('cost estimation formula: inputTokens * inputRate + outputTokens * outputRate', async () => {
     const ct = createCostTracker(10);
@@ -193,6 +193,41 @@ describe('V2 LLM Client', () => {
     // Correct: (1000 * 0.28 + 100 * 0.42) / 1_000_000 = (280 + 42) / 1_000_000 = 0.000322
     const spent = ct.getTotalSpent();
     expect(spent).toBeCloseTo(0.000322, 5);
+  });
+
+  it('Bug A regression: uses token-based cost from provider usage, not response.length', async () => {
+    // Provider returns a 50KB string but reports only 100 completion tokens — the string-length
+    // heuristic would compute ~$0.005 (deepseek-chat output @ 0.42/1M × 12500 tokens), while the
+    // token-based path computes only $0.000042 (100 tokens × 0.42/1M).
+    const ct = createCostTracker(10);
+    const provider = {
+      complete: jest.fn(async () => ({
+        text: 'x'.repeat(50_000),
+        usage: { promptTokens: 100, completionTokens: 100 },
+      })),
+    };
+    const llm = createEvolutionLLMClient(provider, ct, 'deepseek-chat');
+
+    await llm.complete('prompt', 'generation');
+
+    // Token-based: (100 * 0.28 + 100 * 0.42) / 1M = 0.00007
+    // String-based (bug path): would be orders of magnitude higher
+    const spent = ct.getTotalSpent();
+    expect(spent).toBeCloseTo(0.00007, 6);
+    // Sanity: far lower than the string-length heuristic would produce
+    expect(spent).toBeLessThan(0.001);
+  });
+
+  it('Bug A fallback: legacy bare-string provider still uses chars/4 path', async () => {
+    const ct = createCostTracker(10);
+    const provider = makeProvider(async () => 'x'.repeat(400)); // legacy bare string
+    const llm = createEvolutionLLMClient(provider, ct, 'deepseek-chat');
+
+    const prompt = 'y'.repeat(4000);
+    await llm.complete(prompt, 'generation');
+
+    // Chars-based fallback unchanged: 0.000322 (same as the Bug #5 test above).
+    expect(ct.getTotalSpent()).toBeCloseTo(0.000322, 5);
   });
 
   it('writes cost metric to DB after each successful LLM call when db/runId provided', async () => {

@@ -10,13 +10,15 @@ import { z } from 'zod';
 /** Transform raw DB row (with mu/sigma) to ArenaEntry (with elo/uncertainty). */
 function toArenaEntry(row: Record<string, unknown>): ArenaEntry {
   const sigma = row.sigma as number | null;
+  const generationMethod = row.generation_method as string;
   return {
     id: row.id as string,
     prompt_id: row.prompt_id as string,
     run_id: row.run_id as string | null,
     variant_content: row.variant_content as string,
     synced_to_arena: row.synced_to_arena as boolean,
-    generation_method: row.generation_method as string,
+    generation_method: generationMethod,
+    is_seed: generationMethod === 'seed',
     model: row.model as string | null,
     cost_usd: row.cost_usd as number | null,
     elo_score: row.elo_score as number,
@@ -24,6 +26,11 @@ function toArenaEntry(row: Record<string, unknown>): ArenaEntry {
     arena_match_count: row.arena_match_count as number,
     archived_at: row.archived_at as string | null,
     created_at: row.created_at as string,
+    generation: (row.generation as number | null) ?? null,
+    parent_variant_id: (row.parent_variant_id as string | null) ?? null,
+    parent_elo: (row.parent_elo as number | null) ?? null,
+    parent_uncertainty: (row.parent_uncertainty as number | null) ?? null,
+    parent_run_id: (row.parent_run_id as string | null) ?? null,
   };
 }
 
@@ -45,6 +52,8 @@ export interface ArenaEntry {
   variant_content: string;
   synced_to_arena: boolean;
   generation_method: string;
+  /** True when this entry is the seed variant (generation_method === 'seed'). */
+  is_seed: boolean;
   model: string | null;
   cost_usd: number | null;
   elo_score: number;
@@ -53,6 +62,16 @@ export interface ArenaEntry {
   arena_match_count: number;
   archived_at: string | null;
   created_at: string;
+  /** Iteration (generation) number from the originating run. */
+  generation: number | null;
+  /** Parent variant ID for lineage display. */
+  parent_variant_id: string | null;
+  /** Parent's current ELO (mu preferred over elo_score). Used by VariantParentBadge. */
+  parent_elo: number | null;
+  /** Parent's uncertainty (sigma). */
+  parent_uncertainty: number | null;
+  /** Parent's run_id — detects cross-run parents. */
+  parent_run_id: string | null;
 }
 
 export interface ArenaComparison {
@@ -178,7 +197,37 @@ export const getArenaEntriesAction = adminAction(
 
     const { data, error, count } = await query;
     if (error) throw error;
-    return { items: (data ?? []).map(toArenaEntry), total: count ?? 0 };
+    const items = (data ?? []).map(toArenaEntry);
+
+    // Phase 3: batch-fetch parent ratings for VariantParentBadge.
+    const parentIds = [...new Set(items.map(v => v.parent_variant_id).filter((id): id is string => !!id))];
+    if (parentIds.length > 0) {
+      const { data: parents, error: parentError } = await ctx.supabase
+        .from('evolution_variants')
+        .select('id, mu, sigma, elo_score, run_id')
+        .in('id', parentIds);
+      if (parentError) throw parentError;
+      const parentMap = new Map(
+        (parents ?? []).map(p => [
+          p.id as string,
+          { elo: p.elo_score as number | null, mu: p.mu as number | null,
+            sigma: p.sigma as number | null, run_id: p.run_id as string | null },
+        ]),
+      );
+      for (const item of items) {
+        const parent = item.parent_variant_id ? parentMap.get(item.parent_variant_id) : null;
+        if (parent) {
+          // parent.mu is raw OpenSkill mu (~25); parent.elo_score is the ELO-scale projection (~1200).
+          // Prefer elo_score which is already in the right units; mu fallback converts via sigma scale.
+          item.parent_elo = parent.elo ?? null;
+          // Convert sigma -> Elo-scale uncertainty (matches toArenaEntry convention).
+          item.parent_uncertainty = parent.sigma != null ? parent.sigma * _INTERNAL_ELO_SIGMA_SCALE : null;
+          item.parent_run_id = parent.run_id;
+        }
+      }
+    }
+
+    return { items, total: count ?? 0 };
   },
 );
 

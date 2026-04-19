@@ -30,10 +30,14 @@ export function isArenaEntry(variant: Variant): variant is ArenaTextVariation {
 /**
  * Load active (non-archived) arena entries for a topic into the pool.
  * Returns Variant[] with fromArena=true and preset ratings.
+ *
+ * `excludeId`: when set, skip this row (used by buildRunContext to avoid double-loading
+ * the persisted seed which already enters the pool via the seed-variant baseline path).
  */
 export async function loadArenaEntries(
   promptId: string,
   supabase: SupabaseClient,
+  excludeId?: string,
 ): Promise<{ variants: ArenaTextVariation[]; ratings: Map<string, Rating> }> {
   const { data, error } = await supabase
     .from('evolution_variants')
@@ -50,6 +54,7 @@ export async function loadArenaEntries(
   const ratings = new Map<string, Rating>();
 
   for (const entry of data) {
+    if (excludeId && entry.id === excludeId) continue;
     const rawMu = entry.mu as number | null;
     const rawSigma = entry.sigma as number | null;
     variants.push({
@@ -57,7 +62,7 @@ export async function loadArenaEntries(
       text: entry.variant_content,
       version: 0,
       parentIds: [],
-      strategy: `arena_${entry.generation_method ?? 'unknown'}`,
+      tactic: `arena_${entry.generation_method ?? 'unknown'}`,
       createdAt: Date.now() / 1000,
       iterationBorn: 0,
       fromArena: true,
@@ -84,8 +89,32 @@ export interface ClaimedRun {
 }
 
 type RawLLMProvider = {
-  complete(prompt: string, label: string, opts?: { model?: string; temperature?: number }): Promise<string>;
+  complete(
+    prompt: string,
+    label: string,
+    opts?: { model?: string; temperature?: number },
+  ): Promise<string | { text: string; usage: { promptTokens: number; completionTokens: number; reasoningTokens?: number } }>;
 };
+
+/**
+ * Persisted seed variant metadata: when present, the run's seed_variant pool entry
+ * reuses this row's UUID + rating instead of creating a fresh one. Post-run rating
+ * updates land back on this row via optimistic-concurrency arenaUpdates.
+ *
+ * Loaded by resolveContent; gated by EVOLUTION_REUSE_SEED_RATING env var.
+ * The mu/sigma are kept as the original Postgres NUMERIC string (lossless) so the
+ * finalize-time WHERE predicate can compare against the DB exactly.
+ */
+export interface SeedVariantRow {
+  id: string;
+  mu: number;
+  sigma: number;
+  arena_match_count: number;
+  /** Lossless string form of mu (preserves Postgres NUMERIC precision for optimistic UPDATE). */
+  muRaw: string;
+  /** Lossless string form of sigma. */
+  sigmaRaw: string;
+}
 
 export interface RunContext {
   /** Resolved base article text. Null when seedPrompt is set and no arena seed exists yet. */
@@ -97,6 +126,8 @@ export interface RunContext {
   randomSeed: bigint;
   /** Set for prompt_id runs when no arena seed exists: CreateSeedArticleAgent generates one in iter 1. */
   seedPrompt?: string;
+  /** Persisted seed metadata when EVOLUTION_REUSE_SEED_RATING is on AND a seed row exists. */
+  seedVariantRow?: SeedVariantRow;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────
@@ -104,6 +135,12 @@ export interface RunContext {
 interface ResolvedContent {
   originalText: string | null;
   seedPrompt?: string;
+  seedVariantRow?: SeedVariantRow;
+}
+
+/** Read EVOLUTION_REUSE_SEED_RATING once. Defaults to true (new behavior). Set to 'false' to revert. */
+function isSeedRatingReuseEnabled(): boolean {
+  return process.env.EVOLUTION_REUSE_SEED_RATING !== 'false';
 }
 
 async function resolveContent(
@@ -126,9 +163,10 @@ async function resolveContent(
     if (!promptText) return { originalText: null };
 
     // Use highest-rated arena seed article if one exists; otherwise defer to CreateSeedArticleAgent.
+    // Read mu/sigma/arena_match_count too so we can reuse the seed's persisted rating in the run pool.
     const { data: seedEntry } = await db
       .from('evolution_variants')
-      .select('variant_content')
+      .select('id, variant_content, mu, sigma, arena_match_count, synced_to_arena')
       .eq('prompt_id', run.prompt_id)
       .eq('synced_to_arena', true)
       .eq('generation_method', 'seed')
@@ -138,8 +176,17 @@ async function resolveContent(
       .single();
 
     if (seedEntry?.variant_content) {
+      // Belt-and-suspenders invariant: SELECT filtered on synced_to_arena=true,
+      // but if a future code path returns a stale row, fall through cleanly.
+      if (seedEntry.synced_to_arena !== true) {
+        logger?.error('Seed row violates synced_to_arena invariant; falling through to CreateSeedArticleAgent', {
+          seedId: seedEntry.id, phaseName: 'setup',
+        });
+        return { originalText: null, seedPrompt: promptText };
+      }
       logger?.info('Content resolved from arena seed article', { contentLength: seedEntry.variant_content.length, source: 'arena_seed', phaseName: 'setup' });
-      return { originalText: seedEntry.variant_content };
+      const seedVariantRow = isSeedRatingReuseEnabled() ? buildSeedVariantRow(seedEntry) : undefined;
+      return { originalText: seedEntry.variant_content, seedVariantRow };
     }
 
     logger?.info('No arena seed found; deferring seed generation to CreateSeedArticleAgent', { promptId: run.prompt_id, phaseName: 'setup' });
@@ -147,6 +194,31 @@ async function resolveContent(
   }
 
   return { originalText: null };
+}
+
+/**
+ * Convert a seed_variant DB row into a SeedVariantRow. mu/sigma are preserved as their
+ * original string form (Postgres NUMERIC) so the finalize-time optimistic-concurrency
+ * UPDATE can compare against the DB exactly without JS-float precision loss.
+ */
+function buildSeedVariantRow(row: {
+  id: string;
+  mu: number | string | null;
+  sigma: number | string | null;
+  arena_match_count: number | null;
+}): SeedVariantRow {
+  const muRaw = row.mu == null ? String(_INTERNAL_DEFAULT_MU) : String(row.mu);
+  const sigmaRaw = row.sigma == null ? String(_INTERNAL_DEFAULT_SIGMA) : String(row.sigma);
+  const muNum = Number(muRaw);
+  const sigmaNum = Number(sigmaRaw);
+  return {
+    id: row.id,
+    mu: Number.isFinite(muNum) ? muNum : _INTERNAL_DEFAULT_MU,
+    sigma: Number.isFinite(sigmaNum) ? sigmaNum : _INTERNAL_DEFAULT_SIGMA,
+    arena_match_count: row.arena_match_count ?? 0,
+    muRaw,
+    sigmaRaw,
+  };
 }
 
 // ─── Public API ──────────────────────────────────────────────────
@@ -175,8 +247,19 @@ export async function buildRunContext(
     return { error: `Strategy ${claimedRun.strategy_id} has invalid config` };
   }
   const stratConfig = configParsed.data;
+
+  // Validate tactic names in generationGuidance against code registry.
+  if (stratConfig.generationGuidance) {
+    const { isValidTactic } = await import('../../core/tactics');
+    for (const entry of stratConfig.generationGuidance) {
+      if (!isValidTactic(entry.tactic)) {
+        return { error: `Unknown tactic '${entry.tactic}' in generationGuidance` };
+      }
+    }
+  }
+
   const config: EvolutionConfig = {
-    iterations: stratConfig.iterations,
+    iterationConfigs: stratConfig.iterationConfigs,
     budgetUsd: claimedRun.budget_cap_usd ?? 1.0,
     judgeModel: stratConfig.judgeModel,
     generationModel: stratConfig.generationModel,
@@ -184,7 +267,7 @@ export async function buildRunContext(
     calibrationOpponents: 5,
     tournamentTopK: 5,
     generationGuidance: stratConfig.generationGuidance,
-    numVariants: stratConfig.maxVariantsToGenerateFromSeedArticle ?? 9,
+    numVariants: 9, // deprecated — maxAgents on iterationConfigs replaces this
     maxComparisonsPerVariant: stratConfig.maxComparisonsPerVariant ?? 15,
     // Budget floors — preprocess in schemas.ts already migrates legacy fields into
     // minBudgetAfter*Fraction. Pass all four fields through; pipeline resolves lazily.
@@ -204,12 +287,12 @@ export async function buildRunContext(
   }, db);
 
   logger.info('Strategy config resolved', {
-    iterations: config.iterations, budgetUsd: config.budgetUsd,
+    iterationCount: config.iterationConfigs.length, budgetUsd: config.budgetUsd,
     generationModel: config.generationModel, judgeModel: config.judgeModel,
     phaseName: 'setup',
   });
 
-  const { originalText, seedPrompt } = await resolveContent(claimedRun, db, llmProvider, logger);
+  const { originalText, seedPrompt, seedVariantRow } = await resolveContent(claimedRun, db, llmProvider, logger);
   if (!originalText && !seedPrompt) {
     const reason = claimedRun.explanation_id != null
       ? `Explanation ${claimedRun.explanation_id} not found`
@@ -219,11 +302,13 @@ export async function buildRunContext(
     return { error: reason };
   }
 
-  // Load arena entries
+  // Load arena entries — exclude the seed row (it enters the pool via the seed-variant
+  // baseline path with reusedFromSeed=true; double-loading would create two pool entries
+  // for the same DB row with different rating provenance).
   let initialPool: Array<ArenaTextVariation & { elo?: number; uncertainty?: number }> = [];
   if (claimedRun.prompt_id) {
     try {
-      const arena = await loadArenaEntries(claimedRun.prompt_id, db);
+      const arena = await loadArenaEntries(claimedRun.prompt_id, db, seedVariantRow?.id);
       initialPool = arena.variants.map((v) => ({
         ...v,
         elo: arena.ratings.get(v.id)?.elo,
@@ -258,6 +343,6 @@ export async function buildRunContext(
   }
 
   return {
-    context: { originalText, config, logger, initialPool, randomSeed, seedPrompt },
+    context: { originalText, config, logger, initialPool, randomSeed, seedPrompt, seedVariantRow },
   };
 }

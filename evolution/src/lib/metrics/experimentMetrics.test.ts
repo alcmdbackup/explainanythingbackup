@@ -148,13 +148,18 @@ describe('computeRunMetrics', () => {
     variants?: Array<{ elo_score: number }>;
     invocations?: Array<{ agent_name: string; cost_usd: number }>;
   }) {
-    // Build a thenable that chains .eq() any number of times.
+    // Build a thenable that chains filter methods (.eq, .not, .in, .limit) any number of times.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     function chainable<T>(data: T): any {
       const result = { data, error: null };
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const obj: any = {
         eq: () => obj,
+        not: () => obj,
+        in: () => obj,
+        limit: () => obj,
+        order: () => obj,
+        single: () => Promise.resolve(result),
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         then: (onFulfilled?: any, onRejected?: any) =>
           Promise.resolve(result).then(onFulfilled, onRejected),

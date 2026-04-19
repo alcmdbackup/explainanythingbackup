@@ -1,0 +1,11 @@
+{
+  "branch": "chore/mainToProdB_20260418",
+  "created_at": "2026-04-18T12:00:00Z",
+  "prerequisites": {},
+  "relevantDocs": [
+    "docs/docs_overall/testing_overview.md",
+    "docs/docs_overall/environments.md",
+    "docs/docs_overall/debugging.md",
+    "docs/feature_deep_dives/testing_setup.md"
+  ]
+}

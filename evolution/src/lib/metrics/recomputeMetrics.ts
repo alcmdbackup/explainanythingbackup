@@ -36,6 +36,13 @@ export async function recomputeStaleMetrics(
       await recomputeParentEntityMetrics(db, entityType, entityId);
     } else if (entityType === 'invocation') {
       await recomputeInvocationMetrics(db, entityId);
+    } else if (entityType === 'tactic') {
+      // Tactic metrics recompute from variants directly (not from child entity rows).
+      const { data: tactic } = await db.from('evolution_tactics').select('name').eq('id', entityId).single();
+      if (tactic) {
+        const { computeTacticMetrics } = await import('./computations/tacticMetrics');
+        await computeTacticMetrics(db, entityId, tactic.name);
+      }
     }
     // Success: stale already cleared by the RPC — no further action needed
   } catch (err) {
@@ -83,7 +90,7 @@ async function recomputeRunEloMetrics(db: SupabaseClient, runId: string): Promis
       Number.isFinite(rawMu) ? rawMu! : _INTERNAL_DEFAULT_MU,
       Number.isFinite(rawSigma) ? rawSigma! : _INTERNAL_DEFAULT_SIGMA,
     ));
-    pool.push({ id: v.id, text: '', version: 0, parentIds: [], strategy: '', createdAt: 0, iterationBorn: 0 });
+    pool.push({ id: v.id, text: '', version: 0, parentIds: [], tactic: '', createdAt: 0, iterationBorn: 0 });
   }
 
   // Read existing totalCost and iterationsRun from metrics table so we don't overwrite with zeros
@@ -92,7 +99,7 @@ async function recomputeRunEloMetrics(db: SupabaseClient, runId: string): Promis
   const existingCost = runMetrics.find(m => m.metric_name === 'cost')?.value ?? 0;
 
   const ctx: FinalizationContext = {
-    result: { winner: pool[0]!, pool, ratings, matchHistory: [], totalCost: existingCost, iterationsRun: 0, stopReason: 'iterations_complete', eloHistory: [], diversityHistory: [], matchCounts: {} },
+    result: { winner: pool[0]!, pool, ratings, matchHistory: [], totalCost: existingCost, iterationsRun: 0, stopReason: 'completed', eloHistory: [], diversityHistory: [], matchCounts: {} },
     ratings,
     pool,
     matchHistory: [],
@@ -184,12 +191,12 @@ async function recomputeInvocationMetrics(db: SupabaseClient, invocationId: stri
   const pool: Variant[] = [];
   for (const v of variants) {
     ratings.set(v.id, dbToRating(v.mu ?? _INTERNAL_DEFAULT_MU, v.sigma ?? _INTERNAL_DEFAULT_SIGMA));
-    pool.push({ id: v.id, text: '', version: 0, parentIds: [], strategy: '', createdAt: 0, iterationBorn: 0 });
+    pool.push({ id: v.id, text: '', version: 0, parentIds: [], tactic: '', createdAt: 0, iterationBorn: 0 });
   }
 
   const detailsMap = new Map([[inv.id, inv.execution_detail]]);
   const ctx: FinalizationContext = {
-    result: { winner: pool[0]!, pool, ratings, matchHistory: [], totalCost: 0, iterationsRun: 0, stopReason: 'iterations_complete', eloHistory: [], diversityHistory: [], matchCounts: {} },
+    result: { winner: pool[0]!, pool, ratings, matchHistory: [], totalCost: 0, iterationsRun: 0, stopReason: 'completed', eloHistory: [], diversityHistory: [], matchCounts: {} },
     ratings,
     pool,
     matchHistory: [],

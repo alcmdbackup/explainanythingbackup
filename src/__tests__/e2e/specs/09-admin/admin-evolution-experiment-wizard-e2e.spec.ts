@@ -45,7 +45,15 @@ adminTest.describe('Experiment Wizard E2E', { tag: '@evolution' }, () => {
       .from('evolution_strategies')
       .insert({
         name: `${TEST_PREFIX} Strategy ${Date.now()}`,
-        config: { generationModel: 'gpt-4.1-nano', judgeModel: 'gpt-4.1-nano', iterations: 1 },
+        config: {
+          generationModel: 'gpt-4.1-nano',
+          judgeModel: 'gpt-4.1-nano',
+          iterationConfigs: [
+            { agentType: 'generate', budgetPercent: 60 },
+            { agentType: 'swiss', budgetPercent: 40 },
+          ],
+          budgetUsd: 0.05,
+        },
         config_hash: `e2e-wizard-${Date.now()}`,
         status: 'active',
       })

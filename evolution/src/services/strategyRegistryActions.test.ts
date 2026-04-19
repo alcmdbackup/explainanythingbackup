@@ -37,7 +37,7 @@ jest.mock('@/lib/services/auditLog', () => ({
 
 jest.mock('@evolution/lib/pipeline/setup/findOrCreateStrategy', () => ({
   hashStrategyConfig: jest.fn().mockReturnValue('abc123hash'),
-  labelStrategyConfig: jest.fn().mockReturnValue('Gen: test | Judge: test | 3 iters'),
+  labelStrategyConfig: jest.fn().mockReturnValue('Gen: test | Judge: test | 2 iterations'),
 }));
 
 import {
@@ -56,7 +56,7 @@ const VALID_UUID_2 = '660e8400-e29b-41d4-a716-446655440001';
 const MOCK_V2_CONFIG = {
   generationModel: 'claude-3-5-haiku-20241022',
   judgeModel: 'claude-3-5-sonnet-20241022',
-  iterations: 5,
+  iterationConfigs: [{ agentType: 'generate', budgetPercent: 60 }, { agentType: 'swiss', budgetPercent: 40 }],
   strategiesPerRound: 3,
   budgetUsd: 2.0,
 };
@@ -64,7 +64,7 @@ const MOCK_V2_CONFIG = {
 const MOCK_STRATEGY = {
   id: VALID_UUID,
   name: 'Alpha Strategy',
-  label: 'Gen: claude-3-5-haiku-20241022 | Judge: claude-3-5-sonnet-20241022 | 5 iters',
+  label: 'Gen: claude-3-5-haiku-20241022 | Judge: claude-3-5-sonnet-20241022 | 2 iterations',
   description: 'A solid V2 strategy for testing',
   config: MOCK_V2_CONFIG,
   config_hash: 'abc123hash',
@@ -263,7 +263,7 @@ describe('strategyRegistryActions', () => {
         name: 'Alpha Strategy',
         generationModel: 'claude-3-5-haiku-20241022',
         judgeModel: 'claude-3-5-sonnet-20241022',
-        iterations: 5,
+        iterationConfigs: [{ agentType: 'generate', budgetPercent: 60 }, { agentType: 'swiss', budgetPercent: 40 }],
         strategiesPerRound: 3,
         budgetUsd: 2.0,
       });
@@ -289,7 +289,7 @@ describe('strategyRegistryActions', () => {
         name: 'Dupe',
         generationModel: 'claude-3-5-haiku-20241022',
         judgeModel: 'claude-3-5-sonnet-20241022',
-        iterations: 3,
+        iterationConfigs: [{ agentType: 'generate', budgetPercent: 60 }, { agentType: 'swiss', budgetPercent: 40 }],
       });
 
       expect(result.success).toBe(false);
@@ -300,7 +300,7 @@ describe('strategyRegistryActions', () => {
         name: '',
         generationModel: 'model',
         judgeModel: 'judge',
-        iterations: 0, // min is 1
+        iterationConfigs: [], // min is 1
       });
 
       expect(result.success).toBe(false);

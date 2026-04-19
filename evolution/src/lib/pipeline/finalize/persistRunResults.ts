@@ -16,8 +16,16 @@ import { type FinalizationContext, type MetricRow, type MetricName, type Aggrega
 import { evolutionVariantInsertSchema, EvolutionRunSummaryV3Schema } from '../../schemas';
 import { selectWinner } from '../../shared/selectWinner';
 
-/** V2 baseline strategy name (V1 uses 'original_baseline'). */
-const V2_BASELINE_STRATEGY = 'baseline';
+/** Seed variant strategy name (formerly 'baseline'; renamed 2026-04-14 to disambiguate from V1 'original_baseline'
+ *  and to clarify its role as the persisted seed article for a prompt). */
+export const SEED_VARIANT_STRATEGY = 'seed_variant';
+/** @deprecated Legacy alias; admin UI dual-accept reads both 'baseline' (legacy rows) and 'seed_variant' (current). */
+const LEGACY_BASELINE_STRATEGY = 'baseline';
+
+/** True if `tactic` denotes the seed variant — accepts both new and legacy names for back-compat. */
+function isSeedVariantTactic(tactic: string | undefined): boolean {
+  return tactic === SEED_VARIANT_STRATEGY || tactic === LEGACY_BASELINE_STRATEGY;
+}
 
 
 interface RunContext {
@@ -25,6 +33,14 @@ interface RunContext {
   explanation_id: number | null;
   strategy_id: string | null;
   prompt_id: string | null;
+}
+
+/** Compute median of a non-empty number array. */
+function median(sorted: number[]): number {
+  const n = sorted.length;
+  if (n === 0) return 0;
+  const mid = Math.floor(n / 2);
+  return n % 2 === 1 ? sorted[mid]! : (sorted[mid - 1]! + sorted[mid]!) / 2;
 }
 
 function buildRunSummary(
@@ -48,32 +64,50 @@ function buildRunSummary(
     .sort((a, b) => b.elo - a.elo)
     .slice(0, 5);
 
-  const topVariants = sorted.map((s) => ({
-    id: s.v.id,
-    strategy: s.v.strategy,
-    elo: s.elo,
-    isBaseline: s.v.strategy === V2_BASELINE_STRATEGY,
-  }));
+  // Phase 4b: populate per-variant uncertainty on topVariants (direct from rating, Elo-scale).
+  const topVariants = sorted.map((s) => {
+    const r = ratings.get(s.v.id);
+    return {
+      id: s.v.id,
+      tactic: s.v.tactic,
+      elo: s.elo,
+      ...(r && Number.isFinite(r.uncertainty) ? { uncertainty: r.uncertainty } : {}),
+      isSeedVariant: isSeedVariantTactic(s.v.tactic),
+    };
+  });
 
-  // Baseline rank/elo
-  const baselineVariant = pool.find((v) => v.strategy === V2_BASELINE_STRATEGY);
-  const baselineElo = baselineVariant ? (ratings.get(baselineVariant.id)?.elo ?? DEFAULT_ELO) : null;
-  const baselineRank = baselineElo != null
-    ? pool.filter((v) => (ratings.get(v.id)?.elo ?? DEFAULT_ELO) > baselineElo).length + 1
-    : null;
+  // Seed variant is no longer in the pool (decoupled in Phase 2), so rank/elo are null.
 
-  // Strategy effectiveness (single-pass aggregation) — avgElo mean.
-  const strategyEffectiveness = pool.reduce<Record<string, { count: number; avgElo: number }>>((acc, v) => {
+  // Tactic effectiveness with Welford M2 (Phase 4b): tracks count + avgElo (online mean)
+  // AND M2 (sum of squared deviations from mean), which lets us emit
+  // seAvgElo = sqrt(M2 / (n*(n-1))) — the standard error of the mean Elo across variants
+  // in this tactic bucket. NOT per-variant rating uncertainty; it's the spread of variant
+  // Elos in this bucket (labelled as such in UI tooltips).
+  type StrategyAccum = { count: number; avgElo: number; m2: number };
+  const accum = pool.reduce<Record<string, StrategyAccum>>((acc, v) => {
     const elo = ratings.get(v.id)?.elo ?? DEFAULT_ELO;
-    const prev = acc[v.strategy];
+    const prev = acc[v.tactic];
     if (prev) {
       const newCount = prev.count + 1;
-      acc[v.strategy] = { count: newCount, avgElo: prev.avgElo + (elo - prev.avgElo) / newCount };
+      const delta = elo - prev.avgElo;
+      const newAvg = prev.avgElo + delta / newCount;
+      const delta2 = elo - newAvg;
+      acc[v.tactic] = { count: newCount, avgElo: newAvg, m2: prev.m2 + delta * delta2 };
     } else {
-      acc[v.strategy] = { count: 1, avgElo: elo };
+      acc[v.tactic] = { count: 1, avgElo: elo, m2: 0 };
     }
     return acc;
   }, {});
+  const tacticEffectiveness: Record<string, { count: number; avgElo: number; seAvgElo?: number }> = {};
+  for (const [strat, a] of Object.entries(accum)) {
+    if (a.count >= 2) {
+      const variance = a.m2 / (a.count - 1); // sample variance
+      const seAvgElo = Math.sqrt(variance / a.count); // SE of the mean
+      tacticEffectiveness[strat] = { count: a.count, avgElo: a.avgElo, seAvgElo };
+    } else {
+      tacticEffectiveness[strat] = { count: a.count, avgElo: a.avgElo };
+    }
+  }
 
   return {
     version: 3,
@@ -82,17 +116,19 @@ function buildRunSummary(
     totalIterations: result.iterationsRun,
     durationSeconds,
     eloHistory: result.eloHistory,
+    ...(result.uncertaintyHistory ? { uncertaintyHistory: result.uncertaintyHistory } : {}),
     diversityHistory: result.diversityHistory,
     matchStats: { totalMatches, avgConfidence, decisiveRate },
     topVariants,
-    baselineRank,
-    baselineElo,
-    strategyEffectiveness,
+    seedVariantRank: null,
+    seedVariantElo: null,
+    tacticEffectiveness,
     metaFeedback: null,
+    ...(result.budgetFloorConfig ? { budgetFloorConfig: result.budgetFloorConfig } : {}),
   };
 }
 
-/** Persist V2 results in V1-compatible format: run_summary, variants, strategy aggregates. */
+/** Persist V2 results in V1-compatible format: run_summary, variants, tactic aggregates. */
 export async function finalizeRun(
   runId: string,
   result: EvolutionResult,
@@ -102,7 +138,12 @@ export async function finalizeRun(
   logger?: EntityLogger,
   runnerId?: string,
 ): Promise<void> {
-  // Filter out arena-loaded entries
+  // summaryPool: the pool used for run_summary, winner selection, and metric loops.
+  // Excludes arena entries (those are reference points, already persisted elsewhere).
+  // Seed variant is no longer in the pool (decoupled in Phase 2).
+  const summaryPool = result.pool.filter((v) => !v.fromArena);
+  // localPool: variants that need a NEW evolution_variants INSERT this run.
+  // Excludes arena entries (which already have DB rows).
   const localPool = result.pool.filter((v) => !v.fromArena);
 
   if (localPool.length === 0) {
@@ -118,11 +159,11 @@ export async function finalizeRun(
     return;
   }
 
-  // Step 1: Build run summary (exclude arena entries from stats) and validate
-  const filteredResult = { ...result, pool: localPool };
+  // Step 1: Build run summary using summaryPool and validate.
+  const filteredResult = { ...result, pool: summaryPool };
   const runSummary = buildRunSummary(filteredResult, durationSeconds);
   EvolutionRunSummaryV3Schema.parse(runSummary);
-  logger?.info('Strategy effectiveness computed', { strategyEffectiveness: (runSummary as Record<string, unknown>).strategyEffectiveness, phaseName: 'finalize' });
+  logger?.info('Tactic effectiveness computed', { tacticEffectiveness: (runSummary as Record<string, unknown>).tacticEffectiveness, phaseName: 'finalize' });
 
   // Step 2: Update run to completed with run_summary (runner_id check prevents stale finalization)
   // Also writes iteration_snapshots and random_seed if present on the result.
@@ -162,8 +203,8 @@ export async function finalizeRun(
     return; // Skip variant persistence
   }
 
-  // Step 3: Determine winner (highest elo, tie-break by lowest uncertainty)
-  const winResult = selectWinner(localPool, result.ratings);
+  // Step 3: Determine winner (highest elo, tie-break by lowest uncertainty).
+  const winResult = selectWinner(summaryPool, result.ratings);
   const winnerId = winResult.winnerId;
   const winnerElo = result.ratings.get(winnerId)?.elo ?? DEFAULT_ELO;
   const winnerUncertainty = result.ratings.get(winnerId)?.uncertainty ?? DEFAULT_UNCERTAINTY;
@@ -185,23 +226,29 @@ export async function finalizeRun(
       elo_score: db.elo_score,
       mu: db.mu,
       sigma: db.sigma,
-      generation: v.version,
-      parent_variant_id: v.parentIds[0] ?? null,
-      agent_name: v.strategy,
+      generation: v.iterationBorn,
+      // Use truthy check ('' is not a valid UUID — coerce to null for seed-less explanation runs).
+      parent_variant_id: v.parentIds[0] || null,
+      agent_name: v.tactic,
       match_count: result.matchCounts[v.id] ?? 0,
       is_winner: v.id === winnerId,
       prompt_id: run.prompt_id ?? null,
       persisted: true,
+      agent_invocation_id: v.agentInvocationId ?? null,
     });
   });
 
+  const discardedLocalRatings = result.discardedLocalRatings ?? new Map();
   const discardedRows = (result.discardedVariants ?? [])
     .filter((v) => !v.fromArena)
     .map((v) => {
-      // Discarded variants don't have global ratings (they were never merged), but their
-      // generation cost lives on the invocation row. We persist with default mu/sigma so the
-      // row exists; metric queries should filter by persisted=true to exclude them.
-      const db = ratingToDb(createRating());
+      // Discarded variants persist with their local-rank ELO (from binary-search ranking
+      // against a cloned local pool) when available. This removes survivorship bias from
+      // Phase 3/5 metrics — child.elo - parent.elo is meaningful for discards too.
+      // On early-exit paths (generation_failed, format-invalid, budget) where ranking
+      // never ran, fall back to defaults.
+      const localRating = discardedLocalRatings.get(v.id);
+      const db = ratingToDb(localRating ?? createRating());
       return evolutionVariantInsertSchema.parse({
         id: v.id,
         run_id: runId,
@@ -210,13 +257,15 @@ export async function finalizeRun(
         elo_score: db.elo_score,
         mu: db.mu,
         sigma: db.sigma,
-        generation: v.version,
-        parent_variant_id: v.parentIds[0] ?? null,
-        agent_name: v.strategy,
+        generation: v.iterationBorn,
+        // Use truthy check ('' is not a valid UUID — coerce to null for seed-less explanation runs).
+        parent_variant_id: v.parentIds[0] || null,
+        agent_name: v.tactic,
         match_count: 0,
         is_winner: false,
         prompt_id: run.prompt_id ?? null,
         persisted: false,
+        agent_invocation_id: v.agentInvocationId ?? null,
       });
     });
 
@@ -243,11 +292,55 @@ export async function finalizeRun(
 
   // Step 5: Write finalization metrics (run, invocation, variant)
   try {
+    // Pre-fetch invocation data so the run-level finalization loop has access to
+    // execution_detail (for cost_estimation_error_pct, estimated_cost, etc.) and can
+    // derive sequential GFSA durations (for the Budget Floor Sensitivity module).
+    const { data: invocations } = await db
+      .from('evolution_agent_invocations')
+      .select('id, agent_name, cost_usd, execution_detail, iteration, duration_ms')
+      .eq('run_id', runId);
+
+    const detailsMap = invocations && invocations.length > 0
+      ? new Map(
+          (invocations as Array<{ id: string; execution_detail: unknown }>).map(
+            (inv) => [inv.id, inv.execution_detail],
+          ),
+        )
+      : undefined;
+
+    // Sequential GFSA durations: iteration >= 2 AND agent_name='generate_from_previous_article'
+    // (iteration 1 is the parallel batch; later iterations are the sequential fallback path).
+    const sequentialGfsaDurations: number[] = ((invocations ?? []) as Array<{
+      agent_name?: string; iteration?: number; duration_ms?: number | null;
+    }>)
+      .filter((inv) =>
+        inv.agent_name === 'generate_from_previous_article' &&
+        typeof inv.iteration === 'number' && inv.iteration >= 2 &&
+        typeof inv.duration_ms === 'number' && Number.isFinite(inv.duration_ms),
+      )
+      .map((inv) => inv.duration_ms as number)
+      .sort((a, b) => a - b);
+    const medianSequentialGfsaDurationMs = sequentialGfsaDurations.length > 0
+      ? median(sequentialGfsaDurations) : null;
+    const avgSequentialGfsaDurationMs = sequentialGfsaDurations.length > 0
+      ? sequentialGfsaDurations.reduce((a, b) => a + b, 0) / sequentialGfsaDurations.length
+      : null;
+
     const finCtx: FinalizationContext = {
       result: filteredResult,
       ratings: result.ratings,
-      pool: localPool,
+      // summaryPool — metric loops iterate all non-arena pool members.
+      pool: summaryPool,
       matchHistory: result.matchHistory,
+      invocationDetails: detailsMap as FinalizationContext['invocationDetails'],
+      budgetFloorObservables: result.budgetFloorObservables ? {
+        initialAgentCostEstimate: result.budgetFloorObservables.initialAgentCostEstimate,
+        actualAvgCostPerAgent: result.budgetFloorObservables.actualAvgCostPerAgent,
+        parallelDispatched: result.budgetFloorObservables.parallelDispatched,
+        sequentialDispatched: result.budgetFloorObservables.sequentialDispatched,
+        medianSequentialGfsaDurationMs,
+        avgSequentialGfsaDurationMs,
+      } : undefined,
     };
 
     // Ensure cost metric exists (may have been skipped if iteration loop broke early).
@@ -258,7 +351,8 @@ export async function finalizeRun(
       await writeMetricMax(db, 'run', runId, 'cost' as MetricName, result.totalCost, 'during_execution');
     }
 
-    // Run-level finalization metrics
+    // Run-level finalization metrics (now with invocationDetails + budgetFloorObservables
+    // available, so cost_estimation_* and budget-floor metrics resolve correctly).
     for (const def of getEntity('run').metrics.atFinalization) {
       const metricResult = def.compute(finCtx);
       if (metricResult == null) continue;
@@ -274,17 +368,8 @@ export async function finalizeRun(
       }
     }
 
-    // Invocation-level finalization metrics (requires execution_detail for variant mapping)
-    const { data: invocations } = await db
-      .from('evolution_agent_invocations')
-      .select('id, agent_name, cost_usd, execution_detail')
-      .eq('run_id', runId);
-
     if (invocations && invocations.length > 0) {
-      const detailsMap = new Map(
-        invocations.map((inv: { id: string; execution_detail: unknown }) => [inv.id, inv.execution_detail]),
-      );
-      const invFinCtx: FinalizationContext = { ...finCtx, invocationDetails: detailsMap as FinalizationContext['invocationDetails'] };
+      const invFinCtx: FinalizationContext = finCtx;
       for (const inv of invocations) {
         const invCtx = { ...invFinCtx, currentInvocationId: inv.id };
         for (const def of getEntity('invocation').metrics.atFinalization) {
@@ -302,8 +387,8 @@ export async function finalizeRun(
       // automatically via the new SHARED_PROPAGATION_DEFS entries.
     }
 
-    // Variant-level finalization metrics
-    for (const v of localPool) {
+    // Variant-level finalization metrics.
+    for (const v of summaryPool) {
       const varCtx: FinalizationContext = { ...finCtx, currentVariantCost: v.costUsd ?? null };
       for (const def of getEntity('variant').metrics.atFinalization) {
         const result = def.compute(varCtx);
@@ -320,6 +405,10 @@ export async function finalizeRun(
     if (run.experiment_id) {
       await propagateMetrics(db, 'experiment', run.experiment_id);
     }
+
+    // Propagation: tactic metrics (cross-run, variant-level aggregation — separate from strategy/experiment)
+    const { computeTacticMetricsForRun } = await import('../../metrics/computations/tacticMetrics');
+    await computeTacticMetricsForRun(db, runId);
   } catch (metricsErr) {
     const err = metricsErr instanceof Error ? metricsErr : null;
     logger?.warn('Finalization metrics write failed', {
@@ -388,7 +477,10 @@ export async function propagateMetrics(
   }
 }
 
-/** Sync pipeline results to arena: upsert entries, insert matches, update Elo. */
+/** Sync pipeline results to arena: upsert entries, insert matches, update Elo.
+ *
+ * Seed variant is persisted in pre-iteration setup (claimAndExecuteRun) and is NOT
+ * in the pool, so no special seed handling is needed here. */
 export async function syncToArena(
   runId: string,
   promptId: string,
@@ -408,7 +500,8 @@ export async function syncToArena(
     }
   }
 
-  // Build entries: all non-arena variants
+  // Build entries: variants that need a NEW arena row INSERT.
+  // Excludes arena entries (already exist).
   const newEntries = pool
     .filter((v) => !isArenaEntry(v))
     .map((v) => {
@@ -422,11 +515,11 @@ export async function syncToArena(
         // arena_match_count: matches played in THIS run only (not cumulative).
         // The DB RPC accumulates this into the arena entry's lifetime total.
         arena_match_count: variantMatchCounts.get(v.id) ?? 0,
-        generation_method: isSeeded && v.strategy === V2_BASELINE_STRATEGY ? 'seed' : 'pipeline',
+        generation_method: isSeeded && isSeedVariantTactic(v.tactic) ? 'seed' : 'pipeline',
       };
     });
 
-  // Build arena updates: existing arena entries that participated in matches this run
+  // Build arena updates: existing arena entries that participated in matches this run.
   const arenaUpdates = pool
     .filter((v): v is ArenaTextVariation => isArenaEntry(v))
     .filter((v) => (variantMatchCounts.get(v.id) ?? 0) > 0)
@@ -458,6 +551,7 @@ export async function syncToArena(
 
   // Try sync with 1 retry (idempotent RPC using ON CONFLICT DO UPDATE)
   let lastError: { message: string } | null = null;
+  let rpcSucceeded = false;
   for (let attempt = 0; attempt < 2; attempt++) {
     const { error } = await supabase.rpc('sync_to_arena', {
       p_prompt_id: promptId,
@@ -469,7 +563,8 @@ export async function syncToArena(
 
     if (!error) {
       logger?.info('Arena sync complete', { entrySynced: newEntries.length, arenaUpdated: arenaUpdates.length, matchesSynced: matches.length, phaseName: 'arena' });
-      return;
+      rpcSucceeded = true;
+      break;
     }
     lastError = error;
 
@@ -481,7 +576,7 @@ export async function syncToArena(
   }
 
   // Arena sync is non-critical — log but don't re-throw
-  if (lastError) {
+  if (!rpcSucceeded && lastError) {
     if (logger) {
       logger.error('Arena sync failed after retry', { error: lastError.message, runId, promptId, entryCount: newEntries.length, phaseName: 'arena' });
     } else {

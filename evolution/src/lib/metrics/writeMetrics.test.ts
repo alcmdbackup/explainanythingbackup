@@ -1,6 +1,6 @@
 // Unit tests for writeMetrics, writeMetric, and writeMetricMax functions.
 
-import { writeMetrics, writeMetric, writeMetricMax } from './writeMetrics';
+import { writeMetrics, writeMetric, writeMetricMax, writeMetricReplace } from './writeMetrics';
 
 function makeMockDb(options?: { upsertError?: string }) {
   const upsertedRows: unknown[] = [];
@@ -215,5 +215,37 @@ describe('writeMetricMax', () => {
       db, 'run', '00000000-0000-0000-0000-000000000001', 'cost', NaN, 'during_execution',
     )).rejects.toThrow();
     expect(rpcCalls).toHaveLength(0);
+  });
+});
+
+describe('writeMetricReplace', () => {
+  it('plain upsert allows writing LOWER values than what may already exist (fixes GREATEST no-op for downward corrections)', async () => {
+    // Mock `from().upsert()` path since writeMetricReplace delegates to writeMetric (plain upsert).
+    const upsertCalls: unknown[] = [];
+    const db = {
+      from: () => ({
+        upsert: async (rows: unknown[]) => {
+          upsertCalls.push(rows);
+          return { error: null };
+        },
+      }),
+      rpc: async () => ({ error: new Error('should not be called') }),
+    };
+    await writeMetricReplace(
+      db as unknown as Parameters<typeof writeMetricReplace>[0],
+      'run', '00000000-0000-0000-0000-000000000001', 'cost', 0.001, 'during_execution',
+    );
+    expect(upsertCalls).toHaveLength(1);
+    const rows = upsertCalls[0] as Array<{ value: number; metric_name: string }>;
+    expect(rows[0]!.value).toBe(0.001);
+    expect(rows[0]!.metric_name).toBe('cost');
+  });
+
+  it('rejects NaN', async () => {
+    const db = { from: () => ({ upsert: async () => ({ error: null }) }), rpc: async () => ({ error: null }) };
+    await expect(writeMetricReplace(
+      db as unknown as Parameters<typeof writeMetricReplace>[0],
+      'run', '00000000-0000-0000-0000-000000000001', 'cost', NaN, 'during_execution',
+    )).rejects.toThrow();
   });
 });

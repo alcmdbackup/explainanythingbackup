@@ -11,6 +11,7 @@ function makeEntry(overrides: Partial<ArenaEntry> = {}): ArenaEntry {
     variant_content: 'Test content',
     synced_to_arena: true,
     generation_method: 'manual',
+    is_seed: false,
     model: null,
     cost_usd: null,
     elo_score: 1200,
@@ -18,6 +19,11 @@ function makeEntry(overrides: Partial<ArenaEntry> = {}): ArenaEntry {
     arena_match_count: 0,
     archived_at: null,
     created_at: '2026-03-01T00:00:00Z',
+    generation: null,
+    parent_variant_id: null,
+    parent_elo: null,
+    parent_uncertainty: null,
+    parent_run_id: null,
     ...overrides,
   };
 }

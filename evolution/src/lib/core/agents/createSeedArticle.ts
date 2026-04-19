@@ -10,7 +10,7 @@ import type { Rating, ComparisonResult } from '../../shared/computeRatings';
 import type { V2Match } from '../../pipeline/infra/types';
 import type { RankSingleVariantStatus } from '../../pipeline/loop/rankSingleVariant';
 import { rankNewVariant } from '../../pipeline/loop/rankNewVariant';
-import { deepCloneRatings } from './generateFromSeedArticle';
+import { deepCloneRatings } from './generateFromPreviousArticle';
 import { generateTitle, buildArticlePrompt } from '../../pipeline/setup/generateSeedArticle';
 import { validateFormat } from '../../shared/enforceVariantFormat';
 import { createSeedArticleExecutionDetailSchema } from '../../schemas';
@@ -134,7 +134,11 @@ export class CreateSeedArticleAgent extends Agent<
       return { result: { variant: null, status, surfaced: false, matches: [] }, detail };
     }
 
-    const content = `# ${title}\n\n${articleContent}`;
+    // Strip a leading H1 from the LLM output before prepending our title — many models
+    // ignore the "no title" instruction and emit their own H1, producing duplicated headers
+    // in the persisted seed (e.g. "# Fed\n\n# Fed\n\n…"). 2026-04-14.
+    const articleBody = articleContent.replace(/^\s*#\s+[^\n]*\n+/, '');
+    const content = `# ${title}\n\n${articleBody}`;
     const generationCost = ctx.costTracker.getTotalSpent() - costBeforeGen;
 
     const fmt = validateFormat(content);
@@ -146,10 +150,11 @@ export class CreateSeedArticleAgent extends Agent<
 
     const variant = createVariant({
       text: content.trim(),
-      strategy: 'seed_article',
+      tactic: 'seed_variant',
       iterationBorn: ctx.iteration,
       parentIds: [],
       version: 0,
+      ...(ctx.invocationId ? { agentInvocationId: ctx.invocationId } : {}),
     });
 
     const { rankingCost, rankResult, surfaced, discardReason } = await rankNewVariant({

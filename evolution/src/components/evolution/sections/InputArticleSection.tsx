@@ -1,4 +1,4 @@
-// Shows the input variant an agent operated on, with preview, strategy badge, and Elo.
+// Shows the input variant an agent operated on, with preview, tactic badge, and Elo.
 // Used on the invocation detail page to provide context for what the agent saw.
 
 'use client';
@@ -6,6 +6,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { buildVariantDetailUrl } from '@evolution/lib/utils/evolutionUrls';
+import { formatEloWithUncertainty } from '@evolution/lib/utils/formatters';
 
 function ShortId({ id }: { id: string; runId?: string }): JSX.Element {
   return (
@@ -21,20 +22,23 @@ function ShortId({ id }: { id: string; runId?: string }): JSX.Element {
 
 interface InputArticleSectionProps {
   variantId: string;
-  strategy: string;
+  tactic: string;
   text: string;
   textMissing?: boolean;
   elo: number | null;
+  /** Elo-scale rating uncertainty. When present, displays as "Elo {elo} ± {half}". Phase 4b. */
+  uncertainty?: number | null;
   runId?: string;
   previewLength?: number;
 }
 
 export function InputArticleSection({
   variantId,
-  strategy,
+  tactic,
   text,
   textMissing,
   elo,
+  uncertainty,
   runId,
   previewLength = 300,
 }: InputArticleSectionProps): JSX.Element {
@@ -47,9 +51,13 @@ export function InputArticleSection({
       <div className="flex items-center gap-2 mb-2">
         <span className="text-xs font-ui font-medium text-[var(--text-secondary)] uppercase tracking-wide">Input Variant</span>
         <ShortId id={variantId} runId={runId} />
-        <span className="text-xs text-[var(--text-muted)]">{strategy}</span>
+        <span className="text-xs text-[var(--text-muted)]">{tactic}</span>
         {elo != null && (
-          <span className="text-xs text-[var(--text-muted)] font-mono">Elo {Math.round(elo)}</span>
+          <span className="text-xs text-[var(--text-muted)] font-mono">
+            Elo {uncertainty != null
+              ? (formatEloWithUncertainty(elo, uncertainty) ?? Math.round(elo))
+              : Math.round(elo)}
+          </span>
         )}
       </div>
 

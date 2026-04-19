@@ -23,7 +23,7 @@ describe('V2 types', () => {
   });
 
   it('EvolutionConfig has all required fields', () => {
-    expectTypeOf<EvolutionConfig>().toHaveProperty('iterations');
+    expectTypeOf<EvolutionConfig>().toHaveProperty('iterationConfigs');
     expectTypeOf<EvolutionConfig>().toHaveProperty('budgetUsd');
     expectTypeOf<EvolutionConfig>().toHaveProperty('judgeModel');
     expectTypeOf<EvolutionConfig>().toHaveProperty('generationModel');
@@ -31,7 +31,7 @@ describe('V2 types', () => {
 
   it('EvolutionConfig optional fields are optional', () => {
     const config: EvolutionConfig = {
-      iterations: 5,
+      iterationConfigs: [{ agentType: 'generate', budgetPercent: 60 }, { agentType: 'swiss', budgetPercent: 40 }],
       budgetUsd: 1.0,
       judgeModel: 'gpt-4.1-nano',
       generationModel: 'gpt-4.1-mini',

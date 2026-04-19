@@ -218,4 +218,40 @@ describe('entityRegistry', () => {
       }
     });
   });
+
+  // ─── Dual-registry parity (cost_estimate_accuracy_analysis_20260414) ──────────
+  //
+  // METRIC_REGISTRY and entityRegistry must stay in sync (see metrics.md). This
+  // parity test guards against drift in either direction by asserting every
+  // METRIC_REGISTRY name is present in entityRegistry with matching category +
+  // formatter. Skips dynamic-prefix names (e.g., agentCost:*).
+
+  describe('dual-registry parity vs METRIC_REGISTRY', () => {
+    it('every METRIC_REGISTRY entry is mirrored in entityRegistry', async () => {
+      const { METRIC_REGISTRY } = await import('@evolution/lib/metrics/registry');
+      const { DYNAMIC_METRIC_PREFIXES } = await import('@evolution/lib/metrics/types');
+
+      const isDynamic = (name: string) => DYNAMIC_METRIC_PREFIXES.some((p) => name.startsWith(p));
+
+      for (const entityType of ALL_ENTITY_TYPES) {
+        const flatDefs = [
+          ...METRIC_REGISTRY[entityType].duringExecution,
+          ...METRIC_REGISTRY[entityType].atFinalization,
+          ...METRIC_REGISTRY[entityType].atPropagation,
+        ];
+        const classDefs = getAllEntityMetricDefs(entityType);
+        const classByName = new Map(classDefs.map((d) => [d.name, d]));
+
+        for (const flat of flatDefs) {
+          if (isDynamic(flat.name)) continue;
+          const klass = classByName.get(flat.name);
+          expect(klass).toBeDefined();
+          if (!klass) continue;
+          expect({ name: flat.name, category: klass.category, formatter: klass.formatter }).toEqual({
+            name: flat.name, category: flat.category, formatter: flat.formatter,
+          });
+        }
+      }
+    });
+  });
 });

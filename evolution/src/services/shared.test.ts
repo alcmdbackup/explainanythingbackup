@@ -1,6 +1,6 @@
 // Tests for shared utilities: validateUuid(), UUID_REGEX, UUID_V4_REGEX, isTestContentName(), applyTestContentNameFilter().
 
-import { validateUuid, UUID_REGEX, UUID_V4_REGEX, isTestContentName, applyTestContentNameFilter } from './shared';
+import { validateUuid, UUID_REGEX, UUID_V4_REGEX, isTestContentName, applyTestContentNameFilter, TEST_NAME_FIXTURES } from './shared';
 
 describe('validateUuid', () => {
   const VALID_V4 = '550e8400-e29b-41d4-a716-446655440000';
@@ -102,6 +102,16 @@ describe('isTestContentName', () => {
     expect(isTestContentName(null)).toBe(false);
     expect(isTestContentName(undefined)).toBe(false);
     expect(isTestContentName('')).toBe(false);
+  });
+
+  // Anti-drift: every fixture must agree with the TS helper. The integration test
+  // (src/__tests__/integration/evolution_is_test_name.integration.test.ts) asserts
+  // the same fixtures against the Postgres function — together they prevent the TS
+  // and SQL implementations from drifting apart.
+  describe('TEST_NAME_FIXTURES match isTestContentName', () => {
+    it.each(TEST_NAME_FIXTURES)('$name ($reason) → isTest=$isTest', ({ name, isTest }) => {
+      expect(isTestContentName(name)).toBe(isTest);
+    });
   });
 });
 

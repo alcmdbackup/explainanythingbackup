@@ -43,3 +43,4 @@ export type { EntityListPageProps, FilterDef, RowAction } from './EntityListPage
 
 // tabs/
 export { EntityMetricsTab } from './tabs/EntityMetricsTab';
+export { CostEstimatesTab } from './tabs/CostEstimatesTab';

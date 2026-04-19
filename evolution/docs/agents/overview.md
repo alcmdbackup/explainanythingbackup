@@ -2,16 +2,20 @@
 
 This document covers the V2 pipeline's operational components: the three concrete agent classes that drive the orchestrator-driven iteration loop, plus the supporting infrastructure for format validation, cost tracking, invocation logging, and LLM communication. For the overall system design, see [Architecture](../architecture.md). For rating math details, see [Rating and Comparison](../rating_and_comparison.md).
 
-## V2 Orchestrator-Driven Iteration Loop
+## V2 Config-Driven Iteration Loop
 
-`evolveArticle()` in `evolution/src/lib/pipeline/loop/runIterationLoop.ts` dispatches a sequence of iterations chosen by `nextIteration()`. Each iteration is one of two types — both have the uniform shape **work agent(s) + merge agent**:
+`evolveArticle()` in `evolution/src/lib/pipeline/loop/runIterationLoop.ts` iterates over
+`config.iterationConfigs[]`, an ordered array of `IterationConfig` objects. Each entry
+specifies `agentType` (`generate` or `swiss`), `budgetPercent`, and optional `maxAgents`.
+Per-iteration dollar budgets are computed at runtime: `(budgetPercent / 100) * totalBudget`.
+Each iteration is one of two types — both have the uniform shape **work agent(s) + merge agent**:
 
 0. **`CreateSeedArticleAgent`** — runs **once**, at the start of iteration 1, for prompt-based runs where no arena seed exists. Makes two LLM calls (`seed_title` then `seed_article`) to generate the initial article from the prompt text, then ranks the result via `rankNewVariant()` against the loaded arena snapshot. If the seed agent fails (`budget` or `generation_failed`), the run stops immediately with `stopReason = 'seed_failed'`. On success, sets `originalText` for the iteration and marks `isSeeded = true` in the result. LLM spend is tracked via `seed_cost` in `evolution_metrics`.
-1. **`GenerateFromSeedArticleAgent`** — one parallel agent per generated variant. Generates ONE variant via a single strategy, then ranks it via binary search against a deep-cloned local snapshot of the iteration-start pool/ratings/matchCounts. Owns its own surface/discard decision (budget + local `elo` < top-15% cutoff = discard).
+1. **`GenerateFromPreviousArticleAgent`** — one parallel agent per generated variant. Generates ONE variant via a single strategy, then ranks it via binary search against a deep-cloned local snapshot of the iteration-start pool/ratings/matchCounts. Owns its own surface/discard decision (budget + local `elo` < top-15% cutoff = discard).
 2. **`SwissRankingAgent`** — one swiss iteration's worth of parallel pair comparisons over the eligible set. Returns the raw match buffer; never applies rating updates.
 3. **`MergeRatingsAgent`** — reusable. Concatenates match buffers from one or more work agents, shuffles in seeded Fisher-Yates order, applies rating updates to the global ratings sequentially (OpenSkill internally; public `{elo, uncertainty}` at the boundary), and writes one row per match to `evolution_arena_comparisons` (sole writer of in-run match rows).
 
-The first iteration is always `generate`; subsequent iterations are `swiss` until the orchestrator decides convergence/no_pairs/budget/kill/deadline. There is no agent pool, no reducer, and no checkpoint persistence between iterations. The orchestrator manages the pool, ratings map, and cost tracker as local state. This design is simpler to reason about and debug, at the cost of not being resumable mid-run.
+The first `iterationConfig` must have `agentType: 'generate'` (swiss on an empty pool is invalid — enforced by Zod validation). The iteration sequence is fully determined by the strategy config; the orchestrator no longer uses a `nextIteration()` decision function. There is no agent pool, no reducer, and no checkpoint persistence between iterations. The orchestrator manages the pool, ratings map, and cost tracker as local state. Each iteration gets its own `IterationBudgetTracker` that throws `IterationBudgetExceededError` when the per-iteration budget is exhausted (stops only that iteration; the loop advances to the next config entry). This design is simpler to reason about and debug, at the cost of not being resumable mid-run.
 
 ```typescript
 export async function evolveArticle(
@@ -24,7 +28,7 @@ export async function evolveArticle(
 ): Promise<EvolutionResult>
 ```
 
-Each iteration dispatches its work agent(s) and merge agent through the `Agent.run()` template method, which wraps budget-error handling (discussed below) and invocation lifecycle. The loop runs until convergence, no remaining swiss pairs, budget exhaustion, kill signal, or wall-clock deadline. `config.iterations` is now optional (kept for backward compat with the strategy config hash); the orchestrator decides when to stop. Config validation enforces hard bounds: budget must be positive and at most $50, both `judgeModel` and `generationModel` must be non-empty, and `numVariants` (default 9) must be 1-100.
+Each iteration dispatches its work agent(s) and merge agent through the `Agent.run()` template method, which wraps budget-error handling (discussed below) and invocation lifecycle. The loop iterates over `config.iterationConfigs[]` in order. Per-iteration stop reasons (`iteration_budget_exceeded`, `iteration_converged`, `iteration_no_pairs`, `iteration_complete`) are recorded in `EvolutionResult.iterationResults[]`. The run terminates when all iterations complete, or on run-level budget exhaustion, kill signal, or wall-clock deadline. Config validation enforces: budget must be positive and at most $50, both `judgeModel` and `generationModel` must be non-empty, `iterationConfigs` must have at least 1 entry (max 20), budget percentages must sum to 100, and the first iteration must be `generate`.
 
 Between iterations, the orchestrator checks for external kill signals by querying the run's status in the database. If the status has been set to `failed` or `cancelled` (by a user or admin action), the loop terminates gracefully with whatever results have been accumulated so far. Kill detection errors are swallowed — the pipeline continues if the database is temporarily unreachable.
 
@@ -33,13 +37,17 @@ Between iterations, the orchestrator checks for external kill signals by queryin
 
 `evolution/src/lib/pipeline/generate.ts`
 
-Generates fresh text variants by running parallel LLM strategies against the original (or current best) text. There are 8 available strategies — 3 core and 5 extended:
+Generates fresh text variants by running parallel LLM tactics against the original (or current best) text. There are 24 available tactics — 3 core, 5 extended, and 16 specialized across five categories. Tactic definitions live in code at `evolution/src/lib/core/tactics/generateTactics.ts`; tactic entity identity (UUIDs for metrics/admin) is stored in the `evolution_tactics` table and managed by `tacticRegistry.ts`.
+
+**Core (3)**
 
 **structural_transform** aggressively restructures the text: reorder sections, merge or split paragraphs, invert hierarchy (conclusion-first, problem-solution, narrative arc). The prompt instructs the LLM to reimagine organization from scratch rather than making timid incremental changes.
 
 **lexical_simplify** simplifies language: replace complex words with simpler alternatives, shorten long sentences, remove jargon, improve accessibility while preserving meaning.
 
 **grounding_enhance** makes abstract text concrete: add specific examples, include sensory details, strengthen real-world connections, ground concepts in experience.
+
+**Extended (5)**
 
 **engagement_amplify** boosts reader engagement through hooks, pacing, and rhetorical devices.
 
@@ -51,7 +59,49 @@ Generates fresh text variants by running parallel LLM strategies against the ori
 
 **tone_transform** shifts or unifies tone to match target audience and purpose.
 
-By default, only the 3 core strategies run (deterministic selection). When `generationGuidance` is set on the strategy config, strategies are chosen via weighted random selection based on the configured percentages. All selected strategies run in parallel via `Promise.allSettled()`. Each result is independently format-validated; invalid outputs are silently discarded rather than retried. This means a generation phase can produce anywhere from zero to N variants (where N is `strategiesPerRound`).
+**Depth & Knowledge (4)**
+
+**analogy_bridge** enriches text with vivid analogies and metaphors that connect abstract concepts to everyday experience.
+
+**expert_deepdive** adds technical depth: mechanisms, edge cases, caveats, and nuances that expert readers expect.
+
+**historical_context** weaves in origin stories, key figures, and timeline of discovery to explain why things are the way they are.
+
+**counterpoint_integrate** integrates counterpoints and addresses objections, making the text more intellectually honest.
+
+**Audience-Shift (3)**
+
+**pedagogy_scaffold** restructures text using teaching techniques: prerequisite sequencing, simple-to-complex progression, and bridge sentences.
+
+**curiosity_hook** maximizes curiosity via information gaps, open loops, surprising facts, and delayed key revelations.
+
+**practitioner_orient** shifts from theory to practice: decision frameworks, common pitfalls, and actionable guidance.
+
+**Structural Innovation (3)**
+
+**zoom_lens** alternates between macro (big picture, context) and micro (specific details, mechanisms) perspectives in a breathing rhythm.
+
+**progressive_disclosure** layers content so readers get a complete simple version first, with each subsequent section deepening one aspect.
+
+**contrast_frame** explains concepts through systematic comparison: what it is vs. what it is not, this approach vs. alternatives.
+
+**Quality & Precision (3)**
+
+**precision_tighten** eliminates hedge words, vague quantifiers, and weasel phrases; replaces each with specific, concrete claims.
+
+**coherence_thread** strengthens the logical thread from start to finish: topic sentences, transitional phrases, and paragraph-to-paragraph flow.
+
+**sensory_concretize** replaces abstract verbs and nouns with vivid, sensory-specific, action-oriented alternatives.
+
+**Meta/Experimental (3)**
+
+**compression_distill** distills text to 60-70% of original length, removing redundancy and filler while preserving all key content and section structure.
+
+**expansion_elaborate** identifies the thinnest section relative to its importance and triples its depth with explanation, context, and nuance.
+
+**first_principles** rebuilds every concept from foundations, assuming zero domain knowledge, deriving each idea step by step from everyday experience.
+
+By default, only the 3 core tactics run (deterministic selection). When `generationGuidance` is set on the strategy config, tactics are chosen via weighted random selection based on the configured percentages. All selected tactics run in parallel via `Promise.allSettled()`. Each result is independently format-validated; invalid outputs are silently discarded rather than retried. This means a generation phase can produce anywhere from zero to N variants (where N is `strategiesPerRound`).
 
 ```typescript
 export async function generateVariants(
@@ -63,11 +113,11 @@ export async function generateVariants(
 ): Promise<Variant[]>
 ```
 
-Each successfully validated variant is created with `strategy` set to the strategy name, `version` set to 0, and `parentIds` as an empty array (since these are root-level generations, not mutations of existing variants).
+Each successfully validated variant is created with `strategy` set to the tactic name, `version` set to 0, and `parentIds` as an empty array (since these are root-level generations, not mutations of existing variants).
 
 If budget is exhausted partway through the three parallel calls, `Promise.allSettled()` captures the `BudgetExceededError` as a rejected promise. The function collects any variants that completed successfully and throws `BudgetExceededWithPartialResults` containing those partial results, allowing the orchestrator to incorporate whatever was produced before the budget ran out.
 
-The number of active strategies is controlled by `config.strategiesPerRound` (default 3, capped at the total number of available strategies). Feedback from previous ranking rounds can optionally be passed in to guide generation: the weakest dimension identified by ranking plus specific improvement suggestions are appended to each strategy's prompt, giving the LLM targeted direction for improvement.
+The number of active tactics is controlled by `config.strategiesPerRound` (default 3, capped at the total number of available tactics). Feedback from previous ranking rounds can optionally be passed in to guide generation: the weakest dimension identified by ranking plus specific improvement suggestions are appended to each tactic's prompt, giving the LLM targeted direction for improvement.
 
 
 ## rankPool()
@@ -122,7 +172,7 @@ The budget tier is determined by how much of the total run budget has been consu
 
 `evolution/src/lib/pipeline/evolve.ts`
 
-Evolves existing high-quality variants through mutation and crossover. Selects the top 2 parents by `elo` from the current pool and applies up to four strategies:
+Evolves existing high-quality variants through mutation and crossover. Selects the top 2 parents by `elo` from the current pool and applies up to four tactics:
 
 **mutate_clarity** (always runs, on parent 0). Simplifies complex sentences, removes ambiguous phrasing, improves word choice for precision.
 
@@ -148,11 +198,11 @@ export async function evolveVariants(
 ): Promise<Variant[]>
 ```
 
-Unlike `generateVariants()` which runs strategies in parallel, `evolveVariants()` runs them sequentially. Each LLM output is format-validated; failures are silently discarded. New variants inherit `parentIds` from the selected parents and have `version` set to `maxVersion + 1` of the parents. (The "top 2 by `elo`" selection uses the public `Rating.elo` — formerly `mu` in the OpenSkill scale.)
+Unlike `generateVariants()` which runs tactics in parallel, `evolveVariants()` runs them sequentially. Each LLM output is format-validated; failures are silently discarded. New variants inherit `parentIds` from the selected parents and have `version` set to `maxVersion + 1` of the parents. (The "top 2 by `elo`" selection uses the public `Rating.elo` — formerly `mu` in the OpenSkill scale.)
 
 `BudgetExceededError` propagates directly to the caller (no partial-results wrapping). If budget runs out after the first mutation succeeds but before crossover, the successfully created variants are lost. This is acceptable because the orchestrator's `executePhase()` wrapper handles the budget error at the iteration level.
 
-The sequential execution means evolve is more vulnerable to budget exhaustion than generate (which runs in parallel and can salvage partial results). However, the most valuable strategies — clarity and structure mutation — run first, so if budget does run out mid-phase, the highest-priority variants are the ones most likely to have completed.
+The sequential execution means evolve is more vulnerable to budget exhaustion than generate (which runs in parallel and can salvage partial results). However, the most valuable tactics — clarity and structure mutation — run first, so if budget does run out mid-phase, the highest-priority variants are the ones most likely to have completed.
 
 
 ## Format Validation
@@ -211,8 +261,7 @@ Two abstract members configure agent-specific observability:
 - **`detailViewConfig: DetailFieldDef[]`** — config-driven field definitions used by the admin UI to render the invocation detail panel without custom per-agent components. Consumed by `ConfigDrivenDetailRenderer` in `src/app/admin/evolution/invocations/[invocationId]/ConfigDrivenDetailRenderer.tsx`.
 - **`invocationMetrics?: FinalizationMetricDef[]`** — optional list of agent-specific metric definitions (e.g. `format_rejection_rate` for GenerationAgent, `total_comparisons` for RankingAgent). These are merged into `InvocationEntity` at startup via `agentRegistry.ts`.
 
-**Per-invocation cost scope.** `Agent.run()` creates a per-invocation `AgentCostScope` (via `createAgentCostScope(ctx.costTracker)`) and passes it as `costTracker` in `extendedCtx`. The scope delegates `reserve()`, `release()`, and `getTotalSpent()` to the shared tracker (budget gate remains shared) but intercepts `recordSpend()` to track a private `ownSpent` counter. `cost_usd` on the invocation row is now `scope.getOwnSpent()` — only this agent's LLM calls — instead of a global delta. Under parallel dispatch, sibling agents' spend no longer bleeds into each invocation's `cost_usd`.
-
+**Per-invocation cost scope.** `Agent.run()` creates a per-invocation `AgentCostScope` (via `createAgentCostScope(ctx.costTracker)`) AND builds a per-invocation `EvolutionLLMClient` bound to the scope (from `ctx.rawProvider` + `ctx.defaultModel` via `createEvolutionLLMClient`). The client is injected into `input.llm` before `execute()` runs, so every `recordSpend()` the agent triggers goes through the scope's intercept. `MergeRatingsAgent` opts out via `usesLLM = false` (no LLM calls). `cost_usd` on the invocation row comes from `scope.getOwnSpent()` — only this agent's own LLM spend — instead of a before/after delta of the shared tracker. Under parallel dispatch, sibling agents' spend no longer bleeds into each invocation's `cost_usd`. The scope delegates `reserve()`, `release()`, and `getTotalSpent()` to the shared tracker so the per-run budget gate remains global. 
 The `run()` method wraps each phase with budget-error handling, invocation cost tracking, and metric recording. It now additionally:
 
 - Tracks wall-clock duration and writes `duration_ms` to the invocation row.
@@ -276,9 +325,9 @@ export function createEvolutionLLMClient(
 ): EvolutionLLMClient
 ```
 
-**Typed agent labels.** The second argument to `complete()` is `AgentName`, a typed union (`'generation' | 'ranking' | 'seed_title' | 'seed_article'`) defined in `evolution/src/lib/core/agentNames.ts`. Typos at the call site are caught at compile time. The `COST_METRIC_BY_AGENT` lookup maps each label to a static cost metric name: `'generation'` → `'generation_cost'`, `'ranking'` → `'ranking_cost'`, `'seed_title'`/`'seed_article'` → `'seed_cost'`. As a result, `generateFromSeedArticle` reports per-purpose costs accurately (no more 50/50 approximation): every `'generation'` call increments `generation_cost`, every `'ranking'` call increments `ranking_cost`, and seed LLM calls (via `CreateSeedArticleAgent`) increment `seed_cost`.
+**Typed agent labels.** The second argument to `complete()` is `AgentName`, a typed union (`'generation' | 'ranking' | 'seed_title' | 'seed_article'`) defined in `evolution/src/lib/core/agentNames.ts`. Typos at the call site are caught at compile time. The `COST_METRIC_BY_AGENT` lookup maps each label to a static cost metric name: `'generation'` → `'generation_cost'`, `'ranking'` → `'ranking_cost'`, `'seed_title'`/`'seed_article'` → `'seed_cost'`. As a result, `generateFromPreviousArticle` reports per-purpose costs accurately (no more 50/50 approximation): every `'generation'` call increments `generation_cost`, every `'ranking'` call increments `ranking_cost`, and seed LLM calls (via `CreateSeedArticleAgent`) increment `seed_cost`.
 
-**Retry policy.** Transient errors (network failures, rate limits) are retried up to 3 times with exponential backoff: 1s, 2s, 4s. Each individual call has a 60-second timeout. `BudgetExceededError` is never retried since it represents a deliberate resource limit, not a transient failure.
+**Retry policy.** Transient errors (network failures, rate limits) are retried up to 3 times with exponential backoff: 1s, 2s, 4s. Each individual call has a 20-second timeout. SDK-level retries are set to 0 (`maxRetries: 0`) so the evolution client's retry loop is the sole retry layer — worst-case per-call latency is 87 seconds (4 attempts × 20s + 7s backoff). `BudgetExceededError` is never retried since it represents a deliberate resource limit, not a transient failure.
 
 **Cost tracking.** Before each call, the client estimates cost from the prompt length and expected output tokens (using chars/4 as a token approximation). After a successful call, actual cost is computed from input and output character counts and recorded via the cost tracker. The tracker buckets per-call cost under the typed agent label in `phaseCosts[label]` (race-free per-key accumulator under Node's single-threaded event loop). The client then writes `cost`, `generation_cost`, and `ranking_cost` to `evolution_metrics` via `writeMetricMax` — a Postgres RPC using `ON CONFLICT DO UPDATE SET value = GREATEST(...)` so concurrent out-of-order writes can never overwrite a larger value with a smaller one.
 
@@ -291,10 +340,29 @@ For cost optimization details including the budget tier system and model pricing
 
 All generation and evolution prompts share a common structure built by `buildEvolutionPrompt()`. The function assembles:
 
-1. A strategy-specific preamble (system role)
+1. A tactic-specific preamble (system role)
 2. The source text under a labeled heading
-3. Strategy-specific instructions
+3. Tactic-specific instructions
 4. Format rules (the `FORMAT_RULES` constant) injected into every prompt to guide the LLM toward compliant output
 5. An optional feedback section containing the weakest dimension and improvement suggestions from prior ranking
 
 Comparison prompts (used during ranking) evaluate variants across four dimensions: clarity, structure, engagement, and grammar. The judge LLM returns a winner designation and confidence score. The feedback section is optional and only populated after the first iteration, when ranking data from previous rounds can identify the weakest dimension and generate targeted suggestions for improvement.
+
+## Attribution Dimension (Phase 5)
+
+Variant-producing agents can declare an attribution dimension by overriding `Agent.getAttributionDimension(detail)` to return a grouping string pulled from the agent's `execution_detail`. The `experimentMetrics.computeRunMetrics` aggregator groups produced variants by `(agent_name, dimension_value)`, computes mean ELO delta (child minus parent) across each group, and emits two dynamic metric families:
+
+- `eloAttrDelta:<agentName>:<dimensionValue>` — mean delta + normal-approx 95% CI.
+- `eloAttrDeltaHist:<agentName>:<dimensionValue>:<lo>:<hi>` — fraction of produced variants whose delta fell into each fixed 10-ELO bucket.
+
+For `GenerateFromPreviousArticleAgent` the dimension is `execution_detail.strategy` (e.g., `lexical_simplify`). Swiss/merge agents return null and are excluded.
+
+Consumed by `StrategyEffectivenessChart` (bar chart with CI whiskers) and `EloDeltaHistogram` (10-ELO buckets) on the run/strategy/experiment detail pages.
+
+## Parent linkage (Phase 2)
+
+Generate iterations accept `sourceMode` (`'seed'` default or `'pool'`) and `qualityCutoff` (`{ mode: 'topN' | 'topPercent', value }`) on each `IterationConfig`. When `sourceMode='pool'`, `resolveParent` picks a parent uniformly at random from the top-N or top-X% of the run's pool ranked by current ELO. The first iteration is locked to seed (pool is empty).
+
+Seeded RNG derived from `(runId, iteration, executionOrder)` via FNV-1a ensures deterministic parent picks — identical retries pick identical parents. Arena variants (from cross-run pools) are implicitly excluded because `initialPool` is already scoped to the current run at iteration start.
+
+Discarded variants persist their local-rank ELO from the agent's binary-search ranking (not `createRating()` defaults), so Phase 3/5 metrics aren't survivorship-biased.

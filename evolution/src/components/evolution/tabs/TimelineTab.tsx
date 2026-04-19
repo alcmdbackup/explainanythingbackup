@@ -1,7 +1,7 @@
 'use client';
-// Run-detail Timeline tab: Gantt-style view of agent invocations grouped by iteration.
-// Parallel agents (same iteration, overlapping timestamps) appear as stacked rows.
-// Each bar links to the invocation detail page. Final run outcome is shown below.
+// Run-detail Timeline tab: consolidated iteration view with collapsible cards.
+// Each iteration shows a summary header (agent type, stop reason, budget bar, key stats)
+// with expandable Gantt-style invocation bars. Run summary card at bottom.
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
@@ -15,6 +15,7 @@ import {
   buildVariantDetailUrl,
 } from '@evolution/lib/utils/evolutionUrls';
 import { GanttBar } from '@evolution/components/evolution/visualizations/GanttBar';
+import type { IterationResult } from '@evolution/lib/pipeline/infra/types';
 
 export interface TimelineTabProps {
   runId: string;
@@ -61,6 +62,37 @@ function fmtSec(sec: number): string {
   return `${m}m ${s}s`;
 }
 
+// ─── Stop reason badges ────────────────────────────────────────────────────
+
+type IterStopReason = IterationResult['stopReason'] | string;
+
+function StopReasonBadge({ reason }: { reason: IterStopReason }): JSX.Element {
+  let icon: string;
+  let label: string;
+  let cls: string;
+  switch (reason) {
+    case 'iteration_complete':
+      icon = '\u2713'; label = 'Complete'; cls = 'bg-green-500/20 text-green-400 border-green-500/30';
+      break;
+    case 'iteration_converged':
+      icon = '\u2713'; label = 'Converged'; cls = 'bg-blue-500/20 text-blue-400 border-blue-500/30';
+      break;
+    case 'iteration_budget_exceeded':
+      icon = '\u26A0'; label = 'Budget'; cls = 'bg-amber-500/20 text-amber-400 border-amber-500/30';
+      break;
+    case 'iteration_no_pairs':
+      icon = '\u2717'; label = 'No Pairs'; cls = 'bg-red-500/20 text-red-400 border-red-500/30';
+      break;
+    default:
+      icon = '?'; label = reason.replace(/_/g, ' '); cls = 'bg-gray-500/20 text-gray-400 border-gray-500/30';
+  }
+  return (
+    <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold border ${cls}`}>
+      {icon} {label}
+    </span>
+  );
+}
+
 // ─── Sub-components ─────────────────────────────────────────────────────────
 
 interface BarProps {
@@ -79,7 +111,7 @@ function InvocationBar({ inv, runStartMs, totalMs }: BarProps): JSX.Element {
     `Iter ${inv.iteration ?? '?'} · order ${inv.execution_order ?? '?'}`,
     `Duration: ${fmtMs(inv.duration_ms)}`,
     inv.cost_usd != null ? `Cost: $${inv.cost_usd.toFixed(5)}` : '',
-    inv.success ? '✓ success' : `✗ ${inv.error_message ?? 'failed'}`,
+    inv.success ? '\u2713 success' : `\u2717 ${inv.error_message ?? 'failed'}`,
   ].filter(Boolean).join('\n');
 
   return (
@@ -150,6 +182,26 @@ function OutcomeCard({ label, value, sub, href }: OutcomeCardProps): JSX.Element
   );
 }
 
+// ─── Budget bar ─────────────────────────────────────────────────────────────
+
+function BudgetBar({ spent, allocated }: { spent: number; allocated: number }): JSX.Element {
+  const pct = allocated > 0 ? Math.min((spent / allocated) * 100, 100) : 0;
+  const overBudget = spent > allocated && allocated > 0;
+  return (
+    <div className="flex items-center gap-2">
+      <div className="flex-1 h-2 rounded-full bg-[var(--surface-secondary)] overflow-hidden">
+        <div
+          className={`h-full rounded-full transition-all ${overBudget ? 'bg-red-500' : 'bg-[var(--accent-gold)]'}`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      <span className="text-xs font-mono text-[var(--text-muted)] whitespace-nowrap">
+        {fmtCost(spent)} / {fmtCost(allocated)}
+      </span>
+    </div>
+  );
+}
+
 // ─── Main component ──────────────────────────────────────────────────────────
 
 export function TimelineTab({ runId, run }: TimelineTabProps): JSX.Element {
@@ -157,6 +209,15 @@ export function TimelineTab({ runId, run }: TimelineTabProps): JSX.Element {
   const [totalCount, setTotalCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [expandedIters, setExpandedIters] = useState<Set<number>>(new Set());
+
+  const toggleIter = (iter: number) => {
+    setExpandedIters((prev) => {
+      const next = new Set(prev);
+      if (next.has(iter)) next.delete(iter); else next.add(iter);
+      return next;
+    });
+  };
 
   useEffect(() => {
     void (async () => {
@@ -207,6 +268,15 @@ export function TimelineTab({ runId, run }: TimelineTabProps): JSX.Element {
   }
   const sortedIterations = Array.from(byIteration.entries()).sort(([a], [b]) => a - b);
 
+  // ── Iteration results from run_summary (if available) ───────────────────
+  const iterResultMap = new Map<number, IterationResult>();
+  const rawIterResults = (run.run_summary as Record<string, unknown> | null)?.iterationResults;
+  if (Array.isArray(rawIterResults)) {
+    for (const ir of rawIterResults as IterationResult[]) {
+      iterResultMap.set(ir.iteration, ir);
+    }
+  }
+
   // ── Summary stats ────────────────────────────────────────────────────────
   const summary = run.run_summary;
   const totalCost = invocations.reduce((s, i) => s + (i.cost_usd ?? 0), 0);
@@ -215,13 +285,13 @@ export function TimelineTab({ runId, run }: TimelineTabProps): JSX.Element {
   return (
     <div className="space-y-4" data-testid="timeline-tab">
 
-      {/* Truncation warning — shown when >200 invocations exist and only 200 are displayed */}
+      {/* Truncation warning */}
       {totalCount > invocations.length && (
         <div
           className="flex items-center gap-2 rounded-book border border-[var(--status-warning)] bg-[var(--status-warning)]/10 px-3 py-2 text-xs font-ui text-[var(--status-warning)]"
           data-testid="timeline-truncation-warning"
         >
-          ⚠ Showing {invocations.length} of {totalCount} invocations — timeline may be incomplete for this run.
+          Warning: Showing {invocations.length} of {totalCount} invocations — timeline may be incomplete.
         </div>
       )}
 
@@ -235,94 +305,139 @@ export function TimelineTab({ runId, run }: TimelineTabProps): JSX.Element {
         ))}
         <div className="ml-auto flex items-center gap-3 text-xs font-ui text-[var(--text-muted)]">
           <span>{invocations.length} invocations</span>
-          <span>·</span>
+          <span>&middot;</span>
           <span>wall-clock {fmtMs(totalMs)}</span>
         </div>
       </div>
 
-      {/* Gantt chart */}
-      <div
-        className="border border-[var(--border-default)] rounded-book bg-[var(--surface-elevated)] p-4 space-y-3"
-        data-testid="timeline-gantt"
-      >
-        {/* Time axis */}
-        <div className="flex items-end gap-2">
-          <div className="w-32 shrink-0" />
-          <div className="flex-1 relative h-5">
-            {([0, 25, 50, 75, 100] as const).map((pct) => (
-              <div
-                key={pct}
-                style={{ left: `${pct}%` }}
-                className="absolute bottom-0 flex flex-col items-center"
-              >
-                <span className="text-xs font-mono text-[var(--text-muted)] -translate-x-1/2 mb-0.5">
-                  {fmtMs((totalMs * pct) / 100)}
-                </span>
-                <div className="h-2 w-px bg-[var(--border-default)]" />
-              </div>
-            ))}
-          </div>
-          <div className="w-14 shrink-0" />
-          <div className="w-16 shrink-0" />
-        </div>
-
-        {/* Separator */}
-        <div className="border-t border-[var(--border-default)]" />
-
-        {/* Iterations */}
+      {/* Iteration cards */}
+      <div className="space-y-3">
         {sortedIterations.map(([iter, invs]) => {
-          // Classify iteration by whether any generate agent is present
           const isGenerate = invs.some((i) => agentKind(i.agent_name) === 'generate');
-          const iterLabel = iter < 0 ? 'Setup' : `Iter ${iter}`;
-
-          // Count parallel work agents (generate or swiss, excluding merge)
+          const isSwiss = invs.some((i) => agentKind(i.agent_name) === 'swiss');
+          const iterAgentType = isGenerate ? 'generate' : isSwiss ? 'swiss' : 'other';
+          const iterLabel = iter < 0 ? 'Setup' : `Iteration ${iter}`;
           const parallelCount = invs.filter((i) => agentKind(i.agent_name) !== 'merge').length;
 
           // Iteration wall-clock span
           const iStartMs = Math.min(...invs.map((i) => new Date(i.created_at).getTime()));
           const iEndMs   = Math.max(...invs.map((i) => new Date(i.created_at).getTime() + (i.duration_ms ?? 0)));
-
-          // Iteration cost subtotal
           const iCostUsd = invs.reduce((s, i) => s + (i.cost_usd ?? 0), 0);
 
-          return (
-            <div key={iter} className="space-y-0.5" data-testid={`timeline-iter-${iter}`}>
-              {/* Iteration header */}
-              <div className="flex items-center gap-2 py-1">
-                <div className="w-32 shrink-0 text-right pr-1">
-                  <span className="text-xs font-ui font-semibold text-[var(--text-primary)]">
-                    {iterLabel}
-                  </span>
-                  {iter >= 0 && (
-                    <span className="ml-1 text-xs font-ui text-[var(--text-muted)]">
-                      {isGenerate ? `${parallelCount}× parallel` : 'swiss'}
-                    </span>
-                  )}
-                </div>
-                <div className="flex-1 h-px bg-[var(--border-default)]" />
-                <div className="w-14 shrink-0 text-right">
-                  <span className="text-xs font-mono text-[var(--text-muted)]">{fmtMs(iEndMs - iStartMs)}</span>
-                </div>
-                <div className="w-16 shrink-0 text-right" data-testid={`timeline-iter-cost-${iter}`}>
-                  <span className="text-xs font-mono text-[var(--text-muted)]">{fmtCost(iCostUsd)}</span>
-                </div>
-              </div>
+          const iterResult = iterResultMap.get(iter);
+          const isExpanded = expandedIters.has(iter);
 
-              {/* One row per invocation */}
-              {invs.map((inv) => (
-                <InvocationBar
-                  key={inv.id}
-                  inv={inv}
-                  runStartMs={runStartMs}
-                  totalMs={totalMs}
-                />
-              ))}
+          return (
+            <div
+              key={iter}
+              className="border border-[var(--border-default)] rounded-book bg-[var(--surface-elevated)] overflow-hidden"
+              data-testid={`timeline-iter-${iter}`}
+            >
+              {/* Collapsible header */}
+              <button
+                type="button"
+                className="w-full flex items-center gap-3 px-4 py-3 hover:bg-[var(--surface-hover)] transition-colors text-left"
+                onClick={() => toggleIter(iter)}
+                aria-expanded={isExpanded}
+              >
+                {/* Expand/collapse chevron */}
+                <span className={`text-xs text-[var(--text-muted)] transition-transform ${isExpanded ? 'rotate-90' : ''}`}>
+                  &#9654;
+                </span>
+
+                {/* Iteration label + agent type badge */}
+                <span className="font-ui text-sm font-semibold text-[var(--text-primary)]">
+                  {iterLabel}
+                </span>
+                {iter >= 0 && (
+                  <span
+                    className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider ${
+                      iterAgentType === 'generate'
+                        ? 'bg-blue-500/20 text-blue-400'
+                        : iterAgentType === 'swiss'
+                        ? 'bg-purple-500/20 text-purple-400'
+                        : 'bg-gray-500/20 text-gray-400'
+                    }`}
+                  >
+                    {iterAgentType}
+                  </span>
+                )}
+
+                {/* Stop reason badge */}
+                {iterResult?.stopReason && <StopReasonBadge reason={iterResult.stopReason} />}
+
+                {/* Stats summary */}
+                <div className="ml-auto flex items-center gap-4 text-xs font-mono text-[var(--text-muted)]">
+                  {iterAgentType === 'generate' && (
+                    <span>{parallelCount} agent{parallelCount !== 1 ? 's' : ''}</span>
+                  )}
+                  {iterResult && iterAgentType === 'swiss' && (
+                    <span>{iterResult.matchesCompleted} matches</span>
+                  )}
+                  <span>{fmtMs(iEndMs - iStartMs)}</span>
+                  <span data-testid={`timeline-iter-cost-${iter}`}>{fmtCost(iCostUsd)}</span>
+                </div>
+              </button>
+
+              {/* Budget bar (if iterationResult available) */}
+              {iterResult && iter >= 0 && (
+                <div className="px-4 pb-2">
+                  <BudgetBar spent={iterResult.budgetSpent} allocated={iterResult.budgetAllocated} />
+                  {/* Key stats line */}
+                  <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1 text-xs font-ui text-[var(--text-secondary)]">
+                    {iterAgentType === 'generate' && (
+                      <span>
+                        {iterResult.variantsCreated} variant{iterResult.variantsCreated !== 1 ? 's' : ''} generated
+                      </span>
+                    )}
+                    {iterAgentType === 'swiss' && (
+                      <span>
+                        {iterResult.matchesCompleted} match{iterResult.matchesCompleted !== 1 ? 'es' : ''}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Expandable Gantt section */}
+              {isExpanded && (
+                <div className="border-t border-[var(--border-default)] p-4 space-y-1">
+                  {/* Time axis */}
+                  <div className="flex items-end gap-2 mb-2">
+                    <div className="w-32 shrink-0" />
+                    <div className="flex-1 relative h-5">
+                      {([0, 25, 50, 75, 100] as const).map((pct) => (
+                        <div
+                          key={pct}
+                          style={{ left: `${pct}%` }}
+                          className="absolute bottom-0 flex flex-col items-center"
+                        >
+                          <span className="text-xs font-mono text-[var(--text-muted)] -translate-x-1/2 mb-0.5">
+                            {fmtMs((totalMs * pct) / 100)}
+                          </span>
+                          <div className="h-2 w-px bg-[var(--border-default)]" />
+                        </div>
+                      ))}
+                    </div>
+                    <div className="w-14 shrink-0" />
+                    <div className="w-16 shrink-0" />
+                  </div>
+                  {invs.map((inv) => (
+                    <InvocationBar
+                      key={inv.id}
+                      inv={inv}
+                      runStartMs={runStartMs}
+                      totalMs={totalMs}
+                    />
+                  ))}
+                </div>
+              )}
             </div>
           );
         })}
       </div>
 
-      {/* Run outcome */}
+      {/* Run summary card */}
       {summary && (
         <div
           className="border border-[var(--border-default)] rounded-book bg-[var(--surface-elevated)] p-4"
@@ -357,20 +472,24 @@ export function TimelineTab({ runId, run }: TimelineTabProps): JSX.Element {
             {winner != null && (
               <OutcomeCard
                 label="Winner"
-                value={winner.isBaseline ? 'baseline' : (winner.strategy ?? '—')}
+                value={winner.isSeedVariant ? 'seed variant' : (winner.tactic ?? '—')}
                 sub={(() => {
-                  // topVariants stored as Elo-scale; legacy mu-scale values (<100) heuristically converted.
                   const raw = winner.elo;
                   const elo = raw < 100 ? 1200 + (raw - 25) * 16 : raw;
+                  // Phase 4b: include ± uncertainty when the new optional field is populated.
+                  const u = winner.uncertainty;
+                  if (u != null && Number.isFinite(u) && u > 0) {
+                    return `Elo: ${Math.round(elo)} ± ${Math.round(1.96 * u)}`;
+                  }
                   return `Elo: ${Math.round(elo)}`;
                 })()}
-                href={winner.isBaseline ? undefined : buildVariantDetailUrl(winner.id)}
+                href={winner.isSeedVariant ? undefined : buildVariantDetailUrl(winner.id)}
               />
             )}
-            {summary.baselineRank != null && (
+            {summary.seedVariantRank != null && (
               <OutcomeCard
-                label="Baseline Rank"
-                value={`#${summary.baselineRank + 1}`}
+                label="Seed Variant Rank"
+                value={`#${summary.seedVariantRank + 1}`}
               />
             )}
           </div>

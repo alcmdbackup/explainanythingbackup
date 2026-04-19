@@ -12,6 +12,7 @@ import { cancelExperimentAction } from '@evolution/services/experimentActions';
 import { ExperimentAnalysisCard } from './ExperimentAnalysisCard';
 import { RelatedRunsTab } from '@evolution/components/evolution/tabs/RelatedRunsTab';
 import { LogsTab } from '@evolution/components/evolution/tabs/LogsTab';
+import { AttributionCharts } from '@evolution/components/evolution/tabs/AttributionCharts';
 
 const ACTIVE_STATES = new Set(['pending', 'running', 'analyzing']);
 
@@ -37,10 +38,13 @@ export interface V2Experiment {
   }>;
   metrics: {
     maxElo: number | null;
+    meanElo?: number | null;
+    seElo?: number | null;
     totalCost: number;
     runs: Array<{
       runId: string;
       elo: number | null;
+      uncertainty?: number | null;
       cost: number;
       eloPerDollar: number | null;
     }>;
@@ -93,7 +97,12 @@ export function ExperimentDetailContent({ experiment }: Props): JSX.Element {
         }
       />
       <EntityDetailTabs tabs={TABS} activeTab={activeTab} onTabChange={setActiveTab}>
-        {activeTab === 'metrics' && <EntityMetricsTab entityType="experiment" entityId={experiment.id} />}
+        {activeTab === 'metrics' && (
+          <div className="space-y-6">
+            <EntityMetricsTab entityType="experiment" entityId={experiment.id} />
+            <AttributionCharts entityType="experiment" entityId={experiment.id} />
+          </div>
+        )}
         {activeTab === 'analysis' && <ExperimentAnalysisCard experiment={experiment} />}
         {activeTab === 'runs' && <RelatedRunsTab experimentId={experiment.id} />}
         {activeTab === 'logs' && <LogsTab entityType="experiment" entityId={experiment.id} />}

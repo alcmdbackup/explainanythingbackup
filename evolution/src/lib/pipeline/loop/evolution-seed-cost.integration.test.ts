@@ -21,9 +21,9 @@ jest.mock('../../core/agents/createSeedArticle', () => ({
   })),
 }));
 
-jest.mock('../../core/agents/generateFromSeedArticle', () => ({
-  GenerateFromSeedArticleAgent: jest.fn().mockImplementation(() => ({
-    name: 'generate_from_seed_article',
+jest.mock('../../core/agents/generateFromPreviousArticle', () => ({
+  GenerateFromPreviousArticleAgent: jest.fn().mockImplementation(() => ({
+    name: 'generate_from_previous_article',
     run: (input: unknown, ctx: unknown) => mockGenerateRun(input, ctx),
   })),
   deepCloneRatings: jest.fn((m: Map<string, unknown>) => new Map(m)),
@@ -51,20 +51,30 @@ jest.mock('../infra/createEvolutionLLMClient', () => ({
   calculateCost: jest.fn().mockReturnValue(0.001),
 }));
 
-jest.mock('../infra/trackBudget', () => ({
-  createCostTracker: jest.fn(() => ({
+jest.mock('../infra/trackBudget', () => {
+  const mockTracker = () => ({
     reserve: jest.fn(),
     recordSpend: jest.fn(),
     release: jest.fn(),
     getTotalSpent: jest.fn(() => 0),
     getPhaseCosts: jest.fn(() => ({})),
     getAvailableBudget: jest.fn(() => 10),
-  })),
-}));
+  });
+  return {
+    createCostTracker: jest.fn(mockTracker),
+    createIterationBudgetTracker: jest.fn(mockTracker),
+    IterationBudgetExceededError: class IterationBudgetExceededError extends Error {
+      constructor(public agentName: string, public spent: number, public reserved: number, public cap: number, public iterationIndex: number) {
+        super(`Iteration budget exceeded`);
+        this.name = 'IterationBudgetExceededError';
+      }
+    },
+  };
+});
 
 // ─── Helpers ──────────────────────────────────────────────────────
 
-const STRATEGY_CONFIG = { generationModel: 'gpt-4o', judgeModel: 'gpt-4o', iterations: 1 };
+const STRATEGY_CONFIG = { generationModel: 'gpt-4o', judgeModel: 'gpt-4o', iterationConfigs: [{ agentType: 'generate', budgetPercent: 60 }, { agentType: 'swiss', budgetPercent: 40 }] };
 const PROMPT_TEXT = 'Explain neural networks in simple terms';
 const SEED_CONTENT = '# Neural Networks\n\n## Introduction\nA neural network is...';
 
@@ -102,7 +112,11 @@ function makeDb(opts: { hasSeedInArena?: boolean; explanationContent?: string; p
         t.order = jest.fn(() => t);
         t.limit = jest.fn(() => t);
         t.single = jest.fn(async () => ({
-          data: opts.hasSeedInArena ? { variant_content: SEED_CONTENT } : null,
+          // Enriched 2026-04-14: seed query now reads id/mu/sigma/arena_match_count/synced_to_arena
+          // for seed-rating reuse via SeedVariantRow.
+          data: opts.hasSeedInArena
+            ? { id: 'seed-row-uuid', variant_content: SEED_CONTENT, mu: 25, sigma: 8.333, arena_match_count: 0, synced_to_arena: true }
+            : null,
           error: null,
         }));
         t.then = (resolve: (v: { data: unknown[]; error: null }) => unknown) =>
@@ -128,7 +142,7 @@ function makeProvider() {
 }
 
 function makeConfig(): EvolutionConfig {
-  return { budgetUsd: 2.0, judgeModel: 'gpt-4o', generationModel: 'gpt-4o', iterations: 1, numVariants: 1 };
+  return { budgetUsd: 2.0, judgeModel: 'gpt-4o', generationModel: 'gpt-4o', iterationConfigs: [{ agentType: 'generate', budgetPercent: 60 }, { agentType: 'swiss', budgetPercent: 40 }], numVariants: 1 };
 }
 
 function makeLoopDb() {
@@ -203,76 +217,34 @@ describe('seed cost integration — buildRunContext seed query', () => {
 });
 
 describe('seed cost integration — evolveArticle seed agent flow', () => {
-  it('first run (no arena seed): CreateSeedArticleAgent runs, isSeeded=true', async () => {
-    mockSeedRun.mockResolvedValue(seedSuccess('seed article text'));
+  // Phase 2 (seed decoupling): seed generation moved to claimAndExecuteRun.
+  // evolveArticle no longer accepts seedPrompt; it receives pre-resolved originalText.
 
+  it('with seedVariantId: isSeeded flag set on result', async () => {
     const result = await evolveArticle(
-      '',
+      SEED_CONTENT,
       makeProvider(),
       makeLoopDb() as never,
       'run-1',
       makeConfig(),
-      { seedPrompt: PROMPT_TEXT },
+      { seedVariantId: 'seed-uuid-pre' },
     );
 
-    expect(mockSeedRun).toHaveBeenCalledTimes(1);
-    const seedInput = mockSeedRun.mock.calls[0][0] as { promptText: string };
-    expect(seedInput.promptText).toBe(PROMPT_TEXT);
     expect(result.isSeeded).toBe(true);
+    // Seed agent should NOT be called inside evolveArticle (it runs in pre-iteration setup now)
+    expect(mockSeedRun).not.toHaveBeenCalled();
   });
 
-  it('second run (arena seed exists): seedPrompt absent, seed agent never called', async () => {
-    // When buildRunContext finds an arena seed, it returns originalText (no seedPrompt).
-    // evolveArticle receives originalText directly and never invokes the seed agent.
+  it('without seedVariantId: isSeeded is falsy', async () => {
     const result = await evolveArticle(
-      SEED_CONTENT,   // originalText provided → no seedPrompt
+      SEED_CONTENT,
       makeProvider(),
       makeLoopDb() as never,
       'run-1',
       makeConfig(),
-      { /* seedPrompt absent */ },
     );
 
     expect(mockSeedRun).not.toHaveBeenCalled();
-    // Baseline should be created from seed content
-    const baseline = result.pool.find((v) => v.strategy === 'baseline');
-    expect(baseline?.text).toBe(SEED_CONTENT);
     expect(result.isSeeded).toBeFalsy();
-  });
-
-  it('explanation-based run: no seed agent, no seedPrompt, baseline from explanation content', async () => {
-    const explanationContent = '# Article\n\n## Intro\nThis explains the topic.';
-    const result = await evolveArticle(
-      explanationContent,
-      makeProvider(),
-      makeLoopDb() as never,
-      'run-1',
-      makeConfig(),
-      { /* no seedPrompt */ },
-    );
-
-    expect(mockSeedRun).not.toHaveBeenCalled();
-    const baseline = result.pool.find((v) => v.strategy === 'baseline');
-    expect(baseline?.text).toBe(explanationContent);
-    expect(result.isSeeded).toBeFalsy();
-  });
-
-  it('concurrent runs both create seeds independently when no arena seed exists', async () => {
-    let callCount = 0;
-    mockSeedRun.mockImplementation(async () => {
-      callCount++;
-      return seedSuccess(`seed text for run ${callCount}`);
-    });
-
-    // Two concurrent evolveArticle calls, each with seedPrompt set
-    const [resultA, resultB] = await Promise.all([
-      evolveArticle('', makeProvider(), makeLoopDb() as never, 'run-A', makeConfig(), { seedPrompt: PROMPT_TEXT }),
-      evolveArticle('', makeProvider(), makeLoopDb() as never, 'run-B', makeConfig(), { seedPrompt: PROMPT_TEXT }),
-    ]);
-
-    // Both should have called the seed agent independently
-    expect(mockSeedRun).toHaveBeenCalledTimes(2);
-    expect(resultA.isSeeded).toBe(true);
-    expect(resultB.isSeeded).toBe(true);
   });
 });

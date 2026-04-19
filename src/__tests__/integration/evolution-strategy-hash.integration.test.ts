@@ -1,5 +1,5 @@
 // Tests the strategy config hash find-or-create (upsertStrategy) against real Supabase DB.
-// Verifies deterministic hashing, iteration sensitivity, and budget exclusion from hash.
+// Verifies deterministic hashing, iterationConfigs sensitivity, and budget exclusion from hash.
 
 import { createTestSupabaseClient } from '@/testing/utils/integration-helpers';
 import { SupabaseClient } from '@supabase/supabase-js';
@@ -34,7 +34,7 @@ describe('Evolution Strategy Hash Integration Tests', () => {
     const config: StrategyConfig = {
       generationModel: 'gpt-4.1-mini',
       judgeModel: 'gpt-4.1-nano',
-      iterations: 3,
+      iterationConfigs: [{ agentType: 'generate', budgetPercent: 60 }, { agentType: 'swiss', budgetPercent: 40 }],
     };
 
     const id1 = await upsertStrategy(supabase, config);
@@ -47,18 +47,18 @@ describe('Evolution Strategy Hash Integration Tests', () => {
     expect(id1).toBe(id2);
   });
 
-  it('different iterations produces different strategy', async () => {
+  it('different iterationConfigs produces different strategy', async () => {
     if (!tablesExist) return;
 
     const configA: StrategyConfig = {
       generationModel: 'gpt-4.1-mini',
       judgeModel: 'gpt-4.1-nano',
-      iterations: 5,
+      iterationConfigs: [{ agentType: 'generate', budgetPercent: 60 }, { agentType: 'swiss', budgetPercent: 40 }],
     };
     const configB: StrategyConfig = {
       generationModel: 'gpt-4.1-mini',
       judgeModel: 'gpt-4.1-nano',
-      iterations: 10,
+      iterationConfigs: [{ agentType: 'generate', budgetPercent: 40 }, { agentType: 'swiss', budgetPercent: 30 }, { agentType: 'generate', budgetPercent: 30 }],
     };
 
     const idA = await upsertStrategy(supabase, configA);
@@ -76,12 +76,12 @@ describe('Evolution Strategy Hash Integration Tests', () => {
     const configNoBudget: StrategyConfig = {
       generationModel: 'gpt-4.1-mini',
       judgeModel: 'gpt-4.1-nano',
-      iterations: 7,
+      iterationConfigs: [{ agentType: 'generate', budgetPercent: 60 }, { agentType: 'swiss', budgetPercent: 40 }],
     };
     const configWithBudget: StrategyConfig = {
       generationModel: 'gpt-4.1-mini',
       judgeModel: 'gpt-4.1-nano',
-      iterations: 7,
+      iterationConfigs: [{ agentType: 'generate', budgetPercent: 60 }, { agentType: 'swiss', budgetPercent: 40 }],
       budgetUsd: 10.0,
     };
 

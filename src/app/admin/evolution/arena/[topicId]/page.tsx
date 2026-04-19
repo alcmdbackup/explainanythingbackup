@@ -22,6 +22,8 @@ import {
 import { formatElo, stripMarkdownTitle } from '@evolution/lib/shared/computeRatings';
 import { formatEloCIRange, formatEloWithUncertainty } from '@evolution/lib/utils/formatters';
 import { computeEloCutoff } from './arenaCutoff';
+import { bootstrapDeltaCI } from '@evolution/lib/shared/ratingDelta';
+import { VariantParentBadge } from '@evolution/components/evolution/variant/VariantParentBadge';
 
 function ContentLink({ entryId, content }: { entryId: string; content: string }): JSX.Element {
   const cleaned = stripMarkdownTitle(content);
@@ -212,7 +214,9 @@ export default function ArenaTopicDetailPage(): JSX.Element {
                   <th className="py-2 pr-3">95% CI</th>
                   <th {...sortableThProps('uncertainty')}>Elo ± Uncertainty{sortIndicator('uncertainty')}</th>
                   <th {...sortableThProps('arena_match_count')}>Matches{sortIndicator('arena_match_count')}</th>
+                  <th className="py-2 pr-3">Iteration</th>
                   <th {...sortableThProps('generation_method')}>Method{sortIndicator('generation_method')}</th>
+                  <th className="py-2 pr-3">Parent</th>
                   <th {...sortableThProps('cost_usd')}>Cost{sortIndicator('cost_usd')}</th>
                 </tr>
               </thead>
@@ -241,7 +245,49 @@ export default function ArenaTopicDetailPage(): JSX.Element {
                           : '—'}
                       </td>
                       <td className="py-2 pr-3 font-mono">{entry.arena_match_count}</td>
-                      <td className="py-2 pr-3 text-[var(--text-secondary)]">{entry.generation_method}</td>
+                      <td className="py-2 pr-3 font-mono text-[var(--text-muted)]">
+                        {entry.generation != null ? entry.generation : '—'}
+                      </td>
+                      <td className="py-2 pr-3 text-[var(--text-secondary)]">
+                        {entry.is_seed && (
+                          <span className="inline-block mr-1 px-1.5 py-0.5 text-xs font-semibold uppercase tracking-wider rounded bg-[var(--accent-gold)] text-[var(--surface-primary)]">
+                            seed
+                          </span>
+                        )}
+                        {entry.generation_method}
+                      </td>
+                      <td className="py-2 pr-3">
+                        {(() => {
+                          if (!entry.parent_variant_id) {
+                            return (
+                              <VariantParentBadge
+                                parentId={null}
+                                parentElo={null}
+                                parentUncertainty={null}
+                                delta={null}
+                                deltaCi={null}
+                              />
+                            );
+                          }
+                          const childRating = { elo: entry.elo_score, uncertainty: entry.uncertainty ?? 0 };
+                          const parentElo = entry.parent_elo ?? null;
+                          const parentUncertainty = entry.parent_uncertainty ?? null;
+                          const { delta, ci } = parentElo != null
+                            ? bootstrapDeltaCI(childRating,
+                                { elo: parentElo, uncertainty: parentUncertainty ?? 0 })
+                            : { delta: null, ci: null };
+                          return (
+                            <VariantParentBadge
+                              parentId={entry.parent_variant_id}
+                              parentElo={parentElo}
+                              parentUncertainty={parentUncertainty}
+                              delta={delta}
+                              deltaCi={ci}
+                              crossRun={!!entry.parent_run_id && entry.parent_run_id !== entry.run_id}
+                            />
+                          );
+                        })()}
+                      </td>
                       <td className="py-2 font-mono">
                         {entry.cost_usd != null
                           ? `$${entry.cost_usd.toFixed(2)}`

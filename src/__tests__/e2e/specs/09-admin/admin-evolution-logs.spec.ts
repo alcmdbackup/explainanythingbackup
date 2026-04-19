@@ -35,7 +35,7 @@ async function seedRunWithLogs(): Promise<SeededData> {
       config_hash: `e2e-logs-${ts}`,
       name: `[TEST] Logs Strategy ${ts}`,
       label: 'Gen: test | Judge: test',
-      config: { generationModel: 'test', judgeModel: 'test', iterations: 1 },
+      config: { generationModel: 'test', judgeModel: 'test', iterationConfigs: [{ agentType: 'generate', budgetPercent: 60 }, { agentType: 'swiss', budgetPercent: 40 }] },
       created_by: 'admin',
     })
     .select('id')
@@ -260,6 +260,9 @@ adminTest.describe('Admin Evolution LogsTab Regression', { tag: '@evolution' }, 
         muHistory: [[30, 28, 25]],
         diversityHistory: [0.5],
         matchStats: { totalMatches: 6, avgConfidence: 0.85, decisiveRate: 0.67 },
+        // Intentional legacy V3 shape (baselineRank/baselineMu/isBaseline + 'baseline' strategy).
+        // EvolutionRunSummaryV3Schema preprocess maps these to seedVariantRank/seedVariantElo/
+        // isSeedVariant on read; this fixture exercises that back-compat path.
         topVariants: [
           { id: randomUUID(), strategy: 'structural_transform', mu: 30, isBaseline: false },
           { id: randomUUID(), strategy: 'baseline', mu: 25, isBaseline: true },

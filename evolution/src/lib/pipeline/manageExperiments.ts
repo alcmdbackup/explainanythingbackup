@@ -3,15 +3,22 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { evolutionExperimentInsertSchema, evolutionRunInsertSchema } from '../schemas';
 import { createEntityLogger } from './infra/createEntityLogger';
+import { dbToRating } from '../shared/computeRatings';
 
 // ─── Types ───────────────────────────────────────────────────────
 
 export interface ExperimentMetrics {
   maxElo: number | null;
+  /** Mean winner-Elo across completed runs. Null when no runs have a recorded Elo. Phase 4d. */
+  meanElo?: number | null;
+  /** Standard error of the mean Elo across runs (sample stddev / sqrt(n)). Null when n<2. Phase 4d. */
+  seElo?: number | null;
   totalCost: number;
   runs: Array<{
     runId: string;
     elo: number | null;
+    /** Per-run winner Elo uncertainty (lifted from winner variant's mu/sigma). Phase 4b. */
+    uncertainty?: number | null;
     cost: number;
     eloPerDollar: number | null;
   }>;
@@ -130,7 +137,7 @@ export async function computeExperimentMetrics(
     .select(`
       id,
       run_summary,
-      evolution_variants!left(elo_score, is_winner)
+      evolution_variants!left(elo_score, mu, sigma, is_winner)
     `)
     .eq('experiment_id', experimentId)
     .eq('status', 'completed');
@@ -140,19 +147,36 @@ export async function computeExperimentMetrics(
   }
 
   const runs = rows.map((row) => {
-    const variants = row.evolution_variants as unknown as Array<{ elo_score: number; is_winner: boolean }> | null;
+    const variants = row.evolution_variants as unknown as Array<{ elo_score: number; mu?: number | null; sigma?: number | null; is_winner: boolean }> | null;
     const winner = variants?.find(v => v.is_winner);
     const elo = winner?.elo_score ?? null;
+    // Phase 4b: lift the winner variant's mu/sigma to per-run uncertainty for the analysis card.
+    const uncertainty = winner?.mu != null && winner?.sigma != null
+      ? dbToRating(winner.mu, winner.sigma).uncertainty
+      : undefined;
     const summary = row.run_summary as Record<string, unknown> | null;
     const cost = typeof summary?.totalCost === 'number' ? summary.totalCost : 0;
     const eloPerDollar = elo !== null && cost > 0 ? elo / cost : null;
 
-    return { runId: row.id as string, elo, cost, eloPerDollar };
+    return { runId: row.id as string, elo, uncertainty, cost, eloPerDollar };
   });
 
   const elos = runs.map((r) => r.elo).filter((e): e is number => e !== null);
   const maxElo = elos.length > 0 ? Math.max(...elos) : null;
   const totalCost = runs.reduce((sum, r) => sum + r.cost, 0);
 
-  return { maxElo, totalCost, runs };
+  // Phase 4d: mean Elo + SE across runs in this experiment — aggregate CI for the
+  // ExperimentAnalysisCard summary. Only emitted when we have ≥ 2 completed runs with an Elo.
+  let meanElo: number | null = null;
+  let seElo: number | null = null;
+  if (elos.length >= 2) {
+    const n = elos.length;
+    meanElo = elos.reduce((a, b) => a + b, 0) / n;
+    const variance = elos.reduce((acc, e) => acc + (e - meanElo!) ** 2, 0) / (n - 1);
+    seElo = Math.sqrt(variance / n);
+  } else if (elos.length === 1) {
+    meanElo = elos[0]!;
+  }
+
+  return { maxElo, meanElo, seElo, totalCost, runs };
 }

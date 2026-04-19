@@ -75,7 +75,7 @@ describe('budget floor migration — legacy → new', () => {
     const bothConfig = {
       generationModel: 'gpt-4.1-nano',
       judgeModel: 'gpt-4.1-nano',
-      iterations: 1,
+      iterationConfigs: [{ agentType: 'generate', budgetPercent: 60 }, { agentType: 'swiss', budgetPercent: 40 }],
       budgetBufferAfterParallel: 0.10,
       minBudgetAfterParallelFraction: 0.50,
     };

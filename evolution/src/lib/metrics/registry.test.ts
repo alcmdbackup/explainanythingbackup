@@ -86,3 +86,66 @@ describe('entity registry structure', () => {
     expect(getAllEntityMetricDefs('prompt').length).toBe(0);
   });
 });
+
+// cost_estimate_accuracy_analysis_20260414: assert new metric defs are registered
+// and that propagated entries reference valid run-level source metrics. The
+// registry's load-time validateRegistry() catches broken sourceMetric references
+// generally; this block makes the new metric set explicit so future drift is caught
+// at this test rather than at load time.
+describe('cost-estimate-accuracy registry entries', () => {
+  const NEW_RUN_METRICS = [
+    'cost_estimation_error_pct',
+    'estimated_cost',
+    'estimation_abs_error_usd',
+    'generation_estimation_error_pct',
+    'ranking_estimation_error_pct',
+    'agent_cost_projected',
+    'agent_cost_actual',
+    'parallel_dispatched',
+    'sequential_dispatched',
+    'median_sequential_gfsa_duration_ms',
+    'avg_sequential_gfsa_duration_ms',
+  ];
+
+  const NEW_PROPAGATED_METRICS = [
+    'avg_cost_estimation_error_pct',
+    'avg_generation_estimation_error_pct',
+    'avg_ranking_estimation_error_pct',
+    'avg_estimation_abs_error_usd',
+    'total_estimated_cost',
+    'avg_estimated_cost',
+    'avg_agent_cost_projected',
+    'avg_agent_cost_actual',
+    'avg_parallel_dispatched',
+    'avg_sequential_dispatched',
+    'avg_median_sequential_gfsa_duration_ms',
+  ];
+
+  it.each(NEW_RUN_METRICS)('run.atFinalization includes %s', (name) => {
+    const def = getEntityMetricDef('run', name);
+    expect(def).toBeDefined();
+    expect(def?.category === 'cost' || def?.category === 'count').toBe(true);
+  });
+
+  it.each(NEW_PROPAGATED_METRICS)('strategy.atPropagation includes %s', (name) => {
+    const def = getEntityMetricDef('strategy', name);
+    expect(def).toBeDefined();
+  });
+
+  it.each(NEW_PROPAGATED_METRICS)('experiment.atPropagation includes %s', (name) => {
+    const def = getEntityMetricDef('experiment', name);
+    expect(def).toBeDefined();
+  });
+
+  it('all propagated cost-estimate metrics reference valid run sources (load-time validateRegistry guards this in production)', () => {
+    const runNames = new Set(getAllEntityMetricDefs('run').map((d) => d.name));
+    const stratPropagated = getEntity('strategy').metrics.atPropagation;
+    for (const name of NEW_PROPAGATED_METRICS) {
+      const def = stratPropagated.find((d) => d.name === name);
+      expect(def).toBeDefined();
+      if (def && 'sourceMetric' in def) {
+        expect(runNames.has(def.sourceMetric)).toBe(true);
+      }
+    }
+  });
+});

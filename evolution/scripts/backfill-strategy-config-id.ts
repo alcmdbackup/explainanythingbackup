@@ -56,16 +56,30 @@ async function main() {
 
     const generationModel = (config.generationModel as string) ?? 'gpt-4.1-mini';
     const judgeModel = (config.judgeModel as string) ?? 'gpt-4.1-nano';
-    const iterations = (config.maxIterations as number) ?? 5;
+    const iterationCount = (config.maxIterations as number) ?? 5;
+
+    // Build iterationConfigs from legacy iteration count: alternate generate/swiss pairs.
+    const iterationConfigs: Array<{ agentType: 'generate' | 'swiss'; budgetPercent: number }> = [];
+    {
+      const totalSlots = iterationCount * 2;
+      const perSlot = Math.floor(100 / totalSlots);
+      let rem = 100 - perSlot * totalSlots;
+      for (let i = 0; i < iterationCount; i++) {
+        const genExtra = rem > 0 ? 1 : 0; if (rem > 0) rem--;
+        iterationConfigs.push({ agentType: 'generate', budgetPercent: perSlot + genExtra });
+        const swissExtra = rem > 0 ? 1 : 0; if (rem > 0) rem--;
+        iterationConfigs.push({ agentType: 'swiss', budgetPercent: perSlot + swissExtra });
+      }
+    }
 
     const usedDefaults = !config.generationModel || !config.judgeModel || !config.maxIterations;
     if (usedDefaults) defaultsUsed++;
 
     try {
       if (DRY_RUN) {
-        console.log(`  [dry-run] ${run.id}: gen=${generationModel} judge=${judgeModel} iter=${iterations}${usedDefaults ? ' (defaults)' : ''}`);
+        console.log(`  [dry-run] ${run.id}: gen=${generationModel} judge=${judgeModel} iter=${iterationCount}${usedDefaults ? ' (defaults)' : ''}`);
       } else {
-        const strategyId = await upsertStrategy(supabase, { generationModel, judgeModel, iterations });
+        const strategyId = await upsertStrategy(supabase, { generationModel, judgeModel, iterationConfigs });
 
         const { error: updateError } = await supabase
           .from('evolution_runs')

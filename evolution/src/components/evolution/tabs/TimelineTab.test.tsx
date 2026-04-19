@@ -1,6 +1,6 @@
 // Tests for TimelineTab: loading, empty, populated with generate/swiss iterations, and run outcome.
 
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { TimelineTab } from './TimelineTab';
 import * as invocationActions from '@evolution/services/invocationActions';
 import type { InvocationListEntry } from '@evolution/services/invocationActions';
@@ -41,10 +41,10 @@ const BASE_RUN: EvolutionRun = {
     eloHistory: [[25], [30]],
     diversityHistory: [1, 0.8],
     matchStats: { totalMatches: 12, avgConfidence: 0.75, decisiveRate: 0.83 },
-    topVariants: [{ id: VARIANT_ID, strategy: 'structural_transform', elo: 31.5, isBaseline: false }],
-    baselineRank: 2,
-    baselineElo: 22.4,
-    strategyEffectiveness: {},
+    topVariants: [{ id: VARIANT_ID, tactic: 'structural_transform', elo: 31.5, isSeedVariant: false }],
+    seedVariantRank: 2,
+    seedVariantElo: 22.4,
+    tacticEffectiveness: {},
     metaFeedback: null,
   },
   runner_id: null,
@@ -56,7 +56,7 @@ const GEN_INVOCATIONS: InvocationListEntry[] = [
   {
     id: INV_ID_1,
     run_id: RUN_ID,
-    agent_name: 'GenerateFromSeedArticleAgent',
+    agent_name: 'GenerateFromPreviousArticleAgent',
     iteration: 1,
     execution_order: 0,
     success: true,
@@ -68,7 +68,7 @@ const GEN_INVOCATIONS: InvocationListEntry[] = [
   {
     id: INV_ID_2,
     run_id: RUN_ID,
-    agent_name: 'GenerateFromSeedArticleAgent',
+    agent_name: 'GenerateFromPreviousArticleAgent',
     iteration: 1,
     execution_order: 1,
     success: true,
@@ -139,7 +139,7 @@ describe('TimelineTab', () => {
     );
   });
 
-  it('renders gantt chart and iteration groups', async () => {
+  it('renders iteration cards and expandable gantt bars', async () => {
     (invocationActions.listInvocationsAction as jest.Mock).mockResolvedValue({
       success: true,
       data: { items: GEN_INVOCATIONS, total: GEN_INVOCATIONS.length },
@@ -147,20 +147,24 @@ describe('TimelineTab', () => {
     render(<TimelineTab runId={RUN_ID} run={BASE_RUN} />);
 
     await waitFor(() =>
-      expect(screen.getByTestId('timeline-gantt')).toBeInTheDocument(),
+      expect(screen.getByTestId('timeline-tab')).toBeInTheDocument(),
     );
 
-    // Both iteration groups present
+    // Both iteration cards present
     expect(screen.getByTestId('timeline-iter-1')).toBeInTheDocument();
     expect(screen.getByTestId('timeline-iter-2')).toBeInTheDocument();
 
-    // Generate iteration label shows parallel count
-    expect(screen.getByTestId('timeline-iter-1')).toHaveTextContent('2× parallel');
+    // Generate iteration header shows agent count
+    expect(screen.getByTestId('timeline-iter-1')).toHaveTextContent('2 agents');
 
-    // Swiss iteration label
+    // Swiss iteration header shows agent type badge
     expect(screen.getByTestId('timeline-iter-2')).toHaveTextContent('swiss');
 
-    // One bar per invocation
+    // Bars are hidden until expanded — expand both iterations
+    fireEvent.click(screen.getByTestId('timeline-iter-1').querySelector('button')!);
+    fireEvent.click(screen.getByTestId('timeline-iter-2').querySelector('button')!);
+
+    // One bar per invocation after expansion
     expect(screen.getByTestId(`timeline-bar-${INV_ID_1}`)).toBeInTheDocument();
     expect(screen.getByTestId(`timeline-bar-${INV_ID_2}`)).toBeInTheDocument();
     expect(screen.getByTestId(`timeline-bar-${INV_ID_3}`)).toBeInTheDocument();
@@ -192,8 +196,11 @@ describe('TimelineTab', () => {
     render(<TimelineTab runId={RUN_ID} run={BASE_RUN} />);
 
     await waitFor(() =>
-      expect(screen.getByTestId(`timeline-bar-${INV_ID_1}`)).toBeInTheDocument(),
+      expect(screen.getByTestId('timeline-iter-1')).toBeInTheDocument(),
     );
+
+    // Expand iteration 1 to reveal bars
+    fireEvent.click(screen.getByTestId('timeline-iter-1').querySelector('button')!);
 
     const bar = screen.getByTestId(`timeline-bar-${INV_ID_1}`);
     expect(bar).toHaveAttribute('href', `/admin/evolution/invocations/${INV_ID_1}`);
@@ -208,7 +215,7 @@ describe('TimelineTab', () => {
     render(<TimelineTab runId={RUN_ID} run={runNoSummary} />);
 
     await waitFor(() =>
-      expect(screen.getByTestId('timeline-gantt')).toBeInTheDocument(),
+      expect(screen.getByTestId('timeline-tab')).toBeInTheDocument(),
     );
 
     expect(screen.queryByTestId('timeline-outcome')).not.toBeInTheDocument();
@@ -227,8 +234,13 @@ describe('TimelineTab', () => {
     render(<TimelineTab runId={RUN_ID} run={BASE_RUN} />);
 
     await waitFor(() =>
-      expect(screen.getByTestId(`timeline-bar-${nullDuration.id}`)).toBeInTheDocument(),
+      expect(screen.getByTestId('timeline-iter-1')).toBeInTheDocument(),
     );
+
+    // Expand iteration to reveal bars
+    fireEvent.click(screen.getByTestId('timeline-iter-1').querySelector('button')!);
+
+    expect(screen.getByTestId(`timeline-bar-${nullDuration.id}`)).toBeInTheDocument();
     // Duration column shows em-dash for null duration
     expect(screen.getByTestId(`timeline-inv-${nullDuration.id}`)).toHaveTextContent('—');
   });
@@ -265,8 +277,12 @@ describe('TimelineTab', () => {
     render(<TimelineTab runId={RUN_ID} run={BASE_RUN} />);
 
     await waitFor(() =>
-      expect(screen.getByTestId(`timeline-inv-${failed.id}`)).toBeInTheDocument(),
+      expect(screen.getByTestId('timeline-iter-1')).toBeInTheDocument(),
     );
+
+    // Expand iteration to reveal bars
+    fireEvent.click(screen.getByTestId('timeline-iter-1').querySelector('button')!);
+
     expect(screen.getByTestId(`timeline-inv-${failed.id}`)).toHaveTextContent('✗');
   });
 
@@ -293,8 +309,12 @@ describe('TimelineTab', () => {
 
     // Chart renders without crashing — fallback totalMs computed from last invocation
     await waitFor(() =>
-      expect(screen.getByTestId('timeline-gantt')).toBeInTheDocument(),
+      expect(screen.getByTestId('timeline-tab')).toBeInTheDocument(),
     );
+
+    // Expand iteration 2 to reveal bars
+    fireEvent.click(screen.getByTestId('timeline-iter-2').querySelector('button')!);
+
     // All bars still render
     expect(screen.getByTestId(`timeline-bar-${INV_ID_4}`)).toBeInTheDocument();
   });
@@ -307,8 +327,11 @@ describe('TimelineTab', () => {
     render(<TimelineTab runId={RUN_ID} run={BASE_RUN} />);
 
     await waitFor(() =>
-      expect(screen.getByTestId(`timeline-cost-${INV_ID_1}`)).toBeInTheDocument(),
+      expect(screen.getByTestId('timeline-iter-1')).toBeInTheDocument(),
     );
+
+    // Expand iteration 1 to reveal cost columns
+    fireEvent.click(screen.getByTestId('timeline-iter-1').querySelector('button')!);
 
     // INV_ID_1 has cost_usd: 0.002 → $0.0020
     expect(screen.getByTestId(`timeline-cost-${INV_ID_1}`)).toHaveTextContent('$0.0020');
@@ -341,7 +364,7 @@ describe('TimelineTab', () => {
     render(<TimelineTab runId={RUN_ID} run={BASE_RUN} />);
 
     await waitFor(() =>
-      expect(screen.getByTestId('timeline-gantt')).toBeInTheDocument(),
+      expect(screen.getByTestId('timeline-tab')).toBeInTheDocument(),
     );
     expect(screen.queryByTestId('timeline-truncation-warning')).not.toBeInTheDocument();
   });

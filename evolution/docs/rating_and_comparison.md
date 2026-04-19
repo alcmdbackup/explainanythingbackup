@@ -16,7 +16,7 @@ every text variant in the pool.
 > now split across two distinct algorithms, each owned by a different agent:
 >
 > - **Binary-search single-variant ranking** (`rankSingleVariant`) lives inside
->   `GenerateFromSeedArticleAgent`. Each parallel generate agent ranks its newly
+>   `GenerateFromPreviousArticleAgent`. Each parallel generate agent ranks its newly
 >   generated variant against a deep-cloned local snapshot of the iteration-start
 >   pool/ratings/matchCounts, using a continuous opponent-selection formula
 >   (`entropy(pWin) / uncertainty^UNCERTAINTY_WEIGHT`). Stops on convergence, elimination,
@@ -165,6 +165,20 @@ tight CI; a variant with high uncertainty (few matches) produces a wide CI.
 ### Propagated CI (Bootstrap)
 
 At the strategy and experiment level, elo metrics are aggregated across multiple runs using `bootstrap_mean` aggregation. The CI at these levels comes from `bootstrapMeanCI()` — a resampling-based estimate of the mean's uncertainty — not from the per-variant uncertainty. This is appropriate because the cross-run variance (different runs producing different winner elos) is the dominant source of uncertainty at the aggregate level.
+
+### UI Rendering Convention
+
+Every admin-UI site that displays an Elo value should also show its confidence interval when one is available. Helpers in `evolution/src/lib/utils/formatters.ts`:
+
+- `formatEloWithUncertainty(elo, uncertainty)` → `"1200 ± 45"` (half-width form, good for inline cells)
+- `formatEloCIRange(elo, uncertainty)` → `"[1155, 1245]"` (range form, good for dedicated CI columns)
+
+Sites that render CI today: arena leaderboard, run detail Variants tab, global `/admin/evolution/variants` list, strategy detail Variants tab, run detail Metrics tab (Top Variants + Strategy Effectiveness), run detail Timeline tab (final winner), run detail Snapshots tab, lineage graph tooltip (`VariantCard`), variant detail lineage section, variant detail sidebar panel, `EntityMetricsTab` via `MetricGrid` for propagated metrics with CI populated, and `createMetricColumns` for bootstrap-aggregated metric columns on the strategy/experiment list pages (Phase 4d).
+
+Scope distinction:
+- **Per-variant CI** uses the rating system's native `{elo, uncertainty}` (Elo-scale sigma). Direct, no aggregation.
+- **Aggregate CI** comes from `evolution_metrics.ci_lower`/`ci_upper` for bootstrap-aggregated strategy/experiment metrics, OR from inline SE-of-mean computation in the dashboard + experiment analysis card (Phase 4d).
+- **Within-run Strategy Effectiveness** renders `avgElo ± seAvgElo` from `run_summary.strategyEffectiveness[*].seAvgElo` — the Welford-computed SE of the mean Elo across variants in a strategy bucket. This is NOT per-variant rating CI; tooltip on the column header clarifies.
 
 ---
 

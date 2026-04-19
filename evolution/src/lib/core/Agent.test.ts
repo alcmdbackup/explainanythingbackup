@@ -4,7 +4,7 @@ import { Agent } from './Agent';
 import type { AgentContext, AgentOutput, DetailFieldDef } from './types';
 import { BudgetExceededError, BudgetExceededWithPartialResults, ExecutionDetailBase } from '../types';
 import { createCostTracker } from '../pipeline/infra/trackBudget';
-import { GenerateFromSeedArticleAgent } from './agents/generateFromSeedArticle';
+import { GenerateFromPreviousArticleAgent } from './agents/generateFromPreviousArticle';
 import { SwissRankingAgent } from './agents/SwissRankingAgent';
 import { MergeRatingsAgent } from './agents/MergeRatingsAgent';
 import { z } from 'zod';
@@ -68,7 +68,7 @@ function createMockContext(overrides?: Partial<AgentContext>): AgentContext {
       getAvailableBudget: jest.fn().mockReturnValue(5),
     },
     config: {
-      iterations: 5,
+      iterationConfigs: [{ agentType: 'generate', budgetPercent: 60 }, { agentType: 'swiss', budgetPercent: 40 }],
       budgetUsd: 10,
       judgeModel: 'gpt-4o',
       generationModel: 'gpt-4o',
@@ -104,6 +104,7 @@ describe('Agent abstract class', () => {
       expect(typeof result.durationMs).toBe('number');
       expect(createInvocation).toHaveBeenCalledWith(
         ctx.db, 'run-123', 0, 'test_agent', 1,
+        undefined, undefined,
       );
       expect(updateInvocation).toHaveBeenCalledWith(
         ctx.db, 'inv-123', expect.objectContaining({
@@ -254,6 +255,64 @@ describe('Agent abstract class', () => {
       expect(resultA.cost).toBeCloseTo(0.12); // NOT 0.37
     });
 
+    it('Bug B regression: Agent.run builds scoped LLM client from ctx.rawProvider + scope', async () => {
+      // Simulates the production path: parallel agents share one tracker. Each agent is given
+      // a rawProvider + defaultModel via ctx; Agent.run builds a per-invocation EvolutionLLMClient
+      // bound to the scope so recordSpend hits only the agent's own scope.
+      const shared = createCostTracker(10.0);
+
+      // Three known-distinct provider responses — each agent gets one.
+      const usages = [
+        { promptTokens: 100, completionTokens: 100 }, // agent 0
+        { promptTokens: 200, completionTokens: 200 }, // agent 1
+        { promptTokens: 300, completionTokens: 300 }, // agent 2
+      ];
+      let callIdx = 0;
+      const rawProvider = {
+        async complete(_prompt: string, _label: string) {
+          const idx = callIdx++;
+          await new Promise((r) => setTimeout(r, 5 * (3 - idx))); // reverse ordering
+          return { text: 'ok', usage: usages[idx]! };
+        },
+      };
+
+      const makeAgent = () =>
+        new TestAgent(async (_input: string, ctx) => {
+          // Uses the scoped LLM client that Agent.run injected into input.llm
+          const llm = (_input as unknown as { llm: { complete: (p: string, l: string) => Promise<string> } }).llm;
+          await llm.complete('p', 'generation');
+          return { result: 'ok', detail: { detailType: 'test', totalCost: 0 } };
+        });
+
+      // Pass string input with .llm shim so TestAgent's input (typed as string) still works
+      // via our input rewrite path. Use `as any` since TestAgent<string, …> won't accept objects.
+      const ctx = createMockContext({
+        costTracker: shared,
+        rawProvider,
+        defaultModel: 'deepseek-chat',
+      });
+
+      const results = await Promise.all([
+        makeAgent().run('{}' as unknown as string, ctx),
+        makeAgent().run('{}' as unknown as string, ctx),
+        makeAgent().run('{}' as unknown as string, ctx),
+      ]);
+
+      // deepseek-chat: input $0.28/1M, output $0.42/1M
+      // agent i cost = (p_i * 0.28 + c_i * 0.42) / 1M
+      const cost = (i: number) => (usages[i]!.promptTokens * 0.28 + usages[i]!.completionTokens * 0.42) / 1_000_000;
+
+      // Each agent's cost_usd must equal its own expected cost — no sibling bleed.
+      const sortedCosts = results.map(r => r.cost!).sort((a, b) => a - b);
+      const expectedCosts = [cost(0), cost(1), cost(2)].sort((a, b) => a - b);
+      expect(sortedCosts[0]).toBeCloseTo(expectedCosts[0]!, 8);
+      expect(sortedCosts[1]).toBeCloseTo(expectedCosts[1]!, 8);
+      expect(sortedCosts[2]).toBeCloseTo(expectedCosts[2]!, 8);
+
+      // Shared tracker total = sum of all three (cross-check scope intercept forwards to shared)
+      expect(shared.getTotalSpent()).toBeCloseTo(cost(0) + cost(1) + cost(2), 8);
+    });
+
     it('error path: cost = spend recorded before error', async () => {
       const shared = createCostTracker(10.0);
 
@@ -366,8 +425,8 @@ describe('Agent abstract class', () => {
   });
 
   describe('detailViewConfig on concrete agents', () => {
-    it('GenerateFromSeedArticleAgent has a non-empty detailViewConfig', () => {
-      const agent = new GenerateFromSeedArticleAgent();
+    it('GenerateFromPreviousArticleAgent has a non-empty detailViewConfig', () => {
+      const agent = new GenerateFromPreviousArticleAgent();
       expect(Array.isArray(agent.detailViewConfig)).toBe(true);
       expect(agent.detailViewConfig.length).toBeGreaterThan(0);
     });
@@ -382,6 +441,36 @@ describe('Agent abstract class', () => {
       const agent = new MergeRatingsAgent();
       expect(Array.isArray(agent.detailViewConfig)).toBe(true);
       expect(agent.detailViewConfig.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe('getAttributionDimension (Phase 5)', () => {
+    it('GenerateFromPreviousArticleAgent returns detail.tactic', () => {
+      const agent = new GenerateFromPreviousArticleAgent();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const result = agent.getAttributionDimension({ tactic: 'lexical_simplify' } as any);
+      expect(result).toBe('lexical_simplify');
+    });
+
+    it('GenerateFromPreviousArticleAgent returns null when tactic absent', () => {
+      const agent = new GenerateFromPreviousArticleAgent();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const result = agent.getAttributionDimension({} as any);
+      expect(result).toBeNull();
+    });
+
+    it('SwissRankingAgent returns null (default — no attribution)', () => {
+      const agent = new SwissRankingAgent();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const result = agent.getAttributionDimension({} as any);
+      expect(result).toBeNull();
+    });
+
+    it('MergeRatingsAgent returns null (default — no attribution)', () => {
+      const agent = new MergeRatingsAgent();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const result = agent.getAttributionDimension({} as any);
+      expect(result).toBeNull();
     });
   });
 });

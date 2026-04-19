@@ -52,8 +52,9 @@ export function LineageTab({ runId }: LineageTabProps): JSX.Element {
   const graphNodes = nodes.map(n => ({
     id: n.id,
     shortId: n.id.substring(0, 8),
-    strategy: n.agentName,
+    tactic: n.agentName,
     elo: n.eloScore,
+    ...(n.uncertainty != null ? { uncertainty: n.uncertainty } : {}),
     iterationBorn: n.generation,
     isWinner: n.isWinner,
     persisted: n.persisted ?? true,

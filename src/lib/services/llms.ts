@@ -176,8 +176,8 @@ function getOpenAIClient(): OpenAI {
     if (!openai) {
         openai = new OpenAI({
             apiKey: process.env.OPENAI_API_KEY,
-            maxRetries: 3,
-            timeout: 60000  // Increased to 60 seconds for GPT-5 models
+            maxRetries: 2,
+            timeout: 20000,
         });
     }
 
@@ -200,8 +200,8 @@ function getDeepSeekClient(): OpenAI {
         deepseekClient = new OpenAI({
             apiKey: process.env.DEEPSEEK_API_KEY,
             baseURL: DEEPSEEK_BASE_URL,
-            maxRetries: 3,
-            timeout: 60000,
+            maxRetries: 2,
+            timeout: 20000,
         });
     }
 
@@ -227,7 +227,7 @@ function getLocalClient(): OpenAI {
         localClient = new OpenAI({
             apiKey: 'local',
             baseURL: process.env.LOCAL_LLM_BASE_URL || 'http://localhost:11434/v1',
-            maxRetries: 3,
+            maxRetries: 2,
             timeout: 300000,
         });
     }
@@ -251,8 +251,8 @@ function getOpenRouterClient(): OpenAI {
         openRouterClient = new OpenAI({
             apiKey: process.env.OPENROUTER_API_KEY,
             baseURL: OPENROUTER_BASE_URL,
-            maxRetries: 3,
-            timeout: 60000,
+            maxRetries: 2,
+            timeout: 20000,
         });
     }
 
@@ -277,8 +277,8 @@ function getAnthropicClient(): Anthropic {
     if (!anthropicClient) {
         anthropicClient = new Anthropic({
             apiKey: process.env.ANTHROPIC_API_KEY,
-            maxRetries: 3,
-            timeout: 60000,
+            maxRetries: 2,
+            timeout: 20000,
         });
     }
 

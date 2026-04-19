@@ -25,7 +25,7 @@ describe('V2 LLM Client — timeout retry (real isTransientError)', () => {
     const provider = {
       complete: jest.fn(async () => {
         callCount++;
-        if (callCount === 1) throw new Error('LLM call timeout (60s)');
+        if (callCount === 1) throw new Error('LLM call timeout (20s)');
         return 'success response';
       }),
     };

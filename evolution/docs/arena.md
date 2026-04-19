@@ -29,6 +29,13 @@ The arena provides a unified cross-method comparison layer on top of the evoluti
 
 Arena entries are not a separate table. They are rows in `evolution_variants` with `synced_to_arena = true`. Each run loads existing arena-synced variants into its pool, ranks everything together, then syncs new variants and match results back. Over time the arena accumulates a reliable leaderboard per prompt.
 
+> **Seed variant handling (2026-04-15):** The seed variant is no longer loaded into the pool
+> as a competitor. It serves only as the **generation source text** — all generated variants
+> have `parentIds` set to `[seedVariantId]`. The seed variant receives an "arena badge" on the
+> leaderboard for identification but does not participate in rating or ranking within a run.
+> When a prompt has a persisted `generation_method='seed'` arena entry, the seed row's UUID
+> is reused for lineage tracking. Gated by `EVOLUTION_REUSE_SEED_RATING` (default `true`).
+
 ## Loading arena entries
 
 `loadArenaEntries` pulls active entries from the database into the pipeline's working pool. Arena entries participate in ranking alongside freshly generated variants but are distinguished by a `fromArena` flag.

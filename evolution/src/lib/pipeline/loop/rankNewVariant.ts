@@ -1,5 +1,5 @@
 // Shared ranking helper: adds a variant to the local pool, runs binary search, and applies
-// surface/discard logic. Used by GenerateFromSeedArticleAgent and CreateSeedArticleAgent.
+// surface/discard logic. Used by GenerateFromPreviousArticleAgent and CreateSeedArticleAgent.
 
 import type { Variant, EvolutionLLMClient } from '../../types';
 import type { Rating, ComparisonResult } from '../../shared/computeRatings';
@@ -26,7 +26,7 @@ export interface RankNewVariantInput {
   config: EvolutionConfig;
   invocationId: string;
   logger: EntityLogger;
-  costTracker: V2CostTracker;
+  costTracker: V2CostTracker & { getOwnSpent?: () => number };
 }
 
 export interface RankNewVariantResult {
@@ -61,7 +61,7 @@ export async function rankNewVariant({
   localPool.push(variant);
   localRatings.set(variant.id, createRating());
 
-  const costBeforeRank = costTracker.getTotalSpent();
+  const costBeforeRank = costTracker.getOwnSpent?.() ?? costTracker.getTotalSpent();
 
   const rankResult = await rankSingleVariant({
     variant,
@@ -76,7 +76,7 @@ export async function rankNewVariant({
     logger,
   });
 
-  const rankingCost = costTracker.getTotalSpent() - costBeforeRank;
+  const rankingCost = (costTracker.getOwnSpent?.() ?? costTracker.getTotalSpent()) - costBeforeRank;
 
   const localCutoff = computeTop15Cutoff(localRatings);
   const localVariantElo = localRatings.get(variant.id)!.elo;

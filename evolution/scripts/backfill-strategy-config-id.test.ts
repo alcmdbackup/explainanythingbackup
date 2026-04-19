@@ -21,12 +21,28 @@ describe('backfill config extraction logic', () => {
     mockUpsertStrategy.mockResolvedValue('strat-mock-id');
   });
 
+  /** Build iterationConfigs from a legacy iteration count (generate/swiss pairs). */
+  function buildIterationConfigs(count: number): Array<{ agentType: 'generate' | 'swiss'; budgetPercent: number }> {
+    const configs: Array<{ agentType: 'generate' | 'swiss'; budgetPercent: number }> = [];
+    const totalSlots = count * 2;
+    const perSlot = Math.floor(100 / totalSlots);
+    let rem = 100 - perSlot * totalSlots;
+    for (let i = 0; i < count; i++) {
+      const genExtra = rem > 0 ? 1 : 0; if (rem > 0) rem--;
+      configs.push({ agentType: 'generate', budgetPercent: perSlot + genExtra });
+      const swissExtra = rem > 0 ? 1 : 0; if (rem > 0) rem--;
+      configs.push({ agentType: 'swiss', budgetPercent: perSlot + swissExtra });
+    }
+    return configs;
+  }
+
   function extractConfig(config: Record<string, unknown> | null) {
     const c = config ?? {};
+    const iterationCount = (c.maxIterations as number) ?? 5;
     return {
       generationModel: (c.generationModel as string) ?? 'gpt-4.1-mini',
       judgeModel: (c.judgeModel as string) ?? 'gpt-4.1-nano',
-      iterations: (c.maxIterations as number) ?? 5,
+      iterationConfigs: buildIterationConfigs(iterationCount),
     };
   }
 
@@ -41,7 +57,7 @@ describe('backfill config extraction logic', () => {
     expect(result).toEqual({
       generationModel: 'gpt-4.1',
       judgeModel: 'gpt-4.1-mini',
-      iterations: 10,
+      iterationConfigs: buildIterationConfigs(10),
     });
   });
 
@@ -50,7 +66,7 @@ describe('backfill config extraction logic', () => {
     expect(result).toEqual({
       generationModel: 'gpt-4.1-mini',
       judgeModel: 'gpt-4.1-nano',
-      iterations: 5,
+      iterationConfigs: buildIterationConfigs(5),
     });
   });
 
@@ -59,7 +75,7 @@ describe('backfill config extraction logic', () => {
     expect(result).toEqual({
       generationModel: 'gpt-4.1-mini',
       judgeModel: 'gpt-4.1-nano',
-      iterations: 5,
+      iterationConfigs: buildIterationConfigs(5),
     });
   });
 
@@ -75,19 +91,21 @@ describe('backfill config extraction logic', () => {
     expect(result).toEqual({
       generationModel: 'gpt-4.1-mini',
       judgeModel: 'gpt-4.1-nano',
-      iterations: 3,
+      iterationConfigs: buildIterationConfigs(3),
     });
   });
 
   it('duplicate configs produce same hash (deduplication)', () => {
-    const config1 = { generationModel: 'gpt-4.1-mini', judgeModel: 'gpt-4.1-nano', iterations: 5 };
-    const config2 = { generationModel: 'gpt-4.1-mini', judgeModel: 'gpt-4.1-nano', iterations: 5 };
+    const ic = buildIterationConfigs(5);
+    const config1 = { generationModel: 'gpt-4.1-mini', judgeModel: 'gpt-4.1-nano', iterationConfigs: ic };
+    const config2 = { generationModel: 'gpt-4.1-mini', judgeModel: 'gpt-4.1-nano', iterationConfigs: ic };
     expect(hashStrategyConfig(config1)).toBe(hashStrategyConfig(config2));
   });
 
   it('different configs produce different hashes', () => {
-    const config1 = { generationModel: 'gpt-4.1-mini', judgeModel: 'gpt-4.1-nano', iterations: 5 };
-    const config2 = { generationModel: 'gpt-4.1', judgeModel: 'gpt-4.1-nano', iterations: 5 };
+    const ic = buildIterationConfigs(5);
+    const config1 = { generationModel: 'gpt-4.1-mini', judgeModel: 'gpt-4.1-nano', iterationConfigs: ic };
+    const config2 = { generationModel: 'gpt-4.1', judgeModel: 'gpt-4.1-nano', iterationConfigs: ic };
     expect(hashStrategyConfig(config1)).not.toBe(hashStrategyConfig(config2));
   });
 });

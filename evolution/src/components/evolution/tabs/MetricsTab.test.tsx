@@ -24,12 +24,12 @@ const mockSummary = {
   diversityHistory: [0.5, 0.6],
   matchStats: { totalMatches: 50, avgConfidence: 0.85, decisiveRate: 0.7 },
   topVariants: [
-    { id: 'v1', strategy: 'generation', elo: 27.5, isBaseline: false },
-    { id: 'v2', strategy: 'original_baseline', elo: 25.0, isBaseline: true },
+    { id: 'v1', tactic: 'generation', elo: 27.5, isSeedVariant: false },
+    { id: 'v2', tactic: 'seed_variant', elo: 25.0, isSeedVariant: true },
   ],
-  baselineRank: 2,
-  baselineElo: 25.0,
-  strategyEffectiveness: {
+  seedVariantRank: 2,
+  seedVariantElo: 25.0,
+  tacticEffectiveness: {
     generation: { count: 5, avgElo: 26.0 },
     evolution: { count: 3, avgElo: 25.5 },
   },
@@ -93,7 +93,7 @@ describe('MetricsTab', () => {
     expect(screen.getByText('1200')).toBeInTheDocument();
   });
 
-  it('renders strategy effectiveness table', async () => {
+  it('renders tactic effectiveness table', async () => {
     getEvolutionRunSummaryAction.mockResolvedValue({
       success: true, data: mockSummary, error: null,
     });
@@ -102,8 +102,8 @@ describe('MetricsTab', () => {
     });
 
     render(<MetricsTab runId="run-1" />);
-    await waitFor(() => expect(screen.getByText('Strategy Effectiveness')).toBeInTheDocument());
-    // "generation" appears in both top variants and strategy effectiveness tables
+    await waitFor(() => expect(screen.getByText('Tactic Effectiveness')).toBeInTheDocument());
+    // "generation" appears in both top variants and tactic effectiveness tables
     expect(screen.getAllByText('generation').length).toBeGreaterThanOrEqual(2);
     expect(screen.getByText('evolution')).toBeInTheDocument();
   });
@@ -148,7 +148,7 @@ describe('MetricsTab', () => {
     expect(screen.getByText('70.0%')).toBeInTheDocument(); // decisiveRate
   });
 
-  it('shows baseline checkmark for baseline variants', async () => {
+  it('shows seed-variant checkmark for the seed variant', async () => {
     getEvolutionRunSummaryAction.mockResolvedValue({
       success: true, data: mockSummary, error: null,
     });
@@ -231,7 +231,7 @@ describe('MetricsTab', () => {
     expect(getEvolutionCostBreakdownAction).toHaveBeenCalledWith('run-1');
   });
 
-  it('shows baseline rank metric', async () => {
+  it('shows seed-variant rank metric (renamed from Baseline Rank)', async () => {
     getEvolutionRunSummaryAction.mockResolvedValue({
       success: true, data: mockSummary, error: null,
     });
@@ -241,6 +241,6 @@ describe('MetricsTab', () => {
 
     render(<MetricsTab runId="run-1" />);
     await waitFor(() => expect(screen.getByTestId('metrics-tab')).toBeInTheDocument());
-    expect(screen.getByText('Baseline Rank')).toBeInTheDocument();
+    expect(screen.getByText('Seed Variant Rank')).toBeInTheDocument();
   });
 });
