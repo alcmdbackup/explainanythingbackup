@@ -60,3 +60,57 @@ export const getTacticDetailAction = adminAction(
     return detail;
   },
 );
+
+/** List variants produced by a specific tactic (by agent_name). */
+export const getTacticVariantsAction = adminAction(
+  'getTacticVariants',
+  async (input: { tacticName: string; limit?: number; offset?: number }, ctx: AdminContext) => {
+    const limit = Math.min(input.limit ?? 50, 200);
+    const offset = input.offset ?? 0;
+
+    const { data, count, error } = await ctx.supabase
+      .from('evolution_variants')
+      .select('id, run_id, elo_score, mu, sigma, is_winner, agent_name, created_at', { count: 'exact' })
+      .eq('agent_name', input.tacticName)
+      .order('created_at', { ascending: false })
+      .range(offset, offset + limit - 1);
+
+    if (error) throw new Error(`Failed to list tactic variants: ${error.message}`);
+    return { items: data ?? [], total: count ?? 0 };
+  },
+);
+
+/** List runs that used a specific tactic (via invocations with matching tactic). */
+export const getTacticRunsAction = adminAction(
+  'getTacticRuns',
+  async (input: { tacticName: string; limit?: number; offset?: number }, ctx: AdminContext) => {
+    const limit = Math.min(input.limit ?? 50, 200);
+    const offset = input.offset ?? 0;
+
+    // Get distinct run IDs from invocations with this tactic
+    const { data: invocations, error: invError } = await ctx.supabase
+      .from('evolution_agent_invocations')
+      .select('run_id')
+      .eq('tactic', input.tacticName)
+      .not('run_id', 'is', null);
+
+    if (invError) throw new Error(`Failed to query invocations: ${invError.message}`);
+    const runIds = [...new Set((invocations ?? []).map(i => i.run_id as string))];
+    if (runIds.length === 0) return { items: [], total: 0 };
+
+    const totalRuns = runIds.length;
+
+    // Paginate over the deduped run ID list, then fetch those runs.
+    const pageIds = runIds.slice(offset, offset + limit);
+    if (pageIds.length === 0) return { items: [], total: totalRuns };
+
+    const { data: runs, error: runError } = await ctx.supabase
+      .from('evolution_runs')
+      .select('id, status, strategy_id, budget_cap_usd, created_at, completed_at')
+      .in('id', pageIds)
+      .order('created_at', { ascending: false });
+
+    if (runError) throw new Error(`Failed to list runs: ${runError.message}`);
+    return { items: runs ?? [], total: totalRuns };
+  },
+);

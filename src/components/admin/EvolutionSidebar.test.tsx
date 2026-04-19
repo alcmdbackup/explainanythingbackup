@@ -25,6 +25,7 @@ describe('EvolutionSidebar', () => {
       { testId: 'evolution-sidebar-nav-experiments', href: '/admin/evolution/experiments' },
       { testId: 'evolution-sidebar-nav-prompts', href: '/admin/evolution/prompts' },
       { testId: 'evolution-sidebar-nav-strategies', href: '/admin/evolution/strategies' },
+      { testId: 'evolution-sidebar-nav-tactics', href: '/admin/evolution/tactics' },
       { testId: 'evolution-sidebar-nav-runs', href: '/admin/evolution/runs' },
       { testId: 'evolution-sidebar-nav-invocations', href: '/admin/evolution/invocations' },
       { testId: 'evolution-sidebar-nav-variants', href: '/admin/evolution/variants' },

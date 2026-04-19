@@ -4,6 +4,9 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { dbToRating } from '../../shared/computeRatings';
+import { bootstrapMeanCI } from '../experimentMetrics';
+
+const DEFAULT_ELO = 1200;
 
 export interface TacticMetricRow {
   entity_type: 'tactic';
@@ -51,18 +54,44 @@ export async function computeTacticMetrics(
 
   if (completedVariants.length === 0) return;
 
-  // Compute metrics
-  const elos = completedVariants
-    .map((v) => dbToRating(v.mu ?? 25, v.sigma ?? 8.333))
-    .map((r) => r.elo);
+  // Compute ratings from DB columns
+  const ratings = completedVariants.map((v) => dbToRating(v.mu ?? 25, v.sigma ?? 8.333));
 
-  const avgElo = elos.reduce((s, e) => s + e, 0) / elos.length;
-  const bestElo = Math.max(...elos);
+  // avg_elo with bootstrap CI (propagates per-variant uncertainty)
+  const eloValues = ratings.map((r) => ({ value: r.elo, uncertainty: r.uncertainty, ci: null, n: 1 }));
+  const avgEloResult = bootstrapMeanCI(eloValues);
+
+  // avg_elo_delta: average improvement over baseline (1200)
+  const deltaValues = ratings.map((r) => ({ value: r.elo - DEFAULT_ELO, uncertainty: r.uncertainty, ci: null, n: 1 }));
+  const avgEloDeltaResult = bootstrapMeanCI(deltaValues);
+
+  // win_rate with bootstrap CI (binomial: each variant is 0 or 1)
+  const winValues = completedVariants.map((v) => ({ value: v.is_winner ? 1 : 0, uncertainty: null, ci: null, n: 1 }));
+  const winRateResult = bootstrapMeanCI(winValues);
+
+  const bestElo = Math.max(...ratings.map((r) => r.elo));
   const totalCost = completedVariants.reduce((s, v) => s + (v.cost_usd ?? 0), 0);
   const winnerCount = completedVariants.filter((v) => v.is_winner).length;
 
   const rows: TacticMetricRow[] = [
-    { entity_type: 'tactic', entity_id: tacticId, metric_name: 'avg_elo', value: avgElo, n: elos.length, aggregation_method: 'avg', source: 'propagation' },
+    {
+      entity_type: 'tactic', entity_id: tacticId, metric_name: 'avg_elo',
+      value: avgEloResult.value, uncertainty: avgEloResult.uncertainty,
+      ci_lower: avgEloResult.ci?.[0] ?? null, ci_upper: avgEloResult.ci?.[1] ?? null,
+      n: ratings.length, aggregation_method: 'bootstrap_mean', source: 'propagation',
+    },
+    {
+      entity_type: 'tactic', entity_id: tacticId, metric_name: 'avg_elo_delta',
+      value: avgEloDeltaResult.value, uncertainty: avgEloDeltaResult.uncertainty,
+      ci_lower: avgEloDeltaResult.ci?.[0] ?? null, ci_upper: avgEloDeltaResult.ci?.[1] ?? null,
+      n: ratings.length, aggregation_method: 'bootstrap_mean', source: 'propagation',
+    },
+    {
+      entity_type: 'tactic', entity_id: tacticId, metric_name: 'win_rate',
+      value: winRateResult.value, uncertainty: null,
+      ci_lower: winRateResult.ci?.[0] ?? null, ci_upper: winRateResult.ci?.[1] ?? null,
+      n: completedVariants.length, aggregation_method: 'bootstrap_mean', source: 'propagation',
+    },
     { entity_type: 'tactic', entity_id: tacticId, metric_name: 'best_elo', value: bestElo, n: 1, aggregation_method: 'max', source: 'propagation' },
     { entity_type: 'tactic', entity_id: tacticId, metric_name: 'total_variants', value: completedVariants.length, n: 1, aggregation_method: 'count', source: 'propagation' },
     { entity_type: 'tactic', entity_id: tacticId, metric_name: 'total_cost', value: totalCost, n: 1, aggregation_method: 'sum', source: 'propagation' },

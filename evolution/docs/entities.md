@@ -89,7 +89,7 @@ flowchart TD
 | Variant | `evolution_variants` | `/admin/evolution/variants/[id]` |
 | Arena Comparison | `evolution_arena_comparisons` | Arena leaderboard pages |
 | Log | `evolution_logs` | Logs tab on run/experiment/strategy/invocation detail pages |
-| Tactic | `evolution_tactics` | `/admin/evolution/tactics/[id]` |
+| Tactic | `evolution_tactics` | `/admin/evolution/tactics/[id]` (tabs: Overview, Metrics, Variants, Runs, By Prompt) |
 | Metrics | `evolution_metrics` | Metrics tab on entity detail pages |
 
 ## Entity Action Matrix

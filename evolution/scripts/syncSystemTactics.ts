@@ -28,7 +28,7 @@ export async function syncSystemTactics(
       .upsert({
         name,
         label: def.label,
-        agent_type: 'generate_from_seed_article', // TODO: derive from tactic group when evolve tactics exist
+        agent_type: 'generate_from_previous_article',
         category: def.category,
         is_predefined: true,
         status: 'active',

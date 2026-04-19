@@ -24,6 +24,7 @@ interface IterationConfigEntry {
   agentType: 'generate' | 'swiss';
   budgetPercent: number;
   maxAgents?: number;
+  generationGuidance?: Array<{ tactic: string; percent: number }>;
 }
 
 interface StrategyConfig {
@@ -62,6 +63,27 @@ function ConfigRow({ label, value, highlight }: { label: string; value: string; 
         {value}
       </span>
     </div>
+  );
+}
+
+function fmtBudgetFraction(fraction: number, budgetUsd?: number): string {
+  const pct = `${(fraction * 100).toFixed(0)}% of budget`;
+  return budgetUsd != null ? `${pct} ($${(fraction * budgetUsd).toFixed(3)})` : pct;
+}
+
+function BudgetFloorRows({ config }: { config: StrategyConfig }): JSX.Element {
+  const pF = config.minBudgetAfterParallelFraction ?? config.budgetBufferAfterParallel;
+  const pM = config.minBudgetAfterParallelAgentMultiple;
+  const sF = config.minBudgetAfterSequentialFraction ?? config.budgetBufferAfterSequential;
+  const sM = config.minBudgetAfterSequentialAgentMultiple;
+
+  return (
+    <>
+      {pF != null && pF > 0 && <ConfigRow label="Min After Parallel" value={fmtBudgetFraction(pF, config.budgetUsd)} highlight />}
+      {pM != null && pM > 0 && <ConfigRow label="Min After Parallel" value={`${pM}× agent cost (runtime)`} highlight />}
+      {sF != null && sF > 0 && <ConfigRow label="Min After Sequential" value={fmtBudgetFraction(sF, config.budgetUsd)} highlight />}
+      {sM != null && sM > 0 && <ConfigRow label="Min After Sequential" value={`${sM}× agent cost (runtime)`} highlight />}
+    </>
   );
 }
 
@@ -105,34 +127,7 @@ export function StrategyConfigDisplay({ config: raw, showRaw }: StrategyConfigDi
           {config.maxComparisonsPerVariant != null && (
             <ConfigRow label="Max Comparisons/Variant" value={String(config.maxComparisonsPerVariant)} />
           )}
-          {/* Budget floors — prefer new fields, fall back to legacy aliases */}
-          {(() => {
-            const pF = config.minBudgetAfterParallelFraction ?? config.budgetBufferAfterParallel;
-            const pM = config.minBudgetAfterParallelAgentMultiple;
-            const sF = config.minBudgetAfterSequentialFraction ?? config.budgetBufferAfterSequential;
-            const sM = config.minBudgetAfterSequentialAgentMultiple;
-            const budgetUsd = config.budgetUsd;
-            const fmtFraction = (v: number) =>
-              budgetUsd != null
-                ? `${(v * 100).toFixed(0)}% of budget ($${(v * budgetUsd).toFixed(3)})`
-                : `${(v * 100).toFixed(0)}% of budget`;
-            return (
-              <>
-                {pF != null && pF > 0 && (
-                  <ConfigRow label="Min After Parallel" value={fmtFraction(pF)} highlight />
-                )}
-                {pM != null && pM > 0 && (
-                  <ConfigRow label="Min After Parallel" value={`${pM}× agent cost (runtime)`} highlight />
-                )}
-                {sF != null && sF > 0 && (
-                  <ConfigRow label="Min After Sequential" value={fmtFraction(sF)} highlight />
-                )}
-                {sM != null && sM > 0 && (
-                  <ConfigRow label="Min After Sequential" value={`${sM}× agent cost (runtime)`} highlight />
-                )}
-              </>
-            );
-          })()}
+          <BudgetFloorRows config={config} />
           {config.generationTemperature != null && (
             <ConfigRow label="Gen Temperature" value={String(config.generationTemperature)} />
           )}
@@ -168,6 +163,7 @@ export function StrategyConfigDisplay({ config: raw, showRaw }: StrategyConfigDi
                   <th className="py-1 pr-3 font-ui text-[var(--text-muted)]">Type</th>
                   <th className="py-1 pr-3 font-ui text-[var(--text-muted)] text-right">Budget</th>
                   <th className="py-1 pr-3 font-ui text-[var(--text-muted)] text-right">Max Agents</th>
+                  <th className="py-1 pr-3 font-ui text-[var(--text-muted)]">Tactic Guidance</th>
                 </tr>
               </thead>
               <tbody>
@@ -195,6 +191,11 @@ export function StrategyConfigDisplay({ config: raw, showRaw }: StrategyConfigDi
                       </td>
                       <td className="py-1 pr-3 text-right font-mono text-[var(--text-muted)]">
                         {ic.maxAgents ?? '—'}
+                      </td>
+                      <td className="py-1 pr-3 text-[var(--text-muted)]">
+                        {ic.generationGuidance && ic.generationGuidance.length > 0
+                          ? ic.generationGuidance.map((g: { tactic: string; percent: number }) => `${g.tactic}: ${g.percent}%`).join(', ')
+                          : '—'}
                       </td>
                     </tr>
                   );

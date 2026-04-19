@@ -233,9 +233,11 @@ code at `evolution/src/lib/core/tactics/tacticRegistry.ts`; tactic entity identi
 stored in the `evolution_tactics` table. When the strategy config sets
 `generationGuidance` (an array of `{ strategy, percent }` entries summing to 100),
 tactics are selected via weighted random sampling instead of the default round-robin
-across `config.strategies`.
+across `config.strategies`. Per-iteration `generationGuidance` on `IterationConfig`
+overrides the strategy-level setting for that iteration.
 
-**`GenerateFromPreviousArticleAgent`** (`evolution/src/lib/core/agents/generateFromPreviousArticle.ts`)
+**`GenerateFromPreviousArticleAgent`** (`evolution/src/lib/core/agents/generateFromPreviousArticle.ts`;
+agent type identifier: `generate_from_previous_article`)
 — ONE variant per invocation. Generates the variant via a single tactic
 (`structural_transform`, `lexical_simplify`, `grounding_enhance`, …), then ranks it via
 binary search (`rankSingleVariant`) against a deep-cloned local snapshot of the
@@ -568,8 +570,9 @@ The current V2 architecture replaced a fundamentally different V1 design.
   decision using its own deep-cloned local rating snapshot. Discarded variants are
   persisted to DB with `persisted=false` so generation cost stays queryable.
 - **Per-call AgentContext snapshots** — concurrent agents each receive a frozen
-  `AgentContext` (not a shared mutable object). Cross-agent state is rendezvoused
-  via the merge agent in randomized order.
+  `AgentContext` (not a shared mutable object) with `rawProvider` and `defaultModel`
+  propagated from the resolved config. Cross-agent state is rendezvoused via the
+  merge agent in randomized order.
 - **No checkpoints** — atomic execution; if it fails, the run fails.
 - **Budget-aware** — reserve-before-spend pattern, paid-for matches always reach the
   global ratings (merge agent dispatched UNCONDITIONALLY after a swiss iteration).

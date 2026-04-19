@@ -210,7 +210,22 @@ export const METRIC_REGISTRY: Record<EntityType, EntityMetricRegistry> = {
     atPropagation: [...SHARED_PROPAGATION_DEFS],
   },
   prompt: { duringExecution: [], atFinalization: [], atPropagation: [] },
-  tactic: { duringExecution: [], atFinalization: [], atPropagation: [] },
+  tactic: {
+    duringExecution: [],
+    // Tactic metrics are computed externally by computeTacticMetrics() — these defs exist
+    // for formatter/label/listView metadata only. compute() returns null (never called).
+    atFinalization: [
+      { name: 'avg_elo', label: 'Avg Elo', category: 'rating', formatter: 'elo', listView: true, compute: () => null },
+      { name: 'avg_elo_delta', label: 'Elo Delta', category: 'rating', formatter: 'elo', listView: true, compute: () => null },
+      { name: 'best_elo', label: 'Best Elo', category: 'rating', formatter: 'elo', listView: false, compute: () => null },
+      { name: 'win_rate', label: 'Win Rate', category: 'rating', formatter: 'percent', listView: true, compute: () => null },
+      { name: 'total_variants', label: 'Variants', category: 'count', formatter: 'integer', listView: true, compute: () => null },
+      { name: 'total_cost', label: 'Total Cost', category: 'cost', formatter: 'cost', listView: false, compute: () => null },
+      { name: 'run_count', label: 'Runs', category: 'count', formatter: 'integer', listView: true, compute: () => null },
+      { name: 'winner_count', label: 'Winners', category: 'count', formatter: 'integer', listView: false, compute: () => null },
+    ],
+    atPropagation: [],
+  },
 };
 
 // ─── Build-time validation ──────────────────────────────────────

@@ -700,6 +700,53 @@ describe('strategyConfigSchema', () => {
       ...validBase, iterationConfigs: [{ agentType: 'generate', budgetPercent: 100 }],
     })).not.toThrow();
   });
+
+  // ─── per-iteration generationGuidance ────────────────────────────
+  it('accepts generationGuidance on generate iteration', () => {
+    expect(() => strategyConfigSchema.parse({
+      ...validBase, iterationConfigs: [{
+        agentType: 'generate', budgetPercent: 100,
+        generationGuidance: [{ tactic: 'structural_transform', percent: 70 }, { tactic: 'lexical_simplify', percent: 30 }],
+      }],
+    })).not.toThrow();
+  });
+
+  it('rejects generationGuidance on swiss iteration', () => {
+    expect(() => strategyConfigSchema.parse({
+      ...validBase, iterationConfigs: [
+        { agentType: 'generate', budgetPercent: 60 },
+        { agentType: 'swiss', budgetPercent: 40, generationGuidance: [{ tactic: 'structural_transform', percent: 100 }] },
+      ],
+    })).toThrow(/generationGuidance only valid for generate/);
+  });
+
+  it('accepts undefined generationGuidance on generate iteration', () => {
+    const result = strategyConfigSchema.parse(validBase);
+    expect(result.iterationConfigs[0]!.generationGuidance).toBeUndefined();
+  });
+
+  it('per-iteration generationGuidance rejects duplicate tactic names', () => {
+    expect(() => strategyConfigSchema.parse({
+      ...validBase, iterationConfigs: [{
+        agentType: 'generate', budgetPercent: 100,
+        generationGuidance: [
+          { tactic: 'structural_transform', percent: 50 },
+          { tactic: 'structural_transform', percent: 50 },
+        ],
+      }],
+    })).toThrow();
+  });
+
+  it('per-iteration generationGuidance coexists with strategy-level guidance', () => {
+    expect(() => strategyConfigSchema.parse({
+      ...validBase,
+      generationGuidance: [{ tactic: 'grounding_enhance', percent: 100 }],
+      iterationConfigs: [{
+        agentType: 'generate', budgetPercent: 100,
+        generationGuidance: [{ tactic: 'structural_transform', percent: 100 }],
+      }],
+    })).not.toThrow();
+  });
 });
 
 describe('evolutionConfigSchema', () => {

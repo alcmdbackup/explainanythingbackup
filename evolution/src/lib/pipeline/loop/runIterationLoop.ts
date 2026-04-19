@@ -9,7 +9,7 @@ import { createRating, isConverged, DEFAULT_CONVERGENCE_UNCERTAINTY } from '../.
 import type { EvolutionConfig, EvolutionResult, V2Match, IterationResult, IterationStopReason } from '../infra/types';
 
 import { createCostTracker, createIterationBudgetTracker, IterationBudgetExceededError } from '../infra/trackBudget';
-import { createEvolutionLLMClient } from '../infra/createEvolutionLLMClient';
+
 import type { EntityLogger } from '../infra/createEntityLogger';
 import { selectWinner } from '../../shared/selectWinner';
 import { GenerateFromPreviousArticleAgent } from '../../core/agents/generateFromPreviousArticle';
@@ -204,7 +204,7 @@ export async function evolveArticle(
   const noopLogger: EntityLogger = { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} };
   const logger = options?.logger ?? noopLogger;
   const costTracker = createCostTracker(resolvedConfig.budgetUsd);
-  const llm = createEvolutionLLMClient(llmProvider, costTracker, resolvedConfig.generationModel, logger, db, runId, resolvedConfig.generationTemperature);
+  // No shared LLM client — Agent.run() builds per-invocation scoped clients via rawProvider.
   const randomSeed = options?.randomSeed ?? BigInt(0);
 
   logger.info('Config validation passed', {
@@ -322,8 +322,8 @@ export async function evolveArticle(
           sequentialDispatchedCount += dispatchCount;
         }
 
-        // Select tactics: weighted random if generationGuidance is present, otherwise round-robin.
-        const guidance = resolvedConfig.generationGuidance;
+        // Select tactics: per-iteration guidance takes precedence over strategy-level, then round-robin.
+        const guidance = iterCfg.generationGuidance ?? resolvedConfig.generationGuidance;
         const selectTactic = (i: number): string => {
           if (guidance && guidance.length > 0) {
             const rng = new SeededRandom(deriveSeed(randomSeed, `iter${iteration}`, `tactic_sel${i}`));
@@ -337,7 +337,7 @@ export async function evolveArticle(
           iteration, iterIdx, dispatchCount, maxAffordable, maxAgentsForIter,
           iterBudgetUsd, availBudget, estPerAgent,
           tactics: dispatchedTactics,
-          selectionMode: guidance ? 'weighted' : 'round-robin',
+          selectionMode: guidance ? (iterCfg.generationGuidance ? 'iteration-weighted' : 'strategy-weighted') : 'round-robin',
           phaseName: 'generation',
         });
 
@@ -370,12 +370,14 @@ export async function evolveArticle(
             costTracker: iterTracker,
             config: resolvedConfig,
             agentIndex,
+            rawProvider: llmProvider,
+            defaultModel: resolvedConfig.generationModel,
+            generationTemperature: resolvedConfig.generationTemperature,
           };
           const agent = new GenerateFromPreviousArticleAgent();
           return agent.run({
             parentText: resolved.text,
             tactic,
-            llm,
             initialPool: initialPoolSnapshot,
             initialRatings: initialRatingsSnapshot,
             initialMatchCounts: initialMatchCountsSnapshot,
@@ -521,6 +523,9 @@ export async function evolveArticle(
             invocationId: '',
             randomSeed: deriveSeed(randomSeed, `iter${iteration}`, `swiss${swissExecOrder}`),
             logger, costTracker: iterTracker, config: resolvedConfig,
+            rawProvider: llmProvider,
+            defaultModel: resolvedConfig.generationModel,
+            generationTemperature: resolvedConfig.generationTemperature,
           };
           const swissAgent = new SwissRankingAgent();
           const swissResult = await swissAgent.run({
@@ -529,7 +534,6 @@ export async function evolveArticle(
             pool,
             ratings,
             cache: comparisonCache,
-            llm,
           }, swissCtx);
 
           const swissOutput = swissResult.result;

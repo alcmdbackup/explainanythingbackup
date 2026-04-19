@@ -397,6 +397,8 @@ export const iterationConfigSchema = z.object({
   sourceMode: sourceModeEnum.optional(),
   /** Quality cutoff for pool-mode parent selection. Required when sourceMode='pool'. */
   qualityCutoff: qualityCutoffSchema.optional(),
+  /** Per-iteration tactic guidance. Overrides strategy-level generationGuidance for this iteration. Only valid for generate iterations. */
+  generationGuidance: generationGuidanceSchema.optional(),
 }).refine(
   (c) => c.agentType !== 'swiss' || c.maxAgents === undefined,
   { message: 'maxAgents must not be set for swiss iterations' },
@@ -409,6 +411,9 @@ export const iterationConfigSchema = z.object({
 ).refine(
   (c) => c.sourceMode !== 'pool' || c.qualityCutoff !== undefined,
   { message: 'qualityCutoff required when sourceMode is pool' },
+).refine(
+  (c) => c.agentType !== 'swiss' || c.generationGuidance === undefined,
+  { message: 'generationGuidance only valid for generate iterations' },
 );
 
 export type IterationConfig = z.infer<typeof iterationConfigSchema>;

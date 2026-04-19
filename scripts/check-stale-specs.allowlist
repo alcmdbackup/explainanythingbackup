@@ -39,6 +39,10 @@ variants-warning-banner
 # in source/spec) or deleted (spec is testing a removed feature). Allowlisted
 # here so the script can guard against NEW stale refs being introduced; the
 # existing debt is tracked separately.
+# === Sidebar nav testids — passed as `testId` prop, rendered by BaseSidebar ===
+# The stale-specs scanner can't statically match `testId:` prop to `data-testid`.
+evolution-sidebar-nav-tactics
+
 accept-all-diffs-button
 reject-all-diffs-button
 import-modal

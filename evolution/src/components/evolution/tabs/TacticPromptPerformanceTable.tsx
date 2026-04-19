@@ -53,6 +53,7 @@ export function TacticPromptPerformanceTable({ tacticName, promptId }: Props) {
             <th className="px-3 py-2">Runs</th>
             <th className="px-3 py-2">Variants</th>
             <th className="px-3 py-2">Avg Elo</th>
+            <th className="px-3 py-2">Elo Delta</th>
             <th className="px-3 py-2">Best Elo</th>
             <th className="px-3 py-2">Winners</th>
             <th className="px-3 py-2">Cost</th>
@@ -77,6 +78,9 @@ export function TacticPromptPerformanceTable({ tacticName, promptId }: Props) {
               <td className="px-3 py-2 font-mono text-xs">{row.runs}</td>
               <td className="px-3 py-2 font-mono text-xs">{row.variants}</td>
               <td className="px-3 py-2 font-mono text-xs font-semibold">{row.avgElo}</td>
+              <td className={`px-3 py-2 font-mono text-xs ${row.avgElo - 1200 >= 0 ? 'text-[var(--status-success)]' : 'text-[var(--status-error)]'}`}>
+                {row.avgElo - 1200 >= 0 ? '+' : ''}{Math.round(row.avgElo - 1200)}
+              </td>
               <td className="px-3 py-2 font-mono text-xs">{row.bestElo}</td>
               <td className="px-3 py-2 font-mono text-xs">{row.winnerCount}</td>
               <td className="px-3 py-2 font-mono text-xs">{formatCost(row.totalCost)}</td>

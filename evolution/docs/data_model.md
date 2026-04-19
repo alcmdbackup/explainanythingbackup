@@ -18,7 +18,7 @@ Stores strategy configurations with aggregated performance metrics. Strategies a
 | `name` | TEXT | NOT NULL | Human-readable name |
 | `label` | TEXT | NOT NULL, default `''` | Short label for UI |
 | `description` | TEXT | | Optional long description |
-| `config` | JSONB | NOT NULL | Full strategy configuration (`StrategyConfig`: generationModel, judgeModel, iterationConfigs[], strategiesPerRound, budgetUsd, generationGuidance). `iterationConfigs` is an ordered array of `{ agentType, budgetPercent, maxAgents? }` objects defining the iteration sequence. See [Strategies](./strategies_and_experiments.md) for field details. |
+| `config` | JSONB | NOT NULL | Full strategy configuration (`StrategyConfig`: generationModel, judgeModel, iterationConfigs[], strategiesPerRound, budgetUsd, generationGuidance). `iterationConfigs` is an ordered array of `{ agentType, budgetPercent, maxAgents?, generationGuidance? }` objects defining the iteration sequence. Per-iteration `generationGuidance` overrides the strategy-level setting for that iteration. See [Strategies](./strategies_and_experiments.md) for field details. |
 | `config_hash` | TEXT | NOT NULL, UNIQUE | SHA-256 hash for dedup |
 | `is_predefined` | BOOLEAN | NOT NULL, default `false` | System-provided strategy |
 | `pipeline_type` | TEXT | default `'full'` | `'full'` or `'single'` |
@@ -131,7 +131,7 @@ Thin entity table for tactic identity. Tactic prompt definitions live in code (`
 | `id` | UUID | PK, default `gen_random_uuid()` | |
 | `name` | TEXT | NOT NULL, UNIQUE | Tactic identifier (e.g. `'structural_transform'`) |
 | `label` | TEXT | NOT NULL, default `''` | Human-readable display label |
-| `agent_type` | TEXT | NOT NULL | Agent group (e.g. `'generate_from_seed_article'`) |
+| `agent_type` | TEXT | NOT NULL | Agent group (e.g. `'generate_from_previous_article'`; renamed from `'generate_from_seed_article'` for backward compat) |
 | `category` | TEXT | | Grouping: `'core'`, `'extended'`, `'depth'`, `'audience'`, `'structural'`, `'quality'`, `'meta'` |
 | `is_predefined` | BOOLEAN | NOT NULL, default `true` | System-provided tactic |
 | `status` | TEXT | NOT NULL, CHECK `('active','archived')` | |
@@ -589,7 +589,7 @@ The file `src/lib/database.types.ts` contains auto-generated TypeScript types fr
 
 Every variant carries a `parent_variant_id UUID NULL` column referencing another row in `evolution_variants` (self-FK is not currently declared in the generated types but is conventionally relied upon). Populated by:
 
-- `GenerateFromPreviousArticleAgent` (and the prior `generate_from_seed_article`): set to the agent's input parent — either the seed variant or a pool-drawn variant, per the iteration's `sourceMode`.
+- `GenerateFromPreviousArticleAgent` (agent type `generate_from_previous_article`; renamed from `generate_from_seed_article` for backward compat): set to the agent's input parent — either the seed variant or a pool-drawn variant, per the iteration's `sourceMode`.
 - `CreateSeedArticleAgent`: `NULL` (root of the lineage chain).
 
 The single-pointer design means lineage is a tree (not a DAG). In-memory `Variant.parentIds` is an array for future multi-parent agents, but today only index 0 is persisted.

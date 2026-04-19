@@ -248,12 +248,22 @@ export async function buildRunContext(
   }
   const stratConfig = configParsed.data;
 
-  // Validate tactic names in generationGuidance against code registry.
+  // Validate tactic names in generationGuidance against code registry (strategy-level + per-iteration).
+  const { isValidTactic } = await import('../../core/tactics');
   if (stratConfig.generationGuidance) {
-    const { isValidTactic } = await import('../../core/tactics');
     for (const entry of stratConfig.generationGuidance) {
       if (!isValidTactic(entry.tactic)) {
-        return { error: `Unknown tactic '${entry.tactic}' in generationGuidance` };
+        return { error: `Unknown tactic '${entry.tactic}' in strategy-level generationGuidance` };
+      }
+    }
+  }
+  for (let i = 0; i < stratConfig.iterationConfigs.length; i++) {
+    const ic = stratConfig.iterationConfigs[i]!;
+    if (ic.generationGuidance) {
+      for (const entry of ic.generationGuidance) {
+        if (!isValidTactic(entry.tactic)) {
+          return { error: `Unknown tactic '${entry.tactic}' in iterationConfigs[${i}].generationGuidance` };
+        }
       }
     }
   }

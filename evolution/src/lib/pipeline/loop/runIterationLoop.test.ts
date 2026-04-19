@@ -348,6 +348,48 @@ describe('evolveArticle (orchestrator)', () => {
     expect(mockMergeRun).toHaveBeenCalled();
   });
 
+  it('per-iteration generationGuidance overrides strategy-level', async () => {
+    mockGenerateRun.mockResolvedValue(generateSuccess('v1'));
+    mockSwissRun.mockResolvedValue({
+      success: true,
+      result: { pairs: [], matches: [], status: 'no_pairs' },
+      cost: 0, durationMs: 1, invocationId: 'inv-swiss',
+    });
+
+    const config = makeConfig();
+    // Strategy-level guidance — should be overridden by per-iteration
+    config.generationGuidance = [{ tactic: 'grounding_enhance', percent: 100 }];
+    // Per-iteration guidance on the generate iteration
+    config.iterationConfigs = [
+      { agentType: 'generate', budgetPercent: 100, generationGuidance: [{ tactic: 'structural_transform', percent: 100 }] },
+    ];
+
+    await evolveArticle('seed', makeProvider(), makeDb() as never, 'run-1', config);
+
+    // All dispatched agents should use structural_transform (per-iteration), not grounding_enhance (strategy-level)
+    const tacticArgs = mockGenerateRun.mock.calls.map((c) => (c[0] as { tactic: string }).tactic);
+    expect(tacticArgs.every((t) => t === 'structural_transform')).toBe(true);
+  });
+
+  it('falls back to strategy-level guidance when per-iteration is undefined', async () => {
+    mockGenerateRun.mockResolvedValue(generateSuccess('v1'));
+    mockSwissRun.mockResolvedValue({
+      success: true,
+      result: { pairs: [], matches: [], status: 'no_pairs' },
+      cost: 0, durationMs: 1, invocationId: 'inv-swiss',
+    });
+
+    const config = makeConfig();
+    config.generationGuidance = [{ tactic: 'grounding_enhance', percent: 100 }];
+    // No per-iteration guidance — strategy-level should apply
+    config.iterationConfigs = [{ agentType: 'generate', budgetPercent: 100 }];
+
+    await evolveArticle('seed', makeProvider(), makeDb() as never, 'run-1', config);
+
+    const tacticArgs = mockGenerateRun.mock.calls.map((c) => (c[0] as { tactic: string }).tactic);
+    expect(tacticArgs.every((t) => t === 'grounding_enhance')).toBe(true);
+  });
+
   it('one rejected generate agent does not cancel the others', async () => {
     mockGenerateRun
       .mockResolvedValueOnce(generateSuccess('v1'))

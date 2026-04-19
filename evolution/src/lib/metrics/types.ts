@@ -60,6 +60,9 @@ export const STATIC_METRIC_NAMES = [
   'avg_parallel_dispatched',
   'avg_sequential_dispatched',
   'avg_median_sequential_gfsa_duration_ms',
+  // Tactic metrics
+  'avg_elo', 'avg_elo_delta', 'best_elo', 'win_rate',
+  'total_variants', 'winner_count',
 ] as const;
 export type StaticMetricName = typeof STATIC_METRIC_NAMES[number];
 /**

@@ -86,7 +86,7 @@ describe('NewStrategyPage', () => {
     fireEvent.click(screen.getByText(/next: configure iterations/i));
 
     expect(screen.getByText('Total Budget')).toBeInTheDocument();
-    expect(screen.getByText('$2.00')).toBeInTheDocument();
+    expect(screen.getByText('$0.05')).toBeInTheDocument();
   });
 
   it('adds a new iteration', () => {
@@ -175,7 +175,7 @@ describe('NewStrategyPage', () => {
     expect(callArgs.name).toBe('Test Strategy');
     expect(callArgs.generationModel).toBe('qwen-2.5-7b-instruct');
     expect(callArgs.judgeModel).toBe('qwen-2.5-7b-instruct');
-    expect(callArgs.budgetUsd).toBe(2);
+    expect(callArgs.budgetUsd).toBe(0.05);
     expect(callArgs.iterationConfigs).toHaveLength(2);
     expect(callArgs.iterationConfigs[0].agentType).toBe('generate');
     expect(callArgs.iterationConfigs[1].agentType).toBe('swiss');

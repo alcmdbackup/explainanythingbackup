@@ -27,6 +27,7 @@ interface IterationConfig {
   agentType: 'generate' | 'swiss';
   budgetPercent: number;  // 1-100, all entries must sum to 100
   maxAgents?: number;     // only for generate; caps parallel agents
+  generationGuidance?: Array<{ strategy: string; percent: number }>;  // per-iteration override
 }
 
 interface StrategyConfig {
@@ -53,10 +54,10 @@ interface StrategyConfig {
 |---------------------|--------------------------------------------|
 | `generationModel`   | LLM used for text generation calls         |
 | `judgeModel`        | LLM used for pairwise comparison/judging. Default: `qwen-2.5-7b-instruct` (see `DEFAULT_JUDGE_MODEL` in `src/config/modelRegistry.ts`). Selected based on empirical judge-agreement research (see `docs/research/judge_agreement_summary_tables.md`) — 100% decisive on both large-gap and close-pair comparisons with ~1.7s median latency and no thinking-mode overhead. |
-| `iterationConfigs`  | Ordered array of iteration definitions. Each entry specifies `agentType` (`generate` or `swiss`), `budgetPercent` (1-100, must sum to 100 across all entries), and optional `maxAgents` (generate only — caps parallel agent count). First entry must be `generate` (swiss on empty pool is invalid). Max 20 entries. Dollar amounts computed at runtime: `iterationBudgetUsd = (budgetPercent / 100) * totalBudgetUsd`. |
+| `iterationConfigs`  | Ordered array of iteration definitions. Each entry specifies `agentType` (`generate` or `swiss`), `budgetPercent` (1-100, must sum to 100 across all entries), optional `maxAgents` (generate only — caps parallel agent count), and optional `generationGuidance` (generate only — overrides strategy-level `generationGuidance` for this iteration). First entry must be `generate` (swiss on empty pool is invalid). Max 20 entries. Dollar amounts computed at runtime: `iterationBudgetUsd = (budgetPercent / 100) * totalBudgetUsd`. |
 | `strategiesPerRound`| Tactics applied per iteration round        |
 | `budgetUsd`         | Optional per-run budget cap. Per-iteration amounts derived from `iterationConfigs[].budgetPercent`. |
-| `generationGuidance`| Optional weighted tactic distribution. Array of `{ tactic, percent }` entries where percentages must sum to 100 and tactic names must be unique. Enables weighted random tactic selection from all 24 tactics via `selectTacticWeighted()` instead of the default deterministic 3-tactic behavior. |
+| `generationGuidance`| Optional weighted tactic distribution at the strategy level. Array of `{ tactic, percent }` entries where percentages must sum to 100 and tactic names must be unique. Enables weighted random tactic selection from all 24 tactics via `selectTacticWeighted()` instead of the default deterministic 3-tactic behavior. Can be overridden per-iteration via `IterationConfig.generationGuidance`. |
 | `maxVariantsToGenerateFromSeedArticle` | Max generateFromSeedArticle agents per run. Excludes seed article. Default 9. |
 | `maxComparisonsPerVariant` | Hard cap on pairwise comparisons per variant during ranking. Default 15. Used for deterministic cost estimation: `min(poolSize - 1, maxComparisonsPerVariant)`. |
 | `minBudgetAfterParallelFraction` / `minBudgetAfterParallelAgentMultiple` | Minimum budget to reserve for later phases after parallel generation. Specified as either a fraction of total budget (0-1) or a multiple of estimated agent cost (≥ 0). Exactly one unit per strategy. Parallel uses the initial `estimateAgentCost()` output. |
@@ -71,6 +72,20 @@ When `generationGuidance` is set, `selectTacticWeighted()` (`evolution/src/lib/c
 #### Experimental Verification with generationGuidance
 
 To isolate and test a single tactic, create a strategy config with `generationGuidance` set to 100% for one tactic (e.g., `[{ strategy: "engagement_amplify", percent: 100 }]`) and `strategiesPerRound: 1`. This produces runs that use only that tactic, enabling controlled A/B comparison across tactics within an experiment.
+
+#### Per-Iteration generationGuidance Override
+
+Each `IterationConfig` with `agentType: 'generate'` can specify its own `generationGuidance` array, which overrides the strategy-level `generationGuidance` for that iteration only. This enables strategies that use different tactic distributions at different stages of evolution (e.g., broad exploration in early iterations, focused refinement in later ones). Swiss iterations cannot have `generationGuidance` (enforced by Zod validation).
+
+```ts
+iterationConfigs: [
+  { agentType: 'generate', budgetPercent: 40,
+    generationGuidance: [{ strategy: 'structural_transform', percent: 50 }, { strategy: 'grounding_enhance', percent: 50 }] },
+  { agentType: 'swiss', budgetPercent: 20 },
+  { agentType: 'generate', budgetPercent: 40,
+    generationGuidance: [{ strategy: 'style_polish', percent: 100 }] },
+]
+```
 
 #### Example iterationConfigs
 
@@ -571,7 +586,7 @@ When a variant's DB `mu` or `sigma` columns change post-completion (these column
 | `evolution/src/lib/metrics/writeMetrics.ts` | UPSERT metrics to evolution_metrics table |
 | `evolution/src/lib/metrics/recomputeMetrics.ts` | Stale metric recomputation with row-level locking |
 | `src/app/admin/evolution/start-experiment/page.tsx` | Experiment creation wizard UI |
-| `src/app/admin/evolution/strategies/new/page.tsx` | 2-step strategy creation wizard with iteration builder |
+| `src/app/admin/evolution/strategies/new/page.tsx` | 2-step strategy creation wizard with iteration builder, TacticGuidanceEditor popover for per-iteration tactic weights, agent dispatch preview. Defaults: $0.05 budget, agentMultiple floor 2, maxAgents 100. |
 
 ---
 

@@ -36,7 +36,8 @@ export interface GenerateFromPreviousInput {
   parentText: string;
   /** One tactic name per agent invocation. */
   tactic: string;
-  llm: EvolutionLLMClient;
+  /** LLM client. Optional when ctx.rawProvider is set — Agent.run() injects a scoped client. */
+  llm?: EvolutionLLMClient;
   /** Iteration-start snapshot of the pool. Will be deep-cloned for local mutation. */
   initialPool: ReadonlyArray<Variant>;
   /** Iteration-start snapshot of ratings. Will be deep-cloned (deep, not shallow — Critical Fix N). */
@@ -145,7 +146,8 @@ export class GenerateFromPreviousArticleAgent extends Agent<
     input: GenerateFromPreviousInput,
     ctx: AgentContext,
   ): Promise<AgentOutput<GenerateFromPreviousOutput, GenerateFromPreviousExecutionDetail>> {
-    const { parentText, tactic, llm, initialPool, initialRatings, initialMatchCounts, cache } = input;
+    const { parentText, tactic, initialPool, initialRatings, initialMatchCounts, cache } = input;
+    const llm = input.llm!; // Injected by Agent.run() via rawProvider when not passed directly
 
     // Deep-clone the iteration-start snapshot; Rating values must be deep-cloned to prevent
     // cross-agent mutation under parallel execution.

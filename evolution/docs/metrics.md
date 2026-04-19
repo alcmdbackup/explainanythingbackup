@@ -178,7 +178,9 @@ Tactic-level metrics aggregate across all completed-run variants that used a giv
 
 | Name | Aggregation | Description |
 |------|-------------|-------------|
-| `avg_elo` | avg | Mean Elo across all variants produced by this tactic |
+| `avg_elo` | bootstrap_mean | Mean Elo across all variants produced by this tactic, with 95% CI via `bootstrapMeanCI` (propagates per-variant uncertainty) |
+| `avg_elo_delta` | bootstrap_mean | Average Elo improvement over baseline (1200) across variants, with 95% CI |
+| `win_rate` | bootstrap_mean | Fraction of variants that were the run winner (`is_winner=true`), with 95% CI (binomial: each variant is 0 or 1) |
 | `best_elo` | max | Highest Elo among variants produced by this tactic |
 | `total_variants` | count | Total variants produced across all runs |
 | `total_cost` | sum | Cumulative generation cost (from `cost_usd` on variants) |

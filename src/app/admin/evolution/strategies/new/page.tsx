@@ -10,6 +10,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { MODEL_OPTIONS } from '@/lib/utils/modelOptions';
 import { DEFAULT_JUDGE_MODEL } from '@/config/modelRegistry';
 import { createStrategyAction } from '@evolution/services/strategyRegistryActions';
+import { TACTICS_BY_CATEGORY, TACTIC_PALETTE, DEFAULT_TACTICS } from '@evolution/lib/core/tactics';
+import { estimateAgentCost } from '@evolution/lib/pipeline/infra/estimateCosts';
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -29,6 +31,8 @@ interface IterationRow {
   /** Phase 2: quality cutoff for pool-mode. Required when sourceMode==='pool'. */
   qualityCutoffMode?: 'topN' | 'topPercent';
   qualityCutoffValue?: number;
+  /** Per-iteration tactic guidance. Overrides strategy-level for this iteration. */
+  tacticGuidance?: Array<{ tactic: string; percent: number }>;
 }
 
 interface StrategyFormState {
@@ -44,10 +48,121 @@ interface StrategyFormState {
   sequentialFloorValue: string;
 }
 
+const DEFAULT_MAX_AGENTS = 100;
+
 const DEFAULT_ITERATIONS: IterationRow[] = [
-  { agentType: 'generate', budgetPercent: 60 },
+  { agentType: 'generate', budgetPercent: 60, maxAgents: DEFAULT_MAX_AGENTS },
   { agentType: 'swiss', budgetPercent: 40 },
 ];
+
+// ─── Tactic Guidance Popover ────────────────────────────────────
+
+/** Inline popover for configuring per-iteration tactic weights. */
+function TacticGuidanceEditor({
+  guidance,
+  onChange,
+  onClose,
+}: {
+  guidance: Array<{ tactic: string; percent: number }>;
+  onChange: (g: Array<{ tactic: string; percent: number }>) => void;
+  onClose: () => void;
+}) {
+  const [local, setLocal] = useState<Record<string, number>>(() => {
+    const map: Record<string, number> = {};
+    for (const entry of guidance) map[entry.tactic] = entry.percent;
+    return map;
+  });
+
+  const total = Object.values(local).reduce((s, v) => s + v, 0);
+  const isValid = Math.abs(total - 100) < 0.01;
+  const allTactics = Object.entries(TACTICS_BY_CATEGORY);
+
+  const setPercent = (tactic: string, pct: number) => {
+    setLocal(prev => ({ ...prev, [tactic]: Math.max(0, Math.min(100, pct)) }));
+  };
+
+  const applyPreset = (preset: 'even' | 'core' | 'clear') => {
+    if (preset === 'clear') {
+      // Clear removes all guidance and closes the editor
+      onChange([]);
+      onClose();
+      return;
+    }
+    const allNames = allTactics.flatMap(([, names]) => names);
+    const coreNames = TACTICS_BY_CATEGORY['core'] ?? [];
+    const map: Record<string, number> = {};
+    if (preset === 'even') {
+      const each = Math.floor(100 / allNames.length);
+      const rem = 100 - each * allNames.length;
+      allNames.forEach((n, i) => { map[n] = each + (i === 0 ? rem : 0); });
+    } else if (preset === 'core') {
+      const each = Math.floor(100 / coreNames.length);
+      const rem = 100 - each * coreNames.length;
+      coreNames.forEach((n, i) => { map[n] = each + (i === 0 ? rem : 0); });
+    }
+    setLocal(map);
+  };
+
+  const handleApply = () => {
+    const entries = Object.entries(local)
+      .filter(([, pct]) => pct > 0)
+      .map(([tactic, percent]) => ({ tactic, percent }));
+    onChange(entries);
+    onClose();
+  };
+
+  return (
+    <div className="mt-2 ml-8 p-3 rounded-page border border-[var(--accent-gold)]/40 bg-[var(--surface-elevated)] space-y-3" data-testid="tactic-guidance-editor">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-ui font-medium text-[var(--text-secondary)]">Configure Tactics</span>
+        <span className={`text-xs font-mono ${isValid ? 'text-[var(--status-success)]' : 'text-[var(--status-error)]'}`}>
+          Total: {total.toFixed(0)}%
+        </span>
+      </div>
+
+      <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+        {allTactics.map(([category, names]) => (
+          <div key={category}>
+            <span className="text-xs font-ui uppercase tracking-wide text-[var(--text-muted)]">{category}</span>
+            <div className="space-y-0.5 mt-0.5">
+              {names.map(name => (
+                <div key={name} className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: TACTIC_PALETTE[name] ?? '#888' }} />
+                  <span className="text-xs font-ui text-[var(--text-primary)] flex-1 truncate" title={name}>{name}</span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={local[name] ?? 0}
+                    onChange={e => setPercent(name, parseInt(e.target.value) || 0)}
+                    className="w-12 px-1 py-0.5 text-xs font-mono bg-[var(--surface-primary)] border border-[var(--border-default)] rounded text-right focus:border-[var(--accent-gold)] focus:outline-none"
+                  />
+                  <span className="text-xs text-[var(--text-muted)]">%</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="flex items-center gap-2 pt-1 border-t border-[var(--border-default)]">
+        <button type="button" onClick={() => applyPreset('even')} className="text-xs font-ui text-[var(--accent-gold)] hover:underline">Even</button>
+        <button type="button" onClick={() => applyPreset('core')} className="text-xs font-ui text-[var(--accent-gold)] hover:underline">Core only</button>
+        <button type="button" onClick={() => applyPreset('clear')} className="text-xs font-ui text-[var(--accent-gold)] hover:underline">Clear</button>
+        <div className="flex-1" />
+        <button type="button" onClick={onClose} className="px-2 py-1 text-xs font-ui text-[var(--text-muted)] hover:underline">Cancel</button>
+        <button
+          type="button"
+          onClick={handleApply}
+          disabled={!isValid}
+          className="px-2 py-1 text-xs font-ui bg-[var(--accent-gold)] text-[var(--surface-primary)] rounded disabled:opacity-50"
+        >
+          Apply
+        </button>
+      </div>
+    </div>
+  );
+}
 
 // ─── Component ──────────────────────────────────────────────────
 
@@ -64,14 +179,15 @@ export default function NewStrategyPage(): JSX.Element {
     generationModel: '',
     judgeModel: DEFAULT_JUDGE_MODEL,
     generationTemperature: '',
-    budgetUsd: '2.00',
+    budgetUsd: '0.05',
     maxComparisonsPerVariant: '',
-    budgetFloorMode: 'fraction',
-    parallelFloorValue: '',
+    budgetFloorMode: 'agentMultiple',
+    parallelFloorValue: '2',
     sequentialFloorValue: '',
   });
 
   const [iterations, setIterations] = useState<IterationRow[]>([...DEFAULT_ITERATIONS]);
+  const [tacticEditorIdx, setTacticEditorIdx] = useState<number | null>(null);
 
   useEffect(() => { document.title = 'New Strategy | Evolution'; }, []);
 
@@ -98,6 +214,43 @@ export default function NewStrategyPage(): JSX.Element {
   const totalPercent = iterations.reduce((sum, it) => sum + it.budgetPercent, 0);
   const percentValid = Math.abs(totalPercent - 100) < 0.01;
 
+  // Dispatch preview: reuses estimateAgentCost() from the pipeline for accurate model-aware estimates.
+  // Recalculates when budget, iteration percentages, maxAgents, model, or floor settings change.
+  const dispatchEstimates = useMemo(() => {
+    const pFloor = form.parallelFloorValue ? parseFloat(form.parallelFloorValue) : 0;
+    const sFloor = form.sequentialFloorValue ? parseFloat(form.sequentialFloorValue) : 0;
+    const floorMode = form.budgetFloorMode;
+    const maxComp = form.maxComparisonsPerVariant ? parseInt(form.maxComparisonsPerVariant) : 15;
+    const defaultTactic = DEFAULT_TACTICS[0]!;
+    const seedChars = 5000; // typical seed article length for preview
+
+    const estPerAgent = (form.generationModel && form.judgeModel)
+      ? estimateAgentCost(seedChars, defaultTactic, form.generationModel, form.judgeModel, 1, maxComp)
+      : 0.01; // fallback if no model selected
+
+    return iterations.map(it => {
+      if (it.agentType !== 'generate') return null;
+      const iterBudget = totalBudget * (it.budgetPercent / 100);
+      const maxAgents = it.maxAgents ?? DEFAULT_MAX_AGENTS;
+
+      const parallelFloorUsd = floorMode === 'fraction' ? iterBudget * pFloor : estPerAgent * pFloor;
+      const availForParallel = Math.max(0, iterBudget - parallelFloorUsd);
+      const uncappedParallel = Math.floor(availForParallel / estPerAgent);
+      const parallel = Math.min(maxAgents, Math.max(1, uncappedParallel));
+
+      // Detect why agent count is limited
+      const floorConstrained = uncappedParallel < 1 && pFloor > 0;
+      const maxAgentsCapped = uncappedParallel > maxAgents;
+
+      const sequentialFloorUsd = floorMode === 'fraction' ? iterBudget * sFloor : estPerAgent * sFloor;
+      const remainAfterParallel = Math.max(0, iterBudget - parallel * estPerAgent);
+      const availForSequential = Math.max(0, remainAfterParallel - sequentialFloorUsd);
+      const sequential = Math.max(0, Math.floor(availForSequential / estPerAgent));
+
+      return { parallel, sequential, estPerAgent, iterBudget, floorConstrained, maxAgentsCapped };
+    });
+  }, [iterations, totalBudget, form.generationModel, form.judgeModel, form.maxComparisonsPerVariant, form.parallelFloorValue, form.sequentialFloorValue, form.budgetFloorMode]);
+
   const iterationErrors = useMemo(() => {
     const errors: string[] = [];
     if (iterations.length === 0) errors.push('At least one iteration is required');
@@ -120,6 +273,12 @@ export default function NewStrategyPage(): JSX.Element {
       if (it.sourceMode === 'pool' && (it.qualityCutoffValue == null || it.qualityCutoffValue <= 0)) {
         errors.push(`Iteration ${i + 1}: pool mode requires a positive quality-cutoff value`);
       }
+      if (it.tacticGuidance && it.tacticGuidance.length > 0) {
+        const tacticSum = it.tacticGuidance.reduce((s, g) => s + g.percent, 0);
+        if (Math.abs(tacticSum - 100) > 0.01) {
+          errors.push(`Iteration ${i + 1}: tactic percentages must sum to 100% (currently ${tacticSum.toFixed(0)}%)`);
+        }
+      }
     });
     return errors;
   }, [iterations, percentValid, totalPercent]);
@@ -136,6 +295,7 @@ export default function NewStrategyPage(): JSX.Element {
         delete updated.sourceMode;
         delete updated.qualityCutoffMode;
         delete updated.qualityCutoffValue;
+        delete updated.tacticGuidance;
       }
       // Clear cutoff fields when sourceMode isn't pool.
       if (updated.sourceMode !== 'pool') {
@@ -147,7 +307,7 @@ export default function NewStrategyPage(): JSX.Element {
   }, []);
 
   const addIteration = useCallback(() => {
-    setIterations(prev => [...prev, { agentType: 'generate', budgetPercent: 0 }]);
+    setIterations(prev => [...prev, { agentType: 'generate', budgetPercent: 0, maxAgents: DEFAULT_MAX_AGENTS }]);
   }, []);
 
   const removeIteration = useCallback((idx: number) => {
@@ -199,6 +359,9 @@ export default function NewStrategyPage(): JSX.Element {
               && it.qualityCutoffMode && it.qualityCutoffValue != null && it.qualityCutoffValue > 0
             ? { qualityCutoff: { mode: it.qualityCutoffMode, value: it.qualityCutoffValue } }
             : {}),
+          ...(it.agentType === 'generate' && it.tacticGuidance && it.tacticGuidance.length > 0
+            ? { generationGuidance: it.tacticGuidance.filter(g => g.percent > 0) }
+            : {}),
         })),
         maxComparisonsPerVariant: form.maxComparisonsPerVariant ? Number(form.maxComparisonsPerVariant) : undefined,
         generationTemperature: form.generationTemperature ? Number(form.generationTemperature) : undefined,
@@ -217,8 +380,8 @@ export default function NewStrategyPage(): JSX.Element {
 
   // ─── Render helpers ─────────────────────────────────────────
 
-  const inputClasses = 'w-full px-3 py-2 text-sm font-ui bg-[var(--surface-primary)] border border-[var(--border-default)] rounded-page text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:border-[var(--accent-gold)] focus:outline-none';
-  const errorInputClasses = 'w-full px-3 py-2 text-sm font-ui bg-[var(--surface-primary)] border border-[var(--status-error)] rounded-page text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:border-[var(--accent-gold)] focus:outline-none';
+  const baseInputClasses = 'w-full px-3 py-2 text-sm font-ui bg-[var(--surface-primary)] rounded-page text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:border-[var(--accent-gold)] focus:outline-none';
+  const inputCls = (hasError?: boolean) => `${baseInputClasses} border ${hasError ? 'border-[var(--status-error)]' : 'border-[var(--border-default)]'}`;
   const labelClasses = 'block text-sm font-ui font-medium text-[var(--text-secondary)] mb-1';
 
   const currentIdx = STEPS.indexOf(step);
@@ -270,7 +433,7 @@ export default function NewStrategyPage(): JSX.Element {
                   value={form.name}
                   onChange={e => updateForm({ name: e.target.value })}
                   placeholder="Strategy name"
-                  className={configSubmitted && !form.name.trim() ? errorInputClasses : inputClasses}
+                  className={inputCls(configSubmitted && !form.name.trim())}
                 />
                 {configSubmitted && !form.name.trim() && (
                   <p className="text-xs font-body text-[var(--status-error)] mt-0.5">Name is required</p>
@@ -285,7 +448,7 @@ export default function NewStrategyPage(): JSX.Element {
                   onChange={e => updateForm({ description: e.target.value })}
                   placeholder="Optional description"
                   rows={3}
-                  className={inputClasses}
+                  className={inputCls()}
                 />
               </div>
 
@@ -296,7 +459,7 @@ export default function NewStrategyPage(): JSX.Element {
                     id="generation-model"
                     value={form.generationModel}
                     onChange={e => updateForm({ generationModel: e.target.value })}
-                    className={configSubmitted && !form.generationModel ? errorInputClasses : inputClasses}
+                    className={inputCls(configSubmitted && !form.generationModel)}
                   >
                     <option value="">Select a model...</option>
                     {MODEL_OPTIONS.map(opt => (
@@ -310,7 +473,7 @@ export default function NewStrategyPage(): JSX.Element {
                     id="judge-model"
                     value={form.judgeModel}
                     onChange={e => updateForm({ judgeModel: e.target.value })}
-                    className={configSubmitted && !form.judgeModel ? errorInputClasses : inputClasses}
+                    className={inputCls(configSubmitted && !form.judgeModel)}
                   >
                     <option value="">Select a model...</option>
                     {MODEL_OPTIONS.map(opt => (
@@ -332,7 +495,7 @@ export default function NewStrategyPage(): JSX.Element {
                     value={form.generationTemperature}
                     onChange={e => updateForm({ generationTemperature: e.target.value })}
                     placeholder="Provider default"
-                    className={inputClasses}
+                    className={inputCls()}
                   />
                 </div>
                 <div>
@@ -345,7 +508,7 @@ export default function NewStrategyPage(): JSX.Element {
                     max="100"
                     value={form.budgetUsd}
                     onChange={e => updateForm({ budgetUsd: e.target.value })}
-                    className={inputClasses}
+                    className={inputCls()}
                   />
                 </div>
               </div>
@@ -369,7 +532,7 @@ export default function NewStrategyPage(): JSX.Element {
                       value={form.maxComparisonsPerVariant}
                       onChange={e => updateForm({ maxComparisonsPerVariant: e.target.value })}
                       placeholder="15 (default)"
-                      className={inputClasses}
+                      className={inputCls()}
                     />
                   </div>
 
@@ -382,7 +545,7 @@ export default function NewStrategyPage(): JSX.Element {
                         parallelFloorValue: '',
                         sequentialFloorValue: '',
                       })}
-                      className={inputClasses}
+                      className={inputCls()}
                     >
                       <option value="fraction">Fraction of budget</option>
                       <option value="agentMultiple">Multiple of agent cost</option>
@@ -403,7 +566,7 @@ export default function NewStrategyPage(): JSX.Element {
                         value={form.parallelFloorValue}
                         onChange={e => updateForm({ parallelFloorValue: e.target.value })}
                         placeholder="Not set"
-                        className={inputClasses}
+                        className={inputCls()}
                       />
                     </div>
                     <div>
@@ -419,7 +582,7 @@ export default function NewStrategyPage(): JSX.Element {
                         value={form.sequentialFloorValue}
                         onChange={e => updateForm({ sequentialFloorValue: e.target.value })}
                         placeholder="Not set"
-                        className={inputClasses}
+                        className={inputCls()}
                       />
                     </div>
                   </div>
@@ -553,6 +716,26 @@ export default function NewStrategyPage(): JSX.Element {
                         </div>
                       )}
 
+                      {/* Dispatch preview — recalculates on budget, percent, maxAgents, or floor changes */}
+                      {it.agentType === 'generate' && dispatchEstimates[idx] && (() => {
+                        const est = dispatchEstimates[idx]!;
+                        const constraint = est.floorConstrained
+                          ? 'budget floor limits parallel dispatch'
+                          : est.maxAgentsCapped
+                            ? `capped by max agents (${it.maxAgents})`
+                            : null;
+                        return (
+                          <span
+                            className={`text-xs font-ui ml-2 shrink-0 ${est.floorConstrained ? 'text-[var(--status-warning)]' : 'text-[var(--text-muted)]'}`}
+                            data-testid={`dispatch-preview-${idx}`}
+                            title={`$${est.iterBudget.toFixed(2)} iteration budget · $${est.estPerAgent.toFixed(2)}/agent est. · ${est.parallel} parallel${est.sequential > 0 ? ` + ${est.sequential} sequential` : ''}${constraint ? ` · ${constraint}` : ''}`}
+                          >
+                            {est.parallel} parallel{est.sequential > 0 ? ` + ${est.sequential} sequential` : ''}
+                            {est.floorConstrained && ' ⚠'}
+                          </span>
+                        );
+                      })()}
+
                       <button
                         type="button"
                         onClick={() => removeIteration(idx)}
@@ -607,6 +790,36 @@ export default function NewStrategyPage(): JSX.Element {
                               &nbsp;· picks a random parent from the top of the run&apos;s ranked pool
                             </span>
                           </>
+                        )}
+                      </div>
+                    )}
+                    {/* Tactic guidance button + inline editor */}
+                    {it.agentType === 'generate' && (
+                      <div className="mt-2 pl-8">
+                        <button
+                          type="button"
+                          onClick={() => setTacticEditorIdx(tacticEditorIdx === idx ? null : idx)}
+                          className="text-xs font-ui text-[var(--accent-gold)] hover:underline flex items-center gap-1"
+                          data-testid={`tactic-guidance-btn-${idx}`}
+                        >
+                          ⚔️ Tactics{it.tacticGuidance && it.tacticGuidance.length > 0 ? ' ✓' : ''}
+                        </button>
+                        {it.tacticGuidance && it.tacticGuidance.length > 0 && tacticEditorIdx !== idx && (
+                          <div className="mt-1 flex flex-wrap gap-1">
+                            {it.tacticGuidance.map(g => (
+                              <span key={g.tactic} className="text-xs font-mono text-[var(--text-muted)] px-1 py-0.5 rounded bg-[var(--surface-primary)] border border-[var(--border-default)]">
+                                <span className="inline-block w-1.5 h-1.5 rounded-full mr-0.5" style={{ backgroundColor: TACTIC_PALETTE[g.tactic] ?? '#888' }} />
+                                {g.tactic}: {g.percent}%
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        {tacticEditorIdx === idx && (
+                          <TacticGuidanceEditor
+                            guidance={it.tacticGuidance ?? []}
+                            onChange={g => updateIteration(idx, { tacticGuidance: g.length > 0 ? g : undefined })}
+                            onClose={() => setTacticEditorIdx(null)}
+                          />
                         )}
                       </div>
                     )}

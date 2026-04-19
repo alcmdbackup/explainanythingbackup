@@ -47,7 +47,7 @@ export class TacticEntity extends Entity<EvolutionTacticRow> {
 
   readonly listFilters: FilterDef[] = [
     { field: 'status', type: 'select', options: ['active', 'archived'] },
-    { field: 'agent_type', type: 'select', options: ['generate_from_seed_article'] },
+    { field: 'agent_type', type: 'select', options: ['generate_from_previous_article'] },
   ];
 
   readonly actions: EntityAction<EvolutionTacticRow>[] = [

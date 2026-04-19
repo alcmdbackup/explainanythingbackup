@@ -32,7 +32,8 @@ export interface SwissRankingInput {
   ratings: ReadonlyMap<string, Rating>;
   /** Shared comparison cache (order-invariant key). */
   cache: Map<string, ComparisonResult>;
-  llm: EvolutionLLMClient;
+  /** LLM client. Optional when ctx.rawProvider is set — Agent.run() injects a scoped client. */
+  llm?: EvolutionLLMClient;
 }
 
 export interface SwissRankingMatchEntry {
@@ -92,7 +93,8 @@ export class SwissRankingAgent extends Agent<
     input: SwissRankingInput,
     ctx: AgentContext,
   ): Promise<AgentOutput<SwissRankingOutput, SwissRankingExecutionDetail>> {
-    const { eligibleIds, completedPairs, pool, ratings, cache, llm } = input;
+    const { eligibleIds, completedPairs, pool, ratings, cache } = input;
+    const llm = input.llm!; // Injected by Agent.run() via rawProvider when not passed directly
 
     const poolMap = new Map<string, Variant>(pool.map((v) => [v.id, v]));
 

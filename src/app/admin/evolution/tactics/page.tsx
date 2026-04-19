@@ -62,7 +62,7 @@ const filters: FilterDef[] = [
     type: 'select',
     options: [
       { label: 'All', value: '' },
-      { label: 'Generate', value: 'generate_from_seed_article' },
+      { label: 'Generate', value: 'generate_from_previous_article' },
     ],
   },
 ];
