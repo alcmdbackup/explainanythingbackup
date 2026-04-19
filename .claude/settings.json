@@ -98,6 +98,10 @@
           {
             "type": "command",
             "command": "bash .claude/hooks/block-supabase-writes.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/block-push-without-gate.sh"
           }
         ]
       },
@@ -218,6 +222,17 @@
           {
             "type": "command",
             "command": "bash .claude/hooks/cleanup-tmux.sh"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/enforce-ci-monitoring.sh",
+            "timeout": 30000
           }
         ]
       }

@@ -44,23 +44,26 @@ export type Variant = VariantSchema;
 
 interface CreateVariantParams {
   text: string;
-  strategy: string;
+  tactic: string;
   iterationBorn: number;
   parentIds?: string[];
   version?: number;
   costUsd?: number;
+  /** Phase 5: ID of the agent invocation that produced this variant. */
+  agentInvocationId?: string;
 }
 
-export function createVariant({ text, strategy, iterationBorn, parentIds, version, costUsd }: CreateVariantParams): Variant {
+export function createVariant({ text, tactic, iterationBorn, parentIds, version, costUsd, agentInvocationId }: CreateVariantParams): Variant {
   return {
     id: uuidv4(),
     text,
-    strategy,
+    tactic,
     iterationBorn,
     parentIds: parentIds ?? [],
     version: version ?? 0,
     createdAt: Date.now() / 1000,
     ...(costUsd !== undefined && { costUsd }),
+    ...(agentInvocationId !== undefined && { agentInvocationId }),
   };
 }
 
@@ -249,7 +252,7 @@ export interface EvolutionExecutionDetail extends ExecutionDetailBase {
   detailType: 'evolution';
   parents: Array<{ id: string; mu: number }>;
   mutations: Array<{
-    strategy: string;
+    tactic: string;
     status: 'success' | 'format_rejected' | 'error';
     variantId?: string;
     textLength?: number;
@@ -665,6 +668,8 @@ export interface EvolutionRunSummary {
   totalIterations: number;
   durationSeconds: number;
   eloHistory: number[][];
+  /** Phase 4b: optional parallel array — per-top-K uncertainty values matching eloHistory. */
+  uncertaintyHistory?: number[][];
   diversityHistory: number[];
   matchStats: {
     totalMatches: number;
@@ -673,15 +678,20 @@ export interface EvolutionRunSummary {
   };
   topVariants: Array<{
     id: string;
-    strategy: string;
+    tactic: string;
     elo: number;
-    isBaseline: boolean;
+    /** Per-variant rating uncertainty (Elo-scale). Optional — legacy rows omit it. Phase 4b. */
+    uncertainty?: number;
+    isSeedVariant: boolean;
   }>;
-  baselineRank: number | null;
-  baselineElo: number | null;
-  strategyEffectiveness: Record<string, {
+  seedVariantRank: number | null;
+  seedVariantElo: number | null;
+  tacticEffectiveness: Record<string, {
     count: number;
     avgElo: number;
+    /** Standard error of the mean Elo across variants in this tactic bucket — NOT rating CI.
+     *  Computed via Welford M2; populated only when count >= 2. Optional for legacy rows. Phase 4b. */
+    seAvgElo?: number;
   }>;
   metaFeedback: {
     successfulStrategies: string[];

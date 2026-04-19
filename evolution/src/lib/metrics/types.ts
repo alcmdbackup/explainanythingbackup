@@ -10,7 +10,7 @@ import type { AgentName } from '../core/agentNames';
 
 // ─── Entity & Metric Name Types ─────────────────────────────────
 
-export const ENTITY_TYPES = ['run', 'invocation', 'variant', 'strategy', 'experiment', 'prompt'] as const;
+export const ENTITY_TYPES = ['run', 'invocation', 'variant', 'strategy', 'experiment', 'prompt', 'tactic'] as const;
 export type EntityType = typeof ENTITY_TYPES[number];
 
 export const AGGREGATION_METHODS = ['sum', 'avg', 'max', 'min', 'count', 'bootstrap_mean', 'bootstrap_percentile'] as const;
@@ -25,8 +25,20 @@ export const STATIC_METRIC_NAMES = [
   // Run (at-finalization)
   'winner_elo', 'median_elo', 'p90_elo', 'max_elo',
   'total_matches', 'decisive_rate', 'variant_count', 'cost_estimation_error_pct',
+  // Run (at-finalization) — cost estimate accuracy (cost_estimate_accuracy_analysis_20260414)
+  'estimated_cost',
+  'generation_estimation_error_pct',
+  'ranking_estimation_error_pct',
+  'estimation_abs_error_usd',
+  'agent_cost_projected',
+  'agent_cost_actual',
+  'parallel_dispatched',
+  'sequential_dispatched',
+  'median_sequential_gfsa_duration_ms',
+  'avg_sequential_gfsa_duration_ms',
   // Invocation
   'best_variant_elo', 'avg_variant_elo', 'format_rejection_rate', 'total_comparisons',
+  'elo_delta_vs_parent',
   // Strategy/Experiment aggregates
   'run_count', 'total_cost', 'avg_cost_per_run',
   'total_generation_cost', 'avg_generation_cost_per_run',
@@ -36,20 +48,41 @@ export const STATIC_METRIC_NAMES = [
   'avg_median_elo', 'avg_p90_elo', 'best_max_elo',
   'avg_matches_per_run', 'avg_decisive_rate',
   'total_variant_count', 'avg_variant_count',
+  // Strategy/Experiment aggregates — cost estimate accuracy
+  'avg_cost_estimation_error_pct',
+  'avg_generation_estimation_error_pct',
+  'avg_ranking_estimation_error_pct',
+  'avg_estimation_abs_error_usd',
+  'avg_estimated_cost',
+  'total_estimated_cost',
+  'avg_agent_cost_projected',
+  'avg_agent_cost_actual',
+  'avg_parallel_dispatched',
+  'avg_sequential_dispatched',
+  'avg_median_sequential_gfsa_duration_ms',
 ] as const;
 export type StaticMetricName = typeof STATIC_METRIC_NAMES[number];
 /**
  * Dynamic per-agent-class cost metric prefix. Used by `experimentMetrics.ts` ONLY
- * for aggregating invocation `cost_usd` by `agent_name` (e.g. `agentCost:generate_from_seed_article`).
+ * for aggregating invocation `cost_usd` by `agent_name` (e.g. `agentCost:generate_from_previous_article`).
  *
  * Per-LLM-call cost attribution uses static `*_cost` names via `COST_METRIC_BY_AGENT`
  * in `evolution/src/lib/core/agentNames.ts`. The two namespaces are orthogonal.
  */
-export type DynamicMetricName = `agentCost:${string}`;
+export type DynamicMetricName =
+  | `agentCost:${string}`
+  /** Phase 5: per-agent, per-dimension mean ELO delta. `eloAttrDelta:<agentName>:<dimensionValue>`. */
+  | `eloAttrDelta:${string}`
+  /** Phase 5: per-agent ELO-delta histogram bucket. `eloAttrDeltaHist:<agentName>:<bucketStart>:<bucketEnd>`. */
+  | `eloAttrDeltaHist:${string}`;
 export type MetricName = StaticMetricName | DynamicMetricName;
 
 // Dynamic metric prefixes for runtime validation
-export const DYNAMIC_METRIC_PREFIXES = ['agentCost:'] as const;
+export const DYNAMIC_METRIC_PREFIXES = [
+  'agentCost:',
+  'eloAttrDelta:',
+  'eloAttrDeltaHist:',
+] as const;
 
 // ─── Metric Definition Types ────────────────────────────────────
 
@@ -99,6 +132,26 @@ export interface ExecutionContext {
   phaseName: AgentName;
 }
 
+/** Observable numerics captured during pipeline execution that the finalization
+ *  context carries through so they can be written as first-class metrics. These
+ *  come from in-memory state in `runIterationLoop.ts` (not derivable from
+ *  persisted run data alone). */
+export interface BudgetFloorObservables {
+  /** Pre-dispatch `estimateAgentCost` output (USD). */
+  initialAgentCostEstimate: number;
+  /** Runtime feedback: average cost of successful parallel GFSA agents (USD).
+   *  Null when parallel produced zero successful agents. */
+  actualAvgCostPerAgent: number | null;
+  /** Number of GFSA agents dispatched in the parallel phase. */
+  parallelDispatched: number;
+  /** Number of GFSA agents dispatched in the sequential phase. */
+  sequentialDispatched: number;
+  /** Median / mean wall-clock duration of sequential GFSA invocations (ms).
+   *  Null when there were zero sequential invocations. */
+  medianSequentialGfsaDurationMs: number | null;
+  avgSequentialGfsaDurationMs: number | null;
+}
+
 export interface FinalizationContext {
   result: EvolutionResult;
   ratings: Map<string, Rating>;
@@ -107,6 +160,7 @@ export interface FinalizationContext {
   invocationDetails?: Map<string, AgentExecutionDetail>;
   currentInvocationId?: string;
   currentVariantCost?: number | null;
+  budgetFloorObservables?: BudgetFloorObservables;
 }
 
 // ─── DB Row Schema (Zod) ────────────────────────────────────────

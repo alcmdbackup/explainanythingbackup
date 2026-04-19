@@ -75,7 +75,7 @@ async function seedArenaData(): Promise<SeededArenaData> {
       .insert({
         name: `[TEST] Arena Strategy ${Date.now()}`,
         label: 'test',
-        config: { generationModel: 'test', judgeModel: 'test', iterations: 1 },
+        config: { generationModel: 'test', judgeModel: 'test', iterationConfigs: [{ agentType: 'generate', budgetPercent: 60 }, { agentType: 'swiss', budgetPercent: 40 }] },
         config_hash: `test-arena-${Date.now()}`,
         created_by: 'e2e-test',
       })

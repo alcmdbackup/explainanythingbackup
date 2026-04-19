@@ -60,13 +60,20 @@ function DashboardContent(): JSX.Element {
 
   if (!data) return <div className="p-8 text-center text-[var(--text-muted)]">No data available</div>;
 
+  // Phase 4d: append "± SE" to Avg Cost when the server action computed one (≥2 run samples).
+  const avgCostLabel = data.avgCostPerRun == null
+    ? formatCost(null)
+    : data.seCostPerRun != null
+      ? `${formatCost(data.avgCostPerRun)} ± ${formatCost(data.seCostPerRun)}`
+      : formatCost(data.avgCostPerRun);
+
   const metrics: MetricItem[] = [
     { label: 'Active Runs', value: data.activeRuns },
     { label: 'Queue Depth', value: data.queueDepth },
     { label: 'Completed Runs', value: data.completedRuns },
     { label: 'Failed Runs', value: data.failedRuns },
     { label: 'Total Cost', value: formatCost(data.totalCostUsd) },
-    { label: 'Avg Cost', value: formatCost(data.avgCostPerRun) },
+    { label: 'Avg Cost', value: avgCostLabel },
   ];
 
   const recentRuns: BaseRun[] = data.recentRuns.map((r) => ({
@@ -116,6 +123,13 @@ function DashboardContent(): JSX.Element {
           <Link href="/admin/evolution/runs" className="text-sm text-[var(--accent-gold)] hover:underline">View all runs →</Link>
         </div>
         <RunsTable runs={recentRuns} columns={getBaseColumns()} compact maxRows={10} testId="dashboard-runs-table" />
+      </div>
+      <div className="flex gap-3 text-sm">
+        <Link href="/admin/evolution/tactics" className="text-[var(--accent-gold)] hover:underline">Tactics →</Link>
+        <Link href="/admin/evolution/strategies" className="text-[var(--accent-gold)] hover:underline">Strategies →</Link>
+        <Link href="/admin/evolution/experiments" className="text-[var(--accent-gold)] hover:underline">Experiments →</Link>
+        <Link href="/admin/evolution/prompts" className="text-[var(--accent-gold)] hover:underline">Prompts →</Link>
+        <Link href="/admin/evolution/arena" className="text-[var(--accent-gold)] hover:underline">Arena →</Link>
       </div>
     </div>
   );

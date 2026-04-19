@@ -69,7 +69,7 @@ function makeMockDb(opts?: { contentText?: string; strategyConfig?: Record<strin
                 const config = opts?.strategyConfig ?? {
                   generationModel: 'gpt-4.1-nano',
                   judgeModel: 'gpt-4.1-nano',
-                  iterations: 1,
+                  iterationConfigs: [{ agentType: 'generate', budgetPercent: 60 }, { agentType: 'swiss', budgetPercent: 40 }],
                 };
                 return { data: { config }, error: null };
               }
@@ -101,7 +101,7 @@ describe('buildRunContext', () => {
     expect('context' in result).toBe(true);
     if ('context' in result) {
       expect(result.context.originalText).toBe(validText);
-      expect(result.context.config.iterations).toBe(1);
+      expect(result.context.config.iterationConfigs.length).toBe(2);
       expect(result.context.initialPool).toEqual([]);
     }
   });
@@ -132,15 +132,15 @@ describe('buildRunContext', () => {
 
   it('passes generationGuidance from strategy config to EvolutionConfig', async () => {
     const guidance = [
-      { strategy: 'engagement_amplify', percent: 60 },
-      { strategy: 'tone_transform', percent: 40 },
+      { tactic: 'engagement_amplify', percent: 60 },
+      { tactic: 'tone_transform', percent: 40 },
     ];
     const { db } = makeMockDb({
       contentText: validText,
       strategyConfig: {
         generationModel: 'gpt-4.1-nano',
         judgeModel: 'gpt-4.1-nano',
-        iterations: 1,
+        iterationConfigs: [{ agentType: 'generate', budgetPercent: 60 }, { agentType: 'swiss', budgetPercent: 40 }],
         generationGuidance: guidance,
       },
     });
@@ -228,7 +228,7 @@ function makeVariant(overrides: Partial<Variant> = {}): Variant {
     text: '# Test\n\n## Intro\n\nSome content here.',
     version: 1,
     parentIds: [],
-    strategy: 'structural_transform',
+    tactic: 'structural_transform',
     createdAt: Date.now() / 1000,
     iterationBorn: 1,
     ...overrides,
@@ -306,10 +306,10 @@ describe('loadArenaEntries', () => {
       text: '# Entry 1',
       version: 0,
       parentIds: [],
-      strategy: 'arena_pipeline',
+      tactic: 'arena_pipeline',
       fromArena: true,
     });
-    expect(result.variants[1]!.strategy).toBe('arena_unknown');
+    expect(result.variants[1]!.tactic).toBe('arena_unknown');
   });
 
   it('sets up ratings from DB mu/sigma', async () => {
@@ -354,9 +354,20 @@ describe('loadArenaEntries', () => {
  * 2. loadArenaEntries: .select().eq().eq().is()  (awaited at .is()) — return []
  */
 function makeSeedAwareDb(opts: {
-  seedEntry?: { variant_content: string } | null;
+  seedEntry?: { variant_content: string; id?: string; mu?: number; sigma?: number; arena_match_count?: number; synced_to_arena?: boolean } | null;
   promptText?: string;
 }): SupabaseClient {
+  // Default the new fields so existing test cases continue to satisfy resolveContent's
+  // synced_to_arena invariant. Tests that want to assert seed-row-row reuse can override.
+  const enrichedSeed = opts.seedEntry ? {
+    id: 'seed-id',
+    mu: 25,
+    sigma: 8.333,
+    arena_match_count: 0,
+    synced_to_arena: true,
+    ...opts.seedEntry,
+  } : opts.seedEntry;
+  opts = { ...opts, seedEntry: enrichedSeed };
   return {
     from: jest.fn((table: string) => {
       const chain: Record<string, jest.Mock> = {} as Record<string, jest.Mock>;
@@ -396,7 +407,7 @@ function makeSeedAwareDb(opts: {
       chain.single = jest.fn(async () => {
         if (table === 'evolution_strategies') {
           return {
-            data: { config: { generationModel: 'gpt-4o', judgeModel: 'gpt-4o', iterations: 1 } },
+            data: { config: { generationModel: 'gpt-4o', judgeModel: 'gpt-4o', iterationConfigs: [{ agentType: 'generate', budgetPercent: 60 }, { agentType: 'swiss', budgetPercent: 40 }] } },
             error: null,
           };
         }
@@ -478,6 +489,54 @@ describe('buildRunContext — seed reuse', () => {
     if ('context' in result) {
       expect(result.context.originalText).toBeNull();
       expect(result.context.seedPrompt).toBeDefined();
+    }
+  });
+
+  // ─── 2026-04-14: seedVariantRow load + EVOLUTION_REUSE_SEED_RATING gate ───
+
+  it('seed exists + EVOLUTION_REUSE_SEED_RATING=true: returns seedVariantRow with mu/sigma/match_count', async () => {
+    const prevFlag = process.env.EVOLUTION_REUSE_SEED_RATING;
+    process.env.EVOLUTION_REUSE_SEED_RATING = 'true';
+    try {
+      const db = makeSeedAwareDb({ seedEntry: {
+        id: 'seed-uuid-1', variant_content: '# Seed', mu: 18.75, sigma: 7.15, arena_match_count: 5, synced_to_arena: true,
+      } });
+      const result = await buildRunContext('run-1', promptRun, db, makeProvider());
+      expect('context' in result).toBe(true);
+      if ('context' in result) {
+        expect(result.context.seedVariantRow).toBeDefined();
+        expect(result.context.seedVariantRow?.id).toBe('seed-uuid-1');
+        expect(result.context.seedVariantRow?.mu).toBeCloseTo(18.75);
+        expect(result.context.seedVariantRow?.sigma).toBeCloseTo(7.15);
+        expect(result.context.seedVariantRow?.arena_match_count).toBe(5);
+        // Lossless string form preserved for optimistic-concurrency UPDATE.
+        expect(result.context.seedVariantRow?.muRaw).toBe('18.75');
+        expect(result.context.seedVariantRow?.sigmaRaw).toBe('7.15');
+      }
+    } finally {
+      if (prevFlag === undefined) delete process.env.EVOLUTION_REUSE_SEED_RATING;
+      else process.env.EVOLUTION_REUSE_SEED_RATING = prevFlag;
+    }
+  });
+
+  it('seed exists + EVOLUTION_REUSE_SEED_RATING=false: seedVariantRow is undefined (fallback)', async () => {
+    const prevFlag = process.env.EVOLUTION_REUSE_SEED_RATING;
+    process.env.EVOLUTION_REUSE_SEED_RATING = 'false';
+    try {
+      const db = makeSeedAwareDb({ seedEntry: {
+        id: 'seed-uuid-1', variant_content: '# Seed', mu: 18.75, sigma: 7.15, arena_match_count: 5, synced_to_arena: true,
+      } });
+      const result = await buildRunContext('run-1', promptRun, db, makeProvider());
+      expect('context' in result).toBe(true);
+      if ('context' in result) {
+        // originalText still resolved (text reuse is independent of rating reuse)
+        expect(result.context.originalText).toBe('# Seed');
+        // But seedVariantRow is omitted → runIterationLoop falls through to fresh-baseline path
+        expect(result.context.seedVariantRow).toBeUndefined();
+      }
+    } finally {
+      if (prevFlag === undefined) delete process.env.EVOLUTION_REUSE_SEED_RATING;
+      else process.env.EVOLUTION_REUSE_SEED_RATING = prevFlag;
     }
   });
 });

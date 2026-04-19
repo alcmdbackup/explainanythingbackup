@@ -1,0 +1,24 @@
+{
+  "branch": "feat/multi_iteration_strategy_support_evolution_20260415",
+  "created_at": "2026-04-16T12:00:00Z",
+  "prerequisites": {},
+  "relevantDocs": [
+    "evolution/docs/README.md",
+    "evolution/docs/architecture.md",
+    "evolution/docs/arena.md",
+    "evolution/docs/cost_optimization.md",
+    "evolution/docs/curriculum.md",
+    "evolution/docs/data_model.md",
+    "evolution/docs/entities.md",
+    "evolution/docs/logging.md",
+    "evolution/docs/metrics.md",
+    "evolution/docs/minicomputer_deployment.md",
+    "evolution/docs/rating_and_comparison.md",
+    "evolution/docs/reference.md",
+    "evolution/docs/strategies_and_experiments.md",
+    "evolution/docs/visualization.md",
+    "evolution/docs/agents/overview.md",
+    "docs/feature_deep_dives/evolution_metrics.md",
+    "docs/feature_deep_dives/multi_iteration_strategies.md"
+  ]
+}

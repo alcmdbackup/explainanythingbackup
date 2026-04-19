@@ -7,7 +7,7 @@ describe('V2 hashStrategyConfig', () => {
   const baseConfig: StrategyConfig = {
     generationModel: 'gpt-4.1-mini',
     judgeModel: 'gpt-4.1-nano',
-    iterations: 5,
+    iterationConfigs: [{ agentType: 'generate', budgetPercent: 60 }, { agentType: 'swiss', budgetPercent: 40 }],
   };
 
   it('produces a 12-char hex string', () => {
@@ -29,8 +29,44 @@ describe('V2 hashStrategyConfig', () => {
   });
 
   it('changes hash when core fields differ', () => {
-    const different: StrategyConfig = { ...baseConfig, iterations: 10 };
+    const different: StrategyConfig = { ...baseConfig, iterationConfigs: [{ agentType: 'generate', budgetPercent: 100 }] };
     expect(hashStrategyConfig(different)).not.toBe(hashStrategyConfig(baseConfig));
+  });
+
+  it('changes hash when qualityCutoff.value differs', () => {
+    const a: StrategyConfig = {
+      ...baseConfig,
+      iterationConfigs: [
+        { agentType: 'generate', budgetPercent: 50 },
+        { agentType: 'generate', budgetPercent: 50, sourceMode: 'pool', qualityCutoff: { mode: 'topN', value: 5 } },
+      ],
+    };
+    const b: StrategyConfig = {
+      ...baseConfig,
+      iterationConfigs: [
+        { agentType: 'generate', budgetPercent: 50 },
+        { agentType: 'generate', budgetPercent: 50, sourceMode: 'pool', qualityCutoff: { mode: 'topN', value: 10 } },
+      ],
+    };
+    expect(hashStrategyConfig(a)).not.toBe(hashStrategyConfig(b));
+  });
+
+  it('changes hash when sourceMode differs', () => {
+    const seedMode: StrategyConfig = {
+      ...baseConfig,
+      iterationConfigs: [
+        { agentType: 'generate', budgetPercent: 50 },
+        { agentType: 'generate', budgetPercent: 50, sourceMode: 'seed' },
+      ],
+    };
+    const poolMode: StrategyConfig = {
+      ...baseConfig,
+      iterationConfigs: [
+        { agentType: 'generate', budgetPercent: 50 },
+        { agentType: 'generate', budgetPercent: 50, sourceMode: 'pool', qualityCutoff: { mode: 'topPercent', value: 25 } },
+      ],
+    };
+    expect(hashStrategyConfig(seedMode)).not.toBe(hashStrategyConfig(poolMode));
   });
 });
 
@@ -39,17 +75,17 @@ describe('V2 labelStrategyConfig', () => {
     const config: StrategyConfig = {
       generationModel: 'gpt-4.1-mini',
       judgeModel: 'gpt-4.1-nano',
-      iterations: 5,
+      iterationConfigs: [{ agentType: 'generate', budgetPercent: 60 }, { agentType: 'swiss', budgetPercent: 40 }],
     };
     const label = labelStrategyConfig(config);
-    expect(label).toBe('Gen: 4.1-mini | Judge: 4.1-nano | 5 iters');
+    expect(label).toBe('Gen: 4.1-mini | Judge: 4.1-nano | 1×gen + 1×swiss');
   });
 
   it('includes budget when set', () => {
     const config: StrategyConfig = {
       generationModel: 'gpt-4.1-mini',
       judgeModel: 'gpt-4.1-nano',
-      iterations: 5,
+      iterationConfigs: [{ agentType: 'generate', budgetPercent: 60 }, { agentType: 'swiss', budgetPercent: 40 }],
       budgetUsd: 2.5,
     };
     const label = labelStrategyConfig(config);
@@ -60,7 +96,7 @@ describe('V2 labelStrategyConfig', () => {
     const config: StrategyConfig = {
       generationModel: 'deepseek-chat',
       judgeModel: 'gpt-4.1-nano',
-      iterations: 3,
+      iterationConfigs: [{ agentType: 'generate', budgetPercent: 60 }, { agentType: 'swiss', budgetPercent: 40 }],
     };
     const label = labelStrategyConfig(config);
     expect(label).toContain('Gen: ds-chat');
@@ -70,7 +106,7 @@ describe('V2 labelStrategyConfig', () => {
     const config: StrategyConfig = {
       generationModel: 'claude-3.5-sonnet',
       judgeModel: 'gpt-4.1-nano',
-      iterations: 3,
+      iterationConfigs: [{ agentType: 'generate', budgetPercent: 60 }, { agentType: 'swiss', budgetPercent: 40 }],
     };
     const label = labelStrategyConfig(config);
     expect(label).toContain('Gen: cl-3.5-sonnet');
@@ -81,7 +117,7 @@ describe('V2 upsertStrategy', () => {
   const baseConfig: StrategyConfig = {
     generationModel: 'gpt-4.1-mini',
     judgeModel: 'gpt-4.1-nano',
-    iterations: 5,
+    iterationConfigs: [{ agentType: 'generate', budgetPercent: 60 }, { agentType: 'swiss', budgetPercent: 40 }],
   };
 
   it('throws on DB error (does not return null)', async () => {

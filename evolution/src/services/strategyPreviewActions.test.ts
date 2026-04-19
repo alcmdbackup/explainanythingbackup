@@ -31,7 +31,7 @@ describe('estimateAgentCostPreviewAction', () => {
 
     const result = await (estimateAgentCostPreviewAction as unknown as (
       input: Parameters<typeof estimateAgentCostPreviewAction>[0],
-    ) => Promise<{ estimatedAgentCostUsd: number; assumptions: { seedArticleChars: number; strategy: string; comparisonsUsed: number } }>)({
+    ) => Promise<{ estimatedAgentCostUsd: number; assumptions: { seedArticleChars: number; tactic: string; comparisonsUsed: number } }>)({
       generationModel: 'qwen-2.5-7b-instruct',
       judgeModel: 'qwen-2.5-7b-instruct',
     });
@@ -48,7 +48,7 @@ describe('estimateAgentCostPreviewAction', () => {
     expect(result.estimatedAgentCostUsd).toBeGreaterThan(0);
     expect(result.assumptions).toEqual({
       seedArticleChars: 5000,
-      strategy: 'grounding_enhance',
+      tactic: 'grounding_enhance',
       comparisonsUsed: 15,
     });
 
@@ -91,6 +91,32 @@ describe('estimateAgentCostPreviewAction', () => {
     });
     // If the arity is wrong, Zod throws on empty input before this line.
     expect(result.estimatedAgentCostUsd).toBeGreaterThan(0);
+  });
+
+  // cost_estimate_accuracy_analysis_20260414: when COST_CALIBRATION_ENABLED is
+  // 'true', estimateAgentCost consults the calibration loader before falling
+  // back to EMPIRICAL_OUTPUT_CHARS. This test guards the integration so a
+  // future refactor doesn't accidentally bypass the loader.
+  it('consults costCalibrationLoader when COST_CALIBRATION_ENABLED=true', async () => {
+    const loader = await import('../lib/pipeline/infra/costCalibrationLoader');
+    const spy = jest.spyOn(loader, 'getCalibrationRow');
+    const original = process.env.COST_CALIBRATION_ENABLED;
+    process.env.COST_CALIBRATION_ENABLED = 'true';
+    try {
+      loader._resetForTesting();
+      await (estimateAgentCostPreviewAction as unknown as (input: unknown) => Promise<unknown>)({
+        generationModel: 'qwen-2.5-7b-instruct',
+        judgeModel: 'qwen-2.5-7b-instruct',
+      });
+      // estimateAgentCost calls getCalibrationRow at least once for ranking-variant chars
+      // and via estimateGenerationCost. We assert ≥1 call.
+      expect(spy).toHaveBeenCalled();
+    } finally {
+      if (original === undefined) delete process.env.COST_CALIBRATION_ENABLED;
+      else process.env.COST_CALIBRATION_ENABLED = original;
+      spy.mockRestore();
+      loader._resetForTesting();
+    }
   });
 
   it('returns different cost estimates for different generation models (sanity check)', async () => {

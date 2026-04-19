@@ -22,31 +22,38 @@ For how costs fit into the pipeline lifecycle, see [Architecture](./architecture
 
 ---
 
-## Two-Layer Budget Flow
+## Three-Layer Budget Flow
 
 ```
 LLM Call Request
        |
        v
-+------------------+     throws BudgetExceededError
-| Layer 1: Local   |----> (per-run cap exceeded)
-| V2CostTracker    |
-| (synchronous)    |
-+--------+---------+
-         | reserve OK
++------------------------+     throws BudgetExceededError
+| Layer 1a: Per-Run      |----> (run-level cap exceeded — stops entire run)
+| V2CostTracker          |
+| (synchronous)          |
++--------+---------------+
+         | run reserve OK
+         v
++------------------------+     throws IterationBudgetExceededError
+| Layer 1b: Per-Iteration|----> (iteration cap exceeded — stops this iteration only)
+| IterationBudgetTracker |
+| (synchronous)          |
++--------+---------------+
+         | iteration reserve OK
          v
 +------------------+     throws GlobalBudgetExceededError
 | Layer 2: Global  |----> (daily/monthly cap exceeded)
 | LLMSpendingGate  |
 | (DB + cache)     |     throws LLMKillSwitchError
 +--------+---------+----> (emergency stop)
-         | both pass
+         | all pass
          v
    Execute LLM Call
          |
          v
   +------+-------+
-  | Record spend  |  costTracker.recordSpend()
+  | Record spend  |  iterTracker.recordSpend() → costTracker.recordSpend()
   | Reconcile     |  gate.reconcileAfterCall()
   +--------------+
 ```
@@ -102,6 +109,38 @@ Set `EVOLUTION_ASSERTIONS=true` in CI via `jest.setup.js` to catch invariant vio
 
 ---
 
+## Layer 1b: Per-Iteration Budget Enforcement
+
+**File:** `evolution/src/lib/pipeline/infra/trackBudget.ts`
+
+Each iteration in `config.iterationConfigs[]` specifies a `budgetPercent` (1-100).
+At runtime, the dollar amount is computed as `(budgetPercent / 100) * totalBudgetUsd`.
+The `createIterationBudgetTracker(iterationBudgetUsd, runTracker, iterationIndex)` factory
+wraps the run-level `V2CostTracker` with an additional per-iteration budget check.
+
+### Reserve Sequence
+
+1. **Run-level check** — `runTracker.reserve()` is called first. If the run budget is
+   exhausted, `BudgetExceededError` is thrown (stops the entire run).
+2. **Iteration-level check** — if `iterSpent + iterReserved + margined > iterationBudgetUsd`,
+   the run-level reservation is released and `IterationBudgetExceededError` is thrown
+   (stops only the current iteration; the loop advances to the next `iterationConfig`).
+
+### IterationBudgetExceededError
+
+```typescript
+class IterationBudgetExceededError extends BudgetExceededError {
+  readonly iterationIndex: number;
+}
+```
+
+This error extends `BudgetExceededError` so existing catch blocks that handle budget
+errors will also catch iteration budget errors. The orchestrator catches
+`IterationBudgetExceededError` specifically at the iteration boundary to record
+`stopReason: 'iteration_budget_exceeded'` and continue to the next iteration.
+
+---
+
 ## Budget Pressure Tiers
 
 **File:** `evolution/src/lib/pipeline/rank.ts`
@@ -134,22 +173,43 @@ The `budgetFraction` is computed by the pipeline supervisor before each ranking 
 
 **File:** `evolution/src/lib/pipeline/infra/createEvolutionLLMClient.ts`
 
-Before each LLM call, cost is estimated using **1 token ~ 4 characters** and fixed output token estimates (1000 for generation, 100 for ranking). This feeds `costTracker.reserve()` with a 1.3x margin. After the call, actual costs replace the estimate via `recordSpend()`.
+Before each LLM call, cost is estimated using **1 token ~ 4 characters** and fixed output token estimates (1000 for generation, 100 for ranking). This feeds `costTracker.reserve()` with a 1.3x margin. After the call, actual costs are computed from the provider's **real token counts** (`usage.prompt_tokens` + `usage.completion_tokens`) via `calculateLLMCost` — the same helper `llmCallTracking.estimated_cost_usd` uses — and passed to `recordSpend()`. This replaced a string-length heuristic (`response.length / 4`) that inflated actual costs 30–800% for models whose responses don't have a clean 4 chars/token ratio.
 
 ### Pre-Dispatch Estimation (Budget-Aware)
 
 **File:** `evolution/src/lib/pipeline/infra/estimateCosts.ts`
 
-Before dispatching generateFromSeedArticle agents, the orchestrator uses empirical cost estimation to determine how many agents the budget can support. This uses:
+Before dispatching generateFromPreviousArticle agents, the orchestrator uses empirical cost estimation to determine how many agents the budget can support. Per-tactic output size estimates drive the generation cost model. This uses:
 
-- **Empirical output characters per strategy** (measured from staging DB):
+- **Empirical output characters per tactic** (measured from staging DB; new tactics use `DEFAULT_OUTPUT_CHARS` until calibration data accumulates):
 
-| Strategy | Avg Output Chars | ~Tokens |
-|----------|-----------------|---------|
-| grounding_enhance | 11,799 | 2,950 |
-| structural_transform | 9,956 | 2,489 |
-| lexical_simplify | 5,836 | 1,459 |
-| default (other strategies) | 9,197 | 2,299 |
+| Tactic | Avg Output Chars | ~Tokens | Category |
+|--------|-----------------|---------|----------|
+| grounding_enhance | 11,799 | 2,950 | Core (measured) |
+| structural_transform | 9,956 | 2,489 | Core (measured) |
+| lexical_simplify | 5,836 | 1,459 | Core (measured) |
+| engagement_amplify | 9,197 | 2,299 | Extended (estimated) |
+| style_polish | 9,197 | 2,299 | Extended (estimated) |
+| argument_fortify | 9,197 | 2,299 | Extended (estimated) |
+| narrative_weave | 9,197 | 2,299 | Extended (estimated) |
+| tone_transform | 9,197 | 2,299 | Extended (estimated) |
+| analogy_bridge | 11,000 | 2,750 | Depth & Knowledge (estimated) |
+| expert_deepdive | 12,000 | 3,000 | Depth & Knowledge (estimated) |
+| historical_context | 11,000 | 2,750 | Depth & Knowledge (estimated) |
+| counterpoint_integrate | 10,500 | 2,625 | Depth & Knowledge (estimated) |
+| pedagogy_scaffold | 10,000 | 2,500 | Audience-Shift (estimated) |
+| curiosity_hook | 9,500 | 2,375 | Audience-Shift (estimated) |
+| practitioner_orient | 10,000 | 2,500 | Audience-Shift (estimated) |
+| zoom_lens | 10,000 | 2,500 | Structural Innovation (estimated) |
+| progressive_disclosure | 10,500 | 2,625 | Structural Innovation (estimated) |
+| contrast_frame | 9,500 | 2,375 | Structural Innovation (estimated) |
+| precision_tighten | 8,000 | 2,000 | Quality & Precision (estimated) |
+| coherence_thread | 9,500 | 2,375 | Quality & Precision (estimated) |
+| sensory_concretize | 9,200 | 2,300 | Quality & Precision (estimated) |
+| compression_distill | 5,500 | 1,375 | Meta/Experimental (estimated) |
+| expansion_elaborate | 13,000 | 3,250 | Meta/Experimental (estimated) |
+| first_principles | 11,000 | 2,750 | Meta/Experimental (estimated) |
+| default (unknown tactics) | 9,197 | 2,299 | Fallback |
 
 - **Deterministic ranking cost**: `min(poolSize - 1, maxComparisonsPerVariant)` comparisons × 2 LLM calls (bias mitigation) × comparison cost. Comparison prompt = 698 chars overhead + 2 × article length.
 
@@ -175,12 +235,42 @@ After the parallel batch, runtime feedback (`actualAvgCostPerAgent` from complet
 
 ### Estimation Feedback Loop
 
-Each generateFromSeedArticle invocation records `estimatedCost` and `estimationErrorPct` in its `execution_detail` JSONB for post-hoc analysis. Query via:
+Each generateFromPreviousArticle invocation records `estimatedCost` and `estimationErrorPct` in its `execution_detail` JSONB for post-hoc analysis. The per-phase `generation.cost` and `ranking.cost` in execution_detail use scope-isolated `getOwnSpent()` deltas (not shared `getTotalSpent()` deltas) so they reflect only this agent's own LLM spend under parallel dispatch. Query via:
 ```sql
 SELECT (execution_detail->'generation'->>'estimatedCost')::NUMERIC,
        (execution_detail->>'estimationErrorPct')::NUMERIC
-FROM evolution_agent_invocations WHERE agent_name = 'generate_from_seed_article';
+FROM evolution_agent_invocations WHERE agent_name = 'generate_from_previous_article';
 ```
+
+Finalization rolls these up into run-level metrics (`cost_estimation_error_pct`,
+`estimated_cost`, `generation_estimation_error_pct`, `ranking_estimation_error_pct`,
+`estimation_abs_error_usd`) and strategy/experiment propagation metrics. The
+**Cost Estimates tab** on run and strategy detail pages (see
+[Visualization](./visualization.md)) renders these plus a projected-vs-actual
+**Budget Floor Sensitivity** module that answers: *how many extra/fewer sequential
+invocations ran (and how much wall time was added/saved) because we over/under-
+estimated agent invocation cost?*
+
+### Cost Calibration Table (shadow-deploy, 2026-04-14)
+
+Adds a DB-backed replacement for the hardcoded `EMPIRICAL_OUTPUT_CHARS` and
+`OUTPUT_TOKEN_ESTIMATES` constants so calibration updates don't require code deploys.
+
+- **Table:** `evolution_cost_calibration` keyed on
+  `(strategy, generation_model, judge_model, phase)` (column named `strategy` for backward compat; values are tactic names).
+- **Refresh:** `evolution/scripts/refreshCostCalibration.ts` (daily cron) aggregates
+  the last `COST_CALIBRATION_SAMPLE_DAYS` days (default 14) of
+  `evolution_agent_invocations.execution_detail` into per-slice upserts.
+- **Loader:** `evolution/src/lib/pipeline/infra/costCalibrationLoader.ts` — in-memory
+  singleton Map with `COST_CALIBRATION_TTL_MS` (default 5 min) TTL. Promise-coalesced
+  refresh for thundering-herd protection. Distinct fallback paths for row-missing
+  (silent) vs DB error (log + last-known-good). Aggregated 60s-window
+  observability log (`cost_calibration_lookup`).
+- **Kill switch:** `COST_CALIBRATION_ENABLED` env var (default `'false'`). When unset
+  or `'false'`, the loader returns null and `estimateCosts.ts` + `createEvolutionLLMClient.ts`
+  use the existing hardcoded constants — identical to pre-calibration behavior.
+  Flip to `'true'` only after two weeks of populated data and verification via the
+  Cost Estimates tab.
 
 ---
 
@@ -259,14 +349,15 @@ Stored in the `llm_cost_config` table:
 
 ## Error Hierarchy
 
-Four error classes handle budget failures at different levels:
+Five error classes handle budget failures at different levels:
 
-| Error                            | Scope     | Source File                                  |
-|----------------------------------|-----------|----------------------------------------------|
-| `BudgetExceededError`            | Per-run   | `evolution/src/lib/types.ts`                 |
-| `BudgetExceededWithPartialResults` | Per-run | `evolution/src/lib/pipeline/errors.ts`       |
-| `GlobalBudgetExceededError`      | System    | `src/lib/errors/serviceError.ts`             |
-| `LLMKillSwitchError`            | System    | `src/lib/errors/serviceError.ts`             |
+| Error                            | Scope          | Source File                                  |
+|----------------------------------|----------------|----------------------------------------------|
+| `BudgetExceededError`            | Per-run        | `evolution/src/lib/types.ts`                 |
+| `IterationBudgetExceededError`   | Per-iteration  | `evolution/src/lib/pipeline/infra/trackBudget.ts` |
+| `BudgetExceededWithPartialResults` | Per-run      | `evolution/src/lib/pipeline/errors.ts`       |
+| `GlobalBudgetExceededError`      | System         | `src/lib/errors/serviceError.ts`             |
+| `LLMKillSwitchError`            | System         | `src/lib/errors/serviceError.ts`             |
 
 ```typescript
 // Per-run: thrown by V2CostTracker.reserve()
@@ -303,9 +394,9 @@ Under parallel agent dispatch, a shared `V2CostTracker` serves two purposes: **b
 - `recordSpend()` — **intercepted**: calls shared tracker AND increments a private `ownSpent` counter
 - `getOwnSpent()` — returns only this scope's LLM costs, independent of other agents
 
-`Agent.run()` creates a scope per invocation and passes it as `costTracker` in `extendedCtx`. The `cost_usd` written to `evolution_agent_invocations` uses `detail.totalCost` (computed as a delta inside `execute()`) as the primary source, falling back to `scope.getOwnSpent()` for agents that call `recordSpend()` directly through the scope.
+`Agent.run()` creates a scope per invocation, passes it as `costTracker` in `extendedCtx`, AND **builds the `EvolutionLLMClient` inside the scope** (from `ctx.rawProvider` + `ctx.defaultModel` via `createEvolutionLLMClient`). The per-invocation client's `recordSpend` calls go through the scope's intercept, so `scope.getOwnSpent()` is authoritative. `MergeRatingsAgent` opts out via `usesLLM = false` since it doesn't make LLM calls.
 
-> **Pre-baked LLM clients:** Some agents receive an `llm` client created with the original shared tracker (before the scope exists). These clients record spend on the shared tracker, bypassing the scope's `recordSpend()` intercept. In these cases, `scope.getOwnSpent()` returns 0. The `detail.totalCost` fallback handles this correctly — `execute()` captures `getTotalSpent()` before and after its own work, so the delta is correct even when the LLM client bypasses the scope.
+The `cost_usd` written to `evolution_agent_invocations` comes from `scope.getOwnSpent()` — the direct sum of this invocation's `recordSpend` calls, with no sibling cost bleed even under parallel dispatch. `detail.totalCost` is still populated (Agent.run falls back to it when `getOwnSpent()` returns 0, as with MergeRatingsAgent which makes no LLM calls).
 
 ---
 

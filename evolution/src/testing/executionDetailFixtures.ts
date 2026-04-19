@@ -121,9 +121,9 @@ export const evolutionDetailFixture: EvolutionExecutionDetail = {
     { id: 'evo-p-002', mu: 27.8 },
   ],
   mutations: [
-    { strategy: 'mutate_clarity', status: 'success', variantId: 'evo-m-001', textLength: 1800 },
-    { strategy: 'mutate_structure', status: 'format_rejected', error: 'Multiple H1 titles' },
-    { strategy: 'crossover', status: 'success', variantId: 'evo-m-002', textLength: 2100 },
+    { tactic: 'mutate_clarity', status: 'success', variantId: 'evo-m-001', textLength: 1800 },
+    { tactic: 'mutate_structure', status: 'format_rejected', error: 'Multiple H1 titles' },
+    { tactic: 'crossover', status: 'success', variantId: 'evo-m-002', textLength: 2100 },
   ],
   creativeExploration: true,
   creativeReason: 'low_diversity',

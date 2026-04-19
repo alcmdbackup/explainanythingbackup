@@ -12,6 +12,11 @@ import {
   computeRunCost,
   computeWinnerElo, computeMedianElo, computeP90Elo, computeMaxElo,
   computeTotalMatches, computeDecisiveRate, computeVariantCount,
+  computeCostEstimationErrorPct, computeEstimatedCost, computeEstimationAbsErrorUsd,
+  computeGenerationEstimationErrorPct, computeRankingEstimationErrorPct,
+  computeAgentCostProjected, computeAgentCostActual,
+  computeParallelDispatched, computeSequentialDispatched,
+  computeMedianSequentialGfsaDurationMs, computeAvgSequentialGfsaDurationMs,
 } from '../../metrics/computations/finalization';
 
 export class RunEntity extends Entity<EvolutionRunFullDb> {
@@ -51,6 +56,18 @@ export class RunEntity extends Entity<EvolutionRunFullDb> {
       { ...METRIC_CATALOG.total_matches, compute: computeTotalMatches },
       { ...METRIC_CATALOG.decisive_rate, compute: computeDecisiveRate },
       { ...METRIC_CATALOG.variant_count, compute: computeVariantCount },
+      // Cost estimate accuracy (cost_estimate_accuracy_analysis_20260414)
+      { ...METRIC_CATALOG.cost_estimation_error_pct, compute: computeCostEstimationErrorPct },
+      { ...METRIC_CATALOG.estimated_cost, compute: computeEstimatedCost },
+      { ...METRIC_CATALOG.estimation_abs_error_usd, compute: computeEstimationAbsErrorUsd },
+      { ...METRIC_CATALOG.generation_estimation_error_pct, compute: computeGenerationEstimationErrorPct },
+      { ...METRIC_CATALOG.ranking_estimation_error_pct, compute: computeRankingEstimationErrorPct },
+      { ...METRIC_CATALOG.agent_cost_projected, compute: computeAgentCostProjected },
+      { ...METRIC_CATALOG.agent_cost_actual, compute: computeAgentCostActual },
+      { ...METRIC_CATALOG.parallel_dispatched, compute: computeParallelDispatched },
+      { ...METRIC_CATALOG.sequential_dispatched, compute: computeSequentialDispatched },
+      { ...METRIC_CATALOG.median_sequential_gfsa_duration_ms, compute: computeMedianSequentialGfsaDurationMs },
+      { ...METRIC_CATALOG.avg_sequential_gfsa_duration_ms, compute: computeAvgSequentialGfsaDurationMs },
     ],
     atPropagation: [],
   };

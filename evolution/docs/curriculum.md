@@ -226,7 +226,7 @@ Key terms used throughout the Evolution documentation and codebase.
 | Term | Definition |
 |------|------------|
 | **Arena** | Persistent cross-run leaderboard using Elo ratings with per-variant uncertainty (OpenSkill internally). Allows variants from different runs to be compared. See [Arena](./arena.md). |
-| **Baseline** | The initial article variant in a run (version 0, strategy='baseline'). Every run starts with one baseline variant before generating alternatives. |
+| **Seed variant** | The initial article variant in a run (version 0, `strategy='seed_variant'`). Every prompt-based run starts with one seed variant before generating alternatives. **Renamed from "baseline" 2026-04-14**; admin UI dual-accepts both names for one release cycle. When a persisted seed exists for the prompt (`generation_method='seed'`), the run reuses its UUID + rating instead of creating a fresh one — see [arena.md](./arena.md). |
 | **Budget pressure** | Dynamic scaling of comparison counts based on how much of the run budget has been consumed. Three tiers — low, medium, high — progressively reduce comparison work to stay within budget. See [Cost Optimization](./cost_optimization.md). |
 | **Convergence** | The primary stop condition. Triggered when 2 consecutive rounds produce all eligible variant `uncertainty` values below `DEFAULT_CONVERGENCE_UNCERTAINTY` (72, Elo-scale), meaning ratings have stabilized. See [Rating & Comparison](./rating_and_comparison.md). |
 | **Elimination** | Removing a variant from further comparisons because it is statistically unlikely to be competitive. Rule: variant is eliminated when `r.elo + 2 * r.uncertainty < top20Cutoff`. |
@@ -237,7 +237,8 @@ Key terms used throughout the Evolution documentation and codebase.
 | **Pool** | The append-only collection of all variants in a run. New variants are added each round via generation and evolution; variants are never removed from the pool, only eliminated from active comparisons. |
 | **Prompt** | The question or topic that articles explain. Stored in the `evolution_prompts` table. Each run targets one prompt. |
 | **Rating** | Public type `{elo: number, uncertainty: number}` — both on the Elo scale. Defaults: `{elo: 1200, uncertainty: 400/3 ≈ 133.33}`. Replaces the former OpenSkill-native `{mu, sigma}` shape on the public API. |
-| **Strategy** | A model + configuration combination that defines how a run executes — which LLM to use, temperature, system prompts, and other parameters. |
+| **Strategy** | A named config entity (`evolution_strategies` table) that defines how a run executes — which LLM to use, iteration count, budget cap, and other parameters. Not to be confused with *tactic* (see below). |
+| **Tactic** | A text transformation applied during the generation phase (e.g., `lexical_simplify`, `grounding_enhance`, `compression_distill`). There are 24 tactics organized into 7 categories. A single strategy run uses multiple tactics per iteration. Defined in `evolution/src/lib/core/tactics/`. |
 | **Swiss pairing** | Tournament-style matching where variants with similar ratings are paired for comparison. Produces more informative comparisons than random pairing. Used after triage. |
 | **Triage** | Initial calibration phase for newly created variants. Pairs new variants against stratified opponents (spread across the rating range) to quickly establish a rough rating before entering Swiss pairing. |
 | **Uncertainty** | The Elo-scale standard deviation around a variant's `elo`. Lower means more confident in the estimate. Provides a 95% CI of `elo ± 1.96 * uncertainty`. Replaces the former `sigma` field on the public API. |

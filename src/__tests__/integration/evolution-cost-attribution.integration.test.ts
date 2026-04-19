@@ -4,7 +4,7 @@
 // It proves that LLM costs labeled 'generation' end up in the generation_cost row and
 // LLM costs labeled 'ranking' end up in the ranking_cost row — NOT a 50/50 split of
 // the run total. The bug being fixed: persistRunResults.finalizeRun() previously
-// applied a hardcoded `cost / 2` split to generate_from_seed_article invocation rows.
+// applied a hardcoded `cost / 2` split to generate_from_previous_article invocation rows.
 // The fix: createLLMClient writes per-purpose cost metrics live via writeMetricMax,
 // keyed by the typed AgentName label passed at the call site.
 //
@@ -27,7 +27,11 @@ jest.mock('@/config/llmPricing', () => {
   // chars-to-tokens: ceil(chars/4) per createLLMClient.calculateCost
   return {
     getModelPricing: jest.fn(() => ({ inputPer1M: 1.0, outputPer1M: 1.0 })),
-    calculateLLMCost: jest.fn(),
+    // Phase 2: calculateLLMCost is now called by the token-based recordSpend path.
+    // Mock it with the same $1/1M logic so costs are deterministic.
+    calculateLLMCost: jest.fn((_model: string, promptToks: number, completionToks: number, _reasoning: number) =>
+      Math.round(((promptToks + completionToks) / 1_000_000) * 1_000_000) / 1_000_000,
+    ),
   };
 });
 
@@ -287,5 +291,98 @@ describe('Per-purpose cost attribution integration tests', () => {
     // generation_cost / ranking_cost rows should NOT exist (no entry in COST_METRIC_BY_AGENT)
     expect(byName.has('generation_cost')).toBe(false);
     expect(byName.has('ranking_cost')).toBe(false);
+  });
+
+  // ─── Bug A regression: token-based recordSpend ──────────────────
+  // When rawProvider returns {text, usage}, recordSpend should use calculateLLMCost
+  // (token-based) instead of calculateCost (chars/4). A 50KB response string with
+  // only 100 completion tokens should NOT inflate the cost.
+  it('Bug A: token-based cost from {text, usage} provider (not response.length inflation)', async () => {
+    if (!tablesExist || !migrationApplied) return;
+
+    const rawProvider = {
+      complete: jest.fn(async (_prompt: string, label: AgentName) => ({
+        text: 'x'.repeat(50_000), // huge string — chars/4 heuristic would compute ~$0.0125
+        usage: { promptTokens: 100, completionTokens: 100 }, // token-based: 200 tokens total
+      })),
+    };
+
+    const costTracker = createCostTracker(1.0);
+    const llm = createEvolutionLLMClient(rawProvider, costTracker, 'gpt-4.1-nano', undefined, supabase, runId);
+
+    await llm.complete('p'.repeat(400), 'generation');
+
+    // Token-based cost: (100 + 100) / 1_000_000 = 0.0002 (from mocked calculateLLMCost)
+    // String-length bug would compute ~0.0125 (12500 output tokens × $1/1M)
+    const spent = costTracker.getTotalSpent();
+    expect(spent).toBeCloseTo(0.0002, 6);
+    expect(spent).toBeLessThan(0.001); // sanity: far below the inflated value
+  });
+
+  // ─── Bug B regression: parallel scope isolation ──────────────────
+  // When multiple agents run in parallel on the same shared tracker,
+  // each agent's cost_usd should reflect only its own LLM calls.
+  it('Bug B: parallel agents via scope — each agent sees only its own cost', async () => {
+    if (!tablesExist || !migrationApplied) return;
+
+    const { Agent } = await import('@evolution/lib/core/Agent');
+    const { z } = await import('zod');
+
+    class TestCostAgent extends Agent<{ tokens: number }, string, { detailType: 'test'; totalCost: number }> {
+      readonly name = 'test_cost_agent';
+      readonly executionDetailSchema = z.object({ detailType: z.literal('test'), totalCost: z.number() });
+      readonly detailViewConfig = [];
+      async execute(input: { tokens: number; llm: { complete: (p: string, l: string) => Promise<string> } }, ctx: any) {
+        // Each agent does one LLM call with its configured token count
+        await input.llm.complete('p', 'generation');
+        return { result: 'ok', detail: { detailType: 'test' as const, totalCost: 0 } };
+      }
+    }
+
+    const sharedTracker = createCostTracker(1.0);
+
+    // 3 agents each with distinct token counts (100, 200, 300).
+    let callIdx = 0;
+    const tokenCounts = [100, 200, 300];
+    const rawProvider = {
+      async complete(_prompt: string, _label: string) {
+        const tokens = tokenCounts[callIdx++]!;
+        await new Promise(r => setTimeout(r, 5 * (3 - callIdx))); // stagger
+        return { text: 'ok', usage: { promptTokens: tokens, completionTokens: tokens } };
+      },
+    };
+
+    const makeCtx = (execOrder: number) => ({
+      db: supabase,
+      runId,
+      iteration: 1,
+      executionOrder: execOrder,
+      logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
+      costTracker: sharedTracker,
+      config: { iterationConfigs: [{ agentType: 'generate' as const, budgetPercent: 100 }], budgetUsd: 1, judgeModel: 'test', generationModel: 'test' },
+      invocationId: '',
+      randomSeed: BigInt(0),
+      rawProvider,
+      defaultModel: 'gpt-4.1-nano',
+    });
+
+    const results = await Promise.all([
+      new TestCostAgent().run({ tokens: 100 }, makeCtx(1)),
+      new TestCostAgent().run({ tokens: 200 }, makeCtx(2)),
+      new TestCostAgent().run({ tokens: 300 }, makeCtx(3)),
+    ]);
+
+    // Each agent's cost should equal only its own tokens: (p + c) / 1M
+    const costs = results.map(r => r.cost!).sort((a, b) => a - b);
+    const expected = tokenCounts.map(t => (t + t) / 1_000_000).sort((a, b) => a - b);
+
+    expect(costs[0]).toBeCloseTo(expected[0]!, 8);
+    expect(costs[1]).toBeCloseTo(expected[1]!, 8);
+    expect(costs[2]).toBeCloseTo(expected[2]!, 8);
+
+    // Shared tracker total = sum of all three
+    expect(sharedTracker.getTotalSpent()).toBeCloseTo(
+      expected.reduce((a, b) => a + b, 0), 8,
+    );
   });
 });

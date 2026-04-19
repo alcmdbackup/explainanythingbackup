@@ -61,7 +61,7 @@ const NOW = '2026-03-23T12:00:00Z';
 function createValidStrategyInsert() {
   return {
     name: 'test-strategy',
-    config: { generationModel: 'gpt-4o', judgeModel: 'gpt-4o', iterations: 3 },
+    config: { generationModel: 'gpt-4o', judgeModel: 'gpt-4o', iterationConfigs: [{ agentType: 'generate', budgetPercent: 60 }, { agentType: 'swiss', budgetPercent: 40 }] },
     config_hash: 'abc123def456',
   };
 }
@@ -120,10 +120,10 @@ function createValidRunSummaryV3() {
     muHistory: [25, 26, 27],
     diversityHistory: [0.5, 0.6, 0.7],
     matchStats: { totalMatches: 10, avgConfidence: 0.75, decisiveRate: 0.8 },
-    topVariants: [{ id: UUID1, strategy: 'generation', mu: 28, isBaseline: false }],
-    baselineRank: 3,
-    baselineMu: 25,
-    strategyEffectiveness: { generation: { count: 5, avgMu: 26 } },
+    topVariants: [{ id: UUID1, tactic: 'generation', mu: 28, isBaseline: false }],
+    baselineRank: 3,         // legacy alias — preprocess renames to seedVariantRank
+    baselineMu: 25,          // legacy alias — preprocess renames to seedVariantElo
+    tacticEffectiveness: { generation: { count: 5, avgMu: 26 } },
     metaFeedback: {
       successfulStrategies: ['paraphrase'],
       recurringWeaknesses: ['too verbose'],
@@ -453,6 +453,62 @@ describe('EvolutionRunSummary schemas', () => {
   it('rejects completely invalid data', () => {
     expect(() => EvolutionRunSummarySchema.parse({ foo: 'bar' })).toThrow();
   });
+
+  // cost_estimate_accuracy_analysis_20260414: budgetFloorConfig optional V3 field.
+  // Backward compat: existing V3 rows without this field continue to parse cleanly.
+  describe('budgetFloorConfig (cost_estimate_accuracy_analysis_20260414)', () => {
+    it('V3 without budgetFloorConfig parses cleanly (backward compat)', () => {
+      const summary = createValidRunSummaryV3();
+      expect(() => EvolutionRunSummaryV3Schema.parse(summary)).not.toThrow();
+      const parsed = EvolutionRunSummaryV3Schema.parse(summary);
+      expect((parsed as Record<string, unknown>).budgetFloorConfig).toBeUndefined();
+    });
+
+    it('V3 with full budgetFloorConfig parses and round-trips', () => {
+      const summary = {
+        ...createValidRunSummaryV3(),
+        budgetFloorConfig: {
+          minBudgetAfterParallelAgentMultiple: 3,
+          minBudgetAfterSequentialAgentMultiple: 1,
+          numVariants: 9,
+        },
+      };
+      const parsed = EvolutionRunSummaryV3Schema.parse(summary) as Record<string, unknown>;
+      expect(parsed.budgetFloorConfig).toEqual({
+        minBudgetAfterParallelAgentMultiple: 3,
+        minBudgetAfterSequentialAgentMultiple: 1,
+        numVariants: 9,
+      });
+    });
+
+    it('V3 with Fraction-mode floor config parses', () => {
+      const summary = {
+        ...createValidRunSummaryV3(),
+        budgetFloorConfig: {
+          minBudgetAfterParallelFraction: 0.35,
+          minBudgetAfterSequentialFraction: 0.12,
+          numVariants: 9,
+        },
+      };
+      expect(() => EvolutionRunSummaryV3Schema.parse(summary)).not.toThrow();
+    });
+
+    it('rejects out-of-range fraction values', () => {
+      const summary = {
+        ...createValidRunSummaryV3(),
+        budgetFloorConfig: { minBudgetAfterParallelFraction: 1.5, numVariants: 9 },
+      };
+      expect(() => EvolutionRunSummaryV3Schema.parse(summary)).toThrow();
+    });
+
+    it('requires numVariants in budgetFloorConfig', () => {
+      const summary = {
+        ...createValidRunSummaryV3(),
+        budgetFloorConfig: { minBudgetAfterParallelAgentMultiple: 3 },
+      };
+      expect(() => EvolutionRunSummaryV3Schema.parse(summary)).toThrow();
+    });
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════════
@@ -461,7 +517,7 @@ describe('EvolutionRunSummary schemas', () => {
 
 describe('evolutionResultSchema.stopReason', () => {
   const baseResult = {
-    winner: { id: UUID1, text: 'text', version: 0, parentIds: [], strategy: 'baseline', createdAt: 1711152000, iterationBorn: 0 },
+    winner: { id: UUID1, text: 'text', version: 0, parentIds: [], tactic: 'baseline', createdAt: 1711152000, iterationBorn: 0 },
     pool: [],
     ratings: new Map(),
     matchHistory: [],
@@ -487,7 +543,7 @@ describe('evolutionResultSchema.stopReason', () => {
 describe('variantSchema', () => {
   const validVariant = {
     id: UUID1, text: 'Some text', version: 0, parentIds: [],
-    strategy: 'generation', createdAt: 1711152000, iterationBorn: 0,
+    tactic: 'generation', createdAt: 1711152000, iterationBorn: 0,
   };
 
   it('parses valid variant', () => {
@@ -506,87 +562,171 @@ describe('variantSchema', () => {
 });
 
 describe('strategyConfigSchema', () => {
+  const validBase = {
+    generationModel: 'gpt-4o', judgeModel: 'gpt-4o',
+    iterationConfigs: [{ agentType: 'generate', budgetPercent: 60 }, { agentType: 'swiss', budgetPercent: 40 }],
+  };
+
   it('parses valid config', () => {
-    expect(() => strategyConfigSchema.parse({
-      generationModel: 'gpt-4o', judgeModel: 'gpt-4o', iterations: 5,
-    })).not.toThrow();
+    expect(() => strategyConfigSchema.parse(validBase)).not.toThrow();
   });
 
-  it('rejects iterations < 1', () => {
+  it('rejects empty iterationConfigs', () => {
     expect(() => strategyConfigSchema.parse({
-      generationModel: 'gpt-4o', judgeModel: 'gpt-4o', iterations: 0,
+      ...validBase, iterationConfigs: [],
     })).toThrow();
   });
 
   it('accepts valid generationGuidance', () => {
     expect(() => strategyConfigSchema.parse({
-      generationModel: 'gpt-4o', judgeModel: 'gpt-4o', iterations: 5,
-      generationGuidance: [{ strategy: 'structural_transform', percent: 100 }],
+      ...validBase,
+      generationGuidance: [{ tactic: 'structural_transform', percent: 100 }],
     })).not.toThrow();
   });
 
   it('accepts undefined generationGuidance', () => {
-    const result = strategyConfigSchema.parse({
-      generationModel: 'gpt-4o', judgeModel: 'gpt-4o', iterations: 5,
-    });
+    const result = strategyConfigSchema.parse(validBase);
     expect(result.generationGuidance).toBeUndefined();
   });
 
   it('rejects generationGuidance with negative percent', () => {
     expect(() => strategyConfigSchema.parse({
-      generationModel: 'gpt-4o', judgeModel: 'gpt-4o', iterations: 5,
-      generationGuidance: [{ strategy: 'x', percent: -10 }],
+      ...validBase,
+      generationGuidance: [{ tactic: 'x', percent: -10 }],
     })).toThrow();
   });
 
-  it('rejects generationGuidance with missing strategy field', () => {
+  it('rejects generationGuidance with missing tactic field', () => {
     expect(() => strategyConfigSchema.parse({
-      generationModel: 'gpt-4o', judgeModel: 'gpt-4o', iterations: 5,
+      ...validBase,
       generationGuidance: [{ percent: 100 }],
     })).toThrow();
   });
 
   it('rejects generationGuidance with non-number percent', () => {
     expect(() => strategyConfigSchema.parse({
-      generationModel: 'gpt-4o', judgeModel: 'gpt-4o', iterations: 5,
-      generationGuidance: [{ strategy: 'x', percent: 'fifty' }],
+      ...validBase,
+      generationGuidance: [{ tactic: 'x', percent: 'fifty' }],
     })).toThrow();
   });
 
-  it('rejects generationGuidance with duplicate strategy names', () => {
+  it('rejects generationGuidance with duplicate tactic names', () => {
     expect(() => strategyConfigSchema.parse({
-      generationModel: 'gpt-4o', judgeModel: 'gpt-4o', iterations: 5,
+      ...validBase,
       generationGuidance: [
-        { strategy: 'structural_transform', percent: 50 },
-        { strategy: 'structural_transform', percent: 50 },
+        { tactic: 'structural_transform', percent: 50 },
+        { tactic: 'structural_transform', percent: 50 },
       ],
     })).toThrow();
+  });
+
+  // ─── iterationConfigs refinements ───────────────────────────────
+  it('rejects budgetPercent sum != 100 (under)', () => {
+    expect(() => strategyConfigSchema.parse({
+      ...validBase, iterationConfigs: [{ agentType: 'generate', budgetPercent: 50 }, { agentType: 'swiss', budgetPercent: 49 }],
+    })).toThrow();
+  });
+
+  it('rejects budgetPercent sum != 100 (over)', () => {
+    expect(() => strategyConfigSchema.parse({
+      ...validBase, iterationConfigs: [{ agentType: 'generate', budgetPercent: 60 }, { agentType: 'swiss', budgetPercent: 41 }],
+    })).toThrow();
+  });
+
+  it('accepts floating-point budget sum near 100', () => {
+    expect(() => strategyConfigSchema.parse({
+      ...validBase, iterationConfigs: [
+        { agentType: 'generate', budgetPercent: 33.33 },
+        { agentType: 'swiss', budgetPercent: 33.33 },
+        { agentType: 'swiss', budgetPercent: 33.34 },
+      ],
+    })).not.toThrow();
+  });
+
+  it('rejects swiss as first iteration', () => {
+    expect(() => strategyConfigSchema.parse({
+      ...validBase, iterationConfigs: [{ agentType: 'swiss', budgetPercent: 100 }],
+    })).toThrow();
+  });
+
+  it('rejects swiss before any generate', () => {
+    expect(() => strategyConfigSchema.parse({
+      ...validBase, iterationConfigs: [{ agentType: 'swiss', budgetPercent: 50 }, { agentType: 'generate', budgetPercent: 50 }],
+    })).toThrow();
+  });
+
+  it('accepts generate then swiss', () => {
+    expect(() => strategyConfigSchema.parse({
+      ...validBase, iterationConfigs: [{ agentType: 'generate', budgetPercent: 60 }, { agentType: 'swiss', budgetPercent: 40 }],
+    })).not.toThrow();
+  });
+
+  it('accepts generate-swiss-generate pattern', () => {
+    expect(() => strategyConfigSchema.parse({
+      ...validBase, iterationConfigs: [
+        { agentType: 'generate', budgetPercent: 40 },
+        { agentType: 'swiss', budgetPercent: 20 },
+        { agentType: 'generate', budgetPercent: 25 },
+        { agentType: 'swiss', budgetPercent: 15 },
+      ],
+    })).not.toThrow();
+  });
+
+  it('rejects maxAgents on swiss iteration', () => {
+    expect(() => strategyConfigSchema.parse({
+      ...validBase, iterationConfigs: [{ agentType: 'generate', budgetPercent: 60 }, { agentType: 'swiss', budgetPercent: 40, maxAgents: 5 }],
+    })).toThrow();
+  });
+
+  it('accepts maxAgents on generate iteration', () => {
+    expect(() => strategyConfigSchema.parse({
+      ...validBase, iterationConfigs: [{ agentType: 'generate', budgetPercent: 60, maxAgents: 9 }, { agentType: 'swiss', budgetPercent: 40 }],
+    })).not.toThrow();
+  });
+
+  it('accepts undefined maxAgents on generate iteration', () => {
+    const result = strategyConfigSchema.parse(validBase);
+    expect(result.iterationConfigs[0]!.maxAgents).toBeUndefined();
+  });
+
+  it('rejects budgetPercent of 0', () => {
+    expect(() => strategyConfigSchema.parse({
+      ...validBase, iterationConfigs: [{ agentType: 'generate', budgetPercent: 0 }, { agentType: 'swiss', budgetPercent: 100 }],
+    })).toThrow();
+  });
+
+  it('accepts single generate iteration at 100%', () => {
+    expect(() => strategyConfigSchema.parse({
+      ...validBase, iterationConfigs: [{ agentType: 'generate', budgetPercent: 100 }],
+    })).not.toThrow();
   });
 });
 
 describe('evolutionConfigSchema', () => {
+  const iterConfigs = [{ agentType: 'generate' as const, budgetPercent: 60 }, { agentType: 'swiss' as const, budgetPercent: 40 }];
+
   it('parses valid config', () => {
     expect(() => evolutionConfigSchema.parse({
-      iterations: 5, budgetUsd: 10, judgeModel: 'gpt-4o', generationModel: 'gpt-4o',
+      iterationConfigs: iterConfigs, budgetUsd: 10, judgeModel: 'gpt-4o', generationModel: 'gpt-4o',
     })).not.toThrow();
   });
 
   it('rejects budgetUsd > 50', () => {
     expect(() => evolutionConfigSchema.parse({
-      iterations: 5, budgetUsd: 51, judgeModel: 'gpt-4o', generationModel: 'gpt-4o',
+      iterationConfigs: iterConfigs, budgetUsd: 51, judgeModel: 'gpt-4o', generationModel: 'gpt-4o',
     })).toThrow();
   });
 
   it('rejects budgetUsd = 0', () => {
     expect(() => evolutionConfigSchema.parse({
-      iterations: 5, budgetUsd: 0, judgeModel: 'gpt-4o', generationModel: 'gpt-4o',
+      iterationConfigs: iterConfigs, budgetUsd: 0, judgeModel: 'gpt-4o', generationModel: 'gpt-4o',
     })).toThrow();
   });
 
   it('accepts generationGuidance in evolution config', () => {
     expect(() => evolutionConfigSchema.parse({
-      iterations: 5, budgetUsd: 10, judgeModel: 'gpt-4o', generationModel: 'gpt-4o',
-      generationGuidance: [{ strategy: 'engagement_amplify', percent: 60 }, { strategy: 'tone_transform', percent: 40 }],
+      iterationConfigs: iterConfigs, budgetUsd: 10, judgeModel: 'gpt-4o', generationModel: 'gpt-4o',
+      generationGuidance: [{ tactic: 'engagement_amplify', percent: 60 }, { tactic: 'tone_transform', percent: 40 }],
     })).not.toThrow();
   });
 });
@@ -699,7 +839,7 @@ describe('agentExecutionDetailSchema (discriminated union)', () => {
     expect(() => evolutionExecutionDetailSchema.parse({
       detailType: 'evolution', totalCost: 0.06,
       parents: [{ id: UUID1, mu: 25 }],
-      mutations: [{ strategy: 'crossover', status: 'success', variantId: UUID2 }],
+      mutations: [{ tactic: 'crossover', status: 'success', variantId: UUID2 }],
       creativeExploration: false, feedbackUsed: true,
     })).not.toThrow();
   });
@@ -792,8 +932,8 @@ describe('agentExecutionDetailSchema (discriminated union)', () => {
       successfulStrategies: ['gen'], recurringWeaknesses: ['verbose'],
       patternsToAvoid: ['repetition'], priorityImprovements: ['flow'],
       analysis: {
-        strategyMus: { gen: 26 }, bottomQuartileCount: 2,
-        poolDiversity: 0.6, muRange: 5, activeStrategies: 3, topVariantAge: 2,
+        tacticMus: { gen: 26 }, bottomQuartileCount: 2,
+        poolDiversity: 0.6, muRange: 5, activeTactics: 3, topVariantAge: 2,
       },
     })).not.toThrow();
   });

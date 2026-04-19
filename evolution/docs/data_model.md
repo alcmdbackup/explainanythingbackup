@@ -18,7 +18,7 @@ Stores strategy configurations with aggregated performance metrics. Strategies a
 | `name` | TEXT | NOT NULL | Human-readable name |
 | `label` | TEXT | NOT NULL, default `''` | Short label for UI |
 | `description` | TEXT | | Optional long description |
-| `config` | JSONB | NOT NULL | Full strategy configuration (`StrategyConfig`: generationModel, judgeModel, iterations, strategiesPerRound, budgetUsd, generationGuidance). See [Strategies](./strategies_and_experiments.md) for field details. |
+| `config` | JSONB | NOT NULL | Full strategy configuration (`StrategyConfig`: generationModel, judgeModel, iterationConfigs[], strategiesPerRound, budgetUsd, generationGuidance). `iterationConfigs` is an ordered array of `{ agentType, budgetPercent, maxAgents? }` objects defining the iteration sequence. See [Strategies](./strategies_and_experiments.md) for field details. |
 | `config_hash` | TEXT | NOT NULL, UNIQUE | SHA-256 hash for dedup |
 | `is_predefined` | BOOLEAN | NOT NULL, default `false` | System-provided strategy |
 | `pipeline_type` | TEXT | default `'full'` | `'full'` or `'single'` |
@@ -33,9 +33,12 @@ Stores strategy configurations with aggregated performance metrics. Strategies a
 | `avg_elo_per_dollar` | NUMERIC | | Reserved (not yet computed) |
 | `first_used_at` | TIMESTAMPTZ | NOT NULL, default `now()` | |
 | `last_used_at` | TIMESTAMPTZ | NOT NULL, default `now()` | Updated by `update_strategy_aggregates` |
+| `is_test_content` | BOOLEAN | NOT NULL, default `false` | Populated by a BEFORE trigger calling `evolution_is_test_name(name)`. Replaces the admin UI's client-side `.not.in(<test strategy uuids>)` filter, which silently hit PostgREST URL length limits once staging accumulated ~1000 test strategies. Migration `20260415000001`. |
 | `created_at` | TIMESTAMPTZ | NOT NULL, default `now()` | |
 
 > **Note:** `avg_final_elo` uses Welford's online algorithm via the `update_strategy_aggregates` RPC. The `stddev_final_elo` and `avg_elo_per_dollar` columns are reserved for future use.
+
+> **Test-content filter:** the `evolution_is_test_name(text)` IMMUTABLE Postgres function matches exact lowercase `test`, bracketed `[TEST]`/`[E2E]`/`[TEST_EVO]` substrings, and the timestamp pattern `^.*-\d{10,13}-.*$`. It's called by a BEFORE INSERT/UPDATE-of-name trigger on `evolution_strategies` that sets `is_test_content` via direct NEW mutation (no self-UPDATE, no recursion). The TS helper `isTestContentName` in `evolution/src/services/shared.ts` echoes this logic and is locked to the same fixture table via integration test for anti-drift protection. Admin UI filters via PostgREST embedded `!inner` join: `.select('..., evolution_strategies!inner(is_test_content)').eq('evolution_strategies.is_test_content', false)`.
 
 ### `evolution_prompts`
 
@@ -102,13 +105,13 @@ Text variants produced during a pipeline run. Since migration 20260321000002, th
 | `explanation_id` | INT | | Legacy link |
 | `variant_content` | TEXT | NOT NULL | The generated text |
 | `elo_score` | NUMERIC | NOT NULL, default `1200` | Display Elo-scale score (projected from OpenSkill `mu`; matches the public `Rating.elo` up to display clamping) |
-| `generation` | INT | NOT NULL, default `0` | Iteration when created |
-| `parent_variant_id` | UUID | | Self-referential FK, see [Lineage](#lineage) |
-| `agent_name` | TEXT | | Creating agent/strategy name |
+| `generation` | INT | NOT NULL, default `0` | Maps to `Variant.iterationBorn` — the iteration index (0-based) from `iterationConfigs[]` when this variant was created |
+| `parent_variant_id` | UUID | | Self-referential FK. Populated for generated variants with the seed variant's ID. See [Lineage](#lineage) |
+| `agent_name` | TEXT | | Creating agent tactic name (e.g. `'structural_transform'`, `'lexical_simplify'`) |
 | `match_count` | INT | NOT NULL, default `0` | |
 | `is_winner` | BOOLEAN | NOT NULL, default `false` | Highest `elo` at finalization |
-| `mu` | NUMERIC | NOT NULL, default `25` | OpenSkill mu (legacy DB column; backs the public `Rating.elo` via `dbToRating` — unchanged because the stale trigger and `sync_to_arena` RPC depend on it) |
-| `sigma` | NUMERIC | NOT NULL, default `8.333` | OpenSkill sigma (legacy DB column; backs the public `Rating.uncertainty` via `dbToRating`) |
+| `mu` | NUMERIC | NOT NULL, default `25` | OpenSkill mu (legacy DB column; backs the public `Rating.elo` via `dbToRating` — unchanged because the stale trigger and `sync_to_arena` RPC depend on it). Now selected by `getEvolutionVariantsAction`, `listVariantsAction`, and `variantDetailActions` so the admin UI can render per-variant Elo ± uncertainty via `formatEloWithUncertainty` + `formatEloCIRange` (Phase 4b). |
+| `sigma` | NUMERIC | NOT NULL, default `8.333` | OpenSkill sigma (legacy DB column; backs the public `Rating.uncertainty` via `dbToRating`). Selected by variant list/detail endpoints alongside `mu` for CI rendering (Phase 4b). |
 | `prompt_id` | UUID | FK -> `evolution_prompts(id)` ON DELETE CASCADE | Arena prompt association |
 | `synced_to_arena` | BOOLEAN | NOT NULL, default `false` | Whether this variant is visible in the arena |
 | `arena_match_count` | INT | NOT NULL, default `0` | Number of arena comparison matches |
@@ -118,6 +121,21 @@ Text variants produced during a pipeline run. Since migration 20260321000002, th
 | `archived_at` | TIMESTAMPTZ | | Soft archive for arena entries |
 | `evolution_explanation_id` | UUID | FK -> `evolution_explanations(id)` | NULLABLE (oneshot entries have none) |
 | `created_at` | TIMESTAMPTZ | NOT NULL | |
+
+### `evolution_tactics`
+
+Thin entity table for tactic identity. Tactic prompt definitions live in code (`evolution/src/lib/core/tactics/generateTactics.ts`); this table provides UUIDs for metrics, admin UI, and future FK references. Synced from code via `evolution/scripts/syncSystemTactics.ts`.
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | UUID | PK, default `gen_random_uuid()` | |
+| `name` | TEXT | NOT NULL, UNIQUE | Tactic identifier (e.g. `'structural_transform'`) |
+| `label` | TEXT | NOT NULL, default `''` | Human-readable display label |
+| `agent_type` | TEXT | NOT NULL | Agent group (e.g. `'generate_from_seed_article'`) |
+| `category` | TEXT | | Grouping: `'core'`, `'extended'`, `'depth'`, `'audience'`, `'structural'`, `'quality'`, `'meta'` |
+| `is_predefined` | BOOLEAN | NOT NULL, default `true` | System-provided tactic |
+| `status` | TEXT | NOT NULL, CHECK `('active','archived')` | |
+| `created_at` | TIMESTAMPTZ | NOT NULL, default `now()` | |
 
 ### `evolution_agent_invocations`
 
@@ -130,6 +148,7 @@ Per-agent-per-iteration cost and execution records. Primary source for cost trac
 | `agent_name` | TEXT | NOT NULL | e.g. `'generation'`, `'ranking'` |
 | `iteration` | INT | NOT NULL, default `0` | |
 | `execution_order` | INT | NOT NULL, default `0` | Order within iteration |
+| `tactic` | TEXT | | Tactic name for generation invocations (e.g. `'structural_transform'`). NULL for ranking/merge agents. Indexed where non-null. |
 | `success` | BOOLEAN | NOT NULL, default `false` | |
 | `skipped` | BOOLEAN | NOT NULL, default `false` | |
 | `cost_usd` | NUMERIC | | LLM cost for this invocation |
@@ -203,7 +222,7 @@ Unified EAV (entity-attribute-value) table for all evolution metrics. Replaces s
 | Column | Type | Constraints | Description |
 |--------|------|-------------|-------------|
 | `id` | UUID | PK, default `gen_random_uuid()` | |
-| `entity_type` | TEXT | NOT NULL, CHECK `('run','invocation','variant','strategy','experiment','prompt')` | Type of entity this metric belongs to |
+| `entity_type` | TEXT | NOT NULL, CHECK `('run','invocation','variant','strategy','experiment','prompt','tactic')` | Type of entity this metric belongs to |
 | `entity_id` | UUID | NOT NULL | FK to the entity's primary key |
 | `metric_name` | TEXT | NOT NULL | e.g. `'cost'`, `'winner_elo'`, `'median_elo'`, `'agentCost:generation'` |
 | `value` | DOUBLE PRECISION | NOT NULL | Metric value |
@@ -247,6 +266,31 @@ The `mark_elo_metrics_stale()` trigger fires when a variant's `mu` or `sigma` DB
 3. Marks experiment-level metrics as stale (via the run's `experiment_id`, if present)
 
 This enables lazy recomputation: metrics are only recomputed when a server action reads them and detects `stale=true`.
+
+### `evolution_cost_calibration`
+
+Per-slice cost-calibration stats refreshed nightly from `evolution_agent_invocations.execution_detail`.
+Replaces the hardcoded `EMPIRICAL_OUTPUT_CHARS` and `OUTPUT_TOKEN_ESTIMATES` constants when
+`COST_CALIBRATION_ENABLED=true`; otherwise constants stay authoritative. See
+[cost_optimization.md → Cost Calibration Table](./cost_optimization.md#cost-calibration-table-shadow-deploy-2026-04-14).
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `strategy` | TEXT | NOT NULL, PK, default `'__unspecified__'` | Strategy label (sentinel when not applicable) |
+| `generation_model` | TEXT | NOT NULL, PK, default `'__unspecified__'` | Generation LLM model |
+| `judge_model` | TEXT | NOT NULL, PK, default `'__unspecified__'` | Judge LLM model |
+| `phase` | TEXT | NOT NULL, PK, CHECK IN `('generation','ranking','seed_title','seed_article')` | Pipeline phase |
+| `avg_output_chars` | NUMERIC | NOT NULL | Mean output chars for this slice |
+| `avg_input_overhead_chars` | NUMERIC | NOT NULL | Mean input overhead beyond variable content |
+| `avg_cost_per_call` | NUMERIC | NOT NULL | Mean USD cost per LLM call |
+| `n_samples` | INT | NOT NULL CHECK ≥ 1 | Invocations contributing to this row |
+| `last_refreshed_at` | TIMESTAMPTZ | NOT NULL, default `now()` | When the refresh script last wrote this row |
+
+**Primary key:** `(strategy, generation_model, judge_model, phase)`.
+
+Populated by `evolution/scripts/refreshCostCalibration.ts` (daily cron). RLS: deny-all +
+`service_role_all` + conditional `readonly_local` SELECT (pattern matches other evolution
+tables). Loader singleton lives in `evolution/src/lib/pipeline/infra/costCalibrationLoader.ts`.
 
 ---
 
@@ -421,7 +465,7 @@ Variants track parentage differently in memory vs. the database:
 > ```
 > This means crossover lineage information (the second parent) is lost once a run is finalized.
 
-The `generation` column maps to `Variant.version` (the iteration when the variant was born), and `agent_name` maps to `Variant.strategy`.
+The `generation` column maps to `Variant.iterationBorn` (the iteration index from `iterationConfigs[]` when the variant was created), and `agent_name` maps to `Variant.strategy`. Generated variants have `parentIds` set to `[seedVariantId]` in memory, and `parent_variant_id` is populated with the seed variant's UUID at finalization.
 
 ---
 
@@ -465,9 +509,9 @@ export interface EvolutionRunSummary {
   eloHistory: number[];
   diversityHistory: number[];
   matchStats: { totalMatches: number; avgConfidence: number; decisiveRate: number };
-  topVariants: Array<{ id: string; strategy: string; elo: number; isBaseline: boolean }>;
-  baselineRank: number | null;
-  baselineElo: number | null;
+  topVariants: Array<{ id: string; strategy: string; elo: number; isSeedVariant: boolean }>;
+  seedVariantRank: number | null;
+  seedVariantElo: number | null;
   strategyEffectiveness: Record<string, { count: number; avgElo: number }>;
   metaFeedback: { successfulStrategies; recurringWeaknesses; patternsToAvoid; priorityImprovements } | null;
   actionCounts?: Record<string, number>;
@@ -475,7 +519,8 @@ export interface EvolutionRunSummary {
 ```
 
 **Auto-migration on read**: The `EvolutionRunSummarySchema` is a Zod discriminated union that transforms legacy formats to V3:
-- Legacy summaries written with `muHistory` / `baselineMu` / `avgMu` OpenSkill-scale fields are projected to the current Elo-scale `eloHistory` / `baselineElo` / `avgElo` shape on read.
+- Legacy summaries written with `muHistory` / `baselineMu` / `avgMu` OpenSkill-scale fields are projected to the current Elo-scale `eloHistory` / `seedVariantElo` / `avgElo` shape on read.
+- 2026-04-14: legacy V3 rows with `baselineRank` / `baselineElo` / `topVariants[].isBaseline` are auto-mapped to `seedVariantRank` / `seedVariantElo` / `isSeedVariant`. New writes emit only the new names.
 - Earlier ordinal-based shapes are likewise migrated forward.
 - **V3** passes through directly
 
@@ -537,3 +582,32 @@ The file `src/lib/database.types.ts` contains auto-generated TypeScript types fr
 - **Local**: `npm run db:types` (requires `SUPABASE_ACCESS_TOKEN`)
 - **CI**: Auto-generated on every PR push — the `generate-types` job regenerates and auto-commits if changed
 - **Merge conflicts**: `.gitattributes` auto-resolves in favor of incoming version
+
+---
+
+## `parent_variant_id` as the predecessor pointer (Phase 2+)
+
+Every variant carries a `parent_variant_id UUID NULL` column referencing another row in `evolution_variants` (self-FK is not currently declared in the generated types but is conventionally relied upon). Populated by:
+
+- `GenerateFromPreviousArticleAgent` (and the prior `generate_from_seed_article`): set to the agent's input parent — either the seed variant or a pool-drawn variant, per the iteration's `sourceMode`.
+- `CreateSeedArticleAgent`: `NULL` (root of the lineage chain).
+
+The single-pointer design means lineage is a tree (not a DAG). In-memory `Variant.parentIds` is an array for future multi-parent agents, but today only index 0 is persisted.
+
+## `agent_invocation_id` (Phase 5)
+
+Column added by `20260418000003_variants_add_agent_invocation_id.sql`:
+
+```sql
+ALTER TABLE evolution_variants
+  ADD COLUMN agent_invocation_id UUID
+  REFERENCES evolution_agent_invocations(id) ON DELETE SET NULL;
+```
+
+Threads each surfaced/discarded variant back to the agent invocation that produced it. Used by `experimentMetrics.computeEloAttributionMetrics` to group variants by `(agent_name, dimension)` for ELO-delta attribution. Historic rows have `NULL` here — no backfill per plan — and are naturally excluded from attribution aggregation.
+
+## Lineage chain walk
+
+The Postgres RPC `get_variant_full_chain(variant_id UUID)` (migration `20260418000002_variants_get_full_chain_rpc.sql`) walks `parent_variant_id` up to the root. Uses `WITH RECURSIVE` + array-path cycle detection + 20-hop cap (matches `iterationConfigs.max`). Returns rows ordered root-first.
+
+An index on `evolution_variants(parent_variant_id)` (migration `20260418000001`) keeps the walk fast.

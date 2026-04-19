@@ -138,7 +138,7 @@ describe('Evolution Watchdog Integration Tests', () => {
 
     const pendingRun = await createTrackedRun({
       status: 'pending',
-      last_heartbeat: fifteenMinAgo,
+      last_heartbeat: null,  // null heartbeat — pending runs don't have heartbeats; using fifteenMinAgo triggered the claim RPC's stale-expiry logic
     });
     const completedRun = await createTrackedRun({
       status: 'completed',

@@ -3,7 +3,7 @@
 // Uses d3-dag for Sugiyama layout and d3 for SVG rendering with zoom/pan.
 
 import { useRef, useEffect, useState, useCallback } from 'react';
-import { VariantCard, STRATEGY_PALETTE } from './VariantCard';
+import { VariantCard, TACTIC_PALETTE } from './VariantCard';
 import type { LineageData } from '@evolution/services/evolutionVisualizationActions';
 
 interface LineageGraphProps {
@@ -86,13 +86,13 @@ export function LineageGraph({ nodes, edges, treeSearchPath }: LineageGraphProps
         if (isTreeEdge(d.source, d.target)) return 0.9;
         // Dim edges to pruned tree nodes
         const targetNode = nodes.find(n => n.id === d.target);
-        if (targetNode?.strategy?.startsWith('tree_search_') && !pathSet.has(d.target)) return 0.25;
+        if (targetNode?.tactic?.startsWith('tree_search_') && !pathSet.has(d.target)) return 0.25;
         return 0.5;
       })
       .attr('stroke-dasharray', d => {
         // Dashed edges for pruned tree branches
         const targetNode = nodes.find(n => n.id === d.target);
-        if (targetNode?.strategy?.startsWith('tree_search_') && !pathSet.has(d.target)) return '4,3';
+        if (targetNode?.tactic?.startsWith('tree_search_') && !pathSet.has(d.target)) return '4,3';
         return 'none';
       });
 
@@ -129,7 +129,7 @@ export function LineageGraph({ nodes, edges, treeSearchPath }: LineageGraphProps
     // dashed border so admins can spot them in the lineage graph at a glance.
     nodeGroups.append('circle')
       .attr('r', d => scaleRadius(d.elo))
-      .attr('fill', d => STRATEGY_PALETTE[d.strategy] ?? 'var(--text-muted)')
+      .attr('fill', d => TACTIC_PALETTE[d.tactic] ?? 'var(--text-muted)')
       .attr('fill-opacity', d => d.persisted === false ? 0.4 : 1)
       .attr('stroke', d => d.persisted === false ? 'var(--status-error)' : 'var(--surface-elevated)')
       .attr('stroke-width', 2)
@@ -186,7 +186,8 @@ export function LineageGraph({ nodes, edges, treeSearchPath }: LineageGraphProps
           <VariantCard
             shortId={selectedNode.shortId}
             elo={selectedNode.elo}
-            strategy={selectedNode.strategy}
+            uncertainty={selectedNode.uncertainty}
+            tactic={selectedNode.tactic}
             iterationBorn={selectedNode.iterationBorn}
             isWinner={selectedNode.isWinner}
             treeDepth={selectedNode.treeDepth}

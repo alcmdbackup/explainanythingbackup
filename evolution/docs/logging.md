@@ -3,7 +3,7 @@
 Deep dive into the evolution pipeline's structured logging system: entity hierarchy, logger factory, log aggregation, UI component, and server actions.
 
 > **Logging under concurrency (parallel pipeline).** During a generate iteration, the
-> orchestrator dispatches `numVariants` `GenerateFromSeedArticleAgent` invocations in
+> orchestrator dispatches `numVariants` `GenerateFromPreviousArticleAgent` invocations in
 > parallel. Each agent gets a 1-based `agentIndex` field on its `AgentContext` and an
 > ascending `executionOrder`, both of which are written into the invocation row. Logs
 > from the EntityLogger are tagged with the agent's `invocationId` (and therefore its

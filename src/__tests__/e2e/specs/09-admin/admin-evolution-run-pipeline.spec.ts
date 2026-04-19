@@ -37,8 +37,11 @@ adminTest.describe('Evolution Run Pipeline', { tag: '@evolution' }, () => {
         config: {
           generationModel: 'gpt-4.1-nano',
           judgeModel: 'gpt-4.1-nano',
-          iterations: 1,
-          strategiesPerRound: 1,
+          iterationConfigs: [
+            { agentType: 'generate', budgetPercent: 60 },
+            { agentType: 'swiss', budgetPercent: 40 },
+          ],
+          budgetUsd: 0.02,
         },
         config_hash: `e2e-run-${Date.now()}`,
         status: 'active',
@@ -201,7 +204,7 @@ adminTest.describe('Evolution Run Pipeline', { tag: '@evolution' }, () => {
     expect(run!.run_summary).toBeTruthy();
     const summary = run!.run_summary as { version: number; stopReason: string };
     expect(summary.version).toBe(3);
-    expect(['iterations_complete', 'budget_exceeded', 'converged', 'time_limit']).toContain(summary.stopReason);
+    expect(['iterations_complete', 'budget_exceeded', 'converged', 'time_limit', 'completed', 'total_budget_exceeded']).toContain(summary.stopReason);
     expect(run!.completed_at).toBeTruthy();
   });
 
@@ -397,6 +400,48 @@ adminTest.describe('Evolution Run Pipeline', { tag: '@evolution' }, () => {
 
     await expect(adminPage.locator('[data-testid="metric-total-cost"]')).toBeVisible({ timeout: 15000 });
     await expect(adminPage.locator('[data-testid="metric-runs"]')).toBeVisible();
+  });
+
+  adminTest('variants tab shows Iteration and Parent columns', async ({ adminPage }) => {
+    await adminPage.goto(`/admin/evolution/runs/${runId}?tab=variants`);
+    await adminPage.waitForLoadState('domcontentloaded');
+
+    const header = adminPage.locator('[data-testid="entity-detail-header"]');
+    await expect(header).toBeVisible({ timeout: 30000 });
+
+    const variantsTab = adminPage.locator('[data-testid="variants-tab"]');
+    await expect(variantsTab).toBeVisible({ timeout: 15000 });
+
+    // Verify Iteration column header exists
+    const iterationHeader = variantsTab.locator('th', { hasText: 'Iteration' });
+    await expect(iterationHeader).toBeVisible();
+
+    // Verify Parent column header exists
+    const parentHeader = variantsTab.locator('th', { hasText: 'Parent' });
+    await expect(parentHeader).toBeVisible();
+
+    // Verify at least one data row exists with iteration values
+    const firstDataRow = variantsTab.locator('tbody tr').first();
+    await expect(firstDataRow).toBeVisible({ timeout: 10000 });
+  });
+
+  adminTest('timeline tab shows iteration cards', async ({ adminPage }) => {
+    await adminPage.goto(`/admin/evolution/runs/${runId}?tab=timeline`);
+    await adminPage.waitForLoadState('domcontentloaded');
+
+    const header = adminPage.locator('[data-testid="entity-detail-header"]');
+    await expect(header).toBeVisible({ timeout: 30000 });
+
+    const timelineTab = adminPage.locator('[data-testid="timeline-tab"]');
+    await expect(timelineTab).toBeVisible({ timeout: 15000 });
+
+    // Should have at least one iteration card (iteration 0 or higher)
+    const iterationCards = adminPage.locator('[data-testid^="timeline-iter-"]');
+    await expect(iterationCards.first()).toBeVisible({ timeout: 10000 });
+
+    // Verify run outcome card renders at the bottom
+    const outcomeCard = adminPage.locator('[data-testid="timeline-outcome"]');
+    await expect(outcomeCard).toBeVisible({ timeout: 10000 });
   });
 
   adminTest('logs tab has entries', async ({ adminPage }) => {

@@ -100,6 +100,120 @@ export function computeCostEstimationErrorPct(ctx: FinalizationContext): number 
   return errors.reduce((a, b) => a + b, 0) / errors.length;
 }
 
+// ─── Cost Estimate Accuracy (cost_estimate_accuracy_analysis_20260414) ─────────
+
+/** Safe (actual - est) / est * 100, guarded against non-finite estimates. */
+function pctError(actual: number, estimate: number): number | null {
+  if (!Number.isFinite(estimate) || estimate <= 0) return null;
+  if (!Number.isFinite(actual)) return null;
+  return ((actual - estimate) / estimate) * 100;
+}
+
+/** Sum of `estimatedTotalCost` across GFSA invocations that recorded an estimate. */
+export function computeEstimatedCost(ctx: FinalizationContext): number | null {
+  if (!ctx.invocationDetails) return null;
+  let total = 0;
+  let found = false;
+  for (const detail of ctx.invocationDetails.values()) {
+    const d = detail as unknown as Record<string, unknown>;
+    const est = d.estimatedTotalCost;
+    if (typeof est === 'number' && Number.isFinite(est) && est >= 0) {
+      total += est;
+      found = true;
+    }
+  }
+  return found ? total : null;
+}
+
+/** Mean |actual - estimated| USD across GFSA invocations with paired data. */
+export function computeEstimationAbsErrorUsd(ctx: FinalizationContext): number | null {
+  if (!ctx.invocationDetails) return null;
+  const diffs: number[] = [];
+  for (const detail of ctx.invocationDetails.values()) {
+    const d = detail as unknown as Record<string, unknown>;
+    const est = d.estimatedTotalCost;
+    const act = d.totalCost;
+    if (
+      typeof est === 'number' && Number.isFinite(est) &&
+      typeof act === 'number' && Number.isFinite(act)
+    ) {
+      diffs.push(Math.abs(act - est));
+    }
+  }
+  if (diffs.length === 0) return null;
+  return diffs.reduce((a, b) => a + b, 0) / diffs.length;
+}
+
+/** Mean per-invocation generation-phase error % across GFSA invocations. */
+export function computeGenerationEstimationErrorPct(ctx: FinalizationContext): number | null {
+  if (!ctx.invocationDetails) return null;
+  const errors: number[] = [];
+  for (const detail of ctx.invocationDetails.values()) {
+    const d = detail as unknown as Record<string, unknown>;
+    const gen = d.generation as Record<string, unknown> | undefined;
+    if (!gen) continue;
+    const est = gen.estimatedCost;
+    const act = gen.cost;
+    if (typeof est === 'number' && typeof act === 'number') {
+      const e = pctError(act, est);
+      if (e !== null) errors.push(e);
+    }
+  }
+  if (errors.length === 0) return null;
+  return errors.reduce((a, b) => a + b, 0) / errors.length;
+}
+
+/** Mean per-invocation ranking-phase error % across GFSA invocations. */
+export function computeRankingEstimationErrorPct(ctx: FinalizationContext): number | null {
+  if (!ctx.invocationDetails) return null;
+  const errors: number[] = [];
+  for (const detail of ctx.invocationDetails.values()) {
+    const d = detail as unknown as Record<string, unknown>;
+    const rank = d.ranking as Record<string, unknown> | undefined;
+    if (!rank) continue;
+    const est = rank.estimatedCost;
+    const act = rank.cost;
+    if (typeof est === 'number' && typeof act === 'number') {
+      const e = pctError(act, est);
+      if (e !== null) errors.push(e);
+    }
+  }
+  if (errors.length === 0) return null;
+  return errors.reduce((a, b) => a + b, 0) / errors.length;
+}
+
+// ─── Budget-floor observables (passed through FinalizationContext) ─────────────
+
+export function computeAgentCostProjected(ctx: FinalizationContext): number | null {
+  const v = ctx.budgetFloorObservables?.initialAgentCostEstimate;
+  return typeof v === 'number' && Number.isFinite(v) ? v : null;
+}
+
+export function computeAgentCostActual(ctx: FinalizationContext): number | null {
+  const v = ctx.budgetFloorObservables?.actualAvgCostPerAgent;
+  return typeof v === 'number' && Number.isFinite(v) ? v : null;
+}
+
+export function computeParallelDispatched(ctx: FinalizationContext): number | null {
+  const v = ctx.budgetFloorObservables?.parallelDispatched;
+  return typeof v === 'number' && Number.isFinite(v) ? v : null;
+}
+
+export function computeSequentialDispatched(ctx: FinalizationContext): number | null {
+  const v = ctx.budgetFloorObservables?.sequentialDispatched;
+  return typeof v === 'number' && Number.isFinite(v) ? v : null;
+}
+
+export function computeMedianSequentialGfsaDurationMs(ctx: FinalizationContext): number | null {
+  const v = ctx.budgetFloorObservables?.medianSequentialGfsaDurationMs;
+  return typeof v === 'number' && Number.isFinite(v) ? v : null;
+}
+
+export function computeAvgSequentialGfsaDurationMs(ctx: FinalizationContext): number | null {
+  const v = ctx.budgetFloorObservables?.avgSequentialGfsaDurationMs;
+  return typeof v === 'number' && Number.isFinite(v) ? v : null;
+}
+
 // ─── Execution-phase metrics (cost tracking) ─────────────────────
 
 export function computeRunCost(ctx: ExecutionContext): number {

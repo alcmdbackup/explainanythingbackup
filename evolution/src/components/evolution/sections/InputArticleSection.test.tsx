@@ -7,7 +7,7 @@ import { InputArticleSection } from './InputArticleSection';
 describe('InputArticleSection', () => {
   const baseProps = {
     variantId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
-    strategy: 'generation',
+    tactic: 'generation',
     text: 'Some variant text content here',
     elo: 1350,
     runId: 'run-123',

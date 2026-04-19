@@ -32,7 +32,7 @@ export interface AgentCostPreview {
   estimatedAgentCostUsd: number;
   assumptions: {
     seedArticleChars: number;
-    strategy: string;
+    tactic: string;
     /** Representative ranking comparisons per agent used by the preview. */
     comparisonsUsed: number;
   };
@@ -40,7 +40,7 @@ export interface AgentCostPreview {
 
 // ─── Action ─────────────────────────────────────────────────────
 
-/** Preview the estimated cost of one generateFromSeedArticle agent for the given
+/** Preview the estimated cost of one generateFromPreviousArticle agent for the given
  *  strategy config. Used by the strategy creation form to show the USD equivalent
  *  when a user specifies budget floors in "Multiple of agent cost" mode. */
 export const estimateAgentCostPreviewAction = adminAction(
@@ -73,7 +73,7 @@ export const estimateAgentCostPreviewAction = adminAction(
       estimatedAgentCostUsd,
       assumptions: {
         seedArticleChars,
-        strategy: REPRESENTATIVE_STRATEGY,
+        tactic: REPRESENTATIVE_STRATEGY,
         comparisonsUsed: REPRESENTATIVE_COMPARISONS,
       },
     };

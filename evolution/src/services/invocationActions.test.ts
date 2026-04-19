@@ -111,10 +111,12 @@ describe('listInvocationsAction', () => {
     await expect(listHandler({ limit: 10, offset: 0 }, ctx)).rejects.toEqual({ message: 'connection refused' });
   });
 
-  it('filters test content by excluding test strategy run IDs', async () => {
+  it('filters test content via getTestStrategyIds + test run ID exclusion', async () => {
     const { ctx, chain } = makeMockCtx([{ id: '1' }], 1);
     await listHandler({ filterTestContent: true, limit: 10, offset: 0 }, ctx);
-    // Should call getTestStrategyIds and use the returned IDs to filter runs
+    // Invocations use the two-step approach (getTestStrategyIds → fetch test run IDs →
+    // .not.in) because the nested embed path hits PGRST201 (ambiguous FK). The
+    // getTestStrategyIds call uses the indexed is_test_content column (fast, small result).
     const { getTestStrategyIds } = require('./shared');
     expect(getTestStrategyIds).toHaveBeenCalled();
   });

@@ -20,6 +20,12 @@ const AGENT_LABELS: Record<string, string> = {
   metaReview: 'Meta Review',
 };
 
+interface IterationConfigEntry {
+  agentType: 'generate' | 'swiss';
+  budgetPercent: number;
+  maxAgents?: number;
+}
+
 interface StrategyConfig {
   generationModel: string;
   judgeModel: string;
@@ -28,7 +34,7 @@ interface StrategyConfig {
   singleArticle?: boolean;
   enabledAgents?: string[];
   agentModels?: Record<string, string>;
-  generationGuidance?: Array<{ strategy: string; percent: number }>;
+  generationGuidance?: Array<{ tactic: string; percent: number }>;
   maxVariantsToGenerateFromSeedArticle?: number;
   maxComparisonsPerVariant?: number;
   /** @deprecated Use minBudgetAfterParallelFraction. Kept for backward compat. */
@@ -40,6 +46,7 @@ interface StrategyConfig {
   minBudgetAfterSequentialFraction?: number;
   minBudgetAfterSequentialAgentMultiple?: number;
   generationTemperature?: number;
+  iterationConfigs?: IterationConfigEntry[];
 }
 
 interface StrategyConfigDisplayProps {
@@ -145,8 +152,55 @@ export function StrategyConfigDisplay({ config: raw, showRaw }: StrategyConfigDi
           <h4 className="font-display text-lg font-medium text-[var(--text-muted)]">Generation Guidance</h4>
           <div className="bg-[var(--surface-primary)] rounded-page p-3 space-y-1">
             {config.generationGuidance.map((entry) => (
-              <ConfigRow key={entry.strategy} label={entry.strategy} value={`${entry.percent}%`} highlight={entry.percent >= 50} />
+              <ConfigRow key={entry.tactic} label={entry.tactic} value={`${entry.percent}%`} highlight={entry.percent >= 50} />
             ))}
+          </div>
+        </div>
+      )}
+      {config.iterationConfigs && config.iterationConfigs.length > 0 && (
+        <div className="space-y-2">
+          <h4 className="font-display text-lg font-medium text-[var(--text-muted)]">Iterations</h4>
+          <div className="bg-[var(--surface-primary)] rounded-page p-3 overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-left border-b border-[var(--border-default)]">
+                  <th className="py-1 pr-3 font-ui text-[var(--text-muted)]">#</th>
+                  <th className="py-1 pr-3 font-ui text-[var(--text-muted)]">Type</th>
+                  <th className="py-1 pr-3 font-ui text-[var(--text-muted)] text-right">Budget</th>
+                  <th className="py-1 pr-3 font-ui text-[var(--text-muted)] text-right">Max Agents</th>
+                </tr>
+              </thead>
+              <tbody>
+                {config.iterationConfigs.map((ic, idx) => {
+                  const budgetDollar = config.budgetUsd != null ? (ic.budgetPercent / 100) * config.budgetUsd : null;
+                  return (
+                    <tr key={idx} className="border-b border-[var(--border-subtle)] last:border-0">
+                      <td className="py-1 pr-3 font-mono">{idx + 1}</td>
+                      <td className="py-1 pr-3">
+                        <span
+                          className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-semibold uppercase tracking-wider ${
+                            ic.agentType === 'generate'
+                              ? 'bg-blue-500/20 text-blue-400'
+                              : 'bg-purple-500/20 text-purple-400'
+                          }`}
+                        >
+                          {ic.agentType}
+                        </span>
+                      </td>
+                      <td className="py-1 pr-3 text-right font-mono">
+                        {ic.budgetPercent}%
+                        {budgetDollar != null && (
+                          <span className="text-[var(--text-muted)] ml-1">(${budgetDollar.toFixed(2)})</span>
+                        )}
+                      </td>
+                      <td className="py-1 pr-3 text-right font-mono text-[var(--text-muted)]">
+                        {ic.maxAgents ?? '—'}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         </div>
       )}

@@ -1,5 +1,5 @@
 // Binary-search ranking for a single variant against a local pool snapshot.
-// Called by generateFromSeedArticle agents (one per generated variant) running in parallel.
+// Called by generateFromPreviousArticle agents (one per generated variant) running in parallel.
 //
 // The function:
 //   - Mutates the supplied LOCAL ratings/matchCounts maps as it goes (chronological updates).
@@ -181,7 +181,7 @@ function makeCallLLM(
     } as LLMCompletionOptions);
     // Note: onUsage param is currently unused. cost attribution flows through V2CostTracker
     // and the per-LLM-call writeMetric in createEvolutionLLMClient. Per-phase costs in
-    // generateFromSeedArticle are computed via getTotalSpent() deltas around each phase.
+    // generateFromPreviousArticle are computed via getTotalSpent() deltas around each phase.
   };
 }
 

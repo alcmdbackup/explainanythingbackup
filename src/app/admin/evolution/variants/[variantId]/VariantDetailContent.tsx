@@ -1,11 +1,16 @@
 // Client component for variant detail: tabbed interface with metrics, content, and lineage.
 'use client';
 
+import Link from 'next/link';
 import { EntityDetailHeader, MetricGrid, EntityDetailTabs, useTabState, EntityMetricsTab } from '@evolution/components/evolution';
 import { VariantContentSection } from '@evolution/components/evolution/variant/VariantContentSection';
 import { VariantLineageSection } from '@evolution/components/evolution/variant/VariantLineageSection';
 import { VariantMatchHistory } from '@evolution/components/evolution/variant/VariantMatchHistory';
+import { VariantParentBadge } from '@evolution/components/evolution/variant/VariantParentBadge';
+import { buildVariantDetailUrl } from '@evolution/lib/utils/evolutionUrls';
 import type { VariantFullDetail } from '@evolution/services/variantDetailActions';
+import { formatEloWithUncertainty } from '@evolution/lib/utils/formatters';
+import { bootstrapDeltaCI } from '@evolution/lib/shared/ratingDelta';
 
 const TABS = [
   { id: 'content', label: 'Content' },
@@ -20,6 +25,36 @@ interface VariantDetailContentProps {
 
 export function VariantDetailContent({ variant }: VariantDetailContentProps): JSX.Element {
   const [activeTab, setActiveTab] = useTabState(TABS);
+
+  const parentBadge = (() => {
+    if (!variant.parentVariantId) {
+      return (
+        <VariantParentBadge
+          parentId={null}
+          parentElo={null}
+          parentUncertainty={null}
+          delta={null}
+          deltaCi={null}
+        />
+      );
+    }
+    const childRating = { elo: variant.eloScore, uncertainty: variant.uncertainty ?? 0 };
+    const parentElo = variant.parentElo;
+    const parentUncertainty = variant.parentUncertainty;
+    const { delta, ci } = parentElo != null
+      ? bootstrapDeltaCI(childRating, { elo: parentElo, uncertainty: parentUncertainty ?? 0 })
+      : { delta: null, ci: null };
+    return (
+      <VariantParentBadge
+        parentId={variant.parentVariantId}
+        parentElo={parentElo}
+        parentUncertainty={parentUncertainty}
+        delta={delta}
+        deltaCi={ci}
+        crossRun={!!variant.parentRunId && variant.parentRunId !== variant.runId}
+      />
+    );
+  })();
 
   return (
     <div className="space-y-6" data-testid="variant-detail-content">
@@ -42,16 +77,36 @@ export function VariantDetailContent({ variant }: VariantDetailContentProps): JS
       />
 
       <MetricGrid
-        columns={4}
+        columns={5}
         variant="bordered"
         size="lg"
         metrics={[
           { label: 'Agent', value: variant.agentName || '—' },
           { label: 'Generation', value: String(variant.generation) },
-          { label: 'Rating', value: String(Math.round(variant.eloScore)) },
+          {
+            label: 'Rating',
+            value: variant.uncertainty != null
+              ? (formatEloWithUncertainty(variant.eloScore, variant.uncertainty) ?? String(Math.round(variant.eloScore)))
+              : String(Math.round(variant.eloScore)),
+          },
           { label: 'Matches', value: String(variant.matchCount) },
+          {
+            label: 'Parent Variant',
+            value: variant.parentVariantId ? (
+              <Link
+                href={buildVariantDetailUrl(variant.parentVariantId)}
+                className="text-[var(--accent-gold)] hover:underline font-mono"
+              >
+                {variant.parentVariantId.substring(0, 8)}
+              </Link>
+            ) : '—',
+          },
         ]}
       />
+
+      <div className="text-sm font-ui" data-testid="variant-detail-parent-badge">
+        {parentBadge}
+      </div>
 
       {variant.persisted === false && (
         <div

@@ -17,6 +17,8 @@ export async function createInvocation(
   phaseName: string,
   executionOrder: number,
   logger?: EntityLogger,
+  /** Tactic name for agents that use tactics (e.g. GenerateFromSeedArticleAgent). Nullable. */
+  tactic?: string,
 ): Promise<string | null> {
   try {
     const payload = evolutionAgentInvocationInsertSchema.parse({
@@ -28,7 +30,7 @@ export async function createInvocation(
     });
     const { data, error } = await db
       .from('evolution_agent_invocations')
-      .insert({ ...payload, skipped: false })
+      .insert({ ...payload, skipped: false, ...(tactic != null && { tactic }) })
       .select('id')
       .single();
 

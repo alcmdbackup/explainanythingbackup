@@ -143,7 +143,9 @@ function createConsoleLogger(): EntityLogger {
 // ─── LLM Provider ────────────────────────────────────────────────
 // Raw provider object matching V2's { complete(prompt, label, opts?) } interface.
 
-function createMockLLMProvider(): { complete(prompt: string, label: string, opts?: { model?: string }): Promise<string> } {
+type MockResponse = { text: string; usage: { promptTokens: number; completionTokens: number; reasoningTokens?: number } };
+
+function createMockLLMProvider(): { complete(prompt: string, label: string, opts?: { model?: string }): Promise<MockResponse> } {
   let callCount = 0;
 
   const textTemplates = [
@@ -161,17 +163,26 @@ function createMockLLMProvider(): { complete(prompt: string, label: string, opts
   ];
 
   return {
-    async complete(prompt: string, _label: string, _opts?: { model?: string }): Promise<string> {
+    async complete(prompt: string, _label: string, _opts?: { model?: string }): Promise<MockResponse> {
       callCount++;
       await new Promise((r) => setTimeout(r, 30 + Math.random() * 40));
 
+      let text: string;
       if (prompt.includes('OVERALL_WINNER') && prompt.includes('Evaluation Dimensions')) {
-        return structuredTemplates[(callCount - 1) % structuredTemplates.length]!;
+        text = structuredTemplates[(callCount - 1) % structuredTemplates.length]!;
+      } else if (prompt.includes('## Text A') && prompt.includes('## Text B')) {
+        text = comparisonResponses[(callCount - 1) % comparisonResponses.length]!;
+      } else {
+        text = textTemplates[(callCount - 1) % textTemplates.length]!;
       }
-      if (prompt.includes('## Text A') && prompt.includes('## Text B')) {
-        return comparisonResponses[(callCount - 1) % comparisonResponses.length]!;
-      }
-      return textTemplates[(callCount - 1) % textTemplates.length]!;
+
+      return {
+        text,
+        usage: {
+          promptTokens: Math.ceil(prompt.length / 4),
+          completionTokens: Math.ceil(text.length / 4),
+        },
+      };
     },
   };
 }
@@ -326,7 +337,7 @@ async function createRunRecord(
     const strategyConfigId = await upsertStrategy(supabase, {
       generationModel: config.generationModel,
       judgeModel: config.judgeModel,
-      iterations: config.iterations ?? 1,
+      iterationConfigs: config.iterationConfigs,
     });
 
     const { error } = await supabase.from('evolution_runs').insert({
@@ -376,8 +387,25 @@ async function main() {
     runId: runId.slice(0, 8),
   });
 
+  // Build iterationConfigs from --iterations CLI arg: alternate generate/swiss pairs,
+  // splitting budget evenly across iterations with 60/40 gen/swiss within each pair.
+  const iterationConfigs: Array<{ agentType: 'generate' | 'swiss'; budgetPercent: number }> = [];
+  {
+    const totalIterations = args.iterations * 2; // each CLI "iteration" = 1 generate + 1 swiss
+    const perIteration = Math.floor(100 / totalIterations);
+    let remainder = 100 - perIteration * totalIterations;
+    for (let i = 0; i < args.iterations; i++) {
+      const genExtra = remainder > 0 ? 1 : 0;
+      if (remainder > 0) remainder--;
+      iterationConfigs.push({ agentType: 'generate', budgetPercent: perIteration + genExtra });
+      const swissExtra = remainder > 0 ? 1 : 0;
+      if (remainder > 0) remainder--;
+      iterationConfigs.push({ agentType: 'swiss', budgetPercent: perIteration + swissExtra });
+    }
+  }
+
   const config: EvolutionConfig = {
-    iterations: args.iterations,
+    iterationConfigs,
     budgetUsd: args.budget,
     judgeModel,
     generationModel: args.model,
@@ -455,7 +483,7 @@ async function main() {
           rank: rank + 1,
           id,
           elo: Math.round(elo),
-          strategy: variant?.strategy ?? 'unknown',
+          tactic: variant?.tactic ?? 'unknown',
           textPreview: variant?.text.slice(0, 120) ?? '',
         };
       });
@@ -472,7 +500,7 @@ async function main() {
       },
       rankings,
       winnerText: result.winner.text,
-      winnerStrategy: result.winner.strategy,
+      winnerStrategy: result.winner.tactic,
     };
     const outputPath = path.resolve(args.output);
     fs.writeFileSync(outputPath, JSON.stringify(output, null, 2));
@@ -494,7 +522,7 @@ async function main() {
       console.log('  Top Rankings:');
       for (const r of rankings.slice(0, 5)) {
         const preview = r.textPreview.slice(0, 60).replace(/\n/g, ' ');
-        console.log(`    #${r.rank} [${r.elo}] ${r.strategy.padEnd(22)} ${r.id.slice(0, 8)} "${preview}..."`);
+        console.log(`    #${r.rank} [${r.elo}] ${r.tactic.padEnd(22)} ${r.id.slice(0, 8)} "${preview}..."`);
       }
       console.log('');
     }

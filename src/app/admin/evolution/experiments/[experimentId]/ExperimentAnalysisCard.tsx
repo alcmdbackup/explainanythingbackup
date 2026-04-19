@@ -4,6 +4,7 @@
 'use client';
 
 import { MetricGrid } from '@evolution/components/evolution';
+import { TacticPromptPerformanceTable } from '@evolution/components/evolution/tabs/TacticPromptPerformanceTable';
 import type { V2Experiment } from './ExperimentDetailContent';
 
 interface ExperimentAnalysisCardProps {
@@ -32,12 +33,22 @@ export function ExperimentAnalysisCard({ experiment }: ExperimentAnalysisCardPro
     <div className="space-y-4">
       {/* Summary cards */}
       <MetricGrid
-        columns={4}
+        columns={5}
         variant="card"
         metrics={[
           { label: 'Completed Runs', value: String(metrics.runs.length) },
           { label: 'Total Cost', value: `$${metrics.totalCost.toFixed(2)}` },
           { label: 'Best Elo', value: fmtNum(metrics.maxElo) },
+          // Phase 4d: aggregate CI for mean Elo across runs in this experiment.
+          // Shown only when ≥2 runs have a recorded Elo — ± SE = sample stddev / sqrt(n).
+          {
+            label: 'Mean Elo ± SE',
+            value: metrics.meanElo == null
+              ? '--'
+              : metrics.seElo != null
+                ? `${Math.round(metrics.meanElo)} ± ${Math.round(metrics.seElo)}`
+                : String(Math.round(metrics.meanElo)),
+          },
           { label: 'Best Elo/$', value: fmtNum(
             metrics.runs.reduce<number | null>((best, r) => {
               if (r.eloPerDollar == null) return best;
@@ -65,19 +76,37 @@ export function ExperimentAnalysisCard({ experiment }: ExperimentAnalysisCardPro
                 {metrics.runs
                   .slice()
                   .sort((a, b) => (b.elo ?? 0) - (a.elo ?? 0))
-                  .map((run) => (
+                  .map((run) => {
+                    // Phase 4b: per-run Elo ± uncertainty when winner variant's mu/sigma are available.
+                    const eloLabel = run.elo == null
+                      ? '--'
+                      : run.uncertainty != null && run.uncertainty > 0
+                        ? `${Math.round(run.elo)} ± ${Math.round(1.96 * run.uncertainty)}`
+                        : fmtNum(run.elo);
+                    return (
                     <tr key={run.runId} className="border-b border-[var(--border-default)] last:border-0">
                       <td className="py-1.5 pr-2 font-mono text-[var(--text-primary)]">{run.runId.slice(0, 8)}</td>
-                      <td className="py-1.5 pr-2 text-right font-mono text-[var(--text-secondary)]">{fmtNum(run.elo)}</td>
+                      <td className="py-1.5 pr-2 text-right font-mono text-[var(--text-secondary)]">{eloLabel}</td>
                       <td className="py-1.5 pr-2 text-right font-mono text-[var(--text-secondary)]">${fmtNum(run.cost, 3)}</td>
                       <td className="py-1.5 text-right font-mono text-[var(--text-secondary)]">{fmtNum(run.eloPerDollar)}</td>
                     </tr>
-                  ))}
+                    );
+                  })}
               </tbody>
             </table>
           </div>
         </div>
       </div>
+
+      {/* Tactic Breakdown — shows which tactics perform best for this experiment's prompt */}
+      {experiment.prompt_id && (
+        <div className="border border-[var(--border-default)] rounded-page overflow-hidden bg-[var(--surface-secondary)]">
+          <div className="p-3">
+            <h3 className="text-xs font-ui font-semibold text-[var(--text-primary)] mb-2">Tactic Breakdown</h3>
+            <TacticPromptPerformanceTable promptId={experiment.prompt_id} />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

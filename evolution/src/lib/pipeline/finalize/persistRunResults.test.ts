@@ -44,7 +44,7 @@ function makeVariant(id: string, strategy = 'test', opts?: Partial<Variant>): Va
     text: `Content for ${id}`,
     version: 1,
     parentIds: [],
-    strategy,
+    tactic: strategy,
     createdAt: Date.now() / 1000,
     iterationBorn: 1,
     ...opts,
@@ -53,7 +53,7 @@ function makeVariant(id: string, strategy = 'test', opts?: Partial<Variant>): Va
 
 function makeResult(overrides?: Partial<EvolutionResult>): EvolutionResult {
   const pool = [
-    makeVariant(BASELINE_ID, 'baseline'),
+    makeVariant(BASELINE_ID, 'seed_variant'),
     makeVariant(GEN1_ID, 'structural_transform'),
     makeVariant(GEN2_ID, 'lexical_simplify'),
   ];
@@ -77,7 +77,7 @@ function makeResult(overrides?: Partial<EvolutionResult>): EvolutionResult {
     matchHistory,
     totalCost: 0.15,
     iterationsRun: 3,
-    stopReason: 'iterations_complete',
+    stopReason: 'completed',
     eloHistory: [[1280, 1248, 1200]],
     diversityHistory: [],
     matchCounts: { [BASELINE_ID]: 2, [GEN1_ID]: 2, [GEN2_ID]: 2 },
@@ -136,7 +136,7 @@ describe('finalizeRun', () => {
     expect(runUpdate!.data.run_summary).toBeDefined();
     const summary = runUpdate!.data.run_summary as Record<string, unknown>;
     expect(summary.version).toBe(3);
-    expect(summary.stopReason).toBe('iterations_complete');
+    expect(summary.stopReason).toBe('completed');
   });
 
   it('persists all local pool variants', async () => {
@@ -186,31 +186,33 @@ describe('finalizeRun', () => {
     expect(matchStats.decisiveRate).toBeCloseTo(2 / 3); // 0.9 and 0.7 > 0.6
   });
 
-  it('topVariants: top 5 by elo with isBaseline flag', async () => {
+  it('topVariants: top 5 by elo with isSeedVariant flag (renamed from isBaseline)', async () => {
     const { db, updates } = makeMockDb();
     await finalizeRun(RUN_ID, makeResult(), { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
     const summary = updates.find((u) => u.data.run_summary)?.data.run_summary as Record<string, unknown>;
-    const topVariants = summary.topVariants as Array<{ isBaseline: boolean; elo: number }>;
+    const topVariants = summary.topVariants as Array<{ isSeedVariant: boolean; elo: number }>;
     expect(topVariants[0]!.elo).toBe(1280); // gen-1 highest (elo)
-    const baseline = topVariants.find((v) => v.isBaseline);
-    expect(baseline).toBeDefined();
+    // Seed variant is still in test data pool for backward compat; isSeedVariant flag works.
+    // In production, seed is no longer in pool (Phase 2 decoupling).
+    const seedVariant = topVariants.find((v) => v.isSeedVariant);
+    expect(seedVariant).toBeDefined();
   });
 
-  it('baselineRank/baselineElo correct', async () => {
+  it('seedVariantRank/seedVariantElo are null (seed decoupled from pool in Phase 2)', async () => {
     const { db, updates } = makeMockDb();
     await finalizeRun(RUN_ID, makeResult(), { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
     const summary = updates.find((u) => u.data.run_summary)?.data.run_summary as Record<string, unknown>;
-    expect(summary.baselineRank).toBe(3); // 3rd of 3
-    expect(summary.baselineElo).toBe(1200);
+    expect(summary.seedVariantRank).toBeNull();
+    expect(summary.seedVariantElo).toBeNull();
   });
 
-  it('strategyEffectiveness computed', async () => {
+  it('tacticEffectiveness computed', async () => {
     const { db, updates } = makeMockDb();
     await finalizeRun(RUN_ID, makeResult(), { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
     const summary = updates.find((u) => u.data.run_summary)?.data.run_summary as Record<string, unknown>;
-    const se = summary.strategyEffectiveness as Record<string, { count: number; avgElo: number }>;
-    expect(se['baseline']!.count).toBe(1);
-    expect(se['baseline']!.avgElo).toBe(1200);
+    const se = summary.tacticEffectiveness as Record<string, { count: number; avgElo: number }>;
+    expect(se['seed_variant']!.count).toBe(1);
+    expect(se['seed_variant']!.avgElo).toBe(1200);
     expect(se['structural_transform']!.count).toBe(1);
   });
 
@@ -665,11 +667,11 @@ describe('finalizeRun bug fixes', () => {
 // ─── Finalization logging tests ─────────────────────────────────
 
 describe('finalizeRun logging', () => {
-  it('logger.info called with Strategy effectiveness computed', async () => {
+  it('logger.info called with Tactic effectiveness computed', async () => {
     const { db } = makeMockDb();
     const { logger } = createMockEntityLogger();
     await finalizeRun(RUN_ID, makeResult(), { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120, logger);
-    expect(logger.info).toHaveBeenCalledWith('Strategy effectiveness computed', expect.objectContaining({ phaseName: 'finalize' }));
+    expect(logger.info).toHaveBeenCalledWith('Tactic effectiveness computed', expect.objectContaining({ phaseName: 'finalize' }));
   });
 
   it('logger.info called with Winner determined', async () => {
@@ -823,7 +825,7 @@ describe('syncToArena — isSeeded flag', () => {
   it('isSeeded=true: baseline variant gets generation_method=seed', async () => {
     const supabase = createMockArenaSupabase();
     const pool: Variant[] = [
-      makeVariant(V1_ID, 'baseline', { text: '# Seed' }),        // baseline → seed
+      makeVariant(V1_ID, 'seed_variant', { text: '# Seed' }),        // baseline → seed
       makeVariant(V_NEW_ID, 'structural_transform', { text: '# Gen' }), // non-baseline → pipeline
     ];
     const ratings = new Map<string, Rating>([
@@ -844,7 +846,7 @@ describe('syncToArena — isSeeded flag', () => {
   it('isSeeded=false: all variants get generation_method=pipeline regardless of strategy', async () => {
     const supabase = createMockArenaSupabase();
     const pool: Variant[] = [
-      makeVariant(V1_ID, 'baseline', { text: '# Base' }),
+      makeVariant(V1_ID, 'seed_variant', { text: '# Base' }),
       makeVariant(V_NEW_ID, 'structural_transform', { text: '# Gen' }),
     ];
     const ratings = new Map<string, Rating>([
@@ -864,7 +866,7 @@ describe('syncToArena — isSeeded flag', () => {
   it('arena entries are excluded from p_entries regardless of isSeeded value', async () => {
     const supabase = createMockArenaSupabase();
     const pool: Variant[] = [
-      makeVariant(V_NEW_ID, 'baseline', { text: '# Base' }),
+      makeVariant(V_NEW_ID, 'seed_variant', { text: '# Base' }),
       makeArenaVariant({ id: V_ARENA_ID, text: '# Arena', arenaMatchCount: 5 }),
     ];
     const ratings = new Map<string, Rating>([
@@ -880,6 +882,9 @@ describe('syncToArena — isSeeded flag', () => {
     expect(entries.some((e) => e.id === V_NEW_ID)).toBe(true);
   });
 });
+
+// ─── 2026-04-14: reusedFromSeed routing (removed in Phase 2 seed decoupling) ──
+// Seed variant is no longer in the pool; optimistic-concurrency UPDATE tests removed.
 
 describe('propagateMetrics', () => {
   it('passes uncertainty through to writeMetric for bootstrap-aggregated metrics', async () => {

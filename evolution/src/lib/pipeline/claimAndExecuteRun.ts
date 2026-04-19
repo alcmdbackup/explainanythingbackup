@@ -11,6 +11,14 @@ import { finalizeRun, syncToArena } from './finalize/persistRunResults';
 import { classifyError } from './classifyError';
 import type { AgentName } from '../core/agentNames';
 import { writeMetricMax } from '../metrics/writeMetrics';
+import { CreateSeedArticleAgent } from '../core/agents/createSeedArticle';
+import { deepCloneRatings } from '../core/agents/generateFromPreviousArticle';
+import { createCostTracker } from './infra/trackBudget';
+import { createEvolutionLLMClient } from './infra/createEvolutionLLMClient';
+import { deriveSeed } from '../shared/seededRandom';
+import { createRating, ratingToDb } from '../shared/computeRatings';
+import type { AgentContext } from '../core/types';
+import { evolutionVariantInsertSchema } from '../schemas';
 
 export type { ClaimedRun } from './setup/buildRunContext';
 
@@ -158,8 +166,13 @@ export async function claimAndExecuteRun(
 
   try {
     const llmProvider: LLMProvider = {
-      async complete(prompt: string, label: AgentName, opts?: { model?: string; temperature?: number; reasoningEffort?: 'none' | 'low' | 'medium' | 'high' }): Promise<string> {
-        return callLLM(
+      async complete(
+        prompt: string,
+        label: AgentName,
+        opts?: { model?: string; temperature?: number; reasoningEffort?: 'none' | 'low' | 'medium' | 'high' },
+      ): Promise<{ text: string; usage: { promptTokens: number; completionTokens: number; reasoningTokens?: number } }> {
+        let capturedUsage: { promptTokens: number; completionTokens: number; reasoningTokens?: number } | null = null;
+        const text = await callLLM(
           prompt,
           `evolution_${label}`,
           EVOLUTION_SYSTEM_USERID,
@@ -169,8 +182,23 @@ export async function claimAndExecuteRun(
           null,
           null,
           false,
-          { temperature: opts?.temperature, reasoningEffort: opts?.reasoningEffort },
+          {
+            temperature: opts?.temperature,
+            reasoningEffort: opts?.reasoningEffort,
+            onUsage: (u) => {
+              capturedUsage = {
+                promptTokens: u.promptTokens,
+                completionTokens: u.completionTokens,
+                reasoningTokens: u.reasoningTokens > 0 ? u.reasoningTokens : undefined,
+              };
+            },
+          },
         );
+        // onUsage fires inside saveTrackingAndNotify which is awaited by the LLM call path,
+        // so capturedUsage is populated by the time callLLM returns. Fallback to zeros if
+        // somehow absent (keeps downstream code safe; Phase 2 will treat missing as "skip token path").
+        const usage = capturedUsage ?? { promptTokens: 0, completionTokens: 0 };
+        return { text, usage };
       },
     };
 
@@ -195,7 +223,11 @@ export async function claimAndExecuteRun(
 // ─── Shared execution logic ──────────────────────────────────────
 
 interface LLMProvider {
-  complete(prompt: string, label: AgentName, opts?: { model?: string; temperature?: number; reasoningEffort?: 'none' | 'low' | 'medium' | 'high' }): Promise<string>;
+  complete(
+    prompt: string,
+    label: AgentName,
+    opts?: { model?: string; temperature?: number; reasoningEffort?: 'none' | 'low' | 'medium' | 'high' },
+  ): Promise<{ text: string; usage: { promptTokens: number; completionTokens: number; reasoningTokens?: number } }>;
 }
 
 /** Build context, run evolution loop, finalize, sync arena. Re-throws on failure. */
@@ -235,15 +267,93 @@ async function executePipeline(
     throw new Error(contextResult.error);
   }
 
-  const { originalText, config, logger: runLogger, initialPool, randomSeed, seedPrompt } = contextResult.context;
-  runLogger.info('Run context built', { initialPoolSize: initialPool.length, phaseName: 'setup', randomSeed: randomSeed.toString(), seeded: !!seedPrompt });
+  const { originalText, config, logger: runLogger, initialPool, randomSeed, seedPrompt, seedVariantRow } = contextResult.context;
+  runLogger.info('Run context built', {
+    initialPoolSize: initialPool.length, phaseName: 'setup', randomSeed: randomSeed.toString(),
+    seeded: !!seedPrompt, reusedSeedId: seedVariantRow?.id,
+  });
+
+  // Pre-iteration seed generation: when seedPrompt is set and no existing seed content,
+  // run CreateSeedArticleAgent here (before the iteration loop) and persist the seed variant.
+  let resolvedOriginalText = originalText ?? '';
+  let seedVariantId: string | undefined;
+
+  if (seedPrompt && !originalText) {
+    const costTracker = createCostTracker(config.budgetUsd);
+    const llm = createEvolutionLLMClient(llmProvider, costTracker, config.generationModel, runLogger, db, runId, config.generationTemperature);
+    const seedCtx: AgentContext = {
+      db, runId, iteration: 0,
+      executionOrder: 0,
+      invocationId: '',
+      randomSeed: deriveSeed(randomSeed, 'pre_iter', 'seed0'),
+      logger: runLogger, costTracker, config,
+    };
+    const seedAgent = new CreateSeedArticleAgent();
+    const seedResult = await seedAgent.run({
+      promptText: seedPrompt,
+      llm,
+      initialPool: [...initialPool],
+      initialRatings: deepCloneRatings(new Map(initialPool.map((v) => [v.id, createRating()]))),
+      initialMatchCounts: new Map<string, number>(),
+      cache: new Map(),
+    }, seedCtx);
+
+    if (!seedResult.success || !seedResult.result?.variant || !seedResult.result.surfaced) {
+      runLogger.warn('Seed agent failed or variant discarded — marking run failed', {
+        phaseName: 'seed_generation',
+        success: seedResult.success,
+        budgetExceeded: seedResult.budgetExceeded,
+      });
+      await markRunFailed(db, runId, 'Seed generation failed');
+      throw new Error('Seed generation failed');
+    }
+
+    const seedVariant = seedResult.result.variant;
+    resolvedOriginalText = seedVariant.text;
+    seedVariantId = seedVariant.id;
+
+    // Persist the seed to evolution_variants with synced_to_arena=true, generation_method='seed'
+    const seedRating = ratingToDb(createRating());
+    const seedRow = evolutionVariantInsertSchema.parse({
+      id: seedVariant.id,
+      run_id: runId,
+      explanation_id: claimedRun.explanation_id ?? null,
+      variant_content: seedVariant.text,
+      elo_score: seedRating.elo_score,
+      mu: seedRating.mu,
+      sigma: seedRating.sigma,
+      generation: 0,
+      parent_variant_id: null,
+      agent_name: 'seed_variant',
+      match_count: 0,
+      is_winner: false,
+      prompt_id: claimedRun.prompt_id ?? null,
+      persisted: true,
+    });
+    const { error: seedInsertError } = await db
+      .from('evolution_variants')
+      .upsert({ ...seedRow, synced_to_arena: true, generation_method: 'seed' }, { onConflict: 'id' });
+    if (seedInsertError) {
+      runLogger.warn('Seed variant persist failed (non-fatal)', {
+        phaseName: 'seed_generation', error: seedInsertError.message.slice(0, 500),
+      });
+    }
+
+    runLogger.info('Seed variant generated and persisted in pre-iteration setup', {
+      seedVariantId: seedVariant.id, textLength: seedVariant.text.length,
+      phaseName: 'seed_generation',
+    });
+  } else if (seedVariantRow) {
+    // Existing seed content from arena — use its ID for parentIds tracking
+    seedVariantId = seedVariantRow.id;
+  }
 
   runLogger.info('Starting evolution loop', {
-    iterations: config.iterations, budgetUsd: config.budgetUsd,
+    iterationCount: config.iterationConfigs.length, budgetUsd: config.budgetUsd,
     generationModel: config.generationModel, judgeModel: config.judgeModel,
     phaseName: 'loop',
   });
-  const result = await evolveArticle(originalText ?? '', llmProvider, db, runId, config, {
+  const result = await evolveArticle(resolvedOriginalText, llmProvider, db, runId, config, {
     logger: runLogger,
     initialPool: initialPool.length > 0 ? initialPool : undefined,
     experimentId: claimedRun.experiment_id ?? undefined,
@@ -251,7 +361,7 @@ async function executePipeline(
     deadlineMs,
     signal,
     randomSeed,
-    seedPrompt,
+    seedVariantId,
   });
   runLogger.info('Evolution loop completed', {
     stopReason: result.stopReason, iterations: result.iterationsRun,
@@ -269,7 +379,10 @@ async function executePipeline(
 
   if (claimedRun.prompt_id) {
     try {
-      await syncToArena(runId, claimedRun.prompt_id, result.pool, result.ratings, result.matchHistory, db, result.isSeeded ?? false, runLogger);
+      await syncToArena(
+        runId, claimedRun.prompt_id, result.pool, result.ratings, result.matchHistory,
+        db, !!seedVariantId, runLogger,
+      );
     } catch (err) {
       runLogger.warn('Arena sync failed', { phaseName: 'arena', error: (err instanceof Error ? err.message : String(err)).slice(0, 500) });
     }

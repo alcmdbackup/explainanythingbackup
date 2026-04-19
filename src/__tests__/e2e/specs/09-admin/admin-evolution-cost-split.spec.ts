@@ -188,26 +188,29 @@ adminTest.describe('Evolution per-purpose cost split (T-cost-split)', { tag: '@e
   });
 
   adminTest('run detail metrics tab shows Generation Cost and Ranking Cost rows', async ({ adminPage }) => {
-    // Navigate directly with the tab query param so useTabState picks up
-    // activeTab='metrics' on first render. Previously the test navigated to the
-    // base URL and clicked tab-metrics, but in Next.js 15 prod builds the
-    // router.replace('?tab=metrics') from useTabState produces an RSC soft-nav
-    // that re-executes the page; the metrics tab's useEffect can fail to fire
-    // under that race, leaving the tabpanel empty. Direct navigation avoids it.
-    await adminPage.goto(`/admin/evolution/runs/${runId}?tab=metrics`, { timeout: 30000 });
+    await adminPage.goto(`/admin/evolution/runs/${runId}`, { timeout: 30000 });
 
-    // Wait for the tab bar to hydrate, confirming the metrics tab is selected.
+    // Click the Metrics tab — wait for tab bar to hydrate first
     const metricsTab = adminPage.locator('[data-testid="tab-metrics"]');
     await expect(metricsTab).toBeVisible({ timeout: 30000 });
-    await expect(metricsTab).toHaveAttribute('aria-selected', 'true');
+    await metricsTab.click();
 
-    // EntityMetricsTab fetches metrics client-side via useEffect — wait for the
-    // data to load (may take several seconds in CI with cold server actions).
-    const tabContent = adminPage.locator('[data-testid="entity-metrics-tab"]');
-    await expect(tabContent).toBeVisible({ timeout: 30000 });
-    await expect(tabContent).toContainText('Generation Cost', { timeout: 10000 });
-    await expect(tabContent).toContainText('Ranking Cost');
-    await expect(tabContent).toContainText('$0.43');
-    await expect(tabContent).toContainText('$0.36');
+    // Wait for EntityMetricsTab to finish loading — it can resolve to one of:
+    // entity-metrics-tab (success), metrics-error (failure), metrics-empty (no data).
+    // Wait for all three possible states, then assert the success state is present.
+    const successEl = adminPage.locator('[data-testid="entity-metrics-tab"]');
+    const errorEl = adminPage.locator('[data-testid="metrics-error"]');
+    const emptyEl = adminPage.locator('[data-testid="metrics-empty"]');
+    const anyTerminal = adminPage.locator('[data-testid="entity-metrics-tab"], [data-testid="metrics-error"], [data-testid="metrics-empty"]');
+    await expect(anyTerminal).toBeVisible({ timeout: 30000 });
+
+    // Fail with diagnostic if we got error or empty instead of success
+    await expect(errorEl).not.toBeVisible();
+    await expect(emptyEl).not.toBeVisible();
+
+    await expect(successEl).toContainText('Generation Cost', { timeout: 15000 });
+    await expect(successEl).toContainText('Ranking Cost');
+    await expect(successEl).toContainText('$0.43');
+    await expect(successEl).toContainText('$0.36');
   });
 });

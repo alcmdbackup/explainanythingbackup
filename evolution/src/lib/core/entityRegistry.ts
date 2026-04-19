@@ -13,6 +13,7 @@ import { ExperimentEntity } from './entities/ExperimentEntity';
 import { VariantEntity } from './entities/VariantEntity';
 import { InvocationEntity } from './entities/InvocationEntity';
 import { PromptEntity } from './entities/PromptEntity';
+import { TacticEntity } from './entities/TacticEntity';
 import { getAgentClasses } from './agentRegistry';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -37,6 +38,7 @@ function initRegistry(): void {
     variant: new VariantEntity(),
     invocation,
     prompt: new PromptEntity(),
+    tactic: new TacticEntity(),
   };
 
   validateEntityRegistry();

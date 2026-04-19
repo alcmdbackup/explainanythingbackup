@@ -121,22 +121,13 @@ If any check failed:
 
 ### 4.5. Run E2E Tests
 
-Always run the full E2E suite, **but in batches with `--workers=1`** to avoid overloading the local dev server. Running `npm run test:e2e` with 3 parallel workers causes turbopack cold-compile storms that make the server unresponsive and produce dozens of false-positive timeouts.
-
-Run each top-level spec directory as its own batch and collect failures:
+Always run the full E2E suite — no flag required:
 
 ```bash
-# Per-batch: single worker, no retries (surface flakes honestly)
-for dir in src/__tests__/e2e/specs/*/; do
-  npx playwright test "$dir" --project=chromium --retries=0 --workers=1 --reporter=line
-done
-# Also run the unauth project
-npx playwright test --project=chromium-unauth --retries=0 --workers=1 --reporter=line
+npm run test:e2e
 ```
 
-After all batches finish, aggregate failures from `test-results/results.json` (if present, read `.stats.unexpected`). If any batch fails, fix the root cause and re-run just that batch, then re-run the full batched sweep at the end.
-
-Do not skip or proceed without passing E2E tests. Do not substitute `npm run test:e2e` for the batched approach — the parallel-worker overload is the most common source of false-positive failures during local verification.
+This runs the full chromium + chromium-unauth E2E suite. If any E2E tests fail, fix them and re-run until all pass. Do not skip or proceed without passing E2E tests.
 
 ### 5. Commit
 
@@ -150,6 +141,11 @@ Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>"
 ```
 
 ### 6. Push and Create PR
+
+Write the push gate file so the push hook allows the push:
+```bash
+echo "{\"commit\":\"$(git rev-parse HEAD)\",\"skill\":\"mainToProd\",\"timestamp\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" > .claude/push-gate.json
+```
 
 ```bash
 git push -u origin HEAD

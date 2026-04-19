@@ -136,6 +136,83 @@ Both entity types share the same propagation definitions — they aggregate from
 | `avg_decisive_rate` | `decisive_rate` | bootstrap_mean | Mean decisive rate with CI |
 | `total_variant_count` | `variant_count` | sum | Total variants across all runs |
 | `avg_variant_count` | `variant_count` | avg | Mean variants per run |
+| `avg_cost_estimation_error_pct` | `cost_estimation_error_pct` | avg | Mean estimation error % across runs (`listView: true`) |
+| `avg_generation_estimation_error_pct` | `generation_estimation_error_pct` | avg | Mean generation-phase estimation error % |
+| `avg_ranking_estimation_error_pct` | `ranking_estimation_error_pct` | avg | Mean ranking-phase estimation error % |
+| `avg_estimation_abs_error_usd` | `estimation_abs_error_usd` | avg | Mean absolute estimation error (USD) |
+| `total_estimated_cost` | `estimated_cost` | sum | Cumulative estimated cost across runs |
+| `avg_estimated_cost` | `estimated_cost` | avg | Mean estimated cost per run |
+| `avg_agent_cost_projected` | `agent_cost_projected` | avg | Mean pre-dispatch projected agent cost |
+| `avg_agent_cost_actual` | `agent_cost_actual` | avg | Mean runtime-measured actual agent cost |
+| `avg_parallel_dispatched` | `parallel_dispatched` | avg | Mean parallel GFSA dispatches per run |
+| `avg_sequential_dispatched` | `sequential_dispatched` | avg | Mean sequential GFSA dispatches per run |
+| `avg_median_sequential_gfsa_duration_ms` | `median_sequential_gfsa_duration_ms` | avg | Mean median sequential GFSA duration (ms) |
+
+> **Cost estimate-accuracy propagation uses `aggregateAvg`, not `aggregateBootstrapMean`.**
+> Bootstrap CI is reserved for elo/quality metrics. If CI rendering is added later for
+> cost metrics, add a separate `*_ci` metric rather than flipping the aggregator — this
+> keeps propagation semantics stable. See
+> `docs/planning/cost_estimate_accuracy_analysis_20260414/` for the decision rationale.
+
+### Per-Iteration Metrics in Snapshots
+
+Each iteration records an `IterationResult` in `EvolutionResult.iterationResults[]`:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `iteration` | number | Index into `iterationConfigs[]` |
+| `agentType` | `'generate' \| 'swiss'` | Agent type from the config |
+| `stopReason` | `IterationStopReason` | `'iteration_complete'`, `'iteration_budget_exceeded'`, `'iteration_converged'`, or `'iteration_no_pairs'` |
+| `budgetAllocated` | number | Dollar budget for this iteration (`budgetPercent / 100 * totalBudget`) |
+| `budgetSpent` | number | Actual USD spent during this iteration |
+| `variantsCreated` | number | Number of new variants produced |
+| `matchesCompleted` | number | Number of pairwise comparisons completed |
+
+These per-iteration results are available on the `EvolutionResult` returned by
+`evolveArticle()`. They are persisted in the run summary and used by the Timeline tab
+to render iteration cards with budget bars showing allocated vs. spent for each iteration.
+
+### Tactic Metrics
+
+Tactic-level metrics aggregate across all completed-run variants that used a given tactic (matched by `evolution_variants.agent_name`). Unlike strategy/experiment metrics which use `propagateMetrics()` (child entity metric row aggregation), tactic metrics use `computeTacticMetrics()` in `evolution/src/lib/metrics/computations/tacticMetrics.ts` which queries variants directly.
+
+| Name | Aggregation | Description |
+|------|-------------|-------------|
+| `avg_elo` | avg | Mean Elo across all variants produced by this tactic |
+| `best_elo` | max | Highest Elo among variants produced by this tactic |
+| `total_variants` | count | Total variants produced across all runs |
+| `total_cost` | sum | Cumulative generation cost (from `cost_usd` on variants) |
+| `run_count` | count | Number of distinct completed runs that used this tactic |
+| `winner_count` | count | Number of variants that were the run winner (`is_winner=true`) |
+
+Tactic metrics are recomputed via `computeTacticMetricsForRun()` at run finalization (after strategy/experiment propagation). The stale trigger (`mark_elo_metrics_stale`) cascades to tactic metrics when a variant's `mu`/`sigma` DB columns change: it looks up the tactic entity via `evolution_tactics.name = NEW.agent_name` and marks matching `entity_type='tactic'` metrics rows as stale. Stale tactic metrics are recomputed on next read by `recomputeStaleMetrics()`.
+
+### Run-level cost-estimation metrics (cost_estimate_accuracy_analysis_20260414)
+
+Computed at finalization from GFSA `execution_detail` JSONB plus budget-floor
+observables passed through `FinalizationContext.budgetFloorObservables`:
+
+| Name | Source | Description |
+|------|--------|-------------|
+| `cost_estimation_error_pct` | `execution_detail.estimationErrorPct` | Mean per-invocation estimation error %. `listView: true`. |
+| `estimated_cost` | `execution_detail.estimatedTotalCost` | Sum across GFSA invocations |
+| `estimation_abs_error_usd` | `execution_detail.{estimatedTotalCost, totalCost}` | Mean abs error |
+| `generation_estimation_error_pct` | `execution_detail.generation.{cost, estimatedCost}` | Mean generation-phase error |
+| `ranking_estimation_error_pct` | `execution_detail.ranking.{cost, estimatedCost}` | Mean ranking-phase error |
+| `agent_cost_projected` | `BudgetFloorObservables.initialAgentCostEstimate` | Pre-dispatch estimate |
+| `agent_cost_actual` | `BudgetFloorObservables.actualAvgCostPerAgent` | Runtime-measured (null if parallel had no successes) |
+| `parallel_dispatched` | `BudgetFloorObservables.parallelDispatched` | GFSA count in parallel phase |
+| `sequential_dispatched` | `BudgetFloorObservables.sequentialDispatched` | GFSA count in sequential phase |
+| `median_sequential_gfsa_duration_ms` | `evolution_agent_invocations.duration_ms` | Median wall-clock of sequential GFSA |
+| `avg_sequential_gfsa_duration_ms` | `evolution_agent_invocations.duration_ms` | Mean wall-clock of sequential GFSA |
+
+The Cost Estimates tab on run/strategy detail pages (see `visualization.md`) reads
+these to render summary cards, Cost-by-Agent rollups, projected-vs-actual Budget
+Floor Sensitivity, error histogram, and per-invocation table.
+
+Run Summary JSONB (`run_summary.budgetFloorConfig`) carries the static floor config
+(multipliers + numVariants) for the sensitivity module. Older runs with no
+`budgetFloorConfig` cause the sensitivity section to be hidden.
 
 ---
 
@@ -146,7 +223,7 @@ Both entity types share the same propagation definitions — they aggregate from
 | Column | Type | Description |
 |--------|------|-------------|
 | `id` | UUID PK | Auto-generated |
-| `entity_type` | TEXT | `run`, `invocation`, `variant`, `strategy`, `experiment`, `prompt` |
+| `entity_type` | TEXT | `run`, `invocation`, `variant`, `strategy`, `experiment`, `prompt`, `tactic` |
 | `entity_id` | UUID | ID of the entity this metric belongs to |
 | `metric_name` | TEXT | Registry-validated metric name |
 | `value` | DOUBLE PRECISION | The metric value |
@@ -183,6 +260,9 @@ Follows the same pattern as all evolution tables: deny-all default, `service_rol
 
 Cost metrics are now written to the database after each successful LLM call via `createEvolutionLLMClient`. When the client is constructed with optional `db` and `runId` parameters, each LLM call writes its cost to `evolution_agent_invocations` fire-and-forget (errors are logged but do not fail the call). This provides fine-grained cost tracking independent of the phase-level cost metric writes.
 
+**Cost computation source (Phase 2):** actual cost uses real `usage.prompt_tokens`/`usage.completion_tokens` from the provider via `calculateLLMCost`, not the `response.length / 4` heuristic. Identical to how `llmCallTracking.estimated_cost_usd` is computed — the two should now match within rounding per `evolution_invocation_id`.
+
+**Per-invocation attribution under parallel dispatch (Phase 2.5):** `Agent.run()` builds a per-invocation `EvolutionLLMClient` bound to the `AgentCostScope` so each agent's `recordSpend` intercepts go through the scope. `cost_usd` is sourced from `scope.getOwnSpent()` rather than a before/after delta of the shared tracker, eliminating sibling cost bleed. 
 ---
 
 ## Elo CI on Run Metrics
@@ -259,6 +339,12 @@ Each propagation metric definition specifies a `sourceMetric` (which child metri
 
 `createMetricColumns(entityType)` generates table column definitions from the registry for use in `EntityTable`. Only metrics with `listView: true` appear in list pages. Each column uses the registry's formatter for display. The run `cost` metric has `listView: false`, so it is excluded from list columns; cost is instead fetched directly from `evolution_agent_invocations` by the run list and detail pages.
 
+**Aggregate CI rendering (Phase 4d):** for metrics whose propagation `aggregationMethod` is `bootstrap_mean` / `bootstrap_percentile` / `avg` AND the row carries `ci_lower`/`ci_upper`, `createMetricColumns` appends a CI suffix: `[lo, hi]` for Elo-like formatters and `± half-width` for cost/percent. `max`/`min`/`sum`/`count` aggregations skip the suffix (no CI semantics). This silently adds aggregate CI to strategy list + experiment list columns whenever the bootstrap propagation produced one.
+
+**Dashboard inline CI (Phase 4d):** `getEvolutionDashboardDataAction` computes `seCostPerRun` inline from its per-run cost sample (sample stddev / sqrt(n), when n ≥ 2) and returns it alongside `avgCostPerRun`. The dashboard page renders `avgCost ± SE` when the SE is present.
+
+**Experiment analysis card (Phase 4d):** `computeExperimentMetrics` emits `meanElo` + `seElo` across completed runs in the experiment; `ExperimentAnalysisCard` renders a "Mean Elo ± SE" summary card.
+
 `createRunsMetricColumns()` generates run-specific metric columns for the runs table within experiment and strategy detail pages.
 
 **File:** `evolution/src/components/evolution/tabs/EntityMetricsTab.tsx`
@@ -291,3 +377,46 @@ A shared tab component that reads all metrics for an entity and displays them in
 - [Data Model](./data_model.md) — full database schema
 - [Entities](./entities.md) — entity relationships and the metrics table's polymorphic design
 - [Cost Optimization](./cost_optimization.md) — per-run cost tracking that feeds into metrics
+
+---
+
+## ELO-delta attribution metrics (Phase 5)
+
+Two dynamic metric families are emitted by `experimentMetrics.computeEloAttributionMetrics` during `computeRunMetrics`:
+
+### `eloAttrDelta:<agentName>:<dimensionValue>`
+
+Mean ELO delta (child - parent) across every invocation of `<agentName>` whose `execution_detail.<dimension>` equals `<dimensionValue>`. Dimension is pulled via `Agent.getAttributionDimension(detail)`. For `GenerateFromPreviousArticleAgent` the dimension is `execution_detail.strategy`.
+
+- `value`: arithmetic mean of per-invocation deltas.
+- `uncertainty`: sample standard deviation when `n >= 2`, else `null`.
+- `ci_lower`/`ci_upper`: normal-approximation 95% CI (`mean ± 1.96 * sd / sqrt(n)`) when `n >= 2`; `null` for `n == 1`.
+- `n`: count of invocations in the group.
+- `origin_entity_type`: `'invocation'`.
+
+### `eloAttrDeltaHist:<agentName>:<dimensionValue>:<lo>:<hi>`
+
+Fraction of invocations in the group whose delta fell into the half-open bucket `[lo, hi)`. Fixed 10-ELO buckets: `(-∞, -40)`, `[-40, -30)`, …, `[30, 40)`, `[40, +∞)`. The infinite edges are encoded as `ltmin` and `gtmax` in the metric name.
+
+- `value`: bucket fraction (count of deltas in bucket ÷ group size).
+- `n`: raw bucket count.
+
+### Prefix whitelist
+
+Both prefixes are registered in `DYNAMIC_METRIC_PREFIXES` in `evolution/src/lib/metrics/types.ts`. `writeMetrics` rejects any metric name not matching a static name or a whitelisted prefix.
+
+### Stale behavior
+
+The `mark_elo_metrics_stale()` trigger (migration `20260418000004_stale_trigger_elo_attr_delta.sql`) marks `eloAttrDelta:*` / `eloAttrDeltaHist:*` rows stale at the run/strategy/experiment level when any variant in the run has its `mu`/`sigma` change post-completion. This keeps the bar chart + histogram in sync with arena-match-driven parent rating drift.
+
+### Consuming UI
+
+- `StrategyEffectivenessChart` (`evolution/src/components/evolution/charts/StrategyEffectivenessChart.tsx`) — horizontal bar chart, one bar per `(agent, dimension)` group, 95% CI whiskers.
+- `EloDeltaHistogram` (`evolution/src/components/evolution/charts/EloDeltaHistogram.tsx`) — fixed-width 10-ELO buckets, fraction per bucket.
+- Wrapper `AttributionCharts` (`evolution/src/components/evolution/tabs/AttributionCharts.tsx`) — embedded in the Metrics tab of run, strategy, and experiment detail pages. Renders nothing when attribution rows are absent.
+
+### Interpretation caveats
+
+- Judge-dependent: every delta reflects preference by the configured judge model, not an absolute quality measure.
+- Conservative CI: bootstrap treats child + parent ELO as independent; they share a reference frame via pairwise matches, so the true CI is typically narrower.
+- Frozen-vs-live discussion: the current implementation always reads live parent ratings via JOIN at metric-compute time (not snapshot-at-birth). Combined with the stale cascade, this means the aggregate updates whenever any variant's rating changes.

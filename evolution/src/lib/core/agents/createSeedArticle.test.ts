@@ -53,7 +53,7 @@ jest.mock('../../shared/enforceVariantFormat', () => ({
 
 const mkVariant = (id: string): Variant => ({
   id, text: `text-${id}`, version: 0, parentIds: [],
-  strategy: 'baseline', createdAt: 0, iterationBorn: 0,
+  tactic: 'baseline', createdAt: 0, iterationBorn: 0,
 });
 
 function makeCtx(overrides?: Partial<AgentContext>): AgentContext {
@@ -75,7 +75,7 @@ function makeCtx(overrides?: Partial<AgentContext>): AgentContext {
       getAvailableBudget: jest.fn(() => 10),
     } as unknown as AgentContext['costTracker'],
     config: {
-      iterations: 3,
+      iterationConfigs: [{ agentType: 'generate', budgetPercent: 60 }, { agentType: 'swiss', budgetPercent: 40 }],
       budgetUsd: 5,
       judgeModel: 'gpt-4o',
       generationModel: 'gpt-4o',
@@ -142,11 +142,11 @@ describe('CreateSeedArticleAgent', () => {
     );
   });
 
-  it('creates variant with strategy seed_article', async () => {
+  it('creates variant with strategy seed_variant (renamed from seed_article)', async () => {
     const agent = new CreateSeedArticleAgent();
     const result = await agent.run(makeInput(), makeCtx());
     expect(result.success).toBe(true);
-    expect(result.result?.variant?.strategy).toBe('seed_article');
+    expect(result.result?.variant?.tactic).toBe('seed_variant');
   });
 
   it('calls rankNewVariant with initial pool deep-cloned (does not mutate input)', async () => {

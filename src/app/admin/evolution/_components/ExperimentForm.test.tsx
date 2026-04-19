@@ -39,11 +39,11 @@ const STRATEGIES = [
   {
     id: 'strat-1',
     name: 'Economy',
-    label: 'Gen: ds-chat | Judge: 4.1-nano | 50 iters',
+    label: 'Gen: ds-chat | Judge: 4.1-nano | 2 iterations',
     config: {
       generationModel: 'deepseek-chat',
       judgeModel: 'gpt-4.1-nano',
-      iterations: 50,
+      iterationConfigs: [{ agentType: 'generate', budgetPercent: 60 }, { agentType: 'swiss', budgetPercent: 40 }],
       enabledAgents: [],
       budgetUsd: 0.25,
     },
@@ -53,11 +53,11 @@ const STRATEGIES = [
   {
     id: 'strat-2',
     name: 'Balanced',
-    label: 'Gen: 4.1-mini | Judge: 4.1-nano | 50 iters',
+    label: 'Gen: 4.1-mini | Judge: 4.1-nano | 2 iterations',
     config: {
       generationModel: 'gpt-4.1-mini',
       judgeModel: 'gpt-4.1-nano',
-      iterations: 50,
+      iterationConfigs: [{ agentType: 'generate', budgetPercent: 60 }, { agentType: 'swiss', budgetPercent: 40 }],
       enabledAgents: ['reflection'],
       budgetUsd: 0.50,
     },
@@ -67,11 +67,11 @@ const STRATEGIES = [
   {
     id: 'strat-3',
     name: 'Quality',
-    label: 'Gen: 4.1 | Judge: 4.1-mini | 50 iters',
+    label: 'Gen: 4.1 | Judge: 4.1-mini | 2 iterations',
     config: {
       generationModel: 'gpt-4.1',
       judgeModel: 'gpt-4.1-mini',
-      iterations: 50,
+      iterationConfigs: [{ agentType: 'generate', budgetPercent: 60 }, { agentType: 'swiss', budgetPercent: 40 }],
       enabledAgents: ['reflection', 'iterativeEditing'],
       budgetUsd: 1.00,
     },

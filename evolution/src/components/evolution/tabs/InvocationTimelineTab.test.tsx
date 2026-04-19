@@ -8,7 +8,7 @@ const INV_ID = 'aaaaaaaa-0000-0000-0000-000000000001';
 function makeInvocation(overrides: Partial<Parameters<typeof InvocationTimelineTab>[0]['invocation']> = {}) {
   return {
     id: INV_ID,
-    agent_name: 'generate_from_seed_article',
+    agent_name: 'generate_from_previous_article',
     duration_ms: 5000,
     execution_detail: null,
     ...overrides,

@@ -6,6 +6,10 @@ import { EvolutionBreadcrumb, EntityListPage } from '@evolution/components/evolu
 import { listVariantsAction, type VariantListEntry } from '@evolution/services/evolutionActions';
 import type { ColumnDef, FilterDef } from '@evolution/components/evolution';
 import { toast } from 'sonner';
+import { formatEloWithUncertainty, formatEloCIRange } from '@evolution/lib/utils/formatters';
+import { dbToRating } from '@evolution/lib/shared/computeRatings';
+import { bootstrapDeltaCI } from '@evolution/lib/shared/ratingDelta';
+import { VariantParentBadge } from '@evolution/components/evolution/variant/VariantParentBadge';
 
 const PAGE_SIZE = 20;
 
@@ -49,10 +53,60 @@ const COLUMNS: ColumnDef<VariantListEntry>[] = [
     header: 'Rating',
     align: 'right',
     sortable: true,
-    render: (v) => <span className="font-semibold">{Math.round(v.elo_score)}</span>,
+    render: (v) => {
+      const u = v.mu != null && v.sigma != null ? dbToRating(v.mu, v.sigma).uncertainty : null;
+      const label = u != null ? formatEloWithUncertainty(v.elo_score, u) : null;
+      return <span className="font-semibold">{label ?? Math.round(v.elo_score)}</span>;
+    },
+  },
+  {
+    key: 'ci_95',
+    header: '95% CI',
+    align: 'right',
+    render: (v) => {
+      const u = v.mu != null && v.sigma != null ? dbToRating(v.mu, v.sigma).uncertainty : null;
+      const ci = u != null ? formatEloCIRange(v.elo_score, u) : null;
+      return <span className="text-xs text-[var(--text-muted)]">{ci ?? '—'}</span>;
+    },
   },
   { key: 'match_count', header: 'Matches', align: 'right', render: (v) => v.match_count },
   { key: 'generation', header: 'Generation', align: 'right', render: (v) => v.generation },
+  {
+    key: 'parent_variant_id',
+    header: 'Parent · Δ',
+    render: (v) => {
+      if (!v.parent_variant_id) {
+        return (
+          <VariantParentBadge
+            parentId={null}
+            parentElo={null}
+            parentUncertainty={null}
+            delta={null}
+            deltaCi={null}
+          />
+        );
+      }
+      const childRating = v.mu != null && v.sigma != null
+        ? dbToRating(v.mu, v.sigma)
+        : { elo: v.elo_score, uncertainty: 0 };
+      const parentElo = v.parent_elo ?? null;
+      const parentUncertainty = v.parent_uncertainty ?? null;
+      const { delta, ci } = parentElo != null
+        ? bootstrapDeltaCI(childRating,
+            { elo: parentElo, uncertainty: parentUncertainty ?? 0 })
+        : { delta: null, ci: null };
+      return (
+        <VariantParentBadge
+          parentId={v.parent_variant_id}
+          parentElo={parentElo}
+          parentUncertainty={parentUncertainty}
+          delta={delta}
+          deltaCi={ci}
+          crossRun={!!v.parent_run_id && v.parent_run_id !== v.run_id}
+        />
+      );
+    },
+  },
   {
     key: 'is_winner',
     header: 'Winner',

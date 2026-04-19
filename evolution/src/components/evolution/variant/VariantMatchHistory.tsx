@@ -116,7 +116,11 @@ export function VariantMatchHistory({ variantId }: VariantMatchHistoryProps): JS
                   <ShortId id={m.opponentId} href={buildVariantDetailUrl(m.opponentId)} />
                 </td>
                 <td className="px-2 py-1.5 text-right font-mono text-[var(--text-muted)]">
-                  {m.opponentElo !== null ? Math.round(m.opponentElo) : '\u2014'}
+                  {m.opponentElo !== null
+                    ? (m.opponentUncertainty != null
+                        ? `${Math.round(m.opponentElo)} ± ${Math.round(1.96 * m.opponentUncertainty)}`
+                        : Math.round(m.opponentElo))
+                    : '\u2014'}
                 </td>
                 <td className="px-2 py-1.5 text-right font-mono text-[var(--text-muted)]">
                   {(m.confidence * 100).toFixed(0)}%

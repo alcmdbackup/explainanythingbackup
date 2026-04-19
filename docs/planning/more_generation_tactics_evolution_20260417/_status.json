@@ -1,0 +1,26 @@
+{
+  "branch": "feat/more_generation_tactics_evolution_20260417",
+  "created_at": "2026-04-17T12:00:00Z",
+  "prerequisites": {
+    "getting_started_read": "2026-04-18T05:50:57Z"
+  },
+  "relevantDocs": [
+    "evolution/docs/README.md",
+    "evolution/docs/architecture.md",
+    "evolution/docs/arena.md",
+    "evolution/docs/data_model.md",
+    "evolution/docs/strategies_and_experiments.md",
+    "evolution/docs/cost_optimization.md",
+    "evolution/docs/agents/overview.md",
+    "evolution/docs/metrics.md",
+    "evolution/docs/rating_and_comparison.md",
+    "evolution/docs/entities.md",
+    "evolution/docs/logging.md",
+    "evolution/docs/curriculum.md",
+    "evolution/docs/minicomputer_deployment.md",
+    "evolution/docs/visualization.md",
+    "evolution/docs/reference.md",
+    "evolution/docs/sample_content/api_design_sections.md",
+    "evolution/docs/sample_content/filler_words.md"
+  ]
+}

@@ -37,8 +37,7 @@ describe('Strategy config with budget dispatch fields', () => {
     const config = {
       generationModel: 'gpt-4.1-nano',
       judgeModel: 'gpt-oss-20b',
-      iterations: 1,
-      maxVariantsToGenerateFromSeedArticle: 5,
+      iterationConfigs: [{ agentType: 'generate', budgetPercent: 60 }, { agentType: 'swiss', budgetPercent: 40 }],
       maxComparisonsPerVariant: 10,
       budgetBufferAfterParallel: 0.40,
       budgetBufferAfterSequential: 0.15,
@@ -63,7 +62,6 @@ describe('Strategy config with budget dispatch fields', () => {
     const parsed = strategyConfigSchema.safeParse(data!.config);
     expect(parsed.success).toBe(true);
     if (parsed.success) {
-      expect(parsed.data.maxVariantsToGenerateFromSeedArticle).toBe(5);
       expect(parsed.data.maxComparisonsPerVariant).toBe(10);
       expect(parsed.data.budgetBufferAfterParallel).toBe(0.40);
       expect(parsed.data.budgetBufferAfterSequential).toBe(0.15);
@@ -74,7 +72,7 @@ describe('Strategy config with budget dispatch fields', () => {
     const result = strategyConfigSchema.safeParse({
       generationModel: 'gpt-4.1-nano',
       judgeModel: 'gpt-4.1-nano',
-      iterations: 1,
+      iterationConfigs: [{ agentType: 'generate', budgetPercent: 60 }, { agentType: 'swiss', budgetPercent: 40 }],
       budgetBufferAfterParallel: 0.20,
       budgetBufferAfterSequential: 0.30,
     });
@@ -85,7 +83,7 @@ describe('Strategy config with budget dispatch fields', () => {
     const result = strategyConfigSchema.safeParse({
       generationModel: 'gpt-4.1-nano',
       judgeModel: 'gpt-4.1-nano',
-      iterations: 1,
+      iterationConfigs: [{ agentType: 'generate', budgetPercent: 60 }, { agentType: 'swiss', budgetPercent: 40 }],
       budgetBufferAfterSequential: 0.30,
     });
     expect(result.success).toBe(false);
@@ -95,7 +93,7 @@ describe('Strategy config with budget dispatch fields', () => {
     const result = strategyConfigSchema.safeParse({
       generationModel: 'gpt-4.1-nano',
       judgeModel: 'gpt-4.1-nano',
-      iterations: 1,
+      iterationConfigs: [{ agentType: 'generate', budgetPercent: 60 }, { agentType: 'swiss', budgetPercent: 40 }],
     });
     expect(result.success).toBe(true);
   });
@@ -105,7 +103,7 @@ describe('Strategy config with budget dispatch fields', () => {
     const baseConfig = {
       generationModel: 'gpt-4.1-nano',
       judgeModel: 'gpt-4.1-nano',
-      iterations: 1,
+      iterationConfigs: [{ agentType: 'generate', budgetPercent: 60 }, { agentType: 'swiss', budgetPercent: 40 }],
     };
 
     it('preprocess migrates legacy budgetBufferAfterParallel to minBudgetAfterParallelFraction', () => {

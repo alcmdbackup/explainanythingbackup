@@ -59,6 +59,10 @@ export interface StrategyMetricsResult {
 
 interface ChainableQuery extends Promise<{ data: unknown[]; error: unknown }> {
   eq: (col: string, val: unknown) => ChainableQuery;
+  /** Phase 5: used by computeEloAttributionMetrics to filter non-null FKs. */
+  not: (col: string, op: string, val: unknown) => ChainableQuery;
+  /** Phase 5: used to batch-fetch invocations + parents by id list. */
+  in: (col: string, values: readonly unknown[]) => ChainableQuery;
   order?: (col: string, opts: { ascending: boolean }) => {
     limit: (n: number) => {
       maybeSingle: () => Promise<{ data: unknown; error: unknown }>;
@@ -313,5 +317,143 @@ export async function computeRunMetrics(
     metrics['eloPer$'] = scalar((maxEloValue - 1200) / totalCost);
   }
 
+  // ─── Phase 5: ELO attribution by (agent, dimension) ────────────────
+  // Group variants produced by each invocation by (agent_name, execution_detail.strategy)
+  // and emit eloAttrDelta:<agent>:<dim> + eloAttrDeltaHist:<agent>:<bucket> rows.
+  await computeEloAttributionMetrics(runId, metrics, supabase);
+
   return { metrics, variantRatings: null };
 }
+
+// ─── Phase 5: ELO attribution helpers ────────────────────────────
+
+/** Fixed 10-ELO histogram buckets. Bucket keys are `[lo, hi)` half-open. */
+const HISTOGRAM_BUCKETS: Array<[number, number]> = [
+  [-Infinity, -40],
+  [-40, -30], [-30, -20], [-20, -10], [-10, 0],
+  [0, 10], [10, 20], [20, 30], [30, 40],
+  [40, Infinity],
+];
+
+function bucketLabel(lo: number, hi: number): string {
+  const loLabel = lo === -Infinity ? 'ltmin' : String(lo);
+  const hiLabel = hi === Infinity ? 'gtmax' : String(hi);
+  return `${loLabel}:${hiLabel}`;
+}
+
+/**
+ * Phase 5 aggregation: for every (agent_name, dimension) group in this run,
+ * compute mean ELO delta across produced variants and emit:
+ *   - eloAttrDelta:<agentName>:<dimensionValue> (scalar mean)
+ *   - eloAttrDeltaHist:<agentName>:<lo>:<hi>    (fraction per bucket)
+ *
+ * Dimension value is read from invocation.execution_detail.strategy (the current
+ * attribution dimension for generate_from_previous_article). Variants without an
+ * agent_invocation_id or without a parent are excluded.
+ */
+async function computeEloAttributionMetrics(
+  runId: string,
+  metrics: MetricsBag,
+  supabase: SupabaseClient,
+): Promise<void> {
+  type AttrVariantRow = {
+    id: string; mu: number | null; elo_score: number; parent_variant_id: string;
+    agent_invocation_id: string; persisted: boolean | null;
+  };
+  const { data: variantsData } = await supabase
+    .from('evolution_variants')
+    .select('id, mu, elo_score, parent_variant_id, agent_invocation_id, persisted')
+    .eq('run_id', runId)
+    .not('agent_invocation_id', 'is', null)
+    .not('parent_variant_id', 'is', null);
+  const variants = (variantsData ?? []) as unknown as AttrVariantRow[];
+
+  if (variants.length === 0) return;
+
+  const invocationIds = [...new Set(variants.map(v => v.agent_invocation_id))];
+  const parentIds = [...new Set(variants.map(v => v.parent_variant_id))];
+
+  type AttrInvocationRow = {
+    id: string; agent_name: string; execution_detail: Record<string, unknown> | null;
+  };
+  const { data: invocationsData } = await supabase
+    .from('evolution_agent_invocations')
+    .select('id, agent_name, execution_detail')
+    .in('id', invocationIds);
+  const invocations = (invocationsData ?? []) as unknown as AttrInvocationRow[];
+
+  type AttrParentRow = { id: string; mu: number | null; elo_score: number };
+  const { data: parentsData } = await supabase
+    .from('evolution_variants')
+    .select('id, mu, elo_score')
+    .in('id', parentIds);
+  const parents = (parentsData ?? []) as unknown as AttrParentRow[];
+
+  const invMap = new Map(invocations.map(i => [i.id, i]));
+  const parentMap = new Map(parents.map(p => [p.id, p]));
+
+  // Group deltas by (agent_name, dimension_value).
+  const groups = new Map<string, { agent: string; dim: string; deltas: number[] }>();
+  for (const v of variants) {
+    const inv = invMap.get(v.agent_invocation_id);
+    if (!inv) continue;
+    // Dimension: read 'strategy' from execution_detail. Non-variant-producing agents
+    // (swiss, merge) won't have this field → skipped.
+    const dim = (inv.execution_detail as { strategy?: unknown })?.strategy;
+    if (typeof dim !== 'string' || dim.length === 0) continue;
+    // Skip colon-containing dimension values to keep metric-name parsing unambiguous.
+    if (dim.includes(':')) continue;
+
+    const parent = parentMap.get(v.parent_variant_id);
+    if (!parent) continue;
+    const childElo = v.mu ?? v.elo_score;
+    const parentElo = parent.mu ?? parent.elo_score;
+    const delta = childElo - parentElo;
+    if (!Number.isFinite(delta)) continue;
+
+    const key = `${inv.agent_name}::${dim}`;
+    const group = groups.get(key) ?? { agent: inv.agent_name, dim, deltas: [] };
+    group.deltas.push(delta);
+    groups.set(key, group);
+  }
+
+  for (const { agent, dim, deltas } of groups.values()) {
+    if (deltas.length === 0) continue;
+    const mean = deltas.reduce((s, d) => s + d, 0) / deltas.length;
+    const variance = deltas.length > 1
+      ? deltas.reduce((s, d) => s + (d - mean) ** 2, 0) / (deltas.length - 1)
+      : 0;
+    const sd = Math.sqrt(variance);
+    // For n>=2 use a basic normal-approx 95% CI; for n==1 leave CI null.
+    const ci: [number, number] | null = deltas.length >= 2
+      ? [mean - 1.96 * sd / Math.sqrt(deltas.length), mean + 1.96 * sd / Math.sqrt(deltas.length)]
+      : null;
+    metrics[`eloAttrDelta:${agent}:${dim}` as MetricName] = {
+      value: mean,
+      uncertainty: deltas.length >= 2 ? sd : null,
+      ci,
+      n: deltas.length,
+    };
+
+    // Histogram: fraction per bucket.
+    const bucketCounts = new Map<string, number>();
+    for (const d of deltas) {
+      for (const [lo, hi] of HISTOGRAM_BUCKETS) {
+        if (d >= lo && d < hi) {
+          const label = bucketLabel(lo, hi);
+          bucketCounts.set(label, (bucketCounts.get(label) ?? 0) + 1);
+          break;
+        }
+      }
+    }
+    for (const [label, count] of bucketCounts) {
+      metrics[`eloAttrDeltaHist:${agent}:${dim}:${label}` as MetricName] = {
+        value: count / deltas.length,
+        uncertainty: null,
+        ci: null,
+        n: count,
+      };
+    }
+  }
+}
+

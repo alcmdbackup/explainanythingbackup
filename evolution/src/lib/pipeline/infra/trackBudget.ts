@@ -1,8 +1,25 @@
 // V2 budget-aware cost tracker with reserve-before-spend pattern for parallel safety.
+// Also provides per-iteration budget wrappers for config-driven iteration dispatch.
 
 import { BudgetExceededError } from '../../types';
 import type { EntityLogger } from './createEntityLogger';
 import type { AgentName } from '../../core/agentNames';
+
+// ─── Iteration Budget Error ─────────────────────────────────────
+
+/** Thrown when a per-iteration budget is exhausted (stops iteration only, not entire run). */
+export class IterationBudgetExceededError extends BudgetExceededError {
+  constructor(
+    agentName: string,
+    spent: number,
+    reserved: number,
+    cap: number,
+    public readonly iterationIndex: number,
+  ) {
+    super(agentName, spent, reserved, cap);
+    this.name = 'IterationBudgetExceededError';
+  }
+}
 
 // ─── Interface ───────────────────────────────────────────────────
 
@@ -143,6 +160,70 @@ export function createCostTracker(budgetUsd: number, logger?: EntityLogger): V2C
 
     getAvailableBudget(): number {
       return Math.max(0, budgetUsd - totalSpent - totalReserved);
+    },
+  };
+}
+
+// ─── Per-Iteration Budget Tracker ───────────────────────────────
+
+/**
+ * Creates a V2CostTracker that wraps a run-level tracker with a per-iteration budget cap.
+ * reserve() checks run tracker first (throws BudgetExceededError if run exhausted),
+ * then checks iteration remaining (throws IterationBudgetExceededError).
+ * recordSpend/release delegate to both run tracker and iteration-level accounting.
+ */
+export function createIterationBudgetTracker(
+  iterationBudgetUsd: number,
+  runTracker: V2CostTracker,
+  iterationIndex: number,
+): V2CostTracker {
+  let iterSpent = 0;
+  let iterReserved = 0;
+  const iterPhaseCosts: Partial<Record<AgentName, number>> = {};
+
+  return {
+    reserve(phase: AgentName, estimatedCost: number): number {
+      // Check run-level first — throws BudgetExceededError (stops entire run).
+      const margined = runTracker.reserve(phase, estimatedCost);
+      // Now check iteration-level — throws IterationBudgetExceededError (stops iteration only).
+      if (iterSpent + iterReserved + margined > iterationBudgetUsd) {
+        // Release run-level reservation since we won't proceed.
+        runTracker.release(phase, margined);
+        throw new IterationBudgetExceededError(
+          phase, iterSpent, iterReserved + margined, iterationBudgetUsd, iterationIndex,
+        );
+      }
+      iterReserved += margined;
+      return margined;
+    },
+
+    recordSpend(phase: AgentName, actualCost: number, reservedAmount: number): void {
+      // Delegate to run tracker (handles global accounting + warnings).
+      runTracker.recordSpend(phase, actualCost, reservedAmount);
+      // Track iteration-level spend.
+      iterReserved = Math.max(0, iterReserved - reservedAmount);
+      iterSpent += actualCost;
+      iterPhaseCosts[phase] = (iterPhaseCosts[phase] ?? 0) + actualCost;
+    },
+
+    release(phase: AgentName, reservedAmount: number): void {
+      // Delegate to run tracker.
+      runTracker.release(phase, reservedAmount);
+      // Adjust iteration reserved.
+      iterReserved = Math.max(0, iterReserved - reservedAmount);
+    },
+
+    getTotalSpent(): number {
+      return iterSpent;
+    },
+
+    getPhaseCosts(): Partial<Record<AgentName, number>> {
+      return { ...iterPhaseCosts };
+    },
+
+    getAvailableBudget(): number {
+      const iterRemaining = Math.max(0, iterationBudgetUsd - iterSpent - iterReserved);
+      return Math.min(iterRemaining, runTracker.getAvailableBudget());
     },
   };
 }

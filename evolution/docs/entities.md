@@ -20,6 +20,8 @@ flowchart TD
     _evolution_agent_invocations_`"]
     VAR["`**VARIANT**
     _evolution_variants_`"]
+    TACTIC["`**TACTIC**
+    _evolution_tactics_`"]
 
     EXP -- "prompt_id FK" --> PROMPT
     EXP -- "experiment_id FK" --> RUN
@@ -45,8 +47,10 @@ flowchart TD
     METRICS -- "entity_id" --> RUN
     METRICS -- "entity_id" --> STRATEGY
     METRICS -- "entity_id" --> EXP
+    METRICS -- "entity_id" --> TACTIC
 
     style COMP fill:#3b1d0b,stroke:#f59e0b,color:#fef3c7
+    style TACTIC fill:#1e3a5f,stroke:#3b82f6,color:#bfdbfe
     style EXP fill:#2d1b4e,stroke:#8b5cf6,color:#e9d5ff
     style PROMPT fill:#1e3a5f,stroke:#3b82f6,color:#bfdbfe
     style STRATEGY fill:#1e3a5f,stroke:#3b82f6,color:#bfdbfe
@@ -71,7 +75,7 @@ flowchart TD
 | Arena Comparison | Variant | `arena_comparison.entry_a` (app-enforced) | N:1 | DB FK dropped (migration 20260409000001); app-layer cleanup in VariantEntity.ts |
 | Arena Comparison | Variant | `arena_comparison.entry_b` (app-enforced) | N:1 | DB FK dropped (migration 20260409000001); app-layer cleanup in VariantEntity.ts |
 | Log | Run/Experiment/Strategy | denormalized FKs | N:1 | `entity_type` + `entity_id` identify direct emitter; ancestor FKs enable aggregation |
-| Metrics | Run/Strategy/Experiment | `entity_type` + `entity_id` | N:1 | Polymorphic — entity_type determines which entity the metric belongs to |
+| Metrics | Run/Strategy/Experiment/Tactic | `entity_type` + `entity_id` | N:1 | Polymorphic — entity_type determines which entity the metric belongs to |
 
 ## Entity Summary
 
@@ -85,6 +89,7 @@ flowchart TD
 | Variant | `evolution_variants` | `/admin/evolution/variants/[id]` |
 | Arena Comparison | `evolution_arena_comparisons` | Arena leaderboard pages |
 | Log | `evolution_logs` | Logs tab on run/experiment/strategy/invocation detail pages |
+| Tactic | `evolution_tactics` | `/admin/evolution/tactics/[id]` |
 | Metrics | `evolution_metrics` | Metrics tab on entity detail pages |
 
 ## Entity Action Matrix
@@ -98,6 +103,7 @@ All entity actions use a delete-only model. Archive/unarchive support was remove
 | Strategy | `delete` | Delete cascades to child runs |
 | Run | `cancel`, `delete` | Cancel sets status to `cancelled`; delete cascades to variants, invocations |
 | Variant | `delete` | Delete removes arena comparisons referencing this variant, then the variant itself |
+| Tactic | `delete` | Delete only for non-predefined tactics; removes associated metrics |
 | Invocation | _(none)_ | Read-only; cleaned up by parent run delete |
 
 Actions are declared on each entity subclass in `evolution/src/lib/core/entities/` and executed via the `executeEntityAction` server action (see [Reference](./reference.md)).
@@ -121,6 +127,9 @@ Prompt
 Strategy
 └── Run (strategy_id) → cascade delete
         └── (same as above)
+
+Tactic
+└── (no children currently — metrics rows use entity_type='tactic' + entity_id, cleaned up manually on delete)
 ```
 
 The base `Entity.executeAction` method handles recursive child deletion automatically when the action key is `delete`. Custom pre-delete logic (e.g., Variant cleaning up arena comparisons) is implemented in entity-specific `executeAction` overrides.

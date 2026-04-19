@@ -9,6 +9,7 @@ import type {
 import { evolutionAgentInvocationInsertSchema, type EvolutionAgentInvocationFullDb } from '../../schemas';
 import {
   computeBestVariantElo, computeAvgVariantElo, computeInvocationVariantCount,
+  computeInvocationEloDeltaVsParent,
 } from '../../metrics/computations/finalizationInvocation';
 
 export class InvocationEntity extends Entity<EvolutionAgentInvocationFullDb> {
@@ -31,6 +32,8 @@ export class InvocationEntity extends Entity<EvolutionAgentInvocationFullDb> {
       { ...METRIC_CATALOG.variant_count, label: 'Variants Produced',
         description: 'Number of variants created by this invocation',
         compute: (ctx) => computeInvocationVariantCount(ctx, ctx.currentInvocationId ?? null) },
+      { ...METRIC_CATALOG.elo_delta_vs_parent,
+        compute: (ctx) => computeInvocationEloDeltaVsParent(ctx, ctx.currentInvocationId ?? null) },
     ],
     atPropagation: [],
   };
