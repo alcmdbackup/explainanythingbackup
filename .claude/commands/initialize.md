@@ -138,11 +138,12 @@ If files exist:
 
 ### 2.5. Read Core Documentation
 
-Before creating project files, read these three core documents to understand the codebase context:
+Before creating project files, read these core documents to understand the codebase context:
 
 1. **Read** `docs/docs_overall/getting_started.md` - Documentation structure and reading order
 2. **Read** `docs/docs_overall/architecture.md` - System design, data flow, and tech stack
 3. **Read** `docs/docs_overall/project_workflow.md` - Complete workflow for projects
+4. **Read all evolution docs** — Glob for `evolution/docs/**/*.md` and read every match. This ensures new docs added later are automatically included.
 
 These provide essential context for the project initialization.
 
