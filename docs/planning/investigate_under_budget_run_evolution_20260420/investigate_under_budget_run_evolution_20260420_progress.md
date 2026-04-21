@@ -64,14 +64,97 @@ All 2005 evolution unit tests pass. TypeScript clean. ESLint clean.
 
 ---
 
-## Remaining Work
+## Phase 2 + 7b: Within-iteration top-up + single merge (DONE)
 
-Five tasks remain from the plan's 10-task list. They're interdependent enough that doing them piecemeal risks rework:
+### Work Done
+Restructured the generate branch of `runIterationLoop.ts` as a bundled commit (both phases touch the same code):
+- Parallel batch dispatches as before, but accumulates match buffers + surfaced/discarded variants WITHOUT invoking `MergeRatingsAgent` mid-iteration.
+- After `Promise.allSettled` resolves, measures `actualAvgCostPerAgent` from the results' `.cost` property (derived from `scope.getOwnSpent()` in `Agent.run`).
+- Feature-flag kill-switch: `EVOLUTION_TOPUP_ENABLED` env var read once at iteration start (default `'true'`; set `'false'` for rollback).
+- Top-up loop dispatches one agent at a time against the iteration-start snapshot while `(iterBudget − spent) − actualAvgCost ≥ sequentialFloor` AND total dispatches `< DISPATCH_SAFETY_CAP`. Kill-check DB every 5 dispatches; cheap AbortSignal check every dispatch.
+- Single `MergeRatingsAgent.run()` call at iteration end over combined parallel + top-up match buffers.
+- Pre-merge spend log + warn log when `actualAvgCostPerAgent` falls back to `initialAgentCostEstimate` (makes silent regressions visible).
+- `topUpStopReason` enumeration: `'floor' | 'safety_cap' | 'budget_exhausted' | 'killed' | 'deadline' | 'no_budget_at_start' | 'feature_disabled'`.
+- Updated `parallelDispatched` / `sequentialDispatched` observables to reflect total iteration dispatches (parallel + top-up combined).
 
-### Phase 2: Wire runtime to `projectDispatchPlan`
-- Compute the full plan once before the iteration loop using actual `originalText.length` and `initialPool.length`.
-- Replace the inline dispatch math in `runIterationLoop.ts:308-323` with plan lookups.
-- Delete `evolution/src/lib/pipeline/loop/projectDispatchCount.ts`; redirect `costEstimationActions.ts:320-335` to use the new plan (two calls per iteration at upper/expected cost, diffed for sensitivity).
+### New Tests
+Added a new describe block "evolveArticle — top-up loop (Phase 7b)" with 4 tests:
+- MergeRatingsAgent invoked exactly once per iteration (single-merge invariant).
+- Feature-flag disabled path: no top-up dispatches, single merge over parallel only.
+- Top-up dispatches additional agents beyond the parallel batch when budget allows (hits safety cap at 100).
+- budgetFloorObservables report total iteration dispatches.
+
+Existing tests converted to top-up-disabled (via `beforeEach` setting `EVOLUTION_TOPUP_ENABLED='false'`) so they still assert parallel-only behavior.
+
+### Deferred from Phase 2 scope
+`projectDispatchCount.ts` retained — still consumed by `costEstimationActions.ts` for Budget Floor Sensitivity's two-step projection. Runtime no longer uses it. A future refactor can inline its math into the sensitivity caller.
+
+### Commit
+`fd0e93d7 feat(evolution): within-iteration top-up + single merge per iteration (Phase 2 + 7b)`
+
+## Phase 3: Smart-default prompt context in wizard (DONE)
+
+### Work Done
+- Added `getLastUsedPromptAction()` + `getArenaCountForPromptAction()` server actions in `strategyPreviewActions.ts`.
+- `getLastUsedPromptAction` queries `evolution_runs` joined to `evolution_strategies` (`is_test_content=false`) and `evolution_prompts` (`status='active' AND deleted_at IS NULL`), ordered by `created_at DESC LIMIT 1`. Returns `{id, name, promptText} | null`.
+- Wizard `useEffect` on mount: fetches last-used prompt, then its arena count. State variables `lastUsedPrompt` + `arenaCount` (0 fallback).
+- Wizard `dispatchEstimates` memo now uses `arenaCount` to size `poolSizeForPreview`, making the preview honestly reflect ranking-cost saturation. Hardcoded `seedChars = 5000` → `DEFAULT_SEED_CHARS = 8000`.
+- Informational banner above iteration list: "Dispatch preview uses last-used prompt X (arena size: N variants). Ranking cost scales with arena size — fewer agents fit the budget when the arena is large." Falls back to "empty arena assumed" message when no qualifying prompt exists.
+
+### Deferred from Phase 3 scope
+- Full `getStrategyDispatchPreviewAction` server action (wizard keeps its inline `estimateAgentCost` memo, now fed with real arena count).
+- Explicit `promptId` selector dropdown (informational banner suffices for v1 UX).
+- AbortController-based debounced refresh (preview recomputes only on local form changes + arena load, not on network calls).
+
+### Commit
+`a9d80472 feat(evolution): smart-default prompt context in wizard (Phase 3)`
+
+## Phase 6: Display unification (PARTIAL)
+
+### Work Done
+- Added `formatCostRange(expected, upperBound)` helper to `evolution/src/lib/utils/formatters.ts`. Renders triple-value cost pairs as `"$0.0030 – $0.0070"` with micro precision; collapses to a single value when expected ≈ upperBound. 3 new unit tests.
+
+### Deferred from Phase 6 scope
+The larger UI refactor (shared `<DispatchPlanView />` component, effective-cap badges, projected-vs-actual delta columns, calibration provenance footer, arena-saturation warnings) is deferred — requires more UI surface changes than time allowed. Foundation in place: `projectDispatchPlan` emits the structured data, `formatCostRange` renders it, and subsequent work can wire the shared component into the Cost Estimates tab + wizard preview.
+
+### Commit
+`5554059e feat(evolution): add formatCostRange for Phase 6a triple-value display`
+
+## Phase 10: Docs + final verification (DONE)
+
+### Work Done
+- Updated `docs/feature_deep_dives/multi_iteration_strategies.md` to reflect Phase 4 field removals (no more `numVariants` / `strategiesPerRound` / `maxAgents`), add sections on `projectDispatchPlan`, within-iteration top-up, iter-budget-scoped floor semantics, and the updated wizard flow with smart-default prompt context.
+- Final verification: `npm run lint` clean, `npx tsc --noEmit --project tsconfig.ci.json` clean, evolution unit suite 2013 tests passing (2 skipped pre-existing).
+
+---
+
+## All Phases Delivered
+
+| Phase | Status | Commit |
+|-------|--------|--------|
+| 0 — Wizard default 15→5 | Done | `0e6e2755` |
+| 5 — Cost attribution (createSeedArticle) | Done | `ad96b91c` |
+| 1 — Extract projectDispatchPlan | Done | `44e3a667` |
+| 4 — Kill dead config + DISPATCH_SAFETY_CAP | Done | `7ad722d6` |
+| 7a — Iter-budget floor resolvers | Done | `3f1d1d6d` |
+| 2 + 7b — Top-up + single merge | Done | `fd0e93d7` |
+| 3 — Smart-default prompt context | Done | `a9d80472` |
+| 6 (partial) — formatCostRange | Done | `5554059e` |
+| 10 — Docs + verification | Done | (this commit) |
+
+**Total: 9 commits on branch `feat/investigate_under_budget_run_evolution_20260420`.** All evolution unit tests pass (2013 passing, 2 skipped). TypeScript + ESLint clean. Ready for PR against `origin/main`.
+
+---
+
+## Scope Notes for Review
+
+A few deliverables from the original plan were scoped down based on what's viable in a single PR:
+- `projectDispatchCount.ts` was retained (used by Budget Floor Sensitivity) rather than deleted. Runtime no longer uses it.
+- The wizard keeps its inline `dispatchEstimates` memo (now fed with real arena count) rather than delegating fully to a new `getStrategyDispatchPreviewAction` server action.
+- Phase 6's full `<DispatchPlanView />` shared component + 8 sub-tasks reduced to the `formatCostRange` helper. The foundation (unified `projectDispatchPlan` output shape, shared formatters module) is in place; follow-up PR can extract the component.
+- E2E integration tests for the new top-up path weren't added — unit tests cover the invariant (single merge, feature-flag disabled path, safety-cap binding).
+
+These reductions don't affect the Fed-class run improvement: Phase 0 alone reduced per-agent cost 3× (6 → 14 agents at $0.05), and Phase 7b top-up delivers the remaining budget-utilization improvement.
 
 ### Phase 7b: Within-iteration top-up + single merge
 - Restructure the generate branch of `runIterationLoop.ts` to accumulate parallel + top-up match buffers without invoking `MergeRatingsAgent` between them (single merge at iteration end over combined buffers).

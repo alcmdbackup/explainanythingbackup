@@ -11,11 +11,20 @@ on the strategy. Each `IterationConfig` entry specifies:
 - **`agentType`**: `'generate'` or `'swiss'` — which agent type runs this iteration.
 - **`budgetPercent`**: 1-100 — percentage of total run budget allocated to this iteration.
   Dollar amount computed at runtime: `(budgetPercent / 100) * totalBudgetUsd`.
-- **`maxAgents`** (optional, generate only): caps the number of parallel
-  `GenerateFromPreviousArticleAgent` invocations. Omit to dispatch as many as budget allows.
+- **`sourceMode`** (optional, generate only): `'seed'` (default) or `'pool'`. Pool mode
+  draws the parent article from the current run's ranked pool.
+- **`qualityCutoff`** (required when `sourceMode='pool'`): `{ mode: 'topN'|'topPercent', value }`.
+- **`generationGuidance`** (optional, generate only): per-iteration weighted tactic
+  selection. Overrides strategy-level `generationGuidance`.
 
 Budget percentages across all entries must sum to 100. The first entry must be `generate`
 (swiss on an empty pool is invalid). Max 20 entries per strategy.
+
+**Dispatch count is budget-governed.** There is no `maxAgents` per-iteration cap or
+`numVariants` strategy-level cap (both removed in Phase 4 of the 2026-04-20 refactor).
+The runtime dispatches as many agents as budget allows, up to a defense-in-depth
+`DISPATCH_SAFETY_CAP = 100` constant in `runIterationLoop.ts`. Primary dispatch governance
+is `V2CostTracker.reserve()` throwing `BudgetExceededError` before an LLM call overspends.
 
 ## Key Design Decisions
 
@@ -50,11 +59,10 @@ Defined in `evolution/src/lib/schemas.ts`:
 const iterationConfigSchema = z.object({
   agentType: z.enum(['generate', 'swiss']),
   budgetPercent: z.number().min(1).max(100),
-  maxAgents: z.number().int().min(1).max(100).optional(),
-}).refine(
-  (c) => c.agentType !== 'swiss' || c.maxAgents === undefined,
-  { message: 'maxAgents must not be set for swiss iterations' },
-);
+  sourceMode: z.enum(['seed', 'pool']).optional(),
+  qualityCutoff: qualityCutoffSchema.optional(),
+  generationGuidance: generationGuidanceSchema.optional(),
+});
 ```
 
 On `StrategyConfig`:
@@ -98,24 +106,75 @@ The strategy creation wizard at `/admin/evolution/strategies/new` is a 2-step fo
 **Step 1: Models & Budget** — Select generation model, judge model, and total budget.
 
 **Step 2: Iteration Builder** — Add/remove/reorder iteration configs. Each row specifies
-agent type (generate/swiss), budget percentage, and optional maxAgents (generate only).
-The form validates that percentages sum to 100 and the first iteration is generate.
-A visual budget bar shows the percentage allocation across iterations.
+agent type (generate/swiss), budget percentage, and (for generate iterations) optional
+source mode + quality cutoff + per-iteration tactic guidance. The form validates that
+percentages sum to 100 and the first iteration is generate. A visual budget bar shows the
+percentage allocation across iterations.
+
+On mount, the wizard fetches the most-recently-used prompt from any non-test-content run
+and its arena-synced variant count, so the dispatch preview accurately reflects ranking
+cost saturation. Strategies aren't bound to a prompt; the selector is informational.
 
 On submit, the wizard calls `createStrategyAction` which validates via Zod, computes the
 config hash (includes `iterationConfigs`), and upserts the strategy row.
+
+## Dispatch Prediction
+
+The single source of truth for "given this config, how many agents will dispatch per
+iteration?" is `projectDispatchPlan()` in `evolution/src/lib/pipeline/loop/projectDispatchPlan.ts`.
+It returns an `IterationPlanEntry[]` with per-iteration:
+- Triple-value `estPerAgent` (`expected` for display + `upperBound` for reservation).
+- `maxAffordable` at both expected and upperBound.
+- `dispatchCount` (uses upperBound for reservation safety).
+- `effectiveCap`: `'budget' | 'safety_cap' | 'floor' | 'swiss'` — tells UIs WHY dispatch
+  is capped where it is.
+- `poolSizeAtStart` — modeled pool growth across iterations.
+
+The runtime's inline dispatch math produces equivalent values; the shared function
+consolidates what was previously three separate implementations (wizard preview, runtime,
+cost-sensitivity analysis).
+
+## Within-Iteration Top-Up (Phase 7b)
+
+After the parallel batch resolves, the runtime:
+1. Measures `actualAvgCostPerAgent` from the parallel agents' `scope.getOwnSpent()` sums.
+2. If `EVOLUTION_TOPUP_ENABLED !== 'false'`, enters a top-up loop dispatching one agent at
+   a time while `(iterBudget − spent) − actualAvgCost ≥ sequentialFloor` AND total iter
+   dispatches `< DISPATCH_SAFETY_CAP`. Kill-check every 5 dispatches.
+3. Single `MergeRatingsAgent` call at iteration end over combined parallel + top-up match
+   buffers (Fisher-Yates shuffle covers all matches at once).
+
+The top-up loop pushes budget utilization from ~30% (parallel-only, upper-bound-safe) to
+~95% (parallel + top-up at realized cost) for the Fed-class of prompt (494-entry arena).
+
+Feature flag: set `EVOLUTION_TOPUP_ENABLED=false` to disable top-up and revert to
+parallel-only dispatch. Useful for debugging or rollback without a code change.
+
+## Budget Floor Semantics (iter-budget scope)
+
+Strategies may specify budget floors to reserve a minimum budget for later phases:
+- `minBudgetAfterParallelFraction` (0–1) or `minBudgetAfterParallelAgentMultiple` (N×agent cost).
+- `minBudgetAfterSequentialFraction` (0–1) or `minBudgetAfterSequentialAgentMultiple` (N×agent cost).
+
+Fraction-mode floors resolve against the **ITERATION budget**, not the total run budget
+(Phase 7a unified this). For a 2-iter 50/50 split at $0.05 budget, a 0.4 parallel fraction
+reserves $0.01 per iter, not $0.02. Multiple-mode floors use either `initialAgentCostEstimate`
+(parallel phase) or `actualAvgCostPerAgent` when available (sequential top-up phase).
 
 ## Key Files
 
 | File | Purpose |
 |------|---------|
 | `evolution/src/lib/schemas.ts` | `iterationConfigSchema`, `IterationConfig` type, strategy config validation |
+| `evolution/src/lib/pipeline/loop/projectDispatchPlan.ts` | Unified dispatch-count prediction function; exports `DISPATCH_SAFETY_CAP`, `EXPECTED_GEN_RATIO`, `EXPECTED_RANK_COMPARISONS_RATIO`, `DEFAULT_SEED_CHARS` |
+| `evolution/src/lib/pipeline/loop/budgetFloorResolvers.ts` | `resolveParallelFloor` / `resolveSequentialFloor` (iter-budget scoped) |
 | `evolution/src/lib/pipeline/infra/types.ts` | `EvolutionConfig`, `IterationResult`, `IterationStopReason` |
-| `evolution/src/lib/pipeline/infra/trackBudget.ts` | `IterationBudgetExceededError`, `createIterationBudgetTracker` |
-| `evolution/src/lib/pipeline/loop/runIterationLoop.ts` | Config-driven iteration loop in `evolveArticle()` |
+| `evolution/src/lib/pipeline/infra/trackBudget.ts` | `IterationBudgetExceededError`, `createIterationBudgetTracker`, `createAgentCostScope` |
+| `evolution/src/lib/pipeline/loop/runIterationLoop.ts` | Config-driven iteration loop in `evolveArticle()`, within-iteration top-up loop, single merge |
 | `evolution/src/lib/pipeline/setup/findOrCreateStrategy.ts` | `hashStrategyConfig` (includes iterationConfigs), `labelStrategyConfig`, `upsertStrategy` |
 | `evolution/src/services/strategyRegistryActions.ts` | Strategy CRUD with iterationConfigs validation |
-| `src/app/admin/evolution/strategies/new/page.tsx` | 2-step strategy creation wizard |
+| `evolution/src/services/strategyPreviewActions.ts` | Wizard preview server actions: `estimateAgentCostPreviewAction`, `getLastUsedPromptAction`, `getArenaCountForPromptAction` |
+| `src/app/admin/evolution/strategies/new/page.tsx` | 2-step strategy creation wizard with smart-default prompt context |
 
 ## Related Documentation
 
