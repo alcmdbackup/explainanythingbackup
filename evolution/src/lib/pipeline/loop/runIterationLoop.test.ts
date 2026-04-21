@@ -172,6 +172,14 @@ beforeEach(() => {
   mockMergeRun.mockImplementation(mergeSuccess());
   // Default: seed agent not called (seedPrompt absent in most tests)
   mockSeedRun.mockResolvedValue(seedSuccess('seed-v1'));
+  // Disable Phase 7b top-up loop for most tests so they assert parallel-only dispatch.
+  // Tests that exercise top-up explicitly delete this env var and set the mock tracker
+  // budget + floor config appropriately.
+  process.env.EVOLUTION_TOPUP_ENABLED = 'false';
+});
+
+afterAll(() => {
+  delete process.env.EVOLUTION_TOPUP_ENABLED;
 });
 
 // ─── Tests ──────────────────────────────────────────────────────────
@@ -432,6 +440,80 @@ describe('evolveArticle (orchestrator)', () => {
     expect(ids).toContain('v1');
     expect(ids).toContain('v3');
     expect(ids).not.toContain('boom');
+  });
+});
+
+// ─── Phase 7b: within-iteration top-up ──────────────────────────────
+
+describe('evolveArticle — top-up loop (Phase 7b)', () => {
+  beforeEach(() => {
+    // Re-enable top-up for these tests (the outer suite's beforeEach disables it).
+    process.env.EVOLUTION_TOPUP_ENABLED = 'true';
+  });
+
+  afterEach(() => {
+    process.env.EVOLUTION_TOPUP_ENABLED = 'false';
+  });
+
+  it('MergeRatingsAgent is invoked exactly once per iteration (single-merge invariant)', async () => {
+    // Budget $10 / estimateAgentCost $3 → 3 parallel agents. Top-up will fire since
+    // mock tracker doesn't decrement budget; safety cap at 100 bounds it.
+    mockGenerateRun.mockResolvedValue(generateSuccess('vn'));
+    mockSwissRun.mockResolvedValue({
+      success: true, result: { pairs: [], matches: [], status: 'no_pairs' },
+      cost: 0, durationMs: 1, invocationId: 'inv-swiss',
+    });
+
+    const result = await evolveArticle('seed', makeProvider(), makeDb() as never, 'run-1', makeConfig());
+
+    // Iter 0 (generate) merge + iter 1 (swiss): swiss doesn't invoke merge on no_pairs
+    // early-exit. So exactly 1 merge call total.
+    expect(mockMergeRun).toHaveBeenCalledTimes(1);
+    expect(result.stopReason).toBe('completed');
+  });
+
+  it('feature-flag disabled path: no top-up dispatches, single merge over parallel batch only', async () => {
+    process.env.EVOLUTION_TOPUP_ENABLED = 'false';
+    mockGenerateRun.mockResolvedValue(generateSuccess('vn'));
+    mockSwissRun.mockResolvedValue({
+      success: true, result: { pairs: [], matches: [], status: 'no_pairs' },
+      cost: 0, durationMs: 1, invocationId: 'inv-swiss',
+    });
+
+    await evolveArticle('seed', makeProvider(), makeDb() as never, 'run-1', makeConfig());
+
+    // Parallel batch = 3 agents (budget $10 / mock est $3); no top-up dispatches.
+    expect(mockGenerateRun).toHaveBeenCalledTimes(3);
+    expect(mockMergeRun).toHaveBeenCalledTimes(1);
+  });
+
+  it('top-up dispatches additional agents beyond the parallel batch when budget allows', async () => {
+    // Safety cap = 100. With mock tracker not decrementing, top-up loops until cap.
+    // Mock each agent to return a success so all 100 land.
+    mockGenerateRun.mockResolvedValue(generateSuccess('vn'));
+    mockSwissRun.mockResolvedValue({
+      success: true, result: { pairs: [], matches: [], status: 'no_pairs' },
+      cost: 0, durationMs: 1, invocationId: 'inv-swiss',
+    });
+
+    await evolveArticle('seed', makeProvider(), makeDb() as never, 'run-1', makeConfig());
+
+    // Should hit DISPATCH_SAFETY_CAP = 100 (3 parallel + 97 top-up).
+    expect(mockGenerateRun).toHaveBeenCalledTimes(100);
+    expect(mockMergeRun).toHaveBeenCalledTimes(1);
+  });
+
+  it('budgetFloorObservables include total iteration dispatches (parallel + top-up)', async () => {
+    mockGenerateRun.mockResolvedValue(generateSuccess('vn'));
+    mockSwissRun.mockResolvedValue({
+      success: true, result: { pairs: [], matches: [], status: 'no_pairs' },
+      cost: 0, durationMs: 1, invocationId: 'inv-swiss',
+    });
+
+    const result = await evolveArticle('seed', makeProvider(), makeDb() as never, 'run-1', makeConfig());
+
+    // Iter 0 is a generate iteration → parallelDispatched scalar = total iter dispatches = 100.
+    expect(result.budgetFloorObservables?.parallelDispatched).toBe(100);
   });
 });
 
