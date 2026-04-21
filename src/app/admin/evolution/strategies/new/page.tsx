@@ -13,9 +13,13 @@ import { createStrategyAction } from '@evolution/services/strategyRegistryAction
 import {
   getLastUsedPromptAction,
   getStrategyDispatchPreviewAction,
-  DEFAULT_SEED_CHARS,
 } from '@evolution/services/strategyPreviewActions';
 import type { LastUsedPromptResult, IterationPlanEntryClient } from '@evolution/services/strategyPreviewActions';
+
+// Mirrors DEFAULT_SEED_CHARS in evolution/src/lib/pipeline/loop/projectDispatchPlan.ts.
+// Inlined here because a `"use server"` file (strategyPreviewActions) can only export
+// async functions — it cannot re-export the constant for client-side consumption.
+const DEFAULT_SEED_CHARS = 8000;
 import { TACTICS_BY_CATEGORY, TACTIC_PALETTE } from '@evolution/lib/core/tactics';
 import { DispatchPlanView } from '@evolution/components/evolution/DispatchPlanView';
 

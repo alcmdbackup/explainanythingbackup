@@ -154,10 +154,6 @@ export const getArenaCountForPromptAction = adminAction(
   },
 );
 
-/** Re-export DEFAULT_SEED_CHARS so the wizard can consume it without importing from the
- *  pipeline loop directly (keeps wizard→server-action→pipeline boundary clean). */
-export { DEFAULT_SEED_CHARS };
-
 // ─── Unified dispatch preview server action ─────────────────────────
 
 const dispatchPreviewInputSchema = z.object({
