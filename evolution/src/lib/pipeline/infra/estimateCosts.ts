@@ -100,6 +100,22 @@ export function estimateRankingCost(
 }
 
 /**
+ * Resolve the expected variant char count for a tactic via the same fallback chain
+ * estimateAgentCost uses internally (calibration → EMPIRICAL_OUTPUT_CHARS → DEFAULT).
+ * Exposed for projectDispatchPlan to price ranking comparisons accurately per tactic.
+ */
+export function getVariantChars(
+  tactic: string,
+  generationModel: string,
+  judgeModel: string,
+): number {
+  const calibrated = getCalibrationRow(tactic, generationModel, judgeModel, 'generation');
+  return calibrated?.avgOutputChars
+    ?? EMPIRICAL_OUTPUT_CHARS[tactic]
+    ?? DEFAULT_OUTPUT_CHARS;
+}
+
+/**
  * Estimate total cost of one generateFromPreviousArticle agent (generation + ranking).
  * This is the primary function used by budget-aware dispatch.
  */
@@ -112,11 +128,7 @@ export function estimateAgentCost(
   maxComparisonsPerVariant: number,
 ): number {
   const genCost = estimateGenerationCost(seedArticleChars, tactic, generationModel, judgeModel);
-  // For ranking, use the expected variant length (calibration-aware, falls back to empirical).
-  const calibrated = getCalibrationRow(tactic, generationModel, judgeModel, 'generation');
-  const variantChars = calibrated?.avgOutputChars
-    ?? EMPIRICAL_OUTPUT_CHARS[tactic]
-    ?? DEFAULT_OUTPUT_CHARS;
+  const variantChars = getVariantChars(tactic, generationModel, judgeModel);
   const rankCost = estimateRankingCost(variantChars, judgeModel, poolSize, maxComparisonsPerVariant);
   return genCost + rankCost;
 }
