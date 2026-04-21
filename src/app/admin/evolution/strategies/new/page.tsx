@@ -180,7 +180,7 @@ export default function NewStrategyPage(): JSX.Element {
     judgeModel: DEFAULT_JUDGE_MODEL,
     generationTemperature: '',
     budgetUsd: '0.05',
-    maxComparisonsPerVariant: '',
+    maxComparisonsPerVariant: '5',
     budgetFloorMode: 'agentMultiple',
     parallelFloorValue: '2',
     sequentialFloorValue: '',
@@ -531,7 +531,7 @@ export default function NewStrategyPage(): JSX.Element {
                       max="100"
                       value={form.maxComparisonsPerVariant}
                       onChange={e => updateForm({ maxComparisonsPerVariant: e.target.value })}
-                      placeholder="15 (default)"
+                      placeholder="5 (default)"
                       className={inputCls()}
                     />
                   </div>
