@@ -133,3 +133,106 @@ describe('estimateAgentCostPreviewAction', () => {
     expect(expensive.estimatedAgentCostUsd).toBeGreaterThan(cheap.estimatedAgentCostUsd);
   });
 });
+
+// ─── Phase 3: getLastUsedPromptAction ──────────────────────────────
+
+describe('getLastUsedPromptAction', () => {
+  // Build a Supabase chain that resolves to `{ data, error }` at the final .maybeSingle() call.
+  interface Chain {
+    select: jest.Mock; not: jest.Mock; eq: jest.Mock; is: jest.Mock;
+    order: jest.Mock; limit: jest.Mock; maybeSingle: jest.Mock;
+  }
+  function makeSupabase(resolved: { data: unknown; error: unknown }) {
+    const chain: Chain = {
+      select: jest.fn().mockReturnThis(),
+      not: jest.fn().mockReturnThis(),
+      eq: jest.fn().mockReturnThis(),
+      is: jest.fn().mockReturnThis(),
+      order: jest.fn().mockReturnThis(),
+      limit: jest.fn().mockReturnThis(),
+      maybeSingle: jest.fn(async () => resolved),
+    };
+    const builder = { from: jest.fn(() => chain) };
+    return { supabase: builder, chain };
+  }
+
+  // Override the adminAction mock ctx for these tests so we can inject different supabase
+  // responses per test.
+  beforeEach(() => {
+    jest.resetModules();
+  });
+
+  it('returns null when no qualifying run exists', async () => {
+    const { supabase } = makeSupabase({ data: null, error: null });
+    jest.doMock('./adminAction', () => ({
+      adminAction: (_name: string, handler: Function) => (input: unknown) =>
+        handler(input, { supabase, adminUserId: 'test-admin' }),
+    }));
+    // Re-import after re-mocking
+    const mod = await import('./strategyPreviewActions');
+    const result = await (mod.getLastUsedPromptAction as unknown as (input?: unknown) => Promise<unknown>)();
+    expect(result).toBeNull();
+  });
+
+  it('returns { id, name, promptText } for a non-test active prompt', async () => {
+    const promptRow = { id: 'p-1', name: 'Federal Reserve', prompt: 'What is the Fed?', status: 'active', deleted_at: null };
+    const { supabase } = makeSupabase({
+      data: { prompt_id: 'p-1', evolution_strategies: { is_test_content: false }, evolution_prompts: promptRow },
+      error: null,
+    });
+    jest.doMock('./adminAction', () => ({
+      adminAction: (_name: string, handler: Function) => (input: unknown) =>
+        handler(input, { supabase, adminUserId: 'test-admin' }),
+    }));
+    const mod = await import('./strategyPreviewActions');
+    const result = await (mod.getLastUsedPromptAction as unknown as (input?: unknown) => Promise<unknown>)();
+    expect(result).toEqual({ id: 'p-1', name: 'Federal Reserve', promptText: 'What is the Fed?' });
+  });
+
+  it('returns null on DB error', async () => {
+    const { supabase } = makeSupabase({ data: null, error: { message: 'boom' } });
+    jest.doMock('./adminAction', () => ({
+      adminAction: (_name: string, handler: Function) => (input: unknown) =>
+        handler(input, { supabase, adminUserId: 'test-admin' }),
+    }));
+    const mod = await import('./strategyPreviewActions');
+    const result = await (mod.getLastUsedPromptAction as unknown as (input?: unknown) => Promise<unknown>)();
+    expect(result).toBeNull();
+  });
+
+  it('handles Supabase returning the joined prompt as an array (type variance)', async () => {
+    // Generated Supabase types sometimes express single-row !inner joins as arrays.
+    const promptRow = { id: 'p-2', name: 'Climate', prompt: 'Climate change?', status: 'active', deleted_at: null };
+    const { supabase } = makeSupabase({
+      data: { prompt_id: 'p-2', evolution_strategies: { is_test_content: false }, evolution_prompts: [promptRow] },
+      error: null,
+    });
+    jest.doMock('./adminAction', () => ({
+      adminAction: (_name: string, handler: Function) => (input: unknown) =>
+        handler(input, { supabase, adminUserId: 'test-admin' }),
+    }));
+    const mod = await import('./strategyPreviewActions');
+    const result = await (mod.getLastUsedPromptAction as unknown as (input?: unknown) => Promise<unknown>)();
+    expect(result).toEqual({ id: 'p-2', name: 'Climate', promptText: 'Climate change?' });
+  });
+
+  it('applies Supabase filters: is_test_content=false, status=active, deleted_at=null', async () => {
+    const { supabase, chain } = makeSupabase({ data: null, error: null });
+    jest.doMock('./adminAction', () => ({
+      adminAction: (_name: string, handler: Function) => (input: unknown) =>
+        handler(input, { supabase, adminUserId: 'test-admin' }),
+    }));
+    const mod = await import('./strategyPreviewActions');
+    await (mod.getLastUsedPromptAction as unknown as (input?: unknown) => Promise<unknown>)();
+    // .eq called for is_test_content=false + status='active'
+    expect(chain.eq).toHaveBeenCalledWith('evolution_strategies.is_test_content', false);
+    expect(chain.eq).toHaveBeenCalledWith('evolution_prompts.status', 'active');
+    // .is called for deleted_at IS NULL
+    expect(chain.is).toHaveBeenCalledWith('evolution_prompts.deleted_at', null);
+    // .not called for prompt_id NOT NULL
+    expect(chain.not).toHaveBeenCalledWith('prompt_id', 'is', null);
+    // Ordered by created_at desc, limit 1
+    expect(chain.order).toHaveBeenCalledWith('created_at', { ascending: false });
+    expect(chain.limit).toHaveBeenCalledWith(1);
+  });
+});

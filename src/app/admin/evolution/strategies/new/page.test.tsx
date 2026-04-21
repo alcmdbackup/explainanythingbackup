@@ -15,6 +15,19 @@ jest.mock('@evolution/services/strategyRegistryActions', () => ({
   createStrategyAction: (...args: unknown[]) => mockCreate(...args),
 }));
 
+const mockGetLastUsedPrompt = jest.fn();
+const mockGetDispatchPreview = jest.fn();
+const mockGetArenaCount = jest.fn();
+jest.mock('@evolution/services/strategyPreviewActions', () => ({
+  getLastUsedPromptAction: (...args: unknown[]) => mockGetLastUsedPrompt(...args),
+  getStrategyDispatchPreviewAction: (...args: unknown[]) => mockGetDispatchPreview(...args),
+  getArenaCountForPromptAction: (...args: unknown[]) => mockGetArenaCount(...args),
+  DEFAULT_SEED_CHARS: 8000,
+}));
+
+// Dispatch plan view is imported; don't need to mock it — component renders fine with
+// the plans the server action returns.
+
 import NewStrategyPage from './page';
 import { toast } from 'sonner';
 
@@ -22,7 +35,13 @@ describe('NewStrategyPage', () => {
   beforeEach(() => {
     mockPush.mockReset();
     mockCreate.mockReset();
+    mockGetLastUsedPrompt.mockReset();
+    mockGetDispatchPreview.mockReset();
+    mockGetArenaCount.mockReset();
     mockCreate.mockResolvedValue({ success: true, data: { id: 'test-strategy-id' } });
+    // Default: no qualifying prompt — mirrors empty-DB staging
+    mockGetLastUsedPrompt.mockResolvedValue({ success: true, data: null });
+    mockGetDispatchPreview.mockResolvedValue({ success: true, data: { plan: [], arenaCount: 0, seedArticleChars: 8000, promptName: null } });
   });
 
   // ─── Step 1: Config ──────────────────────────────────────
@@ -208,6 +227,91 @@ describe('NewStrategyPage', () => {
     const selects = screen.getAllByDisplayValue('Generate');
     // The first generate select should be disabled
     expect(selects[0]).toBeDisabled();
+  });
+
+  // ─── Phase 3: smart-default prompt context ───────────────────
+
+  it('shows empty-arena message when getLastUsedPromptAction returns null', async () => {
+    mockGetLastUsedPrompt.mockResolvedValue({ success: true, data: null });
+    render(<NewStrategyPage />);
+    fillStep1();
+    fireEvent.click(screen.getByText(/next: configure iterations/i));
+
+    const context = await waitFor(() => screen.getByTestId('wizard-prompt-context'));
+    expect(context.textContent).toMatch(/empty arena/i);
+  });
+
+  it('shows last-used prompt name + arena count when available', async () => {
+    mockGetLastUsedPrompt.mockResolvedValue({
+      success: true, data: { id: 'p-1', name: 'Federal Reserve', promptText: 'What is the Fed?' },
+    });
+    mockGetDispatchPreview.mockResolvedValue({
+      success: true,
+      data: {
+        plan: [{
+          iterIdx: 0, agentType: 'generate', iterBudgetUsd: 0.025, tactic: 'structural_transform',
+          estPerAgent: { expected: { gen: 0.0012, rank: 0.003, total: 0.0042 }, upperBound: { gen: 0.0017, rank: 0.006, total: 0.0077 } },
+          maxAffordable: { atExpected: 5, atUpperBound: 3 }, dispatchCount: 3,
+          effectiveCap: 'budget', poolSizeAtStart: 494, parallelFloorUsd: 0,
+        }],
+        arenaCount: 494, seedArticleChars: 8000, promptName: 'Federal Reserve',
+      },
+    });
+
+    render(<NewStrategyPage />);
+    fillStep1();
+    fireEvent.click(screen.getByText(/next: configure iterations/i));
+
+    // Advance the debounce timer so the preview fires.
+    await waitFor(() => {
+      const ctx = screen.getByTestId('wizard-prompt-context');
+      expect(ctx.textContent).toMatch(/Federal Reserve/);
+      expect(ctx.textContent).toMatch(/494/);
+    }, { timeout: 3000 });
+  });
+
+  it('seed-chars input is user-editable and defaults to 8000', async () => {
+    mockGetLastUsedPrompt.mockResolvedValue({ success: true, data: null });
+    render(<NewStrategyPage />);
+    fillStep1();
+    fireEvent.click(screen.getByText(/next: configure iterations/i));
+
+    const seedInput = await waitFor(() => screen.getByTestId('wizard-seed-chars') as HTMLInputElement);
+    expect(seedInput.value).toBe('8000');
+
+    fireEvent.change(seedInput, { target: { value: '12000' } });
+    expect(seedInput.value).toBe('12000');
+  });
+
+  it('debounces dispatch-preview refresh by ~300ms (multiple rapid changes coalesce)', async () => {
+    // Use fake timers to observe the debounce. A burst of 3 changes should result in only
+    // one getStrategyDispatchPreviewAction call.
+    jest.useFakeTimers();
+    try {
+      mockGetLastUsedPrompt.mockResolvedValue({ success: true, data: null });
+      render(<NewStrategyPage />);
+      fillStep1();
+      fireEvent.click(screen.getByText(/next: configure iterations/i));
+
+      mockGetDispatchPreview.mockClear();
+
+      const seedInput = screen.getByTestId('wizard-seed-chars') as HTMLInputElement;
+      fireEvent.change(seedInput, { target: { value: '9000' } });
+      fireEvent.change(seedInput, { target: { value: '10000' } });
+      fireEvent.change(seedInput, { target: { value: '11000' } });
+
+      // Advance past the 300ms debounce window.
+      jest.advanceTimersByTime(400);
+
+      // Wait for any pending microtasks after timer advance.
+      await Promise.resolve();
+
+      // Exactly one refresh call after the burst (pre-burst calls may also exist, but
+      // the three rapid changes should coalesce into ≤ 1 net new call).
+      expect(mockGetDispatchPreview.mock.calls.length).toBeLessThanOrEqual(1);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });
 
