@@ -19,6 +19,7 @@ import {
   estimateRankingCost,
   getVariantChars,
 } from '../infra/estimateCosts';
+import { resolveParallelFloor } from './budgetFloorResolvers';
 
 /** Defense-in-depth dispatch cap. Primary dispatch governor is budget via
  *  V2CostTracker.reserve() → BudgetExceededError; this catches budget-estimation bugs
@@ -100,25 +101,6 @@ export interface IterationPlanEntry {
   parallelFloorUsd: number;
 }
 
-// ─── Inline floor math (iter-budget scoped) ────────────────────────
-
-/** Iter-budget-scoped parallel floor. See budgetFloorResolvers.ts for the total-budget
- *  variant used by the legacy sensitivity caller (to be unified in Phase 7a). */
-function resolveParallelFloorIter(
-  cfg: EvolutionConfig,
-  iterBudgetUsd: number,
-  agentCost: number,
-): number {
-  if (cfg.minBudgetAfterParallelFraction != null) {
-    return iterBudgetUsd * cfg.minBudgetAfterParallelFraction;
-  }
-  if (cfg.minBudgetAfterParallelAgentMultiple != null) {
-    if (!Number.isFinite(agentCost) || agentCost <= 0) return 0;
-    return agentCost * cfg.minBudgetAfterParallelAgentMultiple;
-  }
-  return 0;
-}
-
 // ─── Main ─────────────────────────────────────────────────────────
 
 /**
@@ -178,9 +160,10 @@ export function projectDispatchPlan(
     const rankExpected = estimateRankingCost(variantChars, config.judgeModel, poolSize, expectedComp);
     const totalExpected = genExpected + rankExpected;
 
-    // Floor math is iter-budget-scoped (consistent with wizard preview; diverges from
-    // legacy budgetFloorResolvers.ts which uses totalBudget — Phase 7a unifies).
-    const parallelFloorUsd = resolveParallelFloorIter(config, iterBudgetUsd, totalUpper);
+    // Iter-budget-scoped floor resolution (Phase 7a): budgetFloorResolvers.ts now
+    // takes iterBudget as its 2nd arg instead of totalBudget. Unified across wizard
+    // preview, runtime loop, and cost-sensitivity analysis.
+    const parallelFloorUsd = resolveParallelFloor(config, iterBudgetUsd, totalUpper);
     const availBudget = Math.max(0, iterBudgetUsd - parallelFloorUsd);
 
     const maxAffordableUpper = totalUpper > 0

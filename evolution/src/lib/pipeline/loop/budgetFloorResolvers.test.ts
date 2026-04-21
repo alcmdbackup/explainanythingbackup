@@ -9,9 +9,20 @@ describe('resolveParallelFloor', () => {
     expect(resolveParallelFloor({}, 1.0, 0.01)).toBe(0);
   });
 
-  it('fraction mode: floor = totalBudget × fraction', () => {
+  it('fraction mode: floor = iterBudget × fraction (Phase 7a iter-budget semantics)', () => {
     expect(resolveParallelFloor({ minBudgetAfterParallelFraction: 0.4 }, 1.0, 0.01)).toBeCloseTo(0.4, 10);
     expect(resolveParallelFloor({ minBudgetAfterParallelFraction: 0.25 }, 2.0, 0.01)).toBeCloseTo(0.5, 10);
+  });
+
+  it('iter-budget semantics regression: 0.4 fraction against 2-iter 50/50 split', () => {
+    // Strategy with totalBudget=$0.05, two iterations 50/50 → each iter budget = $0.025.
+    // minBudgetAfterParallelFraction=0.4 means reserve 40% OF ITER BUDGET = $0.01, NOT
+    // 40% of total ($0.02). Phase 7a unified this across wizard / runtime / sensitivity.
+    const iterBudget = 0.025;
+    expect(resolveParallelFloor({ minBudgetAfterParallelFraction: 0.4 }, iterBudget, 0.001))
+      .toBeCloseTo(0.01, 6); // 0.4 × 0.025 = 0.01
+    // Under the old total-budget semantics this would have been 0.4 × 0.05 = $0.02 —
+    // twice as large. Asserting the 0.01 value pins the new semantics.
   });
 
   it('agent-multiple mode: floor = initialAgentCost × multiplier', () => {
