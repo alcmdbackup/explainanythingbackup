@@ -273,11 +273,9 @@ export async function buildRunContext(
     budgetUsd: claimedRun.budget_cap_usd ?? 1.0,
     judgeModel: stratConfig.judgeModel,
     generationModel: stratConfig.generationModel,
-    strategiesPerRound: stratConfig.strategiesPerRound ?? 3,
     calibrationOpponents: 5,
     tournamentTopK: 5,
     generationGuidance: stratConfig.generationGuidance,
-    numVariants: 9, // deprecated — maxAgents on iterationConfigs replaces this
     maxComparisonsPerVariant: stratConfig.maxComparisonsPerVariant ?? 15,
     // Budget floors — preprocess in schemas.ts already migrates legacy fields into
     // minBudgetAfter*Fraction. Pass all four fields through; pipeline resolves lazily.

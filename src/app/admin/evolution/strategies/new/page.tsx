@@ -24,7 +24,6 @@ type BudgetFloorMode = 'fraction' | 'agentMultiple';
 interface IterationRow {
   agentType: 'generate' | 'swiss';
   budgetPercent: number;
-  maxAgents?: number;
   /** Phase 2: parent-article source for this generate iteration. Defaults to 'seed'.
    *  Not applicable to swiss. First iteration is locked to 'seed' by schema refine. */
   sourceMode?: 'seed' | 'pool';
@@ -48,10 +47,8 @@ interface StrategyFormState {
   sequentialFloorValue: string;
 }
 
-const DEFAULT_MAX_AGENTS = 100;
-
 const DEFAULT_ITERATIONS: IterationRow[] = [
-  { agentType: 'generate', budgetPercent: 60, maxAgents: DEFAULT_MAX_AGENTS },
+  { agentType: 'generate', budgetPercent: 60 },
   { agentType: 'swiss', budgetPercent: 40 },
 ];
 
@@ -215,7 +212,9 @@ export default function NewStrategyPage(): JSX.Element {
   const percentValid = Math.abs(totalPercent - 100) < 0.01;
 
   // Dispatch preview: reuses estimateAgentCost() from the pipeline for accurate model-aware estimates.
-  // Recalculates when budget, iteration percentages, maxAgents, model, or floor settings change.
+  // Recalculates when budget, iteration percentages, model, or floor settings change.
+  // NOTE: Phase 4 removed per-iter maxAgents and strategy-level numVariants. Dispatch is
+  // now budget-governed with DISPATCH_SAFETY_CAP=100 as the runtime safety rail.
   const dispatchEstimates = useMemo(() => {
     const pFloor = form.parallelFloorValue ? parseFloat(form.parallelFloorValue) : 0;
     const sFloor = form.sequentialFloorValue ? parseFloat(form.sequentialFloorValue) : 0;
@@ -231,23 +230,23 @@ export default function NewStrategyPage(): JSX.Element {
     return iterations.map(it => {
       if (it.agentType !== 'generate') return null;
       const iterBudget = totalBudget * (it.budgetPercent / 100);
-      const maxAgents = it.maxAgents ?? DEFAULT_MAX_AGENTS;
+      const safetyCap = 100; // DISPATCH_SAFETY_CAP — defense-in-depth; budget governs in practice
 
       const parallelFloorUsd = floorMode === 'fraction' ? iterBudget * pFloor : estPerAgent * pFloor;
       const availForParallel = Math.max(0, iterBudget - parallelFloorUsd);
       const uncappedParallel = Math.floor(availForParallel / estPerAgent);
-      const parallel = Math.min(maxAgents, Math.max(1, uncappedParallel));
+      const parallel = Math.min(safetyCap, Math.max(1, uncappedParallel));
 
       // Detect why agent count is limited
       const floorConstrained = uncappedParallel < 1 && pFloor > 0;
-      const maxAgentsCapped = uncappedParallel > maxAgents;
+      const safetyCapped = uncappedParallel > safetyCap;
 
       const sequentialFloorUsd = floorMode === 'fraction' ? iterBudget * sFloor : estPerAgent * sFloor;
       const remainAfterParallel = Math.max(0, iterBudget - parallel * estPerAgent);
       const availForSequential = Math.max(0, remainAfterParallel - sequentialFloorUsd);
       const sequential = Math.max(0, Math.floor(availForSequential / estPerAgent));
 
-      return { parallel, sequential, estPerAgent, iterBudget, floorConstrained, maxAgentsCapped };
+      return { parallel, sequential, estPerAgent, iterBudget, floorConstrained, safetyCapped };
     });
   }, [iterations, totalBudget, form.generationModel, form.judgeModel, form.maxComparisonsPerVariant, form.parallelFloorValue, form.sequentialFloorValue, form.budgetFloorMode]);
 
@@ -291,7 +290,6 @@ export default function NewStrategyPage(): JSX.Element {
       const updated = { ...it, ...patch };
       // Clear generate-only fields for swiss.
       if (updated.agentType === 'swiss') {
-        delete updated.maxAgents;
         delete updated.sourceMode;
         delete updated.qualityCutoffMode;
         delete updated.qualityCutoffValue;
@@ -307,7 +305,7 @@ export default function NewStrategyPage(): JSX.Element {
   }, []);
 
   const addIteration = useCallback(() => {
-    setIterations(prev => [...prev, { agentType: 'generate', budgetPercent: 0, maxAgents: DEFAULT_MAX_AGENTS }]);
+    setIterations(prev => [...prev, { agentType: 'generate', budgetPercent: 0 }]);
   }, []);
 
   const removeIteration = useCallback((idx: number) => {
@@ -353,7 +351,6 @@ export default function NewStrategyPage(): JSX.Element {
         iterationConfigs: iterations.map(it => ({
           agentType: it.agentType,
           budgetPercent: it.budgetPercent,
-          ...(it.maxAgents != null && it.agentType === 'generate' ? { maxAgents: it.maxAgents } : {}),
           ...(it.agentType === 'generate' && it.sourceMode ? { sourceMode: it.sourceMode } : {}),
           ...(it.agentType === 'generate' && it.sourceMode === 'pool'
               && it.qualityCutoffMode && it.qualityCutoffValue != null && it.qualityCutoffValue > 0
@@ -698,31 +695,15 @@ export default function NewStrategyPage(): JSX.Element {
                         = ${dollarAmount.toFixed(2)}
                       </span>
 
-                      {it.agentType === 'generate' && (
-                        <div className="flex items-center gap-1 ml-2">
-                          <span className="text-xs font-ui text-[var(--text-muted)]">Agents:</span>
-                          <input
-                            type="number"
-                            min={1}
-                            max={100}
-                            value={it.maxAgents ?? ''}
-                            onChange={e => {
-                              const val = e.target.value ? parseInt(e.target.value) : undefined;
-                              updateIteration(idx, { maxAgents: val });
-                            }}
-                            placeholder="auto"
-                            className="w-14 px-2 py-1.5 text-xs font-mono bg-[var(--surface-primary)] border border-[var(--border-default)] rounded-page text-[var(--text-primary)] text-right focus:border-[var(--accent-gold)] focus:outline-none"
-                          />
-                        </div>
-                      )}
-
-                      {/* Dispatch preview — recalculates on budget, percent, maxAgents, or floor changes */}
+                      {/* Dispatch preview — recalculates on budget, percent, or floor changes.
+                          Phase 4 removed per-iter maxAgents; dispatch is budget-governed with
+                          DISPATCH_SAFETY_CAP=100 as a defense-in-depth rail. */}
                       {it.agentType === 'generate' && dispatchEstimates[idx] && (() => {
                         const est = dispatchEstimates[idx]!;
                         const constraint = est.floorConstrained
                           ? 'budget floor limits parallel dispatch'
-                          : est.maxAgentsCapped
-                            ? `capped by max agents (${it.maxAgents})`
+                          : est.safetyCapped
+                            ? 'capped at safety limit (100 agents/iter)'
                             : null;
                         return (
                           <span

@@ -49,6 +49,18 @@ jest.mock('../infra/createEvolutionLLMClient', () => ({
   calculateCost: jest.fn().mockReturnValue(0.001),
 }));
 
+// Mock per-agent cost estimate to a predictable value so dispatch math produces
+// deterministic counts under the mocked tracker ($10 getAvailableBudget → 3 agents
+// at $3/agent, comfortably under DISPATCH_SAFETY_CAP = 100). Matches the pre-Phase-4
+// behavior where the old numVariants=3 cap in makeConfig produced 3 agents per iter.
+// Tests that need a specific count can override via the tracker's budget mock.
+jest.mock('../infra/estimateCosts', () => ({
+  estimateAgentCost: jest.fn(() => 3.0),
+  estimateGenerationCost: jest.fn(() => 2.0),
+  estimateRankingCost: jest.fn(() => 1.0),
+  getVariantChars: jest.fn(() => 9197),
+}));
+
 jest.mock('../infra/trackBudget', () => {
   const mockTracker = () => ({
     reserve: jest.fn(),
@@ -90,10 +102,8 @@ function makeConfig(): EvolutionConfig {
     judgeModel: 'gpt-4o',
     generationModel: 'gpt-4o',
     iterationConfigs: [{ agentType: 'generate', budgetPercent: 60 }, { agentType: 'swiss', budgetPercent: 40 }],
-    strategiesPerRound: 3,
     calibrationOpponents: 5,
     tournamentTopK: 5,
-    numVariants: 3,
     strategies: ['structural_transform', 'lexical_simplify', 'grounding_enhance'],
   };
 }
@@ -199,8 +209,22 @@ describe('evolveArticle (orchestrator)', () => {
       cost: 0, durationMs: 1, invocationId: 'inv-swiss',
     });
 
+    // Mocked estimateAgentCost = $3 → 3 agents in the default $10 mocked budget.
+    // Bump mock budget for this test only to produce 6.
+    const { createIterationBudgetTracker } = jest.requireMock('../infra/trackBudget');
+    (createIterationBudgetTracker as jest.Mock).mockImplementationOnce(() => ({
+      reserve: jest.fn(), recordSpend: jest.fn(), release: jest.fn(),
+      getTotalSpent: jest.fn(() => 0), getPhaseCosts: jest.fn(() => ({})),
+      getAvailableBudget: jest.fn(() => 18), // 18/3 = 6 agents
+      isExhausted: jest.fn(() => false),
+    })).mockImplementationOnce(() => ({
+      reserve: jest.fn(), recordSpend: jest.fn(), release: jest.fn(),
+      getTotalSpent: jest.fn(() => 0), getPhaseCosts: jest.fn(() => ({})),
+      getAvailableBudget: jest.fn(() => 10),
+      isExhausted: jest.fn(() => false),
+    }));
+
     const cfg = makeConfig();
-    cfg.numVariants = 6;
     await evolveArticle('seed', makeProvider(), makeDb() as never, 'run-1', cfg);
 
     expect(mockGenerateRun).toHaveBeenCalledTimes(6);

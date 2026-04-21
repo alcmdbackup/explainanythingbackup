@@ -99,7 +99,7 @@ adminTest.describe('Budget-Aware Dispatch', { tag: '@evolution' }, () => {
         config: {
           generationModel: 'gpt-4.1-nano',
           judgeModel: 'gpt-4.1-nano',
-          iterationConfigs: [{ agentType: 'generate', budgetPercent: 60, maxAgents: 6 }, { agentType: 'swiss', budgetPercent: 40 }],
+          iterationConfigs: [{ agentType: 'generate', budgetPercent: 60 }, { agentType: 'swiss', budgetPercent: 40 }],
           maxComparisonsPerVariant: 3,
           budgetBufferAfterParallel: 0.50,
           budgetBufferAfterSequential: 0.20,

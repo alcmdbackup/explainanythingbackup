@@ -282,7 +282,7 @@ function BudgetFloorSensitivitySection({
       )}
       {edge === 'ceiling_binding' && (
         <Badge tone="info" testId="sensitivity-ceiling">
-          numVariants ceiling binding in both scenarios — Δ = 0.
+          Dispatch safety cap binding in both scenarios — Δ = 0.
         </Badge>
       )}
 

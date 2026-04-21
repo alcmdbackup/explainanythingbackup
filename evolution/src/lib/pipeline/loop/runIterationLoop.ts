@@ -24,6 +24,7 @@ import { selectTacticWeighted } from '../../core/tactics';
 import { createSeededRng } from '../../metrics/experimentMetrics';
 import type { AgentContext } from '../../core/types';
 import { estimateAgentCost } from '../infra/estimateCosts';
+import { DISPATCH_SAFETY_CAP } from './projectDispatchPlan';
 
 // ─── Config validation ───────────────────────────────────────────
 
@@ -42,9 +43,6 @@ function validateConfig(config: EvolutionConfig): void {
   }
   if (!config.generationModel || config.generationModel.trim() === '') {
     throw new Error('generationModel must be a non-empty string');
-  }
-  if (config.numVariants !== undefined && (config.numVariants < 1 || config.numVariants > 100)) {
-    throw new Error(`Invalid numVariants: ${config.numVariants} (must be 1-100)`);
   }
 }
 
@@ -185,7 +183,6 @@ export async function evolveArticle(
 ): Promise<EvolutionResult> {
   validateConfig(config);
 
-  const numVariants = config.numVariants ?? 9;
   const tactics = config.strategies && config.strategies.length > 0
     ? config.strategies
     : [...DEFAULT_TACTICS];
@@ -194,10 +191,8 @@ export async function evolveArticle(
   const resolvedConfig: EvolutionConfig = {
     ...config,
     iterationConfigs: config.iterationConfigs,
-    strategiesPerRound: config.strategiesPerRound ?? 3,
     calibrationOpponents: config.calibrationOpponents ?? 5,
     tournamentTopK: config.tournamentTopK ?? 5,
-    numVariants,
     strategies: tactics,
   };
 
@@ -210,7 +205,7 @@ export async function evolveArticle(
   logger.info('Config validation passed', {
     budgetUsd: resolvedConfig.budgetUsd,
     generationModel: resolvedConfig.generationModel, judgeModel: resolvedConfig.judgeModel,
-    numVariants, tactics,
+    tactics,
     phaseName: 'config_validation',
   });
 
@@ -312,9 +307,10 @@ export async function evolveArticle(
           resolvedConfig.judgeModel, pool.length, maxComp,
         );
         const maxAffordable = Math.max(1, Math.floor(availBudget / estPerAgent));
-        // Respect iterCfg.maxAgents if set, otherwise use numVariants or budget limit.
-        const maxAgentsForIter = iterCfg.maxAgents ?? numVariants;
-        const dispatchCount = Math.min(maxAgentsForIter, maxAffordable);
+        // DISPATCH_SAFETY_CAP is a defense-in-depth rail; budget is the primary governor
+        // via V2CostTracker.reserve(). Replaces the earlier numVariants (default 9) +
+        // per-iter maxAgents caps that were removed in Phase 4.
+        const dispatchCount = Math.min(DISPATCH_SAFETY_CAP, maxAffordable);
 
         if (iterIdx === 0) {
           parallelDispatchedCount = dispatchCount;
@@ -334,7 +330,7 @@ export async function evolveArticle(
 
         const dispatchedTactics = Array.from({ length: dispatchCount }, (_, i) => selectTactic(i));
         logger.info('Dispatching generate iteration', {
-          iteration, iterIdx, dispatchCount, maxAffordable, maxAgentsForIter,
+          iteration, iterIdx, dispatchCount, maxAffordable, safetyCap: DISPATCH_SAFETY_CAP,
           iterBudgetUsd, availBudget, estPerAgent,
           tactics: dispatchedTactics,
           selectionMode: guidance ? (iterCfg.generationGuidance ? 'iteration-weighted' : 'strategy-weighted') : 'round-robin',
@@ -674,7 +670,6 @@ export async function evolveArticle(
       minBudgetAfterParallelAgentMultiple: resolvedConfig.minBudgetAfterParallelAgentMultiple,
       minBudgetAfterSequentialFraction: resolvedConfig.minBudgetAfterSequentialFraction,
       minBudgetAfterSequentialAgentMultiple: resolvedConfig.minBudgetAfterSequentialAgentMultiple,
-      numVariants,
     },
   };
 }

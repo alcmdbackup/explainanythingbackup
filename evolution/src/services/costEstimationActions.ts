@@ -7,6 +7,7 @@
 import { adminAction, type AdminContext } from './adminAction';
 import { z } from 'zod';
 import { projectDispatchCounts } from '@evolution/lib/pipeline/loop/projectDispatchCount';
+import { DISPATCH_SAFETY_CAP } from '@evolution/lib/pipeline/loop/projectDispatchPlan';
 import { COST_ERROR_HISTOGRAM_BUCKETS } from './costEstimationConstants';
 
 // ─── Types ───────────────────────────────────────────────────────
@@ -263,7 +264,11 @@ interface BudgetFloorConfigLike {
   minBudgetAfterParallelAgentMultiple?: number;
   minBudgetAfterSequentialFraction?: number;
   minBudgetAfterSequentialAgentMultiple?: number;
-  numVariants: number;
+  /** @deprecated Phase 4 replaced the per-strategy numVariants cap with the
+   *  DISPATCH_SAFETY_CAP = 100 runtime constant. Field kept optional for legacy
+   *  run_summary rows that still carry it; when absent, the sensitivity analysis
+   *  falls back to DISPATCH_SAFETY_CAP as the ceiling. */
+  numVariants?: number;
 }
 
 function computeBudgetFloorSensitivity(opts: {
@@ -313,7 +318,10 @@ function computeBudgetFloorSensitivity(opts: {
 
   // Projected scenario: use `actual` everywhere in the math. Compute expected dispatch
   // counts assuming that cost was known from the start.
-  const numVariants = floorConfig.numVariants;
+  // Phase 4: numVariants was removed from config; legacy run_summary rows may still carry
+  // it, so prefer the stored value if present, otherwise fall back to the new
+  // DISPATCH_SAFETY_CAP = 100 runtime constant.
+  const numVariants = floorConfig.numVariants ?? DISPATCH_SAFETY_CAP;
   // Projected parallel phase: re-run dispatch math using `actual` as the agent cost.
   // Projected sequential starting budget: the projected parallel batch would spend
   // projectedParallelDispatched * actual per-agent.

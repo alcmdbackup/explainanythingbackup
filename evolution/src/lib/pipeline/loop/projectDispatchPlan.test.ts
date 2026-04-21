@@ -23,12 +23,9 @@ function baseConfig(overrides: Partial<EvolutionConfig> = {}): EvolutionConfig {
       { agentType: 'generate', budgetPercent: 50 },
     ],
     maxComparisonsPerVariant: 15,
-    // Legacy fields defaulted by validateConfig; required by Zod in real runtime
     strategies: ['structural_transform', 'lexical_simplify', 'grounding_enhance'],
-    strategiesPerRound: 3,
     calibrationOpponents: 5,
     tournamentTopK: 5,
-    numVariants: 9,
     ...overrides,
   } as unknown as EvolutionConfig;
 }

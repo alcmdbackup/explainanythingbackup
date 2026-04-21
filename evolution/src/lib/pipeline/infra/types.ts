@@ -85,7 +85,9 @@ export interface EvolutionResult {
     minBudgetAfterParallelAgentMultiple?: number;
     minBudgetAfterSequentialFraction?: number;
     minBudgetAfterSequentialAgentMultiple?: number;
-    numVariants: number;
+    /** @deprecated Removed in favor of DISPATCH_SAFETY_CAP = 100 constant in code.
+     *  Kept optional for legacy run_summary rows that still carry the field. */
+    numVariants?: number;
   };
   /** Wall-clock durations (ms) of sequential-phase GFSA invocations, in dispatch order.
    *  Computed in runIterationLoop; persistRunResults derives median/avg metrics from it. */
