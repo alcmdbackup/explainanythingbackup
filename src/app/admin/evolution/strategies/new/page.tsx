@@ -10,10 +10,14 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { MODEL_OPTIONS } from '@/lib/utils/modelOptions';
 import { DEFAULT_JUDGE_MODEL } from '@/config/modelRegistry';
 import { createStrategyAction } from '@evolution/services/strategyRegistryActions';
-import { getLastUsedPromptAction, getArenaCountForPromptAction, DEFAULT_SEED_CHARS } from '@evolution/services/strategyPreviewActions';
-import type { LastUsedPromptResult } from '@evolution/services/strategyPreviewActions';
-import { TACTICS_BY_CATEGORY, TACTIC_PALETTE, DEFAULT_TACTICS } from '@evolution/lib/core/tactics';
-import { estimateAgentCost } from '@evolution/lib/pipeline/infra/estimateCosts';
+import {
+  getLastUsedPromptAction,
+  getStrategyDispatchPreviewAction,
+  DEFAULT_SEED_CHARS,
+} from '@evolution/services/strategyPreviewActions';
+import type { LastUsedPromptResult, IterationPlanEntryClient } from '@evolution/services/strategyPreviewActions';
+import { TACTICS_BY_CATEGORY, TACTIC_PALETTE } from '@evolution/lib/core/tactics';
+import { DispatchPlanView } from '@evolution/components/evolution/DispatchPlanView';
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -189,11 +193,15 @@ export default function NewStrategyPage(): JSX.Element {
   const [tacticEditorIdx, setTacticEditorIdx] = useState<number | null>(null);
 
   // Phase 3: smart-default prompt context. On mount, fetch the last-used prompt from any
-  // non-test-content run to pre-populate the arena context used by the dispatch preview.
-  // User doesn't pick a prompt here (strategies aren't prompt-bound); the selector just
-  // gives the preview an accurate arena size instead of assuming empty.
+  // non-test-content run. Strategies aren't prompt-bound; the promptId just gives the
+  // preview an accurate arena count instead of assuming empty.
   const [lastUsedPrompt, setLastUsedPrompt] = useState<LastUsedPromptResult | null>(null);
+  // Dispatch plan + its inputs. Refreshed via getStrategyDispatchPreviewAction below
+  // whenever config or prompt changes (debounced + AbortController).
+  const [dispatchPlan, setDispatchPlan] = useState<IterationPlanEntryClient[] | null>(null);
   const [arenaCount, setArenaCount] = useState<number>(0);
+  const [seedArticleChars, setSeedArticleChars] = useState<number>(DEFAULT_SEED_CHARS);
+  const [previewLoading, setPreviewLoading] = useState(false);
 
   useEffect(() => { document.title = 'New Strategy | Evolution'; }, []);
 
@@ -202,11 +210,7 @@ export default function NewStrategyPage(): JSX.Element {
     (async () => {
       const res = await getLastUsedPromptAction();
       if (cancelled) return;
-      if (res.success && res.data) {
-        setLastUsedPrompt(res.data);
-        const arena = await getArenaCountForPromptAction({ promptId: res.data.id });
-        if (!cancelled && arena.success && arena.data) setArenaCount(arena.data.arenaCount);
-      }
+      if (res.success && res.data) setLastUsedPrompt(res.data);
     })();
     return () => { cancelled = true; };
   }, []);
@@ -234,51 +238,78 @@ export default function NewStrategyPage(): JSX.Element {
   const totalPercent = iterations.reduce((sum, it) => sum + it.budgetPercent, 0);
   const percentValid = Math.abs(totalPercent - 100) < 0.01;
 
-  // Dispatch preview: reuses estimateAgentCost() from the pipeline for accurate model-aware estimates.
-  // Recalculates when budget, iteration percentages, model, or floor settings change.
-  // NOTE: Phase 4 removed per-iter maxAgents and strategy-level numVariants. Dispatch is
-  // now budget-governed with DISPATCH_SAFETY_CAP=100 as the runtime safety rail.
-  const dispatchEstimates = useMemo(() => {
-    const pFloor = form.parallelFloorValue ? parseFloat(form.parallelFloorValue) : 0;
-    const sFloor = form.sequentialFloorValue ? parseFloat(form.sequentialFloorValue) : 0;
-    const floorMode = form.budgetFloorMode;
-    const maxComp = form.maxComparisonsPerVariant ? parseInt(form.maxComparisonsPerVariant) : 15;
-    const defaultTactic = DEFAULT_TACTICS[0]!;
-    const seedChars = DEFAULT_SEED_CHARS; // 8000 chars — matches Fed-run observation (~8316)
+  // Dispatch preview via server action (Phase 3 full implementation).
+  // Debounced 300ms; AbortController cancels stale requests so rapid form edits don't
+  // land out-of-order. Replaces the previous inline estimateAgentCost memo.
+  useEffect(() => {
+    if (!form.generationModel || !form.judgeModel || iterations.length === 0) {
+      setDispatchPlan(null);
+      return;
+    }
+    const budget = parseFloat(form.budgetUsd);
+    if (!Number.isFinite(budget) || budget <= 0) {
+      setDispatchPlan(null);
+      return;
+    }
+    if (Math.abs(totalPercent - 100) >= 0.01) {
+      // Don't fire preview until percentages sum to 100 — prevents server-action validation errors.
+      return;
+    }
 
-    // Pool size for ranking cost estimate: the arena count from the most-recently-used
-    // prompt (Phase 3 smart default). If unavailable (no runs yet), treat as 1 which
-    // makes numComparisons = 0 — matches the pre-Phase-3 optimistic assumption. When the
-    // user builds a strategy against a prompt with a mature arena (e.g. Fed's 494), the
-    // preview now honestly reflects the rank-cost impact.
-    const poolSizeForPreview = arenaCount > 0 ? arenaCount + 1 : 1;
+    const pVal = form.parallelFloorValue ? parseFloat(form.parallelFloorValue) : undefined;
+    const sVal = form.sequentialFloorValue ? parseFloat(form.sequentialFloorValue) : undefined;
+    const floorFields: Record<string, number | undefined> = {};
+    if (form.budgetFloorMode === 'fraction') {
+      floorFields.minBudgetAfterParallelFraction = pVal;
+      floorFields.minBudgetAfterSequentialFraction = sVal;
+    } else {
+      floorFields.minBudgetAfterParallelAgentMultiple = pVal;
+      floorFields.minBudgetAfterSequentialAgentMultiple = sVal;
+    }
+    const maxComp = form.maxComparisonsPerVariant ? parseInt(form.maxComparisonsPerVariant) : undefined;
 
-    const estPerAgent = (form.generationModel && form.judgeModel)
-      ? estimateAgentCost(seedChars, defaultTactic, form.generationModel, form.judgeModel, poolSizeForPreview, maxComp)
-      : 0.01; // fallback if no model selected
-
-    return iterations.map(it => {
-      if (it.agentType !== 'generate') return null;
-      const iterBudget = totalBudget * (it.budgetPercent / 100);
-      const safetyCap = 100; // DISPATCH_SAFETY_CAP — defense-in-depth; budget governs in practice
-
-      const parallelFloorUsd = floorMode === 'fraction' ? iterBudget * pFloor : estPerAgent * pFloor;
-      const availForParallel = Math.max(0, iterBudget - parallelFloorUsd);
-      const uncappedParallel = Math.floor(availForParallel / estPerAgent);
-      const parallel = Math.min(safetyCap, Math.max(1, uncappedParallel));
-
-      // Detect why agent count is limited
-      const floorConstrained = uncappedParallel < 1 && pFloor > 0;
-      const safetyCapped = uncappedParallel > safetyCap;
-
-      const sequentialFloorUsd = floorMode === 'fraction' ? iterBudget * sFloor : estPerAgent * sFloor;
-      const remainAfterParallel = Math.max(0, iterBudget - parallel * estPerAgent);
-      const availForSequential = Math.max(0, remainAfterParallel - sequentialFloorUsd);
-      const sequential = Math.max(0, Math.floor(availForSequential / estPerAgent));
-
-      return { parallel, sequential, estPerAgent, iterBudget, floorConstrained, safetyCapped };
-    });
-  }, [iterations, totalBudget, form.generationModel, form.judgeModel, form.maxComparisonsPerVariant, form.parallelFloorValue, form.sequentialFloorValue, form.budgetFloorMode, arenaCount]);
+    const controller = new AbortController();
+    const timer = setTimeout(async () => {
+      if (controller.signal.aborted) return;
+      setPreviewLoading(true);
+      try {
+        const res = await getStrategyDispatchPreviewAction({
+          config: {
+            generationModel: form.generationModel,
+            judgeModel: form.judgeModel,
+            budgetUsd: budget,
+            maxComparisonsPerVariant: maxComp,
+            iterationConfigs: iterations.map((it) => ({
+              agentType: it.agentType,
+              budgetPercent: it.budgetPercent,
+              ...(it.agentType === 'generate' && it.sourceMode ? { sourceMode: it.sourceMode } : {}),
+              ...(it.agentType === 'generate' && it.sourceMode === 'pool'
+                  && it.qualityCutoffMode && it.qualityCutoffValue != null && it.qualityCutoffValue > 0
+                ? { qualityCutoff: { mode: it.qualityCutoffMode, value: it.qualityCutoffValue } }
+                : {}),
+            })),
+            ...floorFields,
+          },
+          promptId: lastUsedPrompt?.id,
+          seedArticleChars,
+        });
+        if (controller.signal.aborted) return;
+        if (res.success && res.data) {
+          setDispatchPlan(res.data.plan);
+          setArenaCount(res.data.arenaCount);
+        } else {
+          setDispatchPlan(null);
+        }
+      } finally {
+        if (!controller.signal.aborted) setPreviewLoading(false);
+      }
+    }, 300);
+    return () => { controller.abort(); clearTimeout(timer); };
+  }, [
+    form.generationModel, form.judgeModel, form.budgetUsd, form.maxComparisonsPerVariant,
+    form.parallelFloorValue, form.sequentialFloorValue, form.budgetFloorMode,
+    iterations, lastUsedPrompt, seedArticleChars, totalPercent,
+  ]);
 
   const iterationErrors = useMemo(() => {
     const errors: string[] = [];
@@ -686,21 +717,52 @@ export default function NewStrategyPage(): JSX.Element {
                   </div>
                 </div>
 
-                {/* Phase 3: smart-default prompt context banner. */}
+                {/* Phase 3: smart-default prompt context + editable seed-chars override. */}
                 <div
-                  className="p-2 rounded-page bg-[var(--surface-base)] border border-[var(--border-subtle)] text-xs font-ui text-[var(--text-muted)]"
+                  className="p-2 rounded-page bg-[var(--surface-base)] border border-[var(--border-subtle)] text-xs font-ui text-[var(--text-muted)] flex flex-wrap gap-2 items-center"
                   data-testid="wizard-prompt-context"
                 >
-                  {lastUsedPrompt ? (
-                    <>
-                      Dispatch preview uses last-used prompt <span className="text-[var(--text-primary)]">{lastUsedPrompt.name}</span>{' '}
-                      (arena size: <span className="font-mono text-[var(--text-primary)]">{arenaCount}</span> variants).{' '}
-                      Ranking cost scales with arena size — fewer agents fit the budget when the arena is large.
-                    </>
-                  ) : (
-                    <>Dispatch preview assumes empty arena (no qualifying past runs found). Runs against a mature arena will produce fewer agents per iteration than shown.</>
-                  )}
+                  <span>
+                    {lastUsedPrompt ? (
+                      <>
+                        Preview uses prompt <span className="text-[var(--text-primary)]">{lastUsedPrompt.name}</span>{' '}
+                        (arena size: <span className="font-mono text-[var(--text-primary)]">{arenaCount}</span>).
+                      </>
+                    ) : (
+                      <>Preview assumes empty arena (no qualifying past runs).</>
+                    )}
+                  </span>
+                  <span className="inline-flex items-center gap-1 ml-auto">
+                    <span>Seed chars:</span>
+                    <input
+                      type="number"
+                      min={100}
+                      max={100000}
+                      step={500}
+                      value={seedArticleChars}
+                      onChange={(e) => {
+                        const v = parseInt(e.target.value);
+                        if (Number.isFinite(v) && v >= 100) setSeedArticleChars(v);
+                      }}
+                      className="w-20 px-1.5 py-0.5 text-xs font-mono bg-[var(--surface-primary)] border border-[var(--border-default)] rounded-page text-[var(--text-primary)] text-right focus:border-[var(--accent-gold)] focus:outline-none"
+                      data-testid="wizard-seed-chars"
+                    />
+                  </span>
                 </div>
+
+                {/* Phase 6b: shared DispatchPlanView renders the full per-iteration plan. */}
+                {dispatchPlan && dispatchPlan.length > 0 && (
+                  <div className="p-2 rounded-page bg-[var(--surface-base)] border border-[var(--border-subtle)]">
+                    <DispatchPlanView
+                      plan={dispatchPlan}
+                      variant="wizard"
+                      totalBudgetUsd={totalBudget}
+                    />
+                    {previewLoading && (
+                      <p className="text-xs font-ui text-[var(--text-muted)] italic mt-1">Updating preview…</p>
+                    )}
+                  </div>
+                )}
 
                 {iterations.map((it, idx) => {
                   const dollarAmount = totalBudget * (it.budgetPercent / 100);
@@ -741,27 +803,8 @@ export default function NewStrategyPage(): JSX.Element {
                         = ${dollarAmount.toFixed(2)}
                       </span>
 
-                      {/* Dispatch preview — recalculates on budget, percent, or floor changes.
-                          Phase 4 removed per-iter maxAgents; dispatch is budget-governed with
-                          DISPATCH_SAFETY_CAP=100 as a defense-in-depth rail. */}
-                      {it.agentType === 'generate' && dispatchEstimates[idx] && (() => {
-                        const est = dispatchEstimates[idx]!;
-                        const constraint = est.floorConstrained
-                          ? 'budget floor limits parallel dispatch'
-                          : est.safetyCapped
-                            ? 'capped at safety limit (100 agents/iter)'
-                            : null;
-                        return (
-                          <span
-                            className={`text-xs font-ui ml-2 shrink-0 ${est.floorConstrained ? 'text-[var(--status-warning)]' : 'text-[var(--text-muted)]'}`}
-                            data-testid={`dispatch-preview-${idx}`}
-                            title={`$${est.iterBudget.toFixed(2)} iteration budget · $${est.estPerAgent.toFixed(2)}/agent est. · ${est.parallel} parallel${est.sequential > 0 ? ` + ${est.sequential} sequential` : ''}${constraint ? ` · ${constraint}` : ''}`}
-                          >
-                            {est.parallel} parallel{est.sequential > 0 ? ` + ${est.sequential} sequential` : ''}
-                            {est.floorConstrained && ' ⚠'}
-                          </span>
-                        );
-                      })()}
+                      {/* Per-row dispatch preview removed in Phase 6 — now consolidated into the
+                          DispatchPlanView component rendered below the iteration list. */}
 
                       <button
                         type="button"

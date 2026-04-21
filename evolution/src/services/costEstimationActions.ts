@@ -6,9 +6,50 @@
 
 import { adminAction, type AdminContext } from './adminAction';
 import { z } from 'zod';
-import { projectDispatchCounts } from '@evolution/lib/pipeline/loop/projectDispatchCount';
 import { DISPATCH_SAFETY_CAP } from '@evolution/lib/pipeline/loop/projectDispatchPlan';
+import { resolveParallelFloor, resolveSequentialFloor, type BudgetFloorConfig } from '@evolution/lib/pipeline/loop/budgetFloorResolvers';
 import { COST_ERROR_HISTOGRAM_BUCKETS } from './costEstimationConstants';
+
+// ─── Inline dispatch-count projection (replaces projectDispatchCount.ts) ────────
+// Used only by Budget Floor Sensitivity's "what if agent cost matched actuals from the
+// start?" two-step projection. Matches the original projectDispatchCount() math exactly;
+// formerly lived in evolution/src/lib/pipeline/loop/projectDispatchCount.ts but was
+// inlined here in the final Phase 2 cleanup since this is the sole remaining caller.
+interface ProjectDispatchCountsInput {
+  totalBudget: number;
+  numVariants: number;
+  agentCost: number;
+  sequentialStartingBudget: number;
+  floorConfig: BudgetFloorConfig;
+}
+interface ProjectDispatchCounts {
+  parallelFloor: number;
+  parallelBudget: number;
+  parallelDispatched: number;
+  sequentialFloor: number;
+  sequentialDispatched: number;
+}
+function projectDispatchCounts(input: ProjectDispatchCountsInput): ProjectDispatchCounts {
+  const EMPTY = { parallelFloor: 0, parallelBudget: 0, parallelDispatched: 0, sequentialFloor: 0, sequentialDispatched: 0 };
+  if (!Number.isFinite(input.agentCost) || input.agentCost <= 0) return EMPTY;
+  if (!Number.isFinite(input.totalBudget) || input.totalBudget <= 0) return EMPTY;
+  if (!Number.isFinite(input.numVariants) || input.numVariants <= 0) return EMPTY;
+
+  const parallelFloor = resolveParallelFloor(input.floorConfig, input.totalBudget, input.agentCost);
+  const parallelBudget = Math.max(0, input.totalBudget - parallelFloor);
+  const maxAffordable = Math.max(1, Math.floor(parallelBudget / input.agentCost));
+  const parallelDispatched = Math.min(input.numVariants, maxAffordable);
+
+  const sequentialFloor = resolveSequentialFloor(input.floorConfig, input.totalBudget, input.agentCost, input.agentCost);
+  const startingBudget = Number.isFinite(input.sequentialStartingBudget) && input.sequentialStartingBudget > 0
+    ? input.sequentialStartingBudget : 0;
+  const sequentialCapacity = (startingBudget - sequentialFloor) / input.agentCost;
+  const sequentialByBudget = sequentialCapacity > 0 ? Math.floor(sequentialCapacity) : 0;
+  const sequentialCeiling = Math.max(0, input.numVariants - parallelDispatched);
+  const sequentialDispatched = Math.min(sequentialByBudget, sequentialCeiling);
+
+  return { parallelFloor, parallelBudget, parallelDispatched, sequentialFloor, sequentialDispatched };
+}
 
 // ─── Types ───────────────────────────────────────────────────────
 

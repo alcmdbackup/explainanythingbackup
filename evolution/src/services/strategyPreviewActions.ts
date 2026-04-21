@@ -157,3 +157,110 @@ export const getArenaCountForPromptAction = adminAction(
 /** Re-export DEFAULT_SEED_CHARS so the wizard can consume it without importing from the
  *  pipeline loop directly (keeps wizard→server-action→pipeline boundary clean). */
 export { DEFAULT_SEED_CHARS };
+
+// ─── Unified dispatch preview server action ─────────────────────────
+
+const dispatchPreviewInputSchema = z.object({
+  /** Strategy config payload. We accept the fields projectDispatchPlan needs, mirror
+   *  what createStrategyAction expects, and tolerate extra keys for forward-compat. */
+  config: z.object({
+    generationModel: z.string(),
+    judgeModel: z.string(),
+    budgetUsd: z.number().positive(),
+    maxComparisonsPerVariant: z.number().int().positive().optional(),
+    iterationConfigs: z.array(z.object({
+      agentType: z.enum(['generate', 'swiss']),
+      budgetPercent: z.number().min(1).max(100),
+      sourceMode: z.enum(['seed', 'pool']).optional(),
+      qualityCutoff: z.object({ mode: z.enum(['topN', 'topPercent']), value: z.number().positive() }).optional(),
+      generationGuidance: z.array(z.unknown()).optional(),
+    })).min(1).max(20),
+    minBudgetAfterParallelFraction: z.number().min(0).max(1).optional(),
+    minBudgetAfterParallelAgentMultiple: z.number().min(0).optional(),
+    minBudgetAfterSequentialFraction: z.number().min(0).max(1).optional(),
+    minBudgetAfterSequentialAgentMultiple: z.number().min(0).optional(),
+    generationGuidance: z.array(z.unknown()).optional(),
+  }).passthrough(),
+  /** Optional prompt to source arena size from. When null/omitted the preview assumes
+   *  an empty arena (initialPoolSize=0). */
+  promptId: z.string().uuid().optional(),
+  /** Optional seed article length override. Defaults to DEFAULT_SEED_CHARS. */
+  seedArticleChars: z.number().int().min(100).max(100000).optional(),
+});
+
+export interface DispatchPreviewResult {
+  plan: IterationPlanEntryClient[];
+  arenaCount: number;
+  seedArticleChars: number;
+  promptName: string | null;
+}
+
+/** Serializable snapshot of IterationPlanEntry for client consumption. Matches the
+ *  shape of IterationPlanEntry exactly — re-declared here because the server action
+ *  cannot export the pipeline type directly without leaking server-only imports. */
+export interface IterationPlanEntryClient {
+  iterIdx: number;
+  agentType: 'generate' | 'swiss';
+  iterBudgetUsd: number;
+  tactic: string;
+  estPerAgent: {
+    expected: { gen: number; rank: number; total: number };
+    upperBound: { gen: number; rank: number; total: number };
+  };
+  maxAffordable: { atExpected: number; atUpperBound: number };
+  dispatchCount: number;
+  effectiveCap: 'budget' | 'safety_cap' | 'floor' | 'swiss';
+  poolSizeAtStart: number;
+  parallelFloorUsd: number;
+}
+
+/**
+ * Unified dispatch-plan preview for the wizard. Calls projectDispatchPlan with either
+ * the selected prompt's arena count (when promptId given) or 0 (empty arena assumption).
+ * Returns the full plan + the inputs used so the UI can display them with source labels.
+ */
+export const getStrategyDispatchPreviewAction = adminAction(
+  'getStrategyDispatchPreview',
+  async (
+    input: z.input<typeof dispatchPreviewInputSchema>,
+    ctx: AdminContext,
+  ): Promise<DispatchPreviewResult> => {
+    const parsed = dispatchPreviewInputSchema.parse(input);
+
+    // Arena count — 0 when no promptId; queries evolution_variants otherwise.
+    let arenaCount = 0;
+    let promptName: string | null = null;
+    if (parsed.promptId) {
+      const [{ count }, { data: promptRow }] = await Promise.all([
+        ctx.supabase
+          .from('evolution_variants')
+          .select('id', { count: 'exact', head: true })
+          .eq('prompt_id', parsed.promptId)
+          .eq('synced_to_arena', true)
+          .is('archived_at', null),
+        ctx.supabase
+          .from('evolution_prompts')
+          .select('name')
+          .eq('id', parsed.promptId)
+          .maybeSingle(),
+      ]);
+      arenaCount = count ?? 0;
+      promptName = (promptRow as { name?: string } | null)?.name ?? null;
+    }
+
+    const seedChars = parsed.seedArticleChars ?? DEFAULT_SEED_CHARS;
+
+    // Import the pipeline helper lazily so this server action module doesn't pull the
+    // entire pipeline graph into the Next.js server bundle.
+    const { projectDispatchPlan } = await import('../lib/pipeline/loop/projectDispatchPlan');
+    const { DEFAULT_TACTICS } = await import('../lib/core/tactics');
+
+    const plan = projectDispatchPlan(parsed.config as Parameters<typeof projectDispatchPlan>[0], {
+      seedChars,
+      initialPoolSize: arenaCount,
+      tactics: [...DEFAULT_TACTICS],
+    });
+
+    return { plan, arenaCount, seedArticleChars: seedChars, promptName };
+  },
+);
