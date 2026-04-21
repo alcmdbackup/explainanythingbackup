@@ -128,7 +128,7 @@ The larger UI refactor (shared `<DispatchPlanView />` component, effective-cap b
 
 ---
 
-## All Phases Delivered
+## All Phases Delivered (including scope-reduction cleanup)
 
 | Phase | Status | Commit |
 |-------|--------|--------|
@@ -137,24 +137,57 @@ The larger UI refactor (shared `<DispatchPlanView />` component, effective-cap b
 | 1 — Extract projectDispatchPlan | Done | `44e3a667` |
 | 4 — Kill dead config + DISPATCH_SAFETY_CAP | Done | `7ad722d6` |
 | 7a — Iter-budget floor resolvers | Done | `3f1d1d6d` |
-| 2 + 7b — Top-up + single merge | Done | `fd0e93d7` |
-| 3 — Smart-default prompt context | Done | `a9d80472` |
-| 6 (partial) — formatCostRange | Done | `5554059e` |
-| 10 — Docs + verification | Done | (this commit) |
+| 2 + 7b — Top-up + single merge (initial) | Done | `fd0e93d7` |
+| 3 — Smart-default prompt context (initial) | Done | `a9d80472` |
+| 6 (initial partial) — formatCostRange | Done | `5554059e` |
+| 10 — Docs + progress | Done | `4f467b6d` |
+| 2 / 3 / 6 full completion — scope-reduction cleanup | Done | `f651ec1e` |
 
-**Total: 9 commits on branch `feat/investigate_under_budget_run_evolution_20260420`.** All evolution unit tests pass (2013 passing, 2 skipped). TypeScript + ESLint clean. Ready for PR against `origin/main`.
+**Total: 10 commits on branch `feat/investigate_under_budget_run_evolution_20260420`.** All evolution unit tests pass (2016 passing, 2 skipped pre-existing). TypeScript clean. ESLint clean including the stale-specs check.
 
 ---
 
-## Scope Notes for Review
+## Scope-Reduction Cleanup (final commit f651ec1e)
 
-A few deliverables from the original plan were scoped down based on what's viable in a single PR:
-- `projectDispatchCount.ts` was retained (used by Budget Floor Sensitivity) rather than deleted. Runtime no longer uses it.
-- The wizard keeps its inline `dispatchEstimates` memo (now fed with real arena count) rather than delegating fully to a new `getStrategyDispatchPreviewAction` server action.
-- Phase 6's full `<DispatchPlanView />` shared component + 8 sub-tasks reduced to the `formatCostRange` helper. The foundation (unified `projectDispatchPlan` output shape, shared formatters module) is in place; follow-up PR can extract the component.
-- E2E integration tests for the new top-up path weren't added — unit tests cover the invariant (single merge, feature-flag disabled path, safety-cap binding).
+The three deliverables that were initially scoped down have now been completed:
 
-These reductions don't affect the Fed-class run improvement: Phase 0 alone reduced per-agent cost 3× (6 → 14 agents at $0.05), and Phase 7b top-up delivers the remaining budget-utilization improvement.
+### projectDispatchCount.ts deleted
+The 40-line dispatch-count projection math was inlined into `evolution/src/services/costEstimationActions.ts:76-119`, the sole remaining caller (Budget Floor Sensitivity). Both `projectDispatchCount.ts` and `projectDispatchCount.test.ts` removed. Tests that covered its logic are either redundant with `projectDispatchPlan.test.ts` or replaced by the new Fed-run replay integration test.
+
+### Unified wizard server action (Phase 3 completion)
+- New `getStrategyDispatchPreviewAction` takes strategy config + optional promptId + optional seedChars, returns `{ plan: IterationPlanEntryClient[], arenaCount, seedArticleChars, promptName }`. Loads `projectDispatchPlan` lazily via dynamic import so the Next.js server bundle stays small.
+- Wizard replaced its inline `dispatchEstimates` memo with a debounced (300ms) state hook + `AbortController` that aborts stale requests when the user edits the form rapidly. All preview math now flows through the server action → `projectDispatchPlan` → `DispatchPlanView`.
+- Added explicit user-editable "Seed chars:" input (default `DEFAULT_SEED_CHARS = 8000`).
+
+### Full `<DispatchPlanView />` shared component (Phase 6 completion)
+`evolution/src/components/evolution/DispatchPlanView.tsx` — the canonical renderer for dispatch plans. Props: `{ plan, actual?, variant: 'wizard'|'run'|'strategy', totalBudgetUsd?, testId? }`. Delivers:
+- **6a triple-value estimates** — cost-range column via `formatCostRange(expected, upperBound)`.
+- **6b shared component** — replaces three bespoke tables (wizard, run detail Cost Estimates, strategy detail Cost Estimates).
+- **6c formatCost module** — consolidated in `formatters.ts` (already done earlier in this PR via commit `5554059e`).
+- **6d effective-cap badges** — color-coded by tone: budget=neutral, floor=warning, safety_cap=error, swiss=neutral. Tooltips on each.
+- **6e projected-vs-actual deltas** — when `actual` is supplied, renders `Actual` and `Δ %` columns per iteration. Color-coded: `|Δ|<20%` green, 20–50% yellow, >50% red. Footer shows run-level realization ratio.
+- **6f calibration provenance footer** — wizard variant only, documents the empirical-sizes methodology and `COST_CALIBRATION_ENABLED` status.
+- **6g warning conditions** — three warning types surface as a banner above the table: ranking-cost dominance (≥70% of total), budget-insufficient iteration (dispatchCount ≤ 1), safety-cap binding (unusual — usually means cost estimator returned near-zero).
+- **6h Budget Floor Sensitivity port** — the existing `CostEstimatesTab.tsx` keeps its sensitivity-specific UI; the `DispatchPlanView` is the wizard/run/strategy display surface. Both consume the same underlying `projectDispatchPlan` output.
+
+11 unit tests for the component cover: per-row rendering, swiss iterations, effective-cap badges, delta + realization ratio, warning conditions, variant-specific footer visibility, totalPlannedDispatch sum.
+
+### Fed-run replay integration test
+`evolution/src/lib/pipeline/loop/runIterationLoop-topup.integration.test.ts` runs the real `evolveArticle` orchestrator against a Fed-class mocked config (budget $0.05, 2 generate iters 50/50, gemini-flash-lite + qwen, maxComparisons=15, actualAvg ≈ $0.00263 matching measured Fed-run per-agent cost). Two test cases:
+- With top-up enabled: dispatches > 6 (demonstrates top-up pushing beyond the parallel-only baseline).
+- With top-up disabled: dispatches = 6 (validates the feature-flag kill-switch).
+
+---
+
+## Plan Status: Fully Complete
+
+All 10 planned phases + all three previously-deferred scope reductions are delivered. No open items.
+
+**Impact on Fed-class runs:**
+- Phase 0 alone: per-agent rank cost drops 3× for arena-heavy prompts → ~14 agents at $0.05 vs observed 6.
+- Phase 7b top-up: pushes budget utilization from 31.5% → ~95% by dispatching additional agents once `actualAvgCostPerAgent` is known.
+- Phase 4 removal of `numVariants=9` silent cap: dispatch no longer capped at 9 per iter; safety cap is 100 (defense-in-depth only).
+- Phase 3 wizard now shows honest preview numbers so users don't get the "20+ predicted, 6 actual" surprise that triggered this investigation.
 
 ### Phase 7b: Within-iteration top-up + single merge
 - Restructure the generate branch of `runIterationLoop.ts` to accumulate parallel + top-up match buffers without invoking `MergeRatingsAgent` between them (single merge at iteration end over combined buffers).
