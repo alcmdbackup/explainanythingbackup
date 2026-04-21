@@ -84,7 +84,9 @@ export class CreateSeedArticleAgent extends Agent<
     const localMatchCounts = new Map(initialMatchCounts);
     const completedPairs = new Set<string>();
     const model = ctx.config.generationModel as LLMCompletionOptions['model'];
-    const costBeforeGen = ctx.costTracker.getTotalSpent();
+    // Use scope's ownSpent when available (Bug B fix — parallel-safe cost attribution).
+    // Falls back to total-spent delta for callers that still pass an unscoped tracker.
+    const costBeforeGen = ctx.costTracker.getOwnSpent?.() ?? ctx.costTracker.getTotalSpent();
 
     const makeGenerationErrorDetail = (
       err: unknown,
@@ -113,7 +115,7 @@ export class CreateSeedArticleAgent extends Agent<
       );
       if (!title) title = promptText.slice(0, 100);
     } catch (err) {
-      const generationCost = ctx.costTracker.getTotalSpent() - costBeforeGen;
+      const generationCost = (ctx.costTracker.getOwnSpent?.() ?? ctx.costTracker.getTotalSpent()) - costBeforeGen;
       const detail = makeGenerationErrorDetail(err, generationCost);
       const status = err instanceof BudgetExceededError ? 'budget' : 'generation_failed';
       return { result: { variant: null, status, surfaced: false, matches: [] }, detail };
@@ -128,7 +130,7 @@ export class CreateSeedArticleAgent extends Agent<
         { model, invocationId: ctx.invocationId },
       );
     } catch (err) {
-      const generationCost = ctx.costTracker.getTotalSpent() - costBeforeGen;
+      const generationCost = (ctx.costTracker.getOwnSpent?.() ?? ctx.costTracker.getTotalSpent()) - costBeforeGen;
       const detail = makeGenerationErrorDetail(err, generationCost, { titleLength: title.length });
       const status = err instanceof BudgetExceededError ? 'budget' : 'generation_failed';
       return { result: { variant: null, status, surfaced: false, matches: [] }, detail };
@@ -139,7 +141,7 @@ export class CreateSeedArticleAgent extends Agent<
     // in the persisted seed (e.g. "# Fed\n\n# Fed\n\n…"). 2026-04-14.
     const articleBody = articleContent.replace(/^\s*#\s+[^\n]*\n+/, '');
     const content = `# ${title}\n\n${articleBody}`;
-    const generationCost = ctx.costTracker.getTotalSpent() - costBeforeGen;
+    const generationCost = (ctx.costTracker.getOwnSpent?.() ?? ctx.costTracker.getTotalSpent()) - costBeforeGen;
 
     const fmt = validateFormat(content);
     if (!fmt.valid) {
