@@ -20,6 +20,20 @@ export function formatCostMicro(usd: number | null | undefined): string {
   return `$${usd.toFixed(4)}`;
 }
 
+/** Format an expected/upper-bound cost range as "$0.003 – $0.007" (Phase 6a triple-value
+ *  estimates). Used by the wizard preview and Cost Estimates tab to communicate that the
+ *  dispatch gate reserves the upper bound while display reflects the likely outcome. */
+export function formatCostRange(
+  expected: number | null | undefined,
+  upperBound: number | null | undefined,
+): string {
+  if (expected == null || upperBound == null || isNaN(expected) || isNaN(upperBound)) return '—';
+  // When they collapse to the same value (e.g. swiss iterations with no per-agent cost),
+  // render a single value rather than an identical range.
+  if (Math.abs(expected - upperBound) < 1e-6) return formatCostMicro(expected);
+  return `${formatCostMicro(expected)} – ${formatCostMicro(upperBound)}`;
+}
+
 /** Format Elo score — integer, no decimals. */
 export function formatElo(score: number | null | undefined): string {
   if (score == null || isNaN(score)) return '—';
