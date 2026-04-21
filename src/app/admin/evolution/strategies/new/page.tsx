@@ -10,6 +10,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { MODEL_OPTIONS } from '@/lib/utils/modelOptions';
 import { DEFAULT_JUDGE_MODEL } from '@/config/modelRegistry';
 import { createStrategyAction } from '@evolution/services/strategyRegistryActions';
+import { getLastUsedPromptAction, getArenaCountForPromptAction, DEFAULT_SEED_CHARS } from '@evolution/services/strategyPreviewActions';
+import type { LastUsedPromptResult } from '@evolution/services/strategyPreviewActions';
 import { TACTICS_BY_CATEGORY, TACTIC_PALETTE, DEFAULT_TACTICS } from '@evolution/lib/core/tactics';
 import { estimateAgentCost } from '@evolution/lib/pipeline/infra/estimateCosts';
 
@@ -186,7 +188,28 @@ export default function NewStrategyPage(): JSX.Element {
   const [iterations, setIterations] = useState<IterationRow[]>([...DEFAULT_ITERATIONS]);
   const [tacticEditorIdx, setTacticEditorIdx] = useState<number | null>(null);
 
+  // Phase 3: smart-default prompt context. On mount, fetch the last-used prompt from any
+  // non-test-content run to pre-populate the arena context used by the dispatch preview.
+  // User doesn't pick a prompt here (strategies aren't prompt-bound); the selector just
+  // gives the preview an accurate arena size instead of assuming empty.
+  const [lastUsedPrompt, setLastUsedPrompt] = useState<LastUsedPromptResult | null>(null);
+  const [arenaCount, setArenaCount] = useState<number>(0);
+
   useEffect(() => { document.title = 'New Strategy | Evolution'; }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const res = await getLastUsedPromptAction();
+      if (cancelled) return;
+      if (res.success && res.data) {
+        setLastUsedPrompt(res.data);
+        const arena = await getArenaCountForPromptAction({ promptId: res.data.id });
+        if (!cancelled && arena.success && arena.data) setArenaCount(arena.data.arenaCount);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   const updateForm = useCallback((patch: Partial<StrategyFormState>) => {
     setForm(prev => ({ ...prev, ...patch }));
@@ -221,10 +244,17 @@ export default function NewStrategyPage(): JSX.Element {
     const floorMode = form.budgetFloorMode;
     const maxComp = form.maxComparisonsPerVariant ? parseInt(form.maxComparisonsPerVariant) : 15;
     const defaultTactic = DEFAULT_TACTICS[0]!;
-    const seedChars = 5000; // typical seed article length for preview
+    const seedChars = DEFAULT_SEED_CHARS; // 8000 chars — matches Fed-run observation (~8316)
+
+    // Pool size for ranking cost estimate: the arena count from the most-recently-used
+    // prompt (Phase 3 smart default). If unavailable (no runs yet), treat as 1 which
+    // makes numComparisons = 0 — matches the pre-Phase-3 optimistic assumption. When the
+    // user builds a strategy against a prompt with a mature arena (e.g. Fed's 494), the
+    // preview now honestly reflects the rank-cost impact.
+    const poolSizeForPreview = arenaCount > 0 ? arenaCount + 1 : 1;
 
     const estPerAgent = (form.generationModel && form.judgeModel)
-      ? estimateAgentCost(seedChars, defaultTactic, form.generationModel, form.judgeModel, 1, maxComp)
+      ? estimateAgentCost(seedChars, defaultTactic, form.generationModel, form.judgeModel, poolSizeForPreview, maxComp)
       : 0.01; // fallback if no model selected
 
     return iterations.map(it => {
@@ -248,7 +278,7 @@ export default function NewStrategyPage(): JSX.Element {
 
       return { parallel, sequential, estPerAgent, iterBudget, floorConstrained, safetyCapped };
     });
-  }, [iterations, totalBudget, form.generationModel, form.judgeModel, form.maxComparisonsPerVariant, form.parallelFloorValue, form.sequentialFloorValue, form.budgetFloorMode]);
+  }, [iterations, totalBudget, form.generationModel, form.judgeModel, form.maxComparisonsPerVariant, form.parallelFloorValue, form.sequentialFloorValue, form.budgetFloorMode, arenaCount]);
 
   const iterationErrors = useMemo(() => {
     const errors: string[] = [];
@@ -654,6 +684,22 @@ export default function NewStrategyPage(): JSX.Element {
                       + Add Iteration
                     </button>
                   </div>
+                </div>
+
+                {/* Phase 3: smart-default prompt context banner. */}
+                <div
+                  className="p-2 rounded-page bg-[var(--surface-base)] border border-[var(--border-subtle)] text-xs font-ui text-[var(--text-muted)]"
+                  data-testid="wizard-prompt-context"
+                >
+                  {lastUsedPrompt ? (
+                    <>
+                      Dispatch preview uses last-used prompt <span className="text-[var(--text-primary)]">{lastUsedPrompt.name}</span>{' '}
+                      (arena size: <span className="font-mono text-[var(--text-primary)]">{arenaCount}</span> variants).{' '}
+                      Ranking cost scales with arena size — fewer agents fit the budget when the arena is large.
+                    </>
+                  ) : (
+                    <>Dispatch preview assumes empty arena (no qualifying past runs found). Runs against a mature arena will produce fewer agents per iteration than shown.</>
+                  )}
                 </div>
 
                 {iterations.map((it, idx) => {
