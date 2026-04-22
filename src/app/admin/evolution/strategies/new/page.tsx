@@ -864,6 +864,13 @@ export default function NewStrategyPage(): JSX.Element {
                         data-testid={`iteration-source-controls-${idx}`}
                       >
                         <span className="text-[var(--text-muted)]">Source:</span>
+                        {/* `?? 'seed'` / `?? 'topN'` / `?? ''` are defensive no-ops:
+                            updateIteration (line 395-426) guarantees these fields are
+                            defined on every generate row. The fallbacks exist only to
+                            keep the select/input controlled when TS's optional-field
+                            typing would otherwise produce value={undefined}. The Bug 1
+                            invariant (qualityCutoffMode always set when sourceMode=pool)
+                            is pinned by page.test.tsx's "pool-mode auto-default" tests. */}
                         <select
                           value={it.sourceMode ?? 'seed'}
                           onChange={e => updateIteration(idx, { sourceMode: e.target.value as 'seed' | 'pool' })}

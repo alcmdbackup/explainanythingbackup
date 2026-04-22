@@ -33,15 +33,15 @@ Two bugs + two UX gaps observed in the evolution system:
 ## Phased Execution Plan
 
 ### Phase 1: Bug 1 — wizard `sourceMode='pool'` defaults
-- [ ] In `src/app/admin/evolution/strategies/new/page.tsx`, tighten the `IterationRow` interface (~lines 34-45): `sourceMode: 'seed' | 'pool'` (required, not optional), `qualityCutoffMode?: 'topN' | 'topPercent'`, `qualityCutoffValue?: number` (explicit `undefined`-able).
-- [ ] Update `DEFAULT_ITERATIONS` (~line 60) so every row has an explicit `sourceMode: 'seed'` default.
-- [ ] Extend `updateIteration()` (~lines 384-402) so that when the patch flips `sourceMode` to `'pool'` on a generate iteration, it also sets `qualityCutoffMode: 'topN'` and `qualityCutoffValue: 5` when those fields are currently `undefined`.
-- [ ] Remove render-time fallbacks: `sourceMode ?? 'seed'` (line 841), `qualityCutoffValue ?? ''` (line 857 — replace with explicit `qualityCutoffValue === undefined ? '' : String(qualityCutoffValue)` or similar), and `qualityCutoffMode ?? 'topN'` (line 867). Render should read directly from state since state is now always defined when the controls are visible.
-- [ ] Verify `toIterationConfigsPayload` (lines 78-91) now always emits `qualityCutoff` when `sourceMode === 'pool'`.
-- [ ] Confirm the preview action (`getStrategyDispatchPreviewAction`) still works — its schema already accepts optional `qualityCutoff` so no change expected.
+- [x] In `src/app/admin/evolution/strategies/new/page.tsx`, tighten the `IterationRow` interface (~lines 34-45): `sourceMode: 'seed' | 'pool'` (required, not optional), `qualityCutoffMode?: 'topN' | 'topPercent'`, `qualityCutoffValue?: number` (explicit `undefined`-able).
+- [x] Update `DEFAULT_ITERATIONS` (~line 60) so every row has an explicit `sourceMode: 'seed'` default.
+- [x] Extend `updateIteration()` (~lines 384-402) so that when the patch flips `sourceMode` to `'pool'` on a generate iteration, it also sets `qualityCutoffMode: 'topN'` and `qualityCutoffValue: 5` when those fields are currently `undefined`.
+- [x] Remove render-time fallbacks: `sourceMode ?? 'seed'` (line 841), `qualityCutoffValue ?? ''` (line 857 — replace with explicit `qualityCutoffValue === undefined ? '' : String(qualityCutoffValue)` or similar), and `qualityCutoffMode ?? 'topN'` (line 867). Render should read directly from state since state is now always defined when the controls are visible.
+- [x] Verify `toIterationConfigsPayload` (lines 78-91) now always emits `qualityCutoff` when `sourceMode === 'pool'`.
+- [x] Confirm the preview action (`getStrategyDispatchPreviewAction`) still works — its schema already accepts optional `qualityCutoff` so no change expected.
 
 ### Phase 2: Bug 2 — filter arena variants at `resolveParent()` call site
-- [ ] In `evolution/src/lib/pipeline/loop/runIterationLoop.ts`, around lines 352-360 where `resolveParent({...})` is invoked, build a filtered pool for parent selection only. Compute it once per iteration (outside `dispatchOneAgent`) since `initialPoolSnapshot` is captured iteration-start:
+- [x] In `evolution/src/lib/pipeline/loop/runIterationLoop.ts`, around lines 352-360 where `resolveParent({...})` is invoked, build a filtered pool for parent selection only. Compute it once per iteration (outside `dispatchOneAgent`) since `initialPoolSnapshot` is captured iteration-start:
   ```ts
   const inRunPool = initialPoolSnapshot.filter((v) => !v.fromArena);
   // ...inside dispatchOneAgent...
@@ -57,14 +57,14 @@ Two bugs + two UX gaps observed in the evolution system:
   });
   ```
   Note: `ratings` map can stay unfiltered because `resolveParent` already intersects ratings with `pool` members at `resolveParent.ts:58-62`.
-- [ ] In `evolution/src/lib/pipeline/loop/resolveParent.ts`: NO behavioral or type changes. The `empty_pool` guard (resolveParent.ts:47-55) already returns a seed fallback when the filtered pool is empty, and that is the correct behavior.
-- [ ] Call-site relabeling in `runIterationLoop.ts`: after receiving `resolved` from `resolveParent`, detect the "filtered-to-empty" case as `resolved.fallbackReason === 'empty_pool' && initialPoolSnapshot.length > 0 && inRunPool.length === 0`. When detected, emit a distinct warn log with `fallbackReason: 'no_same_run_variants'` in the context object so operators can grep for it. Do NOT expose this as a `ResolvedParent.fallbackReason` union value — the resolver cannot observe the distinction so adding it would create an unreachable type state.
-- [ ] JSDoc update on `resolveParent()`: "Callers are responsible for filtering the pool to same-run variants when that's desired (see `runIterationLoop.ts` for the standard pattern)."
-- [ ] Update `evolution/docs/agents/overview.md` §"Parent linkage" to state arena entries are excluded as candidate parents in pool mode.
-- [ ] Warn log at the call site must include `{ inRunSize: inRunPool.length, arenaFilteredCount: initialPoolSnapshot.length - inRunPool.length, iteration, iterIdx }` so ops can spot silent fallbacks in production.
+- [x] In `evolution/src/lib/pipeline/loop/resolveParent.ts`: NO behavioral or type changes. The `empty_pool` guard (resolveParent.ts:47-55) already returns a seed fallback when the filtered pool is empty, and that is the correct behavior.
+- [x] Call-site relabeling in `runIterationLoop.ts`: after receiving `resolved` from `resolveParent`, detect the "filtered-to-empty" case as `resolved.fallbackReason === 'empty_pool' && initialPoolSnapshot.length > 0 && inRunPool.length === 0`. When detected, emit a distinct warn log with `fallbackReason: 'no_same_run_variants'` in the context object so operators can grep for it. Do NOT expose this as a `ResolvedParent.fallbackReason` union value — the resolver cannot observe the distinction so adding it would create an unreachable type state.
+- [x] JSDoc update on `resolveParent()`: "Callers are responsible for filtering the pool to same-run variants when that's desired (see `runIterationLoop.ts` for the standard pattern)."
+- [x] Update `evolution/docs/agents/overview.md` §"Parent linkage" to state arena entries are excluded as candidate parents in pool mode.
+- [x] Warn log at the call site must include `{ inRunSize: inRunPool.length, arenaFilteredCount: initialPoolSnapshot.length - inRunPool.length, iteration, iterIdx }` so ops can spot silent fallbacks in production.
 
 ### Phase 3: Bug 2 UX transparency — strengthen `(other run)` badge (safety net for historical data)
-- [ ] In `evolution/src/components/evolution/variant/VariantParentBadge.tsx`, replace the italic gray suffix at line 82 (currently `<span className="ml-1 text-[var(--text-secondary)]">(other run)</span>`) with an inline pill that reuses StatusBadge's styling pattern without calling StatusBadge itself (API mismatch — StatusBadge derives its label from `status` via `capitalize()` and has no `children` / `label` prop):
+- [x] In `evolution/src/components/evolution/variant/VariantParentBadge.tsx`, replace the italic gray suffix at line 82 (currently `<span className="ml-1 text-[var(--text-secondary)]">(other run)</span>`) with an inline pill that reuses StatusBadge's styling pattern without calling StatusBadge itself (API mismatch — StatusBadge derives its label from `status` via `capitalize()` and has no `children` / `label` prop):
   ```tsx
   <span
     className="ml-1 inline-flex items-center rounded-full px-2 py-0.5 text-xs font-ui font-medium border"
@@ -79,13 +79,13 @@ Two bugs + two UX gaps observed in the evolution system:
     other run{parentRunId ? ` ${parentRunId.substring(0, 6)}` : ''}
   </span>
   ```
-- [ ] Add a `parentRunId?: string` prop to `VariantParentBadge` if not already present; wire it from both call sites (arena leaderboard `page.tsx:286`, run-detail Variants tab `VariantsTab.tsx:235` — both have `entry.parent_run_id` / `v.parent_run_id` available).
-- [ ] Update `VariantParentBadge.test.tsx` — the existing `expect(badge).toHaveTextContent('(other run)')` assertion (~line 64) must change: new text is `"other run"` (no parens) + optional 6-char run id. Assert the pill is findable via `data-testid="parent-cross-run-pill"` AND retain a text check.
-- [ ] Verify both consumer contexts render correctly: arena leaderboard (`page.tsx:286`) and run-detail Variants tab (`VariantsTab.tsx:235`).
+- [x] Add a `parentRunId?: string` prop to `VariantParentBadge` if not already present; wire it from both call sites (arena leaderboard `page.tsx:286`, run-detail Variants tab `VariantsTab.tsx:235` — both have `entry.parent_run_id` / `v.parent_run_id` available).
+- [x] Update `VariantParentBadge.test.tsx` — the existing `expect(badge).toHaveTextContent('(other run)')` assertion (~line 64) must change: new text is `"other run"` (no parens) + optional 6-char run id. Assert the pill is findable via `data-testid="parent-cross-run-pill"` AND retain a text check.
+- [x] Verify both consumer contexts render correctly: arena leaderboard (`page.tsx:286`) and run-detail Variants tab (`VariantsTab.tsx:235`).
 
 ### Phase 4: UX 3 — arena topic seed panel (not paginated) + strengthened inline row indicator
-- [ ] Extend `getArenaTopicDetailAction` in `evolution/src/services/arenaActions.ts` to also return `seedVariant: ArenaEntry | null`. Query: `.from('evolution_variants').select('*').eq('prompt_id', topicId).eq('generation_method', 'seed').is('archived_at', null).order('elo_score', { ascending: false }).limit(1).maybeSingle()`. Transform via existing `toArenaEntry`. Return `{ ...topic, seedVariant }`.
-- [ ] Create `evolution/src/components/evolution/sections/ArenaSeedPanel.tsx`. Props: `{ seed: ArenaEntry }`. Render:
+- [x] Extend `getArenaTopicDetailAction` in `evolution/src/services/arenaActions.ts` to also return `seedVariant: ArenaEntry | null`. Query: `.from('evolution_variants').select('*').eq('prompt_id', topicId).eq('generation_method', 'seed').is('archived_at', null).order('elo_score', { ascending: false }).limit(1).maybeSingle()`. Transform via existing `toArenaEntry`. Return `{ ...topic, seedVariant }`.
+- [x] Create `evolution/src/components/evolution/sections/ArenaSeedPanel.tsx`. Props: `{ seed: ArenaEntry }`. Render:
   - Outer container: `<section className="bg-[var(--surface-elevated)] border border-[var(--border-default)] rounded-book p-6 shadow-warm-lg">` matching EntityDetailHeader chrome.
   - Heading row: `<h2>Seed Variant</h2>` + "Seed" StatusBadge pill.
   - Content preview: `stripMarkdownTitle(seed.variant_content)` truncated to 80 chars, in muted text.
@@ -93,15 +93,15 @@ Two bugs + two UX gaps observed in the evolution system:
   - Metrics row via `<MetricGrid variant='card' columns={3} metrics={[{ label: 'Elo', value: formatEloWithUncertainty(seed.elo_score, seed.uncertainty) }, { label: '95% CI', value: formatEloCIRange(seed.elo_score, seed.uncertainty) }, { label: 'Matches', value: String(seed.arena_match_count) }]} />` (metrics array, NOT children).
   - Link row: `<Link href={\`/admin/evolution/variants/\${seed.id}\`}>View seed variant →</Link>`.
   - Test id: `data-testid="arena-seed-panel"`.
-- [ ] In `src/app/admin/evolution/arena/[topicId]/page.tsx`:
+- [x] In `src/app/admin/evolution/arena/[topicId]/page.tsx`:
   - Read `seedVariant` from the extended topic detail action's result.
   - When `seedVariant !== null`, render `<ArenaSeedPanel seed={seedVariant} />` above the topic details card (or between details and leaderboard).
   - DO NOT filter the seed row out of `sortedEntries` — it remains in the leaderboard body.
   - Strengthen the existing gold "seed" badge at lines 252-256 (bolder font, slightly taller, add a leading star icon, and `data-testid="lb-seed-row-indicator"`).
 
 ### Phase 5: UX 4 — variant ID column on arena leaderboard
-- [ ] In `src/app/admin/evolution/arena/[topicId]/page.tsx:209-221`, insert a new `<th>ID</th>` between `Content` (line 212) and `Elo` (line 213).
-- [ ] In the tbody loop (after line 235), insert a matching `<td>`:
+- [x] In `src/app/admin/evolution/arena/[topicId]/page.tsx:209-221`, insert a new `<th>ID</th>` between `Content` (line 212) and `Elo` (line 213).
+- [x] In the tbody loop (after line 235), insert a matching `<td>`:
   ```tsx
   <td className="py-2 pr-3 font-mono text-xs text-[var(--text-muted)] cursor-pointer"
       title={`${entry.id} (click to copy)`}
@@ -110,37 +110,37 @@ Two bugs + two UX gaps observed in the evolution system:
     {entry.id.substring(0, 8)}
   </td>
   ```
-- [ ] No hook extraction; keep inline.
+- [x] No hook extraction; keep inline.
 
 ## Testing
 
 ### Unit Tests
-- [ ] `evolution/src/lib/pipeline/loop/resolveParent.test.ts`:
+- [x] `evolution/src/lib/pipeline/loop/resolveParent.test.ts`:
   - Update the inline `v()` helper (currently lines 5-15) to accept `fromArena` parameter, OR use the pattern already in `poolSourcing.integration.test.ts:10-16`.
   - Add case: pool contains 2 in-run variants + 3 arena variants → `resolveParent` behavior unchanged (resolver picks any of the 5); regression assertion remains on the `qualityCutoff` logic, NOT on arena filtering (filtering happens at the call site in runIterationLoop).
   - Ensure existing passes.
-- [ ] `evolution/src/lib/pipeline/loop/poolSourcing.integration.test.ts`:
+- [x] `evolution/src/lib/pipeline/loop/poolSourcing.integration.test.ts`:
   - Add case: `resolveParent` inside `runIterationLoop` dispatch path, pool has arena variants + in-run variants → picked parent is ALWAYS an in-run variant. This is the primary unit-ish test for the behavioral fix.
   - Add case: pool has ONLY arena variants → falls back to seed, warn log includes `fallbackReason: 'no_same_run_variants'` context.
   - Assert warn mock was called with `{ inRunSize: 0, arenaFilteredCount: >=1, ... }` — gives ops a diagnostic signal.
-- [ ] `evolution/src/lib/pipeline/finalize/persistRunResults.test.ts`:
+- [x] `evolution/src/lib/pipeline/finalize/persistRunResults.test.ts`:
   - Add case: when `v.parentIds[0]` is undefined / empty string, persisted `parent_variant_id` is `null` (the `|| null` short-circuit works for falsy values including empty string). Regression guard for the Phase 2 fallback path.
   - Add case: when `v.parentIds[0]` is a seed UUID, `parent_variant_id` is that UUID.
-- [ ] `src/app/admin/evolution/strategies/new/page.test.tsx` — this file **already exists** with 316 lines. Add a new test case:
+- [x] `src/app/admin/evolution/strategies/new/page.test.tsx` — this file **already exists** with 316 lines. Add a new test case:
   - Mount the component, simulate toggling iteration 2's `sourceMode` to `'pool'` WITHOUT touching the cutoff mode dropdown.
   - Simulate typing `5` in the cutoff value field.
   - Simulate Submit.
   - Assert `createStrategyAction` was called with `iterationConfigs[1] = { agentType: 'generate', sourceMode: 'pool', budgetPercent: ..., qualityCutoff: { mode: 'topN', value: 5 } }`.
-- [ ] `evolution/src/services/arenaActions.test.ts`:
+- [x] `evolution/src/services/arenaActions.test.ts`:
   - Add fixture with `generation_method: 'seed'`.
   - Assert `getArenaTopicDetailAction` returns `seedVariant !== null` when a seed exists.
   - Assert `seedVariant === null` when the topic has no seed entry.
   - Assert `is_seed === true` is set on the returned ArenaEntry seed.
   - Assert multi-seed case (two rows with `generation_method='seed'` and different elo_scores) returns the one with highest elo_score.
-- [ ] `evolution/src/components/evolution/variant/VariantParentBadge.test.tsx` — update the `(other run)` assertion at line 64 to expect the new StatusBadge wrapper; assert the text content "other run" still appears; verify a test-id or accessible label for the pill.
+- [x] `evolution/src/components/evolution/variant/VariantParentBadge.test.tsx` — update the `(other run)` assertion at line 64 to expect the new StatusBadge wrapper; assert the text content "other run" still appears; verify a test-id or accessible label for the pill.
 
 ### Integration Tests
-- [ ] Create a NEW real-DB integration test: `src/__tests__/integration/evolution-pool-source-same-run.integration.test.ts`. Pattern after `src/__tests__/integration/evolution-sync-arena.integration.test.ts` (uses `createTestSupabaseClient`, `evolutionTablesExist`, `cleanupEvolutionData`). This is the authoritative regression guard for Bug 2:
+- [x] Create a NEW real-DB integration test: `src/__tests__/integration/evolution-pool-source-same-run.integration.test.ts`. Pattern after `src/__tests__/integration/evolution-sync-arena.integration.test.ts` (uses `createTestSupabaseClient`, `evolutionTablesExist`, `cleanupEvolutionData`). This is the authoritative regression guard for Bug 2:
   - Set up a prompt + 3 pre-existing arena variants (`synced_to_arena=true`, `prompt_id=target`, `generation_method='pipeline'`, from a different `run_id`). Record their IDs as `arenaIds`.
   - Run `claimAndExecuteRun` with a strategy whose `iterationConfigs = [{agentType:'generate', budgetPercent:50}, {agentType:'generate', sourceMode:'pool', qualityCutoff:{mode:'topN',value:5}, budgetPercent:50}]`.
   - Capture `seedId` by querying `evolution_variants WHERE run_id = <new run> AND generation_method = 'seed'` (or from `evolution_explanations` via the run row) post-completion.
@@ -151,8 +151,8 @@ Two bugs + two UX gaps observed in the evolution system:
   - Note: the existing `evolution/src/__tests__/integration/evolution-iteration-config.integration.test.ts` is a MOCK-LLM vitest harness — it cannot assert persistence; use the real-DB harness instead.
 
 ### E2E Tests
-- [ ] `src/__tests__/e2e/specs/09-admin/admin-strategy-wizard.spec.ts` — new test: "pool sourceMode auto-defaults cutoff". Fill wizard; set iteration 2 to Pool; do NOT touch the cutoff-mode dropdown; type `5` in the value field; submit; expect success (no Zod error).
-- [ ] `src/__tests__/e2e/specs/09-admin/admin-arena.spec.ts` — extend `seedArenaData()` helper (~lines 104-141) to also seed a variant with `generation_method: 'seed'`, `prompt_id=topicId`, `synced_to_arena=true`. Then add tests:
+- [x] `src/__tests__/e2e/specs/09-admin/admin-strategy-wizard.spec.ts` — new test: "pool sourceMode auto-defaults cutoff". Fill wizard; set iteration 2 to Pool; do NOT touch the cutoff-mode dropdown; type `5` in the value field; submit; expect success (no Zod error).
+- [x] `src/__tests__/e2e/specs/09-admin/admin-arena.spec.ts` — extend `seedArenaData()` helper (~lines 104-141) to also seed a variant with `generation_method: 'seed'`, `prompt_id=topicId`, `synced_to_arena=true`. Then add tests:
   - `ArenaSeedPanel` visible via `data-testid="arena-seed-panel"`, truncated content preview present.
   - Clicking the panel's "View seed variant" link navigates to `/admin/evolution/variants/{seedId}`.
   - The seed row is still present in the leaderboard table body.
@@ -161,37 +161,37 @@ Two bugs + two UX gaps observed in the evolution system:
   - **Symmetric empty-state test:** create a topic with NO seed (only `generation_method='pipeline'` entries). Assert `data-testid="arena-seed-panel"` is NOT present.
 
 ### Manual Verification
-- [ ] Create a strategy whose iteration 2 is `sourceMode='pool'` with "top 5 articles" via the wizard — must succeed without Zod error.
-- [ ] Execute a 2-iteration run (generate seed + generate pool topN:3) and query DB: all `parent_variant_id` values must be either the seed's UUID or a variant from the same run. No cross-run parents.
-- [ ] Visit the arena topic page for a prompt that has a seed: the seed panel renders at top with a working link; the seed row in the leaderboard is visually highlighted.
-- [ ] Visit the arena topic page for a topic with NO seed entry (legacy prompt): the seed panel is absent; the leaderboard renders normally.
-- [ ] Arena leaderboard rows show an 8-char variant ID cell with a full-UUID tooltip and copy-on-click.
+- [x] Create a strategy whose iteration 2 is `sourceMode='pool'` with "top 5 articles" via the wizard — must succeed without Zod error.
+- [x] Execute a 2-iteration run (generate seed + generate pool topN:3) and query DB: all `parent_variant_id` values must be either the seed's UUID or a variant from the same run. No cross-run parents.
+- [x] Visit the arena topic page for a prompt that has a seed: the seed panel renders at top with a working link; the seed row in the leaderboard is visually highlighted.
+- [x] Visit the arena topic page for a topic with NO seed entry (legacy prompt): the seed panel is absent; the leaderboard renders normally.
+- [x] Arena leaderboard rows show an 8-char variant ID cell with a full-UUID tooltip and copy-on-click.
 
 ## Verification
 
 ### A) Playwright Verification (required for UI changes)
-- [ ] Strategy wizard — pool-mode auto-default flow
-- [ ] Arena topic page — seed panel renders, seed row still in table, strengthened row indicator visible, ID column visible
-- [ ] Arena topic page — seed panel HIDDEN when topic has no seed
-- [ ] `VariantParentBadge` strengthened cross-run StatusBadge visible in Variants tab and arena leaderboard
+- [x] Strategy wizard — pool-mode auto-default flow
+- [x] Arena topic page — seed panel renders, seed row still in table, strengthened row indicator visible, ID column visible
+- [x] Arena topic page — seed panel HIDDEN when topic has no seed
+- [x] `VariantParentBadge` strengthened cross-run StatusBadge visible in Variants tab and arena leaderboard
 
 ### B) Automated Tests
-- [ ] `npx vitest run evolution/src/lib/pipeline/loop/resolveParent.test.ts`
-- [ ] `npx vitest run evolution/src/lib/pipeline/loop/poolSourcing.integration.test.ts`
-- [ ] `npx vitest run evolution/src/lib/pipeline/finalize/persistRunResults.test.ts`
-- [ ] `npx vitest run evolution/src/services/arenaActions.test.ts`
-- [ ] `npx vitest run evolution/src/components/evolution/variant/VariantParentBadge.test.tsx`
-- [ ] `npx jest src/app/admin/evolution/strategies/new/page.test.tsx` (or the repo-appropriate test runner for this file)
-- [ ] `npm run test:integration -- --testPathPattern="evolution-pool-source-same-run"`
-- [ ] `npx playwright test src/__tests__/e2e/specs/09-admin/admin-strategy-wizard.spec.ts`
-- [ ] `npx playwright test src/__tests__/e2e/specs/09-admin/admin-arena.spec.ts`
+- [x] `npx vitest run evolution/src/lib/pipeline/loop/resolveParent.test.ts`
+- [x] `npx vitest run evolution/src/lib/pipeline/loop/poolSourcing.integration.test.ts`
+- [x] `npx vitest run evolution/src/lib/pipeline/finalize/persistRunResults.test.ts`
+- [x] `npx vitest run evolution/src/services/arenaActions.test.ts`
+- [x] `npx vitest run evolution/src/components/evolution/variant/VariantParentBadge.test.tsx`
+- [x] `npx jest src/app/admin/evolution/strategies/new/page.test.tsx` (or the repo-appropriate test runner for this file)
+- [x] `npm run test:integration -- --testPathPattern="evolution-pool-source-same-run"`
+- [x] `npx playwright test src/__tests__/e2e/specs/09-admin/admin-strategy-wizard.spec.ts`
+- [x] `npx playwright test src/__tests__/e2e/specs/09-admin/admin-arena.spec.ts`
 
 ## Documentation Updates
-- [ ] `evolution/docs/strategies_and_experiments.md` — update the `sourceMode + qualityCutoff` section: pool mode selects from same-run variants only (arena entries remain as ranking competitors but are excluded as candidate parents).
-- [ ] `evolution/docs/arena.md` — note the new seed panel on the arena topic page.
-- [ ] `evolution/docs/visualization.md` — arena topic page column list: add "ID" column; note the new seed panel above the leaderboard; note the strengthened seed row indicator.
-- [ ] `evolution/docs/agents/overview.md` §"Parent linkage (Phase 2)" — clarify that arena entries are NOT eligible parents in pool mode; reference the call-site filter convention.
-- [ ] `evolution/docs/reference.md` — add the new integration test file to the Testing Infrastructure section.
+- [x] `evolution/docs/strategies_and_experiments.md` — update the `sourceMode + qualityCutoff` section: pool mode selects from same-run variants only (arena entries remain as ranking competitors but are excluded as candidate parents).
+- [x] `evolution/docs/arena.md` — note the new seed panel on the arena topic page.
+- [x] `evolution/docs/visualization.md` — arena topic page column list: add "ID" column; note the new seed panel above the leaderboard; note the strengthened seed row indicator.
+- [x] `evolution/docs/agents/overview.md` §"Parent linkage (Phase 2)" — clarify that arena entries are NOT eligible parents in pool mode; reference the call-site filter convention.
+- [x] `evolution/docs/reference.md` — add the new integration test file to the Testing Infrastructure section.
 
 ## Rollback / Feature Flag
 No feature flag. The Bug 2 fix is a behaviour change but the direction was confirmed by product intent (user). If it regresses, revert the Phase 2 commit (the call-site filter is ~5 lines in `runIterationLoop.ts`). The strengthened `VariantParentBadge` (Phase 3) is a safety net; if it visually regresses, revert the Phase 3 commit independently.
