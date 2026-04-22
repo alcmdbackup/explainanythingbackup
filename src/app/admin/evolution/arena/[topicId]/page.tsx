@@ -16,7 +16,7 @@ import { getEntityMetricsAction } from '@evolution/services/metricsActions';
 import {
   getArenaTopicDetailAction,
   getArenaEntriesAction,
-  type ArenaTopic,
+  type ArenaTopicDetail,
   type ArenaEntry,
 } from '@evolution/services/arenaActions';
 import { formatElo, stripMarkdownTitle } from '@evolution/lib/shared/computeRatings';
@@ -24,6 +24,7 @@ import { formatEloCIRange, formatEloWithUncertainty } from '@evolution/lib/utils
 import { computeEloCutoff } from './arenaCutoff';
 import { bootstrapDeltaCI } from '@evolution/lib/shared/ratingDelta';
 import { VariantParentBadge } from '@evolution/components/evolution/variant/VariantParentBadge';
+import { ArenaSeedPanel } from '@evolution/components/evolution/sections/ArenaSeedPanel';
 
 function ContentLink({ entryId, content }: { entryId: string; content: string }): JSX.Element {
   const cleaned = stripMarkdownTitle(content);
@@ -38,7 +39,7 @@ function ContentLink({ entryId, content }: { entryId: string; content: string })
 export default function ArenaTopicDetailPage(): JSX.Element {
   const { topicId } = useParams<{ topicId: string }>();
   const PAGE_SIZE = 20;
-  const [topic, setTopic] = useState<ArenaTopic | null>(null);
+  const [topic, setTopic] = useState<ArenaTopicDetail | null>(null);
   const [entries, setEntries] = useState<ArenaEntry[]>([]);
   const [totalEntries, setTotalEntries] = useState(0);
   const [page, setPage] = useState(1);
@@ -169,6 +170,8 @@ export default function ArenaTopicDetailPage(): JSX.Element {
 
       <EntityDetailHeader title={topic.name} entityId={topic.id} />
 
+      {topic.seedVariant && <ArenaSeedPanel seed={topic.seedVariant} />}
+
       <div className="bg-[var(--surface-elevated)] border border-[var(--border-default)] rounded-book p-6 space-y-4 shadow-warm-lg">
         <h2 className="text-2xl font-display font-bold text-[var(--text-primary)]">Topic Details</h2>
         <p className="text-sm font-ui text-[var(--text-secondary)] whitespace-pre-wrap">{topic.prompt}</p>
@@ -210,6 +213,7 @@ export default function ArenaTopicDetailPage(): JSX.Element {
                 <tr className="text-left text-xs text-[var(--text-muted)] uppercase tracking-wide border-b border-[var(--border-default)]">
                   <th className="py-2 pr-3">Rank</th>
                   <th className="py-2 pr-3">Content</th>
+                  <th className="py-2 pr-3">ID</th>
                   <th {...sortableThProps('elo_score')}>Elo{sortIndicator('elo_score')}</th>
                   <th className="py-2 pr-3">95% CI</th>
                   <th {...sortableThProps('uncertainty')}>Elo ± Uncertainty{sortIndicator('uncertainty')}</th>
@@ -233,6 +237,17 @@ export default function ArenaTopicDetailPage(): JSX.Element {
                       <td className="py-2 pr-3">
                         <ContentLink entryId={entry.id} content={entry.variant_content} />
                       </td>
+                      <td className="py-2 pr-3">
+                        <button
+                          type="button"
+                          className="font-mono text-xs text-[var(--text-muted)] hover:text-[var(--accent-gold)] cursor-pointer"
+                          title={`${entry.id} (click to copy)`}
+                          onClick={() => { void navigator.clipboard?.writeText(entry.id); }}
+                          data-testid="lb-variant-id"
+                        >
+                          {entry.id.substring(0, 8)}
+                        </button>
+                      </td>
                       <td className="py-2 pr-3 font-mono">{formatElo(entry.elo_score)}</td>
                       <td className="py-2 pr-3 font-mono text-[var(--text-secondary)]">
                         {entry.elo_score != null && entry.uncertainty != null
@@ -250,7 +265,12 @@ export default function ArenaTopicDetailPage(): JSX.Element {
                       </td>
                       <td className="py-2 pr-3 text-[var(--text-secondary)]">
                         {entry.is_seed && (
-                          <span className="inline-block mr-1 px-1.5 py-0.5 text-xs font-semibold uppercase tracking-wider rounded bg-[var(--accent-gold)] text-[var(--surface-primary)]">
+                          <span
+                            className="inline-flex items-center gap-1 mr-1 px-2 py-0.5 text-xs font-bold uppercase tracking-wider rounded-full bg-[var(--accent-gold)] text-[var(--surface-primary)] shadow-warm-sm"
+                            data-testid="lb-seed-row-indicator"
+                            aria-label="This row is the seed variant"
+                          >
+                            <span aria-hidden="true">★</span>
                             seed
                           </span>
                         )}

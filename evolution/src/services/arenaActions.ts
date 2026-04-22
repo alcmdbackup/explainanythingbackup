@@ -141,9 +141,19 @@ export const getArenaTopicsAction = adminAction(
   },
 );
 
+export interface ArenaTopicDetail extends ArenaTopic {
+  /** The topic's seed variant (generation_method='seed'), or null when no seed
+   *  has been persisted yet. Sourced via a dedicated query — NOT from the paginated
+   *  leaderboard `entries` array — so the arena topic page's seed panel is always
+   *  available regardless of which leaderboard page the user is on. If legacy data
+   *  has multiple seeds for one topic (pre-EVOLUTION_REUSE_SEED_RATING), the
+   *  highest-Elo row wins (ties broken by earliest created_at). */
+  seedVariant: ArenaEntry | null;
+}
+
 export const getArenaTopicDetailAction = adminAction(
   'getArenaTopicDetail',
-  async (topicId: string, ctx: AdminContext): Promise<ArenaTopic> => {
+  async (topicId: string, ctx: AdminContext): Promise<ArenaTopicDetail> => {
     if (!validateUuid(topicId)) throw new Error('Invalid topicId');
     const { data, error } = await ctx.supabase
       .from('evolution_prompts')
@@ -152,7 +162,27 @@ export const getArenaTopicDetailAction = adminAction(
       .single();
     if (error) throw error;
     if (!data) throw new Error(`Arena topic not found: ${topicId}`);
-    return data as ArenaTopic;
+
+    // Fetch the topic's seed variant (if any). Deterministic ordering handles the
+    // legacy EVOLUTION_REUSE_SEED_RATING=false case where multiple seed rows may
+    // exist for one prompt — we pick the highest-Elo row with the earliest created_at
+    // as tiebreak. `.maybeSingle()` returns null (not an error) when no seed exists.
+    const { data: seedRow, error: seedError } = await ctx.supabase
+      .from('evolution_variants')
+      .select('*')
+      .eq('prompt_id', topicId)
+      .eq('generation_method', 'seed')
+      .is('archived_at', null)
+      .order('elo_score', { ascending: false })
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    if (seedError) throw seedError;
+
+    return {
+      ...(data as ArenaTopic),
+      seedVariant: seedRow ? toArenaEntry(seedRow as Record<string, unknown>) : null,
+    };
   },
 );
 
