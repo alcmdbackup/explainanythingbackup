@@ -11,7 +11,9 @@ function makeEntry(patch: Partial<IterationPlanEntryClient> = {}): IterationPlan
     iterIdx: 0,
     agentType: 'generate',
     iterBudgetUsd: 0.025,
-    tactic: 'structural_transform',
+    tacticMix: [{ tactic: 'structural_transform', weight: 1 }],
+    tacticMixSource: 'defaults',
+    tacticLabel: 'structural_transform',
     estPerAgent: {
       expected: { gen: 0.0012, rank: 0.003, total: 0.0042 },
       upperBound: { gen: 0.0017, rank: 0.006, total: 0.0077 },

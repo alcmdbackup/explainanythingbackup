@@ -291,6 +291,9 @@ export default function NewStrategyPage(): JSX.Element {
                   && it.qualityCutoffMode && it.qualityCutoffValue != null && it.qualityCutoffValue > 0
                 ? { qualityCutoff: { mode: it.qualityCutoffMode, value: it.qualityCutoffValue } }
                 : {}),
+              ...(it.agentType === 'generate' && it.tacticGuidance && it.tacticGuidance.length > 0
+                ? { generationGuidance: it.tacticGuidance.filter((g) => g.percent > 0) }
+                : {}),
             })),
             ...floorFields,
           },

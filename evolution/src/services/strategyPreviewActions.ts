@@ -198,7 +198,10 @@ export interface IterationPlanEntryClient {
   iterIdx: number;
   agentType: 'generate' | 'swiss';
   iterBudgetUsd: number;
-  tactic: string;
+  /** Effective tactic mix (normalized weights) used for this iteration's estimate. */
+  tacticMix: Array<{ tactic: string; weight: number }>;
+  tacticMixSource: 'iter-guidance' | 'strategy-guidance' | 'strategy-tactics' | 'defaults';
+  tacticLabel: string;
   estPerAgent: {
     expected: { gen: number; rank: number; total: number };
     upperBound: { gen: number; rank: number; total: number };
@@ -247,14 +250,14 @@ export const getStrategyDispatchPreviewAction = adminAction(
     const seedChars = parsed.seedArticleChars ?? DEFAULT_SEED_CHARS;
 
     // Import the pipeline helper lazily so this server action module doesn't pull the
-    // entire pipeline graph into the Next.js server bundle.
+    // entire pipeline graph into the Next.js server bundle. The helper resolves the
+    // effective tactic pool per iteration from config.generationGuidance /
+    // iterCfg.generationGuidance / config.strategies / DEFAULT_TACTICS.
     const { projectDispatchPlan } = await import('../lib/pipeline/loop/projectDispatchPlan');
-    const { DEFAULT_TACTICS } = await import('../lib/core/tactics');
 
     const plan = projectDispatchPlan(parsed.config as Parameters<typeof projectDispatchPlan>[0], {
       seedChars,
       initialPoolSize: arenaCount,
-      tactics: [...DEFAULT_TACTICS],
     });
 
     return { plan, arenaCount, seedArticleChars: seedChars, promptName };

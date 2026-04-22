@@ -12,6 +12,12 @@
 //   EXPECTED_GEN_RATIO          — median actual/upperBound generation cost
 //   EXPECTED_RANK_COMPARISONS_RATIO — median actual/max comparisons per agent
 // Both should be refreshed periodically from staging invocation data (see Phase 6a).
+//
+// Per-iteration per-agent cost is a weighted average over the effective tactic pool.
+// The pool is resolved per iteration: iteration-level generationGuidance → strategy-level
+// generationGuidance → config.strategies → DEFAULT_TACTICS. Matches runtime dispatch
+// semantics (runIterationLoop round-robins / weight-samples tactics within each iter),
+// so identically-budgeted iterations show identical estimates when no guidance is set.
 
 import type { EvolutionConfig } from '../infra/types';
 import {
@@ -20,6 +26,8 @@ import {
   getVariantChars,
 } from '../infra/estimateCosts';
 import { resolveParallelFloor } from './budgetFloorResolvers';
+import { DEFAULT_TACTICS } from '../../core/tactics';
+import type { GuidanceEntry } from '../../core/tactics/selectTacticWeighted';
 
 /** Defense-in-depth dispatch cap. Primary dispatch governor is budget via
  *  V2CostTracker.reserve() → BudgetExceededError; this catches budget-estimation bugs
@@ -55,9 +63,6 @@ export interface DispatchPlanContext {
   /** Number of pre-existing variants in the pool at iteration 0 start (arena entries
    *  loaded via loadArenaEntries). Affects rankCost via numComparisons. */
   initialPoolSize: number;
-  /** Ordered list of tactics the runtime will round-robin through. First element drives
-   *  the per-iteration estimate (matches runtime's use of `tactics[0]`). */
-  tactics: string[];
 }
 
 export interface EstPerAgentValue {
@@ -76,12 +81,26 @@ export interface EstPerAgent {
 
 export type EffectiveCap = 'budget' | 'safety_cap' | 'floor' | 'swiss';
 
+export type TacticMixSource = 'iter-guidance' | 'strategy-guidance' | 'strategy-tactics' | 'defaults';
+
+export interface TacticMixEntry {
+  tactic: string;
+  /** Normalized weight in [0, 1]. Sums to ~1 across mix. */
+  weight: number;
+}
+
 export interface IterationPlanEntry {
   iterIdx: number;
   agentType: 'generate' | 'swiss';
   iterBudgetUsd: number;
-  /** Tactic assumed for the per-agent cost estimate (runtime uses tactics[0]). */
-  tactic: string;
+  /** Effective tactic pool for this iteration (normalized weights). Cost estimates are
+   *  weighted averages over this mix. Single-entry for guidance with one tactic. */
+  tacticMix: TacticMixEntry[];
+  /** Where the mix came from — drives display labeling. */
+  tacticMixSource: TacticMixSource;
+  /** Short display label summarizing the mix: the tactic name when size=1, else
+   *  `"N defaults"` / `"N weighted"` / `"N tactics"` depending on source. */
+  tacticLabel: string;
   estPerAgent: EstPerAgent;
   maxAffordable: {
     atExpected: number;
@@ -99,6 +118,82 @@ export interface IterationPlanEntry {
   /** Absolute USD reserved by the parallel floor (computed against iterBudgetUsd, not
    *  totalBudget). 0 when no floor is configured. */
   parallelFloorUsd: number;
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────
+
+/**
+ * Resolve the effective tactic mix for one iteration.
+ *
+ * Precedence (highest → lowest):
+ *   1. Iteration-level `generationGuidance` (weighted).
+ *   2. Strategy-level `generationGuidance` (weighted).
+ *   3. Strategy-level `strategies` list (uniform weights).
+ *   4. `DEFAULT_TACTICS` (uniform weights).
+ */
+function buildTacticMix(
+  iterGuidance: ReadonlyArray<GuidanceEntry> | undefined,
+  strategyGuidance: ReadonlyArray<GuidanceEntry> | undefined,
+  strategyTactics: ReadonlyArray<string> | undefined,
+): { mix: TacticMixEntry[]; source: TacticMixSource } {
+  const weighted = iterGuidance && iterGuidance.length > 0
+    ? iterGuidance
+    : strategyGuidance && strategyGuidance.length > 0
+      ? strategyGuidance
+      : null;
+  if (weighted) {
+    const total = weighted.reduce((s, e) => s + e.percent, 0);
+    const n = total > 0 ? total : 1;
+    return {
+      mix: weighted.map((e) => ({ tactic: e.tactic, weight: e.percent / n })),
+      source: iterGuidance && iterGuidance.length > 0 ? 'iter-guidance' : 'strategy-guidance',
+    };
+  }
+  if (strategyTactics && strategyTactics.length > 0) {
+    const w = 1 / strategyTactics.length;
+    return {
+      mix: strategyTactics.map((t) => ({ tactic: t, weight: w })),
+      source: 'strategy-tactics',
+    };
+  }
+  const defaults = DEFAULT_TACTICS;
+  const w = 1 / defaults.length;
+  return {
+    mix: defaults.map((t) => ({ tactic: t, weight: w })),
+    source: 'defaults',
+  };
+}
+
+/** Short human label for a tactic mix — single tactic name when size=1, else a summary
+ *  that reflects where the mix came from. */
+function buildTacticLabel(mix: TacticMixEntry[], source: TacticMixSource): string {
+  if (mix.length === 1) return mix[0]!.tactic;
+  switch (source) {
+    case 'defaults': return `${mix.length} defaults`;
+    case 'strategy-tactics': return `${mix.length} tactics`;
+    case 'iter-guidance':
+    case 'strategy-guidance':
+      return `${mix.length} weighted`;
+  }
+}
+
+/** Weighted average of per-agent generation + ranking cost across a tactic mix. */
+function weightedAgentCost(
+  mix: ReadonlyArray<TacticMixEntry>,
+  seedChars: number,
+  generationModel: string,
+  judgeModel: string,
+  poolSize: number,
+  numComparisons: number,
+): EstPerAgentValue {
+  let gen = 0;
+  let rank = 0;
+  for (const { tactic, weight } of mix) {
+    const variantChars = getVariantChars(tactic, generationModel, judgeModel);
+    gen += weight * estimateGenerationCost(seedChars, tactic, generationModel, judgeModel);
+    rank += weight * estimateRankingCost(variantChars, judgeModel, poolSize, numComparisons);
+  }
+  return { gen, rank, total: gen + rank };
 }
 
 // ─── Main ─────────────────────────────────────────────────────────
@@ -123,18 +218,25 @@ export function projectDispatchPlan(
   let poolSize = ctx.initialPoolSize;
   const maxComp = config.maxComparisonsPerVariant ?? 15;
   const expectedComp = Math.max(1, Math.ceil(EXPECTED_RANK_COMPARISONS_RATIO * maxComp));
+  const strategyTactics = config.strategies && config.strategies.length > 0 ? config.strategies : undefined;
+  const strategyGuidance = config.generationGuidance as ReadonlyArray<GuidanceEntry> | undefined;
 
   for (let iterIdx = 0; iterIdx < config.iterationConfigs.length; iterIdx++) {
     const iterCfg = config.iterationConfigs[iterIdx]!;
     const iterBudgetUsd = (iterCfg.budgetPercent / 100) * config.budgetUsd;
-    const tactic = ctx.tactics[iterIdx % Math.max(1, ctx.tactics.length)] ?? 'structural_transform';
+    const iterGuidance = iterCfg.generationGuidance as ReadonlyArray<GuidanceEntry> | undefined;
+
+    const { mix, source } = buildTacticMix(iterGuidance, strategyGuidance, strategyTactics);
+    const tacticLabel = buildTacticLabel(mix, source);
 
     if (iterCfg.agentType === 'swiss') {
       plan.push({
         iterIdx,
         agentType: 'swiss',
         iterBudgetUsd,
-        tactic,
+        tacticMix: mix,
+        tacticMixSource: source,
+        tacticLabel,
         estPerAgent: {
           expected: { gen: 0, rank: 0, total: 0 },
           upperBound: { gen: 0, rank: 0, total: 0 },
@@ -150,24 +252,25 @@ export function projectDispatchPlan(
 
     // ─── Generate iteration ───────────────────────────────────────
     // Upper bound: full tactic output + max comparisons (reservation-safe).
-    const variantChars = getVariantChars(tactic, config.generationModel, config.judgeModel);
-    const genUpper = estimateGenerationCost(ctx.seedChars, tactic, config.generationModel, config.judgeModel);
-    const rankUpperBaseline = estimateRankingCost(variantChars, config.judgeModel, poolSize, maxComp);
-    const totalUpper = genUpper + rankUpperBaseline;
-
-    // Expected: apply heuristic ratios (or calibration, when enabled upstream).
-    const genExpected = genUpper * EXPECTED_GEN_RATIO;
-    const rankExpected = estimateRankingCost(variantChars, config.judgeModel, poolSize, expectedComp);
-    const totalExpected = genExpected + rankExpected;
+    const upper = weightedAgentCost(
+      mix, ctx.seedChars, config.generationModel, config.judgeModel, poolSize, maxComp,
+    );
+    // Expected: rank uses fewer comparisons (heuristic early-exit factor); gen scales
+    // by EXPECTED_GEN_RATIO from the upper bound.
+    const rankExpectedAvg = weightedAgentCost(
+      mix, ctx.seedChars, config.generationModel, config.judgeModel, poolSize, expectedComp,
+    ).rank;
+    const genExpected = upper.gen * EXPECTED_GEN_RATIO;
+    const totalExpected = genExpected + rankExpectedAvg;
 
     // Iter-budget-scoped floor resolution (Phase 7a): budgetFloorResolvers.ts now
     // takes iterBudget as its 2nd arg instead of totalBudget. Unified across wizard
     // preview, runtime loop, and cost-sensitivity analysis.
-    const parallelFloorUsd = resolveParallelFloor(config, iterBudgetUsd, totalUpper);
+    const parallelFloorUsd = resolveParallelFloor(config, iterBudgetUsd, upper.total);
     const availBudget = Math.max(0, iterBudgetUsd - parallelFloorUsd);
 
-    const maxAffordableUpper = totalUpper > 0
-      ? Math.max(1, Math.floor(availBudget / totalUpper))
+    const maxAffordableUpper = upper.total > 0
+      ? Math.max(1, Math.floor(availBudget / upper.total))
       : 1;
     const maxAffordableExpected = totalExpected > 0
       ? Math.max(1, Math.floor(availBudget / totalExpected))
@@ -190,10 +293,12 @@ export function projectDispatchPlan(
       iterIdx,
       agentType: 'generate',
       iterBudgetUsd,
-      tactic,
+      tacticMix: mix,
+      tacticMixSource: source,
+      tacticLabel,
       estPerAgent: {
-        expected: { gen: genExpected, rank: rankExpected, total: totalExpected },
-        upperBound: { gen: genUpper, rank: rankUpperBaseline, total: totalUpper },
+        expected: { gen: genExpected, rank: rankExpectedAvg, total: totalExpected },
+        upperBound: { gen: upper.gen, rank: upper.rank, total: upper.total },
       },
       maxAffordable: { atExpected: maxAffordableExpected, atUpperBound: maxAffordableUpper },
       dispatchCount,
@@ -208,4 +313,3 @@ export function projectDispatchPlan(
 
   return plan;
 }
-
