@@ -353,7 +353,11 @@ export async function evolveArticle(
         // reused by both the parallel batch and top-up dispatches below.
         const inRunPool = initialPoolSnapshot.filter((v) => !v.fromArena);
         const poolForParentResolve = iterSourceMode === 'pool' ? inRunPool : initialPoolSnapshot;
-        const arenaOnlyPool = initialPoolSnapshot.length > 0 && inRunPool.length === 0;
+        // True when the unfiltered pool had only arena entries. We'll emit a richer
+        // 'no_same_run_variants' log at the call site and suppress resolveParent's
+        // generic 'empty pool' warn for this specific case so ops see one log per
+        // dispatch, not two.
+        const arenaOnlyPool = iterSourceMode === 'pool' && initialPoolSnapshot.length > 0 && inRunPool.length === 0;
 
         // Helper: build the AgentContext + kick off one GFSA agent run.
         const dispatchOneAgent = (tactic: string, phase: 'parallel' | 'top_up') => {
@@ -366,12 +370,18 @@ export async function evolveArticle(
             pool: poolForParentResolve,
             ratings: initialRatingsSnapshot,
             rng: pickRng,
-            warn: (msg, c) => logger.warn(msg, { ...c, phaseName: 'generation', iteration, execOrder, dispatchPhase: phase }),
+            warn: (msg, c) => {
+              // Suppress resolveParent's generic 'empty pool' warn when we'll emit
+              // a richer same-run-specific warn below — otherwise both fire per
+              // dispatch and double the log volume.
+              if (arenaOnlyPool && msg.includes('empty pool')) return;
+              logger.warn(msg, { ...c, phaseName: 'generation', iteration, execOrder, dispatchPhase: phase });
+            },
           });
           // Relabel the generic empty_pool fallback when the real cause was "we
           // filtered out arena entries and nothing in-run was left". Gives operators
           // a distinct log string to grep for without changing resolveParent's type.
-          if (iterSourceMode === 'pool' && resolved.fallbackReason === 'empty_pool' && arenaOnlyPool) {
+          if (arenaOnlyPool && resolved.fallbackReason === 'empty_pool') {
             logger.warn('resolveParent: no same-run variants available, fell back to seed', {
               phaseName: 'generation',
               iteration,

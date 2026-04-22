@@ -172,6 +172,7 @@ export const getArenaTopicDetailAction = adminAction(
       .select('*')
       .eq('prompt_id', topicId)
       .eq('generation_method', 'seed')
+      .eq('synced_to_arena', true)  // match the leaderboard query (line ~210); defensive against any future seed row with synced_to_arena=false
       .is('archived_at', null)
       .order('elo_score', { ascending: false })
       .order('created_at', { ascending: true })
