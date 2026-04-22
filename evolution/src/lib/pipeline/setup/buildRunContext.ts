@@ -302,11 +302,14 @@ export async function buildRunContext(
 
   const { originalText, seedPrompt, seedVariantRow } = await resolveContent(claimedRun, db, llmProvider, logger);
   if (!originalText && !seedPrompt) {
-    const reason = claimedRun.explanation_id != null
-      ? `Explanation ${claimedRun.explanation_id} not found`
-      : claimedRun.prompt_id != null
-        ? `Prompt ${claimedRun.prompt_id} not found`
-        : 'No content source: both explanation_id and prompt_id are null';
+    let reason: string;
+    if (claimedRun.explanation_id != null) {
+      reason = `Explanation ${claimedRun.explanation_id} not found`;
+    } else if (claimedRun.prompt_id != null) {
+      reason = `Prompt ${claimedRun.prompt_id} not found`;
+    } else {
+      reason = 'No content source: both explanation_id and prompt_id are null';
+    }
     return { error: reason };
   }
 

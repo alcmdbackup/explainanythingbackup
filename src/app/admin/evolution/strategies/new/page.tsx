@@ -62,6 +62,55 @@ const DEFAULT_ITERATIONS: IterationRow[] = [
   { agentType: 'swiss', budgetPercent: 40 },
 ];
 
+// ─── Form → payload helpers ─────────────────────────────────────
+
+interface IterationConfigPayload {
+  agentType: 'generate' | 'swiss';
+  budgetPercent: number;
+  sourceMode?: 'seed' | 'pool';
+  qualityCutoff?: { mode: 'topN' | 'topPercent'; value: number };
+  generationGuidance?: Array<{ tactic: string; percent: number }>;
+}
+
+/** Map UI iteration rows to the iterationConfigs payload accepted by the server
+ *  actions (createStrategyAction + getStrategyDispatchPreviewAction). Drops
+ *  generate-only fields for swiss rows and only emits optional fields when set. */
+function toIterationConfigsPayload(iterations: IterationRow[]): IterationConfigPayload[] {
+  return iterations.map((it) => ({
+    agentType: it.agentType,
+    budgetPercent: it.budgetPercent,
+    ...(it.agentType === 'generate' && it.sourceMode ? { sourceMode: it.sourceMode } : {}),
+    ...(it.agentType === 'generate' && it.sourceMode === 'pool'
+        && it.qualityCutoffMode && it.qualityCutoffValue != null && it.qualityCutoffValue > 0
+      ? { qualityCutoff: { mode: it.qualityCutoffMode, value: it.qualityCutoffValue } }
+      : {}),
+    ...(it.agentType === 'generate' && it.tacticGuidance && it.tacticGuidance.length > 0
+      ? { generationGuidance: it.tacticGuidance.filter((g) => g.percent > 0) }
+      : {}),
+  }));
+}
+
+/** Resolve parallel + sequential floor values into the correct Fraction vs
+ *  AgentMultiple fields based on the active floor mode. */
+function toBudgetFloorFields(
+  mode: BudgetFloorMode,
+  parallelRaw: string,
+  sequentialRaw: string,
+): Record<string, number | undefined> {
+  const pVal = parallelRaw ? parseFloat(parallelRaw) : undefined;
+  const sVal = sequentialRaw ? parseFloat(sequentialRaw) : undefined;
+  if (mode === 'fraction') {
+    return {
+      minBudgetAfterParallelFraction: pVal,
+      minBudgetAfterSequentialFraction: sVal,
+    };
+  }
+  return {
+    minBudgetAfterParallelAgentMultiple: pVal,
+    minBudgetAfterSequentialAgentMultiple: sVal,
+  };
+}
+
 // ─── Tactic Guidance Popover ────────────────────────────────────
 
 /** Inline popover for configuring per-iteration tactic weights. */
@@ -260,16 +309,7 @@ export default function NewStrategyPage(): JSX.Element {
       return;
     }
 
-    const pVal = form.parallelFloorValue ? parseFloat(form.parallelFloorValue) : undefined;
-    const sVal = form.sequentialFloorValue ? parseFloat(form.sequentialFloorValue) : undefined;
-    const floorFields: Record<string, number | undefined> = {};
-    if (form.budgetFloorMode === 'fraction') {
-      floorFields.minBudgetAfterParallelFraction = pVal;
-      floorFields.minBudgetAfterSequentialFraction = sVal;
-    } else {
-      floorFields.minBudgetAfterParallelAgentMultiple = pVal;
-      floorFields.minBudgetAfterSequentialAgentMultiple = sVal;
-    }
+    const floorFields = toBudgetFloorFields(form.budgetFloorMode, form.parallelFloorValue, form.sequentialFloorValue);
     const maxComp = form.maxComparisonsPerVariant ? parseInt(form.maxComparisonsPerVariant) : undefined;
 
     const controller = new AbortController();
@@ -283,18 +323,7 @@ export default function NewStrategyPage(): JSX.Element {
             judgeModel: form.judgeModel,
             budgetUsd: budget,
             maxComparisonsPerVariant: maxComp,
-            iterationConfigs: iterations.map((it) => ({
-              agentType: it.agentType,
-              budgetPercent: it.budgetPercent,
-              ...(it.agentType === 'generate' && it.sourceMode ? { sourceMode: it.sourceMode } : {}),
-              ...(it.agentType === 'generate' && it.sourceMode === 'pool'
-                  && it.qualityCutoffMode && it.qualityCutoffValue != null && it.qualityCutoffValue > 0
-                ? { qualityCutoff: { mode: it.qualityCutoffMode, value: it.qualityCutoffValue } }
-                : {}),
-              ...(it.agentType === 'generate' && it.tacticGuidance && it.tacticGuidance.length > 0
-                ? { generationGuidance: it.tacticGuidance.filter((g) => g.percent > 0) }
-                : {}),
-            })),
+            iterationConfigs: toIterationConfigsPayload(iterations),
             ...floorFields,
           },
           promptId: lastUsedPrompt?.id,
@@ -399,16 +428,7 @@ export default function NewStrategyPage(): JSX.Element {
     if (iterationErrors.length > 0 || configErrors.length > 0) return;
     setSubmitting(true);
     try {
-      const budgetFloorFields: Record<string, number | undefined> = {};
-      const pVal = form.parallelFloorValue ? parseFloat(form.parallelFloorValue) : undefined;
-      const sVal = form.sequentialFloorValue ? parseFloat(form.sequentialFloorValue) : undefined;
-      if (form.budgetFloorMode === 'fraction') {
-        budgetFloorFields.minBudgetAfterParallelFraction = pVal;
-        budgetFloorFields.minBudgetAfterSequentialFraction = sVal;
-      } else {
-        budgetFloorFields.minBudgetAfterParallelAgentMultiple = pVal;
-        budgetFloorFields.minBudgetAfterSequentialAgentMultiple = sVal;
-      }
+      const budgetFloorFields = toBudgetFloorFields(form.budgetFloorMode, form.parallelFloorValue, form.sequentialFloorValue);
 
       const result = await createStrategyAction({
         name: form.name.trim(),
@@ -416,18 +436,7 @@ export default function NewStrategyPage(): JSX.Element {
         generationModel: form.generationModel,
         judgeModel: form.judgeModel,
         budgetUsd: parseFloat(form.budgetUsd),
-        iterationConfigs: iterations.map(it => ({
-          agentType: it.agentType,
-          budgetPercent: it.budgetPercent,
-          ...(it.agentType === 'generate' && it.sourceMode ? { sourceMode: it.sourceMode } : {}),
-          ...(it.agentType === 'generate' && it.sourceMode === 'pool'
-              && it.qualityCutoffMode && it.qualityCutoffValue != null && it.qualityCutoffValue > 0
-            ? { qualityCutoff: { mode: it.qualityCutoffMode, value: it.qualityCutoffValue } }
-            : {}),
-          ...(it.agentType === 'generate' && it.tacticGuidance && it.tacticGuidance.length > 0
-            ? { generationGuidance: it.tacticGuidance.filter(g => g.percent > 0) }
-            : {}),
-        })),
+        iterationConfigs: toIterationConfigsPayload(iterations),
         maxComparisonsPerVariant: form.maxComparisonsPerVariant ? Number(form.maxComparisonsPerVariant) : undefined,
         generationTemperature: form.generationTemperature ? Number(form.generationTemperature) : undefined,
         ...budgetFloorFields,

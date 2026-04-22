@@ -185,26 +185,16 @@ function safePct(actual: number, estimate: number): number | null {
   return ((actual - estimate) / estimate) * 100;
 }
 
-async function fetchRunMetricMap(ctx: AdminContext, runId: string): Promise<Map<string, number>> {
+async function fetchMetricMap(
+  ctx: AdminContext,
+  entityType: 'run' | 'strategy',
+  entityId: string,
+): Promise<Map<string, number>> {
   const { data } = await ctx.supabase
     .from('evolution_metrics')
     .select('metric_name, value')
-    .eq('entity_type', 'run')
-    .eq('entity_id', runId);
-  const map = new Map<string, number>();
-  for (const row of (data ?? []) as Array<{ metric_name: string; value: number | string }>) {
-    const n = Number(row.value);
-    if (Number.isFinite(n)) map.set(row.metric_name, n);
-  }
-  return map;
-}
-
-async function fetchStrategyMetricMap(ctx: AdminContext, strategyId: string): Promise<Map<string, number>> {
-  const { data } = await ctx.supabase
-    .from('evolution_metrics')
-    .select('metric_name, value')
-    .eq('entity_type', 'strategy')
-    .eq('entity_id', strategyId);
+    .eq('entity_type', entityType)
+    .eq('entity_id', entityId);
   const map = new Map<string, number>();
   for (const row of (data ?? []) as Array<{ metric_name: string; value: number | string }>) {
     const n = Number(row.value);
@@ -432,7 +422,7 @@ export const getRunCostEstimatesAction = adminAction(
         .select('id, budget_cap_usd, run_summary')
         .eq('id', runId)
         .single(),
-      fetchRunMetricMap(ctx, runId),
+      fetchMetricMap(ctx, 'run', runId),
       ctx.supabase
         .from('evolution_agent_invocations')
         .select('id, agent_name, iteration, cost_usd, duration_ms, execution_detail')
@@ -443,9 +433,8 @@ export const getRunCostEstimatesAction = adminAction(
 
     const runSummary = (runRow.data?.run_summary ?? null) as Record<string, unknown> | null;
     const budgetFloorConfig = (runSummary?.budgetFloorConfig ?? null) as BudgetFloorConfigLike | null;
-    const budgetCap = typeof runRow.data?.budget_cap_usd === 'number'
-      ? (runRow.data.budget_cap_usd as number)
-      : runRow.data?.budget_cap_usd != null ? Number(runRow.data.budget_cap_usd) : null;
+    const rawBudgetCap = runRow.data?.budget_cap_usd;
+    const budgetCap = rawBudgetCap != null ? Number(rawBudgetCap) : null;
 
     const invocations = (invRes.data ?? []) as InvRow[];
 
@@ -495,7 +484,7 @@ export const getStrategyCostEstimatesAction = adminAction(
     const { strategyId } = strategyInput.parse(input);
 
     const [stratMetricMap, runsRes] = await Promise.all([
-      fetchStrategyMetricMap(ctx, strategyId),
+      fetchMetricMap(ctx, 'strategy', strategyId),
       ctx.supabase
         .from('evolution_runs')
         .select('id, status, created_at')

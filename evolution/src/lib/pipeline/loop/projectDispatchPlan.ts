@@ -136,17 +136,16 @@ function buildTacticMix(
   strategyGuidance: ReadonlyArray<GuidanceEntry> | undefined,
   strategyTactics: ReadonlyArray<string> | undefined,
 ): { mix: TacticMixEntry[]; source: TacticMixSource } {
-  const weighted = iterGuidance && iterGuidance.length > 0
-    ? iterGuidance
-    : strategyGuidance && strategyGuidance.length > 0
-      ? strategyGuidance
-      : null;
+  const hasIterGuidance = iterGuidance != null && iterGuidance.length > 0;
+  const hasStrategyGuidance = strategyGuidance != null && strategyGuidance.length > 0;
+  const weighted = hasIterGuidance ? iterGuidance : hasStrategyGuidance ? strategyGuidance : null;
+
   if (weighted) {
     const total = weighted.reduce((s, e) => s + e.percent, 0);
     const n = total > 0 ? total : 1;
     return {
       mix: weighted.map((e) => ({ tactic: e.tactic, weight: e.percent / n })),
-      source: iterGuidance && iterGuidance.length > 0 ? 'iter-guidance' : 'strategy-guidance',
+      source: hasIterGuidance ? 'iter-guidance' : 'strategy-guidance',
     };
   }
   if (strategyTactics && strategyTactics.length > 0) {
@@ -156,10 +155,9 @@ function buildTacticMix(
       source: 'strategy-tactics',
     };
   }
-  const defaults = DEFAULT_TACTICS;
-  const w = 1 / defaults.length;
+  const w = 1 / DEFAULT_TACTICS.length;
   return {
-    mix: defaults.map((t) => ({ tactic: t, weight: w })),
+    mix: DEFAULT_TACTICS.map((t) => ({ tactic: t, weight: w })),
     source: 'defaults',
   };
 }

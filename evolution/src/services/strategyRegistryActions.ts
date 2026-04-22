@@ -8,8 +8,7 @@ import { hashStrategyConfig, labelStrategyConfig } from '@evolution/lib/pipeline
 import type { StrategyConfig } from '@evolution/lib/pipeline/infra/types';
 import { createEntityLogger } from '@evolution/lib/pipeline/infra/createEntityLogger';
 import { z } from 'zod';
-import { iterationConfigSchema } from '@evolution/lib/schemas';
-import { generationGuidanceSchema } from '@evolution/lib/schemas';
+import { iterationConfigSchema, generationGuidanceSchema } from '@evolution/lib/schemas';
 
 // ─── Types ──────────────────────────────────────────────────────
 

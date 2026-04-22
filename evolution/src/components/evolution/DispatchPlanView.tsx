@@ -46,11 +46,19 @@ const TONE_CLASSES: Record<'neutral' | 'warning' | 'error', string> = {
   error: 'bg-[var(--status-error)]/15 text-[var(--status-error)] border-[var(--status-error)]/40',
 };
 
+const CAP_TOOLTIPS: Record<IterationPlanEntryClient['effectiveCap'], string> = {
+  budget: 'Budget is the binding constraint.',
+  floor: 'Budget floor (parallel) shrank the batch to the 1-agent minimum.',
+  safety_cap: 'DISPATCH_SAFETY_CAP=100 binding — budget math would otherwise allow more.',
+  swiss: 'Swiss iteration — no parallel generate batch.',
+};
+
 function deltaBucket(pct: number): { color: string; label: string } {
   const abs = Math.abs(pct);
-  if (abs < 20) return { color: 'text-[var(--status-success)]', label: `${pct >= 0 ? '+' : ''}${pct.toFixed(0)}%` };
-  if (abs < 50) return { color: 'text-[var(--status-warning)]', label: `${pct >= 0 ? '+' : ''}${pct.toFixed(0)}%` };
-  return { color: 'text-[var(--status-error)]', label: `${pct >= 0 ? '+' : ''}${pct.toFixed(0)}%` };
+  const label = `${pct >= 0 ? '+' : ''}${pct.toFixed(0)}%`;
+  if (abs < 20) return { color: 'text-[var(--status-success)]', label };
+  if (abs < 50) return { color: 'text-[var(--status-warning)]', label };
+  return { color: 'text-[var(--status-error)]', label };
 }
 
 export function DispatchPlanView({
@@ -60,8 +68,9 @@ export function DispatchPlanView({
   totalBudgetUsd,
   testId,
 }: DispatchPlanViewProps): JSX.Element {
-  const actualByIdx = new Map<number, DispatchPlanActualRow>();
-  if (actual) for (const a of actual) actualByIdx.set(a.iterIdx, a);
+  const actualByIdx = new Map<number, DispatchPlanActualRow>(
+    (actual ?? []).map((a) => [a.iterIdx, a]),
+  );
 
   const showActual = actual != null && actual.length > 0;
 
@@ -119,13 +128,7 @@ export function DispatchPlanView({
                 <td className="py-1 pr-3">
                   <span
                     className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-ui border ${TONE_CLASSES[cap.tone]}`}
-                    title={entry.effectiveCap === 'safety_cap'
-                      ? 'DISPATCH_SAFETY_CAP=100 binding — budget math would otherwise allow more.'
-                      : entry.effectiveCap === 'floor'
-                        ? 'Budget floor (parallel) shrank the batch to the 1-agent minimum.'
-                        : entry.effectiveCap === 'swiss'
-                          ? 'Swiss iteration — no parallel generate batch.'
-                          : 'Budget is the binding constraint.'}
+                    title={CAP_TOOLTIPS[entry.effectiveCap]}
                   >{cap.label}</span>
                 </td>
                 {showActual && (
