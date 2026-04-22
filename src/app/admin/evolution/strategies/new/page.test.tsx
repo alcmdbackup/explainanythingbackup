@@ -217,6 +217,77 @@ describe('NewStrategyPage', () => {
     });
   });
 
+  // ─── Bug 1 regression (20260421): sourceMode='pool' auto-defaults qualityCutoff ──
+
+  it("pool-mode without touching cutoff-mode dropdown still emits qualityCutoff in payload", async () => {
+    render(<NewStrategyPage />);
+    fillStep1();
+    fireEvent.click(screen.getByText(/next: configure iterations/i));
+
+    // Split evenly so percentages sum to 100. Default is 60/40 which already sums to 100,
+    // but we call splitEvenly to produce 50/50 which is simpler to reason about.
+    fireEvent.click(screen.getByText(/split evenly/i));
+
+    // Add a third iteration so we have a non-locked generate row to configure as pool.
+    fireEvent.click(screen.getByText(/\+ add iteration/i));
+    fireEvent.click(screen.getByText(/split evenly/i));
+
+    // Iteration #3 is generate (new iterations default to generate). Its
+    // source-mode select has testid `source-mode-select-2` (0-indexed).
+    const sourceSelect = screen.getByTestId('source-mode-select-2') as HTMLSelectElement;
+    fireEvent.change(sourceSelect, { target: { value: 'pool' } });
+
+    // Deliberately DO NOT interact with `cutoff-mode-2` — this is the exact gesture that
+    // used to drop qualityCutoff from the payload pre-fix. Also leave the value input
+    // alone; updateIteration should have auto-defaulted it to 5.
+    const cutoffValue = screen.getByTestId('cutoff-value-2') as HTMLInputElement;
+    expect(cutoffValue.value).toBe('5');
+
+    fireEvent.click(screen.getByText(/create strategy/i));
+
+    await waitFor(() => {
+      expect(mockCreate).toHaveBeenCalledTimes(1);
+    });
+
+    const callArgs = mockCreate.mock.calls[0][0];
+    expect(callArgs.iterationConfigs[2]).toEqual(
+      expect.objectContaining({
+        agentType: 'generate',
+        sourceMode: 'pool',
+        qualityCutoff: { mode: 'topN', value: 5 },
+      }),
+    );
+  });
+
+  it('pool-mode auto-default can be overridden to topPercent/30', async () => {
+    render(<NewStrategyPage />);
+    fillStep1();
+    fireEvent.click(screen.getByText(/next: configure iterations/i));
+
+    fireEvent.click(screen.getByText(/split evenly/i));
+    fireEvent.click(screen.getByText(/\+ add iteration/i));
+    fireEvent.click(screen.getByText(/split evenly/i));
+
+    const sourceSelect = screen.getByTestId('source-mode-select-2') as HTMLSelectElement;
+    fireEvent.change(sourceSelect, { target: { value: 'pool' } });
+
+    const cutoffMode = screen.getByTestId('cutoff-mode-2') as HTMLSelectElement;
+    fireEvent.change(cutoffMode, { target: { value: 'topPercent' } });
+    const cutoffValue = screen.getByTestId('cutoff-value-2') as HTMLInputElement;
+    fireEvent.change(cutoffValue, { target: { value: '30' } });
+
+    fireEvent.click(screen.getByText(/create strategy/i));
+
+    await waitFor(() => {
+      expect(mockCreate).toHaveBeenCalledTimes(1);
+    });
+
+    expect(mockCreate.mock.calls[0][0].iterationConfigs[2].qualityCutoff).toEqual({
+      mode: 'topPercent',
+      value: 30,
+    });
+  });
+
   // ─── First iteration locked to generate ──────────────────
 
   it('disables agent type dropdown for first iteration', () => {

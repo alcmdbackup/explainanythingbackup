@@ -34,15 +34,21 @@ type BudgetFloorMode = 'fraction' | 'agentMultiple';
 interface IterationRow {
   agentType: 'generate' | 'swiss';
   budgetPercent: number;
-  /** Phase 2: parent-article source for this generate iteration. Defaults to 'seed'.
-   *  Not applicable to swiss. First iteration is locked to 'seed' by schema refine. */
+  /** Phase 2: parent-article source for generate iterations. Undefined for swiss.
+   *  First iteration is locked to 'seed' by schema refine. */
   sourceMode?: 'seed' | 'pool';
-  /** Phase 2: quality cutoff for pool-mode. Required when sourceMode==='pool'. */
+  /** Phase 2: quality cutoff for pool-mode. Initialized to 'topN'/5 when sourceMode
+   *  transitions to 'pool' (see updateIteration) so Zod validation always passes. */
   qualityCutoffMode?: 'topN' | 'topPercent';
   qualityCutoffValue?: number;
   /** Per-iteration tactic guidance. Overrides strategy-level for this iteration. */
   tacticGuidance?: Array<{ tactic: string; percent: number }>;
 }
+
+// Default cutoff applied when user switches a generate iteration to sourceMode='pool'.
+// Matches the "top X articles" language; topN=5 is a sensible middle ground.
+const POOL_DEFAULT_CUTOFF_MODE = 'topN' as const;
+const POOL_DEFAULT_CUTOFF_VALUE = 5;
 
 interface StrategyFormState {
   name: string;
@@ -58,7 +64,7 @@ interface StrategyFormState {
 }
 
 const DEFAULT_ITERATIONS: IterationRow[] = [
-  { agentType: 'generate', budgetPercent: 60 },
+  { agentType: 'generate', budgetPercent: 60, sourceMode: 'seed' },
   { agentType: 'swiss', budgetPercent: 40 },
 ];
 
@@ -74,7 +80,11 @@ interface IterationConfigPayload {
 
 /** Map UI iteration rows to the iterationConfigs payload accepted by the server
  *  actions (createStrategyAction + getStrategyDispatchPreviewAction). Drops
- *  generate-only fields for swiss rows and only emits optional fields when set. */
+ *  generate-only fields for swiss rows.
+ *
+ *  Invariant: when `sourceMode === 'pool'`, updateIteration guarantees
+ *  `qualityCutoffMode` and `qualityCutoffValue` are both defined, so qualityCutoff
+ *  is always emitted for pool iterations. */
 function toIterationConfigsPayload(iterations: IterationRow[]): IterationConfigPayload[] {
   return iterations.map((it) => ({
     agentType: it.agentType,
@@ -391,9 +401,26 @@ export default function NewStrategyPage(): JSX.Element {
         delete updated.qualityCutoffMode;
         delete updated.qualityCutoffValue;
         delete updated.tacticGuidance;
+        return updated;
       }
-      // Clear cutoff fields when sourceMode isn't pool.
-      if (updated.sourceMode !== 'pool') {
+      // Generate: ensure sourceMode is always set so payload emission is deterministic.
+      if (updated.sourceMode === undefined) {
+        updated.sourceMode = 'seed';
+      }
+      // Pool mode: initialize cutoff fields if unset. This is the Bug 1 fix —
+      // without explicit state the render-time `?? 'topN'` fallback on the mode
+      // dropdown was display-only, and toIterationConfigsPayload dropped
+      // qualityCutoff entirely when qualityCutoffMode stayed undefined.
+      if (updated.sourceMode === 'pool') {
+        if (updated.qualityCutoffMode === undefined) {
+          updated.qualityCutoffMode = POOL_DEFAULT_CUTOFF_MODE;
+        }
+        if (updated.qualityCutoffValue === undefined) {
+          updated.qualityCutoffValue = POOL_DEFAULT_CUTOFF_VALUE;
+        }
+      } else {
+        // Seed mode: cutoff fields are not emitted regardless, but clear them so
+        // re-toggling to pool picks up the defaults again.
         delete updated.qualityCutoffMode;
         delete updated.qualityCutoffValue;
       }
@@ -402,7 +429,7 @@ export default function NewStrategyPage(): JSX.Element {
   }, []);
 
   const addIteration = useCallback(() => {
-    setIterations(prev => [...prev, { agentType: 'generate', budgetPercent: 0 }]);
+    setIterations(prev => [...prev, { agentType: 'generate', budgetPercent: 0, sourceMode: 'seed' }]);
   }, []);
 
   const removeIteration = useCallback((idx: number) => {
