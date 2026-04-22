@@ -300,6 +300,48 @@ describe('GenerateFromPreviousArticleAgent', () => {
     expect(update.execution_detail.ranking).toBeDefined();
   });
 
+  it('uses getOwnSpent() when tracker exposes it (scope-aware attribution, Bug B)', async () => {
+    // Mirror of the createSeedArticle.test.ts regression guard. The per-invocation
+    // generation.cost must come from scope.getOwnSpent() delta (NOT getTotalSpent
+    // delta) so sibling agents' spend doesn't contaminate this invocation's
+    // attribution. Ref: generateFromPreviousArticle.ts:158, 189, 203.
+    //
+    // Calls execute() directly (bypassing Agent.run's scope-wrapping) so the mock
+    // tracker's getOwnSpent is what's consulted — same pattern as the createSeedArticle
+    // mirror.
+    let ownSpent = 0;
+    let totalSpent = 100; // inflated sibling spend — must NOT contaminate
+
+    const ctx = makeCtx({
+      costTracker: {
+        reserve: jest.fn(),
+        recordSpend: jest.fn((_phase, cost) => { ownSpent += cost; totalSpent += cost; }),
+        release: jest.fn(),
+        getTotalSpent: jest.fn(() => totalSpent),
+        getOwnSpent: jest.fn(() => ownSpent),
+        getPhaseCosts: jest.fn(() => ({})),
+        getAvailableBudget: jest.fn(() => 10),
+      } as unknown as AgentContext['costTracker'],
+    });
+
+    const llm = mkLlm();
+    (llm.complete as jest.Mock).mockImplementation(async (_p: string, name: string) => {
+      if (name === 'generation') {
+        (ctx.costTracker.recordSpend as jest.Mock)('generation', 0.004);
+        return '# Title\n## Section\nFirst sentence. Second sentence.';
+      }
+      return 'A';
+    });
+
+    const input = { ...makeInput(), llm };
+    const agent = new GenerateFromPreviousArticleAgent();
+    const output = await agent.execute(input, ctx);
+
+    // detail.generation.cost = ownSpent delta (~0.004), NOT totalSpent delta (~100.004).
+    expect(output.detail.generation.cost).toBeCloseTo(0.004, 3);
+    expect(output.detail.generation.cost).toBeLessThan(1); // would be ~100 if getTotalSpent leaked through
+  });
+
   it('passes ctx.invocationId to LLM calls (Critical Fix H)', async () => {
     const llm = mkLlm();
     const input = { ...makeInput(), llm };
