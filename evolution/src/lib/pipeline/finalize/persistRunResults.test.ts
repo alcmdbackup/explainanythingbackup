@@ -206,6 +206,44 @@ describe('finalizeRun', () => {
     expect(summary.seedVariantElo).toBeNull();
   });
 
+  // Bug 2 regression (20260421): `v.parentIds[0] || null` must coerce both undefined
+  // and empty-string to null so the persisted parent_variant_id is always either
+  // a valid UUID or null (never an empty string, which would fail FK validation).
+  // Covers the safety-net guarantee for the Phase 2 arena-filter fallback path.
+  it('falsy parentIds[0] (undefined or empty-string) persists as parent_variant_id=null', async () => {
+    const { db, upserts } = makeMockDb();
+    const pool = [
+      makeVariant(BASELINE_ID, 'seed_variant', { parentIds: [] }),
+      makeVariant(GEN1_ID, 'structural_transform', { parentIds: [''] }),
+      makeVariant(GEN2_ID, 'lexical_simplify', { parentIds: [BASELINE_ID] }),
+    ];
+    const ratings = new Map<string, Rating>([
+      [BASELINE_ID, { elo: 1200, uncertainty: 80 }],
+      [GEN1_ID, { elo: 1280, uncertainty: 64 }],
+      [GEN2_ID, { elo: 1248, uncertainty: 72 }],
+    ]);
+    const result: EvolutionResult = {
+      winner: pool[1]!,
+      pool,
+      ratings,
+      matchHistory: [],
+      totalCost: 0.1,
+      iterationsRun: 1,
+      stopReason: 'completed',
+      eloHistory: [[1280, 1248, 1200]],
+      diversityHistory: [],
+      matchCounts: { [BASELINE_ID]: 0, [GEN1_ID]: 0, [GEN2_ID]: 0 },
+    };
+    await finalizeRun(RUN_ID, result, { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
+    const rows = (upserts.find((u) => u.table === 'evolution_variants')?.data ?? []) as Array<Record<string, unknown>>;
+    const base = rows.find((r) => r.id === BASELINE_ID);
+    const gen1 = rows.find((r) => r.id === GEN1_ID);
+    const gen2 = rows.find((r) => r.id === GEN2_ID);
+    expect(base!.parent_variant_id).toBeNull();  // empty parentIds → null
+    expect(gen1!.parent_variant_id).toBeNull();  // '' parentIds[0] → null via `||`
+    expect(gen2!.parent_variant_id).toBe(BASELINE_ID);  // real UUID preserved
+  });
+
   it('tacticEffectiveness computed', async () => {
     const { db, updates } = makeMockDb();
     await finalizeRun(RUN_ID, makeResult(), { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);

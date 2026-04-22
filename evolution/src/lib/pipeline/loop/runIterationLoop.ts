@@ -345,6 +345,15 @@ export async function evolveArticle(
         const iterQualityCutoff = iterCfg.qualityCutoff;
         const seedVariantForResolve = { id: options?.seedVariantId ?? '', text: originalText };
 
+        // Bug fix (20260421): in pool mode, parents must be drawn from variants
+        // produced by THIS run only — never from arena entries that came from prior
+        // runs of the same prompt. Arena entries still participate in ranking
+        // (in-iteration rankSingleVariant uses `initialPoolSnapshot` unfiltered),
+        // they're just excluded as candidate *parents*. Computed once per iteration;
+        // reused by both the parallel batch and top-up dispatches below.
+        const inRunPool = initialPoolSnapshot.filter((v) => !v.fromArena);
+        const poolForParentResolve = iterSourceMode === 'pool' ? inRunPool : initialPoolSnapshot;
+
         // Helper: build the AgentContext + kick off one GFSA agent run.
         const dispatchOneAgent = (tactic: string, phase: 'parallel' | 'top_up') => {
           const execOrder = ++executionOrder;
@@ -353,11 +362,30 @@ export async function evolveArticle(
             sourceMode: iterSourceMode,
             qualityCutoff: iterQualityCutoff,
             seedVariant: seedVariantForResolve,
-            pool: initialPoolSnapshot,
+            pool: poolForParentResolve,
             ratings: initialRatingsSnapshot,
             rng: pickRng,
             warn: (msg, c) => logger.warn(msg, { ...c, phaseName: 'generation', iteration, execOrder, dispatchPhase: phase }),
           });
+          // Relabel the generic empty_pool fallback when the real cause was "we
+          // filtered out arena entries and nothing in-run was left". Gives operators
+          // a distinct log string to grep for without changing resolveParent's type.
+          if (
+            iterSourceMode === 'pool'
+            && resolved.fallbackReason === 'empty_pool'
+            && initialPoolSnapshot.length > 0
+            && inRunPool.length === 0
+          ) {
+            logger.warn('resolveParent: no same-run variants available, fell back to seed', {
+              phaseName: 'generation',
+              iteration,
+              execOrder,
+              dispatchPhase: phase,
+              fallbackReason: 'no_same_run_variants',
+              inRunSize: 0,
+              arenaFilteredCount: initialPoolSnapshot.length,
+            });
+          }
           const ctxForAgent: AgentContext = {
             db, runId, iteration,
             executionOrder: execOrder,
