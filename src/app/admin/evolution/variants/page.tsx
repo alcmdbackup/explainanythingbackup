@@ -103,6 +103,7 @@ const COLUMNS: ColumnDef<VariantListEntry>[] = [
           delta={delta}
           deltaCi={ci}
           crossRun={!!v.parent_run_id && v.parent_run_id !== v.run_id}
+          parentRunId={v.parent_run_id ?? null}
         />
       );
     },

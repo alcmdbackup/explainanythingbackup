@@ -52,6 +52,7 @@ export function VariantDetailContent({ variant }: VariantDetailContentProps): JS
         delta={delta}
         deltaCi={ci}
         crossRun={!!variant.parentRunId && variant.parentRunId !== variant.runId}
+        parentRunId={variant.parentRunId ?? null}
       />
     );
   })();

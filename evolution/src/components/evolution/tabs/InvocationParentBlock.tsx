@@ -130,6 +130,7 @@ export function InvocationParentBlock({ invocationId, tactic, sourceMode }: Prop
                 delta={deltaResult.delta}
                 deltaCi={deltaResult.ci}
                 crossRun={!!variantCtx!.parentRunId && variantCtx!.parentRunId !== variantCtx!.variantRunId}
+                parentRunId={variantCtx!.parentRunId ?? null}
               />
             </div>
           )}

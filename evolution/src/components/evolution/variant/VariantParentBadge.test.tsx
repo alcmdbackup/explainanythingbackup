@@ -49,7 +49,7 @@ describe('VariantParentBadge', () => {
     expect(badge).toHaveTextContent('[-50, +0]');
   });
 
-  it('annotates cross-run parent with "(other run)"', () => {
+  it('annotates cross-run parent with a strengthened pill (20260421)', () => {
     render(
       <VariantParentBadge
         parentId="xxx"
@@ -60,8 +60,42 @@ describe('VariantParentBadge', () => {
         crossRun={true}
       />,
     );
-    const badge = screen.getByTestId('variant-parent-badge');
-    expect(badge).toHaveTextContent('(other run)');
+    const pill = screen.getByTestId('parent-cross-run-pill');
+    expect(pill).toHaveTextContent(/other run/i);
+    // Accessible label for screen readers.
+    expect(pill).toHaveAttribute('aria-label', 'Parent is from a different run');
+  });
+
+  it('appends 6-char parent run id to the cross-run pill when supplied', () => {
+    render(
+      <VariantParentBadge
+        parentId="xxx"
+        parentElo={1200}
+        parentUncertainty={30}
+        delta={10}
+        deltaCi={[-5, 25]}
+        crossRun={true}
+        parentRunId="abc123def456"
+      />,
+    );
+    const pill = screen.getByTestId('parent-cross-run-pill');
+    expect(pill).toHaveTextContent(/other run abc123$/i);
+  });
+
+  it('omits the run-id slice when parentRunId is null', () => {
+    render(
+      <VariantParentBadge
+        parentId="xxx"
+        parentElo={1200}
+        parentUncertainty={30}
+        delta={10}
+        deltaCi={[-5, 25]}
+        crossRun={true}
+        parentRunId={null}
+      />,
+    );
+    const pill = screen.getByTestId('parent-cross-run-pill');
+    expect(pill).toHaveTextContent(/^other run$/i);
   });
 
   it('renders "From" label when role="from"', () => {

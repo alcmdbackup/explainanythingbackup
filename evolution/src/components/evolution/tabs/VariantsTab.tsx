@@ -233,6 +233,7 @@ export function VariantsTab({ runId, strategyId, runStatus }: VariantsTabProps):
                           delta={delta}
                           deltaCi={ci}
                           crossRun={!!v.parent_run_id && v.parent_run_id !== v.run_id}
+                          parentRunId={v.parent_run_id ?? null}
                         />
                       );
                     })()}

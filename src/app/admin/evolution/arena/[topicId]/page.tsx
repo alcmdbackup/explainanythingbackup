@@ -284,6 +284,7 @@ export default function ArenaTopicDetailPage(): JSX.Element {
                               delta={delta}
                               deltaCi={ci}
                               crossRun={!!entry.parent_run_id && entry.parent_run_id !== entry.run_id}
+                              parentRunId={entry.parent_run_id ?? null}
                             />
                           );
                         })()}
