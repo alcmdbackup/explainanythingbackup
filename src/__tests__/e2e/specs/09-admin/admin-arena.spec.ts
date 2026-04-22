@@ -24,6 +24,8 @@ interface SeededArenaData {
   topicId: string;
   entryOneshotId: string;
   entryEvolutionId: string;
+  /** UX 3 (20260421): seed variant surfaced in the ArenaSeedPanel at top of page. */
+  entrySeedId: string;
   eloOneshotId: string;
   eloEvolutionId: string;
   /** Optional: set when a companion evolution run is created for source link tests */
@@ -140,10 +142,32 @@ async function seedArenaData(): Promise<SeededArenaData> {
 
   if (e2 || !entryEvolution) throw new Error(`Failed to seed evolution entry: ${e2?.message}`);
 
+  // UX 3 (20260421): Seed a generation_method='seed' variant so the ArenaSeedPanel
+  // at the top of the topic page has something to render. Explicit numeric values
+  // for elo_score/mu/sigma/arena_match_count ensure deterministic panel rendering.
+  const { data: entrySeed, error: e3 } = await supabase
+    .from('evolution_variants')
+    .insert({
+      prompt_id: topic.id,
+      synced_to_arena: true,
+      variant_content: '# Seed article\n\nThis is the seed variant for the E2E topic.',
+      generation_method: 'seed',
+      model: null,
+      cost_usd: null,
+      elo_score: 1200,
+      mu: 25,
+      sigma: 8.333,
+      arena_match_count: 0,
+    })
+    .select('id')
+    .single();
+  if (e3 || !entrySeed) throw new Error(`Failed to seed seed entry: ${e3?.message}`);
+
   return {
     topicId: topic.id,
     entryOneshotId: entryOneshot.id,
     entryEvolutionId: entryEvolution.id,
+    entrySeedId: entrySeed.id,
     eloOneshotId: entryOneshot.id,
     eloEvolutionId: entryEvolution.id,
     evolutionRunId,
@@ -222,6 +246,35 @@ adminTest.describe('Admin Arena', { tag: '@evolution' }, () => {
 
       // Our seeded topic row should appear (identified by link to topic detail page)
       await expect(adminPage.locator(`a[href*="/admin/evolution/arena/${seededData.topicId}"]`).first()).toBeVisible({ timeout: 10000 });
+    },
+  );
+
+  adminTest(
+    'topic detail page renders ArenaSeedPanel (UX 3) + variant ID column (UX 4)',
+    async ({ adminPage }) => {
+      await adminPage.goto(`/admin/evolution/arena/${seededData.topicId}`);
+      await adminPage.waitForLoadState('domcontentloaded');
+
+      // UX 3: seed panel at the top with correct link target to the seed variant.
+      const seedPanel = adminPage.locator('[data-testid="arena-seed-panel"]');
+      await expect(seedPanel).toBeVisible({ timeout: 20000 });
+      const seedLink = adminPage.locator('[data-testid="arena-seed-panel-link"]');
+      await expect(seedLink).toHaveAttribute('href', `/admin/evolution/variants/${seededData.entrySeedId}`);
+
+      // UX 3 inline indicator: seed row still present in leaderboard body with a
+      // strengthened star+pill indicator.
+      const leaderboard = adminPage.locator('[data-testid="leaderboard-table"]');
+      await expect(leaderboard).toBeVisible();
+      const seedRowIndicator = adminPage.locator('[data-testid="lb-seed-row-indicator"]');
+      await expect(seedRowIndicator).toBeVisible();
+      await expect(seedRowIndicator).toContainText(/seed/i);
+
+      // UX 4: every row has an ID cell with the full UUID in its title attribute.
+      const idCells = adminPage.locator('[data-testid="lb-variant-id"]');
+      await expect(idCells.first()).toBeVisible();
+      const firstId = await idCells.first().getAttribute('title');
+      expect(firstId).toBeTruthy();
+      expect(firstId).toMatch(/[0-9a-f-]{36}/);
     },
   );
 });

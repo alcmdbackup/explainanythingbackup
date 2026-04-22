@@ -27,6 +27,10 @@ export interface VariantParentBadgeProps {
   deltaCi: [number, number] | null;
   /** When true, annotate that the parent is in a different run than the child. */
   crossRun?: boolean;
+  /** Optional parent run id. When supplied alongside crossRun, the cross-run pill
+   *  shows a 6-char slice (`other run abc123`) so historical cross-run parents —
+   *  produced before the 20260421 pool-source bug fix — are easier to audit. */
+  parentRunId?: string | null;
   /** Semantic role: 'parent' (default) or 'from' (used in lineage-tab pair picker). */
   role?: 'parent' | 'from';
   /** Optional CSS class override. */
@@ -45,7 +49,7 @@ function formatCi(ci: [number, number]): string {
 }
 
 export function VariantParentBadge(props: VariantParentBadgeProps): JSX.Element {
-  const { parentId, parentElo, parentUncertainty, delta, deltaCi, crossRun, role, className } = props;
+  const { parentId, parentElo, parentUncertainty, delta, deltaCi, crossRun, parentRunId, role, className } = props;
 
   // Null-parent state (seed variant, or when lookup failed).
   if (parentId == null || parentElo == null) {
@@ -79,7 +83,23 @@ export function VariantParentBadge(props: VariantParentBadgeProps): JSX.Element 
       >
         {label}
       </Link>
-      {crossRun ? <span className="ml-1 text-[var(--text-secondary)]">(other run)</span> : null}
+      {crossRun ? (
+        // Styling mirrors StatusBadge.tsx filled variant (20%/30% color-mix bg/border).
+        // StatusBadge isn't reused because its API derives the label from `status` via
+        // capitalize() and takes no children/label — update together if its tokens change.
+        <span
+          className="ml-1 inline-flex items-center rounded-full px-2 py-0.5 text-xs font-ui font-medium border"
+          style={{
+            backgroundColor: 'color-mix(in srgb, var(--accent-copper) 20%, transparent)',
+            color: 'var(--accent-copper)',
+            borderColor: 'color-mix(in srgb, var(--accent-copper) 30%, transparent)',
+          }}
+          data-testid="parent-cross-run-pill"
+          aria-label="Parent is from a different run"
+        >
+          other run{parentRunId ? ` ${parentRunId.substring(0, 6)}` : ''}
+        </span>
+      ) : null}
       <span className="mx-1">·</span>
       <span>{eloLabel}</span>
       {deltaLabel ? (

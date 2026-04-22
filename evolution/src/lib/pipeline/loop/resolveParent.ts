@@ -1,5 +1,12 @@
 // Resolves the parent variant (seed or pool pick) for one generate-agent invocation.
 // Called by runIterationLoop before dispatching each parallel agent.
+//
+// Contract: this function picks from whatever pool it is given. Callers are
+// responsible for filtering the pool to the desired candidate set before calling.
+// In particular, runIterationLoop filters out arena-sourced variants (`v.fromArena`)
+// when sourceMode === 'pool' so new variants' `parent_variant_id` values reference
+// only the seed or variants produced by the same run. Arena entries still enter
+// the pool as ranking competitors — they're just excluded as candidate parents.
 
 import type { Variant } from '../../types';
 import type { Rating } from '../../shared/computeRatings';

@@ -146,4 +146,66 @@ adminTest.describe('Strategy Creation Wizard', { tag: '@evolution' }, () => {
     // The strategy name should be visible in the list
     await expect(adminPage.locator('[data-testid="entity-list-table"]').getByText(TEST_PREFIX)).toBeVisible({ timeout: 15000 });
   });
+
+  // Bug 1 regression (20260421): setting an iteration to sourceMode='pool' without
+  // touching the cutoff-mode dropdown used to drop qualityCutoff from the emitted
+  // payload, triggering Zod error "qualityCutoff required when sourceMode is pool".
+  // This test pins the wizard's auto-default behavior end-to-end so the specific
+  // gesture that used to fail now succeeds.
+  let poolModeCreatedStrategyId: string | undefined;
+
+  adminTest.afterAll(async () => {
+    if (!poolModeCreatedStrategyId) return;
+    const sb = getServiceClient();
+    await sb.from('evolution_metrics').delete().eq('entity_id', poolModeCreatedStrategyId);
+    await sb.from('evolution_strategies').delete().eq('id', poolModeCreatedStrategyId);
+  });
+
+  adminTest('pool sourceMode auto-defaults cutoff (Bug 1)', async ({ adminPage }) => {
+    await adminPage.goto('/admin/evolution/strategies/new');
+    await adminPage.waitForLoadState('domcontentloaded');
+    await expect(adminPage.locator('#strategy-name')).toBeVisible({ timeout: 15000 });
+
+    const strategyName = `${TEST_PREFIX} Pool Auto ${Date.now()}`;
+
+    // Step 1
+    await adminPage.locator('#strategy-name').fill(strategyName);
+    await adminPage.locator('#generation-model').selectOption({ index: 1 });
+    await adminPage.locator('#budget-usd').fill('1.00');
+    await adminPage.locator('button', { hasText: 'Next: Configure Iterations' }).click();
+
+    // Step 2 — add a 3rd iteration (default generate, budgetPercent=0), split evenly
+    // so percentages sum to 100, then toggle its source to pool WITHOUT touching the
+    // cutoff-mode dropdown.
+    await expect(adminPage.locator('text=#1')).toBeVisible({ timeout: 10000 });
+    await adminPage.locator('button', { hasText: '+ Add Iteration' }).click();
+    await expect(adminPage.locator('text=#3')).toBeVisible();
+    await adminPage.locator('button', { hasText: 'Split Evenly' }).click();
+
+    // Switch iteration #3 (idx=2) to pool. updateIteration auto-defaults
+    // qualityCutoffMode='topN' and qualityCutoffValue=5, so the form becomes valid
+    // without any further interaction.
+    await adminPage.locator('[data-testid="source-mode-select-2"]').selectOption('pool');
+
+    // Sanity: the cutoff value input is auto-defaulted to 5 by updateIteration.
+    const cutoffInput = adminPage.locator('[data-testid="cutoff-value-2"]');
+    await expect(cutoffInput).toHaveValue('5');
+
+    // Submit — the key assertion is that Zod does NOT throw
+    // "qualityCutoff required when sourceMode is pool".
+    const createBtn = adminPage.locator('button', { hasText: 'Create Strategy' });
+    await expect(createBtn).toBeEnabled();
+    await createBtn.click();
+
+    // Successful submit redirects to the strategy detail page.
+    await expect(adminPage).toHaveURL(/\/admin\/evolution\/strategies\/[0-9a-f-]+/, { timeout: 20000 });
+
+    const url = adminPage.url();
+    const idMatch = url.match(/strategies\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/);
+    if (idMatch) {
+      poolModeCreatedStrategyId = idMatch[1]!;
+      trackEvolutionId('strategy', poolModeCreatedStrategyId);
+    }
+    expect(poolModeCreatedStrategyId).toBeTruthy();
+  });
 });

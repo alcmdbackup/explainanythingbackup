@@ -486,9 +486,15 @@ Playwright specs in `src/__tests__/e2e/specs/09-admin/`:
 | Spec | Coverage |
 |------|----------|
 | `admin-evolution-v2.spec.ts` | Dashboard, runs list, run detail, experiment pages |
-| `admin-arena.spec.ts` | Arena topics, leaderboards, entry detail |
+| `admin-arena.spec.ts` | Arena topics, leaderboards, entry detail, seed panel (2026-04-21) + variant-ID column |
 | `admin-evolution-run-pipeline.spec.ts` | Full pipeline lifecycle: seed → run → metrics → arena sync → UI rendering (11 tests, real LLM calls) |
 | `admin-evolution-experiment-wizard-e2e.spec.ts` | Wizard creation with seeded data: form fill → submit → list → detail (4 tests) |
+
+### Integration Tests (real DB)
+
+| Spec | Coverage |
+|------|----------|
+| `src/__tests__/integration/evolution-pool-source-same-run.integration.test.ts` | Bug 2 regression (2026-04-21): verifies that pool-mode iterations draw parents only from same-run variants, with arena entries excluded at the `resolveParent` call site. Uses `loadArenaEntries` against a real DB + `resolveParent` with a pre-filtered pool. |
 
 ### Key Mock Patterns
 

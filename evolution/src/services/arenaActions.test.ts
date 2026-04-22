@@ -155,19 +155,89 @@ describe('arenaActions', () => {
   // ─── getArenaTopicDetailAction ───────────────────────────────
 
   describe('getArenaTopicDetailAction', () => {
-    it('returns topic detail by id', async () => {
-      const chain = {
-        select: jest.fn().mockReturnThis(),
-        eq: jest.fn().mockReturnThis(),
-        single: jest.fn().mockResolvedValue({ data: MOCK_TOPIC, error: null }),
-      };
-      mockSupabase.from = jest.fn().mockReturnValue(chain);
+    it('returns topic detail with seedVariant=null when no seed exists', async () => {
+      const mock = createTableAwareMock([
+        // evolution_prompts
+        (b) => {
+          b.single!.mockResolvedValueOnce({ data: MOCK_TOPIC, error: null });
+        },
+        // evolution_variants (seed lookup)
+        (b) => {
+          b.maybeSingle!.mockResolvedValueOnce({ data: null, error: null });
+        },
+      ]);
+      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
 
       const result = await getArenaTopicDetailAction(VALID_UUID);
 
       expect(result.success).toBe(true);
       expect(result.data!.id).toBe(VALID_UUID);
       expect(result.data!.name).toBe('Photosynthesis Explainer');
+      expect(result.data!.seedVariant).toBeNull();
+    });
+
+    // UX 3 (20260421): seed panel data source. getArenaTopicDetailAction is the
+    // single source of truth for the topic's seed variant — NOT the paginated
+    // leaderboard. Sourcing the seed from the paginated entries would silently
+    // hide the panel when the seed doesn't fit on page 1.
+    it('returns seedVariant populated when a generation_method=seed row exists', async () => {
+      const seedRow = {
+        id: '770e8400-e29b-41d4-a716-446655440002',
+        prompt_id: VALID_UUID,
+        run_id: '880e8400-e29b-41d4-a716-446655440003',
+        variant_content: '# Seed article title\n\nBody text...',
+        synced_to_arena: true,
+        generation_method: 'seed',
+        model: null,
+        cost_usd: 0.01,
+        elo_score: 1200,
+        mu: 25,
+        sigma: 8.333,
+        arena_match_count: 3,
+        archived_at: null,
+        created_at: '2026-03-01T10:00:00Z',
+        generation: 0,
+        parent_variant_id: null,
+      };
+      const mock = createTableAwareMock([
+        (b) => { b.single!.mockResolvedValueOnce({ data: MOCK_TOPIC, error: null }); },
+        (b) => { b.maybeSingle!.mockResolvedValueOnce({ data: seedRow, error: null }); },
+      ]);
+      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+      const result = await getArenaTopicDetailAction(VALID_UUID);
+
+      expect(result.success).toBe(true);
+      expect(result.data!.seedVariant).not.toBeNull();
+      expect(result.data!.seedVariant!.id).toBe(seedRow.id);
+      expect(result.data!.seedVariant!.is_seed).toBe(true);
+      expect(result.data!.seedVariant!.generation_method).toBe('seed');
+    });
+
+    // Legacy pre-EVOLUTION_REUSE_SEED_RATING=true data may have multiple seed
+    // rows per prompt. The action's ORDER BY elo_score DESC LIMIT 1 (secondary
+    // created_at ASC) ensures we always pick the highest-Elo row deterministically.
+    // Verified here by ensuring ordering chain methods are invoked with the
+    // expected arguments.
+    it('orders multi-seed lookups by elo_score DESC then created_at ASC (legacy tiebreak)', async () => {
+      const orderCalls: Array<[string, { ascending: boolean }]> = [];
+      const mock = createTableAwareMock([
+        (b) => { b.single!.mockResolvedValueOnce({ data: MOCK_TOPIC, error: null }); },
+        (b) => {
+          const origOrder = b.order!;
+          b.order = jest.fn((col: string, opts: { ascending: boolean }) => {
+            orderCalls.push([col, opts]);
+            return origOrder(col, opts);
+          });
+          b.maybeSingle!.mockResolvedValueOnce({ data: null, error: null });
+        },
+      ]);
+      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+      await getArenaTopicDetailAction(VALID_UUID);
+
+      expect(orderCalls).toContainEqual(['elo_score', { ascending: false }]);
+      expect(orderCalls).toContainEqual(['created_at', { ascending: true }]);
     });
 
     it('rejects invalid topicId', async () => {
@@ -178,15 +248,15 @@ describe('arenaActions', () => {
     });
 
     it('returns error when topic not found', async () => {
-      const chain = {
-        select: jest.fn().mockReturnThis(),
-        eq: jest.fn().mockReturnThis(),
-        single: jest.fn().mockResolvedValue({
-          data: null,
-          error: { message: 'Not found', code: 'PGRST116' },
-        }),
-      };
-      mockSupabase.from = jest.fn().mockReturnValue(chain);
+      const mock = createTableAwareMock([
+        (b) => {
+          b.single!.mockResolvedValueOnce({
+            data: null,
+            error: { message: 'Not found', code: 'PGRST116' },
+          });
+        },
+      ]);
+      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
 
       const result = await getArenaTopicDetailAction(VALID_UUID);
 
