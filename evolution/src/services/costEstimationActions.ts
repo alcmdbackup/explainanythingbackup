@@ -35,6 +35,11 @@ function projectDispatchCounts(input: ProjectDispatchCountsInput): ProjectDispat
   if (!Number.isFinite(input.totalBudget) || input.totalBudget <= 0) return EMPTY;
   if (!Number.isFinite(input.numVariants) || input.numVariants <= 0) return EMPTY;
 
+  // NOTE: resolve*Floor() signatures were renamed `totalBudget` → `iterBudget` in Phase 7a
+  // for the runtime path. This module is a RUN-LEVEL counterfactual (no iteration loop —
+  // it treats the whole run as one bucket), so `totalBudget` is the correct argument here.
+  // In fraction mode the result is the historical run-level floor; in multiple-of-agent
+  // mode the formula doesn't reference the budget arg so either scope is equivalent.
   const parallelFloor = resolveParallelFloor(input.floorConfig, input.totalBudget, input.agentCost);
   const parallelBudget = Math.max(0, input.totalBudget - parallelFloor);
   const maxAffordable = Math.max(1, Math.floor(parallelBudget / input.agentCost));
