@@ -624,11 +624,11 @@ interface IterationConfig {
 **Semantics**
 
 - `sourceMode: 'seed'` (default): each generation agent receives the seed article as its parent.
-- `sourceMode: 'pool'`: each agent receives a randomly-selected parent drawn from the current run's pool, filtered by `qualityCutoff`.
+- `sourceMode: 'pool'`: each agent receives a randomly-selected parent drawn from **variants produced by the current run only**, filtered by `qualityCutoff`. Arena entries loaded via `loadArenaEntries` (prior runs of the same prompt) participate in **ranking** as competitors but are explicitly **excluded as candidate parents** via the call-site filter in `runIterationLoop.ts` (`initialPoolSnapshot.filter((v) => !v.fromArena)`). This invariant — that a new variant's `parent_variant_id` always resolves to the seed or another variant from the same run — was added 2026-04-21; pre-fix pool-mode runs can have cross-run parent lineage and surface it via the `(other run)` pill on `VariantParentBadge`.
 - First iteration (index 0) is locked to `'seed'` by schema refine — the pool is empty at start.
-- `qualityCutoff` is required when `sourceMode === 'pool'`. For `mode: 'topN'` the value is an absolute count; for `mode: 'topPercent'` it is a percentile (1-100).
+- `qualityCutoff` is required when `sourceMode === 'pool'`. For `mode: 'topN'` the value is an absolute count; for `mode: 'topPercent'` it is a percentile (1-100). The strategy creation wizard at `/admin/evolution/strategies/new` auto-defaults `{ mode: 'topN', value: 5 }` when the user switches an iteration to pool mode, so the user doesn't need to interact with the cutoff-mode dropdown separately.
 - The parent pick uses a deterministic RNG seeded from `(runId, iteration, executionOrder)` via FNV-1a, so retries pick the same parent for the same tuple.
-- If no eligible parent exists (empty pool, all variants unrated, cutoff too strict), `resolveParent` falls back to seed and logs a warning.
+- If no eligible parent exists (empty filtered pool, all variants unrated, cutoff too strict), `resolveParent` falls back to seed and logs a warning. When the filter specifically dropped all candidates (i.e., pool had arena variants but no in-run variants yet), the call site emits a distinct `fallbackReason: 'no_same_run_variants'` log-context for diagnosability.
 - `qualityCutoff.value` is part of the strategy-config hash: two configs that differ only by cutoff value produce different strategy IDs.
 
 **Example** — two-iteration strategy where iteration 2 re-generates from the top 3 pool variants:
