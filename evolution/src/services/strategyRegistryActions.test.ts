@@ -57,7 +57,6 @@ const MOCK_V2_CONFIG = {
   generationModel: 'claude-3-5-haiku-20241022',
   judgeModel: 'claude-3-5-sonnet-20241022',
   iterationConfigs: [{ agentType: 'generate', budgetPercent: 60 }, { agentType: 'swiss', budgetPercent: 40 }],
-  strategiesPerRound: 3,
   budgetUsd: 2.0,
 };
 
@@ -264,7 +263,6 @@ describe('strategyRegistryActions', () => {
         generationModel: 'claude-3-5-haiku-20241022',
         judgeModel: 'claude-3-5-sonnet-20241022',
         iterationConfigs: [{ agentType: 'generate', budgetPercent: 60 }, { agentType: 'swiss', budgetPercent: 40 }],
-        strategiesPerRound: 3,
         budgetUsd: 2.0,
       });
 

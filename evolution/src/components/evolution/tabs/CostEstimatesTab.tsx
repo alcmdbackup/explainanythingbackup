@@ -150,6 +150,14 @@ function StrategyCostEstimatesView({ strategyId }: { strategyId: string }): JSX.
     return Math.sqrt(variance / n);
   })();
 
+  const avgErrorValue = ((): React.ReactNode => {
+    if (summary.errorPct == null) return '—';
+    if (errorPctSE != null) {
+      return <span className="font-mono">{formatPctWithTone(summary.errorPct)} ± {errorPctSE.toFixed(1)}%</span>;
+    }
+    return formatPctWithTone(summary.errorPct);
+  })();
+
   return (
     <div className="space-y-6" data-testid="cost-estimates-tab">
       <SummarySection
@@ -157,15 +165,7 @@ function StrategyCostEstimatesView({ strategyId }: { strategyId: string }): JSX.
           { id: 'runCount', label: 'Runs', value: String(summary.runCount) },
           { id: 'totalCost', label: 'Total Cost', value: formatCostMaybe(summary.totalCost) },
           { id: 'estimatedCost', label: 'Total Estimated', value: formatCostMaybe(summary.estimatedCost) },
-          {
-            id: 'errorPct',
-            label: 'Avg Error %',
-            value: summary.errorPct == null
-              ? '—'
-              : errorPctSE != null
-                ? <span className="font-mono">{formatPctWithTone(summary.errorPct)} ± {errorPctSE.toFixed(1)}%</span>
-                : formatPctWithTone(summary.errorPct),
-          },
+          { id: 'errorPct', label: 'Avg Error %', value: avgErrorValue },
           { id: 'withEst', label: 'Runs w/ Estimates', value: String(summary.runsWithEstimates) },
         ]}
       />
@@ -282,7 +282,7 @@ function BudgetFloorSensitivitySection({
       )}
       {edge === 'ceiling_binding' && (
         <Badge tone="info" testId="sensitivity-ceiling">
-          numVariants ceiling binding in both scenarios — Δ = 0.
+          Dispatch safety cap binding in both scenarios — Δ = 0.
         </Badge>
       )}
 
@@ -320,12 +320,10 @@ function BudgetFloorSensitivitySection({
           </table>
           <p className="mt-3 text-sm text-[var(--text-secondary)]">
             {underOrOver === 'under' ? 'Under' : 'Over'}-estimating agent cost by {formatPercentNumber(driftAbs)} caused this run to{' '}
-            {deltaInvocations === 0 ? 'dispatch the same number of' :
-              deltaInvocations < 0 ? `dispatch ${Math.abs(deltaInvocations)} fewer` :
-              `dispatch ${deltaInvocations} more`}{' '}
-            sequential GFSA invocation{deltaInvocations === 1 || deltaInvocations === -1 ? '' : 's'}
+            {describeDispatchDelta(deltaInvocations)}{' '}
+            sequential GFSA invocation{Math.abs(deltaInvocations) === 1 ? '' : 's'}
             {actual.sequentialWallMs != null && projected.sequentialWallMs != null ? (
-              <> and finish {deltaMs < 0 ? `~${formatMsDelta(Math.abs(deltaMs))} sooner` : deltaMs > 0 ? `~${formatMsDelta(deltaMs)} later` : 'at the same wall time'} than it would have with an accurate cost estimate.</>
+              <> and finish {describeWallDelta(deltaMs)} than it would have with an accurate cost estimate.</>
             ) : '.'}
           </p>
           <button
@@ -704,6 +702,18 @@ function formatMs(ms: number): string {
 
 function formatMsDelta(ms: number): string {
   return formatMs(Math.abs(ms));
+}
+
+function describeDispatchDelta(delta: number): string {
+  if (delta === 0) return 'dispatch the same number of';
+  if (delta < 0) return `dispatch ${Math.abs(delta)} fewer`;
+  return `dispatch ${delta} more`;
+}
+
+function describeWallDelta(deltaMs: number): string {
+  if (deltaMs < 0) return `~${formatMsDelta(Math.abs(deltaMs))} sooner`;
+  if (deltaMs > 0) return `~${formatMsDelta(deltaMs)} later`;
+  return 'at the same wall time';
 }
 
 // Silence unused import when the file is bundled — formatPercent retained for future use.

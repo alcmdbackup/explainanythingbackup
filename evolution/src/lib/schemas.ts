@@ -391,8 +391,6 @@ export const iterationConfigSchema = z.object({
   agentType: iterationAgentTypeEnum,
   /** Percentage of total budget allocated to this iteration (1-100). Dollar amount = budgetPercent / 100 * totalBudgetUsd. */
   budgetPercent: z.number().min(1).max(100),
-  /** Max parallel agents for generate iterations. Optional — without it, dispatches as many as budget allows. Must be undefined for swiss. */
-  maxAgents: z.number().int().min(1).max(100).optional(),
   /** Source of the parent article: 'seed' (default) or 'pool' (draw from current run's ranked pool). Only valid for generate iterations. */
   sourceMode: sourceModeEnum.optional(),
   /** Quality cutoff for pool-mode parent selection. Required when sourceMode='pool'. */
@@ -400,9 +398,6 @@ export const iterationConfigSchema = z.object({
   /** Per-iteration tactic guidance. Overrides strategy-level generationGuidance for this iteration. Only valid for generate iterations. */
   generationGuidance: generationGuidanceSchema.optional(),
 }).refine(
-  (c) => c.agentType !== 'swiss' || c.maxAgents === undefined,
-  { message: 'maxAgents must not be set for swiss iterations' },
-).refine(
   (c) => c.agentType !== 'swiss' || c.sourceMode === undefined,
   { message: 'sourceMode only valid for generate iterations' },
 ).refine(
@@ -428,8 +423,6 @@ const strategyConfigBaseSchema = z.object({
   judgeModel: z.string(),
   /** Total budget for the run in USD. Per-iteration amounts computed from iterationConfigs[].budgetPercent. */
   budgetUsd: z.number().min(0).optional(),
-  /** Generation strategies to round-robin across parallel generate agents. */
-  strategiesPerRound: z.number().int().min(1).optional(),
   generationGuidance: generationGuidanceSchema.optional(),
   /** Hard cap on pairwise comparisons per variant during ranking. Default 15. */
   maxComparisonsPerVariant: z.number().int().min(1).max(100).optional(),
@@ -522,16 +515,12 @@ const evolutionConfigBaseSchema = z.object({
   generationModel: z.string(),
   /** Ordered iteration sequence — each specifies agent type, budget percentage, optional maxAgents. */
   iterationConfigs: z.array(iterationConfigSchema).min(1).max(MAX_ITERATION_CONFIGS),
-  /** @deprecated Pre-parallel pipeline strategies-per-round (3 by default). Replaced by numVariants. */
-  strategiesPerRound: z.number().int().min(1).optional(),
   /** @deprecated Triage calibration opponent count (legacy ranking). */
   calibrationOpponents: z.number().int().min(1).optional(),
   /** @deprecated Top-K eligibility floor (legacy ranking). */
   tournamentTopK: z.number().int().min(1).optional(),
   /** Optional weighted strategy selection from main (predates parallel pipeline). */
   generationGuidance: generationGuidanceSchema.optional(),
-  /** @deprecated Replaced by maxAgents on iterationConfigs[]. Kept for legacy code paths. */
-  numVariants: z.number().int().min(1).max(100).optional(),
   /** Strategy names to round-robin across the N parallel generate agents. */
   strategies: z.array(z.string().min(1)).optional(),
   /** Hard cap on pairwise comparisons per variant during ranking (default 15). */
@@ -1207,7 +1196,8 @@ const _EvolutionRunSummaryV3Inner = z.object({
     minBudgetAfterParallelAgentMultiple: z.number().min(0).optional(),
     minBudgetAfterSequentialFraction: z.number().min(0).max(1).optional(),
     minBudgetAfterSequentialAgentMultiple: z.number().min(0).optional(),
-    numVariants: z.number().int().min(0),
+    /** @deprecated Replaced by DISPATCH_SAFETY_CAP constant in code. Legacy rows persisted this value; reading still tolerates it. */
+    numVariants: z.number().int().min(0).optional(),
   }).optional(),
 }).strict();
 

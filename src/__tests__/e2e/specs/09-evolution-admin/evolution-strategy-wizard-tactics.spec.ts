@@ -56,12 +56,14 @@ test.describe('Strategy Wizard — Tactic Guidance', { tag: '@evolution' }, () =
     await genSelect.selectOption({ index: 1 });
     await page.click('button:has-text("Next: Configure Iterations")');
 
-    // Generate iteration should show dispatch preview
-    await page.waitForSelector('[data-testid="dispatch-preview-0"]', { timeout: 10000 });
-    const preview = page.locator('[data-testid="dispatch-preview-0"]');
-    await expect(preview).toBeVisible();
-    // Should contain a number followed by 'parallel'
-    const text = await preview.textContent();
-    expect(text).toMatch(/\d+ parallel/);
+    // Phase 6: dispatch preview now lives in the shared DispatchPlanView component,
+    // which renders a per-iteration row with a data-testid of `dispatch-plan-row-{iterIdx}`.
+    // The old per-iteration inline `dispatch-preview-{idx}` span was removed.
+    await page.waitForSelector('[data-testid="dispatch-plan-row-0"]', { timeout: 10000 });
+    const planRow = page.locator('[data-testid="dispatch-plan-row-0"]');
+    await expect(planRow).toBeVisible();
+    // The row should contain a dispatch count and an effective-cap badge.
+    const text = await planRow.textContent();
+    expect(text).toMatch(/\d+/);
   });
 });

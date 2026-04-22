@@ -49,6 +49,18 @@ jest.mock('../infra/createEvolutionLLMClient', () => ({
   calculateCost: jest.fn().mockReturnValue(0.001),
 }));
 
+// Mock per-agent cost estimate to a predictable value so dispatch math produces
+// deterministic counts under the mocked tracker ($10 getAvailableBudget → 3 agents
+// at $3/agent, comfortably under DISPATCH_SAFETY_CAP = 100). Matches the pre-Phase-4
+// behavior where the old numVariants=3 cap in makeConfig produced 3 agents per iter.
+// Tests that need a specific count can override via the tracker's budget mock.
+jest.mock('../infra/estimateCosts', () => ({
+  estimateAgentCost: jest.fn(() => 3.0),
+  estimateGenerationCost: jest.fn(() => 2.0),
+  estimateRankingCost: jest.fn(() => 1.0),
+  getVariantChars: jest.fn(() => 9197),
+}));
+
 jest.mock('../infra/trackBudget', () => {
   const mockTracker = () => ({
     reserve: jest.fn(),
@@ -90,10 +102,8 @@ function makeConfig(): EvolutionConfig {
     judgeModel: 'gpt-4o',
     generationModel: 'gpt-4o',
     iterationConfigs: [{ agentType: 'generate', budgetPercent: 60 }, { agentType: 'swiss', budgetPercent: 40 }],
-    strategiesPerRound: 3,
     calibrationOpponents: 5,
     tournamentTopK: 5,
-    numVariants: 3,
     strategies: ['structural_transform', 'lexical_simplify', 'grounding_enhance'],
   };
 }
@@ -162,6 +172,14 @@ beforeEach(() => {
   mockMergeRun.mockImplementation(mergeSuccess());
   // Default: seed agent not called (seedPrompt absent in most tests)
   mockSeedRun.mockResolvedValue(seedSuccess('seed-v1'));
+  // Disable Phase 7b top-up loop for most tests so they assert parallel-only dispatch.
+  // Tests that exercise top-up explicitly delete this env var and set the mock tracker
+  // budget + floor config appropriately.
+  process.env.EVOLUTION_TOPUP_ENABLED = 'false';
+});
+
+afterAll(() => {
+  delete process.env.EVOLUTION_TOPUP_ENABLED;
 });
 
 // ─── Tests ──────────────────────────────────────────────────────────
@@ -199,8 +217,22 @@ describe('evolveArticle (orchestrator)', () => {
       cost: 0, durationMs: 1, invocationId: 'inv-swiss',
     });
 
+    // Mocked estimateAgentCost = $3 → 3 agents in the default $10 mocked budget.
+    // Bump mock budget for this test only to produce 6.
+    const { createIterationBudgetTracker } = jest.requireMock('../infra/trackBudget');
+    (createIterationBudgetTracker as jest.Mock).mockImplementationOnce(() => ({
+      reserve: jest.fn(), recordSpend: jest.fn(), release: jest.fn(),
+      getTotalSpent: jest.fn(() => 0), getPhaseCosts: jest.fn(() => ({})),
+      getAvailableBudget: jest.fn(() => 18), // 18/3 = 6 agents
+      isExhausted: jest.fn(() => false),
+    })).mockImplementationOnce(() => ({
+      reserve: jest.fn(), recordSpend: jest.fn(), release: jest.fn(),
+      getTotalSpent: jest.fn(() => 0), getPhaseCosts: jest.fn(() => ({})),
+      getAvailableBudget: jest.fn(() => 10),
+      isExhausted: jest.fn(() => false),
+    }));
+
     const cfg = makeConfig();
-    cfg.numVariants = 6;
     await evolveArticle('seed', makeProvider(), makeDb() as never, 'run-1', cfg);
 
     expect(mockGenerateRun).toHaveBeenCalledTimes(6);
@@ -408,6 +440,80 @@ describe('evolveArticle (orchestrator)', () => {
     expect(ids).toContain('v1');
     expect(ids).toContain('v3');
     expect(ids).not.toContain('boom');
+  });
+});
+
+// ─── Phase 7b: within-iteration top-up ──────────────────────────────
+
+describe('evolveArticle — top-up loop (Phase 7b)', () => {
+  beforeEach(() => {
+    // Re-enable top-up for these tests (the outer suite's beforeEach disables it).
+    process.env.EVOLUTION_TOPUP_ENABLED = 'true';
+  });
+
+  afterEach(() => {
+    process.env.EVOLUTION_TOPUP_ENABLED = 'false';
+  });
+
+  it('MergeRatingsAgent is invoked exactly once per iteration (single-merge invariant)', async () => {
+    // Budget $10 / estimateAgentCost $3 → 3 parallel agents. Top-up will fire since
+    // mock tracker doesn't decrement budget; safety cap at 100 bounds it.
+    mockGenerateRun.mockResolvedValue(generateSuccess('vn'));
+    mockSwissRun.mockResolvedValue({
+      success: true, result: { pairs: [], matches: [], status: 'no_pairs' },
+      cost: 0, durationMs: 1, invocationId: 'inv-swiss',
+    });
+
+    const result = await evolveArticle('seed', makeProvider(), makeDb() as never, 'run-1', makeConfig());
+
+    // Iter 0 (generate) merge + iter 1 (swiss): swiss doesn't invoke merge on no_pairs
+    // early-exit. So exactly 1 merge call total.
+    expect(mockMergeRun).toHaveBeenCalledTimes(1);
+    expect(result.stopReason).toBe('completed');
+  });
+
+  it('feature-flag disabled path: no top-up dispatches, single merge over parallel batch only', async () => {
+    process.env.EVOLUTION_TOPUP_ENABLED = 'false';
+    mockGenerateRun.mockResolvedValue(generateSuccess('vn'));
+    mockSwissRun.mockResolvedValue({
+      success: true, result: { pairs: [], matches: [], status: 'no_pairs' },
+      cost: 0, durationMs: 1, invocationId: 'inv-swiss',
+    });
+
+    await evolveArticle('seed', makeProvider(), makeDb() as never, 'run-1', makeConfig());
+
+    // Parallel batch = 3 agents (budget $10 / mock est $3); no top-up dispatches.
+    expect(mockGenerateRun).toHaveBeenCalledTimes(3);
+    expect(mockMergeRun).toHaveBeenCalledTimes(1);
+  });
+
+  it('top-up dispatches additional agents beyond the parallel batch when budget allows', async () => {
+    // Safety cap = 100. With mock tracker not decrementing, top-up loops until cap.
+    // Mock each agent to return a success so all 100 land.
+    mockGenerateRun.mockResolvedValue(generateSuccess('vn'));
+    mockSwissRun.mockResolvedValue({
+      success: true, result: { pairs: [], matches: [], status: 'no_pairs' },
+      cost: 0, durationMs: 1, invocationId: 'inv-swiss',
+    });
+
+    await evolveArticle('seed', makeProvider(), makeDb() as never, 'run-1', makeConfig());
+
+    // Should hit DISPATCH_SAFETY_CAP = 100 (3 parallel + 97 top-up).
+    expect(mockGenerateRun).toHaveBeenCalledTimes(100);
+    expect(mockMergeRun).toHaveBeenCalledTimes(1);
+  });
+
+  it('budgetFloorObservables include total iteration dispatches (parallel + top-up)', async () => {
+    mockGenerateRun.mockResolvedValue(generateSuccess('vn'));
+    mockSwissRun.mockResolvedValue({
+      success: true, result: { pairs: [], matches: [], status: 'no_pairs' },
+      cost: 0, durationMs: 1, invocationId: 'inv-swiss',
+    });
+
+    const result = await evolveArticle('seed', makeProvider(), makeDb() as never, 'run-1', makeConfig());
+
+    // Iter 0 is a generate iteration → parallelDispatched scalar = total iter dispatches = 100.
+    expect(result.budgetFloorObservables?.parallelDispatched).toBe(100);
   });
 });
 

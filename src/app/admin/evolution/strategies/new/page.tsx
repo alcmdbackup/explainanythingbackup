@@ -10,8 +10,18 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { MODEL_OPTIONS } from '@/lib/utils/modelOptions';
 import { DEFAULT_JUDGE_MODEL } from '@/config/modelRegistry';
 import { createStrategyAction } from '@evolution/services/strategyRegistryActions';
-import { TACTICS_BY_CATEGORY, TACTIC_PALETTE, DEFAULT_TACTICS } from '@evolution/lib/core/tactics';
-import { estimateAgentCost } from '@evolution/lib/pipeline/infra/estimateCosts';
+import {
+  getLastUsedPromptAction,
+  getStrategyDispatchPreviewAction,
+} from '@evolution/services/strategyPreviewActions';
+import type { LastUsedPromptResult, IterationPlanEntryClient } from '@evolution/services/strategyPreviewActions';
+
+// Mirrors DEFAULT_SEED_CHARS in evolution/src/lib/pipeline/loop/projectDispatchPlan.ts.
+// Inlined here because a `"use server"` file (strategyPreviewActions) can only export
+// async functions — it cannot re-export the constant for client-side consumption.
+const DEFAULT_SEED_CHARS = 8000;
+import { TACTICS_BY_CATEGORY, TACTIC_PALETTE } from '@evolution/lib/core/tactics';
+import { DispatchPlanView } from '@evolution/components/evolution/DispatchPlanView';
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -24,7 +34,6 @@ type BudgetFloorMode = 'fraction' | 'agentMultiple';
 interface IterationRow {
   agentType: 'generate' | 'swiss';
   budgetPercent: number;
-  maxAgents?: number;
   /** Phase 2: parent-article source for this generate iteration. Defaults to 'seed'.
    *  Not applicable to swiss. First iteration is locked to 'seed' by schema refine. */
   sourceMode?: 'seed' | 'pool';
@@ -48,12 +57,59 @@ interface StrategyFormState {
   sequentialFloorValue: string;
 }
 
-const DEFAULT_MAX_AGENTS = 100;
-
 const DEFAULT_ITERATIONS: IterationRow[] = [
-  { agentType: 'generate', budgetPercent: 60, maxAgents: DEFAULT_MAX_AGENTS },
+  { agentType: 'generate', budgetPercent: 60 },
   { agentType: 'swiss', budgetPercent: 40 },
 ];
+
+// ─── Form → payload helpers ─────────────────────────────────────
+
+interface IterationConfigPayload {
+  agentType: 'generate' | 'swiss';
+  budgetPercent: number;
+  sourceMode?: 'seed' | 'pool';
+  qualityCutoff?: { mode: 'topN' | 'topPercent'; value: number };
+  generationGuidance?: Array<{ tactic: string; percent: number }>;
+}
+
+/** Map UI iteration rows to the iterationConfigs payload accepted by the server
+ *  actions (createStrategyAction + getStrategyDispatchPreviewAction). Drops
+ *  generate-only fields for swiss rows and only emits optional fields when set. */
+function toIterationConfigsPayload(iterations: IterationRow[]): IterationConfigPayload[] {
+  return iterations.map((it) => ({
+    agentType: it.agentType,
+    budgetPercent: it.budgetPercent,
+    ...(it.agentType === 'generate' && it.sourceMode ? { sourceMode: it.sourceMode } : {}),
+    ...(it.agentType === 'generate' && it.sourceMode === 'pool'
+        && it.qualityCutoffMode && it.qualityCutoffValue != null && it.qualityCutoffValue > 0
+      ? { qualityCutoff: { mode: it.qualityCutoffMode, value: it.qualityCutoffValue } }
+      : {}),
+    ...(it.agentType === 'generate' && it.tacticGuidance && it.tacticGuidance.length > 0
+      ? { generationGuidance: it.tacticGuidance.filter((g) => g.percent > 0) }
+      : {}),
+  }));
+}
+
+/** Resolve parallel + sequential floor values into the correct Fraction vs
+ *  AgentMultiple fields based on the active floor mode. */
+function toBudgetFloorFields(
+  mode: BudgetFloorMode,
+  parallelRaw: string,
+  sequentialRaw: string,
+): Record<string, number | undefined> {
+  const pVal = parallelRaw ? parseFloat(parallelRaw) : undefined;
+  const sVal = sequentialRaw ? parseFloat(sequentialRaw) : undefined;
+  if (mode === 'fraction') {
+    return {
+      minBudgetAfterParallelFraction: pVal,
+      minBudgetAfterSequentialFraction: sVal,
+    };
+  }
+  return {
+    minBudgetAfterParallelAgentMultiple: pVal,
+    minBudgetAfterSequentialAgentMultiple: sVal,
+  };
+}
 
 // ─── Tactic Guidance Popover ────────────────────────────────────
 
@@ -180,7 +236,7 @@ export default function NewStrategyPage(): JSX.Element {
     judgeModel: DEFAULT_JUDGE_MODEL,
     generationTemperature: '',
     budgetUsd: '0.05',
-    maxComparisonsPerVariant: '',
+    maxComparisonsPerVariant: '5',
     budgetFloorMode: 'agentMultiple',
     parallelFloorValue: '2',
     sequentialFloorValue: '',
@@ -189,7 +245,28 @@ export default function NewStrategyPage(): JSX.Element {
   const [iterations, setIterations] = useState<IterationRow[]>([...DEFAULT_ITERATIONS]);
   const [tacticEditorIdx, setTacticEditorIdx] = useState<number | null>(null);
 
+  // Phase 3: smart-default prompt context. On mount, fetch the last-used prompt from any
+  // non-test-content run. Strategies aren't prompt-bound; the promptId just gives the
+  // preview an accurate arena count instead of assuming empty.
+  const [lastUsedPrompt, setLastUsedPrompt] = useState<LastUsedPromptResult | null>(null);
+  // Dispatch plan + its inputs. Refreshed via getStrategyDispatchPreviewAction below
+  // whenever config or prompt changes (debounced + AbortController).
+  const [dispatchPlan, setDispatchPlan] = useState<IterationPlanEntryClient[] | null>(null);
+  const [arenaCount, setArenaCount] = useState<number>(0);
+  const [seedArticleChars, setSeedArticleChars] = useState<number>(DEFAULT_SEED_CHARS);
+  const [previewLoading, setPreviewLoading] = useState(false);
+
   useEffect(() => { document.title = 'New Strategy | Evolution'; }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const res = await getLastUsedPromptAction();
+      if (cancelled) return;
+      if (res.success && res.data) setLastUsedPrompt(res.data);
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   const updateForm = useCallback((patch: Partial<StrategyFormState>) => {
     setForm(prev => ({ ...prev, ...patch }));
@@ -214,42 +291,61 @@ export default function NewStrategyPage(): JSX.Element {
   const totalPercent = iterations.reduce((sum, it) => sum + it.budgetPercent, 0);
   const percentValid = Math.abs(totalPercent - 100) < 0.01;
 
-  // Dispatch preview: reuses estimateAgentCost() from the pipeline for accurate model-aware estimates.
-  // Recalculates when budget, iteration percentages, maxAgents, model, or floor settings change.
-  const dispatchEstimates = useMemo(() => {
-    const pFloor = form.parallelFloorValue ? parseFloat(form.parallelFloorValue) : 0;
-    const sFloor = form.sequentialFloorValue ? parseFloat(form.sequentialFloorValue) : 0;
-    const floorMode = form.budgetFloorMode;
-    const maxComp = form.maxComparisonsPerVariant ? parseInt(form.maxComparisonsPerVariant) : 15;
-    const defaultTactic = DEFAULT_TACTICS[0]!;
-    const seedChars = 5000; // typical seed article length for preview
+  // Dispatch preview via server action (Phase 3 full implementation).
+  // Debounced 300ms; AbortController cancels stale requests so rapid form edits don't
+  // land out-of-order. Replaces the previous inline estimateAgentCost memo.
+  useEffect(() => {
+    if (!form.generationModel || !form.judgeModel || iterations.length === 0) {
+      setDispatchPlan(null);
+      return;
+    }
+    const budget = parseFloat(form.budgetUsd);
+    if (!Number.isFinite(budget) || budget <= 0) {
+      setDispatchPlan(null);
+      return;
+    }
+    if (Math.abs(totalPercent - 100) >= 0.01) {
+      // Don't fire preview until percentages sum to 100 — prevents server-action validation errors.
+      return;
+    }
 
-    const estPerAgent = (form.generationModel && form.judgeModel)
-      ? estimateAgentCost(seedChars, defaultTactic, form.generationModel, form.judgeModel, 1, maxComp)
-      : 0.01; // fallback if no model selected
+    const floorFields = toBudgetFloorFields(form.budgetFloorMode, form.parallelFloorValue, form.sequentialFloorValue);
+    const maxComp = form.maxComparisonsPerVariant ? parseInt(form.maxComparisonsPerVariant) : undefined;
 
-    return iterations.map(it => {
-      if (it.agentType !== 'generate') return null;
-      const iterBudget = totalBudget * (it.budgetPercent / 100);
-      const maxAgents = it.maxAgents ?? DEFAULT_MAX_AGENTS;
-
-      const parallelFloorUsd = floorMode === 'fraction' ? iterBudget * pFloor : estPerAgent * pFloor;
-      const availForParallel = Math.max(0, iterBudget - parallelFloorUsd);
-      const uncappedParallel = Math.floor(availForParallel / estPerAgent);
-      const parallel = Math.min(maxAgents, Math.max(1, uncappedParallel));
-
-      // Detect why agent count is limited
-      const floorConstrained = uncappedParallel < 1 && pFloor > 0;
-      const maxAgentsCapped = uncappedParallel > maxAgents;
-
-      const sequentialFloorUsd = floorMode === 'fraction' ? iterBudget * sFloor : estPerAgent * sFloor;
-      const remainAfterParallel = Math.max(0, iterBudget - parallel * estPerAgent);
-      const availForSequential = Math.max(0, remainAfterParallel - sequentialFloorUsd);
-      const sequential = Math.max(0, Math.floor(availForSequential / estPerAgent));
-
-      return { parallel, sequential, estPerAgent, iterBudget, floorConstrained, maxAgentsCapped };
-    });
-  }, [iterations, totalBudget, form.generationModel, form.judgeModel, form.maxComparisonsPerVariant, form.parallelFloorValue, form.sequentialFloorValue, form.budgetFloorMode]);
+    const controller = new AbortController();
+    const timer = setTimeout(async () => {
+      if (controller.signal.aborted) return;
+      setPreviewLoading(true);
+      try {
+        const res = await getStrategyDispatchPreviewAction({
+          config: {
+            generationModel: form.generationModel,
+            judgeModel: form.judgeModel,
+            budgetUsd: budget,
+            maxComparisonsPerVariant: maxComp,
+            iterationConfigs: toIterationConfigsPayload(iterations),
+            ...floorFields,
+          },
+          promptId: lastUsedPrompt?.id,
+          seedArticleChars,
+        });
+        if (controller.signal.aborted) return;
+        if (res.success && res.data) {
+          setDispatchPlan(res.data.plan);
+          setArenaCount(res.data.arenaCount);
+        } else {
+          setDispatchPlan(null);
+        }
+      } finally {
+        if (!controller.signal.aborted) setPreviewLoading(false);
+      }
+    }, 300);
+    return () => { controller.abort(); clearTimeout(timer); };
+  }, [
+    form.generationModel, form.judgeModel, form.budgetUsd, form.maxComparisonsPerVariant,
+    form.parallelFloorValue, form.sequentialFloorValue, form.budgetFloorMode,
+    iterations, lastUsedPrompt, seedArticleChars, totalPercent,
+  ]);
 
   const iterationErrors = useMemo(() => {
     const errors: string[] = [];
@@ -291,7 +387,6 @@ export default function NewStrategyPage(): JSX.Element {
       const updated = { ...it, ...patch };
       // Clear generate-only fields for swiss.
       if (updated.agentType === 'swiss') {
-        delete updated.maxAgents;
         delete updated.sourceMode;
         delete updated.qualityCutoffMode;
         delete updated.qualityCutoffValue;
@@ -307,7 +402,7 @@ export default function NewStrategyPage(): JSX.Element {
   }, []);
 
   const addIteration = useCallback(() => {
-    setIterations(prev => [...prev, { agentType: 'generate', budgetPercent: 0, maxAgents: DEFAULT_MAX_AGENTS }]);
+    setIterations(prev => [...prev, { agentType: 'generate', budgetPercent: 0 }]);
   }, []);
 
   const removeIteration = useCallback((idx: number) => {
@@ -333,16 +428,7 @@ export default function NewStrategyPage(): JSX.Element {
     if (iterationErrors.length > 0 || configErrors.length > 0) return;
     setSubmitting(true);
     try {
-      const budgetFloorFields: Record<string, number | undefined> = {};
-      const pVal = form.parallelFloorValue ? parseFloat(form.parallelFloorValue) : undefined;
-      const sVal = form.sequentialFloorValue ? parseFloat(form.sequentialFloorValue) : undefined;
-      if (form.budgetFloorMode === 'fraction') {
-        budgetFloorFields.minBudgetAfterParallelFraction = pVal;
-        budgetFloorFields.minBudgetAfterSequentialFraction = sVal;
-      } else {
-        budgetFloorFields.minBudgetAfterParallelAgentMultiple = pVal;
-        budgetFloorFields.minBudgetAfterSequentialAgentMultiple = sVal;
-      }
+      const budgetFloorFields = toBudgetFloorFields(form.budgetFloorMode, form.parallelFloorValue, form.sequentialFloorValue);
 
       const result = await createStrategyAction({
         name: form.name.trim(),
@@ -350,19 +436,7 @@ export default function NewStrategyPage(): JSX.Element {
         generationModel: form.generationModel,
         judgeModel: form.judgeModel,
         budgetUsd: parseFloat(form.budgetUsd),
-        iterationConfigs: iterations.map(it => ({
-          agentType: it.agentType,
-          budgetPercent: it.budgetPercent,
-          ...(it.maxAgents != null && it.agentType === 'generate' ? { maxAgents: it.maxAgents } : {}),
-          ...(it.agentType === 'generate' && it.sourceMode ? { sourceMode: it.sourceMode } : {}),
-          ...(it.agentType === 'generate' && it.sourceMode === 'pool'
-              && it.qualityCutoffMode && it.qualityCutoffValue != null && it.qualityCutoffValue > 0
-            ? { qualityCutoff: { mode: it.qualityCutoffMode, value: it.qualityCutoffValue } }
-            : {}),
-          ...(it.agentType === 'generate' && it.tacticGuidance && it.tacticGuidance.length > 0
-            ? { generationGuidance: it.tacticGuidance.filter(g => g.percent > 0) }
-            : {}),
-        })),
+        iterationConfigs: toIterationConfigsPayload(iterations),
         maxComparisonsPerVariant: form.maxComparisonsPerVariant ? Number(form.maxComparisonsPerVariant) : undefined,
         generationTemperature: form.generationTemperature ? Number(form.generationTemperature) : undefined,
         ...budgetFloorFields,
@@ -531,7 +605,7 @@ export default function NewStrategyPage(): JSX.Element {
                       max="100"
                       value={form.maxComparisonsPerVariant}
                       onChange={e => updateForm({ maxComparisonsPerVariant: e.target.value })}
-                      placeholder="15 (default)"
+                      placeholder="5 (default)"
                       className={inputCls()}
                     />
                   </div>
@@ -659,6 +733,53 @@ export default function NewStrategyPage(): JSX.Element {
                   </div>
                 </div>
 
+                {/* Phase 3: smart-default prompt context + editable seed-chars override. */}
+                <div
+                  className="p-2 rounded-page bg-[var(--surface-base)] border border-[var(--border-subtle)] text-xs font-ui text-[var(--text-muted)] flex flex-wrap gap-2 items-center"
+                  data-testid="wizard-prompt-context"
+                >
+                  <span>
+                    {lastUsedPrompt ? (
+                      <>
+                        Preview uses prompt <span className="text-[var(--text-primary)]">{lastUsedPrompt.name}</span>{' '}
+                        (arena size: <span className="font-mono text-[var(--text-primary)]">{arenaCount}</span>).
+                      </>
+                    ) : (
+                      <>Preview assumes empty arena (no qualifying past runs).</>
+                    )}
+                  </span>
+                  <span className="inline-flex items-center gap-1 ml-auto">
+                    <span>Seed chars:</span>
+                    <input
+                      type="number"
+                      min={100}
+                      max={100000}
+                      step={500}
+                      value={seedArticleChars}
+                      onChange={(e) => {
+                        const v = parseInt(e.target.value);
+                        if (Number.isFinite(v) && v >= 100) setSeedArticleChars(v);
+                      }}
+                      className="w-20 px-1.5 py-0.5 text-xs font-mono bg-[var(--surface-primary)] border border-[var(--border-default)] rounded-page text-[var(--text-primary)] text-right focus:border-[var(--accent-gold)] focus:outline-none"
+                      data-testid="wizard-seed-chars"
+                    />
+                  </span>
+                </div>
+
+                {/* Phase 6b: shared DispatchPlanView renders the full per-iteration plan. */}
+                {dispatchPlan && dispatchPlan.length > 0 && (
+                  <div className="p-2 rounded-page bg-[var(--surface-base)] border border-[var(--border-subtle)]">
+                    <DispatchPlanView
+                      plan={dispatchPlan}
+                      variant="wizard"
+                      totalBudgetUsd={totalBudget}
+                    />
+                    {previewLoading && (
+                      <p className="text-xs font-ui text-[var(--text-muted)] italic mt-1">Updating preview…</p>
+                    )}
+                  </div>
+                )}
+
                 {iterations.map((it, idx) => {
                   const dollarAmount = totalBudget * (it.budgetPercent / 100);
                   return (
@@ -698,43 +819,8 @@ export default function NewStrategyPage(): JSX.Element {
                         = ${dollarAmount.toFixed(2)}
                       </span>
 
-                      {it.agentType === 'generate' && (
-                        <div className="flex items-center gap-1 ml-2">
-                          <span className="text-xs font-ui text-[var(--text-muted)]">Agents:</span>
-                          <input
-                            type="number"
-                            min={1}
-                            max={100}
-                            value={it.maxAgents ?? ''}
-                            onChange={e => {
-                              const val = e.target.value ? parseInt(e.target.value) : undefined;
-                              updateIteration(idx, { maxAgents: val });
-                            }}
-                            placeholder="auto"
-                            className="w-14 px-2 py-1.5 text-xs font-mono bg-[var(--surface-primary)] border border-[var(--border-default)] rounded-page text-[var(--text-primary)] text-right focus:border-[var(--accent-gold)] focus:outline-none"
-                          />
-                        </div>
-                      )}
-
-                      {/* Dispatch preview — recalculates on budget, percent, maxAgents, or floor changes */}
-                      {it.agentType === 'generate' && dispatchEstimates[idx] && (() => {
-                        const est = dispatchEstimates[idx]!;
-                        const constraint = est.floorConstrained
-                          ? 'budget floor limits parallel dispatch'
-                          : est.maxAgentsCapped
-                            ? `capped by max agents (${it.maxAgents})`
-                            : null;
-                        return (
-                          <span
-                            className={`text-xs font-ui ml-2 shrink-0 ${est.floorConstrained ? 'text-[var(--status-warning)]' : 'text-[var(--text-muted)]'}`}
-                            data-testid={`dispatch-preview-${idx}`}
-                            title={`$${est.iterBudget.toFixed(2)} iteration budget · $${est.estPerAgent.toFixed(2)}/agent est. · ${est.parallel} parallel${est.sequential > 0 ? ` + ${est.sequential} sequential` : ''}${constraint ? ` · ${constraint}` : ''}`}
-                          >
-                            {est.parallel} parallel{est.sequential > 0 ? ` + ${est.sequential} sequential` : ''}
-                            {est.floorConstrained && ' ⚠'}
-                          </span>
-                        );
-                      })()}
+                      {/* Per-row dispatch preview removed in Phase 6 — now consolidated into the
+                          DispatchPlanView component rendered below the iteration list. */}
 
                       <button
                         type="button"

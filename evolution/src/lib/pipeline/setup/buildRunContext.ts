@@ -273,11 +273,9 @@ export async function buildRunContext(
     budgetUsd: claimedRun.budget_cap_usd ?? 1.0,
     judgeModel: stratConfig.judgeModel,
     generationModel: stratConfig.generationModel,
-    strategiesPerRound: stratConfig.strategiesPerRound ?? 3,
     calibrationOpponents: 5,
     tournamentTopK: 5,
     generationGuidance: stratConfig.generationGuidance,
-    numVariants: 9, // deprecated — maxAgents on iterationConfigs replaces this
     maxComparisonsPerVariant: stratConfig.maxComparisonsPerVariant ?? 15,
     // Budget floors — preprocess in schemas.ts already migrates legacy fields into
     // minBudgetAfter*Fraction. Pass all four fields through; pipeline resolves lazily.
@@ -304,11 +302,14 @@ export async function buildRunContext(
 
   const { originalText, seedPrompt, seedVariantRow } = await resolveContent(claimedRun, db, llmProvider, logger);
   if (!originalText && !seedPrompt) {
-    const reason = claimedRun.explanation_id != null
-      ? `Explanation ${claimedRun.explanation_id} not found`
-      : claimedRun.prompt_id != null
-        ? `Prompt ${claimedRun.prompt_id} not found`
-        : 'No content source: both explanation_id and prompt_id are null';
+    let reason: string;
+    if (claimedRun.explanation_id != null) {
+      reason = `Explanation ${claimedRun.explanation_id} not found`;
+    } else if (claimedRun.prompt_id != null) {
+      reason = `Prompt ${claimedRun.prompt_id} not found`;
+    } else {
+      reason = 'No content source: both explanation_id and prompt_id are null';
+    }
     return { error: reason };
   }
 

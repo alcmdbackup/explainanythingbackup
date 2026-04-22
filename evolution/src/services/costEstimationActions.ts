@@ -6,8 +6,55 @@
 
 import { adminAction, type AdminContext } from './adminAction';
 import { z } from 'zod';
-import { projectDispatchCounts } from '@evolution/lib/pipeline/loop/projectDispatchCount';
+import { DISPATCH_SAFETY_CAP } from '@evolution/lib/pipeline/loop/projectDispatchPlan';
+import { resolveParallelFloor, resolveSequentialFloor, type BudgetFloorConfig } from '@evolution/lib/pipeline/loop/budgetFloorResolvers';
 import { COST_ERROR_HISTOGRAM_BUCKETS } from './costEstimationConstants';
+
+// ─── Inline dispatch-count projection (replaces projectDispatchCount.ts) ────────
+// Used only by Budget Floor Sensitivity's "what if agent cost matched actuals from the
+// start?" two-step projection. Matches the original projectDispatchCount() math exactly;
+// formerly lived in evolution/src/lib/pipeline/loop/projectDispatchCount.ts but was
+// inlined here in the final Phase 2 cleanup since this is the sole remaining caller.
+interface ProjectDispatchCountsInput {
+  totalBudget: number;
+  numVariants: number;
+  agentCost: number;
+  sequentialStartingBudget: number;
+  floorConfig: BudgetFloorConfig;
+}
+interface ProjectDispatchCounts {
+  parallelFloor: number;
+  parallelBudget: number;
+  parallelDispatched: number;
+  sequentialFloor: number;
+  sequentialDispatched: number;
+}
+function projectDispatchCounts(input: ProjectDispatchCountsInput): ProjectDispatchCounts {
+  const EMPTY = { parallelFloor: 0, parallelBudget: 0, parallelDispatched: 0, sequentialFloor: 0, sequentialDispatched: 0 };
+  if (!Number.isFinite(input.agentCost) || input.agentCost <= 0) return EMPTY;
+  if (!Number.isFinite(input.totalBudget) || input.totalBudget <= 0) return EMPTY;
+  if (!Number.isFinite(input.numVariants) || input.numVariants <= 0) return EMPTY;
+
+  // NOTE: resolve*Floor() signatures were renamed `totalBudget` → `iterBudget` in Phase 7a
+  // for the runtime path. This module is a RUN-LEVEL counterfactual (no iteration loop —
+  // it treats the whole run as one bucket), so `totalBudget` is the correct argument here.
+  // In fraction mode the result is the historical run-level floor; in multiple-of-agent
+  // mode the formula doesn't reference the budget arg so either scope is equivalent.
+  const parallelFloor = resolveParallelFloor(input.floorConfig, input.totalBudget, input.agentCost);
+  const parallelBudget = Math.max(0, input.totalBudget - parallelFloor);
+  const maxAffordable = Math.max(1, Math.floor(parallelBudget / input.agentCost));
+  const parallelDispatched = Math.min(input.numVariants, maxAffordable);
+
+  const sequentialFloor = resolveSequentialFloor(input.floorConfig, input.totalBudget, input.agentCost, input.agentCost);
+  const startingBudget = Number.isFinite(input.sequentialStartingBudget) && input.sequentialStartingBudget > 0
+    ? input.sequentialStartingBudget : 0;
+  const sequentialCapacity = (startingBudget - sequentialFloor) / input.agentCost;
+  const sequentialByBudget = sequentialCapacity > 0 ? Math.floor(sequentialCapacity) : 0;
+  const sequentialCeiling = Math.max(0, input.numVariants - parallelDispatched);
+  const sequentialDispatched = Math.min(sequentialByBudget, sequentialCeiling);
+
+  return { parallelFloor, parallelBudget, parallelDispatched, sequentialFloor, sequentialDispatched };
+}
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -143,26 +190,16 @@ function safePct(actual: number, estimate: number): number | null {
   return ((actual - estimate) / estimate) * 100;
 }
 
-async function fetchRunMetricMap(ctx: AdminContext, runId: string): Promise<Map<string, number>> {
+async function fetchMetricMap(
+  ctx: AdminContext,
+  entityType: 'run' | 'strategy',
+  entityId: string,
+): Promise<Map<string, number>> {
   const { data } = await ctx.supabase
     .from('evolution_metrics')
     .select('metric_name, value')
-    .eq('entity_type', 'run')
-    .eq('entity_id', runId);
-  const map = new Map<string, number>();
-  for (const row of (data ?? []) as Array<{ metric_name: string; value: number | string }>) {
-    const n = Number(row.value);
-    if (Number.isFinite(n)) map.set(row.metric_name, n);
-  }
-  return map;
-}
-
-async function fetchStrategyMetricMap(ctx: AdminContext, strategyId: string): Promise<Map<string, number>> {
-  const { data } = await ctx.supabase
-    .from('evolution_metrics')
-    .select('metric_name, value')
-    .eq('entity_type', 'strategy')
-    .eq('entity_id', strategyId);
+    .eq('entity_type', entityType)
+    .eq('entity_id', entityId);
   const map = new Map<string, number>();
   for (const row of (data ?? []) as Array<{ metric_name: string; value: number | string }>) {
     const n = Number(row.value);
@@ -263,7 +300,11 @@ interface BudgetFloorConfigLike {
   minBudgetAfterParallelAgentMultiple?: number;
   minBudgetAfterSequentialFraction?: number;
   minBudgetAfterSequentialAgentMultiple?: number;
-  numVariants: number;
+  /** @deprecated Phase 4 replaced the per-strategy numVariants cap with the
+   *  DISPATCH_SAFETY_CAP = 100 runtime constant. Field kept optional for legacy
+   *  run_summary rows that still carry it; when absent, the sensitivity analysis
+   *  falls back to DISPATCH_SAFETY_CAP as the ceiling. */
+  numVariants?: number;
 }
 
 function computeBudgetFloorSensitivity(opts: {
@@ -313,7 +354,10 @@ function computeBudgetFloorSensitivity(opts: {
 
   // Projected scenario: use `actual` everywhere in the math. Compute expected dispatch
   // counts assuming that cost was known from the start.
-  const numVariants = floorConfig.numVariants;
+  // Phase 4: numVariants was removed from config; legacy run_summary rows may still carry
+  // it, so prefer the stored value if present, otherwise fall back to the new
+  // DISPATCH_SAFETY_CAP = 100 runtime constant.
+  const numVariants = floorConfig.numVariants ?? DISPATCH_SAFETY_CAP;
   // Projected parallel phase: re-run dispatch math using `actual` as the agent cost.
   // Projected sequential starting budget: the projected parallel batch would spend
   // projectedParallelDispatched * actual per-agent.
@@ -383,7 +427,7 @@ export const getRunCostEstimatesAction = adminAction(
         .select('id, budget_cap_usd, run_summary')
         .eq('id', runId)
         .single(),
-      fetchRunMetricMap(ctx, runId),
+      fetchMetricMap(ctx, 'run', runId),
       ctx.supabase
         .from('evolution_agent_invocations')
         .select('id, agent_name, iteration, cost_usd, duration_ms, execution_detail')
@@ -394,9 +438,8 @@ export const getRunCostEstimatesAction = adminAction(
 
     const runSummary = (runRow.data?.run_summary ?? null) as Record<string, unknown> | null;
     const budgetFloorConfig = (runSummary?.budgetFloorConfig ?? null) as BudgetFloorConfigLike | null;
-    const budgetCap = typeof runRow.data?.budget_cap_usd === 'number'
-      ? (runRow.data.budget_cap_usd as number)
-      : runRow.data?.budget_cap_usd != null ? Number(runRow.data.budget_cap_usd) : null;
+    const rawBudgetCap = runRow.data?.budget_cap_usd;
+    const budgetCap = rawBudgetCap != null ? Number(rawBudgetCap) : null;
 
     const invocations = (invRes.data ?? []) as InvRow[];
 
@@ -446,7 +489,7 @@ export const getStrategyCostEstimatesAction = adminAction(
     const { strategyId } = strategyInput.parse(input);
 
     const [stratMetricMap, runsRes] = await Promise.all([
-      fetchStrategyMetricMap(ctx, strategyId),
+      fetchMetricMap(ctx, 'strategy', strategyId),
       ctx.supabase
         .from('evolution_runs')
         .select('id, status, created_at')

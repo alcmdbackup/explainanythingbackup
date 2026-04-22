@@ -48,7 +48,6 @@ function makeConfig(overrides: Partial<EvolutionConfig> = {}): EvolutionConfig {
     budgetUsd: 5,
     judgeModel: 'gpt-4o',
     generationModel: 'gpt-4o',
-    numVariants: 3,
     ...overrides,
   };
 }
@@ -77,7 +76,6 @@ describe('evolution iteration config (integration)', () => {
         { agentType: 'swiss', budgetPercent: 40 },
       ],
       budgetUsd: 5,
-      numVariants: 3,
     });
 
     const result = await evolveArticle(
@@ -125,7 +123,6 @@ describe('evolution iteration config (integration)', () => {
         { agentType: 'generate', budgetPercent: 90 },
       ],
       budgetUsd: 0.10,
-      numVariants: 9,
     });
 
     const result = await evolveArticle(
@@ -182,7 +179,6 @@ describe('evolution iteration config (integration)', () => {
         { agentType: 'generate', budgetPercent: 50 },
       ],
       budgetUsd: 0.005,
-      numVariants: 9,
     });
 
     const result = await evolveArticle(
@@ -217,7 +213,6 @@ describe('evolution iteration config (integration)', () => {
         { agentType: 'generate', budgetPercent: 30 },
       ],
       budgetUsd: 5,
-      numVariants: 3,
     });
 
     const result = await evolveArticle(

@@ -501,12 +501,14 @@ describe('EvolutionRunSummary schemas', () => {
       expect(() => EvolutionRunSummaryV3Schema.parse(summary)).toThrow();
     });
 
-    it('requires numVariants in budgetFloorConfig', () => {
+    it('budgetFloorConfig without numVariants parses cleanly (Phase 4 made it optional)', () => {
       const summary = {
         ...createValidRunSummaryV3(),
         budgetFloorConfig: { minBudgetAfterParallelAgentMultiple: 3 },
       };
-      expect(() => EvolutionRunSummaryV3Schema.parse(summary)).toThrow();
+      expect(() => EvolutionRunSummaryV3Schema.parse(summary)).not.toThrow();
+      const parsed = EvolutionRunSummaryV3Schema.parse(summary) as Record<string, unknown>;
+      expect((parsed.budgetFloorConfig as Record<string, unknown>).numVariants).toBeUndefined();
     });
   });
 });
@@ -672,21 +674,26 @@ describe('strategyConfigSchema', () => {
     })).not.toThrow();
   });
 
-  it('rejects maxAgents on swiss iteration', () => {
+  it('silently strips maxAgents on swiss iteration (Phase 4 removed the field)', () => {
+    // Phase 4 deleted IterationConfig.maxAgents; .strip() mode drops unknown keys
+    // without error so legacy configs still parse cleanly.
     expect(() => strategyConfigSchema.parse({
       ...validBase, iterationConfigs: [{ agentType: 'generate', budgetPercent: 60 }, { agentType: 'swiss', budgetPercent: 40, maxAgents: 5 }],
-    })).toThrow();
+    })).not.toThrow();
   });
 
-  it('accepts maxAgents on generate iteration', () => {
+  it('silently strips maxAgents on generate iteration (Phase 4 removed the field)', () => {
     expect(() => strategyConfigSchema.parse({
       ...validBase, iterationConfigs: [{ agentType: 'generate', budgetPercent: 60, maxAgents: 9 }, { agentType: 'swiss', budgetPercent: 40 }],
     })).not.toThrow();
   });
 
-  it('accepts undefined maxAgents on generate iteration', () => {
+  it('iteration config has no maxAgents field after Phase 4 removal', () => {
     const result = strategyConfigSchema.parse(validBase);
-    expect(result.iterationConfigs[0]!.maxAgents).toBeUndefined();
+    // Phase 4 removed IterationConfig.maxAgents — dispatch is now governed by budget
+    // and DISPATCH_SAFETY_CAP = 100 in runIterationLoop. Legacy config inputs with
+    // maxAgents set get silently stripped (.strip() mode).
+    expect('maxAgents' in result.iterationConfigs[0]!).toBe(false);
   });
 
   it('rejects budgetPercent of 0', () => {

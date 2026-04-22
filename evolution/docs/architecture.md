@@ -157,13 +157,18 @@ table was consolidated into `evolution_variants` in migration `20260321000002`.)
 
 The core algorithm in `evolveArticle()` iterates over `config.iterationConfigs[]`, an
 ordered array of `IterationConfig` objects defined on the strategy. Each iteration config
-specifies its agent type (`generate` or `swiss`), budget percentage, and optional
-`maxAgents`. This replaces the previous `nextIteration()` decision function with a fully
-declarative, config-driven dispatch.
+specifies its agent type (`generate` or `swiss`) and budget percentage. This replaces the
+previous `nextIteration()` decision function with a fully declarative, config-driven dispatch.
+
+Dispatch count per iteration is governed by budget (`V2CostTracker.reserve()` throws
+`BudgetExceededError` before an LLM call would overspend), with `DISPATCH_SAFETY_CAP = 100`
+as a defense-in-depth rail. See `evolution/src/lib/pipeline/loop/projectDispatchPlan.ts`
+for the single-source-of-truth dispatch-prediction function consumed by wizard preview,
+runtime, and cost-sensitivity alike.
 
 | Iteration type | Work agent(s)                                       | Merge                | Discard rule                                           |
 |----------------|-----------------------------------------------------|----------------------|--------------------------------------------------------|
-| **Generate**   | `numVariants` parallel `GenerateFromPreviousArticleAgent` | 1 `MergeRatingsAgent` | Each agent decides locally (using its own snapshot)   |
+| **Generate**   | Parallel batch of `GenerateFromPreviousArticleAgent` + within-iter top-up loop | **1 `MergeRatingsAgent` per iter** over combined buffers | Each agent decides locally (using its own snapshot)   |
 | **Swiss**      | 1 `SwissRankingAgent` (parallel pairs internally)    | 1 `MergeRatingsAgent` | None — paid-for matches always reach global ratings    |
 
 ```
@@ -173,19 +178,26 @@ declarative, config-driven dispatch.
       iterTracker = createIterationBudgetTracker(iterBudgetUsd, costTracker, iterIdx)
       |
       +-- kill / abort / deadline checks at iteration boundary
-      |
+      +-- read EVOLUTION_TOPUP_ENABLED once (default 'true')
       +-- recordSnapshot(iterIdx, iterCfg.agentType, 'start')
       |
       +-- if iterCfg.agentType == 'generate':
-      |     Spawn N parallel GenerateFromPreviousArticleAgent invocations
-      |     (N limited by iterCfg.maxAgents if set, otherwise budget-constrained),
-      |     each with its own deep-cloned local pool/ratings/matchCounts
-      |     and a frozen iteration-start snapshot. Each agent generates ONE
-      |     variant via a single strategy, then ranks it via binary search
-      |     against its local snapshot. Each agent owns its own
-      |     surface/discard decision (budget + local elo < top15Cutoff = discard).
-      |     Then dispatch MergeRatingsAgent over the surfaced agents' match
-      |     buffers in randomized (Fisher-Yates) order.
+      |     1. PARALLEL BATCH: dispatch min(DISPATCH_SAFETY_CAP, maxAffordable)
+      |        GenerateFromPreviousArticleAgent invocations via Promise.allSettled.
+      |        Each gets a deep-cloned iteration-start snapshot. Match buffers
+      |        and surfaced/discarded variants accumulate locally — NO merge yet.
+      |     2. MEASURE actualAvgCostPerAgent from parallel batch's scope.getOwnSpent()
+      |        sums. Log a warning and fall back to initialAgentCostEstimate if
+      |        scope attribution returns 0 (silent regression guard).
+      |     3. TOP-UP LOOP (if EVOLUTION_TOPUP_ENABLED !== 'false'): dispatch one
+      |        more agent at a time while (remaining - actualAvg) >= sequentialFloor
+      |        AND total dispatches < DISPATCH_SAFETY_CAP. Reuses the
+      |        iteration-start snapshot. Kill-check DB every 5 dispatches; cheap
+      |        AbortSignal check every dispatch. Records topUpStopReason.
+      |     4. PRE-MERGE SPEND LOG — attributable cost even if merge throws.
+      |     5. SINGLE MERGE — MergeRatingsAgent.run() once, over combined
+      |        [...parallelMatchBuffer, ...topUpMatchBuffer]. Fisher-Yates shuffle
+      |        covers all matches in one permutation.
       |
       +-- if iterCfg.agentType == 'swiss':
       |     SwissRankingAgent computes Swiss-style pairs over the eligible

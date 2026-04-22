@@ -22,7 +22,6 @@ describe('V2 hashStrategyConfig', () => {
   it('excludes V2-only fields from hash', () => {
     const withExtras: StrategyConfig = {
       ...baseConfig,
-      strategiesPerRound: 2,
       budgetUsd: 5.0,
     };
     expect(hashStrategyConfig(withExtras)).toBe(hashStrategyConfig(baseConfig));

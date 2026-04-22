@@ -23,7 +23,6 @@ const AGENT_LABELS: Record<string, string> = {
 interface IterationConfigEntry {
   agentType: 'generate' | 'swiss';
   budgetPercent: number;
-  maxAgents?: number;
   generationGuidance?: Array<{ tactic: string; percent: number }>;
 }
 
@@ -162,7 +161,6 @@ export function StrategyConfigDisplay({ config: raw, showRaw }: StrategyConfigDi
                   <th className="py-1 pr-3 font-ui text-[var(--text-muted)]">#</th>
                   <th className="py-1 pr-3 font-ui text-[var(--text-muted)]">Type</th>
                   <th className="py-1 pr-3 font-ui text-[var(--text-muted)] text-right">Budget</th>
-                  <th className="py-1 pr-3 font-ui text-[var(--text-muted)] text-right">Max Agents</th>
                   <th className="py-1 pr-3 font-ui text-[var(--text-muted)]">Tactic Guidance</th>
                 </tr>
               </thead>
@@ -188,9 +186,6 @@ export function StrategyConfigDisplay({ config: raw, showRaw }: StrategyConfigDi
                         {budgetDollar != null && (
                           <span className="text-[var(--text-muted)] ml-1">(${budgetDollar.toFixed(2)})</span>
                         )}
-                      </td>
-                      <td className="py-1 pr-3 text-right font-mono text-[var(--text-muted)]">
-                        {ic.maxAgents ?? '—'}
                       </td>
                       <td className="py-1 pr-3 text-[var(--text-muted)]">
                         {ic.generationGuidance && ic.generationGuidance.length > 0

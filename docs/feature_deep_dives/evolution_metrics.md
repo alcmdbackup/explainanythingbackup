@@ -30,5 +30,46 @@ Per-iteration results (`IterationResult`) include `budgetAllocated`, `budgetSpen
 `variantsCreated`, and `matchesCompleted`, which feed into the Timeline tab's iteration
 cards and the Cost Estimates tab's breakdown view.
 
+## Dispatch Prediction (projectDispatchPlan)
+
+`evolution/src/lib/pipeline/loop/projectDispatchPlan.ts` is the single source of truth for
+"given this strategy config + arena context, how many agents will dispatch per iteration?".
+It's consumed by the wizard preview (via `getStrategyDispatchPreviewAction`), the runtime
+loop (via matching inline math), and the cost-sensitivity analysis. The unified shape:
+
+```typescript
+interface IterationPlanEntry {
+  iterIdx: number;
+  agentType: 'generate' | 'swiss';
+  iterBudgetUsd: number;
+  tactic: string;
+  estPerAgent: {
+    expected: { gen: number; rank: number; total: number };   // display value
+    upperBound: { gen: number; rank: number; total: number }; // reservation-safe
+  };
+  maxAffordable: { atExpected: number; atUpperBound: number };
+  dispatchCount: number;          // uses upperBound
+  effectiveCap: 'budget' | 'safety_cap' | 'floor' | 'swiss';
+  poolSizeAtStart: number;        // models pool growth iter-to-iter
+  parallelFloorUsd: number;
+}
+```
+
+The `projected_dispatched` / `actual_dispatched` distinction on the Cost Estimates tab
+comes from the same function: `projected` runs the plan at `upperBound` cost, `actual`
+runs it at observed `actualAvgCostPerAgent` (the "what if we'd known actuals from the
+start?" counterfactual). Both scenarios use identical math — no drift risk.
+
+Display heuristic constants (in `projectDispatchPlan.ts`):
+- `EXPECTED_GEN_RATIO = 0.7` — expected gen cost / upperBound gen cost (placeholder; Phase 6a
+  planned to re-sample from 50 staging runs once Phase 5 attribution data is clean).
+- `EXPECTED_RANK_COMPARISONS_RATIO = 0.5` — expected binary-search comparisons / max cap.
+- `DEFAULT_SEED_CHARS = 8000` — wizard preview default seed length.
+- `DISPATCH_SAFETY_CAP = 100` — defense-in-depth cap on dispatchCount per iteration.
+
 ## Implementation
-[To be filled during implementation]
+`evolution/src/components/evolution/DispatchPlanView.tsx` renders the plan across all
+three surfaces (wizard / run detail / strategy detail) with consistent formatting:
+cost-range via `formatCostRange`, effective-cap badges, optional projected-vs-actual
+delta columns + realization ratio, and warning banners for ranking-cost saturation,
+budget-insufficient iterations, and safety-cap binding.

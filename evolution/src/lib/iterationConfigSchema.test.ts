@@ -42,10 +42,12 @@ describe('iterationConfigSchema', () => {
     })).toThrow(/qualityCutoff only valid for generate iterations/);
   });
 
-  it('rejects maxAgents on swiss iterations (pre-existing rule)', () => {
+  it('silently strips maxAgents (Phase 4 removed the field; swiss or generate both OK)', () => {
+    // Phase 4 deleted IterationConfig.maxAgents. Schemas use default .strip() so
+    // legacy configs with maxAgents still parse cleanly (field is dropped).
     expect(() => iterationConfigSchema.parse({
       agentType: 'swiss', budgetPercent: 40, maxAgents: 5,
-    })).toThrow(/maxAgents must not be set for swiss iterations/);
+    })).not.toThrow();
   });
 
   it('accepts qualityCutoff with topPercent mode', () => {

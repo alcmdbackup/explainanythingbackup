@@ -15,8 +15,13 @@ A **strategy** is a named, versioned configuration that fully specifies the mode
 Each strategy encapsulates:
 - Which LLM generates text variants.
 - Which LLM judges pairwise comparisons.
-- An ordered sequence of iterations, each specifying agent type (generate/swiss), budget percentage, and optional maxAgents.
-- Optional parameters for round sizing and budget caps.
+- An ordered sequence of iterations, each specifying agent type (generate/swiss) and budget percentage.
+- Optional per-iteration source mode (seed vs pool) and generation guidance.
+- Optional budget floors for per-iteration reservation.
+
+Dispatch count per iteration is budget-governed, with `DISPATCH_SAFETY_CAP = 100` as a
+defense-in-depth rail — there are no per-iteration `maxAgents`, strategy-level `numVariants`,
+or `strategiesPerRound` fields (Phase 4 of the 2026-04-20 refactor removed all three).
 
 ### StrategyConfig
 
@@ -26,7 +31,8 @@ The canonical type lives in `evolution/src/lib/pipeline/types.ts`:
 interface IterationConfig {
   agentType: 'generate' | 'swiss';
   budgetPercent: number;  // 1-100, all entries must sum to 100
-  maxAgents?: number;     // only for generate; caps parallel agents
+  sourceMode?: 'seed' | 'pool';  // generate-only; default 'seed'
+  qualityCutoff?: { mode: 'topN' | 'topPercent'; value: number };  // required when sourceMode='pool'
   generationGuidance?: Array<{ strategy: string; percent: number }>;  // per-iteration override
 }
 
@@ -34,7 +40,6 @@ interface StrategyConfig {
   generationModel: string;
   judgeModel: string;
   iterationConfigs: IterationConfig[];  // ordered sequence, min 1, max 20
-  strategiesPerRound?: number;  // default 3
   budgetUsd?: number;
   generationGuidance?: Array<{ strategy: string; percent: number }>;
   maxComparisonsPerVariant?: number;               // default 15
@@ -54,8 +59,7 @@ interface StrategyConfig {
 |---------------------|--------------------------------------------|
 | `generationModel`   | LLM used for text generation calls         |
 | `judgeModel`        | LLM used for pairwise comparison/judging. Default: `qwen-2.5-7b-instruct` (see `DEFAULT_JUDGE_MODEL` in `src/config/modelRegistry.ts`). Selected based on empirical judge-agreement research (see `docs/research/judge_agreement_summary_tables.md`) — 100% decisive on both large-gap and close-pair comparisons with ~1.7s median latency and no thinking-mode overhead. |
-| `iterationConfigs`  | Ordered array of iteration definitions. Each entry specifies `agentType` (`generate` or `swiss`), `budgetPercent` (1-100, must sum to 100 across all entries), optional `maxAgents` (generate only — caps parallel agent count), and optional `generationGuidance` (generate only — overrides strategy-level `generationGuidance` for this iteration). First entry must be `generate` (swiss on empty pool is invalid). Max 20 entries. Dollar amounts computed at runtime: `iterationBudgetUsd = (budgetPercent / 100) * totalBudgetUsd`. |
-| `strategiesPerRound`| Tactics applied per iteration round        |
+| `iterationConfigs`  | Ordered array of iteration definitions. Each entry specifies `agentType` (`generate` or `swiss`), `budgetPercent` (1-100, must sum to 100 across all entries), optional `sourceMode` / `qualityCutoff` (generate only), and optional `generationGuidance` (generate only — overrides strategy-level `generationGuidance` for this iteration). First entry must be `generate` (swiss on empty pool is invalid). Max 20 entries. Dollar amounts computed at runtime: `iterationBudgetUsd = (budgetPercent / 100) * totalBudgetUsd`. Dispatch count is budget-governed — no per-iter `maxAgents` field. |
 | `budgetUsd`         | Optional per-run budget cap. Per-iteration amounts derived from `iterationConfigs[].budgetPercent`. |
 | `generationGuidance`| Optional weighted tactic distribution at the strategy level. Array of `{ tactic, percent }` entries where percentages must sum to 100 and tactic names must be unique. Enables weighted random tactic selection from all 24 tactics via `selectTacticWeighted()` instead of the default deterministic 3-tactic behavior. Can be overridden per-iteration via `IterationConfig.generationGuidance`. |
 | `maxVariantsToGenerateFromSeedArticle` | Max generateFromSeedArticle agents per run. Excludes seed article. Default 9. |

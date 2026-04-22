@@ -24,6 +24,8 @@ import { selectTacticWeighted } from '../../core/tactics';
 import { createSeededRng } from '../../metrics/experimentMetrics';
 import type { AgentContext } from '../../core/types';
 import { estimateAgentCost } from '../infra/estimateCosts';
+import { DISPATCH_SAFETY_CAP } from './projectDispatchPlan';
+import { resolveSequentialFloor } from './budgetFloorResolvers';
 
 // ─── Config validation ───────────────────────────────────────────
 
@@ -42,9 +44,6 @@ function validateConfig(config: EvolutionConfig): void {
   }
   if (!config.generationModel || config.generationModel.trim() === '') {
     throw new Error('generationModel must be a non-empty string');
-  }
-  if (config.numVariants !== undefined && (config.numVariants < 1 || config.numVariants > 100)) {
-    throw new Error(`Invalid numVariants: ${config.numVariants} (must be 1-100)`);
   }
 }
 
@@ -185,7 +184,6 @@ export async function evolveArticle(
 ): Promise<EvolutionResult> {
   validateConfig(config);
 
-  const numVariants = config.numVariants ?? 9;
   const tactics = config.strategies && config.strategies.length > 0
     ? config.strategies
     : [...DEFAULT_TACTICS];
@@ -194,10 +192,8 @@ export async function evolveArticle(
   const resolvedConfig: EvolutionConfig = {
     ...config,
     iterationConfigs: config.iterationConfigs,
-    strategiesPerRound: config.strategiesPerRound ?? 3,
     calibrationOpponents: config.calibrationOpponents ?? 5,
     tournamentTopK: config.tournamentTopK ?? 5,
-    numVariants,
     strategies: tactics,
   };
 
@@ -210,7 +206,7 @@ export async function evolveArticle(
   logger.info('Config validation passed', {
     budgetUsd: resolvedConfig.budgetUsd,
     generationModel: resolvedConfig.generationModel, judgeModel: resolvedConfig.judgeModel,
-    numVariants, tactics,
+    tactics,
     phaseName: 'config_validation',
   });
 
@@ -300,11 +296,20 @@ export async function evolveArticle(
     try {
       if (iterType === 'generate') {
         // ─── Generate iteration ───────────────────────────────
+        // Phase 7b: restructured to accumulate parallel + top-up match buffers, then
+        // invoke MergeRatingsAgent ONCE at iteration end over the combined buffers.
+        // Top-up agents reuse the iteration-start snapshot (option A in decision #8) so
+        // there's no data dependency requiring an intermediate merge.
         const initialPoolSnapshot: Variant[] = [...pool];
         const initialRatingsSnapshot = new Map(ratings);
         const initialMatchCountsSnapshot = new Map(matchCounts);
 
-        // Budget-aware dispatch: compute how many agents we can afford within iteration budget.
+        // Read EVOLUTION_TOPUP_ENABLED once per iteration (not per dispatch). Default
+        // true; set to 'false' as a rollback kill-switch if top-up misbehaves in prod.
+        const topUpEnabled = process.env.EVOLUTION_TOPUP_ENABLED !== 'false';
+
+        // Budget-aware parallel-batch size: compute how many agents we can afford
+        // within iteration budget AT UPPER-BOUND cost (reservation safety).
         const availBudget = iterTracker.getAvailableBudget();
         const maxComp = resolvedConfig.maxComparisonsPerVariant ?? 15;
         const estPerAgent = estimateAgentCost(
@@ -312,15 +317,8 @@ export async function evolveArticle(
           resolvedConfig.judgeModel, pool.length, maxComp,
         );
         const maxAffordable = Math.max(1, Math.floor(availBudget / estPerAgent));
-        // Respect iterCfg.maxAgents if set, otherwise use numVariants or budget limit.
-        const maxAgentsForIter = iterCfg.maxAgents ?? numVariants;
-        const dispatchCount = Math.min(maxAgentsForIter, maxAffordable);
-
-        if (iterIdx === 0) {
-          parallelDispatchedCount = dispatchCount;
-        } else {
-          sequentialDispatchedCount += dispatchCount;
-        }
+        // DISPATCH_SAFETY_CAP is a defense-in-depth rail; budget is the primary governor.
+        const parallelDispatchCount = Math.min(DISPATCH_SAFETY_CAP, maxAffordable);
 
         // Select tactics: per-iteration guidance takes precedence over strategy-level, then round-robin.
         const guidance = iterCfg.generationGuidance ?? resolvedConfig.generationGuidance;
@@ -332,11 +330,13 @@ export async function evolveArticle(
           return tactics[i % tactics.length]!;
         };
 
-        const dispatchedTactics = Array.from({ length: dispatchCount }, (_, i) => selectTactic(i));
-        logger.info('Dispatching generate iteration', {
-          iteration, iterIdx, dispatchCount, maxAffordable, maxAgentsForIter,
+        const parallelTactics = Array.from({ length: parallelDispatchCount }, (_, i) => selectTactic(i));
+        logger.info('Dispatching generate iteration (parallel batch)', {
+          iteration, iterIdx,
+          parallelDispatchCount, maxAffordable, safetyCap: DISPATCH_SAFETY_CAP,
           iterBudgetUsd, availBudget, estPerAgent,
-          tactics: dispatchedTactics,
+          tactics: parallelTactics,
+          topUpEnabled,
           selectionMode: guidance ? (iterCfg.generationGuidance ? 'iteration-weighted' : 'strategy-weighted') : 'round-robin',
           phaseName: 'generation',
         });
@@ -345,10 +345,9 @@ export async function evolveArticle(
         const iterQualityCutoff = iterCfg.qualityCutoff;
         const seedVariantForResolve = { id: options?.seedVariantId ?? '', text: originalText };
 
-        const dispatchPromises = Array.from({ length: dispatchCount }, (_, i) => {
-          const tactic = dispatchedTactics[i]!;
+        // Helper: build the AgentContext + kick off one GFSA agent run.
+        const dispatchOneAgent = (tactic: string, phase: 'parallel' | 'top_up') => {
           const execOrder = ++executionOrder;
-          const agentIndex = i + 1;
           const pickRng = createSeededRng(hashSeed(runId, iteration, execOrder));
           const resolved = resolveParent({
             sourceMode: iterSourceMode,
@@ -357,19 +356,15 @@ export async function evolveArticle(
             pool: initialPoolSnapshot,
             ratings: initialRatingsSnapshot,
             rng: pickRng,
-            warn: (msg, c) => logger.warn(msg, { ...c, phaseName: 'generation', iteration, execOrder }),
+            warn: (msg, c) => logger.warn(msg, { ...c, phaseName: 'generation', iteration, execOrder, dispatchPhase: phase }),
           });
           const ctxForAgent: AgentContext = {
-            db,
-            runId,
-            iteration,
+            db, runId, iteration,
             executionOrder: execOrder,
-            invocationId: '', // patched by Agent.run()
+            invocationId: '',
             randomSeed: deriveSeed(randomSeed, `iter${iteration}`, `gfsa${execOrder}`),
-            logger,
-            costTracker: iterTracker,
-            config: resolvedConfig,
-            agentIndex,
+            logger, costTracker: iterTracker, config: resolvedConfig,
+            agentIndex: execOrder,
             rawProvider: llmProvider,
             defaultModel: resolvedConfig.generationModel,
             generationTemperature: resolvedConfig.generationTemperature,
@@ -384,37 +379,40 @@ export async function evolveArticle(
             cache: comparisonCache,
             parentVariantId: resolved.variantId,
           }, ctxForAgent);
-        });
+        };
 
-        const results = await Promise.allSettled(dispatchPromises);
+        // ─── Parallel batch ─────────────────────────────────────
+        const parallelPromises = parallelTactics.map((t) => dispatchOneAgent(t, 'parallel'));
+        const parallelResults = await Promise.allSettled(parallelPromises);
 
+        // Accumulate surfaced + discarded from parallel batch. Do NOT merge yet.
         const surfacedVariants: Variant[] = [];
         const surfacedBuffers: MergeMatchEntry[][] = [];
         const discardedIds: string[] = [];
         const discardReasonsMap: Record<string, { elo: number; top15Cutoff: number }> = {};
+        let parallelSpend = 0;
+        let parallelSuccesses = 0;
+        let topUpDispatched = 0;
+        let topUpStopReason: 'floor' | 'safety_cap' | 'budget_exhausted' | 'killed' | 'deadline' | 'no_budget_at_start' | 'feature_disabled' | null = null;
 
-        for (const r of results) {
+        const absorbResult = (r: PromiseSettledResult<Awaited<ReturnType<GenerateFromPreviousArticleAgent['run']>>>): boolean => {
+          // Returns true if a fatal run-level error should re-throw.
           if (r.status === 'rejected') {
-            // IterationBudgetExceededError stops iteration only — not a fatal error.
             if (r.reason instanceof IterationBudgetExceededError) {
               iterStopReason = 'iteration_budget_exceeded';
-              continue;
+              return false;
             }
             if (r.reason instanceof BudgetExceededError) {
-              // Run-level budget exceeded — will be caught by outer try/catch.
               throw r.reason;
             }
             logger.warn('generateFromPreviousArticle agent rejected', {
               phaseName: 'generation',
               error: (r.reason instanceof Error ? r.reason.message : String(r.reason)).slice(0, 500),
             });
-            continue;
+            return false;
           }
-          if (r.value.budgetExceeded) {
-            iterStopReason = 'iteration_budget_exceeded';
-            continue;
-          }
-          if (!r.value.success || !r.value.result) continue;
+          if (r.value.budgetExceeded) { iterStopReason = 'iteration_budget_exceeded'; return false; }
+          if (!r.value.success || !r.value.result) return false;
 
           const out = r.value.result;
           if (out.surfaced && out.variant) {
@@ -423,33 +421,118 @@ export async function evolveArticle(
           } else if (out.variant && !out.surfaced) {
             discardedVariants.push(out.variant);
             discardedIds.push(out.variant.id);
-            if (out.discardReason) {
-              discardReasonsMap[out.variant.id] = out.discardReason;
-            }
-            // Capture local-rank ELO for honest Phase 3/5 metrics on discarded variants.
-            // `localRating` is absent on early-exit paths (generation_failed, format-invalid, budget).
-            if (out.localRating) {
-              discardedLocalRatings.set(out.variant.id, out.localRating);
-            }
+            if (out.discardReason) discardReasonsMap[out.variant.id] = out.discardReason;
+            if (out.localRating) discardedLocalRatings.set(out.variant.id, out.localRating);
           }
+          return false;
+        };
+
+        for (const r of parallelResults) {
+          absorbResult(r);
+          if (r.status === 'fulfilled' && r.value.success && r.value.cost > 0) {
+            parallelSpend += r.value.cost;
+            parallelSuccesses += 1;
+          }
+        }
+
+        // Measure actualAvgCostPerAgent from parallel batch's real spends.
+        let actualAvgCost: number | null = null;
+        if (parallelSuccesses > 0) {
+          actualAvgCost = parallelSpend / parallelSuccesses;
+          if (iterIdx === 0) actualAvgCostPerAgent = actualAvgCost;
+        }
+        if (!actualAvgCost || !Number.isFinite(actualAvgCost) || actualAvgCost <= 0) {
+          logger.warn('actualAvgCostPerAgent fallback to initialAgentCostEstimate', {
+            phaseName: 'generation', iteration, iterIdx, parallelSuccesses,
+            reason: 'scope_zero_or_no_success',
+          });
+          actualAvgCost = estPerAgent;
+        }
+
+        // ─── Top-up phase ───────────────────────────────────────
+        if (topUpEnabled && iterStopReason === 'iteration_complete') {
+          // Kill / deadline check before entering top-up loop.
+          if (options?.signal?.aborted) {
+            topUpStopReason = 'killed';
+          } else if (options?.deadlineMs && Date.now() >= options.deadlineMs) {
+            topUpStopReason = 'deadline';
+          } else if (await isRunKilled(db, runId, logger)) {
+            topUpStopReason = 'killed';
+          }
+
+          if (topUpStopReason === null) {
+            const sequentialFloor = resolveSequentialFloor(
+              resolvedConfig, iterBudgetUsd, estPerAgent, actualAvgCost,
+            );
+            let topUpSpend = 0;
+            let remaining = iterBudgetUsd - parallelSpend - topUpSpend;
+
+            while (remaining - actualAvgCost >= sequentialFloor) {
+              // Safety cap (parallel + top-up total).
+              if (parallelDispatchCount + topUpDispatched >= DISPATCH_SAFETY_CAP) {
+                topUpStopReason = 'safety_cap';
+                break;
+              }
+              // Bounded kill-check: every 5 top-up dispatches hit the DB.
+              if (topUpDispatched > 0 && topUpDispatched % 5 === 0) {
+                if (options?.signal?.aborted) { topUpStopReason = 'killed'; break; }
+                if (options?.deadlineMs && Date.now() >= options.deadlineMs) { topUpStopReason = 'deadline'; break; }
+                if (await isRunKilled(db, runId, logger)) { topUpStopReason = 'killed'; break; }
+              }
+              // Cheap per-dispatch signal check.
+              if (options?.signal?.aborted) { topUpStopReason = 'killed'; break; }
+
+              const topUpTactic = selectTactic(parallelDispatchCount + topUpDispatched);
+              const topUpResult = await Promise.allSettled([dispatchOneAgent(topUpTactic, 'top_up')]);
+              absorbResult(topUpResult[0]!);
+
+              if (topUpResult[0]!.status === 'fulfilled' && topUpResult[0]!.value.success) {
+                topUpSpend += topUpResult[0]!.value.cost;
+                topUpDispatched += 1;
+              } else {
+                // Failed top-up dispatch — stop to avoid burning budget on more failures.
+                topUpStopReason = 'budget_exhausted';
+                break;
+              }
+              remaining = iterBudgetUsd - parallelSpend - topUpSpend;
+            }
+            if (topUpStopReason === null) topUpStopReason = 'budget_exhausted';
+
+            logger.info('Top-up loop complete', {
+              phaseName: 'generation', iteration, iterIdx,
+              parallelDispatched: parallelDispatchCount,
+              topUpDispatched,
+              topUpStopReason,
+              actualAvgCost, sequentialFloor,
+              remainingIterBudget: remaining,
+            });
+          }
+        } else if (!topUpEnabled) {
+          topUpStopReason = 'feature_disabled';
         }
 
         iterVariantsCreated = surfacedVariants.length;
 
-        // Compute actualAvgCostPerAgent from successful agents for observability.
+        // Update observables: iter 0 = parallel bucket, later iters = sequential bucket,
+        // consistent with pre-Phase-7 labeling. Total dispatches per iter = parallel + top-up.
+        const totalIterDispatches = parallelDispatchCount + topUpDispatched;
         if (iterIdx === 0) {
-          const completedCosts: number[] = [];
-          for (const r of results) {
-            if (r.status === 'fulfilled' && r.value.success && r.value.cost > 0) {
-              completedCosts.push(r.value.cost);
-            }
-          }
-          if (completedCosts.length > 0) {
-            actualAvgCostPerAgent = completedCosts.reduce((a, b) => a + b, 0) / completedCosts.length;
-          }
+          parallelDispatchedCount = totalIterDispatches;
+        } else {
+          sequentialDispatchedCount += totalIterDispatches;
         }
 
-        // Merge unconditionally — paid-for matches must reach global ratings.
+        // ─── Pre-merge spend log ────────────────────────────────
+        // If the merge throws, the wasted cost is attributable from logs even without
+        // persisted invocation rows.
+        logger.info('iteration pre-merge accounting', {
+          phaseName: 'generation', iteration, iterIdx,
+          parallelBatchSize: parallelDispatchCount, topUpBatchSize: topUpDispatched,
+          parallelSpend, topUpSpend: iterTracker.getTotalSpent() - parallelSpend,
+          totalIterSpend: iterTracker.getTotalSpent(),
+        });
+
+        // ─── Single merge pass over combined buffers ────────────
         const mergeExecOrder = ++executionOrder;
         const mergeCtx: AgentContext = {
           db, runId, iteration,
@@ -674,7 +757,6 @@ export async function evolveArticle(
       minBudgetAfterParallelAgentMultiple: resolvedConfig.minBudgetAfterParallelAgentMultiple,
       minBudgetAfterSequentialFraction: resolvedConfig.minBudgetAfterSequentialFraction,
       minBudgetAfterSequentialAgentMultiple: resolvedConfig.minBudgetAfterSequentialAgentMultiple,
-      numVariants,
     },
   };
 }
