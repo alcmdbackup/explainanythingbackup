@@ -168,19 +168,26 @@ adminTest.describe('Budget-Aware Dispatch', { tag: '@evolution' }, () => {
     await sb.from('evolution_prompts').delete().eq('id', promptId);
   });
 
-  adminTest('parallel dispatch is budget-limited (fewer than maxVariants)', async () => {
+  adminTest('parallel dispatch is budget-governed (below safety cap, above zero)', async () => {
     const sb = getServiceClient();
     const { data: invocations } = await sb
       .from('evolution_agent_invocations')
-      .select('id, agent_name, iteration')
+      .select('id, agent_name, iteration, cost_usd')
       .eq('run_id', runId)
       .eq('agent_name', 'generate_from_previous_article');
 
     expect(invocations).toBeTruthy();
-    // Budget-aware dispatch should not exceed maxVariantsToGenerateFromSeedArticle (6).
-    // With cheap models, all 6 may fit — the key invariant is it never exceeds the cap.
-    expect(invocations!.length).toBeLessThanOrEqual(6);
+    // Phase 4 of investigate_under_budget_run_evolution_20260420 dropped the hard
+    // per-iter maxAgents/numVariants cap in favor of DISPATCH_SAFETY_CAP=100 as a
+    // defense-in-depth rail. The primary governor is budget — with cheap models
+    // like gpt-4.1-nano the budget affords many dispatches. Key invariants now:
+    //   1. at least one dispatch happened (1 ≤ N)
+    //   2. safety cap was respected (N ≤ 100)
+    //   3. total generation spend stayed under the $0.03 run budget
     expect(invocations!.length).toBeGreaterThanOrEqual(1);
+    expect(invocations!.length).toBeLessThanOrEqual(100);
+    const totalSpend = invocations!.reduce((a, r) => a + (r.cost_usd ?? 0), 0);
+    expect(totalSpend).toBeLessThanOrEqual(0.03);
   });
 
   adminTest('run completed without getting stuck', async () => {
