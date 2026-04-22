@@ -404,23 +404,15 @@ export default function NewStrategyPage(): JSX.Element {
         return updated;
       }
       // Generate: ensure sourceMode is always set so payload emission is deterministic.
-      if (updated.sourceMode === undefined) {
-        updated.sourceMode = 'seed';
-      }
-      // Pool mode: initialize cutoff fields if unset. This is the Bug 1 fix —
-      // without explicit state the render-time `?? 'topN'` fallback on the mode
-      // dropdown was display-only, and toIterationConfigsPayload dropped
-      // qualityCutoff entirely when qualityCutoffMode stayed undefined.
+      updated.sourceMode ??= 'seed';
+      // Pool mode: initialize cutoff fields if unset. This is the Bug 1 fix — without
+      // explicit state, toIterationConfigsPayload dropped qualityCutoff entirely when
+      // qualityCutoffMode stayed undefined (render-time `?? 'topN'` was display-only).
       if (updated.sourceMode === 'pool') {
-        if (updated.qualityCutoffMode === undefined) {
-          updated.qualityCutoffMode = POOL_DEFAULT_CUTOFF_MODE;
-        }
-        if (updated.qualityCutoffValue === undefined) {
-          updated.qualityCutoffValue = POOL_DEFAULT_CUTOFF_VALUE;
-        }
+        updated.qualityCutoffMode ??= POOL_DEFAULT_CUTOFF_MODE;
+        updated.qualityCutoffValue ??= POOL_DEFAULT_CUTOFF_VALUE;
       } else {
-        // Seed mode: cutoff fields are not emitted regardless, but clear them so
-        // re-toggling to pool picks up the defaults again.
+        // Seed mode: clear cutoff fields so re-toggling to pool picks up the defaults.
         delete updated.qualityCutoffMode;
         delete updated.qualityCutoffValue;
       }
@@ -864,13 +856,9 @@ export default function NewStrategyPage(): JSX.Element {
                         data-testid={`iteration-source-controls-${idx}`}
                       >
                         <span className="text-[var(--text-muted)]">Source:</span>
-                        {/* `?? 'seed'` / `?? 'topN'` / `?? ''` are defensive no-ops:
-                            updateIteration (line 395-426) guarantees these fields are
-                            defined on every generate row. The fallbacks exist only to
-                            keep the select/input controlled when TS's optional-field
-                            typing would otherwise produce value={undefined}. The Bug 1
-                            invariant (qualityCutoffMode always set when sourceMode=pool)
-                            is pinned by page.test.tsx's "pool-mode auto-default" tests. */}
+                        {/* `?? 'seed'` / `?? 'topN'` / `?? ''` below are defensive: updateIteration
+                            guarantees these fields exist on every generate row, but the fallbacks
+                            keep the controls controlled under TS's optional-field typing. */}
                         <select
                           value={it.sourceMode ?? 'seed'}
                           onChange={e => updateIteration(idx, { sourceMode: e.target.value as 'seed' | 'pool' })}

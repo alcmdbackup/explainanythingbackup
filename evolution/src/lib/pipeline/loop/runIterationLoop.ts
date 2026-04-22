@@ -353,6 +353,7 @@ export async function evolveArticle(
         // reused by both the parallel batch and top-up dispatches below.
         const inRunPool = initialPoolSnapshot.filter((v) => !v.fromArena);
         const poolForParentResolve = iterSourceMode === 'pool' ? inRunPool : initialPoolSnapshot;
+        const arenaOnlyPool = initialPoolSnapshot.length > 0 && inRunPool.length === 0;
 
         // Helper: build the AgentContext + kick off one GFSA agent run.
         const dispatchOneAgent = (tactic: string, phase: 'parallel' | 'top_up') => {
@@ -370,12 +371,7 @@ export async function evolveArticle(
           // Relabel the generic empty_pool fallback when the real cause was "we
           // filtered out arena entries and nothing in-run was left". Gives operators
           // a distinct log string to grep for without changing resolveParent's type.
-          if (
-            iterSourceMode === 'pool'
-            && resolved.fallbackReason === 'empty_pool'
-            && initialPoolSnapshot.length > 0
-            && inRunPool.length === 0
-          ) {
+          if (iterSourceMode === 'pool' && resolved.fallbackReason === 'empty_pool' && arenaOnlyPool) {
             logger.warn('resolveParent: no same-run variants available, fell back to seed', {
               phaseName: 'generation',
               iteration,

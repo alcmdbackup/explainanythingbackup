@@ -84,11 +84,9 @@ export function VariantParentBadge(props: VariantParentBadgeProps): JSX.Element 
         {label}
       </Link>
       {crossRun ? (
-        // Styling mirrors StatusBadge.tsx:131-139 filled variant (rounded pill with
-        // 20%/30% color-mix backgrounds). Not calling StatusBadge directly — its API
-        // derives the label from `status` via capitalize() and has no children/label
-        // prop, which doesn't fit an ad-hoc "other run" label. Update together if
-        // StatusBadge tokens change.
+        // Styling mirrors StatusBadge.tsx filled variant (20%/30% color-mix bg/border).
+        // StatusBadge isn't reused because its API derives the label from `status` via
+        // capitalize() and takes no children/label — update together if its tokens change.
         <span
           className="ml-1 inline-flex items-center rounded-full px-2 py-0.5 text-xs font-ui font-medium border"
           style={{
