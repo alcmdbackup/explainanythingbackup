@@ -123,21 +123,69 @@ export function EntityMetricsTab({ entityType, entityId }: EntityMetricsTabProps
     grouped.set(category, list);
   }
 
+  // U26 (use_playwright_find_bugs_ux_issues_20260422): the Cost section
+  // accumulated 11 metrics that mix true spend (cost / generation_cost /
+  // ranking_cost / seed_cost / total_*) with estimation-accuracy noise
+  // (estimation_error_pct, agent_cost_projected vs actual, dispatch counts).
+  // Split into two sub-sections so users can scan spend at a glance and
+  // optionally expand the accuracy diagnostics.
+  function isEstimationMetric(id: string): boolean {
+    return /estimation|estimated|projected|dispatched|gfsa_duration/.test(id)
+      || id.startsWith('avg_agent_cost_')
+      || id === 'agent_cost_projected' || id === 'agent_cost_actual';
+  }
+
   return (
     <div className="space-y-6" data-testid="entity-metrics-tab">
-      {CATEGORY_ORDER.filter(cat => grouped.has(cat)).map(cat => (
-        <div key={cat}>
-          <h3 className="text-xl font-display font-medium text-[var(--text-secondary)] mb-2">
-            {CATEGORY_LABELS[cat]}
-          </h3>
-          <MetricGrid
-            metrics={grouped.get(cat)!}
-            columns={Math.min(grouped.get(cat)!.length, 4) as 2 | 3 | 4}
-            variant="bordered"
-            testId={`metrics-${cat}`}
-          />
-        </div>
-      ))}
+      {CATEGORY_ORDER.filter(cat => grouped.has(cat)).map(cat => {
+        const list = grouped.get(cat)!;
+        if (cat === 'cost' && list.length > 6) {
+          const spent = list.filter(m => !isEstimationMetric(m.id ?? ''));
+          const accuracy = list.filter(m => isEstimationMetric(m.id ?? ''));
+          return (
+            <div key={cat}>
+              <h3 className="text-xl font-display font-medium text-[var(--text-secondary)] mb-2">
+                {CATEGORY_LABELS[cat]}
+              </h3>
+              {spent.length > 0 && (
+                <div className="mb-3" data-testid="metrics-cost-spent">
+                  <h4 className="text-sm font-ui font-medium text-[var(--text-muted)] mb-1">Spent</h4>
+                  <MetricGrid
+                    metrics={spent}
+                    columns={Math.min(spent.length, 4) as 2 | 3 | 4}
+                    variant="bordered"
+                  />
+                </div>
+              )}
+              {accuracy.length > 0 && (
+                <details className="mt-2" data-testid="metrics-cost-accuracy">
+                  <summary className="text-sm font-ui font-medium text-[var(--text-muted)] cursor-pointer mb-1">
+                    Estimation accuracy ({accuracy.length})
+                  </summary>
+                  <MetricGrid
+                    metrics={accuracy}
+                    columns={Math.min(accuracy.length, 4) as 2 | 3 | 4}
+                    variant="bordered"
+                  />
+                </details>
+              )}
+            </div>
+          );
+        }
+        return (
+          <div key={cat}>
+            <h3 className="text-xl font-display font-medium text-[var(--text-secondary)] mb-2">
+              {CATEGORY_LABELS[cat]}
+            </h3>
+            <MetricGrid
+              metrics={list}
+              columns={Math.min(list.length, 4) as 2 | 3 | 4}
+              variant="bordered"
+              testId={`metrics-${cat}`}
+            />
+          </div>
+        );
+      })}
     </div>
   );
 }

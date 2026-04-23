@@ -1,0 +1,188 @@
+#!/usr/bin/env npx tsx
+// Backfill missing evolution_metrics rows where metric_name='cost' for completed
+// runs. Some legacy completed runs only have per-phase cost metric rows
+// (generation_cost / ranking_cost / seed_cost) and never got a rollup `cost`
+// row. The dashboard + runs list helper getRunCostsWithFallback handles this
+// at read time, but operators may want to materialize the rollup so the
+// `cost` metric is queryable directly (charts, ad-hoc SQL).
+//
+// Usage:
+//   npx tsx evolution/scripts/backfillRunCostMetric.ts                  # dry-run, all completed runs
+//   npx tsx evolution/scripts/backfillRunCostMetric.ts --apply          # actually write
+//   npx tsx evolution/scripts/backfillRunCostMetric.ts --run-id UUID    # single-run mode
+//
+// Guards:
+//   - Default mode is --dry-run (prints planned writes, doesn't touch DB).
+//   - Targets only `evolution_runs.status='completed'` runs missing a `cost` metric row.
+//   - Uses writeMetricMax (Postgres GREATEST upsert) so concurrent live writes
+//     are never overwritten with smaller values.
+//   - Writes a per-run audit-trail report to evolution/scripts/backfill-reports/
+//     BEFORE the corresponding writeMetricMax call. If the script crashes
+//     mid-run, the report is a superset of writes that landed and the operator
+//     can rollback safely.
+//
+// Rollback:
+//   REPORT=evolution/scripts/backfill-reports/cost-backfill-<UTC>.json
+//   IDS=$(jq -r '.runIds | map("'"'"'" + . + "'"'"'") | join(",")' "$REPORT")
+//   npm run query:prod -- "DELETE FROM evolution_metrics WHERE metric_name='cost' AND entity_id IN ($IDS) RETURNING entity_id;"
+//
+//   DO NOT use a broad WHERE clause (metric_name='cost' alone) — that would
+//   delete legitimately pre-existing cost rows.
+//
+// Env: .env.local — NEXT_PUBLIC_SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY.
+
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import * as dotenv from 'dotenv';
+import * as path from 'path';
+import * as fs from 'fs';
+import * as dns from 'dns';
+
+dns.setDefaultResultOrder('ipv4first');
+dotenv.config({ path: path.resolve(process.cwd(), '.env.local') });
+
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+if (!SUPABASE_URL || !SERVICE_KEY) {
+  console.error('Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY');
+  process.exit(1);
+}
+
+// ─── Args ────────────────────────────────────────────────────────
+const apply = process.argv.includes('--apply');
+const runIdArg = process.argv.find((a) => a.startsWith('--run-id='))?.split('=')[1];
+const REPORT_DIR = path.resolve(process.cwd(), 'evolution/scripts/backfill-reports');
+const REPORT_PATH = path.join(REPORT_DIR, `cost-backfill-${new Date().toISOString().replace(/:/g, '-')}.json`);
+
+// ─── Main ────────────────────────────────────────────────────────
+async function main(): Promise<void> {
+  const db = createClient(SUPABASE_URL!, SERVICE_KEY!);
+
+  console.error(`[cost-backfill] mode=${apply ? 'APPLY' : 'DRY-RUN'}; targeting ${runIdArg ? `run=${runIdArg}` : 'all completed runs missing a cost metric'}`);
+
+  // 1. Find completed runs that are MISSING a `cost` metric row.
+  const targetRunIds = await findRunsMissingCostMetric(db, runIdArg);
+  console.error(`[cost-backfill] candidates: ${targetRunIds.length}`);
+
+  if (targetRunIds.length === 0) {
+    console.error('[cost-backfill] no candidates; exiting');
+    return;
+  }
+
+  // 2. For each candidate, compute the per-run cost from evolution_run_costs view.
+  //    (Or fall back to summing gen+rank+seed metrics if the view returns null.)
+  const costsToWrite = await computeCostsForRuns(db, targetRunIds);
+
+  console.error(`[cost-backfill] computable: ${costsToWrite.length} of ${targetRunIds.length}`);
+
+  // 3. Open the report file BEFORE any writes — the file is the audit trail
+  //    rollback uses. Each successfully-attempted runId is appended to it.
+  const written: string[] = [];
+  if (apply) {
+    fs.mkdirSync(REPORT_DIR, { recursive: true });
+    fs.writeFileSync(REPORT_PATH, JSON.stringify({ writtenAt: new Date().toISOString(), runIds: written }, null, 2));
+    console.error(`[cost-backfill] report at ${REPORT_PATH}`);
+  }
+
+  let attempted = 0; let wrote = 0; let errored = 0;
+  for (const { runId, cost } of costsToWrite) {
+    attempted += 1;
+    if (!apply) {
+      console.log(`[DRY-RUN] would write cost=${cost.toFixed(6)} for run=${runId}`);
+      continue;
+    }
+    try {
+      // Append runId to the report BEFORE the metric write so a crash
+      // mid-write still leaves a rollback-safe list.
+      written.push(runId);
+      fs.writeFileSync(REPORT_PATH, JSON.stringify({ writtenAt: new Date().toISOString(), runIds: written }, null, 2));
+
+      const { error: rpcErr } = await db.rpc('upsert_metric_max', {
+        p_entity_type: 'run',
+        p_entity_id: runId,
+        p_metric_name: 'cost',
+        p_value: cost,
+        p_source: 'backfill',
+        p_aggregation_method: 'sum',
+      });
+      if (rpcErr) throw rpcErr;
+      wrote += 1;
+    } catch (e) {
+      errored += 1;
+      console.error(`[cost-backfill] error writing run=${runId}: ${(e as Error).message ?? e}`);
+    }
+  }
+
+  console.error(`[cost-backfill] done: attempted=${attempted} wrote=${wrote} errored=${errored} skipped=${costsToWrite.length - attempted}`);
+  if (apply) console.error(`[cost-backfill] audit-trail JSON: ${REPORT_PATH}`);
+}
+
+async function findRunsMissingCostMetric(db: SupabaseClient, singleRunId?: string): Promise<string[]> {
+  if (singleRunId) {
+    // Verify the single run is completed AND missing a cost metric.
+    const { data: run } = await db.from('evolution_runs').select('id, status').eq('id', singleRunId).single();
+    if (!run || run.status !== 'completed') {
+      console.error(`[cost-backfill] run ${singleRunId} not in 'completed' status; skipping`);
+      return [];
+    }
+    const { data: existing } = await db
+      .from('evolution_metrics')
+      .select('entity_id')
+      .eq('entity_type', 'run').eq('entity_id', singleRunId).eq('metric_name', 'cost').limit(1);
+    return (existing?.length ?? 0) > 0 ? [] : [singleRunId];
+  }
+
+  // Bulk: pull all completed run IDs, then exclude those that already have a
+  // cost metric row. Two queries because PostgREST doesn't support NOT EXISTS
+  // subqueries cleanly.
+  const completedRunIds: string[] = [];
+  const PAGE = 1000;
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await db
+      .from('evolution_runs')
+      .select('id')
+      .eq('status', 'completed')
+      .range(from, from + PAGE - 1);
+    if (error) throw error;
+    if (!data || data.length === 0) break;
+    completedRunIds.push(...data.map((r) => r.id as string));
+    if (data.length < PAGE) break;
+  }
+
+  // Find runs that already have a cost metric row.
+  const haveCost = new Set<string>();
+  const CHUNK = 100;
+  for (let i = 0; i < completedRunIds.length; i += CHUNK) {
+    const chunk = completedRunIds.slice(i, i + CHUNK);
+    const { data, error } = await db
+      .from('evolution_metrics')
+      .select('entity_id')
+      .eq('entity_type', 'run').eq('metric_name', 'cost').in('entity_id', chunk);
+    if (error) throw error;
+    for (const row of data ?? []) haveCost.add(row.entity_id as string);
+  }
+  return completedRunIds.filter((id) => !haveCost.has(id));
+}
+
+async function computeCostsForRuns(db: SupabaseClient, runIds: string[]): Promise<Array<{ runId: string; cost: number }>> {
+  const out: Array<{ runId: string; cost: number }> = [];
+  const CHUNK = 100;
+  for (let i = 0; i < runIds.length; i += CHUNK) {
+    const chunk = runIds.slice(i, i + CHUNK);
+    const { data, error } = await db
+      .from('evolution_run_costs')
+      .select('run_id, total_cost_usd')
+      .in('run_id', chunk);
+    if (error) throw error;
+    for (const row of data ?? []) {
+      const v = Number((row as { total_cost_usd: unknown }).total_cost_usd);
+      if (Number.isFinite(v) && v > 0) out.push({ runId: row.run_id as string, cost: v });
+    }
+  }
+  return out;
+}
+
+main().then(() => process.exit(0)).catch((e) => {
+  console.error('[cost-backfill] fatal:', e);
+  process.exit(1);
+});

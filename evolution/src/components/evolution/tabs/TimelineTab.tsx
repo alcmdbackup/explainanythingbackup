@@ -310,7 +310,16 @@ export function TimelineTab({ runId, run }: TimelineTabProps): JSX.Element {
         <div className="ml-auto flex items-center gap-3 text-xs font-ui text-[var(--text-muted)]">
           <span>{invocations.length} invocations</span>
           <span>&middot;</span>
-          <span>wall-clock {fmtMs(totalMs)}</span>
+          {/* B14 (use_playwright_find_bugs_ux_issues_20260422): single source of
+              truth for the run duration is `summary.durationSeconds` (computed
+              at finalize from completed_at − claimed_at). The previous
+              `fmtMs(totalMs)` value derived from invocation timestamps could
+              drift by ~3s from the Run Outcome card. Use the same source
+              everywhere; if the summary is missing, fall back to invocation-
+              span as a last resort and label it as such. */}
+          <span title="Wall-clock duration from run finalization (completed_at − claimed_at)">
+            wall-clock {summary?.durationSeconds != null ? fmtSec(summary.durationSeconds) : `~${fmtMs(totalMs)}`}
+          </span>
         </div>
       </div>
 

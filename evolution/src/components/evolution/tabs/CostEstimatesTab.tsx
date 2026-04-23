@@ -515,7 +515,12 @@ function CostPerInvocationSection({ invocations }: { invocations: RunCostEstimat
               <tr className="text-left border-b border-[var(--border-default)]">
                 <th className="py-2 pr-3">Iter</th>
                 <th className="py-2 pr-3">Agent</th>
-                <th className="py-2 pr-3">Strategy</th>
+                {/* U10 (use_playwright_find_bugs_ux_issues_20260422): the cell
+                    actually renders r.tactic (e.g. 'engagement_amplify') —
+                    not the strategy — so the header was mislabeled. Renaming to
+                    "Tactic" makes the column meaningful for generate_from_previous_article
+                    invocations (other agents render as '—', which is honest). */}
+                <th className="py-2 pr-3" title="Tactic the generate agent used (null for non-generate agents)">Tactic</th>
                 <th className="py-2 pr-3 text-right">Gen Est</th>
                 <th className="py-2 pr-3 text-right">Gen Actual</th>
                 <th className="py-2 pr-3 text-right">Rank Est</th>

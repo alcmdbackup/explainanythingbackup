@@ -8,12 +8,16 @@ import { toast } from 'sonner';
 import { EntityTable, type ColumnDef } from './tables/EntityTable';
 import { EvolutionBreadcrumb, type BreadcrumbItem } from './primitives/EvolutionBreadcrumb';
 import { FormDialog, type FieldDef } from './dialogs/FormDialog';
+import { Combobox } from '@/components/ui/combobox';
 import { ConfirmDialog } from './dialogs/ConfirmDialog';
 
 export interface FilterDef {
   key: string;
   label: string;
-  type: 'select' | 'text' | 'checkbox';
+  /** U4 (use_playwright_find_bugs_ux_issues_20260422): 'combobox' is a searchable
+   *  variant of 'select'. Backed by src/components/ui/combobox.tsx — usable for
+   *  filters with hundreds of options where the flat <select> is unscannable. */
+  type: 'select' | 'text' | 'checkbox' | 'combobox';
   options?: { value: string; label: string }[];
   placeholder?: string;
   defaultChecked?: boolean;
@@ -276,6 +280,20 @@ export function EntityListPage<T>(props: EntityListPageProps<T>): JSX.Element {
                       <option key={opt.value} value={opt.value}>{opt.label}</option>
                     ))}
                   </select>
+                );
+              }
+              if (filter.type === 'combobox' && filter.options) {
+                return (
+                  <Combobox
+                    key={filter.key}
+                    options={filter.options}
+                    value={filterValues[filter.key] ?? ''}
+                    onChange={(v) => onFilterChange?.(filter.key, v)}
+                    placeholder={filter.placeholder ?? filter.label}
+                    idPrefix={`filter-${filter.key}`}
+                    testId={`filter-${filter.key}`}
+                    aria-label={filter.label}
+                  />
                 );
               }
               return (
