@@ -161,10 +161,14 @@ interface OutcomeCardProps {
   label: string;
   value: string;
   sub?: string;
+  /** U6 (use_playwright_find_bugs_ux_issues_20260422): hover-tooltip for the
+   *  sub line. Used by the Winner card to explain that "± N" is a 95% CI
+   *  half-width (1.96 × Elo-scale uncertainty), not a 1σ standard deviation. */
+  subTitle?: string;
   href?: string;
 }
 
-function OutcomeCard({ label, value, sub, href }: OutcomeCardProps): JSX.Element {
+function OutcomeCard({ label, value, sub, subTitle, href }: OutcomeCardProps): JSX.Element {
   return (
     <div className="bg-[var(--surface-secondary)] rounded-book p-2.5">
       <p className="text-xs font-ui uppercase tracking-wide text-[var(--text-muted)] mb-0.5">
@@ -177,7 +181,7 @@ function OutcomeCard({ label, value, sub, href }: OutcomeCardProps): JSX.Element
       ) : (
         <p className="text-sm font-ui font-semibold text-[var(--text-primary)]">{value}</p>
       )}
-      {sub && <p className="text-xs font-mono text-[var(--text-secondary)] mt-0.5">{sub}</p>}
+      {sub && <p className="text-xs font-mono text-[var(--text-secondary)] mt-0.5" title={subTitle}>{sub}</p>}
     </div>
   );
 }
@@ -483,6 +487,9 @@ export function TimelineTab({ runId, run }: TimelineTabProps): JSX.Element {
                   }
                   return `Elo: ${Math.round(elo)}`;
                 })()}
+                // U6 (use_playwright_find_bugs_ux_issues_20260422): tell users
+                // exactly what the ± value represents.
+                subTitle="Elo ± 95% CI half-width (1.96 × Elo-scale uncertainty)"
                 href={winner.isSeedVariant ? undefined : buildVariantDetailUrl(winner.id)}
               />
             )}

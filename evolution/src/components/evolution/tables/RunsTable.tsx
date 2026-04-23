@@ -54,6 +54,9 @@ export interface BaseRun {
 export interface RunsColumnDef<T extends BaseRun> {
   key: string;
   header: string;
+  /** U23 (use_playwright_find_bugs_ux_issues_20260422): hover-tooltip on the
+   *  column header. Surfaces metric descriptions. */
+  headerTitle?: string;
   align?: 'left' | 'right';
   minWidth?: string;
   render: (run: T) => React.ReactNode;
@@ -116,7 +119,18 @@ export function getBaseColumns<T extends BaseRun>(): RunsColumnDef<T>[] {
       header: 'Spent',
       align: 'right',
       render: (run) => {
-        const cost = getMetricValue(run.metrics, 'cost');
+        // B2 (use_playwright_find_bugs_ux_issues_20260422): the `cost` rollup
+        // metric isn't always populated — older runs have only per-phase
+        // `generation_cost` / `ranking_cost` / `seed_cost` rows. Fall back
+        // to summing those when `cost` is missing so the Spent column
+        // stays consistent with the dashboard (which uses
+        // getRunCostsWithFallback for the same reason).
+        const direct = getMetricValue(run.metrics, 'cost');
+        const cost = direct > 0
+          ? direct
+          : getMetricValue(run.metrics, 'generation_cost')
+            + getMetricValue(run.metrics, 'ranking_cost')
+            + getMetricValue(run.metrics, 'seed_cost');
         const pct = run.budget_cap_usd > 0 ? cost / run.budget_cap_usd : 0;
         const isActive = run.status === 'running' || run.status === 'claimed';
         return (
@@ -187,6 +201,7 @@ export function RunsTable<T extends BaseRun>({
                 key={col.key}
                 className={`${compact ? 'px-2 py-1.5' : 'p-3'} text-${col.align ?? 'left'}`}
                 style={col.minWidth ? { minWidth: col.minWidth } : undefined}
+                title={col.headerTitle}
               >
                 {col.header}
               </th>

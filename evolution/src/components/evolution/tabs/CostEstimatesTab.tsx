@@ -206,7 +206,14 @@ function CostByAgentSection({ rows }: { rows: CostByAgentRow[] }): JSX.Element {
                 <th className="py-2 pr-4 text-right">Estimated</th>
                 <th className="py-2 pr-4 text-right">Actual</th>
                 <th className="py-2 pr-4 text-right">Error %</th>
-                <th className="py-2">Coverage</th>
+                {/* U11 (use_playwright_find_bugs_ux_issues_20260422): header tooltip
+                    explains the Coverage codes. Per-row tooltips repeat the decode. */}
+                <th
+                  className="py-2"
+                  title="est+act = both estimate and actual cost are recorded; actual-only = only actual (no estimate); no-llm = agent makes no LLM calls (e.g. MergeRatingsAgent)"
+                >
+                  Coverage
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -223,7 +230,15 @@ function CostByAgentSection({ rows }: { rows: CostByAgentRow[] }): JSX.Element {
                   <td className="py-1.5 pr-4 text-right font-mono">
                     {r.errorPct != null ? formatPctWithToneText(r.errorPct) : '—'}
                   </td>
-                  <td className="py-1.5 font-mono text-xs text-[var(--text-secondary)]">
+                  <td
+                    className="py-1.5 font-mono text-xs text-[var(--text-secondary)]"
+                    title={
+                      r.coverage === 'est+act' ? 'Both estimate and actual cost recorded'
+                      : r.coverage === 'actual-only' ? 'Only actual recorded (no estimate)'
+                      : r.coverage === 'no-llm' ? 'Agent made no LLM calls (e.g. MergeRatingsAgent)'
+                      : ''
+                    }
+                  >
                     {r.coverage}
                   </td>
                 </tr>

@@ -6,7 +6,7 @@ import { EvolutionBreadcrumb, EntityListPage } from '@evolution/components/evolu
 import { listInvocationsAction, type InvocationListEntry } from '@evolution/services/invocationActions';
 import type { ColumnDef, FilterDef } from '@evolution/components/evolution';
 import Link from 'next/link';
-import { formatCostDetailed } from '@evolution/lib/utils/formatters';
+import { formatCostDetailed, formatDate } from '@evolution/lib/utils/formatters';
 import { toast } from 'sonner';
 
 const PAGE_SIZE = 20;
@@ -24,6 +24,10 @@ const FILTERS: FilterDef[] = [
     ],
   },
   { key: 'agentName', label: 'Agent Name', type: 'text', placeholder: 'Filter by agent...' },
+  // U17 (use_playwright_find_bugs_ux_issues_20260422): with 1000+ invocations,
+  // drilling to a single run's invocations without going through the run-detail
+  // page was impossible. Action already supports runId — just wire up the UI.
+  { key: 'runId', label: 'Run ID', type: 'text', placeholder: 'Paste full run UUID...' },
 ];
 
 const COLUMNS: ColumnDef<InvocationListEntry>[] = [
@@ -82,7 +86,9 @@ const COLUMNS: ColumnDef<InvocationListEntry>[] = [
   {
     key: 'created_at',
     header: 'Created',
-    render: (inv) => new Date(inv.created_at).toLocaleString(),
+    // U15 (use_playwright_find_bugs_ux_issues_20260422): match runs/arena list format.
+    // Full timestamp still available on hover via the detail page.
+    render: (inv) => formatDate(inv.created_at),
   },
 ];
 
@@ -96,10 +102,16 @@ export default function InvocationsListPage(): JSX.Element {
 
   const fetchData = useCallback(async (currentPage: number, filters: Record<string, string>) => {
     setLoading(true);
+    // U17: action accepts a full UUID; only forward the runId filter when it's
+    // a valid 36-char UUID. Partial/prefix input is ignored silently (the
+    // placeholder tells the user to paste a full UUID).
+    const rawRunId = (filters.runId ?? '').trim();
+    const runId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rawRunId) ? rawRunId : undefined;
     const result = await listInvocationsAction({
       filterTestContent: filters.filterTestContent === 'true',
       successFilter: (filters.successFilter as 'all' | 'success' | 'failed') || undefined,
       agentName: filters.agentName || undefined,
+      runId,
       limit: PAGE_SIZE,
       offset: (currentPage - 1) * PAGE_SIZE,
     });

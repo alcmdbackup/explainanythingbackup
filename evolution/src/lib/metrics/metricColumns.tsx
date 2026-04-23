@@ -35,6 +35,10 @@ export function createMetricColumns<T>(
   return getEntityListViewMetrics(entityType as import('../core/types').EntityType).map(def => ({
     key: `metric_${def.name}`,
     header: def.label,
+    // U23 (use_playwright_find_bugs_ux_issues_20260422): surface metric description
+    // on column-header hover so users know what Generation/Ranking/Seed cost
+    // represent and whether "Spent" already includes them.
+    headerTitle: def.description,
     align: 'right' as const,
     sortable: false,
     render: (item: T) => {
@@ -54,6 +58,7 @@ export function createRunsMetricColumns<T extends BaseRun>(): RunsColumnDef<T>[]
   return getEntityListViewMetrics('run').map(def => ({
     key: `metric_${def.name}`,
     header: def.label,
+    headerTitle: def.description, // U23
     align: 'right' as const,
     render: (item: T) => {
       const m = findMetric(item, def.name);

@@ -29,15 +29,11 @@ const identityColumns: ColumnDef<TacticListRow>[] = [
   },
   { key: 'label', header: 'Label', render: (row) => row.label },
   { key: 'category', header: 'Category', render: (row) => row.category ?? '—' },
-  {
-    key: 'is_predefined',
-    header: 'Type',
-    render: (row) => (
-      <span className={`text-xs px-1.5 py-0.5 rounded ${row.is_predefined ? 'bg-blue-900/30 text-blue-300' : 'bg-green-900/30 text-green-300'}`}>
-        {row.is_predefined ? 'System' : 'Custom'}
-      </span>
-    ),
-  },
+  // U28 (use_playwright_find_bugs_ux_issues_20260422): the "Type" and "Agent Type"
+  // columns were dropped from this list. "Type" carried no information (every
+  // tactic is_predefined=true → "System") and "Agent Type" was a constant
+  // (`generate_from_previous_article`). Restore Type if user-defined tactics ever
+  // land; the agent-type filter remains in the toolbar.
   { key: 'status', header: 'Status', render: (row) => row.status },
 ];
 

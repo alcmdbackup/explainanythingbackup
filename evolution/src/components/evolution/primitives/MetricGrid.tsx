@@ -10,6 +10,10 @@ export interface MetricItem {
   ci?: [number, number];
   n?: number;
   prefix?: string;
+  /** U27 (use_playwright_find_bugs_ux_issues_20260422): when provided, renders the
+   *  CI bracket using this formatter instead of .toFixed(2). Used for Elo-scale
+   *  metrics so the bounds render as integers matching the center value. */
+  ciFormatter?: (v: number) => string;
 }
 
 export interface MetricGridProps {
@@ -72,7 +76,8 @@ export function MetricGrid({
               : metric.value}
             {metric.ci && metric.ci[0] != null && metric.ci[1] != null && (
               <span className="text-xs text-[var(--text-muted)] ml-1">
-                [{metric.ci[0].toFixed(2)}, {metric.ci[1].toFixed(2)}]
+                [{metric.ciFormatter ? metric.ciFormatter(metric.ci[0]) : metric.ci[0].toFixed(2)}
+                , {metric.ciFormatter ? metric.ciFormatter(metric.ci[1]) : metric.ci[1].toFixed(2)}]
                 {metric.n === 2 && (
                   <span className="text-[var(--status-warning)] ml-0.5" title="Low sample size (n=2)">*</span>
                 )}

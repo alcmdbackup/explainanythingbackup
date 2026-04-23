@@ -91,6 +91,12 @@ const COLUMNS: ColumnDef<VariantListEntry>[] = [
   {
     key: 'parent_variant_id',
     header: 'Parent · Δ',
+    // B5 (use_playwright_find_bugs_ux_issues_20260422): VariantParentBadge
+    // renders its own <Link> to the parent variant. Without skipLink the
+    // EntityListPage row-level Link wraps it, producing nested <a> tags
+    // and a React hydration error. skipLink lets the cell escape the
+    // outer row-link wrapper.
+    skipLink: true,
     render: (v) => {
       if (!v.parent_variant_id) {
         return (

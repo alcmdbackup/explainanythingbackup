@@ -4,6 +4,7 @@
 
 import { adminAction, type AdminContext } from './adminAction';
 import { validateUuid, applyNonTestStrategyFilter } from './shared';
+import { getRunCostsWithFallback } from '@evolution/lib/cost/getRunCostWithFallback';
 import { EvolutionRunSummarySchema } from '@evolution/lib/types';
 import { dbToRating } from '@evolution/lib/shared/computeRatings';
 
@@ -113,29 +114,18 @@ export const getEvolutionDashboardDataAction = adminAction(
 
     // Total cost from evolution_metrics, with fallback to evolution_run_costs view.
     // Returns null on query failure to distinguish errors from genuinely $0.00.
+    // B1 fix (use_playwright_find_bugs_ux_issues_20260422): the previous
+    // inline two-step chain silently returned $0 when filteredRunIds grew
+    // past PostgREST's URL length limit. getRunCostsWithFallback chunks
+    // the id list into batches of 100 and goes cost → gen+rank+seed →
+    // evolution_run_costs view → 0 with warn.
     let totalCostUsd: number | null = 0;
     let perRunCosts: number[] = []; // Phase 4d: per-run sample for SE computation
     if (filteredRunIds.length > 0) {
       try {
-        const { data: costMetrics } = await supabase
-          .from('evolution_metrics')
-          .select('value')
-          .eq('entity_type', 'run')
-          .eq('metric_name', 'cost')
-          .in('entity_id', filteredRunIds);
-        perRunCosts = (costMetrics ?? []).map((m) => Number(m.value) || 0);
+        const costMap = await getRunCostsWithFallback(filteredRunIds, supabase);
+        perRunCosts = filteredRunIds.map((id) => costMap.get(id) ?? 0);
         totalCostUsd = perRunCosts.reduce((sum, v) => sum + v, 0);
-
-        // Fallback: if metrics-based cost is $0, use evolution_run_costs view
-        // which aggregates directly from evolution_agent_invocations.cost_usd
-        if (totalCostUsd === 0) {
-          const { data: viewCosts } = await supabase
-            .from('evolution_run_costs')
-            .select('total_cost_usd')
-            .in('run_id', filteredRunIds);
-          perRunCosts = (viewCosts ?? []).map((c) => Number(c.total_cost_usd) || 0);
-          totalCostUsd = perRunCosts.reduce((sum, v) => sum + v, 0);
-        }
       } catch (err) {
         console.error('[Dashboard] Cost aggregation failed:', err);
         totalCostUsd = null;

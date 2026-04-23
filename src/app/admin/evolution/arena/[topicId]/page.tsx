@@ -287,7 +287,9 @@ export default function ArenaTopicDetailPage(): JSX.Element {
                   <th {...sortableThProps('agent_name')}>Tactic{sortIndicator('agent_name')}</th>
                   <th {...sortableThProps('generation_method')}>Method{sortIndicator('generation_method')}</th>
                   <th className="py-2 pr-3">Parent</th>
-                  <th {...sortableThProps('cost_usd')}>Cost{sortIndicator('cost_usd')}</th>
+                  {/* U33 (use_playwright_find_bugs_ux_issues_20260422): Cost column dropped.
+                      Cost data is tracked at the invocation level, not per variant,
+                      so this column rendered `N/A` for every row. */}
                 </tr>
               </thead>
               <tbody>
@@ -348,12 +350,7 @@ export default function ArenaTopicDetailPage(): JSX.Element {
                       <td className="py-2 pr-3">
                         <ParentBadgeCell entry={entry} />
                       </td>
-                      <td className="py-2 font-mono">
-                        {entry.cost_usd != null
-                          ? `$${entry.cost_usd.toFixed(2)}`
-                          : <span className="text-[var(--text-muted)]" title="Cost data is tracked at the invocation level, not per variant">N/A</span>
-                        }
-                      </td>
+                      {/* U33 (use_playwright_find_bugs_ux_issues_20260422): Cost cell dropped. */}
                     </tr>
                   );
                 })}

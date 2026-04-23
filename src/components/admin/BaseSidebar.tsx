@@ -54,7 +54,10 @@ export function BaseSidebar({ title, navItems, backLink, activeOverrides }: Base
           }
         `}
       >
-        <span className="text-base">{item.icon}</span>
+        {/* U21 (use_playwright_find_bugs_ux_issues_20260422): aria-hidden on the
+            decorative emoji so screen readers don't read out "bar chart Dashboard"
+            etc. The label already conveys the destination. */}
+        <span className="text-base" aria-hidden="true">{item.icon}</span>
         <span>{item.label}</span>
       </Link>
     </li>

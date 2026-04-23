@@ -27,7 +27,7 @@ import {
   aggregateBootstrapMean,
 } from './computations/propagation';
 import {
-  formatCost, formatCostDetailed, formatElo, formatScore, formatPercent,
+  formatCost, formatCostDetailed, formatElo, formatScore, formatPercent, formatPercentValue,
 } from '@evolution/lib/utils/formatters';
 
 // ─── Shared propagation defs (strategy & experiment both aggregate from child runs) ─
@@ -81,11 +81,14 @@ const SHARED_PROPAGATION_DEFS: EntityMetricRegistry['atPropagation'] = [
   { name: 'avg_variant_count', label: 'Avg Variants/Run', category: 'count', formatter: 'integer',
     sourceMetric: 'variant_count', sourceEntity: 'run', aggregate: aggregateAvg, aggregationMethod: 'avg' },
   // Cost estimate accuracy — use aggregateAvg (user decision: bootstrap CI reserved for elo/quality).
-  { name: 'avg_cost_estimation_error_pct', label: 'Avg Estimation Error %', category: 'cost', formatter: 'percent', listView: true,
+  // B7 (use_playwright_find_bugs_ux_issues_20260422): these values are stored
+  // in percent units (e.g. -38.2) not as ratios (0-1), so we use 'percentValue'
+  // which just rounds and appends '%' instead of multiplying by 100 again.
+  { name: 'avg_cost_estimation_error_pct', label: 'Avg Estimation Error %', category: 'cost', formatter: 'percentValue', listView: true,
     sourceMetric: 'cost_estimation_error_pct', sourceEntity: 'run', aggregate: aggregateAvg, aggregationMethod: 'avg' },
-  { name: 'avg_generation_estimation_error_pct', label: 'Avg Generation Error %', category: 'cost', formatter: 'percent',
+  { name: 'avg_generation_estimation_error_pct', label: 'Avg Generation Error %', category: 'cost', formatter: 'percentValue',
     sourceMetric: 'generation_estimation_error_pct', sourceEntity: 'run', aggregate: aggregateAvg, aggregationMethod: 'avg' },
-  { name: 'avg_ranking_estimation_error_pct', label: 'Avg Ranking Error %', category: 'cost', formatter: 'percent',
+  { name: 'avg_ranking_estimation_error_pct', label: 'Avg Ranking Error %', category: 'cost', formatter: 'percentValue',
     sourceMetric: 'ranking_estimation_error_pct', sourceEntity: 'run', aggregate: aggregateAvg, aggregationMethod: 'avg' },
   { name: 'avg_estimation_abs_error_usd', label: 'Avg Abs Error', category: 'cost', formatter: 'costDetailed',
     sourceMetric: 'estimation_abs_error_usd', sourceEntity: 'run', aggregate: aggregateAvg, aggregationMethod: 'avg' },
@@ -111,8 +114,11 @@ const SHARED_PROPAGATION_DEFS: EntityMetricRegistry['atPropagation'] = [
 export const METRIC_REGISTRY: Record<EntityType, EntityMetricRegistry> = {
   run: {
     duringExecution: [
+      // listView:true (B2 use_playwright_find_bugs_ux_issues_20260422) so the runs
+      // list can prefer the rollup `cost` when it exists; RunsTable falls back to
+      // gen+rank+seed when it's missing.
       { name: 'cost', label: 'Total Cost', category: 'cost', formatter: 'cost',
-        listView: false, compute: computeRunCost },
+        listView: true, compute: computeRunCost },
       // Per-purpose cost split — written live by createLLMClient via writeMetricMax
       // (race-fixed Postgres GREATEST upsert). compute returns 0 because the value is
       // persisted directly via writeMetricMax; if anything ever triggers a registry-driven
@@ -139,16 +145,16 @@ export const METRIC_REGISTRY: Record<EntityType, EntityMetricRegistry> = {
         listView: true, compute: computeDecisiveRate },
       { name: 'variant_count', label: 'Variants', category: 'count', formatter: 'integer',
         listView: true, compute: computeVariantCount },
-      { name: 'cost_estimation_error_pct', label: 'Estimation Error %', category: 'cost', formatter: 'percent',
+      { name: 'cost_estimation_error_pct', label: 'Estimation Error %', category: 'cost', formatter: 'percentValue',
         listView: true, compute: computeCostEstimationErrorPct },
       // Cost estimate accuracy (cost_estimate_accuracy_analysis_20260414)
       { name: 'estimated_cost', label: 'Estimated Cost', category: 'cost', formatter: 'cost',
         compute: computeEstimatedCost },
       { name: 'estimation_abs_error_usd', label: 'Estimation Abs Error', category: 'cost', formatter: 'costDetailed',
         compute: computeEstimationAbsErrorUsd },
-      { name: 'generation_estimation_error_pct', label: 'Generation Estimation Error %', category: 'cost', formatter: 'percent',
+      { name: 'generation_estimation_error_pct', label: 'Generation Estimation Error %', category: 'cost', formatter: 'percentValue',
         compute: computeGenerationEstimationErrorPct },
-      { name: 'ranking_estimation_error_pct', label: 'Ranking Estimation Error %', category: 'cost', formatter: 'percent',
+      { name: 'ranking_estimation_error_pct', label: 'Ranking Estimation Error %', category: 'cost', formatter: 'percentValue',
         compute: computeRankingEstimationErrorPct },
       // Budget-floor observables (passed through FinalizationContext from runIterationLoop)
       { name: 'agent_cost_projected', label: 'Projected Agent Cost', category: 'cost', formatter: 'costDetailed',
@@ -288,5 +294,6 @@ export const FORMATTERS: Record<MetricDefBase['formatter'], (v: number) => strin
   elo: formatElo,
   score: formatScore,
   percent: formatPercent,
+  percentValue: formatPercentValue,
   integer: (v) => String(Math.round(v)),
 };

@@ -107,7 +107,7 @@ export interface MetricDefBase {
   name: MetricName;
   label: string;
   category: 'cost' | 'rating' | 'match' | 'count';
-  formatter: 'cost' | 'costDetailed' | 'elo' | 'score' | 'percent' | 'integer';
+  formatter: 'cost' | 'costDetailed' | 'elo' | 'score' | 'percent' | 'percentValue' | 'integer';
   description?: string;
   listView?: boolean;
 }

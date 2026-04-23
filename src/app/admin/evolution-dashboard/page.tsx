@@ -7,6 +7,7 @@ import Link from 'next/link';
 import {
   MetricGrid,
   AutoRefreshProvider,
+  RefreshIndicator,
   useAutoRefresh,
   RunsTable,
   getBaseColumns,
@@ -124,13 +125,10 @@ function DashboardContent(): JSX.Element {
         </div>
         <RunsTable runs={recentRuns} columns={getBaseColumns()} compact maxRows={10} testId="dashboard-runs-table" />
       </div>
-      <div className="flex gap-3 text-sm">
-        <Link href="/admin/evolution/tactics" className="text-[var(--accent-gold)] hover:underline">Tactics →</Link>
-        <Link href="/admin/evolution/strategies" className="text-[var(--accent-gold)] hover:underline">Strategies →</Link>
-        <Link href="/admin/evolution/experiments" className="text-[var(--accent-gold)] hover:underline">Experiments →</Link>
-        <Link href="/admin/evolution/prompts" className="text-[var(--accent-gold)] hover:underline">Prompts →</Link>
-        <Link href="/admin/evolution/arena" className="text-[var(--accent-gold)] hover:underline">Arena →</Link>
-      </div>
+      {/* U20 (use_playwright_find_bugs_ux_issues_20260422): the previous row of
+          Tactics → / Strategies → / Experiments → / Prompts → / Arena → quick-links
+          duplicated the sidebar with no extra info (no per-entity counts).
+          Dropped entirely; the sidebar already links to all of them. */}
     </div>
   );
 }
@@ -140,8 +138,14 @@ export default function EvolutionDashboardPage(): JSX.Element {
   return (
     <div className="space-y-6">
       <EvolutionBreadcrumb items={[{ label: 'Evolution Dashboard' }]} />
-      <h1 className="text-4xl font-display font-bold text-[var(--text-primary)]">Evolution Dashboard</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-4xl font-display font-bold text-[var(--text-primary)]">Evolution Dashboard</h1>
+      </div>
       <AutoRefreshProvider isActive intervalMs={15000}>
+        {/* U2 (use_playwright_find_bugs_ux_issues_20260422): RefreshIndicator
+            shows "Updated Xs ago" with a manual refresh button so users know
+            the auto-refresh is alive and when the data was last fetched. */}
+        <div className="flex justify-end -mt-3"><RefreshIndicator /></div>
         <DashboardContent />
       </AutoRefreshProvider>
     </div>

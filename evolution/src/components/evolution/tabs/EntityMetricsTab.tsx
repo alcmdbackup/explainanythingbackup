@@ -59,6 +59,10 @@ function toMetricItem(row: MetricRow, entityType: EntityType): MetricItem & { ca
     label: resolveLabel(row.metric_name, entityType),
     value: formatter(row.value),
     ci: row.ci_lower != null && row.ci_upper != null ? [row.ci_lower, row.ci_upper] : undefined,
+    // U27 (use_playwright_find_bugs_ux_issues_20260422): use the same formatter
+    // for CI bounds as for the center value, so an Elo-scale metric like
+    // "1384 [1204.56, 1563.36]" renders as "1384 [1205, 1563]".
+    ciFormatter: formatter,
     n: row.n,
     category: resolveCategory(row.metric_name, entityType),
     aggregation: row.aggregation_method ?? undefined,

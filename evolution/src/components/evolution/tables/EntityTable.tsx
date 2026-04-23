@@ -9,6 +9,11 @@ import { EmptyState } from '../primitives/EmptyState';
 export interface ColumnDef<T> {
   key: string;
   header: string;
+  /** U23 (use_playwright_find_bugs_ux_issues_20260422): hover-tooltip on the
+   *  column header. Used to surface metric descriptions ("LLM spend on
+   *  generation calls in this run") so users know whether Spent already
+   *  includes Generation/Ranking/Seed. */
+  headerTitle?: string;
   align?: 'left' | 'right' | 'center';
   sortable?: boolean;
   /** When true, cell renders without the row's Link wrapper (e.g. for action buttons). */
@@ -72,6 +77,7 @@ export function EntityTable<T>({
                   col.sortable ? 'cursor-pointer select-none hover:text-[var(--text-secondary)]' : ''
                 }`}
                 onClick={col.sortable && onSort ? () => onSort(col.key) : undefined}
+                title={col.headerTitle}
               >
                 <span>{col.header}</span>
                 {col.sortable && <SortIndicator active={sortKey === col.key} dir={sortDir} />}

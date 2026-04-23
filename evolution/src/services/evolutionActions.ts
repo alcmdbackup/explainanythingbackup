@@ -12,6 +12,7 @@ import { EvolutionRunSummarySchema } from '@evolution/lib/types';
 import { getMetricsForEntities } from '@evolution/lib/metrics/readMetrics';
 import { getListViewMetrics } from '@evolution/lib/metrics/registry';
 import type { MetricRow } from '@evolution/lib/metrics/types';
+import { dbToRating } from '@evolution/lib/shared/computeRatings';
 import { _INTERNAL_ELO_SIGMA_SCALE } from '@evolution/lib/shared/computeRatings';
 import { z } from 'zod';
 
@@ -789,9 +790,21 @@ export const listVariantsAction = adminAction(
       for (const item of items) {
         const parent = item.parent_variant_id ? parentMap.get(item.parent_variant_id) : null;
         if (parent) {
-          // Prefer mu (application-layer ELO) over the legacy elo_score column.
-          item.parent_elo = parent.mu ?? parent.elo ?? null;
-          item.parent_uncertainty = parent.sigma ?? null;
+          // B6 (use_playwright_find_bugs_ux_issues_20260422): convert raw OpenSkill
+          // mu/sigma to the public Elo-scale Rating via dbToRating(). Previously this
+          // assigned `parent.mu` directly to parent_elo (~25 OpenSkill instead of
+          // ~1200 Elo), which broke the Δ delta math on the Variants page. The arena
+          // page works because it uses the pre-computed `elo_score` column directly,
+          // and `elo_score` is maintained in lock-step with mu via dbToRating at
+          // write time, so both paths now produce equivalent results.
+          if (parent.mu != null && parent.sigma != null) {
+            const rating = dbToRating(parent.mu, parent.sigma);
+            item.parent_elo = rating.elo;
+            item.parent_uncertainty = rating.uncertainty;
+          } else {
+            item.parent_elo = parent.elo ?? null;
+            item.parent_uncertainty = null;
+          }
           item.parent_run_id = parent.run_id;
         }
       }
