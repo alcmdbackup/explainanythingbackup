@@ -62,7 +62,10 @@ export default function EvolutionRunsPage(): JSX.Element {
   ];
 
   useEffect(() => {
-    listStrategiesAction({ limit: 200, offset: 0 }).then(res => {
+    // filterTestContent: true mirrors the runs-list "Hide test content" default —
+    // dropdown options should not show [TEST]/[TEST_EVO]/e2e-* strategies that
+    // the rows themselves are filtering out (B3 root cause #1).
+    listStrategiesAction({ limit: 200, offset: 0, filterTestContent: true }).then(res => {
       if (res.success && res.data) {
         setStrategyOptions(res.data.items.map(s => ({ value: s.id, label: s.name })));
       }

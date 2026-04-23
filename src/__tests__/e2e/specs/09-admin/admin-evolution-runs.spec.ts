@@ -165,4 +165,27 @@ adminTest.describe('Evolution Runs (T4, T7, T8, T10)', { tag: '@evolution' }, ()
     const strategySelect = adminPage.locator('select').filter({ hasText: 'All strategies' });
     await expect(strategySelect).toBeVisible({ timeout: 15000 });
   });
+
+  // Phase 1 (use_playwright_find_bugs_ux_issues_20260422 — B3 first cause)
+  adminTest('Strategy filter dropdown excludes [TEST]/[TEST_EVO]/e2e-* options when "Hide test content" is checked', async ({ adminPage }) => {
+    await adminPage.goto(`/admin/evolution/runs`, { timeout: 30000 });
+    await adminPage.waitForLoadState('domcontentloaded');
+
+    // Wait for strategies to load (the listStrategiesAction call settles a tick after mount).
+    const strategySelect = adminPage.locator('select').filter({ hasText: 'All strategies' });
+    await expect(strategySelect).toBeVisible({ timeout: 15000 });
+
+    // Hide test content is checked-by-default (defaultChecked: true on the page).
+    // Read all option texts and assert none of the test-named patterns appear.
+    const optionTexts = await strategySelect.locator('option').allTextContents();
+    expect(optionTexts.length).toBeGreaterThan(0); // sanity: at least "All strategies"
+    for (const text of optionTexts) {
+      // Test-content patterns from evolution_is_test_name(text) — same predicate
+      // the BEFORE trigger uses on evolution_strategies.is_test_content.
+      expect(text).not.toMatch(/\[TEST\]/);
+      expect(text).not.toMatch(/\[E2E\]/);
+      expect(text).not.toMatch(/\[TEST_EVO\]/);
+      expect(text).not.toMatch(/-\d{10,13}-/); // timestamp pattern (e2e-*)
+    }
+  });
 });

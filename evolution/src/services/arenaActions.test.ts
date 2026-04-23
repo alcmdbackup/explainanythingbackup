@@ -515,13 +515,12 @@ describe('arenaActions', () => {
       const result = await listPromptsAction({ limit: 20, offset: 0, filterTestContent: true });
 
       expect(result.success).toBe(true);
-      expect(chain.not).toHaveBeenCalledWith('name', 'ilike', '%[TEST]%');
-      expect(chain.not).toHaveBeenCalledWith('name', 'ilike', '%[E2E]%');
-      expect(chain.not).toHaveBeenCalledWith('name', 'ilike', '%[TEST_EVO]%');
-      expect(chain.not).toHaveBeenCalledWith('name', 'ilike', 'test');
+      // Phase 1 (use_playwright_find_bugs_ux_issues_20260422): switched to
+      // applyTestContentColumnFilter (.eq('is_test_content', false)).
+      expect(chain.eq).toHaveBeenCalledWith('is_test_content', false);
     });
 
-    it('does not call .not() when filterTestContent is false', async () => {
+    it('does not call the column filter when filterTestContent is false', async () => {
       const chain = {
         select: jest.fn().mockReturnThis(),
         is: jest.fn().mockReturnThis(),
@@ -535,7 +534,7 @@ describe('arenaActions', () => {
       const result = await listPromptsAction({ limit: 20, offset: 0, filterTestContent: false });
 
       expect(result.success).toBe(true);
-      expect(chain.not).not.toHaveBeenCalled();
+      expect(chain.eq).not.toHaveBeenCalledWith('is_test_content', expect.anything());
     });
   });
 

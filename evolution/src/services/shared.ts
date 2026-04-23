@@ -96,8 +96,35 @@ export function applyNonTestStrategyFilter(query: any): any {
 }
 
 /**
- * Exclude rows where name matches test patterns.
- * For use on tables with a 'name' column (strategies, experiments, arena).
+ * Exclude rows where the persisted `is_test_content` boolean column is true.
+ * For tables that have the column (set to true by a BEFORE trigger calling
+ * `evolution_is_test_name(name)`):
+ *   - `evolution_strategies` (since migration 20260415000001)
+ *   - `evolution_prompts` (since migration 20260423000001)
+ *   - `evolution_experiments` (since migration 20260423000001)
+ *
+ * Equivalent to `applyTestContentNameFilter` but uses the persisted boolean
+ * (catches the timestamp-pattern names like `e2e-nav-1775877428914-strategy`
+ * that the substring-only filter missed) and is cheap because the partial
+ * indexes `idx_*_non_test` cover this exact predicate.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Supabase query builder types are too deeply nested
+export function applyTestContentColumnFilter(query: any): any {
+  return query.eq('is_test_content', false);
+}
+
+/**
+ * Exclude rows where name matches test patterns via substring matches.
+ *
+ * @deprecated Prefer `applyTestContentColumnFilter` for tables that have the
+ * `is_test_content` column. This substring-only filter MISSES the
+ * timestamp-pattern test names (`<word>-<10-13 digits>-<word>`) — that
+ * pattern is part of `evolution_is_test_name()` (the canonical predicate)
+ * but was never represented in this filter, which is why test rows like
+ * `e2e-nav-1775877428914-strategy` leaked through.
+ *
+ * Kept around for any caller that targets a table without the column. New
+ * code should add the column + trigger and use `applyTestContentColumnFilter`.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Supabase query builder types are too deeply nested
 export function applyTestContentNameFilter(query: any): any {

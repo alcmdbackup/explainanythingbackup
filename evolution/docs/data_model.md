@@ -38,7 +38,7 @@ Stores strategy configurations with aggregated performance metrics. Strategies a
 
 > **Note:** `avg_final_elo` uses Welford's online algorithm via the `update_strategy_aggregates` RPC. The `stddev_final_elo` and `avg_elo_per_dollar` columns are reserved for future use.
 
-> **Test-content filter:** the `evolution_is_test_name(text)` IMMUTABLE Postgres function matches exact lowercase `test`, bracketed `[TEST]`/`[E2E]`/`[TEST_EVO]` substrings, and the timestamp pattern `^.*-\d{10,13}-.*$`. It's called by a BEFORE INSERT/UPDATE-of-name trigger on `evolution_strategies` that sets `is_test_content` via direct NEW mutation (no self-UPDATE, no recursion). The TS helper `isTestContentName` in `evolution/src/services/shared.ts` echoes this logic and is locked to the same fixture table via integration test for anti-drift protection. Admin UI filters via PostgREST embedded `!inner` join: `.select('..., evolution_strategies!inner(is_test_content)').eq('evolution_strategies.is_test_content', false)`.
+> **Test-content filter:** the `evolution_is_test_name(text)` IMMUTABLE Postgres function matches exact lowercase `test`, bracketed `[TEST]`/`[E2E]`/`[TEST_EVO]` substrings, and the timestamp pattern `^.*-\d{10,13}-.*$`. It's called by a BEFORE INSERT/UPDATE-of-name trigger on `evolution_strategies` (since 20260415000001) and on `evolution_prompts` + `evolution_experiments` (since 20260423000001) that sets `is_test_content` via direct NEW mutation (no self-UPDATE, no recursion). The TS helper `isTestContentName` in `evolution/src/services/shared.ts` echoes this logic and is locked to the same fixture table via integration test for anti-drift protection. Admin UI filters via `applyTestContentColumnFilter` (`.eq('is_test_content', false)`) on tables that have the column directly, or via PostgREST embedded `!inner` join (`applyNonTestStrategyFilter`) on tables that join through `evolution_strategies` (e.g. `evolution_runs`).
 
 ### `evolution_prompts`
 
@@ -52,6 +52,7 @@ Prompt registry for evolution runs and arena topics. Renamed from `evolution_are
 | `status` | TEXT | NOT NULL, CHECK `('active','archived')` | |
 | `deleted_at` | TIMESTAMPTZ | | Soft delete timestamp |
 | `archived_at` | TIMESTAMPTZ | | |
+| `is_test_content` | BOOLEAN | NOT NULL, default `false` | Set by a BEFORE INSERT/UPDATE-OF-name trigger calling `evolution_is_test_name(name)`. Migration `20260423000001`. Backed by partial index `idx_evolution_prompts_non_test`. Used by `applyTestContentColumnFilter` for the prompts list and arena topics list. |
 | `created_at` | TIMESTAMPTZ | NOT NULL | |
 
 ### `evolution_experiments`
@@ -66,6 +67,7 @@ Groups multiple runs under a named experiment for batch execution.
 | `status` | TEXT | NOT NULL, CHECK `('draft','running','completed','cancelled','archived')` | |
 | `config` | JSONB | | Optional experiment-level config |
 | `evolution_explanation_id` | UUID | NOT NULL, FK -> `evolution_explanations(id)` | Seed article identity |
+| `is_test_content` | BOOLEAN | NOT NULL, default `false` | Set by a BEFORE INSERT/UPDATE-OF-name trigger calling `evolution_is_test_name(name)`. Migration `20260423000001`. Backed by partial index `idx_evolution_experiments_non_test`. Used by `applyTestContentColumnFilter` for the experiments list. |
 | `created_at` | TIMESTAMPTZ | NOT NULL | |
 | `updated_at` | TIMESTAMPTZ | NOT NULL | |
 
@@ -543,6 +545,8 @@ This means database rows written by older pipeline versions are transparently up
 | `20260321000002_consolidate_arena_entries.sql` | 2026-03-21 | Consolidated `evolution_arena_entries` into `evolution_variants` (added arena columns, migrated data, dropped `evolution_arena_entries`) |
 | `20260322000001_fresh_schema_docs.sql` | 2026-03-22 | Fresh schema documentation migration |
 | `20260322000002_prod_convergence.sql` | 2026-03-22 | Prod convergence migration |
+| `20260415000001_evolution_is_test_content.sql` | 2026-04-15 | `evolution_strategies.is_test_content` column + `evolution_is_test_name(text)` function + BEFORE INSERT/UPDATE-OF-name trigger + partial index |
+| `20260423000001_add_is_test_content_to_prompts_experiments.sql` | 2026-04-23 | Same `is_test_content` column + trigger + partial index pattern extended to `evolution_prompts` and `evolution_experiments`. Closes B17 (test rows leaked into prompts list, arena topics list, and start-experiment wizard pickers because `applyTestContentNameFilter` was substring-only and missed the timestamp regex). |
 
 The V2 clean-slate migration (20260315) intentionally dropped all V1 tables, views, and functions. There is no backward migration path to V1.
 

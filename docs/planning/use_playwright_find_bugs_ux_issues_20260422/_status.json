@@ -1,7 +1,10 @@
 {
   "branch": "feat/use_playwright_find_bugs_ux_issues_20260422",
   "created_at": "2026-04-22T00:00:00Z",
-  "prerequisites": {},
+  "prerequisites": {
+    "testing_overview_read": "2026-04-23T05:26:00Z",
+    "testing_setup_read": "2026-04-23T05:26:00Z"
+  },
   "relevantDocs": [
     "evolution/docs/README.md",
     "evolution/docs/agents/overview.md",
