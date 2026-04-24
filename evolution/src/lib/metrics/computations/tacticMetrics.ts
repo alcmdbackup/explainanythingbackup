@@ -41,15 +41,29 @@ export async function computeTacticMetrics(
 
   if (error || !variants || variants.length === 0) return;
 
-  // Filter to completed runs only — query run statuses in bulk
+  // Filter to completed runs only — query run statuses in bulk.
+  // B044: previously hard-capped at the first 100 run IDs via `.slice(0, 100)`, silently
+  // dropping variants from tactics active in more than 100 distinct runs. Now chunks
+  // properly so large tactics get full coverage.
   const runIds = [...new Set(variants.map((v) => v.run_id as string))];
-  const { data: runs } = await db
-    .from('evolution_runs')
-    .select('id, status')
-    .in('id', runIds.slice(0, 100)); // Chunk to avoid PostgREST .in() limits
-
-  if (!runs) return;
-  const completedRunIds = new Set(runs.filter((r) => r.status === 'completed').map((r) => r.id));
+  const completedRunIds = new Set<string>();
+  const RUN_ID_CHUNK = 100;
+  for (let i = 0; i < runIds.length; i += RUN_ID_CHUNK) {
+    const chunk = runIds.slice(i, i + RUN_ID_CHUNK);
+    const { data: runs, error: runsErr } = await db
+      .from('evolution_runs')
+      .select('id, status')
+      .in('id', chunk);
+    if (runsErr) {
+      // Log and continue — earlier chunks remain valid.
+      // eslint-disable-next-line no-console
+      console.warn(`[computeTacticMetrics] partial run-status fetch failed at chunk ${i}`, runsErr.message);
+      continue;
+    }
+    for (const r of runs ?? []) {
+      if (r.status === 'completed') completedRunIds.add(r.id as string);
+    }
+  }
   const completedVariants = variants.filter((v) => completedRunIds.has(v.run_id));
 
   if (completedVariants.length === 0) return;
@@ -70,7 +84,34 @@ export async function computeTacticMetrics(
   const winRateResult = bootstrapMeanCI(winValues);
 
   const bestElo = Math.max(...ratings.map((r) => r.elo));
-  const totalCost = completedVariants.reduce((s, v) => s + (v.cost_usd ?? 0), 0);
+  // B053: switch tactic-cost rollup authority to evolution_agent_invocations.cost_usd
+  // (authoritative per-purpose cost since Phase 6). Filter `variant_surfaced IS NOT FALSE`
+  // (B048) so discarded generate-agent invocations don't inflate the tactic total.
+  // Variant.cost_usd is still read as a transition-period fallback when the invocation
+  // lookup returns null; the follow-up cleanup PR (tracked by GitHub issue filed at
+  // B053 merge) removes the dual-write once all pre-merge runs have finalized.
+  let totalCost = 0;
+  {
+    const runIdsCompleted = [...completedRunIds];
+    for (let i = 0; i < runIdsCompleted.length; i += 100) {
+      const chunk = runIdsCompleted.slice(i, i + 100);
+      const { data: invCosts } = await db
+        .from('evolution_agent_invocations')
+        .select('cost_usd')
+        .in('run_id', chunk)
+        .eq('agent_name', tacticName)
+        .not('variant_surfaced', 'is', false as unknown as null);
+      for (const inv of invCosts ?? []) {
+        totalCost += Number(inv.cost_usd ?? 0);
+      }
+    }
+    // Transition fallback: if the invocation-side sum is 0 (e.g., historic run with no
+    // invocation cost data), fall back to summing variant cost_usd so the metric isn't
+    // an unexpected zero during the dual-write window.
+    if (totalCost === 0) {
+      totalCost = completedVariants.reduce((s, v) => s + (v.cost_usd ?? 0), 0);
+    }
+  }
   const winnerCount = completedVariants.filter((v) => v.is_winner).length;
 
   const rows: TacticMetricRow[] = [

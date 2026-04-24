@@ -8,9 +8,17 @@ import { TEST_CONTENT_PREFIX } from '../helpers/test-data-factory';
 
 /**
  * Discovers the frontend URL from Claude Code instance files.
- * Mirrors the logic in playwright.config.ts to ensure consistency.
+ *
+ * B109: prefer `process.env.E2E_BASE_URL` when set — playwright.config.ts now persists
+ * its one-time discovery into that env var so global-setup can reuse it. This avoids a
+ * second discovery pass in a separate Node process (which could race ensure-server.sh
+ * and fall back to a stale URL). If the env var is missing, fall back to the local
+ * discovery logic for backwards compat with configs that don't yet export E2E_BASE_URL.
  */
 function discoverInstanceURL(): string | null {
+  // B109: primary source — one-time discovery from playwright.config.ts.
+  if (process.env.E2E_BASE_URL) return process.env.E2E_BASE_URL;
+
   try {
     const instanceFiles = readdirSync('/tmp').filter(f => f.startsWith('claude-instance-'));
     if (instanceFiles.length === 0) return null;

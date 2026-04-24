@@ -257,7 +257,7 @@ describe('metricsActions', () => {
         [VALID_UUID, [MOCK_METRIC]],
         [VALID_UUID_2, [{ ...MOCK_METRIC, entity_id: VALID_UUID_2 }]],
       ]);
-      (getMetricsForEntities as jest.Mock).mockResolvedValue(metricsMap);
+      (getMetricsForEntities as jest.Mock).mockResolvedValue({ data: metricsMap, errors: [] });
 
       const result = await getBatchMetricsAction(
         'run',
@@ -273,7 +273,7 @@ describe('metricsActions', () => {
     });
 
     it('calls requireAdmin', async () => {
-      (getMetricsForEntities as jest.Mock).mockResolvedValue(new Map());
+      (getMetricsForEntities as jest.Mock).mockResolvedValue({ data: new Map(), errors: [] });
 
       await getBatchMetricsAction('run', [VALID_UUID], ['cost']);
 
@@ -304,7 +304,7 @@ describe('metricsActions', () => {
     });
 
     it('passes correct arguments to getMetricsForEntities', async () => {
-      (getMetricsForEntities as jest.Mock).mockResolvedValue(new Map());
+      (getMetricsForEntities as jest.Mock).mockResolvedValue({ data: new Map(), errors: [] });
 
       await getBatchMetricsAction('strategy', [VALID_UUID, VALID_UUID_2], ['cost', 'run_count']);
 
@@ -317,7 +317,7 @@ describe('metricsActions', () => {
       const metricsMap = new Map([
         [VALID_UUID, [MOCK_METRIC]],
       ]);
-      (getMetricsForEntities as jest.Mock).mockResolvedValue(metricsMap);
+      (getMetricsForEntities as jest.Mock).mockResolvedValue({ data: metricsMap, errors: [] });
 
       const result = await getBatchMetricsAction('run', [VALID_UUID], ['cost']);
 
@@ -347,7 +347,7 @@ describe('metricsActions', () => {
       const metricsMap = new Map([
         [VALID_UUID, [MOCK_METRIC, { ...MOCK_METRIC, metric_name: 'winner_elo', value: 1500 }]],
       ]);
-      (getMetricsForEntities as jest.Mock).mockResolvedValue(metricsMap);
+      (getMetricsForEntities as jest.Mock).mockResolvedValue({ data: metricsMap, errors: [] });
 
       const result = await getBatchMetricsAction('run', [VALID_UUID], ['cost', 'winner_elo']);
 
@@ -356,7 +356,7 @@ describe('metricsActions', () => {
     });
 
     it('handles all valid entity types', async () => {
-      (getMetricsForEntities as jest.Mock).mockResolvedValue(new Map());
+      (getMetricsForEntities as jest.Mock).mockResolvedValue({ data: new Map(), errors: [] });
 
       for (const entityType of ['run', 'invocation', 'variant', 'strategy', 'experiment', 'prompt']) {
         const result = await getBatchMetricsAction(entityType, [VALID_UUID], ['cost']);

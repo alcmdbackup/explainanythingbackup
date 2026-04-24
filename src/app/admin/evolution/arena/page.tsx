@@ -50,7 +50,14 @@ export default function ArenaListPage(): JSX.Element {
   useEffect(() => { document.title = 'Arena | Evolution'; }, []);
   const [topics, setTopics] = useState<ArenaTopic[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filterValues, setFilterValues] = useState<Record<string, string>>({ status: '', filterTestContent: 'true' });
+  // B098: initialize `hideEmpty` so the "Hide empty topics" checkbox actually filters.
+  // Previously the state lacked this key and the filter read `filterValues.hideEmpty`
+  // as `undefined`, so toggling the checkbox never had any effect.
+  const [filterValues, setFilterValues] = useState<Record<string, string>>({
+    status: '',
+    filterTestContent: 'true',
+    hideEmpty: 'false',
+  });
 
   const fetchTopics = useCallback(async () => {
     setLoading(true);

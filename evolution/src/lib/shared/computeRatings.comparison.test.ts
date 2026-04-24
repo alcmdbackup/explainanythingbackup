@@ -272,14 +272,17 @@ describe('compareWithBiasMitigation', () => {
       expect(callLLM).toHaveBeenCalledTimes(4); // 2 new LLM calls
     });
 
-    it('does NOT cache partial failures', async () => {
+    it('B040: caches partial failures (avoids re-billing the same ambiguous pair)', async () => {
       const cache = new Map<string, ComparisonResult>();
       const callLLM = mockCallLLM(['A', 'gibberish']);
       await compareWithBiasMitigation('text1', 'text2', callLLM, cache);
-      expect(cache.size).toBe(0);
+      expect(cache.size).toBe(1);
     });
 
-    it('does NOT cache total failures', async () => {
+    it('B033: does NOT cache zero-confidence total failures (confidence < 0.3)', async () => {
+      // B033 widened the cache gate to `>= 0.3` (was `> 0.3`), but total failures
+      // still come back at confidence=0 and stay out of the cache so the next
+      // call can retry (temporary provider failure, etc.).
       const cache = new Map<string, ComparisonResult>();
       const callLLM = mockCallLLM(['neither', 'unknown']);
       await compareWithBiasMitigation('text1', 'text2', callLLM, cache);

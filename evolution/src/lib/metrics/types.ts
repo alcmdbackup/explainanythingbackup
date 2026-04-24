@@ -87,6 +87,20 @@ export const DYNAMIC_METRIC_PREFIXES = [
   'eloAttrDeltaHist:',
 ] as const;
 
+/**
+ * B041: true when the metric name is one of the dynamic-prefix families above. The
+ * stale-cascade (`Entity.markParentMetricsStale`) consults this in addition to the
+ * static propagation defs so dynamic-prefix rows (`eloAttrDelta:*`, `agentCost:*`,
+ * `eloAttrDeltaHist:*`) get marked stale on variant rating drift.
+ *
+ * Keep the helper co-located with the prefix array so adding a new dynamic family is a
+ * 1-line addition that automatically extends both writeMetrics validation AND the
+ * stale-cascade.
+ */
+export function isDynamicMetricName(name: string): boolean {
+  return DYNAMIC_METRIC_PREFIXES.some((p) => name.startsWith(p));
+}
+
 // ─── Metric Definition Types ────────────────────────────────────
 
 export interface MetricDefBase {

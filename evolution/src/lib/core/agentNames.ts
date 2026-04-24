@@ -10,7 +10,15 @@ import type { MetricName } from '../metrics/types';
 export const AGENT_NAMES = ['generation', 'ranking', 'seed_title', 'seed_article', 'evolution'] as const;
 export type AgentName = typeof AGENT_NAMES[number];
 
-/** Maps each agent label to its run-level per-purpose cost metric. */
+/**
+ * Maps each agent label to its run-level per-purpose cost metric.
+ *
+ * B027: `seed_title` and `seed_article` both map to `seed_cost` by design — the run-level
+ * metric reports total seed cost as a single number. The calibration-table layer
+ * (`evolution/scripts/refreshCostCalibration.ts` and `costCalibrationLoader.ts`) DOES
+ * keep phase distinction — the calibration key includes the phase name so `seed_title`
+ * and `seed_article` have separate calibration rows. No conflation at the estimation layer.
+ */
 export const COST_METRIC_BY_AGENT: Partial<Record<AgentName, MetricName>> = {
   generation: 'generation_cost',
   ranking: 'ranking_cost',

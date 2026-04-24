@@ -42,14 +42,16 @@ describe('trackBudget property tests', () => {
     );
   });
 
-  it('reserve returns exactly cost * 1.3', () => {
+  it('reserve returns cost * 1.3 quantized to 4 decimals (B020)', () => {
+    // B020: reserve() quantizes to the nearest 0.0001 USD (RESERVE_QUANTUM=10_000)
+    // to prevent FP drift across repeated reserve/release cycles.
     fc.assert(
       fc.property(
         fc.double({ min: 0.001, max: 1, noNaN: true }),
         (cost) => {
           const tracker = createCostTracker(100);
-          const reserved = tracker.reserve('generation',cost);
-          expect(reserved).toBeCloseTo(cost * 1.3, 10);
+          const reserved = tracker.reserve('generation', cost);
+          expect(reserved).toBeCloseTo(cost * 1.3, 3);
         },
       ),
       { numRuns: 100 },

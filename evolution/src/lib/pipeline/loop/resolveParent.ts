@@ -29,7 +29,7 @@ export interface ResolvedParent {
   text: string;
   /** 'seed' | 'pool' | 'seed_fallback_from_pool' — captured for per-invocation `sourceModeEffective` */
   effectiveMode: 'seed' | 'pool' | 'seed_fallback_from_pool';
-  fallbackReason?: 'empty_pool' | 'no_eligible_variants';
+  fallbackReason?: 'empty_pool' | 'no_eligible_variants' | 'missing_cutoff_config';
 }
 
 export function resolveParent(args: ResolveParentArgs): ResolvedParent {
@@ -41,13 +41,16 @@ export function resolveParent(args: ResolveParentArgs): ResolvedParent {
 
   // sourceMode === 'pool'
   if (!qualityCutoff) {
-    // Schema should have rejected this, but guard defensively.
+    // B123: distinguish "pool is empty" from "pool exists but we have no cutoff
+    // config to filter it" — they look identical in logs otherwise, and that
+    // was actively misleading when operators were triaging empty-iteration
+    // traces. Schema should have rejected this, but guard defensively.
     warn?.('resolveParent: sourceMode=pool without qualityCutoff, falling back to seed');
     return {
       variantId: seedVariant.id,
       text: seedVariant.text,
       effectiveMode: 'seed_fallback_from_pool',
-      fallbackReason: 'empty_pool',
+      fallbackReason: 'missing_cutoff_config',
     };
   }
 

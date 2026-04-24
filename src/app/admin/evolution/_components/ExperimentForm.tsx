@@ -32,6 +32,26 @@ interface StrategySelection {
 export function ExperimentForm({ onCreated }: ExperimentFormProps): JSX.Element {
   const [step, setStep] = useState<Step>('setup');
 
+  // B100: when the user clicks a prior step in the wizard header, invalidate downstream
+  // state so a changed budget / prompt doesn't silently keep stale strategy selections.
+  // "Going back" means "I want to re-fill from this step onward"; wipe the tail.
+  const handleStepNavigation = useCallback((target: Step) => {
+    setStep((current) => {
+      if (target === current) return current;
+      const order: Step[] = ['setup', 'strategies', 'review'];
+      const targetIdx = order.indexOf(target);
+      const currentIdx = order.indexOf(current);
+      if (targetIdx >= 0 && targetIdx < currentIdx) {
+        // Going back — reset strategy selections (they depend on budget + prompt from setup).
+        if (target === 'setup') {
+          setSelections([]);
+          setSetupSubmitted(false);
+        }
+      }
+      return target;
+    });
+  }, []);
+
   const [name, setName] = useState('');
   const [availablePrompts, setAvailablePrompts] = useState<Array<{ id: string; prompt: string; name: string }>>([]);
   const [selectedPromptId, setSelectedPromptId] = useState<string>('');
@@ -205,8 +225,8 @@ export function ExperimentForm({ onCreated }: ExperimentFormProps): JSX.Element 
                   } ${isCompleted ? 'cursor-pointer hover:underline' : ''}`}
                   role={isCompleted ? 'button' : undefined}
                   tabIndex={isCompleted ? 0 : undefined}
-                  onClick={isCompleted ? () => setStep(s) : undefined}
-                  onKeyDown={isCompleted ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setStep(s); } } : undefined}
+                  onClick={isCompleted ? () => handleStepNavigation(s) : undefined}
+                  onKeyDown={isCompleted ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleStepNavigation(s); } } : undefined}
                 >{STEP_LABELS[s]}</span>
               </div>
             );

@@ -1,7 +1,7 @@
 // Unit tests for the unified selectWinner function — highest elo, uncertainty tiebreak,
 // unrated handling, empty pool, and all-unrated fallback.
 
-import { selectWinner } from './selectWinner';
+import { selectWinner, NoRatedCandidatesError } from './selectWinner';
 import type { Rating } from './computeRatings';
 
 describe('selectWinner', () => {
@@ -41,14 +41,12 @@ describe('selectWinner', () => {
     expect(result.elo).toBe(960);
   });
 
-  it('falls back to first variant when all are unrated', () => {
+  it('B035: throws NoRatedCandidatesError when all are unrated', () => {
     const pool = [{ id: 'x' }, { id: 'y' }, { id: 'z' }];
     const ratings = new Map<string, Rating>();
-    const result = selectWinner(pool, ratings);
-    // All have elo=-Infinity; first one wins (stable)
-    expect(result.winnerId).toBe('x');
-    expect(result.elo).toBe(-Infinity);
-    expect(result.uncertainty).toBe(Infinity);
+    // B035: returning an ±Infinity winner masked a ratings-pipeline bug upstream.
+    // Callers must handle this explicitly.
+    expect(() => selectWinner(pool, ratings)).toThrow(NoRatedCandidatesError);
   });
 
   it('throws on empty pool', () => {

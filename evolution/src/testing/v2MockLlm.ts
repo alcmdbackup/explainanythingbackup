@@ -47,7 +47,11 @@ export function createV2MockLlm(options: MockLlmOptions = {}): EvolutionLLMClien
         if (prompt.includes(key)) return response;
       }
       if (rankingQueue.length > 0) return rankingQueue.shift()!;
-      return 'A';
+      throw new Error(
+        `v2MockLlm: ranking queue exhausted and no pair-response match for prompt. ` +
+          `Tests must either seed enough rankingResponses or add a pairResponses entry. ` +
+          `callIdx=${callIdx}`,
+      );
     }
 
     return defaultText;

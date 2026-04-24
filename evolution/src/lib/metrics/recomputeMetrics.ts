@@ -29,37 +29,48 @@ export async function recomputeStaleMetrics(
   // No rows claimed (another request is recomputing or already finished) — skip
   if (!claimed || (claimed as unknown[]).length === 0) return;
 
+  // B046: track which specific metric names were actually written before any thrown
+  // error, so on catch we re-mark ONLY the unpersisted ones. Previously the catch
+  // block re-marked every claimed name, which wrongly reverted successfully-written
+  // rows back to stale=true on the very next read after recompute.
+  const persistedNames = new Set<string>();
+
   try {
     if (entityType === 'run') {
-      await recomputeRunEloMetrics(db, entityId);
+      await recomputeRunEloMetrics(db, entityId, persistedNames);
     } else if (entityType === 'strategy' || entityType === 'experiment') {
-      await recomputeParentEntityMetrics(db, entityType, entityId);
+      await recomputeParentEntityMetrics(db, entityType, entityId, persistedNames);
     } else if (entityType === 'invocation') {
-      await recomputeInvocationMetrics(db, entityId);
+      await recomputeInvocationMetrics(db, entityId, persistedNames);
     } else if (entityType === 'tactic') {
       // Tactic metrics recompute from variants directly (not from child entity rows).
       const { data: tactic } = await db.from('evolution_tactics').select('name').eq('id', entityId).single();
       if (tactic) {
         const { computeTacticMetrics } = await import('./computations/tacticMetrics');
         await computeTacticMetrics(db, entityId, tactic.name);
+        // `computeTacticMetrics` writes an atomic batch — on success, every tactic
+        // metric is persisted. On throw before completion, none are; the SDK doesn't
+        // expose partial-batch state, so assume all-or-nothing (re-mark all on throw).
       }
     }
     // Success: stale already cleared by the RPC — no further action needed
   } catch (err) {
-    // Re-mark only the specific claimed metrics as stale (not all metrics for this entity).
-    // Metrics that were successfully written before the error retain their correct values
-    // and stale=false status — only the unfinished ones need retry.
+    // B046: re-mark ONLY the names that weren't successfully persisted. The ones we
+    // did write are already at stale=false with correct values and must not revert.
     const claimedNames = (claimed as Array<{ metric_name: string }>).map(r => r.metric_name);
-    try {
-      await db
-        .from('evolution_metrics')
-        .update({ stale: true, updated_at: new Date().toISOString() })
-        .eq('entity_type', entityType)
-        .eq('entity_id', entityId)
-        .in('metric_name', claimedNames);
-    } catch (_remarErr) {
-      // Double-fault: re-mark failed too. Metrics stuck as stale=false but
-      // values may be incorrect. Log but don't mask the original error.
+    const unpersisted = claimedNames.filter((n) => !persistedNames.has(n));
+    if (unpersisted.length > 0) {
+      try {
+        await db
+          .from('evolution_metrics')
+          .update({ stale: true, updated_at: new Date().toISOString() })
+          .eq('entity_type', entityType)
+          .eq('entity_id', entityId)
+          .in('metric_name', unpersisted);
+      } catch (_remarErr) {
+        // Double-fault: re-mark failed too. Metrics stuck as stale=false but
+        // values may be incorrect. Log but don't mask the original error.
+      }
     }
     throw err;
   }
@@ -69,7 +80,7 @@ export async function recomputeStaleMetrics(
 // These are skipped during stale recomputation to preserve their existing (correct) values.
 const MATCH_DEPENDENT_METRICS = new Set(['total_matches', 'decisive_rate']);
 
-async function recomputeRunEloMetrics(db: SupabaseClient, runId: string): Promise<void> {
+async function recomputeRunEloMetrics(db: SupabaseClient, runId: string, persistedNames?: Set<string>): Promise<void> {
   // Read current variant ratings for this run.
   // Filter persisted=true: discarded variants must not enter the recomputed pool.
   const { data: variants, error: variantError } = await db
@@ -94,7 +105,8 @@ async function recomputeRunEloMetrics(db: SupabaseClient, runId: string): Promis
   }
 
   // Read existing totalCost and iterationsRun from metrics table so we don't overwrite with zeros
-  const existingMetrics = await getMetricsForEntities(db, 'run', [runId], ['cost', 'total_matches']);
+  // B043: IGNORE — single-run read, chunk errors here are equivalent to missing data.
+  const { data: existingMetrics } = await getMetricsForEntities(db, 'run', [runId], ['cost', 'total_matches']);
   const runMetrics = existingMetrics.get(runId) ?? [];
   const existingCost = runMetrics.find(m => m.metric_name === 'cost')?.value ?? 0;
 
@@ -122,6 +134,9 @@ async function recomputeRunEloMetrics(db: SupabaseClient, runId: string): Promis
     } else {
       await writeMetric(db, 'run', runId, def.name as MetricName, result, 'at_finalization');
     }
+    // B046: record this metric name as persisted so the caller's re-mark-on-error
+    // path skips rows that already landed successfully.
+    persistedNames?.add(def.name as string);
   }
 }
 
@@ -129,6 +144,7 @@ async function recomputeParentEntityMetrics(
   db: SupabaseClient,
   entityType: 'strategy' | 'experiment',
   entityId: string,
+  persistedNames?: Set<string>,
 ): Promise<void> {
   const columnName = entityType === 'strategy' ? 'strategy_id' : 'experiment_id';
   const { data: runs, error: runsError } = await db
@@ -139,7 +155,7 @@ async function recomputeParentEntityMetrics(
   if (runsError) throw new Error(`Failed to read runs for ${entityType} ${entityId}: ${runsError.message}`);
 
   if (!runs || runs.length === 0) return;
-  await recomputePropagatedMetrics(db, entityType, entityId, runs.map(r => r.id));
+  await recomputePropagatedMetrics(db, entityType, entityId, runs.map(r => r.id), persistedNames);
 }
 
 async function recomputePropagatedMetrics(
@@ -147,12 +163,18 @@ async function recomputePropagatedMetrics(
   entityType: EntityType,
   entityId: string,
   childRunIds: string[],
+  persistedNames?: Set<string>,
 ): Promise<void> {
   const propDefs = getEntity(entityType as import('../core/types').EntityType).metrics.atPropagation;
   if (propDefs.length === 0) return;
 
   const sourceMetricNames = [...new Set(propDefs.map(d => d.sourceMetric))];
-  const runMetrics = await getMetricsForEntities(db, 'run', childRunIds, sourceMetricNames);
+  // B043: LOG — partial chunk failure logged; propagation uses whatever succeeded.
+  const { data: runMetrics, errors: readErrors } = await getMetricsForEntities(db, 'run', childRunIds, sourceMetricNames);
+  if (readErrors.length > 0) {
+    // eslint-disable-next-line no-console
+    console.warn(`[recomputeMetrics] partial read failure for ${entityType}/${entityId}`, { errors: readErrors });
+  }
 
   const collect = (name: string) =>
     [...runMetrics.values()].flatMap(ms => ms.filter(m => m.metric_name === name));
@@ -168,10 +190,12 @@ async function recomputePropagatedMetrics(
       n: aggregated.n,
       aggregation_method: def.aggregationMethod as import('./types').AggregationMethod,
     });
+    // B046: record persistence so the caller skips this name on the error-path re-mark.
+    persistedNames?.add(def.name as string);
   }
 }
 
-async function recomputeInvocationMetrics(db: SupabaseClient, invocationId: string): Promise<void> {
+async function recomputeInvocationMetrics(db: SupabaseClient, invocationId: string, persistedNames?: Set<string>): Promise<void> {
   // Fetch invocation's execution_detail and parent run's variants
   const { data: inv, error: invError } = await db
     .from('evolution_agent_invocations')
@@ -217,5 +241,6 @@ async function recomputeInvocationMetrics(db: SupabaseClient, invocationId: stri
     } else {
       await writeMetric(db, 'invocation', invocationId, def.name as MetricName, result, 'at_finalization');
     }
+    persistedNames?.add(def.name as string);
   }
 }

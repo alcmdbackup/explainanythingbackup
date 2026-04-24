@@ -26,7 +26,21 @@ jest.mock('../../pipeline/loop/rankNewVariant', () => ({
       status: mockRankStatus,
       matches: mockRankMatches,
       comparisonsRun: 1,
-      detail: { localPoolSize: 2, stopReason: mockRankStatus, totalComparisons: 1, finalLocalElo: 1200, finalLocalUncertainty: 128 },
+      // B051: Agent.run() now rejects the invocation (success=false) when the
+      // detail doesn't satisfy `rankNewVariantDetailInnerSchema`. Include every
+      // required field so these tests exercise the post-validation path.
+      detail: {
+        variantId: 'mock-variant',
+        localPoolSize: 2,
+        localPoolVariantIds: ['mock-variant', 'existing'],
+        initialTop15Cutoff: 1200,
+        comparisons: [],
+        stopReason: mockRankStatus,
+        totalComparisons: 1,
+        finalLocalElo: 1200,
+        finalLocalUncertainty: 128,
+        finalLocalTop15Cutoff: 1280,
+      },
     },
     surfaced: mockRankSurfaced,
     discardReason: mockRankSurfaced ? undefined : { localElo: 1040, localTop15Cutoff: 1280 },

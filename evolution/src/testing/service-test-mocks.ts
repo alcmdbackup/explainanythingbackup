@@ -34,6 +34,10 @@ export function setupServiceActionTest(defaults?: ChainMockOptions) {
   const { createSupabaseServiceClient } = jest.requireMock('@/lib/utils/supabase/server') as {
     createSupabaseServiceClient: jest.Mock;
   };
+  // B111: `clearAllMocks` only clears call history — queued `mockResolvedValueOnce`
+  // overrides from a prior test would otherwise leak into this test. `mockReset`
+  // discards those queued impls so the fresh chain below is the only thing returned.
+  createSupabaseServiceClient.mockReset();
   createSupabaseServiceClient.mockResolvedValue(mockSupabase);
   return { mockSupabase };
 }
@@ -90,12 +94,30 @@ export function createSupabaseChainMock(
   const chainable = (): Record<string, jest.Mock> => {
     const obj: Record<string, jest.Mock> = {};
     const methods = ['select', 'eq', 'neq', 'in', 'is', 'gt', 'lt', 'gte', 'lte', 'like', 'ilike',
-      'order', 'limit', 'range', 'single', 'maybeSingle', 'match', 'filter', 'not', 'or', 'contains',
+      'limit', 'range', 'single', 'maybeSingle', 'match', 'filter', 'not', 'or', 'contains',
       'overlaps', 'textSearch'];
 
     for (const method of methods) {
       obj[method] = jest.fn().mockReturnValue(obj);
     }
+    // B103: .order() must honor the `ascending` opt so tests relying on sorted output
+    // don't silently pass when the code-under-test asks for wrong direction.
+    obj.order = jest.fn((col: string, opts?: { ascending?: boolean }) => {
+      if (Array.isArray(terminalResult.data)) {
+        const ascending = opts?.ascending !== false;
+        const sorted = [...(terminalResult.data as Array<Record<string, unknown>>)].sort((a, b) => {
+          const av = a?.[col];
+          const bv = b?.[col];
+          if (av === bv) return 0;
+          if (av == null) return ascending ? -1 : 1;
+          if (bv == null) return ascending ? 1 : -1;
+          const cmp = (av as number | string) < (bv as number | string) ? -1 : 1;
+          return ascending ? cmp : -cmp;
+        });
+        (terminalResult as { data: unknown }).data = sorted;
+      }
+      return obj;
+    });
     // Terminal methods return the result
     obj.single = jest.fn().mockResolvedValue(terminalResult);
     obj.maybeSingle = jest.fn().mockResolvedValue(terminalResult);

@@ -398,6 +398,16 @@ Under parallel agent dispatch, a shared `V2CostTracker` serves two purposes: **b
 
 The `cost_usd` written to `evolution_agent_invocations` comes from `scope.getOwnSpent()` — the direct sum of this invocation's `recordSpend` calls, with no sibling cost bleed even under parallel dispatch. `detail.totalCost` is still populated (Agent.run falls back to it when `getOwnSpent()` returns 0, as with MergeRatingsAgent which makes no LLM calls).
 
+### LLMSpendingGate singleton scope (B082, 2026-04-23)
+
+The `LLMSpendingGate` is a module-level singleton — meaning each Vercel serverless container (or Node process) holds its own in-memory cache. On a cold start the cache is empty; warm containers accumulate cache entries over the TTL (5s kill switch / 30s daily / 60s monthly). Two concurrent requests landing on different containers can thus see divergent cache state, and under high burst load the cache may briefly under-read the shared DB state. **The RPC (`check_and_reserve_llm_budget`) remains the authoritative gate** — it enforces the cap atomically at reservation time. The in-memory cache is a performance optimization that fails safely toward the RPC.
+
+Switch to a distributed cache (Redis/KV) only if over-spend is observed in practice. The concrete signal to watch: track the ratio of `reserved_before_rpc_spend / rpc_spend` in a Honeycomb dashboard (filter to `service:llm-spending-gate`) over a 7-day rolling window. If that ratio exceeds 1.05 for any day, the singleton-divergence hypothesis has evidence and a KV-backed cache is warranted.
+
+### Invariant: every cost-tracker caller routes through AgentCostScope (B012, 2026-04-23)
+
+After the Phase 6 bug-fix pass (scan_codebase_for_bugs_20260422), **every cost-tracker caller must route through `AgentCostScope`**. `getTotalSpent()` is no longer part of the `AgentCostScope` type — any caller that needs per-scope cost attribution uses `getOwnSpent()`. Removing `getTotalSpent()` from the scope type means the TypeScript compiler catches any missed caller at the type-boundary (TS2551 / TS2339 on `.getTotalSpent()`), providing automatic exhaustiveness. `rankNewVariant.ts` previously had a `getOwnSpent?.() ?? getTotalSpent()` fallback — that is the code path the B012 fix removed. If a caller genuinely needs the run-total (e.g. for budget-tier calculation), it reads it from the underlying `V2CostTracker` that the scope wraps, not from the scope itself.
+
 ---
 
 ## Budget Event Logging

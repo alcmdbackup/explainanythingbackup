@@ -15,6 +15,11 @@ interface LineageGraphProps {
 
 export function LineageGraph({ nodes, edges, treeSearchPath }: LineageGraphProps) {
   const svgRef = useRef<SVGSVGElement>(null);
+  // B094: store the d3-select handle so cleanup can detach zoom listeners synchronously
+  // on unmount. Previously the cleanup awaited a dynamic `import('d3')` whose promise
+  // could resolve after the component had already unmounted, leaving a dangling zoom
+  // listener attached to the SVG and leaking memory across repeat mounts.
+  const d3ZoomCleanupRef = useRef<(() => void) | null>(null);
   const [selectedNode, setSelectedNode] = useState<LineageData['nodes'][0] | null>(null);
 
   // Check if all variants are Gen 0 (no evolution occurred)
@@ -62,6 +67,12 @@ export function LineageGraph({ nodes, edges, treeSearchPath }: LineageGraphProps
       });
 
     svg.call(zoom);
+    // B094: record a synchronous cleanup closure that doesn't depend on re-importing d3
+    // asynchronously. If the component unmounts while a prior import is still resolving,
+    // this closure still runs to detach the listener.
+    d3ZoomCleanupRef.current = () => {
+      try { svg.on('.zoom', null); } catch { /* best-effort */ }
+    };
 
     // Build set of winning path IDs for edge highlighting
     const pathSet = new Set(treeSearchPath ?? []);
@@ -149,11 +160,10 @@ export function LineageGraph({ nodes, edges, treeSearchPath }: LineageGraphProps
   useEffect(() => {
     renderGraph();
     return () => {
-      // Remove D3 zoom listeners on cleanup
-      if (svgRef.current) {
-        import('d3').then(d3 => {
-          d3.select(svgRef.current).on('.zoom', null);
-        });
+      // B094: synchronous cleanup from the ref; no async d3 import here.
+      if (d3ZoomCleanupRef.current) {
+        d3ZoomCleanupRef.current();
+        d3ZoomCleanupRef.current = null;
       }
     };
   }, [renderGraph]);

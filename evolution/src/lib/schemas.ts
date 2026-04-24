@@ -106,7 +106,8 @@ export const evolutionRunInsertSchema = z.object({
   explanation_id: z.number().int().nullable().optional(),
   status: evolutionRunStatusEnum.optional().default('pending'),
   budget_cap_usd: z.number().min(0).optional(),
-  error_message: z.string().nullable().optional(),
+  // B075: cap error_message length so a 1 MB stack trace doesn't bloat the row.
+  error_message: z.string().max(10000).nullable().optional(),
   prompt_id: z.string().uuid().nullable().optional(),
   pipeline_version: z.string().max(50).optional(),
   // DB migration 20260322000007 conditionally applies NOT NULL — keep nullable for safety
@@ -144,7 +145,8 @@ export const evolutionVariantInsertSchema = z.object({
   run_id: z.string().uuid(),
   explanation_id: z.number().int().nullable().optional(),
   variant_content: z.string().min(1),
-  elo_score: z.number().optional(),
+  // B071: reject NaN/Infinity on elo_score — corrupt values kill leaderboard sort silently.
+  elo_score: z.number().refine(Number.isFinite, 'elo_score must be finite').optional(),
   generation: z.number().int().min(0).optional(),
   agent_name: z.string().max(200).optional().nullable(),
   match_count: z.number().int().min(0).optional().default(0),
@@ -152,10 +154,12 @@ export const evolutionVariantInsertSchema = z.object({
   parent_variant_id: z.string().uuid().nullable().optional(),
   prompt_id: z.string().uuid().nullable().optional(),
   synced_to_arena: z.boolean().optional().default(false),
-  mu: z.number().optional(),
-  sigma: z.number().optional(),
+  // B066: reject NaN/Infinity on mu/sigma — these back the Rating {elo, uncertainty} abstraction.
+  mu: z.number().refine(Number.isFinite, 'mu must be finite').optional(),
+  sigma: z.number().refine(Number.isFinite, 'sigma must be finite').optional(),
   arena_match_count: z.number().int().min(0).optional().default(0),
-  generation_method: z.string().max(200).optional().nullable(),
+  // B065: `.min(1)` when non-null so empty strings don't confuse admin filters / group-bys.
+  generation_method: z.string().min(1).max(200).optional().nullable(),
   cost_usd: z.number().min(0).optional().nullable(),
   archived_at: z.string().nullable().optional(),
   model: z.string().max(200).optional().nullable(),
@@ -186,8 +190,14 @@ export const evolutionAgentInvocationInsertSchema = z.object({
   success: z.boolean().optional().nullable(),
   cost_usd: z.number().min(0).optional().nullable(),
   duration_ms: z.number().int().min(0).optional().nullable(),
-  error_message: z.string().nullable().optional(),
+  // B075: cap error_message length.
+  error_message: z.string().max(10000).nullable().optional(),
   execution_detail: z.record(z.string(), z.unknown()).nullable().optional(),
+  // B074: `tactic` column exists on the DB (migration 20260417000001_evolution_tactics.sql)
+  // but was missing from this Zod schema — new TS-inserted rows were silently NULL.
+  tactic: z.string().max(200).nullable().optional(),
+  // B048: added by migration 20260423081159. true=surfaced, false=discarded, null=historic.
+  variant_surfaced: z.boolean().nullable().optional(),
 });
 
 export const evolutionAgentInvocationFullDbSchema = evolutionAgentInvocationInsertSchema.extend({
@@ -246,10 +256,13 @@ export const evolutionBudgetEventInsertSchema = z.object({
   run_id: z.string().uuid(),
   event_type: budgetEventTypeEnum,
   agent_name: z.string().max(200),
-  amount_usd: z.number(),
+  // B063 + B072: finite + non-negative. A negative refund event (`amount_usd: -100`) would
+  // silently deflate reported spend and could un-trip the gate, so `.min(0)` guards it.
+  amount_usd: z.number().min(0).refine(Number.isFinite, 'amount_usd must be finite'),
   total_spent_usd: z.number().min(0),
   total_reserved_usd: z.number().min(0),
-  available_budget_usd: z.number(),
+  // B063: finite guard on available_budget_usd.
+  available_budget_usd: z.number().refine(Number.isFinite, 'available_budget_usd must be finite'),
   invocation_id: z.string().uuid().nullable().optional(),
   iteration: z.number().int().min(0).nullable().optional(),
 });
@@ -561,8 +574,11 @@ export type V2MatchSchema = z.infer<typeof v2MatchSchema>;
 // ─── Rating ──────────────────────────────────────────────────────
 
 export const ratingSchema = z.object({
-  elo: z.number(),
-  uncertainty: z.number().positive(),
+  // B028: reject NaN/Infinity on rating fields — plain `z.number()` accepts both, and
+  // `.positive()` on `uncertainty` accepts `Infinity` too (Infinity > 0 is true). Corrupt
+  // values would poison updateRating(), toDisplayElo(), and the arena leaderboard.
+  elo: z.number().refine(Number.isFinite, 'elo must be finite'),
+  uncertainty: z.number().positive().refine(Number.isFinite, 'uncertainty must be finite'),
 });
 
 export type RatingSchema = z.infer<typeof ratingSchema>;

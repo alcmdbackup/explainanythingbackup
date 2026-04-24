@@ -546,6 +546,19 @@ This means database rows written by older pipeline versions are transparently up
 
 The V2 clean-slate migration (20260315) intentionally dropped all V1 tables, views, and functions. There is no backward migration path to V1.
 
+### Historic-run Zod tolerance (2026-04-23)
+
+Phase 1 of the `scan_codebase_for_bugs_20260422` project tightened Zod refinements on several numeric fields to reject `NaN` / `Infinity` / negative-refund values:
+
+- `ratingSchema.elo` and `ratingSchema.uncertainty` — `.refine(Number.isFinite)`
+- `evolution_variants.mu` / `sigma` / `elo_score` — `.refine(Number.isFinite)`
+- `evolution_budget_events.amount_usd` — `.min(0).refine(Number.isFinite)`
+- `evolution_budget_events.available_budget_usd` — `.refine(Number.isFinite)`
+- `evolution_variants.generation_method` — `.min(1)` when non-null
+- `evolution_run.error_message` and `evolution_agent_invocation.error_message` — `.max(10000)`
+
+The app-layer read paths that consume these schemas all route through `.parse()` / `.safeParse()` with established `.safeParse() → log-and-skip` patterns in the metrics recompute + finalization code, so historic rows containing `NaN`/`Infinity` surface as log warnings rather than crashing callers. If you see a spike in Zod parse warnings after this migration, the staging/prod DB has a small number of legacy bad rows that should be surfaced via the admin UI's metric-error tab.
+
 ---
 
 ## Key Indexes

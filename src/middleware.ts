@@ -16,8 +16,9 @@ export const config = {
      * - api/client-logs (client logging endpoint)
      * - api/traces (OTLP traces proxy endpoint)
      * - api/monitoring (Sentry tunnel endpoint)
-     * Feel free to modify this pattern to include more paths.
+     * B087: api/evolution intentionally included — long-running evolution calls
+     *       otherwise bypass updateSession() and can run with an expired cookie.
      */
-    '/((?!_next/static|_next/image|favicon.ico|error|api/client-logs|api/traces|api/monitoring|api/health|api/cron|api/evolution|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    '/((?!_next/static|_next/image|favicon.ico|error|api/client-logs|api/traces|api/monitoring|api/health|api/cron|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 }

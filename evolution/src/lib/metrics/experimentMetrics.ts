@@ -130,9 +130,14 @@ export function bootstrapMeanCI(
     for (let j = 0; j < n; j++) {
       const idx = Math.floor(rng() * n);
       const v = values[idx]!;
+      // B045: always consume two RNG draws per iteration, even when the sample has no
+      // uncertainty. Previously the else branch consumed zero draws, so mixed-uncertainty
+      // inputs desynchronized the seeded RNG across iterations — resample order changed
+      // the output under a given seed. Draws are always consumed; the normal-deviate is
+      // only *used* when uncertainty > 0.
+      const u1 = Math.max(Number.EPSILON, rng());
+      const u2 = rng();
       if (hasUncertainty && v.uncertainty != null && v.uncertainty > 0) {
-        const u1 = Math.max(Number.EPSILON, rng());
-        const u2 = rng();
         const z = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
         sum += v.value + v.uncertainty * z;
       } else {
@@ -379,36 +384,48 @@ async function computeEloAttributionMetrics(
   opts?: { strategyId?: string; experimentId?: string },
 ): Promise<void> {
   type AttrVariantRow = {
-    id: string; mu: number | null; elo_score: number; parent_variant_id: string;
-    agent_invocation_id: string; persisted: boolean | null;
+    id: string; mu: number | null; elo_score: number; parent_variant_id: string | null;
+    agent_invocation_id: string | null; persisted: boolean | null;
+    // B052: agent_name is used as the attribution group key when agent_invocation_id is
+    // NULL (historic + seed variants) so these rows still contribute to per-tactic
+    // attribution instead of being silently dropped.
+    agent_name: string | null;
   };
+  // B052: previously excluded rows with null agent_invocation_id via
+  // `.not('agent_invocation_id', 'is', null)`. That silently dropped legacy + seed
+  // variants from attribution metrics. We now pull them in and route via
+  // `parent_variant_id` + `agent_name`; the per-invocation dimension path is still
+  // preferred when available.
   const { data: variantsData } = await supabase
     .from('evolution_variants')
-    .select('id, mu, elo_score, parent_variant_id, agent_invocation_id, persisted')
+    .select('id, mu, elo_score, parent_variant_id, agent_invocation_id, persisted, agent_name')
     .eq('run_id', runId)
-    .not('agent_invocation_id', 'is', null)
     .not('parent_variant_id', 'is', null);
   const variants = (variantsData ?? []) as unknown as AttrVariantRow[];
 
   if (variants.length === 0) return;
 
-  const invocationIds = [...new Set(variants.map(v => v.agent_invocation_id))];
-  const parentIds = [...new Set(variants.map(v => v.parent_variant_id))];
+  const invocationIds = [...new Set(variants.map(v => v.agent_invocation_id).filter((x): x is string => !!x))];
+  const parentIds = [...new Set(variants.map(v => v.parent_variant_id).filter((x): x is string => !!x))];
 
   type AttrInvocationRow = {
     id: string; agent_name: string; execution_detail: Record<string, unknown> | null;
   };
-  const { data: invocationsData } = await supabase
-    .from('evolution_agent_invocations')
-    .select('id, agent_name, execution_detail')
-    .in('id', invocationIds);
+  const { data: invocationsData } = invocationIds.length > 0
+    ? await supabase
+        .from('evolution_agent_invocations')
+        .select('id, agent_name, execution_detail')
+        .in('id', invocationIds)
+    : { data: [] };
   const invocations = (invocationsData ?? []) as unknown as AttrInvocationRow[];
 
   type AttrParentRow = { id: string; mu: number | null; elo_score: number };
-  const { data: parentsData } = await supabase
-    .from('evolution_variants')
-    .select('id, mu, elo_score')
-    .in('id', parentIds);
+  const { data: parentsData } = parentIds.length > 0
+    ? await supabase
+        .from('evolution_variants')
+        .select('id, mu, elo_score')
+        .in('id', parentIds)
+    : { data: [] };
   const parents = (parentsData ?? []) as unknown as AttrParentRow[];
 
   const invMap = new Map(invocations.map(i => [i.id, i]));
@@ -417,24 +434,30 @@ async function computeEloAttributionMetrics(
   // Group deltas by (agent_name, dimension_value).
   const groups = new Map<string, { agent: string; dim: string; deltas: number[] }>();
   for (const v of variants) {
-    const inv = invMap.get(v.agent_invocation_id);
-    if (!inv) continue;
-    // Dimension: read 'strategy' from execution_detail. Non-variant-producing agents
-    // (swiss, merge) won't have this field → skipped.
-    const dim = (inv.execution_detail as { strategy?: unknown })?.strategy;
-    if (typeof dim !== 'string' || dim.length === 0) continue;
-    // Skip colon-containing dimension values to keep metric-name parsing unambiguous.
-    if (dim.includes(':')) continue;
+    // B052: prefer the invocation-sourced dimension; fall back to (agent_name, legacy)
+    // when agent_invocation_id is null so legacy + seed variants still contribute.
+    const inv = v.agent_invocation_id ? invMap.get(v.agent_invocation_id) : undefined;
+    let dim: string | undefined;
+    let agentName: string | undefined;
+    if (inv) {
+      agentName = inv.agent_name;
+      const d = (inv.execution_detail as { strategy?: unknown })?.strategy;
+      dim = typeof d === 'string' && d.length > 0 && !d.includes(':') ? d : undefined;
+    } else if (v.agent_name) {
+      agentName = v.agent_name;
+      dim = 'legacy';
+    }
+    if (!agentName || !dim) continue;
 
-    const parent = parentMap.get(v.parent_variant_id);
+    const parent = v.parent_variant_id ? parentMap.get(v.parent_variant_id) : undefined;
     if (!parent) continue;
     const childElo = v.mu ?? v.elo_score;
     const parentElo = parent.mu ?? parent.elo_score;
     const delta = childElo - parentElo;
     if (!Number.isFinite(delta)) continue;
 
-    const key = `${inv.agent_name}::${dim}`;
-    const group = groups.get(key) ?? { agent: inv.agent_name, dim, deltas: [] };
+    const key = `${agentName}::${dim}`;
+    const group = groups.get(key) ?? { agent: agentName, dim, deltas: [] };
     group.deltas.push(delta);
     groups.set(key, group);
   }

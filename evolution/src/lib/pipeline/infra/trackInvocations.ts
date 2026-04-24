@@ -58,6 +58,8 @@ export async function updateInvocation(
     execution_detail?: Record<string, unknown>;
     error_message?: string;
     duration_ms?: number;
+    /** B048: true=agent surfaced a variant; false=locally discarded; undefined=not applicable. */
+    variant_surfaced?: boolean;
   },
   logger?: EntityLogger,
 ): Promise<void> {
@@ -72,6 +74,7 @@ export async function updateInvocation(
         execution_detail: updates.execution_detail ?? null,
         error_message: updates.error_message ?? null,
         ...(updates.duration_ms != null && { duration_ms: updates.duration_ms }),
+        ...(updates.variant_surfaced !== undefined && { variant_surfaced: updates.variant_surfaced }),
       })
       .eq('id', id);
 

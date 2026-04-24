@@ -287,6 +287,9 @@ async function executePipeline(
       invocationId: '',
       randomSeed: deriveSeed(randomSeed, 'pre_iter', 'seed0'),
       logger: runLogger, costTracker, config,
+      // B122: propagate prompt_id so any agent in the seed phase that writes arena rows
+      // can populate it at insert.
+      promptId: claimedRun.prompt_id ?? null,
     };
     const seedAgent = new CreateSeedArticleAgent();
     const seedResult = await seedAgent.run({
@@ -330,13 +333,32 @@ async function executePipeline(
       prompt_id: claimedRun.prompt_id ?? null,
       persisted: true,
     });
-    const { error: seedInsertError } = await db
-      .from('evolution_variants')
-      .upsert({ ...seedRow, synced_to_arena: true, generation_method: 'seed' }, { onConflict: 'id' });
+    // B008: retry the seed variant upsert with exponential backoff. Downstream code
+    // (syncToArena, subsequent-run seed-reuse) assumes the seed row exists in DB; a
+    // silently-failed upsert caused the next run for the same prompt to regenerate a
+    // fresh seed instead of reusing this one. On permanent failure, fail the run.
+    let seedInsertError: { message: string } | null = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const { error } = await db
+        .from('evolution_variants')
+        .upsert({ ...seedRow, synced_to_arena: true, generation_method: 'seed' }, { onConflict: 'id' });
+      if (!error) { seedInsertError = null; break; }
+      seedInsertError = error;
+      runLogger.warn('Seed variant persist failed (will retry)', {
+        phaseName: 'seed_generation', attempt, error: error.message.slice(0, 500),
+      });
+      // Exponential backoff: 200ms, 800ms.
+      if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 200 * Math.pow(4, attempt)));
+    }
     if (seedInsertError) {
-      runLogger.warn('Seed variant persist failed (non-fatal)', {
+      runLogger.error('Seed variant persist failed after 3 attempts — marking run failed', {
         phaseName: 'seed_generation', error: seedInsertError.message.slice(0, 500),
       });
+      await db.from('evolution_runs').update({
+        status: 'failed',
+        error_message: `seed_variant_persist_failed: ${seedInsertError.message.slice(0, 500)}`,
+      }).eq('id', runId);
+      throw new Error(`Seed variant persist failed after retries: ${seedInsertError.message}`);
     }
 
     runLogger.info('Seed variant generated and persisted in pre-iteration setup', {
@@ -358,6 +380,8 @@ async function executePipeline(
     initialPool: initialPool.length > 0 ? initialPool : undefined,
     experimentId: claimedRun.experiment_id ?? undefined,
     strategyId: claimedRun.strategy_id,
+    // B122: propagate prompt_id so MergeRatingsAgent sets it at insert.
+    promptId: claimedRun.prompt_id ?? null,
     deadlineMs,
     signal,
     randomSeed,

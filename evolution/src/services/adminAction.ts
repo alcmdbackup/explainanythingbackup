@@ -35,8 +35,11 @@ export function adminAction<I = void, T = unknown>(
   name: string,
   handler: ((ctx: AdminContext) => Promise<T>) | ((input: I, ctx: AdminContext) => Promise<T>),
 ): ((...args: unknown[]) => Promise<ActionResult<T>>) {
-  // Detect arity: handler.length === 1 means zero-arg (ctx only)
-  const isZeroArg = handler.length <= 1;
+  // Detect arity: handler.length === 1 means zero-arg (ctx only).
+  // A value of 0 would indicate a default-valued first param — not a supported handler shape;
+  // the strict `=== 1` rejects that case so ctx is never routed to a 0-param handler.
+  // (B061 fix: was `<= 1`, which silently accepted 0-param handlers.)
+  const isZeroArg = handler.length === 1;
 
   const wrappedFn = withLogging(async (...args: unknown[]): Promise<ActionResult<T>> => {
     try {

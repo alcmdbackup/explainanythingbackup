@@ -86,15 +86,19 @@ describe('getMetric', () => {
 });
 
 describe('getMetricsForEntities', () => {
-  it('returns empty map for no entity IDs', async () => {
+  // B043 changed the return shape from `Map<string, MetricRow[]>` to
+  // `{ data: Map<string, MetricRow[]>; errors: Array<{chunkIndex, error}> }`.
+  it('returns empty data for no entity IDs', async () => {
     const db = makeMockDb([]);
     const result = await getMetricsForEntities(db, 'run', [], ['cost']);
-    expect(result.size).toBe(0);
+    expect(result.data.size).toBe(0);
+    expect(result.errors).toEqual([]);
   });
 
-  it('returns empty map for no metric names', async () => {
+  it('returns empty data for no metric names', async () => {
     const db = makeMockDb([]);
     const result = await getMetricsForEntities(db, 'run', ['id1'], []);
-    expect(result.size).toBe(0);
+    expect(result.data.size).toBe(0);
+    expect(result.errors).toEqual([]);
   });
 });

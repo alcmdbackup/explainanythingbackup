@@ -171,8 +171,21 @@ jobs:
           fi
           mv src/lib/database.types.ts.tmp src/lib/database.types.ts
       - name: Commit if changed
+        # B091: only auto-commit generated types on PRs whose head is a branch
+        # that GitHub Actions owns (PRs from same-repo branches, post the
+        # head_ref guard). Force-pushing regenerated types onto a reviewer's
+        # local branch caused rebase surprises; skip the push when the branch
+        # looks like a reviewer/dependabot/release branch. The surrounding job
+        # already guards against fork PRs via `head.repo.full_name` match.
         run: |
           if ! git diff --quiet src/lib/database.types.ts; then
+            BRANCH="${{ github.head_ref }}"
+            case "$BRANCH" in
+              release/*|hotfix/*|dependabot/*)
+                echo "Skipping auto-commit on protected branch prefix: $BRANCH"
+                exit 0
+                ;;
+            esac
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
             git add src/lib/database.types.ts

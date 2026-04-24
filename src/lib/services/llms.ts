@@ -425,7 +425,19 @@ async function callOpenAIModel(
             completionTokens = usage.completion_tokens ?? 0;
             reasoningTokens = usage.completion_tokens_details?.reasoning_tokens ?? 0;
             const costModel = (isLocalModel(validatedModel) || isOpenRouterModel(validatedModel)) ? validatedModel : modelUsed;
-            estimatedCostUsd = calculateLLMCost(costModel, promptTokens, completionTokens, reasoningTokens);
+            // B021 guard: calculateLLMCost now throws on non-finite/negative
+            // tokens to expose upstream tracking bugs; we must not let that
+            // crash the user-facing LLM call — tracking is non-fatal by design.
+            try {
+              estimatedCostUsd = calculateLLMCost(costModel, promptTokens, completionTokens, reasoningTokens);
+            } catch (err) {
+              logger.warn('LLM call tracking save failed (non-fatal cost calc)', {
+                call_source,
+                model: modelUsed,
+                error: err instanceof Error ? err.message : String(err),
+              });
+              estimatedCostUsd = 0;
+            }
 
             span.setAttributes({
                 'llm.response.tokens.completion': completionTokens,
@@ -636,11 +648,23 @@ async function callLLMModelRaw(
 
         return await routeLLMCall(prompt, call_source, userid, model, streaming, setText, response_obj, response_obj_name, debug, options);
     } finally {
+        // B083: surface reconcile failures beyond the log so callers can react (e.g., retry
+        // the reconcile or proactively invalidate the cache). We still swallow the throw in
+        // the finally block — the caller's primary return value must not be clobbered by a
+        // reconcile error — but we do invalidate the local cache on failure so the next call
+        // sees fresh DB state and doesn't trust a cache that's known to be out of sync.
         spendingGate.reconcileAfterCall(reservedCost, call_source).catch((err) => {
-            logger.error('Spending gate reconciliation failed', {
+            logger.error('Spending gate reconciliation failed; invalidating cache', {
                 error: err instanceof Error ? err.message : String(err),
                 call_source,
             });
+            try {
+                spendingGate.invalidateCache();
+            } catch (invErr) {
+                logger.error('Failed to invalidate spending cache after reconcile failure', {
+                    error: invErr instanceof Error ? invErr.message : String(invErr),
+                });
+            }
         });
     }
 }
