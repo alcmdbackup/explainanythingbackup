@@ -9,6 +9,7 @@ import {
   cancelExperimentAction,
 } from '@evolution/services/experimentActions';
 import { buildExperimentUrl } from '@evolution/lib/utils/evolutionUrls';
+import { formatDate } from '@evolution/lib/utils/formatters';
 import { toast } from 'sonner';
 
 /** Summary shape returned by listExperimentsAction V2. */
@@ -83,7 +84,7 @@ function ExperimentRow({ experiment, onRefresh }: ExperimentRowProps): JSX.Eleme
         <div className="flex items-center gap-4 text-xs font-mono text-[var(--text-secondary)]">
           <span>{experiment.runCount} run{experiment.runCount !== 1 ? 's' : ''}</span>
           <span className="text-[var(--text-muted)]">
-            {new Date(experiment.created_at).toLocaleDateString()}
+            {formatDate(experiment.created_at)}
           </span>
           {!TERMINAL_STATUSES.includes(experiment.status) && (
             <button

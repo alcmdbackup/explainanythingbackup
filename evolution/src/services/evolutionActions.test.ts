@@ -560,6 +560,73 @@ describe('evolutionActions', () => {
       // Filter uses .eq on the embedded field, NOT .not.in
       expect(eqCalls.some(([k, v]) => k === 'evolution_runs.evolution_strategies.is_test_content' && v === false)).toBe(true);
     });
+
+    // B6 (use_playwright_find_bugs_ux_issues_20260422): listVariantsAction must
+    // return parent_elo on the public Elo scale (~1200), NOT raw OpenSkill mu (~25).
+    // Previously this assigned `parent.mu` directly to parent_elo, which broke the
+    // Δ delta math on the Variants page.
+    it('B6: parent_elo is in Elo scale via dbToRating (NOT raw mu)', async () => {
+      const PARENT_ID = '00000000-0000-0000-0000-00000000aaaa';
+      const variants = [
+        {
+          id: VALID_UUID_3,
+          run_id: VALID_UUID,
+          explanation_id: null,
+          elo_score: 1300,
+          mu: 27,
+          sigma: 8,
+          generation: 2,
+          agent_name: 'mutator',
+          match_count: 5,
+          is_winner: false,
+          created_at: '2026-03-01T11:00:00Z',
+          parent_variant_id: PARENT_ID,
+        },
+      ];
+      const parents = [
+        // Parent has raw OpenSkill mu=19, sigma=9 — should lift to Elo ~1105 ± 145.
+        { id: PARENT_ID, mu: 19, sigma: 9, elo_score: 1105, run_id: VALID_UUID },
+      ];
+      const mock = createTableAwareMock([
+        // 1. evolution_variants (main query)
+        (b) => {
+          b.then = jest.fn((resolve: (v: unknown) => void) =>
+            resolve({ data: variants, error: null, count: 1 })
+          );
+        },
+        // 2. evolution_runs (run+strategy_id enrichment)
+        (b) => {
+          b.then = jest.fn((resolve: (v: unknown) => void) =>
+            resolve({ data: [{ id: VALID_UUID, strategy_id: VALID_UUID_2 }], error: null })
+          );
+        },
+        // 3. evolution_strategies (strategy name enrichment)
+        (b) => {
+          b.then = jest.fn((resolve: (v: unknown) => void) =>
+            resolve({ data: [{ id: VALID_UUID_2, name: 'Real Strategy' }], error: null })
+          );
+        },
+        // 4. evolution_variants (parent enrichment via .in('id', parentIds))
+        (b) => {
+          b.then = jest.fn((resolve: (v: unknown) => void) =>
+            resolve({ data: parents, error: null })
+          );
+        },
+      ]);
+      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+      const result = await listVariantsAction({ limit: 50, offset: 0 });
+
+      expect(result.success).toBe(true);
+      const v = result.data!.items[0]!;
+      // Elo scale, not raw mu — must be in [600, 2400] band, definitely not ~19.
+      expect(v.parent_elo).toBeGreaterThan(600);
+      expect(v.parent_elo).toBeLessThan(2400);
+      // dbToRating(19, 9) → mu*(1200/25) + 600 ≈ 19*48 + 600 = 1512? Let's just
+      // assert it's nowhere near the raw mu and uncertainty is populated too.
+      expect(v.parent_elo).not.toBeCloseTo(19, 0);
+      expect(v.parent_uncertainty).not.toBeNull();
+    });
   });
 
   // ─── archiveRunAction ────────────────────────────────────────

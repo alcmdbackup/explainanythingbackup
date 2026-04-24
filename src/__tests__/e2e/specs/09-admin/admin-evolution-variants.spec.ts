@@ -206,4 +206,53 @@ adminTest.describe('Evolution Variants (list page)', { tag: '@evolution' }, () =
     await adminPage.waitForURL('**/admin/evolution-dashboard', { timeout: 15000 });
     expect(adminPage.url()).toContain('/admin/evolution-dashboard');
   });
+
+  // B5/B6 (use_playwright_find_bugs_ux_issues_20260422): hardening checks for
+  // (1) no nested-anchor hydration error from the Parent column wrapping a
+  // <Link> inside the row's outer <Link>, and (2) parent rating renders in
+  // Elo scale (~1200), not raw OpenSkill mu (~25).
+  adminTest('B5+B6: variants list has no nested-anchor hydration error AND parent rating is in Elo scale', async ({ adminPage }) => {
+    const consoleErrors: string[] = [];
+    adminPage.on('console', (msg) => {
+      if (msg.type() === 'error') consoleErrors.push(msg.text());
+    });
+
+    await adminPage.goto('/admin/evolution/variants');
+    await adminPage.waitForLoadState('domcontentloaded');
+
+    const table = adminPage.locator('[data-testid="entity-list-table"]');
+    await expect(table).toBeVisible({ timeout: 15000 });
+
+    // Uncheck "Hide test content" so seeded variants (with parents) are visible.
+    const testContentFilter = adminPage.locator('[data-testid="filter-filterTestContent"] input[type="checkbox"]');
+    // eslint-disable-next-line flakiness/no-point-in-time-checks -- control flow, not assertion
+    if (await testContentFilter.isChecked()) {
+      await testContentFilter.uncheck();
+      await table.locator('tbody tr').first().waitFor({ state: 'visible', timeout: 10000 });
+    }
+
+    // Wait for the first row to be hydrated as a proxy for "client-side render
+    // settled" — this is when React would log nested-anchor warnings if any.
+    await table.locator('tbody tr').first().waitFor({ state: 'visible', timeout: 15000 });
+
+    // B5: no nested-anchor hydration warnings.
+    const nestedAnchorErr = consoleErrors.find(e => /<a>\s*cannot contain a nested\s*<a>/i.test(e) || /In HTML, <a> cannot be a descendant of <a>/i.test(e));
+    expect(nestedAnchorErr, `Console errors: ${consoleErrors.join('\n')}`).toBeUndefined();
+
+    // B6: parent rating sanity-check. The Parent cell (when present) should
+    // render a value in the [600, 2400] Elo band. We parse cell text via a
+    // regex matching `<digits> ±` — raw OpenSkill mu (~25) would yield "19 ±"
+    // and the assertion below would fail.
+    const parentCells = await table.locator('tbody td').allTextContents();
+    const ratings = parentCells
+      .map(t => t.match(/(\d{2,4})\s*±/))
+      .filter((m): m is RegExpMatchArray => m != null && m[1] != null)
+      .map(m => parseInt(m[1]!, 10));
+    if (ratings.length > 0) {
+      for (const r of ratings) {
+        expect(r, `Parent rating ${r} out of [600, 2400] Elo band — likely raw mu regression`).toBeGreaterThanOrEqual(600);
+        expect(r).toBeLessThanOrEqual(2400);
+      }
+    }
+  });
 });

@@ -62,9 +62,12 @@ function DashboardContent(): JSX.Element {
   if (!data) return <div className="p-8 text-center text-[var(--text-muted)]">No data available</div>;
 
   // Phase 4d: append "± SE" to Avg Cost when the server action computed one (≥2 run samples).
+  // U1 (use_playwright_find_bugs_ux_issues_20260422): hide the "± $0.00" suffix when SE
+  // rounds below the 2dp display precision (< $0.005). It looks broken even though the
+  // computation is correct.
   const avgCostLabel = data.avgCostPerRun == null
     ? formatCost(null)
-    : data.seCostPerRun != null
+    : data.seCostPerRun != null && data.seCostPerRun >= 0.005
       ? `${formatCost(data.avgCostPerRun)} ± ${formatCost(data.seCostPerRun)}`
       : formatCost(data.avgCostPerRun);
 

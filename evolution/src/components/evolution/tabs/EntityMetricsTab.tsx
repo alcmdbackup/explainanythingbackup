@@ -52,6 +52,25 @@ function resolveLabel(metricName: string, entityType: EntityType): string {
   return metricName;
 }
 
+// U23 (use_playwright_find_bugs_ux_issues_20260422): explain what each per-purpose
+// cost actually rolls up. The 'cost' rollup is the sum of generation+ranking+seed,
+// so users hovering 'Spent' know that those three sub-metrics aren't separate
+// sources of additional cost — they're the components.
+const COST_DESCRIPTIONS: Record<string, string> = {
+  cost: 'Total run cost = generation + ranking + seed (LLM calls only).',
+  generation_cost: 'Cost of LLM calls during the generation phase. Included in Spent.',
+  ranking_cost: 'Cost of LLM calls during the ranking phase (judge model). Included in Spent.',
+  seed_cost: 'Cost of LLM calls to seed the initial pool. Included in Spent.',
+  total_cost: 'Sum of cost across all aggregated runs.',
+  total_generation_cost: 'Sum of generation_cost across all aggregated runs. Included in Total Cost.',
+  total_ranking_cost: 'Sum of ranking_cost across all aggregated runs. Included in Total Cost.',
+  total_seed_cost: 'Sum of seed_cost across all aggregated runs. Included in Total Cost.',
+  avg_cost_per_run: 'Average cost across runs (= avg of generation+ranking+seed).',
+  avg_generation_cost_per_run: 'Average generation_cost across runs. Included in Avg Cost/Run.',
+  avg_ranking_cost_per_run: 'Average ranking_cost across runs. Included in Avg Cost/Run.',
+  avg_seed_cost_per_run: 'Average seed_cost across runs. Included in Avg Cost/Run.',
+};
+
 function toMetricItem(row: MetricRow, entityType: EntityType): MetricItem & { category: Category; aggregation?: string } {
   const formatter = resolveFormatter(row.metric_name, entityType);
   return {
@@ -66,6 +85,7 @@ function toMetricItem(row: MetricRow, entityType: EntityType): MetricItem & { ca
     n: row.n,
     category: resolveCategory(row.metric_name, entityType),
     aggregation: row.aggregation_method ?? undefined,
+    description: COST_DESCRIPTIONS[row.metric_name],
   };
 }
 

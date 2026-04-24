@@ -59,10 +59,14 @@ function StatusDot({ status }: { status: string }): JSX.Element {
   );
 }
 
+// U32 (use_playwright_find_bugs_ux_issues_20260422): keep the row anchor on the
+// 'name' column only — other cells skipLink so screen readers don't announce
+// "link" five times per row.
 const COLUMNS: ColumnDef<ExperimentSummary>[] = [
   {
     key: 'id',
     header: 'ID',
+    skipLink: true,
     render: (exp) => (
       <span className="font-mono text-xs text-[var(--accent-gold)]" title={exp.id}>
         {exp.id.substring(0, 8)}
@@ -77,6 +81,7 @@ const COLUMNS: ColumnDef<ExperimentSummary>[] = [
   {
     key: 'status',
     header: 'Status',
+    skipLink: true,
     render: (exp) => {
       const isStale = exp.status === 'running' &&
         (Date.now() - new Date(exp.updated_at ?? exp.created_at).getTime()) > 60 * 60 * 1000;
@@ -92,11 +97,13 @@ const COLUMNS: ColumnDef<ExperimentSummary>[] = [
     key: 'runCount',
     header: 'Runs',
     align: 'right',
+    skipLink: true,
     render: (exp) => exp.runCount,
   },
   {
     key: 'created_at',
     header: 'Created',
+    skipLink: true,
     render: (exp) => formatDate(exp.created_at),
   },
 ];

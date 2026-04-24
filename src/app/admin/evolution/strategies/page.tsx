@@ -48,11 +48,14 @@ const loadData = async (filters: Record<string, string>, page: number, pageSize:
   return { items, total: result.data!.total };
 };
 
+// U32 (use_playwright_find_bugs_ux_issues_20260422): keep the row anchor on the
+// 'name' column only — other cells skipLink so screen readers don't announce
+// "link" five times per row.
 const baseColumns: ColumnDef<StrategyListItem>[] = [
   { key: 'name', header: 'Name', render: (row) => row.name },
-  { key: 'label', header: 'Label', render: (row) => <span className="truncate block max-w-[200px]" title={row.label}>{row.label}</span> },
-  { key: 'pipeline_type', header: 'Pipeline', render: (row) => row.pipeline_type ?? '—' },
-  { key: 'status', header: 'Status', render: (row) => row.status },
+  { key: 'label', header: 'Label', skipLink: true, render: (row) => <span className="truncate block max-w-[200px]" title={row.label}>{row.label}</span> },
+  { key: 'pipeline_type', header: 'Pipeline', skipLink: true, render: (row) => row.pipeline_type ?? '—' },
+  { key: 'status', header: 'Status', skipLink: true, render: (row) => row.status },
 ];
 const columns: ColumnDef<StrategyListItem>[] = [...baseColumns, ...createMetricColumns<StrategyListItem>('strategy')];
 

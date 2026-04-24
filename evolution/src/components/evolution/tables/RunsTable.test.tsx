@@ -101,4 +101,30 @@ describe('RunsTable', () => {
     expect(costCol).toBeDefined();
     expect(costCol!.header).toBe('Spent');
   });
+
+  // B2 (use_playwright_find_bugs_ux_issues_20260422): when the rolled-up `cost`
+  // metric is missing, RunsTable's Spent cell must fall back to summing
+  // generation_cost + ranking_cost + seed_cost so legacy completed runs don't
+  // render "$0.00".
+  it('B2: Spent falls back to gen+rank+seed sum when cost metric is missing', () => {
+    const fallbackRun: BaseRun = {
+      id: 'run-fb',
+      explanation_id: null,
+      status: 'completed',
+      metrics: [
+        makeMetric('generation_cost', 0.04),
+        makeMetric('ranking_cost', 0.05),
+        makeMetric('seed_cost', 0.01),
+        // NOTE: no `cost` metric — this is the legacy state we're testing.
+      ],
+      budget_cap_usd: 1.00,
+      error_message: null,
+      completed_at: '2026-03-19T01:00:00Z',
+      created_at: '2026-03-19T00:00:00Z',
+      strategy_name: null,
+    };
+    render(<RunsTable runs={[fallbackRun]} columns={getBaseColumns<BaseRun>()} />);
+    // gen 0.04 + rank 0.05 + seed 0.01 = 0.10 → "$0.10"
+    expect(screen.getByText('$0.10')).toBeInTheDocument();
+  });
 });

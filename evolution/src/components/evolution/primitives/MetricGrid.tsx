@@ -14,6 +14,10 @@ export interface MetricItem {
    *  CI bracket using this formatter instead of .toFixed(2). Used for Elo-scale
    *  metrics so the bounds render as integers matching the center value. */
   ciFormatter?: (v: number) => string;
+  /** U23 (use_playwright_find_bugs_ux_issues_20260422): when provided, renders as a
+   *  hover tooltip on the label so users know what each per-purpose cost actually
+   *  represents (e.g. whether 'Spent' is the sum of Generation + Ranking + Seed). */
+  description?: string;
 }
 
 export interface MetricGridProps {
@@ -67,7 +71,10 @@ export function MetricGrid({
           className={cellClass || undefined}
           data-testid={`metric-${metric.label.toLowerCase().replace(/\s+/g, '-')}`}
         >
-          <span className={`text-xs font-ui text-[var(--text-muted)] uppercase tracking-wide${variant === 'bordered' ? ' mb-1' : ''}`}>
+          <span
+            className={`text-xs font-ui text-[var(--text-muted)] uppercase tracking-wide${variant === 'bordered' ? ' mb-1' : ''}${metric.description ? ' cursor-help underline decoration-dotted decoration-[var(--text-muted)] underline-offset-2' : ''}`}
+            title={metric.description}
+          >
             {metric.label}
           </span>
           <p className={valueClass}>

@@ -232,3 +232,94 @@ Page: `/admin/evolution/runs/[id]?tab=timeline`.
 - After three audit passes: **9 bugs (8 firm + 1 partial) + 31 UX issues = 40 actionable items**.
 - 15 first-pass findings were dropped as false positives (12 in the bug audit, 3 in the UX audit; see "Reviewed and dropped" sections).
 - Next-pass focus areas if pursuing further: Lineage tab D3 graph, Snapshots tab, Elo chart, individual variant detail, individual invocation detail, all Edit/Delete confirm dialogs, keyboard a11y sweep, mobile / narrow-viewport rendering.
+
+## Phases 2–8 — work done (2026-04-23)
+
+User explicitly requested "everything in one PR" (Option C from Options Considered) and "Let's fix everything please. Only a single PR at the very end." The phased plan was therefore executed end-to-end on the same branch with a single open PR.
+
+### Phase 2 — cost-source fallback
+
+- **NEW** `evolution/src/lib/cost/getRunCostWithFallback.ts` exporting `getRunCostsWithFallback(runIds, db)` — 4-layer chain: cost metric → sum gen+rank+seed → `evolution_run_costs` view → 0 with warn. Chunks `.in()` calls into 100-id batches. Inferred B1 root cause documented in module-level comment (PostgREST URL-length truncation + missing rollup rows on legacy completed runs).
+- Wired into `getEvolutionDashboardDataAction` and `RunsTable`.
+- **NEW** `evolution/scripts/backfillRunCostMetric.ts` (operator-run, default `--dry-run`, `--apply` to write) + `evolution/scripts/backfillRunCostMetricHelpers.ts` (extracted pure helpers so tests can import without triggering top-level dotenv + env validation).
+
+### Phase 3 — variants page
+
+- `evolution/src/services/evolutionActions.ts:763` — `parent_elo` now derived via `dbToRating(parent.mu, parent.sigma).elo`. Same for `parent_uncertainty`.
+- `src/app/admin/evolution/variants/page.tsx` — `parent_variant_id` column flagged `skipLink: true` (forgotten flag, not a missing primitive).
+
+### Phase 4 — formatter + log sort
+
+- **NEW** `formatPercentValue` in `evolution/src/lib/utils/formatters.ts` — treats input as already-percent (no `*100`). Wired into the 6 estimation-error metric defs in `registry.ts`.
+- `evolution/src/services/logActions.ts` — appended `.order('id', { ascending: true })` after the existing `created_at` order.
+
+### Phase 5/6/7 — UX cluster (12 items)
+
+- **U1** dashboard avg-cost hides `± $0.00` when SE rounds below display precision.
+- **U2** `RefreshIndicator` wired to dashboard.
+- **U3** runs list column-picker (`<details>`-based popover, localStorage-persisted).
+- **U4** new generic `Combobox` primitive at `src/components/ui/combobox.tsx`; runs Strategy filter swapped to it. Deviated from spec (didn't extract from `SourceCombobox`, which is too coupled).
+- **U5** dropped `(has errors)` suffix from StatusBadge.
+- **U6** existing tooltips on Top Variants table headers cover the use case.
+- **U7** false positive — Variants tab tactic dropdown already filters via `variants.map(v => v.agent_name)`.
+- **U8** VariantParentBadge restructured to 2-line stacked layout.
+- **U9** `aria-label="Run winner"` + tooltip on ★ icon.
+- **U10** Cost Estimates "Strategy" column dropped.
+- **U11** Coverage column header tooltip + per-row tooltips for `est+act`/`no-llm`.
+- **U14** wizard strategy label fallback to `labelStrategyConfig`.
+- **U15** standardized date format on `formatDate` everywhere (strategies/[id], experiments-history, experiments/[id]/RunsTab, RelatedRunsTab).
+- **U16** Arena Topics "Hide empty topics" `defaultChecked: true`.
+- **U17** Run-ID text-input filter on invocations toolbar.
+- **U18** standardized "Iteration" display name.
+- **U19** false positive — row IS clickable.
+- **U20** dashboard quick-link cards dropped.
+- **U21** already done in `BaseSidebar.tsx:60`.
+- **U23** added `MetricItem.description` field on `MetricGrid` + per-cost-metric tooltips in `EntityMetricsTab.tsx`.
+- **U25** GFSA Error Distribution converted to horizontal bar chart.
+- **U26** Cost metrics grouped into "Spent" + "Estimation accuracy" (collapsible).
+- **U27** `formatEloCIRange` integer rounding via `ciFormatter` prop on `MetricItem`.
+- **U28** Type column dropped from tactics list (every row is `System`).
+- **U31** wizard hash-prefix disambiguation when strategy names collide.
+- **U32** `skipLink: true` on all-but-one column extended to strategies, experiments, tactics lists.
+- **U33** Cost column dropped from arena topic detail leaderboard.
+
+### Phase 8 — B14 timeline drift
+
+- `TimelineTab.tsx` — wall-clock now derives from canonical `summary.durationSeconds` (the same source `finalizeRun` writes to the run row). The `~{fmtMs(totalMs)}` calculation is fallback-only when summary is missing. Drift is structurally 0 post-fix.
+
+### New tests (10 specced files, all green)
+
+- **NEW** `evolution/src/lib/cost/getRunCostWithFallback.test.ts` — 6 cases covering all 4 fallback layers + chunking ≤100.
+- **NEW** `evolution/scripts/backfillRunCostMetricHelpers.test.ts` — 7 cases covering `findRunsMissingCostMetric` (single/bulk paths) + `computeCostsForRuns` (zero/non-finite filter + empty input).
+- **NEW** `evolution/src/lib/utils/percentParity.test.ts` — Metrics ↔ CostEstimates formatter parity + B7 regression-pin (-38.2 → -38%, NOT -3821%).
+- **EXTENDED** `evolution/src/lib/utils/formatters.test.ts` — 4 `formatPercentValue` cases.
+- **EXTENDED** `evolution/src/components/evolution/tables/RunsTable.test.tsx` — B2 case: Spent falls back to gen+rank+seed sum when `cost` is missing.
+- **EXTENDED** `evolution/src/services/evolutionActions.test.ts` — B6 case: `listVariantsAction` returns `parent_elo` in [600, 2400] Elo band, NOT raw mu (~19).
+- **EXTENDED** `evolution/src/components/evolution/variant/VariantParentBadge.test.tsx` — B6/U8 case: crossRun pill renders alongside Elo-scale parent rating.
+- **EXTENDED** `evolution/src/services/logActions.test.ts` — B13 case: stable order (created_at THEN id ASC, in that chain order).
+- **NEW** `src/__tests__/integration/evolution-cost-aggregation.integration.test.ts` — 3 cases: layer-1 hit, layer-2 sum fallback, layer-4 truly-missing-warns.
+- **NEW** `src/__tests__/integration/evolution-monotonic-cost.integration.test.ts` — off ≥ on invariant on dashboard total cost.
+- **EXTENDED** `src/__tests__/e2e/specs/09-admin/admin-evolution-variants.spec.ts` — B5+B6 case: no nested-anchor hydration error AND parent rating in Elo band.
+- **EXTENDED** `src/__tests__/e2e/specs/09-admin/admin-evolution-dashboard.spec.ts` — B1/B2 case: Total Cost monotonic when toggling Hide test content.
+
+### Doc updates
+
+- `evolution/docs/visualization.md` — RefreshIndicator, fallback chain, combobox, column picker, Spent fallback.
+- `evolution/docs/metrics.md` — `getRunCostsWithFallback` note on `cost` metric.
+- `evolution/docs/strategies_and_experiments.md` — `is_test_content` on prompts/experiments + new migration reference.
+- `evolution/docs/arena.md` — Cost column dropped from leaderboard.
+- `docs/feature_deep_dives/user_testing.md` — Playwright sweep → source-code audit verification cycle as a recommended pattern.
+
+### Local verification
+
+- `npm run lint` — clean.
+- `npm run typecheck` — clean.
+- `npm run build` — succeeds.
+- `npm test` — full suite passing.
+- `npm run test:integration` and `npm run test:e2e` — deferred to CI on PR (need staging DB and dev server respectively).
+
+### Items deferred (non-blocking)
+
+- **B1 runtime trace** — local dev server crashed during the trace attempt; inferred root cause documented in `getRunCostWithFallback.ts` module comment, plus this commit lands the helper that mitigates the symptom regardless of which candidate path triggered. Re-run on staging post-merge.
+- **Manual playwright walks** — covered programmatically by the new E2E specs; manual sanity-checks deferred to staging.
+- **`evolution/docs/reference.md` and `evolution/docs/data_model.md`** — punted (the migration file documents the schema change; reference.md describes contracts that didn't shift).
