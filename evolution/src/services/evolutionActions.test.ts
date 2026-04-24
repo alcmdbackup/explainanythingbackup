@@ -606,7 +606,14 @@ describe('evolutionActions', () => {
             resolve({ data: [{ id: VALID_UUID_2, name: 'Real Strategy' }], error: null })
           );
         },
-        // 4. evolution_variants (parent enrichment via .in('id', parentIds))
+        // 4. evolution_tactics (tactic_id resolution by agent_name — added after merge
+        //    of track_tactic_effectiveness_evolution_20260422)
+        (b) => {
+          b.then = jest.fn((resolve: (v: unknown) => void) =>
+            resolve({ data: [], error: null })
+          );
+        },
+        // 5. evolution_variants (parent enrichment via .in('id', parentIds))
         (b) => {
           b.then = jest.fn((resolve: (v: unknown) => void) =>
             resolve({ data: parents, error: null })
