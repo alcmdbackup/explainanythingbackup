@@ -3,6 +3,22 @@
 // `filterTestContent: true`. Off ≥ on, always (toggling the test-content
 // filter off can only ADD runs, never remove them).
 
+// Mock admin auth + logging boundary BEFORE the action import — the action is
+// wrapped in adminAction(...) which requires a real admin session in production.
+// Same pattern as other integration tests that call admin actions directly.
+jest.mock('@/lib/services/adminAuth', () => ({
+  requireAdmin: jest.fn().mockResolvedValue('test-admin-user-id'),
+}));
+jest.mock('@/lib/serverReadRequestId', () => ({
+  serverReadRequestId: jest.fn((fn: unknown) => fn),
+}));
+jest.mock('@/lib/logging/server/automaticServerLoggingBase', () => ({
+  withLogging: jest.fn((fn: unknown) => fn),
+}));
+jest.mock('@/lib/services/auditLog', () => ({
+  logAdminAction: jest.fn().mockResolvedValue(undefined),
+}));
+
 import { createTestSupabaseClient } from '@/testing/utils/integration-helpers';
 import {
   evolutionTablesExist,
