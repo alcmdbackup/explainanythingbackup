@@ -175,6 +175,10 @@ export async function evolveArticle(
     initialPool?: Array<Variant & { elo?: number; uncertainty?: number }>;
     experimentId?: string;
     strategyId?: string;
+    /** B122: prompt_id for the run; propagated to AgentContext so MergeRatingsAgent can
+     *  set it at insert on `evolution_arena_comparisons` rows instead of relying on
+     *  sync_to_arena backfill. */
+    promptId?: string | null;
     deadlineMs?: number;
     signal?: AbortSignal;
     randomSeed?: bigint;
@@ -201,7 +205,22 @@ export async function evolveArticle(
   const logger = options?.logger ?? noopLogger;
   const costTracker = createCostTracker(resolvedConfig.budgetUsd);
   // No shared LLM client — Agent.run() builds per-invocation scoped clients via rawProvider.
-  const randomSeed = options?.randomSeed ?? BigInt(0);
+  // B011: generate a random seed when none is passed instead of silently falling back
+  // to 0. Previously two concurrent non-seeded runs collided on the same seed and
+  // picked identical parents + tactics, undermining the documented reproducibility
+  // invariant for seed-less runs (runs without an explicit randomSeed should be
+  // independently random, not all collapsing onto seed=0).
+  const randomSeed = options?.randomSeed ?? (() => {
+    const buf = new BigUint64Array(1);
+    // Use crypto.getRandomValues where available (Node 19+ + modern browsers); fall back
+    // to Math.random for very old environments. The fallback is still independent per
+    // call — just slightly lower-quality randomness.
+    if (typeof crypto !== 'undefined' && typeof (crypto as { getRandomValues?: unknown }).getRandomValues === 'function') {
+      (crypto as { getRandomValues: (arr: BigUint64Array) => BigUint64Array }).getRandomValues(buf);
+      return buf[0]!;
+    }
+    return BigInt(Math.floor(Math.random() * 2 ** 53));
+  })();
 
   logger.info('Config validation passed', {
     budgetUsd: resolvedConfig.budgetUsd,
@@ -397,7 +416,7 @@ export async function evolveArticle(
             executionOrder: execOrder,
             invocationId: '',
             randomSeed: deriveSeed(randomSeed, `iter${iteration}`, `gfsa${execOrder}`),
-            logger, costTracker: iterTracker, config: resolvedConfig,
+            logger, costTracker: iterTracker, config: resolvedConfig, promptId: options?.promptId ?? null,
             agentIndex: execOrder,
             rawProvider: llmProvider,
             defaultModel: resolvedConfig.generationModel,
@@ -475,10 +494,20 @@ export async function evolveArticle(
           actualAvgCost = parallelSpend / parallelSuccesses;
           if (iterIdx === 0) actualAvgCostPerAgent = actualAvgCost;
         }
-        if (!actualAvgCost || !Number.isFinite(actualAvgCost) || actualAvgCost <= 0) {
+        // B003: key the estPerAgent fallback on `parallelSuccesses === 0`, not on the
+        // measured value. A legitimately cheap parallel batch (actual spend ≈ 0) was
+        // previously falsy-treated and overwritten by the initial estimate, inflating
+        // top-up per-agent cost and shrinking sequential headroom.
+        if (parallelSuccesses === 0) {
           logger.warn('actualAvgCostPerAgent fallback to initialAgentCostEstimate', {
             phaseName: 'generation', iteration, iterIdx, parallelSuccesses,
-            reason: 'scope_zero_or_no_success',
+            reason: 'no_successful_parallel_agents',
+          });
+          actualAvgCost = estPerAgent;
+        } else if (!actualAvgCost || !Number.isFinite(actualAvgCost)) {
+          // Only NaN / non-finite — not just "small" — triggers a defensive fallback.
+          logger.warn('actualAvgCostPerAgent non-finite despite successes — fallback', {
+            phaseName: 'generation', iteration, iterIdx, parallelSuccesses, actualAvgCost,
           });
           actualAvgCost = estPerAgent;
         }
@@ -573,7 +602,7 @@ export async function evolveArticle(
           executionOrder: mergeExecOrder,
           invocationId: '',
           randomSeed: deriveSeed(randomSeed, `iter${iteration}`, `merge${mergeExecOrder}`),
-          logger, costTracker: iterTracker, config: resolvedConfig,
+          logger, costTracker: iterTracker, config: resolvedConfig, promptId: options?.promptId ?? null,
         };
         const mergeAgent = new MergeRatingsAgent();
         const mergeResult = await mergeAgent.run({
@@ -639,7 +668,7 @@ export async function evolveArticle(
             executionOrder: swissExecOrder,
             invocationId: '',
             randomSeed: deriveSeed(randomSeed, `iter${iteration}`, `swiss${swissExecOrder}`),
-            logger, costTracker: iterTracker, config: resolvedConfig,
+            logger, costTracker: iterTracker, config: resolvedConfig, promptId: options?.promptId ?? null,
             rawProvider: llmProvider,
             defaultModel: resolvedConfig.generationModel,
             generationTemperature: resolvedConfig.generationTemperature,
@@ -666,7 +695,7 @@ export async function evolveArticle(
             executionOrder: mergeExecOrder,
             invocationId: '',
             randomSeed: deriveSeed(randomSeed, `iter${iteration}`, `merge${mergeExecOrder}`),
-            logger, costTracker: iterTracker, config: resolvedConfig,
+            logger, costTracker: iterTracker, config: resolvedConfig, promptId: options?.promptId ?? null,
           };
           const mergeAgent = new MergeRatingsAgent();
           const mergeBuffers: MergeMatchEntry[][] = [

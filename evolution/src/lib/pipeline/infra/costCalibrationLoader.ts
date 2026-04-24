@@ -32,16 +32,33 @@ export interface CalibrationRow {
 const SENTINEL = '__unspecified__';
 const DEFAULT_TTL_MS = 5 * 60 * 1000;
 
+/**
+ * B024: how long the loader stays in `'failed'` state before attempting another fetch.
+ * During this window, `hydrateCalibrationCache()` returns the prior cache (or null) without
+ * hitting the DB, preventing a stuck DB error from cascading into a thundering-herd retry.
+ */
+const FAILED_RETRY_MS = 30_000;
+
 function sliceKey(tactic: string, generationModel: string, judgeModel: string, phase: string): string {
   return `${tactic}|${generationModel}|${judgeModel}|${phase}`;
 }
 
 // ─── Module-level singleton state ───────────────────────────────
 
+/**
+ * B024: 3-state machine replacing the old `inflight: Promise<void> | null`. Prevents a
+ * microsecond-gap duplicate-fetch + cascading-retry path on transient DB errors. On error
+ * the loader enters `'failed'` and blocks new fetches until `FAILED_RETRY_MS` elapses.
+ */
+type InflightState =
+  | { status: 'idle' }
+  | { status: 'running'; promise: Promise<void> }
+  | { status: 'failed'; at: number };
+
 interface LoaderState {
   cache: Map<string, CalibrationRow>;
   lastRefreshedAtMs: number | null;
-  inflight: Promise<void> | null;
+  inflight: InflightState;
   hitCount: number;
   missCount: number;
   fallbackCount: number;
@@ -51,7 +68,7 @@ interface LoaderState {
 const state: LoaderState = {
   cache: new Map(),
   lastRefreshedAtMs: null,
-  inflight: null,
+  inflight: { status: 'idle' },
   hitCount: 0,
   missCount: 0,
   fallbackCount: 0,
@@ -81,9 +98,10 @@ async function refreshFromDb(supabase: SupabaseClient): Promise<void> {
   if (error) {
     // eslint-disable-next-line no-console
     console.warn('[cost_calibration] refresh_failed', error.message);
-    // Preserve existing cache; still update timestamp so we don't hammer the DB.
-    state.lastRefreshedAtMs = Date.now();
-    return;
+    // B018: do NOT advance `lastRefreshedAtMs` on error — otherwise stale calibration serves
+    // for the full TTL after a transient DB outage. Leave the timestamp alone so the next
+    // caller retries on the next tick (gated by the B024 FAILED_RETRY_MS cooldown).
+    throw error;
   }
   const next = new Map<string, CalibrationRow>();
   for (const row of (data ?? []) as Array<Record<string, unknown>>) {
@@ -112,24 +130,32 @@ async function refreshFromDb(supabase: SupabaseClient): Promise<void> {
 
 /** Ensure the cache is populated if within TTL. Multiple concurrent callers coalesce
  *  onto a single in-flight DB query (thundering-herd protection). Errors are swallowed
- *  and logged; subsequent callers can retry. */
+ *  and logged; subsequent callers can retry *after* a FAILED_RETRY_MS cooldown (B024). */
 export async function hydrateCalibrationCache(supabase?: SupabaseClient): Promise<void> {
   if (!isCalibrationEnabled()) return;
   const now = Date.now();
   const fresh = state.lastRefreshedAtMs != null && now - state.lastRefreshedAtMs < getTtlMs();
   if (fresh) return;
-  if (state.inflight) return state.inflight;
+
+  // B024: state-machine coalescing.
+  if (state.inflight.status === 'running') return state.inflight.promise;
+  if (state.inflight.status === 'failed' && now - state.inflight.at < FAILED_RETRY_MS) {
+    // Still cooling down after a prior failure — don't retry yet.
+    return;
+  }
 
   const client = supabase ?? (await (await import('@/lib/utils/supabase/server')).createSupabaseServiceClient());
-  state.inflight = refreshFromDb(client)
+  const promise = refreshFromDb(client)
+    .then(() => {
+      state.inflight = { status: 'idle' };
+    })
     .catch((err) => {
+      state.inflight = { status: 'failed', at: Date.now() };
       // eslint-disable-next-line no-console
       console.warn('[cost_calibration] hydrate_error', err instanceof Error ? err.message : String(err));
-    })
-    .finally(() => {
-      state.inflight = null;
     });
-  return state.inflight;
+  state.inflight = { status: 'running', promise };
+  return promise;
 }
 
 // ─── Sync accessors (hot-path safe) ─────────────────────────────
@@ -148,15 +174,22 @@ export function getCalibrationRow(
     return null;
   }
   // Try most-specific first, then widen by replacing dimensions with sentinel.
-  const lookups: Array<[string, string, string]> = [
-    [tactic, generationModel, judgeModel],
-    [tactic, generationModel, SENTINEL],
-    [tactic, SENTINEL, SENTINEL],
-    [SENTINEL, generationModel, SENTINEL],
-    [SENTINEL, SENTINEL, SENTINEL],
+  // B022: fallback chain ends with a phase=SENTINEL pass so operators can populate
+  // cross-phase default rows when finer-grained data isn't available. Until those rows
+  // exist, the sentinel-phase lookups simply never match — safe to always try.
+  const narrowLookups: Array<[string, string, string, string]> = [
+    [tactic, generationModel, judgeModel, phase],
+    [tactic, generationModel, SENTINEL, phase],
+    [tactic, SENTINEL, SENTINEL, phase],
+    [SENTINEL, generationModel, SENTINEL, phase],
+    [SENTINEL, SENTINEL, SENTINEL, phase],
+    // B022: phase-SENTINEL last-ditch widening.
+    [tactic, generationModel, judgeModel, SENTINEL],
+    [SENTINEL, generationModel, SENTINEL, SENTINEL],
+    [SENTINEL, SENTINEL, SENTINEL, SENTINEL],
   ];
-  for (const [s, g, j] of lookups) {
-    const hit = state.cache.get(sliceKey(s, g, j, phase));
+  for (const [s, g, j, p] of narrowLookups) {
+    const hit = state.cache.get(sliceKey(s, g, j, p));
     if (hit) {
       state.hitCount += 1;
       flushMetricsIfDue();
@@ -183,7 +216,7 @@ export function getOutputChars(
 export function _resetForTesting(): void {
   state.cache = new Map();
   state.lastRefreshedAtMs = null;
-  state.inflight = null;
+  state.inflight = { status: 'idle' };
   state.hitCount = 0;
   state.missCount = 0;
   state.fallbackCount = 0;

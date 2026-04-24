@@ -56,10 +56,13 @@ describe('POST /api/evolution/run', () => {
   });
 
   it('returns RunnerResult on success', async () => {
-    const mockResult = { claimed: true, runId: 'run-123', stopReason: 'completed', durationMs: 5000 };
+    // B079: targetRunId must now be a UUID (z.string().uuid()). Use a real UUID
+    // here rather than 'run-123' so the request passes validation.
+    const VALID_UUID = '00000000-0000-4000-8000-000000000001';
+    const mockResult = { claimed: true, runId: VALID_UUID, stopReason: 'completed', durationMs: 5000 };
     mockClaimAndExecuteRun.mockResolvedValue(mockResult);
 
-    const response = await POST(makeRequest({ targetRunId: 'run-123' }));
+    const response = await POST(makeRequest({ targetRunId: VALID_UUID }));
     const data = await response.json();
 
     expect(response.status).toBe(200);
@@ -67,7 +70,7 @@ describe('POST /api/evolution/run', () => {
     expect(mockClaimAndExecuteRun).toHaveBeenCalledWith(
       expect.objectContaining({
         runnerId: expect.stringMatching(/^api-/),
-        targetRunId: 'run-123',
+        targetRunId: VALID_UUID,
       }),
     );
   });

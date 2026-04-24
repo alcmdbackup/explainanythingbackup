@@ -132,11 +132,16 @@ export const listExperimentsAction = adminAction(
     })) as Array<ExperimentSummary & Record<string, unknown>>;
 
     const metricNames = getListViewMetrics('experiment').map(d => d.name);
-    const metricsByExp = (items.length > 0 && metricNames.length > 0)
+    // B043: LOG — partial chunk failure is logged; earlier-successful chunks are kept.
+    const metricsResult = (items.length > 0 && metricNames.length > 0)
       ? await getMetricsForEntities(ctx.supabase, 'experiment', items.map(e => e.id), metricNames)
-      : new Map<string, MetricRow[]>();
+      : { data: new Map<string, MetricRow[]>(), errors: [] as { chunkIndex: number; error: string }[] };
+    if (metricsResult.errors.length > 0) {
+      // eslint-disable-next-line no-console
+      console.warn('[experimentActions.getExperiments] partial read failure', { errors: metricsResult.errors });
+    }
     for (const exp of items) {
-      exp.metrics = metricsByExp.get(exp.id) ?? [];
+      exp.metrics = metricsResult.data.get(exp.id) ?? [];
     }
 
     return items as ExperimentSummary[];

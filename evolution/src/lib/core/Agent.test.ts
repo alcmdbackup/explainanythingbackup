@@ -331,7 +331,7 @@ describe('Agent abstract class', () => {
   });
 
   describe('run() - schema validation failure', () => {
-    it('warns when execution detail does not match schema, but still succeeds', async () => {
+    it('B051: warns and marks result.success=false when execution detail does not match schema', async () => {
       // Return a detail with wrong shape: totalCost is a string, not a number
       const agent = new TestAgent(async () => ({
         result: 'ok',
@@ -341,7 +341,8 @@ describe('Agent abstract class', () => {
 
       const result = await agent.run('hello', ctx);
 
-      expect(result.success).toBe(true);
+      // B051: schema-invalid detail is now a failed invocation so dashboards see it.
+      expect(result.success).toBe(false);
       expect(ctx.logger.warn).toHaveBeenCalledWith(
         expect.stringContaining('validation failed'),
         expect.any(Object),
@@ -380,7 +381,7 @@ describe('Agent abstract class', () => {
   });
 
   describe('run() - detail parse failure writes null detail to DB', () => {
-    it('writes undefined execution_detail when detail fails schema validation', async () => {
+    it('B051: marks success=false + writes undefined execution_detail when detail fails schema validation', async () => {
       const agent = new TestAgent(async () => ({
         result: 'ok',
         detail: { detailType: 'wrong', totalCost: 'not-a-number' } as any,
@@ -389,12 +390,15 @@ describe('Agent abstract class', () => {
 
       const result = await agent.run('hello', ctx);
 
-      expect(result.success).toBe(true);
-      // Verify that execution_detail is undefined (not the invalid detail)
+      // B051: a detail-schema failure is a data-quality bug — mark the
+      // invocation as failed so it's visible in dashboards, not silently ok.
+      expect(result.success).toBe(false);
       const updateCall = updateInvocation.mock.calls[0][2];
       expect(updateCall.execution_detail).toBeUndefined();
+      expect(updateCall.success).toBe(false);
+      expect(updateCall.error_message).toEqual(expect.any(String));
       expect(ctx.logger.warn).toHaveBeenCalledWith(
-        expect.stringContaining('writing null detail to DB'),
+        expect.stringContaining('validation failed'),
         expect.any(Object),
       );
     });

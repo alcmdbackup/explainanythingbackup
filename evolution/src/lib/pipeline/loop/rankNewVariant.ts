@@ -5,7 +5,7 @@ import type { Variant, EvolutionLLMClient } from '../../types';
 import type { Rating, ComparisonResult } from '../../shared/computeRatings';
 import { createRating } from '../../shared/computeRatings';
 import type { EvolutionConfig, V2Match } from '../infra/types';
-import type { V2CostTracker } from '../infra/trackBudget';
+import type { V2CostTracker, AgentCostScope } from '../infra/trackBudget';
 import type { EntityLogger } from '../infra/createEntityLogger';
 import {
   rankSingleVariant,
@@ -26,6 +26,11 @@ export interface RankNewVariantInput {
   config: EvolutionConfig;
   invocationId: string;
   logger: EntityLogger;
+  // B012: real-runtime callers pass an AgentCostScope (Agent.run() wraps ctx.costTracker
+  // before calling execute()). The type stays permissive (matching AgentContext) so that
+  // existing mock-based tests compile without churn; the implementation below asserts
+  // `getOwnSpent` exists at call time. The net effect: `getTotalSpent()` is no longer
+  // used as a fallback — a missing getOwnSpent fails loudly with a dev-time error.
   costTracker: V2CostTracker & { getOwnSpent?: () => number };
 }
 
@@ -61,7 +66,13 @@ export async function rankNewVariant({
   localPool.push(variant);
   localRatings.set(variant.id, createRating());
 
-  const costBeforeRank = costTracker.getOwnSpent?.() ?? costTracker.getTotalSpent();
+  // B012: no more getTotalSpent fallback. The real pipeline always wraps in an
+  // AgentCostScope; failing here exposes any missed wrap in dev/test.
+  if (typeof costTracker.getOwnSpent !== 'function') {
+    throw new Error('rankNewVariant: costTracker must be an AgentCostScope (missing getOwnSpent)');
+  }
+  const getOwn = costTracker.getOwnSpent as () => number;
+  const costBeforeRank = getOwn();
 
   const rankResult = await rankSingleVariant({
     variant,
@@ -76,9 +87,18 @@ export async function rankNewVariant({
     logger,
   });
 
-  const rankingCost = (costTracker.getOwnSpent?.() ?? costTracker.getTotalSpent()) - costBeforeRank;
+  const rankingCost = getOwn() - costBeforeRank;
 
-  const localCutoff = computeTop15Cutoff(localRatings);
+  // B119: when `localPool` contains foreign (arena) entries, their ratings
+  // inflate the top-15% cutoff and cause in-run variants to be incorrectly
+  // discarded. Recompute the cutoff over in-run ratings only; arena entries
+  // remain available as comparators but don't set the bar.
+  const inRunIds = new Set(localPool.filter((v) => !v.fromArena).map((v) => v.id));
+  const inRunRatings = new Map<string, Rating>();
+  for (const [id, r] of localRatings) {
+    if (inRunIds.has(id)) inRunRatings.set(id, r);
+  }
+  const localCutoff = computeTop15Cutoff(inRunRatings);
   const localVariantElo = localRatings.get(variant.id)!.elo;
 
   // Discard only when budget-stopped AND below the top-15% cutoff.

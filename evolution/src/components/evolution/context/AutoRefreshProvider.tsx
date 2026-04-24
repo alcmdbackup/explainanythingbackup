@@ -78,11 +78,21 @@ export function AutoRefreshProvider({
         setRefreshKey(k => k + 1);
       }
     };
+    // B095: `visibilitychange` fires on hide/unhide but NOT on same-tab back/forward
+    // navigation — the tab stays visible across history traversal, so a user navigating
+    // away from a run-detail page and back a minute later sees stale data until the
+    // next poll tick. `pageshow` fires on every show, including bfcache restores, so
+    // listening to it in addition ensures an immediate refresh on history navigation.
+    const handlePageShow = () => {
+      setRefreshKey(k => k + 1);
+    };
     document.addEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('pageshow', handlePageShow);
 
     return () => {
       clearInterval(interval);
       document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('pageshow', handlePageShow);
     };
   }, [isActive, intervalMs]);
 

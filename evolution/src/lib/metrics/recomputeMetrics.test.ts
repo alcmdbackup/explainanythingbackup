@@ -34,7 +34,8 @@ jest.mock('./writeMetrics', () => ({
 }));
 
 jest.mock('./readMetrics', () => ({
-  getMetricsForEntities: jest.fn(async () => new Map()),
+  // B043: return shape is `{ data, errors }` rather than a bare Map.
+  getMetricsForEntities: jest.fn(async () => ({ data: new Map(), errors: [] })),
 }));
 
 // ─── Helpers ───────────────────────────────────────────────────

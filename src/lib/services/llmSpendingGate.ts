@@ -1,10 +1,16 @@
 // Global LLM spending gate — enforces daily/monthly caps and kill switch before every LLM call.
 // Uses in-memory TTL cache for performance with DB-atomic reservation for correctness near cap.
 
+import { z } from 'zod';
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import { logger } from '@/lib/server_utilities';
 import { GlobalBudgetExceededError, LLMKillSwitchError } from '@/lib/errors/serviceError';
 import type { CheckBudgetResult } from '@/lib/schemas/llmCostSchemas';
+
+// B088: Zod-parse the kill-switch config row instead of an unchecked cast.
+// The DB stores the value as `{ value: boolean }` JSON; anything else (a stringly-typed
+// 'true', a missing inner key, a numeric cast) must default to false/disabled.
+const killSwitchConfigSchema = z.object({ value: z.boolean() });
 
 const SPENDING_CACHE_TTL_MS = 30_000;
 const KILL_SWITCH_CACHE_TTL_MS = 5_000;
@@ -69,23 +75,21 @@ export class LLMSpendingGate {
     const category = getCallCategory(callSource);
     const estimatedCost = estimatedCostUsd ?? DEFAULT_RESERVATION_USD;
 
-    // Fast-path: if cached spending is well below cap, skip DB query
+    // B019 + B086 (atomic): always run the monthly-cap check before the daily fast-path
+    // return. Previously the fast path exited without consulting the monthly cap when the
+    // monthly cache was stale, allowing over-spend for a full monthly-TTL window. Now every
+    // request — fast-path daily-hit OR slow-path daily-miss — runs a monthly check. The
+    // monthly-cap comparison is standardized to `>` at every site (fast + slow) so the two
+    // paths never diverge. See `checkMonthlyCap()` for the refresh-on-expiry flow.
+    await this.checkMonthlyCap(category, estimatedCost);
+
+    // Fast-path: if cached spending is well below cap, skip DB query for the daily side.
     const cached = this.getCachedSpending(category);
     if (cached) {
       const headroom = cached.dailyCap * FAST_PATH_HEADROOM;
       if (cached.dailyTotal + cached.reserved + estimatedCost < cached.dailyCap - headroom) {
-        // Check monthly cap using cached value (no DB call on cache hit)
-        if (this.monthlyCache && this.monthlyCache.expiresAt > Date.now()) {
-          if (this.monthlyCache.value.total + estimatedCost >= this.monthlyCache.value.cap) {
-            throw new GlobalBudgetExceededError(
-              `Monthly budget exceeded: $${this.monthlyCache.value.total.toFixed(2)} of $${this.monthlyCache.value.cap.toFixed(2)} cap`,
-              { category, monthlyTotal: this.monthlyCache.value.total, monthlyCap: this.monthlyCache.value.cap },
-            );
-          }
-          // Both daily and monthly caches warm and under limit — fast return
-          return estimatedCost;
-        }
-        // Monthly cache miss/expired — fall through to slow path
+        // Monthly check has already run above. Safe to fast-return.
+        return estimatedCost;
       }
     }
 
@@ -147,7 +151,11 @@ export class LLMSpendingGate {
       totalCostUsd: Number(r.total_cost_usd),
       reservedUsd: Number(r.reserved_usd),
       callCount: r.call_count,
-      cap: r.category === 'evolution' ? getConfigValue('evolution_daily_cap_usd') as number : getConfigValue('daily_cap_usd') as number,
+      // B089: documented defaults when the config row is missing — matches the values
+      // declared in environments.md (evolution: $25/day, non-evolution: $50/day).
+      cap: r.category === 'evolution'
+        ? ((getConfigValue('evolution_daily_cap_usd') as number) || 25)
+        : ((getConfigValue('daily_cap_usd') as number) || 50),
     }));
 
     const { data: monthlyData } = await supabase
@@ -195,7 +203,14 @@ export class LLMSpendingGate {
 
       if (error) throw error;
 
-      const enabled = (data?.value as { value?: unknown } | null)?.value === true;
+      // B088: schema-parse instead of unchecked cast; malformed rows default to `false`.
+      const parsed = killSwitchConfigSchema.safeParse(data?.value);
+      const enabled = parsed.success ? parsed.data.value : false;
+      if (!parsed.success) {
+        logger.warn('kill_switch_enabled config row failed schema validation', {
+          issues: parsed.error.issues,
+        });
+      }
       this.killSwitchCache = { value: enabled, expiresAt: Date.now() + KILL_SWITCH_CACHE_TTL_MS };
       return enabled;
     } catch (err) {
@@ -206,6 +221,10 @@ export class LLMSpendingGate {
         return false;
       }
       logger.error('Kill switch check failed — failing closed', { error: errorMsg(err) });
+      // B084: cache the fail-closed state for the TTL so every subsequent call in the
+      // window doesn't re-query the failing DB. Without this cache write, a transient
+      // DB error produces a flood of identical queries until it recovers.
+      this.killSwitchCache = { value: true, expiresAt: Date.now() + KILL_SWITCH_CACHE_TTL_MS };
       throw new LLMKillSwitchError();
     }
   }
@@ -241,9 +260,11 @@ export class LLMSpendingGate {
     }
   }
 
-  private async checkMonthlyCap(category: string): Promise<void> {
+  private async checkMonthlyCap(category: string, estimatedCost = 0): Promise<void> {
+    // B086: consistent `>` comparison at BOTH the cached-hit site and the slow-path site;
+    //       comparing the post-estimation total against the cap so "equal to cap" is still allowed.
     if (this.monthlyCache && Date.now() < this.monthlyCache.expiresAt) {
-      if (this.monthlyCache.value.total >= this.monthlyCache.value.cap) {
+      if (this.monthlyCache.value.total + estimatedCost > this.monthlyCache.value.cap) {
         throw new GlobalBudgetExceededError(
           `Monthly budget exceeded: $${this.monthlyCache.value.total.toFixed(2)} of $${this.monthlyCache.value.cap.toFixed(2)} cap`,
           { category, monthlyTotal: this.monthlyCache.value.total, monthlyCap: this.monthlyCache.value.cap },
@@ -268,7 +289,8 @@ export class LLMSpendingGate {
 
       this.monthlyCache = { value: { total: monthlyTotal, cap: monthlyCap }, expiresAt: Date.now() + MONTHLY_CACHE_TTL_MS };
 
-      if (monthlyTotal >= monthlyCap) {
+      // B086: consistent `>` comparison at this slow-path site too.
+      if (monthlyTotal + estimatedCost > monthlyCap) {
         throw new GlobalBudgetExceededError(
           `Monthly budget exceeded: $${monthlyTotal.toFixed(2)} of $${monthlyCap.toFixed(2)} cap`,
           { category, monthlyTotal, monthlyCap },

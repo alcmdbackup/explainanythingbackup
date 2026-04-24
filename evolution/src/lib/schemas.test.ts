@@ -809,6 +809,134 @@ describe('ratingSchema', () => {
   it('rejects non-positive uncertainty', () => {
     expect(() => ratingSchema.parse({ elo: 1200, uncertainty: 0 })).toThrow();
   });
+
+  // B028: reject NaN/Infinity on elo and uncertainty.
+  it('B028: rejects NaN elo', () => {
+    expect(ratingSchema.safeParse({ elo: NaN, uncertainty: 100 }).success).toBe(false);
+  });
+  it('B028: rejects Infinity elo', () => {
+    expect(ratingSchema.safeParse({ elo: Infinity, uncertainty: 100 }).success).toBe(false);
+  });
+  it('B028: rejects Infinity uncertainty', () => {
+    expect(ratingSchema.safeParse({ elo: 1200, uncertainty: Infinity }).success).toBe(false);
+  });
+  it('B028: rejects -Infinity elo', () => {
+    expect(ratingSchema.safeParse({ elo: -Infinity, uncertainty: 100 }).success).toBe(false);
+  });
+});
+
+// ─── Phase 1 hardening (scan_codebase_for_bugs_20260422) ─────────
+
+describe('Phase 1: schema hardening', () => {
+  const validVariant = () => ({
+    id: '11111111-1111-1111-1111-111111111111',
+    run_id: '22222222-2222-2222-2222-222222222222',
+    variant_content: 'hello world',
+  });
+
+  // B066: variant mu / sigma refuse non-finite
+  it('B066: variant mu rejects NaN', () => {
+    const result = evolutionVariantInsertSchema.safeParse({ ...validVariant(), mu: NaN });
+    expect(result.success).toBe(false);
+  });
+  it('B066: variant sigma rejects Infinity', () => {
+    const result = evolutionVariantInsertSchema.safeParse({ ...validVariant(), sigma: Infinity });
+    expect(result.success).toBe(false);
+  });
+
+  // B071: variant elo_score refuses non-finite
+  it('B071: variant elo_score rejects NaN', () => {
+    const result = evolutionVariantInsertSchema.safeParse({ ...validVariant(), elo_score: NaN });
+    expect(result.success).toBe(false);
+  });
+
+  // B065: variant generation_method rejects empty string
+  it('B065: variant generation_method rejects empty string', () => {
+    const result = evolutionVariantInsertSchema.safeParse({
+      ...validVariant(),
+      generation_method: '',
+    });
+    expect(result.success).toBe(false);
+  });
+  it('B065: variant generation_method accepts null', () => {
+    const result = evolutionVariantInsertSchema.safeParse({
+      ...validVariant(),
+      generation_method: null,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  // B074: invocation schema now accepts `tactic`
+  it('B074: invocation schema accepts tactic field', () => {
+    const result = evolutionAgentInvocationInsertSchema.safeParse({
+      run_id: '22222222-2222-2222-2222-222222222222',
+      agent_name: 'generate_from_previous_article',
+      iteration: 0,
+      execution_order: 0,
+      tactic: 'structural_transform',
+    });
+    expect(result.success).toBe(true);
+  });
+
+  // B075: error_message capped at 10000 chars
+  it('B075: run error_message rejects 10001-char string', () => {
+    const longMsg = 'x'.repeat(10001);
+    const result = evolutionRunInsertSchema.safeParse({
+      prompt_id: '11111111-1111-1111-1111-111111111111',
+      strategy_id: '22222222-2222-2222-2222-222222222222',
+      budget_cap_usd: 5.0,
+      error_message: longMsg,
+    });
+    expect(result.success).toBe(false);
+  });
+  it('B075: run error_message accepts 10000-char string', () => {
+    const msg = 'x'.repeat(10000);
+    const result = evolutionRunInsertSchema.safeParse({
+      prompt_id: '11111111-1111-1111-1111-111111111111',
+      strategy_id: '22222222-2222-2222-2222-222222222222',
+      budget_cap_usd: 5.0,
+      error_message: msg,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  // B063 + B072: budget event amount_usd / available_budget_usd
+  it('B072: budget event amount_usd rejects negative', () => {
+    const result = evolutionBudgetEventInsertSchema.safeParse({
+      run_id: '22222222-2222-2222-2222-222222222222',
+      event_type: 'reserve',
+      agent_name: 'generation',
+      amount_usd: -0.01,
+      total_spent_usd: 0,
+      total_reserved_usd: 0,
+      available_budget_usd: 1,
+    });
+    expect(result.success).toBe(false);
+  });
+  it('B063: budget event amount_usd rejects NaN', () => {
+    const result = evolutionBudgetEventInsertSchema.safeParse({
+      run_id: '22222222-2222-2222-2222-222222222222',
+      event_type: 'reserve',
+      agent_name: 'generation',
+      amount_usd: NaN,
+      total_spent_usd: 0,
+      total_reserved_usd: 0,
+      available_budget_usd: 1,
+    });
+    expect(result.success).toBe(false);
+  });
+  it('B063: budget event available_budget_usd rejects Infinity', () => {
+    const result = evolutionBudgetEventInsertSchema.safeParse({
+      run_id: '22222222-2222-2222-2222-222222222222',
+      event_type: 'reserve',
+      agent_name: 'generation',
+      amount_usd: 0.01,
+      total_spent_usd: 0,
+      total_reserved_usd: 0,
+      available_budget_usd: Infinity,
+    });
+    expect(result.success).toBe(false);
+  });
 });
 
 describe('cachedMatchSchema', () => {

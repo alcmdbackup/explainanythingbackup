@@ -89,9 +89,13 @@ export const listTacticsAction = adminAction(
     const rows = (data ?? []) as EvolutionTacticRow[];
 
     // Batch-fetch listView metrics for the page's tactic IDs. Chunked internally to 100.
-    const metricsMap = rows.length > 0
+    // B043: getMetricsForEntities returns { data, errors } — IGNORE chunk errors here
+    // because a list-view page falling back to empty metrics on a chunk failure is
+    // strictly better than dropping the whole page.
+    const metricsResult = rows.length > 0
       ? await getMetricsForEntities(ctx.supabase, 'tactic', rows.map((r) => r.id), [...LIST_VIEW_METRIC_NAMES])
-      : new Map<string, MetricRow[]>();
+      : { data: new Map<string, MetricRow[]>(), errors: [] };
+    const metricsMap = metricsResult.data;
 
     let items: TacticListRow[] = rows.map((r) => ({
       ...r,

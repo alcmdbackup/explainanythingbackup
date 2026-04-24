@@ -119,6 +119,24 @@ export function EntityListPage<T>(props: EntityListPageProps<T>): JSX.Element {
     }
     return defaults;
   });
+  // B097: re-apply defaultChecked when the filters prop identity changes in controlled
+  // mode (e.g., when a parent rebuilds its filter list after a navigation). Without this
+  // effect the default-checked state applies only at mount; a detail→list back-nav
+  // that resets filters to `{}` could leave the checkbox unchecked even when the prop
+  // declared it default-on.
+  const filtersRef = useRef(props.filters);
+  useEffect(() => {
+    if (filtersRef.current !== props.filters) {
+      filtersRef.current = props.filters;
+      const defaults: Record<string, string> = {};
+      for (const f of props.filters ?? []) {
+        if (f.type === 'checkbox' && f.defaultChecked) defaults[f.key] = 'true';
+      }
+      if (Object.keys(defaults).length > 0) {
+        setManagedFilterValues(prev => ({ ...defaults, ...prev }));
+      }
+    }
+  }, [props.filters]);
   const [managedPage, setManagedPage] = useState(1);
   const [jumpInput, setJumpInput] = useState('');
 

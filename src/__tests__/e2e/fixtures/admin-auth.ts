@@ -39,7 +39,15 @@ interface AdminSessionData {
  * Authenticates as admin user with retry logic.
  * Uses TEST_USER_EMAIL/TEST_USER_PASSWORD env vars.
  */
-async function authenticateAdmin(retries = MAX_AUTH_RETRIES): Promise<AdminSessionData> {
+async function authenticateAdmin(
+  retries = MAX_AUTH_RETRIES,
+  { forceFresh = false }: { forceFresh?: boolean } = {},
+): Promise<AdminSessionData> {
+  // B107: see note in auth.ts — stale cached session on retry.
+  if (forceFresh) {
+    cachedAdminSession = null;
+    adminSessionExpiry = 0;
+  }
   const now = Date.now();
   if (cachedAdminSession && adminSessionExpiry > now + 5 * 60 * 1000) {
     console.log('   ✓ Using cached admin session');
@@ -101,7 +109,8 @@ export const adminTest = base.extend<AdminFixtures>({
 
     const context = await browser.newContext();
     const page = await context.newPage();
-    const session = await authenticateAdmin();
+    // B107: force fresh auth on retries.
+    const session = await authenticateAdmin(undefined, { forceFresh: testInfo.retry > 0 });
 
     // Extract project ref from Supabase URL (matches auth.ts pattern)
     const supabaseUrl = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL!);
@@ -164,7 +173,7 @@ export const adminTest = base.extend<AdminFixtures>({
       testInfo.skip(true, 'TEST_USER_EMAIL/TEST_USER_PASSWORD not configured');
       return;
     }
-    const session = await authenticateAdmin();
+    const session = await authenticateAdmin(undefined, { forceFresh: testInfo.retry > 0 });
     // eslint-disable-next-line react-hooks/rules-of-hooks
     await use(session.user.id);
   },

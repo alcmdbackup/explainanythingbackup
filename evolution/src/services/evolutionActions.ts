@@ -277,7 +277,11 @@ export const getEvolutionRunsAction = adminAction(
     if (runIds.length > 0) {
       try {
         const metricNames = getListViewMetrics('run').map(d => d.name);
-        const metricsByRun = await getMetricsForEntities(supabase, 'run', runIds, metricNames);
+        // B043: LOG — partial chunk failure logged; remaining runs show whatever succeeded.
+        const { data: metricsByRun, errors: readErrors } = await getMetricsForEntities(supabase, 'run', runIds, metricNames);
+        if (readErrors.length > 0) {
+          logger.warn('getEvolutionRunsAction: partial metrics-read', { errors: readErrors });
+        }
         for (const run of typedRuns) {
           run.metrics = metricsByRun.get(run.id) ?? [];
         }
@@ -366,7 +370,8 @@ export const getEvolutionRunByIdAction = adminAction(
     // of crashing the run detail page.
     try {
       const metricNames = getListViewMetrics('run').map(d => d.name);
-      const metricsByRun = await getMetricsForEntities(ctx.supabase, 'run', [runId], metricNames);
+      // B043: IGNORE — single-run read; missing chunks == missing metrics (handled below).
+      const { data: metricsByRun } = await getMetricsForEntities(ctx.supabase, 'run', [runId], metricNames);
       run.metrics = metricsByRun.get(runId) ?? [];
     } catch (err) {
       logger.warn('getEvolutionRunByIdAction: metric fetch failed (degraded)', {

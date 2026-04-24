@@ -2,6 +2,7 @@
 // Creates and cleans up evolution runs, strategies, prompts, and variants with FK-safe ordering.
 
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { randomUUID } from 'crypto';
 import type { Database } from '@/lib/database.types';
 import * as fs from 'fs';
 
@@ -10,8 +11,16 @@ const TEST_EVO_PREFIX = '[TEST_EVO]';
 // eslint-disable-next-line flakiness/no-hardcoded-tmpdir -- base path combined with worker-specific suffix below
 const TRACKED_IDS_BASE = '/tmp/e2e-tracked-evolution-ids';
 
+/**
+ * B104: fall back to a per-process UUID when `TEST_PARALLEL_INDEX` is unset. The old
+ * `?? '0'` meant that two concurrent workers without the env var wrote to the same
+ * `…-worker-0.txt`, corrupting the tracked-IDs file. The UUID fallback guarantees a
+ * distinct file per process, eliminating the collision.
+ */
+const PROCESS_WORKER_FALLBACK = randomUUID();
+
 function getTrackedIdsFile(): string {
-  const workerIndex = process.env.TEST_PARALLEL_INDEX ?? '0';
+  const workerIndex = process.env.TEST_PARALLEL_INDEX ?? PROCESS_WORKER_FALLBACK;
   return `${TRACKED_IDS_BASE}-worker-${workerIndex}.txt`;
 }
 
@@ -60,7 +69,16 @@ type EvolutionEntityType =
  */
 export function trackEvolutionId(type: EvolutionEntityType, id: string): void {
   try {
-    fs.appendFileSync(getTrackedIdsFile(), `${type}:${id}\n`);
+    // B105: open with explicit fd so we can fsync after append; a naive appendFileSync
+    // does not guarantee the write is durable before the next `readFileSync` in teardown,
+    // so late-tracked IDs could be missed by the cleanup pass.
+    const fd = fs.openSync(getTrackedIdsFile(), 'a');
+    try {
+      fs.writeSync(fd, `${type}:${id}\n`);
+      fs.fsyncSync(fd);
+    } finally {
+      fs.closeSync(fd);
+    }
   } catch (err) {
     console.warn(
       `[evolution-test-data-factory] Failed to track ${type} ID ${id}:`,

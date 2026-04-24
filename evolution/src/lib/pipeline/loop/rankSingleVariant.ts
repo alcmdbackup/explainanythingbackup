@@ -105,7 +105,12 @@ export function computeTop15Cutoff(ratings: ReadonlyMap<string, Rating>): number
   for (const r of ratings.values()) elos.push(r.elo);
   if (elos.length === 0) return 0;
   elos.sort((a, b) => b - a);
-  const idx = Math.max(0, Math.floor(elos.length * TOP_PERCENTILE) - 1);
+  // B121: previous formula `Math.max(0, Math.floor(n * 0.15) - 1)` collapsed to
+  // index 0 (the single top element) for any n < 7, making the "cutoff" equal
+  // the best elo and eliminating everyone else. Use ceil so small pools return
+  // a bar that includes at least the top 15% by count; also clamp the index
+  // into valid range (`Math.min(elos.length - 1, ...)`).
+  const idx = Math.min(elos.length - 1, Math.max(0, Math.ceil(elos.length * TOP_PERCENTILE) - 1));
   return elos[idx] ?? 0;
 }
 

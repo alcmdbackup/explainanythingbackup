@@ -56,16 +56,34 @@ export async function getMetric(
   return data ? (renameSigma(data as Record<string, unknown>) as MetricRow) : null;
 }
 
+/**
+ * Return shape for {@link getMetricsForEntities}. Previously returned a bare
+ * `Map<string, MetricRow[]>` and threw on chunk failure — which silently discarded
+ * results from earlier-successful chunks when the caller retried. B043 changes this to
+ * a `{data, errors}` tuple so a partial-chunk failure is visible to the caller but
+ * doesn't nuke successful data.
+ */
+export interface MetricsForEntitiesResult {
+  data: Map<string, MetricRow[]>;
+  errors: Array<{ chunkIndex: number; error: string }>;
+}
+
 export async function getMetricsForEntities(
   db: SupabaseClient,
   entityType: EntityType,
   entityIds: string[],
   metricNames: string[],
-): Promise<Map<string, MetricRow[]>> {
+): Promise<MetricsForEntitiesResult> {
   const result = new Map<string, MetricRow[]>();
-  if (entityIds.length === 0 || metricNames.length === 0) return result;
+  const errors: Array<{ chunkIndex: number; error: string }> = [];
+  if (entityIds.length === 0 || metricNames.length === 0) {
+    return { data: result, errors };
+  }
 
-  // Chunk entity IDs to avoid Supabase .in() limits
+  // B043: chunk entity IDs to avoid Supabase .in() limits. On a chunk error, record the
+  // failure and continue rather than throwing — earlier successful chunks are preserved.
+  // Callers decide whether to surface the `errors` array or log-and-ignore.
+  let chunkIndex = 0;
   for (let i = 0; i < entityIds.length; i += CHUNK_SIZE) {
     const chunk = entityIds.slice(i, i + CHUNK_SIZE);
     const { data, error } = await db
@@ -76,7 +94,9 @@ export async function getMetricsForEntities(
       .in('metric_name', metricNames);
 
     if (error) {
-      throw new Error(`Failed to batch read metrics: ${error.message}`);
+      errors.push({ chunkIndex, error: error.message });
+      chunkIndex += 1;
+      continue;
     }
 
     for (const row of renameRows(data ?? [])) {
@@ -87,7 +107,8 @@ export async function getMetricsForEntities(
         result.set(row.entity_id, [row]);
       }
     }
+    chunkIndex += 1;
   }
 
-  return result;
+  return { data: result, errors };
 }

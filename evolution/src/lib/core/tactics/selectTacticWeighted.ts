@@ -45,9 +45,13 @@ export function selectTacticWeighted(
   // Draw uniform random sample from [0, 1)
   const sample = rng.next();
 
-  // Linear search through cumulative distribution
+  // Linear search through cumulative distribution.
+  // B120: use `<=` instead of `<` so FP rounding on the final cumulative bucket
+  // (which should equal exactly 1.0 but can end up at 0.9999999999...) doesn't
+  // push a legitimate sample into the fallback. The fallback still covers the
+  // truly-pathological sample==1 case, but `<=` catches the normal edge.
   for (const entry of cumulative) {
-    if (sample < entry.cumulativeProb) {
+    if (sample <= entry.cumulativeProb) {
       return entry.tactic;
     }
   }

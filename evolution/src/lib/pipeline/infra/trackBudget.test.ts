@@ -117,15 +117,17 @@ describe('V2CostTracker', () => {
     expect(ct.getAvailableBudget()).toBeCloseTo(0.87);
   });
 
-  it('reserve with negative estimatedCost does not throw (adds negative reservation)', () => {
+  it('B017: reserve with negative estimatedCost throws', () => {
     const ct = createCostTracker(1.0);
-    // Negative cost produces negative margined value; reserve does not validate sign.
-    // The margined amount is negative, so totalReserved decreases, effectively
-    // increasing available budget — documenting this behavior.
-    const margined = ct.reserve('generation', -0.1);
-    expect(margined).toBeCloseTo(-0.13);
-    // Available budget increases because totalReserved went negative
-    expect(ct.getAvailableBudget()).toBeGreaterThan(1.0);
+    // Guard added in B017: a non-finite or negative estimate is a caller bug;
+    // previously a negative margined value inflated available budget.
+    expect(() => ct.reserve('generation', -0.1)).toThrow();
+  });
+
+  it('B017: reserve with NaN/Infinity throws', () => {
+    const ct = createCostTracker(1.0);
+    expect(() => ct.reserve('generation', NaN)).toThrow();
+    expect(() => ct.reserve('generation', Infinity)).toThrow();
   });
 
   it('double release of same reservation does not go negative on available budget', () => {

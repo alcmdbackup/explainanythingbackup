@@ -140,6 +140,11 @@ export interface AgentContext {
   iteration: number;
   executionOrder: number;
   logger: EntityLogger;
+  // Orchestrator passes the raw V2CostTracker (per-iteration); Agent.run() wraps it in
+  // createAgentCostScope before constructing extendedCtx for execute(). Consumers that
+  // need per-scope cost attribution (rankNewVariant) take `AgentCostScope` directly —
+  // pass `extendedCtx.costTracker as AgentCostScope` at the call site, since Agent.run
+  // has already performed the wrap.
   costTracker: V2CostTracker & { getOwnSpent?: () => number };
   config: EvolutionConfig;
   /** Invocation row UUID — populated by Agent.run() before execute() is called.
@@ -165,6 +170,11 @@ export interface AgentContext {
   defaultModel?: string;
   /** Optional temperature override for generation-phase LLM calls. */
   generationTemperature?: number;
+  /** B122: prompt_id for the run, set by the orchestrator so agents writing to
+   *  evolution_arena_comparisons (MergeRatingsAgent) can populate the column at insert
+   *  time rather than relying on sync_to_arena to backfill. Set to null for runs with
+   *  no prompt (explanation-only runs). */
+  promptId?: string | null;
 }
 
 export interface AgentOutput<TOutput, TDetail> {

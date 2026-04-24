@@ -70,6 +70,16 @@ export function createAgentCostScope(shared: V2CostTracker): AgentCostScope {
 /** Safety margin multiplier for budget reservations. */
 const RESERVE_MARGIN = 1.3;
 
+/**
+ * Quantization unit for margined reservations. Rounds to the nearest 0.0001 USD (1/100 of
+ * a cent). This keeps float-arithmetic accumulation error from eating the safety margin on
+ * tight budgets over thousands of small reserves (B020).
+ */
+const RESERVE_QUANTUM = 10_000;
+function quantizeUsd(value: number): number {
+  return Math.round(value * RESERVE_QUANTUM) / RESERVE_QUANTUM;
+}
+
 /** Whether strict assertions are enabled (dev/test only). */
 const STRICT_ASSERTIONS = process.env.EVOLUTION_ASSERTIONS === 'true';
 
@@ -103,7 +113,16 @@ export function createCostTracker(budgetUsd: number, logger?: EntityLogger): V2C
     // INVARIANT: reserve() must remain synchronous to maintain parallel safety
     // under Node.js single-threaded event loop. Do not add awaits to this function.
     reserve(phase: AgentName, estimatedCost: number): number {
-      const margined = estimatedCost * RESERVE_MARGIN;
+      // B017: reject non-finite / negative inputs at the entry so garbage cost numbers can't
+      // corrupt totalReserved (negative margined would inflate availableBudget).
+      if (!Number.isFinite(estimatedCost) || estimatedCost < 0) {
+        throw new Error(
+          `V2CostTracker.reserve: estimatedCost must be finite and non-negative (phase=${phase}, got=${estimatedCost})`,
+        );
+      }
+      // B020: quantize to 0.0001 USD so float-arithmetic accumulation error doesn't
+      // erode the safety margin over thousands of small reserves on tight budgets.
+      const margined = quantizeUsd(estimatedCost * RESERVE_MARGIN);
       if (totalSpent + totalReserved + margined > budgetUsd) {
         logger?.warn('Budget exceeded on reserve', { phaseName: phase, totalSpent, reserved: totalReserved + margined, budgetUsd });
         throw new BudgetExceededError(phase, totalSpent, totalReserved + margined, budgetUsd);

@@ -82,9 +82,22 @@ export function EntityTable<T>({
         <tbody>
           {items.map((item, i) => {
             const href = getRowHref?.(item);
+            // B101: reject missing `id` in dev so stale-content-on-resort is caught early.
+            // Production (NODE_ENV === 'production') falls back to index-as-key with a
+            // one-line console warn so a single missing id doesn't crash the admin page.
+            const rawId = (item as Record<string, unknown>).id;
+            const id = typeof rawId === 'string' ? rawId : null;
+            if (id === null) {
+              if (process.env.NODE_ENV !== 'production') {
+                throw new Error(`EntityTable: item at index ${i} is missing a string \`id\` — add \`id\` to the column schema to keep React keys stable under resort.`);
+              } else {
+                // eslint-disable-next-line no-console
+                console.warn(`[EntityTable] item at index ${i} missing id; falling back to index key`);
+              }
+            }
             return (
               <tr
-                key={(item as Record<string, unknown>).id as string ?? i}
+                key={id ?? i}
                 className="border-b border-[var(--border-default)] last:border-0 hover:bg-[var(--surface-elevated)] transition-colors"
               >
                 {columns.map((col) => (

@@ -306,16 +306,16 @@ describe('finalizeRun', () => {
     expect(rpc!.args.p_completed_run_id).toBe(RUN_ID);
   });
 
-  it('missing ratings use default', async () => {
+  it('B035: throws NoRatedCandidatesError when pool has variants but no ratings', async () => {
+    // Previously missing ratings were silently defaulted to ±Infinity — the
+    // ratings-pipeline bug that allowed this is now surfaced as a hard error.
     const pool = [makeVariant('00000000-0000-4000-8000-000000000040', 'test')];
-    const ratings = new Map<string, Rating>(); // Empty!
+    const ratings = new Map<string, Rating>();
     const result = makeResult({ pool, ratings });
-    const { db, upserts } = makeMockDb();
-    await finalizeRun(RUN_ID, result, { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
-    const rows = (upserts.find((u) => u.table === 'evolution_variants')?.data ?? []) as Array<Record<string, unknown>>;
-    expect(rows[0]!.elo_score).toBe(DEFAULT_ELO);
-    expect(rows[0]!.mu).toBe(_INTERNAL_DEFAULT_MU);
-    expect(rows[0]!.sigma).toBe(_INTERNAL_DEFAULT_SIGMA);
+    const { db } = makeMockDb();
+    await expect(
+      finalizeRun(RUN_ID, result, { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120),
+    ).rejects.toThrow(/no rated candidates/i);
   });
 
   // Regression: winner tie-breaking should use lowest sigma when mu is equal
@@ -1073,7 +1073,8 @@ describe('propagateMetrics', () => {
         { metric_name: 'max_elo', value: 1520, uncertainty: 40, ci_lower: 1440, ci_upper: 1600, n: 1 },
       ]],
     ]);
-    getMetricsForEntities.mockResolvedValueOnce(metricsMap);
+    // B043: return shape is `{ data, errors }`.
+    getMetricsForEntities.mockResolvedValueOnce({ data: metricsMap, errors: [] });
 
     const supabase = {
       from: jest.fn().mockReturnValue({

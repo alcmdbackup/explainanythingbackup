@@ -487,7 +487,12 @@ export async function propagateMetrics(
   if (propDefs.length === 0) return;
 
   const sourceMetricNames = [...new Set(propDefs.map(d => d.sourceMetric))];
-  const runMetrics = await getMetricsForEntities(db, 'run', childRunIds, sourceMetricNames);
+  // B043: LOG — partial chunk failure is logged; propagation uses whatever succeeded.
+  const { data: runMetrics, errors: readErrors } = await getMetricsForEntities(db, 'run', childRunIds, sourceMetricNames);
+  if (readErrors.length > 0) {
+    // eslint-disable-next-line no-console
+    console.warn('[persistRunResults] partial metrics-read during propagation', { entityType, entityId, errors: readErrors });
+  }
   const allRows = [...runMetrics.values()].flat();
 
   for (const def of propDefs) {

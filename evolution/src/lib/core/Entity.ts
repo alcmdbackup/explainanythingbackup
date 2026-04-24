@@ -4,6 +4,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { ZodSchema } from 'zod';
 import { createEntityLogger, type EntityLogger } from '../pipeline/infra/createEntityLogger';
+import { DYNAMIC_METRIC_PREFIXES } from '../metrics/types';
 import type {
   EntityType, ParentRelation, ChildRelation, EntityAction,
   ColumnDef, FilterDef, SortDef, FieldDef, TabDef, EntityLink,
@@ -201,6 +202,45 @@ export abstract class Entity<TRow> {
           .eq('entity_type', parent.parentType)
           .eq('entity_id', parentId)
           .in('metric_name', metricNames);
+      }
+
+      // B041: extend the cascade to every dynamic-prefix metric family on this parent
+      // (`eloAttrDelta:*`, `eloAttrDeltaHist:*`, `agentCost:*`). These are computed
+      // ad-hoc by `experimentMetrics.computeEloAttributionMetrics` rather than
+      // declared in `atPropagation`, so the static-def filter above misses them.
+      // Iterate `DYNAMIC_METRIC_PREFIXES` in TS and issue one `.like` per prefix so
+      // adding a new dynamic family later is a 1-line types.ts change.
+      for (const prefix of DYNAMIC_METRIC_PREFIXES) {
+        await db.from('evolution_metrics')
+          .update({ stale: true, updated_at: new Date().toISOString() })
+          .eq('entity_type', parent.parentType)
+          .eq('entity_id', parentId)
+          .like('metric_name', `${prefix}%`);
+      }
+    }
+
+    // B042: variant→tactic cascade. Variants have no `tactic` FK (tactic identity lives
+    // in `evolution_tactics` keyed by `agent_name`); the registry `parents` list doesn't
+    // include it. Fetch the variant's agent_name and mark matching tactic-entity metric
+    // rows stale. No-op when the entity has no `agent_name` column.
+    if (this.type === 'variant') {
+      const { data: variantRow } = await db.from(this.table)
+        .select('agent_name')
+        .eq('id', entityId)
+        .single();
+      const agentName = extractFk(variantRow, 'agent_name');
+      if (agentName) {
+        const { data: tacticRow } = await db.from('evolution_tactics')
+          .select('id')
+          .eq('name', agentName)
+          .maybeSingle();
+        const tacticId = extractFk(tacticRow, 'id');
+        if (tacticId) {
+          await db.from('evolution_metrics')
+            .update({ stale: true, updated_at: new Date().toISOString() })
+            .eq('entity_type', 'tactic')
+            .eq('entity_id', tacticId);
+        }
       }
     }
   }

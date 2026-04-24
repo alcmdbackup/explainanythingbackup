@@ -81,6 +81,10 @@ const baseURL = process.env.BASE_URL || instanceURL || 'http://localhost:3008';
 if (!process.env.BASE_URL && instanceURL) {
   process.env.BASE_URL = baseURL;
 }
+// B109: persist the resolved URL to a separate env var so global-setup.ts reuses it
+// instead of running a second discovery pass in its own Node process (which could race
+// ensure-server.sh and fall back to a stale URL).
+process.env.E2E_BASE_URL = baseURL;
 
 // Detect production environment for extended timeouts and serial execution
 const isProduction = baseURL.includes('vercel.app') || baseURL.includes('explainanything');
@@ -166,8 +170,11 @@ export default defineConfig({
       },
     },
   }),
-  // Exclude @skip-prod tests in production environments
-  ...(isProduction ? { grepInvert: /@skip-prod/ } : {}),
+  // B116: always exclude @skip-prod tests — locally they hit mocked API handlers
+  // that differ from production, so running them against a local dev build gave
+  // misleading pass/fail signals. Tests that require the mocked API should tag
+  // themselves explicitly rather than rely on @skip-prod meaning "local-only".
+  grepInvert: /@skip-prod/,
   // Extended timeouts for production (real AI latency)
   timeout: isProduction ? 120000 : (process.env.CI ? 60000 : 30000),
   expect: {

@@ -42,6 +42,11 @@ export abstract class Agent<TInput, TOutput, TDetail extends ExecutionDetailBase
   abstract execute(input: TInput, ctx: AgentContext): Promise<AgentOutput<TOutput, TDetail>>;
 
   async run(input: TInput, ctx: AgentContext): Promise<AgentResult<TOutput>> {
+    // B047: capture startMs as the very first statement in run(), BEFORE invocation row
+    // creation and per-invocation LLM client construction. The old placement under-counted
+    // duration_ms by the construction overhead (~ms to tens of ms per invocation).
+    const startMs = Date.now();
+
     // Extract tactic from input if present (GenerateFromSeedArticleAgent, future agents with tactics).
     const tactic = (input as Record<string, unknown>)?.tactic as string | undefined;
     const invocationId = await createInvocation(
@@ -73,8 +78,6 @@ export abstract class Agent<TInput, TOutput, TDetail extends ExecutionDetailBase
       effectiveInput = { ...(input as unknown as Record<string, unknown>), llm: scopedLlm } as unknown as TInput;
     }
 
-    const startMs = Date.now();
-
     ctx.logger.info(`Agent ${this.name} starting`, { phaseName: this.name, iteration: ctx.iteration });
 
     try {
@@ -90,22 +93,40 @@ export abstract class Agent<TInput, TOutput, TDetail extends ExecutionDetailBase
 
       const parseResult = this.executionDetailSchema.safeParse(detail);
       if (!parseResult.success) {
-        ctx.logger.warn(`Agent ${this.name} execution detail validation failed — writing null detail to DB`, {
+        ctx.logger.warn(`Agent ${this.name} execution detail validation failed — marking invocation failed`, {
           phaseName: this.name,
           errors: parseResult.error.issues.slice(0, 3).map(i => i.message),
         });
       }
 
+      // B051: if detail schema validation fails, mark the invocation `success: false` and
+      // record an error_message instead of silently writing `execution_detail: undefined`.
+      // Downstream detail-view pages assume validated detail shape; writing null+success=true
+      // hid the failure and crashed the UI renderer on a subsequent read.
+      const detailInvalid = !parseResult.success;
+      // B048: extract a `surfaced` flag from the agent's result when present (generate
+      // agents populate `result.surfaced`). Persisted as `variant_surfaced` so tactic-cost
+      // rollups can filter with `variant_surfaced IS NOT FALSE` (B053) and stop counting
+      // generate-then-discarded invocations as useful cost.
+      const resultRecord = output.result as unknown as Record<string, unknown> | null | undefined;
+      const surfacedFlag = resultRecord && typeof resultRecord.surfaced === 'boolean'
+        ? (resultRecord.surfaced as boolean)
+        : undefined;
       await updateInvocation(ctx.db, invocationId, {
         cost_usd: cost,
-        success: true,
+        success: !detailInvalid,
         execution_detail: parseResult.success ? (detail as unknown as Record<string, unknown>) : undefined,
+        error_message: detailInvalid
+          ? `detail_invalid: ${parseResult.error!.issues.slice(0, 3).map(i => i.message).join('; ').slice(0, 1000)}`
+          : undefined,
         duration_ms: durationMs,
+        variant_surfaced: surfacedFlag,
       });
 
       ctx.logger.info(`Agent ${this.name} completed`, { phaseName: this.name, iteration: ctx.iteration, cost, durationMs });
 
-      return { success: true, result: output.result, cost, durationMs, invocationId };
+      // B051: return-value success must match what we wrote to the invocation row.
+      return { success: !detailInvalid, result: output.result, cost, durationMs, invocationId };
 
     } catch (error) {
       const cost = costScope.getOwnSpent();

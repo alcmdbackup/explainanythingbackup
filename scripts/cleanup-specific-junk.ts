@@ -187,33 +187,40 @@ async function findJunkContent(supabase: SupabaseClient): Promise<Array<{ id: nu
     }
   }
 
-  // Query using regex patterns (PostgreSQL ~ operator via RPC or filter)
-  // Since Supabase JS client doesn't directly support ~, we use a workaround
-  // by fetching all and filtering client-side for the regex patterns
+  // B113: the previous string-range filter `.gte('0').lte('9z')` was imprecise
+  // (ASCII ordering admits non-digit leading chars and punctuation) and also
+  // unpaginated — Supabase silently caps at 1000 rows. Use the Postgres regex
+  // operator `~` anchored to `^[0-9]`, and paginate with `.range()` until we
+  // hit a short page.
+  const PAGE_SIZE = 1000;
   for (const regexPattern of REGEX_JUNK_PATTERNS) {
     const regex = new RegExp(regexPattern, 'i');
+    let from = 0;
+    // Cap pagination loop to avoid runaway queries on unexpectedly huge tables.
+    const MAX_PAGES = 1000;
+    for (let page = 0; page < MAX_PAGES; page++) {
+      const { data, error } = await supabase
+        .from('explanations')
+        .select('id, explanation_title')
+        .filter('explanation_title', '~', '^[0-9]')
+        .order('id', { ascending: true })
+        .range(from, from + PAGE_SIZE - 1);
 
-    // Query explanations that look like they might match (starts with digit)
-    const { data, error } = await supabase
-      .from('explanations')
-      .select('id, explanation_title')
-      .gte('explanation_title', '0')
-      .lte('explanation_title', '9z');
+      if (error) {
+        console.error(`Error querying for regex pattern "${regexPattern}":`, error.message);
+        break;
+      }
+      if (!data || data.length === 0) break;
 
-    if (error) {
-      console.error(`Error querying for regex pattern "${regexPattern}":`, error.message);
-      continue;
-    }
-
-    if (data) {
-      // Apply regex filter client-side
       const filtered = data.filter(exp => {
         if (!regex.test(exp.explanation_title)) return false;
-        // Also check protected terms
         const title = exp.explanation_title.toLowerCase();
         return !PROTECTED_TERMS.some(term => title.includes(term));
       });
       results.push(...filtered);
+
+      if (data.length < PAGE_SIZE) break;
+      from += PAGE_SIZE;
     }
   }
 

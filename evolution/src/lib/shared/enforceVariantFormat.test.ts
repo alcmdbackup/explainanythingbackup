@@ -1,7 +1,7 @@
 // Unit tests for format validator.
 // Verifies H1, section headings, bullet detection, sentence count rules.
 
-import { validateFormat } from './enforceVariantFormat';
+import { validateFormat, _reloadValidationModeForTesting } from './enforceVariantFormat';
 
 const VALID_ARTICLE = `# Great Title
 
@@ -79,6 +79,7 @@ describe('validateFormat', () => {
   it('returns valid=true with issues in warn mode', () => {
     const original = process.env.FORMAT_VALIDATION_MODE;
     process.env.FORMAT_VALIDATION_MODE = 'warn';
+    _reloadValidationModeForTesting();
     try {
       const result = validateFormat('no H1 here');
       expect(result.valid).toBe(true);
@@ -89,12 +90,14 @@ describe('validateFormat', () => {
       } else {
         delete process.env.FORMAT_VALIDATION_MODE;
       }
+      _reloadValidationModeForTesting();
     }
   });
 
   it('skips all checks in off mode', () => {
     const original = process.env.FORMAT_VALIDATION_MODE;
     process.env.FORMAT_VALIDATION_MODE = 'off';
+    _reloadValidationModeForTesting();
     try {
       const result = validateFormat('anything goes');
       expect(result.valid).toBe(true);
@@ -105,6 +108,7 @@ describe('validateFormat', () => {
       } else {
         delete process.env.FORMAT_VALIDATION_MODE;
       }
+      _reloadValidationModeForTesting();
     }
   });
 
@@ -155,6 +159,7 @@ describe('validateFormat', () => {
   it('treats uppercase WARN mode correctly', () => {
     const original = process.env.FORMAT_VALIDATION_MODE;
     process.env.FORMAT_VALIDATION_MODE = 'WARN';
+    _reloadValidationModeForTesting();
     try {
       const result = validateFormat('no H1 here');
       expect(result.valid).toBe(true);
@@ -165,12 +170,14 @@ describe('validateFormat', () => {
       } else {
         delete process.env.FORMAT_VALIDATION_MODE;
       }
+      _reloadValidationModeForTesting();
     }
   });
 
   it('treats uppercase OFF mode correctly', () => {
     const original = process.env.FORMAT_VALIDATION_MODE;
     process.env.FORMAT_VALIDATION_MODE = 'OFF';
+    _reloadValidationModeForTesting();
     try {
       const result = validateFormat('anything');
       expect(result.valid).toBe(true);
@@ -181,6 +188,7 @@ describe('validateFormat', () => {
       } else {
         delete process.env.FORMAT_VALIDATION_MODE;
       }
+      _reloadValidationModeForTesting();
     }
   });
 });

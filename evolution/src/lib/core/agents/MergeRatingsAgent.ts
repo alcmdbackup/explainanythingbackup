@@ -206,6 +206,8 @@ export class MergeRatingsAgent extends Agent<
     const matchesAppliedSnapshot: AppliedSnapshot[] = [];
     interface ArenaRowPayload {
       run_id: string;
+      // B122: set at insert (was previously NULL, backfilled by sync_to_arena).
+      prompt_id: string | null;
       entry_a: string;
       entry_b: string;
       winner: 'a' | 'b' | 'draw';
@@ -286,6 +288,11 @@ export class MergeRatingsAgent extends Agent<
       const bAfterDb = ratingToDb(bAfter);
       arenaRows.push({
         run_id: ctx.runId,
+        // B122: set prompt_id at insert. Previously left NULL for sync_to_arena to
+        // backfill, which races with concurrent finalization and could leak NULL
+        // rows into the leaderboard. `ctx.promptId` is populated by the orchestrator
+        // when a prompt-based run starts.
+        prompt_id: ctx.promptId ?? null,
         entry_a: idA,
         entry_b: idB,
         winner: winnerSlot,
