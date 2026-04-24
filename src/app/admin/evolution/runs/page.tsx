@@ -2,7 +2,7 @@
 // Standardizes on the shared list page pattern while preserving RunsTable's budget bars.
 'use client';
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { toast } from 'sonner';
 import {
   EvolutionBreadcrumb,
@@ -62,7 +62,11 @@ function ColumnPicker({ allColumns, hidden, onChange }: {
               checked={!hidden.has(c.key)}
               onChange={(e) => {
                 const next = new Set(hidden);
-                if (e.target.checked) next.delete(c.key); else next.add(c.key);
+                if (e.target.checked) {
+                  next.delete(c.key);
+                } else {
+                  next.add(c.key);
+                }
                 onChange(next);
               }}
               data-testid={`column-toggle-${c.key}`}
@@ -87,18 +91,35 @@ export default function EvolutionRunsPage(): JSX.Element {
   // U3 (use_playwright_find_bugs_ux_issues_20260422): persisted column-visibility
   // for the 14-column runs list. Hidden keys are stored as a JSON array in
   // localStorage so the choice survives reloads.
+  //
+  // Initialize to an empty Set on both server (SSR) and client first paint, then
+  // load the persisted subset in useEffect after mount. This avoids a hydration
+  // mismatch — reading localStorage in the useState initializer would make the
+  // server (no localStorage → all columns visible) and the client (subset hidden)
+  // diverge for users who've hidden columns. Trade-off: the picker briefly shows
+  // all 14 columns on first paint before snapping to the saved subset.
   const COL_VIS_KEY = 'evolution-runs-hidden-columns';
-  const [hiddenCols, setHiddenCols] = useState<Set<string>>(() => {
-    if (typeof window === 'undefined') return new Set();
+  const [hiddenCols, setHiddenCols] = useState<Set<string>>(() => new Set());
+  const [hiddenColsLoaded, setHiddenColsLoaded] = useState(false);
+  useEffect(() => {
     try {
       const raw = window.localStorage.getItem(COL_VIS_KEY);
-      if (raw) return new Set(JSON.parse(raw) as string[]);
+      if (raw) setHiddenCols(new Set(JSON.parse(raw) as string[]));
     } catch { /* localStorage unavailable / corrupt — ignore */ }
-    return new Set();
-  });
+    setHiddenColsLoaded(true);
+  }, []);
   useEffect(() => {
+    // Only persist after the initial mount-load so we don't overwrite saved state
+    // with the empty initializer before useEffect-1 has run.
+    if (!hiddenColsLoaded) return;
     try { window.localStorage.setItem(COL_VIS_KEY, JSON.stringify(Array.from(hiddenCols))); } catch { /* ignore */ }
-  }, [hiddenCols]);
+  }, [hiddenCols, hiddenColsLoaded]);
+
+  // U3: build the full column list once — used both by the picker (to render
+  // toggles) and the table (filtered by `hiddenCols`).
+  const allColumns = useMemo(() => [...getBaseColumns(), ...createRunsMetricColumns()], []);
+  const visibleColumns = useMemo(() => allColumns.filter(c => !hiddenCols.has(c.key)), [allColumns, hiddenCols]);
+  const pickerColumns = useMemo(() => allColumns.map(c => ({ key: c.key, label: c.header })), [allColumns]);
 
   // Build dynamic filter list including loaded strategy options
   const filters: FilterDef[] = [
@@ -195,7 +216,7 @@ export default function EvolutionRunsPage(): JSX.Element {
       {/* U3: column-picker popover. Renders just above the EntityListPage so
           users can collapse the runs list back to the columns they care about. */}
       <ColumnPicker
-        allColumns={[...getBaseColumns(), ...createRunsMetricColumns()].map(c => ({ key: c.key, label: c.header }))}
+        allColumns={pickerColumns}
         hidden={hiddenCols}
         onChange={setHiddenCols}
       />
@@ -215,7 +236,7 @@ export default function EvolutionRunsPage(): JSX.Element {
         renderTable={({ items: tableItems, loading: tableLoading }) => (
           <RunsTable
             runs={tableItems}
-            columns={[...getBaseColumns(), ...createRunsMetricColumns()].filter(c => !hiddenCols.has(c.key))}
+            columns={visibleColumns}
             loading={tableLoading}
             renderActions={renderActions}
             testId="runs-list-table"

@@ -13,7 +13,7 @@ import {
 import { createPromptAction } from '@evolution/services/arenaActions';
 import { FormDialog, type FieldDef } from '@evolution/components/evolution';
 import { StrategyConfigDisplay } from './StrategyConfigDisplay';
-import { labelStrategyConfig } from '@evolution/lib/shared/hashStrategyConfig';
+import { labelStrategyConfig, type StrategyHashInput } from '@evolution/lib/shared/hashStrategyConfig';
 
 interface ExperimentFormProps {
   onCreated?: (experimentId: string) => void;
@@ -395,13 +395,12 @@ export function ExperimentForm({ onCreated }: ExperimentFormProps): JSX.Element 
                   const isEligible = eligibleStrategyIds.has(s.id);
                   const sel = selections.find(x => x.strategyId === s.id);
                   const isSelected = !!sel;
-                  // U31 (use_playwright_find_bugs_ux_issues_20260422): when two
-                  // or more strategies share a name (e.g. "Renamed Strategy"),
-                  // append a 6-char config_hash suffix so they are distinguishable
-                  // in the picker. Backend doesn't enforce uniqueness so this is
-                  // a UX-layer disambiguation.
-                  const sameNameCount = strategies.filter(x => x.name === s.name).length;
-                  const displayName = sameNameCount > 1 && s.config_hash
+                  // U31 (use_playwright_find_bugs_ux_issues_20260422): when two or more
+                  // strategies share a name (e.g. "Renamed Strategy"), append a 6-char
+                  // config_hash suffix so they are distinguishable in the picker. Backend
+                  // doesn't enforce uniqueness so this is a UX-layer disambiguation.
+                  const isDuplicateName = strategies.some(x => x.id !== s.id && x.name === s.name);
+                  const displayName = isDuplicateName && s.config_hash
                     ? `${s.name} (${s.config_hash.slice(0, 6)})`
                     : s.name;
 
@@ -435,9 +434,9 @@ export function ExperimentForm({ onCreated }: ExperimentFormProps): JSX.Element 
                               readable label from s.config so the wizard never shows
                               just the slug. labelStrategyConfig is the same helper
                               the strategy auto-label uses at write time. */}
-                          {s.label && s.label.trim().length > 0
+                          {s.label?.trim()
                             ? s.label
-                            : labelStrategyConfig(s.config as unknown as Parameters<typeof labelStrategyConfig>[0])}
+                            : labelStrategyConfig(s.config as unknown as StrategyHashInput)}
                           {s.config.budgetUsd != null && (
                             <span className="ml-1 text-[var(--accent-copper)]">
                               (${Number(s.config.budgetUsd).toFixed(2)}/run)

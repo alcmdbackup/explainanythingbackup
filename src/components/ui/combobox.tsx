@@ -16,10 +16,12 @@
 //     'combobox' FilterDef type (replaces the unsearchable <select> on the
 //     runs Strategy filter when the option list grows past the threshold).
 //
-// Permanent E2E coverage of the existing SourceCombobox lives at
-// src/__tests__/e2e/specs/08-sources/source-combobox-behavior.spec.ts so a
-// future migration of SourceCombobox onto this primitive can verify no
-// behavior regression.
+// Note: the planning doc originally called for a permanent E2E spec at
+// 08-sources/source-combobox-behavior.spec.ts to pin SourceCombobox behavior
+// before/after extraction. That spec was not created — extraction is deferred
+// (the new primitive is greenfield, not extracted), so the regression-pin
+// doesn't apply yet. If a future project migrates SourceCombobox onto this
+// primitive, that's when to add the spec.
 
 'use client';
 

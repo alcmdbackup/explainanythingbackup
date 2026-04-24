@@ -12,7 +12,6 @@ import { EvolutionRunSummarySchema } from '@evolution/lib/types';
 import { getMetricsForEntities } from '@evolution/lib/metrics/readMetrics';
 import { getListViewMetrics } from '@evolution/lib/metrics/registry';
 import type { MetricRow } from '@evolution/lib/metrics/types';
-import { dbToRating } from '@evolution/lib/shared/computeRatings';
 import { _INTERNAL_ELO_SIGMA_SCALE } from '@evolution/lib/shared/computeRatings';
 import { z } from 'zod';
 
@@ -790,21 +789,17 @@ export const listVariantsAction = adminAction(
       for (const item of items) {
         const parent = item.parent_variant_id ? parentMap.get(item.parent_variant_id) : null;
         if (parent) {
-          // B6 (use_playwright_find_bugs_ux_issues_20260422): convert raw OpenSkill
-          // mu/sigma to the public Elo-scale Rating via dbToRating(). Previously this
-          // assigned `parent.mu` directly to parent_elo (~25 OpenSkill instead of
-          // ~1200 Elo), which broke the Δ delta math on the Variants page. The arena
-          // page works because it uses the pre-computed `elo_score` column directly,
-          // and `elo_score` is maintained in lock-step with mu via dbToRating at
-          // write time, so both paths now produce equivalent results.
-          if (parent.mu != null && parent.sigma != null) {
-            const rating = dbToRating(parent.mu, parent.sigma);
-            item.parent_elo = rating.elo;
-            item.parent_uncertainty = rating.uncertainty;
-          } else {
-            item.parent_elo = parent.elo ?? null;
-            item.parent_uncertainty = null;
-          }
+          // B6 (use_playwright_find_bugs_ux_issues_20260422): use parent.elo_score
+          // (~1200 Elo scale), NOT parent.mu (~25 raw OpenSkill). Previously this
+          // assigned `parent.mu` directly, which broke the Δ delta math on the
+          // Variants page. Matches the three sibling code paths that already do
+          // this: getEvolutionVariantsAction (this file:554), arenaActions:283,
+          // variantDetailActions:173. All four paths use elo_score and project
+          // sigma to Elo-scale uncertainty via _INTERNAL_ELO_SIGMA_SCALE, so the
+          // Variants list, Variant detail, Arena, and run-detail Variants tab
+          // agree on the same value for the same parent.
+          item.parent_elo = parent.elo ?? null;
+          item.parent_uncertainty = parent.sigma != null ? parent.sigma * _INTERNAL_ELO_SIGMA_SCALE : null;
           item.parent_run_id = parent.run_id;
         }
       }

@@ -65,11 +65,9 @@ function DashboardContent(): JSX.Element {
   // U1 (use_playwright_find_bugs_ux_issues_20260422): hide the "± $0.00" suffix when SE
   // rounds below the 2dp display precision (< $0.005). It looks broken even though the
   // computation is correct.
-  const avgCostLabel = data.avgCostPerRun == null
-    ? formatCost(null)
-    : data.seCostPerRun != null && data.seCostPerRun >= 0.005
-      ? `${formatCost(data.avgCostPerRun)} ± ${formatCost(data.seCostPerRun)}`
-      : formatCost(data.avgCostPerRun);
+  const avgCost = formatCost(data.avgCostPerRun);
+  const showSe = data.avgCostPerRun != null && data.seCostPerRun != null && data.seCostPerRun >= 0.005;
+  const avgCostLabel = showSe ? `${avgCost} ± ${formatCost(data.seCostPerRun)}` : avgCost;
 
   const metrics: MetricItem[] = [
     { label: 'Active Runs', value: data.activeRuns },
@@ -141,9 +139,7 @@ export default function EvolutionDashboardPage(): JSX.Element {
   return (
     <div className="space-y-6">
       <EvolutionBreadcrumb items={[{ label: 'Evolution Dashboard' }]} />
-      <div className="flex items-center justify-between">
-        <h1 className="text-4xl font-display font-bold text-[var(--text-primary)]">Evolution Dashboard</h1>
-      </div>
+      <h1 className="text-4xl font-display font-bold text-[var(--text-primary)]">Evolution Dashboard</h1>
       <AutoRefreshProvider isActive intervalMs={15000}>
         {/* U2 (use_playwright_find_bugs_ux_issues_20260422): RefreshIndicator
             shows "Updated Xs ago" with a manual refresh button so users know

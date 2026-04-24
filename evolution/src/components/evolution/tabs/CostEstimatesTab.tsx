@@ -190,6 +190,14 @@ function SummarySection({ items }: { items: MetricItem[] }): JSX.Element {
   );
 }
 
+// U11 (use_playwright_find_bugs_ux_issues_20260422): per-row tooltip lookup
+// for the Coverage column. Header tooltip uses a condensed form of the same.
+const COVERAGE_TITLES: Record<string, string> = {
+  'est+act': 'Both estimate and actual cost recorded',
+  'actual-only': 'Only actual recorded (no estimate)',
+  'no-llm': 'Agent made no LLM calls (e.g. MergeRatingsAgent)',
+};
+
 function CostByAgentSection({ rows }: { rows: CostByAgentRow[] }): JSX.Element {
   return (
     <div data-testid="cost-estimates-by-agent">
@@ -232,12 +240,7 @@ function CostByAgentSection({ rows }: { rows: CostByAgentRow[] }): JSX.Element {
                   </td>
                   <td
                     className="py-1.5 font-mono text-xs text-[var(--text-secondary)]"
-                    title={
-                      r.coverage === 'est+act' ? 'Both estimate and actual cost recorded'
-                      : r.coverage === 'actual-only' ? 'Only actual recorded (no estimate)'
-                      : r.coverage === 'no-llm' ? 'Agent made no LLM calls (e.g. MergeRatingsAgent)'
-                      : ''
-                    }
+                    title={COVERAGE_TITLES[r.coverage] ?? ''}
                   >
                     {r.coverage}
                   </td>

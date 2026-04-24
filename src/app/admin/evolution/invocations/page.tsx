@@ -11,6 +11,10 @@ import { toast } from 'sonner';
 
 const PAGE_SIZE = 20;
 
+// U17: action accepts a full UUID; partial/prefix input is ignored silently
+// (the placeholder tells the user to paste a full UUID).
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 const FILTERS: FilterDef[] = [
   { key: 'filterTestContent', label: 'Hide test content', type: 'checkbox', defaultChecked: true },
   {
@@ -102,11 +106,9 @@ export default function InvocationsListPage(): JSX.Element {
 
   const fetchData = useCallback(async (currentPage: number, filters: Record<string, string>) => {
     setLoading(true);
-    // U17: action accepts a full UUID; only forward the runId filter when it's
-    // a valid 36-char UUID. Partial/prefix input is ignored silently (the
-    // placeholder tells the user to paste a full UUID).
+    // U17: only forward runId when it parses as a full UUID (see UUID_RE above).
     const rawRunId = (filters.runId ?? '').trim();
-    const runId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rawRunId) ? rawRunId : undefined;
+    const runId = UUID_RE.test(rawRunId) ? rawRunId : undefined;
     const result = await listInvocationsAction({
       filterTestContent: filters.filterTestContent === 'true',
       successFilter: (filters.successFilter as 'all' | 'success' | 'failed') || undefined,

@@ -3,11 +3,13 @@
 // semantically consistent (variants list, VariantsTab, arena, detail header,
 // VariantCard, lineage tab, invocation detail).
 //
-// Format: "Parent #a1b2c3 · 1250 ± 40 · Δ +45 [+10, +80]"
-// Null-parent (seed variant): "Seed · no parent"
-// Cross-run parent: adds "(other run)" suffix on the ID.
-// role='from' (used by the lineage-tab node-picker for arbitrary-pair diffs):
-// renders "From #a1b2c3 · 1250 ± 40 · Δ +45 [+10, +80]" instead.
+// U8 (use_playwright_find_bugs_ux_issues_20260422) restructured this to a
+// 2-line stacked layout (the inline body comment near the JSX has the full
+// spec). Roughly:
+//   Line 1: "Parent #a1b2c3 [other run]"  (ID, plus cross-run pill if applicable)
+//   Line 2: "1250 ± 40 · Δ +45 [+10, +80]"  (rating, delta, CI)
+// Null-parent (seed variant): single-line "Seed · no parent".
+// role='from' (lineage-tab node-picker): same 2-line layout but "From #..." prefix.
 
 'use client';
 

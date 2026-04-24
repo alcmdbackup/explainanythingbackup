@@ -61,10 +61,13 @@ export default function ArenaListPage(): JSX.Element {
   // B098: initialize `hideEmpty` so the "Hide empty topics" checkbox actually filters.
   // Previously the state lacked this key and the filter read `filterValues.hideEmpty`
   // as `undefined`, so toggling the checkbox never had any effect.
+  // U16 (use_playwright_find_bugs_ux_issues_20260422): default-on. Initial state must
+  // match HIDE_EMPTY_FILTER.defaultChecked above (this page uses controlled filter
+  // state, so EntityListPage's defaultChecked plumbing doesn't apply here).
   const [filterValues, setFilterValues] = useState<Record<string, string>>({
     status: '',
     filterTestContent: 'true',
-    hideEmpty: 'false',
+    hideEmpty: 'true',
   });
 
   const fetchTopics = useCallback(async () => {

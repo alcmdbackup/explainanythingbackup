@@ -71,6 +71,16 @@ const COST_DESCRIPTIONS: Record<string, string> = {
   avg_seed_cost_per_run: 'Average seed_cost across runs. Included in Avg Cost/Run.',
 };
 
+// U26 (use_playwright_find_bugs_ux_issues_20260422): classifies a Cost-category
+// metric id as estimation-accuracy diagnostics (vs. true spend), so the Cost
+// section can split into "Spent" (above-the-fold) and a collapsible
+// "Estimation accuracy" details block.
+function isEstimationMetric(id: string): boolean {
+  return /estimation|estimated|projected|dispatched|gfsa_duration/.test(id)
+    || id.startsWith('avg_agent_cost_')
+    || id === 'agent_cost_projected' || id === 'agent_cost_actual';
+}
+
 function toMetricItem(row: MetricRow, entityType: EntityType): MetricItem & { category: Category; aggregation?: string } {
   const formatter = resolveFormatter(row.metric_name, entityType);
   return {
@@ -134,8 +144,9 @@ export function EntityMetricsTab({ entityType, entityId }: EntityMetricsTabProps
   // Filter out agentCost:* metrics — superseded by total_generation_cost/total_ranking_cost
   const filteredMetrics = metrics.filter(m => !m.metric_name.startsWith('agentCost:'));
   // Group by category
+  type GroupedMetric = MetricItem & { aggregation?: string };
   const items = filteredMetrics.map(m => toMetricItem(m, entityType));
-  const grouped = new Map<Category, (MetricItem & { aggregation?: string })[]>();
+  const grouped = new Map<Category, GroupedMetric[]>();
   for (const item of items) {
     const { category, ...rest } = item;
     const list = grouped.get(category) ?? [];
@@ -147,62 +158,48 @@ export function EntityMetricsTab({ entityType, entityId }: EntityMetricsTabProps
   // accumulated 11 metrics that mix true spend (cost / generation_cost /
   // ranking_cost / seed_cost / total_*) with estimation-accuracy noise
   // (estimation_error_pct, agent_cost_projected vs actual, dispatch counts).
-  // Split into two sub-sections so users can scan spend at a glance and
-  // optionally expand the accuracy diagnostics.
-  function isEstimationMetric(id: string): boolean {
-    return /estimation|estimated|projected|dispatched|gfsa_duration/.test(id)
-      || id.startsWith('avg_agent_cost_')
-      || id === 'agent_cost_projected' || id === 'agent_cost_actual';
-  }
+  // When the Cost group has >6 metrics, split into two sub-sections so users
+  // can scan spend at a glance and optionally expand the accuracy diagnostics.
+  const gridFor = (m: GroupedMetric[], testId?: string): JSX.Element => (
+    <MetricGrid
+      metrics={m}
+      columns={Math.min(m.length, 4) as 2 | 3 | 4}
+      variant="bordered"
+      testId={testId}
+    />
+  );
 
   return (
     <div className="space-y-6" data-testid="entity-metrics-tab">
       {CATEGORY_ORDER.filter(cat => grouped.has(cat)).map(cat => {
         const list = grouped.get(cat)!;
-        if (cat === 'cost' && list.length > 6) {
-          const spent = list.filter(m => !isEstimationMetric(m.id ?? ''));
-          const accuracy = list.filter(m => isEstimationMetric(m.id ?? ''));
-          return (
-            <div key={cat}>
-              <h3 className="text-xl font-display font-medium text-[var(--text-secondary)] mb-2">
-                {CATEGORY_LABELS[cat]}
-              </h3>
-              {spent.length > 0 && (
-                <div className="mb-3" data-testid="metrics-cost-spent">
-                  <h4 className="text-sm font-ui font-medium text-[var(--text-muted)] mb-1">Spent</h4>
-                  <MetricGrid
-                    metrics={spent}
-                    columns={Math.min(spent.length, 4) as 2 | 3 | 4}
-                    variant="bordered"
-                  />
-                </div>
-              )}
-              {accuracy.length > 0 && (
-                <details className="mt-2" data-testid="metrics-cost-accuracy">
-                  <summary className="text-sm font-ui font-medium text-[var(--text-muted)] cursor-pointer mb-1">
-                    Estimation accuracy ({accuracy.length})
-                  </summary>
-                  <MetricGrid
-                    metrics={accuracy}
-                    columns={Math.min(accuracy.length, 4) as 2 | 3 | 4}
-                    variant="bordered"
-                  />
-                </details>
-              )}
-            </div>
-          );
+        const heading = (
+          <h3 className="text-xl font-display font-medium text-[var(--text-secondary)] mb-2">
+            {CATEGORY_LABELS[cat]}
+          </h3>
+        );
+        if (cat !== 'cost' || list.length <= 6) {
+          return <div key={cat}>{heading}{gridFor(list, `metrics-${cat}`)}</div>;
         }
+        const spent = list.filter(m => !isEstimationMetric(m.id ?? ''));
+        const accuracy = list.filter(m => isEstimationMetric(m.id ?? ''));
         return (
           <div key={cat}>
-            <h3 className="text-xl font-display font-medium text-[var(--text-secondary)] mb-2">
-              {CATEGORY_LABELS[cat]}
-            </h3>
-            <MetricGrid
-              metrics={list}
-              columns={Math.min(list.length, 4) as 2 | 3 | 4}
-              variant="bordered"
-              testId={`metrics-${cat}`}
-            />
+            {heading}
+            {spent.length > 0 && (
+              <div className="mb-3" data-testid="metrics-cost-spent">
+                <h4 className="text-sm font-ui font-medium text-[var(--text-muted)] mb-1">Spent</h4>
+                {gridFor(spent)}
+              </div>
+            )}
+            {accuracy.length > 0 && (
+              <details className="mt-2" data-testid="metrics-cost-accuracy">
+                <summary className="text-sm font-ui font-medium text-[var(--text-muted)] cursor-pointer mb-1">
+                  Estimation accuracy ({accuracy.length})
+                </summary>
+                {gridFor(accuracy)}
+              </details>
+            )}
           </div>
         );
       })}

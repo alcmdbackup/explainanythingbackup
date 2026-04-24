@@ -350,7 +350,6 @@ export default function ArenaTopicDetailPage(): JSX.Element {
                       <td className="py-2 pr-3">
                         <ParentBadgeCell entry={entry} />
                       </td>
-                      {/* U33 (use_playwright_find_bugs_ux_issues_20260422): Cost cell dropped. */}
                     </tr>
                   );
                 })}

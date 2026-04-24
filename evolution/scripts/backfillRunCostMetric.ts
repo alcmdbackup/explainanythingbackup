@@ -85,11 +85,11 @@ async function main(): Promise<void> {
     console.error(`[cost-backfill] report at ${REPORT_PATH}`);
   }
 
-  let attempted = 0; let wrote = 0; let errored = 0;
+  let dryRunOnly = 0; let wrote = 0; let errored = 0;
   for (const { runId, cost } of costsToWrite) {
-    attempted += 1;
     if (!apply) {
       console.log(`[DRY-RUN] would write cost=${cost.toFixed(6)} for run=${runId}`);
+      dryRunOnly += 1;
       continue;
     }
     try {
@@ -114,8 +114,12 @@ async function main(): Promise<void> {
     }
   }
 
-  console.error(`[cost-backfill] done: attempted=${attempted} wrote=${wrote} errored=${errored} skipped=${costsToWrite.length - attempted}`);
-  if (apply) console.error(`[cost-backfill] audit-trail JSON: ${REPORT_PATH}`);
+  if (apply) {
+    console.error(`[cost-backfill] done (APPLY): wrote=${wrote} errored=${errored} of ${costsToWrite.length} computable`);
+    console.error(`[cost-backfill] audit-trail JSON: ${REPORT_PATH}`);
+  } else {
+    console.error(`[cost-backfill] done (DRY-RUN): would-write=${dryRunOnly} of ${costsToWrite.length} computable. Re-run with --apply to write.`);
+  }
 }
 
 main().then(() => process.exit(0)).catch((e) => {
