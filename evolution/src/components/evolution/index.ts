@@ -35,7 +35,7 @@ export type { FieldDef } from './dialogs/FormDialog';
 export { ConfirmDialog } from './dialogs/ConfirmDialog';
 
 // context/
-export { AutoRefreshProvider, useAutoRefresh } from './context/AutoRefreshProvider';
+export { AutoRefreshProvider, useAutoRefresh, RefreshIndicator } from './context/AutoRefreshProvider';
 
 // page shells (remain at root)
 export { EntityListPage } from './EntityListPage';

@@ -320,7 +320,7 @@ The experiment creation interface is a 3-step wizard located at `src/app/admin/e
 
 - Browse and multi-select from the strategy library (loaded via `getStrategiesAction`). A select-all checkbox is available for quick bulk selection.
 - Configure how many runs to create per selected strategy (runs-per-strategy input).
-- Only `active` strategies appear in the picker. A "Hide test strategies" filter excludes `[TEST]`-prefixed strategies.
+- Only `active` strategies appear in the picker. A "Hide test content" filter (shared with other admin surfaces) excludes test strategies via `evolution_strategies.is_test_content`. The filter now also applies to Step 1 (prompts) and to `evolution_experiments` — both tables grew `is_test_content` columns (migration `20260423000001_add_is_test_content_to_prompts_experiments.sql`) with BEFORE INSERT/UPDATE-OF-name triggers that auto-set the flag from `evolution_is_test_name(name)`.
 - An inline prompt creation dialog allows creating a new prompt without leaving the wizard.
 
 ### Step 3: Review

@@ -52,6 +52,20 @@ export function formatPercent(ratio: number | null | undefined): string {
   return `${Math.round(ratio * 100)}%`;
 }
 
+/**
+ * Format a value that is ALREADY in percentage units (not a 0-1 ratio) — just
+ * rounds and appends `%`. Use this for metrics whose source data is stored
+ * in percent (e.g. `cost_estimation_error_pct` is persisted as e.g. -38.2).
+ *
+ * B7 (use_playwright_find_bugs_ux_issues_20260422): previously those metrics
+ * used `formatPercent`, which multiplied by 100 again and produced nonsense
+ * displays like `-3821%` instead of `-38%`.
+ */
+export function formatPercentValue(value: number | null | undefined): string {
+  if (value == null || isNaN(value)) return '—';
+  return `${Math.round(value)}%`;
+}
+
 /** Format duration in seconds to human-readable string. */
 export function formatDuration(seconds: number | null | undefined): string {
   if (seconds == null || isNaN(seconds)) return '—';

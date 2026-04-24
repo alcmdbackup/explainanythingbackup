@@ -23,25 +23,33 @@ const HIDE_EMPTY_FILTER: FilterDef = {
   key: 'hideEmpty',
   label: 'Hide empty topics',
   type: 'checkbox',
-  defaultChecked: false,
+  // U16 (use_playwright_find_bugs_ux_issues_20260422): default-on. Empty topics
+  // are rarely actionable; user can still uncheck to see them.
+  defaultChecked: true,
 };
 
+// U32 (use_playwright_find_bugs_ux_issues_20260422): only the Name cell carries
+// the row-level Link. Other cells are marked skipLink so the rendered DOM has
+// one <a> per row instead of five sibling anchors pointing to the same URL
+// (reduces screen-reader noise; sort/copy behavior unchanged).
 const COLUMNS: ColumnDef<ArenaTopic>[] = [
   { key: 'name', header: 'Name', render: (t) => t.name || <span className="text-[var(--text-muted)] italic">Untitled</span> },
   {
     key: 'prompt',
     header: 'Prompt',
+    skipLink: true,
     render: (t) => (
       <span title={t.prompt}>
         {t.prompt.length > 80 ? `${t.prompt.substring(0, 80)}…` : t.prompt}
       </span>
     ),
   },
-  { key: 'entry_count', header: 'Entries', render: (t) => t.entry_count ?? 0 },
-  { key: 'status', header: 'Status', render: (t) => t.status },
+  { key: 'entry_count', header: 'Entries', skipLink: true, render: (t) => t.entry_count ?? 0 },
+  { key: 'status', header: 'Status', skipLink: true, render: (t) => t.status },
   {
     key: 'created_at',
     header: 'Created',
+    skipLink: true,
     render: (t) => formatDate(t.created_at),
   },
 ];
@@ -53,10 +61,13 @@ export default function ArenaListPage(): JSX.Element {
   // B098: initialize `hideEmpty` so the "Hide empty topics" checkbox actually filters.
   // Previously the state lacked this key and the filter read `filterValues.hideEmpty`
   // as `undefined`, so toggling the checkbox never had any effect.
+  // U16 (use_playwright_find_bugs_ux_issues_20260422): default-on. Initial state must
+  // match HIDE_EMPTY_FILTER.defaultChecked above (this page uses controlled filter
+  // state, so EntityListPage's defaultChecked plumbing doesn't apply here).
   const [filterValues, setFilterValues] = useState<Record<string, string>>({
     status: '',
     filterTestContent: 'true',
-    hideEmpty: 'false',
+    hideEmpty: 'true',
   });
 
   const fetchTopics = useCallback(async () => {

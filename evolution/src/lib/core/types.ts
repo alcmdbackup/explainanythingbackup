@@ -84,7 +84,7 @@ export interface EntityLink {
 
 export type MetricTiming = 'during_execution' | 'at_finalization' | 'at_propagation';
 export type MetricCategory = 'cost' | 'rating' | 'match' | 'count';
-export type MetricFormatter = 'cost' | 'costDetailed' | 'elo' | 'score' | 'percent' | 'integer';
+export type MetricFormatter = 'cost' | 'costDetailed' | 'elo' | 'score' | 'percent' | 'percentValue' | 'integer';
 
 export interface CatalogMetricDef {
   name: string;

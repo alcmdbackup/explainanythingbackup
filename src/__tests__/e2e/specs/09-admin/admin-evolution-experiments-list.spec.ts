@@ -100,6 +100,14 @@ adminTest.describe('Evolution Experiments List', { tag: '@evolution' }, () => {
     const listPage = adminPage.locator('[data-testid="entity-list-page"]');
     await expect(listPage).toBeVisible({ timeout: 15000 });
 
+    // Phase 1 of use_playwright_find_bugs_ux_issues_20260422 added an
+    // is_test_content column + trigger to evolution_experiments. The trigger
+    // marks the test's e2e-* seed rows as is_test_content=true and "Hide test
+    // content" is default-on — so the seeded rows are now correctly filtered out.
+    const filter = adminPage.locator('[data-testid="filter-filterTestContent"] input[type="checkbox"]');
+    // eslint-disable-next-line flakiness/no-point-in-time-checks -- control flow, not assertion
+    if (await filter.isChecked()) await filter.uncheck();
+
     const table = adminPage.locator('[data-testid="entity-list-table"]');
     await expect(table).toBeVisible({ timeout: 15000 });
 
@@ -130,6 +138,14 @@ adminTest.describe('Evolution Experiments List', { tag: '@evolution' }, () => {
     await adminPage.goto('/admin/evolution/experiments');
     await adminPage.waitForLoadState('domcontentloaded');
 
+    // Same Hide-test-content unfiltering as above (Phase 1). Wait for the filter
+    // to actually render before reading isChecked — without this the read can
+    // race the React hydration and skip the uncheck silently.
+    const filter = adminPage.locator('[data-testid="filter-filterTestContent"] input[type="checkbox"]');
+    await expect(filter).toBeVisible({ timeout: 15000 });
+    // eslint-disable-next-line flakiness/no-point-in-time-checks -- control flow, not assertion
+    if (await filter.isChecked()) await filter.uncheck();
+
     const table = adminPage.locator('[data-testid="entity-list-table"]');
     await expect(table).toBeVisible({ timeout: 15000 });
 
@@ -149,6 +165,14 @@ adminTest.describe('Evolution Experiments List', { tag: '@evolution' }, () => {
   adminTest('breadcrumb nav: clicking experiment row navigates to detail and breadcrumb links to Evolution', async ({ adminPage }) => {
     await adminPage.goto('/admin/evolution/experiments');
     await adminPage.waitForLoadState('domcontentloaded');
+
+    // Same Hide-test-content unfiltering as above (Phase 1). Wait for the filter
+    // to actually render before reading isChecked — without this the read can
+    // race the React hydration and skip the uncheck silently.
+    const filter = adminPage.locator('[data-testid="filter-filterTestContent"] input[type="checkbox"]');
+    await expect(filter).toBeVisible({ timeout: 15000 });
+    // eslint-disable-next-line flakiness/no-point-in-time-checks -- control flow, not assertion
+    if (await filter.isChecked()) await filter.uncheck();
 
     const table = adminPage.locator('[data-testid="entity-list-table"]');
     await expect(table).toBeVisible({ timeout: 15000 });

@@ -8,6 +8,7 @@ import {
   formatElo,
   formatEloDollar,
   formatPercent,
+  formatPercentValue,
   formatDuration,
   formatScore,
   formatScore1,
@@ -98,6 +99,20 @@ describe('formatters', () => {
     });
     it('handles null', () => {
       expect(formatPercent(null)).toBe('0%');
+    });
+  });
+
+  describe('formatPercentValue (B7 use_playwright_find_bugs_ux_issues_20260422)', () => {
+    it('treats input as already-percent — does NOT multiply by 100', () => {
+      expect(formatPercentValue(-38.2)).toBe('-38%');
+      expect(formatPercentValue(0)).toBe('0%');
+      expect(formatPercentValue(50)).toBe('50%');
+      expect(formatPercentValue(99.7)).toBe('100%');
+    });
+    it('handles null/NaN with em-dash (not "0%")', () => {
+      expect(formatPercentValue(null)).toBe('—');
+      expect(formatPercentValue(undefined)).toBe('—');
+      expect(formatPercentValue(NaN)).toBe('—');
     });
   });
 

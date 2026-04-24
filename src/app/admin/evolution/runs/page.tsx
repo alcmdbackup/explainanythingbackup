@@ -2,7 +2,7 @@
 // Standardizes on the shared list page pattern while preserving RunsTable's budget bars.
 'use client';
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { toast } from 'sonner';
 import {
   EvolutionBreadcrumb,
@@ -39,6 +39,46 @@ const pageSize = 20;
 
 type RunAction = { kind: 'none' } | { kind: 'kill'; run: EvolutionRun } | { kind: 'delete'; run: EvolutionRun };
 
+/** U3 (use_playwright_find_bugs_ux_issues_20260422): popover-style column picker
+ *  for the 14-column runs list. Uses a native <details> element so we don't
+ *  pull in a Radix popover for one feature; checkbox state is fully controlled
+ *  by the parent page via `hidden`/`onChange`. */
+function ColumnPicker({ allColumns, hidden, onChange }: {
+  allColumns: { key: string; label: string }[];
+  hidden: Set<string>;
+  onChange: (next: Set<string>) => void;
+}): JSX.Element {
+  const visibleCount = allColumns.length - hidden.size;
+  return (
+    <details className="relative inline-block" data-testid="runs-column-picker">
+      <summary className="cursor-pointer text-xs font-ui px-3 py-1 border border-[var(--border-default)] rounded-page bg-[var(--surface-secondary)] inline-block">
+        Columns ({visibleCount}/{allColumns.length})
+      </summary>
+      <div className="absolute z-10 mt-1 right-0 w-64 max-h-80 overflow-y-auto p-2 border border-[var(--border-default)] rounded-page bg-[var(--surface-elevated)] shadow-warm-lg">
+        {allColumns.map(c => (
+          <label key={c.key} className="flex items-center gap-2 px-1 py-1 text-xs font-ui cursor-pointer hover:bg-[var(--surface-secondary)] rounded">
+            <input
+              type="checkbox"
+              checked={!hidden.has(c.key)}
+              onChange={(e) => {
+                const next = new Set(hidden);
+                if (e.target.checked) {
+                  next.delete(c.key);
+                } else {
+                  next.add(c.key);
+                }
+                onChange(next);
+              }}
+              data-testid={`column-toggle-${c.key}`}
+            />
+            <span>{c.label}</span>
+          </label>
+        ))}
+      </div>
+    </details>
+  );
+}
+
 export default function EvolutionRunsPage(): JSX.Element {
   useEffect(() => { document.title = 'Runs | Evolution'; }, []);
   const [runs, setRuns] = useState<EvolutionRun[]>([]);
@@ -48,6 +88,38 @@ export default function EvolutionRunsPage(): JSX.Element {
   const [strategyOptions, setStrategyOptions] = useState<{ value: string; label: string }[]>([]);
   const [filterValues, setFilterValues] = useState<Record<string, string>>({ filterTestContent: 'true' });
   const [page, setPage] = useState(1);
+  // U3 (use_playwright_find_bugs_ux_issues_20260422): persisted column-visibility
+  // for the 14-column runs list. Hidden keys are stored as a JSON array in
+  // localStorage so the choice survives reloads.
+  //
+  // Initialize to an empty Set on both server (SSR) and client first paint, then
+  // load the persisted subset in useEffect after mount. This avoids a hydration
+  // mismatch — reading localStorage in the useState initializer would make the
+  // server (no localStorage → all columns visible) and the client (subset hidden)
+  // diverge for users who've hidden columns. Trade-off: the picker briefly shows
+  // all 14 columns on first paint before snapping to the saved subset.
+  const COL_VIS_KEY = 'evolution-runs-hidden-columns';
+  const [hiddenCols, setHiddenCols] = useState<Set<string>>(() => new Set());
+  const [hiddenColsLoaded, setHiddenColsLoaded] = useState(false);
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(COL_VIS_KEY);
+      if (raw) setHiddenCols(new Set(JSON.parse(raw) as string[]));
+    } catch { /* localStorage unavailable / corrupt — ignore */ }
+    setHiddenColsLoaded(true);
+  }, []);
+  useEffect(() => {
+    // Only persist after the initial mount-load so we don't overwrite saved state
+    // with the empty initializer before useEffect-1 has run.
+    if (!hiddenColsLoaded) return;
+    try { window.localStorage.setItem(COL_VIS_KEY, JSON.stringify(Array.from(hiddenCols))); } catch { /* ignore */ }
+  }, [hiddenCols, hiddenColsLoaded]);
+
+  // U3: build the full column list once — used both by the picker (to render
+  // toggles) and the table (filtered by `hiddenCols`).
+  const allColumns = useMemo(() => [...getBaseColumns(), ...createRunsMetricColumns()], []);
+  const visibleColumns = useMemo(() => allColumns.filter(c => !hiddenCols.has(c.key)), [allColumns, hiddenCols]);
+  const pickerColumns = useMemo(() => allColumns.map(c => ({ key: c.key, label: c.header })), [allColumns]);
 
   // Build dynamic filter list including loaded strategy options
   const filters: FilterDef[] = [
@@ -56,13 +128,20 @@ export default function EvolutionRunsPage(): JSX.Element {
     {
       key: 'strategy_id',
       label: 'Strategy',
-      type: 'select',
+      // U4 (use_playwright_find_bugs_ux_issues_20260422): combobox instead of
+      // flat <select> — staging has hundreds of strategies and the unsearchable
+      // dropdown was unscannable.
+      type: 'combobox',
+      placeholder: 'Search strategies...',
       options: [{ label: 'All strategies', value: '' }, ...strategyOptions],
     },
   ];
 
   useEffect(() => {
-    listStrategiesAction({ limit: 200, offset: 0 }).then(res => {
+    // filterTestContent: true mirrors the runs-list "Hide test content" default —
+    // dropdown options should not show [TEST]/[TEST_EVO]/e2e-* strategies that
+    // the rows themselves are filtering out (B3 root cause #1).
+    listStrategiesAction({ limit: 200, offset: 0, filterTestContent: true }).then(res => {
       if (res.success && res.data) {
         setStrategyOptions(res.data.items.map(s => ({ value: s.id, label: s.name })));
       }
@@ -134,6 +213,14 @@ export default function EvolutionRunsPage(): JSX.Element {
         { label: 'Runs' },
       ]} />
 
+      {/* U3: column-picker popover. Renders just above the EntityListPage so
+          users can collapse the runs list back to the columns they care about. */}
+      <ColumnPicker
+        allColumns={pickerColumns}
+        hidden={hiddenCols}
+        onChange={setHiddenCols}
+      />
+
       <EntityListPage<EvolutionRun>
         title="Evolution Runs"
         filters={filters}
@@ -149,7 +236,7 @@ export default function EvolutionRunsPage(): JSX.Element {
         renderTable={({ items: tableItems, loading: tableLoading }) => (
           <RunsTable
             runs={tableItems}
-            columns={[...getBaseColumns(), ...createRunsMetricColumns()]}
+            columns={visibleColumns}
             loading={tableLoading}
             renderActions={renderActions}
             testId="runs-list-table"

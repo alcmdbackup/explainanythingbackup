@@ -1,6 +1,6 @@
-// Tests for shared utilities: validateUuid(), UUID_REGEX, UUID_V4_REGEX, isTestContentName(), applyTestContentNameFilter().
+// Tests for shared utilities: validateUuid(), UUID_REGEX, UUID_V4_REGEX, isTestContentName(), applyTestContentNameFilter(), applyTestContentColumnFilter().
 
-import { validateUuid, UUID_REGEX, UUID_V4_REGEX, isTestContentName, applyTestContentNameFilter, TEST_NAME_FIXTURES } from './shared';
+import { validateUuid, UUID_REGEX, UUID_V4_REGEX, isTestContentName, applyTestContentNameFilter, applyTestContentColumnFilter, TEST_NAME_FIXTURES } from './shared';
 
 describe('validateUuid', () => {
   const VALID_V4 = '550e8400-e29b-41d4-a716-446655440000';
@@ -134,5 +134,22 @@ describe('applyTestContentNameFilter', () => {
       ['name', 'ilike', '%[TEST_EVO]%'],
       ['name', 'ilike', 'test'],
     ]);
+  });
+});
+
+describe('applyTestContentColumnFilter', () => {
+  it('applies .eq(is_test_content, false) to the query', () => {
+    const eqCalls: [string, boolean][] = [];
+    const mockQuery: { eq: jest.Mock } = {
+      eq: jest.fn((...args: [string, boolean]) => {
+        eqCalls.push(args);
+        return mockQuery;
+      }),
+    };
+
+    const result = applyTestContentColumnFilter(mockQuery);
+
+    expect(result).toBe(mockQuery);
+    expect(eqCalls).toEqual([['is_test_content', false]]);
   });
 });

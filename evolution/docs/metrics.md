@@ -83,7 +83,7 @@ All metrics are declared in a typed registry keyed by entity type. Each definiti
 
 | Name | Category | Timing | Description |
 |------|----------|--------|-------------|
-| `cost` | cost | during_execution | Total USD spent (from cost tracker). Written via `writeMetricMax` after every LLM call. `listView: true`. |
+| `cost` | cost | during_execution | Total USD spent (from cost tracker). Written via `writeMetricMax` after every LLM call. `listView: true`. **Read path:** the dashboard and the runs-list `Spent` column both go through `getRunCostsWithFallback` (in `evolution/src/lib/cost/getRunCostWithFallback.ts`), which is a four-layer chain — `cost` row → sum of `generation_cost + ranking_cost + seed_cost` → `evolution_run_costs` view → 0 with warn — chunked into 100-id batches. Backfill rollup rows for legacy runs via `evolution/scripts/backfillRunCostMetric.ts`. |
 | `generation_cost` | cost | during_execution | LLM spend on generation calls in this run. Written via `writeMetricMax` after every `'generation'`-labeled LLM call. `listView: true`. |
 | `ranking_cost` | cost | during_execution | LLM spend on ranking calls in this run (incl. SwissRankingAgent + binary-search comparisons). Written via `writeMetricMax` after every `'ranking'`-labeled LLM call. `listView: true`. |
 | `seed_cost` | cost | during_execution | LLM spend on seed article generation (`CreateSeedArticleAgent`). Only non-zero for prompt-based runs. Written via `writeMetricMax` after every `'seed_title'`- or `'seed_article'`-labeled LLM call. `listView: true`. |

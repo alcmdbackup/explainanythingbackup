@@ -190,6 +190,14 @@ function SummarySection({ items }: { items: MetricItem[] }): JSX.Element {
   );
 }
 
+// U11 (use_playwright_find_bugs_ux_issues_20260422): per-row tooltip lookup
+// for the Coverage column. Header tooltip uses a condensed form of the same.
+const COVERAGE_TITLES: Record<string, string> = {
+  'est+act': 'Both estimate and actual cost recorded',
+  'actual-only': 'Only actual recorded (no estimate)',
+  'no-llm': 'Agent made no LLM calls (e.g. MergeRatingsAgent)',
+};
+
 function CostByAgentSection({ rows }: { rows: CostByAgentRow[] }): JSX.Element {
   return (
     <div data-testid="cost-estimates-by-agent">
@@ -206,7 +214,14 @@ function CostByAgentSection({ rows }: { rows: CostByAgentRow[] }): JSX.Element {
                 <th className="py-2 pr-4 text-right">Estimated</th>
                 <th className="py-2 pr-4 text-right">Actual</th>
                 <th className="py-2 pr-4 text-right">Error %</th>
-                <th className="py-2">Coverage</th>
+                {/* U11 (use_playwright_find_bugs_ux_issues_20260422): header tooltip
+                    explains the Coverage codes. Per-row tooltips repeat the decode. */}
+                <th
+                  className="py-2"
+                  title="est+act = both estimate and actual cost are recorded; actual-only = only actual (no estimate); no-llm = agent makes no LLM calls (e.g. MergeRatingsAgent)"
+                >
+                  Coverage
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -223,7 +238,10 @@ function CostByAgentSection({ rows }: { rows: CostByAgentRow[] }): JSX.Element {
                   <td className="py-1.5 pr-4 text-right font-mono">
                     {r.errorPct != null ? formatPctWithToneText(r.errorPct) : '—'}
                   </td>
-                  <td className="py-1.5 font-mono text-xs text-[var(--text-secondary)]">
+                  <td
+                    className="py-1.5 font-mono text-xs text-[var(--text-secondary)]"
+                    title={COVERAGE_TITLES[r.coverage] ?? ''}
+                  >
                     {r.coverage}
                   </td>
                 </tr>
@@ -500,7 +518,12 @@ function CostPerInvocationSection({ invocations }: { invocations: RunCostEstimat
               <tr className="text-left border-b border-[var(--border-default)]">
                 <th className="py-2 pr-3">Iter</th>
                 <th className="py-2 pr-3">Agent</th>
-                <th className="py-2 pr-3">Strategy</th>
+                {/* U10 (use_playwright_find_bugs_ux_issues_20260422): the cell
+                    actually renders r.tactic (e.g. 'engagement_amplify') —
+                    not the strategy — so the header was mislabeled. Renaming to
+                    "Tactic" makes the column meaningful for generate_from_previous_article
+                    invocations (other agents render as '—', which is honest). */}
+                <th className="py-2 pr-3" title="Tactic the generate agent used (null for non-generate agents)">Tactic</th>
                 <th className="py-2 pr-3 text-right">Gen Est</th>
                 <th className="py-2 pr-3 text-right">Gen Actual</th>
                 <th className="py-2 pr-3 text-right">Rank Est</th>

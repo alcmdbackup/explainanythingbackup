@@ -3,7 +3,7 @@
 // Uses adminAction wrapper, validates all inputs, and returns ActionResult<T>.
 
 import { adminAction, type AdminContext } from './adminAction';
-import { validateUuid, applyTestContentNameFilter } from './shared';
+import { validateUuid, applyTestContentColumnFilter } from './shared';
 import { hashStrategyConfig, labelStrategyConfig } from '@evolution/lib/pipeline/setup/findOrCreateStrategy';
 import type { StrategyConfig } from '@evolution/lib/pipeline/infra/types';
 import { createEntityLogger } from '@evolution/lib/pipeline/infra/createEntityLogger';
@@ -106,7 +106,7 @@ export const listStrategiesAction = adminAction(
     if (input.status) query = query.eq('status', input.status);
     if (input.created_by) query = query.eq('created_by', input.created_by);
     if (input.pipeline_type) query = query.eq('pipeline_type', input.pipeline_type);
-    if (input.filterTestContent) query = applyTestContentNameFilter(query);
+    if (input.filterTestContent) query = applyTestContentColumnFilter(query);
 
     query = query.order('created_at', { ascending: false })
       .range(offset, offset + limit - 1);

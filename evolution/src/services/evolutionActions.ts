@@ -789,9 +789,17 @@ export const listVariantsAction = adminAction(
       for (const item of items) {
         const parent = item.parent_variant_id ? parentMap.get(item.parent_variant_id) : null;
         if (parent) {
-          // Prefer mu (application-layer ELO) over the legacy elo_score column.
-          item.parent_elo = parent.mu ?? parent.elo ?? null;
-          item.parent_uncertainty = parent.sigma ?? null;
+          // B6 (use_playwright_find_bugs_ux_issues_20260422): use parent.elo_score
+          // (~1200 Elo scale), NOT parent.mu (~25 raw OpenSkill). Previously this
+          // assigned `parent.mu` directly, which broke the Δ delta math on the
+          // Variants page. Matches the three sibling code paths that already do
+          // this: getEvolutionVariantsAction (this file:554), arenaActions:283,
+          // variantDetailActions:173. All four paths use elo_score and project
+          // sigma to Elo-scale uncertainty via _INTERNAL_ELO_SIGMA_SCALE, so the
+          // Variants list, Variant detail, Arena, and run-detail Variants tab
+          // agree on the same value for the same parent.
+          item.parent_elo = parent.elo ?? null;
+          item.parent_uncertainty = parent.sigma != null ? parent.sigma * _INTERNAL_ELO_SIGMA_SCALE : null;
           item.parent_run_id = parent.run_id;
         }
       }

@@ -3,11 +3,13 @@
 // semantically consistent (variants list, VariantsTab, arena, detail header,
 // VariantCard, lineage tab, invocation detail).
 //
-// Format: "Parent #a1b2c3 · 1250 ± 40 · Δ +45 [+10, +80]"
-// Null-parent (seed variant): "Seed · no parent"
-// Cross-run parent: adds "(other run)" suffix on the ID.
-// role='from' (used by the lineage-tab node-picker for arbitrary-pair diffs):
-// renders "From #a1b2c3 · 1250 ± 40 · Δ +45 [+10, +80]" instead.
+// U8 (use_playwright_find_bugs_ux_issues_20260422) restructured this to a
+// 2-line stacked layout (the inline body comment near the JSX has the full
+// spec). Roughly:
+//   Line 1: "Parent #a1b2c3 [other run]"  (ID, plus cross-run pill if applicable)
+//   Line 2: "1250 ± 40 · Δ +45 [+10, +80]"  (rating, delta, CI)
+// Null-parent (seed variant): single-line "Seed · no parent".
+// role='from' (lineage-tab node-picker): same 2-line layout but "From #..." prefix.
 
 'use client';
 
@@ -70,37 +72,15 @@ export function VariantParentBadge(props: VariantParentBadgeProps): JSX.Element 
   const deltaLabel = delta != null ? `Δ ${formatDelta(delta)}` : null;
   const ciLabel = deltaCi != null ? formatCi(deltaCi) : null;
 
-  return (
-    <span
-      data-testid="variant-parent-badge"
-      data-state={role === 'from' ? 'from' : 'parent'}
-      className={className ?? 'text-[var(--text-secondary)] text-xs font-ui'}
-    >
-      <Link
-        href={buildVariantDetailUrl(parentId)}
-        className="text-[var(--accent-gold)] hover:underline"
-        data-testid="variant-parent-badge-link"
-      >
-        {label}
-      </Link>
-      {crossRun ? (
-        // Styling mirrors StatusBadge.tsx filled variant (20%/30% color-mix bg/border).
-        // StatusBadge isn't reused because its API derives the label from `status` via
-        // capitalize() and takes no children/label — update together if its tokens change.
-        <span
-          className="ml-1 inline-flex items-center rounded-full px-2 py-0.5 text-xs font-ui font-medium border"
-          style={{
-            backgroundColor: 'color-mix(in srgb, var(--accent-copper) 20%, transparent)',
-            color: 'var(--accent-copper)',
-            borderColor: 'color-mix(in srgb, var(--accent-copper) 30%, transparent)',
-          }}
-          data-testid="parent-cross-run-pill"
-          aria-label="Parent is from a different run"
-        >
-          other run{parentRunId ? ` ${parentRunId.substring(0, 6)}` : ''}
-        </span>
-      ) : null}
-      <span className="mx-1">·</span>
+  // U8 (use_playwright_find_bugs_ux_issues_20260422): two-line stacked layout.
+  //   Line 1: `Parent #abc12345` + optional cross-run pill (the identity row)
+  //   Line 2: `1250 ± 40 · Δ +45 [+10, +80]` (the rating row)
+  // Improves scannability vs the previous 4-piece single-line where bullets
+  // visually merged the parent ID and the rating numbers. flex-col keeps both
+  // lines compact in the table cell; sr-only span preserves a single readable
+  // string for screen readers since the visual break would otherwise split it.
+  const ratingLine = (
+    <>
       <span>{eloLabel}</span>
       {deltaLabel ? (
         <>
@@ -109,6 +89,40 @@ export function VariantParentBadge(props: VariantParentBadgeProps): JSX.Element 
           {ciLabel ? <span className="ml-1 text-[var(--text-secondary)]">{ciLabel}</span> : null}
         </>
       ) : null}
+    </>
+  );
+
+  return (
+    <span
+      data-testid="variant-parent-badge"
+      data-state={role === 'from' ? 'from' : 'parent'}
+      className={className ?? 'inline-flex flex-col gap-0.5 text-[var(--text-secondary)] text-xs font-ui'}
+    >
+      <span className="inline-flex items-center">
+        <Link
+          href={buildVariantDetailUrl(parentId)}
+          className="text-[var(--accent-gold)] hover:underline"
+          data-testid="variant-parent-badge-link"
+        >
+          {label}
+        </Link>
+        {crossRun ? (
+          // Styling mirrors StatusBadge.tsx filled variant (20%/30% color-mix bg/border).
+          <span
+            className="ml-1 inline-flex items-center rounded-full px-2 py-0.5 text-xs font-ui font-medium border"
+            style={{
+              backgroundColor: 'color-mix(in srgb, var(--accent-copper) 20%, transparent)',
+              color: 'var(--accent-copper)',
+              borderColor: 'color-mix(in srgb, var(--accent-copper) 30%, transparent)',
+            }}
+            data-testid="parent-cross-run-pill"
+            aria-label="Parent is from a different run"
+          >
+            other run{parentRunId ? ` ${parentRunId.substring(0, 6)}` : ''}
+          </span>
+        ) : null}
+      </span>
+      <span className="inline-flex items-center">{ratingLine}</span>
     </span>
   );
 }

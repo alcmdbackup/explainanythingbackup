@@ -276,7 +276,10 @@ jobs:
     name: Integration Tests (Critical)
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: [detect-changes, unit-tests]
+    # deploy-migrations listed explicitly (not just transitively via unit-tests→
+    # typecheck→generate-types→deploy-migrations) so the schema dependency is
+    # documented at the job level and survives future CI refactors.
+    needs: [detect-changes, unit-tests, deploy-migrations]
     if: >-
       !cancelled() && !failure()
       && needs.detect-changes.outputs.path != 'fast' && github.base_ref == 'main'
@@ -306,7 +309,7 @@ jobs:
     name: Integration Tests (Evolution)
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    needs: [detect-changes, unit-tests]
+    needs: [detect-changes, unit-tests, deploy-migrations]
     if: >-
       !cancelled() && !failure()
       && (github.base_ref == 'production' || github.base_ref == 'main') &&
@@ -337,7 +340,7 @@ jobs:
     name: Integration Tests (Non-Evolution)
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    needs: [detect-changes, unit-tests]
+    needs: [detect-changes, unit-tests, deploy-migrations]
     if: >-
       !cancelled() && !failure()
       && github.base_ref == 'production' &&

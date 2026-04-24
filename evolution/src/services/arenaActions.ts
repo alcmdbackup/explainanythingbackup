@@ -3,7 +3,7 @@
 // V2 schema: elo data lives directly on evolution_variants (no separate elo table).
 
 import { adminAction, type AdminContext } from './adminAction';
-import { validateUuid, applyTestContentNameFilter } from './shared';
+import { validateUuid, applyTestContentColumnFilter } from './shared';
 import { _INTERNAL_ELO_SIGMA_SCALE } from '@evolution/lib/shared/computeRatings';
 import { z } from 'zod';
 
@@ -118,7 +118,7 @@ export const getArenaTopicsAction = adminAction(
       .order('created_at', { ascending: false });
 
     if (filters?.status) query = query.eq('status', filters.status);
-    if (filters?.filterTestContent) query = applyTestContentNameFilter(query);
+    if (filters?.filterTestContent) query = applyTestContentColumnFilter(query);
 
     const { data, error } = await query;
     if (error) throw error;
@@ -375,7 +375,7 @@ export const listPromptsAction = adminAction(
       .is('deleted_at', null);
 
     if (input.status) query = query.eq('status', input.status);
-    if (input.filterTestContent) query = applyTestContentNameFilter(query);
+    if (input.filterTestContent) query = applyTestContentColumnFilter(query);
     if (input.name) {
       const escaped = input.name.replace(/[%_\\]/g, '\\$&');
       query = query.ilike('name', `%${escaped}%`);

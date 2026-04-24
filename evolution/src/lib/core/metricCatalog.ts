@@ -3,7 +3,7 @@
 
 import type { CatalogMetricDef, MetricFormatter } from './types';
 import {
-  formatCost, formatCostDetailed, formatElo, formatScore, formatPercent,
+  formatCost, formatCostDetailed, formatElo, formatScore, formatPercent, formatPercentValue,
 } from '@evolution/lib/utils/formatters';
 
 export const METRIC_CATALOG = {
@@ -190,8 +190,11 @@ export const METRIC_CATALOG = {
 
   // === Cost Estimate Accuracy (cost_estimate_accuracy_analysis_20260414) ===
   // Run-level finalization metrics
+  // B7 (use_playwright_find_bugs_ux_issues_20260422): these three are stored
+  // in percent units (e.g. -38.2) not as 0-1 ratios, so they use 'percentValue'
+  // which rounds and appends '%' instead of multiplying by 100 again.
   cost_estimation_error_pct: {
-    name: 'cost_estimation_error_pct', label: 'Estimation Error %', category: 'cost', formatter: 'percent',
+    name: 'cost_estimation_error_pct', label: 'Estimation Error %', category: 'cost', formatter: 'percentValue',
     timing: 'at_finalization', listView: true,
     description: 'Mean per-invocation estimation error % across GFSA invocations in this run',
   },
@@ -206,12 +209,12 @@ export const METRIC_CATALOG = {
     description: 'Mean |actual − estimated| USD across GFSA invocations',
   },
   generation_estimation_error_pct: {
-    name: 'generation_estimation_error_pct', label: 'Generation Estimation Error %', category: 'cost', formatter: 'percent',
+    name: 'generation_estimation_error_pct', label: 'Generation Estimation Error %', category: 'cost', formatter: 'percentValue',
     timing: 'at_finalization',
     description: 'Mean generation-phase estimation error % across GFSA invocations',
   },
   ranking_estimation_error_pct: {
-    name: 'ranking_estimation_error_pct', label: 'Ranking Estimation Error %', category: 'cost', formatter: 'percent',
+    name: 'ranking_estimation_error_pct', label: 'Ranking Estimation Error %', category: 'cost', formatter: 'percentValue',
     timing: 'at_finalization',
     description: 'Mean ranking-phase estimation error % across GFSA invocations',
   },
@@ -247,18 +250,20 @@ export const METRIC_CATALOG = {
   },
 
   // Propagated (strategy + experiment)
+  // B7 (use_playwright_find_bugs_ux_issues_20260422): percentValue because the
+  // source metric stores percent units, not 0-1 ratios.
   avg_cost_estimation_error_pct: {
-    name: 'avg_cost_estimation_error_pct', label: 'Avg Estimation Error %', category: 'cost', formatter: 'percent',
+    name: 'avg_cost_estimation_error_pct', label: 'Avg Estimation Error %', category: 'cost', formatter: 'percentValue',
     timing: 'at_propagation', listView: true,
     description: 'Mean cost_estimation_error_pct across child runs',
   },
   avg_generation_estimation_error_pct: {
-    name: 'avg_generation_estimation_error_pct', label: 'Avg Generation Error %', category: 'cost', formatter: 'percent',
+    name: 'avg_generation_estimation_error_pct', label: 'Avg Generation Error %', category: 'cost', formatter: 'percentValue',
     timing: 'at_propagation',
     description: 'Mean generation_estimation_error_pct across child runs',
   },
   avg_ranking_estimation_error_pct: {
-    name: 'avg_ranking_estimation_error_pct', label: 'Avg Ranking Error %', category: 'cost', formatter: 'percent',
+    name: 'avg_ranking_estimation_error_pct', label: 'Avg Ranking Error %', category: 'cost', formatter: 'percentValue',
     timing: 'at_propagation',
     description: 'Mean ranking_estimation_error_pct across child runs',
   },
@@ -314,5 +319,6 @@ export const METRIC_FORMATTERS: Record<MetricFormatter, (v: number) => string> =
   elo: formatElo,
   score: formatScore,
   percent: formatPercent,
+  percentValue: formatPercentValue,
   integer: (v) => String(Math.round(v)),
 };

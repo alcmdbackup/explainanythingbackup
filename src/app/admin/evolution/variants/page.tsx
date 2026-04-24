@@ -87,10 +87,22 @@ const COLUMNS: ColumnDef<VariantListEntry>[] = [
     },
   },
   { key: 'match_count', header: 'Matches', align: 'right', render: (v) => v.match_count },
-  { key: 'generation', header: 'Generation', align: 'right', render: (v) => v.generation },
+  // U18 (use_playwright_find_bugs_ux_issues_20260422): standardize on "Iteration"
+  // across surfaces — the underlying DB column is `evolution_variants.generation`,
+  // but per data_model.md it MAPS to Variant.iterationBorn (the iteration index from
+  // iterationConfigs[] when this variant was created). The run-detail Variants tab,
+  // invocations list, and Cost Estimates table all already use "Iteration"; this
+  // surface is the only one that said "Generation".
+  { key: 'generation', header: 'Iteration', align: 'right', headerTitle: 'Iteration index (iterationBorn) — DB column evolution_variants.generation', render: (v) => v.generation },
   {
     key: 'parent_variant_id',
     header: 'Parent · Δ',
+    // B5 (use_playwright_find_bugs_ux_issues_20260422): VariantParentBadge
+    // renders its own <Link> to the parent variant. Without skipLink the
+    // EntityListPage row-level Link wraps it, producing nested <a> tags
+    // and a React hydration error. skipLink lets the cell escape the
+    // outer row-link wrapper.
+    skipLink: true,
     render: (v) => {
       if (!v.parent_variant_id) {
         return (

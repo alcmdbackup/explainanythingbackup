@@ -7,6 +7,7 @@ import Link from 'next/link';
 import {
   MetricGrid,
   AutoRefreshProvider,
+  RefreshIndicator,
   useAutoRefresh,
   RunsTable,
   getBaseColumns,
@@ -61,11 +62,12 @@ function DashboardContent(): JSX.Element {
   if (!data) return <div className="p-8 text-center text-[var(--text-muted)]">No data available</div>;
 
   // Phase 4d: append "± SE" to Avg Cost when the server action computed one (≥2 run samples).
-  const avgCostLabel = data.avgCostPerRun == null
-    ? formatCost(null)
-    : data.seCostPerRun != null
-      ? `${formatCost(data.avgCostPerRun)} ± ${formatCost(data.seCostPerRun)}`
-      : formatCost(data.avgCostPerRun);
+  // U1 (use_playwright_find_bugs_ux_issues_20260422): hide the "± $0.00" suffix when SE
+  // rounds below the 2dp display precision (< $0.005). It looks broken even though the
+  // computation is correct.
+  const avgCost = formatCost(data.avgCostPerRun);
+  const showSe = data.avgCostPerRun != null && data.seCostPerRun != null && data.seCostPerRun >= 0.005;
+  const avgCostLabel = showSe ? `${avgCost} ± ${formatCost(data.seCostPerRun)}` : avgCost;
 
   const metrics: MetricItem[] = [
     { label: 'Active Runs', value: data.activeRuns },
@@ -124,13 +126,10 @@ function DashboardContent(): JSX.Element {
         </div>
         <RunsTable runs={recentRuns} columns={getBaseColumns()} compact maxRows={10} testId="dashboard-runs-table" />
       </div>
-      <div className="flex gap-3 text-sm">
-        <Link href="/admin/evolution/tactics" className="text-[var(--accent-gold)] hover:underline">Tactics →</Link>
-        <Link href="/admin/evolution/strategies" className="text-[var(--accent-gold)] hover:underline">Strategies →</Link>
-        <Link href="/admin/evolution/experiments" className="text-[var(--accent-gold)] hover:underline">Experiments →</Link>
-        <Link href="/admin/evolution/prompts" className="text-[var(--accent-gold)] hover:underline">Prompts →</Link>
-        <Link href="/admin/evolution/arena" className="text-[var(--accent-gold)] hover:underline">Arena →</Link>
-      </div>
+      {/* U20 (use_playwright_find_bugs_ux_issues_20260422): the previous row of
+          Tactics → / Strategies → / Experiments → / Prompts → / Arena → quick-links
+          duplicated the sidebar with no extra info (no per-entity counts).
+          Dropped entirely; the sidebar already links to all of them. */}
     </div>
   );
 }
@@ -142,6 +141,10 @@ export default function EvolutionDashboardPage(): JSX.Element {
       <EvolutionBreadcrumb items={[{ label: 'Evolution Dashboard' }]} />
       <h1 className="text-4xl font-display font-bold text-[var(--text-primary)]">Evolution Dashboard</h1>
       <AutoRefreshProvider isActive intervalMs={15000}>
+        {/* U2 (use_playwright_find_bugs_ux_issues_20260422): RefreshIndicator
+            shows "Updated Xs ago" with a manual refresh button so users know
+            the auto-refresh is alive and when the data was last fetched. */}
+        <div className="flex justify-end -mt-3"><RefreshIndicator /></div>
         <DashboardContent />
       </AutoRefreshProvider>
     </div>

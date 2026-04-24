@@ -62,7 +62,13 @@ export const getEntityLogsAction = adminAction(
       query = query.eq('entity_type', entityType).eq('entity_id', entityId);
     }
 
-    query = query.order('created_at', { ascending: true });
+    // B13 (use_playwright_find_bugs_ux_issues_20260422): secondary sort by id
+    // (BIGSERIAL — sequence-backed, atomic across concurrent inserts) so logs
+    // sharing the same created_at millisecond come back in deterministic order.
+    // Without this, multiple writes in the same ms can render in arbitrary
+    // order on the Logs tab and look "scrambled" (e.g. config_validation
+    // appearing after loop start).
+    query = query.order('created_at', { ascending: true }).order('id', { ascending: true });
 
     // Apply filters
     if (filters?.level) query = query.eq('level', filters.level);

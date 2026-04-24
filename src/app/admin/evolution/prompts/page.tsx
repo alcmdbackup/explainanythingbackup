@@ -14,6 +14,7 @@ import {
   type PromptListItem,
 } from '@evolution/services/arenaActions';
 import { executeEntityAction } from '@evolution/services/entityActions';
+import { formatDate } from '@evolution/lib/utils/formatters';
 
 const loadData = async (filters: Record<string, string>, page: number, pageSize: number) => {
   const result = await listPromptsAction({
@@ -27,18 +28,22 @@ const loadData = async (filters: Record<string, string>, page: number, pageSize:
   return { items: result.data!.items, total: result.data!.total };
 };
 
+// U32 (use_playwright_find_bugs_ux_issues_20260422): Name column carries the
+// row-level Link; other columns skipLink to avoid duplicate anchors per row.
 const columns: ColumnDef<PromptListItem>[] = [
   { key: 'name', header: 'Name', render: (row) => row.name },
   {
     key: 'prompt',
     header: 'Prompt',
+    skipLink: true,
     render: (row) => {
       const text = row.prompt ?? '';
       return text.length > 100 ? `${text.substring(0, 100)}...` : text;
     },
   },
-  { key: 'status', header: 'Status', render: (row) => row.status },
-  { key: 'created_at', header: 'Created', render: (row) => new Date(row.created_at).toLocaleDateString() },
+  { key: 'status', header: 'Status', skipLink: true, render: (row) => row.status },
+  // U15 + U32: match runs/arena list format AND skip link wrap.
+  { key: 'created_at', header: 'Created', skipLink: true, render: (row) => formatDate(row.created_at) },
 ];
 
 const filters: FilterDef[] = [
