@@ -138,8 +138,11 @@ adminTest.describe('Evolution Experiments List', { tag: '@evolution' }, () => {
     await adminPage.goto('/admin/evolution/experiments');
     await adminPage.waitForLoadState('domcontentloaded');
 
-    // Same Hide-test-content unfiltering as above (Phase 1).
+    // Same Hide-test-content unfiltering as above (Phase 1). Wait for the filter
+    // to actually render before reading isChecked — without this the read can
+    // race the React hydration and skip the uncheck silently.
     const filter = adminPage.locator('[data-testid="filter-filterTestContent"] input[type="checkbox"]');
+    await expect(filter).toBeVisible({ timeout: 15000 });
     // eslint-disable-next-line flakiness/no-point-in-time-checks -- control flow, not assertion
     if (await filter.isChecked()) await filter.uncheck();
 
@@ -163,8 +166,11 @@ adminTest.describe('Evolution Experiments List', { tag: '@evolution' }, () => {
     await adminPage.goto('/admin/evolution/experiments');
     await adminPage.waitForLoadState('domcontentloaded');
 
-    // Same Hide-test-content unfiltering as above (Phase 1).
+    // Same Hide-test-content unfiltering as above (Phase 1). Wait for the filter
+    // to actually render before reading isChecked — without this the read can
+    // race the React hydration and skip the uncheck silently.
     const filter = adminPage.locator('[data-testid="filter-filterTestContent"] input[type="checkbox"]');
+    await expect(filter).toBeVisible({ timeout: 15000 });
     // eslint-disable-next-line flakiness/no-point-in-time-checks -- control flow, not assertion
     if (await filter.isChecked()) await filter.uncheck();
 

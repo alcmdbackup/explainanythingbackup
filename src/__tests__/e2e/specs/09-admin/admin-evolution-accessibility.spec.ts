@@ -97,6 +97,9 @@ adminTest.describe('Evolution Accessibility', { tag: '@evolution' }, () => {
     // so the seeded rows are filtered out and the table renders an empty state
     // (no <table> element). Uncheck the filter so seeded rows are visible.
     const filter = adminPage.locator('[data-testid="filter-filterTestContent"] input[type="checkbox"]');
+    // Wait briefly for the checkbox to render before reading its state — without
+    // this, isChecked can race the React hydration and silently skip the uncheck.
+    if ((await filter.count()) > 0) await expect(filter).toBeVisible({ timeout: 15000 });
     // eslint-disable-next-line flakiness/no-point-in-time-checks -- control flow, not assertion
     if ((await filter.count()) > 0 && (await filter.isChecked())) await filter.uncheck();
 
@@ -124,8 +127,16 @@ adminTest.describe('Evolution Accessibility', { tag: '@evolution' }, () => {
     // so the seeded rows are filtered out and the table renders an empty state
     // (no <table> element). Uncheck the filter so seeded rows are visible.
     const filter = adminPage.locator('[data-testid="filter-filterTestContent"] input[type="checkbox"]');
+    // Wait briefly for the checkbox to render before reading its state — without
+    // this, isChecked can race the React hydration and silently skip the uncheck.
+    if ((await filter.count()) > 0) await expect(filter).toBeVisible({ timeout: 15000 });
     // eslint-disable-next-line flakiness/no-point-in-time-checks -- control flow, not assertion
     if ((await filter.count()) > 0 && (await filter.isChecked())) await filter.uncheck();
+
+    // U16: "Hide empty topics" is now also default-on on the arena topics list.
+    const hideEmptyFilter = adminPage.locator('[data-testid="filter-hideEmpty"] input[type="checkbox"]');
+    // eslint-disable-next-line flakiness/no-point-in-time-checks -- control flow, not assertion
+    if ((await hideEmptyFilter.count()) > 0 && (await hideEmptyFilter.isChecked())) await hideEmptyFilter.uncheck();
 
     // Wait for EntityListPage table to render with data
     const table = adminPage.locator('[data-testid="entity-list-table"] table');

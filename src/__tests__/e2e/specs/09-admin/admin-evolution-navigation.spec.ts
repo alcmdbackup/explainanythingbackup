@@ -92,6 +92,7 @@ adminTest.describe('Evolution Navigation', { tag: ['@evolution', '@critical'] },
     // — `evolution_experiments` got an `is_test_content` column + trigger that
     // marks `e2e-*` names as test content; the filter is default-on.
     const expFilter = adminPage.locator('[data-testid="filter-filterTestContent"] input[type="checkbox"]');
+    await expect(expFilter).toBeVisible({ timeout: 15000 });
     // eslint-disable-next-line flakiness/no-point-in-time-checks -- control flow, not assertion
     if (await expFilter.isChecked()) await expFilter.uncheck();
 
@@ -116,6 +117,7 @@ adminTest.describe('Evolution Navigation', { tag: ['@evolution', '@critical'] },
     // Same Hide-test-content default applies on the strategies list (was always
     // backed by `is_test_content` since 20260415000001).
     const strategyFilter = adminPage.locator('[data-testid="filter-filterTestContent"] input[type="checkbox"]');
+    await expect(strategyFilter).toBeVisible({ timeout: 15000 });
     // eslint-disable-next-line flakiness/no-point-in-time-checks -- control flow, not assertion
     if (await strategyFilter.isChecked()) await strategyFilter.uncheck();
 

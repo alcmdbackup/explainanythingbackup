@@ -245,8 +245,16 @@ adminTest.describe('Admin Arena', { tag: '@evolution' }, () => {
       // the seeded "[TEST] Arena" topic as is_test_content=true and the arena
       // topics list "Hide test content" filter is default-on. Uncheck it.
       const filter = adminPage.locator('[data-testid="filter-filterTestContent"] input[type="checkbox"]');
+      await expect(filter).toBeVisible({ timeout: 15000 });
       // eslint-disable-next-line flakiness/no-point-in-time-checks -- control flow, not assertion
       if (await filter.isChecked()) await filter.uncheck();
+
+      // U16 (same project): "Hide empty topics" is now also default-on. The seeded
+      // topic has 0 arena entries (no syncToArena ran), so it'd be filtered out.
+      const hideEmptyFilter = adminPage.locator('[data-testid="filter-hideEmpty"] input[type="checkbox"]');
+      await expect(hideEmptyFilter).toBeVisible({ timeout: 15000 });
+      // eslint-disable-next-line flakiness/no-point-in-time-checks -- control flow, not assertion
+      if (await hideEmptyFilter.isChecked()) await hideEmptyFilter.uncheck();
 
       // Topics table renders (EntityListPage uses entity-list-table testid)
       const topicsTable = adminPage.locator('[data-testid="entity-list-table"]');
