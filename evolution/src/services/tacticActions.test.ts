@@ -77,7 +77,7 @@ const UUID_C = '00000000-0000-4000-8000-000000000003';
 
 beforeEach(() => {
   jest.clearAllMocks();
-  mockGetMetricsForEntities.mockResolvedValue(new Map());
+  mockGetMetricsForEntities.mockResolvedValue({ data: new Map(), errors: [] });
 });
 
 describe('listTacticsAction', () => {
@@ -102,9 +102,9 @@ describe('listTacticsAction', () => {
       orderCalls: [], ilikeCalls: [], eqCalls: [], count: 2,
     };
     (createSupabaseServiceClient as jest.Mock).mockResolvedValue(makeMockSupabase(state));
-    mockGetMetricsForEntities.mockResolvedValueOnce(new Map([
+    mockGetMetricsForEntities.mockResolvedValueOnce({ data: new Map([
       [UUID_A, [{ metric_name: 'avg_elo', value: 1287, entity_id: UUID_A } as never]],
-    ]));
+    ]), errors: [] });
 
     const result = await listTacticsAction({});
     expect(result.data!.items.find((r) => r.id === UUID_A)!.metrics).toHaveLength(1);
@@ -146,11 +146,11 @@ describe('listTacticsAction', () => {
       orderCalls: [], ilikeCalls: [], eqCalls: [], count: 3,
     };
     (createSupabaseServiceClient as jest.Mock).mockResolvedValue(makeMockSupabase(state));
-    mockGetMetricsForEntities.mockResolvedValueOnce(new Map([
+    mockGetMetricsForEntities.mockResolvedValueOnce({ data: new Map([
       [UUID_A, [{ metric_name: 'avg_elo', value: 1200, entity_id: UUID_A } as never]],
       [UUID_B, [{ metric_name: 'avg_elo', value: 1300, entity_id: UUID_B } as never]],
       // UUID_C has no rows — null value → sorts last.
-    ]));
+    ]), errors: [] });
 
     const result = await listTacticsAction({ sortKey: 'avg_elo', sortDir: 'desc' });
     const ids = result.data!.items.map((r) => r.id);
@@ -164,10 +164,10 @@ describe('listTacticsAction', () => {
       orderCalls: [], ilikeCalls: [], eqCalls: [], count: 3,
     };
     (createSupabaseServiceClient as jest.Mock).mockResolvedValue(makeMockSupabase(state));
-    mockGetMetricsForEntities.mockResolvedValueOnce(new Map([
+    mockGetMetricsForEntities.mockResolvedValueOnce({ data: new Map([
       [UUID_A, [{ metric_name: 'win_rate', value: 0.1, entity_id: UUID_A } as never]],
       [UUID_B, [{ metric_name: 'win_rate', value: 0.5, entity_id: UUID_B } as never]],
-    ]));
+    ]), errors: [] });
 
     const result = await listTacticsAction({ sortKey: 'win_rate', sortDir: 'asc' });
     const ids = result.data!.items.map((r) => r.id);
