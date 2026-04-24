@@ -27,13 +27,13 @@ afterAll(async () => {
 });
 
 async function writeCost(runId: string, value: number): Promise<void> {
+  // upsert_metric_max signature: (p_entity_type, p_entity_id, p_metric_name, p_value, p_source).
   const { error } = await supabase.rpc('upsert_metric_max', {
     p_entity_type: 'run',
     p_entity_id: runId,
     p_metric_name: 'cost',
     p_value: value,
     p_source: 'integration-test',
-    p_aggregation_method: 'sum',
   });
   if (error) throw new Error(`upsert_metric_max(cost): ${error.message}`);
 }

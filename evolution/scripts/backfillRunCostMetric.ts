@@ -98,13 +98,13 @@ async function main(): Promise<void> {
       written.push(runId);
       fs.writeFileSync(REPORT_PATH, JSON.stringify({ writtenAt: new Date().toISOString(), runIds: written }, null, 2));
 
+      // upsert_metric_max signature: (p_entity_type, p_entity_id, p_metric_name, p_value, p_source).
       const { error: rpcErr } = await db.rpc('upsert_metric_max', {
         p_entity_type: 'run',
         p_entity_id: runId,
         p_metric_name: 'cost',
         p_value: cost,
         p_source: 'backfill',
-        p_aggregation_method: 'sum',
       });
       if (rpcErr) throw rpcErr;
       wrote += 1;

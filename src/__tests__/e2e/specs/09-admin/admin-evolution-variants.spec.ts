@@ -115,7 +115,9 @@ adminTest.describe('Evolution Variants (list page)', { tag: '@evolution' }, () =
     await expect(table.locator('th:has-text("Agent")')).toBeVisible();
     await expect(table.locator('th:has-text("Rating")')).toBeVisible();
     await expect(table.locator('th:has-text("Matches")')).toBeVisible();
-    await expect(table.locator('th:has-text("Generation")')).toBeVisible();
+    // U18 (use_playwright_find_bugs_ux_issues_20260422): "Generation" was renamed
+    // to "Iteration" everywhere for naming consistency.
+    await expect(table.locator('th:has-text("Iteration")')).toBeVisible();
 
     // Hide test content filter should be visible
     const filterBar = adminPage.locator('[data-testid="filter-bar"]');

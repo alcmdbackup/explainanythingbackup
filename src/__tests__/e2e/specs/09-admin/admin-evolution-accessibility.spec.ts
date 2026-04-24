@@ -91,6 +91,15 @@ adminTest.describe('Evolution Accessibility', { tag: '@evolution' }, () => {
     await adminPage.goto('/admin/evolution/prompts');
     await adminPage.waitForLoadState('domcontentloaded');
 
+    // Phase 1 of use_playwright_find_bugs_ux_issues_20260422 added is_test_content
+    // columns to evolution_prompts/experiments/strategies. The seeded `e2e-*` data
+    // is now correctly marked as test content; "Hide test content" is default-on
+    // so the seeded rows are filtered out and the table renders an empty state
+    // (no <table> element). Uncheck the filter so seeded rows are visible.
+    const filter = adminPage.locator('[data-testid="filter-filterTestContent"] input[type="checkbox"]');
+    // eslint-disable-next-line flakiness/no-point-in-time-checks -- control flow, not assertion
+    if ((await filter.count()) > 0 && (await filter.isChecked())) await filter.uncheck();
+
     // Wait for EntityListPage table to render with data
     const table = adminPage.locator('[data-testid="entity-list-table"] table');
     await expect(table).toBeVisible({ timeout: 20000 });
@@ -108,6 +117,15 @@ adminTest.describe('Evolution Accessibility', { tag: '@evolution' }, () => {
   adminTest('table columnheaders on Arena page have text content', async ({ adminPage }) => {
     await adminPage.goto('/admin/evolution/arena');
     await adminPage.waitForLoadState('domcontentloaded');
+
+    // Phase 1 of use_playwright_find_bugs_ux_issues_20260422 added is_test_content
+    // columns to evolution_prompts/experiments/strategies. The seeded `e2e-*` data
+    // is now correctly marked as test content; "Hide test content" is default-on
+    // so the seeded rows are filtered out and the table renders an empty state
+    // (no <table> element). Uncheck the filter so seeded rows are visible.
+    const filter = adminPage.locator('[data-testid="filter-filterTestContent"] input[type="checkbox"]');
+    // eslint-disable-next-line flakiness/no-point-in-time-checks -- control flow, not assertion
+    if ((await filter.count()) > 0 && (await filter.isChecked())) await filter.uncheck();
 
     // Wait for EntityListPage table to render with data
     const table = adminPage.locator('[data-testid="entity-list-table"] table');

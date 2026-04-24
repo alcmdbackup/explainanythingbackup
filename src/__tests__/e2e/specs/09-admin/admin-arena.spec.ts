@@ -240,6 +240,14 @@ adminTest.describe('Admin Arena', { tag: '@evolution' }, () => {
       // Page heading
       await expect(adminPage.locator('h1')).toContainText('Arena', { timeout: 15000 });
 
+      // Phase 1 of use_playwright_find_bugs_ux_issues_20260422 added an
+      // is_test_content column + trigger to evolution_prompts. The trigger marks
+      // the seeded "[TEST] Arena" topic as is_test_content=true and the arena
+      // topics list "Hide test content" filter is default-on. Uncheck it.
+      const filter = adminPage.locator('[data-testid="filter-filterTestContent"] input[type="checkbox"]');
+      // eslint-disable-next-line flakiness/no-point-in-time-checks -- control flow, not assertion
+      if (await filter.isChecked()) await filter.uncheck();
+
       // Topics table renders (EntityListPage uses entity-list-table testid)
       const topicsTable = adminPage.locator('[data-testid="entity-list-table"]');
       await expect(topicsTable).toBeVisible({ timeout: 20000 });

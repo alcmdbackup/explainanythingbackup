@@ -218,7 +218,8 @@ adminTest.describe('Evolution Dashboard (T1-T3)', { tag: '@evolution' }, () => {
       monoRunIds.push(prodRunId, testRunId);
 
       const writeCost = async (runId: string, value: number): Promise<void> => {
-        // upsert_metric_max isn't in the generated DB types yet — cast around it.
+        // upsert_metric_max signature: (p_entity_type, p_entity_id, p_metric_name, p_value, p_source).
+        // Cast around the typed rpc since the function isn't in the generated types yet.
         const { error } = await (sb.rpc as unknown as (name: string, params: Record<string, unknown>) => Promise<{ error: { message: string } | null }>)(
           'upsert_metric_max',
           {
@@ -227,7 +228,6 @@ adminTest.describe('Evolution Dashboard (T1-T3)', { tag: '@evolution' }, () => {
             p_metric_name: 'cost',
             p_value: value,
             p_source: 'e2e-test',
-            p_aggregation_method: 'sum',
           },
         );
         if (error) throw new Error(`writeCost(${runId}): ${error.message}`);

@@ -161,9 +161,12 @@ adminTest.describe('Evolution Runs (T4, T7, T8, T10)', { tag: '@evolution' }, ()
     await adminPage.waitForURL('**/admin/evolution/runs', { timeout: 15000 });
     await expect(adminPage.locator('h1')).toContainText('Evolution Runs');
 
-    // Strategy filter select should render (populated after strategies load)
-    const strategySelect = adminPage.locator('select').filter({ hasText: 'All strategies' });
-    await expect(strategySelect).toBeVisible({ timeout: 15000 });
+    // U4 (use_playwright_find_bugs_ux_issues_20260422): the strategy filter is
+    // now a searchable Combobox primitive (input role="combobox"), not a flat
+    // <select>. Locate by the data-testid that EntityListPage assigns
+    // (filter-${filter.key} → "filter-strategy_id").
+    const strategyCombobox = adminPage.locator('[data-testid="filter-strategy_id"]');
+    await expect(strategyCombobox).toBeVisible({ timeout: 15000 });
   });
 
   // Phase 1 (use_playwright_find_bugs_ux_issues_20260422 — B3 first cause)
@@ -171,13 +174,19 @@ adminTest.describe('Evolution Runs (T4, T7, T8, T10)', { tag: '@evolution' }, ()
     await adminPage.goto(`/admin/evolution/runs`, { timeout: 30000 });
     await adminPage.waitForLoadState('domcontentloaded');
 
-    // Wait for strategies to load (the listStrategiesAction call settles a tick after mount).
-    const strategySelect = adminPage.locator('select').filter({ hasText: 'All strategies' });
-    await expect(strategySelect).toBeVisible({ timeout: 15000 });
+    // U4: strategy filter is a Combobox primitive — input role="combobox" with
+    // a popup listbox of options that are only rendered when focused. Click the
+    // input to open the listbox, then read role="option" entries.
+    const strategyCombobox = adminPage.locator('[data-testid="filter-strategy_id"]');
+    await expect(strategyCombobox).toBeVisible({ timeout: 15000 });
+    await strategyCombobox.click();
 
-    // Hide test content is checked-by-default (defaultChecked: true on the page).
+    // Listbox is opened on focus — wait for at least one option to render.
+    const options = adminPage.locator('[role="option"]');
+    await expect(options.first()).toBeVisible({ timeout: 10000 });
+
     // Read all option texts and assert none of the test-named patterns appear.
-    const optionTexts = await strategySelect.locator('option').allTextContents();
+    const optionTexts = await options.allTextContents();
     expect(optionTexts.length).toBeGreaterThan(0); // sanity: at least "All strategies"
     for (const text of optionTexts) {
       // Test-content patterns from evolution_is_test_name(text) — same predicate
