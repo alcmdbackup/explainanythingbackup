@@ -655,6 +655,50 @@ Every log row denormalizes its ancestor FKs (`run_id`, `experiment_id`, `strateg
 
 Individual agent invocations can emit their own logs by creating an `EntityLogger` with `entityType: 'invocation'`. These logs carry the invocation's ID as `entity_id` and inherit the parent run's `run_id`, `experiment_id`, and `strategy_id` for aggregation.
 
+## Invariants Tightened in the 2026-04-23 Hardening Pass
+
+Several cross-cutting invariants in the pipeline were tightened as part of the
+scan_codebase_for_bugs_20260422 project. They are load-bearing enough to call
+out at the architecture level:
+
+- **AgentCostScope is required at ranking boundaries (B012).** `rankNewVariant`
+  runtime-asserts that `costTracker.getOwnSpent` exists. Every real call site
+  wraps `V2CostTracker` via `createAgentCostScope` before entering the ranking
+  path; a missing wrap now throws immediately rather than silently attributing
+  cost to a sibling agent.
+- **Watchdog uses compare-and-set (B060).** `runWatchdog` pins the `UPDATE` on
+  the `last_heartbeat` value it just read. If another process bumped the
+  heartbeat between the SELECT and UPDATE (indicating recovery), the predicate
+  fails and the run row is left alone. The `.select('id')` return then
+  distinguishes "marked failed" from "raced, skipped".
+- **Swiss pairing is deterministic (B118).** `selectCandidatePairs` sorts by
+  descending score with lexicographic tiebreakers on idA, idB. A seeded RNG
+  upstream now produces a reproducible pairing set; before B118, equal scores
+  produced nondeterministic order even under a seeded RNG.
+- **Arena entries do not inflate in-run cutoffs (B119).** The `initialPoolSnapshot`
+  passed to generate-agents includes arena comparators, but `rankNewVariant`
+  recomputes the top-15% cutoff over in-run ratings only before the
+  surface/discard decision. Arena comparators still participate in
+  `rankSingleVariant` as opponents.
+- **Agent.run() duration timer starts before any work (B047).** `startMs` is
+  the first statement in `run()`; detail-validation failures (B051) still
+  record the full wall-clock duration so dashboards see the time an
+  invocation actually took.
+- **Detail-invalid = success=false (B051).** If the agent's `detail` fails
+  schema validation, the invocation row is marked `success: false` with an
+  `error_message`. Before B051, the row was marked `success: true` with
+  `execution_detail: undefined`, which hid the failure in dashboards and
+  crashed downstream renderers on read.
+- **Seed-variant retry + permanent failure (B008).** `claimAndExecuteRun`
+  retries seed generation with exponential backoff on transient failure and
+  fails the whole run (status = failed) on permanent failure. Runs no longer
+  enter a successful-but-variant-less state.
+- **API route body is Zod-validated (B079, B081).** `POST /api/evolution/run`
+  parses the body through a strict Zod schema (`targetRunId` optional UUID)
+  and returns categorized status codes: 400 malformed body, 403 unauthorized,
+  402 budget exceeded, 503 kill switch, 500 other. Empty body is treated as
+  `{}` for backward compatibility with callers that pass no body.
+
 ## Related Documentation
 
 - [Data Model](./data_model.md) — database schema and relationships
