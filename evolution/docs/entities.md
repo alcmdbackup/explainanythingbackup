@@ -148,6 +148,20 @@ All evolution pages use "Evolution" as the root breadcrumb, linking to `/admin/e
 
 Entity IDs displayed in detail headers are clickable — clicking copies the full UUID to the clipboard via the `CopyableId` component. This avoids the need to manually select and copy long UUIDs.
 
+## Dual-Registry Parity (TacticEntity)
+
+Two metric registries exist in the codebase:
+1. **Flat registry** — `evolution/src/lib/metrics/registry.ts` exports `METRIC_REGISTRY[entityType]`.
+2. **Entity-class registry** — each `Entity` subclass declares `readonly metrics: EntityMetricRegistry` (see `StrategyEntity.metrics.atPropagation` for the canonical pattern).
+
+Both must be kept in sync manually until the follow-up consolidation project lands.
+
+**Track_tactic_effectiveness_evolution_20260422 Phase 1**: `TacticEntity.metrics.atFinalization` is now populated with the same 8 defs (`avg_elo`, `avg_elo_delta`, `best_elo`, `win_rate`, `total_variants`, `total_cost`, `run_count`, `winner_count`) that already lived in `METRIC_REGISTRY['tactic'].atFinalization`. This populates `getEntityListViewMetrics('tactic')` which `createMetricColumns('tactic')` reads for the tactics leaderboard. 5 of the 8 carry `listView: true` (avg_elo, avg_elo_delta, win_rate, total_variants, run_count); the other 3 show only on the detail page to keep row width reasonable.
+
+A parity test in `entities.test.ts` compares `TacticEntity.metrics.atFinalization` against `METRIC_REGISTRY.tactic.atFinalization` — any silent drift (name, listView, formatter, category, label mismatch) fails the suite. Reduces the maintenance cost of the duplication until the registries consolidate.
+
+Values for these metrics are always null from `compute()` (the function is never called — values come from the `evolution_metrics` table, written by `computeTacticMetricsForRun` at run finalization).
+
 ## Agent Metric Merging
 
 Agent subclasses can declare metrics that are specific to their execution context (e.g. rejection rates, comparison counts). These are merged into `InvocationEntity`'s metric list at startup rather than being hardcoded there, keeping agent and entity concerns separate.

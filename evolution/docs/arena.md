@@ -129,6 +129,14 @@ Arena entries are rows in `evolution_variants` with `synced_to_arena = true`. Th
 
 The `generation_method` field tracks provenance: which strategy produced this entry (e.g., `pipeline`, `crossover`, `prompt_engineering`). Combined with `model` and `cost_usd`, this enables cost-efficiency analysis on the leaderboard.
 
+### ArenaEntry DTO projections (track_tactic_effectiveness_evolution_20260422 Phase 3)
+
+`toArenaEntry` in `arenaActions.ts` projects two additional fields onto `ArenaEntry`:
+- `agent_name: string | null` — tactic name straight off `evolution_variants.agent_name`. Null for seeds / manual entries.
+- `tactic_id: string | null` — UUID resolved from `agent_name` via a batch lookup against `evolution_tactics` (one query per `getArenaEntriesAction` call). Null when `agent_name` is null or has no matching tactic row (legacy names pre-dating the registry sync).
+
+The leaderboard cell links to `/admin/evolution/tactics/${tactic_id}` when resolved, falls back to plain text when not. Same lookup pattern is used by `listVariantsAction` so the global variants list (`/admin/evolution/variants`) also deep-links `agent_name` cells to tactic detail.
+
 ### evolution_arena_comparisons
 
 Stores pairwise comparison results from pipeline runs.
@@ -171,7 +179,7 @@ The arena admin pages provide leaderboard views and topic management.
 | Route                                      | Purpose                                              |
 |-------------------------------------------|------------------------------------------------------|
 | `/admin/evolution/arena`                  | List all arena topics with entry counts              |
-| `/admin/evolution/arena/[topicId]`        | Seed panel at top (`ArenaSeedPanel`, 2026-04-21) when the topic has a `generation_method='seed'` variant — shows content preview, variant ID (click-to-copy), Elo/CI/matches, and a link to the seed variant's detail page. Seed data is sourced via `getArenaTopicDetailAction.seedVariant` — NOT from the paginated leaderboard — so the panel is always available regardless of page. Leaderboard below: sortable columns for Rank, Content, **ID** (8-char truncated, click-to-copy, full UUID in `title`), Elo (rounded to integers), 95% CI (`formatEloCIRange(elo, uncertainty)`), Elo ± Uncertainty (`formatEloWithUncertainty(elo, uncertainty)`), Matches, Iteration, Method, Parent, Cost (shows "N/A" — cost data unavailable at variant level). The seed row stays in the leaderboard body and carries a strengthened star-icon pill (`data-testid="lb-seed-row-indicator"`). Entries below the top 15% eligibility cutoff (mean + 1.04×stdDev of Elo scores) are dimmed. Markdown is stripped from content previews via `stripMarkdownTitle()`. |
+| `/admin/evolution/arena/[topicId]`        | Seed panel at top (`ArenaSeedPanel`, 2026-04-21) when the topic has a `generation_method='seed'` variant — shows content preview, variant ID (click-to-copy), Elo/CI/matches, and a link to the seed variant's detail page. Seed data is sourced via `getArenaTopicDetailAction.seedVariant` — NOT from the paginated leaderboard — so the panel is always available regardless of page. Leaderboard below: sortable columns for Rank, Content, **ID** (8-char truncated, click-to-copy, full UUID in `title`), Elo (rounded to integers), 95% CI (`formatEloCIRange(elo, uncertainty)`), Elo ± Uncertainty (`formatEloWithUncertainty(elo, uncertainty)`), Matches, Iteration, **Tactic** (new — colored dot from `TACTIC_PALETTE` + tactic name, clickable when `tactic_id` resolved; track_tactic_effectiveness_evolution_20260422 Phase 3), Method, Parent, Cost (shows "N/A" — cost data unavailable at variant level). The seed row stays in the leaderboard body and carries a strengthened star-icon pill (`data-testid="lb-seed-row-indicator"`). Entries below the top 15% eligibility cutoff (mean + 1.04×stdDev of Elo scores) are dimmed. Markdown is stripped from content previews via `stripMarkdownTitle()`. |
 | `/admin/evolution/arena/entries/[entryId]`| Entry detail: content, rating history, comparisons   |
 
 **Source files:**

@@ -5,7 +5,9 @@
 
 import { adminAction, type AdminContext } from './adminAction';
 import { getTacticDef } from '../lib/core/tactics';
-import type { EvolutionTacticRow } from '../lib/core/entities/TacticEntity';
+import { TacticEntity, type EvolutionTacticRow } from '../lib/core/entities/TacticEntity';
+import { getMetricsForEntities } from '../lib/metrics/readMetrics';
+import type { MetricRow } from '../lib/metrics/types';
 
 /** Tactic row enriched with code-defined prompt (for detail pages). */
 export interface TacticDetailRow extends EvolutionTacticRow {
@@ -13,17 +15,69 @@ export interface TacticDetailRow extends EvolutionTacticRow {
   instructions: string | null;
 }
 
-/** List all tactics with optional status filter. */
+/** Tactic row with attached metric rows for leaderboard rendering (Phase 2). */
+export interface TacticListRow extends EvolutionTacticRow {
+  metrics: MetricRow[];
+}
+
+// Columns that can be sorted server-side via .order() on evolution_tactics.
+const IDENTITY_SORT_KEYS = new Set(['name', 'label', 'category', 'created_at', 'status', 'agent_type']);
+
+// listView metric names derived once from the entity registry so the leaderboard keeps
+// in sync if Phase 1's TacticEntity.metrics listView flags change.
+const LIST_VIEW_METRIC_NAMES: readonly string[] = new TacticEntity().metrics.atFinalization
+  .filter((d) => d.listView)
+  .map((d) => d.name);
+
+function compareMetricValues(
+  a: MetricRow | undefined,
+  b: MetricRow | undefined,
+  dir: 'asc' | 'desc',
+): number {
+  // Null / undefined values always sort last regardless of direction — signals "unproven tactic".
+  const aNull = a == null;
+  const bNull = b == null;
+  if (aNull && bNull) return 0;
+  if (aNull) return 1;
+  if (bNull) return -1;
+  const sign = dir === 'asc' ? 1 : -1;
+  return (a!.value - b!.value) * sign;
+}
+
+/** List all tactics with optional filters, search, sort, and attached listView metrics. */
 export const listTacticsAction = adminAction(
   'listTactics',
-  async (input: { status?: string; agentType?: string; limit?: number; offset?: number }, ctx: AdminContext) => {
+  async (
+    input: {
+      status?: string;
+      agentType?: string;
+      search?: string;
+      sortKey?: string;
+      sortDir?: 'asc' | 'desc';
+      limit?: number;
+      offset?: number;
+    },
+    ctx: AdminContext,
+  ) => {
+    // Identity-column sort happens server-side; metric-key sort happens JS-side after
+    // the batch metric fetch below.
+    const identitySortKey = input.sortKey && IDENTITY_SORT_KEYS.has(input.sortKey)
+      ? input.sortKey
+      : 'created_at';
+    const ascending = input.sortDir !== 'desc';
+
     let query = ctx.supabase
       .from('evolution_tactics')
-      .select('*', { count: 'exact' })
-      .order('created_at', { ascending: true });
+      .select('*', { count: 'exact' });
 
     if (input.status) query = query.eq('status', input.status);
     if (input.agentType) query = query.eq('agent_type', input.agentType);
+    if (input.search) {
+      const escaped = input.search.replace(/[%_\\]/g, '\\$&');
+      query = query.ilike('name', `%${escaped}%`);
+    }
+
+    query = query.order(identitySortKey, { ascending });
 
     const limit = Math.min(input.limit ?? 100, 200);
     const offset = input.offset ?? 0;
@@ -32,7 +86,32 @@ export const listTacticsAction = adminAction(
     const { data, count, error } = await query;
     if (error) throw new Error(`Failed to list tactics: ${error.message}`);
 
-    return { items: (data ?? []) as EvolutionTacticRow[], total: count ?? 0 };
+    const rows = (data ?? []) as EvolutionTacticRow[];
+
+    // Batch-fetch listView metrics for the page's tactic IDs. Chunked internally to 100.
+    const metricsMap = rows.length > 0
+      ? await getMetricsForEntities(ctx.supabase, 'tactic', rows.map((r) => r.id), [...LIST_VIEW_METRIC_NAMES])
+      : new Map<string, MetricRow[]>();
+
+    let items: TacticListRow[] = rows.map((r) => ({
+      ...r,
+      metrics: metricsMap.get(r.id) ?? [],
+    }));
+
+    // Metric-key sort: applied JS-side on the already-attached metrics array since
+    // evolution_metrics is a separate table and a JOIN-style query would be heavier
+    // for the 24-tactic scale this page operates at.
+    if (input.sortKey && !IDENTITY_SORT_KEYS.has(input.sortKey)) {
+      const metricName = input.sortKey;
+      const dir: 'asc' | 'desc' = input.sortDir ?? 'desc';
+      items = [...items].sort((a, b) => compareMetricValues(
+        a.metrics.find((m) => m.metric_name === metricName),
+        b.metrics.find((m) => m.metric_name === metricName),
+        dir,
+      ));
+    }
+
+    return { items, total: count ?? 0 };
   },
 );
 

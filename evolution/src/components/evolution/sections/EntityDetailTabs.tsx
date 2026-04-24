@@ -1,10 +1,12 @@
-// Shared tab bar for detail pages with URL sync via useTabState hook.
+// Shared tab bar for detail pages with URL sync via useTabState hook. URL sync uses
+// window.history.replaceState (not router.replace) to avoid aborting client fetches
+// that run inside a freshly-mounted tab panel on Next.js 15 prod builds.
 // Controlled component: parent owns activeTab state and conditional content rendering.
 
 'use client';
 
 import { useState, useCallback, useEffect, type KeyboardEvent, type ReactNode } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 
 export interface TabDef {
   id: string;
@@ -89,7 +91,6 @@ export function useTabState(
   options?: UseTabStateOptions,
 ): [string, (tabId: string) => void] {
   const { defaultTab, syncToUrl = true, legacyTabMap } = options ?? {};
-  const router = useRouter();
   const searchParams = useSearchParams();
 
   const resolveTab = useCallback((raw: string | null): string => {
@@ -102,25 +103,33 @@ export function useTabState(
   const initialTab = syncToUrl ? resolveTab(searchParams.get('tab')) : (defaultTab ?? tabs[0]?.id ?? '');
   const [activeTab, setActiveTabState] = useState(initialTab);
 
-  // Redirect legacy tab params on mount
+  // Update the URL's `?tab=` param WITHOUT triggering a Next.js soft-nav. `router.replace`
+  // re-executes the RSC tree and aborts any in-flight client fetches (e.g.
+  // `EntityMetricsTab`'s `useEffect`), leaving tabpanels permanently empty — a known
+  // Next.js 15 race diagnosed in commit 7b1240bc. `window.history.replaceState` updates
+  // only the browser URL; the server tree and in-flight fetches are untouched, and
+  // bookmarks/reloads still resolve to the correct tab via `initialTab`.
+  const updateUrlTab = useCallback((tabId: string) => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    params.set('tab', tabId);
+    const next = `${window.location.pathname}?${params.toString()}${window.location.hash}`;
+    window.history.replaceState(null, '', next);
+  }, []);
+
+  // Redirect legacy tab params on mount.
   useEffect(() => {
     if (!syncToUrl) return;
     const raw = searchParams.get('tab');
     if (raw && legacyTabMap && raw in legacyTabMap) {
-      const params = new URLSearchParams(searchParams.toString());
-      params.set('tab', legacyTabMap[raw]!);
-      router.replace(`?${params.toString()}`, { scroll: false });
+      updateUrlTab(legacyTabMap[raw]!);
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const setActiveTab = useCallback((tabId: string) => {
     setActiveTabState(tabId);
-    if (syncToUrl) {
-      const params = new URLSearchParams(searchParams.toString());
-      params.set('tab', tabId);
-      router.replace(`?${params.toString()}`, { scroll: false });
-    }
-  }, [syncToUrl, router, searchParams]);
+    if (syncToUrl) updateUrlTab(tabId);
+  }, [syncToUrl, updateUrlTab]);
 
   return [activeTab, setActiveTab];
 }

@@ -573,6 +573,19 @@ After persisting the run, `finalizeRun()` calls `propagateMetrics()` in TypeScri
 
 When a variant's DB `mu` or `sigma` columns change post-completion (these columns back `Rating {elo, uncertainty}` via `dbToRating`; e.g., from arena matches), a DB trigger marks dependent run, strategy, and experiment metrics as `stale`. On the next read, the server action detects stale metrics and triggers lazy recomputation via `propagateMetrics()`.
 
+### Strategy Tactics tab (track_tactic_effectiveness_evolution_20260422 Phase 4)
+
+The strategy detail page exposes a per-strategy tactic breakdown at tab position 2 (between Metrics and Cost Estimates). `TacticStrategyPerformanceTable` reads from two sources and merges keyed by tactic name:
+
+1. **Pre-aggregated attribution metrics** — `evolution_metrics` rows where `entity_type='strategy'` and `metric_name LIKE 'eloAttrDelta:%'`. These rows are written at run finalization by `computeEloAttributionMetrics` (see `metrics.md` § Attribution metric). Supplies `avgEloDelta` with 95% CI (normal-approx, n≥2) and sample `n`.
+2. **Live variant aggregates** — `evolution_variants` rows grouped by `agent_name` filtered to `evolution_runs.strategy_id = $1 AND status='completed'`. Aggregated JS-side (PostgREST doesn't express `COUNT FILTER`) to produce `variantCount`, `totalCost`, `winnerCount`, `winRate`.
+
+Rows are sorted by `avgEloDelta` descending, with tactics that have variants but no attribution row sorted last (`avgEloDelta=null` renders as `—`). This happens when variants were generated before the Phase 0 Blocker 2 fix wired `computeRunMetrics` into the finalize path — the tab stays useful during the backfill window without back-fabricating missing data.
+
+**Eventual-consistency caveat**: arena-match-driven rating drift flags `eloAttrDelta:*` rows stale via the `mark_elo_metrics_stale` trigger, but there is no runtime recompute path for propagated (strategy/experiment) attribution rows. Fresh values land only on the next run in that strategy. The tab subheader surfaces this to researchers.
+
+Server action: `getStrategyTacticBreakdownAction` in `evolution/src/services/tacticStrategyActions.ts`.
+
 ---
 
 ## Key Files

@@ -188,16 +188,24 @@ adminTest.describe('Evolution per-purpose cost split (T-cost-split)', { tag: '@e
   });
 
   adminTest('run detail metrics tab shows Generation Cost and Ranking Cost rows', async ({ adminPage }) => {
-    await adminPage.goto(`/admin/evolution/runs/${runId}`, { timeout: 30000 });
+    // Navigate directly with the tab query param so useTabState initializes
+    // activeTab='metrics' on first render, and EntityMetricsTab's useEffect fires
+    // on mount without needing a tab-click transition. Originally diagnosed in
+    // commit 7b1240bc: under Next.js 15 prod builds a click triggers a router
+    // sync that can briefly unmount the tabpanel children while the in-flight
+    // getEntityMetricsAction is pending, leaving the tabpanel empty past the 60s
+    // timeout. The useTabState hook was hardened in a sibling commit to use
+    // window.history.replaceState instead of router.replace; direct navigation
+    // here is belt-and-suspenders for prod-mode CI.
+    await adminPage.goto(`/admin/evolution/runs/${runId}?tab=metrics`, { timeout: 30000 });
 
-    // Click the Metrics tab — wait for tab bar to hydrate first
+    // Tab bar hydrates; confirm Metrics is already selected without clicking.
     const metricsTab = adminPage.locator('[data-testid="tab-metrics"]');
     await expect(metricsTab).toBeVisible({ timeout: 30000 });
-    await metricsTab.click();
+    await expect(metricsTab).toHaveAttribute('aria-selected', 'true');
 
     // EntityMetricsTab fetches metrics client-side via useEffect — wait for the
-    // data to load (may take several seconds in CI with cold server actions;
-    // borderline on the default 30s after the cost-estimates tab expansion).
+    // data to load (may take several seconds in CI with cold server actions).
     const tabContent = adminPage.locator('[data-testid="entity-metrics-tab"]');
     await expect(tabContent).toBeVisible({ timeout: 60000 });
     await expect(tabContent).toContainText('Generation Cost', { timeout: 15000 });

@@ -99,15 +99,22 @@ export async function computeTacticMetrics(
     { entity_type: 'tactic', entity_id: tacticId, metric_name: 'winner_count', value: winnerCount, n: 1, aggregation_method: 'count', source: 'propagation' },
   ];
 
-  // Upsert to evolution_metrics
+  // Upsert to evolution_metrics. Map `uncertainty` → `sigma` at the query boundary:
+  // the DB column is `sigma` (not renamed due to CI safety check); app surface uses
+  // `uncertainty`. Writing a row with key `uncertainty` fails with
+  // "Could not find the 'uncertainty' column of 'evolution_metrics' in the schema cache".
   const { error: writeError } = await db
     .from('evolution_metrics')
     .upsert(
-      rows.map((r) => ({
-        ...r,
-        stale: false,
-        updated_at: new Date().toISOString(),
-      })),
+      rows.map((r) => {
+        const { uncertainty, ...rest } = r;
+        return {
+          ...rest,
+          sigma: uncertainty ?? null,
+          stale: false,
+          updated_at: new Date().toISOString(),
+        };
+      }),
       { onConflict: 'entity_type,entity_id,metric_name' },
     );
 

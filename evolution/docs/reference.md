@@ -103,6 +103,9 @@ Server actions and the server-side runner core. All server actions use Next.js `
 | `shared.ts` | Common service utilities: Supabase `service_role` client construction, error message formatting, database query error handling patterns. |
 | `costAnalytics.ts` | Cost analytics aggregation: per-model cost breakdown, daily/weekly spend trends, cost-per-iteration averages, budget utilization percentages. |
 | `entityActions.ts` | Generic entity action dispatcher. Exports `executeEntityAction` server action. Input: `{ entityType, entityId, actionKey, payload? }`. Validates entity type against the entity registry, UUID format for entityId, and action key against the entity's declared actions. Uses `adminAction` wrapper for auth. Delegates to `Entity.executeAction` on the resolved entity instance. |
+| `tacticActions.ts` | Tactic registry server actions (list + detail). `listTacticsAction` accepts `sortKey` / `sortDir` / `search` params, batch-fetches `evolution_metrics entity_type='tactic'` rows via `getMetricsForEntities`, and attaches them as `metrics: MetricRow[]` on each row for `createMetricColumns('tactic')` on the leaderboard. Metric-key sorts apply JS-side with null-last ordering. Text search uses `.ilike('name', ...)` with `%_\` escape. (track_tactic_effectiveness_evolution_20260422 Phase 2) |
+| `tacticPromptActions.ts` | Per-(tactic × prompt) performance aggregation. Returns `{ items, hitCap }` where `hitCap=true` signals the 5000-row query cap was hit and `TacticPromptPerformanceTable` renders a truncation banner (Gap 9 fix). |
+| `tacticStrategyActions.ts` | Per-(tactic × strategy) performance for the strategy detail Tactics tab. Dual-query merge: pre-aggregated `eloAttrDelta:*` rows at `entity_type='strategy'` supply Elo Delta + CI; live `evolution_variants` aggregates supply cost / variant count / winner count / win rate. Tactics with variants but no attribution row sort last with `avgEloDelta=null`. (track_tactic_effectiveness_evolution_20260422 Phase 4) |
 
 ### Schemas (`evolution/src/lib/schemas.ts`)
 
@@ -141,6 +144,7 @@ UI component barrel for the admin dashboard. Exports 20+ components:
 - **Primitives** (`primitives/`): `StatusBadge`, `EvolutionBreadcrumb`, `MetricGrid`, `EmptyState`, `NotFoundCard`
 - **Tables** (`tables/`): `EntityTable`, `RunsTable`, `TableSkeleton`
 - **Sections** (`sections/`): `EntityDetailHeader`, `EntityDetailTabs`, `useTabState`, `InputArticleSection`, `VariantDetailPanel`
+- **Tabs** (`tabs/`): `MetricsTab`, `EloTab`, `VariantsTab`, `LineageTab`, `LogsTab`, `TimelineTab`, `InvocationTimelineTab`, `EntityMetricsTab`, `CostEstimatesTab`, `RelatedRunsTab`, `SnapshotsTab`, `AttributionCharts`, `TacticPromptPerformanceTable` (tactic detail — per-prompt breakdown), `TacticStrategyPerformanceTable` (strategy detail Tactics tab — per-tactic × strategy breakdown; Phase 4 of track_tactic_effectiveness_evolution_20260422)
 - **Visualizations** (`visualizations/`): `LineageGraph`, `TextDiff`, `VariantCard`
 - **Dialogs** (`dialogs/`): `FormDialog`, `ConfirmDialog`
 - **Context** (`context/`): `AutoRefreshProvider`, `useAutoRefresh`
@@ -385,6 +389,27 @@ Stale runs are marked `failed` with an error message indicating abandonment (lik
 3. Catch `BudgetExceededWithPartialResults` -- salvage partial variants, finalize with what was produced
 4. Catch `BudgetExceededError` -- mark run `failed` with budget details
 5. Transient errors (classified by `isTransientError`) -- retry with backoff
+
+---
+
+## Kill Switches / Feature Flags
+
+Operational levers that disable new behavior without requiring a code revert. Set via environment variable on the minicomputer runner or Vercel preview/prod.
+
+| Flag | Default | Effect when `'false'` | Introduced |
+|------|---------|----------------------|------------|
+| `EVOLUTION_TOPUP_ENABLED` | `'true'` | Skips the within-iteration top-up loop; parallel batch is the only dispatch phase. | Phase 7b of multi_iteration_strategy_support_evolution_20260415 |
+| `EVOLUTION_REUSE_SEED_RATING` | `'true'` | Reverts to legacy behavior: fresh seed UUID + default rating + new arena INSERT per run. | multi_iteration_strategy_support_evolution_20260415 |
+| `EVOLUTION_EMIT_ATTRIBUTION_METRICS` | `'true'` | Skips the `computeRunMetrics` call in `persistRunResults.ts` finalize path; no `eloAttrDelta:*` / `eloAttrDeltaHist:*` rows written to `evolution_metrics`. Existing rows remain; no data loss. | track_tactic_effectiveness_evolution_20260422 Phase 0 |
+| `COST_CALIBRATION_ENABLED` | `'false'` | Ignores `evolution_cost_calibration` DB values; reverts to hardcoded `EMPIRICAL_OUTPUT_CHARS` / `OUTPUT_TOKEN_ESTIMATES` constants. | cost_estimate_accuracy_analysis_20260414 |
+
+**String-contract**: the check is `process.env.FLAG !== 'false'` — exact string match. Unset, any other value, or typos keep the feature enabled. Always verify with `env | grep <FLAG>` on the runner.
+
+### UI-side rollback levers (no env var — code revert scoped)
+
+- **Tactics leaderboard breaks**: Phase 2's `createMetricColumns('tactic')` addition is one line in `src/app/admin/evolution/tactics/page.tsx`. Remove the spread to restore the pre-leaderboard static catalog.
+- **Arena Tactic column breaks**: Phase 3's column is isolated in the leaderboard table; `entry.agent_name` null-fallback is `—` for all rows, so a failed `tactic_id` resolution degrades gracefully without full regression.
+- **Strategy Tactics tab breaks**: Phase 4's tab is opt-in via URL (`?tab=tactics`); the default tab (`metrics`) is unaffected. Remove the tab entry from `TABS` in `strategies/[strategyId]/page.tsx` to hide it entirely.
 
 ---
 

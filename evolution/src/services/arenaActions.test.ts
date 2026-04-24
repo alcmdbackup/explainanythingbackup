@@ -359,6 +359,81 @@ describe('arenaActions', () => {
 
       expect(result.success).toBe(false);
     });
+
+    // Phase 3 (track_tactic_effectiveness_evolution_20260422): tactic projection.
+    it('projects agent_name from raw DB row through toArenaEntry', async () => {
+      const entryWithAgent = { ...MOCK_ENTRY, agent_name: 'structural_transform' };
+      const variantsChain = {
+        select: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        order: jest.fn().mockReturnThis(),
+        is: jest.fn().mockReturnThis(),
+        then: jest.fn((resolve: (v: unknown) => void) =>
+          resolve({ data: [entryWithAgent], count: 1, error: null })
+        ),
+      };
+      const tacticsChain = {
+        select: jest.fn().mockReturnThis(),
+        in: jest.fn().mockResolvedValue({ data: [{ id: 'tactic-uuid-1', name: 'structural_transform' }], error: null }),
+      };
+      mockSupabase.from = jest.fn().mockImplementation((table: string) => {
+        if (table === 'evolution_tactics') return tacticsChain;
+        return variantsChain;
+      });
+
+      const result = await getArenaEntriesAction({ topicId: VALID_UUID });
+
+      expect(result.success).toBe(true);
+      expect(result.data!.items[0]!.agent_name).toBe('structural_transform');
+      expect(result.data!.items[0]!.tactic_id).toBe('tactic-uuid-1');
+    });
+
+    it('leaves agent_name/tactic_id null when DB row has no agent_name (seed/manual)', async () => {
+      const entryNoAgent = { ...MOCK_ENTRY, agent_name: null };
+      const chain = {
+        select: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        order: jest.fn().mockReturnThis(),
+        is: jest.fn().mockReturnThis(),
+        then: jest.fn((resolve: (v: unknown) => void) =>
+          resolve({ data: [entryNoAgent], count: 1, error: null })
+        ),
+      };
+      mockSupabase.from = jest.fn().mockReturnValue(chain);
+
+      const result = await getArenaEntriesAction({ topicId: VALID_UUID });
+
+      expect(result.success).toBe(true);
+      expect(result.data!.items[0]!.agent_name).toBeNull();
+      expect(result.data!.items[0]!.tactic_id).toBeNull();
+    });
+
+    it('tactic_id stays null when agent_name has no matching evolution_tactics row (legacy name)', async () => {
+      const entryUnknownAgent = { ...MOCK_ENTRY, agent_name: 'legacy_deprecated_tactic' };
+      const variantsChain = {
+        select: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        order: jest.fn().mockReturnThis(),
+        is: jest.fn().mockReturnThis(),
+        then: jest.fn((resolve: (v: unknown) => void) =>
+          resolve({ data: [entryUnknownAgent], count: 1, error: null })
+        ),
+      };
+      const tacticsChain = {
+        select: jest.fn().mockReturnThis(),
+        in: jest.fn().mockResolvedValue({ data: [], error: null }),
+      };
+      mockSupabase.from = jest.fn().mockImplementation((table: string) => {
+        if (table === 'evolution_tactics') return tacticsChain;
+        return variantsChain;
+      });
+
+      const result = await getArenaEntriesAction({ topicId: VALID_UUID });
+
+      expect(result.success).toBe(true);
+      expect(result.data!.items[0]!.agent_name).toBe('legacy_deprecated_tactic');
+      expect(result.data!.items[0]!.tactic_id).toBeNull();
+    });
   });
 
   // ─── getArenaEntryDetailAction ───────────────────────────────

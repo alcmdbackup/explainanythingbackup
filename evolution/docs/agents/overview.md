@@ -359,6 +359,10 @@ For `GenerateFromPreviousArticleAgent` the dimension is `execution_detail.strate
 
 Consumed by `StrategyEffectivenessChart` (bar chart with CI whiskers) and `EloDeltaHistogram` (10-ELO buckets) on the run/strategy/experiment detail pages.
 
+**Persistence wiring (track_tactic_effectiveness_evolution_20260422 Blocker 2, 2026-04-22)**: `computeEloAttributionMetrics` previously populated the in-memory bag but never persisted to `evolution_metrics` — callers were test-only. The Blocker 2 fix wires `computeRunMetrics(runId, db, { strategyId, experimentId })` into `persistRunResults.ts` at run finalization and extends `computeEloAttributionMetrics` to `writeMetric` each emitted row at all three entity levels. Gated by `EVOLUTION_EMIT_ATTRIBUTION_METRICS` (default `'true'`). Without this fix, `AttributionCharts` and the strategy Tactics tab would render empty — which is exactly what staging showed before the fix (32 orphaned test-only rows, zero live-run rows).
+
+`StrategyEffectivenessChart` also renders bar labels as `<agent> / <dim>` (not `<dim>` alone) since Phase 5 of the same project, so agents sharing a dimension value (e.g. `lexical_simplify` used by multiple variant-producing agents) disambiguate correctly.
+
 ## Parent linkage (Phase 2)
 
 Generate iterations accept `sourceMode` (`'seed'` default or `'pool'`) and `qualityCutoff` (`{ mode: 'topN' | 'topPercent', value }`) on each `IterationConfig`. When `sourceMode='pool'`, `resolveParent` picks a parent uniformly at random from the top-N or top-X% of the run's pool ranked by current ELO. The first iteration is locked to seed (pool is empty).

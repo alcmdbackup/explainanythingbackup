@@ -189,6 +189,8 @@ Tactic-level metrics aggregate across all completed-run variants that used a giv
 
 Tactic metrics are recomputed via `computeTacticMetricsForRun()` at run finalization (after strategy/experiment propagation). The stale trigger (`mark_elo_metrics_stale`) cascades to tactic metrics when a variant's `mu`/`sigma` DB columns change: it looks up the tactic entity via `evolution_tactics.name = NEW.agent_name` and marks matching `entity_type='tactic'` metrics rows as stale. Stale tactic metrics are recomputed on next read by `recomputeStaleMetrics()`.
 
+**Tactics leaderboard surface** (track_tactic_effectiveness_evolution_20260422 Phase 2): the 5 tactic metrics with `listView: true` (`avg_elo`, `avg_elo_delta`, `win_rate`, `total_variants`, `run_count`) surface as sortable columns on `/admin/evolution/tactics` via `createMetricColumns('tactic')`. `TacticEntity.metrics` mirrors these defs from `METRIC_REGISTRY['tactic']` so the generic column helper has entries to render. The list page's server action (`listTacticsAction`) batch-fetches these rows via `getMetricsForEntities` and attaches them per tactic; metric-key sorts happen JS-side with null-last ordering so unproven tactics don't masquerade as strong performers.
+
 ### Run-level cost-estimation metrics (cost_estimate_accuracy_analysis_20260414)
 
 Computed at finalization from GFSA `execution_detail` JSONB plus budget-floor
@@ -384,7 +386,15 @@ A shared tab component that reads all metrics for an entity and displays them in
 
 ## ELO-delta attribution metrics (Phase 5)
 
-Two dynamic metric families are emitted by `experimentMetrics.computeEloAttributionMetrics` during `computeRunMetrics`:
+Two dynamic metric families are emitted by `experimentMetrics.computeEloAttributionMetrics` during `computeRunMetrics`.
+
+> **Call site (track_tactic_effectiveness_evolution_20260422 Blocker 2 fix, 2026-04-22)**: `computeRunMetrics` is now invoked from `persistRunResults.ts` at run finalization (after tactic metrics, outside the main metrics try/catch so attribution failures don't suppress other metric writes). Signature: `computeRunMetrics(runId, db, opts?: { strategyId?, experimentId? })`. When `opts.strategyId` / `opts.experimentId` are provided (which is always true in the production finalize path — pulled off `run.strategy_id` / `run.experiment_id`), `computeEloAttributionMetrics` writes each `eloAttrDelta:<agent>:<dim>` and `eloAttrDeltaHist:<agent>:<dim>:<bucket>` row to `evolution_metrics` at all three entity levels (run / strategy / experiment) via the `writeMetric` helper.
+>
+> **Kill switch**: `EVOLUTION_EMIT_ATTRIBUTION_METRICS` env var (default `'true'`). Set to the exact string `'false'` to skip the call entirely — ops can disable attribution emission without a revert PR if a regression surfaces. Any other value (including unset, `'0'`, `'FALSE'`, empty string) keeps emission enabled.
+>
+> **Eventual consistency on stale cascade**: `mark_elo_metrics_stale()` flags propagated `eloAttrDelta:*` / `eloAttrDeltaHist:*` rows stale on arena-match-driven rating drift, but there is no runtime recompute path. Fresh values at strategy/experiment levels land only on the next run finalization in that strategy/experiment. This is documented in the strategy Tactics tab caveat subheader.
+
+
 
 ### `eloAttrDelta:<agentName>:<dimensionValue>`
 

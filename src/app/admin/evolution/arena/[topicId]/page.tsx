@@ -25,6 +25,7 @@ import { computeEloCutoff } from './arenaCutoff';
 import { bootstrapDeltaCI } from '@evolution/lib/shared/ratingDelta';
 import { VariantParentBadge } from '@evolution/components/evolution/variant/VariantParentBadge';
 import { ArenaSeedPanel } from '@evolution/components/evolution/sections/ArenaSeedPanel';
+import { TACTIC_PALETTE } from '@evolution/lib/core/tactics';
 
 function ContentLink({ entryId, content }: { entryId: string; content: string }): JSX.Element {
   const cleaned = stripMarkdownTitle(content);
@@ -33,6 +34,69 @@ function ContentLink({ entryId, content }: { entryId: string; content: string })
     <Link href={`/admin/evolution/variants/${entryId}`} className="text-[var(--accent-gold)] hover:underline">
       {label}
     </Link>
+  );
+}
+
+function ParentBadgeCell({ entry }: { entry: ArenaEntry }): JSX.Element {
+  if (!entry.parent_variant_id) {
+    return (
+      <VariantParentBadge
+        parentId={null}
+        parentElo={null}
+        parentUncertainty={null}
+        delta={null}
+        deltaCi={null}
+      />
+    );
+  }
+  const parentElo = entry.parent_elo ?? null;
+  const parentUncertainty = entry.parent_uncertainty ?? null;
+  const { delta, ci } = parentElo != null
+    ? bootstrapDeltaCI(
+        { elo: entry.elo_score, uncertainty: entry.uncertainty ?? 0 },
+        { elo: parentElo, uncertainty: parentUncertainty ?? 0 },
+      )
+    : { delta: null, ci: null };
+  return (
+    <VariantParentBadge
+      parentId={entry.parent_variant_id}
+      parentElo={parentElo}
+      parentUncertainty={parentUncertainty}
+      delta={delta}
+      deltaCi={ci}
+      crossRun={!!entry.parent_run_id && entry.parent_run_id !== entry.run_id}
+      parentRunId={entry.parent_run_id ?? null}
+    />
+  );
+}
+
+// Tactic cell: colored dot + agent name. Links to the tactic detail when tactic_id is
+// present; falls back to plain text for legacy / seed / manual rows.
+function TacticCell({ agentName, tacticId }: { agentName: string | null; tacticId: string | null }): JSX.Element {
+  if (!agentName) return <span className="text-[var(--text-muted)]">—</span>;
+  const dot = (
+    <span
+      aria-hidden="true"
+      className="inline-block h-2 w-2 rounded-full"
+      style={{ backgroundColor: TACTIC_PALETTE[agentName] ?? 'var(--text-muted)' }}
+    />
+  );
+  if (tacticId) {
+    return (
+      <Link
+        href={`/admin/evolution/tactics/${tacticId}`}
+        className="inline-flex items-center gap-1.5 text-[var(--text-secondary)] hover:text-[var(--accent-gold)] font-mono text-xs"
+      >
+        {dot}
+        {agentName}
+      </Link>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1.5 text-[var(--text-secondary)] font-mono text-xs">
+      {dot}
+      {agentName}
+    </span>
   );
 }
 
@@ -48,7 +112,8 @@ export default function ArenaTopicDetailPage(): JSX.Element {
   const [hasMetrics, setHasMetrics] = useState(false);
 
   // Sort state for leaderboard columns (F41)
-  type SortKey = 'elo_score' | 'uncertainty' | 'arena_match_count' | 'generation_method' | 'cost_usd';
+  // 'agent_name' added Phase 3 (track_tactic_effectiveness_evolution_20260422)
+  type SortKey = 'elo_score' | 'uncertainty' | 'arena_match_count' | 'generation_method' | 'cost_usd' | 'agent_name';
   const [sortKey, setSortKey] = useState<SortKey>('elo_score');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
 
@@ -219,6 +284,7 @@ export default function ArenaTopicDetailPage(): JSX.Element {
                   <th {...sortableThProps('uncertainty')}>Elo ± Uncertainty{sortIndicator('uncertainty')}</th>
                   <th {...sortableThProps('arena_match_count')}>Matches{sortIndicator('arena_match_count')}</th>
                   <th className="py-2 pr-3">Iteration</th>
+                  <th {...sortableThProps('agent_name')}>Tactic{sortIndicator('agent_name')}</th>
                   <th {...sortableThProps('generation_method')}>Method{sortIndicator('generation_method')}</th>
                   <th className="py-2 pr-3">Parent</th>
                   <th {...sortableThProps('cost_usd')}>Cost{sortIndicator('cost_usd')}</th>
@@ -261,7 +327,10 @@ export default function ArenaTopicDetailPage(): JSX.Element {
                       </td>
                       <td className="py-2 pr-3 font-mono">{entry.arena_match_count}</td>
                       <td className="py-2 pr-3 font-mono text-[var(--text-muted)]">
-                        {entry.generation != null ? entry.generation : '—'}
+                        {entry.generation ?? '—'}
+                      </td>
+                      <td className="py-2 pr-3" data-testid="lb-tactic">
+                        <TacticCell agentName={entry.agent_name ?? null} tacticId={entry.tactic_id ?? null} />
                       </td>
                       <td className="py-2 pr-3 text-[var(--text-secondary)]">
                         {entry.is_seed && (
@@ -277,37 +346,7 @@ export default function ArenaTopicDetailPage(): JSX.Element {
                         {entry.generation_method}
                       </td>
                       <td className="py-2 pr-3">
-                        {(() => {
-                          if (!entry.parent_variant_id) {
-                            return (
-                              <VariantParentBadge
-                                parentId={null}
-                                parentElo={null}
-                                parentUncertainty={null}
-                                delta={null}
-                                deltaCi={null}
-                              />
-                            );
-                          }
-                          const childRating = { elo: entry.elo_score, uncertainty: entry.uncertainty ?? 0 };
-                          const parentElo = entry.parent_elo ?? null;
-                          const parentUncertainty = entry.parent_uncertainty ?? null;
-                          const { delta, ci } = parentElo != null
-                            ? bootstrapDeltaCI(childRating,
-                                { elo: parentElo, uncertainty: parentUncertainty ?? 0 })
-                            : { delta: null, ci: null };
-                          return (
-                            <VariantParentBadge
-                              parentId={entry.parent_variant_id}
-                              parentElo={parentElo}
-                              parentUncertainty={parentUncertainty}
-                              delta={delta}
-                              deltaCi={ci}
-                              crossRun={!!entry.parent_run_id && entry.parent_run_id !== entry.run_id}
-                              parentRunId={entry.parent_run_id ?? null}
-                            />
-                          );
-                        })()}
+                        <ParentBadgeCell entry={entry} />
                       </td>
                       <td className="py-2 font-mono">
                         {entry.cost_usd != null

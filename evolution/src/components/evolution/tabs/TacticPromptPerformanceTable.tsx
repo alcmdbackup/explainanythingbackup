@@ -18,6 +18,7 @@ interface Props {
 
 export function TacticPromptPerformanceTable({ tacticName, promptId }: Props) {
   const [rows, setRows] = useState<TacticPromptPerformanceRow[]>([]);
+  const [hitCap, setHitCap] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -26,7 +27,8 @@ export function TacticPromptPerformanceTable({ tacticName, promptId }: Props) {
     getTacticPromptPerformanceAction({ tacticName, promptId })
       .then((result) => {
         if (result.success && result.data) {
-          setRows(result.data);
+          setRows(result.data.items);
+          setHitCap(result.data.hitCap);
         } else {
           setError(result.error?.message ?? 'Failed to load');
         }
@@ -44,7 +46,19 @@ export function TacticPromptPerformanceTable({ tacticName, promptId }: Props) {
   const showPromptColumn = !!tacticName;
 
   return (
-    <div className="overflow-x-auto">
+    <div className="space-y-2">
+      {hitCap && (
+        <div
+          className="rounded border border-[var(--status-warning)]/40 bg-[var(--status-warning)]/10 px-3 py-2 text-xs font-ui text-[var(--status-warning)]"
+          data-testid="tactic-prompt-hitcap-banner"
+          role="status"
+        >
+          <strong>Results truncated.</strong> Hit the 5,000-row query cap — some
+          (tactic × prompt) pairings are not shown. Filter by tactic name or prompt
+          ID to narrow the view.
+        </div>
+      )}
+      <div className="overflow-x-auto">
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-[var(--border-default)] text-left text-xs text-[var(--text-muted)]">
@@ -88,6 +102,7 @@ export function TacticPromptPerformanceTable({ tacticName, promptId }: Props) {
           ))}
         </tbody>
       </table>
+      </div>
     </div>
   );
 }

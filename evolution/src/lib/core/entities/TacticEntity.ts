@@ -28,12 +28,44 @@ export class TacticEntity extends Entity<EvolutionTacticRow> {
 
   readonly children: ChildRelation[] = [];
 
+  // Tactic metrics are computed by computeTacticMetrics() — a separate path from the standard
+  // propagateMetrics() which is typed to strategy/experiment. The defs below mirror the flat
+  // METRIC_REGISTRY['tactic'].atFinalization entries in registry.ts:217-226 so that
+  // createMetricColumns('tactic') on the list page and EntityMetricsTab on the detail page can
+  // read the formatter/label/listView metadata. `compute: () => null` is never called — values
+  // come from the evolution_metrics table via getMetricsForEntities.
+  //
+  // NOTE — dual-registry duplication (existing tech debt): registry.ts also declares these
+  // 8 defs. Keep both in sync until a follow-up project consolidates to a single source.
   readonly metrics: EntityMetricRegistry = {
     duringExecution: [],
-    atFinalization: [],
+    atFinalization: [
+      { name: 'avg_elo', label: 'Avg Elo', category: 'rating', formatter: 'elo',
+        timing: 'at_finalization', description: 'Mean Elo across all variants produced by this tactic',
+        listView: true, compute: () => null },
+      { name: 'avg_elo_delta', label: 'Elo Delta', category: 'rating', formatter: 'elo',
+        timing: 'at_finalization', description: 'Mean (Elo - 1200) vs baseline across variants',
+        listView: true, compute: () => null },
+      { name: 'best_elo', label: 'Best Elo', category: 'rating', formatter: 'elo',
+        timing: 'at_finalization', description: 'Highest Elo among variants produced by this tactic',
+        listView: false, compute: () => null },
+      { name: 'win_rate', label: 'Win Rate', category: 'rating', formatter: 'percent',
+        timing: 'at_finalization', description: 'Fraction of this tactic’s variants flagged is_winner=true',
+        listView: true, compute: () => null },
+      { name: 'total_variants', label: 'Variants', category: 'count', formatter: 'integer',
+        timing: 'at_finalization', description: 'Total variants produced across all completed runs',
+        listView: true, compute: () => null },
+      { name: 'total_cost', label: 'Total Cost', category: 'cost', formatter: 'cost',
+        timing: 'at_finalization', description: 'Sum of variant-level cost across all runs',
+        listView: false, compute: () => null },
+      { name: 'run_count', label: 'Runs', category: 'count', formatter: 'integer',
+        timing: 'at_finalization', description: 'Distinct completed runs that used this tactic',
+        listView: true, compute: () => null },
+      { name: 'winner_count', label: 'Winners', category: 'count', formatter: 'integer',
+        timing: 'at_finalization', description: 'Count of variants flagged is_winner=true',
+        listView: false, compute: () => null },
+    ],
     atPropagation: [],
-    // Tactic metrics are computed by computeTacticMetrics() — a separate path from
-    // the standard propagateMetrics() which is typed to strategy/experiment.
   };
 
   readonly listColumns: ColumnDef[] = [

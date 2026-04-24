@@ -118,6 +118,11 @@ export interface VariantListEntry {
   parent_uncertainty?: number | null;
   /** Parent's run_id — used to detect cross-run parents (annotated "(other run)" in the badge). */
   parent_run_id?: string | null;
+  /** Tactic UUID resolved from agent_name via evolution_tactics lookup. Null when agent_name
+   *  has no matching tactic row (legacy names, manual/seed entries). Populated Phase 3
+   *  (track_tactic_effectiveness_evolution_20260422) so the variants list can deep-link to
+   *  tactic detail. */
+  tactic_id?: string | null;
 }
 
 const listVariantsInputSchema = z.object({
@@ -737,6 +742,26 @@ export const listVariantsAction = adminAction(
       for (const item of items) {
         const strategyId = runMap.get(item.run_id);
         item.strategy_name = strategyId ? strategyMap.get(strategyId) ?? null : null;
+      }
+    }
+
+    // Phase 3 (track_tactic_effectiveness_evolution_20260422, Gap 5 freebie): batch-resolve
+    // tactic_id from agent_name so the variants list can deep-link to tactic detail.
+    // Same pattern as arenaActions — one small lookup against evolution_tactics.
+    const tacticNames = [...new Set(items.map(v => v.agent_name).filter((n): n is string => !!n))];
+    if (tacticNames.length > 0) {
+      const { data: tacticRows, error: tacticError } = await supabase
+        .from('evolution_tactics')
+        .select('id, name')
+        .in('name', tacticNames);
+      if (tacticError) throw tacticError;
+      const tacticIdByName = new Map(
+        (tacticRows ?? []).map(t => [t.name as string, t.id as string]),
+      );
+      for (const item of items) {
+        if (item.agent_name) {
+          item.tactic_id = tacticIdByName.get(item.agent_name) ?? null;
+        }
       }
     }
 

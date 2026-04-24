@@ -24,6 +24,8 @@ function makeEntry(overrides: Partial<ArenaEntry> = {}): ArenaEntry {
     parent_elo: null,
     parent_uncertainty: null,
     parent_run_id: null,
+    agent_name: null,
+    tactic_id: null,
     ...overrides,
   };
 }

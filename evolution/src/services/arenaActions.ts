@@ -31,6 +31,11 @@ function toArenaEntry(row: Record<string, unknown>): ArenaEntry {
     parent_elo: (row.parent_elo as number | null) ?? null,
     parent_uncertainty: (row.parent_uncertainty as number | null) ?? null,
     parent_run_id: (row.parent_run_id as string | null) ?? null,
+    // Phase 3 (track_tactic_effectiveness): tactic identity fields. agent_name comes
+    // directly off evolution_variants (null for seeds / manual entries); tactic_id is
+    // resolved via batch lookup against evolution_tactics in the caller.
+    agent_name: (row.agent_name as string | null) ?? null,
+    tactic_id: null,
   };
 }
 
@@ -72,6 +77,11 @@ export interface ArenaEntry {
   parent_uncertainty: number | null;
   /** Parent's run_id — detects cross-run parents. */
   parent_run_id: string | null;
+  /** Tactic name (evolution_variants.agent_name) — null for seed / manual entries. */
+  agent_name: string | null;
+  /** Tactic UUID resolved from agent_name via evolution_tactics lookup; null when
+   *  agent_name is null or no matching tactic row exists (e.g. legacy names). */
+  tactic_id: string | null;
 }
 
 export interface ArenaComparison {
@@ -229,6 +239,26 @@ export const getArenaEntriesAction = adminAction(
     const { data, error, count } = await query;
     if (error) throw error;
     const items = (data ?? []).map(toArenaEntry);
+
+    // Phase 3 (track_tactic_effectiveness_evolution_20260422): batch-resolve tactic_id
+    // from agent_name. In-memory lookup — PostgREST sub-select on unrelated-table isn't
+    // supported, and 24 distinct tactics means one small follow-up query is cheap.
+    const tacticNames = [...new Set(items.map(v => v.agent_name).filter((n): n is string => !!n))];
+    if (tacticNames.length > 0) {
+      const { data: tacticRows, error: tacticError } = await ctx.supabase
+        .from('evolution_tactics')
+        .select('id, name')
+        .in('name', tacticNames);
+      if (tacticError) throw tacticError;
+      const tacticIdByName = new Map(
+        (tacticRows ?? []).map(t => [t.name as string, t.id as string]),
+      );
+      for (const item of items) {
+        if (item.agent_name) {
+          item.tactic_id = tacticIdByName.get(item.agent_name) ?? null;
+        }
+      }
+    }
 
     // Phase 3: batch-fetch parent ratings for VariantParentBadge.
     const parentIds = [...new Set(items.map(v => v.parent_variant_id).filter((id): id is string => !!id))];

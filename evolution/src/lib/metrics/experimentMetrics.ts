@@ -1,6 +1,10 @@
 // Core metrics computation for evolution experiments: per-run stats, bootstrap CIs, and aggregation.
 // Shared by experiment detail, strategy detail, cron analysis, and backfill script.
 
+import { writeMetric } from './writeMetrics';
+import type { MetricName as RegistryMetricName } from './types';
+import type { SupabaseClient as RealSupabaseClient } from '@supabase/supabase-js';
+
 // ─── Types ──────────────────────────────────────────────────────
 
 /** Canonical metric names. Agent costs use template literal pattern. */
@@ -263,10 +267,25 @@ export function aggregateMetrics(
 
 // ─── Per-Run Metrics Computation ────────────────────────────────
 
-/** Compute metrics for a single evolution run from DB data. */
+/**
+ * Compute metrics for a single evolution run from DB data.
+ *
+ * When called from the production finalize path (persistRunResults.ts), pass
+ * `opts.strategyId` and `opts.experimentId` so attribution metrics
+ * (`eloAttrDelta:*` / `eloAttrDeltaHist:*`) are persisted to `evolution_metrics`
+ * at run/strategy/experiment entity levels. Without opts, attribution rows are
+ * still populated in the returned in-memory bag but NOT written to the DB —
+ * this preserves the existing test-only call pattern.
+ *
+ * Writes are non-fatal from the caller's perspective; individual `writeMetric`
+ * calls inside `computeEloAttributionMetrics` throw on DB failure, so the
+ * caller must wrap this in try/catch if it wants to tolerate attribution
+ * failures without aborting finalize.
+ */
 export async function computeRunMetrics(
   runId: string,
   supabase: SupabaseClient,
+  opts?: { strategyId?: string; experimentId?: string },
 ): Promise<RunMetricsWithRatings> {
   const metrics: MetricsBag = {};
   // V2: query evolution_variants directly (no checkpoints, no compute_run_variant_stats RPC)
@@ -320,7 +339,9 @@ export async function computeRunMetrics(
   // ─── Phase 5: ELO attribution by (agent, dimension) ────────────────
   // Group variants produced by each invocation by (agent_name, execution_detail.strategy)
   // and emit eloAttrDelta:<agent>:<dim> + eloAttrDeltaHist:<agent>:<bucket> rows.
-  await computeEloAttributionMetrics(runId, metrics, supabase);
+  // When opts.strategyId / opts.experimentId are set, rows are ALSO persisted to
+  // evolution_metrics at those entity levels (Blocker 2 fix, 2026-04-22).
+  await computeEloAttributionMetrics(runId, metrics, supabase, opts);
 
   return { metrics, variantRatings: null };
 }
@@ -355,6 +376,7 @@ async function computeEloAttributionMetrics(
   runId: string,
   metrics: MetricsBag,
   supabase: SupabaseClient,
+  opts?: { strategyId?: string; experimentId?: string },
 ): Promise<void> {
   type AttrVariantRow = {
     id: string; mu: number | null; elo_score: number; parent_variant_id: string;
@@ -417,9 +439,15 @@ async function computeEloAttributionMetrics(
     groups.set(key, group);
   }
 
+  // If opts are set, we persist to evolution_metrics at all 3 levels (Blocker 2 fix).
+  // The local SupabaseClient interface is minimal; cast to the real client type that
+  // writeMetric expects. Chainable mocks in tests satisfy both shapes.
+  const dbForWrite = opts ? (supabase as unknown as RealSupabaseClient) : null;
+
   for (const { agent, dim, deltas } of groups.values()) {
     if (deltas.length === 0) continue;
     const mean = deltas.reduce((s, d) => s + d, 0) / deltas.length;
+    if (!Number.isFinite(mean)) continue; // defensive — upstream filter catches per-delta non-finite
     const variance = deltas.length > 1
       ? deltas.reduce((s, d) => s + (d - mean) ** 2, 0) / (deltas.length - 1)
       : 0;
@@ -435,6 +463,23 @@ async function computeEloAttributionMetrics(
       n: deltas.length,
     };
 
+    if (dbForWrite) {
+      const deltaMetricName = `eloAttrDelta:${agent}:${dim}` as RegistryMetricName;
+      const deltaOpts = {
+        uncertainty: deltas.length >= 2 ? sd : undefined,
+        ci_lower: ci?.[0],
+        ci_upper: ci?.[1],
+        n: deltas.length,
+      };
+      await writeMetric(dbForWrite, 'run', runId, deltaMetricName, mean, 'at_finalization', deltaOpts);
+      if (opts?.strategyId) {
+        await writeMetric(dbForWrite, 'strategy', opts.strategyId, deltaMetricName, mean, 'at_finalization', deltaOpts);
+      }
+      if (opts?.experimentId) {
+        await writeMetric(dbForWrite, 'experiment', opts.experimentId, deltaMetricName, mean, 'at_finalization', deltaOpts);
+      }
+    }
+
     // Histogram: fraction per bucket.
     const bucketCounts = new Map<string, number>();
     for (const d of deltas) {
@@ -447,12 +492,25 @@ async function computeEloAttributionMetrics(
       }
     }
     for (const [label, count] of bucketCounts) {
+      const fraction = count / deltas.length;
       metrics[`eloAttrDeltaHist:${agent}:${dim}:${label}` as MetricName] = {
-        value: count / deltas.length,
+        value: fraction,
         uncertainty: null,
         ci: null,
         n: count,
       };
+
+      if (dbForWrite && Number.isFinite(fraction)) {
+        const histMetricName = `eloAttrDeltaHist:${agent}:${dim}:${label}` as RegistryMetricName;
+        const histOpts = { n: count };
+        await writeMetric(dbForWrite, 'run', runId, histMetricName, fraction, 'at_finalization', histOpts);
+        if (opts?.strategyId) {
+          await writeMetric(dbForWrite, 'strategy', opts.strategyId, histMetricName, fraction, 'at_finalization', histOpts);
+        }
+        if (opts?.experimentId) {
+          await writeMetric(dbForWrite, 'experiment', opts.experimentId, histMetricName, fraction, 'at_finalization', histOpts);
+        }
+      }
     }
   }
 }

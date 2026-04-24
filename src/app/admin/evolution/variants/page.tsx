@@ -2,6 +2,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import Link from 'next/link';
 import { EvolutionBreadcrumb, EntityListPage } from '@evolution/components/evolution';
 import { listVariantsAction, type VariantListEntry } from '@evolution/services/evolutionActions';
 import type { ColumnDef, FilterDef } from '@evolution/components/evolution';
@@ -47,7 +48,23 @@ const COLUMNS: ColumnDef<VariantListEntry>[] = [
       </span>
     ),
   },
-  { key: 'agent_name', header: 'Agent', render: (v) => v.agent_name || <span className="text-[var(--text-muted)]">—</span> },
+  {
+    key: 'agent_name',
+    header: 'Agent',
+    // Phase 3 Gap 5 freebie: link to tactic detail when tactic_id resolves; fall back to
+    // plain text when unknown (legacy names / seeds / manual entries).
+    render: (v) => {
+      if (!v.agent_name) return <span className="text-[var(--text-muted)]">—</span>;
+      if (v.tactic_id) {
+        return (
+          <Link href={`/admin/evolution/tactics/${v.tactic_id}`} className="text-[var(--accent-gold)] hover:underline font-mono text-xs">
+            {v.agent_name}
+          </Link>
+        );
+      }
+      return <span className="font-mono text-xs">{v.agent_name}</span>;
+    },
+  },
   {
     key: 'elo_score',
     header: 'Rating',

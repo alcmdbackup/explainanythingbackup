@@ -18,6 +18,7 @@ import {
 import { LogsTab } from '@evolution/components/evolution/tabs/LogsTab';
 import { VariantsTab } from '@evolution/components/evolution/tabs/VariantsTab';
 import { AttributionCharts } from '@evolution/components/evolution/tabs/AttributionCharts';
+import { TacticStrategyPerformanceTable } from '@evolution/components/evolution/tabs/TacticStrategyPerformanceTable';
 import { StrategyConfigDisplay } from '@/app/admin/evolution/_components/StrategyConfigDisplay';
 import {
   getStrategyDetailAction,
@@ -54,6 +55,10 @@ function StrategyRunsTab({ strategyId }: { strategyId: string }): JSX.Element {
 // Inline variants tab for strategy detail — fetches runs then loads variants for each run.
 const TABS: TabDef[] = [
   { id: 'metrics', label: 'Metrics' },
+  // Phase 4 (track_tactic_effectiveness_evolution_20260422) — position 2, between
+  // Metrics and Cost Estimates. Natural mental hierarchy: metrics → per-tactic breakdown
+  // → cost detail → per-run drill-in.
+  { id: 'tactics', label: 'Tactics' },
   { id: 'cost-estimates', label: 'Cost Estimates' },
   { id: 'runs', label: 'Runs' },
   { id: 'variants', label: 'Variants' },
@@ -135,6 +140,7 @@ export default function StrategyDetailPage(): JSX.Element {
             <AttributionCharts entityType="strategy" entityId={strategyId} />
           </div>
         )}
+        {activeTab === 'tactics' && <TacticStrategyPerformanceTable strategyId={strategyId} />}
         {activeTab === 'cost-estimates' && <CostEstimatesTab entityType="strategy" entityId={strategyId} />}
         {activeTab === 'runs' && <StrategyRunsTab strategyId={strategyId} />}
         {activeTab === 'variants' && <VariantsTab strategyId={strategyId} />}

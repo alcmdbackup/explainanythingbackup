@@ -420,6 +420,33 @@ export async function finalizeRun(
     });
   }
 
+  // Step 5b: Phase 5 attribution metrics (Blocker 2 fix — track_tactic_effectiveness_evolution_20260422).
+  // Writes eloAttrDelta:<agent>:<dim> + eloAttrDeltaHist:<agent>:<dim>:<bucket> rows at run,
+  // strategy, and experiment levels. Deliberately placed OUTSIDE the main metrics try/catch so
+  // upstream metric-write failures (caught above as a single WARN) don't suppress attribution
+  // emission. Gated by EVOLUTION_EMIT_ATTRIBUTION_METRICS (default 'true') so ops can disable
+  // without a revert PR if a regression surfaces. Has its own try/catch so attribution failures
+  // are non-fatal w.r.t. the rest of finalize (Step 6 auto-completion, run.status update).
+  if (process.env.EVOLUTION_EMIT_ATTRIBUTION_METRICS !== 'false') {
+    try {
+      const { computeRunMetrics } = await import('../../metrics/experimentMetrics');
+      // Cast: experimentMetrics uses a minimal local SupabaseClient interface for
+      // test-friendliness; the production SupabaseClient satisfies the chainable shape
+      // at runtime but the structural types don't line up in TS.
+      type ComputeRunMetricsFn = Parameters<typeof computeRunMetrics>[1];
+      await computeRunMetrics(runId, db as unknown as ComputeRunMetricsFn, {
+        strategyId: run.strategy_id ?? undefined,
+        experimentId: run.experiment_id ?? undefined,
+      });
+    } catch (attrErr) {
+      logger?.warn('Attribution metric emission failed (non-fatal)', {
+        phaseName: 'finalize',
+        runId,
+        error: (attrErr instanceof Error ? attrErr.message : String(attrErr)).slice(0, 500),
+      });
+    }
+  }
+
   // Step 6: Experiment auto-completion (only if ALL sibling runs are done)
   if (run.experiment_id) {
     try {

@@ -24,6 +24,13 @@ function buildMockSupabase(args: {
   attrVariants: VariantRow[];
   invocations: InvocationRow[];
   parents: Array<{ id: string; mu: number | null; elo_score: number }>;
+  /**
+   * When set, collects every upsert() call against evolution_metrics so tests can
+   * assert write-path behavior (Blocker 2 fix). Array mutated in place.
+   */
+  upsertSpy?: Array<Array<Record<string, unknown>>>;
+  /** When true, upsert returns an error — exercises the failure path. */
+  upsertError?: boolean;
 }) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   function chainable<T>(data: T): any {
@@ -77,6 +84,18 @@ function buildMockSupabase(args: {
             }
             // Base cost aggregation expects {agent_name, cost_usd}.
             return chainable(args.invocations.map(i => ({ agent_name: i.agent_name, cost_usd: i.cost_usd })));
+          },
+        };
+      }
+      if (table === 'evolution_metrics') {
+        return {
+          // writeMetric calls .from('evolution_metrics').upsert(rows, opts).
+          upsert: (rows: Array<Record<string, unknown>>) => {
+            if (args.upsertSpy) args.upsertSpy.push(rows);
+            if (args.upsertError) {
+              return Promise.resolve({ data: null, error: { message: 'simulated DB error' } });
+            }
+            return Promise.resolve({ data: null, error: null });
           },
         };
       }
@@ -175,5 +194,102 @@ describe('computeRunMetrics attribution aggregation', () => {
     const result = await computeRunMetrics('run-1', supabase as never);
     const attrKeys = Object.keys(result.metrics).filter(k => k.startsWith('eloAttrDelta:'));
     expect(attrKeys).toEqual([]);
+  });
+});
+
+// ─── Blocker 2 write-through tests (track_tactic_effectiveness_evolution_20260422) ──
+// When opts.strategyId / opts.experimentId are set, computeRunMetrics must persist
+// eloAttrDelta:* / eloAttrDeltaHist:* rows at run/strategy/experiment levels.
+describe('computeRunMetrics attribution — write-through (Blocker 2)', () => {
+  function makeBasicArgs() {
+    return {
+      baseVariants: [{ elo_score: 1250 }, { elo_score: 1220 }],
+      attrVariants: [
+        { id: 'v1', mu: 1250, elo_score: 1250, parent_variant_id: 'p1', agent_invocation_id: 'inv1', persisted: true },
+        { id: 'v2', mu: 1220, elo_score: 1220, parent_variant_id: 'p2', agent_invocation_id: 'inv2', persisted: true },
+      ],
+      invocations: [
+        { id: 'inv1', agent_name: 'generate_from_previous_article', cost_usd: 0.01,
+          execution_detail: { strategy: 'lexical_simplify' } },
+        { id: 'inv2', agent_name: 'generate_from_previous_article', cost_usd: 0.01,
+          execution_detail: { strategy: 'lexical_simplify' } },
+      ],
+      parents: [
+        { id: 'p1', mu: 1200, elo_score: 1200 },
+        { id: 'p2', mu: 1200, elo_score: 1200 },
+      ],
+    };
+  }
+
+  it('opts omitted → no writes to evolution_metrics (preserves legacy call pattern)', async () => {
+    const upsertSpy: Array<Array<Record<string, unknown>>> = [];
+    const supabase = buildMockSupabase({ ...makeBasicArgs(), upsertSpy });
+    await computeRunMetrics('run-1', supabase as never);
+    expect(upsertSpy).toHaveLength(0);
+  });
+
+  it('opts.strategyId + opts.experimentId → writes at run, strategy, and experiment levels', async () => {
+    const upsertSpy: Array<Array<Record<string, unknown>>> = [];
+    const supabase = buildMockSupabase({ ...makeBasicArgs(), upsertSpy });
+    await computeRunMetrics('run-1', supabase as never, {
+      strategyId: 'strat-1',
+      experimentId: 'exp-1',
+    });
+
+    // Each delta row and each histogram bucket row produces 3 upsert calls.
+    // 1 delta (single (agent, dim) group) + 2 buckets (deltas +50 and +20 land in distinct 10-ELO buckets).
+    // That's (1 + 2) × 3 entity levels = 9 upserts.
+    expect(upsertSpy).toHaveLength(9);
+
+    const allRows = upsertSpy.flat();
+    const deltaRows = allRows.filter(r => (r.metric_name as string).startsWith('eloAttrDelta:') && !(r.metric_name as string).startsWith('eloAttrDeltaHist:'));
+    const histRows = allRows.filter(r => (r.metric_name as string).startsWith('eloAttrDeltaHist:'));
+    expect(deltaRows).toHaveLength(3); // 1 group × 3 levels
+    expect(histRows).toHaveLength(6);  // 2 buckets × 3 levels
+
+    const entityTypes = new Set(allRows.map(r => r.entity_type));
+    expect(entityTypes).toEqual(new Set(['run', 'strategy', 'experiment']));
+
+    // Run-level rows carry entity_id = runId; strategy/experiment rows carry their own IDs.
+    const runRows = allRows.filter(r => r.entity_type === 'run');
+    const stratRows = allRows.filter(r => r.entity_type === 'strategy');
+    const expRows = allRows.filter(r => r.entity_type === 'experiment');
+    expect(runRows.every(r => r.entity_id === 'run-1')).toBe(true);
+    expect(stratRows.every(r => r.entity_id === 'strat-1')).toBe(true);
+    expect(expRows.every(r => r.entity_id === 'exp-1')).toBe(true);
+  });
+
+  it('opts.strategyId only → writes at run + strategy, NOT experiment', async () => {
+    const upsertSpy: Array<Array<Record<string, unknown>>> = [];
+    const supabase = buildMockSupabase({ ...makeBasicArgs(), upsertSpy });
+    await computeRunMetrics('run-1', supabase as never, { strategyId: 'strat-1' });
+
+    const allRows = upsertSpy.flat();
+    const entityTypes = new Set(allRows.map(r => r.entity_type));
+    expect(entityTypes).toEqual(new Set(['run', 'strategy']));
+    expect(allRows.find(r => r.entity_type === 'experiment')).toBeUndefined();
+  });
+
+  it('delta values + CI match the returned bag', async () => {
+    const upsertSpy: Array<Array<Record<string, unknown>>> = [];
+    const supabase = buildMockSupabase({ ...makeBasicArgs(), upsertSpy });
+    const result = await computeRunMetrics('run-1', supabase as never, {
+      strategyId: 'strat-1',
+    });
+
+    const bagKey = 'eloAttrDelta:generate_from_previous_article:lexical_simplify';
+    const bagEntry = result.metrics[bagKey as never]!;
+    const writtenRunRow = upsertSpy.flat().find(r => r.entity_type === 'run' && r.metric_name === bagKey)!;
+    expect(writtenRunRow.value).toBe(bagEntry.value);
+    expect(writtenRunRow.ci_lower).toBe(bagEntry.ci?.[0] ?? null);
+    expect(writtenRunRow.ci_upper).toBe(bagEntry.ci?.[1] ?? null);
+    expect(writtenRunRow.n).toBe(bagEntry.n);
+  });
+
+  it('upsert error propagates — caller (persistRunResults) wraps in try/catch', async () => {
+    const supabase = buildMockSupabase({ ...makeBasicArgs(), upsertError: true });
+    await expect(
+      computeRunMetrics('run-1', supabase as never, { strategyId: 'strat-1' }),
+    ).rejects.toThrow(/simulated DB error/);
   });
 });

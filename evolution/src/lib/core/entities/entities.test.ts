@@ -7,7 +7,9 @@ import { ExperimentEntity } from './ExperimentEntity';
 import { VariantEntity } from './VariantEntity';
 import { InvocationEntity } from './InvocationEntity';
 import { PromptEntity } from './PromptEntity';
+import { TacticEntity } from './TacticEntity';
 import { METRIC_CATALOG } from '../metricCatalog';
+import { METRIC_REGISTRY } from '../../metrics/registry';
 
 describe('RunEntity', () => {
   const entity = new RunEntity();
@@ -212,6 +214,71 @@ describe('PromptEntity', () => {
   it('has create and edit config', () => {
     expect(entity.createConfig).toBeDefined();
     expect(entity.editConfig).toBeDefined();
+  });
+});
+
+describe('TacticEntity', () => {
+  const entity = new TacticEntity();
+
+  it('has correct type and table', () => {
+    expect(entity.type).toBe('tactic');
+    expect(entity.table).toBe('evolution_tactics');
+  });
+
+  it('has no parents or children', () => {
+    expect(entity.parents).toHaveLength(0);
+    expect(entity.children).toHaveLength(0);
+  });
+
+  it('has 8 atFinalization metrics registered (Blocker 2 fix)', () => {
+    expect(entity.metrics.atFinalization).toHaveLength(8);
+    expect(entity.metrics.duringExecution).toHaveLength(0);
+    expect(entity.metrics.atPropagation).toHaveLength(0);
+  });
+
+  it('exposes the 5 expected listView metrics for the tactics leaderboard', () => {
+    const listViewNames = entity.metrics.atFinalization
+      .filter((d) => d.listView)
+      .map((d) => d.name)
+      .sort();
+    expect(listViewNames).toEqual(['avg_elo', 'avg_elo_delta', 'run_count', 'total_variants', 'win_rate']);
+  });
+
+  it('keeps non-listView metrics off the leaderboard', () => {
+    const nonListView = entity.metrics.atFinalization
+      .filter((d) => !d.listView)
+      .map((d) => d.name)
+      .sort();
+    expect(nonListView).toEqual(['best_elo', 'total_cost', 'winner_count']);
+  });
+
+  it('stays in sync with METRIC_REGISTRY[tactic] (dual-registry parity)', () => {
+    // Phase 1 populates TacticEntity.metrics to mirror the flat METRIC_REGISTRY['tactic']
+    // defs in registry.ts. Both registries must agree on names, listView flags, and
+    // formatters — verified here so dual-registry drift trips the test suite.
+    const entityDefs = new Map(entity.metrics.atFinalization.map((d) => [d.name as string, d]));
+    const flatDefs = new Map(METRIC_REGISTRY.tactic.atFinalization.map((d) => [d.name as string, d]));
+    expect([...entityDefs.keys()].sort()).toEqual([...flatDefs.keys()].sort());
+    for (const [name, def] of entityDefs) {
+      const flat = flatDefs.get(name)!;
+      expect(flat.listView ?? false).toBe(def.listView ?? false);
+      expect(flat.formatter).toBe(def.formatter);
+      expect(flat.category).toBe(def.category);
+      expect(flat.label).toBe(def.label);
+    }
+  });
+
+  it('has delete action (non-predefined only)', () => {
+    const keys = entity.actions.map((a) => a.key);
+    expect(keys).toEqual(['delete']);
+    const deleteAction = entity.actions[0]!;
+    expect(deleteAction.visible!({ is_predefined: true } as never)).toBe(false);
+    expect(deleteAction.visible!({ is_predefined: false } as never)).toBe(true);
+  });
+
+  it('has 5 detail tabs', () => {
+    const ids = entity.detailTabs.map((t) => t.id);
+    expect(ids).toEqual(['overview', 'metrics', 'variants', 'runs', 'by-prompt']);
   });
 });
 
