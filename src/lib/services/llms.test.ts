@@ -39,7 +39,7 @@ jest.mock('./llmSpendingGate', () => ({
 
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import { logger } from '@/lib/server_utilities';
-import { callLLM, callLLMModel, callOpenAIModel, isAnthropicModel, isLocalModel, isOpenRouterModel, DEFAULT_MODEL, LIGHTER_MODEL, type LLMUsageMetadata } from './llms';
+import { callLLM, callLLMModel, callOpenAIModel, isAnthropicModel, isLocalModel, isOpenRouterModel, DEFAULT_MODEL, LIGHTER_MODEL, saveLlmCallTracking, __resetTrackingFailureCount, __getTrackingFailureCount, type LLMUsageMetadata } from './llms';
 import { ServiceError } from '@/lib/errors/serviceError';
 import { ERROR_CODES } from '@/lib/errorHandling';
 
@@ -1352,6 +1352,159 @@ describe('llms', () => {
 
       expect(result).toBe('Via backward compat');
       expect(mockAnthropicCreate).toHaveBeenCalled();
+    });
+  });
+
+  // ── audit-gap fix: saveLlmCallTracking accepts injected db, fails noisily ────
+  // Closes the audit gap from 2026-02-22 → 2026-04-23 where evolution batch-runner
+  // calls silently dropped llmCallTracking rows because the Next.js-coupled
+  // createSupabaseServiceClient misbehaved in CLI context.
+  describe('saveLlmCallTracking', () => {
+    const validRow = {
+      userid: '00000000-0000-4000-8000-000000000001',
+      prompt: 'p',
+      content: 'c',
+      call_source: '[TEST] tracking-fix',
+      raw_api_response: '{}',
+      model: 'gpt-4.1-mini',
+      prompt_tokens: 10,
+      completion_tokens: 20,
+      total_tokens: 30,
+      finish_reason: 'stop',
+    };
+
+    beforeEach(() => {
+      __resetTrackingFailureCount();
+      jest.clearAllMocks();
+      // Re-prime the default service-client mock so unrelated tests don't leak.
+      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mockSupabase);
+    });
+
+    it('uses injected trackingDb instead of createSupabaseServiceClient when provided', async () => {
+      const injectedClient = {
+        from: jest.fn().mockReturnThis(),
+        insert: jest.fn().mockReturnThis(),
+        select: jest.fn().mockReturnThis(),
+        single: jest.fn().mockResolvedValue({ data: { id: 1 }, error: null }),
+      };
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await saveLlmCallTracking(validRow, injectedClient as any);
+
+      expect(injectedClient.from).toHaveBeenCalledWith('llmCallTracking');
+      expect(injectedClient.insert).toHaveBeenCalledWith(expect.objectContaining({
+        call_source: '[TEST] tracking-fix',
+        model: 'gpt-4.1-mini',
+      }));
+      // CRITICAL: must NOT have used the Next-coupled fallback when injectedDb was provided.
+      expect(createSupabaseServiceClient).not.toHaveBeenCalled();
+    });
+
+    it('falls back to createSupabaseServiceClient when no injectedDb is provided', async () => {
+      mockSupabase.single.mockResolvedValueOnce({ data: { id: 1 }, error: null });
+
+      await saveLlmCallTracking(validRow);
+
+      expect(createSupabaseServiceClient).toHaveBeenCalledTimes(1);
+      expect(mockSupabase.from).toHaveBeenCalledWith('llmCallTracking');
+    });
+
+    it('logs at error level (not warn) when no client and no env key — first failure must be loud', async () => {
+      delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+      await saveLlmCallTracking(validRow);
+
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.stringContaining('no client available'),
+        expect.objectContaining({ call_source: '[TEST] tracking-fix' }),
+      );
+      // Critical: warn must NOT be the only signal — the audit gap hid for 2 months
+      // because warn-level was the only output until the 4th failure.
+      expect(logger.warn).not.toHaveBeenCalledWith(
+        expect.stringContaining('SUPABASE_SERVICE_ROLE_KEY'),
+        expect.anything(),
+      );
+    });
+
+    it('throws when EVOLUTION_TRACKING_STRICT=true and no client is available', async () => {
+      delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+      process.env.EVOLUTION_TRACKING_STRICT = 'true';
+
+      await expect(saveLlmCallTracking(validRow)).rejects.toThrow(/no client available/);
+
+      delete process.env.EVOLUTION_TRACKING_STRICT;
+    });
+
+    it('does NOT throw in default (non-strict) mode when no client is available', async () => {
+      delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+      // No EVOLUTION_TRACKING_STRICT set.
+
+      await expect(saveLlmCallTracking(validRow)).resolves.toBeUndefined();
+    });
+
+    it('resets the failure counter on a successful write so transient blips do not permanently elevate logs', async () => {
+      // Cause one failure first.
+      delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+      await saveLlmCallTracking(validRow);
+      expect(__getTrackingFailureCount()).toBeGreaterThan(0);
+
+      // Now succeed via injected client.
+      const okClient = {
+        from: jest.fn().mockReturnThis(),
+        insert: jest.fn().mockReturnThis(),
+        select: jest.fn().mockReturnThis(),
+        single: jest.fn().mockResolvedValue({ data: { id: 1 }, error: null }),
+      };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await saveLlmCallTracking(validRow, okClient as any);
+
+      expect(__getTrackingFailureCount()).toBe(0);
+      expect(logger.info).toHaveBeenCalledWith(
+        expect.stringContaining('saveLlmCallTracking recovered'),
+        expect.any(Object),
+      );
+    });
+
+    it('persists evolution_invocation_id when provided so rows can join back to evolution_agent_invocations', async () => {
+      const injectedClient = {
+        from: jest.fn().mockReturnThis(),
+        insert: jest.fn().mockReturnThis(),
+        select: jest.fn().mockReturnThis(),
+        single: jest.fn().mockResolvedValue({ data: { id: 1 }, error: null }),
+      };
+      const rowWithInvocation = {
+        ...validRow,
+        evolution_invocation_id: '00000000-0000-4000-8000-000000000999',
+      };
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await saveLlmCallTracking(rowWithInvocation, injectedClient as any);
+
+      expect(injectedClient.insert).toHaveBeenCalledWith(expect.objectContaining({
+        evolution_invocation_id: '00000000-0000-4000-8000-000000000999',
+      }));
+    });
+
+    it('throws on DB error from the insert', async () => {
+      const errClient = {
+        from: jest.fn().mockReturnThis(),
+        insert: jest.fn().mockReturnThis(),
+        select: jest.fn().mockReturnThis(),
+        single: jest.fn().mockResolvedValue({
+          data: null,
+          error: { message: 'permission denied for table llmCallTracking', code: '42501' },
+        }),
+      };
+
+      await expect(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        saveLlmCallTracking(validRow, errClient as any),
+      ).rejects.toThrow();
+      // Error must be logged loudly so observability tools surface it.
+      expect(logger.error).toHaveBeenCalledWith(
+        'Error saving LLM call tracking',
+        expect.objectContaining({ message: 'permission denied for table llmCallTracking' }),
+      );
     });
   });
 });

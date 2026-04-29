@@ -52,7 +52,7 @@ export interface RawLLMProvider {
   complete(
     prompt: string,
     label: AgentName,
-    opts?: { model?: string; temperature?: number; reasoningEffort?: 'none' | 'low' | 'medium' | 'high' },
+    opts?: { model?: string; temperature?: number; reasoningEffort?: 'none' | 'low' | 'medium' | 'high'; invocationId?: string },
   ): Promise<RawProviderResponse>;
 }
 
@@ -110,7 +110,7 @@ export function createEvolutionLLMClient(
         try {
           logger?.debug('LLM call attempt', { phaseName: agentName, attempt, model });
           const rawResponse = await Promise.race([
-            rawProvider.complete(prompt, agentName, { model, temperature, reasoningEffort }),
+            rawProvider.complete(prompt, agentName, { model, temperature, reasoningEffort, invocationId: options?.invocationId }),
             new Promise<never>((_, reject) => {
               timeoutId = setTimeout(() => reject(new Error('LLM call timeout (20s)')), PER_CALL_TIMEOUT_MS);
             }),
