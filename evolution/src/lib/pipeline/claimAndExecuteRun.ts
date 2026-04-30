@@ -169,7 +169,7 @@ export async function claimAndExecuteRun(
       async complete(
         prompt: string,
         label: AgentName,
-        opts?: { model?: string; temperature?: number; reasoningEffort?: 'none' | 'low' | 'medium' | 'high' },
+        opts?: { model?: string; temperature?: number; reasoningEffort?: 'none' | 'low' | 'medium' | 'high'; invocationId?: string },
       ): Promise<{ text: string; usage: { promptTokens: number; completionTokens: number; reasoningTokens?: number } }> {
         let capturedUsage: { promptTokens: number; completionTokens: number; reasoningTokens?: number } | null = null;
         const text = await callLLM(
@@ -185,6 +185,13 @@ export async function claimAndExecuteRun(
           {
             temperature: opts?.temperature,
             reasoningEffort: opts?.reasoningEffort,
+            // Inject the pipeline's Supabase client so saveLlmCallTracking doesn't fall back
+            // to createSupabaseServiceClient (Next.js-coupled, broken from CLI runner — see
+            // docs/planning/debug_evolution_run_cost_20260426).
+            trackingDb: supabase,
+            // Thread the evolution_invocation_id when available so llmCallTracking rows
+            // can join back to evolution_agent_invocations for per-invocation cost audit.
+            evolutionInvocationId: opts?.invocationId,
             onUsage: (u) => {
               capturedUsage = {
                 promptTokens: u.promptTokens,
@@ -226,7 +233,7 @@ interface LLMProvider {
   complete(
     prompt: string,
     label: AgentName,
-    opts?: { model?: string; temperature?: number; reasoningEffort?: 'none' | 'low' | 'medium' | 'high' },
+    opts?: { model?: string; temperature?: number; reasoningEffort?: 'none' | 'low' | 'medium' | 'high'; invocationId?: string },
   ): Promise<{ text: string; usage: { promptTokens: number; completionTokens: number; reasoningTokens?: number } }>;
 }
 
