@@ -32,17 +32,18 @@ The V2 pipeline cannot make targeted edits to a variant. `GenerateFromPreviousAr
 8. **Schema:** The orphaned `iterativeEditingExecutionDetailSchema` (lines 660–686) was V1-rubric-shaped and **does not fit the new design**. We author a fresh schema (see research doc); the orphaned one is deleted in Phase 1.
 9. **`Match.frictionSpots`:** Out of scope (dead code on both ends).
 10. **Per-cycle invocation timeline UI:** Out of scope for v1. Cycles in `execution_detail`; visual timeline → v1.1.
+11. **Drift recovery:** when the strip-markup drift check finds drift, the Implementer attempts an LLM-driven recovery for *minor* drift (≤ 3 regions, ≤ 200 chars, no markup overlap). A nano-class model classifies each region as `benign` (cosmetic substitutions like smart quotes / dashes / whitespace, auto-patched) or `intentional` (meaningful unwrapped change, abort cycle). New strategy field `driftRecoveryModel?: string` (default gpt-4.1-nano), new AgentName label `iterative_edit_drift_recovery`, new feature flag `EVOLUTION_DRIFT_RECOVERY_ENABLED` (default `'true'`). Per-cycle `execution_detail.driftRecovery` records regions, classifications, outcome, cost. Stop-reason union expands: `proposer_drift_major` / `proposer_drift_intentional` / `proposer_drift_unrecoverable`.
 
 ## Phased Execution Plan
 
 ### Phase 1: Scaffolding — enum + schema + registry + cost-calibration migration (Week 1)
 - [ ] **1.1** `evolution/src/lib/schemas.ts:388` — extend `iterationAgentTypeEnum` with `'editing'`. Update 4 refines on `iterationConfigSchema` (lines 413–425) to allow editing iterations (forbid as first iteration).
-- [ ] **1.2** `evolution/src/lib/core/agentNames.ts` — add `'iterativeEditing'` to `AGENT_NAMES`; add `iterativeEditing → 'iterative_edit_cost'` to `COST_METRIC_BY_AGENT`.
+- [ ] **1.2** `evolution/src/lib/core/agentNames.ts` — add `'iterativeEditing'` to `AGENT_NAMES`; add `iterativeEditing → 'iterative_edit_cost'` to `COST_METRIC_BY_AGENT`. Plus per-LLM-call labels: `'iterative_edit_propose'`, `'iterative_edit_review'`, `'iterative_edit_drift_recovery'` — all map to the single `iterative_edit_cost` metric (per-purpose cost split tracked via execution_detail, not per-metric, for v1 simplicity).
 - [ ] **1.3** `evolution/src/lib/metrics/types.ts` — add `'iterative_edit_cost'`, `'total_iterative_edit_cost'`, `'avg_iterative_edit_cost_per_run'` to `STATIC_METRIC_NAMES`.
 - [ ] **1.4** `evolution/src/lib/core/metricCatalog.ts` + `evolution/src/lib/metrics/registry.ts` — add 1 during-execution def + 2 propagation defs (mirror `generation_cost` pattern).
-- [ ] **1.5** New migration `supabase/migrations/<timestamp>_evolution_cost_calibration_editing_phase.sql` — extend `evolution_cost_calibration.phase` CHECK to accept `'iterative_edit_propose'` and `'iterative_edit_review'` (two phases: propose and review have different cost shapes).
-- [ ] **1.6** `evolution/scripts/refreshCostCalibration.ts` — add the two new phases to the `Phase` literal type and `asPhase()` mapping.
-- [ ] **1.7** `evolution/src/lib/pipeline/infra/estimateCosts.ts` — add `__builtin_iterative_edit_propose__: 7500` (article-with-markup is ~1.4× input) and `__builtin_iterative_edit_review__: 500` (one JSON line per edit) to `EMPIRICAL_OUTPUT_CHARS`. Add `estimateIterativeEditingCost(seedChars, generationModel, maxCycles)` returning `{ expected, upperBound }` — accounts for 2 calls/cycle.
+- [ ] **1.5** New migration `supabase/migrations/<timestamp>_evolution_cost_calibration_editing_phase.sql` — extend `evolution_cost_calibration.phase` CHECK to accept `'iterative_edit_propose'`, `'iterative_edit_review'`, and `'iterative_edit_drift_recovery'` (three phases: propose, review, drift-recovery have different cost shapes).
+- [ ] **1.6** `evolution/scripts/refreshCostCalibration.ts` — add the three new phases to the `Phase` literal type and `asPhase()` mapping.
+- [ ] **1.7** `evolution/src/lib/pipeline/infra/estimateCosts.ts` — add `__builtin_iterative_edit_propose__: 7500` (article-with-markup is ~1.4× input), `__builtin_iterative_edit_review__: 500` (one JSON line per edit), and `__builtin_iterative_edit_drift_recovery__: 200` (one JSON line per drift region, typically 1–3) to `EMPIRICAL_OUTPUT_CHARS`. Add `estimateIterativeEditingCost(seedChars, generationModel, driftRecoveryModel, maxCycles)` returning `{ expected, upperBound }` — expected accounts for 2 calls/cycle (propose + review); upperBound assumes drift recovery fires once across all cycles (cheap pessimistic upper-bound).
 - [ ] **1.8** **Replace** orphaned `iterativeEditingExecutionDetailSchema` (lines 660–686) — V1-rubric-shaped, doesn't fit the new design. Author a fresh schema with `cycles[]` containing `{cycleNumber, proposedMarkup, proposedEdits[], reviewedEdits[], acceptedCount, rejectedCount, formatValid, newVariantId?, parentText, childText?}` (full shape in research doc). Replace `executionDetailFixtures.iterativeEditingDetailFixture` to match. Update `agentExecutionDetailSchema` discriminated union slot.
 - [ ] **1.9** Cleanup: delete ghost `mutate_clarity` / `crossover` / `mutate_engagement` from `TACTIC_PALETTE` (`tactics/index.ts:94–96`); delete unused `evolution/src/lib/legacy-schemas.ts`; fix `low_sigma_opponents_count` → `low_uncertainty_opponents_count` mismatch at `schemas.ts:819` vs `detailViewConfigs.ts:166`.
 
@@ -54,20 +55,25 @@ The V2 pipeline cannot make targeted edits to a variant. `GenerateFromPreviousAr
 
 - [ ] **2.A.1** Create `evolution/src/lib/core/agents/editing/IterativeEditingAgent.ts` (~250 LOC). Extend `Agent<IterativeEditInput, IterativeEditOutput, IterativeEditingExecutionDetail>`. Set `usesLLM = true`, `name = 'iterativeEditing'`.
 - [ ] **2.A.2** Per-invocation `EvolutionLLMClient` via `Agent.run()` template. `AgentCostScope.getOwnSpent()` for cost attribution.
-- [ ] **2.A.3** Implement main `execute()` loop (~100 LOC) — for each cycle 1..maxCycles:
+- [ ] **2.A.3** Implement main `execute()` loop (~120 LOC) — for each cycle 1..maxCycles:
    1. **Proposer call**: send `current.text` + soft-rules system prompt → `proposedMarkup`
-   2. **Implementer pre-check**:
+   2. **Implementer pre-check (parse + position math)**:
       a. Parse markup, extract atomic edits with `markupRange`, group by `[#N]`
-      b. Strip markup → recovered source text. Compare to `current.text` with normalized whitespace. On mismatch → exit cycle with `stopReason: 'proposer_drift'`
-      c. Compute each atomic edit's `range` (positions in `current.text`) by mapping markup positions through the strip operation
-      d. Validate hard rules per atomic edit; drop violator groups silently
-      e. Cap groups to ≤ 30 atomic edits / cycle and ≤ 5 atomic edits / group
-      → `{ approverGroups, droppedPreApprover[] }`. If `approverGroups.length === 0` → exit with `stopReason: 'no_edits_proposed'` or `'parse_failed'`
-   3. **Approver call**: send `proposedMarkup` + group summary → JSONL
-   4. **Parse Approver output** → `reviewDecisions[]` (missing decisions default to `reject`)
-   5. **Implementer application**: collect atomic edits from accepted groups, detect range overlaps between groups (drop later group on conflict), verify each edit's context-string failsafe + `oldText` match against `current.text` (drop group on mismatch), sort survivors by `range.start` descending, apply right-to-left to `current.text` → `newText`. Format-validate. → `{ newText, droppedPostApprover[], appliedGroups[] }`
-   6. If `newText !== current.text` and format-valid: create new `Variant`, add to pool, `current = newVariant`
-   7. If `appliedCount === 0`: exit with `stopReason: 'all_edits_rejected'`
+      b. Strip markup → `recoveredSource`. Compute drift regions vs `current.text` with normalized whitespace.
+      c. Compute each atomic edit's `range` (positions in `current.text`) by mapping markup positions through the strip operation; capture `contextBefore` / `contextAfter`
+   3. **Drift handling** (if any drift detected):
+      a. Classify magnitude: major (> 3 regions OR > 200 chars OR markup overlap) → exit with `stopReason: 'proposer_drift_major'`
+      b. Else minor → if `EVOLUTION_DRIFT_RECOVERY_ENABLED !== 'false'`, call `recoverDrift(...)` — returns `{ outcome, patchedMarkup?, classifications[] }`
+      c. On `outcome === 'recovered'`: re-parse the patched markup; continue with the patched groups
+      d. On `outcome === 'unrecoverable_intentional'`: exit `stopReason: 'proposer_drift_intentional'`
+      e. On `outcome === 'unrecoverable_residual'`: exit `stopReason: 'proposer_drift_unrecoverable'`
+      f. If recovery disabled by flag: exit `stopReason: 'proposer_drift_major'` regardless of magnitude
+   4. **Validate hard rules** per atomic edit; drop violator groups silently. Cap groups to ≤ 30 atomic edits / cycle and ≤ 5 atomic edits / group → `{ approverGroups, droppedPreApprover[] }`. If `approverGroups.length === 0` → exit with `stopReason: 'no_edits_proposed'` or `'parse_failed'`
+   5. **Approver call**: send `proposedMarkup` (or `proposedMarkupPatched` if recovery fired) + group summary → JSONL
+   6. **Parse Approver output** → `reviewDecisions[]` (missing decisions default to `reject`)
+   7. **Implementer application**: collect atomic edits from accepted groups, detect range overlaps between groups (drop later group on conflict), verify each edit's context-string failsafe + `oldText` match against `current.text` (drop group on mismatch), sort survivors by `range.start` descending, apply right-to-left to `current.text` → `newText`. Format-validate. → `{ newText, droppedPostApprover[], appliedGroups[] }`
+   8. If `newText !== current.text` and format-valid: create new `Variant`, add to pool, `current = newVariant`
+   9. If `appliedCount === 0`: exit with `stopReason: 'all_edits_rejected'`
 - [ ] **2.A.4** Emit rich `execution_detail.cycles[]` per cycle (full shape per research doc § "execution_detail shape"). Each cycle entry has `proposedMarkup` + `proposedGroupsRaw` + `droppedPreApprover[]` + `approverGroups[]` + `reviewDecisions[]` + `droppedPostApprover[]` + `appliedGroups[]` + `parentText` + `childText`.
 
 #### 2.B — Proposer (LLM call #1)
@@ -103,6 +109,20 @@ The V2 pipeline cannot make targeted edits to a variant. `GenerateFromPreviousAr
 - [ ] **2.C.5** Unit tests `checkProposerDrift.test.ts` (~100 LOC, ~10 cases): exact match (no drift), trivial whitespace differences (no drift), one-character text difference (drift detected, offset reported), proposer added text outside markup (drift), proposer removed text outside markup (drift), normalized newlines (no drift).
 - [ ] **2.C.6** Unit tests `validateEditGroups.test.ts` (~250 LOC, ~20 cases): each hard rule (10), group-level coherence (single bad atomic → whole group dropped), cycle cap (30+ edits), group cap (6+ edits), edge cases (heading at very start of document, code fence at very end, etc.).
 - [ ] **2.C.7** Property-based test `parseProposedEdits.property.test.ts` — fast-check generators: parse → reconstruct → parse-again idempotency on well-formed inputs; arbitrary text never crashes parser; arbitrary `[#N]` numbers don't break grouping; range-correctness invariant (for any well-formed markup, every edit's `range` slices the correct content from `current.text`).
+- [ ] **2.C.8** Build `evolution/src/lib/core/agents/editing/recoverDrift.ts` (~150 LOC):
+   - **Magnitude classifier (deterministic)**: `classifyDriftMagnitude(driftRegions, proposedMarkup, edits): 'minor' | 'major'`. Major if `regions.length > 3` OR `totalDriftedChars > 200` OR any region overlaps any `markupRange` from the parser. Constants: `DRIFT_MAX_REGIONS = 3`, `DRIFT_MAX_CHARS = 200`.
+   - **Recovery LLM call (when minor)**: `recoverDriftWithLLM(driftRegions, current.text, proposedMarkup, llm)` builds a focused prompt with each region's surrounding context (30 chars on each side, NEVER the full article), AgentName label `iterative_edit_drift_recovery`. System prompt: "classify each drift region as benign (cosmetic — smart quotes, dashes, whitespace, Unicode) or intentional (meaningful change). Output one JSON line per region: `{offset, classification, patch}`."
+   - **JSONL parser**: line-by-line `JSON.parse`, skip unparseable lines, default missing classifications to `'intentional'` (conservative — abort cycle if we can't tell).
+   - **Patcher (deterministic)**: for each `'benign'` region, splice `proposedMarkup` at `markupOffset` to replace the drifted text with the source patch. Ordering: apply patches in reverse-offset order (right-to-left) so offsets don't shift.
+   - **Re-verify**: run `parseProposedEdits` + drift check on the patched markup. Return `{ outcome: 'recovered' | 'unrecoverable_residual' | 'unrecoverable_intentional', patchedMarkup?, regions, classifications, costUsd }`.
+   - **Feature flag**: read `EVOLUTION_DRIFT_RECOVERY_ENABLED` once at function entry; if `'false'`, return early with `outcome: 'skipped_major_drift'` regardless of magnitude (caller treats this same as major drift).
+- [ ] **2.C.9** Unit tests `recoverDrift.test.ts` (~250 LOC, ~18 cases):
+   - Magnitude classifier: minor (small drift, no overlap) → `'minor'`; > 3 regions → `'major'`; > 200 chars → `'major'`; overlap with `markupRange` → `'major'`; exactly 3 regions, exactly 200 chars (boundary).
+   - Recovery LLM call (mocked): all benign → patches applied, re-check passes, outcome `'recovered'`; one intentional → outcome `'unrecoverable_intentional'`; mixed → still `'unrecoverable_intentional'` (any intentional aborts).
+   - Patcher correctness: smart-quote substitution patched, em-dash patched, multiple patches applied in reverse-offset order (positions don't shift mid-application), patched markup re-parses without drift.
+   - Edge cases: zero regions (function shouldn't be called, but if it is → outcome `'recovered'` no-op); LLM returns malformed JSON line (skipped, missing classifications default to intentional); LLM returns extra fields (passthrough).
+   - Feature flag: `EVOLUTION_DRIFT_RECOVERY_ENABLED='false'` → outcome `'skipped_major_drift'`, no LLM call, costUsd 0.
+   - Re-check after patch: if patches don't fully resolve (residual drift) → outcome `'unrecoverable_residual'`.
 
 #### 2.D — Approver (LLM call #2)
 
@@ -169,7 +189,11 @@ The V2 pipeline cannot make targeted edits to a variant. `GenerateFromPreviousAr
    - **Pre-Approver drops** — Proposer suggests heading edit → pre-check drops the group, Approver doesn't see it.
    - **Post-Approver drops (overlap)** — two accepted groups have overlapping ranges → later group dropped with `application_conflict`.
    - **Post-Approver drops (context mismatch)** — accepted group's `contextBefore` or `contextAfter` doesn't match `current.text` at the recorded offset → group dropped with `context_mismatch`. Surfaces as a paranoid failsafe; expected near-zero rate in production.
-   - **Proposer-drift drop** — Proposer modifies text outside its markup → cycle exits with `proposer_drift`, no Approver call made.
+   - **Proposer-drift major drop** — Proposer modifies > 200 chars outside markup → cycle exits with `proposer_drift_major`, no recovery LLM call, no Approver call.
+   - **Proposer-drift recovered** — Proposer drifts on smart quotes (≤ 3 regions, < 50 chars total) → recovery LLM classifies all as benign → patches applied → cycle continues normally; `execution_detail.cycles[0].driftRecovery.outcome === 'recovered'`.
+   - **Proposer-drift intentional** — Proposer modifies a sentence outside markup → recovery LLM flags `intentional` → cycle exits with `proposer_drift_intentional`.
+   - **Proposer-drift unrecoverable residual** — recovery LLM patches some regions but post-patch drift check still fails → cycle exits with `proposer_drift_unrecoverable`.
+   - **Drift recovery feature-flag off** — `EVOLUTION_DRIFT_RECOVERY_ENABLED='false'` → minor drift treated as major; cycle exits `proposer_drift_major` without LLM call.
    - **Cross-document group** — single `[#N]` spans multiple paragraphs (2 atomic edits with shared number); Approver accepts → both apply.
    - **Group coherence** — Approver rejects a multi-edit group → none of its atomic edits apply.
    - **Cycle cap** — Proposer returns 35 edits → pre-check drops 5+ groups beyond cap.
@@ -273,6 +297,7 @@ The V2 pipeline cannot make targeted edits to a variant. `GenerateFromPreviousAr
 - [ ] `evolution/src/lib/core/agents/editing/validateEditGroups.test.ts` — ~20 cases (10 hard rules + cycle/group caps)
 - [ ] `evolution/src/lib/core/agents/editing/approverPrompt.test.ts` — system-prompt content, edit summary table format
 - [ ] `evolution/src/lib/core/agents/editing/parseReviewDecisions.test.ts` — ~12 cases (JSONL parse, missing-default-reject, unknown-group-ignored)
+- [ ] `evolution/src/lib/core/agents/editing/recoverDrift.test.ts` — ~18 cases (magnitude classifier boundaries, recovery LLM mocked outcomes, patcher correctness, feature-flag, residual-drift detection)
 - [ ] `evolution/src/lib/core/agents/editing/applyAcceptedGroups.test.ts` — ~20 cases (overlap detection, context failsafe, splice direction, format validation)
 - [ ] `evolution/src/lib/core/agents/editing/applyAcceptedGroups.property.test.ts` — 4 properties (all-rejected idempotency, all-accepted equivalence, mixed-decision equivalence vs reference reconstruction, length monotonicity)
 - [ ] `evolution/src/lib/core/agents/editing/applyAcceptedGroups.sampleArticles.test.ts` — 5 articles × 3 scenarios (allAccept, allReject, mixed)

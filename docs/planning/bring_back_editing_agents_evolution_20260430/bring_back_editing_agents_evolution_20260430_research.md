@@ -74,14 +74,15 @@ V1 source via `git show <sha>:<path>`: `iterativeEditingAgent.ts`, `iterativeEdi
 
 > **Design pivot.** The original V1 algorithm was rubric-driven: read ReflectionAgent's 5-dimension scorecard → pick weakest dimension → surgical edit → blind whole-article judge with 2-pass direction reversal → re-critique. The v1-of-this-project redesign drops the rubric entirely and replaces the whole-article judge with **per-edit-group review of numbered atomic edits**, behind a deterministic Implementer that defends against malformed/ambiguous edits silently. Rationale: rubric-driven targeting forces edits into a fixed taxonomy and bottlenecks on ReflectionAgent quality; per-group review makes the safety mechanism transparent (every accept/reject has a written reason) and lets the proposer suggest improvements the rubric never anticipated. The Implementer ensures malformed edits never crash a cycle — they're silently dropped with full audit trail.
 
-### Three roles per cycle
+### Three roles per cycle (with optional recovery)
 
-Two LLM calls + one deterministic safety layer. **Key insight:** the Proposer's output is the full article with markup embedded inline, so every `[#N]` has an exact byte position. No fuzzy anchor matching needed; the parser records `(start, end)` ranges directly. Stripping markup also recovers the source text, giving us free drift detection.
+Two-or-three LLM calls + deterministic safety layer. **Key insight:** the Proposer's output is the full article with markup embedded inline, so every `[#N]` has an exact byte position. No fuzzy anchor matching needed; the parser records `(start, end)` ranges directly. Stripping markup also recovers the source text, giving us free drift detection.
 
 1. **Proposer** (LLM): produces the full article with numbered CriticMarkup edits embedded inline, governed by soft rules in the system prompt.
 2. **Implementer pre-check** (deterministic): parses Proposer output, recovers source text by stripping markup and compares it to `current.text` (drift check), groups by `[#N]`, validates against hard rules, drops violators silently, caps group size and cycle total. Only valid groups reach the Approver.
-3. **Approver** (LLM): per-group `accept`/`reject` + one-sentence reason. JSONL output only — no full text regeneration.
-4. **Implementer application** (deterministic): collects atomic edits from accepted groups, sorts by position descending, detects range overlaps between groups, applies in reverse-position order to `current.text` (positions don't shift when applying right-to-left). All-or-nothing per group. Format-validates final result.
+3. **Drift recovery** (LLM, *optional*): triggered only when the drift check finds drift that qualifies as "minor" (≤ 3 regions, ≤ 200 total drifted chars, no markup overlap). A nano-class model classifies each drift region as `benign` (cosmetic — smart quotes, dashes, whitespace) or `intentional` (meaningful change). Benign regions are auto-patched in `proposedMarkup` to match `current.text`; any intentional region aborts the cycle. Re-runs parser + drift check after patching to confirm clean.
+4. **Approver** (LLM): per-group `accept`/`reject` + one-sentence reason. JSONL output only — no full text regeneration.
+5. **Implementer application** (deterministic): collects atomic edits from accepted groups, sorts by position descending, detects range overlaps between groups, applies in reverse-position order to `current.text` (positions don't shift when applying right-to-left). All-or-nothing per group. Format-validates final result.
 
 ```
 current.text
@@ -142,9 +143,30 @@ These are not parser-checked; they shape the Proposer's behavior and the Approve
 
 These rules go into the Proposer's system prompt (Phase 2 task). The Approver also has them in its system prompt to inform reject reasons.
 
-#### Proposer-drift check (parser-level; cycle-level drop)
+#### Proposer-drift check + optional recovery (parser-level)
 
-After parsing the marked-up text, the Implementer **strips all markup** and compares the recovered text to `current.text`. With normalized whitespace (collapse runs, trim line ends), they must match exactly. If they don't, the Proposer modified text outside its own markup → drop the entire cycle with `stopReason: 'proposer_drift'`. This is a free safety net that catches unintended hallucinations.
+After parsing the marked-up text, the Implementer **strips all markup** and compares the recovered text to `current.text`. With normalized whitespace (collapse runs, trim line ends), they must match exactly.
+
+**On drift, classify magnitude first:**
+- **Major drift** (> 3 regions, OR > 200 total drifted chars, OR any region overlaps a `markupRange`): drop the cycle immediately with `stopReason: 'proposer_drift_major'`. No LLM recovery attempt — recovery is unlikely to succeed and would burn budget.
+- **Minor drift** (≤ 3 regions, ≤ 200 chars, no markup overlap): attempt drift recovery (next subsection).
+
+#### Drift recovery (LLM, runs only on minor drift)
+
+Triggered when the drift check fires AND the drift qualifies as minor. A focused LLM call (default model: gpt-4.1-nano via new strategy field `driftRecoveryModel`, AgentName label `iterative_edit_drift_recovery`) classifies each drift region:
+
+- **`benign`**: cosmetic difference the Proposer didn't intend as an edit (smart quotes, em/en-dashes, whitespace, Unicode normalization). Auto-patched: the patcher splices `proposedMarkup` at the recorded offset to restore the source text.
+- **`intentional`**: a real edit the Proposer should have wrapped in markup but didn't. Abort the cycle with `stopReason: 'proposer_drift_intentional'`.
+
+Prompt input is small — only the drift regions plus 30 chars of surrounding context, never the full article. Output is JSONL: `{offset, classification, patch}` per region. Cost ~$0.002 per recovery attempt.
+
+After classifying, the patcher applies all `benign` patches deterministically and re-runs the parser + drift check on the patched markup:
+- If drift is now clean → continue to validator.
+- If drift remains → abort with `stopReason: 'proposer_drift_unrecoverable'`.
+
+**Feature flag:** `EVOLUTION_DRIFT_RECOVERY_ENABLED` (default `'true'`). When `'false'`, any drift (major or minor) immediately aborts the cycle with `stopReason: 'proposer_drift_major'` — same behavior as if recovery were never built. Emergency rollback path.
+
+The full audit lives in `execution_detail.cycles[i].driftRecovery` (regions, classifications, outcome, cost). UI surfaces a yellow callout per cycle when recovery fired: *"Drift detected and recovered: 2 benign substitutions (smart quotes, em-dash)."*
 
 #### Ambiguous-markup handling (parser-level; silent drop)
 
@@ -290,7 +312,7 @@ This makes 3 cycles the safe default, vs. V1's `maxCycles=2`. The cost win comes
 
 ### Stop reasons recorded in `execution_detail`
 
-`'all_edits_rejected'`, `'no_edits_proposed'`, `'parse_failed'`, `'proposer_drift'` (recovered source text doesn't match `current.text`), `'max_cycles'`, `'budget_exceeded'`, `'format_invalid'` (final applied output failed validation).
+`'all_edits_rejected'`, `'no_edits_proposed'`, `'parse_failed'`, `'proposer_drift_major'` (drift too large to recover), `'proposer_drift_intentional'` (recovery LLM identified an unwrapped edit), `'proposer_drift_unrecoverable'` (patches applied but drift remained), `'max_cycles'`, `'budget_exceeded'`, `'format_invalid'` (final applied output failed validation).
 
 ### `execution_detail` shape
 
@@ -325,7 +347,15 @@ type ReviewDecision = {
   cycles: Array<{
     cycleNumber: number,
     proposedMarkup: string,                  // verbatim Proposer output
+    proposedMarkupPatched?: string,          // post-recovery markup (if drift recovery fired and patched successfully)
     proposedGroupsRaw: EditGroup[],          // straight from parser, before hard-rule validation
+    driftRecovery?: {                        // present only when drift was detected
+      attempted: boolean,                    // true if recovery LLM was called (false = major drift, skipped)
+      regions: Array<{ markupOffset: number; expected: string; actual: string }>,
+      classifications: Array<{ offset: number; classification: 'benign' | 'intentional'; patched: boolean }>,
+      outcome: 'recovered' | 'unrecoverable_intentional' | 'unrecoverable_residual' | 'skipped_major_drift',
+      costUsd: number,
+    },
     droppedPreApprover: Array<{              // dropped before Approver saw them
       groupNumber: number,
       reason: 'hard_rule_violation' | 'group_size_exceeded' | 'cycle_cap_exceeded' | 'parse_failed',
