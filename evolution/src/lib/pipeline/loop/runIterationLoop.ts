@@ -13,6 +13,10 @@ import { createCostTracker, createIterationBudgetTracker, IterationBudgetExceede
 import type { EntityLogger } from '../infra/createEntityLogger';
 import { selectWinner } from '../../shared/selectWinner';
 import { GenerateFromPreviousArticleAgent } from '../../core/agents/generateFromPreviousArticle';
+import {
+  ReflectAndGenerateFromPreviousArticleAgent,
+  type TacticCandidate,
+} from '../../core/agents/reflectAndGenerateFromPreviousArticle';
 import { SwissRankingAgent, type SwissRankingMatchEntry } from '../../core/agents/SwissRankingAgent';
 import { MergeRatingsAgent, type MergeMatchEntry } from '../../core/agents/MergeRatingsAgent';
 import { swissPairing, pairKey, MAX_PAIRS_PER_ROUND } from './swissPairing';
@@ -20,7 +24,8 @@ import { computeTop15Cutoff } from './rankSingleVariant';
 import { resolveParent, hashSeed } from './resolveParent';
 import { DEFAULT_TACTICS, type IterationSnapshot } from '../../schemas';
 import { deriveSeed, SeededRandom } from '../../shared/seededRandom';
-import { selectTacticWeighted } from '../../core/tactics';
+import { selectTacticWeighted, ALL_SYSTEM_TACTICS, ALL_TACTIC_NAMES, getTacticSummary } from '../../core/tactics';
+import { getTacticEloBoostsForReflection } from '../../../services/tacticReflectionActions';
 import { createSeededRng } from '../../metrics/experimentMetrics';
 import type { AgentContext } from '../../core/types';
 import { estimateAgentCost } from '../infra/estimateCosts';
@@ -327,6 +332,35 @@ export async function evolveArticle(
         // true; set to 'false' as a rollback kill-switch if top-up misbehaves in prod.
         const topUpEnabled = process.env.EVOLUTION_TOPUP_ENABLED !== 'false';
 
+        // Phase 7 of develop_reflection_and_generateFromParentArticle_agent_evolution_20260430:
+        // resolve the reflection kill-switch ONCE per iteration. When the env var is 'false'
+        // OR the iteration config doesn't enable reflection, dispatch falls back to vanilla
+        // GFPA. This keeps the wrapper agent's existence opt-in per iteration AND provides
+        // a single-flip rollback if reflection misbehaves in prod.
+        const reflectionEnabled = iterCfg.useReflection === true
+          && process.env.EVOLUTION_REFLECTION_ENABLED !== 'false';
+        const reflectionTopN = iterCfg.reflectionTopN ?? 3;
+
+        // Pre-fetch tactic ELO boosts ONCE per iteration when reflection is enabled.
+        // The same Map reference is shared by all DISPATCH_SAFETY_CAP=100 parallel
+        // wrapper agents, so we don't issue 100 redundant queries per iteration.
+        let tacticEloBoosts: Map<string, number | null> = new Map();
+        if (reflectionEnabled && options?.promptId) {
+          try {
+            tacticEloBoosts = await getTacticEloBoostsForReflection(
+              db,
+              options.promptId,
+              ALL_TACTIC_NAMES,
+              logger,
+            );
+          } catch (err) {
+            logger.warn('Phase 7 reflection ELO boost fetch failed; reflection prompt will show "—"', {
+              phaseName: 'reflection_prep',
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+        }
+
         // Budget-aware parallel-batch size: compute how many agents we can afford
         // within iteration budget AT UPPER-BOUND cost (reservation safety).
         const availBudget = iterTracker.getAvailableBudget();
@@ -423,7 +457,39 @@ export async function evolveArticle(
             rawProvider: llmProvider,
             defaultModel: resolvedConfig.generationModel,
             generationTemperature: resolvedConfig.generationTemperature,
+            // Phase 7: pass tacticEloBoosts so the wrapper agent can read it directly
+            // from extendedCtx if needed. Currently the wrapper reads from input.tacticEloBoosts
+            // (built below), but this is here for consistency with future agents.
+            tacticEloBoosts: reflectionEnabled ? tacticEloBoosts : undefined,
           };
+          // Phase 7: branch agent + input shape based on iteration's reflection config.
+          // Both branches share the same ctxForAgent and the same parent-resolution path
+          // — only the agent class and input differ.
+          if (reflectionEnabled) {
+            const shuffleSeed = deriveSeed(randomSeed, `iter${iteration}`, `reflect_shuffle${execOrder}`);
+            const rng = new SeededRandom(shuffleSeed);
+            // ALL_SYSTEM_TACTICS is a Record<string, TacticDef> — TacticDef has no `name` field
+            // (the name is the Record key). Use Object.entries() to keep both attached.
+            const tacticEntries = Object.entries(ALL_SYSTEM_TACTICS);
+            const shuffled = rng.shuffle([...tacticEntries]);
+            const candidates: TacticCandidate[] = shuffled.map(([name, def]) => ({
+              name,
+              label: def.label,
+              summary: getTacticSummary(name) ?? `${def.label} — ${def.preamble}`,
+            }));
+            const wrapperAgent = new ReflectAndGenerateFromPreviousArticleAgent();
+            return wrapperAgent.run({
+              parentText: resolved.text,
+              parentVariantId: resolved.variantId,
+              tacticCandidates: candidates,
+              tacticEloBoosts,
+              reflectionTopN,
+              initialPool: initialPoolSnapshot,
+              initialRatings: initialRatingsSnapshot,
+              initialMatchCounts: initialMatchCountsSnapshot,
+              cache: comparisonCache,
+            }, ctxForAgent);
+          }
           const agent = new GenerateFromPreviousArticleAgent();
           return agent.run({
             parentText: resolved.text,
