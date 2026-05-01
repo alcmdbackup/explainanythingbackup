@@ -46,65 +46,115 @@ The V2 pipeline cannot make targeted edits to a variant. `GenerateFromPreviousAr
 - [ ] **1.8** **Replace** orphaned `iterativeEditingExecutionDetailSchema` (lines 660–686) — V1-rubric-shaped, doesn't fit the new design. Author a fresh schema with `cycles[]` containing `{cycleNumber, proposedMarkup, proposedEdits[], reviewedEdits[], acceptedCount, rejectedCount, formatValid, newVariantId?, parentText, childText?}` (full shape in research doc). Replace `executionDetailFixtures.iterativeEditingDetailFixture` to match. Update `agentExecutionDetailSchema` discriminated union slot.
 - [ ] **1.9** Cleanup: delete ghost `mutate_clarity` / `crossover` / `mutate_engagement` from `TACTIC_PALETTE` (`tactics/index.ts:94–96`); delete unused `evolution/src/lib/legacy-schemas.ts`; fix `low_sigma_opponents_count` → `low_uncertainty_opponents_count` mismatch at `schemas.ts:819` vs `detailViewConfigs.ts:166`.
 
-### Phase 2: IterativeEditingAgent class + numbered-CriticMarkup parser + unit tests (Week 2)
-- [ ] **2.1** Create `evolution/src/lib/core/agents/editing/IterativeEditingAgent.ts` (~250 LOC). Extend `Agent<IterativeEditInput, IterativeEditOutput, IterativeEditingExecutionDetail>`. Set `usesLLM = true`, `name = 'iterativeEditing'`. No port from V1 — V1 was rubric-driven; the new design is propose-then-review.
-- [ ] **2.2** Build per-invocation `EvolutionLLMClient` via `Agent.run()` template. Use `AgentCostScope.getOwnSpent()` for cost attribution.
-- [ ] **2.3** Build the **proposer prompt builder** (`evolution/src/lib/core/agents/editing/prompts.ts`, ~50 LOC):
-   - System role: "expert writing editor"
-   - Inline numbered-CriticMarkup syntax docs in the prompt
-   - Article body
-   - Output instruction: full article with inline numbered edits, no commentary
-   - Use AgentName label `iterative_edit_propose` for cost attribution.
-- [ ] **2.4** Build the **numbered-CriticMarkup parser** (`evolution/src/lib/core/agents/editing/parseProposedEdits.ts`, ~150 LOC):
-   - Regex extraction for `{++ [#N] ... ++}`, `{-- [#N] ... --}`, `{~~ [#N] ... ~> ... ~~}`
-   - Pair adjacent same-#N add/delete into one `replace` edit
-   - Compute `anchor` (~30 chars surrounding context) for each edit so we can locate it during application
-   - Return `{ edits: Edit[], cleanText: string, parseError?: string }`
-   - Adversarial-input handling: unbalanced tags → return `parseError`; missing numbers → assign sequential numbers; nested tags → reject (parseError); duplicate numbers → keep first, log warning.
-- [ ] **2.5** Build the **reviewer prompt builder** + JSONL parser (`prompts.ts` + `parseReviewDecisions.ts`, ~100 LOC combined):
-   - Reviewer prompt includes the marked-up article + a machine-extracted summary table of edits ("#1: insert 'X' at...", "#2: replace 'Y' with 'Z'")
-   - Output instruction: one JSON line per edit, `{editNumber, decision, reason}`
+### Phase 2: Proposer + Implementer + Approver components + unit tests (Week 2)
+
+> **Three-role architecture** (research doc § "How IterativeEditingAgent Works"). Two LLM calls per cycle (Proposer, Approver) and one deterministic safety layer (Implementer) that runs twice per cycle: a pre-Approver pre-check that filters hard-rule violators, and a post-Approver application step that handles anchor failures and format validation.
+
+#### 2.A — IterativeEditingAgent class (orchestration)
+
+- [ ] **2.A.1** Create `evolution/src/lib/core/agents/editing/IterativeEditingAgent.ts` (~250 LOC). Extend `Agent<IterativeEditInput, IterativeEditOutput, IterativeEditingExecutionDetail>`. Set `usesLLM = true`, `name = 'iterativeEditing'`.
+- [ ] **2.A.2** Per-invocation `EvolutionLLMClient` via `Agent.run()` template. `AgentCostScope.getOwnSpent()` for cost attribution.
+- [ ] **2.A.3** Implement main `execute()` loop (~100 LOC) — for each cycle 1..maxCycles:
+   1. **Proposer call**: send `current.text` + soft-rules system prompt → `proposedMarkup`
+   2. **Implementer pre-check**: parse, group, validate hard rules, cap → `{ approverGroups, droppedPreApprover[] }`. If `approverGroups.length === 0` → exit with `stopReason: 'no_edits_proposed'` or `'parse_failed'`
+   3. **Approver call**: send `proposedMarkup` + group summary → JSONL
+   4. **Parse Approver output** → `reviewDecisions[]` (missing decisions default to `reject`)
+   5. **Implementer application**: apply accepted groups in number order with anchor matching → `{ newText, droppedPostApprover[], appliedGroups[] }`. Format-validate `newText`
+   6. If `newText !== current.text` and format-valid: create new `Variant`, add to pool, `current = newVariant`
+   7. If `appliedCount === 0`: exit with `stopReason: 'all_edits_rejected'`
+- [ ] **2.A.4** Emit rich `execution_detail.cycles[]` per cycle (full shape per research doc § "execution_detail shape"). Each cycle entry has `proposedMarkup` + `proposedGroupsRaw` + `droppedPreApprover[]` + `approverGroups[]` + `reviewDecisions[]` + `droppedPostApprover[]` + `appliedGroups[]` + `parentText` + `childText`.
+
+#### 2.B — Proposer (LLM call #1)
+
+- [ ] **2.B.1** Build `evolution/src/lib/core/agents/editing/proposerPrompt.ts` (~80 LOC):
+   - System prompt embeds **all soft rules** (preserve quotes, citations, URLs; no new headings; one-sentence edits preferred; no edits in code blocks; preserve voice and tone).
+   - Inline syntax docs (3 markup forms with examples).
+   - Output-format instruction: full article with inline numbered edits, no commentary.
+   - Use AgentName label `iterative_edit_propose`.
+- [ ] **2.B.2** Unit tests `proposerPrompt.test.ts` (~80 LOC, ~6 cases) — assert all soft rules present in rendered prompt; assert syntax examples include all 3 forms; assert AgentName label routes to correct cost metric.
+
+#### 2.C — Implementer pre-check (deterministic, parser + validator)
+
+- [ ] **2.C.1** Build `evolution/src/lib/core/agents/editing/parseProposedEdits.ts` (~200 LOC):
+   - Regex extraction for `{++ [#N] ... ++}`, `{-- [#N] ... --}`, `{~~ [#N] ... ~> ... ~~}`.
+   - Group atomic edits by `[#N]` into `EditGroup[]`.
+   - Adjacent same-`[#N]` add+delete merged into one `replace` edit.
+   - Compute `anchor` (30 chars surrounding context) and `location: {line, column}` for each atomic edit.
+   - Adversarial handling: unbalanced tags → drop the unbalanced atomic edit silently; nested tags → drop silently; missing `[#N]` → auto-assign sequential; combined-form `~~` substitution where content contains `~>` → drop silently (use paired form instead); duplicate non-paired numbers → keep first, drop rest.
+   - Return `{ groups: EditGroup[], dropped: Array<{ reason, detail }> }`.
+- [ ] **2.C.2** Build `evolution/src/lib/core/agents/editing/validateEditGroups.ts` (~150 LOC):
+   - Hard-rule checks (per atomic edit): length cap 500, no `\n\n` in `oldText`, no heading line touch, no heading line in `newText`, no code fence in `oldText`/`newText`, no list-item-boundary span, no horizontal-rule line.
+   - **Group-level enforcement: any atomic edit in a group fails any hard rule → drop the whole group**.
+   - Cap enforcement: total atomic edits ≤ 30 (drop excess groups in number order); each group ≤ 5 atomic edits (drop wholesale).
+   - Return `{ approverGroups: EditGroup[], droppedPreApprover: Array<{ groupNumber, reason, detail }> }`.
+- [ ] **2.C.3** Unit tests `parseProposedEdits.test.ts` (~300 LOC, ~25 cases): well-formed input (all 3 forms), grouped edits sharing `[#N]` (cross-document), unbalanced tags (silently dropped), nested tags (silently dropped), missing numbers (auto-assigned), duplicate non-paired numbers (first kept), combined `~~` form with `~>` in content (silently dropped), paired add/delete merged correctly, anchor extraction at document start/end, Unicode in edit content, multiple groups in one paragraph.
+- [ ] **2.C.4** Unit tests `validateEditGroups.test.ts` (~250 LOC, ~20 cases): each hard rule (10), group-level coherence (single bad atomic → whole group dropped), cycle cap (30+ edits), group cap (6+ edits), edge cases (heading at very start of document, code fence at very end, etc.).
+- [ ] **2.C.5** Property-based test `parseProposedEdits.property.test.ts` — fast-check generators: parse → reconstruct → parse-again idempotency on well-formed inputs; arbitrary text never crashes parser; arbitrary `[#N]` numbers don't break grouping.
+
+#### 2.D — Approver (LLM call #2)
+
+- [ ] **2.D.1** Build `evolution/src/lib/core/agents/editing/approverPrompt.ts` (~80 LOC):
+   - System prompt: "you are reviewing edits to an article; be conservative; only accept edits that demonstrably improve clarity, structure, engagement, grammar, or overall effectiveness; reject edits that violate any of these soft rules: [embedded soft rules]".
+   - Body: marked-up article + machine-generated edit summary table — one row per group with all atomic edits in the group.
+   - Output instruction: one JSON line per **group**, `{groupNumber, decision, reason}`.
    - Use AgentName label `iterative_edit_review`.
-   - Parser: `parseReviewDecisions(jsonl, expectedEditNumbers)` — line-by-line `JSON.parse`; skip unparseable lines (log); ignore decisions for unknown edit numbers; **default missing edit numbers to `{ decision: 'reject', reason: 'no decision returned' }`** (conservative).
-- [ ] **2.6** Build the **edit applier** (`applyAcceptedEdits.ts`, ~100 LOC):
-   - Take `proposedEdits`, filter to accepted, apply in `editNumber` order to `current.text` using the `anchor` to locate each edit
-   - Handle overlapping edits: later-numbered edit's region wins; earlier conflicting edit dropped with `application_conflict` log
-   - Strip rejected-edit markup from `proposedMarkup` to recover the original text in those regions
-   - Return `{ newText, conflictsDropped: Edit[] }`
-- [ ] **2.7** Implement main `execute()` loop (~80 LOC) — for each cycle 1..maxCycles:
-   1. Call proposer LLM with `current.text` → `proposedMarkup`
-   2. `parseProposedEdits(proposedMarkup)` → `{ edits, cleanText, parseError }`. If error or zero edits → exit with stop reason
-   3. Call reviewer LLM with `proposedMarkup` + edit summary → `jsonl`
-   4. `parseReviewDecisions(jsonl, edits.map(e => e.number))` → `decisions`
-   5. `applyAcceptedEdits(current.text, edits, decisions)` → `newText`
-   6. `validateFormat(newText)` — on fail, no-op cycle, record details, continue
-   7. If accepted count ≥ 1 and `newText !== current.text`: create new Variant, add to pool, `current = newVariant`
-   8. If accepted count === 0: exit with `stopReason: 'all_edits_rejected'`
-- [ ] **2.8** Emit rich `execution_detail.cycles[]` per cycle (full shape per research doc § "execution_detail shape"). Persist `parentText` + `childText` so the `'text-diff'` UI field can render the diff. Persist `proposedMarkup` so the UI can show the original numbered-CriticMarkup output.
-- [ ] **2.9** Unit tests `IterativeEditingAgent.test.ts` (~450 LOC, ≥25 cases). Use `v2MockLlm` with per-label response queues:
-   - happy path (3 cycles, edits propagate through chain)
-   - all-rejected stop (cycle 1 reviewer rejects everything → exit)
-   - no-edits-proposed stop (proposer returns clean text, no markup)
-   - parse-failed stop (malformed markup → exit)
-   - max-cycles stop
-   - format-invalid no-op (apply produces malformed text → no variant added)
-   - mixed accept/reject within a cycle (apply only accepted edits)
-   - overlapping edits — later wins, conflict logged
-   - JSONL with missing edit numbers → conservative reject for missing
-   - JSONL with unknown edit number → ignored
-   - Reviewer returns extra non-JSON text → parser skips, accepts what it can
-   - BudgetExceededError mid-cycle → catches, returns partial result
-   - `attemptedEdits` semantics not needed (each cycle is fresh proposal)
-   - Per-cycle cost attribution via `AgentCostScope.getOwnSpent()`
-   - `execution_detail` shape conforms to schema
-   - `parentText` / `childText` populated correctly
-   - Strategy = `'iterative_edit'` on new variants
-   - `parentIds` chain correctly across cycles
-   - Plus 8 more covering markup-syntax variants (substitution form, paired add/delete with same #, multiple insertions, etc.)
-- [ ] **2.10** Unit tests `parseProposedEdits.test.ts` (~250 LOC, ~20 cases): well-formed input, unbalanced tags, missing numbers, duplicate numbers, nested tags (reject), substitution form, paired add/delete, anchor extraction edge cases, edits at start/end of document, edits in code blocks (preserve), Unicode in edit content.
-- [ ] **2.11** Unit tests `parseReviewDecisions.test.ts` (~150 LOC, ~12 cases): well-formed JSONL, partial parse (one bad line), missing decisions default to reject, unknown edit numbers ignored, malformed JSON, decisions with extra fields (passthrough or strip).
-- [ ] **2.12** Unit tests `applyAcceptedEdits.test.ts` (~200 LOC, ~15 cases): single accepted edit, all rejected (newText === original), all accepted, overlapping edits resolution, anchor not found (skip with log), edits across paragraph boundaries, deletes that empty a section.
-- [ ] **2.13** Property-based test `parseProposedEdits.property.test.ts` — fast-check generators: round-trip property (parse → reconstruct → parse-again is idempotent on well-formed inputs).
+- [ ] **2.D.2** Build `evolution/src/lib/core/agents/editing/parseReviewDecisions.ts` (~80 LOC):
+   - Line-by-line `JSON.parse`; skip unparseable lines (log).
+   - Ignore decisions for unknown group numbers.
+   - Decisions for groups not in input → ignored.
+   - **Missing decisions for any expected group → default to `{decision: 'reject', reason: 'no decision returned'}`** (conservative).
+   - Return `ReviewDecision[]`.
+- [ ] **2.D.3** Unit tests `parseReviewDecisions.test.ts` (~150 LOC, ~12 cases): well-formed JSONL, partial parse (one bad line), missing decisions → reject default, unknown group numbers ignored, malformed JSON, extra fields (passthrough).
+
+#### 2.E — Implementer application (deterministic, anchor matcher + applier)
+
+- [ ] **2.E.1** Build `evolution/src/lib/core/agents/editing/applyAcceptedGroups.ts` (~200 LOC):
+   - Filter `approverGroups` to those with `decision === 'accept'`.
+   - Sort by `groupNumber`.
+   - For each accepted group: locate each atomic edit's `anchor` in current working text:
+     - **Unique match** → apply
+     - **Multiple matches (anchor ambiguous)** → drop whole group, log to `droppedPostApprover[]` with `reason: 'anchor_ambiguous'`
+     - **No match (anchor not found, e.g., earlier edit changed it)** → drop whole group, log with `reason: 'anchor_not_found'`
+   - Apply atomic edits in document order within each group; all-or-nothing per group.
+   - On group-internal application failure (e.g., deletion-target text changed by an earlier edit): drop whole group, log `application_conflict`.
+   - Format-validate final `newText`. If invalid: cycle is no-op, log `format_invalid_after_apply`.
+   - Return `{ newText, droppedPostApprover, appliedGroups }`.
+- [ ] **2.E.2** Unit tests `applyAcceptedGroups.test.ts` (~250 LOC, ~18 cases): single accepted group with one atomic edit, all rejected (newText === original), all accepted, group-internal coordination (1 group with 3 atomic edits across paragraphs), anchor unique match, anchor not found (drop group), anchor ambiguous (drop group), overlapping accepted groups (later one's anchor displaced → drop), format-invalid post-apply (no-op cycle), all-or-nothing semantics (1 atomic edit fails in 3-edit group → whole group dropped).
+
+#### 2.F — Integration tests for the full Phase 2 pipeline
+
+- [ ] **2.F.1** Unit tests `IterativeEditingAgent.test.ts` (~500 LOC, ≥30 cases). Use `v2MockLlm` with per-label response queues:
+   - **Happy path** — 3 cycles, edits propagate through chain (each cycle's accepted groups apply, next cycle proposes against the new text).
+   - **All-rejected stop** — Approver rejects all in cycle 1 → exit with `'all_edits_rejected'`.
+   - **No-edits-proposed stop** — Proposer returns clean text → exit.
+   - **Parse-failed stop** — markup unparseable → exit (after pre-check drops everything).
+   - **Max-cycles stop** — 3 successful cycles, exit normally.
+   - **Format-invalid no-op** — Implementer application produces malformed text → no Variant added, cycle continues.
+   - **Mixed accept/reject** — Approver accepts 2 groups, rejects 3 → only accepted groups apply.
+   - **Pre-Approver drops** — Proposer suggests heading edit → pre-check drops the group, Approver doesn't see it.
+   - **Post-Approver drops** — Approver accepts a group whose anchor moved during earlier-applied edit → Implementer drops it.
+   - **Cross-document group** — single `[#N]` spans multiple paragraphs (2 atomic edits with shared number); Approver accepts → both apply.
+   - **Group coherence** — Approver rejects a multi-edit group → none of its atomic edits apply.
+   - **Cycle cap** — Proposer returns 35 edits → pre-check drops 5+ groups beyond cap.
+   - **Group cap** — single group with 7 atomic edits → pre-check drops the whole group.
+   - **Hard rule audit** — for each of the 10 hard rules, Proposer suggests a violator → pre-check drops it silently and Approver never sees it.
+   - **Soft rule audit** — Proposer ignores a soft rule (e.g., edits a citation), Approver rejects with appropriate reason.
+   - **JSONL with extra non-JSON lines** — parser skips, accepts valid lines.
+   - **JSONL with missing group decisions** — parser defaults missing groups to reject.
+   - **Unknown group numbers in JSONL** — parser ignores.
+   - **`BudgetExceededError` during Proposer call** — catches, exits with `'budget_exceeded'`.
+   - **`BudgetExceededError` during Approver call** — same.
+   - **Cost attribution via `AgentCostScope.getOwnSpent()`** — each cycle's cost shows up correctly.
+   - **`execution_detail` shape** — conforms to schema, all sub-arrays populated.
+   - **`parentText` / `childText`** — correctly captured per cycle.
+   - **`strategy = 'iterative_edit'`** on new variants.
+   - **`parentIds` chain** — correctly tracks across cycles.
+   - **Pre-Approver dropped log** — every dropped group has a recorded reason.
+   - **Post-Approver dropped log** — every dropped accepted group has a recorded reason.
+   - **`appliedGroups` count** — matches `acceptedCount - droppedPostApprover.length`.
+   - **Parser parses substitution combined form** correctly.
+   - **Parser parses paired add/delete with same `[#N]`** correctly.
+   - Plus a few more covering markup edge cases.
 
 ### Phase 3: Pipeline integration + dispatch + agent registry (Week 3)
 - [ ] **3.1** `evolution/src/lib/core/agentRegistry.ts` — register `new IterativeEditingAgent()` in lazy-init array.

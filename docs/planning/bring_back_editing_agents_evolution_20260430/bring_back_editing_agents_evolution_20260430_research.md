@@ -70,18 +70,88 @@ V1 source via `git show <sha>:<path>`: `iterativeEditingAgent.ts`, `iterativeEdi
 
 ---
 
-## How IterativeEditingAgent Works (v2 redesign — 2026-04-30)
+## How IterativeEditingAgent Works (v2 redesign — finalized 2026-05-01)
 
-> **Design pivot.** The original V1 algorithm was rubric-driven: read ReflectionAgent's 5-dimension scorecard → pick weakest dimension → surgical edit fixing only that one weakness → blind whole-article judge with 2-pass direction reversal → re-critique. The v1-of-this-project redesign drops the rubric entirely and replaces the whole-article judge with **per-edit review of numbered atomic edits**. Rationale: rubric-driven targeting forces edits into a fixed taxonomy and bottlenecks on ReflectionAgent quality; per-edit review makes the safety mechanism transparent (every accept/reject has a written reason) and lets the proposer suggest improvements the rubric never anticipated.
+> **Design pivot.** The original V1 algorithm was rubric-driven: read ReflectionAgent's 5-dimension scorecard → pick weakest dimension → surgical edit → blind whole-article judge with 2-pass direction reversal → re-critique. The v1-of-this-project redesign drops the rubric entirely and replaces the whole-article judge with **per-edit-group review of numbered atomic edits**, behind a deterministic Implementer that defends against malformed/ambiguous edits silently. Rationale: rubric-driven targeting forces edits into a fixed taxonomy and bottlenecks on ReflectionAgent quality; per-group review makes the safety mechanism transparent (every accept/reject has a written reason) and lets the proposer suggest improvements the rubric never anticipated. The Implementer ensures malformed edits never crash a cycle — they're silently dropped with full audit trail.
+
+### Three roles per cycle
+
+Two LLM calls + one deterministic safety layer:
+
+1. **Proposer** (LLM): produces marked-up article with numbered CriticMarkup edits, governed by soft rules in the system prompt.
+2. **Implementer pre-check** (deterministic): parses Proposer output, groups by `[#N]`, validates against hard rules, drops violators silently, caps group size and cycle total. Only valid groups reach the Approver.
+3. **Approver** (LLM): per-group `accept`/`reject` + one-sentence reason. JSONL output.
+4. **Implementer application** (deterministic): for each accepted group, locates anchors and applies atomic edits in document order, all-or-nothing per group. Drops groups with anchor failures or conflicts silently. Format-validates final result.
+
+```
+current.text
+    │
+    ▼
+[Proposer LLM] ──proposedMarkup──▶ [Implementer pre-check] ──approverGroups──▶ [Approver LLM]
+                                          │                                          │
+                                          ▼                                          ▼
+                                  droppedPreApprover                          reviewDecisions
+                                                                                     │
+                                                                                     ▼
+                            new Variant or no-op ◀── [Implementer application] ◀────┘
+                                                              │
+                                                              ▼
+                                                      droppedPostApprover
+```
 
 ### Inputs (per execution)
 
 - The top variant from the pool by Elo (`current.text`).
-- An LLM client bound to the strategy's `generationModel` (used for both proposer and reviewer; both can be split later via separate model fields).
+- An LLM client bound to the strategy's `generationModel` (used for both Proposer and Approver; can be split later via separate model fields).
 - A `V2CostTracker` per the iteration's budget.
-- Config: `maxCycles` (default 3), `maxAcceptedEditsPerCycle` (optional cap, default unbounded), `minAcceptedToContinue` (default 1 — if a cycle accepts zero edits, stop).
+- Config: `maxCycles` (default 3), `minAcceptedToContinue` (default 1 — if a cycle accepts zero edits, stop).
 
 **No rubric. No ReflectionAgent dependency.** `canExecute()` returns true whenever the pool has a top variant.
+
+### Reliability rules (locked 2026-05-01)
+
+#### Hard rules — Implementer pre-check enforces; violator-groups dropped silently
+
+| Rule | Limit / check |
+|---|---|
+| `oldText` length cap | ≤ 500 chars |
+| `newText` length cap | ≤ 500 chars |
+| Atomic edits per cycle | ≤ 30 (excess groups dropped in number order) |
+| Atomic edits per group | ≤ 5 (over-large groups dropped wholesale) |
+| Paragraph-boundary span | `oldText` may not contain `\n\n` |
+| Heading touch | `oldText` and anchor may not overlap any line matching `^#+ ` |
+| Heading injection | `newText` may not contain `\n#+ ` |
+| Code fence span | `oldText` and anchor may not span ` ``` ` delimiters |
+| Code fence delimiters in newText | `newText` may not contain ` ``` ` |
+| List-item-boundary span | `oldText` containing `\n[-*+] ` or `\n\d+\. ` is rejected |
+| Horizontal rule | `oldText` and `newText` may not contain `^---$` line |
+
+**Group-level enforcement:** if any atomic edit in a group violates any hard rule, **the entire group is dropped silently** (preserves coherence — no partial-group application). The drop is logged to `execution_detail.cycles[i].droppedPreApprover[]` with the failing rule name. The Approver never sees dropped groups.
+
+#### Soft rules — embedded in Proposer's system prompt; Approver judges
+
+These are not parser-checked; they shape the Proposer's behavior and the Approver rejects violators:
+
+- Do not modify text inside double quotes (preserve direct quotations verbatim).
+- Do not change numbers, dates, statistics, or citation markers.
+- Do not edit URLs or hyperlink targets.
+- Do not propose new section headings or remove existing ones.
+- Prefer edits confined to a single sentence; multi-sentence edits should be rare and well-justified.
+- Do not propose edits inside ``` fenced code blocks ```.
+- Match the existing voice and tone of the article.
+
+These rules go into the Proposer's system prompt (Phase 2 task). The Approver also has them in its system prompt to inform reject reasons.
+
+#### Ambiguous-markup handling (parser-level; silent drop)
+
+The parser ignores any atomic edit if:
+- Tags are unbalanced (`{++` without matching `++}`)
+- Tags are nested (`{++ ... {-- ... --} ... ++}`)
+- The combined-form substitution `{~~ ... ~> ... ~~}` is ambiguous (content contains `~>`, `~~}`, etc.)
+- Anchor (when computed) doesn't uniquely match in the source text
+- `[#N]` is missing (auto-assigned with warning, not dropped) or duplicate non-paired
+
+If dropping a single atomic edit would leave its group empty, the group is dropped. If the group still has surviving atomic edits, the group survives but the Approver sees the reduced version.
 
 ### Per-cycle protocol — 2 LLM passes
 
@@ -207,40 +277,65 @@ This makes 3 cycles the safe default, vs. V1's `maxCycles=2`.
 
 ### `execution_detail` shape
 
-The orphaned `iterativeEditingExecutionDetailSchema` at `evolution/src/lib/schemas.ts` lines 660–686 was designed for V1's rubric model and **does not fit the new design**. We replace it with a new schema:
+The orphaned `iterativeEditingExecutionDetailSchema` at `evolution/src/lib/schemas.ts` lines 660–686 was designed for V1's rubric model and **does not fit the new design**. We replace it with a new schema that captures the full Proposer / pre-check / Approver / Implementer audit trail:
 
 ```typescript
+type AtomicEdit = {
+  type: 'insert' | 'delete' | 'replace';
+  oldText?: string;
+  newText?: string;
+  anchor: string;
+  location: { line: number; column: number };
+};
+
+type EditGroup = {
+  number: number;
+  edits: AtomicEdit[];   // 1-5 atomic edits sharing [#N]
+};
+
+type ReviewDecision = {
+  groupNumber: number;
+  decision: 'accept' | 'reject';
+  reason: string;
+};
+
 {
   detailType: 'iterativeEditing',
   targetVariantId: string,
-  config: { maxCycles: number; minAcceptedToContinue: number },
+  config: { maxCycles: number, minAcceptedToContinue: number },
   cycles: Array<{
     cycleNumber: number,
-    proposedMarkup: string,        // full article with inline numbered edits
-    proposedEdits: Array<{
-      number: number,
-      type: 'insert' | 'delete' | 'replace',
-      oldText?: string,
-      newText?: string,
+    proposedMarkup: string,                  // verbatim Proposer output
+    proposedGroupsRaw: EditGroup[],          // straight from parser, before hard-rule validation
+    droppedPreApprover: Array<{              // dropped before Approver saw them
+      groupNumber: number,
+      reason: 'hard_rule_violation' | 'group_size_exceeded' | 'cycle_cap_exceeded' | 'parse_failed',
+      detail: string,                        // which rule, which atomic edit
     }>,
-    reviewedEdits: Array<{
-      editNumber: number,
-      decision: 'accept' | 'reject',
-      reason: string,
+    approverGroups: EditGroup[],             // what Approver actually saw (post pre-check)
+    reviewDecisions: ReviewDecision[],       // Approver output (per-group)
+    droppedPostApprover: Array<{             // accepted by Approver but failed to apply
+      groupNumber: number,
+      reason: 'anchor_not_found' | 'anchor_ambiguous' | 'application_conflict' | 'format_invalid_after_apply',
+      detail: string,
     }>,
-    acceptedCount: number,
-    rejectedCount: number,
-    formatValid: boolean,
+    appliedGroups: number[],                 // group numbers that successfully applied
+    acceptedCount: number,                   // approver-accepted
+    rejectedCount: number,                   // approver-rejected
+    appliedCount: number,                    // actually applied (≤ acceptedCount)
+    formatValid: boolean,                    // post-apply format check
     newVariantId?: string,
-    parentText: string,            // for the 'text-diff' UI field
-    childText?: string,            // for the 'text-diff' UI field (null if no edits applied)
+    parentText: string,                      // for the 'text-diff' UI field
+    childText?: string,                      // null if cycle was a no-op
   }>,
   stopReason: 'all_edits_rejected' | 'no_edits_proposed' | 'parse_failed' | 'max_cycles' | 'budget_exceeded' | 'format_invalid',
   totalCost: number,
 }
 ```
 
-**This is the most consequential schema change** in v1: the orphaned schema is unusable; we author a fresh one that lives alongside the cleaned-up old one (which we delete in Phase 1).
+The triple-list pattern (`droppedPreApprover` + `approverGroups` + `droppedPostApprover` + `appliedGroups`) gives reviewers full visibility: *"Proposer suggested 12 groups; Implementer dropped 2 for hard-rule violations; Approver accepted 7 of the remaining 10; Implementer applied 6 of those (1 dropped due to anchor ambiguity)."* No silent failures — every drop is recorded with a reason.
+
+**This is the most consequential schema change** in v1: the orphaned schema is unusable; we author a fresh one and delete the old one in Phase 1.
 
 ### Comparison to V1
 
