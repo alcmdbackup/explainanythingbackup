@@ -497,6 +497,31 @@ export interface Variant {
 
 Public rating type `{elo, uncertainty}` (both Elo-scale). See [Rating System](./rating_and_comparison.md) for the full rating model. The `elo_score` column in `evolution_variants` is a display-clamped version of `Rating.elo`. Arena ratings are persisted via the legacy `mu`/`sigma` DB columns on `evolution_variants`; the application layer translates via `dbToRating` / `ratingToDb` at the boundary.
 
+### `agentExecutionDetailSchema` — `reflect_and_generate_from_previous_article` variant
+
+A discriminated-union variant on `agentExecutionDetailSchema` for the
+`ReflectAndGenerateFromPreviousArticleAgent` (Shape A: top-level enum value alongside
+`generate` and `swiss`). Defined in `evolution/src/lib/schemas.ts` as
+`reflectAndGenerateFromPreviousArticleExecutionDetailSchema`. Shape:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `detailType` | literal `'reflect_and_generate_from_previous_article'` | Discriminator |
+| `variantId` | string \| null | Variant produced (when surfaced) |
+| `tactic` | string | Chosen tactic (denormalized from `reflection.tacticChosen` for SQL filters) |
+| `reflection` | object (optional) | `{ candidatesPresented: string[]; tacticRanking: { tactic, reasoning }[]; tacticChosen: string; rawResponse?, parseError?; durationMs?; cost? }` |
+| `generation` | object (optional) | Same shape as GFPA `generation` (cost / promptLength / textLength / formatValid / durationMs) |
+| `ranking` | object (optional, nullable) | Same shape as GFPA `ranking` |
+| `totalCost` | number (optional) | `reflection.cost + GFPA totalCost`, recomputed by the wrapper merge step |
+| `surfaced` | boolean | Whether the variant survived the local-Elo cutoff |
+| `discardReason` | object (optional) | `{ localElo, localTop15Cutoff }` when not surfaced |
+
+Sub-objects are individually optional so partial-failure rows still validate (e.g.
+reflection succeeds but generation throws → only `reflection` is populated). The
+wrapper-error path relies on `trackInvocations.updateInvocation`'s partial-update
+semantics to preserve the partially-written `execution_detail` when the catch handler
+later writes only `cost_usd` / `success` / `error_message`.
+
 ### Run Summary V3
 
 The `run_summary` JSONB column on `evolution_runs` stores an `EvolutionRunSummary` object. Current version is V3 with Elo-based fields:

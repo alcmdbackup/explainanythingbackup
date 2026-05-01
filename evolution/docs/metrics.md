@@ -432,3 +432,38 @@ The `mark_elo_metrics_stale()` trigger (migration `20260418000004_stale_trigger_
 - Judge-dependent: every delta reflects preference by the configured judge model, not an absolute quality measure.
 - Conservative CI: bootstrap treats child + parent ELO as independent; they share a reference frame via pairwise matches, so the true CI is typically narrower.
 - Frozen-vs-live discussion: the current implementation always reads live parent ratings via JOIN at metric-compute time (not snapshot-at-birth). Combined with the stale cascade, this means the aggregate updates whenever any variant's rating changes.
+
+### Attribution dimension registry (Phase 8)
+
+The `(agentName, dimension)` lookup that drives `eloAttrDelta` / `eloAttrDeltaHist`
+is dispatched through a registry rather than a hardcoded `switch` on agent name:
+
+**File:** `evolution/src/lib/metrics/attributionExtractors.ts`
+
+```typescript
+export const ATTRIBUTION_EXTRACTORS: Record<string, DimensionExtractor> = {};
+export function registerAttributionExtractor(
+  agentName: string,
+  extractor: DimensionExtractor,
+): void;
+```
+
+Each agent file ships a side-effect call at the bottom registering its own extractor —
+e.g. `reflectAndGenerateFromPreviousArticle.ts` ends with:
+
+```typescript
+registerAttributionExtractor('reflect_and_generate_from_previous_article',
+  (detail) => detail.tactic);
+```
+
+This means adding a new agent type does not require editing
+`experimentMetrics.computeEloAttributionMetrics` — the extractor self-registers when
+the agent module is imported.
+
+**Load-bearing eager-import barrel:** `evolution/src/lib/core/agents/index.ts` exists
+SOLELY so transitive importers (e.g. metric-aggregation entry points or worker
+contexts that don't import agents directly) pull in every agent file's
+side-effect registration. `experimentMetrics.ts` imports this barrel as a side-effect
+to guarantee that by the time `computeEloAttributionMetrics` runs, every known agent
+has registered its extractor — without it, the legacy fallback would silently fire
+for missing entries.

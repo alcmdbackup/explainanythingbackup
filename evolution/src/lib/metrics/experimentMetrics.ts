@@ -12,12 +12,14 @@ import { ATTRIBUTION_EXTRACTORS } from './attributionExtractors';
 // chain transitively loads `agentRegistry.ts` and the GFPA / wrapper agent files
 // via `runIterationLoop`, so registration always fires before this aggregator runs.
 //
-// Worker-context safeguard: if a future entry point reaches this aggregator WITHOUT
-// going through agentRegistry / runIterationLoop, it should explicitly import
-// `evolution/src/lib/core/agents` (the eager-import barrel) at its own top-level
-// to ensure the registry is populated. We don't import it from this file because
-// that would create a circular dependency: experimentMetrics → agents → Agent →
-// createEvolutionLLMClient → writeMetrics → registry → propagation → experimentMetrics.
+// Worker-context safeguard: a future entry point that reaches this aggregator WITHOUT
+// going through agentRegistry / runIterationLoop must explicitly import
+// `evolution/src/lib/core/agents` at its own top-level. Verified that adding the import
+// HERE breaks the agent class hierarchy with "Class extends value undefined" — the
+// runtime cycle experimentMetrics → agents → Agent → createEvolutionLLMClient →
+// writeMetrics → registry → propagation → experimentMetrics is real and load-bearing.
+// Tests `attributionPipeline.integration.test.ts` + `reflectAndGenerate*.test.ts` both
+// fail with the import in place. Defense-in-depth lives at the worker entry, not here.
 
 // ─── Types ──────────────────────────────────────────────────────
 
