@@ -50,29 +50,36 @@ export function createEntityLogger(
 
     const { iteration, phaseName, variantId, ...rest } = context ?? {};
 
-    Promise.resolve(
-      supabase
-        .from('evolution_logs')
-        .insert({
-          entity_type: entityCtx.entityType,
-          entity_id: entityCtx.entityId,
-          run_id: entityCtx.runId ?? null,
-          experiment_id: entityCtx.experimentId ?? null,
-          strategy_id: entityCtx.strategyId ?? null,
-          level,
-          message,
-          agent_name: (phaseName as string) ?? null,
-          iteration: (iteration as number) ?? null,
-          variant_id: (variantId as string) ?? null,
-          context: Object.keys(rest).length > 0 ? rest : null,
-        }),
-    )
-      .then(({ error }) => {
-        if (error) console.warn(`[EntityLogger] DB error: ${error.message}`);
-      })
-      .catch(() => {
-        // Swallow — fire-and-forget
-      });
+    // Wrap the synchronous call chain too: when a test mocks .from() but doesn't expose
+    // .insert(), `from(...).insert(...)` would throw synchronously and escape the .catch
+    // below. Production clients have both methods so this only matters for test harnesses.
+    try {
+      Promise.resolve(
+        supabase
+          .from('evolution_logs')
+          .insert({
+            entity_type: entityCtx.entityType,
+            entity_id: entityCtx.entityId,
+            run_id: entityCtx.runId ?? null,
+            experiment_id: entityCtx.experimentId ?? null,
+            strategy_id: entityCtx.strategyId ?? null,
+            level,
+            message,
+            agent_name: (phaseName as string) ?? null,
+            iteration: (iteration as number) ?? null,
+            variant_id: (variantId as string) ?? null,
+            context: Object.keys(rest).length > 0 ? rest : null,
+          }),
+      )
+        .then(({ error }) => {
+          if (error) console.warn(`[EntityLogger] DB error: ${error.message}`);
+        })
+        .catch(() => {
+          // Swallow — fire-and-forget
+        });
+    } catch {
+      // Synchronous throw from a partial supabase mock; matches fire-and-forget.
+    }
   }
 
   return {
