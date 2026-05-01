@@ -250,14 +250,25 @@ The V2 pipeline cannot make targeted edits to a variant. `GenerateFromPreviousAr
    - Asserts: persisted `evolution_variants.variant_content` equals `scenario.expectedNewText`; persisted `execution_detail` JSONB matches the expected shape per fixture; `evolution_arena_comparisons` count and structure match expectations; cost attribution split correctly between `iterative_edit_propose` and `iterative_edit_review` agent labels.
    - This is the only integration test that runs the real DB writes against realistic-content fixtures (the full E2E spec in Phase 6 covers UI rendering separately).
 
-### Phase 4: Invocation-detail UI — `'text-diff'` field type + `<TextDiff>` rendering (Week 4 part 1)
-- [ ] **4.1** `evolution/src/lib/core/types.ts:187–194` — extend `DetailFieldDef` with `type: ... | 'text-diff'`, optional `sourceKey?`, `targetKey?`, `previewLength?`.
+### Phase 4: Invocation-detail UI — `'text-diff'` + `'annotated-edits'` field types (Week 4 part 1)
+- [ ] **4.1** `evolution/src/lib/core/types.ts:187–194` — extend `DetailFieldDef` `type` union with two new values: `'text-diff'` (uses `sourceKey?`, `targetKey?`, `previewLength?`) and `'annotated-edits'` (uses `markupKey?`, `groupsKey?`, `decisionsKey?`, `dropsPreKey?`, `dropsPostKey?` to point at the `execution_detail.cycles[i]` sub-fields).
 - [ ] **4.2** `src/app/admin/evolution/invocations/[invocationId]/ConfigDrivenDetailRenderer.tsx` — add `case 'text-diff'` (~10 LOC) rendering `<TextDiff original={data[field.sourceKey]} modified={data[field.targetKey]} previewLength={field.previewLength ?? 300} />`.
 - [ ] **4.3** Extend `evolution/src/lib/core/detailViewConfigs.ts` `iterativeEditing` entry with new `'text-diff'` field reading `parentText` / `childText` from execution_detail. Also extend with config display + target dimension/description + initialCritique vs finalCritique comparison fields.
 - [ ] **4.4** `evolution/src/services/invocationActions.ts:156–221` — extend `getInvocationVariantContextAction` to include `variant_content` for both variant and parent (~8 LOC). Add `variant_content` and `parent_content` to `InvocationVariantContext` interface.
 - [ ] **4.5** `evolution/src/components/evolution/tabs/InvocationParentBlock.tsx` — render `<TextDiff>` in collapsible `<details>` section below the delta CI row (~15 LOC).
 - [ ] **4.6** `evolution/src/components/evolution/tabs/TimelineTab.tsx:29–35` — extend `agentKind()` and `KIND_CONFIG` with `'edit'` case (cosmetic badge color).
 - [ ] **4.7** `evolution/src/components/evolution/tabs/CostEstimatesTab.tsx:418–421` — add `else if (name.includes('edit'))` case to per-iteration agent-type inference.
+- [ ] **4.8** Build `evolution/src/components/evolution/editing/AnnotatedProposals.tsx` (~200 LOC) — the unified annotated-edits view that renders `proposedMarkup` with each `[#N]` block visually styled by its decision (accepted = solid green, rejected = red strikethrough, malformed pre-approver = striped yellow, blocked post-approver = striped orange).
+   - Inputs: `proposedMarkup`, `proposedGroupsRaw`, `reviewDecisions`, `droppedPreApprover`, `droppedPostApprover` (all from `execution_detail.cycles[i]`).
+   - Algorithm: walk `proposedMarkup` left-to-right; for each atomic edit's `markupRange`, look up its group's outcome and render the corresponding decorated span. Plain text outside edit ranges renders unchanged.
+   - **Toolbar**: three view modes — `Annotated` (default), `Final variant` (only accepted edits applied; equivalent to TextDiff "After" tab), `Original` (no markup; equivalent to `current.text`).
+   - **Hover tooltip** per `[#N]`: shows decision, reason, group members (if multi-edit group: *"#5: accepted (1 of 2 atomic edits in this group; the other is in §3)"*), and a click action that scrolls + highlights the corresponding row in the Decisions table.
+   - **Legend** at the top, collapsible.
+   - **Grouped-edit visual link**: edits sharing `[#N]` get a matching number badge. Clicking any one highlights all members of the group.
+   - Read-only, stateless given props. Pure UI — no server-side data changes needed.
+- [ ] **4.9** Wire `AnnotatedProposals` into `evolution/src/lib/core/detailViewConfigs.ts` `iterativeEditing` entry: add an `'annotated-edits'` field as the FIRST sub-field of each cycle (default-expanded), pointing at the relevant `execution_detail.cycles[i]` sub-keys. Demote the raw "Proposed markup" code-block field to collapsed-by-default — still available for character-level inspection but no longer the primary surface.
+- [ ] **4.10** Extend `ConfigDrivenDetailRenderer.tsx` with `case 'annotated-edits'` (~15 LOC) that resolves the field's key references and passes them to `<AnnotatedProposals>`.
+- [ ] **4.11** Unit tests `AnnotatedProposals.test.ts` (~250 LOC, ~15 cases): all 4 decision states render with correct styles; grouped-edit linking across paragraphs; hover tooltip content; click-to-table-row scroll behavior; toolbar mode switching (Annotated/Final/Original); empty/zero-edit input renders as plain text; legend toggling; multi-cycle isolation (one cycle's annotations don't affect another).
 
 ### Phase 5: Strategy wizard UI (Week 4 part 2)
 - [ ] **5.1** `src/app/admin/evolution/strategies/new/page.tsx`:
@@ -301,6 +312,7 @@ The V2 pipeline cannot make targeted edits to a variant. `GenerateFromPreviousAr
 - [ ] `evolution/src/lib/core/agents/editing/applyAcceptedGroups.test.ts` — ~20 cases (overlap detection, context failsafe, splice direction, format validation)
 - [ ] `evolution/src/lib/core/agents/editing/applyAcceptedGroups.property.test.ts` — 4 properties (all-rejected idempotency, all-accepted equivalence, mixed-decision equivalence vs reference reconstruction, length monotonicity)
 - [ ] `evolution/src/lib/core/agents/editing/applyAcceptedGroups.sampleArticles.test.ts` — 5 articles × 3 scenarios (allAccept, allReject, mixed)
+- [ ] `evolution/src/components/evolution/editing/AnnotatedProposals.test.ts` — ~15 cases (4 decision-state renderings, grouped-edit linking, toolbar modes, tooltip behavior, edge cases)
 
 ### Integration Tests
 - [ ] `evolution/src/__tests__/integration/iterative-editing-agent.integration.test.ts` — full pipeline run with editing iteration (real DB)
