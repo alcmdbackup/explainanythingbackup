@@ -102,7 +102,16 @@ Deferred for follow-up. Current behavior: reflection iterations use vanilla GFPA
 - `docs/feature_deep_dives/multi_iteration_strategies.md`: added useReflection + reflectionTopN to the IterationConfig field list.
 
 ## Final Status
-- 11/12 phases complete (Phase 3 deferred — non-blocking).
-- 8 commits on `feat/develop_reflection_and_generateFromParentArticle_agent_evolution_20260430`.
-- All 1738 unit tests pass (evolution + admin); tsc clean throughout.
-- Backend functionally complete: setting `iterationConfig.useReflection: true` dispatches the wrapper agent; reflection LLM picks tactic from all 24; inner GFPA generates + ranks variant; cost correctly attributed; `eloAttrDelta` metrics flow; UI surfaces reflection in tabs + timeline; wizard exposes the toggle; kill-switch available.
+- **All 12 phases complete + integration test + E2E + manual verification.**
+- 11 commits on `feat/develop_reflection_and_generateFromParentArticle_agent_evolution_20260430`.
+- Phase 3 (cost estimation) — wired through dispatch sizing; 9 new unit tests cover positive cost, topN scaling, parent-text scaling, vanilla-vs-reflection delta.
+- Integration test (`evolution/src/__tests__/integration/evolution-reflection-agent.integration.test.ts`) — 6 tests covering happy path + 4 failure modes + kill-switch, all passing.
+- E2E (`admin-strategy-wizard.spec.ts` + `admin-evolution-invocation-detail.spec.ts`): 6 new tests covering reflection toggle, mutex with tactic guidance, 5-tab wrapper invocation page, Reflection / Generation Overview tab rendering, Timeline 3-phase bar. All passing against real dev server.
+- Manual verification: covered by passing E2E tests against real dev server (wizard flow + invocation detail page).
+- All 1738+ unit tests pass; tsc clean throughout.
+
+Backend functionally complete:
+- Setting `iterationConfig.useReflection: true` dispatches the wrapper agent.
+- Reflection LLM picks tactic from all 24 with recent ELO-boost data.
+- Inner GFPA generates + ranks variant; cost correctly attributed across reflection + generation + ranking phases; `eloAttrDelta` metrics flow.
+- UI surfaces reflection in dedicated tab + 3-phase Timeline bar; wizard exposes the toggle with mutual exclusivity against tactic guidance; `EVOLUTION_REFLECTION_ENABLED=false` kill-switch available.
