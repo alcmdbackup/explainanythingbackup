@@ -102,9 +102,9 @@ current.text
 
 ### Inputs (per execution)
 
-- The top variant from the pool by Elo (`current.text`).
-- An LLM client bound to the resolved editing model: `config.editingModel ?? config.generationModel`. Strategy-level optional override surfaces on Step 1 of the wizard ("Editing model" dropdown). When unset, falls back to `generationModel` so existing strategies continue to work.
-- A `V2CostTracker` per the iteration's budget.
+- **One** parent variant assigned by the orchestrator (`input.parent`). The orchestrator dispatches multiple parallel `IterativeEditingAgent` invocations per editing iteration — each invocation gets a distinct parent (top-N by Elo, N derived from the iteration's budget via `projectDispatchPlan` like generate iterations). The agent itself is single-parent and does not need to know about its sibling invocations.
+- An LLM client bound to the resolved editing model: `config.editingModel ?? config.generationModel`. Strategy-level optional override surfaces on Step 1 of the wizard ("Editing model" dropdown). When unset, falls back to `generationModel`.
+- A `V2CostTracker` (per-invocation `AgentCostScope`) bound to the iteration's budget.
 - Config: `maxCycles = iterCfg.editingMaxCycles ?? AGENT_DEFAULT_MAX_CYCLES (3)` — per-iteration override surfaces on Step 2 of the wizard ("Cycles per parent" input, 1–5). `minAcceptedToContinue` (default 1 — if a cycle accepts zero edits, stop).
 
 **No rubric. No ReflectionAgent dependency.** `canExecute()` returns true whenever the pool has a top variant.
