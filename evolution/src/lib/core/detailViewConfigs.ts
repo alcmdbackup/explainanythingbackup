@@ -48,6 +48,50 @@ export const DETAIL_VIEW_CONFIGS: Record<string, DetailFieldDef[]> = {
     },
     { key: 'totalCost', label: 'Total Cost', type: 'number', formatter: 'cost' },
   ],
+  // ─── Reflect-and-generate (Phase 6 of develop_reflection_and_generateFromParentArticle_agent_evolution_20260430) ───
+  // Mirrors the agent's detailViewConfig field-for-field so the parity test
+  // (entities.test.ts:339) passes. Adds a reflection sub-tree before generation/ranking.
+  reflect_and_generate_from_previous_article: [
+    { key: 'tactic', label: 'Tactic Chosen', type: 'badge' },
+    { key: 'variantId', label: 'Variant ID', type: 'text' },
+    { key: 'surfaced', label: 'Surfaced', type: 'boolean' },
+    {
+      key: 'reflection', label: 'Reflection', type: 'object',
+      children: [
+        { key: 'tacticChosen', label: 'Picked', type: 'badge' },
+        { key: 'cost', label: 'Reflection Cost', type: 'number', formatter: 'cost' },
+        { key: 'durationMs', label: 'Duration (ms)', type: 'number' },
+      ],
+    },
+    {
+      key: 'reflection.tacticRanking', label: 'Ranked Tactics', type: 'table',
+      columns: [
+        { key: 'tactic', label: 'Tactic' },
+        { key: 'reasoning', label: 'Reasoning' },
+      ],
+    },
+    { key: 'reflection.candidatesPresented', label: 'Candidates Presented', type: 'list' },
+    {
+      key: 'generation', label: 'Generation', type: 'object',
+      children: [
+        { key: 'cost', label: 'Cost', type: 'number', formatter: 'cost' },
+        { key: 'promptLength', label: 'Prompt Length', type: 'number' },
+        { key: 'textLength', label: 'Text Length', type: 'number' },
+        { key: 'formatValid', label: 'Format Valid', type: 'boolean' },
+        { key: 'durationMs', label: 'Duration (ms)', type: 'number' },
+      ],
+    },
+    {
+      key: 'ranking', label: 'Ranking (binary search local view)', type: 'object',
+      children: [
+        { key: 'cost', label: 'Ranking Cost', type: 'number', formatter: 'cost' },
+        { key: 'totalComparisons', label: 'Total Comparisons', type: 'number' },
+        { key: 'finalLocalElo', label: 'Final Local Elo', type: 'number' },
+        { key: 'durationMs', label: 'Duration (ms)', type: 'number' },
+      ],
+    },
+    { key: 'totalCost', label: 'Total Cost', type: 'number', formatter: 'cost' },
+  ],
   swiss_ranking: [
     { key: 'status', label: 'Status', type: 'badge' },
     { key: 'eligibleCount', label: 'Eligible Count', type: 'number' },
