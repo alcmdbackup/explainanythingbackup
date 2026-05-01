@@ -70,6 +70,150 @@ V1 source via `git show <sha>:<path>`: `iterativeEditingAgent.ts`, `iterativeEdi
 
 ---
 
+## How IterativeEditingAgent Works (V1 algorithm — being ported to V2)
+
+This is the agent that v1 of this project ships. The algorithm below is what V1 implemented at SHA `8f254eec` (336 LOC, 21 test cases). V2 will preserve this behaviour with the V2 `Agent<TInput, TOutput, TDetail>` base class wrapping it.
+
+### Inputs (per execution)
+
+- The current evolution run's pool of variants (in-memory `Variant[]`) with their Elo ratings (`Map<id, Rating>`).
+- `state.allCritiques: Critique[]` — the most recent rubric critiques from `ReflectionAgent` (5 dimensions: clarity, structure, engagement, precision, coherence; each scored 1–10 with bad-example quotes and notes).
+- An LLM client bound to the strategy's `generationModel` (for editing + critique calls) and `judgeModel` (for the blind diff judge).
+- A `V2CostTracker` per the iteration's budget.
+- Config: `maxCycles` (default 3), `maxConsecutiveRejections` (default 3), `qualityThreshold` (default 8 — all dimensions ≥ 8 means "done").
+
+### `canExecute()` precondition
+
+Returns false if any of: `state.allCritiques` is empty; pool has no top variant; the top variant has no critique. Otherwise true.
+
+### `execute()` — the loop
+
+Per execution, run up to `maxCycles` cycles. Each cycle is **evaluate → pick target → edit → validate → blind judge → accept/reject → re-evaluate**.
+
+#### Step A — Initial evaluation (before cycle 1)
+
+1. Pick the top variant by Elo from the pool. Call it `current`.
+2. Look up its existing rubric critique from `state.allCritiques` (already produced by ReflectionAgent earlier in the iteration — no extra LLM call).
+3. Run an **open-ended freeform review** with one LLM call: *"Read this article and identify the 2-3 most impactful improvements that could be made. Do NOT use a rubric. Focus on what strikes you as a reader."* Output: a JSON array of suggestions. Wrap `JSON.parse` in try/catch — return null on parse failure (agent continues with rubric only). This is the only initial LLM call.
+
+#### Step B — Per-cycle loop
+
+For `cycle = 1..maxCycles`:
+
+1. **Stop check (early exit):** if `qualityThresholdMet(critique)` (every rubric dimension ≥ 8) AND `openReview` is null/empty (no remaining freeform suggestions), break — variant is good enough.
+2. **Stop check (rejection streak):** if `consecutiveRejections >= maxConsecutiveRejections`, break.
+3. **Pick edit target.** Combine targets from rubric (each dimension scoring < 8, sorted ascending by score = weakest first) and from open review (each freeform suggestion). Filter out targets already attempted this execution via the `attemptedTargets: Set<string>` (deduplication). Take the highest-priority unattempted target. Each target is `{ dimension?: string, description: string, score?: number, badExamples?: string[], notes?: string }`. If no targets remain, break.
+4. **Edit prompt.** Build a surgical-editor prompt:
+
+   ```
+   You are a surgical writing editor. Fix ONLY the identified weakness while
+   preserving all other qualities of the text.
+
+   ## Text to Edit
+   <current.text>
+
+   ## Weakness to Fix: <DIMENSION> (score: <N>/10)
+   Problems identified:
+   - "<bad example 1>"
+   - "<bad example 2>"
+   Notes: <notes>
+
+   ## Instructions
+   - Rewrite ONLY the sections exhibiting this weakness
+   - Do NOT alter sections that are working well
+   - Preserve structure, tone, and all other qualities
+   - Keep the same overall length (within 10%)
+
+   <FORMAT_RULES>
+
+   Output ONLY the complete revised text, nothing else.
+   ```
+
+   For an open-review target, the "Weakness to Fix" section is replaced with `## Issue to Fix\n<description>`. Send to LLM. Output: `editedText`.
+5. **Format validate.** Run `validateFormat(editedText)`. If invalid, increment `consecutiveRejections`, log the issues, continue to next cycle without invoking the judge.
+6. **Blind diff judge (2-pass direction reversal).** Call `compareWithDiff(current.text, editedText, callLLM)`:
+   - Generate forward diff (`current → edited`) — in v1 of this project, a word-diff with `{++inserted++}` / `{--deleted--}` markers (V1 used MDAST CriticMarkup; v1 of this project ships word-diff for simplicity, MDAST is a v1.1 follow-up).
+   - Generate reverse diff (`edited → current`).
+   - Send each diff to the **judge model** with this prompt:
+
+     ```
+     You are an expert writing evaluator. The following article contains
+     proposed changes marked with diff notation:
+     - {--deleted--} = text that would be removed
+     - {++inserted++} = text that would be added
+
+     ## Article with Proposed Changes
+     <diff>
+
+     ## Evaluation Criteria
+     Consider whether the proposed changes, taken as a whole:
+     - Improve or harm clarity, structure, engagement, grammar, overall effectiveness
+
+     ## Instructions
+     Respond with ONLY one of: "ACCEPT", "REJECT", "UNSURE".
+     ```
+
+   - **The judge is blind.** It does not see: which dimension was targeted, what the critique said, why the edit was made, that this is an editing pipeline. It sees only the diff and generic quality criteria.
+   - Aggregate the two passes via the truth table:
+
+     | Forward | Reverse | Result | Confidence |
+     |---|---|---|---|
+     | ACCEPT | REJECT | **ACCEPT** | 1.0 |
+     | REJECT | ACCEPT | **REJECT** | 1.0 |
+     | ACCEPT | ACCEPT | **UNSURE** | 0.5 |
+     | REJECT | REJECT | **UNSURE** | 0.5 |
+     | any UNSURE | * | **UNSURE** | 0.3 |
+
+   The semantics: *consistent* across reversal = trustworthy verdict; *inconsistent* (both ACCEPT or both REJECT regardless of direction) = framing bias detected.
+
+7. **Accept / reject.**
+   - If `ACCEPT`: create a new `Variant` with `parentIds: [current.id]`, `strategy: "critique_edit_<dimension>"` (or `"critique_edit_open"` for freeform targets), `iterationBorn: state.iteration`. Add to pool via `state.addToPool()`. Set `current = newVariant`. Reset `consecutiveRejections = 0`. Increment `variantsAdded`.
+   - If `REJECT` or `UNSURE`: increment `consecutiveRejections`. Keep `current` as-is.
+8. **Re-evaluate after accept.** If accepted, run a fresh inline rubric critique on the new text (1 LLM call, same dimension prompts as ReflectionAgent), re-run the open review (1 LLM call), and update `critique` and `openReview` for the next cycle's target selection. This is what makes successive cycles target the *current* weakest aspect rather than stale feedback.
+
+#### After the loop
+
+Return `{ variantsAdded, costUsd: scope.getOwnSpent() }`. The new variants compete in the pool's normal Elo ranking on subsequent iterations — there's no special treatment.
+
+### Information barrier
+
+The edit prompt knows everything (target dimension, critique, bad examples, parent text). The judge prompt knows nothing about provenance or intent — only the diff. The two prompts share zero context. This is the core safety property: bad edits cannot self-justify.
+
+### Cost model (per execution)
+
+| Component | Calls | Notes |
+|---|---|---|
+| Initial open review | 1 | Cycle 1 only; reuses ReflectionAgent's rubric critique (no extra cost) |
+| Per-cycle edit | 1 | Surgical edit, ~7000 chars output |
+| Per-cycle judge | 2 | Direction reversal, ~30 chars output each |
+| Per-cycle re-evaluation (if ACCEPT) | 2 | Rubric critique + open review on new text |
+
+At gpt-4.1-mini generation + nano judge: ~$0.015–$0.020 per cycle. 3 cycles ≈ $0.045 (with 1.3× reservation margin = $0.0464 reserved). At a 30% iteration budget on a $0.15 run, this is **tight** — Round 4A flagged this. v1 default is `maxCycles=2`.
+
+### Stop reasons recorded in `execution_detail`
+
+`'threshold_met'` (early-exit on quality), `'max_rejections'` (consecutive rejections cap), `'max_cycles'` (cycle cap exhausted), `'no_targets'` (all targets attempted), `'budget_exceeded'` (caught by V2CostTracker).
+
+### `execution_detail.cycles[]` shape (orphaned schema, lines 660–686)
+
+Per cycle: `{ cycleNumber, target: {dimension, description, score?, badExamples?}, verdict: 'ACCEPT'|'REJECT'|'UNSURE', confidence, formatValid, formatIssues?, newVariantId? }`. Plus top-level: `targetVariantId`, `config`, `initialCritique`, `finalCritique?`, `stopReason`, `consecutiveRejections`, `totalCost`. v1 of this project additionally adds `parentText`, `childText` per cycle so the new `'text-diff'` UI field can render the parent-vs-child diff inline.
+
+### V1 features explicitly preserved in v1 port
+
+- **`attemptedTargets: Set<string>`** — within-execution dedup (omitted from abandoned plan; preserved here).
+- **Re-evaluation after accept** — keeps target selection grounded in current state.
+- **Blind judge** — zero context shared between editor and judge prompts.
+- **Direction-reversal aggregation** — both-agree → UNSURE catches framing bias.
+- **JSON parse graceful failures** — open review and inline critique both wrap `JSON.parse` in try/catch and return null; agent continues with whatever signal remains.
+
+### V1 features NOT carried forward in v1 (deferred)
+
+- **MDAST CriticMarkup judge format** — v1 ships word-diff; MDAST is v1.1 once we need structure-aware constraints.
+- **Friction-spot input** — `Match.frictionSpots` consumption deferred (Round 4C: dead code on both ends).
+- **Per-cycle UI timeline** — deferred to v1.1 (cycles already in `execution_detail`, just not visualized as bars).
+
+---
+
 ## Round 2 — V2 Integration Audit
 
 ### Agent base class (`evolution/src/lib/core/Agent.ts`)
