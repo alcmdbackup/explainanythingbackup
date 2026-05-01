@@ -135,9 +135,26 @@ The V2 pipeline cannot make targeted edits to a variant. `GenerateFromPreviousAr
      - `insert`: `text.slice(0, range.start) + newText + text.slice(range.start)` (range.start === range.end for insertions)
      - `delete`: `text.slice(0, range.start) + text.slice(range.end)`
      - `replace`: `text.slice(0, range.start) + newText + text.slice(range.end)`
+   - **Runtime invariant assertion (defense in depth)**: at end of function, if `appliedGroups.length === 0`, assert `newText === current.text`. If violated → throw `Error('applier invariant: zero groups applied but text changed')`. Indicates a splice-loop bug.
    - Format-validate final `newText`. If invalid: cycle is no-op, log `format_invalid_after_apply`.
    - Return `{ newText, droppedPostApprover, appliedGroups }`.
 - [ ] **2.E.2** Unit tests `applyAcceptedGroups.test.ts` (~250 LOC, ~20 cases): single accepted group with one atomic edit, all rejected (newText === original), all accepted, group-internal coordination (1 group with 3 atomic edits across paragraphs all apply), overlapping accepted groups (later group dropped, earlier applies cleanly), reverse-position-order correctness (multiple edits at known offsets — verify each lands correctly), format-invalid post-apply (no-op cycle), insertion at document start, insertion at document end, delete-then-insert at same position from same group, all-or-nothing within a group preserved by overlap detection, **context-mismatch on contextBefore drop group**, **context-mismatch on contextAfter drop group**, **oldText-mismatch (delete/replace) drop group**, **edit at document start with truncated contextBefore (verify not a false-positive mismatch)**, **edit at document end with truncated contextAfter**.
+- [ ] **2.E.3** Build reference reconstruction helper `evolution/src/lib/core/agents/editing/__test_helpers__/referenceReconstruction.ts` (~80 LOC) — for any `(proposedMarkup, decisions)` pair, walks the markup left-to-right and emits text by selecting "before" content for rejected/dropped groups (and unchanged for non-edit text) or "after" content for accepted groups. Implementation is markup-walking, not position-based — independent from the applier's algorithm. Used by property tests + sample-article tests as the source of truth for "what should the output be?". Not exported from the package's public API; lives only under `__test_helpers__/`.
+- [ ] **2.E.4** Property test `applyAcceptedGroups.property.test.ts` (~250 LOC, 4 properties via fast-check):
+   - **All-rejected idempotency**: for arbitrary `EditGroup[]`, when every decision is `reject`, `newText === current.text`.
+   - **All-accepted equivalence**: for arbitrary well-formed `(proposedMarkup, EditGroup[])` with all accepts, applier output equals `referenceReconstruction(proposedMarkup, allAccepts)`.
+   - **Mixed decisions equivalence (the strong tripwire)**: for arbitrary inputs and arbitrary mixed accept/reject decisions (no overlapping ranges, no context-failsafe failures), `applyAcceptedGroups(...).newText === referenceReconstruction(proposedMarkup, decisions)`. This catches position-math bugs, splice-direction bugs, group-flatten bugs, and any drift between the markup-based and position-based views.
+   - **Length monotonicity**: `newText.length` is between `current.text.length` (all rejected) and a deterministic upper bound derived from accept decisions. Catches over-application + dropped-content bugs.
+   Each property runs ≥ 100 fast-check iterations with seeded PRNGs; failing seeds should be persistable in the test file's `fc.assert(..., { seed })` for reproducibility.
+- [ ] **2.E.5** Sample-article golden-master tests `applyAcceptedGroups.sampleArticles.test.ts` (~350 LOC, 5 articles × 3 scenarios = 15 cases):
+   - Fixtures live in `evolution/src/lib/core/agents/editing/__fixtures__/sample-articles/`, one TypeScript module per article exporting `{ original, proposedMarkup, scenarios: { allAccept, allReject, mixed } }` where each scenario has `{ decisions: ReviewDecision[], expectedNewText: string, expectedDroppedPostApprover?: ... }`.
+   - **Article 1 — `galapagos-finches.fixture.ts`** (3 paragraphs, ~200 words, no code blocks; the running example from research § "Sample article (working example)").
+   - **Article 2 — `quantum-entanglement.fixture.ts`** (5 H2 sections, ~600 words; tests heading-touch hard rule by including a proposed edit that violates it — proposer markup includes a heading-edit, the validator must drop it before Approver sees it).
+   - **Article 3 — `python-decorators.fixture.ts`** (technical, with 2 fenced code blocks; proposer instruction in fixture includes a no-op claim "do not edit code blocks"; verifies the parser doesn't try to edit inside them and the strip-markup pass handles them correctly).
+   - **Article 4 — `morning-routine.fixture.ts`** (FAQ-style with bullet lists; tests list-item-boundary hard rule when a proposed edit would span two bullets).
+   - **Article 5 — `civil-war-causes.fixture.ts`** (long-form, ~1500 words, 8 H2 sections, citations as `[1]`, `[2]`; soft-rule test: proposer suggests editing a citation; Approver should reject; this exercises the wider position math at scale).
+   - Each scenario asserts `applyAcceptedGroups(...).newText === expectedNewText` AND that `appliedGroups`, `droppedPostApprover`, format validation all match the fixture's expectations.
+   - Fixtures are hand-authored once (in this PR) so the golden master is intentional. CI never auto-updates them — failures mean either the fixture or the applier needs an explicit human review.
 
 #### 2.F — Integration tests for the full Phase 2 pipeline
 
@@ -175,6 +192,15 @@ The V2 pipeline cannot make targeted edits to a variant. `GenerateFromPreviousAr
    - **Parser parses substitution combined form** correctly.
    - **Parser parses paired add/delete with same `[#N]`** correctly.
    - Plus a few more covering markup edge cases.
+- [ ] **2.F.2** Sample-article end-to-end tests `IterativeEditingAgent.sampleArticles.test.ts` (~400 LOC, 5 articles × 2 scenarios = 10 cases):
+   - Reuses the fixtures from `__fixtures__/sample-articles/` (authored in 2.E.5).
+   - For each article, uses `v2MockLlm` with `labelResponses` queued so:
+     - `iterative_edit_propose` returns the fixture's `proposedMarkup`
+     - `iterative_edit_review` returns JSONL of the fixture's scenario decisions (mixed accept/reject + occasional malformed)
+   - Drives `IterativeEditingAgent.execute()` end-to-end against an in-memory pool seeded with the fixture's `original` as the top variant.
+   - Asserts: agent returns the expected `stopReason`; the new Variant's `text === scenario.expectedNewText`; `execution_detail.cycles[0]` contains the expected `proposedGroupsRaw`, `droppedPreApprover`, `approverGroups`, `reviewDecisions`, `droppedPostApprover`, `appliedGroups`; cost attribution is non-zero.
+   - **Two scenarios per article: "single-cycle accept" (Approver accepts everything that survived pre-check, max=1 cycle) and "multi-cycle chain" (3 cycles where each cycle proposes against the previous cycle's accepted text — fixture provides 3 sets of `proposedMarkup` + decisions, expected output after each cycle).**
+   - Same golden-master discipline as 2.E.5: fixtures hand-authored, not auto-generated.
 
 ### Phase 3: Pipeline integration + dispatch + agent registry (Week 3)
 - [ ] **3.1** `evolution/src/lib/core/agentRegistry.ts` — register `new IterativeEditingAgent()` in lazy-init array.
@@ -192,6 +218,13 @@ The V2 pipeline cannot make targeted edits to a variant. `GenerateFromPreviousAr
    - Seed strategy with one `iterative_edit` iteration after 1 generate iteration.
    - Run `evolveArticle()` end-to-end.
    - Assert: `evolution_agent_invocations` row written with `agent_name='iterativeEditing'`; `execution_detail` validates against schema; `evolution_arena_comparisons` row written for each accepted edit; `evolution_variants` row created for accepted variant; `iterative_edit_cost` metric > 0.
+- [ ] **3.8** Sample-article integration test `evolution/src/__tests__/integration/iterative-editing-sample-articles.integration.test.ts` (real DB, ~250 LOC):
+   - Reuses 2 of the 5 fixture articles from `__fixtures__/sample-articles/` (Galápagos finches + quantum entanglement — short + medium structurally varied).
+   - Seeds the seed variant with the fixture's `original` text.
+   - Mocks `rawProvider.complete` to return fixture markup + JSONL decisions.
+   - Runs the full `evolveArticle()` pipeline through one `iterative_edit` iteration.
+   - Asserts: persisted `evolution_variants.variant_content` equals `scenario.expectedNewText`; persisted `execution_detail` JSONB matches the expected shape per fixture; `evolution_arena_comparisons` count and structure match expectations; cost attribution split correctly between `iterative_edit_propose` and `iterative_edit_review` agent labels.
+   - This is the only integration test that runs the real DB writes against realistic-content fixtures (the full E2E spec in Phase 6 covers UI rendering separately).
 
 ### Phase 4: Invocation-detail UI — `'text-diff'` field type + `<TextDiff>` rendering (Week 4 part 1)
 - [ ] **4.1** `evolution/src/lib/core/types.ts:187–194` — extend `DetailFieldDef` with `type: ... | 'text-diff'`, optional `sourceKey?`, `targetKey?`, `previewLength?`.
@@ -231,12 +264,22 @@ The V2 pipeline cannot make targeted edits to a variant. `GenerateFromPreviousAr
 ## Testing
 
 ### Unit Tests
-- [ ] `evolution/src/lib/core/agents/editing/IterativeEditingAgent.test.ts` — ≥21 cases (port all V1 cases + new V2 ones)
-- [ ] `evolution/src/lib/core/agents/editing/diffComparison.test.ts` — 8-combo direction-reversal truth table + edge cases
-- [ ] `evolution/src/lib/core/agents/editing/diffComparison.property.test.ts` — word-diff idempotency + reversal symmetry
+- [ ] `evolution/src/lib/core/agents/editing/IterativeEditingAgent.test.ts` — ≥30 cases (orchestration loop, all stop reasons, audit trail)
+- [ ] `evolution/src/lib/core/agents/editing/IterativeEditingAgent.sampleArticles.test.ts` — 5 articles × 2 scenarios (single-cycle, multi-cycle chain)
+- [ ] `evolution/src/lib/core/agents/editing/proposerPrompt.test.ts` — soft-rules verification, syntax-form coverage
+- [ ] `evolution/src/lib/core/agents/editing/parseProposedEdits.test.ts` — ≥32 cases (all markup forms, adversarial inputs, position math, context capture)
+- [ ] `evolution/src/lib/core/agents/editing/parseProposedEdits.property.test.ts` — fast-check round-trip + range-correctness invariants
+- [ ] `evolution/src/lib/core/agents/editing/checkProposerDrift.test.ts` — ~10 cases (whitespace tolerance, drift detection, offset reporting)
+- [ ] `evolution/src/lib/core/agents/editing/validateEditGroups.test.ts` — ~20 cases (10 hard rules + cycle/group caps)
+- [ ] `evolution/src/lib/core/agents/editing/approverPrompt.test.ts` — system-prompt content, edit summary table format
+- [ ] `evolution/src/lib/core/agents/editing/parseReviewDecisions.test.ts` — ~12 cases (JSONL parse, missing-default-reject, unknown-group-ignored)
+- [ ] `evolution/src/lib/core/agents/editing/applyAcceptedGroups.test.ts` — ~20 cases (overlap detection, context failsafe, splice direction, format validation)
+- [ ] `evolution/src/lib/core/agents/editing/applyAcceptedGroups.property.test.ts` — 4 properties (all-rejected idempotency, all-accepted equivalence, mixed-decision equivalence vs reference reconstruction, length monotonicity)
+- [ ] `evolution/src/lib/core/agents/editing/applyAcceptedGroups.sampleArticles.test.ts` — 5 articles × 3 scenarios (allAccept, allReject, mixed)
 
 ### Integration Tests
-- [ ] `evolution/src/__tests__/integration/iterative-editing-agent.integration.test.ts` — full pipeline run with editing iteration
+- [ ] `evolution/src/__tests__/integration/iterative-editing-agent.integration.test.ts` — full pipeline run with editing iteration (real DB)
+- [ ] `evolution/src/__tests__/integration/iterative-editing-sample-articles.integration.test.ts` — 2 of 5 fixture articles, full pipeline end-to-end with mocked LLMs against real DB
 
 ### E2E Tests
 - [ ] `src/__tests__/e2e/specs/09-admin/admin-evolution-iterative-editing.spec.ts` — wizard → run → invocation detail → TextDiff visible
