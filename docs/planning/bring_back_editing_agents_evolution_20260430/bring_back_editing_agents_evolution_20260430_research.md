@@ -70,147 +70,204 @@ V1 source via `git show <sha>:<path>`: `iterativeEditingAgent.ts`, `iterativeEdi
 
 ---
 
-## How IterativeEditingAgent Works (V1 algorithm — being ported to V2)
+## How IterativeEditingAgent Works (v2 redesign — 2026-04-30)
 
-This is the agent that v1 of this project ships. The algorithm below is what V1 implemented at SHA `8f254eec` (336 LOC, 21 test cases). V2 will preserve this behaviour with the V2 `Agent<TInput, TOutput, TDetail>` base class wrapping it.
+> **Design pivot.** The original V1 algorithm was rubric-driven: read ReflectionAgent's 5-dimension scorecard → pick weakest dimension → surgical edit fixing only that one weakness → blind whole-article judge with 2-pass direction reversal → re-critique. The v1-of-this-project redesign drops the rubric entirely and replaces the whole-article judge with **per-edit review of numbered atomic edits**. Rationale: rubric-driven targeting forces edits into a fixed taxonomy and bottlenecks on ReflectionAgent quality; per-edit review makes the safety mechanism transparent (every accept/reject has a written reason) and lets the proposer suggest improvements the rubric never anticipated.
 
 ### Inputs (per execution)
 
-- The current evolution run's pool of variants (in-memory `Variant[]`) with their Elo ratings (`Map<id, Rating>`).
-- `state.allCritiques: Critique[]` — the most recent rubric critiques from `ReflectionAgent` (5 dimensions: clarity, structure, engagement, precision, coherence; each scored 1–10 with bad-example quotes and notes).
-- An LLM client bound to the strategy's `generationModel` (for editing + critique calls) and `judgeModel` (for the blind diff judge).
+- The top variant from the pool by Elo (`current.text`).
+- An LLM client bound to the strategy's `generationModel` (used for both proposer and reviewer; both can be split later via separate model fields).
 - A `V2CostTracker` per the iteration's budget.
-- Config: `maxCycles` (default 3), `maxConsecutiveRejections` (default 3), `qualityThreshold` (default 8 — all dimensions ≥ 8 means "done").
+- Config: `maxCycles` (default 3), `maxAcceptedEditsPerCycle` (optional cap, default unbounded), `minAcceptedToContinue` (default 1 — if a cycle accepts zero edits, stop).
 
-### `canExecute()` precondition
+**No rubric. No ReflectionAgent dependency.** `canExecute()` returns true whenever the pool has a top variant.
 
-Returns false if any of: `state.allCritiques` is empty; pool has no top variant; the top variant has no critique. Otherwise true.
+### Per-cycle protocol — 2 LLM passes
 
-### `execute()` — the loop
+#### Pass 1: Propose numbered edits
 
-Per execution, run up to `maxCycles` cycles. Each cycle is **evaluate → pick target → edit → validate → blind judge → accept/reject → re-evaluate**.
+Prompt the proposer LLM:
 
-#### Step A — Initial evaluation (before cycle 1)
+```
+You are an expert writing editor. Read this article and propose targeted
+edits to improve it. Mark each edit inline using CriticMarkup with each
+atomic edit numbered:
 
-1. Pick the top variant by Elo from the pool. Call it `current`.
-2. Look up its existing rubric critique from `state.allCritiques` (already produced by ReflectionAgent earlier in the iteration — no extra LLM call).
-3. Run an **open-ended freeform review** with one LLM call: *"Read this article and identify the 2-3 most impactful improvements that could be made. Do NOT use a rubric. Focus on what strikes you as a reader."* Output: a JSON array of suggestions. Wrap `JSON.parse` in try/catch — return null on parse failure (agent continues with rubric only). This is the only initial LLM call.
+  {++ [#N] inserted text ++}      — insertion
+  {-- [#N] deleted text --}       — deletion
+  {~~ [#N] old text ~> new text ~~}  — substitution (paired in one tag)
 
-#### Step B — Per-cycle loop
+Pair an insertion and deletion with the same #N when one replaces the
+other (or use the substitution form). Number sequentially starting at 1.
+Output the FULL article text with your proposed edits inline as numbered
+CriticMarkup. Do not include explanations or commentary — just the
+marked-up article.
 
-For `cycle = 1..maxCycles`:
+## Article
+<current.text>
+```
 
-1. **Stop check (early exit):** if `qualityThresholdMet(critique)` (every rubric dimension ≥ 8) AND `openReview` is null/empty (no remaining freeform suggestions), break — variant is good enough.
-2. **Stop check (rejection streak):** if `consecutiveRejections >= maxConsecutiveRejections`, break.
-3. **Pick edit target.** Combine targets from rubric (each dimension scoring < 8, sorted ascending by score = weakest first) and from open review (each freeform suggestion). Filter out targets already attempted this execution via the `attemptedTargets: Set<string>` (deduplication). Take the highest-priority unattempted target. Each target is `{ dimension?: string, description: string, score?: number, badExamples?: string[], notes?: string }`. If no targets remain, break.
-4. **Edit prompt.** Build a surgical-editor prompt:
+Output: `proposedMarkup: string` — the full article with inline numbered edits.
 
-   ```
-   You are a surgical writing editor. Fix ONLY the identified weakness while
-   preserving all other qualities of the text.
+**Parse** `proposedMarkup` with a regex parser that extracts each `[#N]` edit into a structured form:
 
-   ## Text to Edit
-   <current.text>
+```typescript
+type Edit =
+  | { number: number; type: 'insert'; newText: string; anchor: string }
+  | { number: number; type: 'delete'; oldText: string; anchor: string }
+  | { number: number; type: 'replace'; oldText: string; newText: string; anchor: string };
+```
 
-   ## Weakness to Fix: <DIMENSION> (score: <N>/10)
-   Problems identified:
-   - "<bad example 1>"
-   - "<bad example 2>"
-   Notes: <notes>
+The `anchor` is a short snippet of surrounding text used to locate the edit when applying it back. If the proposer pairs an `{++ [#N] ... ++}` and `{-- [#N] ... --}` adjacent to each other with the same number, the parser merges them into a single `replace` edit.
 
-   ## Instructions
-   - Rewrite ONLY the sections exhibiting this weakness
-   - Do NOT alter sections that are working well
-   - Preserve structure, tone, and all other qualities
-   - Keep the same overall length (within 10%)
+If the parser finds zero edits OR the markup is malformed (e.g., unbalanced tags), exit the loop with `stopReason: 'no_edits_proposed'` or `'parse_failed'`.
 
-   <FORMAT_RULES>
+#### Pass 2: Review each edit individually
 
-   Output ONLY the complete revised text, nothing else.
-   ```
+Prompt the reviewer LLM:
 
-   For an open-review target, the "Weakness to Fix" section is replaced with `## Issue to Fix\n<description>`. Send to LLM. Output: `editedText`.
-5. **Format validate.** Run `validateFormat(editedText)`. If invalid, increment `consecutiveRejections`, log the issues, continue to next cycle without invoking the judge.
-6. **Blind diff judge (2-pass direction reversal).** Call `compareWithDiff(current.text, editedText, callLLM)`:
-   - Generate forward diff (`current → edited`) — in v1 of this project, a word-diff with `{++inserted++}` / `{--deleted--}` markers (V1 used MDAST CriticMarkup; v1 of this project ships word-diff for simplicity, MDAST is a v1.1 follow-up).
-   - Generate reverse diff (`edited → current`).
-   - Send each diff to the **judge model** with this prompt:
+```
+You are reviewing proposed edits to an article. For each numbered edit,
+decide whether to ACCEPT or REJECT it and explain WHY in one sentence.
 
-     ```
-     You are an expert writing evaluator. The following article contains
-     proposed changes marked with diff notation:
-     - {--deleted--} = text that would be removed
-     - {++inserted++} = text that would be added
+## Article (with proposed edits inline)
+<proposedMarkup>
 
-     ## Article with Proposed Changes
-     <diff>
+## Edits to review
+#1: insert "However," before "the issue..."
+#2: replace "very large" with "substantial"
+#3: delete "in many ways"
+... (machine-extracted summary of each numbered edit)
 
-     ## Evaluation Criteria
-     Consider whether the proposed changes, taken as a whole:
-     - Improve or harm clarity, structure, engagement, grammar, overall effectiveness
+## Output format
+Output one JSON line per edit, in order. Each line:
+{"editNumber": <N>, "decision": "accept" | "reject", "reason": "<one sentence>"}
 
-     ## Instructions
-     Respond with ONLY one of: "ACCEPT", "REJECT", "UNSURE".
-     ```
+Output JSONL only. No other text.
+```
 
-   - **The judge is blind.** It does not see: which dimension was targeted, what the critique said, why the edit was made, that this is an editing pipeline. It sees only the diff and generic quality criteria.
-   - Aggregate the two passes via the truth table:
+Output: `reviewDecisions: ReviewDecision[]` where each entry is `{ editNumber, decision: 'accept' | 'reject', reason: string }`. Parse the JSONL response line-by-line; skip unparseable lines.
 
-     | Forward | Reverse | Result | Confidence |
-     |---|---|---|---|
-     | ACCEPT | REJECT | **ACCEPT** | 1.0 |
-     | REJECT | ACCEPT | **REJECT** | 1.0 |
-     | ACCEPT | ACCEPT | **UNSURE** | 0.5 |
-     | REJECT | REJECT | **UNSURE** | 0.5 |
-     | any UNSURE | * | **UNSURE** | 0.3 |
+**Conservative defaults:**
+- Any edit with no decision returned (parse failure or omitted) → treated as `reject`.
+- Any decision with malformed `editNumber` (not in proposed set) → ignored.
 
-   The semantics: *consistent* across reversal = trustworthy verdict; *inconsistent* (both ACCEPT or both REJECT regardless of direction) = framing bias detected.
+#### Apply accepted edits
 
-7. **Accept / reject.**
-   - If `ACCEPT`: create a new `Variant` with `parentIds: [current.id]`, `strategy: "critique_edit_<dimension>"` (or `"critique_edit_open"` for freeform targets), `iterationBorn: state.iteration`. Add to pool via `state.addToPool()`. Set `current = newVariant`. Reset `consecutiveRejections = 0`. Increment `variantsAdded`.
-   - If `REJECT` or `UNSURE`: increment `consecutiveRejections`. Keep `current` as-is.
-8. **Re-evaluate after accept.** If accepted, run a fresh inline rubric critique on the new text (1 LLM call, same dimension prompts as ReflectionAgent), re-run the open review (1 LLM call), and update `critique` and `openReview` for the next cycle's target selection. This is what makes successive cycles target the *current* weakest aspect rather than stale feedback.
+Take `proposedEdits` filtered to those whose `decision === 'accept'`. Apply them to `current.text` to produce `newText`:
 
-#### After the loop
+- For each accepted edit: replace `oldText` (or insertion anchor) with `newText` (or just the new content for inserts; or empty string for deletes).
+- For each rejected edit: keep the original text untouched (strip the markup, keep what was there before).
 
-Return `{ variantsAdded, costUsd: scope.getOwnSpent() }`. The new variants compete in the pool's normal Elo ranking on subsequent iterations — there's no special treatment.
+Format-validate `newText`. If invalid, treat the cycle as a no-op (don't add a variant, log the issue), but still record the proposed/reviewed edits in `execution_detail`.
 
-### Information barrier
+If `newText !== current.text` (at least one edit applied successfully), create a new `Variant`:
+- `parentIds: [current.id]`
+- `strategy: 'iterative_edit'` (no dimension suffix — edits aren't dimension-scoped anymore)
+- `iterationBorn: state.iteration`
 
-The edit prompt knows everything (target dimension, critique, bad examples, parent text). The judge prompt knows nothing about provenance or intent — only the diff. The two prompts share zero context. This is the core safety property: bad edits cannot self-justify.
+Add to pool. Set `current = newVariant` for the next cycle.
+
+### Stop conditions
+
+Exit the loop when any of:
+- Cycle count reaches `maxCycles`
+- A cycle accepts zero edits (`acceptedCount === 0`) — the article is "done" by the reviewer's standards
+- Proposer returns zero edits or unparseable markup
+- `BudgetExceededError` from `V2CostTracker`
+- Format validation fails on the applied result (no-op cycle still counts toward `maxCycles`)
+
+### Bias / safety
+
+The original V1 used 2-pass direction reversal because the judge made one binary decision per article. The new design replaces this with **per-edit auditability**:
+
+- Every accept/reject has a written reason in `execution_detail.cycles[i].reviewedEdits[j].reason`.
+- Blanket-accept (all 100% accept) and blanket-reject patterns are visible at the cycle level via `acceptedCount` / `rejectedCount`.
+- Reviewer can be a different model from proposer, providing a built-in cross-check.
+
+**Future hardening (post-v1):** if staging shows the reviewer rubber-stamping (e.g., > 95% accept rate), add a "devil's advocate" reverse-pass that re-reviews accepted edits against the rejection criterion. Defer to v1.1.
 
 ### Cost model (per execution)
 
-| Component | Calls | Notes |
-|---|---|---|
-| Initial open review | 1 | Cycle 1 only; reuses ReflectionAgent's rubric critique (no extra cost) |
-| Per-cycle edit | 1 | Surgical edit, ~7000 chars output |
-| Per-cycle judge | 2 | Direction reversal, ~30 chars output each |
-| Per-cycle re-evaluation (if ACCEPT) | 2 | Rubric critique + open review on new text |
+Per cycle: 2 LLM calls (proposer + reviewer). At gpt-4.1-mini for both:
 
-At gpt-4.1-mini generation + nano judge: ~$0.015–$0.020 per cycle. 3 cycles ≈ $0.045 (with 1.3× reservation margin = $0.0464 reserved). At a 30% iteration budget on a $0.15 run, this is **tight** — Round 4A flagged this. v1 default is `maxCycles=2`.
+| Pass | Input chars | Output chars | Cost |
+|---|---|---|---|
+| Propose | ~5500 (article + prompt) | ~7500 (article-with-markup ≈ 1.4× input) | ~$0.0050 |
+| Review | ~7500 (markup + edit summary) | ~500 (one JSON line per edit, ~10 edits typical) | ~$0.0030 |
+
+**Per cycle ≈ $0.008.** 3 cycles ≈ **$0.024**. With 1.3× reservation margin: ~$0.031. At 30% of $0.15 budget = $0.045, this is **comfortable** (32% headroom for 3 cycles vs. V1's tight -3% headroom).
+
+This makes 3 cycles the safe default, vs. V1's `maxCycles=2`.
 
 ### Stop reasons recorded in `execution_detail`
 
-`'threshold_met'` (early-exit on quality), `'max_rejections'` (consecutive rejections cap), `'max_cycles'` (cycle cap exhausted), `'no_targets'` (all targets attempted), `'budget_exceeded'` (caught by V2CostTracker).
+`'all_edits_rejected'`, `'no_edits_proposed'`, `'parse_failed'`, `'max_cycles'`, `'budget_exceeded'`, `'format_invalid'` (final applied output failed validation).
 
-### `execution_detail.cycles[]` shape (orphaned schema, lines 660–686)
+### `execution_detail` shape
 
-Per cycle: `{ cycleNumber, target: {dimension, description, score?, badExamples?}, verdict: 'ACCEPT'|'REJECT'|'UNSURE', confidence, formatValid, formatIssues?, newVariantId? }`. Plus top-level: `targetVariantId`, `config`, `initialCritique`, `finalCritique?`, `stopReason`, `consecutiveRejections`, `totalCost`. v1 of this project additionally adds `parentText`, `childText` per cycle so the new `'text-diff'` UI field can render the parent-vs-child diff inline.
+The orphaned `iterativeEditingExecutionDetailSchema` at `evolution/src/lib/schemas.ts` lines 660–686 was designed for V1's rubric model and **does not fit the new design**. We replace it with a new schema:
 
-### V1 features explicitly preserved in v1 port
+```typescript
+{
+  detailType: 'iterativeEditing',
+  targetVariantId: string,
+  config: { maxCycles: number; minAcceptedToContinue: number },
+  cycles: Array<{
+    cycleNumber: number,
+    proposedMarkup: string,        // full article with inline numbered edits
+    proposedEdits: Array<{
+      number: number,
+      type: 'insert' | 'delete' | 'replace',
+      oldText?: string,
+      newText?: string,
+    }>,
+    reviewedEdits: Array<{
+      editNumber: number,
+      decision: 'accept' | 'reject',
+      reason: string,
+    }>,
+    acceptedCount: number,
+    rejectedCount: number,
+    formatValid: boolean,
+    newVariantId?: string,
+    parentText: string,            // for the 'text-diff' UI field
+    childText?: string,            // for the 'text-diff' UI field (null if no edits applied)
+  }>,
+  stopReason: 'all_edits_rejected' | 'no_edits_proposed' | 'parse_failed' | 'max_cycles' | 'budget_exceeded' | 'format_invalid',
+  totalCost: number,
+}
+```
 
-- **`attemptedTargets: Set<string>`** — within-execution dedup (omitted from abandoned plan; preserved here).
-- **Re-evaluation after accept** — keeps target selection grounded in current state.
-- **Blind judge** — zero context shared between editor and judge prompts.
-- **Direction-reversal aggregation** — both-agree → UNSURE catches framing bias.
-- **JSON parse graceful failures** — open review and inline critique both wrap `JSON.parse` in try/catch and return null; agent continues with whatever signal remains.
+**This is the most consequential schema change** in v1: the orphaned schema is unusable; we author a fresh one that lives alongside the cleaned-up old one (which we delete in Phase 1).
 
-### V1 features NOT carried forward in v1 (deferred)
+### Comparison to V1
 
-- **MDAST CriticMarkup judge format** — v1 ships word-diff; MDAST is v1.1 once we need structure-aware constraints.
-- **Friction-spot input** — `Match.frictionSpots` consumption deferred (Round 4C: dead code on both ends).
-- **Per-cycle UI timeline** — deferred to v1.1 (cycles already in `execution_detail`, just not visualized as bars).
+| | V1 (rubric-driven) | V2 redesign (propose-review) |
+|---|---|---|
+| Initial setup | Read ReflectionAgent rubric + open review | None — straight to proposer |
+| Per-cycle calls | 5 (rubric critique + open review + edit + 2 judges) | 2 (propose + review) |
+| Edit granularity | Whole article rewritten under one weakness | Numbered atomic edits, each independently judged |
+| Verdict | Whole-article ACCEPT/REJECT/UNSURE | Per-edit accept/reject + reason |
+| Bias mitigation | 2-pass direction reversal | Per-edit reasoning (auditable) |
+| Re-evaluation between cycles | Fresh rubric + open review on new text | None — proposer just sees current text |
+| Cost per cycle | ~$0.015–$0.020 | ~$0.008 (~50% cheaper) |
+| `maxCycles` default | 2 (tight on budget) | 3 (comfortable) |
+
+### V2-redesign-specific risks
+
+- **Markup parsing fragility.** LLMs may produce unbalanced or non-numbered CriticMarkup. Parser must reject malformed proposals gracefully. Mitigation: parser unit tests with adversarial inputs (unbalanced tags, missing numbers, nested tags); on any parse failure, exit cycle with `stopReason: 'parse_failed'`.
+- **Edit application ambiguity.** If two accepted edits overlap (e.g., #1 deletes "very large" and #2 replaces "very large" → "substantial"), apply order matters. Resolution: apply edits in number order; on overlap, the later-numbered edit's region wins, earlier conflicting edit is dropped with a `application_conflict` log entry.
+- **Reviewer rubber-stamping.** No bias-mitigation layer in v1. Mitigation: log `acceptedCount` / total per cycle as a metric; alert if cycle-aggregate accept rate exceeds 95% over staging runs; add devil's-advocate pass in v1.1 if observed.
+- **JSONL parse errors from reviewer.** Mitigation: parse line-by-line, skip unparseable lines, default missing decisions to reject. Log every skipped line.
+
+### Deferred to v1.1
+
+- Devil's-advocate reverse pass (if reviewer rubber-stamps).
+- MDAST-aware proposer markup (preserves heading structure during edits).
+- `Match.frictionSpots` consumption to seed the proposer ("here are passages flagged in recent comparisons; consider editing these specifically").
+- Per-cycle invocation timeline UI (cycles already in `execution_detail`, not yet visualized as bars).
 
 ---
 

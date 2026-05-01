@@ -18,15 +18,20 @@ The V2 pipeline cannot make targeted edits to a variant. `GenerateFromPreviousAr
 - [ ] **Option B: All three agents in skeletal form (Variant B).** Aggressive single-PR scope (~3600 LOC). 6–9 weeks realistic; high risk if any one agent has a bug. Same day-84 all-three milestone as Option A but with worse intermediate risk profile.
 - [ ] **Option C: Single umbrella `EditingAgent` with `strategy` sub-field.** Cleaner agentType enum but blocks per-agent `execution_detail` shapes and per-agent cost attribution.
 
-## Decisions Locked (from research Round 5B)
+## Decisions Locked (post-redesign 2026-04-30)
 
-1. **Naming:** Discriminator `'iterativeEditing'` internally (matches orphaned schema key); expose `agentType: 'editing'` in `iterationConfigs` and the wizard UI; map `'editing' → 'iterativeEditing'` in orchestrator (~16 LOC).
-2. **Parent selection:** Top-K via optional `editingTopK` field on `IterationConfig` (default = iteration's parallel dispatch count from `projectDispatchPlan`).
-3. **Tactic selection per cycle:** V1 dimension-picking — pick the lowest-scored critique dimension. No new `editingGuidance` field. Critique dimension IS the guidance.
-4. **Judge prompt format:** Word-diff text-only (uses `diffWordsWithSpace` from existing `diff` package). MDAST CriticMarkup deferred to v1.1. No env var.
-5. **`Match.frictionSpots`:** Out of scope. It's dead code on both ends (never produced, never consumed). Wire up in a separate v1.1 project.
-6. **`MergeRatingsAgent` compat:** Pass editing match buffers with `iterationType: 'generate'` (semantically identical to generate's local-rank output). No `MergeRatingsAgent` changes.
-7. **Per-cycle invocation timeline UI:** Out of scope for v1. Cycles already captured in `execution_detail.cycles[]`. Defer visual timeline component to v1.1.
+> **Algorithm pivot.** The rubric-driven V1 algorithm is replaced with a **propose-then-review** protocol. Per cycle: (1) proposer LLM marks up the article with numbered CriticMarkup edits; (2) reviewer LLM accepts/rejects each numbered edit individually with a written reason. Apply accepted edits, repeat for several cycles. See research doc § "How IterativeEditingAgent Works (v2 redesign)" for the full walkthrough.
+
+1. **Algorithm:** No rubric, no ReflectionAgent dependency, no open-ended initial review. Per-cycle 2-pass protocol (propose numbered edits → per-edit review). Multiple cycles until all-rejected, no-edits-proposed, parse-failed, max-cycles, or budget-exceeded.
+2. **Markup syntax:** `{++ [#N] inserted ++}` / `{-- [#N] deleted --}` / `{~~ [#N] old ~> new ~~}`. Number lives inside the tag. Adjacent paired add/delete with the same `[#N]` are merged by parser into one `replace` edit.
+3. **Reviewer output:** JSONL — one `{editNumber, decision, reason}` per line. Missing/malformed decisions default to `reject` (conservative).
+4. **No 2-pass direction reversal in v1.** Per-edit reasoning is the auditability mechanism. Add devil's-advocate reverse pass in v1.1 if reviewer rubber-stamps in staging.
+5. **Naming:** Discriminator `'iterativeEditing'` internally (matches the schema namespace and InvocationEntity dropdown — both already in tree); expose `agentType: 'editing'` in `iterationConfigs` and the wizard UI; map `'editing' → 'iterativeEditing'` in orchestrator (~16 LOC).
+6. **Parent selection:** Top-K via optional `editingTopK` field on `IterationConfig` (default = iteration's parallel dispatch count from `projectDispatchPlan`).
+7. **`MergeRatingsAgent` compat:** Pass editing match buffers with `iterationType: 'generate'` (semantically identical to generate's local-rank output). No `MergeRatingsAgent` changes.
+8. **Schema:** The orphaned `iterativeEditingExecutionDetailSchema` (lines 660–686) was V1-rubric-shaped and **does not fit the new design**. We author a fresh schema (see research doc); the orphaned one is deleted in Phase 1.
+9. **`Match.frictionSpots`:** Out of scope (dead code on both ends).
+10. **Per-cycle invocation timeline UI:** Out of scope for v1. Cycles in `execution_detail`; visual timeline → v1.1.
 
 ## Phased Execution Plan
 
@@ -35,25 +40,71 @@ The V2 pipeline cannot make targeted edits to a variant. `GenerateFromPreviousAr
 - [ ] **1.2** `evolution/src/lib/core/agentNames.ts` — add `'iterativeEditing'` to `AGENT_NAMES`; add `iterativeEditing → 'iterative_edit_cost'` to `COST_METRIC_BY_AGENT`.
 - [ ] **1.3** `evolution/src/lib/metrics/types.ts` — add `'iterative_edit_cost'`, `'total_iterative_edit_cost'`, `'avg_iterative_edit_cost_per_run'` to `STATIC_METRIC_NAMES`.
 - [ ] **1.4** `evolution/src/lib/core/metricCatalog.ts` + `evolution/src/lib/metrics/registry.ts` — add 1 during-execution def + 2 propagation defs (mirror `generation_cost` pattern).
-- [ ] **1.5** New migration `supabase/migrations/<timestamp>_evolution_cost_calibration_editing_phase.sql` — `ALTER TABLE evolution_cost_calibration DROP CONSTRAINT phase_check; ADD CONSTRAINT phase_check CHECK (phase IN ('generation','ranking','seed_title','seed_article','iterative_edit'));`
-- [ ] **1.6** `evolution/scripts/refreshCostCalibration.ts` — add `'iterative_edit'` to the `Phase` literal type and `asPhase()` mapping.
-- [ ] **1.7** `evolution/src/lib/pipeline/infra/estimateCosts.ts` — add `__builtin_iterative_edit__: 6800` to `EMPIRICAL_OUTPUT_CHARS` and a new `estimateIterativeEditingCost(seedChars, generationModel, judgeModel, maxCycles)` returning `{ expected, upperBound }`.
-- [ ] **1.8** Verify orphaned `iterativeEditingExecutionDetailSchema` (lines 660–686) and `executionDetailFixtures.iterativeEditingDetailFixture` parse cleanly. Add fixture-validation test if missing.
+- [ ] **1.5** New migration `supabase/migrations/<timestamp>_evolution_cost_calibration_editing_phase.sql` — extend `evolution_cost_calibration.phase` CHECK to accept `'iterative_edit_propose'` and `'iterative_edit_review'` (two phases: propose and review have different cost shapes).
+- [ ] **1.6** `evolution/scripts/refreshCostCalibration.ts` — add the two new phases to the `Phase` literal type and `asPhase()` mapping.
+- [ ] **1.7** `evolution/src/lib/pipeline/infra/estimateCosts.ts` — add `__builtin_iterative_edit_propose__: 7500` (article-with-markup is ~1.4× input) and `__builtin_iterative_edit_review__: 500` (one JSON line per edit) to `EMPIRICAL_OUTPUT_CHARS`. Add `estimateIterativeEditingCost(seedChars, generationModel, maxCycles)` returning `{ expected, upperBound }` — accounts for 2 calls/cycle.
+- [ ] **1.8** **Replace** orphaned `iterativeEditingExecutionDetailSchema` (lines 660–686) — V1-rubric-shaped, doesn't fit the new design. Author a fresh schema with `cycles[]` containing `{cycleNumber, proposedMarkup, proposedEdits[], reviewedEdits[], acceptedCount, rejectedCount, formatValid, newVariantId?, parentText, childText?}` (full shape in research doc). Replace `executionDetailFixtures.iterativeEditingDetailFixture` to match. Update `agentExecutionDetailSchema` discriminated union slot.
 - [ ] **1.9** Cleanup: delete ghost `mutate_clarity` / `crossover` / `mutate_engagement` from `TACTIC_PALETTE` (`tactics/index.ts:94–96`); delete unused `evolution/src/lib/legacy-schemas.ts`; fix `low_sigma_opponents_count` → `low_uncertainty_opponents_count` mismatch at `schemas.ts:819` vs `detailViewConfigs.ts:166`.
 
-### Phase 2: IterativeEditingAgent class + diff judge + unit tests (Week 2)
-- [ ] **2.1** Port V1 source `git show 8f254eec:evolution/src/lib/agents/iterativeEditingAgent.ts` to `evolution/src/lib/core/agents/editing/IterativeEditingAgent.ts` (~400 LOC). Extend `Agent<IterativeEditInput, IterativeEditOutput, IterativeEditingExecutionDetail>`.
-- [ ] **2.2** Preserve V1's `attemptedTargets: Set<string>` deduplication (omitted from abandoned plan).
-- [ ] **2.3** Build per-invocation `EvolutionLLMClient` from `ctx.rawProvider` via `Agent.run()` template. Use `AgentCostScope.getOwnSpent()` for cost attribution.
-- [ ] **2.4** Implement `runOpenReview(text, llm)` — wraps `JSON.parse` in try/catch returning null on parse failure; agent continues with rubric only.
-- [ ] **2.5** Implement `runInlineCritique(text, variantId, llm)` — duplicates V1 ReflectionAgent's critique prompt structure (factor into shared `evolution/src/lib/core/agents/editing/critiquePrompts.ts` for future reuse).
-- [ ] **2.6** Implement `pickEditTarget(critique, openReview)` with `attemptedTargets` Set; lowest-score dimension wins.
-- [ ] **2.7** Implement main `execute()` loop: evaluate → pick target → generate edit → format-validate → blind diff judge → accept/reject → re-evaluate.
-- [ ] **2.8** Build `evolution/src/lib/core/agents/editing/diffComparison.ts` (~280 LOC) — word-diff via `diffWordsWithSpace`, render `{+ +}{- -}` markers, `run2PassReversal` wrapper, direction-reversal truth-table aggregator.
-- [ ] **2.9** Emit rich `execution_detail.cycles[]` per cycle with `{cycleNumber, target, verdict, confidence, formatValid, newVariantId?, parentText, childText}` (parentText/childText feed the v1 `'text-diff'` UI field).
-- [ ] **2.10** Unit tests `IterativeEditingAgent.test.ts` (~450 LOC, ≥21 cases — port all V1 cases): happy path, all-reject, format-fail, budget-exhausted, abort mid-cycle, diff correctness, direction-reversal logic, execution_detail shape, attempted-target dedup, JSON parse graceful failures, cycle cap, quality threshold met, BudgetExceededError propagation, blind-judge prompt verification, strategy name encodes target dimension.
-- [ ] **2.11** Unit tests `diffComparison.test.ts` (~180 LOC) — word-diff rendering + 8-combo aggregation truth table + 0-changes shortcircuit + prompt blindness.
-- [ ] **2.12** Property-based test `diffComparison.property.test.ts` — word-diff idempotency, direction-reversal symmetry under valid inputs.
+### Phase 2: IterativeEditingAgent class + numbered-CriticMarkup parser + unit tests (Week 2)
+- [ ] **2.1** Create `evolution/src/lib/core/agents/editing/IterativeEditingAgent.ts` (~250 LOC). Extend `Agent<IterativeEditInput, IterativeEditOutput, IterativeEditingExecutionDetail>`. Set `usesLLM = true`, `name = 'iterativeEditing'`. No port from V1 — V1 was rubric-driven; the new design is propose-then-review.
+- [ ] **2.2** Build per-invocation `EvolutionLLMClient` via `Agent.run()` template. Use `AgentCostScope.getOwnSpent()` for cost attribution.
+- [ ] **2.3** Build the **proposer prompt builder** (`evolution/src/lib/core/agents/editing/prompts.ts`, ~50 LOC):
+   - System role: "expert writing editor"
+   - Inline numbered-CriticMarkup syntax docs in the prompt
+   - Article body
+   - Output instruction: full article with inline numbered edits, no commentary
+   - Use AgentName label `iterative_edit_propose` for cost attribution.
+- [ ] **2.4** Build the **numbered-CriticMarkup parser** (`evolution/src/lib/core/agents/editing/parseProposedEdits.ts`, ~150 LOC):
+   - Regex extraction for `{++ [#N] ... ++}`, `{-- [#N] ... --}`, `{~~ [#N] ... ~> ... ~~}`
+   - Pair adjacent same-#N add/delete into one `replace` edit
+   - Compute `anchor` (~30 chars surrounding context) for each edit so we can locate it during application
+   - Return `{ edits: Edit[], cleanText: string, parseError?: string }`
+   - Adversarial-input handling: unbalanced tags → return `parseError`; missing numbers → assign sequential numbers; nested tags → reject (parseError); duplicate numbers → keep first, log warning.
+- [ ] **2.5** Build the **reviewer prompt builder** + JSONL parser (`prompts.ts` + `parseReviewDecisions.ts`, ~100 LOC combined):
+   - Reviewer prompt includes the marked-up article + a machine-extracted summary table of edits ("#1: insert 'X' at...", "#2: replace 'Y' with 'Z'")
+   - Output instruction: one JSON line per edit, `{editNumber, decision, reason}`
+   - Use AgentName label `iterative_edit_review`.
+   - Parser: `parseReviewDecisions(jsonl, expectedEditNumbers)` — line-by-line `JSON.parse`; skip unparseable lines (log); ignore decisions for unknown edit numbers; **default missing edit numbers to `{ decision: 'reject', reason: 'no decision returned' }`** (conservative).
+- [ ] **2.6** Build the **edit applier** (`applyAcceptedEdits.ts`, ~100 LOC):
+   - Take `proposedEdits`, filter to accepted, apply in `editNumber` order to `current.text` using the `anchor` to locate each edit
+   - Handle overlapping edits: later-numbered edit's region wins; earlier conflicting edit dropped with `application_conflict` log
+   - Strip rejected-edit markup from `proposedMarkup` to recover the original text in those regions
+   - Return `{ newText, conflictsDropped: Edit[] }`
+- [ ] **2.7** Implement main `execute()` loop (~80 LOC) — for each cycle 1..maxCycles:
+   1. Call proposer LLM with `current.text` → `proposedMarkup`
+   2. `parseProposedEdits(proposedMarkup)` → `{ edits, cleanText, parseError }`. If error or zero edits → exit with stop reason
+   3. Call reviewer LLM with `proposedMarkup` + edit summary → `jsonl`
+   4. `parseReviewDecisions(jsonl, edits.map(e => e.number))` → `decisions`
+   5. `applyAcceptedEdits(current.text, edits, decisions)` → `newText`
+   6. `validateFormat(newText)` — on fail, no-op cycle, record details, continue
+   7. If accepted count ≥ 1 and `newText !== current.text`: create new Variant, add to pool, `current = newVariant`
+   8. If accepted count === 0: exit with `stopReason: 'all_edits_rejected'`
+- [ ] **2.8** Emit rich `execution_detail.cycles[]` per cycle (full shape per research doc § "execution_detail shape"). Persist `parentText` + `childText` so the `'text-diff'` UI field can render the diff. Persist `proposedMarkup` so the UI can show the original numbered-CriticMarkup output.
+- [ ] **2.9** Unit tests `IterativeEditingAgent.test.ts` (~450 LOC, ≥25 cases). Use `v2MockLlm` with per-label response queues:
+   - happy path (3 cycles, edits propagate through chain)
+   - all-rejected stop (cycle 1 reviewer rejects everything → exit)
+   - no-edits-proposed stop (proposer returns clean text, no markup)
+   - parse-failed stop (malformed markup → exit)
+   - max-cycles stop
+   - format-invalid no-op (apply produces malformed text → no variant added)
+   - mixed accept/reject within a cycle (apply only accepted edits)
+   - overlapping edits — later wins, conflict logged
+   - JSONL with missing edit numbers → conservative reject for missing
+   - JSONL with unknown edit number → ignored
+   - Reviewer returns extra non-JSON text → parser skips, accepts what it can
+   - BudgetExceededError mid-cycle → catches, returns partial result
+   - `attemptedEdits` semantics not needed (each cycle is fresh proposal)
+   - Per-cycle cost attribution via `AgentCostScope.getOwnSpent()`
+   - `execution_detail` shape conforms to schema
+   - `parentText` / `childText` populated correctly
+   - Strategy = `'iterative_edit'` on new variants
+   - `parentIds` chain correctly across cycles
+   - Plus 8 more covering markup-syntax variants (substitution form, paired add/delete with same #, multiple insertions, etc.)
+- [ ] **2.10** Unit tests `parseProposedEdits.test.ts` (~250 LOC, ~20 cases): well-formed input, unbalanced tags, missing numbers, duplicate numbers, nested tags (reject), substitution form, paired add/delete, anchor extraction edge cases, edits at start/end of document, edits in code blocks (preserve), Unicode in edit content.
+- [ ] **2.11** Unit tests `parseReviewDecisions.test.ts` (~150 LOC, ~12 cases): well-formed JSONL, partial parse (one bad line), missing decisions default to reject, unknown edit numbers ignored, malformed JSON, decisions with extra fields (passthrough or strip).
+- [ ] **2.12** Unit tests `applyAcceptedEdits.test.ts` (~200 LOC, ~15 cases): single accepted edit, all rejected (newText === original), all accepted, overlapping edits resolution, anchor not found (skip with log), edits across paragraph boundaries, deletes that empty a section.
+- [ ] **2.13** Property-based test `parseProposedEdits.property.test.ts` — fast-check generators: round-trip property (parse → reconstruct → parse-again is idempotent on well-formed inputs).
 
 ### Phase 3: Pipeline integration + dispatch + agent registry (Week 3)
 - [ ] **3.1** `evolution/src/lib/core/agentRegistry.ts` — register `new IterativeEditingAgent()` in lazy-init array.
