@@ -68,6 +68,8 @@ export interface DispatchPlanContext {
 export interface EstPerAgentValue {
   gen: number;
   rank: number;
+  /** Reflection cost per agent (only > 0 when iterCfg.useReflection is true). 0 for vanilla GFPA. */
+  reflection: number;
   total: number;
 }
 
@@ -191,7 +193,7 @@ function weightedAgentCost(
     gen += weight * estimateGenerationCost(seedChars, tactic, generationModel, judgeModel);
     rank += weight * estimateRankingCost(variantChars, judgeModel, poolSize, numComparisons);
   }
-  return { gen, rank, total: gen + rank };
+  return { gen, rank, reflection: 0, total: gen + rank };
 }
 
 // ─── Main ─────────────────────────────────────────────────────────
@@ -236,8 +238,8 @@ export function projectDispatchPlan(
         tacticMixSource: source,
         tacticLabel,
         estPerAgent: {
-          expected: { gen: 0, rank: 0, total: 0 },
-          upperBound: { gen: 0, rank: 0, total: 0 },
+          expected: { gen: 0, rank: 0, reflection: 0, total: 0 },
+          upperBound: { gen: 0, rank: 0, reflection: 0, total: 0 },
         },
         maxAffordable: { atExpected: 0, atUpperBound: 0 },
         dispatchCount: 0,
@@ -295,8 +297,8 @@ export function projectDispatchPlan(
       tacticMixSource: source,
       tacticLabel,
       estPerAgent: {
-        expected: { gen: genExpected, rank: rankExpectedAvg, total: totalExpected },
-        upperBound: { gen: upper.gen, rank: upper.rank, total: upper.total },
+        expected: { gen: genExpected, rank: rankExpectedAvg, reflection: 0, total: totalExpected },
+        upperBound: { gen: upper.gen, rank: upper.rank, reflection: 0, total: upper.total },
       },
       maxAffordable: { atExpected: maxAffordableExpected, atUpperBound: maxAffordableUpper },
       dispatchCount,

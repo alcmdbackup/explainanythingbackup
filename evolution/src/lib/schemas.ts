@@ -410,6 +410,10 @@ export const iterationConfigSchema = z.object({
   qualityCutoff: qualityCutoffSchema.optional(),
   /** Per-iteration tactic guidance. Overrides strategy-level generationGuidance for this iteration. Only valid for generate iterations. */
   generationGuidance: generationGuidanceSchema.optional(),
+  /** Enable reflection step before generation: an LLM picks the best tactic from all 24 candidates given parent text + ELO boosts. Only valid for generate iterations. Mutually exclusive with generationGuidance. */
+  useReflection: z.boolean().optional(),
+  /** How many top tactics the reflection LLM returns (1-10, default 3). Only valid when useReflection=true. */
+  reflectionTopN: z.number().int().min(1).max(10).optional(),
 }).refine(
   (c) => c.agentType !== 'swiss' || c.sourceMode === undefined,
   { message: 'sourceMode only valid for generate iterations' },
@@ -422,6 +426,15 @@ export const iterationConfigSchema = z.object({
 ).refine(
   (c) => c.agentType !== 'swiss' || c.generationGuidance === undefined,
   { message: 'generationGuidance only valid for generate iterations' },
+).refine(
+  (c) => c.agentType !== 'swiss' || c.useReflection === undefined,
+  { message: 'useReflection only valid for generate iterations' },
+).refine(
+  (c) => c.useReflection === true || c.reflectionTopN === undefined,
+  { message: 'reflectionTopN only valid when useReflection is true' },
+).refine(
+  (c) => c.useReflection !== true || c.generationGuidance === undefined,
+  { message: 'useReflection and generationGuidance are mutually exclusive — pick one tactic-selection mechanism per iteration' },
 );
 
 export type IterationConfig = z.infer<typeof iterationConfigSchema>;
@@ -960,6 +973,70 @@ export const generateFromPreviousExecutionDetailSchema = executionDetailBaseSche
   ).optional(),
 });
 
+/**
+ * ReflectAndGenerateFromPreviousArticleAgent execution detail.
+ * Wraps GFPA with a reflection LLM call up front. Sub-objects (`reflection`, `generation`,
+ * `ranking`) are individually optional so partial-failure rows still validate (e.g.,
+ * reflection succeeds but generation throws → only `reflection` is populated).
+ */
+export const reflectAndGenerateFromPreviousArticleExecutionDetailSchema = executionDetailBaseSchema.extend({
+  detailType: z.literal('reflect_and_generate_from_previous_article'),
+  variantId: z.string().nullable().optional(),
+  /** The chosen tactic used for downstream generation. Top-level for SQL/aggregator query convenience. */
+  tactic: z.string(),
+  /** Reflection sub-detail. Optional so partial-failure rows (e.g. LLM throw before parsing) still validate. */
+  reflection: z.object({
+    /** All 24 tactic names presented to the LLM in the order they appeared in the prompt (post-shuffle). */
+    candidatesPresented: z.array(z.string()),
+    /** Top-N tactics ranked by the LLM with reasoning for each. */
+    tacticRanking: z.array(z.object({
+      tactic: z.string(),
+      reasoning: z.string(),
+    })),
+    /** = tacticRanking[0].tactic, denormalized for SQL filters. */
+    tacticChosen: z.string(),
+    /** Raw LLM response preserved on parser failure for debugging (capped to 8KB upstream). */
+    rawResponse: z.string().optional(),
+    /** Error message when parsing fails; absent on success. */
+    parseError: z.string().optional(),
+    /** Wall-clock duration of the reflection LLM call. */
+    durationMs: z.number().int().min(0).optional(),
+    /** Cost of the reflection LLM call (incremental — does not include generation/ranking). */
+    cost: z.number().min(0).optional(),
+  }).optional(),
+  /** Generation sub-detail. Reused from GFPA. Optional for partial-failure population. */
+  generation: z.object({
+    cost: z.number().min(0),
+    estimatedCost: z.number().min(0).optional(),
+    promptLength: z.number().int().min(0),
+    textLength: z.number().int().min(0).optional(),
+    formatValid: z.boolean(),
+    formatIssues: z.array(z.string()).optional(),
+    error: z.string().optional(),
+    durationMs: z.number().int().min(0).optional(),
+  }).optional(),
+  /** Ranking sub-detail. Reused from GFPA. Optional. */
+  ranking: z.preprocess(
+    rankingDetailRenameKeys,
+    rankNewVariantDetailInnerSchema.extend({
+      cost: z.number().min(0),
+      estimatedCost: z.number().min(0).optional(),
+    }),
+  ).nullable().optional(),
+  /** Total cost = reflectionCost + gfpaDetail.totalCost. Recomputed by wrapper merge step (Phase 6). */
+  totalCost: z.number().min(0).optional(),
+  estimatedTotalCost: z.number().min(0).optional(),
+  estimationErrorPct: z.number().optional(),
+  surfaced: z.boolean(),
+  discardReason: z.preprocess(
+    renameKeys({ localMu: 'localElo' }),
+    z.object({
+      localElo: z.number(),
+      localTop15Cutoff: z.number(),
+    }),
+  ).optional(),
+});
+
 /** CreateSeedArticleAgent execution detail. */
 export const createSeedArticleExecutionDetailSchema = executionDetailBaseSchema.extend({
   detailType: z.literal('create_seed_article'),
@@ -1117,6 +1194,7 @@ export const agentExecutionDetailSchema = z.discriminatedUnion('detailType', [
   proximityExecutionDetailSchema,
   metaReviewExecutionDetailSchema,
   generateFromPreviousExecutionDetailSchema,
+  reflectAndGenerateFromPreviousArticleExecutionDetailSchema,
   createSeedArticleExecutionDetailSchema,
   swissRankingExecutionDetailSchema,
   mergeRatingsExecutionDetailSchema,

@@ -33,6 +33,8 @@ const PER_CALL_TIMEOUT_MS = 20_000;
 const OUTPUT_TOKEN_ESTIMATES: Partial<Record<AgentName, number>> = {
   generation: 1000,
   ranking: 100,
+  // Reflection: top-3 ranked tactics × ~200 tokens reasoning each ≈ 600 tokens (~2400 chars).
+  reflection: 600,
 };
 
 // ─── Public API ──────────────────────────────────────────────────
@@ -98,6 +100,7 @@ export function createEvolutionLLMClient(
       const calibrated = (() => {
         const phase = agentName === 'generation' ? 'generation'
           : agentName === 'ranking' ? 'ranking'
+          : agentName === 'reflection' ? 'reflection'
           : agentName === 'seed_title' ? 'seed_title'
           : agentName === 'seed_article' ? 'seed_article'
           : null;

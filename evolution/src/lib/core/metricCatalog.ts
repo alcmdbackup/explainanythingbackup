@@ -23,6 +23,11 @@ export const METRIC_CATALOG = {
     timing: 'during_execution', listView: true,
     description: 'LLM spend on ranking calls in this run (incl. SwissRankingAgent + binary-search comparisons)',
   },
+  reflection_cost: {
+    name: 'reflection_cost', label: 'Reflection Cost', category: 'cost', formatter: 'cost',
+    timing: 'during_execution', listView: false,
+    description: 'LLM spend on reflection-step tactic-selection calls (ReflectAndGenerateFromPreviousArticleAgent)',
+  },
   seed_cost: {
     name: 'seed_cost', label: 'Seed Cost', category: 'cost', formatter: 'cost',
     timing: 'during_execution', listView: true,
@@ -126,6 +131,16 @@ export const METRIC_CATALOG = {
     name: 'avg_ranking_cost_per_run', label: 'Avg Ranking Cost/Run', category: 'cost', formatter: 'cost',
     timing: 'at_propagation',
     description: 'Average ranking_cost per child run',
+  },
+  total_reflection_cost: {
+    name: 'total_reflection_cost', label: 'Total Reflection Cost', category: 'cost', formatter: 'cost',
+    timing: 'at_propagation',
+    description: 'Sum of reflection_cost across all child runs',
+  },
+  avg_reflection_cost_per_run: {
+    name: 'avg_reflection_cost_per_run', label: 'Avg Reflection Cost/Run', category: 'cost', formatter: 'cost',
+    timing: 'at_propagation',
+    description: 'Average reflection_cost per child run',
   },
   total_seed_cost: {
     name: 'total_seed_cost', label: 'Total Seed Cost', category: 'cost', formatter: 'cost',

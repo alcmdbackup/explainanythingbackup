@@ -18,15 +18,48 @@ function shortenModel(model: string): string {
 // ─── Public API ──────────────────────────────────────────────────
 
 /**
+ * Canonicalize an iteration config for hashing: strip falsy optional fields
+ * (`undefined`, `false`, missing) so that semantically-equivalent configs
+ * produce identical hashes regardless of explicit-vs-omitted form.
+ *
+ * Example: `{useReflection: undefined}`, `{useReflection: false}`, and
+ * `{}` (no useReflection key) all canonicalize to the same shape, preventing
+ * silent re-hashing of pre-existing strategies on schema additions.
+ *
+ * Optional booleans: stripped if undefined OR false (treat absent === default-off).
+ * Optional numbers: stripped if undefined.
+ * Required fields and explicit non-falsy values pass through unchanged.
+ */
+function canonicalizeIterationConfig(
+  iterCfg: StrategyConfig['iterationConfigs'][number],
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {
+    agentType: iterCfg.agentType,
+    budgetPercent: iterCfg.budgetPercent,
+  };
+  // Optional non-boolean fields: include if present (any value, including null).
+  if (iterCfg.sourceMode !== undefined) out.sourceMode = iterCfg.sourceMode;
+  if (iterCfg.qualityCutoff !== undefined) out.qualityCutoff = iterCfg.qualityCutoff;
+  if (iterCfg.generationGuidance !== undefined) out.generationGuidance = iterCfg.generationGuidance;
+  // Optional booleans: include only when explicitly true (false === absent === default-off).
+  if (iterCfg.useReflection === true) out.useReflection = true;
+  // Optional numbers paired with optional flags: include only when defined AND meaningful.
+  if (iterCfg.reflectionTopN !== undefined && iterCfg.useReflection === true) {
+    out.reflectionTopN = iterCfg.reflectionTopN;
+  }
+  return out;
+}
+
+/**
  * Generate a stable 12-char hash for a strategy config.
- * Hashes: generationModel, judgeModel, iterationConfigs (full array).
+ * Hashes: generationModel, judgeModel, iterationConfigs (canonicalized).
  * Budget floors and other non-core fields are excluded.
  */
 export function hashStrategyConfig(config: StrategyConfig): string {
   const normalized = {
     generationModel: config.generationModel,
     judgeModel: config.judgeModel,
-    iterationConfigs: config.iterationConfigs,
+    iterationConfigs: config.iterationConfigs.map(canonicalizeIterationConfig),
   };
   return createHash('sha256').update(JSON.stringify(normalized)).digest('hex').slice(0, 12);
 }
