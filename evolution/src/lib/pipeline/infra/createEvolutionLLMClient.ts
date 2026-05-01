@@ -71,6 +71,14 @@ export function createEvolutionLLMClient(
   runId?: string,
   /** Temperature for generation calls. Ranking calls always use 0. undefined = provider default. */
   generationTemperature?: number,
+  /**
+   * Bound invocationId — auto-attached to every complete() call so agents that don't pass
+   * `options.invocationId` per-call still get llmCallTracking rows linked back to their
+   * evolution_agent_invocations row. LAST positional param: any future optional params
+   * MUST use an options object instead — see plan-review note in
+   * docs/planning/debug_evolution_run_cost_20260426/_planning.md § Phase 4a.
+   */
+  invocationId?: string,
 ): EvolutionLLMClient {
   return {
     async complete(
@@ -110,7 +118,7 @@ export function createEvolutionLLMClient(
         try {
           logger?.debug('LLM call attempt', { phaseName: agentName, attempt, model });
           const rawResponse = await Promise.race([
-            rawProvider.complete(prompt, agentName, { model, temperature, reasoningEffort, invocationId: options?.invocationId }),
+            rawProvider.complete(prompt, agentName, { model, temperature, reasoningEffort, invocationId: options?.invocationId ?? invocationId }),
             new Promise<never>((_, reject) => {
               timeoutId = setTimeout(() => reject(new Error('LLM call timeout (20s)')), PER_CALL_TIMEOUT_MS);
             }),

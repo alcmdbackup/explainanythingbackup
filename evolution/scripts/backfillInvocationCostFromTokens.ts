@@ -38,9 +38,20 @@ if (!SUPABASE_URL || !SERVICE_KEY) {
 const apply = process.argv.includes('--apply');
 const runIdArg = process.argv.find((a) => a.startsWith('--run-id='))?.split('=')[1];
 const sinceArg = process.argv.find((a) => a.startsWith('--since='))?.split('=')[1];
+// Phase 7-prereq (debug_evolution_run_cost_20260426): allow operator to override
+// the >5x cost-delta hard gate when investigation confirms the delta is a real
+// Bug A correction (chars/4 over-counting → real-token under-counting).
+const allowLargeDeltas = process.argv.includes('--allow-large-deltas');
+// Phase 7-prereq: comma-separated run UUIDs to skip during backfill — useful
+// after dry-run review reveals specific runs need manual repair instead.
+const excludeRunIdsArg = process.argv.find((a) => a.startsWith('--exclude-run-ids='))?.split('=')[1];
+const excludeRunIds = new Set(
+  excludeRunIdsArg ? excludeRunIdsArg.split(',').map((s) => s.trim()).filter(Boolean) : [],
+);
 const BATCH_SIZE = 100;
 const HEARTBEAT_SKIP_MINUTES = 15;
 const NULL_COVERAGE_THRESHOLD = 0.1; // 10%
+const LARGE_DELTA_RATIO = 5; // hard gate: any run whose new cost differs from old by >5x must be reviewed
 
 // Snapshot script start — any run with completed_at ≥ this is NOT processed.
 const SCRIPT_START = new Date();
@@ -233,8 +244,9 @@ async function main(): Promise<void> {
   const sinceIso = sinceArg ? new Date(sinceArg).toISOString() : null;
   await preflightCheck(db, sinceIso);
 
-  const runIds = await fetchTargetRuns(db, sinceIso);
-  console.log(`[backfill] ${runIds.length} candidate runs`);
+  const runIds = (await fetchTargetRuns(db, sinceIso)).filter((id) => !excludeRunIds.has(id));
+  console.log(`[backfill] ${runIds.length} candidate runs${excludeRunIds.size > 0 ? ` (${excludeRunIds.size} excluded via --exclude-run-ids)` : ''}`);
+  if (allowLargeDeltas) console.log(`[backfill] --allow-large-deltas active: runs with >${LARGE_DELTA_RATIO}x cost delta will be applied (default behavior would skip them)`);
 
   const summary = {
     totalRuns: runIds.length,
@@ -242,8 +254,10 @@ async function main(): Promise<void> {
     runsFullyCovered: 0,
     runsPartiallyCovered: 0,
     runsFullySkipped: 0,
+    runsLargeDelta: 0, // Phase 7-prereq: count runs whose max planned delta exceeds LARGE_DELTA_RATIO
     totalInvocationWrites: 0,
     totalInvocationsSkipped: 0,
+    excludedByFlag: excludeRunIds.size,
   };
 
   for (let i = 0; i < runIds.length; i += BATCH_SIZE) {
@@ -260,16 +274,36 @@ async function main(): Promise<void> {
         else if (plan.invocationWrites.length > 0) summary.runsPartiallyCovered++;
         else { summary.runsFullySkipped++; continue; }
 
+        // Phase 7-prereq: detect >5x cost-delta runs. Computes the max ratio across this
+        // run's planned invocation writes (oldCost vs newCost). 0 → any → ratio is treated
+        // as "large" (a write that fills in a previously-NULL cost is always interesting).
+        const maxRatio = plan.invocationWrites.reduce((max, w) => {
+          const oldVal = w.oldCost ?? 0;
+          if (oldVal === 0 && w.newCost === 0) return max;
+          if (oldVal === 0) return Math.max(max, Number.POSITIVE_INFINITY);
+          const ratio = Math.max(w.newCost / oldVal, oldVal / w.newCost);
+          return Math.max(max, ratio);
+        }, 1);
+        const isLargeDelta = maxRatio > LARGE_DELTA_RATIO;
+        if (isLargeDelta) summary.runsLargeDelta++;
+
         summary.totalInvocationWrites += plan.invocationWrites.length;
         summary.totalInvocationsSkipped += plan.skippedInvocations;
         summary.runsProcessed++;
 
         console.log(
           `[backfill] run=${runId.slice(0, 8)}  invs=${totalInvs}  writes=${plan.invocationWrites.length}  skipped=${plan.skippedInvocations}  ` +
-          `cost=$${plan.runLevel.cost.toFixed(6)} gen=$${plan.runLevel.generation_cost.toFixed(6)} rank=$${plan.runLevel.ranking_cost.toFixed(6)} seed=$${plan.runLevel.seed_cost.toFixed(6)}`,
+          `cost=$${plan.runLevel.cost.toFixed(6)} gen=$${plan.runLevel.generation_cost.toFixed(6)} rank=$${plan.runLevel.ranking_cost.toFixed(6)} seed=$${plan.runLevel.seed_cost.toFixed(6)}` +
+          (isLargeDelta ? `  [LARGE_DELTA maxRatio=${Number.isFinite(maxRatio) ? maxRatio.toFixed(2) : 'inf'}x]` : ''),
         );
 
-        if (apply) await applyPlan(db, plan);
+        if (apply) {
+          if (isLargeDelta && !allowLargeDeltas) {
+            console.warn(`[backfill] run=${runId.slice(0, 8)} SKIPPED (--apply): max delta ${Number.isFinite(maxRatio) ? maxRatio.toFixed(2) : 'inf'}x exceeds gate ${LARGE_DELTA_RATIO}x. Investigate, then re-run with --allow-large-deltas (or --exclude-run-ids=${runId} to permanently exclude).`);
+            continue;
+          }
+          await applyPlan(db, plan);
+        }
       } catch (err) {
         console.error(`[backfill] run=${runId} FAILED: ${err instanceof Error ? err.message : String(err)}`);
       }
@@ -280,6 +314,9 @@ async function main(): Promise<void> {
   }
 
   console.log('[backfill] summary:', JSON.stringify(summary, null, 2));
+  if (summary.runsLargeDelta > 0 && apply && !allowLargeDeltas) {
+    console.warn(`[backfill] ${summary.runsLargeDelta} run(s) had >${LARGE_DELTA_RATIO}x cost-delta and were SKIPPED. Review, then re-run with --allow-large-deltas to apply, or --exclude-run-ids=<csv> to omit them.`);
+  }
   console.log(`[backfill] done. mode=${apply ? 'APPLY' : 'DRY-RUN (re-run with --apply to write)'}`);
 }
 

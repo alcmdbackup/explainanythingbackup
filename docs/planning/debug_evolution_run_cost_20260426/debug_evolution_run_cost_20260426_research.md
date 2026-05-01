@@ -205,6 +205,56 @@ The widely-quoted gemini "max" cost of $0.004649 (~5× median) traces entirely t
 
 There are no other systematic outlier drivers — the band of "long output → moderately higher cost" (e.g., 11k-char outputs at $0.0009-$0.0015) is normal token-length scaling, not a bug.
 
+### 9. Post-deploy verification — partial success (2026-04-30)
+
+After the fix from this PR was deployed to staging, `evolution/scripts/verifyAuditGapClosed.ts` was run to confirm the fix is working end-to-end. Results:
+
+| Check | Result | Detail |
+|-------|--------|--------|
+| Negative control: historic gap | ✓ PASS | 0 evolution_* rows in `llmCallTracking` between 2026-02-23 and deploy — confirms gap was real |
+| Check A: post-deploy rows exist | ✓ PASS | 196 evolution_* rows written today (155 ranking + 41 generation) using OpenRouter-routed models (qwen, gemini-flash-lite) which previously had **zero rows ever**. **trackingDb injection confirmed working.** |
+| Check B: invocation_id linkage | ✗ FAIL | **100% of post-deploy rows have NULL `evolution_invocation_id`** |
+| Check C: per-run spot check | ✗ FAIL | 2 recent runs (45 and 48 invocations) have zero linked tracking rows |
+
+**Diagnosis.** The primary fix (trackingDb injection) is working — the audit gap is closed for write-side. The secondary fix (FK linkage) is broken at the agent layer:
+
+The chain `Agent.run() → EvolutionLLMClient.complete() → bridge → callLLM → saveLlmCallTracking` requires `invocationId` to be passed in `LLMCompletionOptions`. My fix correctly forwarded `options?.invocationId` through the bridge, but agent code (e.g., `GenerateFromPreviousArticleAgent`) calls `input.llm.complete(prompt, 'generation')` without an options arg. So `invocationId` is `undefined` at the source of the chain — the bridge then dutifully forwards `undefined` all the way to the DB.
+
+**Why testing missed it.**
+- `saveLlmCallTracking` unit tests verified the function persists `evolution_invocation_id` when given one (tautological — a parameter pass-through).
+- `claimAndExecuteRun.test.ts` asserted the bridge calls `callLLM` with `expect.objectContaining({ onUsage: expect.any(Function) })` — which does NOT assert on `evolutionInvocationId`. Even if the bridge dropped it, that test would still pass.
+- `verifyLlmCallTrackingFix.ts` (live staging) called `saveLlmCallTracking` directly with a hardcoded invocationId — bypassing the entire Agent → client → bridge call chain. So it tested "the function works when given correct inputs" but not "the production code path ever provides correct inputs."
+
+**Lesson:** for chain-of-call bugs, the verification entry point must be at or above the highest layer that's part of the fix. The fix touched 3 layers (Agent → bridge → llms); verification should have started at `Agent.run()`, not at `saveLlmCallTracking`.
+
+**Fix proposal.** Bind `invocationId` at client construction time so it auto-attaches to every call, instead of requiring per-call plumbing. 4-line change:
+
+```typescript
+// In createEvolutionLLMClient.ts — add invocationId param:
+export function createEvolutionLLMClient(
+  rawProvider, costTracker, defaultModel, logger?, db?, runId?, generationTemperature?,
+  invocationId?: string,  // NEW
+) {
+  return {
+    async complete(prompt, agentName, options) {
+      rawProvider.complete(prompt, agentName, {
+        model, temperature, reasoningEffort,
+        invocationId: options?.invocationId ?? invocationId,  // prefer per-call, fall back to bound
+      });
+    },
+  };
+}
+
+// In Agent.ts (Agent.run) — pass ctx.invocationId at construction:
+const llm = createEvolutionLLMClient(
+  ctx.rawProvider, scope, ctx.defaultModel, ctx.logger, ctx.db, ctx.runId,
+  ctx.generationTemperature,
+  ctx.invocationId,  // NEW
+);
+```
+
+This will be addressed in a follow-up PR (see Planning § "Follow-up plan").
+
 ---
 
 ## Documents Read

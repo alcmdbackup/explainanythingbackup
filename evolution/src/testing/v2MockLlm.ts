@@ -1,6 +1,6 @@
 // Mock EvolutionLLMClient for V2 tests. Supports label-based and position-based responses.
 
-import type { EvolutionLLMClient } from '../lib/types';
+import type { EvolutionLLMClient, LLMCompletionOptions } from '../lib/types';
 
 const VALID_TEXT = `# Test Article
 
@@ -34,7 +34,7 @@ export function createV2MockLlm(options: MockLlmOptions = {}): EvolutionLLMClien
   const labelResponses = options.labelResponses ?? {};
   let callIdx = 0;
 
-  const complete = jest.fn(async (prompt: string, label: string): Promise<string> => {
+  const complete = jest.fn(async (prompt: string, label: string, _options?: LLMCompletionOptions): Promise<string> => {
     callIdx++;
 
     // Label-based override
