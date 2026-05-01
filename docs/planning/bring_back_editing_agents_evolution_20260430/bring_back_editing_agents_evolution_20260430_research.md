@@ -76,12 +76,12 @@ V1 source via `git show <sha>:<path>`: `iterativeEditingAgent.ts`, `iterativeEdi
 
 ### Three roles per cycle
 
-Two LLM calls + one deterministic safety layer:
+Two LLM calls + one deterministic safety layer. **Key insight:** the Proposer's output is the full article with markup embedded inline, so every `[#N]` has an exact byte position. No fuzzy anchor matching needed; the parser records `(start, end)` ranges directly. Stripping markup also recovers the source text, giving us free drift detection.
 
-1. **Proposer** (LLM): produces marked-up article with numbered CriticMarkup edits, governed by soft rules in the system prompt.
-2. **Implementer pre-check** (deterministic): parses Proposer output, groups by `[#N]`, validates against hard rules, drops violators silently, caps group size and cycle total. Only valid groups reach the Approver.
-3. **Approver** (LLM): per-group `accept`/`reject` + one-sentence reason. JSONL output.
-4. **Implementer application** (deterministic): for each accepted group, locates anchors and applies atomic edits in document order, all-or-nothing per group. Drops groups with anchor failures or conflicts silently. Format-validates final result.
+1. **Proposer** (LLM): produces the full article with numbered CriticMarkup edits embedded inline, governed by soft rules in the system prompt.
+2. **Implementer pre-check** (deterministic): parses Proposer output, recovers source text by stripping markup and compares it to `current.text` (drift check), groups by `[#N]`, validates against hard rules, drops violators silently, caps group size and cycle total. Only valid groups reach the Approver.
+3. **Approver** (LLM): per-group `accept`/`reject` + one-sentence reason. JSONL output only — no full text regeneration.
+4. **Implementer application** (deterministic): collects atomic edits from accepted groups, sorts by position descending, detects range overlaps between groups, applies in reverse-position order to `current.text` (positions don't shift when applying right-to-left). All-or-nothing per group. Format-validates final result.
 
 ```
 current.text
@@ -119,9 +119,9 @@ current.text
 | Atomic edits per cycle | ≤ 30 (excess groups dropped in number order) |
 | Atomic edits per group | ≤ 5 (over-large groups dropped wholesale) |
 | Paragraph-boundary span | `oldText` may not contain `\n\n` |
-| Heading touch | `oldText` and anchor may not overlap any line matching `^#+ ` |
+| Heading touch | edit's range may not overlap any line matching `^#+ ` |
 | Heading injection | `newText` may not contain `\n#+ ` |
-| Code fence span | `oldText` and anchor may not span ` ``` ` delimiters |
+| Code fence span | edit's range may not span ` ``` ` delimiters |
 | Code fence delimiters in newText | `newText` may not contain ` ``` ` |
 | List-item-boundary span | `oldText` containing `\n[-*+] ` or `\n\d+\. ` is rejected |
 | Horizontal rule | `oldText` and `newText` may not contain `^---$` line |
@@ -142,16 +142,21 @@ These are not parser-checked; they shape the Proposer's behavior and the Approve
 
 These rules go into the Proposer's system prompt (Phase 2 task). The Approver also has them in its system prompt to inform reject reasons.
 
+#### Proposer-drift check (parser-level; cycle-level drop)
+
+After parsing the marked-up text, the Implementer **strips all markup** and compares the recovered text to `current.text`. With normalized whitespace (collapse runs, trim line ends), they must match exactly. If they don't, the Proposer modified text outside its own markup → drop the entire cycle with `stopReason: 'proposer_drift'`. This is a free safety net that catches unintended hallucinations.
+
 #### Ambiguous-markup handling (parser-level; silent drop)
 
 The parser ignores any atomic edit if:
 - Tags are unbalanced (`{++` without matching `++}`)
 - Tags are nested (`{++ ... {-- ... --} ... ++}`)
 - The combined-form substitution `{~~ ... ~> ... ~~}` is ambiguous (content contains `~>`, `~~}`, etc.)
-- Anchor (when computed) doesn't uniquely match in the source text
 - `[#N]` is missing (auto-assigned with warning, not dropped) or duplicate non-paired
 
 If dropping a single atomic edit would leave its group empty, the group is dropped. If the group still has surviving atomic edits, the group survives but the Approver sees the reduced version.
+
+**Note:** Anchor matching failures don't exist in the deterministic design because positions come from the Proposer's marked-up output directly. The post-Approver application step only fails on **range overlap between accepted groups** (handled below) or **format-invalid result**.
 
 ### Per-cycle protocol — 2 LLM passes
 
@@ -267,13 +272,13 @@ Per cycle: 2 LLM calls (proposer + reviewer). At gpt-4.1-mini for both:
 | Propose | ~5500 (article + prompt) | ~7500 (article-with-markup ≈ 1.4× input) | ~$0.0050 |
 | Review | ~7500 (markup + edit summary) | ~500 (one JSON line per edit, ~10 edits typical) | ~$0.0030 |
 
-**Per cycle ≈ $0.008.** 3 cycles ≈ **$0.024**. With 1.3× reservation margin: ~$0.031. At 30% of $0.15 budget = $0.045, this is **comfortable** (32% headroom for 3 cycles vs. V1's tight -3% headroom).
+**Per cycle ≈ $0.008.** 3 cycles ≈ **$0.024**. With 1.3× reservation margin: ~$0.031. At 30% of $0.15 budget = $0.045, this is **comfortable** (47% headroom for 3 cycles vs. V1's tight -3% headroom).
 
-This makes 3 cycles the safe default, vs. V1's `maxCycles=2`.
+This makes 3 cycles the safe default, vs. V1's `maxCycles=2`. The cost win comes from the deterministic applier — the Approver outputs only JSONL (~500 chars) instead of regenerating the full article (~7500 chars), so the second LLM call is ~6× cheaper than an LLM-applies design would be.
 
 ### Stop reasons recorded in `execution_detail`
 
-`'all_edits_rejected'`, `'no_edits_proposed'`, `'parse_failed'`, `'max_cycles'`, `'budget_exceeded'`, `'format_invalid'` (final applied output failed validation).
+`'all_edits_rejected'`, `'no_edits_proposed'`, `'parse_failed'`, `'proposer_drift'` (recovered source text doesn't match `current.text`), `'max_cycles'`, `'budget_exceeded'`, `'format_invalid'` (final applied output failed validation).
 
 ### `execution_detail` shape
 
@@ -282,10 +287,10 @@ The orphaned `iterativeEditingExecutionDetailSchema` at `evolution/src/lib/schem
 ```typescript
 type AtomicEdit = {
   type: 'insert' | 'delete' | 'replace';
-  oldText?: string;
-  newText?: string;
-  anchor: string;
-  location: { line: number; column: number };
+  oldText?: string;                   // present for delete + replace
+  newText?: string;                   // present for insert + replace
+  range: { start: number; end: number };  // byte positions in current.text (NOT in marked-up text)
+  markupRange: { start: number; end: number };  // byte positions in proposedMarkup, for UI highlighting
 };
 
 type EditGroup = {
@@ -316,7 +321,7 @@ type ReviewDecision = {
     reviewDecisions: ReviewDecision[],       // Approver output (per-group)
     droppedPostApprover: Array<{             // accepted by Approver but failed to apply
       groupNumber: number,
-      reason: 'anchor_not_found' | 'anchor_ambiguous' | 'application_conflict' | 'format_invalid_after_apply',
+      reason: 'application_conflict' | 'format_invalid_after_apply',
       detail: string,
     }>,
     appliedGroups: number[],                 // group numbers that successfully applied
@@ -333,7 +338,7 @@ type ReviewDecision = {
 }
 ```
 
-The triple-list pattern (`droppedPreApprover` + `approverGroups` + `droppedPostApprover` + `appliedGroups`) gives reviewers full visibility: *"Proposer suggested 12 groups; Implementer dropped 2 for hard-rule violations; Approver accepted 7 of the remaining 10; Implementer applied 6 of those (1 dropped due to anchor ambiguity)."* No silent failures — every drop is recorded with a reason.
+The triple-list pattern (`droppedPreApprover` + `approverGroups` + `droppedPostApprover` + `appliedGroups`) gives reviewers full visibility: *"Proposer suggested 12 groups; Implementer dropped 2 for hard-rule violations; Approver accepted 7 of the remaining 10; Implementer applied 6 of those (1 dropped due to range overlap with another accepted group)."* No silent failures — every drop is recorded with a reason.
 
 **This is the most consequential schema change** in v1: the orphaned schema is unusable; we author a fresh one and delete the old one in Phase 1.
 
