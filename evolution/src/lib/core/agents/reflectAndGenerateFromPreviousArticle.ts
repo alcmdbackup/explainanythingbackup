@@ -26,6 +26,7 @@ import { METRIC_CATALOG } from '../metricCatalog';
 import { computeFormatRejectionRate } from '../../metrics/computations/finalizationInvocation';
 import { isValidTactic } from '../tactics';
 import { updateInvocation } from '../../pipeline/infra/trackInvocations';
+import { registerAttributionExtractor } from '../../metrics/attributionExtractors';
 import {
   GenerateFromPreviousArticleAgent,
   type GenerateFromPreviousInput,
@@ -470,12 +471,13 @@ export class ReflectAndGenerateFromPreviousArticleAgent extends Agent<
   }
 }
 
-/**
- * Side-effect import: register this agent's attribution-dimension extractor with the
- * metrics-layer ATTRIBUTION_EXTRACTORS registry so computeEloAttributionMetrics
- * can dispatch via getAttributionDimension without circular imports. Phase 8.
- *
- * Wired in Phase 8 after attributionExtractors.ts is created.
- */
-
-// Phase 8 will register here.
+// ─── Attribution extractor registration (Phase 8) ──────────────────
+// Side-effect: register this agent's dimension extractor so computeEloAttributionMetrics
+// can dispatch via the metrics-layer ATTRIBUTION_EXTRACTORS registry. Mirror of GFPA's
+// registration. The wrapper's variants will produce
+// `eloAttrDelta:reflect_and_generate_from_previous_article:<tactic>` rows naturally
+// separated from GFPA's bars in StrategyEffectivenessChart.
+registerAttributionExtractor('reflect_and_generate_from_previous_article', (detail: unknown) => {
+  const tactic = (detail as { tactic?: unknown })?.tactic;
+  return typeof tactic === 'string' && tactic.length > 0 ? tactic : null;
+});

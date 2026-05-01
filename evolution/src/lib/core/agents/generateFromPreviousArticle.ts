@@ -17,6 +17,7 @@ import { validateFormat } from '../../shared/enforceVariantFormat';
 import { buildEvolutionPrompt } from '../../pipeline/loop/buildPrompts';
 import { BudgetExceededError } from '../../types';
 import { estimateGenerationCost, estimateRankingCost } from '../../pipeline/infra/estimateCosts';
+import { registerAttributionExtractor } from '../../metrics/attributionExtractors';
 import type { z } from 'zod';
 
 // ─── Tactic registry ────────────────────────────────────────────
@@ -301,3 +302,13 @@ export class GenerateFromPreviousArticleAgent extends Agent<
     };
   }
 }
+
+// ─── Attribution extractor registration (Phase 8) ──────────────────
+// Side-effect import: registers this agent's dimension extractor with the
+// metrics-layer ATTRIBUTION_EXTRACTORS registry. The metrics file imports
+// agentRegistry which imports this file → registration fires at module-load
+// time, before any computeEloAttributionMetrics call.
+registerAttributionExtractor('generate_from_previous_article', (detail: unknown) => {
+  const tactic = (detail as { tactic?: unknown })?.tactic;
+  return typeof tactic === 'string' && tactic.length > 0 ? tactic : null;
+});
