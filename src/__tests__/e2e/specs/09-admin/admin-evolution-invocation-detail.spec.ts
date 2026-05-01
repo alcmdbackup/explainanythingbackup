@@ -200,4 +200,118 @@ adminTest.describe('Evolution Invocation Detail', { tag: '@evolution' }, () => {
     await adminPage.waitForURL('**/admin/evolution/invocations', { timeout: 10000 });
     expect(adminPage.url()).toContain('/admin/evolution/invocations');
   });
+
+  // ─── Reflection wrapper invocation (develop_reflection_and_generateFromParentArticle_agent_evolution_20260430) ───
+  // Phase 9: wrapper agent's invocation detail page renders 5 tabs (Reflection Overview,
+  // Generation Overview, Metrics, Timeline, Logs) instead of the legacy single Overview.
+  // Phase 10: timeline-reflection-bar renders alongside generation/ranking bars.
+
+  let reflectInvocationId: string;
+
+  adminTest.beforeAll(async () => {
+    const sb = getServiceClient();
+    reflectInvocationId = randomUUID();
+    await sb.from('evolution_agent_invocations').insert({
+      id: reflectInvocationId,
+      run_id: runId,
+      agent_name: 'reflect_and_generate_from_previous_article',
+      iteration: 1,
+      execution_order: 2,
+      success: true,
+      cost_usd: 0.0312,
+      duration_ms: 14200,
+      execution_detail: {
+        detailType: 'reflect_and_generate_from_previous_article',
+        tactic: 'lexical_simplify',
+        surfaced: true,
+        reflection: {
+          candidatesPresented: ['structural_transform', 'lexical_simplify', 'grounding_enhance'],
+          tacticRanking: [
+            { tactic: 'lexical_simplify', reasoning: 'Article uses dense vocabulary.' },
+            { tactic: 'structural_transform', reasoning: 'Sections out of order.' },
+            { tactic: 'grounding_enhance', reasoning: 'Could use concrete examples.' },
+          ],
+          tacticChosen: 'lexical_simplify',
+          durationMs: 1800,
+          cost: 0.0008,
+        },
+        generation: {
+          cost: 0.0214,
+          promptLength: 6232,
+          textLength: 5891,
+          formatValid: true,
+          durationMs: 8400,
+        },
+        ranking: {
+          cost: 0.0090,
+          localPoolSize: 5,
+          initialTop15Cutoff: 1200,
+          comparisons: [],
+          stopReason: 'converged',
+          totalComparisons: 7,
+          finalLocalElo: 1247,
+          finalLocalUncertainty: 38,
+          durationMs: 4000,
+        },
+        totalCost: 0.0312,
+      },
+    });
+    invocationIds.push(reflectInvocationId);
+  });
+
+  adminTest('wrapper invocation: 5 tabs render (Reflection Overview, Generation Overview, Metrics, Timeline, Logs)', async ({ adminPage }) => {
+    await adminPage.goto(`/admin/evolution/invocations/${reflectInvocationId}`);
+    await adminPage.waitForLoadState('domcontentloaded');
+
+    // All 5 tabs visible.
+    await expect(adminPage.locator('[data-testid="tab-overview-reflection"]')).toBeVisible({ timeout: 15000 });
+    await expect(adminPage.locator('[data-testid="tab-overview-gfpa"]')).toBeVisible();
+    await expect(adminPage.locator('[data-testid="tab-metrics"]')).toBeVisible();
+    await expect(adminPage.locator('[data-testid="tab-timeline"]')).toBeVisible();
+    await expect(adminPage.locator('[data-testid="tab-logs"]')).toBeVisible();
+
+    // No single "Overview" tab (the wrapper splits it into two).
+    await expect(adminPage.locator('[data-testid="tab-overview"]')).not.toBeVisible();
+  });
+
+  adminTest('wrapper invocation: Reflection Overview tab renders tactic chosen + ranking', async ({ adminPage }) => {
+    await adminPage.goto(`/admin/evolution/invocations/${reflectInvocationId}`);
+    await adminPage.waitForLoadState('domcontentloaded');
+    await expect(adminPage.locator('[data-testid="tab-overview-reflection"]')).toBeVisible({ timeout: 15000 });
+
+    // Reflection Overview tab is active by default (first in the wrapper's tab list).
+    const reflectionTab = adminPage.locator('[data-testid="reflection-overview-tab"]');
+    await expect(reflectionTab).toBeVisible();
+
+    // The chosen tactic shows in the metric grid.
+    await expect(reflectionTab).toContainText('lexical_simplify');
+  });
+
+  adminTest('wrapper invocation: Generation Overview tab renders generation/ranking detail', async ({ adminPage }) => {
+    await adminPage.goto(`/admin/evolution/invocations/${reflectInvocationId}`);
+    await adminPage.waitForLoadState('domcontentloaded');
+
+    // Click Generation Overview tab.
+    const gfpaTab = adminPage.locator('[data-testid="tab-overview-gfpa"]');
+    await expect(gfpaTab).toBeVisible({ timeout: 15000 });
+    await gfpaTab.click();
+
+    // The Generation Overview content is visible.
+    const gfpaPanel = adminPage.locator('[data-testid="generation-overview-tab"]');
+    await expect(gfpaPanel).toBeVisible();
+  });
+
+  adminTest('wrapper invocation: Timeline tab renders 3-phase bar (reflection + generation + ranking)', async ({ adminPage }) => {
+    await adminPage.goto(`/admin/evolution/invocations/${reflectInvocationId}`);
+    await adminPage.waitForLoadState('domcontentloaded');
+
+    const timelineTab = adminPage.locator('[data-testid="tab-timeline"]');
+    await expect(timelineTab).toBeVisible({ timeout: 15000 });
+    await timelineTab.click();
+
+    // All 3 phase bars present (per Phase 10 — reflection bar is the new addition).
+    await expect(adminPage.locator('[data-testid="timeline-reflection-bar"]')).toBeVisible({ timeout: 10000 });
+    await expect(adminPage.locator('[data-testid="timeline-generation-bar"]')).toBeVisible();
+    await expect(adminPage.locator('[data-testid="timeline-ranking-bar"]')).toBeVisible();
+  });
 });

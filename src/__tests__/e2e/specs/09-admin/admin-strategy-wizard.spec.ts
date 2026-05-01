@@ -208,4 +208,106 @@ adminTest.describe('Strategy Creation Wizard', { tag: '@evolution' }, () => {
     }
     expect(poolModeCreatedStrategyId).toBeTruthy();
   });
+
+  // ─── Reflection toggle (develop_reflection_and_generateFromParentArticle_agent_evolution_20260430) ───
+  // Phase 11: verify the wizard exposes useReflection + reflectionTopN per generate
+  // iteration, including mutual exclusivity with tactic guidance.
+
+  let reflectionStrategyId: string | undefined;
+
+  adminTest.afterAll(async () => {
+    if (!reflectionStrategyId) return;
+    const sb = getServiceClient();
+    await sb.from('evolution_metrics').delete().eq('entity_id', reflectionStrategyId);
+    await sb.from('evolution_strategies').delete().eq('id', reflectionStrategyId);
+  });
+
+  adminTest('reflection toggle: enabling adds useReflection + reflectionTopN to config', async ({ adminPage }) => {
+    await adminPage.goto('/admin/evolution/strategies/new');
+    await adminPage.waitForLoadState('domcontentloaded');
+    await expect(adminPage.locator('#strategy-name')).toBeVisible({ timeout: 15000 });
+
+    const strategyName = `${TEST_PREFIX} Reflection ${Date.now()}`;
+
+    // Step 1
+    await adminPage.locator('#strategy-name').fill(strategyName);
+    await adminPage.locator('#generation-model').selectOption({ index: 1 });
+    await adminPage.locator('#budget-usd').fill('1.00');
+    await adminPage.locator('button', { hasText: 'Next: Configure Iterations' }).click();
+
+    // Step 2 — default iterations: #1 generate, #2 swiss.
+    await expect(adminPage.locator('text=#1')).toBeVisible({ timeout: 10000 });
+
+    // The reflection checkbox for iteration #1 (generate) should be visible and unchecked.
+    const reflectionCheckbox = adminPage.locator('[data-testid="use-reflection-checkbox-0"]');
+    await expect(reflectionCheckbox).toBeVisible();
+    await expect(reflectionCheckbox).not.toBeChecked();
+
+    // The Top-N input should be visible but disabled when reflection is off.
+    const topNInput = adminPage.locator('[data-testid="reflection-topn-input-0"]');
+    await expect(topNInput).toBeVisible();
+    await expect(topNInput).toBeDisabled();
+
+    // Click the checkbox to enable reflection.
+    await reflectionCheckbox.click();
+    await expect(reflectionCheckbox).toBeChecked();
+
+    // Top-N input should now be enabled with default value 3.
+    await expect(topNInput).toBeEnabled();
+    await expect(topNInput).toHaveValue('3');
+
+    // Submit — the key assertion is that the strategy is created with useReflection:true.
+    const createBtn = adminPage.locator('button', { hasText: 'Create Strategy' });
+    await expect(createBtn).toBeEnabled();
+    await createBtn.click();
+
+    await expect(adminPage).toHaveURL(/\/admin\/evolution\/strategies\/[0-9a-f-]+/, { timeout: 20000 });
+    const url = adminPage.url();
+    const idMatch = url.match(/strategies\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/);
+    if (idMatch) {
+      reflectionStrategyId = idMatch[1]!;
+      trackEvolutionId('strategy', reflectionStrategyId);
+    }
+    expect(reflectionStrategyId).toBeTruthy();
+
+    // Verify the persisted config has useReflection + reflectionTopN set on iteration 0.
+    const sb = getServiceClient();
+    const { data } = await sb
+      .from('evolution_strategies')
+      .select('config')
+      .eq('id', reflectionStrategyId!)
+      .single();
+    expect(data).toBeTruthy();
+    const config = data!.config as { iterationConfigs: Array<{ useReflection?: boolean; reflectionTopN?: number }> };
+    expect(config.iterationConfigs[0]!.useReflection).toBe(true);
+    expect(config.iterationConfigs[0]!.reflectionTopN).toBe(3);
+  });
+
+  adminTest('reflection mutex: enabling reflection disables tactic-guidance button', async ({ adminPage }) => {
+    await adminPage.goto('/admin/evolution/strategies/new');
+    await adminPage.waitForLoadState('domcontentloaded');
+    await expect(adminPage.locator('#strategy-name')).toBeVisible({ timeout: 15000 });
+
+    await adminPage.locator('#strategy-name').fill(`${TEST_PREFIX} Mutex ${Date.now()}`);
+    await adminPage.locator('#generation-model').selectOption({ index: 1 });
+    await adminPage.locator('button', { hasText: 'Next: Configure Iterations' }).click();
+    await expect(adminPage.locator('text=#1')).toBeVisible({ timeout: 10000 });
+
+    const reflectionCheckbox = adminPage.locator('[data-testid="use-reflection-checkbox-0"]');
+    const tacticsButton = adminPage.locator('[data-testid="tactic-guidance-btn-0"]');
+
+    // Both controls visible initially.
+    await expect(reflectionCheckbox).toBeVisible();
+    await expect(tacticsButton).toBeVisible();
+
+    // Enabling reflection disables the tactics button.
+    await reflectionCheckbox.click();
+    await expect(reflectionCheckbox).toBeChecked();
+    await expect(tacticsButton).toBeDisabled();
+
+    // Disabling reflection re-enables the tactics button.
+    await reflectionCheckbox.click();
+    await expect(reflectionCheckbox).not.toBeChecked();
+    await expect(tacticsButton).toBeEnabled();
+  });
 });
