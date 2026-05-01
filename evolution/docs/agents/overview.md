@@ -372,3 +372,31 @@ Seeded RNG derived from `(runId, iteration, executionOrder)` via FNV-1a ensures 
 **Arena entries are NOT eligible parents (2026-04-21).** `initialPoolSnapshot` — which resolveParent's caller computes — intentionally includes arena entries (loaded via `loadArenaEntries` from prior runs of the same prompt) so they participate in ranking as competitors. However, for **parent selection only**, `runIterationLoop.ts` filters `initialPoolSnapshot` to `inRunPool = initialPoolSnapshot.filter((v) => !v.fromArena)` at the resolveParent call site. This matches the existing `persistRunResults.ts` convention (`.filter((v) => !v.fromArena)` at 5 places) and guarantees that a new variant's `parent_variant_id` always references the seed or another variant born in the same run. Before this fix, pool-mode iterations could produce variants whose `parent_variant_id` pointed to arena variants from other runs — staging run `6743c119-8a52-44e5-8102-0b1f4b212f40` was the canonical signature. When the filter drops all candidates (pool had arena entries but no in-run variants), the existing `empty_pool` fallback returns the seed and the call site emits a distinct `fallbackReason: 'no_same_run_variants'` warn-log context for diagnosability.
 
 Discarded variants persist their local-rank ELO from the agent's binary-search ranking (not `createRating()` defaults), so Phase 3/5 metrics aren't survivorship-biased.
+
+## ReflectAndGenerateFromPreviousArticleAgent (develop_reflection_and_generateFromParentArticle_agent_evolution_20260430)
+
+A wrapper agent that runs ONE reflection LLM call to pick the best tactic for a given parent article, then delegates to `GenerateFromPreviousArticleAgent.execute()` with the chosen tactic. Opt-in per-iteration via `IterationConfig.useReflection: true`.
+
+**Class**: `ReflectAndGenerateFromPreviousArticleAgent` (`evolution/src/lib/core/agents/reflectAndGenerateFromPreviousArticle.ts`).
+- `name = 'reflect_and_generate_from_previous_article'`
+- `usesLLM = true`
+- `getAttributionDimension(detail) → detail.tactic` (mirrors GFPA — variants from each agent get separate `eloAttrDelta:<agent>:<tactic>` rows)
+
+**Reflection prompt** (`buildReflectionPrompt`): preamble ("You are an expert writing strategist...") + parent article verbatim + numbered candidate list (all 24 system tactics in randomized order with compressed summaries from `getTacticSummary()` + recent ELO boost per tactic) + structured ask: "Rank top N tactics in `Tactic: <name>\nReasoning: <text>` format". The shuffled candidate order is deterministic per dispatch via `deriveSeed(randomSeed, 'iter${i}', 'reflect_shuffle${execOrder}')` so retries see identical prompts.
+
+**Parser** (`parseReflectionRanking`): tolerant priority chain — line-pattern match for `^\s*\d+\.\s*Tactic:\s*(.+?)$` (capture-to-EOL), normalize to lowercase + underscore, validate via `isValidTactic`, drop unknown names. Throws `ReflectionParseError` (carries raw response) when zero valid entries are extracted. **No deterministic fallback** — parse failures are hard failures so prompt-engineering gaps surface as queryable invocation rows.
+
+**Inner GFPA dispatch** is a load-bearing invariant: must call `.execute()` directly on a fresh `GenerateFromPreviousArticleAgent`, NOT `.run()`. Calling `.run()` would create a NESTED `Agent.run()` scope (separate `AgentCostScope`), splitting cost attribution between the wrapper and the inner agent. The wrapper's invocation row's `cost_usd` would then under-count the inner GFPA spend. Comment block at the call site documents this.
+
+**Cost stack**: `'reflection'` is a typed `AgentName` with its own `reflection_cost` metric. `OUTPUT_TOKEN_ESTIMATES.reflection = 600` (top-3 ranked output × ~200 tokens reasoning each). Calibration loader phase enum and `createEvolutionLLMClient` calibration ladder both extended. Run-level `reflection_cost` propagates to `total_reflection_cost` and `avg_reflection_cost_per_run` at strategy/experiment level.
+
+**Failure-mode handling** preserves partial detail before re-throwing:
+- Reflection LLM throws → wrapper writes `execution_detail.reflection.{candidatesPresented, durationMs, cost}`, re-throws as `ReflectionLLMError`.
+- Parser fails → wrapper writes `execution_detail.reflection.{candidatesPresented, rawResponse, parseError}`, re-throws.
+- Inner GFPA throws (e.g., budget mid-generation) → wrapper writes full reflection sub-detail + reflectionCost, re-throws.
+
+The Phase 2 `updateInvocation` partial-update fix (`trackInvocations.ts:74`) ensures `Agent.run()`'s catch handler — which updates `error_message` and `cost_usd` WITHOUT `execution_detail` — does not overwrite the wrapper's pre-throw partial-detail write to null.
+
+**Mutual exclusivity** with `generationGuidance`: enforced at three levels — Zod refinement on `iterationConfigSchema` rejects configs with both set; the wizard UI disables the Tactics button when reflection is on (and vice versa); `toIterationConfigsPayload` defensively only emits guidance when reflection is off.
+
+**Kill-switch**: `EVOLUTION_REFLECTION_ENABLED='false'` env var falls all `useReflection: true` configs back to vanilla GFPA dispatch. Resolved once per iteration in `runIterationLoop` before parallel/top-up dispatch — single env flip rolls the feature back without code revert.

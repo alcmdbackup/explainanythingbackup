@@ -16,6 +16,13 @@ on the strategy. Each `IterationConfig` entry specifies:
 - **`qualityCutoff`** (required when `sourceMode='pool'`): `{ mode: 'topN'|'topPercent', value }`.
 - **`generationGuidance`** (optional, generate only): per-iteration weighted tactic
   selection. Overrides strategy-level `generationGuidance`.
+- **`useReflection`** (optional, generate only; develop_reflection_and_generateFromParentArticle_agent_evolution_20260430):
+  when `true`, dispatches `ReflectAndGenerateFromPreviousArticleAgent` instead of
+  vanilla GFPA. Mutually exclusive with `generationGuidance`.
+- **`reflectionTopN`** (optional, valid only when `useReflection=true`): how many
+  top tactics the reflection LLM ranks. Range 1-10, default 3. Today's dispatch
+  consumes only `tacticRanking[0]`; the tail is preserved for future multi-tactic
+  generation experiments.
 
 Budget percentages across all entries must sum to 100. The first entry must be `generate`
 (swiss on an empty pool is invalid). Max 20 entries per strategy.
