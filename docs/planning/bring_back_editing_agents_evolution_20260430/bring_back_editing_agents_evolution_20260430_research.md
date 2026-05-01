@@ -341,7 +341,7 @@ type ReviewDecision = {
 };
 
 {
-  detailType: 'iterativeEditing',
+  detailType: 'iterativeEditingAgent',
   targetVariantId: string,
   config: { maxCycles: number, minAcceptedToContinue: number },
   cycles: Array<{
@@ -589,7 +589,7 @@ export interface DetailFieldDef {
 
 | # | Question | Decision | v1 LOC |
 |---|----------|----------|--------|
-| 1 | Naming | Keep `'iterativeEditing'` internally; expose `'editing'` externally | 16 |
+| 1 | Naming | One canonical name `'iterativeEditingAgent'` everywhere (no internal/external split) | 4 |
 | 2 | Parent selection | Top-K via optional `editingTopK` (default = parallel batch size) | 25 |
 | 3 | Tactics per cycle | V1 dimension-picking; no `editingGuidance` | 50 |
 | 4 | Judge format | Word-diff; MDAST as follow-up; no env var | 150 |

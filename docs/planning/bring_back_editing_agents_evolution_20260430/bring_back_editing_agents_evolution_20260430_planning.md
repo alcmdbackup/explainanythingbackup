@@ -26,7 +26,7 @@ The V2 pipeline cannot make targeted edits to a variant. `GenerateFromPreviousAr
 2. **Markup syntax:** `{++ [#N] inserted ++}` / `{-- [#N] deleted --}` / `{~~ [#N] old ~> new ~~}`. Number lives inside the tag. Adjacent paired add/delete with the same `[#N]` are merged by parser into one `replace` edit.
 3. **Reviewer output:** JSONL — one `{editNumber, decision, reason}` per line. Missing/malformed decisions default to `reject` (conservative).
 4. **No 2-pass direction reversal in v1.** Per-edit reasoning is the auditability mechanism. Add devil's-advocate reverse pass in v1.1 if reviewer rubber-stamps in staging.
-5. **Naming:** Discriminator `'iterativeEditing'` internally (matches the schema namespace and InvocationEntity dropdown — both already in tree); expose `agentType: 'editing'` in `iterationConfigs` and the wizard UI; map `'editing' → 'iterativeEditing'` in orchestrator (~16 LOC).
+5. **Naming:** One canonical name everywhere — `'iterativeEditingAgent'`. Used as the `iterationConfig.agentType` value, the `agent_name` written to `evolution_agent_invocations`, the schema `detailType` discriminator, and the `DETAIL_VIEW_CONFIGS` key. Class name is `IterativeEditingAgent` (PascalCase). UI label is "Iterative Editing" (drops the redundant "Agent" suffix for display). The orphaned V1 schema's `'iterativeEditing'` discriminator is replaced (Phase 1.8 already authors a fresh schema), and `InvocationEntity.listFilters` is updated from `'iterativeEditing'` to `'iterativeEditingAgent'`. Per-LLM-call AgentName labels stay snake_case (`iterative_edit_propose` / `iterative_edit_review` / `iterative_edit_drift_recovery`) and the cost metric stays `iterative_edit_cost`.
 6. **Parent selection:** Top-K via optional `editingTopK` field on `IterationConfig` (default = iteration's parallel dispatch count from `projectDispatchPlan`).
 7. **`MergeRatingsAgent` compat:** Pass editing match buffers with `iterationType: 'generate'` (semantically identical to generate's local-rank output). No `MergeRatingsAgent` changes.
 8. **Schema:** The orphaned `iterativeEditingExecutionDetailSchema` (lines 660–686) was V1-rubric-shaped and **does not fit the new design**. We author a fresh schema (see research doc); the orphaned one is deleted in Phase 1.
@@ -37,14 +37,14 @@ The V2 pipeline cannot make targeted edits to a variant. `GenerateFromPreviousAr
 ## Phased Execution Plan
 
 ### Phase 1: Scaffolding — enum + schema + registry + cost-calibration migration (Week 1)
-- [ ] **1.1** `evolution/src/lib/schemas.ts:388` — extend `iterationAgentTypeEnum` with `'editing'`. Update 4 refines on `iterationConfigSchema` (lines 413–425) to allow editing iterations (forbid as first iteration).
-- [ ] **1.2** `evolution/src/lib/core/agentNames.ts` — add `'iterativeEditing'` to `AGENT_NAMES`; add `iterativeEditing → 'iterative_edit_cost'` to `COST_METRIC_BY_AGENT`. Plus per-LLM-call labels: `'iterative_edit_propose'`, `'iterative_edit_review'`, `'iterative_edit_drift_recovery'` — all map to the single `iterative_edit_cost` metric (per-purpose cost split tracked via execution_detail, not per-metric, for v1 simplicity).
+- [ ] **1.1** `evolution/src/lib/schemas.ts:388` — extend `iterationAgentTypeEnum` with `'iterativeEditingAgent'`. Update 4 refines on `iterationConfigSchema` (lines 413–425) to allow iterativeEditingAgent iterations (forbid as first iteration).
+- [ ] **1.2** `evolution/src/lib/core/agentNames.ts` — add `'iterativeEditingAgent'` to `AGENT_NAMES`; add `iterativeEditingAgent → 'iterative_edit_cost'` to `COST_METRIC_BY_AGENT`. Plus per-LLM-call labels: `'iterative_edit_propose'`, `'iterative_edit_review'`, `'iterative_edit_drift_recovery'` — all map to the single `iterative_edit_cost` metric (per-purpose cost split tracked via execution_detail, not per-metric, for v1 simplicity).
 - [ ] **1.3** `evolution/src/lib/metrics/types.ts` — add `'iterative_edit_cost'`, `'total_iterative_edit_cost'`, `'avg_iterative_edit_cost_per_run'` to `STATIC_METRIC_NAMES`.
 - [ ] **1.4** `evolution/src/lib/core/metricCatalog.ts` + `evolution/src/lib/metrics/registry.ts` — add 1 during-execution def + 2 propagation defs (mirror `generation_cost` pattern).
 - [ ] **1.5** New migration `supabase/migrations/<timestamp>_evolution_cost_calibration_editing_phase.sql` — extend `evolution_cost_calibration.phase` CHECK to accept `'iterative_edit_propose'`, `'iterative_edit_review'`, and `'iterative_edit_drift_recovery'` (three phases: propose, review, drift-recovery have different cost shapes).
 - [ ] **1.6** `evolution/scripts/refreshCostCalibration.ts` — add the three new phases to the `Phase` literal type and `asPhase()` mapping.
 - [ ] **1.7** `evolution/src/lib/pipeline/infra/estimateCosts.ts` — add `__builtin_iterative_edit_propose__: 7500` (article-with-markup is ~1.4× input), `__builtin_iterative_edit_review__: 500` (one JSON line per edit), and `__builtin_iterative_edit_drift_recovery__: 200` (one JSON line per drift region, typically 1–3) to `EMPIRICAL_OUTPUT_CHARS`. Add `estimateIterativeEditingCost(seedChars, generationModel, driftRecoveryModel, maxCycles)` returning `{ expected, upperBound }` — expected accounts for 2 calls/cycle (propose + review); upperBound assumes drift recovery fires once across all cycles (cheap pessimistic upper-bound).
-- [ ] **1.8** **Replace** orphaned `iterativeEditingExecutionDetailSchema` (lines 660–686) — V1-rubric-shaped, doesn't fit the new design. Author a fresh schema with `cycles[]` containing `{cycleNumber, proposedMarkup, proposedEdits[], reviewedEdits[], acceptedCount, rejectedCount, formatValid, newVariantId?, parentText, childText?}` (full shape in research doc). Replace `executionDetailFixtures.iterativeEditingDetailFixture` to match. Update `agentExecutionDetailSchema` discriminated union slot.
+- [ ] **1.8** **Replace** orphaned `iterativeEditingExecutionDetailSchema` (lines 660–686) — V1-rubric-shaped, doesn't fit the new design. Author a fresh schema named `iterativeEditingAgentExecutionDetailSchema` with `detailType: 'iterativeEditingAgent'` (note the `Agent` suffix — matches the unified canonical name from Decisions §5) and `cycles[]` containing `{cycleNumber, proposedMarkup, proposedGroupsRaw[], droppedPreApprover[], approverGroups[], reviewDecisions[], droppedPostApprover[], appliedGroups[], acceptedCount, rejectedCount, appliedCount, formatValid, newVariantId?, parentText, childText?, driftRecovery?}` (full shape in research doc). Rename `executionDetailFixtures.iterativeEditingDetailFixture` → `iterativeEditingAgentDetailFixture` and rewrite to match. Update `agentExecutionDetailSchema` discriminated union slot. Also update `InvocationEntity.listFilters` (lines 49–54): replace `'iterativeEditing'` with `'iterativeEditingAgent'`.
 - [ ] **1.9** Cleanup: delete ghost `mutate_clarity` / `crossover` / `mutate_engagement` from `TACTIC_PALETTE` (`tactics/index.ts:94–96`); delete unused `evolution/src/lib/legacy-schemas.ts`; fix `low_sigma_opponents_count` → `low_uncertainty_opponents_count` mismatch at `schemas.ts:819` vs `detailViewConfigs.ts:166`.
 
 ### Phase 2: Proposer + Implementer + Approver components + unit tests (Week 2)
@@ -53,7 +53,7 @@ The V2 pipeline cannot make targeted edits to a variant. `GenerateFromPreviousAr
 
 #### 2.A — IterativeEditingAgent class (orchestration)
 
-- [ ] **2.A.1** Create `evolution/src/lib/core/agents/editing/IterativeEditingAgent.ts` (~250 LOC). Extend `Agent<IterativeEditInput, IterativeEditOutput, IterativeEditingExecutionDetail>`. Set `usesLLM = true`, `name = 'iterativeEditing'`.
+- [ ] **2.A.1** Create `evolution/src/lib/core/agents/editing/IterativeEditingAgent.ts` (~250 LOC). Extend `Agent<IterativeEditInput, IterativeEditOutput, IterativeEditingExecutionDetail>`. Set `usesLLM = true`, `name = 'iterativeEditingAgent'`.
 - [ ] **2.A.2** Per-invocation `EvolutionLLMClient` via `Agent.run()` template. `AgentCostScope.getOwnSpent()` for cost attribution.
 - [ ] **2.A.3** Implement main `execute()` loop (~120 LOC) — for each cycle 1..maxCycles:
    1. **Proposer call**: send `current.text` + soft-rules system prompt → `proposedMarkup`
@@ -241,7 +241,7 @@ The V2 pipeline cannot make targeted edits to a variant. `GenerateFromPreviousAr
 - [ ] **3.7** Integration test `evolution/src/__tests__/integration/iterative-editing-agent.integration.test.ts` (real DB):
    - Seed strategy with one `iterative_edit` iteration after 1 generate iteration.
    - Run `evolveArticle()` end-to-end.
-   - Assert: `evolution_agent_invocations` row written with `agent_name='iterativeEditing'`; `execution_detail` validates against schema; `evolution_arena_comparisons` row written for each accepted edit; `evolution_variants` row created for accepted variant; `iterative_edit_cost` metric > 0.
+   - Assert: `evolution_agent_invocations` row written with `agent_name='iterativeEditingAgent'`; `execution_detail` validates against schema; `evolution_arena_comparisons` row written for each accepted edit; `evolution_variants` row created for accepted variant; `iterative_edit_cost` metric > 0.
 - [ ] **3.8** Sample-article integration test `evolution/src/__tests__/integration/iterative-editing-sample-articles.integration.test.ts` (real DB, ~250 LOC):
    - Reuses 2 of the 5 fixture articles from `__fixtures__/sample-articles/` (Galápagos finches + quantum entanglement — short + medium structurally varied).
    - Seeds the seed variant with the fixture's `original` text.
@@ -253,7 +253,7 @@ The V2 pipeline cannot make targeted edits to a variant. `GenerateFromPreviousAr
 ### Phase 4: Invocation-detail UI — `'text-diff'` + `'annotated-edits'` field types (Week 4 part 1)
 - [ ] **4.1** `evolution/src/lib/core/types.ts:187–194` — extend `DetailFieldDef` `type` union with two new values: `'text-diff'` (uses `sourceKey?`, `targetKey?`, `previewLength?`) and `'annotated-edits'` (uses `markupKey?`, `groupsKey?`, `decisionsKey?`, `dropsPreKey?`, `dropsPostKey?` to point at the `execution_detail.cycles[i]` sub-fields).
 - [ ] **4.2** `src/app/admin/evolution/invocations/[invocationId]/ConfigDrivenDetailRenderer.tsx` — add `case 'text-diff'` (~10 LOC) rendering `<TextDiff original={data[field.sourceKey]} modified={data[field.targetKey]} previewLength={field.previewLength ?? 300} />`.
-- [ ] **4.3** Extend `evolution/src/lib/core/detailViewConfigs.ts` `iterativeEditing` entry with new `'text-diff'` field reading `parentText` / `childText` from execution_detail. Also extend with config display + target dimension/description + initialCritique vs finalCritique comparison fields.
+- [ ] **4.3** Replace orphaned `'iterativeEditing'` entry in `evolution/src/lib/core/detailViewConfigs.ts` with a fresh `'iterativeEditingAgent'` entry. Includes new `'text-diff'` field reading `parentText` / `childText` from execution_detail, plus all the new audit fields (`proposedMarkup`, `proposedGroupsRaw`, `droppedPreApprover`, `approverGroups`, `reviewDecisions`, `droppedPostApprover`, `appliedGroups`, `driftRecovery`).
 - [ ] **4.4** `evolution/src/services/invocationActions.ts:156–221` — extend `getInvocationVariantContextAction` to include `variant_content` for both variant and parent (~8 LOC). Add `variant_content` and `parent_content` to `InvocationVariantContext` interface.
 - [ ] **4.5** `evolution/src/components/evolution/tabs/InvocationParentBlock.tsx` — render `<TextDiff>` in collapsible `<details>` section below the delta CI row (~15 LOC).
 - [ ] **4.6** `evolution/src/components/evolution/tabs/TimelineTab.tsx:29–35` — extend `agentKind()` and `KIND_CONFIG` with `'edit'` case (cosmetic badge color).
@@ -266,20 +266,20 @@ The V2 pipeline cannot make targeted edits to a variant. `GenerateFromPreviousAr
    - **Legend** at the top, collapsible.
    - **Grouped-edit visual link**: edits sharing `[#N]` get a matching number badge. Clicking any one highlights all members of the group.
    - Read-only, stateless given props. Pure UI — no server-side data changes needed.
-- [ ] **4.9** Wire `AnnotatedProposals` into `evolution/src/lib/core/detailViewConfigs.ts` `iterativeEditing` entry: add an `'annotated-edits'` field as the FIRST sub-field of each cycle (default-expanded), pointing at the relevant `execution_detail.cycles[i]` sub-keys. Demote the raw "Proposed markup" code-block field to collapsed-by-default — still available for character-level inspection but no longer the primary surface.
+- [ ] **4.9** Wire `AnnotatedProposals` into `evolution/src/lib/core/detailViewConfigs.ts` `iterativeEditingAgent` entry: add an `'annotated-edits'` field as the FIRST sub-field of each cycle (default-expanded), pointing at the relevant `execution_detail.cycles[i]` sub-keys. Demote the raw "Proposed markup" code-block field to collapsed-by-default — still available for character-level inspection but no longer the primary surface.
 - [ ] **4.10** Extend `ConfigDrivenDetailRenderer.tsx` with `case 'annotated-edits'` (~15 LOC) that resolves the field's key references and passes them to `<AnnotatedProposals>`.
 - [ ] **4.11** Unit tests `AnnotatedProposals.test.ts` (~250 LOC, ~15 cases): all 4 decision states render with correct styles; grouped-edit linking across paragraphs; hover tooltip content; click-to-table-row scroll behavior; toolbar mode switching (Annotated/Final/Original); empty/zero-edit input renders as plain text; legend toggling; multi-cycle isolation (one cycle's annotations don't affect another).
 
 ### Phase 5: Strategy wizard UI (Week 4 part 2)
 - [ ] **5.1** `src/app/admin/evolution/strategies/new/page.tsx`:
-   - Lines 34–46, 73–79: extend `IterationRow['agentType']` and `IterationConfigPayload['agentType']` unions with `'editing'`.
-   - Lines 814–823: add `<option value="editing">Editing</option>`.
+   - Lines 34–46, 73–79: extend `IterationRow['agentType']` and `IterationConfigPayload['agentType']` unions with `'iterativeEditingAgent'`.
+   - Lines 814–823: add `<option value="iterativeEditingAgent">Iterative Editing</option>`.
    - Lines 947–962: add third color branch for editing in budget-allocation bar + legend.
    - Lines 360–390: validation rules — first iteration must still be `generate`; allow `editing` after generate. Add helper text explaining editing iteration drafts top-K parents.
 - [ ] **5.2** `evolution/src/components/evolution/DispatchPlanView.tsx:117–119` — add badge color for `'iterative_edit'`.
-- [ ] **5.3** `evolution/src/services/strategyPreviewActions.ts:159–185` — extend `dispatchPreviewInputSchema` to accept `'editing'`.
+- [ ] **5.3** `evolution/src/services/strategyPreviewActions.ts:159–185` — extend `dispatchPreviewInputSchema` to accept `'iterativeEditingAgent'`.
 - [ ] **5.4** `evolution/src/services/strategyRegistryActions.ts` — `iterationConfigSchema` shared with main schemas.ts (line 32–51 reads from there); should auto-update from Phase 1.1.
-- [ ] **5.5** Add optional `editingTopK?: number` field to `iterationConfigSchema` in `evolution/src/lib/schemas.ts`. Surface in wizard as a number input visible only when `agentType === 'editing'`.
+- [ ] **5.5** Add optional `editingTopK?: number` field to `iterationConfigSchema` in `evolution/src/lib/schemas.ts`. Surface in wizard as a number input visible only when `agentType === 'iterativeEditingAgent'`.
 
 ### Phase 6: E2E + documentation + finalization (Week 4 part 3)
 - [ ] **6.1** E2E spec `src/__tests__/e2e/specs/09-admin/admin-evolution-iterative-editing.spec.ts`:
@@ -342,7 +342,7 @@ The V2 pipeline cannot make targeted edits to a variant. `GenerateFromPreviousAr
 - [ ] `evolution/docs/agents/overview.md` — IterativeEditingAgent section.
 - [ ] `evolution/docs/architecture.md` — dispatch branch + recordSnapshot changes.
 - [ ] `evolution/docs/reference.md` — file index + kill switch.
-- [ ] `docs/feature_deep_dives/multi_iteration_strategies.md` — `editing` agentType + `editingTopK` field.
+- [ ] `docs/feature_deep_dives/multi_iteration_strategies.md` — `iterativeEditingAgent` agentType + `editingTopK` field.
 - [ ] `docs/feature_deep_dives/evolution_metrics.md` — `iterative_edit_cost` family.
 - [ ] `.claude/doc-mapping.json` — register new deep dive.
 
