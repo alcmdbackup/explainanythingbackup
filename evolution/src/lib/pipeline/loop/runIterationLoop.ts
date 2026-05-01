@@ -87,7 +87,7 @@ function topKUncertainties(ratings: ReadonlyMap<string, Rating>, k: number): num
 
 function recordSnapshot(
   iteration: number,
-  iterationType: 'generate' | 'swiss',
+  iterationType: 'generate' | 'reflect_and_generate' | 'swiss',
   phase: 'start' | 'end',
   pool: ReadonlyArray<Variant>,
   ratings: ReadonlyMap<string, Rating>,
@@ -318,8 +318,12 @@ export async function evolveArticle(
     let iterMatchesCompleted = 0;
 
     try {
-      if (iterType === 'generate') {
-        // ─── Generate iteration ───────────────────────────────
+      // Both 'generate' and 'reflect_and_generate' are variant-producing iterations
+      // sharing the same parallel-batch + top-up + merge dispatch shape. The only
+      // difference is which agent class gets dispatched per call (decided inside
+      // dispatchOneAgent below based on `reflectionEnabled`).
+      if (iterType === 'generate' || iterType === 'reflect_and_generate') {
+        // ─── Generate / reflect-and-generate iteration ────────
         // Phase 7b: restructured to accumulate parallel + top-up match buffers, then
         // invoke MergeRatingsAgent ONCE at iteration end over the combined buffers.
         // Top-up agents reuse the iteration-start snapshot (option A in decision #8) so
@@ -332,12 +336,11 @@ export async function evolveArticle(
         // true; set to 'false' as a rollback kill-switch if top-up misbehaves in prod.
         const topUpEnabled = process.env.EVOLUTION_TOPUP_ENABLED !== 'false';
 
-        // Phase 7 of develop_reflection_and_generateFromParentArticle_agent_evolution_20260430:
-        // resolve the reflection kill-switch ONCE per iteration. When the env var is 'false'
-        // OR the iteration config doesn't enable reflection, dispatch falls back to vanilla
-        // GFPA. This keeps the wrapper agent's existence opt-in per iteration AND provides
-        // a single-flip rollback if reflection misbehaves in prod.
-        const reflectionEnabled = iterCfg.useReflection === true
+        // Shape A of develop_reflection_and_generateFromParentArticle_agent_evolution_20260430:
+        // reflection is now a top-level agentType. Resolve the kill-switch ONCE per iteration —
+        // when the env var is 'false', a 'reflect_and_generate' iteration falls back to
+        // vanilla GFPA dispatch (single env flip rolls reflection back without code revert).
+        const reflectionEnabled = iterCfg.agentType === 'reflect_and_generate'
           && process.env.EVOLUTION_REFLECTION_ENABLED !== 'false';
         const reflectionTopN = iterCfg.reflectionTopN ?? 3;
 
@@ -364,18 +367,15 @@ export async function evolveArticle(
         // Budget-aware parallel-batch size: compute how many agents we can afford
         // within iteration budget AT UPPER-BOUND cost (reservation safety).
         // Phase 3 of develop_reflection_and_generateFromParentArticle_agent_evolution_20260430:
-        // include the reflection LLM call cost when iterCfg.useReflection=true so dispatch
-        // sizing accounts for the extra ~$0.0005-0.001/agent. Without this, reflection
-        // iterations slightly over-dispatch and rely on budget gating to catch overruns.
+        // include the reflection LLM call cost for reflect_and_generate iterations so
+        // dispatch sizing accounts for the extra ~$0.0005-0.001/agent. Reuse the
+        // iteration-scoped reflectionEnabled/reflectionTopN values resolved above.
         const availBudget = iterTracker.getAvailableBudget();
         const maxComp = resolvedConfig.maxComparisonsPerVariant ?? 15;
-        const sizingUseReflection = iterCfg.useReflection === true
-          && process.env.EVOLUTION_REFLECTION_ENABLED !== 'false';
-        const sizingReflectionTopN = iterCfg.reflectionTopN ?? 3;
         const estPerAgent = estimateAgentCost(
           originalText.length, tactics[0]!, resolvedConfig.generationModel,
           resolvedConfig.judgeModel, pool.length, maxComp,
-          sizingUseReflection, sizingReflectionTopN,
+          reflectionEnabled, reflectionTopN,
         );
         const maxAffordable = Math.max(1, Math.floor(availBudget / estPerAgent));
         // DISPATCH_SAFETY_CAP is a defense-in-depth rail; budget is the primary governor.

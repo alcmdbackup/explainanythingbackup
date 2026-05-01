@@ -375,7 +375,7 @@ Discarded variants persist their local-rank ELO from the agent's binary-search r
 
 ## ReflectAndGenerateFromPreviousArticleAgent (develop_reflection_and_generateFromParentArticle_agent_evolution_20260430)
 
-A wrapper agent that runs ONE reflection LLM call to pick the best tactic for a given parent article, then delegates to `GenerateFromPreviousArticleAgent.execute()` with the chosen tactic. Opt-in per-iteration via `IterationConfig.useReflection: true`.
+A wrapper agent that runs ONE reflection LLM call to pick the best tactic for a given parent article, then delegates to `GenerateFromPreviousArticleAgent.execute()` with the chosen tactic. Selected per-iteration via `IterationConfig.agentType: 'reflect_and_generate'` — a top-level agent type (Shape A) alongside `'generate'` and `'swiss'`.
 
 **Class**: `ReflectAndGenerateFromPreviousArticleAgent` (`evolution/src/lib/core/agents/reflectAndGenerateFromPreviousArticle.ts`).
 - `name = 'reflect_and_generate_from_previous_article'`
@@ -397,6 +397,6 @@ A wrapper agent that runs ONE reflection LLM call to pick the best tactic for a 
 
 The Phase 2 `updateInvocation` partial-update fix (`trackInvocations.ts:74`) ensures `Agent.run()`'s catch handler — which updates `error_message` and `cost_usd` WITHOUT `execution_detail` — does not overwrite the wrapper's pre-throw partial-detail write to null.
 
-**Mutual exclusivity** with `generationGuidance`: enforced at three levels — Zod refinement on `iterationConfigSchema` rejects configs with both set; the wizard UI disables the Tactics button when reflection is on (and vice versa); `toIterationConfigsPayload` defensively only emits guidance when reflection is off.
+**Mutual exclusivity** with `generationGuidance`: structural — `generationGuidance` is only valid on `agentType: 'generate'` (the Zod refinement rejects it on `reflect_and_generate` and `swiss`). The wizard UI hides the Tactics button entirely when the iteration's agent type is `reflect_and_generate`, and `toIterationConfigsPayload` only emits guidance for `generate` rows.
 
-**Kill-switch**: `EVOLUTION_REFLECTION_ENABLED='false'` env var falls all `useReflection: true` configs back to vanilla GFPA dispatch. Resolved once per iteration in `runIterationLoop` before parallel/top-up dispatch — single env flip rolls the feature back without code revert.
+**Kill-switch**: `EVOLUTION_REFLECTION_ENABLED='false'` env var falls all `agentType: 'reflect_and_generate'` iterations back to vanilla GFPA dispatch. Resolved once per iteration in `runIterationLoop` before parallel/top-up dispatch — single env flip rolls the feature back without code revert.

@@ -68,68 +68,64 @@ describe('V2 hashStrategyConfig', () => {
     expect(hashStrategyConfig(seedMode)).not.toBe(hashStrategyConfig(poolMode));
   });
 
-  // ─── Reflection field hash semantics (Phase 1 of develop_reflection_and_generateFromParentArticle) ───
+  // ─── Reflection field hash semantics (Shape A: reflect_and_generate is a top-level agentType) ───
 
-  it('useReflection=true changes the hash', () => {
-    const without: StrategyConfig = baseConfig;
-    const withReflection: StrategyConfig = {
+  it('agentType=reflect_and_generate changes the hash vs generate', () => {
+    const generate: StrategyConfig = baseConfig;
+    const reflectAndGenerate: StrategyConfig = {
       ...baseConfig,
       iterationConfigs: [
-        { agentType: 'generate', budgetPercent: 60, useReflection: true, reflectionTopN: 3 },
+        { agentType: 'reflect_and_generate', budgetPercent: 60, reflectionTopN: 3 },
         { agentType: 'swiss', budgetPercent: 40 },
       ],
     };
-    expect(hashStrategyConfig(without)).not.toBe(hashStrategyConfig(withReflection));
+    expect(hashStrategyConfig(generate)).not.toBe(hashStrategyConfig(reflectAndGenerate));
   });
 
-  it('reflectionTopN value changes the hash when useReflection is true', () => {
+  it('reflectionTopN value changes the hash on a reflect_and_generate iteration', () => {
     const a: StrategyConfig = {
       ...baseConfig,
       iterationConfigs: [
-        { agentType: 'generate', budgetPercent: 60, useReflection: true, reflectionTopN: 3 },
+        { agentType: 'reflect_and_generate', budgetPercent: 60, reflectionTopN: 3 },
         { agentType: 'swiss', budgetPercent: 40 },
       ],
     };
     const b: StrategyConfig = {
       ...baseConfig,
       iterationConfigs: [
-        { agentType: 'generate', budgetPercent: 60, useReflection: true, reflectionTopN: 5 },
+        { agentType: 'reflect_and_generate', budgetPercent: 60, reflectionTopN: 5 },
         { agentType: 'swiss', budgetPercent: 40 },
       ],
     };
     expect(hashStrategyConfig(a)).not.toBe(hashStrategyConfig(b));
   });
 
-  it('canonicalizes useReflection: undefined === false === absent (hash collision symmetry)', () => {
-    // Three semantically-equivalent configs that should produce identical hashes.
-    const absent: StrategyConfig = baseConfig;
-    const explicitFalse: StrategyConfig = {
+  it('reflectionTopN is stripped on non-reflect_and_generate iterations (hash collision)', () => {
+    // reflectionTopN is meaningless on a 'generate' iteration — canonicalization strips
+    // it so a stale value left over from a wizard toggle doesn't produce a phantom hash.
+    const without: StrategyConfig = baseConfig;
+    const withStaleTopN: StrategyConfig = {
       ...baseConfig,
       iterationConfigs: [
-        { agentType: 'generate', budgetPercent: 60, useReflection: false },
+        { agentType: 'generate', budgetPercent: 60, reflectionTopN: 5 },
         { agentType: 'swiss', budgetPercent: 40 },
       ],
     };
-    const explicitUndefined: StrategyConfig = {
-      ...baseConfig,
-      iterationConfigs: [
-        { agentType: 'generate', budgetPercent: 60, useReflection: undefined },
-        { agentType: 'swiss', budgetPercent: 40 },
-      ],
-    };
-    const h1 = hashStrategyConfig(absent);
-    const h2 = hashStrategyConfig(explicitFalse);
-    const h3 = hashStrategyConfig(explicitUndefined);
-    expect(h1).toBe(h2);
-    expect(h1).toBe(h3);
+    expect(hashStrategyConfig(without)).toBe(hashStrategyConfig(withStaleTopN));
   });
 
-  it('canonicalizes reflectionTopN: undefined === absent (when useReflection is not true)', () => {
-    const absent: StrategyConfig = baseConfig;
+  it('canonicalizes reflectionTopN: undefined === absent on reflect_and_generate too', () => {
     const explicitUndef: StrategyConfig = {
       ...baseConfig,
       iterationConfigs: [
-        { agentType: 'generate', budgetPercent: 60, reflectionTopN: undefined },
+        { agentType: 'reflect_and_generate', budgetPercent: 60, reflectionTopN: undefined },
+        { agentType: 'swiss', budgetPercent: 40 },
+      ],
+    };
+    const absent: StrategyConfig = {
+      ...baseConfig,
+      iterationConfigs: [
+        { agentType: 'reflect_and_generate', budgetPercent: 60 },
         { agentType: 'swiss', budgetPercent: 40 },
       ],
     };

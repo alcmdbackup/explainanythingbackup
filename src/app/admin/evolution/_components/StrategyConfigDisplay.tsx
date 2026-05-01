@@ -21,7 +21,7 @@ const AGENT_LABELS: Record<string, string> = {
 };
 
 interface IterationConfigEntry {
-  agentType: 'generate' | 'swiss';
+  agentType: 'generate' | 'reflect_and_generate' | 'swiss';
   budgetPercent: number;
   generationGuidance?: Array<{ tactic: string; percent: number }>;
 }
@@ -175,7 +175,9 @@ export function StrategyConfigDisplay({ config: raw, showRaw }: StrategyConfigDi
                           className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-semibold uppercase tracking-wider ${
                             ic.agentType === 'generate'
                               ? 'bg-blue-500/20 text-blue-400'
-                              : 'bg-purple-500/20 text-purple-400'
+                              : ic.agentType === 'reflect_and_generate'
+                                ? 'bg-amber-500/20 text-amber-400'
+                                : 'bg-purple-500/20 text-purple-400'
                           }`}
                         >
                           {ic.agentType}

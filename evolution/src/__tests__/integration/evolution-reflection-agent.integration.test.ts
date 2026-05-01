@@ -1,7 +1,7 @@
 // Integration test for the ReflectAndGenerateFromPreviousArticleAgent end-to-end.
 // Phase 6 + 7 of develop_reflection_and_generateFromParentArticle_agent_evolution_20260430.
 //
-// Exercises evolveArticle with iterationConfig.useReflection=true through real
+// Exercises evolveArticle with iterationConfig.agentType='reflect_and_generate' through real
 // AgentCostScope + cost tracker, real schema validation, and real attribution
 // extractor registry. Mocks: LLM provider (v2MockLlm with reflection labelResponses),
 // Supabase DB (lightweight stub), comparison/format helpers (kept hot-path agnostic).
@@ -101,8 +101,8 @@ function createMockDb() {
 function makeConfig(overrides: Partial<EvolutionConfig> = {}): EvolutionConfig {
   return {
     iterationConfigs: [
-      // Single generate iteration with reflection enabled.
-      { agentType: 'generate', budgetPercent: 100, useReflection: true, reflectionTopN: 3 },
+      // Single reflect_and_generate iteration (Shape A: agent type carries the reflection signal).
+      { agentType: 'reflect_and_generate', budgetPercent: 100, reflectionTopN: 3 },
     ],
     budgetUsd: 5,
     judgeModel: 'gpt-4.1-nano',

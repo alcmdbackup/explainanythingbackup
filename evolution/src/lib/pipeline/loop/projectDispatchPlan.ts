@@ -69,7 +69,7 @@ export interface DispatchPlanContext {
 export interface EstPerAgentValue {
   gen: number;
   rank: number;
-  /** Reflection cost per agent (only > 0 when iterCfg.useReflection is true). 0 for vanilla GFPA. */
+  /** Reflection cost per agent (only > 0 when iterCfg.agentType === 'reflect_and_generate'). 0 for vanilla GFPA. */
   reflection: number;
   total: number;
 }
@@ -94,7 +94,7 @@ export interface TacticMixEntry {
 
 export interface IterationPlanEntry {
   iterIdx: number;
-  agentType: 'generate' | 'swiss';
+  agentType: 'generate' | 'reflect_and_generate' | 'swiss';
   iterBudgetUsd: number;
   /** Effective tactic pool for this iteration (normalized weights). Cost estimates are
    *  weighted averages over this mix. Single-entry for guidance with one tactic. */
@@ -179,8 +179,9 @@ function buildTacticLabel(mix: TacticMixEntry[], source: TacticMixSource): strin
 }
 
 /** Weighted average of per-agent generation + ranking cost across a tactic mix.
- *  When `useReflection` is true, adds the reflection LLM call cost (uniform across
- *  the mix — reflection cost depends on parent text + topN, not the tactic). */
+ *  When `useReflection` is true (i.e. the iteration's agentType is 'reflect_and_generate'),
+ *  adds the reflection LLM call cost (uniform across the mix — reflection cost depends on
+ *  parent text + topN, not the tactic). */
 function weightedAgentCost(
   mix: ReadonlyArray<TacticMixEntry>,
   seedChars: number,
@@ -259,12 +260,12 @@ export function projectDispatchPlan(
       continue;
     }
 
-    // ─── Generate iteration ───────────────────────────────────────
-    // Phase 3 of develop_reflection_and_generateFromParentArticle_agent_evolution_20260430:
-    // when iterCfg.useReflection is true, weightedAgentCost includes the reflection LLM
-    // call cost so parallelDispatchCount sizing accounts for it. Otherwise reflection=0
-    // and the existing GFPA-only cost path applies.
-    const useReflection = iterCfg.useReflection === true;
+    // ─── Generate / reflect-and-generate iteration ────────────────
+    // Shape A: 'reflect_and_generate' is a third top-level agentType. When the iteration
+    // is reflect_and_generate, weightedAgentCost includes the reflection LLM call cost so
+    // parallelDispatchCount sizing accounts for it. Otherwise reflection=0 and the
+    // existing GFPA-only cost path applies.
+    const useReflection = iterCfg.agentType === 'reflect_and_generate';
     const reflectionTopN = iterCfg.reflectionTopN ?? 3;
 
     // Upper bound: full tactic output + max comparisons (reservation-safe).
@@ -311,7 +312,7 @@ export function projectDispatchPlan(
 
     plan.push({
       iterIdx,
-      agentType: 'generate',
+      agentType: iterCfg.agentType,
       iterBudgetUsd,
       tacticMix: mix,
       tacticMixSource: source,

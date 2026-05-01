@@ -29,14 +29,16 @@ The canonical type lives in `evolution/src/lib/pipeline/types.ts`:
 
 ```ts
 interface IterationConfig {
-  agentType: 'generate' | 'swiss';
+  agentType: 'generate' | 'reflect_and_generate' | 'swiss';
   budgetPercent: number;  // 1-100, all entries must sum to 100
-  sourceMode?: 'seed' | 'pool';  // generate-only; default 'seed'
+  sourceMode?: 'seed' | 'pool';  // variant-producing only (generate, reflect_and_generate); default 'seed'
   qualityCutoff?: { mode: 'topN' | 'topPercent'; value: number };  // required when sourceMode='pool'
-  generationGuidance?: Array<{ strategy: string; percent: number }>;  // per-iteration override
-  // develop_reflection_and_generateFromParentArticle_agent_evolution_20260430:
-  useReflection?: boolean;  // generate-only, mutually exclusive with generationGuidance
-  reflectionTopN?: number;  // 1-10, default 3, only valid when useReflection=true
+  generationGuidance?: Array<{ strategy: string; percent: number }>;  // generate-only per-iteration override
+  // reflect_and_generate is the wrapper agent that runs a reflection LLM call before
+  // delegating to GenerateFromPreviousArticle. The reflection LLM picks the tactic
+  // from all 24 candidates given the parent text + recent ELO boosts. Mutex with
+  // generationGuidance is structural (different agentType).
+  reflectionTopN?: number;  // 1-10, default 3, only valid when agentType='reflect_and_generate'
 }
 
 interface StrategyConfig {
@@ -62,7 +64,7 @@ interface StrategyConfig {
 |---------------------|--------------------------------------------|
 | `generationModel`   | LLM used for text generation calls         |
 | `judgeModel`        | LLM used for pairwise comparison/judging. Default: `qwen-2.5-7b-instruct` (see `DEFAULT_JUDGE_MODEL` in `src/config/modelRegistry.ts`). Selected based on empirical judge-agreement research (see `docs/research/judge_agreement_summary_tables.md`) — 100% decisive on both large-gap and close-pair comparisons with ~1.7s median latency and no thinking-mode overhead. |
-| `iterationConfigs`  | Ordered array of iteration definitions. Each entry specifies `agentType` (`generate` or `swiss`), `budgetPercent` (1-100, must sum to 100 across all entries), optional `sourceMode` / `qualityCutoff` (generate only), optional `generationGuidance` (generate only — overrides strategy-level `generationGuidance` for this iteration), and optional `useReflection` + `reflectionTopN` (generate only, mutually exclusive with `generationGuidance` — see ReflectAndGenerateFromPreviousArticleAgent). First entry must be `generate` (swiss on empty pool is invalid). Max 20 entries. Dollar amounts computed at runtime: `iterationBudgetUsd = (budgetPercent / 100) * totalBudgetUsd`. Dispatch count is budget-governed — no per-iter `maxAgents` field. |
+| `iterationConfigs`  | Ordered array of iteration definitions. Each entry specifies `agentType` (`generate`, `reflect_and_generate`, or `swiss`), `budgetPercent` (1-100, must sum to 100 across all entries), optional `sourceMode` / `qualityCutoff` (variant-producing only), optional `generationGuidance` (generate only — overrides strategy-level `generationGuidance` for this iteration), and optional `reflectionTopN` (reflect_and_generate only — see ReflectAndGenerateFromPreviousArticleAgent). First entry must be variant-producing (swiss on empty pool is invalid). Max 20 entries. Dollar amounts computed at runtime: `iterationBudgetUsd = (budgetPercent / 100) * totalBudgetUsd`. Dispatch count is budget-governed — no per-iter `maxAgents` field. |
 | `budgetUsd`         | Optional per-run budget cap. Per-iteration amounts derived from `iterationConfigs[].budgetPercent`. |
 | `generationGuidance`| Optional weighted tactic distribution at the strategy level. Array of `{ tactic, percent }` entries where percentages must sum to 100 and tactic names must be unique. Enables weighted random tactic selection from all 24 tactics via `selectTacticWeighted()` instead of the default deterministic 3-tactic behavior. Can be overridden per-iteration via `IterationConfig.generationGuidance`. |
 | `maxVariantsToGenerateFromSeedArticle` | Max generateFromSeedArticle agents per run. Excludes seed article. Default 9. |

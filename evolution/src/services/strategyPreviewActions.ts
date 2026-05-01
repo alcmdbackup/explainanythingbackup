@@ -165,11 +165,12 @@ const dispatchPreviewInputSchema = z.object({
     budgetUsd: z.number().positive(),
     maxComparisonsPerVariant: z.number().int().positive().optional(),
     iterationConfigs: z.array(z.object({
-      agentType: z.enum(['generate', 'swiss']),
+      agentType: z.enum(['generate', 'reflect_and_generate', 'swiss']),
       budgetPercent: z.number().min(1).max(100),
       sourceMode: z.enum(['seed', 'pool']).optional(),
       qualityCutoff: z.object({ mode: z.enum(['topN', 'topPercent']), value: z.number().positive() }).optional(),
       generationGuidance: z.array(z.unknown()).optional(),
+      reflectionTopN: z.number().int().min(1).max(10).optional(),
     })).min(1).max(20),
     minBudgetAfterParallelFraction: z.number().min(0).max(1).optional(),
     minBudgetAfterParallelAgentMultiple: z.number().min(0).optional(),
@@ -196,7 +197,7 @@ export interface DispatchPreviewResult {
  *  cannot export the pipeline type directly without leaking server-only imports. */
 export interface IterationPlanEntryClient {
   iterIdx: number;
-  agentType: 'generate' | 'swiss';
+  agentType: 'generate' | 'reflect_and_generate' | 'swiss';
   iterBudgetUsd: number;
   /** Effective tactic mix (normalized weights) used for this iteration's estimate. */
   tacticMix: Array<{ tactic: string; weight: number }>;

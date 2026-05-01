@@ -18,17 +18,14 @@ function shortenModel(model: string): string {
 // ─── Public API ──────────────────────────────────────────────────
 
 /**
- * Canonicalize an iteration config for hashing: strip falsy optional fields
- * (`undefined`, `false`, missing) so that semantically-equivalent configs
- * produce identical hashes regardless of explicit-vs-omitted form.
+ * Canonicalize an iteration config for hashing: strip undefined optional fields
+ * so that semantically-equivalent configs produce identical hashes regardless
+ * of explicit-vs-omitted form.
  *
- * Example: `{useReflection: undefined}`, `{useReflection: false}`, and
- * `{}` (no useReflection key) all canonicalize to the same shape, preventing
- * silent re-hashing of pre-existing strategies on schema additions.
- *
- * Optional booleans: stripped if undefined OR false (treat absent === default-off).
- * Optional numbers: stripped if undefined.
- * Required fields and explicit non-falsy values pass through unchanged.
+ * Reflection: `agentType: 'reflect_and_generate'` is a top-level enum value (Shape A),
+ * so the iterCfg.agentType field carries the reflection signal directly. There is no
+ * separate `useReflection` boolean to canonicalize. `reflectionTopN` is only meaningful
+ * for reflect_and_generate iterations and is stripped for any other agent type.
  */
 function canonicalizeIterationConfig(
   iterCfg: StrategyConfig['iterationConfigs'][number],
@@ -37,14 +34,12 @@ function canonicalizeIterationConfig(
     agentType: iterCfg.agentType,
     budgetPercent: iterCfg.budgetPercent,
   };
-  // Optional non-boolean fields: include if present (any value, including null).
+  // Optional fields: include if present (any value, including null).
   if (iterCfg.sourceMode !== undefined) out.sourceMode = iterCfg.sourceMode;
   if (iterCfg.qualityCutoff !== undefined) out.qualityCutoff = iterCfg.qualityCutoff;
   if (iterCfg.generationGuidance !== undefined) out.generationGuidance = iterCfg.generationGuidance;
-  // Optional booleans: include only when explicitly true (false === absent === default-off).
-  if (iterCfg.useReflection === true) out.useReflection = true;
-  // Optional numbers paired with optional flags: include only when defined AND meaningful.
-  if (iterCfg.reflectionTopN !== undefined && iterCfg.useReflection === true) {
+  // reflectionTopN only meaningful when the agent IS the reflection wrapper.
+  if (iterCfg.reflectionTopN !== undefined && iterCfg.agentType === 'reflect_and_generate') {
     out.reflectionTopN = iterCfg.reflectionTopN;
   }
   return out;

@@ -288,16 +288,20 @@ describe('NewStrategyPage', () => {
     });
   });
 
-  // ─── First iteration locked to generate ──────────────────
+  // ─── First iteration must produce variants (generate or reflect_and_generate) ──────────────────
+  // Shape A: the agent-type dropdown stays enabled for the first iteration, but the
+  // Swiss option is disabled at the option level so users can't select it.
 
-  it('disables agent type dropdown for first iteration', () => {
+  it('disables only the Swiss option on the first iteration agent-type dropdown', () => {
     render(<NewStrategyPage />);
     fillStep1();
     fireEvent.click(screen.getByText(/next: configure iterations/i));
 
-    const selects = screen.getAllByDisplayValue('Generate');
-    // The first generate select should be disabled
-    expect(selects[0]).toBeDisabled();
+    const firstSelect = screen.getByTestId('agent-type-select-0') as HTMLSelectElement;
+    expect(firstSelect).not.toBeDisabled();
+    const swissOption = firstSelect.querySelector('option[value="swiss"]') as HTMLOptionElement;
+    expect(swissOption).toBeTruthy();
+    expect(swissOption.disabled).toBe(true);
   });
 
   // ─── Phase 3: smart-default prompt context ───────────────────

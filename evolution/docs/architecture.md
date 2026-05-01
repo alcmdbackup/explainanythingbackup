@@ -238,9 +238,10 @@ delta computation, execution-detail validation, and budget-error handling.
 
 The `GenerateFromPreviousArticleAgent` (vanilla) and `ReflectAndGenerateFromPreviousArticleAgent`
 (reflection wrapper) are two interchangeable variant-producing agents. The orchestrator
-dispatches one or the other per generate iteration based on `iterCfg.useReflection`. See
-[Agents Overview](./agents/overview.md) for the wrapper's reflection prompt + parser
-contract and the load-bearing invariants around inner-`.execute()` dispatch.
+dispatches one or the other per iteration based on `iterCfg.agentType` (`'generate'` vs
+`'reflect_and_generate'`). See [Agents Overview](./agents/overview.md) for the wrapper's
+reflection prompt + parser contract and the load-bearing invariants around inner-`.execute()`
+dispatch.
 
 24 tactics are available: 3 core (`structural_transform`, `lexical_simplify`,
 `grounding_enhance`), 5 extended (`engagement_amplify`, `style_polish`,
