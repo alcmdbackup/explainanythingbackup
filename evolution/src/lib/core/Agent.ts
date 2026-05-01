@@ -66,6 +66,12 @@ export abstract class Agent<TInput, TOutput, TDetail extends ExecutionDetailBase
     // When ctx.rawProvider is absent (tests that pass a pre-built input.llm), skip — tests still work.
     let effectiveInput: TInput = input;
     if (this.usesLLM && ctx.rawProvider && ctx.defaultModel) {
+      // FK linkage (debug_evolution_run_cost_20260426 Phase 4): bind invocationId at
+      // construction time so every complete() call attaches the FK, even when agent code
+      // calls llm.complete(prompt, agentName) without per-call options. Gated by
+      // EVOLUTION_FK_THREADING_ENABLED='false' for ops rollback. See reference.md
+      // § "Kill Switches / Feature Flags".
+      const fkThreadingEnabled = process.env.EVOLUTION_FK_THREADING_ENABLED !== 'false';
       const scopedLlm = createEvolutionLLMClient(
         ctx.rawProvider,
         costScope,
@@ -74,6 +80,7 @@ export abstract class Agent<TInput, TOutput, TDetail extends ExecutionDetailBase
         ctx.db,
         ctx.runId,
         ctx.generationTemperature,
+        fkThreadingEnabled ? (invocationId ?? undefined) : undefined,
       );
       effectiveInput = { ...(input as unknown as Record<string, unknown>), llm: scopedLlm } as unknown as TInput;
     }

@@ -4,6 +4,14 @@ The evolution system uses a two-layer budget model to prevent runaway LLM spendi
 
 For how costs fit into the pipeline lifecycle, see [Architecture](./architecture.md). For the database tables that store cost data, see [Data Model](./data_model.md).
 
+> **⚠ Historical cost-data caveats** (debug_evolution_run_cost_20260426). Three windows of historical cost data have known reliability issues that cannot be retroactively repaired:
+>
+> 1. **Pre-2026-02-23**: cost numbers are reliable.
+> 2. **2026-02-23 → 2026-04-30 (audit-gap window)**: `llmCallTracking` rows are missing entirely for evolution runs in this period — per-call token-level audit is impossible. Run-level cost rollups in `evolution_metrics` are still trustworthy because they came from `scope.getOwnSpent()`, but you cannot drill down further.
+> 3. **Pre-2026-04-20 OpenRouter-routed runs (gemini-flash-lite, qwen, gpt-oss-20b)**: cost numbers may show ~3× inflation due to Bug A — the legacy `response.length / 4` heuristic over-counted tokens for these models. Not retroactively repairable because pre-fix `llmCallTracking` rows have NULL `evolution_invocation_id` and the backfill script's preflight rejects them.
+>
+> Post-2026-04-30 data is reliable. The CostEstimatesTab on `/admin/evolution/runs/[runId]` surfaces a banner when `run.created_at < '2026-04-30T00:00:00Z'` to warn consumers.
+
 > **Per-purpose cost split.** Every LLM call passes a typed `AgentName` label as the
 > second argument to `llm.complete()` (defined in `evolution/src/lib/core/agentNames.ts`,
 > currently `'generation' | 'ranking' | 'seed_title' | 'seed_article'`). The V2 cost

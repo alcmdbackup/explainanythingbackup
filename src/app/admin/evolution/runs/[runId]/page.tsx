@@ -118,7 +118,21 @@ export default function EvolutionRunDetailPage(): JSX.Element {
             <AttributionCharts entityType="run" entityId={runId} />
           </div>
         )}
-        {activeTab === 'cost-estimates' && <CostEstimatesTab entityType="run" entityId={runId} />}
+        {activeTab === 'cost-estimates' && (
+          <div className="space-y-4">
+            {run.created_at < '2026-04-30T00:00:00Z' && (
+              <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200">
+                <strong>⚠ Historical cost data caveat.</strong> This run was created before
+                2026-04-30. Cost numbers may be inflated up to ~3× for OpenRouter-routed
+                models (gemini-flash-lite, qwen, gpt-oss-20b) due to a since-fixed
+                token-count bug, AND per-call <code>llmCallTracking</code> rows may be
+                missing for runs in the 2026-02-23 → 2026-04-30 audit-gap window. See{' '}
+                <code>evolution/docs/cost_optimization.md</code> for full details.
+              </div>
+            )}
+            <CostEstimatesTab entityType="run" entityId={runId} />
+          </div>
+        )}
         {activeTab === 'elo' && <EloTab runId={runId} />}
         {activeTab === 'lineage' && <LineageTab runId={runId} />}
         {activeTab === 'variants' && <VariantsTab runId={runId} runStatus={run.status} />}

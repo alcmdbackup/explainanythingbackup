@@ -402,6 +402,7 @@ Operational levers that disable new behavior without requiring a code revert. Se
 | `EVOLUTION_REUSE_SEED_RATING` | `'true'` | Reverts to legacy behavior: fresh seed UUID + default rating + new arena INSERT per run. | multi_iteration_strategy_support_evolution_20260415 |
 | `EVOLUTION_EMIT_ATTRIBUTION_METRICS` | `'true'` | Skips the `computeRunMetrics` call in `persistRunResults.ts` finalize path; no `eloAttrDelta:*` / `eloAttrDeltaHist:*` rows written to `evolution_metrics`. Existing rows remain; no data loss. | track_tactic_effectiveness_evolution_20260422 Phase 0 |
 | `COST_CALIBRATION_ENABLED` | `'false'` | Ignores `evolution_cost_calibration` DB values; reverts to hardcoded `EMPIRICAL_OUTPUT_CHARS` / `OUTPUT_TOKEN_ESTIMATES` constants. | cost_estimate_accuracy_analysis_20260414 |
+| `EVOLUTION_FK_THREADING_ENABLED` | `'true'` | Stops binding `ctx.invocationId` on the per-invocation `EvolutionLLMClient` at `Agent.ts:69-77`; iteration-loop agents (generation, ranking) revert to writing NULL `evolution_invocation_id` on `llmCallTracking` rows. Seed agents are unaffected — they pass `invocationId` via per-call options. Use only if Phase 4 of debug_evolution_run_cost_20260426 introduces a regression. | debug_evolution_run_cost_20260426 Phase 4c |
 
 **String-contract**: the check is `process.env.FLAG !== 'false'` — exact string match. Unset, any other value, or typos keep the feature enabled. Always verify with `env | grep <FLAG>` on the runner.
 
