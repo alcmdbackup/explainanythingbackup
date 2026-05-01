@@ -66,13 +66,20 @@ export async function updateInvocation(
   if (!id) return;
 
   try {
+    // Partial-update semantics: only include fields the caller explicitly provided.
+    // execution_detail and error_message use conditional-spread (matching duration_ms /
+    // variant_surfaced below) so omitting them preserves the previously-written value.
+    // Load-bearing for ReflectAndGenerateFromPreviousArticleAgent's wrapper-error path —
+    // the wrapper writes partial reflection detail BEFORE rethrowing, then Agent.run()'s
+    // catch handler updates cost/success/error_message WITHOUT execution_detail. With this
+    // partial-update fix, the wrapper's partial detail is preserved on the row.
     const { error } = await db
       .from('evolution_agent_invocations')
       .update({
         cost_usd: updates.cost_usd,
         success: updates.success,
-        execution_detail: updates.execution_detail ?? null,
-        error_message: updates.error_message ?? null,
+        ...(updates.execution_detail !== undefined && { execution_detail: updates.execution_detail }),
+        ...(updates.error_message !== undefined && { error_message: updates.error_message }),
         ...(updates.duration_ms != null && { duration_ms: updates.duration_ms }),
         ...(updates.variant_surfaced !== undefined && { variant_surfaced: updates.variant_surfaced }),
       })

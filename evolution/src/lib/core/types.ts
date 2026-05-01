@@ -175,6 +175,16 @@ export interface AgentContext {
    *  time rather than relying on sync_to_arena to backfill. Set to null for runs with
    *  no prompt (explanation-only runs). */
   promptId?: string | null;
+  /** Experiment ID for the run, denormalized so per-invocation entity loggers can
+   *  populate the experiment_id ancestor FK on evolution_logs rows for cross-aggregation.
+   *  Phase 2 of develop_reflection_and_generateFromParentArticle_agent_evolution_20260430. */
+  experimentId?: string;
+  /** Strategy ID for the run, denormalized for the same reason as experimentId. */
+  strategyId?: string;
+  /** Cached map of tactic name → recent ELO delta (mean elo_score - 1200) computed once
+   *  per iteration in runIterationLoop and read by ReflectAndGenerateFromPreviousArticleAgent
+   *  to populate the reflection prompt. Phase 4 of the same project. */
+  tacticEloBoosts?: Map<string, number | null>;
 }
 
 export interface AgentOutput<TOutput, TDetail> {

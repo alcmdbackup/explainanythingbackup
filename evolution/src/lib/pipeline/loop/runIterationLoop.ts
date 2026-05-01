@@ -417,6 +417,8 @@ export async function evolveArticle(
             invocationId: '',
             randomSeed: deriveSeed(randomSeed, `iter${iteration}`, `gfsa${execOrder}`),
             logger, costTracker: iterTracker, config: resolvedConfig, promptId: options?.promptId ?? null,
+            experimentId: options?.experimentId,
+            strategyId: options?.strategyId,
             agentIndex: execOrder,
             rawProvider: llmProvider,
             defaultModel: resolvedConfig.generationModel,
@@ -603,6 +605,8 @@ export async function evolveArticle(
           invocationId: '',
           randomSeed: deriveSeed(randomSeed, `iter${iteration}`, `merge${mergeExecOrder}`),
           logger, costTracker: iterTracker, config: resolvedConfig, promptId: options?.promptId ?? null,
+          experimentId: options?.experimentId,
+          strategyId: options?.strategyId,
         };
         const mergeAgent = new MergeRatingsAgent();
         const mergeResult = await mergeAgent.run({
@@ -669,6 +673,8 @@ export async function evolveArticle(
             invocationId: '',
             randomSeed: deriveSeed(randomSeed, `iter${iteration}`, `swiss${swissExecOrder}`),
             logger, costTracker: iterTracker, config: resolvedConfig, promptId: options?.promptId ?? null,
+            experimentId: options?.experimentId,
+            strategyId: options?.strategyId,
             rawProvider: llmProvider,
             defaultModel: resolvedConfig.generationModel,
             generationTemperature: resolvedConfig.generationTemperature,
@@ -696,6 +702,8 @@ export async function evolveArticle(
             invocationId: '',
             randomSeed: deriveSeed(randomSeed, `iter${iteration}`, `merge${mergeExecOrder}`),
             logger, costTracker: iterTracker, config: resolvedConfig, promptId: options?.promptId ?? null,
+            experimentId: options?.experimentId,
+            strategyId: options?.strategyId,
           };
           const mergeAgent = new MergeRatingsAgent();
           const mergeBuffers: MergeMatchEntry[][] = [

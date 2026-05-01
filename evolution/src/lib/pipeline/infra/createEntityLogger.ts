@@ -43,6 +43,11 @@ export function createEntityLogger(
   function log(level: LogLevel, message: string, context?: Record<string, unknown>): void {
     if ((LOG_LEVELS[level] ?? 0) < minLevel) return;
 
+    // Defensive: tests pass partial/mock Supabase clients. Skip the DB insert silently
+    // when the client doesn't expose .from(), matching the existing fire-and-forget
+    // semantics — production calls always have a real client.
+    if (typeof (supabase as { from?: unknown })?.from !== 'function') return;
+
     const { iteration, phaseName, variantId, ...rest } = context ?? {};
 
     Promise.resolve(

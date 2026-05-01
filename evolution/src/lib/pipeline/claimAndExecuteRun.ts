@@ -297,6 +297,11 @@ async function executePipeline(
       // B122: propagate prompt_id so any agent in the seed phase that writes arena rows
       // can populate it at insert.
       promptId: claimedRun.prompt_id ?? null,
+      // Phase 2 of develop_reflection_and_generateFromParentArticle_agent_evolution_20260430:
+      // propagate experiment_id and strategy_id so the seed-phase invocation logger writes
+      // them as denormalized FKs on evolution_logs rows for cross-aggregation.
+      experimentId: claimedRun.experiment_id ?? undefined,
+      strategyId: claimedRun.strategy_id,
     };
     const seedAgent = new CreateSeedArticleAgent();
     const seedResult = await seedAgent.run({
