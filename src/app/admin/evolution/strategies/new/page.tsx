@@ -43,6 +43,12 @@ interface IterationRow {
   qualityCutoffValue?: number;
   /** Per-iteration tactic guidance. Overrides strategy-level for this iteration. */
   tacticGuidance?: Array<{ tactic: string; percent: number }>;
+  /** Phase 11 of develop_reflection_and_generateFromParentArticle_agent_evolution_20260430:
+   *  enable the reflection step before generation (LLM picks tactic from all 24 candidates
+   *  given parent text + ELO boosts). Generate-only. Mutually exclusive with tacticGuidance. */
+  useReflection?: boolean;
+  /** Top N tactics the reflection LLM ranks (1-10, default 3). Only valid when useReflection=true. */
+  reflectionTopN?: number;
 }
 
 // Default cutoff applied when user switches a generate iteration to sourceMode='pool'.
@@ -76,6 +82,8 @@ interface IterationConfigPayload {
   sourceMode?: 'seed' | 'pool';
   qualityCutoff?: { mode: 'topN' | 'topPercent'; value: number };
   generationGuidance?: Array<{ tactic: string; percent: number }>;
+  useReflection?: boolean;
+  reflectionTopN?: number;
 }
 
 /** Map UI iteration rows to the iterationConfigs payload accepted by the server
@@ -94,8 +102,20 @@ function toIterationConfigsPayload(iterations: IterationRow[]): IterationConfigP
         && it.qualityCutoffMode && it.qualityCutoffValue != null && it.qualityCutoffValue > 0
       ? { qualityCutoff: { mode: it.qualityCutoffMode, value: it.qualityCutoffValue } }
       : {}),
-    ...(it.agentType === 'generate' && it.tacticGuidance && it.tacticGuidance.length > 0
+    // Phase 11: tactic guidance is mutually exclusive with reflection. The UI prevents
+    // both being set, but defensively only emit guidance when reflection is OFF.
+    ...(it.agentType === 'generate' && !it.useReflection
+        && it.tacticGuidance && it.tacticGuidance.length > 0
       ? { generationGuidance: it.tacticGuidance.filter((g) => g.percent > 0) }
+      : {}),
+    // Phase 11: only emit reflection fields when explicitly enabled; falsy/undefined
+    // are stripped by hashStrategyConfig's canonicalization, but emitting them at all
+    // would force a hash change for strategies that don't use reflection.
+    ...(it.agentType === 'generate' && it.useReflection === true
+      ? {
+          useReflection: true,
+          reflectionTopN: it.reflectionTopN ?? 3,
+        }
       : {}),
   }));
 }
@@ -401,7 +421,22 @@ export default function NewStrategyPage(): JSX.Element {
         delete updated.qualityCutoffMode;
         delete updated.qualityCutoffValue;
         delete updated.tacticGuidance;
+        delete updated.useReflection;
+        delete updated.reflectionTopN;
         return updated;
+      }
+      // Phase 11: enforce mutual exclusivity at the state level. Setting useReflection
+      // clears tacticGuidance; setting tacticGuidance clears useReflection / topN.
+      if (patch.useReflection === true) {
+        delete updated.tacticGuidance;
+      }
+      if (patch.tacticGuidance && patch.tacticGuidance.length > 0) {
+        delete updated.useReflection;
+        delete updated.reflectionTopN;
+      }
+      // Drop reflectionTopN when reflection is OFF (avoids stale value on re-enable).
+      if (updated.useReflection !== true) {
+        delete updated.reflectionTopN;
       }
       // Generate: ensure sourceMode is always set so payload emission is deterministic.
       updated.sourceMode ??= 'seed';
@@ -907,7 +942,9 @@ export default function NewStrategyPage(): JSX.Element {
                         <button
                           type="button"
                           onClick={() => setTacticEditorIdx(tacticEditorIdx === idx ? null : idx)}
-                          className="text-xs font-ui text-[var(--accent-gold)] hover:underline flex items-center gap-1"
+                          disabled={it.useReflection === true}
+                          title={it.useReflection === true ? 'Reflection picks the tactic — disable reflection to use guidance' : undefined}
+                          className="text-xs font-ui text-[var(--accent-gold)] hover:underline flex items-center gap-1 disabled:opacity-40 disabled:cursor-not-allowed disabled:no-underline"
                           data-testid={`tactic-guidance-btn-${idx}`}
                         >
                           ⚔️ Tactics{it.tacticGuidance && it.tacticGuidance.length > 0 ? ' ✓' : ''}
@@ -929,6 +966,58 @@ export default function NewStrategyPage(): JSX.Element {
                             onClose={() => setTacticEditorIdx(null)}
                           />
                         )}
+                      </div>
+                    )}
+                    {/* Phase 11: Reflection toggle — generate-only, mutually exclusive with tactic guidance.
+                        When checked, the reflection LLM picks the tactic given parent + ELO boosts;
+                        when unchecked, normal tactic-guidance / round-robin path applies. */}
+                    {it.agentType === 'generate' && (
+                      <div
+                        className="mt-2 pl-8 flex flex-wrap items-center gap-2 text-xs font-ui"
+                        data-testid={`iteration-reflection-controls-${idx}`}
+                      >
+                        <label
+                          className={`flex items-center gap-1.5 cursor-pointer ${
+                            it.tacticGuidance && it.tacticGuidance.length > 0
+                              ? 'opacity-40 cursor-not-allowed'
+                              : ''
+                          }`}
+                          title={
+                            it.tacticGuidance && it.tacticGuidance.length > 0
+                              ? 'Tactic guidance is set — clear it to enable reflection'
+                              : 'Have an LLM pick the best tactic per parent article'
+                          }
+                        >
+                          <input
+                            type="checkbox"
+                            checked={it.useReflection === true}
+                            disabled={it.tacticGuidance != null && it.tacticGuidance.length > 0}
+                            onChange={e =>
+                              updateIteration(idx, {
+                                useReflection: e.target.checked || undefined,
+                                reflectionTopN: e.target.checked ? (it.reflectionTopN ?? 3) : undefined,
+                              })
+                            }
+                            className="w-3.5 h-3.5 cursor-pointer accent-[var(--accent-gold)]"
+                            data-testid={`use-reflection-checkbox-${idx}`}
+                          />
+                          <span className="text-[var(--text-primary)]">🪞 Use reflection</span>
+                        </label>
+                        <span className="ml-2 text-[var(--text-muted)]">Top-N tactics:</span>
+                        <input
+                          type="number"
+                          min={1}
+                          max={10}
+                          step={1}
+                          value={it.reflectionTopN ?? 3}
+                          disabled={it.useReflection !== true}
+                          onChange={e => {
+                            const v = e.target.value === '' ? undefined : Number(e.target.value);
+                            updateIteration(idx, { reflectionTopN: v });
+                          }}
+                          className="w-14 px-2 py-1 text-xs font-mono bg-[var(--surface-primary)] border border-[var(--border-default)] rounded-page text-[var(--text-primary)] text-right focus:border-[var(--accent-gold)] focus:outline-none disabled:opacity-40 disabled:cursor-not-allowed"
+                          data-testid={`reflection-topn-input-${idx}`}
+                        />
                       </div>
                     )}
                     </div>

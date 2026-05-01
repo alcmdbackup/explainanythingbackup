@@ -19,6 +19,9 @@ import { GanttBar } from '@evolution/components/evolution/visualizations/GanttBa
 const GENERATION_COLOR = '#3b82f6'; // blue
 const RANKING_COLOR = '#8b5cf6';    // purple
 const COMPARISON_COLOR = '#a78bfa'; // lighter purple
+// Phase 10 of develop_reflection_and_generateFromParentArticle_agent_evolution_20260430:
+// the wrapper agent prepends a reflection LLM call, rendered as an amber bar.
+const REFLECTION_COLOR = '#f59e0b'; // amber
 const COMPARISON_BUCKET_THRESHOLD = 20;
 const COMPARISON_BUCKET_SIZE = 5;
 
@@ -121,11 +124,20 @@ export function InvocationTimelineTab({ invocation }: InvocationTimelineTabProps
 
   const rankingDurationMs = ranking?.durationMs as number | undefined;
 
-  // Phase bar total = generation + ranking durations, fallback to invocation total.
+  // Phase 10: the wrapper agent's execution_detail prepends a `reflection` sub-object
+  // with its own durationMs/cost. Optional — omitted on legacy/historic rows.
+  const reflection = (detail?.reflection as Record<string, unknown> | undefined) ?? null;
+  const reflectionDurationMs = reflection?.durationMs as number | undefined;
+
+  // Phase bar total = reflection + generation + ranking, fallback to invocation total.
   const phaseTotalMs =
-    (generationDurationMs ?? 0) + (rankingDurationMs ?? 0) ||
+    (reflectionDurationMs ?? 0) + (generationDurationMs ?? 0) + (rankingDurationMs ?? 0) ||
     invocation.duration_ms ||
     1;
+
+  // Bar startMs offsets account for the reflection phase coming first.
+  const generationStartMs = reflectionDurationMs ?? 0;
+  const rankingStartMs = generationStartMs + (generationDurationMs ?? 0);
 
   const comparisons = ((ranking?.comparisons as ComparisonRecord[] | undefined) ?? []);
   const discardedVariant = ranking === null;
@@ -150,7 +162,7 @@ export function InvocationTimelineTab({ invocation }: InvocationTimelineTabProps
         )}
       </div>
 
-      {/* Phase bar: generation (blue) + ranking (purple) */}
+      {/* Phase bar: reflection (amber, optional) + generation (blue) + ranking (purple) */}
       <div className="space-y-1">
         <div className="text-xs font-ui text-[var(--text-secondary)]">Phases</div>
         <div className="flex gap-2 items-center">
@@ -158,9 +170,20 @@ export function InvocationTimelineTab({ invocation }: InvocationTimelineTabProps
             <span className="text-xs font-ui text-[var(--text-muted)]">Phase</span>
           </div>
           <div className="flex-1 relative h-6" data-testid="timeline-phase-bars">
-            {generationDurationMs != null && (
+            {reflectionDurationMs != null && (
               <GanttBar
                 startMs={0}
+                durationMs={reflectionDurationMs}
+                totalMs={phaseTotalMs}
+                color={REFLECTION_COLOR}
+                label={`Refl ${fmtMs(reflectionDurationMs)}`}
+                tooltip={`Reflection phase (1 LLM call to pick tactic)\nDuration: ${fmtMs(reflectionDurationMs)}\nCost: ${(reflection?.cost as number | undefined)?.toFixed(4) ?? '—'}`}
+                testId="timeline-reflection-bar"
+              />
+            )}
+            {generationDurationMs != null && (
+              <GanttBar
+                startMs={generationStartMs}
                 durationMs={generationDurationMs}
                 totalMs={phaseTotalMs}
                 color={GENERATION_COLOR}
@@ -171,7 +194,7 @@ export function InvocationTimelineTab({ invocation }: InvocationTimelineTabProps
             )}
             {rankingDurationMs != null && (
               <GanttBar
-                startMs={generationDurationMs ?? 0}
+                startMs={rankingStartMs}
                 durationMs={rankingDurationMs}
                 totalMs={phaseTotalMs}
                 color={RANKING_COLOR}
@@ -193,9 +216,9 @@ export function InvocationTimelineTab({ invocation }: InvocationTimelineTabProps
 
       {/* Per-comparison sub-bars */}
       {buckets.length > 0 && rankingDurationMs != null && (() => {
-        const rankingStart = generationDurationMs ?? 0;
         // Position sub-bars relative to the full phase bar. Cumulative offsets within ranking.
-        let cursorMs = rankingStart;
+        // Phase 10: rankingStartMs already accounts for reflection's offset.
+        let cursorMs = rankingStartMs;
         return (
           <div className="space-y-1" data-testid="timeline-comparisons">
             <div className="text-xs font-ui text-[var(--text-secondary)]">
