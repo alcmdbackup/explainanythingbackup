@@ -65,7 +65,7 @@ The V2 pipeline cannot make targeted edits to a variant. `GenerateFromPreviousAr
       → `{ approverGroups, droppedPreApprover[] }`. If `approverGroups.length === 0` → exit with `stopReason: 'no_edits_proposed'` or `'parse_failed'`
    3. **Approver call**: send `proposedMarkup` + group summary → JSONL
    4. **Parse Approver output** → `reviewDecisions[]` (missing decisions default to `reject`)
-   5. **Implementer application**: collect atomic edits from accepted groups, sort by `range.start` descending, detect range overlaps between groups (drop later group on conflict), apply right-to-left to `current.text` → `newText`. Format-validate. → `{ newText, droppedPostApprover[], appliedGroups[] }`
+   5. **Implementer application**: collect atomic edits from accepted groups, detect range overlaps between groups (drop later group on conflict), verify each edit's context-string failsafe + `oldText` match against `current.text` (drop group on mismatch), sort survivors by `range.start` descending, apply right-to-left to `current.text` → `newText`. Format-validate. → `{ newText, droppedPostApprover[], appliedGroups[] }`
    6. If `newText !== current.text` and format-valid: create new `Variant`, add to pool, `current = newVariant`
    7. If `appliedCount === 0`: exit with `stopReason: 'all_edits_rejected'`
 - [ ] **2.A.4** Emit rich `execution_detail.cycles[]` per cycle (full shape per research doc § "execution_detail shape"). Each cycle entry has `proposedMarkup` + `proposedGroupsRaw` + `droppedPreApprover[]` + `approverGroups[]` + `reviewDecisions[]` + `droppedPostApprover[]` + `appliedGroups[]` + `parentText` + `childText`.
@@ -81,12 +81,13 @@ The V2 pipeline cannot make targeted edits to a variant. `GenerateFromPreviousAr
 
 #### 2.C — Implementer pre-check (deterministic, parser + validator)
 
-- [ ] **2.C.1** Build `evolution/src/lib/core/agents/editing/parseProposedEdits.ts` (~250 LOC):
+- [ ] **2.C.1** Build `evolution/src/lib/core/agents/editing/parseProposedEdits.ts` (~280 LOC):
    - Regex extraction for `{++ [#N] ... ++}`, `{-- [#N] ... --}`, `{~~ [#N] ... ~> ... ~~}`.
    - For each atomic edit, record `markupRange: {start, end}` (byte positions in `proposedMarkup`).
    - Group atomic edits by `[#N]` into `EditGroup[]`.
    - Adjacent same-`[#N]` add+delete merged into one `replace` edit.
    - **Strip-markup pass**: produce `recoveredSource` (the marked-up text with all CriticMarkup removed and only the "before" content kept — i.e., for a substitution, keep the deleted text; for an insertion, keep nothing; for a deletion, keep the deleted text). Track a `markupPos → sourcePos` offset map so we can translate each atomic edit's `markupRange` into `range: {start, end}` in `current.text`.
+   - **Context capture (failsafe)**: for each atomic edit, after `range` is computed, capture `contextBefore = current.text.slice(max(0, range.start - CONTEXT_LEN), range.start)` and `contextAfter = current.text.slice(range.end, min(current.text.length, range.end + CONTEXT_LEN))` where `CONTEXT_LEN = 30`. Used by the applier to verify positions still match before splicing.
    - Adversarial handling: unbalanced tags → drop the unbalanced atomic edit silently; nested tags → drop silently; missing `[#N]` → auto-assign sequential; combined-form `~~` substitution where content contains `~>` → drop silently (use paired form instead); duplicate non-paired numbers → keep first, drop rest.
    - Return `{ groups: EditGroup[], recoveredSource: string, dropped: Array<{ reason, detail }> }`.
 - [ ] **2.C.2** Build `evolution/src/lib/core/agents/editing/checkProposerDrift.ts` (~50 LOC):
@@ -98,7 +99,7 @@ The V2 pipeline cannot make targeted edits to a variant. `GenerateFromPreviousAr
    - **Group-level enforcement: any atomic edit in a group fails any hard rule → drop the whole group**.
    - Cap enforcement: total atomic edits ≤ 30 (drop excess groups in number order); each group ≤ 5 atomic edits (drop wholesale).
    - Return `{ approverGroups: EditGroup[], droppedPreApprover: Array<{ groupNumber, reason, detail }> }`.
-- [ ] **2.C.4** Unit tests `parseProposedEdits.test.ts` (~350 LOC, ~28 cases): well-formed input (all 3 forms), grouped edits sharing `[#N]` (cross-document), unbalanced tags (silently dropped), nested tags (silently dropped), missing numbers (auto-assigned), duplicate non-paired numbers (first kept), combined `~~` form with `~>` in content (silently dropped), paired add/delete merged correctly, position extraction at document start/end, Unicode in edit content, multiple groups in one paragraph, position math correctness (range maps to correct bytes in `current.text`), `markupRange` matches `proposedMarkup` slice exactly, recoveredSource correctness for each edit type.
+- [ ] **2.C.4** Unit tests `parseProposedEdits.test.ts` (~400 LOC, ~32 cases): well-formed input (all 3 forms), grouped edits sharing `[#N]` (cross-document), unbalanced tags (silently dropped), nested tags (silently dropped), missing numbers (auto-assigned), duplicate non-paired numbers (first kept), combined `~~` form with `~>` in content (silently dropped), paired add/delete merged correctly, position extraction at document start/end, Unicode in edit content, multiple groups in one paragraph, position math correctness (range maps to correct bytes in `current.text`), `markupRange` matches `proposedMarkup` slice exactly, recoveredSource correctness for each edit type, **context capture** at document start (contextBefore truncated/empty), at document end (contextAfter truncated/empty), with adjacent edits (their contexts overlap, both captured correctly), exact CONTEXT_LEN boundary correctness (length 30 enforced).
 - [ ] **2.C.5** Unit tests `checkProposerDrift.test.ts` (~100 LOC, ~10 cases): exact match (no drift), trivial whitespace differences (no drift), one-character text difference (drift detected, offset reported), proposer added text outside markup (drift), proposer removed text outside markup (drift), normalized newlines (no drift).
 - [ ] **2.C.6** Unit tests `validateEditGroups.test.ts` (~250 LOC, ~20 cases): each hard rule (10), group-level coherence (single bad atomic → whole group dropped), cycle cap (30+ edits), group cap (6+ edits), edge cases (heading at very start of document, code fence at very end, etc.).
 - [ ] **2.C.7** Property-based test `parseProposedEdits.property.test.ts` — fast-check generators: parse → reconstruct → parse-again idempotency on well-formed inputs; arbitrary text never crashes parser; arbitrary `[#N]` numbers don't break grouping; range-correctness invariant (for any well-formed markup, every edit's `range` slices the correct content from `current.text`).
@@ -120,10 +121,15 @@ The V2 pipeline cannot make targeted edits to a variant. `GenerateFromPreviousAr
 
 #### 2.E — Implementer application (deterministic, position-based applier)
 
-- [ ] **2.E.1** Build `evolution/src/lib/core/agents/editing/applyAcceptedGroups.ts` (~150 LOC):
+- [ ] **2.E.1** Build `evolution/src/lib/core/agents/editing/applyAcceptedGroups.ts` (~180 LOC):
    - Filter `approverGroups` to those with `decision === 'accept'`.
    - Build `acceptedAtomicEdits[]` — flatten all atomic edits from accepted groups, each tagged with its parent `groupNumber`.
    - **Detect range overlaps between groups**: for any two atomic edits from different groups whose `range`s overlap, drop the higher-numbered group entirely. Log to `droppedPostApprover[]` with `reason: 'application_conflict'` and detail showing both groups' numbers + ranges.
+   - **Verify context-string failsafe** for each surviving accepted atomic edit, against `current.text` (positions are stable for the whole cycle since we apply right-to-left to a single source):
+     - `actualBefore = current.text.slice(max(0, range.start - edit.contextBefore.length), range.start)` must equal `edit.contextBefore`
+     - `actualAfter = current.text.slice(range.end, range.end + edit.contextAfter.length)` must equal `edit.contextAfter`
+     - On either mismatch → drop the whole group, log to `droppedPostApprover[]` with `reason: 'context_mismatch'` and detail showing expected vs actual + offset
+     - For `delete` and `replace`: also verify `current.text.slice(range.start, range.end) === oldText`. Same-group on mismatch.
    - Sort surviving accepted atomic edits by `range.start` **descending** (apply right-to-left so earlier positions don't shift).
    - Apply each edit by splicing `current.text` at `range`:
      - `insert`: `text.slice(0, range.start) + newText + text.slice(range.start)` (range.start === range.end for insertions)
@@ -131,7 +137,7 @@ The V2 pipeline cannot make targeted edits to a variant. `GenerateFromPreviousAr
      - `replace`: `text.slice(0, range.start) + newText + text.slice(range.end)`
    - Format-validate final `newText`. If invalid: cycle is no-op, log `format_invalid_after_apply`.
    - Return `{ newText, droppedPostApprover, appliedGroups }`.
-- [ ] **2.E.2** Unit tests `applyAcceptedGroups.test.ts` (~200 LOC, ~16 cases): single accepted group with one atomic edit, all rejected (newText === original), all accepted, group-internal coordination (1 group with 3 atomic edits across paragraphs all apply), overlapping accepted groups (later group dropped, earlier applies cleanly), reverse-position-order correctness (multiple edits at known offsets — verify each lands correctly), format-invalid post-apply (no-op cycle), insertion at document start, insertion at document end, delete-then-insert at same position from same group, all-or-nothing within a group preserved by overlap detection.
+- [ ] **2.E.2** Unit tests `applyAcceptedGroups.test.ts` (~250 LOC, ~20 cases): single accepted group with one atomic edit, all rejected (newText === original), all accepted, group-internal coordination (1 group with 3 atomic edits across paragraphs all apply), overlapping accepted groups (later group dropped, earlier applies cleanly), reverse-position-order correctness (multiple edits at known offsets — verify each lands correctly), format-invalid post-apply (no-op cycle), insertion at document start, insertion at document end, delete-then-insert at same position from same group, all-or-nothing within a group preserved by overlap detection, **context-mismatch on contextBefore drop group**, **context-mismatch on contextAfter drop group**, **oldText-mismatch (delete/replace) drop group**, **edit at document start with truncated contextBefore (verify not a false-positive mismatch)**, **edit at document end with truncated contextAfter**.
 
 #### 2.F — Integration tests for the full Phase 2 pipeline
 
@@ -144,7 +150,8 @@ The V2 pipeline cannot make targeted edits to a variant. `GenerateFromPreviousAr
    - **Format-invalid no-op** — Implementer application produces malformed text → no Variant added, cycle continues.
    - **Mixed accept/reject** — Approver accepts 2 groups, rejects 3 → only accepted groups apply.
    - **Pre-Approver drops** — Proposer suggests heading edit → pre-check drops the group, Approver doesn't see it.
-   - **Post-Approver drops** — two accepted groups have overlapping ranges → later group dropped with `application_conflict`.
+   - **Post-Approver drops (overlap)** — two accepted groups have overlapping ranges → later group dropped with `application_conflict`.
+   - **Post-Approver drops (context mismatch)** — accepted group's `contextBefore` or `contextAfter` doesn't match `current.text` at the recorded offset → group dropped with `context_mismatch`. Surfaces as a paranoid failsafe; expected near-zero rate in production.
    - **Proposer-drift drop** — Proposer modifies text outside its markup → cycle exits with `proposer_drift`, no Approver call made.
    - **Cross-document group** — single `[#N]` spans multiple paragraphs (2 atomic edits with shared number); Approver accepts → both apply.
    - **Group coherence** — Approver rejects a multi-edit group → none of its atomic edits apply.

@@ -156,7 +156,19 @@ The parser ignores any atomic edit if:
 
 If dropping a single atomic edit would leave its group empty, the group is dropped. If the group still has surviving atomic edits, the group survives but the Approver sees the reduced version.
 
-**Note:** Anchor matching failures don't exist in the deterministic design because positions come from the Proposer's marked-up output directly. The post-Approver application step only fails on **range overlap between accepted groups** (handled below) or **format-invalid result**.
+**Note:** Anchor matching failures don't exist in the deterministic design because positions come from the Proposer's marked-up output directly. The post-Approver application step only fails on **range overlap between accepted groups**, **context-string mismatch** (the failsafe — see below), or **format-invalid result**.
+
+#### Context-string failsafe (defense in depth)
+
+Each atomic edit carries `contextBefore` and `contextAfter` strings — 30 chars on either side of the edit's `range` in `current.text`, captured at parse time. Before applying any accepted edit, the Implementer verifies the context strings still match what's at those offsets. On mismatch → drop the whole group with `reason: 'context_mismatch'`.
+
+In a correctly-functioning cycle, context mismatch should never fire — positions come from the parser, the source text doesn't change between parse and apply, and we apply right-to-left so earlier-position edits don't shift later-position offsets. The check exists to catch:
+
+- Parser bugs (off-by-one position math, incorrect strip-markup pass)
+- The drift check missing something (e.g., normalized whitespace masking a real source change)
+- Future refactors that introduce subtle position drift between phases
+
+When it does fire, the `detail` field records both the expected and actual context strings + the offset, so debugging is direct. Cheap insurance — every atomic edit gains ~60 bytes for two 30-char strings.
 
 ### Per-cycle protocol — 2 LLM passes
 
@@ -287,10 +299,12 @@ The orphaned `iterativeEditingExecutionDetailSchema` at `evolution/src/lib/schem
 ```typescript
 type AtomicEdit = {
   type: 'insert' | 'delete' | 'replace';
-  oldText?: string;                   // present for delete + replace
+  oldText?: string;                   // present for delete + replace; must match current.text.slice(range)
   newText?: string;                   // present for insert + replace
   range: { start: number; end: number };  // byte positions in current.text (NOT in marked-up text)
   markupRange: { start: number; end: number };  // byte positions in proposedMarkup, for UI highlighting
+  contextBefore: string;              // up to CONTEXT_LEN (30) chars of current.text immediately before range.start
+  contextAfter: string;               // up to CONTEXT_LEN (30) chars of current.text immediately after range.end
 };
 
 type EditGroup = {
@@ -321,7 +335,7 @@ type ReviewDecision = {
     reviewDecisions: ReviewDecision[],       // Approver output (per-group)
     droppedPostApprover: Array<{             // accepted by Approver but failed to apply
       groupNumber: number,
-      reason: 'application_conflict' | 'format_invalid_after_apply',
+      reason: 'application_conflict' | 'context_mismatch' | 'format_invalid_after_apply',
       detail: string,
     }>,
     appliedGroups: number[],                 // group numbers that successfully applied
