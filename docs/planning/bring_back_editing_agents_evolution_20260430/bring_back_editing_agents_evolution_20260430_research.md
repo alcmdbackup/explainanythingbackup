@@ -103,9 +103,9 @@ current.text
 ### Inputs (per execution)
 
 - The top variant from the pool by Elo (`current.text`).
-- An LLM client bound to the strategy's `generationModel` (used for both Proposer and Approver; can be split later via separate model fields).
+- An LLM client bound to the resolved editing model: `config.editingModel ?? config.generationModel`. Strategy-level optional override surfaces on Step 1 of the wizard ("Editing model" dropdown). When unset, falls back to `generationModel` so existing strategies continue to work.
 - A `V2CostTracker` per the iteration's budget.
-- Config: `maxCycles` (default 3), `minAcceptedToContinue` (default 1 — if a cycle accepts zero edits, stop).
+- Config: `maxCycles = iterCfg.editingMaxCycles ?? AGENT_DEFAULT_MAX_CYCLES (3)` — per-iteration override surfaces on Step 2 of the wizard ("Cycles per parent" input, 1–5). `minAcceptedToContinue` (default 1 — if a cycle accepts zero edits, stop).
 
 **No rubric. No ReflectionAgent dependency.** `canExecute()` returns true whenever the pool has a top variant.
 

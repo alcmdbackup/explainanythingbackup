@@ -33,17 +33,24 @@ The V2 pipeline cannot make targeted edits to a variant. `GenerateFromPreviousAr
 9. **`Match.frictionSpots`:** Out of scope (dead code on both ends).
 10. **Per-cycle invocation timeline UI:** Out of scope for v1. Cycles in `execution_detail`; visual timeline → v1.1.
 11. **Drift recovery:** when the strip-markup drift check finds drift, the Implementer attempts an LLM-driven recovery for *minor* drift (≤ 3 regions, ≤ 200 chars, no markup overlap). A nano-class model classifies each region as `benign` (cosmetic substitutions like smart quotes / dashes / whitespace, auto-patched) or `intentional` (meaningful unwrapped change, abort cycle). New strategy field `driftRecoveryModel?: string` (default gpt-4.1-nano), new AgentName label `iterative_edit_drift_recovery`, new feature flag `EVOLUTION_DRIFT_RECOVERY_ENABLED` (default `'true'`). Per-cycle `execution_detail.driftRecovery` records regions, classifications, outcome, cost. Stop-reason union expands: `proposer_drift_major` / `proposer_drift_intentional` / `proposer_drift_unrecoverable`.
+12. **Editing-specific config knobs (strategy-level + per-iteration):**
+    - **Strategy-level `editingModel?: string`** — surfaced on Step 1 of the wizard as an "Editing model" dropdown directly below "Judge model". Used for both Proposer and Approver LLM calls. Falls back to `generationModel` when unset (placeholder: "Inherit from Generation model"). Drift recovery has its own `driftRecoveryModel?` and is unaffected.
+    - **Per-iteration `editingMaxCycles?: number`** (1–5, default 3) — surfaced on Step 2 inside a collapsible "Edit settings" subsection that appears only on iterativeEditingAgent rows. Lets a strategy mix deep-edit iterations (4 cycles) with polish iterations (1 cycle) within the same run.
+    - **Per-iteration `editingTopK?: number`** (1–10, default = parallel batch size) — same "Edit settings" subsection. Controls how many top-K parents are edited in parallel per iteration.
+    - All three are optional; strategies that don't set them get sensible defaults.
 
 ## Phased Execution Plan
 
 ### Phase 1: Scaffolding — enum + schema + registry + cost-calibration migration (Week 1)
-- [ ] **1.1** `evolution/src/lib/schemas.ts:388` — extend `iterationAgentTypeEnum` with `'iterativeEditingAgent'`. Update 4 refines on `iterationConfigSchema` (lines 413–425) to allow iterativeEditingAgent iterations (forbid as first iteration).
+- [ ] **1.1** `evolution/src/lib/schemas.ts:388` — extend `iterationAgentTypeEnum` with `'iterativeEditingAgent'`. Update 4 refines on `iterationConfigSchema` (lines 413–425) to allow iterativeEditingAgent iterations (forbid as first iteration). Add two new optional fields:
+   - On `iterationConfigSchema`: `editingMaxCycles: z.number().int().min(1).max(5).optional()` — per-iteration override for how many cycles each editing-agent invocation runs (default falls through to `AGENT_DEFAULT_MAX_CYCLES = 3`). Refine: only allowed when `agentType === 'iterativeEditingAgent'`.
+   - On `strategyConfigBaseSchema`: `editingModel: z.string().optional()` — strategy-level override for the LLM used by Proposer + Approver LLM calls in editing iterations. Falls back to `generationModel` when unset. (Drift recovery has its own `driftRecoveryModel` field; no change there.)
 - [ ] **1.2** `evolution/src/lib/core/agentNames.ts` — add `'iterativeEditingAgent'` to `AGENT_NAMES`; add `iterativeEditingAgent → 'iterative_edit_cost'` to `COST_METRIC_BY_AGENT`. Plus per-LLM-call labels: `'iterative_edit_propose'`, `'iterative_edit_review'`, `'iterative_edit_drift_recovery'` — all map to the single `iterative_edit_cost` metric (per-purpose cost split tracked via execution_detail, not per-metric, for v1 simplicity).
 - [ ] **1.3** `evolution/src/lib/metrics/types.ts` — add `'iterative_edit_cost'`, `'total_iterative_edit_cost'`, `'avg_iterative_edit_cost_per_run'` to `STATIC_METRIC_NAMES`.
 - [ ] **1.4** `evolution/src/lib/core/metricCatalog.ts` + `evolution/src/lib/metrics/registry.ts` — add 1 during-execution def + 2 propagation defs (mirror `generation_cost` pattern).
 - [ ] **1.5** New migration `supabase/migrations/<timestamp>_evolution_cost_calibration_editing_phase.sql` — extend `evolution_cost_calibration.phase` CHECK to accept `'iterative_edit_propose'`, `'iterative_edit_review'`, and `'iterative_edit_drift_recovery'` (three phases: propose, review, drift-recovery have different cost shapes).
 - [ ] **1.6** `evolution/scripts/refreshCostCalibration.ts` — add the three new phases to the `Phase` literal type and `asPhase()` mapping.
-- [ ] **1.7** `evolution/src/lib/pipeline/infra/estimateCosts.ts` — add `__builtin_iterative_edit_propose__: 7500` (article-with-markup is ~1.4× input), `__builtin_iterative_edit_review__: 500` (one JSON line per edit), and `__builtin_iterative_edit_drift_recovery__: 200` (one JSON line per drift region, typically 1–3) to `EMPIRICAL_OUTPUT_CHARS`. Add `estimateIterativeEditingCost(seedChars, generationModel, driftRecoveryModel, maxCycles)` returning `{ expected, upperBound }` — expected accounts for 2 calls/cycle (propose + review); upperBound assumes drift recovery fires once across all cycles (cheap pessimistic upper-bound).
+- [ ] **1.7** `evolution/src/lib/pipeline/infra/estimateCosts.ts` — add `__builtin_iterative_edit_propose__: 7500` (article-with-markup is ~1.4× input), `__builtin_iterative_edit_review__: 500` (one JSON line per edit), and `__builtin_iterative_edit_drift_recovery__: 200` (one JSON line per drift region, typically 1–3) to `EMPIRICAL_OUTPUT_CHARS`. Add `estimateIterativeEditingCost(seedChars, editingModel, driftRecoveryModel, maxCycles)` returning `{ expected, upperBound }` — accepts `maxCycles` as a parameter (per-iteration override or strategy default), uses `editingModel` for Proposer + Approver pricing (falls back to `generationModel` at the call site if not set). Expected accounts for 2 calls/cycle (propose + review); upperBound assumes drift recovery fires once across all cycles (cheap pessimistic upper-bound).
 - [ ] **1.8** **Replace** orphaned `iterativeEditingExecutionDetailSchema` (lines 660–686) — V1-rubric-shaped, doesn't fit the new design. Author a fresh schema named `iterativeEditingAgentExecutionDetailSchema` with `detailType: 'iterativeEditingAgent'` (note the `Agent` suffix — matches the unified canonical name from Decisions §5) and `cycles[]` containing `{cycleNumber, proposedMarkup, proposedGroupsRaw[], droppedPreApprover[], approverGroups[], reviewDecisions[], droppedPostApprover[], appliedGroups[], acceptedCount, rejectedCount, appliedCount, formatValid, newVariantId?, parentText, childText?, driftRecovery?}` (full shape in research doc). Rename `executionDetailFixtures.iterativeEditingDetailFixture` → `iterativeEditingAgentDetailFixture` and rewrite to match. Update `agentExecutionDetailSchema` discriminated union slot. Also update `InvocationEntity.listFilters` (lines 49–54): replace `'iterativeEditing'` with `'iterativeEditingAgent'`.
 - [ ] **1.9** Cleanup: delete ghost `mutate_clarity` / `crossover` / `mutate_engagement` from `TACTIC_PALETTE` (`tactics/index.ts:94–96`); delete unused `evolution/src/lib/legacy-schemas.ts`; fix `low_sigma_opponents_count` → `low_uncertainty_opponents_count` mismatch at `schemas.ts:819` vs `detailViewConfigs.ts:166`.
 
@@ -55,8 +62,8 @@ The V2 pipeline cannot make targeted edits to a variant. `GenerateFromPreviousAr
 
 - [ ] **2.A.1** Create `evolution/src/lib/core/agents/editing/IterativeEditingAgent.ts` (~250 LOC). Extend `Agent<IterativeEditInput, IterativeEditOutput, IterativeEditingExecutionDetail>`. Set `usesLLM = true`, `name = 'iterativeEditingAgent'`.
 - [ ] **2.A.2** Per-invocation `EvolutionLLMClient` via `Agent.run()` template. `AgentCostScope.getOwnSpent()` for cost attribution.
-- [ ] **2.A.3** Implement main `execute()` loop (~120 LOC) — for each cycle 1..maxCycles:
-   1. **Proposer call**: send `current.text` + soft-rules system prompt → `proposedMarkup`
+- [ ] **2.A.3** Implement main `execute()` loop (~120 LOC). Resolve config: `maxCycles = iterCfg.editingMaxCycles ?? AGENT_DEFAULT_MAX_CYCLES (3)`, `editingModel = config.editingModel ?? config.generationModel`. For each cycle 1..maxCycles:
+   1. **Proposer call**: send `current.text` + soft-rules system prompt with `model: editingModel` → `proposedMarkup`
    2. **Implementer pre-check (parse + position math)**:
       a. Parse markup, extract atomic edits with `markupRange`, group by `[#N]`
       b. Strip markup → `recoveredSource`. Compute drift regions vs `current.text` with normalized whitespace.
@@ -69,7 +76,7 @@ The V2 pipeline cannot make targeted edits to a variant. `GenerateFromPreviousAr
       e. On `outcome === 'unrecoverable_residual'`: exit `stopReason: 'proposer_drift_unrecoverable'`
       f. If recovery disabled by flag: exit `stopReason: 'proposer_drift_major'` regardless of magnitude
    4. **Validate hard rules** per atomic edit; drop violator groups silently. Cap groups to ≤ 30 atomic edits / cycle and ≤ 5 atomic edits / group → `{ approverGroups, droppedPreApprover[] }`. If `approverGroups.length === 0` → exit with `stopReason: 'no_edits_proposed'` or `'parse_failed'`
-   5. **Approver call**: send `proposedMarkup` (or `proposedMarkupPatched` if recovery fired) + group summary → JSONL
+   5. **Approver call**: send `proposedMarkup` (or `proposedMarkupPatched` if recovery fired) + group summary with `model: editingModel` → JSONL
    6. **Parse Approver output** → `reviewDecisions[]` (missing decisions default to `reject`)
    7. **Implementer application**: collect atomic edits from accepted groups, detect range overlaps between groups (drop later group on conflict), verify each edit's context-string failsafe + `oldText` match against `current.text` (drop group on mismatch), sort survivors by `range.start` descending, apply right-to-left to `current.text` → `newText`. Format-validate. → `{ newText, droppedPostApprover[], appliedGroups[] }`
    8. If `newText !== current.text` and format-valid: create new `Variant`, add to pool, `current = newVariant`
@@ -275,11 +282,20 @@ The V2 pipeline cannot make targeted edits to a variant. `GenerateFromPreviousAr
    - Lines 34–46, 73–79: extend `IterationRow['agentType']` and `IterationConfigPayload['agentType']` unions with `'iterativeEditingAgent'`.
    - Lines 814–823: add `<option value="iterativeEditingAgent">Iterative Editing</option>`.
    - Lines 947–962: add third color branch for editing in budget-allocation bar + legend.
-   - Lines 360–390: validation rules — first iteration must still be `generate`; allow `editing` after generate. Add helper text explaining editing iteration drafts top-K parents.
-- [ ] **5.2** `evolution/src/components/evolution/DispatchPlanView.tsx:117–119` — add badge color for `'iterative_edit'`.
-- [ ] **5.3** `evolution/src/services/strategyPreviewActions.ts:159–185` — extend `dispatchPreviewInputSchema` to accept `'iterativeEditingAgent'`.
-- [ ] **5.4** `evolution/src/services/strategyRegistryActions.ts` — `iterationConfigSchema` shared with main schemas.ts (line 32–51 reads from there); should auto-update from Phase 1.1.
-- [ ] **5.5** Add optional `editingTopK?: number` field to `iterationConfigSchema` in `evolution/src/lib/schemas.ts`. Surface in wizard as a number input visible only when `agentType === 'iterativeEditingAgent'`.
+   - Lines 360–390: validation rules — first iteration must still be `generate`; allow `editing` after generate. Validate `editingMaxCycles` 1–5 when present. Add helper text explaining editing iteration drafts top-K parents and runs N cycles per parent.
+- [ ] **5.2** `evolution/src/components/evolution/DispatchPlanView.tsx:117–119` — add badge color for `'iterativeEditingAgent'`. Show `cycles × top-K` in the dispatch entry tooltip when set.
+- [ ] **5.3** `evolution/src/services/strategyPreviewActions.ts:159–185` — extend `dispatchPreviewInputSchema` to accept `'iterativeEditingAgent'`, optional `editingTopK`, optional `editingMaxCycles`. Strategy-level `editingModel` field also added to the preview input.
+- [ ] **5.4** `evolution/src/services/strategyRegistryActions.ts` — `iterationConfigSchema` shared with main schemas.ts (line 32–51 reads from there); auto-updates from Phase 1.1's schema additions.
+- [ ] **5.5** Add optional `editingTopK?: number` and `editingMaxCycles?: number` fields to `iterationConfigSchema` in `evolution/src/lib/schemas.ts` (Phase 1.1 already adds `editingMaxCycles`; this task confirms the wizard surfaces both). Surface both in wizard as a collapsible "Edit settings" subsection visible only when `agentType === 'iterativeEditingAgent'`:
+   - **Top-K parents** — number input 1–10, default = "auto" (uses parallel batch size). Help text: "How many top variants from the pool will each cycle edit in parallel."
+   - **Cycles per parent** — number input 1–5, default 3. Help text: "How many propose-review-apply rounds run per parent. More cycles = more refinement but higher cost."
+- [ ] **5.6** Add **Editing model** dropdown to **Step 1** of the wizard (the "Strategy Config" step at lines 519–701):
+   - New form field `editingModel?: string`. Position it directly below the existing `judgeModel` field so the model section reads: Generation model → Judge model → Editing model.
+   - Dropdown options populated from `src/config/modelRegistry.ts` (same source as `generationModel` / `judgeModel`).
+   - Placeholder option: `"Inherit from Generation model"` (value = empty string → undefined). When selected, editing iterations use `generationModel` for both Proposer and Approver.
+   - Help text under the field: *"Used by Iterative Editing iterations for both proposing edits and reviewing them. Leave on 'Inherit' to share the Generation model."*
+   - Field is always visible (Step 1 doesn't yet know whether the user will add editing iterations on Step 2; safer to surface unconditionally and explain it's optional).
+   - Submit handler serializes `editingModel: form.editingModel || undefined` into the `createStrategyAction` payload.
 
 ### Phase 6: E2E + documentation + finalization (Week 4 part 3)
 - [ ] **6.1** E2E spec `src/__tests__/e2e/specs/09-admin/admin-evolution-iterative-editing.spec.ts`:
