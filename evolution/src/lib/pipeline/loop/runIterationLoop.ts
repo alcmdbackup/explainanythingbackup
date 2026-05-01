@@ -30,6 +30,7 @@ import { createSeededRng } from '../../metrics/experimentMetrics';
 import type { AgentContext } from '../../core/types';
 import { estimateAgentCost } from '../infra/estimateCosts';
 import { DISPATCH_SAFETY_CAP } from './projectDispatchPlan';
+import { resolveReflectionEnabled } from './reflectionDispatch';
 import { resolveSequentialFloor } from './budgetFloorResolvers';
 
 // ─── Config validation ───────────────────────────────────────────
@@ -337,11 +338,9 @@ export async function evolveArticle(
         const topUpEnabled = process.env.EVOLUTION_TOPUP_ENABLED !== 'false';
 
         // Shape A of develop_reflection_and_generateFromParentArticle_agent_evolution_20260430:
-        // reflection is now a top-level agentType. Resolve the kill-switch ONCE per iteration —
-        // when the env var is 'false', a 'reflect_and_generate' iteration falls back to
-        // vanilla GFPA dispatch (single env flip rolls reflection back without code revert).
-        const reflectionEnabled = iterCfg.agentType === 'reflect_and_generate'
-          && process.env.EVOLUTION_REFLECTION_ENABLED !== 'false';
+        // resolve reflection dispatch via a pure helper (resolveReflectionEnabled) so the
+        // kill-switch + agentType conjunction is unit-testable in isolation. ONCE per iteration.
+        const reflectionEnabled = resolveReflectionEnabled(iterCfg, process.env);
         const reflectionTopN = iterCfg.reflectionTopN ?? 3;
 
         // Pre-fetch tactic ELO boosts ONCE per iteration when reflection is enabled.

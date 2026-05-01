@@ -363,4 +363,94 @@ describe('projectDispatchPlan', () => {
       );
     });
   });
+
+  // Shape A of develop_reflection_and_generateFromParentArticle_agent_evolution_20260430:
+  // a 'reflect_and_generate' iteration adds the reflection LLM call cost to estPerAgent;
+  // a vanilla 'generate' iteration omits it. The cost gap also flows into dispatchCount
+  // sizing — fewer agents fit per iteration when reflection is on, all else equal.
+  describe('reflect_and_generate branch', () => {
+    it('reflect_and_generate adds reflection cost; generate omits it', () => {
+      const planGenerate = projectDispatchPlan(
+        baseConfig({
+          iterationConfigs: [{ agentType: 'generate', budgetPercent: 100 }],
+        }),
+        baseCtx(),
+      );
+      const planReflect = projectDispatchPlan(
+        baseConfig({
+          iterationConfigs: [
+            { agentType: 'reflect_and_generate', budgetPercent: 100, reflectionTopN: 3 },
+          ],
+        }),
+        baseCtx(),
+      );
+      expect(planGenerate[0]!.estPerAgent.upperBound.reflection).toBe(0);
+      expect(planGenerate[0]!.estPerAgent.expected.reflection).toBe(0);
+      expect(planReflect[0]!.estPerAgent.upperBound.reflection).toBeGreaterThan(0);
+      expect(planReflect[0]!.estPerAgent.expected.reflection).toBeGreaterThan(0);
+      // Reflection cost is deterministic per call — expected === upperBound.
+      expect(planReflect[0]!.estPerAgent.expected.reflection).toBeCloseTo(
+        planReflect[0]!.estPerAgent.upperBound.reflection,
+        9,
+      );
+    });
+
+    it('reflect_and_generate total upperBound = generate total + reflection', () => {
+      const planGenerate = projectDispatchPlan(
+        baseConfig({
+          iterationConfigs: [{ agentType: 'generate', budgetPercent: 100 }],
+        }),
+        baseCtx(),
+      );
+      const planReflect = projectDispatchPlan(
+        baseConfig({
+          iterationConfigs: [
+            { agentType: 'reflect_and_generate', budgetPercent: 100, reflectionTopN: 3 },
+          ],
+        }),
+        baseCtx(),
+      );
+      const reflectionAdd = planReflect[0]!.estPerAgent.upperBound.reflection;
+      expect(planReflect[0]!.estPerAgent.upperBound.total).toBeCloseTo(
+        planGenerate[0]!.estPerAgent.upperBound.total + reflectionAdd,
+        9,
+      );
+    });
+
+    it('plan entry preserves the reflect_and_generate agentType (no coercion to generate)', () => {
+      const plan = projectDispatchPlan(
+        baseConfig({
+          iterationConfigs: [
+            { agentType: 'reflect_and_generate', budgetPercent: 60, reflectionTopN: 5 },
+            { agentType: 'swiss', budgetPercent: 40 },
+          ],
+        }),
+        baseCtx(),
+      );
+      expect(plan[0]!.agentType).toBe('reflect_and_generate');
+      expect(plan[1]!.agentType).toBe('swiss');
+    });
+
+    it('higher reflectionTopN produces higher reflection cost', () => {
+      const top3 = projectDispatchPlan(
+        baseConfig({
+          iterationConfigs: [
+            { agentType: 'reflect_and_generate', budgetPercent: 100, reflectionTopN: 3 },
+          ],
+        }),
+        baseCtx(),
+      );
+      const top10 = projectDispatchPlan(
+        baseConfig({
+          iterationConfigs: [
+            { agentType: 'reflect_and_generate', budgetPercent: 100, reflectionTopN: 10 },
+          ],
+        }),
+        baseCtx(),
+      );
+      expect(top10[0]!.estPerAgent.upperBound.reflection).toBeGreaterThan(
+        top3[0]!.estPerAgent.upperBound.reflection,
+      );
+    });
+  });
 });
