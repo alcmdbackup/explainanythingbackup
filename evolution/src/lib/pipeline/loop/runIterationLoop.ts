@@ -363,11 +363,19 @@ export async function evolveArticle(
 
         // Budget-aware parallel-batch size: compute how many agents we can afford
         // within iteration budget AT UPPER-BOUND cost (reservation safety).
+        // Phase 3 of develop_reflection_and_generateFromParentArticle_agent_evolution_20260430:
+        // include the reflection LLM call cost when iterCfg.useReflection=true so dispatch
+        // sizing accounts for the extra ~$0.0005-0.001/agent. Without this, reflection
+        // iterations slightly over-dispatch and rely on budget gating to catch overruns.
         const availBudget = iterTracker.getAvailableBudget();
         const maxComp = resolvedConfig.maxComparisonsPerVariant ?? 15;
+        const sizingUseReflection = iterCfg.useReflection === true
+          && process.env.EVOLUTION_REFLECTION_ENABLED !== 'false';
+        const sizingReflectionTopN = iterCfg.reflectionTopN ?? 3;
         const estPerAgent = estimateAgentCost(
           originalText.length, tactics[0]!, resolvedConfig.generationModel,
           resolvedConfig.judgeModel, pool.length, maxComp,
+          sizingUseReflection, sizingReflectionTopN,
         );
         const maxAffordable = Math.max(1, Math.floor(availBudget / estPerAgent));
         // DISPATCH_SAFETY_CAP is a defense-in-depth rail; budget is the primary governor.

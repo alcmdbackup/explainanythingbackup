@@ -58,6 +58,15 @@ const COMPARISON_OUTPUT_CHARS = 20;
 /** Approximate overhead added by tactic prompt template wrapping the seed article. */
 const GENERATION_PROMPT_OVERHEAD = 500;
 
+/** Approximate overhead added by the reflection prompt scaffolding (preamble + ask + 24-tactic
+ *  list with summaries + ELO boost column). Matches buildReflectionPrompt's static parts.
+ *  Phase 3 of develop_reflection_and_generateFromParentArticle_agent_evolution_20260430. */
+const REFLECTION_PROMPT_OVERHEAD = 4500;
+
+/** Per-rank output overhead: "N. Tactic: <name>\n   Reasoning: <text>" averages ~200 chars
+ *  (~50 tokens) per ranked tactic. Multiplied by topN at the call site. */
+const REFLECTION_OUTPUT_CHARS_PER_RANK = 200;
+
 // ─── Estimation Functions ─────────────────────────────────────────
 
 /**
@@ -116,8 +125,31 @@ export function getVariantChars(
 }
 
 /**
+ * Estimate the cost of the reflection LLM call: input = parent text + REFLECTION_PROMPT_OVERHEAD;
+ * output = topN × REFLECTION_OUTPUT_CHARS_PER_RANK. Calibration-aware via the loader's
+ * 'reflection' phase entry (falls back to the hardcoded constants when COST_CALIBRATION_ENABLED
+ * is unset or no row exists).
+ *
+ * Phase 3 of develop_reflection_and_generateFromParentArticle_agent_evolution_20260430.
+ */
+export function estimateReflectionCost(
+  seedArticleChars: number,
+  generationModel: string,
+  judgeModel: string,
+  topN: number,
+): number {
+  const pricing = getModelPricing(generationModel);
+  const inputChars = seedArticleChars + REFLECTION_PROMPT_OVERHEAD;
+  const calibrated = getCalibrationRow('__unspecified__', generationModel, judgeModel ?? '__unspecified__', 'reflection');
+  const outputChars = calibrated?.avgOutputChars ?? topN * REFLECTION_OUTPUT_CHARS_PER_RANK;
+  return calculateCost(inputChars, outputChars, pricing);
+}
+
+/**
  * Estimate total cost of one generateFromPreviousArticle agent (generation + ranking).
- * This is the primary function used by budget-aware dispatch.
+ * When `useReflection: true`, also adds the reflection LLM call cost. This is the primary
+ * function used by budget-aware dispatch — accurate sizing for `parallelDispatchCount`
+ * depends on the reflection contribution being included for reflection iterations.
  */
 export function estimateAgentCost(
   seedArticleChars: number,
@@ -126,11 +158,18 @@ export function estimateAgentCost(
   judgeModel: string,
   poolSize: number,
   maxComparisonsPerVariant: number,
+  /** Phase 3: when true, includes reflection cost. Defaults false (vanilla GFPA). */
+  useReflection: boolean = false,
+  /** Phase 3: top-N tactics the reflection ranks. Default 3 matches IterationConfig default. */
+  reflectionTopN: number = 3,
 ): number {
+  const reflectionCost = useReflection
+    ? estimateReflectionCost(seedArticleChars, generationModel, judgeModel, reflectionTopN)
+    : 0;
   const genCost = estimateGenerationCost(seedArticleChars, tactic, generationModel, judgeModel);
   const variantChars = getVariantChars(tactic, generationModel, judgeModel);
   const rankCost = estimateRankingCost(variantChars, judgeModel, poolSize, maxComparisonsPerVariant);
-  return genCost + rankCost;
+  return reflectionCost + genCost + rankCost;
 }
 
 /**
