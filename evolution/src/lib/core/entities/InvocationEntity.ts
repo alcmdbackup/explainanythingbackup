@@ -48,7 +48,7 @@ export class InvocationEntity extends Entity<EvolutionAgentInvocationFullDb> {
 
   readonly listFilters: FilterDef[] = [
     { field: 'agent_name', type: 'select', options: [
-      'generation', 'ranking', 'evolution', 'reflection', 'iterativeEditing',
+      'generation', 'ranking', 'evolution', 'reflection', 'iterative_editing',
       'treeSearch', 'sectionDecomposition', 'debate', 'proximity', 'metaReview',
       'outlineGeneration', 'flowCritique',
     ] },

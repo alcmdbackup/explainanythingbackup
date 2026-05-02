@@ -178,23 +178,104 @@ export interface GenerationExecutionDetail extends ExecutionDetailBase {
   feedbackUsed: boolean;
 }
 
+// IterativeEditingAgent execution_detail (v2 redesign — replaces V1 rubric-driven shape).
+// This type is the runtime mirror of iterativeEditingExecutionDetailSchema in
+// evolution/src/lib/schemas.ts; both must be updated together. See
+// bring_back_editing_agents_evolution_20260430 planning doc Phase 1.8.
+
+export interface EditingAtomicEdit {
+  groupNumber: number;
+  kind: 'insert' | 'delete' | 'replace';
+  range: { start: number; end: number };
+  markupRange: { start: number; end: number };
+  oldText: string;
+  newText: string;
+  contextBefore: string;
+  contextAfter: string;
+}
+
+export interface EditingGroup {
+  groupNumber: number;
+  atomicEdits: EditingAtomicEdit[];
+}
+
+export interface EditingReviewDecision {
+  groupNumber: number;
+  decision: 'accept' | 'reject';
+  reason: string;
+}
+
+export interface EditingDriftRegion {
+  offset: number;
+  driftedText: string;
+  classification?: 'benign' | 'intentional';
+  patch?: string;
+}
+
+export interface EditingDroppedGroup {
+  groupNumber: number;
+  reason: string;
+  detail?: string;
+}
+
+export interface EditingCycle {
+  cycleNumber: number;
+  proposedMarkup: string;
+  proposedGroupsRaw: EditingGroup[];
+  droppedPreApprover: EditingDroppedGroup[];
+  approverGroups: EditingGroup[];
+  reviewDecisions: EditingReviewDecision[];
+  droppedPostApprover: EditingDroppedGroup[];
+  appliedGroups: EditingGroup[];
+  acceptedCount: number;
+  rejectedCount: number;
+  appliedCount: number;
+  formatValid: boolean;
+  newVariantId?: string;
+  parentText: string;
+  childText?: string;
+  driftRecovery?: {
+    outcome: 'recovered' | 'unrecoverable_residual' | 'unrecoverable_intentional' | 'skipped_major_drift';
+    regions: EditingDriftRegion[];
+    classifications?: EditingDriftRegion[];
+    patchedMarkup?: string;
+    costUsd?: number;
+  };
+  proposeCostUsd: number;
+  approveCostUsd: number;
+  driftRecoveryCostUsd?: number;
+  sizeRatio: number;
+}
+
+export type IterativeEditingStopReason =
+  | 'all_cycles_completed'
+  | 'all_edits_rejected'
+  | 'no_edits_proposed'
+  | 'parse_failed'
+  | 'proposer_drift_major'
+  | 'proposer_drift_intentional'
+  | 'proposer_drift_unrecoverable'
+  | 'invocation_budget_near_exhaustion'
+  | 'article_size_explosion'
+  | 'format_invalid'
+  | 'helper_threw'
+  | 'budget_exceeded';
+
 export interface IterativeEditingExecutionDetail extends ExecutionDetailBase {
-  detailType: 'iterativeEditing';
-  targetVariantId: string;
-  config: { maxCycles: number; maxConsecutiveRejections: number; qualityThreshold: number };
-  cycles: Array<{
-    cycleNumber: number;
-    target: { dimension?: string; description: string; score?: number; source: string };
-    verdict: 'ACCEPT' | 'REJECT';
-    confidence: number;
-    formatValid: boolean;
-    formatIssues?: string[];
-    newVariantId?: string;
-  }>;
-  initialCritique: { dimensionScores: Record<string, number> };
-  finalCritique?: { dimensionScores: Record<string, number> };
-  stopReason: 'threshold_met' | 'max_rejections' | 'max_cycles' | 'no_targets';
-  consecutiveRejections: number;
+  detailType: 'iterative_editing';
+  parentVariantId: string;
+  config: {
+    maxCycles: number;
+    editingModel: string;
+    approverModel: string;
+    driftRecoveryModel: string;
+    perInvocationBudgetUsd: number;
+  };
+  cycles: EditingCycle[];
+  stopReason: IterativeEditingStopReason;
+  errorPhase?: 'propose' | 'parse' | 'approve' | 'recovery' | 'apply';
+  errorMessage?: string;
+  finalVariantId?: string;
 }
 
 export interface ReflectionExecutionDetail extends ExecutionDetailBase {

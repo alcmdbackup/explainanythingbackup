@@ -712,32 +712,142 @@ export const generationExecutionDetailSchema = executionDetailBaseSchema.extend(
   feedbackUsed: z.boolean(),
 });
 
-export const iterativeEditingExecutionDetailSchema = executionDetailBaseSchema.extend({
-  detailType: z.literal('iterativeEditing'),
-  targetVariantId: z.string(),
-  config: z.object({
-    maxCycles: z.number().int().min(1),
-    maxConsecutiveRejections: z.number().int().min(1),
-    qualityThreshold: z.number(),
+// IterativeEditingAgent execution_detail (v2 redesign — replaces the orphaned V1
+// rubric-driven schema). Captures the full Proposer / pre-check / Approver /
+// Implementer audit trail per cycle, plus per-purpose cost split per
+// Decisions §13 invariant I2. See bring_back_editing_agents_evolution_20260430
+// planning doc Phase 1.8 for the full specification.
+
+const editingAtomicEditSchema = z.object({
+  /** Atomic edit number from the markup `[#N]`. Multiple atomic edits can share a
+   *  number — they form an atomic accept/reject group. */
+  groupNumber: z.number().int().min(1),
+  /** Edit kind: insert / delete / replace. Paired add+delete with the same [#N]
+   *  is normalized to 'replace' by the parser. */
+  kind: z.enum(['insert', 'delete', 'replace']),
+  /** Position in the current article text (post-strip-markup) where the edit applies. */
+  range: z.object({
+    start: z.number().int().min(0),
+    end: z.number().int().min(0),
   }),
-  cycles: z.array(z.object({
-    cycleNumber: z.number().int().min(0),
-    target: z.object({
-      dimension: z.string().optional(),
-      description: z.string(),
-      score: z.number().optional(),
-      source: z.string(),
-    }),
-    verdict: z.enum(['ACCEPT', 'REJECT']),
-    confidence: z.number().min(0).max(1),
-    formatValid: z.boolean(),
-    formatIssues: z.array(z.string()).optional(),
-    newVariantId: z.string().optional(),
-  })),
-  initialCritique: z.object({ dimensionScores: z.record(z.string(), z.number()) }),
-  finalCritique: z.object({ dimensionScores: z.record(z.string(), z.number()) }).optional(),
-  stopReason: z.enum(['threshold_met', 'max_rejections', 'max_cycles', 'no_targets']),
-  consecutiveRejections: z.number().int().min(0),
+  /** Position in the proposer's marked-up output (used for AnnotatedProposals UI). */
+  markupRange: z.object({
+    start: z.number().int().min(0),
+    end: z.number().int().min(0),
+  }),
+  /** Original text being deleted/replaced (empty for inserts). */
+  oldText: z.string(),
+  /** New text being inserted (empty for deletes). */
+  newText: z.string(),
+  /** Up to 30 chars before/after the edit in the source — context-string failsafe. */
+  contextBefore: z.string(),
+  contextAfter: z.string(),
+});
+
+const editingGroupSchema = z.object({
+  groupNumber: z.number().int().min(1),
+  atomicEdits: z.array(editingAtomicEditSchema).min(1),
+});
+
+const editingReviewDecisionSchema = z.object({
+  groupNumber: z.number().int().min(1),
+  decision: z.enum(['accept', 'reject']),
+  reason: z.string(),
+});
+
+const editingDriftRegionSchema = z.object({
+  offset: z.number().int().min(0),
+  driftedText: z.string(),
+  classification: z.enum(['benign', 'intentional']).optional(),
+  patch: z.string().optional(),
+});
+
+const editingDroppedGroupSchema = z.object({
+  groupNumber: z.number().int().min(1),
+  reason: z.string(),
+  detail: z.string().optional(),
+});
+
+const editingCycleSchema = z.object({
+  cycleNumber: z.number().int().min(1),
+  /** Proposer's full marked-up output (article body + inline CriticMarkup). */
+  proposedMarkup: z.string(),
+  /** Raw groups parsed from proposedMarkup BEFORE any filtering. */
+  proposedGroupsRaw: z.array(editingGroupSchema),
+  /** Groups dropped by the pre-check (parser failures, hard-rule violations,
+   *  size-ratio guardrail, cycle/group caps). */
+  droppedPreApprover: z.array(editingDroppedGroupSchema),
+  /** Groups sent to the Approver after pre-check filtering. */
+  approverGroups: z.array(editingGroupSchema),
+  /** Approver's per-group decisions. */
+  reviewDecisions: z.array(editingReviewDecisionSchema),
+  /** Groups dropped post-Approver (range overlap, context-failsafe mismatch). */
+  droppedPostApprover: z.array(editingDroppedGroupSchema),
+  /** Groups successfully applied to current.text. */
+  appliedGroups: z.array(editingGroupSchema),
+  acceptedCount: z.number().int().min(0),
+  rejectedCount: z.number().int().min(0),
+  appliedCount: z.number().int().min(0),
+  formatValid: z.boolean(),
+  /** ID of the materialized Variant if this was the FINAL cycle that produced
+   *  output; undefined for intermediate cycles (per Decisions §14 — only the
+   *  final cycle materializes as a Variant). */
+  newVariantId: z.string().optional(),
+  /** Cycle's input text (parent.text for cycle 1, prior cycle's childText otherwise). */
+  parentText: z.string(),
+  /** Cycle's output text after applying accepted edits. */
+  childText: z.string().optional(),
+  /** Drift recovery details (only present when the strip-markup drift check fired). */
+  driftRecovery: z.object({
+    outcome: z.enum(['recovered', 'unrecoverable_residual', 'unrecoverable_intentional', 'skipped_major_drift']),
+    regions: z.array(editingDriftRegionSchema),
+    classifications: z.array(editingDriftRegionSchema).optional(),
+    patchedMarkup: z.string().optional(),
+    costUsd: z.number().min(0).optional(),
+  }).optional(),
+  /** Per-purpose cost split per Decisions §13 invariant I2. */
+  proposeCostUsd: z.number().min(0),
+  approveCostUsd: z.number().min(0),
+  driftRecoveryCostUsd: z.number().min(0).optional(),
+  /** Final-newText / cycle-input-text length ratio for monitoring (≤1.5× per
+   *  Decisions §17). */
+  sizeRatio: z.number().min(0),
+});
+
+export const iterativeEditingExecutionDetailSchema = executionDetailBaseSchema.extend({
+  detailType: z.literal('iterative_editing'),
+  /** ID of the input parent variant (the original parent assigned by dispatch — not a
+   *  cycle-N-1 intermediate). */
+  parentVariantId: z.string(),
+  /** Resolved per-iteration / strategy config. */
+  config: z.object({
+    maxCycles: z.number().int().min(1).max(5),
+    editingModel: z.string(),
+    approverModel: z.string(),
+    driftRecoveryModel: z.string(),
+    perInvocationBudgetUsd: z.number().min(0),
+  }),
+  cycles: z.array(editingCycleSchema),
+  /** Per-iteration termination reason. */
+  stopReason: z.enum([
+    'all_cycles_completed',
+    'all_edits_rejected',
+    'no_edits_proposed',
+    'parse_failed',
+    'proposer_drift_major',
+    'proposer_drift_intentional',
+    'proposer_drift_unrecoverable',
+    'invocation_budget_near_exhaustion',
+    'article_size_explosion',
+    'format_invalid',
+    'helper_threw',
+    'budget_exceeded',
+  ]),
+  /** Set when stopReason === 'helper_threw' — which helper failed. */
+  errorPhase: z.enum(['propose', 'parse', 'approve', 'recovery', 'apply']).optional(),
+  errorMessage: z.string().optional(),
+  /** ID of the final materialized variant (undefined when no cycle accepted edits). */
+  finalVariantId: z.string().optional(),
 });
 
 export const reflectionExecutionDetailSchema = executionDetailBaseSchema.extend({
