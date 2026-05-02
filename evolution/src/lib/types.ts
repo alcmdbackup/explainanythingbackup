@@ -51,9 +51,24 @@ interface CreateVariantParams {
   costUsd?: number;
   /** Phase 5: ID of the agent invocation that produced this variant. */
   agentInvocationId?: string;
+  /** Criteria-driven generation: full set of criteria UUIDs evaluated by the
+   *  EvaluateCriteriaThenGenerateFromPreviousArticleAgent. */
+  criteriaSetUsed?: ReadonlyArray<string>;
+  /** Criteria-driven generation: subset auto-picked as the focus for suggestions. */
+  weakestCriteriaIds?: ReadonlyArray<string>;
 }
 
-export function createVariant({ text, tactic, iterationBorn, parentIds, version, costUsd, agentInvocationId }: CreateVariantParams): Variant {
+export function createVariant({
+  text,
+  tactic,
+  iterationBorn,
+  parentIds,
+  version,
+  costUsd,
+  agentInvocationId,
+  criteriaSetUsed,
+  weakestCriteriaIds,
+}: CreateVariantParams): Variant {
   return {
     id: uuidv4(),
     text,
@@ -64,6 +79,8 @@ export function createVariant({ text, tactic, iterationBorn, parentIds, version,
     createdAt: Date.now() / 1000,
     ...(costUsd !== undefined && { costUsd }),
     ...(agentInvocationId !== undefined && { agentInvocationId }),
+    ...(criteriaSetUsed !== undefined && { criteriaSetUsed: [...criteriaSetUsed] }),
+    ...(weakestCriteriaIds !== undefined && { weakestCriteriaIds: [...weakestCriteriaIds] }),
   };
 }
 

@@ -11,7 +11,7 @@ import type { MetricRow, ExecutionContext, FinalizationContext } from '../metric
 
 // ─── Entity Type ─────────────────────────────────────────────────
 
-export const CORE_ENTITY_TYPES = ['run', 'invocation', 'variant', 'strategy', 'experiment', 'prompt', 'tactic'] as const;
+export const CORE_ENTITY_TYPES = ['run', 'invocation', 'variant', 'strategy', 'experiment', 'prompt', 'tactic', 'criteria'] as const;
 export type EntityType = typeof CORE_ENTITY_TYPES[number];
 
 // ─── Relationships ───────────────────────────────────────────────
@@ -63,7 +63,9 @@ export interface SortDef {
 export interface FieldDef {
   key: string;
   label: string;
-  type: 'text' | 'textarea' | 'number';
+  /** Field type. `'rubric'` is a custom type rendered by `RubricEditor` (Phase 1H)
+   *  for the `evaluation_guidance` JSONB column on `evolution_criteria`. */
+  type: 'text' | 'textarea' | 'number' | 'rubric';
   required?: boolean;
 }
 

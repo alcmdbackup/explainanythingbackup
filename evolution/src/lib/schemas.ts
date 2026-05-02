@@ -17,6 +17,8 @@ export const pipelineTypeEnum = z.enum(['full', 'single']);
 
 export const promptStatusEnum = z.enum(['active', 'archived']);
 
+export const criteriaStatusEnum = z.enum(['active', 'archived']);
+
 export const experimentStatusEnum = z.enum(['draft', 'running', 'completed', 'cancelled']);
 
 export const logLevelEnum = z.enum(['info', 'warn', 'error', 'debug']);
@@ -81,6 +83,68 @@ export const evolutionPromptFullDbSchema = evolutionPromptInsertSchema.extend({
 
 export type EvolutionPromptInsert = z.infer<typeof evolutionPromptInsertSchema>;
 export type EvolutionPromptFullDb = z.infer<typeof evolutionPromptFullDbSchema>;
+
+// ─── 2b. evolution_criteria ──────────────────────────────────────
+// User-defined evaluation criteria used by the
+// EvaluateCriteriaThenGenerateFromPreviousArticleAgent. DB-first (NOT
+// code-first like evolution_tactics); soft-delete via deleted_at; rubric
+// stored as JSONB array of {score, description} anchors that the LLM
+// interpolates between when scoring.
+
+/** Single rubric anchor: a (score, description) pair telling the LLM what
+ *  this score value means for a specific criterion. Score must be within
+ *  [min_rating, max_rating] of its parent criterion (validated cross-field
+ *  on the insert schema). */
+export const evaluationGuidanceAnchorSchema = z.object({
+  score: z.number().refine(Number.isFinite, { message: 'score must be finite' }),
+  description: z.string().min(1).max(500),
+});
+
+/** Optional rubric: array of anchor scores with descriptions. Empty / null
+ *  means no rubric (LLM receives only name + description + range). */
+export const evaluationGuidanceSchema = z.array(evaluationGuidanceAnchorSchema);
+
+export const evolutionCriteriaInsertSchema = z.object({
+  name: z.string().min(1).max(128).regex(
+    /^[A-Za-z][a-zA-Z0-9_-]*$/,
+    'name must match /^[A-Za-z][a-zA-Z0-9_-]*$/ (parser-safe)',
+  ),
+  description: z.string().nullable().optional(),
+  min_rating: z.number().refine(Number.isFinite, { message: 'min_rating must be finite' }),
+  max_rating: z.number().refine(Number.isFinite, { message: 'max_rating must be finite' }),
+  evaluation_guidance: evaluationGuidanceSchema.nullable().optional(),
+  status: criteriaStatusEnum.optional().default('active'),
+  is_test_content: z.boolean().optional(),
+  archived_at: z.string().nullable().optional(),
+  deleted_at: z.string().nullable().optional(),
+}).refine(
+  (c) => c.max_rating > c.min_rating,
+  { message: 'max_rating must exceed min_rating', path: ['max_rating'] },
+).refine(
+  (c) => !c.evaluation_guidance
+    || c.evaluation_guidance.every((a) => a.score >= c.min_rating && a.score <= c.max_rating),
+  { message: 'every rubric anchor score must be in [min_rating, max_rating]', path: ['evaluation_guidance'] },
+);
+
+export const evolutionCriteriaFullDbSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string().min(1).max(128).regex(/^[A-Za-z][a-zA-Z0-9_-]*$/),
+  description: z.string().nullable(),
+  min_rating: z.number().refine(Number.isFinite),
+  max_rating: z.number().refine(Number.isFinite),
+  evaluation_guidance: evaluationGuidanceSchema.nullable(),
+  status: criteriaStatusEnum,
+  is_test_content: z.boolean(),
+  archived_at: z.string().nullable(),
+  deleted_at: z.string().nullable(),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+
+export type EvaluationGuidanceAnchor = z.infer<typeof evaluationGuidanceAnchorSchema>;
+export type EvaluationGuidance = z.infer<typeof evaluationGuidanceSchema>;
+export type EvolutionCriteriaInsert = z.infer<typeof evolutionCriteriaInsertSchema>;
+export type EvolutionCriteriaFullDb = z.infer<typeof evolutionCriteriaFullDbSchema>;
 
 // ─── 3. evolution_experiments ────────────────────────────────────
 
@@ -171,6 +235,12 @@ export const evolutionVariantInsertSchema = z.object({
   /** Phase 5: ID of the agent invocation that produced this variant. Null for historic rows
    *  (no backfill). Used by experimentMetrics to group variants by (agent_name, dimension). */
   agent_invocation_id: z.string().uuid().nullable().optional(),
+  /** Full set of criteria UUIDs evaluated by EvaluateCriteriaThenGenerateFromPreviousArticleAgent.
+   *  NULL for non-criteria-driven variants. */
+  criteria_set_used: z.array(z.string().uuid()).nullable().optional(),
+  /** Subset of criteria_set_used auto-picked as the focus for the suggestions step.
+   *  NULL for non-criteria-driven variants. */
+  weakest_criteria_ids: z.array(z.string().uuid()).nullable().optional(),
 });
 
 export const evolutionVariantFullDbSchema = evolutionVariantInsertSchema.extend({
@@ -315,6 +385,16 @@ export const variantSchema = z.object({
    *  to group variants by (agentName, dimensionValue) for ELO-delta metrics. Optional at
    *  the in-memory layer; persisted as `agent_invocation_id` in `evolution_variants`. */
   agentInvocationId: z.string().optional(),
+  /** Full set of criteria UUIDs evaluated by EvaluateCriteriaThenGenerateFromPreviousArticleAgent.
+   *  NULL for non-criteria-driven variants (vanilla GFPA, reflection, swiss). Persisted as
+   *  `criteria_set_used` UUID[] in `evolution_variants`. */
+  criteriaSetUsed: z.array(z.string().uuid()).optional(),
+  /** Subset of criteriaSetUsed that the wrapper agent auto-picked as the focus
+   *  for the suggestions step (deterministic, normalized-score-based). NULL for
+   *  non-criteria-driven variants. Length === effectiveWeakestK at the time of
+   *  generation (may be < iterCfg.weakestK if criteria were archived between
+   *  configure and run). Persisted as `weakest_criteria_ids` UUID[]. */
+  weakestCriteriaIds: z.array(z.string().uuid()).optional(),
 });
 
 export type VariantSchema = z.infer<typeof variantSchema>;

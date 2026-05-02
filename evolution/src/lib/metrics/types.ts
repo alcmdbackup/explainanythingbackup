@@ -10,7 +10,7 @@ import type { AgentName } from '../core/agentNames';
 
 // ─── Entity & Metric Name Types ─────────────────────────────────
 
-export const ENTITY_TYPES = ['run', 'invocation', 'variant', 'strategy', 'experiment', 'prompt', 'tactic'] as const;
+export const ENTITY_TYPES = ['run', 'invocation', 'variant', 'strategy', 'experiment', 'prompt', 'tactic', 'criteria'] as const;
 export type EntityType = typeof ENTITY_TYPES[number];
 
 export const AGGREGATION_METHODS = ['sum', 'avg', 'max', 'min', 'count', 'bootstrap_mean', 'bootstrap_percentile'] as const;
@@ -70,6 +70,8 @@ export const STATIC_METRIC_NAMES = [
   // Tactic metrics
   'avg_elo', 'avg_elo_delta', 'best_elo', 'win_rate',
   'total_variants', 'winner_count',
+  // Criteria metrics (run_count already declared above)
+  'avg_score', 'frequency_as_weakest', 'total_variants_focused', 'avg_elo_delta_when_focused',
 ] as const;
 export type StaticMetricName = typeof STATIC_METRIC_NAMES[number];
 /**

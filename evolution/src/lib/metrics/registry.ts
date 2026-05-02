@@ -250,6 +250,19 @@ export const METRIC_REGISTRY: Record<EntityType, EntityMetricRegistry> = {
     ],
     atPropagation: [],
   },
+  criteria: {
+    duringExecution: [],
+    // Criteria metrics computed externally by computeCriteriaMetricsForRun (Phase 1G).
+    // Defs here exist for formatter/label/listView metadata; compute() returns null.
+    atFinalization: [
+      { name: 'avg_score', label: 'Avg Score', category: 'rating', formatter: 'integer', listView: true, compute: () => null },
+      { name: 'frequency_as_weakest', label: 'Frequency as Weakest', category: 'rating', formatter: 'percent', listView: true, compute: () => null },
+      { name: 'total_variants_focused', label: 'Variants Focused', category: 'count', formatter: 'integer', listView: true, compute: () => null },
+      { name: 'avg_elo_delta_when_focused', label: 'Δ Elo Focused', category: 'rating', formatter: 'elo', listView: true, compute: () => null },
+      { name: 'run_count', label: 'Runs', category: 'count', formatter: 'integer', listView: true, compute: () => null },
+    ],
+    atPropagation: [],
+  },
 };
 
 // ─── Build-time validation ──────────────────────────────────────
