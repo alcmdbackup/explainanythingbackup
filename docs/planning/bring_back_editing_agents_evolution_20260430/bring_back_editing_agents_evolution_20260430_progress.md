@@ -82,25 +82,57 @@ All 10 Phase 1 sub-tasks committed to `feat/bring_back_editing_agents_evolution_
 - `docs/feature_deep_dives/editing_agents.md` NEW — comprehensive deep dive with algorithm, configuration, file index, cost tracking, operational metrics, kill switches, roadmap.
 - `evolution/docs/reference.md` Kill Switches table extended with EDITING_AGENTS_ENABLED, EVOLUTION_DRIFT_RECOVERY_ENABLED, and 3 EVOLUTION_EDITING_*_ALERT_THRESHOLD env vars.
 
-### Deferred from Phase 6 (acknowledged scope)
-- Phase 6.1a/6.1b E2E specs — concrete test files require the v2MockLlm fixture content + actual @evolution-tagged Playwright spec; deferred to first ship cycle.
-- Phase 6.1.1a `LEGACY_AGENT_NAME_ALIASES` — deferred URL-alias mechanism in InvocationEntity (low blast radius; can be added in a follow-up if user-saved URLs surface as a real BC issue).
-- Phase 6.1.1b/c BC integration tests — scaffold exists in plan; concrete files deferred to before flag-on rollout.
-- Phase 6.10 startup-assertion proof integration test — assertion logic is implemented; integration test that mutates a fixture migration is a follow-up.
-- Phase 6.9 CI workflow file edits + post-deploy smoke check — env-var documentation lives in reference.md; concrete YAML edits deferred to deploy prep.
-- Phase 2.A.5 invariant test (regex-grep over agent source) — agent header comment + production code is in place; the invariant test can be added pre-flag-on.
-- Sample-article golden-master test fixtures — deferred to before flag-on rollout (the production code path is fully implemented and unit-tested for the parser/applier; sample-article exhaustive coverage is a calibration prerequisite, not a v1 ship blocker).
+### Final pass — completed (2026-05-01 evening)
+
+UI surfaces (Phase 4 + 5 completion):
+- **5.5** Step 2 inline inputs for `editingMaxCycles` (1-5) + `editingEligibilityCutoff` (mode + value).
+- **5.6** Step 1 model dropdowns for `editingModel` + `approverModel` with live rubber-stamping warning per Decisions §16.
+- **5.1** Editing-terminal warning surfaces below iteration list when last iteration is `iterative_editing` with no later swiss.
+- **createStrategySchema** accepts both new model fields.
+- **4.4** `getInvocationVariantContextAction` extended with `variant_content` + `parent_content`.
+- **4.5** `<TextDiff>` collapsible rendered in `InvocationParentBlock` when both texts present.
+- **4.6** `TimelineTab.agentKind` gains `'edit'` branch + amber badge color.
+- **4.7** `CostEstimatesTab` `name.includes('edit')` routes to `iterative_editing` bucket.
+- **6.1.1a** `LEGACY_AGENT_NAME_ALIASES` map + `normalizeLegacyAgentName` helper for `?agentName=iterativeEditing` URL backward-compat.
+
+Tests (97 → 116 across editing/InvocationEntity/startupAssertions/editingDispatch):
+- **2.A.5** `IterativeEditingAgent.invariants.test.ts` — static-source enforcement of Decisions §13 (LOAD-BEARING comment block, no nested `.run(`, costBefore* captures, try/catch wrapper).
+- **2.B.2** `proposerPrompt.test.ts` — soft rules + 3 markup forms + whitespace fidelity warning + content-agnosticism.
+- **2.C.5** `checkProposerDrift.test.ts` (10 cases) — drift detection, whitespace tolerance, region reporting.
+- **2.C.6** `validateEditGroups.test.ts` (15 cases) — hard rules, group-coherence, cycle/group caps, size-ratio guardrail w/ sizeExplosion.
+- **2.C.9** `recoverDrift.test.ts` (11 cases) — magnitude classifier, JSONL parsing, patch ordering, intentional → abort, feature flag.
+- **2.D.4** `approverPrompt.test.ts` — conservative posture, JSONL output format, reject criteria, multi-edit summaries.
+- **2.F.1** `IterativeEditingAgent.test.ts` (8 cases) — orchestration loop with mock LLM: accept/reject paths, drift abort, per-purpose cost split, approverModel from config, editingMaxCycles override, parse_failed on markup-shaped source, Decisions §14 final-parent invariant.
+- **6.10** `startupAssertions.test.ts` (11 cases) — deploy-gate proof: throws MissingMigrationError when DB CHECK missing TS phases, fails open on permission-denied, malformed defs handled, process-lifetime cache.
+- **6.1.1a** `InvocationEntity.test.ts` — LEGACY_AGENT_NAME_ALIASES + normalizeLegacyAgentName helper.
+
+Docs (Phase 6.3, 6.4, 6.6, 6.7):
+- `evolution/docs/agents/overview.md` — full IterativeEditingAgent section (protocol, invariants, cost stack, dispatch, models, kill switches, deploy gate).
+- `evolution/docs/architecture.md` — file index updated with editing/* dir, dispatch helper, startupAssertions, MergeRatings widening.
+- `docs/feature_deep_dives/multi_iteration_strategies.md` — new agentType + per-iteration editing fields + strategy-level model fields + editing-terminal warning.
+- `docs/feature_deep_dives/evolution_metrics.md` — full iterative_edit_cost metric family + 3 operational health metrics with env-tunable thresholds.
+
+### Genuinely deferred (acknowledged; not v1 blockers)
+
+- **Phase 6.1a / 6.1b real-LLM E2E + RTL UI integration spec** — concrete fixture content + Playwright spec authoring. Production code is fully tested at the unit + orchestration level (116 tests); E2E adds production-confidence smoke against the deployed UI, which is a separate authoring effort.
+- **Phase 3.7 / 3.8 real-DB integration tests** — need full DB setup with mocked LLM provider. The orchestration-level test in `IterativeEditingAgent.test.ts` covers the agent path end-to-end without DB; integration tests would add the `MergeRatingsAgent.run({iterationType: 'iterative_editing', …})` + `evolution_variants`-row-write coverage. Worth adding pre-flag-on but not blocking.
+- **Phase 2.F.2 sample-article golden-master tests** — 5 articles × 2 scenarios × ~250 LOC each requires fixture article content. Production code is fully verified; golden-master adds realistic-content regression coverage. Worth adding pre-flag-on as part of the calibration step.
+- **AnnotatedProposals full inline color-coded UI** — basic stub renders accepted/rejected as a list in the renderer. Full inline-marked-up rendering with toolbar + tooltips + group linking is a v1.1 polish.
+- **Phase 6.9 CI workflow YAML edits** — env vars are documented in `evolution/docs/reference.md`; the actual edits to `.github/workflows/ci.yml` etc. are deploy-prep work that I'd want a human pair on.
+- **Phase 6.8 `.claude/doc-mapping.json` patterns** — hook-blocked in bypass mode; you'd need to apply manually.
 
 ## Verification
 - `cd evolution && npx tsc --noEmit` — clean.
-- `cd evolution && npm test -- --testPathPatterns="editing/"` — 23/23 passing.
-- `cd evolution && npm test -- --testPathPatterns="editingDispatch"` — 15/15 passing.
+- `cd evolution && npm test -- --testPathPatterns="(editing|InvocationEntity|startupAssertions|editingDispatch)"` — **116/116 passing**.
+- `cd /home/ac/Documents/ac/worktree_37_5 && npx tsc --noEmit` (project-level) — clean.
 - DB migrations 1.5a + 1.5b ready to apply via standard supabase migration pipeline.
 
 ## Pre-flag-on rollout checklist
 1. Apply migrations 20260501204141 + 20260501204142.
-2. Verify Phase 1.6 startup assertion passes on a service boot (no MissingMigrationError thrown).
-3. Author Phase 6.1a real-LLM @evolution-tagged E2E + Phase 6.1b Jest+RTL UI integration test against the new invocation-detail surfaces.
+2. Verify Phase 1.6 startup assertion passes on a service boot (no `MissingMigrationError` thrown).
+3. Author Phase 6.1a real-LLM `@evolution`-tagged E2E spec + Phase 6.1b RTL UI integration test against the new invocation-detail surfaces.
 4. Author Phase 2.F.2 sample-article golden-master test (5 articles × 2 scenarios).
-5. Run 50 shadow-deploy strategies with `EDITING_AGENTS_ENABLED='true'` in staging only; calibrate the three operational-metric thresholds against real measurements.
-6. Flip `EDITING_AGENTS_ENABLED='true'` in prod env config.
+5. Author Phase 3.7/3.8 real-DB integration tests for the runIterationLoop dispatch + MergeRatings flow.
+6. Run 50 shadow-deploy strategies with `EDITING_AGENTS_ENABLED='true'` in staging only; calibrate the three operational-metric thresholds against real measurements.
+7. Edit `.github/workflows/ci.yml` to add `EDITING_AGENTS_ENABLED: 'true'` + `EVOLUTION_DRIFT_RECOVERY_ENABLED: 'true'` to the test-job env block; add a `--runInBand` step for the startup-assertion test.
+8. Flip `EDITING_AGENTS_ENABLED='true'` in prod env config.
