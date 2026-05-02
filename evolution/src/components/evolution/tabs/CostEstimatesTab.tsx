@@ -414,9 +414,12 @@ function PerIterationSummarySection({ invocations }: { invocations: RunCostEstim
       const entry = map.get(iter) ?? { type: '—', allocated: 0, spent: 0, count: 0 };
       entry.count += 1;
       entry.spent += inv.totalCost ?? 0;
-      // Infer type from agent name
+      // Infer type from agent name. Edit must be checked BEFORE generate
+      // (the per-LLM-call labels for iterative_editing all contain 'edit'
+      // but not 'generate').
       const name = inv.agentName.toLowerCase();
-      if (name.includes('generate')) entry.type = 'generate';
+      if (name.includes('edit')) entry.type = 'iterative_editing';
+      else if (name.includes('generate')) entry.type = 'generate';
       else if (name.includes('swiss')) entry.type = 'swiss';
       map.set(iter, entry);
     }

@@ -160,11 +160,16 @@ export interface InvocationVariantContext {
   variantElo: number;
   variantMu: number | null;
   variantSigma: number | null;
+  /** The produced variant's text content — used by InvocationParentBlock's <TextDiff>
+   *  collapsible (Phase 4.4/4.5). Null when the invocation produced no variant. */
+  variantContent: string | null;
   parentVariantId: string | null;
   parentElo: number | null;
   parentMu: number | null;
   parentSigma: number | null;
   parentRunId: string | null;
+  /** Parent variant's text content for the diff. Null when no parent or parent missing. */
+  parentContent: string | null;
 }
 
 export const getInvocationVariantContextAction = adminAction(
@@ -174,11 +179,12 @@ export const getInvocationVariantContextAction = adminAction(
     const { supabase } = ctx;
 
     type InvocationVariantRow = {
-      id: string; run_id: string; elo_score: number; mu: number | null; sigma: number | null; parent_variant_id: string | null;
+      id: string; run_id: string; elo_score: number; mu: number | null; sigma: number | null;
+      parent_variant_id: string | null; variant_content: string | null;
     };
     const { data: variantsData } = await supabase
       .from('evolution_variants')
-      .select('id, run_id, elo_score, mu, sigma, parent_variant_id')
+      .select('id, run_id, elo_score, mu, sigma, parent_variant_id, variant_content')
       .eq('agent_invocation_id', invocationId)
       .limit(1);
     const variants = (variantsData ?? []) as unknown as InvocationVariantRow[];
@@ -190,11 +196,12 @@ export const getInvocationVariantContextAction = adminAction(
     let parentMu: number | null = null;
     let parentSigma: number | null = null;
     let parentRunId: string | null = null;
+    let parentContent: string | null = null;
 
     if (variant.parent_variant_id) {
       const { data: parent } = await supabase
         .from('evolution_variants')
-        .select('elo_score, mu, sigma, run_id')
+        .select('elo_score, mu, sigma, run_id, variant_content')
         .eq('id', variant.parent_variant_id)
         .single();
       if (parent) {
@@ -202,6 +209,7 @@ export const getInvocationVariantContextAction = adminAction(
         parentMu = parent.mu ?? null;
         parentSigma = parent.sigma ?? null;
         parentRunId = parent.run_id ?? null;
+        parentContent = (parent as { variant_content?: string | null }).variant_content ?? null;
       }
     }
 
@@ -211,11 +219,13 @@ export const getInvocationVariantContextAction = adminAction(
       variantElo: variant.elo_score,
       variantMu: variant.mu ?? null,
       variantSigma: variant.sigma ?? null,
+      variantContent: variant.variant_content ?? null,
       parentVariantId: variant.parent_variant_id,
       parentElo,
       parentMu,
       parentSigma,
       parentRunId,
+      parentContent,
     };
   },
 );

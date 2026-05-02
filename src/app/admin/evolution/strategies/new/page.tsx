@@ -65,6 +65,12 @@ interface StrategyFormState {
   description: string;
   generationModel: string;
   judgeModel: string;
+  /** Iterative-editing Proposer model. Empty string → falls back to generationModel. */
+  editingModel: string;
+  /** Iterative-editing Approver model. Empty string → falls back to editingModel.
+   *  When resolved value === editingModel resolved value, the wizard surfaces a
+   *  rubber-stamping warning per Decisions §16. */
+  approverModel: string;
   generationTemperature: string;
   budgetUsd: string;
   maxComparisonsPerVariant: string;
@@ -286,6 +292,8 @@ export default function NewStrategyPage(): JSX.Element {
     description: '',
     generationModel: '',
     judgeModel: DEFAULT_JUDGE_MODEL,
+    editingModel: '',
+    approverModel: '',
     generationTemperature: '',
     budgetUsd: '0.05',
     maxComparisonsPerVariant: '5',
@@ -373,6 +381,8 @@ export default function NewStrategyPage(): JSX.Element {
           config: {
             generationModel: form.generationModel,
             judgeModel: form.judgeModel,
+            ...(form.editingModel ? { editingModel: form.editingModel } : {}),
+            ...(form.approverModel ? { approverModel: form.approverModel } : {}),
             budgetUsd: budget,
             maxComparisonsPerVariant: maxComp,
             iterationConfigs: toIterationConfigsPayload(iterations),
@@ -511,6 +521,8 @@ export default function NewStrategyPage(): JSX.Element {
         description: form.description.trim() || undefined,
         generationModel: form.generationModel,
         judgeModel: form.judgeModel,
+        editingModel: form.editingModel || undefined,
+        approverModel: form.approverModel || undefined,
         budgetUsd: parseFloat(form.budgetUsd),
         iterationConfigs: toIterationConfigsPayload(iterations),
         maxComparisonsPerVariant: form.maxComparisonsPerVariant ? Number(form.maxComparisonsPerVariant) : undefined,
@@ -630,6 +642,59 @@ export default function NewStrategyPage(): JSX.Element {
                       <option key={opt.value} value={opt.value}>{opt.label}</option>
                     ))}
                   </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label htmlFor="editing-model" className={labelClasses}>Editing Model (optional)</label>
+                  <select
+                    id="editing-model"
+                    value={form.editingModel}
+                    onChange={e => updateForm({ editingModel: e.target.value })}
+                    className={inputCls()}
+                    data-testid="editing-model-select"
+                  >
+                    <option value="">Inherit from Generation Model</option>
+                    {MODEL_OPTIONS.map(opt => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-[var(--text-muted)] mt-1">Used by Iterative Editing&apos;s Proposer LLM call. Leave on &apos;Inherit&apos; to share the Generation model.</p>
+                </div>
+                <div>
+                  <label htmlFor="approver-model" className={labelClasses}>Approver Model (optional)</label>
+                  <select
+                    id="approver-model"
+                    value={form.approverModel}
+                    onChange={e => updateForm({ approverModel: e.target.value })}
+                    className={inputCls()}
+                    data-testid="approver-model-select"
+                  >
+                    <option value="">Inherit from Editing Model</option>
+                    {MODEL_OPTIONS.map(opt => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-[var(--text-muted)] mt-1">Used by Iterative Editing&apos;s Approver LLM call. For maximum auditability, choose a model different from the Editing Model.</p>
+                  {(() => {
+                    // Rubber-stamping warning per Decisions §16: resolve actual values and
+                    // compare. editingModel falls back to generationModel; approverModel
+                    // falls back to editingModel (which itself falls back to generationModel).
+                    const resolvedEditing = form.editingModel || form.generationModel;
+                    const resolvedApprover = form.approverModel || form.editingModel || form.generationModel;
+                    if (resolvedEditing && resolvedApprover && resolvedEditing === resolvedApprover) {
+                      return (
+                        <p
+                          data-testid="rubber-stamping-warning"
+                          className="text-xs mt-1 px-2 py-1 rounded border bg-[var(--status-warning)]/15 text-[var(--status-warning)] border-[var(--status-warning)]/40"
+                        >
+                          ⚠️ Proposer and Approver are using the same model. Auditability is reduced — accepts may rubber-stamp edits.
+                        </p>
+                      );
+                    }
+                    return null;
+                  })()}
                 </div>
               </div>
 
@@ -1015,6 +1080,54 @@ export default function NewStrategyPage(): JSX.Element {
                         />
                       </div>
                     )}
+                    {it.agentType === 'iterative_editing' && (
+                      <div
+                        className="mt-2 pl-8 flex flex-wrap items-center gap-2 text-xs font-ui"
+                        data-testid={`iteration-editing-controls-${idx}`}
+                      >
+                        <span className="text-[var(--text-primary)]">✏️ Cycles per parent:</span>
+                        <input
+                          type="number"
+                          min={1}
+                          max={5}
+                          step={1}
+                          value={it.editingMaxCycles ?? 3}
+                          onChange={e => {
+                            const v = e.target.value === '' ? undefined : Number(e.target.value);
+                            updateIteration(idx, { editingMaxCycles: v });
+                          }}
+                          className="w-14 px-2 py-1 text-xs font-mono bg-[var(--surface-primary)] border border-[var(--border-default)] rounded-page text-[var(--text-primary)] text-right focus:border-[var(--accent-gold)] focus:outline-none"
+                          data-testid={`editing-max-cycles-${idx}`}
+                          title="How many propose-review-apply rounds run per parent (1-5). More = more refinement, higher cost."
+                        />
+                        <span className="ml-2 text-[var(--text-primary)]">· Eligibility cutoff: top</span>
+                        <input
+                          type="number"
+                          min={1}
+                          max={100}
+                          step={1}
+                          value={it.editingCutoffValue ?? 10}
+                          onChange={e => {
+                            const v = e.target.value === '' ? undefined : Number(e.target.value);
+                            updateIteration(idx, { editingCutoffValue: v });
+                          }}
+                          className="w-16 px-2 py-1 text-xs font-mono bg-[var(--surface-primary)] border border-[var(--border-default)] rounded-page text-[var(--text-primary)] text-right focus:border-[var(--accent-gold)] focus:outline-none"
+                          data-testid={`editing-cutoff-value-${idx}`}
+                        />
+                        <select
+                          value={it.editingCutoffMode ?? 'topN'}
+                          onChange={e => updateIteration(idx, { editingCutoffMode: e.target.value as 'topN' | 'topPercent' })}
+                          className="px-2 py-1 text-xs font-ui bg-[var(--surface-primary)] border border-[var(--border-default)] rounded-page text-[var(--text-primary)] focus:border-[var(--accent-gold)] focus:outline-none"
+                          data-testid={`editing-cutoff-mode-${idx}`}
+                        >
+                          <option value="topN">variants</option>
+                          <option value="topPercent">%</option>
+                        </select>
+                        <span className="text-[var(--text-muted)]" title="Caps how many top-Elo variants from the pool can be edited this iteration. Default 10 — most strategies are budget-bound first.">
+                          &nbsp;· caps editable variants per iteration
+                        </span>
+                      </div>
+                    )}
                     </div>
                   );
                 })}
@@ -1065,6 +1178,26 @@ export default function NewStrategyPage(): JSX.Element {
                   {iterationErrors.join('. ')}
                 </div>
               )}
+
+              {(() => {
+                // Editing-terminal warning per Decisions §14: when last iteration is
+                // iterative_editing with no later swiss (or other ranking-emitting agent),
+                // newly edited variants enter the pool with default Elo and never get ranked.
+                const lastIdx = iterations.length - 1;
+                if (lastIdx < 0 || iterations[lastIdx]?.agentType !== 'iterative_editing') return null;
+                const hasLaterRanking = false; // last iteration by definition has nothing after it
+                if (hasLaterRanking) return null;
+                return (
+                  <div
+                    data-testid="editing-terminal-warning"
+                    role="alert"
+                    aria-live="polite"
+                    className="rounded-book bg-[var(--status-warning)]/10 border border-[var(--status-warning)]/40 p-2 font-ui text-sm text-[var(--status-warning)]"
+                  >
+                    ⚠️ This strategy ends with an Iterative Editing iteration. Variants edited in the final iteration will enter the pool at default Elo and won&apos;t be ranked. Add a Swiss iteration after the last editing iteration to give the new variants a chance to compete.
+                  </div>
+                );
+              })()}
 
               <div className="flex gap-3">
                 <button

@@ -86,20 +86,29 @@ export function validateEditGroups(
   }
 
   // Step 3: size-ratio guardrail — drop highest-numbered groups until ratio ≤ 1.5×.
-  // If even with zero groups the simulation would fail, the SINGLE remaining group
-  // is a mega-insertion → caller aborts the cycle.
+  // sizeExplosion fires when the guardrail had to drop a mega-insertion: a single
+  // group whose net inflation alone exceeds 0.5×baseLen (i.e., applying it would
+  // push the article past the 1.5× hard cap on its own). The mega-insertion case
+  // is the proposer ignoring the soft "one-sentence edits preferred" rule by a
+  // wide margin — the cycle should abort rather than silently drop.
   const baseLen = currentText.length;
   let remaining = [...cyclecapped].sort((a, b) => a.groupNumber - b.groupNumber);
   let projectedLen = simulateNewTextLength(remaining, baseLen);
+
+  let sizeExplosion = false;
   while (projectedLen / baseLen > SIZE_RATIO_HARD_CAP && remaining.length > 0) {
     const dropped = remaining.pop()!;
     droppedPreApprover.push({ groupNumber: dropped.groupNumber, reason: 'size_ratio_guardrail' });
+    // Mega-insertion check: if THIS dropped group's net inflation alone exceeds
+    // the cap, flag explosion so the agent aborts the cycle (proposer was wildly
+    // over-aggressive — silent drop would mask the signal).
+    const groupInflation = dropped.atomicEdits.reduce(
+      (sum, e) => sum + e.newText.length - e.oldText.length, 0,
+    );
+    if (groupInflation > baseLen * (SIZE_RATIO_HARD_CAP - 1)) {
+      sizeExplosion = true;
+    }
     projectedLen = simulateNewTextLength(remaining, baseLen);
-  }
-  // If a single mega-insertion would still exceed even with no other groups, flag.
-  let sizeExplosion = false;
-  if (remaining.length === 0 && cyclecapped.length > 0 && projectedLen / baseLen > SIZE_RATIO_HARD_CAP) {
-    sizeExplosion = true;
   }
 
   return { approverGroups: remaining, droppedPreApprover, sizeExplosion };

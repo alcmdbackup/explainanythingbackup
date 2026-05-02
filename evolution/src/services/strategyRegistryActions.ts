@@ -34,6 +34,12 @@ const createStrategySchema = z.object({
   description: z.string().max(2000).optional(),
   generationModel: z.string().min(1).max(100),
   judgeModel: z.string().min(1).max(100),
+  /** Iterative-editing Proposer model (optional). Falls back to generationModel at runtime. */
+  editingModel: z.string().max(100).optional(),
+  /** Iterative-editing Approver model (optional). Falls back to editingModel (which falls back
+   *  to generationModel) at runtime. Same-as-editingModel surfaces a rubber-stamping warning
+   *  in the wizard per Decisions §16. */
+  approverModel: z.string().max(100).optional(),
   iterationConfigs: z.array(iterationConfigSchema).min(1).max(20),
   budgetUsd: z.number().min(0.01).max(100).optional(),
   pipeline_type: z.string().max(50).optional(),
