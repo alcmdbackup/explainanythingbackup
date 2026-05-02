@@ -32,9 +32,9 @@ const STEP_LABELS: Record<Step, string> = { config: 'Strategy Config', iteration
 type BudgetFloorMode = 'fraction' | 'agentMultiple';
 
 interface IterationRow {
-  agentType: 'generate' | 'reflect_and_generate' | 'swiss';
+  agentType: 'generate' | 'reflect_and_generate' | 'iterative_editing' | 'swiss';
   budgetPercent: number;
-  /** Phase 2: parent-article source for generate iterations. Undefined for swiss.
+  /** Phase 2: parent-article source for generate iterations. Undefined for swiss/editing.
    *  First iteration is locked to 'seed' by schema refine. */
   sourceMode?: 'seed' | 'pool';
   /** Phase 2: quality cutoff for pool-mode. Initialized to 'topN'/5 when sourceMode
@@ -46,6 +46,13 @@ interface IterationRow {
   /** Top N tactics the reflection LLM ranks (1-10, default 3). Only valid when
    *  agentType === 'reflect_and_generate'. */
   reflectionTopN?: number;
+  /** Number of propose-review-apply cycles per parent (1-5, default 3). Only
+   *  valid when agentType === 'iterative_editing'. */
+  editingMaxCycles?: number;
+  /** Eligibility cutoff for editing — caps how many top-Elo variants are eligible
+   *  per iteration. Default {topN: 10}. Only valid when agentType === 'iterative_editing'. */
+  editingCutoffMode?: 'topN' | 'topPercent';
+  editingCutoffValue?: number;
 }
 
 // Default cutoff applied when user switches a generate iteration to sourceMode='pool'.
@@ -74,17 +81,26 @@ const DEFAULT_ITERATIONS: IterationRow[] = [
 // ─── Form → payload helpers ─────────────────────────────────────
 
 interface IterationConfigPayload {
-  agentType: 'generate' | 'reflect_and_generate' | 'swiss';
+  agentType: 'generate' | 'reflect_and_generate' | 'iterative_editing' | 'swiss';
   budgetPercent: number;
   sourceMode?: 'seed' | 'pool';
   qualityCutoff?: { mode: 'topN' | 'topPercent'; value: number };
   generationGuidance?: Array<{ tactic: string; percent: number }>;
   reflectionTopN?: number;
+  editingMaxCycles?: number;
+  editingEligibilityCutoff?: { mode: 'topN' | 'topPercent'; value: number };
 }
 
-/** Variant-producing agent types share the same parent-article source machinery
- *  (sourceMode, qualityCutoff). Swiss iterations omit all of these. */
+/** Agent types that take parent-article source machinery (sourceMode, qualityCutoff).
+ *  This is generate / reflect_and_generate ONLY — editing has its own per-cycle parent-
+ *  selection mechanism (editingEligibilityCutoff), and swiss has none. */
 function isVariantProducing(agentType: IterationRow['agentType']): agentType is 'generate' | 'reflect_and_generate' {
+  return agentType === 'generate' || agentType === 'reflect_and_generate';
+}
+
+/** Agent types eligible to be the FIRST iteration (must produce variants on an
+ *  empty pool). Editing requires existing variants; swiss only re-ranks. */
+function canBeFirstIteration(agentType: IterationRow['agentType']): boolean {
   return agentType === 'generate' || agentType === 'reflect_and_generate';
 }
 
@@ -115,6 +131,13 @@ function toIterationConfigsPayload(iterations: IterationRow[]): IterationConfigP
     // reflectionTopN only meaningful for reflect_and_generate iterations.
     ...(it.agentType === 'reflect_and_generate'
       ? { reflectionTopN: it.reflectionTopN ?? 3 }
+      : {}),
+    // Editing-only fields.
+    ...(it.agentType === 'iterative_editing' && it.editingMaxCycles != null
+      ? { editingMaxCycles: it.editingMaxCycles }
+      : {}),
+    ...(it.agentType === 'iterative_editing' && it.editingCutoffMode && it.editingCutoffValue != null
+      ? { editingEligibilityCutoff: { mode: it.editingCutoffMode, value: it.editingCutoffValue } }
       : {}),
   }));
 }
@@ -379,7 +402,7 @@ export default function NewStrategyPage(): JSX.Element {
   const iterationErrors = useMemo(() => {
     const errors: string[] = [];
     if (iterations.length === 0) errors.push('At least one iteration is required');
-    if (iterations.length > 0 && !isVariantProducing(iterations[0]!.agentType)) {
+    if (iterations.length > 0 && !canBeFirstIteration(iterations[0]!.agentType)) {
       errors.push('First iteration must be generate or reflect_and_generate');
     }
     if (!percentValid) errors.push(`Budget percentages must sum to 100% (currently ${totalPercent.toFixed(1)}%)`);
@@ -853,6 +876,7 @@ export default function NewStrategyPage(): JSX.Element {
                       >
                         <option value="generate">Generate</option>
                         <option value="reflect_and_generate">Reflect &amp; Generate</option>
+                        <option value="iterative_editing" disabled={idx === 0} title={idx === 0 ? 'First iteration must produce variants' : undefined}>Iterative Editing</option>
                         <option value="swiss" disabled={idx === 0} title={idx === 0 ? 'First iteration must produce variants' : undefined}>Swiss</option>
                       </select>
 

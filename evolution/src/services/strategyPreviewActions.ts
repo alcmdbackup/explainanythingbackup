@@ -165,18 +165,22 @@ const dispatchPreviewInputSchema = z.object({
     budgetUsd: z.number().positive(),
     maxComparisonsPerVariant: z.number().int().positive().optional(),
     iterationConfigs: z.array(z.object({
-      agentType: z.enum(['generate', 'reflect_and_generate', 'swiss']),
+      agentType: z.enum(['generate', 'reflect_and_generate', 'iterative_editing', 'swiss']),
       budgetPercent: z.number().min(1).max(100),
       sourceMode: z.enum(['seed', 'pool']).optional(),
       qualityCutoff: z.object({ mode: z.enum(['topN', 'topPercent']), value: z.number().positive() }).optional(),
       generationGuidance: z.array(z.unknown()).optional(),
       reflectionTopN: z.number().int().min(1).max(10).optional(),
+      editingMaxCycles: z.number().int().min(1).max(5).optional(),
+      editingEligibilityCutoff: z.object({ mode: z.enum(['topN', 'topPercent']), value: z.number().positive() }).optional(),
     })).min(1).max(20),
     minBudgetAfterParallelFraction: z.number().min(0).max(1).optional(),
     minBudgetAfterParallelAgentMultiple: z.number().min(0).optional(),
     minBudgetAfterSequentialFraction: z.number().min(0).max(1).optional(),
     minBudgetAfterSequentialAgentMultiple: z.number().min(0).optional(),
     generationGuidance: z.array(z.unknown()).optional(),
+    editingModel: z.string().optional(),
+    approverModel: z.string().optional(),
   }).passthrough(),
   /** Optional prompt to source arena size from. When null/omitted the preview assumes
    *  an empty arena (initialPoolSize=0). */
