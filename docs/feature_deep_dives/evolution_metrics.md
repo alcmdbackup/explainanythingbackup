@@ -99,3 +99,30 @@ three surfaces (wizard / run detail / strategy detail) with consistent formattin
 cost-range via `formatCostRange`, effective-cap badges, optional projected-vs-actual
 delta columns + realization ratio, and warning banners for ranking-cost saturation,
 budget-insufficient iterations, and safety-cap binding.
+
+### Top-up projection (`expectedTotalDispatch`, `expectedTopUpDispatch`)
+
+`projectDispatchPlan` also models the within-iteration top-up loop (Phase 7b in
+`runIterationLoop.ts`) so the wizard preview reflects the realistic dispatch count, not
+just the conservative parallel-batch size. Per `IterationPlanEntry`:
+
+- **`expectedTotalDispatch`** — `parallel batch + projected top-up agents`. Computed via
+  `floor((iterBudget - sequentialFloor) / expected.total)` (algebraically equivalent to
+  the runtime's iterative gate `while (remaining - actualAvgCost >= sequentialFloor)`
+  with `parallelSpend = parallel × actualAvgCost` cancelling). Capped at
+  `DISPATCH_SAFETY_CAP`. Always `>= dispatchCount`.
+- **`expectedTopUpDispatch`** — `expectedTotalDispatch - dispatchCount`. Zero when
+  parallel batch already saturates expected, when top-up is disabled, or when
+  the iter is swiss.
+
+Pool growth between iterations now uses `expectedTotalDispatch` instead of `dispatchCount`
+to match the post-top-up pool the runtime grows.
+
+The function takes a third optional argument `opts: DispatchPlanOptions` with
+`topUpEnabled` and `reflectionEnabled` booleans, mirroring the
+`EVOLUTION_TOPUP_ENABLED` / `EVOLUTION_REFLECTION_ENABLED` runtime kill-switches.
+Callers (runtime, wizard server-action, cost-sensitivity) resolve env at their own
+boundary and pass explicit booleans so the function stays pure and reproducible. The
+wizard's `DispatchPlanView` surfaces `expectedTotalDispatch` in a "Likely total" column
+between Dispatch and $/Agent, with a sub-line `N parallel + M top-up` when top-up adds
+agents beyond the parallel batch.

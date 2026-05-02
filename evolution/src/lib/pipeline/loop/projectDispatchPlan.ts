@@ -18,6 +18,15 @@
 // generationGuidance → config.strategies → DEFAULT_TACTICS. Matches runtime dispatch
 // semantics (runIterationLoop round-robins / weight-samples tactics within each iter),
 // so identically-budgeted iterations show identical estimates when no guidance is set.
+//
+// Top-up projection (investigate_issues_latest_evolution_reflection_agent_20260501):
+// `expectedTotalDispatch` and `expectedTopUpDispatch` model the within-iteration top-up
+// loop (Phase 7b) using `expected.total` as the proxy for `actualAvgCostPerAgent`.
+// Closed-form: K_total <= floor((iterBudget - sequentialFloor) / expected.total),
+// algebraically equivalent to the runtime's iterative `while (remaining - x >= floor)`.
+// Gated by `opts.topUpEnabled` / `opts.reflectionEnabled` which mirror the
+// EVOLUTION_TOPUP_ENABLED / EVOLUTION_REFLECTION_ENABLED runtime kill-switches. Callers
+// resolve env at their own boundary so this function stays pure and reproducible.
 
 import type { EvolutionConfig } from '../infra/types';
 import {
@@ -26,7 +35,7 @@ import {
   estimateReflectionCost,
   getVariantChars,
 } from '../infra/estimateCosts';
-import { resolveParallelFloor } from './budgetFloorResolvers';
+import { resolveParallelFloor, resolveSequentialFloor } from './budgetFloorResolvers';
 import { DEFAULT_TACTICS } from '../../core/tactics';
 import type { GuidanceEntry } from '../../core/tactics/selectTacticWeighted';
 
@@ -64,6 +73,19 @@ export interface DispatchPlanContext {
   /** Number of pre-existing variants in the pool at iteration 0 start (arena entries
    *  loaded via loadArenaEntries). Affects rankCost via numComparisons. */
   initialPoolSize: number;
+}
+
+/** Optional flags mirroring the runtime kill-switches. Threaded explicitly (not read from
+ *  process.env) so this function remains pure and reproducible across the wizard, runtime,
+ *  and counterfactual call sites. Each call site resolves env at its own boundary. */
+export interface DispatchPlanOptions {
+  /** When false, top-up simulation is skipped: `expectedTotalDispatch === dispatchCount`,
+   *  `expectedTopUpDispatch === 0`. Mirrors EVOLUTION_TOPUP_ENABLED runtime flag. Default true. */
+  topUpEnabled?: boolean;
+  /** When false, reflection cost is zeroed for `reflect_and_generate` iterations because
+   *  the runtime falls those iterations back to vanilla GFPA dispatch (see
+   *  reflectionDispatch.ts). Mirrors EVOLUTION_REFLECTION_ENABLED. Default true. */
+  reflectionEnabled?: boolean;
 }
 
 export interface EstPerAgentValue {
@@ -112,11 +134,21 @@ export interface IterationPlanEntry {
   /** Number of agents the runtime will dispatch at iteration start. Uses upperBound
    *  (reservation-safe). */
   dispatchCount: number;
+  /** Top-up-aware total projection: parallel batch + estimated top-up agents using
+   *  `expected.total` per-agent cost as proxy for `actualAvgCostPerAgent`. Capped at
+   *  DISPATCH_SAFETY_CAP. Always >= dispatchCount. Equals dispatchCount when
+   *  opts.topUpEnabled === false (mirrors EVOLUTION_TOPUP_ENABLED). */
+  expectedTotalDispatch: number;
+  /** Top-up agents projected beyond the parallel batch.
+   *  expectedTotalDispatch - dispatchCount. Zero when top-up is disabled or when
+   *  the parallel batch already saturates expected per-agent cost. */
+  expectedTopUpDispatch: number;
   /** Why `dispatchCount` landed where it did — lets the UI show a "3 agents [budget]"
    *  badge so users understand which constraint bound. */
   effectiveCap: EffectiveCap;
   /** Pool size the runtime will see at the start of this iteration (incoming arena +
-   *  variants accumulated from previous iterations' dispatchCount). */
+   *  variants accumulated from previous iterations' expectedTotalDispatch — matches
+   *  the post-top-up pool the runtime actually grows). */
   poolSizeAtStart: number;
   /** Absolute USD reserved by the parallel floor (computed against iterBudgetUsd, not
    *  totalBudget). 0 when no floor is configured. */
@@ -223,6 +255,7 @@ function weightedAgentCost(
 export function projectDispatchPlan(
   config: EvolutionConfig,
   ctx: DispatchPlanContext,
+  opts: DispatchPlanOptions = {},
 ): IterationPlanEntry[] {
   const plan: IterationPlanEntry[] = [];
   let poolSize = ctx.initialPoolSize;
@@ -230,6 +263,9 @@ export function projectDispatchPlan(
   const expectedComp = Math.max(1, Math.ceil(EXPECTED_RANK_COMPARISONS_RATIO * maxComp));
   const strategyTactics = config.strategies && config.strategies.length > 0 ? config.strategies : undefined;
   const strategyGuidance = config.generationGuidance as ReadonlyArray<GuidanceEntry> | undefined;
+  // Defaults match runtime kill-switch convention (`!== 'false'`): unset/true = enabled.
+  const topUpEnabled = opts.topUpEnabled !== false;
+  const reflectionEnabled = opts.reflectionEnabled !== false;
 
   for (let iterIdx = 0; iterIdx < config.iterationConfigs.length; iterIdx++) {
     const iterCfg = config.iterationConfigs[iterIdx]!;
@@ -253,6 +289,8 @@ export function projectDispatchPlan(
         },
         maxAffordable: { atExpected: 0, atUpperBound: 0 },
         dispatchCount: 0,
+        expectedTotalDispatch: 0,
+        expectedTopUpDispatch: 0,
         effectiveCap: 'swiss',
         poolSizeAtStart: poolSize,
         parallelFloorUsd: 0,
@@ -262,10 +300,12 @@ export function projectDispatchPlan(
 
     // ─── Generate / reflect-and-generate iteration ────────────────
     // Shape A: 'reflect_and_generate' is a third top-level agentType. When the iteration
-    // is reflect_and_generate, weightedAgentCost includes the reflection LLM call cost so
-    // parallelDispatchCount sizing accounts for it. Otherwise reflection=0 and the
-    // existing GFPA-only cost path applies.
-    const useReflection = iterCfg.agentType === 'reflect_and_generate';
+    // is reflect_and_generate AND opts.reflectionEnabled, weightedAgentCost includes the
+    // reflection LLM call cost so parallelDispatchCount sizing accounts for it. When the
+    // EVOLUTION_REFLECTION_ENABLED kill-switch is off, the runtime falls
+    // reflect_and_generate iters back to vanilla GFPA (reflectionDispatch.ts) — we
+    // mirror that here so the preview matches what runtime will actually dispatch.
+    const useReflection = iterCfg.agentType === 'reflect_and_generate' && reflectionEnabled;
     const reflectionTopN = iterCfg.reflectionTopN ?? 3;
 
     // Upper bound: full tactic output + max comparisons (reservation-safe).
@@ -310,6 +350,26 @@ export function projectDispatchPlan(
       effectiveCap = 'budget';
     }
 
+    // ─── Top-up projection ────────────────────────────────────────
+    // Mirrors Phase 7b in runIterationLoop.ts. The runtime's iterative gate
+    //   while (remaining - actualAvgCost >= sequentialFloor) dispatch++
+    // (with remaining = iterBudget - parallelSpend - topUpSpend, parallelSpend ≈
+    // dispatchCount × actualAvgCost) reduces algebraically to
+    //   K_total ≤ floor((iterBudget - sequentialFloor) / actualAvgCost).
+    // We use `totalExpected` as the pre-run proxy for actualAvgCost; resolveSequentialFloor
+    // falls back to that proxy when AgentMultiple mode is configured.
+    let expectedTotalDispatch = dispatchCount;
+    let expectedTopUpDispatch = 0;
+    if (topUpEnabled && totalExpected > 0) {
+      const sequentialFloorUsd = resolveSequentialFloor(config, iterBudgetUsd, upper.total, totalExpected);
+      const totalAffordable = Math.max(
+        dispatchCount,
+        Math.floor((iterBudgetUsd - sequentialFloorUsd) / totalExpected),
+      );
+      expectedTotalDispatch = Math.min(DISPATCH_SAFETY_CAP, totalAffordable);
+      expectedTopUpDispatch = expectedTotalDispatch - dispatchCount;
+    }
+
     plan.push({
       iterIdx,
       agentType: iterCfg.agentType,
@@ -323,13 +383,16 @@ export function projectDispatchPlan(
       },
       maxAffordable: { atExpected: maxAffordableExpected, atUpperBound: maxAffordableUpper },
       dispatchCount,
+      expectedTotalDispatch,
+      expectedTopUpDispatch,
       effectiveCap,
       poolSizeAtStart: poolSize,
       parallelFloorUsd,
     });
 
-    // Pool grows by dispatchCount for the next iteration's rank cost estimate.
-    poolSize += dispatchCount;
+    // Pool grows by `expectedTotalDispatch` (parallel + projected top-up) for the next
+    // iteration's rank cost estimate. Matches what the runtime actually grows post-top-up.
+    poolSize += expectedTotalDispatch;
   }
 
   return plan;

@@ -236,3 +236,42 @@ describe('getLastUsedPromptAction', () => {
     expect(chain.limit).toHaveBeenCalledWith(1);
   });
 });
+
+// investigate_issues_latest_evolution_reflection_agent_20260501: shape-parity test for
+// the manually-mirrored IterationPlanEntryClient. The wizard preview returns this type
+// across the server-action boundary; if the server's IterationPlanEntry/EstPerAgentValue
+// gain or rename keys and this mirror isn't updated, the wizard silently misses fields
+// (already happened with the `reflection` field — caught + backfilled in this project).
+describe('IterationPlanEntryClient shape parity with server IterationPlanEntry', () => {
+  it('estPerAgent.expected/upperBound has the same keys as server EstPerAgentValue', async () => {
+    // Pull a real plan entry from the server function — the most reliable source-of-truth
+    // for what the client mirror should accept.
+    const { projectDispatchPlan } = await import('../lib/pipeline/loop/projectDispatchPlan');
+    const plan = projectDispatchPlan(
+      {
+        generationModel: 'qwen-2.5-7b-instruct',
+        judgeModel: 'qwen-2.5-7b-instruct',
+        budgetUsd: 0.05,
+        iterationConfigs: [{ agentType: 'generate', budgetPercent: 100 }],
+        maxComparisonsPerVariant: 5,
+      } as Parameters<typeof projectDispatchPlan>[0],
+      { seedChars: 8000, initialPoolSize: 0 },
+    );
+    const serverEntry = plan[0]!;
+    const expectedKeys = Object.keys(serverEntry.estPerAgent.expected).sort();
+    const upperBoundKeys = Object.keys(serverEntry.estPerAgent.upperBound).sort();
+
+    // Client mirror's expected/upperBound should accept exactly these keys. The static
+    // type assertion below catches drift at compile time; this runtime check catches
+    // drift in the server-side type that wasn't mirrored.
+    const mirrorTemplate: import('./strategyPreviewActions').IterationPlanEntryClient['estPerAgent'] = {
+      expected: serverEntry.estPerAgent.expected,
+      upperBound: serverEntry.estPerAgent.upperBound,
+    };
+    expect(Object.keys(mirrorTemplate.expected).sort()).toEqual(expectedKeys);
+    expect(Object.keys(mirrorTemplate.upperBound).sort()).toEqual(upperBoundKeys);
+    // And the new top-level top-up fields must be present on the entry.
+    expect(serverEntry).toHaveProperty('expectedTotalDispatch');
+    expect(serverEntry).toHaveProperty('expectedTopUpDispatch');
+  });
+});

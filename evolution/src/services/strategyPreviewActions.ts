@@ -194,7 +194,9 @@ export interface DispatchPreviewResult {
 
 /** Serializable snapshot of IterationPlanEntry for client consumption. Matches the
  *  shape of IterationPlanEntry exactly — re-declared here because the server action
- *  cannot export the pipeline type directly without leaking server-only imports. */
+ *  cannot export the pipeline type directly without leaking server-only imports.
+ *  A shape-parity test in the corresponding *.test.ts asserts the client mirror's
+ *  estPerAgent keys match the server's EstPerAgentValue keys. */
 export interface IterationPlanEntryClient {
   iterIdx: number;
   agentType: 'generate' | 'reflect_and_generate' | 'swiss';
@@ -204,11 +206,19 @@ export interface IterationPlanEntryClient {
   tacticMixSource: 'iter-guidance' | 'strategy-guidance' | 'strategy-tactics' | 'defaults';
   tacticLabel: string;
   estPerAgent: {
-    expected: { gen: number; rank: number; total: number };
-    upperBound: { gen: number; rank: number; total: number };
+    // Backfilled `reflection` to match server-side EstPerAgentValue
+    // (investigate_issues_latest_evolution_reflection_agent_20260501).
+    expected: { gen: number; rank: number; reflection: number; total: number };
+    upperBound: { gen: number; rank: number; reflection: number; total: number };
   };
   maxAffordable: { atExpected: number; atUpperBound: number };
   dispatchCount: number;
+  /** Top-up-aware projection (parallel batch + estimated top-up agents). Equals
+   *  dispatchCount when EVOLUTION_TOPUP_ENABLED='false' on the server-action process. */
+  expectedTotalDispatch: number;
+  /** Top-up agents projected beyond the parallel batch.
+   *  expectedTotalDispatch - dispatchCount. */
+  expectedTopUpDispatch: number;
   effectiveCap: 'budget' | 'safety_cap' | 'floor' | 'swiss';
   poolSizeAtStart: number;
   parallelFloorUsd: number;
@@ -256,10 +266,18 @@ export const getStrategyDispatchPreviewAction = adminAction(
     // iterCfg.generationGuidance / config.strategies / DEFAULT_TACTICS.
     const { projectDispatchPlan } = await import('../lib/pipeline/loop/projectDispatchPlan');
 
-    const plan = projectDispatchPlan(parsed.config as Parameters<typeof projectDispatchPlan>[0], {
-      seedChars,
-      initialPoolSize: arenaCount,
-    });
+    // Resolve runtime kill-switches at this server-action boundary so projectDispatchPlan
+    // stays pure. `!== 'false'` matches the codebase convention (unset = enabled).
+    // Caveat: if the wizard (Next.js) and worker processes ever have divergent env, the
+    // preview projects what THIS process believes is enabled. Today they share env.
+    const topUpEnabled = process.env.EVOLUTION_TOPUP_ENABLED !== 'false';
+    const reflectionEnabled = process.env.EVOLUTION_REFLECTION_ENABLED !== 'false';
+
+    const plan = projectDispatchPlan(
+      parsed.config as Parameters<typeof projectDispatchPlan>[0],
+      { seedChars, initialPoolSize: arenaCount },
+      { topUpEnabled, reflectionEnabled },
+    );
 
     return { plan, arenaCount, seedArticleChars: seedChars, promptName };
   },
