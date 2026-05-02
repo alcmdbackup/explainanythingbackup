@@ -79,7 +79,11 @@ describe('projectDispatchPlan', () => {
   });
 
   describe('pool-size growth models iteration-to-iteration', () => {
-    it('iteration N+1 sees poolSize = initialPoolSize + sum(previous dispatchCounts)', () => {
+    it('iteration N+1 sees poolSize = initialPoolSize + sum(previous expectedTotalDispatch)', () => {
+      // investigate_issues_latest_evolution_reflection_agent_20260501: pool growth now uses
+      // `expectedTotalDispatch` (parallel + projected top-up) to mirror what the runtime
+      // actually grows post-Phase-7b. When top-up is disabled or saturates parallel,
+      // expectedTotalDispatch === dispatchCount and the assertion is unchanged.
       const plan = projectDispatchPlan(
         baseConfig({
           budgetUsd: 1.0, // generous enough that both iterations dispatch multiple agents
@@ -91,8 +95,8 @@ describe('projectDispatchPlan', () => {
         baseCtx({ initialPoolSize: 10 }),
       );
       expect(plan[0]!.poolSizeAtStart).toBe(10);
-      // iter 1 sees initial 10 + whatever iter 0 dispatched
-      expect(plan[1]!.poolSizeAtStart).toBe(10 + plan[0]!.dispatchCount);
+      // iter 1 sees initial 10 + whatever iter 0's projection (including top-up) was
+      expect(plan[1]!.poolSizeAtStart).toBe(10 + plan[0]!.expectedTotalDispatch);
     });
 
     it('iter 1 rank cost is >= iter 0 rank cost (pool grows, so more comparisons)', () => {
@@ -451,6 +455,119 @@ describe('projectDispatchPlan', () => {
       expect(top10[0]!.estPerAgent.upperBound.reflection).toBeGreaterThan(
         top3[0]!.estPerAgent.upperBound.reflection,
       );
+    });
+  });
+
+  // investigate_issues_latest_evolution_reflection_agent_20260501: top-up projection
+  // (`expectedTotalDispatch` / `expectedTopUpDispatch`) was added so the wizard preview
+  // surfaces the realistic "with top-up" agent count, not the upper-bound parallel batch.
+  describe('top-up projection (expectedTotalDispatch / expectedTopUpDispatch)', () => {
+    it('Case 1: d75c9dfc strategy — iter 0 projects 5-7 agents, iter 1 projects 3-5', () => {
+      // Reproduces the user-reported strategy: $0.05 budget, 4×25% iterations,
+      // gemini-flash-lite + qwen, maxComp=5, minBudgetAfterParallelAgentMultiple=2.
+      // Actual run a0cdf104 dispatched 6 in iter 1, 4 in iter 2 — preview should
+      // approximate this rather than the upper-bound 2/1/1/1.
+      const plan = projectDispatchPlan(
+        baseConfig({
+          budgetUsd: 0.05,
+          iterationConfigs: [
+            { agentType: 'generate', sourceMode: 'seed', budgetPercent: 25 },
+            { agentType: 'reflect_and_generate', sourceMode: 'pool', budgetPercent: 25,
+              qualityCutoff: { mode: 'topN', value: 5 }, reflectionTopN: 3 },
+            { agentType: 'reflect_and_generate', sourceMode: 'pool', budgetPercent: 25,
+              qualityCutoff: { mode: 'topN', value: 5 }, reflectionTopN: 3 },
+            { agentType: 'reflect_and_generate', sourceMode: 'pool', budgetPercent: 25,
+              qualityCutoff: { mode: 'topN', value: 5 }, reflectionTopN: 3 },
+          ],
+          maxComparisonsPerVariant: 5,
+          minBudgetAfterParallelAgentMultiple: 2,
+        } as unknown as Partial<EvolutionConfig>),
+        baseCtx({ seedChars: 8000, initialPoolSize: 50 }),
+      );
+
+      // Band assertions — EXPECTED_GEN_RATIO / EXPECTED_RANK_COMPARISONS_RATIO are
+      // placeholder heuristics, so exact equality would break on calibration updates.
+      expect(plan[0]!.expectedTotalDispatch).toBeGreaterThanOrEqual(4);
+      expect(plan[0]!.expectedTotalDispatch).toBeLessThanOrEqual(8);
+      expect(plan[1]!.expectedTotalDispatch).toBeGreaterThanOrEqual(2);
+      expect(plan[1]!.expectedTotalDispatch).toBeLessThanOrEqual(6);
+      // Top-up projection always >= parallel batch.
+      expect(plan[0]!.expectedTotalDispatch).toBeGreaterThanOrEqual(plan[0]!.dispatchCount);
+      expect(plan[1]!.expectedTotalDispatch).toBeGreaterThanOrEqual(plan[1]!.dispatchCount);
+    });
+
+    it('Case 2: opts.topUpEnabled=false collapses expectedTotalDispatch to dispatchCount', () => {
+      const cfg = baseConfig({
+        budgetUsd: 0.05,
+        iterationConfigs: [{ agentType: 'generate', budgetPercent: 100 }],
+        minBudgetAfterParallelAgentMultiple: 2,
+      } as unknown as Partial<EvolutionConfig>);
+      const ctx = baseCtx({ seedChars: 8000, initialPoolSize: 50 });
+
+      const planOn = projectDispatchPlan(cfg, ctx); // default opts: topUp on
+      const planOff = projectDispatchPlan(cfg, ctx, { topUpEnabled: false });
+
+      // dispatchCount is unchanged (parallel-batch sizing doesn't depend on top-up flag).
+      expect(planOff[0]!.dispatchCount).toBe(planOn[0]!.dispatchCount);
+      // With top-up disabled, total === parallel and top-up == 0.
+      expect(planOff[0]!.expectedTotalDispatch).toBe(planOff[0]!.dispatchCount);
+      expect(planOff[0]!.expectedTopUpDispatch).toBe(0);
+      // With top-up enabled, total >= parallel.
+      expect(planOn[0]!.expectedTotalDispatch).toBeGreaterThanOrEqual(planOn[0]!.dispatchCount);
+    });
+
+    it('Case 3: opts.reflectionEnabled=false on reflect_and_generate iter zeroes reflection cost', () => {
+      const cfg = baseConfig({
+        iterationConfigs: [
+          { agentType: 'reflect_and_generate', budgetPercent: 100, reflectionTopN: 3 },
+        ],
+      });
+
+      const planOn = projectDispatchPlan(cfg, baseCtx()); // default: reflection on
+      const planOff = projectDispatchPlan(cfg, baseCtx(), { reflectionEnabled: false });
+
+      // Reflection cost zeroed when kill-switch flipped — agent falls back to vanilla GFPA.
+      expect(planOn[0]!.estPerAgent.upperBound.reflection).toBeGreaterThan(0);
+      expect(planOff[0]!.estPerAgent.upperBound.reflection).toBe(0);
+      expect(planOff[0]!.estPerAgent.expected.reflection).toBe(0);
+      // Per-agent total drops correspondingly.
+      expect(planOff[0]!.estPerAgent.upperBound.total)
+        .toBeLessThan(planOn[0]!.estPerAgent.upperBound.total);
+      // expectedTotalDispatch correspondingly higher (cheaper agents → more fit).
+      expect(planOff[0]!.expectedTotalDispatch)
+        .toBeGreaterThanOrEqual(planOn[0]!.expectedTotalDispatch);
+    });
+
+    it('Case 4: swiss iteration has expectedTotalDispatch=0 and expectedTopUpDispatch=0', () => {
+      const plan = projectDispatchPlan(
+        baseConfig({
+          iterationConfigs: [
+            { agentType: 'generate', budgetPercent: 60 },
+            { agentType: 'swiss', budgetPercent: 40 },
+          ],
+        }),
+        baseCtx(),
+      );
+      expect(plan[1]!.agentType).toBe('swiss');
+      expect(plan[1]!.dispatchCount).toBe(0);
+      expect(plan[1]!.expectedTotalDispatch).toBe(0);
+      expect(plan[1]!.expectedTopUpDispatch).toBe(0);
+    });
+
+    it('Case 5: parallel batch already saturates expected → expectedTopUpDispatch === 0', () => {
+      // Tiny pool + very generous budget per agent → parallel batch hits safety cap, top-up
+      // can't add more. Math.max(dispatchCount, ...) clamp ensures expectedTotalDispatch
+      // never goes below dispatchCount.
+      const plan = projectDispatchPlan(
+        baseConfig({
+          budgetUsd: 100, // absurd budget
+          iterationConfigs: [{ agentType: 'generate', budgetPercent: 100 }],
+        }),
+        baseCtx({ initialPoolSize: 0 }),
+      );
+      expect(plan[0]!.dispatchCount).toBe(DISPATCH_SAFETY_CAP);
+      expect(plan[0]!.expectedTotalDispatch).toBe(DISPATCH_SAFETY_CAP);
+      expect(plan[0]!.expectedTopUpDispatch).toBe(0);
     });
   });
 });

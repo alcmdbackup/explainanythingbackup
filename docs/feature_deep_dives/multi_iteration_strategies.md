@@ -156,6 +156,15 @@ The top-up loop pushes budget utilization from ~30% (parallel-only, upper-bound-
 Feature flag: set `EVOLUTION_TOPUP_ENABLED=false` to disable top-up and revert to
 parallel-only dispatch. Useful for debugging or rollback without a code change.
 
+**Wizard preview models top-up.** `projectDispatchPlan` returns
+`expectedTotalDispatch = floor((iterBudget - sequentialFloor) / expected.total)`
+on each iteration entry — the closed-form equivalent of the runtime's iterative gate.
+The wizard's `DispatchPlanView` renders this in a "Likely total (with top-up)" column
+so users see the realistic dispatch count, not just the conservative parallel batch.
+The same `EVOLUTION_TOPUP_ENABLED=false` env flag (resolved at the server-action
+boundary in `getStrategyDispatchPreviewAction` and threaded via `opts.topUpEnabled`)
+collapses the projection back to `dispatchCount`, keeping wizard and runtime in sync.
+
 ## Budget Floor Semantics (iter-budget scope)
 
 Strategies may specify budget floors to reserve a minimum budget for later phases:

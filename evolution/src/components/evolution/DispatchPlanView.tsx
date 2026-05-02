@@ -75,6 +75,7 @@ export function DispatchPlanView({
   const showActual = actual != null && actual.length > 0;
 
   const totalPlannedDispatch = plan.reduce((acc, p) => acc + p.dispatchCount, 0);
+  const totalLikelyDispatch = plan.reduce((acc, p) => acc + p.expectedTotalDispatch, 0);
   const totalExpectedCost = plan.reduce((acc, p) => acc + p.dispatchCount * p.estPerAgent.expected.total, 0);
   const totalUpperBoundCost = plan.reduce((acc, p) => acc + p.dispatchCount * p.estPerAgent.upperBound.total, 0);
   const totalActualCost = showActual
@@ -96,6 +97,10 @@ export function DispatchPlanView({
             <th className="py-1 pr-3 font-ui text-[var(--text-muted)]">Type</th>
             <th className="py-1 pr-3 font-ui text-[var(--text-muted)] text-right">Iter Budget</th>
             <th className="py-1 pr-3 font-ui text-[var(--text-muted)] text-right">Dispatch</th>
+            <th
+              className="py-1 pr-3 font-ui text-[var(--text-muted)] text-right"
+              title="Parallel batch is reservation-safe (sized at upper-bound cost). Top-up runs after the parallel batch using actual cost feedback. EVOLUTION_TOPUP_ENABLED=false disables top-up."
+            >Likely total (with top-up)</th>
             <th className="py-1 pr-3 font-ui text-[var(--text-muted)] text-right">$/Agent (exp – upper)</th>
             <th className="py-1 pr-3 font-ui text-[var(--text-muted)]">Cap</th>
             {showActual && <th className="py-1 pr-3 font-ui text-[var(--text-muted)] text-right">Actual</th>}
@@ -122,6 +127,20 @@ export function DispatchPlanView({
                   {formatCostMicro(entry.iterBudgetUsd)}
                 </td>
                 <td className="py-1 pr-3 text-right font-mono">{entry.dispatchCount}</td>
+                <td className="py-1 pr-3 text-right font-mono" data-testid={`dispatch-plan-row-${entry.iterIdx}-likely`}>
+                  {entry.agentType === 'swiss' ? (
+                    '—'
+                  ) : (
+                    <>
+                      <div>{entry.expectedTotalDispatch}</div>
+                      {entry.expectedTopUpDispatch > 0 && (
+                        <div className="text-xs text-[var(--text-muted)]">
+                          {entry.dispatchCount} parallel + {entry.expectedTopUpDispatch} top-up
+                        </div>
+                      )}
+                    </>
+                  )}
+                </td>
                 <td className="py-1 pr-3 text-right font-mono text-[var(--text-muted)]">
                   {entry.agentType === 'swiss' ? '—' : formatCostRange(entry.estPerAgent.expected.total, entry.estPerAgent.upperBound.total)}
                 </td>
@@ -151,6 +170,7 @@ export function DispatchPlanView({
               Total · {totalBudgetUsd != null ? `budget ${formatCostMicro(totalBudgetUsd)}` : ''}
             </td>
             <td className="py-1 pr-3 text-right font-mono">{totalPlannedDispatch}</td>
+            <td className="py-1 pr-3 text-right font-mono" data-testid="dispatch-plan-total-likely">{totalLikelyDispatch}</td>
             <td className="py-1 pr-3 text-right font-mono">
               {formatCostRange(totalExpectedCost, totalUpperBoundCost)}
             </td>
@@ -178,7 +198,9 @@ export function DispatchPlanView({
           heuristic ratios (65–75% of upper bound for generation, ~50% of max comparisons for
           ranking) derived from Fed-class runs; live calibration via COST_CALIBRATION_ENABLED
           is not yet flipped on. The dispatch gate reserves at upperBound (reservation-safe);
-          display reflects the likely outcome.
+          the runtime then top-ups beyond the parallel batch using actual cost feedback —
+          the &ldquo;Likely total&rdquo; column projects this. When EVOLUTION_TOPUP_ENABLED=false,
+          the projection collapses to the parallel batch.
         </p>
       )}
     </div>
@@ -201,12 +223,23 @@ function DispatchPlanWarnings({ plan }: { plan: IterationPlanEntryClient[] }): J
     }
   }
 
-  // Budget-insufficient: any generate iter would dispatch ≤1 agent at upperBound.
-  const tinyIter = plan.find((p) => p.agentType === 'generate' && p.dispatchCount <= 1);
+  // Budget-insufficient: any variant-producing iter would dispatch ≤1 agent at upperBound.
+  // When the top-up projection rescues this (expectedTotalDispatch > dispatchCount),
+  // surface the more accurate "likely fills via top-up" copy. When even top-up can't
+  // help (expectedTotalDispatch <= 1), keep the original "increase budget" message.
+  const tinyIter = plan.find(
+    (p) => (p.agentType === 'generate' || p.agentType === 'reflect_and_generate') && p.dispatchCount <= 1,
+  );
   if (tinyIter) {
-    warnings.push(
-      `Iteration ${tinyIter.iterIdx + 1} dispatches ${tinyIter.dispatchCount} agent at upperBound cost — budget is marginal for this iter. Increase budgetUsd or reduce maxComparisonsPerVariant.`,
-    );
+    if (tinyIter.expectedTotalDispatch > tinyIter.dispatchCount) {
+      warnings.push(
+        `Iteration ${tinyIter.iterIdx + 1} parallel batch is bound by floor (${tinyIter.dispatchCount} agent at upperBound) — top-up will likely add ~${tinyIter.expectedTopUpDispatch} more agents at runtime.`,
+      );
+    } else {
+      warnings.push(
+        `Iteration ${tinyIter.iterIdx + 1} dispatches ${tinyIter.dispatchCount} agent at upperBound cost — budget is marginal for this iter. Increase budgetUsd or reduce maxComparisonsPerVariant.`,
+      );
+    }
   }
 
   // Safety-cap binding: unusual — usually means the cost estimator returned near-zero.
