@@ -28,6 +28,26 @@ export const METRIC_CATALOG = {
     timing: 'during_execution', listView: false,
     description: 'LLM spend on reflection-step tactic-selection calls (ReflectAndGenerateFromPreviousArticleAgent)',
   },
+  iterative_edit_cost: {
+    name: 'iterative_edit_cost', label: 'Iterative Edit Cost', category: 'cost', formatter: 'cost',
+    timing: 'during_execution', listView: false,
+    description: 'LLM spend on iterative_editing iterations (Proposer + Approver + drift recovery, all cycles, all parents). Per-purpose split lives in execution_detail.cycles[i].{proposeCostUsd, approveCostUsd, driftRecoveryCostUsd}.',
+  },
+  iterative_edit_drift_rate: {
+    name: 'iterative_edit_drift_rate', label: 'Edit Drift Rate', category: 'cost', formatter: 'integer',
+    timing: 'during_execution', listView: false,
+    description: 'Fraction of editing cycles whose Proposer output drifted from the source (strip-markup mismatch). Run-detail dashboard alert-colors when > EVOLUTION_EDITING_DRIFT_RATE_ALERT_THRESHOLD (default 0.30).',
+  },
+  iterative_edit_recovery_success_rate: {
+    name: 'iterative_edit_recovery_success_rate', label: 'Edit Recovery Success Rate', category: 'cost', formatter: 'integer',
+    timing: 'during_execution', listView: false,
+    description: 'Fraction of drift events resolved by the recovery LLM call. Run-detail dashboard alert-colors when < EVOLUTION_EDITING_RECOVERY_SUCCESS_RATE_ALERT_THRESHOLD (default 0.70).',
+  },
+  iterative_edit_accept_rate: {
+    name: 'iterative_edit_accept_rate', label: 'Edit Accept Rate', category: 'cost', formatter: 'integer',
+    timing: 'during_execution', listView: false,
+    description: 'Fraction of atomic edits accepted by the Approver. Run-detail dashboard alert-colors when > EVOLUTION_EDITING_ACCEPT_RATE_ALERT_THRESHOLD (default 0.95) — rubber-stamping signal per Decisions §16.',
+  },
   seed_cost: {
     name: 'seed_cost', label: 'Seed Cost', category: 'cost', formatter: 'cost',
     timing: 'during_execution', listView: true,
@@ -136,6 +156,16 @@ export const METRIC_CATALOG = {
     name: 'total_reflection_cost', label: 'Total Reflection Cost', category: 'cost', formatter: 'cost',
     timing: 'at_propagation',
     description: 'Sum of reflection_cost across all child runs',
+  },
+  total_iterative_edit_cost: {
+    name: 'total_iterative_edit_cost', label: 'Total Iterative Edit Cost', category: 'cost', formatter: 'cost',
+    timing: 'at_propagation', listView: true,
+    description: 'Sum of iterative_edit_cost across all child runs',
+  },
+  avg_iterative_edit_cost_per_run: {
+    name: 'avg_iterative_edit_cost_per_run', label: 'Avg Iterative Edit Cost/Run', category: 'cost', formatter: 'cost',
+    timing: 'at_propagation',
+    description: 'Average iterative_edit_cost per child run',
   },
   avg_reflection_cost_per_run: {
     name: 'avg_reflection_cost_per_run', label: 'Avg Reflection Cost/Run', category: 'cost', formatter: 'cost',
