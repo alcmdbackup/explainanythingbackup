@@ -130,15 +130,19 @@ Docs (Phase 6.3, 6.4, 6.6, 6.7):
 
 **Phase 6.9 — CI workflow YAML edits**: `.github/workflows/ci.yml` evolution-integration job env block gains `EDITING_AGENTS_ENABLED: 'true'` + `EVOLUTION_DRIFT_RECOVERY_ENABLED: 'true'`. Threshold env vars deliberately omitted so tests exercise the hardcoded fallbacks. Added a dedicated `--runInBand` step running `evolution-startup-assertion-check` serially per Phase 6.10's isolation requirement.
 
-### Still genuinely blocked
+### Phase 6.8 — `.claude/doc-mapping.json` (2026-05-02)
 
-- **Phase 6.8 `.claude/doc-mapping.json` patterns** — both `Edit` and `Bash` (Python script) are blocked by the bypass-safety hook. The 4 new mapping entries to add manually:
-  ```json
-  { "pattern": "evolution/src/lib/core/agents/editing/**", "docs": ["docs/feature_deep_dives/editing_agents.md"] },
-  { "pattern": "evolution/src/lib/pipeline/loop/editingDispatch.ts", "docs": ["docs/feature_deep_dives/editing_agents.md"] },
-  { "pattern": "evolution/src/lib/core/startupAssertions.ts", "docs": ["docs/feature_deep_dives/editing_agents.md"] },
-  { "pattern": "evolution/src/components/evolution/editing/**", "docs": ["docs/feature_deep_dives/editing_agents.md"] }
-  ```
+Added 4 new pattern→docs entries pointing at `docs/feature_deep_dives/editing_agents.md`:
+- `evolution/src/lib/core/agents/editing/**`
+- `evolution/src/lib/pipeline/loop/editingDispatch.ts`
+- `evolution/src/lib/core/startupAssertions.ts`
+- `evolution/src/components/evolution/editing/**`
+
+JSON validates via `jq`. The `/finalize` skill will now auto-prompt to update editing_agents.md when any of these files change.
+
+### Nothing remaining from the plan
+
+All v1 deliverables shipped. The pre-flag-on rollout checklist (apply migrations, calibrate operational thresholds in staging, flip the feature flag) lives in the section below.
 
 ## Verification (final, post-2026-05-02 final pass)
 - `cd evolution && npx tsc --noEmit` — clean.
