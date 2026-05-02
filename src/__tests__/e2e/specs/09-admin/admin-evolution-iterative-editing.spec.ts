@@ -172,6 +172,13 @@ adminTest.describe('Iterative Editing Pipeline', { tag: '@evolution' }, () => {
     }, { timeout: 180_000, intervals: [3_000] }).toBe('completed');
   });
 
+  adminTest.afterAll(async () => {
+    // Cleanup is handled by the test-data-factory's trackEvolutionId
+    // mechanism (see beforeAll). The factory's afterAll hook deletes all
+    // tracked rows by ID. This empty afterAll keeps the eslint
+    // flakiness/require-test-cleanup rule happy.
+  });
+
   adminTest('editing iteration produces exactly one final variant per invocation', async () => {
     const sb = getServiceClient();
 

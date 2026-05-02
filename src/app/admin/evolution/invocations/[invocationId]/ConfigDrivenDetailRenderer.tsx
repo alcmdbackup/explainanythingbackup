@@ -3,6 +3,7 @@
 'use client';
 
 import type { DetailFieldDef } from '@evolution/lib/core/types';
+import { AnnotatedProposals } from '@evolution/components/evolution/editing/AnnotatedProposals';
 
 interface Props {
   config: DetailFieldDef[];
@@ -175,10 +176,6 @@ function renderField(field: DetailFieldDef, data: Record<string, unknown>): JSX.
     }
 
     case 'annotated-edits': {
-      // Lazy import to avoid pulling React server components into the field-resolver path
-      // unnecessarily; AnnotatedProposals is a 'use client' component.
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      const { AnnotatedProposals } = require('@evolution/components/evolution/editing/AnnotatedProposals') as typeof import('@evolution/components/evolution/editing/AnnotatedProposals');
       const markup = String(data[field.markupKey ?? 'proposedMarkup'] ?? '');
       const groupsRaw = (data[field.groupsKey ?? 'proposedGroupsRaw'] as Parameters<typeof AnnotatedProposals>[0]['proposedGroupsRaw']) ?? [];
       const decisions = (data[field.decisionsKey ?? 'reviewDecisions'] as Parameters<typeof AnnotatedProposals>[0]['reviewDecisions']) ?? [];

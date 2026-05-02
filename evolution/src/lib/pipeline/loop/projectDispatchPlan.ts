@@ -370,6 +370,9 @@ export function projectDispatchPlan(
         },
         maxAffordable: { atExpected: maxAffordableExpected, atUpperBound: maxAffordableUpper },
         dispatchCount,
+        // Editing has no within-iteration top-up loop in v1 — single dispatch count.
+        expectedTotalDispatch: dispatchCount,
+        expectedTopUpDispatch: 0,
         effectiveCap,
         poolSizeAtStart: poolSize,
         parallelFloorUsd,

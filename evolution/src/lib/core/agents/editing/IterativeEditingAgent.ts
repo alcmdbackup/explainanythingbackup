@@ -54,13 +54,44 @@ export class IterativeEditingAgent extends Agent<
   readonly executionDetailSchema = iterativeEditingExecutionDetailSchema;
   readonly usesLLM = true;
 
+  // Mirrors the DETAIL_VIEW_CONFIGS['iterative_editing'] entry — the entities.test.ts
+  // parity test asserts these are field-for-field identical.
   readonly detailViewConfig: DetailFieldDef[] = [
     { key: 'parentVariantId', label: 'Parent Variant', type: 'text' },
     { key: 'finalVariantId', label: 'Final Variant', type: 'text' },
     { key: 'stopReason', label: 'Stop Reason', type: 'badge' },
-    { key: 'config.maxCycles', label: 'Max Cycles', type: 'number' },
-    { key: 'config.editingModel', label: 'Editing Model', type: 'text' },
-    { key: 'config.approverModel', label: 'Approver Model', type: 'text' },
+    { key: 'errorPhase', label: 'Error Phase', type: 'badge' },
+    { key: 'errorMessage', label: 'Error Message', type: 'text' },
+    {
+      key: 'config', label: 'Configuration', type: 'object',
+      children: [
+        { key: 'maxCycles', label: 'Max Cycles', type: 'number' },
+        { key: 'editingModel', label: 'Editing Model', type: 'text' },
+        { key: 'approverModel', label: 'Approver Model', type: 'text' },
+        { key: 'driftRecoveryModel', label: 'Drift Recovery Model', type: 'text' },
+        { key: 'perInvocationBudgetUsd', label: 'Per-Invocation Budget', type: 'number', formatter: 'cost' },
+      ],
+    },
+    {
+      key: 'cycles', label: 'Edit Cycles', type: 'table',
+      columns: [
+        { key: 'cycleNumber', label: 'Cycle' },
+        { key: 'acceptedCount', label: 'Accepted' },
+        { key: 'rejectedCount', label: 'Rejected' },
+        { key: 'appliedCount', label: 'Applied' },
+        { key: 'sizeRatio', label: 'Size Ratio' },
+        { key: 'proposeCostUsd', label: 'Propose $' },
+        { key: 'approveCostUsd', label: 'Approve $' },
+      ],
+    },
+    {
+      key: 'cycles.0', label: 'Annotated Edits (Cycle 1)', type: 'annotated-edits',
+      markupKey: 'cycles.0.proposedMarkup',
+      groupsKey: 'cycles.0.proposedGroupsRaw',
+      decisionsKey: 'cycles.0.reviewDecisions',
+      dropsPreKey: 'cycles.0.droppedPreApprover',
+      dropsPostKey: 'cycles.0.droppedPostApprover',
+    },
     { key: 'totalCost', label: 'Total Cost', type: 'number', formatter: 'cost' },
   ];
 

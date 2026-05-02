@@ -30,10 +30,13 @@ describe('RunEntity', () => {
     expect(entity.children.every(c => c.cascade === 'delete')).toBe(true);
   });
 
-  it('has 5 execution + 18 finalization + 0 propagation metrics', () => {
-    // cost + generation_cost + ranking_cost + reflection_cost + seed_cost (per-purpose split written live by createLLMClient).
-    // reflection_cost added in develop_reflection_and_generateFromParentArticle_agent_evolution_20260430.
-    expect(entity.metrics.duringExecution).toHaveLength(5);
+  it('has 9 execution + 18 finalization + 0 propagation metrics', () => {
+    // cost + generation_cost + ranking_cost + reflection_cost + iterative_edit_cost +
+    // 3 iterative_edit operational health metrics (drift_rate, recovery_success_rate, accept_rate) +
+    // seed_cost. Per-purpose split written live by createLLMClient. reflection_cost added in
+    // develop_reflection_and_generateFromParentArticle_agent_evolution_20260430; iterative_edit_*
+    // added in bring_back_editing_agents_evolution_20260430.
+    expect(entity.metrics.duringExecution).toHaveLength(9);
     // 7 ratings/match/count metrics + 11 cost-estimate-accuracy metrics (cost_estimate_accuracy_analysis_20260414).
     expect(entity.metrics.atFinalization).toHaveLength(18);
     expect(entity.metrics.atPropagation).toHaveLength(0);
@@ -73,9 +76,10 @@ describe('StrategyEntity', () => {
     expect(entity.children[0]!.cascade).toBe('delete');
   });
 
-  it('has 33 propagation metrics (base + cost-estimate-accuracy + reflection entries)', () => {
-    // 20 base + 11 cost-estimate-accuracy + 2 reflection (total_reflection_cost + avg_reflection_cost_per_run).
-    expect(entity.metrics.atPropagation).toHaveLength(33);
+  it('has 35 propagation metrics (base + cost-estimate-accuracy + reflection + iterative_edit entries)', () => {
+    // 20 base + 11 cost-estimate-accuracy + 2 reflection + 2 iterative_edit
+    // (total_iterative_edit_cost + avg_iterative_edit_cost_per_run).
+    expect(entity.metrics.atPropagation).toHaveLength(35);
     const names = entity.metrics.atPropagation.map(d => d.name);
     expect(names).toContain('run_count');
     expect(names).toContain('total_cost');

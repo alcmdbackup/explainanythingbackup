@@ -134,19 +134,20 @@ describe('getStrategyDispatchPreviewAction (integration)', () => {
     expect(plan[3]!.estPerAgent.upperBound.reflection).toBe(0);
   });
 
-  it('client mirror estPerAgent shape includes reflection (regression — was missing pre-fix)', async () => {
+  it('client mirror estPerAgent shape includes reflection + editing (regression — both fields were missing pre-fix)', async () => {
     delete process.env.EVOLUTION_TOPUP_ENABLED;
     delete process.env.EVOLUTION_REFLECTION_ENABLED;
 
     const result = await callPreview({ config: d75c9dfcConfig() });
     const plan = result.plan;
 
-    // Pre-fix bug: IterationPlanEntryClient was missing the `reflection` field that
-    // server's EstPerAgentValue carries. Backfilled in this project. This guards against
-    // regression of the manual-mirror drift.
+    // Pre-fix bugs: IterationPlanEntryClient was missing the `reflection` field
+    // (PR #1017 backfill) and the `editing` field (bring_back_editing_agents). Both
+    // are now backfilled to mirror the server's EstPerAgentValue. This test guards
+    // against regression of the manual-mirror drift.
     const expectedKeys = Object.keys(plan[0]!.estPerAgent.expected).sort();
-    expect(expectedKeys).toEqual(['gen', 'rank', 'reflection', 'total']);
+    expect(expectedKeys).toEqual(['editing', 'gen', 'rank', 'reflection', 'total']);
     const upperKeys = Object.keys(plan[0]!.estPerAgent.upperBound).sort();
-    expect(upperKeys).toEqual(['gen', 'rank', 'reflection', 'total']);
+    expect(upperKeys).toEqual(['editing', 'gen', 'rank', 'reflection', 'total']);
   });
 });

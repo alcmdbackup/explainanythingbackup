@@ -182,7 +182,7 @@ describe('DispatchPlanView', () => {
           plan={[makeEntry({
             iterIdx: 0, agentType: 'swiss', dispatchCount: 0,
             expectedTotalDispatch: 0, expectedTopUpDispatch: 0,
-            estPerAgent: { expected: { gen: 0, rank: 0, reflection: 0, total: 0 }, upperBound: { gen: 0, rank: 0, reflection: 0, total: 0 } },
+            estPerAgent: { expected: { gen: 0, rank: 0, reflection: 0, editing: 0, total: 0 }, upperBound: { gen: 0, rank: 0, reflection: 0, editing: 0, total: 0 } },
           })]}
           variant="wizard"
         />,
@@ -222,8 +222,8 @@ describe('DispatchPlanView', () => {
             expectedTotalDispatch: 6,
             expectedTopUpDispatch: 4,
             estPerAgent: {
-              expected: { gen: 0.001, rank: 0, reflection: 0, total: 0.001 },
-              upperBound: { gen: 0.002, rank: 0, reflection: 0, total: 0.002 },
+              expected: { gen: 0.001, rank: 0, reflection: 0, editing: 0, total: 0.001 },
+              upperBound: { gen: 0.002, rank: 0, reflection: 0, editing: 0, total: 0.002 },
             },
           })]}
           variant="wizard"
