@@ -18,15 +18,43 @@ function shortenModel(model: string): string {
 // ─── Public API ──────────────────────────────────────────────────
 
 /**
+ * Canonicalize an iteration config for hashing: strip undefined optional fields
+ * so that semantically-equivalent configs produce identical hashes regardless
+ * of explicit-vs-omitted form.
+ *
+ * Reflection: `agentType: 'reflect_and_generate'` is a top-level enum value (Shape A),
+ * so the iterCfg.agentType field carries the reflection signal directly. There is no
+ * separate `useReflection` boolean to canonicalize. `reflectionTopN` is only meaningful
+ * for reflect_and_generate iterations and is stripped for any other agent type.
+ */
+function canonicalizeIterationConfig(
+  iterCfg: StrategyConfig['iterationConfigs'][number],
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {
+    agentType: iterCfg.agentType,
+    budgetPercent: iterCfg.budgetPercent,
+  };
+  // Optional fields: include if present (any value, including null).
+  if (iterCfg.sourceMode !== undefined) out.sourceMode = iterCfg.sourceMode;
+  if (iterCfg.qualityCutoff !== undefined) out.qualityCutoff = iterCfg.qualityCutoff;
+  if (iterCfg.generationGuidance !== undefined) out.generationGuidance = iterCfg.generationGuidance;
+  // reflectionTopN only meaningful when the agent IS the reflection wrapper.
+  if (iterCfg.reflectionTopN !== undefined && iterCfg.agentType === 'reflect_and_generate') {
+    out.reflectionTopN = iterCfg.reflectionTopN;
+  }
+  return out;
+}
+
+/**
  * Generate a stable 12-char hash for a strategy config.
- * Hashes: generationModel, judgeModel, iterationConfigs (full array).
+ * Hashes: generationModel, judgeModel, iterationConfigs (canonicalized).
  * Budget floors and other non-core fields are excluded.
  */
 export function hashStrategyConfig(config: StrategyConfig): string {
   const normalized = {
     generationModel: config.generationModel,
     judgeModel: config.judgeModel,
-    iterationConfigs: config.iterationConfigs,
+    iterationConfigs: config.iterationConfigs.map(canonicalizeIterationConfig),
   };
   return createHash('sha256').update(JSON.stringify(normalized)).digest('hex').slice(0, 12);
 }

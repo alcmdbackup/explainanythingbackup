@@ -43,31 +43,43 @@ export function createEntityLogger(
   function log(level: LogLevel, message: string, context?: Record<string, unknown>): void {
     if ((LOG_LEVELS[level] ?? 0) < minLevel) return;
 
+    // Defensive: tests pass partial/mock Supabase clients. Skip the DB insert silently
+    // when the client doesn't expose .from(), matching the existing fire-and-forget
+    // semantics — production calls always have a real client.
+    if (typeof (supabase as { from?: unknown })?.from !== 'function') return;
+
     const { iteration, phaseName, variantId, ...rest } = context ?? {};
 
-    Promise.resolve(
-      supabase
-        .from('evolution_logs')
-        .insert({
-          entity_type: entityCtx.entityType,
-          entity_id: entityCtx.entityId,
-          run_id: entityCtx.runId ?? null,
-          experiment_id: entityCtx.experimentId ?? null,
-          strategy_id: entityCtx.strategyId ?? null,
-          level,
-          message,
-          agent_name: (phaseName as string) ?? null,
-          iteration: (iteration as number) ?? null,
-          variant_id: (variantId as string) ?? null,
-          context: Object.keys(rest).length > 0 ? rest : null,
-        }),
-    )
-      .then(({ error }) => {
-        if (error) console.warn(`[EntityLogger] DB error: ${error.message}`);
-      })
-      .catch(() => {
-        // Swallow — fire-and-forget
-      });
+    // Wrap the synchronous call chain too: when a test mocks .from() but doesn't expose
+    // .insert(), `from(...).insert(...)` would throw synchronously and escape the .catch
+    // below. Production clients have both methods so this only matters for test harnesses.
+    try {
+      Promise.resolve(
+        supabase
+          .from('evolution_logs')
+          .insert({
+            entity_type: entityCtx.entityType,
+            entity_id: entityCtx.entityId,
+            run_id: entityCtx.runId ?? null,
+            experiment_id: entityCtx.experimentId ?? null,
+            strategy_id: entityCtx.strategyId ?? null,
+            level,
+            message,
+            agent_name: (phaseName as string) ?? null,
+            iteration: (iteration as number) ?? null,
+            variant_id: (variantId as string) ?? null,
+            context: Object.keys(rest).length > 0 ? rest : null,
+          }),
+      )
+        .then(({ error }) => {
+          if (error) console.warn(`[EntityLogger] DB error: ${error.message}`);
+        })
+        .catch(() => {
+          // Swallow — fire-and-forget
+        });
+    } catch {
+      // Synchronous throw from a partial supabase mock; matches fire-and-forget.
+    }
   }
 
   return {

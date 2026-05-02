@@ -18,6 +18,32 @@ The `RankingAgent` records a `RankingExecutionDetail` object in its invocation's
 | `eliminatedCount` | number | Variants eliminated during triage |
 | `low_sigma_opponents_count` | number (optional) | Number of triage opponents that were low-sigma anchors (sigma in bottom 25th percentile). Useful for measuring how effectively anchor-based calibration is being used. |
 
+## Reflection cost metrics
+
+`ReflectAndGenerateFromPreviousArticleAgent` (Shape A: `agentType: 'reflect_and_generate'`
+sits alongside `'generate'` and `'swiss'` at the top of the iteration enum) makes one
+reflection LLM call up front to pick a tactic, then delegates to GFPA. Its cost surfaces
+through three metric rows that mirror the existing `generation_cost` / `ranking_cost`
+pattern:
+
+| Metric | Entity | Aggregation | Description |
+|--------|--------|-------------|-------------|
+| `reflection_cost` | run | (live write) | Sum of `'reflection'`-labeled LLM spend in the run, written incrementally via `writeMetricMax` after each call (same Postgres `GREATEST` upsert path used by `generation_cost` / `ranking_cost`). Defined in `evolution/src/lib/metrics/registry.ts`. |
+| `total_reflection_cost` | strategy / experiment | sum | Cumulative reflection spend across all runs in the strategy/experiment. |
+| `avg_reflection_cost_per_run` | strategy / experiment | avg | Mean reflection spend per run. |
+
+The propagation defs live in `SHARED_PROPAGATION_DEFS` (registry.ts) and are wired identically to the
+`total_generation_cost` / `avg_generation_cost_per_run` and `total_ranking_cost` /
+`avg_ranking_cost_per_run` pairs — so a strategy that mixes `generate` and
+`reflect_and_generate` iterations will surface all three cost streams as separate
+columns. Per-invocation totals are also written to the wrapper's `execution_detail`
+(`reflection.cost`, `generation.cost`, `ranking.cost`, and `totalCost = reflection.cost
++ GFPA.totalCost`) for run-level drill-down.
+
+The label-to-metric mapping (`'reflection' → 'reflection_cost'`) lives in
+`COST_METRIC_BY_AGENT` at `evolution/src/lib/core/agentNames.ts`; the same lookup
+governs how every per-call cost is bucketed into a metric row.
+
 ## Per-Iteration Cost Display
 
 The **Cost Estimates tab** on run detail pages now includes per-iteration cost display.

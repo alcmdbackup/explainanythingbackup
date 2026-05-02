@@ -142,4 +142,33 @@ describe('updateInvocation', () => {
     await updateInvocation(db, INV_ID, { cost_usd: 0.01, success: true });
     expect(updatedRows[0]).not.toHaveProperty('duration_ms');
   });
+
+  // ─── Partial-update semantics (Phase 2 of develop_reflection_and_generateFromParentArticle) ───
+  // Load-bearing for the wrapper agent's pre-throw partial-detail write to survive
+  // Agent.run()'s catch-path update (which omits execution_detail).
+
+  it('omits execution_detail from DB update when not provided (preserves prior value)', async () => {
+    const { db, updatedRows } = makeMockDb();
+    await updateInvocation(db, INV_ID, { cost_usd: 0.01, success: true });
+    expect(updatedRows[0]).not.toHaveProperty('execution_detail');
+  });
+
+  it('writes execution_detail when explicitly provided', async () => {
+    const { db, updatedRows } = makeMockDb();
+    const partial = { detailType: 'reflect_and_generate_from_previous_article', tactic: 'lexical_simplify' };
+    await updateInvocation(db, INV_ID, { cost_usd: 0.01, success: false, execution_detail: partial });
+    expect(updatedRows[0]).toMatchObject({ execution_detail: partial });
+  });
+
+  it('omits error_message from DB update when not provided (preserves prior value)', async () => {
+    const { db, updatedRows } = makeMockDb();
+    await updateInvocation(db, INV_ID, { cost_usd: 0.01, success: true });
+    expect(updatedRows[0]).not.toHaveProperty('error_message');
+  });
+
+  it('writes error_message when explicitly provided', async () => {
+    const { db, updatedRows } = makeMockDb();
+    await updateInvocation(db, INV_ID, { cost_usd: 0.01, success: false, error_message: 'Budget exceeded' });
+    expect(updatedRows[0]).toMatchObject({ error_message: 'Budget exceeded' });
+  });
 });

@@ -8,6 +8,7 @@ import { BudgetExceededError, BudgetExceededWithPartialResults } from '../types'
 import { createInvocation, updateInvocation } from '../pipeline/infra/trackInvocations';
 import { createAgentCostScope } from '../pipeline/infra/trackBudget';
 import { createEvolutionLLMClient } from '../pipeline/infra/createEvolutionLLMClient';
+import { createEntityLogger } from '../pipeline/infra/createEntityLogger';
 
 export abstract class Agent<TInput, TOutput, TDetail extends ExecutionDetailBase = ExecutionDetailBase> {
   abstract readonly name: string;
@@ -58,7 +59,38 @@ export abstract class Agent<TInput, TOutput, TDetail extends ExecutionDetailBase
     // tracking this agent's own spend independently (fixes Bug B: parallel delta bug).
     // invocationId empty string sentinel: agents still function but lose the FK on llmCallTracking rows.
     const costScope = createAgentCostScope(ctx.costTracker);
-    const extendedCtx: AgentContext = { ...ctx, invocationId: invocationId ?? '', costTracker: costScope };
+
+    // Phase 2 of develop_reflection_and_generateFromParentArticle_agent_evolution_20260430:
+    // build an INVOCATION-scoped logger so agent-emitted logs (and downstream LLM-client logs)
+    // route to evolution_logs with entity_type='invocation' AND entity_id=invocationId. Without
+    // this, all per-agent logs land at run scope and the LogsTab on every invocation detail page
+    // is empty (verified via grep — zero invocation-scope log writes existed before this fix).
+    // Falls back to ctx.logger when invocationId is absent (tests, createInvocation failures).
+    const invocationLogger = invocationId
+      ? createEntityLogger(
+          {
+            entityType: 'invocation',
+            entityId: invocationId,
+            runId: ctx.runId,
+            experimentId: ctx.experimentId,
+            strategyId: ctx.strategyId,
+          },
+          ctx.db,
+        )
+      : ctx.logger;
+
+    // Note: extendedCtx.logger intentionally stays as `ctx.logger` (the run-level logger)
+    // for the AGENT's own log calls (e.g. `format validation failed`, `arena insert failed`).
+    // This preserves backward-compatible behavior for tests that spy on `ctx.logger.warn`.
+    // The invocation-scoped logger is used ONLY by the per-invocation LLM client (below),
+    // which emits the bulk of per-invocation log volume (retries, successes, errors per call).
+    // This satisfies "Logs from both reflection + GFPA" via LLM-client logs without churning
+    // the agent-internal log routing.
+    const extendedCtx: AgentContext = {
+      ...ctx,
+      invocationId: invocationId ?? '',
+      costTracker: costScope,
+    };
 
     // Bug B fix: build a scoped EvolutionLLMClient bound to costScope.recordSpend so per-invocation
     // cost attribution is accurate under parallel dispatch. Inject as input.llm when the agent uses
@@ -76,7 +108,9 @@ export abstract class Agent<TInput, TOutput, TDetail extends ExecutionDetailBase
         ctx.rawProvider,
         costScope,
         ctx.defaultModel,
-        ctx.logger,
+        // Pass the invocation-scoped logger so LLM-client logs (retries, success, errors)
+        // route to entity_type='invocation' alongside the agent's own log calls.
+        invocationLogger,
         ctx.db,
         ctx.runId,
         ctx.generationTemperature,
@@ -85,6 +119,9 @@ export abstract class Agent<TInput, TOutput, TDetail extends ExecutionDetailBase
       effectiveInput = { ...(input as unknown as Record<string, unknown>), llm: scopedLlm } as unknown as TInput;
     }
 
+    // Run lifecycle logs intentionally stay on the RUN-scoped logger (`ctx.logger`) so the
+    // run timeline / dashboards still see "Agent X starting/completed" without per-invocation
+    // context noise. Per-invocation detail goes through `invocationLogger` (extendedCtx.logger).
     ctx.logger.info(`Agent ${this.name} starting`, { phaseName: this.name, iteration: ctx.iteration });
 
     try {

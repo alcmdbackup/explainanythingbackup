@@ -32,7 +32,7 @@ const STEP_LABELS: Record<Step, string> = { config: 'Strategy Config', iteration
 type BudgetFloorMode = 'fraction' | 'agentMultiple';
 
 interface IterationRow {
-  agentType: 'generate' | 'swiss';
+  agentType: 'generate' | 'reflect_and_generate' | 'swiss';
   budgetPercent: number;
   /** Phase 2: parent-article source for generate iterations. Undefined for swiss.
    *  First iteration is locked to 'seed' by schema refine. */
@@ -43,6 +43,9 @@ interface IterationRow {
   qualityCutoffValue?: number;
   /** Per-iteration tactic guidance. Overrides strategy-level for this iteration. */
   tacticGuidance?: Array<{ tactic: string; percent: number }>;
+  /** Top N tactics the reflection LLM ranks (1-10, default 3). Only valid when
+   *  agentType === 'reflect_and_generate'. */
+  reflectionTopN?: number;
 }
 
 // Default cutoff applied when user switches a generate iteration to sourceMode='pool'.
@@ -71,16 +74,24 @@ const DEFAULT_ITERATIONS: IterationRow[] = [
 // ─── Form → payload helpers ─────────────────────────────────────
 
 interface IterationConfigPayload {
-  agentType: 'generate' | 'swiss';
+  agentType: 'generate' | 'reflect_and_generate' | 'swiss';
   budgetPercent: number;
   sourceMode?: 'seed' | 'pool';
   qualityCutoff?: { mode: 'topN' | 'topPercent'; value: number };
   generationGuidance?: Array<{ tactic: string; percent: number }>;
+  reflectionTopN?: number;
+}
+
+/** Variant-producing agent types share the same parent-article source machinery
+ *  (sourceMode, qualityCutoff). Swiss iterations omit all of these. */
+function isVariantProducing(agentType: IterationRow['agentType']): agentType is 'generate' | 'reflect_and_generate' {
+  return agentType === 'generate' || agentType === 'reflect_and_generate';
 }
 
 /** Map UI iteration rows to the iterationConfigs payload accepted by the server
  *  actions (createStrategyAction + getStrategyDispatchPreviewAction). Drops
- *  generate-only fields for swiss rows.
+ *  variant-only fields for swiss rows; drops tacticGuidance for reflect_and_generate
+ *  (the reflection LLM picks the tactic, mutex enforced by schema).
  *
  *  Invariant: when `sourceMode === 'pool'`, updateIteration guarantees
  *  `qualityCutoffMode` and `qualityCutoffValue` are both defined, so qualityCutoff
@@ -89,13 +100,21 @@ function toIterationConfigsPayload(iterations: IterationRow[]): IterationConfigP
   return iterations.map((it) => ({
     agentType: it.agentType,
     budgetPercent: it.budgetPercent,
-    ...(it.agentType === 'generate' && it.sourceMode ? { sourceMode: it.sourceMode } : {}),
-    ...(it.agentType === 'generate' && it.sourceMode === 'pool'
+    ...(isVariantProducing(it.agentType) && it.sourceMode ? { sourceMode: it.sourceMode } : {}),
+    ...(isVariantProducing(it.agentType) && it.sourceMode === 'pool'
         && it.qualityCutoffMode && it.qualityCutoffValue != null && it.qualityCutoffValue > 0
       ? { qualityCutoff: { mode: it.qualityCutoffMode, value: it.qualityCutoffValue } }
       : {}),
-    ...(it.agentType === 'generate' && it.tacticGuidance && it.tacticGuidance.length > 0
+    // Tactic guidance is generate-only — reflect_and_generate has its own tactic
+    // selection (the reflection LLM picks among all 24); the schema rejects guidance
+    // on reflect_and_generate iterations.
+    ...(it.agentType === 'generate'
+        && it.tacticGuidance && it.tacticGuidance.length > 0
       ? { generationGuidance: it.tacticGuidance.filter((g) => g.percent > 0) }
+      : {}),
+    // reflectionTopN only meaningful for reflect_and_generate iterations.
+    ...(it.agentType === 'reflect_and_generate'
+      ? { reflectionTopN: it.reflectionTopN ?? 3 }
       : {}),
   }));
 }
@@ -360,14 +379,16 @@ export default function NewStrategyPage(): JSX.Element {
   const iterationErrors = useMemo(() => {
     const errors: string[] = [];
     if (iterations.length === 0) errors.push('At least one iteration is required');
-    if (iterations.length > 0 && iterations[0]?.agentType !== 'generate') errors.push('First iteration must be generate');
+    if (iterations.length > 0 && !isVariantProducing(iterations[0]!.agentType)) {
+      errors.push('First iteration must be generate or reflect_and_generate');
+    }
     if (!percentValid) errors.push(`Budget percentages must sum to 100% (currently ${totalPercent.toFixed(1)}%)`);
-    // Check swiss doesn't precede all generates
-    let hasGenerate = false;
+    // Check swiss doesn't precede all variant-producing iterations
+    let hasVariantProducing = false;
     for (const it of iterations) {
-      if (it.agentType === 'generate') hasGenerate = true;
-      if (it.agentType === 'swiss' && !hasGenerate) {
-        errors.push('Swiss iteration cannot precede all generate iterations');
+      if (isVariantProducing(it.agentType)) hasVariantProducing = true;
+      if (it.agentType === 'swiss' && !hasVariantProducing) {
+        errors.push('Swiss iteration cannot precede all generate / reflect_and_generate iterations');
         break;
       }
     }
@@ -395,15 +416,28 @@ export default function NewStrategyPage(): JSX.Element {
     setIterations(prev => prev.map((it, i) => {
       if (i !== idx) return it;
       const updated = { ...it, ...patch };
-      // Clear generate-only fields for swiss.
+      // Clear variant-only fields for swiss.
       if (updated.agentType === 'swiss') {
         delete updated.sourceMode;
         delete updated.qualityCutoffMode;
         delete updated.qualityCutoffValue;
         delete updated.tacticGuidance;
+        delete updated.reflectionTopN;
         return updated;
       }
-      // Generate: ensure sourceMode is always set so payload emission is deterministic.
+      // Shape A: tacticGuidance is generate-only. Switching to reflect_and_generate
+      // (or starting there) clears any guidance so the schema mutex stays satisfied.
+      // The reflection LLM picks the tactic — guidance would be ignored anyway.
+      if (updated.agentType === 'reflect_and_generate') {
+        delete updated.tacticGuidance;
+        // Default reflectionTopN when entering reflect_and_generate without one set.
+        updated.reflectionTopN ??= 3;
+      } else {
+        // generate: drop reflectionTopN (stale value from a prior reflect_and_generate
+        // selection — re-entering reflect_and_generate will re-default).
+        delete updated.reflectionTopN;
+      }
+      // Variant-producing: ensure sourceMode is always set so payload emission is deterministic.
       updated.sourceMode ??= 'seed';
       // Pool mode: initialize cutoff fields if unset. This is the Bug 1 fix — without
       // explicit state, toIterationConfigsPayload dropped qualityCutoff entirely when
@@ -813,13 +847,13 @@ export default function NewStrategyPage(): JSX.Element {
 
                       <select
                         value={it.agentType}
-                        onChange={e => updateIteration(idx, { agentType: e.target.value as 'generate' | 'swiss' })}
-                        disabled={idx === 0}
-                        className="w-28 shrink-0 px-2 py-1.5 text-xs font-ui bg-[var(--surface-primary)] border border-[var(--border-default)] rounded-page text-[var(--text-primary)] focus:border-[var(--accent-gold)] focus:outline-none disabled:opacity-60"
-                        title={idx === 0 ? 'First iteration must be generate' : undefined}
+                        onChange={e => updateIteration(idx, { agentType: e.target.value as IterationRow['agentType'] })}
+                        className="w-44 shrink-0 px-2 py-1.5 text-xs font-ui bg-[var(--surface-primary)] border border-[var(--border-default)] rounded-page text-[var(--text-primary)] focus:border-[var(--accent-gold)] focus:outline-none"
+                        data-testid={`agent-type-select-${idx}`}
                       >
                         <option value="generate">Generate</option>
-                        <option value="swiss">Swiss</option>
+                        <option value="reflect_and_generate">Reflect &amp; Generate</option>
+                        <option value="swiss" disabled={idx === 0} title={idx === 0 ? 'First iteration must produce variants' : undefined}>Swiss</option>
                       </select>
 
                       <div className="flex items-center gap-1">
@@ -850,7 +884,7 @@ export default function NewStrategyPage(): JSX.Element {
                         Remove
                       </button>
                     </div>
-                    {it.agentType === 'generate' && idx > 0 && (
+                    {isVariantProducing(it.agentType) && idx > 0 && (
                       <div
                         className="mt-2 pl-8 flex flex-wrap items-center gap-2 text-xs font-ui"
                         data-testid={`iteration-source-controls-${idx}`}
@@ -901,7 +935,9 @@ export default function NewStrategyPage(): JSX.Element {
                         )}
                       </div>
                     )}
-                    {/* Tactic guidance button + inline editor */}
+                    {/* Tactic guidance button + inline editor — generate-only.
+                        reflect_and_generate has no tactic guidance UI: the reflection LLM
+                        picks the tactic per call, so guidance would be ignored. */}
                     {it.agentType === 'generate' && (
                       <div className="mt-2 pl-8">
                         <button
@@ -931,6 +967,30 @@ export default function NewStrategyPage(): JSX.Element {
                         )}
                       </div>
                     )}
+                    {/* Shape A: reflect_and_generate exposes a Top-N input (1-10, default 3)
+                        controlling how many tactics the reflection LLM ranks. The reflection
+                        agent picks the tactic itself — no guidance UI here, no toggle. */}
+                    {it.agentType === 'reflect_and_generate' && (
+                      <div
+                        className="mt-2 pl-8 flex flex-wrap items-center gap-2 text-xs font-ui"
+                        data-testid={`iteration-reflection-controls-${idx}`}
+                      >
+                        <span className="text-[var(--text-primary)]">🪞 Reflection picks tactic per parent · Top-N tactics:</span>
+                        <input
+                          type="number"
+                          min={1}
+                          max={10}
+                          step={1}
+                          value={it.reflectionTopN ?? 3}
+                          onChange={e => {
+                            const v = e.target.value === '' ? undefined : Number(e.target.value);
+                            updateIteration(idx, { reflectionTopN: v });
+                          }}
+                          className="w-14 px-2 py-1 text-xs font-mono bg-[var(--surface-primary)] border border-[var(--border-default)] rounded-page text-[var(--text-primary)] text-right focus:border-[var(--accent-gold)] focus:outline-none"
+                          data-testid={`reflection-topn-input-${idx}`}
+                        />
+                      </div>
+                    )}
                     </div>
                   );
                 })}
@@ -946,23 +1006,29 @@ export default function NewStrategyPage(): JSX.Element {
                 </div>
                 <div className="h-2 rounded-full bg-[var(--surface-primary)] border border-[var(--border-default)] overflow-hidden">
                   <div className="flex h-full">
-                    {iterations.map((it, idx) => (
-                      <div
-                        key={idx}
-                        className={`h-full transition-all ${
-                          it.agentType === 'generate'
-                            ? 'bg-[var(--accent-gold)]'
-                            : 'bg-[var(--accent-copper)]'
-                        }`}
-                        style={{ width: `${Math.min(it.budgetPercent, 100)}%` }}
-                        title={`#${idx + 1} ${it.agentType}: ${it.budgetPercent}%`}
-                      />
-                    ))}
+                    {iterations.map((it, idx) => {
+                      const color = it.agentType === 'generate'
+                        ? 'bg-[var(--accent-gold)]'
+                        : it.agentType === 'reflect_and_generate'
+                          ? 'bg-amber-500'
+                          : 'bg-[var(--accent-copper)]';
+                      return (
+                        <div
+                          key={idx}
+                          className={`h-full transition-all ${color}`}
+                          style={{ width: `${Math.min(it.budgetPercent, 100)}%` }}
+                          title={`#${idx + 1} ${it.agentType}: ${it.budgetPercent}%`}
+                        />
+                      );
+                    })}
                   </div>
                 </div>
                 <div className="flex gap-3 text-xs font-ui text-[var(--text-muted)]">
                   <span className="flex items-center gap-1">
                     <span className="w-2 h-2 rounded-full bg-[var(--accent-gold)]" /> Generate
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <span className="w-2 h-2 rounded-full bg-amber-500" /> Reflect &amp; Generate
                   </span>
                   <span className="flex items-center gap-1">
                     <span className="w-2 h-2 rounded-full bg-[var(--accent-copper)]" /> Swiss

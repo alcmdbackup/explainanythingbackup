@@ -724,7 +724,7 @@ describe('strategyConfigSchema', () => {
         { agentType: 'generate', budgetPercent: 60 },
         { agentType: 'swiss', budgetPercent: 40, generationGuidance: [{ tactic: 'structural_transform', percent: 100 }] },
       ],
-    })).toThrow(/generationGuidance only valid for generate/);
+    })).toThrow(/generationGuidance only valid for agentType=generate/);
   });
 
   it('accepts undefined generationGuidance on generate iteration', () => {

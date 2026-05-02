@@ -4,6 +4,22 @@
 import { writeMetric } from './writeMetrics';
 import type { MetricName as RegistryMetricName } from './types';
 import type { SupabaseClient as RealSupabaseClient } from '@supabase/supabase-js';
+import { ATTRIBUTION_EXTRACTORS } from './attributionExtractors';
+// NOTE: ATTRIBUTION_EXTRACTORS is populated at module-load time by side-effect imports
+// at the bottom of each agent file (`registerAttributionExtractor(...)` calls).
+// Production callers of `computeEloAttributionMetrics` reach this aggregator via
+// `claimAndExecuteRun` → `persistRunResults` → `computeRunMetrics` → here. That call
+// chain transitively loads `agentRegistry.ts` and the GFPA / wrapper agent files
+// via `runIterationLoop`, so registration always fires before this aggregator runs.
+//
+// Worker-context safeguard: a future entry point that reaches this aggregator WITHOUT
+// going through agentRegistry / runIterationLoop must explicitly import
+// `evolution/src/lib/core/agents` at its own top-level. Verified that adding the import
+// HERE breaks the agent class hierarchy with "Class extends value undefined" — the
+// runtime cycle experimentMetrics → agents → Agent → createEvolutionLLMClient →
+// writeMetrics → registry → propagation → experimentMetrics is real and load-bearing.
+// Tests `attributionPipeline.integration.test.ts` + `reflectAndGenerate*.test.ts` both
+// fail with the import in place. Defense-in-depth lives at the worker entry, not here.
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -434,15 +450,33 @@ async function computeEloAttributionMetrics(
   // Group deltas by (agent_name, dimension_value).
   const groups = new Map<string, { agent: string; dim: string; deltas: number[] }>();
   for (const v of variants) {
-    // B052: prefer the invocation-sourced dimension; fall back to (agent_name, legacy)
-    // when agent_invocation_id is null so legacy + seed variants still contribute.
+    // Phase 8 of develop_reflection_and_generateFromParentArticle_agent_evolution_20260430:
+    // Mutually-exclusive dispatch — registry hit OR legacy fallback, NEVER both.
+    // (1) When agent_invocation_id is set AND a registered extractor exists for
+    //     inv.agent_name, use the extractor's output (e.g., GFPA returns detail.tactic;
+    //     reflect_and_generate returns detail.tactic too — naturally separated by
+    //     agent_name in the eloAttrDelta key).
+    // (2) When extractor is missing (unknown agent_name) OR returns null, fall back to
+    //     the legacy hardcoded `execution_detail.strategy` read.
+    // (3) When agent_invocation_id is null (legacy / seed variants), use
+    //     v.agent_name + 'legacy' so they still contribute under their own bucket.
+    // B052: this branch is the long-standing fallback for legacy variants.
     const inv = v.agent_invocation_id ? invMap.get(v.agent_invocation_id) : undefined;
     let dim: string | undefined;
     let agentName: string | undefined;
     if (inv) {
       agentName = inv.agent_name;
-      const d = (inv.execution_detail as { strategy?: unknown })?.strategy;
-      dim = typeof d === 'string' && d.length > 0 && !d.includes(':') ? d : undefined;
+      const extractor = ATTRIBUTION_EXTRACTORS[inv.agent_name];
+      if (extractor) {
+        const extracted = extractor(inv.execution_detail);
+        if (typeof extracted === 'string' && extracted.length > 0 && !extracted.includes(':')) {
+          dim = extracted;
+        }
+      } else {
+        // Legacy fallback path — only fires for agent_names without a registered extractor.
+        const d = (inv.execution_detail as { strategy?: unknown })?.strategy;
+        if (typeof d === 'string' && d.length > 0 && !d.includes(':')) dim = d;
+      }
     } else if (v.agent_name) {
       agentName = v.agent_name;
       dim = 'legacy';

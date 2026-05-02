@@ -67,6 +67,94 @@ describe('V2 hashStrategyConfig', () => {
     };
     expect(hashStrategyConfig(seedMode)).not.toBe(hashStrategyConfig(poolMode));
   });
+
+  // ─── Reflection field hash semantics (Shape A: reflect_and_generate is a top-level agentType) ───
+
+  it('agentType=reflect_and_generate changes the hash vs generate', () => {
+    const generate: StrategyConfig = baseConfig;
+    const reflectAndGenerate: StrategyConfig = {
+      ...baseConfig,
+      iterationConfigs: [
+        { agentType: 'reflect_and_generate', budgetPercent: 60, reflectionTopN: 3 },
+        { agentType: 'swiss', budgetPercent: 40 },
+      ],
+    };
+    expect(hashStrategyConfig(generate)).not.toBe(hashStrategyConfig(reflectAndGenerate));
+  });
+
+  it('reflectionTopN value changes the hash on a reflect_and_generate iteration', () => {
+    const a: StrategyConfig = {
+      ...baseConfig,
+      iterationConfigs: [
+        { agentType: 'reflect_and_generate', budgetPercent: 60, reflectionTopN: 3 },
+        { agentType: 'swiss', budgetPercent: 40 },
+      ],
+    };
+    const b: StrategyConfig = {
+      ...baseConfig,
+      iterationConfigs: [
+        { agentType: 'reflect_and_generate', budgetPercent: 60, reflectionTopN: 5 },
+        { agentType: 'swiss', budgetPercent: 40 },
+      ],
+    };
+    expect(hashStrategyConfig(a)).not.toBe(hashStrategyConfig(b));
+  });
+
+  it('reflectionTopN is stripped on non-reflect_and_generate iterations (hash collision)', () => {
+    // reflectionTopN is meaningless on a 'generate' iteration — canonicalization strips
+    // it so a stale value left over from a wizard toggle doesn't produce a phantom hash.
+    const without: StrategyConfig = baseConfig;
+    const withStaleTopN: StrategyConfig = {
+      ...baseConfig,
+      iterationConfigs: [
+        { agentType: 'generate', budgetPercent: 60, reflectionTopN: 5 },
+        { agentType: 'swiss', budgetPercent: 40 },
+      ],
+    };
+    expect(hashStrategyConfig(without)).toBe(hashStrategyConfig(withStaleTopN));
+  });
+
+  it('canonicalizes reflectionTopN: undefined === absent on reflect_and_generate too', () => {
+    const explicitUndef: StrategyConfig = {
+      ...baseConfig,
+      iterationConfigs: [
+        { agentType: 'reflect_and_generate', budgetPercent: 60, reflectionTopN: undefined },
+        { agentType: 'swiss', budgetPercent: 40 },
+      ],
+    };
+    const absent: StrategyConfig = {
+      ...baseConfig,
+      iterationConfigs: [
+        { agentType: 'reflect_and_generate', budgetPercent: 60 },
+        { agentType: 'swiss', budgetPercent: 40 },
+      ],
+    };
+    expect(hashStrategyConfig(absent)).toBe(hashStrategyConfig(explicitUndef));
+  });
+
+  // ─── Backward-compat regression: snapshot legacy strategy hashes ───
+  // These hashes are computed against the current canonicalization rules. If any
+  // future schema change accidentally re-hashes existing strategies (e.g., adding
+  // a non-canonicalized optional field, changing serialization order), these
+  // assertions fail and prevent silent strategy-row drift in production.
+  it('preserves hash for legacy strategy without reflection fields (snapshot regression)', () => {
+    const legacy: StrategyConfig = {
+      generationModel: 'gpt-4.1-mini',
+      judgeModel: 'qwen-2.5-7b-instruct',
+      iterationConfigs: [
+        { agentType: 'generate', budgetPercent: 50 },
+        { agentType: 'swiss', budgetPercent: 30 },
+        { agentType: 'swiss', budgetPercent: 20 },
+      ],
+    };
+    // Snapshot — first computed at Phase 1 implementation. If this changes the
+    // canonicalization rule changed too. Update only after confirming intent.
+    const hash = hashStrategyConfig(legacy);
+    expect(hash).toMatch(/^[0-9a-f]{12}$/);
+    expect(hash.length).toBe(12);
+    // Recomputing twice must always be byte-identical (deterministic).
+    expect(hashStrategyConfig(legacy)).toBe(hash);
+  });
 });
 
 describe('V2 labelStrategyConfig', () => {

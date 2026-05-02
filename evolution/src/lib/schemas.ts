@@ -384,8 +384,22 @@ function preprocessBudgetFloor(input: unknown): unknown {
 
 // ─── Iteration Config ─────────────────────────────────────────
 
-/** Iteration agent type enum. */
-export const iterationAgentTypeEnum = z.enum(['generate', 'swiss']);
+/** Iteration agent type enum.
+ *  - `generate`: vanilla GenerateFromPreviousArticleAgent (orchestrator picks tactic).
+ *  - `reflect_and_generate`: ReflectAndGenerateFromPreviousArticleAgent — runs a
+ *    reflection LLM call to pick the tactic, then delegates to the generation+ranking
+ *    flow. Variant-producing like `generate`. Mutually exclusive with generationGuidance.
+ *  - `swiss`: SwissRankingAgent — re-ranks the existing pool, no new variants.
+ */
+export const iterationAgentTypeEnum = z.enum(['generate', 'reflect_and_generate', 'swiss']);
+
+/** Helper: agent types that produce new variants (used by validation refinements
+ *  that previously hardcoded `'generate'`). Both vanilla and reflection-wrapped
+ *  generation accept sourceMode/qualityCutoff and contribute to the parallel-batch
+ *  dispatch path; swiss does neither. */
+export function isVariantProducingAgentType(t: z.infer<typeof iterationAgentTypeEnum>): boolean {
+  return t === 'generate' || t === 'reflect_and_generate';
+}
 
 /** Source of the parent article for a generate iteration. 'seed' = the run's seed article; 'pool' = a variant drawn from the current run's pool. */
 export const sourceModeEnum = z.enum(['seed', 'pool']);
@@ -400,28 +414,36 @@ export type QualityCutoff = z.infer<typeof qualityCutoffSchema>;
 
 /** Per-iteration config within a strategy. Percentages are stored; dollar amounts computed at runtime. */
 export const iterationConfigSchema = z.object({
-  /** Agent type for this iteration. */
+  /** Agent type for this iteration. See iterationAgentTypeEnum. */
   agentType: iterationAgentTypeEnum,
   /** Percentage of total budget allocated to this iteration (1-100). Dollar amount = budgetPercent / 100 * totalBudgetUsd. */
   budgetPercent: z.number().min(1).max(100),
-  /** Source of the parent article: 'seed' (default) or 'pool' (draw from current run's ranked pool). Only valid for generate iterations. */
+  /** Source of the parent article: 'seed' (default) or 'pool'. Only valid for variant-producing iterations (generate, reflect_and_generate). */
   sourceMode: sourceModeEnum.optional(),
   /** Quality cutoff for pool-mode parent selection. Required when sourceMode='pool'. */
   qualityCutoff: qualityCutoffSchema.optional(),
-  /** Per-iteration tactic guidance. Overrides strategy-level generationGuidance for this iteration. Only valid for generate iterations. */
+  /** Per-iteration tactic guidance. Overrides strategy-level generationGuidance for this iteration. Only valid for `agentType: 'generate'` (mutually exclusive with reflect_and_generate which lets the LLM pick). */
   generationGuidance: generationGuidanceSchema.optional(),
+  /** How many top tactics the reflection LLM returns (1-10, default 3). Only valid when `agentType === 'reflect_and_generate'`. */
+  reflectionTopN: z.number().int().min(1).max(10).optional(),
 }).refine(
   (c) => c.agentType !== 'swiss' || c.sourceMode === undefined,
-  { message: 'sourceMode only valid for generate iterations' },
+  { message: 'sourceMode only valid for variant-producing iterations (generate, reflect_and_generate)' },
 ).refine(
   (c) => c.agentType !== 'swiss' || c.qualityCutoff === undefined,
-  { message: 'qualityCutoff only valid for generate iterations' },
+  { message: 'qualityCutoff only valid for variant-producing iterations (generate, reflect_and_generate)' },
 ).refine(
   (c) => c.sourceMode !== 'pool' || c.qualityCutoff !== undefined,
   { message: 'qualityCutoff required when sourceMode is pool' },
 ).refine(
-  (c) => c.agentType !== 'swiss' || c.generationGuidance === undefined,
-  { message: 'generationGuidance only valid for generate iterations' },
+  // generationGuidance is the "weighted random" tactic selection mechanism — only valid for vanilla generate.
+  // reflect_and_generate has its own LLM-driven tactic selection that supersedes guidance.
+  (c) => c.agentType === 'generate' || c.generationGuidance === undefined,
+  { message: 'generationGuidance only valid for agentType=generate (use reflect_and_generate for LLM-driven tactic selection instead)' },
+).refine(
+  // reflectionTopN belongs exclusively to reflect_and_generate iterations.
+  (c) => c.agentType === 'reflect_and_generate' || c.reflectionTopN === undefined,
+  { message: 'reflectionTopN only valid when agentType is reflect_and_generate' },
 );
 
 export type IterationConfig = z.infer<typeof iterationConfigSchema>;
@@ -460,20 +482,22 @@ const strategyConfigBaseSchema = z.object({
   const sum = c.iterationConfigs.reduce((acc, ic) => acc + ic.budgetPercent, 0);
   return Math.abs(sum - 100) < 0.01;
 }, { message: 'iterationConfigs budgetPercent values must sum to 100' }).refine((c) => {
-  // First iteration must be generate (swiss on empty pool is invalid).
-  return c.iterationConfigs[0]?.agentType === 'generate';
-}, { message: 'First iteration must be agentType generate (swiss on empty pool is invalid)' }).refine((c) => {
+  // First iteration must produce variants (swiss on empty pool is invalid).
+  // Both 'generate' and 'reflect_and_generate' are variant-producing.
+  const first = c.iterationConfigs[0];
+  return first != null && isVariantProducingAgentType(first.agentType);
+}, { message: 'First iteration must be variant-producing (generate or reflect_and_generate); swiss on empty pool is invalid' }).refine((c) => {
   // First iteration cannot use pool-mode (pool is empty at start).
   return c.iterationConfigs[0]?.sourceMode !== 'pool';
 }, { message: 'First iteration cannot use sourceMode=pool (pool is empty at start); use seed mode' }).refine((c) => {
-  // No swiss iteration may precede all generate iterations.
-  let hasGenerate = false;
+  // No swiss iteration may precede ALL variant-producing iterations.
+  let hasVariantProducing = false;
   for (const ic of c.iterationConfigs) {
-    if (ic.agentType === 'generate') hasGenerate = true;
-    if (ic.agentType === 'swiss' && !hasGenerate) return false;
+    if (isVariantProducingAgentType(ic.agentType)) hasVariantProducing = true;
+    if (ic.agentType === 'swiss' && !hasVariantProducing) return false;
   }
   return true;
-}, { message: 'A swiss iteration cannot precede all generate iterations' }).refine((c) => {
+}, { message: 'A swiss iteration cannot precede all variant-producing iterations (generate or reflect_and_generate)' }).refine((c) => {
   // Exactly one parallel unit may be set (both unset is allowed).
   return !(c.minBudgetAfterParallelFraction != null && c.minBudgetAfterParallelAgentMultiple != null);
 }, { message: 'Only one of minBudgetAfterParallelFraction or minBudgetAfterParallelAgentMultiple may be set' }).refine((c) => {
@@ -960,6 +984,70 @@ export const generateFromPreviousExecutionDetailSchema = executionDetailBaseSche
   ).optional(),
 });
 
+/**
+ * ReflectAndGenerateFromPreviousArticleAgent execution detail.
+ * Wraps GFPA with a reflection LLM call up front. Sub-objects (`reflection`, `generation`,
+ * `ranking`) are individually optional so partial-failure rows still validate (e.g.,
+ * reflection succeeds but generation throws → only `reflection` is populated).
+ */
+export const reflectAndGenerateFromPreviousArticleExecutionDetailSchema = executionDetailBaseSchema.extend({
+  detailType: z.literal('reflect_and_generate_from_previous_article'),
+  variantId: z.string().nullable().optional(),
+  /** The chosen tactic used for downstream generation. Top-level for SQL/aggregator query convenience. */
+  tactic: z.string(),
+  /** Reflection sub-detail. Optional so partial-failure rows (e.g. LLM throw before parsing) still validate. */
+  reflection: z.object({
+    /** All 24 tactic names presented to the LLM in the order they appeared in the prompt (post-shuffle). */
+    candidatesPresented: z.array(z.string()),
+    /** Top-N tactics ranked by the LLM with reasoning for each. */
+    tacticRanking: z.array(z.object({
+      tactic: z.string(),
+      reasoning: z.string(),
+    })),
+    /** = tacticRanking[0].tactic, denormalized for SQL filters. */
+    tacticChosen: z.string(),
+    /** Raw LLM response preserved on parser failure for debugging (capped to 8KB upstream). */
+    rawResponse: z.string().optional(),
+    /** Error message when parsing fails; absent on success. */
+    parseError: z.string().optional(),
+    /** Wall-clock duration of the reflection LLM call. */
+    durationMs: z.number().int().min(0).optional(),
+    /** Cost of the reflection LLM call (incremental — does not include generation/ranking). */
+    cost: z.number().min(0).optional(),
+  }).optional(),
+  /** Generation sub-detail. Reused from GFPA. Optional for partial-failure population. */
+  generation: z.object({
+    cost: z.number().min(0),
+    estimatedCost: z.number().min(0).optional(),
+    promptLength: z.number().int().min(0),
+    textLength: z.number().int().min(0).optional(),
+    formatValid: z.boolean(),
+    formatIssues: z.array(z.string()).optional(),
+    error: z.string().optional(),
+    durationMs: z.number().int().min(0).optional(),
+  }).optional(),
+  /** Ranking sub-detail. Reused from GFPA. Optional. */
+  ranking: z.preprocess(
+    rankingDetailRenameKeys,
+    rankNewVariantDetailInnerSchema.extend({
+      cost: z.number().min(0),
+      estimatedCost: z.number().min(0).optional(),
+    }),
+  ).nullable().optional(),
+  /** Total cost = reflectionCost + gfpaDetail.totalCost. Recomputed by wrapper merge step (Phase 6). */
+  totalCost: z.number().min(0).optional(),
+  estimatedTotalCost: z.number().min(0).optional(),
+  estimationErrorPct: z.number().optional(),
+  surfaced: z.boolean(),
+  discardReason: z.preprocess(
+    renameKeys({ localMu: 'localElo' }),
+    z.object({
+      localElo: z.number(),
+      localTop15Cutoff: z.number(),
+    }),
+  ).optional(),
+});
+
 /** CreateSeedArticleAgent execution detail. */
 export const createSeedArticleExecutionDetailSchema = executionDetailBaseSchema.extend({
   detailType: z.literal('create_seed_article'),
@@ -1021,7 +1109,7 @@ const afterVariantRenameKeys = renameKeys({
 
 export const mergeRatingsExecutionDetailSchema = executionDetailBaseSchema.extend({
   detailType: z.literal('merge_ratings'),
-  iterationType: z.enum(['generate', 'swiss']),
+  iterationType: z.enum(['generate', 'reflect_and_generate', 'swiss']),
   before: z.object({
     poolSize: z.number().int().min(0),
     variants: z.array(z.preprocess(
@@ -1075,9 +1163,11 @@ export const mergeRatingsExecutionDetailSchema = executionDetailBaseSchema.exten
 const snapshotRatingRename = renameKeys({ mu: 'elo', sigma: 'uncertainty' });
 const snapshotDiscardReasonRename = renameKeys({ mu: 'elo' });
 
+// Note: iterationType accepts 'reflect_and_generate' (Shape A) — pre-existing snapshots
+// only contain 'generate' or 'swiss' so backward-compat reads remain valid.
 export const iterationSnapshotSchema = z.object({
   iteration: z.number().int().min(1),
-  iterationType: z.enum(['generate', 'swiss']),
+  iterationType: z.enum(['generate', 'reflect_and_generate', 'swiss']),
   phase: z.enum(['start', 'end']),
   capturedAt: z.string(),
   poolVariantIds: z.array(z.string()),
@@ -1117,6 +1207,7 @@ export const agentExecutionDetailSchema = z.discriminatedUnion('detailType', [
   proximityExecutionDetailSchema,
   metaReviewExecutionDetailSchema,
   generateFromPreviousExecutionDetailSchema,
+  reflectAndGenerateFromPreviousArticleExecutionDetailSchema,
   createSeedArticleExecutionDetailSchema,
   swissRankingExecutionDetailSchema,
   mergeRatingsExecutionDetailSchema,

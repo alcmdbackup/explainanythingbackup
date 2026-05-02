@@ -35,6 +35,34 @@ export function isValidTactic(name: string): name is TacticName {
   return name in ALL_SYSTEM_TACTICS;
 }
 
+/**
+ * Compressed 1–2 sentence summary of a tactic, suitable for embedding in LLM prompts
+ * (e.g., the reflection prompt that lists all 24 candidate tactics). Distilled from
+ * `TacticDef.preamble` (the LLM role assignment) plus the first sentence of `instructions`.
+ *
+ * Returns `null` if the tactic name is unknown.
+ *
+ * Cap: ~250 chars to keep the reflection prompt compact (24 tactics × ~120 chars summary
+ * ≈ 2.9k chars, well within model context).
+ */
+export function getTacticSummary(name: string): string | null {
+  const def = getTacticDef(name);
+  if (!def) return null;
+  // Extract first sentence of instructions (look for first '.' '!' or '?', else whole string).
+  const instructions = def.instructions ?? '';
+  const sentenceEnd = instructions.search(/[.!?](\s|$)/);
+  const firstSentence = sentenceEnd >= 0
+    ? instructions.slice(0, sentenceEnd + 1).trim()
+    : instructions.trim();
+  // Compose: label — preamble (with first sentence as continuation if room).
+  const summary = `${def.label} — ${def.preamble} ${firstSentence}`.trim();
+  // Cap at ~250 chars; truncate at last whole word.
+  if (summary.length <= 250) return summary;
+  const truncated = summary.slice(0, 250);
+  const lastSpace = truncated.lastIndexOf(' ');
+  return (lastSpace > 200 ? truncated.slice(0, lastSpace) : truncated) + '…';
+}
+
 // ─── Categories ─────────────────────────────────────────────────
 
 export const TACTICS_BY_CATEGORY: Record<string, string[]> = (() => {

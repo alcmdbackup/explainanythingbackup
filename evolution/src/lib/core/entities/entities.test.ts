@@ -30,9 +30,10 @@ describe('RunEntity', () => {
     expect(entity.children.every(c => c.cascade === 'delete')).toBe(true);
   });
 
-  it('has 4 execution + 18 finalization + 0 propagation metrics', () => {
-    // cost + generation_cost + ranking_cost + seed_cost (per-purpose split written live by createLLMClient)
-    expect(entity.metrics.duringExecution).toHaveLength(4);
+  it('has 5 execution + 18 finalization + 0 propagation metrics', () => {
+    // cost + generation_cost + ranking_cost + reflection_cost + seed_cost (per-purpose split written live by createLLMClient).
+    // reflection_cost added in develop_reflection_and_generateFromParentArticle_agent_evolution_20260430.
+    expect(entity.metrics.duringExecution).toHaveLength(5);
     // 7 ratings/match/count metrics + 11 cost-estimate-accuracy metrics (cost_estimate_accuracy_analysis_20260414).
     expect(entity.metrics.atFinalization).toHaveLength(18);
     expect(entity.metrics.atPropagation).toHaveLength(0);
@@ -72,9 +73,9 @@ describe('StrategyEntity', () => {
     expect(entity.children[0]!.cascade).toBe('delete');
   });
 
-  it('has 31 propagation metrics (base + cost-estimate-accuracy entries)', () => {
-    // 20 base + 11 cost-estimate-accuracy (cost_estimate_accuracy_analysis_20260414).
-    expect(entity.metrics.atPropagation).toHaveLength(31);
+  it('has 33 propagation metrics (base + cost-estimate-accuracy + reflection entries)', () => {
+    // 20 base + 11 cost-estimate-accuracy + 2 reflection (total_reflection_cost + avg_reflection_cost_per_run).
+    expect(entity.metrics.atPropagation).toHaveLength(33);
     const names = entity.metrics.atPropagation.map(d => d.name);
     expect(names).toContain('run_count');
     expect(names).toContain('total_cost');
@@ -83,6 +84,8 @@ describe('StrategyEntity', () => {
     expect(names).toContain('avg_generation_cost_per_run');
     expect(names).toContain('total_ranking_cost');
     expect(names).toContain('avg_ranking_cost_per_run');
+    expect(names).toContain('total_reflection_cost');
+    expect(names).toContain('avg_reflection_cost_per_run');
     expect(names).toContain('total_seed_cost');
     expect(names).toContain('avg_seed_cost_per_run');
     // Cost estimate accuracy

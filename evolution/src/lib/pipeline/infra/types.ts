@@ -28,7 +28,7 @@ export type IterationStopReason = 'iteration_budget_exceeded' | 'iteration_conve
 /** Per-iteration result recorded in EvolutionResult.iterationResults. */
 export interface IterationResult {
   iteration: number;
-  agentType: 'generate' | 'swiss';
+  agentType: 'generate' | 'reflect_and_generate' | 'swiss';
   stopReason: IterationStopReason;
   budgetAllocated: number;
   budgetSpent: number;

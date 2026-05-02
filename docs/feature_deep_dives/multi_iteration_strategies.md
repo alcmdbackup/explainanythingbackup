@@ -8,17 +8,23 @@ Describes the config-driven multi-iteration strategy system that replaced the or
 Evolution runs are now driven by an ordered sequence of iteration configurations defined
 on the strategy. Each `IterationConfig` entry specifies:
 
-- **`agentType`**: `'generate'` or `'swiss'` — which agent type runs this iteration.
+- **`agentType`**: `'generate'`, `'reflect_and_generate'`, or `'swiss'` — which agent
+  type runs this iteration. The first two are "variant-producing"; swiss is ranking-only.
 - **`budgetPercent`**: 1-100 — percentage of total run budget allocated to this iteration.
   Dollar amount computed at runtime: `(budgetPercent / 100) * totalBudgetUsd`.
-- **`sourceMode`** (optional, generate only): `'seed'` (default) or `'pool'`. Pool mode
+- **`sourceMode`** (optional, variant-producing only): `'seed'` (default) or `'pool'`. Pool mode
   draws the parent article from the current run's ranked pool.
 - **`qualityCutoff`** (required when `sourceMode='pool'`): `{ mode: 'topN'|'topPercent', value }`.
 - **`generationGuidance`** (optional, generate only): per-iteration weighted tactic
-  selection. Overrides strategy-level `generationGuidance`.
+  selection. Overrides strategy-level `generationGuidance`. Mutex with `reflect_and_generate`
+  is structural — that agent does its own LLM-driven tactic selection.
+- **`reflectionTopN`** (optional, only valid when `agentType='reflect_and_generate'`):
+  how many top tactics the reflection LLM ranks. Range 1-10, default 3. Today's
+  dispatch consumes only `tacticRanking[0]`; the tail is preserved for future
+  multi-tactic generation experiments.
 
-Budget percentages across all entries must sum to 100. The first entry must be `generate`
-(swiss on an empty pool is invalid). Max 20 entries per strategy.
+Budget percentages across all entries must sum to 100. The first entry must be variant-producing
+(`generate` or `reflect_and_generate`); swiss on an empty pool is invalid. Max 20 entries per strategy.
 
 **Dispatch count is budget-governed.** There is no `maxAgents` per-iteration cap or
 `numVariants` strategy-level cap (both removed in Phase 4 of the 2026-04-20 refactor).

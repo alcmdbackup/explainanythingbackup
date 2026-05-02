@@ -13,6 +13,10 @@ import { createCostTracker, createIterationBudgetTracker, IterationBudgetExceede
 import type { EntityLogger } from '../infra/createEntityLogger';
 import { selectWinner } from '../../shared/selectWinner';
 import { GenerateFromPreviousArticleAgent } from '../../core/agents/generateFromPreviousArticle';
+import {
+  ReflectAndGenerateFromPreviousArticleAgent,
+  type TacticCandidate,
+} from '../../core/agents/reflectAndGenerateFromPreviousArticle';
 import { SwissRankingAgent, type SwissRankingMatchEntry } from '../../core/agents/SwissRankingAgent';
 import { MergeRatingsAgent, type MergeMatchEntry } from '../../core/agents/MergeRatingsAgent';
 import { swissPairing, pairKey, MAX_PAIRS_PER_ROUND } from './swissPairing';
@@ -20,11 +24,13 @@ import { computeTop15Cutoff } from './rankSingleVariant';
 import { resolveParent, hashSeed } from './resolveParent';
 import { DEFAULT_TACTICS, type IterationSnapshot } from '../../schemas';
 import { deriveSeed, SeededRandom } from '../../shared/seededRandom';
-import { selectTacticWeighted } from '../../core/tactics';
+import { selectTacticWeighted, ALL_SYSTEM_TACTICS, ALL_TACTIC_NAMES, getTacticSummary } from '../../core/tactics';
+import { getTacticEloBoostsForReflection } from '../../../services/tacticReflectionActions';
 import { createSeededRng } from '../../metrics/experimentMetrics';
 import type { AgentContext } from '../../core/types';
 import { estimateAgentCost } from '../infra/estimateCosts';
 import { DISPATCH_SAFETY_CAP } from './projectDispatchPlan';
+import { resolveReflectionEnabled } from './reflectionDispatch';
 import { resolveSequentialFloor } from './budgetFloorResolvers';
 
 // ─── Config validation ───────────────────────────────────────────
@@ -82,7 +88,7 @@ function topKUncertainties(ratings: ReadonlyMap<string, Rating>, k: number): num
 
 function recordSnapshot(
   iteration: number,
-  iterationType: 'generate' | 'swiss',
+  iterationType: 'generate' | 'reflect_and_generate' | 'swiss',
   phase: 'start' | 'end',
   pool: ReadonlyArray<Variant>,
   ratings: ReadonlyMap<string, Rating>,
@@ -313,8 +319,12 @@ export async function evolveArticle(
     let iterMatchesCompleted = 0;
 
     try {
-      if (iterType === 'generate') {
-        // ─── Generate iteration ───────────────────────────────
+      // Both 'generate' and 'reflect_and_generate' are variant-producing iterations
+      // sharing the same parallel-batch + top-up + merge dispatch shape. The only
+      // difference is which agent class gets dispatched per call (decided inside
+      // dispatchOneAgent below based on `reflectionEnabled`).
+      if (iterType === 'generate' || iterType === 'reflect_and_generate') {
+        // ─── Generate / reflect-and-generate iteration ────────
         // Phase 7b: restructured to accumulate parallel + top-up match buffers, then
         // invoke MergeRatingsAgent ONCE at iteration end over the combined buffers.
         // Top-up agents reuse the iteration-start snapshot (option A in decision #8) so
@@ -327,13 +337,44 @@ export async function evolveArticle(
         // true; set to 'false' as a rollback kill-switch if top-up misbehaves in prod.
         const topUpEnabled = process.env.EVOLUTION_TOPUP_ENABLED !== 'false';
 
+        // Shape A of develop_reflection_and_generateFromParentArticle_agent_evolution_20260430:
+        // resolve reflection dispatch via a pure helper (resolveReflectionEnabled) so the
+        // kill-switch + agentType conjunction is unit-testable in isolation. ONCE per iteration.
+        const reflectionEnabled = resolveReflectionEnabled(iterCfg, process.env);
+        const reflectionTopN = iterCfg.reflectionTopN ?? 3;
+
+        // Pre-fetch tactic ELO boosts ONCE per iteration when reflection is enabled.
+        // The same Map reference is shared by all DISPATCH_SAFETY_CAP=100 parallel
+        // wrapper agents, so we don't issue 100 redundant queries per iteration.
+        let tacticEloBoosts: Map<string, number | null> = new Map();
+        if (reflectionEnabled && options?.promptId) {
+          try {
+            tacticEloBoosts = await getTacticEloBoostsForReflection(
+              db,
+              options.promptId,
+              ALL_TACTIC_NAMES,
+              logger,
+            );
+          } catch (err) {
+            logger.warn('Phase 7 reflection ELO boost fetch failed; reflection prompt will show "—"', {
+              phaseName: 'reflection_prep',
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+        }
+
         // Budget-aware parallel-batch size: compute how many agents we can afford
         // within iteration budget AT UPPER-BOUND cost (reservation safety).
+        // Phase 3 of develop_reflection_and_generateFromParentArticle_agent_evolution_20260430:
+        // include the reflection LLM call cost for reflect_and_generate iterations so
+        // dispatch sizing accounts for the extra ~$0.0005-0.001/agent. Reuse the
+        // iteration-scoped reflectionEnabled/reflectionTopN values resolved above.
         const availBudget = iterTracker.getAvailableBudget();
         const maxComp = resolvedConfig.maxComparisonsPerVariant ?? 15;
         const estPerAgent = estimateAgentCost(
           originalText.length, tactics[0]!, resolvedConfig.generationModel,
           resolvedConfig.judgeModel, pool.length, maxComp,
+          reflectionEnabled, reflectionTopN,
         );
         const maxAffordable = Math.max(1, Math.floor(availBudget / estPerAgent));
         // DISPATCH_SAFETY_CAP is a defense-in-depth rail; budget is the primary governor.
@@ -417,11 +458,45 @@ export async function evolveArticle(
             invocationId: '',
             randomSeed: deriveSeed(randomSeed, `iter${iteration}`, `gfsa${execOrder}`),
             logger, costTracker: iterTracker, config: resolvedConfig, promptId: options?.promptId ?? null,
+            experimentId: options?.experimentId,
+            strategyId: options?.strategyId,
             agentIndex: execOrder,
             rawProvider: llmProvider,
             defaultModel: resolvedConfig.generationModel,
             generationTemperature: resolvedConfig.generationTemperature,
+            // Phase 7: pass tacticEloBoosts so the wrapper agent can read it directly
+            // from extendedCtx if needed. Currently the wrapper reads from input.tacticEloBoosts
+            // (built below), but this is here for consistency with future agents.
+            tacticEloBoosts: reflectionEnabled ? tacticEloBoosts : undefined,
           };
+          // Phase 7: branch agent + input shape based on iteration's reflection config.
+          // Both branches share the same ctxForAgent and the same parent-resolution path
+          // — only the agent class and input differ.
+          if (reflectionEnabled) {
+            const shuffleSeed = deriveSeed(randomSeed, `iter${iteration}`, `reflect_shuffle${execOrder}`);
+            const rng = new SeededRandom(shuffleSeed);
+            // ALL_SYSTEM_TACTICS is a Record<string, TacticDef> — TacticDef has no `name` field
+            // (the name is the Record key). Use Object.entries() to keep both attached.
+            const tacticEntries = Object.entries(ALL_SYSTEM_TACTICS);
+            const shuffled = rng.shuffle([...tacticEntries]);
+            const candidates: TacticCandidate[] = shuffled.map(([name, def]) => ({
+              name,
+              label: def.label,
+              summary: getTacticSummary(name) ?? `${def.label} — ${def.preamble}`,
+            }));
+            const wrapperAgent = new ReflectAndGenerateFromPreviousArticleAgent();
+            return wrapperAgent.run({
+              parentText: resolved.text,
+              parentVariantId: resolved.variantId,
+              tacticCandidates: candidates,
+              tacticEloBoosts,
+              reflectionTopN,
+              initialPool: initialPoolSnapshot,
+              initialRatings: initialRatingsSnapshot,
+              initialMatchCounts: initialMatchCountsSnapshot,
+              cache: comparisonCache,
+            }, ctxForAgent);
+          }
           const agent = new GenerateFromPreviousArticleAgent();
           return agent.run({
             parentText: resolved.text,
@@ -603,6 +678,8 @@ export async function evolveArticle(
           invocationId: '',
           randomSeed: deriveSeed(randomSeed, `iter${iteration}`, `merge${mergeExecOrder}`),
           logger, costTracker: iterTracker, config: resolvedConfig, promptId: options?.promptId ?? null,
+          experimentId: options?.experimentId,
+          strategyId: options?.strategyId,
         };
         const mergeAgent = new MergeRatingsAgent();
         const mergeResult = await mergeAgent.run({
@@ -669,6 +746,8 @@ export async function evolveArticle(
             invocationId: '',
             randomSeed: deriveSeed(randomSeed, `iter${iteration}`, `swiss${swissExecOrder}`),
             logger, costTracker: iterTracker, config: resolvedConfig, promptId: options?.promptId ?? null,
+            experimentId: options?.experimentId,
+            strategyId: options?.strategyId,
             rawProvider: llmProvider,
             defaultModel: resolvedConfig.generationModel,
             generationTemperature: resolvedConfig.generationTemperature,
@@ -696,6 +775,8 @@ export async function evolveArticle(
             invocationId: '',
             randomSeed: deriveSeed(randomSeed, `iter${iteration}`, `merge${mergeExecOrder}`),
             logger, costTracker: iterTracker, config: resolvedConfig, promptId: options?.promptId ?? null,
+            experimentId: options?.experimentId,
+            strategyId: options?.strategyId,
           };
           const mergeAgent = new MergeRatingsAgent();
           const mergeBuffers: MergeMatchEntry[][] = [

@@ -8,6 +8,11 @@ import { ConfigDrivenDetailRenderer } from './ConfigDrivenDetailRenderer';
 
 interface Props {
   detail: Record<string, unknown> | null;
+  /** Phase 9 of develop_reflection_and_generateFromParentArticle_agent_evolution_20260430:
+   *  optional filter on the DetailFieldDef[] keys, used by the wrapper agent's split
+   *  Reflection Overview / Generation Overview tabs to render disjoint slices of the
+   *  same `execution_detail` blob. When omitted, all fields render (legacy behavior). */
+  keyFilter?: (key: string) => boolean;
 }
 
 function RawJsonDetail({ detail }: { detail: Record<string, unknown> }): JSX.Element {
@@ -21,7 +26,7 @@ function RawJsonDetail({ detail }: { detail: Record<string, unknown> }): JSX.Ele
   );
 }
 
-export function InvocationExecutionDetail({ detail }: Props): JSX.Element {
+export function InvocationExecutionDetail({ detail, keyFilter }: Props): JSX.Element {
   const [expanded, setExpanded] = useState(false);
 
   if (!detail) {
@@ -34,7 +39,13 @@ export function InvocationExecutionDetail({ detail }: Props): JSX.Element {
   }
 
   const detailType = detail.detailType as string | undefined;
-  const config = detailType ? DETAIL_VIEW_CONFIGS[detailType] : undefined;
+  const baseConfig = detailType ? DETAIL_VIEW_CONFIGS[detailType] : undefined;
+  // Phase 9: when keyFilter is provided, slice the config to the matching DetailFieldDefs.
+  // The renderer reads from `data` (the full execution_detail blob) so slicing the config
+  // is the right granularity — leaves nested children intact for matching keys.
+  const config = baseConfig && keyFilter
+    ? baseConfig.filter((d) => keyFilter(d.key))
+    : baseConfig;
 
   return (
     <div className="border border-[var(--border-default)] rounded-book bg-[var(--surface-elevated)] p-4" data-testid="execution-detail">

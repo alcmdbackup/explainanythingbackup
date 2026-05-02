@@ -14,19 +14,32 @@ For how costs fit into the pipeline lifecycle, see [Architecture](./architecture
 
 > **Per-purpose cost split.** Every LLM call passes a typed `AgentName` label as the
 > second argument to `llm.complete()` (defined in `evolution/src/lib/core/agentNames.ts`,
-> currently `'generation' | 'ranking' | 'seed_title' | 'seed_article'`). The V2 cost
-> tracker buckets per-call costs under this label in `phaseCosts[label]` (race-free
-> per-key accumulator under Node single-threaded execution). After every call,
-> `createLLMClient.ts` writes `cost`, `generation_cost`, and `ranking_cost` to
-> `evolution_metrics` via `writeMetricMax` — a Postgres RPC using
+> currently `'generation' | 'ranking' | 'reflection' | 'seed_title' | 'seed_article' | 'evolution'`).
+> The V2 cost tracker buckets per-call costs under this label in `phaseCosts[label]`
+> (race-free per-key accumulator under Node single-threaded execution). After every
+> call, `createLLMClient.ts` writes `cost`, `generation_cost`, `ranking_cost`, and
+> `reflection_cost` to `evolution_metrics` via `writeMetricMax` — a Postgres RPC using
 > `ON CONFLICT DO UPDATE SET value = GREATEST(...)` so concurrent out-of-order writes
 > can never overwrite a larger value with a smaller one. The `COST_METRIC_BY_AGENT`
-> lookup determines which static metric name receives the per-purpose write.
+> lookup determines which static metric name receives the per-purpose write
+> (`'reflection' → 'reflection_cost'`).
 >
 > **Local integration test setup:** Run `supabase db reset` (or
 > `supabase migration up --local`) before `npm run test:integration` to ensure the
 > `upsert_metric_max` RPC is available in the local DB. CI applies migrations to staging
 > automatically via `.github/workflows/ci.yml` `deploy-migrations` job.
+
+> **Reflection wrapper cost stack.** `ReflectAndGenerateFromPreviousArticleAgent`
+> (Shape A: `agentType: 'reflect_and_generate'` is a top-level enum value alongside
+> `'generate'` and `'swiss'`) makes ONE reflection LLM call up front to pick a tactic,
+> then delegates to `GenerateFromPreviousArticleAgent` for the usual generation +
+> ranking calls. Total per-invocation cost is therefore `reflection + generation +
+> ranking`. The reflection call uses an `OUTPUT_TOKEN_ESTIMATES.reflection = 600`
+> budget (vs. 1000 for generation, 100 for ranking) when reserving budget in
+> `createEvolutionLLMClient.ts`. The reflection cost is recorded incrementally to
+> `reflection_cost` (run-level) by the same `writeMetricMax` path, and propagates to
+> `total_reflection_cost` (sum) and `avg_reflection_cost_per_run` (avg) at the
+> strategy/experiment level via `SHARED_PROPAGATION_DEFS` in `registry.ts`.
 
 ---
 
