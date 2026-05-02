@@ -210,17 +210,32 @@ export const DETAIL_VIEW_CONFIGS: Record<string, DetailFieldDef[]> = {
     { key: 'low_uncertainty_opponents_count', label: 'Low-Uncertainty Opponents', type: 'number' },
     { key: 'totalCost', label: 'Total Cost', type: 'number', formatter: 'cost' },
   ],
-  iterativeEditing: [
-    { key: 'targetVariantId', label: 'Target Variant', type: 'text' },
+  iterative_editing: [
+    { key: 'parentVariantId', label: 'Parent Variant', type: 'text' },
+    { key: 'finalVariantId', label: 'Final Variant', type: 'text' },
     { key: 'stopReason', label: 'Stop Reason', type: 'badge' },
-    { key: 'consecutiveRejections', label: 'Consecutive Rejections', type: 'number' },
+    { key: 'errorPhase', label: 'Error Phase', type: 'badge' },
+    { key: 'errorMessage', label: 'Error Message', type: 'text' },
+    {
+      key: 'config', label: 'Configuration', type: 'object',
+      children: [
+        { key: 'maxCycles', label: 'Max Cycles', type: 'number' },
+        { key: 'editingModel', label: 'Editing Model', type: 'text' },
+        { key: 'approverModel', label: 'Approver Model', type: 'text' },
+        { key: 'driftRecoveryModel', label: 'Drift Recovery Model', type: 'text' },
+        { key: 'perInvocationBudgetUsd', label: 'Per-Invocation Budget', type: 'number', formatter: 'cost' },
+      ],
+    },
     {
       key: 'cycles', label: 'Edit Cycles', type: 'table',
       columns: [
         { key: 'cycleNumber', label: 'Cycle' },
-        { key: 'verdict', label: 'Verdict' },
-        { key: 'confidence', label: 'Confidence' },
-        { key: 'formatValid', label: 'Format Valid' },
+        { key: 'acceptedCount', label: 'Accepted' },
+        { key: 'rejectedCount', label: 'Rejected' },
+        { key: 'appliedCount', label: 'Applied' },
+        { key: 'sizeRatio', label: 'Size Ratio' },
+        { key: 'proposeCostUsd', label: 'Propose $' },
+        { key: 'approveCostUsd', label: 'Approve $' },
       ],
     },
     { key: 'totalCost', label: 'Total Cost', type: 'number', formatter: 'cost' },

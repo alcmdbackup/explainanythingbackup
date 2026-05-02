@@ -153,6 +153,51 @@ function renderField(field: DetailFieldDef, data: Record<string, unknown>): JSX.
       );
     }
 
+    case 'text-diff': {
+      const before = String(data[field.sourceKey ?? ''] ?? '');
+      const after = String(data[field.targetKey ?? ''] ?? '');
+      const max = field.previewLength ?? 300;
+      return (
+        <div key={field.key} className="mb-4" data-testid={`field-${field.key}`}>
+          <h3 className="text-xl font-display font-semibold text-[var(--text-secondary)] mb-2">{field.label}</h3>
+          <div className="grid grid-cols-2 gap-2 text-xs font-mono">
+            <div className="border border-[var(--border-default)] rounded p-2">
+              <div className="text-[var(--text-muted)] mb-1">Before ({before.length} chars)</div>
+              <div className="whitespace-pre-wrap">{before.slice(0, max)}{before.length > max ? '…' : ''}</div>
+            </div>
+            <div className="border border-[var(--border-default)] rounded p-2">
+              <div className="text-[var(--text-muted)] mb-1">After ({after.length} chars)</div>
+              <div className="whitespace-pre-wrap">{after.slice(0, max)}{after.length > max ? '…' : ''}</div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    case 'annotated-edits': {
+      const markup = String(data[field.markupKey ?? 'proposedMarkup'] ?? '');
+      const decisions = (data[field.decisionsKey ?? 'reviewDecisions'] as Array<{ groupNumber: number; decision: string; reason: string }> | undefined) ?? [];
+      return (
+        <div key={field.key} className="mb-4" data-testid={`field-${field.key}`}>
+          <h3 className="text-xl font-display font-semibold text-[var(--text-secondary)] mb-2">{field.label}</h3>
+          <details className="mb-2">
+            <summary className="text-xs font-ui text-[var(--text-secondary)] cursor-pointer">Marked-up text ({markup.length} chars)</summary>
+            <pre className="text-xs font-mono whitespace-pre-wrap mt-1 p-2 border border-[var(--border-default)] rounded bg-[var(--surface-base)]">{markup}</pre>
+          </details>
+          <ul className="text-xs font-ui space-y-1">
+            {decisions.map((d) => (
+              <li key={d.groupNumber} className="flex gap-2">
+                <span className={`inline-block w-12 text-center font-mono rounded ${d.decision === 'accept' ? 'bg-[var(--status-success)]/20 text-[var(--status-success)]' : 'bg-[var(--status-error)]/20 text-[var(--status-error)]'}`}>
+                  #{d.groupNumber}
+                </span>
+                <span className="text-[var(--text-primary)]">{d.decision}: {d.reason}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      );
+    }
+
     default:
       return (
         <div key={field.key} className="mb-2" data-testid={`field-${field.key}`}>
