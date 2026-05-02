@@ -710,6 +710,12 @@ out at the architecture level:
   402 budget exceeded, 503 kill switch, 500 other. Empty body is treated as
   `{}` for backward compatibility with callers that pass no body.
 
+## Criteria-driven generation (evaluateCriteriaThenGenerateFromPreviousArticle_20260501)
+
+`agentType: 'criteria_and_generate'` is a third variant-producing agent type alongside `'generate'` and `'reflect_and_generate'`. The wrapper agent (`EvaluateCriteriaThenGenerateFromPreviousArticleAgent`) makes ONE combined LLM call that scores the parent article against user-defined `evolution_criteria` rows AND drafts fix suggestions for the K weakest in the same response, then delegates to `GenerateFromPreviousArticleAgent.execute()` with `tactic: 'criteria_driven'` and a `customPrompt` built from those suggestions. See [Agents Overview](./agents/overview.md#evaluatecriteriathengeneratefrompreviousarticleagent-evaluatecriteriathengeneratefrompreviousarticle_20260501) for details.
+
+`runIterationLoop.ts`'s outer variant-producing branch was widened to include the new agent type. Mid-run `getCriteriaForEvaluation(db, criteriaIds, logger)` fetch happens once per iteration before the per-parent dispatch loop so each invocation reuses the same criteria payload. `effectiveWeakestK = min(iterationConfig.weakestK, criteria.length)` is clamped at runtime with a warn-log so misconfigurations (more `weakestK` than referenced criteria) downgrade gracefully instead of erroring. The same load-bearing inner-execute() invariant from the reflection wrapper applies — `.execute()` not `.run()` — so wrapper + inner GFPA cost attribution stays in one `AgentCostScope`.
+
 ## Related Documentation
 
 - [Data Model](./data_model.md) — database schema and relationships

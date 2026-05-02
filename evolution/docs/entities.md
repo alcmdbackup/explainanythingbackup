@@ -90,6 +90,7 @@ flowchart TD
 | Arena Comparison | `evolution_arena_comparisons` | Arena leaderboard pages |
 | Log | `evolution_logs` | Logs tab on run/experiment/strategy/invocation detail pages |
 | Tactic | `evolution_tactics` | `/admin/evolution/tactics/[id]` (tabs: Overview, Metrics, Variants, Runs, By Prompt) |
+| Criteria | `evolution_criteria` | `/admin/evolution/criteria/[id]` (tabs: Overview, Metrics, Variants, Runs, By Prompt) |
 | Metrics | `evolution_metrics` | Metrics tab on entity detail pages |
 
 ## Entity Action Matrix
@@ -104,6 +105,7 @@ All entity actions use a delete-only model. Archive/unarchive support was remove
 | Run | `cancel`, `delete` | Cancel sets status to `cancelled`; delete cascades to variants, invocations |
 | Variant | `delete` | Delete removes arena comparisons referencing this variant, then the variant itself |
 | Tactic | `delete` | Delete only for non-predefined tactics; removes associated metrics |
+| Criteria | `create`, `edit`, `archive`, `delete` | DB-first user-defined entity (mirrors `evolution_prompts`); soft-delete via `deleted_at`; hard-delete cascades metrics |
 | Invocation | _(none)_ | Read-only; cleaned up by parent run delete |
 
 Actions are declared on each entity subclass in `evolution/src/lib/core/entities/` and executed via the `executeEntityAction` server action (see [Reference](./reference.md)).
@@ -180,6 +182,14 @@ Agent subclasses can declare metrics that are specific to their execution contex
 | `RankingAgent` | `total_comparisons` | Total pairwise comparisons performed (triage + Swiss rounds) |
 
 These metrics appear on the `InvocationEntity` detail page alongside the standard invocation metrics (cost, duration, success rate) defined in `metricCatalog.ts`.
+
+## CriteriaEntity (evaluateCriteriaThenGenerateFromPreviousArticle_20260501)
+
+`CriteriaEntity` (`evolution/src/lib/core/entities/CriteriaEntity.ts`) is a DB-first user-defined entity mirroring `PromptEntity`'s shape: `createConfig` + `editConfig` form configs, `insertSchema` reusing `evolutionCriteriaInsertSchema`, soft-delete via `deleted_at` column, and 5 metrics (`avg_score`, `frequency_as_weakest`, `total_variants_focused`, `avg_elo_delta_when_focused`, `total_evaluation_cost`) computed at run finalization by `computeCriteriaMetricsForRun`. The entity is registered as `'criteria'` in `CORE_ENTITY_TYPES` (`evolution/src/lib/core/types.ts`) and the parallel `ENTITY_TYPES` array (`evolution/src/lib/metrics/types.ts`).
+
+The criteria list page (`/admin/evolution/criteria`) uses `EntityListPage` self-managed mode with `FormDialog` + a custom `RubricEditor` field component for editing the `evaluation_guidance` rubric (3 anchor scores with descriptions, validated to fall within `min_value`–`max_value` via the IMMUTABLE Postgres function `evolution_criteria_rubric_anchors_in_range` AND a Zod cross-field refinement on `evolutionCriteriaInsertSchema`). The detail page renders 5 tabs (Overview / Metrics / Variants / Runs / By Prompt) — same shape as TacticEntity.
+
+`'criteria_driven'` is registered as a marker tactic in `MARKER_TACTICS` (`evolution/src/lib/core/tactics/index.ts`, indigo `#6366f1`); the syncSystemTactics script unions `ALL_SYSTEM_TACTICS + MARKER_TACTICS` so the marker stays present without driving its own prompt construction.
 
 ## Cross-References
 

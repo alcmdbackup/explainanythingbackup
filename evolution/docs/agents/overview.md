@@ -399,6 +399,27 @@ The Phase 2 `updateInvocation` partial-update fix (`trackInvocations.ts:74`) ens
 
 **Mutual exclusivity** with `generationGuidance`: structural — `generationGuidance` is only valid on `agentType: 'generate'` (the Zod refinement rejects it on `reflect_and_generate` and `swiss`). The wizard UI hides the Tactics button entirely when the iteration's agent type is `reflect_and_generate`, and `toIterationConfigsPayload` only emits guidance for `generate` rows.
 
+## EvaluateCriteriaThenGenerateFromPreviousArticleAgent (evaluateCriteriaThenGenerateFromPreviousArticle_20260501)
+
+A wrapper agent that scores a parent article against user-defined `evolution_criteria` rows and delegates to `GenerateFromPreviousArticleAgent.execute()` with a `customPrompt` built from suggestions targeting the K weakest criteria. Selected per-iteration via `IterationConfig.agentType: 'criteria_and_generate'` (Shape A top-level agent type). The iteration also carries `criteriaIds: string[]` and `weakestK: number` (clamped at runtime to `min(weakestK, criteriaIds.length)`).
+
+**Class**: `EvaluateCriteriaThenGenerateFromPreviousArticleAgent` (`evolution/src/lib/core/agents/evaluateCriteriaThenGenerateFromPreviousArticle.ts`).
+- `name = 'evaluate_criteria_then_generate_from_previous_article'`
+- `usesLLM = true`
+- `getAttributionDimension(detail) → detail.weakestCriteriaNames[0]` (primary weakness becomes the attribution dimension; same `eloAttrDelta:<agent>:<criteriaName>` row family as GFPA)
+
+**Combined LLM call** (`buildEvaluateAndSuggestPrompt`): one structured prompt asks for both per-criterion scores AND fix suggestions for the K weakest criteria in a single response. Each criterion's `evaluation_guidance` rubric (anchor scores with descriptions) is injected verbatim so the model has clear scoring landmarks. The two-pass parser (`parseEvaluateAndSuggest`) splits the response on the first `### Suggestion` heading: pass 1 extracts `Score: <n>` for every criterion, pass 2 extracts suggestion blocks and filters them to the weakest set determined post-scoring (any extra suggestions land in `droppedSuggestions` for visibility). One LLM call instead of two halves end-to-end latency and cost; the case for combining them is that scoring + suggestion drafting share the same parent-article context, so paying for context twice was pure waste.
+
+**GFPA delegation**: the wrapper builds a `customPrompt` from the weakest-K suggestion bullets and calls `new GenerateFromPreviousArticleAgent().execute(input)` directly with `tactic: 'criteria_driven'`, `customPrompt`, plus `criteriaSetUsed` and `weakestCriteriaIds` for variant attribution. Same load-bearing invariant as the reflection wrapper — must use `.execute()` not `.run()` so cost attribution stays in the wrapper's `AgentCostScope`.
+
+**Misconfiguration guard** in GFPA: `if (tactic === 'criteria_driven' && customPrompt === undefined) throw` — the marker tactic only makes sense when invoked through this wrapper; bare GFPA dispatch with that tactic is rejected to surface wiring bugs at runtime.
+
+**Cost stack**: `'evaluate_and_suggest'` is a typed `AgentName` with `evaluation_cost` as its bucket. `OUTPUT_TOKEN_ESTIMATES.evaluate_and_suggest = 2300` covers all per-criterion score lines plus K suggestion blocks. `estimateEvaluateAndSuggestCost(parentChars, gen, judge, criteriaCount, weakestK, avgRubricChars)` accounts for prompt overhead + per-criterion description + rubric anchor injection, and `estimateAgentCost(useCriteria, criteriaCount, weakestK)` extends the dispatch-plan projector. Run-level `evaluation_cost` propagates to `total_evaluation_cost` and `avg_evaluation_cost_per_run` at strategy/experiment level.
+
+**Failure-mode handling** preserves partial detail via `updateInvocation` before re-throwing: combined LLM error → writes prompt + criteria-set context, re-throws `EvaluateAndSuggestLLMError`; parser fails → writes raw response, re-throws `EvaluateAndSuggestParseError`; inner GFPA throws → writes full evaluate-and-suggest sub-detail (scores + suggestions + droppedSuggestions + evaluationCost) before re-throw.
+
+**Mutual exclusivity** with `generationGuidance` and `weakestK`/`criteriaIds`: the Zod refinements on `iterationConfigSchema` reject `criteriaIds` / `weakestK` on non-`criteria_and_generate` rows and reject `generationGuidance` on `criteria_and_generate` rows. The wizard's agent-type select clears the inverse fields when switched.
+
 **Kill-switch**: `EVOLUTION_REFLECTION_ENABLED='false'` env var falls all `agentType: 'reflect_and_generate'` iterations back to vanilla GFPA dispatch. Resolved once per iteration in `runIterationLoop` before parallel/top-up dispatch — single env flip rolls the feature back without code revert.
 
 ## IterativeEditingAgent (bring_back_editing_agents_evolution_20260430)

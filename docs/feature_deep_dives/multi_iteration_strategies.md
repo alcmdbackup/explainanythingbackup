@@ -84,11 +84,14 @@ Defined in `evolution/src/lib/schemas.ts`:
 
 ```typescript
 const iterationConfigSchema = z.object({
-  agentType: z.enum(['generate', 'swiss']),
+  agentType: z.enum(['generate', 'reflect_and_generate', 'criteria_and_generate', 'swiss']),
   budgetPercent: z.number().min(1).max(100),
   sourceMode: z.enum(['seed', 'pool']).optional(),
   qualityCutoff: qualityCutoffSchema.optional(),
   generationGuidance: generationGuidanceSchema.optional(),
+  reflectionTopN: z.number().int().min(1).max(10).optional(),  // reflect_and_generate only
+  criteriaIds: z.array(z.string().uuid()).optional(),          // criteria_and_generate only
+  weakestK: z.number().int().min(1).optional(),                // criteria_and_generate only
 });
 ```
 
@@ -100,8 +103,11 @@ iterationConfigs: z.array(iterationConfigSchema).min(1).max(20)
 
 With superRefine validations:
 - Budget percentages must sum to 100 (floating-point tolerance 0.01).
-- First iteration must be `agentType: 'generate'`.
-- No swiss iteration may precede all generate iterations.
+- First iteration must be variant-producing (`generate`, `reflect_and_generate`, or `criteria_and_generate`).
+- No swiss iteration may precede all variant-producing iterations.
+- `criteriaIds` / `weakestK` are required when `agentType === 'criteria_and_generate'` and rejected on other agent types; `reflectionTopN` is required-default-3 only on `reflect_and_generate`. `criteriaIds` is sorted (canonicalized) before being included in the strategy `config_hash` so `[a,b]` and `[b,a]` deduplicate.
+
+The `criteria_and_generate` agent type (evaluateCriteriaThenGenerateFromPreviousArticle_20260501) routes through the `EvaluateCriteriaThenGenerateFromPreviousArticleAgent` wrapper, which makes one combined LLM call to score the parent article against the referenced `evolution_criteria` rows AND draft fix suggestions for the `effectiveWeakestK = min(weakestK, criteriaIds.length)` weakest criteria, then delegates to `GenerateFromPreviousArticleAgent.execute()` with `tactic: 'criteria_driven'` and a `customPrompt` built from the suggestions. See [Agents Overview](../../evolution/docs/agents/overview.md#evaluatecriteriathengeneratefrompreviousarticleagent-evaluatecriteriathengeneratefrompreviousarticle_20260501) for the full agent contract.
 
 ## Two-Layer Budget
 

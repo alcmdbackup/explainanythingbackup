@@ -87,6 +87,7 @@ All metrics are declared in a typed registry keyed by entity type. Each definiti
 | `generation_cost` | cost | during_execution | LLM spend on generation calls in this run. Written via `writeMetricMax` after every `'generation'`-labeled LLM call. `listView: true`. |
 | `ranking_cost` | cost | during_execution | LLM spend on ranking calls in this run (incl. SwissRankingAgent + binary-search comparisons). Written via `writeMetricMax` after every `'ranking'`-labeled LLM call. `listView: true`. |
 | `seed_cost` | cost | during_execution | LLM spend on seed article generation (`CreateSeedArticleAgent`). Only non-zero for prompt-based runs. Written via `writeMetricMax` after every `'seed_title'`- or `'seed_article'`-labeled LLM call. `listView: true`. |
+| `evaluation_cost` | cost | during_execution | LLM spend on `evaluate_and_suggest` calls (combined scoring + suggestion phase of `EvaluateCriteriaThenGenerateFromPreviousArticleAgent`). Written via `writeMetricMax` after the LLM call. Only non-zero on runs whose strategy includes a `criteria_and_generate` iteration. |
 | `winner_elo` | rating | at_finalization | Elo of the highest-`elo` variant. Includes `uncertainty` (Elo-scale) and 95% CI = elo ± 1.96 × uncertainty. |
 | `median_elo` | rating | at_finalization | 50th percentile Elo across all variants |
 | `p90_elo` | rating | at_finalization | 90th percentile Elo |
@@ -125,6 +126,8 @@ Both entity types share the same propagation definitions — they aggregate from
 | `avg_ranking_cost_per_run` | `ranking_cost` | avg | Mean ranking spend per run |
 | `total_seed_cost` | `seed_cost` | sum | Cumulative seed generation spend across runs (`listView: true`) |
 | `avg_seed_cost_per_run` | `seed_cost` | avg | Mean seed spend per run |
+| `total_evaluation_cost` | `evaluation_cost` | sum | Cumulative `evaluate_and_suggest` spend across runs |
+| `avg_evaluation_cost_per_run` | `evaluation_cost` | avg | Mean `evaluate_and_suggest` spend per run |
 | `avg_final_elo` | `winner_elo` | bootstrap_mean | Mean winner Elo with 95% CI |
 | `best_final_elo` | `winner_elo` | max | Highest winner Elo |
 | `worst_final_elo` | `winner_elo` | min | Lowest winner Elo |
@@ -190,6 +193,20 @@ Tactic-level metrics aggregate across all completed-run variants that used a giv
 Tactic metrics are recomputed via `computeTacticMetricsForRun()` at run finalization (after strategy/experiment propagation). The stale trigger (`mark_elo_metrics_stale`) cascades to tactic metrics when a variant's `mu`/`sigma` DB columns change: it looks up the tactic entity via `evolution_tactics.name = NEW.agent_name` and marks matching `entity_type='tactic'` metrics rows as stale. Stale tactic metrics are recomputed on next read by `recomputeStaleMetrics()`.
 
 **Tactics leaderboard surface** (track_tactic_effectiveness_evolution_20260422 Phase 2): the 5 tactic metrics with `listView: true` (`avg_elo`, `avg_elo_delta`, `win_rate`, `total_variants`, `run_count`) surface as sortable columns on `/admin/evolution/tactics` via `createMetricColumns('tactic')`. `TacticEntity.metrics` mirrors these defs from `METRIC_REGISTRY['tactic']` so the generic column helper has entries to render. The list page's server action (`listTacticsAction`) batch-fetches these rows via `getMetricsForEntities` and attaches them per tactic; metric-key sorts happen JS-side with null-last ordering so unproven tactics don't masquerade as strong performers.
+
+### Criteria Metrics (evaluateCriteriaThenGenerateFromPreviousArticle_20260501)
+
+Criteria-level metrics aggregate across all completed-run variants whose `criteria_set_used` UUID array contains the criterion's id, computed by `computeCriteriaMetricsForRun()` in `evolution/src/lib/metrics/computations/criteriaMetrics.ts` and wired into `persistRunResults.ts` at run finalization (after strategy/experiment propagation, alongside tactic metrics). The stale trigger `mark_elo_metrics_stale` was extended in migration `20260502120003` to cascade staleness to `entity_type='criteria'` rows when a variant's `mu`/`sigma` change.
+
+| Name | Aggregation | Description |
+|------|-------------|-------------|
+| `avg_score` | avg | Mean score this criterion received in `evaluate_and_suggest` invocations across all runs (read from `execution_detail.evaluateAndSuggest.criteriaScored`) |
+| `frequency_as_weakest` | avg | Fraction of variants in `weakest_criteria_ids` to total variants in `criteria_set_used` (i.e. how often this criterion was the bottleneck) |
+| `total_variants_focused` | count | Total variants whose `weakest_criteria_ids` array contained this criterion's id |
+| `avg_elo_delta_when_focused` | bootstrap_mean | Mean Elo delta (child minus parent) on variants where this criterion was in `weakest_criteria_ids` (with 95% CI; surfaces criteria that meaningfully lift quality vs. noise) |
+| `total_evaluation_cost` | sum | Cumulative `evaluation_cost` from invocations whose `execution_detail.evaluateAndSuggest.criteriaScored` referenced this criterion |
+
+The criteria leaderboard at `/admin/evolution/criteria` uses these metrics for sorting; the criteria detail page renders all 5 on its Metrics tab plus per-run rows on Variants/Runs/By Prompt tabs (same shape as TacticEntity).
 
 ### Run-level cost-estimation metrics (cost_estimate_accuracy_analysis_20260414)
 

@@ -10,22 +10,28 @@ import { InvocationParentBlock } from '@evolution/components/evolution/tabs/Invo
 
 const TIMELINE_AGENTS = new Set<string>([
   'generate_from_previous_article',
-  // Phase 10 of develop_reflection_and_generateFromParentArticle_agent_evolution_20260430:
-  // wrapper agent's execution_detail has the same generation/ranking sub-objects as GFPA
-  // PLUS a reflection sub-object — InvocationTimelineTab renders all three as phase bars.
   'reflect_and_generate_from_previous_article',
+  'evaluate_criteria_then_generate_from_previous_article',
 ]);
 
 const REFLECT_GENERATE_AGENT = 'reflect_and_generate_from_previous_article';
+const CRITERIA_GENERATE_AGENT = 'evaluate_criteria_then_generate_from_previous_article';
 
 function buildTabs(agentName: string): TabDef[] {
-  // Phase 9 of develop_reflection_and_generateFromParentArticle_agent_evolution_20260430:
-  // wrapper agent gets two Overview tabs — one for the reflection step, one mirroring
-  // the existing GFPA invocation Overview. Other agents keep the legacy single-Overview shape.
   if (agentName === REFLECT_GENERATE_AGENT) {
     return [
       { id: 'overview-reflection', label: 'Reflection Overview' },
       { id: 'overview-gfpa', label: 'Generation Overview' },
+      { id: 'metrics', label: 'Metrics' },
+      { id: 'timeline', label: 'Timeline' },
+      { id: 'logs', label: 'Logs' },
+    ];
+  }
+  if (agentName === CRITERIA_GENERATE_AGENT) {
+    // Single combined Eval & Suggest tab (one LLM call sources both scoring + suggestions).
+    return [
+      { id: 'overview-evaluate-suggest', label: 'Eval & Suggest' },
+      { id: 'overview-gfpa', label: 'Generation' },
       { id: 'metrics', label: 'Metrics' },
       { id: 'timeline', label: 'Timeline' },
       { id: 'logs', label: 'Logs' },
@@ -74,6 +80,7 @@ export function InvocationDetailContent({ invocation: inv }: Props): JSX.Element
   // the standalone GFPA invocation page, since the wrapper's variants have parent_variant_id
   // populated by the inner GFPA execute().
   const isReflectAndGenerate = detail?.detailType === 'reflect_and_generate_from_previous_article';
+  const isCriteriaAndGenerate = detail?.detailType === 'evaluate_criteria_then_generate_from_previous_article';
 
   return (
     <>
@@ -179,7 +186,7 @@ export function InvocationDetailContent({ invocation: inv }: Props): JSX.Element
               ]}
             />
 
-            {isReflectAndGenerate && (
+            {(isReflectAndGenerate || isCriteriaAndGenerate) && (
               <InvocationParentBlock
                 invocationId={inv.id}
                 tactic={detail?.tactic ?? null}
@@ -187,10 +194,45 @@ export function InvocationDetailContent({ invocation: inv }: Props): JSX.Element
               />
             )}
 
-            {/* Render generation + ranking sub-details. */}
+            {/* Render generation + ranking sub-details, omitting reflection-only +
+                evaluateAndSuggest-only + criteria-overview-specific fields. */}
             <InvocationExecutionDetail
               detail={inv.execution_detail}
-              keyFilter={(key) => !key.startsWith('reflection') && key !== 'tactic'}
+              keyFilter={(key) =>
+                !key.startsWith('reflection')
+                && !key.startsWith('evaluateAndSuggest')
+                && !key.startsWith('weakestCriteria')
+                && key !== 'tactic'}
+            />
+          </div>
+        )}
+
+        {/* Criteria-driven wrapper: single Eval & Suggest tab (one LLM call = unified phase) */}
+        {activeTab === 'overview-evaluate-suggest' && (
+          <div className="space-y-6" data-testid="evaluate-suggest-overview-tab">
+            <MetricGrid
+              columns={4}
+              variant="bordered"
+              size="md"
+              metrics={[
+                { label: 'Agent', value: inv.agent_name },
+                { label: 'Tactic', value: 'criteria_driven' },
+                { label: 'Cost', value: formatCostDetailed(inv.cost_usd) },
+                { label: 'Duration', value: inv.duration_ms != null ? `${(inv.duration_ms / 1000).toFixed(1)}s` : '—' },
+              ]}
+            />
+
+            {inv.error_message && (
+              <div className="border border-[var(--status-error)] rounded-book bg-[var(--surface-elevated)] p-4" data-testid="error-message">
+                <h2 className="text-2xl font-display font-semibold text-[var(--status-error)] mb-2">Error</h2>
+                <p className="text-sm text-[var(--text-secondary)] whitespace-pre-wrap">{inv.error_message}</p>
+              </div>
+            )}
+
+            {/* Render evaluateAndSuggest sub-detail + weakestCriteria fields. */}
+            <InvocationExecutionDetail
+              detail={inv.execution_detail}
+              keyFilter={(key) => key === 'tactic' || key.startsWith('weakestCriteria') || key.startsWith('evaluateAndSuggest')}
             />
           </div>
         )}

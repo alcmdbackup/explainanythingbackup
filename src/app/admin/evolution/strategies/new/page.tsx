@@ -4,6 +4,7 @@
 'use client';
 
 import { useState, useMemo, useCallback, useEffect } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -22,6 +23,7 @@ import type { LastUsedPromptResult, IterationPlanEntryClient } from '@evolution/
 const DEFAULT_SEED_CHARS = 8000;
 import { TACTICS_BY_CATEGORY, TACTIC_PALETTE } from '@evolution/lib/core/tactics';
 import { DispatchPlanView } from '@evolution/components/evolution/DispatchPlanView';
+import { listCriteriaAction, type CriteriaListItem } from '@evolution/services/criteriaActions';
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -32,7 +34,7 @@ const STEP_LABELS: Record<Step, string> = { config: 'Strategy Config', iteration
 type BudgetFloorMode = 'fraction' | 'agentMultiple';
 
 interface IterationRow {
-  agentType: 'generate' | 'reflect_and_generate' | 'iterative_editing' | 'swiss';
+  agentType: 'generate' | 'reflect_and_generate' | 'criteria_and_generate' | 'iterative_editing' | 'swiss';
   budgetPercent: number;
   /** Phase 2: parent-article source for generate iterations. Undefined for swiss/editing.
    *  First iteration is locked to 'seed' by schema refine. */
@@ -53,6 +55,10 @@ interface IterationRow {
    *  per iteration. Default {topN: 10}. Only valid when agentType === 'iterative_editing'. */
   editingCutoffMode?: 'topN' | 'topPercent';
   editingCutoffValue?: number;
+  /** Criteria UUIDs to evaluate. Required when agentType === 'criteria_and_generate'. */
+  criteriaIds?: string[];
+  /** Number of weakest criteria to focus suggestions on (1-5). Default 1. */
+  weakestK?: number;
 }
 
 // Default cutoff applied when user switches a generate iteration to sourceMode='pool'.
@@ -87,7 +93,7 @@ const DEFAULT_ITERATIONS: IterationRow[] = [
 // ─── Form → payload helpers ─────────────────────────────────────
 
 interface IterationConfigPayload {
-  agentType: 'generate' | 'reflect_and_generate' | 'iterative_editing' | 'swiss';
+  agentType: 'generate' | 'reflect_and_generate' | 'criteria_and_generate' | 'iterative_editing' | 'swiss';
   budgetPercent: number;
   sourceMode?: 'seed' | 'pool';
   qualityCutoff?: { mode: 'topN' | 'topPercent'; value: number };
@@ -95,19 +101,21 @@ interface IterationConfigPayload {
   reflectionTopN?: number;
   editingMaxCycles?: number;
   editingEligibilityCutoff?: { mode: 'topN' | 'topPercent'; value: number };
+  criteriaIds?: string[];
+  weakestK?: number;
 }
 
-/** Agent types that take parent-article source machinery (sourceMode, qualityCutoff).
- *  This is generate / reflect_and_generate ONLY — editing has its own per-cycle parent-
- *  selection mechanism (editingEligibilityCutoff), and swiss has none. */
-function isVariantProducing(agentType: IterationRow['agentType']): agentType is 'generate' | 'reflect_and_generate' {
-  return agentType === 'generate' || agentType === 'reflect_and_generate';
+/** Variant-producing agent types share the same parent-article source machinery
+ *  (sourceMode, qualityCutoff). Editing has its own per-cycle parent-selection
+ *  mechanism (editingEligibilityCutoff); swiss has none. */
+function isVariantProducing(agentType: IterationRow['agentType']): agentType is 'generate' | 'reflect_and_generate' | 'criteria_and_generate' {
+  return agentType === 'generate' || agentType === 'reflect_and_generate' || agentType === 'criteria_and_generate';
 }
 
 /** Agent types eligible to be the FIRST iteration (must produce variants on an
  *  empty pool). Editing requires existing variants; swiss only re-ranks. */
 function canBeFirstIteration(agentType: IterationRow['agentType']): boolean {
-  return agentType === 'generate' || agentType === 'reflect_and_generate';
+  return agentType === 'generate' || agentType === 'reflect_and_generate' || agentType === 'criteria_and_generate';
 }
 
 /** Map UI iteration rows to the iterationConfigs payload accepted by the server
@@ -145,6 +153,13 @@ function toIterationConfigsPayload(iterations: IterationRow[]): IterationConfigP
     ...(it.agentType === 'iterative_editing' && it.editingCutoffMode && it.editingCutoffValue != null
       ? { editingEligibilityCutoff: { mode: it.editingCutoffMode, value: it.editingCutoffValue } }
       : {}),
+    // criteriaIds + weakestK only meaningful for criteria_and_generate iterations.
+    ...(it.agentType === 'criteria_and_generate' && it.criteriaIds && it.criteriaIds.length > 0
+      ? { criteriaIds: it.criteriaIds }
+      : {}),
+    ...(it.agentType === 'criteria_and_generate' && it.weakestK
+      ? { weakestK: it.weakestK }
+      : {}),
   }));
 }
 
@@ -172,6 +187,88 @@ function toBudgetFloorFields(
 // ─── Tactic Guidance Popover ────────────────────────────────────
 
 /** Inline popover for configuring per-iteration tactic weights. */
+// ─── Criteria multi-select popover ──────────────────────────────
+
+/** Inline popover for selecting criteria UUIDs for a criteria_and_generate iteration. */
+function CriteriaMultiSelect({
+  availableCriteria,
+  selected,
+  onChange,
+  onClose,
+}: {
+  availableCriteria: CriteriaListItem[];
+  selected: string[];
+  onChange: (ids: string[]) => void;
+  onClose: () => void;
+}) {
+  const [search, setSearch] = useState('');
+  const filtered = availableCriteria.filter((c) =>
+    !search || c.name.toLowerCase().includes(search.toLowerCase()),
+  );
+  const toggle = (id: string) => {
+    onChange(selected.includes(id) ? selected.filter((x) => x !== id) : [...selected, id]);
+  };
+  const allFilteredIds = filtered.map((c) => c.id);
+  const allSelected = filtered.length > 0 && filtered.every((c) => selected.includes(c.id));
+  const toggleAll = () => {
+    if (allSelected) onChange(selected.filter((id) => !allFilteredIds.includes(id)));
+    else onChange([...new Set([...selected, ...allFilteredIds])]);
+  };
+
+  return (
+    <div className="mt-2 ml-8 p-3 border border-[var(--border-default)] rounded-book bg-[var(--surface-elevated)] max-w-2xl" data-testid="criteria-multi-select">
+      <div className="flex items-center justify-between gap-2 mb-2">
+        <input
+          type="text"
+          placeholder="Search criteria..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="flex-1 px-2 py-1 text-xs border border-[var(--border-default)] rounded bg-[var(--bg-input)]"
+        />
+        <button
+          type="button"
+          onClick={toggleAll}
+          className="text-xs px-2 py-1 border border-[var(--border-default)] rounded hover:bg-[var(--bg-elevated)]"
+        >
+          {allSelected ? 'Deselect all' : 'Select all'}
+        </button>
+        <button
+          type="button"
+          onClick={onClose}
+          className="text-xs px-2 py-1 border border-[var(--border-default)] rounded hover:bg-[var(--bg-elevated)]"
+        >
+          Done
+        </button>
+      </div>
+      {filtered.length === 0 ? (
+        <p className="text-xs text-[var(--text-muted)] py-2">
+          {search
+            ? `No criteria matching "${search}".`
+            : <>No active criteria. <Link href="/admin/evolution/criteria" className="text-[var(--accent-gold)] underline">Create one →</Link></>}
+        </p>
+      ) : (
+        <div className="max-h-64 overflow-y-auto space-y-1">
+          {filtered.map((c) => (
+            <label key={c.id} className="flex items-start gap-2 text-xs cursor-pointer p-1 hover:bg-[var(--bg-elevated)] rounded">
+              <input
+                type="checkbox"
+                checked={selected.includes(c.id)}
+                onChange={() => toggle(c.id)}
+                className="mt-0.5"
+              />
+              <div className="flex-1">
+                <span className="font-medium">{c.name}</span>
+                <span className="text-[var(--text-muted)] ml-1">({c.min_rating}-{c.max_rating})</span>
+                {c.description && <p className="text-[var(--text-muted)]">{c.description}</p>}
+              </div>
+            </label>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TacticGuidanceEditor({
   guidance,
   onChange,
@@ -304,6 +401,16 @@ export default function NewStrategyPage(): JSX.Element {
 
   const [iterations, setIterations] = useState<IterationRow[]>([...DEFAULT_ITERATIONS]);
   const [tacticEditorIdx, setTacticEditorIdx] = useState<number | null>(null);
+  const [criteriaEditorIdx, setCriteriaEditorIdx] = useState<number | null>(null);
+  const [availableCriteria, setAvailableCriteria] = useState<CriteriaListItem[]>([]);
+
+  // Fetch active criteria once on mount for the criteria multi-select.
+  useEffect(() => {
+    (async () => {
+      const result = await listCriteriaAction({ status: 'active', filterTestContent: true, limit: 200 });
+      if (result.success && result.data) setAvailableCriteria(result.data.items);
+    })();
+  }, []);
 
   // Phase 3: smart-default prompt context. On mount, fetch the last-used prompt from any
   // non-test-content run. Strategies aren't prompt-bound; the promptId just gives the
@@ -456,6 +563,8 @@ export default function NewStrategyPage(): JSX.Element {
         delete updated.qualityCutoffValue;
         delete updated.tacticGuidance;
         delete updated.reflectionTopN;
+        delete updated.criteriaIds;
+        delete updated.weakestK;
         return updated;
       }
       // Shape A: tacticGuidance is generate-only. Switching to reflect_and_generate
@@ -463,12 +572,19 @@ export default function NewStrategyPage(): JSX.Element {
       // The reflection LLM picks the tactic — guidance would be ignored anyway.
       if (updated.agentType === 'reflect_and_generate') {
         delete updated.tacticGuidance;
-        // Default reflectionTopN when entering reflect_and_generate without one set.
+        delete updated.criteriaIds;
+        delete updated.weakestK;
         updated.reflectionTopN ??= 3;
-      } else {
-        // generate: drop reflectionTopN (stale value from a prior reflect_and_generate
-        // selection — re-entering reflect_and_generate will re-default).
+      } else if (updated.agentType === 'criteria_and_generate') {
+        delete updated.tacticGuidance;
         delete updated.reflectionTopN;
+        updated.criteriaIds ??= [];
+        updated.weakestK ??= 1;
+      } else {
+        // generate: drop reflection + criteria fields (stale from prior selection).
+        delete updated.reflectionTopN;
+        delete updated.criteriaIds;
+        delete updated.weakestK;
       }
       // Variant-producing: ensure sourceMode is always set so payload emission is deterministic.
       updated.sourceMode ??= 'seed';
@@ -941,6 +1057,7 @@ export default function NewStrategyPage(): JSX.Element {
                       >
                         <option value="generate">Generate</option>
                         <option value="reflect_and_generate">Reflect &amp; Generate</option>
+                        <option value="criteria_and_generate">Evaluate Criteria + Generate</option>
                         <option value="iterative_editing" disabled={idx === 0} title={idx === 0 ? 'First iteration must produce variants' : undefined}>Iterative Editing</option>
                         <option value="swiss" disabled={idx === 0} title={idx === 0 ? 'First iteration must produce variants' : undefined}>Swiss</option>
                       </select>
@@ -1127,6 +1244,49 @@ export default function NewStrategyPage(): JSX.Element {
                           &nbsp;· caps editable variants per iteration
                         </span>
                       </div>
+                    )}
+                    {it.agentType === 'criteria_and_generate' && (
+                      <div
+                        className="mt-2 pl-8 flex flex-wrap items-center gap-2 text-xs font-ui"
+                        data-testid={`iteration-criteria-controls-${idx}`}
+                      >
+                        <span className="text-[var(--text-primary)]">🎯 Criteria:</span>
+                        <button
+                          type="button"
+                          onClick={() => setCriteriaEditorIdx(idx)}
+                          className="px-2 py-1 text-xs border border-[var(--border-default)] rounded hover:bg-[var(--bg-elevated)]"
+                          data-testid={`criteria-select-button-${idx}`}
+                        >
+                          {it.criteriaIds && it.criteriaIds.length > 0
+                            ? `${it.criteriaIds.length} selected`
+                            : 'Select criteria...'}
+                        </button>
+                        <span className="text-[var(--text-primary)] ml-2">Weakest K:</span>
+                        <input
+                          type="number"
+                          min={1}
+                          max={Math.min(5, Math.max(1, it.criteriaIds?.length ?? 5))}
+                          step={1}
+                          value={it.weakestK ?? 1}
+                          onChange={e => {
+                            const v = e.target.value === '' ? undefined : Number(e.target.value);
+                            updateIteration(idx, { weakestK: v });
+                          }}
+                          className="w-14 px-2 py-1 text-xs font-mono bg-[var(--surface-primary)] border border-[var(--border-default)] rounded-page text-[var(--text-primary)] text-right focus:border-[var(--accent-gold)] focus:outline-none"
+                          data-testid={`weakest-k-input-${idx}`}
+                          title={it.criteriaIds && it.weakestK && it.weakestK > it.criteriaIds.length
+                            ? `weakestK (${it.weakestK}) cannot exceed selected criteria (${it.criteriaIds.length})`
+                            : ''}
+                        />
+                      </div>
+                    )}
+                    {criteriaEditorIdx === idx && (
+                      <CriteriaMultiSelect
+                        availableCriteria={availableCriteria}
+                        selected={it.criteriaIds ?? []}
+                        onChange={(ids) => updateIteration(idx, { criteriaIds: ids })}
+                        onClose={() => setCriteriaEditorIdx(null)}
+                      />
                     )}
                     </div>
                   );

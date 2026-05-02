@@ -151,6 +151,16 @@ export const createStrategyAction = adminAction(
   async (input: z.input<typeof createStrategySchema>, ctx: AdminContext): Promise<StrategyListItem> => {
     const parsed = createStrategySchema.parse(input);
 
+    // Validate criteriaIds referenced by criteria_and_generate iterations exist + active.
+    {
+      const { validateCriteriaIds } = await import('./criteriaActions');
+      const allIds = parsed.iterationConfigs
+        .flatMap((it) => (it.agentType === 'criteria_and_generate' && it.criteriaIds) ? it.criteriaIds : []);
+      if (allIds.length > 0) {
+        await validateCriteriaIds(allIds, ctx.supabase);
+      }
+    }
+
     const config: StrategyConfig = {
       generationModel: parsed.generationModel,
       judgeModel: parsed.judgeModel,
