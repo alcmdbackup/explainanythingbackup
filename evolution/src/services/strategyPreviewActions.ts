@@ -199,7 +199,7 @@ export interface DispatchPreviewResult {
  *  estPerAgent keys match the server's EstPerAgentValue keys. */
 export interface IterationPlanEntryClient {
   iterIdx: number;
-  agentType: 'generate' | 'reflect_and_generate' | 'swiss';
+  agentType: 'generate' | 'reflect_and_generate' | 'iterative_editing' | 'swiss';
   iterBudgetUsd: number;
   /** Effective tactic mix (normalized weights) used for this iteration's estimate. */
   tacticMix: Array<{ tactic: string; weight: number }>;
