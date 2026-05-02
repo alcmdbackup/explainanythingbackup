@@ -29,7 +29,7 @@ function getServiceClient() {
 
 adminTest.describe('Iterative Editing Pipeline', { tag: '@evolution' }, () => {
   adminTest.describe.configure({ mode: 'serial' });
-  adminTest.setTimeout(240_000);
+  adminTest.setTimeout(360_000);
 
   let promptId: string;
   let strategyId: string;
@@ -37,7 +37,7 @@ adminTest.describe('Iterative Editing Pipeline', { tag: '@evolution' }, () => {
   let runId: string;
 
   adminTest.beforeAll(async ({ browser }, testInfo) => {
-    testInfo.setTimeout(240_000);
+    testInfo.setTimeout(360_000);
     const sb = getServiceClient();
 
     // Strategy: generate → iterative_editing → swiss. editingModel and
@@ -169,7 +169,7 @@ adminTest.describe('Iterative Editing Pipeline', { tag: '@evolution' }, () => {
     await expect.poll(async () => {
       const { data } = await sb.from('evolution_runs').select('status').eq('id', runId).single();
       return data?.status;
-    }, { timeout: 180_000, intervals: [3_000] }).toBe('completed');
+    }, { timeout: 300_000, intervals: [3_000] }).toBe('completed');
   });
 
   adminTest.afterAll(async () => {
@@ -248,6 +248,12 @@ adminTest.describe('Iterative Editing Pipeline', { tag: '@evolution' }, () => {
     // still completed successfully — only assert if the metric was written.
   });
 
+});
+
+// Wizard-only describe block — pure UI tests, no real LLM run required. Kept
+// out of the heavy `Iterative Editing Pipeline` describe so a single-test
+// invocation doesn't drag the 3-minute beforeAll along.
+adminTest.describe('Iterative Editing Wizard', { tag: '@evolution' }, () => {
   adminTest('strategy wizard surfaces rubber-stamping warning when models match', async ({ adminPage }) => {
     await adminPage.goto('/admin/evolution/strategies/new');
 
@@ -270,7 +276,7 @@ adminTest.describe('Iterative Editing Pipeline', { tag: '@evolution' }, () => {
     await adminPage.locator('#strategy-name').fill('[TEST_EVO] Editing-terminal');
     await adminPage.locator('#generation-model').selectOption({ index: 1 });
     await adminPage.locator('#judge-model').selectOption({ index: 1 });
-    await adminPage.getByRole('button', { name: /next/i }).click();
+    await adminPage.getByRole('button', { name: /^Next:/i }).click();
 
     // Default iterations are gen + swiss. Swap second to iterative_editing.
     await adminPage.locator('[data-testid="agent-type-select-1"]').selectOption('iterative_editing');

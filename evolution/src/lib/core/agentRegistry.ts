@@ -39,15 +39,17 @@ export function getAgentClasses(): AnyAgent[] {
  *
  *  Idempotent: caches positive result for the process lifetime. Fails open on
  *  permission-denied errors so misconfigured local environments don't brick.
- *  Skipped entirely under NODE_ENV='test' so unit-test mocks of Supabase
- *  clients don't trip the assertion (the dedicated startupAssertions.test.ts
- *  exercises the assertion directly with full mocks).
+ *  Production-only: skipped under NODE_ENV='test' (so unit-test mocks don't
+ *  trip the assertion) and NODE_ENV='development' (so dev environments without
+ *  the pg_get_constraintdef_by_name RPC installed don't break the API path).
+ *  The dedicated startupAssertions.test.ts exercises the assertion directly
+ *  with full mocks.
  *
  *  Per bring_back_editing_agents_evolution_20260430 Decisions §18 + Phase 1.6.
  *  Caller passes a Supabase service-role client (the same one
  *  costCalibrationLoader uses). */
 export async function ensureStartupAssertions(client: SupabaseClient): Promise<void> {
-  if (process.env.NODE_ENV === 'test') return;
+  if (process.env.NODE_ENV !== 'production') return;
   await assertCostCalibrationPhaseEnumsMatch(client);
 }
 
