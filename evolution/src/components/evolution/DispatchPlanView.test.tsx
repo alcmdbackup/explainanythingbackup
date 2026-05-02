@@ -20,8 +20,8 @@ function makeEntry(patch: Partial<IterationPlanEntryClient> = {}): IterationPlan
     tacticMixSource: 'defaults',
     tacticLabel: 'structural_transform',
     estPerAgent: {
-      expected: { gen: 0.0012, rank: 0.003, reflection: 0, total: 0.0042 },
-      upperBound: { gen: 0.0017, rank: 0.006, reflection: 0, total: 0.0077 },
+      expected: { gen: 0.0012, rank: 0.003, reflection: 0, editing: 0, total: 0.0042 },
+      upperBound: { gen: 0.0017, rank: 0.006, reflection: 0, editing: 0, total: 0.0077 },
     },
     maxAffordable: { atExpected: 5, atUpperBound: 3 },
     dispatchCount,
@@ -49,7 +49,7 @@ describe('DispatchPlanView', () => {
           makeEntry({
             iterIdx: 1, agentType: 'swiss', effectiveCap: 'swiss',
             dispatchCount: 0,
-            estPerAgent: { expected: { gen: 0, rank: 0, reflection: 0, total: 0 }, upperBound: { gen: 0, rank: 0, reflection: 0, total: 0 } },
+            estPerAgent: { expected: { gen: 0, rank: 0, reflection: 0, editing: 0, total: 0 }, upperBound: { gen: 0, rank: 0, reflection: 0, editing: 0, total: 0 } },
           }),
         ]}
         variant="wizard"
@@ -73,7 +73,7 @@ describe('DispatchPlanView', () => {
   it('shows delta + realization ratio when actual is supplied', () => {
     render(
       <DispatchPlanView
-        plan={[makeEntry({ iterIdx: 0, dispatchCount: 3, estPerAgent: { expected: { gen: 0.001, rank: 0.003, reflection: 0, total: 0.004 }, upperBound: { gen: 0.001, rank: 0.003, reflection: 0, total: 0.004 } } })]}
+        plan={[makeEntry({ iterIdx: 0, dispatchCount: 3, estPerAgent: { expected: { gen: 0.001, rank: 0.003, reflection: 0, editing: 0, total: 0.004 }, upperBound: { gen: 0.001, rank: 0.003, reflection: 0, editing: 0, total: 0.004 } } })]}
         actual={[{ iterIdx: 0, actualDispatched: 3, actualCostUsd: 0.006 }]}
         variant="run"
         totalBudgetUsd={0.05}
@@ -94,7 +94,7 @@ describe('DispatchPlanView', () => {
     // gen=0.001, rank=0.010 → rank/(gen+rank) = 0.91, triggers warning
     render(
       <DispatchPlanView
-        plan={[makeEntry({ estPerAgent: { expected: { gen: 0.0007, rank: 0.005, reflection: 0, total: 0.0057 }, upperBound: { gen: 0.001, rank: 0.010, reflection: 0, total: 0.011 } } })]}
+        plan={[makeEntry({ estPerAgent: { expected: { gen: 0.0007, rank: 0.005, reflection: 0, editing: 0, total: 0.0057 }, upperBound: { gen: 0.001, rank: 0.010, reflection: 0, editing: 0, total: 0.011 } } })]}
         variant="wizard"
       />,
     );

@@ -107,7 +107,7 @@ export interface EstPerAgent {
   upperBound: EstPerAgentValue;
 }
 
-export type EffectiveCap = 'budget' | 'safety_cap' | 'floor' | 'swiss';
+export type EffectiveCap = 'budget' | 'safety_cap' | 'floor' | 'swiss' | 'eligibility';
 
 export type TacticMixSource = 'iter-guidance' | 'strategy-guidance' | 'strategy-tactics' | 'defaults';
 
@@ -298,6 +298,85 @@ export function projectDispatchPlan(
         poolSizeAtStart: poolSize,
         parallelFloorUsd: 0,
       });
+      continue;
+    }
+
+    if (iterCfg.agentType === 'iterative_editing') {
+      // Per Decisions §13/§14/§17: editing iterations cost = maxCycles × (propose +
+      // review) per parent, with the article growing up to 1.5× per cycle in
+      // upper-bound. Eligibility cutoff comes from the shared dispatch helper —
+      // same call site as the runtime, math agrees via applyCutoffToCount.
+      const { estimateIterativeEditingCost } = require('../infra/estimateCosts') as typeof import('../infra/estimateCosts');
+      const { resolveEditingDispatchPlanner } = require('./editingDispatch') as typeof import('./editingDispatch');
+
+      const maxCycles = (iterCfg as { editingMaxCycles?: number }).editingMaxCycles ?? 3;
+      const editingModel = (config as { editingModel?: string }).editingModel ?? config.generationModel;
+      const approverModel = (config as { approverModel?: string }).approverModel ?? editingModel;
+      const driftRecoveryModel = (config as { driftRecoveryModel?: string }).driftRecoveryModel ?? 'gpt-4.1-nano';
+
+      const editCost = estimateIterativeEditingCost(
+        ctx.seedChars,
+        editingModel,
+        approverModel,
+        driftRecoveryModel,
+        config.judgeModel,
+        maxCycles,
+      );
+
+      // Apply eligibility cutoff against the projected pool. Editing iterations
+      // require an existing pool; if poolSize === 0 (first iter is editing — blocked
+      // by schema first-iter refine), there are no eligible parents.
+      const cutoffResult = resolveEditingDispatchPlanner({
+        projectedPoolSize: poolSize,
+        cutoff: (iterCfg as { editingEligibilityCutoff?: { mode: 'topN' | 'topPercent'; value: number } }).editingEligibilityCutoff,
+      });
+
+      const parallelFloorUsd = resolveParallelFloor(config, iterBudgetUsd, editCost.upperBound);
+      const availBudget = Math.max(0, iterBudgetUsd - parallelFloorUsd);
+      const maxAffordableUpper = editCost.upperBound > 0
+        ? Math.max(1, Math.floor(availBudget / editCost.upperBound))
+        : 1;
+      const maxAffordableExpected = editCost.expected > 0
+        ? Math.max(1, Math.floor(availBudget / editCost.expected))
+        : 1;
+
+      const dispatchCount = Math.min(
+        DISPATCH_SAFETY_CAP,
+        maxAffordableUpper,
+        cutoffResult.eligibleCount,
+      );
+
+      let effectiveCap: EffectiveCap;
+      if (dispatchCount === cutoffResult.eligibleCount && cutoffResult.effectiveCap === 'eligibility') {
+        effectiveCap = 'eligibility';
+      } else if (dispatchCount >= DISPATCH_SAFETY_CAP) {
+        effectiveCap = 'safety_cap';
+      } else if (parallelFloorUsd > 0 && maxAffordableUpper === 1) {
+        effectiveCap = 'floor';
+      } else {
+        effectiveCap = 'budget';
+      }
+
+      plan.push({
+        iterIdx,
+        agentType: 'iterative_editing',
+        iterBudgetUsd,
+        tacticMix: mix,
+        tacticMixSource: source,
+        tacticLabel,
+        estPerAgent: {
+          expected: { gen: 0, rank: 0, reflection: 0, editing: editCost.expected, total: editCost.expected },
+          upperBound: { gen: 0, rank: 0, reflection: 0, editing: editCost.upperBound, total: editCost.upperBound },
+        },
+        maxAffordable: { atExpected: maxAffordableExpected, atUpperBound: maxAffordableUpper },
+        dispatchCount,
+        effectiveCap,
+        poolSizeAtStart: poolSize,
+        parallelFloorUsd,
+      });
+
+      // Editing produces ONE final variant per dispatch (Decisions §14).
+      poolSize += dispatchCount;
       continue;
     }
 

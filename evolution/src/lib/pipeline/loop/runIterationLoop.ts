@@ -714,6 +714,132 @@ export async function evolveArticle(
           phaseName: 'generation',
         });
 
+      } else if (iterType === 'iterative_editing') {
+        // ─── Iterative editing iteration ──────────────────────────
+        // Per-parent: dispatch one IterativeEditingAgent per eligible top-Elo parent.
+        // Each invocation runs up to maxCycles propose-review-apply cycles in-memory;
+        // only the FINAL cycle's text materializes as a Variant per Decisions §14.
+        // Per Decisions §15: each invocation receives perInvocationBudgetUsd =
+        // remainingBudget / parallelDispatchCount to prevent starvation under
+        // shared IterationBudgetTracker.
+        if (process.env.EDITING_AGENTS_ENABLED === 'false') {
+          // Soft rollback per Rollout/Rollback section: short-circuit at branch entry.
+          logger.info('Iterative-editing iteration short-circuited (EDITING_AGENTS_ENABLED=false)', {
+            iteration, iterIdx, phaseName: 'editing',
+          });
+          iterStopReason = 'iteration_complete';
+        } else {
+          const { IterativeEditingAgent } = await import('../../core/agents/editing/IterativeEditingAgent');
+          const { resolveEditingDispatchRuntime } = await import('./editingDispatch');
+
+          // Compute eligible parents via shared helper (same call site as planner).
+          const arenaVariantIds = new Set<string>(); // Editing iterations don't add arena entries.
+          const dispatch = resolveEditingDispatchRuntime({
+            pool,
+            arenaVariantIds,
+            iterationStartRatings: ratings,
+            cutoff: iterCfg.editingEligibilityCutoff,
+          });
+
+          if (dispatch.eligibleParents.length === 0) {
+            logger.warn('Iterative-editing: no eligible parents after cutoff', {
+              iteration, iterIdx, poolSize: pool.length, phaseName: 'editing',
+            });
+            iterStopReason = 'iteration_no_pairs';
+          } else {
+            // Cap dispatch count by eligible-parents count and DISPATCH_SAFETY_CAP.
+            // Per-invocation budget split: divide remaining iter budget across invocations
+            // per Decisions §15 (prevents starvation under shared IterationBudgetTracker).
+            const dispatchCount = Math.min(dispatch.eligibleParents.length, DISPATCH_SAFETY_CAP);
+            const remainingBudget = Math.max(0, iterBudgetUsd - iterTracker.getTotalSpent());
+            const perInvocationBudgetUsd = dispatchCount > 0
+              ? remainingBudget / dispatchCount
+              : 0;
+
+            const editingAgent = new IterativeEditingAgent();
+            const newVariants: Variant[] = [];
+            const editingMatchBuffers: MergeMatchEntry[][] = []; // Editing emits no matches in v1.
+
+            // Parallel dispatch via Promise.allSettled.
+            const parallelParents = dispatch.eligibleParents.slice(0, dispatchCount);
+            const dispatchPromises = parallelParents.map(async (parent) => {
+              const editExecOrder = ++executionOrder;
+              const editCtx: AgentContext = {
+                db, runId, iteration,
+                executionOrder: editExecOrder,
+                invocationId: '',
+                randomSeed: deriveSeed(randomSeed, `iter${iteration}`, `edit${editExecOrder}`),
+                logger, costTracker: iterTracker, config: resolvedConfig, promptId: options?.promptId ?? null,
+                experimentId: options?.experimentId,
+                strategyId: options?.strategyId,
+                rawProvider: llmProvider,
+                defaultModel: (resolvedConfig as { editingModel?: string }).editingModel ?? resolvedConfig.generationModel,
+                generationTemperature: resolvedConfig.generationTemperature,
+              };
+              return editingAgent.run({
+                parent,
+                perInvocationBudgetUsd,
+              }, editCtx);
+            });
+
+            const settled = await Promise.allSettled(dispatchPromises);
+            for (const s of settled) {
+              if (s.status === 'fulfilled' && s.value.success && s.value.result) {
+                const r = s.value.result as { finalVariant: Variant | null; surfaced: boolean };
+                if (r.finalVariant !== null && r.surfaced) {
+                  newVariants.push(r.finalVariant);
+                  iterVariantsCreated++;
+                }
+                if (s.value.budgetExceeded) {
+                  iterStopReason = 'iteration_budget_exceeded';
+                }
+              }
+            }
+
+            // Merge — pass iterationType: 'iterative_editing' per Decisions §7.
+            // Editing emits no per-cycle matches (Decisions §14), so pass empty buffers
+            // but populate newVariants for default-rating insertion.
+            if (newVariants.length > 0) {
+              const mergeExecOrder = ++executionOrder;
+              const mergeCtx: AgentContext = {
+                db, runId, iteration,
+                executionOrder: mergeExecOrder,
+                invocationId: '',
+                randomSeed: deriveSeed(randomSeed, `iter${iteration}`, `merge${mergeExecOrder}`),
+                logger, costTracker: iterTracker, config: resolvedConfig, promptId: options?.promptId ?? null,
+                experimentId: options?.experimentId,
+                strategyId: options?.strategyId,
+              };
+              const mergeAgent = new MergeRatingsAgent();
+              await mergeAgent.run({
+                iterationType: 'iterative_editing',
+                matchBuffers: editingMatchBuffers,
+                newVariants,
+                pool, ratings, matchCounts, matchHistory: allMatches,
+              }, mergeCtx);
+            }
+          }
+        }
+
+        const topKEditing = resolvedConfig.tournamentTopK ?? 5;
+        const eloValues = topKEloValues(ratings, topKEditing);
+        eloHistory.push(eloValues);
+
+        iterationSnapshots.push(recordSnapshot(iteration, 'iterative_editing', 'end', pool, ratings, matchCounts, {
+          stopReason: iterStopReason,
+          budgetAllocated: iterBudgetUsd,
+          budgetSpent: iterTracker.getTotalSpent(),
+        }));
+
+        logger.info('Iterative-editing iteration complete', {
+          iteration, iterIdx,
+          variantsCreated: iterVariantsCreated,
+          iterStopReason,
+          budgetSpent: iterTracker.getTotalSpent(),
+          topEloValues: eloValues.slice(0, 5),
+          phaseName: 'editing',
+        });
+
       } else if (iterType === 'swiss') {
         // ─── Swiss iteration ──────────────────────────────────
         // Loop SwissRankingAgent + MergeRatingsAgent until convergence, no pairs, or iteration budget.

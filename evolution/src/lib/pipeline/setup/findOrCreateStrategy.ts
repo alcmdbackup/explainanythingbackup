@@ -62,9 +62,13 @@ export function hashStrategyConfig(config: StrategyConfig): string {
 /** Auto-generated label: "Gen: model | Judge: model | 2×gen + 3×swiss". */
 export function labelStrategyConfig(config: StrategyConfig): string {
   const genCount = config.iterationConfigs.filter((ic) => ic.agentType === 'generate').length;
+  const reflectCount = config.iterationConfigs.filter((ic) => ic.agentType === 'reflect_and_generate').length;
+  const editCount = config.iterationConfigs.filter((ic) => ic.agentType === 'iterative_editing').length;
   const swissCount = config.iterationConfigs.filter((ic) => ic.agentType === 'swiss').length;
   const iterLabel = [
     genCount > 0 ? `${genCount}×gen` : '',
+    reflectCount > 0 ? `${reflectCount}×reflect` : '',
+    editCount > 0 ? `${editCount}×edit` : '',
     swissCount > 0 ? `${swissCount}×swiss` : '',
   ].filter(Boolean).join(' + ');
 

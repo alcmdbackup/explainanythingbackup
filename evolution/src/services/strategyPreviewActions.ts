@@ -206,10 +206,9 @@ export interface IterationPlanEntryClient {
   tacticMixSource: 'iter-guidance' | 'strategy-guidance' | 'strategy-tactics' | 'defaults';
   tacticLabel: string;
   estPerAgent: {
-    // Backfilled `reflection` to match server-side EstPerAgentValue
-    // (investigate_issues_latest_evolution_reflection_agent_20260501).
-    expected: { gen: number; rank: number; reflection: number; total: number };
-    upperBound: { gen: number; rank: number; reflection: number; total: number };
+    // Both `reflection` (from main, post-PR-1017 investigation) and `editing` (this branch).
+    expected: { gen: number; rank: number; reflection: number; editing: number; total: number };
+    upperBound: { gen: number; rank: number; reflection: number; editing: number; total: number };
   };
   maxAffordable: { atExpected: number; atUpperBound: number };
   dispatchCount: number;
@@ -219,7 +218,7 @@ export interface IterationPlanEntryClient {
   /** Top-up agents projected beyond the parallel batch.
    *  expectedTotalDispatch - dispatchCount. */
   expectedTopUpDispatch: number;
-  effectiveCap: 'budget' | 'safety_cap' | 'floor' | 'swiss';
+  effectiveCap: 'budget' | 'safety_cap' | 'floor' | 'swiss' | 'eligibility';
   poolSizeAtStart: number;
   parallelFloorUsd: number;
 }

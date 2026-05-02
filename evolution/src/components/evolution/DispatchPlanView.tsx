@@ -37,6 +37,7 @@ function badgeForCap(cap: IterationPlanEntryClient['effectiveCap']): { label: st
     case 'floor': return { label: 'floor', tone: 'warning' };
     case 'safety_cap': return { label: 'safety cap', tone: 'error' };
     case 'swiss': return { label: 'swiss', tone: 'neutral' };
+    case 'eligibility': return { label: 'cutoff', tone: 'warning' };
   }
 }
 
@@ -51,6 +52,7 @@ const CAP_TOOLTIPS: Record<IterationPlanEntryClient['effectiveCap'], string> = {
   floor: 'Budget floor (parallel) shrank the batch to the 1-agent minimum.',
   safety_cap: 'DISPATCH_SAFETY_CAP=100 binding — budget math would otherwise allow more.',
   swiss: 'Swiss iteration — no parallel generate batch.',
+  eligibility: 'Editing eligibility cutoff is binding — budget math would allow more invocations than there are eligible top-Elo parents.',
 };
 
 function deltaBucket(pct: number): { color: string; label: string } {

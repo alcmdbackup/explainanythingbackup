@@ -7,6 +7,7 @@ import type { Agent } from './Agent';
 import type { ExecutionDetailBase } from '../types';
 import { GenerateFromPreviousArticleAgent } from './agents/generateFromPreviousArticle';
 import { ReflectAndGenerateFromPreviousArticleAgent } from './agents/reflectAndGenerateFromPreviousArticle';
+import { IterativeEditingAgent } from './agents/editing/IterativeEditingAgent';
 import { SwissRankingAgent } from './agents/SwissRankingAgent';
 import { MergeRatingsAgent } from './agents/MergeRatingsAgent';
 
@@ -21,6 +22,7 @@ export function getAgentClasses(): AnyAgent[] {
     _agents = [
       new GenerateFromPreviousArticleAgent(),
       new ReflectAndGenerateFromPreviousArticleAgent(),
+      new IterativeEditingAgent(),
       new SwissRankingAgent(),
       new MergeRatingsAgent(),
     ];
