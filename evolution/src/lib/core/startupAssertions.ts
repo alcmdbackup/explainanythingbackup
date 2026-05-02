@@ -168,8 +168,19 @@ export async function assertCostCalibrationPhaseEnumsMatch(
       return;
     } catch (fallbackErr: unknown) {
       if (fallbackErr instanceof MissingMigrationError) throw fallbackErr;
-      // Re-throw the original error as a connection / unexpected failure.
-      throw err instanceof Error ? err : new Error(String(err));
+      // Both RPC and fallback SELECT failed (and not because of permission-denied
+      // or constraint-not-found). PostgREST gates pg_catalog access in many
+      // deployments, so this path is common enough that throwing would brick the
+      // API. Fail open with a loud warning — the migration system itself is the
+      // primary gate; this assertion is defense-in-depth.
+      const msg = err instanceof Error ? err.message : String(err);
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[startupAssertions] Could not verify ${CONSTRAINT_NAME} (both RPC and pg_constraint SELECT failed: ${msg}). ` +
+          `Falling open — assertion skipped. The migration system is the authoritative gate.`,
+      );
+      cachedResult = 'ok';
+      return;
     }
   }
 

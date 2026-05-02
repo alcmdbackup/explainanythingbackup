@@ -81,6 +81,32 @@ describe('assertCostCalibrationPhaseEnumsMatch', () => {
     warnSpy.mockRestore();
   });
 
+  it('fails open with a warning when both RPC and fallback SELECT fail (non-permission)', async () => {
+    // PostgREST gates pg_catalog access in many deployments, so neither path
+    // returns useful data — the assertion should fall open rather than brick
+    // the API. Mirrors the CI Supabase project, which has neither the
+    // pg_get_constraintdef_by_name RPC installed nor a PostgREST schema
+    // exposing pg_constraint.
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+    const client = {
+      rpc: jest.fn().mockResolvedValue({
+        data: null,
+        error: { message: 'Could not find function pg_get_constraintdef_by_name in schema cache' },
+      }),
+      from: jest.fn().mockImplementation(() => ({
+        select: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        limit: jest.fn().mockResolvedValue({
+          data: null,
+          error: { message: 'relation "pg_constraint" does not exist' },
+        }),
+      })),
+    } as unknown as import('@supabase/supabase-js').SupabaseClient;
+    await expect(assertCostCalibrationPhaseEnumsMatch(client)).resolves.toBeUndefined();
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
   it('throws when the constraint def is malformed (no IN-list)', async () => {
     const client = makeClient(() => ({ data: 'CHECK (phase IS NOT NULL)', error: null }));
     await expect(assertCostCalibrationPhaseEnumsMatch(client)).rejects.toThrow(MissingMigrationError);
