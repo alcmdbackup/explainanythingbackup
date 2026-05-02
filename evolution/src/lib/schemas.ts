@@ -469,16 +469,28 @@ function preprocessBudgetFloor(input: unknown): unknown {
  *  - `reflect_and_generate`: ReflectAndGenerateFromPreviousArticleAgent — runs a
  *    reflection LLM call to pick the tactic, then delegates to the generation+ranking
  *    flow. Variant-producing like `generate`. Mutually exclusive with generationGuidance.
+ *  - `criteria_and_generate`: EvaluateCriteriaThenGenerateFromPreviousArticleAgent —
+ *    scores the parent against user-defined criteriaIds in a single LLM call (combined
+ *    evaluate + suggest), then delegates to GFPA with a customPrompt built from the
+ *    suggestions for the K weakest criteria. Variant-producing.
  *  - `swiss`: SwissRankingAgent — re-ranks the existing pool, no new variants.
  */
-export const iterationAgentTypeEnum = z.enum(['generate', 'reflect_and_generate', 'iterative_editing', 'swiss']);
+export const iterationAgentTypeEnum = z.enum(['generate', 'reflect_and_generate', 'criteria_and_generate', 'iterative_editing', 'swiss']);
 
 /** Helper: agent types that may appear as the FIRST iteration of a strategy.
  *  Editing is excluded — it requires existing variants to edit. Swiss is also
- *  excluded — it only re-ranks. Replaces the predicate previously named
- *  isVariantProducingAgentType for the first-iteration refine site. */
+ *  excluded — it only re-ranks. Vanilla generate, reflection wrapper, and
+ *  criteria wrapper all generate from a seed parent so they're valid first-iter. */
 export function canBeFirstIteration(t: z.infer<typeof iterationAgentTypeEnum>): boolean {
-  return t === 'generate' || t === 'reflect_and_generate';
+  return t === 'generate' || t === 'reflect_and_generate' || t === 'criteria_and_generate';
+}
+
+/** Helper: agent types that produce new variants (used by validation refinements
+ *  that previously hardcoded `'generate'`). Vanilla, reflection-wrapped, and
+ *  criteria-driven generation all accept sourceMode/qualityCutoff and contribute
+ *  to the parallel-batch dispatch path; swiss does neither. */
+export function isVariantProducingAgentType(t: z.infer<typeof iterationAgentTypeEnum>): boolean {
+  return t === 'generate' || t === 'reflect_and_generate' || t === 'criteria_and_generate';
 }
 
 /** Helper: agent types that produce new variants in the pool. Includes editing
@@ -486,7 +498,7 @@ export function canBeFirstIteration(t: z.infer<typeof iterationAgentTypeEnum>): 
  *  the swiss-precedence refine to ensure swiss never runs before any iteration
  *  that would put variants in the pool. */
 export function producesNewVariants(t: z.infer<typeof iterationAgentTypeEnum>): boolean {
-  return t === 'generate' || t === 'reflect_and_generate' || t === 'iterative_editing';
+  return t === 'generate' || t === 'reflect_and_generate' || t === 'criteria_and_generate' || t === 'iterative_editing';
 }
 
 /** Source of the parent article for a generate iteration. 'seed' = the run's seed article; 'pool' = a variant drawn from the current run's pool. */
@@ -524,12 +536,20 @@ export const iterationConfigSchema = z.object({
   editingMaxCycles: z.number().int().min(1).max(5).optional(),
   /** Caps how many of the top-Elo variants are eligible for editing per iteration. Defaults to `{ mode: 'topN', value: 10 }` at consumption time (resolveEditingDispatch* helpers). Only valid when `agentType === 'iterative_editing'`. Reuses qualityCutoffSchema's value-validation refines. */
   editingEligibilityCutoff: qualityCutoffSchema.optional(),
+  /** Criteria UUIDs evaluated by the EvaluateCriteriaThenGenerateFromPreviousArticleAgent.
+   *  Required + non-empty when agentType === 'criteria_and_generate'. Mutually exclusive
+   *  with generationGuidance (criteria drive the prompt directly). */
+  criteriaIds: z.array(z.string().uuid()).optional(),
+  /** How many of the lowest-scoring criteria drive the suggestions step (1-5, default 1).
+   *  Only valid when agentType === 'criteria_and_generate'. Cross-field constraint:
+   *  weakestK <= criteriaIds.length. */
+  weakestK: z.number().int().min(1).max(5).optional(),
 }).refine(
   (c) => c.agentType !== 'swiss' || c.sourceMode === undefined,
-  { message: 'sourceMode only valid for variant-producing iterations (generate, reflect_and_generate)' },
+  { message: 'sourceMode only valid for variant-producing iterations (generate, reflect_and_generate, criteria_and_generate)' },
 ).refine(
   (c) => c.agentType !== 'swiss' || c.qualityCutoff === undefined,
-  { message: 'qualityCutoff only valid for variant-producing iterations (generate, reflect_and_generate)' },
+  { message: 'qualityCutoff only valid for variant-producing iterations (generate, reflect_and_generate, criteria_and_generate)' },
 ).refine(
   (c) => c.sourceMode !== 'pool' || c.qualityCutoff !== undefined,
   { message: 'qualityCutoff required when sourceMode is pool' },
@@ -537,7 +557,7 @@ export const iterationConfigSchema = z.object({
   // generationGuidance is the "weighted random" tactic selection mechanism — only valid for vanilla generate.
   // reflect_and_generate has its own LLM-driven tactic selection that supersedes guidance.
   (c) => c.agentType === 'generate' || c.generationGuidance === undefined,
-  { message: 'generationGuidance only valid for agentType=generate (use reflect_and_generate for LLM-driven tactic selection instead)' },
+  { message: 'generationGuidance only valid for agentType=generate (use reflect_and_generate or criteria_and_generate instead)' },
 ).refine(
   // reflectionTopN belongs exclusively to reflect_and_generate iterations.
   (c) => c.agentType === 'reflect_and_generate' || c.reflectionTopN === undefined,
@@ -550,6 +570,30 @@ export const iterationConfigSchema = z.object({
   // editingEligibilityCutoff belongs exclusively to iterative_editing iterations.
   (c) => c.agentType === 'iterative_editing' || c.editingEligibilityCutoff === undefined,
   { message: 'editingEligibilityCutoff only valid when agentType is iterative_editing' },
+).refine(
+  (c) => c.agentType === 'criteria_and_generate' || c.criteriaIds === undefined,
+  { message: 'criteriaIds only valid when agentType is criteria_and_generate' },
+).refine(
+  (c) => !c.criteriaIds || c.criteriaIds.length > 0,
+  { message: 'criteriaIds must have at least 1 entry when present', path: ['criteriaIds'] },
+).refine(
+  (c) => c.agentType === 'criteria_and_generate' || c.weakestK === undefined,
+  { message: 'weakestK only valid when agentType is criteria_and_generate' },
+).refine(
+  // Cross-field: weakestK <= criteriaIds.length
+  (c) => c.weakestK === undefined || !c.criteriaIds || c.weakestK <= c.criteriaIds.length,
+  {
+    message: 'weakestK cannot exceed the number of selected criteria',
+    path: ['weakestK'],
+  },
+).refine(
+  // criteria_and_generate requires criteriaIds
+  (c) => c.agentType !== 'criteria_and_generate' || (c.criteriaIds !== undefined && c.criteriaIds.length > 0),
+  { message: 'criteria_and_generate iterations require criteriaIds (at least 1)', path: ['criteriaIds'] },
+).refine(
+  // criteriaIds mutually exclusive with generationGuidance (criteria drive the prompt)
+  (c) => !c.criteriaIds || c.generationGuidance === undefined,
+  { message: 'criteriaIds and generationGuidance are mutually exclusive', path: ['generationGuidance'] },
 );
 
 export type IterationConfig = z.infer<typeof iterationConfigSchema>;
@@ -1269,6 +1313,83 @@ export const reflectAndGenerateFromPreviousArticleExecutionDetailSchema = execut
   ).optional(),
 });
 
+/**
+ * EvaluateCriteriaThenGenerateFromPreviousArticleAgent execution detail.
+ * Single combined LLM call (evaluate + suggest), then inner GFPA execute().
+ * `evaluateAndSuggest` is a single sub-object (not split eval/suggest) — sourced
+ * from one LLM response, shares cost + duration. droppedSuggestions captures
+ * blocks the LLM wrote about non-weakest criteria (LLM-vs-wrapper disagreement
+ * on tied scores, kept for forensic display).
+ */
+export const evaluateCriteriaThenGenerateFromPreviousArticleExecutionDetailSchema = executionDetailBaseSchema.extend({
+  detailType: z.literal('evaluate_criteria_then_generate_from_previous_article'),
+  variantId: z.string().nullable().optional(),
+  /** Static marker tactic; lineage graph + tactic leaderboard groups all criteria-driven variants under this. */
+  tactic: z.literal('criteria_driven'),
+  /** UUIDs of criteria the wrapper auto-picked as the focus (sorted by normalized score asc). */
+  weakestCriteriaIds: z.array(z.string().uuid()),
+  /** Resolved names for chart labels + attribution dimension extractor. Same length + order as weakestCriteriaIds. */
+  weakestCriteriaNames: z.array(z.string()),
+  /** Combined evaluate + suggest sub-detail. Single LLM call source. Optional so partial-failure rows still validate. */
+  evaluateAndSuggest: z.object({
+    /** Per-criteria scoring from the LLM. Each entry's score validated within its criterion's [min, max] range. */
+    criteriaScored: z.array(z.object({
+      criteriaId: z.string().uuid(),
+      criteriaName: z.string(),
+      score: z.number(),
+      minRating: z.number(),
+      maxRating: z.number(),
+    })),
+    /** Suggestions kept (Criterion ∈ wrapper-determined weakest set) — fed into inner GFPA's customPrompt. */
+    suggestions: z.array(z.object({
+      examplePassage: z.string(),
+      whatNeedsAddressing: z.string(),
+      suggestedFix: z.string(),
+      criteriaName: z.string(),
+    })),
+    /** Suggestions the LLM wrote about non-weakest criteria — dropped, kept for forensic display only. */
+    droppedSuggestions: z.array(z.object({
+      criteriaName: z.string(),
+      reason: z.string(),
+    })).optional(),
+    rawResponse: z.string().optional(),
+    parseError: z.string().optional(),
+    durationMs: z.number().int().min(0).optional(),
+    cost: z.number().min(0).optional(),
+  }).optional(),
+  /** Generation sub-detail. Reused from GFPA. */
+  generation: z.object({
+    cost: z.number().min(0),
+    estimatedCost: z.number().min(0).optional(),
+    promptLength: z.number().int().min(0),
+    textLength: z.number().int().min(0).optional(),
+    formatValid: z.boolean(),
+    formatIssues: z.array(z.string()).optional(),
+    error: z.string().optional(),
+    durationMs: z.number().int().min(0).optional(),
+  }).optional(),
+  /** Ranking sub-detail. Reused from GFPA. */
+  ranking: z.preprocess(
+    rankingDetailRenameKeys,
+    rankNewVariantDetailInnerSchema.extend({
+      cost: z.number().min(0),
+      estimatedCost: z.number().min(0).optional(),
+    }),
+  ).nullable().optional(),
+  /** Total cost = combinedCost + gfpaDetail.totalCost. Recomputed by wrapper merge step. */
+  totalCost: z.number().min(0).optional(),
+  estimatedTotalCost: z.number().min(0).optional(),
+  estimationErrorPct: z.number().optional(),
+  surfaced: z.boolean(),
+  discardReason: z.preprocess(
+    renameKeys({ localMu: 'localElo' }),
+    z.object({
+      localElo: z.number(),
+      localTop15Cutoff: z.number(),
+    }),
+  ).optional(),
+});
+
 /** CreateSeedArticleAgent execution detail. */
 export const createSeedArticleExecutionDetailSchema = executionDetailBaseSchema.extend({
   detailType: z.literal('create_seed_article'),
@@ -1330,7 +1451,7 @@ const afterVariantRenameKeys = renameKeys({
 
 export const mergeRatingsExecutionDetailSchema = executionDetailBaseSchema.extend({
   detailType: z.literal('merge_ratings'),
-  iterationType: z.enum(['generate', 'reflect_and_generate', 'iterative_editing', 'swiss']),
+  iterationType: z.enum(['generate', 'reflect_and_generate', 'criteria_and_generate', 'iterative_editing', 'swiss']),
   before: z.object({
     poolSize: z.number().int().min(0),
     variants: z.array(z.preprocess(
@@ -1388,7 +1509,7 @@ const snapshotDiscardReasonRename = renameKeys({ mu: 'elo' });
 // only contain 'generate' or 'swiss' so backward-compat reads remain valid.
 export const iterationSnapshotSchema = z.object({
   iteration: z.number().int().min(1),
-  iterationType: z.enum(['generate', 'reflect_and_generate', 'iterative_editing', 'swiss']),
+  iterationType: z.enum(['generate', 'reflect_and_generate', 'criteria_and_generate', 'iterative_editing', 'swiss']),
   phase: z.enum(['start', 'end']),
   capturedAt: z.string(),
   poolVariantIds: z.array(z.string()),
@@ -1429,6 +1550,7 @@ export const agentExecutionDetailSchema = z.discriminatedUnion('detailType', [
   metaReviewExecutionDetailSchema,
   generateFromPreviousExecutionDetailSchema,
   reflectAndGenerateFromPreviousArticleExecutionDetailSchema,
+  evaluateCriteriaThenGenerateFromPreviousArticleExecutionDetailSchema,
   createSeedArticleExecutionDetailSchema,
   swissRankingExecutionDetailSchema,
   mergeRatingsExecutionDetailSchema,

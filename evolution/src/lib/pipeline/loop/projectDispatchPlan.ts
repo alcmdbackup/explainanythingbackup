@@ -33,6 +33,7 @@ import {
   estimateGenerationCost,
   estimateRankingCost,
   estimateReflectionCost,
+  estimateEvaluateAndSuggestCost,
   getVariantChars,
 } from '../infra/estimateCosts';
 import { resolveParallelFloor, resolveSequentialFloor } from './budgetFloorResolvers';
@@ -91,11 +92,13 @@ export interface DispatchPlanOptions {
 export interface EstPerAgentValue {
   gen: number;
   rank: number;
-  /** Reflection cost per agent (only > 0 when iterCfg.agentType === 'reflect_and_generate'). 0 for vanilla GFPA. */
+  /** Reflection cost per agent (only > 0 when iterCfg.agentType === 'reflect_and_generate'). 0 otherwise. */
   reflection: number;
   /** Iterative editing cost per agent (only > 0 when iterCfg.agentType === 'iterative_editing').
-   *  0 for generate / reflect / swiss. Mirrors the reflection field added by PR #1017. */
+   *  0 for generate / reflect / criteria / swiss. Mirrors the reflection field. */
   editing: number;
+  /** Combined evaluate + suggest cost per agent (only > 0 when iterCfg.agentType === 'criteria_and_generate'). 0 otherwise. */
+  evaluation: number;
   total: number;
 }
 
@@ -119,7 +122,7 @@ export interface TacticMixEntry {
 
 export interface IterationPlanEntry {
   iterIdx: number;
-  agentType: 'generate' | 'reflect_and_generate' | 'iterative_editing' | 'swiss';
+  agentType: 'generate' | 'reflect_and_generate' | 'criteria_and_generate' | 'iterative_editing' | 'swiss';
   iterBudgetUsd: number;
   /** Effective tactic pool for this iteration (normalized weights). Cost estimates are
    *  weighted averages over this mix. Single-entry for guidance with one tactic. */
@@ -214,9 +217,8 @@ function buildTacticLabel(mix: TacticMixEntry[], source: TacticMixSource): strin
 }
 
 /** Weighted average of per-agent generation + ranking cost across a tactic mix.
- *  When `useReflection` is true (i.e. the iteration's agentType is 'reflect_and_generate'),
- *  adds the reflection LLM call cost (uniform across the mix — reflection cost depends on
- *  parent text + topN, not the tactic). */
+ *  Adds reflection or evaluation cost when applicable (per-agent, not per-tactic —
+ *  these costs depend on parent text / criteria count, not on the tactic). */
 function weightedAgentCost(
   mix: ReadonlyArray<TacticMixEntry>,
   seedChars: number,
@@ -226,6 +228,9 @@ function weightedAgentCost(
   numComparisons: number,
   useReflection: boolean = false,
   reflectionTopN: number = 3,
+  useCriteria: boolean = false,
+  criteriaCount: number = 0,
+  weakestK: number = 1,
 ): EstPerAgentValue {
   let gen = 0;
   let rank = 0;
@@ -234,11 +239,13 @@ function weightedAgentCost(
     gen += weight * estimateGenerationCost(seedChars, tactic, generationModel, judgeModel);
     rank += weight * estimateRankingCost(variantChars, judgeModel, poolSize, numComparisons);
   }
-  // Reflection cost is per-agent, not per-tactic — same call for every dispatch.
   const reflection = useReflection
     ? estimateReflectionCost(seedChars, generationModel, judgeModel, reflectionTopN)
     : 0;
-  return { gen, rank, reflection, editing: 0, total: reflection + gen + rank };
+  const evaluation = useCriteria
+    ? estimateEvaluateAndSuggestCost(seedChars, generationModel, judgeModel, criteriaCount, weakestK)
+    : 0;
+  return { gen, rank, reflection, editing: 0, evaluation, total: reflection + evaluation + gen + rank };
 }
 
 // ─── Main ─────────────────────────────────────────────────────────
@@ -287,8 +294,8 @@ export function projectDispatchPlan(
         tacticMixSource: source,
         tacticLabel,
         estPerAgent: {
-          expected: { gen: 0, rank: 0, reflection: 0, editing: 0, total: 0 },
-          upperBound: { gen: 0, rank: 0, reflection: 0, editing: 0, total: 0 },
+          expected: { gen: 0, rank: 0, reflection: 0, editing: 0, evaluation: 0, total: 0 },
+          upperBound: { gen: 0, rank: 0, reflection: 0, editing: 0, evaluation: 0, total: 0 },
         },
         maxAffordable: { atExpected: 0, atUpperBound: 0 },
         dispatchCount: 0,
@@ -365,8 +372,8 @@ export function projectDispatchPlan(
         tacticMixSource: source,
         tacticLabel,
         estPerAgent: {
-          expected: { gen: 0, rank: 0, reflection: 0, editing: editCost.expected, total: editCost.expected },
-          upperBound: { gen: 0, rank: 0, reflection: 0, editing: editCost.upperBound, total: editCost.upperBound },
+          expected: { gen: 0, rank: 0, reflection: 0, editing: editCost.expected, evaluation: 0, total: editCost.expected },
+          upperBound: { gen: 0, rank: 0, reflection: 0, editing: editCost.upperBound, evaluation: 0, total: editCost.upperBound },
         },
         maxAffordable: { atExpected: maxAffordableExpected, atUpperBound: maxAffordableUpper },
         dispatchCount,
@@ -383,31 +390,34 @@ export function projectDispatchPlan(
       continue;
     }
 
-    // ─── Generate / reflect-and-generate iteration ────────────────
-    // Shape A: 'reflect_and_generate' is a third top-level agentType. When the iteration
-    // is reflect_and_generate AND opts.reflectionEnabled, weightedAgentCost includes the
-    // reflection LLM call cost so parallelDispatchCount sizing accounts for it. When the
-    // EVOLUTION_REFLECTION_ENABLED kill-switch is off, the runtime falls
-    // reflect_and_generate iters back to vanilla GFPA (reflectionDispatch.ts) — we
-    // mirror that here so the preview matches what runtime will actually dispatch.
+    // ─── Variant-producing iteration (generate / reflect_and_generate / criteria_and_generate) ─
+    // Shape A: each agentType is a top-level enum value. weightedAgentCost includes the
+    // appropriate per-agent overhead (reflection or evaluation) so parallelDispatchCount
+    // sizing accounts for it. When EVOLUTION_REFLECTION_ENABLED kill-switch is off, the
+    // runtime falls reflect_and_generate iters back to vanilla GFPA (reflectionDispatch.ts)
+    // — we mirror that here so the preview matches what runtime will actually dispatch.
     const useReflection = iterCfg.agentType === 'reflect_and_generate' && reflectionEnabled;
     const reflectionTopN = iterCfg.reflectionTopN ?? 3;
+    const useCriteria = iterCfg.agentType === 'criteria_and_generate';
+    const criteriaCount = iterCfg.criteriaIds?.length ?? 0;
+    const weakestK = iterCfg.weakestK ?? 1;
 
     // Upper bound: full tactic output + max comparisons (reservation-safe).
     const upper = weightedAgentCost(
       mix, ctx.seedChars, config.generationModel, config.judgeModel, poolSize, maxComp,
-      useReflection, reflectionTopN,
+      useReflection, reflectionTopN, useCriteria, criteriaCount, weakestK,
     );
     // Expected: rank uses fewer comparisons (heuristic early-exit factor); gen scales
-    // by EXPECTED_GEN_RATIO from the upper bound. Reflection cost is deterministic per
-    // call so expected = upperBound for that field.
+    // by EXPECTED_GEN_RATIO from the upper bound. Reflection / evaluation cost is
+    // deterministic per call so expected = upperBound for those fields.
     const rankExpectedAvg = weightedAgentCost(
       mix, ctx.seedChars, config.generationModel, config.judgeModel, poolSize, expectedComp,
-      useReflection, reflectionTopN,
+      useReflection, reflectionTopN, useCriteria, criteriaCount, weakestK,
     ).rank;
     const reflectionExpected = upper.reflection;
+    const evaluationExpected = upper.evaluation;
     const genExpected = upper.gen * EXPECTED_GEN_RATIO;
-    const totalExpected = reflectionExpected + genExpected + rankExpectedAvg;
+    const totalExpected = reflectionExpected + evaluationExpected + genExpected + rankExpectedAvg;
 
     // Iter-budget-scoped floor resolution (Phase 7a): budgetFloorResolvers.ts now
     // takes iterBudget as its 2nd arg instead of totalBudget. Unified across wizard
@@ -463,8 +473,8 @@ export function projectDispatchPlan(
       tacticMixSource: source,
       tacticLabel,
       estPerAgent: {
-        expected: { gen: genExpected, rank: rankExpectedAvg, reflection: reflectionExpected, editing: 0, total: totalExpected },
-        upperBound: { gen: upper.gen, rank: upper.rank, reflection: upper.reflection, editing: upper.editing ?? 0, total: upper.total },
+        expected: { gen: genExpected, rank: rankExpectedAvg, reflection: reflectionExpected, editing: 0, evaluation: evaluationExpected, total: totalExpected },
+        upperBound: { gen: upper.gen, rank: upper.rank, reflection: upper.reflection, editing: upper.editing ?? 0, evaluation: upper.evaluation, total: upper.total },
       },
       maxAffordable: { atExpected: maxAffordableExpected, atUpperBound: maxAffordableUpper },
       dispatchCount,

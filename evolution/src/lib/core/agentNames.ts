@@ -14,6 +14,7 @@ export const AGENT_NAMES = [
   'seed_title',
   'seed_article',
   'evolution',
+  'evaluate_and_suggest',
   // Per-LLM-call labels for iterative_editing agent (consolidated under one
   // iterative_edit_cost metric — per-purpose split is in execution_detail).
   'iterative_edit_propose',
@@ -37,6 +38,7 @@ export const COST_METRIC_BY_AGENT: Partial<Record<AgentName, MetricName>> = {
   reflection: 'reflection_cost',
   seed_title: 'seed_cost',
   seed_article: 'seed_cost',
+  evaluate_and_suggest: 'evaluation_cost',
   // All three editing per-LLM-call labels collapse into one cost metric.
   // Per-purpose split is tracked in execution_detail.cycles[i].{proposeCostUsd,
   // approveCostUsd, driftRecoveryCostUsd} per Decisions §13 invariant I2.

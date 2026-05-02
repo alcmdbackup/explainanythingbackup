@@ -35,6 +35,9 @@ const OUTPUT_TOKEN_ESTIMATES: Partial<Record<AgentName, number>> = {
   ranking: 100,
   // Reflection: top-3 ranked tactics × ~200 tokens reasoning each ≈ 600 tokens (~2400 chars).
   reflection: 600,
+  // Combined evaluate + suggest: ~150 chars score lines + ~600 tokens × weakestK suggestion
+  // blocks ≈ 2300 chars typical at criteriaCount=5, weakestK=1.
+  evaluate_and_suggest: 2300,
 };
 
 // ─── Public API ──────────────────────────────────────────────────
@@ -103,6 +106,7 @@ export function createEvolutionLLMClient(
           : agentName === 'reflection' ? 'reflection'
           : agentName === 'seed_title' ? 'seed_title'
           : agentName === 'seed_article' ? 'seed_article'
+          : agentName === 'evaluate_and_suggest' ? 'evaluate_and_suggest'
           : null;
         if (!phase) return null;
         return getCalibrationRow('__unspecified__', model, '__unspecified__', phase);

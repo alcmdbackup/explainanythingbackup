@@ -3,7 +3,7 @@
 // Idempotent: upserts by name, only touches is_predefined=true rows.
 
 import { createClient } from '@supabase/supabase-js';
-import { ALL_SYSTEM_TACTICS } from '../src/lib/core/tactics';
+import { ALL_SYSTEM_TACTICS, MARKER_TACTICS } from '../src/lib/core/tactics';
 
 export interface SyncResult {
   upserted: number;
@@ -36,6 +36,28 @@ export async function syncSystemTactics(
 
     if (error) {
       errors.push(`Failed to upsert tactic '${name}': ${error.message}`);
+    } else {
+      upserted++;
+    }
+  }
+
+  // Marker tactics: registered for leaderboard / arena Tactic-column UUID
+  // resolution but not used for prompt construction. evolution_tactics has no
+  // preamble/instructions columns, so payload shape is identical to system tactics.
+  for (const marker of MARKER_TACTICS) {
+    const { error } = await db
+      .from('evolution_tactics')
+      .upsert({
+        name: marker.name,
+        label: marker.label,
+        agent_type: marker.agent_type,
+        category: marker.category,
+        is_predefined: true,
+        status: 'active',
+      }, { onConflict: 'name' });
+
+    if (error) {
+      errors.push(`Failed to upsert marker tactic '${marker.name}': ${error.message}`);
     } else {
       upserted++;
     }
