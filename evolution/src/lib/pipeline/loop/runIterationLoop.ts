@@ -682,8 +682,15 @@ export async function evolveArticle(
           strategyId: options?.strategyId,
         };
         const mergeAgent = new MergeRatingsAgent();
+        // Per Decisions §7: pass the actual iteration type through to MergeRatings so
+        // execution_detail.iterationType matches IterationSnapshot.iterationType. The
+        // generate branch handles BOTH 'generate' and 'reflect_and_generate' iterations
+        // (see if-condition above); pass iterType through to keep observability
+        // consistent across snapshot and merge-detail enums.
+        const mergeIterType: 'generate' | 'reflect_and_generate' =
+          iterType === 'reflect_and_generate' ? 'reflect_and_generate' : 'generate';
         const mergeResult = await mergeAgent.run({
-          iterationType: 'generate',
+          iterationType: mergeIterType,
           matchBuffers: surfacedBuffers,
           newVariants: surfacedVariants,
           pool, ratings, matchCounts, matchHistory: allMatches,
