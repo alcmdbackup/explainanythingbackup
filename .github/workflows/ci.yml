@@ -326,6 +326,13 @@ jobs:
       DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      # bring_back_editing_agents_evolution_20260430 — feature flags for the
+      # iterative_editing agent. Both default to 'true' in code (per Decisions
+      # §13/§17); set explicitly here to make the test environment's runtime
+      # behavior obvious. Threshold env vars are intentionally NOT set so tests
+      # exercise the hardcoded fallbacks (default thresholds).
+      EDITING_AGENTS_ENABLED: 'true'
+      EVOLUTION_DRIFT_RECOVERY_ENABLED: 'true'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -334,6 +341,12 @@ jobs:
           cache: 'npm'
       - run: npm ci
       - run: npm run test:integration:evolution
+      # Phase 6.10 — startup-assertion proof test mutates the shared
+      # evolution_cost_calibration CHECK constraint and restores it. MUST run
+      # serially (--runInBand); concurrent jest workers would see a CHECK
+      # rejecting valid phase strings during the mutation window.
+      - name: Editing — startup-assertion proof (serial)
+        run: npm run test:integration:evolution -- --runInBand --testPathPatterns="evolution-startup-assertion-check"
 
   # Non-evolution integration tests for PRs to production
   integration-non-evolution:

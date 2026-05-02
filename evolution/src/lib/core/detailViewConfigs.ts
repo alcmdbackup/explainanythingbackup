@@ -238,6 +238,16 @@ export const DETAIL_VIEW_CONFIGS: Record<string, DetailFieldDef[]> = {
         { key: 'approveCostUsd', label: 'Approve $' },
       ],
     },
+    // Per-cycle annotated edits view (Phase 4.8). Reads cycles[0] by default —
+    // multi-cycle UX renders one block per cycle in a future iteration.
+    {
+      key: 'cycles.0', label: 'Annotated Edits (Cycle 1)', type: 'annotated-edits',
+      markupKey: 'cycles.0.proposedMarkup',
+      groupsKey: 'cycles.0.proposedGroupsRaw',
+      decisionsKey: 'cycles.0.reviewDecisions',
+      dropsPreKey: 'cycles.0.droppedPreApprover',
+      dropsPostKey: 'cycles.0.droppedPostApprover',
+    },
     { key: 'totalCost', label: 'Total Cost', type: 'number', formatter: 'cost' },
   ],
   reflection: [

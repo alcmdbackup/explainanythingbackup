@@ -175,25 +175,29 @@ function renderField(field: DetailFieldDef, data: Record<string, unknown>): JSX.
     }
 
     case 'annotated-edits': {
+      // Lazy import to avoid pulling React server components into the field-resolver path
+      // unnecessarily; AnnotatedProposals is a 'use client' component.
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { AnnotatedProposals } = require('@evolution/components/evolution/editing/AnnotatedProposals') as typeof import('@evolution/components/evolution/editing/AnnotatedProposals');
       const markup = String(data[field.markupKey ?? 'proposedMarkup'] ?? '');
-      const decisions = (data[field.decisionsKey ?? 'reviewDecisions'] as Array<{ groupNumber: number; decision: string; reason: string }> | undefined) ?? [];
+      const groupsRaw = (data[field.groupsKey ?? 'proposedGroupsRaw'] as Parameters<typeof AnnotatedProposals>[0]['proposedGroupsRaw']) ?? [];
+      const decisions = (data[field.decisionsKey ?? 'reviewDecisions'] as Parameters<typeof AnnotatedProposals>[0]['reviewDecisions']) ?? [];
+      const droppedPre = (data[field.dropsPreKey ?? 'droppedPreApprover'] as Parameters<typeof AnnotatedProposals>[0]['droppedPreApprover']) ?? [];
+      const droppedPost = (data[field.dropsPostKey ?? 'droppedPostApprover'] as Parameters<typeof AnnotatedProposals>[0]['droppedPostApprover']) ?? [];
+      const appliedGroups = (data['appliedGroups'] as Parameters<typeof AnnotatedProposals>[0]['appliedGroups']) ?? [];
+      const parentText = typeof data['parentText'] === 'string' ? data['parentText'] : undefined;
       return (
         <div key={field.key} className="mb-4" data-testid={`field-${field.key}`}>
           <h3 className="text-xl font-display font-semibold text-[var(--text-secondary)] mb-2">{field.label}</h3>
-          <details className="mb-2">
-            <summary className="text-xs font-ui text-[var(--text-secondary)] cursor-pointer">Marked-up text ({markup.length} chars)</summary>
-            <pre className="text-xs font-mono whitespace-pre-wrap mt-1 p-2 border border-[var(--border-default)] rounded bg-[var(--surface-base)]">{markup}</pre>
-          </details>
-          <ul className="text-xs font-ui space-y-1">
-            {decisions.map((d) => (
-              <li key={d.groupNumber} className="flex gap-2">
-                <span className={`inline-block w-12 text-center font-mono rounded ${d.decision === 'accept' ? 'bg-[var(--status-success)]/20 text-[var(--status-success)]' : 'bg-[var(--status-error)]/20 text-[var(--status-error)]'}`}>
-                  #{d.groupNumber}
-                </span>
-                <span className="text-[var(--text-primary)]">{d.decision}: {d.reason}</span>
-              </li>
-            ))}
-          </ul>
+          <AnnotatedProposals
+            proposedMarkup={markup}
+            proposedGroupsRaw={groupsRaw}
+            reviewDecisions={decisions}
+            droppedPreApprover={droppedPre}
+            droppedPostApprover={droppedPost}
+            appliedGroups={appliedGroups}
+            parentText={parentText}
+          />
         </div>
       );
     }
