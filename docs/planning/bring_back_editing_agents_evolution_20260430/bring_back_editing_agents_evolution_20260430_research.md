@@ -341,7 +341,7 @@ type ReviewDecision = {
 };
 
 {
-  detailType: 'iterativeEditingAgent',
+  detailType: 'iterative_editing',
   targetVariantId: string,
   config: { maxCycles: number, minAcceptedToContinue: number },
   cycles: Array<{
@@ -478,12 +478,15 @@ export interface DetailFieldDef {
 
 ### Metrics & cost
 
-- `AGENT_NAMES` const (`agentNames.ts` line 10): `['generation', 'ranking', 'seed_title', 'seed_article', 'evolution']`. Adding 3 new names is the cleanest path. Trade-off: granular labels (e.g. `iterative_edit_generation` / `_critique` / `_judge`) enable per-phase calibration; consolidated labels keep registry simple. Round 5B chose consolidated.
-- `COST_METRIC_BY_AGENT` mapping at lines 22–27 — 4 entries. Need `iterativeEditing → iterative_edit_cost` etc.
-- 9 new metric defs needed: 3 during-execution (`iterative_edit_cost`, `section_decomposition_cost`, `outline_generation_cost`) + 6 propagation (total + avg per agent).
-- `InvocationEntity.listFilters` agent-name dropdown **already includes** `iterativeEditing`, `sectionDecomposition`, `outlineGeneration` (12 entries total at lines 49–54). No UI change needed.
-- `iterationAgentTypeEnum` at `schemas.ts` line 388: `z.enum(['generate', 'swiss'])` — must widen.
-- 4 refines on `iterationConfigSchema` (lines 413–425) guard sourceMode/qualityCutoff/generationGuidance for swiss — extend for editing.
+- `AGENT_NAMES` const (`agentNames.ts` line 10) post-PR-1017: `['generation', 'ranking', 'reflection', 'seed_title', 'seed_article', 'evolution']` (6 entries). We add 1 new name (`'iterative_editing'`) → 7 entries. Trade-off: granular labels (e.g. `iterative_edit_propose` / `_review` / `_drift_recovery`) enable per-phase calibration but inflate the registry; consolidated labels keep the metric flat. Round 5B chose **consolidated** under one `iterative_edit_cost` metric, with the per-phase split tracked inside `execution_detail` instead. The per-LLM-call AgentName labels are kept as routing tags only.
+- `COST_METRIC_BY_AGENT` mapping at lines 22–27 — 4 entries. Need `iterative_editing → iterative_edit_cost`. (The ASCII suffix `_cost` is fixed by registry convention.)
+- 3 new metric defs needed: 1 during-execution (`iterative_edit_cost`) + 2 propagation (`total_iterative_edit_cost` + `avg_iterative_edit_cost_per_run`). v1 ships only IterativeEditingAgent; SectionDecomp/OutlineGen metrics are deferred to v1.1/v1.2.
+- `InvocationEntity.listFilters` agent-name dropdown (lines 49–54) currently has 12 entries: `'generation', 'ranking', 'evolution', 'reflection', 'iterativeEditing', 'treeSearch', 'sectionDecomposition', 'debate', 'proximity', 'metaReview', 'outlineGeneration', 'flowCritique'`. The `'iterativeEditing'` entry is **orphaned V1 nomenclature** — Phase 1.8 swaps it to `'iterative_editing'` to match the new canonical name. (`'reflection'` was added by PR #1017; `'flowCritique'` is also pre-existing orphan scaffolding.)
+- `iterationAgentTypeEnum` at `schemas.ts` line 394 post-PR-1017: `z.enum(['generate', 'reflect_and_generate', 'swiss'])` (3 values). PR #1017 added `'reflect_and_generate'`. We widen to 4 by adding `'iterative_editing'`. The `isVariantProducingAgentType()` helper at line 400 (also added by PR #1017) returns `true` for `'generate'` and `'reflect_and_generate'`; we add `'iterative_editing'` to that set so first-iteration validation accepts it as variant-producing. Swiss stays the lone non-variant-producer.
+- 4 refines on `iterationConfigSchema` (lines 413–425) guard sourceMode/qualityCutoff/generationGuidance for swiss — extend for editing (editing accepts `editingMaxCycles` + `editingEligibilityCutoff`; swiss-only fields disallowed).
+- **DB CHECK constraint drift (PR #1017 ship gap):** `evolution_cost_calibration.phase` CHECK constraint still has the old 4 values (`'generation'`, `'ranking'`, etc.) — PR #1017 added `'reflection'` to the TS phase enum (`refreshCostCalibration.ts`) but **never shipped the corresponding DB migration**, so reflection cost rows are silently rejected by the upserter. Phase 1.5 of our plan bundles the reflection migration fix with the editing migration so both land in one DB roundtrip.
+- **`EstPerAgentValue` extension required (PR #1017 pattern):** `projectDispatchPlan.ts:69` defines `EstPerAgentValue { gen, rank, reflection, total }` (the `reflection` field is post-PR-1017). Adding editing means a new `editing: number` slot, mirroring the PR #1017 pattern. Wizard cost preview readouts and `EstPerAgentValue` literal fixtures (grep `gen:` `rank:` `reflection:` triples) must be updated.
+- **TIMELINE_AGENTS state:** `InvocationDetailContent.tsx:11` hardcodes `TIMELINE_AGENTS = new Set(['generate_from_previous_article', 'reflect_and_generate_from_previous_article'])` (2 entries post-PR-1017). Editing's invocation detail uses the standard `ConfigDrivenDetailRenderer` (no custom timeline tab needed for v1); we don't add a TIMELINE_AGENTS entry. Multi-cycle visualization is delivered via the `'annotated-edits'` field type within the standard renderer.
 
 ---
 
@@ -589,7 +592,7 @@ export interface DetailFieldDef {
 
 | # | Question | Decision | v1 LOC |
 |---|----------|----------|--------|
-| 1 | Naming | One canonical name `'iterativeEditingAgent'` everywhere (no internal/external split) | 4 |
+| 1 | Naming | One canonical name `'iterative_editing'` everywhere (no internal/external split) | 4 |
 | 2 | Parent selection | Top-K via optional `editingTopK` (default = parallel batch size) | 25 |
 | 3 | Tactics per cycle | V1 dimension-picking; no `editingGuidance` | 50 |
 | 4 | Judge format | Word-diff; MDAST as follow-up; no env var | 150 |
