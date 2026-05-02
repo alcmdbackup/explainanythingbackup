@@ -391,14 +391,22 @@ function preprocessBudgetFloor(input: unknown): unknown {
  *    flow. Variant-producing like `generate`. Mutually exclusive with generationGuidance.
  *  - `swiss`: SwissRankingAgent — re-ranks the existing pool, no new variants.
  */
-export const iterationAgentTypeEnum = z.enum(['generate', 'reflect_and_generate', 'swiss']);
+export const iterationAgentTypeEnum = z.enum(['generate', 'reflect_and_generate', 'iterative_editing', 'swiss']);
 
-/** Helper: agent types that produce new variants (used by validation refinements
- *  that previously hardcoded `'generate'`). Both vanilla and reflection-wrapped
- *  generation accept sourceMode/qualityCutoff and contribute to the parallel-batch
- *  dispatch path; swiss does neither. */
-export function isVariantProducingAgentType(t: z.infer<typeof iterationAgentTypeEnum>): boolean {
+/** Helper: agent types that may appear as the FIRST iteration of a strategy.
+ *  Editing is excluded — it requires existing variants to edit. Swiss is also
+ *  excluded — it only re-ranks. Replaces the predicate previously named
+ *  isVariantProducingAgentType for the first-iteration refine site. */
+export function canBeFirstIteration(t: z.infer<typeof iterationAgentTypeEnum>): boolean {
   return t === 'generate' || t === 'reflect_and_generate';
+}
+
+/** Helper: agent types that produce new variants in the pool. Includes editing
+ *  per Decisions §14 (final cycle's text is materialized as a Variant). Used by
+ *  the swiss-precedence refine to ensure swiss never runs before any iteration
+ *  that would put variants in the pool. */
+export function producesNewVariants(t: z.infer<typeof iterationAgentTypeEnum>): boolean {
+  return t === 'generate' || t === 'reflect_and_generate' || t === 'iterative_editing';
 }
 
 /** Source of the parent article for a generate iteration. 'seed' = the run's seed article; 'pool' = a variant drawn from the current run's pool. */
@@ -408,7 +416,13 @@ export const sourceModeEnum = z.enum(['seed', 'pool']);
 export const qualityCutoffSchema = z.object({
   mode: z.enum(['topN', 'topPercent']),
   value: z.number().positive(),
-});
+}).refine(
+  (c) => c.mode !== 'topN' || (Number.isInteger(c.value) && c.value >= 1),
+  { message: 'topN cutoff must be an integer ≥ 1' },
+).refine(
+  (c) => c.mode !== 'topPercent' || (c.value > 0 && c.value <= 100),
+  { message: 'topPercent cutoff must be in (0, 100]' },
+);
 
 export type QualityCutoff = z.infer<typeof qualityCutoffSchema>;
 
@@ -426,6 +440,10 @@ export const iterationConfigSchema = z.object({
   generationGuidance: generationGuidanceSchema.optional(),
   /** How many top tactics the reflection LLM returns (1-10, default 3). Only valid when `agentType === 'reflect_and_generate'`. */
   reflectionTopN: z.number().int().min(1).max(10).optional(),
+  /** Per-iteration override for how many propose-review-apply cycles the editing agent runs per parent (1-5, default 3). Only valid when `agentType === 'iterative_editing'`. */
+  editingMaxCycles: z.number().int().min(1).max(5).optional(),
+  /** Caps how many of the top-Elo variants are eligible for editing per iteration. Defaults to `{ mode: 'topN', value: 10 }` at consumption time (resolveEditingDispatch* helpers). Only valid when `agentType === 'iterative_editing'`. Reuses qualityCutoffSchema's value-validation refines. */
+  editingEligibilityCutoff: qualityCutoffSchema.optional(),
 }).refine(
   (c) => c.agentType !== 'swiss' || c.sourceMode === undefined,
   { message: 'sourceMode only valid for variant-producing iterations (generate, reflect_and_generate)' },
@@ -444,6 +462,14 @@ export const iterationConfigSchema = z.object({
   // reflectionTopN belongs exclusively to reflect_and_generate iterations.
   (c) => c.agentType === 'reflect_and_generate' || c.reflectionTopN === undefined,
   { message: 'reflectionTopN only valid when agentType is reflect_and_generate' },
+).refine(
+  // editingMaxCycles belongs exclusively to iterative_editing iterations.
+  (c) => c.agentType === 'iterative_editing' || c.editingMaxCycles === undefined,
+  { message: 'editingMaxCycles only valid when agentType is iterative_editing' },
+).refine(
+  // editingEligibilityCutoff belongs exclusively to iterative_editing iterations.
+  (c) => c.agentType === 'iterative_editing' || c.editingEligibilityCutoff === undefined,
+  { message: 'editingEligibilityCutoff only valid when agentType is iterative_editing' },
 );
 
 export type IterationConfig = z.infer<typeof iterationConfigSchema>;
@@ -475,6 +501,10 @@ const strategyConfigBaseSchema = z.object({
   budgetBufferAfterSequential: z.number().min(0).max(1).optional(),
   /** Temperature for generation LLM calls (0-2). Omit for provider default. Ranking always uses 0. */
   generationTemperature: z.number().min(0).max(2).optional(),
+  /** Model used by the Proposer LLM call in iterative_editing iterations. Falls back to generationModel when unset. (Drift recovery has its own driftRecoveryModel; not exposed at strategy level — defaults to gpt-4.1-nano per Decisions §11.) */
+  editingModel: z.string().optional(),
+  /** Model used by the Approver LLM call in iterative_editing iterations. Falls back to editingModel (which falls back to generationModel) when unset. When approverModel === editingModel (resolved values), the wizard surfaces a soft rubber-stamping warning per Decisions §16. */
+  approverModel: z.string().optional(),
   /** Ordered sequence of iterations. Each specifies agent type, budget percentage, and optional maxAgents. */
   iterationConfigs: z.array(iterationConfigSchema).min(1).max(MAX_ITERATION_CONFIGS),
 }).refine((c) => {
@@ -482,22 +512,23 @@ const strategyConfigBaseSchema = z.object({
   const sum = c.iterationConfigs.reduce((acc, ic) => acc + ic.budgetPercent, 0);
   return Math.abs(sum - 100) < 0.01;
 }, { message: 'iterationConfigs budgetPercent values must sum to 100' }).refine((c) => {
-  // First iteration must produce variants (swiss on empty pool is invalid).
-  // Both 'generate' and 'reflect_and_generate' are variant-producing.
+  // First iteration must be one that can run on an empty pool. Editing requires
+  // existing variants to edit; swiss only re-ranks. Both excluded by canBeFirstIteration.
   const first = c.iterationConfigs[0];
-  return first != null && isVariantProducingAgentType(first.agentType);
-}, { message: 'First iteration must be variant-producing (generate or reflect_and_generate); swiss on empty pool is invalid' }).refine((c) => {
+  return first != null && canBeFirstIteration(first.agentType);
+}, { message: 'First iteration must be generate or reflect_and_generate; iterative_editing needs existing variants and swiss on empty pool is invalid' }).refine((c) => {
   // First iteration cannot use pool-mode (pool is empty at start).
   return c.iterationConfigs[0]?.sourceMode !== 'pool';
 }, { message: 'First iteration cannot use sourceMode=pool (pool is empty at start); use seed mode' }).refine((c) => {
   // No swiss iteration may precede ALL variant-producing iterations.
+  // Editing IS variant-producing per Decisions §14 (final cycle materializes a Variant).
   let hasVariantProducing = false;
   for (const ic of c.iterationConfigs) {
-    if (isVariantProducingAgentType(ic.agentType)) hasVariantProducing = true;
+    if (producesNewVariants(ic.agentType)) hasVariantProducing = true;
     if (ic.agentType === 'swiss' && !hasVariantProducing) return false;
   }
   return true;
-}, { message: 'A swiss iteration cannot precede all variant-producing iterations (generate or reflect_and_generate)' }).refine((c) => {
+}, { message: 'A swiss iteration cannot precede all variant-producing iterations (generate, reflect_and_generate, or iterative_editing)' }).refine((c) => {
   // Exactly one parallel unit may be set (both unset is allowed).
   return !(c.minBudgetAfterParallelFraction != null && c.minBudgetAfterParallelAgentMultiple != null);
 }, { message: 'Only one of minBudgetAfterParallelFraction or minBudgetAfterParallelAgentMultiple may be set' }).refine((c) => {
@@ -681,32 +712,142 @@ export const generationExecutionDetailSchema = executionDetailBaseSchema.extend(
   feedbackUsed: z.boolean(),
 });
 
-export const iterativeEditingExecutionDetailSchema = executionDetailBaseSchema.extend({
-  detailType: z.literal('iterativeEditing'),
-  targetVariantId: z.string(),
-  config: z.object({
-    maxCycles: z.number().int().min(1),
-    maxConsecutiveRejections: z.number().int().min(1),
-    qualityThreshold: z.number(),
+// IterativeEditingAgent execution_detail (v2 redesign — replaces the orphaned V1
+// rubric-driven schema). Captures the full Proposer / pre-check / Approver /
+// Implementer audit trail per cycle, plus per-purpose cost split per
+// Decisions §13 invariant I2. See bring_back_editing_agents_evolution_20260430
+// planning doc Phase 1.8 for the full specification.
+
+const editingAtomicEditSchema = z.object({
+  /** Atomic edit number from the markup `[#N]`. Multiple atomic edits can share a
+   *  number — they form an atomic accept/reject group. */
+  groupNumber: z.number().int().min(1),
+  /** Edit kind: insert / delete / replace. Paired add+delete with the same [#N]
+   *  is normalized to 'replace' by the parser. */
+  kind: z.enum(['insert', 'delete', 'replace']),
+  /** Position in the current article text (post-strip-markup) where the edit applies. */
+  range: z.object({
+    start: z.number().int().min(0),
+    end: z.number().int().min(0),
   }),
-  cycles: z.array(z.object({
-    cycleNumber: z.number().int().min(0),
-    target: z.object({
-      dimension: z.string().optional(),
-      description: z.string(),
-      score: z.number().optional(),
-      source: z.string(),
-    }),
-    verdict: z.enum(['ACCEPT', 'REJECT']),
-    confidence: z.number().min(0).max(1),
-    formatValid: z.boolean(),
-    formatIssues: z.array(z.string()).optional(),
-    newVariantId: z.string().optional(),
-  })),
-  initialCritique: z.object({ dimensionScores: z.record(z.string(), z.number()) }),
-  finalCritique: z.object({ dimensionScores: z.record(z.string(), z.number()) }).optional(),
-  stopReason: z.enum(['threshold_met', 'max_rejections', 'max_cycles', 'no_targets']),
-  consecutiveRejections: z.number().int().min(0),
+  /** Position in the proposer's marked-up output (used for AnnotatedProposals UI). */
+  markupRange: z.object({
+    start: z.number().int().min(0),
+    end: z.number().int().min(0),
+  }),
+  /** Original text being deleted/replaced (empty for inserts). */
+  oldText: z.string(),
+  /** New text being inserted (empty for deletes). */
+  newText: z.string(),
+  /** Up to 30 chars before/after the edit in the source — context-string failsafe. */
+  contextBefore: z.string(),
+  contextAfter: z.string(),
+});
+
+const editingGroupSchema = z.object({
+  groupNumber: z.number().int().min(1),
+  atomicEdits: z.array(editingAtomicEditSchema).min(1),
+});
+
+const editingReviewDecisionSchema = z.object({
+  groupNumber: z.number().int().min(1),
+  decision: z.enum(['accept', 'reject']),
+  reason: z.string(),
+});
+
+const editingDriftRegionSchema = z.object({
+  offset: z.number().int().min(0),
+  driftedText: z.string(),
+  classification: z.enum(['benign', 'intentional']).optional(),
+  patch: z.string().optional(),
+});
+
+const editingDroppedGroupSchema = z.object({
+  groupNumber: z.number().int().min(1),
+  reason: z.string(),
+  detail: z.string().optional(),
+});
+
+const editingCycleSchema = z.object({
+  cycleNumber: z.number().int().min(1),
+  /** Proposer's full marked-up output (article body + inline CriticMarkup). */
+  proposedMarkup: z.string(),
+  /** Raw groups parsed from proposedMarkup BEFORE any filtering. */
+  proposedGroupsRaw: z.array(editingGroupSchema),
+  /** Groups dropped by the pre-check (parser failures, hard-rule violations,
+   *  size-ratio guardrail, cycle/group caps). */
+  droppedPreApprover: z.array(editingDroppedGroupSchema),
+  /** Groups sent to the Approver after pre-check filtering. */
+  approverGroups: z.array(editingGroupSchema),
+  /** Approver's per-group decisions. */
+  reviewDecisions: z.array(editingReviewDecisionSchema),
+  /** Groups dropped post-Approver (range overlap, context-failsafe mismatch). */
+  droppedPostApprover: z.array(editingDroppedGroupSchema),
+  /** Groups successfully applied to current.text. */
+  appliedGroups: z.array(editingGroupSchema),
+  acceptedCount: z.number().int().min(0),
+  rejectedCount: z.number().int().min(0),
+  appliedCount: z.number().int().min(0),
+  formatValid: z.boolean(),
+  /** ID of the materialized Variant if this was the FINAL cycle that produced
+   *  output; undefined for intermediate cycles (per Decisions §14 — only the
+   *  final cycle materializes as a Variant). */
+  newVariantId: z.string().optional(),
+  /** Cycle's input text (parent.text for cycle 1, prior cycle's childText otherwise). */
+  parentText: z.string(),
+  /** Cycle's output text after applying accepted edits. */
+  childText: z.string().optional(),
+  /** Drift recovery details (only present when the strip-markup drift check fired). */
+  driftRecovery: z.object({
+    outcome: z.enum(['recovered', 'unrecoverable_residual', 'unrecoverable_intentional', 'skipped_major_drift']),
+    regions: z.array(editingDriftRegionSchema),
+    classifications: z.array(editingDriftRegionSchema).optional(),
+    patchedMarkup: z.string().optional(),
+    costUsd: z.number().min(0).optional(),
+  }).optional(),
+  /** Per-purpose cost split per Decisions §13 invariant I2. */
+  proposeCostUsd: z.number().min(0),
+  approveCostUsd: z.number().min(0),
+  driftRecoveryCostUsd: z.number().min(0).optional(),
+  /** Final-newText / cycle-input-text length ratio for monitoring (≤1.5× per
+   *  Decisions §17). */
+  sizeRatio: z.number().min(0),
+});
+
+export const iterativeEditingExecutionDetailSchema = executionDetailBaseSchema.extend({
+  detailType: z.literal('iterative_editing'),
+  /** ID of the input parent variant (the original parent assigned by dispatch — not a
+   *  cycle-N-1 intermediate). */
+  parentVariantId: z.string(),
+  /** Resolved per-iteration / strategy config. */
+  config: z.object({
+    maxCycles: z.number().int().min(1).max(5),
+    editingModel: z.string(),
+    approverModel: z.string(),
+    driftRecoveryModel: z.string(),
+    perInvocationBudgetUsd: z.number().min(0),
+  }),
+  cycles: z.array(editingCycleSchema),
+  /** Per-iteration termination reason. */
+  stopReason: z.enum([
+    'all_cycles_completed',
+    'all_edits_rejected',
+    'no_edits_proposed',
+    'parse_failed',
+    'proposer_drift_major',
+    'proposer_drift_intentional',
+    'proposer_drift_unrecoverable',
+    'invocation_budget_near_exhaustion',
+    'article_size_explosion',
+    'format_invalid',
+    'helper_threw',
+    'budget_exceeded',
+  ]),
+  /** Set when stopReason === 'helper_threw' — which helper failed. */
+  errorPhase: z.enum(['propose', 'parse', 'approve', 'recovery', 'apply']).optional(),
+  errorMessage: z.string().optional(),
+  /** ID of the final materialized variant (undefined when no cycle accepted edits). */
+  finalVariantId: z.string().optional(),
 });
 
 export const reflectionExecutionDetailSchema = executionDetailBaseSchema.extend({
@@ -840,7 +981,7 @@ export const rankingExecutionDetailSchema = executionDetailBaseSchema.extend({
   eligibleContenders: z.number().int().min(0),
   totalComparisons: z.number().int().min(0),
   flowEnabled: z.boolean(),
-  low_sigma_opponents_count: z.number().int().min(0).optional(),
+  low_uncertainty_opponents_count: z.number().int().min(0).optional(),
 });
 
 export const proximityExecutionDetailSchema = executionDetailBaseSchema.extend({
@@ -1109,7 +1250,7 @@ const afterVariantRenameKeys = renameKeys({
 
 export const mergeRatingsExecutionDetailSchema = executionDetailBaseSchema.extend({
   detailType: z.literal('merge_ratings'),
-  iterationType: z.enum(['generate', 'reflect_and_generate', 'swiss']),
+  iterationType: z.enum(['generate', 'reflect_and_generate', 'iterative_editing', 'swiss']),
   before: z.object({
     poolSize: z.number().int().min(0),
     variants: z.array(z.preprocess(
@@ -1167,7 +1308,7 @@ const snapshotDiscardReasonRename = renameKeys({ mu: 'elo' });
 // only contain 'generate' or 'swiss' so backward-compat reads remain valid.
 export const iterationSnapshotSchema = z.object({
   iteration: z.number().int().min(1),
-  iterationType: z.enum(['generate', 'reflect_and_generate', 'swiss']),
+  iterationType: z.enum(['generate', 'reflect_and_generate', 'iterative_editing', 'swiss']),
   phase: z.enum(['start', 'end']),
   capturedAt: z.string(),
   poolVariantIds: z.array(z.string()),

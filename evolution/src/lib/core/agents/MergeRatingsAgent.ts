@@ -25,7 +25,7 @@ export interface MergeMatchEntry {
 }
 
 export interface MergeRatingsInput {
-  iterationType: 'generate' | 'swiss';
+  iterationType: 'generate' | 'reflect_and_generate' | 'iterative_editing' | 'swiss';
   /** One inner array per source agent (1 for swiss, N for generate). */
   matchBuffers: ReadonlyArray<ReadonlyArray<MergeMatchEntry>>;
   /** Variants to add to the pool (generate iterations only — empty for swiss). */

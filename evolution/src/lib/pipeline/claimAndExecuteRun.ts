@@ -109,6 +109,16 @@ export async function claimAndExecuteRun(
 ): Promise<RunnerResult> {
   const supabase = options.db ?? await createSupabaseServiceClient();
   const startMs = Date.now();
+
+  // Phase 1.6 deploy-ordering gate: assert that the DB
+  // evolution_cost_calibration_phase_allowed CHECK constraint contains every TS
+  // phase string before we start running agents that write phase-tagged cost
+  // rows. Throws MissingMigrationError on mismatch (eliminates the silent-reject
+  // failure mode PR #1017 hit). Idempotent — caches positive result for the
+  // process lifetime; fails open on permission-denied so misconfigured local
+  // envs don't brick.
+  const { ensureStartupAssertions } = await import('../core/agentRegistry');
+  await ensureStartupAssertions(supabase);
   const deadlineMs = options.maxDurationMs && options.maxDurationMs > 0
     ? startMs + options.maxDurationMs
     : undefined;

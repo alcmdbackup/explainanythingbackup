@@ -7,6 +7,24 @@ import type {
   TabDef, EntityLink, EntityMetricRegistry, EntityType,
 } from '../types';
 import { evolutionAgentInvocationInsertSchema, type EvolutionAgentInvocationFullDb } from '../../schemas';
+
+/** Backward-compat alias map for renamed agent_name values. Used by URL-param
+ *  coercion paths so user-saved bookmarks with the V1 names continue to match
+ *  rows after the rename. Per Phase 6.1.1a fix (Decisions §5 documented the
+ *  rename; this map is the migration bridge for saved URLs).
+ *
+ *  When extending: add a new entry whenever an agent_name value is renamed.
+ *  The map is many-to-one — any number of legacy aliases can resolve to a single
+ *  canonical name. */
+export const LEGACY_AGENT_NAME_ALIASES: Readonly<Record<string, string>> = {
+  iterativeEditing: 'iterative_editing',
+};
+
+/** Normalize a single agent_name filter value, replacing any V1 alias with
+ *  its V2 canonical name. Returns the input unchanged when no alias matches. */
+export function normalizeLegacyAgentName(value: string): string {
+  return LEGACY_AGENT_NAME_ALIASES[value] ?? value;
+}
 import {
   computeBestVariantElo, computeAvgVariantElo, computeInvocationVariantCount,
   computeInvocationEloDeltaVsParent,
@@ -48,7 +66,7 @@ export class InvocationEntity extends Entity<EvolutionAgentInvocationFullDb> {
 
   readonly listFilters: FilterDef[] = [
     { field: 'agent_name', type: 'select', options: [
-      'generation', 'ranking', 'evolution', 'reflection', 'iterativeEditing',
+      'generation', 'ranking', 'evolution', 'reflection', 'iterative_editing',
       'treeSearch', 'sectionDecomposition', 'debate', 'proximity', 'metaReview',
       'outlineGeneration', 'flowCritique',
     ] },

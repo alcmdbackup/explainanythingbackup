@@ -7,7 +7,19 @@ import type { MetricName } from '../metrics/types';
 // current call site (incl. seed-phase calls in generateSeedArticle.ts which still
 // need 'seed_title'/'seed_article'). Only generation and ranking get persisted as
 // dedicated cost metrics — seed-phase costs roll up into the run's overall `cost`.
-export const AGENT_NAMES = ['generation', 'ranking', 'reflection', 'seed_title', 'seed_article', 'evolution'] as const;
+export const AGENT_NAMES = [
+  'generation',
+  'ranking',
+  'reflection',
+  'seed_title',
+  'seed_article',
+  'evolution',
+  // Per-LLM-call labels for iterative_editing agent (consolidated under one
+  // iterative_edit_cost metric — per-purpose split is in execution_detail).
+  'iterative_edit_propose',
+  'iterative_edit_review',
+  'iterative_edit_drift_recovery',
+] as const;
 export type AgentName = typeof AGENT_NAMES[number];
 
 /**
@@ -25,4 +37,10 @@ export const COST_METRIC_BY_AGENT: Partial<Record<AgentName, MetricName>> = {
   reflection: 'reflection_cost',
   seed_title: 'seed_cost',
   seed_article: 'seed_cost',
+  // All three editing per-LLM-call labels collapse into one cost metric.
+  // Per-purpose split is tracked in execution_detail.cycles[i].{proposeCostUsd,
+  // approveCostUsd, driftRecoveryCostUsd} per Decisions §13 invariant I2.
+  iterative_edit_propose: 'iterative_edit_cost',
+  iterative_edit_review: 'iterative_edit_cost',
+  iterative_edit_drift_recovery: 'iterative_edit_cost',
 };

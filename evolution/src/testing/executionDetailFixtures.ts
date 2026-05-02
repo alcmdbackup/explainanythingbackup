@@ -26,31 +26,122 @@ export const generationDetailFixture: GenerationExecutionDetail = {
 };
 
 export const iterativeEditingDetailFixture: IterativeEditingExecutionDetail = {
-  detailType: 'iterativeEditing',
-  targetVariantId: 'ie-target-001',
-  config: { maxCycles: 3, maxConsecutiveRejections: 3, qualityThreshold: 7.5 },
+  detailType: 'iterative_editing',
+  parentVariantId: 'ie-parent-001',
+  config: {
+    maxCycles: 3,
+    editingModel: 'gpt-4.1',
+    approverModel: 'claude-sonnet-4-6',
+    driftRecoveryModel: 'gpt-4.1-nano',
+    perInvocationBudgetUsd: 0.05,
+  },
   cycles: [
     {
       cycleNumber: 1,
-      target: { dimension: 'clarity', description: 'Improve sentence clarity in intro', score: 5.2, source: 'rubric' },
-      verdict: 'ACCEPT',
-      confidence: 0.82,
+      proposedMarkup:
+        'The original article text. {++ [#1] An inserted clarifying sentence. ++} More original content. {~~ [#2] old phrase ~> new phrase ~~} closing.',
+      proposedGroupsRaw: [
+        {
+          groupNumber: 1,
+          atomicEdits: [{
+            groupNumber: 1,
+            kind: 'insert',
+            range: { start: 28, end: 28 },
+            markupRange: { start: 28, end: 73 },
+            oldText: '',
+            newText: 'An inserted clarifying sentence.',
+            contextBefore: 'The original article text. ',
+            contextAfter: ' More original content.',
+          }],
+        },
+        {
+          groupNumber: 2,
+          atomicEdits: [{
+            groupNumber: 2,
+            kind: 'replace',
+            range: { start: 60, end: 70 },
+            markupRange: { start: 100, end: 130 },
+            oldText: 'old phrase',
+            newText: 'new phrase',
+            contextBefore: 'More original content. ',
+            contextAfter: ' closing.',
+          }],
+        },
+      ],
+      droppedPreApprover: [],
+      approverGroups: [
+        { groupNumber: 1, atomicEdits: [{
+          groupNumber: 1, kind: 'insert',
+          range: { start: 28, end: 28 }, markupRange: { start: 28, end: 73 },
+          oldText: '', newText: 'An inserted clarifying sentence.',
+          contextBefore: 'The original article text. ', contextAfter: ' More original content.',
+        }] },
+        { groupNumber: 2, atomicEdits: [{
+          groupNumber: 2, kind: 'replace',
+          range: { start: 60, end: 70 }, markupRange: { start: 100, end: 130 },
+          oldText: 'old phrase', newText: 'new phrase',
+          contextBefore: 'More original content. ', contextAfter: ' closing.',
+        }] },
+      ],
+      reviewDecisions: [
+        { groupNumber: 1, decision: 'accept', reason: 'improves clarity without altering meaning' },
+        { groupNumber: 2, decision: 'reject', reason: 'no measurable improvement; rejecting for stability' },
+      ],
+      droppedPostApprover: [],
+      appliedGroups: [
+        { groupNumber: 1, atomicEdits: [{
+          groupNumber: 1, kind: 'insert',
+          range: { start: 28, end: 28 }, markupRange: { start: 28, end: 73 },
+          oldText: '', newText: 'An inserted clarifying sentence.',
+          contextBefore: 'The original article text. ', contextAfter: ' More original content.',
+        }] },
+      ],
+      acceptedCount: 1,
+      rejectedCount: 1,
+      appliedCount: 1,
       formatValid: true,
-      newVariantId: 'ie-new-001',
+      newVariantId: 'ie-cycle1-childtext',
+      parentText: 'The original article text. More original content. old phrase closing.',
+      childText:
+        'The original article text. An inserted clarifying sentence. More original content. old phrase closing.',
+      proposeCostUsd: 0.012,
+      approveCostUsd: 0.0008,
+      sizeRatio: 1.45,
     },
     {
       cycleNumber: 2,
-      target: { dimension: 'engagement', description: 'Add compelling hook', score: 4.8, source: 'rubric' },
-      verdict: 'REJECT',
-      confidence: 0.55,
+      proposedMarkup:
+        'The original article text. An inserted clarifying sentence. More original content. {-- [#1] old phrase --} closing.',
+      proposedGroupsRaw: [{ groupNumber: 1, atomicEdits: [{
+        groupNumber: 1, kind: 'delete',
+        range: { start: 90, end: 100 }, markupRange: { start: 90, end: 115 },
+        oldText: 'old phrase', newText: '',
+        contextBefore: 'More original content. ', contextAfter: ' closing.',
+      }] }],
+      droppedPreApprover: [],
+      approverGroups: [{ groupNumber: 1, atomicEdits: [{
+        groupNumber: 1, kind: 'delete',
+        range: { start: 90, end: 100 }, markupRange: { start: 90, end: 115 },
+        oldText: 'old phrase', newText: '',
+        contextBefore: 'More original content. ', contextAfter: ' closing.',
+      }] }],
+      reviewDecisions: [{ groupNumber: 1, decision: 'reject', reason: 'deletion would remove meaningful content' }],
+      droppedPostApprover: [],
+      appliedGroups: [],
+      acceptedCount: 0,
+      rejectedCount: 1,
+      appliedCount: 0,
       formatValid: true,
+      parentText:
+        'The original article text. An inserted clarifying sentence. More original content. old phrase closing.',
+      proposeCostUsd: 0.013,
+      approveCostUsd: 0.0008,
+      sizeRatio: 1.0,
     },
   ],
-  initialCritique: { dimensionScores: { clarity: 5.2, engagement: 4.8, precision: 7.1, voice_fidelity: 6.3, conciseness: 6.8 } },
-  finalCritique: { dimensionScores: { clarity: 7.4, engagement: 4.8, precision: 7.1, voice_fidelity: 6.3, conciseness: 6.8 } },
-  stopReason: 'max_cycles',
-  consecutiveRejections: 1,
-  totalCost: 0.032,
+  stopReason: 'all_edits_rejected',
+  finalVariantId: 'ie-final-001',
+  totalCost: 0.0266,
 };
 
 export const reflectionDetailFixture: ReflectionExecutionDetail = {

@@ -3,6 +3,7 @@
 'use client';
 
 import type { DetailFieldDef } from '@evolution/lib/core/types';
+import { AnnotatedProposals } from '@evolution/components/evolution/editing/AnnotatedProposals';
 
 interface Props {
   config: DetailFieldDef[];
@@ -149,6 +150,51 @@ function renderField(field: DetailFieldDef, data: Record<string, unknown>): JSX.
         <div key={field.key} className="mb-4 pl-3 border-l-2 border-[var(--border-default)]" data-testid={`field-${field.key}`}>
           <h3 className="text-xl font-display font-semibold text-[var(--text-secondary)] mb-2">{field.label}</h3>
           {field.children?.map(child => renderField(child, objData))}
+        </div>
+      );
+    }
+
+    case 'text-diff': {
+      const before = String(data[field.sourceKey ?? ''] ?? '');
+      const after = String(data[field.targetKey ?? ''] ?? '');
+      const max = field.previewLength ?? 300;
+      return (
+        <div key={field.key} className="mb-4" data-testid={`field-${field.key}`}>
+          <h3 className="text-xl font-display font-semibold text-[var(--text-secondary)] mb-2">{field.label}</h3>
+          <div className="grid grid-cols-2 gap-2 text-xs font-mono">
+            <div className="border border-[var(--border-default)] rounded p-2">
+              <div className="text-[var(--text-muted)] mb-1">Before ({before.length} chars)</div>
+              <div className="whitespace-pre-wrap">{before.slice(0, max)}{before.length > max ? '…' : ''}</div>
+            </div>
+            <div className="border border-[var(--border-default)] rounded p-2">
+              <div className="text-[var(--text-muted)] mb-1">After ({after.length} chars)</div>
+              <div className="whitespace-pre-wrap">{after.slice(0, max)}{after.length > max ? '…' : ''}</div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    case 'annotated-edits': {
+      const markup = String(data[field.markupKey ?? 'proposedMarkup'] ?? '');
+      const groupsRaw = (data[field.groupsKey ?? 'proposedGroupsRaw'] as Parameters<typeof AnnotatedProposals>[0]['proposedGroupsRaw']) ?? [];
+      const decisions = (data[field.decisionsKey ?? 'reviewDecisions'] as Parameters<typeof AnnotatedProposals>[0]['reviewDecisions']) ?? [];
+      const droppedPre = (data[field.dropsPreKey ?? 'droppedPreApprover'] as Parameters<typeof AnnotatedProposals>[0]['droppedPreApprover']) ?? [];
+      const droppedPost = (data[field.dropsPostKey ?? 'droppedPostApprover'] as Parameters<typeof AnnotatedProposals>[0]['droppedPostApprover']) ?? [];
+      const appliedGroups = (data['appliedGroups'] as Parameters<typeof AnnotatedProposals>[0]['appliedGroups']) ?? [];
+      const parentText = typeof data['parentText'] === 'string' ? data['parentText'] : undefined;
+      return (
+        <div key={field.key} className="mb-4" data-testid={`field-${field.key}`}>
+          <h3 className="text-xl font-display font-semibold text-[var(--text-secondary)] mb-2">{field.label}</h3>
+          <AnnotatedProposals
+            proposedMarkup={markup}
+            proposedGroupsRaw={groupsRaw}
+            reviewDecisions={decisions}
+            droppedPreApprover={droppedPre}
+            droppedPostApprover={droppedPost}
+            appliedGroups={appliedGroups}
+            parentText={parentText}
+          />
         </div>
       );
     }

@@ -44,6 +44,39 @@ The label-to-metric mapping (`'reflection' → 'reflection_cost'`) lives in
 `COST_METRIC_BY_AGENT` at `evolution/src/lib/core/agentNames.ts`; the same lookup
 governs how every per-call cost is bucketed into a metric row.
 
+## Iterative editing cost metrics
+
+`IterativeEditingAgent` (`agentType: 'iterative_editing'`) makes 2-3 LLM calls per cycle
+across up to 5 cycles per parent. Per Decisions §13 invariant I2, all three per-LLM-call
+labels (`iterative_edit_propose`, `iterative_edit_review`, `iterative_edit_drift_recovery`)
+collapse into ONE consolidated cost metric — per-purpose split is tracked in
+`execution_detail.cycles[i].{proposeCostUsd, approveCostUsd, driftRecoveryCostUsd}` for
+drill-down rather than as separate metric rows.
+
+| Metric | Entity | Aggregation | Description |
+|--------|--------|-------------|-------------|
+| `iterative_edit_cost` | run | (live write) | Sum of all `iterative_edit_*`-labeled LLM spend (proposer + approver + drift recovery, all cycles, all parents). Written incrementally via `writeMetricMax`. |
+| `total_iterative_edit_cost` | strategy / experiment | sum | Cumulative editing spend across all runs in the strategy/experiment. |
+| `avg_iterative_edit_cost_per_run` | strategy / experiment | avg | Mean editing spend per run. |
+
+Plus three operational health metrics with env-tunable alert thresholds (run-detail dashboard
+alert-colors out-of-band values red):
+
+| Metric | Default Alert | Env Var | Description |
+|--------|---------------|---------|-------------|
+| `iterative_edit_drift_rate` | > 0.30 | `EVOLUTION_EDITING_DRIFT_RATE_ALERT_THRESHOLD` | Fraction of cycles whose Proposer output drifted from the source (strip-markup mismatch). Persistent high value indicates Proposer prompt-engineering needed. |
+| `iterative_edit_recovery_success_rate` | < 0.70 | `EVOLUTION_EDITING_RECOVERY_SUCCESS_RATE_ALERT_THRESHOLD` | Fraction of drift events resolved by the recovery LLM call. Persistent low value indicates recovery model needs upgrading. |
+| `iterative_edit_accept_rate` | > 0.95 | `EVOLUTION_EDITING_ACCEPT_RATE_ALERT_THRESHOLD` | Fraction of atomic edits accepted by Approver. Persistent high value is a rubber-stamping signal (Decisions §16) — choose distinct `editingModel` and `approverModel`. |
+
+**Cost estimation**: `estimateIterativeEditingCost(seedChars, editingModel, approverModel,
+driftRecoveryModel, judgeModel, maxCycles)` returns `{ expected, upperBound }`. `expected` is
+`maxCycles × (proposeCallCost + reviewCallCost)`. `upperBound` accounts for 1.5×-per-cycle
+article growth (Decisions §17 hard cap), proposer markup factor 1.4×, plus one drift recovery,
+plus 30% safety margin. Used by `V2CostTracker.reserve()` for per-iteration budget reservation.
+
+`EstPerAgentValue.editing` field surfaces per-agent editing cost in the dispatch plan preview
+(mirrors PR #1017's `reflection` field).
+
 ## Per-Iteration Cost Display
 
 The **Cost Estimates tab** on run detail pages now includes per-iteration cost display.

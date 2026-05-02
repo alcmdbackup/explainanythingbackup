@@ -24,10 +24,14 @@ export interface TimelineTabProps {
 
 // ─── Agent classification ───────────────────────────────────────────────────
 
-type AgentKind = 'generate' | 'swiss' | 'merge' | 'other';
+type AgentKind = 'generate' | 'edit' | 'swiss' | 'merge' | 'other';
 
 function agentKind(name: string): AgentKind {
   const n = name.toLowerCase();
+  // Editing must be checked BEFORE generate — agent_name 'iterative_editing' contains
+  // neither 'generate' nor 'swiss', but the per-LLM-call labels (iterative_edit_propose,
+  // iterative_edit_review, iterative_edit_drift_recovery) all contain 'edit'.
+  if (n.includes('edit')) return 'edit';
   if (n.includes('generate')) return 'generate';
   if (n.includes('swiss')) return 'swiss';
   if (n.includes('merge')) return 'merge';
@@ -36,6 +40,7 @@ function agentKind(name: string): AgentKind {
 
 const KIND_CONFIG: Record<AgentKind, { label: string; color: string }> = {
   generate: { label: 'Generate', color: '#3b82f6' },
+  edit:     { label: 'Edit',     color: '#f59e0b' }, // amber — distinct from generate-blue / swiss-purple
   swiss:    { label: 'Swiss',    color: '#8b5cf6' },
   merge:    { label: 'Merge',    color: '#10b981' },
   other:    { label: 'Agent',    color: '#6b7280' },

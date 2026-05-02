@@ -197,10 +197,22 @@ export interface AgentOutput<TOutput, TDetail> {
 export interface DetailFieldDef {
   key: string;
   label: string;
-  type: 'table' | 'boolean' | 'badge' | 'number' | 'text' | 'list' | 'object';
+  type: 'table' | 'boolean' | 'badge' | 'number' | 'text' | 'list' | 'object' | 'text-diff' | 'annotated-edits';
   columns?: Array<{ key: string; label: string }>;
   children?: DetailFieldDef[];
   formatter?: string;
+  /** For type='text-diff': sourceKey + targetKey resolve in execution_detail to the
+   *  before/after strings; previewLength caps the diff render. */
+  sourceKey?: string;
+  targetKey?: string;
+  previewLength?: number;
+  /** For type='annotated-edits': keys resolve in execution_detail.cycles[i] to
+   *  the AnnotatedProposals component's props. */
+  markupKey?: string;
+  groupsKey?: string;
+  decisionsKey?: string;
+  dropsPreKey?: string;
+  dropsPostKey?: string;
 }
 
 export interface AgentResult<T> {

@@ -32,7 +32,15 @@ const days = Number(argDays ?? daysFromEnv ?? '14');
 
 const SENTINEL = '__unspecified__';
 
-type Phase = 'generation' | 'ranking' | 'seed_title' | 'seed_article';
+type Phase =
+  | 'generation'
+  | 'ranking'
+  | 'seed_title'
+  | 'seed_article'
+  | 'reflection'
+  | 'iterative_edit_propose'
+  | 'iterative_edit_review'
+  | 'iterative_edit_drift_recovery';
 
 interface Bucket {
   outputCharsSum: number;
@@ -65,8 +73,19 @@ function keyOf(strategy: string, genModel: string, judgeModel: string, phase: Ph
 
 function asPhase(raw: unknown): Phase | null {
   if (typeof raw !== 'string') return null;
-  if (raw === 'generation' || raw === 'ranking' || raw === 'seed_title' || raw === 'seed_article') return raw;
-  return null;
+  switch (raw) {
+    case 'generation':
+    case 'ranking':
+    case 'seed_title':
+    case 'seed_article':
+    case 'reflection':
+    case 'iterative_edit_propose':
+    case 'iterative_edit_review':
+    case 'iterative_edit_drift_recovery':
+      return raw;
+    default:
+      return null;
+  }
 }
 
 async function main() {

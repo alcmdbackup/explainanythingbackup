@@ -13,6 +13,7 @@ import {
   type LLMCallRow,
 } from '@evolution/services/invocationActions';
 import { VariantParentBadge } from '@evolution/components/evolution/variant/VariantParentBadge';
+import { TextDiff } from '@evolution/components/evolution/visualizations/TextDiff';
 import { bootstrapDeltaCI } from '@evolution/lib/shared/ratingDelta';
 import { buildVariantDetailUrl } from '@evolution/lib/utils/evolutionUrls';
 import { dbToRating } from '@evolution/lib/shared/computeRatings';
@@ -133,6 +134,16 @@ export function InvocationParentBlock({ invocationId, tactic, sourceMode }: Prop
                 parentRunId={variantCtx!.parentRunId ?? null}
               />
             </div>
+          )}
+          {variantCtx?.parentContent && variantCtx.variantContent && (
+            <details className="pt-2 border-t border-[var(--border-default)]" data-testid="invocation-parent-text-diff">
+              <summary className="cursor-pointer text-xs font-ui text-[var(--text-secondary)]">
+                View parent → child diff (text)
+              </summary>
+              <div className="mt-2">
+                <TextDiff original={variantCtx.parentContent} modified={variantCtx.variantContent} previewLength={500} />
+              </div>
+            </details>
           )}
           <div className="pt-2">
             <Link

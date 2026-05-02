@@ -22,6 +22,11 @@ export type MetricTiming = 'during_execution' | 'at_finalization' | 'at_propagat
 export const STATIC_METRIC_NAMES = [
   // Run (live during-execution)
   'cost', 'generation_cost', 'ranking_cost', 'reflection_cost', 'seed_cost',
+  'iterative_edit_cost',
+  // Run (live during-execution) — operational health for iterative_editing
+  'iterative_edit_drift_rate',
+  'iterative_edit_recovery_success_rate',
+  'iterative_edit_accept_rate',
   // Run (at-finalization)
   'winner_elo', 'median_elo', 'p90_elo', 'max_elo',
   'total_matches', 'decisive_rate', 'variant_count', 'cost_estimation_error_pct',
@@ -44,6 +49,7 @@ export const STATIC_METRIC_NAMES = [
   'total_generation_cost', 'avg_generation_cost_per_run',
   'total_ranking_cost', 'avg_ranking_cost_per_run',
   'total_reflection_cost', 'avg_reflection_cost_per_run',
+  'total_iterative_edit_cost', 'avg_iterative_edit_cost_per_run',
   'total_seed_cost', 'avg_seed_cost_per_run',
   'avg_final_elo', 'best_final_elo', 'worst_final_elo',
   'avg_median_elo', 'avg_p90_elo', 'best_max_elo',

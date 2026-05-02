@@ -1033,20 +1033,51 @@ describe('agentExecutionDetailSchema (discriminated union)', () => {
     })).not.toThrow();
   });
 
-  it('parses iterativeEditing detail', () => {
+  it('parses iterative_editing detail (v2 redesign — propose/review protocol per Decisions §13/§14)', () => {
     expect(() => iterativeEditingExecutionDetailSchema.parse({
-      detailType: 'iterativeEditing', totalCost: 0.04,
-      targetVariantId: UUID1,
-      config: { maxCycles: 5, maxConsecutiveRejections: 3, qualityThreshold: 7.5 },
+      detailType: 'iterative_editing', totalCost: 0.04,
+      parentVariantId: UUID1,
+      config: {
+        maxCycles: 3,
+        editingModel: 'gpt-4.1',
+        approverModel: 'claude-sonnet-4-6',
+        driftRecoveryModel: 'gpt-4.1-nano',
+        perInvocationBudgetUsd: 0.05,
+      },
       cycles: [{
-        cycleNumber: 0,
-        target: { dimension: 'clarity', description: 'Improve sentence clarity', score: 5, source: 'critique' },
-        verdict: 'ACCEPT', confidence: 0.85, formatValid: true, newVariantId: UUID2,
+        cycleNumber: 1,
+        proposedMarkup: 'Hello {~~ [#1] world ~> Earth ~~}.',
+        proposedGroupsRaw: [{ groupNumber: 1, atomicEdits: [{
+          groupNumber: 1, kind: 'replace',
+          range: { start: 6, end: 11 }, markupRange: { start: 6, end: 30 },
+          oldText: 'world', newText: 'Earth',
+          contextBefore: 'Hello ', contextAfter: '.',
+        }] }],
+        droppedPreApprover: [],
+        approverGroups: [{ groupNumber: 1, atomicEdits: [{
+          groupNumber: 1, kind: 'replace',
+          range: { start: 6, end: 11 }, markupRange: { start: 6, end: 30 },
+          oldText: 'world', newText: 'Earth',
+          contextBefore: 'Hello ', contextAfter: '.',
+        }] }],
+        reviewDecisions: [{ groupNumber: 1, decision: 'accept', reason: 'better' }],
+        droppedPostApprover: [],
+        appliedGroups: [{ groupNumber: 1, atomicEdits: [{
+          groupNumber: 1, kind: 'replace',
+          range: { start: 6, end: 11 }, markupRange: { start: 6, end: 30 },
+          oldText: 'world', newText: 'Earth',
+          contextBefore: 'Hello ', contextAfter: '.',
+        }] }],
+        acceptedCount: 1, rejectedCount: 0, appliedCount: 1,
+        formatValid: true,
+        parentText: 'Hello world.',
+        childText: 'Hello Earth.',
+        proposeCostUsd: 0.012,
+        approveCostUsd: 0.0008,
+        sizeRatio: 1.0,
       }],
-      initialCritique: { dimensionScores: { clarity: 5, depth: 7 } },
-      finalCritique: { dimensionScores: { clarity: 8, depth: 7 } },
-      stopReason: 'threshold_met',
-      consecutiveRejections: 0,
+      stopReason: 'all_cycles_completed',
+      finalVariantId: UUID2,
     })).not.toThrow();
   });
 

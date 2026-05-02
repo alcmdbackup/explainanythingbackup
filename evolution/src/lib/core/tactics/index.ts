@@ -121,9 +121,6 @@ export const TACTIC_PALETTE: Record<string, string> = {
 
   // Special (non-tactic variant types)
   seed_variant: '#94a3b8',          // slate
-  mutate_clarity: '#a855f7',        // purple (legacy evolve)
-  crossover: '#a855f7',            // purple (legacy evolve)
-  mutate_engagement: '#a855f7',     // purple (legacy evolve)
 
   // Tree search prefixed variants
   tree_search_edit_dimension: '#eab308',

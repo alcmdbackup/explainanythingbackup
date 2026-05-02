@@ -21,7 +21,15 @@ export interface CalibrationRow {
   tactic: string;
   generationModel: string;
   judgeModel: string;
-  phase: 'generation' | 'ranking' | 'reflection' | 'seed_title' | 'seed_article';
+  phase:
+    | 'generation'
+    | 'ranking'
+    | 'reflection'
+    | 'seed_title'
+    | 'seed_article'
+    | 'iterative_edit_propose'
+    | 'iterative_edit_review'
+    | 'iterative_edit_drift_recovery';
   avgOutputChars: number;
   avgInputOverheadChars: number;
   avgCostPerCall: number;

@@ -6,7 +6,7 @@ This document covers the V2 pipeline's operational components: the three concret
 
 `evolveArticle()` in `evolution/src/lib/pipeline/loop/runIterationLoop.ts` iterates over
 `config.iterationConfigs[]`, an ordered array of `IterationConfig` objects. Each entry
-specifies `agentType` (`generate` or `swiss`), `budgetPercent`, and optional `maxAgents`.
+specifies `agentType` (`generate`, `reflect_and_generate`, `iterative_editing`, or `swiss`), `budgetPercent`, and optional `maxAgents`.
 Per-iteration dollar budgets are computed at runtime: `(budgetPercent / 100) * totalBudget`.
 Each iteration is one of two types — both have the uniform shape **work agent(s) + merge agent**:
 
@@ -400,3 +400,42 @@ The Phase 2 `updateInvocation` partial-update fix (`trackInvocations.ts:74`) ens
 **Mutual exclusivity** with `generationGuidance`: structural — `generationGuidance` is only valid on `agentType: 'generate'` (the Zod refinement rejects it on `reflect_and_generate` and `swiss`). The wizard UI hides the Tactics button entirely when the iteration's agent type is `reflect_and_generate`, and `toIterationConfigsPayload` only emits guidance for `generate` rows.
 
 **Kill-switch**: `EVOLUTION_REFLECTION_ENABLED='false'` env var falls all `agentType: 'reflect_and_generate'` iterations back to vanilla GFPA dispatch. Resolved once per iteration in `runIterationLoop` before parallel/top-up dispatch — single env flip rolls the feature back without code revert.
+
+## IterativeEditingAgent (bring_back_editing_agents_evolution_20260430)
+
+A wrapper agent that runs a propose-then-review editing protocol on existing pool variants. Per parent: up to N propose-review-apply cycles (Proposer LLM → deterministic Implementer pre-check → Approver LLM → deterministic Implementer apply). Selected per-iteration via `IterationConfig.agentType: 'iterative_editing'` — fourth top-level agent type alongside `'generate'`, `'reflect_and_generate'`, and `'swiss'`.
+
+**Class**: `IterativeEditingAgent` (`evolution/src/lib/core/agents/editing/IterativeEditingAgent.ts`).
+- `name = 'iterative_editing'`
+- `usesLLM = true`
+- One invocation row per parent (regardless of cycle count)
+
+**Per-cycle protocol**:
+1. **Proposer** (`iterative_edit_propose`) — LLM call. Output is the FULL ARTICLE BODY VERBATIM with inline numbered CriticMarkup edits: `{++ [#N] inserted ++}`, `{-- [#N] deleted --}`, `{~~ [#N] old ~> new ~~}`. Multiple atomic edits sharing `[#N]` form an atomic accept/reject group.
+2. **Implementer pre-check** (deterministic): parser extracts atomic edits with byte positions in `current.text`; strip-markup pass + drift check. On drift: minor → drift-recovery LLM call; major → cycle aborts. Hard-rule + size-ratio guardrail filters violator groups.
+3. **Approver** (`iterative_edit_review`) — LLM call. Outputs JSONL: one `{groupNumber, decision, reason}` per group. Missing → reject default.
+4. **Implementer apply** (deterministic): collect accepted groups, drop overlapping ranges + context-mismatched edits, sort survivors by `range.start` descending, splice right-to-left.
+
+After loop terminates: emit final `Variant` if any cycle accepted edits. The final variant's `parent_variant_id` is the original input parent (per Decisions §14 — intermediate cycle texts live only in `execution_detail.cycles[i].childText`).
+
+**LOAD-BEARING INVARIANTS** (Decisions §13, mirror of `reflectAndGenerateFromPreviousArticle.ts`):
+- **I1**: Internal LLM helpers MUST use the wrapper's `EvolutionLLMClient` directly. Never instantiate a separate Agent and call `.run()` — that creates a NESTED `Agent.run()` scope and splits cost attribution.
+- **I2**: Capture `costBefore*Call` snapshots before each helper call so per-purpose cost split fills `execution_detail.cycles[i].{proposeCostUsd, approveCostUsd, driftRecoveryCostUsd}`.
+- **I3**: Write partial `execution_detail` BEFORE re-throwing on any helper failure. The `trackInvocations` partial-update path preserves the partial detail through `Agent.run()`'s catch handler.
+
+**Cost stack**: three per-LLM-call AgentName labels (`iterative_edit_propose`, `iterative_edit_review`, `iterative_edit_drift_recovery`) all collapse to one `iterative_edit_cost` metric. Per-purpose split lives in `execution_detail`. Run-level `iterative_edit_cost` propagates to `total_iterative_edit_cost` and `avg_iterative_edit_cost_per_run`.
+
+**Operational health metrics**: `iterative_edit_drift_rate`, `iterative_edit_recovery_success_rate`, `iterative_edit_accept_rate` — env-tunable alert thresholds via `EVOLUTION_EDITING_*_ALERT_THRESHOLD` env vars.
+
+**Eligibility cutoff** + **dispatch**: `editingEligibilityCutoff: { mode: 'topN' | 'topPercent'; value }` per iteration (default `topN: 10`). Shared `resolveEditingDispatchRuntime` helper at `evolution/src/lib/pipeline/loop/editingDispatch.ts` filters arena entries, sorts by Elo descending, applies the cutoff. Per-invocation budget split per Decisions §15: each invocation receives `perInvocationBudgetUsd = remainingIterBudget / dispatchCount` and self-aborts at 90% spent.
+
+**Models** (3 strategy-level fields):
+- `editingModel?: string` — Proposer LLM. Falls back to `generationModel`.
+- `approverModel?: string` — Approver LLM. Falls back to `editingModel`. **Same-as-editingModel surfaces a rubber-stamping warning in the wizard** (Decisions §16) — for max auditability, choose distinct models.
+- `driftRecoveryModel?: string` — drift-recovery nano model. Defaults to `gpt-4.1-nano`.
+
+**Kill switches**: `EDITING_AGENTS_ENABLED='false'` short-circuits the dispatch branch entirely. `EVOLUTION_DRIFT_RECOVERY_ENABLED='false'` skips the recovery LLM call (minor drift treated as major).
+
+**Schema deploy gate**: `evolution/src/lib/core/startupAssertions.ts` queries the `evolution_cost_calibration_phase_allowed` CHECK constraint at agent-registry init and throws `MissingMigrationError` if any TS phase string is missing from the DB enum. Eliminates the silent-reject failure mode PR #1017 hit.
+
+See full deep dive: `docs/feature_deep_dives/editing_agents.md`.

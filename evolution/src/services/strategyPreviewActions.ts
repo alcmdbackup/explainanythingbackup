@@ -165,18 +165,22 @@ const dispatchPreviewInputSchema = z.object({
     budgetUsd: z.number().positive(),
     maxComparisonsPerVariant: z.number().int().positive().optional(),
     iterationConfigs: z.array(z.object({
-      agentType: z.enum(['generate', 'reflect_and_generate', 'swiss']),
+      agentType: z.enum(['generate', 'reflect_and_generate', 'iterative_editing', 'swiss']),
       budgetPercent: z.number().min(1).max(100),
       sourceMode: z.enum(['seed', 'pool']).optional(),
       qualityCutoff: z.object({ mode: z.enum(['topN', 'topPercent']), value: z.number().positive() }).optional(),
       generationGuidance: z.array(z.unknown()).optional(),
       reflectionTopN: z.number().int().min(1).max(10).optional(),
+      editingMaxCycles: z.number().int().min(1).max(5).optional(),
+      editingEligibilityCutoff: z.object({ mode: z.enum(['topN', 'topPercent']), value: z.number().positive() }).optional(),
     })).min(1).max(20),
     minBudgetAfterParallelFraction: z.number().min(0).max(1).optional(),
     minBudgetAfterParallelAgentMultiple: z.number().min(0).optional(),
     minBudgetAfterSequentialFraction: z.number().min(0).max(1).optional(),
     minBudgetAfterSequentialAgentMultiple: z.number().min(0).optional(),
     generationGuidance: z.array(z.unknown()).optional(),
+    editingModel: z.string().optional(),
+    approverModel: z.string().optional(),
   }).passthrough(),
   /** Optional prompt to source arena size from. When null/omitted the preview assumes
    *  an empty arena (initialPoolSize=0). */
@@ -199,17 +203,16 @@ export interface DispatchPreviewResult {
  *  estPerAgent keys match the server's EstPerAgentValue keys. */
 export interface IterationPlanEntryClient {
   iterIdx: number;
-  agentType: 'generate' | 'reflect_and_generate' | 'swiss';
+  agentType: 'generate' | 'reflect_and_generate' | 'iterative_editing' | 'swiss';
   iterBudgetUsd: number;
   /** Effective tactic mix (normalized weights) used for this iteration's estimate. */
   tacticMix: Array<{ tactic: string; weight: number }>;
   tacticMixSource: 'iter-guidance' | 'strategy-guidance' | 'strategy-tactics' | 'defaults';
   tacticLabel: string;
   estPerAgent: {
-    // Backfilled `reflection` to match server-side EstPerAgentValue
-    // (investigate_issues_latest_evolution_reflection_agent_20260501).
-    expected: { gen: number; rank: number; reflection: number; total: number };
-    upperBound: { gen: number; rank: number; reflection: number; total: number };
+    // Both `reflection` (from main, post-PR-1017 investigation) and `editing` (this branch).
+    expected: { gen: number; rank: number; reflection: number; editing: number; total: number };
+    upperBound: { gen: number; rank: number; reflection: number; editing: number; total: number };
   };
   maxAffordable: { atExpected: number; atUpperBound: number };
   dispatchCount: number;
@@ -219,7 +222,7 @@ export interface IterationPlanEntryClient {
   /** Top-up agents projected beyond the parallel batch.
    *  expectedTotalDispatch - dispatchCount. */
   expectedTopUpDispatch: number;
-  effectiveCap: 'budget' | 'safety_cap' | 'floor' | 'swiss';
+  effectiveCap: 'budget' | 'safety_cap' | 'floor' | 'swiss' | 'eligibility';
   poolSizeAtStart: number;
   parallelFloorUsd: number;
 }
