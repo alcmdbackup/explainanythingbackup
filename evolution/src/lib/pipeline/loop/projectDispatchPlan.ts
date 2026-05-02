@@ -93,6 +93,9 @@ export interface EstPerAgentValue {
   rank: number;
   /** Reflection cost per agent (only > 0 when iterCfg.agentType === 'reflect_and_generate'). 0 for vanilla GFPA. */
   reflection: number;
+  /** Iterative editing cost per agent (only > 0 when iterCfg.agentType === 'iterative_editing').
+   *  0 for generate / reflect / swiss. Mirrors the reflection field added by PR #1017. */
+  editing: number;
   total: number;
 }
 
@@ -235,7 +238,7 @@ function weightedAgentCost(
   const reflection = useReflection
     ? estimateReflectionCost(seedChars, generationModel, judgeModel, reflectionTopN)
     : 0;
-  return { gen, rank, reflection, total: reflection + gen + rank };
+  return { gen, rank, reflection, editing: 0, total: reflection + gen + rank };
 }
 
 // ─── Main ─────────────────────────────────────────────────────────
@@ -284,8 +287,8 @@ export function projectDispatchPlan(
         tacticMixSource: source,
         tacticLabel,
         estPerAgent: {
-          expected: { gen: 0, rank: 0, reflection: 0, total: 0 },
-          upperBound: { gen: 0, rank: 0, reflection: 0, total: 0 },
+          expected: { gen: 0, rank: 0, reflection: 0, editing: 0, total: 0 },
+          upperBound: { gen: 0, rank: 0, reflection: 0, editing: 0, total: 0 },
         },
         maxAffordable: { atExpected: 0, atUpperBound: 0 },
         dispatchCount: 0,
@@ -378,8 +381,8 @@ export function projectDispatchPlan(
       tacticMixSource: source,
       tacticLabel,
       estPerAgent: {
-        expected: { gen: genExpected, rank: rankExpectedAvg, reflection: reflectionExpected, total: totalExpected },
-        upperBound: { gen: upper.gen, rank: upper.rank, reflection: upper.reflection, total: upper.total },
+        expected: { gen: genExpected, rank: rankExpectedAvg, reflection: reflectionExpected, editing: 0, total: totalExpected },
+        upperBound: { gen: upper.gen, rank: upper.rank, reflection: upper.reflection, editing: upper.editing ?? 0, total: upper.total },
       },
       maxAffordable: { atExpected: maxAffordableExpected, atUpperBound: maxAffordableUpper },
       dispatchCount,

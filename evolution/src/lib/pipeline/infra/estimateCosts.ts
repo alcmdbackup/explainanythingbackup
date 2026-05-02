@@ -183,3 +183,164 @@ export function estimateSwissPairCost(
   const inputChars = COMPARISON_PROMPT_OVERHEAD + avgVariantChars * 2;
   return 2 * calculateCost(inputChars, COMPARISON_OUTPUT_CHARS, pricing);
 }
+
+// ─── Iterative Editing Cost Estimation ────────────────────────────
+
+/** Approximate overhead added by the proposer prompt scaffolding (soft-rules system
+ *  prompt + CriticMarkup syntax docs). Matches buildProposerPrompt's static parts. */
+const EDITING_PROPOSE_PROMPT_OVERHEAD = 2000;
+
+/** Approximate overhead added by the approver prompt scaffolding (system prompt +
+ *  edit summary table header). Per-edit row added at call time. */
+const EDITING_REVIEW_PROMPT_OVERHEAD = 1500;
+
+/** Approximate output per Approver decision line (one JSON line per group). */
+const EDITING_REVIEW_OUTPUT_CHARS_PER_LINE = 80;
+
+/** Average groups per cycle when sizing the Approver call output. Conservative
+ *  upper-end of expected group count (the per-cycle hard cap is 30 atomic edits;
+ *  groups average ~3 atomic edits each → ~10 groups). */
+const EDITING_AVG_GROUPS_PER_CYCLE = 10;
+
+/** Worst-case drift recovery output (one JSON line per drift region, max 3 regions
+ *  per Decisions §17 minor-drift threshold). */
+const EDITING_DRIFT_RECOVERY_OUTPUT_CHARS = 200;
+
+/** Article-size growth factor per editing cycle, per Decisions §17 (1.5× hard cap). */
+const EDITING_SIZE_GROWTH_PER_CYCLE = 1.5;
+
+/** Markup overhead — Proposer's output is the article body verbatim PLUS inline
+ *  CriticMarkup. ~15% overhead is typical for moderate edit density. */
+const EDITING_MARKUP_OVERHEAD_FACTOR = 1.15;
+
+/** Multiplier for the worst-case drift recovery: ~1.4× of the markup overhead
+ *  factor. Used when sizing the upper bound. */
+const EDITING_UPPER_BOUND_MARKUP_FACTOR = 1.4;
+
+/** Safety margin applied to the upper bound to absorb model-pricing variance. */
+const EDITING_UPPER_BOUND_SAFETY_MARGIN = 1.3;
+
+/**
+ * Estimate Proposer LLM call cost. Output is article-size-dependent (proposer
+ * emits the full article verbatim plus inline markup).
+ */
+function estimateEditingProposeCost(
+  articleChars: number,
+  editingModel: string,
+  judgeModel: string,
+  /** When true, sizes the output for upper-bound (1.5× growth × markup factor). */
+  upperBound: boolean,
+): number {
+  const pricing = getModelPricing(editingModel);
+  const inputChars = articleChars + EDITING_PROPOSE_PROMPT_OVERHEAD;
+  const calibrated = getCalibrationRow(
+    '__unspecified__',
+    editingModel,
+    judgeModel ?? '__unspecified__',
+    'iterative_edit_propose',
+  );
+  const outputCharsBase = articleChars * EDITING_MARKUP_OVERHEAD_FACTOR;
+  const outputChars = calibrated?.avgOutputChars
+    ?? (upperBound ? outputCharsBase * EDITING_UPPER_BOUND_MARKUP_FACTOR : outputCharsBase);
+  return calculateCost(inputChars, outputChars, pricing);
+}
+
+/**
+ * Estimate Approver LLM call cost. Input is the proposer's marked-up article;
+ * output is bounded by group count, not article size.
+ */
+function estimateEditingReviewCost(
+  articleCharsWithMarkup: number,
+  approverModel: string,
+  judgeModel: string,
+): number {
+  const pricing = getModelPricing(approverModel);
+  const inputChars = articleCharsWithMarkup + EDITING_REVIEW_PROMPT_OVERHEAD;
+  const calibrated = getCalibrationRow(
+    '__unspecified__',
+    approverModel,
+    judgeModel ?? '__unspecified__',
+    'iterative_edit_review',
+  );
+  const outputChars = calibrated?.avgOutputChars
+    ?? EDITING_AVG_GROUPS_PER_CYCLE * EDITING_REVIEW_OUTPUT_CHARS_PER_LINE;
+  return calculateCost(inputChars, outputChars, pricing);
+}
+
+/**
+ * Estimate the worst-case drift-recovery LLM call cost. Used in upper-bound
+ * sizing only — drift recovery fires zero or one time across all cycles.
+ */
+function estimateEditingDriftRecoveryCost(
+  driftRecoveryModel: string,
+  judgeModel: string,
+): number {
+  const pricing = getModelPricing(driftRecoveryModel);
+  // 30-char context window × 2 sides × max 3 regions + small prompt overhead.
+  const inputChars = 30 * 2 * 3 + 500;
+  const calibrated = getCalibrationRow(
+    '__unspecified__',
+    driftRecoveryModel,
+    judgeModel ?? '__unspecified__',
+    'iterative_edit_drift_recovery',
+  );
+  const outputChars = calibrated?.avgOutputChars ?? EDITING_DRIFT_RECOVERY_OUTPUT_CHARS;
+  return calculateCost(inputChars, outputChars, pricing);
+}
+
+/**
+ * Estimate total cost of one IterativeEditingAgent invocation (one parent,
+ * `maxCycles` cycles, each cycle = 2 LLM calls + maybe drift recovery).
+ *
+ * Returns `{ expected, upperBound }`:
+ * - `expected`: maxCycles × (propose + review). Drift recovery NOT included
+ *   (it's an exception path; including it inflates the typical-case forecast).
+ * - `upperBound`: cycle-by-cycle accumulation with article growing by up to
+ *   1.5× per cycle (Decisions §17 hard cap), proposer markup factor 1.4×,
+ *   plus one drift recovery, plus 30% safety margin. Used by V2CostTracker
+ *   for reservation so iterations abort cleanly via BudgetExceededError BEFORE
+ *   any dispatch (no partial-cycle artifacts).
+ *
+ * @param seedChars Initial article size in characters.
+ * @param editingModel Model used for the Proposer call. Falls back to generationModel at call site.
+ * @param approverModel Model used for the Approver call. Falls back to editingModel at call site.
+ * @param driftRecoveryModel Model used for drift recovery. Defaults to gpt-4.1-nano per Decisions §11.
+ * @param judgeModel Required for the calibration-row lookup as a discriminator (calibration is
+ *   keyed by both generation+judge model).
+ * @param maxCycles Per-iteration override or strategy default (1-5, default 3).
+ */
+export function estimateIterativeEditingCost(
+  seedChars: number,
+  editingModel: string,
+  approverModel: string,
+  driftRecoveryModel: string,
+  judgeModel: string,
+  maxCycles: number,
+): { expected: number; upperBound: number } {
+  let expected = 0;
+  let upperBound = 0;
+  let articleChars = seedChars;
+
+  for (let cycle = 0; cycle < maxCycles; cycle++) {
+    expected += estimateEditingProposeCost(articleChars, editingModel, judgeModel, false);
+    // Approver input is proposer's marked-up article.
+    const articleWithMarkup = articleChars * EDITING_MARKUP_OVERHEAD_FACTOR;
+    expected += estimateEditingReviewCost(articleWithMarkup, approverModel, judgeModel);
+
+    upperBound += estimateEditingProposeCost(articleChars, editingModel, judgeModel, true);
+    upperBound += estimateEditingReviewCost(
+      articleChars * EDITING_UPPER_BOUND_MARKUP_FACTOR,
+      approverModel,
+      judgeModel,
+    );
+
+    // Worst-case article growth per Decisions §17: 1.5× per cycle.
+    articleChars *= EDITING_SIZE_GROWTH_PER_CYCLE;
+  }
+
+  // Drift recovery: one worst-case fire across all cycles in upper-bound only.
+  upperBound += estimateEditingDriftRecoveryCost(driftRecoveryModel, judgeModel);
+  upperBound *= EDITING_UPPER_BOUND_SAFETY_MARGIN;
+
+  return { expected, upperBound };
+}
