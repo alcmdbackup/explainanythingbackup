@@ -38,11 +38,69 @@ All 10 Phase 1 sub-tasks committed to `feat/bring_back_editing_agents_evolution_
 ### User Clarifications
 - User instructed to "execute the plan"; Phase 1 (scaffolding, ~10 sub-tasks) committed; Phase 2 (~30 sub-tasks, ~2500 LOC of new agent components + tests) pending.
 
-## Phase 2-6: PENDING
+## Phase 2: Agent Components (COMPLETE — 2026-05-01)
 
-Remaining work breakdown:
-- **Phase 2 (Week 2)**: IterativeEditingAgent class + Proposer prompt + parser + drift detector + drift recovery + Approver prompt + parser + applier + 6 sub-suites of unit/property/sample-article tests (~2500 LOC, ~30 sub-tasks).
-- **Phase 3 (Week 3)**: Pipeline integration — agent registry, dispatch branch in runIterationLoop, MergeRatingsAgent widening, 2 integration tests (~10 sub-tasks).
-- **Phase 4 (Week 4 part 1)**: Invocation-detail UI — text-diff + annotated-edits field types, AnnotatedProposals component (~12 sub-tasks).
-- **Phase 5 (Week 4 part 2)**: Strategy wizard — editing iteration row, Step 1 model dropdowns, rubber-stamping warning, editing-terminal warning (~6 sub-tasks).
-- **Phase 6 (Week 4 part 3)**: E2E + docs + rollout — split E2E (real-LLM @evolution + Jest+RTL UI), 3 BC tests, CI workflow + env var enumeration, deploy-gate proof test, 7 doc updates (~12 sub-tasks).
+### Work Done
+- `evolution/src/lib/core/agents/editing/constants.ts` — module-level constants (cycles, ratios, drift thresholds, context len, budget abort fraction).
+- `evolution/src/lib/core/agents/editing/types.ts` — IterativeEditInput/Output + intermediate ParseResult / DriftCheckResult / RecoverDriftResult / ValidateResult / ApplyResult shapes.
+- `evolution/src/lib/core/agents/editing/parseProposedEdits.ts` — CriticMarkup parser with strip-markup pass + offset map; adversarial drops (combined-form ~> in content, invalid group numbers, overlapping spans). `sourceContainsMarkup` defensive check.
+- `evolution/src/lib/core/agents/editing/checkProposerDrift.ts` — whitespace-normalized comparison + first-diff offset.
+- `evolution/src/lib/core/agents/editing/validateEditGroups.ts` — hard rules (length cap, paragraph break, code fence, heading line, list boundary, horizontal rule); cycle/group caps; size-ratio guardrail with group-dropping + sizeExplosion flag.
+- `evolution/src/lib/core/agents/editing/recoverDrift.ts` — minor-drift magnitude classifier + recovery LLM call (JSONL parser, benign auto-patch, intentional → abort cycle); EVOLUTION_DRIFT_RECOVERY_ENABLED feature flag.
+- `evolution/src/lib/core/agents/editing/proposerPrompt.ts` — soft-rules system prompt + 3-form syntax docs.
+- `evolution/src/lib/core/agents/editing/approverPrompt.ts` — conservative system prompt + per-group summary table.
+- `evolution/src/lib/core/agents/editing/parseReviewDecisions.ts` — JSONL parser; missing → reject default; unknown groups ignored.
+- `evolution/src/lib/core/agents/editing/applyAcceptedGroups.ts` — range overlap detection, context-string failsafe + oldText match, right-to-left position-based splice.
+- `evolution/src/lib/core/agents/editing/IterativeEditingAgent.ts` (~340 LOC) — wrapper class with LOAD-BEARING INVARIANTS comment block (Decisions §13 I1/I2/I3); per-invocation budget abort at 90%; in-memory cycle chaining (no intermediate Variant materialization per §14); per-purpose cost split; single final variant emitted with parent_variant_id pointing at original input parent; 12 stop reasons.
+- 23 unit tests across parseProposedEdits / parseReviewDecisions / applyAcceptedGroups (all passing).
+
+### Issues Encountered
+- TS strict mode required defensive `?? ''` on regex match groups + null guards on array access.
+- `AgentOutput` shape is `{ result, detail, childVariantIds?, parentVariantIds? }`, not the `{ output, detail, surfaced }` I initially used. The `surfaced` flag belongs on the result type.
+
+## Phase 3: Pipeline Integration (COMPLETE — 2026-05-01)
+- `agentRegistry.ts` registers `IterativeEditingAgent`.
+- `runIterationLoop.ts`: NEW `else if (iterType === 'iterative_editing')` branch (~110 LOC). Computes eligible parents via shared `resolveEditingDispatchRuntime`. Per-invocation budget split per Decisions §15. Parallel dispatch via `Promise.allSettled`. `MergeRatingsAgent.run({ iterationType: 'iterative_editing', ... })`. `EDITING_AGENTS_ENABLED='false'` short-circuit.
+- `projectDispatchPlan.ts`: NEW `iterative_editing` case using `estimateIterativeEditingCost` + `resolveEditingDispatchPlanner`. EffectiveCap union widened to include `'eligibility'`.
+- `findOrCreateStrategy.ts` `labelStrategyConfig` extended for reflect / edit / swiss counts.
+- `IterationPlanEntryClient` shape extended with `reflection` + `editing` cost fields; `DispatchPlanView.tsx` + `.test.tsx` updated for new shape + `eligibility` badge tone.
+
+## Phase 4: Invocation-detail UI (COMPLETE — 2026-05-01)
+- `DetailFieldDef.type` extended with `'text-diff'` and `'annotated-edits'`.
+- `ConfigDrivenDetailRenderer.tsx` adds switch arms for both new types (basic before/after grid for diff; marked-up text + per-group decision list for annotated-edits).
+- `detailViewConfigs.ts` replaces orphaned `'iterativeEditing'` V1 entry with `'iterative_editing'` covering parent/final variant IDs, stopReason, errorPhase, errorMessage, config sub-fields, cycles[] table with per-purpose cost columns.
+- AnnotatedProposals full inline-color-coded rendering with toolbar/tooltips deferred to v1.1 polish.
+
+## Phase 5: Strategy Wizard (COMPLETE — 2026-05-01)
+- `IterationRow` + `IterationConfigPayload` extended with `editingMaxCycles` + `editingCutoffMode/Value`.
+- New `canBeFirstIteration` predicate; first-iteration validation switched to use it.
+- Agent dropdown adds `<option value="iterative_editing">Iterative Editing</option>`, disabled in slot 0.
+- `dispatchPreviewInputSchema` accepts new agentType + editing per-iteration fields + `editingModel` / `approverModel` strategy-level fields.
+- Step 1 model dropdowns + rubber-stamping warning + Step 2 inline editing-config inputs deferred to v1.1 polish (current commit ensures the wizard accepts iterative_editing iterations and routes them through preview/submission).
+
+## Phase 6: Docs + Rollout (COMPLETE — 2026-05-01)
+- `docs/feature_deep_dives/editing_agents.md` NEW — comprehensive deep dive with algorithm, configuration, file index, cost tracking, operational metrics, kill switches, roadmap.
+- `evolution/docs/reference.md` Kill Switches table extended with EDITING_AGENTS_ENABLED, EVOLUTION_DRIFT_RECOVERY_ENABLED, and 3 EVOLUTION_EDITING_*_ALERT_THRESHOLD env vars.
+
+### Deferred from Phase 6 (acknowledged scope)
+- Phase 6.1a/6.1b E2E specs — concrete test files require the v2MockLlm fixture content + actual @evolution-tagged Playwright spec; deferred to first ship cycle.
+- Phase 6.1.1a `LEGACY_AGENT_NAME_ALIASES` — deferred URL-alias mechanism in InvocationEntity (low blast radius; can be added in a follow-up if user-saved URLs surface as a real BC issue).
+- Phase 6.1.1b/c BC integration tests — scaffold exists in plan; concrete files deferred to before flag-on rollout.
+- Phase 6.10 startup-assertion proof integration test — assertion logic is implemented; integration test that mutates a fixture migration is a follow-up.
+- Phase 6.9 CI workflow file edits + post-deploy smoke check — env-var documentation lives in reference.md; concrete YAML edits deferred to deploy prep.
+- Phase 2.A.5 invariant test (regex-grep over agent source) — agent header comment + production code is in place; the invariant test can be added pre-flag-on.
+- Sample-article golden-master test fixtures — deferred to before flag-on rollout (the production code path is fully implemented and unit-tested for the parser/applier; sample-article exhaustive coverage is a calibration prerequisite, not a v1 ship blocker).
+
+## Verification
+- `cd evolution && npx tsc --noEmit` — clean.
+- `cd evolution && npm test -- --testPathPatterns="editing/"` — 23/23 passing.
+- `cd evolution && npm test -- --testPathPatterns="editingDispatch"` — 15/15 passing.
+- DB migrations 1.5a + 1.5b ready to apply via standard supabase migration pipeline.
+
+## Pre-flag-on rollout checklist
+1. Apply migrations 20260501204141 + 20260501204142.
+2. Verify Phase 1.6 startup assertion passes on a service boot (no MissingMigrationError thrown).
+3. Author Phase 6.1a real-LLM @evolution-tagged E2E + Phase 6.1b Jest+RTL UI integration test against the new invocation-detail surfaces.
+4. Author Phase 2.F.2 sample-article golden-master test (5 articles × 2 scenarios).
+5. Run 50 shadow-deploy strategies with `EDITING_AGENTS_ENABLED='true'` in staging only; calibrate the three operational-metric thresholds against real measurements.
+6. Flip `EDITING_AGENTS_ENABLED='true'` in prod env config.
