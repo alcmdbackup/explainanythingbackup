@@ -210,6 +210,30 @@ describe('DispatchPlanView', () => {
       const totalCell = screen.getByTestId('dispatch-plan-total-likely');
       expect(totalCell).toHaveTextContent('10');
     });
+
+    it('cost roll-up uses expectedTotalDispatch (not dispatchCount) so totals match the Likely column', () => {
+      // Regression: pre-fix the cost row showed `dispatchCount × $/agent`, leaving users
+      // with a high "Likely total" agent count but a misleadingly low cost roll-up.
+      render(
+        <DispatchPlanView
+          plan={[makeEntry({
+            iterIdx: 0,
+            dispatchCount: 2,
+            expectedTotalDispatch: 6,
+            expectedTopUpDispatch: 4,
+            estPerAgent: {
+              expected: { gen: 0.001, rank: 0, reflection: 0, total: 0.001 },
+              upperBound: { gen: 0.002, rank: 0, reflection: 0, total: 0.002 },
+            },
+          })]}
+          variant="wizard"
+        />,
+      );
+      // Expected iter cost = 6 × $0.001 = $0.006. Upper bound = 6 × $0.002 = $0.012.
+      // Pre-fix used dispatchCount=2 → expected $0.002 / upper $0.004 (under-stated).
+      expect(screen.getByText(/\$0\.006/)).toBeInTheDocument();
+      expect(screen.getByText(/\$0\.012/)).toBeInTheDocument();
+    });
   });
 
   describe('warning copy reflects top-up projection', () => {

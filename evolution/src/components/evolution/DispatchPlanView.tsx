@@ -76,8 +76,11 @@ export function DispatchPlanView({
 
   const totalPlannedDispatch = plan.reduce((acc, p) => acc + p.dispatchCount, 0);
   const totalLikelyDispatch = plan.reduce((acc, p) => acc + p.expectedTotalDispatch, 0);
-  const totalExpectedCost = plan.reduce((acc, p) => acc + p.dispatchCount * p.estPerAgent.expected.total, 0);
-  const totalUpperBoundCost = plan.reduce((acc, p) => acc + p.dispatchCount * p.estPerAgent.upperBound.total, 0);
+  // Cost roll-ups multiply by `expectedTotalDispatch` (parallel + projected top-up) so the
+  // displayed totals match what the runtime actually spends. Using `dispatchCount` here
+  // would under-state the cost relative to the "Likely total" dispatch count column.
+  const totalExpectedCost = plan.reduce((acc, p) => acc + p.expectedTotalDispatch * p.estPerAgent.expected.total, 0);
+  const totalUpperBoundCost = plan.reduce((acc, p) => acc + p.expectedTotalDispatch * p.estPerAgent.upperBound.total, 0);
   const totalActualCost = showActual
     ? Array.from(actualByIdx.values()).reduce((a, b) => a + b.actualCostUsd, 0)
     : null;
@@ -111,7 +114,10 @@ export function DispatchPlanView({
           {plan.map((entry) => {
             const cap = badgeForCap(entry.effectiveCap);
             const act = actualByIdx.get(entry.iterIdx);
-            const expectedIterCost = entry.dispatchCount * entry.estPerAgent.expected.total;
+            // Per-iteration projected cost uses expectedTotalDispatch so the actual-vs-expected
+            // delta compares against what we projected the runtime would actually spend
+            // (parallel + top-up), not just the parallel batch.
+            const expectedIterCost = entry.expectedTotalDispatch * entry.estPerAgent.expected.total;
             const delta = act && expectedIterCost > 0
               ? ((act.actualCostUsd - expectedIterCost) / expectedIterCost) * 100
               : null;
@@ -128,9 +134,7 @@ export function DispatchPlanView({
                 </td>
                 <td className="py-1 pr-3 text-right font-mono">{entry.dispatchCount}</td>
                 <td className="py-1 pr-3 text-right font-mono" data-testid={`dispatch-plan-row-${entry.iterIdx}-likely`}>
-                  {entry.agentType === 'swiss' ? (
-                    '—'
-                  ) : (
+                  {entry.agentType === 'swiss' ? '—' : (
                     <>
                       <div>{entry.expectedTotalDispatch}</div>
                       {entry.expectedTopUpDispatch > 0 && (
@@ -224,20 +228,20 @@ function DispatchPlanWarnings({ plan }: { plan: IterationPlanEntryClient[] }): J
   }
 
   // Budget-insufficient: any variant-producing iter would dispatch ≤1 agent at upperBound.
-  // When the top-up projection rescues this (expectedTotalDispatch > dispatchCount),
-  // surface the more accurate "likely fills via top-up" copy. When even top-up can't
-  // help (expectedTotalDispatch <= 1), keep the original "increase budget" message.
+  // When top-up rescues it, prefer the "likely fills via top-up" copy; otherwise keep the
+  // original "increase budget" message.
   const tinyIter = plan.find(
     (p) => (p.agentType === 'generate' || p.agentType === 'reflect_and_generate') && p.dispatchCount <= 1,
   );
   if (tinyIter) {
+    const iterLabel = tinyIter.iterIdx + 1;
     if (tinyIter.expectedTotalDispatch > tinyIter.dispatchCount) {
       warnings.push(
-        `Iteration ${tinyIter.iterIdx + 1} parallel batch is bound by floor (${tinyIter.dispatchCount} agent at upperBound) — top-up will likely add ~${tinyIter.expectedTopUpDispatch} more agents at runtime.`,
+        `Iteration ${iterLabel} parallel batch is bound by floor (${tinyIter.dispatchCount} agent at upperBound) — top-up will likely add ~${tinyIter.expectedTopUpDispatch} more agents at runtime.`,
       );
     } else {
       warnings.push(
-        `Iteration ${tinyIter.iterIdx + 1} dispatches ${tinyIter.dispatchCount} agent at upperBound cost — budget is marginal for this iter. Increase budgetUsd or reduce maxComparisonsPerVariant.`,
+        `Iteration ${iterLabel} dispatches ${tinyIter.dispatchCount} agent at upperBound cost — budget is marginal for this iter. Increase budgetUsd or reduce maxComparisonsPerVariant.`,
       );
     }
   }

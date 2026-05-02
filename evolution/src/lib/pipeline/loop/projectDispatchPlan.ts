@@ -22,13 +22,11 @@
 // Top-up projection (investigate_issues_latest_evolution_reflection_agent_20260501):
 // `expectedTotalDispatch` and `expectedTopUpDispatch` model the within-iteration top-up
 // loop (Phase 7b) using `expected.total` as the proxy for `actualAvgCostPerAgent`.
-// Closed-form: K_total <= floor((iterBudget - sequentialFloor) / expected.total).
-// Algebraically equivalent to the runtime's iterative gate `while (remaining - x >= floor)`
-// — parallelSpend = parallel*x cancels in the substitution. Gated by `opts.topUpEnabled`
-// and `opts.reflectionEnabled` which mirror the EVOLUTION_TOPUP_ENABLED and
-// EVOLUTION_REFLECTION_ENABLED runtime kill-switches. Callers (runtime / wizard /
-// counterfactual) resolve env at their own boundary and pass explicit booleans so this
-// function stays pure and reproducible.
+// Closed-form: K_total <= floor((iterBudget - sequentialFloor) / expected.total),
+// algebraically equivalent to the runtime's iterative `while (remaining - x >= floor)`.
+// Gated by `opts.topUpEnabled` / `opts.reflectionEnabled` which mirror the
+// EVOLUTION_TOPUP_ENABLED / EVOLUTION_REFLECTION_ENABLED runtime kill-switches. Callers
+// resolve env at their own boundary so this function stays pure and reproducible.
 
 import type { EvolutionConfig } from '../infra/types';
 import {
@@ -353,26 +351,22 @@ export function projectDispatchPlan(
     }
 
     // ─── Top-up projection ────────────────────────────────────────
-    // Mirrors Phase 7b in runIterationLoop.ts. Runtime gate is iterative:
+    // Mirrors Phase 7b in runIterationLoop.ts. The runtime's iterative gate
     //   while (remaining - actualAvgCost >= sequentialFloor) dispatch++
-    // where remaining = iterBudget - parallelSpend - topUpSpend. With substitution
-    // parallelSpend ≈ dispatchCount × actualAvgCost, the gate algebraically yields
-    //   K_total ≤ floor((iterBudget - sequentialFloor) / actualAvgCost)
-    // (parallel*x term cancels). We use `totalExpected` as the proxy for actualAvgCost
-    // pre-run. resolveSequentialFloor's signature mirrors the runtime call site:
-    // (cfg, iterBudget, initialAgentCostEstimate /* upper */, actualAvgCostPerAgent).
-    // For the preview, actualAvg is unknown so we pass `totalExpected` as the actual
-    // proxy; resolveSequentialFloor falls back to it when AgentMultiple mode is set.
+    // (with remaining = iterBudget - parallelSpend - topUpSpend, parallelSpend ≈
+    // dispatchCount × actualAvgCost) reduces algebraically to
+    //   K_total ≤ floor((iterBudget - sequentialFloor) / actualAvgCost).
+    // We use `totalExpected` as the pre-run proxy for actualAvgCost; resolveSequentialFloor
+    // falls back to that proxy when AgentMultiple mode is configured.
     let expectedTotalDispatch = dispatchCount;
     let expectedTopUpDispatch = 0;
-    if (topUpEnabled) {
-      const sequentialFloorUsd = resolveSequentialFloor(
-        config, iterBudgetUsd, upper.total, totalExpected,
+    if (topUpEnabled && totalExpected > 0) {
+      const sequentialFloorUsd = resolveSequentialFloor(config, iterBudgetUsd, upper.total, totalExpected);
+      const totalAffordable = Math.max(
+        dispatchCount,
+        Math.floor((iterBudgetUsd - sequentialFloorUsd) / totalExpected),
       );
-      const expectedTotalAffordable = totalExpected > 0
-        ? Math.max(dispatchCount, Math.floor((iterBudgetUsd - sequentialFloorUsd) / totalExpected))
-        : dispatchCount;
-      expectedTotalDispatch = Math.min(DISPATCH_SAFETY_CAP, expectedTotalAffordable);
+      expectedTotalDispatch = Math.min(DISPATCH_SAFETY_CAP, totalAffordable);
       expectedTopUpDispatch = expectedTotalDispatch - dispatchCount;
     }
 

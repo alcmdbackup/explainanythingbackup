@@ -30,9 +30,11 @@ export function getTacticDef(name: string): TacticDef | undefined {
   return ALL_SYSTEM_TACTICS[name];
 }
 
-/** Type guard: is this string a known system tactic name? */
+/** Type guard: is this string a known system tactic name? Uses `Object.hasOwn` rather
+ *  than `in` to avoid matching inherited Object.prototype keys like `constructor` and
+ *  `toString` (would otherwise let garbage strings pass parseReflectionRanking validation). */
 export function isValidTactic(name: string): name is TacticName {
-  return name in ALL_SYSTEM_TACTICS;
+  return Object.hasOwn(ALL_SYSTEM_TACTICS, name);
 }
 
 /**

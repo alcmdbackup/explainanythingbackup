@@ -266,15 +266,10 @@ export const getStrategyDispatchPreviewAction = adminAction(
     // iterCfg.generationGuidance / config.strategies / DEFAULT_TACTICS.
     const { projectDispatchPlan } = await import('../lib/pipeline/loop/projectDispatchPlan');
 
-    // Resolve runtime kill-switches at the server-action boundary so the projection
-    // is a pure function (mirrors how runIterationLoop.ts reads env once at iteration
-    // entry). String-equality `!== 'false'` matches the codebase convention — unset,
-    // empty, or any other value keeps the feature enabled.
-    //
-    // Caveat: the wizard preview runs in the Next.js server process while runtime runs
-    // in the evolution worker process. If those processes have divergent env (e.g.
-    // separate deployments), the preview projects what THIS process believes is enabled.
-    // In practice both share the same env file; flag here for future deployment changes.
+    // Resolve runtime kill-switches at this server-action boundary so projectDispatchPlan
+    // stays pure. `!== 'false'` matches the codebase convention (unset = enabled).
+    // Caveat: if the wizard (Next.js) and worker processes ever have divergent env, the
+    // preview projects what THIS process believes is enabled. Today they share env.
     const topUpEnabled = process.env.EVOLUTION_TOPUP_ENABLED !== 'false';
     const reflectionEnabled = process.env.EVOLUTION_REFLECTION_ENABLED !== 'false';
 
