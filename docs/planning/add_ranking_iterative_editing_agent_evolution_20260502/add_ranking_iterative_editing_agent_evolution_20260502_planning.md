@@ -93,9 +93,26 @@ The wizard's existing dispatch-cost preview already recalculates as the user cha
 ## Phased Execution Plan
 
 ### Phase 1 — Schema + types
-- [ ] **1.1** Extend `iterativeEditingExecutionDetailSchema` (`evolution/src/lib/schemas.ts:817`) with optional/nullable `ranking` field embedding `rankNewVariantDetailInnerSchema` extended with `cost` + `estimatedCost` (literal copy from GFPA's schema).
+- [ ] **1.1** Extend `iterativeEditingExecutionDetailSchema` (`evolution/src/lib/schemas.ts:817`) with `ranking` field embedding `rankNewVariantDetailInnerSchema` extended with `cost` + `estimatedCost` (literal copy from GFPA's schema). **Use `.optional().nullable()`** — both modifiers are required: `.nullable()` allows `null`, `.optional()` allows the field to be absent entirely (back-compat for old DB rows that lack the column). Concrete shape:
+   ```typescript
+   ranking: z.preprocess(
+     rankingDetailRenameKeys,
+     rankNewVariantDetailInnerSchema.extend({
+       cost: z.number().min(0),
+       estimatedCost: z.number().min(0).optional(),
+     }),
+   ).optional().nullable(),  // optional() for missing-field rows, nullable() for explicitly-null rows
+   ```
 - [ ] **1.2** Mirror in `IterativeEditingExecutionDetail` TS type (`evolution/src/lib/types.ts`).
-- [ ] **1.3** Extend `IterativeEditInput` (`evolution/src/lib/core/agents/editing/types.ts`) with `initialPool: ReadonlyArray<Variant>`, `initialRatings: ReadonlyMap<string, Rating>`, `initialMatchCounts: ReadonlyMap<string, number>`, `cache: Map<string, ComparisonResult>`, `parentVariantId: string` (mirror `GenerateFromPreviousInput`).
+- [ ] **1.3** Extend `IterativeEditInput` (`evolution/src/lib/core/agents/editing/types.ts`) with **5 OPTIONAL fields** (`?:` modifier on each — required to support Phase 4.1's "omit fields when `editingRankEnabled === false`" pattern and Phase 2.3's input-presence gate):
+   ```typescript
+   initialPool?: ReadonlyArray<Variant>;
+   initialRatings?: ReadonlyMap<string, Rating>;
+   initialMatchCounts?: ReadonlyMap<string, number>;
+   cache?: Map<string, ComparisonResult>;
+   parentVariantId?: string;
+   ```
+   Diverges from `GenerateFromPreviousInput` (where these are required) because GFPA *always* ranks; editing can be configured off. The agent's input-presence gate (Phase 2.3) checks `input.initialPool === undefined` to decide whether to skip ranking.
 - [ ] **1.4** Update `executionDetailFixtures.iterativeEditingDetailFixture` with realistic `ranking` block (1–2 comparisons, non-default elo).
 - [ ] **1.5** Update `schemas.test.ts:1036` editing test case to include the ranking block.
 - [ ] **1.6** Add `EDITING_RANK_ENABLED` env-resolution helper. New function `resolveEditingRankEnabled(env: NodeJS.ProcessEnv = process.env): boolean` in `evolution/src/lib/pipeline/loop/editingDispatch.ts` (alongside existing helpers). Returns `env.EDITING_RANK_ENABLED !== 'false'` (default-true semantics). Consumed by the runtime gate (Phase 4.1) and the planner-boundary resolver (Phase 3.3).
@@ -114,7 +131,19 @@ The wizard's existing dispatch-cost preview already recalculates as the user cha
 ### Phase 3 — Cost estimator + metrics
 - [ ] **3.1** Update `estimateIterativeEditingCost` (`evolution/src/lib/pipeline/infra/estimateCosts.ts:312`) to add `+ estimateRankingCost(finalArticleChars, judgeModel, poolSize, maxComparisonsPerVariant)` to both `expected` and `upperBound`. Function already takes `judgeModel` so no signature change.
 - [ ] **3.2** Add `editingRank: number` peer field to `EstPerAgentValue` (`projectDispatchPlan.ts:91`); update `total` formula.
-- [ ] **3.3** Update `projectDispatchPlan.ts:367` editing branch: populate `editingRank` from the new estimator delta. Add `editingRankEnabled?: boolean` to `DispatchPlanOptions` (mirror existing `reflectionEnabled?: boolean`). When `false`, set `editingRank = 0` and exclude from `total`. Boundary that resolves env → option lives in `evolution/src/services/strategyPreviewActions.ts` — call `resolveEditingRankEnabled(process.env)` from Phase 1.6 alongside the existing `reflectionEnabled` resolver.
+- [ ] **3.3** Update `projectDispatchPlan.ts:367` editing branch:
+   - Add `editingRankEnabled?: boolean` to `DispatchPlanOptions` (mirror existing `reflectionEnabled?: boolean`). Default treated as `true` when undefined.
+   - In the editing iteration branch (around line 367, where `editCost` is computed and assigned), split the editing cost return:
+     ```typescript
+     const editingRankCost = (opts?.editingRankEnabled ?? true)
+       ? estimateRankingCost(finalArticleChars, judgeModel, poolSize, maxComparisonsPerVariant)
+       : 0;
+     // ... then in the EstPerAgentValue construction ...
+     expected: { gen: 0, rank: 0, reflection: 0, editing: editCost.expected, editingRank: editingRankCost.expected, total: editCost.expected + editingRankCost.expected },
+     upperBound: { gen: 0, rank: 0, reflection: 0, editing: editCost.upperBound, editingRank: editingRankCost.upperBound, total: editCost.upperBound + editingRankCost.upperBound },
+     ```
+     (Mirrors how `reflectionEnabled === false` zeros `reflection` cost in the reflect-and-generate branch around line 393, 408.)
+   - Boundary that resolves env → option: `evolution/src/services/strategyPreviewActions.ts` — call `resolveEditingRankEnabled(process.env)` from Phase 1.6 and pass into the `opts` argument, alongside the existing `reflectionEnabled` resolution.
 - [ ] **3.4** Mirror `IterationPlanEntryClient` (`evolution/src/services/strategyPreviewActions.ts`) — add `editingRank` field to the client mirror (regression test caught a similar drift in PR #1020; this catches it again).
 - [ ] **3.5** Add `iterative_edit_rank_cost` metric (live-written, mirror `ranking_cost`/`reflection_cost` patterns) in `evolution/src/lib/metrics/registry.ts` + `evolution/src/lib/core/metricCatalog.ts`.
 - [ ] **3.6** Add 2 propagation metrics: `total_iterative_edit_rank_cost`, `avg_iterative_edit_rank_cost_per_run`. Update `RunEntity`, `StrategyEntity`, `ExperimentEntity`.
