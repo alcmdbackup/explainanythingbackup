@@ -26,36 +26,23 @@ interface VariantDetailContentProps {
 export function VariantDetailContent({ variant }: VariantDetailContentProps): JSX.Element {
   const [activeTab, setActiveTab] = useTabState(TABS);
 
-  const parentBadge = (() => {
-    if (!variant.parentVariantId) {
-      return (
-        <VariantParentBadge
-          parentId={null}
-          parentElo={null}
-          parentUncertainty={null}
-          delta={null}
-          deltaCi={null}
-        />
-      );
-    }
-    const childRating = { elo: variant.eloScore, uncertainty: variant.uncertainty ?? 0 };
-    const parentElo = variant.parentElo;
-    const parentUncertainty = variant.parentUncertainty;
-    const { delta, ci } = parentElo != null
-      ? bootstrapDeltaCI(childRating, { elo: parentElo, uncertainty: parentUncertainty ?? 0 })
-      : { delta: null, ci: null };
-    return (
-      <VariantParentBadge
-        parentId={variant.parentVariantId}
-        parentElo={parentElo}
-        parentUncertainty={parentUncertainty}
-        delta={delta}
-        deltaCi={ci}
-        crossRun={!!variant.parentRunId && variant.parentRunId !== variant.runId}
-        parentRunId={variant.parentRunId ?? null}
-      />
-    );
-  })();
+  const { delta, ci } = variant.parentVariantId && variant.parentElo != null
+    ? bootstrapDeltaCI(
+        { elo: variant.eloScore, uncertainty: variant.uncertainty ?? 0 },
+        { elo: variant.parentElo, uncertainty: variant.parentUncertainty ?? 0 },
+      )
+    : { delta: null, ci: null };
+  const parentBadge = (
+    <VariantParentBadge
+      parentId={variant.parentVariantId}
+      parentElo={variant.parentElo}
+      parentUncertainty={variant.parentUncertainty}
+      delta={delta}
+      deltaCi={ci}
+      crossRun={!!variant.parentRunId && variant.parentRunId !== variant.runId}
+      parentRunId={variant.parentRunId ?? null}
+    />
+  );
 
   return (
     <div className="space-y-6" data-testid="variant-detail-content">

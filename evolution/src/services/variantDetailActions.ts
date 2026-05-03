@@ -190,7 +190,7 @@ export const getVariantParentsAction = adminAction('getVariantParentsAction', as
 
   if (error || !parent) return [];
 
-  const parentUncertainty = liftUncertainty(parent as { mu?: number | null; sigma?: number | null });
+  const parentUncertainty = liftUncertainty(parent);
   return [{
     id: parent.id,
     eloScore: parent.elo_score,
@@ -221,7 +221,7 @@ export const getVariantChildrenAction = adminAction('getVariantChildrenAction', 
   if (error) throw error;
 
   return (data ?? []).map(v => {
-    const u = liftUncertainty(v as { mu?: number | null; sigma?: number | null });
+    const u = liftUncertainty(v);
     return {
       id: v.id,
       eloScore: v.elo_score,
@@ -323,7 +323,7 @@ export const getVariantLineageChainAction = adminAction('getVariantLineageChainA
       .single();
 
     if (!ancestor) break;
-    const ancUncertainty = liftUncertainty(ancestor as { mu?: number | null; sigma?: number | null });
+    const ancUncertainty = liftUncertainty(ancestor);
     lineage.push({
       id: ancestor.id,
       agentName: ancestor.agent_name,

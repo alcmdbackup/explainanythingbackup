@@ -157,6 +157,36 @@ export interface ParsedEvaluateAndSuggest {
   droppedSuggestions: ParsedDroppedSuggestion[];
 }
 
+/** Extract score lines from the score section. Shared by parseEvaluateAndSuggest and
+ *  the agent's first-pass parse (which needs scores before suggestions to determine the
+ *  weakest set). Returns [] when nothing parses — caller decides how to throw. */
+function extractScores(
+  scoreSection: string,
+  criteria: ReadonlyArray<CriterionRow>,
+): ParsedScore[] {
+  const criteriaByLowerName = new Map<string, CriterionRow>();
+  for (const c of criteria) criteriaByLowerName.set(c.name.toLowerCase(), c);
+
+  const criteriaScored: ParsedScore[] = [];
+  const scoreLineRegex = /^([A-Za-z][\w_-]*)\s*:\s*(-?\d+(?:\.\d+)?)\s*$/gm;
+  let match: RegExpExecArray | null;
+  while ((match = scoreLineRegex.exec(scoreSection)) !== null) {
+    const criterion = criteriaByLowerName.get((match[1] ?? '').toLowerCase());
+    if (!criterion) continue; // unknown name — silently drop
+    const score = Number(match[2]);
+    if (!Number.isFinite(score)) continue;
+    if (score < criterion.min_rating || score > criterion.max_rating) continue;
+    criteriaScored.push({
+      criteriaId: criterion.id,
+      criteriaName: criterion.name,
+      score,
+      minRating: criterion.min_rating,
+      maxRating: criterion.max_rating,
+    });
+  }
+  return criteriaScored;
+}
+
 /** Parse the combined LLM response into scores + suggestions. Suggestions are filtered
  *  to those whose Criterion: matches the wrapper-determined weakest set; mismatches go
  *  into droppedSuggestions for forensic display. Throws EvaluateAndSuggestParseError on
@@ -172,29 +202,7 @@ export function parseEvaluateAndSuggest(
   const suggestionSection = splitIdx >= 0 ? response.slice(splitIdx) : '';
 
   // ─── Score parse ─────────────────────────────────
-  const criteriaByLowerName = new Map<string, CriterionRow>();
-  for (const c of criteria) {
-    criteriaByLowerName.set(c.name.toLowerCase(), c);
-  }
-
-  const criteriaScored: ParsedScore[] = [];
-  const scoreLineRegex = /^([A-Za-z][\w_-]*)\s*:\s*(-?\d+(?:\.\d+)?)\s*$/gm;
-  let match: RegExpExecArray | null;
-  while ((match = scoreLineRegex.exec(scoreSection)) !== null) {
-    const rawName = match[1] ?? '';
-    const score = Number(match[2]);
-    const criterion = criteriaByLowerName.get(rawName.toLowerCase());
-    if (!criterion) continue; // unknown name — silently drop
-    if (!Number.isFinite(score)) continue;
-    if (score < criterion.min_rating || score > criterion.max_rating) continue;
-    criteriaScored.push({
-      criteriaId: criterion.id,
-      criteriaName: criterion.name,
-      score,
-      minRating: criterion.min_rating,
-      maxRating: criterion.max_rating,
-    });
-  }
+  const criteriaScored = extractScores(scoreSection, criteria);
   if (criteriaScored.length === 0) {
     throw new EvaluateAndSuggestParseError(
       'parseEvaluateAndSuggest: zero valid score lines extracted',
@@ -444,25 +452,7 @@ export class EvaluateCriteriaThenGenerateFromPreviousArticleAgent extends Agent<
     {
       const splitIdx = response.search(/^###\s+Suggestion/m);
       const scoreSection = splitIdx >= 0 ? response.slice(0, splitIdx) : response;
-      const criteriaByLowerName = new Map<string, CriterionRow>();
-      for (const c of input.criteria) criteriaByLowerName.set(c.name.toLowerCase(), c);
-      const tempScored: ParsedScore[] = [];
-      const scoreLineRegex = /^([A-Za-z][\w_-]*)\s*:\s*(-?\d+(?:\.\d+)?)\s*$/gm;
-      let match: RegExpExecArray | null;
-      while ((match = scoreLineRegex.exec(scoreSection)) !== null) {
-        const criterion = criteriaByLowerName.get((match[1] ?? '').toLowerCase());
-        if (!criterion) continue;
-        const score = Number(match[2]);
-        if (!Number.isFinite(score)) continue;
-        if (score < criterion.min_rating || score > criterion.max_rating) continue;
-        tempScored.push({
-          criteriaId: criterion.id,
-          criteriaName: criterion.name,
-          score,
-          minRating: criterion.min_rating,
-          maxRating: criterion.max_rating,
-        });
-      }
+      const tempScored = extractScores(scoreSection, input.criteria);
       if (tempScored.length === 0) {
         const partial: EvaluateCriteriaExecutionDetail = {
           detailType: 'evaluate_criteria_then_generate_from_previous_article',
