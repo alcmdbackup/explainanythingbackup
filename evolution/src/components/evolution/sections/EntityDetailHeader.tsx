@@ -19,6 +19,11 @@ export interface EntityDetailHeaderProps {
   links?: EntityLink[];
   actions?: ReactNode;
   onRename?: (newName: string) => Promise<void>;
+  /** Fix #27 (use_playwright_find_ux_issues_bugs_20260501): optional subtitle
+   *  rendered below the title — used for completion timestamp on run detail
+   *  ("Completed 2 hours ago") so the user doesn't need to bounce back to the
+   *  list to learn how recent the run is. */
+  subtitle?: ReactNode;
 }
 
 export function EntityDetailHeader({
@@ -28,6 +33,7 @@ export function EntityDetailHeader({
   links,
   actions,
   onRename,
+  subtitle,
 }: EntityDetailHeaderProps): JSX.Element {
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState(title);
@@ -145,6 +151,11 @@ export function EntityDetailHeader({
               </svg>
               {copied ? 'Copied!' : (entityId.length > 12 ? `${entityId.substring(0, 12)}…` : entityId)}
             </button>
+          )}
+          {subtitle && (
+            <div className="text-xs font-ui text-[var(--text-muted)] mt-1" data-testid="entity-subtitle">
+              {subtitle}
+            </div>
           )}
         </div>
         {actions && <div className="flex-shrink-0" data-testid="header-actions">{actions}</div>}

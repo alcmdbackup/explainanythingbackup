@@ -379,12 +379,24 @@ ${sensitivity.medianSequentialGfsaDurationMs != null
 function ErrorHistogramSection({ histogram, title }: { histogram: HistogramBucket[]; title: string }): JSX.Element {
   const maxCount = Math.max(1, ...histogram.map((b) => b.count));
   const totalCount = histogram.reduce((a, b) => a + b.count, 0);
+  // Fix #39 (use_playwright_find_ux_issues_bugs_20260501): when ALL data falls
+  // into a single fixed bucket, the histogram becomes a degenerate single bar
+  // that conveys no distribution shape. Annotate the situation so users know to
+  // re-calibrate buckets rather than assuming the visual is meaningful.
+  const populatedBuckets = histogram.filter((b) => b.count > 0);
+  const isDegenerate = totalCount > 0 && populatedBuckets.length === 1;
   return (
     <div data-testid="cost-estimates-histogram">
       <h3 className="text-xl font-display font-medium text-[var(--text-secondary)] mb-2">{title}</h3>
       {totalCount === 0 ? (
         <p className="text-sm text-[var(--text-secondary)]">No estimation error data.</p>
       ) : (
+        <>
+        {isDegenerate && (
+          <p className="text-xs italic text-[var(--text-muted)] mb-2" data-testid="histogram-degenerate-note">
+            All {totalCount} invocation{totalCount === 1 ? '' : 's'} fell into the {populatedBuckets[0]!.label} bucket. The fixed buckets aren't capturing distribution shape — re-calibrate if you need finer detail.
+          </p>
+        )}
         <div className="flex items-end gap-3">
           {histogram.map((b) => {
             const height = Math.max(2, Math.round((b.count / maxCount) * 80));
@@ -401,6 +413,7 @@ function ErrorHistogramSection({ histogram, title }: { histogram: HistogramBucke
             );
           })}
         </div>
+        </>
       )}
     </div>
   );
@@ -659,11 +672,31 @@ function RunsTableSection({ runs }: { runs: StrategyCostEstimates['runs'] }): JS
 // ─── Shared primitives ───────────────────────────────────────────
 
 function LoadingSkeleton(): JSX.Element {
+  // Fix #37 (use_playwright_find_ux_issues_bugs_20260501): match the actual layout
+  // (5 summary cards + cost-by-agent table + per-iteration table) so the user
+  // sees a structured loading state instead of three undifferentiated grey blocks.
   return (
-    <div className="space-y-4" data-testid="cost-estimates-loading">
-      {[1, 2, 3].map((i) => (
-        <div key={i} className="h-24 bg-[var(--surface-elevated)] rounded-book animate-pulse" />
-      ))}
+    <div className="space-y-6" data-testid="cost-estimates-loading">
+      {/* Summary cards row */}
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+        {[1, 2, 3, 4, 5].map((i) => (
+          <div key={i} className="h-16 bg-[var(--surface-elevated)] rounded-book animate-pulse" />
+        ))}
+      </div>
+      {/* Section heading + table skeleton (cost-by-agent) */}
+      <div className="space-y-2">
+        <div className="h-6 w-40 bg-[var(--surface-elevated)] rounded animate-pulse" />
+        {[1, 2, 3].map((i) => (
+          <div key={i} className="h-8 bg-[var(--surface-elevated)] rounded animate-pulse" />
+        ))}
+      </div>
+      {/* Per-iteration table skeleton */}
+      <div className="space-y-2">
+        <div className="h-6 w-48 bg-[var(--surface-elevated)] rounded animate-pulse" />
+        {[1, 2, 3, 4].map((i) => (
+          <div key={i} className="h-7 bg-[var(--surface-elevated)] rounded animate-pulse" />
+        ))}
+      </div>
     </div>
   );
 }

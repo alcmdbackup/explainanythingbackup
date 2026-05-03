@@ -44,6 +44,15 @@ export function createMetricColumns<T>(
     render: (item: T) => {
       const m = findMetric(item, def.name);
       if (m != null) {
+        // Fix #42 (use_playwright_find_ux_issues_bugs_20260501): for estimation
+        // error % rows, when total_cost is 0 the percentage is undefined (n/0
+        // collapses to "-100%"). Render "—" with a tooltip instead.
+        if (def.formatter === 'percentValue' && def.name.includes('estimation_error_pct')) {
+          const totalCostRow = findMetric(item, def.name.startsWith('avg_') ? 'total_cost' : 'cost');
+          if (totalCostRow != null && totalCostRow.value === 0) {
+            return <span title="No cost recorded — error % undefined">—</span>;
+          }
+        }
         const base = METRIC_FORMATTERS[def.formatter as MetricFormatter](m.value);
         return `${base}${formatCISuffix(m)}`;
       }
@@ -62,6 +71,13 @@ export function createRunsMetricColumns<T extends BaseRun>(): RunsColumnDef<T>[]
     align: 'right' as const,
     render: (item: T) => {
       const m = findMetric(item, def.name);
+      // Fix #42: same cost=0 → "—" treatment for run-list error % columns.
+      if (m != null && def.formatter === 'percentValue' && def.name.includes('estimation_error_pct')) {
+        const totalCostRow = findMetric(item, 'cost');
+        if (totalCostRow != null && totalCostRow.value === 0) {
+          return <span className="font-mono text-xs" title="No cost recorded — error % undefined">—</span>;
+        }
+      }
       const text = m != null
         ? METRIC_FORMATTERS[def.formatter as MetricFormatter](m.value)
         : (def.formatter === 'cost' || def.formatter === 'costDetailed')

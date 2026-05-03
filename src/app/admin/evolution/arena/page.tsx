@@ -103,19 +103,30 @@ export default function ArenaListPage(): JSX.Element {
         ]}
       />
 
-      <EntityListPage
-        title="Arena Topics"
-        filters={[STATUS_FILTER, HIDE_EMPTY_FILTER, { key: 'filterTestContent', label: 'Hide test content', type: 'checkbox', defaultChecked: true }]}
-        columns={COLUMNS}
-        items={filterValues.hideEmpty === 'true' ? topics.filter(t => (t.entry_count ?? 0) > 0) : topics}
-        loading={loading}
-        totalCount={loading ? undefined : topics.length}
-        filterValues={filterValues}
-        onFilterChange={handleFilterChange}
-        getRowHref={(topic) => `/admin/evolution/arena/${topic.id}`}
-        emptyMessage="No arena topics found"
-        emptySuggestion="Create a topic to start comparing content variants."
-      />
+      {(() => {
+        // Fix #49 (use_playwright_find_ux_issues_bugs_20260501): when hideEmpty
+        // is on, pass both visible count + unfiltered total so the heading
+        // reads "(2 of 52)" instead of just "(2)".
+        const visibleTopics = filterValues.hideEmpty === 'true'
+          ? topics.filter(t => (t.entry_count ?? 0) > 0)
+          : topics;
+        return (
+          <EntityListPage
+            title="Arena Topics"
+            filters={[STATUS_FILTER, HIDE_EMPTY_FILTER, { key: 'filterTestContent', label: 'Hide test content', type: 'checkbox', defaultChecked: true }]}
+            columns={COLUMNS}
+            items={visibleTopics}
+            loading={loading}
+            totalCount={loading ? undefined : visibleTopics.length}
+            unfilteredTotal={loading ? undefined : topics.length}
+            filterValues={filterValues}
+            onFilterChange={handleFilterChange}
+            getRowHref={(topic) => `/admin/evolution/arena/${topic.id}`}
+            emptyMessage="No arena topics found"
+            emptySuggestion="Create a topic to start comparing content variants."
+          />
+        );
+      })()}
     </div>
   );
 }
