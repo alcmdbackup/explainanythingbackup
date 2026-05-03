@@ -70,8 +70,11 @@ describe('EvolutionSidebar', () => {
     expect(backLink).toHaveTextContent('← Back to Admin');
   });
 
-  it('renders title "Evolution Dashboard"', () => {
+  it('Fix #2/#19: renders title "Evolution" (was "Evolution Dashboard" — redundant on non-dashboard pages)', () => {
     render(<EvolutionSidebar />);
-    expect(screen.getByText('Evolution Dashboard')).toBeInTheDocument();
+    // The sidebar header used to read "Evolution Dashboard" on every page.
+    // Now it just says "Evolution"; breadcrumbs carry section context.
+    const headings = screen.getAllByText('Evolution');
+    expect(headings.length).toBeGreaterThan(0);
   });
 });

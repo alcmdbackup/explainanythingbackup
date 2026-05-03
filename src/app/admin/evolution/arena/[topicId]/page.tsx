@@ -205,6 +205,13 @@ export default function ArenaTopicDetailPage(): JSX.Element {
     load();
   }, [topicId, page]);
 
+  // Fix #50 (use_playwright_find_ux_issues_bugs_20260501): set document.title
+  // so the browser tab shows the topic name. Page is 'use client' so the
+  // server-side generateMetadata path is unavailable.
+  useEffect(() => {
+    if (topic?.name) document.title = `${topic.name} | Arena | Evolution`;
+  }, [topic?.name]);
+
   if (loading) {
     return (
       <div className="p-8 text-center text-sm font-ui text-[var(--text-muted)]">Loading...</div>

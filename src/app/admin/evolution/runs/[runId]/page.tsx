@@ -53,6 +53,13 @@ export default function EvolutionRunDetailPage(): JSX.Element {
     })();
   }, [runId]);
 
+  // Fix #21 (use_playwright_find_ux_issues_bugs_20260501): set document.title
+  // so the browser tab shows "Run abc12345 | Evolution" instead of just
+  // "ExplainAnything". Page is 'use client' so generateMetadata is unavailable.
+  useEffect(() => {
+    if (runId) document.title = `Run ${runId.slice(0, 8)} | Evolution`;
+  }, [runId]);
+
   if (loading && !run) {
     return (
       <div className="space-y-4">

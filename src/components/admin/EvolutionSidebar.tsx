@@ -42,10 +42,14 @@ const activeOverrides: Record<string, (pathname: string) => boolean> = Object.fr
   ]),
 );
 
+// Fix #2/#19 (use_playwright_find_ux_issues_bugs_20260501): the sidebar header
+// said "Evolution Dashboard" on every evolution page, including the Runs/Arena/
+// Experiments lists. The breadcrumb already carries section context, so the
+// header just needs to identify the section root — "Evolution" is enough.
 export function EvolutionSidebar(): JSX.Element {
   return (
     <BaseSidebar
-      title="Evolution Dashboard"
+      title="Evolution"
       navItems={navGroups}
       backLink={{ label: '← Back to Admin', href: '/admin', testId: 'evolution-sidebar-back-to-admin' }}
       activeOverrides={activeOverrides}
