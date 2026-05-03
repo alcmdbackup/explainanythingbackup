@@ -368,4 +368,45 @@ describe('TimelineTab', () => {
     );
     expect(screen.queryByTestId('timeline-truncation-warning')).not.toBeInTheDocument();
   });
+
+  // Fix #22 (use_playwright_find_ux_issues_bugs_20260501): reflect_and_generate
+  // wrapper iterations must show the new "Reflect+Gen" badge in both the legend
+  // and the iteration card header (instead of falling through to "Generate").
+  describe('Fix #22: reflect_and_generate badge', () => {
+    const REFLECT_INV: InvocationListEntry = {
+      id: 'dddddddd-0000-0000-0000-000000000001',
+      run_id: RUN_ID,
+      agent_name: 'reflect_and_generate_from_previous_article',
+      iteration: 1,
+      execution_order: 0,
+      success: true,
+      cost_usd: 0.003,
+      duration_ms: 5000,
+      error_message: null,
+      created_at: '2026-04-10T00:00:05Z',
+    };
+
+    it('renders Reflect+Gen badge in the legend when wrapper iterations exist', async () => {
+      (invocationActions.listInvocationsAction as jest.Mock).mockResolvedValue({
+        success: true,
+        data: { items: [REFLECT_INV], total: 1 },
+      });
+      render(<TimelineTab runId={RUN_ID} run={BASE_RUN} />);
+      await waitFor(() => expect(screen.getByTestId('timeline-tab')).toBeInTheDocument());
+      // Legend always renders all four kinds
+      expect(screen.getByText('Reflect+Gen')).toBeInTheDocument();
+    });
+
+    it('renders reflect+gen iteration badge (not generate) for wrapper iterations', async () => {
+      (invocationActions.listInvocationsAction as jest.Mock).mockResolvedValue({
+        success: true,
+        data: { items: [REFLECT_INV], total: 1 },
+      });
+      render(<TimelineTab runId={RUN_ID} run={BASE_RUN} />);
+      await waitFor(() => expect(screen.getByTestId('timeline-tab')).toBeInTheDocument());
+      // The iteration card displays "reflect+gen" (lowercased), NOT "generate"
+      const reflectBadges = screen.getAllByText(/reflect\+gen/i);
+      expect(reflectBadges.length).toBeGreaterThanOrEqual(2); // legend + iter card
+    });
+  });
 });

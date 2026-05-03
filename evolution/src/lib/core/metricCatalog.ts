@@ -25,7 +25,7 @@ export const METRIC_CATALOG = {
   },
   reflection_cost: {
     name: 'reflection_cost', label: 'Reflection Cost', category: 'cost', formatter: 'cost',
-    timing: 'during_execution', listView: false,
+    timing: 'during_execution', listView: true,
     description: 'LLM spend on reflection-step tactic-selection calls (ReflectAndGenerateFromPreviousArticleAgent)',
   },
   iterative_edit_cost: {

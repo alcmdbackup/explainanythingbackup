@@ -24,26 +24,37 @@ export interface TimelineTabProps {
 
 // ─── Agent classification ───────────────────────────────────────────────────
 
-type AgentKind = 'generate' | 'edit' | 'swiss' | 'merge' | 'other';
+type AgentKind = 'generate' | 'edit' | 'swiss' | 'merge' | 'reflect_generate' | 'other';
 
+// Fix #22 (use_playwright_find_ux_issues_bugs_20260501): the reflect_and_generate
+// wrapper agent's name contains the substring "generate", so the substring-checks
+// below MUST test reflect_generate FIRST (most-specific) and merge before swiss
+// before generate. Otherwise reflect-and-generate iterations fall through to the
+// generic 'generate' bucket, hiding the wrapper's behavior in Timeline + Cost
+// Estimates tabs.
 function agentKind(name: string): AgentKind {
   const n = name.toLowerCase();
+  // Reflect+Gen wrapper exact-match must come first — its name contains "generate".
+  if (n === 'reflect_and_generate_from_previous_article') return 'reflect_generate';
   // Editing must be checked BEFORE generate — agent_name 'iterative_editing' contains
   // neither 'generate' nor 'swiss', but the per-LLM-call labels (iterative_edit_propose,
   // iterative_edit_review, iterative_edit_drift_recovery) all contain 'edit'.
   if (n.includes('edit')) return 'edit';
-  if (n.includes('generate')) return 'generate';
-  if (n.includes('swiss')) return 'swiss';
   if (n.includes('merge')) return 'merge';
+  if (n.includes('swiss')) return 'swiss';
+  if (n.includes('generate')) return 'generate';
   return 'other';
 }
 
 const KIND_CONFIG: Record<AgentKind, { label: string; color: string }> = {
-  generate: { label: 'Generate', color: '#3b82f6' },
-  edit:     { label: 'Edit',     color: '#f59e0b' }, // amber — distinct from generate-blue / swiss-purple
-  swiss:    { label: 'Swiss',    color: '#8b5cf6' },
-  merge:    { label: 'Merge',    color: '#10b981' },
-  other:    { label: 'Agent',    color: '#6b7280' },
+  generate:         { label: 'Generate',    color: '#3b82f6' },
+  edit:             { label: 'Edit',        color: '#f59e0b' }, // amber
+  swiss:            { label: 'Swiss',       color: '#8b5cf6' },
+  merge:            { label: 'Merge',       color: '#10b981' },
+  // Amber matches REFLECTION_COLOR used by InvocationTimelineTab — visual continuity
+  // across all three places that surface reflection (Timeline, CostEstimates, InvocationDetail).
+  reflect_generate: { label: 'Reflect+Gen', color: '#f59e0b' },
+  other:            { label: 'Agent',       color: '#6b7280' },
 };
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -306,7 +317,7 @@ export function TimelineTab({ runId, run }: TimelineTabProps): JSX.Element {
 
       {/* Legend + totals */}
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-1">
-        {(['generate', 'swiss', 'merge'] as AgentKind[]).map((k) => (
+        {(['generate', 'reflect_generate', 'swiss', 'merge'] as AgentKind[]).map((k) => (
           <div key={k} className="flex items-center gap-1.5">
             <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: KIND_CONFIG[k].color }} />
             <span className="text-xs font-ui text-[var(--text-secondary)]">{KIND_CONFIG[k].label}</span>
@@ -331,9 +342,13 @@ export function TimelineTab({ runId, run }: TimelineTabProps): JSX.Element {
       {/* Iteration cards */}
       <div className="space-y-3">
         {sortedIterations.map(([iter, invs]) => {
+          const isReflectGen = invs.some((i) => agentKind(i.agent_name) === 'reflect_generate');
           const isGenerate = invs.some((i) => agentKind(i.agent_name) === 'generate');
           const isSwiss = invs.some((i) => agentKind(i.agent_name) === 'swiss');
-          const iterAgentType = isGenerate ? 'generate' : isSwiss ? 'swiss' : 'other';
+          // Fix #22: reflect_generate wins over generate — same iteration may
+          // contain both the wrapper and a fallback GFPA when EVOLUTION_REFLECTION_ENABLED
+          // toggles mid-run. Most-specific kind wins for the iteration badge.
+          const iterAgentType = isReflectGen ? 'reflect_generate' : isGenerate ? 'generate' : isSwiss ? 'swiss' : 'other';
           const iterLabel = iter < 0 ? 'Setup' : `Iteration ${iter}`;
           const parallelCount = invs.filter((i) => agentKind(i.agent_name) !== 'merge').length;
 
@@ -374,10 +389,12 @@ export function TimelineTab({ runId, run }: TimelineTabProps): JSX.Element {
                         ? 'bg-blue-500/20 text-blue-400'
                         : iterAgentType === 'swiss'
                         ? 'bg-purple-500/20 text-purple-400'
+                        : iterAgentType === 'reflect_generate'
+                        ? 'bg-amber-500/20 text-amber-400'
                         : 'bg-gray-500/20 text-gray-400'
                     }`}
                   >
-                    {iterAgentType}
+                    {iterAgentType === 'reflect_generate' ? 'reflect+gen' : iterAgentType}
                   </span>
                 )}
 
@@ -386,7 +403,7 @@ export function TimelineTab({ runId, run }: TimelineTabProps): JSX.Element {
 
                 {/* Stats summary */}
                 <div className="ml-auto flex items-center gap-4 text-xs font-mono text-[var(--text-muted)]">
-                  {iterAgentType === 'generate' && (
+                  {(iterAgentType === 'generate' || iterAgentType === 'reflect_generate') && (
                     <span>{parallelCount} agent{parallelCount !== 1 ? 's' : ''}</span>
                   )}
                   {iterResult && iterAgentType === 'swiss' && (
@@ -403,7 +420,7 @@ export function TimelineTab({ runId, run }: TimelineTabProps): JSX.Element {
                   <BudgetBar spent={iterResult.budgetSpent} allocated={iterResult.budgetAllocated} />
                   {/* Key stats line */}
                   <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1 text-xs font-ui text-[var(--text-secondary)]">
-                    {iterAgentType === 'generate' && (
+                    {(iterAgentType === 'generate' || iterAgentType === 'reflect_generate') && (
                       <span>
                         {iterResult.variantsCreated} variant{iterResult.variantsCreated !== 1 ? 's' : ''} generated
                       </span>

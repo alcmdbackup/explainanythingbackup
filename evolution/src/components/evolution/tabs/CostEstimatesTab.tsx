@@ -414,13 +414,15 @@ function PerIterationSummarySection({ invocations }: { invocations: RunCostEstim
       const entry = map.get(iter) ?? { type: '—', allocated: 0, spent: 0, count: 0 };
       entry.count += 1;
       entry.spent += inv.totalCost ?? 0;
-      // Infer type from agent name. Edit must be checked BEFORE generate
-      // (the per-LLM-call labels for iterative_editing all contain 'edit'
-      // but not 'generate').
+      // Infer type from agent name. Order matters:
+      //  - Reflect+Gen wrapper exact-match first (its name contains 'generate').
+      //  - Then 'edit' (iterative_editing per-call labels contain 'edit' but not 'generate').
+      //  - Then swiss / generate substring matches.
       const name = inv.agentName.toLowerCase();
-      if (name.includes('edit')) entry.type = 'iterative_editing';
-      else if (name.includes('generate')) entry.type = 'generate';
+      if (name === 'reflect_and_generate_from_previous_article') entry.type = 'reflect_generate';
+      else if (name.includes('edit')) entry.type = 'iterative_editing';
       else if (name.includes('swiss')) entry.type = 'swiss';
+      else if (name.includes('generate')) entry.type = 'generate';
       map.set(iter, entry);
     }
     return Array.from(map.entries()).sort(([a], [b]) => a - b);
@@ -449,9 +451,10 @@ function PerIterationSummarySection({ invocations }: { invocations: RunCostEstim
                   <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider ${
                     s.type === 'generate' ? 'bg-blue-500/20 text-blue-400' :
                     s.type === 'swiss' ? 'bg-purple-500/20 text-purple-400' :
+                    s.type === 'reflect_generate' ? 'bg-amber-500/20 text-amber-400' :
                     'bg-gray-500/20 text-gray-400'
                   }`}>
-                    {s.type}
+                    {s.type === 'reflect_generate' ? 'reflect+gen' : s.type}
                   </span>
                 </td>
                 <td className="py-1.5 pr-3 text-right font-mono">{s.count}</td>

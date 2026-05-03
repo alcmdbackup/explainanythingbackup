@@ -131,10 +131,14 @@ export function getBaseColumns<T extends BaseRun>(): RunsColumnDef<T>[] {
         // stays consistent with the dashboard (which uses
         // getRunCostsWithFallback for the same reason).
         const direct = getMetricValue(run.metrics, 'cost');
+        // Fix #11 (use_playwright_find_ux_issues_bugs_20260501): include
+        // reflection_cost in the fallback sum so reflect+generate runs reconcile
+        // when the rollup `cost` row is missing. Mirrors getRunCostsWithFallback.
         const cost = direct > 0
           ? direct
           : getMetricValue(run.metrics, 'generation_cost')
             + getMetricValue(run.metrics, 'ranking_cost')
+            + getMetricValue(run.metrics, 'reflection_cost')
             + getMetricValue(run.metrics, 'seed_cost');
         const pct = run.budget_cap_usd > 0 ? cost / run.budget_cap_usd : 0;
         const isActive = run.status === 'running' || run.status === 'claimed';

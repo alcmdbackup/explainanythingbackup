@@ -8,7 +8,7 @@ import { getEntityMetricsAction } from '@evolution/services/metricsActions';
 import { getEntityMetricDef } from '@evolution/lib/core/entityRegistry';
 import { METRIC_FORMATTERS } from '@evolution/lib/core/metricCatalog';
 import type { EntityType, MetricFormatter } from '@evolution/lib/core/types';
-import { DYNAMIC_METRIC_PREFIXES, type MetricRow } from '@evolution/lib/metrics/types';
+import { DYNAMIC_METRIC_REGISTRY, type MetricRow } from '@evolution/lib/metrics/types';
 
 interface EntityMetricsTabProps {
   entityType: EntityType;
@@ -26,30 +26,42 @@ const CATEGORY_LABELS: Record<Category, string> = {
 
 const CATEGORY_ORDER: Category[] = ['rating', 'cost', 'match', 'count'];
 
+/** Look up the dynamic-metric registry entry whose prefix matches `name`. */
+function dynamicMatch(name: string): { prefix: string; cfg: typeof DYNAMIC_METRIC_REGISTRY[keyof typeof DYNAMIC_METRIC_REGISTRY] } | null {
+  for (const [prefix, cfg] of Object.entries(DYNAMIC_METRIC_REGISTRY)) {
+    if (name.startsWith(prefix)) return { prefix, cfg };
+  }
+  return null;
+}
+
 function resolveCategory(metricName: string, entityType: EntityType): Category {
   const def = getEntityMetricDef(entityType, metricName);
   if (def) return def.category;
-  if (DYNAMIC_METRIC_PREFIXES.some(p => metricName.startsWith(p))) return 'cost';
-  return 'count';
+  const dyn = dynamicMatch(metricName);
+  return dyn ? (dyn.cfg.category as Category) : 'count';
 }
 
 function resolveFormatter(metricName: string, entityType: EntityType): (v: number) => string {
   const def = getEntityMetricDef(entityType, metricName);
   if (def) return METRIC_FORMATTERS[def.formatter as MetricFormatter];
-  if (DYNAMIC_METRIC_PREFIXES.some(p => metricName.startsWith(p))) return METRIC_FORMATTERS.costDetailed;
-  return METRIC_FORMATTERS.integer;
+  const dyn = dynamicMatch(metricName);
+  return dyn ? METRIC_FORMATTERS[dyn.cfg.formatter as MetricFormatter] : METRIC_FORMATTERS.integer;
 }
 
 function resolveLabel(metricName: string, entityType: EntityType): string {
   const def = getEntityMetricDef(entityType, metricName);
   if (def) return def.label;
-  // Dynamic metric: prettify "agentCost:generation" → "Generation Cost"
-  const colonIdx = metricName.indexOf(':');
-  if (colonIdx >= 0) {
-    const suffix = metricName.slice(colonIdx + 1);
-    return suffix.charAt(0).toUpperCase() + suffix.slice(1) + ' Cost';
-  }
-  return metricName;
+  const dyn = dynamicMatch(metricName);
+  if (!dyn) return metricName;
+  // Prettify the suffix after the prefix: split on `:`, capitalize each segment,
+  // join with ` / `, then append the registry-defined labelSuffix (e.g. " Δ Elo").
+  const suffix = metricName.slice(dyn.prefix.length);
+  const pretty = suffix
+    .split(':')
+    .filter(Boolean)
+    .map(s => s.charAt(0).toUpperCase() + s.slice(1))
+    .join(' / ');
+  return pretty + dyn.cfg.labelSuffix;
 }
 
 // U23 (use_playwright_find_bugs_ux_issues_20260422): explain what each per-purpose
