@@ -27,6 +27,7 @@ export interface CalibrationRow {
     | 'reflection'
     | 'seed_title'
     | 'seed_article'
+    | 'evaluate_and_suggest'
     | 'iterative_edit_propose'
     | 'iterative_edit_review'
     | 'iterative_edit_drift_recovery';

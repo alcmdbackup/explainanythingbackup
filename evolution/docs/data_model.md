@@ -122,7 +122,29 @@ Text variants produced during a pipeline run. Since migration 20260321000002, th
 | `cost_usd` | NUMERIC | | LLM cost for generating this variant |
 | `archived_at` | TIMESTAMPTZ | | Soft archive for arena entries |
 | `evolution_explanation_id` | UUID | FK -> `evolution_explanations(id)` | NULLABLE (oneshot entries have none) |
+| `criteria_set_used` | UUID[] | | Set of `evolution_criteria.id` values evaluated when this variant was produced via `evaluate_criteria_then_generate_from_previous_article`. NULL/empty otherwise. GIN-indexed. Migration `20260502120002`. |
+| `weakest_criteria_ids` | UUID[] | | Subset of `criteria_set_used` corresponding to the K weakest criteria the wrapper agent targeted with suggestions. NULL/empty otherwise. GIN-indexed. Migration `20260502120002`. |
 | `created_at` | TIMESTAMPTZ | NOT NULL | |
+
+### `evolution_criteria`
+
+User-defined evaluation criteria targeted by `EvaluateCriteriaThenGenerateFromPreviousArticleAgent`. DB-first entity (mirrors `evolution_prompts`); one row per criterion with a structured rubric. Migration `20260502120000`.
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | UUID | PK, default `gen_random_uuid()` | |
+| `name` | TEXT | NOT NULL, UNIQUE, CHECK `^[A-Za-z][a-zA-Z0-9_-]{0,128}$` | Stable identifier (regex enforced) |
+| `label` | TEXT | NOT NULL, default `''` | Human-readable display label |
+| `description` | TEXT | NOT NULL | Plain-language description injected into the evaluate-and-suggest prompt |
+| `min_rating` | NUMERIC | NOT NULL | Rubric scale lower bound |
+| `max_rating` | NUMERIC | NOT NULL, CHECK `max_rating > min_rating` | Rubric scale upper bound |
+| `evaluation_guidance` | JSONB | | Optional rubric `[{ score, description }, ...]` array validated by IMMUTABLE function `evolution_criteria_rubric_anchors_in_range(min_rating, max_rating, guidance)` to ensure each anchor `score` falls in `[min_rating, max_rating]` |
+| `status` | TEXT | NOT NULL, CHECK `('active','archived')` | |
+| `deleted_at` | TIMESTAMPTZ | | Soft delete timestamp (mirrors `evolution_prompts`) |
+| `created_at` | TIMESTAMPTZ | NOT NULL, default `now()` | |
+| `updated_at` | TIMESTAMPTZ | NOT NULL, default `now()`, BEFORE trigger updates on row change | |
+
+> **Cross-strategy integrity:** `validateCriteriaIds(criteriaIds, db)` (in `evolution/src/services/criteriaActions.ts`) is called from `createStrategyAction` before persisting a strategy whose iteration configs reference any criteria UUIDs. It rejects unknown, archived, or soft-deleted criteria so dispatch-time fetches via `getCriteriaForEvaluation` never hit a missing row. The same set of UUIDs is sorted (canonicalized) before being included in the strategy's `config_hash` so `[a,b]` and `[b,a]` deduplicate.
 
 ### `evolution_tactics`
 
@@ -224,7 +246,7 @@ Unified EAV (entity-attribute-value) table for all evolution metrics. Replaces s
 | Column | Type | Constraints | Description |
 |--------|------|-------------|-------------|
 | `id` | UUID | PK, default `gen_random_uuid()` | |
-| `entity_type` | TEXT | NOT NULL, CHECK `('run','invocation','variant','strategy','experiment','prompt','tactic')` | Type of entity this metric belongs to |
+| `entity_type` | TEXT | NOT NULL, CHECK `('run','invocation','variant','strategy','experiment','prompt','tactic','criteria')` | Type of entity this metric belongs to (`'criteria'` added in migration `20260502120001`; staleness cascade extended in `20260502120003`) |
 | `entity_id` | UUID | NOT NULL | FK to the entity's primary key |
 | `metric_name` | TEXT | NOT NULL | e.g. `'cost'`, `'winner_elo'`, `'median_elo'`, `'agentCost:generation'` |
 | `value` | DOUBLE PRECISION | NOT NULL | Metric value |

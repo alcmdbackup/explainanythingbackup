@@ -67,6 +67,20 @@ const REFLECTION_PROMPT_OVERHEAD = 4500;
  *  (~50 tokens) per ranked tactic. Multiplied by topN at the call site. */
 const REFLECTION_OUTPUT_CHARS_PER_RANK = 200;
 
+/** Per-criterion description overhead in the evaluation prompt: name + range +
+ *  description ≈ 200 chars before the optional rubric block. */
+const CRITERIA_DESC_CHARS_PER_ITEM = 200;
+/** Average rubric block size per criterion: ~4 anchors × ~100 chars + headers ≈ 500.
+ *  Used as the wizard-time default when fetching actual rubric sizes is impractical. */
+const EVALUATION_RUBRIC_CHARS_PER_CRITERION = 500;
+/** Static prompt overhead (preamble + structured ask) for evaluate_and_suggest. */
+const EVALUATE_AND_SUGGEST_PROMPT_OVERHEAD = 1200;
+/** Per-suggestion-block output overhead: "### Suggestion N\nCriterion:\nExample:\nIssue:\nFix:"
+ *  averages ~800 chars per block. Multiplied by weakestK at the call site. */
+const SUGGESTION_BLOCK_OUTPUT_CHARS = 800;
+/** Per-criterion score-line output overhead: "<name>: <score>" ≈ 30 chars. */
+const SCORE_LINE_OUTPUT_CHARS = 150;
+
 // ─── Estimation Functions ─────────────────────────────────────────
 
 /**
@@ -146,10 +160,40 @@ export function estimateReflectionCost(
 }
 
 /**
+ * Estimate the cost of the single combined evaluate + suggest LLM call used by
+ * EvaluateCriteriaThenGenerateFromPreviousArticleAgent.
+ *
+ * Input chars = parent + EVALUATE_AND_SUGGEST_PROMPT_OVERHEAD +
+ *               criteriaCount × (CRITERIA_DESC_CHARS_PER_ITEM + avgRubricChars)
+ * Output chars = criteriaCount × SCORE_LINE_OUTPUT_CHARS +
+ *                weakestK × SUGGESTION_BLOCK_OUTPUT_CHARS
+ *
+ * Wizard-time `avgRubricChars` is the EVALUATION_RUBRIC_CHARS_PER_CRITERION constant
+ * (no DB fetch). Runtime cost-tracker reservation can pass actual avg from the fetched
+ * criteria rows for accurate per-call reservation.
+ */
+export function estimateEvaluateAndSuggestCost(
+  seedArticleChars: number,
+  generationModel: string,
+  judgeModel: string,
+  criteriaCount: number,
+  weakestK: number,
+  avgRubricChars: number = EVALUATION_RUBRIC_CHARS_PER_CRITERION,
+): number {
+  const pricing = getModelPricing(generationModel);
+  const inputChars = seedArticleChars + EVALUATE_AND_SUGGEST_PROMPT_OVERHEAD
+    + criteriaCount * (CRITERIA_DESC_CHARS_PER_ITEM + avgRubricChars);
+  const calibrated = getCalibrationRow('__unspecified__', generationModel, judgeModel ?? '__unspecified__', 'evaluate_and_suggest');
+  const outputChars = calibrated?.avgOutputChars
+    ?? (criteriaCount * SCORE_LINE_OUTPUT_CHARS + weakestK * SUGGESTION_BLOCK_OUTPUT_CHARS);
+  return calculateCost(inputChars, outputChars, pricing);
+}
+
+/**
  * Estimate total cost of one generateFromPreviousArticle agent (generation + ranking).
- * When `useReflection: true`, also adds the reflection LLM call cost. This is the primary
- * function used by budget-aware dispatch — accurate sizing for `parallelDispatchCount`
- * depends on the reflection contribution being included for reflection iterations.
+ * When `useReflection: true`, also adds the reflection LLM call cost. When
+ * `useCriteria: true`, adds the combined evaluate-and-suggest LLM call cost. Vanilla
+ * GFPA uses neither.
  */
 export function estimateAgentCost(
   seedArticleChars: number,
@@ -162,14 +206,23 @@ export function estimateAgentCost(
   useReflection: boolean = false,
   /** Phase 3: top-N tactics the reflection ranks. Default 3 matches IterationConfig default. */
   reflectionTopN: number = 3,
+  /** Criteria-driven generation: when true, includes evaluate+suggest cost. */
+  useCriteria: boolean = false,
+  /** Number of criteria evaluated (drives input + output size of the combined call). */
+  criteriaCount: number = 0,
+  /** weakestK: how many suggestion blocks the LLM produces. */
+  weakestK: number = 1,
 ): number {
   const reflectionCost = useReflection
     ? estimateReflectionCost(seedArticleChars, generationModel, judgeModel, reflectionTopN)
     : 0;
+  const evaluationCost = useCriteria
+    ? estimateEvaluateAndSuggestCost(seedArticleChars, generationModel, judgeModel, criteriaCount, weakestK)
+    : 0;
   const genCost = estimateGenerationCost(seedArticleChars, tactic, generationModel, judgeModel);
   const variantChars = getVariantChars(tactic, generationModel, judgeModel);
   const rankCost = estimateRankingCost(variantChars, judgeModel, poolSize, maxComparisonsPerVariant);
-  return reflectionCost + genCost + rankCost;
+  return reflectionCost + evaluationCost + genCost + rankCost;
 }
 
 /**

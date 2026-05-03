@@ -19,6 +19,7 @@
 
 export { GenerateFromPreviousArticleAgent } from './generateFromPreviousArticle';
 export { ReflectAndGenerateFromPreviousArticleAgent } from './reflectAndGenerateFromPreviousArticle';
+export { EvaluateCriteriaThenGenerateFromPreviousArticleAgent } from './evaluateCriteriaThenGenerateFromPreviousArticle';
 export { SwissRankingAgent } from './SwissRankingAgent';
 export { MergeRatingsAgent } from './MergeRatingsAgent';
 export { CreateSeedArticleAgent } from './createSeedArticle';

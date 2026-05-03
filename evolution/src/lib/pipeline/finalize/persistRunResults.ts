@@ -251,6 +251,8 @@ export async function finalizeRun(
       prompt_id: run.prompt_id ?? null,
       persisted: true,
       agent_invocation_id: v.agentInvocationId ?? null,
+      criteria_set_used: v.criteriaSetUsed ? [...v.criteriaSetUsed] : null,
+      weakest_criteria_ids: v.weakestCriteriaIds ? [...v.weakestCriteriaIds] : null,
     });
   });
 
@@ -282,6 +284,8 @@ export async function finalizeRun(
         prompt_id: run.prompt_id ?? null,
         persisted: false,
         agent_invocation_id: v.agentInvocationId ?? null,
+        criteria_set_used: v.criteriaSetUsed ? [...v.criteriaSetUsed] : null,
+        weakest_criteria_ids: v.weakestCriteriaIds ? [...v.weakestCriteriaIds] : null,
       });
     });
 
@@ -456,6 +460,12 @@ export async function finalizeRun(
     // Propagation: tactic metrics (cross-run, variant-level aggregation — separate from strategy/experiment)
     const { computeTacticMetricsForRun } = await import('../../metrics/computations/tacticMetrics');
     await computeTacticMetricsForRun(db, runId);
+
+    // Propagation: criteria metrics (cross-run, variant-level aggregation —
+    // for variants tagged via criteria_set_used / weakest_criteria_ids by the
+    // EvaluateCriteriaThenGenerateFromPreviousArticleAgent wrapper).
+    const { computeCriteriaMetricsForRun } = await import('../../metrics/computations/criteriaMetrics');
+    await computeCriteriaMetricsForRun(db, runId);
   } catch (metricsErr) {
     const err = metricsErr instanceof Error ? metricsErr : null;
     logger?.warn('Finalization metrics write failed', {

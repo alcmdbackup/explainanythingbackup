@@ -48,6 +48,11 @@ export const METRIC_CATALOG = {
     timing: 'during_execution', listView: false,
     description: 'Fraction of atomic edits accepted by the Approver. Run-detail dashboard alert-colors when > EVOLUTION_EDITING_ACCEPT_RATE_ALERT_THRESHOLD (default 0.95) — rubber-stamping signal per Decisions §16.',
   },
+  evaluation_cost: {
+    name: 'evaluation_cost', label: 'Evaluation Cost', category: 'cost', formatter: 'cost',
+    timing: 'during_execution', listView: false,
+    description: 'LLM spend on evaluate_and_suggest combined-call (EvaluateCriteriaThenGenerateFromPreviousArticleAgent)',
+  },
   seed_cost: {
     name: 'seed_cost', label: 'Seed Cost', category: 'cost', formatter: 'cost',
     timing: 'during_execution', listView: true,
@@ -171,6 +176,16 @@ export const METRIC_CATALOG = {
     name: 'avg_reflection_cost_per_run', label: 'Avg Reflection Cost/Run', category: 'cost', formatter: 'cost',
     timing: 'at_propagation',
     description: 'Average reflection_cost per child run',
+  },
+  total_evaluation_cost: {
+    name: 'total_evaluation_cost', label: 'Total Evaluation Cost', category: 'cost', formatter: 'cost',
+    timing: 'at_propagation', listView: true,
+    description: 'Sum of evaluation_cost across all child runs',
+  },
+  avg_evaluation_cost_per_run: {
+    name: 'avg_evaluation_cost_per_run', label: 'Avg Evaluation Cost/Run', category: 'cost', formatter: 'cost',
+    timing: 'at_propagation',
+    description: 'Average evaluation_cost per child run',
   },
   total_seed_cost: {
     name: 'total_seed_cost', label: 'Total Seed Cost', category: 'cost', formatter: 'cost',

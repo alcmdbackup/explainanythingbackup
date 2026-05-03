@@ -49,8 +49,8 @@ The core layer defines abstract base classes for entities and agents, the centra
 | `tactics/selectTacticWeighted.ts` | Weighted random tactic selection from `generationGuidance` config. Builds a cumulative distribution and draws tactics per slot. |
 | `tactics/types.ts` | Tactic type definitions: `Tactic`, tactic category enums, tactic metadata types. |
 | `detailViewConfigs.ts` | Pure-data detail view configs (`DETAIL_VIEW_CONFIGS`) mapping agent names to `DetailFieldDef[]` arrays. Consumed by `ConfigDrivenDetailRenderer` to render invocation detail panels without per-agent custom components. |
-| `entities/` | 6 entity subclasses: `RunEntity`, `StrategyEntity`, `ExperimentEntity`, `VariantEntity`, `InvocationEntity`, `PromptEntity`. Each declares parents, children, metrics, list columns, filters, actions, and detail tabs. |
-| `agents/` | 2 agent subclasses: `GenerationAgent` (text generation phase), `RankingAgent` (triage + Swiss ranking phase). Each implements `execute()` and declares `detailViewConfig` and optional `invocationMetrics`. |
+| `entities/` | 7 entity subclasses: `RunEntity`, `StrategyEntity`, `ExperimentEntity`, `VariantEntity`, `InvocationEntity`, `PromptEntity`, `CriteriaEntity` (DB-first user-defined criteria, mirrors PromptEntity shape with custom `RubricEditor` for `evaluation_guidance`). Each declares parents, children, metrics, list columns, filters, actions, and detail tabs. |
+| `agents/` | Agent subclasses include `GenerationAgent` (text generation), `RankingAgent` (triage + Swiss ranking), `ReflectAndGenerateFromPreviousArticleAgent` (reflection wrapper), and `EvaluateCriteriaThenGenerateFromPreviousArticleAgent` (criteria-driven wrapper — combined evaluate+suggest LLM call, then `customPrompt` delegation to inner GFPA via `.execute()`). Each implements `execute()` and declares `detailViewConfig` and optional `invocationMetrics`. |
 
 ### Shared (`evolution/src/lib/shared/`)
 
@@ -106,6 +106,7 @@ Server actions and the server-side runner core. All server actions use Next.js `
 | `tacticActions.ts` | Tactic registry server actions (list + detail). `listTacticsAction` accepts `sortKey` / `sortDir` / `search` params, batch-fetches `evolution_metrics entity_type='tactic'` rows via `getMetricsForEntities`, and attaches them as `metrics: MetricRow[]` on each row for `createMetricColumns('tactic')` on the leaderboard. Metric-key sorts apply JS-side with null-last ordering. Text search uses `.ilike('name', ...)` with `%_\` escape. (track_tactic_effectiveness_evolution_20260422 Phase 2) |
 | `tacticPromptActions.ts` | Per-(tactic × prompt) performance aggregation. Returns `{ items, hitCap }` where `hitCap=true` signals the 5000-row query cap was hit and `TacticPromptPerformanceTable` renders a truncation banner (Gap 9 fix). |
 | `tacticStrategyActions.ts` | Per-(tactic × strategy) performance for the strategy detail Tactics tab. Dual-query merge: pre-aggregated `eloAttrDelta:*` rows at `entity_type='strategy'` supply Elo Delta + CI; live `evolution_variants` aggregates supply cost / variant count / winner count / win rate. Tactics with variants but no attribution row sort last with `avgEloDelta=null`. (track_tactic_effectiveness_evolution_20260422 Phase 4) |
+| `criteriaActions.ts` | Criteria registry server actions: `listCriteriaAction`, `getCriteriaDetailAction`, `createCriteriaAction`, `updateCriteriaAction`, `archiveCriteriaAction`, `deleteCriteriaAction`, `getCriteriaForEvaluation` (mid-run dispatch fetch — exported as a non-`'use server'` helper for use from the pipeline), `getCriteriaVariantsAction`, `getCriteriaRunsAction`, plus `validateCriteriaIds(criteriaIds, db)` which `createStrategyAction` calls before persisting any strategy whose iteration configs reference criteria UUIDs. Soft-delete via `deleted_at` (mirrors PromptEntity). (evaluateCriteriaThenGenerateFromPreviousArticle_20260501) |
 
 ### Schemas (`evolution/src/lib/schemas.ts`)
 
@@ -279,7 +280,24 @@ Maximum 3 retries. Per-call timeout is 20 seconds. SDK-level retries are disable
 | Script | Command | Description |
 |--------|---------|-------------|
 | Type generation | `npm run db:types` | Regenerate `src/lib/database.types.ts` from staging DB (requires `SUPABASE_ACCESS_TOKEN`) |
-| Tactic sync | `npx ts-node evolution/scripts/syncSystemTactics.ts` | Upserts all 24 system-defined tactics into the `evolution_tactics` DB table, ensuring DB rows match the code-defined tactic registry |
+| Tactic sync | `npx ts-node evolution/scripts/syncSystemTactics.ts` | Upserts all 24 system-defined tactics into the `evolution_tactics` DB table, ensuring DB rows match the code-defined tactic registry. Now also unions `MARKER_TACTICS` (e.g. `criteria_driven`) so marker rows stay in sync. |
+| Sample criteria seed | `NEXT_PUBLIC_SUPABASE_URL=$URL SUPABASE_SERVICE_ROLE_KEY=$KEY npx tsx evolution/scripts/seedSampleCriteria.ts` | One-shot seed of 7 starter criteria into `evolution_criteria`. Idempotent (`ON CONFLICT (name) DO NOTHING`). Add `--dry-run` to preview without writing. See "Sample criteria seed" below. |
+
+### Sample criteria seed
+
+`evolution/scripts/seedSampleCriteria.ts` populates `evolution_criteria` with 7 generic starter criteria so the criteria leaderboard is non-empty out of the box. Each entry includes a 3-anchor rubric (low / mid / high) so the LLM has clear scoring landmarks. Researchers can edit / archive / delete via `/admin/evolution/criteria` without re-running the script.
+
+| Name | Range | Description |
+|------|-------|-------------|
+| `clarity` | 1–10 | How easy the article is to read for the target audience |
+| `engagement` | 1–10 | How well the article holds reader attention from start to finish |
+| `structure` | 1–10 | Logical flow between sections, paragraph organization, transitions |
+| `depth` | 1–10 | Quality of detail, technical accuracy, explanation of mechanisms |
+| `tone` | 1–10 | Voice and register; consistency with the article's intent |
+| `point_of_view` | 1–10 | Whether the article takes a clear stance / has a defined perspective |
+| `sentence_variety` | 1–10 | Variation in sentence length and construction |
+
+Run once per target environment (staging then production), or with `--dry-run` first to preview. Re-running is safe — `ON CONFLICT (name) DO NOTHING` skips existing rows; researcher edits to seeded rubrics are preserved.
 
 ## CI Type Generation
 

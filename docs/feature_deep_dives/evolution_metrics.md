@@ -77,6 +77,20 @@ plus 30% safety margin. Used by `V2CostTracker.reserve()` for per-iteration budg
 `EstPerAgentValue.editing` field surfaces per-agent editing cost in the dispatch plan preview
 (mirrors PR #1017's `reflection` field).
 
+## Evaluation cost metrics
+
+`EvaluateCriteriaThenGenerateFromPreviousArticleAgent` (Shape A: `agentType: 'criteria_and_generate'`) makes ONE combined LLM call labeled `'evaluate_and_suggest'` that scores the parent article against user-defined `evolution_criteria` rows AND drafts fix suggestions for the K weakest criteria in the same response, then delegates to GFPA. Its cost surfaces through metric rows that mirror the reflection/generation/ranking pattern:
+
+| Metric | Entity | Aggregation | Description |
+|--------|--------|-------------|-------------|
+| `evaluation_cost` | run | (live write) | Sum of `'evaluate_and_suggest'`-labeled LLM spend in the run, written incrementally via `writeMetricMax`. |
+| `total_evaluation_cost` | strategy / experiment / criteria | sum | Cumulative evaluation spend (criteria-level: only invocations that scored this criterion). |
+| `avg_evaluation_cost_per_run` | strategy / experiment | avg | Mean evaluation spend per run. |
+
+The label-to-metric mapping (`'evaluate_and_suggest' → 'evaluation_cost'`) is registered in `COST_METRIC_BY_AGENT` at `evolution/src/lib/core/agentNames.ts`. Per-invocation totals are also written to the wrapper's `execution_detail.evaluateAndSuggest` sub-object (criteriaScored + suggestions + droppedSuggestions + evaluationCost) plus a recomputed `totalCost = evaluation.cost + GFPA.totalCost` for run-level drill-down.
+
+In addition, criteria-level metrics are computed at finalization by `computeCriteriaMetricsForRun()` in `evolution/src/lib/metrics/computations/criteriaMetrics.ts`: `avg_score`, `frequency_as_weakest`, `total_variants_focused`, `avg_elo_delta_when_focused`, and `total_evaluation_cost`. Staleness cascades from variant `mu`/`sigma` changes via the trigger extension in migration `20260502120003`.
+
 ## Per-Iteration Cost Display
 
 The **Cost Estimates tab** on run detail pages now includes per-iteration cost display.

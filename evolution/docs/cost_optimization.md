@@ -234,7 +234,18 @@ Before dispatching generateFromPreviousArticle agents, the orchestrator uses emp
 
 - **Deterministic ranking cost**: `min(poolSize - 1, maxComparisonsPerVariant)` comparisons × 2 LLM calls (bias mitigation) × comparison cost. Comparison prompt = 698 chars overhead + 2 × article length.
 
-Key functions: `estimateGenerationCost()`, `estimateRankingCost()`, `estimateAgentCost()`, `estimateSwissPairCost()`.
+Key functions: `estimateGenerationCost()`, `estimateRankingCost()`, `estimateAgentCost()`, `estimateSwissPairCost()`, `estimateEvaluateAndSuggestCost()`.
+
+### Evaluate-and-Suggest Cost (evaluateCriteriaThenGenerateFromPreviousArticle_20260501)
+
+The `EvaluateCriteriaThenGenerateFromPreviousArticleAgent` adds one combined LLM call upstream of the inner GFPA dispatch. `estimateEvaluateAndSuggestCost(parentChars, gen, judge, criteriaCount, weakestK, avgRubricChars)` accounts for:
+
+- **Prompt overhead** — fixed `EVALUATE_AND_SUGGEST_PROMPT_OVERHEAD` chars for header/instructions
+- **Per-criterion description** — `criteriaCount × CRITERIA_DESC_CHARS_PER_ITEM`
+- **Per-criterion rubric injection** — `criteriaCount × avgRubricChars` (avg from the actual `evaluation_guidance.anchors[]` payload, not a fixed constant; rubrics with more/longer anchors cost proportionally more)
+- **Output** — per-criterion score line (`SCORE_LINE_OUTPUT_CHARS`) for ALL criteria + `weakestK × SUGGESTION_BLOCK_OUTPUT_CHARS`. `OUTPUT_TOKEN_ESTIMATES.evaluate_and_suggest = 2300` covers this cap.
+
+`estimateAgentCost(useCriteria, criteriaCount, weakestK)` extends the dispatch-plan projector — when `useCriteria` is true, it adds the evaluate-and-suggest cost to the GFPA cost rather than replacing it. `EstPerAgentValue` carries an `evaluation` field alongside `generation` and `ranking` so the projector and admin "Cost Estimates" tab can break out the new phase. The calibration ladder (`evolution/src/lib/pipeline/infra/createEvolutionLLMClient.ts`) and `costCalibrationLoader.ts` phase enum both include `'evaluate_and_suggest'` so DB-backed calibration values can override the hardcoded constants once enough samples exist.
 
 ### Budget-Aware Dispatch
 

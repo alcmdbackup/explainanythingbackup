@@ -570,4 +570,116 @@ describe('projectDispatchPlan', () => {
       expect(plan[0]!.expectedTopUpDispatch).toBe(0);
     });
   });
+
+  // evaluateCriteriaThenGenerateFromPreviousArticle_20260501:
+  // a 'criteria_and_generate' iteration adds the combined evaluate+suggest LLM call cost
+  // to estPerAgent.evaluation; vanilla 'generate' has evaluation=0.
+  describe('criteria_and_generate branch', () => {
+    const C1 = '00000000-0000-4000-8000-0000000000c1';
+    const C2 = '00000000-0000-4000-8000-0000000000c2';
+    const C3 = '00000000-0000-4000-8000-0000000000c3';
+
+    it('criteria_and_generate adds evaluation cost; generate omits it', () => {
+      const planGenerate = projectDispatchPlan(
+        baseConfig({
+          iterationConfigs: [{ agentType: 'generate', budgetPercent: 100 }],
+        }),
+        baseCtx(),
+      );
+      const planCriteria = projectDispatchPlan(
+        baseConfig({
+          iterationConfigs: [
+            { agentType: 'criteria_and_generate', budgetPercent: 100, criteriaIds: [C1, C2, C3], weakestK: 1 },
+          ],
+        }),
+        baseCtx(),
+      );
+      expect(planGenerate[0]!.estPerAgent.upperBound.evaluation).toBe(0);
+      expect(planGenerate[0]!.estPerAgent.expected.evaluation).toBe(0);
+      expect(planCriteria[0]!.estPerAgent.upperBound.evaluation).toBeGreaterThan(0);
+      expect(planCriteria[0]!.estPerAgent.expected.evaluation).toBeGreaterThan(0);
+    });
+
+    it('criteria_and_generate total upperBound = generate total + evaluation', () => {
+      const planGenerate = projectDispatchPlan(
+        baseConfig({
+          iterationConfigs: [{ agentType: 'generate', budgetPercent: 100 }],
+        }),
+        baseCtx(),
+      );
+      const planCriteria = projectDispatchPlan(
+        baseConfig({
+          iterationConfigs: [
+            { agentType: 'criteria_and_generate', budgetPercent: 100, criteriaIds: [C1, C2, C3], weakestK: 1 },
+          ],
+        }),
+        baseCtx(),
+      );
+      const evalAdd = planCriteria[0]!.estPerAgent.upperBound.evaluation;
+      // total may also differ via gen mix (criteria_driven vs default tactics) — assert
+      // evaluation contribution is at least present:
+      expect(planCriteria[0]!.estPerAgent.upperBound.total).toBeGreaterThan(
+        planGenerate[0]!.estPerAgent.upperBound.total,
+      );
+      expect(evalAdd).toBeGreaterThan(0);
+    });
+
+    it('plan entry preserves criteria_and_generate agentType', () => {
+      const plan = projectDispatchPlan(
+        baseConfig({
+          iterationConfigs: [
+            { agentType: 'criteria_and_generate', budgetPercent: 60, criteriaIds: [C1, C2, C3], weakestK: 2 },
+            { agentType: 'swiss', budgetPercent: 40 },
+          ],
+        }),
+        baseCtx(),
+      );
+      expect(plan[0]!.agentType).toBe('criteria_and_generate');
+      expect(plan[1]!.agentType).toBe('swiss');
+    });
+
+    it('higher criteriaCount → higher evaluation cost', () => {
+      const small = projectDispatchPlan(
+        baseConfig({
+          iterationConfigs: [
+            { agentType: 'criteria_and_generate', budgetPercent: 100, criteriaIds: [C1], weakestK: 1 },
+          ],
+        }),
+        baseCtx(),
+      );
+      const large = projectDispatchPlan(
+        baseConfig({
+          iterationConfigs: [
+            { agentType: 'criteria_and_generate', budgetPercent: 100, criteriaIds: [C1, C2, C3], weakestK: 1 },
+          ],
+        }),
+        baseCtx(),
+      );
+      expect(large[0]!.estPerAgent.upperBound.evaluation).toBeGreaterThan(
+        small[0]!.estPerAgent.upperBound.evaluation,
+      );
+    });
+
+    it('higher weakestK → higher evaluation cost (output size)', () => {
+      const k1 = projectDispatchPlan(
+        baseConfig({
+          iterationConfigs: [
+            { agentType: 'criteria_and_generate', budgetPercent: 100, criteriaIds: [C1, C2, C3], weakestK: 1 },
+          ],
+        }),
+        baseCtx(),
+      );
+      const k3 = projectDispatchPlan(
+        baseConfig({
+          iterationConfigs: [
+            { agentType: 'criteria_and_generate', budgetPercent: 100, criteriaIds: [C1, C2, C3], weakestK: 3 },
+          ],
+        }),
+        baseCtx(),
+      );
+      expect(k3[0]!.estPerAgent.upperBound.evaluation).toBeGreaterThan(
+        k1[0]!.estPerAgent.upperBound.evaluation,
+      );
+    });
+  });
 });

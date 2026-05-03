@@ -370,4 +370,77 @@ describe('GenerateFromPreviousArticleAgent', () => {
     const labels = calls.map(c => c[1]);
     expect(labels).toContain('generation');
   });
+
+  // ─── customPrompt override + criteria propagation (Phase 6) ────────────
+
+  describe('customPrompt override', () => {
+    it('uses customPrompt preamble + instructions when set, bypassing tactic-based prompt', async () => {
+      const llm = mkLlm();
+      const input = {
+        ...makeInput(),
+        llm,
+        tactic: 'criteria_driven',
+        customPrompt: {
+          preamble: 'CUSTOM_PREAMBLE_TOKEN_xyz',
+          instructions: 'CUSTOM_INSTRUCTIONS_TOKEN_abc',
+        },
+      };
+      const agent = new GenerateFromPreviousArticleAgent();
+      const result = await agent.run(input, makeCtx());
+      expect(result.success).toBe(true);
+      const generationCall = (llm.complete as jest.Mock).mock.calls.find(c => c[1] === 'generation');
+      expect(generationCall).toBeDefined();
+      const prompt = generationCall![0] as string;
+      expect(prompt).toContain('CUSTOM_PREAMBLE_TOKEN_xyz');
+      expect(prompt).toContain('CUSTOM_INSTRUCTIONS_TOKEN_abc');
+    });
+
+    it('vanilla path (no customPrompt) does not include criteria_driven artifacts', async () => {
+      // Confirms the override branch is opt-in.
+      const llm = mkLlm();
+      const agent = new GenerateFromPreviousArticleAgent();
+      await agent.run({ ...makeInput(), llm }, makeCtx());
+      const generationCall = (llm.complete as jest.Mock).mock.calls.find(c => c[1] === 'generation');
+      const prompt = generationCall![0] as string;
+      expect(prompt).not.toContain('CUSTOM_PREAMBLE_TOKEN');
+    });
+
+    it('throws when tactic="criteria_driven" without customPrompt (misconfiguration guard)', async () => {
+      const input = { ...makeInput(), tactic: 'criteria_driven' };
+      const agent = new GenerateFromPreviousArticleAgent();
+      // Agent.run() re-throws non-budget errors after recording them on the invocation row.
+      await expect(agent.run(input, makeCtx())).rejects.toThrow(/criteria_driven.*customPrompt|customPrompt.*reserved/);
+    });
+  });
+
+  describe('criteria fields propagate to variant', () => {
+    it('passes criteriaSetUsed + weakestCriteriaIds through createVariant when set', async () => {
+      const criteriaIds = [
+        '00000000-0000-4000-8000-000000000aaa',
+        '00000000-0000-4000-8000-000000000bbb',
+        '00000000-0000-4000-8000-000000000ccc',
+      ];
+      const weakestIds = [criteriaIds[0]!, criteriaIds[1]!];
+      const input = {
+        ...makeInput(),
+        tactic: 'criteria_driven',
+        customPrompt: { preamble: 'p', instructions: 'i' },
+        criteriaSetUsed: criteriaIds,
+        weakestCriteriaIds: weakestIds,
+      };
+      const agent = new GenerateFromPreviousArticleAgent();
+      const result = await agent.run(input, makeCtx());
+      expect(result.success).toBe(true);
+      expect(result.result?.variant?.criteriaSetUsed).toEqual(criteriaIds);
+      expect(result.result?.variant?.weakestCriteriaIds).toEqual(weakestIds);
+      expect(result.result?.variant?.tactic).toBe('criteria_driven');
+    });
+
+    it('omits criteria fields on variant when input doesn\'t set them (vanilla path)', async () => {
+      const agent = new GenerateFromPreviousArticleAgent();
+      const result = await agent.run(makeInput(), makeCtx());
+      expect(result.result?.variant?.criteriaSetUsed).toBeUndefined();
+      expect(result.result?.variant?.weakestCriteriaIds).toBeUndefined();
+    });
+  });
 });

@@ -116,6 +116,8 @@ class GenerateFromPreviousArticleAgent extends Agent<...> {
 
 Non-variant-producing agents (swiss, merge, seed) keep the default `null`.
 
+`ReflectAndGenerateFromPreviousArticleAgent.getAttributionDimension` returns `detail.tactic` (mirroring inner GFPA — variants from each agent get separate `eloAttrDelta:<agent>:<tactic>` rows). `EvaluateCriteriaThenGenerateFromPreviousArticleAgent.getAttributionDimension` returns `detail.weakestCriteriaNames[0]` so the primary weakness becomes the attribution dimension; `eloAttrDelta:evaluate_criteria_then_generate_from_previous_article:<criteriaName>` rows surface in the run-level attribution charts. Variants produced through the criteria-driven wrapper additionally carry the new `criteria_set_used` UUID[] and `weakest_criteria_ids` UUID[] columns on `evolution_variants` (GIN-indexed) so per-criterion metric aggregation can find them via array-contains queries.
+
 ### Aggregation
 
 `computeEloAttributionMetrics` in `evolution/src/lib/metrics/experimentMetrics.ts` runs as part of `computeRunMetrics`:

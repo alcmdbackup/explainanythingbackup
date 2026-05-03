@@ -48,6 +48,17 @@ export interface GenerateFromPreviousInput {
   cache: Map<string, ComparisonResult>;
   /** ID of the parent variant that this generation is derived from. */
   parentVariantId: string;
+  /** Optional override: when set, GFPA bypasses buildPromptForTactic and uses these
+   *  preamble + instructions directly via buildEvolutionPrompt. Used by the
+   *  EvaluateCriteriaThenGenerateFromPreviousArticleAgent wrapper to feed
+   *  LLM-generated suggestions into generation. ALWAYS pair with a sentinel `tactic`
+   *  name (e.g. 'criteria_driven') so variant tagging stays consistent. */
+  customPrompt?: { preamble: string; instructions: string };
+  /** Criteria-driven generation: full set of criteria UUIDs the wrapper evaluated.
+   *  Threaded through to createVariant() so the variant row carries the lineage. */
+  criteriaSetUsed?: ReadonlyArray<string>;
+  /** Criteria-driven generation: subset auto-picked as the focus for suggestions. */
+  weakestCriteriaIds?: ReadonlyArray<string>;
 }
 
 export type GenerateFromPreviousOutput = {
@@ -172,7 +183,21 @@ export class GenerateFromPreviousArticleAgent extends Agent<
       surfaced: false,
     });
 
-    const prompt = buildPromptForTactic(parentText, tactic);
+    // Phase 6 misconfiguration guard: tactic='criteria_driven' is a marker reserved for
+    // EvaluateCriteriaThenGenerateFromPreviousArticleAgent — it always passes customPrompt.
+    // If a strategy is misconfigured (e.g., agentType='generate' with stale tactic from
+    // wizard agent-type switching), throw rather than silently produce a no-op invocation.
+    if (tactic === 'criteria_driven' && input.customPrompt === undefined) {
+      throw new Error(
+        "GFPA dispatched with tactic='criteria_driven' but no customPrompt — "
+        + "this tactic is reserved for the EvaluateCriteriaThenGenerateFromPreviousArticleAgent "
+        + "wrapper, which always passes customPrompt. Strategy configuration error.",
+      );
+    }
+
+    const prompt = input.customPrompt
+      ? buildEvolutionPrompt(input.customPrompt.preamble, 'Original Text', parentText, input.customPrompt.instructions)
+      : buildPromptForTactic(parentText, tactic);
     if (prompt === null) {
       return {
         result: { variant: null, status: 'generation_failed', surfaced: false, matches: [] },
@@ -229,6 +254,8 @@ export class GenerateFromPreviousArticleAgent extends Agent<
       parentIds: input.parentVariantId ? [input.parentVariantId] : [],
       version: 0,
       ...(ctx.invocationId ? { agentInvocationId: ctx.invocationId } : {}),
+      ...(input.criteriaSetUsed !== undefined && { criteriaSetUsed: input.criteriaSetUsed }),
+      ...(input.weakestCriteriaIds !== undefined && { weakestCriteriaIds: input.weakestCriteriaIds }),
     });
 
     const rankingStartTime = Date.now();

@@ -17,6 +17,8 @@ import {
   ReflectAndGenerateFromPreviousArticleAgent,
   type TacticCandidate,
 } from '../../core/agents/reflectAndGenerateFromPreviousArticle';
+import { EvaluateCriteriaThenGenerateFromPreviousArticleAgent } from '../../core/agents/evaluateCriteriaThenGenerateFromPreviousArticle';
+import { getCriteriaForEvaluation, type EvolutionCriterionRow } from '../../../services/criteriaActions';
 import { SwissRankingAgent, type SwissRankingMatchEntry } from '../../core/agents/SwissRankingAgent';
 import { MergeRatingsAgent, type MergeMatchEntry } from '../../core/agents/MergeRatingsAgent';
 import { swissPairing, pairKey, MAX_PAIRS_PER_ROUND } from './swissPairing';
@@ -90,7 +92,7 @@ function topKUncertainties(ratings: ReadonlyMap<string, Rating>, k: number): num
 
 function recordSnapshot(
   iteration: number,
-  iterationType: 'generate' | 'reflect_and_generate' | 'iterative_editing' | 'swiss',
+  iterationType: 'generate' | 'reflect_and_generate' | 'criteria_and_generate' | 'iterative_editing' | 'swiss',
   phase: 'start' | 'end',
   pool: ReadonlyArray<Variant>,
   ratings: ReadonlyMap<string, Rating>,
@@ -336,7 +338,7 @@ export async function evolveArticle(
       // sharing the same parallel-batch + top-up + merge dispatch shape. The only
       // difference is which agent class gets dispatched per call (decided inside
       // dispatchOneAgent below based on `reflectionEnabled`).
-      if (iterType === 'generate' || iterType === 'reflect_and_generate') {
+      if (iterType === 'generate' || iterType === 'reflect_and_generate' || iterType === 'criteria_and_generate') {
         // ─── Generate / reflect-and-generate iteration ────────
         // Phase 7b: restructured to accumulate parallel + top-up match buffers, then
         // invoke MergeRatingsAgent ONCE at iteration end over the combined buffers.
@@ -376,6 +378,20 @@ export async function evolveArticle(
           }
         }
 
+        // Phase 4: pre-fetch criteria rows ONCE per iteration when this is a
+        // criteria_and_generate iteration. Same Map shared across all parallel agents.
+        let evaluationCriteria: Map<string, EvolutionCriterionRow> = new Map();
+        if (iterCfg.agentType === 'criteria_and_generate' && iterCfg.criteriaIds && iterCfg.criteriaIds.length > 0) {
+          try {
+            evaluationCriteria = await getCriteriaForEvaluation(db, iterCfg.criteriaIds, logger);
+          } catch (err) {
+            logger.warn('Phase 4 criteria fetch failed; iteration will fail at validation', {
+              phaseName: 'criteria_prep',
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+        }
+
         // Budget-aware parallel-batch size: compute how many agents we can afford
         // within iteration budget AT UPPER-BOUND cost (reservation safety).
         // Phase 3 of develop_reflection_and_generateFromParentArticle_agent_evolution_20260430:
@@ -384,10 +400,14 @@ export async function evolveArticle(
         // iteration-scoped reflectionEnabled/reflectionTopN values resolved above.
         const availBudget = iterTracker.getAvailableBudget();
         const maxComp = resolvedConfig.maxComparisonsPerVariant ?? 15;
+        const useCriteria = iterCfg.agentType === 'criteria_and_generate';
+        const criteriaCount = iterCfg.criteriaIds?.length ?? 0;
+        const weakestK = iterCfg.weakestK ?? 1;
         const estPerAgent = estimateAgentCost(
           originalText.length, tactics[0]!, resolvedConfig.generationModel,
           resolvedConfig.judgeModel, pool.length, maxComp,
           reflectionEnabled, reflectionTopN,
+          useCriteria, criteriaCount, weakestK,
         );
         const maxAffordable = Math.max(1, Math.floor(availBudget / estPerAgent));
         // DISPATCH_SAFETY_CAP is a defense-in-depth rail; budget is the primary governor.
@@ -485,6 +505,20 @@ export async function evolveArticle(
           // Phase 7: branch agent + input shape based on iteration's reflection config.
           // Both branches share the same ctxForAgent and the same parent-resolution path
           // — only the agent class and input differ.
+          if (iterCfg.agentType === 'criteria_and_generate') {
+            const wrapperAgent = new EvaluateCriteriaThenGenerateFromPreviousArticleAgent();
+            return wrapperAgent.run({
+              parentText: resolved.text,
+              parentVariantId: resolved.variantId,
+              criteria: Array.from(evaluationCriteria.values()),
+              criteriaIds: iterCfg.criteriaIds ?? [],
+              weakestK: iterCfg.weakestK ?? 1,
+              initialPool: initialPoolSnapshot,
+              initialRatings: initialRatingsSnapshot,
+              initialMatchCounts: initialMatchCountsSnapshot,
+              cache: comparisonCache,
+            }, ctxForAgent);
+          }
           if (reflectionEnabled) {
             const shuffleSeed = deriveSeed(randomSeed, `iter${iteration}`, `reflect_shuffle${execOrder}`);
             const rng = new SeededRandom(shuffleSeed);

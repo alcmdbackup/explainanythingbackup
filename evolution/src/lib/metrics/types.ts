@@ -10,7 +10,7 @@ import type { AgentName } from '../core/agentNames';
 
 // ─── Entity & Metric Name Types ─────────────────────────────────
 
-export const ENTITY_TYPES = ['run', 'invocation', 'variant', 'strategy', 'experiment', 'prompt', 'tactic'] as const;
+export const ENTITY_TYPES = ['run', 'invocation', 'variant', 'strategy', 'experiment', 'prompt', 'tactic', 'criteria'] as const;
 export type EntityType = typeof ENTITY_TYPES[number];
 
 export const AGGREGATION_METHODS = ['sum', 'avg', 'max', 'min', 'count', 'bootstrap_mean', 'bootstrap_percentile'] as const;
@@ -51,6 +51,8 @@ export const STATIC_METRIC_NAMES = [
   'total_reflection_cost', 'avg_reflection_cost_per_run',
   'total_iterative_edit_cost', 'avg_iterative_edit_cost_per_run',
   'total_seed_cost', 'avg_seed_cost_per_run',
+  // Run-level evaluation cost (single combined LLM call by the criteria-driven wrapper)
+  'evaluation_cost', 'total_evaluation_cost', 'avg_evaluation_cost_per_run',
   'avg_final_elo', 'best_final_elo', 'worst_final_elo',
   'avg_median_elo', 'avg_p90_elo', 'best_max_elo',
   'avg_matches_per_run', 'avg_decisive_rate',
@@ -70,6 +72,8 @@ export const STATIC_METRIC_NAMES = [
   // Tactic metrics
   'avg_elo', 'avg_elo_delta', 'best_elo', 'win_rate',
   'total_variants', 'winner_count',
+  // Criteria metrics (run_count already declared above)
+  'avg_score', 'frequency_as_weakest', 'total_variants_focused', 'avg_elo_delta_when_focused',
 ] as const;
 export type StaticMetricName = typeof STATIC_METRIC_NAMES[number];
 /**

@@ -62,6 +62,10 @@ const SHARED_PROPAGATION_DEFS: EntityMetricRegistry['atPropagation'] = [
     sourceMetric: 'seed_cost', sourceEntity: 'run', aggregate: aggregateSum, aggregationMethod: 'sum' },
   { name: 'avg_seed_cost_per_run', label: 'Avg Seed Cost/Run', category: 'cost', formatter: 'cost',
     sourceMetric: 'seed_cost', sourceEntity: 'run', aggregate: aggregateAvg, aggregationMethod: 'avg' },
+  { name: 'total_evaluation_cost', label: 'Total Evaluation Cost', category: 'cost', formatter: 'cost', listView: true,
+    sourceMetric: 'evaluation_cost', sourceEntity: 'run', aggregate: aggregateSum, aggregationMethod: 'sum' },
+  { name: 'avg_evaluation_cost_per_run', label: 'Avg Evaluation Cost/Run', category: 'cost', formatter: 'cost',
+    sourceMetric: 'evaluation_cost', sourceEntity: 'run', aggregate: aggregateAvg, aggregationMethod: 'avg' },
   // Rating — from run.winner_elo
   { name: 'avg_final_elo', label: 'Avg Winner Elo', category: 'rating', formatter: 'elo', listView: true,
     sourceMetric: 'winner_elo', sourceEntity: 'run', aggregate: aggregateBootstrapMean, aggregationMethod: 'bootstrap_mean' },
@@ -144,6 +148,8 @@ export const METRIC_REGISTRY: Record<EntityType, EntityMetricRegistry> = {
       { name: 'iterative_edit_recovery_success_rate', label: 'Edit Recovery Success Rate', category: 'cost', formatter: 'integer',
         compute: () => 0 },
       { name: 'iterative_edit_accept_rate', label: 'Edit Accept Rate', category: 'cost', formatter: 'integer',
+        compute: () => 0 },
+      { name: 'evaluation_cost', label: 'Evaluation Cost', category: 'cost', formatter: 'cost',
         compute: () => 0 },
       { name: 'seed_cost', label: 'Seed Cost', category: 'cost', formatter: 'cost',
         listView: true, compute: () => 0 },
@@ -247,6 +253,19 @@ export const METRIC_REGISTRY: Record<EntityType, EntityMetricRegistry> = {
       { name: 'total_cost', label: 'Total Cost', category: 'cost', formatter: 'cost', listView: false, compute: () => null },
       { name: 'run_count', label: 'Runs', category: 'count', formatter: 'integer', listView: true, compute: () => null },
       { name: 'winner_count', label: 'Winners', category: 'count', formatter: 'integer', listView: false, compute: () => null },
+    ],
+    atPropagation: [],
+  },
+  criteria: {
+    duringExecution: [],
+    // Criteria metrics computed externally by computeCriteriaMetricsForRun (Phase 1G).
+    // Defs here exist for formatter/label/listView metadata; compute() returns null.
+    atFinalization: [
+      { name: 'avg_score', label: 'Avg Score', category: 'rating', formatter: 'integer', listView: true, compute: () => null },
+      { name: 'frequency_as_weakest', label: 'Frequency as Weakest', category: 'rating', formatter: 'percent', listView: true, compute: () => null },
+      { name: 'total_variants_focused', label: 'Variants Focused', category: 'count', formatter: 'integer', listView: true, compute: () => null },
+      { name: 'avg_elo_delta_when_focused', label: 'Δ Elo Focused', category: 'rating', formatter: 'elo', listView: true, compute: () => null },
+      { name: 'run_count', label: 'Runs', category: 'count', formatter: 'integer', listView: true, compute: () => null },
     ],
     atPropagation: [],
   },

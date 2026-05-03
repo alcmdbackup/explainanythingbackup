@@ -49,10 +49,11 @@ By end of week 1, you should be able to:
 
 ### Reading
 
-1. **[Agents Overview](./agents/overview.md)** — The three agent phases:
+1. **[Agents Overview](./agents/overview.md)** — The three agent phases plus two wrapper agents:
    - **Generate:** creates new article variants from the prompt
    - **Rank:** compares variants pairwise using LLM judges
    - **Evolve:** improves top variants using feedback from rankings
+   - **Wrapper agents:** `ReflectAndGenerateFromPreviousArticleAgent` (reflection-driven tactic selection) and `EvaluateCriteriaThenGenerateFromPreviousArticleAgent` (criteria-scored revision targeting the K weakest dimensions; see Glossary entry for **Criteria**)
    - How agent prompts are structured and what context they receive
 
 2. **[Rating & Comparison](./rating_and_comparison.md)** — The statistical engine behind ranking:
@@ -239,6 +240,7 @@ Key terms used throughout the Evolution documentation and codebase.
 | **Rating** | Public type `{elo: number, uncertainty: number}` — both on the Elo scale. Defaults: `{elo: 1200, uncertainty: 400/3 ≈ 133.33}`. Replaces the former OpenSkill-native `{mu, sigma}` shape on the public API. |
 | **Strategy** | A named config entity (`evolution_strategies` table) that defines how a run executes — which LLM to use, iteration count, budget cap, and other parameters. Not to be confused with *tactic* (see below). |
 | **Tactic** | A text transformation applied during the generation phase (e.g., `lexical_simplify`, `grounding_enhance`, `compression_distill`). There are 24 tactics organized into 7 categories. A single strategy run uses multiple tactics per iteration. Defined in `evolution/src/lib/core/tactics/`. |
+| **Criteria** | A user-defined evaluation dimension (e.g., `clarity`, `engagement`, `depth`) used by the `EvaluateCriteriaThenGenerateFromPreviousArticleAgent` to score a parent article and target the K weakest dimensions for revision. Stored in `evolution_criteria` (DB-first, soft-delete via `deleted_at`); each row carries an optional rubric (`evaluation_guidance`) of `{score, description}` anchors. Selected per-iteration via `agentType: 'criteria_and_generate'` + `criteriaIds` + `weakestK` on `IterationConfig`. See [Agents Overview](./agents/overview.md#evaluatecriteriathengeneratefrompreviousarticleagent-evaluatecriteriathengeneratefrompreviousarticle_20260501). |
 | **Swiss pairing** | Tournament-style matching where variants with similar ratings are paired for comparison. Produces more informative comparisons than random pairing. Used after triage. |
 | **Triage** | Initial calibration phase for newly created variants. Pairs new variants against stratified opponents (spread across the rating range) to quickly establish a rough rating before entering Swiss pairing. |
 | **Uncertainty** | The Elo-scale standard deviation around a variant's `elo`. Lower means more confident in the estimate. Provides a 95% CI of `elo ± 1.96 * uncertainty`. Replaces the former `sigma` field on the public API. |

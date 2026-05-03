@@ -22,6 +22,9 @@ const COMPARISON_COLOR = '#a78bfa'; // lighter purple
 // Phase 10 of develop_reflection_and_generateFromParentArticle_agent_evolution_20260430:
 // the wrapper agent prepends a reflection LLM call, rendered as an amber bar.
 const REFLECTION_COLOR = '#f59e0b'; // amber
+// Criteria-driven wrapper: single combined evaluate + suggest LLM call rendered as
+// an emerald bar (one phase, not two — sourced from one LLM response).
+const EVALUATE_AND_SUGGEST_COLOR = '#10b981'; // emerald
 const COMPARISON_BUCKET_THRESHOLD = 20;
 const COMPARISON_BUCKET_SIZE = 5;
 
@@ -129,14 +132,24 @@ export function InvocationTimelineTab({ invocation }: InvocationTimelineTabProps
   const reflection = (detail?.reflection as Record<string, unknown> | undefined) ?? null;
   const reflectionDurationMs = reflection?.durationMs as number | undefined;
 
-  // Phase bar total = reflection + generation + ranking, fallback to invocation total.
+  // Criteria-driven wrapper: single combined evaluate + suggest sub-object.
+  const evaluateAndSuggest = (detail?.evaluateAndSuggest as Record<string, unknown> | undefined) ?? null;
+  const evaluateAndSuggestDurationMs = evaluateAndSuggest?.durationMs as number | undefined;
+
+  // Phase bar total = reflection + evaluate-and-suggest + generation + ranking,
+  // fallback to invocation total. (Reflection and evaluate-and-suggest are mutually
+  // exclusive in practice — one wrapper agent uses each.)
   const phaseTotalMs =
-    (reflectionDurationMs ?? 0) + (generationDurationMs ?? 0) + (rankingDurationMs ?? 0) ||
+    (reflectionDurationMs ?? 0)
+    + (evaluateAndSuggestDurationMs ?? 0)
+    + (generationDurationMs ?? 0)
+    + (rankingDurationMs ?? 0) ||
     invocation.duration_ms ||
     1;
 
-  // Bar startMs offsets account for the reflection phase coming first.
-  const generationStartMs = reflectionDurationMs ?? 0;
+  // Bar startMs offsets account for the wrapper-prefix phase coming first.
+  const wrapperPrefixMs = (reflectionDurationMs ?? 0) + (evaluateAndSuggestDurationMs ?? 0);
+  const generationStartMs = wrapperPrefixMs;
   const rankingStartMs = generationStartMs + (generationDurationMs ?? 0);
 
   const comparisons = ((ranking?.comparisons as ComparisonRecord[] | undefined) ?? []);
@@ -179,6 +192,17 @@ export function InvocationTimelineTab({ invocation }: InvocationTimelineTabProps
                 label={`Refl ${fmtMs(reflectionDurationMs)}`}
                 tooltip={`Reflection phase (1 LLM call to pick tactic)\nDuration: ${fmtMs(reflectionDurationMs)}\nCost: ${(reflection?.cost as number | undefined)?.toFixed(4) ?? '—'}`}
                 testId="timeline-reflection-bar"
+              />
+            )}
+            {evaluateAndSuggestDurationMs != null && (
+              <GanttBar
+                startMs={0}
+                durationMs={evaluateAndSuggestDurationMs}
+                totalMs={phaseTotalMs}
+                color={EVALUATE_AND_SUGGEST_COLOR}
+                label={`Eval & Suggest ${fmtMs(evaluateAndSuggestDurationMs)}`}
+                tooltip={`Combined evaluate + suggest phase (1 LLM call)\nDuration: ${fmtMs(evaluateAndSuggestDurationMs)}\nCost: ${(evaluateAndSuggest?.cost as number | undefined)?.toFixed(4) ?? '—'}`}
+                testId="timeline-evaluate-and-suggest-bar"
               />
             )}
             {generationDurationMs != null && (

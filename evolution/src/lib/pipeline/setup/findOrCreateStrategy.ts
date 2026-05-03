@@ -42,6 +42,18 @@ function canonicalizeIterationConfig(
   if (iterCfg.reflectionTopN !== undefined && iterCfg.agentType === 'reflect_and_generate') {
     out.reflectionTopN = iterCfg.reflectionTopN;
   }
+  // criteriaIds + weakestK only meaningful when the agent IS the criteria wrapper.
+  // Decision (committed): SORT criteriaIds before hashing — two strategies referencing
+  // the same set of criteria in different orders are semantically equivalent (the wrapper
+  // evaluates ALL configured criteria regardless of order; weakest-K selection is
+  // deterministic on score).
+  if (iterCfg.criteriaIds !== undefined && iterCfg.criteriaIds.length > 0
+      && iterCfg.agentType === 'criteria_and_generate') {
+    out.criteriaIds = [...iterCfg.criteriaIds].sort();
+  }
+  if (iterCfg.weakestK !== undefined && iterCfg.agentType === 'criteria_and_generate') {
+    out.weakestK = iterCfg.weakestK;
+  }
   return out;
 }
 

@@ -121,6 +121,10 @@ export const TACTIC_PALETTE: Record<string, string> = {
 
   // Special (non-tactic variant types)
   seed_variant: '#94a3b8',          // slate
+  mutate_clarity: '#a855f7',        // purple (legacy evolve)
+  crossover: '#a855f7',            // purple (legacy evolve)
+  mutate_engagement: '#a855f7',     // purple (legacy evolve)
+  criteria_driven: '#6366f1',       // indigo — marker tactic for criteria_and_generate variants
 
   // Tree search prefixed variants
   tree_search_edit_dimension: '#eab308',
@@ -129,6 +133,36 @@ export const TACTIC_PALETTE: Record<string, string> = {
   tree_search_grounding_enhance: '#f97316',
   tree_search_creative: '#ec4899',
 };
+
+// ─── Marker tactics (DB-only; not used for prompt construction) ──
+//
+// MARKER_TACTICS is the registry of "tactic names" that exist as evolution_tactics
+// rows for leaderboard / arena Tactic-column UUID resolution but are NOT used by
+// buildPromptForTactic. Variants tagged with these names are produced by specialized
+// agents (e.g. EvaluateCriteriaThenGenerateFromPreviousArticleAgent) that build
+// their own customPrompt via the GenerateFromPreviousInput.customPrompt override.
+//
+// LOAD-BEARING INVARIANT: getTacticDef() (at top of this file) intentionally does
+// NOT include these — buildPromptForTactic returns null on a marker name, which
+// keeps vanilla GFPA's existing early-exit safety. A misconfigured strategy that
+// dispatches vanilla GFPA with `tactic: 'criteria_driven'` (and no customPrompt)
+// would early-exit with `status: 'generation_failed'` instead of silently producing
+// a no-op LLM call. Phase 6's runtime guard in GFPA throws a clear error in that case.
+//
+// syncSystemTactics.ts unions ALL_SYSTEM_TACTICS + MARKER_TACTICS at sync time.
+export const MARKER_TACTICS: ReadonlyArray<{
+  name: string;
+  label: string;
+  agent_type: string;
+  category: string;
+}> = [
+  {
+    name: 'criteria_driven',
+    label: 'Criteria-Driven',
+    agent_type: 'evaluate_criteria_then_generate_from_previous_article',
+    category: 'meta',
+  },
+];
 
 // ─── Default tactics ────────────────────────────────────────────
 

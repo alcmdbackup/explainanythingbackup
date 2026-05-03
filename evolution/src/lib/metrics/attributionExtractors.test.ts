@@ -40,6 +40,24 @@ describe('ATTRIBUTION_EXTRACTORS registry', () => {
     expect(extractor({})).toBeNull();
   });
 
+  it('EvaluateCriteria wrapper extractor is registered after barrel import', () => {
+    const extractor = ATTRIBUTION_EXTRACTORS['evaluate_criteria_then_generate_from_previous_article'];
+    expect(extractor).toBeDefined();
+  });
+
+  it('EvaluateCriteria extractor returns first weakestCriteriaName', () => {
+    const extractor = ATTRIBUTION_EXTRACTORS['evaluate_criteria_then_generate_from_previous_article']!;
+    expect(extractor({ weakestCriteriaNames: ['clarity', 'depth'] })).toBe('clarity');
+    expect(extractor({ weakestCriteriaNames: [] })).toBeNull();
+    expect(extractor({})).toBeNull();
+    expect(extractor(null)).toBeNull();
+  });
+
+  it('EvaluateCriteria extractor rejects names containing colon (anti-injection)', () => {
+    const extractor = ATTRIBUTION_EXTRACTORS['evaluate_criteria_then_generate_from_previous_article']!;
+    expect(extractor({ weakestCriteriaNames: ['bad:name'] })).toBeNull();
+  });
+
   it('registerAttributionExtractor is idempotent on same name', () => {
     const beforeCount = Object.keys(ATTRIBUTION_EXTRACTORS).length;
     registerAttributionExtractor('generate_from_previous_article', () => 'override');
