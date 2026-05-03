@@ -21,7 +21,7 @@ adminTest.describe('Criteria-driven invocation detail', { tag: ['@evolution', '@
   adminTest.beforeAll(async () => {
     const supabase = getEvolutionServiceClient();
 
-    const baseName = `[E2E_PIPE_${Date.now()}_${Math.floor(Math.random() * 9999)}]`;
+    const baseName = `e2e_pipe_${Date.now()}_${Math.floor(Math.random() * 9999)}_`;
     for (const i of [1, 2]) {
       const { data, error } = await supabase
         .from('evolution_criteria')

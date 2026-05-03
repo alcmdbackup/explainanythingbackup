@@ -159,6 +159,10 @@ export interface IterationPlanEntry {
   /** Absolute USD reserved by the parallel floor (computed against iterBudgetUsd, not
    *  totalBudget). 0 when no floor is configured. */
   parallelFloorUsd: number;
+  /** Number of criteria evaluated by this iteration. 0 when agentType !== 'criteria_and_generate'. */
+  criteriaCount?: number;
+  /** Number of weakest criteria the wrapper targets with suggestions. Undefined when not criteria-driven. */
+  weakestK?: number;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────
@@ -483,6 +487,7 @@ export function projectDispatchPlan(
       effectiveCap,
       poolSizeAtStart: poolSize,
       parallelFloorUsd,
+      ...(useCriteria && { criteriaCount, weakestK }),
     });
 
     // Pool grows by `expectedTotalDispatch` (parallel + projected top-up) for the next

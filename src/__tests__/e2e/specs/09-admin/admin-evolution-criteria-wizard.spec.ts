@@ -12,7 +12,7 @@ adminTest.describe('Strategy wizard — criteria_and_generate', { tag: ['@evolut
 
   adminTest.beforeAll(async () => {
     const supabase = getEvolutionServiceClient();
-    const baseName = `[E2E_WIZ_${Date.now()}_${Math.floor(Math.random() * 9999)}]`;
+    const baseName = `e2e_wiz_${Date.now()}_${Math.floor(Math.random() * 9999)}_`;
     for (const i of [1, 2, 3]) {
       const { data, error } = await supabase
         .from('evolution_criteria')

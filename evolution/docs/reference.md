@@ -280,7 +280,24 @@ Maximum 3 retries. Per-call timeout is 20 seconds. SDK-level retries are disable
 | Script | Command | Description |
 |--------|---------|-------------|
 | Type generation | `npm run db:types` | Regenerate `src/lib/database.types.ts` from staging DB (requires `SUPABASE_ACCESS_TOKEN`) |
-| Tactic sync | `npx ts-node evolution/scripts/syncSystemTactics.ts` | Upserts all 24 system-defined tactics into the `evolution_tactics` DB table, ensuring DB rows match the code-defined tactic registry |
+| Tactic sync | `npx ts-node evolution/scripts/syncSystemTactics.ts` | Upserts all 24 system-defined tactics into the `evolution_tactics` DB table, ensuring DB rows match the code-defined tactic registry. Now also unions `MARKER_TACTICS` (e.g. `criteria_driven`) so marker rows stay in sync. |
+| Sample criteria seed | `NEXT_PUBLIC_SUPABASE_URL=$URL SUPABASE_SERVICE_ROLE_KEY=$KEY npx tsx evolution/scripts/seedSampleCriteria.ts` | One-shot seed of 7 starter criteria into `evolution_criteria`. Idempotent (`ON CONFLICT (name) DO NOTHING`). Add `--dry-run` to preview without writing. See "Sample criteria seed" below. |
+
+### Sample criteria seed
+
+`evolution/scripts/seedSampleCriteria.ts` populates `evolution_criteria` with 7 generic starter criteria so the criteria leaderboard is non-empty out of the box. Each entry includes a 3-anchor rubric (low / mid / high) so the LLM has clear scoring landmarks. Researchers can edit / archive / delete via `/admin/evolution/criteria` without re-running the script.
+
+| Name | Range | Description |
+|------|-------|-------------|
+| `clarity` | 1–10 | How easy the article is to read for the target audience |
+| `engagement` | 1–10 | How well the article holds reader attention from start to finish |
+| `structure` | 1–10 | Logical flow between sections, paragraph organization, transitions |
+| `depth` | 1–10 | Quality of detail, technical accuracy, explanation of mechanisms |
+| `tone` | 1–10 | Voice and register; consistency with the article's intent |
+| `point_of_view` | 1–10 | Whether the article takes a clear stance / has a defined perspective |
+| `sentence_variety` | 1–10 | Variation in sentence length and construction |
+
+Run once per target environment (staging then production), or with `--dry-run` first to preview. Re-running is safe — `ON CONFLICT (name) DO NOTHING` skips existing rows; researcher edits to seeded rubrics are preserved.
 
 ## CI Type Generation
 

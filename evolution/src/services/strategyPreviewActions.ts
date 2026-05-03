@@ -227,6 +227,10 @@ export interface IterationPlanEntryClient {
   effectiveCap: 'budget' | 'safety_cap' | 'floor' | 'swiss' | 'eligibility';
   poolSizeAtStart: number;
   parallelFloorUsd: number;
+  /** Number of criteria evaluated. Only set when agentType === 'criteria_and_generate'. */
+  criteriaCount?: number;
+  /** Number of weakest criteria the wrapper targets with suggestions. Only set when agentType === 'criteria_and_generate'. */
+  weakestK?: number;
 }
 
 /**

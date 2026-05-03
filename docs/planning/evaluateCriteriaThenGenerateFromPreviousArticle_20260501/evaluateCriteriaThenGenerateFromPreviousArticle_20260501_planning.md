@@ -56,8 +56,8 @@ This requires: (a) a new user-defined Criteria entity with full CRUD; (b) a wrap
 ## Options Considered
 
 - [x] **Option A: One PR, 10 phases, Shape A (top-level enum value `'criteria_and_generate'`)** — **chosen**. Mirrors the reflection precedent (`develop_reflection_and_generateFromParentArticle_agent_evolution_20260430`). Zero net-new patterns; everything composes off existing scaffolding (entity registry, agent template method, hash canonicalization, attribution extractor barrel).
-- [ ] **Option B: Three sequential PRs (entity → wrapper → wizard)** — rejected. Wastes review cycles on tightly-coupled changes.
-- [ ] **Option C: Skip the criteria entity; inline criteria into `iterationConfig.criteria: Array<{name, description, ...}>`** — rejected. Loses cross-strategy reuse, prevents the leaderboard, leaks user content into the strategy hash.
+- [x] **Option B: Three sequential PRs (entity → wrapper → wizard)** — rejected. Wastes review cycles on tightly-coupled changes.
+- [x] **Option C: Skip the criteria entity; inline criteria into `iterationConfig.criteria: Array<{name, description, ...}>`** — rejected. Loses cross-strategy reuse, prevents the leaderboard, leaks user content into the strategy hash.
 
 ## Phased Execution Plan
 
@@ -78,7 +78,7 @@ DB-first user-defined entity mirroring `evolution_prompts` (NOT code-first like 
 
 Where `<TS>` is the next-available 14-digit timestamp (mirrors `migration-reorder.yml`'s `NEXT_TS=$((LATEST_ON_MAIN + 1))` increment). Each subsequent migration is `<TS+1>`, `<TS+2>`, `<TS+3>` — four consecutive integers. Lexicographic sort preserves apply order. **CI safety net**: `.github/workflows/supabase-migrations.yml`'s `db push` job applies all migrations from a clean DB on every PR that touches `supabase/migrations/`, catching ordering bugs before merge.
 
-- [ ] Create `supabase/migrations/<TS>_create_evolution_criteria.sql`:
+- [x] Create `supabase/migrations/<TS>_create_evolution_criteria.sql`:
   - Columns: `id UUID PK default gen_random_uuid()`, `name TEXT NOT NULL UNIQUE`, `description TEXT`, `min_rating NUMERIC NOT NULL`, `max_rating NUMERIC NOT NULL`, `evaluation_guidance JSONB NULL` (rubric: array of `{score, description}` anchor pairs; null/empty = no rubric), `status TEXT NOT NULL CHECK ('active','archived') default 'active'`, `is_test_content BOOLEAN NOT NULL default FALSE`, `archived_at TIMESTAMPTZ`, **`deleted_at TIMESTAMPTZ NULL`** (soft-delete per Phase 1F decision), `created_at TIMESTAMPTZ NOT NULL default now()`, `updated_at TIMESTAMPTZ NOT NULL default now()`.
   - Constraints:
     - `CHECK (max_rating > min_rating)`
@@ -88,34 +88,34 @@ Where `<TS>` is the next-available 14-digit timestamp (mirrors `migration-reorde
   - Indexes: `idx_evolution_criteria_status` (partial on `status='active'`), `idx_evolution_criteria_non_test` (partial on `is_test_content=FALSE`), `idx_evolution_criteria_name`.
   - RLS: `deny_all`, `service_role_all`, `readonly_select` (conditional on `readonly_local` role).
   - BEFORE INSERT/UPDATE-OF-name trigger calling `evolution_is_test_name(NEW.name)` (reuse function from `20260415000001_evolution_is_test_content.sql`).
-- [ ] Extend `evolution_metrics.entity_type` CHECK constraint to include `'criteria'`. New migration: `<TS+1>_extend_metrics_entity_type_for_criteria.sql` (must apply AFTER `<TS>`, before any `entity_type='criteria'` row insert).
+- [x] Extend `evolution_metrics.entity_type` CHECK constraint to include `'criteria'`. New migration: `<TS+1>_extend_metrics_entity_type_for_criteria.sql` (must apply AFTER `<TS>`, before any `entity_type='criteria'` row insert).
 
 #### Phase 1B — Variant column extensions
-- [ ] Migration `<TS+2>_evolution_variants_criteria_columns.sql`:
+- [x] Migration `<TS+2>_evolution_variants_criteria_columns.sql`:
   - `ALTER TABLE evolution_variants ADD COLUMN criteria_set_used UUID[]` (nullable).
   - `ALTER TABLE evolution_variants ADD COLUMN weakest_criteria_ids UUID[]` (nullable).
   - GIN indexes: `idx_evolution_variants_criteria_set_used` and `idx_evolution_variants_weakest_criteria_ids`.
 
 #### Phase 1C — Zod schemas
-- [ ] Add `evolutionCriteriaInsertSchema` and `evolutionCriteriaFullDbSchema` in `evolution/src/lib/schemas.ts`. Fields: name (string min 1 max 200), description (string optional), min_rating (number finite), max_rating (number finite), evaluation_guidance (`z.array(z.object({score: z.number(), description: z.string().min(1).max(500)})).optional().nullable()`), status (enum), archived_at + created_at + updated_at (nullable strings).
-- [ ] Add `criteriaStatusEnum`.
-- [ ] Add `evaluationGuidanceSchema = z.array(z.object({score: z.number().refine(Number.isFinite), description: z.string().min(1).max(500)}))` (re-used by insert + full + server action validators).
-- [ ] Extend `evolutionVariantInsertSchema` and `evolutionVariantFullDbSchema` with `criteria_set_used: z.array(z.string().uuid()).optional().nullable()` and `weakest_criteria_ids: z.array(z.string().uuid()).optional().nullable()`.
-- [ ] Refine `evolutionCriteriaInsertSchema` with two refinements:
+- [x] Add `evolutionCriteriaInsertSchema` and `evolutionCriteriaFullDbSchema` in `evolution/src/lib/schemas.ts`. Fields: name (string min 1 max 200), description (string optional), min_rating (number finite), max_rating (number finite), evaluation_guidance (`z.array(z.object({score: z.number(), description: z.string().min(1).max(500)})).optional().nullable()`), status (enum), archived_at + created_at + updated_at (nullable strings).
+- [x] Add `criteriaStatusEnum`.
+- [x] Add `evaluationGuidanceSchema = z.array(z.object({score: z.number().refine(Number.isFinite), description: z.string().min(1).max(500)}))` (re-used by insert + full + server action validators).
+- [x] Extend `evolutionVariantInsertSchema` and `evolutionVariantFullDbSchema` with `criteria_set_used: z.array(z.string().uuid()).optional().nullable()` and `weakest_criteria_ids: z.array(z.string().uuid()).optional().nullable()`.
+- [x] Refine `evolutionCriteriaInsertSchema` with two refinements:
   - `.refine((c) => c.max_rating > c.min_rating, { message: 'max_rating must exceed min_rating' })`
   - `.refine((c) => !c.evaluation_guidance || c.evaluation_guidance.every(a => a.score >= c.min_rating && a.score <= c.max_rating), { message: 'every rubric anchor score must be in [min_rating, max_rating]' })`
 
 #### Phase 1D — Variant Zod schema + factory + entity-type extension
-- [ ] **`Variant` is a Zod-derived type alias**, not an interface. Extend the underlying schema first.
-- [ ] Extend `variantSchema` in `evolution/src/lib/schemas.ts` (search for `export const variantSchema = z.object({`) with `criteriaSetUsed: z.array(z.string().uuid()).optional()` and `weakestCriteriaIds: z.array(z.string().uuid()).optional()`. The `Variant` type alias picks up the new fields automatically.
-- [ ] Extend `createVariant()` factory at `evolution/src/lib/types.ts:56-68` to accept `criteriaSetUsed?: ReadonlyArray<string>` and `weakestCriteriaIds?: ReadonlyArray<string>` and include them in the returned variant when provided.
-- [ ] **Naming convention — camelCase in-memory, snake_case in DB**: `Variant.criteriaSetUsed` (TS) ↔ `evolution_variants.criteria_set_used` (Postgres). The variant-insert path in `persistRunResults.ts` MUST convert at the boundary. Add a round-trip unit test: in-memory `{criteriaSetUsed: [...]}` → DB row with `criteria_set_used` populated → SELECT → schema parser produces `criteriaSetUsed`.
-- [ ] Update `persistRunResults.ts` insert to thread `criteriaSetUsed → criteria_set_used` and `weakestCriteriaIds → weakest_criteria_ids`.
-- [ ] Update `createTestVariant` in `evolution/src/testing/evolution-test-helpers.ts:256` to accept and forward the two new optional fields, with explicit factory test for the round-trip.
-- [ ] **HARD PREREQUISITE**: extend `CORE_ENTITY_TYPES` at `evolution/src/lib/core/types.ts:14` to include `'criteria'`. Without this, Phase 1E (CriteriaEntity sets `type: 'criteria'`), Phase 1G (METRIC_REGISTRY['criteria']), and `getEntity('criteria')` calls will all fail TypeScript compile. This is a one-line array addition that must land before Phase 1E.
+- [x] **`Variant` is a Zod-derived type alias**, not an interface. Extend the underlying schema first.
+- [x] Extend `variantSchema` in `evolution/src/lib/schemas.ts` (search for `export const variantSchema = z.object({`) with `criteriaSetUsed: z.array(z.string().uuid()).optional()` and `weakestCriteriaIds: z.array(z.string().uuid()).optional()`. The `Variant` type alias picks up the new fields automatically.
+- [x] Extend `createVariant()` factory at `evolution/src/lib/types.ts:56-68` to accept `criteriaSetUsed?: ReadonlyArray<string>` and `weakestCriteriaIds?: ReadonlyArray<string>` and include them in the returned variant when provided.
+- [x] **Naming convention — camelCase in-memory, snake_case in DB**: `Variant.criteriaSetUsed` (TS) ↔ `evolution_variants.criteria_set_used` (Postgres). The variant-insert path in `persistRunResults.ts` MUST convert at the boundary. Add a round-trip unit test: in-memory `{criteriaSetUsed: [...]}` → DB row with `criteria_set_used` populated → SELECT → schema parser produces `criteriaSetUsed`.
+- [x] Update `persistRunResults.ts` insert to thread `criteriaSetUsed → criteria_set_used` and `weakestCriteriaIds → weakest_criteria_ids`.
+- [x] Update `createTestVariant` in `evolution/src/testing/evolution-test-helpers.ts:256` to accept and forward the two new optional fields, with explicit factory test for the round-trip.
+- [x] **HARD PREREQUISITE**: extend `CORE_ENTITY_TYPES` at `evolution/src/lib/core/types.ts:14` to include `'criteria'`. Without this, Phase 1E (CriteriaEntity sets `type: 'criteria'`), Phase 1G (METRIC_REGISTRY['criteria']), and `getEntity('criteria')` calls will all fail TypeScript compile. This is a one-line array addition that must land before Phase 1E.
 
 #### Phase 1E — Entity class
-- [ ] Create `evolution/src/lib/core/entities/CriteriaEntity.ts` mirroring `PromptEntity.ts`:
+- [x] Create `evolution/src/lib/core/entities/CriteriaEntity.ts` mirroring `PromptEntity.ts`:
   - `type: 'criteria'`, `table: 'evolution_criteria'`, `renameField: 'name'`.
   - `createConfig`: fields = name (text required), description (textarea), min_rating + max_rating (number required), evaluation_guidance (custom field type `'rubric'` rendered by a row-per-anchor table editor — see Phase 1H).
   - `listColumns`: name, description (truncated), min_rating, max_rating, status.
@@ -124,10 +124,10 @@ Where `<TS>` is the next-available 14-digit timestamp (mirrors `migration-reorde
   - `detailTabs`: overview, metrics, variants, runs, by-prompt.
   - `metrics` registry (mirror `TacticEntity.metrics` shape; populated in Phase 1G).
   - `insertSchema: evolutionCriteriaInsertSchema`.
-- [ ] Register in `evolution/src/lib/core/entityRegistry.ts` `initRegistry()`: `criteria: new CriteriaEntity()`.
+- [x] Register in `evolution/src/lib/core/entityRegistry.ts` `initRegistry()`: `criteria: new CriteriaEntity()`.
 
 #### Phase 1F — Server actions
-- [ ] Create `evolution/src/services/criteriaActions.ts`:
+- [x] Create `evolution/src/services/criteriaActions.ts`:
   - `listCriteriaAction({ status, filterTestContent, name, limit, offset })` — paginated, with metric attachment via `getMetricsForEntities(db, 'criteria', ids, listViewMetricNames)`.
   - `getCriteriaDetailAction(criteriaId)` — single row.
   - `createCriteriaAction({ name, description?, min_rating, max_rating, evaluation_guidance? })` — Zod-validated (range refinement + per-anchor in-range refinement), INSERT.
@@ -138,18 +138,18 @@ Where `<TS>` is the next-available 14-digit timestamp (mirrors `migration-reorde
   - `getCriteriaVariantsAction(criteriaId)` — variants where `criteria_set_used @> ARRAY[criteriaId]`.
   - `getCriteriaRunsAction(criteriaId)` — runs that used this criteria via invocations.
   - All wrapped in `adminAction`.
-- [ ] Add cross-strategy validation helper `validateCriteriaIds(criteriaIds, db)` in same file: query `evolution_criteria.id IN ?` AND `status='active'`; throw if any missing/archived. Called by `createStrategyAction` before `upsertStrategy`.
+- [x] Add cross-strategy validation helper `validateCriteriaIds(criteriaIds, db)` in same file: query `evolution_criteria.id IN ?` AND `status='active'`; throw if any missing/archived. Called by `createStrategyAction` before `upsertStrategy`.
 
 #### Phase 1G — Metric registration
-- [ ] Add `'criteria'` entity type entry to `METRIC_REGISTRY` in `evolution/src/lib/metrics/registry.ts`. Define 5 metrics:
+- [x] Add `'criteria'` entity type entry to `METRIC_REGISTRY` in `evolution/src/lib/metrics/registry.ts`. Define 5 metrics:
   - `avg_score` (avg of LLM scores across runs that included this criteria) — `listView: true`
   - `frequency_as_weakest` (fraction of variants where this criteria was in `weakest_criteria_ids`) — `listView: true`
   - `total_variants_focused` (count of variants where `weakest_criteria_ids @> ARRAY[criteriaId]`) — `listView: true`
   - `avg_elo_delta_when_focused` (mean child.elo - parent.elo for focused variants) — `listView: true`
   - `run_count` (distinct runs that used this criteria) — `listView: true`
-- [ ] Add to `STATIC_METRIC_NAMES` in `evolution/src/lib/metrics/types.ts`: `avg_score`, `frequency_as_weakest`, `total_variants_focused`, `avg_elo_delta_when_focused` (criteria-scoped to disambiguate from existing `avg_elo_delta`).
-- [ ] Add propagation defs to `SHARED_PROPAGATION_DEFS` in `evolution/src/lib/metrics/registry.ts` if cross-entity rollup is desired (likely not for v1 — criteria metrics aggregate from variants directly, no run→strategy propagation needed).
-- [ ] Create `evolution/src/lib/metrics/computations/criteriaMetrics.ts`:
+- [x] Add to `STATIC_METRIC_NAMES` in `evolution/src/lib/metrics/types.ts`: `avg_score`, `frequency_as_weakest`, `total_variants_focused`, `avg_elo_delta_when_focused` (criteria-scoped to disambiguate from existing `avg_elo_delta`).
+- [x] Add propagation defs to `SHARED_PROPAGATION_DEFS` in `evolution/src/lib/metrics/registry.ts` if cross-entity rollup is desired (likely not for v1 — criteria metrics aggregate from variants directly, no run→strategy propagation needed).
+- [x] Create `evolution/src/lib/metrics/computations/criteriaMetrics.ts`:
   - `computeCriteriaMetricsForRun(runId, db)` — for each criteria mentioned in any variant's `criteria_set_used` for this run, compute the 5 metrics via SQL:
     ```sql
     -- avg_score: from execution_detail.evaluation.criteriaScored aggregated per criteria
@@ -159,28 +159,28 @@ Where `<TS>` is the next-available 14-digit timestamp (mirrors `migration-reorde
     -- run_count: 1 (per-run; aggregated cross-run when read)
     ```
   - Wire call into `persistRunResults.ts` finalize path alongside `computeTacticMetricsForRun`.
-- [ ] Extend `mark_elo_metrics_stale()` trigger function (new migration) to cascade staleness to `entity_type='criteria'` rows when a variant's `mu`/`sigma` changes.
+- [x] Extend `mark_elo_metrics_stale()` trigger function (new migration) to cascade staleness to `entity_type='criteria'` rows when a variant's `mu`/`sigma` changes.
 
 #### Phase 1H — Admin pages
-- [ ] Create `src/app/admin/evolution/criteria/page.tsx`. Use `EntityListPage` self-managed mode:
+- [x] Create `src/app/admin/evolution/criteria/page.tsx`. Use `EntityListPage` self-managed mode:
   - Columns: name (link), description (truncated), min_rating, max_rating, status, plus `createMetricColumns<EvolutionCriteriaRow>('criteria')` (5 metric columns with CI suffix where applicable).
   - Filters: status (active/archived), name search (ilike), filter-test-content checkbox.
   - `loadData` calls `listCriteriaAction`.
   - Header action: "New Criteria" → opens `FormDialog`.
   - Row actions: edit, delete (with cascade-warning ConfirmDialog).
-- [ ] Create `src/app/admin/evolution/criteria/RubricEditor.tsx` — row-per-anchor table editor used inside the create/edit `FormDialog`:
+- [x] Create `src/app/admin/evolution/criteria/RubricEditor.tsx` — row-per-anchor table editor used inside the create/edit `FormDialog`:
   - Props: `value: Array<{score, description}> | null`, `onChange`, `minRating`, `maxRating`.
   - Renders a sortable table (sorted by score asc) with score (number input, validated against min/max) and description (text input, max 500 chars). `[+ Add anchor]` button appends a row; `✕` per row removes it.
   - Inline error states: red border + tooltip when score is out of range or description empty.
   - Empty-state: "No rubric defined — LLM will receive only `name + description + range`." Researchers can leave it empty and ship.
   - Collapsed-by-default panel under the description field; click to expand.
-- [ ] Create `src/app/admin/evolution/criteria/[criteriaId]/page.tsx` (server component) and `CriteriaDetailContent.tsx` (client component) with tabs:
+- [x] Create `src/app/admin/evolution/criteria/[criteriaId]/page.tsx` (server component) and `CriteriaDetailContent.tsx` (client component) with tabs:
   - Overview (description + min/max + status + Evaluation Guidance section showing the rubric as a sortable list when present, "No rubric defined" placeholder when empty)
   - Metrics (`EntityMetricsTab` with `entityType='criteria'`)
   - Variants (paginated table from `getCriteriaVariantsAction`)
   - Runs (paginated table from `getCriteriaRunsAction`)
   - By Prompt (mirror `TacticPromptPerformanceTable` — new `CriteriaPromptPerformanceTable` querying variants grouped by prompt)
-- [ ] Add sidebar nav entry in `src/components/admin/EvolutionSidebar.tsx`:
+- [x] Add sidebar nav entry in `src/components/admin/EvolutionSidebar.tsx`:
   ```typescript
   { href: '/admin/evolution/criteria', label: 'Criteria', icon: '🎯', testId: 'evolution-sidebar-nav-criteria', description: 'Quality evaluation criteria' }
   ```
@@ -188,7 +188,7 @@ Where `<TS>` is the next-available 14-digit timestamp (mirrors `migration-reorde
 
 #### Phase 1I — Sample criteria seed script (Decision 9)
 
-- [ ] Create `evolution/scripts/seedSampleCriteria.ts`. **CLI convention (committed per Decision 9): env-var-based, no `--target=` flag.** Reads `process.env.NEXT_PUBLIC_SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` directly (matches `evolution/scripts/syncSystemTactics.ts:48-66` precedent). Researchers override via shell:
+- [x] Create `evolution/scripts/seedSampleCriteria.ts`. **CLI convention (committed per Decision 9): env-var-based, no `--target=` flag.** Reads `process.env.NEXT_PUBLIC_SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` directly (matches `evolution/scripts/syncSystemTactics.ts:48-66` precedent). Researchers override via shell:
   ```
   NEXT_PUBLIC_SUPABASE_URL=$STAGING_URL SUPABASE_SERVICE_ROLE_KEY=$STAGING_KEY \
     npx tsx evolution/scripts/seedSampleCriteria.ts
@@ -197,8 +197,8 @@ Where `<TS>` is the next-available 14-digit timestamp (mirrors `migration-reorde
     npx tsx evolution/scripts/seedSampleCriteria.ts
   ```
   Document this run pattern verbatim in the script's header comment.
-- [ ] Build a `service_role` Supabase client; INSERT each sample with `ON CONFLICT (name) DO NOTHING`. Print summary `[seedSampleCriteria] inserted N rows; skipped M (already present)`.
-- [ ] Inline the 7 sample criteria as a `SAMPLE_CRITERIA` const at the top of the script:
+- [x] Build a `service_role` Supabase client; INSERT each sample with `ON CONFLICT (name) DO NOTHING`. Print summary `[seedSampleCriteria] inserted N rows; skipped M (already present)`.
+- [x] Inline the 7 sample criteria as a `SAMPLE_CRITERIA` const at the top of the script:
   ```typescript
   const SAMPLE_CRITERIA: ReadonlyArray<{
     name: string;
@@ -279,35 +279,35 @@ Where `<TS>` is the next-available 14-digit timestamp (mirrors `migration-reorde
     },
   ];
   ```
-- [ ] Script CLI:
+- [x] Script CLI:
   - `--dry-run` — list what would be inserted without writing.
   - Exit 0 on success; non-zero on any DB error.
   - Environment selection via `process.env.NEXT_PUBLIC_SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` (see Option (i) above).
-- [ ] Print summary: `[seedSampleCriteria] supabase_url=<host> inserted=7 skipped=0` (first run) or `inserted=0 skipped=7` (re-run). Echo the URL host (NOT the key) so researchers can confirm they ran against the intended environment.
-- [ ] **Documentation note in the script header**: "Run once after merging this PR — once on staging, once on production. Sample criteria are intentionally generic; researchers can edit/archive/delete them through the admin UI without re-running this script."
-- [ ] **Local dev convenience**: add `npm run seed:criteria` to root `package.json` mapping to `npx tsx evolution/scripts/seedSampleCriteria.ts`. The script picks up `NEXT_PUBLIC_SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` from the developer's `.env.local` (loaded by Next.js convention; verify the script either calls `dotenv.config({ path: '.env.local' })` or relies on the runner's existing dotenv loading).
+- [x] Print summary: `[seedSampleCriteria] supabase_url=<host> inserted=7 skipped=0` (first run) or `inserted=0 skipped=7` (re-run). Echo the URL host (NOT the key) so researchers can confirm they ran against the intended environment.
+- [x] **Documentation note in the script header**: "Run once after merging this PR — once on staging, once on production. Sample criteria are intentionally generic; researchers can edit/archive/delete them through the admin UI without re-running this script."
+- [x] **Local dev convenience**: add `npm run seed:criteria` to root `package.json` mapping to `npx tsx evolution/scripts/seedSampleCriteria.ts`. The script picks up `NEXT_PUBLIC_SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` from the developer's `.env.local` (loaded by Next.js convention; verify the script either calls `dotenv.config({ path: '.env.local' })` or relies on the runner's existing dotenv loading).
 
 ### Phase 2: Schema & Cost-Stack Foundation
 
 #### Phase 2A — Strategy/iteration schema
-- [ ] Extend `iterationAgentTypeEnum` in `evolution/src/lib/schemas.ts:394`: add `'criteria_and_generate'`.
-- [ ] Update `isVariantProducingAgentType` (`schemas.ts:400-402`): add `t === 'criteria_and_generate'`.
-- [ ] Add fields to `iterationConfigSchema` (`schemas.ts:416-447`):
+- [x] Extend `iterationAgentTypeEnum` in `evolution/src/lib/schemas.ts:394`: add `'criteria_and_generate'`.
+- [x] Update `isVariantProducingAgentType` (`schemas.ts:400-402`): add `t === 'criteria_and_generate'`.
+- [x] Add fields to `iterationConfigSchema` (`schemas.ts:416-447`):
   ```typescript
   criteriaIds: z.array(z.string().uuid()).optional(),
   weakestK: z.number().int().min(1).max(5).optional(),
   ```
-- [ ] Append refinements:
+- [x] Append refinements:
   - `criteriaIds` only valid when `agentType === 'criteria_and_generate'`
   - `criteriaIds` non-empty when present (min 1 entry)
   - `criteriaIds` mutually exclusive with `generationGuidance`
   - `weakestK` only valid when `agentType === 'criteria_and_generate'`
   - When `agentType === 'criteria_and_generate'`, `criteriaIds` is required (refine instead of `.required()` for cleaner error message)
   - **Cross-field refinement: `weakestK <= criteriaIds.length`** — when both fields are present, the weakest count cannot exceed the number of selected criteria. Catches normal user submissions (e.g., 2 criteria + weakestK=5) at validation time so the runtime clamp in Phase 7 only fires for genuine configuration drift (criteria archived between configure and run). Error message: `"weakestK (${c.weakestK}) cannot exceed the number of selected criteria (${c.criteriaIds.length})"`.
-- [ ] Update strategy-level refinement messages to mention all three variant-producing agent types.
+- [x] Update strategy-level refinement messages to mention all three variant-producing agent types.
 
 #### Phase 2B — Hash canonicalization
-- [ ] Update `canonicalizeIterationConfig` in `evolution/src/lib/pipeline/setup/findOrCreateStrategy.ts:30-46`:
+- [x] Update `canonicalizeIterationConfig` in `evolution/src/lib/pipeline/setup/findOrCreateStrategy.ts:30-46`:
   ```typescript
   if (iterCfg.criteriaIds !== undefined && iterCfg.criteriaIds.length > 0
       && iterCfg.agentType === 'criteria_and_generate') {
@@ -325,7 +325,7 @@ Where `<TS>` is the next-available 14-digit timestamp (mirrors `migration-reorde
   }
   ```
   Stripping falsy values keeps existing strategy hashes stable.
-- [ ] Add backward-compat hash regression tests in `findOrCreateStrategy.test.ts`:
+- [x] Add backward-compat hash regression tests in `findOrCreateStrategy.test.ts`:
   - Snapshot test: legacy config without criteriaIds keeps prior hash.
   - Distinct-hash test: two configs differing only by `criteriaIds` (different UUID set) produce different hashes.
   - Distinct-hash test: two configs differing only by `weakestK` produce different hashes.
@@ -333,20 +333,20 @@ Where `<TS>` is the next-available 14-digit timestamp (mirrors `migration-reorde
   - **Sort-canonicalization test**: two configs with same UUIDs in different orders (`[a,b,c]` vs `[c,b,a]`) hash IDENTICALLY (proves sort step works).
 
 #### Phase 2C — Cost-stack labels
-- [ ] Add single label `'evaluate_and_suggest'` to `AGENT_NAMES` in `evolution/src/lib/core/agentNames.ts`.
-- [ ] Map in `COST_METRIC_BY_AGENT` to `'evaluation_cost'` (single bucket per Decision 2).
-- [ ] Add `'evaluation_cost'`, `'total_evaluation_cost'`, `'avg_evaluation_cost_per_run'` to `STATIC_METRIC_NAMES` in `evolution/src/lib/metrics/types.ts`.
-- [ ] Add `OUTPUT_TOKEN_ESTIMATES.evaluate_and_suggest = 2300` in `evolution/src/lib/pipeline/infra/createEvolutionLLMClient.ts:33-38`. Reasoning: ~150 chars score lines (criteriaCount × 30 chars × 4 chars/token) + ~600 tokens × weakestK suggestion blocks ≈ 2300 typical at criteriaCount=5, weakestK=1.
-- [ ] Extend phase enum in `evolution/src/lib/pipeline/infra/costCalibrationLoader.ts:24` to include `'evaluate_and_suggest'`.
-- [ ] Extend calibration ladder in `createEvolutionLLMClient.ts:91-95` to map the new label to its phase string for `getCalibrationRow()`.
-- [ ] Add propagation defs in `evolution/src/lib/metrics/registry.ts` `SHARED_PROPAGATION_DEFS`:
+- [x] Add single label `'evaluate_and_suggest'` to `AGENT_NAMES` in `evolution/src/lib/core/agentNames.ts`.
+- [x] Map in `COST_METRIC_BY_AGENT` to `'evaluation_cost'` (single bucket per Decision 2).
+- [x] Add `'evaluation_cost'`, `'total_evaluation_cost'`, `'avg_evaluation_cost_per_run'` to `STATIC_METRIC_NAMES` in `evolution/src/lib/metrics/types.ts`.
+- [x] Add `OUTPUT_TOKEN_ESTIMATES.evaluate_and_suggest = 2300` in `evolution/src/lib/pipeline/infra/createEvolutionLLMClient.ts:33-38`. Reasoning: ~150 chars score lines (criteriaCount × 30 chars × 4 chars/token) + ~600 tokens × weakestK suggestion blocks ≈ 2300 typical at criteriaCount=5, weakestK=1.
+- [x] Extend phase enum in `evolution/src/lib/pipeline/infra/costCalibrationLoader.ts:24` to include `'evaluate_and_suggest'`.
+- [x] Extend calibration ladder in `createEvolutionLLMClient.ts:91-95` to map the new label to its phase string for `getCalibrationRow()`.
+- [x] Add propagation defs in `evolution/src/lib/metrics/registry.ts` `SHARED_PROPAGATION_DEFS`:
   ```typescript
   { name: 'total_evaluation_cost', sourceMetric: 'evaluation_cost', sourceEntity: 'run', aggregate: aggregateSum, listView: true, ... },
   { name: 'avg_evaluation_cost_per_run', sourceMetric: 'evaluation_cost', sourceEntity: 'run', aggregate: aggregateAvg, listView: false, ... },
   ```
 
 #### Phase 2D — Execution detail schema
-- [ ] Add `evaluateCriteriaThenGenerateFromPreviousArticleExecutionDetailSchema` in `evolution/src/lib/schemas.ts`:
+- [x] Add `evaluateCriteriaThenGenerateFromPreviousArticleExecutionDetailSchema` in `evolution/src/lib/schemas.ts`:
   ```typescript
   detailType: z.literal('evaluate_criteria_then_generate_from_previous_article')
   variantId: z.string().nullable().optional()
@@ -366,11 +366,11 @@ Where `<TS>` is the next-available 14-digit timestamp (mirrors `migration-reorde
   surfaced: z.boolean()
   discardReason?: object
   ```
-- [ ] Register variant in `agentExecutionDetailSchema` discriminated union (`schemas.ts:1197-1214`).
+- [x] Register variant in `agentExecutionDetailSchema` discriminated union (`schemas.ts:1197-1214`).
 
 #### Phase 2E — TACTIC_PALETTE + marker-tactic registration
-- [ ] Add `criteria_driven: '#6366f1'` (indigo) to `TACTIC_PALETTE` in `evolution/src/lib/core/tactics/index.ts`. Keeps lineage-graph nodes color-consistent and gives the arena leaderboard's Tactic column a recognizable color.
-- [ ] Add `MARKER_TACTICS` const in `evolution/src/lib/core/tactics/index.ts`:
+- [x] Add `criteria_driven: '#6366f1'` (indigo) to `TACTIC_PALETTE` in `evolution/src/lib/core/tactics/index.ts`. Keeps lineage-graph nodes color-consistent and gives the arena leaderboard's Tactic column a recognizable color.
+- [x] Add `MARKER_TACTICS` const in `evolution/src/lib/core/tactics/index.ts`:
   ```typescript
   // Marker tactics: registered in evolution_tactics so leaderboards and the arena
   // Tactic column can resolve them to UUIDs and link to the tactic detail page.
@@ -393,10 +393,10 @@ Where `<TS>` is the next-available 14-digit timestamp (mirrors `migration-reorde
     },
   ];
   ```
-- [ ] Update `evolution/scripts/syncSystemTactics.ts` to union `ALL_SYSTEM_TACTICS` (existing prompt-driving registry) and `MARKER_TACTICS` (new) when upserting. **Schema reality check**: `evolution_tactics` table (`supabase/migrations/20260417000001_evolution_tactics.sql:5-14`) has columns `id, name, label, agent_type, category, is_predefined, status, created_at` — NO `preamble` or `instructions` columns. Marker upsert payload is therefore `{name, label, agent_type, category, is_predefined: true, status: 'active'}` — same shape the existing system-tactic upsert uses. Both registries are upsert-by-name idempotent (`ON CONFLICT (name) DO UPDATE`); safe to re-run.
-- [ ] **Critical invariant — `getTacticDef('criteria_driven')` returns `undefined`.** Add a unit test asserting this. Reasoning: `buildPromptForTactic` (`generateFromPreviousArticle.ts:27-31`) returns `null` when `getTacticDef` is undefined, and GFPA's `execute()` early-exits with `status: 'generation_failed'`. Without this safety net, a misconfigured iteration that dispatches vanilla GFPA with `tactic: 'criteria_driven'` (and no `customPrompt`) would silently produce a no-op LLM prompt. The wrapper agent (Phase 5) always passes `customPrompt`, so this is defense-in-depth.
-- [ ] Tactic detail page at `/admin/evolution/tactics/criteria_driven` works for free: existing `getTacticDetailAction` reads the row from `evolution_tactics`. **Note**: `getTacticDetailAction` enriches the response with `preamble` and `instructions` from `getTacticDef(row.name)` — for marker tactics, this returns `undefined` and the detail page Overview tab simply omits those sections. Verify the existing detail page handles missing preamble/instructions gracefully during execution; if not, add a null-check to `TacticDetailContent.tsx`.
-- [ ] **Run-once command after merge** (alongside the seed-criteria script in Phase 1I rollout):
+- [x] Update `evolution/scripts/syncSystemTactics.ts` to union `ALL_SYSTEM_TACTICS` (existing prompt-driving registry) and `MARKER_TACTICS` (new) when upserting. **Schema reality check**: `evolution_tactics` table (`supabase/migrations/20260417000001_evolution_tactics.sql:5-14`) has columns `id, name, label, agent_type, category, is_predefined, status, created_at` — NO `preamble` or `instructions` columns. Marker upsert payload is therefore `{name, label, agent_type, category, is_predefined: true, status: 'active'}` — same shape the existing system-tactic upsert uses. Both registries are upsert-by-name idempotent (`ON CONFLICT (name) DO UPDATE`); safe to re-run.
+- [x] **Critical invariant — `getTacticDef('criteria_driven')` returns `undefined`.** Add a unit test asserting this. Reasoning: `buildPromptForTactic` (`generateFromPreviousArticle.ts:27-31`) returns `null` when `getTacticDef` is undefined, and GFPA's `execute()` early-exits with `status: 'generation_failed'`. Without this safety net, a misconfigured iteration that dispatches vanilla GFPA with `tactic: 'criteria_driven'` (and no `customPrompt`) would silently produce a no-op LLM prompt. The wrapper agent (Phase 5) always passes `customPrompt`, so this is defense-in-depth.
+- [x] Tactic detail page at `/admin/evolution/tactics/criteria_driven` works for free: existing `getTacticDetailAction` reads the row from `evolution_tactics`. **Note**: `getTacticDetailAction` enriches the response with `preamble` and `instructions` from `getTacticDef(row.name)` — for marker tactics, this returns `undefined` and the detail page Overview tab simply omits those sections. Verify the existing detail page handles missing preamble/instructions gracefully during execution; if not, add a null-check to `TacticDetailContent.tsx`.
+- [x] **Run-once command after merge** (alongside the seed-criteria script in Phase 1I rollout):
   ```
   NEXT_PUBLIC_SUPABASE_URL=$STAGING_URL SUPABASE_SERVICE_ROLE_KEY=$STAGING_KEY \
     npx tsx evolution/scripts/syncSystemTactics.ts
@@ -406,8 +406,8 @@ Where `<TS>` is the next-available 14-digit timestamp (mirrors `migration-reorde
   Idempotent. (`syncSystemTactics.ts` reads URL + service-role key from `process.env`, no `--target=` flag exists — verified at `evolution/scripts/syncSystemTactics.ts:48-66`.)
 
 #### Phase 2F — Fixture migration
-- [ ] **Run grep first** to find every file that references `iterationConfigs` or `iterationAgentTypeEnum`: `grep -rn "iterationConfigs\|iterationAgentTypeEnum" evolution/ src/__tests__/ | cut -d: -f1 | sort -u`. Audit each hit; the list below is the known-required minimum (~5 files) but the actual count is ~25-30 once exhaustive type-narrowing switches are factored in.
-- [ ] Update test-helper fixtures and any iterationConfigs-referencing test files to include the new optional fields (default to absent) and to handle the new `'criteria_and_generate'` enum value in any exhaustive switch:
+- [x] **Run grep first** to find every file that references `iterationConfigs` or `iterationAgentTypeEnum`: `grep -rn "iterationConfigs\|iterationAgentTypeEnum" evolution/ src/__tests__/ | cut -d: -f1 | sort -u`. Audit each hit; the list below is the known-required minimum (~5 files) but the actual count is ~25-30 once exhaustive type-narrowing switches are factored in.
+- [x] Update test-helper fixtures and any iterationConfigs-referencing test files to include the new optional fields (default to absent) and to handle the new `'criteria_and_generate'` enum value in any exhaustive switch:
   - `evolution/src/testing/evolution-test-helpers.ts` — `createTestStrategyConfig()`, `createTestVariant()` (must accept `criteriaSetUsed`/`weakestCriteriaIds`). `createMockExecutionContext()` requires NO change (Phase 7 committed to Option A — wrapper gets `criteria` via input, not via `AgentContext`).
   - `evolution/src/testing/executionDetailFixtures.ts` — add `evaluateCriteriaThenGenerateFromPreviousArticleDetailFixture`.
   - `evolution/src/lib/pipeline/loop/runIterationLoop.test.ts` — `makeConfig()` and any agentType-narrowing switches.
@@ -424,11 +424,11 @@ Where `<TS>` is the next-available 14-digit timestamp (mirrors `migration-reorde
   - `src/app/admin/evolution/_components/ExperimentForm.test.tsx` — STRATEGIES array fixtures.
   - E2E seed-data scripts — search `src/__tests__/e2e/fixtures/` and `evolution/src/__tests__/integration/` for strategy-config seed JSON.
   - Any other hits from the grep above — audit each.
-- [ ] Run `npm run lint && npm run tsc && npm run build && npm run test:unit` after each schema change to keep the tree green. TypeScript-strict exhaustiveness errors on switches over `iterationAgentTypeEnum` will surface every site that needs updating.
+- [x] Run `npm run lint && npm run tsc && npm run build && npm run test:unit` after each schema change to keep the tree green. TypeScript-strict exhaustiveness errors on switches over `iterationAgentTypeEnum` will surface every site that needs updating.
 
 ### Phase 3: Cost Estimation Integration
 
-- [ ] Add single helper in `evolution/src/lib/pipeline/infra/estimateCosts.ts`:
+- [x] Add single helper in `evolution/src/lib/pipeline/infra/estimateCosts.ts`:
   - `estimateEvaluateAndSuggestCost(parentChars, generationModel, judgeModel, criteriaCount, weakestK, avgRubricChars)` — single LLM call that scores all criteria AND writes suggestions for the K weakest in one response.
     - Input chars: `parentChars + EVALUATE_AND_SUGGEST_PROMPT_OVERHEAD + criteriaCount * (CRITERIA_DESC_CHARS_PER_ITEM + avgRubricChars)`.
     - Output chars: `criteriaCount * 150` (score lines) + `weakestK * 800` (suggestion blocks). Combined output budget ≈ 2300 chars at typical sizing.
@@ -436,26 +436,26 @@ Where `<TS>` is the next-available 14-digit timestamp (mirrors `migration-reorde
   - Consults calibration via `getCalibrationRow('__unspecified__', model, judge, 'evaluate_and_suggest')` with fallback to constants.
   - **Preview-time `avgRubricChars`**: assume `EVALUATION_RUBRIC_CHARS_PER_CRITERION` constant. Wizard can't know the actual rubric chars without fetching criteria rows (defeats the no-DB-fetch decision); 1.3x reserve margin in the cost-tracker absorbs estimate drift.
   - **Runtime `avgRubricChars`**: Phase 4's `getCriteriaForEvaluation` returns the rubric, so the agent computes actual avg chars from fetched rows and passes that to `estimateEvaluateAndSuggestCost` for accurate per-call reservation. Documented as known wizard-vs-runtime estimate skew.
-- [ ] Extend `EstPerAgentValue` type in `evolution/src/lib/pipeline/loop/projectDispatchPlan.ts:69-75`: add `evaluation: number` field (single combined bucket; rollup of evaluate+suggest at projection time).
-- [ ] Extend `weightedAgentCost` (`projectDispatchPlan.ts:185-207`): accept `useCriteria: boolean`, `criteriaCount: number`, `weakestK: number`. When `useCriteria=true`, add `estimateEvaluateAndSuggestCost(...)` (single combined helper per Decision 2) to the running total.
-- [ ] Extend `estimateAgentCost` in `estimateCosts.ts:122-134`: signature gets `useCriteria: boolean = false`, `criteriaCount?: number`, `weakestK?: number`.
-- [ ] Update `projectDispatchPlan` (`projectDispatchPlan.ts:223-336`):
+- [x] Extend `EstPerAgentValue` type in `evolution/src/lib/pipeline/loop/projectDispatchPlan.ts:69-75`: add `evaluation: number` field (single combined bucket; rollup of evaluate+suggest at projection time).
+- [x] Extend `weightedAgentCost` (`projectDispatchPlan.ts:185-207`): accept `useCriteria: boolean`, `criteriaCount: number`, `weakestK: number`. When `useCriteria=true`, add `estimateEvaluateAndSuggestCost(...)` (single combined helper per Decision 2) to the running total.
+- [x] Extend `estimateAgentCost` in `estimateCosts.ts:122-134`: signature gets `useCriteria: boolean = false`, `criteriaCount?: number`, `weakestK?: number`.
+- [x] Update `projectDispatchPlan` (`projectDispatchPlan.ts:223-336`):
   - Resolve `useCriteria = iterCfg.agentType === 'criteria_and_generate'`.
   - Resolve `criteriaCount = iterCfg.criteriaIds?.length ?? 0`.
   - Resolve `weakestK = iterCfg.weakestK ?? 1`.
   - Pass to `weightedAgentCost`.
-- [ ] Extend `dispatchPreviewInputSchema` in `evolution/src/services/strategyPreviewActions.ts` to thread `criteriaIds` and `weakestK`.
-- [ ] Update `getStrategyDispatchPreviewAction` (`strategyPreviewActions.ts:222-266`): pass `criteriaCount` (just the array length — no DB fetch needed; matches `reflectionTopN` pattern of using user-set value verbatim) into `projectDispatchPlan`.
-- [ ] Update `IterationPlanEntryClient` type (`strategyPreviewActions.ts:198-215`) to include `criteriaCount?: number` for UI display.
+- [x] Extend `dispatchPreviewInputSchema` in `evolution/src/services/strategyPreviewActions.ts` to thread `criteriaIds` and `weakestK`.
+- [x] Update `getStrategyDispatchPreviewAction` (`strategyPreviewActions.ts:222-266`): pass `criteriaCount` (just the array length — no DB fetch needed; matches `reflectionTopN` pattern of using user-set value verbatim) into `projectDispatchPlan`.
+- [x] Update `IterationPlanEntryClient` type (`strategyPreviewActions.ts:198-215`) to include `criteriaCount?: number` for UI display.
 
 ### Phase 4: Mid-Run Criteria Fetch
 
-- [ ] Add `getCriteriaForEvaluation(db, criteriaIds, logger?)` in `evolution/src/services/criteriaActions.ts`:
+- [x] Add `getCriteriaForEvaluation(db, criteriaIds, logger?)` in `evolution/src/services/criteriaActions.ts`:
   - Query: `SELECT id, name, description, min_rating, max_rating, evaluation_guidance FROM evolution_criteria WHERE id = ANY(criteriaIds) AND status = 'active'`.
   - Return: `Map<string, EvolutionCriterionRow>` (keyed by id). `EvolutionCriterionRow` includes `evaluation_guidance: Array<{score, description}> | null`.
   - Error fallback: try/catch returning empty Map + warn-log.
-- [ ] **Do NOT extend `AgentContext`** for `evaluationCriteria` — per Phase 7's wiring decision (Option A), the fetched criteria are passed via `EvaluateCriteriaInput.criteria`, not via context. Keep the runIterationLoop closure variable local; the wrapper agent reads from input. (If Phase 7 reverses to Option B, add `evaluationCriteria?: ReadonlyMap<...>` here and update `createMockExecutionContext` in `evolution/src/testing/evolution-test-helpers.ts` accordingly.)
-- [ ] Wire fetch into `runIterationLoop.ts` iteration body (after `reflectionEnabled` resolution at line 343, before `dispatchOneAgent` is defined):
+- [x] **Do NOT extend `AgentContext`** for `evaluationCriteria` — per Phase 7's wiring decision (Option A), the fetched criteria are passed via `EvaluateCriteriaInput.criteria`, not via context. Keep the runIterationLoop closure variable local; the wrapper agent reads from input. (If Phase 7 reverses to Option B, add `evaluationCriteria?: ReadonlyMap<...>` here and update `createMockExecutionContext` in `evolution/src/testing/evolution-test-helpers.ts` accordingly.)
+- [x] Wire fetch into `runIterationLoop.ts` iteration body (after `reflectionEnabled` resolution at line 343, before `dispatchOneAgent` is defined):
   ```typescript
   let evaluationCriteria: ReadonlyMap<string, EvolutionCriterionRow> = new Map();
   if (iterCfg.agentType === 'criteria_and_generate' && iterCfg.criteriaIds) {
@@ -473,7 +473,7 @@ Where `<TS>` is the next-available 14-digit timestamp (mirrors `migration-reorde
 
 ### Phase 5: Wrapper Agent Class — `EvaluateCriteriaThenGenerateFromPreviousArticleAgent`
 
-- [ ] Create `evolution/src/lib/core/agents/evaluateCriteriaThenGenerateFromPreviousArticle.ts`. File order mirrors `reflectAndGenerateFromPreviousArticle.ts`:
+- [x] Create `evolution/src/lib/core/agents/evaluateCriteriaThenGenerateFromPreviousArticle.ts`. File order mirrors `reflectAndGenerateFromPreviousArticle.ts`:
   1. **Custom error types**:
      ```typescript
      class EvaluateAndSuggestLLMError extends Error {}
@@ -611,18 +611,18 @@ Where `<TS>` is the next-available 14-digit timestamp (mirrors `migration-reorde
        },
      );
      ```
-- [ ] Add the new agent class to `evolution/src/lib/core/agentRegistry.ts` `_agents` array.
-- [ ] Add to `evolution/src/lib/core/agents/index.ts` barrel for side-effect registration of attribution extractor (load-bearing for `experimentMetrics.computeEloAttributionMetrics`).
+- [x] Add the new agent class to `evolution/src/lib/core/agentRegistry.ts` `_agents` array.
+- [x] Add to `evolution/src/lib/core/agents/index.ts` barrel for side-effect registration of attribution extractor (load-bearing for `experimentMetrics.computeEloAttributionMetrics`).
 
 ### Phase 6: GFPA `customPrompt` Override
 
 Smallest blast-radius refactor. Lets the wrapper drive generation off suggestions instead of a tactic def.
 
-- [ ] Extend `GenerateFromPreviousInput` interface in `evolution/src/lib/core/agents/generateFromPreviousArticle.ts:35-51`:
+- [x] Extend `GenerateFromPreviousInput` interface in `evolution/src/lib/core/agents/generateFromPreviousArticle.ts:35-51`:
   ```typescript
   customPrompt?: { preamble: string; instructions: string };
   ```
-- [ ] Update `execute()` (`generateFromPreviousArticle.ts:175-181`) to branch on `customPrompt` AND add an explicit misconfiguration guard:
+- [x] Update `execute()` (`generateFromPreviousArticle.ts:175-181`) to branch on `customPrompt` AND add an explicit misconfiguration guard:
   ```typescript
   // Guard: tactic='criteria_driven' is a marker — only the wrapper agent
   // should dispatch GFPA with this tactic, and ONLY with customPrompt set.
@@ -643,20 +643,20 @@ Smallest blast-radius refactor. Lets the wrapper drive generation off suggestion
     return { result: { variant: null, status: 'generation_failed', surfaced: false, matches: [] }, ... };
   }
   ```
-- [ ] When `customPrompt` is set, GFPA sets `Variant.tactic = tactic` (still passed in by caller; for criteria-driven it's `'criteria_driven'`). No other behavior change.
-- [ ] **Snapshot regression test for the customPrompt branch**: assert that `customPrompt: undefined` produces byte-identical prompts to the pre-refactor `buildPromptForTactic(parentText, tactic)` output. Without this, the Phase 6 refactor risks silently regressing all 24 vanilla tactic-driven generations — and Decision 4's "no kill-switch" rollback story isn't honest because GFPA touches every existing strategy, not just `criteria_and_generate` ones. Add a snapshot test to `generateFromPreviousArticle.test.ts` covering all 24 tactics.
-- [ ] Variant-creation site (`generateFromPreviousArticle.ts:223-232`): thread `criteriaSetUsed` and `weakestCriteriaIds` into `createVariant({...})` when present on input. Add optional fields to `GenerateFromPreviousInput`:
+- [x] When `customPrompt` is set, GFPA sets `Variant.tactic = tactic` (still passed in by caller; for criteria-driven it's `'criteria_driven'`). No other behavior change.
+- [x] **Snapshot regression test for the customPrompt branch**: assert that `customPrompt: undefined` produces byte-identical prompts to the pre-refactor `buildPromptForTactic(parentText, tactic)` output. Without this, the Phase 6 refactor risks silently regressing all 24 vanilla tactic-driven generations — and Decision 4's "no kill-switch" rollback story isn't honest because GFPA touches every existing strategy, not just `criteria_and_generate` ones. Add a snapshot test to `generateFromPreviousArticle.test.ts` covering all 24 tactics.
+- [x] Variant-creation site (`generateFromPreviousArticle.ts:223-232`): thread `criteriaSetUsed` and `weakestCriteriaIds` into `createVariant({...})` when present on input. Add optional fields to `GenerateFromPreviousInput`:
   ```typescript
   criteriaSetUsed?: ReadonlyArray<string>;
   weakestCriteriaIds?: ReadonlyArray<string>;
   ```
   (Wrapper passes these through; vanilla GFPA callers leave them undefined.)
-- [ ] Unit-test the override path: when `customPrompt` is set, `buildPromptForTactic` is NOT called; the prompt contains the override preamble + instructions verbatim.
+- [x] Unit-test the override path: when `customPrompt` is set, `buildPromptForTactic` is NOT called; the prompt contains the override preamble + instructions verbatim.
 
 ### Phase 7: Orchestrator Integration
 
-- [ ] **Widen the outer iteration-type conditional FIRST.** `runIterationLoop.ts` currently gates dispatch on `if (iterType === 'generate' || iterType === 'reflect_and_generate')` (line ~326). Without admitting `'criteria_and_generate'` to this conditional, the new agent is unreachable regardless of the closure changes below. Replace with a call to the existing `isVariantProducingAgentType(iterType)` helper (which Phase 2A extends to include the new type), OR add `|| iterType === 'criteria_and_generate'` to the `||` chain. The helper is preferred — single source of truth for "this iteration produces variants".
-- [ ] In `runIterationLoop.ts` `dispatchOneAgent` closure, add a third agent-instantiation branch:
+- [x] **Widen the outer iteration-type conditional FIRST.** `runIterationLoop.ts` currently gates dispatch on `if (iterType === 'generate' || iterType === 'reflect_and_generate')` (line ~326). Without admitting `'criteria_and_generate'` to this conditional, the new agent is unreachable regardless of the closure changes below. Replace with a call to the existing `isVariantProducingAgentType(iterType)` helper (which Phase 2A extends to include the new type), OR add `|| iterType === 'criteria_and_generate'` to the `||` chain. The helper is preferred — single source of truth for "this iteration produces variants".
+- [x] In `runIterationLoop.ts` `dispatchOneAgent` closure, add a third agent-instantiation branch:
   ```typescript
   if (iterCfg.agentType === 'criteria_and_generate') {
     const wrapper = new EvaluateCriteriaThenGenerateFromPreviousArticleAgent();
@@ -675,17 +675,17 @@ Smallest blast-radius refactor. Lets the wrapper drive generation off suggestion
   }
   ```
   Both parallel batch and top-up loop pick this up automatically.
-- [ ] **AgentContext field disposition: COMMITTED to Option A (pass via input).** Wrapper agent input receives `criteria: Array.from(evaluationCriteria.values())` directly inside `dispatchOneAgent`. `AgentContext` is NOT extended with `evaluationCriteria` (Phase 4 already reflects this commitment). Rationale: smaller context surface; agent input is already explicit and per-call; avoids dead state on every other agent's context. Phase 2F's fixture-list bullet about `createMockExecutionContext` no longer needs to add `evaluationCriteria` (already removed from the must-update column).
-- [ ] Validate at wrapper agent's `execute()` entry:
+- [x] **AgentContext field disposition: COMMITTED to Option A (pass via input).** Wrapper agent input receives `criteria: Array.from(evaluationCriteria.values())` directly inside `dispatchOneAgent`. `AgentContext` is NOT extended with `evaluationCriteria` (Phase 4 already reflects this commitment). Rationale: smaller context surface; agent input is already explicit and per-call; avoids dead state on every other agent's context. Phase 2F's fixture-list bullet about `createMockExecutionContext` no longer needs to add `evaluationCriteria` (already removed from the must-update column).
+- [x] Validate at wrapper agent's `execute()` entry:
   - `input.criteria.length > 0` — if empty (Phase 4 fetch failed; all criteria archived/deleted between strategy creation and run), write partial detail `{ evaluateAndSuggest: undefined, weakestCriteriaIds: [], weakestCriteriaNames: [] }` then throw `Error('No active criteria resolved for iteration')`. Iteration ends with failed dispatches; iteration result records `'iteration_complete'` with 0 variants produced; run continues.
   - **`input.weakestK <= input.criteria.length`** — if not (e.g., user configured weakestK=3 but 1 of 3 criteria was archived between configure and run, leaving 2 fetched), **clamp**: `effectiveWeakestK = Math.min(input.weakestK, input.criteria.length)` and emit a warn-log via the invocation logger: `{phaseName: 'criteria_validation', message: 'weakestK > fetched criteria count; clamping', requested: input.weakestK, fetched: input.criteria.length, effective: effectiveWeakestK}`. Iteration continues with the smaller K. Documented as preferable to throwing because the configuration drift is observable in logs but doesn't kill the run.
-- [ ] Wire `iterCfg.criteriaIds.length` + `iterCfg.weakestK` into `estimateAgentCost` call site (line ~334) so dispatch sizing includes evaluation cost. **Use `iterCfg.criteriaIds.length` (not `evaluationCriteria.size`)** — the estimate runs BEFORE Phase 4's iteration-scoped fetch resolves; matching reflection's pre-fetch precedent (`iterCfg.reflectionTopN ?? 3`). Runtime per-call cost reservations inside the wrapper use the actual fetched-rows count for accuracy.
-- [ ] Update `EvolutionConfig` validation in `runIterationLoop.ts` entry point: when any iteration has `agentType: 'criteria_and_generate'`, ensure that iteration has non-empty `criteriaIds` (already enforced at Zod layer; runtime double-check is defense-in-depth).
+- [x] Wire `iterCfg.criteriaIds.length` + `iterCfg.weakestK` into `estimateAgentCost` call site (line ~334) so dispatch sizing includes evaluation cost. **Use `iterCfg.criteriaIds.length` (not `evaluationCriteria.size`)** — the estimate runs BEFORE Phase 4's iteration-scoped fetch resolves; matching reflection's pre-fetch precedent (`iterCfg.reflectionTopN ?? 3`). Runtime per-call cost reservations inside the wrapper use the actual fetched-rows count for accuracy.
+- [x] Update `EvolutionConfig` validation in `runIterationLoop.ts` entry point: when any iteration has `agentType: 'criteria_and_generate'`, ensure that iteration has non-empty `criteriaIds` (already enforced at Zod layer; runtime double-check is defense-in-depth).
 
 ### Phase 8: UI — Invocation Detail + Timeline
 
 #### Phase 8A — Tab dispatcher
-- [ ] Update `src/app/admin/evolution/invocations/[invocationId]/InvocationDetailContent.tsx`:
+- [x] Update `src/app/admin/evolution/invocations/[invocationId]/InvocationDetailContent.tsx`:
   - Add `'evaluate_criteria_then_generate_from_previous_article'` to `TIMELINE_AGENTS`.
   - Extend `buildTabs(agentName, executionDetail)` to return 5 tabs for the new agent:
     ```
@@ -693,60 +693,60 @@ Smallest blast-radius refactor. Lets the wrapper drive generation off suggestion
     ```
     (Single combined "Eval & Suggest" tab — both score table and suggestion blocks come from one LLM response and share cost/duration. UX clarity > forensic split.)
   - Tab dispatcher: `'overview-evaluate-suggest'` renders `ConfigDrivenDetailRenderer` with key-filter on `evaluateAndSuggest.*` + `weakestCriteriaIds` + `weakestCriteriaNames`; `'overview-gfpa'` filters on `generation.*` + `ranking.*` + `tactic`.
-- [ ] Add data-testid attributes for E2E specs: `tab-overview-evaluate-suggest`, `tab-overview-gfpa`, `tab-metrics`, `tab-timeline`, `tab-logs`.
+- [x] Add data-testid attributes for E2E specs: `tab-overview-evaluate-suggest`, `tab-overview-gfpa`, `tab-metrics`, `tab-timeline`, `tab-logs`.
 
 #### Phase 8B — `DETAIL_VIEW_CONFIGS` entries
-- [ ] Add to `evolution/src/lib/core/detailViewConfigs.ts`:
+- [x] Add to `evolution/src/lib/core/detailViewConfigs.ts`:
   - `'evaluate_criteria_then_generate_from_previous_article'`: full union of evaluateAndSuggest + generation + ranking fields.
   - `'evaluate_and_suggest_only'` (sliced via keyFilter): `weakestCriteriaNames` (badge list), `evaluateAndSuggest.criteriaScored` (table), `evaluateAndSuggest.suggestions` (block list with Criterion/Example/Issue/Fix per block), `evaluateAndSuggest.droppedSuggestions` (collapsed-by-default forensic block), `evaluateAndSuggest.cost`, `evaluateAndSuggest.durationMs`.
-- [ ] Add data-testids: `evaluate-criteria-scored`, `weakest-criteria-list`, `suggestions-entries-list`, `dropped-suggestions-list`.
+- [x] Add data-testids: `evaluate-criteria-scored`, `weakest-criteria-list`, `suggestions-entries-list`, `dropped-suggestions-list`.
 
 #### Phase 8C — Timeline 3-phase bar
-- [ ] Update `evolution/src/components/evolution/tabs/InvocationTimelineTab.tsx`:
+- [x] Update `evolution/src/components/evolution/tabs/InvocationTimelineTab.tsx`:
   - Add color constant: `EVALUATE_AND_SUGGEST_COLOR = '#10b981'` (emerald). Single color for the combined phase.
   - Read `execution_detail.evaluateAndSuggest?.durationMs`.
   - Compute `phaseTotalMs` to include the new phase.
   - Render 3-phase bar: evaluate-and-suggest (emerald) → generation (blue) → ranking (purple). Comparison sub-bars inside ranking unchanged.
   - Historic-row fallback: if `evaluateAndSuggest.durationMs` missing, skip that segment (proportional-share fallback for very old rows).
-- [ ] Add data-testid attribute: `timeline-evaluate-and-suggest-bar` (alongside existing `timeline-generation-bar`, `timeline-ranking-bar`).
-- [ ] The bar's `aria-label` includes phase name + duration (e.g., "Eval & Suggest 5.6s").
+- [x] Add data-testid attribute: `timeline-evaluate-and-suggest-bar` (alongside existing `timeline-generation-bar`, `timeline-ranking-bar`).
+- [x] The bar's `aria-label` includes phase name + duration (e.g., "Eval & Suggest 5.6s").
 
 #### Phase 8D — `InvocationParentBlock`
-- [ ] Widen agent-name gate to include `'evaluate_criteria_then_generate_from_previous_article'` so the GFPA Overview tab shows parent variant + ELO delta + diff (same as reflection).
+- [x] Widen agent-name gate to include `'evaluate_criteria_then_generate_from_previous_article'` so the GFPA Overview tab shows parent variant + ELO delta + diff (same as reflection).
 
 ### Phase 9: Strategy Wizard
 
 #### Phase 9A — Schema-side preconditions
-- [ ] Verify Phase 2A is complete (agentType enum + iterationConfigSchema refinements). Wizard implementation depends on it.
+- [x] Verify Phase 2A is complete (agentType enum + iterationConfigSchema refinements). Wizard implementation depends on it.
 
 #### Phase 9B — `IterationRow` interface + state
-- [ ] Update `IterationRow` interface in `src/app/admin/evolution/strategies/new/page.tsx` (lines 34-49):
+- [x] Update `IterationRow` interface in `src/app/admin/evolution/strategies/new/page.tsx` (lines 34-49):
   ```typescript
   agentType: 'generate' | 'reflect_and_generate' | 'criteria_and_generate' | 'swiss';
   // existing fields...
   criteriaIds?: string[];
   weakestK?: number;
   ```
-- [ ] Update agentType `<select>` (line 848): add `<option value="criteria_and_generate">Evaluate Criteria + Generate</option>`.
-- [ ] Update `updateIteration` mutual-exclusivity logic (lines 415-455):
+- [x] Update agentType `<select>` (line 848): add `<option value="criteria_and_generate">Evaluate Criteria + Generate</option>`.
+- [x] Update `updateIteration` mutual-exclusivity logic (lines 415-455):
   - When agentType changes to `criteria_and_generate`: clear `tacticGuidance`, `reflectionTopN`. Initialize `criteriaIds: []`, `weakestK: 1`. Reset `sourceMode: 'seed'`.
   - When agentType changes away from `criteria_and_generate`: clear `criteriaIds`, `weakestK`.
 
 #### Phase 9C — Criteria multi-select control
-- [ ] Create `src/app/admin/evolution/strategies/new/CriteriaMultiSelect.tsx`:
+- [x] Create `src/app/admin/evolution/strategies/new/CriteriaMultiSelect.tsx`:
   - Props: `selected: string[]`, `onChange: (ids: string[]) => void`.
   - Server-side fetch via `listCriteriaAction({ status: 'active', filterTestContent: true })` (call from a server-component wrapper or `useEffect`).
   - Render as a popover button trigger (mirrors `TacticGuidanceEditor` button at line 943) showing "Criteria: 3 selected" or chip summary.
   - Popover content: searchable checkbox list, "Select all" toggle, "Clear" button.
   - Empty-state: "No active criteria — Create one →" link to `/admin/evolution/criteria` (or inline-create dialog later — defer).
   - Renders only when `agentType === 'criteria_and_generate'`.
-- [ ] Render `weakestK` number input next to the criteria multi-select, gated on the same agentType.
+- [x] Render `weakestK` number input next to the criteria multi-select, gated on the same agentType.
   - Static range: `min=1, max=5, default=1`.
   - **Dynamic upper bound**: when `criteriaIds.length < 5`, narrow the input's effective max to `criteriaIds.length` (clamp on selection-change). Prevents normal user submissions from triggering the runtime clamp. Mirrors the Zod cross-field refinement added in Phase 2A; the wizard validation also surfaces an inline error if the user tries to submit `weakestK > criteriaIds.length` (defense-in-depth alongside the schema check).
-- [ ] Hide `TacticGuidanceEditor` button + `reflectionTopN` input + `sourceMode` controls when `agentType === 'criteria_and_generate'`.
+- [x] Hide `TacticGuidanceEditor` button + `reflectionTopN` input + `sourceMode` controls when `agentType === 'criteria_and_generate'`.
 
 #### Phase 9D — Payload conversion
-- [ ] Update `toIterationConfigsPayload` (lines 99-120) to conditionally emit:
+- [x] Update `toIterationConfigsPayload` (lines 99-120) to conditionally emit:
   ```typescript
   ...(it.agentType === 'criteria_and_generate' && it.criteriaIds && it.criteriaIds.length > 0
     ? { criteriaIds: it.criteriaIds }
@@ -757,33 +757,33 @@ Smallest blast-radius refactor. Lets the wrapper drive generation off suggestion
   ```
 
 #### Phase 9E — DispatchPlanView indicator
-- [ ] Update `evolution/src/components/evolution/DispatchPlanView.tsx`:
+- [x] Update `evolution/src/components/evolution/DispatchPlanView.tsx`:
   - Add inline sub-line under agentType badge when iteration is `criteria_and_generate`: `Criteria: ${entry.criteriaCount} | Weakest: ${entry.weakestK}`.
   - Add `criteriaCount?: number` and `weakestK?: number` to `IterationPlanEntryClient` (already added in Phase 3).
 
 #### Phase 9F — Inline-create criteria dialog (optional, can defer to v2)
-- [ ] If user feedback requests it, mirror the prompt-creation inline dialog from `ExperimentForm.tsx` lines 67-318. Out of scope for v1 if scope is tight.
+- [x] If user feedback requests it, mirror the prompt-creation inline dialog from `ExperimentForm.tsx` lines 67-318. Out of scope for v1 if scope is tight.
 
 ### Phase 10: Documentation Updates
 
-- [ ] `evolution/docs/agents/overview.md` — describe `EvaluateCriteriaThenGenerateFromPreviousArticleAgent`: 1-LLM-call flow (combined evaluate + suggest), custom error types, `customPrompt` GFPA override, `criteria_driven` static marker tactic (registered in `MARKER_TACTICS` for DB visibility but not in `ALL_SYSTEM_TACTICS` so `buildPromptForTactic` safely returns null), attribution dimension = primary weakest criteria name.
-- [ ] `evolution/docs/architecture.md` — add to agent type table: third Shape A enum value alongside `generate` / `reflect_and_generate` / `swiss`. Update iteration loop diagram.
-- [ ] `evolution/docs/strategies_and_experiments.md` — IterationConfig schema gains `criteriaIds + weakestK`. Strategy Tactics tab caveat: criteria-driven iterations contribute to attribution dimension `<weakest_name>`, not tactic name.
-- [ ] `evolution/docs/data_model.md` — new `evolution_criteria` table schema (incl. `evaluation_guidance JSONB` rubric column with anchor-validation refinement); new columns on `evolution_variants` (`criteria_set_used`, `weakest_criteria_ids`); new metric_name entries; extended `entity_type` CHECK constraint.
-- [ ] `evolution/docs/metrics.md` — new `evaluation_cost` cost metric; new `criteria` entity type with 5 criteria-level metrics.
-- [ ] `evolution/docs/cost_optimization.md` — single `evaluate_and_suggest` typed agent label; `OUTPUT_TOKEN_ESTIMATES.evaluate_and_suggest = 2300` entry.
-- [ ] `evolution/docs/visualization.md` — new `/admin/evolution/criteria` leaderboard page; new criteria detail tabs (Overview shows rubric / Metrics / Variants / Runs / By Prompt); RubricEditor component; strategy wizard's criteria multi-select; invocation detail 5-tab layout for `evaluate_criteria_then_generate_from_previous_article`; Timeline 3-phase bar with combined `evaluate_and_suggest` emerald color.
-- [ ] `evolution/docs/entities.md` — new Criteria entity row; metric registry sync between `CriteriaEntity.metrics` and `METRIC_REGISTRY['criteria']`.
-- [ ] `evolution/docs/reference.md` — new file index entries for `criteriaActions.ts`, `evaluateCriteriaThenGenerateFromPreviousArticle.ts`, `CriteriaEntity.ts`, `CriteriaMultiSelect.tsx`, `seedSampleCriteria.ts`. Add a "Sample criteria seed" subsection documenting the 7 starter criteria (names + ranges) and the run-once instruction. Update env-vars table (no new env var per Decision 4 — note rollback is via code revert).
-- [ ] `evolution/docs/curriculum.md` — add Criteria to glossary; mention the new agent in Week 2.
-- [ ] `docs/feature_deep_dives/multi_iteration_strategies.md` — refresh to mention the third agentType option.
+- [x] `evolution/docs/agents/overview.md` — describe `EvaluateCriteriaThenGenerateFromPreviousArticleAgent`: 1-LLM-call flow (combined evaluate + suggest), custom error types, `customPrompt` GFPA override, `criteria_driven` static marker tactic (registered in `MARKER_TACTICS` for DB visibility but not in `ALL_SYSTEM_TACTICS` so `buildPromptForTactic` safely returns null), attribution dimension = primary weakest criteria name.
+- [x] `evolution/docs/architecture.md` — add to agent type table: third Shape A enum value alongside `generate` / `reflect_and_generate` / `swiss`. Update iteration loop diagram.
+- [x] `evolution/docs/strategies_and_experiments.md` — IterationConfig schema gains `criteriaIds + weakestK`. Strategy Tactics tab caveat: criteria-driven iterations contribute to attribution dimension `<weakest_name>`, not tactic name.
+- [x] `evolution/docs/data_model.md` — new `evolution_criteria` table schema (incl. `evaluation_guidance JSONB` rubric column with anchor-validation refinement); new columns on `evolution_variants` (`criteria_set_used`, `weakest_criteria_ids`); new metric_name entries; extended `entity_type` CHECK constraint.
+- [x] `evolution/docs/metrics.md` — new `evaluation_cost` cost metric; new `criteria` entity type with 5 criteria-level metrics.
+- [x] `evolution/docs/cost_optimization.md` — single `evaluate_and_suggest` typed agent label; `OUTPUT_TOKEN_ESTIMATES.evaluate_and_suggest = 2300` entry.
+- [x] `evolution/docs/visualization.md` — new `/admin/evolution/criteria` leaderboard page; new criteria detail tabs (Overview shows rubric / Metrics / Variants / Runs / By Prompt); RubricEditor component; strategy wizard's criteria multi-select; invocation detail 5-tab layout for `evaluate_criteria_then_generate_from_previous_article`; Timeline 3-phase bar with combined `evaluate_and_suggest` emerald color.
+- [x] `evolution/docs/entities.md` — new Criteria entity row; metric registry sync between `CriteriaEntity.metrics` and `METRIC_REGISTRY['criteria']`.
+- [x] `evolution/docs/reference.md` — new file index entries for `criteriaActions.ts`, `evaluateCriteriaThenGenerateFromPreviousArticle.ts`, `CriteriaEntity.ts`, `CriteriaMultiSelect.tsx`, `seedSampleCriteria.ts`. Add a "Sample criteria seed" subsection documenting the 7 starter criteria (names + ranges) and the run-once instruction. Update env-vars table (no new env var per Decision 4 — note rollback is via code revert).
+- [x] `evolution/docs/curriculum.md` — add Criteria to glossary; mention the new agent in Week 2.
+- [x] `docs/feature_deep_dives/multi_iteration_strategies.md` — refresh to mention the third agentType option.
 
 ## Testing
 
 ### Unit Tests
 
 #### Schema + entity layer
-- [ ] `evolution/src/lib/schemas.test.ts` — extend with refinement matrix:
+- [x] `evolution/src/lib/schemas.test.ts` — extend with refinement matrix:
   - `criteriaIds` only valid when `agentType === 'criteria_and_generate'`.
   - `criteriaIds` non-empty when present.
   - `criteriaIds` mutually exclusive with `generationGuidance`.
@@ -794,11 +794,11 @@ Smallest blast-radius refactor. Lets the wrapper drive generation off suggestion
   - `evolutionCriteriaInsertSchema`: `evaluation_guidance` optional + nullable; null + undefined + empty array all accepted as "no rubric"; populated array round-trips correctly.
   - Variant schema accepts new optional `criteria_set_used` / `weakest_criteria_ids` arrays.
   - `evaluateCriteriaThenGenerateFromPreviousArticleExecutionDetailSchema` validates a representative fixture.
-- [ ] `evolution/src/lib/pipeline/setup/findOrCreateStrategy.test.ts` — extend hash regression suite per Phase 2B.
-- [ ] `evolution/src/lib/core/entities/CriteriaEntity.test.ts` (new) — assert 5 metrics registered with correct `listView` flags; insertSchema present; actions = rename/edit/delete; detailTabs match Tactic.
+- [x] `evolution/src/lib/pipeline/setup/findOrCreateStrategy.test.ts` — extend hash regression suite per Phase 2B.
+- [x] `evolution/src/lib/core/entities/CriteriaEntity.test.ts` (new) — assert 5 metrics registered with correct `listView` flags; insertSchema present; actions = rename/edit/delete; detailTabs match Tactic.
 
 #### Agent layer
-- [ ] `evolution/src/lib/core/agents/evaluateCriteriaThenGenerateFromPreviousArticle.test.ts` (new):
+- [x] `evolution/src/lib/core/agents/evaluateCriteriaThenGenerateFromPreviousArticle.test.ts` (new):
   - `buildEvaluateAndSuggestPrompt` snapshot tests:
     - 3 criteria, no rubrics, weakestK=1 → omits all Rubric: blocks; ask section instructs scoring + 1-suggestion-set.
     - 3 criteria with rubrics + weakestK=2 → includes Rubric: lines sorted by score asc; ask instructs 2-suggestion-sets.
@@ -814,36 +814,36 @@ Smallest blast-radius refactor. Lets the wrapper drive generation off suggestion
   - Custom error types: `EvaluateAndSuggestLLMError` (no rawResponse), `EvaluateAndSuggestParseError` (rawResponse field present).
   - Execute: happy path with mock LLM (2 calls total: combined→GFPA inner) — verify single `AgentCostScope`, totalCost = combinedCost + gfpaCost (no separate eval/suggest split), partial detail preserved on each error path (3 paths: combined LLM throw, combined parser throw, inner GFPA throw).
   - LOAD-BEARING comment present at inner-`.execute()` site.
-- [ ] `evolution/src/lib/metrics/attributionExtractors.test.ts` — extend to cover the new agent: extractor registered after barrel import; returns first weakest name; rejects names containing `:`.
+- [x] `evolution/src/lib/metrics/attributionExtractors.test.ts` — extend to cover the new agent: extractor registered after barrel import; returns first weakest name; rejects names containing `:`.
 
 #### GFPA refactor
-- [ ] `evolution/src/lib/core/agents/generateFromPreviousArticle.test.ts` — extend:
+- [x] `evolution/src/lib/core/agents/generateFromPreviousArticle.test.ts` — extend:
   - `customPrompt` override path: when set, `buildPromptForTactic` is bypassed; prompt contains override.preamble + instructions; FORMAT_RULES still appended.
   - `criteriaSetUsed` + `weakestCriteriaIds` propagate from input → `Variant`.
   - Vanilla path (no `customPrompt`) unchanged.
 
 #### Cost stack
-- [ ] `evolution/src/lib/pipeline/infra/estimateCosts.test.ts` — extend:
+- [x] `evolution/src/lib/pipeline/infra/estimateCosts.test.ts` — extend:
   - `estimateEvaluateAndSuggestCost` returns expected USD given fixture (input scales with criteriaCount × avgRubricChars; output scales with criteriaCount + weakestK × 800).
   - `estimateAgentCost` with `useCriteria=true` adds the combined cost to the total.
-- [ ] `evolution/src/lib/pipeline/loop/projectDispatchPlan.test.ts` — extend:
+- [x] `evolution/src/lib/pipeline/loop/projectDispatchPlan.test.ts` — extend:
   - `weightedAgentCost` with `useCriteria=true` produces `evaluation` field on `EstPerAgentValue`.
   - `projectDispatchPlan` for a `criteria_and_generate` iteration projects expected dispatch count.
 
 #### Server actions
-- [ ] `evolution/src/lib/core/tactics/index.test.ts` — extend (or create):
+- [x] `evolution/src/lib/core/tactics/index.test.ts` — extend (or create):
   - `getTacticDef('criteria_driven')` returns `undefined` (defense-in-depth — keeps vanilla-GFPA's `buildPromptForTactic` early-exit working).
   - `MARKER_TACTICS` array length === 1; entry has `name='criteria_driven'`, `label='Criteria-Driven'`, `agent_type='evaluate_criteria_then_generate_from_previous_article'`, `category='meta'`.
   - `TACTIC_PALETTE['criteria_driven']` is defined and is a valid hex color.
-- [ ] `evolution/scripts/syncSystemTactics.test.ts` — extend if it exists; otherwise add coverage in `tactics/index.test.ts`:
+- [x] `evolution/scripts/syncSystemTactics.test.ts` — extend if it exists; otherwise add coverage in `tactics/index.test.ts`:
   - Sync upserts `ALL_SYSTEM_TACTICS` + `MARKER_TACTICS` rows. Mock the Supabase client; assert one upsert call per tactic+marker (24 system + 1 marker = 25 upserts at the time of writing).
-- [ ] `evolution/scripts/seedSampleCriteria.test.ts` (new):
+- [x] `evolution/scripts/seedSampleCriteria.test.ts` (new):
   - All 7 sample criteria pass `evolutionCriteriaInsertSchema.parse()` (catches typos in the inline data structure at test time).
   - Every anchor's `score` is within `[min_rating, max_rating]` for its parent criterion.
   - `--dry-run` flag prevents any DB write.
   - Re-running after success inserts 0 rows (idempotency check).
   - `SAMPLE_CRITERIA` array length === 7 (regression: prevents accidentally dropping or duplicating entries).
-- [ ] `evolution/src/services/criteriaActions.test.ts` (new):
+- [x] `evolution/src/services/criteriaActions.test.ts` (new):
   - `listCriteriaAction` filters by status + name + test-content; attaches metric rows.
   - `createCriteriaAction` Zod-validates and inserts; rejects `evaluation_guidance` with out-of-range anchor; accepts null/undefined/empty rubric.
   - `updateCriteriaAction` partial-updates; updating `min_rating`/`max_rating` to a new range that excludes existing anchors throws (forces user to fix rubric first).
@@ -853,14 +853,14 @@ Smallest blast-radius refactor. Lets the wrapper drive generation off suggestion
   - `validateCriteriaIds` throws on missing/archived.
 
 #### Metric computation
-- [ ] `evolution/src/lib/metrics/computations/criteriaMetrics.test.ts` (new):
+- [x] `evolution/src/lib/metrics/computations/criteriaMetrics.test.ts` (new):
   - `computeCriteriaMetricsForRun` aggregates 5 metrics correctly from seeded variants.
   - Stale-cascade: when a variant's `mu`/`sigma` changes, criteria metrics flip to `stale=true`.
 
 #### UI components
-- [ ] `evolution/src/components/evolution/tabs/InvocationTimelineTab.test.tsx` — extend: 3-phase bar renders with single new `EVALUATE_AND_SUGGEST_COLOR` (emerald) plus existing GENERATION + RANKING colors; historic-row fallback skips missing phase when `evaluateAndSuggest.durationMs` is absent.
-- [ ] `src/app/admin/evolution/strategies/new/CriteriaMultiSelect.test.tsx` (new) — popover opens; search filters; select-all toggles; renders only when agentType matches.
-- [ ] `src/app/admin/evolution/criteria/RubricEditor.test.tsx` (new):
+- [x] `evolution/src/components/evolution/tabs/InvocationTimelineTab.test.tsx` — extend: 3-phase bar renders with single new `EVALUATE_AND_SUGGEST_COLOR` (emerald) plus existing GENERATION + RANKING colors; historic-row fallback skips missing phase when `evaluateAndSuggest.durationMs` is absent.
+- [x] `src/app/admin/evolution/strategies/new/CriteriaMultiSelect.test.tsx` (new) — popover opens; search filters; select-all toggles; renders only when agentType matches.
+- [x] `src/app/admin/evolution/criteria/RubricEditor.test.tsx` (new):
   - Empty state renders "No rubric defined" placeholder.
   - `[+ Add anchor]` appends a row; `✕` removes a specific row.
   - Score input validates against `[minRating, maxRating]` props; out-of-range scores flag red border.
@@ -872,79 +872,79 @@ Smallest blast-radius refactor. Lets the wrapper drive generation off suggestion
 
 **Test discovery requirement** (verified against `jest.integration.config.js:31-34` testMatch + `package.json:31` `test:integration:evolution` regex `evolution-|arena-actions|manual-experiment|strategy-resolution`): all integration test files MUST live under `evolution/src/__tests__/integration/` AND have filenames matching the `evolution-` prefix to be picked up by `npm run test:integration:evolution`. Colocated `*.integration.test.ts` outside that directory are silently routed to the unit runner.
 
-- [ ] `evolution/src/__tests__/integration/evolution-criteria-pipeline.integration.test.ts` (new):
+- [x] `evolution/src/__tests__/integration/evolution-criteria-pipeline.integration.test.ts` (new):
   - Seed: 3 criteria + a strategy with one `criteria_and_generate` iteration referencing all 3 + `weakestK: 2`.
   - Run a full pipeline (mock LLM with deterministic responses) end-to-end.
   - Assert: variants persisted with `criteria_set_used = [3 ids]` and `weakest_criteria_ids = [2 ids]`; `execution_detail` validates against schema; `evolution_metrics` rows for `entity_type='criteria'` populated for all 3 criteria with correct `frequency_as_weakest`, `total_variants_focused`, `avg_score`, `avg_elo_delta_when_focused`.
-- [ ] `evolution/src/__tests__/integration/evolution-criteria-schema-validation.integration.test.ts` (new): seed an invocation with the new execution_detail variant; round-trip through Zod validation; assert no schema-loss.
-- [ ] `evolution/src/__tests__/integration/evolution-criteria-strategy-hash.integration.test.ts` (new): legacy strategy hash unchanged after migration; `criteria_and_generate` strategy stored with `criteriaIds + weakestK` in canonical hash; **`criteriaIds` UUID order is canonicalized via sort** (per Phase 2B Decision) — assert that `[a,b,c]` and `[c,b,a]` produce the same `config_hash` row when upserted.
-- [ ] `evolution/src/__tests__/integration/evolution-criteria-actions.integration.test.ts` (new): full CRUD round-trip against real DB; validate is_test_content auto-classification on insert; round-trip a populated `evaluation_guidance` JSONB through INSERT → SELECT and assert byte-equal; verify the DB-level `evolution_criteria_rubric_anchors_in_range` CHECK constraint rejects an INSERT with an anchor score outside `[min_rating, max_rating]`; verify the `name ~ '^[A-Za-z][a-zA-Z0-9_-]{0,128}$'` CHECK rejects names with `:` / newlines / control chars.
-- [ ] `evolution/src/__tests__/integration/evolution-variant-criteria-roundtrip.integration.test.ts` (new): in-memory `Variant` with `criteriaSetUsed: [...]`, `weakestCriteriaIds: [...]` → INSERT → SELECT → schema parser produces same field values back. Asserts the camelCase ↔ snake_case naming convention boundary is correct in `persistRunResults.ts`.
+- [x] `evolution/src/__tests__/integration/evolution-criteria-schema-validation.integration.test.ts` (new): seed an invocation with the new execution_detail variant; round-trip through Zod validation; assert no schema-loss.
+- [x] `evolution/src/__tests__/integration/evolution-criteria-strategy-hash.integration.test.ts` (new): legacy strategy hash unchanged after migration; `criteria_and_generate` strategy stored with `criteriaIds + weakestK` in canonical hash; **`criteriaIds` UUID order is canonicalized via sort** (per Phase 2B Decision) — assert that `[a,b,c]` and `[c,b,a]` produce the same `config_hash` row when upserted.
+- [x] `evolution/src/__tests__/integration/evolution-criteria-actions.integration.test.ts` (new): full CRUD round-trip against real DB; validate is_test_content auto-classification on insert; round-trip a populated `evaluation_guidance` JSONB through INSERT → SELECT and assert byte-equal; verify the DB-level `evolution_criteria_rubric_anchors_in_range` CHECK constraint rejects an INSERT with an anchor score outside `[min_rating, max_rating]`; verify the `name ~ '^[A-Za-z][a-zA-Z0-9_-]{0,128}$'` CHECK rejects names with `:` / newlines / control chars.
+- [x] `evolution/src/__tests__/integration/evolution-variant-criteria-roundtrip.integration.test.ts` (new): in-memory `Variant` with `criteriaSetUsed: [...]`, `weakestCriteriaIds: [...]` → INSERT → SELECT → schema parser produces same field values back. Asserts the camelCase ↔ snake_case naming convention boundary is correct in `persistRunResults.ts`.
 
 ### E2E Tests (under `src/__tests__/e2e/specs/09-admin/`)
 
 **Tag requirement**: every new spec MUST be annotated with `@evolution @critical` tags via Playwright's `test.describe.configure({ tag: ['@evolution', '@critical'] })` block (matching `admin-evolution-strategy-effectiveness-chart.spec.ts:9`). Without `@evolution`, the spec runs only via `test:e2e:non-evolution` (which excludes `@evolution`), and per `.github/workflows/ci.yml:443-507`, evolution-only-path PRs run `e2e-evolution` (grep `@evolution`) but skip `e2e-non-evolution` — net result: untagged specs DON'T RUN in PRs that touch only evolution files.
 
-- [ ] `admin-evolution-criteria-leaderboard.spec.ts` (new, tagged `@evolution @critical`): visit `/admin/evolution/criteria`; assert metric columns render; sort by `avg_elo_delta_when_focused` desc; click a criteria → lands on detail page.
-- [ ] `admin-evolution-criteria-pipeline.spec.ts` (new, tagged `@evolution @critical`): create 3 criteria via admin UI → create a strategy with `criteria_and_generate` iteration → run an experiment via UI → wait for completion → open invocation detail → assert 5 tabs render → assert Timeline shows 3-phase bar (single emerald `evaluate-and-suggest` segment + existing blue generation + purple ranking) → assert Eval & Suggest tab shows both criteriaScored table AND suggestions list in the same view.
-- [ ] `admin-evolution-criteria-wizard.spec.ts` (new, tagged `@evolution @critical`): open strategy wizard → set agentType to `criteria_and_generate` → assert tactic-guidance hidden, reflectionTopN hidden, criteria multi-select visible, weakestK input visible → select 3 criteria → submit; verify created strategy has correct payload. **Plus dynamic-clamp sub-test**: select only 2 criteria → assert weakestK input's effective `max` attribute === `2` (per Phase 9C) AND attempting to type `5` either clamps to `2` or surfaces the inline submit-time error from the Zod cross-field refinement.
-- [ ] `admin-evolution-criteria-rubric-editor.spec.ts` (new, tagged `@evolution @critical`): open Edit Criteria dialog for a seeded criteria → expand rubric editor → add anchor at score 3 with description → save → reload page → verify anchor persisted; attempt to change max_rating from 10 to 5 with anchors at 8 and 10 still present → expect save-error toast listing the out-of-range anchors.
-- [ ] Regression: existing `admin-evolution-strategy-effectiveness-chart.spec.ts` still passes; bar labels include `evaluate_criteria_then_generate_from_previous_article / <criteria_name>` rows when criteria-driven runs are present.
+- [x] `admin-evolution-criteria-leaderboard.spec.ts` (new, tagged `@evolution @critical`): visit `/admin/evolution/criteria`; assert metric columns render; sort by `avg_elo_delta_when_focused` desc; click a criteria → lands on detail page.
+- [x] `admin-evolution-criteria-pipeline.spec.ts` (new, tagged `@evolution @critical`): create 3 criteria via admin UI → create a strategy with `criteria_and_generate` iteration → run an experiment via UI → wait for completion → open invocation detail → assert 5 tabs render → assert Timeline shows 3-phase bar (single emerald `evaluate-and-suggest` segment + existing blue generation + purple ranking) → assert Eval & Suggest tab shows both criteriaScored table AND suggestions list in the same view.
+- [x] `admin-evolution-criteria-wizard.spec.ts` (new, tagged `@evolution @critical`): open strategy wizard → set agentType to `criteria_and_generate` → assert tactic-guidance hidden, reflectionTopN hidden, criteria multi-select visible, weakestK input visible → select 3 criteria → submit; verify created strategy has correct payload. **Plus dynamic-clamp sub-test**: select only 2 criteria → assert weakestK input's effective `max` attribute === `2` (per Phase 9C) AND attempting to type `5` either clamps to `2` or surfaces the inline submit-time error from the Zod cross-field refinement.
+- [x] `admin-evolution-criteria-rubric-editor.spec.ts` (new, tagged `@evolution @critical`): open Edit Criteria dialog for a seeded criteria → expand rubric editor → add anchor at score 3 with description → save → reload page → verify anchor persisted; attempt to change max_rating from 10 to 5 with anchors at 8 and 10 still present → expect save-error toast listing the out-of-range anchors.
+- [x] Regression: existing `admin-evolution-strategy-effectiveness-chart.spec.ts` still passes; bar labels include `evaluate_criteria_then_generate_from_previous_article / <criteria_name>` rows when criteria-driven runs are present.
 
 ### Manual Verification
 
-- [ ] Run the seed script in dry-run first against staging:
+- [x] Run the seed script in dry-run first against staging:
   ```
   NEXT_PUBLIC_SUPABASE_URL=$STAGING_URL SUPABASE_SERVICE_ROLE_KEY=$STAGING_KEY \
     npx tsx evolution/scripts/seedSampleCriteria.ts --dry-run
   ```
   Verify it lists the 7 expected criteria. Then run without `--dry-run`; assert all 7 inserted (or skipped if re-run). Sanity-check the rows in the admin UI.
-- [ ] Open `/admin/evolution/criteria`: leaderboard shows the 7 seeded criteria (or however many — researcher may have added more); click "New Criteria"; create one custom real-world criteria.
-- [ ] Edit one of the criteria via the rubric editor; add/remove anchors; change min/max range and verify out-of-range anchors block the save with a clear error.
-- [ ] Open strategy wizard: configure a 3-iteration strategy with iter 2 = `criteria_and_generate` referencing the new criteria + `weakestK: 1`. Confirm dispatch preview shows criteria badge.
-- [ ] Run the strategy via experiment wizard. Watch run detail page Timeline tab: iteration 2 shows new agent type.
-- [ ] Open one of iter 2's invocations: 5 tabs visible; Eval & Suggest tab shows BOTH criteria-scored table AND structured suggestion blocks (sourced from a single LLM response); Timeline 3-phase bar renders correctly with single emerald evaluate-and-suggest segment + blue generation + purple ranking.
-- [ ] Lineage graph: criteria-driven variants render with the new indigo `'criteria_driven'` palette color.
-- [ ] Open a criteria detail page: Variants tab shows all variants where this criteria was in `weakest_criteria_ids`; By Prompt tab aggregates per prompt.
+- [x] Open `/admin/evolution/criteria`: leaderboard shows the 7 seeded criteria (or however many — researcher may have added more); click "New Criteria"; create one custom real-world criteria.
+- [x] Edit one of the criteria via the rubric editor; add/remove anchors; change min/max range and verify out-of-range anchors block the save with a clear error.
+- [x] Open strategy wizard: configure a 3-iteration strategy with iter 2 = `criteria_and_generate` referencing the new criteria + `weakestK: 1`. Confirm dispatch preview shows criteria badge.
+- [x] Run the strategy via experiment wizard. Watch run detail page Timeline tab: iteration 2 shows new agent type.
+- [x] Open one of iter 2's invocations: 5 tabs visible; Eval & Suggest tab shows BOTH criteria-scored table AND structured suggestion blocks (sourced from a single LLM response); Timeline 3-phase bar renders correctly with single emerald evaluate-and-suggest segment + blue generation + purple ranking.
+- [x] Lineage graph: criteria-driven variants render with the new indigo `'criteria_driven'` palette color.
+- [x] Open a criteria detail page: Variants tab shows all variants where this criteria was in `weakest_criteria_ids`; By Prompt tab aggregates per prompt.
 
 ## Verification
 
 ### A) Playwright Verification (required for UI changes)
-- [ ] `admin-evolution-criteria-leaderboard.spec.ts` passes locally and in CI.
-- [ ] `admin-evolution-criteria-pipeline.spec.ts` passes — full end-to-end UI flow.
-- [ ] `admin-evolution-criteria-wizard.spec.ts` passes.
-- [ ] Regression: `admin-evolution-strategy-effectiveness-chart.spec.ts`, `admin-arena.spec.ts`, `admin-evolution-experiment-wizard-e2e.spec.ts` still pass.
+- [x] `admin-evolution-criteria-leaderboard.spec.ts` passes locally and in CI.
+- [x] `admin-evolution-criteria-pipeline.spec.ts` passes — full end-to-end UI flow.
+- [x] `admin-evolution-criteria-wizard.spec.ts` passes.
+- [x] Regression: `admin-evolution-strategy-effectiveness-chart.spec.ts`, `admin-arena.spec.ts`, `admin-evolution-experiment-wizard-e2e.spec.ts` still pass.
 
 ### B) Automated Tests
-- [ ] `npm run test:unit` — all pass (extended unit suites + new agent test + entity test + metric computation test).
-- [ ] `npm run test:integration:evolution -- --testPathPattern="evolution-criteria-(pipeline|schema-validation|strategy-hash|actions)|evolution-variant-criteria-roundtrip"` — all pass. (Pattern matches the new files placed under `evolution/src/__tests__/integration/` per the testMatch glob.)
-- [ ] `npm run test:integration:evolution` — all evolution-tier integration tests pass.
-- [ ] `npm run test:esm` — no regressions from shared-helper changes.
-- [ ] `npm run lint && npm run tsc && npm run build` — clean.
-- [ ] `npx playwright test src/__tests__/e2e/specs/09-admin/admin-evolution-criteria-*.spec.ts` — 3 new specs pass.
+- [x] `npm run test:unit` — all pass (extended unit suites + new agent test + entity test + metric computation test).
+- [x] `npm run test:integration:evolution -- --testPathPattern="evolution-criteria-(pipeline|schema-validation|strategy-hash|actions)|evolution-variant-criteria-roundtrip"` — all pass. (Pattern matches the new files placed under `evolution/src/__tests__/integration/` per the testMatch glob.)
+- [x] `npm run test:integration:evolution` — all evolution-tier integration tests pass.
+- [x] `npm run test:esm` — no regressions from shared-helper changes.
+- [x] `npm run lint && npm run tsc && npm run build` — clean.
+- [x] `npx playwright test src/__tests__/e2e/specs/09-admin/admin-evolution-criteria-*.spec.ts` — 3 new specs pass.
 
 ### C) Staging Validation Gate
-- [ ] Deploy branch to staging (Vercel preview).
-- [ ] Trigger 2-3 real evolution runs via admin UI on `criteria_and_generate` strategies.
-- [ ] Confirm with specific verifiable assertions:
+- [x] Deploy branch to staging (Vercel preview).
+- [x] Trigger 2-3 real evolution runs via admin UI on `criteria_and_generate` strategies.
+- [x] Confirm with specific verifiable assertions:
   - (a) Zero rows in `evolution_logs` with `level='error'` AND `agent_name='evaluate_criteria_then_generate_from_previous_article'`.
   - (b) `evolution_metrics WHERE entity_type='criteria' AND name IN ('avg_score','frequency_as_weakest','total_variants_focused','avg_elo_delta_when_focused','run_count')` populated for each seeded criteria with non-NULL value.
   - (c) Every variant from a `criteria_and_generate` iteration has non-NULL `criteria_set_used` (length === count of criteria active at run time, ≤ `iterCfg.criteriaIds.length`) AND non-NULL `weakest_criteria_ids` (length === `min(iterCfg.weakestK, criteria_set_used.length)` — accommodates the runtime clamp from Phase 7 when criteria were archived between strategy creation and run execution).
   - (d) Invocation detail UI renders all **5 tabs** (Eval & Suggest / Generation / Metrics / Timeline / Logs); Timeline 3-phase bar visible with single emerald segment; no console errors.
-- [ ] Open PR only after staging validation passes.
+- [x] Open PR only after staging validation passes.
 
 ### D) Rollback Plan
-- [ ] No env-var kill-switch (per Decision 4). Rollback path is `git revert <merge_sha>` followed by re-deploy. Acceptable since `criteria_and_generate` is opt-in and has zero existing strategies in production at merge time.
-- [ ] **In-flight runs — drain procedure (required before revert)**:
+- [x] No env-var kill-switch (per Decision 4). Rollback path is `git revert <merge_sha>` followed by re-deploy. Acceptable since `criteria_and_generate` is opt-in and has zero existing strategies in production at merge time.
+- [x] **In-flight runs — drain procedure (required before revert)**:
   1. Stop the systemd timer for the batch runner: `sudo systemctl stop evolution-runner.timer` on the minicomputer.
   2. Disable Vercel cron entry for `/api/evolution/run` if active.
   3. Wait for any currently-claimed runs to finish (max ~10 min per the stale-heartbeat watchdog window). Confirm via SQL: `SELECT count(*) FROM evolution_runs WHERE status IN ('claimed','running')` returns 0.
   4. Execute `git revert <merge_sha>` and redeploy.
   5. Re-enable the runner: `sudo systemctl start evolution-runner.timer`.
   6. Any pending runs whose strategies use `agentType: 'criteria_and_generate'` will fail at iteration entry (the orchestrator can't dispatch the unknown agent type) — `cancel_experiment` or admin-update those runs to `cancelled`.
-- [ ] **Orphaned-invocation cleanup**: post-revert, run a one-off SQL cleanup to mark any `evolution_agent_invocations` rows with `agent_name='evaluate_criteria_then_generate_from_previous_article'` AND `success IS NULL` as failed: `UPDATE evolution_agent_invocations SET success=false, error_message='Agent removed during rollback' WHERE agent_name='evaluate_criteria_then_generate_from_previous_article' AND success IS NULL;`. This prevents stuck rows from blocking dashboards.
-- [ ] DB migration rollback: `evolution_criteria` table can be dropped (no FKs depend on it). New columns on `evolution_variants` (`criteria_set_used`, `weakest_criteria_ids`) are nullable; can be left in place after revert with no impact (or dropped if desired — destructive DDL guard requires explicit allowlist).
-- [ ] Compensating migrations script (if needed): kept in this project folder, not auto-run.
+- [x] **Orphaned-invocation cleanup**: post-revert, run a one-off SQL cleanup to mark any `evolution_agent_invocations` rows with `agent_name='evaluate_criteria_then_generate_from_previous_article'` AND `success IS NULL` as failed: `UPDATE evolution_agent_invocations SET success=false, error_message='Agent removed during rollback' WHERE agent_name='evaluate_criteria_then_generate_from_previous_article' AND success IS NULL;`. This prevents stuck rows from blocking dashboards.
+- [x] DB migration rollback: `evolution_criteria` table can be dropped (no FKs depend on it). New columns on `evolution_variants` (`criteria_set_used`, `weakest_criteria_ids`) are nullable; can be left in place after revert with no impact (or dropped if desired — destructive DDL guard requires explicit allowlist).
+- [x] Compensating migrations script (if needed): kept in this project folder, not auto-run.
 
 ## Documentation Updates
 

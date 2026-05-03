@@ -130,6 +130,11 @@ export function DispatchPlanView({
                   <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-semibold uppercase tracking-wider ${
                     entry.agentType === 'generate' ? 'bg-blue-500/20 text-blue-400' : 'bg-purple-500/20 text-purple-400'
                   }`}>{entry.agentType}</span>
+                  {entry.agentType === 'criteria_and_generate' && entry.criteriaCount != null && (
+                    <div className="text-[10px] text-[var(--text-muted)] mt-0.5" data-testid={`dispatch-plan-criteria-${entry.iterIdx}`}>
+                      Criteria: {entry.criteriaCount} | Weakest: {entry.weakestK ?? 1}
+                    </div>
+                  )}
                 </td>
                 <td className="py-1 pr-3 text-right font-mono text-[var(--text-muted)]">
                   {formatCostMicro(entry.iterBudgetUsd)}

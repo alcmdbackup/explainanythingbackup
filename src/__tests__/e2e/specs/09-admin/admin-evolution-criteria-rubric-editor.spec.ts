@@ -13,7 +13,7 @@ adminTest.describe('Criteria rubric editor', { tag: ['@evolution', '@critical'] 
 
   adminTest.beforeAll(async () => {
     const supabase = getEvolutionServiceClient();
-    seededName = `[E2E_RUB_${Date.now()}_${Math.floor(Math.random() * 9999)}]rubric_test`;
+    seededName = `e2e_rub_${Date.now()}_${Math.floor(Math.random() * 9999)}_rubric_test`;
     const { data, error } = await supabase
       .from('evolution_criteria')
       .insert({

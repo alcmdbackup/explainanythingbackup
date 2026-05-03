@@ -12,7 +12,7 @@ adminTest.describe('Criteria leaderboard', { tag: ['@evolution', '@critical'] },
 
   adminTest.beforeAll(async () => {
     const supabase = getEvolutionServiceClient();
-    const baseName = `[E2E_CRIT_${Date.now()}_${Math.floor(Math.random() * 9999)}]`;
+    const baseName = `e2e_crit_${Date.now()}_${Math.floor(Math.random() * 9999)}_`;
     const fixtures = [
       { name: `${baseName}clarity`, description: 'how clear', min_rating: 1, max_rating: 5 },
       { name: `${baseName}depth`, description: 'how deep', min_rating: 1, max_rating: 10 },
