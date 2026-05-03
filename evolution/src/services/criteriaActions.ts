@@ -374,5 +374,6 @@ export const getCriteriaRunsAction = adminAction(
   },
 );
 
-// Re-export so callers can use the shared insert schema for client-side validation
-export { evolutionCriteriaInsertSchema };
+// Note: previously re-exported `evolutionCriteriaInsertSchema` here for client
+// callers, but a `'use server'` file may only export async functions. Clients
+// should import the schema directly from `@evolution/lib/schemas`.
