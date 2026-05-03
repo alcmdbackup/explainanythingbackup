@@ -132,9 +132,11 @@ describe('ArenaListPage', () => {
 
   it('displays topic status badges', async () => {
     render(<ArenaListPage />);
+    // Fix #53 (use_playwright_find_ux_issues_bugs_20260501): status now renders
+    // through StatusBadge which capitalizes the label.
     await waitFor(() => {
-      expect(screen.getByText('active')).toBeInTheDocument();
-      expect(screen.getByText('archived')).toBeInTheDocument();
+      expect(screen.getByText('Active')).toBeInTheDocument();
+      expect(screen.getByText('Archived')).toBeInTheDocument();
     });
   });
 
@@ -142,14 +144,17 @@ describe('ArenaListPage', () => {
     // Make action never resolve so component stays in loading state
     mockGetArenaTopicsAction.mockReturnValue(new Promise(() => {}));
     render(<ArenaListPage />);
-    // totalCount is undefined during loading, so the "X items" text should not render
-    expect(screen.queryByText(/items?$/)).toBeNull();
+    // totalCount is undefined during loading, so the "(N)" inline count should not render.
+    expect(screen.queryByText(/^\(\d+\)$/)).toBeNull();
   });
 
   it('F35: shows item count after loading completes', async () => {
     render(<ArenaListPage />);
+    // Fix #20 (use_playwright_find_ux_issues_bugs_20260501): count is inline
+    // with the heading as "Title (N)".
     await waitFor(() => {
-      expect(screen.getByText('2 items')).toBeInTheDocument();
+      const heading = screen.getByRole('heading', { level: 1 });
+      expect(heading).toHaveTextContent('(2)');
     });
   });
 

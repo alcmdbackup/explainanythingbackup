@@ -8,7 +8,7 @@ import { COST_ERROR_HISTOGRAM_BUCKETS } from './costEstimationConstants';
 // Fix #38 (use_playwright_find_ux_issues_bugs_20260501): the reflect_and_generate
 // wrapper writes execution_detail.tactic; legacy GenerateFromPreviousArticleAgent
 // writes execution_detail.strategy. Read tactic first, fall back to strategy.
-import { buildInvocationRows, type InvRow } from './costEstimationActions';
+import { buildInvocationRows, type InvRow } from './costEstimationHelpers';
 
 function makeInv(over: Partial<InvRow> & { execution_detail: Record<string, unknown> }): InvRow {
   return {

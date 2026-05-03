@@ -40,6 +40,15 @@ For how costs fit into the pipeline lifecycle, see [Architecture](./architecture
 > `reflection_cost` (run-level) by the same `writeMetricMax` path, and propagates to
 > `total_reflection_cost` (sum) and `avg_reflection_cost_per_run` (avg) at the
 > strategy/experiment level via `SHARED_PROPAGATION_DEFS` in `registry.ts`.
+>
+> **Runs-list reconciliation (use_playwright_find_ux_issues_bugs_20260501 Fix #11)**:
+> the runs-list `Spent` column and the dashboard `Total Cost` use a layered fallback
+> in `evolution/src/lib/cost/getRunCostWithFallback.ts` when the rollup `cost` metric
+> is missing. As of Fix #11, layer 2 sums all FOUR per-purpose costs
+> (`generation_cost + ranking_cost + reflection_cost + seed_cost`) — pre-fix it
+> omitted reflection_cost, which made reflect+generate runs under-report by the
+> reflection portion. `reflection_cost.listView` is also `true` so the runs-list
+> exposes a Reflection Cost column alongside the others.
 
 ---
 

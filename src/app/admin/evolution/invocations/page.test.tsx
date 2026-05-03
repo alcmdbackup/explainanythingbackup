@@ -85,8 +85,11 @@ describe('InvocationsListPage', () => {
   });
 
   it('shows total count', async () => {
+    // Fix #20 (use_playwright_find_ux_issues_bugs_20260501): inline count
     render(<InvocationsListPage />);
-    await waitFor(() => expect(screen.getByText('2 items')).toBeInTheDocument());
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('(2)');
+    });
   });
 
   it('renders Invocations breadcrumb item', async () => {
