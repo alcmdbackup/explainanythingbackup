@@ -333,6 +333,10 @@ jobs:
       # exercise the hardcoded fallbacks (default thresholds).
       EDITING_AGENTS_ENABLED: 'true'
       EVOLUTION_DRIFT_RECOVERY_ENABLED: 'true'
+      # add_ranking_iterative_editing_agent_evolution_20260502 — gates the post-cycle
+      # ranking step inside iterative_editing iterations (D4). Default is 'true' in
+      # code; set explicitly here so the test env exercises the new ranking path.
+      EDITING_RANK_ENABLED: 'true'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
