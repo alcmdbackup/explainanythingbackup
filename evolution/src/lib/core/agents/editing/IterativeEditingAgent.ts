@@ -21,6 +21,9 @@ import { Agent } from '../../Agent';
 import type { AgentContext, AgentOutput, DetailFieldDef } from '../../types';
 import type { Variant, EvolutionLLMClient } from '../../../types';
 import { iterativeEditingExecutionDetailSchema } from '../../../schemas';
+import { rankNewVariant, type RankNewVariantResult } from '../../../pipeline/loop/rankNewVariant';
+import type { Rating, ComparisonResult } from '../../../shared/computeRatings';
+import type { V2Match } from '../../../pipeline/infra/types';
 import {
   AGENT_DEFAULT_MAX_CYCLES,
   PER_INVOCATION_BUDGET_ABORT_FRACTION,
@@ -29,6 +32,7 @@ import type {
   IterativeEditInput,
   IterativeEditOutput,
   IterativeEditingExecutionDetail,
+  IterativeEditingRankingDetail,
   IterativeEditingStopReason,
   EditingCycle,
 } from './types';
@@ -59,6 +63,7 @@ export class IterativeEditingAgent extends Agent<
   readonly detailViewConfig: DetailFieldDef[] = [
     { key: 'parentVariantId', label: 'Parent Variant', type: 'text' },
     { key: 'finalVariantId', label: 'Final Variant', type: 'text' },
+    { key: 'surfaced', label: 'Surfaced', type: 'boolean' },
     { key: 'stopReason', label: 'Stop Reason', type: 'badge' },
     { key: 'errorPhase', label: 'Error Phase', type: 'badge' },
     { key: 'errorMessage', label: 'Error Message', type: 'text' },
@@ -91,6 +96,32 @@ export class IterativeEditingAgent extends Agent<
       decisionsKey: 'cycles.0.reviewDecisions',
       dropsPreKey: 'cycles.0.droppedPreApprover',
       dropsPostKey: 'cycles.0.droppedPostApprover',
+    },
+    {
+      key: 'ranking', label: 'Ranking (binary search local view)', type: 'object',
+      children: [
+        { key: 'cost', label: 'Ranking Cost', type: 'number', formatter: 'cost' },
+        { key: 'localPoolSize', label: 'Local Pool Size', type: 'number' },
+        { key: 'initialTop15Cutoff', label: 'Initial Top-15% Cutoff', type: 'number' },
+        { key: 'stopReason', label: 'Stop Reason', type: 'badge' },
+        { key: 'totalComparisons', label: 'Total Comparisons', type: 'number' },
+        { key: 'finalLocalElo', label: 'Final Local Elo', type: 'number' },
+        { key: 'finalLocalUncertainty', label: 'Final Local Uncertainty', type: 'number' },
+        { key: 'durationMs', label: 'Duration (ms)', type: 'number' },
+      ],
+    },
+    {
+      key: 'ranking.comparisons', label: 'Comparisons', type: 'table',
+      columns: [
+        { key: 'round', label: '#' },
+        { key: 'opponentId', label: 'Opponent' },
+        { key: 'selectionScore', label: 'Score' },
+        { key: 'pWin', label: 'pWin' },
+        { key: 'outcome', label: 'Out' },
+        { key: 'variantEloAfter', label: 'Elo after' },
+        { key: 'variantUncertaintyAfter', label: 'Uncertainty after' },
+        { key: 'durationMs', label: 'ms' },
+      ],
     },
     { key: 'totalCost', label: 'Total Cost', type: 'number', formatter: 'cost' },
   ];
@@ -141,7 +172,7 @@ export class IterativeEditingAgent extends Agent<
         finalVariantId: undefined,
         editingModel, approverModel, driftRecoveryModel, maxCycles, perInvocationBudgetUsd,
       });
-      return { result: { finalVariant: null, surfaced: false }, detail };
+      return { result: { finalVariant: null, surfaced: false, matches: [] }, detail };
     }
 
     try {
@@ -365,16 +396,106 @@ export class IterativeEditingAgent extends Agent<
       stopReason = 'helper_threw';
     }
 
+    // Phase 2 — Post-cycle ranking step (D7: rank ONLY the final emitted variant).
+    // Skipped via input-presence gate: when EDITING_RANK_ENABLED='false', the
+    // dispatch site (runIterationLoop.ts editing branch) omits initialPool/etc.
+    // from input. The agent itself does NOT read process.env (matches GFPA's
+    // env-agnostic pattern + I1).
+    let rankingDetail: IterativeEditingRankingDetail | null = null;
+    let matches: ReadonlyArray<V2Match> = [];
+    let surfacedFromRanking: boolean | undefined = undefined;
+    let discardReason: { localElo: number; localTop15Cutoff: number } | undefined = undefined;
+
+    const rankingShouldRun =
+      finalVariant !== undefined &&
+      stopReason !== 'helper_threw' &&
+      input.initialPool !== undefined &&
+      input.initialRatings !== undefined &&
+      input.initialMatchCounts !== undefined &&
+      input.cache !== undefined;
+
+    if (rankingShouldRun && finalVariant) {
+      // I2 cost snapshot — captures only the ranking-phase delta. rankNewVariant
+      // also takes its own internal snapshot via getOwnSpent(); we use the result's
+      // rankingCost field rather than re-computing here.
+      try {
+        // Deep-clone to avoid mutating the caller's iteration-start snapshot maps.
+        const localPool: Variant[] = [...(input.initialPool as ReadonlyArray<Variant>)];
+        const localRatings = new Map<string, Rating>(input.initialRatings as ReadonlyMap<string, Rating>);
+        const localMatchCounts = new Map<string, number>(input.initialMatchCounts as ReadonlyMap<string, number>);
+        const completedPairs = new Set<string>();
+
+        const rankResult: RankNewVariantResult = await rankNewVariant({
+          variant: finalVariant,
+          localPool,
+          localRatings,
+          localMatchCounts,
+          completedPairs,
+          cache: input.cache as Map<string, ComparisonResult>,
+          llm,
+          config: ctx.config as Parameters<typeof rankNewVariant>[0]['config'],
+          invocationId: ctx.invocationId,
+          logger: ctx.logger,
+          costTracker: ctx.costTracker,
+        });
+
+        matches = rankResult.rankResult.matches;
+        surfacedFromRanking = rankResult.surfaced;
+        discardReason = rankResult.discardReason;
+
+        // Detail mirrors GFPA's shape: rename mu→Elo / sigma→Uncertainty handled by
+        // schema preprocess; we pass the rankResult.detail's fields through as-is
+        // (their names already use the Elo terminology since rankSingleVariantDetail
+        // was renamed in the same migration).
+        rankingDetail = {
+          variantId: rankResult.rankResult.detail.variantId,
+          localPoolSize: rankResult.rankResult.detail.localPoolSize,
+          localPoolVariantIds: rankResult.rankResult.detail.localPoolVariantIds,
+          initialTop15Cutoff: rankResult.rankResult.detail.initialTop15Cutoff,
+          comparisons: rankResult.rankResult.detail.comparisons,
+          stopReason: rankResult.rankResult.detail.stopReason,
+          totalComparisons: rankResult.rankResult.detail.totalComparisons,
+          finalLocalElo: rankResult.rankResult.detail.finalLocalElo,
+          finalLocalUncertainty: rankResult.rankResult.detail.finalLocalUncertainty,
+          finalLocalTop15Cutoff: rankResult.rankResult.detail.finalLocalTop15Cutoff,
+          // durationMs is optional in the Zod schema; rankSingleVariant doesn't currently
+          // populate it on the runtime detail, so we omit it here. Can be added in a
+          // follow-up that threads start/end timestamps through rankSingleVariant.
+          cost: rankResult.rankingCost,
+        };
+      } catch (err) {
+        // I3: ranking can throw BudgetExceededError mid-comparison. Treat as helper-threw
+        // so partial detail (cycles done so far) is still persisted.
+        errorPhase = 'apply'; // closest existing enum value; ranking is a post-cycle phase
+        errorMessage = err instanceof Error ? err.message : String(err);
+        stopReason = 'helper_threw';
+      }
+    }
+
+    // D1: surface decision = (final variant emitted) AND (no helper threw) AND
+    // (ranking either didn't run OR ranking surfaced=true). Mirrors GFPA's
+    // discard-on-budget+below-cutoff policy.
+    const surfaced =
+      finalVariant !== undefined &&
+      stopReason !== 'helper_threw' &&
+      (surfacedFromRanking !== false); // `undefined` (ranking skipped) → keep surfaced; `false` → discard
+
     const detail = this.buildDetail({
       parent: input.parent,
       cycles, stopReason, errorPhase, errorMessage,
       finalVariantId: finalVariant?.id,
       editingModel, approverModel, driftRecoveryModel, maxCycles, perInvocationBudgetUsd,
+      surfaced,
+      ranking: rankingDetail,
     });
 
-    const surfaced = finalVariant !== undefined && stopReason !== 'helper_threw';
     return {
-      result: { finalVariant: finalVariant ?? null, surfaced },
+      result: {
+        finalVariant: finalVariant ?? null,
+        surfaced,
+        matches,
+        ...(discardReason !== undefined ? { discardReason } : {}),
+      },
       detail,
     };
   }
@@ -435,11 +556,16 @@ export class IterativeEditingAgent extends Agent<
     driftRecoveryModel: string;
     maxCycles: number;
     perInvocationBudgetUsd: number;
+    surfaced?: boolean;
+    ranking?: IterativeEditingRankingDetail | null;
   }): IterativeEditingExecutionDetail {
-    const totalCost = args.cycles.reduce(
+    const cyclesCost = args.cycles.reduce(
       (sum, c) => sum + c.proposeCostUsd + c.approveCostUsd + (c.driftRecoveryCostUsd ?? 0),
       0,
     );
+    // Phase 2.5 — ranking cost folds into totalCost so the invocation row's
+    // cost_usd matches the sum of all per-purpose splits (cycles + ranking).
+    const totalCost = cyclesCost + (args.ranking?.cost ?? 0);
     return {
       detailType: 'iterative_editing',
       parentVariantId: args.parent.id,
@@ -455,6 +581,8 @@ export class IterativeEditingAgent extends Agent<
       ...(args.errorPhase !== undefined ? { errorPhase: args.errorPhase } : {}),
       ...(args.errorMessage !== undefined ? { errorMessage: args.errorMessage } : {}),
       ...(args.finalVariantId !== undefined ? { finalVariantId: args.finalVariantId } : {}),
+      ...(args.surfaced !== undefined ? { surfaced: args.surfaced } : {}),
+      ...(args.ranking !== undefined ? { ranking: args.ranking } : {}),
       totalCost,
     };
   }

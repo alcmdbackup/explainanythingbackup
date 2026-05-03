@@ -212,9 +212,11 @@ export interface IterationPlanEntryClient {
   tacticMixSource: 'iter-guidance' | 'strategy-guidance' | 'strategy-tactics' | 'defaults';
   tacticLabel: string;
   estPerAgent: {
-    // `reflection` (post-PR-1017), `editing` (iterative editing branch), `evaluation` (criteria branch).
-    expected: { gen: number; rank: number; reflection: number; editing: number; evaluation: number; total: number };
-    upperBound: { gen: number; rank: number; reflection: number; editing: number; evaluation: number; total: number };
+    // Mirrors EstPerAgentValue: gen/rank/reflection/editing/editingRank/evaluation/total.
+    // `editingRank` was added by add_ranking_iterative_editing_agent_evolution_20260502 (D3).
+    // `evaluation` was added by evaluateCriteriaThenGenerateFromPreviousArticle_20260501.
+    expected: { gen: number; rank: number; reflection: number; editing: number; editingRank: number; evaluation: number; total: number };
+    upperBound: { gen: number; rank: number; reflection: number; editing: number; editingRank: number; evaluation: number; total: number };
   };
   maxAffordable: { atExpected: number; atUpperBound: number };
   dispatchCount: number;
@@ -281,11 +283,15 @@ export const getStrategyDispatchPreviewAction = adminAction(
     // preview projects what THIS process believes is enabled. Today they share env.
     const topUpEnabled = process.env.EVOLUTION_TOPUP_ENABLED !== 'false';
     const reflectionEnabled = process.env.EVOLUTION_REFLECTION_ENABLED !== 'false';
+    // D4 — editing-rank flag resolved here (planner-boundary), passed through
+    // to projectDispatchPlan as opts.editingRankEnabled.
+    const { resolveEditingRankEnabled } = await import('../lib/pipeline/loop/editingDispatch');
+    const editingRankEnabled = resolveEditingRankEnabled(process.env);
 
     const plan = projectDispatchPlan(
       parsed.config as Parameters<typeof projectDispatchPlan>[0],
       { seedChars, initialPoolSize: arenaCount },
-      { topUpEnabled, reflectionEnabled },
+      { topUpEnabled, reflectionEnabled, editingRankEnabled },
     );
 
     return { plan, arenaCount, seedArticleChars: seedChars, promptName };

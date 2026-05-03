@@ -439,12 +439,14 @@ A wrapper agent that runs a propose-then-review editing protocol on existing poo
 
 After loop terminates: emit final `Variant` if any cycle accepted edits. The final variant's `parent_variant_id` is the original input parent (per Decisions §14 — intermediate cycle texts live only in `execution_detail.cycles[i].childText`).
 
+**Step 5 — Post-cycle ranking** (added by `add_ranking_iterative_editing_agent_evolution_20260502`, gated by `EDITING_RANK_ENABLED`, default true). The single emitted final variant runs through the same `rankNewVariant()` helper that `GenerateFromPreviousArticleAgent` uses: binary-search Elo against a deep-cloned local snapshot of the iteration-start pool (passed via `IterativeEditInput.initialPool`/`initialRatings`/`initialMatchCounts`/`cache`/`parentVariantId` — all optional; their absence is the input-presence gate that skips ranking). Surface/discard policy mirrors GFPA: discard if `rankResult.status === 'budget'` AND `localElo < computeTop15Cutoff(localRatings)`. Match buffer feeds `MergeRatingsAgent` (which writes one `evolution_arena_comparisons` row per match). Ranking cost lands on `execution_detail.ranking.cost` and rolls up to the `iterative_edit_rank_cost` metric. Only the final variant is ranked, never intermediates (D7).
+
 **LOAD-BEARING INVARIANTS** (Decisions §13, mirror of `reflectAndGenerateFromPreviousArticle.ts`):
 - **I1**: Internal LLM helpers MUST use the wrapper's `EvolutionLLMClient` directly. Never instantiate a separate Agent and call `.run()` — that creates a NESTED `Agent.run()` scope and splits cost attribution.
 - **I2**: Capture `costBefore*Call` snapshots before each helper call so per-purpose cost split fills `execution_detail.cycles[i].{proposeCostUsd, approveCostUsd, driftRecoveryCostUsd}`.
 - **I3**: Write partial `execution_detail` BEFORE re-throwing on any helper failure. The `trackInvocations` partial-update path preserves the partial detail through `Agent.run()`'s catch handler.
 
-**Cost stack**: three per-LLM-call AgentName labels (`iterative_edit_propose`, `iterative_edit_review`, `iterative_edit_drift_recovery`) all collapse to one `iterative_edit_cost` metric. Per-purpose split lives in `execution_detail`. Run-level `iterative_edit_cost` propagates to `total_iterative_edit_cost` and `avg_iterative_edit_cost_per_run`.
+**Cost stack**: three per-LLM-call AgentName labels (`iterative_edit_propose`, `iterative_edit_review`, `iterative_edit_drift_recovery`) all collapse to one `iterative_edit_cost` metric. Per-purpose split lives in `execution_detail.cycles[i]`. Run-level `iterative_edit_cost` propagates to `total_iterative_edit_cost` and `avg_iterative_edit_cost_per_run`. Post-cycle ranking cost (the `'ranking'` phase) is tracked separately as `iterative_edit_rank_cost` (and propagates to `total_iterative_edit_rank_cost` / `avg_iterative_edit_rank_cost_per_run`) — surfaces in the dispatch wizard as `EstPerAgentValue.editingRank` peer field.
 
 **Operational health metrics**: `iterative_edit_drift_rate`, `iterative_edit_recovery_success_rate`, `iterative_edit_accept_rate` — env-tunable alert thresholds via `EVOLUTION_EDITING_*_ALERT_THRESHOLD` env vars.
 
@@ -455,7 +457,7 @@ After loop terminates: emit final `Variant` if any cycle accepted edits. The fin
 - `approverModel?: string` — Approver LLM. Falls back to `editingModel`. **Same-as-editingModel surfaces a rubber-stamping warning in the wizard** (Decisions §16) — for max auditability, choose distinct models.
 - `driftRecoveryModel?: string` — drift-recovery nano model. Defaults to `gpt-4.1-nano`.
 
-**Kill switches**: `EDITING_AGENTS_ENABLED='false'` short-circuits the dispatch branch entirely. `EVOLUTION_DRIFT_RECOVERY_ENABLED='false'` skips the recovery LLM call (minor drift treated as major).
+**Kill switches**: `EDITING_AGENTS_ENABLED='false'` short-circuits the dispatch branch entirely. `EVOLUTION_DRIFT_RECOVERY_ENABLED='false'` skips the recovery LLM call (minor drift treated as major). `EDITING_RANK_ENABLED='false'` reverts to the pre-ranking-project behavior — editing variants land with default Elo (no `arena_comparisons` rows tied to editing iterations).
 
 **Schema deploy gate**: `evolution/src/lib/core/startupAssertions.ts` queries the `evolution_cost_calibration_phase_allowed` CHECK constraint at agent-registry init and throws `MissingMigrationError` if any TS phase string is missing from the DB enum. Eliminates the silent-reject failure mode PR #1017 hit.
 

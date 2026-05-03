@@ -3,13 +3,15 @@
 // pre-merge gate. Mirrors admin-evolution-run-pipeline.spec.ts's pattern (the
 // only existing full-pipeline E2E precedent).
 //
-// Asserts:
+// Asserts (post add_ranking_iterative_editing_agent_evolution_20260502):
 //   - Strategy with 1×generate + 1×iterative_editing iteration runs to completion.
-//   - editing iteration emits ZERO arena_comparisons rows (per Decisions §14).
+//   - editing iteration emits >=1 arena_comparisons row per surfaced editing variant
+//     (Decisions §14 superseded — ranking now runs inside editing agents).
 //   - Exactly one new variant per editing invocation (single final variant).
 //   - Final variant's parent_variant_id points at the original generated parent
 //     (NOT a cycle-N-1 intermediate).
-//   - iterative_edit_cost metric > 0.
+//   - iterative_edit_cost AND iterative_edit_rank_cost metrics > 0.
+//   - Editing-born variants have non-default mu after the post-cycle ranking step.
 //   - Wizard rubber-stamping warning surfaces when editingModel === approverModel
 //     (Decisions §16) and disappears when distinct.
 
@@ -204,31 +206,65 @@ adminTest.describe('Iterative Editing Pipeline', { tag: '@evolution' }, () => {
     }
   });
 
-  adminTest('editing iteration emits ZERO arena_comparisons rows (Decisions §14)', async () => {
-    const sb = getServiceClient() as unknown as {
-      from: (t: string) => {
-        select: (s: string) => {
-          eq: (c: string, v: unknown) => unknown;
-        };
-      };
-    };
+  adminTest('editing iteration emits >=1 arena_comparisons row per surfaced variant (post-supersession of §14)', async () => {
+    // Decisions §14 was reversed by add_ranking_iterative_editing_agent_evolution_20260502.
+    // Editing now ranks its final variant and feeds matches to MergeRatingsAgent, which
+    // inserts arena_comparisons rows tagged with the editing iteration's index.
+    const sb = getServiceClient();
 
-    // Find the editing-iteration invocation rows.
-    const { data: editingInvs } = await (sb
+    // Find which iteration index the editing agent ran in.
+    const { data: editingInvs } = await sb
       .from('evolution_agent_invocations')
-      .select('id')
-      .eq('run_id', runId) as { eq: (c: string, v: unknown) => Promise<{ data: Array<{ id: string }> | null }> })
+      .select('id, iteration')
+      .eq('run_id', runId)
       .eq('agent_name', 'iterative_editing');
 
     if (!editingInvs || editingInvs.length === 0) return;
-    const editingInvIds = editingInvs.map((i) => i.id);
 
-    // Editing emits no per-cycle pool comparisons in v1.
-    const { data: arenaRows } = await ((sb
+    // If any editing invocations produced a surfaced final variant (i.e., variants_created > 0),
+    // expect at least one arena_comparisons row for the editing iteration.
+    const editingIterIdx = editingInvs[0]!.iteration as number;
+
+    const { data: variants } = await sb
+      .from('evolution_variants')
+      .select('id')
+      .in('agent_invocation_id', editingInvs.map((i) => i.id));
+
+    if (!variants || variants.length === 0) return; // all-rejected — no ranking would have run
+
+    const { count } = await sb
       .from('evolution_arena_comparisons')
-      .select('agent_invocation_id') as unknown) as { in: (c: string, v: string[]) => Promise<{ data: unknown[] | null }> })
-      .in('agent_invocation_id', editingInvIds);
-    expect(arenaRows ?? []).toHaveLength(0);
+      .select('*', { count: 'exact', head: true })
+      .eq('run_id', runId)
+      .eq('iteration', editingIterIdx);
+
+    expect(count ?? 0).toBeGreaterThanOrEqual(1);
+  });
+
+  adminTest('editing-born variants have non-default mu after post-cycle ranking', async () => {
+    const sb = getServiceClient();
+
+    const { data: editingInvs } = await sb
+      .from('evolution_agent_invocations')
+      .select('id')
+      .eq('run_id', runId)
+      .eq('agent_name', 'iterative_editing');
+    if (!editingInvs || editingInvs.length === 0) return;
+
+    const { data: variants } = await sb
+      .from('evolution_variants')
+      .select('id, mu')
+      .in('agent_invocation_id', editingInvs.map((i) => i.id));
+
+    if (!variants || variants.length === 0) return; // all-rejected path
+    for (const v of variants) {
+      // Default mu is 25 (OpenSkill default — variants that haven't been ranked).
+      // Post-ranking, mu shifts; any deviation from 25 indicates ranking ran.
+      // Tolerance allows for tiny variance from a single comparison.
+      if (v.mu !== null) {
+        expect(Math.abs((v.mu as number) - 25)).toBeGreaterThan(0.01);
+      }
+    }
   });
 
   adminTest('iterative_edit_cost metric > 0 for the run', async () => {
@@ -246,6 +282,23 @@ adminTest.describe('Iterative Editing Pipeline', { tag: '@evolution' }, () => {
     }
     // If no row exists (e.g., editing iteration was short-circuited), the run
     // still completed successfully — only assert if the metric was written.
+  });
+
+  adminTest('iterative_edit_rank_cost metric > 0 for the run (when ranking enabled)', async () => {
+    const sb = getServiceClient();
+    const { data: rows } = await sb
+      .from('evolution_metrics')
+      .select('value')
+      .eq('entity_id', runId)
+      .eq('entity_type', 'run')
+      .eq('name', 'iterative_edit_rank_cost')
+      .limit(1);
+
+    if (rows && rows.length > 0) {
+      expect(Number(rows[0]!.value)).toBeGreaterThan(0);
+    }
+    // Only asserted if the metric was written (ranking ran). Skipped under
+    // EDITING_RANK_ENABLED=false or when no editing invocation surfaced.
   });
 
 });

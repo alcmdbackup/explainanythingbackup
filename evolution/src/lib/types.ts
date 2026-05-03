@@ -278,6 +278,52 @@ export type IterativeEditingStopReason =
   | 'helper_threw'
   | 'budget_exceeded';
 
+/** Per-comparison record from the post-cycle ranking phase. Mirrors
+ *  rankNewVariantComparisonSchema in schemas.ts. */
+export interface IterativeEditingRankingComparison {
+  round: number;
+  opponentId: string;
+  selectionScore: number;
+  pWin: number;
+  variantEloBefore: number;
+  variantUncertaintyBefore: number;
+  opponentEloBefore: number;
+  opponentUncertaintyBefore: number;
+  outcome: 'win' | 'loss' | 'draw';
+  confidence: number;
+  variantEloAfter: number;
+  variantUncertaintyAfter: number;
+  opponentEloAfter: number;
+  opponentUncertaintyAfter: number;
+  top15CutoffAfter: number;
+  eloPlusTwoUncertainty: number;
+  eliminated: boolean;
+  converged: boolean;
+  durationMs?: number;
+  forwardCallDurationMs?: number;
+  reverseCallDurationMs?: number;
+}
+
+/** Post-cycle ranking detail produced by `rankNewVariant()`. Optional/nullable
+ *  because old DB rows lack the field, and rows where ranking was skipped via
+ *  the input-presence gate carry it as null. Mirrors the `ranking` slot on
+ *  `iterativeEditingExecutionDetailSchema` in schemas.ts. */
+export interface IterativeEditingRankingDetail {
+  variantId: string;
+  localPoolSize: number;
+  localPoolVariantIds: string[];
+  initialTop15Cutoff: number;
+  comparisons: IterativeEditingRankingComparison[];
+  stopReason: 'converged' | 'eliminated' | 'no_more_opponents' | 'budget';
+  totalComparisons: number;
+  finalLocalElo: number;
+  finalLocalUncertainty: number;
+  finalLocalTop15Cutoff: number;
+  durationMs?: number;
+  cost: number;
+  estimatedCost?: number;
+}
+
 export interface IterativeEditingExecutionDetail extends ExecutionDetailBase {
   detailType: 'iterative_editing';
   parentVariantId: string;
@@ -293,6 +339,14 @@ export interface IterativeEditingExecutionDetail extends ExecutionDetailBase {
   errorPhase?: 'propose' | 'parse' | 'approve' | 'recovery' | 'apply';
   errorMessage?: string;
   finalVariantId?: string;
+  /** True iff the final variant was emitted AND surfaced (passed ranking
+   *  discard check if ranking ran). Optional for back-compat with rows
+   *  written before this field existed. */
+  surfaced?: boolean;
+  /** Local-rank rating from the post-cycle binary-search ranking phase.
+   *  null when ranking was skipped via the input-presence gate. Optional
+   *  for back-compat with rows written before this field existed. */
+  ranking?: IterativeEditingRankingDetail | null;
 }
 
 export interface ReflectionExecutionDetail extends ExecutionDetailBase {

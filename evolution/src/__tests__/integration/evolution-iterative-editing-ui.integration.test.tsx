@@ -20,12 +20,19 @@ import { iterativeEditingDetailFixture } from '@evolution/testing/executionDetai
 describe('iterative_editing invocation detail rendering', () => {
   function flatten(detail: Record<string, unknown>): Record<string, unknown> {
     // Flatten cycles[0].* keys for the config's annotated-edits field which
-    // expects sub-keys at the top level.
+    // expects sub-keys at the top level. Also flatten ranking.* / ranking.comparisons
+    // so the renderer's keyed lookup hits the right values for fields with dotted keys.
     const flat: Record<string, unknown> = { ...detail };
     const cycles = detail.cycles as Array<Record<string, unknown>> | undefined;
     if (cycles && cycles[0]) {
       for (const [k, v] of Object.entries(cycles[0])) {
         flat[`cycles.0.${k}`] = v;
+      }
+    }
+    const ranking = detail.ranking as Record<string, unknown> | undefined;
+    if (ranking) {
+      for (const [k, v] of Object.entries(ranking)) {
+        flat[`ranking.${k}`] = v;
       }
     }
     return flat;
@@ -43,7 +50,8 @@ describe('iterative_editing invocation detail rendering', () => {
     // Top-level fields.
     expect(screen.getByTestId('field-parentVariantId')).toBeInTheDocument();
     expect(screen.getByTestId('field-finalVariantId')).toBeInTheDocument();
-    expect(screen.getByTestId('field-stopReason')).toBeInTheDocument();
+    // stopReason appears both at top-level (editing's) and nested under ranking.
+    expect(screen.getAllByTestId('field-stopReason').length).toBeGreaterThanOrEqual(1);
     expect(screen.getByTestId('field-config')).toBeInTheDocument();
     expect(screen.getByTestId('field-cycles')).toBeInTheDocument();
     expect(screen.getByTestId('field-totalCost')).toBeInTheDocument();
@@ -122,5 +130,74 @@ describe('iterative_editing invocation detail rendering', () => {
     const configField = screen.getByTestId('field-config');
     expect(configField.textContent).toMatch(/gpt-4\.1/);
     expect(configField.textContent).toMatch(/claude-sonnet/);
+  });
+
+  // Phase 5.3 — coverage for the new ranking section added in
+  // add_ranking_iterative_editing_agent_evolution_20260502.
+
+  it('renders surfaced boolean field', () => {
+    const config = DETAIL_VIEW_CONFIGS['iterative_editing'];
+    render(
+      <ConfigDrivenDetailRenderer
+        config={config!}
+        data={flatten(iterativeEditingDetailFixture as unknown as Record<string, unknown>)}
+      />,
+    );
+    expect(screen.getByTestId('field-surfaced')).toBeInTheDocument();
+  });
+
+  it('renders the ranking object block with cost/poolSize/stopReason fields', () => {
+    const config = DETAIL_VIEW_CONFIGS['iterative_editing'];
+    render(
+      <ConfigDrivenDetailRenderer
+        config={config!}
+        data={flatten(iterativeEditingDetailFixture as unknown as Record<string, unknown>)}
+      />,
+    );
+    const rankingField = screen.getByTestId('field-ranking');
+    expect(rankingField.textContent).toMatch(/Ranking Cost/);
+    expect(rankingField.textContent).toMatch(/Local Pool Size/);
+    expect(rankingField.textContent).toMatch(/Stop Reason/);
+    expect(rankingField.textContent).toMatch(/Final Local Elo/);
+  });
+
+  it('renders the ranking.comparisons table with column headers', () => {
+    const config = DETAIL_VIEW_CONFIGS['iterative_editing'];
+    render(
+      <ConfigDrivenDetailRenderer
+        config={config!}
+        data={flatten(iterativeEditingDetailFixture as unknown as Record<string, unknown>)}
+      />,
+    );
+    const comparisonsField = screen.getByTestId('field-ranking.comparisons');
+    // Comparison table has 8 column headers per detailViewConfigs Phase 5.1.
+    expect(comparisonsField.textContent).toMatch(/Opponent/);
+    expect(comparisonsField.textContent).toMatch(/pWin/);
+    expect(comparisonsField.textContent).toMatch(/Elo after/);
+  });
+
+  it('renders ranking section gracefully when ranking is null (all-rejected path)', () => {
+    // When the agent skipped ranking via the input-presence gate (no initialPool)
+    // OR no final variant was emitted, `ranking: null` lands on the persisted
+    // execution_detail. The renderer must not crash; the "object" + "table" field
+    // entries simply render their no-data placeholders.
+    const config = DETAIL_VIEW_CONFIGS['iterative_editing'];
+    const detailWithoutRanking = {
+      ...iterativeEditingDetailFixture,
+      ranking: null,
+      surfaced: false,
+    };
+    render(
+      <ConfigDrivenDetailRenderer
+        config={config!}
+        data={flatten(detailWithoutRanking as unknown as Record<string, unknown>)}
+      />,
+    );
+    // Surfaced renders as a No badge.
+    expect(screen.getByTestId('field-surfaced')).toBeInTheDocument();
+    // Ranking field still exists in the config but renders empty (children fall through to
+    // formatValue's '—' for missing values; comparisons table renders "No data").
+    expect(screen.getByTestId('field-ranking')).toBeInTheDocument();
+    expect(screen.getByTestId('field-ranking.comparisons').textContent).toMatch(/No data/);
   });
 });

@@ -1,11 +1,16 @@
 // Phase 3.7 — Integration test for the iterative_editing pipeline branch.
 // Mocks the LLM provider in-process so we can verify end-to-end:
-//   - One invocation row per parent (Decisions §13)
-//   - At most one final variant per invocation (Decisions §14)
-//   - parent_variant_id of final variant === original input parent (NOT cycle-N-1)
-//   - ZERO arena_comparisons rows attributable to the editing iteration (§14)
-//   - iterative_edit_cost metric > 0
-//   - per-purpose cost split present in execution_detail.cycles[i]
+//   - One invocation row per parent (Decisions §13).
+//   - At most one final variant per invocation; intermediate cycles live in
+//     execution_detail.cycles[i].childText (Decisions §14, modified by
+//     add_ranking_iterative_editing_agent_evolution_20260502 to also rank).
+//   - parent_variant_id of final variant === original input parent (NOT cycle-N-1).
+//   - Post-cycle ranking runs (D7: only the final variant is ranked); when
+//     EDITING_RANK_ENABLED=true (default), surfaced editing variants land
+//     with non-default Elo and the editing iteration's arena_comparisons
+//     buffer (formerly empty per §14) is now populated by MergeRatingsAgent.
+//   - iterative_edit_cost + iterative_edit_rank_cost metrics > 0.
+//   - Per-purpose cost split present in execution_detail.cycles[i].
 
 import { evolveArticle } from '@evolution/lib/pipeline/loop/runIterationLoop';
 import { createV2MockLlm } from '@evolution/testing/v2MockLlm';

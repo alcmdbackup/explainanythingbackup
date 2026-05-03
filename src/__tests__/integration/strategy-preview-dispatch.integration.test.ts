@@ -142,12 +142,13 @@ describe('getStrategyDispatchPreviewAction (integration)', () => {
     const plan = result.plan;
 
     // Pre-fix bugs: IterationPlanEntryClient was missing the `reflection` field
-    // (PR #1017 backfill), the `editing` field (bring_back_editing_agents), and the
-    // `evaluation` field (criteria-driven branch). All three are backfilled to mirror
-    // the server's EstPerAgentValue. Guards against manual-mirror drift.
+    // (PR #1017 backfill), the `editing` field (bring_back_editing_agents),
+    // the `editingRank` field (add_ranking_iterative_editing_agent_evolution_20260502),
+    // and the `evaluation` field (criteria-driven branch). All four are now backfilled
+    // to mirror the server's EstPerAgentValue. Guards against manual-mirror drift.
     const expectedKeys = Object.keys(plan[0]!.estPerAgent.expected).sort();
-    expect(expectedKeys).toEqual(['editing', 'evaluation', 'gen', 'rank', 'reflection', 'total']);
+    expect(expectedKeys).toEqual(['editing', 'editingRank', 'evaluation', 'gen', 'rank', 'reflection', 'total']);
     const upperKeys = Object.keys(plan[0]!.estPerAgent.upperBound).sort();
-    expect(upperKeys).toEqual(['editing', 'evaluation', 'gen', 'rank', 'reflection', 'total']);
+    expect(upperKeys).toEqual(['editing', 'editingRank', 'evaluation', 'gen', 'rank', 'reflection', 'total']);
   });
 });

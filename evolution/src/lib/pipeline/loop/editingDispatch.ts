@@ -79,3 +79,16 @@ export function resolveEditingDispatchPlanner(args: {
 }): { eligibleCount: number; effectiveCap: EditingDispatchEffectiveCap } {
   return applyCutoffToCount(args.projectedPoolSize, args.cutoff);
 }
+
+/** Resolve the EDITING_RANK_ENABLED env flag. Default: true. Mirrors
+ *  resolveReflectionEnabled's pattern (default-true via env-check). Used by
+ *  both the runtime gate (runIterationLoop.ts editing branch — when false,
+ *  the dispatch omits ranking-context fields from IterativeEditInput so the
+ *  agent's input-presence gate skips ranking) AND the planner gate
+ *  (strategyPreviewActions.ts — passes opts.editingRankEnabled into
+ *  projectDispatchPlan so the editing iteration's editingRank cost projects
+ *  to 0 when disabled).
+ *  add_ranking_iterative_editing_agent_evolution_20260502 Phase 1.6 / D4. */
+export function resolveEditingRankEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.EDITING_RANK_ENABLED !== 'false';
+}

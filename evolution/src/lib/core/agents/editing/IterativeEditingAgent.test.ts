@@ -212,4 +212,181 @@ describe('IterativeEditingAgent', () => {
     );
     expect(result.result.finalVariant?.parentIds).toEqual(['p1']);
   });
+
+  // ─── Phase 2.7 — Ranking integration tests ─────────────────────────────────────
+  // Tests for the post-cycle ranking step. Mocks compareWithBiasMitigation to
+  // produce deterministic judge verdicts (mirrors GFPA test's queue-driven mock).
+
+  describe('post-cycle ranking step', () => {
+    it('skips ranking when initialPool is absent (input-presence gate)', async () => {
+      // No initialPool/initialRatings/etc. on input → ranking should NOT run.
+      const llm = makeMockLlm([
+        { label: 'iterative_edit_propose', response: 'Hello {~~ [#1] world ~> Earth ~~}.' },
+        { label: 'iterative_edit_review', response: JSON.stringify({ groupNumber: 1, decision: 'accept', reason: 'better' }) },
+        { label: 'iterative_edit_propose', response: 'Hello Earth.' },
+      ]);
+      const agent = new IterativeEditingAgent();
+      const result = await agent.execute(
+        { parent: variant('p1', 'Hello world.'), perInvocationBudgetUsd: 1.0, llm } as unknown as Parameters<typeof agent.execute>[0],
+        makeCtx({ llm }),
+      );
+      // Ranking didn't run → ranking field is null (Zod .optional().nullable()),
+      // matches empty.
+      expect(result.detail.ranking).toBeNull();
+      expect(result.result.matches).toHaveLength(0);
+      // surfaced still true because ranking didn't run (skipped, not failed).
+      expect(result.result.surfaced).toBe(true);
+    });
+
+    it('skips ranking when no final variant emitted (all-rejected path)', async () => {
+      // Even when initialPool is supplied, ranking should not run if the cycle
+      // loop produced no final variant (no edits were accepted).
+      const proposedMarkup = 'Hello {~~ [#1] world ~> Earth ~~}.';
+      const approverReject = JSON.stringify({ groupNumber: 1, decision: 'reject', reason: 'no improvement' });
+      const llm = makeMockLlm([
+        { label: 'iterative_edit_propose', response: proposedMarkup },
+        { label: 'iterative_edit_review', response: approverReject },
+      ]);
+      const agent = new IterativeEditingAgent();
+      const parent = variant('p1', 'Hello world.');
+      const result = await agent.execute(
+        {
+          parent,
+          perInvocationBudgetUsd: 1.0,
+          llm,
+          initialPool: [parent],
+          initialRatings: new Map([['p1', { elo: 1200, uncertainty: 100 }]]),
+          initialMatchCounts: new Map([['p1', 0]]),
+          cache: new Map(),
+          parentVariantId: 'p1',
+        } as unknown as Parameters<typeof agent.execute>[0],
+        makeCtx({ llm }),
+      );
+      expect(result.result.finalVariant).toBeNull();
+      expect(result.detail.ranking).toBeNull();
+      expect(result.result.matches).toHaveLength(0);
+      expect(result.result.surfaced).toBe(false);
+    });
+
+    it('runs ranking when initialPool present and final variant emitted', async () => {
+      // Mock the underlying judge call so rankNewVariant doesn't try to reach LLM.
+      // The agent calls rankNewVariant which calls rankSingleVariant which calls
+      // compareWithBiasMitigation; we intercept at the lowest level.
+      jest.resetModules();
+      const compareSpy = jest.fn().mockResolvedValue({ winner: 'A', confidence: 0.9, turns: 2 });
+      jest.doMock('../../../shared/computeRatings', () => {
+        const actual = jest.requireActual('../../../shared/computeRatings');
+        return { ...actual, compareWithBiasMitigation: compareSpy };
+      });
+      // Re-require the agent so the mock is applied.
+      const { IterativeEditingAgent: AgentReimported } = await import('./IterativeEditingAgent');
+
+      const llm = makeMockLlm([
+        { label: 'iterative_edit_propose', response: 'Hello {~~ [#1] world ~> Earth ~~}.' },
+        { label: 'iterative_edit_review', response: JSON.stringify({ groupNumber: 1, decision: 'accept', reason: 'better' }) },
+        { label: 'iterative_edit_propose', response: 'Hello Earth.' },
+      ]);
+      const agent = new AgentReimported();
+      const parent = variant('p1', 'Hello world.');
+      const opponent = variant('opp1', 'Hi planet.');
+      const result = await agent.execute(
+        {
+          parent,
+          perInvocationBudgetUsd: 1.0,
+          llm,
+          initialPool: [parent, opponent],
+          initialRatings: new Map([
+            ['p1', { elo: 1200, uncertainty: 100 }],
+            ['opp1', { elo: 1180, uncertainty: 120 }],
+          ]),
+          initialMatchCounts: new Map([['p1', 0], ['opp1', 0]]),
+          cache: new Map(),
+          parentVariantId: 'p1',
+        } as unknown as Parameters<typeof agent.execute>[0],
+        makeCtx({ llm }),
+      );
+      expect(result.result.finalVariant).not.toBeNull();
+      expect(result.detail.ranking).toBeDefined();
+      expect(result.detail.ranking).not.toBeNull();
+      expect(result.detail.ranking?.totalComparisons).toBeGreaterThan(0);
+      // Ranking cost folded into totalCost (Phase 2.5).
+      expect(result.detail.totalCost).toBeGreaterThan(0);
+      expect(result.detail.ranking?.cost).toBeGreaterThanOrEqual(0);
+      jest.dontMock('../../../shared/computeRatings');
+    });
+
+    it('discardReason populated on AgentOutput.result when surfaced=false (D1)', async () => {
+      // When rankNewVariant returns surfaced=false (status='budget' AND elo<top-15%),
+      // the agent must propagate discardReason on AgentOutput.result. discardReason
+      // is in-memory only (NOT persisted to execution_detail — matches GFPA pattern).
+      jest.resetModules();
+      const compareSpy = jest.fn().mockResolvedValue({ winner: 'B', confidence: 0.95, turns: 2 });
+      jest.doMock('../../../shared/computeRatings', () => {
+        const actual = jest.requireActual('../../../shared/computeRatings');
+        return { ...actual, compareWithBiasMitigation: compareSpy };
+      });
+      // Mock rankSingleVariant to deterministically force the budget+below-cutoff path.
+      jest.doMock('../../../pipeline/loop/rankSingleVariant', () => {
+        const actual = jest.requireActual('../../../pipeline/loop/rankSingleVariant');
+        return {
+          ...actual,
+          rankSingleVariant: jest.fn().mockResolvedValue({
+            status: 'budget',
+            matches: [],
+            comparisonsRun: 0,
+            detail: {
+              variantId: 'p1-edited',
+              localPoolSize: 8,
+              localPoolVariantIds: [],
+              initialTop15Cutoff: 1500,
+              comparisons: [],
+              stopReason: 'budget',
+              totalComparisons: 0,
+              finalLocalElo: 1100, // BELOW the 1500 cutoff → discard
+              finalLocalUncertainty: 100,
+              finalLocalTop15Cutoff: 1500,
+            },
+          }),
+        };
+      });
+      const { IterativeEditingAgent: AgentReimported } = await import('./IterativeEditingAgent');
+
+      const llm = makeMockLlm([
+        { label: 'iterative_edit_propose', response: 'Hello {~~ [#1] world ~> Earth ~~}.' },
+        { label: 'iterative_edit_review', response: JSON.stringify({ groupNumber: 1, decision: 'accept', reason: 'better' }) },
+        { label: 'iterative_edit_propose', response: 'Hello Earth.' },
+      ]);
+      const agent = new AgentReimported();
+      const parent = variant('p1', 'Hello world.');
+      // Pool with high-elo entries so cutoff is high and our edited variant falls below.
+      const highEloOpps = ['o1', 'o2', 'o3', 'o4', 'o5', 'o6', 'o7'].map((id) => variant(id, 'opp text'));
+      const result = await agent.execute(
+        {
+          parent,
+          perInvocationBudgetUsd: 1.0,
+          llm,
+          initialPool: [parent, ...highEloOpps],
+          initialRatings: new Map<string, { elo: number; uncertainty: number }>([
+            ['p1', { elo: 1200, uncertainty: 100 }],
+            ...highEloOpps.map((v): [string, { elo: number; uncertainty: number }] =>
+              [v.id, { elo: 1600, uncertainty: 80 }]),
+          ]),
+          initialMatchCounts: new Map([['p1', 0], ...highEloOpps.map((v): [string, number] => [v.id, 0])]),
+          cache: new Map(),
+          parentVariantId: 'p1',
+        } as unknown as Parameters<typeof agent.execute>[0],
+        makeCtx({ llm }),
+      );
+
+      expect(result.result.finalVariant).not.toBeNull();
+      expect(result.result.surfaced).toBe(false);
+      expect(result.result.discardReason).toBeDefined();
+      expect(result.result.discardReason?.localElo).toBeLessThan(result.result.discardReason!.localTop15Cutoff);
+      // discardReason is NOT persisted to execution_detail (matches GFPA pattern).
+      // The detail's `surfaced` field captures the boolean, but the reason stays in-memory.
+      expect(result.detail.surfaced).toBe(false);
+      jest.dontMock('../../../shared/computeRatings');
+      jest.dontMock('../../../pipeline/loop/rankSingleVariant');
+    });
+  });
 });
