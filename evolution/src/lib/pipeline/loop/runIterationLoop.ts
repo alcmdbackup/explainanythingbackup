@@ -799,7 +799,12 @@ export async function evolveArticle(
           iterStopReason = 'iteration_complete';
         } else {
           const { IterativeEditingAgent } = await import('../../core/agents/editing/IterativeEditingAgent');
-          const { resolveEditingDispatchRuntime } = await import('./editingDispatch');
+          const { resolveEditingDispatchRuntime, resolveEditingRankEnabled } = await import('./editingDispatch');
+
+          // D4 — runtime gate for the post-cycle ranking step. When 'false' the
+          // dispatch site OMITS rank-context fields from IterativeEditInput so the
+          // agent's input-presence gate skips ranking. Default-true.
+          const editingRankEnabled = resolveEditingRankEnabled(process.env);
 
           // Compute eligible parents via shared helper (same call site as planner).
           const arenaVariantIds = new Set<string>(); // Editing iterations don't add arena entries.
@@ -827,7 +832,18 @@ export async function evolveArticle(
 
             const editingAgent = new IterativeEditingAgent();
             const newVariants: Variant[] = [];
-            const editingMatchBuffers: MergeMatchEntry[][] = []; // Editing emits no matches in v1.
+            // Phase 4.2 — match buffers populated by per-agent ranking output (D7:
+            // one final-variant ranking per invocation). Empty when editingRankEnabled=false
+            // or when no surfaced final variant came back.
+            const editingMatchBuffers: MergeMatchEntry[][] = [];
+
+            // Phase 4.1 — when ranking enabled, capture iteration-start snapshots ONCE
+            // and pass them (deep-cloned per agent inside the agent) into IterativeEditInput.
+            // The agent's input-presence gate (Phase 2.3) skips ranking if any rank-context
+            // field is absent, so omitting them when editingRankEnabled=false is sufficient.
+            const initialPoolSnapshot: ReadonlyArray<Variant> | undefined = editingRankEnabled ? pool : undefined;
+            const initialRatingsSnapshot: ReadonlyMap<string, Rating> | undefined = editingRankEnabled ? ratings : undefined;
+            const initialMatchCountsSnapshot: ReadonlyMap<string, number> | undefined = editingRankEnabled ? matchCounts : undefined;
 
             // Parallel dispatch via Promise.allSettled.
             const parallelParents = dispatch.eligibleParents.slice(0, dispatchCount);
@@ -848,16 +864,32 @@ export async function evolveArticle(
               return editingAgent.run({
                 parent,
                 perInvocationBudgetUsd,
+                // Rank-context fields — omitted when editingRankEnabled=false (input-presence gate skips ranking).
+                ...(initialPoolSnapshot !== undefined ? { initialPool: initialPoolSnapshot } : {}),
+                ...(initialRatingsSnapshot !== undefined ? { initialRatings: initialRatingsSnapshot } : {}),
+                ...(initialMatchCountsSnapshot !== undefined ? { initialMatchCounts: initialMatchCountsSnapshot } : {}),
+                ...(editingRankEnabled ? { cache: comparisonCache, parentVariantId: parent.id } : {}),
               }, editCtx);
             });
 
             const settled = await Promise.allSettled(dispatchPromises);
             for (const s of settled) {
               if (s.status === 'fulfilled' && s.value.success && s.value.result) {
-                const r = s.value.result as { finalVariant: Variant | null; surfaced: boolean };
+                const r = s.value.result as {
+                  finalVariant: Variant | null;
+                  surfaced: boolean;
+                  matches?: ReadonlyArray<V2Match>;
+                };
                 if (r.finalVariant !== null && r.surfaced) {
                   newVariants.push(r.finalVariant);
                   iterVariantsCreated++;
+                }
+                // Phase 4.2 — collect ranking matches into the merge buffer
+                // (mirrors generate-branch line 561). Empty array when ranking skipped.
+                if (r.matches && r.matches.length > 0) {
+                  editingMatchBuffers.push(
+                    r.matches.map((m) => ({ match: m, idA: m.winnerId, idB: m.loserId })),
+                  );
                 }
                 if (s.value.budgetExceeded) {
                   iterStopReason = 'iteration_budget_exceeded';
@@ -866,8 +898,9 @@ export async function evolveArticle(
             }
 
             // Merge — pass iterationType: 'iterative_editing' per Decisions §7.
-            // Editing emits no per-cycle matches (Decisions §14), so pass empty buffers
-            // but populate newVariants for default-rating insertion.
+            // editingMatchBuffers is now populated when ranking ran; empty when skipped
+            // (matches the pre-ranking-project behavior so MergeRatingsAgent still
+            // inserts new variants with default Elo).
             if (newVariants.length > 0) {
               const mergeExecOrder = ++executionOrder;
               const mergeCtx: AgentContext = {

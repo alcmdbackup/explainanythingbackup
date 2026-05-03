@@ -272,6 +272,41 @@ describe('MergeRatingsAgent', () => {
     expect(update.execution_detail.iterationType).toBe('swiss');
   });
 
+  // Phase 4.6 — coverage gap fill from add_ranking_iterative_editing_agent_evolution_20260502.
+  // Pre-PR-1020 the editing iteration always passed empty matchBuffers per Decisions §14.
+  // Post-Phase 4.2, ranking output is now collected — verify the merge path handles it.
+  it('handles iterative_editing iteration type with non-empty match buffers', async () => {
+    const input = baseInput();
+    input.iterationType = 'iterative_editing';
+    const newEdited = mkVariant('edited-1');
+    const opponent = mkVariant('opp-1');
+    input.newVariants = [newEdited];
+    input.pool = [mkVariant('baseline'), opponent];
+    input.ratings = new Map<string, Rating>([
+      ['baseline', createRating()],
+      ['opp-1', createRating()],
+    ]);
+    // Match buffer from the editing agent's post-cycle ranking step.
+    const buffer: MergeMatchEntry[] = [
+      { match: mkMatch('edited-1', 'opp-1', 0.85), idA: 'edited-1', idB: 'opp-1' },
+    ];
+    input.matchBuffers = [buffer];
+
+    const dbState: SupabaseMockState = { inserts: [], insertError: null };
+    const agent = new MergeRatingsAgent();
+    const result = await agent.run(input, makeCtx(dbState));
+
+    // arena_comparisons row written.
+    expect(dbState.inserts.length).toBe(1);
+    expect(dbState.inserts[0]!.table).toBe('evolution_arena_comparisons');
+    // Detail records iterationType correctly.
+    const updateInvocation = jest.requireMock('../../pipeline/infra/trackInvocations').updateInvocation as jest.Mock;
+    const lastCall = updateInvocation.mock.calls[updateInvocation.mock.calls.length - 1];
+    expect(lastCall[2].execution_detail.iterationType).toBe('iterative_editing');
+    // Result reports correct counts.
+    expect(result.success).toBe(true);
+  });
+
   it('skips rating updates for zero-confidence (failed) matches', async () => {
     const input = baseInput();
     const newV = mkVariant('v1');

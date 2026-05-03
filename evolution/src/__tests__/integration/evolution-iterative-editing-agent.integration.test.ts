@@ -3,8 +3,12 @@
 //   - One invocation row per parent (Decisions §13)
 //   - At most one final variant per invocation (Decisions §14)
 //   - parent_variant_id of final variant === original input parent (NOT cycle-N-1)
-//   - ZERO arena_comparisons rows attributable to the editing iteration (§14)
-//   - iterative_edit_cost metric > 0
+//   - Post-cycle ranking runs (D7: only the final variant is ranked); when
+//     EDITING_RANK_ENABLED=true (default), surfaced editing variants get an
+//     execution_detail.ranking sub-object and arena_comparisons rows are
+//     emitted via MergeRatingsAgent. (§14 superseded by
+//     add_ranking_iterative_editing_agent_evolution_20260502.)
+//   - iterative_edit_cost + iterative_edit_rank_cost metrics > 0
 //   - per-purpose cost split present in execution_detail.cycles[i]
 
 import { evolveArticle } from '@evolution/lib/pipeline/loop/runIterationLoop';
