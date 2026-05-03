@@ -121,6 +121,46 @@ describe('ConfigDrivenDetailRenderer', () => {
 
   // ─── Empty-string + cellClassName (Issue 4 of fixes_to_evolution_admin_dashboard) ──
 
+  // Wrapper-agent configs (reflect_and_generate, evaluate_criteria_then_generate)
+  // surface nested execution_detail subtrees via dot-notation keys
+  // (e.g. 'evaluateAndSuggest.suggestions'). The renderer must resolve the path
+  // through nested objects rather than treating it as a flat key, otherwise the
+  // table renders "No data" even when the data is present.
+  it('resolves dot-notation field.key against nested data (wrapper-agent fix)', () => {
+    const config: DetailFieldDef[] = [
+      {
+        key: 'evaluateAndSuggest.suggestions',
+        label: 'Suggestions',
+        type: 'table',
+        columns: [{ key: 'criteriaName', label: 'Criterion' }],
+      },
+    ];
+    const data = {
+      evaluateAndSuggest: {
+        suggestions: [{ criteriaName: 'clarity' }],
+      },
+    };
+    render(<ConfigDrivenDetailRenderer config={config} data={data} />);
+    // If dot-notation didn't resolve, table would render "No data".
+    expect(screen.queryByText('No data')).not.toBeInTheDocument();
+    expect(screen.getByText('clarity')).toBeInTheDocument();
+  });
+
+  it('falls back to undefined when dot-notation path is missing', () => {
+    const config: DetailFieldDef[] = [
+      {
+        key: 'a.b.c',
+        label: 'Nested',
+        type: 'table',
+        columns: [{ key: 'k', label: 'K' }],
+      },
+    ];
+    // a exists but b.c does not — should render "No data" (not crash).
+    const data = { a: { x: 1 } };
+    render(<ConfigDrivenDetailRenderer config={config} data={data} />);
+    expect(screen.getByText('No data')).toBeInTheDocument();
+  });
+
   it('renders empty-string cell value as em-dash (parser fallback path)', () => {
     const config: DetailFieldDef[] = [
       {

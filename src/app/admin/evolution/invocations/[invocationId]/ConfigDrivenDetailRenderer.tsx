@@ -96,8 +96,21 @@ function renderTable(
   );
 }
 
+/** Resolve a possibly dotted field key against nested objects. Supports flat
+ * keys (`'tactic'` → data.tactic) and dot-notation paths
+ * (`'evaluateAndSuggest.suggestions'` → data.evaluateAndSuggest.suggestions).
+ * Used by wrapper-agent configs (reflect_and_generate, evaluate_criteria_then_generate)
+ * that surface nested execution_detail subtrees as top-level table/list fields. */
+function resolveKeyPath(data: Record<string, unknown>, key: string): unknown {
+  if (!key.includes('.')) return data[key];
+  return key.split('.').reduce<unknown>(
+    (obj, segment) => (obj && typeof obj === 'object' ? (obj as Record<string, unknown>)[segment] : undefined),
+    data,
+  );
+}
+
 function renderField(field: DetailFieldDef, data: Record<string, unknown>): JSX.Element {
-  const value = data[field.key];
+  const value = resolveKeyPath(data, field.key);
 
   switch (field.type) {
     case 'table':

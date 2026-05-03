@@ -373,18 +373,29 @@ adminTest.describe('Evolution Invocation Detail', { tag: '@evolution' }, () => {
     invocationIds.push(evalCriteriaInvocationId);
   });
 
-  adminTest('Issue 4: Eval & Suggest tab renders suggestions table with all 4 columns', async ({ adminPage }) => {
+  // Helper: navigate to the seeded invocation, confirm Eval & Suggest tab is
+  // the default active tab, expand the InvocationExecutionDetail (collapsed by
+  // default), and return a locator for the suggestions field.
+  async function openSuggestionsField(adminPage: import('@playwright/test').Page) {
     await adminPage.goto(`/admin/evolution/invocations/${evalCriteriaInvocationId}`);
     await adminPage.waitForLoadState('domcontentloaded');
 
-    // The wrapper renders an "Eval & Suggest" tab as the default-active first tab.
-    // Locate it via tablist role (its testid varies across the wrapper layout).
-    const evalTab = adminPage.getByRole('tab', { name: /Eval & Suggest|Eval ?Suggest|evaluate.?suggest/i }).first();
+    // Wrapper layout puts Eval & Suggest first → it's auto-active. Verify the
+    // tab exists (catches a regression that would silently fall back to the
+    // single Overview layout).
+    const evalTab = adminPage.getByRole('tab', { name: 'Eval & Suggest' });
     await expect(evalTab).toBeVisible({ timeout: 15000 });
-    await evalTab.click();
 
-    // Suggestions table rendered via ConfigDrivenDetailRenderer.
-    const suggestionsField = adminPage.locator('[data-testid="field-evaluateAndSuggest.suggestions"]');
+    // Execution detail is collapsed by default — click Expand to render fields.
+    const toggle = adminPage.locator('[data-testid="toggle-detail"]');
+    await expect(toggle).toBeVisible({ timeout: 10000 });
+    await toggle.click();
+
+    return adminPage.locator('[data-testid="field-evaluateAndSuggest.suggestions"]');
+  }
+
+  adminTest('Issue 4: Eval & Suggest tab renders suggestions table with all 4 columns', async ({ adminPage }) => {
+    const suggestionsField = await openSuggestionsField(adminPage);
     await expect(suggestionsField).toBeVisible({ timeout: 10000 });
 
     // All four columns headers visible.
@@ -400,30 +411,18 @@ adminTest.describe('Evolution Invocation Detail', { tag: '@evolution' }, () => {
   });
 
   adminTest('Issue 4: empty examplePassage renders as em-dash (parser permissive-mode output)', async ({ adminPage }) => {
-    await adminPage.goto(`/admin/evolution/invocations/${evalCriteriaInvocationId}`);
-    await adminPage.waitForLoadState('domcontentloaded');
-
-    const evalTab = adminPage.getByRole('tab', { name: /Eval & Suggest|Eval ?Suggest|evaluate.?suggest/i }).first();
-    await evalTab.click();
-
-    const suggestionsField = adminPage.locator('[data-testid="field-evaluateAndSuggest.suggestions"]');
+    const suggestionsField = await openSuggestionsField(adminPage);
     await expect(suggestionsField).toBeVisible({ timeout: 10000 });
 
     // The "depth" suggestion has examplePassage='' — should render as em-dash.
-    // Use evaluate to find the depth row's Example cell.
-    const depthRowText = await suggestionsField.locator('tr', { hasText: 'depth' }).first().innerText();
-    expect(depthRowText).toContain('—');
-    expect(depthRowText).toContain('depth criterion was scored low');
+    // Auto-retrying assertion via Locator.filter handles hydration timing.
+    const depthRow = suggestionsField.locator('tr').filter({ hasText: 'depth' }).first();
+    await expect(depthRow).toContainText('—');
+    await expect(depthRow).toContainText('depth criterion was scored low');
   });
 
   adminTest('Issue 4: suggestions table cells use cellClassName (max-w-md break-words)', async ({ adminPage }) => {
-    await adminPage.goto(`/admin/evolution/invocations/${evalCriteriaInvocationId}`);
-    await adminPage.waitForLoadState('domcontentloaded');
-
-    const evalTab = adminPage.getByRole('tab', { name: /Eval & Suggest|Eval ?Suggest|evaluate.?suggest/i }).first();
-    await evalTab.click();
-
-    const suggestionsField = adminPage.locator('[data-testid="field-evaluateAndSuggest.suggestions"]');
+    const suggestionsField = await openSuggestionsField(adminPage);
     await expect(suggestionsField).toBeVisible({ timeout: 10000 });
 
     // Inspect the first body cell to confirm the wrapping classes are applied.
