@@ -1,5 +1,7 @@
 # Add Ranking to IterativeEditingAgent — Planning
 
+> **STATUS: NOT YET IMPLEMENTED.** This document describes WORK TO BE DONE in numbered phases. None of the items in the "Phased Execution Plan" section have been executed yet — the codebase today does not contain any of the changes described below. When this plan says "Phase X.Y adds field Z", the field's absence in today's code is not a gap — it is the scheduled work. Execution begins after `/plan-review` reaches consensus 5/5.
+
 ## Background
 
 The just-shipped `bring_back_editing_agents_evolution_20260430` project (PR #1020) ships `IterativeEditingAgent` with Decisions §14 explicitly forbidding arena ranking inside the agent ("editing emits ZERO `arena_comparisons` rows"). This was a deliberate v1 simplification — local ranking was deferred to a downstream `swiss` iteration.
@@ -217,6 +219,7 @@ The wizard's existing dispatch-cost preview already recalculates as the user cha
    - **ADD**: editing-born variants have non-default mu after run; `iterative_edit_rank_cost` metric > 0.
    - Wizard tests unaffected.
    - Keep `setTimeout(360_000)` — ranking adds ~10–20s at nano speed.
+- [ ] **6.1b** Update `evolution-iterative-editing-agent.integration.test.ts` line 6 header comment: replace "ZERO arena_comparisons rows attributable to the editing iteration (§14)" with the post-supersession description (variants ranked locally, arena_comparisons rows emitted, non-default Elo on outputs).
 - [ ] **6.2** Update `docs/feature_deep_dives/editing_agents.md`:
    - Algorithm gets step 6: "Rank final variant via `rankNewVariant()`". *(Drafted during planning — commit `afbe52db`.)*
    - Cost tracking gets the new ranking line + `iterative_edit_rank_cost` metric + 4-layer cost-anatomy section + cost-knobs table. *(Drafted during planning — commit `afbe52db`.)*
