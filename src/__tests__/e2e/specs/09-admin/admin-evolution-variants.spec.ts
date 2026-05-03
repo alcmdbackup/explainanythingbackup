@@ -23,6 +23,10 @@ adminTest.describe('Evolution Variants (list page)', { tag: '@evolution' }, () =
   const variantIds: string[] = [];
   let winnerVariantId: string;
   let nonWinnerVariantId: string;
+  // fixes_to_evolution_admin_dashboard__20260503: seed an agent invocation +
+  // arena comparisons so we can exercise the Matches tab and Produced-by link.
+  let invocationId: string;
+  const comparisonIds: string[] = [];
 
   adminTest.beforeAll(async () => {
     const sb = getServiceClient();
@@ -94,10 +98,64 @@ adminTest.describe('Evolution Variants (list page)', { tag: '@evolution' }, () =
     const { error: vErr } = await sb.from('evolution_variants').insert(variantInserts);
     if (vErr) throw new Error(`Seed variants: ${vErr.message}`);
     variantIds.push(winnerVariantId, nonWinnerVariantId);
+
+    // Seed an agent invocation so the winner variant can carry agent_invocation_id
+    // (exercises the "Produced by" link in the variant detail header).
+    invocationId = randomUUID();
+    const { error: invErr } = await sb.from('evolution_agent_invocations').insert({
+      id: invocationId,
+      run_id: runId,
+      agent_name: 'generate_from_previous_article',
+      iteration: 2,
+      execution_order: 0,
+      success: true,
+      cost_usd: 0.002,
+    });
+    if (invErr) throw new Error(`Seed invocation: ${invErr.message}`);
+
+    // Wire the winner variant to that invocation. Column added in migration
+    // 20260418000003 but not yet in the auto-generated Database types — cast.
+    const { error: linkErr } = await sb
+      .from('evolution_variants')
+      .update({ agent_invocation_id: invocationId } as never)
+      .eq('id', winnerVariantId);
+    if (linkErr) throw new Error(`Link variant→invocation: ${linkErr.message}`);
+
+    // Seed two arena comparisons so the Matches tab has rows to render.
+    // Comparison 1: winner on entry_a side, won (winner=a)
+    // Comparison 2: winner on entry_b side, lost (winner=a → opponent won)
+    const c1Id = randomUUID();
+    const c2Id = randomUUID();
+    const { error: cErr } = await sb.from('evolution_arena_comparisons').insert([
+      {
+        id: c1Id,
+        prompt_id: promptId,
+        entry_a: winnerVariantId,
+        entry_b: nonWinnerVariantId,
+        winner: 'a',
+        confidence: 0.92,
+        run_id: runId,
+        status: 'completed',
+      },
+      {
+        id: c2Id,
+        prompt_id: promptId,
+        entry_a: nonWinnerVariantId,
+        entry_b: winnerVariantId,
+        winner: 'a',
+        confidence: 0.81,
+        run_id: runId,
+        status: 'completed',
+      },
+    ]);
+    if (cErr) throw new Error(`Seed comparisons: ${cErr.message}`);
+    comparisonIds.push(c1Id, c2Id);
   });
 
   adminTest.afterAll(async () => {
     const sb = getServiceClient();
+    await sb.from('evolution_arena_comparisons').delete().in('id', comparisonIds);
+    await sb.from('evolution_agent_invocations').delete().eq('id', invocationId);
     await sb.from('evolution_variants').delete().in('id', variantIds);
     await sb.from('evolution_runs').delete().eq('id', runId);
     await sb.from('evolution_strategies').delete().eq('id', strategyId);
@@ -256,5 +314,66 @@ adminTest.describe('Evolution Variants (list page)', { tag: '@evolution' }, () =
         expect(r).toBeLessThanOrEqual(2400);
       }
     }
+  });
+
+  // fixes_to_evolution_admin_dashboard__20260503 Issue 1: variant Matches tab
+  // is now wired through getVariantMatchHistoryAction (was a stub returning []).
+  // Seeded comparisons above include the winner on both entry_a and entry_b sides.
+  adminTest('Issue 1: variant detail Matches tab populates from arena comparisons', async ({ adminPage }) => {
+    await adminPage.goto(`/admin/evolution/variants/${winnerVariantId}`);
+    await adminPage.waitForLoadState('domcontentloaded');
+
+    // Click the Matches tab.
+    const matchesTab = adminPage.getByRole('tab', { name: 'Matches' });
+    await expect(matchesTab).toBeVisible({ timeout: 15000 });
+    await matchesTab.click();
+
+    // Match history section should be visible and contain the seeded rows.
+    const matchHistory = adminPage.locator('[data-testid="variant-match-history"]');
+    await expect(matchHistory).toBeVisible({ timeout: 15000 });
+
+    // Two seeded comparisons → two match rows; one win + one loss.
+    const matchRows = matchHistory.locator('[data-testid="match-row"]');
+    await expect(matchRows).toHaveCount(2);
+
+    // The winner is on entry_a in c1 (winner='a' → won) and on entry_b in c2
+    // (winner='a' → opponent won, so variant lost). Expect one WIN and one LOSS.
+    await expect(matchHistory.locator('text=WIN').first()).toBeVisible();
+    await expect(matchHistory.locator('text=LOSS').first()).toBeVisible();
+  });
+
+  // fixes_to_evolution_admin_dashboard__20260503 Issue 3: variant detail header
+  // gains a "Produced by <agent_name>" cross-link to the producing invocation.
+  adminTest('Issue 3: variant detail header shows Produced-by link to producing invocation', async ({ adminPage }) => {
+    await adminPage.goto(`/admin/evolution/variants/${winnerVariantId}`);
+    await adminPage.waitForLoadState('domcontentloaded');
+
+    const crossLinks = adminPage.locator('[data-testid="cross-links"]');
+    await expect(crossLinks).toBeVisible({ timeout: 15000 });
+
+    // The "Produced by" link should be present with agent_name as the label.
+    await expect(crossLinks).toContainText('Produced by');
+    await expect(crossLinks).toContainText('generate_from_previous_article');
+
+    // Click → assert navigation to the invocation detail page.
+    const producedByLink = crossLinks.locator(
+      `a[href="/admin/evolution/invocations/${invocationId}"]`,
+    );
+    await expect(producedByLink).toBeVisible();
+    await producedByLink.click();
+    await adminPage.waitForURL(`**/admin/evolution/invocations/${invocationId}`, { timeout: 15000 });
+    expect(adminPage.url()).toContain(`/admin/evolution/invocations/${invocationId}`);
+  });
+
+  // fixes_to_evolution_admin_dashboard__20260503: legacy variants without
+  // agent_invocation_id should NOT show the Produced-by chip (graceful no-op).
+  adminTest('legacy variant (null agent_invocation_id) hides Produced-by link', async ({ adminPage }) => {
+    await adminPage.goto(`/admin/evolution/variants/${nonWinnerVariantId}`);
+    await adminPage.waitForLoadState('domcontentloaded');
+
+    const crossLinks = adminPage.locator('[data-testid="cross-links"]');
+    await expect(crossLinks).toBeVisible({ timeout: 15000 });
+    // Run + Explanation chips render normally, but Produced-by is absent.
+    await expect(crossLinks).not.toContainText('Produced by');
   });
 });

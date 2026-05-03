@@ -314,4 +314,122 @@ adminTest.describe('Evolution Invocation Detail', { tag: '@evolution' }, () => {
     await expect(adminPage.locator('[data-testid="timeline-generation-bar"]')).toBeVisible();
     await expect(adminPage.locator('[data-testid="timeline-ranking-bar"]')).toBeVisible();
   });
+
+  // ─── evaluate_criteria_then_generate Eval & Suggest tab ───────────────
+  // fixes_to_evolution_admin_dashboard__20260503 Issue 4: Eval & Suggest tab
+  // renders Suggestions table including Example/Issue/Fix columns; long
+  // passages wrap (cellClassName); empty parser fields render as em-dash.
+
+  let evalCriteriaInvocationId: string;
+
+  adminTest.beforeAll(async () => {
+    const sb = getServiceClient();
+    evalCriteriaInvocationId = randomUUID();
+    await sb.from('evolution_agent_invocations').insert({
+      id: evalCriteriaInvocationId,
+      run_id: runId,
+      agent_name: 'evaluate_criteria_then_generate_from_previous_article',
+      iteration: 2,
+      execution_order: 0,
+      success: true,
+      cost_usd: 0.045,
+      duration_ms: 18000,
+      execution_detail: {
+        detailType: 'evaluate_criteria_then_generate_from_previous_article',
+        tactic: 'criteria_driven',
+        surfaced: true,
+        weakestCriteriaIds: ['c1-uuid', 'c2-uuid'],
+        weakestCriteriaNames: ['clarity', 'depth'],
+        evaluateAndSuggest: {
+          cost: 0.012,
+          durationMs: 4800,
+          criteriaScored: [
+            { criteriaName: 'clarity', score: 2, minRating: 1, maxRating: 5 },
+            { criteriaName: 'depth', score: 3, minRating: 1, maxRating: 5 },
+            { criteriaName: 'engagement', score: 4, minRating: 1, maxRating: 5 },
+          ],
+          suggestions: [
+            {
+              criteriaName: 'clarity',
+              examplePassage: 'The widget thingamajig wibbles when poked, sometimes producing notable effects.',
+              whatNeedsAddressing: 'The sentence uses vague terms (widget, thingamajig, wibbles) without grounding them.',
+              suggestedFix: 'Replace abstract terms with concrete nouns and explain the mechanism.',
+            },
+            {
+              // Issue 4 regression case: empty Example field — must still render with em-dash.
+              criteriaName: 'depth',
+              examplePassage: '',
+              whatNeedsAddressing: 'The depth criterion was scored low but no example passage was extracted.',
+              suggestedFix: 'Add detail about underlying mechanisms.',
+            },
+          ],
+          droppedSuggestions: [],
+        },
+        generation: { cost: 0.022, promptLength: 7400, textLength: 6200, formatValid: true, durationMs: 9200 },
+        ranking: { cost: 0.011, localPoolSize: 4, initialTop15Cutoff: 1200, comparisons: [], stopReason: 'converged', totalComparisons: 5, finalLocalElo: 1265, finalLocalUncertainty: 32, durationMs: 4000 },
+        totalCost: 0.045,
+      },
+    });
+    invocationIds.push(evalCriteriaInvocationId);
+  });
+
+  adminTest('Issue 4: Eval & Suggest tab renders suggestions table with all 4 columns', async ({ adminPage }) => {
+    await adminPage.goto(`/admin/evolution/invocations/${evalCriteriaInvocationId}`);
+    await adminPage.waitForLoadState('domcontentloaded');
+
+    // The wrapper renders an "Eval & Suggest" tab as the default-active first tab.
+    // Locate it via tablist role (its testid varies across the wrapper layout).
+    const evalTab = adminPage.getByRole('tab', { name: /Eval & Suggest|Eval ?Suggest|evaluate.?suggest/i }).first();
+    await expect(evalTab).toBeVisible({ timeout: 15000 });
+    await evalTab.click();
+
+    // Suggestions table rendered via ConfigDrivenDetailRenderer.
+    const suggestionsField = adminPage.locator('[data-testid="field-evaluateAndSuggest.suggestions"]');
+    await expect(suggestionsField).toBeVisible({ timeout: 10000 });
+
+    // All four columns headers visible.
+    await expect(suggestionsField).toContainText('Criterion');
+    await expect(suggestionsField).toContainText('Example');
+    await expect(suggestionsField).toContainText('Issue');
+    await expect(suggestionsField).toContainText('Fix');
+
+    // Suggestion 1 with full text visible.
+    await expect(suggestionsField).toContainText('clarity');
+    await expect(suggestionsField).toContainText('widget thingamajig');
+    await expect(suggestionsField).toContainText('Replace abstract terms');
+  });
+
+  adminTest('Issue 4: empty examplePassage renders as em-dash (parser permissive-mode output)', async ({ adminPage }) => {
+    await adminPage.goto(`/admin/evolution/invocations/${evalCriteriaInvocationId}`);
+    await adminPage.waitForLoadState('domcontentloaded');
+
+    const evalTab = adminPage.getByRole('tab', { name: /Eval & Suggest|Eval ?Suggest|evaluate.?suggest/i }).first();
+    await evalTab.click();
+
+    const suggestionsField = adminPage.locator('[data-testid="field-evaluateAndSuggest.suggestions"]');
+    await expect(suggestionsField).toBeVisible({ timeout: 10000 });
+
+    // The "depth" suggestion has examplePassage='' — should render as em-dash.
+    // Use evaluate to find the depth row's Example cell.
+    const depthRowText = await suggestionsField.locator('tr', { hasText: 'depth' }).first().innerText();
+    expect(depthRowText).toContain('—');
+    expect(depthRowText).toContain('depth criterion was scored low');
+  });
+
+  adminTest('Issue 4: suggestions table cells use cellClassName (max-w-md break-words)', async ({ adminPage }) => {
+    await adminPage.goto(`/admin/evolution/invocations/${evalCriteriaInvocationId}`);
+    await adminPage.waitForLoadState('domcontentloaded');
+
+    const evalTab = adminPage.getByRole('tab', { name: /Eval & Suggest|Eval ?Suggest|evaluate.?suggest/i }).first();
+    await evalTab.click();
+
+    const suggestionsField = adminPage.locator('[data-testid="field-evaluateAndSuggest.suggestions"]');
+    await expect(suggestionsField).toBeVisible({ timeout: 10000 });
+
+    // Inspect the first body cell to confirm the wrapping classes are applied.
+    const firstCell = suggestionsField.locator('tbody td').first();
+    // Use toHaveClass with a regex so Playwright auto-retries through hydration.
+    await expect(firstCell).toHaveClass(/max-w-md/);
+    await expect(firstCell).toHaveClass(/break-words/);
+  });
 });
