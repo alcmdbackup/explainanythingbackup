@@ -34,12 +34,10 @@ adminTest.describe('Strategy wizard — criteria_and_generate', { tag: ['@evolut
   /** Fill the step-1 config form with valid defaults so the Next button advances. */
   async function advanceToStep2(page: import('@playwright/test').Page): Promise<void> {
     await page.locator('#strategy-name').fill(`e2e_wiz_${Date.now()}`);
-    // generation-model select starts empty — pick the first real option.
-    const genModel = page.locator('#generation-model');
-    const genOptions = await genModel.locator('option').all();
-    const genFirstReal = await genOptions[1]?.getAttribute('value');
-    if (genFirstReal) await genModel.selectOption({ value: genFirstReal });
-    // judge-model already has a default but ensure it has a value.
+    // generation-model select starts empty — pick the first real option (index 1, since
+    // index 0 is the placeholder). Playwright's selectOption({ index: 1 }) avoids the
+    // getAttribute() lint rule for point-in-time checks.
+    await page.locator('#generation-model').selectOption({ index: 1 });
     await page.getByRole('button', { name: /Next: Configure Iterations/i }).click();
   }
 
