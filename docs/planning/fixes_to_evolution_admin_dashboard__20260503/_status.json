@@ -1,7 +1,10 @@
 {
   "branch": "feat/fixes_to_evolution_admin_dashboard__20260503",
   "created_at": "2026-05-03T00:00:00Z",
-  "prerequisites": {},
+  "prerequisites": {
+    "testing_setup_read": "2026-05-03T18:41:56Z",
+    "testing_overview_read": "2026-05-03T18:42:05Z"
+  },
   "relevantDocs": [
     "docs/docs_overall/getting_started.md",
     "docs/docs_overall/architecture.md",
