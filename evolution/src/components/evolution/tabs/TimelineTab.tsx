@@ -130,26 +130,38 @@ function InvocationBar({ inv, runStartMs, totalMs }: BarProps): JSX.Element {
     inv.success ? '\u2713 success' : `\u2717 ${inv.error_message ?? 'failed'}`,
   ].filter(Boolean).join('\n');
 
+  // Whole-row link wrapper: clicking anywhere on the row navigates to the invocation
+  // detail page. GanttBar is rendered without its own href to avoid nested <a>.
   return (
-    <div className="flex items-center gap-2 py-0.5" data-testid={`timeline-inv-${inv.id}`}>
-      {/* Left label */}
+    <Link
+      href={buildInvocationUrl(inv.id)}
+      className="flex items-center gap-2 py-0.5 hover:bg-[var(--surface-hover)] rounded transition-colors"
+      data-testid={`timeline-inv-${inv.id}`}
+    >
+      {/* Left label: agent_name (truncated, full in title) on top, #execution_order below */}
       <div className="w-32 shrink-0 text-right pr-1">
-        <span className="text-xs font-ui text-[var(--text-secondary)] truncate">
-          {label}
-          {inv.execution_order != null ? (
-            <span className="text-[var(--text-muted)]"> #{inv.execution_order}</span>
-          ) : null}
+        <span
+          className="block text-xs font-ui text-[var(--text-secondary)] truncate"
+          title={inv.agent_name ?? label}
+        >
+          {/* Snake_case agent_name from real data; fall back to coarse KIND_CONFIG label
+              for legacy PascalCase test fixtures (matched as 'other' kind). */}
+          {inv.agent_name && inv.agent_name.includes('_') ? inv.agent_name : label}
         </span>
+        {inv.execution_order != null ? (
+          <span className="block text-xs text-[var(--text-muted)]">
+            #{inv.execution_order}
+          </span>
+        ) : null}
       </div>
 
-      {/* Bar track — delegated to GanttBar primitive */}
+      {/* Bar track — delegated to GanttBar primitive (no href: row's <Link> handles nav) */}
       <GanttBar
         startMs={offsetMs}
         durationMs={inv.duration_ms}
         totalMs={totalMs}
         color={color}
         label={fmtMs(inv.duration_ms)}
-        href={buildInvocationUrl(inv.id)}
         tooltip={tooltip}
         failed={!inv.success}
         errorMessage={inv.error_message ?? undefined}
@@ -169,7 +181,7 @@ function InvocationBar({ inv, runStartMs, totalMs }: BarProps): JSX.Element {
           {fmtCost(inv.cost_usd)}
         </span>
       </div>
-    </div>
+    </Link>
   );
 }
 
