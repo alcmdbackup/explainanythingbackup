@@ -14,7 +14,7 @@ shared core function.
 `POST /api/evolution/run` — admin-only endpoint at `src/app/api/evolution/run/route.ts`.
 
 - Protected by `requireAdmin()`.
-- `maxDuration = 800` seconds (Vercel limit); pipeline gets `(800 - 60) * 1000 ms`.
+- `maxDuration = 300` seconds (Vercel limit); pipeline gets `maxDurationMs: 240_000`.
 - Accepts optional `{ runId: UUID }` body to target a specific pending run.
 - Delegates to `claimAndExecuteRun()`.
 
@@ -402,7 +402,7 @@ carries an `iterationIndex` field.
 
 ### Local Per-Run Budget (V2CostTracker)
 
-Defined in `evolution/src/lib/pipeline/cost-tracker.ts`. Uses a **reserve-before-spend**
+Defined in `evolution/src/lib/pipeline/infra/trackBudget.ts`. Uses a **reserve-before-spend**
 pattern for parallel safety:
 
 ```typescript

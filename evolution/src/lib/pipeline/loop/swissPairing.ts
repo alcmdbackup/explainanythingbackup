@@ -43,6 +43,12 @@ export function swissPairing(
   completedPairs: ReadonlySet<string>,
   maxPairs: number = MAX_PAIRS_PER_ROUND,
 ): Array<[string, string]> {
+  // B014-S1: reject maxPairs <= 0 explicitly. Previously, maxPairs=0 silently returned []
+  // which the caller treated as legitimate `iteration_no_pairs` convergence. A config bug
+  // upstream now surfaces as a thrown error instead of a silent no-op.
+  if (maxPairs <= 0) {
+    throw new Error(`swissPairing: maxPairs must be positive, got ${maxPairs}`);
+  }
   if (eligibleIds.length < 2) return [];
 
   const candidates: PairCandidate[] = [];

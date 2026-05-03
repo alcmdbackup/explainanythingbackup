@@ -111,7 +111,7 @@ By end of week 2, you should be able to:
 | Priority | File | What it teaches |
 |----------|------|-----------------|
 | 8 | `evolution/src/services/experimentActionsV2.ts` | Experiment CRUD — creating experiments, adding strategies, launching runs. Shows the admin-facing service layer. |
-| 9 | `evolution/src/lib/pipeline/cost-tracker.ts` | Budget management internals — how spending is tracked per-invocation, how budget pressure tiers are calculated, and how the spending gate decides whether to allow more comparisons. |
+| 9 | `evolution/src/lib/pipeline/infra/trackBudget.ts` | Budget management internals — how spending is tracked per-invocation, how budget pressure tiers are calculated, and how the spending gate decides whether to allow more comparisons. |
 
 ### Hands-on exercise
 
@@ -213,7 +213,7 @@ The 10 most important source files, in recommended reading order. Each builds on
 | 5 | `evolution/src/lib/pipeline/rank.ts` | Ranking phase — pairwise comparisons and pair selection |
 | 6 | `evolution/src/lib/pipeline/evolve.ts` | Evolution phase — improving top variants |
 | 7 | `evolution/src/lib/shared/rating.ts` | Elo rating with uncertainty — public `{elo, uncertainty}` math, convergence, DB boundary helpers (OpenSkill internally) |
-| 8 | `evolution/src/lib/pipeline/cost-tracker.ts` | Budget management — spending gates and pressure tiers |
+| 8 | `evolution/src/lib/pipeline/infra/trackBudget.ts` | Budget management — spending gates and pressure tiers |
 | 9 | `evolution/src/lib/pipeline/finalize.ts` | Result persistence — writing final state |
 | 10 | `evolution/src/services/evolutionRunnerCore.ts` | Entry point — how runs are launched |
 

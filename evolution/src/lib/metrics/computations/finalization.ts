@@ -37,11 +37,15 @@ export function computeMedianElo(ctx: FinalizationContext): MetricValue | null {
   if (sorted.length % 2 === 1) {
     return eloMetricValue(sorted[mid]!.elo, sorted[mid]!.uncertainty);
   }
-  // Even length: average the two middle values and their uncertainties
+  // Even length: average the two middle values; B017-S4: use quadrature for the
+  // averaged uncertainty (sigma of the mean of two independent Gaussians is
+  // sqrt(u1² + u2²) / 2, NOT the arithmetic average which over-states uncertainty).
   const elo = (sorted[mid - 1]!.elo + sorted[mid]!.elo) / 2;
   const u1 = sorted[mid - 1]!.uncertainty;
   const u2 = sorted[mid]!.uncertainty;
-  const avgUncertainty = u1 != null && u2 != null ? (u1 + u2) / 2 : (u1 ?? u2);
+  const avgUncertainty = u1 != null && u2 != null
+    ? Math.sqrt(u1 * u1 + u2 * u2) / 2
+    : (u1 ?? u2);
   return eloMetricValue(elo, avgUncertainty);
 }
 

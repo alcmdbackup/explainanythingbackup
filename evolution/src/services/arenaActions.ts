@@ -318,7 +318,9 @@ export const getArenaComparisonsAction = adminAction(
       .select('*')
       .eq('prompt_id', input.topicId)
       .order('created_at', { ascending: false })
-      .limit(input.limit ?? 100);
+      // B004-S5: cap at 200 — previously accepted arbitrary user-supplied values
+      // (e.g. 10_000_000) which risked OOM.
+      .limit(Math.min(Math.max(input.limit ?? 100, 1), 200));
     if (error) throw error;
     return (data ?? []) as ArenaComparison[];
   },

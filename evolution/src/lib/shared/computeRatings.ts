@@ -346,23 +346,31 @@ export function parseWinner(response: string): string | null {
   const hasTextB = upper.includes('TEXT B');
   if (hasTextA && !hasTextB) return 'A';
   if (hasTextB && !hasTextA) return 'B';
-  // Both mentioned — check for winner phrasing patterns
+  // Both mentioned — check for winner phrasing patterns.
+  // B002-S6: dropped plain `IS` from the verb alternation. Sentences like
+  // "Text A is the original; Text B is more polished" matched both winnerA AND
+  // winnerB via plain IS, falling through to null. Now we require a stronger verb
+  // (BETTER / WINS / SUPERIOR / PREFERRED) so descriptive `IS` doesn't false-match.
   if (hasTextA && hasTextB) {
-    const winnerA = /TEXT A\s*(IS|WINS|IS BETTER|IS SUPERIOR)/i.test(upper);
-    const winnerB = /TEXT B\s*(IS|WINS|IS BETTER|IS SUPERIOR)/i.test(upper);
+    const winnerA = /TEXT A\s*(WINS|IS BETTER|IS SUPERIOR|IS PREFERRED|IS THE WINNER|IS BETTER\b)/i.test(upper);
+    const winnerB = /TEXT B\s*(WINS|IS BETTER|IS SUPERIOR|IS PREFERRED|IS THE WINNER|IS BETTER\b)/i.test(upper);
     if (winnerA && !winnerB) return 'A';
     if (winnerB && !winnerA) return 'B';
   }
 
   if (upper.includes('TIE') || upper.includes('DRAW') || upper.includes('EQUAL')) return 'TIE';
 
-  // Scoped fallback for "Your answer: A/B" format (observed in Qwen3 8B with thinking
-  // disabled). Requires the literal "Your answer:" prefix and a word boundary after
-  // the captured letter so that "Your answer: Apple" does NOT match 'A' and
-  // "Your answer: Bother" does NOT match 'B'. Allows optional markdown bold (`**`).
+  // Scoped fallback for "Your answer: A/B" format.
   const yourAnswerMatch = /^\s*YOUR ANSWER\s*:\s*\*{0,2}\s*([AB])(?![A-Z])/.exec(upper);
   if (yourAnswerMatch) return yourAnswerMatch[1]!;
 
+  // B003-S6: extended first-word fallback to match common LLM prefixes that the prior
+  // hardcoded ['A','A.','A,','B','B.','B,'] missed: "Actually, B.", "**B**", "Final
+  // answer A", "Answer: B", with optional markdown bold and trailing punctuation.
+  const firstTokenMatch = /^(?:\*{1,2})?\s*(?:ACTUALLY[,]?\s+|FINAL\s+ANSWER[:\s]+|ANSWER[:\s]+)?(?:\*{1,2})?\s*([AB])(?:[.,!?])?\s*(?:\*{1,2})?(?:\s|$)/i.exec(upper);
+  if (firstTokenMatch) return firstTokenMatch[1]!;
+
+  // Legacy fallback retained for direct token matches.
   const firstWord = upper.split(/\s/)[0]!;
   if (['A', 'A.', 'A,'].includes(firstWord)) return 'A';
   if (['B', 'B.', 'B,'].includes(firstWord)) return 'B';

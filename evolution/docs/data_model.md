@@ -430,7 +430,7 @@ pending ──► claimed ──► running ──► completed
 
 Cost flows through three layers:
 
-1. **In-memory**: `V2CostTracker` (`evolution/src/lib/pipeline/cost-tracker.ts`) uses a reserve-before-spend pattern with a 1.3x safety margin. Reservations are synchronous to maintain parallel safety under the Node.js event loop.
+1. **In-memory**: `V2CostTracker` (`evolution/src/lib/pipeline/infra/trackBudget.ts`) uses a reserve-before-spend pattern with a 1.3x safety margin. Reservations are synchronous to maintain parallel safety under the Node.js event loop.
 
 2. **Per-invocation**: Each agent invocation writes its `cost_usd` to `evolution_agent_invocations`. This is the source of truth for cost attribution.
 
@@ -441,7 +441,7 @@ Cost flows through three layers:
    - Budget events table was dropped in V2; audit trail is now in-memory only
 
 ```typescript
-// From evolution/src/lib/pipeline/cost-tracker.ts
+// From evolution/src/lib/pipeline/infra/trackBudget.ts
 export function createCostTracker(budgetUsd: number): V2CostTracker {
   // reserve() is synchronous — no awaits — for parallel safety
   reserve(phase: string, estimatedCost: number): number;

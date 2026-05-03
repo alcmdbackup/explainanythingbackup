@@ -51,7 +51,19 @@ if (!SUPABASE_URL || !SERVICE_KEY) {
 
 // ─── Args ────────────────────────────────────────────────────────
 const apply = process.argv.includes('--apply');
-const runIdArg = process.argv.find((a) => a.startsWith('--run-id='))?.split('=')[1];
+// B013-S4: support BOTH `--run-id=UUID` (equals form) AND `--run-id UUID` (space form,
+// which the docstring shows). Previously only equals form was parsed → space-form
+// silently fell through to "all completed runs" mode.
+function parseRunIdArg(): string | undefined {
+  const equalsForm = process.argv.find((a) => a.startsWith('--run-id='))?.split('=')[1];
+  if (equalsForm) return equalsForm;
+  const spaceIdx = process.argv.indexOf('--run-id');
+  if (spaceIdx >= 0 && spaceIdx + 1 < process.argv.length) {
+    return process.argv[spaceIdx + 1];
+  }
+  return undefined;
+}
+const runIdArg = parseRunIdArg();
 const REPORT_DIR = path.resolve(process.cwd(), 'evolution/scripts/backfill-reports');
 const REPORT_PATH = path.join(REPORT_DIR, `cost-backfill-${new Date().toISOString().replace(/:/g, '-')}.json`);
 

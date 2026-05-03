@@ -170,11 +170,14 @@ export const getTacticRunsAction = adminAction(
     const limit = Math.min(input.limit ?? 50, 200);
     const offset = input.offset ?? 0;
 
-    // Get distinct run IDs from invocations with this tactic
+    // Get distinct run IDs from invocations with this tactic.
+    // B005-S5: filter by `agent_name` to match sibling actions (getTacticVariantsAction
+    // uses agent_name). The `tactic` column population isn't guaranteed on legacy
+    // invocations, so the prior `.eq('tactic', ...)` returned 0 rows for many tactics.
     const { data: invocations, error: invError } = await ctx.supabase
       .from('evolution_agent_invocations')
       .select('run_id')
-      .eq('tactic', input.tacticName)
+      .eq('agent_name', input.tacticName)
       .not('run_id', 'is', null);
 
     if (invError) throw new Error(`Failed to query invocations: ${invError.message}`);

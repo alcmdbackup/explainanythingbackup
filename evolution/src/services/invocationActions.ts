@@ -88,7 +88,16 @@ export const listInvocationsAction = adminAction(
       query = query.ilike('agent_name', `%${escaped}%`);
     }
     if (parsed.filterTestContent && testRunIds.length > 0) {
-      query = query.not('run_id', 'in', `(${testRunIds.join(',')})`);
+      // B002-S5: chunk the IN-list to avoid PostgREST URL truncation at scale (the
+      // 2026-04-22 sweep documented the 36KB limit at ~984 test strategies). For
+      // invocations, testRunIds can grow as test runs accumulate; chunk into 200-id
+      // batches and AND them. Each chunk excludes its own subset; AND of "not in chunk"
+      // semantically excludes the union.
+      const CHUNK = 200;
+      for (let i = 0; i < testRunIds.length; i += CHUNK) {
+        const chunk = testRunIds.slice(i, i + CHUNK);
+        query = query.not('run_id', 'in', `(${chunk.join(',')})`);
+      }
     }
 
     query = query.order('created_at', { ascending: false })

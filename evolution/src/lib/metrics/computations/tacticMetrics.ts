@@ -3,7 +3,7 @@
 // tactic metrics aggregate directly from evolution_variants grouped by agent_name (tactic name).
 
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { dbToRating } from '../../shared/computeRatings';
+import { dbToRating, _INTERNAL_DEFAULT_MU, _INTERNAL_DEFAULT_SIGMA } from '../../shared/computeRatings';
 import { bootstrapMeanCI } from '../experimentMetrics';
 
 const DEFAULT_ELO = 1200;
@@ -68,8 +68,9 @@ export async function computeTacticMetrics(
 
   if (completedVariants.length === 0) return;
 
-  // Compute ratings from DB columns
-  const ratings = completedVariants.map((v) => dbToRating(v.mu ?? 25, v.sigma ?? 8.333));
+  // Compute ratings from DB columns. B019-S4: use canonical _INTERNAL_DEFAULT_MU/SIGMA
+  // instead of hardcoded literals so future updates to defaults stay in sync.
+  const ratings = completedVariants.map((v) => dbToRating(v.mu ?? _INTERNAL_DEFAULT_MU, v.sigma ?? _INTERNAL_DEFAULT_SIGMA));
 
   // avg_elo with bootstrap CI (propagates per-variant uncertainty)
   const eloValues = ratings.map((r) => ({ value: r.elo, uncertainty: r.uncertainty, ci: null, n: 1 }));
@@ -83,7 +84,9 @@ export async function computeTacticMetrics(
   const winValues = completedVariants.map((v) => ({ value: v.is_winner ? 1 : 0, uncertainty: null, ci: null, n: 1 }));
   const winRateResult = bootstrapMeanCI(winValues);
 
-  const bestElo = Math.max(...ratings.map((r) => r.elo));
+  // B018-S4: reduce instead of spread — Math.max(...arr) risks "Maximum call stack size
+  // exceeded" on tactics with hundreds of thousands of variants.
+  const bestElo = ratings.reduce((max, r) => (r.elo > max ? r.elo : max), -Infinity);
   // B053: switch tactic-cost rollup authority to evolution_agent_invocations.cost_usd
   // (authoritative per-purpose cost since Phase 6). Filter `variant_surfaced IS NOT FALSE`
   // (B048) so discarded generate-agent invocations don't inflate the tactic total.
@@ -105,10 +108,21 @@ export async function computeTacticMetrics(
         totalCost += Number(inv.cost_usd ?? 0);
       }
     }
-    // Transition fallback: if the invocation-side sum is 0 (e.g., historic run with no
-    // invocation cost data), fall back to summing variant cost_usd so the metric isn't
-    // an unexpected zero during the dual-write window.
-    if (totalCost === 0) {
+    // B005-S4: previously fell back when `totalCost === 0`, which misfired on legitimate
+    // zero-cost invocations (test runs, fully-cached calls). Track invocation count and
+    // only fall back when NO invocation rows existed (true "missing data" signal).
+    let invocationCount = 0;
+    for (let i = 0; i < runIdsCompleted.length; i += 100) {
+      const chunk = runIdsCompleted.slice(i, i + 100);
+      const { count } = await db
+        .from('evolution_agent_invocations')
+        .select('id', { count: 'exact', head: true })
+        .in('run_id', chunk)
+        .eq('agent_name', tacticName)
+        .not('variant_surfaced', 'is', false as unknown as null);
+      invocationCount += count ?? 0;
+    }
+    if (invocationCount === 0) {
       totalCost = completedVariants.reduce((s, v) => s + (v.cost_usd ?? 0), 0);
     }
   }
@@ -128,8 +142,10 @@ export async function computeTacticMetrics(
       n: ratings.length, aggregation_method: 'bootstrap_mean', source: 'propagation',
     },
     {
+      // B020-S4: keep uncertainty alongside CI so downstream formatters get a consistent
+      // shape (don't drop SE while keeping CI — some renderers compute halfWidth from CI).
       entity_type: 'tactic', entity_id: tacticId, metric_name: 'win_rate',
-      value: winRateResult.value, uncertainty: null,
+      value: winRateResult.value, uncertainty: winRateResult.uncertainty ?? null,
       ci_lower: winRateResult.ci?.[0] ?? null, ci_upper: winRateResult.ci?.[1] ?? null,
       n: completedVariants.length, aggregation_method: 'bootstrap_mean', source: 'propagation',
     },

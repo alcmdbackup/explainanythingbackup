@@ -11,6 +11,10 @@ import { ReflectAndGenerateFromPreviousArticleAgent } from './agents/reflectAndG
 import { IterativeEditingAgent } from './agents/editing/IterativeEditingAgent';
 import { SwissRankingAgent } from './agents/SwissRankingAgent';
 import { MergeRatingsAgent } from './agents/MergeRatingsAgent';
+// B003-S3: register CreateSeedArticleAgent so its invocationMetrics merge into
+// InvocationEntity at registry init, and so the entities.test.ts parity test
+// against DETAIL_VIEW_CONFIGS catches future regressions.
+import { CreateSeedArticleAgent } from './agents/createSeedArticle';
 import { assertCostCalibrationPhaseEnumsMatch } from './startupAssertions';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -27,6 +31,8 @@ export function getAgentClasses(): AnyAgent[] {
       new IterativeEditingAgent(),
       new SwissRankingAgent(),
       new MergeRatingsAgent(),
+      // B003-S3: registered to feed invocationMetrics merge + parity tests.
+      new CreateSeedArticleAgent(),
     ];
   }
   return _agents;

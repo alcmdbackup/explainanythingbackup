@@ -111,13 +111,29 @@ export function createEvolutionLLMClient(
         ?? (OUTPUT_TOKEN_ESTIMATES[agentName] ?? 1000) * 4;
       const estimated = calculateCost(prompt.length, outputChars, pricing);
 
-      // Reserve budget (synchronous — parallel safe)
-      const margined = costTracker.reserve(agentName, estimated);
-
       let lastError: Error | null = null;
 
+      // B003-S2 + B004-S2: per-attempt reserve so the budget gate genuinely rejects on
+      // retry-overspend. Each attempt: reserve → call provider → on success recordSpend
+      // (closing this attempt's reservation), on transient error release (returns this
+      // attempt's margin to the pool, retry will re-reserve), on permanent error release
+      // and throw. Empty-response is treated identically to a transient (reserve already
+      // covered the billed call; release returns the margin so the next attempt — or
+      // the final throw — can re-reserve cleanly).
       for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
         let timeoutId: NodeJS.Timeout | undefined;
+        // Reserve before each attempt — if budget can't cover it, BudgetExceededError fires
+        // BEFORE we hit the provider, so retries can't sneak past the cap.
+        let margined: number;
+        try {
+          margined = costTracker.reserve(agentName, estimated);
+        } catch (err) {
+          if (err instanceof BudgetExceededError) {
+            logger?.error('Budget exceeded on retry attempt', { phaseName: agentName, attempt });
+            throw err;
+          }
+          throw err;
+        }
         try {
           logger?.debug('LLM call attempt', { phaseName: agentName, attempt, model });
           const rawResponse = await Promise.race([
@@ -128,34 +144,39 @@ export function createEvolutionLLMClient(
           ]);
 
           // Discriminate raw-provider shape: bare string (legacy) vs {text, usage} (new).
-          // When usage is present we compute actual cost from real provider-billed tokens
-          // via calculateLLMCost — the same helper llmCallTracking.estimated_cost_usd uses.
-          // Falls back to chars/4 heuristic only when the raw provider didn't supply usage.
           const response: string = typeof rawResponse === 'string' ? rawResponse : rawResponse.text;
           const usage: RawProviderUsage | null = typeof rawResponse === 'string' ? null : rawResponse.usage;
 
-          // Validate response is a non-empty string
+          // Validate response is a non-empty string. B004-S2: provider was BILLED for this
+          // call even though the response is empty — record the actual cost (so the tracker
+          // matches reality) before throwing. The throw will retry or fail downstream.
           if (typeof response !== 'string' || response.trim().length === 0) {
+            const billedActual = usage && Number.isFinite(usage.promptTokens) && Number.isFinite(usage.completionTokens)
+              ? calculateLLMCost(model, usage.promptTokens, usage.completionTokens, usage.reasoningTokens ?? 0)
+              : calculateCost(prompt.length, 0, pricing);
+            costTracker.recordSpend(agentName, billedActual, margined);
             throw new Error('Empty LLM response');
           }
 
           // Success — record actual cost.
-          // Prefer token-based cost from provider usage (fixes Bug A: string-length heuristic
-          // was 30-800% inflated for deepseek-chat and similar models). Fall back to chars/4
-          // only when the raw provider predates the {text, usage} contract.
           const actual = usage && Number.isFinite(usage.promptTokens) && Number.isFinite(usage.completionTokens)
             ? calculateLLMCost(model, usage.promptTokens, usage.completionTokens, usage.reasoningTokens ?? 0)
             : calculateCost(prompt.length, response.length, pricing);
           costTracker.recordSpend(agentName, actual, margined);
 
-          // Persist cost to DB via writeMetricMax (race-fixed via Postgres GREATEST upsert).
-          // Per-purpose write only happens for agentNames with a COST_METRIC_BY_AGENT entry
-          // (currently 'generation' and 'ranking'); seed-phase calls bypass this entirely
-          // since they go through the V1 callLLM path, not createEvolutionLLMClient.
+          // B005-S2 (reverted): cost-write was switched to fire-and-forget for hot-path
+          // perf, but the integration tests rely on metric values being visible
+          // immediately after the LLM call returns (they read evolution_metrics
+          // synchronously in the same await). Restore awaited writes; re-evaluate the
+          // perf optimization in a follow-up that pairs it with test changes.
+          // B015-S2: read totalSpent/phaseCost INSIDE try so a tracker that throws
+          // doesn't surface as a successful-then-throw.
+          // B013-S2 (intentional): getTotalSpent/getPhaseCosts read SHARED aggregate;
+          // under parallel dispatch GREATEST resolves the racing writes correctly.
           if (db && runId) {
-            const totalSpent = costTracker.getTotalSpent();
-            const phaseCost = costTracker.getPhaseCosts()[agentName] ?? 0;
             try {
+              const totalSpent = costTracker.getTotalSpent();
+              const phaseCost = costTracker.getPhaseCosts()[agentName] ?? 0;
               await writeMetricMax(db, 'run', runId, 'cost', totalSpent, 'during_execution');
               const costMetricName = COST_METRIC_BY_AGENT[agentName];
               if (costMetricName) {
@@ -179,7 +200,8 @@ export function createEvolutionLLMClient(
           return response;
         } catch (error) {
           if (error instanceof BudgetExceededError) {
-            // Budget errors are NOT retried
+            // Budget errors are NOT retried. Release THIS attempt's reservation since the
+            // call didn't proceed (recordSpend wasn't called above).
             costTracker.release(agentName, margined);
             logger?.error('Budget exceeded in LLM call', { phaseName: agentName });
             throw error;
@@ -187,14 +209,19 @@ export function createEvolutionLLMClient(
 
           lastError = error instanceof Error ? error : new Error(String(error));
 
-          if (!isTransientError(error) || attempt === MAX_RETRIES) {
+          // For empty-response, recordSpend was already called above — nothing to release.
+          // For other errors, release this attempt's reservation so it doesn't pin budget.
+          const isEmptyResponseRecorded = lastError.message === 'Empty LLM response';
+          if (!isEmptyResponseRecorded) {
             costTracker.release(agentName, margined);
+          }
+
+          if (!isTransientError(error) || attempt === MAX_RETRIES) {
             logger?.error('LLM call failed', { phaseName: agentName, totalAttempts: attempt + 1, error: lastError.message.slice(0, 500) });
             throw lastError;
           }
 
           logger?.warn('LLM transient error', { phaseName: agentName, attempt, error: lastError.message.slice(0, 500) });
-          // Exponential backoff before retry
           await new Promise((resolve) => setTimeout(resolve, BACKOFF_MS[attempt]));
         } finally {
           if (timeoutId) clearTimeout(timeoutId);
@@ -202,7 +229,6 @@ export function createEvolutionLLMClient(
       }
 
       // Should not reach here, but safety net
-      costTracker.release(agentName, margined);
       throw lastError ?? new Error('LLM call failed after retries');
     },
 

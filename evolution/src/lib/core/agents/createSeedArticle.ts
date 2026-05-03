@@ -14,7 +14,13 @@ import { deepCloneRatings } from './generateFromPreviousArticle';
 import { generateTitle, buildArticlePrompt } from '../../pipeline/setup/generateSeedArticle';
 import { validateFormat } from '../../shared/enforceVariantFormat';
 import { createSeedArticleExecutionDetailSchema } from '../../schemas';
+import { registerAttributionExtractor } from '../../metrics/attributionExtractors';
 import type { z } from 'zod';
+
+// B005-S3: register attribution extractor at module-load time so seed variants get
+// bucketed under `eloAttrDelta:create_seed_article:seed` instead of falling through
+// to the legacy detail.strategy fallback (which seed details don't populate).
+registerAttributionExtractor('create_seed_article', () => 'seed');
 
 // ─── Public types ─────────────────────────────────────────────────
 

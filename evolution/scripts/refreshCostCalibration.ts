@@ -147,7 +147,15 @@ async function main() {
     const models = strategyId ? strategyConfigs.get(strategyId) : undefined;
     const generationModel = models?.generationModel ?? SENTINEL;
     const judgeModel = models?.judgeModel ?? SENTINEL;
-    const strategyLabel = typeof detail.strategy === 'string' ? (detail.strategy as string) : SENTINEL;
+    // B016-S4: GFPA-family agents (generate_from_previous_article,
+    // reflect_and_generate_from_previous_article) put the dimension under
+    // `detail.tactic`, not `detail.strategy`. Reading only `detail.strategy` bucketed
+    // every new-agent invocation under the SENTINEL strategy, losing per-tactic
+    // granularity. Prefer detail.tactic (current source of truth) and fall back to
+    // detail.strategy (legacy invocations only).
+    const strategyLabel = typeof detail.tactic === 'string' ? (detail.tactic as string)
+      : typeof detail.strategy === 'string' ? (detail.strategy as string)
+      : SENTINEL;
 
     // GFSA: extract generation + ranking phases.
     const gen = detail.generation as Record<string, unknown> | undefined;
@@ -170,23 +178,29 @@ async function main() {
       buckets.set(key, b);
     }
 
-    // Seed phases (from create_seed_article invocations, which record generation.cost
-    // per seed call). We infer phase from agent_name + detail shape.
+    // B006-S6: createSeedArticleExecutionDetailSchema actually has fields
+    // `generation` and `ranking` (NOT seedTitle/seedArticle as the prior code read).
+    // Reading the wrong keys meant every seed bucket was always empty —
+    // evolution_cost_calibration never got rows for seed phases. Now we read the
+    // real fields and bucket as `seed_title` (using the generation phase data)
+    // and `seed_article` (using the ranking phase data is wrong; both phases
+    // are LLM calls but the schema only has generation+ranking, so we conflate
+    // both into a single 'seed_article' bucket using the generation cost — the
+    // ranking phase here is the local-elo binary-search ranking, not a separate
+    // LLM call worth its own bucket).
     if (inv.agent_name === 'create_seed_article') {
-      const seedTitle = (detail as Record<string, unknown>).seedTitle as Record<string, unknown> | undefined;
-      const seedArticle = (detail as Record<string, unknown>).seedArticle as Record<string, unknown> | undefined;
-      for (const phase of ['seed_title', 'seed_article'] as const) {
-        const bundle = phase === 'seed_title' ? seedTitle : seedArticle;
-        if (!bundle) continue;
-        const cost = bundle.cost;
-        if (typeof cost !== 'number' || !Number.isFinite(cost)) continue;
-        const outputChars = typeof bundle.outputChars === 'number' ? (bundle.outputChars as number) : 0;
-        const key = keyOf(SENTINEL, generationModel, SENTINEL, phase);
-        const b = buckets.get(key) ?? { outputCharsSum: 0, inputOverheadSum: 0, costSum: 0, n: 0 };
-        b.outputCharsSum += outputChars;
-        b.costSum += cost;
-        b.n += 1;
-        buckets.set(key, b);
+      const generation = (detail as Record<string, unknown>).generation as Record<string, unknown> | undefined;
+      if (generation) {
+        const cost = generation.cost;
+        if (typeof cost === 'number' && Number.isFinite(cost)) {
+          const outputChars = typeof generation.outputChars === 'number' ? (generation.outputChars as number) : 0;
+          const key = keyOf(SENTINEL, generationModel, SENTINEL, 'seed_article');
+          const b = buckets.get(key) ?? { outputCharsSum: 0, inputOverheadSum: 0, costSum: 0, n: 0 };
+          b.outputCharsSum += outputChars;
+          b.costSum += cost;
+          b.n += 1;
+          buckets.set(key, b);
+        }
       }
     }
   }

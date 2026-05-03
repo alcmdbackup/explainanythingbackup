@@ -39,6 +39,17 @@ export function ConfirmDialog({
     try {
       await onConfirm();
       onClose();
+    } catch (err) {
+      // B003-S7: surface errors instead of silently swallowing them. Without this
+      // catch, a thrown onConfirm leaves the dialog open with no toast and `loading`
+      // flipped back to false — the user sees "nothing happened".
+      // eslint-disable-next-line no-console
+      console.error('[ConfirmDialog] onConfirm threw', err);
+      // Lazy-import the toast helper to avoid pulling sonner into the SSR bundle.
+      try {
+        const { toast } = await import('sonner');
+        toast.error(err instanceof Error ? err.message : 'Action failed');
+      } catch { /* sonner unavailable in tests; falls back to console */ }
     } finally {
       setLoading(false);
     }

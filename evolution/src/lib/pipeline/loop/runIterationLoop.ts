@@ -8,7 +8,7 @@ import type { Rating, ComparisonResult } from '../../shared/computeRatings';
 import { createRating, isConverged, DEFAULT_CONVERGENCE_UNCERTAINTY } from '../../shared/computeRatings';
 import type { EvolutionConfig, EvolutionResult, V2Match, IterationResult, IterationStopReason } from '../infra/types';
 
-import { createCostTracker, createIterationBudgetTracker, IterationBudgetExceededError } from '../infra/trackBudget';
+import { createCostTracker, createIterationBudgetTracker, IterationBudgetExceededError, type V2CostTracker } from '../infra/trackBudget';
 
 import type { EntityLogger } from '../infra/createEntityLogger';
 import { selectWinner } from '../../shared/selectWinner';
@@ -79,7 +79,9 @@ function topKEloValues(ratings: ReadonlyMap<string, Rating>, k: number): number[
 }
 
 /** Phase 4b: parallel array — uncertainty for the same top-K ranking by elo. Returned in
- *  matching index order so EloTab can render an uncertainty band around each line. */
+ *  matching index order so EloTab can render an uncertainty band around each line.
+ *  B005-S1: now wired into the loop; pushed to uncertaintyHistory after each iteration
+ *  (lockstep with eloHistory). */
 function topKUncertainties(ratings: ReadonlyMap<string, Rating>, k: number): number[] {
   return [...ratings.values()].sort((a, b) => b.elo - a.elo).slice(0, k).map((r) => r.uncertainty);
 }
@@ -190,6 +192,11 @@ export async function evolveArticle(
     randomSeed?: bigint;
     /** UUID of the seed variant persisted before the iteration loop (for result tracking). */
     seedVariantId?: string;
+    /** B001-S1+S2: shared run-level cost tracker. When supplied, evolveArticle reuses
+     *  this tracker instead of creating its own — so seed-phase spend (counted by the
+     *  caller) and iteration-loop spend share a single budget envelope. When undefined,
+     *  evolveArticle creates its own (legacy / standalone path). */
+    costTracker?: V2CostTracker;
   },
 ): Promise<EvolutionResult> {
   validateConfig(config);
@@ -209,7 +216,10 @@ export async function evolveArticle(
 
   const noopLogger: EntityLogger = { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} };
   const logger = options?.logger ?? noopLogger;
-  const costTracker = createCostTracker(resolvedConfig.budgetUsd);
+  // B001-S1+S2: reuse caller-supplied cost tracker so seed-phase spend already deducted
+  // by the orchestrator counts against the same budget envelope. Falls back to creating
+  // a fresh tracker when called standalone (e.g. tests / run-evolution-local.ts).
+  const costTracker = options?.costTracker ?? createCostTracker(resolvedConfig.budgetUsd);
   // No shared LLM client — Agent.run() builds per-invocation scoped clients via rawProvider.
   // B011: generate a random seed when none is passed instead of silently falling back
   // to 0. Previously two concurrent non-seeded runs collided on the same seed and
@@ -223,7 +233,10 @@ export async function evolveArticle(
     // call — just slightly lower-quality randomness.
     if (typeof crypto !== 'undefined' && typeof (crypto as { getRandomValues?: unknown }).getRandomValues === 'function') {
       (crypto as { getRandomValues: (arr: BigUint64Array) => BigUint64Array }).getRandomValues(buf);
-      return buf[0]!;
+      // B007-S1: clamp to signed BIGINT range (max 2^63-1). BigUint64Array yields
+      // unsigned 0..2^64-1; values above 2^63-1 fail the Postgres BIGINT write at
+      // finalize. Mask the high bit using BigInt literal.
+      return buf[0]! & BigInt('0x7fffffffffffffff');
     }
     return BigInt(Math.floor(Math.random() * 2 ** 53));
   })();
@@ -521,7 +534,7 @@ export async function evolveArticle(
         let parallelSpend = 0;
         let parallelSuccesses = 0;
         let topUpDispatched = 0;
-        let topUpStopReason: 'floor' | 'safety_cap' | 'budget_exhausted' | 'killed' | 'deadline' | 'no_budget_at_start' | 'feature_disabled' | null = null;
+        let topUpStopReason: 'floor' | 'safety_cap' | 'budget_exhausted' | 'killed' | 'deadline' | 'no_budget_at_start' | 'feature_disabled' | 'top_up_dispatch_failed' | null = null;
 
         const absorbResult = (r: PromiseSettledResult<Awaited<ReturnType<GenerateFromPreviousArticleAgent['run']>>>): boolean => {
           // Returns true if a fatal run-level error should re-throw.
@@ -567,7 +580,11 @@ export async function evolveArticle(
         let actualAvgCost: number | null = null;
         if (parallelSuccesses > 0) {
           actualAvgCost = parallelSpend / parallelSuccesses;
-          if (iterIdx === 0) actualAvgCostPerAgent = actualAvgCost;
+          // B006-S1: drop the `iterIdx === 0` guard. Budget-floor observables benefit
+          // from the latest-iteration sample, not just iter-0. When iter 0 was swiss
+          // (no parallel dispatch) or had zero successes, this previously left
+          // actualAvgCostPerAgent null forever.
+          actualAvgCostPerAgent = actualAvgCost;
         }
         // B003: key the estPerAgent fallback on `parallelSuccesses === 0`, not on the
         // measured value. A legitimately cheap parallel batch (actual spend ≈ 0) was
@@ -628,8 +645,15 @@ export async function evolveArticle(
                 topUpSpend += topUpResult[0]!.value.cost;
                 topUpDispatched += 1;
               } else {
-                // Failed top-up dispatch — stop to avoid burning budget on more failures.
-                topUpStopReason = 'budget_exhausted';
+                // B011-S1: distinguish budget exhaustion from LLM/agent failure. Previously
+                // hardcoded 'budget_exhausted' for any non-success, mislabeling LLM 5xx as
+                // a budget event in dashboards. The IterationBudgetExceededError path is
+                // already handled separately upstream — non-success here is an agent crash.
+                const reason = topUpResult[0]!.status === 'rejected'
+                  && (topUpResult[0]!.reason as Error)?.name === 'BudgetExceededError'
+                  ? 'budget_exhausted'
+                  : 'top_up_dispatch_failed';
+                topUpStopReason = reason;
                 break;
               }
               remaining = iterBudgetUsd - parallelSpend - topUpSpend;
@@ -702,6 +726,10 @@ export async function evolveArticle(
         const topK = resolvedConfig.tournamentTopK ?? 5;
         const eloValues = topKEloValues(ratings, topK);
         eloHistory.push(eloValues);
+        // B005-S1: populate uncertaintyHistory in lockstep with eloHistory so the EloTab
+        // uncertainty band has data. Previously declared but never pushed → arrays were
+        // always empty in run_summary, silently breaking the EloTab feature.
+        uncertaintyHistory.push(topKUncertainties(ratings, topK));
 
         iterationSnapshots.push(recordSnapshot(iteration, 'generate', 'end', pool, ratings, matchCounts, {
           discardedVariantIds: discardedIds,
@@ -938,6 +966,8 @@ export async function evolveArticle(
         const topK = resolvedConfig.tournamentTopK ?? 5;
         const eloValues = topKEloValues(ratings, topK);
         eloHistory.push(eloValues);
+        // B005-S1: keep uncertaintyHistory in lockstep with eloHistory.
+        uncertaintyHistory.push(topKUncertainties(ratings, topK));
 
         iterationSnapshots.push(recordSnapshot(iteration, 'swiss', 'end', pool, ratings, matchCounts, {
           stopReason: iterStopReason,

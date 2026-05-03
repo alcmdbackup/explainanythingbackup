@@ -99,20 +99,23 @@ const updateStrategySchema = z.object({
 export const listStrategiesAction = adminAction(
   'listStrategies',
   async (
-    input: { limit: number; offset: number; status?: string; created_by?: string; pipeline_type?: string; filterTestContent?: boolean },
+    input: { limit?: number; offset?: number; status?: string; created_by?: string; pipeline_type?: string; filterTestContent?: boolean } | undefined,
     ctx: AdminContext,
   ): Promise<{ items: StrategyListItem[]; total: number }> => {
-    const limit = Math.min(Math.max(input.limit, 1), 200);
-    const offset = Math.max(input.offset, 0);
+    // B003-S5: defaults so calling without args (or with partial input) doesn't TypeError
+    // on `input.limit`. Mirrors the project's default pagination shape (50/0).
+    const safeInput = input ?? {};
+    const limit = Math.min(Math.max(safeInput.limit ?? 50, 1), 200);
+    const offset = Math.max(safeInput.offset ?? 0, 0);
 
     let query = ctx.supabase
       .from('evolution_strategies')
       .select('*', { count: 'exact' });
 
-    if (input.status) query = query.eq('status', input.status);
-    if (input.created_by) query = query.eq('created_by', input.created_by);
-    if (input.pipeline_type) query = query.eq('pipeline_type', input.pipeline_type);
-    if (input.filterTestContent) query = applyTestContentColumnFilter(query);
+    if (safeInput.status) query = query.eq('status', safeInput.status);
+    if (safeInput.created_by) query = query.eq('created_by', safeInput.created_by);
+    if (safeInput.pipeline_type) query = query.eq('pipeline_type', safeInput.pipeline_type);
+    if (safeInput.filterTestContent) query = applyTestContentColumnFilter(query);
 
     query = query.order('created_at', { ascending: false })
       .range(offset, offset + limit - 1);
@@ -253,7 +256,12 @@ export const cloneStrategyAction = adminAction(
         label: source.label,
         description: source.description,
         config,
-        config_hash: `${configHash}_clone_${Date.now()}`,
+        // B001-S5: Date.now() collides on concurrent millisecond → UNIQUE constraint
+        // violation OR breaks downstream find-or-create lookups. Use crypto.randomUUID()
+        // for an immediately-distinct discriminator. Clones are NOT meant to be content-
+        // addressable (they're explicit copies of a source); the source's content hash
+        // is preserved as the prefix so `findOrCreateStrategy` dedup-on-content still works.
+        config_hash: `${configHash}_clone_${crypto.randomUUID()}`,
         pipeline_type: source.pipeline_type,
         created_by: ctx.adminUserId,
       })

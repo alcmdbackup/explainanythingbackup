@@ -83,7 +83,7 @@ LLM Call Request
 
 ## Layer 1: Per-Run Cost Tracker
 
-**File:** `evolution/src/lib/pipeline/cost-tracker.ts`
+**File:** `evolution/src/lib/pipeline/infra/trackBudget.ts`
 
 The V2 cost tracker uses a reserve-before-spend pattern with a 1.3x safety margin. Every LLM call must reserve budget before execution, then either record the actual spend on success or release the reservation on failure.
 

@@ -24,10 +24,15 @@ function getProgressBarColor(pct: number): string {
 
 function BudgetWarning({ pct, budgetCapUsd }: { pct: number; budgetCapUsd: number }): JSX.Element {
   const isCritical = pct >= 0.9;
-  const colorVar = isCritical ? '--status-error' : '--status-warning';
+  // B001-S7: Tailwind JIT only ships static class strings — runtime-constructed
+  // `bg-[var(${colorVar})]/15` produced no CSS, leaving the warning unstyled. Branch
+  // to two static classes instead.
+  const className = isCritical
+    ? 'text-xs px-1 rounded bg-[var(--status-error)]/15 text-[var(--status-error)]'
+    : 'text-xs px-1 rounded bg-[var(--status-warning)]/15 text-[var(--status-warning)]';
   return (
     <span
-      className={`text-xs px-1 rounded bg-[var(${colorVar})]/15 text-[var(${colorVar})]`}
+      className={className}
       title={`${Math.round(pct * 100)}% of ${formatCost(budgetCapUsd)} budget`}
       data-testid="budget-warning"
     >

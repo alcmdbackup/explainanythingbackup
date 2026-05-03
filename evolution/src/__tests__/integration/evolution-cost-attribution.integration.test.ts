@@ -15,6 +15,8 @@ describe('per-invocation cost attribution via AgentCostScope', () => {
       getTotalSpent: jest.fn(() => 0),
       getPhaseCosts: jest.fn(() => ({})),
       getAvailableBudget: jest.fn(() => 10),
+      computeMargined: jest.fn((c: number) => c * 1.3),
+      canReserve: jest.fn(() => true),
     };
 
     const scope = createAgentCostScope(shared);
@@ -40,6 +42,8 @@ describe('per-invocation cost attribution via AgentCostScope', () => {
       getTotalSpent: jest.fn(() => 0),
       getPhaseCosts: jest.fn(() => ({})),
       getAvailableBudget: jest.fn(() => 10),
+      computeMargined: jest.fn((c: number) => c * 1.3),
+      canReserve: jest.fn(() => true),
     };
 
     const scopeA = createAgentCostScope(shared);
@@ -65,6 +69,8 @@ describe('per-invocation cost attribution via AgentCostScope', () => {
       getTotalSpent: jest.fn(() => 0.5),
       getPhaseCosts: jest.fn(() => ({ generation: 0.3 })),
       getAvailableBudget: jest.fn(() => 9.5),
+      computeMargined: jest.fn((c: number) => c * 1.3),
+      canReserve: jest.fn(() => true),
     };
 
     const scope = createAgentCostScope(shared);

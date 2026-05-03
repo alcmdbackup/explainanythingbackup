@@ -63,6 +63,11 @@ const AGENT_TO_COST_METRIC: Record<string, 'generation_cost' | 'ranking_cost' | 
   swiss_ranking: 'ranking_cost',
   merge_ratings: null, // no LLM calls; contributes $0
   create_seed_article: 'seed_cost',
+  // B005-S6: reflection wrapper makes both reflection + generation calls; bucket as
+  // generation_cost (matches the dominant cost in the wrapper's per-invocation total).
+  // Reflection-specific cost is also tracked separately via reflection_cost on the
+  // run-level metric written by createEvolutionLLMClient.
+  reflect_and_generate_from_previous_article: 'generation_cost',
 };
 
 interface InvRow {

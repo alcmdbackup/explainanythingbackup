@@ -66,6 +66,8 @@ function createMockContext(overrides?: Partial<AgentContext>): AgentContext {
       getTotalSpent: jest.fn().mockReturnValue(0.5),
       getPhaseCosts: jest.fn().mockReturnValue({}),
       getAvailableBudget: jest.fn().mockReturnValue(5),
+      computeMargined: jest.fn((c: number) => c * 1.3),
+      canReserve: jest.fn().mockReturnValue(true),
     },
     config: {
       iterationConfigs: [{ agentType: 'generate', budgetPercent: 60 }, { agentType: 'swiss', budgetPercent: 40 }],

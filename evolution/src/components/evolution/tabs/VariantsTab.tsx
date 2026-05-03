@@ -168,7 +168,7 @@ export function VariantsTab({ runId, strategyId, runStatus }: VariantsTabProps):
           <tbody>
             {filtered.length === 0 && !loading && (
               <tr>
-                <td colSpan={8} className="px-4 py-8 text-center text-sm font-ui text-[var(--text-muted)]">
+                <td colSpan={9} className="px-4 py-8 text-center text-sm font-ui text-[var(--text-muted)]">
                   No variants match this filter.
                 </td>
               </tr>
@@ -265,7 +265,7 @@ export function VariantsTab({ runId, strategyId, runStatus }: VariantsTabProps):
                 </tr>
                 {expandedIds.has(v.id) && (
                   <tr key={`${v.id}-text`}>
-                    <td colSpan={8} className="p-4 bg-[var(--surface-secondary)]">
+                    <td colSpan={9} className="p-4 bg-[var(--surface-secondary)]">
                       <pre className="whitespace-pre-wrap text-xs text-[var(--text-secondary)] max-h-64 overflow-y-auto">
                         {v.variant_content}
                       </pre>

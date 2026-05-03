@@ -213,9 +213,9 @@ describe('PromptEntity', () => {
     expect(entity.metrics.atPropagation).toHaveLength(0);
   });
 
-  it('has rename, edit, delete actions', () => {
+  it('has rename, delete actions (B002-S3: edit dropped — handled via dedicated server action)', () => {
     const keys = entity.actions.map(a => a.key);
-    expect(keys).toEqual(['rename', 'edit', 'delete']);
+    expect(keys).toEqual(['rename', 'delete']);
   });
 
   it('has create and edit config', () => {

@@ -65,10 +65,16 @@ export class InvocationEntity extends Entity<EvolutionAgentInvocationFullDb> {
   ];
 
   readonly listFilters: FilterDef[] = [
+    // B006-S3: replaced legacy phase labels (generation/ranking/evolution/reflection/...)
+    // with the actual snake_case agent_name values written by V2 agents. Selecting any
+    // of the old options returned 0 rows. Sorted A-Z for UI consistency.
     { field: 'agent_name', type: 'select', options: [
-      'generation', 'ranking', 'evolution', 'reflection', 'iterative_editing',
-      'treeSearch', 'sectionDecomposition', 'debate', 'proximity', 'metaReview',
-      'outlineGeneration', 'flowCritique',
+      'create_seed_article',
+      'generate_from_previous_article',
+      'iterative_editing',
+      'merge_ratings',
+      'reflect_and_generate_from_previous_article',
+      'swiss_ranking',
     ] },
   ];
 

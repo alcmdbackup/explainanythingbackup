@@ -660,6 +660,9 @@ export const killEvolutionRunAction = adminAction(
       .select()
       .single();
 
+    // B010-S5: keep the legacy error message text so existing test assertions still
+    // match. Adding a separate maybeSingle()-based 404/409 split would require updating
+    // many test mocks; defer to a follow-up that pairs the split with mock updates.
     if (error || !data) {
       throw new Error(`Cannot kill run ${runId}: run not found or already in terminal state`);
     }

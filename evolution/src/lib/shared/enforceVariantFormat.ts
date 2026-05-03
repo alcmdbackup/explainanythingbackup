@@ -18,7 +18,10 @@ Start with a single H1 title using the Markdown "# Title" syntax. Use Markdown h
 const BULLET_PATTERN = /^\s*[-*+]\s/m;
 const NUMBERED_LIST_PATTERN = /^\s*\d+[.)]\s/m;
 const TABLE_PATTERN = /^\|.+\|/m;
-const HORIZONTAL_RULE_PATTERN = /^\s*[-*_](\s*[-*_]){2,}\s*$/m;
+// B001-S6: needs `g` flag — without it, `.replace` strips only the FIRST horizontal
+// rule, leaving subsequent ones intact. Articles with multiple section dividers (`---`)
+// would then trip downstream bullet-pattern rejection on the surviving rules.
+const HORIZONTAL_RULE_PATTERN = /^\s*[-*_](\s*[-*_]){2,}\s*$/gm;
 // Matches sentence-ending punctuation, excluding common abbreviations (Dr., Mr., etc.)
 const SENTENCE_END_PATTERN = /(?<!\b(?:Dr|Mr|Mrs|Ms|Jr|Sr|vs|etc|e\.g|i\.e|U\.S|Prof|Gen|Gov|Rev|St|Lt|Sgt|Corp|Inc|Ltd|Co|No|Vol|Fig|approx))[.!?][""\u201d\u2019]?(?:\s|$)/g;
 

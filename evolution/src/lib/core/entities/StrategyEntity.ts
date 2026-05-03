@@ -172,7 +172,9 @@ export class StrategyEntity extends Entity<EvolutionStrategyFullDb> {
 
   readonly actions: EntityAction<EvolutionStrategyFullDb>[] = [
     { key: 'rename', label: 'Rename' },
-    { key: 'edit', label: 'Edit' },
+    // B002-S3: removed { key: 'edit', label: 'Edit' } — Entity.executeAction has no
+    // 'edit' case, and entityActions.executeEntityAction would throw on dispatch.
+    // The admin UI bypasses this via dedicated `updateStrategyAction` server action.
     { key: 'delete', label: 'Delete', danger: true,
       confirm: 'Delete this strategy and all its runs?' },
   ];

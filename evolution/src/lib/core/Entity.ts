@@ -117,7 +117,12 @@ export abstract class Entity<TRow> {
       .eq('id', id)
       .single();
 
-    if (error) return null;
+    // B015-S3: distinguish "not found" (PGRST116) from transient/RLS errors. Previously
+    // any error returned null, masking real failures as missing rows.
+    if (error) {
+      if ((error as { code?: string }).code === 'PGRST116') return null;
+      throw new Error(`getById failed for ${this.type}/${id}: ${error.message}`);
+    }
     return data as TRow;
   }
 

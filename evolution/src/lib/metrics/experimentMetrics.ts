@@ -180,6 +180,17 @@ export function bootstrapMeanCI(
  * Each iteration resamples runs, draws variant skills from Normal(elo, uncertainty), computes percentile.
  * Ratings are already in Elo scale — no conversion needed.
  */
+/**
+ * B002-S4 + B003-S4: percentile resolution helper. Standardized on nearest-rank
+ * `ceil(p * n) - 1` (clamped to [0, n-1]) so per-run computeRunMetrics + this bootstrap
+ * + computeMedianElo all resolve the same percentile to the same index. Previous
+ * inconsistency had per-run using ceil-1 and bootstrap using floor.
+ */
+function percentileIndex(percentile: number, n: number): number {
+  if (n <= 0) return 0;
+  return Math.max(0, Math.min(n - 1, Math.ceil(percentile * n) - 1));
+}
+
 export function bootstrapPercentileCI(
   allRunRatings: Array<Array<{ elo: number; uncertainty: number }>>,
   percentile: number,
@@ -190,6 +201,17 @@ export function bootstrapPercentileCI(
   if (validRuns.length === 0) return null;
 
   const nRuns = validRuns.length;
+  // B025-S4: early return when nRuns<2 — full bootstrap loop is wasted work since CI is
+  // null in that case. Compute the actuals-only path and return.
+  if (nRuns < 2) {
+    const actuals = validRuns.map((variants) => {
+      const elos = variants.map((v) => v.elo).sort((a, b) => a - b);
+      return elos[percentileIndex(percentile, elos.length)]!;
+    });
+    const mean = actuals.reduce((s, v) => s + v, 0) / actuals.length;
+    return { value: mean, uncertainty: null, ci: null, n: nRuns };
+  }
+
   const percentileValues: number[] = [];
   for (let i = 0; i < iterations; i++) {
     let sum = 0;
@@ -204,11 +226,8 @@ export function bootstrapPercentileCI(
         sampledElos.push(v.elo + v.uncertainty * z);
       }
       sampledElos.sort((a, b) => a - b);
-      const idx = Math.min(
-        Math.floor(percentile * sampledElos.length),
-        sampledElos.length - 1,
-      );
-      sum += sampledElos[idx]!;
+      // B002-S4 + B003-S4: use shared percentileIndex helper (ceil-1 nearest-rank).
+      sum += sampledElos[percentileIndex(percentile, sampledElos.length)]!;
     }
     percentileValues.push(sum / nRuns);
   }
@@ -216,19 +235,17 @@ export function bootstrapPercentileCI(
 
   const actuals = validRuns.map((variants) => {
     const elos = variants.map((v) => v.elo).sort((a, b) => a - b);
-    return elos[Math.min(Math.floor(percentile * elos.length), elos.length - 1)]!;
+    return elos[percentileIndex(percentile, elos.length)]!;
   });
   const mean = actuals.reduce((s, v) => s + v, 0) / actuals.length;
 
   return {
     value: mean,
     uncertainty: null,
-    ci: nRuns < 2
-      ? null
-      : [
-          percentileValues[Math.floor(iterations * 0.025)]!,
-          percentileValues[Math.floor(iterations * 0.975)]!,
-        ],
+    ci: [
+      percentileValues[Math.floor(iterations * 0.025)]!,
+      percentileValues[Math.floor(iterations * 0.975)]!,
+    ],
     n: nRuns,
   };
 }
@@ -407,16 +424,16 @@ async function computeEloAttributionMetrics(
     // attribution instead of being silently dropped.
     agent_name: string | null;
   };
-  // B052: previously excluded rows with null agent_invocation_id via
-  // `.not('agent_invocation_id', 'is', null)`. That silently dropped legacy + seed
-  // variants from attribution metrics. We now pull them in and route via
-  // `parent_variant_id` + `agent_name`; the per-invocation dimension path is still
-  // preferred when available.
+  // B010-S4: previously also filtered `.not('parent_variant_id', 'is', null)` which
+  // excluded seed variants (parent is always null on seeds). The B052 fallback path
+  // intends seeds to bucket under `agent_name + 'legacy'`, but the SQL filter prevented
+  // them ever reaching it. We now pull all variants for the run and let the in-memory
+  // routing decide which contribute to which attribution group; rows without a parent
+  // and without an agent_invocation_id ALSO without an agent_name are filtered later.
   const { data: variantsData } = await supabase
     .from('evolution_variants')
     .select('id, mu, elo_score, parent_variant_id, agent_invocation_id, persisted, agent_name')
-    .eq('run_id', runId)
-    .not('parent_variant_id', 'is', null);
+    .eq('run_id', runId);
   const variants = (variantsData ?? []) as unknown as AttrVariantRow[];
 
   if (variants.length === 0) return;
@@ -469,13 +486,16 @@ async function computeEloAttributionMetrics(
       const extractor = ATTRIBUTION_EXTRACTORS[inv.agent_name];
       if (extractor) {
         const extracted = extractor(inv.execution_detail);
-        if (typeof extracted === 'string' && extracted.length > 0 && !extracted.includes(':')) {
-          dim = extracted;
+        // B004-S4: previously rejected any value containing ':'. Legitimate dimension
+        // values (e.g. 'gpt-4:turbo') silently dropped. Now we escape ':' → '_COLON_'
+        // when building the metric key so the colon is preserved as a value.
+        if (typeof extracted === 'string' && extracted.length > 0) {
+          dim = extracted.replace(/:/g, '_COLON_');
         }
       } else {
         // Legacy fallback path — only fires for agent_names without a registered extractor.
         const d = (inv.execution_detail as { strategy?: unknown })?.strategy;
-        if (typeof d === 'string' && d.length > 0 && !d.includes(':')) dim = d;
+        if (typeof d === 'string' && d.length > 0) dim = d.replace(/:/g, '_COLON_');
       }
     } else if (v.agent_name) {
       agentName = v.agent_name;
@@ -522,11 +542,14 @@ async function computeEloAttributionMetrics(
 
     if (dbForWrite) {
       const deltaMetricName = `eloAttrDelta:${agent}:${dim}` as RegistryMetricName;
+      // B011-S4: include `aggregation_method: 'avg'` so the metricColumns formatter that
+      // keys off this field renders the CI/aggregation badge correctly.
       const deltaOpts = {
         uncertainty: deltas.length >= 2 ? sd : undefined,
         ci_lower: ci?.[0],
         ci_upper: ci?.[1],
         n: deltas.length,
+        aggregation_method: 'avg' as const,
       };
       await writeMetric(dbForWrite, 'run', runId, deltaMetricName, mean, 'at_finalization', deltaOpts);
       if (opts?.strategyId) {
@@ -559,7 +582,8 @@ async function computeEloAttributionMetrics(
 
       if (dbForWrite && Number.isFinite(fraction)) {
         const histMetricName = `eloAttrDeltaHist:${agent}:${dim}:${label}` as RegistryMetricName;
-        const histOpts = { n: count };
+        // B011-S4: histogram aggregation is 'count' (raw bucket count surfaces as fraction).
+        const histOpts = { n: count, aggregation_method: 'count' as const };
         await writeMetric(dbForWrite, 'run', runId, histMetricName, fraction, 'at_finalization', histOpts);
         if (opts?.strategyId) {
           await writeMetric(dbForWrite, 'strategy', opts.strategyId, histMetricName, fraction, 'at_finalization', histOpts);

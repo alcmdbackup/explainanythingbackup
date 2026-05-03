@@ -149,12 +149,28 @@ export async function finalizeRun(
   if (localPool.length === 0) {
     if (result.pool.length > 0) {
       logger?.info('Arena-only pool: marking as completed', { phaseName: 'finalize', arenaPoolSize: result.pool.length, localPoolSize: 0 });
-      const arenaOnlySummary = buildRunSummary(result, durationSeconds);
+      // B008-S1: pass FILTERED result (arena-only branch was passing raw `result` whose
+      // pool still includes arena entries — topVariants/tacticEffectiveness were
+      // contaminated with arena rows). Build the summary from a result with the same
+      // arena filter as the main path.
+      const arenaOnlyResult = { ...result, pool: result.pool.filter((v) => !v.fromArena) };
+      const arenaOnlySummary = buildRunSummary(arenaOnlyResult, durationSeconds);
       arenaOnlySummary.stopReason = 'arena_only';
-      await db.from('evolution_runs').update({ status: 'completed', completed_at: new Date().toISOString(), run_summary: arenaOnlySummary }).eq('id', runId);
+      // B004-S1: explicitly set error_code: null on success path to assert race-freedom
+      // contract (markRunFailed checks `.is('error_code', null)` and would no-op if we
+      // already set it).
+      await db.from('evolution_runs').update({
+        status: 'completed', completed_at: new Date().toISOString(),
+        run_summary: arenaOnlySummary, error_code: null,
+      }).eq('id', runId);
     } else {
       logger?.error('Finalization failed: empty pool', { phaseName: 'finalize' });
-      await db.from('evolution_runs').update({ status: 'failed', error_message: 'Finalization failed: empty pool' }).eq('id', runId);
+      // B004-S1: set explicit error_code so subsequent markRunFailed (with .is('error_code',
+      // null) predicate) is a no-op rather than overwriting our specific error.
+      await db.from('evolution_runs').update({
+        status: 'failed', error_message: 'Finalization failed: empty pool',
+        error_code: 'finalize_empty_pool', completed_at: new Date().toISOString(),
+      }).eq('id', runId);
     }
     return;
   }
@@ -388,8 +404,39 @@ export async function finalizeRun(
     }
 
     // Variant-level finalization metrics.
+    // B009-S2: enrich missing v.costUsd from invocation rows. Many code paths (arena
+    // entries, MergeRatingsAgent variants, discarded variants where the agent didn't
+    // populate costUsd before throwing) leave the in-memory variant.costUsd undefined,
+    // silently dropping per-variant cost rollups. The agent_invocation_id FK on
+    // evolution_variants (migration 20260418000003) gives us a direct lookup; fall back
+    // to summing matching invocation cost_usd by run+iteration when FK is null on
+    // legacy rows.
+    const invByVariant = new Map<string, number>();
+    if (invocations && invocations.length > 0) {
+      // Pull agent_invocation_id from variants persisted earlier in this finalize call
+      // so we can map invocation cost back to variant. Cheap single SELECT.
+      const { data: variantRows } = await db
+        .from('evolution_variants')
+        .select('id, agent_invocation_id, cost_usd')
+        .eq('run_id', runId);
+      for (const row of (variantRows ?? []) as Array<{ id: string; agent_invocation_id?: string | null; cost_usd?: number | null }>) {
+        // First preference: variant.cost_usd if set (canonical).
+        if (typeof row.cost_usd === 'number' && Number.isFinite(row.cost_usd)) {
+          invByVariant.set(row.id, row.cost_usd);
+          continue;
+        }
+        // Fallback: invocation cost_usd via FK.
+        if (row.agent_invocation_id) {
+          const inv = (invocations as Array<{ id: string; cost_usd?: number | null }>).find((i) => i.id === row.agent_invocation_id);
+          if (inv && typeof inv.cost_usd === 'number' && Number.isFinite(inv.cost_usd)) {
+            invByVariant.set(row.id, inv.cost_usd);
+          }
+        }
+      }
+    }
     for (const v of summaryPool) {
-      const varCtx: FinalizationContext = { ...finCtx, currentVariantCost: v.costUsd ?? null };
+      const enrichedCost = v.costUsd ?? invByVariant.get(v.id) ?? null;
+      const varCtx: FinalizationContext = { ...finCtx, currentVariantCost: enrichedCost };
       for (const def of getEntity('variant').metrics.atFinalization) {
         const result = def.compute(varCtx);
         if (result == null) continue;

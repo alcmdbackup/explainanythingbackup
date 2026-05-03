@@ -388,4 +388,58 @@ describe('createIterationBudgetTracker', () => {
     expect(err.name).toBe('IterationBudgetExceededError');
     expect(err.iterationIndex).toBe(2);
   });
+
+  // B007-S2 regression: peek-then-reserve must not leak the run-tracker reservation
+  // when the iteration budget rejects.
+  it('B007-S2: iteration reject leaves run tracker totalReserved unchanged (no leak)', () => {
+    const run = createCostTracker(1.0);
+    const iter = createIterationBudgetTracker(0.05, run, 0);
+    // First reserve fits both budgets — succeeds.
+    iter.reserve('generation', 0.01); // margined ~0.013 — within iter cap (0.05)
+    const runAfterFirst = run.getAvailableBudget();
+    // Second reserve fits run (~$1) but exceeds iter (already 0.013, +0.013 = 0.026; +0.013 = 0.039 OK; need to overflow)
+    // Reserve enough to push iter past 0.05.
+    iter.reserve('generation', 0.01);
+    iter.reserve('generation', 0.01); // iterReserved ~0.039
+    const runBeforeReject = run.getAvailableBudget();
+    // This one would push iter past 0.05 — should throw IterationBudgetExceededError
+    // and leave run tracker untouched (no leak).
+    expect(() => iter.reserve('generation', 0.01)).toThrow(IterationBudgetExceededError);
+    expect(run.getAvailableBudget()).toBeCloseTo(runBeforeReject);
+    // Sanity: prior reserves DID move run tracker.
+    expect(runBeforeReject).toBeLessThan(runAfterFirst);
+  });
+
+  // B007-S2 regression: budget-can't-cover scenario at run level still throws
+  // BudgetExceededError (not IterationBudgetExceededError), preserving instanceof checks.
+  it('B007-S2: run-tracker exhaustion throws BudgetExceededError (not iter variant)', () => {
+    const run = createCostTracker(0.05);
+    const iter = createIterationBudgetTracker(1.0, run, 0); // iter much larger than run
+    iter.reserve('generation', 0.03); // margined ~0.039 — fits run
+    expect(() => iter.reserve('generation', 0.03)).toThrow(BudgetExceededError);
+    // Note: IterationBudgetExceededError extends BudgetExceededError, so we check the
+    // CONCRETE class to ensure run-level exhaustion is reported correctly.
+    let caught: unknown;
+    try { iter.reserve('generation', 0.03); } catch (e) { caught = e; }
+    expect(caught).not.toBeInstanceOf(IterationBudgetExceededError);
+    expect(caught).toBeInstanceOf(BudgetExceededError);
+  });
+
+  // B007-S2: computeMargined and canReserve are pure / non-mutating.
+  it('B007-S2: computeMargined is non-mutating (peek)', () => {
+    const t = createCostTracker(1.0);
+    const before = t.getAvailableBudget();
+    const m1 = t.computeMargined!(0.1);
+    const m2 = t.computeMargined!(0.1);
+    expect(m1).toBe(m2);
+    expect(t.getAvailableBudget()).toBe(before); // unchanged
+  });
+
+  it('B007-S2: canReserve is non-mutating', () => {
+    const t = createCostTracker(0.05);
+    const before = t.getAvailableBudget();
+    expect(t.canReserve!(0.04)).toBe(true);
+    expect(t.canReserve!(0.06)).toBe(false);
+    expect(t.getAvailableBudget()).toBe(before); // unchanged
+  });
 });

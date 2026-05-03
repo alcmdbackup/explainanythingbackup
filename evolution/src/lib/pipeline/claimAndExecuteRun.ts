@@ -15,6 +15,7 @@ import { CreateSeedArticleAgent } from '../core/agents/createSeedArticle';
 import { deepCloneRatings } from '../core/agents/generateFromPreviousArticle';
 import { createCostTracker } from './infra/trackBudget';
 import { createEvolutionLLMClient } from './infra/createEvolutionLLMClient';
+import { hydrateCalibrationCache, isCalibrationEnabled } from './infra/costCalibrationLoader';
 import { deriveSeed } from '../shared/seededRandom';
 import { createRating, ratingToDb } from '../shared/computeRatings';
 import type { AgentContext } from '../core/types';
@@ -263,6 +264,19 @@ async function executePipeline(
     .update({ status: 'running' })
     .eq('id', runId);
 
+  // B002-S2: lazy-init the calibration cache once per run when COST_CALIBRATION_ENABLED.
+  // hydrateCalibrationCache is internally idempotent — coalesces concurrent callers and
+  // honors the TTL, so calling it per-run is cheap (in-process Map check) once cache is
+  // warm. Without this call, the cache stays empty and the entire shadow-deploy path
+  // is silently inert (every getCalibrationRow returns null → hardcoded constants win).
+  if (isCalibrationEnabled()) {
+    try {
+      await hydrateCalibrationCache(db);
+    } catch (err) {
+      logger.warn('Calibration cache hydrate failed (non-fatal)', { runId, err: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
   // Ensure cost metric rows exist even for runs that fail before any LLM call.
   // GREATEST upsert means these zeros never overwrite real values written later.
   // Per supabase/migrations/20260323000002_fix_stale_claim_expiry.sql, runs with
@@ -295,15 +309,19 @@ async function executePipeline(
   let resolvedOriginalText = originalText ?? '';
   let seedVariantId: string | undefined;
 
+  // B001-S1+S2: build ONE shared cost tracker for the entire run. Seed phase + iteration
+  // loop reserve+spend through the same tracker, so total spend is gated by config.budgetUsd
+  // (no double-budgeting that lets a run spend up to 2x its cap).
+  const sharedCostTracker = createCostTracker(config.budgetUsd, runLogger);
+
   if (seedPrompt && !originalText) {
-    const costTracker = createCostTracker(config.budgetUsd);
-    const llm = createEvolutionLLMClient(llmProvider, costTracker, config.generationModel, runLogger, db, runId, config.generationTemperature);
+    const llm = createEvolutionLLMClient(llmProvider, sharedCostTracker, config.generationModel, runLogger, db, runId, config.generationTemperature);
     const seedCtx: AgentContext = {
       db, runId, iteration: 0,
       executionOrder: 0,
       invocationId: '',
       randomSeed: deriveSeed(randomSeed, 'pre_iter', 'seed0'),
-      logger: runLogger, costTracker, config,
+      logger: runLogger, costTracker: sharedCostTracker, config,
       // B122: propagate prompt_id so any agent in the seed phase that writes arena rows
       // can populate it at insert.
       promptId: claimedRun.prompt_id ?? null,
@@ -329,7 +347,10 @@ async function executePipeline(
         success: seedResult.success,
         budgetExceeded: seedResult.budgetExceeded,
       });
-      await markRunFailed(db, runId, 'Seed generation failed');
+      // B009-S1: pass explicit errorCode matching the classifyError taxonomy entry
+      // ('missing_seed_article') so operators triaging by error_code see the seed-
+      // specific reason rather than the generic 'unhandled_error'.
+      await markRunFailed(db, runId, 'Seed generation failed', 'missing_seed_article');
       throw new Error('Seed generation failed');
     }
 
@@ -408,6 +429,8 @@ async function executePipeline(
     signal,
     randomSeed,
     seedVariantId,
+    // B001-S1+S2: share the tracker so seed-phase spend counts against the same budget.
+    costTracker: sharedCostTracker,
   });
   runLogger.info('Evolution loop completed', {
     stopReason: result.stopReason, iterations: result.iterationsRun,

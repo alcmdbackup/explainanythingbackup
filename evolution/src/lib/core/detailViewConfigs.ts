@@ -5,6 +5,33 @@ import type { DetailFieldDef } from './types';
 
 /** Config-driven field definitions for rendering execution detail, keyed by detailType (or agent_name). */
 export const DETAIL_VIEW_CONFIGS: Record<string, DetailFieldDef[]> = {
+  // B004-S3: matches CreateSeedArticleAgent.detailViewConfig — without this entry,
+  // the seed-invocation page rendered an empty fallback.
+  create_seed_article: [
+    { key: 'surfaced', label: 'Surfaced', type: 'boolean' },
+    {
+      key: 'generation', label: 'Generation', type: 'object',
+      children: [
+        { key: 'cost', label: 'Cost', type: 'number', formatter: 'cost' },
+        { key: 'promptLength', label: 'Prompt Length', type: 'number' },
+        { key: 'titleLength', label: 'Title Length', type: 'number' },
+        { key: 'contentLength', label: 'Content Length', type: 'number' },
+        { key: 'formatValid', label: 'Format Valid', type: 'boolean' },
+      ],
+    },
+    {
+      key: 'ranking', label: 'Ranking (binary search local view)', type: 'object',
+      children: [
+        { key: 'cost', label: 'Ranking Cost', type: 'number', formatter: 'cost' },
+        { key: 'localPoolSize', label: 'Local Pool Size', type: 'number' },
+        { key: 'stopReason', label: 'Stop Reason', type: 'badge' },
+        { key: 'totalComparisons', label: 'Total Comparisons', type: 'number' },
+        { key: 'finalLocalElo', label: 'Final Local Elo', type: 'number' },
+        { key: 'finalLocalUncertainty', label: 'Final Local Uncertainty', type: 'number' },
+      ],
+    },
+    { key: 'totalCost', label: 'Total Cost', type: 'number', formatter: 'cost' },
+  ],
   // ─── Parallel pipeline (generate_rank_evolution_parallel_20260331) ───
   generate_from_previous_article: [
     { key: 'tactic', label: 'Tactic', type: 'badge' },
