@@ -119,6 +119,73 @@ describe('ConfigDrivenDetailRenderer', () => {
     expect(dashes.length).toBeGreaterThanOrEqual(2);
   });
 
+  // ─── Empty-string + cellClassName (Issue 4 of fixes_to_evolution_admin_dashboard) ──
+
+  it('renders empty-string cell value as em-dash (parser fallback path)', () => {
+    const config: DetailFieldDef[] = [
+      {
+        key: 'items',
+        label: 'Items',
+        type: 'table',
+        columns: [
+          { key: 'criteriaName', label: 'Criterion' },
+          { key: 'examplePassage', label: 'Example' },
+        ],
+      },
+    ];
+    // examplePassage = '' (parser permissive-mode output) should render as '—'.
+    const data = {
+      items: [{ criteriaName: 'clarity', examplePassage: '' }],
+    };
+    render(<ConfigDrivenDetailRenderer config={config} data={data} />);
+    expect(screen.getByText('clarity')).toBeInTheDocument();
+    // Em-dash visible — count: at least 1 occurrence in the table body.
+    const dashes = screen.getAllByText('—');
+    expect(dashes.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('applies field.cellClassName to <td> cells when provided', () => {
+    const config: DetailFieldDef[] = [
+      {
+        key: 'items',
+        label: 'Items',
+        type: 'table',
+        cellClassName: 'max-w-md break-words whitespace-pre-wrap custom-marker',
+        columns: [{ key: 'name', label: 'Name' }],
+      },
+    ];
+    render(<ConfigDrivenDetailRenderer config={config} data={{ items: [{ name: 'alpha' }] }} />);
+    const table = screen.getByTestId('detail-table');
+    const cells = table.querySelectorAll('td');
+    expect(cells.length).toBeGreaterThan(0);
+    cells.forEach((cell) => {
+      expect(cell.className).toContain('max-w-md');
+      expect(cell.className).toContain('break-words');
+      expect(cell.className).toContain('custom-marker');
+    });
+  });
+
+  it('falls back to default cell class when cellClassName is omitted (no global cascade)', () => {
+    const config: DetailFieldDef[] = [
+      {
+        key: 'items',
+        label: 'Items',
+        type: 'table',
+        columns: [{ key: 'name', label: 'Name' }],
+      },
+    ];
+    render(<ConfigDrivenDetailRenderer config={config} data={{ items: [{ name: 'alpha' }] }} />);
+    const table = screen.getByTestId('detail-table');
+    const cells = table.querySelectorAll('td');
+    cells.forEach((cell) => {
+      // Default class includes basic padding but NOT the wrapping classes — guards
+      // against the regression where a global-CSS approach leaks into other tables.
+      expect(cell.className).not.toContain('max-w-md');
+      expect(cell.className).not.toContain('break-words');
+      expect(cell.className).toContain('py-1.5');
+    });
+  });
+
   it('renders all 7 field types together', () => {
     const config: DetailFieldDef[] = [
       { key: 'items', label: 'Items', type: 'table', columns: [{ key: 'k', label: 'K' }] },

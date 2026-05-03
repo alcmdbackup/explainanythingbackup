@@ -25,6 +25,11 @@ const BADGE_COLORS: Record<string, string> = {
 
 function formatValue(value: unknown, formatter?: string): string {
   if (value == null) return '—';
+  // Empty string also renders as em-dash (parser returns '' for missing
+  // Example/Issue/Fix lines under permissive mode — landing in DB JSONB as ''
+  // rather than synthetic placeholder text, so the renderer is the right
+  // place to fall back to the visible em-dash).
+  if (value === '') return '—';
   if (formatter === 'cost' && typeof value === 'number') {
     return `$${value.toFixed(4)}`;
   }
@@ -44,13 +49,21 @@ function renderBadge(value: unknown): JSX.Element {
   );
 }
 
+const DEFAULT_TABLE_CELL_CLASS = 'py-1.5 px-2 text-[var(--text-primary)]';
+
 function renderTable(
   rows: unknown[],
   columns: Array<{ key: string; label: string }>,
+  cellClassName?: string,
 ): JSX.Element {
   if (!Array.isArray(rows) || rows.length === 0) {
     return <p className="text-xs text-[var(--text-muted)] font-ui">No data</p>;
   }
+
+  // Per-field cellClassName scopes wrapping/width constraints to one table only —
+  // does NOT cascade. When undefined, falls back to the default (no width
+  // constraint, single-line). See DetailFieldDef.cellClassName JSDoc.
+  const cellClass = cellClassName ?? DEFAULT_TABLE_CELL_CLASS;
 
   return (
     <div className="overflow-x-auto">
@@ -70,7 +83,7 @@ function renderTable(
             return (
               <tr key={i} className="border-b border-[var(--border-default)] last:border-0">
                 {columns.map(col => (
-                  <td key={col.key} className="py-1.5 px-2 text-[var(--text-primary)]">
+                  <td key={col.key} className={cellClass}>
                     {formatValue(r[col.key])}
                   </td>
                 ))}
@@ -91,7 +104,7 @@ function renderField(field: DetailFieldDef, data: Record<string, unknown>): JSX.
       return (
         <div key={field.key} className="mb-4" data-testid={`field-${field.key}`}>
           <h3 className="text-xl font-display font-semibold text-[var(--text-secondary)] mb-2">{field.label}</h3>
-          {renderTable(value as unknown[], field.columns ?? [])}
+          {renderTable(value as unknown[], field.columns ?? [], field.cellClassName)}
         </div>
       );
 

@@ -212,12 +212,25 @@ export function parseEvaluateAndSuggest(
   // Split on `### Suggestion N` headers; bodies are the segments between them.
   // (JS regex lacks \Z; lookahead-based capture-until-next-or-end is brittle.)
   const blockSegments = suggestionSection.split(/^###\s+Suggestion\s+\d+\s*\n/m).slice(1);
+  // Permissive parser (default) tolerates missing/empty Example/Issue/Fix lines —
+  // only Criterion: is hard-required (without it we can't tie the suggestion to a
+  // criterion row). Set EVOLUTION_PERMISSIVE_EVAL_PARSER='false' for a kill-switch
+  // back to the strict 4-line null-check behavior.
+  const PERMISSIVE = process.env.EVOLUTION_PERMISSIVE_EVAL_PARSER !== 'false';
   for (const body of blockSegments) {
-    const criterionLine = body.match(/^Criterion:\s*(.+?)\s*$/m);
-    const exampleLine = body.match(/^Example:\s*(.+?)\s*$/m);
-    const issueLine = body.match(/^Issue:\s*(.+?)\s*$/m);
-    const fixLine = body.match(/^Fix:\s*(.+?)\s*$/m);
-    if (!criterionLine || !exampleLine || !issueLine || !fixLine) continue;
+    // Tightened regex: `[ \t]*` (intra-line whitespace only) prevents the capture
+    // group from spanning newlines under the `m` flag — eliminates the multiline-
+    // backtracking bug where `Example:\n\nIssue: foo` could capture
+    // `examplePassage = '\n\nIssue: foo'`. `(.*?)` allows empty-string captures.
+    const criterionLine = body.match(/^Criterion:[ \t]*(.*?)[ \t]*$/m);
+    const exampleLine = body.match(/^Example:[ \t]*(.*?)[ \t]*$/m);
+    const issueLine = body.match(/^Issue:[ \t]*(.*?)[ \t]*$/m);
+    const fixLine = body.match(/^Fix:[ \t]*(.*?)[ \t]*$/m);
+    if (PERMISSIVE) {
+      if (!criterionLine) continue; // criterion is the only mandatory field
+    } else {
+      if (!criterionLine || !exampleLine || !issueLine || !fixLine) continue;
+    }
 
     const criterionName = criterionLine[1] ?? '';
     const criterionId = idByLowerName.get(criterionName.toLowerCase());
@@ -231,9 +244,9 @@ export function parseEvaluateAndSuggest(
     }
 
     suggestions.push({
-      examplePassage: (exampleLine[1] ?? '').trim(),
-      whatNeedsAddressing: (issueLine[1] ?? '').trim(),
-      suggestedFix: (fixLine[1] ?? '').trim(),
+      examplePassage: (exampleLine?.[1] ?? '').trim(),
+      whatNeedsAddressing: (issueLine?.[1] ?? '').trim(),
+      suggestedFix: (fixLine?.[1] ?? '').trim(),
       criteriaName: criterionName,
     });
   }

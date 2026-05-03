@@ -141,7 +141,13 @@ export const DETAIL_VIEW_CONFIGS: Record<string, DetailFieldDef[]> = {
       ],
     },
     {
+      // Suggestions table cells can hold passage-length text (Example field is a
+      // verbatim article excerpt, often hundreds of chars). Per-field cellClassName
+      // constrains column width and wraps long content so the table stays readable
+      // without horizontal scroll. Scoped to this table only — does NOT cascade to
+      // the criteriaScored table above or other agents' detail tables.
       key: 'evaluateAndSuggest.suggestions', label: 'Suggestions', type: 'table',
+      cellClassName: 'py-1.5 px-2 text-[var(--text-primary)] max-w-md break-words whitespace-pre-wrap align-top',
       columns: [
         { key: 'criteriaName', label: 'Criterion' },
         { key: 'examplePassage', label: 'Example' },
