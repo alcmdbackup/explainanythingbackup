@@ -336,7 +336,11 @@ export class EvaluateCriteriaThenGenerateFromPreviousArticleAgent extends Agent<
       ],
     },
     {
+      // Mirrors DETAIL_VIEW_CONFIGS in evolution/src/lib/core/detailViewConfigs.ts
+      // (parity enforced by entities.test.ts). cellClassName scopes wrap+break-words
+      // to this table only; see DetailFieldDef.cellClassName JSDoc.
       key: 'evaluateAndSuggest.suggestions', label: 'Suggestions', type: 'table',
+      cellClassName: 'py-1.5 px-2 text-[var(--text-primary)] max-w-md break-words whitespace-pre-wrap align-top',
       columns: [
         { key: 'criteriaName', label: 'Criterion' },
         { key: 'examplePassage', label: 'Example' },
