@@ -32,7 +32,11 @@ adminTest.describe('Criteria-driven invocation detail', { tag: ['@evolution', '@
       seededCriteriaIds.push(data.id as string);
     }
 
-    const prompt = await createTestPrompt();
+    // Pass a unique prompt text — `evolution_prompts.prompt` has a UNIQUE constraint
+    // (uq_arena_topic_prompt), and the helper's default text is shared across all
+    // callers, so parallel test runs collide. Suffixing with the same baseName ensures
+    // uniqueness without polluting test naming convention.
+    const prompt = await createTestPrompt({ prompt: `Test prompt for criteria pipeline ${baseName}` });
     const strategy = await createTestStrategy();
     const run = await createTestRun({ promptId: prompt.id, strategyId: strategy.id });
     runId = run.id;

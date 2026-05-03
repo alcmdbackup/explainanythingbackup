@@ -31,11 +31,22 @@ adminTest.describe('Strategy wizard — criteria_and_generate', { tag: ['@evolut
     }
   });
 
+  /** Fill the step-1 config form with valid defaults so the Next button advances. */
+  async function advanceToStep2(page: import('@playwright/test').Page): Promise<void> {
+    await page.locator('#strategy-name').fill(`e2e_wiz_${Date.now()}`);
+    // generation-model select starts empty — pick the first real option.
+    const genModel = page.locator('#generation-model');
+    const genOptions = await genModel.locator('option').all();
+    const genFirstReal = await genOptions[1]?.getAttribute('value');
+    if (genFirstReal) await genModel.selectOption({ value: genFirstReal });
+    // judge-model already has a default but ensure it has a value.
+    await page.getByRole('button', { name: /Next: Configure Iterations/i }).click();
+  }
+
   adminTest('agentType select includes criteria_and_generate option', async ({ adminPage }) => {
     await adminPage.goto('/admin/evolution/strategies/new');
-    // Advance to step 2 (iteration builder)
-    await adminPage.locator('button:has-text("Next")').first().click();
-    const select = adminPage.locator('select').first();
+    await advanceToStep2(adminPage);
+    const select = adminPage.getByTestId('agent-type-select-0');
     await expect(select).toBeVisible();
     const options = await select.locator('option').allTextContents();
     expect(options.some((t) => /Evaluate Criteria|criteria_and_generate/i.test(t))).toBe(true);
@@ -43,10 +54,10 @@ adminTest.describe('Strategy wizard — criteria_and_generate', { tag: ['@evolut
 
   adminTest('selecting criteria_and_generate shows criteria multi-select trigger', async ({ adminPage }) => {
     await adminPage.goto('/admin/evolution/strategies/new');
-    await adminPage.locator('button:has-text("Next")').first().click();
-    const select = adminPage.locator('select').first();
+    await advanceToStep2(adminPage);
+    const select = adminPage.getByTestId('agent-type-select-0');
+    await expect(select).toBeVisible();
     await select.selectOption({ value: 'criteria_and_generate' });
-    // Multi-select trigger button visible (matches "Select N criteria" or similar pattern)
-    await expect(adminPage.locator('button:has-text("criteria"), button:has-text("Criteria")').first()).toBeVisible();
+    await expect(adminPage.getByTestId('iteration-criteria-controls-0')).toBeVisible();
   });
 });
