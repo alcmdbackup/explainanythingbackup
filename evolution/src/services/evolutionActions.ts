@@ -525,7 +525,11 @@ export const getEvolutionVariantsAction = adminAction(
       // Default behavior: only show variants that survived to the final pool.
       query = query.eq('persisted', true);
     }
-    const { data, error } = await query.order('elo_score', { ascending: false });
+    // B014-S5: cap variant list at 500 rows. Without a limit, an admin requesting all
+    // variants for a strategy with many runs could OOM the action (response size +
+    // downstream parent batch fetch). 500 covers the practical case (largest strategy
+    // on staging is ~200) and rejects accidental unbounded queries.
+    const { data, error } = await query.order('elo_score', { ascending: false }).limit(500);
     if (error) throw error;
     const items = (data ?? []) as unknown as EvolutionVariant[];
 

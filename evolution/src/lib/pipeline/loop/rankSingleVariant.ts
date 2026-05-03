@@ -326,6 +326,14 @@ export async function rankSingleVariant(
           break;
         }
         // Non-budget LLM error — record as zero-confidence draw and continue.
+        // B019-S1: log the error so transient outages aren't indistinguishable from
+        // genuine ties.
+        logger?.warn('rankSingleVariant: comparison LLM call failed, recording as TIE', {
+          phaseName: 'ranking',
+          variantId: variant.id,
+          opponentId: opp.id,
+          error: (e instanceof Error ? e.message : String(e)).slice(0, 500),
+        });
         comparisonResult = { winner: 'TIE', confidence: 0, turns: 2 };
       }
       const comparisonDurationMs = Date.now() - comparisonStartTime;

@@ -17,6 +17,10 @@ const KILL_SWITCH_CACHE_TTL_MS = 5_000;
 const MONTHLY_CACHE_TTL_MS = 60_000;
 const DEFAULT_RESERVATION_USD = 0.05;
 const FAST_PATH_HEADROOM = 0.10;
+// B013-S5: shared default monthly cap so getSummary and checkMonthlyCap don't drift.
+// Previously checkMonthlyCap defaulted to 500 while getSummary returned the raw config
+// value (which could be undefined → 0). Surface the same number from both paths.
+const DEFAULT_MONTHLY_CAP_USD = 500;
 
 interface CacheEntry<T> {
   value: T;
@@ -168,7 +172,7 @@ export class LLMSpendingGate {
     return {
       daily,
       monthlyTotal,
-      monthlyCap: getConfigValue('monthly_cap_usd') as number,
+      monthlyCap: (getConfigValue('monthly_cap_usd') as number | undefined) ?? DEFAULT_MONTHLY_CAP_USD,
       killSwitchEnabled: getConfigValue('kill_switch_enabled') as boolean,
     };
   }
@@ -285,7 +289,7 @@ export class LLMSpendingGate {
       if (capResult.error) throw capResult.error;
 
       const monthlyTotal = (totalResult.data ?? []).reduce((sum: number, r: { total_cost_usd: number }) => sum + Number(r.total_cost_usd), 0);
-      const monthlyCap = ((capResult.data?.value as { value?: unknown } | null)?.value as number) ?? 500;
+      const monthlyCap = ((capResult.data?.value as { value?: unknown } | null)?.value as number) ?? DEFAULT_MONTHLY_CAP_USD;
 
       this.monthlyCache = { value: { total: monthlyTotal, cap: monthlyCap }, expiresAt: Date.now() + MONTHLY_CACHE_TTL_MS };
 

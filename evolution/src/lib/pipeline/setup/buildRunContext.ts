@@ -55,8 +55,11 @@ export async function loadArenaEntries(
 
   for (const entry of data) {
     if (excludeId && entry.id === excludeId) continue;
-    const rawMu = entry.mu as number | null;
-    const rawSigma = entry.sigma as number | null;
+    // B017-S1: coerce via Number() first so Postgres NUMERIC values returned as strings
+    // ('25.0') are recognized as finite. Without this, all string-typed mu/sigma rows
+    // silently fall back to _INTERNAL_DEFAULT_MU/SIGMA.
+    const rawMu = entry.mu == null ? null : Number(entry.mu);
+    const rawSigma = entry.sigma == null ? null : Number(entry.sigma);
     variants.push({
       id: entry.id,
       text: entry.variant_content,

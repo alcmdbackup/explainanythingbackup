@@ -910,10 +910,13 @@ describe('evolutionActions', () => {
         { id: VALID_UUID_3, run_id: VALID_UUID, explanation_id: null, variant_content: 'best', elo_score: 1400, generation: 3, agent_name: 'mutator', match_count: 10, is_winner: true, created_at: '2026-03-01T11:00:00Z' },
         { id: VALID_UUID_2, run_id: VALID_UUID, explanation_id: null, variant_content: 'mid', elo_score: 1200, generation: 2, agent_name: 'mutator', match_count: 8, is_winner: false, created_at: '2026-03-01T10:30:00Z' },
       ];
+      // B014-S5: getEvolutionVariantsAction now appends .limit(500), so the mock chain
+      // must terminate at .limit() returning the data, not at .order().
       const chain = {
         select: jest.fn().mockReturnThis(),
         eq: jest.fn().mockReturnThis(),
-        order: jest.fn().mockResolvedValue({ data: variants, error: null }),
+        order: jest.fn().mockReturnThis(),
+        limit: jest.fn().mockResolvedValue({ data: variants, error: null }),
       };
       mockSupabase.from = jest.fn().mockReturnValue(chain);
 
@@ -929,7 +932,8 @@ describe('evolutionActions', () => {
       const chain = {
         select: jest.fn().mockReturnThis(),
         eq: jest.fn().mockReturnThis(),
-        order: jest.fn().mockResolvedValue({ data: [], error: null }),
+        order: jest.fn().mockReturnThis(),
+        limit: jest.fn().mockResolvedValue({ data: [], error: null }),
       };
       mockSupabase.from = jest.fn().mockReturnValue(chain);
 
@@ -940,10 +944,12 @@ describe('evolutionActions', () => {
     });
 
     it('returns error on DB failure', async () => {
+      // B014-S5: chain terminates at .limit() now.
       const chain = {
         select: jest.fn().mockReturnThis(),
         eq: jest.fn().mockReturnThis(),
-        order: jest.fn().mockResolvedValue({ data: null, error: { message: 'timeout' } }),
+        order: jest.fn().mockReturnThis(),
+        limit: jest.fn().mockResolvedValue({ data: null, error: { message: 'timeout' } }),
       };
       mockSupabase.from = jest.fn().mockReturnValue(chain);
 

@@ -153,13 +153,21 @@ export async function claimAndExecuteRun(
 
   const runId = claimedRow.id;
   const rawBudget = Number(claimedRow.budget_cap_usd);
+  // B018-S1: warn when budget_cap_usd falls back to default — silent fallback masked
+  // misconfiguration where strategy budget was missing or NaN.
+  const budgetValid = Number.isFinite(rawBudget) && rawBudget > 0;
+  if (!budgetValid) {
+    logger.warn('budget_cap_usd missing or invalid, defaulting to $1', {
+      runId, raw: String(claimedRow.budget_cap_usd ?? 'null'),
+    });
+  }
   const claimedRun: ClaimedRun = {
     id: runId,
     explanation_id: (claimedRow.explanation_id as number | null) ?? null,
     prompt_id: (claimedRow.prompt_id as string | null) ?? null,
     experiment_id: (claimedRow.experiment_id as string | null) ?? null,
     strategy_id: claimedRow.strategy_id,
-    budget_cap_usd: Number.isFinite(rawBudget) && rawBudget > 0 ? rawBudget : 1.0,
+    budget_cap_usd: budgetValid ? rawBudget : 1.0,
   };
 
   logger.info('Claimed evolution run', { runId, runnerId: options.runnerId });

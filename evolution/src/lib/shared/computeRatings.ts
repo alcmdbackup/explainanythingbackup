@@ -63,6 +63,9 @@ export function toEloScale(mu: number): number {
 
 /** Clamp an Elo value to [0, 3000] for display purposes only. */
 export function toDisplayElo(elo: number): number {
+  // B010-S6: NaN guard. Math.min/max with NaN returns NaN; the prior implementation
+  // would propagate NaN through display values. Fall back to 0 (the lower clamp).
+  if (!Number.isFinite(elo)) return 0;
   return Math.max(0, Math.min(3000, elo));
 }
 

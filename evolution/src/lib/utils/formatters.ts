@@ -110,6 +110,9 @@ export function formatEloWithUncertainty(elo: number, uncertainty: number | null
 /** Format date for list views (short: "Mar 26"). Includes year if not current year. */
 export function formatDate(dateStr: string): string {
   const d = new Date(dateStr);
+  // B015-S6: surface invalid input as the em-dash sentinel used by other formatters
+  // instead of literal "Invalid Date".
+  if (isNaN(d.getTime())) return '—';
   const now = new Date();
   const opts: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric' };
   if (d.getFullYear() !== now.getFullYear()) opts.year = 'numeric';
@@ -119,6 +122,8 @@ export function formatDate(dateStr: string): string {
 /** Format date+time for detail views (e.g., "Mar 26, 2026 14:30"). */
 export function formatDateTime(dateStr: string): string {
   const d = new Date(dateStr);
+  // B015-S6: surface invalid input as em-dash.
+  if (isNaN(d.getTime())) return '—';
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) +
     ' ' + d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
 }
