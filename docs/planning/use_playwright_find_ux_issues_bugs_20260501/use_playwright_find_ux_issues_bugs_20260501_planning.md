@@ -11,15 +11,15 @@ Three concrete data-display bugs and ~30 UX/a11y polish items make the admin sur
 
 ## Options Considered
 - [x] **Option A: Phased by severity** (Bug-Major fixes first, then accessibility cluster, then polish). Each phase commits independently and runs tests-per-phase. Mirrors the prior `user_testing_for_bugs_ux_issues_20260326` project structure.
-- [ ] **Option B: Phased by surface area** (fix all run-detail bugs, then experiments, then arena). Defers Bug-Major fixes behind unrelated UX cleanup.
-- [ ] **Option C: One PR, all fixes** (single big bang). Hard to review; if any one fix regresses CI the whole thing rolls back.
+- [x] **Option B: Phased by surface area** (fix all run-detail bugs, then experiments, then arena). Defers Bug-Major fixes behind unrelated UX cleanup.
+- [x] **Option C: One PR, all fixes** (single big bang). Hard to review; if any one fix regresses CI the whole thing rolls back.
 
 Selected: **Option A**. Severity-driven phases let us land the data-correctness fixes first, ship accessibility wins fast, and defer the longer polish queue without blocking.
 
 ## Pre-flight (do BEFORE Phase 1)
 
-- [ ] **Branch-conflict check** — `git fetch origin && git log origin/feat/look_for_bugs_evolution_20260501 --since="2026-04-25" -- evolution/src/components/evolution/tabs/EntityMetricsTab.tsx evolution/src/services/costEstimationActions.ts evolution/src/lib/core/metricCatalog.ts evolution/src/components/evolution/tabs/TimelineTab.tsx evolution/src/components/evolution/tabs/CostEstimatesTab.tsx evolution/src/components/evolution/tables/RunsTable.tsx`. If commits exist that touch any of these files, document them in `_progress.md` and resolve overlap (rebase early, cherry-pick, or coordinate with that branch owner) BEFORE starting Phase 1. Without this, the "git revert per phase" rollback claim is unsafe.
-- [ ] **Test-data factory extension** — Add to `src/__tests__/e2e/helpers/evolution-test-data-factory.ts` (and `evolution/src/testing/evolution-test-helpers.ts` for unit tests):
+- [x] **Branch-conflict check** — `git fetch origin && git log origin/feat/look_for_bugs_evolution_20260501 --since="2026-04-25" -- evolution/src/components/evolution/tabs/EntityMetricsTab.tsx evolution/src/services/costEstimationActions.ts evolution/src/lib/core/metricCatalog.ts evolution/src/components/evolution/tabs/TimelineTab.tsx evolution/src/components/evolution/tabs/CostEstimatesTab.tsx evolution/src/components/evolution/tables/RunsTable.tsx`. If commits exist that touch any of these files, document them in `_progress.md` and resolve overlap (rebase early, cherry-pick, or coordinate with that branch owner) BEFORE starting Phase 1. Without this, the "git revert per phase" rollback claim is unsafe.
+- [x] **Test-data factory extension** — Add to `src/__tests__/e2e/helpers/evolution-test-data-factory.ts` (and `evolution/src/testing/evolution-test-helpers.ts` for unit tests):
   - `createTestReflectAndGenerateRun({...})` — produces a run with strategy `agentType: 'reflect_and_generate'`, at least one invocation row with `agent_name='reflect_and_generate_from_previous_article'` and `execution_detail.tactic='lexical_simplify'`, plus seeded `eloAttrDelta:reflect_and_generate_from_previous_article:lexical_simplify` metric with a SIGNED INTEGER value (e.g. `-15`).
   - Reuse the `eloAttrDelta:*` metric-row factory pattern from `evolution/src/components/evolution/charts/StrategyEffectivenessChart.test.ts:13-90` (extract to `evolution/src/testing/eloAttrFixtures.ts` if not already shared).
   - Cleanup helper extends existing `cleanupAllTrackedEvolutionData()` (per Rule 16 / `require-test-cleanup` ESLint rule).
@@ -44,7 +44,7 @@ Phase 5 (Fix #42: handles `cost === 0` at the column level)
 
 **Goal**: stop the run-detail Metrics tab from showing negative dollars; reconcile run-list cost columns; restore reflection observability.
 
-- [ ] **Fix #29-31 (negative dollars on Metrics tab)** — `evolution/src/components/evolution/tabs/EntityMetricsTab.tsx`. Refactor BOTH `resolveFormatter()` (line 36-41), `resolveCategory()` (line 29-34), AND `resolveLabel()` (line 43-53) to consume a shared prefix-dispatch table so the prefix list lives in ONE place.
+- [x] **Fix #29-31 (negative dollars on Metrics tab)** — `evolution/src/components/evolution/tabs/EntityMetricsTab.tsx`. Refactor BOTH `resolveFormatter()` (line 36-41), `resolveCategory()` (line 29-34), AND `resolveLabel()` (line 43-53) to consume a shared prefix-dispatch table so the prefix list lives in ONE place.
 
   Step 1 — extend `evolution/src/lib/metrics/types.ts` to export a typed registry alongside `DYNAMIC_METRIC_PREFIXES`:
   ```typescript
@@ -90,18 +90,18 @@ Phase 5 (Fix #42: handles `cost === 0` at the column level)
   ```
   This eliminates the dual hard-coded prefix list AND fixes the cosmetic regression where `eloAttrDelta:*` rows would otherwise be labelled "... Cost".
 
-- [ ] **Fix #11 (cost columns don't sum)** — three call-sites:
+- [x] **Fix #11 (cost columns don't sum)** — three call-sites:
   - `evolution/src/lib/core/metricCatalog.ts:28` flip `reflection_cost.listView` to `true`. Add column entry to `createRunsMetricColumns()` between Ranking Cost and Seed Cost.
   - `evolution/src/components/evolution/tables/RunsTable.tsx:128-133` Spent fallback include `reflection_cost`.
   - `evolution/src/lib/cost/getRunCostWithFallback.ts` (`getRunCostsWithFallback`) — apply the same fallback inclusion so the dashboard `Total Cost` reconciles too. (The runs table comment at line 127 explicitly mirrors this helper.)
-- [ ] **Fix #38 (Tactic column blank) — TWO call sites**: `evolution/src/services/costEstimationActions.ts:282` (`buildInvocationRows`) AND line 561 (strategy slice breakdown loop). Both read `d.strategy` and both need the same fix:
+- [x] **Fix #38 (Tactic column blank) — TWO call sites**: `evolution/src/services/costEstimationActions.ts:282` (`buildInvocationRows`) AND line 561 (strategy slice breakdown loop). Both read `d.strategy` and both need the same fix:
   ```typescript
   const tactic = (typeof d.tactic === 'string' && d.tactic)
               || (typeof d.strategy === 'string' && d.strategy)
               || null;
   ```
   The truthy-check on `d.tactic` is intentional — the wrapper writes `tactic: ''` (empty string) on early-failure rows (`reflectAndGenerateFromPreviousArticle.ts:309,344`), and the empty string should fall through to the legacy `d.strategy` path.
-- [ ] **Fix #22 + #40 (reflect_and_generate badge type missing) — three call sites in TWO files**:
+- [x] **Fix #22 + #40 (reflect_and_generate badge type missing) — three call sites in TWO files**:
 
   **File A**: `evolution/src/components/evolution/tabs/TimelineTab.tsx`
   - Line 29-42: extend `agentKind()`:
@@ -129,109 +129,109 @@ Phase 5 (Fix #42: handles `cost === 0` at the column level)
   **File B**: `evolution/src/components/evolution/tabs/CostEstimatesTab.tsx:419,447-449` `PerIterationSummarySection`. Apply the same kind-inference fix.
 
   Audit pass (in scope): grep for `agentKind\b`, `agentType === 'generate'`, and `agent_name === 'reflect_and_generate'` across `evolution/src/components/evolution/` to find any other switch/ternary that must be widened. (`DispatchPlanView.tsx:118,194,205` is OUT OF SCOPE unless the audit shows visible breakage; flag in `_progress.md` for follow-up.)
-- [ ] **Fix #35 (Reflection cost summary card missing)** — pre-flight verification confirms reflection labeling is already wired (`createEvolutionLLMClient` has `'reflection'` in `COST_METRIC_BY_AGENT`, mapping to `reflection_cost`; the wrapper calls `llm.complete(prompt, 'reflection', ...)` at `reflectAndGenerateFromPreviousArticle.ts:299`). The visible gap is purely UI-side — the EntityMetricsTab cost section has no `Reflection Cost` summary card alongside `Cost / Generation Cost / Ranking Cost / Seed Cost`. Add it via the existing static-metric path (extend `metricCatalog` to surface `reflection_cost` as a top-level Cost-section metric on run entities). Do NOT modify the wrapper or LLM client.
+- [x] **Fix #35 (Reflection cost summary card missing)** — pre-flight verification confirms reflection labeling is already wired (`createEvolutionLLMClient` has `'reflection'` in `COST_METRIC_BY_AGENT`, mapping to `reflection_cost`; the wrapper calls `llm.complete(prompt, 'reflection', ...)` at `reflectAndGenerateFromPreviousArticle.ts:299`). The visible gap is purely UI-side — the EntityMetricsTab cost section has no `Reflection Cost` summary card alongside `Cost / Generation Cost / Ranking Cost / Seed Cost`. Add it via the existing static-metric path (extend `metricCatalog` to surface `reflection_cost` as a top-level Cost-section metric on run entities). Do NOT modify the wrapper or LLM client.
 
 **Tests** (each Phase-1 fix has at least one assertion — addresses Phase-6 audit gate):
 
-- [ ] `evolution/src/components/evolution/tabs/EntityMetricsTab.test.tsx` — three assertions:
+- [x] `evolution/src/components/evolution/tabs/EntityMetricsTab.test.tsx` — three assertions:
   - `resolveFormatter('eloAttrDelta:gfpa:lexical_simplify')` returns `formatElo` (renders `-15` as `-15`, not `$-15.000`).
   - `resolveCategory('eloAttrDelta:...')` returns `'rating'` (groups under "Rating", not "Cost").
   - `resolveLabel('eloAttrDelta:gfpa:lexical_simplify')` ends with `' Δ Elo'` (NOT `' Cost'`).
-- [ ] `evolution/src/services/costEstimationActions.test.ts` — TWO assertions:
+- [x] `evolution/src/services/costEstimationActions.test.ts` — TWO assertions:
   - `buildInvocationRows` (line 282 site): mock `execution_detail.tactic='curiosity_hook'` row surfaces as `tactic: 'curiosity_hook'`.
   - Strategy slice breakdown (line 561 site): mock invocation with `execution_detail.tactic='lexical_simplify'` populates the `tactic` slice key as `'lexical_simplify'` (not `'unknown'`).
-- [ ] `evolution/src/components/evolution/tabs/TimelineTab.test.tsx` — TWO assertions:
+- [x] `evolution/src/components/evolution/tabs/TimelineTab.test.tsx` — TWO assertions:
   - Iteration with agent_name `'reflect_and_generate_from_previous_article'` renders the `REFLECT+GEN` badge.
   - Legend list includes the new badge entry (queryAllByText('REFLECT+GEN')).
-- [ ] `evolution/src/components/evolution/tabs/CostEstimatesTab.test.tsx` — `PerIterationSummarySection` mock with reflect_and_generate iteration renders `REFLECT+GEN` badge (covers the second site of the #22/#40 fix).
-- [ ] `evolution/src/components/evolution/tables/RunsTable.test.tsx` — Spent fallback sums all FOUR cost components (`generation_cost + ranking_cost + seed_cost + reflection_cost`) when rollup `cost` is missing.
-- [ ] `evolution/src/lib/cost/getRunCostWithFallback.test.ts` — same four-component sum assertion at the helper level.
-- [ ] `evolution/src/components/evolution/tabs/EntityMetricsTab.test.tsx` (continued) — assertion for **Fix #35**: with `reflection_cost=$0.012` in the metrics map, the Cost section renders a summary card labelled "Reflection Cost" with value `$0.0120`.
+- [x] `evolution/src/components/evolution/tabs/CostEstimatesTab.test.tsx` — `PerIterationSummarySection` mock with reflect_and_generate iteration renders `REFLECT+GEN` badge (covers the second site of the #22/#40 fix).
+- [x] `evolution/src/components/evolution/tables/RunsTable.test.tsx` — Spent fallback sums all FOUR cost components (`generation_cost + ranking_cost + seed_cost + reflection_cost`) when rollup `cost` is missing.
+- [x] `evolution/src/lib/cost/getRunCostWithFallback.test.ts` — same four-component sum assertion at the helper level.
+- [x] `evolution/src/components/evolution/tabs/EntityMetricsTab.test.tsx` (continued) — assertion for **Fix #35**: with `reflection_cost=$0.012` in the metrics map, the Cost section renders a summary card labelled "Reflection Cost" with value `$0.0120`.
 
 **E2E** (extend existing `src/__tests__/e2e/specs/09-admin/admin-evolution-run-pipeline.spec.ts`, which already has `afterAll` cleanup per Rule 16):
 
-- [ ] **POSITIVE assertions only** (avoids the false-pass when the tab fails to render). Use the test-data factory `createTestReflectAndGenerateRun()` from pre-flight to seed:
+- [x] **POSITIVE assertions only** (avoids the false-pass when the tab fails to render). Use the test-data factory `createTestReflectAndGenerateRun()` from pre-flight to seed:
   - Wait for hydration: `await page.getByTestId('entity-metrics-grid').waitFor({ state: 'visible' });` (Rule 18).
   - Assert at least one Elo-attribution metric value matches `/^-?\d+$/` (Elo formatter, NOT `/^\$/`).
   - Negative assertion: `await expect(page.getByTestId('entity-metrics-grid')).not.toContainText('$-')` (only valid AFTER positive grid-visibility check above).
   - Cost Estimates tab: assert Tactic column row visible for the seeded reflect+generate invocation; cell text equals the seeded tactic name (use `getByRole('cell', { name: 'lexical_simplify' })` per Rule 3, NOT nth-child).
   - Timeline tab: `await expect(page.getByText('REFLECT+GEN')).toBeVisible()` for the seeded iteration AND the legend.
-- [ ] Tag the new assertions `{ tag: ['@evolution', '@critical'] }` so the negative-dollar regression is caught on every PR to main (matches `admin-evolution-navigation.spec.ts:16` precedent).
+- [x] Tag the new assertions `{ tag: ['@evolution', '@critical'] }` so the negative-dollar regression is caught on every PR to main (matches `admin-evolution-navigation.spec.ts:16` precedent).
 
 ### Phase 2 — Accessibility cluster (5 fixes)
 
 **Goal**: ship the small a11y wins together so the regression test can be one spec.
 
-- [ ] **Fix #4/#8 (refresh status not aria-live)** — `evolution/src/components/evolution/AutoRefreshProvider.tsx:117-150`. Add `aria-live="polite"` and `aria-atomic="true"` to the `<span data-testid="refresh-ago">`.
-- [ ] **Fix #18 (per-row Delete buttons unlabelled) — TWO patches**:
+- [x] **Fix #4/#8 (refresh status not aria-live)** — `evolution/src/components/evolution/AutoRefreshProvider.tsx:117-150`. Add `aria-live="polite"` and `aria-atomic="true"` to the `<span data-testid="refresh-ago">`.
+- [x] **Fix #18 (per-row Delete buttons unlabelled) — TWO patches**:
   - **Patch A (inline buttons)**: `src/app/admin/evolution/runs/page.tsx:198` and `src/app/admin/evolution/experiments/page.tsx:236-239` render bare `<button>Delete</button>`. Wrap with `aria-label="Delete run ${row.id.slice(0,8)}"` (or `Delete experiment ${row.name}` for experiments).
   - **Patch B (`EntityListPage.RowAction` infrastructure)**: `evolution/src/components/evolution/EntityListPage.tsx:194-205` renders generic `RowAction` buttons across `prompts/page.tsx` and `strategies/page.tsx`. Extend `RowAction<T>` type to optionally accept `getAriaLabel?: (row: T) => string`; when provided, set `aria-label` on the rendered button. Update the two consumers to pass it.
   - **Skip pages without Delete buttons**: variants, tactics, invocations, arena topic list, arena topic detail — verified by Pass-2 audit to have no per-row Delete buttons. Documented here so reviewers don't expect changes there.
-- [ ] **Fix #45 (stale tooltip missing)** — `evolution/src/components/evolution/primitives/StatusBadge.tsx`. Add `title="Run/experiment marked stale: claimed/running for >10min without heartbeat"` to the stale badge variant.
-- [ ] **Fix #32 (asterisk legend missing)** — `evolution/src/components/evolution/primitives/MetricGrid.tsx`. Add an inline footnote `* indicates n=2 (low sample)` when any rendered metric has the asterisk.
-- [ ] **Fix #52 (arena dim legend invisible)** — `src/app/admin/evolution/arena/[topicId]/page.tsx:264-267`. Promote the existing cutoff line to a callout box with a small icon, AND attach `title="Below top 15% Elo cutoff — dimmed"` to each dimmed row.
+- [x] **Fix #45 (stale tooltip missing)** — `evolution/src/components/evolution/primitives/StatusBadge.tsx`. Add `title="Run/experiment marked stale: claimed/running for >10min without heartbeat"` to the stale badge variant.
+- [x] **Fix #32 (asterisk legend missing)** — `evolution/src/components/evolution/primitives/MetricGrid.tsx`. Add an inline footnote `* indicates n=2 (low sample)` when any rendered metric has the asterisk.
+- [x] **Fix #52 (arena dim legend invisible)** — `src/app/admin/evolution/arena/[topicId]/page.tsx:264-267`. Promote the existing cutoff line to a callout box with a small icon, AND attach `title="Below top 15% Elo cutoff — dimmed"` to each dimmed row.
 
 **Tests**:
-- [ ] Unit: `AutoRefreshProvider.test.tsx` — assert `aria-live="polite"`.
-- [ ] Unit: `StatusBadge.test.tsx` — assert `title` attribute on stale variant.
-- [ ] Unit: `MetricGrid.test.tsx` — assert footnote renders when any metric has `n < 3`.
-- [ ] E2E: extend `admin-evolution-accessibility.spec.ts` (already exists per `testing_setup.md`): assert per-row Delete buttons have unique aria-labels.
+- [x] Unit: `AutoRefreshProvider.test.tsx` — assert `aria-live="polite"`.
+- [x] Unit: `StatusBadge.test.tsx` — assert `title` attribute on stale variant.
+- [x] Unit: `MetricGrid.test.tsx` — assert footnote renders when any metric has `n < 3`.
+- [x] E2E: extend `admin-evolution-accessibility.spec.ts` (already exists per `testing_setup.md`): assert per-row Delete buttons have unique aria-labels.
 
 ### Phase 3 — Browser tab titles + sidebar header (3 fixes)
 
 > **Both run-detail (`runs/[runId]/page.tsx`) and arena-topic-detail (`arena/[topicId]/page.tsx`) are `'use client'` components — `generateMetadata` is server-only and Next.js will reject it. Use the `useEffect(() => { document.title = ... })` pattern, which is already used by `runs/page.tsx:83`, `arena/page.tsx:58`, `experiments/page.tsx:130`. Accept the SSR title gap (acceptable for an admin-only page).**
 
-- [ ] **Fix #21 (run detail tab title)** — `src/app/admin/evolution/runs/[runId]/page.tsx`. Add inside the existing component:
+- [x] **Fix #21 (run detail tab title)** — `src/app/admin/evolution/runs/[runId]/page.tsx`. Add inside the existing component:
   ```typescript
   useEffect(() => {
     if (runId) document.title = `Run ${runId.slice(0,8)} | Evolution`;
   }, [runId]);
   ```
-- [ ] **Fix #50 (arena topic detail tab title)** — `src/app/admin/evolution/arena/[topicId]/page.tsx`. Same pattern, using the topic name once loaded:
+- [x] **Fix #50 (arena topic detail tab title)** — `src/app/admin/evolution/arena/[topicId]/page.tsx`. Same pattern, using the topic name once loaded:
   ```typescript
   useEffect(() => {
     if (topic?.name) document.title = `${topic.name} | Arena | Evolution`;
   }, [topic?.name]);
   ```
-- [ ] **Fix #2/#19 (sidebar header static)** — `evolution/src/components/evolution/EvolutionSidebar.tsx:48`. Replace hardcoded "Evolution Dashboard" with the current section name derived from pathname (e.g., "Evolution / Runs"). Cleaner: just say "Evolution" and let the breadcrumb carry section context.
+- [x] **Fix #2/#19 (sidebar header static)** — `evolution/src/components/evolution/EvolutionSidebar.tsx:48`. Replace hardcoded "Evolution Dashboard" with the current section name derived from pathname (e.g., "Evolution / Runs"). Cleaner: just say "Evolution" and let the breadcrumb carry section context.
 
 **Tests**:
-- [ ] Unit: `EvolutionSidebar.test.tsx` — assert title text comes from pathname-derived label.
-- [ ] E2E: add to `admin-evolution-navigation.spec.ts` — `expect(page).toHaveTitle(/Run [a-f0-9]{8}/)` after navigating to a run detail.
+- [x] Unit: `EvolutionSidebar.test.tsx` — assert title text comes from pathname-derived label.
+- [x] E2E: add to `admin-evolution-navigation.spec.ts` — `expect(page).toHaveTitle(/Run [a-f0-9]{8}/)` after navigating to a run detail.
 
 ### Phase 4 — List/table polish (8 fixes)
 
-- [ ] **Fix #1 (cost=0 vs unknown)** — `evolution/src/lib/utils/formatters.ts` (`formatCost`). Treat `value === 0` from a metric row that lacks the rollup the same as `null` — render `'—'` or `$0 *` with footnote. Audit: the runs list `Spent` cell currently calls `formatCost(getMetricValue(run.metrics, 'cost'))` and `getMetricValue` returns 0 when missing — change to return `null` when the metric row is absent.
-- [ ] **Fix #14 (Estimation Error % column unclear)** — `evolution/src/lib/core/metricCatalog.ts:213`. Update `description` to `'Mean per-invocation estimation error %. Negative = actual was less than estimated (over-estimate).'`.
-- [ ] **Fix #15 (no page-size selector)** — `evolution/src/components/evolution/EntityListPage.tsx`. Add a `PageSize: 20 ▼` dropdown next to pagination with options `10, 20, 50, 100`. Default 20 (preserve current). Wire to existing `pageSize` query param.
-- [ ] **Fix #20 (count below heading)** — `EntityListPage.tsx:228-235`. Render heading as `{title} <span class="muted">({count})</span>`.
-- [ ] **Fix #25 (chip prefixes redundant)** — `EntityDetailHeader.tsx:154-161`. Remove the `{prefix}:` prefix; rely on chip ordering + section context. Keep the prefix only on the first chip if absolutely needed for screen readers (use `<span class="sr-only">`).
-- [ ] **Fix #41 (abs error formula confusing)** — `CostEstimatesTab.tsx`. Add `<HelpTooltip>` next to the ABS ERROR card explaining "Mean of per-invocation \|actual − estimated\|, NOT \|sum_actual − sum_estimated\|. Use ERROR % for run-level total error."
-- [ ] **Fix #43 (SE > mean threshold)** — `CostEstimatesTab.tsx:156`. If `SE > 1.5 * |mean|`, render the SE in muted color and add a `title="High variance — interpret with care"` attribute.
-- [ ] **Fix #44 (experiments list cell density)** — `src/app/admin/evolution/experiments/page.tsx`. Combine the Best Winner Elo value and CI into one cell using `formatEloCIRange()` (already exported per `formatters.ts`).
+- [x] **Fix #1 (cost=0 vs unknown)** — `evolution/src/lib/utils/formatters.ts` (`formatCost`). Treat `value === 0` from a metric row that lacks the rollup the same as `null` — render `'—'` or `$0 *` with footnote. Audit: the runs list `Spent` cell currently calls `formatCost(getMetricValue(run.metrics, 'cost'))` and `getMetricValue` returns 0 when missing — change to return `null` when the metric row is absent.
+- [x] **Fix #14 (Estimation Error % column unclear)** — `evolution/src/lib/core/metricCatalog.ts:213`. Update `description` to `'Mean per-invocation estimation error %. Negative = actual was less than estimated (over-estimate).'`.
+- [x] **Fix #15 (no page-size selector)** — `evolution/src/components/evolution/EntityListPage.tsx`. Add a `PageSize: 20 ▼` dropdown next to pagination with options `10, 20, 50, 100`. Default 20 (preserve current). Wire to existing `pageSize` query param.
+- [x] **Fix #20 (count below heading)** — `EntityListPage.tsx:228-235`. Render heading as `{title} <span class="muted">({count})</span>`.
+- [x] **Fix #25 (chip prefixes redundant)** — `EntityDetailHeader.tsx:154-161`. Remove the `{prefix}:` prefix; rely on chip ordering + section context. Keep the prefix only on the first chip if absolutely needed for screen readers (use `<span class="sr-only">`).
+- [x] **Fix #41 (abs error formula confusing)** — `CostEstimatesTab.tsx`. Add `<HelpTooltip>` next to the ABS ERROR card explaining "Mean of per-invocation \|actual − estimated\|, NOT \|sum_actual − sum_estimated\|. Use ERROR % for run-level total error."
+- [x] **Fix #43 (SE > mean threshold)** — `CostEstimatesTab.tsx:156`. If `SE > 1.5 * |mean|`, render the SE in muted color and add a `title="High variance — interpret with care"` attribute.
+- [x] **Fix #44 (experiments list cell density)** — `src/app/admin/evolution/experiments/page.tsx`. Combine the Best Winner Elo value and CI into one cell using `formatEloCIRange()` (already exported per `formatters.ts`).
 
 **Tests**:
-- [ ] Unit: `formatters.test.ts` — `formatCost(null) === '—'`, `formatCost(0) === '$0.00'`, `getMetricValue` returns null for missing metric.
-- [ ] Unit: `EntityListPage.test.tsx` — page-size dropdown changes effective page size.
-- [ ] Unit: `metricCatalog.test.ts` — `Estimation Error %` description includes "over-estimate".
-- [ ] E2E: extend `admin-evolution-runs.spec.ts` — assert pagination dropdown is visible and clicking 50 increases visible row count.
+- [x] Unit: `formatters.test.ts` — `formatCost(null) === '—'`, `formatCost(0) === '$0.00'`, `getMetricValue` returns null for missing metric.
+- [x] Unit: `EntityListPage.test.tsx` — page-size dropdown changes effective page size.
+- [x] Unit: `metricCatalog.test.ts` — `Estimation Error %` description includes "over-estimate".
+- [x] E2E: extend `admin-evolution-runs.spec.ts` — assert pagination dropdown is visible and clicking 50 increases visible row count.
 
 ### Phase 5 — Arena consistency + remaining polish (8 fixes)
 
-- [ ] **Fix #9 (refresh button glyph)** — `AutoRefreshProvider.tsx:146`. Replace `↻ Refresh` with `<RefreshIcon aria-hidden /> Refresh` (using existing icon library).
-- [ ] **Fix #27 (no completion timestamp on run header)** — `EntityDetailHeader.tsx`. Add optional `subtitle` prop rendered below the heading. Pass `Completed ${formatRelative(completed_at)} (${formatAbsolute(completed_at)})` from run detail page.
-- [ ] **Fix #37 (cost estimates loading skeleton too small)** — `CostEstimatesTab.tsx:655-663`. Replace `<LoadingSkeleton h-24 />` with a multi-row skeleton matching the actual layout (5 summary cards + table skeleton).
-- [ ] **Fix #39 (GFSA histogram degenerate buckets)** — `costEstimationConstants.ts:5-11`. Compute buckets dynamically from data range when all values fall within a single fixed bucket (fall back to fixed buckets when range > 50%).
-- [ ] **Fix #46 (Cancel/Delete column ambiguity)** — `experiments/page.tsx`. Replace conditional Cancel-or-Delete with a small `⋯` menu button per row → "Cancel" or "Delete" options as appropriate. Reduces vertical column ambiguity.
-- [ ] **Fix #47 (search placeholder visible empty)** — `experiments/page.tsx:49` already sets `placeholder: 'Search...'`. Investigate why Playwright snapshot showed empty — likely a CSS specificity issue. Fix at `EntityListPage.tsx:305` if the placeholder is being overridden.
-- [ ] **Fix #49 (arena count "X of Y")** — `evolution/src/components/evolution/EntityListPage.tsx:232-235`. When list is filtered, change "{N} items" to "{visible} of {total} items".
-- [ ] **Fix #51 (arena column-visibility picker)** — extract a shared primitive instead of copy-pasting:
+- [x] **Fix #9 (refresh button glyph)** — `AutoRefreshProvider.tsx:146`. Replace `↻ Refresh` with `<RefreshIcon aria-hidden /> Refresh` (using existing icon library).
+- [x] **Fix #27 (no completion timestamp on run header)** — `EntityDetailHeader.tsx`. Add optional `subtitle` prop rendered below the heading. Pass `Completed ${formatRelative(completed_at)} (${formatAbsolute(completed_at)})` from run detail page.
+- [x] **Fix #37 (cost estimates loading skeleton too small)** — `CostEstimatesTab.tsx:655-663`. Replace `<LoadingSkeleton h-24 />` with a multi-row skeleton matching the actual layout (5 summary cards + table skeleton).
+- [x] **Fix #39 (GFSA histogram degenerate buckets)** — `costEstimationConstants.ts:5-11`. Compute buckets dynamically from data range when all values fall within a single fixed bucket (fall back to fixed buckets when range > 50%).
+- [x] **Fix #46 (Cancel/Delete column ambiguity)** — `experiments/page.tsx`. Replace conditional Cancel-or-Delete with a small `⋯` menu button per row → "Cancel" or "Delete" options as appropriate. Reduces vertical column ambiguity.
+- [x] **Fix #47 (search placeholder visible empty)** — `experiments/page.tsx:49` already sets `placeholder: 'Search...'`. Investigate why Playwright snapshot showed empty — likely a CSS specificity issue. Fix at `EntityListPage.tsx:305` if the placeholder is being overridden.
+- [x] **Fix #49 (arena count "X of Y")** — `evolution/src/components/evolution/EntityListPage.tsx:232-235`. When list is filtered, change "{N} items" to "{visible} of {total} items".
+- [x] **Fix #51 (arena column-visibility picker)** — extract a shared primitive instead of copy-pasting:
   - **Step 1**: extract `ColumnPicker` from `runs/page.tsx:46` into `evolution/src/components/evolution/primitives/ColumnPicker.tsx`. Re-export via `evolution/src/components/evolution/index.ts` barrel. Update runs page to import the new primitive (no behavior change).
   - **Step 2**: extract the SSR-safe persistence dance from `runs/page.tsx:91-116` (`useState(() => new Set())` + load-in-`useEffect` + `hiddenColsLoaded` gate) into a reusable hook `evolution/src/components/evolution/hooks/usePersistedHiddenColumns.ts`. Both runs and arena pages consume it.
   - **Step 3**: use `<ColumnPicker>` + `usePersistedHiddenColumns('evolution-arena-leaderboard-hidden-columns')` on `src/app/admin/evolution/arena/[topicId]/page.tsx`.
   - This prevents a third copy when experiments list eventually gets one.
-- [ ] **Fix #53 (arena status plain text)** — `arena/page.tsx:48`. Change `render: (t) => t.status` to `render: (t) => <EvolutionStatusBadge status={t.status} variant="run-status" />`.
-- [ ] **Fix #42 (extreme outliers display)** — experiments list `Avg Estimation Error %` column. The plan does NOT introduce a new `formatErrorPct` function (none exists in `formatters.ts` — only `formatPercentValue`). Instead, handle the `cost === 0` case at the column-render level in `evolution/src/lib/metrics/metricColumns.tsx` (or wherever the column accessor lives — verify in Phase 5 by `grep -rn "estimation_error_pct\|Avg Estimation Error"`):
+- [x] **Fix #53 (arena status plain text)** — `arena/page.tsx:48`. Change `render: (t) => t.status` to `render: (t) => <EvolutionStatusBadge status={t.status} variant="run-status" />`.
+- [x] **Fix #42 (extreme outliers display)** — experiments list `Avg Estimation Error %` column. The plan does NOT introduce a new `formatErrorPct` function (none exists in `formatters.ts` — only `formatPercentValue`). Instead, handle the `cost === 0` case at the column-render level in `evolution/src/lib/metrics/metricColumns.tsx` (or wherever the column accessor lives — verify in Phase 5 by `grep -rn "estimation_error_pct\|Avg Estimation Error"`):
   ```typescript
   // In column.render(row):
   const totalCost = row.metrics.find(m => m.metric_name === 'total_cost')?.value ?? 0;
@@ -240,17 +240,17 @@ Phase 5 (Fix #42: handles `cost === 0` at the column level)
   ```
 
 **Tests**:
-- [ ] Unit: `EntityListPage.test.tsx` — count displays "X of Y" when filter is active.
-- [ ] Unit: `metricColumns.test.tsx` — Avg Estimation Error % column with `total_cost=0` row renders `'—'` (NOT `-100%`); with `total_cost>0` renders the percent value via `formatPercentValue`.
-- [ ] E2E: `admin-arena.spec.ts` — assert column-visibility picker is visible on arena leaderboard; assert status badge renders (not plain text). Call the existing `resetFilters()` POM helper after `gotoArena*()` per testing_overview Rule 1.
+- [x] Unit: `EntityListPage.test.tsx` — count displays "X of Y" when filter is active.
+- [x] Unit: `metricColumns.test.tsx` — Avg Estimation Error % column with `total_cost=0` row renders `'—'` (NOT `-100%`); with `total_cost>0` renders the percent value via `formatPercentValue`.
+- [x] E2E: `admin-arena.spec.ts` — assert column-visibility picker is visible on arena leaderboard; assert status badge renders (not plain text). Call the existing `resetFilters()` POM helper after `gotoArena*()` per testing_overview Rule 1.
 
 ### Phase 6 — Final regression suite
 
-- [ ] Run full test matrix: `npm run lint && npm run typecheck && npm run build && npm test`.
-- [ ] Run `npm run test:e2e:critical` (~18 tests, target <3min).
-- [ ] Run `npm run test:e2e:evolution` (~45 tests).
-- [ ] Audit test coverage: every Phase-1 Bug-Major fix must have at least one assertion (unit OR E2E).
-- [ ] Commit phase 6 (final regression run).
+- [x] Run full test matrix: `npm run lint && npm run typecheck && npm run build && npm test`.
+- [x] Run `npm run test:e2e:critical` (~18 tests, target <3min).
+- [x] Run `npm run test:e2e:evolution` (~45 tests).
+- [x] Audit test coverage: every Phase-1 Bug-Major fix must have at least one assertion (unit OR E2E).
+- [x] Commit phase 6 (final regression run).
 
 ### Out of scope (explicitly deferred)
 
@@ -282,49 +282,49 @@ To match `/finalize` expectations without burning CI:
 Tests are written per-phase alongside fixes (not deferred to a single test phase).
 
 ### Unit Tests
-- [ ] Phase 1: 4 unit tests (EntityMetricsTab formatter, costEstimationActions tactic, TimelineTab badge, RunsTable fallback).
-- [ ] Phase 2: 3 unit tests (AutoRefreshProvider aria-live, StatusBadge stale title, MetricGrid asterisk footnote).
-- [ ] Phase 3: 1 unit test (EvolutionSidebar pathname-derived title).
-- [ ] Phase 4: 3 unit tests (formatters, EntityListPage page-size dropdown, metricCatalog description).
-- [ ] Phase 5: 2 unit tests (filtered count display, errorPct null when cost=0).
+- [x] Phase 1: 4 unit tests (EntityMetricsTab formatter, costEstimationActions tactic, TimelineTab badge, RunsTable fallback).
+- [x] Phase 2: 3 unit tests (AutoRefreshProvider aria-live, StatusBadge stale title, MetricGrid asterisk footnote).
+- [x] Phase 3: 1 unit test (EvolutionSidebar pathname-derived title).
+- [x] Phase 4: 3 unit tests (formatters, EntityListPage page-size dropdown, metricCatalog description).
+- [x] Phase 5: 2 unit tests (filtered count display, errorPct null when cost=0).
 
 ### Integration Tests
-- [ ] None new — existing `evolution-cost-attribution.integration.test.ts` already covers metric persistence; verify it still passes after Phase 1 changes.
+- [x] None new — existing `evolution-cost-attribution.integration.test.ts` already covers metric persistence; verify it still passes after Phase 1 changes.
 
 ### E2E Tests
 
-- [ ] Extend `admin-evolution-run-pipeline.spec.ts`: assert no `$-` text on Metrics tab; assert Tactic non-empty on Cost Estimates; assert reflect+generate badge.
-- [ ] Extend `admin-evolution-accessibility.spec.ts`: assert per-row Delete buttons have unique aria-labels; assert refresh status has aria-live.
-- [ ] Extend `admin-evolution-navigation.spec.ts`: assert browser tab title matches `/Run [a-f0-9]{8}/`.
-- [ ] Extend `admin-evolution-runs.spec.ts`: assert page-size dropdown.
-- [ ] Extend `admin-arena.spec.ts`: assert column-picker visible; status badge renders.
+- [x] Extend `admin-evolution-run-pipeline.spec.ts`: assert no `$-` text on Metrics tab; assert Tactic non-empty on Cost Estimates; assert reflect+generate badge.
+- [x] Extend `admin-evolution-accessibility.spec.ts`: assert per-row Delete buttons have unique aria-labels; assert refresh status has aria-live.
+- [x] Extend `admin-evolution-navigation.spec.ts`: assert browser tab title matches `/Run [a-f0-9]{8}/`.
+- [x] Extend `admin-evolution-runs.spec.ts`: assert page-size dropdown.
+- [x] Extend `admin-arena.spec.ts`: assert column-picker visible; status badge renders.
 
 ### Manual Verification
 
-- [ ] Open a reflect+generate run's Metrics tab in browser; verify no negative dollar values, all metric labels readable.
-- [ ] Open run-list in browser at 1280px viewport; verify default columns fit (after Phase 4 page-size change is independent — column count is still 14, but per-user localStorage persists choice).
-- [ ] Navigate to arena topic detail; verify column picker is visible.
-- [ ] Test keyboard-only nav across run-detail page tabs; verify per-row Delete buttons announce unique labels via screen reader.
+- [x] Open a reflect+generate run's Metrics tab in browser; verify no negative dollar values, all metric labels readable.
+- [x] Open run-list in browser at 1280px viewport; verify default columns fit (after Phase 4 page-size change is independent — column count is still 14, but per-user localStorage persists choice).
+- [x] Navigate to arena topic detail; verify column picker is visible.
+- [x] Test keyboard-only nav across run-detail page tabs; verify per-row Delete buttons announce unique labels via screen reader.
 
 ## Verification
 
 ### A) Playwright Verification (required for UI changes)
-- [ ] Run `npm run test:e2e:critical` after each phase commit.
-- [ ] Run `npm run test:e2e:evolution` after Phase 1 (most evolution-touching).
-- [ ] Final `npm run test:e2e` in Phase 6.
+- [x] Run `npm run test:e2e:critical` after each phase commit.
+- [x] Run `npm run test:e2e:evolution` after Phase 1 (most evolution-touching).
+- [x] Final `npm run test:e2e` in Phase 6.
 
 ### B) Automated Tests (per-phase)
 
 Per "CI Gate Per Phase" above:
-- [ ] Phases 1-5: `npm run lint && npm run typecheck && npm test && npm run test:e2e:critical` after each.
-- [ ] Phase 1 only: also run `npm run test:e2e:evolution`.
-- [ ] Phase 6: full matrix including `npm run build` and `npm run test:e2e`.
+- [x] Phases 1-5: `npm run lint && npm run typecheck && npm test && npm run test:e2e:critical` after each.
+- [x] Phase 1 only: also run `npm run test:e2e:evolution`.
+- [x] Phase 6: full matrix including `npm run build` and `npm run test:e2e`.
 
 ## Documentation Updates
-- [ ] `evolution/docs/visualization.md` — note the new `REFLECT+GEN` badge in Timeline + Cost Estimates sections; note new `ColumnPicker` primitive + `usePersistedHiddenColumns` hook now used by runs and arena pages.
-- [ ] `evolution/docs/metrics.md` — document the new `DYNAMIC_METRIC_REGISTRY` typed registry in `lib/metrics/types.ts` so future contributors who add a dynamic prefix know to declare its formatter + category + label suffix in one place.
-- [ ] `evolution/docs/cost_optimization.md` — note that the runs list `Spent` fallback and `getRunCostsWithFallback` helper now include `reflection_cost`.
-- [ ] `docs/feature_deep_dives/admin_panel.md` — update the Spent column description to reflect `Reflection Cost` as a sibling column; update arena page section to mention the new column-visibility picker.
+- [x] `evolution/docs/visualization.md` — note the new `REFLECT+GEN` badge in Timeline + Cost Estimates sections; note new `ColumnPicker` primitive + `usePersistedHiddenColumns` hook now used by runs and arena pages.
+- [x] `evolution/docs/metrics.md` — document the new `DYNAMIC_METRIC_REGISTRY` typed registry in `lib/metrics/types.ts` so future contributors who add a dynamic prefix know to declare its formatter + category + label suffix in one place.
+- [x] `evolution/docs/cost_optimization.md` — note that the runs list `Spent` fallback and `getRunCostsWithFallback` helper now include `reflection_cost`.
+- [x] `docs/feature_deep_dives/admin_panel.md` — update the Spent column description to reflect `Reflection Cost` as a sibling column; update arena page section to mention the new column-visibility picker.
 
 ## Review & Discussion
 
