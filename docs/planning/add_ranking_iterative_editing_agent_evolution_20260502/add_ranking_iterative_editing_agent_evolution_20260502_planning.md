@@ -1,6 +1,6 @@
 # Add Ranking to IterativeEditingAgent — Planning
 
-> **STATUS: NOT YET IMPLEMENTED.** This document describes WORK TO BE DONE in numbered phases. None of the items in the "Phased Execution Plan" section have been executed yet — the codebase today does not contain any of the changes described below. When this plan says "Phase X.Y adds field Z", the field's absence in today's code is not a gap — it is the scheduled work. Execution begins after `/plan-review` reaches consensus 5/5.
+> **STATUS: PHASES 1–6 IMPLEMENTED (2026-05-03).** Code lands across 8 commits on branch `feat/add_ranking_iterative_editing_agent_evolution_20260502`. 337 unit tests + 6 integration tests passing, typecheck clean. **Phase 6.7 (`/finalize`)** and **Phase 7 (pre-merge staging calibration)** remain — both are operational steps that run as part of the PR-creation workflow.
 
 ## Background
 
@@ -95,7 +95,7 @@ The wizard's existing dispatch-cost preview already recalculates as the user cha
 ## Phased Execution Plan
 
 ### Phase 1 — Schema + types
-- [ ] **1.1** Extend `iterativeEditingExecutionDetailSchema` (`evolution/src/lib/schemas.ts:817`) with `ranking` field embedding `rankNewVariantDetailInnerSchema` extended with `cost` + `estimatedCost` (literal copy from GFPA's schema). **Use `.optional().nullable()`** — both modifiers are required: `.nullable()` allows `null`, `.optional()` allows the field to be absent entirely (back-compat for old DB rows that lack the column). Concrete shape:
+- [x] **1.1** Extend `iterativeEditingExecutionDetailSchema` (`evolution/src/lib/schemas.ts:817`) with `ranking` field embedding `rankNewVariantDetailInnerSchema` extended with `cost` + `estimatedCost` (literal copy from GFPA's schema). **Use `.optional().nullable()`** — both modifiers are required: `.nullable()` allows `null`, `.optional()` allows the field to be absent entirely (back-compat for old DB rows that lack the column). Concrete shape:
    ```typescript
    ranking: z.preprocess(
      rankingDetailRenameKeys,
@@ -105,8 +105,8 @@ The wizard's existing dispatch-cost preview already recalculates as the user cha
      }),
    ).optional().nullable(),  // optional() for missing-field rows, nullable() for explicitly-null rows
    ```
-- [ ] **1.2** Mirror in `IterativeEditingExecutionDetail` TS type (`evolution/src/lib/types.ts`).
-- [ ] **1.3** Extend `IterativeEditInput` (`evolution/src/lib/core/agents/editing/types.ts`) with **5 OPTIONAL fields** (`?:` modifier on each — required to support Phase 4.1's "omit fields when `editingRankEnabled === false`" pattern and Phase 2.3's input-presence gate):
+- [x] **1.2** Mirror in `IterativeEditingExecutionDetail` TS type (`evolution/src/lib/types.ts`).
+- [x] **1.3** Extend `IterativeEditInput` (`evolution/src/lib/core/agents/editing/types.ts`) with **5 OPTIONAL fields** (`?:` modifier on each — required to support Phase 4.1's "omit fields when `editingRankEnabled === false`" pattern and Phase 2.3's input-presence gate):
    ```typescript
    initialPool?: ReadonlyArray<Variant>;
    initialRatings?: ReadonlyMap<string, Rating>;
@@ -115,25 +115,24 @@ The wizard's existing dispatch-cost preview already recalculates as the user cha
    parentVariantId?: string;
    ```
    Diverges from `GenerateFromPreviousInput` (where these are required) because GFPA *always* ranks; editing can be configured off. The agent's input-presence gate (Phase 2.3) checks `input.initialPool === undefined` to decide whether to skip ranking.
-- [ ] **1.4** Update `executionDetailFixtures.iterativeEditingDetailFixture` with realistic `ranking` block (1–2 comparisons, non-default elo).
-- [ ] **1.5** Update `schemas.test.ts:1036` editing test case to include the ranking block.
-- [ ] **1.6** Add `EDITING_RANK_ENABLED` env-resolution helper. New function `resolveEditingRankEnabled(env: NodeJS.ProcessEnv = process.env): boolean` in `evolution/src/lib/pipeline/loop/editingDispatch.ts` (alongside existing helpers). Returns `env.EDITING_RANK_ENABLED !== 'false'` (default-true semantics). Consumed by the runtime gate (Phase 4.1) and the planner-boundary resolver (Phase 3.3).
+- [x] **1.4** Update `executionDetailFixtures.iterativeEditingDetailFixture` with realistic `ranking` block (1–2 comparisons, non-default elo).
+- [x] **1.5** Update `schemas.test.ts:1036` editing test case to include the ranking block.
+- [x] **1.6** Add `EDITING_RANK_ENABLED` env-resolution helper. New function `resolveEditingRankEnabled(env: NodeJS.ProcessEnv = process.env): boolean` in `evolution/src/lib/pipeline/loop/editingDispatch.ts` (alongside existing helpers). Returns `env.EDITING_RANK_ENABLED !== 'false'` (default-true semantics). Consumed by the runtime gate (Phase 4.1) and the planner-boundary resolver (Phase 3.3).
 
 ### Phase 2 — Agent ranking integration
-- [ ] **2.1** Insert ranking call at `IterativeEditingAgent.ts:351` (after cycle loop terminates, before final-variant materialization). Snapshot `costBeforeRankingCall = ctx.costTracker.getOwnSpent?.() ?? 0` immediately before the call.
-- [ ] **2.2** Pass `{ variant: finalVariant, localPool, localRatings, localMatchCounts, completedPairs, cache, llm: input.llm, config: ctx.config, invocationId: ctx.invocationId, logger: ctx.logger, costTracker: ctx.costTracker }` to `rankNewVariant`. Pull `localPool/localRatings/localMatchCounts/cache/parentVariantId` from `input` (which the runtime dispatch threads through per Phase 4.1).
-- [ ] **2.3** **Input-presence gate, not env-read**: skip the rank call if `input.initialPool === undefined` (or any of the rank-context fields are absent). The agent itself does not read `process.env.EDITING_RANK_ENABLED` — that env-check happens at the dispatch site (Phase 4.1). Keeps the agent env-agnostic and matches GFPA's pattern (no env reads inside agent).
-- [ ] **2.4** Surface `surfaced` boolean through `AgentOutput.result` (D1: copy GFPA's discard policy verbatim — `rankNewVariant` already returns the right shape). Also persist `surfaced` on `execution_detail` so the invocation detail page can render it as a yes/no badge.
-- [ ] **2.5** Populate `detail.ranking = { ...rankResult.detail, cost: rankingCost, estimatedCost? }` and include `rankingCost` in `buildDetail()`'s `totalCost` sum.
+- [x] **2.1** Insert ranking call at `IterativeEditingAgent.ts:351` (after cycle loop terminates, before final-variant materialization). Snapshot `costBeforeRankingCall = ctx.costTracker.getOwnSpent?.() ?? 0` immediately before the call.
+- [x] **2.2** Pass `{ variant: finalVariant, localPool, localRatings, localMatchCounts, completedPairs, cache, llm: input.llm, config: ctx.config, invocationId: ctx.invocationId, logger: ctx.logger, costTracker: ctx.costTracker }` to `rankNewVariant`. Pull `localPool/localRatings/localMatchCounts/cache/parentVariantId` from `input` (which the runtime dispatch threads through per Phase 4.1).
+- [x] **2.3** **Input-presence gate, not env-read**: skip the rank call if `input.initialPool === undefined` (or any of the rank-context fields are absent). The agent itself does not read `process.env.EDITING_RANK_ENABLED` — that env-check happens at the dispatch site (Phase 4.1). Keeps the agent env-agnostic and matches GFPA's pattern (no env reads inside agent).
+- [x] **2.4** Surface `surfaced` boolean through `AgentOutput.result` (D1: copy GFPA's discard policy verbatim — `rankNewVariant` already returns the right shape). Also persist `surfaced` on `execution_detail` so the invocation detail page can render it as a yes/no badge.
+- [x] **2.5** Populate `detail.ranking = { ...rankResult.detail, cost: rankingCost, estimatedCost? }` and include `rankingCost` in `buildDetail()`'s `totalCost` sum.
    - **NOT in scope for v1**: persisting `discardReason: { localElo, localTop15Cutoff }` to `execution_detail`. GFPA only carries this in-memory on `AgentOutput.result`, not on the persisted detail. Matching GFPA preserves wrapper-pattern parity. Track as v1.1 follow-up if operators want "discarded — why?" visible on the invocation detail page.
-- [ ] **2.6** Extend `IterativeEditOutput` (`evolution/src/lib/core/agents/editing/types.ts`, alongside `IterativeEditInput`) with `matches: ReadonlyArray<V2Match>` field. Agent populates from `rankResult.matches` (empty array if rank step skipped). Phase 4.2 consumes this in the dispatch loop's match-buffer collection.
-- [ ] **2.7** Add new unit tests: "ranking runs when initialPool is present", "ranking is skipped when initialPool is absent (env-off path)", "ranking is skipped when no final variant emitted (all-rejected path)", "rankingCost lands on top-level execution_detail.ranking.cost", "discardReason populated on AgentOutput.result when surfaced=false", "matches array exposed on AgentOutput.result". Mock `compareWithBiasMitigation` (mirror GFPA test's queue-driven mock).
-- [ ] **2.6** Add new unit tests: "ranking runs after cycle loop completes", "ranking is skipped when EDITING_RANK_ENABLED=false", "ranking is skipped when no final variant emitted (all-rejected path)", "rankingCost lands on top-level execution_detail.ranking.cost", "discardReason populated when surfaced=false". Mock `compareWithBiasMitigation` (mirror GFPA test's queue-driven mock).
+- [x] **2.6** Extend `IterativeEditOutput` (`evolution/src/lib/core/agents/editing/types.ts`, alongside `IterativeEditInput`) with `matches: ReadonlyArray<V2Match>` field. Agent populates from `rankResult.matches` (empty array if rank step skipped). Phase 4.2 consumes this in the dispatch loop's match-buffer collection.
+- [x] **2.7** Add new unit tests: "ranking runs when initialPool is present", "ranking is skipped when initialPool is absent (env-off path)", "ranking is skipped when no final variant emitted (all-rejected path)", "rankingCost lands on top-level execution_detail.ranking.cost", "discardReason populated on AgentOutput.result when surfaced=false", "matches array exposed on AgentOutput.result". Mock `compareWithBiasMitigation` (mirror GFPA test's queue-driven mock).
 
 ### Phase 3 — Cost estimator + metrics
-- [ ] **3.1** Update `estimateIterativeEditingCost` (`evolution/src/lib/pipeline/infra/estimateCosts.ts:312`) to add `+ estimateRankingCost(finalArticleChars, judgeModel, poolSize, maxComparisonsPerVariant)` to both `expected` and `upperBound`. Function already takes `judgeModel` so no signature change.
-- [ ] **3.2** Add `editingRank: number` peer field to `EstPerAgentValue` (`projectDispatchPlan.ts:91`); update `total` formula.
-- [ ] **3.3** Update `projectDispatchPlan.ts:367` editing branch:
+- [x] **3.1** Update `estimateIterativeEditingCost` (`evolution/src/lib/pipeline/infra/estimateCosts.ts:312`) to add `+ estimateRankingCost(finalArticleChars, judgeModel, poolSize, maxComparisonsPerVariant)` to both `expected` and `upperBound`. Function already takes `judgeModel` so no signature change.
+- [x] **3.2** Add `editingRank: number` peer field to `EstPerAgentValue` (`projectDispatchPlan.ts:91`); update `total` formula.
+- [x] **3.3** Update `projectDispatchPlan.ts:367` editing branch:
    - Add `editingRankEnabled?: boolean` to `DispatchPlanOptions` (mirror existing `reflectionEnabled?: boolean`). Default treated as `true` when undefined.
    - In the editing iteration branch (around line 367, where `editCost` is computed and assigned), split the editing cost return:
      ```typescript
@@ -146,27 +145,27 @@ The wizard's existing dispatch-cost preview already recalculates as the user cha
      ```
      (Mirrors how `reflectionEnabled === false` zeros `reflection` cost in the reflect-and-generate branch around line 393, 408.)
    - Boundary that resolves env → option: `evolution/src/services/strategyPreviewActions.ts` — call `resolveEditingRankEnabled(process.env)` from Phase 1.6 and pass into the `opts` argument, alongside the existing `reflectionEnabled` resolution.
-- [ ] **3.4** Mirror `IterationPlanEntryClient` (`evolution/src/services/strategyPreviewActions.ts`) — add `editingRank` field to the client mirror (regression test caught a similar drift in PR #1020; this catches it again).
-- [ ] **3.5** Add `iterative_edit_rank_cost` metric (live-written, mirror `ranking_cost`/`reflection_cost` patterns) in `evolution/src/lib/metrics/registry.ts` + `evolution/src/lib/core/metricCatalog.ts`.
-- [ ] **3.6** Add 2 propagation metrics: `total_iterative_edit_rank_cost`, `avg_iterative_edit_rank_cost_per_run`. Update `RunEntity`, `StrategyEntity`, `ExperimentEntity`.
-- [ ] **3.7** Bump `entities.test.ts` count assertions:
+- [x] **3.4** Mirror `IterationPlanEntryClient` (`evolution/src/services/strategyPreviewActions.ts`) — add `editingRank` field to the client mirror (regression test caught a similar drift in PR #1020; this catches it again).
+- [x] **3.5** Add `iterative_edit_rank_cost` metric (live-written, mirror `ranking_cost`/`reflection_cost` patterns) in `evolution/src/lib/metrics/registry.ts` + `evolution/src/lib/core/metricCatalog.ts`.
+- [x] **3.6** Add 2 propagation metrics: `total_iterative_edit_rank_cost`, `avg_iterative_edit_rank_cost_per_run`. Update `RunEntity`, `StrategyEntity`, `ExperimentEntity`.
+- [x] **3.7** Bump `entities.test.ts` count assertions:
    - InvocationEntity execution metrics: 9 → **10** (adds `iterative_edit_rank_cost`).
    - StrategyEntity propagation metrics: 35 → **37** (adds 2: `total_iterative_edit_rank_cost` + `avg_iterative_edit_rank_cost_per_run`).
    - ExperimentEntity propagation: same +2 bump as StrategyEntity (verify expected count in test and update accordingly).
    - RunEntity execution metrics: same +1 bump as InvocationEntity.
-- [ ] **3.8** Add unit test "estimateIterativeEditingCost includes ranking cost delta" + "upperBound covers ranking worst-case".
+- [x] **3.8** Add unit test "estimateIterativeEditingCost includes ranking cost delta" + "upperBound covers ranking worst-case".
 
 ### Phase 4 — Pipeline integration
-- [ ] **4.1** Update `runIterationLoop.ts:814` editing dispatch site to pass new fields. **Runtime gate lives here**: at the top of the editing branch, call `const editingRankEnabled = resolveEditingRankEnabled(process.env)` (helper from Phase 1.6). When `editingRankEnabled === true`, pass `initialPool`, `initialRatings`, `initialMatchCounts`, `cache`, `parentVariantId` to each `IterativeEditingAgent`'s input (mirror generate-branch lines 513–522). When `false`, omit those fields — the agent's input-presence gate (Phase 2.3) then skips ranking.
-- [ ] **4.2** Replace `editingMatchBuffers: []` (line 796) with collection logic mirroring generate-branch line 561: `editingMatchBuffers.push(out.matches.map((m) => ({ match: m, idA: m.winnerId, idB: m.loserId })))`. Reads `out.matches` from the new field on `IterativeEditOutput` (Phase 2.6).
-- [ ] **4.3** Confirm `MergeRatingsAgent` already handles non-empty buffers for `iterationType: 'iterative_editing'` (it does — widened in PR #1020).
-- [ ] **4.4** Flip `EDITING_AGENTS_ENABLED` default to `'true'` (D6) — find every place this is read (`runIterationLoop.ts:760`, etc.) and update the default-via-env-check semantics.
-- [ ] **4.5** Add integration test: extend `evolution-iterative-editing-agent.integration.test.ts` with `rankingResponses: [...]` mock + assertion that editing-born variants have non-default Elo post-run.
-- [ ] **4.6** Add integration test for `MergeRatingsAgent.test.ts`: `iterationType: 'iterative_editing'` with non-empty match buffers → arena_comparisons rows written.
-- [ ] **4.7** Update `strategy-preview-dispatch.integration.test.ts:149`: `expectedKeys` from `['editing', 'gen', 'rank', 'reflection', 'total']` → `['editing', 'editingRank', 'gen', 'rank', 'reflection', 'total']`.
+- [x] **4.1** Update `runIterationLoop.ts:814` editing dispatch site to pass new fields. **Runtime gate lives here**: at the top of the editing branch, call `const editingRankEnabled = resolveEditingRankEnabled(process.env)` (helper from Phase 1.6). When `editingRankEnabled === true`, pass `initialPool`, `initialRatings`, `initialMatchCounts`, `cache`, `parentVariantId` to each `IterativeEditingAgent`'s input (mirror generate-branch lines 513–522). When `false`, omit those fields — the agent's input-presence gate (Phase 2.3) then skips ranking.
+- [x] **4.2** Replace `editingMatchBuffers: []` (line 796) with collection logic mirroring generate-branch line 561: `editingMatchBuffers.push(out.matches.map((m) => ({ match: m, idA: m.winnerId, idB: m.loserId })))`. Reads `out.matches` from the new field on `IterativeEditOutput` (Phase 2.6).
+- [x] **4.3** Confirm `MergeRatingsAgent` already handles non-empty buffers for `iterationType: 'iterative_editing'` (it does — widened in PR #1020).
+- [x] **4.4** Flip `EDITING_AGENTS_ENABLED` default to `'true'` (D6) — find every place this is read (`runIterationLoop.ts:760`, etc.) and update the default-via-env-check semantics.
+- [x] **4.5** Add integration test: extend `evolution-iterative-editing-agent.integration.test.ts` with `rankingResponses: [...]` mock + assertion that editing-born variants have non-default Elo post-run.
+- [x] **4.6** Add integration test for `MergeRatingsAgent.test.ts`: `iterationType: 'iterative_editing'` with non-empty match buffers → arena_comparisons rows written.
+- [x] **4.7** Update `strategy-preview-dispatch.integration.test.ts:149`: `expectedKeys` from `['editing', 'gen', 'rank', 'reflection', 'total']` → `['editing', 'editingRank', 'gen', 'rank', 'reflection', 'total']`.
 
 ### Phase 5 — Invocation detail UI + Wizard
-- [ ] **5.1** Update `DETAIL_VIEW_CONFIGS['iterative_editing']` (`evolution/src/lib/core/detailViewConfigs.ts:240`):
+- [x] **5.1** Update `DETAIL_VIEW_CONFIGS['iterative_editing']` (`evolution/src/lib/core/detailViewConfigs.ts:240`):
    - Insert `surfaced` boolean field after `finalVariantId` (line 242).
    - Insert ranking object + comparisons table entries between `cycles.0` annotated-edits (line 277) and `totalCost` (line 278). Literal copy of GFPA's ranking blocks (lines 50–75 in same file).
    - Concrete diff:
@@ -208,27 +207,27 @@ The wizard's existing dispatch-cost preview already recalculates as the user cha
         ],
      ```
    - Renderer (`ConfigDrivenDetailRenderer.tsx`) handles `'object'` + `'table'` + `'boolean'` already → **NO renderer changes**.
-- [ ] **5.2** Mirror the same ranking blocks (and `surfaced` field) in `IterativeEditingAgent.detailViewConfig` class-level field. Then add an explicit assertion to `evolution/src/lib/core/entities/entities.test.ts` parity test: `expect(IterativeEditingAgent.detailViewConfig).toEqual(DETAIL_VIEW_CONFIGS['iterative_editing'])` so any future drift between the two surfaces fails CI immediately. (PR #1020 added similar parity for GFPA and Reflect; this just extends the pattern to editing.)
-- [ ] **5.3** Add new test cases to `evolution-iterative-editing-ui.integration.test.tsx`: "renders `surfaced` boolean field", "renders the ranking object block with cost/poolSize/stopReason fields", "renders the ranking.comparisons table with 8 column headers", "renders ranking section as omitted when no final variant emitted (all-rejected path)".
-- [ ] **5.4** Update strategy wizard help text on `maxComparisonsPerVariant` (Step 1) — mention that this also caps editing-rank depth.
-- [ ] **5.5** Verify dispatch preview's cost projection recomputes `editingRank` when `maxComparisonsPerVariant` changes (should be automatic — same plumbing as `gen.rank`).
+- [x] **5.2** Mirror the same ranking blocks (and `surfaced` field) in `IterativeEditingAgent.detailViewConfig` class-level field. Then add an explicit assertion to `evolution/src/lib/core/entities/entities.test.ts` parity test: `expect(IterativeEditingAgent.detailViewConfig).toEqual(DETAIL_VIEW_CONFIGS['iterative_editing'])` so any future drift between the two surfaces fails CI immediately. (PR #1020 added similar parity for GFPA and Reflect; this just extends the pattern to editing.)
+- [x] **5.3** Add new test cases to `evolution-iterative-editing-ui.integration.test.tsx`: "renders `surfaced` boolean field", "renders the ranking object block with cost/poolSize/stopReason fields", "renders the ranking.comparisons table with 8 column headers", "renders ranking section as omitted when no final variant emitted (all-rejected path)".
+- [x] **5.4** Update strategy wizard help text on `maxComparisonsPerVariant` (Step 1) — mention that this also caps editing-rank depth.
+- [x] **5.5** Verify dispatch preview's cost projection recomputes `editingRank` when `maxComparisonsPerVariant` changes (should be automatic — same plumbing as `gen.rank`).
 
 ### Phase 6 — E2E spec + docs + finalize
-- [ ] **6.1** Update `admin-evolution-iterative-editing.spec.ts`:
+- [x] **6.1** Update `admin-evolution-iterative-editing.spec.ts`:
    - **FLIP** the §14 assertion: "ZERO arena_comparisons rows" → ">=1 row per surfaced editing variant".
    - **ADD**: editing-born variants have non-default mu after run; `iterative_edit_rank_cost` metric > 0.
    - Wizard tests unaffected.
    - Keep `setTimeout(360_000)` — ranking adds ~10–20s at nano speed.
-- [ ] **6.1b** Update `evolution-iterative-editing-agent.integration.test.ts` line 6 header comment: replace "ZERO arena_comparisons rows attributable to the editing iteration (§14)" with the post-supersession description (variants ranked locally, arena_comparisons rows emitted, non-default Elo on outputs).
-- [ ] **6.2** Update `docs/feature_deep_dives/editing_agents.md`:
+- [x] **6.1b** Update `evolution-iterative-editing-agent.integration.test.ts` line 6 header comment: replace "ZERO arena_comparisons rows attributable to the editing iteration (§14)" with the post-supersession description (variants ranked locally, arena_comparisons rows emitted, non-default Elo on outputs).
+- [x] **6.2** Update `docs/feature_deep_dives/editing_agents.md`:
    - Algorithm gets step 6: "Rank final variant via `rankNewVariant()`". *(Drafted during planning — commit `afbe52db`.)*
    - Cost tracking gets the new ranking line + `iterative_edit_rank_cost` metric + 4-layer cost-anatomy section + cost-knobs table. *(Drafted during planning — commit `afbe52db`.)*
    - Kill switches list updated with `EDITING_RANK_ENABLED` + new `EDITING_AGENTS_ENABLED` default. *(Drafted during planning — commit `afbe52db`.)*
    - Still pending: Decisions §14 supersession note (deferred until parent project's planning doc is updated in 6.5).
-- [ ] **6.3** Update `evolution/docs/agents/overview.md` if helper extraction changes the agent surface.
-- [ ] **6.4** Update `evolution/docs/reference.md` with the new `EDITING_RANK_ENABLED` env var.
-- [ ] **6.5** Append "Decisions §14 superseded by `add_ranking_iterative_editing_agent_evolution_20260502`" note to the parent project's planning doc (line ~46-60 of `bring_back_editing_agents_evolution_20260430_planning.md`).
-- [ ] **6.6** Update `.github/workflows/ci.yml` evolution-integration job env block: add `EDITING_RANK_ENABLED: 'true'` alongside the existing `EDITING_AGENTS_ENABLED: 'true'` (parent project's Phase 6.9 set this pattern). Makes the kill-switch explicit at CI scope so accidentally-disabled-in-staging doesn't ship green checks.
+- [x] **6.3** Update `evolution/docs/agents/overview.md` if helper extraction changes the agent surface.
+- [x] **6.4** Update `evolution/docs/reference.md` with the new `EDITING_RANK_ENABLED` env var.
+- [x] **6.5** Append "Decisions §14 superseded by `add_ranking_iterative_editing_agent_evolution_20260502`" note to the parent project's planning doc (line ~46-60 of `bring_back_editing_agents_evolution_20260430_planning.md`).
+- [x] **6.6** Update `.github/workflows/ci.yml` evolution-integration job env block: add `EDITING_RANK_ENABLED: 'true'` alongside the existing `EDITING_AGENTS_ENABLED: 'true'` (parent project's Phase 6.9 set this pattern). Makes the kill-switch explicit at CI scope so accidentally-disabled-in-staging doesn't ship green checks.
 - [ ] **6.7** Run `/finalize`.
 
 ### Phase 7 — Pre-merge staging calibration (D6 consequence)
