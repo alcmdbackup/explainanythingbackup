@@ -1,7 +1,20 @@
 // Tests for createMetricColumns — particularly the Phase 4d CI-rendering behavior.
 
+import React from 'react';
+import { render } from '@testing-library/react';
 import { createMetricColumns, createRunsMetricColumns } from './metricColumns';
 import type { MetricRow } from './types';
+
+/** Fix #44 (use_playwright_find_ux_issues_bugs_20260501): render() now wraps
+ *  inline-CI cells in a span. Helper extracts the visible text regardless of
+ *  whether the column returned a string or a ReactNode. */
+function extractText(node: React.ReactNode): string {
+  if (typeof node === 'string') return node;
+  if (node == null || typeof node === 'boolean') return '';
+  if (typeof node === 'number') return String(node);
+  const { container } = render(<>{node}</>);
+  return container.textContent ?? '';
+}
 
 function baseRow(overrides: Partial<MetricRow>): MetricRow {
   return {
@@ -30,7 +43,7 @@ describe('createMetricColumns — Phase 4d aggregate CI rendering', () => {
 
     const row = baseRow({ metric_name: 'avg_final_elo', value: 1350, ci_lower: 1320, ci_upper: 1380 });
     const rendered = col!.render!({ metrics: [row] });
-    const text = typeof rendered === 'string' ? rendered : String(rendered);
+    const text = extractText(rendered);
     // Elo formatter → value; CI appended as "[lo, hi]" because avg_final_elo uses bootstrap_mean.
     expect(text).toContain('1350');
     expect(text).toContain('[1320, 1380]');
@@ -48,7 +61,7 @@ describe('createMetricColumns — Phase 4d aggregate CI rendering', () => {
       aggregation_method: 'max',
     });
     const rendered = col.render!({ metrics: [row] });
-    const text = typeof rendered === 'string' ? rendered : String(rendered);
+    const text = extractText(rendered);
     // max aggregation has no CI — suffix should not appear.
     expect(text).not.toContain('[');
     expect(text).toContain('1500');
@@ -66,7 +79,7 @@ describe('createMetricColumns — Phase 4d aggregate CI rendering', () => {
       aggregation_method: 'avg',
     });
     const rendered = col!.render!({ metrics: [row] });
-    const text = typeof rendered === 'string' ? rendered : String(rendered);
+    const text = extractText(rendered);
     // Percent formatter with avg → ± (hi-lo)/2 suffix.
     expect(text).toMatch(/±/);
   });
@@ -78,7 +91,7 @@ describe('createMetricColumns — Phase 4d aggregate CI rendering', () => {
 
     const row = baseRow({ metric_name: 'avg_final_elo', value: 1350, ci_lower: null, ci_upper: null });
     const rendered = col!.render!({ metrics: [row] });
-    const text = typeof rendered === 'string' ? rendered : String(rendered);
+    const text = extractText(rendered);
     expect(text).toBe('1350');
     expect(text).not.toMatch(/[\[±]/);
   });

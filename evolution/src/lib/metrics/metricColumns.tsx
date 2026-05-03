@@ -54,7 +54,11 @@ export function createMetricColumns<T>(
           }
         }
         const base = METRIC_FORMATTERS[def.formatter as MetricFormatter](m.value);
-        return `${base}${formatCISuffix(m)}`;
+        const suffix = formatCISuffix(m);
+        // Fix #44 (use_playwright_find_ux_issues_bugs_20260501): wrap with
+        // whitespace-nowrap so "1357 [1188, 1467]" stays on one line and
+        // doesn't double cell height with a wrapped CI bracket.
+        return suffix ? <span className="whitespace-nowrap">{base}{suffix}</span> : base;
       }
       // Cost metrics default to $0.00 when no row exists, others show dash
       if (def.formatter === 'cost' || def.formatter === 'costDetailed') return METRIC_FORMATTERS[def.formatter as MetricFormatter](0);

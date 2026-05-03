@@ -153,7 +153,19 @@ function StrategyCostEstimatesView({ strategyId }: { strategyId: string }): JSX.
   const avgErrorValue = ((): React.ReactNode => {
     if (summary.errorPct == null) return '—';
     if (errorPctSE != null) {
-      return <span className="font-mono">{formatPctWithTone(summary.errorPct)} ± {errorPctSE.toFixed(1)}%</span>;
+      // Fix #43 (use_playwright_find_ux_issues_bugs_20260501): if SE is large
+      // relative to the mean, the central tendency is unreliable. Render the
+      // SE in a muted color and add a tooltip warning so users don't read the
+      // bare number with false confidence.
+      const isHighVariance = Math.abs(summary.errorPct) > 0 && errorPctSE > 1.5 * Math.abs(summary.errorPct);
+      const seClass = isHighVariance ? 'text-[var(--text-muted)] italic' : '';
+      const seTitle = isHighVariance ? 'High variance — SE > 1.5× |mean|. Interpret with care.' : undefined;
+      return (
+        <span className="font-mono">
+          {formatPctWithTone(summary.errorPct)}{' '}
+          <span className={seClass} title={seTitle}>± {errorPctSE.toFixed(1)}%</span>
+        </span>
+      );
     }
     return formatPctWithTone(summary.errorPct);
   })();
