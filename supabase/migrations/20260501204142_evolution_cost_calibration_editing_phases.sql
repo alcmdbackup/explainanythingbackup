@@ -11,8 +11,11 @@
 -- migration cannot be reverted without bricking the service via the Phase 1.6
 -- startup assertion. Rollback post-code-deploy is flag-only (EDITING_AGENTS_ENABLED).
 
+-- Idempotency: use IF EXISTS so the DROP doesn't fail when the migration re-runs
+-- after staging tracker desync. Pairs with the same change in the reflection-phase
+-- migration (20260501204141).
 ALTER TABLE evolution_cost_calibration
-  DROP CONSTRAINT evolution_cost_calibration_phase_allowed;
+  DROP CONSTRAINT IF EXISTS evolution_cost_calibration_phase_allowed;
 
 ALTER TABLE evolution_cost_calibration
   ADD CONSTRAINT evolution_cost_calibration_phase_allowed

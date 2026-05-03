@@ -47,7 +47,12 @@ export function AttributionCharts({ entityType, entityId, subtitle, judgeModel }
         if (res.success && res.data) setRows(res.data);
         setLoading(false);
       })
-      .catch(() => { if (!cancelled) setLoading(false); });
+      .catch((err) => {
+        // B004-S7: log the error so a fetch failure isn't indistinguishable from
+        // "no data" (the empty-state branch returns null too — silent failure was real).
+        console.warn('[AttributionCharts] getEntityMetricsAction failed', err);
+        if (!cancelled) setLoading(false);
+      });
     return () => { cancelled = true; };
   }, [entityType, entityId]);
 

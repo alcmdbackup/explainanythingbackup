@@ -319,36 +319,32 @@ export const deleteStrategyAction = adminAction(
   async (strategyId: string, ctx: AdminContext): Promise<{ deleted: boolean }> => {
     if (!validateUuid(strategyId)) throw new Error('Invalid strategyId');
 
-    // Check for referencing runs
-    const { count } = await ctx.supabase
-      .from('evolution_runs')
-      .select('id', { count: 'exact', head: true })
-      .eq('strategy_id', strategyId);
-
-    if ((count ?? 0) > 0) {
-      const stratLogger = createEntityLogger({
-        entityType: 'strategy',
-        entityId: strategyId,
-        strategyId,
-      }, ctx.supabase);
-      stratLogger.warn('Strategy deletion blocked', { runCount: count ?? 0 });
-      throw new Error('Cannot delete strategy with existing runs. Archive it instead.');
-    }
+    // B009-S5: removed the SELECT count then DELETE TOCTOU pattern. The DB FK
+    // `evolution_runs.strategy_id REFERENCES evolution_strategies(id) ON DELETE RESTRICT`
+    // (migration 20260324000001) atomically rejects the DELETE if any runs reference
+    // this strategy. We catch the structured error code 23503 (foreign_key_violation)
+    // and surface a friendly message; no race window between count and delete.
+    const stratLogger = createEntityLogger({
+      entityType: 'strategy',
+      entityId: strategyId,
+      strategyId,
+    }, ctx.supabase);
 
     const { error } = await ctx.supabase
       .from('evolution_strategies')
       .delete()
       .eq('id', strategyId);
 
-    if (error) throw error;
+    if (error) {
+      // Postgres FK violation surfaces as code '23503'.
+      if ((error as { code?: string }).code === '23503') {
+        stratLogger.warn('Strategy deletion blocked by FK', { error: error.message });
+        throw new Error('Cannot delete strategy with existing runs. Archive it instead.');
+      }
+      throw error;
+    }
 
-    const stratLogger = createEntityLogger({
-      entityType: 'strategy',
-      entityId: strategyId,
-      strategyId,
-    }, ctx.supabase);
     stratLogger.info('Strategy deleted');
-
     return { deleted: true };
   },
 );

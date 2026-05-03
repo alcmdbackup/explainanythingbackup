@@ -15,6 +15,13 @@
 ALTER TABLE evolution_cost_calibration
   DROP CONSTRAINT IF EXISTS evolution_cost_calibration_phase_check;
 
+-- Idempotency: drop the new constraint first if it already exists. Some staging
+-- environments have the constraint applied but the supabase_migrations tracker
+-- is out-of-sync, causing this migration to re-run and fail with SQLSTATE 42710.
+-- Dropping before adding makes the migration safe to re-apply.
+ALTER TABLE evolution_cost_calibration
+  DROP CONSTRAINT IF EXISTS evolution_cost_calibration_phase_allowed;
+
 ALTER TABLE evolution_cost_calibration
   ADD CONSTRAINT evolution_cost_calibration_phase_allowed
   CHECK (phase IN (

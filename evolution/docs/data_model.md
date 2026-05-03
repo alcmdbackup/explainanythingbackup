@@ -373,9 +373,9 @@ Two additional policy layers:
 
 All RPCs are `SECURITY DEFINER` with `search_path = public`, granted exclusively to `service_role`.
 
-### `claim_evolution_run(p_runner_id TEXT, p_run_id UUID DEFAULT NULL)`
+### `claim_evolution_run(p_runner_id TEXT, p_run_id UUID DEFAULT NULL, p_max_concurrent INT DEFAULT 5)`
 
-Atomically claims the oldest pending run using `FOR UPDATE SKIP LOCKED`. Returns the claimed run row. If `p_run_id` is provided, claims only that specific run.
+Atomically claims the oldest pending run using `FOR UPDATE SKIP LOCKED`. Returns the claimed run row. If `p_run_id` is provided, claims only that specific run. `p_max_concurrent` (added migration `20260323000002`) caps total concurrent claimed/running runs server-side — claims fail with empty result when the cap is reached.
 
 ```sql
 -- Core locking pattern:

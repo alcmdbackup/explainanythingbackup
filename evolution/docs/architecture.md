@@ -139,9 +139,9 @@ Two mutually exclusive paths based on what the run targets:
    fast path for evolving existing content.
 
 2. **prompt_id path** — uses `generateSeedArticle()` in
-   `evolution/src/lib/pipeline/seed-article.ts` to create content from scratch via two
-   LLM calls (title generation, then article generation). Each call has a 20-second
-   timeout (with 3 retries at the evolution client layer).
+   `evolution/src/lib/pipeline/setup/generateSeedArticle.ts` to create content from
+   scratch via two LLM calls (title generation, then article generation). Each call has
+   a 20-second timeout (with 3 retries at the evolution client layer).
 
 If neither `explanation_id` nor `prompt_id` is set, the run fails immediately.
 
@@ -248,7 +248,7 @@ dispatch.
 `argument_fortify`, `narrative_weave`, `tone_transform`), and 16 specialized across
 depth, audience, structural, quality, and meta categories (see
 [Agents Overview](./agents/overview.md) for the full list). Tactic definitions live in
-code at `evolution/src/lib/core/tactics/tacticRegistry.ts`; tactic entity identity is
+code at `evolution/src/lib/core/tactics/generateTactics.ts`; tactic entity identity is
 stored in the `evolution_tactics` table. When the strategy config sets
 `generationGuidance` (an array of `{ strategy, percent }` entries summing to 100),
 tactics are selected via weighted random sampling instead of the default round-robin

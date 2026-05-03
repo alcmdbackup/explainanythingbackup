@@ -3,17 +3,19 @@
 
 import type { MetricName } from '../metrics/types';
 
-// All four labels are valid AgentName values so the typed parameter accepts every
-// current call site (incl. seed-phase calls in generateSeedArticle.ts which still
-// need 'seed_title'/'seed_article'). Only generation and ranking get persisted as
-// dedicated cost metrics — seed-phase costs roll up into the run's overall `cost`.
+// AgentName labels used as the second arg to llm.complete(). The typed union prevents
+// typos from silently routing cost to a phantom bucket. Only generation/ranking/reflection
+// get dedicated per-purpose cost metrics; seed-phase costs roll up into seed_cost; all
+// iterative-editing labels collapse into iterative_edit_cost.
+//
+// B019-S3: removed 'evolution' — never passed as a complete() label and had no entry
+// in COST_METRIC_BY_AGENT. Stale leftover from V1.
 export const AGENT_NAMES = [
   'generation',
   'ranking',
   'reflection',
   'seed_title',
   'seed_article',
-  'evolution',
   'evaluate_and_suggest',
   // Per-LLM-call labels for iterative_editing agent (consolidated under one
   // iterative_edit_cost metric — per-purpose split is in execution_detail).

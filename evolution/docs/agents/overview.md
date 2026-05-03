@@ -37,7 +37,7 @@ Between iterations, the orchestrator checks for external kill signals by queryin
 
 `evolution/src/lib/pipeline/generate.ts`
 
-Generates fresh text variants by running parallel LLM tactics against the original (or current best) text. There are 24 available tactics — 3 core, 5 extended, and 16 specialized across five categories. Tactic definitions live in code at `evolution/src/lib/core/tactics/generateTactics.ts`; tactic entity identity (UUIDs for metrics/admin) is stored in the `evolution_tactics` table and managed by `tacticRegistry.ts`.
+Generates fresh text variants by running parallel LLM tactics against the original (or current best) text. There are 24 available tactics — 3 core, 5 extended, and 16 specialized across five categories. Tactic definitions live in code at `evolution/src/lib/core/tactics/generateTactics.ts`; tactic entity identity (UUIDs for metrics/admin) is stored in the `evolution_tactics` table and synced from code via `evolution/scripts/syncSystemTactics.ts`.
 
 **Core (3)**
 

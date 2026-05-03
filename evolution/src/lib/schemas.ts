@@ -1435,7 +1435,10 @@ export const swissRankingExecutionDetailSchema = executionDetailBaseSchema.exten
   })),
   matchesProducedTotal: z.number().int().min(0),
   matchesTruncated: z.boolean(),
-  status: z.enum(['success', 'budget', 'no_pairs']),
+  // B008-S3: extended enum with 'failure' so SwissRankingAgent can report a non-success
+  // when all pairs fail with non-budget errors. Was previously forced to set 'success'
+  // even with 0 successful pairs, masking provider outages as success in dashboards.
+  status: z.enum(['success', 'budget', 'no_pairs', 'failure']),
 });
 
 /** MergeRatingsAgent execution detail.

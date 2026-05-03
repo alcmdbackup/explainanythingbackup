@@ -45,7 +45,7 @@ export interface SwissRankingMatchEntry {
 export interface SwissRankingOutput {
   pairs: Array<[string, string]>;
   matches: SwissRankingMatchEntry[];
-  status: 'success' | 'budget' | 'no_pairs';
+  status: 'success' | 'budget' | 'no_pairs' | 'failure';
 }
 
 export type SwissRankingExecutionDetail = z.infer<typeof swissRankingExecutionDetailSchema>
@@ -176,7 +176,12 @@ export class SwissRankingAgent extends Agent<
       }
     }
 
-    const status: 'success' | 'budget' = budgetCount > 0 ? 'budget' : 'success';
+    // B008-S3: distinguish actual success (>=1 pair succeeded), budget exhaustion,
+    // and pure failure (every pair threw a non-budget error). Was previously forced
+    // to 'success' even with 0 pairs succeeded, masking provider outages.
+    const status: 'success' | 'budget' | 'failure' = matchBuffer.length === 0 && otherFailureCount > 0
+      ? 'failure'
+      : budgetCount > 0 ? 'budget' : 'success';
 
     const truncated = matchBuffer.length > 50;
     const matchesProducedSample = matchBuffer.slice(0, 50).map((m) => ({

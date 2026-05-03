@@ -24,7 +24,7 @@ The core pipeline implements the generate-rank-evolve loop and all supporting in
 | `cost-tracker.ts` | `createCostTracker` — per-run budget tracker using a reserve-before-spend pattern. `reserve()` is synchronous (critical for parallel safety under Node.js event loop). Applies a 1.3x margin on reservations. `recordSpend()` settles actual cost. `release()` frees reservation on failure. Throws `BudgetExceededError` when `spent + reserved + margined > budgetUsd`. |
 | `run-logger.ts` | `createRunLogger` — structured logging adapter; writes iteration-level log rows to `evolution_run_logs` with phase, message, and optional metadata JSON. |
 | `invocations.ts` | `createInvocation` / `updateInvocation` — records individual LLM calls to `evolution_invocations` with prompt text, response, model, token counts, cost, and latency for post-hoc cost auditing. |
-| `infra/createEvolutionLLMClient.ts` | `createEvolutionLLMClient` — LLM abstraction with built-in retry (3 attempts, exponential backoff: 1s/2s/4s), 20-second per-call timeout, and cost tracker integration. SDK-level retries are disabled (`maxRetries: 0`) so this retry loop is the sole retry layer — worst-case 87s per call. Supports model pricing for `gpt-4.1-nano`, `gpt-4.1-mini`, `gpt-4.1`, `gpt-4o`, `gpt-4o-mini`, `deepseek-chat`, `claude-sonnet-4-20250514`, `claude-haiku-4-5-20251001`. Falls back to most-expensive pricing ($15/$60 per 1M tokens) for unknown models. **Reservation** uses chars/4 as token approximation; **actual spend** uses real `usage.prompt_tokens`/`usage.completion_tokens` from the provider via `calculateLLMCost` (same helper `llmCallTracking` uses). Built per-invocation inside `Agent.run()` using the per-invocation `AgentCostScope` so parallel dispatch doesn't bleed sibling costs. |
+| `infra/createEvolutionLLMClient.ts` | `createEvolutionLLMClient` — LLM abstraction with built-in retry (3 attempts, exponential backoff: 1s/2s/4s), 20-second per-call timeout, and cost tracker integration. SDK-level retries are disabled (`maxRetries: 0`) so this retry loop is the sole retry layer — worst-case 87s per call. Pricing source-of-truth is `src/config/llmPricing.ts` (covers GPT-4.1 family, GPT-4o family, deepseek-chat, claude-sonnet-4, qwen, gemini, gpt-5-nano, plus fallback). Falls back to $10/$30 per 1M tokens for unknown models. **Reservation** uses chars/4 as token approximation; **actual spend** uses real `usage.prompt_tokens`/`usage.completion_tokens` from the provider via `calculateLLMCost` (same helper `llmCallTracking` uses). Built per-invocation inside `Agent.run()` using the per-invocation `AgentCostScope` so parallel dispatch doesn't bleed sibling costs. |
 | `seed-article.ts` | `generateSeedArticle` — produces the initial "generation 0" variant from the source prompt when no existing explanation content is available. Returns `SeedResult` with the generated text and cost. |
 | `strategy.ts` | `hashStrategyConfig` / `upsertStrategy` / `labelStrategyConfig` — strategy fingerprinting via deterministic JSON hash (includes `iterationConfigs[]`); upserts to `evolution_strategies` table with deduplication. Located at `setup/findOrCreateStrategy.ts`. |
 | `experiments.ts` | `createExperiment` / `addRunToExperiment` / `computeExperimentMetrics` — experiment grouping for A/B analysis. Returns `ExperimentMetrics` with aggregate Elo, cost, and convergence stats per strategy arm. |
@@ -254,10 +254,9 @@ The V2 LLM client (`evolution/src/lib/pipeline/infra/createEvolutionLLMClient.ts
 | `gpt-4.1` | $2.00 | $8.00 |
 | `gpt-4o` | $2.50 | $10.00 |
 | `gpt-4o-mini` | $0.15 | $0.60 |
-| `deepseek-chat` | $0.27 | $1.10 |
+| `deepseek-chat` | $0.28 | $0.42 |
 | `claude-sonnet-4-20250514` | $3.00 | $15.00 |
-| `claude-haiku-4-5-20251001` | $0.80 | $4.00 |
-| Unknown models (fallback) | $15.00 | $60.00 |
+| Unknown models (fallback) | $10.00 | $30.00 |
 
 The fallback pricing uses the most expensive possible rates as a safety measure. Unknown models log a warning at runtime.
 
@@ -364,7 +363,7 @@ Run claiming is handled by the `claim_evolution_run` Postgres RPC (see [Data Mod
 
 **Concurrency safety**: `FOR UPDATE SKIP LOCKED` means multiple runners calling `claim_evolution_run` simultaneously will never claim the same run. A runner that finds all pending rows already locked by other transactions receives an empty result and backs off.
 
-**Signature**: `claim_evolution_run(p_runner_id TEXT, p_run_id UUID DEFAULT NULL)` -- when `p_run_id` is provided, only that specific run is claimed (used for targeted retries from the admin UI).
+**Signature**: `claim_evolution_run(p_runner_id TEXT, p_run_id UUID DEFAULT NULL, p_max_concurrent INT DEFAULT 5)` -- when `p_run_id` is provided, only that specific run is claimed (used for targeted retries from the admin UI). `p_max_concurrent` (added migration `20260323000002`) is honored server-side as the concurrent-runs ceiling.
 
 **Post-claim state**: The claimed run's status is atomically updated to `claimed`, `runner_id` is set to the claiming runner's ID, and `last_heartbeat` is set to `now()`. The runner then transitions the status to `running` once pipeline execution begins.
 

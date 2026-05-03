@@ -52,8 +52,14 @@ export function EntityDetailHeader({
       ta.style.opacity = '0';
       document.body.appendChild(ta);
       ta.select();
-      document.execCommand('copy');
+      // B017-S7: branch on execCommand return value so we don't show "Copied!" when
+      // the copy actually failed (e.g. in browsers that have deprecated execCommand).
+      const ok = document.execCommand('copy');
       document.body.removeChild(ta);
+      if (!ok) {
+        console.warn('[EntityDetailHeader] document.execCommand("copy") returned false');
+        return;
+      }
     }
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);

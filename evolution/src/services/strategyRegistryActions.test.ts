@@ -475,11 +475,16 @@ describe('strategyRegistryActions', () => {
     });
 
     it('rejects deletion when runs reference the strategy', async () => {
+      // B009-S5: deleteStrategyAction now relies on the FK ON DELETE RESTRICT
+      // (evolution_runs.strategy_id REFERENCES evolution_strategies(id) ON DELETE
+      // RESTRICT) instead of doing a SELECT count then DELETE TOCTOU. The DELETE
+      // returns Postgres error code 23503 when child rows exist; we catch and
+      // surface a friendly message.
       const mock = createTableAwareMock([
-        // evolution_runs count check returns 2 runs
+        // evolution_strategies DELETE returns FK violation
         (b) => {
           b.then = jest.fn((resolve: (v: unknown) => void) =>
-            resolve({ data: null, error: null, count: 2 })
+            resolve({ data: null, error: { code: '23503', message: 'foreign_key_violation: evolution_runs_strategy_id_fkey' } })
           );
         },
       ]);
