@@ -361,6 +361,9 @@ function estimateEditingDriftRecoveryCost(
  * @param judgeModel Required for the calibration-row lookup as a discriminator (calibration is
  *   keyed by both generation+judge model).
  * @param maxCycles Per-iteration override or strategy default (1-5, default 3).
+ * @param poolSize Pool size at the iteration's start. Determines ranking comparison count.
+ *   Pass 0 to disable ranking entirely (matches editingRankEnabled=false).
+ * @param maxComparisonsPerVariant Cap on binary-search ranking depth.
  */
 export function estimateIterativeEditingCost(
   seedChars: number,
@@ -369,7 +372,9 @@ export function estimateIterativeEditingCost(
   driftRecoveryModel: string,
   judgeModel: string,
   maxCycles: number,
-): { expected: number; upperBound: number } {
+  poolSize: number = 0,
+  maxComparisonsPerVariant: number = 0,
+): { expected: number; upperBound: number; expectedRanking: number; upperBoundRanking: number } {
   let expected = 0;
   let upperBound = 0;
   let articleChars = seedChars;
@@ -395,5 +400,17 @@ export function estimateIterativeEditingCost(
   upperBound += estimateEditingDriftRecoveryCost(driftRecoveryModel, judgeModel);
   upperBound *= EDITING_UPPER_BOUND_SAFETY_MARGIN;
 
-  return { expected, upperBound };
+  // Phase 3.1 — Post-cycle ranking cost (D3 surfaces this as `editingRank` peer
+  // field on EstPerAgentValue). The final variant's article size for ranking is
+  // estimated as the post-last-cycle articleChars (after worst-case growth).
+  // When poolSize=0 (ranking disabled), the cost is 0.
+  const expectedRanking = poolSize > 0 && maxComparisonsPerVariant > 0
+    ? estimateRankingCost(seedChars, judgeModel, poolSize, maxComparisonsPerVariant)
+    : 0;
+  const upperBoundRanking = poolSize > 0 && maxComparisonsPerVariant > 0
+    ? estimateRankingCost(articleChars, judgeModel, poolSize, maxComparisonsPerVariant)
+        * EDITING_UPPER_BOUND_SAFETY_MARGIN
+    : 0;
+
+  return { expected, upperBound, expectedRanking, upperBoundRanking };
 }

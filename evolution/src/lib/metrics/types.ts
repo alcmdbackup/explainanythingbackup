@@ -23,6 +23,9 @@ export const STATIC_METRIC_NAMES = [
   // Run (live during-execution)
   'cost', 'generation_cost', 'ranking_cost', 'reflection_cost', 'seed_cost',
   'iterative_edit_cost',
+  // Phase 3.5 — separate cost bucket for the post-cycle ranking step inside
+  // editing iterations (mirrors the generation_cost/ranking_cost split for GFPA).
+  'iterative_edit_rank_cost',
   // Run (live during-execution) — operational health for iterative_editing
   'iterative_edit_drift_rate',
   'iterative_edit_recovery_success_rate',
@@ -50,6 +53,7 @@ export const STATIC_METRIC_NAMES = [
   'total_ranking_cost', 'avg_ranking_cost_per_run',
   'total_reflection_cost', 'avg_reflection_cost_per_run',
   'total_iterative_edit_cost', 'avg_iterative_edit_cost_per_run',
+  'total_iterative_edit_rank_cost', 'avg_iterative_edit_rank_cost_per_run',
   'total_seed_cost', 'avg_seed_cost_per_run',
   // Run-level evaluation cost (single combined LLM call by the criteria-driven wrapper)
   'evaluation_cost', 'total_evaluation_cost', 'avg_evaluation_cost_per_run',

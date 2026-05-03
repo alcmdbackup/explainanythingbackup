@@ -6,6 +6,7 @@ import {
   estimateAgentCost,
   estimateSwissPairCost,
   estimateEvaluateAndSuggestCost,
+  estimateIterativeEditingCost,
 } from './estimateCosts';
 
 describe('estimateCosts', () => {
@@ -138,6 +139,54 @@ describe('estimateCosts', () => {
         false, 3, false, 5, 2,
       );
       expect(a).toBeCloseTo(b, 6);
+    });
+  });
+
+  describe('estimateIterativeEditingCost', () => {
+    it('returns expected/upperBound/expectedRanking/upperBoundRanking', () => {
+      const cost = estimateIterativeEditingCost(
+        8000, 'gpt-4.1-nano', 'gpt-4.1-nano', 'gpt-4.1-nano', 'gpt-4.1-nano',
+        3, 20, 15,
+      );
+      expect(cost.expected).toBeGreaterThan(0);
+      expect(cost.upperBound).toBeGreaterThan(cost.expected);
+      expect(cost.expectedRanking).toBeGreaterThan(0);
+      expect(cost.upperBoundRanking).toBeGreaterThan(cost.expectedRanking);
+    });
+
+    it('zeros ranking cost when poolSize=0 (editingRankEnabled=false path)', () => {
+      const cost = estimateIterativeEditingCost(
+        8000, 'gpt-4.1-nano', 'gpt-4.1-nano', 'gpt-4.1-nano', 'gpt-4.1-nano',
+        3, 0, 0,
+      );
+      expect(cost.expectedRanking).toBe(0);
+      expect(cost.upperBoundRanking).toBe(0);
+      // Editing cost still > 0
+      expect(cost.expected).toBeGreaterThan(0);
+    });
+
+    it('upperBoundRanking covers larger article (post-cycle growth)', () => {
+      // upperBoundRanking uses post-cycle articleChars (after 1.5× growth per cycle)
+      // so it should exceed expectedRanking (computed at seedChars).
+      const cost = estimateIterativeEditingCost(
+        8000, 'gpt-4.1-nano', 'gpt-4.1-nano', 'gpt-4.1-nano', 'gpt-4.1-nano',
+        3, 20, 15,
+      );
+      // Upper bound includes 1.3× safety margin × (1.5×)^3 article growth, so
+      // ranking-side upperBound is materially larger than expected.
+      expect(cost.upperBoundRanking).toBeGreaterThan(cost.expectedRanking * 2);
+    });
+
+    it('ranking cost scales with maxComparisonsPerVariant', () => {
+      const lo = estimateIterativeEditingCost(
+        8000, 'gpt-4.1-nano', 'gpt-4.1-nano', 'gpt-4.1-nano', 'gpt-4.1-nano',
+        3, 20, 5,
+      );
+      const hi = estimateIterativeEditingCost(
+        8000, 'gpt-4.1-nano', 'gpt-4.1-nano', 'gpt-4.1-nano', 'gpt-4.1-nano',
+        3, 20, 15,
+      );
+      expect(hi.expectedRanking).toBeGreaterThan(lo.expectedRanking);
     });
   });
 });

@@ -87,6 +87,11 @@ export interface DispatchPlanOptions {
    *  the runtime falls those iterations back to vanilla GFPA dispatch (see
    *  reflectionDispatch.ts). Mirrors EVOLUTION_REFLECTION_ENABLED. Default true. */
   reflectionEnabled?: boolean;
+  /** When false, editing-rank cost is zeroed for `iterative_editing` iterations because
+   *  the runtime skips the post-cycle ranking step (see editingDispatch.ts +
+   *  IterativeEditingAgent input-presence gate). Mirrors EDITING_RANK_ENABLED.
+   *  Default true. add_ranking_iterative_editing_agent_evolution_20260502 D4. */
+  editingRankEnabled?: boolean;
 }
 
 export interface EstPerAgentValue {
@@ -97,6 +102,10 @@ export interface EstPerAgentValue {
   /** Iterative editing cost per agent (only > 0 when iterCfg.agentType === 'iterative_editing').
    *  0 for generate / reflect / criteria / swiss. Mirrors the reflection field. */
   editing: number;
+  /** Post-cycle ranking cost per editing-iteration agent (only > 0 when iterCfg.agentType ===
+   *  'iterative_editing' AND opts.editingRankEnabled). 0 for all other agent types and when
+   *  the editingRank flag is off. add_ranking_iterative_editing_agent_evolution_20260502 D3. */
+  editingRank: number;
   /** Combined evaluate + suggest cost per agent (only > 0 when iterCfg.agentType === 'criteria_and_generate'). 0 otherwise. */
   evaluation: number;
   total: number;
@@ -249,7 +258,7 @@ function weightedAgentCost(
   const evaluation = useCriteria
     ? estimateEvaluateAndSuggestCost(seedChars, generationModel, judgeModel, criteriaCount, weakestK)
     : 0;
-  return { gen, rank, reflection, editing: 0, evaluation, total: reflection + evaluation + gen + rank };
+  return { gen, rank, reflection, editing: 0, editingRank: 0, evaluation, total: reflection + evaluation + gen + rank };
 }
 
 // ─── Main ─────────────────────────────────────────────────────────
@@ -298,8 +307,8 @@ export function projectDispatchPlan(
         tacticMixSource: source,
         tacticLabel,
         estPerAgent: {
-          expected: { gen: 0, rank: 0, reflection: 0, editing: 0, evaluation: 0, total: 0 },
-          upperBound: { gen: 0, rank: 0, reflection: 0, editing: 0, evaluation: 0, total: 0 },
+          expected: { gen: 0, rank: 0, reflection: 0, editing: 0, editingRank: 0, evaluation: 0, total: 0 },
+          upperBound: { gen: 0, rank: 0, reflection: 0, editing: 0, editingRank: 0, evaluation: 0, total: 0 },
         },
         maxAffordable: { atExpected: 0, atUpperBound: 0 },
         dispatchCount: 0,
@@ -325,6 +334,11 @@ export function projectDispatchPlan(
       const approverModel = (config as { approverModel?: string }).approverModel ?? editingModel;
       const driftRecoveryModel = (config as { driftRecoveryModel?: string }).driftRecoveryModel ?? 'gpt-4.1-nano';
 
+      // D4 / Phase 3.3 — gate ranking cost by opts.editingRankEnabled.
+      // When false, pass poolSize=0 to estimateIterativeEditingCost so its
+      // expectedRanking/upperBoundRanking come back as 0.
+      const editingRankEnabled = opts.editingRankEnabled !== false;
+      const maxComparisonsPerVariant = config.maxComparisonsPerVariant ?? 15;
       const editCost = estimateIterativeEditingCost(
         ctx.seedChars,
         editingModel,
@@ -332,6 +346,8 @@ export function projectDispatchPlan(
         driftRecoveryModel,
         config.judgeModel,
         maxCycles,
+        editingRankEnabled ? poolSize : 0,
+        editingRankEnabled ? maxComparisonsPerVariant : 0,
       );
 
       // Apply eligibility cutoff against the projected pool. Editing iterations
@@ -342,13 +358,17 @@ export function projectDispatchPlan(
         cutoff: (iterCfg as { editingEligibilityCutoff?: { mode: 'topN' | 'topPercent'; value: number } }).editingEligibilityCutoff,
       });
 
-      const parallelFloorUsd = resolveParallelFloor(config, iterBudgetUsd, editCost.upperBound);
+      // Budget math uses TOTAL per-agent cost (editing + editingRank) so the
+      // safety cap correctly throttles parallel dispatch when ranking is on.
+      const totalUpper = editCost.upperBound + editCost.upperBoundRanking;
+      const totalExpectedAgent = editCost.expected + editCost.expectedRanking;
+      const parallelFloorUsd = resolveParallelFloor(config, iterBudgetUsd, totalUpper);
       const availBudget = Math.max(0, iterBudgetUsd - parallelFloorUsd);
-      const maxAffordableUpper = editCost.upperBound > 0
-        ? Math.max(1, Math.floor(availBudget / editCost.upperBound))
+      const maxAffordableUpper = totalUpper > 0
+        ? Math.max(1, Math.floor(availBudget / totalUpper))
         : 1;
-      const maxAffordableExpected = editCost.expected > 0
-        ? Math.max(1, Math.floor(availBudget / editCost.expected))
+      const maxAffordableExpected = totalExpectedAgent > 0
+        ? Math.max(1, Math.floor(availBudget / totalExpectedAgent))
         : 1;
 
       const dispatchCount = Math.min(
@@ -376,8 +396,24 @@ export function projectDispatchPlan(
         tacticMixSource: source,
         tacticLabel,
         estPerAgent: {
-          expected: { gen: 0, rank: 0, reflection: 0, editing: editCost.expected, evaluation: 0, total: editCost.expected },
-          upperBound: { gen: 0, rank: 0, reflection: 0, editing: editCost.upperBound, evaluation: 0, total: editCost.upperBound },
+          expected: {
+            gen: 0,
+            rank: 0,
+            reflection: 0,
+            editing: editCost.expected,
+            editingRank: editCost.expectedRanking,
+            evaluation: 0,
+            total: editCost.expected + editCost.expectedRanking,
+          },
+          upperBound: {
+            gen: 0,
+            rank: 0,
+            reflection: 0,
+            editing: editCost.upperBound,
+            editingRank: editCost.upperBoundRanking,
+            evaluation: 0,
+            total: editCost.upperBound + editCost.upperBoundRanking,
+          },
         },
         maxAffordable: { atExpected: maxAffordableExpected, atUpperBound: maxAffordableUpper },
         dispatchCount,
@@ -477,8 +513,8 @@ export function projectDispatchPlan(
       tacticMixSource: source,
       tacticLabel,
       estPerAgent: {
-        expected: { gen: genExpected, rank: rankExpectedAvg, reflection: reflectionExpected, editing: 0, evaluation: evaluationExpected, total: totalExpected },
-        upperBound: { gen: upper.gen, rank: upper.rank, reflection: upper.reflection, editing: upper.editing ?? 0, evaluation: upper.evaluation, total: upper.total },
+        expected: { gen: genExpected, rank: rankExpectedAvg, reflection: reflectionExpected, editing: 0, editingRank: 0, evaluation: evaluationExpected, total: totalExpected },
+        upperBound: { gen: upper.gen, rank: upper.rank, reflection: upper.reflection, editing: upper.editing ?? 0, editingRank: upper.editingRank ?? 0, evaluation: upper.evaluation, total: upper.total },
       },
       maxAffordable: { atExpected: maxAffordableExpected, atUpperBound: maxAffordableUpper },
       dispatchCount,

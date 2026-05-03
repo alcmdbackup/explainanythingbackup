@@ -33,6 +33,11 @@ export const METRIC_CATALOG = {
     timing: 'during_execution', listView: false,
     description: 'LLM spend on iterative_editing iterations (Proposer + Approver + drift recovery, all cycles, all parents). Per-purpose split lives in execution_detail.cycles[i].{proposeCostUsd, approveCostUsd, driftRecoveryCostUsd}.',
   },
+  iterative_edit_rank_cost: {
+    name: 'iterative_edit_rank_cost', label: 'Iterative Edit Rank Cost', category: 'cost', formatter: 'cost',
+    timing: 'during_execution', listView: false,
+    description: 'LLM spend on the post-cycle ranking step inside iterative_editing iterations (judge calls against the local pool). Per-invocation cost lives in execution_detail.ranking.cost.',
+  },
   iterative_edit_drift_rate: {
     name: 'iterative_edit_drift_rate', label: 'Edit Drift Rate', category: 'cost', formatter: 'integer',
     timing: 'during_execution', listView: false,
@@ -171,6 +176,16 @@ export const METRIC_CATALOG = {
     name: 'avg_iterative_edit_cost_per_run', label: 'Avg Iterative Edit Cost/Run', category: 'cost', formatter: 'cost',
     timing: 'at_propagation',
     description: 'Average iterative_edit_cost per child run',
+  },
+  total_iterative_edit_rank_cost: {
+    name: 'total_iterative_edit_rank_cost', label: 'Total Iterative Edit Rank Cost', category: 'cost', formatter: 'cost',
+    timing: 'at_propagation',
+    description: 'Sum of iterative_edit_rank_cost across all child runs',
+  },
+  avg_iterative_edit_rank_cost_per_run: {
+    name: 'avg_iterative_edit_rank_cost_per_run', label: 'Avg Iterative Edit Rank Cost/Run', category: 'cost', formatter: 'cost',
+    timing: 'at_propagation',
+    description: 'Average iterative_edit_rank_cost per child run',
   },
   avg_reflection_cost_per_run: {
     name: 'avg_reflection_cost_per_run', label: 'Avg Reflection Cost/Run', category: 'cost', formatter: 'cost',
