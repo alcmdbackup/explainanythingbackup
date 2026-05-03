@@ -209,10 +209,10 @@ export function parseEvaluateAndSuggest(
 
   const suggestions: ParsedSuggestion[] = [];
   const droppedSuggestions: ParsedDroppedSuggestion[] = [];
-  const blockRegex = /^###\s+Suggestion\s+\d+\s*\n([\s\S]*?)(?=^###|\Z)/gm;
-  let blockMatch: RegExpExecArray | null;
-  while ((blockMatch = blockRegex.exec(suggestionSection)) !== null) {
-    const body = blockMatch[1] ?? '';
+  // Split on `### Suggestion N` headers; bodies are the segments between them.
+  // (JS regex lacks \Z; lookahead-based capture-until-next-or-end is brittle.)
+  const blockSegments = suggestionSection.split(/^###\s+Suggestion\s+\d+\s*\n/m).slice(1);
+  for (const body of blockSegments) {
     const criterionLine = body.match(/^Criterion:\s*(.+?)\s*$/m);
     const exampleLine = body.match(/^Example:\s*(.+?)\s*$/m);
     const issueLine = body.match(/^Issue:\s*(.+?)\s*$/m);

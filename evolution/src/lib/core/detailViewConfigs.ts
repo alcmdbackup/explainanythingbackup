@@ -119,6 +119,57 @@ export const DETAIL_VIEW_CONFIGS: Record<string, DetailFieldDef[]> = {
     },
     { key: 'totalCost', label: 'Total Cost', type: 'number', formatter: 'cost' },
   ],
+  evaluate_criteria_then_generate_from_previous_article: [
+    { key: 'tactic', label: 'Tactic', type: 'badge' },
+    { key: 'weakestCriteriaNames', label: 'Weakest Criteria', type: 'list' },
+    { key: 'variantId', label: 'Variant ID', type: 'text' },
+    { key: 'surfaced', label: 'Surfaced', type: 'boolean' },
+    {
+      key: 'evaluateAndSuggest', label: 'Eval & Suggest', type: 'object',
+      children: [
+        { key: 'cost', label: 'Cost', type: 'number', formatter: 'cost' },
+        { key: 'durationMs', label: 'Duration (ms)', type: 'number' },
+      ],
+    },
+    {
+      key: 'evaluateAndSuggest.criteriaScored', label: 'Criteria Scored', type: 'table',
+      columns: [
+        { key: 'criteriaName', label: 'Criterion' },
+        { key: 'score', label: 'Score' },
+        { key: 'minRating', label: 'Min' },
+        { key: 'maxRating', label: 'Max' },
+      ],
+    },
+    {
+      key: 'evaluateAndSuggest.suggestions', label: 'Suggestions', type: 'table',
+      columns: [
+        { key: 'criteriaName', label: 'Criterion' },
+        { key: 'examplePassage', label: 'Example' },
+        { key: 'whatNeedsAddressing', label: 'Issue' },
+        { key: 'suggestedFix', label: 'Fix' },
+      ],
+    },
+    {
+      key: 'generation', label: 'Generation', type: 'object',
+      children: [
+        { key: 'cost', label: 'Cost', type: 'number', formatter: 'cost' },
+        { key: 'promptLength', label: 'Prompt Length', type: 'number' },
+        { key: 'textLength', label: 'Text Length', type: 'number' },
+        { key: 'formatValid', label: 'Format Valid', type: 'boolean' },
+        { key: 'durationMs', label: 'Duration (ms)', type: 'number' },
+      ],
+    },
+    {
+      key: 'ranking', label: 'Ranking (binary search local view)', type: 'object',
+      children: [
+        { key: 'cost', label: 'Ranking Cost', type: 'number', formatter: 'cost' },
+        { key: 'totalComparisons', label: 'Total Comparisons', type: 'number' },
+        { key: 'finalLocalElo', label: 'Final Local Elo', type: 'number' },
+        { key: 'durationMs', label: 'Duration (ms)', type: 'number' },
+      ],
+    },
+    { key: 'totalCost', label: 'Total Cost', type: 'number', formatter: 'cost' },
+  ],
   swiss_ranking: [
     { key: 'status', label: 'Status', type: 'badge' },
     { key: 'eligibleCount', label: 'Eligible Count', type: 'number' },

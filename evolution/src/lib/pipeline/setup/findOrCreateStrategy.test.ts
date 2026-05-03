@@ -132,6 +132,91 @@ describe('V2 hashStrategyConfig', () => {
     expect(hashStrategyConfig(absent)).toBe(hashStrategyConfig(explicitUndef));
   });
 
+  // ─── criteria_and_generate hash semantics (evaluateCriteriaThenGenerateFromPreviousArticle_20260501) ───
+  const C1 = '00000000-0000-4000-8000-0000000000c1';
+  const C2 = '00000000-0000-4000-8000-0000000000c2';
+  const C3 = '00000000-0000-4000-8000-0000000000c3';
+
+  it('agentType=criteria_and_generate changes the hash vs generate', () => {
+    const generate: StrategyConfig = baseConfig;
+    const criteriaAndGenerate: StrategyConfig = {
+      ...baseConfig,
+      iterationConfigs: [
+        { agentType: 'criteria_and_generate', budgetPercent: 60, criteriaIds: [C1, C2], weakestK: 1 },
+        { agentType: 'swiss', budgetPercent: 40 },
+      ],
+    };
+    expect(hashStrategyConfig(generate)).not.toBe(hashStrategyConfig(criteriaAndGenerate));
+  });
+
+  it('criteriaIds order is canonicalized via sort: [a,b,c] === [c,b,a]', () => {
+    const a: StrategyConfig = {
+      ...baseConfig,
+      iterationConfigs: [
+        { agentType: 'criteria_and_generate', budgetPercent: 60, criteriaIds: [C1, C2, C3], weakestK: 2 },
+        { agentType: 'swiss', budgetPercent: 40 },
+      ],
+    };
+    const b: StrategyConfig = {
+      ...baseConfig,
+      iterationConfigs: [
+        { agentType: 'criteria_and_generate', budgetPercent: 60, criteriaIds: [C3, C2, C1], weakestK: 2 },
+        { agentType: 'swiss', budgetPercent: 40 },
+      ],
+    };
+    expect(hashStrategyConfig(a)).toBe(hashStrategyConfig(b));
+  });
+
+  it('different criteria sets produce different hashes', () => {
+    const a: StrategyConfig = {
+      ...baseConfig,
+      iterationConfigs: [
+        { agentType: 'criteria_and_generate', budgetPercent: 60, criteriaIds: [C1, C2], weakestK: 1 },
+        { agentType: 'swiss', budgetPercent: 40 },
+      ],
+    };
+    const b: StrategyConfig = {
+      ...baseConfig,
+      iterationConfigs: [
+        { agentType: 'criteria_and_generate', budgetPercent: 60, criteriaIds: [C1, C3], weakestK: 1 },
+        { agentType: 'swiss', budgetPercent: 40 },
+      ],
+    };
+    expect(hashStrategyConfig(a)).not.toBe(hashStrategyConfig(b));
+  });
+
+  it('different weakestK produces different hashes', () => {
+    const a: StrategyConfig = {
+      ...baseConfig,
+      iterationConfigs: [
+        { agentType: 'criteria_and_generate', budgetPercent: 60, criteriaIds: [C1, C2, C3], weakestK: 1 },
+        { agentType: 'swiss', budgetPercent: 40 },
+      ],
+    };
+    const b: StrategyConfig = {
+      ...baseConfig,
+      iterationConfigs: [
+        { agentType: 'criteria_and_generate', budgetPercent: 60, criteriaIds: [C1, C2, C3], weakestK: 2 },
+        { agentType: 'swiss', budgetPercent: 40 },
+      ],
+    };
+    expect(hashStrategyConfig(a)).not.toBe(hashStrategyConfig(b));
+  });
+
+  it('strips criteriaIds + weakestK on non-criteria iterations (hash collision)', () => {
+    // Stale wizard state where user typed criteriaIds before switching agent type back.
+    // Canonicalization should drop them so the strategy doesn't double-deduplicate.
+    const cleanGenerate: StrategyConfig = baseConfig;
+    const staleGenerate: StrategyConfig = {
+      ...baseConfig,
+      iterationConfigs: [
+        { agentType: 'generate', budgetPercent: 60, criteriaIds: [C1, C2], weakestK: 1 } as never,
+        { agentType: 'swiss', budgetPercent: 40 },
+      ],
+    };
+    expect(hashStrategyConfig(cleanGenerate)).toBe(hashStrategyConfig(staleGenerate));
+  });
+
   // ─── Backward-compat regression: snapshot legacy strategy hashes ───
   // These hashes are computed against the current canonicalization rules. If any
   // future schema change accidentally re-hashes existing strategies (e.g., adding

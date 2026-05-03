@@ -27,6 +27,11 @@ import {
   evolutionExplanationFullDbSchema,
   EvolutionRunSummaryV3Schema,
   EvolutionRunSummarySchema,
+  // Criteria schemas
+  evolutionCriteriaInsertSchema,
+  evolutionCriteriaFullDbSchema,
+  evaluateCriteriaThenGenerateFromPreviousArticleExecutionDetailSchema,
+  iterationConfigSchema,
   // Phase 2: Internal pipeline schemas
   variantSchema,
   strategyConfigSchema,
@@ -56,6 +61,7 @@ import {
 const UUID1 = '00000000-0000-4000-8000-000000000001';
 const UUID2 = '00000000-0000-4000-8000-000000000002';
 const UUID3 = '00000000-0000-4000-8000-000000000003';
+const UUID4 = '00000000-0000-4000-8000-000000000004';
 const NOW = '2026-03-23T12:00:00Z';
 
 function createValidStrategyInsert() {
@@ -1172,5 +1178,305 @@ describe('agentExecutionDetailSchema (discriminated union)', () => {
       strategies: [], feedbackUsed: false, _truncated: true,
     });
     expect(result._truncated).toBe(true);
+  });
+});
+
+// ─── Criteria entity schemas (evaluateCriteriaThenGenerateFromPreviousArticle_20260501) ──────
+
+describe('evolutionCriteriaInsertSchema', () => {
+  const valid = {
+    name: 'clarity',
+    description: 'How clearly the article communicates ideas',
+    min_rating: 1,
+    max_rating: 5,
+  };
+
+  it('parses minimal valid input', () => {
+    expect(() => evolutionCriteriaInsertSchema.parse(valid)).not.toThrow();
+  });
+
+  it('accepts null evaluation_guidance', () => {
+    expect(() => evolutionCriteriaInsertSchema.parse({ ...valid, evaluation_guidance: null })).not.toThrow();
+  });
+
+  it('accepts undefined evaluation_guidance', () => {
+    expect(() => evolutionCriteriaInsertSchema.parse({ ...valid, evaluation_guidance: undefined })).not.toThrow();
+  });
+
+  it('accepts empty array evaluation_guidance', () => {
+    expect(() => evolutionCriteriaInsertSchema.parse({ ...valid, evaluation_guidance: [] })).not.toThrow();
+  });
+
+  it('accepts populated rubric with anchors in range', () => {
+    expect(() => evolutionCriteriaInsertSchema.parse({
+      ...valid,
+      evaluation_guidance: [
+        { score: 1, description: 'unclear' },
+        { score: 3, description: 'mostly clear' },
+        { score: 5, description: 'crystal clear' },
+      ],
+    })).not.toThrow();
+  });
+
+  it('rejects max_rating <= min_rating', () => {
+    expect(() => evolutionCriteriaInsertSchema.parse({ ...valid, max_rating: 1 })).toThrow(/max_rating must exceed min_rating/);
+    expect(() => evolutionCriteriaInsertSchema.parse({ ...valid, min_rating: 5, max_rating: 5 })).toThrow();
+    expect(() => evolutionCriteriaInsertSchema.parse({ ...valid, min_rating: 5, max_rating: 3 })).toThrow();
+  });
+
+  it('rejects rubric anchor below min_rating', () => {
+    expect(() => evolutionCriteriaInsertSchema.parse({
+      ...valid,
+      evaluation_guidance: [{ score: 0, description: 'too low' }],
+    })).toThrow(/every rubric anchor score must be in/);
+  });
+
+  it('rejects rubric anchor above max_rating', () => {
+    expect(() => evolutionCriteriaInsertSchema.parse({
+      ...valid,
+      evaluation_guidance: [{ score: 6, description: 'too high' }],
+    })).toThrow(/every rubric anchor score must be in/);
+  });
+
+  it('rejects name with leading digit', () => {
+    expect(() => evolutionCriteriaInsertSchema.parse({ ...valid, name: '1clarity' })).toThrow(/parser-safe/);
+  });
+
+  it('rejects name with colon', () => {
+    expect(() => evolutionCriteriaInsertSchema.parse({ ...valid, name: 'cla:rity' })).toThrow();
+  });
+
+  it('rejects empty description on rubric anchor', () => {
+    expect(() => evolutionCriteriaInsertSchema.parse({
+      ...valid,
+      evaluation_guidance: [{ score: 3, description: '' }],
+    })).toThrow();
+  });
+
+  it('rejects rubric anchor description over 500 chars', () => {
+    expect(() => evolutionCriteriaInsertSchema.parse({
+      ...valid,
+      evaluation_guidance: [{ score: 3, description: 'x'.repeat(501) }],
+    })).toThrow();
+  });
+
+  it('FullDbSchema requires id + timestamps', () => {
+    const dbRow = {
+      id: UUID1,
+      name: 'clarity',
+      description: null,
+      min_rating: 1,
+      max_rating: 5,
+      evaluation_guidance: null,
+      status: 'active' as const,
+      is_test_content: false,
+      archived_at: null,
+      deleted_at: null,
+      created_at: NOW,
+      updated_at: NOW,
+    };
+    expect(() => evolutionCriteriaFullDbSchema.parse(dbRow)).not.toThrow();
+  });
+});
+
+describe('iterationConfigSchema — criteria_and_generate refinements', () => {
+  const validCriteriaIds = [UUID1, UUID2, UUID3];
+
+  it('accepts valid criteria_and_generate config', () => {
+    expect(() => iterationConfigSchema.parse({
+      agentType: 'criteria_and_generate',
+      budgetPercent: 100,
+      criteriaIds: validCriteriaIds,
+      weakestK: 2,
+    })).not.toThrow();
+  });
+
+  it('rejects criteriaIds on generate iteration', () => {
+    expect(() => iterationConfigSchema.parse({
+      agentType: 'generate',
+      budgetPercent: 100,
+      criteriaIds: validCriteriaIds,
+    })).toThrow(/criteriaIds only valid when agentType is criteria_and_generate/);
+  });
+
+  it('rejects criteriaIds on swiss iteration', () => {
+    expect(() => iterationConfigSchema.parse({
+      agentType: 'swiss',
+      budgetPercent: 100,
+      criteriaIds: validCriteriaIds,
+    })).toThrow(/criteriaIds only valid/);
+  });
+
+  it('rejects empty criteriaIds when present', () => {
+    expect(() => iterationConfigSchema.parse({
+      agentType: 'criteria_and_generate',
+      budgetPercent: 100,
+      criteriaIds: [],
+      weakestK: 1,
+    })).toThrow();
+  });
+
+  it('rejects criteria_and_generate without criteriaIds', () => {
+    expect(() => iterationConfigSchema.parse({
+      agentType: 'criteria_and_generate',
+      budgetPercent: 100,
+    })).toThrow(/criteria_and_generate iterations require criteriaIds/);
+  });
+
+  it('rejects weakestK on non-criteria iteration', () => {
+    expect(() => iterationConfigSchema.parse({
+      agentType: 'generate',
+      budgetPercent: 100,
+      weakestK: 2,
+    })).toThrow(/weakestK only valid when agentType is criteria_and_generate/);
+  });
+
+  it('rejects weakestK > criteriaIds.length (cross-field)', () => {
+    expect(() => iterationConfigSchema.parse({
+      agentType: 'criteria_and_generate',
+      budgetPercent: 100,
+      criteriaIds: [UUID1, UUID2],
+      weakestK: 5,
+    })).toThrow(/weakestK cannot exceed the number of selected criteria/);
+  });
+
+  it('accepts weakestK === criteriaIds.length', () => {
+    expect(() => iterationConfigSchema.parse({
+      agentType: 'criteria_and_generate',
+      budgetPercent: 100,
+      criteriaIds: [UUID1, UUID2],
+      weakestK: 2,
+    })).not.toThrow();
+  });
+
+  it('rejects weakestK > 5 (range)', () => {
+    expect(() => iterationConfigSchema.parse({
+      agentType: 'criteria_and_generate',
+      budgetPercent: 100,
+      criteriaIds: [UUID1, UUID2, UUID3, UUID4, UUID1, UUID2],
+      weakestK: 6,
+    })).toThrow();
+  });
+
+  it('rejects weakestK < 1 (range)', () => {
+    expect(() => iterationConfigSchema.parse({
+      agentType: 'criteria_and_generate',
+      budgetPercent: 100,
+      criteriaIds: validCriteriaIds,
+      weakestK: 0,
+    })).toThrow();
+  });
+
+  it('rejects criteriaIds + generationGuidance (mutex)', () => {
+    expect(() => iterationConfigSchema.parse({
+      agentType: 'criteria_and_generate',
+      budgetPercent: 100,
+      criteriaIds: validCriteriaIds,
+      weakestK: 1,
+      generationGuidance: [{ tactic: 'structural_transform', percent: 100 }],
+    })).toThrow();
+  });
+
+  it('rejects non-uuid criteria id', () => {
+    expect(() => iterationConfigSchema.parse({
+      agentType: 'criteria_and_generate',
+      budgetPercent: 100,
+      criteriaIds: ['not-a-uuid'],
+      weakestK: 1,
+    })).toThrow();
+  });
+});
+
+describe('evaluateCriteriaThenGenerateFromPreviousArticleExecutionDetailSchema', () => {
+  const validDetail = {
+    detailType: 'evaluate_criteria_then_generate_from_previous_article' as const,
+    tactic: 'criteria_driven' as const,
+    weakestCriteriaIds: [UUID1],
+    weakestCriteriaNames: ['clarity'],
+    evaluateAndSuggest: {
+      criteriaScored: [
+        { criteriaId: UUID1, criteriaName: 'clarity', score: 2, minRating: 1, maxRating: 5 },
+        { criteriaId: UUID2, criteriaName: 'engagement', score: 4, minRating: 1, maxRating: 5 },
+      ],
+      suggestions: [
+        { criteriaName: 'clarity', examplePassage: 'foo', whatNeedsAddressing: 'bar', suggestedFix: 'baz' },
+      ],
+      durationMs: 1234,
+      cost: 0.001,
+    },
+    generation: {
+      cost: 0.005, promptLength: 1000, textLength: 800, formatValid: true, durationMs: 3000,
+    },
+    totalCost: 0.006,
+    surfaced: true,
+    variantId: UUID3,
+  };
+
+  it('parses representative valid fixture', () => {
+    expect(() => evaluateCriteriaThenGenerateFromPreviousArticleExecutionDetailSchema.parse(validDetail))
+      .not.toThrow();
+  });
+
+  it('accepts droppedSuggestions when present', () => {
+    expect(() => evaluateCriteriaThenGenerateFromPreviousArticleExecutionDetailSchema.parse({
+      ...validDetail,
+      evaluateAndSuggest: {
+        ...validDetail.evaluateAndSuggest,
+        droppedSuggestions: [{ criteriaName: 'engagement', reason: 'not in weakest set' }],
+      },
+    })).not.toThrow();
+  });
+
+  it('rejects wrong detailType', () => {
+    expect(() => evaluateCriteriaThenGenerateFromPreviousArticleExecutionDetailSchema.parse({
+      ...validDetail,
+      detailType: 'generate_from_previous_article',
+    })).toThrow();
+  });
+
+  it('rejects wrong tactic literal', () => {
+    expect(() => evaluateCriteriaThenGenerateFromPreviousArticleExecutionDetailSchema.parse({
+      ...validDetail,
+      tactic: 'structural_transform',
+    })).toThrow();
+  });
+
+  it('accepts partial detail (no evaluateAndSuggest, error path)', () => {
+    expect(() => evaluateCriteriaThenGenerateFromPreviousArticleExecutionDetailSchema.parse({
+      detailType: 'evaluate_criteria_then_generate_from_previous_article',
+      tactic: 'criteria_driven',
+      weakestCriteriaIds: [],
+      weakestCriteriaNames: [],
+      totalCost: 0,
+      surfaced: false,
+    })).not.toThrow();
+  });
+});
+
+describe('variantSchema with criteria fields', () => {
+  const baseVariant = {
+    id: UUID1,
+    text: 'foo',
+    version: 1,
+    parentIds: [],
+    tactic: 'criteria_driven',
+    createdAt: 1700000000,
+    iterationBorn: 1,
+  };
+
+  it('accepts criteriaSetUsed + weakestCriteriaIds optional fields', () => {
+    expect(() => variantSchema.parse({
+      ...baseVariant,
+      criteriaSetUsed: [UUID2, UUID3],
+      weakestCriteriaIds: [UUID2],
+    })).not.toThrow();
+  });
+
+  it('accepts variant without criteria fields (back-compat)', () => {
+    expect(() => variantSchema.parse({ ...baseVariant, tactic: 'lexical_simplify' })).not.toThrow();
+  });
+
+  it('rejects non-uuid criteria id', () => {
+    expect(() => variantSchema.parse({ ...baseVariant, criteriaSetUsed: ['not-uuid'] })).toThrow();
   });
 });

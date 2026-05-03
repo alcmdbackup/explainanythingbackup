@@ -149,6 +149,8 @@ export const METRIC_REGISTRY: Record<EntityType, EntityMetricRegistry> = {
         compute: () => 0 },
       { name: 'iterative_edit_accept_rate', label: 'Edit Accept Rate', category: 'cost', formatter: 'integer',
         compute: () => 0 },
+      { name: 'evaluation_cost', label: 'Evaluation Cost', category: 'cost', formatter: 'cost',
+        compute: () => 0 },
       { name: 'seed_cost', label: 'Seed Cost', category: 'cost', formatter: 'cost',
         listView: true, compute: () => 0 },
     ],
