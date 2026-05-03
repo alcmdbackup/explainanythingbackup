@@ -91,22 +91,34 @@ export type DynamicMetricName =
   | `eloAttrDeltaHist:${string}`;
 export type MetricName = StaticMetricName | DynamicMetricName;
 
-// Dynamic metric prefixes for runtime validation
-export const DYNAMIC_METRIC_PREFIXES = [
-  'agentCost:',
-  'eloAttrDelta:',
-  'eloAttrDeltaHist:',
-] as const;
+/**
+ * Typed registry for dynamic metric prefixes. Adding a new family is a one-line
+ * addition here that automatically extends:
+ *  - `writeMetrics` validation (via `DYNAMIC_METRIC_PREFIXES` derived below)
+ *  - `Entity.markParentMetricsStale` cascade (via `isDynamicMetricName`)
+ *  - `EntityMetricsTab` formatter / category / label resolution
+ *
+ * Per-purpose notes:
+ *  - `agentCost:` rows aggregate per-invocation `cost_usd` by `agent_name`. They
+ *    were superseded by static `*_cost` names but are kept for legacy compatibility.
+ *  - `eloAttrDelta:` rows are SIGNED Elo-point deltas (child − parent). MUST render
+ *    via `elo` formatter; rendering as currency produces nonsense like `$-1.951`.
+ *  - `eloAttrDeltaHist:` rows are bucket-fraction percents in `[0, 1]`.
+ */
+export const DYNAMIC_METRIC_REGISTRY = {
+  'agentCost:':        { formatter: 'costDetailed', category: 'cost',   labelSuffix: ' Cost' },
+  'eloAttrDelta:':     { formatter: 'elo',          category: 'rating', labelSuffix: ' Δ Elo' },
+  'eloAttrDeltaHist:': { formatter: 'percent',      category: 'rating', labelSuffix: ' (bucket)' },
+} as const satisfies Record<string, { formatter: 'cost' | 'costDetailed' | 'elo' | 'score' | 'percent' | 'percentValue' | 'integer'; category: 'cost' | 'rating' | 'match' | 'count'; labelSuffix: string }>;
+
+// Backward-compat: derive prefix list from the registry so the two never drift.
+export const DYNAMIC_METRIC_PREFIXES = Object.keys(DYNAMIC_METRIC_REGISTRY) as Array<keyof typeof DYNAMIC_METRIC_REGISTRY>;
 
 /**
  * B041: true when the metric name is one of the dynamic-prefix families above. The
  * stale-cascade (`Entity.markParentMetricsStale`) consults this in addition to the
  * static propagation defs so dynamic-prefix rows (`eloAttrDelta:*`, `agentCost:*`,
  * `eloAttrDeltaHist:*`) get marked stale on variant rating drift.
- *
- * Keep the helper co-located with the prefix array so adding a new dynamic family is a
- * 1-line addition that automatically extends both writeMetrics validation AND the
- * stale-cascade.
  */
 export function isDynamicMetricName(name: string): boolean {
   return DYNAMIC_METRIC_PREFIXES.some((p) => name.startsWith(p));

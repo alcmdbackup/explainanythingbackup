@@ -3,7 +3,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { EntityListPage, EvolutionBreadcrumb, type ColumnDef, type FilterDef } from '@evolution/components/evolution';
+import { EntityListPage, EvolutionBreadcrumb, StatusBadge, type ColumnDef, type FilterDef } from '@evolution/components/evolution';
 import { getArenaTopicsAction, type ArenaTopic } from '@evolution/services/arenaActions';
 import { toast } from 'sonner';
 import { formatDate } from '@evolution/lib/utils/formatters';
@@ -45,7 +45,9 @@ const COLUMNS: ColumnDef<ArenaTopic>[] = [
     ),
   },
   { key: 'entry_count', header: 'Entries', skipLink: true, render: (t) => t.entry_count ?? 0 },
-  { key: 'status', header: 'Status', skipLink: true, render: (t) => t.status },
+  // Fix #53 (use_playwright_find_ux_issues_bugs_20260501): use StatusBadge for
+  // visual consistency with other admin pages (was rendering as plain text).
+  { key: 'status', header: 'Status', skipLink: true, render: (t) => <StatusBadge variant="entity-status" status={t.status} /> },
   {
     key: 'created_at',
     header: 'Created',
@@ -101,19 +103,30 @@ export default function ArenaListPage(): JSX.Element {
         ]}
       />
 
-      <EntityListPage
-        title="Arena Topics"
-        filters={[STATUS_FILTER, HIDE_EMPTY_FILTER, { key: 'filterTestContent', label: 'Hide test content', type: 'checkbox', defaultChecked: true }]}
-        columns={COLUMNS}
-        items={filterValues.hideEmpty === 'true' ? topics.filter(t => (t.entry_count ?? 0) > 0) : topics}
-        loading={loading}
-        totalCount={loading ? undefined : topics.length}
-        filterValues={filterValues}
-        onFilterChange={handleFilterChange}
-        getRowHref={(topic) => `/admin/evolution/arena/${topic.id}`}
-        emptyMessage="No arena topics found"
-        emptySuggestion="Create a topic to start comparing content variants."
-      />
+      {(() => {
+        // Fix #49 (use_playwright_find_ux_issues_bugs_20260501): when hideEmpty
+        // is on, pass both visible count + unfiltered total so the heading
+        // reads "(2 of 52)" instead of just "(2)".
+        const visibleTopics = filterValues.hideEmpty === 'true'
+          ? topics.filter(t => (t.entry_count ?? 0) > 0)
+          : topics;
+        return (
+          <EntityListPage
+            title="Arena Topics"
+            filters={[STATUS_FILTER, HIDE_EMPTY_FILTER, { key: 'filterTestContent', label: 'Hide test content', type: 'checkbox', defaultChecked: true }]}
+            columns={COLUMNS}
+            items={visibleTopics}
+            loading={loading}
+            totalCount={loading ? undefined : visibleTopics.length}
+            unfilteredTotal={loading ? undefined : topics.length}
+            filterValues={filterValues}
+            onFilterChange={handleFilterChange}
+            getRowHref={(topic) => `/admin/evolution/arena/${topic.id}`}
+            emptyMessage="No arena topics found"
+            emptySuggestion="Create a topic to start comparing content variants."
+          />
+        );
+      })()}
     </div>
   );
 }

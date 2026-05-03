@@ -153,7 +153,19 @@ function StrategyCostEstimatesView({ strategyId }: { strategyId: string }): JSX.
   const avgErrorValue = ((): React.ReactNode => {
     if (summary.errorPct == null) return '—';
     if (errorPctSE != null) {
-      return <span className="font-mono">{formatPctWithTone(summary.errorPct)} ± {errorPctSE.toFixed(1)}%</span>;
+      // Fix #43 (use_playwright_find_ux_issues_bugs_20260501): if SE is large
+      // relative to the mean, the central tendency is unreliable. Render the
+      // SE in a muted color and add a tooltip warning so users don't read the
+      // bare number with false confidence.
+      const isHighVariance = Math.abs(summary.errorPct) > 0 && errorPctSE > 1.5 * Math.abs(summary.errorPct);
+      const seClass = isHighVariance ? 'text-[var(--text-muted)] italic' : '';
+      const seTitle = isHighVariance ? 'High variance — SE > 1.5× |mean|. Interpret with care.' : undefined;
+      return (
+        <span className="font-mono">
+          {formatPctWithTone(summary.errorPct)}{' '}
+          <span className={seClass} title={seTitle}>± {errorPctSE.toFixed(1)}%</span>
+        </span>
+      );
     }
     return formatPctWithTone(summary.errorPct);
   })();
@@ -379,12 +391,24 @@ ${sensitivity.medianSequentialGfsaDurationMs != null
 function ErrorHistogramSection({ histogram, title }: { histogram: HistogramBucket[]; title: string }): JSX.Element {
   const maxCount = Math.max(1, ...histogram.map((b) => b.count));
   const totalCount = histogram.reduce((a, b) => a + b.count, 0);
+  // Fix #39 (use_playwright_find_ux_issues_bugs_20260501): when ALL data falls
+  // into a single fixed bucket, the histogram becomes a degenerate single bar
+  // that conveys no distribution shape. Annotate the situation so users know to
+  // re-calibrate buckets rather than assuming the visual is meaningful.
+  const populatedBuckets = histogram.filter((b) => b.count > 0);
+  const isDegenerate = totalCount > 0 && populatedBuckets.length === 1;
   return (
     <div data-testid="cost-estimates-histogram">
       <h3 className="text-xl font-display font-medium text-[var(--text-secondary)] mb-2">{title}</h3>
       {totalCount === 0 ? (
         <p className="text-sm text-[var(--text-secondary)]">No estimation error data.</p>
       ) : (
+        <>
+        {isDegenerate && (
+          <p className="text-xs italic text-[var(--text-muted)] mb-2" data-testid="histogram-degenerate-note">
+            All {totalCount} invocation{totalCount === 1 ? '' : 's'} fell into the {populatedBuckets[0]!.label} bucket. The fixed buckets aren't capturing distribution shape — re-calibrate if you need finer detail.
+          </p>
+        )}
         <div className="flex items-end gap-3">
           {histogram.map((b) => {
             const height = Math.max(2, Math.round((b.count / maxCount) * 80));
@@ -401,6 +425,7 @@ function ErrorHistogramSection({ histogram, title }: { histogram: HistogramBucke
             );
           })}
         </div>
+        </>
       )}
     </div>
   );
@@ -414,13 +439,15 @@ function PerIterationSummarySection({ invocations }: { invocations: RunCostEstim
       const entry = map.get(iter) ?? { type: '—', allocated: 0, spent: 0, count: 0 };
       entry.count += 1;
       entry.spent += inv.totalCost ?? 0;
-      // Infer type from agent name. Edit must be checked BEFORE generate
-      // (the per-LLM-call labels for iterative_editing all contain 'edit'
-      // but not 'generate').
+      // Infer type from agent name. Order matters:
+      //  - Reflect+Gen wrapper exact-match first (its name contains 'generate').
+      //  - Then 'edit' (iterative_editing per-call labels contain 'edit' but not 'generate').
+      //  - Then swiss / generate substring matches.
       const name = inv.agentName.toLowerCase();
-      if (name.includes('edit')) entry.type = 'iterative_editing';
-      else if (name.includes('generate')) entry.type = 'generate';
+      if (name === 'reflect_and_generate_from_previous_article') entry.type = 'reflect_generate';
+      else if (name.includes('edit')) entry.type = 'iterative_editing';
       else if (name.includes('swiss')) entry.type = 'swiss';
+      else if (name.includes('generate')) entry.type = 'generate';
       map.set(iter, entry);
     }
     return Array.from(map.entries()).sort(([a], [b]) => a - b);
@@ -449,9 +476,10 @@ function PerIterationSummarySection({ invocations }: { invocations: RunCostEstim
                   <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider ${
                     s.type === 'generate' ? 'bg-blue-500/20 text-blue-400' :
                     s.type === 'swiss' ? 'bg-purple-500/20 text-purple-400' :
+                    s.type === 'reflect_generate' ? 'bg-amber-500/20 text-amber-400' :
                     'bg-gray-500/20 text-gray-400'
                   }`}>
-                    {s.type}
+                    {s.type === 'reflect_generate' ? 'reflect+gen' : s.type}
                   </span>
                 </td>
                 <td className="py-1.5 pr-3 text-right font-mono">{s.count}</td>
@@ -656,11 +684,31 @@ function RunsTableSection({ runs }: { runs: StrategyCostEstimates['runs'] }): JS
 // ─── Shared primitives ───────────────────────────────────────────
 
 function LoadingSkeleton(): JSX.Element {
+  // Fix #37 (use_playwright_find_ux_issues_bugs_20260501): match the actual layout
+  // (5 summary cards + cost-by-agent table + per-iteration table) so the user
+  // sees a structured loading state instead of three undifferentiated grey blocks.
   return (
-    <div className="space-y-4" data-testid="cost-estimates-loading">
-      {[1, 2, 3].map((i) => (
-        <div key={i} className="h-24 bg-[var(--surface-elevated)] rounded-book animate-pulse" />
-      ))}
+    <div className="space-y-6" data-testid="cost-estimates-loading">
+      {/* Summary cards row */}
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+        {[1, 2, 3, 4, 5].map((i) => (
+          <div key={i} className="h-16 bg-[var(--surface-elevated)] rounded-book animate-pulse" />
+        ))}
+      </div>
+      {/* Section heading + table skeleton (cost-by-agent) */}
+      <div className="space-y-2">
+        <div className="h-6 w-40 bg-[var(--surface-elevated)] rounded animate-pulse" />
+        {[1, 2, 3].map((i) => (
+          <div key={i} className="h-8 bg-[var(--surface-elevated)] rounded animate-pulse" />
+        ))}
+      </div>
+      {/* Per-iteration table skeleton */}
+      <div className="space-y-2">
+        <div className="h-6 w-48 bg-[var(--surface-elevated)] rounded animate-pulse" />
+        {[1, 2, 3, 4].map((i) => (
+          <div key={i} className="h-7 bg-[var(--surface-elevated)] rounded animate-pulse" />
+        ))}
+      </div>
     </div>
   );
 }

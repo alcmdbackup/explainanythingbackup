@@ -77,9 +77,11 @@ export default function PromptsPage(): JSX.Element {
 
   const close = useCallback(() => setDialog({ kind: 'none' }), []);
 
+  // Fix #18 Patch B (use_playwright_find_ux_issues_bugs_20260501): include prompt
+  // name in aria-label so screen reader users can distinguish row actions.
   const rowActions: RowAction<PromptListItem>[] = [
-    { label: 'Edit', onClick: (row) => setDialog({ kind: 'edit', row }) },
-    { label: 'Delete', onClick: (row) => setDialog({ kind: 'delete', row }), danger: true },
+    { label: 'Edit', onClick: (row) => setDialog({ kind: 'edit', row }), getAriaLabel: (row) => `Edit prompt ${row.name}` },
+    { label: 'Delete', onClick: (row) => setDialog({ kind: 'delete', row }), danger: true, getAriaLabel: (row) => `Delete prompt ${row.name}` },
   ];
 
   const formOpen = dialog.kind === 'create' || dialog.kind === 'edit';

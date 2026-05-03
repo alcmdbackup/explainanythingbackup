@@ -16,6 +16,16 @@ function getMetricValue(metrics: MetricRow[] | undefined, name: string): number 
   return metrics?.find(m => m.metric_name === name)?.value ?? 0;
 }
 
+/** Fix #1 (use_playwright_find_ux_issues_bugs_20260501): return null when the
+ *  metric row is absent so callers can distinguish "missing data" from
+ *  "genuinely 0". Used by the Spent column to avoid showing "$0.00" for runs
+ *  that have no cost row at all (which would suggest a free run rather than
+ *  missing data). */
+function getMetricValueOrNull(metrics: MetricRow[] | undefined, name: string): number | null {
+  const row = metrics?.find(m => m.metric_name === name);
+  return row ? row.value : null;
+}
+
 function getProgressBarColor(pct: number): string {
   if (pct >= 0.9) return 'bg-[var(--status-error)]';
   if (pct >= 0.7) return 'bg-[var(--status-warning)]';
@@ -130,13 +140,23 @@ export function getBaseColumns<T extends BaseRun>(): RunsColumnDef<T>[] {
         // to summing those when `cost` is missing so the Spent column
         // stays consistent with the dashboard (which uses
         // getRunCostsWithFallback for the same reason).
-        const direct = getMetricValue(run.metrics, 'cost');
-        const cost = direct > 0
+        const direct = getMetricValueOrNull(run.metrics, 'cost');
+        // Fix #11 (use_playwright_find_ux_issues_bugs_20260501): include
+        // reflection_cost in the fallback sum so reflect+generate runs reconcile
+        // when the rollup `cost` row is missing. Mirrors getRunCostsWithFallback.
+        const gen = getMetricValueOrNull(run.metrics, 'generation_cost');
+        const rank = getMetricValueOrNull(run.metrics, 'ranking_cost');
+        const refl = getMetricValueOrNull(run.metrics, 'reflection_cost');
+        const seed = getMetricValueOrNull(run.metrics, 'seed_cost');
+        const hasFallback = gen != null || rank != null || refl != null || seed != null;
+        // Fix #1: distinguish "no cost data" from "$0.00 spent". When neither
+        // the rollup nor any per-purpose row exists, render formatCost(null) → "—".
+        const cost = direct != null && direct > 0
           ? direct
-          : getMetricValue(run.metrics, 'generation_cost')
-            + getMetricValue(run.metrics, 'ranking_cost')
-            + getMetricValue(run.metrics, 'seed_cost');
-        const pct = run.budget_cap_usd > 0 ? cost / run.budget_cap_usd : 0;
+          : hasFallback
+            ? (gen ?? 0) + (rank ?? 0) + (refl ?? 0) + (seed ?? 0)
+            : null;
+        const pct = run.budget_cap_usd > 0 && cost != null ? cost / run.budget_cap_usd : 0;
         const isActive = run.status === 'running' || run.status === 'claimed';
         return (
           <div className="flex flex-col items-end gap-0.5">

@@ -36,7 +36,7 @@ const CHUNK_SIZE = 100;
 
 async function readCostMetrics(
   db: SupabaseClient,
-  metricName: 'cost' | 'generation_cost' | 'ranking_cost' | 'seed_cost',
+  metricName: 'cost' | 'generation_cost' | 'ranking_cost' | 'reflection_cost' | 'seed_cost',
   runIds: string[],
 ): Promise<Map<string, number>> {
   const out = new Map<string, number>();
@@ -99,18 +99,22 @@ export async function getRunCostsWithFallback(
   const layer1 = await readCostMetrics(db, 'cost', runIds);
   const stillMissing1 = runIds.filter(id => !layer1.has(id));
 
-  // Layer 2 (NEW): sum of gen+rank+seed cost metrics for runs that have
+  // Layer 2: sum of gen+rank+reflection+seed cost metrics for runs that have
   // per-phase metric rows but no rollup `cost` row.
+  // Fix #11 (use_playwright_find_ux_issues_bugs_20260501): include reflection_cost
+  // so reflect+generate runs reconcile (the rollup `cost` already includes it via
+  // writeMetricMax in createEvolutionLLMClient).
   const layer2 = new Map<string, number>();
   if (stillMissing1.length > 0) {
-    const [gen, rank, seed] = await Promise.all([
+    const [gen, rank, reflection, seed] = await Promise.all([
       readCostMetrics(db, 'generation_cost', stillMissing1),
       readCostMetrics(db, 'ranking_cost', stillMissing1),
+      readCostMetrics(db, 'reflection_cost', stillMissing1),
       readCostMetrics(db, 'seed_cost', stillMissing1),
     ]);
     for (const id of stillMissing1) {
-      const sum = (gen.get(id) ?? 0) + (rank.get(id) ?? 0) + (seed.get(id) ?? 0);
-      if (gen.has(id) || rank.has(id) || seed.has(id)) layer2.set(id, sum);
+      const sum = (gen.get(id) ?? 0) + (rank.get(id) ?? 0) + (reflection.get(id) ?? 0) + (seed.get(id) ?? 0);
+      if (gen.has(id) || rank.has(id) || reflection.has(id) || seed.has(id)) layer2.set(id, sum);
     }
   }
   const stillMissing2 = stillMissing1.filter(id => !layer2.has(id));

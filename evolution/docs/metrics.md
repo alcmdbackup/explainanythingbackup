@@ -432,7 +432,7 @@ Fraction of invocations in the group whose delta fell into the half-open bucket 
 
 ### Prefix whitelist
 
-Both prefixes are registered in `DYNAMIC_METRIC_PREFIXES` in `evolution/src/lib/metrics/types.ts`. `writeMetrics` rejects any metric name not matching a static name or a whitelisted prefix.
+Both prefixes are registered in `DYNAMIC_METRIC_REGISTRY` in `evolution/src/lib/metrics/types.ts`, alongside their formatter (`elo` for `eloAttrDelta:*`, `percent` for `eloAttrDeltaHist:*`, `costDetailed` for `agentCost:*`), category (`rating` vs `cost`), and label suffix (e.g. ` Δ Elo` instead of ` Cost`). `DYNAMIC_METRIC_PREFIXES` is now derived from the registry's keys so the two never drift; `writeMetrics` rejects any metric name not matching a static name or a registered prefix. **Per Fix #29-31 (use_playwright_find_ux_issues_bugs_20260501)**: when adding a new dynamic prefix, declare its formatter / category / labelSuffix in the registry — `EntityMetricsTab.tsx`'s `resolveFormatter` / `resolveCategory` / `resolveLabel` all consume the registry, so a one-line registry entry is enough to keep the UI rendering correctly.
 
 ### Stale behavior
 

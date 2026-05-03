@@ -43,9 +43,14 @@ describe('EntityDetailHeader', () => {
     const crossLinks = screen.getByTestId('cross-links');
     const links = crossLinks.querySelectorAll('a');
     expect(links).toHaveLength(2);
-    expect(links[0]).toHaveTextContent('Experiment: Test Exp');
+    // Fix #25 (use_playwright_find_ux_issues_bugs_20260501): chip prefix is no
+    // longer rendered as a colon-prefixed label string. Both prefix and label
+    // text are still visible (prefix in a small uppercase muted span).
+    expect(links[0]).toHaveTextContent('Experiment');
+    expect(links[0]).toHaveTextContent('Test Exp');
     expect(links[0]).toHaveAttribute('href', '/experiments/1');
-    expect(links[1]).toHaveTextContent('Strategy: Test Strat');
+    expect(links[1]).toHaveTextContent('Strategy');
+    expect(links[1]).toHaveTextContent('Test Strat');
   });
 
   it('renders actions slot', () => {

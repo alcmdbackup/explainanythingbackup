@@ -28,6 +28,10 @@ export interface RowAction<T> {
   onClick: (row: T) => void;
   visible?: (row: T) => boolean;
   danger?: boolean;
+  /** Fix #18 Patch B (use_playwright_find_ux_issues_bugs_20260501): when provided,
+   *  used as the rendered button's aria-label so screen reader users can distinguish
+   *  the same generic "Delete" / "Archive" button across rows. Defaults to `label`. */
+  getAriaLabel?: (row: T) => string;
 }
 
 export interface EntityListPageProps<T> {
@@ -41,6 +45,10 @@ export interface EntityListPageProps<T> {
   /** Controlled mode: pass loading state. Ignored when loadData is provided. */
   loading?: boolean;
   totalCount?: number;
+  /** Fix #49 (use_playwright_find_ux_issues_bugs_20260501): when client-side
+   *  filters reduce the visible count below the unfiltered total, callers can
+   *  pass `unfilteredTotal` so the heading reads "(X of Y)" instead of "(X)". */
+  unfilteredTotal?: number;
   filterValues?: Record<string, string>;
   onFilterChange?: (key: string, value: string) => void;
   sortKey?: string;
@@ -49,6 +57,12 @@ export interface EntityListPageProps<T> {
   page?: number;
   pageSize?: number;
   onPageChange?: (page: number) => void;
+  /** Fix #15 (use_playwright_find_ux_issues_bugs_20260501): when provided,
+   *  EntityListPage renders a page-size selector next to pagination so users
+   *  can trade scroll for fewer requests. In self-managed mode the selector is
+   *  always rendered with default options. Defaults to [10, 20, 50, 100]. */
+  onPageSizeChange?: (size: number) => void;
+  pageSizeOptions?: number[];
   getRowHref?: (item: T) => string;
   actions?: ReactNode;
   emptyMessage?: string;
@@ -150,7 +164,20 @@ export function EntityListPage<T>(props: EntityListPageProps<T>): JSX.Element {
   const totalCount = isSelfManaged ? managedTotal : props.totalCount;
   const filterValues = isSelfManaged ? managedFilterValues : (props.filterValues ?? {});
   const page = isSelfManaged ? managedPage : (props.page ?? 1);
-  const pageSize = props.pageSize ?? (isSelfManaged ? 50 : 20);
+  // Fix #15 (use_playwright_find_ux_issues_bugs_20260501): in self-managed mode
+  // the user can change page size via the new selector. Track it in local state
+  // and prefer it over the prop default when present.
+  const [managedPageSize, setManagedPageSize] = useState<number | null>(null);
+  const pageSize = props.pageSize ?? managedPageSize ?? (isSelfManaged ? 50 : 20);
+  const pageSizeOptions = props.pageSizeOptions ?? [10, 20, 50, 100];
+  const onPageSizeChange = (size: number): void => {
+    if (props.onPageSizeChange) props.onPageSizeChange(size);
+    if (isSelfManaged) {
+      setManagedPageSize(size);
+      setManagedPage(1);
+    }
+  };
+  const showPageSizeSelector = isSelfManaged || !!props.onPageSizeChange;
 
   const onFilterChange = isSelfManaged
     ? (key: string, value: string) => { setManagedFilterValues(prev => ({ ...prev, [key]: value })); setManagedPage(1); }
@@ -197,6 +224,7 @@ export function EntityListPage<T>(props: EntityListPageProps<T>): JSX.Element {
                   <button
                     key={action.label}
                     onClick={(e) => { e.stopPropagation(); action.onClick(row); }}
+                    aria-label={action.getAriaLabel ? action.getAriaLabel(row) : action.label}
                     className={`font-ui text-xs ${action.danger ? 'text-[var(--status-error)]' : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'}`}
                   >
                     {action.label}
@@ -225,14 +253,22 @@ export function EntityListPage<T>(props: EntityListPageProps<T>): JSX.Element {
       {props.showHeader !== false && (
         <div className="flex flex-row items-center justify-between gap-4 p-6 border-b border-[var(--border-default)]">
           <div>
-            <h1 className="text-4xl font-display font-bold text-[var(--text-primary)]">{props.title}</h1>
-            {loading ? (
+            {/* Fix #20 (use_playwright_find_ux_issues_bugs_20260501): inline the
+                count next to the heading so a quick glance shows total instead
+                of being buried in a separate sub-line. */}
+            <h1 className="text-4xl font-display font-bold text-[var(--text-primary)]">
+              {props.title}
+              {totalCount != null && !loading && (
+                <span className="ml-3 text-base font-ui font-normal text-[var(--text-muted)]">
+                  {props.unfilteredTotal != null && props.unfilteredTotal > totalCount
+                    ? `(${totalCount.toLocaleString()} of ${props.unfilteredTotal.toLocaleString()})`
+                    : `(${totalCount.toLocaleString()})`}
+                </span>
+              )}
+            </h1>
+            {loading && (
               <div className="h-3 w-12 bg-[var(--surface-elevated)] rounded animate-pulse mt-1" />
-            ) : totalCount != null ? (
-              <p className="text-xs font-ui text-[var(--text-muted)] mt-0.5">
-                {totalCount} {totalCount === 1 ? 'item' : 'items'}
-              </p>
-            ) : null}
+            )}
           </div>
           <div className="flex gap-2">
             {props.headerAction && (
@@ -302,8 +338,13 @@ export function EntityListPage<T>(props: EntityListPageProps<T>): JSX.Element {
                   type="text"
                   value={filterValues[filter.key] ?? ''}
                   onChange={(e) => handleTextFilter(filter.key, e.target.value)}
+                  // Fix #47 (use_playwright_find_ux_issues_bugs_20260501): the placeholder
+                  // string was set in the FilterDef but the input's text color (text-secondary)
+                  // was inherited by the placeholder, making it nearly invisible against
+                  // the input bg. Add an explicit `placeholder:text-[var(--text-muted)]`
+                  // so placeholder copy is visible.
                   placeholder={filter.placeholder ?? filter.label}
-                  className="px-2 py-1 text-xs font-ui bg-[var(--surface-input)] text-[var(--text-secondary)] border border-[var(--border-default)] rounded-page w-40"
+                  className="px-2 py-1 text-xs font-ui bg-[var(--surface-input)] text-[var(--text-secondary)] placeholder:text-[var(--text-muted)] border border-[var(--border-default)] rounded-page w-40"
                   data-testid={`filter-${filter.key}`}
                   aria-label={filter.label}
                 />
@@ -330,7 +371,23 @@ export function EntityListPage<T>(props: EntityListPageProps<T>): JSX.Element {
         ) : null}
 
         {onPageChange && totalPages > 1 && (
-          <div className="flex items-center justify-center gap-2 mt-4" data-testid="pagination">
+          <div className="flex items-center justify-center gap-2 mt-4 flex-wrap" data-testid="pagination">
+            {showPageSizeSelector && (
+              <label className="flex items-center gap-1 text-xs font-ui text-[var(--text-muted)] mr-2">
+                <span>Per page</span>
+                <select
+                  value={pageSize}
+                  onChange={(e) => onPageSizeChange(parseInt(e.target.value, 10))}
+                  data-testid="page-size-selector"
+                  aria-label="Items per page"
+                  className="px-1.5 py-0.5 text-xs font-ui border border-[var(--border-default)] rounded-page bg-transparent focus:outline-none focus:border-[var(--accent-gold)]"
+                >
+                  {pageSizeOptions.map((s) => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
+              </label>
+            )}
             <button
               onClick={() => onPageChange(page - 1)}
               disabled={page <= 1}

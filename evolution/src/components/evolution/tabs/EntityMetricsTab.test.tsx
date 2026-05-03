@@ -98,6 +98,82 @@ describe('EntityMetricsTab', () => {
     });
   });
 
+  // Fix #29-31 (use_playwright_find_ux_issues_bugs_20260501): eloAttrDelta:* rows
+  // are SIGNED Elo deltas, not currency. They MUST render via the elo formatter
+  // (no $ prefix, no negative-dollar nonsense), be categorized as 'rating' not
+  // 'cost', and be labelled with " Δ Elo" suffix instead of " Cost".
+  describe('Fix #29-31 dynamic metric registry routing', () => {
+    it('renders eloAttrDelta:* via Elo formatter (not currency)', async () => {
+      getEntityMetricsAction.mockResolvedValue({
+        success: true,
+        data: [makeRow({
+          metric_name: 'eloAttrDelta:reflect_and_generate_from_previous_article:lexical_simplify',
+          value: -15,
+        })],
+        error: null,
+      });
+      render(<EntityMetricsTab entityType="run" entityId="00000000-0000-0000-0000-000000000001" />);
+      await waitFor(() => expect(screen.getByTestId('entity-metrics-tab')).toBeInTheDocument());
+      // Must render as "-15" via formatElo, never as "$-15.000" via costDetailed.
+      expect(screen.getByText('-15')).toBeInTheDocument();
+      // Negative assertion: no dollar-sign rendering of the value.
+      const tab = screen.getByTestId('entity-metrics-tab');
+      expect(tab.textContent).not.toMatch(/\$-15/);
+    });
+
+    it('groups eloAttrDelta:* under Rating category (not Cost)', async () => {
+      getEntityMetricsAction.mockResolvedValue({
+        success: true,
+        data: [makeRow({
+          metric_name: 'eloAttrDelta:reflect_and_generate_from_previous_article:curiosity_hook',
+          value: 25,
+        })],
+        error: null,
+      });
+      render(<EntityMetricsTab entityType="run" entityId="00000000-0000-0000-0000-000000000001" />);
+      await waitFor(() => expect(screen.getByTestId('entity-metrics-tab')).toBeInTheDocument());
+      // Rating heading is present; Cost heading is not (no static cost metrics, no agentCost:*).
+      expect(screen.getByText('Rating')).toBeInTheDocument();
+      expect(screen.queryByText('Cost')).not.toBeInTheDocument();
+    });
+
+    it('labels eloAttrDelta:* with " Δ Elo" suffix (not " Cost")', async () => {
+      getEntityMetricsAction.mockResolvedValue({
+        success: true,
+        data: [makeRow({
+          metric_name: 'eloAttrDelta:reflect_and_generate_from_previous_article:lexical_simplify',
+          value: -15,
+        })],
+        error: null,
+      });
+      render(<EntityMetricsTab entityType="run" entityId="00000000-0000-0000-0000-000000000001" />);
+      await waitFor(() => expect(screen.getByTestId('entity-metrics-tab')).toBeInTheDocument());
+      // The label is the prettified suffix joined by " / " plus " Δ Elo".
+      expect(screen.getByText(/Δ Elo/)).toBeInTheDocument();
+      // No mis-suffixed " Cost" label for this row.
+      const tab = screen.getByTestId('entity-metrics-tab');
+      expect(tab.textContent).not.toMatch(/Reflect.* Cost/);
+    });
+  });
+
+  // Fix #35 (use_playwright_find_ux_issues_bugs_20260501): reflection_cost is
+  // already labeled in the metric catalog and now has listView:true. The
+  // EntityMetricsTab must surface it as a Cost-section card alongside the others.
+  it('renders Reflection Cost summary card when reflection_cost present', async () => {
+    getEntityMetricsAction.mockResolvedValue({
+      success: true,
+      data: [
+        makeRow({ metric_name: 'cost', value: 0.04 }),
+        makeRow({ metric_name: 'reflection_cost', value: 0.012 }),
+      ],
+      error: null,
+    });
+    render(<EntityMetricsTab entityType="run" entityId="00000000-0000-0000-0000-000000000001" />);
+    await waitFor(() => expect(screen.getByTestId('entity-metrics-tab')).toBeInTheDocument());
+    expect(screen.getByText('Reflection Cost')).toBeInTheDocument();
+    expect(screen.getByText('$0.01')).toBeInTheDocument();
+  });
+
   it('filters out agentCost:* metrics, keeping generation_cost/ranking_cost', async () => {
     // Run-level per-purpose cost metrics are named generation_cost/ranking_cost (label: "Generation Cost"/"Ranking Cost")
     // agentCost:* are legacy per-phase metrics that should be hidden from the UI

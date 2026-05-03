@@ -1,6 +1,6 @@
 // Tests for arena topic detail page with leaderboard rendering and column sorting.
 
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import ArenaTopicDetailPage from './page';
 
@@ -174,7 +174,9 @@ describe('ArenaTopicDetailPage', () => {
     await waitFor(() => {
       expect(screen.getByTestId('leaderboard-table')).toBeInTheDocument();
     });
-    const eloUncertaintyHeader = screen.getByText(/Elo ± Uncertainty/);
+    // Fix #51 (use_playwright_find_ux_issues_bugs_20260501): scope to leaderboard table.
+    const tableEl = screen.getByTestId('leaderboard-table');
+    const eloUncertaintyHeader = within(tableEl).getByText(/Elo ± Uncertainty/);
     await user.click(eloUncertaintyHeader);
     expect(eloUncertaintyHeader.textContent).toContain('\u25BC'); // defaults to desc
     // Elo should no longer show indicator

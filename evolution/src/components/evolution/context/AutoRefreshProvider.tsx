@@ -136,14 +136,22 @@ export function RefreshIndicator() {
       {isActive && (
         <span className="w-1.5 h-1.5 rounded-full bg-[var(--status-success)] animate-pulse" title="Auto-refreshing" />
       )}
-      {lastRefreshed && <span data-testid="refresh-ago">Updated {ago}</span>}
+      {/* Fix #4/#8 (use_playwright_find_ux_issues_bugs_20260501): aria-live="polite"
+          + aria-atomic so screen readers announce the freshness change. */}
+      {lastRefreshed && (
+        <span data-testid="refresh-ago" aria-live="polite" aria-atomic="true">
+          Updated {ago}
+        </span>
+      )}
       <button
         onClick={triggerRefresh}
         className="px-2 py-0.5 rounded border border-[var(--border-default)] hover:bg-[var(--surface-elevated)] transition-colors"
         title="Refresh now"
         data-testid="manual-refresh-btn"
       >
-        ↻ Refresh
+        {/* Fix #9 (use_playwright_find_ux_issues_bugs_20260501): mark the unicode
+            glyph aria-hidden so screen readers don't read "white circle arrow". */}
+        <span aria-hidden="true">↻</span> Refresh
       </button>
     </div>
   );

@@ -114,10 +114,12 @@ export default function StrategiesPage(): JSX.Element {
 
   const close = (): void => setDialog({ kind: 'none' });
 
+  // Fix #18 Patch B (use_playwright_find_ux_issues_bugs_20260501): include strategy
+  // name in aria-label so screen reader users can distinguish row actions.
   const rowActions: RowAction<StrategyListItem>[] = [
-    { label: 'Edit', onClick: (row) => setDialog({ kind: 'edit', row }) },
-    { label: 'Clone', onClick: (row) => setDialog({ kind: 'clone', row }) },
-    { label: 'Delete', onClick: (row) => setDialog({ kind: 'delete', row }), danger: true },
+    { label: 'Edit', onClick: (row) => setDialog({ kind: 'edit', row }), getAriaLabel: (row) => `Edit strategy ${row.name}` },
+    { label: 'Clone', onClick: (row) => setDialog({ kind: 'clone', row }), getAriaLabel: (row) => `Clone strategy ${row.name}` },
+    { label: 'Delete', onClick: (row) => setDialog({ kind: 'delete', row }), danger: true, getAriaLabel: (row) => `Delete strategy ${row.name}` },
   ];
 
   const formOpen = dialog.kind === 'edit';

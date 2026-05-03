@@ -25,7 +25,7 @@ export const METRIC_CATALOG = {
   },
   reflection_cost: {
     name: 'reflection_cost', label: 'Reflection Cost', category: 'cost', formatter: 'cost',
-    timing: 'during_execution', listView: false,
+    timing: 'during_execution', listView: true,
     description: 'LLM spend on reflection-step tactic-selection calls (ReflectAndGenerateFromPreviousArticleAgent)',
   },
   iterative_edit_cost: {
@@ -256,7 +256,9 @@ export const METRIC_CATALOG = {
   cost_estimation_error_pct: {
     name: 'cost_estimation_error_pct', label: 'Estimation Error %', category: 'cost', formatter: 'percentValue',
     timing: 'at_finalization', listView: true,
-    description: 'Mean per-invocation estimation error % across GFSA invocations in this run',
+    // Fix #14 (use_playwright_find_ux_issues_bugs_20260501): explain sign so a
+    // negative value isn't read as "estimate is bad". Negative = actual was less.
+    description: 'Mean per-invocation estimation error % across GFSA invocations. Negative = actual was less than estimated (over-estimate).',
   },
   estimated_cost: {
     name: 'estimated_cost', label: 'Estimated Cost', category: 'cost', formatter: 'cost',
@@ -266,7 +268,9 @@ export const METRIC_CATALOG = {
   estimation_abs_error_usd: {
     name: 'estimation_abs_error_usd', label: 'Estimation Abs Error', category: 'cost', formatter: 'costDetailed',
     timing: 'at_finalization',
-    description: 'Mean |actual − estimated| USD across GFSA invocations',
+    // Fix #41 (use_playwright_find_ux_issues_bugs_20260501): clarify formula —
+    // this is the per-invocation mean, NOT |sum_actual − sum_estimated|.
+    description: 'Mean of per-invocation |actual − estimated| in USD across GFSA invocations. NOT |sum_actual − sum_estimated| — for run-level total error see ESTIMATED minus TOTAL COST in the summary.',
   },
   generation_estimation_error_pct: {
     name: 'generation_estimation_error_pct', label: 'Generation Estimation Error %', category: 'cost', formatter: 'percentValue',

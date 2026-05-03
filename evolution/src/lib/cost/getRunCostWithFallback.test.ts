@@ -64,6 +64,7 @@ describe('getRunCostsWithFallback', () => {
         cost: [], // r1 missing the rollup
         generation_cost: [{ entity_id: 'r1', value: 0.04 }],
         ranking_cost: [{ entity_id: 'r1', value: 0.05 }],
+        reflection_cost: [],
         seed_cost: [{ entity_id: 'r1', value: 0.0 }],
       },
     });
@@ -71,9 +72,26 @@ describe('getRunCostsWithFallback', () => {
     expect(out.get('r1')).toBeCloseTo(0.09);
   });
 
+  // Fix #11 (use_playwright_find_ux_issues_bugs_20260501): the layer-2 fallback
+  // sum must include reflection_cost so reflect+generate runs reconcile when the
+  // rollup `cost` row is stale. Pre-fix sum would be 0.02; post-fix it's 0.032.
+  it('Fix #11: layer 2 sum includes reflection_cost', async () => {
+    const db = makeDb({
+      evolution_metrics: {
+        cost: [], // missing rollup
+        generation_cost: [{ entity_id: 'r1', value: 0.01 }],
+        ranking_cost: [{ entity_id: 'r1', value: 0.01 }],
+        reflection_cost: [{ entity_id: 'r1', value: 0.012 }],
+        seed_cost: [{ entity_id: 'r1', value: 0.0 }],
+      },
+    });
+    const out = await getRunCostsWithFallback(['r1'], db);
+    expect(out.get('r1')).toBeCloseTo(0.032);
+  });
+
   it('falls through to layer 3 (evolution_run_costs view) when layers 1+2 empty', async () => {
     const db = makeDb({
-      evolution_metrics: { cost: [], generation_cost: [], ranking_cost: [], seed_cost: [] },
+      evolution_metrics: { cost: [], generation_cost: [], ranking_cost: [], reflection_cost: [], seed_cost: [] },
       evolution_run_costs: {
         __no_metric__: [{ run_id: 'r1', total_cost_usd: 0.12 }],
       },
@@ -84,7 +102,7 @@ describe('getRunCostsWithFallback', () => {
 
   it('returns 0 (with warn) for runs missing at every layer', async () => {
     const db = makeDb({
-      evolution_metrics: { cost: [], generation_cost: [], ranking_cost: [], seed_cost: [] },
+      evolution_metrics: { cost: [], generation_cost: [], ranking_cost: [], reflection_cost: [], seed_cost: [] },
       evolution_run_costs: { __no_metric__: [] },
     });
     const out = await getRunCostsWithFallback(['ghost'], db);

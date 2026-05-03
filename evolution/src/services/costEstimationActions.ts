@@ -208,14 +208,9 @@ async function fetchMetricMap(
   return map;
 }
 
-type InvRow = {
-  id: string;
-  agent_name: string | null;
-  iteration: number | null;
-  cost_usd: number | null;
-  duration_ms: number | null;
-  execution_detail: Record<string, unknown> | null;
-};
+// InvRow + buildInvocationRows moved to costEstimationHelpers.ts so they can be
+// exported (Next.js 'use server' modules only allow async exports).
+import { buildInvocationRows, type InvRow } from './costEstimationHelpers';
 
 function buildCostByAgent(invocations: InvRow[]): CostByAgentRow[] {
   type Bucket = { actualUsd: number; estimatedUsd: number; hasAnyEstimate: boolean; count: number; errors: number[] };
@@ -266,33 +261,6 @@ function buildCostByAgent(invocations: InvRow[]): CostByAgentRow[] {
     return b.actualUsd - a.actualUsd;
   });
   return rows;
-}
-
-function buildInvocationRows(invocations: InvRow[]): CostInvocationRow[] {
-  return invocations.map((inv) => {
-    const d = (inv.execution_detail ?? {}) as Record<string, unknown>;
-    const gen = d.generation as Record<string, unknown> | undefined;
-    const rank = d.ranking as Record<string, unknown> | undefined;
-    const genEst = typeof gen?.estimatedCost === 'number' ? gen.estimatedCost as number : null;
-    const genAct = typeof gen?.cost === 'number' ? gen.cost as number : null;
-    const rankEst = typeof rank?.estimatedCost === 'number' ? rank.estimatedCost as number : null;
-    const rankAct = typeof rank?.cost === 'number' ? rank.cost as number : null;
-    const errPct = typeof d.estimationErrorPct === 'number' && Number.isFinite(d.estimationErrorPct)
-      ? d.estimationErrorPct as number : null;
-    const tactic = typeof d.strategy === 'string' ? d.strategy as string : null;
-    return {
-      id: inv.id,
-      agentName: inv.agent_name ?? 'unknown',
-      iteration: inv.iteration,
-      tactic,
-      generationEstimate: genEst,
-      generationActual: genAct,
-      rankingEstimate: rankEst,
-      rankingActual: rankAct,
-      totalCost: inv.cost_usd,
-      estimationErrorPct: errPct,
-    };
-  });
 }
 
 interface BudgetFloorConfigLike {
@@ -558,9 +526,12 @@ export const getStrategyCostEstimatesAction = adminAction(
 
       for (const inv of (invs ?? []) as Array<{ agent_name: string; cost_usd: number | null; execution_detail: Record<string, unknown> | null }>) {
         const d = inv.execution_detail ?? {};
-        const tactic = typeof (d as Record<string, unknown>).strategy === 'string'
-          ? ((d as Record<string, unknown>).strategy as string)
-          : 'unknown';
+        // Fix #38 (use_playwright_find_ux_issues_bugs_20260501): same fix as
+        // buildInvocationRows above — read execution_detail.tactic first, fall back
+        // to .strategy for legacy GFPA rows. Default 'unknown' when neither is set.
+        const dr = d as Record<string, unknown>;
+        const tactic = (typeof dr.tactic === 'string' && dr.tactic ? dr.tactic as string : null)
+          ?? (typeof dr.strategy === 'string' ? dr.strategy as string : 'unknown');
         const key = `${tactic}|${stratConfig.generationModel ?? ''}|${stratConfig.judgeModel ?? ''}`;
         const slice = slices.get(key) ?? {
           actuals: [], errors: [],
