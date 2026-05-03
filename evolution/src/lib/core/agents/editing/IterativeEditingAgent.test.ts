@@ -314,5 +314,79 @@ describe('IterativeEditingAgent', () => {
       expect(result.detail.ranking?.cost).toBeGreaterThanOrEqual(0);
       jest.dontMock('../../../shared/computeRatings');
     });
+
+    it('discardReason populated on AgentOutput.result when surfaced=false (D1)', async () => {
+      // When rankNewVariant returns surfaced=false (status='budget' AND elo<top-15%),
+      // the agent must propagate discardReason on AgentOutput.result. discardReason
+      // is in-memory only (NOT persisted to execution_detail — matches GFPA pattern).
+      jest.resetModules();
+      const compareSpy = jest.fn().mockResolvedValue({ winner: 'B', confidence: 0.95, turns: 2 });
+      jest.doMock('../../../shared/computeRatings', () => {
+        const actual = jest.requireActual('../../../shared/computeRatings');
+        return { ...actual, compareWithBiasMitigation: compareSpy };
+      });
+      // Mock rankSingleVariant to deterministically force the budget+below-cutoff path.
+      jest.doMock('../../../pipeline/loop/rankSingleVariant', () => {
+        const actual = jest.requireActual('../../../pipeline/loop/rankSingleVariant');
+        return {
+          ...actual,
+          rankSingleVariant: jest.fn().mockResolvedValue({
+            status: 'budget',
+            matches: [],
+            comparisonsRun: 0,
+            detail: {
+              variantId: 'p1-edited',
+              localPoolSize: 8,
+              localPoolVariantIds: [],
+              initialTop15Cutoff: 1500,
+              comparisons: [],
+              stopReason: 'budget',
+              totalComparisons: 0,
+              finalLocalElo: 1100, // BELOW the 1500 cutoff → discard
+              finalLocalUncertainty: 100,
+              finalLocalTop15Cutoff: 1500,
+            },
+          }),
+        };
+      });
+      const { IterativeEditingAgent: AgentReimported } = await import('./IterativeEditingAgent');
+
+      const llm = makeMockLlm([
+        { label: 'iterative_edit_propose', response: 'Hello {~~ [#1] world ~> Earth ~~}.' },
+        { label: 'iterative_edit_review', response: JSON.stringify({ groupNumber: 1, decision: 'accept', reason: 'better' }) },
+        { label: 'iterative_edit_propose', response: 'Hello Earth.' },
+      ]);
+      const agent = new AgentReimported();
+      const parent = variant('p1', 'Hello world.');
+      // Pool with high-elo entries so cutoff is high and our edited variant falls below.
+      const highEloOpps = ['o1', 'o2', 'o3', 'o4', 'o5', 'o6', 'o7'].map((id) => variant(id, 'opp text'));
+      const result = await agent.execute(
+        {
+          parent,
+          perInvocationBudgetUsd: 1.0,
+          llm,
+          initialPool: [parent, ...highEloOpps],
+          initialRatings: new Map<string, { elo: number; uncertainty: number }>([
+            ['p1', { elo: 1200, uncertainty: 100 }],
+            ...highEloOpps.map((v): [string, { elo: number; uncertainty: number }] =>
+              [v.id, { elo: 1600, uncertainty: 80 }]),
+          ]),
+          initialMatchCounts: new Map([['p1', 0], ...highEloOpps.map((v): [string, number] => [v.id, 0])]),
+          cache: new Map(),
+          parentVariantId: 'p1',
+        } as unknown as Parameters<typeof agent.execute>[0],
+        makeCtx({ llm }),
+      );
+
+      expect(result.result.finalVariant).not.toBeNull();
+      expect(result.result.surfaced).toBe(false);
+      expect(result.result.discardReason).toBeDefined();
+      expect(result.result.discardReason?.localElo).toBeLessThan(result.result.discardReason!.localTop15Cutoff);
+      // discardReason is NOT persisted to execution_detail (matches GFPA pattern).
+      // The detail's `surfaced` field captures the boolean, but the reason stays in-memory.
+      expect(result.detail.surfaced).toBe(false);
+      jest.dontMock('../../../shared/computeRatings');
+      jest.dontMock('../../../pipeline/loop/rankSingleVariant');
+    });
   });
 });

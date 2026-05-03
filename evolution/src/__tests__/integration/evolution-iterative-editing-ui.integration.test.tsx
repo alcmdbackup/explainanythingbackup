@@ -175,4 +175,29 @@ describe('iterative_editing invocation detail rendering', () => {
     expect(comparisonsField.textContent).toMatch(/pWin/);
     expect(comparisonsField.textContent).toMatch(/Elo after/);
   });
+
+  it('renders ranking section gracefully when ranking is null (all-rejected path)', () => {
+    // When the agent skipped ranking via the input-presence gate (no initialPool)
+    // OR no final variant was emitted, `ranking: null` lands on the persisted
+    // execution_detail. The renderer must not crash; the "object" + "table" field
+    // entries simply render their no-data placeholders.
+    const config = DETAIL_VIEW_CONFIGS['iterative_editing'];
+    const detailWithoutRanking = {
+      ...iterativeEditingDetailFixture,
+      ranking: null,
+      surfaced: false,
+    };
+    render(
+      <ConfigDrivenDetailRenderer
+        config={config!}
+        data={flatten(detailWithoutRanking as unknown as Record<string, unknown>)}
+      />,
+    );
+    // Surfaced renders as a No badge.
+    expect(screen.getByTestId('field-surfaced')).toBeInTheDocument();
+    // Ranking field still exists in the config but renders empty (children fall through to
+    // formatValue's '—' for missing values; comparisons table renders "No data").
+    expect(screen.getByTestId('field-ranking')).toBeInTheDocument();
+    expect(screen.getByTestId('field-ranking.comparisons').textContent).toMatch(/No data/);
+  });
 });

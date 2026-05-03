@@ -516,6 +516,35 @@ describe('projectDispatchPlan', () => {
       expect(planOn[0]!.expectedTotalDispatch).toBeGreaterThanOrEqual(planOn[0]!.dispatchCount);
     });
 
+    it('Case 3a: opts.editingRankEnabled=false on iterative_editing iter zeroes editingRank cost', () => {
+      // Phase 3.3 — when the planner-side editingRankEnabled flag is false, the
+      // editing iteration's editingRank cost projects to 0 (mirrors how
+      // reflectionEnabled zeros reflection cost). The runtime gate at the
+      // dispatch site does the real work; this is the wizard-preview surface.
+      const cfg = baseConfig({
+        iterationConfigs: [
+          { agentType: 'generate', budgetPercent: 50 },
+          { agentType: 'iterative_editing', budgetPercent: 50, editingMaxCycles: 2 },
+        ],
+      });
+
+      const planOn = projectDispatchPlan(cfg, baseCtx()); // default: editingRank on
+      const planOff = projectDispatchPlan(cfg, baseCtx(), { editingRankEnabled: false });
+
+      const editingOn = planOn[1]!;
+      const editingOff = planOff[1]!;
+
+      // editingRank cost zeroed when kill-switch flipped.
+      expect(editingOn.estPerAgent.upperBound.editingRank).toBeGreaterThan(0);
+      expect(editingOff.estPerAgent.upperBound.editingRank).toBe(0);
+      expect(editingOff.estPerAgent.expected.editingRank).toBe(0);
+      // Editing cost itself unchanged (Proposer + Approver + drift recovery still run).
+      expect(editingOff.estPerAgent.upperBound.editing).toBe(editingOn.estPerAgent.upperBound.editing);
+      // Per-agent total drops by the editingRank delta.
+      expect(editingOff.estPerAgent.upperBound.total)
+        .toBeLessThan(editingOn.estPerAgent.upperBound.total);
+    });
+
     it('Case 3: opts.reflectionEnabled=false on reflect_and_generate iter zeroes reflection cost', () => {
       const cfg = baseConfig({
         iterationConfigs: [
