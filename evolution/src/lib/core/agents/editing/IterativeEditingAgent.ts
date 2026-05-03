@@ -63,6 +63,7 @@ export class IterativeEditingAgent extends Agent<
   readonly detailViewConfig: DetailFieldDef[] = [
     { key: 'parentVariantId', label: 'Parent Variant', type: 'text' },
     { key: 'finalVariantId', label: 'Final Variant', type: 'text' },
+    { key: 'surfaced', label: 'Surfaced', type: 'boolean' },
     { key: 'stopReason', label: 'Stop Reason', type: 'badge' },
     { key: 'errorPhase', label: 'Error Phase', type: 'badge' },
     { key: 'errorMessage', label: 'Error Message', type: 'text' },
@@ -95,6 +96,32 @@ export class IterativeEditingAgent extends Agent<
       decisionsKey: 'cycles.0.reviewDecisions',
       dropsPreKey: 'cycles.0.droppedPreApprover',
       dropsPostKey: 'cycles.0.droppedPostApprover',
+    },
+    {
+      key: 'ranking', label: 'Ranking (binary search local view)', type: 'object',
+      children: [
+        { key: 'cost', label: 'Ranking Cost', type: 'number', formatter: 'cost' },
+        { key: 'localPoolSize', label: 'Local Pool Size', type: 'number' },
+        { key: 'initialTop15Cutoff', label: 'Initial Top-15% Cutoff', type: 'number' },
+        { key: 'stopReason', label: 'Stop Reason', type: 'badge' },
+        { key: 'totalComparisons', label: 'Total Comparisons', type: 'number' },
+        { key: 'finalLocalElo', label: 'Final Local Elo', type: 'number' },
+        { key: 'finalLocalUncertainty', label: 'Final Local Uncertainty', type: 'number' },
+        { key: 'durationMs', label: 'Duration (ms)', type: 'number' },
+      ],
+    },
+    {
+      key: 'ranking.comparisons', label: 'Comparisons', type: 'table',
+      columns: [
+        { key: 'round', label: '#' },
+        { key: 'opponentId', label: 'Opponent' },
+        { key: 'selectionScore', label: 'Score' },
+        { key: 'pWin', label: 'pWin' },
+        { key: 'outcome', label: 'Out' },
+        { key: 'variantEloAfter', label: 'Elo after' },
+        { key: 'variantUncertaintyAfter', label: 'Uncertainty after' },
+        { key: 'durationMs', label: 'ms' },
+      ],
     },
     { key: 'totalCost', label: 'Total Cost', type: 'number', formatter: 'cost' },
   ];

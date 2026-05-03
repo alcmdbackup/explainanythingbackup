@@ -783,6 +783,11 @@ export default function NewStrategyPage(): JSX.Element {
                       placeholder="5 (default)"
                       className={inputCls()}
                     />
+                    <p className="text-xs text-[var(--text-muted)] mt-1">
+                      Caps binary-search ranking depth for <code>generate</code>, <code>reflect_and_generate</code>,
+                      and <code>iterative_editing</code> iterations uniformly. Lower values reduce per-agent cost
+                      (especially noticeable for editing iterations, where ranking can dominate). Default 5.
+                    </p>
                   </div>
 
                   <div>
