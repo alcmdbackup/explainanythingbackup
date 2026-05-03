@@ -3,7 +3,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { EntityListPage, EvolutionBreadcrumb, type ColumnDef, type FilterDef } from '@evolution/components/evolution';
+import { EntityListPage, EvolutionBreadcrumb, StatusBadge, type ColumnDef, type FilterDef } from '@evolution/components/evolution';
 import { getArenaTopicsAction, type ArenaTopic } from '@evolution/services/arenaActions';
 import { toast } from 'sonner';
 import { formatDate } from '@evolution/lib/utils/formatters';
@@ -45,7 +45,9 @@ const COLUMNS: ColumnDef<ArenaTopic>[] = [
     ),
   },
   { key: 'entry_count', header: 'Entries', skipLink: true, render: (t) => t.entry_count ?? 0 },
-  { key: 'status', header: 'Status', skipLink: true, render: (t) => t.status },
+  // Fix #53 (use_playwright_find_ux_issues_bugs_20260501): use StatusBadge for
+  // visual consistency with other admin pages (was rendering as plain text).
+  { key: 'status', header: 'Status', skipLink: true, render: (t) => <StatusBadge variant="entity-status" status={t.status} /> },
   {
     key: 'created_at',
     header: 'Created',

@@ -230,14 +230,20 @@ export function EntityListPage<T>(props: EntityListPageProps<T>): JSX.Element {
       {props.showHeader !== false && (
         <div className="flex flex-row items-center justify-between gap-4 p-6 border-b border-[var(--border-default)]">
           <div>
-            <h1 className="text-4xl font-display font-bold text-[var(--text-primary)]">{props.title}</h1>
-            {loading ? (
+            {/* Fix #20 (use_playwright_find_ux_issues_bugs_20260501): inline the
+                count next to the heading so a quick glance shows total instead
+                of being buried in a separate sub-line. */}
+            <h1 className="text-4xl font-display font-bold text-[var(--text-primary)]">
+              {props.title}
+              {totalCount != null && !loading && (
+                <span className="ml-3 text-base font-ui font-normal text-[var(--text-muted)]">
+                  ({totalCount.toLocaleString()})
+                </span>
+              )}
+            </h1>
+            {loading && (
               <div className="h-3 w-12 bg-[var(--surface-elevated)] rounded animate-pulse mt-1" />
-            ) : totalCount != null ? (
-              <p className="text-xs font-ui text-[var(--text-muted)] mt-0.5">
-                {totalCount} {totalCount === 1 ? 'item' : 'items'}
-              </p>
-            ) : null}
+            )}
           </div>
           <div className="flex gap-2">
             {props.headerAction && (

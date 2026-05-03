@@ -155,9 +155,14 @@ export function EntityDetailHeader({
             <Link
               key={`${link.prefix}-${link.href}`}
               href={link.href}
+              // Fix #25 (use_playwright_find_ux_issues_bugs_20260501): drop the
+              // visible "{prefix}: " repetition; the prefix becomes a small
+              // muted tag rendered before the label so screen readers still
+              // get context but the chip reads cleaner.
               className="text-xs text-[var(--text-muted)] hover:text-[var(--accent-gold)] border border-[var(--border-default)] rounded-page px-2 py-0.5"
             >
-              {link.prefix}: {link.label}
+              <span className="text-[var(--text-muted)] opacity-60 mr-1 uppercase tracking-wide" style={{ fontSize: '0.65rem' }}>{link.prefix}</span>
+              {link.label}
             </Link>
           ))}
         </div>
