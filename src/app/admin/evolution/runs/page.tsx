@@ -189,16 +189,22 @@ export default function EvolutionRunsPage(): JSX.Element {
     if (result.success) { toast.success('Run deleted'); load(); } else { toast.error(result.error?.message ?? 'Delete failed'); }
   };
 
-  const renderActions = (run: EvolutionRun): React.ReactNode => (
-    <div className="flex gap-2">
-      {['pending', 'claimed', 'running'].includes(run.status) && (
-        <button onClick={() => setPendingAction({ kind: 'kill', run })} className="font-ui text-xs text-[var(--status-error)]">Kill</button>
-      )}
-      {['completed', 'failed', 'cancelled'].includes(run.status) && (
-        <button onClick={() => setPendingAction({ kind: 'delete', run })} className="font-ui text-xs text-[var(--status-error)]">Delete</button>
-      )}
-    </div>
-  );
+  const renderActions = (run: EvolutionRun): React.ReactNode => {
+    // Fix #18 Patch A (use_playwright_find_ux_issues_bugs_20260501): per-row
+    // action buttons need a unique aria-label that includes the row identifier
+    // so screen reader users can distinguish "Delete" buttons across the list.
+    const idShort = run.id.slice(0, 8);
+    return (
+      <div className="flex gap-2">
+        {['pending', 'claimed', 'running'].includes(run.status) && (
+          <button onClick={() => setPendingAction({ kind: 'kill', run })} aria-label={`Kill run ${idShort}`} className="font-ui text-xs text-[var(--status-error)]">Kill</button>
+        )}
+        {['completed', 'failed', 'cancelled'].includes(run.status) && (
+          <button onClick={() => setPendingAction({ kind: 'delete', run })} aria-label={`Delete run ${idShort}`} className="font-ui text-xs text-[var(--status-error)]">Delete</button>
+        )}
+      </div>
+    );
+  };
 
   const confirmOpen = pendingAction.kind === 'kill' || pendingAction.kind === 'delete';
   const runIdShort = pendingAction.kind !== 'none' ? pendingAction.run.id.substring(0, 8) : '';

@@ -28,6 +28,10 @@ export interface RowAction<T> {
   onClick: (row: T) => void;
   visible?: (row: T) => boolean;
   danger?: boolean;
+  /** Fix #18 Patch B (use_playwright_find_ux_issues_bugs_20260501): when provided,
+   *  used as the rendered button's aria-label so screen reader users can distinguish
+   *  the same generic "Delete" / "Archive" button across rows. Defaults to `label`. */
+  getAriaLabel?: (row: T) => string;
 }
 
 export interface EntityListPageProps<T> {
@@ -197,6 +201,7 @@ export function EntityListPage<T>(props: EntityListPageProps<T>): JSX.Element {
                   <button
                     key={action.label}
                     onClick={(e) => { e.stopPropagation(); action.onClick(row); }}
+                    aria-label={action.getAriaLabel ? action.getAriaLabel(row) : action.label}
                     className={`font-ui text-xs ${action.danger ? 'text-[var(--status-error)]' : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'}`}
                   >
                     {action.label}

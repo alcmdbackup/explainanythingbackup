@@ -262,9 +262,20 @@ export default function ArenaTopicDetailPage(): JSX.Element {
           <h2 className="text-2xl font-display font-bold text-[var(--text-primary)]">Leaderboard</h2>
         </div>
         {eloCutoff != null && (
-          <p className="text-xs font-ui text-[var(--text-muted)] mb-3" data-testid="cutoff-info">
-            Top 15% cutoff: {formatElo(eloCutoff)} Elo. Entries below cutoff are dimmed.
-          </p>
+          // Fix #52 (use_playwright_find_ux_issues_bugs_20260501): promote the
+          // cutoff line to a callout box so users can connect it to the dimmed
+          // rows visually. Per-row dim now also has an explanatory title attr.
+          <div
+            className="flex items-start gap-2 mb-3 p-2 rounded-book bg-[var(--surface-secondary)] border border-[var(--border-subtle)] text-xs font-ui text-[var(--text-secondary)]"
+            data-testid="cutoff-info"
+            role="note"
+          >
+            <span aria-hidden="true">ⓘ</span>
+            <span>
+              Top 15% Elo cutoff: <strong className="font-mono text-[var(--text-primary)]">{formatElo(eloCutoff)}</strong>.
+              Rows with lower Elo are <span className="opacity-50">dimmed</span> to highlight contenders.
+            </span>
+          </div>
         )}
         {entries.length === 0 ? (
           <div className="text-sm font-ui text-[var(--text-muted)] text-center py-4">
@@ -299,6 +310,9 @@ export default function ArenaTopicDetailPage(): JSX.Element {
                     <tr
                       key={entry.id}
                       data-testid={`lb-row-${index}`}
+                      // Fix #52: dim-row gets a tooltip so screen-reader hover (or keyboard focus)
+                      // explains why the row is visually muted.
+                      title={isEligible ? undefined : `Below top 15% Elo cutoff (${eloCutoff != null ? formatElo(eloCutoff) : '—'})`}
                       className={`border-b border-[var(--border-default)] last:border-0 hover:bg-[var(--surface-hover)]${isEligible ? '' : ' opacity-50'}`}
                     >
                       <td className="py-2 pr-3 font-mono text-[var(--text-muted)]">{eloRankMap.get(entry.id) ?? index + 1}</td>

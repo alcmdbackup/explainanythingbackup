@@ -60,7 +60,13 @@ export function MetricGrid({
   const cellClass = CELL_CLASSES[variant] ?? '';
   const valueClass = VALUE_CLASSES[size] ?? VALUE_CLASSES.sm;
 
+  // Fix #32 (use_playwright_find_ux_issues_bugs_20260501): when ANY metric in the
+  // grid renders the low-sample asterisk, append a footnote so users don't have
+  // to hover the asterisk to find out what it means.
+  const hasLowSampleAsterisk = metrics.some(m => m.n === 2 && m.ci && m.ci[0] != null && m.ci[1] != null);
+
   return (
+    <div data-testid-wrapper={testId ?? 'metric-grid-wrapper'} className="space-y-2">
     <div
       className={`grid ${gridCols} gap-3`}
       data-testid={testId ?? 'metric-grid'}
@@ -93,6 +99,12 @@ export function MetricGrid({
           </p>
         </div>
       ))}
+    </div>
+    {hasLowSampleAsterisk && (
+      <p className="text-xs text-[var(--text-muted)] italic" data-testid="metric-grid-asterisk-footnote">
+        <span className="text-[var(--status-warning)]">*</span> Low sample size (n=2) — confidence interval may be unreliable.
+      </p>
+    )}
     </div>
   );
 }

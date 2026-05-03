@@ -85,8 +85,13 @@ const COLUMNS: ColumnDef<ExperimentSummary>[] = [
     render: (exp) => {
       const isStale = exp.status === 'running' &&
         (Date.now() - new Date(exp.updated_at ?? exp.created_at).getTime()) > 60 * 60 * 1000;
+      // Fix #45 (use_playwright_find_ux_issues_bugs_20260501): explain what
+      // 'stale' means via title tooltip so admins don't have to grep code.
+      const tooltip = isStale
+        ? 'Experiment marked as running for >60min without status update'
+        : `Experiment status: ${exp.status}`;
       return (
-        <span className="inline-flex items-center text-xs">
+        <span className="inline-flex items-center text-xs" title={tooltip}>
           <StatusDot status={isStale ? 'stale' : exp.status} />
           {isStale ? 'stale' : exp.status}
         </span>
@@ -222,10 +227,14 @@ export default function ExperimentsListPage(): JSX.Element {
       align: 'right',
       skipLink: true,
       render: (exp) => (
+        // Fix #18 Patch A (use_playwright_find_ux_issues_bugs_20260501): include
+        // experiment name in aria-label so screen reader users can distinguish
+        // "Delete" buttons across the experiments list.
         <div className="flex gap-2">
           {(exp.status === 'running' || exp.status === 'draft') && (
             <button
               onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleCancel(exp); }}
+              aria-label={`Cancel experiment ${exp.name}`}
               className="font-ui text-xs text-[var(--status-warning)] hover:text-[var(--status-error)]"
             >
               Cancel
@@ -234,6 +243,7 @@ export default function ExperimentsListPage(): JSX.Element {
           {['completed', 'cancelled'].includes(exp.status) && (
             <button
               onClick={(e) => { e.preventDefault(); e.stopPropagation(); setDeleteTarget(exp); }}
+              aria-label={`Delete experiment ${exp.name}`}
               className="font-ui text-xs text-[var(--status-error)]"
             >
               Delete

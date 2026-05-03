@@ -192,6 +192,31 @@ describe('RefreshIndicator', () => {
       expect(screen.getByTestId('refresh-ago')).toHaveTextContent('Updated just now');
     });
   });
+
+  // Fix #4/#8 (use_playwright_find_ux_issues_bugs_20260501): the freshness span
+  // must be aria-live="polite" + aria-atomic="true" so screen readers announce
+  // each update tick.
+  it('Fix #4: refresh-ago span has aria-live="polite" and aria-atomic="true"', async () => {
+    function Wrapper() {
+      const { reportRefresh } = useAutoRefresh();
+      return (
+        <>
+          <button data-testid="report" onClick={reportRefresh}>Report</button>
+          <RefreshIndicator />
+        </>
+      );
+    }
+    const user = userEvent.setup();
+    render(
+      <AutoRefreshProvider isActive={false}>
+        <Wrapper />
+      </AutoRefreshProvider>,
+    );
+    await user.click(screen.getByTestId('report'));
+    const ago = await screen.findByTestId('refresh-ago');
+    expect(ago).toHaveAttribute('aria-live', 'polite');
+    expect(ago).toHaveAttribute('aria-atomic', 'true');
+  });
 });
 
 describe('useAutoRefresh fallback', () => {
