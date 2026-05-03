@@ -74,6 +74,18 @@ export function VariantDetailContent({ variant }: VariantDetailContentProps): JS
           ...(variant.explanationId
             ? [{ prefix: 'Explanation', label: `#${variant.explanationId}`, href: `/results?explanation_id=${variant.explanationId}` }]
             : []),
+          // Producing-invocation cross-link. Hidden for legacy variants (~45% of staging
+          // rows) that predate migration 20260418000003. Label uses agent_invocation
+          // agent_name (e.g. 'reflect_and_generate_from_previous_article') which differs
+          // from variant.agent_name for wrapper agents (variant.agent_name is the inner
+          // GFPA tactic; agentInvocationName is the wrapper invocation).
+          ...(variant.agentInvocationId
+            ? [{
+                prefix: 'Produced by',
+                label: variant.agentInvocationName ?? variant.agentInvocationId.slice(0, 8),
+                href: `/admin/evolution/invocations/${variant.agentInvocationId}`,
+              }]
+            : []),
         ]}
       />
 
