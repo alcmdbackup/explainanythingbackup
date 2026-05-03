@@ -24,6 +24,10 @@ Reintroduced in `feat/bring_back_editing_agents_evolution_20260430` after the V1
 
 After cycle loop terminates: emit final `Variant` if any cycle produced edits. `parent_variant_id` is the original input parent (NOT cycle-N-1's intermediate).
 
+**Step 6 — Rank final variant** (gated by `EDITING_RANK_ENABLED`, default `'true'`). The single emitted final variant runs through the same `rankNewVariant()` helper that `GenerateFromPreviousArticleAgent` uses: binary-search Elo against a deep-cloned local snapshot of the iteration-start pool, up to `maxComparisonsPerVariant` opponents, with bias-mitigation 2-pass comparisons. Surface/discard policy mirrors GFPA: discard if `rankResult.status === 'budget'` AND `localElo < computeTop15Cutoff(localRatings)`. Ranking cost lands on `execution_detail.ranking.cost`; match buffer feeds `MergeRatingsAgent` which writes one `evolution_arena_comparisons` row per match.
+
+Intermediate cycle outputs are NEVER ranked (they aren't `Variant` objects — they live as plain text in `execution_detail.cycles[i].childText`). Exactly one ranking pass per agent invocation, on exactly one variant.
+
 ## Configuration
 
 **Strategy-level** (in `evolution_strategies.config`):
@@ -51,11 +55,44 @@ After cycle loop terminates: emit final `Variant` if any cycle produced edits. `
 
 ## Cost tracking
 
-The agent emits ONE invocation row per parent (per-purpose split tracked in `execution_detail.cycles[i].{proposeCostUsd, approveCostUsd, driftRecoveryCostUsd}`). All three internal LLM call labels (`iterative_edit_propose`, `iterative_edit_review`, `iterative_edit_drift_recovery`) collapse into the single `iterative_edit_cost` metric.
+The agent emits ONE invocation row per parent (per-purpose split tracked in `execution_detail.cycles[i].{proposeCostUsd, approveCostUsd, driftRecoveryCostUsd}` plus a top-level `execution_detail.ranking.cost` after the final-variant ranking step). The internal LLM call labels (`iterative_edit_propose`, `iterative_edit_review`, `iterative_edit_drift_recovery`) collapse into a single `iterative_edit_cost` metric. The ranking step's cost surfaces separately as `iterative_edit_rank_cost` (uses the shared `'ranking'` cost-calibration phase, same as `GenerateFromPreviousArticleAgent`).
 
-Cost estimator: `estimateIterativeEditingCost(seedChars, editingModel, approverModel, driftRecoveryModel, judgeModel, maxCycles)` returns `{ expected, upperBound }`. `expected` = `maxCycles × (propose + review)`. `upperBound` accounts for 1.5× article growth per cycle plus one drift recovery plus 30% safety margin.
+Cost estimator: `estimateIterativeEditingCost(seedChars, editingModel, approverModel, driftRecoveryModel, judgeModel, maxCycles, poolSize, maxComparisonsPerVariant)` returns `{ expected, upperBound }`. `expected` covers `maxCycles × (propose + review) + ranking`. `upperBound` accounts for 1.5× article growth per cycle plus one drift recovery plus the full ranking budget plus 30% safety margin.
 
-`EstPerAgentValue.editing` field surfaces the per-agent cost in dispatch plan previews.
+`EstPerAgentValue.editing` and `EstPerAgentValue.editingRank` peer fields surface the two cost components separately in dispatch plan previews so the user can see where their dollars go at strategy-design time.
+
+### Cost anatomy
+
+Per-invocation cost decomposes into four layers:
+
+**Layer 1 — Per LLM call.** Each call costs `(input_chars × input_$/char) + (output_chars × output_$/char)`. Output is roughly 4× more expensive per token than input on most models, so calls where output ≈ input (Proposer; drift recovery) cost more than calls where output is tiny (Approver decisions; judge verdicts).
+
+**Layer 2 — Per cycle.** Each cycle runs:
+- **Proposer** — input = system prompt + full article (`A` chars); output = full article + ~40% markup overhead (`1.4 × A`). Output-heavy → expensive.
+- **Approver** — input = marked-up article (`1.4 × A`) + per-group summary; output = JSONL decisions (~10 groups × small). Input-heavy → cheaper.
+- **Drift recovery** *(optional, ≤1 per cycle)* — small reconciliation patch; fires rarely.
+
+A single cycle on an 8K article ≈ 3× a single generate call (because Proposer's output is the whole article, not just a delta).
+
+**Layer 3 — Across cycles.** The size-ratio guardrail caps article growth at **1.5× per cycle**. Default 3 cycles → cycle 3 processes ~2.25× the original article. Total ≈ **5× a single Proposer+Approver pair**, plus 1.3× safety margin on upper-bound estimates.
+
+**Layer 4 — Ranking.** `min(poolSize - 1, maxComparisonsPerVariant) × 2` judge calls (×2 for bias mitigation). Default `maxComparisonsPerVariant = 15` → up to **30 judge calls per ranked variant**. Each judge call sees both articles fully (~16–24K chars input each), but output is tiny (~50 chars). Heavily input-dominated.
+
+Ranking moves roughly **8× the input volume** that editing's 6 cycle calls move. This is why a 100–400% per-invocation cost bump from ranking is structurally normal at default settings.
+
+### Cost knobs
+
+| Knob | Layer | Cost lever |
+|---|---|---|
+| `editingMaxCycles` | 3 | 3 → 1 cuts editing ~67% |
+| `editingModel` | 1, 2 | linear discount on Proposer + drift cost |
+| `approverModel` | 1, 2 | linear discount on Approver cost |
+| `judgeModel` | 1, 4 | **biggest single lever** for ranking; nano vs flagship ≈ 10× ratio |
+| `maxComparisonsPerVariant` | 4 | 15 → 8 cuts ranking cost ~47% |
+| `EDITING_RANK_ENABLED` | 4 | kill-switch: `false` reverts to pre-ranking behavior (variants land unranked) |
+| `EVOLUTION_DRIFT_RECOVERY_ENABLED` | 2 | small reduction; drift recovery is rare anyway |
+
+`maxComparisonsPerVariant` is shared with `generate` and `reflect_and_generate` ranking — it caps binary-search depth for all three agent types uniformly.
 
 ## Operational metrics
 
@@ -66,7 +103,8 @@ Three operational health metrics (live during execution, alert thresholds env-tu
 
 ## Kill switches
 
-- `EDITING_AGENTS_ENABLED='false'` — disables editing iterations entirely. The runIterationLoop branch short-circuits at entry. Mid-run flips do NOT abort in-flight iterations (intentional — partial-iteration aborts produce broken audit trails).
+- `EDITING_AGENTS_ENABLED='false'` — disables editing iterations entirely. The runIterationLoop branch short-circuits at entry. Mid-run flips do NOT abort in-flight iterations (intentional — partial-iteration aborts produce broken audit trails). Default: `'true'` (post-`add_ranking_iterative_editing_agent_evolution_20260502`).
+- `EDITING_RANK_ENABLED='false'` — disables the post-cycle ranking step only. Editing still runs and emits final variants, but they land in the pool with default Elo (pre-ranking-project behavior). Default: `'true'`. Use this kill-switch if ranking misbehaves operationally; editing remains functional.
 - `EVOLUTION_DRIFT_RECOVERY_ENABLED='false'` — disables drift recovery. Minor drift is treated as major (cycle aborts).
 
 ## Roadmap (out of scope for v1)
