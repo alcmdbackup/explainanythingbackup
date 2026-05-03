@@ -938,6 +938,93 @@ const editingCycleSchema = z.object({
   sizeRatio: z.number().min(0),
 });
 
+// ─── Ranking sub-schemas (relocated up from the parallel-pipeline section) ─────
+// These were originally defined further down (alongside the parallel pipeline
+// agents). They are hoisted here so iterativeEditingExecutionDetailSchema can
+// reference them without forward-reference errors at module load
+// (add_ranking_iterative_editing_agent_evolution_20260502 Phase 1.1).
+
+/** Shallow key-rename preprocessor for Zod backward-compat normalization.
+ *  Leaves non-object values untouched; replaces old key names with new ones. */
+function renameKeys(mapping: Record<string, string>): (val: unknown) => unknown {
+  return (val: unknown) => {
+    if (typeof val !== 'object' || val === null || Array.isArray(val)) return val;
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(val as Record<string, unknown>)) {
+      out[mapping[k] ?? k] = v;
+    }
+    return out;
+  };
+}
+
+/** generateFromPreviousArticle: ranking comparison record (one per binary-search comparison). */
+const rankNewVariantComparisonInnerSchema = z.object({
+  round: z.number().int().min(1),
+  opponentId: z.string(),
+  selectionScore: z.number(),
+  pWin: z.number().min(0).max(1),
+  variantEloBefore: z.number(),
+  variantUncertaintyBefore: z.number().min(0),
+  opponentEloBefore: z.number(),
+  opponentUncertaintyBefore: z.number().min(0),
+  outcome: z.enum(['win', 'loss', 'draw']),
+  confidence: z.number().min(0).max(1),
+  variantEloAfter: z.number(),
+  variantUncertaintyAfter: z.number().min(0),
+  opponentEloAfter: z.number(),
+  opponentUncertaintyAfter: z.number().min(0),
+  top15CutoffAfter: z.number(),
+  eloPlusTwoUncertainty: z.number(),
+  eliminated: z.boolean(),
+  converged: z.boolean(),
+  /** Wall-clock duration of this comparison (both 2-pass reversal LLM calls, parallel). Optional — historical invocations have no timing data. */
+  durationMs: z.number().int().min(0).optional(),
+  /** Forward-pass LLM call duration. Optional — historical invocations have no timing data. */
+  forwardCallDurationMs: z.number().int().min(0).optional(),
+  /** Reverse-pass LLM call duration. Optional — historical invocations have no timing data. */
+  reverseCallDurationMs: z.number().int().min(0).optional(),
+});
+
+export const rankNewVariantComparisonSchema = z.preprocess(
+  renameKeys({
+    variantMuBefore: 'variantEloBefore',
+    variantSigmaBefore: 'variantUncertaintyBefore',
+    opponentMuBefore: 'opponentEloBefore',
+    opponentSigmaBefore: 'opponentUncertaintyBefore',
+    variantMuAfter: 'variantEloAfter',
+    variantSigmaAfter: 'variantUncertaintyAfter',
+    opponentMuAfter: 'opponentEloAfter',
+    opponentSigmaAfter: 'opponentUncertaintyAfter',
+    muPlusTwoSigma: 'eloPlusTwoUncertainty',
+  }),
+  rankNewVariantComparisonInnerSchema,
+);
+
+const rankNewVariantDetailInnerSchema = z.object({
+  variantId: z.string(),
+  localPoolSize: z.number().int().min(0),
+  localPoolVariantIds: z.array(z.string()),
+  initialTop15Cutoff: z.number(),
+  comparisons: z.array(rankNewVariantComparisonSchema),
+  stopReason: z.enum(['converged', 'eliminated', 'no_more_opponents', 'budget']),
+  totalComparisons: z.number().int().min(0),
+  finalLocalElo: z.number(),
+  finalLocalUncertainty: z.number().min(0),
+  finalLocalTop15Cutoff: z.number(),
+  /** Wall-clock duration of the full ranking phase for this variant. Optional — historical invocations have no timing data. */
+  durationMs: z.number().int().min(0).optional(),
+});
+
+const rankingDetailRenameKeys = renameKeys({
+  finalLocalMu: 'finalLocalElo',
+  finalLocalSigma: 'finalLocalUncertainty',
+});
+
+export const rankNewVariantDetailSchema = z.preprocess(
+  rankingDetailRenameKeys,
+  rankNewVariantDetailInnerSchema,
+);
+
 export const iterativeEditingExecutionDetailSchema = executionDetailBaseSchema.extend({
   detailType: z.literal('iterative_editing'),
   /** ID of the input parent variant (the original parent assigned by dispatch — not a
@@ -972,6 +1059,19 @@ export const iterativeEditingExecutionDetailSchema = executionDetailBaseSchema.e
   errorMessage: z.string().optional(),
   /** ID of the final materialized variant (undefined when no cycle accepted edits). */
   finalVariantId: z.string().optional(),
+  /** True iff the final variant was emitted AND surfaced (passed ranking discard if ranking ran). */
+  surfaced: z.boolean().optional(),
+  /** Local-rank rating from the post-cycle binary-search ranking phase. Populated whenever
+   *  ranking runs (input.initialPool present and final variant emitted). null when ranking
+   *  was skipped via the input-presence gate. Both `.optional()` (back-compat for DB rows
+   *  written before this schema field existed) and `.nullable()` (allows explicit null). */
+  ranking: z.preprocess(
+    rankingDetailRenameKeys,
+    rankNewVariantDetailInnerSchema.extend({
+      cost: z.number().min(0),
+      estimatedCost: z.number().min(0).optional(),
+    }),
+  ).optional().nullable(),
 });
 
 export const reflectionExecutionDetailSchema = executionDetailBaseSchema.extend({
@@ -1133,87 +1233,10 @@ export const metaReviewExecutionDetailSchema = executionDetailBaseSchema.extend(
 });
 
 // ─── New parallel pipeline agents (generate_rank_evolution_parallel_20260331) ─────
-
-/** Shallow key-rename preprocessor for Zod backward-compat normalization.
- *  Leaves non-object values untouched; replaces old key names with new ones. */
-function renameKeys(mapping: Record<string, string>): (val: unknown) => unknown {
-  return (val: unknown) => {
-    if (typeof val !== 'object' || val === null || Array.isArray(val)) return val;
-    const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(val as Record<string, unknown>)) {
-      out[mapping[k] ?? k] = v;
-    }
-    return out;
-  };
-}
-
-/** generateFromPreviousArticle: ranking comparison record (one per binary-search comparison). */
-const rankNewVariantComparisonInnerSchema = z.object({
-  round: z.number().int().min(1),
-  opponentId: z.string(),
-  selectionScore: z.number(),
-  pWin: z.number().min(0).max(1),
-  variantEloBefore: z.number(),
-  variantUncertaintyBefore: z.number().min(0),
-  opponentEloBefore: z.number(),
-  opponentUncertaintyBefore: z.number().min(0),
-  outcome: z.enum(['win', 'loss', 'draw']),
-  confidence: z.number().min(0).max(1),
-  variantEloAfter: z.number(),
-  variantUncertaintyAfter: z.number().min(0),
-  opponentEloAfter: z.number(),
-  opponentUncertaintyAfter: z.number().min(0),
-  top15CutoffAfter: z.number(),
-  eloPlusTwoUncertainty: z.number(),
-  eliminated: z.boolean(),
-  converged: z.boolean(),
-  /** Wall-clock duration of this comparison (both 2-pass reversal LLM calls, parallel). Optional — historical invocations have no timing data. */
-  durationMs: z.number().int().min(0).optional(),
-  /** Forward-pass LLM call duration. Optional — historical invocations have no timing data. */
-  forwardCallDurationMs: z.number().int().min(0).optional(),
-  /** Reverse-pass LLM call duration. Optional — historical invocations have no timing data. */
-  reverseCallDurationMs: z.number().int().min(0).optional(),
-});
-
-export const rankNewVariantComparisonSchema = z.preprocess(
-  renameKeys({
-    variantMuBefore: 'variantEloBefore',
-    variantSigmaBefore: 'variantUncertaintyBefore',
-    opponentMuBefore: 'opponentEloBefore',
-    opponentSigmaBefore: 'opponentUncertaintyBefore',
-    variantMuAfter: 'variantEloAfter',
-    variantSigmaAfter: 'variantUncertaintyAfter',
-    opponentMuAfter: 'opponentEloAfter',
-    opponentSigmaAfter: 'opponentUncertaintyAfter',
-    muPlusTwoSigma: 'eloPlusTwoUncertainty',
-  }),
-  rankNewVariantComparisonInnerSchema,
-);
-
-const rankNewVariantDetailInnerSchema = z.object({
-  variantId: z.string(),
-  localPoolSize: z.number().int().min(0),
-  localPoolVariantIds: z.array(z.string()),
-  initialTop15Cutoff: z.number(),
-  comparisons: z.array(rankNewVariantComparisonSchema),
-  stopReason: z.enum(['converged', 'eliminated', 'no_more_opponents', 'budget']),
-  totalComparisons: z.number().int().min(0),
-  finalLocalElo: z.number(),
-  finalLocalUncertainty: z.number().min(0),
-  finalLocalTop15Cutoff: z.number(),
-  /** Wall-clock duration of the full ranking phase for this variant. Optional — historical invocations have no timing data. */
-  durationMs: z.number().int().min(0).optional(),
-});
-
-const rankingDetailRenameKeys = renameKeys({
-  finalLocalMu: 'finalLocalElo',
-  finalLocalSigma: 'finalLocalUncertainty',
-});
-
-export const rankNewVariantDetailSchema = z.preprocess(
-  rankingDetailRenameKeys,
-  rankNewVariantDetailInnerSchema,
-);
+// NOTE: renameKeys, rankNewVariantComparisonSchema, rankNewVariantDetailInnerSchema,
+// rankingDetailRenameKeys, rankNewVariantDetailSchema are now defined ABOVE (just before
+// iterativeEditingExecutionDetailSchema) so they can be consumed by both editing and GFPA
+// schemas without forward-reference errors at module load.
 
 export const generateFromPreviousExecutionDetailSchema = executionDetailBaseSchema.extend({
   detailType: z.literal('generate_from_previous_article'),

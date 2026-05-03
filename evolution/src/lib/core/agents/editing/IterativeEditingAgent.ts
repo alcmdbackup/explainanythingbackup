@@ -141,7 +141,7 @@ export class IterativeEditingAgent extends Agent<
         finalVariantId: undefined,
         editingModel, approverModel, driftRecoveryModel, maxCycles, perInvocationBudgetUsd,
       });
-      return { result: { finalVariant: null, surfaced: false }, detail };
+      return { result: { finalVariant: null, surfaced: false, matches: [] }, detail };
     }
 
     try {
@@ -374,7 +374,10 @@ export class IterativeEditingAgent extends Agent<
 
     const surfaced = finalVariant !== undefined && stopReason !== 'helper_threw';
     return {
-      result: { finalVariant: finalVariant ?? null, surfaced },
+      // Phase 2 will populate `matches` from the new ranking step. For now the
+      // post-cycle ranking call hasn't landed yet, so `matches: []` keeps the
+      // type contract honest without claiming ranking ran.
+      result: { finalVariant: finalVariant ?? null, surfaced, matches: [] },
       detail,
     };
   }

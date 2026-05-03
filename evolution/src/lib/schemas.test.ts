@@ -1084,6 +1084,48 @@ describe('agentExecutionDetailSchema (discriminated union)', () => {
       }],
       stopReason: 'all_cycles_completed',
       finalVariantId: UUID2,
+      surfaced: true,
+      ranking: {
+        variantId: UUID2,
+        localPoolSize: 3,
+        localPoolVariantIds: [UUID1, UUID3, UUID2],
+        initialTop15Cutoff: 1210,
+        comparisons: [{
+          round: 1, opponentId: UUID1, selectionScore: 0.8, pWin: 0.75,
+          variantEloBefore: 1200, variantUncertaintyBefore: 100,
+          opponentEloBefore: 1180, opponentUncertaintyBefore: 120,
+          outcome: 'win', confidence: 0.9,
+          variantEloAfter: 1210, variantUncertaintyAfter: 85,
+          opponentEloAfter: 1170, opponentUncertaintyAfter: 135,
+          top15CutoffAfter: 1205, eloPlusTwoUncertainty: 1380,
+          eliminated: false, converged: true,
+        }],
+        stopReason: 'converged',
+        totalComparisons: 1,
+        finalLocalElo: 1210,
+        finalLocalUncertainty: 85,
+        finalLocalTop15Cutoff: 1205,
+        cost: 0.006,
+      },
+    })).not.toThrow();
+  });
+
+  it('parses iterative_editing detail without ranking field (back-compat for old DB rows)', () => {
+    // Old rows lack the `ranking` field entirely. Schema must use .optional()
+    // (in addition to .nullable()) so these still parse.
+    expect(() => iterativeEditingExecutionDetailSchema.parse({
+      detailType: 'iterative_editing', totalCost: 0.04,
+      parentVariantId: UUID1,
+      config: {
+        maxCycles: 3,
+        editingModel: 'gpt-4.1',
+        approverModel: 'claude-sonnet-4-6',
+        driftRecoveryModel: 'gpt-4.1-nano',
+        perInvocationBudgetUsd: 0.05,
+      },
+      cycles: [],
+      stopReason: 'all_edits_rejected',
+      // no ranking, no surfaced
     })).not.toThrow();
   });
 
