@@ -99,8 +99,9 @@ The wizard's existing dispatch-cost preview already recalculates as the user cha
 - [ ] **2.1** Insert ranking call at `IterativeEditingAgent.ts:351` (after cycle loop terminates, before final-variant materialization). Snapshot `costBeforeRankingCall = ctx.costTracker.getOwnSpent?.() ?? 0` immediately before the call.
 - [ ] **2.2** Pass `{ variant: finalVariant, localPool, localRatings, localMatchCounts, completedPairs, cache, llm: input.llm, config: ctx.config, invocationId: ctx.invocationId, logger: ctx.logger, costTracker: ctx.costTracker }` to `rankNewVariant`.
 - [ ] **2.3** Wrap call in `if (process.env.EDITING_RANK_ENABLED !== 'false')` runtime gate (default-true semantics).
-- [ ] **2.4** Surface `surfaced` and `discardReason` from `rankNewVariant` result through `AgentOutput` (D1: copy GFPA's discard policy verbatim — `rankNewVariant` already returns the right shape).
+- [ ] **2.4** Surface `surfaced` boolean through `AgentOutput.result` (D1: copy GFPA's discard policy verbatim — `rankNewVariant` already returns the right shape). Also persist `surfaced` on `execution_detail` so the invocation detail page can render it as a yes/no badge.
 - [ ] **2.5** Populate `detail.ranking = { ...rankResult.detail, cost: rankingCost, estimatedCost? }` and include `rankingCost` in `buildDetail()`'s `totalCost` sum.
+   - **NOT in scope for v1**: persisting `discardReason: { localElo, localTop15Cutoff }` to `execution_detail`. GFPA only carries this in-memory on `AgentOutput.result`, not on the persisted detail. Matching GFPA preserves wrapper-pattern parity. Track as v1.1 follow-up if operators want "discarded — why?" visible on the invocation detail page.
 - [ ] **2.6** Add new unit tests: "ranking runs after cycle loop completes", "ranking is skipped when EDITING_RANK_ENABLED=false", "ranking is skipped when no final variant emitted (all-rejected path)", "rankingCost lands on top-level execution_detail.ranking.cost", "discardReason populated when surfaced=false". Mock `compareWithBiasMitigation` (mirror GFPA test's queue-driven mock).
 
 ### Phase 3 — Cost estimator + metrics
@@ -123,9 +124,50 @@ The wizard's existing dispatch-cost preview already recalculates as the user cha
 - [ ] **4.7** Update `strategy-preview-dispatch.integration.test.ts:149`: `expectedKeys` from `['editing', 'gen', 'rank', 'reflection', 'total']` → `['editing', 'editingRank', 'gen', 'rank', 'reflection', 'total']`.
 
 ### Phase 5 — Invocation detail UI + Wizard
-- [ ] **5.1** Update `DETAIL_VIEW_CONFIGS['iterative_editing']` (`evolution/src/lib/core/detailViewConfigs.ts:240`): insert ranking object + comparisons table entries between `cycles.0` annotated-edits and `totalCost`. Literal copy of GFPA's ranking blocks (lines 50–75 in same file).
+- [ ] **5.1** Update `DETAIL_VIEW_CONFIGS['iterative_editing']` (`evolution/src/lib/core/detailViewConfigs.ts:240`):
+   - Insert `surfaced` boolean field after `finalVariantId` (line 242).
+   - Insert ranking object + comparisons table entries between `cycles.0` annotated-edits (line 277) and `totalCost` (line 278). Literal copy of GFPA's ranking blocks (lines 50–75 in same file).
+   - Concrete diff:
+     ```diff
+        iterative_editing: [
+          { key: 'parentVariantId', label: 'Parent Variant', type: 'text' },
+          { key: 'finalVariantId', label: 'Final Variant', type: 'text' },
+     +    { key: 'surfaced', label: 'Surfaced', type: 'boolean' },
+          { key: 'stopReason', label: 'Stop Reason', type: 'badge' },
+          ...
+          { key: 'cycles.0', label: 'Annotated Edits (Cycle 1)', type: 'annotated-edits', ... },
+     +    {
+     +      key: 'ranking', label: 'Ranking (binary search local view)', type: 'object',
+     +      children: [
+     +        { key: 'cost', label: 'Ranking Cost', type: 'number', formatter: 'cost' },
+     +        { key: 'localPoolSize', label: 'Local Pool Size', type: 'number' },
+     +        { key: 'initialTop15Cutoff', label: 'Initial Top-15% Cutoff', type: 'number' },
+     +        { key: 'stopReason', label: 'Stop Reason', type: 'badge' },
+     +        { key: 'totalComparisons', label: 'Total Comparisons', type: 'number' },
+     +        { key: 'finalLocalElo', label: 'Final Local Elo', type: 'number' },
+     +        { key: 'finalLocalUncertainty', label: 'Final Local Uncertainty', type: 'number' },
+     +        { key: 'durationMs', label: 'Duration (ms)', type: 'number' },
+     +      ],
+     +    },
+     +    {
+     +      key: 'ranking.comparisons', label: 'Comparisons', type: 'table',
+     +      columns: [
+     +        { key: 'round', label: '#' },
+     +        { key: 'opponentId', label: 'Opponent' },
+     +        { key: 'selectionScore', label: 'Score' },
+     +        { key: 'pWin', label: 'pWin' },
+     +        { key: 'outcome', label: 'Out' },
+     +        { key: 'variantEloAfter', label: 'Elo after' },
+     +        { key: 'variantUncertaintyAfter', label: 'Uncertainty after' },
+     +        { key: 'durationMs', label: 'ms' },
+     +      ],
+     +    },
+          { key: 'totalCost', label: 'Total Cost', type: 'number', formatter: 'cost' },
+        ],
+     ```
+   - Renderer (`ConfigDrivenDetailRenderer.tsx`) handles `'object'` + `'table'` + `'boolean'` already → **NO renderer changes**.
 - [ ] **5.2** Mirror in `IterativeEditingAgent.detailViewConfig` field (parity test in `entities.test.ts` enforces this).
-- [ ] **5.3** Add new test cases to `evolution-iterative-editing-ui.integration.test.tsx`: "renders the ranking object block with cost/poolSize/stopReason fields", "renders the ranking.comparisons table with 8 column headers".
+- [ ] **5.3** Add new test cases to `evolution-iterative-editing-ui.integration.test.tsx`: "renders `surfaced` boolean field", "renders the ranking object block with cost/poolSize/stopReason fields", "renders the ranking.comparisons table with 8 column headers", "renders ranking section as omitted when no final variant emitted (all-rejected path)".
 - [ ] **5.4** Update strategy wizard help text on `maxComparisonsPerVariant` (Step 1) — mention that this also caps editing-rank depth.
 - [ ] **5.5** Verify dispatch preview's cost projection recomputes `editingRank` when `maxComparisonsPerVariant` changes (should be automatic — same plumbing as `gen.rank`).
 
@@ -136,9 +178,10 @@ The wizard's existing dispatch-cost preview already recalculates as the user cha
    - Wizard tests unaffected.
    - Keep `setTimeout(360_000)` — ranking adds ~10–20s at nano speed.
 - [ ] **6.2** Update `docs/feature_deep_dives/editing_agents.md`:
-   - Algorithm gets step 6: "Rank final variant via `rankNewVariant()`".
-   - Cost tracking gets the new ranking line + `iterative_edit_rank_cost` metric.
-   - Decisions §14 note updated to "superseded".
+   - Algorithm gets step 6: "Rank final variant via `rankNewVariant()`". *(Drafted during planning — commit `afbe52db`.)*
+   - Cost tracking gets the new ranking line + `iterative_edit_rank_cost` metric + 4-layer cost-anatomy section + cost-knobs table. *(Drafted during planning — commit `afbe52db`.)*
+   - Kill switches list updated with `EDITING_RANK_ENABLED` + new `EDITING_AGENTS_ENABLED` default. *(Drafted during planning — commit `afbe52db`.)*
+   - Still pending: Decisions §14 supersession note (deferred until parent project's planning doc is updated in 6.5).
 - [ ] **6.3** Update `evolution/docs/agents/overview.md` if helper extraction changes the agent surface.
 - [ ] **6.4** Update `evolution/docs/reference.md` with the new `EDITING_RANK_ENABLED` env var.
 - [ ] **6.5** Append "Decisions §14 superseded by `add_ranking_iterative_editing_agent_evolution_20260502`" note to the parent project's planning doc (line ~46-60 of `bring_back_editing_agents_evolution_20260430_planning.md`).
@@ -224,6 +267,15 @@ All unit + integration + E2E enumerated above. Pre-merge gate runs full check li
 
 ### Forward-only constraint
 The Phase 1.6 startup assertion (parent project) still gates the agent registry. No new phase strings introduced; `'ranking'` already in CHECK.
+
+## Deferred (Known v1.1 Follow-ups)
+
+Surfaced during planning but explicitly out of scope for v1:
+
+- **Persist `discardReason` to `execution_detail`**. GFPA currently only carries `discardReason: { localElo, localTop15Cutoff }` on the in-memory `AgentOutput.result` — it isn't on the persisted `execution_detail.ranking` blob. The invocation detail page can show `surfaced: false` but cannot show *why*. Mirror GFPA's gap for v1; revisit if operators say they want the reason visible. (Same fix would apply to GFPA — single shared change rather than editing-only.)
+- **Per-cycle ranking timeline UI**. Today's plan ranks only the final variant. A future iteration could rank intermediate cycle outputs and surface a "cycle 1 elo → cycle 2 elo → cycle 3 elo" trajectory in the invocation detail. Cost-prohibitive at default settings (~3× the current ranking cost).
+- **Discard-policy alternatives** (D1 follow-up). If staging shows the GFPA-style top-15% policy collapses pathologically at small pools (>50% discard rate), revisit Option C: "discard only if elo < parent's elo". Requires post-ranking inspection of parent vs new-variant elo, which the current `rankNewVariant` interface doesn't expose cleanly.
+- **Per-cycle annotated-edits view for cycles 2+**. Today's `cycles.0` annotated-edits entry only renders cycle 1. Multi-cycle runs lose visibility into what happened in later cycles. Already noted in `detailViewConfigs.ts` line 268 as a future-iteration item.
 
 ## Review & Discussion
 
