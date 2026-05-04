@@ -215,6 +215,14 @@ export interface DetailFieldDef {
   decisionsKey?: string;
   dropsPreKey?: string;
   dropsPostKey?: string;
+  /** For type='table' only: per-field className applied to each <td> cell.
+   *  Scoped to a single field — does NOT cascade to other tables in the same
+   *  invocation detail page. Use to constrain long-text columns
+   *  (e.g. `'max-w-md break-words whitespace-pre-wrap'` for the
+   *  evaluate_and_suggest suggestions table whose Example/Issue/Fix passages
+   *  can be hundreds of chars long). When undefined, the default cell class
+   *  applies (no width constraint). */
+  cellClassName?: string;
 }
 
 export interface AgentResult<T> {

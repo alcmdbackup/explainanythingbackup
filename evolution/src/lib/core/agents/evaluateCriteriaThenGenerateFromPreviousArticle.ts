@@ -157,6 +157,36 @@ export interface ParsedEvaluateAndSuggest {
   droppedSuggestions: ParsedDroppedSuggestion[];
 }
 
+/** Extract score lines from the score section. Shared by parseEvaluateAndSuggest and
+ *  the agent's first-pass parse (which needs scores before suggestions to determine the
+ *  weakest set). Returns [] when nothing parses — caller decides how to throw. */
+function extractScores(
+  scoreSection: string,
+  criteria: ReadonlyArray<CriterionRow>,
+): ParsedScore[] {
+  const criteriaByLowerName = new Map<string, CriterionRow>();
+  for (const c of criteria) criteriaByLowerName.set(c.name.toLowerCase(), c);
+
+  const criteriaScored: ParsedScore[] = [];
+  const scoreLineRegex = /^([A-Za-z][\w_-]*)\s*:\s*(-?\d+(?:\.\d+)?)\s*$/gm;
+  let match: RegExpExecArray | null;
+  while ((match = scoreLineRegex.exec(scoreSection)) !== null) {
+    const criterion = criteriaByLowerName.get((match[1] ?? '').toLowerCase());
+    if (!criterion) continue; // unknown name — silently drop
+    const score = Number(match[2]);
+    if (!Number.isFinite(score)) continue;
+    if (score < criterion.min_rating || score > criterion.max_rating) continue;
+    criteriaScored.push({
+      criteriaId: criterion.id,
+      criteriaName: criterion.name,
+      score,
+      minRating: criterion.min_rating,
+      maxRating: criterion.max_rating,
+    });
+  }
+  return criteriaScored;
+}
+
 /** Parse the combined LLM response into scores + suggestions. Suggestions are filtered
  *  to those whose Criterion: matches the wrapper-determined weakest set; mismatches go
  *  into droppedSuggestions for forensic display. Throws EvaluateAndSuggestParseError on
@@ -172,29 +202,7 @@ export function parseEvaluateAndSuggest(
   const suggestionSection = splitIdx >= 0 ? response.slice(splitIdx) : '';
 
   // ─── Score parse ─────────────────────────────────
-  const criteriaByLowerName = new Map<string, CriterionRow>();
-  for (const c of criteria) {
-    criteriaByLowerName.set(c.name.toLowerCase(), c);
-  }
-
-  const criteriaScored: ParsedScore[] = [];
-  const scoreLineRegex = /^([A-Za-z][\w_-]*)\s*:\s*(-?\d+(?:\.\d+)?)\s*$/gm;
-  let match: RegExpExecArray | null;
-  while ((match = scoreLineRegex.exec(scoreSection)) !== null) {
-    const rawName = match[1] ?? '';
-    const score = Number(match[2]);
-    const criterion = criteriaByLowerName.get(rawName.toLowerCase());
-    if (!criterion) continue; // unknown name — silently drop
-    if (!Number.isFinite(score)) continue;
-    if (score < criterion.min_rating || score > criterion.max_rating) continue;
-    criteriaScored.push({
-      criteriaId: criterion.id,
-      criteriaName: criterion.name,
-      score,
-      minRating: criterion.min_rating,
-      maxRating: criterion.max_rating,
-    });
-  }
+  const criteriaScored = extractScores(scoreSection, criteria);
   if (criteriaScored.length === 0) {
     throw new EvaluateAndSuggestParseError(
       'parseEvaluateAndSuggest: zero valid score lines extracted',
@@ -212,12 +220,25 @@ export function parseEvaluateAndSuggest(
   // Split on `### Suggestion N` headers; bodies are the segments between them.
   // (JS regex lacks \Z; lookahead-based capture-until-next-or-end is brittle.)
   const blockSegments = suggestionSection.split(/^###\s+Suggestion\s+\d+\s*\n/m).slice(1);
+  // Permissive parser (default) tolerates missing/empty Example/Issue/Fix lines —
+  // only Criterion: is hard-required (without it we can't tie the suggestion to a
+  // criterion row). Set EVOLUTION_PERMISSIVE_EVAL_PARSER='false' for a kill-switch
+  // back to the strict 4-line null-check behavior.
+  const PERMISSIVE = process.env.EVOLUTION_PERMISSIVE_EVAL_PARSER !== 'false';
   for (const body of blockSegments) {
-    const criterionLine = body.match(/^Criterion:\s*(.+?)\s*$/m);
-    const exampleLine = body.match(/^Example:\s*(.+?)\s*$/m);
-    const issueLine = body.match(/^Issue:\s*(.+?)\s*$/m);
-    const fixLine = body.match(/^Fix:\s*(.+?)\s*$/m);
-    if (!criterionLine || !exampleLine || !issueLine || !fixLine) continue;
+    // Tightened regex: `[ \t]*` (intra-line whitespace only) prevents the capture
+    // group from spanning newlines under the `m` flag — eliminates the multiline-
+    // backtracking bug where `Example:\n\nIssue: foo` could capture
+    // `examplePassage = '\n\nIssue: foo'`. `(.*?)` allows empty-string captures.
+    const criterionLine = body.match(/^Criterion:[ \t]*(.*?)[ \t]*$/m);
+    const exampleLine = body.match(/^Example:[ \t]*(.*?)[ \t]*$/m);
+    const issueLine = body.match(/^Issue:[ \t]*(.*?)[ \t]*$/m);
+    const fixLine = body.match(/^Fix:[ \t]*(.*?)[ \t]*$/m);
+    if (PERMISSIVE) {
+      if (!criterionLine) continue; // criterion is the only mandatory field
+    } else {
+      if (!criterionLine || !exampleLine || !issueLine || !fixLine) continue;
+    }
 
     const criterionName = criterionLine[1] ?? '';
     const criterionId = idByLowerName.get(criterionName.toLowerCase());
@@ -231,9 +252,9 @@ export function parseEvaluateAndSuggest(
     }
 
     suggestions.push({
-      examplePassage: (exampleLine[1] ?? '').trim(),
-      whatNeedsAddressing: (issueLine[1] ?? '').trim(),
-      suggestedFix: (fixLine[1] ?? '').trim(),
+      examplePassage: (exampleLine?.[1] ?? '').trim(),
+      whatNeedsAddressing: (issueLine?.[1] ?? '').trim(),
+      suggestedFix: (fixLine?.[1] ?? '').trim(),
       criteriaName: criterionName,
     });
   }
@@ -315,7 +336,11 @@ export class EvaluateCriteriaThenGenerateFromPreviousArticleAgent extends Agent<
       ],
     },
     {
+      // Mirrors DETAIL_VIEW_CONFIGS in evolution/src/lib/core/detailViewConfigs.ts
+      // (parity enforced by entities.test.ts). cellClassName scopes wrap+break-words
+      // to this table only; see DetailFieldDef.cellClassName JSDoc.
       key: 'evaluateAndSuggest.suggestions', label: 'Suggestions', type: 'table',
+      cellClassName: 'py-1.5 px-2 text-[var(--text-primary)] max-w-md break-words whitespace-pre-wrap align-top',
       columns: [
         { key: 'criteriaName', label: 'Criterion' },
         { key: 'examplePassage', label: 'Example' },
@@ -431,25 +456,7 @@ export class EvaluateCriteriaThenGenerateFromPreviousArticleAgent extends Agent<
     {
       const splitIdx = response.search(/^###\s+Suggestion/m);
       const scoreSection = splitIdx >= 0 ? response.slice(0, splitIdx) : response;
-      const criteriaByLowerName = new Map<string, CriterionRow>();
-      for (const c of input.criteria) criteriaByLowerName.set(c.name.toLowerCase(), c);
-      const tempScored: ParsedScore[] = [];
-      const scoreLineRegex = /^([A-Za-z][\w_-]*)\s*:\s*(-?\d+(?:\.\d+)?)\s*$/gm;
-      let match: RegExpExecArray | null;
-      while ((match = scoreLineRegex.exec(scoreSection)) !== null) {
-        const criterion = criteriaByLowerName.get((match[1] ?? '').toLowerCase());
-        if (!criterion) continue;
-        const score = Number(match[2]);
-        if (!Number.isFinite(score)) continue;
-        if (score < criterion.min_rating || score > criterion.max_rating) continue;
-        tempScored.push({
-          criteriaId: criterion.id,
-          criteriaName: criterion.name,
-          score,
-          minRating: criterion.min_rating,
-          maxRating: criterion.max_rating,
-        });
-      }
+      const tempScored = extractScores(scoreSection, input.criteria);
       if (tempScored.length === 0) {
         const partial: EvaluateCriteriaExecutionDetail = {
           detailType: 'evaluate_criteria_then_generate_from_previous_article',

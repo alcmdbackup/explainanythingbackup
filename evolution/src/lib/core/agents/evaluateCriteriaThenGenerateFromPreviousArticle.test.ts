@@ -269,6 +269,126 @@ Fix: z`;
     expect(result.droppedSuggestions).toHaveLength(1);
     expect(result.droppedSuggestions[0]?.reason).toContain('unknown');
   });
+
+  // ─── Permissive parser fix (Issue 4 of fixes_to_evolution_admin_dashboard) ──
+
+  describe('permissive parser — partial-suggestion preservation', () => {
+    afterEach(() => {
+      delete process.env.EVOLUTION_PERMISSIVE_EVAL_PARSER;
+    });
+
+    it('preserves suggestion when Example: line is empty (was dropped pre-fix)', () => {
+      const response = `clarity: 1
+
+### Suggestion 1
+Criterion: clarity
+Example:
+Issue: This sentence has no context.
+Fix: Add a transition explaining why.`;
+      const result = parseEvaluateAndSuggest(response, SAMPLE_CRITERIA, [C1]);
+      expect(result.suggestions).toHaveLength(1);
+      expect(result.suggestions[0]?.examplePassage).toBe('');
+      expect(result.suggestions[0]?.whatNeedsAddressing).toBe('This sentence has no context.');
+      expect(result.suggestions[0]?.suggestedFix).toBe('Add a transition explaining why.');
+    });
+
+    it('preserves suggestion when Example: is whitespace-only (trims to empty)', () => {
+      const response = `clarity: 1
+
+### Suggestion 1
+Criterion: clarity
+Example:    \t
+Issue: real issue
+Fix: real fix`;
+      const result = parseEvaluateAndSuggest(response, SAMPLE_CRITERIA, [C1]);
+      expect(result.suggestions).toHaveLength(1);
+      expect(result.suggestions[0]?.examplePassage).toBe('');
+    });
+
+    it('preserves suggestion when Example/Issue/Fix lines are completely missing', () => {
+      const response = `clarity: 1
+
+### Suggestion 1
+Criterion: clarity`;
+      const result = parseEvaluateAndSuggest(response, SAMPLE_CRITERIA, [C1]);
+      expect(result.suggestions).toHaveLength(1);
+      expect(result.suggestions[0]?.criteriaName).toBe('clarity');
+      expect(result.suggestions[0]?.examplePassage).toBe('');
+      expect(result.suggestions[0]?.whatNeedsAddressing).toBe('');
+      expect(result.suggestions[0]?.suggestedFix).toBe('');
+    });
+
+    // Regex-backtracking guard — confirms tightened `[ \t]*` does NOT span newlines.
+    // Pre-fix: `\s*(.+?)\s*$/m` could capture `examplePassage = '\n\nIssue: real'`.
+    it('Guard: regex does not cross newlines into adjacent fields', () => {
+      const response = `clarity: 1
+
+### Suggestion 1
+Criterion: clarity
+Example:
+
+Issue: real issue text
+Fix: real fix text`;
+      const result = parseEvaluateAndSuggest(response, SAMPLE_CRITERIA, [C1]);
+      expect(result.suggestions).toHaveLength(1);
+      // Critical: examplePassage must NOT contain "Issue:" or the issue text.
+      expect(result.suggestions[0]?.examplePassage).toBe('');
+      expect(result.suggestions[0]?.whatNeedsAddressing).toBe('real issue text');
+      expect(result.suggestions[0]?.suggestedFix).toBe('real fix text');
+    });
+
+    it('still drops suggestion when Criterion: line is completely missing', () => {
+      // Criterion is the only hard-required field; without it we can't tie the
+      // suggestion to any criterion row. Regression guard against over-correction.
+      const response = `clarity: 1
+engagement: 5
+
+### Suggestion 1
+Example: foo
+Issue: bar
+Fix: baz
+
+### Suggestion 2
+Criterion: clarity
+Example: x
+Issue: y
+Fix: z`;
+      const result = parseEvaluateAndSuggest(response, SAMPLE_CRITERIA, [C1]);
+      // Block 1 (no Criterion) silently dropped; Block 2 (criterion=clarity) kept.
+      expect(result.suggestions).toHaveLength(1);
+      expect(result.suggestions[0]?.criteriaName).toBe('clarity');
+    });
+
+    it('kill-switch: EVOLUTION_PERMISSIVE_EVAL_PARSER=false restores strict null-check', () => {
+      process.env.EVOLUTION_PERMISSIVE_EVAL_PARSER = 'false';
+      const response = `clarity: 1
+
+### Suggestion 1
+Criterion: clarity
+Example:
+Issue: real issue
+Fix: real fix`;
+      // Strict mode: Example: line is empty (no match on `(.+?)`) → fallback rejects suggestion.
+      // Wait, with the new (.*?) capture, an empty Example: line still produces a match
+      // (with empty capture). The strict null-check requires all four lines to MATCH
+      // (which they do, with empty captures). So strict mode behavior under the new
+      // regex differs from pre-fix behavior — documented in plan as acceptable.
+      // For a true "drops on missing line" test, the line itself must be absent.
+      const responseMissingExample = `clarity: 1
+
+### Suggestion 1
+Criterion: clarity
+Issue: real issue
+Fix: real fix`;
+      // With strict mode + missing Example line → exampleLine is null → drop suggestion → throw.
+      expect(() => parseEvaluateAndSuggest(responseMissingExample, SAMPLE_CRITERIA, [C1]))
+        .toThrow(EvaluateAndSuggestParseError);
+
+      // Sanity: under strict mode with empty-but-present Example line, suggestion preserved.
+      const result = parseEvaluateAndSuggest(response, SAMPLE_CRITERIA, [C1]);
+      expect(result.suggestions).toHaveLength(1);
+    });
+  });
 });
 
 describe('EvaluateCriteriaThenGenerateFromPreviousArticleAgent', () => {

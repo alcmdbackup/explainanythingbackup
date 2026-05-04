@@ -204,4 +204,140 @@ describe('Evolution Visualization Data Integration Tests', () => {
     expect(data).toBeDefined();
     expect(data!.length).toBeLessThanOrEqual(2);
   });
+
+  // ─── Variant match history (fixes_to_evolution_admin_dashboard__20260503 Issue 1) ──
+  // Verifies the .or('entry_a.eq.X,entry_b.eq.X') Supabase pattern used by
+  // getVariantMatchHistoryAction returns the expected comparisons against a
+  // real Postgres + PostgREST pair, with correct opponent disambiguation.
+  describe('Variant match history (Guard A integration variant)', () => {
+    const matchTestRunId = crypto.randomUUID();
+    const matchTestPromptId = crypto.randomUUID();
+    const matchTestStrategyId = crypto.randomUUID();
+    const variantA = crypto.randomUUID(); // target variant
+    const variantB = crypto.randomUUID();
+    const variantC = crypto.randomUUID();
+    const compIds: string[] = [];
+
+    beforeAll(async () => {
+      if (!tablesExist) return;
+
+      await supabase.from('evolution_strategies').insert({
+        id: matchTestStrategyId,
+        name: '[TEST_EVO] match-history-strategy',
+        label: '[TEST_EVO] Match History',
+        config: { test: true },
+        config_hash: `test-match-${matchTestStrategyId}`,
+      });
+      await supabase.from('evolution_prompts').insert({
+        id: matchTestPromptId,
+        prompt: '[TEST_EVO] match history prompt',
+        name: '[TEST_EVO] Match History',
+      });
+      await supabase.from('evolution_runs').insert({
+        id: matchTestRunId,
+        strategy_id: matchTestStrategyId,
+        prompt_id: matchTestPromptId,
+        status: 'completed',
+        completed_at: new Date().toISOString(),
+      });
+      await supabase.from('evolution_variants').insert([
+        { id: variantA, run_id: matchTestRunId, variant_content: 'A', elo_score: 1300, mu: 25, sigma: 8, generation: 1, agent_name: '[TEST_EVO] alpha' },
+        { id: variantB, run_id: matchTestRunId, variant_content: 'B', elo_score: 1200, mu: 25, sigma: 8, generation: 1, agent_name: '[TEST_EVO] beta' },
+        { id: variantC, run_id: matchTestRunId, variant_content: 'C', elo_score: 1250, mu: 25, sigma: 8, generation: 1, agent_name: '[TEST_EVO] gamma' },
+      ]);
+
+      // Seed 3 comparisons:
+      //  - c1: A vs B, A wins   → variantA on entry_a, won
+      //  - c2: B vs A, A wins   → variantA on entry_b, won
+      //  - c3: A vs C, draw     → variantA on entry_a, NOT won
+      // Plus one comparison NOT involving variantA, to confirm filter excludes it.
+      const c1 = crypto.randomUUID();
+      const c2 = crypto.randomUUID();
+      const c3 = crypto.randomUUID();
+      const cOther = crypto.randomUUID();
+      await supabase.from('evolution_arena_comparisons').insert([
+        { id: c1, prompt_id: matchTestPromptId, entry_a: variantA, entry_b: variantB, winner: 'a', confidence: 0.95, run_id: matchTestRunId, status: 'completed' },
+        { id: c2, prompt_id: matchTestPromptId, entry_a: variantB, entry_b: variantA, winner: 'b', confidence: 0.88, run_id: matchTestRunId, status: 'completed' },
+        { id: c3, prompt_id: matchTestPromptId, entry_a: variantA, entry_b: variantC, winner: 'draw', confidence: 0.40, run_id: matchTestRunId, status: 'completed' },
+        { id: cOther, prompt_id: matchTestPromptId, entry_a: variantB, entry_b: variantC, winner: 'a', confidence: 0.70, run_id: matchTestRunId, status: 'completed' },
+      ]);
+      compIds.push(c1, c2, c3, cOther);
+    });
+
+    afterAll(async () => {
+      if (!tablesExist) return;
+      await supabase.from('evolution_arena_comparisons').delete().in('id', compIds);
+      await cleanupEvolutionData(supabase, {
+        runIds: [matchTestRunId],
+        strategyIds: [matchTestStrategyId],
+        promptIds: [matchTestPromptId],
+      });
+    });
+
+    it('PostgREST .or() filter returns exactly the comparisons where the variant participated', async () => {
+      if (!tablesExist) return;
+
+      const { data, error } = await supabase
+        .from('evolution_arena_comparisons')
+        .select('id, entry_a, entry_b, winner, confidence')
+        .or(`entry_a.eq.${variantA},entry_b.eq.${variantA}`)
+        .order('created_at', { ascending: false });
+
+      expect(error).toBeNull();
+      expect(data).toBeDefined();
+      // 3 comparisons involving variantA; cOther is excluded.
+      expect(data!).toHaveLength(3);
+      // Every returned row must have variantA on at least one side.
+      for (const row of data!) {
+        expect([row.entry_a, row.entry_b]).toContain(variantA);
+      }
+    });
+
+    it('won-flag computation: winner=a + variantA on entry_a → won; winner=b + variantA on entry_b → won; draw → not-won', async () => {
+      if (!tablesExist) return;
+
+      const { data } = await supabase
+        .from('evolution_arena_comparisons')
+        .select('entry_a, entry_b, winner')
+        .or(`entry_a.eq.${variantA},entry_b.eq.${variantA}`)
+        .order('created_at', { ascending: true });
+
+      // Replicate the action's mapping: won when our side matches winner side.
+      const wins = data!.filter((c) =>
+        (c.entry_a === variantA && c.winner === 'a') ||
+        (c.entry_b === variantA && c.winner === 'b'),
+      );
+      const draws = data!.filter((c) => c.winner === 'draw');
+      // c1 (variantA=entry_a, winner=a) + c2 (variantA=entry_b, winner=b) = 2 wins
+      expect(wins).toHaveLength(2);
+      expect(draws).toHaveLength(1);
+    });
+
+    it('opponent batch-fetch returns ELO/uncertainty for known opponents', async () => {
+      if (!tablesExist) return;
+
+      const { data: comparisons } = await supabase
+        .from('evolution_arena_comparisons')
+        .select('entry_a, entry_b')
+        .or(`entry_a.eq.${variantA},entry_b.eq.${variantA}`);
+
+      const opponentIds = Array.from(new Set(
+        comparisons!.map((c) => (c.entry_a === variantA ? c.entry_b : c.entry_a)),
+      ));
+      // Two distinct opponents: variantB and variantC.
+      expect(opponentIds.sort()).toEqual([variantB, variantC].sort());
+
+      const { data: opponents } = await supabase
+        .from('evolution_variants')
+        .select('id, mu, sigma, elo_score')
+        .in('id', opponentIds);
+
+      expect(opponents).toHaveLength(2);
+      for (const opp of opponents!) {
+        expect(opp.elo_score).toBeGreaterThan(0);
+        expect(opp.mu).not.toBeNull();
+        expect(opp.sigma).not.toBeNull();
+      }
+    });
+  });
 });
