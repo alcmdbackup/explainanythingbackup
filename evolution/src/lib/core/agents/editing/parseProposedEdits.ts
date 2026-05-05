@@ -4,11 +4,15 @@
 // agent's robustness contract per Decisions §11.
 //
 // Markup forms accepted:
-//   {++ [#N] inserted ++}
-//   {-- [#N] deleted --}
-//   {~~ [#N] old ~> new ~~}
+//   {++ [#N] inserted ++}                — insert (numbered or unnumbered)
+//   {-- [#N] deleted --}                 — delete (numbered or unnumbered)
+//   {~~ [#N] old ~> new ~~}              — inline substitution
+//   {~~ [#N] deleted ~~}{++ [#N] new ++} — paired-form substitution (standard CriticMarkup)
 //
-// Adjacent paired add+delete with same [#N] is normalized to one 'replace' edit.
+// `[#N]` is OPTIONAL. When absent, the parser auto-assigns sequential group
+// numbers via the adjacency rule (consecutive markup spans separated only by
+// horizontal whitespace + at most one newline form one group). Adjacent paired
+// delete+insert with the same group number is normalized to one 'replace' edit.
 
 import { CONTEXT_LEN } from './constants';
 import type {
@@ -18,18 +22,40 @@ import type {
   ParseResult,
 } from './types';
 
-const RE_INSERT = /\{\+\+\s*\[#(\d+)\]\s*([\s\S]*?)\s*\+\+\}/g;
-const RE_DELETE = /\{--\s*\[#(\d+)\]\s*([\s\S]*?)\s*--\}/g;
-const RE_REPLACE = /\{~~\s*\[#(\d+)\]\s*([\s\S]*?)\s*~>\s*([\s\S]*?)\s*~~\}/g;
+// Negative-lookahead bodies prevent cross-block matching. Without it, the lazy
+// `[\s\S]*?` could span multiple `{~~ ~~}` blocks once `[#N]` is optional —
+// e.g. `{~~ X ~~}{~~ Y ~> Z ~~}` would otherwise greedily match as one span.
+const RE_INSERT = /\{\+\+\s*(?:\[#(\d+)\])?\s*((?:(?!\+\+\})[\s\S])*?)\s*\+\+\}/g;
+const RE_DELETE = /\{--\s*(?:\[#(\d+)\])?\s*((?:(?!--\})[\s\S])*?)\s*--\}/g;
+const RE_REPLACE = /\{~~\s*(?:\[#(\d+)\])?\s*((?:(?!~~\}|~>)[\s\S])*?)\s*~>\s*((?:(?!~~\})[\s\S])*?)\s*~~\}/g;
+// Standard-CriticMarkup paired-form delete: `{~~ X ~~}` without `~>`. Negative
+// lookahead on `~>` ensures this regex doesn't double-match RE_REPLACE spans.
+const RE_DELETE_TILDE = /\{~~\s*(?:\[#(\d+)\])?\s*((?:(?!~~\}|~>)[\s\S])*?)\s*~~\}/g;
 const RE_ANY_MARKUP = /\{(\+\+|--|~~)/;
 
+// Adjacency predicate: consecutive markup spans separated only by horizontal
+// whitespace + at most one newline form one group. Paragraph break (\n\n)
+// signals semantic separation → different groups.
+const ADJACENT_WHITESPACE = /^[ \t\r]*\n?[ \t\r]*$/;
+
 interface RawAtomic {
-  groupNumber: number;
+  /** Explicit `[#N]` from the markup, or `undefined` when unnumbered (parser
+   *  will auto-assign in the adjacency pass). */
+  groupNumber: number | undefined;
   kind: 'insert' | 'delete' | 'replace';
   markupStart: number;
   markupEnd: number;
   oldText: string;
   newText: string;
+}
+
+function parseExplicitGroupNumber(
+  raw: string | undefined,
+): { ok: true; value: number | undefined } | { ok: false } {
+  if (raw === undefined) return { ok: true, value: undefined };
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 1) return { ok: false };
+  return { ok: true, value: n };
 }
 
 export function parseProposedEdits(
@@ -43,45 +69,61 @@ export function parseProposedEdits(
   // not in nested form. Drop combined substitutions whose oldText/newText also
   // contain `~>` as that's ambiguous.
   for (const m of proposedMarkup.matchAll(RE_REPLACE)) {
-    const groupNumber = Number(m[1]);
-    const oldText = m[2] ?? '';
-    const newText = m[3] ?? '';
-    if (!Number.isFinite(groupNumber) || groupNumber < 1) {
+    const parsed = parseExplicitGroupNumber(m[1]);
+    if (!parsed.ok) {
       dropped.push({ groupNumber: 0, reason: 'invalid_group_number', detail: m[0].slice(0, 60) });
       continue;
     }
+    const oldText = m[2] ?? '';
+    const newText = m[3] ?? '';
     if (oldText.includes('~>') || newText.includes('~>')) {
-      dropped.push({ groupNumber, reason: 'combined_substitution_with_arrow', detail: 'use paired form' });
+      dropped.push({ groupNumber: parsed.value ?? 0, reason: 'combined_substitution_with_arrow', detail: 'use paired form' });
       continue;
     }
     raw.push({
-      groupNumber, kind: 'replace',
+      groupNumber: parsed.value, kind: 'replace',
       markupStart: m.index ?? 0, markupEnd: (m.index ?? 0) + (m[0]?.length ?? 0),
       oldText, newText,
     });
   }
 
   for (const m of proposedMarkup.matchAll(RE_INSERT)) {
-    const groupNumber = Number(m[1]);
-    if (!Number.isFinite(groupNumber) || groupNumber < 1) {
+    const parsed = parseExplicitGroupNumber(m[1]);
+    if (!parsed.ok) {
       dropped.push({ groupNumber: 0, reason: 'invalid_group_number' });
       continue;
     }
     raw.push({
-      groupNumber, kind: 'insert',
+      groupNumber: parsed.value, kind: 'insert',
       markupStart: m.index ?? 0, markupEnd: (m.index ?? 0) + (m[0]?.length ?? 0),
       oldText: '', newText: m[2] ?? '',
     });
   }
 
   for (const m of proposedMarkup.matchAll(RE_DELETE)) {
-    const groupNumber = Number(m[1]);
-    if (!Number.isFinite(groupNumber) || groupNumber < 1) {
+    const parsed = parseExplicitGroupNumber(m[1]);
+    if (!parsed.ok) {
       dropped.push({ groupNumber: 0, reason: 'invalid_group_number' });
       continue;
     }
     raw.push({
-      groupNumber, kind: 'delete',
+      groupNumber: parsed.value, kind: 'delete',
+      markupStart: m.index ?? 0, markupEnd: (m.index ?? 0) + (m[0]?.length ?? 0),
+      oldText: m[2] ?? '', newText: '',
+    });
+  }
+
+  // Standard-CriticMarkup paired delete: `{~~ X ~~}` without `~>`. Treated as
+  // a delete; the paired-merge step below promotes it to a substitution if
+  // followed by an adjacent `{++ ++}` insert.
+  for (const m of proposedMarkup.matchAll(RE_DELETE_TILDE)) {
+    const parsed = parseExplicitGroupNumber(m[1]);
+    if (!parsed.ok) {
+      dropped.push({ groupNumber: 0, reason: 'invalid_group_number' });
+      continue;
+    }
+    raw.push({
+      groupNumber: parsed.value, kind: 'delete',
       markupStart: m.index ?? 0, markupEnd: (m.index ?? 0) + (m[0]?.length ?? 0),
       oldText: m[2] ?? '', newText: '',
     });
@@ -95,19 +137,53 @@ export function parseProposedEdits(
   let lastEnd = 0;
   for (const r of raw) {
     if (r.markupStart < lastEnd) {
-      dropped.push({ groupNumber: r.groupNumber, reason: 'overlapping_markup' });
+      dropped.push({ groupNumber: r.groupNumber ?? 0, reason: 'overlapping_markup' });
       continue;
     }
     filtered.push(r);
     lastEnd = r.markupEnd;
   }
 
-  // Merge adjacent paired add+delete with the same group number into one replace.
-  const merged: RawAtomic[] = [];
+  // Adjacency-based auto-group assignment for unnumbered edits. Walk
+  // left-to-right; consecutive originally-unnumbered edits separated only by
+  // ADJACENT_WHITESPACE share an auto-assigned group. Explicit numbers are
+  // honored as-is and break unnumbered runs.
+  const wasUnnumbered = filtered.map((r) => r.groupNumber === undefined);
+  const explicitMax = filtered.reduce(
+    (max, r) => (r.groupNumber !== undefined && r.groupNumber > max ? r.groupNumber : max),
+    0,
+  );
+  let nextAutoGroup = explicitMax + 1;
   for (let i = 0; i < filtered.length; i++) {
-    const cur = filtered[i];
+    const cur = filtered[i]!;
+    if (!wasUnnumbered[i]) continue;
+    let inherited: number | undefined;
+    if (i > 0 && wasUnnumbered[i - 1]) {
+      const prev = filtered[i - 1]!;
+      const between = proposedMarkup.slice(prev.markupEnd, cur.markupStart);
+      if (ADJACENT_WHITESPACE.test(between)) {
+        inherited = prev.groupNumber;
+      }
+    }
+    cur.groupNumber = inherited ?? nextAutoGroup++;
+  }
+
+  // Every filtered.groupNumber is now a number. Tighten the type for downstream.
+  const numbered: Array<RawAtomic & { groupNumber: number }> = filtered.map((r) => ({
+    ...r,
+    groupNumber: r.groupNumber as number,
+  }));
+
+  // Merge adjacent paired delete+insert with the same group number into one replace.
+  // Auto-assigned groups for adjacent unnumbered delete+insert pairs naturally end
+  // up with the same group number via the adjacency pass above, so this step
+  // covers both explicit `{-- [#1] X --}{++ [#1] Y ++}` and standard
+  // CriticMarkup `{~~ X ~~}{++ Y ++}` paired form transparently.
+  const merged: Array<RawAtomic & { groupNumber: number }> = [];
+  for (let i = 0; i < numbered.length; i++) {
+    const cur = numbered[i];
     if (cur == null) continue;
-    const next = filtered[i + 1];
+    const next = numbered[i + 1];
     if (
       next != null
       && cur.groupNumber === next.groupNumber

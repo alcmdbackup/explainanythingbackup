@@ -1,6 +1,6 @@
 // Proposer system prompt + user prompt builder. The Proposer's output is the
-// FULL ARTICLE BODY VERBATIM with inline numbered CriticMarkup edits. No
-// commentary, no summaries — just the marked-up article.
+// FULL ARTICLE BODY VERBATIM with inline CriticMarkup edits. No commentary,
+// no summaries — just the marked-up article.
 
 const SOFT_RULES = [
   'Preserve quotes, citations, and URLs exactly as they appear in the original.',
@@ -11,19 +11,22 @@ const SOFT_RULES = [
   'Edit only when the change demonstrably improves clarity, structure, engagement, or grammar — never for its own sake.',
 ];
 
-const SYNTAX_DOCS = `Use ONE of these three forms for each atomic edit. Each edit must carry a [#N] number; multiple atomic edits may share a number to form an atomic group (the reviewer accepts/rejects the whole group at once).
+const SYNTAX_DOCS = `Use any of these CriticMarkup forms for each atomic edit:
 
-  Insertion:    {++ [#N] inserted text ++}
-  Deletion:     {-- [#N] deleted text --}
-  Substitution: {~~ [#N] old text ~> new text ~~}
+  Insertion:                     {++ inserted text ++}
+  Deletion:                      {-- deleted text --}
+  Substitution (inline form):    {~~ old text ~> new text ~~}
+  Substitution (paired form):    {~~ old text ~~}{++ new text ++}
 
-Adjacent paired insertion+deletion with the same [#N] are normalized to a substitution.
+Both substitution forms are accepted. The reviewer groups markup spans that are adjacent (separated only by whitespace, no paragraph break between) and accepts or rejects each group as one atomic unit. Place related edits next to each other; separate independent edits with a blank line.
 
-DO NOT modify any text outside your numbered markup spans. The reviewer will discard ALL your edits if your output, with markup stripped, does not match the source byte-for-byte (modulo whitespace).`;
+You may optionally tag a span with [#N] (e.g. {++ [#1] ... ++}) to force grouping across non-adjacent spans. Most edits will not need this — the adjacency rule handles common cases.
+
+DO NOT modify any text outside your markup spans. The reviewer will discard ALL your edits if your output, with markup stripped, does not match the source byte-for-byte (modulo whitespace).`;
 
 export function buildProposerSystemPrompt(): string {
   return [
-    'You propose edits to an article. Your output is the FULL ARTICLE BODY VERBATIM with inline numbered CriticMarkup edits.',
+    'You propose edits to an article. Your output is the FULL ARTICLE BODY VERBATIM with inline CriticMarkup edits.',
     '',
     'Soft rules — follow these unless the edit demonstrably improves the article:',
     ...SOFT_RULES.map((r, i) => `  ${i + 1}. ${r}`),
