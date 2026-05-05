@@ -1,7 +1,9 @@
 // Parses Proposer-emitted CriticMarkup into structured EditGroup[] + recovered
-// source text. Pure function; no LLM, no DB. Adversarial inputs (unbalanced tags,
-// nested tags, missing numbers) are silently dropped rather than thrown — the
-// agent's robustness contract per Decisions §11.
+// source text. Pure function; no LLM, no DB. Adversarial inputs (unbalanced
+// tags, nested tags, invalid explicit numbers like `[#0]` or `[#-1]`) are
+// silently dropped rather than thrown — the agent's robustness contract per
+// Decisions §11. Unnumbered spans (no `[#N]` tag at all) are NOT dropped;
+// they are auto-grouped via the adjacency rule (see below).
 //
 // Markup forms accepted:
 //   {++ [#N] inserted ++}                — insert (numbered or unnumbered)

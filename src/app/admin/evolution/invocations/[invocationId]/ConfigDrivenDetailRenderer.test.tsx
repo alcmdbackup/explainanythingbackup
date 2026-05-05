@@ -1,6 +1,6 @@
 // Tests for ConfigDrivenDetailRenderer: verifies all 7 field types, nested objects, and fallback.
 
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { ConfigDrivenDetailRenderer } from './ConfigDrivenDetailRenderer';
 import type { DetailFieldDef } from '@evolution/lib/core/types';
 
@@ -296,6 +296,53 @@ describe('ConfigDrivenDetailRenderer', () => {
     expect(screen.getByTestId('annotated-content').textContent).toContain('cruel');
     // Group span is rendered (proves proposedGroupsRaw was resolved, not empty default).
     expect(screen.getByTestId('annotated-group-1')).toBeInTheDocument();
+  });
+
+  it('annotated-edits resolves cycle-prefixed appliedGroups + parentText (siblings of markupKey)', () => {
+    // Regression: appliedGroups and parentText are NOT on the DetailFieldDef
+    // config — they are sibling fields under the same cycle. The renderer
+    // derives their paths by prepending the cycle prefix from field.key.
+    // Pre-fix bug: literal flat keys 'appliedGroups' / 'parentText' against
+    // top-level data → undefined → "Final variant" view rebuilt from oldText
+    // (showing the original article) and "Original" view's parentText override
+    // silently never fired.
+    const config: DetailFieldDef[] = [
+      {
+        key: 'cycles.0', label: 'Annotated Edits', type: 'annotated-edits',
+        markupKey: 'cycles.0.proposedMarkup',
+        groupsKey: 'cycles.0.proposedGroupsRaw',
+      },
+    ];
+    const proposedGroupsRaw = [{
+      groupNumber: 1,
+      atomicEdits: [{
+        groupNumber: 1, kind: 'replace',
+        range: { start: 0, end: 5 }, markupRange: { start: 0, end: 26 },
+        oldText: 'OLD', newText: 'NEW',
+        contextBefore: '', contextAfter: '',
+      }],
+    }];
+    const data = {
+      cycles: [
+        {
+          proposedMarkup: '{~~ [#1] OLD ~> NEW ~~} suffix',
+          proposedGroupsRaw,
+          appliedGroups: proposedGroupsRaw,  // Group 1 was accepted+applied.
+          parentText: 'PARENT_TEXT_FROM_CYCLE',
+        },
+      ],
+    };
+    render(<ConfigDrivenDetailRenderer config={config} data={data} />);
+
+    // Final view: should show NEW (group 1 in appliedGroups → newText splice).
+    fireEvent.click(screen.getByTestId('annotated-view-final'));
+    expect(screen.getByTestId('annotated-final').textContent).toContain('NEW');
+    expect(screen.getByTestId('annotated-final').textContent).not.toContain('OLD');
+
+    // Original view: should display PARENT_TEXT_FROM_CYCLE verbatim
+    // (parentText override was resolved through cycle prefix).
+    fireEvent.click(screen.getByTestId('annotated-view-original'));
+    expect(screen.getByTestId('annotated-original').textContent).toBe('PARENT_TEXT_FROM_CYCLE');
   });
 
   it('text-diff resolves dotted-path keys (sourceKey/targetKey)', () => {
