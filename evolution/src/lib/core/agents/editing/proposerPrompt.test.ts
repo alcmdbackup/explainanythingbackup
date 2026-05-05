@@ -12,10 +12,22 @@ describe('buildProposerSystemPrompt', () => {
     expect(prompt).toMatch(/voice/i);
   });
 
-  it('documents all 3 markup forms', () => {
-    expect(prompt).toMatch(/\{\+\+ \[#N\]/);
-    expect(prompt).toMatch(/\{-- \[#N\]/);
-    expect(prompt).toMatch(/\{~~ \[#N\]/);
+  it('documents the markup forms', () => {
+    // Insertion / deletion / substitution (inline + paired). [#N] is optional.
+    expect(prompt).toMatch(/\{\+\+ inserted/);
+    expect(prompt).toMatch(/\{-- deleted/);
+    expect(prompt).toMatch(/\{~~ old text ~> new text ~~\}/);
+    expect(prompt).toMatch(/\{~~ old text ~~\}\{\+\+ new text \+\+\}/);
+  });
+
+  it('explains adjacency-based grouping', () => {
+    expect(prompt.toLowerCase()).toMatch(/adjacent|adjacency/);
+    expect(prompt.toLowerCase()).toMatch(/group|groups/);
+  });
+
+  it('mentions [#N] only as an optional override', () => {
+    expect(prompt).toMatch(/\[#N\]/);
+    expect(prompt.toLowerCase()).toMatch(/optional/);
   });
 
   it('warns about whitespace fidelity outside markup spans', () => {
