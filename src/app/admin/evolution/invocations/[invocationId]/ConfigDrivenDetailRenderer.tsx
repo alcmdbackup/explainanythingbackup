@@ -206,25 +206,20 @@ function renderField(field: DetailFieldDef, data: Record<string, unknown>): JSX.
       // walks the path through the data structure. Literal bracket access would
       // return undefined for dotted keys, which silently rendered every editing
       // invocation's Annotated Edits as an empty <pre>.
-      const markup = String(resolveKeyPath(data, field.markupKey ?? 'proposedMarkup') ?? '');
-      const groupsRaw = (resolveKeyPath(data, field.groupsKey ?? 'proposedGroupsRaw') as Parameters<typeof AnnotatedProposals>[0]['proposedGroupsRaw']) ?? [];
-      const decisions = (resolveKeyPath(data, field.decisionsKey ?? 'reviewDecisions') as Parameters<typeof AnnotatedProposals>[0]['reviewDecisions']) ?? [];
-      const droppedPre = (resolveKeyPath(data, field.dropsPreKey ?? 'droppedPreApprover') as Parameters<typeof AnnotatedProposals>[0]['droppedPreApprover']) ?? [];
-      const droppedPost = (resolveKeyPath(data, field.dropsPostKey ?? 'droppedPostApprover') as Parameters<typeof AnnotatedProposals>[0]['droppedPostApprover']) ?? [];
-      const appliedGroups = (resolveKeyPath(data, 'appliedGroups') as Parameters<typeof AnnotatedProposals>[0]['appliedGroups']) ?? [];
+      type AnnotatedProps = Parameters<typeof AnnotatedProposals>[0];
+      const resolveProp = <T,>(key: string): T | undefined => resolveKeyPath(data, key) as T | undefined;
       const parentTextValue = resolveKeyPath(data, 'parentText');
-      const parentText = typeof parentTextValue === 'string' ? parentTextValue : undefined;
       return (
         <div key={field.key} className="mb-4" data-testid={`field-${field.key}`}>
           <h3 className="text-xl font-display font-semibold text-[var(--text-secondary)] mb-2">{field.label}</h3>
           <AnnotatedProposals
-            proposedMarkup={markup}
-            proposedGroupsRaw={groupsRaw}
-            reviewDecisions={decisions}
-            droppedPreApprover={droppedPre}
-            droppedPostApprover={droppedPost}
-            appliedGroups={appliedGroups}
-            parentText={parentText}
+            proposedMarkup={String(resolveKeyPath(data, field.markupKey ?? 'proposedMarkup') ?? '')}
+            proposedGroupsRaw={resolveProp<AnnotatedProps['proposedGroupsRaw']>(field.groupsKey ?? 'proposedGroupsRaw') ?? []}
+            reviewDecisions={resolveProp<AnnotatedProps['reviewDecisions']>(field.decisionsKey ?? 'reviewDecisions') ?? []}
+            droppedPreApprover={resolveProp<AnnotatedProps['droppedPreApprover']>(field.dropsPreKey ?? 'droppedPreApprover') ?? []}
+            droppedPostApprover={resolveProp<AnnotatedProps['droppedPostApprover']>(field.dropsPostKey ?? 'droppedPostApprover') ?? []}
+            appliedGroups={resolveProp<AnnotatedProps['appliedGroups']>('appliedGroups') ?? []}
+            parentText={typeof parentTextValue === 'string' ? parentTextValue : undefined}
           />
         </div>
       );
