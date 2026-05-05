@@ -252,7 +252,7 @@ export function AnnotatedProposals({
                 data-testid={`annotated-group-${seg.groupNumber}`}
                 data-outcome={seg.outcome}
               >
-                <sup className="text-[10px] mr-0.5 opacity-70">#{seg.groupNumber}</sup>
+                <sup className="text-xs mr-0.5 opacity-70">#{seg.groupNumber}</sup>
                 {text}
               </span>
             );

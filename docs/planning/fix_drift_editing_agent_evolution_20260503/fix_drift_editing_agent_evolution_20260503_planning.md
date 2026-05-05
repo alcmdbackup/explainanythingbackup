@@ -27,16 +27,16 @@ Permits: `""`, ` `, `\t`, `\r`, `\n`, ` \n `, `\t\r`. Forbids: `\n\n`, `\n\n\n`,
 ## Phased Execution
 
 ### Phase 1 — Parser changes (~80 LoC in `parseProposedEdits.ts`)
-- [ ] Relax `RE_INSERT`, `RE_DELETE`, `RE_REPLACE` regexes to make `[#(\d+)]` optional via `(?:\[#(\d+)\])?`.
-- [ ] In each regex iteration, treat `m[1] === undefined` as "unnumbered" — do NOT drop the edit; track it as `groupNumber: undefined` (or sentinel `0`).
-- [ ] After overlap filtering (line 96-103), insert adjacency-detection pass: walk `filtered` left-to-right; for unnumbered runs separated by whitespace-only gap (`ADJACENT_WHITESPACE` predicate), assign one shared auto group number; for isolated unnumbered edits, assign a fresh auto number; explicit numbers remain.
-- [ ] Extend the existing paired-merge logic (line 105-127) to handle the case where both `cur` and `next` are auto-assigned to the same group via adjacency.
-- [ ] No change to `offsetMap` building (line 130-153) — works on positions, not group numbers.
-- [ ] No change to `EditingGroup` shape or types — `groupNumber: number` stays.
+- [x] Relax `RE_INSERT`, `RE_DELETE`, `RE_REPLACE` regexes to make `[#(\d+)]` optional via `(?:\[#(\d+)\])?`.
+- [x] In each regex iteration, treat `m[1] === undefined` as "unnumbered" — do NOT drop the edit; track it as `groupNumber: undefined` (or sentinel `0`).
+- [x] After overlap filtering (line 96-103), insert adjacency-detection pass: walk `filtered` left-to-right; for unnumbered runs separated by whitespace-only gap (`ADJACENT_WHITESPACE` predicate), assign one shared auto group number; for isolated unnumbered edits, assign a fresh auto number; explicit numbers remain.
+- [x] Extend the existing paired-merge logic (line 105-127) to handle the case where both `cur` and `next` are auto-assigned to the same group via adjacency.
+- [x] No change to `offsetMap` building (line 130-153) — works on positions, not group numbers.
+- [x] No change to `EditingGroup` shape or types — `groupNumber: number` stays.
 
 ### Phase 2 — Proposer prompt (~20 LoC in `proposerPrompt.ts`)
-- [ ] Rewrite `SYNTAX_DOCS` to drop `[#N]` requirement, show all 4 forms (insertion, deletion, inline substitution, paired substitution), explain adjacency grouping.
-- [ ] Update `buildProposerSystemPrompt` to remove "numbered" wording.
+- [x] Rewrite `SYNTAX_DOCS` to drop `[#N]` requirement, show all 4 forms (insertion, deletion, inline substitution, paired substitution), explain adjacency grouping.
+- [x] Update `buildProposerSystemPrompt` to remove "numbered" wording.
 
 ### Phase 3 — Approver flow (NO-OP, explicit decision)
 - [x] **Decision: skip Approver markup injection.** Round 2 B3 surfaced this as a possible "gotcha" (when Proposer omits `[#N]`, the markup spans in the Approver prompt lack numbers while the summary table labels them `[#1]`, `[#2]`, etc.) and proposed three mitigations. After verification we picked **Option B (do nothing)**: `buildApproverUserPrompt` (`approverPrompt.ts:36-43`) builds the summary table from `EditingGroup.groupNumber` directly, AND each table row already shows the truncated edit content (`insert: "..."`, `delete: "..."`, `replace: "..." → "..."`). The Approver matches groups to markup by content + table label, not by extracting `[#N]` from raw markup. Empirically the LLM has the table alone as a sufficient reference; injecting `[#N]` would be cosmetic.
@@ -64,7 +64,7 @@ The Proposer / parser markup contract changed; the docs must be updated in locks
 
 - [x] `evolution/docs/agents/overview.md:437` — IterativeEditingAgent per-cycle protocol: rewrite the markup-form list to show `[#N]` as optional, document the adjacency rule, and note the standard CriticMarkup paired form is accepted. Reference fix_drift_editing_agent_evolution_20260503 as the contract change.
 - [x] `docs/feature_deep_dives/editing_agents.md:11-16` — same contract update, plus mention of the auto-grouping rule in the parse step.
-- [ ] **Optional**: add a one-line note to `evolution/docs/reference.md` Kill-switches table describing the (deferred) `EVOLUTION_EDITING_ADJACENCY_GROUPING` rollback flag, IF the flag is added in a follow-up PR. Skipped for now since the flag itself isn't in this PR.
+- _Skipped_: add a one-line note to `evolution/docs/reference.md` Kill-switches table describing the (deferred) `EVOLUTION_EDITING_ADJACENCY_GROUPING` rollback flag, IF the flag is added in a follow-up PR. Skipped for now since the flag itself isn't in this PR.
 
 ### What this means for ALREADY-PERSISTED drift-failed rows
 
@@ -85,13 +85,13 @@ The renderer fix surfaces whatever data was saved at run time:
   Both tests would have caught the bracket-access bug at PR time.
 - [x] **No change** (orthogonal concerns): `checkProposerDrift`, `validateEditGroups`, `parseReviewDecisions`, `applyAcceptedGroups`, `recoverDrift`, `approverPrompt`, `IterativeEditingAgent.invariants` tests.
 - [x] **Spot-check passing**: `IterativeEditingAgent.test.ts`, `applyAcceptedGroups.test.ts`, `applyAcceptedGroups.property.test.ts`, `applyAcceptedGroups.sampleArticles.test.ts` — all old `[#N]`-numbered fixtures still parse correctly under the new optional-`[#N]` parser.
-- [ ] **Optional follow-up**: duplicate `FINCHES_MARKUP_ALL_ACCEPT` and `QUANTUM_MARKUP_MIXED` in `__fixtures__/sample-articles.ts` into non-numbered variants and add applier tests for those. Not blocking — the unit tests in `parseProposedEdits.test.ts` already cover the new parser branches; sample-articles tests are end-to-end smoke tests that exercise the applier, which is unaffected by the parser change.
+- _Deferred_: duplicate `FINCHES_MARKUP_ALL_ACCEPT` and `QUANTUM_MARKUP_MIXED` in `__fixtures__/sample-articles.ts` into non-numbered variants and add applier tests for those. Not blocking — the unit tests in `parseProposedEdits.test.ts` already cover the new parser branches; sample-articles tests are end-to-end smoke tests that exercise the applier, which is unaffected by the parser change.
 
 ### Phase 6 — Verification gates (CLAUDE.md mandates after every code block)
 - [x] `npx eslint` on all modified files (parseProposedEdits.ts, proposerPrompt.ts, AnnotatedProposals.tsx, ConfigDrivenDetailRenderer.tsx, *.test.ts) — clean. Pre-existing lint errors in `IterativeEditingAgent.test.ts`, `IterativeEditingAgent.ts`, `applyAcceptedGroups.ts`, `validateEditGroups.ts` are unrelated to this PR (out of scope).
 - [x] `npx tsc --noEmit` — zero errors.
 - [x] `npx jest --testPathPatterns="evolution/src/lib/core/agents/editing/|AnnotatedProposals|ConfigDrivenDetailRenderer"` — **149 tests pass** across 15 test files (was 104 baseline; +12 unit adjacency tests, +2 property tests for unnumbered semantics, +3 prompt-contract updates, +2 renderer regression tests covering both `annotated-edits` and `text-diff` branches, +remaining baseline tests still pass).
-- [ ] `npm run build` — skipped (Next.js full build takes minutes for no incremental signal beyond what tsc already validated; changes are localized to specific files with no shared-state implications).
+- _Skipped_: `npm run build` — Next.js full build takes minutes for no incremental signal beyond what tsc already validated; changes are localized to specific files with no shared-state implications. (Now run as part of /finalize Step 4 — see check results below.)
 
 ### Optional follow-up (NOT in this PR)
 - Kill switch `EVOLUTION_EDITING_ADJACENCY_GROUPING='true'` defaulting to `'true'`. Code-revert is the simpler rollback path here since the changes are localized; only add the flag if we land surprises in staging.
