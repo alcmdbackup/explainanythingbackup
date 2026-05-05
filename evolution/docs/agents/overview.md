@@ -414,6 +414,8 @@ A wrapper agent that scores a parent article against user-defined `evolution_cri
 
 **GFPA delegation**: the wrapper builds a `customPrompt` from the weakest-K suggestion bullets and calls `new GenerateFromPreviousArticleAgent().execute(input)` directly with `tactic: 'criteria_driven'`, `customPrompt`, plus `criteriaSetUsed` and `weakestCriteriaIds` for variant attribution. Same load-bearing invariant as the reflection wrapper — must use `.execute()` not `.run()` so cost attribution stays in the wrapper's `AgentCostScope`.
 
+**`customPrompt` length-preservation directive (2026-05-03)**: `buildCustomPromptFromSuggestions` appends a trailing instruction telling the LLM to "Preserve the original word count within ±10% — refactor or deepen existing passages rather than adding new sections or examples. Do not introduce meta-commentary about the article itself." The three sub-clauses target three concrete bloat patterns observed in the understand_critera_agent_performance_evolution_20260503 investigation: bolting on new sections, ornamental tone inflation, and self-referential meta-commentary. Without this directive, additive verbs in suggestion text ("introduce", "frame", "add") reliably produced 29-45% expansion in the worst-case variants. The ±10% number is approximate (LLMs are imprecise about numeric length constraints) but acts as a directional anchor; the surrounding sub-clauses do most of the work.
+
 **Misconfiguration guard** in GFPA: `if (tactic === 'criteria_driven' && customPrompt === undefined) throw` — the marker tactic only makes sense when invoked through this wrapper; bare GFPA dispatch with that tactic is rejected to surface wiring bugs at runtime.
 
 **Cost stack**: `'evaluate_and_suggest'` is a typed `AgentName` with `evaluation_cost` as its bucket. `OUTPUT_TOKEN_ESTIMATES.evaluate_and_suggest = 2300` covers all per-criterion score lines plus K suggestion blocks. `estimateEvaluateAndSuggestCost(parentChars, gen, judge, criteriaCount, weakestK, avgRubricChars)` accounts for prompt overhead + per-criterion description + rubric anchor injection, and `estimateAgentCost(useCriteria, criteriaCount, weakestK)` extends the dispatch-plan projector. Run-level `evaluation_cost` propagates to `total_evaluation_cost` and `avg_evaluation_cost_per_run` at strategy/experiment level.
@@ -463,4 +465,4 @@ After loop terminates: emit final `Variant` if any cycle accepted edits. The fin
 
 **Schema deploy gate**: `evolution/src/lib/core/startupAssertions.ts` queries the `evolution_cost_calibration_phase_allowed` CHECK constraint at agent-registry init and throws `MissingMigrationError` if any TS phase string is missing from the DB enum. Eliminates the silent-reject failure mode PR #1017 hit.
 
-See full deep dive: `docs/feature_deep_dives/editing_agents.md`.
+See full deep dive: `evolution/docs/editing_agents.md`.

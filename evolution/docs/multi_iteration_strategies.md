@@ -107,7 +107,7 @@ With superRefine validations:
 - No swiss iteration may precede all variant-producing iterations.
 - `criteriaIds` / `weakestK` are required when `agentType === 'criteria_and_generate'` and rejected on other agent types; `reflectionTopN` is required-default-3 only on `reflect_and_generate`. `criteriaIds` is sorted (canonicalized) before being included in the strategy `config_hash` so `[a,b]` and `[b,a]` deduplicate.
 
-The `criteria_and_generate` agent type (evaluateCriteriaThenGenerateFromPreviousArticle_20260501) routes through the `EvaluateCriteriaThenGenerateFromPreviousArticleAgent` wrapper, which makes one combined LLM call to score the parent article against the referenced `evolution_criteria` rows AND draft fix suggestions for the `effectiveWeakestK = min(weakestK, criteriaIds.length)` weakest criteria, then delegates to `GenerateFromPreviousArticleAgent.execute()` with `tactic: 'criteria_driven'` and a `customPrompt` built from the suggestions. See [Agents Overview](../../evolution/docs/agents/overview.md#evaluatecriteriathengeneratefrompreviousarticleagent-evaluatecriteriathengeneratefrompreviousarticle_20260501) for the full agent contract.
+The `criteria_and_generate` agent type (evaluateCriteriaThenGenerateFromPreviousArticle_20260501) routes through the `EvaluateCriteriaThenGenerateFromPreviousArticleAgent` wrapper, which makes one combined LLM call to score the parent article against the referenced `evolution_criteria` rows AND draft fix suggestions for the `effectiveWeakestK = min(weakestK, criteriaIds.length)` weakest criteria, then delegates to `GenerateFromPreviousArticleAgent.execute()` with `tactic: 'criteria_driven'` and a `customPrompt` built from the suggestions. See [Agents Overview](./agents/overview.md#evaluatecriteriathengeneratefrompreviousarticleagent-evaluatecriteriathengeneratefrompreviousarticle_20260501) for the full agent contract.
 
 ## Two-Layer Budget
 
@@ -220,8 +220,8 @@ reserves $0.01 per iter, not $0.02. Multiple-mode floors use either `initialAgen
 
 ## Related Documentation
 
-- [Architecture](../../evolution/docs/architecture.md) — config-driven iteration loop, three-layer budget
-- [Strategies & Experiments](../../evolution/docs/strategies_and_experiments.md) — StrategyConfig with iterationConfigs
-- [Cost Optimization](../../evolution/docs/cost_optimization.md) — per-iteration budget enforcement
-- [Metrics](../../evolution/docs/metrics.md) — per-iteration metrics in IterationResult
-- [Visualization](../../evolution/docs/visualization.md) — Timeline iteration cards, strategy wizard page
+- [Architecture](./architecture.md) — config-driven iteration loop, three-layer budget
+- [Strategies & Experiments](./strategies_and_experiments.md) — StrategyConfig with iterationConfigs
+- [Cost Optimization](./cost_optimization.md) — per-iteration budget enforcement
+- [Metrics](./metrics.md) — per-iteration metrics in IterationResult
+- [Visualization](./visualization.md) — Timeline iteration cards, strategy wizard page

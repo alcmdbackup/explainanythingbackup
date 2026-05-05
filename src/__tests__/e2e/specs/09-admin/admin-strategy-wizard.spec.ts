@@ -20,6 +20,25 @@ adminTest.describe('Strategy Creation Wizard', { tag: '@evolution' }, () => {
 
   let createdStrategyId: string | undefined;
 
+  // Sweep leftover [TEST] Strategy Wizard rows from prior interrupted CI runs.
+  // The per-test afterAll hooks below only clean rows created in THIS run; if a
+  // previous run was force-cancelled before afterAll could run, its rows linger
+  // and accumulate. The 'strategy appears in strategies list' test then sees
+  // ≥2 rows whose name starts with TEST_PREFIX and fails Playwright strict mode
+  // on the locator-resolved-to-N-elements rule. Sweeping before the suite
+  // starts gives every run a clean baseline regardless of prior state.
+  adminTest.beforeAll(async () => {
+    const sb = getServiceClient();
+    const { data: leftovers } = await sb
+      .from('evolution_strategies')
+      .select('id')
+      .like('name', `${TEST_PREFIX}%`);
+    if (!leftovers || leftovers.length === 0) return;
+    const ids = leftovers.map((r) => r.id);
+    await sb.from('evolution_metrics').delete().in('entity_id', ids);
+    await sb.from('evolution_strategies').delete().in('id', ids);
+  });
+
   adminTest.afterAll(async () => {
     if (!createdStrategyId) return;
     const sb = getServiceClient();
