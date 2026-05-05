@@ -255,4 +255,70 @@ describe('ConfigDrivenDetailRenderer', () => {
     expect(screen.getByTestId('field-tags')).toBeInTheDocument();
     expect(screen.getByTestId('field-nested')).toBeInTheDocument();
   });
+
+  it('annotated-edits resolves dotted-path keys (markupKey="cycles.0.proposedMarkup")', () => {
+    // Regression: annotated-edits and text-diff branches previously used literal
+    // bracket access on dotted keys (e.g. data['cycles.0.proposedMarkup']),
+    // which JS evaluates as undefined for nested data — every editing
+    // invocation rendered an empty Annotated Edits panel as a result.
+    const config: DetailFieldDef[] = [
+      {
+        key: 'cycles.0', label: 'Annotated Edits', type: 'annotated-edits',
+        markupKey: 'cycles.0.proposedMarkup',
+        groupsKey: 'cycles.0.proposedGroupsRaw',
+        decisionsKey: 'cycles.0.reviewDecisions',
+        dropsPreKey: 'cycles.0.droppedPreApprover',
+        dropsPostKey: 'cycles.0.droppedPostApprover',
+      },
+    ];
+    const data = {
+      cycles: [
+        {
+          proposedMarkup: 'Hello {++ cruel ++}world.',
+          proposedGroupsRaw: [{
+            groupNumber: 1,
+            atomicEdits: [{
+              groupNumber: 1, kind: 'insert',
+              range: { start: 6, end: 6 }, markupRange: { start: 6, end: 19 },
+              oldText: '', newText: 'cruel',
+              contextBefore: 'Hello ', contextAfter: 'world.',
+            }],
+          }],
+          reviewDecisions: [],
+          droppedPreApprover: [],
+          droppedPostApprover: [],
+        },
+      ],
+    };
+    render(<ConfigDrivenDetailRenderer config={config} data={data} />);
+    // The dotted key is resolved → component renders the markup.
+    expect(screen.getByTestId('annotated-content').textContent).toContain('Hello');
+    expect(screen.getByTestId('annotated-content').textContent).toContain('cruel');
+    // Group span is rendered (proves proposedGroupsRaw was resolved, not empty default).
+    expect(screen.getByTestId('annotated-group-1')).toBeInTheDocument();
+  });
+
+  it('text-diff resolves dotted-path keys (sourceKey/targetKey)', () => {
+    // Same regression class as the annotated-edits dotted-key bug — text-diff
+    // also used literal bracket access. Defensive coverage: even though no
+    // current field config uses dotted sourceKey/targetKey, the fix is in
+    // place and a regression here would silently render empty diff panels.
+    const config: DetailFieldDef[] = [
+      {
+        key: 'diff', label: 'Diff', type: 'text-diff',
+        sourceKey: 'cycles.0.parentText',
+        targetKey: 'cycles.0.proposedMarkup',
+        previewLength: 500,
+      },
+    ];
+    const data = {
+      cycles: [
+        { parentText: 'BEFORE_TEXT', proposedMarkup: 'AFTER_TEXT' },
+      ],
+    };
+    render(<ConfigDrivenDetailRenderer config={config} data={data} />);
+    const panel = screen.getByTestId('field-diff');
+    expect(panel.textContent).toContain('BEFORE_TEXT');
+    expect(panel.textContent).toContain('AFTER_TEXT');
+  });
 });
