@@ -8,12 +8,14 @@ Reintroduced in `feat/bring_back_editing_agents_evolution_20260430` after the V1
 
 ## Algorithm (per cycle)
 
-1. **Proposer** (`iterative_edit_propose`) — LLM call. System prompt embeds soft rules (preserve quotes/citations/URLs, no new headings, prefer one-sentence edits, no edits in code blocks, preserve voice/tone). User prompt is the article body. Output is the FULL ARTICLE BODY VERBATIM with inline numbered CriticMarkup edits:
-   - `{++ [#N] inserted text ++}`
-   - `{-- [#N] deleted text --}`
-   - `{~~ [#N] old text ~> new text ~~}`
+1. **Proposer** (`iterative_edit_propose`) — LLM call. System prompt embeds soft rules (preserve quotes/citations/URLs, no new headings, prefer one-sentence edits, no edits in code blocks, preserve voice/tone). User prompt is the article body. Output is the FULL ARTICLE BODY VERBATIM with inline CriticMarkup edits in any of these forms:
+   - `{++ inserted text ++}` (insert)
+   - `{-- deleted text --}` (delete)
+   - `{~~ old text ~> new text ~~}` (substitution, inline form)
+   - `{~~ old text ~~}{++ new text ++}` (substitution, standard CriticMarkup paired form)
+   The optional `[#N]` group tag (e.g. `{++ [#1] inserted ++}`) forces grouping across non-adjacent spans; if omitted, the parser auto-assigns group numbers via the adjacency rule below. Both substitution forms are accepted.
 2. **Implementer pre-check** (deterministic):
-   - Parse markup → atomic edits grouped by `[#N]`. Adjacent paired add+delete with same number normalized to a `replace`.
+   - Parse markup → atomic edits grouped by `[#N]` if explicit, otherwise by **adjacency** (consecutive markup spans separated only by horizontal whitespace + at most one newline form one auto-group; paragraph break `\n\n` splits groups). Adjacent paired delete+insert with the same group number is normalized to a `replace`. Standard CriticMarkup paired form `{~~ X ~~}{++ Y ++}` is treated as a substitution via this merge.
    - Strip markup → `recoveredSource`. Compare against `current.text` → drift check.
    - On drift: classify magnitude. Major → abort. Minor → recovery LLM call (`iterative_edit_drift_recovery`).
    - Apply hard rules per group (length cap, heading-cross, code-fence, list-boundary, horizontal rule, paragraph break). Group-level coherence: any atomic edit in a group fails any rule → drop the WHOLE group.
