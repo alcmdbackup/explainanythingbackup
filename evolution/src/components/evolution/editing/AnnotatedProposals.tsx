@@ -115,29 +115,38 @@ function buildSegments(
   return segments;
 }
 
-/** Strip CriticMarkup from proposedMarkup — keep insert+delete content's
- *  "deleted" text, drop "inserted" text. Used by the Original view. */
-function stripMarkup(markup: string): string {
-  return markup
-    .replace(/\{\+\+\s*\[#\d+\]\s*([\s\S]*?)\s*\+\+\}/g, '')
-    .replace(/\{--\s*\[#\d+\]\s*([\s\S]*?)\s*--\}/g, '$1')
-    .replace(/\{~~\s*\[#\d+\]\s*([\s\S]*?)\s*~>\s*([\s\S]*?)\s*~~\}/g, '$1');
-}
-
-/** Reconstruct the article using only accepted-and-applied edits — i.e., the
- *  "final variant" the agent emitted from this cycle. */
-function reconstructFinal(
+/** Walk proposedGroupsRaw's markupRange data and rebuild the article using
+ *  newText for groups in acceptedGroupSet, oldText otherwise. Drives both
+ *  the "Final variant" view (acceptedGroupSet from appliedGroups) and the
+ *  "Original" fallback view (empty acceptedGroupSet → all spans revert to
+ *  oldText). Position-driven so it works whether or not the markup carries
+ *  explicit `[#N]` tags (which became optional once the parser added
+ *  adjacency-based auto-grouping). */
+function reconstructFromGroups(
   markup: string,
-  appliedGroups: EditingGroup[],
+  proposedGroupsRaw: EditingGroup[],
+  acceptedGroupSet: Set<number>,
 ): string {
-  const acceptedGroupSet = new Set(appliedGroups.map((g) => g.groupNumber));
-  return markup
-    .replace(/\{\+\+\s*\[#(\d+)\]\s*([\s\S]*?)\s*\+\+\}/g, (_m, n, content) =>
-      acceptedGroupSet.has(Number(n)) ? content : '')
-    .replace(/\{--\s*\[#(\d+)\]\s*([\s\S]*?)\s*--\}/g, (_m, n, content) =>
-      acceptedGroupSet.has(Number(n)) ? '' : content)
-    .replace(/\{~~\s*\[#(\d+)\]\s*([\s\S]*?)\s*~>\s*([\s\S]*?)\s*~~\}/g, (_m, n, oldT, newT) =>
-      acceptedGroupSet.has(Number(n)) ? newT : oldT);
+  const allAtomic = proposedGroupsRaw
+    .flatMap((g) => g.atomicEdits.map((e) => ({
+      groupNumber: g.groupNumber,
+      markupStart: e.markupRange.start,
+      markupEnd: e.markupRange.end,
+      oldText: e.oldText,
+      newText: e.newText,
+    })))
+    .sort((a, b) => a.markupStart - b.markupStart);
+
+  let result = '';
+  let cursor = 0;
+  for (const edit of allAtomic) {
+    if (edit.markupStart < cursor) continue;
+    result += markup.slice(cursor, edit.markupStart);
+    result += acceptedGroupSet.has(edit.groupNumber) ? edit.newText : edit.oldText;
+    cursor = edit.markupEnd;
+  }
+  result += markup.slice(cursor);
+  return result;
 }
 
 export function AnnotatedProposals({
@@ -157,8 +166,14 @@ export function AnnotatedProposals({
     [proposedMarkup, proposedGroupsRaw, reviewDecisions, droppedPreApprover, droppedPostApprover],
   );
 
-  const finalText = useMemo(() => reconstructFinal(proposedMarkup, appliedGroups), [proposedMarkup, appliedGroups]);
-  const originalText = useMemo(() => parentText ?? stripMarkup(proposedMarkup), [proposedMarkup, parentText]);
+  const finalText = useMemo(
+    () => reconstructFromGroups(proposedMarkup, proposedGroupsRaw, new Set(appliedGroups.map((g) => g.groupNumber))),
+    [proposedMarkup, proposedGroupsRaw, appliedGroups],
+  );
+  const originalText = useMemo(
+    () => parentText ?? reconstructFromGroups(proposedMarkup, proposedGroupsRaw, new Set()),
+    [proposedMarkup, proposedGroupsRaw, parentText],
+  );
 
   // Group-info popup state
   const [hoveredGroup, setHoveredGroup] = useState<number | null>(null);

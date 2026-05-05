@@ -181,8 +181,8 @@ function renderField(field: DetailFieldDef, data: Record<string, unknown>): JSX.
     }
 
     case 'text-diff': {
-      const before = String(data[field.sourceKey ?? ''] ?? '');
-      const after = String(data[field.targetKey ?? ''] ?? '');
+      const before = String(resolveKeyPath(data, field.sourceKey ?? '') ?? '');
+      const after = String(resolveKeyPath(data, field.targetKey ?? '') ?? '');
       const max = field.previewLength ?? 300;
       return (
         <div key={field.key} className="mb-4" data-testid={`field-${field.key}`}>
@@ -202,13 +202,18 @@ function renderField(field: DetailFieldDef, data: Record<string, unknown>): JSX.
     }
 
     case 'annotated-edits': {
-      const markup = String(data[field.markupKey ?? 'proposedMarkup'] ?? '');
-      const groupsRaw = (data[field.groupsKey ?? 'proposedGroupsRaw'] as Parameters<typeof AnnotatedProposals>[0]['proposedGroupsRaw']) ?? [];
-      const decisions = (data[field.decisionsKey ?? 'reviewDecisions'] as Parameters<typeof AnnotatedProposals>[0]['reviewDecisions']) ?? [];
-      const droppedPre = (data[field.dropsPreKey ?? 'droppedPreApprover'] as Parameters<typeof AnnotatedProposals>[0]['droppedPreApprover']) ?? [];
-      const droppedPost = (data[field.dropsPostKey ?? 'droppedPostApprover'] as Parameters<typeof AnnotatedProposals>[0]['droppedPostApprover']) ?? [];
-      const appliedGroups = (data['appliedGroups'] as Parameters<typeof AnnotatedProposals>[0]['appliedGroups']) ?? [];
-      const parentText = typeof data['parentText'] === 'string' ? data['parentText'] : undefined;
+      // Keys may be dotted paths (e.g. 'cycles.0.proposedMarkup'); resolveKeyPath
+      // walks the path through the data structure. Literal bracket access would
+      // return undefined for dotted keys, which silently rendered every editing
+      // invocation's Annotated Edits as an empty <pre>.
+      const markup = String(resolveKeyPath(data, field.markupKey ?? 'proposedMarkup') ?? '');
+      const groupsRaw = (resolveKeyPath(data, field.groupsKey ?? 'proposedGroupsRaw') as Parameters<typeof AnnotatedProposals>[0]['proposedGroupsRaw']) ?? [];
+      const decisions = (resolveKeyPath(data, field.decisionsKey ?? 'reviewDecisions') as Parameters<typeof AnnotatedProposals>[0]['reviewDecisions']) ?? [];
+      const droppedPre = (resolveKeyPath(data, field.dropsPreKey ?? 'droppedPreApprover') as Parameters<typeof AnnotatedProposals>[0]['droppedPreApprover']) ?? [];
+      const droppedPost = (resolveKeyPath(data, field.dropsPostKey ?? 'droppedPostApprover') as Parameters<typeof AnnotatedProposals>[0]['droppedPostApprover']) ?? [];
+      const appliedGroups = (resolveKeyPath(data, 'appliedGroups') as Parameters<typeof AnnotatedProposals>[0]['appliedGroups']) ?? [];
+      const parentTextValue = resolveKeyPath(data, 'parentText');
+      const parentText = typeof parentTextValue === 'string' ? parentTextValue : undefined;
       return (
         <div key={field.key} className="mb-4" data-testid={`field-${field.key}`}>
           <h3 className="text-xl font-display font-semibold text-[var(--text-secondary)] mb-2">{field.label}</h3>
