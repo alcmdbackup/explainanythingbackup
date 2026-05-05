@@ -65,6 +65,19 @@ const OUTCOME_LABEL: Record<Outcome, string> = {
   unknown: 'Unknown',
 };
 
+const LEGEND_OUTCOMES: Outcome[] = ['accepted', 'rejected', 'dropped_pre', 'dropped_post'];
+
+const PRE_CLASSNAME = 'whitespace-pre-wrap font-mono leading-relaxed p-3 bg-[var(--surface-secondary)] rounded border border-[var(--border-default)] max-h-[600px] overflow-y-auto';
+
+const TOOLBAR_BUTTON_BASE = 'px-3 py-1';
+function toolbarButtonClass(active: boolean, withLeftBorder: boolean): string {
+  const activeClass = active
+    ? 'bg-[var(--accent-gold)] text-[var(--surface-primary)]'
+    : 'bg-[var(--surface-elevated)] text-[var(--text-secondary)]';
+  const border = withLeftBorder ? ' border-l border-[var(--border-default)]' : '';
+  return `${TOOLBAR_BUTTON_BASE}${border} ${activeClass}`;
+}
+
 function classifyGroup(
   groupNumber: number,
   decisions: EditingReviewDecision[],
@@ -185,7 +198,7 @@ export function AnnotatedProposals({
           <button
             type="button"
             onClick={() => setView('annotated')}
-            className={`px-3 py-1 ${view === 'annotated' ? 'bg-[var(--accent-gold)] text-[var(--surface-primary)]' : 'bg-[var(--surface-elevated)] text-[var(--text-secondary)]'}`}
+            className={toolbarButtonClass(view === 'annotated', false)}
             data-testid="annotated-view-annotated"
           >
             Annotated
@@ -193,7 +206,7 @@ export function AnnotatedProposals({
           <button
             type="button"
             onClick={() => setView('final')}
-            className={`px-3 py-1 border-l border-[var(--border-default)] ${view === 'final' ? 'bg-[var(--accent-gold)] text-[var(--surface-primary)]' : 'bg-[var(--surface-elevated)] text-[var(--text-secondary)]'}`}
+            className={toolbarButtonClass(view === 'final', true)}
             data-testid="annotated-view-final"
           >
             Final variant
@@ -201,7 +214,7 @@ export function AnnotatedProposals({
           <button
             type="button"
             onClick={() => setView('original')}
-            className={`px-3 py-1 border-l border-[var(--border-default)] ${view === 'original' ? 'bg-[var(--accent-gold)] text-[var(--surface-primary)]' : 'bg-[var(--surface-elevated)] text-[var(--text-secondary)]'}`}
+            className={toolbarButtonClass(view === 'original', true)}
             data-testid="annotated-view-original"
           >
             Original
@@ -219,7 +232,7 @@ export function AnnotatedProposals({
 
       {legendOpen && (
         <div className="mb-2 flex flex-wrap gap-2 text-xs font-ui" data-testid="annotated-legend">
-          {(Object.keys(OUTCOME_STYLE) as Outcome[]).filter((o) => o !== 'unknown').map((o) => (
+          {LEGEND_OUTCOMES.map((o) => (
             <span key={o} className={`px-2 py-0.5 rounded ${OUTCOME_STYLE[o]}`}>
               {OUTCOME_LABEL[o]}
             </span>
@@ -228,10 +241,7 @@ export function AnnotatedProposals({
       )}
 
       {view === 'annotated' && (
-        <pre
-          className="whitespace-pre-wrap font-mono leading-relaxed p-3 bg-[var(--surface-secondary)] rounded border border-[var(--border-default)] max-h-[600px] overflow-y-auto"
-          data-testid="annotated-content"
-        >
+        <pre className={PRE_CLASSNAME} data-testid="annotated-content">
           {segments.map((seg, i) => {
             const text = proposedMarkup.slice(seg.start, seg.end);
             if (seg.groupNumber === null) {
@@ -261,19 +271,13 @@ export function AnnotatedProposals({
       )}
 
       {view === 'final' && (
-        <pre
-          className="whitespace-pre-wrap font-mono leading-relaxed p-3 bg-[var(--surface-secondary)] rounded border border-[var(--border-default)] max-h-[600px] overflow-y-auto"
-          data-testid="annotated-final"
-        >
+        <pre className={PRE_CLASSNAME} data-testid="annotated-final">
           {finalText}
         </pre>
       )}
 
       {view === 'original' && (
-        <pre
-          className="whitespace-pre-wrap font-mono leading-relaxed p-3 bg-[var(--surface-secondary)] rounded border border-[var(--border-default)] max-h-[600px] overflow-y-auto"
-          data-testid="annotated-original"
-        >
+        <pre className={PRE_CLASSNAME} data-testid="annotated-original">
           {originalText}
         </pre>
       )}

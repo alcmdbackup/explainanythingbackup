@@ -80,53 +80,45 @@ export function parseProposedEdits(
       dropped.push({ groupNumber: parsed.value ?? 0, reason: 'combined_substitution_with_arrow', detail: 'use paired form' });
       continue;
     }
+    const start = m.index ?? 0;
     raw.push({
-      groupNumber: parsed.value, kind: 'replace',
-      markupStart: m.index ?? 0, markupEnd: (m.index ?? 0) + (m[0]?.length ?? 0),
-      oldText, newText,
+      groupNumber: parsed.value,
+      kind: 'replace',
+      markupStart: start,
+      markupEnd: start + (m[0]?.length ?? 0),
+      oldText,
+      newText,
     });
   }
 
-  for (const m of proposedMarkup.matchAll(RE_INSERT)) {
-    const parsed = parseExplicitGroupNumber(m[1]);
-    if (!parsed.ok) {
-      dropped.push({ groupNumber: 0, reason: 'invalid_group_number' });
-      continue;
+  // Insert + delete forms share identical extraction shape — the only thing
+  // that varies is which capture group becomes oldText vs newText.
+  // RE_DELETE_TILDE is the standard-CriticMarkup paired delete `{~~ X ~~}`
+  // (no `~>`). Treated as a delete; the paired-merge step below promotes it
+  // to a substitution if followed by an adjacent `{++ ++}` insert.
+  const simpleForms: ReadonlyArray<{ regex: RegExp; kind: 'insert' | 'delete'; bodyIsOld: boolean }> = [
+    { regex: RE_INSERT, kind: 'insert', bodyIsOld: false },
+    { regex: RE_DELETE, kind: 'delete', bodyIsOld: true },
+    { regex: RE_DELETE_TILDE, kind: 'delete', bodyIsOld: true },
+  ];
+  for (const { regex, kind, bodyIsOld } of simpleForms) {
+    for (const m of proposedMarkup.matchAll(regex)) {
+      const parsed = parseExplicitGroupNumber(m[1]);
+      if (!parsed.ok) {
+        dropped.push({ groupNumber: 0, reason: 'invalid_group_number' });
+        continue;
+      }
+      const body = m[2] ?? '';
+      const start = m.index ?? 0;
+      raw.push({
+        groupNumber: parsed.value,
+        kind,
+        markupStart: start,
+        markupEnd: start + (m[0]?.length ?? 0),
+        oldText: bodyIsOld ? body : '',
+        newText: bodyIsOld ? '' : body,
+      });
     }
-    raw.push({
-      groupNumber: parsed.value, kind: 'insert',
-      markupStart: m.index ?? 0, markupEnd: (m.index ?? 0) + (m[0]?.length ?? 0),
-      oldText: '', newText: m[2] ?? '',
-    });
-  }
-
-  for (const m of proposedMarkup.matchAll(RE_DELETE)) {
-    const parsed = parseExplicitGroupNumber(m[1]);
-    if (!parsed.ok) {
-      dropped.push({ groupNumber: 0, reason: 'invalid_group_number' });
-      continue;
-    }
-    raw.push({
-      groupNumber: parsed.value, kind: 'delete',
-      markupStart: m.index ?? 0, markupEnd: (m.index ?? 0) + (m[0]?.length ?? 0),
-      oldText: m[2] ?? '', newText: '',
-    });
-  }
-
-  // Standard-CriticMarkup paired delete: `{~~ X ~~}` without `~>`. Treated as
-  // a delete; the paired-merge step below promotes it to a substitution if
-  // followed by an adjacent `{++ ++}` insert.
-  for (const m of proposedMarkup.matchAll(RE_DELETE_TILDE)) {
-    const parsed = parseExplicitGroupNumber(m[1]);
-    if (!parsed.ok) {
-      dropped.push({ groupNumber: 0, reason: 'invalid_group_number' });
-      continue;
-    }
-    raw.push({
-      groupNumber: parsed.value, kind: 'delete',
-      markupStart: m.index ?? 0, markupEnd: (m.index ?? 0) + (m[0]?.length ?? 0),
-      oldText: m[2] ?? '', newText: '',
-    });
   }
 
   // Sort by markupStart so position math + paired-merging is left-to-right.
@@ -149,23 +141,15 @@ export function parseProposedEdits(
   // ADJACENT_WHITESPACE share an auto-assigned group. Explicit numbers are
   // honored as-is and break unnumbered runs.
   const wasUnnumbered = filtered.map((r) => r.groupNumber === undefined);
-  const explicitMax = filtered.reduce(
-    (max, r) => (r.groupNumber !== undefined && r.groupNumber > max ? r.groupNumber : max),
-    0,
-  );
-  let nextAutoGroup = explicitMax + 1;
+  const explicitNumbers = filtered.map((r) => r.groupNumber).filter((n): n is number => n !== undefined);
+  let nextAutoGroup = (explicitNumbers.length > 0 ? Math.max(...explicitNumbers) : 0) + 1;
   for (let i = 0; i < filtered.length; i++) {
     const cur = filtered[i]!;
     if (!wasUnnumbered[i]) continue;
-    let inherited: number | undefined;
-    if (i > 0 && wasUnnumbered[i - 1]) {
-      const prev = filtered[i - 1]!;
-      const between = proposedMarkup.slice(prev.markupEnd, cur.markupStart);
-      if (ADJACENT_WHITESPACE.test(between)) {
-        inherited = prev.groupNumber;
-      }
-    }
-    cur.groupNumber = inherited ?? nextAutoGroup++;
+    const prev = i > 0 && wasUnnumbered[i - 1] ? filtered[i - 1]! : null;
+    const isAdjacentToPrev = prev != null
+      && ADJACENT_WHITESPACE.test(proposedMarkup.slice(prev.markupEnd, cur.markupStart));
+    cur.groupNumber = isAdjacentToPrev ? prev.groupNumber : nextAutoGroup++;
   }
 
   // Every filtered.groupNumber is now a number. Tighten the type for downstream.
@@ -212,12 +196,8 @@ export function parseProposedEdits(
   for (const r of merged) {
     recoveredSource += proposedMarkup.slice(cursor, r.markupStart);
     const sourceStart = recoveredSource.length;
-    if (r.kind === 'insert') {
-      // No source content (insert adds new text only).
-    } else {
-      // delete or replace: keep oldText in recoveredSource (matches currentText).
-      recoveredSource += r.oldText;
-    }
+    // delete/replace contribute oldText (matches currentText); insert contributes nothing.
+    if (r.kind !== 'insert') recoveredSource += r.oldText;
     const sourceEnd = recoveredSource.length;
     offsetMap.push({
       markupStart: r.markupStart,
