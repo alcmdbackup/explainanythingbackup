@@ -92,9 +92,16 @@ describe('Evolution Test Content Filter Integration', () => {
     if (!tablesExist) return;
 
     // Step 1: Fetch test strategy IDs matching [TEST], [E2E], or [TEST_EVO] (same as getTestStrategyIds)
+    // Scoped to the 3 strategies this test inserted — without the .in() bound, staging
+    // accumulates >1000 [TEST]/[E2E] strategies over time and PostgREST's default 1000-row
+    // limit silently drops this test's freshly-inserted UUID from the result. The OR-pattern
+    // correctness is the actual unit-of-test; the .in() filter keeps assertions deterministic
+    // across staging-pollution levels.
+    const ourIds = [testStrategyId, e2eStrategyId, realStrategyId];
     const { data: testStrategies, error: tsErr } = await supabase
       .from('evolution_strategies')
       .select('id')
+      .in('id', ourIds)
       .or('name.ilike.%[TEST]%,name.ilike.%[E2E]%,name.ilike.%[TEST_EVO]%,name.ilike.test');
 
     expect(tsErr).toBeNull();
