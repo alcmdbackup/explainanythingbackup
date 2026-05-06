@@ -83,10 +83,11 @@ All metrics are declared in a typed registry keyed by entity type. Each definiti
 
 | Name | Category | Timing | Description |
 |------|----------|--------|-------------|
-| `cost` | cost | during_execution | Total USD spent (from cost tracker). Written via `writeMetricMax` after every LLM call. `listView: true`. |
+| `cost` | cost | during_execution | Total USD spent (from cost tracker). Written via `writeMetricMax` after every LLM call. `listView: true`. **Read path:** the dashboard and the runs-list `Spent` column both go through `getRunCostsWithFallback` (in `evolution/src/lib/cost/getRunCostWithFallback.ts`), which is a four-layer chain — `cost` row → sum of `generation_cost + ranking_cost + seed_cost` → `evolution_run_costs` view → 0 with warn — chunked into 100-id batches. Backfill rollup rows for legacy runs via `evolution/scripts/backfillRunCostMetric.ts`. |
 | `generation_cost` | cost | during_execution | LLM spend on generation calls in this run. Written via `writeMetricMax` after every `'generation'`-labeled LLM call. `listView: true`. |
 | `ranking_cost` | cost | during_execution | LLM spend on ranking calls in this run (incl. SwissRankingAgent + binary-search comparisons). Written via `writeMetricMax` after every `'ranking'`-labeled LLM call. `listView: true`. |
 | `seed_cost` | cost | during_execution | LLM spend on seed article generation (`CreateSeedArticleAgent`). Only non-zero for prompt-based runs. Written via `writeMetricMax` after every `'seed_title'`- or `'seed_article'`-labeled LLM call. `listView: true`. |
+| `evaluation_cost` | cost | during_execution | LLM spend on `evaluate_and_suggest` calls (combined scoring + suggestion phase of `EvaluateCriteriaThenGenerateFromPreviousArticleAgent`). Written via `writeMetricMax` after the LLM call. Only non-zero on runs whose strategy includes a `criteria_and_generate` iteration. |
 | `winner_elo` | rating | at_finalization | Elo of the highest-`elo` variant. Includes `uncertainty` (Elo-scale) and 95% CI = elo ± 1.96 × uncertainty. |
 | `median_elo` | rating | at_finalization | 50th percentile Elo across all variants |
 | `p90_elo` | rating | at_finalization | 90th percentile Elo |
@@ -125,6 +126,8 @@ Both entity types share the same propagation definitions — they aggregate from
 | `avg_ranking_cost_per_run` | `ranking_cost` | avg | Mean ranking spend per run |
 | `total_seed_cost` | `seed_cost` | sum | Cumulative seed generation spend across runs (`listView: true`) |
 | `avg_seed_cost_per_run` | `seed_cost` | avg | Mean seed spend per run |
+| `total_evaluation_cost` | `evaluation_cost` | sum | Cumulative `evaluate_and_suggest` spend across runs |
+| `avg_evaluation_cost_per_run` | `evaluation_cost` | avg | Mean `evaluate_and_suggest` spend per run |
 | `avg_final_elo` | `winner_elo` | bootstrap_mean | Mean winner Elo with 95% CI |
 | `best_final_elo` | `winner_elo` | max | Highest winner Elo |
 | `worst_final_elo` | `winner_elo` | min | Lowest winner Elo |
@@ -178,7 +181,9 @@ Tactic-level metrics aggregate across all completed-run variants that used a giv
 
 | Name | Aggregation | Description |
 |------|-------------|-------------|
-| `avg_elo` | avg | Mean Elo across all variants produced by this tactic |
+| `avg_elo` | bootstrap_mean | Mean Elo across all variants produced by this tactic, with 95% CI via `bootstrapMeanCI` (propagates per-variant uncertainty) |
+| `avg_elo_delta` | bootstrap_mean | Average Elo improvement over baseline (1200) across variants, with 95% CI |
+| `win_rate` | bootstrap_mean | Fraction of variants that were the run winner (`is_winner=true`), with 95% CI (binomial: each variant is 0 or 1) |
 | `best_elo` | max | Highest Elo among variants produced by this tactic |
 | `total_variants` | count | Total variants produced across all runs |
 | `total_cost` | sum | Cumulative generation cost (from `cost_usd` on variants) |
@@ -186,6 +191,22 @@ Tactic-level metrics aggregate across all completed-run variants that used a giv
 | `winner_count` | count | Number of variants that were the run winner (`is_winner=true`) |
 
 Tactic metrics are recomputed via `computeTacticMetricsForRun()` at run finalization (after strategy/experiment propagation). The stale trigger (`mark_elo_metrics_stale`) cascades to tactic metrics when a variant's `mu`/`sigma` DB columns change: it looks up the tactic entity via `evolution_tactics.name = NEW.agent_name` and marks matching `entity_type='tactic'` metrics rows as stale. Stale tactic metrics are recomputed on next read by `recomputeStaleMetrics()`.
+
+**Tactics leaderboard surface** (track_tactic_effectiveness_evolution_20260422 Phase 2): the 5 tactic metrics with `listView: true` (`avg_elo`, `avg_elo_delta`, `win_rate`, `total_variants`, `run_count`) surface as sortable columns on `/admin/evolution/tactics` via `createMetricColumns('tactic')`. `TacticEntity.metrics` mirrors these defs from `METRIC_REGISTRY['tactic']` so the generic column helper has entries to render. The list page's server action (`listTacticsAction`) batch-fetches these rows via `getMetricsForEntities` and attaches them per tactic; metric-key sorts happen JS-side with null-last ordering so unproven tactics don't masquerade as strong performers.
+
+### Criteria Metrics (evaluateCriteriaThenGenerateFromPreviousArticle_20260501)
+
+Criteria-level metrics aggregate across all completed-run variants whose `criteria_set_used` UUID array contains the criterion's id, computed by `computeCriteriaMetricsForRun()` in `evolution/src/lib/metrics/computations/criteriaMetrics.ts` and wired into `persistRunResults.ts` at run finalization (after strategy/experiment propagation, alongside tactic metrics). The stale trigger `mark_elo_metrics_stale` was extended in migration `20260502120003` to cascade staleness to `entity_type='criteria'` rows when a variant's `mu`/`sigma` change.
+
+| Name | Aggregation | Description |
+|------|-------------|-------------|
+| `avg_score` | avg | Mean score this criterion received in `evaluate_and_suggest` invocations across all runs (read from `execution_detail.evaluateAndSuggest.criteriaScored`) |
+| `frequency_as_weakest` | avg | Fraction of variants in `weakest_criteria_ids` to total variants in `criteria_set_used` (i.e. how often this criterion was the bottleneck) |
+| `total_variants_focused` | count | Total variants whose `weakest_criteria_ids` array contained this criterion's id |
+| `avg_elo_delta_when_focused` | bootstrap_mean | Mean Elo delta (child minus parent) on variants where this criterion was in `weakest_criteria_ids` (with 95% CI; surfaces criteria that meaningfully lift quality vs. noise) |
+| `total_evaluation_cost` | sum | Cumulative `evaluation_cost` from invocations whose `execution_detail.evaluateAndSuggest.criteriaScored` referenced this criterion |
+
+The criteria leaderboard at `/admin/evolution/criteria` uses these metrics for sorting; the criteria detail page renders all 5 on its Metrics tab plus per-run rows on Variants/Runs/By Prompt tabs (same shape as TacticEntity).
 
 ### Run-level cost-estimation metrics (cost_estimate_accuracy_analysis_20260414)
 
@@ -382,7 +403,15 @@ A shared tab component that reads all metrics for an entity and displays them in
 
 ## ELO-delta attribution metrics (Phase 5)
 
-Two dynamic metric families are emitted by `experimentMetrics.computeEloAttributionMetrics` during `computeRunMetrics`:
+Two dynamic metric families are emitted by `experimentMetrics.computeEloAttributionMetrics` during `computeRunMetrics`.
+
+> **Call site (track_tactic_effectiveness_evolution_20260422 Blocker 2 fix, 2026-04-22)**: `computeRunMetrics` is now invoked from `persistRunResults.ts` at run finalization (after tactic metrics, outside the main metrics try/catch so attribution failures don't suppress other metric writes). Signature: `computeRunMetrics(runId, db, opts?: { strategyId?, experimentId? })`. When `opts.strategyId` / `opts.experimentId` are provided (which is always true in the production finalize path — pulled off `run.strategy_id` / `run.experiment_id`), `computeEloAttributionMetrics` writes each `eloAttrDelta:<agent>:<dim>` and `eloAttrDeltaHist:<agent>:<dim>:<bucket>` row to `evolution_metrics` at all three entity levels (run / strategy / experiment) via the `writeMetric` helper.
+>
+> **Kill switch**: `EVOLUTION_EMIT_ATTRIBUTION_METRICS` env var (default `'true'`). Set to the exact string `'false'` to skip the call entirely — ops can disable attribution emission without a revert PR if a regression surfaces. Any other value (including unset, `'0'`, `'FALSE'`, empty string) keeps emission enabled.
+>
+> **Eventual consistency on stale cascade**: `mark_elo_metrics_stale()` flags propagated `eloAttrDelta:*` / `eloAttrDeltaHist:*` rows stale on arena-match-driven rating drift, but there is no runtime recompute path. Fresh values at strategy/experiment levels land only on the next run finalization in that strategy/experiment. This is documented in the strategy Tactics tab caveat subheader.
+
+
 
 ### `eloAttrDelta:<agentName>:<dimensionValue>`
 
@@ -403,7 +432,7 @@ Fraction of invocations in the group whose delta fell into the half-open bucket 
 
 ### Prefix whitelist
 
-Both prefixes are registered in `DYNAMIC_METRIC_PREFIXES` in `evolution/src/lib/metrics/types.ts`. `writeMetrics` rejects any metric name not matching a static name or a whitelisted prefix.
+Both prefixes are registered in `DYNAMIC_METRIC_REGISTRY` in `evolution/src/lib/metrics/types.ts`, alongside their formatter (`elo` for `eloAttrDelta:*`, `percent` for `eloAttrDeltaHist:*`, `costDetailed` for `agentCost:*`), category (`rating` vs `cost`), and label suffix (e.g. ` Δ Elo` instead of ` Cost`). `DYNAMIC_METRIC_PREFIXES` is now derived from the registry's keys so the two never drift; `writeMetrics` rejects any metric name not matching a static name or a registered prefix. **Per Fix #29-31 (use_playwright_find_ux_issues_bugs_20260501)**: when adding a new dynamic prefix, declare its formatter / category / labelSuffix in the registry — `EntityMetricsTab.tsx`'s `resolveFormatter` / `resolveCategory` / `resolveLabel` all consume the registry, so a one-line registry entry is enough to keep the UI rendering correctly.
 
 ### Stale behavior
 
@@ -420,3 +449,38 @@ The `mark_elo_metrics_stale()` trigger (migration `20260418000004_stale_trigger_
 - Judge-dependent: every delta reflects preference by the configured judge model, not an absolute quality measure.
 - Conservative CI: bootstrap treats child + parent ELO as independent; they share a reference frame via pairwise matches, so the true CI is typically narrower.
 - Frozen-vs-live discussion: the current implementation always reads live parent ratings via JOIN at metric-compute time (not snapshot-at-birth). Combined with the stale cascade, this means the aggregate updates whenever any variant's rating changes.
+
+### Attribution dimension registry (Phase 8)
+
+The `(agentName, dimension)` lookup that drives `eloAttrDelta` / `eloAttrDeltaHist`
+is dispatched through a registry rather than a hardcoded `switch` on agent name:
+
+**File:** `evolution/src/lib/metrics/attributionExtractors.ts`
+
+```typescript
+export const ATTRIBUTION_EXTRACTORS: Record<string, DimensionExtractor> = {};
+export function registerAttributionExtractor(
+  agentName: string,
+  extractor: DimensionExtractor,
+): void;
+```
+
+Each agent file ships a side-effect call at the bottom registering its own extractor —
+e.g. `reflectAndGenerateFromPreviousArticle.ts` ends with:
+
+```typescript
+registerAttributionExtractor('reflect_and_generate_from_previous_article',
+  (detail) => detail.tactic);
+```
+
+This means adding a new agent type does not require editing
+`experimentMetrics.computeEloAttributionMetrics` — the extractor self-registers when
+the agent module is imported.
+
+**Load-bearing eager-import barrel:** `evolution/src/lib/core/agents/index.ts` exists
+SOLELY so transitive importers (e.g. metric-aggregation entry points or worker
+contexts that don't import agents directly) pull in every agent file's
+side-effect registration. `experimentMetrics.ts` imports this barrel as a side-effect
+to guarantee that by the time `computeEloAttributionMetrics` runs, every known agent
+has registered its extractor — without it, the legacy fallback would silently fire
+for missing entries.

@@ -53,6 +53,13 @@ export default function EvolutionRunDetailPage(): JSX.Element {
     })();
   }, [runId]);
 
+  // Fix #21 (use_playwright_find_ux_issues_bugs_20260501): set document.title
+  // so the browser tab shows "Run abc12345 | Evolution" instead of just
+  // "ExplainAnything". Page is 'use client' so generateMetadata is unavailable.
+  useEffect(() => {
+    if (runId) document.title = `Run ${runId.slice(0, 8)} | Evolution`;
+  }, [runId]);
+
   if (loading && !run) {
     return (
       <div className="space-y-4">
@@ -87,6 +94,16 @@ export default function EvolutionRunDetailPage(): JSX.Element {
         title={run.prompt_name ? `Run: ${run.prompt_name}` : `Run ${run.id.substring(0, 8)}`}
         entityId={run.id}
         statusBadge={<StatusBadge variant="run-status" status={run.status} hasError={!!run.error_message} />}
+        // Fix #27 (use_playwright_find_ux_issues_bugs_20260501): show timestamps
+        // so a user inspecting an old run knows whether it's recent.
+        subtitle={(() => {
+          const created = run.created_at ? new Date(run.created_at) : null;
+          const completed = run.completed_at ? new Date(run.completed_at) : null;
+          const fmt = (d: Date | null): string | null => d ? d.toLocaleString() : null;
+          if (completed) return `Completed ${fmt(completed)}${created ? ` · created ${fmt(created)}` : ''}`;
+          if (created) return `Created ${fmt(created)}`;
+          return null;
+        })()}
         links={[
           run.strategy_name || run.strategy_id
             ? { prefix: 'Strategy', label: run.strategy_name || `#${run.strategy_id.substring(0, 8)}`, href: `/admin/evolution/strategies/${run.strategy_id}` }
@@ -118,7 +135,21 @@ export default function EvolutionRunDetailPage(): JSX.Element {
             <AttributionCharts entityType="run" entityId={runId} />
           </div>
         )}
-        {activeTab === 'cost-estimates' && <CostEstimatesTab entityType="run" entityId={runId} />}
+        {activeTab === 'cost-estimates' && (
+          <div className="space-y-4">
+            {run.created_at < '2026-04-30T00:00:00Z' && (
+              <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200">
+                <strong>⚠ Historical cost data caveat.</strong> This run was created before
+                2026-04-30. Cost numbers may be inflated up to ~3× for OpenRouter-routed
+                models (gemini-flash-lite, qwen, gpt-oss-20b) due to a since-fixed
+                token-count bug, AND per-call <code>llmCallTracking</code> rows may be
+                missing for runs in the 2026-02-23 → 2026-04-30 audit-gap window. See{' '}
+                <code>evolution/docs/cost_optimization.md</code> for full details.
+              </div>
+            )}
+            <CostEstimatesTab entityType="run" entityId={runId} />
+          </div>
+        )}
         {activeTab === 'elo' && <EloTab runId={runId} />}
         {activeTab === 'lineage' && <LineageTab runId={runId} />}
         {activeTab === 'variants' && <VariantsTab runId={runId} runStatus={run.status} />}

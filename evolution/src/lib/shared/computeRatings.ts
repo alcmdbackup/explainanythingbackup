@@ -63,6 +63,9 @@ export function toEloScale(mu: number): number {
 
 /** Clamp an Elo value to [0, 3000] for display purposes only. */
 export function toDisplayElo(elo: number): number {
+  // B010-S6: NaN guard. Math.min/max with NaN returns NaN; the prior implementation
+  // would propagate NaN through display values. Fall back to 0 (the lower clamp).
+  if (!Number.isFinite(elo)) return 0;
   return Math.max(0, Math.min(3000, elo));
 }
 
@@ -75,6 +78,15 @@ export function dbToRating(mu: number, sigma: number): Rating {
 }
 
 /** Convert a Rating back to {mu, sigma} for database writes. */
+/**
+ * B038: `elo_score` is clamped to [0, 3000] for DB-display convenience, but the backing
+ * `mu` / `sigma` round-trip unclamped. Leaderboards that sort by `elo_score` alone will
+ * flatten true-high-Elo variants together (all at the 3000 ceiling) — but `dbToRating(mu,
+ * sigma).elo` still reports the true value. Consumers should prefer `dbToRating` over
+ * reading `elo_score` directly. The Phase 7 audit found no current leaderboard row with
+ * `mu > 200` (elo_score > ~3000) in staging, so the divergence is theoretical today; if
+ * it becomes observable, narrow the clamp range or remove it.
+ */
 export function ratingToDb(r: Rating): { mu: number; sigma: number; elo_score: number } {
   return {
     mu: fromEloScale(r.elo),
@@ -103,7 +115,14 @@ export function updateRating(winner: Rating, loser: Rating): [Rating, Rating] {
   const result = osRate([[wMu], [lMu]], { rank: [1, 2], beta: 0 });
   const newW = result[0]?.[0];
   const newL = result[1]?.[0];
-  if (!newW || !newL) return [winner, loser];
+  if (!newW || !newL) {
+    // B034: previously returned `[winner, loser]` silently, so match counts advanced but
+    // ratings didn't — rankings became stale without any signal. Throw so callers see
+    // the malformed openskill output immediately.
+    throw new Error(
+      `updateRating: osRate returned malformed pair (result=${JSON.stringify(result)})`,
+    );
+  }
   return [
     { elo: toEloScaleInternal(newW.mu), uncertainty: newW.sigma * ELO_SIGMA_SCALE },
     { elo: toEloScaleInternal(newL.mu), uncertainty: newL.sigma * ELO_SIGMA_SCALE },
@@ -120,7 +139,12 @@ export function updateDraw(a: Rating, b: Rating): [Rating, Rating] {
   const result = osRate([[aMu], [bMu]], { rank: [1, 1], beta: 0 });
   const newA = result[0]?.[0];
   const newB = result[1]?.[0];
-  if (!newA || !newB) return [a, b];
+  if (!newA || !newB) {
+    // B034: see updateRating — throw instead of silently no-op'ing.
+    throw new Error(
+      `updateDraw: osRate returned malformed pair (result=${JSON.stringify(result)})`,
+    );
+  }
   return [
     { elo: toEloScaleInternal(newA.mu), uncertainty: newA.sigma * ELO_SIGMA_SCALE },
     { elo: toEloScaleInternal(newB.mu), uncertainty: newB.sigma * ELO_SIGMA_SCALE },
@@ -186,20 +210,37 @@ export class ComparisonCache {
   private makeKey(textA: string, textB: string, structured: boolean, mode = 'quality'): string {
     const hA = this.hashText(textA);
     const hB = this.hashText(textB);
-    const sorted = hA < hB ? `${hA}|${hB}` : `${hB}|${hA}`;
-    return `${sorted}|${structured}|${mode}`;
+    // B029: when `hA === hB` (identical texts), the sort-then-concat produced the same
+    // key regardless of slot order, so `compare(x, x)` reused whatever result was stored
+    // earlier — defeating position-bias detection on self-comparisons. Tag identical
+    // inputs with a distinct sentinel so a self-comparison result doesn't pollute or
+    // reuse a genuinely-asymmetric result.
+    const body = hA === hB ? `${hA}|identical` : (hA < hB ? `${hA}|${hB}` : `${hB}|${hA}`);
+    return `${body}|${structured}|${mode}`;
   }
 
   get(textA: string, textB: string, structured: boolean, mode = 'quality'): CachedMatch | undefined {
-    return this.cache.get(this.makeKey(textA, textB, structured, mode));
+    const key = this.makeKey(textA, textB, structured, mode);
+    const value = this.cache.get(key);
+    if (value !== undefined) {
+      // B032: LRU promotion — move the hit entry to the end of Map insertion order so
+      // eviction drops truly cold entries, not oldest-inserted ones.
+      this.cache.delete(key);
+      this.cache.set(key, value);
+    }
+    return value;
   }
 
   set(textA: string, textB: string, structured: boolean, result: CachedMatch, mode = 'quality'): void {
-    if (result.winnerId !== null || result.isDraw) {
-      const key = this.makeKey(textA, textB, structured, mode);
-      this.cache.set(key, result);
-      this.evictIfNeeded();
-    }
+    // B040: also cache deterministic "unparseable" pairs (winnerId === null && !isDraw) —
+    // otherwise the same noisy-model pair is re-queried every time, burning tokens. We
+    // still skip confidence=0 pairs at the compareWithBiasMitigation layer, but the
+    // cache itself now accepts them so repeats within a run are free.
+    const key = this.makeKey(textA, textB, structured, mode);
+    // B032: on overwrite, delete-then-set so the entry moves to the tail for LRU.
+    this.cache.delete(key);
+    this.cache.set(key, result);
+    this.evictIfNeeded();
   }
 
   private evictIfNeeded(): void {
@@ -308,23 +349,31 @@ export function parseWinner(response: string): string | null {
   const hasTextB = upper.includes('TEXT B');
   if (hasTextA && !hasTextB) return 'A';
   if (hasTextB && !hasTextA) return 'B';
-  // Both mentioned — check for winner phrasing patterns
+  // Both mentioned — check for winner phrasing patterns.
+  // B002-S6: dropped plain `IS` from the verb alternation. Sentences like
+  // "Text A is the original; Text B is more polished" matched both winnerA AND
+  // winnerB via plain IS, falling through to null. Now we require a stronger verb
+  // (BETTER / WINS / SUPERIOR / PREFERRED) so descriptive `IS` doesn't false-match.
   if (hasTextA && hasTextB) {
-    const winnerA = /TEXT A\s*(IS|WINS|IS BETTER|IS SUPERIOR)/i.test(upper);
-    const winnerB = /TEXT B\s*(IS|WINS|IS BETTER|IS SUPERIOR)/i.test(upper);
+    const winnerA = /TEXT A\s*(WINS|IS BETTER|IS SUPERIOR|IS PREFERRED|IS THE WINNER|IS BETTER\b)/i.test(upper);
+    const winnerB = /TEXT B\s*(WINS|IS BETTER|IS SUPERIOR|IS PREFERRED|IS THE WINNER|IS BETTER\b)/i.test(upper);
     if (winnerA && !winnerB) return 'A';
     if (winnerB && !winnerA) return 'B';
   }
 
   if (upper.includes('TIE') || upper.includes('DRAW') || upper.includes('EQUAL')) return 'TIE';
 
-  // Scoped fallback for "Your answer: A/B" format (observed in Qwen3 8B with thinking
-  // disabled). Requires the literal "Your answer:" prefix and a word boundary after
-  // the captured letter so that "Your answer: Apple" does NOT match 'A' and
-  // "Your answer: Bother" does NOT match 'B'. Allows optional markdown bold (`**`).
+  // Scoped fallback for "Your answer: A/B" format.
   const yourAnswerMatch = /^\s*YOUR ANSWER\s*:\s*\*{0,2}\s*([AB])(?![A-Z])/.exec(upper);
   if (yourAnswerMatch) return yourAnswerMatch[1]!;
 
+  // B003-S6: extended first-word fallback to match common LLM prefixes that the prior
+  // hardcoded ['A','A.','A,','B','B.','B,'] missed: "Actually, B.", "**B**", "Final
+  // answer A", "Answer: B", with optional markdown bold and trailing punctuation.
+  const firstTokenMatch = /^(?:\*{1,2})?\s*(?:ACTUALLY[,]?\s+|FINAL\s+ANSWER[:\s]+|ANSWER[:\s]+)?(?:\*{1,2})?\s*([AB])(?:[.,!?])?\s*(?:\*{1,2})?(?:\s|$)/i.exec(upper);
+  if (firstTokenMatch) return firstTokenMatch[1]!;
+
+  // Legacy fallback retained for direct token matches.
   const firstWord = upper.split(/\s/)[0]!;
   if (['A', 'A.', 'A,'].includes(firstWord)) return 'A';
   if (['B', 'B.', 'B,'].includes(firstWord)) return 'B';
@@ -332,9 +381,23 @@ export function parseWinner(response: string): string | null {
   return null;
 }
 
-/** Order-dependent cache key from two texts (SHA-256 of ordered pair).
- *  The key preserves call order so that compare(A,B) and compare(B,A) produce
- *  distinct cache entries, since the winner field ('A'/'B') is relative to call order. */
+/**
+ * Order-dependent cache key from two texts (SHA-256 of ordered pair).
+ *
+ * B039: this intentionally differs from `ComparisonCache.makeKey` (which is
+ * order-INVARIANT via sorted hashes). The two keyings serve two call sites:
+ *
+ * 1. `compareWithBiasMitigation` (this file) — the result's `winner` is 'A' or 'B'
+ *    relative to the argument order, so caching `compare(A, B)` under a key that
+ *    conflates with `compare(B, A)` would return a "winner" pointing at the wrong slot.
+ *    Order-dependent keying is required for correctness here.
+ * 2. `ComparisonCache` — caches already-aggregated `{winnerId, loserId, ...}` results
+ *    where winner identity is an explicit field (not a slot), so keying is safely
+ *    order-invariant and self-comparisons are explicitly disambiguated (B029).
+ *
+ * These are deliberately different. The naming overlap was the source of the B039
+ * confusion — hence this doc block.
+ */
 function makeCacheKey(textA: string, textB: string): string {
   const payload = `${textA.length}:${textA}|${textB.length}:${textB}`;
   return createHash('sha256').update(payload).digest('hex');
@@ -397,7 +460,10 @@ export async function compareWithBiasMitigation(
     aggregate: aggregateWinners,
   });
 
-  if (cache && result.confidence > 0.3) {
+  // B033: cache partial-failure results at `confidence >= 0.3` (was `> 0.3`). The 0.3
+  // boundary result (one forward pass succeeded + one null) is deterministic once
+  // observed; re-querying it wastes 2 LLM calls per repeat on the same pair.
+  if (cache && result.confidence >= 0.3) {
     cache.set(makeCacheKey(textA, textB), result);
   }
   return result;

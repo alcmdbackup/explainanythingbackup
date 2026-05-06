@@ -7,7 +7,9 @@ import { ExperimentEntity } from './ExperimentEntity';
 import { VariantEntity } from './VariantEntity';
 import { InvocationEntity } from './InvocationEntity';
 import { PromptEntity } from './PromptEntity';
+import { TacticEntity } from './TacticEntity';
 import { METRIC_CATALOG } from '../metricCatalog';
+import { METRIC_REGISTRY } from '../../metrics/registry';
 
 describe('RunEntity', () => {
   const entity = new RunEntity();
@@ -28,9 +30,16 @@ describe('RunEntity', () => {
     expect(entity.children.every(c => c.cascade === 'delete')).toBe(true);
   });
 
-  it('has 4 execution + 18 finalization + 0 propagation metrics', () => {
-    // cost + generation_cost + ranking_cost + seed_cost (per-purpose split written live by createLLMClient)
-    expect(entity.metrics.duringExecution).toHaveLength(4);
+  it('has 11 execution + 18 finalization + 0 propagation metrics', () => {
+    // cost + generation_cost + ranking_cost + reflection_cost + iterative_edit_cost +
+    // iterative_edit_rank_cost (added by add_ranking_iterative_editing_agent_evolution_20260502 Phase 3.5) +
+    // 3 iterative_edit operational health metrics (drift_rate, recovery_success_rate, accept_rate) +
+    // evaluation_cost + seed_cost. Per-purpose split written live by createLLMClient.
+    // reflection_cost: develop_reflection_and_generateFromParentArticle_agent_evolution_20260430.
+    // iterative_edit_*: bring_back_editing_agents_evolution_20260430.
+    // iterative_edit_rank_cost: add_ranking_iterative_editing_agent_evolution_20260502.
+    // evaluation_cost: evaluateCriteriaThenGenerateFromPreviousArticle_20260501.
+    expect(entity.metrics.duringExecution).toHaveLength(11);
     // 7 ratings/match/count metrics + 11 cost-estimate-accuracy metrics (cost_estimate_accuracy_analysis_20260414).
     expect(entity.metrics.atFinalization).toHaveLength(18);
     expect(entity.metrics.atPropagation).toHaveLength(0);
@@ -70,9 +79,13 @@ describe('StrategyEntity', () => {
     expect(entity.children[0]!.cascade).toBe('delete');
   });
 
-  it('has 31 propagation metrics (base + cost-estimate-accuracy entries)', () => {
-    // 20 base + 11 cost-estimate-accuracy (cost_estimate_accuracy_analysis_20260414).
-    expect(entity.metrics.atPropagation).toHaveLength(31);
+  it('has 39 propagation metrics (base + cost-estimate-accuracy + reflection + iterative_edit + iterative_edit_rank + evaluation entries)', () => {
+    // 20 base + 11 cost-estimate-accuracy + 2 reflection + 2 iterative_edit
+    // (total_iterative_edit_cost + avg_iterative_edit_cost_per_run) + 2 iterative_edit_rank
+    // (total_iterative_edit_rank_cost + avg_iterative_edit_rank_cost_per_run, added by
+    // add_ranking_iterative_editing_agent_evolution_20260502 Phase 3.6) + 2 evaluation
+    // (total_evaluation_cost + avg_evaluation_cost_per_run, evaluateCriteriaThenGenerateFromPreviousArticle).
+    expect(entity.metrics.atPropagation).toHaveLength(39);
     const names = entity.metrics.atPropagation.map(d => d.name);
     expect(names).toContain('run_count');
     expect(names).toContain('total_cost');
@@ -81,6 +94,8 @@ describe('StrategyEntity', () => {
     expect(names).toContain('avg_generation_cost_per_run');
     expect(names).toContain('total_ranking_cost');
     expect(names).toContain('avg_ranking_cost_per_run');
+    expect(names).toContain('total_reflection_cost');
+    expect(names).toContain('avg_reflection_cost_per_run');
     expect(names).toContain('total_seed_cost');
     expect(names).toContain('avg_seed_cost_per_run');
     // Cost estimate accuracy
@@ -204,14 +219,79 @@ describe('PromptEntity', () => {
     expect(entity.metrics.atPropagation).toHaveLength(0);
   });
 
-  it('has rename, edit, delete actions', () => {
+  it('has rename, delete actions (B002-S3: edit dropped — handled via dedicated server action)', () => {
     const keys = entity.actions.map(a => a.key);
-    expect(keys).toEqual(['rename', 'edit', 'delete']);
+    expect(keys).toEqual(['rename', 'delete']);
   });
 
   it('has create and edit config', () => {
     expect(entity.createConfig).toBeDefined();
     expect(entity.editConfig).toBeDefined();
+  });
+});
+
+describe('TacticEntity', () => {
+  const entity = new TacticEntity();
+
+  it('has correct type and table', () => {
+    expect(entity.type).toBe('tactic');
+    expect(entity.table).toBe('evolution_tactics');
+  });
+
+  it('has no parents or children', () => {
+    expect(entity.parents).toHaveLength(0);
+    expect(entity.children).toHaveLength(0);
+  });
+
+  it('has 8 atFinalization metrics registered (Blocker 2 fix)', () => {
+    expect(entity.metrics.atFinalization).toHaveLength(8);
+    expect(entity.metrics.duringExecution).toHaveLength(0);
+    expect(entity.metrics.atPropagation).toHaveLength(0);
+  });
+
+  it('exposes the 5 expected listView metrics for the tactics leaderboard', () => {
+    const listViewNames = entity.metrics.atFinalization
+      .filter((d) => d.listView)
+      .map((d) => d.name)
+      .sort();
+    expect(listViewNames).toEqual(['avg_elo', 'avg_elo_delta', 'run_count', 'total_variants', 'win_rate']);
+  });
+
+  it('keeps non-listView metrics off the leaderboard', () => {
+    const nonListView = entity.metrics.atFinalization
+      .filter((d) => !d.listView)
+      .map((d) => d.name)
+      .sort();
+    expect(nonListView).toEqual(['best_elo', 'total_cost', 'winner_count']);
+  });
+
+  it('stays in sync with METRIC_REGISTRY[tactic] (dual-registry parity)', () => {
+    // Phase 1 populates TacticEntity.metrics to mirror the flat METRIC_REGISTRY['tactic']
+    // defs in registry.ts. Both registries must agree on names, listView flags, and
+    // formatters — verified here so dual-registry drift trips the test suite.
+    const entityDefs = new Map(entity.metrics.atFinalization.map((d) => [d.name as string, d]));
+    const flatDefs = new Map(METRIC_REGISTRY.tactic.atFinalization.map((d) => [d.name as string, d]));
+    expect([...entityDefs.keys()].sort()).toEqual([...flatDefs.keys()].sort());
+    for (const [name, def] of entityDefs) {
+      const flat = flatDefs.get(name)!;
+      expect(flat.listView ?? false).toBe(def.listView ?? false);
+      expect(flat.formatter).toBe(def.formatter);
+      expect(flat.category).toBe(def.category);
+      expect(flat.label).toBe(def.label);
+    }
+  });
+
+  it('has delete action (non-predefined only)', () => {
+    const keys = entity.actions.map((a) => a.key);
+    expect(keys).toEqual(['delete']);
+    const deleteAction = entity.actions[0]!;
+    expect(deleteAction.visible!({ is_predefined: true } as never)).toBe(false);
+    expect(deleteAction.visible!({ is_predefined: false } as never)).toBe(true);
+  });
+
+  it('has 5 detail tabs', () => {
+    const ids = entity.detailTabs.map((t) => t.id);
+    expect(ids).toEqual(['overview', 'metrics', 'variants', 'runs', 'by-prompt']);
   });
 });
 

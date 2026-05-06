@@ -3,7 +3,10 @@
 // tactic metrics aggregate directly from evolution_variants grouped by agent_name (tactic name).
 
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { dbToRating } from '../../shared/computeRatings';
+import { dbToRating, _INTERNAL_DEFAULT_MU, _INTERNAL_DEFAULT_SIGMA } from '../../shared/computeRatings';
+import { bootstrapMeanCI } from '../experimentMetrics';
+
+const DEFAULT_ELO = 1200;
 
 export interface TacticMetricRow {
   entity_type: 'tactic';
@@ -38,31 +41,114 @@ export async function computeTacticMetrics(
 
   if (error || !variants || variants.length === 0) return;
 
-  // Filter to completed runs only — query run statuses in bulk
+  // Filter to completed runs only — query run statuses in bulk.
+  // B044: previously hard-capped at the first 100 run IDs via `.slice(0, 100)`, silently
+  // dropping variants from tactics active in more than 100 distinct runs. Now chunks
+  // properly so large tactics get full coverage.
   const runIds = [...new Set(variants.map((v) => v.run_id as string))];
-  const { data: runs } = await db
-    .from('evolution_runs')
-    .select('id, status')
-    .in('id', runIds.slice(0, 100)); // Chunk to avoid PostgREST .in() limits
-
-  if (!runs) return;
-  const completedRunIds = new Set(runs.filter((r) => r.status === 'completed').map((r) => r.id));
+  const completedRunIds = new Set<string>();
+  const RUN_ID_CHUNK = 100;
+  for (let i = 0; i < runIds.length; i += RUN_ID_CHUNK) {
+    const chunk = runIds.slice(i, i + RUN_ID_CHUNK);
+    const { data: runs, error: runsErr } = await db
+      .from('evolution_runs')
+      .select('id, status')
+      .in('id', chunk);
+    if (runsErr) {
+      // Log and continue — earlier chunks remain valid.
+      // eslint-disable-next-line no-console
+      console.warn(`[computeTacticMetrics] partial run-status fetch failed at chunk ${i}`, runsErr.message);
+      continue;
+    }
+    for (const r of runs ?? []) {
+      if (r.status === 'completed') completedRunIds.add(r.id as string);
+    }
+  }
   const completedVariants = variants.filter((v) => completedRunIds.has(v.run_id));
 
   if (completedVariants.length === 0) return;
 
-  // Compute metrics
-  const elos = completedVariants
-    .map((v) => dbToRating(v.mu ?? 25, v.sigma ?? 8.333))
-    .map((r) => r.elo);
+  // Compute ratings from DB columns. B019-S4: use canonical _INTERNAL_DEFAULT_MU/SIGMA
+  // instead of hardcoded literals so future updates to defaults stay in sync.
+  const ratings = completedVariants.map((v) => dbToRating(v.mu ?? _INTERNAL_DEFAULT_MU, v.sigma ?? _INTERNAL_DEFAULT_SIGMA));
 
-  const avgElo = elos.reduce((s, e) => s + e, 0) / elos.length;
-  const bestElo = Math.max(...elos);
-  const totalCost = completedVariants.reduce((s, v) => s + (v.cost_usd ?? 0), 0);
+  // avg_elo with bootstrap CI (propagates per-variant uncertainty)
+  const eloValues = ratings.map((r) => ({ value: r.elo, uncertainty: r.uncertainty, ci: null, n: 1 }));
+  const avgEloResult = bootstrapMeanCI(eloValues);
+
+  // avg_elo_delta: average improvement over baseline (1200)
+  const deltaValues = ratings.map((r) => ({ value: r.elo - DEFAULT_ELO, uncertainty: r.uncertainty, ci: null, n: 1 }));
+  const avgEloDeltaResult = bootstrapMeanCI(deltaValues);
+
+  // win_rate with bootstrap CI (binomial: each variant is 0 or 1)
+  const winValues = completedVariants.map((v) => ({ value: v.is_winner ? 1 : 0, uncertainty: null, ci: null, n: 1 }));
+  const winRateResult = bootstrapMeanCI(winValues);
+
+  // B018-S4: reduce instead of spread — Math.max(...arr) risks "Maximum call stack size
+  // exceeded" on tactics with hundreds of thousands of variants.
+  const bestElo = ratings.reduce((max, r) => (r.elo > max ? r.elo : max), -Infinity);
+  // B053: switch tactic-cost rollup authority to evolution_agent_invocations.cost_usd
+  // (authoritative per-purpose cost since Phase 6). Filter `variant_surfaced IS NOT FALSE`
+  // (B048) so discarded generate-agent invocations don't inflate the tactic total.
+  // Variant.cost_usd is still read as a transition-period fallback when the invocation
+  // lookup returns null; the follow-up cleanup PR (tracked by GitHub issue filed at
+  // B053 merge) removes the dual-write once all pre-merge runs have finalized.
+  let totalCost = 0;
+  {
+    const runIdsCompleted = [...completedRunIds];
+    for (let i = 0; i < runIdsCompleted.length; i += 100) {
+      const chunk = runIdsCompleted.slice(i, i + 100);
+      const { data: invCosts } = await db
+        .from('evolution_agent_invocations')
+        .select('cost_usd')
+        .in('run_id', chunk)
+        .eq('agent_name', tacticName)
+        .not('variant_surfaced', 'is', false as unknown as null);
+      for (const inv of invCosts ?? []) {
+        totalCost += Number(inv.cost_usd ?? 0);
+      }
+    }
+    // B005-S4: previously fell back when `totalCost === 0`, which misfired on legitimate
+    // zero-cost invocations (test runs, fully-cached calls). Track invocation count and
+    // only fall back when NO invocation rows existed (true "missing data" signal).
+    let invocationCount = 0;
+    for (let i = 0; i < runIdsCompleted.length; i += 100) {
+      const chunk = runIdsCompleted.slice(i, i + 100);
+      const { count } = await db
+        .from('evolution_agent_invocations')
+        .select('id', { count: 'exact', head: true })
+        .in('run_id', chunk)
+        .eq('agent_name', tacticName)
+        .not('variant_surfaced', 'is', false as unknown as null);
+      invocationCount += count ?? 0;
+    }
+    if (invocationCount === 0) {
+      totalCost = completedVariants.reduce((s, v) => s + (v.cost_usd ?? 0), 0);
+    }
+  }
   const winnerCount = completedVariants.filter((v) => v.is_winner).length;
 
   const rows: TacticMetricRow[] = [
-    { entity_type: 'tactic', entity_id: tacticId, metric_name: 'avg_elo', value: avgElo, n: elos.length, aggregation_method: 'avg', source: 'propagation' },
+    {
+      entity_type: 'tactic', entity_id: tacticId, metric_name: 'avg_elo',
+      value: avgEloResult.value, uncertainty: avgEloResult.uncertainty,
+      ci_lower: avgEloResult.ci?.[0] ?? null, ci_upper: avgEloResult.ci?.[1] ?? null,
+      n: ratings.length, aggregation_method: 'bootstrap_mean', source: 'propagation',
+    },
+    {
+      entity_type: 'tactic', entity_id: tacticId, metric_name: 'avg_elo_delta',
+      value: avgEloDeltaResult.value, uncertainty: avgEloDeltaResult.uncertainty,
+      ci_lower: avgEloDeltaResult.ci?.[0] ?? null, ci_upper: avgEloDeltaResult.ci?.[1] ?? null,
+      n: ratings.length, aggregation_method: 'bootstrap_mean', source: 'propagation',
+    },
+    {
+      // B020-S4: keep uncertainty alongside CI so downstream formatters get a consistent
+      // shape (don't drop SE while keeping CI — some renderers compute halfWidth from CI).
+      entity_type: 'tactic', entity_id: tacticId, metric_name: 'win_rate',
+      value: winRateResult.value, uncertainty: winRateResult.uncertainty ?? null,
+      ci_lower: winRateResult.ci?.[0] ?? null, ci_upper: winRateResult.ci?.[1] ?? null,
+      n: completedVariants.length, aggregation_method: 'bootstrap_mean', source: 'propagation',
+    },
     { entity_type: 'tactic', entity_id: tacticId, metric_name: 'best_elo', value: bestElo, n: 1, aggregation_method: 'max', source: 'propagation' },
     { entity_type: 'tactic', entity_id: tacticId, metric_name: 'total_variants', value: completedVariants.length, n: 1, aggregation_method: 'count', source: 'propagation' },
     { entity_type: 'tactic', entity_id: tacticId, metric_name: 'total_cost', value: totalCost, n: 1, aggregation_method: 'sum', source: 'propagation' },
@@ -70,15 +156,22 @@ export async function computeTacticMetrics(
     { entity_type: 'tactic', entity_id: tacticId, metric_name: 'winner_count', value: winnerCount, n: 1, aggregation_method: 'count', source: 'propagation' },
   ];
 
-  // Upsert to evolution_metrics
+  // Upsert to evolution_metrics. Map `uncertainty` → `sigma` at the query boundary:
+  // the DB column is `sigma` (not renamed due to CI safety check); app surface uses
+  // `uncertainty`. Writing a row with key `uncertainty` fails with
+  // "Could not find the 'uncertainty' column of 'evolution_metrics' in the schema cache".
   const { error: writeError } = await db
     .from('evolution_metrics')
     .upsert(
-      rows.map((r) => ({
-        ...r,
-        stale: false,
-        updated_at: new Date().toISOString(),
-      })),
+      rows.map((r) => {
+        const { uncertainty, ...rest } = r;
+        return {
+          ...rest,
+          sigma: uncertainty ?? null,
+          stale: false,
+          updated_at: new Date().toISOString(),
+        };
+      }),
       { onConflict: 'entity_type,entity_id,metric_name' },
     );
 

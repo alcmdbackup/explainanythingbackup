@@ -138,6 +138,19 @@ Issues are labeled with `bug` and `user-testing`.
 
 Both share Page Object Model selectors as reference.
 
+## Recommended Verification Cycle: Playwright Sweep → Source-Code Audit
+
+A two-pass workflow that proved valuable during the 2026-04-22 evolution-admin bug hunt (`use_playwright_find_bugs_ux_issues_20260422`). The Playwright sweep is fast and surfaces *apparent* issues, but roughly 20–30% of findings are false positives — the UI looked wrong but the source code revealed it was already correct, or the "bug" was the author's own misreading of the data. Always follow the sweep with a source-code audit before writing fix tickets.
+
+**Pass 1 — Playwright sweep.** Use `/user-test` (or direct MCP calls) to navigate every admin page, capture a console-error + a11y snapshot, and enumerate candidate issues. Tag each finding with (a) page URL, (b) data-testid or accessibility-tree ref, and (c) a one-line suspected cause.
+
+**Pass 2 — Source-code audit.** For each candidate, open the rendering component and the server action it calls. Verify the suspected cause by reading code. Common false-positive patterns:
+- Visual clutter mistaken for filter bugs (the filter *was* correct; the screenshot happened before state updated).
+- "Duplicate" labels that are actually config-hash-disambiguated strategies with genuinely different configs.
+- "Missing" columns already intentionally dropped (e.g., arena Cost column — variant-level cost is always N/A).
+
+Findings surviving pass 2 go into the planning doc. Rejected findings go in the research doc with the reason, so the reviewer can see the reasoning trail.
+
 ## MCP Tool Pattern
 
 Unlike standard Playwright, MCP tools require a two-step pattern:

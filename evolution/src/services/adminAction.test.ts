@@ -61,6 +61,32 @@ describe('adminAction', () => {
       expect(result.data).toBe('abc:test-admin-id');
       expect(handler).toHaveBeenCalledWith({ id: 'abc' }, expect.objectContaining({ adminUserId: 'test-admin-id' }));
     });
+
+    it('B061: default-valued first arg (handler.length === 0) routes via 2-arg path, not zero-arg', async () => {
+      // A handler with a defaulted first parameter has `handler.length === 0`. Under the old
+      // `<= 1` arity check this was mis-routed as zero-arg and got ctx passed as its `input`,
+      // clobbering the real first-arg default. With the strict `=== 1` check the 0-length
+      // handler is routed through the 2-arg path so input + ctx land correctly.
+      const handler = jest.fn(
+        async (input: { id?: string } = { id: 'default' }, ctx: AdminContext | undefined = undefined) => {
+          return { receivedInput: input, adminUserId: ctx?.adminUserId };
+        },
+      );
+      // Sanity: confirm the handler's reported length is 0 (both args defaulted).
+      expect(handler.length).toBe(0);
+
+      const action = adminAction<{ id?: string }, { receivedInput: { id?: string }; adminUserId: string | undefined }>(
+        'test',
+        handler as (input: { id?: string }, ctx: AdminContext) => Promise<{ receivedInput: { id?: string }; adminUserId: string | undefined }>,
+      );
+      const result = await action({ id: 'explicit' });
+
+      expect(result.success).toBe(true);
+      expect(result.data).toEqual({
+        receivedInput: { id: 'explicit' },
+        adminUserId: 'test-admin-id',
+      });
+    });
   });
 
   // ─── Auth flow ────────────────────────────────────────────────

@@ -8,6 +8,10 @@ export { EmptyState } from './primitives/EmptyState';
 export { MetricGrid } from './primitives/MetricGrid';
 export type { MetricGridProps, MetricItem } from './primitives/MetricGrid';
 export { NotFoundCard } from './primitives/NotFoundCard';
+// Fix #51 (use_playwright_find_ux_issues_bugs_20260501): shared column picker
+// + persisted-hidden-columns hook so runs page and arena leaderboard share.
+export { ColumnPicker } from './primitives/ColumnPicker';
+export { usePersistedHiddenColumns } from './hooks/usePersistedHiddenColumns';
 
 // tables/
 export { TableSkeleton } from './tables/TableSkeleton';
@@ -35,7 +39,7 @@ export type { FieldDef } from './dialogs/FormDialog';
 export { ConfirmDialog } from './dialogs/ConfirmDialog';
 
 // context/
-export { AutoRefreshProvider, useAutoRefresh } from './context/AutoRefreshProvider';
+export { AutoRefreshProvider, useAutoRefresh, RefreshIndicator } from './context/AutoRefreshProvider';
 
 // page shells (remain at root)
 export { EntityListPage } from './EntityListPage';

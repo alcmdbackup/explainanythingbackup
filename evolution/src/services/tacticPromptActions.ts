@@ -17,13 +17,21 @@ export interface TacticPromptPerformanceRow {
   winnerCount: number;
 }
 
+export interface TacticPromptPerformanceResult {
+  items: TacticPromptPerformanceRow[];
+  /** True when the raw query returned the 5000-row hard cap — signals UI to show
+   *  a truncation banner so researchers know results may be partial. Gap 9 of
+   *  track_tactic_effectiveness_evolution_20260422. */
+  hitCap: boolean;
+}
+
 /**
  * Get tactic × prompt performance data. Filter by tacticName (for tactic detail "By Prompt" tab)
  * or by promptId (for prompt detail "Tactics" tab).
  */
 export const getTacticPromptPerformanceAction = adminAction(
   'getTacticPromptPerformance',
-  async (input: { tacticName?: string; promptId?: string }, ctx: AdminContext) => {
+  async (input: { tacticName?: string; promptId?: string }, ctx: AdminContext): Promise<TacticPromptPerformanceResult> => {
     // Query variants with their run's prompt_id
     let query = ctx.supabase
       .from('evolution_variants')
@@ -40,7 +48,19 @@ export const getTacticPromptPerformanceAction = adminAction(
 
     const { data, error } = await query.limit(5000);
     if (error) throw new Error(`Failed to query tactic-prompt performance: ${error.message}`);
-    if (!data || data.length === 0) return [];
+    if (!data || data.length === 0) return { items: [], hitCap: false };
+
+    // Gap 9 (track_tactic_effectiveness_evolution_20260422): 5000-row hard cap signal.
+    // Returned on the result payload AND logged to console so both operators (via logs)
+    // and researchers (via UI banner) see the truncation signal.
+    const hitCap = data.length === 5000;
+    if (hitCap) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        '[tacticPromptActions] hit 5000-row hard cap — results may be truncated. Filter by tacticName or promptId to narrow.',
+        { tacticName: input.tacticName, promptId: input.promptId },
+      );
+    }
 
     // Group by (agent_name, prompt_id) and compute stats
     const groups = new Map<string, {
@@ -91,6 +111,6 @@ export const getTacticPromptPerformanceAction = adminAction(
 
     // Sort by avg Elo descending
     result.sort((a, b) => b.avgElo - a.avgElo);
-    return result;
+    return { items: result, hitCap };
   },
 );

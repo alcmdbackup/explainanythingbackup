@@ -32,7 +32,8 @@ export interface SwissRankingInput {
   ratings: ReadonlyMap<string, Rating>;
   /** Shared comparison cache (order-invariant key). */
   cache: Map<string, ComparisonResult>;
-  llm: EvolutionLLMClient;
+  /** LLM client. Optional when ctx.rawProvider is set — Agent.run() injects a scoped client. */
+  llm?: EvolutionLLMClient;
 }
 
 export interface SwissRankingMatchEntry {
@@ -44,7 +45,7 @@ export interface SwissRankingMatchEntry {
 export interface SwissRankingOutput {
   pairs: Array<[string, string]>;
   matches: SwissRankingMatchEntry[];
-  status: 'success' | 'budget' | 'no_pairs';
+  status: 'success' | 'budget' | 'no_pairs' | 'failure';
 }
 
 export type SwissRankingExecutionDetail = z.infer<typeof swissRankingExecutionDetailSchema>
@@ -92,7 +93,8 @@ export class SwissRankingAgent extends Agent<
     input: SwissRankingInput,
     ctx: AgentContext,
   ): Promise<AgentOutput<SwissRankingOutput, SwissRankingExecutionDetail>> {
-    const { eligibleIds, completedPairs, pool, ratings, cache, llm } = input;
+    const { eligibleIds, completedPairs, pool, ratings, cache } = input;
+    const llm = input.llm!; // Injected by Agent.run() via rawProvider when not passed directly
 
     const poolMap = new Map<string, Variant>(pool.map((v) => [v.id, v]));
 
@@ -174,7 +176,12 @@ export class SwissRankingAgent extends Agent<
       }
     }
 
-    const status: 'success' | 'budget' = budgetCount > 0 ? 'budget' : 'success';
+    // B008-S3: distinguish actual success (>=1 pair succeeded), budget exhaustion,
+    // and pure failure (every pair threw a non-budget error). Was previously forced
+    // to 'success' even with 0 pairs succeeded, masking provider outages.
+    const status: 'success' | 'budget' | 'failure' = matchBuffer.length === 0 && otherFailureCount > 0
+      ? 'failure'
+      : budgetCount > 0 ? 'budget' : 'success';
 
     const truncated = matchBuffer.length > 50;
     const matchesProducedSample = matchBuffer.slice(0, 50).map((m) => ({

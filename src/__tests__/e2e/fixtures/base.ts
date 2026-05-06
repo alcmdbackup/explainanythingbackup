@@ -37,8 +37,25 @@ export const test = base.extend({
     // use is Playwright fixture, not React hook
     // eslint-disable-next-line react-hooks/rules-of-hooks
     await use(page);
-    // Wait for pending route handlers to finish before closing (prevents flaky teardown errors)
-    await page.unrouteAll({ behavior: 'wait' });
+    // B108: bound `unrouteAll({ behavior: 'wait' })` in its own short timeout. If a test
+    // fails mid-route handler the 'wait' path can block the whole teardown until the
+    // default 30s Playwright-level timeout fires, inflating the test run. Fall back to
+    // 'ignore' so handler cleanup proceeds even if some handlers never settle.
+    const UNROUTE_TIMEOUT_MS = 5_000;
+    const unrouteWait = page.unrouteAll({ behavior: 'wait' });
+    const timeoutResult: 'timeout' = await new Promise<'timeout'>((resolve) => {
+      setTimeout(() => resolve('timeout'), UNROUTE_TIMEOUT_MS);
+    });
+    const raced = await Promise.race([
+      unrouteWait.then(() => 'ok' as const).catch(() => 'err' as const),
+      Promise.resolve(timeoutResult),
+    ]);
+    if (raced === 'timeout') {
+      // `ignoreErrors` is the Playwright-approved fallback for forced cleanup: teardown
+      // continues even if a handler is mid-flight.
+      // eslint-disable-next-line flakiness/no-silent-catch -- forced teardown fallback; ignoreErrors already swallows most, catch covers the rare throw paths
+      await page.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => undefined);
+    }
     await page.close();
   },
 });

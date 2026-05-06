@@ -33,6 +33,13 @@ export interface V2CostTracker {
   getTotalSpent(): number;
   getPhaseCosts(): Partial<Record<AgentName, number>>;
   getAvailableBudget(): number;
+  /** B007-S2: compute the margined reservation without mutating state. Lets wrappers
+   *  (e.g. createIterationBudgetTracker) peek both budgets atomically before committing.
+   *  Optional for backward compat with test mocks; production trackers always provide it. */
+  computeMargined?(estimatedCost: number): number;
+  /** B007-S2: check whether a margined reservation would fit without mutating state.
+   *  Optional for backward compat with test mocks. */
+  canReserve?(margined: number): boolean;
 }
 
 /** Per-invocation cost scope: delegates budget gating to shared tracker, tracks own spend separately. */
@@ -61,6 +68,9 @@ export function createAgentCostScope(shared: V2CostTracker): AgentCostScope {
     getTotalSpent: shared.getTotalSpent.bind(shared),
     getPhaseCosts: shared.getPhaseCosts.bind(shared),
     getAvailableBudget: shared.getAvailableBudget.bind(shared),
+    // B007-S2: bind optional methods only when present (test mocks may omit them).
+    ...(shared.computeMargined && { computeMargined: shared.computeMargined.bind(shared) }),
+    ...(shared.canReserve && { canReserve: shared.canReserve.bind(shared) }),
     getOwnSpent(): number { return ownSpent; },
   };
 }
@@ -69,6 +79,16 @@ export function createAgentCostScope(shared: V2CostTracker): AgentCostScope {
 
 /** Safety margin multiplier for budget reservations. */
 const RESERVE_MARGIN = 1.3;
+
+/**
+ * Quantization unit for margined reservations. Rounds to the nearest 0.0001 USD (1/100 of
+ * a cent). This keeps float-arithmetic accumulation error from eating the safety margin on
+ * tight budgets over thousands of small reserves (B020).
+ */
+const RESERVE_QUANTUM = 10_000;
+function quantizeUsd(value: number): number {
+  return Math.round(value * RESERVE_QUANTUM) / RESERVE_QUANTUM;
+}
 
 /** Whether strict assertions are enabled (dev/test only). */
 const STRICT_ASSERTIONS = process.env.EVOLUTION_ASSERTIONS === 'true';
@@ -103,7 +123,16 @@ export function createCostTracker(budgetUsd: number, logger?: EntityLogger): V2C
     // INVARIANT: reserve() must remain synchronous to maintain parallel safety
     // under Node.js single-threaded event loop. Do not add awaits to this function.
     reserve(phase: AgentName, estimatedCost: number): number {
-      const margined = estimatedCost * RESERVE_MARGIN;
+      // B017: reject non-finite / negative inputs at the entry so garbage cost numbers can't
+      // corrupt totalReserved (negative margined would inflate availableBudget).
+      if (!Number.isFinite(estimatedCost) || estimatedCost < 0) {
+        throw new Error(
+          `V2CostTracker.reserve: estimatedCost must be finite and non-negative (phase=${phase}, got=${estimatedCost})`,
+        );
+      }
+      // B020: quantize to 0.0001 USD so float-arithmetic accumulation error doesn't
+      // erode the safety margin over thousands of small reserves on tight budgets.
+      const margined = quantizeUsd(estimatedCost * RESERVE_MARGIN);
       if (totalSpent + totalReserved + margined > budgetUsd) {
         logger?.warn('Budget exceeded on reserve', { phaseName: phase, totalSpent, reserved: totalReserved + margined, budgetUsd });
         throw new BudgetExceededError(phase, totalSpent, totalReserved + margined, budgetUsd);
@@ -161,6 +190,21 @@ export function createCostTracker(budgetUsd: number, logger?: EntityLogger): V2C
     getAvailableBudget(): number {
       return Math.max(0, budgetUsd - totalSpent - totalReserved);
     },
+
+    // B007-S2: peek-only — no state mutation. Mirrors reserve()'s margin + quantize math.
+    computeMargined(estimatedCost: number): number {
+      if (!Number.isFinite(estimatedCost) || estimatedCost < 0) {
+        throw new Error(
+          `V2CostTracker.computeMargined: estimatedCost must be finite and non-negative (got=${estimatedCost})`,
+        );
+      }
+      return quantizeUsd(estimatedCost * RESERVE_MARGIN);
+    },
+
+    // B007-S2: peek-only check matching reserve()'s budget predicate.
+    canReserve(margined: number): boolean {
+      return totalSpent + totalReserved + margined <= budgetUsd;
+    },
   };
 }
 
@@ -183,11 +227,35 @@ export function createIterationBudgetTracker(
 
   return {
     reserve(phase: AgentName, estimatedCost: number): number {
-      // Check run-level first — throws BudgetExceededError (stops entire run).
+      // B007-S2: PEEK both budgets without mutating, then commit only on full success.
+      // Previous impl mutated runTracker first then checked iter, leaking the run-tracker
+      // reservation when iter rejected. Now: compute margined once, check both, then
+      // single mutation call on the run tracker.
+      // B007-S2: when the run tracker exposes the peek API (production), peek both
+      // budgets without mutating. When it doesn't (legacy / test mocks lacking the
+      // optional methods), fall back to the original behavior (mutate-then-check) —
+      // this preserves the leak behavior for those callers but doesn't crash on the
+      // missing method.
+      if (runTracker.computeMargined && runTracker.canReserve) {
+        const margined = runTracker.computeMargined(estimatedCost);
+        if (!runTracker.canReserve(margined)) {
+          throw new BudgetExceededError(
+            phase, runTracker.getTotalSpent(), margined, runTracker.getTotalSpent() + runTracker.getAvailableBudget(),
+          );
+        }
+        if (iterSpent + iterReserved + margined > iterationBudgetUsd) {
+          throw new IterationBudgetExceededError(
+            phase, iterSpent, iterReserved + margined, iterationBudgetUsd, iterationIndex,
+          );
+        }
+        const actuallyMargined = runTracker.reserve(phase, estimatedCost);
+        iterReserved += actuallyMargined;
+        return actuallyMargined;
+      }
+      // Legacy fallback (no peek API): old mutate-first behavior — leak still possible
+      // on iter-reject, but better than crashing on missing methods.
       const margined = runTracker.reserve(phase, estimatedCost);
-      // Now check iteration-level — throws IterationBudgetExceededError (stops iteration only).
       if (iterSpent + iterReserved + margined > iterationBudgetUsd) {
-        // Release run-level reservation since we won't proceed.
         runTracker.release(phase, margined);
         throw new IterationBudgetExceededError(
           phase, iterSpent, iterReserved + margined, iterationBudgetUsd, iterationIndex,
@@ -225,5 +293,9 @@ export function createIterationBudgetTracker(
       const iterRemaining = Math.max(0, iterationBudgetUsd - iterSpent - iterReserved);
       return Math.min(iterRemaining, runTracker.getAvailableBudget());
     },
+
+    // B007-S2: delegate peek-only helpers when the underlying tracker exposes them.
+    ...(runTracker.computeMargined && { computeMargined: runTracker.computeMargined.bind(runTracker) }),
+    ...(runTracker.canReserve && { canReserve: runTracker.canReserve.bind(runTracker) }),
   };
 }

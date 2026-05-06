@@ -22,13 +22,13 @@ describe('NewStrategyPage budget floor controls', () => {
     mockPush.mockReset();
   });
 
-  it('renders fraction mode by default in advanced settings', async () => {
+  it('renders agent multiple mode by default in advanced settings', async () => {
     render(<NewStrategyPage />);
     // Open advanced settings
     const advanced = screen.getByText(/advanced settings/i);
     fireEvent.click(advanced);
 
-    const modeSelect = screen.getByDisplayValue('Fraction of budget');
+    const modeSelect = screen.getByDisplayValue('Multiple of agent cost');
     expect(modeSelect).toBeInTheDocument();
   });
 
@@ -41,14 +41,14 @@ describe('NewStrategyPage budget floor controls', () => {
     expect(screen.getByLabelText(/sequential floor/i)).toBeInTheDocument();
   });
 
-  it('switches to agent multiple mode', () => {
+  it('switches to fraction mode', () => {
     render(<NewStrategyPage />);
     const advanced = screen.getByText(/advanced settings/i);
     fireEvent.click(advanced);
 
-    const modeSelect = screen.getByDisplayValue('Fraction of budget');
-    fireEvent.change(modeSelect, { target: { value: 'agentMultiple' } });
-    expect(screen.getByDisplayValue('Multiple of agent cost')).toBeInTheDocument();
+    const modeSelect = screen.getByDisplayValue('Multiple of agent cost');
+    fireEvent.change(modeSelect, { target: { value: 'fraction' } });
+    expect(screen.getByDisplayValue('Fraction of budget')).toBeInTheDocument();
   });
 
   it('clears floor values when switching mode', () => {
@@ -62,8 +62,8 @@ describe('NewStrategyPage budget floor controls', () => {
     expect(parallelInput).toHaveValue(0.3);
 
     // Switch mode — values should reset
-    const modeSelect = screen.getByDisplayValue('Fraction of budget');
-    fireEvent.change(modeSelect, { target: { value: 'agentMultiple' } });
+    const modeSelect = screen.getByDisplayValue('Multiple of agent cost');
+    fireEvent.change(modeSelect, { target: { value: 'fraction' } });
 
     const parallelInputAfter = screen.getByLabelText(/parallel floor/i);
     expect(parallelInputAfter).toHaveValue(null);

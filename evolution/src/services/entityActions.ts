@@ -4,6 +4,7 @@
 import { adminAction } from './adminAction';
 import { getEntity } from '../lib/core/entityRegistry';
 import { CORE_ENTITY_TYPES, type EntityType } from '../lib/core/types';
+import { logAdminAction } from '@/lib/services/auditLog';
 
 // ─── Input Types ──────────────────────────────────────────────────
 
@@ -74,7 +75,7 @@ async function countDescendants(
 
 export const executeEntityAction = adminAction<EntityActionInput, EntityActionResult>(
   'executeEntityAction',
-  async (input, { supabase }) => {
+  async (input, { supabase, adminUserId }) => {
     validateEntityActionInput(input);
 
     const entity = getEntity(input.entityType as EntityType);
@@ -86,6 +87,26 @@ export const executeEntityAction = adminAction<EntityActionInput, EntityActionRe
     }
 
     await entity.executeAction(input.actionKey, input.entityId, supabase, input.payload);
+
+    // B007-S5: forensic audit log. Without this, no one could later answer "who deleted
+    // strategy X?". logAdminAction is fire-and-forget — failures don't block the action.
+    try {
+      // Cast: AuditAction is a const union upstream that doesn't yet enumerate the
+      // generic entity-action verbs. We log via the closest existing kind.
+      await logAdminAction({
+        adminUserId,
+        action: 'entity_action' as Parameters<typeof logAdminAction>[0]['action'],
+        entityType: input.entityType as Parameters<typeof logAdminAction>[0]['entityType'],
+        entityId: input.entityId,
+        details: { actionKey: input.actionKey, ...(descendantCount ? { descendantCount } : {}) },
+      });
+    } catch (auditErr) {
+      // eslint-disable-next-line no-console
+      console.warn('[entityActions] audit log write failed (non-fatal)', {
+        entityType: input.entityType, entityId: input.entityId,
+        error: auditErr instanceof Error ? auditErr.message : String(auditErr),
+      });
+    }
 
     return {
       entityType: input.entityType,

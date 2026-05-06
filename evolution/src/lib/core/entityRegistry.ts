@@ -14,6 +14,7 @@ import { VariantEntity } from './entities/VariantEntity';
 import { InvocationEntity } from './entities/InvocationEntity';
 import { PromptEntity } from './entities/PromptEntity';
 import { TacticEntity } from './entities/TacticEntity';
+import { CriteriaEntity } from './entities/CriteriaEntity';
 import { getAgentClasses } from './agentRegistry';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -39,6 +40,7 @@ function initRegistry(): void {
     invocation,
     prompt: new PromptEntity(),
     tactic: new TacticEntity(),
+    criteria: new CriteriaEntity(),
   };
 
   validateEntityRegistry();

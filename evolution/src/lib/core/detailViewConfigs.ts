@@ -5,6 +5,33 @@ import type { DetailFieldDef } from './types';
 
 /** Config-driven field definitions for rendering execution detail, keyed by detailType (or agent_name). */
 export const DETAIL_VIEW_CONFIGS: Record<string, DetailFieldDef[]> = {
+  // B004-S3: matches CreateSeedArticleAgent.detailViewConfig — without this entry,
+  // the seed-invocation page rendered an empty fallback.
+  create_seed_article: [
+    { key: 'surfaced', label: 'Surfaced', type: 'boolean' },
+    {
+      key: 'generation', label: 'Generation', type: 'object',
+      children: [
+        { key: 'cost', label: 'Cost', type: 'number', formatter: 'cost' },
+        { key: 'promptLength', label: 'Prompt Length', type: 'number' },
+        { key: 'titleLength', label: 'Title Length', type: 'number' },
+        { key: 'contentLength', label: 'Content Length', type: 'number' },
+        { key: 'formatValid', label: 'Format Valid', type: 'boolean' },
+      ],
+    },
+    {
+      key: 'ranking', label: 'Ranking (binary search local view)', type: 'object',
+      children: [
+        { key: 'cost', label: 'Ranking Cost', type: 'number', formatter: 'cost' },
+        { key: 'localPoolSize', label: 'Local Pool Size', type: 'number' },
+        { key: 'stopReason', label: 'Stop Reason', type: 'badge' },
+        { key: 'totalComparisons', label: 'Total Comparisons', type: 'number' },
+        { key: 'finalLocalElo', label: 'Final Local Elo', type: 'number' },
+        { key: 'finalLocalUncertainty', label: 'Final Local Uncertainty', type: 'number' },
+      ],
+    },
+    { key: 'totalCost', label: 'Total Cost', type: 'number', formatter: 'cost' },
+  ],
   // ─── Parallel pipeline (generate_rank_evolution_parallel_20260331) ───
   generate_from_previous_article: [
     { key: 'tactic', label: 'Tactic', type: 'badge' },
@@ -44,6 +71,107 @@ export const DETAIL_VIEW_CONFIGS: Record<string, DetailFieldDef[]> = {
         { key: 'variantEloAfter', label: 'Elo after' },
         { key: 'variantUncertaintyAfter', label: 'Uncertainty after' },
         { key: 'durationMs', label: 'ms' },
+      ],
+    },
+    { key: 'totalCost', label: 'Total Cost', type: 'number', formatter: 'cost' },
+  ],
+  // ─── Reflect-and-generate (Phase 6 of develop_reflection_and_generateFromParentArticle_agent_evolution_20260430) ───
+  // Mirrors the agent's detailViewConfig field-for-field so the parity test
+  // (entities.test.ts:339) passes. Adds a reflection sub-tree before generation/ranking.
+  reflect_and_generate_from_previous_article: [
+    { key: 'tactic', label: 'Tactic Chosen', type: 'badge' },
+    { key: 'variantId', label: 'Variant ID', type: 'text' },
+    { key: 'surfaced', label: 'Surfaced', type: 'boolean' },
+    {
+      key: 'reflection', label: 'Reflection', type: 'object',
+      children: [
+        { key: 'tacticChosen', label: 'Picked', type: 'badge' },
+        { key: 'cost', label: 'Reflection Cost', type: 'number', formatter: 'cost' },
+        { key: 'durationMs', label: 'Duration (ms)', type: 'number' },
+      ],
+    },
+    {
+      key: 'reflection.tacticRanking', label: 'Ranked Tactics', type: 'table',
+      columns: [
+        { key: 'tactic', label: 'Tactic' },
+        { key: 'reasoning', label: 'Reasoning' },
+      ],
+    },
+    { key: 'reflection.candidatesPresented', label: 'Candidates Presented', type: 'list' },
+    {
+      key: 'generation', label: 'Generation', type: 'object',
+      children: [
+        { key: 'cost', label: 'Cost', type: 'number', formatter: 'cost' },
+        { key: 'promptLength', label: 'Prompt Length', type: 'number' },
+        { key: 'textLength', label: 'Text Length', type: 'number' },
+        { key: 'formatValid', label: 'Format Valid', type: 'boolean' },
+        { key: 'durationMs', label: 'Duration (ms)', type: 'number' },
+      ],
+    },
+    {
+      key: 'ranking', label: 'Ranking (binary search local view)', type: 'object',
+      children: [
+        { key: 'cost', label: 'Ranking Cost', type: 'number', formatter: 'cost' },
+        { key: 'totalComparisons', label: 'Total Comparisons', type: 'number' },
+        { key: 'finalLocalElo', label: 'Final Local Elo', type: 'number' },
+        { key: 'durationMs', label: 'Duration (ms)', type: 'number' },
+      ],
+    },
+    { key: 'totalCost', label: 'Total Cost', type: 'number', formatter: 'cost' },
+  ],
+  evaluate_criteria_then_generate_from_previous_article: [
+    { key: 'tactic', label: 'Tactic', type: 'badge' },
+    { key: 'weakestCriteriaNames', label: 'Weakest Criteria', type: 'list' },
+    { key: 'variantId', label: 'Variant ID', type: 'text' },
+    { key: 'surfaced', label: 'Surfaced', type: 'boolean' },
+    {
+      key: 'evaluateAndSuggest', label: 'Eval & Suggest', type: 'object',
+      children: [
+        { key: 'cost', label: 'Cost', type: 'number', formatter: 'cost' },
+        { key: 'durationMs', label: 'Duration (ms)', type: 'number' },
+      ],
+    },
+    {
+      key: 'evaluateAndSuggest.criteriaScored', label: 'Criteria Scored', type: 'table',
+      columns: [
+        { key: 'criteriaName', label: 'Criterion' },
+        { key: 'score', label: 'Score' },
+        { key: 'minRating', label: 'Min' },
+        { key: 'maxRating', label: 'Max' },
+      ],
+    },
+    {
+      // Suggestions table cells can hold passage-length text (Example field is a
+      // verbatim article excerpt, often hundreds of chars). Per-field cellClassName
+      // constrains column width and wraps long content so the table stays readable
+      // without horizontal scroll. Scoped to this table only — does NOT cascade to
+      // the criteriaScored table above or other agents' detail tables.
+      key: 'evaluateAndSuggest.suggestions', label: 'Suggestions', type: 'table',
+      cellClassName: 'py-1.5 px-2 text-[var(--text-primary)] max-w-md break-words whitespace-pre-wrap align-top',
+      columns: [
+        { key: 'criteriaName', label: 'Criterion' },
+        { key: 'examplePassage', label: 'Example' },
+        { key: 'whatNeedsAddressing', label: 'Issue' },
+        { key: 'suggestedFix', label: 'Fix' },
+      ],
+    },
+    {
+      key: 'generation', label: 'Generation', type: 'object',
+      children: [
+        { key: 'cost', label: 'Cost', type: 'number', formatter: 'cost' },
+        { key: 'promptLength', label: 'Prompt Length', type: 'number' },
+        { key: 'textLength', label: 'Text Length', type: 'number' },
+        { key: 'formatValid', label: 'Format Valid', type: 'boolean' },
+        { key: 'durationMs', label: 'Duration (ms)', type: 'number' },
+      ],
+    },
+    {
+      key: 'ranking', label: 'Ranking (binary search local view)', type: 'object',
+      children: [
+        { key: 'cost', label: 'Ranking Cost', type: 'number', formatter: 'cost' },
+        { key: 'totalComparisons', label: 'Total Comparisons', type: 'number' },
+        { key: 'finalLocalElo', label: 'Final Local Elo', type: 'number' },
+        { key: 'durationMs', label: 'Duration (ms)', type: 'number' },
       ],
     },
     { key: 'totalCost', label: 'Total Cost', type: 'number', formatter: 'cost' },
@@ -166,17 +294,73 @@ export const DETAIL_VIEW_CONFIGS: Record<string, DetailFieldDef[]> = {
     { key: 'low_uncertainty_opponents_count', label: 'Low-Uncertainty Opponents', type: 'number' },
     { key: 'totalCost', label: 'Total Cost', type: 'number', formatter: 'cost' },
   ],
-  iterativeEditing: [
-    { key: 'targetVariantId', label: 'Target Variant', type: 'text' },
+  iterative_editing: [
+    { key: 'parentVariantId', label: 'Parent Variant', type: 'text' },
+    { key: 'finalVariantId', label: 'Final Variant', type: 'text' },
+    { key: 'surfaced', label: 'Surfaced', type: 'boolean' },
     { key: 'stopReason', label: 'Stop Reason', type: 'badge' },
-    { key: 'consecutiveRejections', label: 'Consecutive Rejections', type: 'number' },
+    { key: 'errorPhase', label: 'Error Phase', type: 'badge' },
+    { key: 'errorMessage', label: 'Error Message', type: 'text' },
+    {
+      key: 'config', label: 'Configuration', type: 'object',
+      children: [
+        { key: 'maxCycles', label: 'Max Cycles', type: 'number' },
+        { key: 'editingModel', label: 'Editing Model', type: 'text' },
+        { key: 'approverModel', label: 'Approver Model', type: 'text' },
+        { key: 'driftRecoveryModel', label: 'Drift Recovery Model', type: 'text' },
+        { key: 'perInvocationBudgetUsd', label: 'Per-Invocation Budget', type: 'number', formatter: 'cost' },
+      ],
+    },
     {
       key: 'cycles', label: 'Edit Cycles', type: 'table',
       columns: [
         { key: 'cycleNumber', label: 'Cycle' },
-        { key: 'verdict', label: 'Verdict' },
-        { key: 'confidence', label: 'Confidence' },
-        { key: 'formatValid', label: 'Format Valid' },
+        { key: 'acceptedCount', label: 'Accepted' },
+        { key: 'rejectedCount', label: 'Rejected' },
+        { key: 'appliedCount', label: 'Applied' },
+        { key: 'sizeRatio', label: 'Size Ratio' },
+        { key: 'proposeCostUsd', label: 'Propose $' },
+        { key: 'approveCostUsd', label: 'Approve $' },
+      ],
+    },
+    // Per-cycle annotated edits view (Phase 4.8). Reads cycles[0] by default —
+    // multi-cycle UX renders one block per cycle in a future iteration.
+    {
+      key: 'cycles.0', label: 'Annotated Edits (Cycle 1)', type: 'annotated-edits',
+      markupKey: 'cycles.0.proposedMarkup',
+      groupsKey: 'cycles.0.proposedGroupsRaw',
+      decisionsKey: 'cycles.0.reviewDecisions',
+      dropsPreKey: 'cycles.0.droppedPreApprover',
+      dropsPostKey: 'cycles.0.droppedPostApprover',
+    },
+    // Phase 5.1 — post-cycle ranking detail (mirrors GFPA's ranking blocks at
+    // lines 50–75 above). Only renders when the agent ran the ranking step
+    // (input-presence gate); when ranking was skipped, the field is null and
+    // the renderer collapses the section.
+    {
+      key: 'ranking', label: 'Ranking (binary search local view)', type: 'object',
+      children: [
+        { key: 'cost', label: 'Ranking Cost', type: 'number', formatter: 'cost' },
+        { key: 'localPoolSize', label: 'Local Pool Size', type: 'number' },
+        { key: 'initialTop15Cutoff', label: 'Initial Top-15% Cutoff', type: 'number' },
+        { key: 'stopReason', label: 'Stop Reason', type: 'badge' },
+        { key: 'totalComparisons', label: 'Total Comparisons', type: 'number' },
+        { key: 'finalLocalElo', label: 'Final Local Elo', type: 'number' },
+        { key: 'finalLocalUncertainty', label: 'Final Local Uncertainty', type: 'number' },
+        { key: 'durationMs', label: 'Duration (ms)', type: 'number' },
+      ],
+    },
+    {
+      key: 'ranking.comparisons', label: 'Comparisons', type: 'table',
+      columns: [
+        { key: 'round', label: '#' },
+        { key: 'opponentId', label: 'Opponent' },
+        { key: 'selectionScore', label: 'Score' },
+        { key: 'pWin', label: 'pWin' },
+        { key: 'outcome', label: 'Out' },
+        { key: 'variantEloAfter', label: 'Elo after' },
+        { key: 'variantUncertaintyAfter', label: 'Uncertainty after' },
+        { key: 'durationMs', label: 'ms' },
       ],
     },
     { key: 'totalCost', label: 'Total Cost', type: 'number', formatter: 'cost' },

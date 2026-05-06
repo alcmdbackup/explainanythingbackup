@@ -14,7 +14,7 @@ shared core function.
 `POST /api/evolution/run` — admin-only endpoint at `src/app/api/evolution/run/route.ts`.
 
 - Protected by `requireAdmin()`.
-- `maxDuration = 800` seconds (Vercel limit); pipeline gets `(800 - 60) * 1000 ms`.
+- `maxDuration = 300` seconds (Vercel limit); pipeline gets `maxDurationMs: 240_000`.
 - Accepts optional `{ runId: UUID }` body to target a specific pending run.
 - Delegates to `claimAndExecuteRun()`.
 
@@ -139,9 +139,9 @@ Two mutually exclusive paths based on what the run targets:
    fast path for evolving existing content.
 
 2. **prompt_id path** — uses `generateSeedArticle()` in
-   `evolution/src/lib/pipeline/seed-article.ts` to create content from scratch via two
-   LLM calls (title generation, then article generation). Each call has a 20-second
-   timeout (with 3 retries at the evolution client layer).
+   `evolution/src/lib/pipeline/setup/generateSeedArticle.ts` to create content from
+   scratch via two LLM calls (title generation, then article generation). Each call has
+   a 20-second timeout (with 3 retries at the evolution client layer).
 
 If neither `explanation_id` nor `prompt_id` is set, the run fails immediately.
 
@@ -157,13 +157,18 @@ table was consolidated into `evolution_variants` in migration `20260321000002`.)
 
 The core algorithm in `evolveArticle()` iterates over `config.iterationConfigs[]`, an
 ordered array of `IterationConfig` objects defined on the strategy. Each iteration config
-specifies its agent type (`generate` or `swiss`), budget percentage, and optional
-`maxAgents`. This replaces the previous `nextIteration()` decision function with a fully
-declarative, config-driven dispatch.
+specifies its agent type (`generate` or `swiss`) and budget percentage. This replaces the
+previous `nextIteration()` decision function with a fully declarative, config-driven dispatch.
+
+Dispatch count per iteration is governed by budget (`V2CostTracker.reserve()` throws
+`BudgetExceededError` before an LLM call would overspend), with `DISPATCH_SAFETY_CAP = 100`
+as a defense-in-depth rail. See `evolution/src/lib/pipeline/loop/projectDispatchPlan.ts`
+for the single-source-of-truth dispatch-prediction function consumed by wizard preview,
+runtime, and cost-sensitivity alike.
 
 | Iteration type | Work agent(s)                                       | Merge                | Discard rule                                           |
 |----------------|-----------------------------------------------------|----------------------|--------------------------------------------------------|
-| **Generate**   | `numVariants` parallel `GenerateFromPreviousArticleAgent` | 1 `MergeRatingsAgent` | Each agent decides locally (using its own snapshot)   |
+| **Generate**   | Parallel batch of `GenerateFromPreviousArticleAgent` + within-iter top-up loop | **1 `MergeRatingsAgent` per iter** over combined buffers | Each agent decides locally (using its own snapshot)   |
 | **Swiss**      | 1 `SwissRankingAgent` (parallel pairs internally)    | 1 `MergeRatingsAgent` | None — paid-for matches always reach global ratings    |
 
 ```
@@ -173,19 +178,26 @@ declarative, config-driven dispatch.
       iterTracker = createIterationBudgetTracker(iterBudgetUsd, costTracker, iterIdx)
       |
       +-- kill / abort / deadline checks at iteration boundary
-      |
+      +-- read EVOLUTION_TOPUP_ENABLED once (default 'true')
       +-- recordSnapshot(iterIdx, iterCfg.agentType, 'start')
       |
       +-- if iterCfg.agentType == 'generate':
-      |     Spawn N parallel GenerateFromPreviousArticleAgent invocations
-      |     (N limited by iterCfg.maxAgents if set, otherwise budget-constrained),
-      |     each with its own deep-cloned local pool/ratings/matchCounts
-      |     and a frozen iteration-start snapshot. Each agent generates ONE
-      |     variant via a single strategy, then ranks it via binary search
-      |     against its local snapshot. Each agent owns its own
-      |     surface/discard decision (budget + local elo < top15Cutoff = discard).
-      |     Then dispatch MergeRatingsAgent over the surfaced agents' match
-      |     buffers in randomized (Fisher-Yates) order.
+      |     1. PARALLEL BATCH: dispatch min(DISPATCH_SAFETY_CAP, maxAffordable)
+      |        GenerateFromPreviousArticleAgent invocations via Promise.allSettled.
+      |        Each gets a deep-cloned iteration-start snapshot. Match buffers
+      |        and surfaced/discarded variants accumulate locally — NO merge yet.
+      |     2. MEASURE actualAvgCostPerAgent from parallel batch's scope.getOwnSpent()
+      |        sums. Log a warning and fall back to initialAgentCostEstimate if
+      |        scope attribution returns 0 (silent regression guard).
+      |     3. TOP-UP LOOP (if EVOLUTION_TOPUP_ENABLED !== 'false'): dispatch one
+      |        more agent at a time while (remaining - actualAvg) >= sequentialFloor
+      |        AND total dispatches < DISPATCH_SAFETY_CAP. Reuses the
+      |        iteration-start snapshot. Kill-check DB every 5 dispatches; cheap
+      |        AbortSignal check every dispatch. Records topUpStopReason.
+      |     4. PRE-MERGE SPEND LOG — attributable cost even if merge throws.
+      |     5. SINGLE MERGE — MergeRatingsAgent.run() once, over combined
+      |        [...parallelMatchBuffer, ...topUpMatchBuffer]. Fisher-Yates shuffle
+      |        covers all matches in one permutation.
       |
       +-- if iterCfg.agentType == 'swiss':
       |     SwissRankingAgent computes Swiss-style pairs over the eligible
@@ -218,24 +230,33 @@ Per-iteration stop reasons (`iteration_budget_exceeded`, `iteration_converged`,
 `iteration_no_pairs`, `iteration_complete`) are recorded in
 `EvolutionResult.iterationResults[]`.
 
-### Three Agent Types
+### Agent Types
 
-All three agents extend the `Agent` base class (`evolution/src/lib/core/Agent.ts`) and
+All agents extend the `Agent` base class (`evolution/src/lib/core/Agent.ts`) and
 get the standard `Agent.run()` template-method treatment: invocation row creation, cost
 delta computation, execution-detail validation, and budget-error handling.
+
+The `GenerateFromPreviousArticleAgent` (vanilla) and `ReflectAndGenerateFromPreviousArticleAgent`
+(reflection wrapper) are two interchangeable variant-producing agents. The orchestrator
+dispatches one or the other per iteration based on `iterCfg.agentType` (`'generate'` vs
+`'reflect_and_generate'`). See [Agents Overview](./agents/overview.md) for the wrapper's
+reflection prompt + parser contract and the load-bearing invariants around inner-`.execute()`
+dispatch.
 
 24 tactics are available: 3 core (`structural_transform`, `lexical_simplify`,
 `grounding_enhance`), 5 extended (`engagement_amplify`, `style_polish`,
 `argument_fortify`, `narrative_weave`, `tone_transform`), and 16 specialized across
 depth, audience, structural, quality, and meta categories (see
 [Agents Overview](./agents/overview.md) for the full list). Tactic definitions live in
-code at `evolution/src/lib/core/tactics/tacticRegistry.ts`; tactic entity identity is
+code at `evolution/src/lib/core/tactics/generateTactics.ts`; tactic entity identity is
 stored in the `evolution_tactics` table. When the strategy config sets
 `generationGuidance` (an array of `{ strategy, percent }` entries summing to 100),
 tactics are selected via weighted random sampling instead of the default round-robin
-across `config.strategies`.
+across `config.strategies`. Per-iteration `generationGuidance` on `IterationConfig`
+overrides the strategy-level setting for that iteration.
 
-**`GenerateFromPreviousArticleAgent`** (`evolution/src/lib/core/agents/generateFromPreviousArticle.ts`)
+**`GenerateFromPreviousArticleAgent`** (`evolution/src/lib/core/agents/generateFromPreviousArticle.ts`;
+agent type identifier: `generate_from_previous_article`)
 — ONE variant per invocation. Generates the variant via a single tactic
 (`structural_transform`, `lexical_simplify`, `grounding_enhance`, …), then ranks it via
 binary search (`rankSingleVariant`) against a deep-cloned local snapshot of the
@@ -381,7 +402,7 @@ carries an `iterationIndex` field.
 
 ### Local Per-Run Budget (V2CostTracker)
 
-Defined in `evolution/src/lib/pipeline/cost-tracker.ts`. Uses a **reserve-before-spend**
+Defined in `evolution/src/lib/pipeline/infra/trackBudget.ts`. Uses a **reserve-before-spend**
 pattern for parallel safety:
 
 ```typescript
@@ -568,8 +589,9 @@ The current V2 architecture replaced a fundamentally different V1 design.
   decision using its own deep-cloned local rating snapshot. Discarded variants are
   persisted to DB with `persisted=false` so generation cost stays queryable.
 - **Per-call AgentContext snapshots** — concurrent agents each receive a frozen
-  `AgentContext` (not a shared mutable object). Cross-agent state is rendezvoused
-  via the merge agent in randomized order.
+  `AgentContext` (not a shared mutable object) with `rawProvider` and `defaultModel`
+  propagated from the resolved config. Cross-agent state is rendezvoused via the
+  merge agent in randomized order.
 - **No checkpoints** — atomic execution; if it fails, the run fails.
 - **Budget-aware** — reserve-before-spend pattern, paid-for matches always reach the
   global ratings (merge agent dispatched UNCONDITIONALLY after a swiss iteration).
@@ -597,7 +619,11 @@ reasoning about behavior significantly easier.
 | `evolution/src/lib/core/` | Entity base class, Agent base class, METRIC_CATALOG, entityRegistry |
 | `evolution/src/lib/core/agents/generateFromPreviousArticle.ts` | One generate agent = one variant (single-strategy generate + binary-search rank + local discard) |
 | `evolution/src/lib/core/agents/SwissRankingAgent.ts` | One swiss iteration's worth of parallel pair comparisons |
-| `evolution/src/lib/core/agents/MergeRatingsAgent.ts` | Reusable shuffled rating merge — OpenSkill internally, public `{elo, uncertainty}` at boundary (sole writer of in-run `evolution_arena_comparisons`) |
+| `evolution/src/lib/core/agents/editing/IterativeEditingAgent.ts` | Wrapper agent for `iterative_editing` iterations — propose-then-review with up to N cycles per parent. Per Decisions §13/§14: one invocation row per parent, single final variant materialized (intermediate cycles in `execution_detail` only). |
+| `evolution/src/lib/core/agents/editing/{parseProposedEdits,checkProposerDrift,validateEditGroups,recoverDrift,parseReviewDecisions,applyAcceptedGroups,proposerPrompt,approverPrompt}.ts` | Internal helpers for the editing agent — markup parser, drift detector, validators, drift-recovery LLM helper, JSONL parser, position-based applier, prompt builders. |
+| `evolution/src/lib/pipeline/loop/editingDispatch.ts` | Shared dispatch resolver for editing iterations. `resolveEditingDispatchRuntime` (used by `runIterationLoop`) and `resolveEditingDispatchPlanner` (used by `projectDispatchPlan`) share the `applyCutoffToCount` core math. |
+| `evolution/src/lib/core/startupAssertions.ts` | Standalone deploy-ordering gate. `assertCostCalibrationPhaseEnumsMatch` queries the named CHECK constraint at agent-registry init and throws `MissingMigrationError` if any TS phase string is missing from the DB enum. Eliminates the silent-reject failure mode PR #1017 hit. |
+| `evolution/src/lib/core/agents/MergeRatingsAgent.ts` | Reusable shuffled rating merge — OpenSkill internally, public `{elo, uncertainty}` at boundary (sole writer of in-run `evolution_arena_comparisons`). `iterationType` enum widened to 4 values per Decisions §7 (matches the snapshot enum so observability stays consistent). |
 | `evolution/src/lib/pipeline/loop/rankSingleVariant.ts` | Binary-search ranking algorithm for one variant against a local snapshot |
 | `evolution/src/lib/pipeline/loop/swissPairing.ts` | Swiss-style pair selection (overlap allowed, capped) |
 | `evolution/src/lib/shared/seededRandom.ts` | `SeededRandom` + `deriveSeed()` for reproducible Fisher-Yates shuffles |
@@ -639,6 +665,56 @@ Every log row denormalizes its ancestor FKs (`run_id`, `experiment_id`, `strateg
 ### Invocation-Level Logging
 
 Individual agent invocations can emit their own logs by creating an `EntityLogger` with `entityType: 'invocation'`. These logs carry the invocation's ID as `entity_id` and inherit the parent run's `run_id`, `experiment_id`, and `strategy_id` for aggregation.
+
+## Invariants Tightened in the 2026-04-23 Hardening Pass
+
+Several cross-cutting invariants in the pipeline were tightened as part of the
+scan_codebase_for_bugs_20260422 project. They are load-bearing enough to call
+out at the architecture level:
+
+- **AgentCostScope is required at ranking boundaries (B012).** `rankNewVariant`
+  runtime-asserts that `costTracker.getOwnSpent` exists. Every real call site
+  wraps `V2CostTracker` via `createAgentCostScope` before entering the ranking
+  path; a missing wrap now throws immediately rather than silently attributing
+  cost to a sibling agent.
+- **Watchdog uses compare-and-set (B060).** `runWatchdog` pins the `UPDATE` on
+  the `last_heartbeat` value it just read. If another process bumped the
+  heartbeat between the SELECT and UPDATE (indicating recovery), the predicate
+  fails and the run row is left alone. The `.select('id')` return then
+  distinguishes "marked failed" from "raced, skipped".
+- **Swiss pairing is deterministic (B118).** `selectCandidatePairs` sorts by
+  descending score with lexicographic tiebreakers on idA, idB. A seeded RNG
+  upstream now produces a reproducible pairing set; before B118, equal scores
+  produced nondeterministic order even under a seeded RNG.
+- **Arena entries do not inflate in-run cutoffs (B119).** The `initialPoolSnapshot`
+  passed to generate-agents includes arena comparators, but `rankNewVariant`
+  recomputes the top-15% cutoff over in-run ratings only before the
+  surface/discard decision. Arena comparators still participate in
+  `rankSingleVariant` as opponents.
+- **Agent.run() duration timer starts before any work (B047).** `startMs` is
+  the first statement in `run()`; detail-validation failures (B051) still
+  record the full wall-clock duration so dashboards see the time an
+  invocation actually took.
+- **Detail-invalid = success=false (B051).** If the agent's `detail` fails
+  schema validation, the invocation row is marked `success: false` with an
+  `error_message`. Before B051, the row was marked `success: true` with
+  `execution_detail: undefined`, which hid the failure in dashboards and
+  crashed downstream renderers on read.
+- **Seed-variant retry + permanent failure (B008).** `claimAndExecuteRun`
+  retries seed generation with exponential backoff on transient failure and
+  fails the whole run (status = failed) on permanent failure. Runs no longer
+  enter a successful-but-variant-less state.
+- **API route body is Zod-validated (B079, B081).** `POST /api/evolution/run`
+  parses the body through a strict Zod schema (`targetRunId` optional UUID)
+  and returns categorized status codes: 400 malformed body, 403 unauthorized,
+  402 budget exceeded, 503 kill switch, 500 other. Empty body is treated as
+  `{}` for backward compatibility with callers that pass no body.
+
+## Criteria-driven generation (evaluateCriteriaThenGenerateFromPreviousArticle_20260501)
+
+`agentType: 'criteria_and_generate'` is a third variant-producing agent type alongside `'generate'` and `'reflect_and_generate'`. The wrapper agent (`EvaluateCriteriaThenGenerateFromPreviousArticleAgent`) makes ONE combined LLM call that scores the parent article against user-defined `evolution_criteria` rows AND drafts fix suggestions for the K weakest in the same response, then delegates to `GenerateFromPreviousArticleAgent.execute()` with `tactic: 'criteria_driven'` and a `customPrompt` built from those suggestions. See [Agents Overview](./agents/overview.md#evaluatecriteriathengeneratefrompreviousarticleagent-evaluatecriteriathengeneratefrompreviousarticle_20260501) for details.
+
+`runIterationLoop.ts`'s outer variant-producing branch was widened to include the new agent type. Mid-run `getCriteriaForEvaluation(db, criteriaIds, logger)` fetch happens once per iteration before the per-parent dispatch loop so each invocation reuses the same criteria payload. `effectiveWeakestK = min(iterationConfig.weakestK, criteria.length)` is clamped at runtime with a warn-log so misconfigurations (more `weakestK` than referenced criteria) downgrade gracefully instead of erroring. The same load-bearing inner-execute() invariant from the reflection wrapper applies — `.execute()` not `.run()` — so wrapper + inner GFPA cost attribution stays in one `AgentCostScope`.
 
 ## Related Documentation
 

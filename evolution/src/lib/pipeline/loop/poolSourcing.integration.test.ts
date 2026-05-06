@@ -87,4 +87,65 @@ describe('Phase 2 pool-sourcing integration', () => {
     expect(res.fallbackReason).toBe('no_eligible_variants');
     expect(res.variantId).toBe('seed');
   });
+
+  // Bug 2 (20260421): runIterationLoop filters fromArena variants before calling
+  // resolveParent so new variants' parent_variant_id only references same-run variants.
+  // These tests pin the expected call-site contract by passing a pre-filtered pool.
+  describe('arena-filter call-site contract', () => {
+    it('when pool is pre-filtered to in-run variants, arena entries are never picked', () => {
+      const inRunA = v('in-run-a');
+      const inRunB = v('in-run-b');
+      const arenaX = v('arena-x', 'arena-text', true);
+      const arenaY = v('arena-y', 'arena-text', true);
+      const rawPool = [inRunA, arenaX, inRunB, arenaY];
+      // Unfiltered ratings map — intentionally includes arena ids to mirror production
+      // (ratings are built from the full pool, then intersected with pool members).
+      const r = ratings([
+        ['in-run-a', 1300],
+        ['arena-x', 1500],  // arena variant is best on paper, but must NOT be picked.
+        ['in-run-b', 1200],
+        ['arena-y', 1450],
+      ]);
+
+      // Simulate runIterationLoop's call-site filter.
+      const inRunPool = rawPool.filter((p) => !p.fromArena);
+
+      // Probe many rng values — no matter which index the RNG picks, the result must be
+      // an in-run id.
+      for (let i = 0; i < 20; i++) {
+        const res = resolveParent({
+          sourceMode: 'pool',
+          qualityCutoff: { mode: 'topN', value: 4 },
+          seedVariant: { id: 'seed', text: 'seed' },
+          pool: inRunPool,
+          ratings: r,
+          rng: () => i / 20,
+        });
+        expect(res.effectiveMode).toBe('pool');
+        expect(['in-run-a', 'in-run-b']).toContain(res.variantId);
+      }
+    });
+
+    it('when pre-filter empties the pool, falls back to seed (empty_pool reason)', () => {
+      const arenaX = v('arena-x', 'arena-text', true);
+      const arenaY = v('arena-y', 'arena-text', true);
+      const rawPool = [arenaX, arenaY];
+      const r = ratings([['arena-x', 1500], ['arena-y', 1450]]);
+
+      const inRunPool = rawPool.filter((p) => !p.fromArena);
+      expect(inRunPool).toEqual([]);
+
+      const res = resolveParent({
+        sourceMode: 'pool',
+        qualityCutoff: { mode: 'topN', value: 4 },
+        seedVariant: { id: 'seed-id', text: 'seed-text' },
+        pool: inRunPool,
+        ratings: r,
+        rng: () => 0,
+      });
+      expect(res.effectiveMode).toBe('seed_fallback_from_pool');
+      expect(res.fallbackReason).toBe('empty_pool');
+      expect(res.variantId).toBe('seed-id');
+    });
+  });
 });

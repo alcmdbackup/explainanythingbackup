@@ -5,6 +5,8 @@ import {
   estimateRankingCost,
   estimateAgentCost,
   estimateSwissPairCost,
+  estimateEvaluateAndSuggestCost,
+  estimateIterativeEditingCost,
 } from './estimateCosts';
 
 describe('estimateCosts', () => {
@@ -91,6 +93,100 @@ describe('estimateCosts', () => {
       const costShort = estimateSwissPairCost(2000, 'gpt-4.1-nano');
       const costLong = estimateSwissPairCost(10000, 'gpt-4.1-nano');
       expect(costLong).toBeGreaterThan(costShort);
+    });
+  });
+
+  describe('estimateEvaluateAndSuggestCost', () => {
+    it('returns positive cost', () => {
+      const cost = estimateEvaluateAndSuggestCost(5000, 'gpt-4.1-nano', 'gpt-4.1-nano', 3, 1);
+      expect(cost).toBeGreaterThan(0);
+    });
+
+    it('scales with criteriaCount (input + output)', () => {
+      const cost3 = estimateEvaluateAndSuggestCost(5000, 'gpt-4.1-nano', 'gpt-4.1-nano', 3, 1);
+      const cost10 = estimateEvaluateAndSuggestCost(5000, 'gpt-4.1-nano', 'gpt-4.1-nano', 10, 1);
+      expect(cost10).toBeGreaterThan(cost3);
+    });
+
+    it('scales with weakestK (output size)', () => {
+      const cost1 = estimateEvaluateAndSuggestCost(5000, 'gpt-4.1-nano', 'gpt-4.1-nano', 5, 1);
+      const cost5 = estimateEvaluateAndSuggestCost(5000, 'gpt-4.1-nano', 'gpt-4.1-nano', 5, 5);
+      expect(cost5).toBeGreaterThan(cost1);
+    });
+
+    it('scales with avgRubricChars (input size)', () => {
+      const costSmall = estimateEvaluateAndSuggestCost(5000, 'gpt-4.1-nano', 'gpt-4.1-nano', 3, 1, 100);
+      const costLarge = estimateEvaluateAndSuggestCost(5000, 'gpt-4.1-nano', 'gpt-4.1-nano', 3, 1, 2000);
+      expect(costLarge).toBeGreaterThan(costSmall);
+    });
+  });
+
+  describe('estimateAgentCost with useCriteria', () => {
+    it('useCriteria=true increases total over vanilla', () => {
+      const vanilla = estimateAgentCost(10000, 'structural_transform', 'gpt-4.1-nano', 'gpt-4.1-nano', 5, 15);
+      const criteriaDriven = estimateAgentCost(
+        10000, 'criteria_driven', 'gpt-4.1-nano', 'gpt-4.1-nano', 5, 15,
+        false, 3, // useReflection, reflectionTopN
+        true, 3, 1, // useCriteria, criteriaCount, weakestK
+      );
+      expect(criteriaDriven).toBeGreaterThan(vanilla);
+    });
+
+    it('useCriteria=false has no evaluation_cost contribution', () => {
+      const a = estimateAgentCost(10000, 'structural_transform', 'gpt-4.1-nano', 'gpt-4.1-nano', 5, 15);
+      const b = estimateAgentCost(
+        10000, 'structural_transform', 'gpt-4.1-nano', 'gpt-4.1-nano', 5, 15,
+        false, 3, false, 5, 2,
+      );
+      expect(a).toBeCloseTo(b, 6);
+    });
+  });
+
+  describe('estimateIterativeEditingCost', () => {
+    it('returns expected/upperBound/expectedRanking/upperBoundRanking', () => {
+      const cost = estimateIterativeEditingCost(
+        8000, 'gpt-4.1-nano', 'gpt-4.1-nano', 'gpt-4.1-nano', 'gpt-4.1-nano',
+        3, 20, 15,
+      );
+      expect(cost.expected).toBeGreaterThan(0);
+      expect(cost.upperBound).toBeGreaterThan(cost.expected);
+      expect(cost.expectedRanking).toBeGreaterThan(0);
+      expect(cost.upperBoundRanking).toBeGreaterThan(cost.expectedRanking);
+    });
+
+    it('zeros ranking cost when poolSize=0 (editingRankEnabled=false path)', () => {
+      const cost = estimateIterativeEditingCost(
+        8000, 'gpt-4.1-nano', 'gpt-4.1-nano', 'gpt-4.1-nano', 'gpt-4.1-nano',
+        3, 0, 0,
+      );
+      expect(cost.expectedRanking).toBe(0);
+      expect(cost.upperBoundRanking).toBe(0);
+      // Editing cost still > 0
+      expect(cost.expected).toBeGreaterThan(0);
+    });
+
+    it('upperBoundRanking covers larger article (post-cycle growth)', () => {
+      // upperBoundRanking uses post-cycle articleChars (after 1.5× growth per cycle)
+      // so it should exceed expectedRanking (computed at seedChars).
+      const cost = estimateIterativeEditingCost(
+        8000, 'gpt-4.1-nano', 'gpt-4.1-nano', 'gpt-4.1-nano', 'gpt-4.1-nano',
+        3, 20, 15,
+      );
+      // Upper bound includes 1.3× safety margin × (1.5×)^3 article growth, so
+      // ranking-side upperBound is materially larger than expected.
+      expect(cost.upperBoundRanking).toBeGreaterThan(cost.expectedRanking * 2);
+    });
+
+    it('ranking cost scales with maxComparisonsPerVariant', () => {
+      const lo = estimateIterativeEditingCost(
+        8000, 'gpt-4.1-nano', 'gpt-4.1-nano', 'gpt-4.1-nano', 'gpt-4.1-nano',
+        3, 20, 5,
+      );
+      const hi = estimateIterativeEditingCost(
+        8000, 'gpt-4.1-nano', 'gpt-4.1-nano', 'gpt-4.1-nano', 'gpt-4.1-nano',
+        3, 20, 15,
+      );
+      expect(hi.expectedRanking).toBeGreaterThan(lo.expectedRanking);
     });
   });
 });

@@ -172,7 +172,22 @@ export function FormDialog({
                     id={fieldId}
                     type="number"
                     value={(values[field.name] as number) ?? ''}
-                    onChange={(e) => updateField(field.name, parseFloat(e.target.value))}
+                    onChange={(e) => {
+                      // B096: reject NaN at the boundary so a typed "abc" doesn't silently
+                      // propagate NaN into submit handlers. Empty string → undefined so
+                      // required validation still fires; otherwise parseFloat + finite check.
+                      const raw = e.target.value;
+                      if (raw === '') {
+                        updateField(field.name, undefined as unknown as number);
+                        return;
+                      }
+                      const n = parseFloat(raw);
+                      if (!Number.isFinite(n)) {
+                        // Leave prior value untouched so submit validation surfaces the issue.
+                        return;
+                      }
+                      updateField(field.name, n);
+                    }}
                     className={inputClasses}
                     required={field.required}
                   />

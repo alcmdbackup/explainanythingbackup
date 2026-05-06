@@ -20,6 +20,20 @@ export function formatCostMicro(usd: number | null | undefined): string {
   return `$${usd.toFixed(4)}`;
 }
 
+/** Format an expected/upper-bound cost range as "$0.003 – $0.007" (Phase 6a triple-value
+ *  estimates). Used by the wizard preview and Cost Estimates tab to communicate that the
+ *  dispatch gate reserves the upper bound while display reflects the likely outcome. */
+export function formatCostRange(
+  expected: number | null | undefined,
+  upperBound: number | null | undefined,
+): string {
+  if (expected == null || upperBound == null || isNaN(expected) || isNaN(upperBound)) return '—';
+  // When they collapse to the same value (e.g. swiss iterations with no per-agent cost),
+  // render a single value rather than an identical range.
+  if (Math.abs(expected - upperBound) < 1e-6) return formatCostMicro(expected);
+  return `${formatCostMicro(expected)} – ${formatCostMicro(upperBound)}`;
+}
+
 /** Format Elo score — integer, no decimals. */
 export function formatElo(score: number | null | undefined): string {
   if (score == null || isNaN(score)) return '—';
@@ -36,6 +50,20 @@ export function formatEloDollar(ratio: number | null | undefined): string {
 export function formatPercent(ratio: number | null | undefined): string {
   if (ratio == null || isNaN(ratio)) return '0%';
   return `${Math.round(ratio * 100)}%`;
+}
+
+/**
+ * Format a value that is ALREADY in percentage units (not a 0-1 ratio) — just
+ * rounds and appends `%`. Use this for metrics whose source data is stored
+ * in percent (e.g. `cost_estimation_error_pct` is persisted as e.g. -38.2).
+ *
+ * B7 (use_playwright_find_bugs_ux_issues_20260422): previously those metrics
+ * used `formatPercent`, which multiplied by 100 again and produced nonsense
+ * displays like `-3821%` instead of `-38%`.
+ */
+export function formatPercentValue(value: number | null | undefined): string {
+  if (value == null || isNaN(value)) return '—';
+  return `${Math.round(value)}%`;
 }
 
 /** Format duration in seconds to human-readable string. */
@@ -82,6 +110,9 @@ export function formatEloWithUncertainty(elo: number, uncertainty: number | null
 /** Format date for list views (short: "Mar 26"). Includes year if not current year. */
 export function formatDate(dateStr: string): string {
   const d = new Date(dateStr);
+  // B015-S6: surface invalid input as the em-dash sentinel used by other formatters
+  // instead of literal "Invalid Date".
+  if (isNaN(d.getTime())) return '—';
   const now = new Date();
   const opts: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric' };
   if (d.getFullYear() !== now.getFullYear()) opts.year = 'numeric';
@@ -91,6 +122,8 @@ export function formatDate(dateStr: string): string {
 /** Format date+time for detail views (e.g., "Mar 26, 2026 14:30"). */
 export function formatDateTime(dateStr: string): string {
   const d = new Date(dateStr);
+  // B015-S6: surface invalid input as em-dash.
+  if (isNaN(d.getTime())) return '—';
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) +
     ' ' + d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
 }

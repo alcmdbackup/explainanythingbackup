@@ -1,3 +1,14 @@
+// B115: hard assertion that jest.shims.js ran first via `setupFiles`. If this
+// throws, check that `setupFiles` in jest.config.js lists jest.shims.js ahead
+// of jest.setup.js — several library imports (openai, node fetch polyfills)
+// rely on the shim load order.
+if (!global.__JEST_SHIMS_LOADED__) {
+  throw new Error(
+    'jest.shims.js must run before jest.setup.js. ' +
+      'Check setupFiles ordering in jest.config.js.',
+  );
+}
+
 // Add custom Jest matchers from Testing Library
 require('@testing-library/jest-dom');
 

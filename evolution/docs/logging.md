@@ -173,6 +173,51 @@ The action selects the appropriate ancestor column based on entity type:
 
 Results are ordered by `created_at ASC` with range-based pagination (max 200 per page).
 
+## Invocation-Scoped Logger (Phase 2)
+
+**File:** `evolution/src/lib/core/Agent.ts` (lines 60-90)
+
+`Agent.run()` builds an invocation-scoped logger immediately after creating the
+invocation row:
+
+```typescript
+const invocationLogger = invocationId
+  ? createEntityLogger(
+      {
+        entityType: 'invocation',
+        entityId: invocationId,
+        runId: ctx.runId,
+        experimentId: ctx.experimentId,
+        strategyId: ctx.strategyId,
+      },
+      ctx.db,
+    )
+  : ctx.logger;
+```
+
+Critically, this invocation-scoped logger is routed **only** to the per-invocation
+`EvolutionLLMClient` — the agent's own log calls (`extendedCtx.logger`) intentionally
+stay on the run-level logger. The LLM client emits the bulk of per-invocation log
+volume (retries, successes, errors per call), so threading it through the
+invocation-scoped logger is enough to make the LogsTab on every invocation detail
+page populated. Before Phase 2, every per-agent log routed to run scope, leaving the
+invocation Logs tab empty.
+
+The fallback to `ctx.logger` covers tests and the rare case where `createInvocation`
+fails before an `invocationId` is available.
+
+### Partial-update fix in `trackInvocations.updateInvocation`
+
+**File:** `evolution/src/lib/pipeline/infra/trackInvocations.ts` (line 74)
+
+`updateInvocation` uses conditional-spread for `execution_detail` and `error_message`
+so omitting them preserves the previously-written value. This is load-bearing for
+`ReflectAndGenerateFromPreviousArticleAgent`'s wrapper-error path — the wrapper
+writes partial reflection detail BEFORE rethrowing, then `Agent.run()`'s catch
+handler updates `cost_usd` / `success` / `error_message` WITHOUT
+`execution_detail`. With this partial-update fix, the wrapper's partial detail is
+preserved on the row instead of being overwritten with `null`.
+
 ## Triage Convergence Logging
 
 During triage in `executeTriage()`, a debug-level log is emitted per entrant after opponent selection:

@@ -1,5 +1,12 @@
 // Resolves the parent variant (seed or pool pick) for one generate-agent invocation.
 // Called by runIterationLoop before dispatching each parallel agent.
+//
+// Contract: this function picks from whatever pool it is given. Callers are
+// responsible for filtering the pool to the desired candidate set before calling.
+// In particular, runIterationLoop filters out arena-sourced variants (`v.fromArena`)
+// when sourceMode === 'pool' so new variants' `parent_variant_id` values reference
+// only the seed or variants produced by the same run. Arena entries still enter
+// the pool as ranking competitors — they're just excluded as candidate parents.
 
 import type { Variant } from '../../types';
 import type { Rating } from '../../shared/computeRatings';
@@ -22,7 +29,7 @@ export interface ResolvedParent {
   text: string;
   /** 'seed' | 'pool' | 'seed_fallback_from_pool' — captured for per-invocation `sourceModeEffective` */
   effectiveMode: 'seed' | 'pool' | 'seed_fallback_from_pool';
-  fallbackReason?: 'empty_pool' | 'no_eligible_variants';
+  fallbackReason?: 'empty_pool' | 'no_eligible_variants' | 'missing_cutoff_config';
 }
 
 export function resolveParent(args: ResolveParentArgs): ResolvedParent {
@@ -34,13 +41,16 @@ export function resolveParent(args: ResolveParentArgs): ResolvedParent {
 
   // sourceMode === 'pool'
   if (!qualityCutoff) {
-    // Schema should have rejected this, but guard defensively.
+    // B123: distinguish "pool is empty" from "pool exists but we have no cutoff
+    // config to filter it" — they look identical in logs otherwise, and that
+    // was actively misleading when operators were triaging empty-iteration
+    // traces. Schema should have rejected this, but guard defensively.
     warn?.('resolveParent: sourceMode=pool without qualityCutoff, falling back to seed');
     return {
       variantId: seedVariant.id,
       text: seedVariant.text,
       effectiveMode: 'seed_fallback_from_pool',
-      fallbackReason: 'empty_pool',
+      fallbackReason: 'missing_cutoff_config',
     };
   }
 

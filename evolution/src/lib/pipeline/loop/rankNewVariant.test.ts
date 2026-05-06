@@ -50,6 +50,9 @@ function makeCostTracker(initialSpent = 0): V2CostTracker & { _spent: number } {
     recordSpend: jest.fn((_phase, cost) => { spent += cost; tracker._spent = spent; }),
     release: jest.fn(),
     getTotalSpent: jest.fn(() => spent),
+    // B012: rankNewVariant now hard-requires an AgentCostScope-style getOwnSpent.
+    // In this unit test the pool-wide total == own spend, so return the same value.
+    getOwnSpent: jest.fn(() => spent),
     getPhaseCosts: jest.fn(() => ({})),
     getAvailableBudget: jest.fn(() => 10),
   } as unknown as V2CostTracker & { _spent: number };

@@ -32,20 +32,22 @@ describe('iterationConfigSchema', () => {
   it('rejects sourceMode on swiss iterations', () => {
     expect(() => iterationConfigSchema.parse({
       agentType: 'swiss', budgetPercent: 40, sourceMode: 'seed',
-    })).toThrow(/sourceMode only valid for generate iterations/);
+    })).toThrow(/sourceMode only valid for variant-producing iterations/);
   });
 
   it('rejects qualityCutoff on swiss iterations', () => {
     expect(() => iterationConfigSchema.parse({
       agentType: 'swiss', budgetPercent: 40,
       qualityCutoff: { mode: 'topN', value: 5 },
-    })).toThrow(/qualityCutoff only valid for generate iterations/);
+    })).toThrow(/qualityCutoff only valid for variant-producing iterations/);
   });
 
-  it('rejects maxAgents on swiss iterations (pre-existing rule)', () => {
+  it('silently strips maxAgents (Phase 4 removed the field; swiss or generate both OK)', () => {
+    // Phase 4 deleted IterationConfig.maxAgents. Schemas use default .strip() so
+    // legacy configs with maxAgents still parse cleanly (field is dropped).
     expect(() => iterationConfigSchema.parse({
       agentType: 'swiss', budgetPercent: 40, maxAgents: 5,
-    })).toThrow(/maxAgents must not be set for swiss iterations/);
+    })).not.toThrow();
   });
 
   it('accepts qualityCutoff with topPercent mode', () => {

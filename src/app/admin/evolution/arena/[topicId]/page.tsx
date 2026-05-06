@@ -16,7 +16,7 @@ import { getEntityMetricsAction } from '@evolution/services/metricsActions';
 import {
   getArenaTopicDetailAction,
   getArenaEntriesAction,
-  type ArenaTopic,
+  type ArenaTopicDetail,
   type ArenaEntry,
 } from '@evolution/services/arenaActions';
 import { formatElo, stripMarkdownTitle } from '@evolution/lib/shared/computeRatings';
@@ -24,6 +24,22 @@ import { formatEloCIRange, formatEloWithUncertainty } from '@evolution/lib/utils
 import { computeEloCutoff } from './arenaCutoff';
 import { bootstrapDeltaCI } from '@evolution/lib/shared/ratingDelta';
 import { VariantParentBadge } from '@evolution/components/evolution/variant/VariantParentBadge';
+import { ArenaSeedPanel } from '@evolution/components/evolution/sections/ArenaSeedPanel';
+import { TACTIC_PALETTE } from '@evolution/lib/core/tactics';
+import { ColumnPicker, usePersistedHiddenColumns } from '@evolution/components/evolution';
+
+// Fix #51 (use_playwright_find_ux_issues_bugs_20260501): toggleable columns for
+// the dense arena leaderboard. Only the secondary columns are toggleable —
+// Rank/Content/ID/Elo are always visible (they're load-bearing).
+const TOGGLEABLE_LEADERBOARD_COLUMNS: { key: string; label: string }[] = [
+  { key: '95ci', label: '95% CI' },
+  { key: 'elo_unc', label: 'Elo ± Uncertainty' },
+  { key: 'matches', label: 'Matches' },
+  { key: 'iteration', label: 'Iteration' },
+  { key: 'tactic', label: 'Tactic' },
+  { key: 'method', label: 'Method' },
+  { key: 'parent', label: 'Parent' },
+];
 
 function ContentLink({ entryId, content }: { entryId: string; content: string }): JSX.Element {
   const cleaned = stripMarkdownTitle(content);
@@ -35,19 +51,85 @@ function ContentLink({ entryId, content }: { entryId: string; content: string })
   );
 }
 
+function ParentBadgeCell({ entry }: { entry: ArenaEntry }): JSX.Element {
+  if (!entry.parent_variant_id) {
+    return (
+      <VariantParentBadge
+        parentId={null}
+        parentElo={null}
+        parentUncertainty={null}
+        delta={null}
+        deltaCi={null}
+      />
+    );
+  }
+  const parentElo = entry.parent_elo ?? null;
+  const parentUncertainty = entry.parent_uncertainty ?? null;
+  const { delta, ci } = parentElo != null
+    ? bootstrapDeltaCI(
+        { elo: entry.elo_score, uncertainty: entry.uncertainty ?? 0 },
+        { elo: parentElo, uncertainty: parentUncertainty ?? 0 },
+      )
+    : { delta: null, ci: null };
+  return (
+    <VariantParentBadge
+      parentId={entry.parent_variant_id}
+      parentElo={parentElo}
+      parentUncertainty={parentUncertainty}
+      delta={delta}
+      deltaCi={ci}
+      crossRun={!!entry.parent_run_id && entry.parent_run_id !== entry.run_id}
+      parentRunId={entry.parent_run_id ?? null}
+    />
+  );
+}
+
+// Tactic cell: colored dot + agent name. Links to the tactic detail when tactic_id is
+// present; falls back to plain text for legacy / seed / manual rows.
+function TacticCell({ agentName, tacticId }: { agentName: string | null; tacticId: string | null }): JSX.Element {
+  if (!agentName) return <span className="text-[var(--text-muted)]">—</span>;
+  const dot = (
+    <span
+      aria-hidden="true"
+      className="inline-block h-2 w-2 rounded-full"
+      style={{ backgroundColor: TACTIC_PALETTE[agentName] ?? 'var(--text-muted)' }}
+    />
+  );
+  if (tacticId) {
+    return (
+      <Link
+        href={`/admin/evolution/tactics/${tacticId}`}
+        className="inline-flex items-center gap-1.5 text-[var(--text-secondary)] hover:text-[var(--accent-gold)] font-mono text-xs"
+      >
+        {dot}
+        {agentName}
+      </Link>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1.5 text-[var(--text-secondary)] font-mono text-xs">
+      {dot}
+      {agentName}
+    </span>
+  );
+}
+
 export default function ArenaTopicDetailPage(): JSX.Element {
   const { topicId } = useParams<{ topicId: string }>();
   const PAGE_SIZE = 20;
-  const [topic, setTopic] = useState<ArenaTopic | null>(null);
+  const [topic, setTopic] = useState<ArenaTopicDetail | null>(null);
   const [entries, setEntries] = useState<ArenaEntry[]>([]);
   const [totalEntries, setTotalEntries] = useState(0);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [hasMetrics, setHasMetrics] = useState(false);
+  // Fix #51: persisted column-visibility for arena leaderboard.
+  const [hiddenLbCols, setHiddenLbCols] = usePersistedHiddenColumns('evolution-arena-leaderboard-hidden-columns');
 
   // Sort state for leaderboard columns (F41)
-  type SortKey = 'elo_score' | 'uncertainty' | 'arena_match_count' | 'generation_method' | 'cost_usd';
+  // 'agent_name' added Phase 3 (track_tactic_effectiveness_evolution_20260422)
+  type SortKey = 'elo_score' | 'uncertainty' | 'arena_match_count' | 'generation_method' | 'cost_usd' | 'agent_name';
   const [sortKey, setSortKey] = useState<SortKey>('elo_score');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
 
@@ -139,6 +221,13 @@ export default function ArenaTopicDetailPage(): JSX.Element {
     load();
   }, [topicId, page]);
 
+  // Fix #50 (use_playwright_find_ux_issues_bugs_20260501): set document.title
+  // so the browser tab shows the topic name. Page is 'use client' so the
+  // server-side generateMetadata path is unavailable.
+  useEffect(() => {
+    if (topic?.name) document.title = `${topic.name} | Arena | Evolution`;
+  }, [topic?.name]);
+
   if (loading) {
     return (
       <div className="p-8 text-center text-sm font-ui text-[var(--text-muted)]">Loading...</div>
@@ -169,6 +258,8 @@ export default function ArenaTopicDetailPage(): JSX.Element {
 
       <EntityDetailHeader title={topic.name} entityId={topic.id} />
 
+      {topic.seedVariant && <ArenaSeedPanel seed={topic.seedVariant} />}
+
       <div className="bg-[var(--surface-elevated)] border border-[var(--border-default)] rounded-book p-6 space-y-4 shadow-warm-lg">
         <h2 className="text-2xl font-display font-bold text-[var(--text-primary)]">Topic Details</h2>
         <p className="text-sm font-ui text-[var(--text-secondary)] whitespace-pre-wrap">{topic.prompt}</p>
@@ -190,13 +281,32 @@ export default function ArenaTopicDetailPage(): JSX.Element {
       )}
 
       <div className="bg-[var(--surface-elevated)] border border-[var(--border-default)] rounded-book p-6 shadow-warm-lg">
-        <div className="flex items-center gap-3 mb-4">
+        <div className="flex items-center justify-between gap-3 mb-4">
           <h2 className="text-2xl font-display font-bold text-[var(--text-primary)]">Leaderboard</h2>
+          {/* Fix #51 (use_playwright_find_ux_issues_bugs_20260501): leaderboard
+              has 11+ columns. Let users hide the secondary ones. */}
+          <ColumnPicker
+            allColumns={TOGGLEABLE_LEADERBOARD_COLUMNS}
+            hidden={hiddenLbCols}
+            onChange={setHiddenLbCols}
+            testId="arena-leaderboard-column-picker"
+          />
         </div>
         {eloCutoff != null && (
-          <p className="text-xs font-ui text-[var(--text-muted)] mb-3" data-testid="cutoff-info">
-            Top 15% cutoff: {formatElo(eloCutoff)} Elo. Entries below cutoff are dimmed.
-          </p>
+          // Fix #52 (use_playwright_find_ux_issues_bugs_20260501): promote the
+          // cutoff line to a callout box so users can connect it to the dimmed
+          // rows visually. Per-row dim now also has an explanatory title attr.
+          <div
+            className="flex items-start gap-2 mb-3 p-2 rounded-book bg-[var(--surface-secondary)] border border-[var(--border-subtle)] text-xs font-ui text-[var(--text-secondary)]"
+            data-testid="cutoff-info"
+            role="note"
+          >
+            <span aria-hidden="true">ⓘ</span>
+            <span>
+              Top 15% Elo cutoff: <strong className="font-mono text-[var(--text-primary)]">{formatElo(eloCutoff)}</strong>.
+              Rows with lower Elo are <span className="opacity-50">dimmed</span> to highlight contenders.
+            </span>
+          </div>
         )}
         {entries.length === 0 ? (
           <div className="text-sm font-ui text-[var(--text-muted)] text-center py-4">
@@ -210,14 +320,18 @@ export default function ArenaTopicDetailPage(): JSX.Element {
                 <tr className="text-left text-xs text-[var(--text-muted)] uppercase tracking-wide border-b border-[var(--border-default)]">
                   <th className="py-2 pr-3">Rank</th>
                   <th className="py-2 pr-3">Content</th>
+                  <th className="py-2 pr-3">ID</th>
                   <th {...sortableThProps('elo_score')}>Elo{sortIndicator('elo_score')}</th>
-                  <th className="py-2 pr-3">95% CI</th>
-                  <th {...sortableThProps('uncertainty')}>Elo ± Uncertainty{sortIndicator('uncertainty')}</th>
-                  <th {...sortableThProps('arena_match_count')}>Matches{sortIndicator('arena_match_count')}</th>
-                  <th className="py-2 pr-3">Iteration</th>
-                  <th {...sortableThProps('generation_method')}>Method{sortIndicator('generation_method')}</th>
-                  <th className="py-2 pr-3">Parent</th>
-                  <th {...sortableThProps('cost_usd')}>Cost{sortIndicator('cost_usd')}</th>
+                  {!hiddenLbCols.has('95ci') && <th className="py-2 pr-3">95% CI</th>}
+                  {!hiddenLbCols.has('elo_unc') && <th {...sortableThProps('uncertainty')}>Elo ± Uncertainty{sortIndicator('uncertainty')}</th>}
+                  {!hiddenLbCols.has('matches') && <th {...sortableThProps('arena_match_count')}>Matches{sortIndicator('arena_match_count')}</th>}
+                  {!hiddenLbCols.has('iteration') && <th className="py-2 pr-3">Iteration</th>}
+                  {!hiddenLbCols.has('tactic') && <th {...sortableThProps('agent_name')}>Tactic{sortIndicator('agent_name')}</th>}
+                  {!hiddenLbCols.has('method') && <th {...sortableThProps('generation_method')}>Method{sortIndicator('generation_method')}</th>}
+                  {!hiddenLbCols.has('parent') && <th className="py-2 pr-3">Parent</th>}
+                  {/* U33 (use_playwright_find_bugs_ux_issues_20260422): Cost column dropped.
+                      Cost data is tracked at the invocation level, not per variant,
+                      so this column rendered `N/A` for every row. */}
                 </tr>
               </thead>
               <tbody>
@@ -227,73 +341,74 @@ export default function ArenaTopicDetailPage(): JSX.Element {
                     <tr
                       key={entry.id}
                       data-testid={`lb-row-${index}`}
+                      // Fix #52: dim-row gets a tooltip so screen-reader hover (or keyboard focus)
+                      // explains why the row is visually muted.
+                      title={isEligible ? undefined : `Below top 15% Elo cutoff (${eloCutoff != null ? formatElo(eloCutoff) : '—'})`}
                       className={`border-b border-[var(--border-default)] last:border-0 hover:bg-[var(--surface-hover)]${isEligible ? '' : ' opacity-50'}`}
                     >
                       <td className="py-2 pr-3 font-mono text-[var(--text-muted)]">{eloRankMap.get(entry.id) ?? index + 1}</td>
                       <td className="py-2 pr-3">
                         <ContentLink entryId={entry.id} content={entry.variant_content} />
                       </td>
-                      <td className="py-2 pr-3 font-mono">{formatElo(entry.elo_score)}</td>
-                      <td className="py-2 pr-3 font-mono text-[var(--text-secondary)]">
-                        {entry.elo_score != null && entry.uncertainty != null
-                          ? (formatEloCIRange(entry.elo_score, entry.uncertainty) ?? '\u2014')
-                          : '\u2014'}
-                      </td>
-                      <td className="py-2 pr-3 font-mono">
-                        {entry.elo_score != null && entry.uncertainty != null
-                          ? (formatEloWithUncertainty(entry.elo_score, entry.uncertainty) ?? '—')
-                          : '—'}
-                      </td>
-                      <td className="py-2 pr-3 font-mono">{entry.arena_match_count}</td>
-                      <td className="py-2 pr-3 font-mono text-[var(--text-muted)]">
-                        {entry.generation != null ? entry.generation : '—'}
-                      </td>
-                      <td className="py-2 pr-3 text-[var(--text-secondary)]">
-                        {entry.is_seed && (
-                          <span className="inline-block mr-1 px-1.5 py-0.5 text-xs font-semibold uppercase tracking-wider rounded bg-[var(--accent-gold)] text-[var(--surface-primary)]">
-                            seed
-                          </span>
-                        )}
-                        {entry.generation_method}
-                      </td>
                       <td className="py-2 pr-3">
-                        {(() => {
-                          if (!entry.parent_variant_id) {
-                            return (
-                              <VariantParentBadge
-                                parentId={null}
-                                parentElo={null}
-                                parentUncertainty={null}
-                                delta={null}
-                                deltaCi={null}
-                              />
-                            );
-                          }
-                          const childRating = { elo: entry.elo_score, uncertainty: entry.uncertainty ?? 0 };
-                          const parentElo = entry.parent_elo ?? null;
-                          const parentUncertainty = entry.parent_uncertainty ?? null;
-                          const { delta, ci } = parentElo != null
-                            ? bootstrapDeltaCI(childRating,
-                                { elo: parentElo, uncertainty: parentUncertainty ?? 0 })
-                            : { delta: null, ci: null };
-                          return (
-                            <VariantParentBadge
-                              parentId={entry.parent_variant_id}
-                              parentElo={parentElo}
-                              parentUncertainty={parentUncertainty}
-                              delta={delta}
-                              deltaCi={ci}
-                              crossRun={!!entry.parent_run_id && entry.parent_run_id !== entry.run_id}
-                            />
-                          );
-                        })()}
+                        <button
+                          type="button"
+                          className="font-mono text-xs text-[var(--text-muted)] hover:text-[var(--accent-gold)] cursor-pointer"
+                          title={`${entry.id} (click to copy)`}
+                          onClick={() => { void navigator.clipboard?.writeText(entry.id); }}
+                          data-testid="lb-variant-id"
+                        >
+                          {entry.id.substring(0, 8)}
+                        </button>
                       </td>
-                      <td className="py-2 font-mono">
-                        {entry.cost_usd != null
-                          ? `$${entry.cost_usd.toFixed(2)}`
-                          : <span className="text-[var(--text-muted)]" title="Cost data is tracked at the invocation level, not per variant">N/A</span>
-                        }
-                      </td>
+                      <td className="py-2 pr-3 font-mono">{formatElo(entry.elo_score)}</td>
+                      {!hiddenLbCols.has('95ci') && (
+                        <td className="py-2 pr-3 font-mono text-[var(--text-secondary)]">
+                          {entry.elo_score != null && entry.uncertainty != null
+                            ? (formatEloCIRange(entry.elo_score, entry.uncertainty) ?? '\u2014')
+                            : '\u2014'}
+                        </td>
+                      )}
+                      {!hiddenLbCols.has('elo_unc') && (
+                        <td className="py-2 pr-3 font-mono">
+                          {entry.elo_score != null && entry.uncertainty != null
+                            ? (formatEloWithUncertainty(entry.elo_score, entry.uncertainty) ?? '—')
+                            : '—'}
+                        </td>
+                      )}
+                      {!hiddenLbCols.has('matches') && (
+                        <td className="py-2 pr-3 font-mono">{entry.arena_match_count}</td>
+                      )}
+                      {!hiddenLbCols.has('iteration') && (
+                        <td className="py-2 pr-3 font-mono text-[var(--text-muted)]">
+                          {entry.generation ?? '—'}
+                        </td>
+                      )}
+                      {!hiddenLbCols.has('tactic') && (
+                        <td className="py-2 pr-3" data-testid="lb-tactic">
+                          <TacticCell agentName={entry.agent_name ?? null} tacticId={entry.tactic_id ?? null} />
+                        </td>
+                      )}
+                      {!hiddenLbCols.has('method') && (
+                        <td className="py-2 pr-3 text-[var(--text-secondary)]">
+                          {entry.is_seed && (
+                            <span
+                              className="inline-flex items-center gap-1 mr-1 px-2 py-0.5 text-xs font-bold uppercase tracking-wider rounded-full bg-[var(--accent-gold)] text-[var(--surface-primary)] shadow-warm-sm"
+                              data-testid="lb-seed-row-indicator"
+                              aria-label="This row is the seed variant"
+                            >
+                              <span aria-hidden="true">★</span>
+                              seed
+                            </span>
+                          )}
+                          {entry.generation_method}
+                        </td>
+                      )}
+                      {!hiddenLbCols.has('parent') && (
+                        <td className="py-2 pr-3">
+                          <ParentBadgeCell entry={entry} />
+                        </td>
+                      )}
                     </tr>
                   );
                 })}

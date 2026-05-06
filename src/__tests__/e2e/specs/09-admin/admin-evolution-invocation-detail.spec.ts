@@ -200,4 +200,235 @@ adminTest.describe('Evolution Invocation Detail', { tag: '@evolution' }, () => {
     await adminPage.waitForURL('**/admin/evolution/invocations', { timeout: 10000 });
     expect(adminPage.url()).toContain('/admin/evolution/invocations');
   });
+
+  // ─── Reflection wrapper invocation (develop_reflection_and_generateFromParentArticle_agent_evolution_20260430) ───
+  // Phase 9: wrapper agent's invocation detail page renders 5 tabs (Reflection Overview,
+  // Generation Overview, Metrics, Timeline, Logs) instead of the legacy single Overview.
+  // Phase 10: timeline-reflection-bar renders alongside generation/ranking bars.
+
+  let reflectInvocationId: string;
+
+  adminTest.beforeAll(async () => {
+    const sb = getServiceClient();
+    reflectInvocationId = randomUUID();
+    await sb.from('evolution_agent_invocations').insert({
+      id: reflectInvocationId,
+      run_id: runId,
+      agent_name: 'reflect_and_generate_from_previous_article',
+      iteration: 1,
+      execution_order: 2,
+      success: true,
+      cost_usd: 0.0312,
+      duration_ms: 14200,
+      execution_detail: {
+        detailType: 'reflect_and_generate_from_previous_article',
+        tactic: 'lexical_simplify',
+        surfaced: true,
+        reflection: {
+          candidatesPresented: ['structural_transform', 'lexical_simplify', 'grounding_enhance'],
+          tacticRanking: [
+            { tactic: 'lexical_simplify', reasoning: 'Article uses dense vocabulary.' },
+            { tactic: 'structural_transform', reasoning: 'Sections out of order.' },
+            { tactic: 'grounding_enhance', reasoning: 'Could use concrete examples.' },
+          ],
+          tacticChosen: 'lexical_simplify',
+          durationMs: 1800,
+          cost: 0.0008,
+        },
+        generation: {
+          cost: 0.0214,
+          promptLength: 6232,
+          textLength: 5891,
+          formatValid: true,
+          durationMs: 8400,
+        },
+        ranking: {
+          cost: 0.0090,
+          localPoolSize: 5,
+          initialTop15Cutoff: 1200,
+          comparisons: [],
+          stopReason: 'converged',
+          totalComparisons: 7,
+          finalLocalElo: 1247,
+          finalLocalUncertainty: 38,
+          durationMs: 4000,
+        },
+        totalCost: 0.0312,
+      },
+    });
+    invocationIds.push(reflectInvocationId);
+  });
+
+  adminTest('wrapper invocation: 5 tabs render (Reflection Overview, Generation Overview, Metrics, Timeline, Logs)', async ({ adminPage }) => {
+    await adminPage.goto(`/admin/evolution/invocations/${reflectInvocationId}`);
+    await adminPage.waitForLoadState('domcontentloaded');
+
+    // All 5 tabs visible.
+    await expect(adminPage.locator('[data-testid="tab-overview-reflection"]')).toBeVisible({ timeout: 15000 });
+    await expect(adminPage.locator('[data-testid="tab-overview-gfpa"]')).toBeVisible();
+    await expect(adminPage.locator('[data-testid="tab-metrics"]')).toBeVisible();
+    await expect(adminPage.locator('[data-testid="tab-timeline"]')).toBeVisible();
+    await expect(adminPage.locator('[data-testid="tab-logs"]')).toBeVisible();
+
+    // No single "Overview" tab (the wrapper splits it into two).
+    await expect(adminPage.locator('[data-testid="tab-overview"]')).not.toBeVisible();
+  });
+
+  adminTest('wrapper invocation: Reflection Overview tab renders tactic chosen + ranking', async ({ adminPage }) => {
+    await adminPage.goto(`/admin/evolution/invocations/${reflectInvocationId}`);
+    await adminPage.waitForLoadState('domcontentloaded');
+    await expect(adminPage.locator('[data-testid="tab-overview-reflection"]')).toBeVisible({ timeout: 15000 });
+
+    // Reflection Overview tab is active by default (first in the wrapper's tab list).
+    const reflectionTab = adminPage.locator('[data-testid="reflection-overview-tab"]');
+    await expect(reflectionTab).toBeVisible();
+
+    // The chosen tactic shows in the metric grid.
+    await expect(reflectionTab).toContainText('lexical_simplify');
+  });
+
+  adminTest('wrapper invocation: Generation Overview tab renders generation/ranking detail', async ({ adminPage }) => {
+    await adminPage.goto(`/admin/evolution/invocations/${reflectInvocationId}`);
+    await adminPage.waitForLoadState('domcontentloaded');
+
+    // Click Generation Overview tab.
+    const gfpaTab = adminPage.locator('[data-testid="tab-overview-gfpa"]');
+    await expect(gfpaTab).toBeVisible({ timeout: 15000 });
+    await gfpaTab.click();
+
+    // The Generation Overview content is visible.
+    const gfpaPanel = adminPage.locator('[data-testid="generation-overview-tab"]');
+    await expect(gfpaPanel).toBeVisible();
+  });
+
+  adminTest('wrapper invocation: Timeline tab renders 3-phase bar (reflection + generation + ranking)', async ({ adminPage }) => {
+    await adminPage.goto(`/admin/evolution/invocations/${reflectInvocationId}`);
+    await adminPage.waitForLoadState('domcontentloaded');
+
+    const timelineTab = adminPage.locator('[data-testid="tab-timeline"]');
+    await expect(timelineTab).toBeVisible({ timeout: 15000 });
+    await timelineTab.click();
+
+    // All 3 phase bars present (per Phase 10 — reflection bar is the new addition).
+    await expect(adminPage.locator('[data-testid="timeline-reflection-bar"]')).toBeVisible({ timeout: 10000 });
+    await expect(adminPage.locator('[data-testid="timeline-generation-bar"]')).toBeVisible();
+    await expect(adminPage.locator('[data-testid="timeline-ranking-bar"]')).toBeVisible();
+  });
+
+  // ─── evaluate_criteria_then_generate Eval & Suggest tab ───────────────
+  // fixes_to_evolution_admin_dashboard__20260503 Issue 4: Eval & Suggest tab
+  // renders Suggestions table including Example/Issue/Fix columns; long
+  // passages wrap (cellClassName); empty parser fields render as em-dash.
+
+  let evalCriteriaInvocationId: string;
+
+  adminTest.beforeAll(async () => {
+    const sb = getServiceClient();
+    evalCriteriaInvocationId = randomUUID();
+    await sb.from('evolution_agent_invocations').insert({
+      id: evalCriteriaInvocationId,
+      run_id: runId,
+      agent_name: 'evaluate_criteria_then_generate_from_previous_article',
+      iteration: 2,
+      execution_order: 0,
+      success: true,
+      cost_usd: 0.045,
+      duration_ms: 18000,
+      execution_detail: {
+        detailType: 'evaluate_criteria_then_generate_from_previous_article',
+        tactic: 'criteria_driven',
+        surfaced: true,
+        weakestCriteriaIds: ['c1-uuid', 'c2-uuid'],
+        weakestCriteriaNames: ['clarity', 'depth'],
+        evaluateAndSuggest: {
+          cost: 0.012,
+          durationMs: 4800,
+          criteriaScored: [
+            { criteriaName: 'clarity', score: 2, minRating: 1, maxRating: 5 },
+            { criteriaName: 'depth', score: 3, minRating: 1, maxRating: 5 },
+            { criteriaName: 'engagement', score: 4, minRating: 1, maxRating: 5 },
+          ],
+          suggestions: [
+            {
+              criteriaName: 'clarity',
+              examplePassage: 'The widget thingamajig wibbles when poked, sometimes producing notable effects.',
+              whatNeedsAddressing: 'The sentence uses vague terms (widget, thingamajig, wibbles) without grounding them.',
+              suggestedFix: 'Replace abstract terms with concrete nouns and explain the mechanism.',
+            },
+            {
+              // Issue 4 regression case: empty Example field — must still render with em-dash.
+              criteriaName: 'depth',
+              examplePassage: '',
+              whatNeedsAddressing: 'The depth criterion was scored low but no example passage was extracted.',
+              suggestedFix: 'Add detail about underlying mechanisms.',
+            },
+          ],
+          droppedSuggestions: [],
+        },
+        generation: { cost: 0.022, promptLength: 7400, textLength: 6200, formatValid: true, durationMs: 9200 },
+        ranking: { cost: 0.011, localPoolSize: 4, initialTop15Cutoff: 1200, comparisons: [], stopReason: 'converged', totalComparisons: 5, finalLocalElo: 1265, finalLocalUncertainty: 32, durationMs: 4000 },
+        totalCost: 0.045,
+      },
+    });
+    invocationIds.push(evalCriteriaInvocationId);
+  });
+
+  // Helper: navigate to the seeded invocation, confirm Eval & Suggest tab is
+  // the default active tab, expand the InvocationExecutionDetail (collapsed by
+  // default), and return a locator for the suggestions field.
+  async function openSuggestionsField(adminPage: import('@playwright/test').Page) {
+    await adminPage.goto(`/admin/evolution/invocations/${evalCriteriaInvocationId}`);
+    await adminPage.waitForLoadState('domcontentloaded');
+
+    // Wrapper layout puts Eval & Suggest first → it's auto-active. Verify the
+    // tab exists (catches a regression that would silently fall back to the
+    // single Overview layout).
+    const evalTab = adminPage.getByRole('tab', { name: 'Eval & Suggest' });
+    await expect(evalTab).toBeVisible({ timeout: 15000 });
+
+    // Execution detail is collapsed by default — click Expand to render fields.
+    const toggle = adminPage.locator('[data-testid="toggle-detail"]');
+    await expect(toggle).toBeVisible({ timeout: 10000 });
+    await toggle.click();
+
+    return adminPage.locator('[data-testid="field-evaluateAndSuggest.suggestions"]');
+  }
+
+  adminTest('Issue 4: Eval & Suggest tab renders suggestions table with all 4 columns', async ({ adminPage }) => {
+    const suggestionsField = await openSuggestionsField(adminPage);
+    await expect(suggestionsField).toBeVisible({ timeout: 10000 });
+
+    // All four columns headers visible.
+    await expect(suggestionsField).toContainText('Criterion');
+    await expect(suggestionsField).toContainText('Example');
+    await expect(suggestionsField).toContainText('Issue');
+    await expect(suggestionsField).toContainText('Fix');
+
+    // Suggestion 1 with full text visible.
+    await expect(suggestionsField).toContainText('clarity');
+    await expect(suggestionsField).toContainText('widget thingamajig');
+    await expect(suggestionsField).toContainText('Replace abstract terms');
+  });
+
+  adminTest('Issue 4: empty examplePassage renders as em-dash (parser permissive-mode output)', async ({ adminPage }) => {
+    const suggestionsField = await openSuggestionsField(adminPage);
+    await expect(suggestionsField).toBeVisible({ timeout: 10000 });
+
+    // The "depth" suggestion has examplePassage='' — should render as em-dash.
+    // Auto-retrying assertion via Locator.filter handles hydration timing.
+    const depthRow = suggestionsField.locator('tr').filter({ hasText: 'depth' }).first();
+    await expect(depthRow).toContainText('—');
+    await expect(depthRow).toContainText('depth criterion was scored low');
+  });
+
+  adminTest('Issue 4: suggestions table cells use cellClassName (max-w-md break-words)', async ({ adminPage }) => {
+    const suggestionsField = await openSuggestionsField(adminPage);
+    await expect(suggestionsField).toBeVisible({ timeout: 10000 });
+
+    // Inspect the first body cell to confirm the wrapping classes are applied.
+    const firstCell = suggestionsField.locator('tbody td').first();
+    // Use toHaveClass with a regex so Playwright auto-retries through hydration.
+    await expect(firstCell).toHaveClass(/max-w-md/);
+    await expect(firstCell).toHaveClass(/break-words/);
+  });
 });

@@ -18,6 +18,7 @@ import {
 import { LogsTab } from '@evolution/components/evolution/tabs/LogsTab';
 import { VariantsTab } from '@evolution/components/evolution/tabs/VariantsTab';
 import { AttributionCharts } from '@evolution/components/evolution/tabs/AttributionCharts';
+import { TacticStrategyPerformanceTable } from '@evolution/components/evolution/tabs/TacticStrategyPerformanceTable';
 import { StrategyConfigDisplay } from '@/app/admin/evolution/_components/StrategyConfigDisplay';
 import {
   getStrategyDetailAction,
@@ -30,12 +31,15 @@ import {
 import { EntityTable, type ColumnDef } from '@evolution/components/evolution';
 import { StatusBadge } from '@evolution/components/evolution';
 import { buildRunUrl } from '@evolution/lib/utils/evolutionUrls';
+import { formatDate } from '@evolution/lib/utils/formatters';
 
 // Inline runs tab for strategy detail
+// U15 (use_playwright_find_bugs_ux_issues_20260422): use formatDate (consistent with
+// other Evolution list pages — runs/prompts/experiments/arena/invocations).
 const RUN_COLUMNS: ColumnDef<EvolutionRun>[] = [
   { key: 'id', header: 'ID', render: (r) => <span className="font-mono text-xs text-[var(--accent-gold)]">{r.id.substring(0, 8)}</span> },
   { key: 'status', header: 'Status', render: (r) => <StatusBadge variant="run-status" status={r.status} hasError={!!r.error_message} /> },
-  { key: 'created_at', header: 'Created', render: (r) => new Date(r.created_at).toLocaleDateString() },
+  { key: 'created_at', header: 'Created', render: (r) => formatDate(r.created_at) },
 ];
 
 function StrategyRunsTab({ strategyId }: { strategyId: string }): JSX.Element {
@@ -54,6 +58,10 @@ function StrategyRunsTab({ strategyId }: { strategyId: string }): JSX.Element {
 // Inline variants tab for strategy detail — fetches runs then loads variants for each run.
 const TABS: TabDef[] = [
   { id: 'metrics', label: 'Metrics' },
+  // Phase 4 (track_tactic_effectiveness_evolution_20260422) — position 2, between
+  // Metrics and Cost Estimates. Natural mental hierarchy: metrics → per-tactic breakdown
+  // → cost detail → per-run drill-in.
+  { id: 'tactics', label: 'Tactics' },
   { id: 'cost-estimates', label: 'Cost Estimates' },
   { id: 'runs', label: 'Runs' },
   { id: 'variants', label: 'Variants' },
@@ -135,6 +143,7 @@ export default function StrategyDetailPage(): JSX.Element {
             <AttributionCharts entityType="strategy" entityId={strategyId} />
           </div>
         )}
+        {activeTab === 'tactics' && <TacticStrategyPerformanceTable strategyId={strategyId} />}
         {activeTab === 'cost-estimates' && <CostEstimatesTab entityType="strategy" entityId={strategyId} />}
         {activeTab === 'runs' && <StrategyRunsTab strategyId={strategyId} />}
         {activeTab === 'variants' && <VariantsTab strategyId={strategyId} />}

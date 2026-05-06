@@ -74,7 +74,7 @@ describe('computeTop15Cutoff', () => {
     expect(computeTop15Cutoff(m)).toBe(1280);
   });
 
-  it('returns the top-15% (top 1 of 7) elo', () => {
+  it('returns the top-15% (top 2 of 7) cutoff elo', () => {
     const m = new Map<string, Rating>([
       ['a', { elo: 960, uncertainty: 80 }],
       ['b', { elo: 1120, uncertainty: 80 }],
@@ -84,8 +84,29 @@ describe('computeTop15Cutoff', () => {
       ['f', { elo: 1760, uncertainty: 80 }],
       ['g', { elo: 1920, uncertainty: 80 }],
     ]);
-    // floor(7 * 0.15) = 1, idx = max(0, 1-1) = 0 → elos[0] = 1920 (sorted desc)
-    expect(computeTop15Cutoff(m)).toBe(1920);
+    // B121: ceil(7 * 0.15) = 2, idx = min(6, max(0, 2-1)) = 1 → elos[1] = 1760
+    // (top 2 of 7 sorted desc → cutoff is the 2nd-best).
+    expect(computeTop15Cutoff(m)).toBe(1760);
+  });
+
+  it('B121: small pools return top-N cutoff, not just the single best', () => {
+    // For n=4, ceil(4 * 0.15) = 1, idx = 0 → elos[0] (the best). n=4 rounds to "top 1 of 4".
+    const m4 = new Map<string, Rating>([
+      ['a', { elo: 1000, uncertainty: 80 }],
+      ['b', { elo: 1200, uncertainty: 80 }],
+      ['c', { elo: 1400, uncertainty: 80 }],
+      ['d', { elo: 1600, uncertainty: 80 }],
+    ]);
+    expect(computeTop15Cutoff(m4)).toBe(1600);
+    // For n=2, ceil(2 * 0.15) = 1, idx = 0 → elos[0]. Before B121, n=2 gave
+    // idx = max(0, floor(0.3) - 1) = 0 → also elos[0], but for n=3,4,5,6 the
+    // old formula collapsed to idx=0 while the corrected formula still does.
+    // The clearer B121 improvement is in medium-small pools (n=7..13) where the
+    // old floor formula picked the top-1 and the new ceil formula picks top-2.
+    const m7 = new Map<string, Rating>();
+    for (let i = 0; i < 7; i++) m7.set(String(i), { elo: 1000 + i * 100, uncertainty: 80 });
+    // Sorted desc: 1600, 1500, 1400, ..., 1000. Top-2 cutoff = 1500.
+    expect(computeTop15Cutoff(m7)).toBe(1500);
   });
 });
 

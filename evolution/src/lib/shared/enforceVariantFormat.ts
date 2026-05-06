@@ -18,7 +18,10 @@ Start with a single H1 title using the Markdown "# Title" syntax. Use Markdown h
 const BULLET_PATTERN = /^\s*[-*+]\s/m;
 const NUMBERED_LIST_PATTERN = /^\s*\d+[.)]\s/m;
 const TABLE_PATTERN = /^\|.+\|/m;
-const HORIZONTAL_RULE_PATTERN = /^\s*[-*_](\s*[-*_]){2,}\s*$/m;
+// B001-S6: needs `g` flag — without it, `.replace` strips only the FIRST horizontal
+// rule, leaving subsequent ones intact. Articles with multiple section dividers (`---`)
+// would then trip downstream bullet-pattern rejection on the surviving rules.
+const HORIZONTAL_RULE_PATTERN = /^\s*[-*_](\s*[-*_]){2,}\s*$/gm;
 // Matches sentence-ending punctuation, excluding common abbreviations (Dr., Mr., etc.)
 const SENTENCE_END_PATTERN = /(?<!\b(?:Dr|Mr|Mrs|Ms|Jr|Sr|vs|etc|e\.g|i\.e|U\.S|Prof|Gen|Gov|Rev|St|Lt|Sgt|Corp|Inc|Ltd|Co|No|Vol|Fig|approx))[.!?][""\u201d\u2019]?(?:\s|$)/g;
 
@@ -30,8 +33,16 @@ const SENTENCE_END_PATTERN = /(?<!\b(?:Dr|Mr|Mrs|Ms|Jr|Sr|vs|etc|e\.g|i\.e|U\.S|
 export function stripCodeBlocks(text: string): string {
   let result = text.replace(/```[\s\S]*?```/g, '');
   const remainingFences = (result.match(/```/g) ?? []).length;
-  if (remainingFences > 0) {
-    result = result.replace(/```[\s\S]*$/, '');
+  // B036: previously greedily stripped everything after ANY remaining fence — which
+  // also wiped out legitimate prose if a lone backtick triplet appeared inside a
+  // blockquote / list item / nested context. Tighten the guard: only strip the
+  // "trailing unclosed block" when the remaining fence count is odd (a real unclosed
+  // opener) AND the fence starts at column 0 of a line (a top-level code block, not an
+  // incidental ` ``` ` inside quoted prose). If the fence is indented or inside a
+  // blockquote, leave it for format validation to handle — it was never a real
+  // code-block opener.
+  if (remainingFences > 0 && remainingFences % 2 === 1) {
+    result = result.replace(/^```[\s\S]*$/m, '');
   }
   return result;
 }
@@ -114,8 +125,17 @@ export interface FormatResult {
   issues: string[];
 }
 
+// B037: capture FORMAT_VALIDATION_MODE at module load time so a mid-process env change
+// (SIGHUP-style reload, test env mutation after import) doesn't silently flip validation
+// behavior. Tests that need per-test mode overrides must call
+// `_reloadValidationModeForTesting()` to re-read process.env.
+let FORMAT_VALIDATION_MODE_CACHED = (process.env.FORMAT_VALIDATION_MODE ?? 'reject').toLowerCase();
 function getValidationMode(): string {
-  return (process.env.FORMAT_VALIDATION_MODE ?? 'reject').toLowerCase();
+  return FORMAT_VALIDATION_MODE_CACHED;
+}
+/** Test-only: re-read FORMAT_VALIDATION_MODE from env. Do not use in prod code. */
+export function _reloadValidationModeForTesting(): void {
+  FORMAT_VALIDATION_MODE_CACHED = (process.env.FORMAT_VALIDATION_MODE ?? 'reject').toLowerCase();
 }
 
 function findH1Lines(lines: string[]): number[] {

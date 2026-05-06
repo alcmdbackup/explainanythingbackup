@@ -150,6 +150,26 @@ function StrategyCostEstimatesView({ strategyId }: { strategyId: string }): JSX.
     return Math.sqrt(variance / n);
   })();
 
+  const avgErrorValue = ((): React.ReactNode => {
+    if (summary.errorPct == null) return '—';
+    if (errorPctSE != null) {
+      // Fix #43 (use_playwright_find_ux_issues_bugs_20260501): if SE is large
+      // relative to the mean, the central tendency is unreliable. Render the
+      // SE in a muted color and add a tooltip warning so users don't read the
+      // bare number with false confidence.
+      const isHighVariance = Math.abs(summary.errorPct) > 0 && errorPctSE > 1.5 * Math.abs(summary.errorPct);
+      const seClass = isHighVariance ? 'text-[var(--text-muted)] italic' : '';
+      const seTitle = isHighVariance ? 'High variance — SE > 1.5× |mean|. Interpret with care.' : undefined;
+      return (
+        <span className="font-mono">
+          {formatPctWithTone(summary.errorPct)}{' '}
+          <span className={seClass} title={seTitle}>± {errorPctSE.toFixed(1)}%</span>
+        </span>
+      );
+    }
+    return formatPctWithTone(summary.errorPct);
+  })();
+
   return (
     <div className="space-y-6" data-testid="cost-estimates-tab">
       <SummarySection
@@ -157,15 +177,7 @@ function StrategyCostEstimatesView({ strategyId }: { strategyId: string }): JSX.
           { id: 'runCount', label: 'Runs', value: String(summary.runCount) },
           { id: 'totalCost', label: 'Total Cost', value: formatCostMaybe(summary.totalCost) },
           { id: 'estimatedCost', label: 'Total Estimated', value: formatCostMaybe(summary.estimatedCost) },
-          {
-            id: 'errorPct',
-            label: 'Avg Error %',
-            value: summary.errorPct == null
-              ? '—'
-              : errorPctSE != null
-                ? <span className="font-mono">{formatPctWithTone(summary.errorPct)} ± {errorPctSE.toFixed(1)}%</span>
-                : formatPctWithTone(summary.errorPct),
-          },
+          { id: 'errorPct', label: 'Avg Error %', value: avgErrorValue },
           { id: 'withEst', label: 'Runs w/ Estimates', value: String(summary.runsWithEstimates) },
         ]}
       />
@@ -190,6 +202,14 @@ function SummarySection({ items }: { items: MetricItem[] }): JSX.Element {
   );
 }
 
+// U11 (use_playwright_find_bugs_ux_issues_20260422): per-row tooltip lookup
+// for the Coverage column. Header tooltip uses a condensed form of the same.
+const COVERAGE_TITLES: Record<string, string> = {
+  'est+act': 'Both estimate and actual cost recorded',
+  'actual-only': 'Only actual recorded (no estimate)',
+  'no-llm': 'Agent made no LLM calls (e.g. MergeRatingsAgent)',
+};
+
 function CostByAgentSection({ rows }: { rows: CostByAgentRow[] }): JSX.Element {
   return (
     <div data-testid="cost-estimates-by-agent">
@@ -206,7 +226,14 @@ function CostByAgentSection({ rows }: { rows: CostByAgentRow[] }): JSX.Element {
                 <th className="py-2 pr-4 text-right">Estimated</th>
                 <th className="py-2 pr-4 text-right">Actual</th>
                 <th className="py-2 pr-4 text-right">Error %</th>
-                <th className="py-2">Coverage</th>
+                {/* U11 (use_playwright_find_bugs_ux_issues_20260422): header tooltip
+                    explains the Coverage codes. Per-row tooltips repeat the decode. */}
+                <th
+                  className="py-2"
+                  title="est+act = both estimate and actual cost are recorded; actual-only = only actual (no estimate); no-llm = agent makes no LLM calls (e.g. MergeRatingsAgent)"
+                >
+                  Coverage
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -223,7 +250,10 @@ function CostByAgentSection({ rows }: { rows: CostByAgentRow[] }): JSX.Element {
                   <td className="py-1.5 pr-4 text-right font-mono">
                     {r.errorPct != null ? formatPctWithToneText(r.errorPct) : '—'}
                   </td>
-                  <td className="py-1.5 font-mono text-xs text-[var(--text-secondary)]">
+                  <td
+                    className="py-1.5 font-mono text-xs text-[var(--text-secondary)]"
+                    title={COVERAGE_TITLES[r.coverage] ?? ''}
+                  >
                     {r.coverage}
                   </td>
                 </tr>
@@ -282,7 +312,7 @@ function BudgetFloorSensitivitySection({
       )}
       {edge === 'ceiling_binding' && (
         <Badge tone="info" testId="sensitivity-ceiling">
-          numVariants ceiling binding in both scenarios — Δ = 0.
+          Dispatch safety cap binding in both scenarios — Δ = 0.
         </Badge>
       )}
 
@@ -320,12 +350,10 @@ function BudgetFloorSensitivitySection({
           </table>
           <p className="mt-3 text-sm text-[var(--text-secondary)]">
             {underOrOver === 'under' ? 'Under' : 'Over'}-estimating agent cost by {formatPercentNumber(driftAbs)} caused this run to{' '}
-            {deltaInvocations === 0 ? 'dispatch the same number of' :
-              deltaInvocations < 0 ? `dispatch ${Math.abs(deltaInvocations)} fewer` :
-              `dispatch ${deltaInvocations} more`}{' '}
-            sequential GFSA invocation{deltaInvocations === 1 || deltaInvocations === -1 ? '' : 's'}
+            {describeDispatchDelta(deltaInvocations)}{' '}
+            sequential GFSA invocation{Math.abs(deltaInvocations) === 1 ? '' : 's'}
             {actual.sequentialWallMs != null && projected.sequentialWallMs != null ? (
-              <> and finish {deltaMs < 0 ? `~${formatMsDelta(Math.abs(deltaMs))} sooner` : deltaMs > 0 ? `~${formatMsDelta(deltaMs)} later` : 'at the same wall time'} than it would have with an accurate cost estimate.</>
+              <> and finish {describeWallDelta(deltaMs)} than it would have with an accurate cost estimate.</>
             ) : '.'}
           </p>
           <button
@@ -363,12 +391,24 @@ ${sensitivity.medianSequentialGfsaDurationMs != null
 function ErrorHistogramSection({ histogram, title }: { histogram: HistogramBucket[]; title: string }): JSX.Element {
   const maxCount = Math.max(1, ...histogram.map((b) => b.count));
   const totalCount = histogram.reduce((a, b) => a + b.count, 0);
+  // Fix #39 (use_playwright_find_ux_issues_bugs_20260501): when ALL data falls
+  // into a single fixed bucket, the histogram becomes a degenerate single bar
+  // that conveys no distribution shape. Annotate the situation so users know to
+  // re-calibrate buckets rather than assuming the visual is meaningful.
+  const populatedBuckets = histogram.filter((b) => b.count > 0);
+  const isDegenerate = totalCount > 0 && populatedBuckets.length === 1;
   return (
     <div data-testid="cost-estimates-histogram">
       <h3 className="text-xl font-display font-medium text-[var(--text-secondary)] mb-2">{title}</h3>
       {totalCount === 0 ? (
         <p className="text-sm text-[var(--text-secondary)]">No estimation error data.</p>
       ) : (
+        <>
+        {isDegenerate && (
+          <p className="text-xs italic text-[var(--text-muted)] mb-2" data-testid="histogram-degenerate-note">
+            All {totalCount} invocation{totalCount === 1 ? '' : 's'} fell into the {populatedBuckets[0]!.label} bucket. The fixed buckets aren't capturing distribution shape — re-calibrate if you need finer detail.
+          </p>
+        )}
         <div className="flex items-end gap-3">
           {histogram.map((b) => {
             const height = Math.max(2, Math.round((b.count / maxCount) * 80));
@@ -385,6 +425,7 @@ function ErrorHistogramSection({ histogram, title }: { histogram: HistogramBucke
             );
           })}
         </div>
+        </>
       )}
     </div>
   );
@@ -398,10 +439,15 @@ function PerIterationSummarySection({ invocations }: { invocations: RunCostEstim
       const entry = map.get(iter) ?? { type: '—', allocated: 0, spent: 0, count: 0 };
       entry.count += 1;
       entry.spent += inv.totalCost ?? 0;
-      // Infer type from agent name
+      // Infer type from agent name. Order matters:
+      //  - Reflect+Gen wrapper exact-match first (its name contains 'generate').
+      //  - Then 'edit' (iterative_editing per-call labels contain 'edit' but not 'generate').
+      //  - Then swiss / generate substring matches.
       const name = inv.agentName.toLowerCase();
-      if (name.includes('generate')) entry.type = 'generate';
+      if (name === 'reflect_and_generate_from_previous_article') entry.type = 'reflect_generate';
+      else if (name.includes('edit')) entry.type = 'iterative_editing';
       else if (name.includes('swiss')) entry.type = 'swiss';
+      else if (name.includes('generate')) entry.type = 'generate';
       map.set(iter, entry);
     }
     return Array.from(map.entries()).sort(([a], [b]) => a - b);
@@ -430,9 +476,10 @@ function PerIterationSummarySection({ invocations }: { invocations: RunCostEstim
                   <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider ${
                     s.type === 'generate' ? 'bg-blue-500/20 text-blue-400' :
                     s.type === 'swiss' ? 'bg-purple-500/20 text-purple-400' :
+                    s.type === 'reflect_generate' ? 'bg-amber-500/20 text-amber-400' :
                     'bg-gray-500/20 text-gray-400'
                   }`}>
-                    {s.type}
+                    {s.type === 'reflect_generate' ? 'reflect+gen' : s.type}
                   </span>
                 </td>
                 <td className="py-1.5 pr-3 text-right font-mono">{s.count}</td>
@@ -502,7 +549,12 @@ function CostPerInvocationSection({ invocations }: { invocations: RunCostEstimat
               <tr className="text-left border-b border-[var(--border-default)]">
                 <th className="py-2 pr-3">Iter</th>
                 <th className="py-2 pr-3">Agent</th>
-                <th className="py-2 pr-3">Strategy</th>
+                {/* U10 (use_playwright_find_bugs_ux_issues_20260422): the cell
+                    actually renders r.tactic (e.g. 'engagement_amplify') —
+                    not the strategy — so the header was mislabeled. Renaming to
+                    "Tactic" makes the column meaningful for generate_from_previous_article
+                    invocations (other agents render as '—', which is honest). */}
+                <th className="py-2 pr-3" title="Tactic the generate agent used (null for non-generate agents)">Tactic</th>
                 <th className="py-2 pr-3 text-right">Gen Est</th>
                 <th className="py-2 pr-3 text-right">Gen Actual</th>
                 <th className="py-2 pr-3 text-right">Rank Est</th>
@@ -632,11 +684,31 @@ function RunsTableSection({ runs }: { runs: StrategyCostEstimates['runs'] }): JS
 // ─── Shared primitives ───────────────────────────────────────────
 
 function LoadingSkeleton(): JSX.Element {
+  // Fix #37 (use_playwright_find_ux_issues_bugs_20260501): match the actual layout
+  // (5 summary cards + cost-by-agent table + per-iteration table) so the user
+  // sees a structured loading state instead of three undifferentiated grey blocks.
   return (
-    <div className="space-y-4" data-testid="cost-estimates-loading">
-      {[1, 2, 3].map((i) => (
-        <div key={i} className="h-24 bg-[var(--surface-elevated)] rounded-book animate-pulse" />
-      ))}
+    <div className="space-y-6" data-testid="cost-estimates-loading">
+      {/* Summary cards row */}
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+        {[1, 2, 3, 4, 5].map((i) => (
+          <div key={i} className="h-16 bg-[var(--surface-elevated)] rounded-book animate-pulse" />
+        ))}
+      </div>
+      {/* Section heading + table skeleton (cost-by-agent) */}
+      <div className="space-y-2">
+        <div className="h-6 w-40 bg-[var(--surface-elevated)] rounded animate-pulse" />
+        {[1, 2, 3].map((i) => (
+          <div key={i} className="h-8 bg-[var(--surface-elevated)] rounded animate-pulse" />
+        ))}
+      </div>
+      {/* Per-iteration table skeleton */}
+      <div className="space-y-2">
+        <div className="h-6 w-48 bg-[var(--surface-elevated)] rounded animate-pulse" />
+        {[1, 2, 3, 4].map((i) => (
+          <div key={i} className="h-7 bg-[var(--surface-elevated)] rounded animate-pulse" />
+        ))}
+      </div>
     </div>
   );
 }
@@ -704,6 +776,18 @@ function formatMs(ms: number): string {
 
 function formatMsDelta(ms: number): string {
   return formatMs(Math.abs(ms));
+}
+
+function describeDispatchDelta(delta: number): string {
+  if (delta === 0) return 'dispatch the same number of';
+  if (delta < 0) return `dispatch ${Math.abs(delta)} fewer`;
+  return `dispatch ${delta} more`;
+}
+
+function describeWallDelta(deltaMs: number): string {
+  if (deltaMs < 0) return `~${formatMsDelta(Math.abs(deltaMs))} sooner`;
+  if (deltaMs > 0) return `~${formatMsDelta(deltaMs)} later`;
+  return 'at the same wall time';
 }
 
 // Silence unused import when the file is bundled — formatPercent retained for future use.

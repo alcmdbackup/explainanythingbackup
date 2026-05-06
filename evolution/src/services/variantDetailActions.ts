@@ -40,6 +40,15 @@ export interface VariantFullDetail {
   runCreatedAt: string;
   /** Whether this variant survived to the final pool. False = discarded by its owning generate agent. */
   persisted: boolean;
+  /**
+   * UUID of the agent invocation that produced this variant. NULL for variants
+   * created before migration 20260418000003 (no backfill). Distinct from
+   * `agentName` above — for wrapper agents (reflect_and_generate,
+   * evaluate_criteria_then_generate), `agentName` reflects the inner GFPA
+   * tactic while `agentInvocationName` reflects the wrapper invocation.
+   */
+  agentInvocationId: string | null;
+  agentInvocationName: string | null;
 }
 
 export interface VariantRelative {
@@ -96,9 +105,14 @@ export const getVariantFullDetailAction = adminAction('getVariantFullDetailActio
   if (!validateUuid(variantId)) throw new Error('Invalid variantId');
   const { supabase } = ctx;
 
+  // PostgREST embedded select on the agent_invocation_id FK:
+  // - One-to-one relationship → returns object (or null when FK is NULL)
+  // - PostgREST may return either `null`, a single object, or a 1-element array
+  //   depending on the relationship cardinality it infers. Handle all three
+  //   defensively in the consumer.
   const { data: variant, error } = await supabase
     .from('evolution_variants')
-    .select('*')
+    .select('*, evolution_agent_invocations(id, agent_name)')
     .eq('id', variantId)
     .single();
 
@@ -113,6 +127,13 @@ export const getVariantFullDetailAction = adminAction('getVariantFullDetailActio
       ? supabase.from('evolution_variants').select('mu, sigma, elo_score, run_id').eq('id', variant.parent_variant_id).single()
       : Promise.resolve({ data: null, error: null }),
   ]);
+
+  // Normalize embedded invocation: PostgREST may return null, an object, or array.
+  const rawInv = (variant as { evolution_agent_invocations?: unknown }).evolution_agent_invocations;
+  const inv = Array.isArray(rawInv) ? rawInv[0] : rawInv;
+  const invocation = (inv && typeof inv === 'object')
+    ? inv as { id?: string; agent_name?: string }
+    : null;
 
   const uncertainty = liftUncertainty(variant);
   return {
@@ -138,6 +159,8 @@ export const getVariantFullDetailAction = adminAction('getVariantFullDetailActio
     runCreatedAt: runResult.data?.created_at ?? variant.created_at,
     // Default to true for legacy variants written before the persisted column existed.
     persisted: variant.persisted ?? true,
+    agentInvocationId: invocation?.id ?? null,
+    agentInvocationName: invocation?.agent_name ?? null,
   };
 });
 
@@ -167,7 +190,7 @@ export const getVariantParentsAction = adminAction('getVariantParentsAction', as
 
   if (error || !parent) return [];
 
-  const parentUncertainty = liftUncertainty(parent as { mu?: number | null; sigma?: number | null });
+  const parentUncertainty = liftUncertainty(parent);
   return [{
     id: parent.id,
     eloScore: parent.elo_score,
@@ -198,7 +221,7 @@ export const getVariantChildrenAction = adminAction('getVariantChildrenAction', 
   if (error) throw error;
 
   return (data ?? []).map(v => {
-    const u = liftUncertainty(v as { mu?: number | null; sigma?: number | null });
+    const u = liftUncertainty(v);
     return {
       id: v.id,
       eloScore: v.elo_score,
@@ -213,12 +236,61 @@ export const getVariantChildrenAction = adminAction('getVariantChildrenAction', 
 
 // ─── 4. Variant Match History ──────────────────────────────────
 
+/**
+ * Returns the pairwise match history for a variant by querying
+ * evolution_arena_comparisons for rows where the variant participated as
+ * either entry_a or entry_b. Opponent ELO/uncertainty are batch-fetched from
+ * evolution_variants (single round-trip).
+ *
+ * Filter pattern: `.or('entry_a.eq.<id>,entry_b.eq.<id>')`. Safe against
+ * PostgREST filter-injection because `validateUuid` upstream restricts the
+ * variantId to `[0-9a-f-]` only — no operator chars can pass through.
+ */
 export const getVariantMatchHistoryAction = adminAction('getVariantMatchHistoryAction', async (
-  _variantId: string,
-  _ctx: AdminContext,
+  variantId: string,
+  ctx: AdminContext,
 ): Promise<VariantMatchEntry[]> => {
-  // V2: match history not persisted per-variant — aggregated in run_summary JSONB
-  return [];
+  if (!validateUuid(variantId)) throw new Error('Invalid variantId');
+  const { supabase } = ctx;
+
+  const { data: comparisons, error } = await supabase
+    .from('evolution_arena_comparisons')
+    .select('id, entry_a, entry_b, winner, confidence, created_at')
+    .or(`entry_a.eq.${variantId},entry_b.eq.${variantId}`)
+    .order('created_at', { ascending: false })
+    .limit(1000);
+  if (error) throw error;
+  if (!comparisons || comparisons.length === 0) return [];
+
+  const opponentIds = Array.from(new Set(
+    comparisons.map((c) => (c.entry_a === variantId ? c.entry_b : c.entry_a)),
+  ));
+
+  const { data: opponents, error: oppError } = await supabase
+    .from('evolution_variants')
+    .select('id, mu, sigma, elo_score')
+    .in('id', opponentIds);
+  if (oppError) throw oppError;
+  const oppMap = new Map(
+    (opponents ?? []).map((o) => [o.id, o]),
+  );
+
+  return comparisons.map((c) => {
+    const opponentId = c.entry_a === variantId ? c.entry_b : c.entry_a;
+    const opp = oppMap.get(opponentId);
+    // 'draw' counts as not-won; otherwise check winner side matches our side.
+    const won =
+      (c.entry_a === variantId && c.winner === 'a') ||
+      (c.entry_b === variantId && c.winner === 'b');
+    const oppUncertainty = opp ? liftUncertainty(opp) : undefined;
+    return {
+      opponentId,
+      opponentElo: opp?.elo_score ?? null,
+      ...(oppUncertainty != null ? { opponentUncertainty: oppUncertainty } : {}),
+      won,
+      confidence: c.confidence,
+    };
+  });
 });
 
 // ─── 5. Variant Lineage Chain ───────────────────────────────────
@@ -251,7 +323,7 @@ export const getVariantLineageChainAction = adminAction('getVariantLineageChainA
       .single();
 
     if (!ancestor) break;
-    const ancUncertainty = liftUncertainty(ancestor as { mu?: number | null; sigma?: number | null });
+    const ancUncertainty = liftUncertainty(ancestor);
     lineage.push({
       id: ancestor.id,
       agentName: ancestor.agent_name,

@@ -273,13 +273,14 @@ describe('experimentActions', () => {
       const result = await listExperimentsAction({ filterTestContent: true });
 
       expect(result.success).toBe(true);
-      expect(chain.not).toHaveBeenCalledWith('name', 'ilike', '%[TEST]%');
-      expect(chain.not).toHaveBeenCalledWith('name', 'ilike', '%[E2E]%');
-      expect(chain.not).toHaveBeenCalledWith('name', 'ilike', '%[TEST_EVO]%');
-      expect(chain.not).toHaveBeenCalledWith('name', 'ilike', 'test');
+      // Phase 1 (use_playwright_find_bugs_ux_issues_20260422): switched to
+      // applyTestContentColumnFilter which uses .eq('is_test_content', false)
+      // (cheap, indexed, catches timestamp-pattern test names that the
+      // substring filter missed).
+      expect(chain.eq).toHaveBeenCalledWith('is_test_content', false);
     });
 
-    it('does not call .not() when filterTestContent is false', async () => {
+    it('does not call the column filter when filterTestContent is false', async () => {
       const chain = {
         select: jest.fn().mockReturnThis(),
         eq: jest.fn().mockReturnThis(),
@@ -293,14 +294,14 @@ describe('experimentActions', () => {
       const result = await listExperimentsAction({ filterTestContent: false });
 
       expect(result.success).toBe(true);
-      expect(chain.not).not.toHaveBeenCalled();
+      expect(chain.eq).not.toHaveBeenCalledWith('is_test_content', expect.anything());
     });
   });
 
   // ─── getPromptsAction filterTestContent ────────────────────
 
   describe('getPromptsAction filterTestContent', () => {
-    it('calls .not() on name when filterTestContent is true', async () => {
+    it('calls the column filter when filterTestContent is true', async () => {
       const chain = {
         select: jest.fn().mockReturnThis(),
         eq: jest.fn().mockReturnThis(),
@@ -314,13 +315,10 @@ describe('experimentActions', () => {
       const result = await getPromptsAction({ status: 'active', filterTestContent: true });
 
       expect(result.success).toBe(true);
-      expect(chain.not).toHaveBeenCalledWith('name', 'ilike', '%[TEST]%');
-      expect(chain.not).toHaveBeenCalledWith('name', 'ilike', '%[E2E]%');
-      expect(chain.not).toHaveBeenCalledWith('name', 'ilike', '%[TEST_EVO]%');
-      expect(chain.not).toHaveBeenCalledWith('name', 'ilike', 'test');
+      expect(chain.eq).toHaveBeenCalledWith('is_test_content', false);
     });
 
-    it('does not call .not() when filterTestContent is false', async () => {
+    it('does not call the column filter when filterTestContent is false', async () => {
       const chain = {
         select: jest.fn().mockReturnThis(),
         eq: jest.fn().mockReturnThis(),
@@ -334,14 +332,14 @@ describe('experimentActions', () => {
       const result = await getPromptsAction({ status: 'active', filterTestContent: false });
 
       expect(result.success).toBe(true);
-      expect(chain.not).not.toHaveBeenCalled();
+      expect(chain.eq).not.toHaveBeenCalledWith('is_test_content', expect.anything());
     });
   });
 
   // ─── getStrategiesAction filterTestContent ─────────────────
 
   describe('getStrategiesAction filterTestContent', () => {
-    it('calls .not() on name when filterTestContent is true', async () => {
+    it('calls the column filter when filterTestContent is true', async () => {
       const chain = {
         select: jest.fn().mockReturnThis(),
         eq: jest.fn().mockReturnThis(),
@@ -355,13 +353,10 @@ describe('experimentActions', () => {
       const result = await getStrategiesAction({ status: 'active', filterTestContent: true });
 
       expect(result.success).toBe(true);
-      expect(chain.not).toHaveBeenCalledWith('name', 'ilike', '%[TEST]%');
-      expect(chain.not).toHaveBeenCalledWith('name', 'ilike', '%[E2E]%');
-      expect(chain.not).toHaveBeenCalledWith('name', 'ilike', '%[TEST_EVO]%');
-      expect(chain.not).toHaveBeenCalledWith('name', 'ilike', 'test');
+      expect(chain.eq).toHaveBeenCalledWith('is_test_content', false);
     });
 
-    it('does not call .not() when filterTestContent is false', async () => {
+    it('does not call the column filter when filterTestContent is false', async () => {
       const chain = {
         select: jest.fn().mockReturnThis(),
         eq: jest.fn().mockReturnThis(),
@@ -375,7 +370,7 @@ describe('experimentActions', () => {
       const result = await getStrategiesAction({ status: 'active', filterTestContent: false });
 
       expect(result.success).toBe(true);
-      expect(chain.not).not.toHaveBeenCalled();
+      expect(chain.eq).not.toHaveBeenCalledWith('is_test_content', expect.anything());
     });
   });
 

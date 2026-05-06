@@ -99,6 +99,28 @@ describe('CostEstimatesTab — Run view', () => {
     await waitFor(() => expect(screen.getByTestId('cost-estimates-error')).toBeInTheDocument());
   });
 
+  // Fix #40 (use_playwright_find_ux_issues_bugs_20260501): PerIterationSummarySection
+  // must classify reflect_and_generate iterations as 'reflect_generate' (and label
+  // them "reflect+gen") instead of falling through to the substring-matched "generate"
+  // bucket.
+  it('Fix #40: classifies reflect_and_generate iterations as reflect+gen', async () => {
+    getRunCostEstimatesAction.mockResolvedValue({
+      success: true,
+      data: makeBaseRunData({
+        invocations: [
+          { id: 'r-1', agentName: 'reflect_and_generate_from_previous_article', iteration: 1, tactic: 'curiosity_hook',
+            generationEstimate: 0.001, generationActual: 0.001, rankingEstimate: 0.002, rankingActual: 0.002,
+            totalCost: 0.003, estimationErrorPct: 0 },
+        ],
+      }),
+      error: null,
+    });
+    render(<CostEstimatesTab entityType="run" entityId="run-1" />);
+    await waitFor(() => expect(screen.getByTestId('cost-estimates-per-iteration')).toBeInTheDocument());
+    expect(screen.getByText('reflect+gen')).toBeInTheDocument();
+    expect(screen.queryByText('generate')).not.toBeInTheDocument();
+  });
+
   it('renders summary, agent table, sensitivity, histogram, invocation table for happy path', async () => {
     getRunCostEstimatesAction.mockResolvedValue({ success: true, data: makeBaseRunData(), error: null });
     render(<CostEstimatesTab entityType="run" entityId="run-1" />);

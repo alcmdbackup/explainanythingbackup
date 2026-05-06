@@ -28,7 +28,7 @@ export type IterationStopReason = 'iteration_budget_exceeded' | 'iteration_conve
 /** Per-iteration result recorded in EvolutionResult.iterationResults. */
 export interface IterationResult {
   iteration: number;
-  agentType: 'generate' | 'swiss';
+  agentType: 'generate' | 'reflect_and_generate' | 'criteria_and_generate' | 'iterative_editing' | 'swiss';
   stopReason: IterationStopReason;
   budgetAllocated: number;
   budgetSpent: number;
@@ -85,7 +85,9 @@ export interface EvolutionResult {
     minBudgetAfterParallelAgentMultiple?: number;
     minBudgetAfterSequentialFraction?: number;
     minBudgetAfterSequentialAgentMultiple?: number;
-    numVariants: number;
+    /** @deprecated Removed in favor of DISPATCH_SAFETY_CAP = 100 constant in code.
+     *  Kept optional for legacy run_summary rows that still carry the field. */
+    numVariants?: number;
   };
   /** Wall-clock durations (ms) of sequential-phase GFSA invocations, in dispatch order.
    *  Computed in runIterationLoop; persistRunResults derives median/avg metrics from it. */

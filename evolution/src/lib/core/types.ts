@@ -11,7 +11,7 @@ import type { MetricRow, ExecutionContext, FinalizationContext } from '../metric
 
 // ─── Entity Type ─────────────────────────────────────────────────
 
-export const CORE_ENTITY_TYPES = ['run', 'invocation', 'variant', 'strategy', 'experiment', 'prompt', 'tactic'] as const;
+export const CORE_ENTITY_TYPES = ['run', 'invocation', 'variant', 'strategy', 'experiment', 'prompt', 'tactic', 'criteria'] as const;
 export type EntityType = typeof CORE_ENTITY_TYPES[number];
 
 // ─── Relationships ───────────────────────────────────────────────
@@ -63,7 +63,9 @@ export interface SortDef {
 export interface FieldDef {
   key: string;
   label: string;
-  type: 'text' | 'textarea' | 'number';
+  /** Field type. `'rubric'` is a custom type rendered by `RubricEditor` (Phase 1H)
+   *  for the `evaluation_guidance` JSONB column on `evolution_criteria`. */
+  type: 'text' | 'textarea' | 'number' | 'rubric';
   required?: boolean;
 }
 
@@ -84,7 +86,7 @@ export interface EntityLink {
 
 export type MetricTiming = 'during_execution' | 'at_finalization' | 'at_propagation';
 export type MetricCategory = 'cost' | 'rating' | 'match' | 'count';
-export type MetricFormatter = 'cost' | 'costDetailed' | 'elo' | 'score' | 'percent' | 'integer';
+export type MetricFormatter = 'cost' | 'costDetailed' | 'elo' | 'score' | 'percent' | 'percentValue' | 'integer';
 
 export interface CatalogMetricDef {
   name: string;
@@ -140,6 +142,11 @@ export interface AgentContext {
   iteration: number;
   executionOrder: number;
   logger: EntityLogger;
+  // Orchestrator passes the raw V2CostTracker (per-iteration); Agent.run() wraps it in
+  // createAgentCostScope before constructing extendedCtx for execute(). Consumers that
+  // need per-scope cost attribution (rankNewVariant) take `AgentCostScope` directly —
+  // pass `extendedCtx.costTracker as AgentCostScope` at the call site, since Agent.run
+  // has already performed the wrap.
   costTracker: V2CostTracker & { getOwnSpent?: () => number };
   config: EvolutionConfig;
   /** Invocation row UUID — populated by Agent.run() before execute() is called.
@@ -165,6 +172,21 @@ export interface AgentContext {
   defaultModel?: string;
   /** Optional temperature override for generation-phase LLM calls. */
   generationTemperature?: number;
+  /** B122: prompt_id for the run, set by the orchestrator so agents writing to
+   *  evolution_arena_comparisons (MergeRatingsAgent) can populate the column at insert
+   *  time rather than relying on sync_to_arena to backfill. Set to null for runs with
+   *  no prompt (explanation-only runs). */
+  promptId?: string | null;
+  /** Experiment ID for the run, denormalized so per-invocation entity loggers can
+   *  populate the experiment_id ancestor FK on evolution_logs rows for cross-aggregation.
+   *  Phase 2 of develop_reflection_and_generateFromParentArticle_agent_evolution_20260430. */
+  experimentId?: string;
+  /** Strategy ID for the run, denormalized for the same reason as experimentId. */
+  strategyId?: string;
+  /** Cached map of tactic name → recent ELO delta (mean elo_score - 1200) computed once
+   *  per iteration in runIterationLoop and read by ReflectAndGenerateFromPreviousArticleAgent
+   *  to populate the reflection prompt. Phase 4 of the same project. */
+  tacticEloBoosts?: Map<string, number | null>;
 }
 
 export interface AgentOutput<TOutput, TDetail> {
@@ -177,10 +199,30 @@ export interface AgentOutput<TOutput, TDetail> {
 export interface DetailFieldDef {
   key: string;
   label: string;
-  type: 'table' | 'boolean' | 'badge' | 'number' | 'text' | 'list' | 'object';
+  type: 'table' | 'boolean' | 'badge' | 'number' | 'text' | 'list' | 'object' | 'text-diff' | 'annotated-edits';
   columns?: Array<{ key: string; label: string }>;
   children?: DetailFieldDef[];
   formatter?: string;
+  /** For type='text-diff': sourceKey + targetKey resolve in execution_detail to the
+   *  before/after strings; previewLength caps the diff render. */
+  sourceKey?: string;
+  targetKey?: string;
+  previewLength?: number;
+  /** For type='annotated-edits': keys resolve in execution_detail.cycles[i] to
+   *  the AnnotatedProposals component's props. */
+  markupKey?: string;
+  groupsKey?: string;
+  decisionsKey?: string;
+  dropsPreKey?: string;
+  dropsPostKey?: string;
+  /** For type='table' only: per-field className applied to each <td> cell.
+   *  Scoped to a single field — does NOT cascade to other tables in the same
+   *  invocation detail page. Use to constrain long-text columns
+   *  (e.g. `'max-w-md break-words whitespace-pre-wrap'` for the
+   *  evaluate_and_suggest suggestions table whose Example/Issue/Fix passages
+   *  can be hundreds of chars long). When undefined, the default cell class
+   *  applies (no width constraint). */
+  cellClassName?: string;
 }
 
 export interface AgentResult<T> {

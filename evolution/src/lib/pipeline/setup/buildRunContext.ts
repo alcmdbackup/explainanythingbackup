@@ -55,8 +55,11 @@ export async function loadArenaEntries(
 
   for (const entry of data) {
     if (excludeId && entry.id === excludeId) continue;
-    const rawMu = entry.mu as number | null;
-    const rawSigma = entry.sigma as number | null;
+    // B017-S1: coerce via Number() first so Postgres NUMERIC values returned as strings
+    // ('25.0') are recognized as finite. Without this, all string-typed mu/sigma rows
+    // silently fall back to _INTERNAL_DEFAULT_MU/SIGMA.
+    const rawMu = entry.mu == null ? null : Number(entry.mu);
+    const rawSigma = entry.sigma == null ? null : Number(entry.sigma);
     variants.push({
       id: entry.id,
       text: entry.variant_content,
@@ -248,12 +251,22 @@ export async function buildRunContext(
   }
   const stratConfig = configParsed.data;
 
-  // Validate tactic names in generationGuidance against code registry.
+  // Validate tactic names in generationGuidance against code registry (strategy-level + per-iteration).
+  const { isValidTactic } = await import('../../core/tactics');
   if (stratConfig.generationGuidance) {
-    const { isValidTactic } = await import('../../core/tactics');
     for (const entry of stratConfig.generationGuidance) {
       if (!isValidTactic(entry.tactic)) {
-        return { error: `Unknown tactic '${entry.tactic}' in generationGuidance` };
+        return { error: `Unknown tactic '${entry.tactic}' in strategy-level generationGuidance` };
+      }
+    }
+  }
+  for (let i = 0; i < stratConfig.iterationConfigs.length; i++) {
+    const ic = stratConfig.iterationConfigs[i]!;
+    if (ic.generationGuidance) {
+      for (const entry of ic.generationGuidance) {
+        if (!isValidTactic(entry.tactic)) {
+          return { error: `Unknown tactic '${entry.tactic}' in iterationConfigs[${i}].generationGuidance` };
+        }
       }
     }
   }
@@ -263,11 +276,9 @@ export async function buildRunContext(
     budgetUsd: claimedRun.budget_cap_usd ?? 1.0,
     judgeModel: stratConfig.judgeModel,
     generationModel: stratConfig.generationModel,
-    strategiesPerRound: stratConfig.strategiesPerRound ?? 3,
     calibrationOpponents: 5,
     tournamentTopK: 5,
     generationGuidance: stratConfig.generationGuidance,
-    numVariants: 9, // deprecated — maxAgents on iterationConfigs replaces this
     maxComparisonsPerVariant: stratConfig.maxComparisonsPerVariant ?? 15,
     // Budget floors — preprocess in schemas.ts already migrates legacy fields into
     // minBudgetAfter*Fraction. Pass all four fields through; pipeline resolves lazily.
@@ -294,11 +305,14 @@ export async function buildRunContext(
 
   const { originalText, seedPrompt, seedVariantRow } = await resolveContent(claimedRun, db, llmProvider, logger);
   if (!originalText && !seedPrompt) {
-    const reason = claimedRun.explanation_id != null
-      ? `Explanation ${claimedRun.explanation_id} not found`
-      : claimedRun.prompt_id != null
-        ? `Prompt ${claimedRun.prompt_id} not found`
-        : 'No content source: both explanation_id and prompt_id are null';
+    let reason: string;
+    if (claimedRun.explanation_id != null) {
+      reason = `Explanation ${claimedRun.explanation_id} not found`;
+    } else if (claimedRun.prompt_id != null) {
+      reason = `Prompt ${claimedRun.prompt_id} not found`;
+    } else {
+      reason = 'No content source: both explanation_id and prompt_id are null';
+    }
     return { error: reason };
   }
 

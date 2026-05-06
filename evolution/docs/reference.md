@@ -24,7 +24,7 @@ The core pipeline implements the generate-rank-evolve loop and all supporting in
 | `cost-tracker.ts` | `createCostTracker` — per-run budget tracker using a reserve-before-spend pattern. `reserve()` is synchronous (critical for parallel safety under Node.js event loop). Applies a 1.3x margin on reservations. `recordSpend()` settles actual cost. `release()` frees reservation on failure. Throws `BudgetExceededError` when `spent + reserved + margined > budgetUsd`. |
 | `run-logger.ts` | `createRunLogger` — structured logging adapter; writes iteration-level log rows to `evolution_run_logs` with phase, message, and optional metadata JSON. |
 | `invocations.ts` | `createInvocation` / `updateInvocation` — records individual LLM calls to `evolution_invocations` with prompt text, response, model, token counts, cost, and latency for post-hoc cost auditing. |
-| `infra/createEvolutionLLMClient.ts` | `createEvolutionLLMClient` — LLM abstraction with built-in retry (3 attempts, exponential backoff: 1s/2s/4s), 20-second per-call timeout, and cost tracker integration. SDK-level retries are disabled (`maxRetries: 0`) so this retry loop is the sole retry layer — worst-case 87s per call. Supports model pricing for `gpt-4.1-nano`, `gpt-4.1-mini`, `gpt-4.1`, `gpt-4o`, `gpt-4o-mini`, `deepseek-chat`, `claude-sonnet-4-20250514`, `claude-haiku-4-5-20251001`. Falls back to most-expensive pricing ($15/$60 per 1M tokens) for unknown models. **Reservation** uses chars/4 as token approximation; **actual spend** uses real `usage.prompt_tokens`/`usage.completion_tokens` from the provider via `calculateLLMCost` (same helper `llmCallTracking` uses). Built per-invocation inside `Agent.run()` using the per-invocation `AgentCostScope` so parallel dispatch doesn't bleed sibling costs. |
+| `infra/createEvolutionLLMClient.ts` | `createEvolutionLLMClient` — LLM abstraction with built-in retry (3 attempts, exponential backoff: 1s/2s/4s), 20-second per-call timeout, and cost tracker integration. SDK-level retries are disabled (`maxRetries: 0`) so this retry loop is the sole retry layer — worst-case 87s per call. Pricing source-of-truth is `src/config/llmPricing.ts` (covers GPT-4.1 family, GPT-4o family, deepseek-chat, claude-sonnet-4, qwen, gemini, gpt-5-nano, plus fallback). Falls back to $10/$30 per 1M tokens for unknown models. **Reservation** uses chars/4 as token approximation; **actual spend** uses real `usage.prompt_tokens`/`usage.completion_tokens` from the provider via `calculateLLMCost` (same helper `llmCallTracking` uses). Built per-invocation inside `Agent.run()` using the per-invocation `AgentCostScope` so parallel dispatch doesn't bleed sibling costs. |
 | `seed-article.ts` | `generateSeedArticle` — produces the initial "generation 0" variant from the source prompt when no existing explanation content is available. Returns `SeedResult` with the generated text and cost. |
 | `strategy.ts` | `hashStrategyConfig` / `upsertStrategy` / `labelStrategyConfig` — strategy fingerprinting via deterministic JSON hash (includes `iterationConfigs[]`); upserts to `evolution_strategies` table with deduplication. Located at `setup/findOrCreateStrategy.ts`. |
 | `experiments.ts` | `createExperiment` / `addRunToExperiment` / `computeExperimentMetrics` — experiment grouping for A/B analysis. Returns `ExperimentMetrics` with aggregate Elo, cost, and convergence stats per strategy arm. |
@@ -49,8 +49,8 @@ The core layer defines abstract base classes for entities and agents, the centra
 | `tactics/selectTacticWeighted.ts` | Weighted random tactic selection from `generationGuidance` config. Builds a cumulative distribution and draws tactics per slot. |
 | `tactics/types.ts` | Tactic type definitions: `Tactic`, tactic category enums, tactic metadata types. |
 | `detailViewConfigs.ts` | Pure-data detail view configs (`DETAIL_VIEW_CONFIGS`) mapping agent names to `DetailFieldDef[]` arrays. Consumed by `ConfigDrivenDetailRenderer` to render invocation detail panels without per-agent custom components. |
-| `entities/` | 6 entity subclasses: `RunEntity`, `StrategyEntity`, `ExperimentEntity`, `VariantEntity`, `InvocationEntity`, `PromptEntity`. Each declares parents, children, metrics, list columns, filters, actions, and detail tabs. |
-| `agents/` | 2 agent subclasses: `GenerationAgent` (text generation phase), `RankingAgent` (triage + Swiss ranking phase). Each implements `execute()` and declares `detailViewConfig` and optional `invocationMetrics`. |
+| `entities/` | 7 entity subclasses: `RunEntity`, `StrategyEntity`, `ExperimentEntity`, `VariantEntity`, `InvocationEntity`, `PromptEntity`, `CriteriaEntity` (DB-first user-defined criteria, mirrors PromptEntity shape with custom `RubricEditor` for `evaluation_guidance`). Each declares parents, children, metrics, list columns, filters, actions, and detail tabs. |
+| `agents/` | Agent subclasses include `GenerationAgent` (text generation), `RankingAgent` (triage + Swiss ranking), `ReflectAndGenerateFromPreviousArticleAgent` (reflection wrapper), and `EvaluateCriteriaThenGenerateFromPreviousArticleAgent` (criteria-driven wrapper — combined evaluate+suggest LLM call, then `customPrompt` delegation to inner GFPA via `.execute()`). Each implements `execute()` and declares `detailViewConfig` and optional `invocationMetrics`. |
 
 ### Shared (`evolution/src/lib/shared/`)
 
@@ -95,14 +95,18 @@ Server actions and the server-side runner core. All server actions use Next.js `
 | `evolutionActions.ts` | Server actions for run management: create new runs, list runs with status/pagination filtering, cancel in-progress runs, retry failed runs, fetch run summaries. |
 | `evolutionVisualizationActions.ts` | Server actions powering the Elo charts and convergence visualizations: `eloHistory` time series, diversity trend data, per-iteration cost breakdowns, rating distribution histograms. |
 | `arenaActions.ts` | Server actions for the arena subsystem: list arena topics, fetch leaderboard rankings for a topic, get arena entry details with comparison history. Arena entries are now `evolution_variants` rows with `synced_to_arena=true` (the `evolution_arena_entries` table was consolidated into `evolution_variants` in migration `20260321000002`). |
-| `variantDetailActions.ts` | Server actions for variant inspection: full variant text with metadata, parent lineage chain, match history (wins/losses/draws), text diffs between parent and child. |
+| `variantDetailActions.ts` | Server actions for variant inspection: full variant text with metadata, parent lineage chain, match history (wins/losses/draws), text diffs between parent and child. `getVariantMatchHistoryAction` queries `evolution_arena_comparisons` via `.or('entry_a.eq.<id>,entry_b.eq.<id>')` then batch-fetches opponents from `evolution_variants` (was a stub returning `[]` until fixes_to_evolution_admin_dashboard__20260503). `getVariantFullDetailAction` embeds `evolution_agent_invocations(id, agent_name)` via PostgREST so the variant detail header can render a "Produced by `<agent_name>`" cross-link to the producing invocation. |
 | `experimentActionsV2.ts` | Server actions for experiment management: create experiments with strategy arms, list experiments, fetch experiment detail with per-arm metrics, add/remove runs from experiments. |
 | `strategyRegistryActionsV2.ts` | Server actions for the strategy registry: CRUD operations on strategy configurations, list with filtering, fetch strategy usage statistics (run count, avg Elo). |
 | `invocationActions.ts` | Server actions for LLM invocation auditing: list invocations with model/run filtering, fetch invocation detail (full prompt, response, token counts, cost, latency). |
 | `adminAction.ts` | Shared admin utilities: authentication guards ensuring admin role, pagination parameter parsing and validation. |
-| `shared.ts` | Common service utilities: Supabase `service_role` client construction, error message formatting, database query error handling patterns. |
+| `shared.ts` | Common service utilities: Supabase `service_role` client construction, error message formatting, database query error handling patterns. Test-content filter helpers: `applyNonTestStrategyFilter` (PostgREST `!inner` join on `evolution_strategies.is_test_content` for tables that join through strategies, e.g. `evolution_runs`), `applyTestContentColumnFilter` (`.eq('is_test_content', false)` for tables with the column directly — strategies/prompts/experiments since 20260423000001), and the deprecated `applyTestContentNameFilter` (substring-only; misses timestamp-pattern test names). |
 | `costAnalytics.ts` | Cost analytics aggregation: per-model cost breakdown, daily/weekly spend trends, cost-per-iteration averages, budget utilization percentages. |
 | `entityActions.ts` | Generic entity action dispatcher. Exports `executeEntityAction` server action. Input: `{ entityType, entityId, actionKey, payload? }`. Validates entity type against the entity registry, UUID format for entityId, and action key against the entity's declared actions. Uses `adminAction` wrapper for auth. Delegates to `Entity.executeAction` on the resolved entity instance. |
+| `tacticActions.ts` | Tactic registry server actions (list + detail). `listTacticsAction` accepts `sortKey` / `sortDir` / `search` params, batch-fetches `evolution_metrics entity_type='tactic'` rows via `getMetricsForEntities`, and attaches them as `metrics: MetricRow[]` on each row for `createMetricColumns('tactic')` on the leaderboard. Metric-key sorts apply JS-side with null-last ordering. Text search uses `.ilike('name', ...)` with `%_\` escape. (track_tactic_effectiveness_evolution_20260422 Phase 2) |
+| `tacticPromptActions.ts` | Per-(tactic × prompt) performance aggregation. Returns `{ items, hitCap }` where `hitCap=true` signals the 5000-row query cap was hit and `TacticPromptPerformanceTable` renders a truncation banner (Gap 9 fix). |
+| `tacticStrategyActions.ts` | Per-(tactic × strategy) performance for the strategy detail Tactics tab. Dual-query merge: pre-aggregated `eloAttrDelta:*` rows at `entity_type='strategy'` supply Elo Delta + CI; live `evolution_variants` aggregates supply cost / variant count / winner count / win rate. Tactics with variants but no attribution row sort last with `avgEloDelta=null`. (track_tactic_effectiveness_evolution_20260422 Phase 4) |
+| `criteriaActions.ts` | Criteria registry server actions: `listCriteriaAction`, `getCriteriaDetailAction`, `createCriteriaAction`, `updateCriteriaAction`, `archiveCriteriaAction`, `deleteCriteriaAction`, `getCriteriaForEvaluation` (mid-run dispatch fetch — exported as a non-`'use server'` helper for use from the pipeline), `getCriteriaVariantsAction`, `getCriteriaRunsAction`, plus `validateCriteriaIds(criteriaIds, db)` which `createStrategyAction` calls before persisting any strategy whose iteration configs reference criteria UUIDs. Soft-delete via `deleted_at` (mirrors PromptEntity). (evaluateCriteriaThenGenerateFromPreviousArticle_20260501) |
 
 ### Schemas (`evolution/src/lib/schemas.ts`)
 
@@ -141,6 +145,7 @@ UI component barrel for the admin dashboard. Exports 20+ components:
 - **Primitives** (`primitives/`): `StatusBadge`, `EvolutionBreadcrumb`, `MetricGrid`, `EmptyState`, `NotFoundCard`
 - **Tables** (`tables/`): `EntityTable`, `RunsTable`, `TableSkeleton`
 - **Sections** (`sections/`): `EntityDetailHeader`, `EntityDetailTabs`, `useTabState`, `InputArticleSection`, `VariantDetailPanel`
+- **Tabs** (`tabs/`): `MetricsTab`, `EloTab`, `VariantsTab`, `LineageTab`, `LogsTab`, `TimelineTab`, `InvocationTimelineTab`, `EntityMetricsTab`, `CostEstimatesTab`, `RelatedRunsTab`, `SnapshotsTab`, `AttributionCharts`, `TacticPromptPerformanceTable` (tactic detail — per-prompt breakdown), `TacticStrategyPerformanceTable` (strategy detail Tactics tab — per-tactic × strategy breakdown; Phase 4 of track_tactic_effectiveness_evolution_20260422)
 - **Visualizations** (`visualizations/`): `LineageGraph`, `TextDiff`, `VariantCard`
 - **Dialogs** (`dialogs/`): `FormDialog`, `ConfirmDialog`
 - **Context** (`context/`): `AutoRefreshProvider`, `useAutoRefresh`
@@ -249,10 +254,9 @@ The V2 LLM client (`evolution/src/lib/pipeline/infra/createEvolutionLLMClient.ts
 | `gpt-4.1` | $2.00 | $8.00 |
 | `gpt-4o` | $2.50 | $10.00 |
 | `gpt-4o-mini` | $0.15 | $0.60 |
-| `deepseek-chat` | $0.27 | $1.10 |
+| `deepseek-chat` | $0.28 | $0.42 |
 | `claude-sonnet-4-20250514` | $3.00 | $15.00 |
-| `claude-haiku-4-5-20251001` | $0.80 | $4.00 |
-| Unknown models (fallback) | $15.00 | $60.00 |
+| Unknown models (fallback) | $10.00 | $30.00 |
 
 The fallback pricing uses the most expensive possible rates as a safety measure. Unknown models log a warning at runtime.
 
@@ -275,7 +279,24 @@ Maximum 3 retries. Per-call timeout is 20 seconds. SDK-level retries are disable
 | Script | Command | Description |
 |--------|---------|-------------|
 | Type generation | `npm run db:types` | Regenerate `src/lib/database.types.ts` from staging DB (requires `SUPABASE_ACCESS_TOKEN`) |
-| Tactic sync | `npx ts-node evolution/scripts/syncSystemTactics.ts` | Upserts all 24 system-defined tactics into the `evolution_tactics` DB table, ensuring DB rows match the code-defined tactic registry |
+| Tactic sync | `npx ts-node evolution/scripts/syncSystemTactics.ts` | Upserts all 24 system-defined tactics into the `evolution_tactics` DB table, ensuring DB rows match the code-defined tactic registry. Now also unions `MARKER_TACTICS` (e.g. `criteria_driven`) so marker rows stay in sync. |
+| Sample criteria seed | `NEXT_PUBLIC_SUPABASE_URL=$URL SUPABASE_SERVICE_ROLE_KEY=$KEY npx tsx evolution/scripts/seedSampleCriteria.ts` | One-shot seed of 7 starter criteria into `evolution_criteria`. Idempotent (`ON CONFLICT (name) DO NOTHING`). Add `--dry-run` to preview without writing. See "Sample criteria seed" below. |
+
+### Sample criteria seed
+
+`evolution/scripts/seedSampleCriteria.ts` populates `evolution_criteria` with 7 generic starter criteria so the criteria leaderboard is non-empty out of the box. Each entry includes a 3-anchor rubric (low / mid / high) so the LLM has clear scoring landmarks. Researchers can edit / archive / delete via `/admin/evolution/criteria` without re-running the script.
+
+| Name | Range | Description |
+|------|-------|-------------|
+| `clarity` | 1–10 | How easy the article is to read for the target audience |
+| `engagement` | 1–10 | How well the article holds reader attention from start to finish |
+| `structure` | 1–10 | Logical flow between sections, paragraph organization, transitions |
+| `depth` | 1–10 | Quality of detail, technical accuracy, explanation of mechanisms |
+| `tone` | 1–10 | Voice and register; consistency with the article's intent |
+| `point_of_view` | 1–10 | Whether the article takes a clear stance / has a defined perspective |
+| `sentence_variety` | 1–10 | Variation in sentence length and construction |
+
+Run once per target environment (staging then production), or with `--dry-run` first to preview. Re-running is safe — `ON CONFLICT (name) DO NOTHING` skips existing rows; researcher edits to seeded rubrics are preserved.
 
 ## CI Type Generation
 
@@ -342,7 +363,7 @@ Run claiming is handled by the `claim_evolution_run` Postgres RPC (see [Data Mod
 
 **Concurrency safety**: `FOR UPDATE SKIP LOCKED` means multiple runners calling `claim_evolution_run` simultaneously will never claim the same run. A runner that finds all pending rows already locked by other transactions receives an empty result and backs off.
 
-**Signature**: `claim_evolution_run(p_runner_id TEXT, p_run_id UUID DEFAULT NULL)` -- when `p_run_id` is provided, only that specific run is claimed (used for targeted retries from the admin UI).
+**Signature**: `claim_evolution_run(p_runner_id TEXT, p_run_id UUID DEFAULT NULL, p_max_concurrent INT DEFAULT 5)` -- when `p_run_id` is provided, only that specific run is claimed (used for targeted retries from the admin UI). `p_max_concurrent` (added migration `20260323000002`) is honored server-side as the concurrent-runs ceiling.
 
 **Post-claim state**: The claimed run's status is atomically updated to `claimed`, `runner_id` is set to the claiming runner's ID, and `last_heartbeat` is set to `now()`. The runner then transitions the status to `running` once pipeline execution begins.
 
@@ -385,6 +406,36 @@ Stale runs are marked `failed` with an error message indicating abandonment (lik
 3. Catch `BudgetExceededWithPartialResults` -- salvage partial variants, finalize with what was produced
 4. Catch `BudgetExceededError` -- mark run `failed` with budget details
 5. Transient errors (classified by `isTransientError`) -- retry with backoff
+
+---
+
+## Kill Switches / Feature Flags
+
+Operational levers that disable new behavior without requiring a code revert. Set via environment variable on the minicomputer runner or Vercel preview/prod.
+
+| Flag | Default | Effect when `'false'` | Introduced |
+|------|---------|----------------------|------------|
+| `EVOLUTION_TOPUP_ENABLED` | `'true'` | Skips the within-iteration top-up loop AND collapses the wizard preview's `expectedTotalDispatch` to `dispatchCount`. Both runtime and preview consult the flag (runtime reads in `runIterationLoop.ts`; preview resolves at the server-action boundary in `getStrategyDispatchPreviewAction` and threads via `DispatchPlanOptions.topUpEnabled`) so they stay consistent. | Phase 7b of multi_iteration_strategy_support_evolution_20260415; preview integration in investigate_issues_latest_evolution_reflection_agent_20260501 |
+| `EVOLUTION_REUSE_SEED_RATING` | `'true'` | Reverts to legacy behavior: fresh seed UUID + default rating + new arena INSERT per run. | multi_iteration_strategy_support_evolution_20260415 |
+| `EVOLUTION_EMIT_ATTRIBUTION_METRICS` | `'true'` | Skips the `computeRunMetrics` call in `persistRunResults.ts` finalize path; no `eloAttrDelta:*` / `eloAttrDeltaHist:*` rows written to `evolution_metrics`. Existing rows remain; no data loss. | track_tactic_effectiveness_evolution_20260422 Phase 0 |
+| `COST_CALIBRATION_ENABLED` | `'false'` | Ignores `evolution_cost_calibration` DB values; reverts to hardcoded `EMPIRICAL_OUTPUT_CHARS` / `OUTPUT_TOKEN_ESTIMATES` constants. | cost_estimate_accuracy_analysis_20260414 |
+| `EVOLUTION_FK_THREADING_ENABLED` | `'true'` | Stops binding `ctx.invocationId` on the per-invocation `EvolutionLLMClient` at `Agent.ts:69-77`; iteration-loop agents (generation, ranking) revert to writing NULL `evolution_invocation_id` on `llmCallTracking` rows. Seed agents are unaffected — they pass `invocationId` via per-call options. Use only if Phase 4 of debug_evolution_run_cost_20260426 introduces a regression. | debug_evolution_run_cost_20260426 Phase 4c |
+| `EVOLUTION_REFLECTION_ENABLED` | `'true'` | Falls all `iterCfg.agentType: 'reflect_and_generate'` iterations back to vanilla `GenerateFromPreviousArticleAgent` dispatch AND zeroes reflection cost in the wizard preview's `projectDispatchPlan` projection (so the preview's `expectedTotalDispatch` matches what the runtime will actually dispatch). Single env flip rolls reflection back without code revert. Runtime resolves once per iteration in `runIterationLoop`; preview resolves at the server-action boundary in `getStrategyDispatchPreviewAction` and threads via `DispatchPlanOptions.reflectionEnabled`. | develop_reflection_and_generateFromParentArticle_agent_evolution_20260430; preview integration in investigate_issues_latest_evolution_reflection_agent_20260501 |
+| `EDITING_AGENTS_ENABLED` | `'true'` | Set to `'false'` to short-circuit all `iterCfg.agentType: 'iterative_editing'` iterations at runIterationLoop branch entry. Mid-run flips do NOT abort in-flight iterations. Primary operational rollback for editing — code-revert + migration-revert paths are NOT supported post-deploy (forward-only migrations couple to startup CHECK assertion). | bring_back_editing_agents_evolution_20260430 |
+| `EVOLUTION_DRIFT_RECOVERY_ENABLED` | `'true'` | Set to `'false'` to skip the drift-recovery LLM call in `iterative_editing` cycles. Minor drift treated as major — affected cycles abort cleanly. Granular kill switch when the recovery LLM goes haywire while editing-overall is still working. | bring_back_editing_agents_evolution_20260430 |
+| `EDITING_RANK_ENABLED` | `'true'` | Set to `'false'` to skip the post-cycle ranking step inside `iterative_editing` invocations. When off, editing variants land in the pool with default Elo (pre-ranking-project behavior); when on (default), they go through `rankNewVariant()` and emit `arena_comparisons` rows tied to the editing iteration. Runtime gate at `runIterationLoop.ts` editing branch (omits rank-context fields from `IterativeEditInput` so the agent's input-presence gate skips ranking). Planner gate at `strategyPreviewActions.ts` (zeroes `editingRank` cost in the wizard preview). Resolver: `resolveEditingRankEnabled` in `editingDispatch.ts`. | add_ranking_iterative_editing_agent_evolution_20260502 |
+| `EVOLUTION_EDITING_DRIFT_RATE_ALERT_THRESHOLD` | `'0.30'` | Threshold for `iterative_edit_drift_rate` operational metric — run-detail dashboard alert-colors values above this. Re-tune from staging measurements without code deploy. | bring_back_editing_agents_evolution_20260430 |
+| `EVOLUTION_EDITING_RECOVERY_SUCCESS_RATE_ALERT_THRESHOLD` | `'0.70'` | Threshold for `iterative_edit_recovery_success_rate` — alert-colors values BELOW this. | bring_back_editing_agents_evolution_20260430 |
+| `EVOLUTION_EDITING_ACCEPT_RATE_ALERT_THRESHOLD` | `'0.95'` | Threshold for `iterative_edit_accept_rate` — alert-colors values ABOVE this (rubber-stamping signal per Decisions §16). | bring_back_editing_agents_evolution_20260430 |
+| `EVOLUTION_PERMISSIVE_EVAL_PARSER` | `'true'` | Reverts `parseEvaluateAndSuggest` to the strict 4-line null-check (`if (!criterionLine \|\| !exampleLine \|\| !issueLine \|\| !fixLine) continue;`). Default `'true'` permits suggestions with missing/empty Example/Issue/Fix lines (only Criterion is hard-required); set to `'false'` if the relaxed parser ever over-matches in production. Single-env-flip rollback. | fixes_to_evolution_admin_dashboard__20260503 Issue 4 |
+
+**String-contract**: the check is `process.env.FLAG !== 'false'` — exact string match. Unset, any other value, or typos keep the feature enabled. Always verify with `env | grep <FLAG>` on the runner.
+
+### UI-side rollback levers (no env var — code revert scoped)
+
+- **Tactics leaderboard breaks**: Phase 2's `createMetricColumns('tactic')` addition is one line in `src/app/admin/evolution/tactics/page.tsx`. Remove the spread to restore the pre-leaderboard static catalog.
+- **Arena Tactic column breaks**: Phase 3's column is isolated in the leaderboard table; `entry.agent_name` null-fallback is `—` for all rows, so a failed `tactic_id` resolution degrades gracefully without full regression.
+- **Strategy Tactics tab breaks**: Phase 4's tab is opt-in via URL (`?tab=tactics`); the default tab (`metrics`) is unaffected. Remove the tab entry from `TABS` in `strategies/[strategyId]/page.tsx` to hide it entirely.
 
 ---
 
@@ -486,9 +537,15 @@ Playwright specs in `src/__tests__/e2e/specs/09-admin/`:
 | Spec | Coverage |
 |------|----------|
 | `admin-evolution-v2.spec.ts` | Dashboard, runs list, run detail, experiment pages |
-| `admin-arena.spec.ts` | Arena topics, leaderboards, entry detail |
+| `admin-arena.spec.ts` | Arena topics, leaderboards, entry detail, seed panel (2026-04-21) + variant-ID column |
 | `admin-evolution-run-pipeline.spec.ts` | Full pipeline lifecycle: seed → run → metrics → arena sync → UI rendering (11 tests, real LLM calls) |
 | `admin-evolution-experiment-wizard-e2e.spec.ts` | Wizard creation with seeded data: form fill → submit → list → detail (4 tests) |
+
+### Integration Tests (real DB)
+
+| Spec | Coverage |
+|------|----------|
+| `src/__tests__/integration/evolution-pool-source-same-run.integration.test.ts` | Bug 2 regression (2026-04-21): verifies that pool-mode iterations draw parents only from same-run variants, with arena entries excluded at the `resolveParent` call site. Uses `loadArenaEntries` against a real DB + `resolveParent` with a pre-filtered pool. |
 
 ### Key Mock Patterns
 

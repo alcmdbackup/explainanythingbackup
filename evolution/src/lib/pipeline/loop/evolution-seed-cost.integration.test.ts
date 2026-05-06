@@ -142,7 +142,7 @@ function makeProvider() {
 }
 
 function makeConfig(): EvolutionConfig {
-  return { budgetUsd: 2.0, judgeModel: 'gpt-4o', generationModel: 'gpt-4o', iterationConfigs: [{ agentType: 'generate', budgetPercent: 60 }, { agentType: 'swiss', budgetPercent: 40 }], numVariants: 1 };
+  return { budgetUsd: 2.0, judgeModel: 'gpt-4o', generationModel: 'gpt-4o', iterationConfigs: [{ agentType: 'generate', budgetPercent: 60 }, { agentType: 'swiss', budgetPercent: 40 }] };
 }
 
 function makeLoopDb() {

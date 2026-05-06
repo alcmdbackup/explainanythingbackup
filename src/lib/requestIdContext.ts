@@ -58,7 +58,26 @@ export class RequestIdContext {
   }
 
   static getRequestId(): string {
-    return this.get()?.requestId || 'unknown';
+    const existing = this.get()?.requestId;
+    if (existing) return existing;
+    // B080: on cache miss, generate a UUID instead of returning the literal 'unknown'.
+    // Previously every unset-context request collapsed into a single Sentry/Honeycomb
+    // correlation bucket, defeating observability. A per-call UUID keeps each request
+    // independently identifiable while making the "unknown-" prefix easy to grep.
+    if (typeof window === 'undefined') {
+      // Node: require('crypto').randomUUID is cheap.
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        return `unknown-${require('crypto').randomUUID()}`;
+      } catch {
+        return `unknown-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+      }
+    }
+    // Browser: use crypto.randomUUID if available, else fallback.
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+      return `unknown-${crypto.randomUUID()}`;
+    }
+    return `unknown-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
   }
 
   static getUserId(): string {

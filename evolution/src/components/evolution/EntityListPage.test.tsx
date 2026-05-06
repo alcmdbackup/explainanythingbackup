@@ -19,22 +19,25 @@ const items: TestItem[] = [
 ];
 
 describe('EntityListPage', () => {
-  it('renders title and item count inside Card', () => {
+  // Fix #20 (use_playwright_find_ux_issues_bugs_20260501): count is now inline
+  // with the heading as "Runs (42)" instead of a separate "42 items" sub-line.
+  it('renders title and inline item count inside Card', () => {
     render(<EntityListPage title="Runs" columns={columns} items={items} loading={false} totalCount={42} />);
-    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Runs');
-    expect(screen.getByText('42 items')).toBeInTheDocument();
+    const heading = screen.getByRole('heading', { level: 1 });
+    expect(heading).toHaveTextContent('Runs');
+    expect(heading).toHaveTextContent('(42)');
     expect(screen.getByTestId('entity-list-page')).toBeInTheDocument();
   });
 
-  it('renders singular count', () => {
+  it('renders count for single item', () => {
     render(<EntityListPage title="Runs" columns={columns} items={items} loading={false} totalCount={1} />);
-    expect(screen.getByText('1 item')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('(1)');
   });
 
   it('hides header when showHeader=false', () => {
     render(<EntityListPage title="Runs" showHeader={false} columns={columns} items={items} loading={false} totalCount={42} />);
     expect(screen.queryByRole('heading', { level: 1 })).not.toBeInTheDocument();
-    expect(screen.queryByText('42 items')).not.toBeInTheDocument();
+    expect(screen.queryByText('(42)')).not.toBeInTheDocument();
   });
 
   it('renders select filter', () => {

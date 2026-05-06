@@ -78,11 +78,21 @@ export function AutoRefreshProvider({
         setRefreshKey(k => k + 1);
       }
     };
+    // B095: `visibilitychange` fires on hide/unhide but NOT on same-tab back/forward
+    // navigation — the tab stays visible across history traversal, so a user navigating
+    // away from a run-detail page and back a minute later sees stale data until the
+    // next poll tick. `pageshow` fires on every show, including bfcache restores, so
+    // listening to it in addition ensures an immediate refresh on history navigation.
+    const handlePageShow = () => {
+      setRefreshKey(k => k + 1);
+    };
     document.addEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('pageshow', handlePageShow);
 
     return () => {
       clearInterval(interval);
       document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('pageshow', handlePageShow);
     };
   }, [isActive, intervalMs]);
 
@@ -126,14 +136,22 @@ export function RefreshIndicator() {
       {isActive && (
         <span className="w-1.5 h-1.5 rounded-full bg-[var(--status-success)] animate-pulse" title="Auto-refreshing" />
       )}
-      {lastRefreshed && <span data-testid="refresh-ago">Updated {ago}</span>}
+      {/* Fix #4/#8 (use_playwright_find_ux_issues_bugs_20260501): aria-live="polite"
+          + aria-atomic so screen readers announce the freshness change. */}
+      {lastRefreshed && (
+        <span data-testid="refresh-ago" aria-live="polite" aria-atomic="true">
+          Updated {ago}
+        </span>
+      )}
       <button
         onClick={triggerRefresh}
         className="px-2 py-0.5 rounded border border-[var(--border-default)] hover:bg-[var(--surface-elevated)] transition-colors"
         title="Refresh now"
         data-testid="manual-refresh-btn"
       >
-        ↻ Refresh
+        {/* Fix #9 (use_playwright_find_ux_issues_bugs_20260501): mark the unicode
+            glyph aria-hidden so screen readers don't read "white circle arrow". */}
+        <span aria-hidden="true">↻</span> Refresh
       </button>
     </div>
   );

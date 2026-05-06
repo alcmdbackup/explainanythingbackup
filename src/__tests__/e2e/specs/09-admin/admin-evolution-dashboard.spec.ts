@@ -170,4 +170,122 @@ adminTest.describe('Evolution Dashboard (T1-T3)', { tag: '@evolution' }, () => {
       expect(adminPage.url()).toContain('/admin/evolution/runs/');
     });
   });
+
+  // B1/B2 (use_playwright_find_bugs_ux_issues_20260422): Total Cost on the
+  // dashboard must be MONOTONIC when toggling "Hide test content" — turning the
+  // filter OFF can only ADD runs (never remove them), so unchecked total ≥
+  // checked total. Anti-regression for the bug where unchecking the filter
+  // mysteriously zeroed Total Cost (the helper now falls back through 4 layers).
+  adminTest.describe('Total Cost monotonic invariant', { tag: '@evolution' }, () => {
+    adminTest.describe.configure({ mode: 'serial' });
+
+    const monoPrefix = `e2e-mono-${Date.now()}`;
+    let monoStrategyId: string;
+    let monoPromptId: string;
+    const monoRunIds: string[] = [];
+
+    adminTest.beforeAll(async () => {
+      const sb = getServiceClient();
+      const { data: prompt, error: pErr } = await sb
+        .from('evolution_prompts')
+        .insert({ prompt: `${monoPrefix} prompt`, name: `${monoPrefix} Prompt`, status: 'active' })
+        .select('id')
+        .single();
+      if (pErr) throw new Error(`Seed prompt: ${pErr.message}`);
+      monoPromptId = prompt.id;
+
+      const { data: strategy, error: sErr } = await sb
+        .from('evolution_strategies')
+        .insert({
+          name: `${monoPrefix}-strategy`,
+          config: { maxIterations: 3 },
+          config_hash: `hash-${monoPrefix}`,
+          status: 'active',
+        })
+        .select('id')
+        .single();
+      if (sErr) throw new Error(`Seed strategy: ${sErr.message}`);
+      monoStrategyId = strategy.id;
+
+      // 1 prod run + 1 test run, each with a known cost in evolution_metrics.
+      const prodRunId = randomUUID();
+      const testRunId = randomUUID();
+      const { error: rErr } = await sb.from('evolution_runs').insert([
+        { id: prodRunId, status: 'completed', strategy_id: monoStrategyId, prompt_id: monoPromptId, budget_cap_usd: 1.0, completed_at: new Date().toISOString() },
+        { id: testRunId, status: 'completed', strategy_id: monoStrategyId, prompt_id: monoPromptId, budget_cap_usd: 1.0, completed_at: new Date().toISOString() },
+      ]);
+      if (rErr) throw new Error(`Seed runs: ${rErr.message}`);
+      monoRunIds.push(prodRunId, testRunId);
+
+      const writeCost = async (runId: string, value: number): Promise<void> => {
+        // upsert_metric_max signature: (p_entity_type, p_entity_id, p_metric_name, p_value, p_source).
+        // Cast around the typed rpc since the function isn't in the generated types yet.
+        const { error } = await (sb.rpc as unknown as (name: string, params: Record<string, unknown>) => Promise<{ error: { message: string } | null }>)(
+          'upsert_metric_max',
+          {
+            p_entity_type: 'run',
+            p_entity_id: runId,
+            p_metric_name: 'cost',
+            p_value: value,
+            p_source: 'e2e-test',
+          },
+        );
+        if (error) throw new Error(`writeCost(${runId}): ${error.message}`);
+      };
+      await writeCost(prodRunId, 0.10);
+      await writeCost(testRunId, 0.50);
+    });
+
+    adminTest.afterAll(async () => {
+      const sb = getServiceClient();
+      await sb.from('evolution_runs').delete().in('id', monoRunIds);
+      await sb.from('evolution_strategies').delete().eq('id', monoStrategyId);
+      await sb.from('evolution_prompts').delete().eq('id', monoPromptId);
+    });
+
+    adminTest('Total Cost is monotonic when toggling Hide test content (off ≥ on)', async ({ adminPage }) => {
+      await adminPage.goto('/admin/evolution-dashboard');
+      await adminPage.waitForLoadState('domcontentloaded');
+
+      const totalCostCell = adminPage.locator('[data-testid="metric-total-cost"]');
+      await expect(totalCostCell).toBeVisible({ timeout: 15000 });
+
+      const parseCost = (s: string): number => {
+        const m = s.match(/\$(\d+(?:\.\d+)?)/);
+        return m && m[1] != null ? parseFloat(m[1]) : NaN;
+      };
+
+      const hideTestCheckbox = adminPage.locator('[data-testid="filter-filterTestContent"] input[type="checkbox"]');
+
+      // Helper: wait for the cost cell to settle on a parseable $ value that
+      // differs from the prior reading (or any value if no prior). Uses
+      // expect(locator).not.toContainText for the change-detection — the
+      // lint-approved way to wait for content to update without textContent races.
+      const readCostAfterChange = async (priorText: string | null): Promise<{ text: string; cost: number }> => {
+        if (priorText != null) {
+          // Wait until the displayed text is NOT the prior text (i.e. re-rendered).
+          // eslint-disable-next-line flakiness/no-point-in-time-checks -- intentional: assert the change happened
+          await expect(totalCostCell).not.toHaveText(priorText, { timeout: 10000 });
+        }
+        // Now wait for a parseable $ value to settle.
+        await expect(totalCostCell).toContainText(/\$\d/, { timeout: 10000 });
+        // eslint-disable-next-line flakiness/no-point-in-time-checks -- value already polled+settled above; reading it once is safe
+        const text = (await totalCostCell.innerText()) ?? '';
+        return { text, cost: parseCost(text) };
+      };
+
+      // Step 1: Hide test content ON — capture Total Cost.
+      // eslint-disable-next-line flakiness/no-point-in-time-checks -- control flow, not assertion
+      if (!(await hideTestCheckbox.isChecked())) await hideTestCheckbox.check();
+      const on = await readCostAfterChange(null);
+
+      // Step 2: toggle OFF, capture again (must differ from the ON reading
+      // because the seeded test run adds $0.50 to the total).
+      await hideTestCheckbox.uncheck();
+      const off = await readCostAfterChange(on.text);
+
+      // Off must include the test runs we seeded — so off ≥ on, never less.
+      expect(off.cost).toBeGreaterThanOrEqual(on.cost);
+    });
+  });
 });

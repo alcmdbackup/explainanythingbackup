@@ -1,0 +1,9 @@
+{
+  "branch": "feat/investigate_under_budget_run_evolution_20260420",
+  "created_at": "2026-04-20T18:47:00-07:00",
+  "prerequisites": {},
+  "relevantDocs": [
+    "docs/feature_deep_dives/multi_iteration_strategies.md",
+    "docs/feature_deep_dives/evolution_metrics.md"
+  ]
+}

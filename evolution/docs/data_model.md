@@ -18,7 +18,7 @@ Stores strategy configurations with aggregated performance metrics. Strategies a
 | `name` | TEXT | NOT NULL | Human-readable name |
 | `label` | TEXT | NOT NULL, default `''` | Short label for UI |
 | `description` | TEXT | | Optional long description |
-| `config` | JSONB | NOT NULL | Full strategy configuration (`StrategyConfig`: generationModel, judgeModel, iterationConfigs[], strategiesPerRound, budgetUsd, generationGuidance). `iterationConfigs` is an ordered array of `{ agentType, budgetPercent, maxAgents? }` objects defining the iteration sequence. See [Strategies](./strategies_and_experiments.md) for field details. |
+| `config` | JSONB | NOT NULL | Full strategy configuration (`StrategyConfig`: generationModel, judgeModel, iterationConfigs[], strategiesPerRound, budgetUsd, generationGuidance). `iterationConfigs` is an ordered array of `{ agentType, budgetPercent, maxAgents?, generationGuidance? }` objects defining the iteration sequence. Per-iteration `generationGuidance` overrides the strategy-level setting for that iteration. See [Strategies](./strategies_and_experiments.md) for field details. |
 | `config_hash` | TEXT | NOT NULL, UNIQUE | SHA-256 hash for dedup |
 | `is_predefined` | BOOLEAN | NOT NULL, default `false` | System-provided strategy |
 | `pipeline_type` | TEXT | default `'full'` | `'full'` or `'single'` |
@@ -38,7 +38,7 @@ Stores strategy configurations with aggregated performance metrics. Strategies a
 
 > **Note:** `avg_final_elo` uses Welford's online algorithm via the `update_strategy_aggregates` RPC. The `stddev_final_elo` and `avg_elo_per_dollar` columns are reserved for future use.
 
-> **Test-content filter:** the `evolution_is_test_name(text)` IMMUTABLE Postgres function matches exact lowercase `test`, bracketed `[TEST]`/`[E2E]`/`[TEST_EVO]` substrings, and the timestamp pattern `^.*-\d{10,13}-.*$`. It's called by a BEFORE INSERT/UPDATE-of-name trigger on `evolution_strategies` that sets `is_test_content` via direct NEW mutation (no self-UPDATE, no recursion). The TS helper `isTestContentName` in `evolution/src/services/shared.ts` echoes this logic and is locked to the same fixture table via integration test for anti-drift protection. Admin UI filters via PostgREST embedded `!inner` join: `.select('..., evolution_strategies!inner(is_test_content)').eq('evolution_strategies.is_test_content', false)`.
+> **Test-content filter:** the `evolution_is_test_name(text)` IMMUTABLE Postgres function matches exact lowercase `test`, bracketed `[TEST]`/`[E2E]`/`[TEST_EVO]` substrings, and the timestamp pattern `^.*-\d{10,13}-.*$`. It's called by a BEFORE INSERT/UPDATE-of-name trigger on `evolution_strategies` (since 20260415000001) and on `evolution_prompts` + `evolution_experiments` (since 20260423000001) that sets `is_test_content` via direct NEW mutation (no self-UPDATE, no recursion). The TS helper `isTestContentName` in `evolution/src/services/shared.ts` echoes this logic and is locked to the same fixture table via integration test for anti-drift protection. Admin UI filters via `applyTestContentColumnFilter` (`.eq('is_test_content', false)`) on tables that have the column directly, or via PostgREST embedded `!inner` join (`applyNonTestStrategyFilter`) on tables that join through `evolution_strategies` (e.g. `evolution_runs`).
 
 ### `evolution_prompts`
 
@@ -52,6 +52,7 @@ Prompt registry for evolution runs and arena topics. Renamed from `evolution_are
 | `status` | TEXT | NOT NULL, CHECK `('active','archived')` | |
 | `deleted_at` | TIMESTAMPTZ | | Soft delete timestamp |
 | `archived_at` | TIMESTAMPTZ | | |
+| `is_test_content` | BOOLEAN | NOT NULL, default `false` | Set by a BEFORE INSERT/UPDATE-OF-name trigger calling `evolution_is_test_name(name)`. Migration `20260423000001`. Backed by partial index `idx_evolution_prompts_non_test`. Used by `applyTestContentColumnFilter` for the prompts list and arena topics list. |
 | `created_at` | TIMESTAMPTZ | NOT NULL | |
 
 ### `evolution_experiments`
@@ -66,6 +67,7 @@ Groups multiple runs under a named experiment for batch execution.
 | `status` | TEXT | NOT NULL, CHECK `('draft','running','completed','cancelled','archived')` | |
 | `config` | JSONB | | Optional experiment-level config |
 | `evolution_explanation_id` | UUID | NOT NULL, FK -> `evolution_explanations(id)` | Seed article identity |
+| `is_test_content` | BOOLEAN | NOT NULL, default `false` | Set by a BEFORE INSERT/UPDATE-OF-name trigger calling `evolution_is_test_name(name)`. Migration `20260423000001`. Backed by partial index `idx_evolution_experiments_non_test`. Used by `applyTestContentColumnFilter` for the experiments list. |
 | `created_at` | TIMESTAMPTZ | NOT NULL | |
 | `updated_at` | TIMESTAMPTZ | NOT NULL | |
 
@@ -120,7 +122,29 @@ Text variants produced during a pipeline run. Since migration 20260321000002, th
 | `cost_usd` | NUMERIC | | LLM cost for generating this variant |
 | `archived_at` | TIMESTAMPTZ | | Soft archive for arena entries |
 | `evolution_explanation_id` | UUID | FK -> `evolution_explanations(id)` | NULLABLE (oneshot entries have none) |
+| `criteria_set_used` | UUID[] | | Set of `evolution_criteria.id` values evaluated when this variant was produced via `evaluate_criteria_then_generate_from_previous_article`. NULL/empty otherwise. GIN-indexed. Migration `20260502120002`. |
+| `weakest_criteria_ids` | UUID[] | | Subset of `criteria_set_used` corresponding to the K weakest criteria the wrapper agent targeted with suggestions. NULL/empty otherwise. GIN-indexed. Migration `20260502120002`. |
 | `created_at` | TIMESTAMPTZ | NOT NULL | |
+
+### `evolution_criteria`
+
+User-defined evaluation criteria targeted by `EvaluateCriteriaThenGenerateFromPreviousArticleAgent`. DB-first entity (mirrors `evolution_prompts`); one row per criterion with a structured rubric. Migration `20260502120000`.
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | UUID | PK, default `gen_random_uuid()` | |
+| `name` | TEXT | NOT NULL, UNIQUE, CHECK `^[A-Za-z][a-zA-Z0-9_-]{0,128}$` | Stable identifier (regex enforced) |
+| `label` | TEXT | NOT NULL, default `''` | Human-readable display label |
+| `description` | TEXT | NOT NULL | Plain-language description injected into the evaluate-and-suggest prompt |
+| `min_rating` | NUMERIC | NOT NULL | Rubric scale lower bound |
+| `max_rating` | NUMERIC | NOT NULL, CHECK `max_rating > min_rating` | Rubric scale upper bound |
+| `evaluation_guidance` | JSONB | | Optional rubric `[{ score, description }, ...]` array validated by IMMUTABLE function `evolution_criteria_rubric_anchors_in_range(min_rating, max_rating, guidance)` to ensure each anchor `score` falls in `[min_rating, max_rating]` |
+| `status` | TEXT | NOT NULL, CHECK `('active','archived')` | |
+| `deleted_at` | TIMESTAMPTZ | | Soft delete timestamp (mirrors `evolution_prompts`) |
+| `created_at` | TIMESTAMPTZ | NOT NULL, default `now()` | |
+| `updated_at` | TIMESTAMPTZ | NOT NULL, default `now()`, BEFORE trigger updates on row change | |
+
+> **Cross-strategy integrity:** `validateCriteriaIds(criteriaIds, db)` (in `evolution/src/services/criteriaActions.ts`) is called from `createStrategyAction` before persisting a strategy whose iteration configs reference any criteria UUIDs. It rejects unknown, archived, or soft-deleted criteria so dispatch-time fetches via `getCriteriaForEvaluation` never hit a missing row. The same set of UUIDs is sorted (canonicalized) before being included in the strategy's `config_hash` so `[a,b]` and `[b,a]` deduplicate.
 
 ### `evolution_tactics`
 
@@ -131,7 +155,7 @@ Thin entity table for tactic identity. Tactic prompt definitions live in code (`
 | `id` | UUID | PK, default `gen_random_uuid()` | |
 | `name` | TEXT | NOT NULL, UNIQUE | Tactic identifier (e.g. `'structural_transform'`) |
 | `label` | TEXT | NOT NULL, default `''` | Human-readable display label |
-| `agent_type` | TEXT | NOT NULL | Agent group (e.g. `'generate_from_seed_article'`) |
+| `agent_type` | TEXT | NOT NULL | Agent group (e.g. `'generate_from_previous_article'`; renamed from `'generate_from_seed_article'` for backward compat) |
 | `category` | TEXT | | Grouping: `'core'`, `'extended'`, `'depth'`, `'audience'`, `'structural'`, `'quality'`, `'meta'` |
 | `is_predefined` | BOOLEAN | NOT NULL, default `true` | System-provided tactic |
 | `status` | TEXT | NOT NULL, CHECK `('active','archived')` | |
@@ -222,7 +246,7 @@ Unified EAV (entity-attribute-value) table for all evolution metrics. Replaces s
 | Column | Type | Constraints | Description |
 |--------|------|-------------|-------------|
 | `id` | UUID | PK, default `gen_random_uuid()` | |
-| `entity_type` | TEXT | NOT NULL, CHECK `('run','invocation','variant','strategy','experiment','prompt','tactic')` | Type of entity this metric belongs to |
+| `entity_type` | TEXT | NOT NULL, CHECK `('run','invocation','variant','strategy','experiment','prompt','tactic','criteria')` | Type of entity this metric belongs to (`'criteria'` added in migration `20260502120001`; staleness cascade extended in `20260502120003`) |
 | `entity_id` | UUID | NOT NULL | FK to the entity's primary key |
 | `metric_name` | TEXT | NOT NULL | e.g. `'cost'`, `'winner_elo'`, `'median_elo'`, `'agentCost:generation'` |
 | `value` | DOUBLE PRECISION | NOT NULL | Metric value |
@@ -349,9 +373,9 @@ Two additional policy layers:
 
 All RPCs are `SECURITY DEFINER` with `search_path = public`, granted exclusively to `service_role`.
 
-### `claim_evolution_run(p_runner_id TEXT, p_run_id UUID DEFAULT NULL)`
+### `claim_evolution_run(p_runner_id TEXT, p_run_id UUID DEFAULT NULL, p_max_concurrent INT DEFAULT 5)`
 
-Atomically claims the oldest pending run using `FOR UPDATE SKIP LOCKED`. Returns the claimed run row. If `p_run_id` is provided, claims only that specific run.
+Atomically claims the oldest pending run using `FOR UPDATE SKIP LOCKED`. Returns the claimed run row. If `p_run_id` is provided, claims only that specific run. `p_max_concurrent` (added migration `20260323000002`) caps total concurrent claimed/running runs server-side — claims fail with empty result when the cap is reached.
 
 ```sql
 -- Core locking pattern:
@@ -428,7 +452,7 @@ pending ──► claimed ──► running ──► completed
 
 Cost flows through three layers:
 
-1. **In-memory**: `V2CostTracker` (`evolution/src/lib/pipeline/cost-tracker.ts`) uses a reserve-before-spend pattern with a 1.3x safety margin. Reservations are synchronous to maintain parallel safety under the Node.js event loop.
+1. **In-memory**: `V2CostTracker` (`evolution/src/lib/pipeline/infra/trackBudget.ts`) uses a reserve-before-spend pattern with a 1.3x safety margin. Reservations are synchronous to maintain parallel safety under the Node.js event loop.
 
 2. **Per-invocation**: Each agent invocation writes its `cost_usd` to `evolution_agent_invocations`. This is the source of truth for cost attribution.
 
@@ -439,7 +463,7 @@ Cost flows through three layers:
    - Budget events table was dropped in V2; audit trail is now in-memory only
 
 ```typescript
-// From evolution/src/lib/pipeline/cost-tracker.ts
+// From evolution/src/lib/pipeline/infra/trackBudget.ts
 export function createCostTracker(budgetUsd: number): V2CostTracker {
   // reserve() is synchronous — no awaits — for parallel safety
   reserve(phase: string, estimatedCost: number): number;
@@ -495,6 +519,31 @@ export interface Variant {
 
 Public rating type `{elo, uncertainty}` (both Elo-scale). See [Rating System](./rating_and_comparison.md) for the full rating model. The `elo_score` column in `evolution_variants` is a display-clamped version of `Rating.elo`. Arena ratings are persisted via the legacy `mu`/`sigma` DB columns on `evolution_variants`; the application layer translates via `dbToRating` / `ratingToDb` at the boundary.
 
+### `agentExecutionDetailSchema` — `reflect_and_generate_from_previous_article` variant
+
+A discriminated-union variant on `agentExecutionDetailSchema` for the
+`ReflectAndGenerateFromPreviousArticleAgent` (Shape A: top-level enum value alongside
+`generate` and `swiss`). Defined in `evolution/src/lib/schemas.ts` as
+`reflectAndGenerateFromPreviousArticleExecutionDetailSchema`. Shape:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `detailType` | literal `'reflect_and_generate_from_previous_article'` | Discriminator |
+| `variantId` | string \| null | Variant produced (when surfaced) |
+| `tactic` | string | Chosen tactic (denormalized from `reflection.tacticChosen` for SQL filters) |
+| `reflection` | object (optional) | `{ candidatesPresented: string[]; tacticRanking: { tactic, reasoning }[]; tacticChosen: string; rawResponse?, parseError?; durationMs?; cost? }` |
+| `generation` | object (optional) | Same shape as GFPA `generation` (cost / promptLength / textLength / formatValid / durationMs) |
+| `ranking` | object (optional, nullable) | Same shape as GFPA `ranking` |
+| `totalCost` | number (optional) | `reflection.cost + GFPA totalCost`, recomputed by the wrapper merge step |
+| `surfaced` | boolean | Whether the variant survived the local-Elo cutoff |
+| `discardReason` | object (optional) | `{ localElo, localTop15Cutoff }` when not surfaced |
+
+Sub-objects are individually optional so partial-failure rows still validate (e.g.
+reflection succeeds but generation throws → only `reflection` is populated). The
+wrapper-error path relies on `trackInvocations.updateInvocation`'s partial-update
+semantics to preserve the partially-written `execution_detail` when the catch handler
+later writes only `cost_usd` / `success` / `error_message`.
+
 ### Run Summary V3
 
 The `run_summary` JSONB column on `evolution_runs` stores an `EvolutionRunSummary` object. Current version is V3 with Elo-based fields:
@@ -543,8 +592,23 @@ This means database rows written by older pipeline versions are transparently up
 | `20260321000002_consolidate_arena_entries.sql` | 2026-03-21 | Consolidated `evolution_arena_entries` into `evolution_variants` (added arena columns, migrated data, dropped `evolution_arena_entries`) |
 | `20260322000001_fresh_schema_docs.sql` | 2026-03-22 | Fresh schema documentation migration |
 | `20260322000002_prod_convergence.sql` | 2026-03-22 | Prod convergence migration |
+| `20260415000001_evolution_is_test_content.sql` | 2026-04-15 | `evolution_strategies.is_test_content` column + `evolution_is_test_name(text)` function + BEFORE INSERT/UPDATE-OF-name trigger + partial index |
+| `20260423000001_add_is_test_content_to_prompts_experiments.sql` | 2026-04-23 | Same `is_test_content` column + trigger + partial index pattern extended to `evolution_prompts` and `evolution_experiments`. Closes B17 (test rows leaked into prompts list, arena topics list, and start-experiment wizard pickers because `applyTestContentNameFilter` was substring-only and missed the timestamp regex). |
 
 The V2 clean-slate migration (20260315) intentionally dropped all V1 tables, views, and functions. There is no backward migration path to V1.
+
+### Historic-run Zod tolerance (2026-04-23)
+
+Phase 1 of the `scan_codebase_for_bugs_20260422` project tightened Zod refinements on several numeric fields to reject `NaN` / `Infinity` / negative-refund values:
+
+- `ratingSchema.elo` and `ratingSchema.uncertainty` — `.refine(Number.isFinite)`
+- `evolution_variants.mu` / `sigma` / `elo_score` — `.refine(Number.isFinite)`
+- `evolution_budget_events.amount_usd` — `.min(0).refine(Number.isFinite)`
+- `evolution_budget_events.available_budget_usd` — `.refine(Number.isFinite)`
+- `evolution_variants.generation_method` — `.min(1)` when non-null
+- `evolution_run.error_message` and `evolution_agent_invocation.error_message` — `.max(10000)`
+
+The app-layer read paths that consume these schemas all route through `.parse()` / `.safeParse()` with established `.safeParse() → log-and-skip` patterns in the metrics recompute + finalization code, so historic rows containing `NaN`/`Infinity` surface as log warnings rather than crashing callers. If you see a spike in Zod parse warnings after this migration, the staging/prod DB has a small number of legacy bad rows that should be surfaced via the admin UI's metric-error tab.
 
 ---
 
@@ -589,7 +653,7 @@ The file `src/lib/database.types.ts` contains auto-generated TypeScript types fr
 
 Every variant carries a `parent_variant_id UUID NULL` column referencing another row in `evolution_variants` (self-FK is not currently declared in the generated types but is conventionally relied upon). Populated by:
 
-- `GenerateFromPreviousArticleAgent` (and the prior `generate_from_seed_article`): set to the agent's input parent — either the seed variant or a pool-drawn variant, per the iteration's `sourceMode`.
+- `GenerateFromPreviousArticleAgent` (agent type `generate_from_previous_article`; renamed from `generate_from_seed_article` for backward compat): set to the agent's input parent — either the seed variant or a pool-drawn variant, per the iteration's `sourceMode`.
 - `CreateSeedArticleAgent`: `NULL` (root of the lineage chain).
 
 The single-pointer design means lineage is a tree (not a DAG). In-memory `Variant.parentIds` is an array for future multi-parent agents, but today only index 0 is persisted.

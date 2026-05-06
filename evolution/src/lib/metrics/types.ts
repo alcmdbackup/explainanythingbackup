@@ -10,7 +10,7 @@ import type { AgentName } from '../core/agentNames';
 
 // ─── Entity & Metric Name Types ─────────────────────────────────
 
-export const ENTITY_TYPES = ['run', 'invocation', 'variant', 'strategy', 'experiment', 'prompt', 'tactic'] as const;
+export const ENTITY_TYPES = ['run', 'invocation', 'variant', 'strategy', 'experiment', 'prompt', 'tactic', 'criteria'] as const;
 export type EntityType = typeof ENTITY_TYPES[number];
 
 export const AGGREGATION_METHODS = ['sum', 'avg', 'max', 'min', 'count', 'bootstrap_mean', 'bootstrap_percentile'] as const;
@@ -21,7 +21,15 @@ export type MetricTiming = 'during_execution' | 'at_finalization' | 'at_propagat
 // Type-safe metric names — typos caught at compile time
 export const STATIC_METRIC_NAMES = [
   // Run (live during-execution)
-  'cost', 'generation_cost', 'ranking_cost', 'seed_cost',
+  'cost', 'generation_cost', 'ranking_cost', 'reflection_cost', 'seed_cost',
+  'iterative_edit_cost',
+  // Phase 3.5 — separate cost bucket for the post-cycle ranking step inside
+  // editing iterations (mirrors the generation_cost/ranking_cost split for GFPA).
+  'iterative_edit_rank_cost',
+  // Run (live during-execution) — operational health for iterative_editing
+  'iterative_edit_drift_rate',
+  'iterative_edit_recovery_success_rate',
+  'iterative_edit_accept_rate',
   // Run (at-finalization)
   'winner_elo', 'median_elo', 'p90_elo', 'max_elo',
   'total_matches', 'decisive_rate', 'variant_count', 'cost_estimation_error_pct',
@@ -43,7 +51,12 @@ export const STATIC_METRIC_NAMES = [
   'run_count', 'total_cost', 'avg_cost_per_run',
   'total_generation_cost', 'avg_generation_cost_per_run',
   'total_ranking_cost', 'avg_ranking_cost_per_run',
+  'total_reflection_cost', 'avg_reflection_cost_per_run',
+  'total_iterative_edit_cost', 'avg_iterative_edit_cost_per_run',
+  'total_iterative_edit_rank_cost', 'avg_iterative_edit_rank_cost_per_run',
   'total_seed_cost', 'avg_seed_cost_per_run',
+  // Run-level evaluation cost (single combined LLM call by the criteria-driven wrapper)
+  'evaluation_cost', 'total_evaluation_cost', 'avg_evaluation_cost_per_run',
   'avg_final_elo', 'best_final_elo', 'worst_final_elo',
   'avg_median_elo', 'avg_p90_elo', 'best_max_elo',
   'avg_matches_per_run', 'avg_decisive_rate',
@@ -60,6 +73,11 @@ export const STATIC_METRIC_NAMES = [
   'avg_parallel_dispatched',
   'avg_sequential_dispatched',
   'avg_median_sequential_gfsa_duration_ms',
+  // Tactic metrics
+  'avg_elo', 'avg_elo_delta', 'best_elo', 'win_rate',
+  'total_variants', 'winner_count',
+  // Criteria metrics (run_count already declared above)
+  'avg_score', 'frequency_as_weakest', 'total_variants_focused', 'avg_elo_delta_when_focused',
 ] as const;
 export type StaticMetricName = typeof STATIC_METRIC_NAMES[number];
 /**
@@ -77,12 +95,38 @@ export type DynamicMetricName =
   | `eloAttrDeltaHist:${string}`;
 export type MetricName = StaticMetricName | DynamicMetricName;
 
-// Dynamic metric prefixes for runtime validation
-export const DYNAMIC_METRIC_PREFIXES = [
-  'agentCost:',
-  'eloAttrDelta:',
-  'eloAttrDeltaHist:',
-] as const;
+/**
+ * Typed registry for dynamic metric prefixes. Adding a new family is a one-line
+ * addition here that automatically extends:
+ *  - `writeMetrics` validation (via `DYNAMIC_METRIC_PREFIXES` derived below)
+ *  - `Entity.markParentMetricsStale` cascade (via `isDynamicMetricName`)
+ *  - `EntityMetricsTab` formatter / category / label resolution
+ *
+ * Per-purpose notes:
+ *  - `agentCost:` rows aggregate per-invocation `cost_usd` by `agent_name`. They
+ *    were superseded by static `*_cost` names but are kept for legacy compatibility.
+ *  - `eloAttrDelta:` rows are SIGNED Elo-point deltas (child − parent). MUST render
+ *    via `elo` formatter; rendering as currency produces nonsense like `$-1.951`.
+ *  - `eloAttrDeltaHist:` rows are bucket-fraction percents in `[0, 1]`.
+ */
+export const DYNAMIC_METRIC_REGISTRY = {
+  'agentCost:':        { formatter: 'costDetailed', category: 'cost',   labelSuffix: ' Cost' },
+  'eloAttrDelta:':     { formatter: 'elo',          category: 'rating', labelSuffix: ' Δ Elo' },
+  'eloAttrDeltaHist:': { formatter: 'percent',      category: 'rating', labelSuffix: ' (bucket)' },
+} as const satisfies Record<string, { formatter: 'cost' | 'costDetailed' | 'elo' | 'score' | 'percent' | 'percentValue' | 'integer'; category: 'cost' | 'rating' | 'match' | 'count'; labelSuffix: string }>;
+
+// Backward-compat: derive prefix list from the registry so the two never drift.
+export const DYNAMIC_METRIC_PREFIXES = Object.keys(DYNAMIC_METRIC_REGISTRY) as Array<keyof typeof DYNAMIC_METRIC_REGISTRY>;
+
+/**
+ * B041: true when the metric name is one of the dynamic-prefix families above. The
+ * stale-cascade (`Entity.markParentMetricsStale`) consults this in addition to the
+ * static propagation defs so dynamic-prefix rows (`eloAttrDelta:*`, `agentCost:*`,
+ * `eloAttrDeltaHist:*`) get marked stale on variant rating drift.
+ */
+export function isDynamicMetricName(name: string): boolean {
+  return DYNAMIC_METRIC_PREFIXES.some((p) => name.startsWith(p));
+}
 
 // ─── Metric Definition Types ────────────────────────────────────
 
@@ -90,7 +134,7 @@ export interface MetricDefBase {
   name: MetricName;
   label: string;
   category: 'cost' | 'rating' | 'match' | 'count';
-  formatter: 'cost' | 'costDetailed' | 'elo' | 'score' | 'percent' | 'integer';
+  formatter: 'cost' | 'costDetailed' | 'elo' | 'score' | 'percent' | 'percentValue' | 'integer';
   description?: string;
   listView?: boolean;
 }

@@ -9,6 +9,8 @@ import { logger } from '@/lib/server_utilities';
 import { z } from 'zod';
 import { zodResponseFormat } from "openai/helpers/zod";
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import type { Database } from '@/lib/database.types';
 import { type LlmCallTrackingType, llmCallTrackingSchema, allowedLLMModelSchema, type AllowedLLMModelType } from '@/lib/schemas/schemas';
 import { createLLMSpan } from '../../../instrumentation';
 import { withLogging } from '@/lib/logging/server/automaticServerLoggingBase';
@@ -45,6 +47,11 @@ export interface CallLLMOptions {
    *  OpenAI o-series). Values: 'none' | 'low' | 'medium' | 'high'. Omit to use the model's
    *  registry default. Ignored for non-reasoning models. */
   reasoningEffort?: 'none' | 'low' | 'medium' | 'high';
+  /** Pre-built Supabase client for the llmCallTracking write. Required when calling from
+   *  non-Next.js contexts (e.g. evolution batch runners) — the default
+   *  `createSupabaseServiceClient` lives in a `'use server'` file that misbehaves in CLI.
+   *  When omitted, falls back to the Next.js-resolved service client. */
+  trackingDb?: SupabaseClient<Database>;
 }
 
 type ResponseObject = z.ZodObject<any> | null;
@@ -76,21 +83,48 @@ export const DEFAULT_MODEL: AllowedLLMModelType = 'gpt-4.1-mini';
 export const LIGHTER_MODEL: AllowedLLMModelType = 'gpt-4.1-nano';
 export const ANONYMOUS_USER_UUID = '00000000-0000-0000-0000-000000000000';
 
-/** Module-level tracking failure counter — escalates log level at threshold. */
+/** Module-level tracking failure counter. Resets to 0 on a successful write. Used to
+ *  flag burst regressions (the audit gap between 2026-02-22 and 2026-04-23 went unnoticed
+ *  because warn-level logs were the only signal). */
 let trackingFailureCount = 0;
 
-async function saveLlmCallTracking(trackingData: LlmCallTrackingType): Promise<void> {
-    if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
-        if (trackingFailureCount === 0) {
-            logger.warn('saveLlmCallTracking: SUPABASE_SERVICE_ROLE_KEY not set — tracking disabled');
-        }
+/** When `EVOLUTION_TRACKING_STRICT === 'true'` (set in CI / dev), tracking failures throw
+ *  instead of being swallowed. Production stays fire-and-forget so a tracking blip cannot
+ *  fail user-facing LLM calls. */
+function isStrictMode(): boolean {
+    return process.env.EVOLUTION_TRACKING_STRICT === 'true';
+}
+
+/** Save one llmCallTracking row. When `injectedDb` is provided, uses that client
+ *  (required from non-Next.js contexts). Otherwise falls back to the Next.js-resolved
+ *  service client — which is currently broken from the CLI batch runner, see
+ *  `docs/planning/debug_evolution_run_cost_20260426`. */
+export async function saveLlmCallTracking(
+    trackingData: LlmCallTrackingType,
+    injectedDb?: SupabaseClient<Database>,
+): Promise<void> {
+    if (!injectedDb && !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+        // No way to construct a client. Always-loud: this is a configuration error
+        // that should be surfaced on the first failure, not the third.
+        logger.error('saveLlmCallTracking: no client available — SUPABASE_SERVICE_ROLE_KEY unset and no injectedDb provided', {
+            call_source: trackingData.call_source,
+            model: trackingData.model,
+        });
         trackingFailureCount++;
+        if (isStrictMode()) {
+            throw new ServiceError(
+                ERROR_CODES.DATABASE_ERROR,
+                'saveLlmCallTracking: no client available (set SUPABASE_SERVICE_ROLE_KEY or pass trackingDb)',
+                'saveLlmCallTracking',
+                { details: { callSource: trackingData.call_source } },
+            );
+        }
         return;
     }
 
     try {
         const validatedData = llmCallTrackingSchema.parse(trackingData);
-        const supabase = await createSupabaseServiceClient();
+        const supabase = injectedDb ?? await createSupabaseServiceClient();
 
         const { error } = await supabase
             .from('llmCallTracking')
@@ -103,9 +137,17 @@ async function saveLlmCallTracking(trackingData: LlmCallTrackingType): Promise<v
                 message: error.message,
                 details: error.details,
                 hint: error.hint,
-                code: error.code
+                code: error.code,
+                call_source: trackingData.call_source,
+                model: trackingData.model,
             });
             throw error;
+        }
+
+        // Reset on success so a single transient blip doesn't permanently elevate logs.
+        if (trackingFailureCount > 0) {
+            logger.info('saveLlmCallTracking recovered', { previousFailureCount: trackingFailureCount });
+            trackingFailureCount = 0;
         }
     } catch (error) {
         if (error instanceof z.ZodError) {
@@ -131,23 +173,32 @@ async function saveLlmCallTracking(trackingData: LlmCallTrackingType): Promise<v
     }
 }
 
-/** Save tracking data and invoke the onUsage callback (both non-fatal on failure). */
+/** Save tracking data and invoke the onUsage callback. Tracking failures are LOUD —
+ *  every failure logs at `error` level with structured fields (so observability tools
+ *  surface them immediately), and `EVOLUTION_TRACKING_STRICT=true` re-throws so CI/dev
+ *  catch regressions like the 2026-02-22 → 2026-04-23 audit gap. Default behavior in
+ *  prod still does NOT throw — LLM calls must not fail because tracking failed. */
 async function saveTrackingAndNotify(
     trackingData: LlmCallTrackingType,
     usageMeta: LLMUsageMetadata,
     options?: CallLLMOptions,
 ): Promise<void> {
     try {
-        await saveLlmCallTracking(trackingData);
+        await saveLlmCallTracking(trackingData, options?.trackingDb);
     } catch (trackingError) {
         trackingFailureCount++;
-        const logFn = trackingFailureCount >= 3 ? logger.error : logger.warn;
-        logFn(`LLM call tracking save failed (non-fatal, failure #${trackingFailureCount})`, {
+        // Always log at error level — warn-level was the reason the audit gap hid for 2 months.
+        logger.error(`LLM call tracking save failed (non-fatal, failure #${trackingFailureCount})`, {
             error: trackingError instanceof Error ? trackingError.message : String(trackingError),
             call_source: trackingData.call_source,
             model: trackingData.model,
             evolution_invocation_id: trackingData.evolution_invocation_id ?? null,
+            had_injected_db: options?.trackingDb ? true : false,
+            tracking_failure_count: trackingFailureCount,
         });
+        if (isStrictMode()) {
+            throw trackingError;
+        }
     }
 
     if (options?.onUsage) {
@@ -160,6 +211,16 @@ async function saveTrackingAndNotify(
             });
         }
     }
+}
+
+/** Test-only: reset module-level state. Exposed for unit tests, not part of the public API. */
+export function __resetTrackingFailureCount(): void {
+    trackingFailureCount = 0;
+}
+
+/** Test-only: read the current failure counter. */
+export function __getTrackingFailureCount(): number {
+    return trackingFailureCount;
 }
 
 let openai: OpenAI | null = null;
@@ -425,7 +486,19 @@ async function callOpenAIModel(
             completionTokens = usage.completion_tokens ?? 0;
             reasoningTokens = usage.completion_tokens_details?.reasoning_tokens ?? 0;
             const costModel = (isLocalModel(validatedModel) || isOpenRouterModel(validatedModel)) ? validatedModel : modelUsed;
-            estimatedCostUsd = calculateLLMCost(costModel, promptTokens, completionTokens, reasoningTokens);
+            // B021 guard: calculateLLMCost now throws on non-finite/negative
+            // tokens to expose upstream tracking bugs; we must not let that
+            // crash the user-facing LLM call — tracking is non-fatal by design.
+            try {
+              estimatedCostUsd = calculateLLMCost(costModel, promptTokens, completionTokens, reasoningTokens);
+            } catch (err) {
+              logger.warn('LLM call tracking save failed (non-fatal cost calc)', {
+                call_source,
+                model: modelUsed,
+                error: err instanceof Error ? err.message : String(err),
+              });
+              estimatedCostUsd = 0;
+            }
 
             span.setAttributes({
                 'llm.response.tokens.completion': completionTokens,
@@ -636,11 +709,23 @@ async function callLLMModelRaw(
 
         return await routeLLMCall(prompt, call_source, userid, model, streaming, setText, response_obj, response_obj_name, debug, options);
     } finally {
+        // B083: surface reconcile failures beyond the log so callers can react (e.g., retry
+        // the reconcile or proactively invalidate the cache). We still swallow the throw in
+        // the finally block — the caller's primary return value must not be clobbered by a
+        // reconcile error — but we do invalidate the local cache on failure so the next call
+        // sees fresh DB state and doesn't trust a cache that's known to be out of sync.
         spendingGate.reconcileAfterCall(reservedCost, call_source).catch((err) => {
-            logger.error('Spending gate reconciliation failed', {
+            logger.error('Spending gate reconciliation failed; invalidating cache', {
                 error: err instanceof Error ? err.message : String(err),
                 call_source,
             });
+            try {
+                spendingGate.invalidateCache();
+            } catch (invErr) {
+                logger.error('Failed to invalidate spending cache after reconcile failure', {
+                    error: invErr instanceof Error ? invErr.message : String(invErr),
+                });
+            }
         });
     }
 }

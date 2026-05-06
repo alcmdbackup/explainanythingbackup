@@ -66,7 +66,7 @@ COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
 COMMAND=$(printf '%s' "$COMMAND" | tr -s ' ')
 
 # --- Protected file patterns ---
-PROTECTED="CLAUDE\.md|settings\.json|\.claude/hooks/|\.claude/doc-mapping|\.claude/commands/|\.env"
+PROTECTED="CLAUDE\.md|settings\.json|\.claude/hooks/|\.claude/doc-mapping|\.claude/commands/|\.claude/push-gate\.json|\.env"
 
 # Normalize command: replace && || ; with newlines, then check each sub-command
 # This catches "echo x && echo y > CLAUDE.md" where the dangerous part is a later sub-command

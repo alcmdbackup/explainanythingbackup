@@ -72,7 +72,12 @@ export class SeededRandom {
  * reproducibility — each agent constructs its own SeededRandom from a derived sub-seed.
  */
 export function deriveSeed(parentSeed: bigint, ...namespace: string[]): bigint {
-  const payload = `${parentSeed.toString()}:${namespace.join(':')}`;
+  // B007-S6: length-prefix each namespace segment so the boundaries can't be ambiguated.
+  // Without this, deriveSeed(s, 'a:b') === deriveSeed(s, 'a', 'b') (both serialize as
+  // 's:a:b'), breaking the parallel-safe-reproducibility invariant. Format `<len>.<text>`
+  // — the period is safe because it can't appear in numeric length prefixes.
+  const namespacePayload = namespace.map((s) => `${s.length}.${s}`).join(':');
+  const payload = `${parentSeed.toString()}:${namespacePayload}`;
   const hash = createHash('sha256').update(payload).digest();
   // Read 8 bytes as big-endian uint64
   let result = BigInt(0);

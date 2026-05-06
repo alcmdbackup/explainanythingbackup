@@ -149,12 +149,28 @@ export async function finalizeRun(
   if (localPool.length === 0) {
     if (result.pool.length > 0) {
       logger?.info('Arena-only pool: marking as completed', { phaseName: 'finalize', arenaPoolSize: result.pool.length, localPoolSize: 0 });
-      const arenaOnlySummary = buildRunSummary(result, durationSeconds);
+      // B008-S1: pass FILTERED result (arena-only branch was passing raw `result` whose
+      // pool still includes arena entries — topVariants/tacticEffectiveness were
+      // contaminated with arena rows). Build the summary from a result with the same
+      // arena filter as the main path.
+      const arenaOnlyResult = { ...result, pool: result.pool.filter((v) => !v.fromArena) };
+      const arenaOnlySummary = buildRunSummary(arenaOnlyResult, durationSeconds);
       arenaOnlySummary.stopReason = 'arena_only';
-      await db.from('evolution_runs').update({ status: 'completed', completed_at: new Date().toISOString(), run_summary: arenaOnlySummary }).eq('id', runId);
+      // B004-S1: explicitly set error_code: null on success path to assert race-freedom
+      // contract (markRunFailed checks `.is('error_code', null)` and would no-op if we
+      // already set it).
+      await db.from('evolution_runs').update({
+        status: 'completed', completed_at: new Date().toISOString(),
+        run_summary: arenaOnlySummary, error_code: null,
+      }).eq('id', runId);
     } else {
       logger?.error('Finalization failed: empty pool', { phaseName: 'finalize' });
-      await db.from('evolution_runs').update({ status: 'failed', error_message: 'Finalization failed: empty pool' }).eq('id', runId);
+      // B004-S1: set explicit error_code so subsequent markRunFailed (with .is('error_code',
+      // null) predicate) is a no-op rather than overwriting our specific error.
+      await db.from('evolution_runs').update({
+        status: 'failed', error_message: 'Finalization failed: empty pool',
+        error_code: 'finalize_empty_pool', completed_at: new Date().toISOString(),
+      }).eq('id', runId);
     }
     return;
   }
@@ -235,6 +251,8 @@ export async function finalizeRun(
       prompt_id: run.prompt_id ?? null,
       persisted: true,
       agent_invocation_id: v.agentInvocationId ?? null,
+      criteria_set_used: v.criteriaSetUsed ? [...v.criteriaSetUsed] : null,
+      weakest_criteria_ids: v.weakestCriteriaIds ? [...v.weakestCriteriaIds] : null,
     });
   });
 
@@ -266,6 +284,8 @@ export async function finalizeRun(
         prompt_id: run.prompt_id ?? null,
         persisted: false,
         agent_invocation_id: v.agentInvocationId ?? null,
+        criteria_set_used: v.criteriaSetUsed ? [...v.criteriaSetUsed] : null,
+        weakest_criteria_ids: v.weakestCriteriaIds ? [...v.weakestCriteriaIds] : null,
       });
     });
 
@@ -388,8 +408,39 @@ export async function finalizeRun(
     }
 
     // Variant-level finalization metrics.
+    // B009-S2: enrich missing v.costUsd from invocation rows. Many code paths (arena
+    // entries, MergeRatingsAgent variants, discarded variants where the agent didn't
+    // populate costUsd before throwing) leave the in-memory variant.costUsd undefined,
+    // silently dropping per-variant cost rollups. The agent_invocation_id FK on
+    // evolution_variants (migration 20260418000003) gives us a direct lookup; fall back
+    // to summing matching invocation cost_usd by run+iteration when FK is null on
+    // legacy rows.
+    const invByVariant = new Map<string, number>();
+    if (invocations && invocations.length > 0) {
+      // Pull agent_invocation_id from variants persisted earlier in this finalize call
+      // so we can map invocation cost back to variant. Cheap single SELECT.
+      const { data: variantRows } = await db
+        .from('evolution_variants')
+        .select('id, agent_invocation_id, cost_usd')
+        .eq('run_id', runId);
+      for (const row of (variantRows ?? []) as Array<{ id: string; agent_invocation_id?: string | null; cost_usd?: number | null }>) {
+        // First preference: variant.cost_usd if set (canonical).
+        if (typeof row.cost_usd === 'number' && Number.isFinite(row.cost_usd)) {
+          invByVariant.set(row.id, row.cost_usd);
+          continue;
+        }
+        // Fallback: invocation cost_usd via FK.
+        if (row.agent_invocation_id) {
+          const inv = (invocations as Array<{ id: string; cost_usd?: number | null }>).find((i) => i.id === row.agent_invocation_id);
+          if (inv && typeof inv.cost_usd === 'number' && Number.isFinite(inv.cost_usd)) {
+            invByVariant.set(row.id, inv.cost_usd);
+          }
+        }
+      }
+    }
     for (const v of summaryPool) {
-      const varCtx: FinalizationContext = { ...finCtx, currentVariantCost: v.costUsd ?? null };
+      const enrichedCost = v.costUsd ?? invByVariant.get(v.id) ?? null;
+      const varCtx: FinalizationContext = { ...finCtx, currentVariantCost: enrichedCost };
       for (const def of getEntity('variant').metrics.atFinalization) {
         const result = def.compute(varCtx);
         if (result == null) continue;
@@ -409,6 +460,12 @@ export async function finalizeRun(
     // Propagation: tactic metrics (cross-run, variant-level aggregation — separate from strategy/experiment)
     const { computeTacticMetricsForRun } = await import('../../metrics/computations/tacticMetrics');
     await computeTacticMetricsForRun(db, runId);
+
+    // Propagation: criteria metrics (cross-run, variant-level aggregation —
+    // for variants tagged via criteria_set_used / weakest_criteria_ids by the
+    // EvaluateCriteriaThenGenerateFromPreviousArticleAgent wrapper).
+    const { computeCriteriaMetricsForRun } = await import('../../metrics/computations/criteriaMetrics');
+    await computeCriteriaMetricsForRun(db, runId);
   } catch (metricsErr) {
     const err = metricsErr instanceof Error ? metricsErr : null;
     logger?.warn('Finalization metrics write failed', {
@@ -418,6 +475,33 @@ export async function finalizeRun(
       errorStack: err?.stack?.slice(0, 1000),
       runId,
     });
+  }
+
+  // Step 5b: Phase 5 attribution metrics (Blocker 2 fix — track_tactic_effectiveness_evolution_20260422).
+  // Writes eloAttrDelta:<agent>:<dim> + eloAttrDeltaHist:<agent>:<dim>:<bucket> rows at run,
+  // strategy, and experiment levels. Deliberately placed OUTSIDE the main metrics try/catch so
+  // upstream metric-write failures (caught above as a single WARN) don't suppress attribution
+  // emission. Gated by EVOLUTION_EMIT_ATTRIBUTION_METRICS (default 'true') so ops can disable
+  // without a revert PR if a regression surfaces. Has its own try/catch so attribution failures
+  // are non-fatal w.r.t. the rest of finalize (Step 6 auto-completion, run.status update).
+  if (process.env.EVOLUTION_EMIT_ATTRIBUTION_METRICS !== 'false') {
+    try {
+      const { computeRunMetrics } = await import('../../metrics/experimentMetrics');
+      // Cast: experimentMetrics uses a minimal local SupabaseClient interface for
+      // test-friendliness; the production SupabaseClient satisfies the chainable shape
+      // at runtime but the structural types don't line up in TS.
+      type ComputeRunMetricsFn = Parameters<typeof computeRunMetrics>[1];
+      await computeRunMetrics(runId, db as unknown as ComputeRunMetricsFn, {
+        strategyId: run.strategy_id ?? undefined,
+        experimentId: run.experiment_id ?? undefined,
+      });
+    } catch (attrErr) {
+      logger?.warn('Attribution metric emission failed (non-fatal)', {
+        phaseName: 'finalize',
+        runId,
+        error: (attrErr instanceof Error ? attrErr.message : String(attrErr)).slice(0, 500),
+      });
+    }
   }
 
   // Step 6: Experiment auto-completion (only if ALL sibling runs are done)
@@ -460,7 +544,12 @@ export async function propagateMetrics(
   if (propDefs.length === 0) return;
 
   const sourceMetricNames = [...new Set(propDefs.map(d => d.sourceMetric))];
-  const runMetrics = await getMetricsForEntities(db, 'run', childRunIds, sourceMetricNames);
+  // B043: LOG — partial chunk failure is logged; propagation uses whatever succeeded.
+  const { data: runMetrics, errors: readErrors } = await getMetricsForEntities(db, 'run', childRunIds, sourceMetricNames);
+  if (readErrors.length > 0) {
+    // eslint-disable-next-line no-console
+    console.warn('[persistRunResults] partial metrics-read during propagation', { entityType, entityId, errors: readErrors });
+  }
   const allRows = [...runMetrics.values()].flat();
 
   for (const def of propDefs) {

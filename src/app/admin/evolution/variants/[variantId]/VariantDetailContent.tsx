@@ -26,35 +26,23 @@ interface VariantDetailContentProps {
 export function VariantDetailContent({ variant }: VariantDetailContentProps): JSX.Element {
   const [activeTab, setActiveTab] = useTabState(TABS);
 
-  const parentBadge = (() => {
-    if (!variant.parentVariantId) {
-      return (
-        <VariantParentBadge
-          parentId={null}
-          parentElo={null}
-          parentUncertainty={null}
-          delta={null}
-          deltaCi={null}
-        />
-      );
-    }
-    const childRating = { elo: variant.eloScore, uncertainty: variant.uncertainty ?? 0 };
-    const parentElo = variant.parentElo;
-    const parentUncertainty = variant.parentUncertainty;
-    const { delta, ci } = parentElo != null
-      ? bootstrapDeltaCI(childRating, { elo: parentElo, uncertainty: parentUncertainty ?? 0 })
-      : { delta: null, ci: null };
-    return (
-      <VariantParentBadge
-        parentId={variant.parentVariantId}
-        parentElo={parentElo}
-        parentUncertainty={parentUncertainty}
-        delta={delta}
-        deltaCi={ci}
-        crossRun={!!variant.parentRunId && variant.parentRunId !== variant.runId}
-      />
-    );
-  })();
+  const { delta, ci } = variant.parentVariantId && variant.parentElo != null
+    ? bootstrapDeltaCI(
+        { elo: variant.eloScore, uncertainty: variant.uncertainty ?? 0 },
+        { elo: variant.parentElo, uncertainty: variant.parentUncertainty ?? 0 },
+      )
+    : { delta: null, ci: null };
+  const parentBadge = (
+    <VariantParentBadge
+      parentId={variant.parentVariantId}
+      parentElo={variant.parentElo}
+      parentUncertainty={variant.parentUncertainty}
+      delta={delta}
+      deltaCi={ci}
+      crossRun={!!variant.parentRunId && variant.parentRunId !== variant.runId}
+      parentRunId={variant.parentRunId ?? null}
+    />
+  );
 
   return (
     <div className="space-y-6" data-testid="variant-detail-content">
@@ -72,6 +60,18 @@ export function VariantDetailContent({ variant }: VariantDetailContentProps): JS
           { prefix: 'Run', label: variant.runId.substring(0, 8), href: `/admin/evolution/runs/${variant.runId}` },
           ...(variant.explanationId
             ? [{ prefix: 'Explanation', label: `#${variant.explanationId}`, href: `/results?explanation_id=${variant.explanationId}` }]
+            : []),
+          // Producing-invocation cross-link. Hidden for legacy variants (~45% of staging
+          // rows) that predate migration 20260418000003. Label uses agent_invocation
+          // agent_name (e.g. 'reflect_and_generate_from_previous_article') which differs
+          // from variant.agent_name for wrapper agents (variant.agent_name is the inner
+          // GFPA tactic; agentInvocationName is the wrapper invocation).
+          ...(variant.agentInvocationId
+            ? [{
+                prefix: 'Produced by',
+                label: variant.agentInvocationName ?? variant.agentInvocationId.slice(0, 8),
+                href: `/admin/evolution/invocations/${variant.agentInvocationId}`,
+              }]
             : []),
         ]}
       />
