@@ -392,16 +392,16 @@ The shared `proposerPrompt.ts` and `approverPrompt.ts` (extended in Phase 4.0 to
 
 #### 4.6 — `detailViewConfigs.ts` + invocation page
 - [ ] Add `proposer_approver_criteria_generate` entry to `detailViewConfigs.ts`. Field paths use `cycles.0.<field>` to match `IterativeEditingAgent`'s array shape.
-- [ ] `InvocationDetailContent.tsx` — extend `buildTabs` with **8-tab** layout:
+- [ ] `InvocationDetailContent.tsx` — extend `buildTabs` with **6-tab** layout:
   1. Eval & Suggest
-  2. Proposer
-  3. Approver (Forward)
-  4. Approver (Mirror)
-  5. Apply
-  6. Metrics
-  7. Timeline
-  8. Logs
-- [ ] Tabs use `keyFilter` mechanic to slice fields (e.g., Approver Forward keeps `cycles.0.forwardDecisions`, Mirror keeps `cycles.0.mirrorDecisions`).
+  2. **Edit Cycle** — unified view combining proposer markup + per-group decision table (forward + mirror + aggregate result columns) + funnel summary + pre-approver drops list + collapsible annotated markup. Mirror column renders `—` for already-rejected forward edits (and the runtime short-circuits those mirror calls to save cost). Per-row click-to-expand for full edit text + reasons + guardrail flag details.
+  3. Apply — applied groups with diffs + dropped-post-approver (applier-stage drops only: `oldText_mismatch`, `range_overlap_with_earlier_group`) + net length change + final variant link.
+  4. Metrics
+  5. Timeline (5-segment phase bar)
+  6. Logs
+- [ ] Tabs use `keyFilter` mechanic to slice fields. Edit Cycle tab keeps `cycles.0.proposedGroupsRaw`, `cycles.0.droppedPreApprover`, `cycles.0.forwardDecisions`, `cycles.0.mirrorDecisions`, `cycles.0.proposeCostUsd`, `cycles.0.approveForwardCostUsd`, `cycles.0.approveMirrorCostUsd`, `mirrorAgreementRate`, `mirrorAbortReason`. Apply tab keeps `cycles.0.appliedGroups`, `cycles.0.droppedPostApprover`, plus the final variant fields.
+- [ ] Per-group decision table is a custom `DetailFieldDef` of type `'edit-cycle-decisions'` (new type) that joins `forwardDecisions` and `mirrorDecisions` by `groupNumber`, computes the aggregator result inline, and renders the funnel summary header. Implementation in `evolution/src/components/evolution/visualizations/EditCycleDecisionsTable.tsx`.
+- [ ] Mirror runtime short-circuit: in `proposerApproverCriteriaGenerate.ts`, before the mirror LLM call, filter out groups where `forwardDecisions[i].decision === 'reject'` — those don't need mirror evaluation. Saves a fraction of the mirror call's input tokens proportional to forward rejection rate. Persist the filtered-out groups with mirror decision `null` (rendered as `—` in the table).
 - [ ] `InvocationTimelineTab.tsx` — extend with new 5-segment phase bar:
   - Emerald (eval & suggest, reused `EVALUATE_AND_SUGGEST_COLOR`).
   - Blue (proposer, reused `GENERATION_COLOR`).
