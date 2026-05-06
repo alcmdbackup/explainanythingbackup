@@ -159,3 +159,132 @@ Captured from staging before admin-UI rubric edits. If Phase 1 needs to revert, 
 - **Round 2**: Suggestion-vs-result diff (worst 5 variants), POV rubric deep-dive (smoking gun), pool-mode parent Elo distribution, logs + judge confidence. Confirmed POV rubric misconfiguration; produced (later refuted) RTM claim.
 - **Round 3**: Best-performing variants (inverse view), depth + engagement rubric deep-dive, customPrompt rendered + bloat pattern, reflection-vs-criteria comparison. Showed agent can work surgically; engagement also misconfigured; bloat invited by customPrompt asymmetry; reflection bloats more but works.
 - **Round 4**: Never-focused rubric check (clarity/structure/tone/sentence_variety all OK), reflection sourceMode comparison (refuted RTM claim — both use pool), counterfactual scenario modeling, code-level recommendations.
+
+## Post-Merge Analysis (2026-05-05)
+
+After PR #1032 merged and Phase 1 + Phase 2 changes shipped, ran 3 additional staging batches and quantitative analyses to validate the fix's behavior in the wild. **The headline finding shifted: the original "-47 Elo structural underperformance" framing was misleading. The typical (median) variant is roughly Elo-neutral; the negative mean is driven by a long-tail of catastrophic failures, not pervasive weakness.**
+
+### Phase 2 staging validation (5 runs, n=90, original 7-criteria strategy)
+
+After the customPrompt code change deployed via the merge, re-ran the same strategy. All 4 multi-signal indicators stayed favorable vs Phase 1:
+
+| Signal | Pre-edit | Phase 1 (rubrics only) | Phase 2 (+ customPrompt) |
+|--------|---------:|-----------------------:|--------------------------:|
+| n | 95 | 92 | 90 |
+| Mean Elo Δ | -47 | -36 | **-27.8** |
+| Mean length ratio | 1.118 | 1.079 | 1.096 |
+| Min length ratio | — | 0.924 | 0.948 |
+| Max length ratio | — | 1.432 | 1.419 |
+| POV focus rate | 96.8% | 77.2% | **71.1%** |
+| Operational success | 96.9% | 100% | 100% |
+
+The customPrompt change reclaimed an additional ~+8 Elo on top of the rubric reframing's ~+11 Elo. Cumulative trajectory: **-47 → -36 → -27.8 Elo (42% of original gap closed).**
+
+### Limited-criteria experiment (5 runs, n=99, 4 criteria + weakestK=1)
+
+Strategy: only 4 well-configured criteria (depth, sentence_variety, structure, tone) — POV and engagement deliberately omitted; weakestK reduced from 2 to 1.
+
+| Signal | Phase 2 (7-crit, k=2) | **Limited (4-crit, k=1)** |
+|--------|-----------------------:|---------------------------:|
+| n | 90 | 99 |
+| Mean Elo Δ | -27.8 | **-28.7** (≈ same) |
+| Mean length ratio | 1.096 | **1.053** (best yet) |
+| Max length ratio | 1.419 | **1.217** (much tighter) |
+| Most-focused criterion | POV 71.1% | depth 57.4% |
+| Parse failures | 0% | 2/101 (~2%) |
+
+Removing POV/engagement + tightening k=1 produced the most surgical, conservative rewrites of any config tested. **Mean Elo plateaued ~-28 Elo regardless.** The 2 parse failures came from the LLM-vs-wrapper "weakest pick" disagreement (with k=1, the wrapper has a tighter target and mismatches happen more often).
+
+### Suggestion-text profile (n=1473 LLM-generated suggestions across all 3 batches)
+
+| Field | Mean chars | Notes |
+|-------|-----------:|-------|
+| `examplePassage` (quoted from parent) | 256 | ~50 words / 2-3 sentences |
+| `whatNeedsAddressing` (issue) | 156 | ~30 words / 1-2 sentences |
+| `suggestedFix` (instruction) | 208 | ~40 words / 1-2 sentences |
+| **Total per suggestion** | **620** | ~120 words |
+
+Across all batches: LLM produces ~5 suggestions per invocation, wrapper keeps ~3 and feeds them to the inner generator (drops ~2 because the LLM picked criteria the wrapper hadn't designated as weakest). **Each variant is rewritten from ~3 × 620 = ~1860 chars (~370 words) of structured guidance** — substantially more prescriptive than reflection's tactic prompts (~150-200 char preambles).
+
+### Sentence-level parent-vs-child diff (n=281 across all 3 batches)
+
+Initial paragraph-level diff overstated change rate (paragraph granularity is binary — a single edited sentence flips the whole paragraph as "changed"). Sentence-level analysis is far more accurate.
+
+| Bucket | Mean % CHILD verbatim | Median % CHILD verbatim | Median % PARENT preserved |
+|--------|---------------------:|------------------------:|--------------------------:|
+| Phase 1 (7-crit, k=2) | 70.9% | 83.0% | 89.3% |
+| Phase 2 (+customPrompt) | 74.2% | 81.0% | 87.8% |
+| Limited (4-crit, k=1) | 71.9% | **86.1%** | **91.2%** |
+
+**The typical (median) variant changes only ~14-19% of sentences.** Mean is higher (~25-29% changed) due to a long tail of near-total rewrites. The Limited config produced the most conservative changes (median 86.1% verbatim).
+
+### Elo Δ percentile distribution by rewrite bucket (n=281, sentence-level)
+
+The crucial diagnostic. Bucketing variants by sentence-level verbatim share:
+
+**Overall (n=281):** mean **-30.8**, p10 -108.6, p25 -58.8, **p50 -6.5**, p75 -0.5, p90 +4.9
+
+| Bucket | n | Mean | p10 | p25 | Median | p75 | p90 |
+|--------|---|-----:|----:|----:|-------:|----:|----:|
+| 0-20% verbatim (full rewrite) | 22 | **-68.9** | -165.4 | -112.8 | -60.2 | -12.3 | +4.5 |
+| 20-40% verbatim | 16 | -30.0 | -59.1 | -55.2 | -51.1 | -1.4 | +40.7 |
+| 40-60% verbatim | 23 | -17.3 | -57.1 | -47.7 | -4.4 | +1.5 | +20.5 |
+| 60-80% verbatim (moderate edit) | 54 | -28.0 | -91.5 | -57.5 | -5.0 | -1.0 | +4.6 |
+| 80-90% verbatim (light edit) | 102 | -29.0 | -91.8 | -58.7 | -3.8 | -0.4 | +3.2 |
+| 90-95% verbatim (very light edit) | 60 | -28.6 | -96.9 | -57.4 | -6.6 | -0.7 | +2.5 |
+| 95-100% verbatim (nearly unchanged) | 4 | -22.5 | -77.0 | -62.2 | -27.2 | +12.4 | +35.7 |
+
+**Two distinct failure modes are now visible:**
+
+1. **Failure mode A — rewrite disasters** (0-20% verbatim, n=22, ~8% of samples). p25 -113, mean -69. These are the long-tail outliers. Killable with a sentence-overlap guardrail (e.g., reject any rewrite where < 50% of sentences are byte-identical from parent).
+
+2. **Failure mode B — structural left-tail** (~25% of all samples in light-edit buckets). p25 ≈ -50 to -60 Elo across the 60-95% verbatim range. **These variants made small, targeted edits but the judge still scored them ~50+ Elo worse than parent.** This is a quality-of-suggestion problem, not a rewrite-scope problem — and it's the bigger contributor (~70 variants vs ~22).
+
+**Counterfactual: dropping the most-rewritten N% of variants:**
+
+| Drop bottom | Threshold verbatim ≥ | n kept | Mean Δ Elo | Median Δ Elo |
+|-------------|---------------------:|-------:|------------:|-------------:|
+| 0% | 0.0% | 281 | -30.8 | -6.5 |
+| 5% | 5.1% | 267 | -28.3 | -4.4 |
+| 10% | 33.6% | 253 | -27.4 | -4.4 |
+| **15%** | **43.7%** | 239 | **-26.9** | -4.0 |
+| 20% | 55.1% | 225 | -28.3 | -4.0 |
+| 30% | 73.1% | 197 | -28.1 | -3.9 |
+| 50% | 83.4% | 141 | -29.1 | -4.4 |
+
+Killing the 15% most-rewritten variants buys **+4 Elo on the mean** (from -30.8 to -26.9). The median improves from -6.5 → -4.0 just by dropping the bottom 15%. Beyond that, dropping more variants doesn't help — the typical-case Elo Δ is structurally stuck at -4 to -5 Elo.
+
+### Updated improvement recommendations (post-data)
+
+The original "structural Elo ceiling" framing turned out to be misleading. The data now points to two separable problems:
+
+**HIGH-IMPACT, LOW-EFFORT** (target failure mode A):
+
+1. **Sentence-overlap guardrail.** Post-generation check: split parent and child into sentences (regex `[.!?][""”’]?\s|$`), compute byte-identical overlap, reject any rewrite < 50% verbatim. Either retry with the same suggestions or fall back to the parent. **Expected impact: +4-6 Elo on the mean, kills the 22-variant disaster bucket entirely.**
+
+2. **Pre-tell the LLM the wrapper's pick.** Eliminates the ~45% suggestion-drop rate by inverting evaluation order (wrapper picks weakest first via fast scoring call, then prompts a focused suggestion call). Side benefit: kills the parse-failure mode entirely.
+
+3. **Stronger "preserve most paragraphs" directive in customPrompt.** Add explicit budget: "modify only 2-3 specific sentences per fix; do not rewrite surrounding paragraphs." Encourages the median behavior (already pretty good), discourages the tail.
+
+**MEDIUM-IMPACT, MEDIUM-EFFORT** (target failure mode B):
+
+4. **Investigate the structural left-tail.** What's special about variants that made light edits but lost -50+ Elo? Possibilities: misaligned suggestions (LLM picked wrong fix even with right rubric), specific criteria that produce bad suggestions even on well-aligned rubrics, judge biases against specific edit patterns. Drill-down required.
+
+5. **Try a stronger evaluator model.** Currently same gpt-4.1-nano runs evaluation and generation. Adding `evaluationModel?: string` to StrategyConfig (defaulting to `generationModel`) would let researchers A/B with `gpt-4.1-mini` or `claude-sonnet-4` for the evaluate-and-suggest call.
+
+6. **Diversify the test set.** All current data is on one prompt (Federal Reserve, factual). The agent might shine on opinion or narrative content where "fix point of view" suggestions are more natural. Pick 3 prompts spanning factual / explainer / opinion.
+
+**LARGER STRUCTURAL CHANGES** (only if 1-3 don't close the gap):
+
+7. **Criteria → tactic mapping.** Replace customPrompt path with reflection-style tactic selection. Weakest criterion → tactic mapping → vanilla GFPA dispatch. Reuses well-tested tactic infrastructure; loses some user-defined criteria flexibility.
+
+8. **Single-call evaluate-and-rewrite.** Halve LLM calls. Have the LLM do score + rewrite in one go with suggestions baked in as scratch-pad reasoning. More coherent, less wrapper-vs-LLM friction.
+
+### What changed in the framing post-data
+
+| Before | After |
+|--------|-------|
+| "-47 Elo mean delta = pervasive structural underperformance" | "-31 Elo mean = -7 Elo median + long tail of -100+ Elo failures" |
+| "Methodology fundamentally produces 'patched' variants" | "Most variants make ~14-19% sentence changes — quite surgical. Methodology isn't broken; failure modes are." |
+| "Need to switch to tactic-driven approach to fix structural ceiling" | "Two distinct failures: (A) rewrite disasters (kill with overlap guardrail), (B) light-edit left-tail (separate root cause TBD). Quick wins available." |
+| "Each criteria-driven variant rewrites ~50% of the article" | "PARAGRAPH-level diff overstated change. SENTENCE-level: median ~14-19% changed, mean ~25-29% (long tail)." |
