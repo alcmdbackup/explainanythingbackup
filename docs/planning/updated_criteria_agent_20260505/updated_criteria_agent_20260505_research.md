@@ -31,6 +31,540 @@ The Implementer applies an edit only if BOTH passes' decisions consistently favo
 
 (The carried-over research below documents the prior project's full investigation, post-merge analysis, and the percentile-bucketed Elo distribution that grounds the two-failure-mode framing.)
 
+---
+
+## Round 1 Findings (2026-05-06): Foundational Code Paths
+
+### Existing criteria wrapper (`evaluateCriteriaThenGenerateFromPreviousArticle.ts`)
+Six load-bearing contracts the successor must honor:
+1. **Inner GFPA must call `.execute()` not `.run()`** (line 554) — preserves `AgentCostScope` so cost attribution stays in the wrapper's invocation row.
+2. **`effectiveWeakestK = min(input.weakestK, criteria.length)`** must be passed to the prompt builder; mismatch silently downgrades.
+3. **Sentinel tactic `'criteria_driven'`** is required to satisfy GFPA's misconfiguration guard (`generateFromPreviousArticle.ts:190`); bare GFPA dispatch with that tactic is rejected.
+4. **`customPrompt: { preamble, instructions }`** is the only injection point — `buildEvolutionPrompt` substitutes both into a fixed template (preamble + parent + instructions + FORMAT_RULES).
+5. **`weakestCriteriaIds` + `criteriaSetUsed`** must propagate through GFPA → variant for lineage tagging (DB columns are GIN-indexed for downstream metric aggregation).
+6. **execution_detail merge** must populate `weakestCriteriaIds`, `weakestCriteriaNames`, `evaluateAndSuggest` sub-object, AND `tactic: 'criteria_driven'` BEFORE delegating; partial-failure path relies on this for the partial-update preservation (`trackInvocations.ts:81`).
+
+**Length-preservation directive (verbatim, PR #1032)**, in `buildCustomPromptFromSuggestions` lines 288-289:
+> "Rewrite the article addressing each issue. Preserve the original word count within ±10% — refactor or deepen existing passages rather than adding new sections or examples. Do not introduce meta-commentary about the article itself."
+
+### `IterativeEditingAgent` algorithm
+Single-cycle protocol per parent:
+1. **Proposer** (`iterative_edit_propose`) → full article verbatim with inline CriticMarkup.
+2. **Implementer pre-check** (deterministic) → `parseProposedEdits` + `checkProposerDrift` + `validateEditGroups` (hard rules + 1.5× size cap).
+3. **Approver** (`iterative_edit_review`) → JSONL one-per-group `{groupNumber, decision, reason}`.
+4. **Implementer apply** (deterministic) → context-failsafe + overlap-drop + right-to-left splice.
+
+**Today's approver context is article + edit groups only — NO criteria, NO evaluation rubric.** That's the gap our project closes by passing the eval-and-suggest payload through.
+
+**Load-bearing invariants** (`IterativeEditingAgent.ts:7–18`):
+- I1: internal LLM helpers MUST use `input.llm` directly, never instantiate a separate Agent.
+- I2: capture `costBefore*Call` snapshots BEFORE each helper call.
+- I3: write partial `execution_detail` BEFORE re-throwing.
+
+### CriticMarkup parser/applier
+- **Atomic edit** = `{ groupNumber, kind: 'insert'|'delete'|'replace', range: {start, end}, markupRange, oldText, newText, contextBefore (30 chars), contextAfter (30 chars) }` (`types.ts:203–212`).
+- **Group formation** = explicit `[#N]` OR adjacency rule (consecutive markup separated only by `[ \t\r]*\n?[ \t\r]*` = same group; `\n\n` splits).
+- **Paired form** `{~~ X ~~}{++ Y ++}` and inline form `{~~ X ~> Y ~~}` both normalize to a single `replace`.
+- **Hard rules** in `validateEditGroups`: 500-char newText cap, no `\n\n` in old/new, no `` ``` `` fences, no headings (`/^#+\s/m`), no list-item lines (`/^[\*+\-]\s/m`), no horizontal rules (`/^---\s*$/m`), max 5 atomic edits per group.
+- **Size-ratio guardrail** = 1.5× cap; drops highest-numbered groups until under threshold; flags `sizeExplosion` if a single dropped group's net inflation alone exceeds 0.5× baseLen.
+- **Applier** = right-to-left splice; verifies `oldText` byte match + `contextBefore`/`contextAfter` failsafe; drops overlapping groups (later wins).
+
+**Mirror transformation rules**, atomic edit `e` against article A → mirror against A' (post-apply):
+- `insert`: `{++ X ++}` at P → mirror `delete X` from `[P, P+len(X))` in A'.
+- `delete`: `{-- Y --}` from `[s, e)` → mirror `insert Y` at position `s` in A' (range `[s, s)`).
+- `replace`: `{~~ X ~> Y ~~}` at `[s, e)` → mirror `replace Y back to X` at `[s, s+len(Y))` in A'.
+
+A new helper `evolution/src/lib/core/agents/editing/mirrorEdits.ts` is the natural home for `invertAtomicEdit`, `constructMirrorGroup`, `roundTripApply` (and a `spliceString` utility).
+
+### `run2PassReversal` is reusable for the mirror-approver
+The existing primitive (`evolution/src/lib/shared/reversalComparison.ts`) is generic over `<TParsed, TResult>` and runs both LLM calls in parallel via `Promise.all`. For the mirror-approver:
+- `TParsed` = `'ACCEPT' | 'REJECT' | null` per group.
+- `TResult` = `{ decision: 'apply' | 'drop'; confidence }` per group.
+- `buildPrompts.forward` = original CriticMarkup + original article + criteria + evaluation context.
+- `buildPrompts.reverse` = mirrored CriticMarkup + post-apply article + same criteria + same evaluation.
+- `aggregate(forward, reverse)` decision rule (CORRECTED from agent's draft):
+
+| forward | reverse | semantics | result |
+|---|---|---|---|
+| ACCEPT | REJECT | "want X" + "don't remove X" → both want X in final article | **APPLY** |
+| ACCEPT | ACCEPT | "want X" + "remove X" → contradicts | drop |
+| REJECT | ACCEPT | "don't want X" + "remove X" → consistent on absence, but our proposal was to add it | drop |
+| REJECT | REJECT | "don't want X" + "don't remove X" → contradicts (preserves status quo, but proposal was adding) | drop |
+| any null | any | partial failure | drop |
+
+Net rule: **APPLY iff (forward, reverse) == (ACCEPT, REJECT)**, else DROP. No flipWinner intermediate step needed — asymmetry is built into the aggregator. Confidence is binary (1.0 apply / 0.0 drop) with this strict rule, but we may relax later for partial-failure tolerance.
+
+### Files to add / modify (preview)
+- **New**: `evolution/src/lib/core/agents/singlePassEvaluateCriteriaAndGenerate.ts` (single-pass with new guardrails).
+- **New**: `evolution/src/lib/core/agents/editing/mirrorEdits.ts` (mirror-transformation helpers).
+- **New**: `evolution/src/lib/core/agents/proposerApproverCriteriaGenerate.ts` (single-cycle propose/approve with mirror-approver).
+- **New**: `evolution/src/lib/core/agents/proposerApproverCriteriaPrompts.ts` (proposer prompt with criteria + eval context; approver prompt with same context + edit groups).
+- **Modify**: `evolution/src/lib/core/agentNames.ts` (add 4 new AgentName labels: propose / review / mirror_review / drift_recovery, plus single_pass_evaluate_and_suggest if separate from existing).
+- **Modify**: `evolution/src/lib/schemas.ts` (Zod refinements for the two new agent types).
+- **Modify**: `evolution/src/lib/pipeline/loop/runIterationLoop.ts` (dispatch branches).
+- **Modify**: GFPA misconfiguration guard if reusing `'criteria_driven'` tactic, OR add a new sentinel.
+
+## Round 2 Findings (2026-05-06): Guardrails + Mirror-Approver Edge Cases
+
+### Redundancy guardrail — two-level defense
+
+**Level 1 — proposer prompt soft rule.** Add to `proposerPrompt.ts` SOFT_RULES (currently 6 rules):
+> "Avoid edits whose newText reiterates ideas, phrases, or arguments already present elsewhere in the article. Each edit should introduce or strengthen a distinct idea, not duplicate existing content."
+
+**Level 2 — deterministic check in `validateEditGroups.ts`.** Trigram Jaccard overlap detector:
+- Extract trigram set of `newText`; build trigram set of `articleText \ oldText` (article minus the edit's old range).
+- Reject group if `|intersection| / |union| > 0.35`.
+- New drop reason: `semantic_overlap_with_existing_content`.
+- **Caveat**: trigrams catch lexical overlap, not semantic. "Monetary authority sets borrowing costs" vs "interest rates are set by the Fed" → low Jaccard, escapes the check. The proposer-prompt rule is the qualitative line of defense; the trigram check catches gross duplication.
+
+Search confirmed: **no existing similarity helper in `evolution/src/lib/`** today. Building the trigram detector is greenfield.
+
+### Flow guardrail — three-level defense
+
+**Level 1 — proposer soft rule** (add to `proposerPrompt.ts`):
+> "Preserve transition phrases and connective words at paragraph boundaries; do not delete or replace opening transitions like 'However,' 'Therefore,' or 'In contrast.'"
+
+**Level 2 — hard rule in `validateEditGroups.ts`.** Regex against transition words at paragraph start:
+```
+RE_TRANSITION_START = /^(However|Therefore|Thus|Moreover|Furthermore|In contrast|Similarly|Conversely|Nevertheless|Specifically|For example|In other words|As a result|Ultimately),?\s/i
+```
+Reject groups whose `oldText` (when range immediately follows `\n`) matches this pattern AND newText doesn't preserve it.
+
+**Level 3 — approver rubric.** Add reject criterion:
+> "The edit removes or replaces a transition phrase at a paragraph boundary (breaks connective tissue between paragraphs)."
+
+### Length guardrail — strict enforcement (vs current 1.5×)
+
+Current `SIZE_RATIO_HARD_CAP = 1.5` is too permissive for our ±10% target. Implementation:
+- **New constant** `DEFAULT_LENGTH_CAP_RATIO = 1.10` in `evolution/src/lib/core/agents/editing/constants.ts`.
+- **New optional field** `lengthCapRatio?: number` on the new agent type's IterationConfig (range 1.01-1.50). Plumbs through to `validateEditGroups(groups, currentText, lengthCapRatio = 1.10)`.
+- The existing 1.5× cap stays for `iterative_editing` agent type; the new agent type defaults to 1.10.
+- Soft proposer rule + approver rubric question complete the three-level pattern.
+- **Char-count vs word-count**: stick with char-count (existing system uses it). The "±10% word count" phrasing in prompts is human-readable; internally the ratio is char-based and "close enough" for prose.
+
+### Approver context expansion
+
+The new agent's `IterativeEditInput` extends with:
+```typescript
+approvalContext?: {
+  criteria: ReadonlyArray<CriterionRow>;
+  evaluation: {
+    criteriaScored: ParsedScore[];
+    suggestions: ParsedSuggestion[];  // the original eval-phase suggestions
+  };
+};
+```
+Wrapper-level only (not per-cycle), since the eval phase runs once.
+
+**Approver prompt additions**: criteria block (system prompt, ~575 tokens), evaluation results (user prompt: scores + weakest-K suggestions, ~295 tokens), guardrail rubric (~100 tokens). Total ~970 input tokens added per approver call; ~+$0.0008/call at typical pricing.
+
+**Decision schema extension** (backward-compatible — optional fields):
+```typescript
+EditingReviewDecision {
+  groupNumber, decision, reason,
+  redundancy_violation?: boolean,  // NEW
+  flow_violation?: boolean,         // NEW
+  length_violation?: boolean,       // NEW
+}
+```
+
+**New `OUTPUT_TOKEN_ESTIMATES.iterative_edit_review = 150`** (today defaults to 1000 — overestimate).
+
+### Mirror-approver edge cases — 7 CRITICAL gotchas
+
+1. **Position drift**: forward edits' byte ranges are INVALID in A' (post-apply). Mirror group construction must recompute every `range`, `contextBefore`, `contextAfter` in A' coordinates via simulated forward-application offset tracking. **NOT optional — silent context-mismatch drops all mirror edits otherwise.**
+
+2. **Atomic-vs-group mirroring**: A 3-edit group needs all 3 atomic edits inverted; ranges must be recomputed PER atomic edit (each forward edit shifts subsequent positions in A'). Math: position offset up to `pᵢ` increases by `Σ(newText[j].length - oldText[j].length)` for all `j > i` (right-to-left applied means downstream-first).
+
+3. **No drift check on mirror output**: We're constructing the mirror deterministically (no LLM in the loop), so `checkProposerDrift` always passes by construction. **Skip it.** Saves a code branch.
+
+4. **Skip mirror for pre-dropped groups**: Only run mirror approver on groups that pass `validateEditGroups` AND forward-approver returns ACCEPT. Mirroring rejected/dropped groups wastes LLM tokens.
+
+5. **A' format validation gate**: Before constructing mirror markup, validate `A'` against `formatValidator`. If A' fails (e.g., introduced bullet, missing H1), abort the mirror pass and fall back to forward-only decision.
+
+6. **Mirror parse null fallback**: When forward=ACCEPT and mirror returns null (parse fail / API error), don't blindly drop. Recommended fallback: apply with confidence 0.6 (between full-double-pass 1.0 and single-pass 0.3 — partial-failure tolerance from existing `aggregateWinners` pattern).
+
+7. **`mirrorEdits.ts` API surface**: 4 helpers — `invertAtomicEdit(edit, appliedState)`, `constructMirrorGroup(group, originalArticle, resultingArticle)`, `roundTripApply(group, article)` (verification), `renderMirrorMarkup(originalArticle, forwardGroups) → { mirrorArticleA', mirrorMarkupString, mirrorGroups }`.
+
+### Open question — config field colocation
+
+The new `proposer_approver_criteria_generate` agent type has many fields (`criteriaIds`, `weakestK`, `editingModel`, `approverModel`, `lengthCapRatio`, `redundancyJaccardThreshold`?). Two options:
+- **A**: Create a new agent type with its own field cluster; fork from `iterative_editing` config schema.
+- **B**: Reuse `iterative_editing` infrastructure where possible (the existing `editingMaxCycles`, `editingEligibilityCutoff` fields apply); only add criteria-specific fields (`criteriaIds`, `weakestK`).
+
+Recommendation: **B** — saves code, but requires Zod refinements that distinguish "valid for `iterative_editing`" vs "valid for `proposer_approver_criteria_generate`" (some fields apply to both, some to only one). Will be settled in Phase 1 of the plan.
+
+## Round 3 Findings (2026-05-06): Agent Registration, Dispatch, Schema, Cost
+
+### AgentName + cost-metric routing
+
+**Single-pass agent**: REUSE existing `'evaluate_and_suggest'` AgentName label. Zero schema churn. Both V1 and V2 wrappers route to `evaluation_cost`. Distinguish at the agent-class / `detailType` level, not the LLM call label level.
+
+**Propose/approve agent**: 3 NEW AgentName labels — `'criteria_proposer'`, `'criteria_forward_approver'`, `'criteria_mirror_approver'`. All three bucket to a single new metric `'proposer_approver_criteria_cost'` via `COST_METRIC_BY_AGENT`. Per-purpose split lives in `execution_detail.cycle.{proposeCostUsd, approveForwardCostUsd, approveMirrorCostUsd}`.
+
+**Propagation metrics** (strategy / experiment level):
+- `total_proposer_approver_criteria_cost` (sum, `listView: true`)
+- `avg_proposer_approver_criteria_cost_per_run` (avg)
+
+**OUTPUT_TOKEN_ESTIMATES additions** (in `createEvolutionLLMClient.ts`):
+- `criteria_proposer: 4800` (full article + markup)
+- `criteria_forward_approver: 600` (JSONL with guardrail flags)
+- `criteria_mirror_approver: 600`
+
+**Cost calibration phase enum**: `costCalibrationLoader.ts:CalibrationRow.phase` is the TS source of truth; no DB CHECK constraint enforced today (per agent investigation). Adding the 3 new labels to the TS union is sufficient. **Optional** DB migration to add a CHECK constraint `evolution_cost_calibration_phase_allowed`. **Watch for** `assertCostCalibrationPhaseEnumsMatch` startup gate documented in `evolution/docs/agents/overview.md` — if it queries the DB CHECK, DB migration must precede code deploy.
+
+### Cost estimator integration
+
+**Single-pass**: NO new estimator. Reuse `estimateGenerationCost(seedArticleChars + 200, ...) + estimateRankingCost(...)` — the +200 char delta captures the new guardrail directives in customPrompt. The eval phase (`estimateEvaluateAndSuggestCost`) is unchanged.
+
+**Propose/approve**: NEW function in `evolution/src/lib/pipeline/infra/estimateCosts.ts` after line 416:
+```typescript
+estimateProposerApproverCriteriaCost(
+  seedArticleChars, editingModel, approverModel, judgeModel,
+  criteriaCount, weakestK, avgRubricChars,
+  includesMirrorApprover, poolSize, maxComparisonsPerVariant,
+): { expected, upperBound, expectedRanking, upperBoundRanking }
+```
+5 layers: eval (reuse `estimateEvaluateAndSuggestCost`) + propose (reuse internal `estimateEditingProposeCost`) + forward approve + [mirror approve if `includesMirrorApprover`] + ranking. 1.3× safety margin on upper bound.
+
+**`EstPerAgentValue` extension** (in `projectDispatchPlan.ts`):
+```typescript
+proposerApproverCriteria?: {
+  evaluation: number; propose: number;
+  approveForward: number; approveMirror: number;
+  ranking: number; total: number;
+};
+```
+
+**Kill switch**: `EVOLUTION_PROPOSER_APPROVER_CRITERIA_RANK_ENABLED` (default `'true'`) mirrors `EDITING_RANK_ENABLED`. Also: `EVOLUTION_PROPOSER_APPROVER_CRITERIA_MIRROR_ENABLED` (default `'true'`) for the mirror-approver pass — lets us A/B mirror vs no-mirror without code change.
+
+### Zod schema extension — 6 files, ~45 lines
+
+**Locations** (all in `evolution/src/lib/schemas.ts` unless noted):
+1. `iterationAgentTypeEnum` (line 478) — add 2 enum values.
+2. `iterationConfigSchema` (lines 522-597) — add 4 new optional fields: `lengthCapRatio?: z.number().min(1.01).max(1.50)`, `redundancyJaccardThreshold?: z.number().min(0).max(1)`, `includesMirrorApprover?: z.boolean()`. Reuse existing `editingModel` / `approverModel` / `editingMaxCycles` / `editingEligibilityCutoff` for `proposer_approver_criteria_generate`.
+3. **6 new `.refine()` blocks**:
+   - `criteriaIds` valid for the 3 criteria-based agent types (extend existing).
+   - `criteriaIds` REQUIRED + non-empty for those 3 types.
+   - `weakestK` valid for those 3 types (extend existing).
+   - `lengthCapRatio` rejected on types other than `proposer_approver_criteria_generate`.
+   - `redundancyJaccardThreshold` rejected on types other than the 2 new criteria-based ones.
+   - `includesMirrorApprover` rejected on types other than `proposer_approver_criteria_generate`.
+   - `editingMaxCycles === 1` enforced for `proposer_approver_criteria_generate` (single-cycle by definition).
+4. **Helper updates** (lines 484, 492, 500): `canBeFirstIteration`, `isVariantProducingAgentType`, `producesNewVariants` — add the 2 new agent types to all three.
+5. **`evolution/src/lib/pipeline/infra/types.ts`** (line 31): extend `IterationResult.agentType` union.
+6. **`evolution/src/services/strategyPreviewActions.ts`** (lines 168, 208): extend `previewDispatchPlanSchema` enum + `IterationPlanEntryClient` union.
+7. **`evolution/src/services/strategyRegistryActions.ts`** (line 158): extend `validateCriteriaIds` filter — `flatMap` across 3 criteria-based types.
+8. **`evolution/src/lib/pipeline/setup/findOrCreateStrategy.ts`** (lines 50-56, 76-85): extend `canonicalizeIterationConfig` to include new fields in hash; extend `labelStrategyConfig` (`Nx single-pass-criteria + Mx proposer-approver`).
+
+### `runIterationLoop.ts` dispatch (line 341+)
+
+Current shape: `if (iterType === 'generate' || iterType === 'reflect_and_generate' || iterType === 'criteria_and_generate')` unifies the 3 variant-producing types (line 341, ~lines 342-785). Inside, line 508-520 instantiates `EvaluateCriteriaThenGenerateFromPreviousArticleAgent` when `agentType === 'criteria_and_generate'`.
+
+**Plan**: Extend the line-341 condition to include the 2 new types:
+```typescript
+if (iterType === 'generate' || iterType === 'reflect_and_generate' 
+    || iterType === 'criteria_and_generate'
+    || iterType === 'single_pass_evaluate_criteria_and_generate') { ... }
+```
+
+The single-pass type is a near-clone of `criteria_and_generate` and shares the same dispatch path (just instantiates a different wrapper class with the new guardrails).
+
+The `proposer_approver_criteria_generate` type needs a separate `else if` branch since it follows the IterativeEditingAgent shape (per-parent dispatch, no parallel batch / top-up loop). Mirrors lines 786-944 (`'iterative_editing'` branch).
+
+### `execution_detail` discriminated union extension (`schemas.ts:1565-1583`)
+
+**`singlePassEvaluateCriteriaAndGenerateExecutionDetailSchema`** (insert after line 1414):
+- `detailType: 'single_pass_evaluate_criteria_and_generate'`, `tactic: 'criteria_driven'`
+- `weakestCriteriaIds`, `weakestCriteriaNames`
+- `evaluateAndSuggest` sub-object (same shape as existing wrapper)
+- `generation` + `ranking` sub-objects (reused from GFPA)
+- `surfaced`, `discardReason`, `totalCost`, `estimatedTotalCost`, `estimationErrorPct`
+- **NEW** `guardrails: { redundancyDropCount, flowDropCount, lengthCapHit: boolean }` — mostly observational for single-pass (no edit groups means redundancy/flow dropCount always 0; only `lengthCapHit` is a meaningful post-hoc check on output text).
+
+**`proposerApproverCriteriaGenerateExecutionDetailSchema`** (insert after the above):
+- `detailType: 'proposer_approver_criteria_generate'`, `tactic: 'criteria_driven'`
+- `weakestCriteriaIds`, `weakestCriteriaNames`, `evaluateAndSuggest` sub-object
+- **NEW `cycle` sub-object** (single cycle):
+  ```typescript
+  cycle: {
+    proposedGroupsRaw: number,
+    droppedPreApprover: [{ groupNumber, reason }],
+    approverGroups: number,
+    forwardDecisions: [{ groupNumber, decision, reason, redundancy_violation?, flow_violation?, length_violation? }],
+    mirrorDecisions: [{ groupNumber, decision, reason, redundancy_violation?, flow_violation?, length_violation? }],
+    appliedGroups: number,
+    droppedPostApprover: [{ groupNumber, reason }],
+    proposeCostUsd, approveForwardCostUsd, approveMirrorCostUsd,
+    childText?: string,  // round-trip verification — feature-flag in prod
+  }
+  ```
+- `ranking` sub-object (reused)
+- `surfaced`, `discardReason`, `totalCost`, etc.
+- **NEW** `mirrorAgreementRate: number` (= `appliedGroups / approverGroups`) and `mirrorAbortReason?: 'a_prime_format_invalid' | 'mirror_parse_null'` for telemetry.
+
+Both schemas added to `agentExecutionDetailSchema` discriminated union (line 1565-1583).
+
+### Wrapper-error invariant I3 (Agent.ts:175-189)
+
+Confirmed: `Agent.run()`'s catch handler at line 179 calls `updateInvocation` with only `cost_usd`, `success: false`, `error_message`, `duration_ms` — does NOT touch `execution_detail`. The `trackInvocations.updateInvocation` conditional-spread preserves any partial detail the wrapper wrote BEFORE re-throwing. Both new agents must follow this pattern (write partial `execution_detail` via direct `updateInvocation` call before re-throwing on any helper failure). Critical for debuggability of the multi-LLM-call propose/approve cycle.
+
+## Round 4 Findings (2026-05-06): Metrics, UI, DB, Migrations
+
+### Criteria-level metrics — agent-agnostic (almost)
+
+`computeCriteriaMetricsForRun` in `evolution/src/lib/metrics/computations/criteriaMetrics.ts:170-194` already aggregates across any variant with non-null `criteria_set_used` — no `agent_name` filter. Both new agent types automatically contribute to:
+- `avg_score` (per-criterion mean LLM score across runs)
+- `frequency_as_weakest`
+- `total_variants_focused`
+- `avg_elo_delta_when_focused`
+- `total_evaluation_cost`
+
+**ONE call site needs extension** (`criteriaMetrics.ts:118`): the `avg_score` computation currently filters `agent_name = 'evaluate_criteria_then_generate_from_previous_article'` (hardcoded). Change to `.in([3 criteria-based agent types])`.
+
+**Stale cascade trigger** (migration `20260503033105_extend_mark_elo_metrics_stale_for_criteria.sql`): fires on any variant `mu`/`sigma` change regardless of `agent_name`, cascades to criteria entity metrics where `weakest_criteria_ids` array contains the criterion. Already covers new agent types.
+
+**New criteria-level metric (proposed)**: `total_proposer_approver_criteria_cost` — sums the `proposer_approver_criteria_cost` rows from invocations whose variant had this criterion in `weakest_criteria_ids`. Surfaces "$X spent in propose/approve runs targeting clarity" on the criteria detail page. Add to METRIC_REGISTRY at criteria entity level + register propagation to strategy/experiment.
+
+### Strategy wizard UI — minimal extensions
+
+**File**: `src/app/admin/evolution/strategies/new/page.tsx` (~50 lines of net changes)
+
+**Changes needed**:
+1. Per-iteration `agentType` `<select>` (lines 975-986): add 2 new `<option>` entries.
+2. `IterationRow` type (line 37) + `IterationConfigPayload` (line 95): extend agentType union + add 3 new optional fields.
+3. New conditional render blocks (after line 1205): one for each new agent type. Reuse `CriteriaMultiSelect`, weakestK input, model selectors. New numeric inputs for `redundancyJaccardThreshold` (default 0.35), `lengthCapRatio` (default 1.10, propose/approve only), checkbox for `includesMirrorApprover` (default true).
+4. `editingMaxCycles` rendered as read-only "1 cycle (single-pass fixed)" for `proposer_approver_criteria_generate` (Zod-locked).
+5. `updateIteration` callback (lines 473-522): add field-clearing branches for each new type.
+6. `canBeFirstIteration` + `isVariantProducing` helpers: include new types.
+7. `toIterationConfigsPayload`: emit the new fields conditionally.
+8. Budget allocation bar colors (line 1230): cyan for single-pass, purple for propose/approve. Add legend entries.
+9. `iterationErrors` validation: extend the criteria-required check to all 3 criteria-based types.
+
+**`DispatchPlanView` is future-proof**: reads `entry.estPerAgent.expected.total` directly — no hardcoded cost-field list. The new `proposerApproverCriteria` peer field on `EstPerAgentValue` (per Round 3) flows through automatically. Only the agent-type badge color logic (line 129-137) needs a 2-line extension.
+
+**`strategyPreviewActions.ts:dispatchPreviewInputSchema` (line 168)**: extend the agentType enum + add the 3 new optional fields.
+
+### Invocation detail page — tab layouts
+
+**File**: `src/app/admin/evolution/invocations/[invocationId]/InvocationDetailContent.tsx`
+
+**`single_pass_evaluate_criteria_and_generate`** — 5-tab layout (clone of existing wrapper):
+1. **Eval & Suggest** — `keyFilter` matches `tactic + weakestCriteria* + evaluateAndSuggest*`.
+2. **Generation** — keyFilter matches everything else (variantId, generation, ranking, guardrails).
+3. **Metrics** — generic.
+4. **Timeline** — 3-segment bar (emerald eval / blue gen / purple rank). Same colors as existing wrapper.
+5. **Logs** — generic.
+
+`detailViewConfigs.ts` entry: near-clone of `evaluate_criteria_then_generate_from_previous_article` with addition of a `guardrails` object (children: `redundancyDropCount`, `flowDropCount`, `lengthCapHit`).
+
+**`proposer_approver_criteria_generate`** — 8-tab layout (multi-cycle):
+1. **Eval & Suggest** — `keyFilter` to `tactic + weakestCriteria* + evaluateAndSuggest*`.
+2. **Proposer** — `cycle.proposedGroupsRaw` count + `cycle.droppedPreApprover` list.
+3. **Approver (Forward)** — `cycle.forwardDecisions` table with guardrail-violation columns.
+4. **Approver (Mirror)** — `cycle.mirrorDecisions` table; `mirrorAgreementRate` badge; `mirrorAbortReason` if present.
+5. **Apply** — `cycle.appliedGroups` count + `cycle.droppedPostApprover` list.
+6. **Metrics** — generic.
+7. **Timeline** — 5-segment bar.
+8. **Logs** — generic.
+
+**Timeline colors for propose/approve**:
+- `EVALUATE_AND_SUGGEST_COLOR = '#10b981'` (emerald, reused)
+- `CRITERIA_PROPOSER_COLOR = '#3b82f6'` (blue — reuse generation blue)
+- `CRITERIA_APPROVER_FORWARD_COLOR = '#f97316'` (orange)
+- `CRITERIA_APPROVER_MIRROR_COLOR = '#ea580c'` (deep orange — visually paired with forward)
+- `RANKING_COLOR = '#8b5cf6'` (purple, reused)
+
+`InvocationTimelineTab.tsx`: extend with proposer/approver duration fields (read from `cycle.proposeCostUsd`/`approveForwardCostUsd`/`approveMirrorCostUsd` plus new `*DurationMs` fields) and 3 new bar segments rendered in sequence.
+
+**Suggestion tables** keep `cellClassName: 'max-w-md break-words whitespace-pre-wrap align-top'` for long-passage wrapping.
+
+### DB migrations — REQUIRED (correction to Round 3 finding)
+
+**Round 3 was wrong**: a CHECK constraint DOES exist on `evolution_cost_calibration.phase` — added in migration `20260501204142_evolution_cost_calibration_editing_phases.sql`. The startup assertion `assertCostCalibrationPhaseEnumsMatch` (in `evolution/src/lib/core/startupAssertions.ts:19-42`) queries this constraint by name and throws `MissingMigrationError` if TS phase strings exceed the DB list.
+
+**REQUIRED migration**: extend the `evolution_cost_calibration_phase_allowed` CHECK constraint to add the 3 new propose/approve labels (`criteria_proposer`, `criteria_forward_approver`, `criteria_mirror_approver`). Migration must precede code deploy. Migration file content draft:
+```sql
+ALTER TABLE evolution_cost_calibration
+  DROP CONSTRAINT IF EXISTS evolution_cost_calibration_phase_allowed;
+
+ALTER TABLE evolution_cost_calibration
+  ADD CONSTRAINT evolution_cost_calibration_phase_allowed
+  CHECK (phase IN (
+    'generation', 'ranking', 'seed_title', 'seed_article', 'reflection',
+    'evaluate_and_suggest',
+    'iterative_edit_propose', 'iterative_edit_review', 'iterative_edit_drift_recovery',
+    'criteria_proposer', 'criteria_forward_approver', 'criteria_mirror_approver'
+  ));
+```
+
+**No other DB migrations needed.** The variants/metrics/criteria schema is already forward-compatible:
+- `evolution_variants.criteria_set_used` and `weakest_criteria_ids` columns already exist (migration `20260503033104`).
+- `evolution_metrics.entity_type` CHECK already includes `'criteria'` (migration `20260503033103`).
+- `evolution_metrics.metric_name` has no CHECK constraint, so new metric names like `proposer_approver_criteria_cost` insert freely.
+- `mark_elo_metrics_stale` trigger cascades to criteria metrics for any variant regardless of producing agent (migration `20260503033105`).
+
+**No data backfill needed** — both new agents' variants and metrics start accumulating from first run.
+
+**Sample criteria** (`evolution/scripts/seedSampleCriteria.ts`): the 7 seeded criteria already include the PR #1032-refined POV + engagement rubrics. Both new agents inherit these. **No new seed needed** for the agents themselves; the user can independently decide to seed a "factual content" criterion pack (out of scope unless requested).
+
+### Caveat — agent name typo in one investigation output
+
+One Round 4 agent referred to the propose/approve agent as `propose_and_approve_criteria_based` instead of `proposer_approver_criteria_generate`. The user's spec says `proposer_approver_criteria_generate` — that's the canonical name throughout the plan. Detail-view-config entries and tab dispatch must use the canonical name.
+
+## Round 5 Findings (2026-05-06): Migration, Kill Switches, Tests, Docs
+
+### Legacy `criteria_and_generate` migration — RECOMMEND COEXIST
+
+**Recommendation: Option B (coexist with sunset plan)**, settling the deferred decision.
+
+Reasons:
+- The new single-pass agent has user-visible behavior changes (new guardrails, possibly tighter length cap). Silent routing (Option C) hides the difference from metrics + audit trail.
+- Audit-trail clarity is critical for the success metric: comparing "old criteria runs" vs "new single-pass runs" Elo deltas requires distinct enum values.
+- Marginal code cost is small — both wrappers share `buildEvaluateAndSuggestPrompt` and `parseEvaluateAndSuggest` (already module-scoped in `evaluateCriteriaThenGenerateFromPreviousArticle.ts:92-130`). The new wrapper class is ~50 LOC of boilerplate around shared helpers.
+
+**Sunset plan (proposed):**
+1. **Phase A (parallel period — ~2-4 weeks of staging runs)**: Both agents in the enum; new strategies default to single-pass; old strategies untouched; researcher manually triggers comparison runs.
+2. **Phase B (UI deprecation)**: Hide `'criteria_and_generate'` from the wizard's agent-type dropdown (still in enum, still works for existing strategies).
+3. **Phase C (hard deprecation)**: After validation that the new agent matches/exceeds, remove from enum + emit `MissingMigrationError` if any strategy still references it.
+
+The plan codes Phase A only; Phase B/C are follow-on projects gated by the validation results.
+
+### Kill switches — 7 new env vars
+
+All follow the existing convention `process.env.FLAG !== 'false'` (default-on; only the literal string `'false'` disables).
+
+| Flag | Default | Effect when `'false'` | Resolution site |
+|------|---------|----------------------|-----------------|
+| `EVOLUTION_SINGLE_PASS_CRITERIA_ENABLED` | `'true'` | Single-pass agent dispatch falls back to vanilla `criteria_and_generate` (no new guardrails). Lets us A/B old vs new wrapper without code revert. | `runIterationLoop.ts` ~341 + `strategyPreviewActions.ts` ~285 |
+| `EVOLUTION_PROPOSER_APPROVER_CRITERIA_ENABLED` | `'true'` | Propose/approve dispatch rejected: log warn, treat iteration as zero-variants. No fallback. | `runIterationLoop.ts` ~341 + `strategyPreviewActions.ts` ~285 |
+| `EVOLUTION_PROPOSER_APPROVER_CRITERIA_MIRROR_ENABLED` | `'true'` | Skip mirror pass; apply edits based on forward approver only. | Inside agent's `execute()` method |
+| `EVOLUTION_PROPOSER_APPROVER_CRITERIA_RANK_ENABLED` | `'true'` | Skip post-cycle ranking — variant lands at default Elo, no `arena_comparisons` rows. | `runIterationLoop.ts` editing branch |
+| `EVOLUTION_CRITERIA_REDUNDANCY_GUARDRAIL_ENABLED` | `'true'` | Skip trigram Jaccard check in `validateEditGroups`. | Validator entry point |
+| `EVOLUTION_CRITERIA_FLOW_GUARDRAIL_ENABLED` | `'true'` | Skip transition-word regex hard rule. | Validator entry point |
+| `EVOLUTION_CRITERIA_LENGTH_GUARDRAIL_ENABLED` | `'true'` | Ignore `lengthCapRatio` field; fall back to existing 1.5× cap. | Validator entry point |
+
+**Wizard preview integration** — extend `DispatchPlanOptions`:
+```typescript
+interface DispatchPlanOptions {
+  // existing
+  singlePassCriteriaEnabled?: boolean;
+  proposerApproverCriteriaEnabled?: boolean;
+  proposerApproverCriteriaMirrorEnabled?: boolean;
+  proposerApproverCriteriaRankEnabled?: boolean;
+}
+```
+Resolved at server-action boundary in `getStrategyDispatchPreviewAction` and threaded into `projectDispatchPlan` so the wizard cost projection matches runtime under the same env config.
+
+**Pre-existing flags that newly apply**: `COST_CALIBRATION_ENABLED`, `EVOLUTION_PERMISSIVE_EVAL_PARSER` (both inherited via shared helpers).
+
+### Test budget — ~75 tests + property suite (~10 days engineering)
+
+| Component | File(s) | Test count |
+|-----------|---------|------------|
+| Single-pass unit | `singlePassEvaluateCriteriaAndGenerate.test.ts` | 15 |
+| Propose/approve unit | `proposerApproverCriteriaGenerate.test.ts` | 35 (12 cycle + 10 mirror + 8 parser + 5 applier) |
+| `mirrorEdits.ts` helpers | `mirrorEdits.test.ts` + `mirrorEdits.property.test.ts` | 8 + 4 property invariants |
+| Guardrails | `checkSemanticOverlap.test.ts` (new) + extend `validateEditGroups.test.ts` | 7 |
+| Integration | `evolution-single-pass-criteria.integration.test.ts`, `evolution-proposer-approver-criteria.integration.test.ts` | 8 |
+| E2E | extend `admin-strategy-wizard.spec.ts`, new `admin-evolution-run-single-pass.spec.ts`, new `admin-evolution-run-proposer-approver.spec.ts` | 8 |
+
+**Mirror-approver mock LLM strategy**: extend `createV2MockLlm` (`evolution/src/testing/v2MockLlm.ts`) to support **label-based response routing** so `Promise.all([llm.complete(forward, 'criteria_proposer'), llm.complete(mirror, 'criteria_mirror_approver')])` returns distinct mocks per call. Existing mock supports a queue mechanism but label-based routing is cleaner and doesn't depend on call order.
+
+**`mirrorEdits.ts` property-test invariants** (via `fast-check`, ~200 iterations each):
+1. **Round-trip idempotency**: `applyEdits(edits, text) |> applyEdits(invertEdits(edits), _) === text`.
+2. **Double-inversion identity**: `invertAtomicEdit(invertAtomicEdit(e)) === e`.
+3. **Range boundaries**: inverted edits never produce ranges outside `[0, text.length]`.
+4. **Context capture preserved**: `contextBefore.length <= 30 && contextAfter.length <= 30`.
+
+### Documentation updates — 11 existing docs + 1 new deep dive
+
+**11 existing docs needing surgical edits:**
+1. `evolution/docs/architecture.md` — § Agent Types + § Criteria-driven generation: mention new agents, link to deep dive.
+2. `evolution/docs/agents/overview.md` — § V2 Config-Driven Iteration Loop (extend agent-type enum); add new section after `EvaluateCriteriaThen...` for each new agent.
+3. `evolution/docs/strategies_and_experiments.md` — § IterationConfig: extend enum + new field docs.
+4. `evolution/docs/cost_optimization.md` — § Per-purpose cost split + new "Proposer-Approver Criteria Cost" subsection mirroring "Evaluate-and-Suggest Cost".
+5. `evolution/docs/data_model.md` — § evolution_variants columns: confirm `criteria_set_used` / `weakest_criteria_ids` apply to new agents (mostly unchanged); glossary update if introducing terminology.
+6. `evolution/docs/metrics.md` — § Run Metrics + § Strategy/Experiment Metrics: add `proposer_approver_criteria_cost` + propagation rows.
+7. `evolution/docs/visualization.md` — § Timeline tab + § Invocation detail page: new badges, new tab layouts (5-tab single-pass + 8-tab propose/approve), color constants.
+8. `evolution/docs/reference.md` — § Configuration EvolutionConfig Validation (enum extension), § Environment Variables, § Kill Switches table (7 new rows).
+9. `evolution/docs/multi_iteration_strategies.md` — § IterationConfig Schema (enum + new fields).
+10. `evolution/docs/curriculum.md` — § Glossary: add "Mirror Approver", "Redundancy Guardrail", etc.
+11. `evolution/docs/editing_agents.md` — only add a cross-reference link; do NOT extend (the new agent is structurally distinct).
+
+**NEW deep-dive doc**: `evolution/docs/criteria_agents.md` (~300-500 lines). Sections:
+- Overview: single-pass vs propose/approve, when to use each.
+- Algorithm (per cycle): proposer → pre-check → forward approver → mirror approver → applier.
+- Mirror-approver protocol detail (with diagrams + worked example showing insert vs delete vs replace mirroring).
+- Configuration: per-iteration fields, strategy-level model fields.
+- Guardrail mechanisms: redundancy (trigram Jaccard) + flow (transition regex + approver rubric) + length (1.10× cap).
+- Cost tracking: per-cycle split (`proposeCostUsd`, `approveForwardCostUsd`, `approveMirrorCostUsd`, ranking).
+- Operational metrics: `mirrorAgreementRate`, drift telemetry.
+- Kill switches: 7 env vars.
+- Files: code reference index.
+
+Cross-references from `architecture.md`, `agents/overview.md`, `editing_agents.md`.
+
+## Open Questions for Plan Phase
+
+Capturing items the plan needs to settle that the research left ambiguous:
+
+1. **Single-pass tactic name**: reuse `'criteria_driven'` (per Round 1 finding — required by GFPA's misconfiguration guard) for both new agents OR introduce two new sentinels (`'criteria_driven_single_pass'`, `'criteria_driven_propose_approve'`)? Current lean: reuse `'criteria_driven'` for both; distinguish at `detailType` discriminator level. Plan can decide.
+
+2. **`mirrorEdits.ts` location**: under `evolution/src/lib/core/agents/editing/` (alongside existing helpers) OR new directory `evolution/src/lib/core/agents/proposerApproverCriteria/`? Lean: under `editing/` since the CriticMarkup primitives live there; group via filename prefix (`mirrorEdits.ts`).
+
+3. **`mirrorAgreementRate` thresholds for alerting**: similar pattern to `iterative_edit_drift_rate` (env-tunable threshold). What's a reasonable default? E.g., alert if `< 0.20` (very low agreement → strong bias signal) or `> 0.95` (rubber-stamp signal). Plan can choose; default `< 0.20` AND `> 0.95` both flagged.
+
+4. **Per-iteration `mirrorEnabled` field**: should the iteration config carry an `includesMirrorApprover?: boolean` (per Round 3 — wizard checkbox) AND the env var `EVOLUTION_PROPOSER_APPROVER_CRITERIA_MIRROR_ENABLED` AS A KILL SWITCH? Current lean: BOTH — config field is the per-strategy decision, env var is the global kill switch. Mirror runs only if config field AND env var both enabled.
+
+5. **Approver cycle vs cycles[]**: Round 3 schema sketch had `cycle:` (singular) since mirroring `IterativeEditingAgent`'s `cycles:` (array, length up to 5) is overkill for single-cycle. Confirm singular naming in execution_detail to avoid confusion with the editing agent's array shape.
+
+## Documents Read
+
+### Core (3)
+- docs/docs_overall/getting_started.md
+- docs/docs_overall/architecture.md
+- docs/docs_overall/project_workflow.md
+
+### Evolution (22)
+All docs in `evolution/docs/` plus the planning doc from `multi_iteration_strategy_support_evolution_20260415`.
+
+### Code files (representative, read by Round 1-5 agents)
+- `evolution/src/lib/core/agents/evaluateCriteriaThenGenerateFromPreviousArticle.ts`
+- `evolution/src/lib/core/agents/generateFromPreviousArticle.ts`
+- `evolution/src/lib/core/agents/editing/IterativeEditingAgent.ts`
+- `evolution/src/lib/core/agents/editing/proposerPrompt.ts`, `approverPrompt.ts`, `parseProposedEdits.ts`, `applyAcceptedGroups.ts`, `validateEditGroups.ts`, `checkProposerDrift.ts`, `recoverDrift.ts`, `parseReviewDecisions.ts`
+- `evolution/src/lib/shared/reversalComparison.ts`
+- `evolution/src/lib/comparison.ts`
+- `evolution/src/lib/core/agentNames.ts`
+- `evolution/src/lib/core/Agent.ts`
+- `evolution/src/lib/pipeline/loop/runIterationLoop.ts`
+- `evolution/src/lib/pipeline/loop/projectDispatchPlan.ts`
+- `evolution/src/lib/pipeline/loop/editingDispatch.ts`
+- `evolution/src/lib/pipeline/infra/createEvolutionLLMClient.ts`
+- `evolution/src/lib/pipeline/infra/estimateCosts.ts`
+- `evolution/src/lib/pipeline/infra/costCalibrationLoader.ts`
+- `evolution/src/lib/metrics/registry.ts`
+- `evolution/src/lib/metrics/computations/criteriaMetrics.ts`
+- `evolution/src/lib/schemas.ts`
+- `evolution/src/services/strategyPreviewActions.ts`
+- `evolution/src/services/strategyRegistryActions.ts`
+- `evolution/src/services/criteriaActions.ts`
+- `evolution/src/lib/pipeline/setup/findOrCreateStrategy.ts`
+- `evolution/src/lib/core/startupAssertions.ts`
+- `evolution/src/components/evolution/DispatchPlanView.tsx`
+- `src/app/admin/evolution/strategies/new/page.tsx`
+- `src/app/admin/evolution/invocations/[invocationId]/InvocationDetailContent.tsx`
+- `src/app/admin/evolution/invocations/[invocationId]/ConfigDrivenDetailRenderer.tsx`
+- `evolution/src/lib/core/detailViewConfigs.ts`
+- `evolution/src/components/evolution/tabs/InvocationTimelineTab.tsx`
+- `evolution/scripts/seedSampleCriteria.ts`
+- `supabase/migrations/20260501204142_evolution_cost_calibration_editing_phases.sql`
+- `supabase/migrations/20260503033103_extend_metrics_entity_type_for_criteria.sql`
+- `supabase/migrations/20260503033104_evolution_variants_criteria_columns.sql`
+- `supabase/migrations/20260503033105_extend_mark_elo_metrics_stale_for_criteria.sql`
+- Test files: `evaluateCriteriaThenGenerateFromPreviousArticle.test.ts`, `IterativeEditingAgent.test.ts`, `parseProposedEdits.test.ts`, `applyAcceptedGroups.test.ts`, `admin-strategy-wizard.spec.ts`
+
 ## Carry-Over from `understand_critera_agent_performance_evolution_20260503`
 
 (Content below is verbatim from the prior project's research doc as the baseline for this project's investigation. Cited here so the original problem statement, methodology, and post-merge analysis stay one click away.)
