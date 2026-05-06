@@ -321,19 +321,4 @@ adminTest.describe('Iterative Editing Wizard', { tag: '@evolution' }, () => {
     await adminPage.locator('#approver-model').selectOption({ index: 2 });
     await expect(adminPage.getByTestId('rubber-stamping-warning')).not.toBeVisible();
   });
-
-  adminTest('strategy wizard surfaces editing-terminal warning when last iteration is editing with no later swiss', async ({ adminPage }) => {
-    await adminPage.goto('/admin/evolution/strategies/new');
-
-    // Configure required fields to advance to step 2.
-    await adminPage.locator('#strategy-name').fill('[TEST_EVO] Editing-terminal');
-    await adminPage.locator('#generation-model').selectOption({ index: 1 });
-    await adminPage.locator('#judge-model').selectOption({ index: 1 });
-    await adminPage.getByRole('button', { name: /^Next:/i }).click();
-
-    // Default iterations are gen + swiss. Swap second to iterative_editing.
-    await adminPage.locator('[data-testid="agent-type-select-1"]').selectOption('iterative_editing');
-
-    await expect(adminPage.getByTestId('editing-terminal-warning')).toBeVisible();
-  });
 });

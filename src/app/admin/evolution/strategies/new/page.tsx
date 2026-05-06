@@ -1262,26 +1262,6 @@ export default function NewStrategyPage(): JSX.Element {
                 </div>
               )}
 
-              {(() => {
-                // Editing-terminal warning per Decisions §14: when last iteration is
-                // iterative_editing with no later swiss (or other ranking-emitting agent),
-                // newly edited variants enter the pool with default Elo and never get ranked.
-                const lastIdx = iterations.length - 1;
-                if (lastIdx < 0 || iterations[lastIdx]?.agentType !== 'iterative_editing') return null;
-                const hasLaterRanking = false; // last iteration by definition has nothing after it
-                if (hasLaterRanking) return null;
-                return (
-                  <div
-                    data-testid="editing-terminal-warning"
-                    role="alert"
-                    aria-live="polite"
-                    className="rounded-book bg-[var(--status-warning)]/10 border border-[var(--status-warning)]/40 p-2 font-ui text-sm text-[var(--status-warning)]"
-                  >
-                    ⚠️ This strategy ends with an Iterative Editing iteration. Variants edited in the final iteration will enter the pool at default Elo and won&apos;t be ranked. Add a Swiss iteration after the last editing iteration to give the new variants a chance to compete.
-                  </div>
-                );
-              })()}
-
               <div className="flex gap-3">
                 <button
                   onClick={() => setStep('config')}
