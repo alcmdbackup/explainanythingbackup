@@ -188,4 +188,42 @@ describe('InvocationTimelineTab', () => {
     expect(screen.getByTestId('timeline-estimated-note')).toBeInTheDocument();
     expect(screen.getByTestId('timeline-comparison-0')).toBeInTheDocument();
   });
+
+  // Scenario 10: criteria-driven wrapper — emerald evaluate-and-suggest segment + GFPA segments
+  it('scenario 10: criteria-driven wrapper renders evaluate-and-suggest emerald bar', () => {
+    const inv = makeInvocation({
+      agent_name: 'evaluate_criteria_then_generate_from_previous_article',
+      duration_ms: 6000,
+      execution_detail: {
+        evaluateAndSuggest: { cost: 0.001, durationMs: 1000 },
+        generation: { cost: 0.005, promptLength: 1000, formatValid: true, durationMs: 1500 },
+        ranking: { cost: 0.003, durationMs: 3500, comparisons: [
+          { round: 1, durationMs: 1000, opponentId: 'v1', outcome: 'win' },
+          { round: 2, durationMs: 1500, opponentId: 'v2', outcome: 'loss' },
+          { round: 3, durationMs: 1000, opponentId: 'v3', outcome: 'win' },
+        ] },
+      },
+    });
+    render(<InvocationTimelineTab invocation={inv} />);
+    expect(screen.getByTestId('timeline-evaluate-and-suggest-bar')).toBeInTheDocument();
+    expect(screen.getByTestId('timeline-generation-bar')).toBeInTheDocument();
+    expect(screen.getByTestId('timeline-ranking-bar')).toBeInTheDocument();
+  });
+
+  // Scenario 11: criteria-driven wrapper — historical row missing evaluateAndSuggest.durationMs
+  it('scenario 11: missing evaluateAndSuggest.durationMs falls back gracefully (no crash)', () => {
+    const inv = makeInvocation({
+      agent_name: 'evaluate_criteria_then_generate_from_previous_article',
+      duration_ms: 5000,
+      execution_detail: {
+        // evaluateAndSuggest absent (pre-instrumentation row)
+        generation: { cost: 0.005, promptLength: 1000, formatValid: true, durationMs: 1500 },
+        ranking: { cost: 0.003, durationMs: 3500, comparisons: [] },
+      },
+    });
+    render(<InvocationTimelineTab invocation={inv} />);
+    expect(screen.getByTestId('invocation-timeline')).toBeInTheDocument();
+    // No emerald bar when sub-detail absent.
+    expect(screen.queryByTestId('timeline-evaluate-and-suggest-bar')).not.toBeInTheDocument();
+  });
 });

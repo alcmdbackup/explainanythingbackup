@@ -43,4 +43,20 @@ adminTest.describe('Strategy Effectiveness Chart', { tag: ['@evolution', '@criti
     await expect(adminPage.locator('[data-testid="elo-delta-histogram"]')).toBeVisible();
     expect(await adminPage.locator('[data-testid="histogram-bucket"]').count()).toBeGreaterThanOrEqual(1);
   });
+
+  // track_tactic_effectiveness_evolution_20260422 Phase 5: bar labels now render as
+  // `<agent> / <dim>` (previously just `<dim>`). This disambiguates the case where
+  // multiple variant-producing agents share a dimension value.
+  adminTest('bar labels use "<agent> / <dim>" format (Phase 5 disambiguation)', async ({ adminPage }) => {
+    await adminPage.goto(`/admin/evolution/runs/${fixture.runId}?tab=metrics`);
+    await adminPage.waitForLoadState('domcontentloaded');
+    await expect(adminPage.locator('[data-testid="attribution-charts"]')).toBeVisible({ timeout: 30000 });
+
+    // At least one bar row exists (asserted above); assert at least one bar's label
+    // contains the ' / ' separator. Labels are rendered inside the bar row content.
+    const firstBar = adminPage.locator('[data-testid="strategy-bar-row"]').first();
+    await expect(firstBar).toBeVisible();
+    // The bar row's text should include ' / ' now that agent is prepended to dim.
+    await expect(firstBar).toContainText(' / ');
+  });
 });

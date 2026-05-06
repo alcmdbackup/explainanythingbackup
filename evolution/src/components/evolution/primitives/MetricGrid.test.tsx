@@ -41,8 +41,38 @@ describe('MetricGrid', () => {
         columns={2}
       />
     );
-    expect(screen.getByText('*')).toBeInTheDocument();
-    expect(screen.getByText('*')).toHaveAttribute('title', 'Low sample size (n=2)');
+    // Inline metric asterisk has the title "Low sample size (n=2)".
+    const asterisks = screen.getAllByText('*');
+    const inlineAsterisk = asterisks.find(el => el.getAttribute('title') === 'Low sample size (n=2)');
+    expect(inlineAsterisk).toBeDefined();
+  });
+
+  // Fix #32 (use_playwright_find_ux_issues_bugs_20260501): when any rendered
+  // metric has the low-sample asterisk, the grid appends a footnote so users
+  // don't have to hover to discover what `*` means.
+  it('Fix #32: appends asterisk footnote when at least one metric has n=2', () => {
+    render(
+      <MetricGrid
+        metrics={[
+          { label: 'Score', value: 85, ci: [80, 90], n: 2 },
+          { label: 'Other', value: 100, ci: [90, 110], n: 10 },
+        ]}
+        columns={2}
+      />
+    );
+    const footnote = screen.getByTestId('metric-grid-asterisk-footnote');
+    expect(footnote).toBeInTheDocument();
+    expect(footnote).toHaveTextContent(/Low sample size/);
+  });
+
+  it('Fix #32: omits footnote when no metric triggers the asterisk', () => {
+    render(
+      <MetricGrid
+        metrics={[{ label: 'Score', value: 85, ci: [80, 90], n: 10 }]}
+        columns={2}
+      />
+    );
+    expect(screen.queryByTestId('metric-grid-asterisk-footnote')).not.toBeInTheDocument();
   });
 
   it('renders prefix before numeric value', () => {

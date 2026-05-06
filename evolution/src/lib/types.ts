@@ -51,9 +51,24 @@ interface CreateVariantParams {
   costUsd?: number;
   /** Phase 5: ID of the agent invocation that produced this variant. */
   agentInvocationId?: string;
+  /** Criteria-driven generation: full set of criteria UUIDs evaluated by the
+   *  EvaluateCriteriaThenGenerateFromPreviousArticleAgent. */
+  criteriaSetUsed?: ReadonlyArray<string>;
+  /** Criteria-driven generation: subset auto-picked as the focus for suggestions. */
+  weakestCriteriaIds?: ReadonlyArray<string>;
 }
 
-export function createVariant({ text, tactic, iterationBorn, parentIds, version, costUsd, agentInvocationId }: CreateVariantParams): Variant {
+export function createVariant({
+  text,
+  tactic,
+  iterationBorn,
+  parentIds,
+  version,
+  costUsd,
+  agentInvocationId,
+  criteriaSetUsed,
+  weakestCriteriaIds,
+}: CreateVariantParams): Variant {
   return {
     id: uuidv4(),
     text,
@@ -64,6 +79,8 @@ export function createVariant({ text, tactic, iterationBorn, parentIds, version,
     createdAt: Date.now() / 1000,
     ...(costUsd !== undefined && { costUsd }),
     ...(agentInvocationId !== undefined && { agentInvocationId }),
+    ...(criteriaSetUsed !== undefined && { criteriaSetUsed: [...criteriaSetUsed] }),
+    ...(weakestCriteriaIds !== undefined && { weakestCriteriaIds: [...weakestCriteriaIds] }),
   };
 }
 
@@ -178,23 +195,158 @@ export interface GenerationExecutionDetail extends ExecutionDetailBase {
   feedbackUsed: boolean;
 }
 
+// IterativeEditingAgent execution_detail (v2 redesign — replaces V1 rubric-driven shape).
+// This type is the runtime mirror of iterativeEditingExecutionDetailSchema in
+// evolution/src/lib/schemas.ts; both must be updated together. See
+// bring_back_editing_agents_evolution_20260430 planning doc Phase 1.8.
+
+export interface EditingAtomicEdit {
+  groupNumber: number;
+  kind: 'insert' | 'delete' | 'replace';
+  range: { start: number; end: number };
+  markupRange: { start: number; end: number };
+  oldText: string;
+  newText: string;
+  contextBefore: string;
+  contextAfter: string;
+}
+
+export interface EditingGroup {
+  groupNumber: number;
+  atomicEdits: EditingAtomicEdit[];
+}
+
+export interface EditingReviewDecision {
+  groupNumber: number;
+  decision: 'accept' | 'reject';
+  reason: string;
+}
+
+export interface EditingDriftRegion {
+  offset: number;
+  driftedText: string;
+  classification?: 'benign' | 'intentional';
+  patch?: string;
+}
+
+export interface EditingDroppedGroup {
+  groupNumber: number;
+  reason: string;
+  detail?: string;
+}
+
+export interface EditingCycle {
+  cycleNumber: number;
+  proposedMarkup: string;
+  proposedGroupsRaw: EditingGroup[];
+  droppedPreApprover: EditingDroppedGroup[];
+  approverGroups: EditingGroup[];
+  reviewDecisions: EditingReviewDecision[];
+  droppedPostApprover: EditingDroppedGroup[];
+  appliedGroups: EditingGroup[];
+  acceptedCount: number;
+  rejectedCount: number;
+  appliedCount: number;
+  formatValid: boolean;
+  newVariantId?: string;
+  parentText: string;
+  childText?: string;
+  driftRecovery?: {
+    outcome: 'recovered' | 'unrecoverable_residual' | 'unrecoverable_intentional' | 'skipped_major_drift';
+    regions: EditingDriftRegion[];
+    classifications?: EditingDriftRegion[];
+    patchedMarkup?: string;
+    costUsd?: number;
+  };
+  proposeCostUsd: number;
+  approveCostUsd: number;
+  driftRecoveryCostUsd?: number;
+  sizeRatio: number;
+}
+
+export type IterativeEditingStopReason =
+  | 'all_cycles_completed'
+  | 'all_edits_rejected'
+  | 'no_edits_proposed'
+  | 'parse_failed'
+  | 'proposer_drift_major'
+  | 'proposer_drift_intentional'
+  | 'proposer_drift_unrecoverable'
+  | 'invocation_budget_near_exhaustion'
+  | 'article_size_explosion'
+  | 'format_invalid'
+  | 'helper_threw'
+  | 'budget_exceeded';
+
+/** Per-comparison record from the post-cycle ranking phase. Mirrors
+ *  rankNewVariantComparisonSchema in schemas.ts. */
+export interface IterativeEditingRankingComparison {
+  round: number;
+  opponentId: string;
+  selectionScore: number;
+  pWin: number;
+  variantEloBefore: number;
+  variantUncertaintyBefore: number;
+  opponentEloBefore: number;
+  opponentUncertaintyBefore: number;
+  outcome: 'win' | 'loss' | 'draw';
+  confidence: number;
+  variantEloAfter: number;
+  variantUncertaintyAfter: number;
+  opponentEloAfter: number;
+  opponentUncertaintyAfter: number;
+  top15CutoffAfter: number;
+  eloPlusTwoUncertainty: number;
+  eliminated: boolean;
+  converged: boolean;
+  durationMs?: number;
+  forwardCallDurationMs?: number;
+  reverseCallDurationMs?: number;
+}
+
+/** Post-cycle ranking detail produced by `rankNewVariant()`. Optional/nullable
+ *  because old DB rows lack the field, and rows where ranking was skipped via
+ *  the input-presence gate carry it as null. Mirrors the `ranking` slot on
+ *  `iterativeEditingExecutionDetailSchema` in schemas.ts. */
+export interface IterativeEditingRankingDetail {
+  variantId: string;
+  localPoolSize: number;
+  localPoolVariantIds: string[];
+  initialTop15Cutoff: number;
+  comparisons: IterativeEditingRankingComparison[];
+  stopReason: 'converged' | 'eliminated' | 'no_more_opponents' | 'budget';
+  totalComparisons: number;
+  finalLocalElo: number;
+  finalLocalUncertainty: number;
+  finalLocalTop15Cutoff: number;
+  durationMs?: number;
+  cost: number;
+  estimatedCost?: number;
+}
+
 export interface IterativeEditingExecutionDetail extends ExecutionDetailBase {
-  detailType: 'iterativeEditing';
-  targetVariantId: string;
-  config: { maxCycles: number; maxConsecutiveRejections: number; qualityThreshold: number };
-  cycles: Array<{
-    cycleNumber: number;
-    target: { dimension?: string; description: string; score?: number; source: string };
-    verdict: 'ACCEPT' | 'REJECT';
-    confidence: number;
-    formatValid: boolean;
-    formatIssues?: string[];
-    newVariantId?: string;
-  }>;
-  initialCritique: { dimensionScores: Record<string, number> };
-  finalCritique?: { dimensionScores: Record<string, number> };
-  stopReason: 'threshold_met' | 'max_rejections' | 'max_cycles' | 'no_targets';
-  consecutiveRejections: number;
+  detailType: 'iterative_editing';
+  parentVariantId: string;
+  config: {
+    maxCycles: number;
+    editingModel: string;
+    approverModel: string;
+    driftRecoveryModel: string;
+    perInvocationBudgetUsd: number;
+  };
+  cycles: EditingCycle[];
+  stopReason: IterativeEditingStopReason;
+  errorPhase?: 'propose' | 'parse' | 'approve' | 'recovery' | 'apply';
+  errorMessage?: string;
+  finalVariantId?: string;
+  /** True iff the final variant was emitted AND surfaced (passed ranking
+   *  discard check if ranking ran). Optional for back-compat with rows
+   *  written before this field existed. */
+  surfaced?: boolean;
+  /** Local-rank rating from the post-cycle binary-search ranking phase.
+   *  null when ranking was skipped via the input-presence gate. Optional
+   *  for back-compat with rows written before this field existed. */
+  ranking?: IterativeEditingRankingDetail | null;
 }
 
 export interface ReflectionExecutionDetail extends ExecutionDetailBase {
@@ -317,7 +469,7 @@ export interface RankingExecutionDetail extends ExecutionDetailBase {
   eligibleContenders: number;
   totalComparisons: number;
   flowEnabled: boolean;
-  low_sigma_opponents_count?: number;
+  low_uncertainty_opponents_count?: number;
 }
 
 export interface ProximityExecutionDetail extends ExecutionDetailBase {

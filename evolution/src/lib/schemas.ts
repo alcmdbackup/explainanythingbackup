@@ -17,6 +17,8 @@ export const pipelineTypeEnum = z.enum(['full', 'single']);
 
 export const promptStatusEnum = z.enum(['active', 'archived']);
 
+export const criteriaStatusEnum = z.enum(['active', 'archived']);
+
 export const experimentStatusEnum = z.enum(['draft', 'running', 'completed', 'cancelled']);
 
 export const logLevelEnum = z.enum(['info', 'warn', 'error', 'debug']);
@@ -82,6 +84,68 @@ export const evolutionPromptFullDbSchema = evolutionPromptInsertSchema.extend({
 export type EvolutionPromptInsert = z.infer<typeof evolutionPromptInsertSchema>;
 export type EvolutionPromptFullDb = z.infer<typeof evolutionPromptFullDbSchema>;
 
+// ─── 2b. evolution_criteria ──────────────────────────────────────
+// User-defined evaluation criteria used by the
+// EvaluateCriteriaThenGenerateFromPreviousArticleAgent. DB-first (NOT
+// code-first like evolution_tactics); soft-delete via deleted_at; rubric
+// stored as JSONB array of {score, description} anchors that the LLM
+// interpolates between when scoring.
+
+/** Single rubric anchor: a (score, description) pair telling the LLM what
+ *  this score value means for a specific criterion. Score must be within
+ *  [min_rating, max_rating] of its parent criterion (validated cross-field
+ *  on the insert schema). */
+export const evaluationGuidanceAnchorSchema = z.object({
+  score: z.number().refine(Number.isFinite, { message: 'score must be finite' }),
+  description: z.string().min(1).max(500),
+});
+
+/** Optional rubric: array of anchor scores with descriptions. Empty / null
+ *  means no rubric (LLM receives only name + description + range). */
+export const evaluationGuidanceSchema = z.array(evaluationGuidanceAnchorSchema);
+
+export const evolutionCriteriaInsertSchema = z.object({
+  name: z.string().min(1).max(128).regex(
+    /^[A-Za-z][a-zA-Z0-9_-]*$/,
+    'name must match /^[A-Za-z][a-zA-Z0-9_-]*$/ (parser-safe)',
+  ),
+  description: z.string().nullable().optional(),
+  min_rating: z.number().refine(Number.isFinite, { message: 'min_rating must be finite' }),
+  max_rating: z.number().refine(Number.isFinite, { message: 'max_rating must be finite' }),
+  evaluation_guidance: evaluationGuidanceSchema.nullable().optional(),
+  status: criteriaStatusEnum.optional().default('active'),
+  is_test_content: z.boolean().optional(),
+  archived_at: z.string().nullable().optional(),
+  deleted_at: z.string().nullable().optional(),
+}).refine(
+  (c) => c.max_rating > c.min_rating,
+  { message: 'max_rating must exceed min_rating', path: ['max_rating'] },
+).refine(
+  (c) => !c.evaluation_guidance
+    || c.evaluation_guidance.every((a) => a.score >= c.min_rating && a.score <= c.max_rating),
+  { message: 'every rubric anchor score must be in [min_rating, max_rating]', path: ['evaluation_guidance'] },
+);
+
+export const evolutionCriteriaFullDbSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string().min(1).max(128).regex(/^[A-Za-z][a-zA-Z0-9_-]*$/),
+  description: z.string().nullable(),
+  min_rating: z.number().refine(Number.isFinite),
+  max_rating: z.number().refine(Number.isFinite),
+  evaluation_guidance: evaluationGuidanceSchema.nullable(),
+  status: criteriaStatusEnum,
+  is_test_content: z.boolean(),
+  archived_at: z.string().nullable(),
+  deleted_at: z.string().nullable(),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+
+export type EvaluationGuidanceAnchor = z.infer<typeof evaluationGuidanceAnchorSchema>;
+export type EvaluationGuidance = z.infer<typeof evaluationGuidanceSchema>;
+export type EvolutionCriteriaInsert = z.infer<typeof evolutionCriteriaInsertSchema>;
+export type EvolutionCriteriaFullDb = z.infer<typeof evolutionCriteriaFullDbSchema>;
+
 // ─── 3. evolution_experiments ────────────────────────────────────
 
 export const evolutionExperimentInsertSchema = z.object({
@@ -106,7 +170,8 @@ export const evolutionRunInsertSchema = z.object({
   explanation_id: z.number().int().nullable().optional(),
   status: evolutionRunStatusEnum.optional().default('pending'),
   budget_cap_usd: z.number().min(0).optional(),
-  error_message: z.string().nullable().optional(),
+  // B075: cap error_message length so a 1 MB stack trace doesn't bloat the row.
+  error_message: z.string().max(10000).nullable().optional(),
   prompt_id: z.string().uuid().nullable().optional(),
   pipeline_version: z.string().max(50).optional(),
   // DB migration 20260322000007 conditionally applies NOT NULL — keep nullable for safety
@@ -144,7 +209,8 @@ export const evolutionVariantInsertSchema = z.object({
   run_id: z.string().uuid(),
   explanation_id: z.number().int().nullable().optional(),
   variant_content: z.string().min(1),
-  elo_score: z.number().optional(),
+  // B071: reject NaN/Infinity on elo_score — corrupt values kill leaderboard sort silently.
+  elo_score: z.number().refine(Number.isFinite, 'elo_score must be finite').optional(),
   generation: z.number().int().min(0).optional(),
   agent_name: z.string().max(200).optional().nullable(),
   match_count: z.number().int().min(0).optional().default(0),
@@ -152,10 +218,12 @@ export const evolutionVariantInsertSchema = z.object({
   parent_variant_id: z.string().uuid().nullable().optional(),
   prompt_id: z.string().uuid().nullable().optional(),
   synced_to_arena: z.boolean().optional().default(false),
-  mu: z.number().optional(),
-  sigma: z.number().optional(),
+  // B066: reject NaN/Infinity on mu/sigma — these back the Rating {elo, uncertainty} abstraction.
+  mu: z.number().refine(Number.isFinite, 'mu must be finite').optional(),
+  sigma: z.number().refine(Number.isFinite, 'sigma must be finite').optional(),
   arena_match_count: z.number().int().min(0).optional().default(0),
-  generation_method: z.string().max(200).optional().nullable(),
+  // B065: `.min(1)` when non-null so empty strings don't confuse admin filters / group-bys.
+  generation_method: z.string().min(1).max(200).optional().nullable(),
   cost_usd: z.number().min(0).optional().nullable(),
   archived_at: z.string().nullable().optional(),
   model: z.string().max(200).optional().nullable(),
@@ -167,6 +235,12 @@ export const evolutionVariantInsertSchema = z.object({
   /** Phase 5: ID of the agent invocation that produced this variant. Null for historic rows
    *  (no backfill). Used by experimentMetrics to group variants by (agent_name, dimension). */
   agent_invocation_id: z.string().uuid().nullable().optional(),
+  /** Full set of criteria UUIDs evaluated by EvaluateCriteriaThenGenerateFromPreviousArticleAgent.
+   *  NULL for non-criteria-driven variants. */
+  criteria_set_used: z.array(z.string().uuid()).nullable().optional(),
+  /** Subset of criteria_set_used auto-picked as the focus for the suggestions step.
+   *  NULL for non-criteria-driven variants. */
+  weakest_criteria_ids: z.array(z.string().uuid()).nullable().optional(),
 });
 
 export const evolutionVariantFullDbSchema = evolutionVariantInsertSchema.extend({
@@ -186,8 +260,14 @@ export const evolutionAgentInvocationInsertSchema = z.object({
   success: z.boolean().optional().nullable(),
   cost_usd: z.number().min(0).optional().nullable(),
   duration_ms: z.number().int().min(0).optional().nullable(),
-  error_message: z.string().nullable().optional(),
+  // B075: cap error_message length.
+  error_message: z.string().max(10000).nullable().optional(),
   execution_detail: z.record(z.string(), z.unknown()).nullable().optional(),
+  // B074: `tactic` column exists on the DB (migration 20260417000001_evolution_tactics.sql)
+  // but was missing from this Zod schema — new TS-inserted rows were silently NULL.
+  tactic: z.string().max(200).nullable().optional(),
+  // B048: added by migration 20260423081159. true=surfaced, false=discarded, null=historic.
+  variant_surfaced: z.boolean().nullable().optional(),
 });
 
 export const evolutionAgentInvocationFullDbSchema = evolutionAgentInvocationInsertSchema.extend({
@@ -246,10 +326,13 @@ export const evolutionBudgetEventInsertSchema = z.object({
   run_id: z.string().uuid(),
   event_type: budgetEventTypeEnum,
   agent_name: z.string().max(200),
-  amount_usd: z.number(),
+  // B063 + B072: finite + non-negative. A negative refund event (`amount_usd: -100`) would
+  // silently deflate reported spend and could un-trip the gate, so `.min(0)` guards it.
+  amount_usd: z.number().min(0).refine(Number.isFinite, 'amount_usd must be finite'),
   total_spent_usd: z.number().min(0),
   total_reserved_usd: z.number().min(0),
-  available_budget_usd: z.number(),
+  // B063: finite guard on available_budget_usd.
+  available_budget_usd: z.number().refine(Number.isFinite, 'available_budget_usd must be finite'),
   invocation_id: z.string().uuid().nullable().optional(),
   iteration: z.number().int().min(0).nullable().optional(),
 });
@@ -302,6 +385,16 @@ export const variantSchema = z.object({
    *  to group variants by (agentName, dimensionValue) for ELO-delta metrics. Optional at
    *  the in-memory layer; persisted as `agent_invocation_id` in `evolution_variants`. */
   agentInvocationId: z.string().optional(),
+  /** Full set of criteria UUIDs evaluated by EvaluateCriteriaThenGenerateFromPreviousArticleAgent.
+   *  NULL for non-criteria-driven variants (vanilla GFPA, reflection, swiss). Persisted as
+   *  `criteria_set_used` UUID[] in `evolution_variants`. */
+  criteriaSetUsed: z.array(z.string().uuid()).optional(),
+  /** Subset of criteriaSetUsed that the wrapper agent auto-picked as the focus
+   *  for the suggestions step (deterministic, normalized-score-based). NULL for
+   *  non-criteria-driven variants. Length === effectiveWeakestK at the time of
+   *  generation (may be < iterCfg.weakestK if criteria were archived between
+   *  configure and run). Persisted as `weakest_criteria_ids` UUID[]. */
+  weakestCriteriaIds: z.array(z.string().uuid()).optional(),
 });
 
 export type VariantSchema = z.infer<typeof variantSchema>;
@@ -371,8 +464,42 @@ function preprocessBudgetFloor(input: unknown): unknown {
 
 // ─── Iteration Config ─────────────────────────────────────────
 
-/** Iteration agent type enum. */
-export const iterationAgentTypeEnum = z.enum(['generate', 'swiss']);
+/** Iteration agent type enum.
+ *  - `generate`: vanilla GenerateFromPreviousArticleAgent (orchestrator picks tactic).
+ *  - `reflect_and_generate`: ReflectAndGenerateFromPreviousArticleAgent — runs a
+ *    reflection LLM call to pick the tactic, then delegates to the generation+ranking
+ *    flow. Variant-producing like `generate`. Mutually exclusive with generationGuidance.
+ *  - `criteria_and_generate`: EvaluateCriteriaThenGenerateFromPreviousArticleAgent —
+ *    scores the parent against user-defined criteriaIds in a single LLM call (combined
+ *    evaluate + suggest), then delegates to GFPA with a customPrompt built from the
+ *    suggestions for the K weakest criteria. Variant-producing.
+ *  - `swiss`: SwissRankingAgent — re-ranks the existing pool, no new variants.
+ */
+export const iterationAgentTypeEnum = z.enum(['generate', 'reflect_and_generate', 'criteria_and_generate', 'iterative_editing', 'swiss']);
+
+/** Helper: agent types that may appear as the FIRST iteration of a strategy.
+ *  Editing is excluded — it requires existing variants to edit. Swiss is also
+ *  excluded — it only re-ranks. Vanilla generate, reflection wrapper, and
+ *  criteria wrapper all generate from a seed parent so they're valid first-iter. */
+export function canBeFirstIteration(t: z.infer<typeof iterationAgentTypeEnum>): boolean {
+  return t === 'generate' || t === 'reflect_and_generate' || t === 'criteria_and_generate';
+}
+
+/** Helper: agent types that produce new variants (used by validation refinements
+ *  that previously hardcoded `'generate'`). Vanilla, reflection-wrapped, and
+ *  criteria-driven generation all accept sourceMode/qualityCutoff and contribute
+ *  to the parallel-batch dispatch path; swiss does neither. */
+export function isVariantProducingAgentType(t: z.infer<typeof iterationAgentTypeEnum>): boolean {
+  return t === 'generate' || t === 'reflect_and_generate' || t === 'criteria_and_generate';
+}
+
+/** Helper: agent types that produce new variants in the pool. Includes editing
+ *  per Decisions §14 (final cycle's text is materialized as a Variant). Used by
+ *  the swiss-precedence refine to ensure swiss never runs before any iteration
+ *  that would put variants in the pool. */
+export function producesNewVariants(t: z.infer<typeof iterationAgentTypeEnum>): boolean {
+  return t === 'generate' || t === 'reflect_and_generate' || t === 'criteria_and_generate' || t === 'iterative_editing';
+}
 
 /** Source of the parent article for a generate iteration. 'seed' = the run's seed article; 'pool' = a variant drawn from the current run's pool. */
 export const sourceModeEnum = z.enum(['seed', 'pool']);
@@ -381,34 +508,92 @@ export const sourceModeEnum = z.enum(['seed', 'pool']);
 export const qualityCutoffSchema = z.object({
   mode: z.enum(['topN', 'topPercent']),
   value: z.number().positive(),
-});
+}).refine(
+  (c) => c.mode !== 'topN' || (Number.isInteger(c.value) && c.value >= 1),
+  { message: 'topN cutoff must be an integer ≥ 1' },
+).refine(
+  (c) => c.mode !== 'topPercent' || (c.value > 0 && c.value <= 100),
+  { message: 'topPercent cutoff must be in (0, 100]' },
+);
 
 export type QualityCutoff = z.infer<typeof qualityCutoffSchema>;
 
 /** Per-iteration config within a strategy. Percentages are stored; dollar amounts computed at runtime. */
 export const iterationConfigSchema = z.object({
-  /** Agent type for this iteration. */
+  /** Agent type for this iteration. See iterationAgentTypeEnum. */
   agentType: iterationAgentTypeEnum,
   /** Percentage of total budget allocated to this iteration (1-100). Dollar amount = budgetPercent / 100 * totalBudgetUsd. */
   budgetPercent: z.number().min(1).max(100),
-  /** Max parallel agents for generate iterations. Optional — without it, dispatches as many as budget allows. Must be undefined for swiss. */
-  maxAgents: z.number().int().min(1).max(100).optional(),
-  /** Source of the parent article: 'seed' (default) or 'pool' (draw from current run's ranked pool). Only valid for generate iterations. */
+  /** Source of the parent article: 'seed' (default) or 'pool'. Only valid for variant-producing iterations (generate, reflect_and_generate). */
   sourceMode: sourceModeEnum.optional(),
   /** Quality cutoff for pool-mode parent selection. Required when sourceMode='pool'. */
   qualityCutoff: qualityCutoffSchema.optional(),
+  /** Per-iteration tactic guidance. Overrides strategy-level generationGuidance for this iteration. Only valid for `agentType: 'generate'` (mutually exclusive with reflect_and_generate which lets the LLM pick). */
+  generationGuidance: generationGuidanceSchema.optional(),
+  /** How many top tactics the reflection LLM returns (1-10, default 3). Only valid when `agentType === 'reflect_and_generate'`. */
+  reflectionTopN: z.number().int().min(1).max(10).optional(),
+  /** Per-iteration override for how many propose-review-apply cycles the editing agent runs per parent (1-5, default 3). Only valid when `agentType === 'iterative_editing'`. */
+  editingMaxCycles: z.number().int().min(1).max(5).optional(),
+  /** Caps how many of the top-Elo variants are eligible for editing per iteration. Defaults to `{ mode: 'topN', value: 10 }` at consumption time (resolveEditingDispatch* helpers). Only valid when `agentType === 'iterative_editing'`. Reuses qualityCutoffSchema's value-validation refines. */
+  editingEligibilityCutoff: qualityCutoffSchema.optional(),
+  /** Criteria UUIDs evaluated by the EvaluateCriteriaThenGenerateFromPreviousArticleAgent.
+   *  Required + non-empty when agentType === 'criteria_and_generate'. Mutually exclusive
+   *  with generationGuidance (criteria drive the prompt directly). */
+  criteriaIds: z.array(z.string().uuid()).optional(),
+  /** How many of the lowest-scoring criteria drive the suggestions step (1-5, default 1).
+   *  Only valid when agentType === 'criteria_and_generate'. Cross-field constraint:
+   *  weakestK <= criteriaIds.length. */
+  weakestK: z.number().int().min(1).max(5).optional(),
 }).refine(
-  (c) => c.agentType !== 'swiss' || c.maxAgents === undefined,
-  { message: 'maxAgents must not be set for swiss iterations' },
-).refine(
   (c) => c.agentType !== 'swiss' || c.sourceMode === undefined,
-  { message: 'sourceMode only valid for generate iterations' },
+  { message: 'sourceMode only valid for variant-producing iterations (generate, reflect_and_generate, criteria_and_generate)' },
 ).refine(
   (c) => c.agentType !== 'swiss' || c.qualityCutoff === undefined,
-  { message: 'qualityCutoff only valid for generate iterations' },
+  { message: 'qualityCutoff only valid for variant-producing iterations (generate, reflect_and_generate, criteria_and_generate)' },
 ).refine(
   (c) => c.sourceMode !== 'pool' || c.qualityCutoff !== undefined,
   { message: 'qualityCutoff required when sourceMode is pool' },
+).refine(
+  // generationGuidance is the "weighted random" tactic selection mechanism — only valid for vanilla generate.
+  // reflect_and_generate has its own LLM-driven tactic selection that supersedes guidance.
+  (c) => c.agentType === 'generate' || c.generationGuidance === undefined,
+  { message: 'generationGuidance only valid for agentType=generate (use reflect_and_generate or criteria_and_generate instead)' },
+).refine(
+  // reflectionTopN belongs exclusively to reflect_and_generate iterations.
+  (c) => c.agentType === 'reflect_and_generate' || c.reflectionTopN === undefined,
+  { message: 'reflectionTopN only valid when agentType is reflect_and_generate' },
+).refine(
+  // editingMaxCycles belongs exclusively to iterative_editing iterations.
+  (c) => c.agentType === 'iterative_editing' || c.editingMaxCycles === undefined,
+  { message: 'editingMaxCycles only valid when agentType is iterative_editing' },
+).refine(
+  // editingEligibilityCutoff belongs exclusively to iterative_editing iterations.
+  (c) => c.agentType === 'iterative_editing' || c.editingEligibilityCutoff === undefined,
+  { message: 'editingEligibilityCutoff only valid when agentType is iterative_editing' },
+).refine(
+  (c) => c.agentType === 'criteria_and_generate' || c.criteriaIds === undefined,
+  { message: 'criteriaIds only valid when agentType is criteria_and_generate' },
+).refine(
+  (c) => !c.criteriaIds || c.criteriaIds.length > 0,
+  { message: 'criteriaIds must have at least 1 entry when present', path: ['criteriaIds'] },
+).refine(
+  (c) => c.agentType === 'criteria_and_generate' || c.weakestK === undefined,
+  { message: 'weakestK only valid when agentType is criteria_and_generate' },
+).refine(
+  // Cross-field: weakestK <= criteriaIds.length
+  (c) => c.weakestK === undefined || !c.criteriaIds || c.weakestK <= c.criteriaIds.length,
+  {
+    message: 'weakestK cannot exceed the number of selected criteria',
+    path: ['weakestK'],
+  },
+).refine(
+  // criteria_and_generate requires criteriaIds
+  (c) => c.agentType !== 'criteria_and_generate' || (c.criteriaIds !== undefined && c.criteriaIds.length > 0),
+  { message: 'criteria_and_generate iterations require criteriaIds (at least 1)', path: ['criteriaIds'] },
+).refine(
+  // criteriaIds mutually exclusive with generationGuidance (criteria drive the prompt)
+  (c) => !c.criteriaIds || c.generationGuidance === undefined,
+  { message: 'criteriaIds and generationGuidance are mutually exclusive', path: ['generationGuidance'] },
 );
 
 export type IterationConfig = z.infer<typeof iterationConfigSchema>;
@@ -423,8 +608,6 @@ const strategyConfigBaseSchema = z.object({
   judgeModel: z.string(),
   /** Total budget for the run in USD. Per-iteration amounts computed from iterationConfigs[].budgetPercent. */
   budgetUsd: z.number().min(0).optional(),
-  /** Generation strategies to round-robin across parallel generate agents. */
-  strategiesPerRound: z.number().int().min(1).optional(),
   generationGuidance: generationGuidanceSchema.optional(),
   /** Hard cap on pairwise comparisons per variant during ranking. Default 15. */
   maxComparisonsPerVariant: z.number().int().min(1).max(100).optional(),
@@ -442,6 +625,10 @@ const strategyConfigBaseSchema = z.object({
   budgetBufferAfterSequential: z.number().min(0).max(1).optional(),
   /** Temperature for generation LLM calls (0-2). Omit for provider default. Ranking always uses 0. */
   generationTemperature: z.number().min(0).max(2).optional(),
+  /** Model used by the Proposer LLM call in iterative_editing iterations. Falls back to generationModel when unset. (Drift recovery has its own driftRecoveryModel; not exposed at strategy level — defaults to gpt-4.1-nano per Decisions §11.) */
+  editingModel: z.string().optional(),
+  /** Model used by the Approver LLM call in iterative_editing iterations. Falls back to editingModel (which falls back to generationModel) when unset. When approverModel === editingModel (resolved values), the wizard surfaces a soft rubber-stamping warning per Decisions §16. */
+  approverModel: z.string().optional(),
   /** Ordered sequence of iterations. Each specifies agent type, budget percentage, and optional maxAgents. */
   iterationConfigs: z.array(iterationConfigSchema).min(1).max(MAX_ITERATION_CONFIGS),
 }).refine((c) => {
@@ -449,20 +636,23 @@ const strategyConfigBaseSchema = z.object({
   const sum = c.iterationConfigs.reduce((acc, ic) => acc + ic.budgetPercent, 0);
   return Math.abs(sum - 100) < 0.01;
 }, { message: 'iterationConfigs budgetPercent values must sum to 100' }).refine((c) => {
-  // First iteration must be generate (swiss on empty pool is invalid).
-  return c.iterationConfigs[0]?.agentType === 'generate';
-}, { message: 'First iteration must be agentType generate (swiss on empty pool is invalid)' }).refine((c) => {
+  // First iteration must be one that can run on an empty pool. Editing requires
+  // existing variants to edit; swiss only re-ranks. Both excluded by canBeFirstIteration.
+  const first = c.iterationConfigs[0];
+  return first != null && canBeFirstIteration(first.agentType);
+}, { message: 'First iteration must be generate or reflect_and_generate; iterative_editing needs existing variants and swiss on empty pool is invalid' }).refine((c) => {
   // First iteration cannot use pool-mode (pool is empty at start).
   return c.iterationConfigs[0]?.sourceMode !== 'pool';
 }, { message: 'First iteration cannot use sourceMode=pool (pool is empty at start); use seed mode' }).refine((c) => {
-  // No swiss iteration may precede all generate iterations.
-  let hasGenerate = false;
+  // No swiss iteration may precede ALL variant-producing iterations.
+  // Editing IS variant-producing per Decisions §14 (final cycle materializes a Variant).
+  let hasVariantProducing = false;
   for (const ic of c.iterationConfigs) {
-    if (ic.agentType === 'generate') hasGenerate = true;
-    if (ic.agentType === 'swiss' && !hasGenerate) return false;
+    if (producesNewVariants(ic.agentType)) hasVariantProducing = true;
+    if (ic.agentType === 'swiss' && !hasVariantProducing) return false;
   }
   return true;
-}, { message: 'A swiss iteration cannot precede all generate iterations' }).refine((c) => {
+}, { message: 'A swiss iteration cannot precede all variant-producing iterations (generate, reflect_and_generate, or iterative_editing)' }).refine((c) => {
   // Exactly one parallel unit may be set (both unset is allowed).
   return !(c.minBudgetAfterParallelFraction != null && c.minBudgetAfterParallelAgentMultiple != null);
 }, { message: 'Only one of minBudgetAfterParallelFraction or minBudgetAfterParallelAgentMultiple may be set' }).refine((c) => {
@@ -517,16 +707,12 @@ const evolutionConfigBaseSchema = z.object({
   generationModel: z.string(),
   /** Ordered iteration sequence — each specifies agent type, budget percentage, optional maxAgents. */
   iterationConfigs: z.array(iterationConfigSchema).min(1).max(MAX_ITERATION_CONFIGS),
-  /** @deprecated Pre-parallel pipeline strategies-per-round (3 by default). Replaced by numVariants. */
-  strategiesPerRound: z.number().int().min(1).optional(),
   /** @deprecated Triage calibration opponent count (legacy ranking). */
   calibrationOpponents: z.number().int().min(1).optional(),
   /** @deprecated Top-K eligibility floor (legacy ranking). */
   tournamentTopK: z.number().int().min(1).optional(),
   /** Optional weighted strategy selection from main (predates parallel pipeline). */
   generationGuidance: generationGuidanceSchema.optional(),
-  /** @deprecated Replaced by maxAgents on iterationConfigs[]. Kept for legacy code paths. */
-  numVariants: z.number().int().min(1).max(100).optional(),
   /** Strategy names to round-robin across the N parallel generate agents. */
   strategies: z.array(z.string().min(1)).optional(),
   /** Hard cap on pairwise comparisons per variant during ranking (default 15). */
@@ -567,8 +753,11 @@ export type V2MatchSchema = z.infer<typeof v2MatchSchema>;
 // ─── Rating ──────────────────────────────────────────────────────
 
 export const ratingSchema = z.object({
-  elo: z.number(),
-  uncertainty: z.number().positive(),
+  // B028: reject NaN/Infinity on rating fields — plain `z.number()` accepts both, and
+  // `.positive()` on `uncertainty` accepts `Infinity` too (Infinity > 0 is true). Corrupt
+  // values would poison updateRating(), toDisplayElo(), and the arena leaderboard.
+  elo: z.number().refine(Number.isFinite, 'elo must be finite'),
+  uncertainty: z.number().positive().refine(Number.isFinite, 'uncertainty must be finite'),
 });
 
 export type RatingSchema = z.infer<typeof ratingSchema>;
@@ -647,32 +836,242 @@ export const generationExecutionDetailSchema = executionDetailBaseSchema.extend(
   feedbackUsed: z.boolean(),
 });
 
-export const iterativeEditingExecutionDetailSchema = executionDetailBaseSchema.extend({
-  detailType: z.literal('iterativeEditing'),
-  targetVariantId: z.string(),
-  config: z.object({
-    maxCycles: z.number().int().min(1),
-    maxConsecutiveRejections: z.number().int().min(1),
-    qualityThreshold: z.number(),
+// IterativeEditingAgent execution_detail (v2 redesign — replaces the orphaned V1
+// rubric-driven schema). Captures the full Proposer / pre-check / Approver /
+// Implementer audit trail per cycle, plus per-purpose cost split per
+// Decisions §13 invariant I2. See bring_back_editing_agents_evolution_20260430
+// planning doc Phase 1.8 for the full specification.
+
+const editingAtomicEditSchema = z.object({
+  /** Atomic edit number from the markup `[#N]`. Multiple atomic edits can share a
+   *  number — they form an atomic accept/reject group. */
+  groupNumber: z.number().int().min(1),
+  /** Edit kind: insert / delete / replace. Paired add+delete with the same [#N]
+   *  is normalized to 'replace' by the parser. */
+  kind: z.enum(['insert', 'delete', 'replace']),
+  /** Position in the current article text (post-strip-markup) where the edit applies. */
+  range: z.object({
+    start: z.number().int().min(0),
+    end: z.number().int().min(0),
   }),
-  cycles: z.array(z.object({
-    cycleNumber: z.number().int().min(0),
-    target: z.object({
-      dimension: z.string().optional(),
-      description: z.string(),
-      score: z.number().optional(),
-      source: z.string(),
+  /** Position in the proposer's marked-up output (used for AnnotatedProposals UI). */
+  markupRange: z.object({
+    start: z.number().int().min(0),
+    end: z.number().int().min(0),
+  }),
+  /** Original text being deleted/replaced (empty for inserts). */
+  oldText: z.string(),
+  /** New text being inserted (empty for deletes). */
+  newText: z.string(),
+  /** Up to 30 chars before/after the edit in the source — context-string failsafe. */
+  contextBefore: z.string(),
+  contextAfter: z.string(),
+});
+
+const editingGroupSchema = z.object({
+  groupNumber: z.number().int().min(1),
+  atomicEdits: z.array(editingAtomicEditSchema).min(1),
+});
+
+const editingReviewDecisionSchema = z.object({
+  groupNumber: z.number().int().min(1),
+  decision: z.enum(['accept', 'reject']),
+  reason: z.string(),
+});
+
+const editingDriftRegionSchema = z.object({
+  offset: z.number().int().min(0),
+  driftedText: z.string(),
+  classification: z.enum(['benign', 'intentional']).optional(),
+  patch: z.string().optional(),
+});
+
+const editingDroppedGroupSchema = z.object({
+  groupNumber: z.number().int().min(1),
+  reason: z.string(),
+  detail: z.string().optional(),
+});
+
+const editingCycleSchema = z.object({
+  cycleNumber: z.number().int().min(1),
+  /** Proposer's full marked-up output (article body + inline CriticMarkup). */
+  proposedMarkup: z.string(),
+  /** Raw groups parsed from proposedMarkup BEFORE any filtering. */
+  proposedGroupsRaw: z.array(editingGroupSchema),
+  /** Groups dropped by the pre-check (parser failures, hard-rule violations,
+   *  size-ratio guardrail, cycle/group caps). */
+  droppedPreApprover: z.array(editingDroppedGroupSchema),
+  /** Groups sent to the Approver after pre-check filtering. */
+  approverGroups: z.array(editingGroupSchema),
+  /** Approver's per-group decisions. */
+  reviewDecisions: z.array(editingReviewDecisionSchema),
+  /** Groups dropped post-Approver (range overlap, context-failsafe mismatch). */
+  droppedPostApprover: z.array(editingDroppedGroupSchema),
+  /** Groups successfully applied to current.text. */
+  appliedGroups: z.array(editingGroupSchema),
+  acceptedCount: z.number().int().min(0),
+  rejectedCount: z.number().int().min(0),
+  appliedCount: z.number().int().min(0),
+  formatValid: z.boolean(),
+  /** ID of the materialized Variant if this was the FINAL cycle that produced
+   *  output; undefined for intermediate cycles (per Decisions §14 — only the
+   *  final cycle materializes as a Variant). */
+  newVariantId: z.string().optional(),
+  /** Cycle's input text (parent.text for cycle 1, prior cycle's childText otherwise). */
+  parentText: z.string(),
+  /** Cycle's output text after applying accepted edits. */
+  childText: z.string().optional(),
+  /** Drift recovery details (only present when the strip-markup drift check fired). */
+  driftRecovery: z.object({
+    outcome: z.enum(['recovered', 'unrecoverable_residual', 'unrecoverable_intentional', 'skipped_major_drift']),
+    regions: z.array(editingDriftRegionSchema),
+    classifications: z.array(editingDriftRegionSchema).optional(),
+    patchedMarkup: z.string().optional(),
+    costUsd: z.number().min(0).optional(),
+  }).optional(),
+  /** Per-purpose cost split per Decisions §13 invariant I2. */
+  proposeCostUsd: z.number().min(0),
+  approveCostUsd: z.number().min(0),
+  driftRecoveryCostUsd: z.number().min(0).optional(),
+  /** Final-newText / cycle-input-text length ratio for monitoring (≤1.5× per
+   *  Decisions §17). */
+  sizeRatio: z.number().min(0),
+});
+
+// ─── Ranking sub-schemas (relocated up from the parallel-pipeline section) ─────
+// These were originally defined further down (alongside the parallel pipeline
+// agents). They are hoisted here so iterativeEditingExecutionDetailSchema can
+// reference them without forward-reference errors at module load
+// (add_ranking_iterative_editing_agent_evolution_20260502 Phase 1.1).
+
+/** Shallow key-rename preprocessor for Zod backward-compat normalization.
+ *  Leaves non-object values untouched; replaces old key names with new ones. */
+function renameKeys(mapping: Record<string, string>): (val: unknown) => unknown {
+  return (val: unknown) => {
+    if (typeof val !== 'object' || val === null || Array.isArray(val)) return val;
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(val as Record<string, unknown>)) {
+      out[mapping[k] ?? k] = v;
+    }
+    return out;
+  };
+}
+
+/** generateFromPreviousArticle: ranking comparison record (one per binary-search comparison). */
+const rankNewVariantComparisonInnerSchema = z.object({
+  round: z.number().int().min(1),
+  opponentId: z.string(),
+  selectionScore: z.number(),
+  pWin: z.number().min(0).max(1),
+  variantEloBefore: z.number(),
+  variantUncertaintyBefore: z.number().min(0),
+  opponentEloBefore: z.number(),
+  opponentUncertaintyBefore: z.number().min(0),
+  outcome: z.enum(['win', 'loss', 'draw']),
+  confidence: z.number().min(0).max(1),
+  variantEloAfter: z.number(),
+  variantUncertaintyAfter: z.number().min(0),
+  opponentEloAfter: z.number(),
+  opponentUncertaintyAfter: z.number().min(0),
+  top15CutoffAfter: z.number(),
+  eloPlusTwoUncertainty: z.number(),
+  eliminated: z.boolean(),
+  converged: z.boolean(),
+  /** Wall-clock duration of this comparison (both 2-pass reversal LLM calls, parallel). Optional — historical invocations have no timing data. */
+  durationMs: z.number().int().min(0).optional(),
+  /** Forward-pass LLM call duration. Optional — historical invocations have no timing data. */
+  forwardCallDurationMs: z.number().int().min(0).optional(),
+  /** Reverse-pass LLM call duration. Optional — historical invocations have no timing data. */
+  reverseCallDurationMs: z.number().int().min(0).optional(),
+});
+
+export const rankNewVariantComparisonSchema = z.preprocess(
+  renameKeys({
+    variantMuBefore: 'variantEloBefore',
+    variantSigmaBefore: 'variantUncertaintyBefore',
+    opponentMuBefore: 'opponentEloBefore',
+    opponentSigmaBefore: 'opponentUncertaintyBefore',
+    variantMuAfter: 'variantEloAfter',
+    variantSigmaAfter: 'variantUncertaintyAfter',
+    opponentMuAfter: 'opponentEloAfter',
+    opponentSigmaAfter: 'opponentUncertaintyAfter',
+    muPlusTwoSigma: 'eloPlusTwoUncertainty',
+  }),
+  rankNewVariantComparisonInnerSchema,
+);
+
+const rankNewVariantDetailInnerSchema = z.object({
+  variantId: z.string(),
+  localPoolSize: z.number().int().min(0),
+  localPoolVariantIds: z.array(z.string()),
+  initialTop15Cutoff: z.number(),
+  comparisons: z.array(rankNewVariantComparisonSchema),
+  stopReason: z.enum(['converged', 'eliminated', 'no_more_opponents', 'budget']),
+  totalComparisons: z.number().int().min(0),
+  finalLocalElo: z.number(),
+  finalLocalUncertainty: z.number().min(0),
+  finalLocalTop15Cutoff: z.number(),
+  /** Wall-clock duration of the full ranking phase for this variant. Optional — historical invocations have no timing data. */
+  durationMs: z.number().int().min(0).optional(),
+});
+
+const rankingDetailRenameKeys = renameKeys({
+  finalLocalMu: 'finalLocalElo',
+  finalLocalSigma: 'finalLocalUncertainty',
+});
+
+export const rankNewVariantDetailSchema = z.preprocess(
+  rankingDetailRenameKeys,
+  rankNewVariantDetailInnerSchema,
+);
+
+export const iterativeEditingExecutionDetailSchema = executionDetailBaseSchema.extend({
+  detailType: z.literal('iterative_editing'),
+  /** ID of the input parent variant (the original parent assigned by dispatch — not a
+   *  cycle-N-1 intermediate). */
+  parentVariantId: z.string(),
+  /** Resolved per-iteration / strategy config. */
+  config: z.object({
+    maxCycles: z.number().int().min(1).max(5),
+    editingModel: z.string(),
+    approverModel: z.string(),
+    driftRecoveryModel: z.string(),
+    perInvocationBudgetUsd: z.number().min(0),
+  }),
+  cycles: z.array(editingCycleSchema),
+  /** Per-iteration termination reason. */
+  stopReason: z.enum([
+    'all_cycles_completed',
+    'all_edits_rejected',
+    'no_edits_proposed',
+    'parse_failed',
+    'proposer_drift_major',
+    'proposer_drift_intentional',
+    'proposer_drift_unrecoverable',
+    'invocation_budget_near_exhaustion',
+    'article_size_explosion',
+    'format_invalid',
+    'helper_threw',
+    'budget_exceeded',
+  ]),
+  /** Set when stopReason === 'helper_threw' — which helper failed. */
+  errorPhase: z.enum(['propose', 'parse', 'approve', 'recovery', 'apply']).optional(),
+  errorMessage: z.string().optional(),
+  /** ID of the final materialized variant (undefined when no cycle accepted edits). */
+  finalVariantId: z.string().optional(),
+  /** True iff the final variant was emitted AND surfaced (passed ranking discard if ranking ran). */
+  surfaced: z.boolean().optional(),
+  /** Local-rank rating from the post-cycle binary-search ranking phase. Populated whenever
+   *  ranking runs (input.initialPool present and final variant emitted). null when ranking
+   *  was skipped via the input-presence gate. Both `.optional()` (back-compat for DB rows
+   *  written before this schema field existed) and `.nullable()` (allows explicit null). */
+  ranking: z.preprocess(
+    rankingDetailRenameKeys,
+    rankNewVariantDetailInnerSchema.extend({
+      cost: z.number().min(0),
+      estimatedCost: z.number().min(0).optional(),
     }),
-    verdict: z.enum(['ACCEPT', 'REJECT']),
-    confidence: z.number().min(0).max(1),
-    formatValid: z.boolean(),
-    formatIssues: z.array(z.string()).optional(),
-    newVariantId: z.string().optional(),
-  })),
-  initialCritique: z.object({ dimensionScores: z.record(z.string(), z.number()) }),
-  finalCritique: z.object({ dimensionScores: z.record(z.string(), z.number()) }).optional(),
-  stopReason: z.enum(['threshold_met', 'max_rejections', 'max_cycles', 'no_targets']),
-  consecutiveRejections: z.number().int().min(0),
+  ).optional().nullable(),
 });
 
 export const reflectionExecutionDetailSchema = executionDetailBaseSchema.extend({
@@ -806,7 +1205,7 @@ export const rankingExecutionDetailSchema = executionDetailBaseSchema.extend({
   eligibleContenders: z.number().int().min(0),
   totalComparisons: z.number().int().min(0),
   flowEnabled: z.boolean(),
-  low_sigma_opponents_count: z.number().int().min(0).optional(),
+  low_uncertainty_opponents_count: z.number().int().min(0).optional(),
 });
 
 export const proximityExecutionDetailSchema = executionDetailBaseSchema.extend({
@@ -834,87 +1233,10 @@ export const metaReviewExecutionDetailSchema = executionDetailBaseSchema.extend(
 });
 
 // ─── New parallel pipeline agents (generate_rank_evolution_parallel_20260331) ─────
-
-/** Shallow key-rename preprocessor for Zod backward-compat normalization.
- *  Leaves non-object values untouched; replaces old key names with new ones. */
-function renameKeys(mapping: Record<string, string>): (val: unknown) => unknown {
-  return (val: unknown) => {
-    if (typeof val !== 'object' || val === null || Array.isArray(val)) return val;
-    const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(val as Record<string, unknown>)) {
-      out[mapping[k] ?? k] = v;
-    }
-    return out;
-  };
-}
-
-/** generateFromPreviousArticle: ranking comparison record (one per binary-search comparison). */
-const rankNewVariantComparisonInnerSchema = z.object({
-  round: z.number().int().min(1),
-  opponentId: z.string(),
-  selectionScore: z.number(),
-  pWin: z.number().min(0).max(1),
-  variantEloBefore: z.number(),
-  variantUncertaintyBefore: z.number().min(0),
-  opponentEloBefore: z.number(),
-  opponentUncertaintyBefore: z.number().min(0),
-  outcome: z.enum(['win', 'loss', 'draw']),
-  confidence: z.number().min(0).max(1),
-  variantEloAfter: z.number(),
-  variantUncertaintyAfter: z.number().min(0),
-  opponentEloAfter: z.number(),
-  opponentUncertaintyAfter: z.number().min(0),
-  top15CutoffAfter: z.number(),
-  eloPlusTwoUncertainty: z.number(),
-  eliminated: z.boolean(),
-  converged: z.boolean(),
-  /** Wall-clock duration of this comparison (both 2-pass reversal LLM calls, parallel). Optional — historical invocations have no timing data. */
-  durationMs: z.number().int().min(0).optional(),
-  /** Forward-pass LLM call duration. Optional — historical invocations have no timing data. */
-  forwardCallDurationMs: z.number().int().min(0).optional(),
-  /** Reverse-pass LLM call duration. Optional — historical invocations have no timing data. */
-  reverseCallDurationMs: z.number().int().min(0).optional(),
-});
-
-export const rankNewVariantComparisonSchema = z.preprocess(
-  renameKeys({
-    variantMuBefore: 'variantEloBefore',
-    variantSigmaBefore: 'variantUncertaintyBefore',
-    opponentMuBefore: 'opponentEloBefore',
-    opponentSigmaBefore: 'opponentUncertaintyBefore',
-    variantMuAfter: 'variantEloAfter',
-    variantSigmaAfter: 'variantUncertaintyAfter',
-    opponentMuAfter: 'opponentEloAfter',
-    opponentSigmaAfter: 'opponentUncertaintyAfter',
-    muPlusTwoSigma: 'eloPlusTwoUncertainty',
-  }),
-  rankNewVariantComparisonInnerSchema,
-);
-
-const rankNewVariantDetailInnerSchema = z.object({
-  variantId: z.string(),
-  localPoolSize: z.number().int().min(0),
-  localPoolVariantIds: z.array(z.string()),
-  initialTop15Cutoff: z.number(),
-  comparisons: z.array(rankNewVariantComparisonSchema),
-  stopReason: z.enum(['converged', 'eliminated', 'no_more_opponents', 'budget']),
-  totalComparisons: z.number().int().min(0),
-  finalLocalElo: z.number(),
-  finalLocalUncertainty: z.number().min(0),
-  finalLocalTop15Cutoff: z.number(),
-  /** Wall-clock duration of the full ranking phase for this variant. Optional — historical invocations have no timing data. */
-  durationMs: z.number().int().min(0).optional(),
-});
-
-const rankingDetailRenameKeys = renameKeys({
-  finalLocalMu: 'finalLocalElo',
-  finalLocalSigma: 'finalLocalUncertainty',
-});
-
-export const rankNewVariantDetailSchema = z.preprocess(
-  rankingDetailRenameKeys,
-  rankNewVariantDetailInnerSchema,
-);
+// NOTE: renameKeys, rankNewVariantComparisonSchema, rankNewVariantDetailInnerSchema,
+// rankingDetailRenameKeys, rankNewVariantDetailSchema are now defined ABOVE (just before
+// iterativeEditingExecutionDetailSchema) so they can be consumed by both editing and GFPA
+// schemas without forward-reference errors at module load.
 
 export const generateFromPreviousExecutionDetailSchema = executionDetailBaseSchema.extend({
   detailType: z.literal('generate_from_previous_article'),
@@ -938,6 +1260,147 @@ export const generateFromPreviousExecutionDetailSchema = executionDetailBaseSche
       estimatedCost: z.number().min(0).optional(),
     }),
   ).nullable(),
+  estimatedTotalCost: z.number().min(0).optional(),
+  estimationErrorPct: z.number().optional(),
+  surfaced: z.boolean(),
+  discardReason: z.preprocess(
+    renameKeys({ localMu: 'localElo' }),
+    z.object({
+      localElo: z.number(),
+      localTop15Cutoff: z.number(),
+    }),
+  ).optional(),
+});
+
+/**
+ * ReflectAndGenerateFromPreviousArticleAgent execution detail.
+ * Wraps GFPA with a reflection LLM call up front. Sub-objects (`reflection`, `generation`,
+ * `ranking`) are individually optional so partial-failure rows still validate (e.g.,
+ * reflection succeeds but generation throws → only `reflection` is populated).
+ */
+export const reflectAndGenerateFromPreviousArticleExecutionDetailSchema = executionDetailBaseSchema.extend({
+  detailType: z.literal('reflect_and_generate_from_previous_article'),
+  variantId: z.string().nullable().optional(),
+  /** The chosen tactic used for downstream generation. Top-level for SQL/aggregator query convenience. */
+  tactic: z.string(),
+  /** Reflection sub-detail. Optional so partial-failure rows (e.g. LLM throw before parsing) still validate. */
+  reflection: z.object({
+    /** All 24 tactic names presented to the LLM in the order they appeared in the prompt (post-shuffle). */
+    candidatesPresented: z.array(z.string()),
+    /** Top-N tactics ranked by the LLM with reasoning for each. */
+    tacticRanking: z.array(z.object({
+      tactic: z.string(),
+      reasoning: z.string(),
+    })),
+    /** = tacticRanking[0].tactic, denormalized for SQL filters. */
+    tacticChosen: z.string(),
+    /** Raw LLM response preserved on parser failure for debugging (capped to 8KB upstream). */
+    rawResponse: z.string().optional(),
+    /** Error message when parsing fails; absent on success. */
+    parseError: z.string().optional(),
+    /** Wall-clock duration of the reflection LLM call. */
+    durationMs: z.number().int().min(0).optional(),
+    /** Cost of the reflection LLM call (incremental — does not include generation/ranking). */
+    cost: z.number().min(0).optional(),
+  }).optional(),
+  /** Generation sub-detail. Reused from GFPA. Optional for partial-failure population. */
+  generation: z.object({
+    cost: z.number().min(0),
+    estimatedCost: z.number().min(0).optional(),
+    promptLength: z.number().int().min(0),
+    textLength: z.number().int().min(0).optional(),
+    formatValid: z.boolean(),
+    formatIssues: z.array(z.string()).optional(),
+    error: z.string().optional(),
+    durationMs: z.number().int().min(0).optional(),
+  }).optional(),
+  /** Ranking sub-detail. Reused from GFPA. Optional. */
+  ranking: z.preprocess(
+    rankingDetailRenameKeys,
+    rankNewVariantDetailInnerSchema.extend({
+      cost: z.number().min(0),
+      estimatedCost: z.number().min(0).optional(),
+    }),
+  ).nullable().optional(),
+  /** Total cost = reflectionCost + gfpaDetail.totalCost. Recomputed by wrapper merge step (Phase 6). */
+  totalCost: z.number().min(0).optional(),
+  estimatedTotalCost: z.number().min(0).optional(),
+  estimationErrorPct: z.number().optional(),
+  surfaced: z.boolean(),
+  discardReason: z.preprocess(
+    renameKeys({ localMu: 'localElo' }),
+    z.object({
+      localElo: z.number(),
+      localTop15Cutoff: z.number(),
+    }),
+  ).optional(),
+});
+
+/**
+ * EvaluateCriteriaThenGenerateFromPreviousArticleAgent execution detail.
+ * Single combined LLM call (evaluate + suggest), then inner GFPA execute().
+ * `evaluateAndSuggest` is a single sub-object (not split eval/suggest) — sourced
+ * from one LLM response, shares cost + duration. droppedSuggestions captures
+ * blocks the LLM wrote about non-weakest criteria (LLM-vs-wrapper disagreement
+ * on tied scores, kept for forensic display).
+ */
+export const evaluateCriteriaThenGenerateFromPreviousArticleExecutionDetailSchema = executionDetailBaseSchema.extend({
+  detailType: z.literal('evaluate_criteria_then_generate_from_previous_article'),
+  variantId: z.string().nullable().optional(),
+  /** Static marker tactic; lineage graph + tactic leaderboard groups all criteria-driven variants under this. */
+  tactic: z.literal('criteria_driven'),
+  /** UUIDs of criteria the wrapper auto-picked as the focus (sorted by normalized score asc). */
+  weakestCriteriaIds: z.array(z.string().uuid()),
+  /** Resolved names for chart labels + attribution dimension extractor. Same length + order as weakestCriteriaIds. */
+  weakestCriteriaNames: z.array(z.string()),
+  /** Combined evaluate + suggest sub-detail. Single LLM call source. Optional so partial-failure rows still validate. */
+  evaluateAndSuggest: z.object({
+    /** Per-criteria scoring from the LLM. Each entry's score validated within its criterion's [min, max] range. */
+    criteriaScored: z.array(z.object({
+      criteriaId: z.string().uuid(),
+      criteriaName: z.string(),
+      score: z.number(),
+      minRating: z.number(),
+      maxRating: z.number(),
+    })),
+    /** Suggestions kept (Criterion ∈ wrapper-determined weakest set) — fed into inner GFPA's customPrompt. */
+    suggestions: z.array(z.object({
+      examplePassage: z.string(),
+      whatNeedsAddressing: z.string(),
+      suggestedFix: z.string(),
+      criteriaName: z.string(),
+    })),
+    /** Suggestions the LLM wrote about non-weakest criteria — dropped, kept for forensic display only. */
+    droppedSuggestions: z.array(z.object({
+      criteriaName: z.string(),
+      reason: z.string(),
+    })).optional(),
+    rawResponse: z.string().optional(),
+    parseError: z.string().optional(),
+    durationMs: z.number().int().min(0).optional(),
+    cost: z.number().min(0).optional(),
+  }).optional(),
+  /** Generation sub-detail. Reused from GFPA. */
+  generation: z.object({
+    cost: z.number().min(0),
+    estimatedCost: z.number().min(0).optional(),
+    promptLength: z.number().int().min(0),
+    textLength: z.number().int().min(0).optional(),
+    formatValid: z.boolean(),
+    formatIssues: z.array(z.string()).optional(),
+    error: z.string().optional(),
+    durationMs: z.number().int().min(0).optional(),
+  }).optional(),
+  /** Ranking sub-detail. Reused from GFPA. */
+  ranking: z.preprocess(
+    rankingDetailRenameKeys,
+    rankNewVariantDetailInnerSchema.extend({
+      cost: z.number().min(0),
+      estimatedCost: z.number().min(0).optional(),
+    }),
+  ).nullable().optional(),
+  /** Total cost = combinedCost + gfpaDetail.totalCost. Recomputed by wrapper merge step. */
+  totalCost: z.number().min(0).optional(),
   estimatedTotalCost: z.number().min(0).optional(),
   estimationErrorPct: z.number().optional(),
   surfaced: z.boolean(),
@@ -995,7 +1458,10 @@ export const swissRankingExecutionDetailSchema = executionDetailBaseSchema.exten
   })),
   matchesProducedTotal: z.number().int().min(0),
   matchesTruncated: z.boolean(),
-  status: z.enum(['success', 'budget', 'no_pairs']),
+  // B008-S3: extended enum with 'failure' so SwissRankingAgent can report a non-success
+  // when all pairs fail with non-budget errors. Was previously forced to set 'success'
+  // even with 0 successful pairs, masking provider outages as success in dashboards.
+  status: z.enum(['success', 'budget', 'no_pairs', 'failure']),
 });
 
 /** MergeRatingsAgent execution detail.
@@ -1011,7 +1477,7 @@ const afterVariantRenameKeys = renameKeys({
 
 export const mergeRatingsExecutionDetailSchema = executionDetailBaseSchema.extend({
   detailType: z.literal('merge_ratings'),
-  iterationType: z.enum(['generate', 'swiss']),
+  iterationType: z.enum(['generate', 'reflect_and_generate', 'criteria_and_generate', 'iterative_editing', 'swiss']),
   before: z.object({
     poolSize: z.number().int().min(0),
     variants: z.array(z.preprocess(
@@ -1065,9 +1531,11 @@ export const mergeRatingsExecutionDetailSchema = executionDetailBaseSchema.exten
 const snapshotRatingRename = renameKeys({ mu: 'elo', sigma: 'uncertainty' });
 const snapshotDiscardReasonRename = renameKeys({ mu: 'elo' });
 
+// Note: iterationType accepts 'reflect_and_generate' (Shape A) — pre-existing snapshots
+// only contain 'generate' or 'swiss' so backward-compat reads remain valid.
 export const iterationSnapshotSchema = z.object({
   iteration: z.number().int().min(1),
-  iterationType: z.enum(['generate', 'swiss']),
+  iterationType: z.enum(['generate', 'reflect_and_generate', 'criteria_and_generate', 'iterative_editing', 'swiss']),
   phase: z.enum(['start', 'end']),
   capturedAt: z.string(),
   poolVariantIds: z.array(z.string()),
@@ -1107,6 +1575,8 @@ export const agentExecutionDetailSchema = z.discriminatedUnion('detailType', [
   proximityExecutionDetailSchema,
   metaReviewExecutionDetailSchema,
   generateFromPreviousExecutionDetailSchema,
+  reflectAndGenerateFromPreviousArticleExecutionDetailSchema,
+  evaluateCriteriaThenGenerateFromPreviousArticleExecutionDetailSchema,
   createSeedArticleExecutionDetailSchema,
   swissRankingExecutionDetailSchema,
   mergeRatingsExecutionDetailSchema,
@@ -1202,7 +1672,8 @@ const _EvolutionRunSummaryV3Inner = z.object({
     minBudgetAfterParallelAgentMultiple: z.number().min(0).optional(),
     minBudgetAfterSequentialFraction: z.number().min(0).max(1).optional(),
     minBudgetAfterSequentialAgentMultiple: z.number().min(0).optional(),
-    numVariants: z.number().int().min(0),
+    /** @deprecated Replaced by DISPATCH_SAFETY_CAP constant in code. Legacy rows persisted this value; reading still tolerates it. */
+    numVariants: z.number().int().min(0).optional(),
   }).optional(),
 }).strict();
 

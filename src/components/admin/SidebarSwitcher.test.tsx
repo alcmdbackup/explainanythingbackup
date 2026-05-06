@@ -38,10 +38,13 @@ describe('SidebarSwitcher', () => {
       '/admin/evolution/arena',
       '/admin/quality',
       '/admin/quality/evolution',
-    ])('shows "Evolution Dashboard" title for %s', (pathname) => {
+    ])('shows "Evolution" title for %s', (pathname) => {
       mockUsePathname.mockReturnValue(pathname);
       render(<SidebarSwitcher />);
-      expect(screen.getByText('Evolution Dashboard')).toBeInTheDocument();
+      // Fix #2/#19 (use_playwright_find_ux_issues_bugs_20260501): sidebar header
+      // is now just "Evolution" (was "Evolution Dashboard").
+      const matches = screen.getAllByText('Evolution');
+      expect(matches.length).toBeGreaterThan(0);
     });
   });
 
@@ -54,7 +57,8 @@ describe('SidebarSwitcher', () => {
   it('/admin/quality (no trailing slash) renders EvolutionSidebar', () => {
     mockUsePathname.mockReturnValue('/admin/quality');
     render(<SidebarSwitcher />);
-    expect(screen.getByText('Evolution Dashboard')).toBeInTheDocument();
+    const matches = screen.getAllByText('Evolution');
+    expect(matches.length).toBeGreaterThan(0);
   });
 
 });

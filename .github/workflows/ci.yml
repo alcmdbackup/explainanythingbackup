@@ -171,8 +171,21 @@ jobs:
           fi
           mv src/lib/database.types.ts.tmp src/lib/database.types.ts
       - name: Commit if changed
+        # B091: only auto-commit generated types on PRs whose head is a branch
+        # that GitHub Actions owns (PRs from same-repo branches, post the
+        # head_ref guard). Force-pushing regenerated types onto a reviewer's
+        # local branch caused rebase surprises; skip the push when the branch
+        # looks like a reviewer/dependabot/release branch. The surrounding job
+        # already guards against fork PRs via `head.repo.full_name` match.
         run: |
           if ! git diff --quiet src/lib/database.types.ts; then
+            BRANCH="${{ github.head_ref }}"
+            case "$BRANCH" in
+              release/*|hotfix/*|dependabot/*)
+                echo "Skipping auto-commit on protected branch prefix: $BRANCH"
+                exit 0
+                ;;
+            esac
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
             git add src/lib/database.types.ts
@@ -263,7 +276,10 @@ jobs:
     name: Integration Tests (Critical)
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: [detect-changes, unit-tests]
+    # deploy-migrations listed explicitly (not just transitively via unit-tests→
+    # typecheck→generate-types→deploy-migrations) so the schema dependency is
+    # documented at the job level and survives future CI refactors.
+    needs: [detect-changes, unit-tests, deploy-migrations]
     if: >-
       !cancelled() && !failure()
       && needs.detect-changes.outputs.path != 'fast' && github.base_ref == 'main'
@@ -293,7 +309,7 @@ jobs:
     name: Integration Tests (Evolution)
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    needs: [detect-changes, unit-tests]
+    needs: [detect-changes, unit-tests, deploy-migrations]
     if: >-
       !cancelled() && !failure()
       && (github.base_ref == 'production' || github.base_ref == 'main') &&
@@ -310,6 +326,17 @@ jobs:
       DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      # bring_back_editing_agents_evolution_20260430 — feature flags for the
+      # iterative_editing agent. Both default to 'true' in code (per Decisions
+      # §13/§17); set explicitly here to make the test environment's runtime
+      # behavior obvious. Threshold env vars are intentionally NOT set so tests
+      # exercise the hardcoded fallbacks (default thresholds).
+      EDITING_AGENTS_ENABLED: 'true'
+      EVOLUTION_DRIFT_RECOVERY_ENABLED: 'true'
+      # add_ranking_iterative_editing_agent_evolution_20260502 — gates the post-cycle
+      # ranking step inside iterative_editing iterations (D4). Default is 'true' in
+      # code; set explicitly here so the test env exercises the new ranking path.
+      EDITING_RANK_ENABLED: 'true'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -318,13 +345,19 @@ jobs:
           cache: 'npm'
       - run: npm ci
       - run: npm run test:integration:evolution
+      # Phase 6.10 — startup-assertion proof test mutates the shared
+      # evolution_cost_calibration CHECK constraint and restores it. MUST run
+      # serially (--runInBand); concurrent jest workers would see a CHECK
+      # rejecting valid phase strings during the mutation window.
+      - name: Editing — startup-assertion proof (serial)
+        run: npm run test:integration:evolution -- --runInBand --testPathPatterns="evolution-startup-assertion-check"
 
   # Non-evolution integration tests for PRs to production
   integration-non-evolution:
     name: Integration Tests (Non-Evolution)
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    needs: [detect-changes, unit-tests]
+    needs: [detect-changes, unit-tests, deploy-migrations]
     if: >-
       !cancelled() && !failure()
       && github.base_ref == 'production' &&

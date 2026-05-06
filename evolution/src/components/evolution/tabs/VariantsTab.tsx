@@ -168,7 +168,7 @@ export function VariantsTab({ runId, strategyId, runStatus }: VariantsTabProps):
           <tbody>
             {filtered.length === 0 && !loading && (
               <tr>
-                <td colSpan={8} className="px-4 py-8 text-center text-sm font-ui text-[var(--text-muted)]">
+                <td colSpan={9} className="px-4 py-8 text-center text-sm font-ui text-[var(--text-muted)]">
                   No variants match this filter.
                 </td>
               </tr>
@@ -181,7 +181,7 @@ export function VariantsTab({ runId, strategyId, runStatus }: VariantsTabProps):
                   <td className="px-2 py-2 text-[var(--text-muted)]">
                     <span className="cursor-pointer" title={v.id} onClick={() => setExpandedIds(prev => { const next = new Set(prev); if (next.has(v.id)) next.delete(v.id); else next.add(v.id); return next; })}>
                       #{rankMap.get(v.id) ?? i + 1}
-                      {v.is_winner && <span className="mx-1 text-[var(--accent-gold)]">★</span>}
+                      {v.is_winner && <span className="mx-1 text-[var(--accent-gold)]" aria-label="Run winner" title="Run winner (highest final Elo)">★</span>}
                       <span className="ml-1.5 font-mono text-xs text-[var(--accent-gold)]">{v.id.substring(0, 6)}</span>
                     </span>
                   </td>
@@ -233,6 +233,7 @@ export function VariantsTab({ runId, strategyId, runStatus }: VariantsTabProps):
                           delta={delta}
                           deltaCi={ci}
                           crossRun={!!v.parent_run_id && v.parent_run_id !== v.run_id}
+                          parentRunId={v.parent_run_id ?? null}
                         />
                       );
                     })()}
@@ -264,7 +265,7 @@ export function VariantsTab({ runId, strategyId, runStatus }: VariantsTabProps):
                 </tr>
                 {expandedIds.has(v.id) && (
                   <tr key={`${v.id}-text`}>
-                    <td colSpan={8} className="p-4 bg-[var(--surface-secondary)]">
+                    <td colSpan={9} className="p-4 bg-[var(--surface-secondary)]">
                       <pre className="whitespace-pre-wrap text-xs text-[var(--text-secondary)] max-h-64 overflow-y-auto">
                         {v.variant_content}
                       </pre>

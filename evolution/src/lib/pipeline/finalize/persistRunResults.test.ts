@@ -20,6 +20,18 @@ jest.mock('../../metrics/readMetrics', () => ({
   getMetricsForEntities: jest.fn().mockResolvedValue(new Map()),
 }));
 
+// Blocker 2: partial mock that overrides `computeRunMetrics` only. Other exports
+// (bootstrapMeanCI, aggregateMetrics, createSeededRng, etc.) pass through to the real
+// implementation so existing tests for propagation and aggregation still work.
+jest.mock('../../metrics/experimentMetrics', () => {
+  const actual = jest.requireActual('../../metrics/experimentMetrics');
+  return {
+    __esModule: true,
+    ...actual,
+    computeRunMetrics: jest.fn().mockResolvedValue({ metrics: {}, variantRatings: null }),
+  };
+});
+
 const mockedWriteMetric = writeMetric as jest.MockedFunction<typeof writeMetric>;
 const mockedWriteMetricMax = writeMetricMax as jest.MockedFunction<typeof writeMetricMax>;
 
@@ -206,6 +218,44 @@ describe('finalizeRun', () => {
     expect(summary.seedVariantElo).toBeNull();
   });
 
+  // Bug 2 regression (20260421): `v.parentIds[0] || null` must coerce both undefined
+  // and empty-string to null so the persisted parent_variant_id is always either
+  // a valid UUID or null (never an empty string, which would fail FK validation).
+  // Covers the safety-net guarantee for the Phase 2 arena-filter fallback path.
+  it('falsy parentIds[0] (undefined or empty-string) persists as parent_variant_id=null', async () => {
+    const { db, upserts } = makeMockDb();
+    const pool = [
+      makeVariant(BASELINE_ID, 'seed_variant', { parentIds: [] }),
+      makeVariant(GEN1_ID, 'structural_transform', { parentIds: [''] }),
+      makeVariant(GEN2_ID, 'lexical_simplify', { parentIds: [BASELINE_ID] }),
+    ];
+    const ratings = new Map<string, Rating>([
+      [BASELINE_ID, { elo: 1200, uncertainty: 80 }],
+      [GEN1_ID, { elo: 1280, uncertainty: 64 }],
+      [GEN2_ID, { elo: 1248, uncertainty: 72 }],
+    ]);
+    const result: EvolutionResult = {
+      winner: pool[1]!,
+      pool,
+      ratings,
+      matchHistory: [],
+      totalCost: 0.1,
+      iterationsRun: 1,
+      stopReason: 'completed',
+      eloHistory: [[1280, 1248, 1200]],
+      diversityHistory: [],
+      matchCounts: { [BASELINE_ID]: 0, [GEN1_ID]: 0, [GEN2_ID]: 0 },
+    };
+    await finalizeRun(RUN_ID, result, { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
+    const rows = (upserts.find((u) => u.table === 'evolution_variants')?.data ?? []) as Array<Record<string, unknown>>;
+    const base = rows.find((r) => r.id === BASELINE_ID);
+    const gen1 = rows.find((r) => r.id === GEN1_ID);
+    const gen2 = rows.find((r) => r.id === GEN2_ID);
+    expect(base!.parent_variant_id).toBeNull();  // empty parentIds → null
+    expect(gen1!.parent_variant_id).toBeNull();  // '' parentIds[0] → null via `||`
+    expect(gen2!.parent_variant_id).toBe(BASELINE_ID);  // real UUID preserved
+  });
+
   it('tacticEffectiveness computed', async () => {
     const { db, updates } = makeMockDb();
     await finalizeRun(RUN_ID, makeResult(), { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
@@ -256,16 +306,16 @@ describe('finalizeRun', () => {
     expect(rpc!.args.p_completed_run_id).toBe(RUN_ID);
   });
 
-  it('missing ratings use default', async () => {
+  it('B035: throws NoRatedCandidatesError when pool has variants but no ratings', async () => {
+    // Previously missing ratings were silently defaulted to ±Infinity — the
+    // ratings-pipeline bug that allowed this is now surfaced as a hard error.
     const pool = [makeVariant('00000000-0000-4000-8000-000000000040', 'test')];
-    const ratings = new Map<string, Rating>(); // Empty!
+    const ratings = new Map<string, Rating>();
     const result = makeResult({ pool, ratings });
-    const { db, upserts } = makeMockDb();
-    await finalizeRun(RUN_ID, result, { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
-    const rows = (upserts.find((u) => u.table === 'evolution_variants')?.data ?? []) as Array<Record<string, unknown>>;
-    expect(rows[0]!.elo_score).toBe(DEFAULT_ELO);
-    expect(rows[0]!.mu).toBe(_INTERNAL_DEFAULT_MU);
-    expect(rows[0]!.sigma).toBe(_INTERNAL_DEFAULT_SIGMA);
+    const { db } = makeMockDb();
+    await expect(
+      finalizeRun(RUN_ID, result, { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120),
+    ).rejects.toThrow(/no rated candidates/i);
   });
 
   // Regression: winner tie-breaking should use lowest sigma when mu is equal
@@ -689,6 +739,125 @@ describe('finalizeRun logging', () => {
   });
 });
 
+// ─── Blocker 2: attribution emission call site (track_tactic_effectiveness_evolution_20260422) ──
+// These tests verify the env-var kill switch and the non-fatal failure-path guard around
+// the new computeRunMetrics call in finalizeRun.
+
+describe('finalizeRun — attribution emission (Blocker 2)', () => {
+  // Lazy handle on the mocked function — re-grabbed each test since jest.mock hoists the mock.
+  async function getMockedComputeRunMetrics() {
+    const mod = await import('../../metrics/experimentMetrics');
+    return mod.computeRunMetrics as jest.MockedFunction<typeof mod.computeRunMetrics>;
+  }
+
+  afterEach(async () => {
+    delete process.env.EVOLUTION_EMIT_ATTRIBUTION_METRICS;
+    const fn = await getMockedComputeRunMetrics();
+    fn.mockClear();
+    // Restore default behavior in case a test overrode it.
+    fn.mockResolvedValue({ metrics: {}, variantRatings: null });
+  });
+
+  it('calls computeRunMetrics with { strategyId, experimentId } opts when both are present on the run', async () => {
+    const { db } = makeMockDb();
+    const fn = await getMockedComputeRunMetrics();
+    await finalizeRun(
+      RUN_ID,
+      makeResult(),
+      { experiment_id: EXP_ID, explanation_id: null, strategy_id: STRAT_ID, prompt_id: null },
+      db,
+      120,
+    );
+    expect(fn).toHaveBeenCalledTimes(1);
+    expect(fn).toHaveBeenCalledWith(
+      RUN_ID,
+      db,
+      expect.objectContaining({ strategyId: STRAT_ID, experimentId: EXP_ID }),
+    );
+  });
+
+  it('passes undefined for strategyId/experimentId when the run has no parents', async () => {
+    const { db } = makeMockDb();
+    const fn = await getMockedComputeRunMetrics();
+    await finalizeRun(
+      RUN_ID,
+      makeResult(),
+      { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null },
+      db,
+      120,
+    );
+    expect(fn).toHaveBeenCalledTimes(1);
+    expect(fn).toHaveBeenCalledWith(
+      RUN_ID,
+      db,
+      expect.objectContaining({ strategyId: undefined, experimentId: undefined }),
+    );
+  });
+
+  it('kill switch: EVOLUTION_EMIT_ATTRIBUTION_METRICS=false skips the call entirely', async () => {
+    process.env.EVOLUTION_EMIT_ATTRIBUTION_METRICS = 'false';
+    const { db } = makeMockDb();
+    const fn = await getMockedComputeRunMetrics();
+    await finalizeRun(
+      RUN_ID,
+      makeResult(),
+      { experiment_id: EXP_ID, explanation_id: null, strategy_id: STRAT_ID, prompt_id: null },
+      db,
+      120,
+    );
+    expect(fn).not.toHaveBeenCalled();
+  });
+
+  it('env var with any other value (including unset, "true", "0") DOES invoke computeRunMetrics', async () => {
+    for (const value of [undefined, 'true', '0', '', 'yes']) {
+      if (value === undefined) delete process.env.EVOLUTION_EMIT_ATTRIBUTION_METRICS;
+      else process.env.EVOLUTION_EMIT_ATTRIBUTION_METRICS = value;
+      const { db } = makeMockDb();
+      const fn = await getMockedComputeRunMetrics();
+      fn.mockClear();
+      await finalizeRun(
+        RUN_ID,
+        makeResult(),
+        { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null },
+        db,
+        120,
+      );
+      expect(fn).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it('failure path: computeRunMetrics throws → finalizeRun still completes, WARN is logged', async () => {
+    const { db, updates } = makeMockDb();
+    const { logger } = createMockEntityLogger();
+    const fn = await getMockedComputeRunMetrics();
+    fn.mockRejectedValueOnce(new Error('simulated attribution DB error'));
+
+    // Should NOT throw — attribution failure must be non-fatal.
+    await finalizeRun(
+      RUN_ID,
+      makeResult(),
+      { experiment_id: EXP_ID, explanation_id: null, strategy_id: STRAT_ID, prompt_id: null },
+      db,
+      120,
+      logger,
+    );
+
+    // Run still transitioned to completed.
+    const runUpdate = updates.find((u) => u.table === 'evolution_runs' && u.data.status === 'completed');
+    expect(runUpdate).toBeDefined();
+
+    // Non-fatal WARN emitted with our specific phrase.
+    expect(logger.warn).toHaveBeenCalledWith(
+      'Attribution metric emission failed (non-fatal)',
+      expect.objectContaining({
+        phaseName: 'finalize',
+        runId: RUN_ID,
+        error: expect.stringContaining('simulated attribution DB error'),
+      }),
+    );
+  });
+});
+
 // ─── syncToArena logging tests ──────────────────────────────────
 
 // ─── F38: Arena match count computation ─────────────────────────
@@ -904,7 +1073,8 @@ describe('propagateMetrics', () => {
         { metric_name: 'max_elo', value: 1520, uncertainty: 40, ci_lower: 1440, ci_upper: 1600, n: 1 },
       ]],
     ]);
-    getMetricsForEntities.mockResolvedValueOnce(metricsMap);
+    // B043: return shape is `{ data, errors }`.
+    getMetricsForEntities.mockResolvedValueOnce({ data: metricsMap, errors: [] });
 
     const supabase = {
       from: jest.fn().mockReturnValue({

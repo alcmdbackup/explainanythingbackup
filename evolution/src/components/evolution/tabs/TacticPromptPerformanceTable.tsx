@@ -18,6 +18,7 @@ interface Props {
 
 export function TacticPromptPerformanceTable({ tacticName, promptId }: Props) {
   const [rows, setRows] = useState<TacticPromptPerformanceRow[]>([]);
+  const [hitCap, setHitCap] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -26,7 +27,8 @@ export function TacticPromptPerformanceTable({ tacticName, promptId }: Props) {
     getTacticPromptPerformanceAction({ tacticName, promptId })
       .then((result) => {
         if (result.success && result.data) {
-          setRows(result.data);
+          setRows(result.data.items);
+          setHitCap(result.data.hitCap);
         } else {
           setError(result.error?.message ?? 'Failed to load');
         }
@@ -44,7 +46,19 @@ export function TacticPromptPerformanceTable({ tacticName, promptId }: Props) {
   const showPromptColumn = !!tacticName;
 
   return (
-    <div className="overflow-x-auto">
+    <div className="space-y-2">
+      {hitCap && (
+        <div
+          className="rounded border border-[var(--status-warning)]/40 bg-[var(--status-warning)]/10 px-3 py-2 text-xs font-ui text-[var(--status-warning)]"
+          data-testid="tactic-prompt-hitcap-banner"
+          role="status"
+        >
+          <strong>Results truncated.</strong> Hit the 5,000-row query cap — some
+          (tactic × prompt) pairings are not shown. Filter by tactic name or prompt
+          ID to narrow the view.
+        </div>
+      )}
+      <div className="overflow-x-auto">
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-[var(--border-default)] text-left text-xs text-[var(--text-muted)]">
@@ -53,6 +67,7 @@ export function TacticPromptPerformanceTable({ tacticName, promptId }: Props) {
             <th className="px-3 py-2">Runs</th>
             <th className="px-3 py-2">Variants</th>
             <th className="px-3 py-2">Avg Elo</th>
+            <th className="px-3 py-2">Elo Delta</th>
             <th className="px-3 py-2">Best Elo</th>
             <th className="px-3 py-2">Winners</th>
             <th className="px-3 py-2">Cost</th>
@@ -77,6 +92,9 @@ export function TacticPromptPerformanceTable({ tacticName, promptId }: Props) {
               <td className="px-3 py-2 font-mono text-xs">{row.runs}</td>
               <td className="px-3 py-2 font-mono text-xs">{row.variants}</td>
               <td className="px-3 py-2 font-mono text-xs font-semibold">{row.avgElo}</td>
+              <td className={`px-3 py-2 font-mono text-xs ${row.avgElo - 1200 >= 0 ? 'text-[var(--status-success)]' : 'text-[var(--status-error)]'}`}>
+                {row.avgElo - 1200 >= 0 ? '+' : ''}{Math.round(row.avgElo - 1200)}
+              </td>
               <td className="px-3 py-2 font-mono text-xs">{row.bestElo}</td>
               <td className="px-3 py-2 font-mono text-xs">{row.winnerCount}</td>
               <td className="px-3 py-2 font-mono text-xs">{formatCost(row.totalCost)}</td>
@@ -84,6 +102,7 @@ export function TacticPromptPerformanceTable({ tacticName, promptId }: Props) {
           ))}
         </tbody>
       </table>
+      </div>
     </div>
   );
 }

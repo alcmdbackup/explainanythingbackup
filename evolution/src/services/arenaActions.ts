@@ -3,7 +3,7 @@
 // V2 schema: elo data lives directly on evolution_variants (no separate elo table).
 
 import { adminAction, type AdminContext } from './adminAction';
-import { validateUuid, applyTestContentNameFilter } from './shared';
+import { validateUuid, applyTestContentColumnFilter } from './shared';
 import { _INTERNAL_ELO_SIGMA_SCALE } from '@evolution/lib/shared/computeRatings';
 import { z } from 'zod';
 
@@ -31,6 +31,11 @@ function toArenaEntry(row: Record<string, unknown>): ArenaEntry {
     parent_elo: (row.parent_elo as number | null) ?? null,
     parent_uncertainty: (row.parent_uncertainty as number | null) ?? null,
     parent_run_id: (row.parent_run_id as string | null) ?? null,
+    // Phase 3 (track_tactic_effectiveness): tactic identity fields. agent_name comes
+    // directly off evolution_variants (null for seeds / manual entries); tactic_id is
+    // resolved via batch lookup against evolution_tactics in the caller.
+    agent_name: (row.agent_name as string | null) ?? null,
+    tactic_id: null,
   };
 }
 
@@ -72,6 +77,11 @@ export interface ArenaEntry {
   parent_uncertainty: number | null;
   /** Parent's run_id — detects cross-run parents. */
   parent_run_id: string | null;
+  /** Tactic name (evolution_variants.agent_name) — null for seed / manual entries. */
+  agent_name: string | null;
+  /** Tactic UUID resolved from agent_name via evolution_tactics lookup; null when
+   *  agent_name is null or no matching tactic row exists (e.g. legacy names). */
+  tactic_id: string | null;
 }
 
 export interface ArenaComparison {
@@ -108,7 +118,7 @@ export const getArenaTopicsAction = adminAction(
       .order('created_at', { ascending: false });
 
     if (filters?.status) query = query.eq('status', filters.status);
-    if (filters?.filterTestContent) query = applyTestContentNameFilter(query);
+    if (filters?.filterTestContent) query = applyTestContentColumnFilter(query);
 
     const { data, error } = await query;
     if (error) throw error;
@@ -141,9 +151,19 @@ export const getArenaTopicsAction = adminAction(
   },
 );
 
+export interface ArenaTopicDetail extends ArenaTopic {
+  /** The topic's seed variant (generation_method='seed'), or null when no seed
+   *  has been persisted yet. Sourced via a dedicated query — NOT from the paginated
+   *  leaderboard `entries` array — so the arena topic page's seed panel is always
+   *  available regardless of which leaderboard page the user is on. If legacy data
+   *  has multiple seeds for one topic (pre-EVOLUTION_REUSE_SEED_RATING), the
+   *  highest-Elo row wins (ties broken by earliest created_at). */
+  seedVariant: ArenaEntry | null;
+}
+
 export const getArenaTopicDetailAction = adminAction(
   'getArenaTopicDetail',
-  async (topicId: string, ctx: AdminContext): Promise<ArenaTopic> => {
+  async (topicId: string, ctx: AdminContext): Promise<ArenaTopicDetail> => {
     if (!validateUuid(topicId)) throw new Error('Invalid topicId');
     const { data, error } = await ctx.supabase
       .from('evolution_prompts')
@@ -152,7 +172,28 @@ export const getArenaTopicDetailAction = adminAction(
       .single();
     if (error) throw error;
     if (!data) throw new Error(`Arena topic not found: ${topicId}`);
-    return data as ArenaTopic;
+
+    // Fetch the topic's seed variant (if any). Deterministic ordering handles the
+    // legacy EVOLUTION_REUSE_SEED_RATING=false case where multiple seed rows may
+    // exist for one prompt — we pick the highest-Elo row with the earliest created_at
+    // as tiebreak. `.maybeSingle()` returns null (not an error) when no seed exists.
+    const { data: seedRow, error: seedError } = await ctx.supabase
+      .from('evolution_variants')
+      .select('*')
+      .eq('prompt_id', topicId)
+      .eq('generation_method', 'seed')
+      .eq('synced_to_arena', true)  // match the leaderboard query (line ~210); defensive against any future seed row with synced_to_arena=false
+      .is('archived_at', null)
+      .order('elo_score', { ascending: false })
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    if (seedError) throw seedError;
+
+    return {
+      ...(data as ArenaTopic),
+      seedVariant: seedRow ? toArenaEntry(seedRow as Record<string, unknown>) : null,
+    };
   },
 );
 
@@ -198,6 +239,26 @@ export const getArenaEntriesAction = adminAction(
     const { data, error, count } = await query;
     if (error) throw error;
     const items = (data ?? []).map(toArenaEntry);
+
+    // Phase 3 (track_tactic_effectiveness_evolution_20260422): batch-resolve tactic_id
+    // from agent_name. In-memory lookup — PostgREST sub-select on unrelated-table isn't
+    // supported, and 24 distinct tactics means one small follow-up query is cheap.
+    const tacticNames = [...new Set(items.map(v => v.agent_name).filter((n): n is string => !!n))];
+    if (tacticNames.length > 0) {
+      const { data: tacticRows, error: tacticError } = await ctx.supabase
+        .from('evolution_tactics')
+        .select('id, name')
+        .in('name', tacticNames);
+      if (tacticError) throw tacticError;
+      const tacticIdByName = new Map(
+        (tacticRows ?? []).map(t => [t.name as string, t.id as string]),
+      );
+      for (const item of items) {
+        if (item.agent_name) {
+          item.tactic_id = tacticIdByName.get(item.agent_name) ?? null;
+        }
+      }
+    }
 
     // Phase 3: batch-fetch parent ratings for VariantParentBadge.
     const parentIds = [...new Set(items.map(v => v.parent_variant_id).filter((id): id is string => !!id))];
@@ -257,7 +318,9 @@ export const getArenaComparisonsAction = adminAction(
       .select('*')
       .eq('prompt_id', input.topicId)
       .order('created_at', { ascending: false })
-      .limit(input.limit ?? 100);
+      // B004-S5: cap at 200 — previously accepted arbitrary user-supplied values
+      // (e.g. 10_000_000) which risked OOM.
+      .limit(Math.min(Math.max(input.limit ?? 100, 1), 200));
     if (error) throw error;
     return (data ?? []) as ArenaComparison[];
   },
@@ -314,7 +377,7 @@ export const listPromptsAction = adminAction(
       .is('deleted_at', null);
 
     if (input.status) query = query.eq('status', input.status);
-    if (input.filterTestContent) query = applyTestContentNameFilter(query);
+    if (input.filterTestContent) query = applyTestContentColumnFilter(query);
     if (input.name) {
       const escaped = input.name.replace(/[%_\\]/g, '\\$&');
       query = query.ilike('name', `%${escaped}%`);

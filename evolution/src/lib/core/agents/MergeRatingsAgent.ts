@@ -25,7 +25,7 @@ export interface MergeMatchEntry {
 }
 
 export interface MergeRatingsInput {
-  iterationType: 'generate' | 'swiss';
+  iterationType: 'generate' | 'reflect_and_generate' | 'iterative_editing' | 'swiss';
   /** One inner array per source agent (1 for swiss, N for generate). */
   matchBuffers: ReadonlyArray<ReadonlyArray<MergeMatchEntry>>;
   /** Variants to add to the pool (generate iterations only — empty for swiss). */
@@ -206,6 +206,8 @@ export class MergeRatingsAgent extends Agent<
     const matchesAppliedSnapshot: AppliedSnapshot[] = [];
     interface ArenaRowPayload {
       run_id: string;
+      // B122: set at insert (was previously NULL, backfilled by sync_to_arena).
+      prompt_id: string | null;
       entry_a: string;
       entry_b: string;
       winner: 'a' | 'b' | 'draw';
@@ -286,6 +288,11 @@ export class MergeRatingsAgent extends Agent<
       const bAfterDb = ratingToDb(bAfter);
       arenaRows.push({
         run_id: ctx.runId,
+        // B122: set prompt_id at insert. Previously left NULL for sync_to_arena to
+        // backfill, which races with concurrent finalization and could leak NULL
+        // rows into the leaderboard. `ctx.promptId` is populated by the orchestrator
+        // when a prompt-based run starts.
+        prompt_id: ctx.promptId ?? null,
         entry_a: idA,
         entry_b: idB,
         winner: winnerSlot,

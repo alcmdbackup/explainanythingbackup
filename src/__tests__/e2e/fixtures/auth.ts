@@ -28,7 +28,17 @@ interface SessionData {
  * Includes retry logic to handle transient network issues and rate limits.
  * Caches session per worker to avoid repeated auth calls.
  */
-async function authenticateWithRetry(retries = MAX_AUTH_RETRIES): Promise<SessionData> {
+async function authenticateWithRetry(
+  retries = MAX_AUTH_RETRIES,
+  { forceFresh = false }: { forceFresh?: boolean } = {},
+): Promise<SessionData> {
+  // B107: When Playwright re-runs a failed test, a stale/invalidated session can
+  // still be cached and pass the expiry check — the cookies the browser ends up
+  // receiving won't match the live Supabase session. Force a re-auth on any retry.
+  if (forceFresh) {
+    cachedSession = null;
+    sessionExpiry = 0;
+  }
   // Return cached session if still valid (with 5 minute buffer)
   const now = Date.now();
   if (cachedSession && sessionExpiry > now + 5 * 60 * 1000) {
@@ -85,8 +95,9 @@ async function authenticateWithRetry(retries = MAX_AUTH_RETRIES): Promise<Sessio
  * Each worker gets its own fresh auth session, avoiding shared state issues.
  */
 export const test = base.extend<{ authenticatedPage: Page }>({
-  authenticatedPage: async ({ page, context }, use) => {
-    const session = await authenticateWithRetry();
+  authenticatedPage: async ({ page, context }, use, testInfo) => {
+    // B107: force fresh auth on any retry — see note in authenticateWithRetry.
+    const session = await authenticateWithRetry(undefined, { forceFresh: testInfo.retry > 0 });
 
     const supabaseUrl = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL!);
     const projectRef = supabaseUrl.hostname.split('.')[0];

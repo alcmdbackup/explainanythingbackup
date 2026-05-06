@@ -105,7 +105,9 @@ export function StatusBadge({ variant, status, badgeStyle = 'filled', pulse = fa
         style={{ color, borderColor: color }}
         data-testid={testId}
         role="status"
-        aria-label={`Status: ${label}${hasError ? ' (has errors)' : ''}`}
+        // U5 (use_playwright_find_bugs_ux_issues_20260422): drop "(has errors)" — "Failed"
+      // implies errors already. The red dot still signals the error state.
+      aria-label={`Status: ${label}`}
       >
         {hasError && (
           <span
@@ -136,7 +138,9 @@ export function StatusBadge({ variant, status, badgeStyle = 'filled', pulse = fa
       }}
       data-testid={testId}
       role="status"
-      aria-label={`Status: ${label}${hasError ? ' (has errors)' : ''}`}
+      // U5 (use_playwright_find_bugs_ux_issues_20260422): drop "(has errors)" — "Failed"
+      // implies errors already. The red dot still signals the error state.
+      aria-label={`Status: ${label}`}
     >
       {hasError && (
         <span

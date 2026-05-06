@@ -57,7 +57,6 @@ const MOCK_V2_CONFIG = {
   generationModel: 'claude-3-5-haiku-20241022',
   judgeModel: 'claude-3-5-sonnet-20241022',
   iterationConfigs: [{ agentType: 'generate', budgetPercent: 60 }, { agentType: 'swiss', budgetPercent: 40 }],
-  strategiesPerRound: 3,
   budgetUsd: 2.0,
 };
 
@@ -148,13 +147,12 @@ describe('strategyRegistryActions', () => {
       const result = await listStrategiesAction({ limit: 20, offset: 0, filterTestContent: true });
 
       expect(result.success).toBe(true);
-      expect(chain.not).toHaveBeenCalledWith('name', 'ilike', '%[TEST]%');
-      expect(chain.not).toHaveBeenCalledWith('name', 'ilike', '%[E2E]%');
-      expect(chain.not).toHaveBeenCalledWith('name', 'ilike', '%[TEST_EVO]%');
-      expect(chain.not).toHaveBeenCalledWith('name', 'ilike', 'test');
+      // Phase 1 (use_playwright_find_bugs_ux_issues_20260422): switched to
+      // applyTestContentColumnFilter (.eq('is_test_content', false)).
+      expect(chain.eq).toHaveBeenCalledWith('is_test_content', false);
     });
 
-    it('does not call .not() when filterTestContent is false', async () => {
+    it('does not call the column filter when filterTestContent is false', async () => {
       const chain = {
         select: jest.fn().mockReturnThis(),
         eq: jest.fn().mockReturnThis(),
@@ -167,7 +165,7 @@ describe('strategyRegistryActions', () => {
       const result = await listStrategiesAction({ limit: 20, offset: 0, filterTestContent: false });
 
       expect(result.success).toBe(true);
-      expect(chain.not).not.toHaveBeenCalled();
+      expect(chain.eq).not.toHaveBeenCalledWith('is_test_content', expect.anything());
     });
   });
 
@@ -264,7 +262,6 @@ describe('strategyRegistryActions', () => {
         generationModel: 'claude-3-5-haiku-20241022',
         judgeModel: 'claude-3-5-sonnet-20241022',
         iterationConfigs: [{ agentType: 'generate', budgetPercent: 60 }, { agentType: 'swiss', budgetPercent: 40 }],
-        strategiesPerRound: 3,
         budgetUsd: 2.0,
       });
 
@@ -478,11 +475,16 @@ describe('strategyRegistryActions', () => {
     });
 
     it('rejects deletion when runs reference the strategy', async () => {
+      // B009-S5: deleteStrategyAction now relies on the FK ON DELETE RESTRICT
+      // (evolution_runs.strategy_id REFERENCES evolution_strategies(id) ON DELETE
+      // RESTRICT) instead of doing a SELECT count then DELETE TOCTOU. The DELETE
+      // returns Postgres error code 23503 when child rows exist; we catch and
+      // surface a friendly message.
       const mock = createTableAwareMock([
-        // evolution_runs count check returns 2 runs
+        // evolution_strategies DELETE returns FK violation
         (b) => {
           b.then = jest.fn((resolve: (v: unknown) => void) =>
-            resolve({ data: null, error: null, count: 2 })
+            resolve({ data: null, error: { code: '23503', message: 'foreign_key_violation: evolution_runs_strategy_id_fkey' } })
           );
         },
       ]);

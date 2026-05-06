@@ -4,9 +4,11 @@ import {
   formatCost,
   formatCostDetailed,
   formatCostMicro,
+  formatCostRange,
   formatElo,
   formatEloDollar,
   formatPercent,
+  formatPercentValue,
   formatDuration,
   formatScore,
   formatScore1,
@@ -28,6 +30,22 @@ describe('formatters', () => {
       expect(formatCost(null)).toBe('—');
       expect(formatCost(undefined)).toBe('—');
       expect(formatCost(NaN)).toBe('—');
+    });
+  });
+
+  describe('formatCostRange (Phase 6a triple-value display)', () => {
+    it('renders expected – upper bound with micro precision', () => {
+      expect(formatCostRange(0.003, 0.007)).toBe('$0.0030 – $0.0070');
+    });
+    it('collapses to single value when expected ≈ upper bound', () => {
+      expect(formatCostRange(0.005, 0.005)).toBe('$0.0050');
+      expect(formatCostRange(0.005, 0.0050000001)).toBe('$0.0050');
+    });
+    it('returns — when either value is missing', () => {
+      expect(formatCostRange(null, 0.007)).toBe('—');
+      expect(formatCostRange(0.003, null)).toBe('—');
+      expect(formatCostRange(null, null)).toBe('—');
+      expect(formatCostRange(NaN, 0.007)).toBe('—');
     });
   });
 
@@ -81,6 +99,20 @@ describe('formatters', () => {
     });
     it('handles null', () => {
       expect(formatPercent(null)).toBe('0%');
+    });
+  });
+
+  describe('formatPercentValue (B7 use_playwright_find_bugs_ux_issues_20260422)', () => {
+    it('treats input as already-percent — does NOT multiply by 100', () => {
+      expect(formatPercentValue(-38.2)).toBe('-38%');
+      expect(formatPercentValue(0)).toBe('0%');
+      expect(formatPercentValue(50)).toBe('50%');
+      expect(formatPercentValue(99.7)).toBe('100%');
+    });
+    it('handles null/NaN with em-dash (not "0%")', () => {
+      expect(formatPercentValue(null)).toBe('—');
+      expect(formatPercentValue(undefined)).toBe('—');
+      expect(formatPercentValue(NaN)).toBe('—');
     });
   });
 

@@ -531,6 +531,44 @@ and to the selection/evolution logic for choosing parents and culling weak varia
 
 ---
 
+## Caching & Cutoff Invariants (2026-04-23)
+
+Several invariants tightened in the 88-bug hardening pass are load-bearing for
+cost + correctness. They are documented here because they are easy to regress
+on if not called out explicitly.
+
+- **Identical-text cache key (B029).** `ComparisonCache.makeKey` emits
+  `${hA}|identical` when the two texts hash to the same value, so a self-compare
+  doesn't collide with a later real comparison that happens to share one side.
+- **LRU promotion (B032).** Both `get()` and `set()` promote entries via
+  `Map.delete(); Map.set()` so the Map's insertion-order iteration acts as a
+  true LRU. Without promotion on read, frequently-read keys were being evicted.
+- **Partial-failure cache threshold (B033).** `compareWithBiasMitigation`
+  caches results whose `confidence >= 0.3` (was `> 0.3`). A result at exactly
+  0.3 (one forward pass succeeded + one null) is deterministic once observed;
+  re-querying it spent 2 LLM calls per repeat.
+- **Error-outcome caching (B040).** `ComparisonCache.set()` stores every
+  outcome — including `winnerId: null, isDraw: false`. The previous gate
+  (`winnerId !== null || isDraw`) meant indeterminate outcomes were re-billed
+  on every repeat pair.
+- **Internal vs. display elo (B038).** Internal ratings retain full precision
+  across the pipeline; only `ratingToDb()` clamps to the elo display range.
+  Callers that read `evolution_variants.elo_score` should not assume those are
+  the same numbers the ranking loop sees mid-iteration.
+- **No-rated-candidates contract (B035).** `selectWinner()` throws
+  `NoRatedCandidatesError` when the pool has variants but no ratings — it no
+  longer falls back to `±Infinity`. A thrown error here signals a ratings
+  pipeline bug upstream (missing `rankPool()` call, lost rating map).
+- **Top-15% cutoff at small N (B121).** `computeTop15Cutoff` now uses
+  `Math.ceil(n * 0.15)` so medium-small pools (n=7..13) return the top-2
+  cutoff, not a degenerate single-element cutoff. For n < 7 the formula still
+  collapses to `elos[0]` by arithmetic — consumers should not over-rely on the
+  cutoff when the pool is tiny.
+- **Arena-filtered cutoff pool (B119).** `rankNewVariant` computes the local
+  top-15% cutoff over in-run ratings only. Arena entries still participate as
+  comparators but do not inflate the in-run bar (see
+  [Architecture](./architecture.md)).
+
 ## Cross-References
 
 - [Architecture](./architecture.md) -- pipeline structure and the generate-rank-evolve loop

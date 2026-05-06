@@ -158,8 +158,8 @@ Admins resolve reports via `resolveContentReportAction`, optionally hiding the r
 - `/admin/whitelist` - Whitelist and candidates tabs
 - `/admin/costs` - LLM cost analytics (see Cost Analytics section below)
 - `/admin/evolution-dashboard` - Evolution overview with stat cards, run/spend charts, recent runs (EvolutionSidebar). See [Evolution Visualization](../../evolution/docs/evolution/visualization.md).
-- `/admin/evolution/runs` - Run management with Start Run card, status/date filters, archived toggle. See [Evolution Visualization](../../evolution/docs/evolution/visualization.md).
-- `/admin/evolution/runs/[runId]` - Run detail with 4 tabs (Elo, Metrics, Lineage, Variants) + Add to Arena dialog.
+- `/admin/evolution/runs` - Run management with Start Run card, status/date filters, archived toggle. Cost columns expose Generation/Ranking/**Reflection**/Seed alongside the rollup `Spent` (the Spent fallback also sums all four when the rollup row is missing — Fix #11, use_playwright_find_ux_issues_bugs_20260501). See [Evolution Visualization](../../evolution/docs/evolution/visualization.md).
+- `/admin/evolution/runs/[runId]` - Run detail with 4 tabs (Elo, Metrics, Lineage, Variants) + Add to Arena dialog. Browser tab title is set to `Run abc12345 | Evolution` via `useEffect` (the page is `'use client'` so server-side `generateMetadata` is unavailable — Fix #21).
 - `/admin/evolution/runs/[runId]/compare` - Before/after text diff and quality comparison
 - `/admin/evolution/variants` - Variants list with winner filtering and rating display
 - `/admin/evolution/variants/[variantId]` - Variant detail: content, lineage, match history

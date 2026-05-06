@@ -48,11 +48,14 @@ const loadData = async (filters: Record<string, string>, page: number, pageSize:
   return { items, total: result.data!.total };
 };
 
+// U32 (use_playwright_find_bugs_ux_issues_20260422): keep the row anchor on the
+// 'name' column only — other cells skipLink so screen readers don't announce
+// "link" five times per row.
 const baseColumns: ColumnDef<StrategyListItem>[] = [
   { key: 'name', header: 'Name', render: (row) => row.name },
-  { key: 'label', header: 'Label', render: (row) => <span className="truncate block max-w-[200px]" title={row.label}>{row.label}</span> },
-  { key: 'pipeline_type', header: 'Pipeline', render: (row) => row.pipeline_type ?? '—' },
-  { key: 'status', header: 'Status', render: (row) => row.status },
+  { key: 'label', header: 'Label', skipLink: true, render: (row) => <span className="truncate block max-w-[200px]" title={row.label}>{row.label}</span> },
+  { key: 'pipeline_type', header: 'Pipeline', skipLink: true, render: (row) => row.pipeline_type ?? '—' },
+  { key: 'status', header: 'Status', skipLink: true, render: (row) => row.status },
 ];
 const columns: ColumnDef<StrategyListItem>[] = [...baseColumns, ...createMetricColumns<StrategyListItem>('strategy')];
 
@@ -111,10 +114,12 @@ export default function StrategiesPage(): JSX.Element {
 
   const close = (): void => setDialog({ kind: 'none' });
 
+  // Fix #18 Patch B (use_playwright_find_ux_issues_bugs_20260501): include strategy
+  // name in aria-label so screen reader users can distinguish row actions.
   const rowActions: RowAction<StrategyListItem>[] = [
-    { label: 'Edit', onClick: (row) => setDialog({ kind: 'edit', row }) },
-    { label: 'Clone', onClick: (row) => setDialog({ kind: 'clone', row }) },
-    { label: 'Delete', onClick: (row) => setDialog({ kind: 'delete', row }), danger: true },
+    { label: 'Edit', onClick: (row) => setDialog({ kind: 'edit', row }), getAriaLabel: (row) => `Edit strategy ${row.name}` },
+    { label: 'Clone', onClick: (row) => setDialog({ kind: 'clone', row }), getAriaLabel: (row) => `Clone strategy ${row.name}` },
+    { label: 'Delete', onClick: (row) => setDialog({ kind: 'delete', row }), danger: true, getAriaLabel: (row) => `Delete strategy ${row.name}` },
   ];
 
   const formOpen = dialog.kind === 'edit';

@@ -27,7 +27,7 @@ import {
   aggregateBootstrapMean,
 } from './computations/propagation';
 import {
-  formatCost, formatCostDetailed, formatElo, formatScore, formatPercent,
+  formatCost, formatCostDetailed, formatElo, formatScore, formatPercent, formatPercentValue,
 } from '@evolution/lib/utils/formatters';
 
 // ─── Shared propagation defs (strategy & experiment both aggregate from child runs) ─
@@ -50,10 +50,26 @@ const SHARED_PROPAGATION_DEFS: EntityMetricRegistry['atPropagation'] = [
     sourceMetric: 'ranking_cost', sourceEntity: 'run', aggregate: aggregateSum, aggregationMethod: 'sum' },
   { name: 'avg_ranking_cost_per_run', label: 'Avg Ranking Cost/Run', category: 'cost', formatter: 'cost',
     sourceMetric: 'ranking_cost', sourceEntity: 'run', aggregate: aggregateAvg, aggregationMethod: 'avg' },
+  { name: 'total_reflection_cost', label: 'Total Reflection Cost', category: 'cost', formatter: 'cost',
+    sourceMetric: 'reflection_cost', sourceEntity: 'run', aggregate: aggregateSum, aggregationMethod: 'sum' },
+  { name: 'avg_reflection_cost_per_run', label: 'Avg Reflection Cost/Run', category: 'cost', formatter: 'cost',
+    sourceMetric: 'reflection_cost', sourceEntity: 'run', aggregate: aggregateAvg, aggregationMethod: 'avg' },
+  { name: 'total_iterative_edit_cost', label: 'Total Iterative Edit Cost', category: 'cost', formatter: 'cost', listView: true,
+    sourceMetric: 'iterative_edit_cost', sourceEntity: 'run', aggregate: aggregateSum, aggregationMethod: 'sum' },
+  { name: 'avg_iterative_edit_cost_per_run', label: 'Avg Iterative Edit Cost/Run', category: 'cost', formatter: 'cost',
+    sourceMetric: 'iterative_edit_cost', sourceEntity: 'run', aggregate: aggregateAvg, aggregationMethod: 'avg' },
+  { name: 'total_iterative_edit_rank_cost', label: 'Total Iterative Edit Rank Cost', category: 'cost', formatter: 'cost',
+    sourceMetric: 'iterative_edit_rank_cost', sourceEntity: 'run', aggregate: aggregateSum, aggregationMethod: 'sum' },
+  { name: 'avg_iterative_edit_rank_cost_per_run', label: 'Avg Iterative Edit Rank Cost/Run', category: 'cost', formatter: 'cost',
+    sourceMetric: 'iterative_edit_rank_cost', sourceEntity: 'run', aggregate: aggregateAvg, aggregationMethod: 'avg' },
   { name: 'total_seed_cost', label: 'Total Seed Cost', category: 'cost', formatter: 'cost', listView: true,
     sourceMetric: 'seed_cost', sourceEntity: 'run', aggregate: aggregateSum, aggregationMethod: 'sum' },
   { name: 'avg_seed_cost_per_run', label: 'Avg Seed Cost/Run', category: 'cost', formatter: 'cost',
     sourceMetric: 'seed_cost', sourceEntity: 'run', aggregate: aggregateAvg, aggregationMethod: 'avg' },
+  { name: 'total_evaluation_cost', label: 'Total Evaluation Cost', category: 'cost', formatter: 'cost', listView: true,
+    sourceMetric: 'evaluation_cost', sourceEntity: 'run', aggregate: aggregateSum, aggregationMethod: 'sum' },
+  { name: 'avg_evaluation_cost_per_run', label: 'Avg Evaluation Cost/Run', category: 'cost', formatter: 'cost',
+    sourceMetric: 'evaluation_cost', sourceEntity: 'run', aggregate: aggregateAvg, aggregationMethod: 'avg' },
   // Rating — from run.winner_elo
   { name: 'avg_final_elo', label: 'Avg Winner Elo', category: 'rating', formatter: 'elo', listView: true,
     sourceMetric: 'winner_elo', sourceEntity: 'run', aggregate: aggregateBootstrapMean, aggregationMethod: 'bootstrap_mean' },
@@ -81,11 +97,14 @@ const SHARED_PROPAGATION_DEFS: EntityMetricRegistry['atPropagation'] = [
   { name: 'avg_variant_count', label: 'Avg Variants/Run', category: 'count', formatter: 'integer',
     sourceMetric: 'variant_count', sourceEntity: 'run', aggregate: aggregateAvg, aggregationMethod: 'avg' },
   // Cost estimate accuracy — use aggregateAvg (user decision: bootstrap CI reserved for elo/quality).
-  { name: 'avg_cost_estimation_error_pct', label: 'Avg Estimation Error %', category: 'cost', formatter: 'percent', listView: true,
+  // B7 (use_playwright_find_bugs_ux_issues_20260422): these values are stored
+  // in percent units (e.g. -38.2) not as ratios (0-1), so we use 'percentValue'
+  // which just rounds and appends '%' instead of multiplying by 100 again.
+  { name: 'avg_cost_estimation_error_pct', label: 'Avg Estimation Error %', category: 'cost', formatter: 'percentValue', listView: true,
     sourceMetric: 'cost_estimation_error_pct', sourceEntity: 'run', aggregate: aggregateAvg, aggregationMethod: 'avg' },
-  { name: 'avg_generation_estimation_error_pct', label: 'Avg Generation Error %', category: 'cost', formatter: 'percent',
+  { name: 'avg_generation_estimation_error_pct', label: 'Avg Generation Error %', category: 'cost', formatter: 'percentValue',
     sourceMetric: 'generation_estimation_error_pct', sourceEntity: 'run', aggregate: aggregateAvg, aggregationMethod: 'avg' },
-  { name: 'avg_ranking_estimation_error_pct', label: 'Avg Ranking Error %', category: 'cost', formatter: 'percent',
+  { name: 'avg_ranking_estimation_error_pct', label: 'Avg Ranking Error %', category: 'cost', formatter: 'percentValue',
     sourceMetric: 'ranking_estimation_error_pct', sourceEntity: 'run', aggregate: aggregateAvg, aggregationMethod: 'avg' },
   { name: 'avg_estimation_abs_error_usd', label: 'Avg Abs Error', category: 'cost', formatter: 'costDetailed',
     sourceMetric: 'estimation_abs_error_usd', sourceEntity: 'run', aggregate: aggregateAvg, aggregationMethod: 'avg' },
@@ -111,8 +130,11 @@ const SHARED_PROPAGATION_DEFS: EntityMetricRegistry['atPropagation'] = [
 export const METRIC_REGISTRY: Record<EntityType, EntityMetricRegistry> = {
   run: {
     duringExecution: [
+      // listView:true (B2 use_playwright_find_bugs_ux_issues_20260422) so the runs
+      // list can prefer the rollup `cost` when it exists; RunsTable falls back to
+      // gen+rank+seed when it's missing.
       { name: 'cost', label: 'Total Cost', category: 'cost', formatter: 'cost',
-        listView: false, compute: computeRunCost },
+        listView: true, compute: computeRunCost },
       // Per-purpose cost split — written live by createLLMClient via writeMetricMax
       // (race-fixed Postgres GREATEST upsert). compute returns 0 because the value is
       // persisted directly via writeMetricMax; if anything ever triggers a registry-driven
@@ -121,6 +143,20 @@ export const METRIC_REGISTRY: Record<EntityType, EntityMetricRegistry> = {
         listView: true, compute: () => 0 },
       { name: 'ranking_cost', label: 'Ranking Cost', category: 'cost', formatter: 'cost',
         listView: true, compute: () => 0 },
+      { name: 'reflection_cost', label: 'Reflection Cost', category: 'cost', formatter: 'cost',
+        compute: () => 0 },
+      { name: 'iterative_edit_cost', label: 'Iterative Edit Cost', category: 'cost', formatter: 'cost',
+        compute: () => 0 },
+      { name: 'iterative_edit_rank_cost', label: 'Iterative Edit Rank Cost', category: 'cost', formatter: 'cost',
+        compute: () => 0 },
+      { name: 'iterative_edit_drift_rate', label: 'Edit Drift Rate', category: 'cost', formatter: 'integer',
+        compute: () => 0 },
+      { name: 'iterative_edit_recovery_success_rate', label: 'Edit Recovery Success Rate', category: 'cost', formatter: 'integer',
+        compute: () => 0 },
+      { name: 'iterative_edit_accept_rate', label: 'Edit Accept Rate', category: 'cost', formatter: 'integer',
+        compute: () => 0 },
+      { name: 'evaluation_cost', label: 'Evaluation Cost', category: 'cost', formatter: 'cost',
+        compute: () => 0 },
       { name: 'seed_cost', label: 'Seed Cost', category: 'cost', formatter: 'cost',
         listView: true, compute: () => 0 },
     ],
@@ -139,16 +175,16 @@ export const METRIC_REGISTRY: Record<EntityType, EntityMetricRegistry> = {
         listView: true, compute: computeDecisiveRate },
       { name: 'variant_count', label: 'Variants', category: 'count', formatter: 'integer',
         listView: true, compute: computeVariantCount },
-      { name: 'cost_estimation_error_pct', label: 'Estimation Error %', category: 'cost', formatter: 'percent',
+      { name: 'cost_estimation_error_pct', label: 'Estimation Error %', category: 'cost', formatter: 'percentValue',
         listView: true, compute: computeCostEstimationErrorPct },
       // Cost estimate accuracy (cost_estimate_accuracy_analysis_20260414)
       { name: 'estimated_cost', label: 'Estimated Cost', category: 'cost', formatter: 'cost',
         compute: computeEstimatedCost },
       { name: 'estimation_abs_error_usd', label: 'Estimation Abs Error', category: 'cost', formatter: 'costDetailed',
         compute: computeEstimationAbsErrorUsd },
-      { name: 'generation_estimation_error_pct', label: 'Generation Estimation Error %', category: 'cost', formatter: 'percent',
+      { name: 'generation_estimation_error_pct', label: 'Generation Estimation Error %', category: 'cost', formatter: 'percentValue',
         compute: computeGenerationEstimationErrorPct },
-      { name: 'ranking_estimation_error_pct', label: 'Ranking Estimation Error %', category: 'cost', formatter: 'percent',
+      { name: 'ranking_estimation_error_pct', label: 'Ranking Estimation Error %', category: 'cost', formatter: 'percentValue',
         compute: computeRankingEstimationErrorPct },
       // Budget-floor observables (passed through FinalizationContext from runIterationLoop)
       { name: 'agent_cost_projected', label: 'Projected Agent Cost', category: 'cost', formatter: 'costDetailed',
@@ -210,7 +246,35 @@ export const METRIC_REGISTRY: Record<EntityType, EntityMetricRegistry> = {
     atPropagation: [...SHARED_PROPAGATION_DEFS],
   },
   prompt: { duringExecution: [], atFinalization: [], atPropagation: [] },
-  tactic: { duringExecution: [], atFinalization: [], atPropagation: [] },
+  tactic: {
+    duringExecution: [],
+    // Tactic metrics are computed externally by computeTacticMetrics() — these defs exist
+    // for formatter/label/listView metadata only. compute() returns null (never called).
+    atFinalization: [
+      { name: 'avg_elo', label: 'Avg Elo', category: 'rating', formatter: 'elo', listView: true, compute: () => null },
+      { name: 'avg_elo_delta', label: 'Elo Delta', category: 'rating', formatter: 'elo', listView: true, compute: () => null },
+      { name: 'best_elo', label: 'Best Elo', category: 'rating', formatter: 'elo', listView: false, compute: () => null },
+      { name: 'win_rate', label: 'Win Rate', category: 'rating', formatter: 'percent', listView: true, compute: () => null },
+      { name: 'total_variants', label: 'Variants', category: 'count', formatter: 'integer', listView: true, compute: () => null },
+      { name: 'total_cost', label: 'Total Cost', category: 'cost', formatter: 'cost', listView: false, compute: () => null },
+      { name: 'run_count', label: 'Runs', category: 'count', formatter: 'integer', listView: true, compute: () => null },
+      { name: 'winner_count', label: 'Winners', category: 'count', formatter: 'integer', listView: false, compute: () => null },
+    ],
+    atPropagation: [],
+  },
+  criteria: {
+    duringExecution: [],
+    // Criteria metrics computed externally by computeCriteriaMetricsForRun (Phase 1G).
+    // Defs here exist for formatter/label/listView metadata; compute() returns null.
+    atFinalization: [
+      { name: 'avg_score', label: 'Avg Score', category: 'rating', formatter: 'integer', listView: true, compute: () => null },
+      { name: 'frequency_as_weakest', label: 'Frequency as Weakest', category: 'rating', formatter: 'percent', listView: true, compute: () => null },
+      { name: 'total_variants_focused', label: 'Variants Focused', category: 'count', formatter: 'integer', listView: true, compute: () => null },
+      { name: 'avg_elo_delta_when_focused', label: 'Δ Elo Focused', category: 'rating', formatter: 'elo', listView: true, compute: () => null },
+      { name: 'run_count', label: 'Runs', category: 'count', formatter: 'integer', listView: true, compute: () => null },
+    ],
+    atPropagation: [],
+  },
 };
 
 // ─── Build-time validation ──────────────────────────────────────
@@ -273,5 +337,6 @@ export const FORMATTERS: Record<MetricDefBase['formatter'], (v: number) => strin
   elo: formatElo,
   score: formatScore,
   percent: formatPercent,
+  percentValue: formatPercentValue,
   integer: (v) => String(Math.round(v)),
 };

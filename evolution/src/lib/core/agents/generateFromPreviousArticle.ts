@@ -17,6 +17,7 @@ import { validateFormat } from '../../shared/enforceVariantFormat';
 import { buildEvolutionPrompt } from '../../pipeline/loop/buildPrompts';
 import { BudgetExceededError } from '../../types';
 import { estimateGenerationCost, estimateRankingCost } from '../../pipeline/infra/estimateCosts';
+import { registerAttributionExtractor } from '../../metrics/attributionExtractors';
 import type { z } from 'zod';
 
 // ─── Tactic registry ────────────────────────────────────────────
@@ -36,7 +37,8 @@ export interface GenerateFromPreviousInput {
   parentText: string;
   /** One tactic name per agent invocation. */
   tactic: string;
-  llm: EvolutionLLMClient;
+  /** LLM client. Optional when ctx.rawProvider is set — Agent.run() injects a scoped client. */
+  llm?: EvolutionLLMClient;
   /** Iteration-start snapshot of the pool. Will be deep-cloned for local mutation. */
   initialPool: ReadonlyArray<Variant>;
   /** Iteration-start snapshot of ratings. Will be deep-cloned (deep, not shallow — Critical Fix N). */
@@ -46,6 +48,17 @@ export interface GenerateFromPreviousInput {
   cache: Map<string, ComparisonResult>;
   /** ID of the parent variant that this generation is derived from. */
   parentVariantId: string;
+  /** Optional override: when set, GFPA bypasses buildPromptForTactic and uses these
+   *  preamble + instructions directly via buildEvolutionPrompt. Used by the
+   *  EvaluateCriteriaThenGenerateFromPreviousArticleAgent wrapper to feed
+   *  LLM-generated suggestions into generation. ALWAYS pair with a sentinel `tactic`
+   *  name (e.g. 'criteria_driven') so variant tagging stays consistent. */
+  customPrompt?: { preamble: string; instructions: string };
+  /** Criteria-driven generation: full set of criteria UUIDs the wrapper evaluated.
+   *  Threaded through to createVariant() so the variant row carries the lineage. */
+  criteriaSetUsed?: ReadonlyArray<string>;
+  /** Criteria-driven generation: subset auto-picked as the focus for suggestions. */
+  weakestCriteriaIds?: ReadonlyArray<string>;
 }
 
 export type GenerateFromPreviousOutput = {
@@ -145,7 +158,8 @@ export class GenerateFromPreviousArticleAgent extends Agent<
     input: GenerateFromPreviousInput,
     ctx: AgentContext,
   ): Promise<AgentOutput<GenerateFromPreviousOutput, GenerateFromPreviousExecutionDetail>> {
-    const { parentText, tactic, llm, initialPool, initialRatings, initialMatchCounts, cache } = input;
+    const { parentText, tactic, initialPool, initialRatings, initialMatchCounts, cache } = input;
+    const llm = input.llm!; // Injected by Agent.run() via rawProvider when not passed directly
 
     // Deep-clone the iteration-start snapshot; Rating values must be deep-cloned to prevent
     // cross-agent mutation under parallel execution.
@@ -169,7 +183,21 @@ export class GenerateFromPreviousArticleAgent extends Agent<
       surfaced: false,
     });
 
-    const prompt = buildPromptForTactic(parentText, tactic);
+    // Phase 6 misconfiguration guard: tactic='criteria_driven' is a marker reserved for
+    // EvaluateCriteriaThenGenerateFromPreviousArticleAgent — it always passes customPrompt.
+    // If a strategy is misconfigured (e.g., agentType='generate' with stale tactic from
+    // wizard agent-type switching), throw rather than silently produce a no-op invocation.
+    if (tactic === 'criteria_driven' && input.customPrompt === undefined) {
+      throw new Error(
+        "GFPA dispatched with tactic='criteria_driven' but no customPrompt — "
+        + "this tactic is reserved for the EvaluateCriteriaThenGenerateFromPreviousArticleAgent "
+        + "wrapper, which always passes customPrompt. Strategy configuration error.",
+      );
+    }
+
+    const prompt = input.customPrompt
+      ? buildEvolutionPrompt(input.customPrompt.preamble, 'Original Text', parentText, input.customPrompt.instructions)
+      : buildPromptForTactic(parentText, tactic);
     if (prompt === null) {
       return {
         result: { variant: null, status: 'generation_failed', surfaced: false, matches: [] },
@@ -226,6 +254,8 @@ export class GenerateFromPreviousArticleAgent extends Agent<
       parentIds: input.parentVariantId ? [input.parentVariantId] : [],
       version: 0,
       ...(ctx.invocationId ? { agentInvocationId: ctx.invocationId } : {}),
+      ...(input.criteriaSetUsed !== undefined && { criteriaSetUsed: input.criteriaSetUsed }),
+      ...(input.weakestCriteriaIds !== undefined && { weakestCriteriaIds: input.weakestCriteriaIds }),
     });
 
     const rankingStartTime = Date.now();
@@ -299,3 +329,13 @@ export class GenerateFromPreviousArticleAgent extends Agent<
     };
   }
 }
+
+// ─── Attribution extractor registration (Phase 8) ──────────────────
+// Side-effect import: registers this agent's dimension extractor with the
+// metrics-layer ATTRIBUTION_EXTRACTORS registry. The metrics file imports
+// agentRegistry which imports this file → registration fires at module-load
+// time, before any computeEloAttributionMetrics call.
+registerAttributionExtractor('generate_from_previous_article', (detail: unknown) => {
+  const tactic = (detail as { tactic?: unknown })?.tactic;
+  return typeof tactic === 'string' && tactic.length > 0 ? tactic : null;
+});

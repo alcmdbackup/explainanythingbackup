@@ -13,16 +13,36 @@ import { runWatchdog, cleanupOrphanedReservations } from './watchdog';
 function buildWatchdogMock(opts: { staleRuns?: Array<Record<string, unknown>> }) {
   const { staleRuns = [] } = opts;
 
+  // B060: the update chain is `update().eq().(eq|is)().in().select('id')`, and
+  // returns the array of actually-updated rows. The mock reports every stale
+  // run as successfully updated so markedFailed matches staleRuns.
+  const updateChain = (row: Record<string, unknown>) => ({
+    // terminal select returns the single row when the compare-and-set predicate
+    // "matches".
+    in: jest.fn().mockReturnValue({
+      select: jest.fn().mockResolvedValue({ data: [{ id: row.id }], error: null }),
+    }),
+  });
+
   return {
-    from: jest.fn().mockReturnValue({
-      select: jest.fn().mockReturnThis(),
-      in: jest.fn().mockReturnThis(),
-      or: jest.fn().mockResolvedValue({ data: staleRuns, error: null }),
-      update: jest.fn().mockReturnValue({
-        eq: jest.fn().mockReturnValue({
-          in: jest.fn().mockResolvedValue({ error: null }),
+    from: jest.fn().mockImplementation(() => {
+      // Separate call to `update()` per run; we need a fresh chain each time.
+      let runCursor = 0;
+      return {
+        select: jest.fn().mockReturnThis(),
+        in: jest.fn().mockReturnThis(),
+        or: jest.fn().mockResolvedValue({ data: staleRuns, error: null }),
+        update: jest.fn().mockImplementation(() => {
+          const row = staleRuns[runCursor] ?? { id: `noop-${runCursor}` };
+          runCursor++;
+          return {
+            eq: jest.fn().mockReturnValue({
+              eq: jest.fn().mockReturnValue(updateChain(row)),
+              is: jest.fn().mockReturnValue(updateChain(row)),
+            }),
+          };
         }),
-      }),
+      };
     }),
   } as never;
 }

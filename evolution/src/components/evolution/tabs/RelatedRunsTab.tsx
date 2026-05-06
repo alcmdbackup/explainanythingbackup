@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react';
 import { EntityTable, type ColumnDef } from '../tables/EntityTable';
 import { StatusBadge } from '../primitives/StatusBadge';
 import { buildRunUrl } from '@evolution/lib/utils/evolutionUrls';
+import { formatDate } from '@evolution/lib/utils/formatters';
 import { getExperimentAction } from '@evolution/services/experimentActions';
 import { getBatchMetricsAction } from '@evolution/services/metricsActions';
 
@@ -25,7 +26,7 @@ function normalizeExperimentRun(r: Record<string, unknown>): NormalizedRun {
     id: r.id as string,
     status: r.status as string,
     cost: Number(r.total_cost ?? r.cost_usd ?? 0),
-    created: r.created_at ? new Date(r.created_at as string).toLocaleDateString() : '—',
+    created: r.created_at ? formatDate(r.created_at as string) : '—',
   };
 }
 

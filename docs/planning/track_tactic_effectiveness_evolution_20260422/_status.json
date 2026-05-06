@@ -1,0 +1,12 @@
+{
+  "branch": "feat/track_tactic_effectiveness_evolution_20260422",
+  "created_at": "2026-04-22T17:12:15-07:00",
+  "prerequisites": {},
+  "relevantDocs": [
+    "evolution/docs/metrics.md",
+    "evolution/docs/visualization.md",
+    "evolution/docs/data_model.md",
+    "evolution/docs/agents/overview.md",
+    "evolution/docs/entities.md"
+  ]
+}

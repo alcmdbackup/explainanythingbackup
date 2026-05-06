@@ -476,8 +476,11 @@ const _backfillCostsAction = withLogging(async (
       dryRun
     });
 
-    // Log audit action (only for non-dry-run with updates)
-    if (!dryRun && totalUpdated > 0) {
+    // B062: always audit non-dry-runs, even when nothing got updated. A run that
+    // processes rows but fails every UPDATE (`totalUpdated === 0`) is exactly the
+    // case we most want a trail for — silently skipping the audit log let those
+    // incidents vanish.
+    if (!dryRun) {
       await logAdminAction({
         adminUserId,
         action: 'backfill_costs',

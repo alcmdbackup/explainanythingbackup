@@ -8,6 +8,7 @@ import { BudgetExceededError, BudgetExceededWithPartialResults } from '../types'
 import { createInvocation, updateInvocation } from '../pipeline/infra/trackInvocations';
 import { createAgentCostScope } from '../pipeline/infra/trackBudget';
 import { createEvolutionLLMClient } from '../pipeline/infra/createEvolutionLLMClient';
+import { createEntityLogger } from '../pipeline/infra/createEntityLogger';
 
 export abstract class Agent<TInput, TOutput, TDetail extends ExecutionDetailBase = ExecutionDetailBase> {
   abstract readonly name: string;
@@ -42,6 +43,11 @@ export abstract class Agent<TInput, TOutput, TDetail extends ExecutionDetailBase
   abstract execute(input: TInput, ctx: AgentContext): Promise<AgentOutput<TOutput, TDetail>>;
 
   async run(input: TInput, ctx: AgentContext): Promise<AgentResult<TOutput>> {
+    // B047: capture startMs as the very first statement in run(), BEFORE invocation row
+    // creation and per-invocation LLM client construction. The old placement under-counted
+    // duration_ms by the construction overhead (~ms to tens of ms per invocation).
+    const startMs = Date.now();
+
     // Extract tactic from input if present (GenerateFromSeedArticleAgent, future agents with tactics).
     const tactic = (input as Record<string, unknown>)?.tactic as string | undefined;
     const invocationId = await createInvocation(
@@ -53,7 +59,38 @@ export abstract class Agent<TInput, TOutput, TDetail extends ExecutionDetailBase
     // tracking this agent's own spend independently (fixes Bug B: parallel delta bug).
     // invocationId empty string sentinel: agents still function but lose the FK on llmCallTracking rows.
     const costScope = createAgentCostScope(ctx.costTracker);
-    const extendedCtx: AgentContext = { ...ctx, invocationId: invocationId ?? '', costTracker: costScope };
+
+    // Phase 2 of develop_reflection_and_generateFromParentArticle_agent_evolution_20260430:
+    // build an INVOCATION-scoped logger so agent-emitted logs (and downstream LLM-client logs)
+    // route to evolution_logs with entity_type='invocation' AND entity_id=invocationId. Without
+    // this, all per-agent logs land at run scope and the LogsTab on every invocation detail page
+    // is empty (verified via grep — zero invocation-scope log writes existed before this fix).
+    // Falls back to ctx.logger when invocationId is absent (tests, createInvocation failures).
+    const invocationLogger = invocationId
+      ? createEntityLogger(
+          {
+            entityType: 'invocation',
+            entityId: invocationId,
+            runId: ctx.runId,
+            experimentId: ctx.experimentId,
+            strategyId: ctx.strategyId,
+          },
+          ctx.db,
+        )
+      : ctx.logger;
+
+    // Note: extendedCtx.logger intentionally stays as `ctx.logger` (the run-level logger)
+    // for the AGENT's own log calls (e.g. `format validation failed`, `arena insert failed`).
+    // This preserves backward-compatible behavior for tests that spy on `ctx.logger.warn`.
+    // The invocation-scoped logger is used ONLY by the per-invocation LLM client (below),
+    // which emits the bulk of per-invocation log volume (retries, successes, errors per call).
+    // This satisfies "Logs from both reflection + GFPA" via LLM-client logs without churning
+    // the agent-internal log routing.
+    const extendedCtx: AgentContext = {
+      ...ctx,
+      invocationId: invocationId ?? '',
+      costTracker: costScope,
+    };
 
     // Bug B fix: build a scoped EvolutionLLMClient bound to costScope.recordSpend so per-invocation
     // cost attribution is accurate under parallel dispatch. Inject as input.llm when the agent uses
@@ -61,20 +98,30 @@ export abstract class Agent<TInput, TOutput, TDetail extends ExecutionDetailBase
     // When ctx.rawProvider is absent (tests that pass a pre-built input.llm), skip — tests still work.
     let effectiveInput: TInput = input;
     if (this.usesLLM && ctx.rawProvider && ctx.defaultModel) {
+      // FK linkage (debug_evolution_run_cost_20260426 Phase 4): bind invocationId at
+      // construction time so every complete() call attaches the FK, even when agent code
+      // calls llm.complete(prompt, agentName) without per-call options. Gated by
+      // EVOLUTION_FK_THREADING_ENABLED='false' for ops rollback. See reference.md
+      // § "Kill Switches / Feature Flags".
+      const fkThreadingEnabled = process.env.EVOLUTION_FK_THREADING_ENABLED !== 'false';
       const scopedLlm = createEvolutionLLMClient(
         ctx.rawProvider,
         costScope,
         ctx.defaultModel,
-        ctx.logger,
+        // Pass the invocation-scoped logger so LLM-client logs (retries, success, errors)
+        // route to entity_type='invocation' alongside the agent's own log calls.
+        invocationLogger,
         ctx.db,
         ctx.runId,
         ctx.generationTemperature,
+        fkThreadingEnabled ? (invocationId ?? undefined) : undefined,
       );
       effectiveInput = { ...(input as unknown as Record<string, unknown>), llm: scopedLlm } as unknown as TInput;
     }
 
-    const startMs = Date.now();
-
+    // Run lifecycle logs intentionally stay on the RUN-scoped logger (`ctx.logger`) so the
+    // run timeline / dashboards still see "Agent X starting/completed" without per-invocation
+    // context noise. Per-invocation detail goes through `invocationLogger` (extendedCtx.logger).
     ctx.logger.info(`Agent ${this.name} starting`, { phaseName: this.name, iteration: ctx.iteration });
 
     try {
@@ -90,22 +137,40 @@ export abstract class Agent<TInput, TOutput, TDetail extends ExecutionDetailBase
 
       const parseResult = this.executionDetailSchema.safeParse(detail);
       if (!parseResult.success) {
-        ctx.logger.warn(`Agent ${this.name} execution detail validation failed — writing null detail to DB`, {
+        ctx.logger.warn(`Agent ${this.name} execution detail validation failed — marking invocation failed`, {
           phaseName: this.name,
           errors: parseResult.error.issues.slice(0, 3).map(i => i.message),
         });
       }
 
+      // B051: if detail schema validation fails, mark the invocation `success: false` and
+      // record an error_message instead of silently writing `execution_detail: undefined`.
+      // Downstream detail-view pages assume validated detail shape; writing null+success=true
+      // hid the failure and crashed the UI renderer on a subsequent read.
+      const detailInvalid = !parseResult.success;
+      // B048: extract a `surfaced` flag from the agent's result when present (generate
+      // agents populate `result.surfaced`). Persisted as `variant_surfaced` so tactic-cost
+      // rollups can filter with `variant_surfaced IS NOT FALSE` (B053) and stop counting
+      // generate-then-discarded invocations as useful cost.
+      const resultRecord = output.result as unknown as Record<string, unknown> | null | undefined;
+      const surfacedFlag = resultRecord && typeof resultRecord.surfaced === 'boolean'
+        ? (resultRecord.surfaced as boolean)
+        : undefined;
       await updateInvocation(ctx.db, invocationId, {
         cost_usd: cost,
-        success: true,
+        success: !detailInvalid,
         execution_detail: parseResult.success ? (detail as unknown as Record<string, unknown>) : undefined,
+        error_message: detailInvalid
+          ? `detail_invalid: ${parseResult.error!.issues.slice(0, 3).map(i => i.message).join('; ').slice(0, 1000)}`
+          : undefined,
         duration_ms: durationMs,
+        variant_surfaced: surfacedFlag,
       });
 
       ctx.logger.info(`Agent ${this.name} completed`, { phaseName: this.name, iteration: ctx.iteration, cost, durationMs });
 
-      return { success: true, result: output.result, cost, durationMs, invocationId };
+      // B051: return-value success must match what we wrote to the invocation row.
+      return { success: !detailInvalid, result: output.result, cost, durationMs, invocationId };
 
     } catch (error) {
       const cost = costScope.getOwnSpent();

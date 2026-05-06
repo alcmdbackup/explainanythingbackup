@@ -81,7 +81,8 @@ describe('computeMedianElo', () => {
     const result = computeMedianElo(makeCtx({ pool, ratings }));
     expect(result).not.toBeNull();
     expect(result!.value).toBe((1120 + 1280) / 2);
-    expect(result!.uncertainty).toBe((48 + 80) / 2); // average uncertainty
+    // B017-S4: uncertainty propagated via quadrature for averaged independent Gaussians.
+    expect(result!.uncertainty).toBeCloseTo(Math.sqrt(48 * 48 + 80 * 80) / 2);
   });
 
   it('returns null for empty pool', () => {

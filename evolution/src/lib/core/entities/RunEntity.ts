@@ -46,6 +46,13 @@ export class RunEntity extends Entity<EvolutionRunFullDb> {
       // recompute, GREATEST will keep the larger live-written value.
       { ...METRIC_CATALOG.generation_cost, compute: () => 0 },
       { ...METRIC_CATALOG.ranking_cost, compute: () => 0 },
+      { ...METRIC_CATALOG.reflection_cost, compute: () => 0 },
+      { ...METRIC_CATALOG.iterative_edit_cost, compute: () => 0 },
+      { ...METRIC_CATALOG.iterative_edit_rank_cost, compute: () => 0 },
+      { ...METRIC_CATALOG.iterative_edit_drift_rate, compute: () => 0 },
+      { ...METRIC_CATALOG.iterative_edit_recovery_success_rate, compute: () => 0 },
+      { ...METRIC_CATALOG.iterative_edit_accept_rate, compute: () => 0 },
+      { ...METRIC_CATALOG.evaluation_cost, compute: () => 0 },
       { ...METRIC_CATALOG.seed_cost, compute: () => 0 },
     ],
     atFinalization: [
@@ -79,7 +86,10 @@ export class RunEntity extends Entity<EvolutionRunFullDb> {
   ];
 
   readonly listFilters: FilterDef[] = [
-    { field: 'status', type: 'select', options: ['pending', 'running', 'completed', 'failed'] },
+    // B011-S3: include 'claimed' (worker-claim state read by the cancel-action visible
+    // predicate) and 'cancelled' (cancel-handler write target) so users can filter for
+    // those real states.
+    { field: 'status', type: 'select', options: ['pending', 'claimed', 'running', 'completed', 'failed', 'cancelled'] },
   ];
 
   readonly actions: EntityAction<EvolutionRunFullDb>[] = [
@@ -109,13 +119,17 @@ export class RunEntity extends Entity<EvolutionRunFullDb> {
     return links;
   }
 
-  async executeAction(key: string, id: string, db: SupabaseClient): Promise<void> {
+  // B001-S3 + B007-S3: forward `payload` to super.executeAction so cascade-delete
+  // invariants (`_visited` Set + `_skipStaleMarking` flag) propagate correctly. The
+  // previous 3-arg signature dropped the payload, breaking cycle protection across
+  // recursive descendant deletes.
+  async executeAction(key: string, id: string, db: SupabaseClient, payload?: Record<string, unknown>): Promise<void> {
     if (key === 'cancel') {
       await db.from(this.table)
         .update({ status: 'cancelled', completed_at: new Date().toISOString() })
         .eq('id', id);
       return;
     }
-    return super.executeAction(key, id, db);
+    return super.executeAction(key, id, db, payload);
   }
 }

@@ -95,7 +95,14 @@ async function _getBatchMetricsImpl(
 
     const supabase = await createSupabaseServiceClient();
     const { getMetricsForEntities } = await import('@evolution/lib/metrics/readMetrics');
-    const metricsMap = await getMetricsForEntities(supabase, parsedType as EntityType, entityIds, metricNames);
+    // B043: LOG — surface chunk errors as warnings; earlier-successful chunks are preserved.
+    const { data: metricsMap, errors: readErrors } = await getMetricsForEntities(
+      supabase, parsedType as EntityType, entityIds, metricNames,
+    );
+    if (readErrors.length > 0) {
+      // eslint-disable-next-line no-console
+      console.warn('[metricsActions] partial read failure', { errors: readErrors });
+    }
 
     // Check for stale rows per entity and recompute if needed
     const staleEntities: { id: string; staleRows: MetricRow[] }[] = [];
@@ -109,7 +116,9 @@ async function _getBatchMetricsImpl(
         recomputeStaleMetrics(supabase, parsedType as EntityType, id, staleRows),
       ));
       // Re-read fresh metrics after recomputation
-      const freshMap = await getMetricsForEntities(supabase, parsedType as EntityType, entityIds, metricNames);
+      const { data: freshMap } = await getMetricsForEntities(
+        supabase, parsedType as EntityType, entityIds, metricNames,
+      );
       const result: Record<string, MetricRow[]> = {};
       for (const [id, rows] of freshMap) result[id] = rows;
       return { success: true, data: result, error: null };

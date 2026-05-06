@@ -192,7 +192,37 @@ describe('claimAndExecuteRun', () => {
         null,
         null,
         false,
-        expect.objectContaining({ onUsage: expect.any(Function) }),
+        // Phase 5b strengthened assertion: trackingDb (Phase 1-3) must always be forwarded;
+        // evolutionInvocationId is optional (only set when caller passes opts.invocationId).
+        expect.objectContaining({
+          onUsage: expect.any(Function),
+          trackingDb: expect.anything(),
+        }),
+      );
+    });
+
+    it('forwards opts.invocationId as evolutionInvocationId to callLLM (Phase 5b — FK linkage)', async () => {
+      await claimAndExecuteRun({ runnerId: 'test-runner' });
+
+      const provider = mockBuildRunContext.mock.calls[0][3];
+      await provider.complete('test prompt', 'generation', {
+        model: 'gpt-4.1',
+        invocationId: 'inv-fk-test-uuid',
+      });
+
+      expect(callLLM).toHaveBeenCalledWith(
+        'test prompt',
+        'evolution_generation',
+        '00000000-0000-4000-8000-000000000001',
+        'gpt-4.1',
+        false,
+        null,
+        null,
+        null,
+        false,
+        expect.objectContaining({
+          evolutionInvocationId: 'inv-fk-test-uuid',
+        }),
       );
     });
 

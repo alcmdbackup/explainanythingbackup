@@ -114,13 +114,21 @@ export function extractStrategyEntries(
   for (const [name, value] of Object.entries(metrics)) {
     if (!value) continue;
     if (!name.startsWith('eloAttrDelta:')) continue;
+    // Skip histogram rows (eloAttrDeltaHist:* starts with the same prefix).
+    if (name.startsWith('eloAttrDeltaHist:')) continue;
     // name = "eloAttrDelta:<agent>:<dim>"
     const rest = name.slice('eloAttrDelta:'.length);
     const parts = rest.split(':');
     if (parts.length < 2) continue;
+    const agent = parts[0]!;
     const dim = parts.slice(1).join(':');
+    // Phase 5 (track_tactic_effectiveness_evolution_20260422): include the agent in
+    // the bar label. Multiple agents can share a dimension value (e.g. different
+    // variant-producing agents all reporting `lexical_simplify`); the previous
+    // dim-only label rendered ambiguously in those cases. Keeping the agent name
+    // visible disambiguates without changing the underlying data.
     entries.push({
-      label: dim,
+      label: `${agent} / ${dim}`,
       value: value.value,
       ci: value.ci,
       n: value.n,

@@ -35,11 +35,14 @@ describe('ComparisonCache', () => {
     expect(cache.get('text A', 'text B', true)).toBeUndefined();
   });
 
-  it('does NOT cache results with null winnerId and isDraw=false', () => {
+  it('B040: DOES cache results with null winnerId and isDraw=false', () => {
+    // B040: removed the gate — indeterminate/error outcomes should be cached so
+    // we don't re-spend LLM budget re-asking the same pair. Callers upstream
+    // are responsible for deciding how to treat null winners.
     const errResult: CachedMatch = { winnerId: null, loserId: null, confidence: 0.0, isDraw: false };
     cache.set('text A', 'text B', false, errResult);
-    expect(cache.get('text A', 'text B', false)).toBeUndefined();
-    expect(cache.size).toBe(0);
+    expect(cache.get('text A', 'text B', false)).toEqual(errResult);
+    expect(cache.size).toBe(1);
   });
 
   it('caches draw results (isDraw=true even with null winnerId)', () => {

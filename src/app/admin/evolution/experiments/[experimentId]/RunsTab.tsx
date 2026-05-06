@@ -6,6 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { buildRunUrl } from '@evolution/lib/utils/evolutionUrls';
+import { formatDate } from '@evolution/lib/utils/formatters';
 import { getExperimentAction } from '@evolution/services/experimentActions';
 
 const RUN_STATUS_COLORS: Record<string, string> = {
@@ -91,7 +92,7 @@ export function RunsTab({ experimentId }: RunsTabProps) {
                   </span>
                 </td>
                 <td className="py-1.5 text-right font-mono text-[var(--text-muted)]">
-                  {run.created_at ? new Date(run.created_at).toLocaleDateString() : '--'}
+                  {run.created_at ? formatDate(run.created_at) : '--'}
                 </td>
               </tr>
             );

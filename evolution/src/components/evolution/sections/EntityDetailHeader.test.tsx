@@ -43,9 +43,41 @@ describe('EntityDetailHeader', () => {
     const crossLinks = screen.getByTestId('cross-links');
     const links = crossLinks.querySelectorAll('a');
     expect(links).toHaveLength(2);
-    expect(links[0]).toHaveTextContent('Experiment: Test Exp');
+    // Fix #25 (use_playwright_find_ux_issues_bugs_20260501): chip prefix is no
+    // longer rendered as a colon-prefixed label string. Both prefix and label
+    // text are still visible (prefix in a small uppercase muted span).
+    expect(links[0]).toHaveTextContent('Experiment');
+    expect(links[0]).toHaveTextContent('Test Exp');
     expect(links[0]).toHaveAttribute('href', '/experiments/1');
-    expect(links[1]).toHaveTextContent('Strategy: Test Strat');
+    expect(links[1]).toHaveTextContent('Strategy');
+    expect(links[1]).toHaveTextContent('Test Strat');
+  });
+
+  // fixes_to_evolution_admin_dashboard__20260503 Issue 3 — variant detail
+  // header gains a "Produced by <agent_name>" link slot. Confirms the slot
+  // can hold a third entry alongside Run + Explanation, that the prefix and
+  // label both render, and that the href is correct.
+  it('renders Produced-by invocation link alongside Run + Explanation slots', () => {
+    render(
+      <EntityDetailHeader
+        title="Variant abc123"
+        links={[
+          { prefix: 'Run', label: 'run-uuid8', href: '/admin/evolution/runs/run-uuid8' },
+          { prefix: 'Explanation', label: '#42', href: '/results?explanation_id=42' },
+          {
+            prefix: 'Produced by',
+            label: 'evaluate_criteria_then_generate_from_previous_article',
+            href: '/admin/evolution/invocations/inv-uuid',
+          },
+        ]}
+      />
+    );
+    const crossLinks = screen.getByTestId('cross-links');
+    const links = crossLinks.querySelectorAll('a');
+    expect(links).toHaveLength(3);
+    expect(links[2]).toHaveTextContent('Produced by');
+    expect(links[2]).toHaveTextContent('evaluate_criteria_then_generate_from_previous_article');
+    expect(links[2]).toHaveAttribute('href', '/admin/evolution/invocations/inv-uuid');
   });
 
   it('renders actions slot', () => {

@@ -87,6 +87,15 @@ adminTest.describe('Evolution Navigation', { tag: ['@evolution', '@critical'] },
 
     await expect(adminPage.locator('h1')).toContainText(/experiment/i, { timeout: 15000 });
 
+    // Uncheck "Hide test content" so the `e2e-nav-*`-named seeded experiment is
+    // visible. Required after Phase 1 of use_playwright_find_bugs_ux_issues_20260422
+    // — `evolution_experiments` got an `is_test_content` column + trigger that
+    // marks `e2e-*` names as test content; the filter is default-on.
+    const expFilter = adminPage.locator('[data-testid="filter-filterTestContent"] input[type="checkbox"]');
+    await expect(expFilter).toBeVisible({ timeout: 15000 });
+    // eslint-disable-next-line flakiness/no-point-in-time-checks -- control flow, not assertion
+    if (await expFilter.isChecked()) await expFilter.uncheck();
+
     // Wait for skeleton to finish loading
     await expect(adminPage.locator('[data-testid="entity-list-table"]')).toBeVisible({ timeout: 30000 });
 
@@ -104,6 +113,13 @@ adminTest.describe('Evolution Navigation', { tag: ['@evolution', '@critical'] },
     await adminPage.waitForLoadState('domcontentloaded');
 
     await expect(adminPage.locator('h1')).toContainText(/strateg/i, { timeout: 15000 });
+
+    // Same Hide-test-content default applies on the strategies list (was always
+    // backed by `is_test_content` since 20260415000001).
+    const strategyFilter = adminPage.locator('[data-testid="filter-filterTestContent"] input[type="checkbox"]');
+    await expect(strategyFilter).toBeVisible({ timeout: 15000 });
+    // eslint-disable-next-line flakiness/no-point-in-time-checks -- control flow, not assertion
+    if (await strategyFilter.isChecked()) await strategyFilter.uncheck();
 
     // Wait for table data to load
     await expect(adminPage.locator('[data-testid="entity-list-table"]')).toBeVisible({ timeout: 15000 });

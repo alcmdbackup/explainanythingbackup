@@ -3,7 +3,7 @@
 
 import type { CatalogMetricDef, MetricFormatter } from './types';
 import {
-  formatCost, formatCostDetailed, formatElo, formatScore, formatPercent,
+  formatCost, formatCostDetailed, formatElo, formatScore, formatPercent, formatPercentValue,
 } from '@evolution/lib/utils/formatters';
 
 export const METRIC_CATALOG = {
@@ -22,6 +22,41 @@ export const METRIC_CATALOG = {
     name: 'ranking_cost', label: 'Ranking Cost', category: 'cost', formatter: 'cost',
     timing: 'during_execution', listView: true,
     description: 'LLM spend on ranking calls in this run (incl. SwissRankingAgent + binary-search comparisons)',
+  },
+  reflection_cost: {
+    name: 'reflection_cost', label: 'Reflection Cost', category: 'cost', formatter: 'cost',
+    timing: 'during_execution', listView: true,
+    description: 'LLM spend on reflection-step tactic-selection calls (ReflectAndGenerateFromPreviousArticleAgent)',
+  },
+  iterative_edit_cost: {
+    name: 'iterative_edit_cost', label: 'Iterative Edit Cost', category: 'cost', formatter: 'cost',
+    timing: 'during_execution', listView: false,
+    description: 'LLM spend on iterative_editing iterations (Proposer + Approver + drift recovery, all cycles, all parents). Per-purpose split lives in execution_detail.cycles[i].{proposeCostUsd, approveCostUsd, driftRecoveryCostUsd}.',
+  },
+  iterative_edit_rank_cost: {
+    name: 'iterative_edit_rank_cost', label: 'Iterative Edit Rank Cost', category: 'cost', formatter: 'cost',
+    timing: 'during_execution', listView: false,
+    description: 'LLM spend on the post-cycle ranking step inside iterative_editing iterations (judge calls against the local pool). Per-invocation cost lives in execution_detail.ranking.cost.',
+  },
+  iterative_edit_drift_rate: {
+    name: 'iterative_edit_drift_rate', label: 'Edit Drift Rate', category: 'cost', formatter: 'integer',
+    timing: 'during_execution', listView: false,
+    description: 'Fraction of editing cycles whose Proposer output drifted from the source (strip-markup mismatch). Run-detail dashboard alert-colors when > EVOLUTION_EDITING_DRIFT_RATE_ALERT_THRESHOLD (default 0.30).',
+  },
+  iterative_edit_recovery_success_rate: {
+    name: 'iterative_edit_recovery_success_rate', label: 'Edit Recovery Success Rate', category: 'cost', formatter: 'integer',
+    timing: 'during_execution', listView: false,
+    description: 'Fraction of drift events resolved by the recovery LLM call. Run-detail dashboard alert-colors when < EVOLUTION_EDITING_RECOVERY_SUCCESS_RATE_ALERT_THRESHOLD (default 0.70).',
+  },
+  iterative_edit_accept_rate: {
+    name: 'iterative_edit_accept_rate', label: 'Edit Accept Rate', category: 'cost', formatter: 'integer',
+    timing: 'during_execution', listView: false,
+    description: 'Fraction of atomic edits accepted by the Approver. Run-detail dashboard alert-colors when > EVOLUTION_EDITING_ACCEPT_RATE_ALERT_THRESHOLD (default 0.95) — rubber-stamping signal per Decisions §16.',
+  },
+  evaluation_cost: {
+    name: 'evaluation_cost', label: 'Evaluation Cost', category: 'cost', formatter: 'cost',
+    timing: 'during_execution', listView: false,
+    description: 'LLM spend on evaluate_and_suggest combined-call (EvaluateCriteriaThenGenerateFromPreviousArticleAgent)',
   },
   seed_cost: {
     name: 'seed_cost', label: 'Seed Cost', category: 'cost', formatter: 'cost',
@@ -127,6 +162,46 @@ export const METRIC_CATALOG = {
     timing: 'at_propagation',
     description: 'Average ranking_cost per child run',
   },
+  total_reflection_cost: {
+    name: 'total_reflection_cost', label: 'Total Reflection Cost', category: 'cost', formatter: 'cost',
+    timing: 'at_propagation',
+    description: 'Sum of reflection_cost across all child runs',
+  },
+  total_iterative_edit_cost: {
+    name: 'total_iterative_edit_cost', label: 'Total Iterative Edit Cost', category: 'cost', formatter: 'cost',
+    timing: 'at_propagation', listView: true,
+    description: 'Sum of iterative_edit_cost across all child runs',
+  },
+  avg_iterative_edit_cost_per_run: {
+    name: 'avg_iterative_edit_cost_per_run', label: 'Avg Iterative Edit Cost/Run', category: 'cost', formatter: 'cost',
+    timing: 'at_propagation',
+    description: 'Average iterative_edit_cost per child run',
+  },
+  total_iterative_edit_rank_cost: {
+    name: 'total_iterative_edit_rank_cost', label: 'Total Iterative Edit Rank Cost', category: 'cost', formatter: 'cost',
+    timing: 'at_propagation',
+    description: 'Sum of iterative_edit_rank_cost across all child runs',
+  },
+  avg_iterative_edit_rank_cost_per_run: {
+    name: 'avg_iterative_edit_rank_cost_per_run', label: 'Avg Iterative Edit Rank Cost/Run', category: 'cost', formatter: 'cost',
+    timing: 'at_propagation',
+    description: 'Average iterative_edit_rank_cost per child run',
+  },
+  avg_reflection_cost_per_run: {
+    name: 'avg_reflection_cost_per_run', label: 'Avg Reflection Cost/Run', category: 'cost', formatter: 'cost',
+    timing: 'at_propagation',
+    description: 'Average reflection_cost per child run',
+  },
+  total_evaluation_cost: {
+    name: 'total_evaluation_cost', label: 'Total Evaluation Cost', category: 'cost', formatter: 'cost',
+    timing: 'at_propagation', listView: true,
+    description: 'Sum of evaluation_cost across all child runs',
+  },
+  avg_evaluation_cost_per_run: {
+    name: 'avg_evaluation_cost_per_run', label: 'Avg Evaluation Cost/Run', category: 'cost', formatter: 'cost',
+    timing: 'at_propagation',
+    description: 'Average evaluation_cost per child run',
+  },
   total_seed_cost: {
     name: 'total_seed_cost', label: 'Total Seed Cost', category: 'cost', formatter: 'cost',
     timing: 'at_propagation', listView: true,
@@ -190,10 +265,15 @@ export const METRIC_CATALOG = {
 
   // === Cost Estimate Accuracy (cost_estimate_accuracy_analysis_20260414) ===
   // Run-level finalization metrics
+  // B7 (use_playwright_find_bugs_ux_issues_20260422): these three are stored
+  // in percent units (e.g. -38.2) not as 0-1 ratios, so they use 'percentValue'
+  // which rounds and appends '%' instead of multiplying by 100 again.
   cost_estimation_error_pct: {
-    name: 'cost_estimation_error_pct', label: 'Estimation Error %', category: 'cost', formatter: 'percent',
+    name: 'cost_estimation_error_pct', label: 'Estimation Error %', category: 'cost', formatter: 'percentValue',
     timing: 'at_finalization', listView: true,
-    description: 'Mean per-invocation estimation error % across GFSA invocations in this run',
+    // Fix #14 (use_playwright_find_ux_issues_bugs_20260501): explain sign so a
+    // negative value isn't read as "estimate is bad". Negative = actual was less.
+    description: 'Mean per-invocation estimation error % across GFSA invocations. Negative = actual was less than estimated (over-estimate).',
   },
   estimated_cost: {
     name: 'estimated_cost', label: 'Estimated Cost', category: 'cost', formatter: 'cost',
@@ -203,15 +283,17 @@ export const METRIC_CATALOG = {
   estimation_abs_error_usd: {
     name: 'estimation_abs_error_usd', label: 'Estimation Abs Error', category: 'cost', formatter: 'costDetailed',
     timing: 'at_finalization',
-    description: 'Mean |actual − estimated| USD across GFSA invocations',
+    // Fix #41 (use_playwright_find_ux_issues_bugs_20260501): clarify formula —
+    // this is the per-invocation mean, NOT |sum_actual − sum_estimated|.
+    description: 'Mean of per-invocation |actual − estimated| in USD across GFSA invocations. NOT |sum_actual − sum_estimated| — for run-level total error see ESTIMATED minus TOTAL COST in the summary.',
   },
   generation_estimation_error_pct: {
-    name: 'generation_estimation_error_pct', label: 'Generation Estimation Error %', category: 'cost', formatter: 'percent',
+    name: 'generation_estimation_error_pct', label: 'Generation Estimation Error %', category: 'cost', formatter: 'percentValue',
     timing: 'at_finalization',
     description: 'Mean generation-phase estimation error % across GFSA invocations',
   },
   ranking_estimation_error_pct: {
-    name: 'ranking_estimation_error_pct', label: 'Ranking Estimation Error %', category: 'cost', formatter: 'percent',
+    name: 'ranking_estimation_error_pct', label: 'Ranking Estimation Error %', category: 'cost', formatter: 'percentValue',
     timing: 'at_finalization',
     description: 'Mean ranking-phase estimation error % across GFSA invocations',
   },
@@ -247,18 +329,20 @@ export const METRIC_CATALOG = {
   },
 
   // Propagated (strategy + experiment)
+  // B7 (use_playwright_find_bugs_ux_issues_20260422): percentValue because the
+  // source metric stores percent units, not 0-1 ratios.
   avg_cost_estimation_error_pct: {
-    name: 'avg_cost_estimation_error_pct', label: 'Avg Estimation Error %', category: 'cost', formatter: 'percent',
+    name: 'avg_cost_estimation_error_pct', label: 'Avg Estimation Error %', category: 'cost', formatter: 'percentValue',
     timing: 'at_propagation', listView: true,
     description: 'Mean cost_estimation_error_pct across child runs',
   },
   avg_generation_estimation_error_pct: {
-    name: 'avg_generation_estimation_error_pct', label: 'Avg Generation Error %', category: 'cost', formatter: 'percent',
+    name: 'avg_generation_estimation_error_pct', label: 'Avg Generation Error %', category: 'cost', formatter: 'percentValue',
     timing: 'at_propagation',
     description: 'Mean generation_estimation_error_pct across child runs',
   },
   avg_ranking_estimation_error_pct: {
-    name: 'avg_ranking_estimation_error_pct', label: 'Avg Ranking Error %', category: 'cost', formatter: 'percent',
+    name: 'avg_ranking_estimation_error_pct', label: 'Avg Ranking Error %', category: 'cost', formatter: 'percentValue',
     timing: 'at_propagation',
     description: 'Mean ranking_estimation_error_pct across child runs',
   },
@@ -314,5 +398,6 @@ export const METRIC_FORMATTERS: Record<MetricFormatter, (v: number) => string> =
   elo: formatElo,
   score: formatScore,
   percent: formatPercent,
+  percentValue: formatPercentValue,
   integer: (v) => String(Math.round(v)),
 };

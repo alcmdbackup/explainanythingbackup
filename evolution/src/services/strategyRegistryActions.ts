@@ -3,13 +3,12 @@
 // Uses adminAction wrapper, validates all inputs, and returns ActionResult<T>.
 
 import { adminAction, type AdminContext } from './adminAction';
-import { validateUuid, applyTestContentNameFilter } from './shared';
+import { validateUuid, applyTestContentColumnFilter } from './shared';
 import { hashStrategyConfig, labelStrategyConfig } from '@evolution/lib/pipeline/setup/findOrCreateStrategy';
 import type { StrategyConfig } from '@evolution/lib/pipeline/infra/types';
 import { createEntityLogger } from '@evolution/lib/pipeline/infra/createEntityLogger';
 import { z } from 'zod';
-import { iterationConfigSchema } from '@evolution/lib/schemas';
-import { generationGuidanceSchema } from '@evolution/lib/schemas';
+import { iterationConfigSchema, generationGuidanceSchema } from '@evolution/lib/schemas';
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -35,8 +34,13 @@ const createStrategySchema = z.object({
   description: z.string().max(2000).optional(),
   generationModel: z.string().min(1).max(100),
   judgeModel: z.string().min(1).max(100),
+  /** Iterative-editing Proposer model (optional). Falls back to generationModel at runtime. */
+  editingModel: z.string().max(100).optional(),
+  /** Iterative-editing Approver model (optional). Falls back to editingModel (which falls back
+   *  to generationModel) at runtime. Same-as-editingModel surfaces a rubber-stamping warning
+   *  in the wizard per Decisions §16. */
+  approverModel: z.string().max(100).optional(),
   iterationConfigs: z.array(iterationConfigSchema).min(1).max(20),
-  strategiesPerRound: z.number().int().min(1).max(20).optional(),
   budgetUsd: z.number().min(0.01).max(100).optional(),
   pipeline_type: z.string().max(50).optional(),
   generationGuidance: generationGuidanceSchema.optional(),
@@ -95,20 +99,23 @@ const updateStrategySchema = z.object({
 export const listStrategiesAction = adminAction(
   'listStrategies',
   async (
-    input: { limit: number; offset: number; status?: string; created_by?: string; pipeline_type?: string; filterTestContent?: boolean },
+    input: { limit?: number; offset?: number; status?: string; created_by?: string; pipeline_type?: string; filterTestContent?: boolean } | undefined,
     ctx: AdminContext,
   ): Promise<{ items: StrategyListItem[]; total: number }> => {
-    const limit = Math.min(Math.max(input.limit, 1), 200);
-    const offset = Math.max(input.offset, 0);
+    // B003-S5: defaults so calling without args (or with partial input) doesn't TypeError
+    // on `input.limit`. Mirrors the project's default pagination shape (50/0).
+    const safeInput = input ?? {};
+    const limit = Math.min(Math.max(safeInput.limit ?? 50, 1), 200);
+    const offset = Math.max(safeInput.offset ?? 0, 0);
 
     let query = ctx.supabase
       .from('evolution_strategies')
       .select('*', { count: 'exact' });
 
-    if (input.status) query = query.eq('status', input.status);
-    if (input.created_by) query = query.eq('created_by', input.created_by);
-    if (input.pipeline_type) query = query.eq('pipeline_type', input.pipeline_type);
-    if (input.filterTestContent) query = applyTestContentNameFilter(query);
+    if (safeInput.status) query = query.eq('status', safeInput.status);
+    if (safeInput.created_by) query = query.eq('created_by', safeInput.created_by);
+    if (safeInput.pipeline_type) query = query.eq('pipeline_type', safeInput.pipeline_type);
+    if (safeInput.filterTestContent) query = applyTestContentColumnFilter(query);
 
     query = query.order('created_at', { ascending: false })
       .range(offset, offset + limit - 1);
@@ -144,11 +151,20 @@ export const createStrategyAction = adminAction(
   async (input: z.input<typeof createStrategySchema>, ctx: AdminContext): Promise<StrategyListItem> => {
     const parsed = createStrategySchema.parse(input);
 
+    // Validate criteriaIds referenced by criteria_and_generate iterations exist + active.
+    {
+      const { validateCriteriaIds } = await import('./criteriaActions');
+      const allIds = parsed.iterationConfigs
+        .flatMap((it) => (it.agentType === 'criteria_and_generate' && it.criteriaIds) ? it.criteriaIds : []);
+      if (allIds.length > 0) {
+        await validateCriteriaIds(allIds, ctx.supabase);
+      }
+    }
+
     const config: StrategyConfig = {
       generationModel: parsed.generationModel,
       judgeModel: parsed.judgeModel,
       iterationConfigs: parsed.iterationConfigs,
-      strategiesPerRound: parsed.strategiesPerRound,
       budgetUsd: parsed.budgetUsd,
       generationGuidance: parsed.generationGuidance,
       maxComparisonsPerVariant: parsed.maxComparisonsPerVariant,
@@ -250,7 +266,12 @@ export const cloneStrategyAction = adminAction(
         label: source.label,
         description: source.description,
         config,
-        config_hash: `${configHash}_clone_${Date.now()}`,
+        // B001-S5: Date.now() collides on concurrent millisecond → UNIQUE constraint
+        // violation OR breaks downstream find-or-create lookups. Use crypto.randomUUID()
+        // for an immediately-distinct discriminator. Clones are NOT meant to be content-
+        // addressable (they're explicit copies of a source); the source's content hash
+        // is preserved as the prefix so `findOrCreateStrategy` dedup-on-content still works.
+        config_hash: `${configHash}_clone_${crypto.randomUUID()}`,
         pipeline_type: source.pipeline_type,
         created_by: ctx.adminUserId,
       })
@@ -298,36 +319,32 @@ export const deleteStrategyAction = adminAction(
   async (strategyId: string, ctx: AdminContext): Promise<{ deleted: boolean }> => {
     if (!validateUuid(strategyId)) throw new Error('Invalid strategyId');
 
-    // Check for referencing runs
-    const { count } = await ctx.supabase
-      .from('evolution_runs')
-      .select('id', { count: 'exact', head: true })
-      .eq('strategy_id', strategyId);
-
-    if ((count ?? 0) > 0) {
-      const stratLogger = createEntityLogger({
-        entityType: 'strategy',
-        entityId: strategyId,
-        strategyId,
-      }, ctx.supabase);
-      stratLogger.warn('Strategy deletion blocked', { runCount: count ?? 0 });
-      throw new Error('Cannot delete strategy with existing runs. Archive it instead.');
-    }
+    // B009-S5: removed the SELECT count then DELETE TOCTOU pattern. The DB FK
+    // `evolution_runs.strategy_id REFERENCES evolution_strategies(id) ON DELETE RESTRICT`
+    // (migration 20260324000001) atomically rejects the DELETE if any runs reference
+    // this strategy. We catch the structured error code 23503 (foreign_key_violation)
+    // and surface a friendly message; no race window between count and delete.
+    const stratLogger = createEntityLogger({
+      entityType: 'strategy',
+      entityId: strategyId,
+      strategyId,
+    }, ctx.supabase);
 
     const { error } = await ctx.supabase
       .from('evolution_strategies')
       .delete()
       .eq('id', strategyId);
 
-    if (error) throw error;
+    if (error) {
+      // Postgres FK violation surfaces as code '23503'.
+      if ((error as { code?: string }).code === '23503') {
+        stratLogger.warn('Strategy deletion blocked by FK', { error: error.message });
+        throw new Error('Cannot delete strategy with existing runs. Archive it instead.');
+      }
+      throw error;
+    }
 
-    const stratLogger = createEntityLogger({
-      entityType: 'strategy',
-      entityId: strategyId,
-      strategyId,
-    }, ctx.supabase);
     stratLogger.info('Strategy deleted');
-
     return { deleted: true };
   },
 );

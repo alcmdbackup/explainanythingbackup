@@ -4,6 +4,7 @@
 
 import { adminAction, type AdminContext } from './adminAction';
 import { validateUuid, applyNonTestStrategyFilter } from './shared';
+import { getRunCostsWithFallback } from '@evolution/lib/cost/getRunCostWithFallback';
 import { EvolutionRunSummarySchema } from '@evolution/lib/types';
 import { dbToRating } from '@evolution/lib/shared/computeRatings';
 
@@ -113,29 +114,18 @@ export const getEvolutionDashboardDataAction = adminAction(
 
     // Total cost from evolution_metrics, with fallback to evolution_run_costs view.
     // Returns null on query failure to distinguish errors from genuinely $0.00.
+    // B1 fix (use_playwright_find_bugs_ux_issues_20260422): the previous
+    // inline two-step chain silently returned $0 when filteredRunIds grew
+    // past PostgREST's URL length limit. getRunCostsWithFallback chunks
+    // the id list into batches of 100 and goes cost → gen+rank+seed →
+    // evolution_run_costs view → 0 with warn.
     let totalCostUsd: number | null = 0;
     let perRunCosts: number[] = []; // Phase 4d: per-run sample for SE computation
     if (filteredRunIds.length > 0) {
       try {
-        const { data: costMetrics } = await supabase
-          .from('evolution_metrics')
-          .select('value')
-          .eq('entity_type', 'run')
-          .eq('metric_name', 'cost')
-          .in('entity_id', filteredRunIds);
-        perRunCosts = (costMetrics ?? []).map((m) => Number(m.value) || 0);
+        const costMap = await getRunCostsWithFallback(filteredRunIds, supabase);
+        perRunCosts = filteredRunIds.map((id) => costMap.get(id) ?? 0);
         totalCostUsd = perRunCosts.reduce((sum, v) => sum + v, 0);
-
-        // Fallback: if metrics-based cost is $0, use evolution_run_costs view
-        // which aggregates directly from evolution_agent_invocations.cost_usd
-        if (totalCostUsd === 0) {
-          const { data: viewCosts } = await supabase
-            .from('evolution_run_costs')
-            .select('total_cost_usd')
-            .in('run_id', filteredRunIds);
-          perRunCosts = (viewCosts ?? []).map((c) => Number(c.total_cost_usd) || 0);
-          totalCostUsd = perRunCosts.reduce((sum, v) => sum + v, 0);
-        }
       } catch (err) {
         console.error('[Dashboard] Cost aggregation failed:', err);
         totalCostUsd = null;
@@ -163,31 +153,18 @@ export const getEvolutionDashboardDataAction = adminAction(
     const strategyIds = [...new Set(recentRuns.map(r => r.strategy_id).filter((id): id is string => !!id))];
     const runIds = recentRuns.map(r => r.id);
 
+    // B2 (use_playwright_find_bugs_ux_issues_20260422): use the same 4-layer
+    // fallback chain (cost metric → sum gen+rank+seed → evolution_run_costs view →
+    // 0 with warn) as the totalCost path above. Previously this inline path skipped
+    // layer 2 (sum), so the recent-runs Spent column could show $0 for a run
+    // whose Total Cost tile (computed via getRunCostsWithFallback) showed non-zero.
     const [stratMap, costMap] = await Promise.all([
       strategyIds.length > 0
         ? supabase.from('evolution_strategies').select('id, name').in('id', strategyIds)
             .then(({ data, error }) => { if (error) throw error; return new Map((data ?? []).map(s => [s.id as string, s.name as string])); })
         : Promise.resolve(new Map<string, string>()),
       runIds.length > 0
-        ? supabase.from('evolution_metrics').select('entity_id, value')
-            .eq('entity_type', 'run').eq('metric_name', 'cost').in('entity_id', runIds)
-            .then(async ({ data, error }) => {
-              if (error) throw error;
-              const map = new Map((data ?? []).map(c => [c.entity_id as string, Number(c.value) || 0]));
-              // Fallback: fill missing costs from evolution_run_costs view
-              const missingIds = runIds.filter(id => !map.has(id) || map.get(id) === 0);
-              if (missingIds.length > 0) {
-                const { data: viewCosts } = await supabase
-                  .from('evolution_run_costs')
-                  .select('run_id, total_cost_usd')
-                  .in('run_id', missingIds);
-                for (const c of viewCosts ?? []) {
-                  const cost = Number(c.total_cost_usd) || 0;
-                  if (cost > 0) map.set(c.run_id as string, cost);
-                }
-              }
-              return map;
-            })
+        ? getRunCostsWithFallback(runIds, supabase)
         : Promise.resolve(new Map<string, number>()),
     ]);
 

@@ -69,6 +69,30 @@ export class StrategyEntity extends Entity<EvolutionStrategyFullDb> {
       { ...METRIC_CATALOG.avg_ranking_cost_per_run,
         sourceEntity: 'run', sourceMetric: 'ranking_cost',
         aggregate: aggregateAvg, aggregationMethod: 'avg' },
+      { ...METRIC_CATALOG.total_reflection_cost,
+        sourceEntity: 'run', sourceMetric: 'reflection_cost',
+        aggregate: aggregateSum, aggregationMethod: 'sum' },
+      { ...METRIC_CATALOG.avg_reflection_cost_per_run,
+        sourceEntity: 'run', sourceMetric: 'reflection_cost',
+        aggregate: aggregateAvg, aggregationMethod: 'avg' },
+      { ...METRIC_CATALOG.total_iterative_edit_cost,
+        sourceEntity: 'run', sourceMetric: 'iterative_edit_cost',
+        aggregate: aggregateSum, aggregationMethod: 'sum' },
+      { ...METRIC_CATALOG.avg_iterative_edit_cost_per_run,
+        sourceEntity: 'run', sourceMetric: 'iterative_edit_cost',
+        aggregate: aggregateAvg, aggregationMethod: 'avg' },
+      { ...METRIC_CATALOG.total_iterative_edit_rank_cost,
+        sourceEntity: 'run', sourceMetric: 'iterative_edit_rank_cost',
+        aggregate: aggregateSum, aggregationMethod: 'sum' },
+      { ...METRIC_CATALOG.avg_iterative_edit_rank_cost_per_run,
+        sourceEntity: 'run', sourceMetric: 'iterative_edit_rank_cost',
+        aggregate: aggregateAvg, aggregationMethod: 'avg' },
+      { ...METRIC_CATALOG.total_evaluation_cost,
+        sourceEntity: 'run', sourceMetric: 'evaluation_cost',
+        aggregate: aggregateSum, aggregationMethod: 'sum' },
+      { ...METRIC_CATALOG.avg_evaluation_cost_per_run,
+        sourceEntity: 'run', sourceMetric: 'evaluation_cost',
+        aggregate: aggregateAvg, aggregationMethod: 'avg' },
       { ...METRIC_CATALOG.total_seed_cost,
         sourceEntity: 'run', sourceMetric: 'seed_cost',
         aggregate: aggregateSum, aggregationMethod: 'sum' },
@@ -160,7 +184,9 @@ export class StrategyEntity extends Entity<EvolutionStrategyFullDb> {
 
   readonly actions: EntityAction<EvolutionStrategyFullDb>[] = [
     { key: 'rename', label: 'Rename' },
-    { key: 'edit', label: 'Edit' },
+    // B002-S3: removed { key: 'edit', label: 'Edit' } — Entity.executeAction has no
+    // 'edit' case, and entityActions.executeEntityAction would throw on dispatch.
+    // The admin UI bypasses this via dedicated `updateStrategyAction` server action.
     { key: 'delete', label: 'Delete', danger: true,
       confirm: 'Delete this strategy and all its runs?' },
   ];

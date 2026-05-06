@@ -25,16 +25,23 @@ export function MetricsTab({ runId }: MetricsTabProps): JSX.Element {
   useEffect(() => {
     async function load() {
       setLoading(true);
-      const [summaryResult, costResult] = await Promise.all([
-        getEvolutionRunSummaryAction(runId),
-        getEvolutionCostBreakdownAction(runId),
-      ]);
+      try {
+        const [summaryResult, costResult] = await Promise.all([
+          getEvolutionRunSummaryAction(runId),
+          getEvolutionCostBreakdownAction(runId),
+        ]);
 
-      if (summaryResult.success) setSummary(summaryResult.data);
-      else setError(summaryResult.error?.message ?? 'Failed to load summary');
+        if (summaryResult.success) setSummary(summaryResult.data);
+        else setError(summaryResult.error?.message ?? 'Failed to load summary');
 
-      if (costResult.success && costResult.data) setCostBreakdown(costResult.data);
-      setLoading(false);
+        if (costResult.success && costResult.data) setCostBreakdown(costResult.data);
+      } catch (err) {
+        // B009-S7: without try/catch, a thrown action would leave loading=true forever
+        // (the loading skeleton would never clear). Surface as inline error state instead.
+        setError(err instanceof Error ? err.message : 'Failed to load metrics');
+      } finally {
+        setLoading(false);
+      }
     }
     load();
   }, [runId]);

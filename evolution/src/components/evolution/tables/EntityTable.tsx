@@ -9,6 +9,11 @@ import { EmptyState } from '../primitives/EmptyState';
 export interface ColumnDef<T> {
   key: string;
   header: string;
+  /** U23 (use_playwright_find_bugs_ux_issues_20260422): hover-tooltip on the
+   *  column header. Used to surface metric descriptions ("LLM spend on
+   *  generation calls in this run") so users know whether Spent already
+   *  includes Generation/Ranking/Seed. */
+  headerTitle?: string;
   align?: 'left' | 'right' | 'center';
   sortable?: boolean;
   /** When true, cell renders without the row's Link wrapper (e.g. for action buttons). */
@@ -72,6 +77,7 @@ export function EntityTable<T>({
                   col.sortable ? 'cursor-pointer select-none hover:text-[var(--text-secondary)]' : ''
                 }`}
                 onClick={col.sortable && onSort ? () => onSort(col.key) : undefined}
+                title={col.headerTitle}
               >
                 <span>{col.header}</span>
                 {col.sortable && <SortIndicator active={sortKey === col.key} dir={sortDir} />}
@@ -82,9 +88,22 @@ export function EntityTable<T>({
         <tbody>
           {items.map((item, i) => {
             const href = getRowHref?.(item);
+            // B101: reject missing `id` in dev so stale-content-on-resort is caught early.
+            // Production (NODE_ENV === 'production') falls back to index-as-key with a
+            // one-line console warn so a single missing id doesn't crash the admin page.
+            const rawId = (item as Record<string, unknown>).id;
+            const id = typeof rawId === 'string' ? rawId : null;
+            if (id === null) {
+              if (process.env.NODE_ENV !== 'production') {
+                throw new Error(`EntityTable: item at index ${i} is missing a string \`id\` — add \`id\` to the column schema to keep React keys stable under resort.`);
+              } else {
+                // eslint-disable-next-line no-console
+                console.warn(`[EntityTable] item at index ${i} missing id; falling back to index key`);
+              }
+            }
             return (
               <tr
-                key={(item as Record<string, unknown>).id as string ?? i}
+                key={id ?? i}
                 className="border-b border-[var(--border-default)] last:border-0 hover:bg-[var(--surface-elevated)] transition-colors"
               >
                 {columns.map((col) => (

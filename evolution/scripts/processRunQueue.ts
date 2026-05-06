@@ -126,15 +126,21 @@ async function main() {
   log('info', 'Connected to databases', { targets: targets.map(t => t.name) });
 
   let processedRuns = 0;
+  // B056: persistent round-robin cursor across outer iterations. The previous code used
+  // `targets[i % targets.length]` with `i` restarting from 0 each outer iteration, so the
+  // first target always received the first slot — a slow target starved the second one
+  // under imbalance. Advance the cursor across batches so each target sees a fair share.
+  let targetCursor = 0;
 
   while (processedRuns < MAX_RUNS && !shuttingDown) {
     const remaining = MAX_RUNS - processedRuns;
     const batchSize = Math.min(PARALLEL, remaining);
 
-    // Round-robin across targets, up to batchSize
+    // Round-robin across targets, up to batchSize, with persistent cursor.
     const batch = Array.from({ length: batchSize }, (_, i) => ({
-      target: targets[i % targets.length]!,
+      target: targets[(targetCursor + i) % targets.length]!,
     }));
+    targetCursor = (targetCursor + batchSize) % targets.length;
 
     // Execute batch in parallel (preserves --parallel N behavior)
     const results = await Promise.allSettled(

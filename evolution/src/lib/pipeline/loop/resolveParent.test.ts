@@ -48,6 +48,20 @@ describe('resolveParent', () => {
     expect(result.fallbackReason).toBe('empty_pool');
   });
 
+  it('B123: falls back with missing_cutoff_config when qualityCutoff is undefined', () => {
+    const pool = [v('a'), v('b')];
+    const result = resolveParent({
+      sourceMode: 'pool',
+      qualityCutoff: undefined,
+      seedVariant: SEED,
+      pool,
+      ratings: new Map(),
+      rng: () => 0,
+    });
+    expect(result.effectiveMode).toBe('seed_fallback_from_pool');
+    expect(result.fallbackReason).toBe('missing_cutoff_config');
+  });
+
   it('falls back to seed when cutoff yields no eligible variants (variants unrated)', () => {
     const pool = [v('a'), v('b')];
     const result = resolveParent({

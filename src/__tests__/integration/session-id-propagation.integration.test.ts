@@ -153,7 +153,10 @@ describe('Session ID Propagation Integration', () => {
     });
 
     it('should return default values for all fields outside context', () => {
-      expect(RequestIdContext.getRequestId()).toBe('unknown');
+      // B080: getRequestId now generates a unique `unknown-<uuid>` on miss so
+      // tracing can differentiate concurrent uncontextualized calls. Session
+      // and user still roll up under their "unknown"/"anonymous" sentinels.
+      expect(RequestIdContext.getRequestId()).toMatch(/^unknown-/);
       expect(RequestIdContext.getUserId()).toBe('anonymous');
       expect(RequestIdContext.getSessionId()).toBe('unknown');
     });

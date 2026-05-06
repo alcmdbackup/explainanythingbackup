@@ -1,6 +1,10 @@
 // Integration tests for the test content filter on evolution list queries.
 // Verifies that the two-step filter approach (fetch test strategy IDs, then exclude)
 // works correctly against real Supabase, and that no PostgREST ambiguity errors occur.
+//
+// Phase 1 (use_playwright_find_bugs_ux_issues_20260422, plan B17) adds a
+// "evolution_prompts column filter" block covering the prompts list via
+// applyTestContentColumnFilter after migration 20260423000001.
 
 import { createTestSupabaseClient } from '@/testing/utils/integration-helpers';
 import {
@@ -172,3 +176,80 @@ describe('Evolution Test Content Filter Integration', () => {
     expect(runs?.[0]?.id).toBe(realRunId);
   });
 });
+
+// ─── Phase 1 (plan_file/_planning.md) B17 — prompts column filter ────────────
+
+describe('evolution_prompts applyTestContentColumnFilter (Phase 1 B17 fix)', () => {
+  let supabase: SupabaseClient;
+  let tablesExist: boolean;
+
+  const createdPromptIds: string[] = [];
+  let realName = '';
+
+  beforeAll(async () => {
+    supabase = createTestSupabaseClient();
+    tablesExist = await evolutionTablesExist(supabase);
+    if (!tablesExist) return;
+
+    // Seed four prompts: [TEST], [E2E], timestamp-pattern (e2e-*), real-named.
+    // After migration 20260423000001 the evolution_prompts BEFORE trigger
+    // should set is_test_content=true for the first three and false for
+    // the last one.
+    const suffix = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    realName = `Real Prompt ${suffix}`;
+    const seeds = [
+      { prompt: `body A ${suffix}`, name: `[TEST] Bracket ${suffix}` },
+      { prompt: `body B ${suffix}`, name: `[E2E] Bracket ${suffix}` },
+      { prompt: `body C ${suffix}`, name: `e2e-nav-${Date.now()}-prompt` },
+      { prompt: `body D ${suffix}`, name: realName },
+    ];
+    for (const seed of seeds) {
+      const { data, error } = await supabase
+        .from('evolution_prompts')
+        .insert(seed)
+        .select('id')
+        .single();
+      if (error) throw new Error(`seed ${seed.name} failed: ${error.message}`);
+      createdPromptIds.push(data.id as string);
+    }
+  });
+
+  afterAll(async () => {
+    if (!tablesExist) return;
+    await cleanupEvolutionData(supabase, { promptIds: createdPromptIds });
+  });
+
+  it('trigger marks test-named prompts as is_test_content=true and real-named as false', async () => {
+    if (!tablesExist) return;
+
+    const { data, error } = await supabase
+      .from('evolution_prompts')
+      .select('id, name, is_test_content')
+      .in('id', createdPromptIds);
+
+    expect(error).toBeNull();
+    expect(data).toHaveLength(4);
+    for (const row of data ?? []) {
+      if (row.name === realName) {
+        expect(row.is_test_content).toBe(false);
+      } else {
+        expect(row.is_test_content).toBe(true);
+      }
+    }
+  });
+
+  it('applying .eq(is_test_content, false) returns only the real-named prompt', async () => {
+    if (!tablesExist) return;
+
+    const { data, error } = await supabase
+      .from('evolution_prompts')
+      .select('id, name')
+      .eq('is_test_content', false)
+      .in('id', createdPromptIds);
+
+    expect(error).toBeNull();
+    expect(data).toHaveLength(1);
+    expect(data?.[0]?.name).toBe(realName);
+  });
+});
+

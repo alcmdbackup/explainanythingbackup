@@ -26,7 +26,21 @@ jest.mock('../../pipeline/loop/rankNewVariant', () => ({
       status: mockRankStatus,
       matches: mockRankMatches,
       comparisonsRun: 1,
-      detail: { localPoolSize: 2, stopReason: mockRankStatus, totalComparisons: 1, finalLocalElo: 1200, finalLocalUncertainty: 128 },
+      // B051: Agent.run() now rejects the invocation (success=false) when the
+      // detail doesn't satisfy `rankNewVariantDetailInnerSchema`. Include every
+      // required field so these tests exercise the post-validation path.
+      detail: {
+        variantId: 'mock-variant',
+        localPoolSize: 2,
+        localPoolVariantIds: ['mock-variant', 'existing'],
+        initialTop15Cutoff: 1200,
+        comparisons: [],
+        stopReason: mockRankStatus,
+        totalComparisons: 1,
+        finalLocalElo: 1200,
+        finalLocalUncertainty: 128,
+        finalLocalTop15Cutoff: 1280,
+      },
     },
     surfaced: mockRankSurfaced,
     discardReason: mockRankSurfaced ? undefined : { localElo: 1040, localTop15Cutoff: 1280 },
@@ -229,6 +243,44 @@ describe('CreateSeedArticleAgent', () => {
     expect(result.result?.surfaced).toBe(false);
     expect(result.result?.matches).toEqual([]);
     expect(result.result?.discardReason).toBeDefined();
+  });
+
+  it('uses getOwnSpent() when tracker exposes it (scope-aware attribution, Bug B)', async () => {
+    // Simulate the AgentCostScope-wrapped tracker path: both getOwnSpent and getTotalSpent
+    // exist, but they return different values. The agent must use getOwnSpent for per-invocation
+    // attribution so sibling agents' spend doesn't bleed into this invocation's generation cost.
+    mockRankingCost = 0.002;
+
+    let ownSpent = 0;
+    let totalSpent = 100; // inflated sibling spend that must NOT contaminate
+
+    const ctx = makeCtx({
+      costTracker: {
+        reserve: jest.fn(),
+        recordSpend: jest.fn((_phase, cost) => { ownSpent += cost; totalSpent += cost; }),
+        release: jest.fn(),
+        getTotalSpent: jest.fn(() => totalSpent),
+        getOwnSpent: jest.fn(() => ownSpent),
+        getPhaseCosts: jest.fn(() => ({})),
+        getAvailableBudget: jest.fn(() => 10),
+      } as unknown as AgentContext['costTracker'],
+    });
+
+    const agent = new CreateSeedArticleAgent();
+    const input = makeInput();
+    (input.llm.complete as jest.Mock).mockImplementation(async (_p: string, label: string) => {
+      if (label === 'seed_article') {
+        (ctx.costTracker.recordSpend as jest.Mock)('seed_article', 0.004);
+        return '## Introduction\nFirst sentence. Second sentence.';
+      }
+      return '';
+    });
+
+    const output = await agent.execute(input, ctx);
+
+    // generation.cost = ownSpent delta (~0.004), NOT totalSpent delta (~100.004)
+    expect(output.detail.generation.cost).toBeCloseTo(0.004, 3);
+    expect(output.detail.generation.cost).toBeLessThan(1); // would be ~100 if using getTotalSpent
   });
 
   it('execution detail captures generation cost and ranking cost independently', async () => {

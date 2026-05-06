@@ -3,11 +3,11 @@
 import { renderHook, act } from '@testing-library/react';
 import { useTabState, type TabDef } from './EntityDetailTabs';
 
-const mockReplace = jest.fn();
 let mockSearchParams = new URLSearchParams();
+const mockReplaceState = jest.fn();
 
 jest.mock('next/navigation', () => ({
-  useRouter: () => ({ push: jest.fn(), replace: mockReplace, prefetch: jest.fn() }),
+  useRouter: () => ({ push: jest.fn(), replace: jest.fn(), prefetch: jest.fn() }),
   useSearchParams: () => mockSearchParams,
   usePathname: () => '/test',
 }));
@@ -18,10 +18,28 @@ const TABS: TabDef[] = [
   { id: 'config', label: 'Config' },
 ];
 
+// useTabState calls window.history.replaceState to update the URL without triggering
+// a Next.js soft-nav (which would abort in-flight client fetches). Spy on the method
+// and drive the URL via history.replaceState() so assertions operate on the browser
+// API we actually use.
+const originalReplaceState = window.history.replaceState;
+beforeAll(() => {
+  window.history.replaceState = mockReplaceState as unknown as typeof window.history.replaceState;
+});
+afterAll(() => {
+  window.history.replaceState = originalReplaceState;
+});
+
+function setLocationSearch(search: string): void {
+  const href = `http://localhost/test${search ? `?${search}` : ''}`;
+  originalReplaceState.call(window.history, null, '', href);
+}
+
 describe('useTabState', () => {
   beforeEach(() => {
-    mockReplace.mockClear();
+    mockReplaceState.mockClear();
     mockSearchParams = new URLSearchParams();
+    setLocationSearch('');
   });
 
   it('defaults to first tab when no URL param', () => {
@@ -35,11 +53,11 @@ describe('useTabState', () => {
     expect(result.current[0]).toBe('config');
   });
 
-  it('syncs tab change to URL', () => {
+  it('syncs tab change to URL via history.replaceState (no soft-nav)', () => {
     const { result } = renderHook(() => useTabState(TABS));
     act(() => result.current[1]('runs'));
     expect(result.current[0]).toBe('runs');
-    expect(mockReplace).toHaveBeenCalledWith(expect.stringContaining('tab=runs'), { scroll: false });
+    expect(mockReplaceState).toHaveBeenCalledWith(null, '', expect.stringContaining('tab=runs'));
   });
 
   it('handles legacy tab mapping', () => {
@@ -52,12 +70,10 @@ describe('useTabState', () => {
 
   it('preserves other search params when updating tab', () => {
     mockSearchParams = new URLSearchParams('agent=improver&tab=overview');
+    setLocationSearch('agent=improver&tab=overview');
     const { result } = renderHook(() => useTabState(TABS));
     act(() => result.current[1]('runs'));
-    expect(mockReplace).toHaveBeenCalledWith(
-      expect.stringContaining('agent=improver'),
-      { scroll: false }
-    );
+    expect(mockReplaceState).toHaveBeenCalledWith(null, '', expect.stringContaining('agent=improver'));
   });
 
   it('uses defaultTab when specified', () => {
@@ -68,7 +84,7 @@ describe('useTabState', () => {
   it('does not sync to URL when syncToUrl=false', () => {
     const { result } = renderHook(() => useTabState(TABS, { syncToUrl: false }));
     act(() => result.current[1]('runs'));
-    expect(mockReplace).not.toHaveBeenCalled();
+    expect(mockReplaceState).not.toHaveBeenCalled();
   });
 
   it('falls back to first tab for unknown URL param', () => {

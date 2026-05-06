@@ -52,7 +52,8 @@ export class PromptEntity extends Entity<EvolutionPromptFullDb> {
 
   readonly actions: EntityAction<EvolutionPromptFullDb>[] = [
     { key: 'rename', label: 'Rename' },
-    { key: 'edit', label: 'Edit' },
+    // B002-S3: removed { key: 'edit', label: 'Edit' } — Entity.executeAction has no
+    // 'edit' case. Admin UI bypasses via dedicated `updatePromptAction` server action.
     { key: 'delete', label: 'Delete', danger: true,
       confirm: 'Delete this prompt and all its experiments/runs?' },
   ];

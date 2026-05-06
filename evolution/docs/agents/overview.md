@@ -6,7 +6,7 @@ This document covers the V2 pipeline's operational components: the three concret
 
 `evolveArticle()` in `evolution/src/lib/pipeline/loop/runIterationLoop.ts` iterates over
 `config.iterationConfigs[]`, an ordered array of `IterationConfig` objects. Each entry
-specifies `agentType` (`generate` or `swiss`), `budgetPercent`, and optional `maxAgents`.
+specifies `agentType` (`generate`, `reflect_and_generate`, `iterative_editing`, or `swiss`), `budgetPercent`, and optional `maxAgents`.
 Per-iteration dollar budgets are computed at runtime: `(budgetPercent / 100) * totalBudget`.
 Each iteration is one of two types — both have the uniform shape **work agent(s) + merge agent**:
 
@@ -37,7 +37,7 @@ Between iterations, the orchestrator checks for external kill signals by queryin
 
 `evolution/src/lib/pipeline/generate.ts`
 
-Generates fresh text variants by running parallel LLM tactics against the original (or current best) text. There are 24 available tactics — 3 core, 5 extended, and 16 specialized across five categories. Tactic definitions live in code at `evolution/src/lib/core/tactics/generateTactics.ts`; tactic entity identity (UUIDs for metrics/admin) is stored in the `evolution_tactics` table and managed by `tacticRegistry.ts`.
+Generates fresh text variants by running parallel LLM tactics against the original (or current best) text. There are 24 available tactics — 3 core, 5 extended, and 16 specialized across five categories. Tactic definitions live in code at `evolution/src/lib/core/tactics/generateTactics.ts`; tactic entity identity (UUIDs for metrics/admin) is stored in the `evolution_tactics` table and synced from code via `evolution/scripts/syncSystemTactics.ts`.
 
 **Core (3)**
 
@@ -359,10 +359,108 @@ For `GenerateFromPreviousArticleAgent` the dimension is `execution_detail.strate
 
 Consumed by `StrategyEffectivenessChart` (bar chart with CI whiskers) and `EloDeltaHistogram` (10-ELO buckets) on the run/strategy/experiment detail pages.
 
+**Persistence wiring (track_tactic_effectiveness_evolution_20260422 Blocker 2, 2026-04-22)**: `computeEloAttributionMetrics` previously populated the in-memory bag but never persisted to `evolution_metrics` — callers were test-only. The Blocker 2 fix wires `computeRunMetrics(runId, db, { strategyId, experimentId })` into `persistRunResults.ts` at run finalization and extends `computeEloAttributionMetrics` to `writeMetric` each emitted row at all three entity levels. Gated by `EVOLUTION_EMIT_ATTRIBUTION_METRICS` (default `'true'`). Without this fix, `AttributionCharts` and the strategy Tactics tab would render empty — which is exactly what staging showed before the fix (32 orphaned test-only rows, zero live-run rows).
+
+`StrategyEffectivenessChart` also renders bar labels as `<agent> / <dim>` (not `<dim>` alone) since Phase 5 of the same project, so agents sharing a dimension value (e.g. `lexical_simplify` used by multiple variant-producing agents) disambiguate correctly.
+
 ## Parent linkage (Phase 2)
 
 Generate iterations accept `sourceMode` (`'seed'` default or `'pool'`) and `qualityCutoff` (`{ mode: 'topN' | 'topPercent', value }`) on each `IterationConfig`. When `sourceMode='pool'`, `resolveParent` picks a parent uniformly at random from the top-N or top-X% of the run's pool ranked by current ELO. The first iteration is locked to seed (pool is empty).
 
-Seeded RNG derived from `(runId, iteration, executionOrder)` via FNV-1a ensures deterministic parent picks — identical retries pick identical parents. Arena variants (from cross-run pools) are implicitly excluded because `initialPool` is already scoped to the current run at iteration start.
+Seeded RNG derived from `(runId, iteration, executionOrder)` via FNV-1a ensures deterministic parent picks — identical retries pick identical parents.
+
+**Arena entries are NOT eligible parents (2026-04-21).** `initialPoolSnapshot` — which resolveParent's caller computes — intentionally includes arena entries (loaded via `loadArenaEntries` from prior runs of the same prompt) so they participate in ranking as competitors. However, for **parent selection only**, `runIterationLoop.ts` filters `initialPoolSnapshot` to `inRunPool = initialPoolSnapshot.filter((v) => !v.fromArena)` at the resolveParent call site. This matches the existing `persistRunResults.ts` convention (`.filter((v) => !v.fromArena)` at 5 places) and guarantees that a new variant's `parent_variant_id` always references the seed or another variant born in the same run. Before this fix, pool-mode iterations could produce variants whose `parent_variant_id` pointed to arena variants from other runs — staging run `6743c119-8a52-44e5-8102-0b1f4b212f40` was the canonical signature. When the filter drops all candidates (pool had arena entries but no in-run variants), the existing `empty_pool` fallback returns the seed and the call site emits a distinct `fallbackReason: 'no_same_run_variants'` warn-log context for diagnosability.
 
 Discarded variants persist their local-rank ELO from the agent's binary-search ranking (not `createRating()` defaults), so Phase 3/5 metrics aren't survivorship-biased.
+
+## ReflectAndGenerateFromPreviousArticleAgent (develop_reflection_and_generateFromParentArticle_agent_evolution_20260430)
+
+A wrapper agent that runs ONE reflection LLM call to pick the best tactic for a given parent article, then delegates to `GenerateFromPreviousArticleAgent.execute()` with the chosen tactic. Selected per-iteration via `IterationConfig.agentType: 'reflect_and_generate'` — a top-level agent type (Shape A) alongside `'generate'` and `'swiss'`.
+
+**Class**: `ReflectAndGenerateFromPreviousArticleAgent` (`evolution/src/lib/core/agents/reflectAndGenerateFromPreviousArticle.ts`).
+- `name = 'reflect_and_generate_from_previous_article'`
+- `usesLLM = true`
+- `getAttributionDimension(detail) → detail.tactic` (mirrors GFPA — variants from each agent get separate `eloAttrDelta:<agent>:<tactic>` rows)
+
+**Reflection prompt** (`buildReflectionPrompt`): preamble ("You are an expert writing strategist...") + parent article verbatim + numbered candidate list (all 24 system tactics in randomized order with compressed summaries from `getTacticSummary()` + recent ELO boost per tactic) + structured ask: "Rank top N tactics in `Tactic: <name>\nReasoning: <text>` format". The shuffled candidate order is deterministic per dispatch via `deriveSeed(randomSeed, 'iter${i}', 'reflect_shuffle${execOrder}')` so retries see identical prompts.
+
+**Parser** (`parseReflectionRanking`): tolerant priority chain — line-pattern match for `^\s*\d+\.\s*Tactic:\s*(.+?)$` (capture-to-EOL), normalize to lowercase + underscore, validate via `isValidTactic`, drop unknown names. Throws `ReflectionParseError` (carries raw response) when zero valid entries are extracted. **No deterministic fallback** — parse failures are hard failures so prompt-engineering gaps surface as queryable invocation rows.
+
+**Inner GFPA dispatch** is a load-bearing invariant: must call `.execute()` directly on a fresh `GenerateFromPreviousArticleAgent`, NOT `.run()`. Calling `.run()` would create a NESTED `Agent.run()` scope (separate `AgentCostScope`), splitting cost attribution between the wrapper and the inner agent. The wrapper's invocation row's `cost_usd` would then under-count the inner GFPA spend. Comment block at the call site documents this.
+
+**Cost stack**: `'reflection'` is a typed `AgentName` with its own `reflection_cost` metric. `OUTPUT_TOKEN_ESTIMATES.reflection = 600` (top-3 ranked output × ~200 tokens reasoning each). Calibration loader phase enum and `createEvolutionLLMClient` calibration ladder both extended. Run-level `reflection_cost` propagates to `total_reflection_cost` and `avg_reflection_cost_per_run` at strategy/experiment level.
+
+**Failure-mode handling** preserves partial detail before re-throwing:
+- Reflection LLM throws → wrapper writes `execution_detail.reflection.{candidatesPresented, durationMs, cost}`, re-throws as `ReflectionLLMError`.
+- Parser fails → wrapper writes `execution_detail.reflection.{candidatesPresented, rawResponse, parseError}`, re-throws.
+- Inner GFPA throws (e.g., budget mid-generation) → wrapper writes full reflection sub-detail + reflectionCost, re-throws.
+
+The Phase 2 `updateInvocation` partial-update fix (`trackInvocations.ts:74`) ensures `Agent.run()`'s catch handler — which updates `error_message` and `cost_usd` WITHOUT `execution_detail` — does not overwrite the wrapper's pre-throw partial-detail write to null.
+
+**Mutual exclusivity** with `generationGuidance`: structural — `generationGuidance` is only valid on `agentType: 'generate'` (the Zod refinement rejects it on `reflect_and_generate` and `swiss`). The wizard UI hides the Tactics button entirely when the iteration's agent type is `reflect_and_generate`, and `toIterationConfigsPayload` only emits guidance for `generate` rows.
+
+## EvaluateCriteriaThenGenerateFromPreviousArticleAgent (evaluateCriteriaThenGenerateFromPreviousArticle_20260501)
+
+A wrapper agent that scores a parent article against user-defined `evolution_criteria` rows and delegates to `GenerateFromPreviousArticleAgent.execute()` with a `customPrompt` built from suggestions targeting the K weakest criteria. Selected per-iteration via `IterationConfig.agentType: 'criteria_and_generate'` (Shape A top-level agent type). The iteration also carries `criteriaIds: string[]` and `weakestK: number` (clamped at runtime to `min(weakestK, criteriaIds.length)`).
+
+**Class**: `EvaluateCriteriaThenGenerateFromPreviousArticleAgent` (`evolution/src/lib/core/agents/evaluateCriteriaThenGenerateFromPreviousArticle.ts`).
+- `name = 'evaluate_criteria_then_generate_from_previous_article'`
+- `usesLLM = true`
+- `getAttributionDimension(detail) → detail.weakestCriteriaNames[0]` (primary weakness becomes the attribution dimension; same `eloAttrDelta:<agent>:<criteriaName>` row family as GFPA)
+
+**Combined LLM call** (`buildEvaluateAndSuggestPrompt`): one structured prompt asks for both per-criterion scores AND fix suggestions for the K weakest criteria in a single response. Each criterion's `evaluation_guidance` rubric (anchor scores with descriptions) is injected verbatim so the model has clear scoring landmarks. The two-pass parser (`parseEvaluateAndSuggest`) splits the response on the first `### Suggestion` heading: pass 1 extracts `Score: <n>` for every criterion, pass 2 extracts suggestion blocks and filters them to the weakest set determined post-scoring (any extra suggestions land in `droppedSuggestions` for visibility). One LLM call instead of two halves end-to-end latency and cost; the case for combining them is that scoring + suggestion drafting share the same parent-article context, so paying for context twice was pure waste.
+
+**Permissive parser (fixes_to_evolution_admin_dashboard__20260503 Issue 4)**: The suggestion-block parser tolerates missing or empty `Example:` / `Issue:` / `Fix:` lines — only `Criterion:` is hard-required. Empty/missing fields land as empty strings (not synthetic placeholder text); the UI renderer maps `''` to a visible em-dash via `formatValue`. Regex tightened to `[ \t]*(.*?)[ \t]*$` (intra-line whitespace only) so capture groups cannot span newlines under the `m` flag — degenerate inputs like `Example:\n\nIssue: real` now correctly yield `examplePassage = ''` and `whatNeedsAddressing = 'real'`. Set `EVOLUTION_PERMISSIVE_EVAL_PARSER='false'` to revert to the strict 4-line null-check (kill-switch).
+
+**GFPA delegation**: the wrapper builds a `customPrompt` from the weakest-K suggestion bullets and calls `new GenerateFromPreviousArticleAgent().execute(input)` directly with `tactic: 'criteria_driven'`, `customPrompt`, plus `criteriaSetUsed` and `weakestCriteriaIds` for variant attribution. Same load-bearing invariant as the reflection wrapper — must use `.execute()` not `.run()` so cost attribution stays in the wrapper's `AgentCostScope`.
+
+**Misconfiguration guard** in GFPA: `if (tactic === 'criteria_driven' && customPrompt === undefined) throw` — the marker tactic only makes sense when invoked through this wrapper; bare GFPA dispatch with that tactic is rejected to surface wiring bugs at runtime.
+
+**Cost stack**: `'evaluate_and_suggest'` is a typed `AgentName` with `evaluation_cost` as its bucket. `OUTPUT_TOKEN_ESTIMATES.evaluate_and_suggest = 2300` covers all per-criterion score lines plus K suggestion blocks. `estimateEvaluateAndSuggestCost(parentChars, gen, judge, criteriaCount, weakestK, avgRubricChars)` accounts for prompt overhead + per-criterion description + rubric anchor injection, and `estimateAgentCost(useCriteria, criteriaCount, weakestK)` extends the dispatch-plan projector. Run-level `evaluation_cost` propagates to `total_evaluation_cost` and `avg_evaluation_cost_per_run` at strategy/experiment level.
+
+**Failure-mode handling** preserves partial detail via `updateInvocation` before re-throwing: combined LLM error → writes prompt + criteria-set context, re-throws `EvaluateAndSuggestLLMError`; parser fails → writes raw response, re-throws `EvaluateAndSuggestParseError`; inner GFPA throws → writes full evaluate-and-suggest sub-detail (scores + suggestions + droppedSuggestions + evaluationCost) before re-throw.
+
+**Mutual exclusivity** with `generationGuidance` and `weakestK`/`criteriaIds`: the Zod refinements on `iterationConfigSchema` reject `criteriaIds` / `weakestK` on non-`criteria_and_generate` rows and reject `generationGuidance` on `criteria_and_generate` rows. The wizard's agent-type select clears the inverse fields when switched.
+
+**Kill-switch**: `EVOLUTION_REFLECTION_ENABLED='false'` env var falls all `agentType: 'reflect_and_generate'` iterations back to vanilla GFPA dispatch. Resolved once per iteration in `runIterationLoop` before parallel/top-up dispatch — single env flip rolls the feature back without code revert.
+
+## IterativeEditingAgent (bring_back_editing_agents_evolution_20260430)
+
+A wrapper agent that runs a propose-then-review editing protocol on existing pool variants. Per parent: up to N propose-review-apply cycles (Proposer LLM → deterministic Implementer pre-check → Approver LLM → deterministic Implementer apply). Selected per-iteration via `IterationConfig.agentType: 'iterative_editing'` — fourth top-level agent type alongside `'generate'`, `'reflect_and_generate'`, and `'swiss'`.
+
+**Class**: `IterativeEditingAgent` (`evolution/src/lib/core/agents/editing/IterativeEditingAgent.ts`).
+- `name = 'iterative_editing'`
+- `usesLLM = true`
+- One invocation row per parent (regardless of cycle count)
+
+**Per-cycle protocol**:
+1. **Proposer** (`iterative_edit_propose`) — LLM call. Output is the FULL ARTICLE BODY VERBATIM with inline numbered CriticMarkup edits: `{++ [#N] inserted ++}`, `{-- [#N] deleted --}`, `{~~ [#N] old ~> new ~~}`. Multiple atomic edits sharing `[#N]` form an atomic accept/reject group.
+2. **Implementer pre-check** (deterministic): parser extracts atomic edits with byte positions in `current.text`; strip-markup pass + drift check. On drift: minor → drift-recovery LLM call; major → cycle aborts. Hard-rule + size-ratio guardrail filters violator groups.
+3. **Approver** (`iterative_edit_review`) — LLM call. Outputs JSONL: one `{groupNumber, decision, reason}` per group. Missing → reject default.
+4. **Implementer apply** (deterministic): collect accepted groups, drop overlapping ranges + context-mismatched edits, sort survivors by `range.start` descending, splice right-to-left.
+
+After loop terminates: emit final `Variant` if any cycle accepted edits. The final variant's `parent_variant_id` is the original input parent (per Decisions §14 — intermediate cycle texts live only in `execution_detail.cycles[i].childText`).
+
+**Step 5 — Post-cycle ranking** (added by `add_ranking_iterative_editing_agent_evolution_20260502`, gated by `EDITING_RANK_ENABLED`, default true). The single emitted final variant runs through the same `rankNewVariant()` helper that `GenerateFromPreviousArticleAgent` uses: binary-search Elo against a deep-cloned local snapshot of the iteration-start pool (passed via `IterativeEditInput.initialPool`/`initialRatings`/`initialMatchCounts`/`cache`/`parentVariantId` — all optional; their absence is the input-presence gate that skips ranking). Surface/discard policy mirrors GFPA: discard if `rankResult.status === 'budget'` AND `localElo < computeTop15Cutoff(localRatings)`. Match buffer feeds `MergeRatingsAgent` (which writes one `evolution_arena_comparisons` row per match). Ranking cost lands on `execution_detail.ranking.cost` and rolls up to the `iterative_edit_rank_cost` metric. Only the final variant is ranked, never intermediates (D7).
+
+**LOAD-BEARING INVARIANTS** (Decisions §13, mirror of `reflectAndGenerateFromPreviousArticle.ts`):
+- **I1**: Internal LLM helpers MUST use the wrapper's `EvolutionLLMClient` directly. Never instantiate a separate Agent and call `.run()` — that creates a NESTED `Agent.run()` scope and splits cost attribution.
+- **I2**: Capture `costBefore*Call` snapshots before each helper call so per-purpose cost split fills `execution_detail.cycles[i].{proposeCostUsd, approveCostUsd, driftRecoveryCostUsd}`.
+- **I3**: Write partial `execution_detail` BEFORE re-throwing on any helper failure. The `trackInvocations` partial-update path preserves the partial detail through `Agent.run()`'s catch handler.
+
+**Cost stack**: three per-LLM-call AgentName labels (`iterative_edit_propose`, `iterative_edit_review`, `iterative_edit_drift_recovery`) all collapse to one `iterative_edit_cost` metric. Per-purpose split lives in `execution_detail.cycles[i]`. Run-level `iterative_edit_cost` propagates to `total_iterative_edit_cost` and `avg_iterative_edit_cost_per_run`. Post-cycle ranking cost (the `'ranking'` phase) is tracked separately as `iterative_edit_rank_cost` (and propagates to `total_iterative_edit_rank_cost` / `avg_iterative_edit_rank_cost_per_run`) — surfaces in the dispatch wizard as `EstPerAgentValue.editingRank` peer field.
+
+**Operational health metrics**: `iterative_edit_drift_rate`, `iterative_edit_recovery_success_rate`, `iterative_edit_accept_rate` — env-tunable alert thresholds via `EVOLUTION_EDITING_*_ALERT_THRESHOLD` env vars.
+
+**Eligibility cutoff** + **dispatch**: `editingEligibilityCutoff: { mode: 'topN' | 'topPercent'; value }` per iteration (default `topN: 10`). Shared `resolveEditingDispatchRuntime` helper at `evolution/src/lib/pipeline/loop/editingDispatch.ts` filters arena entries, sorts by Elo descending, applies the cutoff. Per-invocation budget split per Decisions §15: each invocation receives `perInvocationBudgetUsd = remainingIterBudget / dispatchCount` and self-aborts at 90% spent.
+
+**Models** (3 strategy-level fields):
+- `editingModel?: string` — Proposer LLM. Falls back to `generationModel`.
+- `approverModel?: string` — Approver LLM. Falls back to `editingModel`. **Same-as-editingModel surfaces a rubber-stamping warning in the wizard** (Decisions §16) — for max auditability, choose distinct models.
+- `driftRecoveryModel?: string` — drift-recovery nano model. Defaults to `gpt-4.1-nano`.
+
+**Kill switches**: `EDITING_AGENTS_ENABLED='false'` short-circuits the dispatch branch entirely. `EVOLUTION_DRIFT_RECOVERY_ENABLED='false'` skips the recovery LLM call (minor drift treated as major). `EDITING_RANK_ENABLED='false'` reverts to the pre-ranking-project behavior — editing variants land with default Elo (no `arena_comparisons` rows tied to editing iterations).
+
+**Schema deploy gate**: `evolution/src/lib/core/startupAssertions.ts` queries the `evolution_cost_calibration_phase_allowed` CHECK constraint at agent-registry init and throws `MissingMigrationError` if any TS phase string is missing from the DB enum. Eliminates the silent-reject failure mode PR #1017 hit.
+
+See full deep dive: `docs/feature_deep_dives/editing_agents.md`.

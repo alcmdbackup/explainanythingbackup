@@ -2,6 +2,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import Link from 'next/link';
 import { EvolutionBreadcrumb, EntityListPage } from '@evolution/components/evolution';
 import { listVariantsAction, type VariantListEntry } from '@evolution/services/evolutionActions';
 import type { ColumnDef, FilterDef } from '@evolution/components/evolution';
@@ -47,7 +48,23 @@ const COLUMNS: ColumnDef<VariantListEntry>[] = [
       </span>
     ),
   },
-  { key: 'agent_name', header: 'Agent', render: (v) => v.agent_name || <span className="text-[var(--text-muted)]">—</span> },
+  {
+    key: 'agent_name',
+    header: 'Agent',
+    // Phase 3 Gap 5 freebie: link to tactic detail when tactic_id resolves; fall back to
+    // plain text when unknown (legacy names / seeds / manual entries).
+    render: (v) => {
+      if (!v.agent_name) return <span className="text-[var(--text-muted)]">—</span>;
+      if (v.tactic_id) {
+        return (
+          <Link href={`/admin/evolution/tactics/${v.tactic_id}`} className="text-[var(--accent-gold)] hover:underline font-mono text-xs">
+            {v.agent_name}
+          </Link>
+        );
+      }
+      return <span className="font-mono text-xs">{v.agent_name}</span>;
+    },
+  },
   {
     key: 'elo_score',
     header: 'Rating',
@@ -70,10 +87,22 @@ const COLUMNS: ColumnDef<VariantListEntry>[] = [
     },
   },
   { key: 'match_count', header: 'Matches', align: 'right', render: (v) => v.match_count },
-  { key: 'generation', header: 'Generation', align: 'right', render: (v) => v.generation },
+  // U18 (use_playwright_find_bugs_ux_issues_20260422): standardize on "Iteration"
+  // across surfaces — the underlying DB column is `evolution_variants.generation`,
+  // but per data_model.md it MAPS to Variant.iterationBorn (the iteration index from
+  // iterationConfigs[] when this variant was created). The run-detail Variants tab,
+  // invocations list, and Cost Estimates table all already use "Iteration"; this
+  // surface is the only one that said "Generation".
+  { key: 'generation', header: 'Iteration', align: 'right', headerTitle: 'Iteration index (iterationBorn) — DB column evolution_variants.generation', render: (v) => v.generation },
   {
     key: 'parent_variant_id',
     header: 'Parent · Δ',
+    // B5 (use_playwright_find_bugs_ux_issues_20260422): VariantParentBadge
+    // renders its own <Link> to the parent variant. Without skipLink the
+    // EntityListPage row-level Link wraps it, producing nested <a> tags
+    // and a React hydration error. skipLink lets the cell escape the
+    // outer row-link wrapper.
+    skipLink: true,
     render: (v) => {
       if (!v.parent_variant_id) {
         return (
@@ -103,6 +132,7 @@ const COLUMNS: ColumnDef<VariantListEntry>[] = [
           delta={delta}
           deltaCi={ci}
           crossRun={!!v.parent_run_id && v.parent_run_id !== v.run_id}
+          parentRunId={v.parent_run_id ?? null}
         />
       );
     },

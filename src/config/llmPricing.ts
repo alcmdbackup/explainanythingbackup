@@ -96,6 +96,20 @@ export function calculateLLMCost(
   completionTokens: number,
   reasoningTokens: number = 0
 ): number {
+  // B021: reject non-finite / negative token counts. A provider bug returning -1 would
+  // produce negative spend, silently deflating reported cost and un-tripping the budget
+  // gate. Throw loudly instead.
+  if (
+    !Number.isFinite(promptTokens) || promptTokens < 0 ||
+    !Number.isFinite(completionTokens) || completionTokens < 0 ||
+    !Number.isFinite(reasoningTokens) || reasoningTokens < 0
+  ) {
+    throw new Error(
+      `calculateLLMCost: token counts must be finite non-negative numbers ` +
+      `(model=${model}, prompt=${promptTokens}, completion=${completionTokens}, reasoning=${reasoningTokens})`,
+    );
+  }
+
   const pricing = getModelPricing(model);
 
   const inputCost = (promptTokens / 1_000_000) * pricing.inputPer1M;

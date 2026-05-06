@@ -4,21 +4,51 @@ The evolution system uses a two-layer budget model to prevent runaway LLM spendi
 
 For how costs fit into the pipeline lifecycle, see [Architecture](./architecture.md). For the database tables that store cost data, see [Data Model](./data_model.md).
 
+> **⚠ Historical cost-data caveats** (debug_evolution_run_cost_20260426). Three windows of historical cost data have known reliability issues that cannot be retroactively repaired:
+>
+> 1. **Pre-2026-02-23**: cost numbers are reliable.
+> 2. **2026-02-23 → 2026-04-30 (audit-gap window)**: `llmCallTracking` rows are missing entirely for evolution runs in this period — per-call token-level audit is impossible. Run-level cost rollups in `evolution_metrics` are still trustworthy because they came from `scope.getOwnSpent()`, but you cannot drill down further.
+> 3. **Pre-2026-04-20 OpenRouter-routed runs (gemini-flash-lite, qwen, gpt-oss-20b)**: cost numbers may show ~3× inflation due to Bug A — the legacy `response.length / 4` heuristic over-counted tokens for these models. Not retroactively repairable because pre-fix `llmCallTracking` rows have NULL `evolution_invocation_id` and the backfill script's preflight rejects them.
+>
+> Post-2026-04-30 data is reliable. The CostEstimatesTab on `/admin/evolution/runs/[runId]` surfaces a banner when `run.created_at < '2026-04-30T00:00:00Z'` to warn consumers.
+
 > **Per-purpose cost split.** Every LLM call passes a typed `AgentName` label as the
 > second argument to `llm.complete()` (defined in `evolution/src/lib/core/agentNames.ts`,
-> currently `'generation' | 'ranking' | 'seed_title' | 'seed_article'`). The V2 cost
-> tracker buckets per-call costs under this label in `phaseCosts[label]` (race-free
-> per-key accumulator under Node single-threaded execution). After every call,
-> `createLLMClient.ts` writes `cost`, `generation_cost`, and `ranking_cost` to
-> `evolution_metrics` via `writeMetricMax` — a Postgres RPC using
+> currently `'generation' | 'ranking' | 'reflection' | 'seed_title' | 'seed_article' | 'evolution'`).
+> The V2 cost tracker buckets per-call costs under this label in `phaseCosts[label]`
+> (race-free per-key accumulator under Node single-threaded execution). After every
+> call, `createLLMClient.ts` writes `cost`, `generation_cost`, `ranking_cost`, and
+> `reflection_cost` to `evolution_metrics` via `writeMetricMax` — a Postgres RPC using
 > `ON CONFLICT DO UPDATE SET value = GREATEST(...)` so concurrent out-of-order writes
 > can never overwrite a larger value with a smaller one. The `COST_METRIC_BY_AGENT`
-> lookup determines which static metric name receives the per-purpose write.
+> lookup determines which static metric name receives the per-purpose write
+> (`'reflection' → 'reflection_cost'`).
 >
 > **Local integration test setup:** Run `supabase db reset` (or
 > `supabase migration up --local`) before `npm run test:integration` to ensure the
 > `upsert_metric_max` RPC is available in the local DB. CI applies migrations to staging
 > automatically via `.github/workflows/ci.yml` `deploy-migrations` job.
+
+> **Reflection wrapper cost stack.** `ReflectAndGenerateFromPreviousArticleAgent`
+> (Shape A: `agentType: 'reflect_and_generate'` is a top-level enum value alongside
+> `'generate'` and `'swiss'`) makes ONE reflection LLM call up front to pick a tactic,
+> then delegates to `GenerateFromPreviousArticleAgent` for the usual generation +
+> ranking calls. Total per-invocation cost is therefore `reflection + generation +
+> ranking`. The reflection call uses an `OUTPUT_TOKEN_ESTIMATES.reflection = 600`
+> budget (vs. 1000 for generation, 100 for ranking) when reserving budget in
+> `createEvolutionLLMClient.ts`. The reflection cost is recorded incrementally to
+> `reflection_cost` (run-level) by the same `writeMetricMax` path, and propagates to
+> `total_reflection_cost` (sum) and `avg_reflection_cost_per_run` (avg) at the
+> strategy/experiment level via `SHARED_PROPAGATION_DEFS` in `registry.ts`.
+>
+> **Runs-list reconciliation (use_playwright_find_ux_issues_bugs_20260501 Fix #11)**:
+> the runs-list `Spent` column and the dashboard `Total Cost` use a layered fallback
+> in `evolution/src/lib/cost/getRunCostWithFallback.ts` when the rollup `cost` metric
+> is missing. As of Fix #11, layer 2 sums all FOUR per-purpose costs
+> (`generation_cost + ranking_cost + reflection_cost + seed_cost`) — pre-fix it
+> omitted reflection_cost, which made reflect+generate runs under-report by the
+> reflection portion. `reflection_cost.listView` is also `true` so the runs-list
+> exposes a Reflection Cost column alongside the others.
 
 ---
 
@@ -62,7 +92,7 @@ LLM Call Request
 
 ## Layer 1: Per-Run Cost Tracker
 
-**File:** `evolution/src/lib/pipeline/cost-tracker.ts`
+**File:** `evolution/src/lib/pipeline/infra/trackBudget.ts`
 
 The V2 cost tracker uses a reserve-before-spend pattern with a 1.3x safety margin. Every LLM call must reserve budget before execution, then either record the actual spend on success or release the reservation on failure.
 
@@ -213,7 +243,18 @@ Before dispatching generateFromPreviousArticle agents, the orchestrator uses emp
 
 - **Deterministic ranking cost**: `min(poolSize - 1, maxComparisonsPerVariant)` comparisons × 2 LLM calls (bias mitigation) × comparison cost. Comparison prompt = 698 chars overhead + 2 × article length.
 
-Key functions: `estimateGenerationCost()`, `estimateRankingCost()`, `estimateAgentCost()`, `estimateSwissPairCost()`.
+Key functions: `estimateGenerationCost()`, `estimateRankingCost()`, `estimateAgentCost()`, `estimateSwissPairCost()`, `estimateEvaluateAndSuggestCost()`.
+
+### Evaluate-and-Suggest Cost (evaluateCriteriaThenGenerateFromPreviousArticle_20260501)
+
+The `EvaluateCriteriaThenGenerateFromPreviousArticleAgent` adds one combined LLM call upstream of the inner GFPA dispatch. `estimateEvaluateAndSuggestCost(parentChars, gen, judge, criteriaCount, weakestK, avgRubricChars)` accounts for:
+
+- **Prompt overhead** — fixed `EVALUATE_AND_SUGGEST_PROMPT_OVERHEAD` chars for header/instructions
+- **Per-criterion description** — `criteriaCount × CRITERIA_DESC_CHARS_PER_ITEM`
+- **Per-criterion rubric injection** — `criteriaCount × avgRubricChars` (avg from the actual `evaluation_guidance.anchors[]` payload, not a fixed constant; rubrics with more/longer anchors cost proportionally more)
+- **Output** — per-criterion score line (`SCORE_LINE_OUTPUT_CHARS`) for ALL criteria + `weakestK × SUGGESTION_BLOCK_OUTPUT_CHARS`. `OUTPUT_TOKEN_ESTIMATES.evaluate_and_suggest = 2300` covers this cap.
+
+`estimateAgentCost(useCriteria, criteriaCount, weakestK)` extends the dispatch-plan projector — when `useCriteria` is true, it adds the evaluate-and-suggest cost to the GFPA cost rather than replacing it. `EstPerAgentValue` carries an `evaluation` field alongside `generation` and `ranking` so the projector and admin "Cost Estimates" tab can break out the new phase. The calibration ladder (`evolution/src/lib/pipeline/infra/createEvolutionLLMClient.ts`) and `costCalibrationLoader.ts` phase enum both include `'evaluate_and_suggest'` so DB-backed calibration values can override the hardcoded constants once enough samples exist.
 
 ### Budget-Aware Dispatch
 
@@ -397,6 +438,16 @@ Under parallel agent dispatch, a shared `V2CostTracker` serves two purposes: **b
 `Agent.run()` creates a scope per invocation, passes it as `costTracker` in `extendedCtx`, AND **builds the `EvolutionLLMClient` inside the scope** (from `ctx.rawProvider` + `ctx.defaultModel` via `createEvolutionLLMClient`). The per-invocation client's `recordSpend` calls go through the scope's intercept, so `scope.getOwnSpent()` is authoritative. `MergeRatingsAgent` opts out via `usesLLM = false` since it doesn't make LLM calls.
 
 The `cost_usd` written to `evolution_agent_invocations` comes from `scope.getOwnSpent()` — the direct sum of this invocation's `recordSpend` calls, with no sibling cost bleed even under parallel dispatch. `detail.totalCost` is still populated (Agent.run falls back to it when `getOwnSpent()` returns 0, as with MergeRatingsAgent which makes no LLM calls).
+
+### LLMSpendingGate singleton scope (B082, 2026-04-23)
+
+The `LLMSpendingGate` is a module-level singleton — meaning each Vercel serverless container (or Node process) holds its own in-memory cache. On a cold start the cache is empty; warm containers accumulate cache entries over the TTL (5s kill switch / 30s daily / 60s monthly). Two concurrent requests landing on different containers can thus see divergent cache state, and under high burst load the cache may briefly under-read the shared DB state. **The RPC (`check_and_reserve_llm_budget`) remains the authoritative gate** — it enforces the cap atomically at reservation time. The in-memory cache is a performance optimization that fails safely toward the RPC.
+
+Switch to a distributed cache (Redis/KV) only if over-spend is observed in practice. The concrete signal to watch: track the ratio of `reserved_before_rpc_spend / rpc_spend` in a Honeycomb dashboard (filter to `service:llm-spending-gate`) over a 7-day rolling window. If that ratio exceeds 1.05 for any day, the singleton-divergence hypothesis has evidence and a KV-backed cache is warranted.
+
+### Invariant: every cost-tracker caller routes through AgentCostScope (B012, 2026-04-23)
+
+After the Phase 6 bug-fix pass (scan_codebase_for_bugs_20260422), **every cost-tracker caller must route through `AgentCostScope`**. `getTotalSpent()` is no longer part of the `AgentCostScope` type — any caller that needs per-scope cost attribution uses `getOwnSpent()`. Removing `getTotalSpent()` from the scope type means the TypeScript compiler catches any missed caller at the type-boundary (TS2551 / TS2339 on `.getTotalSpent()`), providing automatic exhaustiveness. `rankNewVariant.ts` previously had a `getOwnSpent?.() ?? getTotalSpent()` fallback — that is the code path the B012 fix removed. If a caller genuinely needs the run-total (e.g. for budget-tier calculation), it reads it from the underlying `V2CostTracker` that the scope wraps, not from the scope itself.
 
 ---
 

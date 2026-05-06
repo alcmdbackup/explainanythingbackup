@@ -25,6 +25,7 @@ describe('EvolutionSidebar', () => {
       { testId: 'evolution-sidebar-nav-experiments', href: '/admin/evolution/experiments' },
       { testId: 'evolution-sidebar-nav-prompts', href: '/admin/evolution/prompts' },
       { testId: 'evolution-sidebar-nav-strategies', href: '/admin/evolution/strategies' },
+      { testId: 'evolution-sidebar-nav-tactics', href: '/admin/evolution/tactics' },
       { testId: 'evolution-sidebar-nav-runs', href: '/admin/evolution/runs' },
       { testId: 'evolution-sidebar-nav-invocations', href: '/admin/evolution/invocations' },
       { testId: 'evolution-sidebar-nav-variants', href: '/admin/evolution/variants' },
@@ -69,8 +70,11 @@ describe('EvolutionSidebar', () => {
     expect(backLink).toHaveTextContent('← Back to Admin');
   });
 
-  it('renders title "Evolution Dashboard"', () => {
+  it('Fix #2/#19: renders title "Evolution" (was "Evolution Dashboard" — redundant on non-dashboard pages)', () => {
     render(<EvolutionSidebar />);
-    expect(screen.getByText('Evolution Dashboard')).toBeInTheDocument();
+    // The sidebar header used to read "Evolution Dashboard" on every page.
+    // Now it just says "Evolution"; breadcrumbs carry section context.
+    const headings = screen.getAllByText('Evolution');
+    expect(headings.length).toBeGreaterThan(0);
   });
 });

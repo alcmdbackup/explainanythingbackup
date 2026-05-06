@@ -147,4 +147,22 @@ describe('getEntityLogsAction', () => {
     await handler({ entityType: 'run', entityId: 'a0000000-0000-0000-0000-000000000001', filters: { messageSearch: '100%_done' } }, ctx);
     expect(chainMethods.ilike).toHaveBeenCalledWith('message', '%100\\%\\_done%');
   });
+
+  // B13 (use_playwright_find_bugs_ux_issues_20260422): the logs page would
+  // re-shuffle the first ~10 rows on every refresh because rows can share
+  // created_at to the millisecond. Adding a stable secondary sort by
+  // BIGSERIAL `id` (monotonic per insert) fixes the shuffle.
+  it('B13: orders by created_at ASC THEN by id ASC for stable order under created_at ties', async () => {
+    const { ctx, chainMethods } = makeMockCtx();
+    await handler({ entityType: 'run', entityId: 'a0000000-0000-0000-0000-000000000001' }, ctx);
+    expect(chainMethods.order).toBeDefined();
+    const orderCalls = chainMethods.order!.mock.calls;
+    expect(orderCalls).toContainEqual(['created_at', { ascending: true }]);
+    expect(orderCalls).toContainEqual(['id', { ascending: true }]);
+    // Secondary sort key MUST come after primary sort key (PostgREST applies
+    // .order() chained calls as ORDER BY a, b — the chain order matters).
+    const createdAtIdx = orderCalls.findIndex((c: unknown[]) => c[0] === 'created_at');
+    const idIdx = orderCalls.findIndex((c: unknown[]) => c[0] === 'id');
+    expect(idIdx).toBeGreaterThan(createdAtIdx);
+  });
 });

@@ -66,6 +66,8 @@ function createMockContext(overrides?: Partial<AgentContext>): AgentContext {
       getTotalSpent: jest.fn().mockReturnValue(0.5),
       getPhaseCosts: jest.fn().mockReturnValue({}),
       getAvailableBudget: jest.fn().mockReturnValue(5),
+      computeMargined: jest.fn((c: number) => c * 1.3),
+      canReserve: jest.fn().mockReturnValue(true),
     },
     config: {
       iterationConfigs: [{ agentType: 'generate', budgetPercent: 60 }, { agentType: 'swiss', budgetPercent: 40 }],
@@ -331,7 +333,7 @@ describe('Agent abstract class', () => {
   });
 
   describe('run() - schema validation failure', () => {
-    it('warns when execution detail does not match schema, but still succeeds', async () => {
+    it('B051: warns and marks result.success=false when execution detail does not match schema', async () => {
       // Return a detail with wrong shape: totalCost is a string, not a number
       const agent = new TestAgent(async () => ({
         result: 'ok',
@@ -341,7 +343,8 @@ describe('Agent abstract class', () => {
 
       const result = await agent.run('hello', ctx);
 
-      expect(result.success).toBe(true);
+      // B051: schema-invalid detail is now a failed invocation so dashboards see it.
+      expect(result.success).toBe(false);
       expect(ctx.logger.warn).toHaveBeenCalledWith(
         expect.stringContaining('validation failed'),
         expect.any(Object),
@@ -380,7 +383,7 @@ describe('Agent abstract class', () => {
   });
 
   describe('run() - detail parse failure writes null detail to DB', () => {
-    it('writes undefined execution_detail when detail fails schema validation', async () => {
+    it('B051: marks success=false + writes undefined execution_detail when detail fails schema validation', async () => {
       const agent = new TestAgent(async () => ({
         result: 'ok',
         detail: { detailType: 'wrong', totalCost: 'not-a-number' } as any,
@@ -389,12 +392,15 @@ describe('Agent abstract class', () => {
 
       const result = await agent.run('hello', ctx);
 
-      expect(result.success).toBe(true);
-      // Verify that execution_detail is undefined (not the invalid detail)
+      // B051: a detail-schema failure is a data-quality bug — mark the
+      // invocation as failed so it's visible in dashboards, not silently ok.
+      expect(result.success).toBe(false);
       const updateCall = updateInvocation.mock.calls[0][2];
       expect(updateCall.execution_detail).toBeUndefined();
+      expect(updateCall.success).toBe(false);
+      expect(updateCall.error_message).toEqual(expect.any(String));
       expect(ctx.logger.warn).toHaveBeenCalledWith(
-        expect.stringContaining('writing null detail to DB'),
+        expect.stringContaining('validation failed'),
         expect.any(Object),
       );
     });
@@ -421,6 +427,81 @@ describe('Agent abstract class', () => {
       });
       await agent.run('hello', createMockContext());
       expect(observedInvocationId).toBe('');
+    });
+
+    // ── FK chain test (debug_evolution_run_cost_20260426 Phase 5a) ────────────
+    // This is the test that would have caught the original FK linkage bug — agents
+    // call llm.complete(prompt, agentName) WITHOUT options, so the per-call
+    // `options.invocationId` path is undefined; only the binding-at-construction path
+    // (Phase 4a) carries the invocationId to rawProvider, where it gets forwarded
+    // through to llmCallTracking.
+    it('binds invocationId on the scoped EvolutionLLMClient — rawProvider receives it as options.invocationId on every complete() call', async () => {
+      // Mock rawProvider in the {text, usage} shape that createEvolutionLLMClient expects.
+      const rawProvider = {
+        complete: jest.fn(async () => ({
+          text: '# Test\n\n## Section\n\nProse with two sentences. More prose to satisfy validation.',
+          usage: { promptTokens: 10, completionTokens: 5 },
+        })),
+      };
+
+      // TestAgent's executeFn calls input.llm.complete WITHOUT options — simulating how
+      // iteration-loop agents (e.g. GenerateFromPreviousArticleAgent) actually call it.
+      const agent = new TestAgent(async (_input, _ctx) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const llm = (_input as any).llm ?? (_ctx as any).llm;
+        if (llm) await llm.complete('test prompt', 'generation');
+        return { result: 'ok', detail: { detailType: 'test', totalCost: 0 } };
+      });
+
+      const ctx = createMockContext({
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        rawProvider: rawProvider as any,
+        defaultModel: 'gpt-4o',
+      });
+
+      await agent.run('input', ctx);
+
+      // Assert the rawProvider received invocationId in its options arg — the bound
+      // value flowing through the scoped client at Agent.ts:69 → createEvolutionLLMClient.
+      expect(rawProvider.complete).toHaveBeenCalledWith(
+        'test prompt',
+        'generation',
+        expect.objectContaining({ invocationId: 'inv-123' }),
+      );
+    });
+
+    // ── Kill-switch coverage (Phase 5a-bis) ───────────────────────────────────
+    it('omits invocationId binding when EVOLUTION_FK_THREADING_ENABLED=false', async () => {
+      const savedEnv = process.env.EVOLUTION_FK_THREADING_ENABLED;
+      process.env.EVOLUTION_FK_THREADING_ENABLED = 'false';
+      try {
+        const rawProvider = {
+          complete: jest.fn(async () => ({
+            text: '# Test\n\n## Section\n\nProse one. Prose two.',
+            usage: { promptTokens: 10, completionTokens: 5 },
+          })),
+        };
+        const agent = new TestAgent(async (_input, _ctx) => {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const llm = (_input as any).llm ?? (_ctx as any).llm;
+          if (llm) await llm.complete('test prompt', 'generation');
+          return { result: 'ok', detail: { detailType: 'test', totalCost: 0 } };
+        });
+        const ctx = createMockContext({
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          rawProvider: rawProvider as any,
+          defaultModel: 'gpt-4o',
+        });
+        await agent.run('input', ctx);
+
+        // Kill switch active → bound invocationId is undefined → rawProvider receives undefined.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const callArgs = rawProvider.complete.mock.calls[0] as any;
+        expect(callArgs?.[2]?.invocationId).toBeUndefined();
+      } finally {
+        if (savedEnv === undefined) delete process.env.EVOLUTION_FK_THREADING_ENABLED;
+        else process.env.EVOLUTION_FK_THREADING_ENABLED = savedEnv;
+      }
     });
   });
 

@@ -23,8 +23,15 @@ async function deleteVectorsForExplanation(explanationId: number): Promise<void>
     const pc = new Pinecone({ apiKey: pineconeApiKey });
     const index = pc.index(pineconeIndexName);
 
+    // B117: dimension must match the index. Prefer env var so infra can swap
+    // embedding models without editing test code; fall back to the current
+    // text-embedding-3-large default (3072).
+    const dimEnv = process.env.PINECONE_INDEX_DIMENSION;
+    const parsedDim = dimEnv ? Number(dimEnv) : NaN;
+    const VECTOR_DIMENSION =
+      Number.isFinite(parsedDim) && parsedDim > 0 ? parsedDim : 3072;
     // Query for vectors with this explanation_id
-    const dummyVector = new Array(3072).fill(0); // text-embedding-3-large dimension
+    const dummyVector = new Array(VECTOR_DIMENSION).fill(0);
     const queryResponse = await index.namespace('default').query({
       vector: dummyVector,
       topK: 10000,

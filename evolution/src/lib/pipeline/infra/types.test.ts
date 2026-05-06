@@ -36,7 +36,6 @@ describe('V2 types', () => {
       judgeModel: 'gpt-4.1-nano',
       generationModel: 'gpt-4.1-mini',
     };
-    expect(config.strategiesPerRound).toBeUndefined();
     expect(config.calibrationOpponents).toBeUndefined();
     expect(config.tournamentTopK).toBeUndefined();
   });

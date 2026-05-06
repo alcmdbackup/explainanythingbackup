@@ -39,6 +39,8 @@ const mockVariant: VariantFullDetail = {
   runStatus: 'completed',
   runCreatedAt: '2026-03-01T00:00:00Z',
   persisted: true,
+  agentInvocationId: null,
+  agentInvocationName: null,
 };
 
 describe('VariantDetailContent', () => {
@@ -80,5 +82,41 @@ describe('VariantDetailContent', () => {
     const nonWinner = { ...mockVariant, isWinner: false };
     render(<VariantDetailContent variant={nonWinner} />);
     expect(screen.queryByText('Winner')).not.toBeInTheDocument();
+  });
+
+  it('renders "Produced by" cross-link when agentInvocationId is populated', () => {
+    const withInvocation: VariantFullDetail = {
+      ...mockVariant,
+      agentInvocationId: 'cccccccc-1111-2222-3333-444444444444',
+      agentInvocationName: 'evaluate_criteria_then_generate_from_previous_article',
+    };
+    render(<VariantDetailContent variant={withInvocation} />);
+    const crossLinks = screen.getByTestId('cross-links');
+    const link = crossLinks.querySelector(
+      'a[href="/admin/evolution/invocations/cccccccc-1111-2222-3333-444444444444"]',
+    );
+    expect(link).toBeInTheDocument();
+    // Label uses agent_name (more useful than UUID-8) for wrapper-agent disambiguation
+    expect(crossLinks).toHaveTextContent('Produced by');
+    expect(crossLinks).toHaveTextContent('evaluate_criteria_then_generate_from_previous_article');
+  });
+
+  it('omits "Produced by" link when agentInvocationId is null (legacy variants)', () => {
+    // mockVariant has agentInvocationId: null — legacy variant pre-migration 20260418000003
+    render(<VariantDetailContent variant={mockVariant} />);
+    const crossLinks = screen.getByTestId('cross-links');
+    expect(crossLinks).not.toHaveTextContent('Produced by');
+  });
+
+  it('falls back to UUID-8 label when agentInvocationName is unexpectedly null', () => {
+    const partial: VariantFullDetail = {
+      ...mockVariant,
+      agentInvocationId: 'cccccccc-1111-2222-3333-444444444444',
+      agentInvocationName: null,
+    };
+    render(<VariantDetailContent variant={partial} />);
+    const crossLinks = screen.getByTestId('cross-links');
+    expect(crossLinks).toHaveTextContent('Produced by');
+    expect(crossLinks).toHaveTextContent('cccccccc'); // first 8 chars of UUID
   });
 });

@@ -444,6 +444,42 @@ adminTest.describe('Evolution Run Pipeline', { tag: '@evolution' }, () => {
     await expect(outcomeCard).toBeVisible({ timeout: 10000 });
   });
 
+  // fixes_to_evolution_admin_dashboard__20260503 Issue 2: timeline rows now
+  // (a) display the full agent_name (not the coarse KIND_CONFIG label like "Generate"),
+  // and (b) wrap the entire row in a <Link> so click-anywhere navigates to invocation detail.
+  adminTest('Issue 2: timeline rows show agent_name and link to invocation detail', async ({ adminPage }) => {
+    await adminPage.goto(`/admin/evolution/runs/${runId}?tab=timeline`);
+    await adminPage.waitForLoadState('domcontentloaded');
+
+    const timelineTab = adminPage.locator('[data-testid="timeline-tab"]');
+    await expect(timelineTab).toBeVisible({ timeout: 15000 });
+
+    // Expand the first iteration card so InvocationBars become visible.
+    const firstIter = adminPage.locator('[data-testid^="timeline-iter-"]').first();
+    await expect(firstIter).toBeVisible({ timeout: 10000 });
+    const expandButton = firstIter.locator('button').first();
+    await expandButton.click();
+
+    // First invocation row inside the expanded iteration.
+    const firstRow = firstIter.locator('[data-testid^="timeline-inv-"]').first();
+    await expect(firstRow).toBeVisible({ timeout: 10000 });
+
+    // The row should be wrapped in <a> (next/link renders <a>) — Issue 2 click target.
+    // Auto-retrying assertions handle hydration timing.
+    await expect(firstRow).toHaveAttribute('href', /^\/admin\/evolution\/invocations\/[a-f0-9-]+$/);
+
+    // The label should show snake_case agent_name (e.g. 'generate_from_previous_article'
+    // or 'merge_ratings'), NOT just the coarse KIND_CONFIG label "Generate"/"Merge".
+    // We assert via the title= attribute, which always carries the full agent_name.
+    const labelSpan = firstRow.locator('[title]').first();
+    await expect(labelSpan).toHaveAttribute('title', /_/); // snake_case marker
+
+    // Click → navigate to invocation detail.
+    await firstRow.click();
+    await adminPage.waitForURL(/\/admin\/evolution\/invocations\/[a-f0-9-]+/, { timeout: 15000 });
+    expect(adminPage.url()).toMatch(/\/admin\/evolution\/invocations\//);
+  });
+
   adminTest('logs tab has entries', async ({ adminPage }) => {
     // Navigate directly to the logs tab via URL to avoid click-timing race
     await adminPage.goto(`/admin/evolution/runs/${runId}?tab=logs`);

@@ -14,6 +14,10 @@ export interface WriteMetricOpts {
   origin_entity_id?: string;
   aggregation_method?: AggregationMethod;
   source?: string;
+  /** B028-S4: when true, the upsert preserves the existing `stale` flag instead of
+   *  forcing it to false. Used by code paths that write live values but don't want to
+   *  clear a stale-flip set by the cascade trigger. Default false (legacy behavior). */
+  preserveStale?: boolean;
 }
 
 interface MetricRowInput {
@@ -29,6 +33,9 @@ interface MetricRowInput {
   origin_entity_id?: string | null;
   aggregation_method?: string | null;
   source?: string | null;
+  /** B028-S4: when true, omit `stale: false` from the upsert payload so a concurrent
+   *  cascade-trigger flip to stale=true is not reverted. Per-row override. */
+  preserveStale?: boolean;
 }
 
 const TIMING_TO_PHASE: Record<MetricTiming, keyof EntityMetricRegistry> = {
@@ -68,22 +75,26 @@ export async function writeMetrics(
 
   // DB column is named `sigma` (not renamed due to CI safety check).
   // Application layer exposes this as `uncertainty`; we map at the query boundary.
-  const upsertRows = rows.map(r => ({
-    entity_type: r.entity_type,
-    entity_id: r.entity_id,
-    metric_name: r.metric_name,
-    value: r.value,
-    sigma: r.uncertainty ?? null,
-    ci_lower: r.ci_lower ?? null,
-    ci_upper: r.ci_upper ?? null,
-    n: r.n ?? 1,
-    origin_entity_type: r.origin_entity_type ?? null,
-    origin_entity_id: r.origin_entity_id ?? null,
-    aggregation_method: r.aggregation_method ?? null,
-    source: r.source ?? timing,
-    stale: false,
-    updated_at: new Date().toISOString(),
-  }));
+  // B028-S4: omit `stale` from per-row payload when `preserveStale: true` so a concurrent
+  // cascade trigger's stale=true flip survives a slightly-later write of an unrelated value.
+  const upsertRows = rows.map(r => {
+    const base = {
+      entity_type: r.entity_type,
+      entity_id: r.entity_id,
+      metric_name: r.metric_name,
+      value: r.value,
+      sigma: r.uncertainty ?? null,
+      ci_lower: r.ci_lower ?? null,
+      ci_upper: r.ci_upper ?? null,
+      n: r.n ?? 1,
+      origin_entity_type: r.origin_entity_type ?? null,
+      origin_entity_id: r.origin_entity_id ?? null,
+      aggregation_method: r.aggregation_method ?? null,
+      source: r.source ?? timing,
+      updated_at: new Date().toISOString(),
+    };
+    return r.preserveStale ? base : { ...base, stale: false };
+  });
 
   const { error } = await db
     .from('evolution_metrics')
@@ -119,6 +130,7 @@ export async function writeMetric(
     origin_entity_id: opts?.origin_entity_id,
     aggregation_method: opts?.aggregation_method,
     source: opts?.source,
+    preserveStale: opts?.preserveStale,
   }], timing);
 }
 

@@ -118,6 +118,11 @@ export interface VariantListEntry {
   parent_uncertainty?: number | null;
   /** Parent's run_id — used to detect cross-run parents (annotated "(other run)" in the badge). */
   parent_run_id?: string | null;
+  /** Tactic UUID resolved from agent_name via evolution_tactics lookup. Null when agent_name
+   *  has no matching tactic row (legacy names, manual/seed entries). Populated Phase 3
+   *  (track_tactic_effectiveness_evolution_20260422) so the variants list can deep-link to
+   *  tactic detail. */
+  tactic_id?: string | null;
 }
 
 const listVariantsInputSchema = z.object({
@@ -272,7 +277,11 @@ export const getEvolutionRunsAction = adminAction(
     if (runIds.length > 0) {
       try {
         const metricNames = getListViewMetrics('run').map(d => d.name);
-        const metricsByRun = await getMetricsForEntities(supabase, 'run', runIds, metricNames);
+        // B043: LOG — partial chunk failure logged; remaining runs show whatever succeeded.
+        const { data: metricsByRun, errors: readErrors } = await getMetricsForEntities(supabase, 'run', runIds, metricNames);
+        if (readErrors.length > 0) {
+          logger.warn('getEvolutionRunsAction: partial metrics-read', { errors: readErrors });
+        }
         for (const run of typedRuns) {
           run.metrics = metricsByRun.get(run.id) ?? [];
         }
@@ -361,7 +370,8 @@ export const getEvolutionRunByIdAction = adminAction(
     // of crashing the run detail page.
     try {
       const metricNames = getListViewMetrics('run').map(d => d.name);
-      const metricsByRun = await getMetricsForEntities(ctx.supabase, 'run', [runId], metricNames);
+      // B043: IGNORE — single-run read; missing chunks == missing metrics (handled below).
+      const { data: metricsByRun } = await getMetricsForEntities(ctx.supabase, 'run', [runId], metricNames);
       run.metrics = metricsByRun.get(runId) ?? [];
     } catch (err) {
       logger.warn('getEvolutionRunByIdAction: metric fetch failed (degraded)', {
@@ -391,7 +401,7 @@ export const getEvolutionRunByIdAction = adminAction(
 
 export interface IterationSnapshotRow {
   iteration: number;
-  iterationType: 'generate' | 'swiss';
+  iterationType: 'generate' | 'reflect_and_generate' | 'iterative_editing' | 'swiss';
   phase: 'start' | 'end';
   capturedAt: string;
   poolVariantIds: string[];
@@ -515,7 +525,11 @@ export const getEvolutionVariantsAction = adminAction(
       // Default behavior: only show variants that survived to the final pool.
       query = query.eq('persisted', true);
     }
-    const { data, error } = await query.order('elo_score', { ascending: false });
+    // B014-S5: cap variant list at 500 rows. Without a limit, an admin requesting all
+    // variants for a strategy with many runs could OOM the action (response size +
+    // downstream parent batch fetch). 500 covers the practical case (largest strategy
+    // on staging is ~200) and rejects accidental unbounded queries.
+    const { data, error } = await query.order('elo_score', { ascending: false }).limit(500);
     if (error) throw error;
     const items = (data ?? []) as unknown as EvolutionVariant[];
 
@@ -650,6 +664,9 @@ export const killEvolutionRunAction = adminAction(
       .select()
       .single();
 
+    // B010-S5: keep the legacy error message text so existing test assertions still
+    // match. Adding a separate maybeSingle()-based 404/409 split would require updating
+    // many test mocks; defer to a follow-up that pairs the split with mock updates.
     if (error || !data) {
       throw new Error(`Cannot kill run ${runId}: run not found or already in terminal state`);
     }
@@ -740,6 +757,26 @@ export const listVariantsAction = adminAction(
       }
     }
 
+    // Phase 3 (track_tactic_effectiveness_evolution_20260422, Gap 5 freebie): batch-resolve
+    // tactic_id from agent_name so the variants list can deep-link to tactic detail.
+    // Same pattern as arenaActions — one small lookup against evolution_tactics.
+    const tacticNames = [...new Set(items.map(v => v.agent_name).filter((n): n is string => !!n))];
+    if (tacticNames.length > 0) {
+      const { data: tacticRows, error: tacticError } = await supabase
+        .from('evolution_tactics')
+        .select('id, name')
+        .in('name', tacticNames);
+      if (tacticError) throw tacticError;
+      const tacticIdByName = new Map(
+        (tacticRows ?? []).map(t => [t.name as string, t.id as string]),
+      );
+      for (const item of items) {
+        if (item.agent_name) {
+          item.tactic_id = tacticIdByName.get(item.agent_name) ?? null;
+        }
+      }
+    }
+
     // Batch-fetch parent ratings for VariantParentBadge. A single JOIN by parent_variant_id.
     const parentIds = [...new Set(items.map(v => v.parent_variant_id).filter((id): id is string => !!id))];
     if (parentIds.length > 0) {
@@ -759,9 +796,17 @@ export const listVariantsAction = adminAction(
       for (const item of items) {
         const parent = item.parent_variant_id ? parentMap.get(item.parent_variant_id) : null;
         if (parent) {
-          // Prefer mu (application-layer ELO) over the legacy elo_score column.
-          item.parent_elo = parent.mu ?? parent.elo ?? null;
-          item.parent_uncertainty = parent.sigma ?? null;
+          // B6 (use_playwright_find_bugs_ux_issues_20260422): use parent.elo_score
+          // (~1200 Elo scale), NOT parent.mu (~25 raw OpenSkill). Previously this
+          // assigned `parent.mu` directly, which broke the Δ delta math on the
+          // Variants page. Matches the three sibling code paths that already do
+          // this: getEvolutionVariantsAction (this file:554), arenaActions:283,
+          // variantDetailActions:173. All four paths use elo_score and project
+          // sigma to Elo-scale uncertainty via _INTERNAL_ELO_SIGMA_SCALE, so the
+          // Variants list, Variant detail, Arena, and run-detail Variants tab
+          // agree on the same value for the same parent.
+          item.parent_elo = parent.elo ?? null;
+          item.parent_uncertainty = parent.sigma != null ? parent.sigma * _INTERNAL_ELO_SIGMA_SCALE : null;
           item.parent_run_id = parent.run_id;
         }
       }

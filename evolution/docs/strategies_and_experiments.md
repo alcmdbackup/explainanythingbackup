@@ -15,8 +15,13 @@ A **strategy** is a named, versioned configuration that fully specifies the mode
 Each strategy encapsulates:
 - Which LLM generates text variants.
 - Which LLM judges pairwise comparisons.
-- An ordered sequence of iterations, each specifying agent type (generate/swiss), budget percentage, and optional maxAgents.
-- Optional parameters for round sizing and budget caps.
+- An ordered sequence of iterations, each specifying agent type (generate/swiss) and budget percentage.
+- Optional per-iteration source mode (seed vs pool) and generation guidance.
+- Optional budget floors for per-iteration reservation.
+
+Dispatch count per iteration is budget-governed, with `DISPATCH_SAFETY_CAP = 100` as a
+defense-in-depth rail — there are no per-iteration `maxAgents`, strategy-level `numVariants`,
+or `strategiesPerRound` fields (Phase 4 of the 2026-04-20 refactor removed all three).
 
 ### StrategyConfig
 
@@ -24,16 +29,29 @@ The canonical type lives in `evolution/src/lib/pipeline/types.ts`:
 
 ```ts
 interface IterationConfig {
-  agentType: 'generate' | 'swiss';
+  agentType: 'generate' | 'reflect_and_generate' | 'criteria_and_generate' | 'swiss';
   budgetPercent: number;  // 1-100, all entries must sum to 100
-  maxAgents?: number;     // only for generate; caps parallel agents
+  sourceMode?: 'seed' | 'pool';  // variant-producing only (generate, reflect_and_generate, criteria_and_generate); default 'seed'
+  qualityCutoff?: { mode: 'topN' | 'topPercent'; value: number };  // required when sourceMode='pool'
+  generationGuidance?: Array<{ strategy: string; percent: number }>;  // generate-only per-iteration override
+  // reflect_and_generate is the wrapper agent that runs a reflection LLM call before
+  // delegating to GenerateFromPreviousArticle. The reflection LLM picks the tactic
+  // from all 24 candidates given the parent text + recent ELO boosts. Mutex with
+  // generationGuidance is structural (different agentType).
+  reflectionTopN?: number;  // 1-10, default 3, only valid when agentType='reflect_and_generate'
+  // criteria_and_generate is the wrapper agent that scores the parent against
+  // user-defined criteria, then delegates to GenerateFromPreviousArticle with a
+  // customPrompt built from suggestions for the K weakest criteria. Mutex with
+  // generationGuidance is structural (different agentType). criteriaIds order
+  // is sorted before hashing so [a,b] and [b,a] dedupe via config_hash.
+  criteriaIds?: string[];   // required when agentType='criteria_and_generate'; UUIDs into evolution_criteria
+  weakestK?: number;        // required when agentType='criteria_and_generate'; clamped at runtime to min(weakestK, criteriaIds.length)
 }
 
 interface StrategyConfig {
   generationModel: string;
   judgeModel: string;
   iterationConfigs: IterationConfig[];  // ordered sequence, min 1, max 20
-  strategiesPerRound?: number;  // default 3
   budgetUsd?: number;
   generationGuidance?: Array<{ strategy: string; percent: number }>;
   maxComparisonsPerVariant?: number;               // default 15
@@ -53,10 +71,9 @@ interface StrategyConfig {
 |---------------------|--------------------------------------------|
 | `generationModel`   | LLM used for text generation calls         |
 | `judgeModel`        | LLM used for pairwise comparison/judging. Default: `qwen-2.5-7b-instruct` (see `DEFAULT_JUDGE_MODEL` in `src/config/modelRegistry.ts`). Selected based on empirical judge-agreement research (see `docs/research/judge_agreement_summary_tables.md`) — 100% decisive on both large-gap and close-pair comparisons with ~1.7s median latency and no thinking-mode overhead. |
-| `iterationConfigs`  | Ordered array of iteration definitions. Each entry specifies `agentType` (`generate` or `swiss`), `budgetPercent` (1-100, must sum to 100 across all entries), and optional `maxAgents` (generate only — caps parallel agent count). First entry must be `generate` (swiss on empty pool is invalid). Max 20 entries. Dollar amounts computed at runtime: `iterationBudgetUsd = (budgetPercent / 100) * totalBudgetUsd`. |
-| `strategiesPerRound`| Tactics applied per iteration round        |
+| `iterationConfigs`  | Ordered array of iteration definitions. Each entry specifies `agentType` (`generate`, `reflect_and_generate`, `criteria_and_generate`, or `swiss`), `budgetPercent` (1-100, must sum to 100 across all entries), optional `sourceMode` / `qualityCutoff` (variant-producing only), optional `generationGuidance` (generate only — overrides strategy-level `generationGuidance` for this iteration), optional `reflectionTopN` (reflect_and_generate only), and `criteriaIds`+`weakestK` (criteria_and_generate only — see EvaluateCriteriaThenGenerateFromPreviousArticleAgent). First entry must be variant-producing (swiss on empty pool is invalid). Max 20 entries. Dollar amounts computed at runtime: `iterationBudgetUsd = (budgetPercent / 100) * totalBudgetUsd`. Dispatch count is budget-governed — no per-iter `maxAgents` field. |
 | `budgetUsd`         | Optional per-run budget cap. Per-iteration amounts derived from `iterationConfigs[].budgetPercent`. |
-| `generationGuidance`| Optional weighted tactic distribution. Array of `{ tactic, percent }` entries where percentages must sum to 100 and tactic names must be unique. Enables weighted random tactic selection from all 24 tactics via `selectTacticWeighted()` instead of the default deterministic 3-tactic behavior. |
+| `generationGuidance`| Optional weighted tactic distribution at the strategy level. Array of `{ tactic, percent }` entries where percentages must sum to 100 and tactic names must be unique. Enables weighted random tactic selection from all 24 tactics via `selectTacticWeighted()` instead of the default deterministic 3-tactic behavior. Can be overridden per-iteration via `IterationConfig.generationGuidance`. |
 | `maxVariantsToGenerateFromSeedArticle` | Max generateFromSeedArticle agents per run. Excludes seed article. Default 9. |
 | `maxComparisonsPerVariant` | Hard cap on pairwise comparisons per variant during ranking. Default 15. Used for deterministic cost estimation: `min(poolSize - 1, maxComparisonsPerVariant)`. |
 | `minBudgetAfterParallelFraction` / `minBudgetAfterParallelAgentMultiple` | Minimum budget to reserve for later phases after parallel generation. Specified as either a fraction of total budget (0-1) or a multiple of estimated agent cost (≥ 0). Exactly one unit per strategy. Parallel uses the initial `estimateAgentCost()` output. |
@@ -71,6 +88,20 @@ When `generationGuidance` is set, `selectTacticWeighted()` (`evolution/src/lib/c
 #### Experimental Verification with generationGuidance
 
 To isolate and test a single tactic, create a strategy config with `generationGuidance` set to 100% for one tactic (e.g., `[{ strategy: "engagement_amplify", percent: 100 }]`) and `strategiesPerRound: 1`. This produces runs that use only that tactic, enabling controlled A/B comparison across tactics within an experiment.
+
+#### Per-Iteration generationGuidance Override
+
+Each `IterationConfig` with `agentType: 'generate'` can specify its own `generationGuidance` array, which overrides the strategy-level `generationGuidance` for that iteration only. This enables strategies that use different tactic distributions at different stages of evolution (e.g., broad exploration in early iterations, focused refinement in later ones). Swiss iterations cannot have `generationGuidance` (enforced by Zod validation).
+
+```ts
+iterationConfigs: [
+  { agentType: 'generate', budgetPercent: 40,
+    generationGuidance: [{ strategy: 'structural_transform', percent: 50 }, { strategy: 'grounding_enhance', percent: 50 }] },
+  { agentType: 'swiss', budgetPercent: 20 },
+  { agentType: 'generate', budgetPercent: 40,
+    generationGuidance: [{ strategy: 'style_polish', percent: 100 }] },
+]
+```
 
 #### Example iterationConfigs
 
@@ -301,7 +332,7 @@ The experiment creation interface is a 3-step wizard located at `src/app/admin/e
 
 - Browse and multi-select from the strategy library (loaded via `getStrategiesAction`). A select-all checkbox is available for quick bulk selection.
 - Configure how many runs to create per selected strategy (runs-per-strategy input).
-- Only `active` strategies appear in the picker. A "Hide test strategies" filter excludes `[TEST]`-prefixed strategies.
+- Only `active` strategies appear in the picker. A "Hide test content" filter (shared with other admin surfaces) excludes test strategies via `evolution_strategies.is_test_content`. The filter now also applies to Step 1 (prompts) and to `evolution_experiments` — both tables grew `is_test_content` columns (migration `20260423000001_add_is_test_content_to_prompts_experiments.sql`) with BEFORE INSERT/UPDATE-OF-name triggers that auto-set the flag from `evolution_is_test_name(name)`.
 - An inline prompt creation dialog allows creating a new prompt without leaving the wizard.
 
 ### Step 3: Review
@@ -554,6 +585,19 @@ After persisting the run, `finalizeRun()` calls `propagateMetrics()` in TypeScri
 
 When a variant's DB `mu` or `sigma` columns change post-completion (these columns back `Rating {elo, uncertainty}` via `dbToRating`; e.g., from arena matches), a DB trigger marks dependent run, strategy, and experiment metrics as `stale`. On the next read, the server action detects stale metrics and triggers lazy recomputation via `propagateMetrics()`.
 
+### Strategy Tactics tab (track_tactic_effectiveness_evolution_20260422 Phase 4)
+
+The strategy detail page exposes a per-strategy tactic breakdown at tab position 2 (between Metrics and Cost Estimates). `TacticStrategyPerformanceTable` reads from two sources and merges keyed by tactic name:
+
+1. **Pre-aggregated attribution metrics** — `evolution_metrics` rows where `entity_type='strategy'` and `metric_name LIKE 'eloAttrDelta:%'`. These rows are written at run finalization by `computeEloAttributionMetrics` (see `metrics.md` § Attribution metric). Supplies `avgEloDelta` with 95% CI (normal-approx, n≥2) and sample `n`.
+2. **Live variant aggregates** — `evolution_variants` rows grouped by `agent_name` filtered to `evolution_runs.strategy_id = $1 AND status='completed'`. Aggregated JS-side (PostgREST doesn't express `COUNT FILTER`) to produce `variantCount`, `totalCost`, `winnerCount`, `winRate`.
+
+Rows are sorted by `avgEloDelta` descending, with tactics that have variants but no attribution row sorted last (`avgEloDelta=null` renders as `—`). This happens when variants were generated before the Phase 0 Blocker 2 fix wired `computeRunMetrics` into the finalize path — the tab stays useful during the backfill window without back-fabricating missing data.
+
+**Eventual-consistency caveat**: arena-match-driven rating drift flags `eloAttrDelta:*` rows stale via the `mark_elo_metrics_stale` trigger, but there is no runtime recompute path for propagated (strategy/experiment) attribution rows. Fresh values land only on the next run in that strategy. The tab subheader surfaces this to researchers.
+
+Server action: `getStrategyTacticBreakdownAction` in `evolution/src/services/tacticStrategyActions.ts`.
+
 ---
 
 ## Key Files
@@ -571,7 +615,7 @@ When a variant's DB `mu` or `sigma` columns change post-completion (these column
 | `evolution/src/lib/metrics/writeMetrics.ts` | UPSERT metrics to evolution_metrics table |
 | `evolution/src/lib/metrics/recomputeMetrics.ts` | Stale metric recomputation with row-level locking |
 | `src/app/admin/evolution/start-experiment/page.tsx` | Experiment creation wizard UI |
-| `src/app/admin/evolution/strategies/new/page.tsx` | 2-step strategy creation wizard with iteration builder |
+| `src/app/admin/evolution/strategies/new/page.tsx` | 2-step strategy creation wizard with iteration builder, TacticGuidanceEditor popover for per-iteration tactic weights, agent dispatch preview. Defaults: $0.05 budget, agentMultiple floor 2, maxAgents 100. |
 
 ---
 
@@ -605,11 +649,11 @@ interface IterationConfig {
 **Semantics**
 
 - `sourceMode: 'seed'` (default): each generation agent receives the seed article as its parent.
-- `sourceMode: 'pool'`: each agent receives a randomly-selected parent drawn from the current run's pool, filtered by `qualityCutoff`.
+- `sourceMode: 'pool'`: each agent receives a randomly-selected parent drawn from **variants produced by the current run only**, filtered by `qualityCutoff`. Arena entries loaded via `loadArenaEntries` (prior runs of the same prompt) participate in **ranking** as competitors but are explicitly **excluded as candidate parents** via the call-site filter in `runIterationLoop.ts` (`initialPoolSnapshot.filter((v) => !v.fromArena)`). This invariant — that a new variant's `parent_variant_id` always resolves to the seed or another variant from the same run — was added 2026-04-21; pre-fix pool-mode runs can have cross-run parent lineage and surface it via the `(other run)` pill on `VariantParentBadge`.
 - First iteration (index 0) is locked to `'seed'` by schema refine — the pool is empty at start.
-- `qualityCutoff` is required when `sourceMode === 'pool'`. For `mode: 'topN'` the value is an absolute count; for `mode: 'topPercent'` it is a percentile (1-100).
+- `qualityCutoff` is required when `sourceMode === 'pool'`. For `mode: 'topN'` the value is an absolute count; for `mode: 'topPercent'` it is a percentile (1-100). The strategy creation wizard at `/admin/evolution/strategies/new` auto-defaults `{ mode: 'topN', value: 5 }` when the user switches an iteration to pool mode, so the user doesn't need to interact with the cutoff-mode dropdown separately.
 - The parent pick uses a deterministic RNG seeded from `(runId, iteration, executionOrder)` via FNV-1a, so retries pick the same parent for the same tuple.
-- If no eligible parent exists (empty pool, all variants unrated, cutoff too strict), `resolveParent` falls back to seed and logs a warning.
+- If no eligible parent exists (empty filtered pool, all variants unrated, cutoff too strict), `resolveParent` falls back to seed and logs a warning. When the filter specifically dropped all candidates (i.e., pool had arena variants but no in-run variants yet), the call site emits a distinct `fallbackReason: 'no_same_run_variants'` log-context for diagnosability.
 - `qualityCutoff.value` is part of the strategy-config hash: two configs that differ only by cutoff value produce different strategy IDs.
 
 **Example** — two-iteration strategy where iteration 2 re-generates from the top 3 pool variants:

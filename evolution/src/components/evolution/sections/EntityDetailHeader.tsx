@@ -19,6 +19,11 @@ export interface EntityDetailHeaderProps {
   links?: EntityLink[];
   actions?: ReactNode;
   onRename?: (newName: string) => Promise<void>;
+  /** Fix #27 (use_playwright_find_ux_issues_bugs_20260501): optional subtitle
+   *  rendered below the title — used for completion timestamp on run detail
+   *  ("Completed 2 hours ago") so the user doesn't need to bounce back to the
+   *  list to learn how recent the run is. */
+  subtitle?: ReactNode;
 }
 
 export function EntityDetailHeader({
@@ -28,6 +33,7 @@ export function EntityDetailHeader({
   links,
   actions,
   onRename,
+  subtitle,
 }: EntityDetailHeaderProps): JSX.Element {
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState(title);
@@ -46,8 +52,14 @@ export function EntityDetailHeader({
       ta.style.opacity = '0';
       document.body.appendChild(ta);
       ta.select();
-      document.execCommand('copy');
+      // B017-S7: branch on execCommand return value so we don't show "Copied!" when
+      // the copy actually failed (e.g. in browsers that have deprecated execCommand).
+      const ok = document.execCommand('copy');
       document.body.removeChild(ta);
+      if (!ok) {
+        console.warn('[EntityDetailHeader] document.execCommand("copy") returned false');
+        return;
+      }
     }
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
@@ -146,6 +158,11 @@ export function EntityDetailHeader({
               {copied ? 'Copied!' : (entityId.length > 12 ? `${entityId.substring(0, 12)}…` : entityId)}
             </button>
           )}
+          {subtitle && (
+            <div className="text-xs font-ui text-[var(--text-muted)] mt-1" data-testid="entity-subtitle">
+              {subtitle}
+            </div>
+          )}
         </div>
         {actions && <div className="flex-shrink-0" data-testid="header-actions">{actions}</div>}
       </div>
@@ -155,9 +172,14 @@ export function EntityDetailHeader({
             <Link
               key={`${link.prefix}-${link.href}`}
               href={link.href}
+              // Fix #25 (use_playwright_find_ux_issues_bugs_20260501): drop the
+              // visible "{prefix}: " repetition; the prefix becomes a small
+              // muted tag rendered before the label so screen readers still
+              // get context but the chip reads cleaner.
               className="text-xs text-[var(--text-muted)] hover:text-[var(--accent-gold)] border border-[var(--border-default)] rounded-page px-2 py-0.5"
             >
-              {link.prefix}: {link.label}
+              <span className="text-[var(--text-muted)] opacity-60 mr-1 uppercase tracking-wide" style={{ fontSize: '0.65rem' }}>{link.prefix}</span>
+              {link.label}
             </Link>
           ))}
         </div>

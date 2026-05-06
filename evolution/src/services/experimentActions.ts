@@ -3,7 +3,7 @@
 // All wrapped by adminAction factory for auth + logging + error handling.
 
 import { adminAction, type AdminContext } from './adminAction';
-import { validateUuid, applyTestContentNameFilter } from './shared';
+import { validateUuid, applyTestContentColumnFilter } from './shared';
 import { z } from 'zod';
 import {
   createExperiment,
@@ -116,7 +116,7 @@ export const listExperimentsAction = adminAction(
       query = query.eq('status', input.status);
     }
     if (input?.filterTestContent) {
-      query = applyTestContentNameFilter(query);
+      query = applyTestContentColumnFilter(query);
     }
     if (input?.name) {
       const escaped = input.name.replace(/[%_\\]/g, '\\$&');
@@ -132,11 +132,16 @@ export const listExperimentsAction = adminAction(
     })) as Array<ExperimentSummary & Record<string, unknown>>;
 
     const metricNames = getListViewMetrics('experiment').map(d => d.name);
-    const metricsByExp = (items.length > 0 && metricNames.length > 0)
+    // B043: LOG — partial chunk failure is logged; earlier-successful chunks are kept.
+    const metricsResult = (items.length > 0 && metricNames.length > 0)
       ? await getMetricsForEntities(ctx.supabase, 'experiment', items.map(e => e.id), metricNames)
-      : new Map<string, MetricRow[]>();
+      : { data: new Map<string, MetricRow[]>(), errors: [] as { chunkIndex: number; error: string }[] };
+    if (metricsResult.errors.length > 0) {
+      // eslint-disable-next-line no-console
+      console.warn('[experimentActions.getExperiments] partial read failure', { errors: metricsResult.errors });
+    }
     for (const exp of items) {
-      exp.metrics = metricsByExp.get(exp.id) ?? [];
+      exp.metrics = metricsResult.data.get(exp.id) ?? [];
     }
 
     return items as ExperimentSummary[];
@@ -156,7 +161,7 @@ export const getPromptsAction = adminAction(
       query = query.eq('status', input.status);
     }
     if (input?.filterTestContent) {
-      query = applyTestContentNameFilter(query);
+      query = applyTestContentColumnFilter(query);
     }
 
     const { data, error } = await query;
@@ -178,7 +183,7 @@ export const getStrategiesAction = adminAction(
       query = query.eq('status', input.status);
     }
     if (input?.filterTestContent) {
-      query = applyTestContentNameFilter(query);
+      query = applyTestContentColumnFilter(query);
     }
 
     const { data, error } = await query;

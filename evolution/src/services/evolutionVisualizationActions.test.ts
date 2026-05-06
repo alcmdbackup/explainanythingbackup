@@ -102,19 +102,33 @@ describe('evolutionVisualizationActions', () => {
             resolve({ data: recentRuns, error: null })
           );
         },
-        // 3. evolution_metrics (total cost) — sequential after parallel
+        // 3. evolution_metrics (cost — getRunCostsWithFallback layer 1)
         (b) => {
           b.then = jest.fn((resolve: (v: unknown) => void) =>
             resolve({ data: costMetrics, error: null })
           );
         },
-        // 4. evolution_strategies (names) — parallel
+        // B1 fix: getRunCostsWithFallback now runs layer 2 (gen/rank/seed) for
+        // any runs missing a `cost` row, then layer 3 (evolution_run_costs) for
+        // any still-missing. Four of six seeded runs lack a cost metric row,
+        // so layers 2 and 3 both fire. Empty returns keep the sum at 5.0.
+        // 4. evolution_metrics (generation_cost — layer 2, Promise.all)
+        (b) => { b.then = jest.fn((resolve: (v: unknown) => void) => resolve({ data: [], error: null })); },
+        // 5. evolution_metrics (ranking_cost — layer 2, Promise.all)
+        (b) => { b.then = jest.fn((resolve: (v: unknown) => void) => resolve({ data: [], error: null })); },
+        // 6. evolution_metrics (reflection_cost — layer 2, Promise.all; Fix #11)
+        (b) => { b.then = jest.fn((resolve: (v: unknown) => void) => resolve({ data: [], error: null })); },
+        // 7. evolution_metrics (seed_cost — layer 2, Promise.all)
+        (b) => { b.then = jest.fn((resolve: (v: unknown) => void) => resolve({ data: [], error: null })); },
+        // 8. evolution_run_costs (layer 3)
+        (b) => { b.then = jest.fn((resolve: (v: unknown) => void) => resolve({ data: [], error: null })); },
+        // 9. evolution_strategies (names) — enrichment
         (b) => {
           b.then = jest.fn((resolve: (v: unknown) => void) =>
             resolve({ data: strategies, error: null })
           );
         },
-        // 5. evolution_metrics (per run cost) — parallel
+        // 10. evolution_metrics (per run cost for recent) — enrichment
         (b) => {
           b.then = jest.fn((resolve: (v: unknown) => void) =>
             resolve({ data: perRunCostMetrics, error: null })
@@ -200,19 +214,30 @@ describe('evolutionVisualizationActions', () => {
             resolve({ data: recentRuns, error: null })
           );
         },
-        // 3. evolution_metrics (total cost)
+        // 3. evolution_metrics (cost — layer 1)
         (b) => {
           b.then = jest.fn((resolve: (v: unknown) => void) =>
             resolve({ data: costMetrics, error: null })
           );
         },
-        // 4. evolution_strategies (names enrichment)
+        // Layers 2 + 3 fire for the 1 run ('r1') missing a cost row.
+        // 4. evolution_metrics (generation_cost — layer 2)
+        (b) => { b.then = jest.fn((resolve: (v: unknown) => void) => resolve({ data: [], error: null })); },
+        // 5. evolution_metrics (ranking_cost — layer 2)
+        (b) => { b.then = jest.fn((resolve: (v: unknown) => void) => resolve({ data: [], error: null })); },
+        // 6. evolution_metrics (reflection_cost — layer 2; Fix #11)
+        (b) => { b.then = jest.fn((resolve: (v: unknown) => void) => resolve({ data: [], error: null })); },
+        // 7. evolution_metrics (seed_cost — layer 2)
+        (b) => { b.then = jest.fn((resolve: (v: unknown) => void) => resolve({ data: [], error: null })); },
+        // 8. evolution_run_costs (layer 3)
+        (b) => { b.then = jest.fn((resolve: (v: unknown) => void) => resolve({ data: [], error: null })); },
+        // 9. evolution_strategies (names enrichment)
         (b) => {
           b.then = jest.fn((resolve: (v: unknown) => void) =>
             resolve({ data: strategies, error: null })
           );
         },
-        // 5. evolution_metrics (per-run costs)
+        // 10. evolution_metrics (per-run costs enrichment)
         (b) => {
           b.then = jest.fn((resolve: (v: unknown) => void) =>
             resolve({ data: perRunCostMetrics, error: null })

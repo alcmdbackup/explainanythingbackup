@@ -58,6 +58,29 @@ const COMPARISON_OUTPUT_CHARS = 20;
 /** Approximate overhead added by tactic prompt template wrapping the seed article. */
 const GENERATION_PROMPT_OVERHEAD = 500;
 
+/** Approximate overhead added by the reflection prompt scaffolding (preamble + ask + 24-tactic
+ *  list with summaries + ELO boost column). Matches buildReflectionPrompt's static parts.
+ *  Phase 3 of develop_reflection_and_generateFromParentArticle_agent_evolution_20260430. */
+const REFLECTION_PROMPT_OVERHEAD = 4500;
+
+/** Per-rank output overhead: "N. Tactic: <name>\n   Reasoning: <text>" averages ~200 chars
+ *  (~50 tokens) per ranked tactic. Multiplied by topN at the call site. */
+const REFLECTION_OUTPUT_CHARS_PER_RANK = 200;
+
+/** Per-criterion description overhead in the evaluation prompt: name + range +
+ *  description ≈ 200 chars before the optional rubric block. */
+const CRITERIA_DESC_CHARS_PER_ITEM = 200;
+/** Average rubric block size per criterion: ~4 anchors × ~100 chars + headers ≈ 500.
+ *  Used as the wizard-time default when fetching actual rubric sizes is impractical. */
+const EVALUATION_RUBRIC_CHARS_PER_CRITERION = 500;
+/** Static prompt overhead (preamble + structured ask) for evaluate_and_suggest. */
+const EVALUATE_AND_SUGGEST_PROMPT_OVERHEAD = 1200;
+/** Per-suggestion-block output overhead: "### Suggestion N\nCriterion:\nExample:\nIssue:\nFix:"
+ *  averages ~800 chars per block. Multiplied by weakestK at the call site. */
+const SUGGESTION_BLOCK_OUTPUT_CHARS = 800;
+/** Per-criterion score-line output overhead: "<name>: <score>" ≈ 30 chars. */
+const SCORE_LINE_OUTPUT_CHARS = 150;
+
 // ─── Estimation Functions ─────────────────────────────────────────
 
 /**
@@ -100,8 +123,77 @@ export function estimateRankingCost(
 }
 
 /**
+ * Resolve the expected variant char count for a tactic via the same fallback chain
+ * estimateAgentCost uses internally (calibration → EMPIRICAL_OUTPUT_CHARS → DEFAULT).
+ * Exposed for projectDispatchPlan to price ranking comparisons accurately per tactic.
+ */
+export function getVariantChars(
+  tactic: string,
+  generationModel: string,
+  judgeModel: string,
+): number {
+  const calibrated = getCalibrationRow(tactic, generationModel, judgeModel, 'generation');
+  return calibrated?.avgOutputChars
+    ?? EMPIRICAL_OUTPUT_CHARS[tactic]
+    ?? DEFAULT_OUTPUT_CHARS;
+}
+
+/**
+ * Estimate the cost of the reflection LLM call: input = parent text + REFLECTION_PROMPT_OVERHEAD;
+ * output = topN × REFLECTION_OUTPUT_CHARS_PER_RANK. Calibration-aware via the loader's
+ * 'reflection' phase entry (falls back to the hardcoded constants when COST_CALIBRATION_ENABLED
+ * is unset or no row exists).
+ *
+ * Phase 3 of develop_reflection_and_generateFromParentArticle_agent_evolution_20260430.
+ */
+export function estimateReflectionCost(
+  seedArticleChars: number,
+  generationModel: string,
+  judgeModel: string,
+  topN: number,
+): number {
+  const pricing = getModelPricing(generationModel);
+  const inputChars = seedArticleChars + REFLECTION_PROMPT_OVERHEAD;
+  const calibrated = getCalibrationRow('__unspecified__', generationModel, judgeModel ?? '__unspecified__', 'reflection');
+  const outputChars = calibrated?.avgOutputChars ?? topN * REFLECTION_OUTPUT_CHARS_PER_RANK;
+  return calculateCost(inputChars, outputChars, pricing);
+}
+
+/**
+ * Estimate the cost of the single combined evaluate + suggest LLM call used by
+ * EvaluateCriteriaThenGenerateFromPreviousArticleAgent.
+ *
+ * Input chars = parent + EVALUATE_AND_SUGGEST_PROMPT_OVERHEAD +
+ *               criteriaCount × (CRITERIA_DESC_CHARS_PER_ITEM + avgRubricChars)
+ * Output chars = criteriaCount × SCORE_LINE_OUTPUT_CHARS +
+ *                weakestK × SUGGESTION_BLOCK_OUTPUT_CHARS
+ *
+ * Wizard-time `avgRubricChars` is the EVALUATION_RUBRIC_CHARS_PER_CRITERION constant
+ * (no DB fetch). Runtime cost-tracker reservation can pass actual avg from the fetched
+ * criteria rows for accurate per-call reservation.
+ */
+export function estimateEvaluateAndSuggestCost(
+  seedArticleChars: number,
+  generationModel: string,
+  judgeModel: string,
+  criteriaCount: number,
+  weakestK: number,
+  avgRubricChars: number = EVALUATION_RUBRIC_CHARS_PER_CRITERION,
+): number {
+  const pricing = getModelPricing(generationModel);
+  const inputChars = seedArticleChars + EVALUATE_AND_SUGGEST_PROMPT_OVERHEAD
+    + criteriaCount * (CRITERIA_DESC_CHARS_PER_ITEM + avgRubricChars);
+  const calibrated = getCalibrationRow('__unspecified__', generationModel, judgeModel ?? '__unspecified__', 'evaluate_and_suggest');
+  const outputChars = calibrated?.avgOutputChars
+    ?? (criteriaCount * SCORE_LINE_OUTPUT_CHARS + weakestK * SUGGESTION_BLOCK_OUTPUT_CHARS);
+  return calculateCost(inputChars, outputChars, pricing);
+}
+
+/**
  * Estimate total cost of one generateFromPreviousArticle agent (generation + ranking).
- * This is the primary function used by budget-aware dispatch.
+ * When `useReflection: true`, also adds the reflection LLM call cost. When
+ * `useCriteria: true`, adds the combined evaluate-and-suggest LLM call cost. Vanilla
+ * GFPA uses neither.
  */
 export function estimateAgentCost(
   seedArticleChars: number,
@@ -110,15 +202,27 @@ export function estimateAgentCost(
   judgeModel: string,
   poolSize: number,
   maxComparisonsPerVariant: number,
+  /** Phase 3: when true, includes reflection cost. Defaults false (vanilla GFPA). */
+  useReflection: boolean = false,
+  /** Phase 3: top-N tactics the reflection ranks. Default 3 matches IterationConfig default. */
+  reflectionTopN: number = 3,
+  /** Criteria-driven generation: when true, includes evaluate+suggest cost. */
+  useCriteria: boolean = false,
+  /** Number of criteria evaluated (drives input + output size of the combined call). */
+  criteriaCount: number = 0,
+  /** weakestK: how many suggestion blocks the LLM produces. */
+  weakestK: number = 1,
 ): number {
+  const reflectionCost = useReflection
+    ? estimateReflectionCost(seedArticleChars, generationModel, judgeModel, reflectionTopN)
+    : 0;
+  const evaluationCost = useCriteria
+    ? estimateEvaluateAndSuggestCost(seedArticleChars, generationModel, judgeModel, criteriaCount, weakestK)
+    : 0;
   const genCost = estimateGenerationCost(seedArticleChars, tactic, generationModel, judgeModel);
-  // For ranking, use the expected variant length (calibration-aware, falls back to empirical).
-  const calibrated = getCalibrationRow(tactic, generationModel, judgeModel, 'generation');
-  const variantChars = calibrated?.avgOutputChars
-    ?? EMPIRICAL_OUTPUT_CHARS[tactic]
-    ?? DEFAULT_OUTPUT_CHARS;
+  const variantChars = getVariantChars(tactic, generationModel, judgeModel);
   const rankCost = estimateRankingCost(variantChars, judgeModel, poolSize, maxComparisonsPerVariant);
-  return genCost + rankCost;
+  return reflectionCost + evaluationCost + genCost + rankCost;
 }
 
 /**
@@ -131,4 +235,182 @@ export function estimateSwissPairCost(
   const pricing = getModelPricing(judgeModel);
   const inputChars = COMPARISON_PROMPT_OVERHEAD + avgVariantChars * 2;
   return 2 * calculateCost(inputChars, COMPARISON_OUTPUT_CHARS, pricing);
+}
+
+// ─── Iterative Editing Cost Estimation ────────────────────────────
+
+/** Approximate overhead added by the proposer prompt scaffolding (soft-rules system
+ *  prompt + CriticMarkup syntax docs). Matches buildProposerPrompt's static parts. */
+const EDITING_PROPOSE_PROMPT_OVERHEAD = 2000;
+
+/** Approximate overhead added by the approver prompt scaffolding (system prompt +
+ *  edit summary table header). Per-edit row added at call time. */
+const EDITING_REVIEW_PROMPT_OVERHEAD = 1500;
+
+/** Approximate output per Approver decision line (one JSON line per group). */
+const EDITING_REVIEW_OUTPUT_CHARS_PER_LINE = 80;
+
+/** Average groups per cycle when sizing the Approver call output. Conservative
+ *  upper-end of expected group count (the per-cycle hard cap is 30 atomic edits;
+ *  groups average ~3 atomic edits each → ~10 groups). */
+const EDITING_AVG_GROUPS_PER_CYCLE = 10;
+
+/** Worst-case drift recovery output (one JSON line per drift region, max 3 regions
+ *  per Decisions §17 minor-drift threshold). */
+const EDITING_DRIFT_RECOVERY_OUTPUT_CHARS = 200;
+
+/** Article-size growth factor per editing cycle, per Decisions §17 (1.5× hard cap). */
+const EDITING_SIZE_GROWTH_PER_CYCLE = 1.5;
+
+/** Markup overhead — Proposer's output is the article body verbatim PLUS inline
+ *  CriticMarkup. ~15% overhead is typical for moderate edit density. */
+const EDITING_MARKUP_OVERHEAD_FACTOR = 1.15;
+
+/** Multiplier for the worst-case drift recovery: ~1.4× of the markup overhead
+ *  factor. Used when sizing the upper bound. */
+const EDITING_UPPER_BOUND_MARKUP_FACTOR = 1.4;
+
+/** Safety margin applied to the upper bound to absorb model-pricing variance. */
+const EDITING_UPPER_BOUND_SAFETY_MARGIN = 1.3;
+
+/**
+ * Estimate Proposer LLM call cost. Output is article-size-dependent (proposer
+ * emits the full article verbatim plus inline markup).
+ */
+function estimateEditingProposeCost(
+  articleChars: number,
+  editingModel: string,
+  judgeModel: string,
+  /** When true, sizes the output for upper-bound (1.5× growth × markup factor). */
+  upperBound: boolean,
+): number {
+  const pricing = getModelPricing(editingModel);
+  const inputChars = articleChars + EDITING_PROPOSE_PROMPT_OVERHEAD;
+  const calibrated = getCalibrationRow(
+    '__unspecified__',
+    editingModel,
+    judgeModel ?? '__unspecified__',
+    'iterative_edit_propose',
+  );
+  const outputCharsBase = articleChars * EDITING_MARKUP_OVERHEAD_FACTOR;
+  const outputChars = calibrated?.avgOutputChars
+    ?? (upperBound ? outputCharsBase * EDITING_UPPER_BOUND_MARKUP_FACTOR : outputCharsBase);
+  return calculateCost(inputChars, outputChars, pricing);
+}
+
+/**
+ * Estimate Approver LLM call cost. Input is the proposer's marked-up article;
+ * output is bounded by group count, not article size.
+ */
+function estimateEditingReviewCost(
+  articleCharsWithMarkup: number,
+  approverModel: string,
+  judgeModel: string,
+): number {
+  const pricing = getModelPricing(approverModel);
+  const inputChars = articleCharsWithMarkup + EDITING_REVIEW_PROMPT_OVERHEAD;
+  const calibrated = getCalibrationRow(
+    '__unspecified__',
+    approverModel,
+    judgeModel ?? '__unspecified__',
+    'iterative_edit_review',
+  );
+  const outputChars = calibrated?.avgOutputChars
+    ?? EDITING_AVG_GROUPS_PER_CYCLE * EDITING_REVIEW_OUTPUT_CHARS_PER_LINE;
+  return calculateCost(inputChars, outputChars, pricing);
+}
+
+/**
+ * Estimate the worst-case drift-recovery LLM call cost. Used in upper-bound
+ * sizing only — drift recovery fires zero or one time across all cycles.
+ */
+function estimateEditingDriftRecoveryCost(
+  driftRecoveryModel: string,
+  judgeModel: string,
+): number {
+  const pricing = getModelPricing(driftRecoveryModel);
+  // 30-char context window × 2 sides × max 3 regions + small prompt overhead.
+  const inputChars = 30 * 2 * 3 + 500;
+  const calibrated = getCalibrationRow(
+    '__unspecified__',
+    driftRecoveryModel,
+    judgeModel ?? '__unspecified__',
+    'iterative_edit_drift_recovery',
+  );
+  const outputChars = calibrated?.avgOutputChars ?? EDITING_DRIFT_RECOVERY_OUTPUT_CHARS;
+  return calculateCost(inputChars, outputChars, pricing);
+}
+
+/**
+ * Estimate total cost of one IterativeEditingAgent invocation (one parent,
+ * `maxCycles` cycles, each cycle = 2 LLM calls + maybe drift recovery).
+ *
+ * Returns `{ expected, upperBound }`:
+ * - `expected`: maxCycles × (propose + review). Drift recovery NOT included
+ *   (it's an exception path; including it inflates the typical-case forecast).
+ * - `upperBound`: cycle-by-cycle accumulation with article growing by up to
+ *   1.5× per cycle (Decisions §17 hard cap), proposer markup factor 1.4×,
+ *   plus one drift recovery, plus 30% safety margin. Used by V2CostTracker
+ *   for reservation so iterations abort cleanly via BudgetExceededError BEFORE
+ *   any dispatch (no partial-cycle artifacts).
+ *
+ * @param seedChars Initial article size in characters.
+ * @param editingModel Model used for the Proposer call. Falls back to generationModel at call site.
+ * @param approverModel Model used for the Approver call. Falls back to editingModel at call site.
+ * @param driftRecoveryModel Model used for drift recovery. Defaults to gpt-4.1-nano per Decisions §11.
+ * @param judgeModel Required for the calibration-row lookup as a discriminator (calibration is
+ *   keyed by both generation+judge model).
+ * @param maxCycles Per-iteration override or strategy default (1-5, default 3).
+ * @param poolSize Pool size at the iteration's start. Determines ranking comparison count.
+ *   Pass 0 to disable ranking entirely (matches editingRankEnabled=false).
+ * @param maxComparisonsPerVariant Cap on binary-search ranking depth.
+ */
+export function estimateIterativeEditingCost(
+  seedChars: number,
+  editingModel: string,
+  approverModel: string,
+  driftRecoveryModel: string,
+  judgeModel: string,
+  maxCycles: number,
+  poolSize: number = 0,
+  maxComparisonsPerVariant: number = 0,
+): { expected: number; upperBound: number; expectedRanking: number; upperBoundRanking: number } {
+  let expected = 0;
+  let upperBound = 0;
+  let articleChars = seedChars;
+
+  for (let cycle = 0; cycle < maxCycles; cycle++) {
+    expected += estimateEditingProposeCost(articleChars, editingModel, judgeModel, false);
+    // Approver input is proposer's marked-up article.
+    const articleWithMarkup = articleChars * EDITING_MARKUP_OVERHEAD_FACTOR;
+    expected += estimateEditingReviewCost(articleWithMarkup, approverModel, judgeModel);
+
+    upperBound += estimateEditingProposeCost(articleChars, editingModel, judgeModel, true);
+    upperBound += estimateEditingReviewCost(
+      articleChars * EDITING_UPPER_BOUND_MARKUP_FACTOR,
+      approverModel,
+      judgeModel,
+    );
+
+    // Worst-case article growth per Decisions §17: 1.5× per cycle.
+    articleChars *= EDITING_SIZE_GROWTH_PER_CYCLE;
+  }
+
+  // Drift recovery: one worst-case fire across all cycles in upper-bound only.
+  upperBound += estimateEditingDriftRecoveryCost(driftRecoveryModel, judgeModel);
+  upperBound *= EDITING_UPPER_BOUND_SAFETY_MARGIN;
+
+  // Phase 3.1 — Post-cycle ranking cost (D3 surfaces this as `editingRank` peer
+  // field on EstPerAgentValue). The final variant's article size for ranking is
+  // estimated as the post-last-cycle articleChars (after worst-case growth).
+  // When poolSize=0 (ranking disabled), the cost is 0.
+  const expectedRanking = poolSize > 0 && maxComparisonsPerVariant > 0
+    ? estimateRankingCost(seedChars, judgeModel, poolSize, maxComparisonsPerVariant)
+    : 0;
+  const upperBoundRanking = poolSize > 0 && maxComparisonsPerVariant > 0
+    ? estimateRankingCost(articleChars, judgeModel, poolSize, maxComparisonsPerVariant)
+        * EDITING_UPPER_BOUND_SAFETY_MARGIN
+    : 0;
+
+  return { expected, upperBound, expectedRanking, upperBoundRanking };
 }

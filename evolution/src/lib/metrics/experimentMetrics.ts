@@ -1,6 +1,26 @@
 // Core metrics computation for evolution experiments: per-run stats, bootstrap CIs, and aggregation.
 // Shared by experiment detail, strategy detail, cron analysis, and backfill script.
 
+import { writeMetric } from './writeMetrics';
+import type { MetricName as RegistryMetricName } from './types';
+import type { SupabaseClient as RealSupabaseClient } from '@supabase/supabase-js';
+import { ATTRIBUTION_EXTRACTORS } from './attributionExtractors';
+// NOTE: ATTRIBUTION_EXTRACTORS is populated at module-load time by side-effect imports
+// at the bottom of each agent file (`registerAttributionExtractor(...)` calls).
+// Production callers of `computeEloAttributionMetrics` reach this aggregator via
+// `claimAndExecuteRun` → `persistRunResults` → `computeRunMetrics` → here. That call
+// chain transitively loads `agentRegistry.ts` and the GFPA / wrapper agent files
+// via `runIterationLoop`, so registration always fires before this aggregator runs.
+//
+// Worker-context safeguard: a future entry point that reaches this aggregator WITHOUT
+// going through agentRegistry / runIterationLoop must explicitly import
+// `evolution/src/lib/core/agents` at its own top-level. Verified that adding the import
+// HERE breaks the agent class hierarchy with "Class extends value undefined" — the
+// runtime cycle experimentMetrics → agents → Agent → createEvolutionLLMClient →
+// writeMetrics → registry → propagation → experimentMetrics is real and load-bearing.
+// Tests `attributionPipeline.integration.test.ts` + `reflectAndGenerate*.test.ts` both
+// fail with the import in place. Defense-in-depth lives at the worker entry, not here.
+
 // ─── Types ──────────────────────────────────────────────────────
 
 /** Canonical metric names. Agent costs use template literal pattern. */
@@ -126,9 +146,14 @@ export function bootstrapMeanCI(
     for (let j = 0; j < n; j++) {
       const idx = Math.floor(rng() * n);
       const v = values[idx]!;
+      // B045: always consume two RNG draws per iteration, even when the sample has no
+      // uncertainty. Previously the else branch consumed zero draws, so mixed-uncertainty
+      // inputs desynchronized the seeded RNG across iterations — resample order changed
+      // the output under a given seed. Draws are always consumed; the normal-deviate is
+      // only *used* when uncertainty > 0.
+      const u1 = Math.max(Number.EPSILON, rng());
+      const u2 = rng();
       if (hasUncertainty && v.uncertainty != null && v.uncertainty > 0) {
-        const u1 = Math.max(Number.EPSILON, rng());
-        const u2 = rng();
         const z = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
         sum += v.value + v.uncertainty * z;
       } else {
@@ -155,6 +180,17 @@ export function bootstrapMeanCI(
  * Each iteration resamples runs, draws variant skills from Normal(elo, uncertainty), computes percentile.
  * Ratings are already in Elo scale — no conversion needed.
  */
+/**
+ * B002-S4 + B003-S4: percentile resolution helper. Standardized on nearest-rank
+ * `ceil(p * n) - 1` (clamped to [0, n-1]) so per-run computeRunMetrics + this bootstrap
+ * + computeMedianElo all resolve the same percentile to the same index. Previous
+ * inconsistency had per-run using ceil-1 and bootstrap using floor.
+ */
+function percentileIndex(percentile: number, n: number): number {
+  if (n <= 0) return 0;
+  return Math.max(0, Math.min(n - 1, Math.ceil(percentile * n) - 1));
+}
+
 export function bootstrapPercentileCI(
   allRunRatings: Array<Array<{ elo: number; uncertainty: number }>>,
   percentile: number,
@@ -165,6 +201,17 @@ export function bootstrapPercentileCI(
   if (validRuns.length === 0) return null;
 
   const nRuns = validRuns.length;
+  // B025-S4: early return when nRuns<2 — full bootstrap loop is wasted work since CI is
+  // null in that case. Compute the actuals-only path and return.
+  if (nRuns < 2) {
+    const actuals = validRuns.map((variants) => {
+      const elos = variants.map((v) => v.elo).sort((a, b) => a - b);
+      return elos[percentileIndex(percentile, elos.length)]!;
+    });
+    const mean = actuals.reduce((s, v) => s + v, 0) / actuals.length;
+    return { value: mean, uncertainty: null, ci: null, n: nRuns };
+  }
+
   const percentileValues: number[] = [];
   for (let i = 0; i < iterations; i++) {
     let sum = 0;
@@ -179,11 +226,8 @@ export function bootstrapPercentileCI(
         sampledElos.push(v.elo + v.uncertainty * z);
       }
       sampledElos.sort((a, b) => a - b);
-      const idx = Math.min(
-        Math.floor(percentile * sampledElos.length),
-        sampledElos.length - 1,
-      );
-      sum += sampledElos[idx]!;
+      // B002-S4 + B003-S4: use shared percentileIndex helper (ceil-1 nearest-rank).
+      sum += sampledElos[percentileIndex(percentile, sampledElos.length)]!;
     }
     percentileValues.push(sum / nRuns);
   }
@@ -191,19 +235,17 @@ export function bootstrapPercentileCI(
 
   const actuals = validRuns.map((variants) => {
     const elos = variants.map((v) => v.elo).sort((a, b) => a - b);
-    return elos[Math.min(Math.floor(percentile * elos.length), elos.length - 1)]!;
+    return elos[percentileIndex(percentile, elos.length)]!;
   });
   const mean = actuals.reduce((s, v) => s + v, 0) / actuals.length;
 
   return {
     value: mean,
     uncertainty: null,
-    ci: nRuns < 2
-      ? null
-      : [
-          percentileValues[Math.floor(iterations * 0.025)]!,
-          percentileValues[Math.floor(iterations * 0.975)]!,
-        ],
+    ci: [
+      percentileValues[Math.floor(iterations * 0.025)]!,
+      percentileValues[Math.floor(iterations * 0.975)]!,
+    ],
     n: nRuns,
   };
 }
@@ -263,10 +305,25 @@ export function aggregateMetrics(
 
 // ─── Per-Run Metrics Computation ────────────────────────────────
 
-/** Compute metrics for a single evolution run from DB data. */
+/**
+ * Compute metrics for a single evolution run from DB data.
+ *
+ * When called from the production finalize path (persistRunResults.ts), pass
+ * `opts.strategyId` and `opts.experimentId` so attribution metrics
+ * (`eloAttrDelta:*` / `eloAttrDeltaHist:*`) are persisted to `evolution_metrics`
+ * at run/strategy/experiment entity levels. Without opts, attribution rows are
+ * still populated in the returned in-memory bag but NOT written to the DB —
+ * this preserves the existing test-only call pattern.
+ *
+ * Writes are non-fatal from the caller's perspective; individual `writeMetric`
+ * calls inside `computeEloAttributionMetrics` throw on DB failure, so the
+ * caller must wrap this in try/catch if it wants to tolerate attribution
+ * failures without aborting finalize.
+ */
 export async function computeRunMetrics(
   runId: string,
   supabase: SupabaseClient,
+  opts?: { strategyId?: string; experimentId?: string },
 ): Promise<RunMetricsWithRatings> {
   const metrics: MetricsBag = {};
   // V2: query evolution_variants directly (no checkpoints, no compute_run_variant_stats RPC)
@@ -320,7 +377,9 @@ export async function computeRunMetrics(
   // ─── Phase 5: ELO attribution by (agent, dimension) ────────────────
   // Group variants produced by each invocation by (agent_name, execution_detail.strategy)
   // and emit eloAttrDelta:<agent>:<dim> + eloAttrDeltaHist:<agent>:<bucket> rows.
-  await computeEloAttributionMetrics(runId, metrics, supabase);
+  // When opts.strategyId / opts.experimentId are set, rows are ALSO persisted to
+  // evolution_metrics at those entity levels (Blocker 2 fix, 2026-04-22).
+  await computeEloAttributionMetrics(runId, metrics, supabase, opts);
 
   return { metrics, variantRatings: null };
 }
@@ -355,38 +414,51 @@ async function computeEloAttributionMetrics(
   runId: string,
   metrics: MetricsBag,
   supabase: SupabaseClient,
+  opts?: { strategyId?: string; experimentId?: string },
 ): Promise<void> {
   type AttrVariantRow = {
-    id: string; mu: number | null; elo_score: number; parent_variant_id: string;
-    agent_invocation_id: string; persisted: boolean | null;
+    id: string; mu: number | null; elo_score: number; parent_variant_id: string | null;
+    agent_invocation_id: string | null; persisted: boolean | null;
+    // B052: agent_name is used as the attribution group key when agent_invocation_id is
+    // NULL (historic + seed variants) so these rows still contribute to per-tactic
+    // attribution instead of being silently dropped.
+    agent_name: string | null;
   };
+  // B010-S4: previously also filtered `.not('parent_variant_id', 'is', null)` which
+  // excluded seed variants (parent is always null on seeds). The B052 fallback path
+  // intends seeds to bucket under `agent_name + 'legacy'`, but the SQL filter prevented
+  // them ever reaching it. We now pull all variants for the run and let the in-memory
+  // routing decide which contribute to which attribution group; rows without a parent
+  // and without an agent_invocation_id ALSO without an agent_name are filtered later.
   const { data: variantsData } = await supabase
     .from('evolution_variants')
-    .select('id, mu, elo_score, parent_variant_id, agent_invocation_id, persisted')
-    .eq('run_id', runId)
-    .not('agent_invocation_id', 'is', null)
-    .not('parent_variant_id', 'is', null);
+    .select('id, mu, elo_score, parent_variant_id, agent_invocation_id, persisted, agent_name')
+    .eq('run_id', runId);
   const variants = (variantsData ?? []) as unknown as AttrVariantRow[];
 
   if (variants.length === 0) return;
 
-  const invocationIds = [...new Set(variants.map(v => v.agent_invocation_id))];
-  const parentIds = [...new Set(variants.map(v => v.parent_variant_id))];
+  const invocationIds = [...new Set(variants.map(v => v.agent_invocation_id).filter((x): x is string => !!x))];
+  const parentIds = [...new Set(variants.map(v => v.parent_variant_id).filter((x): x is string => !!x))];
 
   type AttrInvocationRow = {
     id: string; agent_name: string; execution_detail: Record<string, unknown> | null;
   };
-  const { data: invocationsData } = await supabase
-    .from('evolution_agent_invocations')
-    .select('id, agent_name, execution_detail')
-    .in('id', invocationIds);
+  const { data: invocationsData } = invocationIds.length > 0
+    ? await supabase
+        .from('evolution_agent_invocations')
+        .select('id, agent_name, execution_detail')
+        .in('id', invocationIds)
+    : { data: [] };
   const invocations = (invocationsData ?? []) as unknown as AttrInvocationRow[];
 
   type AttrParentRow = { id: string; mu: number | null; elo_score: number };
-  const { data: parentsData } = await supabase
-    .from('evolution_variants')
-    .select('id, mu, elo_score')
-    .in('id', parentIds);
+  const { data: parentsData } = parentIds.length > 0
+    ? await supabase
+        .from('evolution_variants')
+        .select('id, mu, elo_score')
+        .in('id', parentIds)
+    : { data: [] };
   const parents = (parentsData ?? []) as unknown as AttrParentRow[];
 
   const invMap = new Map(invocations.map(i => [i.id, i]));
@@ -395,31 +467,64 @@ async function computeEloAttributionMetrics(
   // Group deltas by (agent_name, dimension_value).
   const groups = new Map<string, { agent: string; dim: string; deltas: number[] }>();
   for (const v of variants) {
-    const inv = invMap.get(v.agent_invocation_id);
-    if (!inv) continue;
-    // Dimension: read 'strategy' from execution_detail. Non-variant-producing agents
-    // (swiss, merge) won't have this field → skipped.
-    const dim = (inv.execution_detail as { strategy?: unknown })?.strategy;
-    if (typeof dim !== 'string' || dim.length === 0) continue;
-    // Skip colon-containing dimension values to keep metric-name parsing unambiguous.
-    if (dim.includes(':')) continue;
+    // Phase 8 of develop_reflection_and_generateFromParentArticle_agent_evolution_20260430:
+    // Mutually-exclusive dispatch — registry hit OR legacy fallback, NEVER both.
+    // (1) When agent_invocation_id is set AND a registered extractor exists for
+    //     inv.agent_name, use the extractor's output (e.g., GFPA returns detail.tactic;
+    //     reflect_and_generate returns detail.tactic too — naturally separated by
+    //     agent_name in the eloAttrDelta key).
+    // (2) When extractor is missing (unknown agent_name) OR returns null, fall back to
+    //     the legacy hardcoded `execution_detail.strategy` read.
+    // (3) When agent_invocation_id is null (legacy / seed variants), use
+    //     v.agent_name + 'legacy' so they still contribute under their own bucket.
+    // B052: this branch is the long-standing fallback for legacy variants.
+    const inv = v.agent_invocation_id ? invMap.get(v.agent_invocation_id) : undefined;
+    let dim: string | undefined;
+    let agentName: string | undefined;
+    if (inv) {
+      agentName = inv.agent_name;
+      const extractor = ATTRIBUTION_EXTRACTORS[inv.agent_name];
+      if (extractor) {
+        const extracted = extractor(inv.execution_detail);
+        // B004-S4: previously rejected any value containing ':'. Legitimate dimension
+        // values (e.g. 'gpt-4:turbo') silently dropped. Now we escape ':' → '_COLON_'
+        // when building the metric key so the colon is preserved as a value.
+        if (typeof extracted === 'string' && extracted.length > 0) {
+          dim = extracted.replace(/:/g, '_COLON_');
+        }
+      } else {
+        // Legacy fallback path — only fires for agent_names without a registered extractor.
+        const d = (inv.execution_detail as { strategy?: unknown })?.strategy;
+        if (typeof d === 'string' && d.length > 0) dim = d.replace(/:/g, '_COLON_');
+      }
+    } else if (v.agent_name) {
+      agentName = v.agent_name;
+      dim = 'legacy';
+    }
+    if (!agentName || !dim) continue;
 
-    const parent = parentMap.get(v.parent_variant_id);
+    const parent = v.parent_variant_id ? parentMap.get(v.parent_variant_id) : undefined;
     if (!parent) continue;
     const childElo = v.mu ?? v.elo_score;
     const parentElo = parent.mu ?? parent.elo_score;
     const delta = childElo - parentElo;
     if (!Number.isFinite(delta)) continue;
 
-    const key = `${inv.agent_name}::${dim}`;
-    const group = groups.get(key) ?? { agent: inv.agent_name, dim, deltas: [] };
+    const key = `${agentName}::${dim}`;
+    const group = groups.get(key) ?? { agent: agentName, dim, deltas: [] };
     group.deltas.push(delta);
     groups.set(key, group);
   }
 
+  // If opts are set, we persist to evolution_metrics at all 3 levels (Blocker 2 fix).
+  // The local SupabaseClient interface is minimal; cast to the real client type that
+  // writeMetric expects. Chainable mocks in tests satisfy both shapes.
+  const dbForWrite = opts ? (supabase as unknown as RealSupabaseClient) : null;
+
   for (const { agent, dim, deltas } of groups.values()) {
     if (deltas.length === 0) continue;
     const mean = deltas.reduce((s, d) => s + d, 0) / deltas.length;
+    if (!Number.isFinite(mean)) continue; // defensive — upstream filter catches per-delta non-finite
     const variance = deltas.length > 1
       ? deltas.reduce((s, d) => s + (d - mean) ** 2, 0) / (deltas.length - 1)
       : 0;
@@ -435,6 +540,26 @@ async function computeEloAttributionMetrics(
       n: deltas.length,
     };
 
+    if (dbForWrite) {
+      const deltaMetricName = `eloAttrDelta:${agent}:${dim}` as RegistryMetricName;
+      // B011-S4: include `aggregation_method: 'avg'` so the metricColumns formatter that
+      // keys off this field renders the CI/aggregation badge correctly.
+      const deltaOpts = {
+        uncertainty: deltas.length >= 2 ? sd : undefined,
+        ci_lower: ci?.[0],
+        ci_upper: ci?.[1],
+        n: deltas.length,
+        aggregation_method: 'avg' as const,
+      };
+      await writeMetric(dbForWrite, 'run', runId, deltaMetricName, mean, 'at_finalization', deltaOpts);
+      if (opts?.strategyId) {
+        await writeMetric(dbForWrite, 'strategy', opts.strategyId, deltaMetricName, mean, 'at_finalization', deltaOpts);
+      }
+      if (opts?.experimentId) {
+        await writeMetric(dbForWrite, 'experiment', opts.experimentId, deltaMetricName, mean, 'at_finalization', deltaOpts);
+      }
+    }
+
     // Histogram: fraction per bucket.
     const bucketCounts = new Map<string, number>();
     for (const d of deltas) {
@@ -447,12 +572,26 @@ async function computeEloAttributionMetrics(
       }
     }
     for (const [label, count] of bucketCounts) {
+      const fraction = count / deltas.length;
       metrics[`eloAttrDeltaHist:${agent}:${dim}:${label}` as MetricName] = {
-        value: count / deltas.length,
+        value: fraction,
         uncertainty: null,
         ci: null,
         n: count,
       };
+
+      if (dbForWrite && Number.isFinite(fraction)) {
+        const histMetricName = `eloAttrDeltaHist:${agent}:${dim}:${label}` as RegistryMetricName;
+        // B011-S4: histogram aggregation is 'count' (raw bucket count surfaces as fraction).
+        const histOpts = { n: count, aggregation_method: 'count' as const };
+        await writeMetric(dbForWrite, 'run', runId, histMetricName, fraction, 'at_finalization', histOpts);
+        if (opts?.strategyId) {
+          await writeMetric(dbForWrite, 'strategy', opts.strategyId, histMetricName, fraction, 'at_finalization', histOpts);
+        }
+        if (opts?.experimentId) {
+          await writeMetric(dbForWrite, 'experiment', opts.experimentId, histMetricName, fraction, 'at_finalization', histOpts);
+        }
+      }
     }
   }
 }

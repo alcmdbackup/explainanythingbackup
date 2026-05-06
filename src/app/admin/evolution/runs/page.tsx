@@ -2,13 +2,15 @@
 // Standardizes on the shared list page pattern while preserving RunsTable's budget bars.
 'use client';
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { toast } from 'sonner';
 import {
   EvolutionBreadcrumb,
   EntityListPage,
   RunsTable,
   getBaseColumns,
+  ColumnPicker,
+  usePersistedHiddenColumns,
 } from '@evolution/components/evolution';
 import type { FilterDef } from '@evolution/components/evolution';
 import { ConfirmDialog } from '@evolution/components/evolution';
@@ -39,6 +41,10 @@ const pageSize = 20;
 
 type RunAction = { kind: 'none' } | { kind: 'kill'; run: EvolutionRun } | { kind: 'delete'; run: EvolutionRun };
 
+// Fix #51 (use_playwright_find_ux_issues_bugs_20260501): inline ColumnPicker +
+// hiddenCols dance extracted to evolution/src/components/evolution/primitives/ColumnPicker
+// + hooks/usePersistedHiddenColumns. The arena leaderboard now shares both.
+
 export default function EvolutionRunsPage(): JSX.Element {
   useEffect(() => { document.title = 'Runs | Evolution'; }, []);
   const [runs, setRuns] = useState<EvolutionRun[]>([]);
@@ -48,6 +54,13 @@ export default function EvolutionRunsPage(): JSX.Element {
   const [strategyOptions, setStrategyOptions] = useState<{ value: string; label: string }[]>([]);
   const [filterValues, setFilterValues] = useState<Record<string, string>>({ filterTestContent: 'true' });
   const [page, setPage] = useState(1);
+  const [hiddenCols, setHiddenCols] = usePersistedHiddenColumns('evolution-runs-hidden-columns');
+
+  // U3: build the full column list once — used both by the picker (to render
+  // toggles) and the table (filtered by `hiddenCols`).
+  const allColumns = useMemo(() => [...getBaseColumns(), ...createRunsMetricColumns()], []);
+  const visibleColumns = useMemo(() => allColumns.filter(c => !hiddenCols.has(c.key)), [allColumns, hiddenCols]);
+  const pickerColumns = useMemo(() => allColumns.map(c => ({ key: c.key, label: c.header })), [allColumns]);
 
   // Build dynamic filter list including loaded strategy options
   const filters: FilterDef[] = [
@@ -56,13 +69,20 @@ export default function EvolutionRunsPage(): JSX.Element {
     {
       key: 'strategy_id',
       label: 'Strategy',
-      type: 'select',
+      // U4 (use_playwright_find_bugs_ux_issues_20260422): combobox instead of
+      // flat <select> — staging has hundreds of strategies and the unsearchable
+      // dropdown was unscannable.
+      type: 'combobox',
+      placeholder: 'Search strategies...',
       options: [{ label: 'All strategies', value: '' }, ...strategyOptions],
     },
   ];
 
   useEffect(() => {
-    listStrategiesAction({ limit: 200, offset: 0 }).then(res => {
+    // filterTestContent: true mirrors the runs-list "Hide test content" default —
+    // dropdown options should not show [TEST]/[TEST_EVO]/e2e-* strategies that
+    // the rows themselves are filtering out (B3 root cause #1).
+    listStrategiesAction({ limit: 200, offset: 0, filterTestContent: true }).then(res => {
       if (res.success && res.data) {
         setStrategyOptions(res.data.items.map(s => ({ value: s.id, label: s.name })));
       }
@@ -110,16 +130,22 @@ export default function EvolutionRunsPage(): JSX.Element {
     if (result.success) { toast.success('Run deleted'); load(); } else { toast.error(result.error?.message ?? 'Delete failed'); }
   };
 
-  const renderActions = (run: EvolutionRun): React.ReactNode => (
-    <div className="flex gap-2">
-      {['pending', 'claimed', 'running'].includes(run.status) && (
-        <button onClick={() => setPendingAction({ kind: 'kill', run })} className="font-ui text-xs text-[var(--status-error)]">Kill</button>
-      )}
-      {['completed', 'failed', 'cancelled'].includes(run.status) && (
-        <button onClick={() => setPendingAction({ kind: 'delete', run })} className="font-ui text-xs text-[var(--status-error)]">Delete</button>
-      )}
-    </div>
-  );
+  const renderActions = (run: EvolutionRun): React.ReactNode => {
+    // Fix #18 Patch A (use_playwright_find_ux_issues_bugs_20260501): per-row
+    // action buttons need a unique aria-label that includes the row identifier
+    // so screen reader users can distinguish "Delete" buttons across the list.
+    const idShort = run.id.slice(0, 8);
+    return (
+      <div className="flex gap-2">
+        {['pending', 'claimed', 'running'].includes(run.status) && (
+          <button onClick={() => setPendingAction({ kind: 'kill', run })} aria-label={`Kill run ${idShort}`} className="font-ui text-xs text-[var(--status-error)]">Kill</button>
+        )}
+        {['completed', 'failed', 'cancelled'].includes(run.status) && (
+          <button onClick={() => setPendingAction({ kind: 'delete', run })} aria-label={`Delete run ${idShort}`} className="font-ui text-xs text-[var(--status-error)]">Delete</button>
+        )}
+      </div>
+    );
+  };
 
   const confirmOpen = pendingAction.kind === 'kill' || pendingAction.kind === 'delete';
   const runIdShort = pendingAction.kind !== 'none' ? pendingAction.run.id.substring(0, 8) : '';
@@ -133,6 +159,14 @@ export default function EvolutionRunsPage(): JSX.Element {
         { label: 'Evolution', href: '/admin/evolution-dashboard' },
         { label: 'Runs' },
       ]} />
+
+      {/* U3: column-picker popover. Renders just above the EntityListPage so
+          users can collapse the runs list back to the columns they care about. */}
+      <ColumnPicker
+        allColumns={pickerColumns}
+        hidden={hiddenCols}
+        onChange={setHiddenCols}
+      />
 
       <EntityListPage<EvolutionRun>
         title="Evolution Runs"
@@ -149,7 +183,7 @@ export default function EvolutionRunsPage(): JSX.Element {
         renderTable={({ items: tableItems, loading: tableLoading }) => (
           <RunsTable
             runs={tableItems}
-            columns={[...getBaseColumns(), ...createRunsMetricColumns()]}
+            columns={visibleColumns}
             loading={tableLoading}
             renderActions={renderActions}
             testId="runs-list-table"

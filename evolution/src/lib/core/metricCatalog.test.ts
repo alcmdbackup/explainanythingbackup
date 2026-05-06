@@ -28,7 +28,7 @@ describe('METRIC_CATALOG', () => {
   });
 
   it('formatter values are valid', () => {
-    const validFormatters = ['cost', 'costDetailed', 'elo', 'score', 'percent', 'integer'];
+    const validFormatters = ['cost', 'costDetailed', 'elo', 'score', 'percent', 'percentValue', 'integer'];
     for (const def of Object.values(METRIC_CATALOG)) {
       expect(validFormatters).toContain(def.formatter);
     }

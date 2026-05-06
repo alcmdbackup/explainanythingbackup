@@ -216,8 +216,10 @@ describe('Request ID Propagation Integration Tests', () => {
       const requestId = RequestIdContext.getRequestId();
       const userId = RequestIdContext.getUserId();
 
-      // Assert
-      expect(requestId).toBe('unknown');
+      // Assert: B080 — unset-context reads now generate a `unknown-<uuid>` so
+      // each outside-context call is independently identifiable in tracing,
+      // instead of collapsing into a single "unknown" correlation bucket.
+      expect(requestId).toMatch(/^unknown-/);
       expect(userId).toBe('anonymous');
     });
   });

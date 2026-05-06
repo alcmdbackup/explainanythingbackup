@@ -43,6 +43,12 @@ export function swissPairing(
   completedPairs: ReadonlySet<string>,
   maxPairs: number = MAX_PAIRS_PER_ROUND,
 ): Array<[string, string]> {
+  // B014-S1: reject maxPairs <= 0 explicitly. Previously, maxPairs=0 silently returned []
+  // which the caller treated as legitimate `iteration_no_pairs` convergence. A config bug
+  // upstream now surfaces as a thrown error instead of a silent no-op.
+  if (maxPairs <= 0) {
+    throw new Error(`swissPairing: maxPairs must be positive, got ${maxPairs}`);
+  }
   if (eligibleIds.length < 2) return [];
 
   const candidates: PairCandidate[] = [];
@@ -68,7 +74,15 @@ export function swissPairing(
   }
 
   // Sort by descending score and take the top-K (overlap allowed).
-  candidates.sort((a, b) => b.score - a.score);
+  // B118: add deterministic tiebreakers — ties on `score` must not produce
+  // nondeterministic ordering. Break by idA then idB lexicographically so that
+  // a seeded RNG upstream yields a repeatable pairing set.
+  candidates.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    if (a.idA !== b.idA) return a.idA < b.idA ? -1 : 1;
+    if (a.idB !== b.idB) return a.idB < b.idB ? -1 : 1;
+    return 0;
+  });
   const top = candidates.slice(0, maxPairs);
   return top.map((c) => [c.idA, c.idB] as [string, string]);
 }
