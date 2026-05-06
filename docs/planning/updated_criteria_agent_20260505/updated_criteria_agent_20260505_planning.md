@@ -218,7 +218,7 @@ Ships the simpler of the two new agents. Delivers the "guardrails-only" hypothes
 - [ ] `src/app/admin/evolution/strategies/new/page.tsx`:
   - Per-iteration agent-type select (lines 975-986): add option `<option value="single_pass_evaluate_criteria_and_generate">Single-pass criteria w/ guardrails</option>`.
   - `IterationRow` type (line 37): extend with new fields.
-  - Insert conditional render block after line 1205: CriteriaMultiSelect (reuse), weakestK numeric input (reuse), `redundancyJaccardThreshold` numeric input (default 0.35).
+  - Insert conditional render block after line 1205: CriteriaMultiSelect (reuse), weakestK numeric input (reuse), **"Redundancy threshold"** numeric input — UI label is human-friendly; underlying field name stays `redundancyJaccardThreshold` for codebase honesty (default 0.35; 0 = strictest, 1 = loosest; tooltip: "Reject edits whose new text shares more than this fraction of trigrams with the rest of the article — protects against verbatim duplication").
   - `updateIteration` callback (lines 473-522): add field-clearing branch for the new type.
   - `canBeFirstIteration` + `isVariantProducing` + `toIterationConfigsPayload`: include the new type.
   - Budget bar color (line 1230): cyan (`bg-cyan-500`) for single-pass; legend entry.
@@ -412,7 +412,7 @@ The shared `proposerPrompt.ts` and `approverPrompt.ts` (extended in Phase 4.0 to
 #### 4.7 — Wizard UI (propose/approve conditional render)
 - [ ] `src/app/admin/evolution/strategies/new/page.tsx`:
   - Per-iteration agent-type select: add `<option value="proposer_approver_criteria_generate">Proposer-approver criteria w/ mirror</option>`.
-  - Conditional render block (per-iteration ONLY): CriteriaMultiSelect + weakestK + `lengthCapRatio` numeric input (default 1.10) + `redundancyJaccardThreshold` numeric input (default 0.35) + `includesMirrorApprover` checkbox **(default checked = true)**. `toIterationConfigsPayload` emits the field to the strategy config ONLY when the user explicitly unchecks it; default-on strategies omit the field for compact hashing.
+  - Conditional render block (per-iteration ONLY): CriteriaMultiSelect + weakestK + **"Length cap ratio"** numeric input (default 1.10) + **"Redundancy threshold"** numeric input (default 0.35; underlying field name `redundancyJaccardThreshold`) + **"Include mirror approver"** checkbox **(default checked = true)**. `toIterationConfigsPayload` emits `includesMirrorApprover` to the strategy config ONLY when the user explicitly unchecks it; default-on strategies omit the field for compact hashing.
   - **Models are STRATEGY-LEVEL only** — `editingModel` + `approverModel` configured in Step 1 of the wizard (existing IterativeEditingAgent fields, reused as-is). NOT exposed per-iteration. All `proposer_approver_criteria_generate` iterations within one strategy share the same proposer + approver models.
   - `editingMaxCycles` rendered as read-only "1 cycle (single-pass fixed)".
   - `updateIteration` callback: add field-clearing branch.
