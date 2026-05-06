@@ -345,6 +345,11 @@ The headline agent — single-cycle propose / forward-approve / mirror-approve /
   - `proposer_approver_drift_rate` (fraction of cycles with proposer drift).
   - `proposer_approver_accept_rate` (fraction of edits forward-approver accepted).
   - `proposer_approver_mirror_agreement_rate` (= `appliedGroups / approverGroups`).
+- [ ] Same file — add 3 new **invocation-level** metrics so per-invocation values surface on the invocation Metrics tab + queryable in `evolution_metrics`:
+  - `invocation_mirror_agreement_rate` — `appliedGroups / approverGroups` for this invocation.
+  - `invocation_forward_accept_rate` — `forwardAccepts / approverGroups` for this invocation.
+  - `invocation_mirror_filter_rate` — `1 - (appliedGroups / forwardAccepts)` — fraction of forward-accepted edits the mirror dropped (mirror's "work").
+- [ ] Compute these from `execution_detail.cycles[0]` at finalization (`computeInvocationProposerApproverMetrics()` in `evolution/src/lib/metrics/computations/finalizationInvocation.ts`). Run-level metrics aggregate via mean across invocations.
 - [ ] Env-tunable alert thresholds (mirror `iterative_edit_*_ALERT_THRESHOLD` pattern):
   - `EVOLUTION_PROPOSER_APPROVER_DRIFT_RATE_ALERT_THRESHOLD` (default `'0.30'`)
   - `EVOLUTION_PROPOSER_APPROVER_ACCEPT_RATE_ALERT_THRESHOLD` (default `'0.95'`)
