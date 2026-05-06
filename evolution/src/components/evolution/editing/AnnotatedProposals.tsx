@@ -65,6 +65,19 @@ const OUTCOME_LABEL: Record<Outcome, string> = {
   unknown: 'Unknown',
 };
 
+const LEGEND_OUTCOMES: Outcome[] = ['accepted', 'rejected', 'dropped_pre', 'dropped_post'];
+
+const PRE_CLASSNAME = 'whitespace-pre-wrap font-mono leading-relaxed p-3 bg-[var(--surface-secondary)] rounded border border-[var(--border-default)] max-h-[600px] overflow-y-auto';
+
+const TOOLBAR_BUTTON_BASE = 'px-3 py-1';
+function toolbarButtonClass(active: boolean, withLeftBorder: boolean): string {
+  const activeClass = active
+    ? 'bg-[var(--accent-gold)] text-[var(--surface-primary)]'
+    : 'bg-[var(--surface-elevated)] text-[var(--text-secondary)]';
+  const border = withLeftBorder ? ' border-l border-[var(--border-default)]' : '';
+  return `${TOOLBAR_BUTTON_BASE}${border} ${activeClass}`;
+}
+
 function classifyGroup(
   groupNumber: number,
   decisions: EditingReviewDecision[],
@@ -115,29 +128,38 @@ function buildSegments(
   return segments;
 }
 
-/** Strip CriticMarkup from proposedMarkup — keep insert+delete content's
- *  "deleted" text, drop "inserted" text. Used by the Original view. */
-function stripMarkup(markup: string): string {
-  return markup
-    .replace(/\{\+\+\s*\[#\d+\]\s*([\s\S]*?)\s*\+\+\}/g, '')
-    .replace(/\{--\s*\[#\d+\]\s*([\s\S]*?)\s*--\}/g, '$1')
-    .replace(/\{~~\s*\[#\d+\]\s*([\s\S]*?)\s*~>\s*([\s\S]*?)\s*~~\}/g, '$1');
-}
-
-/** Reconstruct the article using only accepted-and-applied edits — i.e., the
- *  "final variant" the agent emitted from this cycle. */
-function reconstructFinal(
+/** Walk proposedGroupsRaw's markupRange data and rebuild the article using
+ *  newText for groups in acceptedGroupSet, oldText otherwise. Drives both
+ *  the "Final variant" view (acceptedGroupSet from appliedGroups) and the
+ *  "Original" fallback view (empty acceptedGroupSet → all spans revert to
+ *  oldText). Position-driven so it works whether or not the markup carries
+ *  explicit `[#N]` tags (which became optional once the parser added
+ *  adjacency-based auto-grouping). */
+function reconstructFromGroups(
   markup: string,
-  appliedGroups: EditingGroup[],
+  proposedGroupsRaw: EditingGroup[],
+  acceptedGroupSet: Set<number>,
 ): string {
-  const acceptedGroupSet = new Set(appliedGroups.map((g) => g.groupNumber));
-  return markup
-    .replace(/\{\+\+\s*\[#(\d+)\]\s*([\s\S]*?)\s*\+\+\}/g, (_m, n, content) =>
-      acceptedGroupSet.has(Number(n)) ? content : '')
-    .replace(/\{--\s*\[#(\d+)\]\s*([\s\S]*?)\s*--\}/g, (_m, n, content) =>
-      acceptedGroupSet.has(Number(n)) ? '' : content)
-    .replace(/\{~~\s*\[#(\d+)\]\s*([\s\S]*?)\s*~>\s*([\s\S]*?)\s*~~\}/g, (_m, n, oldT, newT) =>
-      acceptedGroupSet.has(Number(n)) ? newT : oldT);
+  const allAtomic = proposedGroupsRaw
+    .flatMap((g) => g.atomicEdits.map((e) => ({
+      groupNumber: g.groupNumber,
+      markupStart: e.markupRange.start,
+      markupEnd: e.markupRange.end,
+      oldText: e.oldText,
+      newText: e.newText,
+    })))
+    .sort((a, b) => a.markupStart - b.markupStart);
+
+  let result = '';
+  let cursor = 0;
+  for (const edit of allAtomic) {
+    if (edit.markupStart < cursor) continue;
+    result += markup.slice(cursor, edit.markupStart);
+    result += acceptedGroupSet.has(edit.groupNumber) ? edit.newText : edit.oldText;
+    cursor = edit.markupEnd;
+  }
+  result += markup.slice(cursor);
+  return result;
 }
 
 export function AnnotatedProposals({
@@ -157,8 +179,14 @@ export function AnnotatedProposals({
     [proposedMarkup, proposedGroupsRaw, reviewDecisions, droppedPreApprover, droppedPostApprover],
   );
 
-  const finalText = useMemo(() => reconstructFinal(proposedMarkup, appliedGroups), [proposedMarkup, appliedGroups]);
-  const originalText = useMemo(() => parentText ?? stripMarkup(proposedMarkup), [proposedMarkup, parentText]);
+  const finalText = useMemo(
+    () => reconstructFromGroups(proposedMarkup, proposedGroupsRaw, new Set(appliedGroups.map((g) => g.groupNumber))),
+    [proposedMarkup, proposedGroupsRaw, appliedGroups],
+  );
+  const originalText = useMemo(
+    () => parentText ?? reconstructFromGroups(proposedMarkup, proposedGroupsRaw, new Set()),
+    [proposedMarkup, proposedGroupsRaw, parentText],
+  );
 
   // Group-info popup state
   const [hoveredGroup, setHoveredGroup] = useState<number | null>(null);
@@ -170,7 +198,7 @@ export function AnnotatedProposals({
           <button
             type="button"
             onClick={() => setView('annotated')}
-            className={`px-3 py-1 ${view === 'annotated' ? 'bg-[var(--accent-gold)] text-[var(--surface-primary)]' : 'bg-[var(--surface-elevated)] text-[var(--text-secondary)]'}`}
+            className={toolbarButtonClass(view === 'annotated', false)}
             data-testid="annotated-view-annotated"
           >
             Annotated
@@ -178,7 +206,7 @@ export function AnnotatedProposals({
           <button
             type="button"
             onClick={() => setView('final')}
-            className={`px-3 py-1 border-l border-[var(--border-default)] ${view === 'final' ? 'bg-[var(--accent-gold)] text-[var(--surface-primary)]' : 'bg-[var(--surface-elevated)] text-[var(--text-secondary)]'}`}
+            className={toolbarButtonClass(view === 'final', true)}
             data-testid="annotated-view-final"
           >
             Final variant
@@ -186,7 +214,7 @@ export function AnnotatedProposals({
           <button
             type="button"
             onClick={() => setView('original')}
-            className={`px-3 py-1 border-l border-[var(--border-default)] ${view === 'original' ? 'bg-[var(--accent-gold)] text-[var(--surface-primary)]' : 'bg-[var(--surface-elevated)] text-[var(--text-secondary)]'}`}
+            className={toolbarButtonClass(view === 'original', true)}
             data-testid="annotated-view-original"
           >
             Original
@@ -204,7 +232,7 @@ export function AnnotatedProposals({
 
       {legendOpen && (
         <div className="mb-2 flex flex-wrap gap-2 text-xs font-ui" data-testid="annotated-legend">
-          {(Object.keys(OUTCOME_STYLE) as Outcome[]).filter((o) => o !== 'unknown').map((o) => (
+          {LEGEND_OUTCOMES.map((o) => (
             <span key={o} className={`px-2 py-0.5 rounded ${OUTCOME_STYLE[o]}`}>
               {OUTCOME_LABEL[o]}
             </span>
@@ -213,10 +241,7 @@ export function AnnotatedProposals({
       )}
 
       {view === 'annotated' && (
-        <pre
-          className="whitespace-pre-wrap font-mono leading-relaxed p-3 bg-[var(--surface-secondary)] rounded border border-[var(--border-default)] max-h-[600px] overflow-y-auto"
-          data-testid="annotated-content"
-        >
+        <pre className={PRE_CLASSNAME} data-testid="annotated-content">
           {segments.map((seg, i) => {
             const text = proposedMarkup.slice(seg.start, seg.end);
             if (seg.groupNumber === null) {
@@ -237,7 +262,7 @@ export function AnnotatedProposals({
                 data-testid={`annotated-group-${seg.groupNumber}`}
                 data-outcome={seg.outcome}
               >
-                <sup className="text-[10px] mr-0.5 opacity-70">#{seg.groupNumber}</sup>
+                <sup className="text-xs mr-0.5 opacity-70">#{seg.groupNumber}</sup>
                 {text}
               </span>
             );
@@ -246,19 +271,13 @@ export function AnnotatedProposals({
       )}
 
       {view === 'final' && (
-        <pre
-          className="whitespace-pre-wrap font-mono leading-relaxed p-3 bg-[var(--surface-secondary)] rounded border border-[var(--border-default)] max-h-[600px] overflow-y-auto"
-          data-testid="annotated-final"
-        >
+        <pre className={PRE_CLASSNAME} data-testid="annotated-final">
           {finalText}
         </pre>
       )}
 
       {view === 'original' && (
-        <pre
-          className="whitespace-pre-wrap font-mono leading-relaxed p-3 bg-[var(--surface-secondary)] rounded border border-[var(--border-default)] max-h-[600px] overflow-y-auto"
-          data-testid="annotated-original"
-        >
+        <pre className={PRE_CLASSNAME} data-testid="annotated-original">
           {originalText}
         </pre>
       )}
