@@ -1,6 +1,43 @@
-# understand_critera_agent_performance_evolution_20260503 Research
+# updated_criteria_agent_20260505 Research
 
-## Problem Statement
+## This Project (2026-05-06)
+
+Build **two** updated versions of the criteria-driven evolution agent and add **redundancy / flow / length guardrails** to both. The carried-over research below is the baseline from `understand_critera_agent_performance_evolution_20260503`; PR #1032 + #1036 closed 42% of the original Elo gap (-47 → -27.8) and the remaining gap maps to two failure modes (rewrite disasters + light-edit left-tail).
+
+### Two new agent types
+1. **`single_pass_evaluate_criteria_and_generate`** — successor to the current single-pass criteria wrapper. Same one-combined-LLM-call shape (score + suggestions → GFPA delegation with `customPrompt`); adds the new guardrails to customPrompt + evaluator instructions.
+2. **`proposer_approver_criteria_generate`** — new agent, modeled on `IterativeEditingAgent` but **single-cycle** (default `maxCycles = 1`). Proposer drafts CriticMarkup edits targeted at the K weakest criteria; Approver reviews; Implementer applies position-based.
+
+### Guardrail definitions
+- **Redundancy** — don't introduce overlapping ideas / phrasing already present in the article.
+- **Flow** — don't break paragraph-to-paragraph transitions or local rhythm.
+- **Length** — keep within ±10% of original word count.
+
+### Proposer/Approver mechanics (single cycle)
+- Approver receives the FULL criteria + evaluation context (not just article + proposed edits).
+- Rubber-stamping concern is intentionally relaxed — `editingModel` and `approverModel` may be the same.
+- Both edits and approver decisions feed the deterministic Implementer.
+
+### Mirror-approver bias-mitigation protocol
+The approver runs **two passes** on each proposed edit group:
+- **Initial pass** — the original CriticMarkup proposal.
+- **Mirror pass** — sign-flipped version applied to the article in the opposite state (insertion ↔ deletion of the same text; substitution `{~~ A ~> B ~~}` ↔ reverse substitution `{~~ B ~> A ~~}`).
+
+The Implementer applies an edit only if BOTH passes' decisions consistently favor the proposed end-state (initial=ACCEPT + mirror=REJECT). All other combinations → drop the edit. This filters approver position bias / sycophancy, mirroring the existing `run2PassReversal` pattern used for pairwise judges.
+
+### Shipping
+- Both new types ship in parallel as distinct `agentType` enum values.
+- Both inherit from the existing criteria wrapper's evaluation phase (criteria scoring + suggestion drafting); they diverge in how suggestions become edits.
+
+(The carried-over research below documents the prior project's full investigation, post-merge analysis, and the percentile-bucketed Elo distribution that grounds the two-failure-mode framing.)
+
+## Carry-Over from `understand_critera_agent_performance_evolution_20260503`
+
+(Content below is verbatim from the prior project's research doc as the baseline for this project's investigation. Cited here so the original problem statement, methodology, and post-merge analysis stay one click away.)
+
+---
+
+## Problem Statement (prior project)
 
 I want to investigate recent criteria agent-focused runs and understand why performance is worse than I expected. Use @docs/docs_overall/debugging.md to query stage db and look at the last few
 
