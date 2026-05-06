@@ -87,7 +87,7 @@ Lays the type-system and registry groundwork so the two new agents can dispatch.
 - [ ] Same file, `iterationConfigSchema` (lines 522-597) — add 4 new optional fields:
   - `lengthCapRatio: z.number().min(1.01).max(1.50).optional()`
   - `redundancyJaccardThreshold: z.number().min(0).max(1).optional()`
-  - `includesMirrorApprover: z.boolean().optional()`
+  - `includesMirrorApprover: z.boolean().optional()` — **runtime defaults to `true` when absent**; only emitted to `config_hash` when explicitly `false` (compact hash for default-on strategies).
   - (Reuse existing `editingModel` / `approverModel` / `editingMaxCycles` / `editingEligibilityCutoff` for `proposer_approver_criteria_generate`.)
 - [ ] Add Zod `.refine()` blocks:
   - `criteriaIds` valid for the 3 criteria-based agent types (extend existing).
@@ -268,7 +268,7 @@ Reusable primitives for the propose/approve agent (Phase 4). Ships independently
   Reject groups whose `oldText` (when range immediately follows `\n`) matches AND newText doesn't preserve the transition. Drop reason: `flow_transition_violation`.
 - [ ] Add semantic-overlap check call site (per-group). Drop reason: `semantic_overlap_with_existing_content`.
 - [ ] Make size-ratio check parameterized by `opts.lengthCapRatio` (default unchanged at 1.5 for `IterativeEditingAgent` callers; new agent passes 1.10).
-- [ ] Update existing call site in `IterativeEditingAgent.ts:~293` to pass `opts: {}` (preserves existing 1.5× behavior).
+- [ ] Update existing call site in `IterativeEditingAgent.ts:~293` to pass `opts: {}` (preserves existing 1.5× behavior, no guardrails). Verify `IterativeEditingAgent.test.ts` passes with zero modification.
 - [ ] New `evolution/src/lib/core/agents/editing/constants.ts` constant: `DEFAULT_LENGTH_CAP_RATIO = 1.10`.
 
 #### 3.4 — Phase 3 unit tests
@@ -291,7 +291,36 @@ Reusable primitives for the propose/approve agent (Phase 4). Ships independently
 
 The headline agent — single-cycle propose / forward-approve / mirror-approve / apply.
 
+#### 4.0 — Refactor for reuse (preparatory)
+
+Before writing the new agent class, do small refactors to shared helpers in `evolution/src/lib/core/agents/editing/` so the new agent reuses them via parameters instead of forking.
+
+- [ ] Extract `SOFT_RULES` constant from `proposerPrompt.ts` into a shared module (e.g. `proposerSoftRules.ts` exporting `PROPOSER_SOFT_RULES: readonly string[]` and `buildSoftRulesText(rules)`). Existing `buildProposerSystemPrompt` consumes the shared constant. New agent can import + extend with redundancy / flow / length rules without duplicating the core list.
+- [ ] Same pattern for `approverPrompt.ts`: extract reject criteria + accept criteria into shared `APPROVER_REJECT_CRITERIA` / `APPROVER_ACCEPT_CRITERIA` constants. Existing `buildApproverSystemPrompt` consumes them.
+- [ ] Extend `buildProposerUserPrompt(currentText, opts?: { criteriaContext?: { criteria, evaluation, suggestions } })`. When `opts.criteriaContext` is undefined → existing behavior preserved (just article). When provided → criteria block + evaluation results + article. Existing `IterativeEditingAgent` call site passes `{}` — zero behavior change for the editing agent.
+- [ ] Same pattern for `buildApproverUserPrompt(markedUpArticle, approverGroups, opts?: { criteriaContext?, guardrailRubricEnabled? })`. New agent passes both; existing agent passes neither.
+- [ ] Update `IterativeEditingAgent.ts` call sites to pass `{}` (no behavior change).
+- [ ] Run existing `IterativeEditingAgent.test.ts` after refactor — must pass with zero modification.
+
 #### 4.1 — Wrapper class
+
+**Code reuse strategy** — the new agent imports and reuses the editing toolkit aggressively:
+
+| File | Reuse mode |
+|------|------------|
+| `parseProposedEdits.ts` | As-is — same parser |
+| `parseReviewDecisions.ts` | As-is — same JSONL approver parser |
+| `applyAcceptedGroups.ts` | As-is — same right-to-left applier |
+| `checkProposerDrift.ts` | As-is — drift detector (drift *recovery* skipped) |
+| `validateEditGroups.ts` | Extended in Phase 3.3 with `opts` (preserves existing call-site behavior) |
+| `proposerPrompt.ts` | Extended in Phase 4.0 with `criteriaContext` parameter |
+| `approverPrompt.ts` | Extended in Phase 4.0 with `criteriaContext` + `guardrailRubric` parameters |
+| `proposerSoftRules.ts` (NEW from Phase 4.0) | Imports `PROPOSER_SOFT_RULES`, extends with 3 new rules |
+| `constants.ts` | As-is — shares `SIZE_RATIO_HARD_CAP` etc.; new agent's `lengthCapRatio` overrides via `validateEditGroups` opts |
+| `types.ts` (`EditingAtomicEdit`, `EditingGroup`, `EditingReviewDecision`) | As-is |
+
+The new agent's net-new code is the **orchestration** (single-cycle + mirror pass + aggregator) and the **criteria-context construction** for prompt injection. ~80% of the editing toolkit is reused unchanged.
+
 - [ ] Create `evolution/src/lib/core/agents/proposerApproverCriteriaGenerate.ts`:
   - Class: `ProposerApproverCriteriaGenerateAgent` with `name = 'proposer_approver_criteria_generate'`, `usesLLM = true`.
   - `getAttributionDimension(detail) → detail.weakestCriteriaNames[0]`.
@@ -302,7 +331,7 @@ The headline agent — single-cycle propose / forward-approve / mirror-approve /
     4. `checkProposerDrift` — if major drift: abort with `proposer_drift_unrecoverable`. (No drift recovery layer for V1 — the user's spec is single-cycle and we can revisit if drift rates are high.)
     5. `validateEditGroups(groups, currentText, { lengthCapRatio: iterCfg.lengthCapRatio ?? 1.10, redundancyJaccardThreshold: iterCfg.redundancyJaccardThreshold ?? 0.35, flowGuardrailEnabled: true })`.
     6. **Forward approver**: build approver prompt (article + edit-group summary + criteria + evaluation context). LLM call labeled `'criteria_forward_approver'`.
-    7. **If `iterCfg.includesMirrorApprover` (default true)**:
+    7. **If `iterCfg.includesMirrorApprover ?? true`** (mirror runs by default; explicit `false` skips):
        - Compute `articleA' = applyAcceptedGroups(forward-accepted groups, currentText)` for the mirror's article basis.
        - Run `validateFormat(A')` — if A' fails format: set `mirrorAbortReason = 'a_prime_format_invalid'`, skip mirror, fall through to forward-only decision (confidence 0.6 — drop unless critical).
        - `renderMirrorMarkup(currentText, forwardAcceptedGroups) → { mirrorArticleA', mirrorMarkupString, mirrorGroups }`.
@@ -317,21 +346,21 @@ The headline agent — single-cycle propose / forward-approve / mirror-approve /
   - I2: `costBefore*` snapshots captured before each helper call (`costBeforeProposeCall`, `costBeforeForwardApprove`, `costBeforeMirrorApprove`).
   - I3: write partial `execution_detail` (with whatever's been computed) BEFORE re-throwing on any helper failure.
 
-#### 4.2 — Proposer + approver prompt builders
+#### 4.2 — Proposer + approver prompt builders (thin wrappers around shared builders)
+
+The shared `proposerPrompt.ts` and `approverPrompt.ts` (extended in Phase 4.0 to accept `opts.criteriaContext` and `opts.guardrailRubricEnabled`) do most of the work. The new agent's prompt builders are thin wrappers:
+
 - [ ] Create `evolution/src/lib/core/agents/proposerApproverCriteriaPrompts.ts`:
-  - `buildProposerPrompt(article, criteria, evaluation, suggestions, opts)`:
-    - System prompt: existing CriticMarkup conventions + soft rules (preserve quotes/citations/URLs, no new headings, prefer one-sentence edits, no edits in code blocks, preserve voice/tone) **+ 3 new soft rules**:
-      - "Avoid edits whose newText reiterates ideas, phrases, or arguments already present elsewhere in the article. Each edit should introduce or strengthen a distinct idea, not duplicate existing content."
-      - "Preserve transition phrases and connective words at paragraph boundaries; do not delete or replace opening transitions like 'However,' 'Therefore,' or 'In contrast.'"
-      - "Keep edits concise; aim to preserve article length within ±10% of the original."
-    - User prompt: criteria block + evaluation results (criteria scored + suggestions for weakest-K) + article body. Tells the LLM: "Address the WEAKEST CRITERIA listed above by editing the article inline using CriticMarkup syntax."
-  - `buildForwardApproverPrompt(markedUpArticle, edges, criteria, evaluation)`:
-    - System prompt: conservative-review preamble + **NEW guardrail rubric** (per-edit reject criteria for redundancy / flow / length).
-    - User prompt: marked-up article + per-group summary + criteria block + evaluation results.
-    - Output format: JSONL with `{groupNumber, decision, reason, redundancy_violation?, flow_violation?, length_violation?}`.
-  - `buildMirrorApproverPrompt(mirrorArticle, mirrorEdges, criteria, evaluation)`:
-    - **Same** as forward but with explicit framing: "These edits revert from the proposed end-state back to the original. Reject edits that should be applied (i.e., the proposed end-state should be preserved)."
-    - Aim: the LLM understands mirror direction so its judgment is calibrated.
+  - `buildCriteriaProposerSoftRules()` — concatenates `PROPOSER_SOFT_RULES` (imported from shared module) with 3 new criteria-specific rules:
+    - "Avoid edits whose newText reiterates ideas, phrases, or arguments already present elsewhere in the article. Each edit should introduce or strengthen a distinct idea, not duplicate existing content."
+    - "Preserve transition phrases and connective words at paragraph boundaries; do not delete or replace opening transitions like 'However,' 'Therefore,' or 'In contrast.'"
+    - "Keep edits concise; aim to preserve article length within ±10% of the original."
+  - `buildCriteriaProposerSystemPrompt()` — wraps shared `buildProposerSystemPrompt` with the extended soft rules.
+  - `buildCriteriaProposerUserPrompt(article, criteria, evaluation, suggestions)` — wraps shared `buildProposerUserPrompt(article, { criteriaContext: { criteria, evaluation, suggestions } })`. The shared builder injects the criteria block before the article body when `criteriaContext` is present.
+  - `buildCriteriaForwardApproverSystemPrompt()` — wraps shared `buildApproverSystemPrompt` with `{ guardrailRubricEnabled: true }`. The shared builder appends the per-edit guardrail-violation reject rubric.
+  - `buildCriteriaForwardApproverUserPrompt(markedUpArticle, edges, criteria, evaluation)` — wraps shared `buildApproverUserPrompt(markedUpArticle, edges, { criteriaContext: { criteria, evaluation } })`.
+  - `buildCriteriaMirrorApproverUserPrompt(mirrorArticle, mirrorEdges, criteria, evaluation)` — same as forward, but prepends a **mirror-direction framing** to the user prompt: "These edits would revert the proposed end-state back to the original. Reject edits whose proposed end-state should be preserved (i.e., where the original direction is the better article)." Calls the same shared builder.
+- Output format from approvers: JSONL with `{groupNumber, decision, reason, redundancy_violation?, flow_violation?, length_violation?}` — schema extension from Phase 1.6.
 
 #### 4.3 — Dispatch branch
 - [ ] `evolution/src/lib/pipeline/loop/runIterationLoop.ts` — add new `else if (iterType === 'proposer_approver_criteria_generate')` branch (after the `iterative_editing` branch, around line 786+). Mirrors editing dispatch shape: per-parent dispatch via `Promise.allSettled`, no parallel batch / top-up loop, post-dispatch merge.
@@ -383,7 +412,8 @@ The headline agent — single-cycle propose / forward-approve / mirror-approve /
 #### 4.7 — Wizard UI (propose/approve conditional render)
 - [ ] `src/app/admin/evolution/strategies/new/page.tsx`:
   - Per-iteration agent-type select: add `<option value="proposer_approver_criteria_generate">Proposer-approver criteria w/ mirror</option>`.
-  - Conditional render block: CriteriaMultiSelect + weakestK + editingModel + approverModel + `lengthCapRatio` numeric input (default 1.10) + `redundancyJaccardThreshold` numeric input (default 0.35) + `includesMirrorApprover` checkbox (default true).
+  - Conditional render block (per-iteration ONLY): CriteriaMultiSelect + weakestK + `lengthCapRatio` numeric input (default 1.10) + `redundancyJaccardThreshold` numeric input (default 0.35) + `includesMirrorApprover` checkbox **(default checked = true)**. `toIterationConfigsPayload` emits the field to the strategy config ONLY when the user explicitly unchecks it; default-on strategies omit the field for compact hashing.
+  - **Models are STRATEGY-LEVEL only** — `editingModel` + `approverModel` configured in Step 1 of the wizard (existing IterativeEditingAgent fields, reused as-is). NOT exposed per-iteration. All `proposer_approver_criteria_generate` iterations within one strategy share the same proposer + approver models.
   - `editingMaxCycles` rendered as read-only "1 cycle (single-pass fixed)".
   - `updateIteration` callback: add field-clearing branch.
   - Budget bar color: purple (`bg-purple-500`); legend entry.
