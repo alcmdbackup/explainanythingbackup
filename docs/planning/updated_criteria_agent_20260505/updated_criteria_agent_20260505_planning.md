@@ -626,4 +626,18 @@ Real runs to confirm guardrails reduce variance + propose/approve agent's mirror
 - [ ] `.claude/doc-mapping.json` — new entries.
 
 ## Review & Discussion
-TBD — populated by `/plan-review`.
+
+### Iteration 1 (3/3 reviewers below 5)
+
+11 critical gaps found across three perspectives:
+- **Security & Technical (3/5)**: mirror aggregator confidence-graded fallback contradicted strict binary rule; cost-calibration migration missed `evaluate_and_suggest` and 3 TS phase-enum sources.
+- **Architecture & Integration (4/5)**: `parseReviewDecisions.ts` reuse claim incorrect (parser strips guardrail-violation fields); existing Zod refines at `schemas.ts:567-572` strictly gate editing fields on `iterative_editing` only; `canonicalizeIterationConfig` strictly gates `criteriaIds`/`weakestK` on `criteria_and_generate` only.
+- **Testing & CI/CD (3/5)**: mock LLM proposal misframed (capability already exists); 6-tab vs 8-tab plan inconsistency; aggregator combinations not enumerated as separate tests; integration tests didn't bind to specific `evolution_metrics` row assertions; single-pass fallback path untested; mirror-agreement-rate end-to-end persistence unverified.
+
+All 11 critical gaps fixed in commit `2114e2d4`. Strict-binary mirror rule with 6 enumerated `aggregate_drop_*` telemetry reasons. Migration covers all 3 TS phase-enum sources + restores `evaluate_and_suggest` to the CHECK constraint. `parseReviewDecisions.ts` extension added to Phase 4.0. Explicit `WIDEN` markers on the existing Zod refines + canonicalize gates. Mock LLM uses existing `labelResponses` capability. 6-tab consistency throughout. 8-row aggregator truth table with explicit drop-reason coverage. Integration tests bind to `evolution_metrics` rows via SQL assertions. Single-pass fallback test added to Phase 2.8. Mirror-agreement-rate persistence verified via invocation-level metric assertion.
+
+### Iteration 2 — ✅ CONSENSUS (3/3 reviewers scored 5/5)
+
+All prior critical gaps verified as resolved. Remaining items are minor polish (e.g., echoing `guardrailRubricEnabled: false` at the Phase 4.2 call site, tightening `applyAcceptedGroups` 2-arg shorthand to 3-arg, adding an explicit `WIDEN` marker to Phase 5.3 for consistency, picking a concrete kill-switch test assertion mechanism between constructor-spy vs branched-dispatch-return). None block execution.
+
+Plan is ready to execute.
