@@ -122,22 +122,37 @@ Adds a per-variant quality signal so researchers can see rewrite-volume distribu
 
 **Architecture: variant-level column, not execution_detail nesting.** Single source of truth, simpler queries, simpler aggregation.
 
-- [ ] **DB migration**: new file `supabase/migrations/{date}_evolution_variants_sentence_verbatim_ratio.sql`:
+- [ ] **DB migration**: new file `supabase/migrations/{date}-002_evolution_variants_sentence_verbatim_ratio.sql` (use `-002` suffix or distinct date prefix from the cost-calibration migration to avoid filename collision in the same directory):
   ```sql
   ALTER TABLE evolution_variants
     ADD COLUMN sentence_verbatim_ratio NUMERIC;
   -- nullable; legacy variants stay null and are excluded from percentile computations
   ```
+  **Forward-compatible**: nullable `ADD COLUMN`, code reads the field as optional. Migration ordering vs code deploy is flexible — CI's `deploy-migrations` job applies it before code on staging by default. No `MissingMigrationError` risk if code ships first; the field just stays NULL.
 - [ ] Extend `Variant` type in `evolution/src/lib/types.ts` with `sentenceVerbatimRatio?: number` (optional for backward compat).
-- [ ] Extend `createVariant` factory in `evolution/src/lib/shared/textVariationFactory.ts` to accept the field.
-- [ ] Extend `persistRunResults.ts` to write the new column when persisting variants.
+- [ ] Extend `createVariant` factory **in `evolution/src/lib/types.ts`** (the factory is co-located with the `Variant` type at `types.ts:61-85`, NOT in a separate `textVariationFactory.ts` file). Add the field via the existing `...(field !== undefined && { field })` spread pattern. Field defaults to `undefined` when absent — legacy callers get unchanged behavior; persistence writes NULL.
+- [ ] Extend `evolutionVariantInsertSchema` in `evolution/src/lib/schemas.ts` to add `sentence_verbatim_ratio: z.number().nullable().optional()` so the schema accepts the new column on both surfaced AND discarded variant rows. Without this, `.parse({...})` calls in `persistRunResults.ts` would silently strip the field.
+- [ ] Extend `persistRunResults.ts` to write the new column when persisting variants. Both surfaced (line ~237) and discarded (line ~270) variant insert paths.
 - [ ] Extend `getEvolutionVariantsAction` and `listVariantsAction` to SELECT the new column so it's available to the admin UI.
 
 **Agent integration — 3 touchpoints, covers 6 agents via wrapper inheritance:**
 
-- [ ] **`GenerateFromPreviousArticleAgent`** (`evolution/src/lib/core/agents/generateFromPreviousArticle.ts`): after generating child text, compute `sentenceVerbatimRatio` via `sentenceOverlap.sentenceVerbatimOverlap(parentText, generatedText).ratio` and set on the returned `Variant`. Covers vanilla `generate`, `reflect_and_generate` (wrapper inherits), legacy `criteria_and_generate` (wrapper inherits), and new `single_pass_evaluate_criteria_and_generate` (wrapper inherits).
-- [ ] **`IterativeEditingAgent`** (`evolution/src/lib/core/agents/editing/IterativeEditingAgent.ts`): after `applyAcceptedGroups` produces the final variant text, compute the ratio against the original parent (NOT the cycle-N-1 intermediate) and set on the returned `Variant`.
-- [ ] **`ProposerApproverCriteriaGenerateAgent`** (NEW, Phase 4.1 step 9): after applying aggregated edits, compute the ratio against the original parent and set on the returned `Variant`.
+- [ ] **`GenerateFromPreviousArticleAgent`** (`evolution/src/lib/core/agents/generateFromPreviousArticle.ts:248-259`): after generating child text but before the `createVariant` call, compute `sentenceVerbatimRatio` via `sentenceOverlap.sentenceVerbatimOverlap(parentText, generatedText.trim()).ratio`. `parentText` is already destructured into scope at line ~161. Pass the ratio to `createVariant` via the new optional field. Covers vanilla `generate`, `reflect_and_generate` (wrapper inherits — both wrappers call `new GFPA().execute(innerInput, ctx)` and pass through `gfpaOutput.result.variant` unchanged), legacy `criteria_and_generate` (wrapper inherits), and new `single_pass_evaluate_criteria_and_generate` (wrapper inherits).
+- [ ] **`IterativeEditingAgent`** (`evolution/src/lib/core/agents/editing/IterativeEditingAgent.ts:384-392`): at the post-loop final-variant materialization site (NOT inside the cycle loop where `applyAcceptedGroups` runs at line ~347 with cycle-N-1's intermediate `parentText`). At the post-loop site, `input.parent.text` is in scope and is the ORIGINAL parent per Decisions §14. Compute `sentenceVerbatimOverlap(input.parent.text, current.text).ratio` and pass to the final `createVariant` call.
+- [ ] **`ProposerApproverCriteriaGenerateAgent`** (NEW, Phase 4.1 step 9): after applying aggregated edits, compute `sentenceVerbatimOverlap(originalParentText, finalAppliedText).ratio` and set on the returned `Variant`. Helper signature is consistent across all 3 call sites: `sentenceVerbatimOverlap(originalParent, finalChild)`.
+
+**Defensive error handling**: wrap each `sentenceVerbatimOverlap()` call in a try/catch that defaults `ratio = undefined` on error and emits a warn-level log via `EntityLogger`. A bug in the helper (e.g., regex catastrophic backtracking on pathological input) MUST NOT cascade into variant-creation failures. The metric is observational — failure mode is "missing data point in this variant," not "broken pipeline." Pattern:
+```typescript
+let sentenceVerbatimRatio: number | undefined;
+try {
+  sentenceVerbatimRatio = sentenceVerbatimOverlap(parentText, childText).ratio;
+} catch (err) {
+  logger.warn('sentence-overlap compute failed; ratio will be NULL', {
+    error: err instanceof Error ? err.message : String(err),
+    variantId, agentName: this.name,
+  });
+}
+```
 
 **Backward compat**: pre-existing variants have `sentence_verbatim_ratio = NULL`. Metric compute functions filter NULLs from percentile aggregation. UI renders `—` for null. No backfill needed.
 
@@ -568,7 +583,7 @@ Since `evolution_variants.sentence_verbatim_ratio` (Phase 1.4b) is universal acr
 - [ ] `getArenaEntriesAction` (arena leaderboard) — SELECT + add to `ArenaEntry`.
 - [ ] `getVariantFullDetailAction` (variant detail page) — SELECT.
 - [ ] `getStrategyVariantsAction` (strategy detail Variants tab) — SELECT.
-- [ ] `getInvocationDetailAction` — extend the embedded variant fetch to include the ratio (the invocation page joins variant data via the existing `agent_invocation_id` FK).
+- [ ] **`getInvocationVariantContextAction`** (NOT `getInvocationDetailAction` — the variant fetch is in a separate action at `invocationActions.ts:184`, not joined into the main invocation fetch). Extend the SELECT here so `sentence_verbatim_ratio` flows through the existing variant-context path used by `InvocationParentBlock` and the per-agent overview tabs.
 
 **Variant list pages — new column**:
 - [ ] `/admin/evolution/variants` (global list): new "Verbatim Overlap" column rendered as percent. `listView: true`. Sortable. Filterable via numeric range input.
@@ -587,7 +602,9 @@ Since `evolution_variants.sentence_verbatim_ratio` (Phase 1.4b) is universal acr
 - [ ] **`proposer_approver_criteria_generate`** (NEW): already covered in Phase 4.6 (Apply tab) — verify field source.
 - [ ] **`iterative_editing`**: extend its `DETAIL_VIEW_CONFIGS` entry with the same field on the existing Apply / Metrics tab.
 
-**Implementation pattern for invocation pages** — single shared snippet in `InvocationDetailContent.tsx` that pulls the ratio from the joined variant data and renders it as a `MetricGrid` cell at the top of the **Metrics** tab for ALL variant-producing agent types. This avoids per-agent renderer duplication. Place once, applies everywhere.
+**Implementation pattern for invocation pages** — two-pronged approach (the `InvocationDetailContent.tsx` component has 4+ separate per-agent overview render branches; there is no single shared render path):
+- **(a) Per-agent overview tabs**: add a `MetricGrid` cell ("Sentence Verbatim Overlap: 62%") in EACH per-agent render branch (vanilla `overview`, `overview-reflection`, `overview-evaluate-suggest`, single-pass overview, propose/approve `Apply` tab, `iterative_editing` apply section). Source: variant-context fetched via `getInvocationVariantContextAction`. Per-branch placement is ~3 lines each — manageable, but NOT a "place once" change. Total: ~6 small edits.
+- **(b) Metrics tab**: the run-level `median_sentence_verbatim_ratio` (and per-invocation if surfaced as `invocation_*` metric) auto-renders via the standard `EntityMetricsTab` reading from `evolution_metrics`. No additional per-agent code needed once the metric registry entry lands (Phase 1.7).
 
 **Run / Strategy / Experiment Metrics tabs**:
 - [ ] Run detail Metrics tab (`EntityMetricsTab`): the run-level `median_sentence_verbatim_ratio` (with bootstrap CI), `p25_sentence_verbatim_ratio`, `min_sentence_verbatim_ratio` are auto-rendered via the standard `MetricGrid` reading from `evolution_metrics` (Phase 1.7 registered them with `listView: true` for median, false for p25/min). No additional code needed beyond the registry entries.
@@ -605,6 +622,15 @@ Since `evolution_variants.sentence_verbatim_ratio` (Phase 1.4b) is universal acr
 - [ ] Extend `admin-evolution-run-pipeline.spec.ts` E2E to assert the column appears in the run detail Variants tab.
 - [ ] Extend the variant detail spec to assert the MetricGrid shows the ratio.
 - [ ] Extend the tactic detail spec to assert the column on `/admin/evolution/tactics`.
+- [ ] Extend `admin-arena.spec.ts` to assert the new "Verbatim Overlap" column appears + is sortable on the arena leaderboard.
+- [ ] New `src/__tests__/e2e/specs/09-admin/admin-variants-list-overlap-filter.spec.ts` — verifies the range-filter UX on `/admin/evolution/variants` (low + high slider), and that filtering to ratio < 0.3 returns expected variants from a seeded set.
+- [ ] Extend an existing `iterative_editing` invocation E2E (or add one if missing) — verifies the metric appears on the iterative_editing invocation page Metrics tab. Validates the universal-coverage claim, since iterative_editing isn't a criteria agent.
+
+**Mock-LLM regression audit** (one-time, pre-implementation):
+- [ ] `grep -r 'toEqual.*[Vv]ariant\|toMatchObject.*[Vv]ariant' evolution/src/**/*.test.ts src/__tests__/**/*.test.ts` to find existing test assertions that strict-match against `Variant` shape. Update flagged sites to use `expect.objectContaining({...})` so adding the optional `sentenceVerbatimRatio` field doesn't break them. The Variant type extension is technically backward-compatible at the type level, but `toEqual` is strict about extra fields.
+
+**Run finalization regression test**:
+- [ ] Extend `persistRunResults.test.ts` (or equivalent run-finalization test): a vanilla `generate` run (i.e., NOT a new agent type) finalization writes `median_sentence_verbatim_ratio` / `p25_sentence_verbatim_ratio` / `min_sentence_verbatim_ratio` rows to `evolution_metrics` with non-null values. Validates that the universal-coverage metric flows through legacy agents' finalization paths via wrapper inheritance + the new GFPA touchpoint, not just the new agents' explicit integrations.
 
 ---
 
@@ -753,5 +779,21 @@ All 11 critical gaps fixed in commit `2114e2d4`. Strict-binary mirror rule with 
 ### Iteration 2 — ✅ CONSENSUS (3/3 reviewers scored 5/5)
 
 All prior critical gaps verified as resolved. Remaining items are minor polish (e.g., echoing `guardrailRubricEnabled: false` at the Phase 4.2 call site, tightening `applyAcceptedGroups` 2-arg shorthand to 3-arg, adding an explicit `WIDEN` marker to Phase 5.3 for consistency, picking a concrete kill-switch test assertion mechanism between constructor-spy vs branched-dispatch-return). None block execution.
+
+### Iteration 3 — ✅ CONSENSUS RE-CONFIRMED post-expansion (3/3 reviewers scored 5/5)
+
+After consensus, the plan expanded significantly: sentence-overlap metric universalized to ALL variant-producing agents (not just 3 criteria-based ones), storage architecture changed to a new `evolution_variants.sentence_verbatim_ratio` column (replacing the per-agent `execution_detail` nesting), GFPA touchpoint added (load-bearing agent), Phase 5.5 cross-cutting UI surfacing audit added across 6 invocation pages + 4 list pages + variant detail + arena leaderboard.
+
+Re-review verified the expansion introduced **zero new critical gaps**. All three reviewers read the actual code files to verify integration claims (Variant type at `schemas.ts:372-398`, `createVariant` factory at `types.ts:61-85`, GFPA `execute` at `generateFromPreviousArticle.ts:248-259`, IterativeEditingAgent post-loop materialization at lines 384-392, persistRunResults variant-upsert-then-metric-compute ordering, `getInvocationVariantContextAction` as the right server-action extension point).
+
+8 polish items from iteration 3 reviewer notes were applied:
+1. Migration filename collision avoidance (distinct date prefix or `-002` suffix).
+2. Forward-compatible migration ordering documented (nullable ADD COLUMN works with code-first or DB-first).
+3. `createVariant` factory location corrected — actually lives in `types.ts:61-85`, not `textVariationFactory.ts`.
+4. `evolutionVariantInsertSchema` extension callout added explicitly so `.parse()` doesn't strip the new field.
+5. Defensive try/catch pattern around `sentenceVerbatimOverlap()` calls — observational metric must not cascade into variant-creation failures.
+6. Server action correction: `getInvocationVariantContextAction` (not `getInvocationDetailAction`) is the variant-fetch path.
+7. Phase 5.5 "shared snippet" wording reframed as two-pronged (per-branch MetricGrid cell + auto-rendered EntityMetricsTab).
+8. E2E coverage additions: arena leaderboard column spec, global Variants list filter UX spec, iterative_editing invocation page spec. Plus mock-LLM regression audit (grep for strict variant assertions). Plus a run-finalization regression test for vanilla `generate` validating universal-coverage flow.
 
 Plan is ready to execute.
