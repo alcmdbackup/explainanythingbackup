@@ -19,6 +19,7 @@ import {
 } from '../../core/agents/reflectAndGenerateFromPreviousArticle';
 import { EvaluateCriteriaThenGenerateFromPreviousArticleAgent } from '../../core/agents/evaluateCriteriaThenGenerateFromPreviousArticle';
 import { SinglePassEvaluateCriteriaAndGenerateAgent } from '../../core/agents/singlePassEvaluateCriteriaAndGenerate';
+import { ProposerApproverCriteriaGenerateAgent } from '../../core/agents/proposerApproverCriteriaGenerate';
 import { getCriteriaForEvaluation, type EvolutionCriterionRow } from '../../../services/criteriaActions';
 import { SwissRankingAgent, type SwissRankingMatchEntry } from '../../core/agents/SwissRankingAgent';
 import { MergeRatingsAgent, type MergeMatchEntry } from '../../core/agents/MergeRatingsAgent';
@@ -339,7 +340,7 @@ export async function evolveArticle(
       // sharing the same parallel-batch + top-up + merge dispatch shape. The only
       // difference is which agent class gets dispatched per call (decided inside
       // dispatchOneAgent below based on `reflectionEnabled`).
-      if (iterType === 'generate' || iterType === 'reflect_and_generate' || iterType === 'criteria_and_generate' || iterType === 'single_pass_evaluate_criteria_and_generate') {
+      if (iterType === 'generate' || iterType === 'reflect_and_generate' || iterType === 'criteria_and_generate' || iterType === 'single_pass_evaluate_criteria_and_generate' || iterType === 'proposer_approver_criteria_generate') {
         // ─── Generate / reflect-and-generate iteration ────────
         // Phase 7b: restructured to accumulate parallel + top-up match buffers, then
         // invoke MergeRatingsAgent ONCE at iteration end over the combined buffers.
@@ -382,7 +383,7 @@ export async function evolveArticle(
         // Phase 4: pre-fetch criteria rows ONCE per iteration when this is a
         // criteria_and_generate iteration. Same Map shared across all parallel agents.
         let evaluationCriteria: Map<string, EvolutionCriterionRow> = new Map();
-        if ((iterCfg.agentType === 'criteria_and_generate' || iterCfg.agentType === 'single_pass_evaluate_criteria_and_generate') && iterCfg.criteriaIds && iterCfg.criteriaIds.length > 0) {
+        if ((iterCfg.agentType === 'criteria_and_generate' || iterCfg.agentType === 'single_pass_evaluate_criteria_and_generate' || iterCfg.agentType === 'proposer_approver_criteria_generate') && iterCfg.criteriaIds && iterCfg.criteriaIds.length > 0) {
           try {
             evaluationCriteria = await getCriteriaForEvaluation(db, iterCfg.criteriaIds, logger);
           } catch (err) {
@@ -401,7 +402,7 @@ export async function evolveArticle(
         // iteration-scoped reflectionEnabled/reflectionTopN values resolved above.
         const availBudget = iterTracker.getAvailableBudget();
         const maxComp = resolvedConfig.maxComparisonsPerVariant ?? 15;
-        const useCriteria = iterCfg.agentType === 'criteria_and_generate' || iterCfg.agentType === 'single_pass_evaluate_criteria_and_generate';
+        const useCriteria = iterCfg.agentType === 'criteria_and_generate' || iterCfg.agentType === 'single_pass_evaluate_criteria_and_generate' || iterCfg.agentType === 'proposer_approver_criteria_generate';
         const useSinglePassCriteria = iterCfg.agentType === 'single_pass_evaluate_criteria_and_generate';
         const criteriaCount = iterCfg.criteriaIds?.length ?? 0;
         const weakestK = iterCfg.weakestK ?? 1;
@@ -515,6 +516,32 @@ export async function evolveArticle(
               criteria: Array.from(evaluationCriteria.values()),
               criteriaIds: iterCfg.criteriaIds ?? [],
               weakestK: iterCfg.weakestK ?? 1,
+              initialPool: initialPoolSnapshot,
+              initialRatings: initialRatingsSnapshot,
+              initialMatchCounts: initialMatchCountsSnapshot,
+              cache: comparisonCache,
+            }, ctxForAgent);
+          }
+          if (iterCfg.agentType === 'proposer_approver_criteria_generate') {
+            const proposerApproverEnabled = process.env.EVOLUTION_PROPOSER_APPROVER_CRITERIA_ENABLED !== 'false';
+            if (!proposerApproverEnabled) {
+              logger.warn('Propose/approve criteria agent disabled via env; iteration produces zero variants', {
+                phaseName: 'proposer_approver_kill_switch',
+                iteration,
+              });
+              // Reject the iteration cleanly — return null (no variant).
+              throw new Error('proposer_approver_criteria_generate disabled via EVOLUTION_PROPOSER_APPROVER_CRITERIA_ENABLED=false');
+            }
+            const wrapperAgent = new ProposerApproverCriteriaGenerateAgent();
+            return wrapperAgent.run({
+              parentText: resolved.text,
+              parentVariantId: resolved.variantId,
+              criteria: Array.from(evaluationCriteria.values()),
+              criteriaIds: iterCfg.criteriaIds ?? [],
+              weakestK: iterCfg.weakestK ?? 1,
+              lengthCapRatio: iterCfg.lengthCapRatio,
+              redundancyJaccardThreshold: iterCfg.redundancyJaccardThreshold,
+              includesMirrorApprover: iterCfg.includesMirrorApprover,
               initialPool: initialPoolSnapshot,
               initialRatings: initialRatingsSnapshot,
               initialMatchCounts: initialMatchCountsSnapshot,

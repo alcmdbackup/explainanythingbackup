@@ -236,6 +236,93 @@ export const DETAIL_VIEW_CONFIGS: Record<string, DetailFieldDef[]> = {
     },
     { key: 'totalCost', label: 'Total Cost', type: 'number', formatter: 'cost' },
   ],
+  proposer_approver_criteria_generate: [
+    { key: 'tactic', label: 'Tactic', type: 'badge' },
+    { key: 'weakestCriteriaNames', label: 'Weakest Criteria', type: 'list' },
+    { key: 'variantId', label: 'Variant ID', type: 'text' },
+    { key: 'surfaced', label: 'Surfaced', type: 'boolean' },
+    { key: 'mirrorAgreementRate', label: 'Mirror Agreement Rate', type: 'number', formatter: 'percent' },
+    { key: 'mirrorAbortReason', label: 'Mirror Abort Reason', type: 'badge' },
+    {
+      key: 'evaluateAndSuggest', label: 'Eval & Suggest', type: 'object',
+      children: [
+        { key: 'cost', label: 'Cost', type: 'number', formatter: 'cost' },
+        { key: 'durationMs', label: 'Duration (ms)', type: 'number' },
+      ],
+    },
+    {
+      key: 'evaluateAndSuggest.criteriaScored', label: 'Criteria Scored', type: 'table',
+      columns: [
+        { key: 'criteriaName', label: 'Criterion' },
+        { key: 'score', label: 'Score' },
+        { key: 'minRating', label: 'Min' },
+        { key: 'maxRating', label: 'Max' },
+      ],
+    },
+    {
+      key: 'evaluateAndSuggest.suggestions', label: 'Suggestions', type: 'table',
+      cellClassName: 'py-1.5 px-2 text-[var(--text-primary)] max-w-md break-words whitespace-pre-wrap align-top',
+      columns: [
+        { key: 'criteriaName', label: 'Criterion' },
+        { key: 'examplePassage', label: 'Example' },
+        { key: 'whatNeedsAddressing', label: 'Issue' },
+        { key: 'suggestedFix', label: 'Fix' },
+      ],
+    },
+    {
+      key: 'cycles.0', label: 'Edit Cycle (Forward + Mirror)', type: 'object',
+      children: [
+        { key: 'proposedGroupsRaw', label: 'Proposed Groups (raw)', type: 'number' },
+        { key: 'approverGroups', label: 'After Pre-Validation', type: 'number' },
+        { key: 'appliedGroups', label: 'Final Applied', type: 'number' },
+        { key: 'proposeCostUsd', label: 'Propose Cost', type: 'number', formatter: 'cost' },
+        { key: 'approveForwardCostUsd', label: 'Forward Approver Cost', type: 'number', formatter: 'cost' },
+        { key: 'approveMirrorCostUsd', label: 'Mirror Approver Cost', type: 'number', formatter: 'cost' },
+      ],
+    },
+    {
+      key: 'cycles.0.forwardDecisions', label: 'Forward Decisions', type: 'table',
+      columns: [
+        { key: 'groupNumber', label: '#' },
+        { key: 'decision', label: 'Decision' },
+        { key: 'reason', label: 'Reason' },
+        { key: 'redundancy_violation', label: 'Redundancy?' },
+        { key: 'flow_violation', label: 'Flow?' },
+        { key: 'length_violation', label: 'Length?' },
+      ],
+    },
+    {
+      key: 'cycles.0.mirrorDecisions', label: 'Mirror Decisions', type: 'table',
+      columns: [
+        { key: 'groupNumber', label: '#' },
+        { key: 'decision', label: 'Decision (null = short-circuit / parse-fail)' },
+        { key: 'reason', label: 'Reason' },
+      ],
+    },
+    {
+      key: 'cycles.0.droppedPreApprover', label: 'Dropped Pre-Approver (validator)', type: 'table',
+      columns: [
+        { key: 'groupNumber', label: '#' },
+        { key: 'reason', label: 'Reason' },
+      ],
+    },
+    {
+      key: 'cycles.0.droppedPostApprover', label: 'Dropped Post-Approver (aggregator + applier)', type: 'table',
+      columns: [
+        { key: 'groupNumber', label: '#' },
+        { key: 'reason', label: 'Reason' },
+      ],
+    },
+    {
+      key: 'ranking', label: 'Ranking (binary search local view)', type: 'object',
+      children: [
+        { key: 'cost', label: 'Ranking Cost', type: 'number', formatter: 'cost' },
+        { key: 'totalComparisons', label: 'Total Comparisons', type: 'number' },
+        { key: 'finalLocalElo', label: 'Final Local Elo', type: 'number' },
+      ],
+    },
+    { key: 'totalCost', label: 'Total Cost', type: 'number', formatter: 'cost' },
+  ],
   swiss_ranking: [
     { key: 'status', label: 'Status', type: 'badge' },
     { key: 'eligibleCount', label: 'Eligible Count', type: 'number' },
