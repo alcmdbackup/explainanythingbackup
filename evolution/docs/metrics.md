@@ -87,7 +87,14 @@ All metrics are declared in a typed registry keyed by entity type. Each definiti
 | `generation_cost` | cost | during_execution | LLM spend on generation calls in this run. Written via `writeMetricMax` after every `'generation'`-labeled LLM call. `listView: true`. |
 | `ranking_cost` | cost | during_execution | LLM spend on ranking calls in this run (incl. SwissRankingAgent + binary-search comparisons). Written via `writeMetricMax` after every `'ranking'`-labeled LLM call. `listView: true`. |
 | `seed_cost` | cost | during_execution | LLM spend on seed article generation (`CreateSeedArticleAgent`). Only non-zero for prompt-based runs. Written via `writeMetricMax` after every `'seed_title'`- or `'seed_article'`-labeled LLM call. `listView: true`. |
-| `evaluation_cost` | cost | during_execution | LLM spend on `evaluate_and_suggest` calls (combined scoring + suggestion phase of `EvaluateCriteriaThenGenerateFromPreviousArticleAgent`). Written via `writeMetricMax` after the LLM call. Only non-zero on runs whose strategy includes a `criteria_and_generate` iteration. |
+| `evaluation_cost` | cost | during_execution | LLM spend on `evaluate_and_suggest` calls (combined scoring + suggestion phase shared by all 3 criteria-based agents). Written via `writeMetricMax` after the LLM call. Only non-zero on runs whose strategy includes a criteria-based iteration. |
+| `proposer_approver_criteria_cost` | cost | during_execution | Umbrella spend on `ProposerApproverCriteriaGenerateAgent` — propose + forward approve + mirror approve calls all bucket here. Per-purpose split lives in `execution_detail.cycles[0].{proposeCostUsd, approveForwardCostUsd, approveMirrorCostUsd}`. `listView: true`. (updated_criteria_agent_20260505) |
+| `proposer_approver_drift_rate` | cost | during_execution | Fraction of propose/approve cycles whose Proposer output drifted from the source. Alert threshold via `EVOLUTION_PROPOSER_APPROVER_DRIFT_RATE_ALERT_THRESHOLD` (default `0.30`). |
+| `proposer_approver_accept_rate` | cost | during_execution | Fraction of edits accepted by the forward approver. Alert threshold via `EVOLUTION_PROPOSER_APPROVER_ACCEPT_RATE_ALERT_THRESHOLD` (default `0.95`) — rubber-stamping signal. |
+| `proposer_approver_mirror_agreement_rate` | cost | during_execution | `appliedGroups / approverGroups` per run. Two-sided alerts via `EVOLUTION_PROPOSER_APPROVER_CRITERIA_MIRROR_AGREEMENT_LOW_THRESHOLD` (default `0.20`) and `_HIGH_THRESHOLD` (default `0.95`). |
+| `median_sentence_verbatim_ratio` | rating | at_finalization | Median fraction of parent sentences appearing verbatim (Levenshtein ≤ 2) in child variants. Universal across all variant-producing agents. `listView: true`. (updated_criteria_agent_20260505) |
+| `p25_sentence_verbatim_ratio` | rating | at_finalization | 25th percentile sentence-verbatim ratio — low values flag rewrite-disaster cohorts. |
+| `min_sentence_verbatim_ratio` | rating | at_finalization | Worst-case sentence-verbatim ratio across this run. |
 | `winner_elo` | rating | at_finalization | Elo of the highest-`elo` variant. Includes `uncertainty` (Elo-scale) and 95% CI = elo ± 1.96 × uncertainty. |
 | `median_elo` | rating | at_finalization | 50th percentile Elo across all variants |
 | `p90_elo` | rating | at_finalization | 90th percentile Elo |
@@ -104,12 +111,16 @@ All metrics are declared in a typed registry keyed by entity type. Each definiti
 | `best_variant_elo` | rating | at_finalization | Highest elo among variants produced by this invocation. Also marked stale by the trigger when a variant's DB `mu`/`sigma` columns (backing `Rating`) change. |
 | `avg_variant_elo` | rating | at_finalization | Average elo of variants from this invocation. Also marked stale by the trigger when a variant's DB `mu`/`sigma` columns change. |
 | `variant_count` | count | at_finalization | Number of variants created by this invocation |
+| `invocation_mirror_agreement_rate` | rating | at_finalization | Per-invocation `appliedGroups / approverGroups` for `proposer_approver_criteria_generate` invocations only (null otherwise). |
+| `invocation_forward_accept_rate` | rating | at_finalization | Per-invocation forward approver accept rate for `proposer_approver_criteria_generate` invocations only. |
+| `invocation_mirror_filter_rate` | rating | at_finalization | Per-invocation fraction of forward-accepted edits the mirror dropped (the mirror's "work"). `proposer_approver_criteria_generate` only. |
 
 ### Variant Metrics
 
 | Name | Category | Timing | Description |
 |------|----------|--------|-------------|
 | `cost` | cost | at_finalization | Generation cost (from native `cost_usd` column) |
+| `sentence_verbatim_ratio` | rating | at_finalization | Native column on `evolution_variants` (not registry-driven). 0-1 fraction of parent sentences appearing in child (Levenshtein ≤ 2 near-match). Universal across all variant-producing agents. NULL for legacy variants. (updated_criteria_agent_20260505) |
 
 ### Strategy & Experiment Metrics (Propagated)
 
@@ -128,6 +139,9 @@ Both entity types share the same propagation definitions — they aggregate from
 | `avg_seed_cost_per_run` | `seed_cost` | avg | Mean seed spend per run |
 | `total_evaluation_cost` | `evaluation_cost` | sum | Cumulative `evaluate_and_suggest` spend across runs |
 | `avg_evaluation_cost_per_run` | `evaluation_cost` | avg | Mean `evaluate_and_suggest` spend per run |
+| `total_proposer_approver_criteria_cost` | `proposer_approver_criteria_cost` | sum | Cumulative propose/approve umbrella spend across runs (`listView: true`). (updated_criteria_agent_20260505) |
+| `avg_proposer_approver_criteria_cost_per_run` | `proposer_approver_criteria_cost` | avg | Mean propose/approve umbrella spend per run |
+| `avg_median_sentence_verbatim_ratio` | `median_sentence_verbatim_ratio` | bootstrap_mean | Bootstrap mean of run-level median sentence overlap with 95% CI (`listView: true`). |
 | `avg_final_elo` | `winner_elo` | bootstrap_mean | Mean winner Elo with 95% CI |
 | `best_final_elo` | `winner_elo` | max | Highest winner Elo |
 | `worst_final_elo` | `winner_elo` | min | Lowest winner Elo |

@@ -426,6 +426,38 @@ A wrapper agent that scores a parent article against user-defined `evolution_cri
 
 **Kill-switch**: `EVOLUTION_REFLECTION_ENABLED='false'` env var falls all `agentType: 'reflect_and_generate'` iterations back to vanilla GFPA dispatch. Resolved once per iteration in `runIterationLoop` before parallel/top-up dispatch — single env flip rolls the feature back without code revert.
 
+## SinglePassEvaluateCriteriaAndGenerateAgent (updated_criteria_agent_20260505)
+
+Successor to the legacy `EvaluateCriteriaThenGenerate...` wrapper that ships the **guardrails-only hypothesis** for the criteria-driven failure modes uncovered by `understand_critera_agent_performance_evolution_20260503`. Same shape as (1) above — combined `evaluate_and_suggest` LLM call → GFPA delegation with `customPrompt` — but the customPrompt carries **three** soft directives instead of one: Length (±10% word count), Redundancy (no duplication of existing ideas/phrasing), and Flow (preserve paragraph transitions and section connective tissue). Selected via `IterationConfig.agentType: 'single_pass_evaluate_criteria_and_generate'`. Inherits `criteriaIds`, `weakestK`. Marker tactic `criteria_driven_single_pass` (cyan) keeps the leaderboard A/B clean.
+
+**Class**: `SinglePassEvaluateCriteriaAndGenerateAgent` (`evolution/src/lib/core/agents/singlePassEvaluateCriteriaAndGenerate.ts`).
+- `name = 'single_pass_evaluate_criteria_and_generate'`
+- `usesLLM = true`
+- `getAttributionDimension(detail) → detail.weakestCriteriaNames[0]`
+
+**Observational telemetry (no enforcement)**: `lengthCapHit = (newText.length / parentText.length) > 1.10` recorded post-generation. The variant emits regardless; the field surfaces on the invocation Metrics tab. `redundancyDropCount` and `flowDropCount` always 0 for single-pass (no edit groups to drop).
+
+**Kill switch**: `EVOLUTION_SINGLE_PASS_CRITERIA_ENABLED='false'` falls back to legacy (1).
+
+See full deep dive: `evolution/docs/criteria_agents.md`.
+
+## ProposerApproverCriteriaGenerateAgent (updated_criteria_agent_20260505)
+
+The architectural counterpart to single-pass — tests the **architectural-selectivity hypothesis** by forking `IterativeEditingAgent`'s propose-review-apply primitive but **single-cycle** with a **mirror-approver bias-mitigation pass**. Selected via `IterationConfig.agentType: 'proposer_approver_criteria_generate'`. Marker tactic `criteria_driven_propose_approve` (purple).
+
+**Class**: `ProposerApproverCriteriaGenerateAgent` (`evolution/src/lib/core/agents/proposerApproverCriteriaGenerate.ts`).
+- `name = 'proposer_approver_criteria_generate'`
+- `usesLLM = true`
+- `getAttributionDimension(detail) → detail.weakestCriteriaNames[0]`
+
+**Algorithm** (single cycle): eval+suggest → proposer (full article + inline CriticMarkup) → `validateEditGroups` with `{ lengthCapRatio: 1.10, redundancyJaccardThreshold: 0.35, flowGuardrailEnabled: true }` → forward approver → mirror approver (only if `iterCfg.includesMirrorApprover ?? true`) → strict-binary aggregator (APPLY iff `(forward, mirror) === ('accept', 'reject')`) → applier → post-cycle ranking.
+
+**Cost stack**: 4 LLM calls per parent (eval + propose + forward + mirror) plus ranking. ~3-4× per-variant cost vs vanilla `generate`. Three new AgentName labels (`criteria_proposer`, `criteria_forward_approver`, `criteria_mirror_approver`) all bucket into the umbrella `proposer_approver_criteria_cost` metric. Mirror short-circuit reclaims 20-30% of mirror cost proportional to forward rejection rate.
+
+**Kill switches**: `EVOLUTION_PROPOSER_APPROVER_CRITERIA_ENABLED='false'` rejects the iteration entirely; `EVOLUTION_PROPOSER_APPROVER_CRITERIA_RANK_ENABLED='false'` skips post-cycle ranking. Mirror toggle is per-iteration (`includesMirrorApprover` config field, default `true`), not a global env var.
+
+See full deep dive: `evolution/docs/criteria_agents.md`.
+
 ## IterativeEditingAgent (bring_back_editing_agents_evolution_20260430)
 
 A wrapper agent that runs a propose-then-review editing protocol on existing pool variants. Per parent: up to N propose-review-apply cycles (Proposer LLM → deterministic Implementer pre-check → Approver LLM → deterministic Implementer apply). Selected per-iteration via `IterationConfig.agentType: 'iterative_editing'` — fourth top-level agent type alongside `'generate'`, `'reflect_and_generate'`, and `'swiss'`.

@@ -122,8 +122,9 @@ Text variants produced during a pipeline run. Since migration 20260321000002, th
 | `cost_usd` | NUMERIC | | LLM cost for generating this variant |
 | `archived_at` | TIMESTAMPTZ | | Soft archive for arena entries |
 | `evolution_explanation_id` | UUID | FK -> `evolution_explanations(id)` | NULLABLE (oneshot entries have none) |
-| `criteria_set_used` | UUID[] | | Set of `evolution_criteria.id` values evaluated when this variant was produced via `evaluate_criteria_then_generate_from_previous_article`. NULL/empty otherwise. GIN-indexed. Migration `20260502120002`. |
+| `criteria_set_used` | UUID[] | | Set of `evolution_criteria.id` values evaluated when this variant was produced via any of the 3 criteria-driven agents (`evaluate_criteria_then_generate_from_previous_article`, `single_pass_evaluate_criteria_and_generate`, `proposer_approver_criteria_generate`). NULL/empty otherwise. GIN-indexed. Migration `20260502120002`. |
 | `weakest_criteria_ids` | UUID[] | | Subset of `criteria_set_used` corresponding to the K weakest criteria the wrapper agent targeted with suggestions. NULL/empty otherwise. GIN-indexed. Migration `20260502120002`. |
+| `sentence_verbatim_ratio` | NUMERIC | | Per-variant quality metric: fraction of parent sentences appearing verbatim (Levenshtein ≤ 2 near-match) in child. Range `[0.0, 1.0]`. Universal — populated by all variant-producing agents (vanilla `generate`, `reflect_and_generate`, all 3 criteria-driven, `iterative_editing`, propose/approve). Pre-existing variants stay NULL and are excluded from percentile aggregation. Observational only — no enforcement, no discard. Migration `20260506000002`. (updated_criteria_agent_20260505) |
 | `created_at` | TIMESTAMPTZ | NOT NULL | |
 
 ### `evolution_criteria`
