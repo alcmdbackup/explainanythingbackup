@@ -131,7 +131,7 @@ export interface TacticMixEntry {
 
 export interface IterationPlanEntry {
   iterIdx: number;
-  agentType: 'generate' | 'reflect_and_generate' | 'criteria_and_generate' | 'iterative_editing' | 'swiss';
+  agentType: 'generate' | 'reflect_and_generate' | 'criteria_and_generate' | 'single_pass_evaluate_criteria_and_generate' | 'proposer_approver_criteria_generate' | 'iterative_editing' | 'swiss';
   iterBudgetUsd: number;
   /** Effective tactic pool for this iteration (normalized weights). Cost estimates are
    *  weighted averages over this mix. Single-entry for guidance with one tactic. */

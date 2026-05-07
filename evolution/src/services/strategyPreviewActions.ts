@@ -165,7 +165,7 @@ const dispatchPreviewInputSchema = z.object({
     budgetUsd: z.number().positive(),
     maxComparisonsPerVariant: z.number().int().positive().optional(),
     iterationConfigs: z.array(z.object({
-      agentType: z.enum(['generate', 'reflect_and_generate', 'criteria_and_generate', 'iterative_editing', 'swiss']),
+      agentType: z.enum(['generate', 'reflect_and_generate', 'criteria_and_generate', 'single_pass_evaluate_criteria_and_generate', 'proposer_approver_criteria_generate', 'iterative_editing', 'swiss']),
       budgetPercent: z.number().min(1).max(100),
       sourceMode: z.enum(['seed', 'pool']).optional(),
       qualityCutoff: z.object({ mode: z.enum(['topN', 'topPercent']), value: z.number().positive() }).optional(),
@@ -175,6 +175,9 @@ const dispatchPreviewInputSchema = z.object({
       editingEligibilityCutoff: z.object({ mode: z.enum(['topN', 'topPercent']), value: z.number().positive() }).optional(),
       criteriaIds: z.array(z.string().uuid()).optional(),
       weakestK: z.number().int().min(1).max(5).optional(),
+      lengthCapRatio: z.number().min(1.01).max(1.50).optional(),
+      redundancyJaccardThreshold: z.number().min(0).max(1).optional(),
+      includesMirrorApprover: z.boolean().optional(),
     })).min(1).max(20),
     minBudgetAfterParallelFraction: z.number().min(0).max(1).optional(),
     minBudgetAfterParallelAgentMultiple: z.number().min(0).optional(),
@@ -205,7 +208,7 @@ export interface DispatchPreviewResult {
  *  estPerAgent keys match the server's EstPerAgentValue keys. */
 export interface IterationPlanEntryClient {
   iterIdx: number;
-  agentType: 'generate' | 'reflect_and_generate' | 'criteria_and_generate' | 'iterative_editing' | 'swiss';
+  agentType: 'generate' | 'reflect_and_generate' | 'criteria_and_generate' | 'single_pass_evaluate_criteria_and_generate' | 'proposer_approver_criteria_generate' | 'iterative_editing' | 'swiss';
   iterBudgetUsd: number;
   /** Effective tactic mix (normalized weights) used for this iteration's estimate. */
   tacticMix: Array<{ tactic: string; weight: number }>;

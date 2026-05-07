@@ -30,7 +30,10 @@ export interface CalibrationRow {
     | 'evaluate_and_suggest'
     | 'iterative_edit_propose'
     | 'iterative_edit_review'
-    | 'iterative_edit_drift_recovery';
+    | 'iterative_edit_drift_recovery'
+    | 'criteria_proposer'
+    | 'criteria_forward_approver'
+    | 'criteria_mirror_approver';
   avgOutputChars: number;
   avgInputOverheadChars: number;
   avgCostPerCall: number;

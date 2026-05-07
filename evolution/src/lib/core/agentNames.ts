@@ -22,6 +22,14 @@ export const AGENT_NAMES = [
   'iterative_edit_propose',
   'iterative_edit_review',
   'iterative_edit_drift_recovery',
+  // Per-LLM-call labels for proposer_approver_criteria_generate agent (consolidated
+  // under one proposer_approver_criteria_cost metric — per-purpose split is in
+  // execution_detail.cycles[0].{proposeCostUsd, approveForwardCostUsd, approveMirrorCostUsd}).
+  // Mirror approver short-circuits for forward-rejected groups, so its actual call
+  // count may be lower than worst-case projection.
+  'criteria_proposer',
+  'criteria_forward_approver',
+  'criteria_mirror_approver',
 ] as const;
 export type AgentName = typeof AGENT_NAMES[number];
 
@@ -47,4 +55,9 @@ export const COST_METRIC_BY_AGENT: Partial<Record<AgentName, MetricName>> = {
   iterative_edit_propose: 'iterative_edit_cost',
   iterative_edit_review: 'iterative_edit_cost',
   iterative_edit_drift_recovery: 'iterative_edit_cost',
+  // All three propose/approve criteria per-LLM-call labels collapse into one cost metric.
+  // Per-purpose split is tracked in execution_detail.cycles[0] for forensics.
+  criteria_proposer: 'proposer_approver_criteria_cost',
+  criteria_forward_approver: 'proposer_approver_criteria_cost',
+  criteria_mirror_approver: 'proposer_approver_criteria_cost',
 };

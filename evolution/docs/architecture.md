@@ -710,7 +710,17 @@ out at the architecture level:
   402 budget exceeded, 503 kill switch, 500 other. Empty body is treated as
   `{}` for backward compatibility with callers that pass no body.
 
-## Criteria-driven generation (evaluateCriteriaThenGenerateFromPreviousArticle_20260501)
+## Criteria-driven generation
+
+There are **three** criteria-driven agents — all share a common eval+suggest phase but diverge in how they apply suggestions. Full deep dive: [criteria_agents.md](./criteria_agents.md). Quick overview:
+
+1. `criteria_and_generate` (legacy, PR #1023) — score + suggest → GFPA delegation.
+2. `single_pass_evaluate_criteria_and_generate` (NEW) — same shape as legacy + 3 new guardrail directives in customPrompt + marker tactic `criteria_driven_single_pass`.
+3. `proposer_approver_criteria_generate` (NEW) — single-cycle propose/forward-approve/mirror-approve/apply with strict-binary aggregator. Forks `IterativeEditingAgent` primitives.
+
+All three contribute to the universal `evolution_variants.sentence_verbatim_ratio` metric for cross-agent comparison on the tactic leaderboard.
+
+### Original single-pass wrapper (evaluateCriteriaThenGenerateFromPreviousArticle_20260501)
 
 `agentType: 'criteria_and_generate'` is a third variant-producing agent type alongside `'generate'` and `'reflect_and_generate'`. The wrapper agent (`EvaluateCriteriaThenGenerateFromPreviousArticleAgent`) makes ONE combined LLM call that scores the parent article against user-defined `evolution_criteria` rows AND drafts fix suggestions for the K weakest in the same response, then delegates to `GenerateFromPreviousArticleAgent.execute()` with `tactic: 'criteria_driven'` and a `customPrompt` built from those suggestions. See [Agents Overview](./agents/overview.md#evaluatecriteriathengeneratefrompreviousarticleagent-evaluatecriteriathengeneratefrompreviousarticle_20260501) for details.
 

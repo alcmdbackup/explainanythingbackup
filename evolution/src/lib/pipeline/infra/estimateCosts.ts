@@ -414,3 +414,76 @@ export function estimateIterativeEditingCost(
 
   return { expected, upperBound, expectedRanking, upperBoundRanking };
 }
+
+/**
+ * Estimate total cost of one ProposerApproverCriteriaGenerateAgent invocation. Single-cycle:
+ * one combined eval+suggest call, then one proposer call, one forward approver call,
+ * optionally one mirror approver call (when includesMirrorApprover), then ranking.
+ *
+ * NOTE: this is a worst-case projection — runtime mirror short-circuit (skip for forward-rejected
+ * groups) makes actual mirror cost a function of forward rejection rate, producing consistent
+ * positive cost-estimation error. DO NOT predict forward rejection rate at projection time.
+ *
+ * @param seedArticleChars Initial article size.
+ * @param editingModel Proposer model. Falls back to generationModel.
+ * @param approverModel Approver model (used for both forward and mirror).
+ * @param judgeModel Judge model for ranking calls.
+ * @param criteriaCount Total criteria evaluated.
+ * @param weakestK Number of weakest criteria addressed by suggestions.
+ * @param avgRubricChars Average rubric size per criterion (calibration-aware).
+ * @param includesMirrorApprover Whether to include the mirror approver pass (default true).
+ * @param poolSize Pool size at iteration start. 0 disables ranking.
+ * @param maxComparisonsPerVariant Cap on binary-search ranking depth.
+ */
+export function estimateProposerApproverCriteriaCost(
+  seedArticleChars: number,
+  editingModel: string,
+  approverModel: string,
+  judgeModel: string,
+  criteriaCount: number,
+  weakestK: number,
+  avgRubricChars: number = EVALUATION_RUBRIC_CHARS_PER_CRITERION,
+  includesMirrorApprover: boolean = true,
+  poolSize: number = 0,
+  maxComparisonsPerVariant: number = 0,
+): { expected: number; upperBound: number; expectedRanking: number; upperBoundRanking: number } {
+  // 1. Combined eval+suggest call (reuse the existing estimator with the editingModel as gen model).
+  const evalCost = estimateEvaluateAndSuggestCost(
+    seedArticleChars,
+    editingModel,
+    judgeModel,
+    criteriaCount,
+    weakestK,
+    avgRubricChars,
+  );
+
+  // 2. Proposer call — full article + markup.
+  const proposeExpected = estimateEditingProposeCost(seedArticleChars, editingModel, judgeModel, false);
+  const proposeUpper = estimateEditingProposeCost(seedArticleChars, editingModel, judgeModel, true);
+
+  // 3. Forward approver call — input is marked-up article.
+  const articleWithMarkup = seedArticleChars * EDITING_MARKUP_OVERHEAD_FACTOR;
+  const approveForwardExpected = estimateEditingReviewCost(articleWithMarkup, approverModel, judgeModel);
+  const approveForwardUpper = estimateEditingReviewCost(
+    seedArticleChars * EDITING_UPPER_BOUND_MARKUP_FACTOR,
+    approverModel,
+    judgeModel,
+  );
+
+  // 4. Mirror approver call (optional).
+  const approveMirrorExpected = includesMirrorApprover ? approveForwardExpected : 0;
+  const approveMirrorUpper = includesMirrorApprover ? approveForwardUpper : 0;
+
+  let expected = evalCost + proposeExpected + approveForwardExpected + approveMirrorExpected;
+  let upperBound = (evalCost + proposeUpper + approveForwardUpper + approveMirrorUpper) * EDITING_UPPER_BOUND_SAFETY_MARGIN;
+
+  // 5. Post-cycle ranking (single variant, single cycle — no growth between cycles).
+  const expectedRanking = poolSize > 0 && maxComparisonsPerVariant > 0
+    ? estimateRankingCost(seedArticleChars, judgeModel, poolSize, maxComparisonsPerVariant)
+    : 0;
+  const upperBoundRanking = poolSize > 0 && maxComparisonsPerVariant > 0
+    ? estimateRankingCost(seedArticleChars, judgeModel, poolSize, maxComparisonsPerVariant) * EDITING_UPPER_BOUND_SAFETY_MARGIN
+    : 0;
+
+  return { expected, upperBound, expectedRanking, upperBoundRanking };
+}

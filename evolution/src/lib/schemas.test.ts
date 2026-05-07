@@ -1338,7 +1338,7 @@ describe('iterationConfigSchema — criteria_and_generate refinements', () => {
       agentType: 'generate',
       budgetPercent: 100,
       criteriaIds: validCriteriaIds,
-    })).toThrow(/criteriaIds only valid when agentType is criteria_and_generate/);
+    })).toThrow(/criteriaIds only valid when agentType is a criteria-based type/);
   });
 
   it('rejects criteriaIds on swiss iteration', () => {
@@ -1362,7 +1362,7 @@ describe('iterationConfigSchema — criteria_and_generate refinements', () => {
     expect(() => iterationConfigSchema.parse({
       agentType: 'criteria_and_generate',
       budgetPercent: 100,
-    })).toThrow(/criteria_and_generate iterations require criteriaIds/);
+    })).toThrow(/criteria-based agent types require criteriaIds/);
   });
 
   it('rejects weakestK on non-criteria iteration', () => {
@@ -1370,7 +1370,7 @@ describe('iterationConfigSchema — criteria_and_generate refinements', () => {
       agentType: 'generate',
       budgetPercent: 100,
       weakestK: 2,
-    })).toThrow(/weakestK only valid when agentType is criteria_and_generate/);
+    })).toThrow(/weakestK only valid when agentType is a criteria-based type/);
   });
 
   it('rejects weakestK > criteriaIds.length (cross-field)', () => {

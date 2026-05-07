@@ -11,8 +11,14 @@ describe('TACTIC_PALETTE', () => {
 });
 
 describe('MARKER_TACTICS', () => {
-  it('contains exactly one entry (criteria_driven)', () => {
-    expect(MARKER_TACTICS).toHaveLength(1);
+  it('contains the 3 criteria-driven marker entries', () => {
+    expect(MARKER_TACTICS).toHaveLength(3);
+    const names = MARKER_TACTICS.map((t) => t.name).sort();
+    expect(names).toEqual([
+      'criteria_driven',
+      'criteria_driven_propose_approve',
+      'criteria_driven_single_pass',
+    ]);
   });
 
   it('criteria_driven entry has correct shape', () => {
@@ -20,6 +26,20 @@ describe('MARKER_TACTICS', () => {
     expect(entry).toBeDefined();
     expect(entry?.label).toBe('Criteria-Driven');
     expect(entry?.agent_type).toBe('evaluate_criteria_then_generate_from_previous_article');
+    expect(entry?.category).toBe('meta');
+  });
+
+  it('criteria_driven_single_pass entry has correct shape', () => {
+    const entry = MARKER_TACTICS.find((t) => t.name === 'criteria_driven_single_pass');
+    expect(entry).toBeDefined();
+    expect(entry?.agent_type).toBe('single_pass_evaluate_criteria_and_generate');
+    expect(entry?.category).toBe('meta');
+  });
+
+  it('criteria_driven_propose_approve entry has correct shape', () => {
+    const entry = MARKER_TACTICS.find((t) => t.name === 'criteria_driven_propose_approve');
+    expect(entry).toBeDefined();
+    expect(entry?.agent_type).toBe('proposer_approver_criteria_generate');
     expect(entry?.category).toBe('meta');
   });
 });

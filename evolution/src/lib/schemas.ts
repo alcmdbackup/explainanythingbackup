@@ -241,6 +241,10 @@ export const evolutionVariantInsertSchema = z.object({
   /** Subset of criteria_set_used auto-picked as the focus for the suggestions step.
    *  NULL for non-criteria-driven variants. */
   weakest_criteria_ids: z.array(z.string().uuid()).nullable().optional(),
+  /** Sentence-overlap quality metric (0-1): fraction of parent sentences appearing in child.
+   *  Computed at variant creation by all variant-producing agents. NULL for legacy variants
+   *  (pre-migration) and where computation failed (defensive try/catch). */
+  sentence_verbatim_ratio: z.number().min(0).max(1).nullable().optional(),
 });
 
 export const evolutionVariantFullDbSchema = evolutionVariantInsertSchema.extend({
@@ -395,6 +399,12 @@ export const variantSchema = z.object({
    *  generation (may be < iterCfg.weakestK if criteria were archived between
    *  configure and run). Persisted as `weakest_criteria_ids` UUID[]. */
   weakestCriteriaIds: z.array(z.string().uuid()).optional(),
+  /** Sentence-overlap quality metric (0-1): fraction of parent sentences appearing in child.
+   *  Computed at variant creation by all variant-producing agents (vanilla GFPA + wrappers
+   *  via inheritance, plus IterativeEditingAgent and ProposerApproverCriteriaGenerateAgent
+   *  at their direct apply sites). Persisted as `sentence_verbatim_ratio` NUMERIC. Optional
+   *  at in-memory layer; legacy variants and helper-failure cases stay undefined. */
+  sentenceVerbatimRatio: z.number().min(0).max(1).optional(),
 });
 
 export type VariantSchema = z.infer<typeof variantSchema>;
@@ -475,22 +485,42 @@ function preprocessBudgetFloor(input: unknown): unknown {
  *    suggestions for the K weakest criteria. Variant-producing.
  *  - `swiss`: SwissRankingAgent — re-ranks the existing pool, no new variants.
  */
-export const iterationAgentTypeEnum = z.enum(['generate', 'reflect_and_generate', 'criteria_and_generate', 'iterative_editing', 'swiss']);
+export const iterationAgentTypeEnum = z.enum([
+  'generate',
+  'reflect_and_generate',
+  'criteria_and_generate',
+  'single_pass_evaluate_criteria_and_generate',
+  'proposer_approver_criteria_generate',
+  'iterative_editing',
+  'swiss',
+]);
+
+/** Set of agent types that drive criteria-based generation. All three reference criteriaIds + weakestK. */
+const CRITERIA_BASED_AGENT_TYPES = new Set<z.infer<typeof iterationAgentTypeEnum>>([
+  'criteria_and_generate',
+  'single_pass_evaluate_criteria_and_generate',
+  'proposer_approver_criteria_generate',
+]);
 
 /** Helper: agent types that may appear as the FIRST iteration of a strategy.
  *  Editing is excluded — it requires existing variants to edit. Swiss is also
- *  excluded — it only re-ranks. Vanilla generate, reflection wrapper, and
- *  criteria wrapper all generate from a seed parent so they're valid first-iter. */
+ *  excluded — it only re-ranks. All variant-producing-from-seed agents qualify. */
 export function canBeFirstIteration(t: z.infer<typeof iterationAgentTypeEnum>): boolean {
-  return t === 'generate' || t === 'reflect_and_generate' || t === 'criteria_and_generate';
+  return t === 'generate'
+    || t === 'reflect_and_generate'
+    || t === 'criteria_and_generate'
+    || t === 'single_pass_evaluate_criteria_and_generate'
+    || t === 'proposer_approver_criteria_generate';
 }
 
-/** Helper: agent types that produce new variants (used by validation refinements
- *  that previously hardcoded `'generate'`). Vanilla, reflection-wrapped, and
- *  criteria-driven generation all accept sourceMode/qualityCutoff and contribute
- *  to the parallel-batch dispatch path; swiss does neither. */
+/** Helper: agent types that produce new variants via parallel-batch dispatch + sourceMode/qualityCutoff.
+ *  Editing is variant-producing but uses a different dispatch path (per-parent), so it's not in this set. */
 export function isVariantProducingAgentType(t: z.infer<typeof iterationAgentTypeEnum>): boolean {
-  return t === 'generate' || t === 'reflect_and_generate' || t === 'criteria_and_generate';
+  return t === 'generate'
+    || t === 'reflect_and_generate'
+    || t === 'criteria_and_generate'
+    || t === 'single_pass_evaluate_criteria_and_generate'
+    || t === 'proposer_approver_criteria_generate';
 }
 
 /** Helper: agent types that produce new variants in the pool. Includes editing
@@ -498,7 +528,12 @@ export function isVariantProducingAgentType(t: z.infer<typeof iterationAgentType
  *  the swiss-precedence refine to ensure swiss never runs before any iteration
  *  that would put variants in the pool. */
 export function producesNewVariants(t: z.infer<typeof iterationAgentTypeEnum>): boolean {
-  return t === 'generate' || t === 'reflect_and_generate' || t === 'criteria_and_generate' || t === 'iterative_editing';
+  return t === 'generate'
+    || t === 'reflect_and_generate'
+    || t === 'criteria_and_generate'
+    || t === 'single_pass_evaluate_criteria_and_generate'
+    || t === 'proposer_approver_criteria_generate'
+    || t === 'iterative_editing';
 }
 
 /** Source of the parent article for a generate iteration. 'seed' = the run's seed article; 'pool' = a variant drawn from the current run's pool. */
@@ -541,9 +576,23 @@ export const iterationConfigSchema = z.object({
    *  with generationGuidance (criteria drive the prompt directly). */
   criteriaIds: z.array(z.string().uuid()).optional(),
   /** How many of the lowest-scoring criteria drive the suggestions step (1-5, default 1).
-   *  Only valid when agentType === 'criteria_and_generate'. Cross-field constraint:
+   *  Valid for all 3 criteria-based agent types. Cross-field constraint:
    *  weakestK <= criteriaIds.length. */
   weakestK: z.number().int().min(1).max(5).optional(),
+  /** Hard cap on output-length ratio (newText.length / parentText.length) for the
+   *  proposer/approve agent's deterministic validator. Default 1.10 at consumption time.
+   *  Drops highest-numbered groups until projected article length stays within this ratio.
+   *  Range 1.01–1.50. Only valid when agentType === 'proposer_approver_criteria_generate'. */
+  lengthCapRatio: z.number().min(1.01).max(1.50).optional(),
+  /** Trigram Jaccard similarity threshold above which an edit is dropped as redundant.
+   *  Range 0–1, default 0.35. Only valid for the 2 new criteria-based agent types
+   *  (single-pass + propose/approve). Higher = more permissive (fewer drops). */
+  redundancyJaccardThreshold: z.number().min(0).max(1).optional(),
+  /** Whether the propose/approve agent runs the mirror-approver pass.
+   *  Default true at runtime (`?? true`). Only valid when
+   *  agentType === 'proposer_approver_criteria_generate'. Hash canonicalization
+   *  emits this field ONLY when explicitly false (compact hash for default-on strategies). */
+  includesMirrorApprover: z.boolean().optional(),
 }).refine(
   (c) => c.agentType !== 'swiss' || c.sourceMode === undefined,
   { message: 'sourceMode only valid for variant-producing iterations (generate, reflect_and_generate, criteria_and_generate)' },
@@ -563,22 +612,29 @@ export const iterationConfigSchema = z.object({
   (c) => c.agentType === 'reflect_and_generate' || c.reflectionTopN === undefined,
   { message: 'reflectionTopN only valid when agentType is reflect_and_generate' },
 ).refine(
-  // editingMaxCycles belongs exclusively to iterative_editing iterations.
-  (c) => c.agentType === 'iterative_editing' || c.editingMaxCycles === undefined,
-  { message: 'editingMaxCycles only valid when agentType is iterative_editing' },
+  // WIDENED: editingMaxCycles is valid for iterative_editing AND proposer_approver_criteria_generate
+  // (the latter is single-cycle by definition; the value-must-be-1 refine below enforces that).
+  (c) => c.agentType === 'iterative_editing' || c.agentType === 'proposer_approver_criteria_generate' || c.editingMaxCycles === undefined,
+  { message: 'editingMaxCycles only valid when agentType is iterative_editing or proposer_approver_criteria_generate' },
 ).refine(
-  // editingEligibilityCutoff belongs exclusively to iterative_editing iterations.
-  (c) => c.agentType === 'iterative_editing' || c.editingEligibilityCutoff === undefined,
-  { message: 'editingEligibilityCutoff only valid when agentType is iterative_editing' },
+  // WIDENED: editingEligibilityCutoff is valid for iterative_editing AND proposer_approver_criteria_generate.
+  (c) => c.agentType === 'iterative_editing' || c.agentType === 'proposer_approver_criteria_generate' || c.editingEligibilityCutoff === undefined,
+  { message: 'editingEligibilityCutoff only valid when agentType is iterative_editing or proposer_approver_criteria_generate' },
 ).refine(
-  (c) => c.agentType === 'criteria_and_generate' || c.criteriaIds === undefined,
-  { message: 'criteriaIds only valid when agentType is criteria_and_generate' },
+  // proposer_approver_criteria_generate is single-cycle by definition: editingMaxCycles must be 1 if present.
+  (c) => c.agentType !== 'proposer_approver_criteria_generate' || c.editingMaxCycles === undefined || c.editingMaxCycles === 1,
+  { message: 'proposer_approver_criteria_generate is single-cycle by definition; editingMaxCycles must be omitted or 1', path: ['editingMaxCycles'] },
+).refine(
+  // WIDENED: criteriaIds is valid for all 3 criteria-based agent types.
+  (c) => CRITERIA_BASED_AGENT_TYPES.has(c.agentType) || c.criteriaIds === undefined,
+  { message: 'criteriaIds only valid when agentType is a criteria-based type (criteria_and_generate, single_pass_evaluate_criteria_and_generate, proposer_approver_criteria_generate)' },
 ).refine(
   (c) => !c.criteriaIds || c.criteriaIds.length > 0,
   { message: 'criteriaIds must have at least 1 entry when present', path: ['criteriaIds'] },
 ).refine(
-  (c) => c.agentType === 'criteria_and_generate' || c.weakestK === undefined,
-  { message: 'weakestK only valid when agentType is criteria_and_generate' },
+  // WIDENED: weakestK is valid for all 3 criteria-based agent types.
+  (c) => CRITERIA_BASED_AGENT_TYPES.has(c.agentType) || c.weakestK === undefined,
+  { message: 'weakestK only valid when agentType is a criteria-based type (criteria_and_generate, single_pass_evaluate_criteria_and_generate, proposer_approver_criteria_generate)' },
 ).refine(
   // Cross-field: weakestK <= criteriaIds.length
   (c) => c.weakestK === undefined || !c.criteriaIds || c.weakestK <= c.criteriaIds.length,
@@ -587,13 +643,28 @@ export const iterationConfigSchema = z.object({
     path: ['weakestK'],
   },
 ).refine(
-  // criteria_and_generate requires criteriaIds
-  (c) => c.agentType !== 'criteria_and_generate' || (c.criteriaIds !== undefined && c.criteriaIds.length > 0),
-  { message: 'criteria_and_generate iterations require criteriaIds (at least 1)', path: ['criteriaIds'] },
+  // WIDENED: All 3 criteria-based agent types require criteriaIds (non-empty).
+  (c) => !CRITERIA_BASED_AGENT_TYPES.has(c.agentType) || (c.criteriaIds !== undefined && c.criteriaIds.length > 0),
+  { message: 'criteria-based agent types require criteriaIds (at least 1)', path: ['criteriaIds'] },
 ).refine(
   // criteriaIds mutually exclusive with generationGuidance (criteria drive the prompt)
   (c) => !c.criteriaIds || c.generationGuidance === undefined,
   { message: 'criteriaIds and generationGuidance are mutually exclusive', path: ['generationGuidance'] },
+).refine(
+  // NEW: lengthCapRatio is only valid for proposer_approver_criteria_generate.
+  (c) => c.agentType === 'proposer_approver_criteria_generate' || c.lengthCapRatio === undefined,
+  { message: 'lengthCapRatio only valid when agentType is proposer_approver_criteria_generate' },
+).refine(
+  // NEW: redundancyJaccardThreshold is only valid for the 2 new criteria-based agent types
+  // (single-pass + propose/approve). Legacy criteria_and_generate doesn't have a redundancy guardrail.
+  (c) => c.agentType === 'single_pass_evaluate_criteria_and_generate'
+    || c.agentType === 'proposer_approver_criteria_generate'
+    || c.redundancyJaccardThreshold === undefined,
+  { message: 'redundancyJaccardThreshold only valid for single_pass_evaluate_criteria_and_generate or proposer_approver_criteria_generate' },
+).refine(
+  // NEW: includesMirrorApprover is only valid for proposer_approver_criteria_generate.
+  (c) => c.agentType === 'proposer_approver_criteria_generate' || c.includesMirrorApprover === undefined,
+  { message: 'includesMirrorApprover only valid when agentType is proposer_approver_criteria_generate' },
 );
 
 export type IterationConfig = z.infer<typeof iterationConfigSchema>;
@@ -877,6 +948,13 @@ const editingReviewDecisionSchema = z.object({
   groupNumber: z.number().int().min(1),
   decision: z.enum(['accept', 'reject']),
   reason: z.string(),
+  /** Optional guardrail violation flags — populated by ProposerApproverCriteriaGenerateAgent's
+   *  approver only (legacy IterativeEditingAgent's approver doesn't emit these). Backward-compat:
+   *  optional fields default to undefined on missing input. parseReviewDecisions preserves these
+   *  when present in the LLM JSONL. */
+  redundancy_violation: z.boolean().optional(),
+  flow_violation: z.boolean().optional(),
+  length_violation: z.boolean().optional(),
 });
 
 const editingDriftRegionSchema = z.object({
@@ -1413,6 +1491,172 @@ export const evaluateCriteriaThenGenerateFromPreviousArticleExecutionDetailSchem
   ).optional(),
 });
 
+/** SinglePassEvaluateCriteriaAndGenerateAgent execution detail. Near-clone of the legacy
+ *  evaluateCriteriaThenGenerate variant; differs in detailType + tactic marker + the new
+ *  guardrails sub-object for observational guardrail telemetry. sentenceVerbatimRatio is
+ *  NOT in execution_detail — it lives on `evolution_variants.sentence_verbatim_ratio` column. */
+export const singlePassEvaluateCriteriaAndGenerateExecutionDetailSchema = executionDetailBaseSchema.extend({
+  detailType: z.literal('single_pass_evaluate_criteria_and_generate'),
+  variantId: z.string().nullable().optional(),
+  tactic: z.literal('criteria_driven_single_pass'),
+  weakestCriteriaIds: z.array(z.string().uuid()),
+  weakestCriteriaNames: z.array(z.string()),
+  evaluateAndSuggest: z.object({
+    criteriaScored: z.array(z.object({
+      criteriaId: z.string().uuid(),
+      criteriaName: z.string(),
+      score: z.number(),
+      minRating: z.number(),
+      maxRating: z.number(),
+    })),
+    suggestions: z.array(z.object({
+      examplePassage: z.string(),
+      whatNeedsAddressing: z.string(),
+      suggestedFix: z.string(),
+      criteriaName: z.string(),
+    })),
+    droppedSuggestions: z.array(z.object({
+      criteriaName: z.string(),
+      reason: z.string(),
+    })).optional(),
+    rawResponse: z.string().optional(),
+    parseError: z.string().optional(),
+    durationMs: z.number().int().min(0).optional(),
+    cost: z.number().min(0).optional(),
+  }).optional(),
+  generation: z.object({
+    cost: z.number().min(0),
+    estimatedCost: z.number().min(0).optional(),
+    promptLength: z.number().int().min(0),
+    textLength: z.number().int().min(0).optional(),
+    formatValid: z.boolean(),
+    formatIssues: z.array(z.string()).optional(),
+    error: z.string().optional(),
+    durationMs: z.number().int().min(0).optional(),
+  }).optional(),
+  ranking: z.preprocess(
+    rankingDetailRenameKeys,
+    rankNewVariantDetailInnerSchema.extend({
+      cost: z.number().min(0),
+      estimatedCost: z.number().min(0).optional(),
+    }),
+  ).nullable().optional(),
+  totalCost: z.number().min(0).optional(),
+  estimatedTotalCost: z.number().min(0).optional(),
+  estimationErrorPct: z.number().optional(),
+  surfaced: z.boolean(),
+  discardReason: z.preprocess(
+    renameKeys({ localMu: 'localElo' }),
+    z.object({
+      localElo: z.number(),
+      localTop15Cutoff: z.number(),
+    }),
+  ).optional(),
+  /** Guardrail telemetry — observational only (single-pass has no edit groups, so
+   *  redundancyDropCount and flowDropCount are placeholders staying at 0; only
+   *  lengthCapHit is meaningful as a post-hoc check on the LLM's output length). */
+  guardrails: z.object({
+    redundancyDropCount: z.number().int().min(0),
+    flowDropCount: z.number().int().min(0),
+    lengthCapHit: z.boolean(),
+  }).optional(),
+});
+
+/** ProposerApproverCriteriaGenerateAgent execution detail. Single-cycle propose/forward-approve/
+ *  mirror-approve/apply protocol. cycles[] is enforced length-1 (single-cycle by definition).
+ *  sentenceVerbatimRatio lives on `evolution_variants.sentence_verbatim_ratio` column, not here. */
+export const proposerApproverCriteriaGenerateExecutionDetailSchema = executionDetailBaseSchema.extend({
+  detailType: z.literal('proposer_approver_criteria_generate'),
+  variantId: z.string().nullable().optional(),
+  tactic: z.literal('criteria_driven_propose_approve'),
+  surfaced: z.boolean(),
+  discardReason: z.preprocess(
+    renameKeys({ localMu: 'localElo' }),
+    z.object({
+      localElo: z.number(),
+      localTop15Cutoff: z.number(),
+    }),
+  ).optional(),
+  weakestCriteriaIds: z.array(z.string().uuid()),
+  weakestCriteriaNames: z.array(z.string()),
+  evaluateAndSuggest: z.object({
+    criteriaScored: z.array(z.object({
+      criteriaId: z.string().uuid(),
+      criteriaName: z.string(),
+      score: z.number(),
+      minRating: z.number(),
+      maxRating: z.number(),
+    })),
+    suggestions: z.array(z.object({
+      examplePassage: z.string(),
+      whatNeedsAddressing: z.string(),
+      suggestedFix: z.string(),
+      criteriaName: z.string(),
+    })),
+    droppedSuggestions: z.array(z.object({
+      criteriaName: z.string(),
+      reason: z.string(),
+    })).optional(),
+    rawResponse: z.string().optional(),
+    parseError: z.string().optional(),
+    durationMs: z.number().int().min(0).optional(),
+    cost: z.number().min(0).optional(),
+  }).optional(),
+  /** Single propose/approve cycle. Length-1 array to mirror IterativeEditingAgent's `cycles[]` shape
+   *  (Open Question 5 resolution). Zod refine below enforces single-cycle. */
+  cycles: z.array(z.object({
+    proposedGroupsRaw: z.number().int().min(0),
+    droppedPreApprover: z.array(z.object({
+      groupNumber: z.number().int().min(1),
+      reason: z.string(),
+    })),
+    approverGroups: z.number().int().min(0),
+    forwardDecisions: z.array(z.object({
+      groupNumber: z.number().int().min(1),
+      decision: z.enum(['accept', 'reject']),
+      reason: z.string(),
+      redundancy_violation: z.boolean().optional(),
+      flow_violation: z.boolean().optional(),
+      length_violation: z.boolean().optional(),
+    })),
+    /** Mirror decisions per group. `null` decision encodes either short-circuit
+     *  (forward already rejected — no mirror call made) or mirror parse failure
+     *  (LLM returned malformed JSONL). Aggregator strict-binary rule treats both as DROP. */
+    mirrorDecisions: z.array(z.object({
+      groupNumber: z.number().int().min(1),
+      decision: z.enum(['accept', 'reject']).nullable(),
+      reason: z.string(),
+      redundancy_violation: z.boolean().optional(),
+      flow_violation: z.boolean().optional(),
+      length_violation: z.boolean().optional(),
+    })),
+    appliedGroups: z.number().int().min(0),
+    droppedPostApprover: z.array(z.object({
+      groupNumber: z.number().int().min(1),
+      reason: z.string(),
+    })),
+    proposeCostUsd: z.number().min(0),
+    approveForwardCostUsd: z.number().min(0),
+    approveMirrorCostUsd: z.number().min(0),
+    /** Optional post-apply article text. Feature-flag in prod (large payloads). */
+    childText: z.string().optional(),
+  })).max(1),
+  ranking: z.preprocess(
+    rankingDetailRenameKeys,
+    rankNewVariantDetailInnerSchema.extend({
+      cost: z.number().min(0),
+      estimatedCost: z.number().min(0).optional(),
+    }),
+  ).nullable().optional(),
+  totalCost: z.number().min(0).optional(),
+  estimatedTotalCost: z.number().min(0).optional(),
+  estimationErrorPct: z.number().optional(),
+  /** Mirror agreement rate = appliedGroups / approverGroups. Computed at finalization. */
+  mirrorAgreementRate: z.number().min(0).max(1).optional(),
+  /** Set when mirror pass was aborted at the whole-pass level (distinct from per-group nulls). */
+  mirrorAbortReason: z.enum(['a_prime_format_invalid', 'mirror_parse_null']).optional(),
+});
+
 /** CreateSeedArticleAgent execution detail. */
 export const createSeedArticleExecutionDetailSchema = executionDetailBaseSchema.extend({
   detailType: z.literal('create_seed_article'),
@@ -1477,7 +1721,7 @@ const afterVariantRenameKeys = renameKeys({
 
 export const mergeRatingsExecutionDetailSchema = executionDetailBaseSchema.extend({
   detailType: z.literal('merge_ratings'),
-  iterationType: z.enum(['generate', 'reflect_and_generate', 'criteria_and_generate', 'iterative_editing', 'swiss']),
+  iterationType: z.enum(['generate', 'reflect_and_generate', 'criteria_and_generate', 'single_pass_evaluate_criteria_and_generate', 'proposer_approver_criteria_generate', 'iterative_editing', 'swiss']),
   before: z.object({
     poolSize: z.number().int().min(0),
     variants: z.array(z.preprocess(
@@ -1535,7 +1779,7 @@ const snapshotDiscardReasonRename = renameKeys({ mu: 'elo' });
 // only contain 'generate' or 'swiss' so backward-compat reads remain valid.
 export const iterationSnapshotSchema = z.object({
   iteration: z.number().int().min(1),
-  iterationType: z.enum(['generate', 'reflect_and_generate', 'criteria_and_generate', 'iterative_editing', 'swiss']),
+  iterationType: z.enum(['generate', 'reflect_and_generate', 'criteria_and_generate', 'single_pass_evaluate_criteria_and_generate', 'proposer_approver_criteria_generate', 'iterative_editing', 'swiss']),
   phase: z.enum(['start', 'end']),
   capturedAt: z.string(),
   poolVariantIds: z.array(z.string()),
@@ -1577,6 +1821,8 @@ export const agentExecutionDetailSchema = z.discriminatedUnion('detailType', [
   generateFromPreviousExecutionDetailSchema,
   reflectAndGenerateFromPreviousArticleExecutionDetailSchema,
   evaluateCriteriaThenGenerateFromPreviousArticleExecutionDetailSchema,
+  singlePassEvaluateCriteriaAndGenerateExecutionDetailSchema,
+  proposerApproverCriteriaGenerateExecutionDetailSchema,
   createSeedArticleExecutionDetailSchema,
   swissRankingExecutionDetailSchema,
   mergeRatingsExecutionDetailSchema,

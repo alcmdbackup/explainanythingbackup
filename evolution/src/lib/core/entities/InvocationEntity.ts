@@ -52,6 +52,11 @@ export class InvocationEntity extends Entity<EvolutionAgentInvocationFullDb> {
         compute: (ctx) => computeInvocationVariantCount(ctx, ctx.currentInvocationId ?? null) },
       { ...METRIC_CATALOG.elo_delta_vs_parent,
         compute: (ctx) => computeInvocationEloDeltaVsParent(ctx, ctx.currentInvocationId ?? null) },
+      // ProposerApproverCriteriaGenerateAgent invocation-level metrics — computed from
+      // execution_detail.cycles[0]. Returns null for non-propose/approve invocations.
+      { ...METRIC_CATALOG.invocation_mirror_agreement_rate, compute: () => null },
+      { ...METRIC_CATALOG.invocation_forward_accept_rate, compute: () => null },
+      { ...METRIC_CATALOG.invocation_mirror_filter_rate, compute: () => null },
     ],
     atPropagation: [],
   };

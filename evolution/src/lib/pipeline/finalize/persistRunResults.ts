@@ -253,6 +253,7 @@ export async function finalizeRun(
       agent_invocation_id: v.agentInvocationId ?? null,
       criteria_set_used: v.criteriaSetUsed ? [...v.criteriaSetUsed] : null,
       weakest_criteria_ids: v.weakestCriteriaIds ? [...v.weakestCriteriaIds] : null,
+      sentence_verbatim_ratio: v.sentenceVerbatimRatio ?? null,
     });
   });
 
@@ -286,6 +287,7 @@ export async function finalizeRun(
         agent_invocation_id: v.agentInvocationId ?? null,
         criteria_set_used: v.criteriaSetUsed ? [...v.criteriaSetUsed] : null,
         weakest_criteria_ids: v.weakestCriteriaIds ? [...v.weakestCriteriaIds] : null,
+        sentence_verbatim_ratio: v.sentenceVerbatimRatio ?? null,
       });
     });
 

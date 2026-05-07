@@ -150,6 +150,17 @@ export class ExperimentEntity extends Entity<EvolutionExperimentFullDb> {
       { ...METRIC_CATALOG.avg_median_sequential_gfsa_duration_ms,
         sourceEntity: 'run', sourceMetric: 'median_sequential_gfsa_duration_ms',
         aggregate: aggregateAvg, aggregationMethod: 'avg' },
+      // Propose/approve criteria cost rollups (updated_criteria_agent_20260505)
+      { ...METRIC_CATALOG.total_proposer_approver_criteria_cost,
+        sourceEntity: 'run', sourceMetric: 'proposer_approver_criteria_cost',
+        aggregate: aggregateSum, aggregationMethod: 'sum' },
+      { ...METRIC_CATALOG.avg_proposer_approver_criteria_cost_per_run,
+        sourceEntity: 'run', sourceMetric: 'proposer_approver_criteria_cost',
+        aggregate: aggregateAvg, aggregationMethod: 'avg' },
+      // Universal sentence-overlap rollup
+      { ...METRIC_CATALOG.avg_median_sentence_verbatim_ratio,
+        sourceEntity: 'run', sourceMetric: 'median_sentence_verbatim_ratio',
+        aggregate: aggregateBootstrapMean, aggregationMethod: 'bootstrap_mean' },
     ],
   };
 
