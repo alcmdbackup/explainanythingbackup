@@ -96,6 +96,15 @@ interface MultiPassOptions {
 
   /** Enable debug logging for similarity calculations */
   debug?: boolean;
+
+  /**
+   * When true, links are NOT treated as atomic-descendant blockers — paragraphs
+   * containing only link-level changes can recurse into per-child diffing
+   * (link-text/url change becomes a granular link replacement, not whole-paragraph
+   * atomic). Default: false (preserves the original aiSuggestion.ts:498 consumer's
+   * behavior).
+   */
+  linkGranular?: boolean;
 }
 
 interface DiffOptions {
@@ -155,16 +164,19 @@ const ATOMIC_INLINE = new Set<string>([
   'link'
 ]);
 
-function isAtomicNode(n: MdastNode): boolean {
+function isAtomicNode(n: MdastNode, ignoreTypes?: ReadonlySet<string>): boolean {
+  if (ignoreTypes && ignoreTypes.has(n.type)) return false;
   return ATOMIC_BLOCKS.has(n.type) || ATOMIC_INLINE.has(n.type);
 }
 
 // 👇 New: detect if a node contains any atomic descendant (e.g., link inside paragraph)
-function containsAtomicDescendant(node: MdastNode): boolean {
+// `ignoreTypes` lets callers (e.g. Mode B with linkGranular=true) skip specific
+// types so paragraphs containing only those nodes don't escalate to atomic.
+function containsAtomicDescendant(node: MdastNode, ignoreTypes?: ReadonlySet<string>): boolean {
   const stack: MdastNode[] = (node.children || []).slice();
   while (stack.length) {
     const n = stack.pop()!;
-    if (isAtomicNode(n)) return true;
+    if (isAtomicNode(n, ignoreTypes)) return true;
     if (n.children && n.children.length) stack.push(...n.children);
   }
   return false;
@@ -265,7 +277,8 @@ const MP_DEFAULTS: Required<MultiPassOptions> = {
   sentenceAtomicDiffIfDiffAbove:  0.15,
   sentencesPairedIfDiffBelow: 0.30,
   sentenceLocale:          'en',
-  debug:                   true
+  debug:                   true,
+  linkGranular:            false,  // opt-in; preserves existing aiSuggestion.ts:498 consumer
 };
 
 // Align sentences by similarity instead of exact matching
@@ -429,10 +442,13 @@ function sentenceTokens(text: string, locale = MP_DEFAULTS.sentenceLocale): stri
 
 function mergeAbbrevSuffix(tokens: string[]): string[] {
   const ABBREV = /\b(?:Mr|Mrs|Ms|Mx|Dr|Prof|Sr|Jr|St|Mt|vs|etc|No|Fig|Eq|Ref|cf|al|e\.g|i\.e)\.\s*$/i;
+  // Multi-letter dotted abbreviations: "U.S.", "U.K.", "U.N.", "D.C.", "I.E.", etc.
+  // Token ends with `<letter>.<letter>.\s*` — common in policy/finance text.
+  const DOTTED_ABBREV = /\b[A-Z]\.[A-Z]\.\s*$/;
   const merged: string[] = [];
   for (let i = 0; i < tokens.length; i++) {
     const t = tokens[i]!;
-    if (i + 1 < tokens.length && ABBREV.test(t)) {
+    if (i + 1 < tokens.length && (ABBREV.test(t) || DOTTED_ABBREV.test(t))) {
       merged.push(t + tokens[i + 1]!);
       i++;
     } else {
@@ -443,9 +459,12 @@ function mergeAbbrevSuffix(tokens: string[]): string[] {
 }
 
 // Compute a normalized "diff ratio" (0..1) using LCS similarity.
-function diffRatioWords(aStr: string, bStr: string, debug = false): number {
+function diffRatioWords(aStr: string | undefined, bStr: string | undefined, debug = false): number {
+  // Defensive: alignment may yield undefined slots when sentence reorder leaves
+  // unmatched indices; treat as fully-different rather than throwing.
+  if (aStr === undefined || bStr === undefined) return 1;
   if (aStr === bStr) return 0;
-  
+
   // Split into words for LCS comparison
   const aWords = aStr.split(/\s+/);
   const bWords = bStr.split(/\s+/);
@@ -596,6 +615,12 @@ function buildParagraphMultiPassRuns(
     }
 
     if (next) {
+      // Defensive: bail if alignment somehow yielded indices past the array end.
+      // Without this guard, SA[i] / SB[j] would be undefined and diffRatioWords
+      // would (pre-fix) crash on `.split` of undefined.
+      if (i >= SA.length || j >= SB.length) {
+        break;
+      }
       const sA = SA[i]!, sB = SB[j]!;
       const sDiff = diffRatioWords(sA, sB, false); // Don't show word-level details
       const similarity = 1 - sDiff;
@@ -657,14 +682,44 @@ function diffTextGranularWithLib(aStr: string, bStr: string, granularity: 'char'
   return runs;
 }
 
-function toCriticMarkup(runs: TextRun[]): string {
-  let out = '';
+// Merge consecutive same-kind runs separated only by whitespace-eq tokens.
+// Without this, `diffWordsWithSpace` produces sequences like `[ins:"This"][eq:" "][ins:"act"]`
+// where the eq-space exists only in the AFTER text, not the BEFORE. Stripping the inserts
+// during recoveredSource computation would leak that whitespace into the recovered output,
+// breaking the round-trip invariant. Whitespace-bridge eq-runs are absorbed into the
+// adjacent same-kind run (so the eq disappears with the strip).
+function mergeWhitespaceBridgedRuns(runs: TextRun[]): TextRun[] {
+  const out: TextRun[] = [];
   for (const r of runs) {
+    const prev = out[out.length - 1];
+    const prev2 = out[out.length - 2];
+    if (
+      r.t !== 'eq' && r.t !== 'update' &&
+      prev && prev.t === 'eq' && /^\s+$/.test(prev.s) &&
+      prev2 && prev2.t === r.t
+    ) {
+      // Absorb the whitespace-eq into the previous same-kind run.
+      prev2.s += prev.s + r.s;
+      out.pop(); // drop the eq
+    } else {
+      out.push({ ...r });
+    }
+  }
+  return out;
+}
+
+function toCriticMarkup(runs: TextRun[]): string {
+  // Route through wrap{Del,Ins,Update} helpers so common surrounding whitespace
+  // is hoisted outside the braces (parseProposedEdits.ts:32 strips \s* from
+  // bodies; if we don't hoist, an inter-sentence space inside a substitution is
+  // lost on round-trip). See `splitSurroundingWs` and `wrapUpdate` above.
+  const merged = mergeWhitespaceBridgedRuns(runs);
+  let out = '';
+  for (const r of merged) {
     if (r.t === 'eq')  out += r.s;
-    // C: Escape content to prevent special chars from breaking CriticMarkup syntax
-    if (r.t === 'del') out += `{--${escapeCriticMarkupContent(r.s)}--}`;
-    if (r.t === 'ins') out += `{++${escapeCriticMarkupContent(r.s)}++}`;
-    if (r.t === 'update') out += `{~~${escapeCriticMarkupContent(r.s)}~>${escapeCriticMarkupContent(r.sAfter || '')}~~}`;
+    if (r.t === 'del') out += wrapDel(r.s);
+    if (r.t === 'ins') out += wrapIns(r.s);
+    if (r.t === 'update') out += wrapUpdate(r.s, r.sAfter || '');
   }
   return out;
 }
@@ -841,22 +896,72 @@ function decorateWithContainerMarkup(node: MdastNode, inner: string, stringify: 
     }
     case 'blockquote':
       return inner.split('\n').map(l => (l ? `> ${l}` : l)).join('\n') + '\n\n';
+    // Inline-wrapper containers — explicit cases prevent the default branch from emitting
+    // empty markers (e.g. **** for unchanged bold) when children round-trip cleanly.
+    case 'strong':
+      return `**${inner}**`;
+    case 'emphasis':
+      return `*${inner}*`;
+    case 'delete':
+      return `~~${inner}~~`;
+    case 'inlineCode':
+      return `\`${inner}\``;
+    case 'link':
+      return `[${inner}](${node.url || ''}${node.title ? ` "${node.title}"` : ''})`;
     default:
       return stringify({ ...node, children: undefined }) || inner;
   }
 }
 
 // Helpers for Critic braces
-// C: Escape content to prevent special chars from breaking CriticMarkup syntax
-function wrapDel(s: string): string { return s ? `{--${escapeCriticMarkupContent(s)}--}` : ''; }
-function wrapIns(s: string): string { return s ? `{++${escapeCriticMarkupContent(s)}++}` : ''; }
+// C: Escape content to prevent special chars from breaking CriticMarkup syntax.
+// Whitespace-hoist: parseProposedEdits.ts strips leading/trailing \s* from each
+// markup body. When emitting atomic substitutions for block-level nodes (e.g.
+// heading: stringify includes trailing \n\n), we MUST hoist common surrounding
+// whitespace outside the braces so the round-trip preserves it.
+function splitSurroundingWs(s: string): { lead: string; core: string; trail: string } {
+  const m = s.match(/^(\s*)([\s\S]*?)(\s*)$/);
+  return { lead: m?.[1] ?? '', core: m?.[2] ?? s, trail: m?.[3] ?? '' };
+}
+function wrapDel(s: string): string {
+  if (!s) return '';
+  const { lead, core, trail } = splitSurroundingWs(s);
+  if (!core) return s; // all whitespace — nothing to delete
+  return `${lead}{--${escapeCriticMarkupContent(core)}--}${trail}`;
+}
+function wrapIns(s: string): string {
+  if (!s) return '';
+  const { lead, core, trail } = splitSurroundingWs(s);
+  if (!core) return s;
+  return `${lead}{++${escapeCriticMarkupContent(core)}++}${trail}`;
+}
 function wrapUpdate(before: string, after: string): string {
-  return before && after ? `{~~${escapeCriticMarkupContent(before)}~>${escapeCriticMarkupContent(after)}~~}` : '';
+  if (!before || !after) return '';
+  // Hoist longest common trailing whitespace.
+  const beforeTrail = before.match(/\s*$/)?.[0] ?? '';
+  const afterTrail = after.match(/\s*$/)?.[0] ?? '';
+  let commonTrail = '';
+  for (let i = 1; i <= Math.min(beforeTrail.length, afterTrail.length); i++) {
+    if (beforeTrail.slice(-i) === afterTrail.slice(-i)) commonTrail = beforeTrail.slice(-i);
+    else break;
+  }
+  // Hoist longest common leading whitespace.
+  const beforeLead = before.match(/^\s*/)?.[0] ?? '';
+  const afterLead = after.match(/^\s*/)?.[0] ?? '';
+  let commonLead = '';
+  for (let i = 1; i <= Math.min(beforeLead.length, afterLead.length); i++) {
+    if (beforeLead.slice(0, i) === afterLead.slice(0, i)) commonLead = beforeLead.slice(0, i);
+    else break;
+  }
+  const beforeCore = before.slice(commonLead.length, before.length - commonTrail.length);
+  const afterCore = after.slice(commonLead.length, after.length - commonTrail.length);
+  if (!beforeCore && !afterCore) return commonLead + commonTrail; // nothing to update
+  return `${commonLead}{~~${escapeCriticMarkupContent(beforeCore)}~>${escapeCriticMarkupContent(afterCore)}~~}${commonTrail}`;
 }
 
 // ========= Granular text diffing helpers =========
 
-function shouldApplyAggregatedTextDiff(a: MdastNode, b: MdastNode, _options: DiffOptions): string | null {
+function shouldApplyAggregatedTextDiff(a: MdastNode, b: MdastNode, options: DiffOptions): string | null {
 
   console.log(`shouldApplyAggregatedTextDiff: checking nodes of type ${a.type} and ${b.type}`);
 
@@ -883,8 +988,12 @@ function shouldApplyAggregatedTextDiff(a: MdastNode, b: MdastNode, _options: Dif
     return "atomic type";
   }
 
-  // If either side contains atomic descendants (e.g., a link inside), don't flatten
-  if (containsAtomicDescendant(a) || containsAtomicDescendant(b)) {
+  // If either side contains atomic descendants (e.g., a link inside), don't flatten.
+  // Mode B may opt in to `linkGranular` to skip `link` from this gate so paragraphs
+  // with link-only changes can recurse into per-child diffing.
+  const linkGranular = options.multipass?.linkGranular === true;
+  const ignoreTypes = linkGranular ? new Set<string>(['link']) : undefined;
+  if (containsAtomicDescendant(a, ignoreTypes) || containsAtomicDescendant(b, ignoreTypes)) {
     console.log('shouldApplyAggregatedTextDiff: contains atomic descendants - returning "atomic descendant"');
     return "atomic descendant";
   }
@@ -1033,9 +1142,12 @@ function fallbackStringify(node: MdastNode): string {
       return '#'.repeat(node.depth || 1) + ' ' +
              (node.children || []).map(fallbackStringify).join('') + '\n\n';
     case 'list': {
-      const bullet = node.ordered ? '1.' : '-';
+      const start = (typeof node.start === 'number' && Number.isFinite(node.start)) ? node.start : 1;
       return (node.children || [])
-        .map((li: MdastNode) => `${bullet} ${fallbackStringify(li).replace(/\n+$/, '')}\n`)
+        .map((li: MdastNode, i: number) => {
+          const bullet = node.ordered ? `${start + i}.` : '-';
+          return `${bullet} ${fallbackStringify(li).replace(/\n+$/, '')}\n`;
+        })
         .join('') + '\n';
     }
     case 'listItem':
