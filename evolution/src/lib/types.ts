@@ -227,6 +227,12 @@ export interface EditingReviewDecision {
   groupNumber: number;
   decision: 'accept' | 'reject';
   reason: string;
+  /** Optional guardrail violation flags — populated by ProposerApproverCriteriaGenerateAgent's
+   *  approver only (legacy IterativeEditingAgent's approver doesn't emit these). Backward-compat:
+   *  optional fields default to undefined on missing input. */
+  redundancy_violation?: boolean;
+  flow_violation?: boolean;
+  length_violation?: boolean;
 }
 
 export interface EditingDriftRegion {

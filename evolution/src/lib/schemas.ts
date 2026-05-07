@@ -948,6 +948,13 @@ const editingReviewDecisionSchema = z.object({
   groupNumber: z.number().int().min(1),
   decision: z.enum(['accept', 'reject']),
   reason: z.string(),
+  /** Optional guardrail violation flags — populated by ProposerApproverCriteriaGenerateAgent's
+   *  approver only (legacy IterativeEditingAgent's approver doesn't emit these). Backward-compat:
+   *  optional fields default to undefined on missing input. parseReviewDecisions preserves these
+   *  when present in the LLM JSONL. */
+  redundancy_violation: z.boolean().optional(),
+  flow_violation: z.boolean().optional(),
+  length_violation: z.boolean().optional(),
 });
 
 const editingDriftRegionSchema = z.object({
@@ -1484,6 +1491,172 @@ export const evaluateCriteriaThenGenerateFromPreviousArticleExecutionDetailSchem
   ).optional(),
 });
 
+/** SinglePassEvaluateCriteriaAndGenerateAgent execution detail. Near-clone of the legacy
+ *  evaluateCriteriaThenGenerate variant; differs in detailType + tactic marker + the new
+ *  guardrails sub-object for observational guardrail telemetry. sentenceVerbatimRatio is
+ *  NOT in execution_detail — it lives on `evolution_variants.sentence_verbatim_ratio` column. */
+export const singlePassEvaluateCriteriaAndGenerateExecutionDetailSchema = executionDetailBaseSchema.extend({
+  detailType: z.literal('single_pass_evaluate_criteria_and_generate'),
+  variantId: z.string().nullable().optional(),
+  tactic: z.literal('criteria_driven_single_pass'),
+  weakestCriteriaIds: z.array(z.string().uuid()),
+  weakestCriteriaNames: z.array(z.string()),
+  evaluateAndSuggest: z.object({
+    criteriaScored: z.array(z.object({
+      criteriaId: z.string().uuid(),
+      criteriaName: z.string(),
+      score: z.number(),
+      minRating: z.number(),
+      maxRating: z.number(),
+    })),
+    suggestions: z.array(z.object({
+      examplePassage: z.string(),
+      whatNeedsAddressing: z.string(),
+      suggestedFix: z.string(),
+      criteriaName: z.string(),
+    })),
+    droppedSuggestions: z.array(z.object({
+      criteriaName: z.string(),
+      reason: z.string(),
+    })).optional(),
+    rawResponse: z.string().optional(),
+    parseError: z.string().optional(),
+    durationMs: z.number().int().min(0).optional(),
+    cost: z.number().min(0).optional(),
+  }).optional(),
+  generation: z.object({
+    cost: z.number().min(0),
+    estimatedCost: z.number().min(0).optional(),
+    promptLength: z.number().int().min(0),
+    textLength: z.number().int().min(0).optional(),
+    formatValid: z.boolean(),
+    formatIssues: z.array(z.string()).optional(),
+    error: z.string().optional(),
+    durationMs: z.number().int().min(0).optional(),
+  }).optional(),
+  ranking: z.preprocess(
+    rankingDetailRenameKeys,
+    rankNewVariantDetailInnerSchema.extend({
+      cost: z.number().min(0),
+      estimatedCost: z.number().min(0).optional(),
+    }),
+  ).nullable().optional(),
+  totalCost: z.number().min(0).optional(),
+  estimatedTotalCost: z.number().min(0).optional(),
+  estimationErrorPct: z.number().optional(),
+  surfaced: z.boolean(),
+  discardReason: z.preprocess(
+    renameKeys({ localMu: 'localElo' }),
+    z.object({
+      localElo: z.number(),
+      localTop15Cutoff: z.number(),
+    }),
+  ).optional(),
+  /** Guardrail telemetry — observational only (single-pass has no edit groups, so
+   *  redundancyDropCount and flowDropCount are placeholders staying at 0; only
+   *  lengthCapHit is meaningful as a post-hoc check on the LLM's output length). */
+  guardrails: z.object({
+    redundancyDropCount: z.number().int().min(0),
+    flowDropCount: z.number().int().min(0),
+    lengthCapHit: z.boolean(),
+  }).optional(),
+});
+
+/** ProposerApproverCriteriaGenerateAgent execution detail. Single-cycle propose/forward-approve/
+ *  mirror-approve/apply protocol. cycles[] is enforced length-1 (single-cycle by definition).
+ *  sentenceVerbatimRatio lives on `evolution_variants.sentence_verbatim_ratio` column, not here. */
+export const proposerApproverCriteriaGenerateExecutionDetailSchema = executionDetailBaseSchema.extend({
+  detailType: z.literal('proposer_approver_criteria_generate'),
+  variantId: z.string().nullable().optional(),
+  tactic: z.literal('criteria_driven_propose_approve'),
+  surfaced: z.boolean(),
+  discardReason: z.preprocess(
+    renameKeys({ localMu: 'localElo' }),
+    z.object({
+      localElo: z.number(),
+      localTop15Cutoff: z.number(),
+    }),
+  ).optional(),
+  weakestCriteriaIds: z.array(z.string().uuid()),
+  weakestCriteriaNames: z.array(z.string()),
+  evaluateAndSuggest: z.object({
+    criteriaScored: z.array(z.object({
+      criteriaId: z.string().uuid(),
+      criteriaName: z.string(),
+      score: z.number(),
+      minRating: z.number(),
+      maxRating: z.number(),
+    })),
+    suggestions: z.array(z.object({
+      examplePassage: z.string(),
+      whatNeedsAddressing: z.string(),
+      suggestedFix: z.string(),
+      criteriaName: z.string(),
+    })),
+    droppedSuggestions: z.array(z.object({
+      criteriaName: z.string(),
+      reason: z.string(),
+    })).optional(),
+    rawResponse: z.string().optional(),
+    parseError: z.string().optional(),
+    durationMs: z.number().int().min(0).optional(),
+    cost: z.number().min(0).optional(),
+  }).optional(),
+  /** Single propose/approve cycle. Length-1 array to mirror IterativeEditingAgent's `cycles[]` shape
+   *  (Open Question 5 resolution). Zod refine below enforces single-cycle. */
+  cycles: z.array(z.object({
+    proposedGroupsRaw: z.number().int().min(0),
+    droppedPreApprover: z.array(z.object({
+      groupNumber: z.number().int().min(1),
+      reason: z.string(),
+    })),
+    approverGroups: z.number().int().min(0),
+    forwardDecisions: z.array(z.object({
+      groupNumber: z.number().int().min(1),
+      decision: z.enum(['accept', 'reject']),
+      reason: z.string(),
+      redundancy_violation: z.boolean().optional(),
+      flow_violation: z.boolean().optional(),
+      length_violation: z.boolean().optional(),
+    })),
+    /** Mirror decisions per group. `null` decision encodes either short-circuit
+     *  (forward already rejected — no mirror call made) or mirror parse failure
+     *  (LLM returned malformed JSONL). Aggregator strict-binary rule treats both as DROP. */
+    mirrorDecisions: z.array(z.object({
+      groupNumber: z.number().int().min(1),
+      decision: z.enum(['accept', 'reject']).nullable(),
+      reason: z.string(),
+      redundancy_violation: z.boolean().optional(),
+      flow_violation: z.boolean().optional(),
+      length_violation: z.boolean().optional(),
+    })),
+    appliedGroups: z.number().int().min(0),
+    droppedPostApprover: z.array(z.object({
+      groupNumber: z.number().int().min(1),
+      reason: z.string(),
+    })),
+    proposeCostUsd: z.number().min(0),
+    approveForwardCostUsd: z.number().min(0),
+    approveMirrorCostUsd: z.number().min(0),
+    /** Optional post-apply article text. Feature-flag in prod (large payloads). */
+    childText: z.string().optional(),
+  })).max(1),
+  ranking: z.preprocess(
+    rankingDetailRenameKeys,
+    rankNewVariantDetailInnerSchema.extend({
+      cost: z.number().min(0),
+      estimatedCost: z.number().min(0).optional(),
+    }),
+  ).nullable().optional(),
+  totalCost: z.number().min(0).optional(),
+  estimatedTotalCost: z.number().min(0).optional(),
+  estimationErrorPct: z.number().optional(),
+  /** Mirror agreement rate = appliedGroups / approverGroups. Computed at finalization. */
+  mirrorAgreementRate: z.number().min(0).max(1).optional(),
+  /** Set when mirror pass was aborted at the whole-pass level (distinct from per-group nulls). */
+  mirrorAbortReason: z.enum(['a_prime_format_invalid', 'mirror_parse_null']).optional(),
+});
+
 /** CreateSeedArticleAgent execution detail. */
 export const createSeedArticleExecutionDetailSchema = executionDetailBaseSchema.extend({
   detailType: z.literal('create_seed_article'),
@@ -1648,6 +1821,8 @@ export const agentExecutionDetailSchema = z.discriminatedUnion('detailType', [
   generateFromPreviousExecutionDetailSchema,
   reflectAndGenerateFromPreviousArticleExecutionDetailSchema,
   evaluateCriteriaThenGenerateFromPreviousArticleExecutionDetailSchema,
+  singlePassEvaluateCriteriaAndGenerateExecutionDetailSchema,
+  proposerApproverCriteriaGenerateExecutionDetailSchema,
   createSeedArticleExecutionDetailSchema,
   swissRankingExecutionDetailSchema,
   mergeRatingsExecutionDetailSchema,
