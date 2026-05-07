@@ -72,6 +72,212 @@ The other production consumer (`src/editorFiles/aiSuggestion.ts:373,498`) is ins
 | 17 | Coalescer gap threshold | **24 chars** (down from R2.A's 80) | R4.B mitigation: prevents over-merge of unrelated edits |
 | 18 | Multipass thresholds (Mode B) | `paragraphAtomicDiffIfDiffAbove=0.25, sentenceAtomicDiffIfDiffAbove=0.10, sentencesPairedIfDiffBelow=0.40` | R2.A "aggressive coalesce" — collapses moderate rewrites to manageable group counts |
 | 19 | Rollback mechanism | **Env flag** `DISABLE_ITERATIVE_EDITING_REWRITE=true` falls Mode B back to Mode A at runtime | No schema/DB revert needed (all new fields optional) |
+| 20 | Agent-level dispatch | **Sibling class** `IterativeEditingRewriteAgent extends IterativeEditingAgent` with `readonly name = 'iterative_editing_rewrite'` and `protected isRewriteMode = true`. Parent `IterativeEditingAgent` keeps `readonly name = 'iterative_editing'`. Shared cycle/validate/approve/apply logic in parent's protected helpers; the rewrite branch lives in an overridable `runProposerCycle()` method. `Agent.run()` writes `agent_name` from `this.name` (`Agent.ts:54`), so analytics partition correctly without any base-class change | `Agent.name` is `abstract readonly` (`evolution/src/lib/core/Agent.ts:14`); we MUST use a subclass to write a different `agent_name`. Sibling pattern reuses ~95% of code; mode-specific divergence isolated to `runProposerCycle` |
+| 21 | Env-flag read semantics | **Per-invocation read** at agent instantiation in `runIterationLoop.ts:786`. If `DISABLE_ITERATIVE_EDITING_REWRITE='true'`, instantiate the parent `IterativeEditingAgent` (Mode A) regardless of `iterCfg.agentType`. Existing pods running mid-cycle finish in their pre-flip mode (atomic per invocation); subsequent invocations see fresh env. Multi-pod rollout: cooperative graceful drain expected for full rollback | Atomic-per-invocation rollback semantics. Documented as a non-preemptive flag (mid-cycle invocations don't abort) |
+| 22 | Cross-tree import policy | `evolution/src/lib/core/agents/editing/computeMarkupFromRewrite.ts` imports from `src/editorFiles/markdownASTdiff/`. **Verified:** no `eslint-plugin-import` boundary rule rejects this; existing tree resolves via tsconfig `paths`. Document as a sanctioned exception in this plan; do not generalize | Avoids relocating 1,091-LOC engine; keeps the existing `aiSuggestion.ts:498` consumer's import path stable |
+| 23 | A/B statistical test | One-tailed binomial test on cycle-success-rate delta. α = 0.05. Required N derived from observed Mode A baseline; sample-size table in Phase 4. If observed Mode A baseline approaches 0% (today's reality), the absolute threshold of "+30 pp" is achievable; if Mode A baseline rises with the prompt strengthening to e.g. 60%, threshold becomes 90% (capped at realistic ceiling). | Specific decision rule; avoids Phase 5 ambiguity |
+
+## `runProposerCycle` contract
+
+The seam between parent and Mode B subclass is a single protected method. Contract:
+
+```ts
+type ProposerCycleResult =
+  | {
+      kind: 'success';
+      proposedMarkup: string;            // CriticMarkup string fed into parseProposedEdits
+      parseResult: ParseResult;          // groups + dropped + recoveredSource
+      // Mode B only:
+      proposerMode?: 'rewrite';
+      rationale?: string;
+      rewriteText?: string;              // TRUNCATED to 8 KB if longer
+      computedMarkup?: string;           // identical to proposedMarkup; persisted for forensics
+      normalizedBefore?: string;         // (Mode B only) the canonical-form source the diff was computed against; the parent's getCurrentTextForParse seam returns this in lieu of current.text
+      // Mode A only:
+      driftRecoveryDetails?: EditingCycle['driftRecovery'];
+      droppedPreApprover?: EditingDroppedGroup[];
+    }
+  | {
+      kind: 'aborted';
+      stopReason: IterativeEditingStopReason;  // 'proposer_format_violation' | 'rewrite_parse_failed' | 'rewrite_too_large' | 'proposer_drift_unrecoverable' | etc.
+      proposerMode?: 'markup' | 'rewrite';
+      // Forensic fields (populated based on stopReason):
+      proposedMarkup?: string;
+      rewriteText?: string;
+      errorMessage?: string;
+      errorContext?: { type: string; message: string; line?: number; col?: number };  // serialized originalError
+    };
+
+protected async runProposerCycle(
+  current: { text: string },
+  ctx: AgentContext,
+  cycleNumber: number,
+): Promise<ProposerCycleResult>;
+```
+
+The parent's `execute()` loop calls this method, then converges:
+
+```text
+const result = await this.runProposerCycle(current, ctx, cycleNumber);
+if (result.kind === 'aborted') {
+  cycles.push(buildCycle({ ..., ...result, approverGroups: [], reviewDecisions: [], appliedGroups: [] }));
+  break; // exit cycle loop with stopReason
+}
+// On success: parent runs validate → approver → apply against the proposer's output:
+const sourceForParse = this.getCurrentTextForParse(current.text, result);
+const parseResult = result.parseResult; // already computed inside runProposerCycle (Mode B did the diff itself)
+const validation = validateEditGroups(parseResult.groups, sourceForParse);
+const approverGroups = validation.approverGroups;
+const reviewDecisions = await callApproverLLM(...); // Mode B passes result.rationale into approver prompt
+const accepted = filterAccepted(approverGroups, reviewDecisions);
+const applyResult = applyAcceptedGroups(accepted, sourceForParse);
+cycles.push(buildCycle({ ..., ...result, approverGroups, reviewDecisions, appliedGroups: accepted }));
+current.text = applyResult.newText;
+```
+
+**Field-population responsibility table:**
+
+| Field | Mode A populates | Mode B populates | Parent fills in |
+|---|---|---|---|
+| `proposedMarkup` | yes (LLM output) | yes (computed markup from diff) | — |
+| `parseResult` | yes (post-drift-recovery) | yes (post-coalesce-cap) | — |
+| `rationale`, `rewriteText`, `computedMarkup` | n/a | yes | — |
+| `proposerMode` | `'markup'` | `'rewrite'` | — |
+| `driftRecoveryDetails`, `droppedPreApprover` | yes | n/a (not used) | — |
+| `approverGroups`, `reviewDecisions`, `appliedGroups` | — | — | yes |
+| `stopReason` (on abort) | yes | yes | — |
+| `cycleNumber` | — | — | yes |
+
+**`current.text` mutation contract (single source of truth):**
+- The parent's `execute()` loop owns `current.text` and is the *only* place that ever assigns to it. The assignment happens AFTER `applyAcceptedGroups` succeeds in the loop iteration (existing behavior, unchanged).
+- Neither `runProposerCycle` (Mode A or Mode B) mutates `current.text`. Mode B's helper `computeMarkupFromRewrite` returns `{ markup, normalizedBefore }`; the subclass attaches `normalizedBefore` to the `ProposerCycleResult` it returns.
+- The parent's loop reads `current.text` at the top of each iteration, passes it to `runProposerCycle`, gets back `ProposerCycleResult`, and then calls `parseProposedEdits(result.proposedMarkup, this.getCurrentTextForParse(current.text, result))`. The seam method receives both `current.text` and the result so it can return `result.normalizedBefore` in Mode B and `current.text` in Mode A.
+- The seam is invoked at exactly two sites in the parent's loop: at `IterativeEditingAgent.ts:207` (the initial parse) and at `:241` (the re-parse after drift recovery; Mode B never reaches this site since it has no drift recovery, so the seam doesn't fire there for Mode B).
+- After `applyAcceptedGroups`, the parent updates `current.text = applyResult.newText` (existing behavior). For Mode B, `applyResult.newText` is computed against `normalizedBefore + accepted edits`, so it's already in canonical form going into cycle 2. Cycle-2 invariance test (#19) verifies this.
+
+**Earlier draft of this section had a contradiction (line 131 said "Mode B does NOT mutate" while a code sketch showed `current.text = computed.normalizedBefore`). The contradiction is resolved as above: Mode B never mutates the parent's `current.text`; it threads `normalizedBefore` through the `ProposerCycleResult` and the parent uses the seam to consume it.**
+
+`originalError` serialization: when persisting `errorContext`, run a defensive sanitizer:
+
+```ts
+function serializeError(e: unknown): { type: string; message: string; line?: number; col?: number } {
+  try {
+    if (!e || typeof e !== 'object') return { type: 'Unknown', message: String(e).slice(0, 500) };
+    const err = e as { name?: string; message?: string; line?: number; column?: number; position?: { start?: { line?: number; column?: number } } };
+    // Read each field through its own try/catch in case it's a getter that throws
+    let type = 'Error';
+    try { type = String(err.name ?? 'Error').slice(0, 100); } catch { /* getter threw */ }
+    let message = '';
+    try { message = String(err.message ?? '').slice(0, 500); } catch { /* getter threw */ }
+    let line: number | undefined;
+    try { const l = err.line ?? err.position?.start?.line; if (typeof l === 'number' && Number.isFinite(l)) line = l; } catch { /* ignore */ }
+    let col: number | undefined;
+    try { const c = err.column ?? err.position?.start?.column; if (typeof c === 'number' && Number.isFinite(c)) col = c; } catch { /* ignore */ }
+    return {
+      type,
+      message,
+      ...(line !== undefined ? { line } : {}),
+      ...(col !== undefined ? { col } : {}),
+    };
+  } catch {
+    // Catastrophic failure (e.g. Proxy that throws on every access) — last-resort fallback
+    return { type: 'Error', message: 'Serialization failed' };
+  }
+}
+```
+
+This avoids leaking file paths, stack traces, or cyclic-reference content to the run-detail UI; cap at 500 chars per message; cyclic and getter-throw resistant.
+
+## Architecture: Sibling-class dispatch
+
+Per Decision #20, Mode B is a subclass that reuses the parent's cycle machinery:
+
+```text
+class IterativeEditingAgent extends Agent<...> {
+  readonly name = 'iterative_editing';
+  protected get isRewriteMode(): boolean { return false; }
+
+  async execute(input, ctx) {
+    // ... existing per-cycle setup (budget, model resolution, snapshots) ...
+    for (let cycleNumber = 1; cycleNumber <= maxCycles; cycleNumber++) {
+      const cycle = await this.runProposerCycle(current, ctx, cycleNumber);
+      // ... validate → approver → apply (shared) ...
+    }
+  }
+
+  protected async runProposerCycle(current, ctx, cycleNumber): Promise<EditingCycle> {
+    // Mode A: existing markup-emit path (proposerPrompt → parse → drift recovery)
+  }
+}
+
+class IterativeEditingRewriteAgent extends IterativeEditingAgent {
+  readonly name = 'iterative_editing_rewrite';
+  protected get isRewriteMode(): boolean { return true; }
+
+  protected async runProposerCycle(current, ctx, cycleNumber): Promise<EditingCycle> {
+    // Mode B: rewrite + rationale + diff
+    const proposerSys = buildProposerSystemPromptRewrite();
+    const proposerUser = buildProposerUserPromptRewrite(current.text, this.softCap);
+    const raw = await llm.complete(...);
+    const { rationale, rewrite, parseFailed } = splitRationaleAndRewrite(raw);
+    if (parseFailed && !rewrite) {
+      return { cycleNumber, stopReason: 'proposer_format_violation', proposerMode: 'rewrite', ... };
+    }
+    let computed;
+    try {
+      computed = computeMarkupFromRewrite(current.text, rewrite, options);
+    } catch (e) {
+      // RewriteParseError preserves originalError; persist for forensics
+      return { cycleNumber, stopReason: 'rewrite_parse_failed', errorMessage: e.message, originalError: e.originalError, ... };
+    }
+    // The subclass does NOT mutate current.text. It threads normalizedBefore through
+    // the result; the parent's loop calls this.getCurrentTextForParse(current.text, result)
+    // to obtain the canonical anchor for parseProposedEdits + applyAcceptedGroups.
+    const parseResult = parseProposedEdits(computed.markup, computed.normalizedBefore);
+    // Skip checkProposerDrift / recoverDrift entirely
+    let groups = coalesceAdjacentGroups(parseResult.groups, computed.normalizedBefore);
+    groups = capGroupsByMagnitude(groups, 10);
+    return {
+      kind: 'success',
+      cycleNumber,
+      proposerMode: 'rewrite',
+      proposedMarkup: computed.markup,
+      parseResult,
+      normalizedBefore: computed.normalizedBefore,  // threaded for the parent's seam to consume
+      rationale,
+      rewriteText: truncate(rewrite, 8192),
+      computedMarkup: computed.markup,
+    };
+  }
+}
+```
+
+`runIterationLoop.ts:786` instantiates one or the other:
+
+```text
+} else if (iterType === 'iterative_editing' || iterType === 'iterative_editing_rewrite') {
+  const disableRewrite = process.env.DISABLE_ITERATIVE_EDITING_REWRITE === 'true';
+  const useRewrite = iterType === 'iterative_editing_rewrite' && !disableRewrite;
+  const { IterativeEditingAgent, IterativeEditingRewriteAgent } = await import('../../core/agents/editing/...');
+  const agent = useRewrite ? new IterativeEditingRewriteAgent() : new IterativeEditingAgent();
+  // agent.name is automatically the correct literal; agent_name in DB is correct.
+}
+```
+
+Both branches re-converge at the parent's `validate → approver → applyAcceptedGroups`. Approver receives `rationale` as priming context with the red-team caveat (Decision #11) when `cycle.proposerMode === 'rewrite'`.
+
+## Error handling contract
+
+| Helper | Failure mode | Behavior |
+|---|---|---|
+| `splitRationaleAndRewrite` | `## Rewrite` header missing | Return `{ rationale: '', rewrite: response, parseFailed: true }`. `parseFailed=true` signals the caller to be cautious; downstream `computeMarkupFromRewrite` will succeed if `response` happens to parse as markdown, or fail with a typed error otherwise |
+| `splitRationaleAndRewrite` | Both headers missing AND `response` is an LLM refusal (e.g. `"I cannot help with that"`, `"I'm unable to..."`) | Same return shape as above. **Disambiguation happens via `cycle.rewriteText` persistence** — operators can read the persisted text to distinguish refusal from genuine parse error. We do *not* heuristically classify refusals (false positives risk hiding real LLM bugs). All such cases persist `stopReason='rewrite_parse_failed'` with `cycle.rewriteText` containing the refusal text |
+| `computeMarkupFromRewrite` | `unified().use(remarkParse).parse()` throws on either text | Wrap in try/catch; rethrow as `class RewriteParseError extends Error { constructor(message, public readonly originalError: unknown, public readonly side: 'before'\|'after') }`. Agent catches at the call site, sets `stopReason='rewrite_parse_failed'`, persists `cycle.rewriteText`, `cycle.errorMessage = err.message`, `cycle.errorContext = serializeOriginalError(err.originalError)` for forensics. The `originalError` preserves the original parser's line/col detail |
+| `computeMarkupFromRewrite` | Diff engine throws | Same handling — `class DiffEngineError extends Error { ... originalError: unknown ... }`; agent sets `stopReason='diff_engine_failed'` |
+| `computeMarkupFromRewrite` | Diff produces empty markup (no groups; rewrite ≡ source after normalization) | Return `{ markup: '', groups: [], normalizedBefore }`; agent treats as a no-edit cycle (no error). Track a `rewrite_no_change_cycles` metric to surface trivial-rewrite behavior |
+| `coalesceAdjacentGroups`, `capGroupsByMagnitude` | Invariants violated (overlap, duplicate IDs) | Throw assertion; bug-bug. Tests cover happy-path + boundary cases |
+| Long rewrite text | `rewriteText` > 8 KB | Truncate at the agent's cycle-construction step before persistence (`cycle.rewriteText = rewrite.slice(0, 8192)`). The full rewrite is still used for the diff (in-memory only). Test #29 verifies truncation |
+| Adversarial rewrite (potential ReDoS, very large input) | `rewrite.length` > 100 KB OR contains pathological regex-trigger sequences | Reject before parsing: agent sets `stopReason='rewrite_too_large'`. 100 KB ≫ any realistic article (largest seen on stage was 15 KB) |
 
 ## Phases
 
@@ -88,11 +294,33 @@ Validate R2.A synthetic projections with actual `gemini-2.5-flash-lite` output o
 6. Run `parseProposedEdits` against the result.
 7. Measure: actual rewrite size ratio, group count post-coalesce-cap, drift rate (`recoveredSource === normalizedSource`?), success rate (any groups parse cleanly?).
 
-**Decision gate:** Phase 1 proceeds only if pilot drift rate ≤ 3% AND group-cap fire rate ≤ 40% of cycles. If either threshold fails, redesign coalescer/cap/prompt before touching production code.
+**Decision gate:** Phase 1 proceeds only if **all four** thresholds are met:
+1. **Drift rate ≤ 3%** — fraction of cycles where `parseProposedEdits(computedMarkup, normalizedBefore).recoveredSource !== normalizedBefore`
+2. **Cap-fire-rate ≤ 40%** — fraction of cycles where the magnitude cap drops ≥ 1 group
+3. **Idempotency proof on the 5 stage articles AND a synthetic markdown-feature checklist:** `normalize(normalize(x)) === normalize(x)` must hold on (a) all 5 stage articles and (b) the following synthetic constructs each in their own fixture:
+   - Bold + italic only (`**word**`, `*word*`)
+   - Triple-nested formatting (`***word***`, `**_word_**`, `*__word__*`)
+   - Ordered list with explicit `start: 5`
+   - Mixed ordered + unordered list at the same nesting level
+   - Inline code (`` `word` ``) and code fence (` ```ts ... ``` `)
+   - Link with title (`[t](/u "title")`) and link without (`[t](/u)`)
+   - Citation-shape link (`[term](/standalone-title?t=Term)`)
+   - Blockquote (`> line`)
+   - Heading depths h1–h6
+   - Trailing/no-trailing newline at end of doc
+4. **Cycle-2 invariance**: pick 1–2 articles, simulate cycle 1 fully (proposer → split → diff → coalesce → cap → mock approver accepts all → applyAcceptedGroups), then run cycle 2 against the applied output. Assert `parseProposedEdits(diff, current).recoveredSource === current` on cycle 2's input.
+
+If any threshold fails, log the offending markdown construct or article and redesign coalescer/cap/prompt/normalizer before touching production code. The synthetic checklist must be the floor of supported constructs — production articles are required to be a subset.
+
+**Empirical measurement (capture for `_research.md`):**
+5. **Max rewrite expansion ratio (recalibration step, NOT a gate threshold).** For each of the 5 stage articles, run a real Mode B prototype on stage with the **production-locked configuration**: model `google/gemini-2.5-flash-lite`, temperature matching the original strategy config, the actual Mode B system prompt that ships in Phase 3, no temperature overrides. Record `rewrite.length / source.length` per article. Report `max ratio` and `p95` in `_research.md`. **Recalibration rule** (applied in Phase 1, not Phase 0 gate): if `max ratio > 3.0`, raise the 100 KB rewrite hard cap (Decision #21 / Error contract) to `2× max-observed-rewrite-bytes`; otherwise keep 100 KB. Justification: the cap exists to short-circuit pathological inputs (potential ReDoS or accidental memory blowup), not to constrain legitimate edits.
+6. **`remark-stringify` normalization audit.** Run before/after pairs through `remark-parse → remark-stringify` and document any observed normalizations (line endings, list-marker form, escape conventions, trailing newlines). Capture in `_research.md` as a "what changes" table; if any normalization affects content semantics (rare), reconsider Option A vs alternatives.
+
+**Production article markdown-feature audit:** in addition to the synthetic checklist above (10 constructs), Phase 0 must scan the 5 stage articles for any markdown features used in production but absent from the checklist (e.g. footnotes `[^1]`, definition lists, MDX, inline HTML, math blocks). For each missing feature found in production, add a fixture and re-test idempotency. The synthetic checklist is the **floor** of supported constructs; any production article using more features than the floor is flagged for either (a) a checklist extension + idempotency rerun, or (b) explicit "not supported in v1; falls back to Mode A" handling.
 
 **Artifacts:**
-- `evolution/scripts/pilot-mode-b.ts` — driver script
-- `docs/planning/add_rewrite_mode_iterative_editing_evolution_20260507/_research.md` — pilot results
+- `evolution/scripts/pilot-mode-b.ts` — driver script (gates Phase 1)
+- `docs/planning/add_rewrite_mode_iterative_editing_evolution_20260507/_research.md` — pilot results captured for posterity
 
 ### Phase 1 — Diff engine fixes & pre-normalization (~9h)
 
@@ -107,6 +335,7 @@ Land the four bug fixes + new options + new dep + verification driver. All addit
 | `src/editorFiles/markdownASTdiff/markdownASTdiff.ts` | Add `stringify?: (node) => string` opt-in callback to `DiffOptions` | Lets Mode B inject `remark-stringify` for canonicalization |
 | `package.json` | Add `remark-stringify ^11` to dependencies | Peers cleanly with existing `remark-parse ^11.0.0` |
 | `evolution/scripts/verifyDiffRoundTrip.ts` | NEW | 3–5 stage articles → normalize → diff → assert `parseProposedEdits.recoveredSource === normalized` |
+| `evolution/scripts/verifyCrossImport.ts` | NEW | Smoke test: import `RenderCriticMarkupFromMDAstDiff` from the cross-tree path inside the `evolution/` package context; instantiate with sample input; assert no `MODULE_NOT_FOUND` at runtime in Node + Next.js build output. Run as part of Phase 1 PR checklist |
 | `src/editorFiles/markdownASTdiff/markdownASTdiff.test.ts` | Add 6 regression tests | bold no-op, sentence reorder no-throw, ordered-list ascending, linkGranular toggle, citation insertion granular, paragraph-with-link granular when flag on |
 
 **Editor-safety check:** R3.A confirmed `lexicalEditor/` doesn't import the diff engine; the existing golden test (`aiSuggestion.golden.test.ts`) uses a hand-rolled regex AST without `strong`/`emphasis`/`link` nodes, so bug-fix #1 isn't reflected in existing snapshots — but isn't broken by them either. Add a new real-AST regression test (Phase 3 test plan) so `aiSuggestion.ts:498` regressions get caught.
@@ -133,10 +362,13 @@ New agent type; full integration; UI; tests.
 
 | File | Change | Detail |
 |---|---|---|
-| `evolution/src/lib/schemas.ts` | Modify (~line 478) | Add `'iterative_editing_rewrite'` to `iterationAgentTypeEnum`. Update helper functions (`canBeFirstIteration`, `isVariantProducingAgentType`, `producesNewVariants`) to treat it like `iterative_editing` |
-| `evolution/src/lib/schemas.ts` | Modify | Extend `iterationConfigSchema` with optional `editingProposerSoftCap?: z.number().int().min(1).max(5).default(3)`. Refine: only valid when `agentType === 'iterative_editing_rewrite'` |
-| `evolution/src/lib/schemas.ts` | Modify | Extend `editingCycleSchema` with optional `proposerMode`, `rationale`, `rewriteText`, `computedMarkup` |
-| `evolution/src/lib/types.ts` | Modify | Mirror schema additions on `EditingCycle` and `IterativeEditingExecutionDetail` interfaces |
+| `evolution/src/lib/schemas.ts:478` | Modify | Add `'iterative_editing_rewrite'` to `iterationAgentTypeEnum.values` array (literal addition; one line) |
+| `evolution/src/lib/schemas.ts` | Modify | Update helpers `canBeFirstIteration()`, `isVariantProducingAgentType()`, `producesNewVariants()` so the new value behaves identically to `'iterative_editing'` (cannot be first; produces variants). Add unit assertions for each helper |
+| `evolution/src/lib/schemas.ts` | Modify | Extend `iterationConfigSchema`: add optional `editingProposerSoftCap: z.number().int().min(1).max(5).default(3).optional()`. Add a Zod refine matching the existing pattern (mirror the editingMaxCycles refine at `:567`): `(c) => c.agentType === 'iterative_editing_rewrite' || c.editingProposerSoftCap === undefined` with error message *"editingProposerSoftCap is only valid for iterative_editing_rewrite iterations"*. Logic: if the new field is present, the agent type MUST be the rewrite type; otherwise the field must be absent |
+| `evolution/src/lib/schemas.ts:567,571` | Modify | Existing refines for `editingMaxCycles` and `editingEligibilityCutoff` currently allow only `agentType === 'iterative_editing'`. **Extend both** to also allow `'iterative_editing_rewrite'`: `(c) => (c.agentType === 'iterative_editing' \|\| c.agentType === 'iterative_editing_rewrite') || c.editingMaxCycles === undefined` (and the same for `editingEligibilityCutoff`). Without this, Mode B strategies that set `editingMaxCycles` will fail validation |
+| `evolution/src/lib/schemas.ts` | Modify | Extend `editingCycleSchema`: add optional `proposerMode: z.enum(['markup','rewrite']).optional()`, `rationale: z.string().optional()`, `rewriteText: z.string().optional()`, `computedMarkup: z.string().optional()` |
+| `evolution/src/lib/types.ts` | Modify | Mirror the four optional fields on `EditingCycle` interface; mirror `editingProposerSoftCap` on the iteration-config TypeScript type; verify `IterativeEditingExecutionDetail` discriminator stays correct (no breaking change to the `IterativeEditingExecutionDetail` shape — additions only) |
+| `evolution/src/lib/types.ts` | Verify | Existing `iterationAgentTypeEnum` consumers in switch statements / refines are exhaustive — add the new value to all of them (grep for `'iterative_editing'` AND `iterationAgentTypeEnum` in `evolution/src/lib/`) |
 
 All new fields optional. No DB migration; lives in `execution_detail` JSONB.
 
@@ -155,19 +387,29 @@ All new fields optional. No DB migration; lives in `execution_detail` JSONB.
 | File | Change | Detail |
 |---|---|---|
 | `evolution/src/lib/core/agents/editing/approverPrompt.ts` | Modify | Add optional `rationale?: string` parameter. When present, prepend block to user prompt: `"The proposer's stated intent (claim, not ground truth — verify each edit independently):\n\n${rationale}\n\n────────"`. (Decision #11.) |
-| `evolution/src/lib/core/agents/editing/IterativeEditingAgent.ts` | Modify (~line 188) | Dispatch on agent type: if `iterative_editing_rewrite`, run Mode B branch (rewrite prompt → split → diff → coalesce → cap → reuse validate/approve/apply); else existing Mode A path. **Skip `checkProposerDrift` and `recoverDrift` entirely in Mode B.** Persist `proposerMode='B'`, `rationale`, `rewriteText`, `computedMarkup` to cycle. |
-| `evolution/src/lib/core/agents/editing/IterativeEditingAgent.ts` | Verify | Existing size-explosion guard (`>1.5×`) still applies (decision #18 doesn't change it). |
-| `evolution/src/lib/pipeline/loop/runIterationLoop.ts` | Modify | Dispatch new agent type; record `agent_name='iterative_editing_rewrite'` in `evolution_agent_invocations`. Add env-flag rollback gate: if `process.env.DISABLE_ITERATIVE_EDITING_REWRITE === 'true'`, fall back to Mode A path. |
-| `evolution/src/lib/pipeline/loop/editingDispatch.ts` | Verify only | Eligibility cutoff is type-agnostic; should work unchanged |
-| `evolution/src/lib/pipeline/infra/estimateCosts.ts` | Modify | Add optional `mode: 'markup' | 'rewrite'` parameter to `estimateIterativeEditingCost()`. Mode B's proposer-output token cost is roughly equal (both include full article); savings come from skipping drift-recovery LLM. Thread the param through `projectDispatchPlan.ts` and any other call sites |
+| `evolution/src/lib/core/agents/editing/IterativeEditingAgent.ts` | Refactor | Extract the per-cycle proposer logic from `execute()` into a `protected async runProposerCycle(current, ctx, cycleNumber): Promise<EditingCycle>` method. Body unchanged; just relocated. This is the seam Mode B will override. Sets `cycle.proposerMode = 'markup'` for traceability |
+| `evolution/src/lib/core/agents/editing/IterativeEditingAgent.ts` | Verify | Size-explosion guard (>1.5×) still applies in both modes (Decision #18 doesn't change it) |
+| `evolution/src/lib/core/agents/editing/IterativeEditingRewriteAgent.ts` | NEW | Subclass extends `IterativeEditingAgent`. Sets `readonly name = 'iterative_editing_rewrite'`. Overrides `runProposerCycle` to run the rewrite + diff pipeline (split → diff → coalesce → cap). Skips `checkProposerDrift`/`recoverDrift` entirely. Sets `cycle.proposerMode = 'rewrite'` plus `rationale`, `rewriteText` (truncated to 8 KB), `computedMarkup`. Reads `iterCfg.editingProposerSoftCap` for the prompt's edit budget |
+| `evolution/src/lib/pipeline/loop/runIterationLoop.ts:95` | Modify | Extend `iterationType` union literal to include `'iterative_editing_rewrite'` |
+| `evolution/src/lib/pipeline/loop/runIterationLoop.ts:786` | Modify | Change branch from `else if (iterType === 'iterative_editing')` to `else if (iterType === 'iterative_editing' \|\| iterType === 'iterative_editing_rewrite')`. Inside: read env flag per-invocation; instantiate the appropriate subclass: `const useRewrite = iterType === 'iterative_editing_rewrite' && process.env.DISABLE_ITERATIVE_EDITING_REWRITE !== 'true'; const agent = useRewrite ? new IterativeEditingRewriteAgent() : new IterativeEditingAgent();`. `agent.name` is the source of truth for `agent_name` in `evolution_agent_invocations` (`Agent.run()` writes from `this.name` at `Agent.ts:54`); this means rolled-back Mode B invocations correctly record as `'iterative_editing'` |
+| `evolution/src/lib/pipeline/loop/runIterationLoop.ts:917,930` | Verify | `recordSnapshot(iteration, agent.name, ...)` — pass `agent.name` (from the instantiated subclass) so snapshots match the actual agent used. No need for an `effectiveType` variable; the class name handles it |
+| `evolution/src/lib/pipeline/loop/editingDispatch.ts` | Verify only | Eligibility cutoff is type-agnostic — no change |
+| `evolution/src/lib/pipeline/infra/estimateCosts.ts:368` | Modify | Add optional second param `mode?: 'markup' \| 'rewrite'` to `estimateIterativeEditingCost()`. When `mode === 'rewrite'`: keep proposer-output size estimate (full article + rationale ~5% overhead), zero out drift-recovery cost component. Otherwise behaves as today (default behavior preserves Mode A semantics) |
+| All callers of `estimateIterativeEditingCost` | Audit + Modify | **Implementation step:** before changes land, `grep -rn 'estimateIterativeEditingCost(' evolution/src/` to enumerate every caller. Known: `projectDispatchPlan.ts` (strategy preview); confirm no others. Each caller must be updated to pass `mode` derived from `iterCfg.agentType`. Add a regression test asserting the param is threaded through every call site. Default-omitted `mode` is safe (legacy behavior = Mode A cost) but accuracy-degrades silently for Mode B rows if a caller is missed |
+| `evolution/src/lib/pipeline/loop/projectDispatchPlan.ts` | Modify | At the call site that resolves cost for editing iterations, pass `mode: iterCfg.agentType === 'iterative_editing_rewrite' ? 'rewrite' : 'markup'`. Find by grep `estimateIterativeEditingCost` |
+| `evolution/src/lib/services/strategyPreviewActions.ts` | Verify | Strategy preview action threads through `projectDispatchPlan`; should pick up the new cost projection automatically. Spot-check |
+| `evolution/src/lib/metrics/attributionExtractors.ts` | Verify | Mode B uses the same `execution_detail.strategy` shape as Mode A; the existing extractor for `'iterative_editing'` should also handle `'iterative_editing_rewrite'`. Add the new agent_name to any extractor's matcher list. Spot-check |
+| `evolution/src/lib/metrics/registry.ts` | Modify | Register new Mode B metrics in `METRIC_REGISTRY`: `coalescing_fire_rate`, `non_trivial_edit_count`, `group_count_p50`, `group_count_p95`, `group_count_max`, `proposer_format_violation_rate`, `rewrite_parse_failure_rate`. Choose entity-type ('invocation' or 'run') and aggregation per existing convention. Plus dynamic prefix `editing_stop_reason:*` if not already present |
 
 #### 3.4 UI (~4h)
 
 | File | Change | Detail |
 |---|---|---|
-| `src/app/admin/evolution/strategies/new/page.tsx` | Modify | Extend `IterationRow.agentType` and `IterationConfigPayload.agentType` unions to include `'iterative_editing_rewrite'`. Verify the dropdown source is auto-derived from the enum (R3.B uncertain — confirm during impl); if hardcoded, add new option. Conditionally show `editingProposerSoftCap` field for the new type. |
-| `src/app/admin/evolution/strategies/new/page.tsx` | Modify | `toIterationConfigsPayload()`: thread `editingProposerSoftCap` for rewrite mode |
-| Run-detail UI (TBD path; search `src/app/admin/evolution/runs/`) | Modify or NEW component | Add `<RationaleBlock>` rendering `cycle.rationale` and (collapsible) `cycle.rewriteText` when `cycle.proposerMode === 'B'` |
+| `src/app/admin/evolution/strategies/new/page.tsx:37,96` | Modify | Extend `IterationRow.agentType` and `IterationConfigPayload.agentType` unions to include `'iterative_editing_rewrite'`. **Also add `editingProposerSoftCap?: number` field to both interfaces** so the UI form state and payload can carry the new value |
+| `src/app/admin/evolution/strategies/new/page.tsx:981-985` | Modify | **Dropdown is hardcoded** — add a new `<option value="iterative_editing_rewrite">Iterative Editing (Rewrite Mode)</option>` element. (Enum addition alone is insufficient.) Disable the option when `idx === 0` like the existing `iterative_editing` does |
+| `src/app/admin/evolution/strategies/new/page.tsx:150-160` | Modify | `toIterationConfigsPayload()`: thread `editingProposerSoftCap` when `it.agentType === 'iterative_editing_rewrite'`; also thread the existing editing fields (`editingMaxCycles`, `editingCutoffMode/Value`) since rewrite mode shares them |
+| `evolution/src/components/evolution/editing/AnnotatedProposals.tsx` | Modify | Detect `cycle.proposerMode === 'rewrite'` and prepend a new `<RationaleBlock>` displaying `cycle.rationale` and a collapsible `cycle.rewriteText`. **HTML-escaping policy**: render both fields as plain text via React's default text-child escaping (`<pre>{cycle.rationale}</pre>` rather than `dangerouslySetInnerHTML` or markdown parsing). LLM output is treated as untrusted and never injected as HTML. If we later want markdown rendering, route through a sanitizer (DOMPurify or similar) — DEFERRED to v2; v1 ships with plain-text only. Falls back to existing render path when undefined (Mode A unchanged). This is the surface visible from the run-detail page → invocation timeline tab → editing-cycle viewer |
+| `src/app/admin/evolution/runs/[runId]/page.tsx` | Verify | The run-detail page already routes editing cycles through `AnnotatedProposals`; spot-check that the prop chain passes through `cycle.rationale`/`cycle.rewriteText` (no top-level page change expected) |
 
 #### 3.5 Tests (~4h)
 
@@ -201,9 +443,13 @@ Secondary / diagnostic:
 
 ### Phase 5 — Decision (~3h)
 
-**Mode B wins** if:
-- `cycleSuccessRate(B) ≥ cycleSuccessRate(A) + 30 pp` AND
-- `parentToChildEloDelta(B) ≥ 0` (no quality regression).
+**Mode B wins** if **both** hold under a one-tailed binomial test (α = 0.05):
+- `cycleSuccessRate(B) − cycleSuccessRate(A) ≥ 0.30` AND lower bound of 95% CI on the delta is > 0
+- `parentToChildEloDelta(B) ≥ parentToChildEloDelta(A) − 5` (no material quality regression)
+
+If observed Mode A baseline rises with the prompt strengthening to ≥70%, the +30 pp absolute threshold becomes infeasible (capped at 100%); in that case use a relative criterion `cycleSuccessRate(B) / cycleSuccessRate(A) ≥ 1.4` (40% relative gain) with the same CI requirement. Document the post-Phase-2 Mode A baseline before launching Phase 4 to choose threshold mode.
+
+Required N for power=0.80 to detect a 30 pp absolute delta on a baseline of 5%: ≈ 30 invocations per arm. For a 30 pp delta on baseline of 30%: ≈ 50 per arm. Plan minimum: **N = 50 per arm**, scale to 100 if observed Mode A baseline is in the 30–60% range.
 
 **Mixed-result playbook:**
 
@@ -292,34 +538,74 @@ In `src/editorFiles/markdownASTdiff/markdownASTdiff.test.ts`:
 21. Config with `agentType='iterative_editing_rewrite' AND editingProposerSoftCap=3` validates; with `agentType='iterative_editing' AND editingProposerSoftCap=3` rejects.
 
 `estimateCosts.test.ts`:
-22. `estimateIterativeEditingCost({ mode: 'markup' })` matches existing behavior; `mode: 'rewrite'` produces a similar but distinct projection (saves drift-recovery LLM cost).
+22. `estimateIterativeEditingCost({ mode: 'markup' })` matches existing behavior; `mode: 'rewrite'` produces a projection that excludes the drift-recovery LLM cost component (Mode B skips it).
+
+### Phase 3 — rollback + dispatch + structural-rejection + paragraph-atomic (4 critical tests)
+
+`runIterationLoop.test.ts` or new `IterativeEditingAgent.dispatch.test.ts`:
+23. **Rollback flag short-circuits Mode B → Mode A.** Set `process.env.DISABLE_ITERATIVE_EDITING_REWRITE='true'`; instantiate run with `agentType: 'iterative_editing_rewrite'`; assert dispatched agent's persisted `agent_name === 'iterative_editing'` AND the proposer prompt builder used was `buildProposerSystemPrompt` (not the rewrite variant). Mitigates R-22.
+24. **Mode A pre-flight structural rejection.** Mock proposer to return a full free-form rewrite (no markup); assert agent sets `stopReason='structural_rewrite'` AND no `recoverDrift` LLM call is made. Mitigates R-3.
+25. **Paragraph-atomic collapses to single replace.** Construct a markdown pair where one paragraph is heavily rewritten beyond `paragraphAtomicDiffIfDiffAbove`; assert the resulting `EditingGroup[]` contains exactly one group with `atomicEdits.length === 1` (a single `replace` covering the whole paragraph), NOT N per-sentence atomic edits. Mitigates R-2.
+26. **Real-AST diff-engine regression.** Run `RenderCriticMarkupFromMDAstDiff` against a true `unified().use(remarkParse).parse()` AST containing `strong`, `emphasis`, `link`, `inlineCode` nodes (not the existing regex-AST mock at `aiSuggestion.golden.test.ts:29-77`). Assert no `****` corruption appears for unchanged spans. Catches future regression of the bold/emphasis/link wrapper fixes.
 
 ### Phase 3 — E2E (2 tests)
 
 `src/__tests__/e2e/specs/09-admin/admin-evolution-iterative-editing.spec.ts`:
-23. Wizard exposes `iterative_editing_rewrite` as a selectable agent type.
-24. Strategy created with the new agent type successfully runs one cycle on stage.
+27. Wizard exposes `iterative_editing_rewrite` as a selectable agent type.
+28. Strategy created with the new agent type successfully runs one cycle on stage. Re-uses the existing 360s `setTimeout`; cleanup via existing `trackEvolutionId` pattern.
+
+### Phase 3 — error-context preservation + truncation + adversarial input (4 tests)
+
+`computeMarkupFromRewrite.test.ts` (or new file):
+29. **`rewriteText` truncation.** Mock proposer to return a 50 KB rewrite; assert `cycle.rewriteText.length === 8192` AND the diff was computed against the full untruncated text (in-memory).
+30. **`RewriteParseError` preserves `originalError`.** Feed `computeMarkupFromRewrite` a syntactically broken markdown rewrite that causes `remark-parse` to throw; catch the resulting `RewriteParseError`; assert `err.originalError` is the original parser exception with line/col detail intact AND `serializeError(err.originalError)` returns a sanitized object with `{type, message, line?, col?}` and message length ≤ 500.
+31. **100 KB rewrite hard reject.** Feed the agent a mocked proposer output containing a 150 KB rewrite; assert agent sets `stopReason='rewrite_too_large'` and does NOT invoke `unified.parse()` (verifiable via spy). Mitigates regex ReDoS surface.
+32. **`serializeError` defensive cases.** Feed `serializeError` (a) a cyclic error object (`e.cause = e`), (b) an error whose `.message` getter throws, (c) `undefined`, (d) a string. Assert no test throws; in each case, `serializeError` returns a valid sanitized object (worst case `{ type: 'Error', message: 'Serialization failed' }`).
+
+### Phase 3 — `getCurrentTextForParse` seam (1 test)
+
+`IterativeEditingAgent.dispatch.test.ts` (or new):
+33. **Seam returns mode-specific text.** Instantiate `IterativeEditingAgent` (Mode A); call `getCurrentTextForParse('original-text', successResult)` → returns `'original-text'`. Instantiate `IterativeEditingRewriteAgent` (Mode B); call same → returns `result.normalizedBefore`. Mocking the `result` object's `normalizedBefore` field is sufficient; no LLM calls needed.
 
 ### Slow-suite designation
 
-Idempotency sweep over 100 stage articles (R4.B F15 mitigation): designate `>5s`. Place in a separate `it.slow(…)` block or under a `nightly:test` script.
+Idempotency sweep over 100 stage articles (R4.B F15 mitigation) is a slow test (~10s). Jest does not have an `it.slow(...)` marker (that's Mocha); the Jest pattern is to keep slow tests in dedicated files and run them only in a separate npm script. **Phase 3.5 deliverables:**
 
-## Risk Register (top 10)
+1. **New file** `evolution/src/lib/core/agents/editing/computeMarkupFromRewrite.idempotency.test.ts` containing the 100-article sweep. At file top: `jest.setTimeout(30000);`
+2. **`package.json` script:** add `"test:nightly": "jest --testPathPattern=\\.idempotency\\.test\\.ts$ --runInBand"` (verified: this script does not yet exist).
+3. **`test:ci` exclusion:** add `"test:ci": "jest --ci --coverage --maxWorkers=2 --testPathIgnorePatterns=idempotency\\.test\\.ts"` — exclude idempotency tests from the default merge gate so they don't slow PRs. (Adjust the existing `test:ci` invocation to merge with current flags.)
+4. **CI job:** the idempotency sweep is **not a merge blocker**; it runs nightly via `gh workflow` triggered cron. If it fails, an issue is auto-opened in `Minddojo/explainanything`. Phase 3.5 adds the workflow file `.github/workflows/nightly-idempotency.yml`.
 
-| ID | Mode | Description | P | I | Mitigation | Owner |
+This way: regular merges aren't slowed, but a regression that breaks idempotency is caught within 24 hours and self-reports.
+
+### Build verification cadence
+
+Per `CLAUDE.md` ("After every code block you write, always run lint, tsc, and build"), each phase's deliverable PR must pass:
+1. `npx eslint <touched files>`
+2. `npx tsc --noEmit`
+3. `npm run build`
+4. `npm run test:ci`
+
+Phase 0 pilot is exempt (script-only, no production code merged). Phases 1–3 are gated; Phase 4 has no new code (operational); Phase 5 is decision-only.
+
+## Risk Register (top 12)
+
+| ID | Mode | Description | P | I | Mitigation | Owner / Test |
 |---|---|---|---|---|---|---|
-| R1 | B | Pre-normalization vs apply-step strict-equals mismatch (silent zero-edit cycle) | High | High | Test #20 above; gate Phase 3 on it | `computeMarkupFromRewrite.ts` + `applyAcceptedGroups.ts` |
-| R2 | B | Paragraph-atomic produces group with > `AGENT_MAX_ATOMIC_EDITS_PER_GROUP` atomic edits → validator drops whole group → wasted cycle | High | High | Diff engine: when `paragraphAtomic=true`, collapse to single `replace` covering whole paragraph (per R4.B F4) | `markdownASTdiff.ts` Phase 1 |
-| R3 | A | Free-form rewrite despite HARD_CONSTRAINT (existing failure mode) | High | High | Pre-flight structural rejection (decision #9) + new prompt (Phase 2) + observable `nonTrivialEditCount` | `IterativeEditingAgent.ts` + `proposerPrompt.ts` |
-| R4 | A | Cosmetic null-edits inflate `cycleSuccessRate` (per decision #8 we don't filter) | Med | High | Track `nonTrivialEditCount`; A/B dashboard surfaces it; revisit decision #8 if signal poor | `parseProposedEdits.ts` (metric only) |
-| R5 | B | Coalescer over-merges unrelated edits | High | Med | Gap = 24 chars (down from 80); same-kind only; paragraph-boundary aware | `coalesceAdjacentGroups.ts` test #7–9 |
-| R6 | B | Magnitude cap drops most-valuable edit | High | Med | Top-1-per-heading-section retention (R4.B F3) | `capGroupsByMagnitude.ts` test #11 |
-| R7 | A | Soft rule "preserve voice" conflicts with HARD_CONSTRAINT (kept per decision #6) | Med | Med | Track per-cycle drift rate; revisit if Mode A drift doesn't improve materially | Phase 4 dashboard |
-| R8 | B | Cycle-2 normalization drift compounds | Med | High | Multi-cycle invariance test #19 + idempotency property test on production corpus | `computeMarkupFromRewrite.ts` |
-| R9 | B | Approver rubber-stamps from positive-priming bias on rationale | Med | Med | Red-team caveat in approver prompt (decision #11); track approverAcceptRate per arm | `approverPrompt.ts` Phase 3 |
-| R10 | B | `execution_detail` JSONB bloat from persisted rationale + rewriteText | Med | Med | Truncate rewriteText to first 8 KB on persist if needed (revisit if seen in stage) | `IterativeEditingAgent.ts` Phase 3 |
+| R-1 | B | Pre-normalization vs apply-step strict-equals mismatch (silent zero-edit cycle) | High | High | Phase 0 idempotency proof gate + test #20 | `computeMarkupFromRewrite.ts` |
+| R-2 | B | Paragraph-atomic produces group exceeding `AGENT_MAX_ATOMIC_EDITS_PER_GROUP` → group dropped → wasted cycle | High | High | Diff engine collapse-to-single-replace; test #25 | `markdownASTdiff.ts` Phase 1 |
+| R-3 | A | Free-form rewrite despite HARD_CONSTRAINT | High | High | Pre-flight structural rejection (Decision #9) + new prompt; test #24 | `IterativeEditingAgent.ts` + `proposerPrompt.ts` |
+| R-4 | A | Cosmetic null-edits inflate `cycleSuccessRate` (Decision #8: no filter) | Med | High | Track `nonTrivialEditCount` metric; revisit if A/B shows inflation | metric registry |
+| R-5 | B | Coalescer over-merges unrelated edits | High | Med | Gap=24 chars; same-kind only; paragraph-boundary aware; tests #6–9 | `coalesceAdjacentGroups.ts` |
+| R-6 | B | Magnitude cap drops most-valuable edit | High | Med | Top-1-per-heading-section retention; test #11 | `capGroupsByMagnitude.ts` |
+| R-7 | A | "Preserve voice" soft rule conflicts with HARD_CONSTRAINT (kept) | Med | Med | Track per-cycle drift rate; revisit Mode A v2 if not improved | Phase 4 dashboard |
+| R-8 | B | Cycle-2 normalization drift compounds | Med | High | Multi-cycle invariance test #19 + idempotency proof in Phase 0 | `computeMarkupFromRewrite.ts` |
+| R-9 | B | Approver rubber-stamps from rationale priming | Med | Med | Red-team caveat (Decision #11); track approverAcceptRate per arm | `approverPrompt.ts` |
+| R-10 | B | `execution_detail` JSONB bloat from persisted `rewriteText` | Med | Med | Truncate `rewriteText` to first 8 KB on persist (Phase 3 implementation) | `IterativeEditingAgent.ts` |
+| R-11 | B | `splitRationaleAndRewrite` fail-open on malformed/non-markdown rewrite (e.g. LLM refusal) | Med | High | Typed `RewriteParseError` from `computeMarkupFromRewrite`; agent sets `stopReason='rewrite_parse_failed'`; test for "I cannot help" output | `splitRationaleAndRewrite.ts`, `computeMarkupFromRewrite.ts` |
+| R-12 | B | Untested rollback (env-flag short-circuit) | High | High | Test #23 verifies `DISABLE_ITERATIVE_EDITING_REWRITE` falls Mode B → Mode A | `runIterationLoop.ts` |
 
-(15 lower-priority risks tracked in R4 outputs; not enumerated here.)
+15 lower-priority risks tracked in R4 outputs (UI-render coverage, peer-dep transitive issues, slow-test handling, parser injection of CriticMarkup-like literals in rewrites, etc.); not enumerated here. These are tracked as minor issues in the implementation PRs.
 
 ## Rollback Plan
 
