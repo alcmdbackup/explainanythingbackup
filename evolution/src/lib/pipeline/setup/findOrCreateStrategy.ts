@@ -47,12 +47,31 @@ function canonicalizeIterationConfig(
   // the same set of criteria in different orders are semantically equivalent (the wrapper
   // evaluates ALL configured criteria regardless of order; weakest-K selection is
   // deterministic on score).
-  if (iterCfg.criteriaIds !== undefined && iterCfg.criteriaIds.length > 0
-      && iterCfg.agentType === 'criteria_and_generate') {
+  // WIDENED: criteriaIds + weakestK valid for all 3 criteria-based agent types.
+  const isCriteriaBased = iterCfg.agentType === 'criteria_and_generate'
+    || iterCfg.agentType === 'single_pass_evaluate_criteria_and_generate'
+    || iterCfg.agentType === 'proposer_approver_criteria_generate';
+  if (iterCfg.criteriaIds !== undefined && iterCfg.criteriaIds.length > 0 && isCriteriaBased) {
     out.criteriaIds = [...iterCfg.criteriaIds].sort();
   }
-  if (iterCfg.weakestK !== undefined && iterCfg.agentType === 'criteria_and_generate') {
+  if (iterCfg.weakestK !== undefined && isCriteriaBased) {
     out.weakestK = iterCfg.weakestK;
+  }
+  // NEW emit-gates per Phase 5.3:
+  // lengthCapRatio only valid for proposer_approver_criteria_generate.
+  if (iterCfg.lengthCapRatio !== undefined && iterCfg.agentType === 'proposer_approver_criteria_generate') {
+    out.lengthCapRatio = iterCfg.lengthCapRatio;
+  }
+  // redundancyJaccardThreshold valid for both new criteria-based agents.
+  if (iterCfg.redundancyJaccardThreshold !== undefined
+      && (iterCfg.agentType === 'single_pass_evaluate_criteria_and_generate'
+        || iterCfg.agentType === 'proposer_approver_criteria_generate')) {
+    out.redundancyJaccardThreshold = iterCfg.redundancyJaccardThreshold;
+  }
+  // includesMirrorApprover: emit ONLY when explicitly false (compact hash for default-on strategies).
+  if (iterCfg.includesMirrorApprover === false
+      && iterCfg.agentType === 'proposer_approver_criteria_generate') {
+    out.includesMirrorApprover = false;
   }
   return out;
 }
@@ -75,11 +94,17 @@ export function hashStrategyConfig(config: StrategyConfig): string {
 export function labelStrategyConfig(config: StrategyConfig): string {
   const genCount = config.iterationConfigs.filter((ic) => ic.agentType === 'generate').length;
   const reflectCount = config.iterationConfigs.filter((ic) => ic.agentType === 'reflect_and_generate').length;
+  const criteriaCount = config.iterationConfigs.filter((ic) => ic.agentType === 'criteria_and_generate').length;
+  const singlePassCount = config.iterationConfigs.filter((ic) => ic.agentType === 'single_pass_evaluate_criteria_and_generate').length;
+  const proposerApproverCount = config.iterationConfigs.filter((ic) => ic.agentType === 'proposer_approver_criteria_generate').length;
   const editCount = config.iterationConfigs.filter((ic) => ic.agentType === 'iterative_editing').length;
   const swissCount = config.iterationConfigs.filter((ic) => ic.agentType === 'swiss').length;
   const iterLabel = [
     genCount > 0 ? `${genCount}×gen` : '',
     reflectCount > 0 ? `${reflectCount}×reflect` : '',
+    criteriaCount > 0 ? `${criteriaCount}×criteria` : '',
+    singlePassCount > 0 ? `${singlePassCount}×single-pass-criteria` : '',
+    proposerApproverCount > 0 ? `${proposerApproverCount}×proposer-approver` : '',
     editCount > 0 ? `${editCount}×edit` : '',
     swissCount > 0 ? `${swissCount}×swiss` : '',
   ].filter(Boolean).join(' + ');
