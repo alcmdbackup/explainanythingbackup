@@ -558,6 +558,54 @@ Cross-cutting UI/preview/registry adjustments to round out both new agents.
 - [ ] Wizard tests in `src/app/admin/evolution/_components/StrategyForm.test.tsx` (or equivalent): conditional render of new fields per agent type; field-clearing on agent-type switch; validation errors for missing criteria.
 - [ ] `findOrCreateStrategy.test.ts` extension: hash includes new fields; label generation handles new agent types.
 
+#### 5.5 — Sentence-overlap UI surfacing audit (cross-cutting, all variant surfaces)
+
+Since `evolution_variants.sentence_verbatim_ratio` (Phase 1.4b) is universal across all variant-producing agents, the metric should surface anywhere a variant or invocation is displayed. This sub-phase enumerates every UI touchpoint.
+
+**Server actions — extend SELECT statements**:
+- [ ] `getEvolutionVariantsAction` (run detail Variants tab) — SELECT `sentence_verbatim_ratio`.
+- [ ] `listVariantsAction` (`/admin/evolution/variants`) — SELECT + add to `VariantSummary` projection. Make the column sortable + filterable (e.g., "show variants with ratio < 0.3 AND elo_score < 1100" — surfaces rewrite-disaster cohort).
+- [ ] `getArenaEntriesAction` (arena leaderboard) — SELECT + add to `ArenaEntry`.
+- [ ] `getVariantFullDetailAction` (variant detail page) — SELECT.
+- [ ] `getStrategyVariantsAction` (strategy detail Variants tab) — SELECT.
+- [ ] `getInvocationDetailAction` — extend the embedded variant fetch to include the ratio (the invocation page joins variant data via the existing `agent_invocation_id` FK).
+
+**Variant list pages — new column**:
+- [ ] `/admin/evolution/variants` (global list): new "Verbatim Overlap" column rendered as percent. `listView: true`. Sortable. Filterable via numeric range input.
+- [ ] Run detail Variants tab (`evolution/src/components/evolution/tabs/VariantsTab.tsx`): same column added. Filterable.
+- [ ] Strategy detail Variants tab: same column.
+- [ ] Arena leaderboard (`/admin/evolution/arena/[topicId]`): "Verbatim Overlap" column added. Useful for spotting which arena entries are heavy-rewrite vs light-edit at a glance.
+
+**Variant detail page** (`src/app/admin/evolution/variants/[variantId]/VariantDetailContent.tsx`):
+- [ ] Add to `MetricGrid` in the detail header: "Verbatim Overlap: 62%". Prominent placement next to Elo + parent link. Renders `—` when null (legacy variants).
+
+**Invocation detail pages — extend ALL agent variants** (not just the 2 new ones — the metric is universal):
+- [ ] **`generate_from_previous_article`** (vanilla): extend its `DETAIL_VIEW_CONFIGS` entry with a "Sentence Verbatim Overlap" field. Source: fetched server-side via the variant join in `getInvocationDetailAction`, passed as a top-level prop to the renderer (NOT through execution_detail — keeps the storage architecture clean per Phase 1.4b).
+- [ ] **`reflect_and_generate_from_previous_article`**: same addition.
+- [ ] **`evaluate_criteria_then_generate_from_previous_article`** (legacy criteria): same addition.
+- [ ] **`single_pass_evaluate_criteria_and_generate`** (NEW): already covered in Phase 2.6 — but verify the field source is the variant join, not execution_detail.
+- [ ] **`proposer_approver_criteria_generate`** (NEW): already covered in Phase 4.6 (Apply tab) — verify field source.
+- [ ] **`iterative_editing`**: extend its `DETAIL_VIEW_CONFIGS` entry with the same field on the existing Apply / Metrics tab.
+
+**Implementation pattern for invocation pages** — single shared snippet in `InvocationDetailContent.tsx` that pulls the ratio from the joined variant data and renders it as a `MetricGrid` cell at the top of the **Metrics** tab for ALL variant-producing agent types. This avoids per-agent renderer duplication. Place once, applies everywhere.
+
+**Run / Strategy / Experiment Metrics tabs**:
+- [ ] Run detail Metrics tab (`EntityMetricsTab`): the run-level `median_sentence_verbatim_ratio` (with bootstrap CI), `p25_sentence_verbatim_ratio`, `min_sentence_verbatim_ratio` are auto-rendered via the standard `MetricGrid` reading from `evolution_metrics` (Phase 1.7 registered them with `listView: true` for median, false for p25/min). No additional code needed beyond the registry entries.
+- [ ] Strategy detail Metrics tab: `avg_median_sentence_verbatim_ratio` propagation auto-renders (Phase 1.7).
+- [ ] Experiment detail Metrics tab: same.
+
+**Tactic leaderboard** (`/admin/evolution/tactics`):
+- [ ] Median Verbatim Overlap column already covered in Phase 1.7 / `tacticMetrics.ts` extension. Verify it surfaces as a sortable column on the leaderboard table for ALL 24 tactics + the 3 criteria markers.
+
+**Filtering UX for analysis**:
+- [ ] On the global Variants list page, add a "Verbatim Overlap" range filter (min slider, max slider) — researcher can dial in "show me variants with overlap < 0.3" to find rewrite disasters; "overlap > 0.95" to find light-edit variants.
+- [ ] Combined with the existing Elo Δ filter, this gives the 2D view that the prior project's bucket-table analysis represents — but live, queryable, in the admin UI.
+
+**Tests for UI surfacing**:
+- [ ] Extend `admin-evolution-run-pipeline.spec.ts` E2E to assert the column appears in the run detail Variants tab.
+- [ ] Extend the variant detail spec to assert the MetricGrid shows the ratio.
+- [ ] Extend the tactic detail spec to assert the column on `/admin/evolution/tactics`.
+
 ---
 
 ### Phase 6: Documentation
