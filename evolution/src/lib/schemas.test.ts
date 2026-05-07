@@ -1429,6 +1429,108 @@ describe('iterationConfigSchema — criteria_and_generate refinements', () => {
   });
 });
 
+describe('iterationConfigSchema — new criteria-based agents (updated_criteria_agent_20260505)', () => {
+  const validCriteriaIds = [UUID1, UUID2, UUID3];
+
+  it('accepts valid single_pass_evaluate_criteria_and_generate config', () => {
+    expect(() => iterationConfigSchema.parse({
+      agentType: 'single_pass_evaluate_criteria_and_generate',
+      budgetPercent: 100,
+      criteriaIds: validCriteriaIds,
+      weakestK: 2,
+      redundancyJaccardThreshold: 0.35,
+    })).not.toThrow();
+  });
+
+  it('accepts valid proposer_approver_criteria_generate config', () => {
+    expect(() => iterationConfigSchema.parse({
+      agentType: 'proposer_approver_criteria_generate',
+      budgetPercent: 100,
+      criteriaIds: validCriteriaIds,
+      weakestK: 1,
+      editingMaxCycles: 1,
+      lengthCapRatio: 1.10,
+      redundancyJaccardThreshold: 0.35,
+      includesMirrorApprover: true,
+    })).not.toThrow();
+  });
+
+  it('requires criteriaIds for single_pass_evaluate_criteria_and_generate', () => {
+    expect(() => iterationConfigSchema.parse({
+      agentType: 'single_pass_evaluate_criteria_and_generate',
+      budgetPercent: 100,
+    })).toThrow(/criteria-based agent types require criteriaIds/);
+  });
+
+  it('requires criteriaIds for proposer_approver_criteria_generate', () => {
+    expect(() => iterationConfigSchema.parse({
+      agentType: 'proposer_approver_criteria_generate',
+      budgetPercent: 100,
+    })).toThrow(/criteria-based agent types require criteriaIds/);
+  });
+
+  it('rejects lengthCapRatio on non-proposer_approver agent type', () => {
+    expect(() => iterationConfigSchema.parse({
+      agentType: 'single_pass_evaluate_criteria_and_generate',
+      budgetPercent: 100,
+      criteriaIds: validCriteriaIds,
+      weakestK: 1,
+      lengthCapRatio: 1.10,
+    })).toThrow(/lengthCapRatio only valid when agentType is proposer_approver_criteria_generate/);
+  });
+
+  it('rejects redundancyJaccardThreshold on legacy criteria_and_generate', () => {
+    expect(() => iterationConfigSchema.parse({
+      agentType: 'criteria_and_generate',
+      budgetPercent: 100,
+      criteriaIds: validCriteriaIds,
+      weakestK: 1,
+      redundancyJaccardThreshold: 0.35,
+    })).toThrow(/redundancyJaccardThreshold only valid/);
+  });
+
+  it('rejects includesMirrorApprover on non-proposer_approver agent type', () => {
+    expect(() => iterationConfigSchema.parse({
+      agentType: 'single_pass_evaluate_criteria_and_generate',
+      budgetPercent: 100,
+      criteriaIds: validCriteriaIds,
+      weakestK: 1,
+      includesMirrorApprover: false,
+    })).toThrow(/includesMirrorApprover only valid when agentType is proposer_approver_criteria_generate/);
+  });
+
+  it('enforces editingMaxCycles === 1 for proposer_approver_criteria_generate', () => {
+    expect(() => iterationConfigSchema.parse({
+      agentType: 'proposer_approver_criteria_generate',
+      budgetPercent: 100,
+      criteriaIds: validCriteriaIds,
+      weakestK: 1,
+      editingMaxCycles: 3,
+    })).toThrow();
+  });
+
+  it('rejects lengthCapRatio out of range', () => {
+    expect(() => iterationConfigSchema.parse({
+      agentType: 'proposer_approver_criteria_generate',
+      budgetPercent: 100,
+      criteriaIds: validCriteriaIds,
+      weakestK: 1,
+      lengthCapRatio: 2.0, // > 1.50 cap
+    })).toThrow();
+  });
+
+  it('accepts all 3 criteria-based types in canBeFirstIteration / variant-producing helpers', () => {
+    // Sanity check: single_pass should be acceptable as first iteration.
+    expect(() => iterationConfigSchema.parse({
+      agentType: 'single_pass_evaluate_criteria_and_generate',
+      budgetPercent: 100,
+      criteriaIds: validCriteriaIds,
+      weakestK: 1,
+      sourceMode: 'seed',
+    })).not.toThrow();
+  });
+});
+
 describe('evaluateCriteriaThenGenerateFromPreviousArticleExecutionDetailSchema', () => {
   const validDetail = {
     detailType: 'evaluate_criteria_then_generate_from_previous_article' as const,
