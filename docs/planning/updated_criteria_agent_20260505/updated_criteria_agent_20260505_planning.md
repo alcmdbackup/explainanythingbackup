@@ -160,11 +160,28 @@ Adds a per-variant quality signal so researchers can see rewrite-volume distribu
 - [ ] Same file, `SHARED_PROPAGATION_DEFS` — add:
   - `total_proposer_approver_criteria_cost` (sum, `listView: true`)
   - `avg_proposer_approver_criteria_cost_per_run` (avg)
-- [ ] **Sentence-overlap metrics** (apply to all 3 criteria-based agents):
-  - Invocation-level: `invocation_sentence_verbatim_ratio` (raw value computed from parent + child texts at finalization).
-  - Run-level: `median_sentence_verbatim_ratio` (median across variants), `p25_sentence_verbatim_ratio` (catches rewrite-disaster bottom quartile), `min_sentence_verbatim_ratio` (worst-case visibility).
-  - Strategy/experiment-level: `avg_median_sentence_verbatim_ratio` via bootstrap_mean propagation.
-  - Tactic-level: extend `tacticMetrics.ts` to compute median verbatim ratio per tactic — surfaces on `/admin/evolution/tactics` as a new column for direct A/B/C comparison across `criteria_driven`, `criteria_driven_single_pass`, `criteria_driven_propose_approve`.
+- [ ] **Sentence-overlap metrics** — first-class entries in `evolution/src/lib/metrics/registry.ts`. All `category: 'rating'` (quality signal), `formatter: 'percent'` (renders as e.g. "62%"), `listView: true` for the ones that should surface on entity list pages.
+
+  **Invocation-level** (added to `METRIC_REGISTRY['invocation'].atFinalization`):
+  - `invocation_sentence_verbatim_ratio` — `{ name, label: 'Sentence Verbatim Overlap', category: 'rating', formatter: 'percent', timing: 'at_finalization', listView: false, compute: (ctx) => ctx.executionDetail?.guardrails?.sentenceVerbatimRatio ?? ctx.executionDetail?.cycles?.[0]?.sentenceVerbatimRatio ?? ctx.executionDetail?.sentenceVerbatimRatio ?? null }`. The fallback chain handles the three storage locations (single-pass / propose-approve / legacy criteria-and-generate).
+
+  **Run-level** (added to `METRIC_REGISTRY['run'].atFinalization`):
+  - `median_sentence_verbatim_ratio` — `{ label: 'Median Sentence Overlap', listView: true, compute: ... }` reads all variants' invocation-level ratios via `getMetricsForEntities(...)` and returns `median(ratios)`.
+  - `p25_sentence_verbatim_ratio` — `{ label: 'P25 Sentence Overlap (rewrite-disaster signal)', listView: false, compute: ... }` returns 25th percentile.
+  - `min_sentence_verbatim_ratio` — `{ label: 'Min Sentence Overlap', listView: false, compute: ... }`.
+
+  **Compute functions** land in a new file `evolution/src/lib/metrics/computations/sentenceOverlapMetrics.ts` (parallel to existing `criteriaMetrics.ts` shape). Reads `evolution_agent_invocations.execution_detail` for the run, extracts each invocation's ratio via the fallback chain above, returns median/p25/min. Called from `persistRunResults.ts` at run finalization, after tactic + criteria metric computation.
+
+  **Strategy/experiment-level** (added to `SHARED_PROPAGATION_DEFS`):
+  - `avg_median_sentence_verbatim_ratio` — `{ sourceMetric: 'median_sentence_verbatim_ratio', sourceEntity: 'run', aggregate: aggregateBootstrapMean, aggregationMethod: 'bootstrap_mean', listView: true }`. Bootstrap-mean for proper CIs (consistent with how `avg_final_elo` is propagated).
+
+  **Tactic-level** (added to `METRIC_REGISTRY['tactic'].atFinalization` AND `TacticEntity.metrics.atFinalization` for the dual-registry parity per `entities.md`):
+  - `median_sentence_verbatim_ratio` — `{ label: 'Median Verbatim Overlap', listView: true, compute: ... }` per tactic across all completed runs. Implemented in `tacticMetrics.ts:computeTacticMetricsForRun` (extend the existing function — read invocations filtered by `agent_name` matching the tactic's marker, aggregate ratios).
+  - Surfaces on `/admin/evolution/tactics` as a sortable column via `createMetricColumns('tactic')`.
+
+  **Stale cascade**: extend `mark_elo_metrics_stale()` trigger via a new migration to flag run-level + tactic-level + strategy-level + experiment-level `*sentence_verbatim_ratio*` metrics stale when a variant's `mu`/`sigma` changes (matches the existing pattern for elo metrics, even though sentence-overlap doesn't depend on rating — keeps recompute cycles consistent and avoids a second trigger).
+
+  **Dynamic-prefix registration**: not needed (these are static names, not dynamic prefixes like `eloAttrDelta:*`).
 - [ ] `evolution/src/lib/metrics/computations/criteriaMetrics.ts:118` — change hardcoded `agent_name` filter from a single value to `.in([3 criteria-based agent types])` so `avg_score` aggregates across all three.
 - [ ] (Optional, deferred) Add criteria-entity-level `total_proposer_approver_criteria_cost` propagation. Skip for V1 — surface on the run/strategy/experiment level only.
 
@@ -325,6 +342,7 @@ Cheap, deterministic, no LLM. Used by all 3 criteria-based agents at finalizatio
   - Context capture: `contextBefore.length <= 30 && contextAfter.length <= 30`.
 - [ ] Create `evolution/src/lib/core/agents/editing/checkSemanticOverlap.test.ts` (~3 tests): identical text → 1.0; disjoint text → 0.0; edge cases (empty newText, very short oldText, threshold straddling).
 - [ ] Create `evolution/src/lib/shared/sentenceOverlap.test.ts` (~5 tests): identical text → ratio 1.0; fully disjoint sentences → 0.0; punctuation-only differences → still 1.0 (Levenshtein near-match within tolerance); single-sentence article edge case; empty parent → ratio defaults to 1.0. Property tests (~2 invariants): `sentenceVerbatimOverlap(text, text).ratio === 1.0` for any non-empty text; `ratio` always in `[0, 1]`.
+- [ ] Create `evolution/src/lib/metrics/computations/sentenceOverlapMetrics.test.ts` (~4 tests): run-level median across N=5 variants computes correctly; p25 catches the bottom-quartile rewrite-disaster signal; min returns the worst case; missing-ratio invocations (e.g., legacy variants without the field) are excluded from the percentile computation rather than counted as 0 or 1.
 - [ ] Extend `evolution/src/lib/core/agents/editing/validateEditGroups.test.ts` (~4 tests): transition-word rule (paragraph-start delete vs preserved); `lengthCapRatio` parameterization (1.0, 1.05, 1.10); semantic overlap rejection at 0.5 (above 0.35 default); existing 1.5× behavior preserved when no opts passed.
 
 ---
