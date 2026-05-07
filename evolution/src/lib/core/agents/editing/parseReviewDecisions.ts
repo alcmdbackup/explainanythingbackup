@@ -29,7 +29,14 @@ export function parseReviewDecisions(
     if (!Number.isInteger(groupNumber) || groupNumber < 1) continue;
     const decision = obj.decision === 'accept' || obj.decision === 'reject' ? obj.decision : 'reject';
     const reason = typeof obj.reason === 'string' ? obj.reason : '';
-    seen.set(groupNumber, { groupNumber, decision, reason });
+    // Phase 4.0: extract optional guardrail violation flags. Populated by ProposerApproverCriteriaGenerateAgent's
+    // approver only (legacy IterativeEditingAgent's approver doesn't emit these). Backward-compat:
+    // missing fields stay undefined; the EditingReviewDecision schema's optional flags allow it.
+    const decisionRecord: EditingReviewDecision = { groupNumber, decision, reason };
+    if (typeof obj.redundancy_violation === 'boolean') decisionRecord.redundancy_violation = obj.redundancy_violation;
+    if (typeof obj.flow_violation === 'boolean') decisionRecord.flow_violation = obj.flow_violation;
+    if (typeof obj.length_violation === 'boolean') decisionRecord.length_violation = obj.length_violation;
+    seen.set(groupNumber, decisionRecord);
   }
 
   // Default missing groups to reject.
