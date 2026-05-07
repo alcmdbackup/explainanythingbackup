@@ -60,10 +60,42 @@ function parseExplicitGroupNumber(
   return { ok: true, value: n };
 }
 
+// Mode A user prompt wraps the source in <source>…</source> and asks for the
+// reply inside <output>…</output>. Some weak models leak those wrappers into
+// the response — strip them before parsing so the markup regexes match cleanly.
+// Tolerates leading/trailing whitespace + optional code-fence wrap.
+function stripOutputWrapper(markup: string): string {
+  let s = markup;
+  // Outer code fence (e.g. ```markdown\n...\n```)
+  const fenceMatch = s.match(/^\s*```(?:markdown|md)?\s*\n([\s\S]*?)\n\s*```\s*$/);
+  if (fenceMatch) s = fenceMatch[1]!;
+  // <output>...</output> wrapper (case-insensitive, allows whitespace)
+  const tagMatch = s.match(/^\s*<output>\s*\n?([\s\S]*?)\n?\s*<\/output>\s*$/i);
+  if (tagMatch) s = tagMatch[1]!;
+  // Stray dangling </source> from the user prompt context
+  s = s.replace(/^\s*<\/?source>\s*/i, '').replace(/\s*<\/?source>\s*$/i, '');
+  return s;
+}
+
+// Tolerate whitespace inside marker boundaries that some weak models emit
+// (e.g. `{ ++`, `++ }`, `~~ }` — gemini-2.5-flash-lite quirks). Normalize the
+// markup so the strict-regex bodies match. Only inside marker tokens; the
+// body content's leading/trailing whitespace is captured separately.
+function normalizeMarkerWhitespace(markup: string): string {
+  return markup
+    .replace(/\{\s+\+\+/g, '{++')
+    .replace(/\+\+\s+\}/g, '++}')
+    .replace(/\{\s+--/g, '{--')
+    .replace(/--\s+\}/g, '--}')
+    .replace(/\{\s+~~/g, '{~~')
+    .replace(/~~\s+\}/g, '~~}');
+}
+
 export function parseProposedEdits(
-  proposedMarkup: string,
+  proposedMarkupRaw: string,
   currentText: string,
 ): ParseResult {
+  const proposedMarkup = normalizeMarkerWhitespace(stripOutputWrapper(proposedMarkupRaw));
   const dropped: EditingDroppedGroup[] = [];
   const raw: RawAtomic[] = [];
 

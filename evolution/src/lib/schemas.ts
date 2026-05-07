@@ -1131,6 +1131,13 @@ export const iterativeEditingExecutionDetailSchema = executionDetailBaseSchema.e
     'format_invalid',
     'helper_threw',
     'budget_exceeded',
+    // Phase 2 (Mode A): pre-flight structural rejection
+    'structural_rewrite',
+    // Phase 3 (Mode B): rewrite-mode error paths
+    'proposer_format_violation',
+    'rewrite_parse_failed',
+    'diff_engine_failed',
+    'rewrite_too_large',
   ]),
   /** Set when stopReason === 'helper_threw' — which helper failed. */
   errorPhase: z.enum(['propose', 'parse', 'approve', 'recovery', 'apply']).optional(),

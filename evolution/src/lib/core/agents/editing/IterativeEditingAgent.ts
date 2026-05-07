@@ -205,6 +205,27 @@ export class IterativeEditingAgent extends Agent<
 
         // ── Parse + drift check ──
         const parseResult = parseProposedEdits(proposedMarkup, current.text);
+
+        // Phase 2: Pre-flight structural rejection. If the proposer emitted a
+        // free-form rewrite (recovered source diverges in length from the source
+        // by >10%) AND yields fewer than 3 markup groups, the cycle is hopeless —
+        // skip the drift-recovery LLM call (saves ~$0.0001/cycle and produces
+        // clearer telemetry than `proposer_drift_major`).
+        const lenDelta = Math.abs(parseResult.recoveredSource.length - current.text.length);
+        const lenDeltaRatio = lenDelta / Math.max(1, current.text.length);
+        if (lenDeltaRatio > 0.10 && parseResult.groups.length < 3) {
+          stopReason = 'structural_rewrite';
+          cycles.push(this.buildCycle({
+            cycleNumber, proposedMarkup, parseResult,
+            droppedPreApprover: [...parseResult.dropped],
+            approverGroups: [], reviewDecisions: [], droppedPostApprover: [],
+            appliedGroups: [], formatValid: false, parentText: current.text,
+            proposeCostUsd, approveCostUsd: 0,
+            sizeRatio: 1.0,
+          }));
+          break;
+        }
+
         const driftResult = checkProposerDrift(parseResult.recoveredSource, current.text);
 
         let approverGroups: typeof parseResult.groups;

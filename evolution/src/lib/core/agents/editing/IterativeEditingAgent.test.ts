@@ -109,7 +109,15 @@ describe('IterativeEditingAgent', () => {
         { parent: variant('p1', source), perInvocationBudgetUsd: 1.0, llm } as unknown as Parameters<typeof agent.execute>[0],
         makeCtx({ llm }),
       );
-      expect(['proposer_drift_major', 'proposer_drift_intentional', 'proposer_drift_unrecoverable']).toContain(result.detail.stopReason);
+      // Phase 2: pre-flight structural rejection (length divergence >10% AND <3 groups)
+      // intercepts free-form rewrites before the drift-recovery LLM call.
+      // "Hello world." → "Hello darling world." matches that shape.
+      expect([
+        'structural_rewrite',
+        'proposer_drift_major',
+        'proposer_drift_intentional',
+        'proposer_drift_unrecoverable',
+      ]).toContain(result.detail.stopReason);
       expect(result.result.finalVariant).toBeNull();
     } finally {
       if (original === undefined) delete process.env.EVOLUTION_DRIFT_RECOVERY_ENABLED;
@@ -190,6 +198,34 @@ describe('IterativeEditingAgent', () => {
     expect(result.detail.stopReason).toBe('parse_failed');
     expect(result.detail.errorMessage).toMatch(/CriticMarkup/);
     expect(result.result.surfaced).toBe(false);
+  });
+
+  // Phase 2: pre-flight structural rejection
+  it('Phase 2: pre-flight structural_rewrite skips drift-recovery LLM when rewrite is free-form', async () => {
+    // Long source, very short proposer output (no markup) — recovered length ≪ source.
+    const source = 'A wide article. With many words. And several sentences. To exceed the threshold.';
+    // Proposer ignores the markup contract and emits a paraphrase only:
+    const driftedRewrite = 'Short rewrite.';
+    const llm = makeMockLlm([
+      { label: 'iterative_edit_propose', response: driftedRewrite },
+    ]);
+    // Provide only the proposer call — no recovery LLM queued. If the agent
+    // tries to call recovery, the mock would error. So passing here proves the
+    // pre-flight gate fired and skipped the recovery call.
+    const original = process.env.EVOLUTION_DRIFT_RECOVERY_ENABLED;
+    process.env.EVOLUTION_DRIFT_RECOVERY_ENABLED = 'true';
+    try {
+      const agent = new IterativeEditingAgent();
+      const result = await agent.execute(
+        { parent: variant('p1', source), perInvocationBudgetUsd: 1.0, llm } as unknown as Parameters<typeof agent.execute>[0],
+        makeCtx({ llm }),
+      );
+      expect(result.detail.stopReason).toBe('structural_rewrite');
+      expect(result.result.finalVariant).toBeNull();
+    } finally {
+      if (original === undefined) delete process.env.EVOLUTION_DRIFT_RECOVERY_ENABLED;
+      else process.env.EVOLUTION_DRIFT_RECOVERY_ENABLED = original;
+    }
   });
 
   it('per Decisions §14: final variant.parentIds points to the ORIGINAL input parent (not cycle-N-1 intermediate)', async () => {
