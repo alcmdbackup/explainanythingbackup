@@ -16,6 +16,7 @@ import type { ExecutionDetailBase, EvolutionLLMClient, LLMCompletionOptions, Var
 import type { Rating, ComparisonResult } from '../../shared/computeRatings';
 import type { V2Match } from '../../pipeline/infra/types';
 import { proposerApproverCriteriaGenerateExecutionDetailSchema } from '../../schemas';
+import { DETAIL_VIEW_CONFIGS } from '../detailViewConfigs';
 import { updateInvocation } from '../../pipeline/infra/trackInvocations';
 import { registerAttributionExtractor } from '../../metrics/attributionExtractors';
 import { createVariant } from '../../types';
@@ -233,32 +234,8 @@ export class ProposerApproverCriteriaGenerateAgent extends Agent<
     return typeof primary === 'string' && primary.length > 0 && !primary.includes(':') ? primary : null;
   }
 
-  readonly detailViewConfig: DetailFieldDef[] = [
-    { key: 'tactic', label: 'Tactic', type: 'badge' },
-    { key: 'weakestCriteriaNames', label: 'Weakest Criteria', type: 'list' },
-    { key: 'variantId', label: 'Variant ID', type: 'text' },
-    { key: 'surfaced', label: 'Surfaced', type: 'boolean' },
-    { key: 'mirrorAgreementRate', label: 'Mirror Agreement Rate', type: 'number', formatter: 'percent' },
-    { key: 'mirrorAbortReason', label: 'Mirror Abort Reason', type: 'badge' },
-    {
-      key: 'evaluateAndSuggest', label: 'Eval & Suggest', type: 'object',
-      children: [
-        { key: 'cost', label: 'Cost', type: 'number', formatter: 'cost' },
-        { key: 'durationMs', label: 'Duration (ms)', type: 'number' },
-      ],
-    },
-    {
-      key: 'evaluateAndSuggest.suggestions', label: 'Suggestions', type: 'table',
-      cellClassName: 'py-1.5 px-2 text-[var(--text-primary)] max-w-md break-words whitespace-pre-wrap align-top',
-      columns: [
-        { key: 'criteriaName', label: 'Criterion' },
-        { key: 'examplePassage', label: 'Example' },
-        { key: 'whatNeedsAddressing', label: 'Issue' },
-        { key: 'suggestedFix', label: 'Fix' },
-      ],
-    },
-    { key: 'totalCost', label: 'Total Cost', type: 'number', formatter: 'cost' },
-  ];
+  readonly detailViewConfig: DetailFieldDef[] =
+    DETAIL_VIEW_CONFIGS.proposer_approver_criteria_generate!;
 
   async execute(
     input: ProposerApproverInput,

@@ -386,6 +386,79 @@ export const METRIC_CATALOG = {
     timing: 'at_propagation',
     description: 'Mean median_sequential_gfsa_duration_ms across child runs',
   },
+
+  // === Proposer/Approver criteria agent (updated_criteria_agent_20260505) ===
+  proposer_approver_criteria_cost: {
+    name: 'proposer_approver_criteria_cost', label: 'Proposer/Approver Criteria Cost', category: 'cost', formatter: 'cost',
+    timing: 'during_execution', listView: true,
+    description: 'Umbrella LLM spend on propose/approve criteria agent (propose + forward + mirror calls). Per-purpose split lives in execution_detail.cycles[0].',
+  },
+  proposer_approver_drift_rate: {
+    name: 'proposer_approver_drift_rate', label: 'P/A Drift Rate', category: 'cost', formatter: 'percent',
+    timing: 'during_execution',
+    description: 'Fraction of propose/approve cycles whose Proposer output drifted from the source.',
+  },
+  proposer_approver_accept_rate: {
+    name: 'proposer_approver_accept_rate', label: 'P/A Forward Accept Rate', category: 'cost', formatter: 'percent',
+    timing: 'during_execution',
+    description: 'Fraction of edits accepted by the forward approver.',
+  },
+  proposer_approver_mirror_agreement_rate: {
+    name: 'proposer_approver_mirror_agreement_rate', label: 'P/A Mirror Agreement Rate', category: 'cost', formatter: 'percent',
+    timing: 'during_execution',
+    description: 'appliedGroups / approverGroups — fraction of approver-graded edits ultimately applied.',
+  },
+
+  // === Sentence-overlap quality distribution (universal across variant-producing agents) ===
+  median_sentence_verbatim_ratio: {
+    name: 'median_sentence_verbatim_ratio', label: 'Median Sentence Overlap', category: 'rating', formatter: 'percent',
+    timing: 'at_finalization', listView: true,
+    description: 'Median fraction of parent sentences appearing verbatim (Levenshtein ≤ 2) in child variants.',
+  },
+  p25_sentence_verbatim_ratio: {
+    name: 'p25_sentence_verbatim_ratio', label: 'P25 Sentence Overlap (rewrite-disaster signal)', category: 'rating', formatter: 'percent',
+    timing: 'at_finalization',
+    description: '25th percentile sentence-verbatim ratio — low values flag rewrite-disaster cohorts.',
+  },
+  min_sentence_verbatim_ratio: {
+    name: 'min_sentence_verbatim_ratio', label: 'Min Sentence Overlap', category: 'rating', formatter: 'percent',
+    timing: 'at_finalization',
+    description: 'Worst-case sentence-verbatim ratio across this run.',
+  },
+
+  // === Invocation-level propose/approve metrics ===
+  invocation_mirror_agreement_rate: {
+    name: 'invocation_mirror_agreement_rate', label: 'Mirror Agreement Rate', category: 'rating', formatter: 'percent',
+    timing: 'at_finalization',
+    description: 'Per-invocation mirror agreement rate = appliedGroups / approverGroups (propose/approve agent only)',
+  },
+  invocation_forward_accept_rate: {
+    name: 'invocation_forward_accept_rate', label: 'Forward Accept Rate', category: 'rating', formatter: 'percent',
+    timing: 'at_finalization',
+    description: 'Per-invocation forward approver accept rate (propose/approve agent only)',
+  },
+  invocation_mirror_filter_rate: {
+    name: 'invocation_mirror_filter_rate', label: 'Mirror Filter Rate', category: 'rating', formatter: 'percent',
+    timing: 'at_finalization',
+    description: 'Per-invocation fraction of forward-accepted edits the mirror dropped (propose/approve agent only)',
+  },
+
+  // === Propagated (strategy + experiment) for propose/approve cost + sentence overlap ===
+  total_proposer_approver_criteria_cost: {
+    name: 'total_proposer_approver_criteria_cost', label: 'Total P/A Criteria Cost', category: 'cost', formatter: 'cost',
+    timing: 'at_propagation', listView: true,
+    description: 'Sum of proposer_approver_criteria_cost across child runs',
+  },
+  avg_proposer_approver_criteria_cost_per_run: {
+    name: 'avg_proposer_approver_criteria_cost_per_run', label: 'Avg P/A Criteria Cost/Run', category: 'cost', formatter: 'cost',
+    timing: 'at_propagation',
+    description: 'Average proposer_approver_criteria_cost per child run',
+  },
+  avg_median_sentence_verbatim_ratio: {
+    name: 'avg_median_sentence_verbatim_ratio', label: 'Avg Median Sentence Overlap', category: 'rating', formatter: 'percent',
+    timing: 'at_propagation', listView: true,
+    description: 'Bootstrap mean of median_sentence_verbatim_ratio across child runs',
+  },
 } as const satisfies Record<string, CatalogMetricDef>;
 
 export type CatalogMetricName = keyof typeof METRIC_CATALOG;

@@ -17,6 +17,7 @@ import type { AgentContext, AgentOutput, DetailFieldDef, FinalizationMetricDef }
 import type { ExecutionDetailBase, EvolutionLLMClient, LLMCompletionOptions } from '../../types';
 import { singlePassEvaluateCriteriaAndGenerateExecutionDetailSchema } from '../../schemas';
 import { METRIC_CATALOG } from '../metricCatalog';
+import { DETAIL_VIEW_CONFIGS } from '../detailViewConfigs';
 import { computeFormatRejectionRate } from '../../metrics/computations/finalizationInvocation';
 import { updateInvocation } from '../../pipeline/infra/trackInvocations';
 import { registerAttributionExtractor } from '../../metrics/attributionExtractors';
@@ -99,66 +100,8 @@ export class SinglePassEvaluateCriteriaAndGenerateAgent extends Agent<
     },
   ];
 
-  readonly detailViewConfig: DetailFieldDef[] = [
-    { key: 'tactic', label: 'Tactic', type: 'badge' },
-    { key: 'weakestCriteriaNames', label: 'Weakest Criteria', type: 'list' },
-    { key: 'variantId', label: 'Variant ID', type: 'text' },
-    { key: 'surfaced', label: 'Surfaced', type: 'boolean' },
-    {
-      key: 'evaluateAndSuggest', label: 'Eval & Suggest', type: 'object',
-      children: [
-        { key: 'cost', label: 'Cost', type: 'number', formatter: 'cost' },
-        { key: 'durationMs', label: 'Duration (ms)', type: 'number' },
-      ],
-    },
-    {
-      key: 'evaluateAndSuggest.criteriaScored', label: 'Criteria Scored', type: 'table',
-      columns: [
-        { key: 'criteriaName', label: 'Criterion' },
-        { key: 'score', label: 'Score' },
-        { key: 'minRating', label: 'Min' },
-        { key: 'maxRating', label: 'Max' },
-      ],
-    },
-    {
-      key: 'evaluateAndSuggest.suggestions', label: 'Suggestions', type: 'table',
-      cellClassName: 'py-1.5 px-2 text-[var(--text-primary)] max-w-md break-words whitespace-pre-wrap align-top',
-      columns: [
-        { key: 'criteriaName', label: 'Criterion' },
-        { key: 'examplePassage', label: 'Example' },
-        { key: 'whatNeedsAddressing', label: 'Issue' },
-        { key: 'suggestedFix', label: 'Fix' },
-      ],
-    },
-    {
-      key: 'guardrails', label: 'Guardrails (observational)', type: 'object',
-      children: [
-        { key: 'redundancyDropCount', label: 'Redundancy Drops', type: 'number' },
-        { key: 'flowDropCount', label: 'Flow Drops', type: 'number' },
-        { key: 'lengthCapHit', label: 'Length Cap Hit (>1.10×)', type: 'boolean' },
-      ],
-    },
-    {
-      key: 'generation', label: 'Generation', type: 'object',
-      children: [
-        { key: 'cost', label: 'Cost', type: 'number', formatter: 'cost' },
-        { key: 'promptLength', label: 'Prompt Length', type: 'number' },
-        { key: 'textLength', label: 'Text Length', type: 'number' },
-        { key: 'formatValid', label: 'Format Valid', type: 'boolean' },
-        { key: 'durationMs', label: 'Duration (ms)', type: 'number' },
-      ],
-    },
-    {
-      key: 'ranking', label: 'Ranking (binary search local view)', type: 'object',
-      children: [
-        { key: 'cost', label: 'Ranking Cost', type: 'number', formatter: 'cost' },
-        { key: 'totalComparisons', label: 'Total Comparisons', type: 'number' },
-        { key: 'finalLocalElo', label: 'Final Local Elo', type: 'number' },
-        { key: 'durationMs', label: 'Duration (ms)', type: 'number' },
-      ],
-    },
-    { key: 'totalCost', label: 'Total Cost', type: 'number', formatter: 'cost' },
-  ];
+  readonly detailViewConfig: DetailFieldDef[] =
+    DETAIL_VIEW_CONFIGS.single_pass_evaluate_criteria_and_generate!;
 
   async execute(
     input: EvaluateCriteriaInput,
