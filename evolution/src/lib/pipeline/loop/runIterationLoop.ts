@@ -92,7 +92,7 @@ function topKUncertainties(ratings: ReadonlyMap<string, Rating>, k: number): num
 
 function recordSnapshot(
   iteration: number,
-  iterationType: 'generate' | 'reflect_and_generate' | 'criteria_and_generate' | 'iterative_editing' | 'swiss',
+  iterationType: 'generate' | 'reflect_and_generate' | 'criteria_and_generate' | 'single_pass_evaluate_criteria_and_generate' | 'proposer_approver_criteria_generate' | 'iterative_editing' | 'swiss',
   phase: 'start' | 'end',
   pool: ReadonlyArray<Variant>,
   ratings: ReadonlyMap<string, Rating>,

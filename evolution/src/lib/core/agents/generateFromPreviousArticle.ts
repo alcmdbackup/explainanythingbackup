@@ -183,15 +183,21 @@ export class GenerateFromPreviousArticleAgent extends Agent<
       surfaced: false,
     });
 
-    // Phase 6 misconfiguration guard: tactic='criteria_driven' is a marker reserved for
-    // EvaluateCriteriaThenGenerateFromPreviousArticleAgent — it always passes customPrompt.
-    // If a strategy is misconfigured (e.g., agentType='generate' with stale tactic from
-    // wizard agent-type switching), throw rather than silently produce a no-op invocation.
-    if (tactic === 'criteria_driven' && input.customPrompt === undefined) {
+    // Misconfiguration guard: criteria-driven marker tactics are reserved for the criteria
+    // wrapper agents (legacy criteria_and_generate, single_pass_evaluate_criteria_and_generate,
+    // and proposer_approver_criteria_generate). All three always pass customPrompt. If a
+    // strategy is misconfigured (e.g., agentType='generate' with stale tactic from wizard
+    // agent-type switching), throw rather than silently produce a no-op invocation.
+    const CRITERIA_MARKER_TACTICS = new Set([
+      'criteria_driven',
+      'criteria_driven_single_pass',
+      'criteria_driven_propose_approve',
+    ]);
+    if (CRITERIA_MARKER_TACTICS.has(tactic) && input.customPrompt === undefined) {
       throw new Error(
-        "GFPA dispatched with tactic='criteria_driven' but no customPrompt — "
-        + "this tactic is reserved for the EvaluateCriteriaThenGenerateFromPreviousArticleAgent "
-        + "wrapper, which always passes customPrompt. Strategy configuration error.",
+        `GFPA dispatched with tactic='${tactic}' but no customPrompt — `
+        + "this marker tactic is reserved for criteria wrapper agents, which always pass customPrompt. "
+        + "Strategy configuration error.",
       );
     }
 

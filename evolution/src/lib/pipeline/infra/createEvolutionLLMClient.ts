@@ -38,6 +38,16 @@ const OUTPUT_TOKEN_ESTIMATES: Partial<Record<AgentName, number>> = {
   // Combined evaluate + suggest: ~150 chars score lines + ~600 tokens × weakestK suggestion
   // blocks ≈ 2300 chars typical at criteriaCount=5, weakestK=1.
   evaluate_and_suggest: 2300,
+  // Proposer outputs full article verbatim with inline CriticMarkup edits — output dominated
+  // by article copy + ~40% markup overhead. Tokens estimate scales with article size; 1200
+  // tokens (~4800 chars) covers a typical 8K-char article with markup.
+  criteria_proposer: 1200,
+  // Forward approver returns JSONL: per-group {decision, reason, redundancy_violation?, ...}.
+  // ~600 chars for typical N=6 groups.
+  criteria_forward_approver: 150,
+  // Mirror approver returns same shape on mirror-flipped groups; same estimate.
+  // (Short-circuit for forward-rejected groups means actual call count may be lower.)
+  criteria_mirror_approver: 150,
 };
 
 // ─── Public API ──────────────────────────────────────────────────

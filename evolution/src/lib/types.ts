@@ -56,6 +56,11 @@ interface CreateVariantParams {
   criteriaSetUsed?: ReadonlyArray<string>;
   /** Criteria-driven generation: subset auto-picked as the focus for suggestions. */
   weakestCriteriaIds?: ReadonlyArray<string>;
+  /** Sentence-overlap quality metric: fraction of parent sentences appearing in child
+   *  (0.0=full rewrite, 1.0=verbatim copy). Computed at variant creation by all
+   *  variant-producing agents. Optional — legacy code paths that don't set it stay backward-compatible
+   *  and the variant lands with NULL in the DB column. */
+  sentenceVerbatimRatio?: number;
 }
 
 export function createVariant({
@@ -68,6 +73,7 @@ export function createVariant({
   agentInvocationId,
   criteriaSetUsed,
   weakestCriteriaIds,
+  sentenceVerbatimRatio,
 }: CreateVariantParams): Variant {
   return {
     id: uuidv4(),
@@ -81,6 +87,7 @@ export function createVariant({
     ...(agentInvocationId !== undefined && { agentInvocationId }),
     ...(criteriaSetUsed !== undefined && { criteriaSetUsed: [...criteriaSetUsed] }),
     ...(weakestCriteriaIds !== undefined && { weakestCriteriaIds: [...weakestCriteriaIds] }),
+    ...(sentenceVerbatimRatio !== undefined && { sentenceVerbatimRatio }),
   };
 }
 
