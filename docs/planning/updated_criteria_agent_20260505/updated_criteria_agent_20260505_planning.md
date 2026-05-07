@@ -116,6 +116,13 @@ Lays the type-system and registry groundwork so the two new agents can dispatch.
   - **NEW** emit-gates for `lengthCapRatio`, `redundancyJaccardThreshold`, `includesMirrorApprover` per Phase 5.3 detail.
   - Extend `labelStrategyConfig` (`Nx single-pass-criteria + Mx proposer-approver`).
 
+#### 1.4b — Sentence-overlap metric (analytical, not enforcement)
+
+Adds a per-variant quality signal so researchers can see rewrite-volume distributions per agent and bucket Elo Δ by verbatim-overlap percentile. **Computed for ALL three criteria-based agents** (legacy + single-pass + propose/approve) so they're directly comparable on the tactic leaderboard and in Phase 7 analysis. Pure measurement — no discard, no rejection.
+
+- [ ] Extend legacy `EvaluateCriteriaThenGenerateFromPreviousArticleAgent` finalization to compute and persist `sentenceVerbatimRatio` to `execution_detail` (small backward-compatible addition; all-optional so older runs without the field still parse).
+- [ ] Both new agents compute and persist the same field at finalization (Phase 2.3 for single-pass; Phase 4.1 step 9 for propose/approve).
+
 #### 1.5 — `execution_detail` discriminated-union schemas
 - [ ] `evolution/src/lib/schemas.ts` (after line 1414) — add `singlePassEvaluateCriteriaAndGenerateExecutionDetailSchema`:
   - `detailType: z.literal('single_pass_evaluate_criteria_and_generate')`
@@ -124,12 +131,12 @@ Lays the type-system and registry groundwork so the two new agents can dispatch.
   - `evaluateAndSuggest` sub-object (same shape as existing wrapper)
   - `generation`, `ranking` sub-objects (reused from GFPA)
   - `surfaced`, `discardReason`, `totalCost`, `estimatedTotalCost`, `estimationErrorPct`
-  - `guardrails: { redundancyDropCount: 0, flowDropCount: 0, lengthCapHit: boolean }` (most fields placeholder for single-pass — only `lengthCapHit` is meaningful since there are no edit groups)
+  - `guardrails: { redundancyDropCount: 0, flowDropCount: 0, lengthCapHit: boolean, sentenceVerbatimRatio: number }` (`sentenceVerbatimRatio` 0-1 — fraction of parent sentences appearing in child, normalized + near-match tolerance; observational only)
 - [ ] Add `proposerApproverCriteriaGenerateExecutionDetailSchema`:
   - `detailType: z.literal('proposer_approver_criteria_generate')`
   - `tactic: z.literal('criteria_driven_propose_approve')`
   - `weakestCriteriaIds`, `weakestCriteriaNames`, `evaluateAndSuggest` sub-object
-  - **`cycles: z.array(...).length(1)`** with single entry containing `proposedGroupsRaw`, `droppedPreApprover`, `approverGroups`, `forwardDecisions[]`, `mirrorDecisions[]`, `appliedGroups`, `droppedPostApprover`, `proposeCostUsd`, `approveForwardCostUsd`, `approveMirrorCostUsd`, `childText?`
+  - **`cycles: z.array(...).length(1)`** with single entry containing `proposedGroupsRaw`, `droppedPreApprover`, `approverGroups`, `forwardDecisions[]`, `mirrorDecisions[]`, `appliedGroups`, `droppedPostApprover`, `proposeCostUsd`, `approveForwardCostUsd`, `approveMirrorCostUsd`, `childText?`, `sentenceVerbatimRatio: number` (0-1 — parent → final variant text overlap, observational)
   - `forwardDecisions[]` / `mirrorDecisions[]` shape: `{ groupNumber, decision, reason, redundancy_violation?, flow_violation?, length_violation? }`
   - `ranking` sub-object (reused), `surfaced`, `discardReason`, `totalCost`, etc.
   - `mirrorAgreementRate: z.number().min(0).max(1).optional()`
@@ -153,6 +160,11 @@ Lays the type-system and registry groundwork so the two new agents can dispatch.
 - [ ] Same file, `SHARED_PROPAGATION_DEFS` — add:
   - `total_proposer_approver_criteria_cost` (sum, `listView: true`)
   - `avg_proposer_approver_criteria_cost_per_run` (avg)
+- [ ] **Sentence-overlap metrics** (apply to all 3 criteria-based agents):
+  - Invocation-level: `invocation_sentence_verbatim_ratio` (raw value computed from parent + child texts at finalization).
+  - Run-level: `median_sentence_verbatim_ratio` (median across variants), `p25_sentence_verbatim_ratio` (catches rewrite-disaster bottom quartile), `min_sentence_verbatim_ratio` (worst-case visibility).
+  - Strategy/experiment-level: `avg_median_sentence_verbatim_ratio` via bootstrap_mean propagation.
+  - Tactic-level: extend `tacticMetrics.ts` to compute median verbatim ratio per tactic — surfaces on `/admin/evolution/tactics` as a new column for direct A/B/C comparison across `criteria_driven`, `criteria_driven_single_pass`, `criteria_driven_propose_approve`.
 - [ ] `evolution/src/lib/metrics/computations/criteriaMetrics.ts:118` — change hardcoded `agent_name` filter from a single value to `.in([3 criteria-based agent types])` so `avg_score` aggregates across all three.
 - [ ] (Optional, deferred) Add criteria-entity-level `total_proposer_approver_criteria_cost` propagation. Skip for V1 — surface on the run/strategy/experiment level only.
 
@@ -214,10 +226,15 @@ Ships the simpler of the two new agents. Delivers the "guardrails-only" hypothes
 #### 2.3 — Guardrail telemetry (single-pass observational only)
 - [ ] After GFPA returns generated text, compute `lengthCapHit = (newText.length / parentText.length) > 1.10` and persist to `execution_detail.guardrails.lengthCapHit`.
 - [ ] `redundancyDropCount` and `flowDropCount` always 0 for single-pass (no edit groups). Schema validates as 0; UI renders as `—` for clarity.
+- [ ] Compute `sentenceVerbatimRatio` via `sentenceOverlap.sentenceVerbatimOverlap(parentText, generatedText).ratio` and persist to `execution_detail.guardrails.sentenceVerbatimRatio`. Pure observation — variant emits regardless of value. Surfaces on the invocation Generation tab and Metrics tab.
 
 #### 2.4 — Dispatch branch
 - [ ] `evolution/src/lib/pipeline/loop/runIterationLoop.ts:341` — extend the variant-producing condition to include `'single_pass_evaluate_criteria_and_generate'`. The dispatch path mirrors `'criteria_and_generate'` (pre-fetch criteria once, instantiate the new wrapper, parallel batch + top-up + merge).
 - [ ] Honor `EVOLUTION_SINGLE_PASS_CRITERIA_ENABLED` env var: when `'false'`, fall back to dispatching `EvaluateCriteriaThenGenerateFromPreviousArticleAgent` (the legacy wrapper) — log warn at iteration start.
+
+#### 2.4b — Extend legacy `EvaluateCriteriaThenGenerateFromPreviousArticleAgent` with verbatim-ratio metric
+- [ ] After GFPA returns generated text in `evaluateCriteriaThenGenerateFromPreviousArticle.ts`, compute `sentenceVerbatimRatio` and persist to `execution_detail` (extend the existing schema variant with the optional field — backward-compatible). Also compute and write the `invocation_sentence_verbatim_ratio` metric. This is a small but important addition: enables the 3-way A/B comparison on the tactic leaderboard and in Phase 7 analysis.
+- [ ] Extend the existing schema variant `evaluateCriteriaThenGenerateFromPreviousArticleExecutionDetailSchema` (in Phase 1.5) with `sentenceVerbatimRatio?: number` (optional for backward compatibility with pre-existing rows).
 
 #### 2.5 — `agentRegistry.ts` registration
 - [ ] `evolution/src/lib/core/agentRegistry.ts` — register `SinglePassEvaluateCriteriaAndGenerateAgent` in `getAgentClasses()` so its `invocationMetrics` (none today, but reserved) merge into `InvocationEntity`.
@@ -225,7 +242,7 @@ Ships the simpler of the two new agents. Delivers the "guardrails-only" hypothes
 - [ ] Add to barrel `evolution/src/lib/core/agents/index.ts` for eager-import side-effect.
 
 #### 2.6 — `detailViewConfigs.ts` + invocation page
-- [ ] `evolution/src/lib/core/detailViewConfigs.ts` — add `single_pass_evaluate_criteria_and_generate` entry as near-clone of existing wrapper's, with addition of `guardrails: { redundancyDropCount, flowDropCount, lengthCapHit }` object.
+- [ ] `evolution/src/lib/core/detailViewConfigs.ts` — add `single_pass_evaluate_criteria_and_generate` entry as near-clone of existing wrapper's, with addition of `guardrails: { redundancyDropCount, flowDropCount, lengthCapHit, sentenceVerbatimRatio }` object. The Generation tab shows "Sentence verbatim overlap: 0.62" (formatted as percentage); Metrics tab shows it as a MetricGrid cell.
 - [ ] `src/app/admin/evolution/invocations/[invocationId]/InvocationDetailContent.tsx` — extend `buildTabs` with the 5-tab layout (`Eval & Suggest`, `Generation`, `Metrics`, `Timeline`, `Logs`) — clone the `evaluate_criteria_then_generate_from_previous_article` branch.
 - [ ] Timeline color reuse: emerald (`EVALUATE_AND_SUGGEST_COLOR`) + blue (`GENERATION_COLOR`) + purple (`RANKING_COLOR`) — no new constants.
 
@@ -244,9 +261,18 @@ Ships the simpler of the two new agents. Delivers the "guardrails-only" hypothes
 
 ---
 
-### Phase 3: Mirror + Guardrails Toolkit
+### Phase 3: Mirror + Guardrails + Overlap Toolkit
 
 Reusable primitives for the propose/approve agent (Phase 4). Ships independently — no agent uses them yet, but they're tested.
+
+#### 3.0 — `sentenceOverlap.ts` helper (analytical metric)
+
+Cheap, deterministic, no LLM. Used by all 3 criteria-based agents at finalization to compute `sentenceVerbatimRatio`.
+
+- [ ] Create `evolution/src/lib/shared/sentenceOverlap.ts`:
+  - `extractSentences(text: string): string[]` — tokenize on `[.!?]\s+`, trim, lowercase, collapse whitespace, drop empty entries.
+  - `sentenceVerbatimOverlap(parent: string, child: string): { ratio, parentSentenceCount, childSentenceCount, intersectionCount }` — set intersection between parent + child sentence sets, using exact match and Levenshtein distance ≤ 2 for near-match (catches trivial punctuation/single-word edits). Returns `{ ratio: intersectionCount / parentSentenceCount }` (0-1; defaults to 1 if `parentSentenceCount === 0`).
+  - Microsecond-scale CPU cost; called once per variant at finalization.
 
 #### 3.1 — `mirrorEdits.ts` helpers
 - [ ] Create `evolution/src/lib/core/agents/editing/mirrorEdits.ts` with:
@@ -298,6 +324,7 @@ Reusable primitives for the propose/approve agent (Phase 4). Ships independently
   - Range boundaries: ∀(edits, text). inverted ranges all ∈ `[0, articleAfterApply.length]`.
   - Context capture: `contextBefore.length <= 30 && contextAfter.length <= 30`.
 - [ ] Create `evolution/src/lib/core/agents/editing/checkSemanticOverlap.test.ts` (~3 tests): identical text → 1.0; disjoint text → 0.0; edge cases (empty newText, very short oldText, threshold straddling).
+- [ ] Create `evolution/src/lib/shared/sentenceOverlap.test.ts` (~5 tests): identical text → ratio 1.0; fully disjoint sentences → 0.0; punctuation-only differences → still 1.0 (Levenshtein near-match within tolerance); single-sentence article edge case; empty parent → ratio defaults to 1.0. Property tests (~2 invariants): `sentenceVerbatimOverlap(text, text).ratio === 1.0` for any non-empty text; `ratio` always in `[0, 1]`.
 - [ ] Extend `evolution/src/lib/core/agents/editing/validateEditGroups.test.ts` (~4 tests): transition-word rule (paragraph-start delete vs preserved); `lengthCapRatio` parameterization (1.0, 1.05, 1.10); semantic overlap rejection at 0.5 (above 0.35 default); existing 1.5× behavior preserved when no opts passed.
 
 ---
@@ -357,7 +384,7 @@ The new agent's net-new code is the **orchestration** (single-cycle + mirror pas
        - `parseReviewDecisions(mirrorOutput) → mirrorDecisions[]`. If parse fails: set `mirrorAbortReason = 'mirror_parse_null'`, **drop ALL forward-accepted groups** (strict binary — null mirror is NOT REJECT).
        - **Aggregate (strict binary)**: per group, apply iff `(forwardDecision, mirrorDecision) === ('accept', 'reject')`. All other combinations DROP, including: both ACCEPT, both REJECT, REJECT+ACCEPT, any null mirror decision (whether from short-circuit or parse failure), and the entire-mirror-aborted case (`mirrorAbortReason` set). NO confidence-graded fallback — the rule is binary, period. Telemetry distinguishes drop reasons via `cycles[0].droppedPostApprover[].reason`: `aggregate_drop_both_accept`, `aggregate_drop_both_reject`, `aggregate_drop_forward_reject`, `aggregate_drop_mirror_null_short_circuit`, `aggregate_drop_mirror_null_parse_fail`, `aggregate_drop_mirror_aborted`.
     8. **If mirror disabled**: apply forward-accepted groups directly (no mirror gate).
-    9. `applyAcceptedGroups(finalAcceptedGroups, currentText)` — right-to-left splice; emit final `Variant`.
+    9. `applyAcceptedGroups(finalAcceptedGroups, currentText)` — right-to-left splice; emit final `Variant`. **Compute `sentenceVerbatimRatio` via `sentenceOverlap.sentenceVerbatimOverlap(originalParentText, finalAppliedText).ratio` and persist to `execution_detail.cycles[0].sentenceVerbatimRatio`** — observational only.
     10. **Step 5 — Post-cycle ranking** (reuse `IterativeEditingAgent`'s pattern, gated by `EVOLUTION_PROPOSER_APPROVER_CRITERIA_RANK_ENABLED`): run `rankNewVariant(finalVariant, ...)` against the deep-cloned local snapshot. Surface/discard mirrors GFPA: discard if `rankResult.status === 'budget' AND localElo < computeTop15Cutoff(localRatings)`.
 - [ ] Honor invariants I1, I2, I3:
   - I1: all LLM calls use `input.llm` directly.
@@ -413,7 +440,7 @@ The shared `proposerPrompt.ts` and `approverPrompt.ts` (extended in Phase 4.0 to
 - [ ] `InvocationDetailContent.tsx` — extend `buildTabs` with **6-tab** layout:
   1. Eval & Suggest
   2. **Edit Cycle** — unified view combining proposer markup + per-group decision table (forward + mirror + aggregate result columns) + funnel summary + pre-approver drops list + collapsible annotated markup. Mirror column renders `—` for already-rejected forward edits (and the runtime short-circuits those mirror calls to save cost). Per-row click-to-expand for full edit text + reasons + guardrail flag details.
-  3. Apply — applied groups with diffs + dropped-post-approver (applier-stage drops only: `oldText_mismatch`, `range_overlap_with_earlier_group`) + net length change + final variant link.
+  3. Apply — applied groups with diffs + dropped-post-approver (applier-stage drops only: `oldText_mismatch`, `range_overlap_with_earlier_group`) + net length change + **sentence verbatim overlap (parent → final)** + final variant link.
   4. Metrics
   5. Timeline (5-segment phase bar)
   6. Logs
@@ -544,7 +571,7 @@ Real runs to confirm guardrails reduce variance + propose/approve agent's mirror
   - Mean Elo Δ vs `generate_from_previous_article` baseline for each agent type.
   - Length distribution: does single-pass tighten? Does propose/approve tighten further?
   - `mirrorAgreementRate` distribution — is it within `[0.20, 0.95]` thresholds?
-  - Sentence-level diff per agent.
+  - **Sentence verbatim overlap distribution per agent** — bucket Elo Δ by overlap percentile (0-20%, 20-40%, 40-60%, 60-80%, 80-100%). Replicates the prior project's analysis methodology directly from the new `invocation_sentence_verbatim_ratio` metric. Compares 3 agent types side-by-side: does single-pass produce more high-overlap variants than legacy? Does propose/approve avoid the 0-20% rewrite-disaster bucket entirely?
   - Spot-check 3 winners + 3 losers per agent type.
 - [ ] Update `_progress.md` with findings.
 
@@ -561,6 +588,7 @@ Real runs to confirm guardrails reduce variance + propose/approve agent's mirror
 - [ ] `evolution/src/lib/core/agents/editing/mirrorEdits.test.ts` — NEW (~8 cases).
 - [ ] `evolution/src/lib/core/agents/editing/mirrorEdits.property.test.ts` — NEW (4 property invariants × ~200 fast-check iterations each).
 - [ ] `evolution/src/lib/core/agents/editing/checkSemanticOverlap.test.ts` — NEW (~3 cases).
+- [ ] `evolution/src/lib/shared/sentenceOverlap.test.ts` — NEW (~5 cases + 2 property invariants).
 - [ ] `evolution/src/lib/core/agents/editing/validateEditGroups.test.ts` — extension (~4 cases for new transition rule + parameterized lengthCapRatio + semantic overlap).
 - [ ] `src/app/admin/evolution/_components/StrategyForm.test.tsx` (or equivalent) — extension (~4 cases for conditional renders + validation).
 
