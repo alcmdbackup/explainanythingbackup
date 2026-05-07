@@ -10,6 +10,7 @@ import { GenerateFromPreviousArticleAgent } from './agents/generateFromPreviousA
 import { ReflectAndGenerateFromPreviousArticleAgent } from './agents/reflectAndGenerateFromPreviousArticle';
 import { IterativeEditingAgent } from './agents/editing/IterativeEditingAgent';
 import { EvaluateCriteriaThenGenerateFromPreviousArticleAgent } from './agents/evaluateCriteriaThenGenerateFromPreviousArticle';
+import { SinglePassEvaluateCriteriaAndGenerateAgent } from './agents/singlePassEvaluateCriteriaAndGenerate';
 import { SwissRankingAgent } from './agents/SwissRankingAgent';
 import { MergeRatingsAgent } from './agents/MergeRatingsAgent';
 // B003-S3: register CreateSeedArticleAgent so its invocationMetrics merge into
@@ -31,6 +32,7 @@ export function getAgentClasses(): AnyAgent[] {
       new ReflectAndGenerateFromPreviousArticleAgent(),
       new IterativeEditingAgent(),
       new EvaluateCriteriaThenGenerateFromPreviousArticleAgent(),
+      new SinglePassEvaluateCriteriaAndGenerateAgent(),
       new SwissRankingAgent(),
       new MergeRatingsAgent(),
       // B003-S3: registered to feed invocationMetrics merge + parity tests.

@@ -157,10 +157,11 @@ export interface ParsedEvaluateAndSuggest {
   droppedSuggestions: ParsedDroppedSuggestion[];
 }
 
-/** Extract score lines from the score section. Shared by parseEvaluateAndSuggest and
- *  the agent's first-pass parse (which needs scores before suggestions to determine the
- *  weakest set). Returns [] when nothing parses — caller decides how to throw. */
-function extractScores(
+/** Extract score lines from the score section. Shared by parseEvaluateAndSuggest, the
+ *  agent's first-pass parse (which needs scores before suggestions to determine the
+ *  weakest set), AND the new SinglePassEvaluateCriteriaAndGenerateAgent + ProposerApproverCriteriaGenerateAgent
+ *  which reuse the same parsing path. Returns [] when nothing parses — caller decides how to throw. */
+export function extractScores(
   scoreSection: string,
   criteria: ReadonlyArray<CriterionRow>,
 ): ParsedScore[] {
