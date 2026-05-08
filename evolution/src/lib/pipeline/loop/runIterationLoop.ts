@@ -94,7 +94,7 @@ function topKUncertainties(ratings: ReadonlyMap<string, Rating>, k: number): num
 
 function recordSnapshot(
   iteration: number,
-  iterationType: 'generate' | 'reflect_and_generate' | 'criteria_and_generate' | 'single_pass_evaluate_criteria_and_generate' | 'proposer_approver_criteria_generate' | 'iterative_editing' | 'swiss',
+  iterationType: 'generate' | 'reflect_and_generate' | 'criteria_and_generate' | 'single_pass_evaluate_criteria_and_generate' | 'proposer_approver_criteria_generate' | 'iterative_editing' | 'iterative_editing_rewrite' | 'swiss',
   phase: 'start' | 'end',
   pool: ReadonlyArray<Variant>,
   ratings: ReadonlyMap<string, Rating>,
@@ -846,7 +846,7 @@ export async function evolveArticle(
           phaseName: 'generation',
         });
 
-      } else if (iterType === 'iterative_editing') {
+      } else if (iterType === 'iterative_editing' || iterType === 'iterative_editing_rewrite') {
         // ─── Iterative editing iteration ──────────────────────────
         // Per-parent: dispatch one IterativeEditingAgent per eligible top-Elo parent.
         // Each invocation runs up to maxCycles propose-review-apply cycles in-memory;
@@ -861,7 +861,13 @@ export async function evolveArticle(
           });
           iterStopReason = 'iteration_complete';
         } else {
+          // Mode B (iterative_editing_rewrite) rollback gate: when the env flag
+          // is set, fall Mode B back to Mode A at runtime. Read per-invocation
+          // (no caching) so the flag flip takes effect on the next invocation.
+          const disableRewrite = process.env.DISABLE_ITERATIVE_EDITING_REWRITE === 'true';
+          const useRewriteMode = iterType === 'iterative_editing_rewrite' && !disableRewrite;
           const { IterativeEditingAgent } = await import('../../core/agents/editing/IterativeEditingAgent');
+          const { IterativeEditingRewriteAgent } = await import('../../core/agents/editing/IterativeEditingRewriteAgent');
           const { resolveEditingDispatchRuntime, resolveEditingRankEnabled } = await import('./editingDispatch');
 
           // D4 — runtime gate for the post-cycle ranking step. When 'false' the
@@ -893,7 +899,9 @@ export async function evolveArticle(
               ? remainingBudget / dispatchCount
               : 0;
 
-            const editingAgent = new IterativeEditingAgent();
+            const editingAgent = useRewriteMode
+              ? new IterativeEditingRewriteAgent()
+              : new IterativeEditingAgent();
             const newVariants: Variant[] = [];
             // Phase 4.2 — match buffers populated by per-agent ranking output (D7:
             // one final-variant ranking per invocation). Empty when editingRankEnabled=false

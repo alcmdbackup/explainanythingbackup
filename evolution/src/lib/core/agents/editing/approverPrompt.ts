@@ -32,6 +32,10 @@ export function buildApproverSystemPrompt(): string {
 export function buildApproverUserPrompt(
   proposedMarkup: string,
   approverGroups: EditingGroup[],
+  /** Mode B (rewrite mode) only: the proposer's stated rationale. Surfaced here
+   *  as priming context. The red-team caveat below tells the approver to
+   *  verify each edit on its merits, not to defer to the rationale. */
+  rationale?: string,
 ): string {
   const summary = approverGroups.map((g) => {
     const edits = g.atomicEdits.map((e) => {
@@ -42,7 +46,19 @@ export function buildApproverUserPrompt(
     return `[#${g.groupNumber}] ${g.atomicEdits.length} atomic edit${g.atomicEdits.length === 1 ? '' : 's'}:\n${edits}`;
   }).join('\n\n');
 
+  const rationaleBlock = rationale
+    ? [
+        'Proposer\'s stated rationale (CLAIM, not ground truth — verify each edit independently on its own merits):',
+        '',
+        rationale,
+        '',
+        '─────────────────────────────────────',
+        '',
+      ].join('\n')
+    : '';
+
   return [
+    rationaleBlock,
     'Marked-up article:',
     '',
     proposedMarkup,
@@ -51,7 +67,7 @@ export function buildApproverUserPrompt(
     'Edit groups to review:',
     '',
     summary,
-  ].join('\n');
+  ].filter(Boolean).join('\n');
 }
 
 function truncate(s: string, n: number): string {
