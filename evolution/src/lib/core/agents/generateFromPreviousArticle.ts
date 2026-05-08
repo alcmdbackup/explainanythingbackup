@@ -14,6 +14,7 @@ import { type RankSingleVariantStatus } from '../../pipeline/loop/rankSingleVari
 import { rankNewVariant } from '../../pipeline/loop/rankNewVariant';
 import { generateFromPreviousExecutionDetailSchema } from '../../schemas';
 import { validateFormat } from '../../shared/enforceVariantFormat';
+import { sentenceVerbatimOverlap } from '../../shared/sentenceOverlap';
 import { buildEvolutionPrompt } from '../../pipeline/loop/buildPrompts';
 import { BudgetExceededError } from '../../types';
 import { estimateGenerationCost, estimateRankingCost } from '../../pipeline/infra/estimateCosts';
@@ -251,6 +252,20 @@ export class GenerateFromPreviousArticleAgent extends Agent<
       };
     }
 
+    // Universal sentence-overlap quality metric (Phase 1.4b of
+    // updated_criteria_agent_20260505). Computed once at variant creation; observational
+    // only — never enforced. Defensively try/catch so a regex pathology can't take down
+    // the pipeline.
+    let sentenceVerbatimRatio: number | undefined;
+    try {
+      sentenceVerbatimRatio = sentenceVerbatimOverlap(parentText, generated.trim()).ratio;
+    } catch (err) {
+      ctx.logger.warn('sentence-overlap compute failed; ratio stays NULL', {
+        phaseName: 'generation',
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+
     const variant = createVariant({
       text: generated.trim(),
       tactic,
@@ -262,6 +277,7 @@ export class GenerateFromPreviousArticleAgent extends Agent<
       ...(ctx.invocationId ? { agentInvocationId: ctx.invocationId } : {}),
       ...(input.criteriaSetUsed !== undefined && { criteriaSetUsed: input.criteriaSetUsed }),
       ...(input.weakestCriteriaIds !== undefined && { weakestCriteriaIds: input.weakestCriteriaIds }),
+      ...(sentenceVerbatimRatio !== undefined && { sentenceVerbatimRatio }),
     });
 
     const rankingStartTime = Date.now();
