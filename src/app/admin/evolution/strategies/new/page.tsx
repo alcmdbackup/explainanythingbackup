@@ -40,6 +40,7 @@ type AgentType =
   | 'single_pass_evaluate_criteria_and_generate'
   | 'proposer_approver_criteria_generate'
   | 'iterative_editing'
+  | 'iterative_editing_rewrite'
   | 'swiss';
 
 interface IterationRow {
@@ -188,13 +189,13 @@ function toIterationConfigsPayload(iterations: IterationRow[]): IterationConfigP
     ...(it.agentType === 'reflect_and_generate'
       ? { reflectionTopN: it.reflectionTopN ?? 3 }
       : {}),
-    // Editing-only fields. proposer_approver_criteria_generate also uses the
-    // eligibility cutoff (it inherits the editing-flow per-parent dispatch shape)
-    // but its editingMaxCycles is fixed at 1 by schema refine.
-    ...(it.agentType === 'iterative_editing' && it.editingMaxCycles != null
+    ...((it.agentType === 'iterative_editing' || it.agentType === 'iterative_editing_rewrite')
+      && it.editingMaxCycles != null
       ? { editingMaxCycles: it.editingMaxCycles }
       : {}),
-    ...((it.agentType === 'iterative_editing' || it.agentType === 'proposer_approver_criteria_generate')
+    ...((it.agentType === 'iterative_editing'
+        || it.agentType === 'iterative_editing_rewrite'
+        || it.agentType === 'proposer_approver_criteria_generate')
         && it.editingCutoffMode && it.editingCutoffValue != null
       ? { editingEligibilityCutoff: { mode: it.editingCutoffMode, value: it.editingCutoffValue } }
       : {}),
@@ -1094,7 +1095,8 @@ export default function NewStrategyPage(): JSX.Element {
                         <option value="criteria_and_generate">Evaluate Criteria + Generate</option>
                         <option value="single_pass_evaluate_criteria_and_generate">Single-Pass Criteria w/ Guardrails</option>
                         <option value="proposer_approver_criteria_generate" disabled={idx === 0} title={idx === 0 ? 'First iteration must produce variants — propose/approve edits an existing parent' : undefined}>Proposer-Approver Criteria w/ Mirror</option>
-                        <option value="iterative_editing" disabled={idx === 0} title={idx === 0 ? 'First iteration must produce variants' : undefined}>Iterative Editing</option>
+                        <option value="iterative_editing" disabled={idx === 0} title={idx === 0 ? 'First iteration must produce variants' : undefined}>Iterative Editing (Markup)</option>
+                        <option value="iterative_editing_rewrite" disabled={idx === 0} title={idx === 0 ? 'First iteration must produce variants' : 'Mode B: proposer rewrites; markup computed mechanically'}>Iterative Editing (Rewrite)</option>
                         <option value="swiss" disabled={idx === 0} title={idx === 0 ? 'First iteration must produce variants' : undefined}>Swiss</option>
                       </select>
 

@@ -374,6 +374,11 @@ export function estimateIterativeEditingCost(
   maxCycles: number,
   poolSize: number = 0,
   maxComparisonsPerVariant: number = 0,
+  /** Phase 3 — Mode B saves the drift-recovery cost component (drift impossible
+   *  by construction in rewrite mode). Other cost lines are equivalent: the
+   *  proposer output is a full rewrite (~same size as marked-up article) and
+   *  the approver still sees the computed markup. */
+  mode: 'markup' | 'rewrite' = 'markup',
 ): { expected: number; upperBound: number; expectedRanking: number; upperBoundRanking: number } {
   let expected = 0;
   let upperBound = 0;
@@ -397,7 +402,10 @@ export function estimateIterativeEditingCost(
   }
 
   // Drift recovery: one worst-case fire across all cycles in upper-bound only.
-  upperBound += estimateEditingDriftRecoveryCost(driftRecoveryModel, judgeModel);
+  // Mode B never enters drift recovery (drift impossible by construction).
+  if (mode === 'markup') {
+    upperBound += estimateEditingDriftRecoveryCost(driftRecoveryModel, judgeModel);
+  }
   upperBound *= EDITING_UPPER_BOUND_SAFETY_MARGIN;
 
   // Phase 3.1 — Post-cycle ranking cost (D3 surfaces this as `editingRank` peer

@@ -131,7 +131,7 @@ export interface TacticMixEntry {
 
 export interface IterationPlanEntry {
   iterIdx: number;
-  agentType: 'generate' | 'reflect_and_generate' | 'criteria_and_generate' | 'single_pass_evaluate_criteria_and_generate' | 'proposer_approver_criteria_generate' | 'iterative_editing' | 'swiss';
+  agentType: 'generate' | 'reflect_and_generate' | 'criteria_and_generate' | 'single_pass_evaluate_criteria_and_generate' | 'proposer_approver_criteria_generate' | 'iterative_editing' | 'iterative_editing_rewrite' | 'swiss';
   iterBudgetUsd: number;
   /** Effective tactic pool for this iteration (normalized weights). Cost estimates are
    *  weighted averages over this mix. Single-entry for guidance with one tactic. */
@@ -321,7 +321,7 @@ export function projectDispatchPlan(
       continue;
     }
 
-    if (iterCfg.agentType === 'iterative_editing') {
+    if (iterCfg.agentType === 'iterative_editing' || iterCfg.agentType === 'iterative_editing_rewrite') {
       // Per Decisions §13/§14/§17: editing iterations cost = maxCycles × (propose +
       // review) per parent, with the article growing up to 1.5× per cycle in
       // upper-bound. Eligibility cutoff comes from the shared dispatch helper —
@@ -348,6 +348,7 @@ export function projectDispatchPlan(
         maxCycles,
         editingRankEnabled ? poolSize : 0,
         editingRankEnabled ? maxComparisonsPerVariant : 0,
+        iterCfg.agentType === 'iterative_editing_rewrite' ? 'rewrite' : 'markup',
       );
 
       // Apply eligibility cutoff against the projected pool. Editing iterations
@@ -390,7 +391,7 @@ export function projectDispatchPlan(
 
       plan.push({
         iterIdx,
-        agentType: 'iterative_editing',
+        agentType: iterCfg.agentType,
         iterBudgetUsd,
         tacticMix: mix,
         tacticMixSource: source,

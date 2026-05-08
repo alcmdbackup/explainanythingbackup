@@ -275,6 +275,14 @@ export interface EditingCycle {
   approveCostUsd: number;
   driftRecoveryCostUsd?: number;
   sizeRatio: number;
+  // Phase 3 (Mode B) optional fields — populated only when this cycle ran
+  // through IterativeEditingRewriteAgent. Mode A leaves them undefined.
+  proposerMode?: 'markup' | 'rewrite';
+  rationale?: string;
+  rewriteText?: string;
+  computedMarkup?: string;
+  errorContext?: { type: string; message: string; line?: number; col?: number };
+  errorMessage?: string;
 }
 
 export type IterativeEditingStopReason =
@@ -289,7 +297,19 @@ export type IterativeEditingStopReason =
   | 'article_size_explosion'
   | 'format_invalid'
   | 'helper_threw'
-  | 'budget_exceeded';
+  | 'budget_exceeded'
+  // Phase 2: pre-flight structural rejection — when the proposer's output
+  // diverges from the source by >10% length AND yields <3 markup groups,
+  // the cycle is aborted before drift recovery (saves the recovery LLM cost).
+  | 'structural_rewrite'
+  // Phase 3 (Mode B): proposer omitted required `## Rewrite` block
+  | 'proposer_format_violation'
+  // Phase 3 (Mode B): the rewrite text failed to parse as markdown
+  | 'rewrite_parse_failed'
+  // Phase 3 (Mode B): the diff engine threw on this rewrite
+  | 'diff_engine_failed'
+  // Phase 3 (Mode B): rewrite exceeded the 100 KB safety cap
+  | 'rewrite_too_large';
 
 /** Per-comparison record from the post-cycle ranking phase. Mirrors
  *  rankNewVariantComparisonSchema in schemas.ts. */
