@@ -206,3 +206,38 @@ describe('sourceContainsMarkup', () => {
     expect(sourceContainsMarkup('curly { brace alone')).toBe(false);
   });
 });
+
+// Phase 2 — Mode A parser hardening
+describe('parseProposedEdits — Mode A hardening (Phase 2)', () => {
+  it('strips a stray <output>…</output> wrapper before parsing', () => {
+    const source = 'Hello world.';
+    const wrapped = `<output>\nHello{++!++} world.\n</output>`;
+    const r = parseProposedEdits(wrapped, source);
+    expect(r.groups).toHaveLength(1);
+    expect(r.groups[0]!.atomicEdits[0]!.kind).toBe('insert');
+  });
+
+  it('strips an outer ```markdown fence wrap', () => {
+    const source = 'foo bar';
+    const wrapped = '```markdown\nfoo{++ baz++} bar\n```';
+    const r = parseProposedEdits(wrapped, source);
+    expect(r.groups.length).toBeGreaterThan(0);
+  });
+
+  it('tolerates whitespace inside marker tokens ({ ++, ++ }, ~~ })', () => {
+    const source = 'old text';
+    // Pathological-but-plausible weak-model quirk: whitespace inside the marker token.
+    const markup = '{ ++new ++} old text';
+    const r = parseProposedEdits(markup, source);
+    expect(r.groups.length).toBeGreaterThanOrEqual(1);
+    expect(r.groups[0]!.atomicEdits[0]!.kind).toBe('insert');
+  });
+
+  it('tolerates whitespace inside substitution markers', () => {
+    const source = 'old text';
+    const markup = '{ ~~old~>new~~ } text';
+    const r = parseProposedEdits(markup, source);
+    expect(r.groups.length).toBeGreaterThanOrEqual(1);
+    expect(r.groups[0]!.atomicEdits[0]!.kind).toBe('replace');
+  });
+});

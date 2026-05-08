@@ -35,6 +35,14 @@ interface AnnotatedProposalsProps {
   droppedPostApprover?: EditingDroppedGroup[];
   appliedGroups?: EditingGroup[];
   parentText?: string;
+  // Phase 3 (Mode B / iterative_editing_rewrite) — populated only when this
+  // cycle ran through IterativeEditingRewriteAgent. Surfaced as a collapsible
+  // <RationaleBlock> above the markup. All rendered as plain text via React's
+  // default text-child escaping (no dangerouslySetInnerHTML, no markdown
+  // rendering — LLM output is treated as untrusted).
+  proposerMode?: 'markup' | 'rewrite';
+  rationale?: string;
+  rewriteText?: string;
 }
 
 type ViewMode = 'annotated' | 'final' | 'original';
@@ -170,6 +178,9 @@ export function AnnotatedProposals({
   droppedPostApprover = [],
   appliedGroups = [],
   parentText,
+  proposerMode,
+  rationale,
+  rewriteText,
 }: AnnotatedProposalsProps): JSX.Element {
   const [view, setView] = useState<ViewMode>('annotated');
   const [legendOpen, setLegendOpen] = useState(false);
@@ -193,6 +204,9 @@ export function AnnotatedProposals({
 
   return (
     <div data-testid="annotated-proposals" className="text-sm">
+      {proposerMode === 'rewrite' && (rationale || rewriteText) && (
+        <RationaleBlock rationale={rationale} rewriteText={rewriteText} />
+      )}
       <div className="flex items-center gap-2 mb-2 flex-wrap">
         <div className="inline-flex rounded border border-[var(--border-default)] overflow-hidden text-xs font-ui">
           <button
@@ -280,6 +294,47 @@ export function AnnotatedProposals({
         <pre className={PRE_CLASSNAME} data-testid="annotated-original">
           {originalText}
         </pre>
+      )}
+    </div>
+  );
+}
+
+// ─── RationaleBlock (Mode B / iterative_editing_rewrite) ───────────────────
+// Surfaces the proposer's stated rationale + (collapsible) full rewrite text
+// for operator review. Per Decision #11, the markup approver also sees the
+// rationale during the cycle (passed through approverPrompt with a red-team
+// caveat). All content is rendered as plain text via React's default text-child
+// escaping — never as HTML or parsed markdown — because LLM output is treated
+// as untrusted (Phase 3 SECURITY-RATIONALE-XSS mitigation).
+interface RationaleBlockProps {
+  rationale?: string;
+  rewriteText?: string;
+}
+function RationaleBlock({ rationale, rewriteText }: RationaleBlockProps): JSX.Element {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <div data-testid="rationale-block" className="mb-3 rounded-page border border-[var(--accent-copper)]/40 bg-[var(--surface-elevated)] p-3">
+      <div className="flex items-baseline gap-2 mb-1">
+        <span className="font-ui text-xs uppercase tracking-wide text-[var(--accent-copper)]">Proposer Rationale</span>
+        <span className="font-ui text-[10px] text-[var(--text-muted)]">(Mode B — claim, not ground truth)</span>
+      </div>
+      {rationale && (
+        <pre className="whitespace-pre-wrap text-sm font-body text-[var(--text-primary)]">{rationale}</pre>
+      )}
+      {rewriteText && (
+        <div className="mt-2">
+          <button
+            type="button"
+            onClick={() => setExpanded((v) => !v)}
+            className="font-ui text-xs underline text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+            data-testid="rationale-block-toggle-rewrite"
+          >
+            {expanded ? 'Hide' : 'Show'} full rewrite ({rewriteText.length.toLocaleString()} chars)
+          </button>
+          {expanded && (
+            <pre className="mt-1 whitespace-pre-wrap text-xs font-mono text-[var(--text-secondary)] bg-[var(--surface-primary)] p-2 rounded border border-[var(--border-default)] max-h-64 overflow-auto">{rewriteText}</pre>
+          )}
+        </div>
       )}
     </div>
   );

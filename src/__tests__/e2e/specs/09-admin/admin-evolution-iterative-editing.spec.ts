@@ -326,4 +326,27 @@ adminTest.describe('Iterative Editing Wizard', { tag: '@evolution' }, () => {
     await adminPage.locator('#approver-model').selectOption({ index: 2 });
     await expect(adminPage.getByTestId('rubber-stamping-warning')).not.toBeVisible();
   });
+
+  // Phase 3 (add_rewrite_mode_iterative_editing_evolution_20260507): the wizard
+  // exposes the new agent type 'iterative_editing_rewrite' (Mode B) as a
+  // selectable option in the iteration dropdown. Disabled on the first iteration
+  // (must produce variants) — same constraint as Mode A iterative_editing.
+  adminTest('strategy wizard exposes iterative_editing_rewrite agent type (Mode B)', async ({ adminPage }) => {
+    await adminPage.goto('/admin/evolution/strategies/new');
+    await adminPage.locator('#strategy-name').fill('[TEST_EVO] Mode B dropdown');
+    await adminPage.locator('#generation-model').selectOption({ index: 1 });
+    await adminPage.locator('#judge-model').selectOption({ index: 1 });
+    await adminPage.getByRole('button', { name: /^Next:/i }).click();
+
+    // Open the second iteration's agent-type select; the new option must appear.
+    const select = adminPage.locator('[data-testid="agent-type-select-1"]');
+    await expect(select.locator('option[value="iterative_editing_rewrite"]')).toBeAttached();
+    // First-iteration dropdown should DISABLE the new option (same rule as Mode A).
+    const firstSelect = adminPage.locator('[data-testid="agent-type-select-0"]');
+    const disabledFlag = await firstSelect.locator('option[value="iterative_editing_rewrite"]').getAttribute('disabled');
+    expect(disabledFlag).not.toBeNull();
+    // Verify the second iteration can actually be set to the new type without error.
+    await select.selectOption('iterative_editing_rewrite');
+    await expect(select).toHaveValue('iterative_editing_rewrite');
+  });
 });
