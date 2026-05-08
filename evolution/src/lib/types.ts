@@ -275,6 +275,14 @@ export interface EditingCycle {
   approveCostUsd: number;
   driftRecoveryCostUsd?: number;
   sizeRatio: number;
+  // Phase 3 (Mode B) optional fields — populated only when this cycle ran
+  // through IterativeEditingRewriteAgent. Mode A leaves them undefined.
+  proposerMode?: 'markup' | 'rewrite';
+  rationale?: string;
+  rewriteText?: string;
+  computedMarkup?: string;
+  errorContext?: { type: string; message: string; line?: number; col?: number };
+  errorMessage?: string;
 }
 
 export type IterativeEditingStopReason =

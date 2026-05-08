@@ -34,7 +34,7 @@ const STEP_LABELS: Record<Step, string> = { config: 'Strategy Config', iteration
 type BudgetFloorMode = 'fraction' | 'agentMultiple';
 
 interface IterationRow {
-  agentType: 'generate' | 'reflect_and_generate' | 'criteria_and_generate' | 'iterative_editing' | 'swiss';
+  agentType: 'generate' | 'reflect_and_generate' | 'criteria_and_generate' | 'iterative_editing' | 'iterative_editing_rewrite' | 'swiss';
   budgetPercent: number;
   /** Phase 2: parent-article source for generate iterations. Undefined for swiss/editing.
    *  First iteration is locked to 'seed' by schema refine. */
@@ -93,7 +93,7 @@ const DEFAULT_ITERATIONS: IterationRow[] = [
 // ─── Form → payload helpers ─────────────────────────────────────
 
 interface IterationConfigPayload {
-  agentType: 'generate' | 'reflect_and_generate' | 'criteria_and_generate' | 'iterative_editing' | 'swiss';
+  agentType: 'generate' | 'reflect_and_generate' | 'criteria_and_generate' | 'iterative_editing' | 'iterative_editing_rewrite' | 'swiss';
   budgetPercent: number;
   sourceMode?: 'seed' | 'pool';
   qualityCutoff?: { mode: 'topN' | 'topPercent'; value: number };
@@ -146,11 +146,14 @@ function toIterationConfigsPayload(iterations: IterationRow[]): IterationConfigP
     ...(it.agentType === 'reflect_and_generate'
       ? { reflectionTopN: it.reflectionTopN ?? 3 }
       : {}),
-    // Editing-only fields.
-    ...(it.agentType === 'iterative_editing' && it.editingMaxCycles != null
+    // Editing-only fields. Both iterative_editing (Mode A) and
+    // iterative_editing_rewrite (Mode B) share editingMaxCycles + cutoff.
+    ...((it.agentType === 'iterative_editing' || it.agentType === 'iterative_editing_rewrite')
+      && it.editingMaxCycles != null
       ? { editingMaxCycles: it.editingMaxCycles }
       : {}),
-    ...(it.agentType === 'iterative_editing' && it.editingCutoffMode && it.editingCutoffValue != null
+    ...((it.agentType === 'iterative_editing' || it.agentType === 'iterative_editing_rewrite')
+      && it.editingCutoffMode && it.editingCutoffValue != null
       ? { editingEligibilityCutoff: { mode: it.editingCutoffMode, value: it.editingCutoffValue } }
       : {}),
     // criteriaIds + weakestK only meaningful for criteria_and_generate iterations.
@@ -981,7 +984,8 @@ export default function NewStrategyPage(): JSX.Element {
                         <option value="generate">Generate</option>
                         <option value="reflect_and_generate">Reflect &amp; Generate</option>
                         <option value="criteria_and_generate">Evaluate Criteria + Generate</option>
-                        <option value="iterative_editing" disabled={idx === 0} title={idx === 0 ? 'First iteration must produce variants' : undefined}>Iterative Editing</option>
+                        <option value="iterative_editing" disabled={idx === 0} title={idx === 0 ? 'First iteration must produce variants' : undefined}>Iterative Editing (Markup)</option>
+                        <option value="iterative_editing_rewrite" disabled={idx === 0} title={idx === 0 ? 'First iteration must produce variants' : 'Mode B: proposer rewrites; markup computed mechanically'}>Iterative Editing (Rewrite)</option>
                         <option value="swiss" disabled={idx === 0} title={idx === 0 ? 'First iteration must produce variants' : undefined}>Swiss</option>
                       </select>
 

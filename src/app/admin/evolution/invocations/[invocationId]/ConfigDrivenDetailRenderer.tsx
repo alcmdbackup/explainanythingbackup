@@ -228,6 +228,9 @@ function renderField(field: DetailFieldDef, data: Record<string, unknown>): JSX.
             droppedPostApprover={resolveProp<AnnotatedProps['droppedPostApprover']>(field.dropsPostKey ?? 'droppedPostApprover') ?? []}
             appliedGroups={resolveProp<AnnotatedProps['appliedGroups']>(`${cyclePrefix}appliedGroups`) ?? []}
             parentText={typeof parentTextValue === 'string' ? parentTextValue : undefined}
+            proposerMode={resolveProp<AnnotatedProps['proposerMode']>(`${cyclePrefix}proposerMode`)}
+            rationale={resolveProp<AnnotatedProps['rationale']>(`${cyclePrefix}rationale`)}
+            rewriteText={resolveProp<AnnotatedProps['rewriteText']>(`${cyclePrefix}rewriteText`)}
           />
         </div>
       );

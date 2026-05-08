@@ -61,7 +61,17 @@ const config = {
         moduleResolution: 'node',
       },
     }],
+    // Pure-ESM packages (unified, remark-*, mdast-*, micromark-*, etc.) ship
+    // as ESM only and trip Jest's CJS parser. Transform them via babel-jest.
+    '^.+\\.m?js$': ['babel-jest', { presets: [['@babel/preset-env', { targets: { node: 'current' } }]] }],
   },
+
+  // Allow ESM-only packages to be transformed (default ignores all node_modules).
+  // Without this, jest.config.transform's `.m?js` pattern would still be skipped
+  // for files inside node_modules. List the packages we cross into.
+  transformIgnorePatterns: [
+    'node_modules/(?!(unified|bail|is-plain-obj|trough|vfile|vfile-message|unist-util-stringify-position|remark-parse|remark-stringify|mdast-util-from-markdown|mdast-util-to-markdown|mdast-util-to-string|micromark|micromark-util-.+|micromark-core-.+|decode-named-character-reference|character-entities|escape-string-regexp|character-reference-invalid|is-decimal|is-hexadecimal|is-alphanumerical|is-alphabetical|parse-entities|stringify-entities|character-entities-html4|character-entities-legacy|space-separated-tokens|comma-separated-tokens|property-information|hast-util-.+|html-void-elements|zwitch|longest-streak|markdown-table|ccount|escape-string-regexp)/)',
+  ],
 
   // Ignore patterns
   testPathIgnorePatterns: [

@@ -485,6 +485,12 @@ function preprocessBudgetFloor(input: unknown): unknown {
  *    suggestions for the K weakest criteria. Variant-producing.
  *  - `swiss`: SwissRankingAgent — re-ranks the existing pool, no new variants.
  */
+// 'iterative_editing_rewrite' (Mode B) is the rewrite-then-diff sibling of
+// 'iterative_editing' (Mode A). It uses the same dispatch helpers (eligibility
+// cutoff, max-cycles), shares the same approver, and produces final variants
+// with `parent_variant_id = input.parent.variantId` per Decisions §14. The two
+// types are distinct enum values so analytics partition cleanly via
+// `evolution_agent_invocations.agent_name` (Agent.name is `abstract readonly`).
 export const iterationAgentTypeEnum = z.enum([
   'generate',
   'reflect_and_generate',
@@ -492,6 +498,7 @@ export const iterationAgentTypeEnum = z.enum([
   'single_pass_evaluate_criteria_and_generate',
   'proposer_approver_criteria_generate',
   'iterative_editing',
+  'iterative_editing_rewrite',
   'swiss',
 ]);
 
@@ -503,8 +510,8 @@ const CRITERIA_BASED_AGENT_TYPES = new Set<z.infer<typeof iterationAgentTypeEnum
 ]);
 
 /** Helper: agent types that may appear as the FIRST iteration of a strategy.
- *  Editing is excluded — it requires existing variants to edit. Swiss is also
- *  excluded — it only re-ranks. All variant-producing-from-seed agents qualify. */
+ *  Editing modes are excluded — they require existing variants to edit. Swiss is
+ *  also excluded — it only re-ranks. All variant-producing-from-seed agents qualify. */
 export function canBeFirstIteration(t: z.infer<typeof iterationAgentTypeEnum>): boolean {
   return t === 'generate'
     || t === 'reflect_and_generate'
@@ -514,7 +521,7 @@ export function canBeFirstIteration(t: z.infer<typeof iterationAgentTypeEnum>): 
 }
 
 /** Helper: agent types that produce new variants via parallel-batch dispatch + sourceMode/qualityCutoff.
- *  Editing is variant-producing but uses a different dispatch path (per-parent), so it's not in this set. */
+ *  Editing modes are variant-producing but use a different dispatch path (per-parent), so they're not in this set. */
 export function isVariantProducingAgentType(t: z.infer<typeof iterationAgentTypeEnum>): boolean {
   return t === 'generate'
     || t === 'reflect_and_generate'
@@ -524,8 +531,8 @@ export function isVariantProducingAgentType(t: z.infer<typeof iterationAgentType
 }
 
 /** Helper: agent types that produce new variants in the pool. Includes editing
- *  per Decisions §14 (final cycle's text is materialized as a Variant). Used by
- *  the swiss-precedence refine to ensure swiss never runs before any iteration
+ *  modes per Decisions §14 (final cycle's text is materialized as a Variant). Used
+ *  by the swiss-precedence refine to ensure swiss never runs before any iteration
  *  that would put variants in the pool. */
 export function producesNewVariants(t: z.infer<typeof iterationAgentTypeEnum>): boolean {
   return t === 'generate'
@@ -533,7 +540,15 @@ export function producesNewVariants(t: z.infer<typeof iterationAgentTypeEnum>): 
     || t === 'criteria_and_generate'
     || t === 'single_pass_evaluate_criteria_and_generate'
     || t === 'proposer_approver_criteria_generate'
-    || t === 'iterative_editing';
+    || t === 'iterative_editing'
+    || t === 'iterative_editing_rewrite';
+}
+
+/** Helper: agent types that share the iterative-editing config bag (max cycles,
+ *  eligibility cutoff, proposer/approver models). Both Mode A and Mode B share
+ *  these settings; they differ only in the proposer pathway. */
+export function isEditingAgentType(t: z.infer<typeof iterationAgentTypeEnum>): boolean {
+  return t === 'iterative_editing' || t === 'iterative_editing_rewrite';
 }
 
 /** Source of the parent article for a generate iteration. 'seed' = the run's seed article; 'pool' = a variant drawn from the current run's pool. */
@@ -567,10 +582,14 @@ export const iterationConfigSchema = z.object({
   generationGuidance: generationGuidanceSchema.optional(),
   /** How many top tactics the reflection LLM returns (1-10, default 3). Only valid when `agentType === 'reflect_and_generate'`. */
   reflectionTopN: z.number().int().min(1).max(10).optional(),
-  /** Per-iteration override for how many propose-review-apply cycles the editing agent runs per parent (1-5, default 3). Only valid when `agentType === 'iterative_editing'`. */
+  /** Per-iteration override for how many propose-review-apply cycles the editing agent runs per parent (1-5, default 3). Only valid for editing agent types (Mode A or Mode B). */
   editingMaxCycles: z.number().int().min(1).max(5).optional(),
-  /** Caps how many of the top-Elo variants are eligible for editing per iteration. Defaults to `{ mode: 'topN', value: 10 }` at consumption time (resolveEditingDispatch* helpers). Only valid when `agentType === 'iterative_editing'`. Reuses qualityCutoffSchema's value-validation refines. */
+  /** Caps how many of the top-Elo variants are eligible for editing per iteration. Defaults to `{ mode: 'topN', value: 10 }` at consumption time (resolveEditingDispatch* helpers). Only valid for editing agent types. Reuses qualityCutoffSchema's value-validation refines. */
   editingEligibilityCutoff: qualityCutoffSchema.optional(),
+  /** Mode B (iterative_editing_rewrite) only: soft-cap on the number of edits the
+   *  proposer is asked to suggest per cycle. Surfaces in the prompt as a phrase
+   *  ("at most N changes") — not enforced at parse time. Default 3. */
+  editingProposerSoftCap: z.number().int().min(1).max(5).optional(),
   /** Criteria UUIDs evaluated by the EvaluateCriteriaThenGenerateFromPreviousArticleAgent.
    *  Required + non-empty when agentType === 'criteria_and_generate'. Mutually exclusive
    *  with generationGuidance (criteria drive the prompt directly). */
@@ -612,14 +631,19 @@ export const iterationConfigSchema = z.object({
   (c) => c.agentType === 'reflect_and_generate' || c.reflectionTopN === undefined,
   { message: 'reflectionTopN only valid when agentType is reflect_and_generate' },
 ).refine(
-  // WIDENED: editingMaxCycles is valid for iterative_editing AND proposer_approver_criteria_generate
-  // (the latter is single-cycle by definition; the value-must-be-1 refine below enforces that).
-  (c) => c.agentType === 'iterative_editing' || c.agentType === 'proposer_approver_criteria_generate' || c.editingMaxCycles === undefined,
-  { message: 'editingMaxCycles only valid when agentType is iterative_editing or proposer_approver_criteria_generate' },
+  // editingMaxCycles is shared between editing modes (iterative_editing,
+  // iterative_editing_rewrite) AND proposer_approver_criteria_generate (which
+  // is single-cycle by definition; the value-must-be-1 refine below enforces).
+  (c) => isEditingAgentType(c.agentType) || c.agentType === 'proposer_approver_criteria_generate' || c.editingMaxCycles === undefined,
+  { message: 'editingMaxCycles only valid for editing agent types or proposer_approver_criteria_generate' },
 ).refine(
-  // WIDENED: editingEligibilityCutoff is valid for iterative_editing AND proposer_approver_criteria_generate.
-  (c) => c.agentType === 'iterative_editing' || c.agentType === 'proposer_approver_criteria_generate' || c.editingEligibilityCutoff === undefined,
-  { message: 'editingEligibilityCutoff only valid when agentType is iterative_editing or proposer_approver_criteria_generate' },
+  // editingEligibilityCutoff is shared between editing modes AND proposer_approver_criteria_generate.
+  (c) => isEditingAgentType(c.agentType) || c.agentType === 'proposer_approver_criteria_generate' || c.editingEligibilityCutoff === undefined,
+  { message: 'editingEligibilityCutoff only valid for editing agent types or proposer_approver_criteria_generate' },
+).refine(
+  // editingProposerSoftCap is exclusive to Mode B (iterative_editing_rewrite).
+  (c) => c.agentType === 'iterative_editing_rewrite' || c.editingProposerSoftCap === undefined,
+  { message: 'editingProposerSoftCap only valid when agentType is iterative_editing_rewrite' },
 ).refine(
   // proposer_approver_criteria_generate is single-cycle by definition: editingMaxCycles must be 1 if present.
   (c) => c.agentType !== 'proposer_approver_criteria_generate' || c.editingMaxCycles === undefined || c.editingMaxCycles === 1,
@@ -1014,6 +1038,30 @@ const editingCycleSchema = z.object({
   /** Final-newText / cycle-input-text length ratio for monitoring (≤1.5× per
    *  Decisions §17). */
   sizeRatio: z.number().min(0),
+  // Phase 3 (Mode B) — optional fields populated only when this cycle ran
+  // through IterativeEditingRewriteAgent. Mode A leaves them undefined.
+  /** Discriminator: 'markup' for Mode A, 'rewrite' for Mode B. */
+  proposerMode: z.enum(['markup', 'rewrite']).optional(),
+  /** Mode B: prose paragraph the proposer wrote explaining its intent. Surfaced
+   *  to the approver as priming context (with red-team caveat) and to operators
+   *  via the run-detail UI. */
+  rationale: z.string().optional(),
+  /** Mode B: full rewritten article body, truncated to 8 KB before persistence. */
+  rewriteText: z.string().optional(),
+  /** Mode B: CriticMarkup string the diff engine computed from (source, rewrite).
+   *  Identical to proposedMarkup; persisted separately for forensics so a
+   *  Mode B cycle can be replayed against a different parser/diff version. */
+  computedMarkup: z.string().optional(),
+  /** Mode B: serialized originalError when stopReason ∈ {rewrite_parse_failed,
+   *  diff_engine_failed} — for forensic inspection. */
+  errorContext: z.object({
+    type: z.string(),
+    message: z.string(),
+    line: z.number().optional(),
+    col: z.number().optional(),
+  }).optional(),
+  /** Mode B: free-form error message attached to abort cases. */
+  errorMessage: z.string().optional(),
 });
 
 // ─── Ranking sub-schemas (relocated up from the parallel-pipeline section) ─────
@@ -1728,7 +1776,7 @@ const afterVariantRenameKeys = renameKeys({
 
 export const mergeRatingsExecutionDetailSchema = executionDetailBaseSchema.extend({
   detailType: z.literal('merge_ratings'),
-  iterationType: z.enum(['generate', 'reflect_and_generate', 'criteria_and_generate', 'single_pass_evaluate_criteria_and_generate', 'proposer_approver_criteria_generate', 'iterative_editing', 'swiss']),
+  iterationType: z.enum(['generate', 'reflect_and_generate', 'criteria_and_generate', 'single_pass_evaluate_criteria_and_generate', 'proposer_approver_criteria_generate', 'iterative_editing', 'iterative_editing_rewrite', 'swiss']),
   before: z.object({
     poolSize: z.number().int().min(0),
     variants: z.array(z.preprocess(
@@ -1786,7 +1834,7 @@ const snapshotDiscardReasonRename = renameKeys({ mu: 'elo' });
 // only contain 'generate' or 'swiss' so backward-compat reads remain valid.
 export const iterationSnapshotSchema = z.object({
   iteration: z.number().int().min(1),
-  iterationType: z.enum(['generate', 'reflect_and_generate', 'criteria_and_generate', 'single_pass_evaluate_criteria_and_generate', 'proposer_approver_criteria_generate', 'iterative_editing', 'swiss']),
+  iterationType: z.enum(['generate', 'reflect_and_generate', 'criteria_and_generate', 'single_pass_evaluate_criteria_and_generate', 'proposer_approver_criteria_generate', 'iterative_editing', 'iterative_editing_rewrite', 'swiss']),
   phase: z.enum(['start', 'end']),
   capturedAt: z.string(),
   poolVariantIds: z.array(z.string()),
