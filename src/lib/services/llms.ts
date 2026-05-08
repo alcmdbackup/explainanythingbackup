@@ -238,7 +238,7 @@ function getOpenAIClient(): OpenAI {
         openai = new OpenAI({
             apiKey: process.env.OPENAI_API_KEY,
             maxRetries: 2,
-            timeout: 20000,
+            timeout: 60000,
         });
     }
 
@@ -262,7 +262,7 @@ function getDeepSeekClient(): OpenAI {
             apiKey: process.env.DEEPSEEK_API_KEY,
             baseURL: DEEPSEEK_BASE_URL,
             maxRetries: 2,
-            timeout: 20000,
+            timeout: 60000,
         });
     }
 
@@ -313,7 +313,7 @@ function getOpenRouterClient(): OpenAI {
             apiKey: process.env.OPENROUTER_API_KEY,
             baseURL: OPENROUTER_BASE_URL,
             maxRetries: 2,
-            timeout: 20000,
+            timeout: 60000,
         });
     }
 
@@ -339,7 +339,7 @@ function getAnthropicClient(): Anthropic {
         anthropicClient = new Anthropic({
             apiKey: process.env.ANTHROPIC_API_KEY,
             maxRetries: 2,
-            timeout: 20000,
+            timeout: 60000,
         });
     }
 

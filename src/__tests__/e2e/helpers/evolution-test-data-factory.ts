@@ -581,7 +581,10 @@ export async function createMultiHopFixture(
       .insert({
         run_id: run.id,
         prompt_id: prompt.id,
-        parent_variant_id: parent,
+        // Use plural column per PR #1042 (debate multi-parent rewrite). Legacy
+        // singular `parent_variant_id` is deprecated and lands NULL; the lineage
+        // RPC reads `parent_variant_ids[]` only.
+        parent_variant_ids: parent != null ? [parent] : [],
         generation: i,
         variant_content: `${names[i]} content — iteration ${i}`,
         elo_score: elos[i],
