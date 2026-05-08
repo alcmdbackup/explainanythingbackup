@@ -44,7 +44,9 @@ type Phase =
   | 'iterative_edit_drift_recovery'
   | 'criteria_proposer'
   | 'criteria_forward_approver'
-  | 'criteria_mirror_approver';
+  | 'criteria_mirror_approver'
+  | 'debate_judge'
+  | 'debate_synthesis';
 
 interface Bucket {
   outputCharsSum: number;
@@ -90,6 +92,8 @@ function asPhase(raw: unknown): Phase | null {
     case 'criteria_proposer':
     case 'criteria_forward_approver':
     case 'criteria_mirror_approver':
+    case 'debate_judge':
+    case 'debate_synthesis':
       return raw;
     default:
       return null;

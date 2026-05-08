@@ -18,9 +18,11 @@ else
   exit 0
 fi
 
-# Change to project directory for git commands
-if [ -n "$CWD" ]; then
-  cd "$CWD" || exit 0
+# Change to project directory for git commands.
+# Prefer CLAUDE_PROJECT_DIR (set by Claude Code, always project root) over stdin cwd.
+TARGET_DIR="${CLAUDE_PROJECT_DIR:-$CWD}"
+if [ -n "$TARGET_DIR" ]; then
+  cd "$TARGET_DIR" || exit 0
 fi
 
 # Get current branch

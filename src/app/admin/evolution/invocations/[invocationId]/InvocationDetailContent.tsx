@@ -12,10 +12,12 @@ const TIMELINE_AGENTS = new Set<string>([
   'generate_from_previous_article',
   'reflect_and_generate_from_previous_article',
   'evaluate_criteria_then_generate_from_previous_article',
+  'debate_then_generate_from_previous_article',
 ]);
 
 const REFLECT_GENERATE_AGENT = 'reflect_and_generate_from_previous_article';
 const CRITERIA_GENERATE_AGENT = 'evaluate_criteria_then_generate_from_previous_article';
+const DEBATE_GENERATE_AGENT = 'debate_then_generate_from_previous_article';
 
 function buildTabs(agentName: string): TabDef[] {
   if (agentName === REFLECT_GENERATE_AGENT) {
@@ -32,6 +34,17 @@ function buildTabs(agentName: string): TabDef[] {
     return [
       { id: 'overview-evaluate-suggest', label: 'Eval & Suggest' },
       { id: 'overview-gfpa', label: 'Generation' },
+      { id: 'metrics', label: 'Metrics' },
+      { id: 'timeline', label: 'Timeline' },
+      { id: 'logs', label: 'Logs' },
+    ];
+  }
+  if (agentName === DEBATE_GENERATE_AGENT) {
+    // bring_back_debate_agent_20260506 Phase 4.3 — 5-tab layout. Combined judge call
+    // surfaces on the Debate Overview; synthesis-via-GFPA surfaces on the Synthesis tab.
+    return [
+      { id: 'overview-debate', label: 'Debate Overview' },
+      { id: 'overview-synthesis', label: 'Synthesis' },
       { id: 'metrics', label: 'Metrics' },
       { id: 'timeline', label: 'Timeline' },
       { id: 'logs', label: 'Logs' },
@@ -203,6 +216,69 @@ export function InvocationDetailContent({ invocation: inv }: Props): JSX.Element
                 && !key.startsWith('evaluateAndSuggest')
                 && !key.startsWith('weakestCriteria')
                 && key !== 'tactic'}
+            />
+          </div>
+        )}
+
+        {/* Debate wrapper Tab 1: combined judge call surfaces here (Phase 4.4 keyFilter). */}
+        {activeTab === 'overview-debate' && (
+          <div className="space-y-6" data-testid="debate-overview-tab">
+            <MetricGrid
+              columns={4}
+              variant="bordered"
+              size="md"
+              metrics={[
+                { label: 'Agent', value: inv.agent_name },
+                { label: 'Tactic', value: 'debate_synthesis' },
+                { label: 'Cost', value: formatCostDetailed(inv.cost_usd) },
+                { label: 'Duration', value: inv.duration_ms != null ? `${(inv.duration_ms / 1000).toFixed(1)}s` : '—' },
+              ]}
+            />
+
+            {inv.error_message && (
+              <div className="border border-[var(--status-error)] rounded-book bg-[var(--surface-elevated)] p-4" data-testid="error-message">
+                <h2 className="text-2xl font-display font-semibold text-[var(--status-error)] mb-2">Error</h2>
+                <p className="text-sm text-[var(--text-secondary)] whitespace-pre-wrap">{inv.error_message}</p>
+              </div>
+            )}
+
+            {/* Render variantA/variantB + debate.combined sub-detail (verdict + trace). */}
+            <InvocationExecutionDetail
+              detail={inv.execution_detail}
+              keyFilter={(key) =>
+                key === 'tactic'
+                || key === 'surfaced'
+                || key === 'variantA'
+                || key === 'variantB'
+                || key.startsWith('debate.')}
+            />
+          </div>
+        )}
+
+        {/* Debate wrapper Tab 2: synthesis-via-GFPA generation + ranking surface here. */}
+        {activeTab === 'overview-synthesis' && (
+          <div className="space-y-6" data-testid="debate-synthesis-tab">
+            <MetricGrid
+              columns={4}
+              variant="bordered"
+              size="md"
+              metrics={[
+                { label: 'Agent', value: inv.agent_name },
+                { label: 'Tactic', value: 'debate_synthesis' },
+                { label: 'Cost', value: formatCostDetailed(inv.cost_usd) },
+                { label: 'Duration', value: inv.duration_ms != null ? `${(inv.duration_ms / 1000).toFixed(1)}s` : '—' },
+              ]}
+            />
+
+            {/* Render generation + ranking + totalCost + discardReason; omit debate sub-tree
+                + variantA/variantB (which live on the Debate Overview tab). */}
+            <InvocationExecutionDetail
+              detail={inv.execution_detail}
+              keyFilter={(key) =>
+                key === 'generation'
+                || key === 'ranking'
+                || key === 'totalCost'
+                || key === 'discardReason'}
             />
           </div>
         )}

@@ -23,6 +23,9 @@ export const STATIC_METRIC_NAMES = [
   // Run (live during-execution)
   'cost', 'generation_cost', 'ranking_cost', 'reflection_cost', 'seed_cost',
   'iterative_edit_cost',
+  // bring_back_debate_agent_20260506 Phase 1.5 — single bucket for both
+  // debate_judge and debate_synthesis AgentNames (per Decision §6 + Phase 1.4).
+  'debate_cost',
   // Phase 3.5 — separate cost bucket for the post-cycle ranking step inside
   // editing iterations (mirrors the generation_cost/ranking_cost split for GFPA).
   'iterative_edit_rank_cost',
@@ -76,6 +79,8 @@ export const STATIC_METRIC_NAMES = [
   'min_sentence_verbatim_ratio',
   // Strategy/experiment-level propagation:
   'avg_median_sentence_verbatim_ratio',
+  // Run-level + propagation debate cost (combined judge + synthesis calls).
+  'total_debate_cost', 'avg_debate_cost_per_run',
   'avg_final_elo', 'best_final_elo', 'worst_final_elo',
   'avg_median_elo', 'avg_p90_elo', 'best_max_elo',
   'avg_matches_per_run', 'avg_decisive_rate',

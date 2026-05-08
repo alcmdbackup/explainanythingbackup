@@ -57,6 +57,7 @@ export class RunEntity extends Entity<EvolutionRunFullDb> {
       { ...METRIC_CATALOG.iterative_edit_recovery_success_rate, compute: () => 0 },
       { ...METRIC_CATALOG.iterative_edit_accept_rate, compute: () => 0 },
       { ...METRIC_CATALOG.evaluation_cost, compute: () => 0 },
+      { ...METRIC_CATALOG.debate_cost, compute: () => 0 },
       { ...METRIC_CATALOG.seed_cost, compute: () => 0 },
       // Proposer/Approver criteria agent (updated_criteria_agent_20260505)
       { ...METRIC_CATALOG.proposer_approver_criteria_cost, compute: () => 0 },

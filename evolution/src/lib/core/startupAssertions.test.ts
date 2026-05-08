@@ -59,7 +59,7 @@ describe('assertCostCalibrationPhaseEnumsMatch', () => {
       'reflection'::text, 'iterative_edit_propose'::text, 'iterative_edit_review'::text,
       'iterative_edit_drift_recovery'::text, 'evaluate_and_suggest'::text,
       'criteria_proposer'::text, 'criteria_forward_approver'::text,
-      'criteria_mirror_approver'::text
+      'criteria_mirror_approver'::text, 'debate_judge'::text, 'debate_synthesis'::text
     ])))`;
     const client = makeClient(() => ({ data: def, error: null }));
     await expect(assertCostCalibrationPhaseEnumsMatch(client)).resolves.toBeUndefined();
@@ -71,7 +71,8 @@ describe('assertCostCalibrationPhaseEnumsMatch', () => {
       'reflection'::text, 'iterative_edit_propose'::text, 'iterative_edit_review'::text,
       'iterative_edit_drift_recovery'::text, 'evaluate_and_suggest'::text,
       'criteria_proposer'::text, 'criteria_forward_approver'::text,
-      'criteria_mirror_approver'::text, 'future_v1_1_phase'::text
+      'criteria_mirror_approver'::text, 'debate_judge'::text, 'debate_synthesis'::text,
+      'future_v1_1_phase'::text
     ])))`;
     const client = makeClient(() => ({ data: def, error: null }));
     await expect(assertCostCalibrationPhaseEnumsMatch(client)).resolves.toBeUndefined();
@@ -122,7 +123,7 @@ describe('assertCostCalibrationPhaseEnumsMatch', () => {
       'reflection'::text, 'iterative_edit_propose'::text, 'iterative_edit_review'::text,
       'iterative_edit_drift_recovery'::text, 'evaluate_and_suggest'::text,
       'criteria_proposer'::text, 'criteria_forward_approver'::text,
-      'criteria_mirror_approver'::text
+      'criteria_mirror_approver'::text, 'debate_judge'::text, 'debate_synthesis'::text
     ])))`;
     const rpc = jest.fn().mockResolvedValue({ data: def, error: null });
     const client = { rpc, from: () => ({}) } as unknown as import('@supabase/supabase-js').SupabaseClient;

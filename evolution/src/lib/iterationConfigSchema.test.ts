@@ -32,14 +32,14 @@ describe('iterationConfigSchema', () => {
   it('rejects sourceMode on swiss iterations', () => {
     expect(() => iterationConfigSchema.parse({
       agentType: 'swiss', budgetPercent: 40, sourceMode: 'seed',
-    })).toThrow(/sourceMode only valid for variant-producing iterations/);
+    })).toThrow(/sourceMode only valid for/);
   });
 
   it('rejects qualityCutoff on swiss iterations', () => {
     expect(() => iterationConfigSchema.parse({
       agentType: 'swiss', budgetPercent: 40,
       qualityCutoff: { mode: 'topN', value: 5 },
-    })).toThrow(/qualityCutoff only valid for variant-producing iterations/);
+    })).toThrow(/qualityCutoff only valid for/);
   });
 
   it('silently strips maxAgents (Phase 4 removed the field; swiss or generate both OK)', () => {

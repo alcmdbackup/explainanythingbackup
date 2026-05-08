@@ -35,6 +35,7 @@ interface IterationConfig {
     | 'criteria_and_generate'
     | 'single_pass_evaluate_criteria_and_generate'   // updated_criteria_agent_20260505 (guardrails-only)
     | 'proposer_approver_criteria_generate'          // updated_criteria_agent_20260505 (architectural)
+    | 'debate_and_generate'                          // bring_back_debate_agent_20260506 (Option C revival)
     | 'iterative_editing'
     | 'swiss';
   budgetPercent: number;  // 1-100, all entries must sum to 100
@@ -64,6 +65,18 @@ interface IterationConfig {
   // Mirror-approver toggle for proposer_approver_criteria_generate only
   // (default true; emitted to config_hash ONLY when explicitly false).
   includesMirrorApprover?: boolean;
+  // debate_and_generate is the wrapper agent (bring_back_debate_agent_20260506) that runs
+  // ONE combined "analyze + judge" LLM call comparing the top-2 pool variants, then
+  // delegates synthesis to inner GFPA via .execute() with customPrompt built from the
+  // judge's verdict. Cannot be the first iteration (canBeFirstIteration returns false —
+  // requires ≥2 pool variants). NO debate-specific model overrides per Decision §18 —
+  // judge call uses strategy.judgeModel, synthesis call uses strategy.generationModel
+  // (the I4 LLM-client proxy rewrites 'generation' → 'debate_synthesis' AgentName for
+  // cost attribution but the underlying model is generationModel). The only debate-
+  // specific knob is debateJudgeReasoningEffort (Phase 1.14): cascade resolves
+  // iter-level → strategy-level → registry default. Cross-field Zod refinement
+  // rejects effort settings when the strategy's judgeModel has supportsReasoning=false.
+  debateJudgeReasoningEffort?: 'none' | 'low' | 'medium' | 'high';
 }
 
 interface StrategyConfig {
@@ -89,7 +102,7 @@ interface StrategyConfig {
 |---------------------|--------------------------------------------|
 | `generationModel`   | LLM used for text generation calls         |
 | `judgeModel`        | LLM used for pairwise comparison/judging. Default: `qwen-2.5-7b-instruct` (see `DEFAULT_JUDGE_MODEL` in `src/config/modelRegistry.ts`). Selected based on empirical judge-agreement research (see `docs/research/judge_agreement_summary_tables.md`) — 100% decisive on both large-gap and close-pair comparisons with ~1.7s median latency and no thinking-mode overhead. |
-| `iterationConfigs`  | Ordered array of iteration definitions. Each entry specifies `agentType` (`generate`, `reflect_and_generate`, `criteria_and_generate`, or `swiss`), `budgetPercent` (1-100, must sum to 100 across all entries), optional `sourceMode` / `qualityCutoff` (variant-producing only), optional `generationGuidance` (generate only — overrides strategy-level `generationGuidance` for this iteration), optional `reflectionTopN` (reflect_and_generate only), and `criteriaIds`+`weakestK` (criteria_and_generate only — see EvaluateCriteriaThenGenerateFromPreviousArticleAgent). First entry must be variant-producing (swiss on empty pool is invalid). Max 20 entries. Dollar amounts computed at runtime: `iterationBudgetUsd = (budgetPercent / 100) * totalBudgetUsd`. Dispatch count is budget-governed — no per-iter `maxAgents` field. |
+| `iterationConfigs`  | Ordered array of iteration definitions. Each entry specifies `agentType` (`generate`, `reflect_and_generate`, `criteria_and_generate`, `debate_and_generate`, `iterative_editing`, or `swiss`), `budgetPercent` (1-100, must sum to 100 across all entries), optional `sourceMode` / `qualityCutoff` (variant-producing only — debate selects parents internally so it rejects these), optional `generationGuidance` (generate only — overrides strategy-level `generationGuidance` for this iteration), optional `reflectionTopN` (reflect_and_generate only), `criteriaIds`+`weakestK` (criteria_and_generate only), and `debateJudgeReasoningEffort` (debate_and_generate only — overrides strategy-level cascade per Phase 1.14). First entry must be variant-producing on empty pool (debate + iterative_editing + swiss are NOT valid first iterations). Max 20 entries. Dollar amounts computed at runtime: `iterationBudgetUsd = (budgetPercent / 100) * totalBudgetUsd`. Dispatch count is budget-governed — no per-iter `maxAgents` field. |
 | `budgetUsd`         | Optional per-run budget cap. Per-iteration amounts derived from `iterationConfigs[].budgetPercent`. |
 | `generationGuidance`| Optional weighted tactic distribution at the strategy level. Array of `{ tactic, percent }` entries where percentages must sum to 100 and tactic names must be unique. Enables weighted random tactic selection from all 24 tactics via `selectTacticWeighted()` instead of the default deterministic 3-tactic behavior. Can be overridden per-iteration via `IterationConfig.generationGuidance`. |
 | `maxVariantsToGenerateFromSeedArticle` | Max generateFromSeedArticle agents per run. Excludes seed article. Default 9. |

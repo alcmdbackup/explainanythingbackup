@@ -93,6 +93,18 @@ describe('Evolution Visualization Data Integration Tests', () => {
   it('dashboard query returns correct status counts', async () => {
     if (!tablesExist) return;
 
+    // Re-pin the three runs' statuses by ID right before querying. The
+    // `claim_evolution_run` RPC (called by parallel Jest workers running
+    // evolution-claim.integration.test.ts) picks up `status='pending'` rows
+    // ORDER BY created_at ASC and flips them to 'claimed' under the global
+    // advisory lock. Without this UPDATE, the pending row can be stolen by a
+    // concurrent worker between beforeAll's INSERT and this test's SELECT,
+    // causing pending=0. The test only wants to verify the count-by-status
+    // pattern works, not that the rows survive concurrent claim activity.
+    await supabase.from('evolution_runs').update({ status: 'completed' }).eq('id', completedRunId);
+    await supabase.from('evolution_runs').update({ status: 'pending', runner_id: null }).eq('id', pendingRunId);
+    await supabase.from('evolution_runs').update({ status: 'failed' }).eq('id', failedRunId);
+
     // Query all runs (mirrors dashboard action logic)
     const { data: allRuns, error } = await supabase
       .from('evolution_runs')

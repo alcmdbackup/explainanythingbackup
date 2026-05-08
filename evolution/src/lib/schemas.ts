@@ -3,7 +3,7 @@
 
 import { z } from 'zod';
 import { _INTERNAL_DEFAULT_SIGMA } from './shared/computeRatings';
-import { getModelMaxTemperature } from '@/config/modelRegistry';
+import { getModelMaxTemperature, getModelInfo, MODEL_REGISTRY } from '@/config/modelRegistry';
 
 // ═══════════════════════════════════════════════════════════════════
 // Shared enums & helpers
@@ -215,7 +215,14 @@ export const evolutionVariantInsertSchema = z.object({
   agent_name: z.string().max(200).optional().nullable(),
   match_count: z.number().int().min(0).optional().default(0),
   is_winner: z.boolean().optional().default(false),
-  parent_variant_id: z.string().uuid().nullable().optional(),
+  // bring_back_debate_agent_20260506 Phase 1.16b — array column (additive).
+  // The legacy parent_variant_id column still exists at the DB level (its DROP
+  // is deferred to a follow-up PR after a soak window). Insert-time we only
+  // write parent_variant_ids; the legacy column lands NULL on new rows and
+  // existing rows keep their values. parent_variant_ids[0] (in-memory 0-indexed)
+  // is the canonical primary parent by convention (e.g. judge's winner for
+  // debate variants per Decision §20). Empty array for root/seed variants.
+  parent_variant_ids: z.array(z.string().uuid()).optional().default([]),
   prompt_id: z.string().uuid().nullable().optional(),
   synced_to_arena: z.boolean().optional().default(false),
   // B066: reject NaN/Infinity on mu/sigma — these back the Rating {elo, uncertainty} abstraction.
@@ -483,6 +490,13 @@ function preprocessBudgetFloor(input: unknown): unknown {
  *    scores the parent against user-defined criteriaIds in a single LLM call (combined
  *    evaluate + suggest), then delegates to GFPA with a customPrompt built from the
  *    suggestions for the K weakest criteria. Variant-producing.
+ *  - `debate_and_generate`: DebateThenGenerateFromPreviousArticleAgent —
+ *    runs a single combined "analyze + judge" LLM call comparing the top-2 pool
+ *    variants (Option C from bring_back_debate_agent_20260506 Decision §17), then
+ *    delegates to GFPA with a customPrompt built from the judge's verdict (strengths
+ *    from each parent + improvements). Variant-producing; emits multi-parent lineage
+ *    (parentIds=[winner.id, loser.id]) per Decision §20. Cannot be first iteration —
+ *    requires ≥2 pool variants.
  *  - `swiss`: SwissRankingAgent — re-ranks the existing pool, no new variants.
  */
 // 'iterative_editing_rewrite' (Mode B) is the rewrite-then-diff sibling of
@@ -497,13 +511,21 @@ export const iterationAgentTypeEnum = z.enum([
   'criteria_and_generate',
   'single_pass_evaluate_criteria_and_generate',
   'proposer_approver_criteria_generate',
+  'debate_and_generate',
   'iterative_editing',
   'iterative_editing_rewrite',
   'swiss',
 ]);
 
+/** Type alias for the iteration-agent-type union. Exported separately from the
+ *  Zod enum so client components and boundary types can `import type` it without
+ *  pulling Zod into the client bundle. Single source of truth — replaces inline
+ *  duplicate unions previously scattered across IterationPlanEntry, IterationResult,
+ *  IterationPlanEntryClient, IterationRow, IterationConfigPayload, etc. */
+export type IterationAgentType = z.infer<typeof iterationAgentTypeEnum>;
+
 /** Set of agent types that drive criteria-based generation. All three reference criteriaIds + weakestK. */
-const CRITERIA_BASED_AGENT_TYPES = new Set<z.infer<typeof iterationAgentTypeEnum>>([
+const CRITERIA_BASED_AGENT_TYPES = new Set<IterationAgentType>([
   'criteria_and_generate',
   'single_pass_evaluate_criteria_and_generate',
   'proposer_approver_criteria_generate',
@@ -511,7 +533,8 @@ const CRITERIA_BASED_AGENT_TYPES = new Set<z.infer<typeof iterationAgentTypeEnum
 
 /** Helper: agent types that may appear as the FIRST iteration of a strategy.
  *  Editing modes are excluded — they require existing variants to edit. Swiss is
- *  also excluded — it only re-ranks. All variant-producing-from-seed agents qualify. */
+ *  also excluded — it only re-ranks. Debate is excluded — it requires ≥2 pool variants
+ *  (top-2 selection). All variant-producing-from-seed agents qualify. */
 export function canBeFirstIteration(t: z.infer<typeof iterationAgentTypeEnum>): boolean {
   return t === 'generate'
     || t === 'reflect_and_generate'
@@ -521,8 +544,10 @@ export function canBeFirstIteration(t: z.infer<typeof iterationAgentTypeEnum>): 
 }
 
 /** Helper: agent types that produce new variants via parallel-batch dispatch + sourceMode/qualityCutoff.
- *  Editing modes are variant-producing but use a different dispatch path (per-parent), so they're not in this set. */
-export function isVariantProducingAgentType(t: z.infer<typeof iterationAgentTypeEnum>): boolean {
+ *  Editing modes are variant-producing but use a different dispatch path (per-parent), so they're not in this set.
+ *  Debate produces variants via its own dispatch path (top-2 pool selection inside the agent), so it
+ *  also stays out of the parallel-batch sourceMode/qualityCutoff family. */
+export function isVariantProducingAgentType(t: IterationAgentType): boolean {
   return t === 'generate'
     || t === 'reflect_and_generate'
     || t === 'criteria_and_generate'
@@ -531,17 +556,19 @@ export function isVariantProducingAgentType(t: z.infer<typeof iterationAgentType
 }
 
 /** Helper: agent types that produce new variants in the pool. Includes editing
- *  modes per Decisions §14 (final cycle's text is materialized as a Variant). Used
- *  by the swiss-precedence refine to ensure swiss never runs before any iteration
- *  that would put variants in the pool. */
-export function producesNewVariants(t: z.infer<typeof iterationAgentTypeEnum>): boolean {
+ *  modes per Decisions §14 (final cycle's text is materialized as a Variant). Includes
+ *  debate per bring_back_debate_agent_20260506 Decision §15 (synthesis variant
+ *  materialized when surfaced=true). Used by the swiss-precedence refine to
+ *  ensure swiss never runs before any iteration that would put variants in the pool. */
+export function producesNewVariants(t: IterationAgentType): boolean {
   return t === 'generate'
     || t === 'reflect_and_generate'
     || t === 'criteria_and_generate'
     || t === 'single_pass_evaluate_criteria_and_generate'
     || t === 'proposer_approver_criteria_generate'
     || t === 'iterative_editing'
-    || t === 'iterative_editing_rewrite';
+    || t === 'iterative_editing_rewrite'
+    || t === 'debate_and_generate';
 }
 
 /** Helper: agent types that share the iterative-editing config bag (max cycles,
@@ -612,12 +639,22 @@ export const iterationConfigSchema = z.object({
    *  agentType === 'proposer_approver_criteria_generate'. Hash canonicalization
    *  emits this field ONLY when explicitly false (compact hash for default-on strategies). */
   includesMirrorApprover: z.boolean().optional(),
+  /** Per-iteration override for the debate judge's reasoning effort. Only meaningful
+   *  when agentType === 'debate_and_generate'. Cascade resolver in debateDispatch.ts
+   *  walks: iterCfg.debateJudgeReasoningEffort → strategyCfg.debateJudgeReasoningEffort
+   *  → registry's defaultReasoningEffort. Cross-field refinement on the strategy schema
+   *  asserts the strategy's judgeModel has supportsReasoning=true when set.
+   *  bring_back_debate_agent_20260506 Decision §18 + Phase 1.14. */
+  debateJudgeReasoningEffort: z.enum(['none', 'low', 'medium', 'high']).optional(),
 }).refine(
-  (c) => c.agentType !== 'swiss' || c.sourceMode === undefined,
-  { message: 'sourceMode only valid for variant-producing iterations (generate, reflect_and_generate, criteria_and_generate)' },
+  // sourceMode is for parent-article selection in variant-producing iterations.
+  // Debate selects parents internally (top-2 from pool snapshot per Decision §16) so
+  // it does NOT accept sourceMode.
+  (c) => (c.agentType !== 'swiss' && c.agentType !== 'debate_and_generate') || c.sourceMode === undefined,
+  { message: 'sourceMode only valid for generate, reflect_and_generate, or criteria_and_generate iterations (debate selects parents internally; swiss does not produce variants)' },
 ).refine(
-  (c) => c.agentType !== 'swiss' || c.qualityCutoff === undefined,
-  { message: 'qualityCutoff only valid for variant-producing iterations (generate, reflect_and_generate, criteria_and_generate)' },
+  (c) => (c.agentType !== 'swiss' && c.agentType !== 'debate_and_generate') || c.qualityCutoff === undefined,
+  { message: 'qualityCutoff only valid for generate, reflect_and_generate, or criteria_and_generate iterations' },
 ).refine(
   (c) => c.sourceMode !== 'pool' || c.qualityCutoff !== undefined,
   { message: 'qualityCutoff required when sourceMode is pool' },
@@ -724,6 +761,13 @@ const strategyConfigBaseSchema = z.object({
   editingModel: z.string().optional(),
   /** Model used by the Approver LLM call in iterative_editing iterations. Falls back to editingModel (which falls back to generationModel) when unset. When approverModel === editingModel (resolved values), the wizard surfaces a soft rubber-stamping warning per Decisions §16. */
   approverModel: z.string().optional(),
+  /** Strategy-wide default for the debate judge's reasoning effort. Only meaningful
+   *  when at least one iteration has agentType: 'debate_and_generate'. Per-iteration
+   *  override via iterCfg.debateJudgeReasoningEffort. Cross-field refinement below
+   *  asserts judgeModel has supportsReasoning=true when this OR any iteration's
+   *  override is set.
+   *  bring_back_debate_agent_20260506 Decision §18 + Phase 1.14. */
+  debateJudgeReasoningEffort: z.enum(['none', 'low', 'medium', 'high']).optional(),
   /** Ordered sequence of iterations. Each specifies agent type, budget percentage, and optional maxAgents. */
   iterationConfigs: z.array(iterationConfigSchema).min(1).max(MAX_ITERATION_CONFIGS),
 }).refine((c) => {
@@ -782,7 +826,38 @@ const strategyConfigBaseSchema = z.object({
   if (maxTemp === undefined) return true; // unknown model — let it through
   if (maxTemp === null) return false; // model doesn't support temperature
   return c.generationTemperature <= maxTemp;
-}, { message: 'generationTemperature exceeds the model\'s maximum temperature' });
+}, { message: 'generationTemperature exceeds the model\'s maximum temperature' }).superRefine((cfg, ctx) => {
+  // bring_back_debate_agent_20260506 Phase 1.14 — debate reasoning-effort capability check.
+  // Appended AFTER all 9 existing .refine() calls (do NOT replace them).
+  // When any iteration sets debateJudgeReasoningEffort OR the strategy-level field is set,
+  // assert that the strategy's judgeModel has supportsReasoning=true. Otherwise the
+  // cascade resolver in debateDispatch.ts would silently drop the effort at runtime,
+  // creating a hard-to-debug "I asked for thinking but it didn't think" failure mode.
+  for (const [iterIdx, iterCfg] of cfg.iterationConfigs.entries()) {
+    const effortSetOnIter = iterCfg.debateJudgeReasoningEffort !== undefined;
+    const effortSetOnStrategy = cfg.debateJudgeReasoningEffort !== undefined;
+    if (!effortSetOnIter && !effortSetOnStrategy) continue;
+    if (!getModelInfo(cfg.judgeModel)?.supportsReasoning) {
+      const reasoningModels = Object.entries(MODEL_REGISTRY)
+        .filter(([, m]) => m.supportsReasoning)
+        .map(([id]) => id)
+        .join(', ');
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: effortSetOnIter
+          ? ['iterationConfigs', iterIdx, 'debateJudgeReasoningEffort']
+          : ['debateJudgeReasoningEffort'],
+        message:
+          `Strategy's judgeModel (${cfg.judgeModel}) does not support reasoning effort. ` +
+          `Either pick a reasoning-capable model or unset debateJudgeReasoningEffort. ` +
+          `Reasoning-capable models: ${reasoningModels}.`,
+      });
+      // Strategy-level error fires once even if multiple iterations also have it set;
+      // iteration-level errors fire once per iteration that has it set.
+      if (!effortSetOnIter) break;
+    }
+  }
+});
 
 export const strategyConfigSchema = z.preprocess(preprocessBudgetFloor, strategyConfigBaseSchema);
 
@@ -1222,26 +1297,132 @@ export const reflectionExecutionDetailSchema = executionDetailBaseSchema.extend(
   dimensions: z.array(z.string()),
 });
 
+/**
+ * DebateThenGenerateFromPreviousArticleAgent execution detail (V2 Option-C revival —
+ * see bring_back_debate_agent_20260506 Decisions §17, §19, §20).
+ *
+ * Option C shape: ONE combined "analyze + judge" LLM call producing structured
+ * {prosA, consA, prosB, consB, winner, reasoning, strengthsFromA, strengthsFromB,
+ * improvements}, THEN delegate to inner GFPA via .execute() with customPrompt
+ * built from the verdict. Mirrors evaluate_criteria_then_generate shape exactly.
+ *
+ * Multi-parent lineage (Decision §20): the synthesized variant's parentIds is
+ * [winner.id, loser.id] — parentIds[0] = canonical primary (judge's winner),
+ * parentIds[1] = the other parent. Order is load-bearing.
+ *
+ * Reasoning trace (Phase 1.20): when debateJudgeReasoningEffort is set, the
+ * combined call records reasoningTokens and (provider-permitting) reasoningTrace
+ * + reasoningTraceFormat. Three-state semantics:
+ *   - reasoningTokens === 0 + reasoningTraceFormat undefined: thinking not requested.
+ *   - reasoningTokens > 0 + reasoningTraceFormat 'verbatim'|'summary': trace surfaced.
+ *   - reasoningTokens > 0 + reasoningTraceFormat 'unavailable': thinking happened
+ *     but provider dropped trace text.
+ *
+ * Mu→Elo preprocess: {variantA, variantB} accept legacy `{id, mu}` from V1 fixtures.
+ */
+const debateMuRename = renameKeys({ mu: 'elo' });
+const debateVariantSchema = z.preprocess(debateMuRename, z.object({
+  id: z.string(),
+  elo: z.number(),
+}));
+
 export const debateExecutionDetailSchema = executionDetailBaseSchema.extend({
-  detailType: z.literal('debate'),
-  variantA: z.object({ id: z.string(), mu: z.number() }),
-  variantB: z.object({ id: z.string(), mu: z.number() }),
-  transcript: z.array(z.object({
-    role: z.enum(['advocate_a', 'advocate_b', 'judge']),
-    content: z.string(),
-  })),
-  judgeVerdict: z.object({
-    winner: z.enum(['A', 'B', 'tie']),
-    reasoning: z.string(),
-    strengthsFromA: z.array(z.string()),
-    strengthsFromB: z.array(z.string()),
-    improvements: z.array(z.string()),
+  detailType: z.literal('debate_then_generate_from_previous_article'),
+  /** Static marker tactic per Decision §9; lineage graph + tactic leaderboard
+   *  groups all debate-synthesized variants under this. */
+  tactic: z.literal('debate_synthesis'),
+  /** Pool variant the wrapper selected as parent A (top-Elo). Captured for direct
+   *  rendering without joining. */
+  variantA: debateVariantSchema,
+  /** Pool variant the wrapper selected as parent B (second-highest Elo with id-tiebreak). */
+  variantB: debateVariantSchema,
+  /** Combined "analyze + judge" sub-detail. Single LLM call source per Option C
+   *  (Decision §17). Optional so partial-failure rows still validate. */
+  debate: z.object({
+    combined: z.object({
+      // The 9 verdict fields are populated only when parse succeeds. On combined_call
+      // or parse failure paths, the wrapper writes `combined` with only the metadata
+      // fields (cost, durationMs, rawResponse, parseError) and omits the verdict.
+      /** Specific strengths LLM identified for parent A. */
+      prosA: z.array(z.string()).optional(),
+      /** Specific weaknesses LLM identified for parent A. */
+      consA: z.array(z.string()).optional(),
+      /** Specific strengths LLM identified for parent B. */
+      prosB: z.array(z.string()).optional(),
+      /** Specific weaknesses LLM identified for parent B. */
+      consB: z.array(z.string()).optional(),
+      /** Judge's verdict. 'tie' → synthesis runs but result not surfaced (Decision §13). */
+      winner: z.enum(['A', 'B', 'tie']).optional(),
+      /** 1-2 sentence reasoning for the verdict. */
+      reasoning: z.string().optional(),
+      /** Specific strengths to preserve from parent A — feeds inner GFPA customPrompt. */
+      strengthsFromA: z.array(z.string()).optional(),
+      /** Specific strengths to preserve from parent B — feeds inner GFPA customPrompt. */
+      strengthsFromB: z.array(z.string()).optional(),
+      /** Actionable improvements for the synthesis — feeds inner GFPA customPrompt. */
+      improvements: z.array(z.string()).optional(),
+      /** Cost of the combined LLM call. Recorded under 'debate_judge' AgentName. */
+      cost: z.number().min(0).optional(),
+      /** Wall-clock duration of the combined call. */
+      durationMs: z.number().int().min(0).optional(),
+      /** Raw LLM response — captured on parse failure for forensic debugging. */
+      rawResponse: z.string().optional(),
+      /** Set when JSON parse or schema validation failed. */
+      parseError: z.string().optional(),
+      /** Cascade-resolved reasoning effort actually used (per Decision §18). */
+      reasoningEffortResolved: z.enum(['none', 'low', 'medium', 'high']).optional(),
+      /** Number of reasoning tokens consumed (always populated when thinking-mode active). */
+      reasoningTokens: z.number().int().min(0).optional(),
+      /** Reasoning trace text. Format depends on provider — see reasoningTraceFormat. */
+      reasoningTrace: z.string().optional(),
+      /** Provider-specific shape: 'verbatim' (OpenRouter), 'summary' (OpenAI/Anthropic),
+       *  or 'unavailable' (thinking happened but trace dropped). */
+      reasoningTraceFormat: z.enum(['verbatim', 'summary', 'unavailable']).optional(),
+    }).optional(),
+    /** Failure point along the execution path. Used for partial-detail-on-throw observability. */
+    failurePoint: z.enum([
+      'gate',
+      'selection',
+      'combined_call',
+      'parse',
+      'judge_tie',
+      'synthesis',
+      'synthesis_empty',
+      'synthesis_no_op',
+      'budget',
+    ]).optional(),
   }).optional(),
-  synthesisVariantId: z.string().optional(),
-  synthesisTextLength: z.number().int().min(0).optional(),
-  formatValid: z.boolean().optional(),
-  formatIssues: z.array(z.string()).optional(),
-  failurePoint: z.enum(['advocate_a', 'advocate_b', 'judge', 'parse', 'format', 'synthesis']).optional(),
+  /** Generation sub-detail. Reused from GFPA shape. */
+  generation: z.object({
+    cost: z.number().min(0),
+    estimatedCost: z.number().min(0).optional(),
+    promptLength: z.number().int().min(0),
+    textLength: z.number().int().min(0).optional(),
+    formatValid: z.boolean(),
+    formatIssues: z.array(z.string()).optional(),
+    error: z.string().optional(),
+    durationMs: z.number().int().min(0).optional(),
+  }).optional(),
+  /** Ranking sub-detail. Reused from GFPA shape. */
+  ranking: z.preprocess(
+    rankingDetailRenameKeys,
+    rankNewVariantDetailInnerSchema.extend({
+      cost: z.number().min(0),
+      estimatedCost: z.number().min(0).optional(),
+    }),
+  ).nullable().optional(),
+  /** Total cost = combined.cost + generation.cost + ranking.cost. */
+  totalCost: z.number().min(0).optional(),
+  estimatedTotalCost: z.number().min(0).optional(),
+  estimationErrorPct: z.number().optional(),
+  surfaced: z.boolean(),
+  discardReason: z.preprocess(
+    renameKeys({ localMu: 'localElo' }),
+    z.object({
+      localElo: z.number(),
+      localTop15Cutoff: z.number(),
+    }),
+  ).optional(),
 });
 
 export const sectionDecompositionExecutionDetailSchema = executionDetailBaseSchema.extend({
@@ -1784,7 +1965,7 @@ const afterVariantRenameKeys = renameKeys({
 
 export const mergeRatingsExecutionDetailSchema = executionDetailBaseSchema.extend({
   detailType: z.literal('merge_ratings'),
-  iterationType: z.enum(['generate', 'reflect_and_generate', 'criteria_and_generate', 'single_pass_evaluate_criteria_and_generate', 'proposer_approver_criteria_generate', 'iterative_editing', 'iterative_editing_rewrite', 'swiss']),
+  iterationType: z.enum(['generate', 'reflect_and_generate', 'criteria_and_generate', 'single_pass_evaluate_criteria_and_generate', 'proposer_approver_criteria_generate', 'debate_and_generate', 'iterative_editing', 'iterative_editing_rewrite', 'swiss']),
   before: z.object({
     poolSize: z.number().int().min(0),
     variants: z.array(z.preprocess(
@@ -1842,7 +2023,7 @@ const snapshotDiscardReasonRename = renameKeys({ mu: 'elo' });
 // only contain 'generate' or 'swiss' so backward-compat reads remain valid.
 export const iterationSnapshotSchema = z.object({
   iteration: z.number().int().min(1),
-  iterationType: z.enum(['generate', 'reflect_and_generate', 'criteria_and_generate', 'single_pass_evaluate_criteria_and_generate', 'proposer_approver_criteria_generate', 'iterative_editing', 'iterative_editing_rewrite', 'swiss']),
+  iterationType: z.enum(['generate', 'reflect_and_generate', 'criteria_and_generate', 'single_pass_evaluate_criteria_and_generate', 'proposer_approver_criteria_generate', 'debate_and_generate', 'iterative_editing', 'iterative_editing_rewrite', 'swiss']),
   phase: z.enum(['start', 'end']),
   capturedAt: z.string(),
   poolVariantIds: z.array(z.string()),

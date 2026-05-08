@@ -127,6 +127,9 @@ export const TACTIC_PALETTE: Record<string, string> = {
   criteria_driven: '#6366f1',       // indigo — marker tactic for criteria_and_generate variants
   criteria_driven_single_pass: '#06b6d4',     // cyan — marker for single_pass_evaluate_criteria_and_generate
   criteria_driven_propose_approve: '#8b5cf6', // purple — marker for proposer_approver_criteria_generate
+  debate_synthesis: '#fda4af',      // rose — marker tactic for debate_and_generate variants
+                                    // (bring_back_debate_agent_20260506 Decision §9; distinct
+                                    // from #f472b6 used for the timeline DEBATE_COLOR per Phase 4.5)
 
   // Tree search prefixed variants
   tree_search_edit_dimension: '#eab308',
@@ -174,6 +177,12 @@ export const MARKER_TACTICS: ReadonlyArray<{
     name: 'criteria_driven_propose_approve',
     label: 'Criteria-Driven (Propose/Approve + Mirror)',
     agent_type: 'proposer_approver_criteria_generate',
+    category: 'meta',
+  },
+  {
+    name: 'debate_synthesis',
+    label: 'Debate-Synthesis',
+    agent_type: 'debate_then_generate_from_previous_article',
     category: 'meta',
   },
 ];

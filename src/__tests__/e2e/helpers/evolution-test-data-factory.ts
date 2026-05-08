@@ -576,27 +576,24 @@ export async function createMultiHopFixture(
   const variantIds: string[] = [];
   for (let i = 0; i < 4; i++) {
     const parent = i === 0 ? null : variantIds[i - 1];
-    // Dual-write parent column: lineage RPC reads parent_variant_ids[] (post
-    // PR #1042 multi-parent rewrite), but several reader paths in
-    // variantDetailActions.ts still use the legacy singular parent_variant_id
-    // column. Write both so every reader pattern works.
-    const insertPayload: Record<string, unknown> = {
-      run_id: run.id,
-      prompt_id: prompt.id,
-      parent_variant_id: parent,
-      parent_variant_ids: parent != null ? [parent] : [],
-      generation: i,
-      variant_content: `${names[i]} content — iteration ${i}`,
-      elo_score: elos[i],
-      mu: mus[i],
-      sigma: sigmas[i],
-      agent_name: i === 0 ? 'seed_variant' : strategy,
-      persisted: true,
-    };
     const { data, error } = await supabase
       .from('evolution_variants')
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .insert(insertPayload as any)
+      .insert({
+        run_id: run.id,
+        prompt_id: prompt.id,
+        parent_variant_id: parent,
+        // bring_back_debate_agent_20260506: production code reads parent_variant_ids[0]
+        // for the canonical primary parent (Decision §20). Fixture writes both the legacy
+        // single-FK and the array column so the new UI render path resolves correctly.
+        parent_variant_ids: parent ? [parent] : [],
+        generation: i,
+        variant_content: `${names[i]} content — iteration ${i}`,
+        elo_score: elos[i],
+        mu: mus[i],
+        sigma: sigmas[i],
+        agent_name: i === 0 ? 'seed_variant' : strategy,
+        persisted: true,
+      })
       .select('id')
       .single();
     if (error) throw new Error(`multi-hop variant[${i}] insert failed: ${error.message}`);

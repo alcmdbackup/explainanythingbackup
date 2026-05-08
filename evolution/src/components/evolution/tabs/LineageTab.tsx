@@ -60,9 +60,18 @@ export function LineageTab({ runId }: LineageTabProps): JSX.Element {
     persisted: n.persisted ?? true,
   }));
 
-  const graphEdges = nodes
-    .filter(n => n.parentId)
-    .map(n => ({ source: n.parentId!, target: n.id }));
+  // bring_back_debate_agent_20260506 Phase 4.9 — multi-parent lineage edges.
+  // For each variant's parent_variant_ids array, emit one edge per parent. parentIndex=0
+  // is the canonical primary (rendered solid); parentIndex>=1 are additional parents
+  // (debate's loser, etc. — rendered dashed by LineageGraph). Single-parent variants
+  // produce a single solid edge as before.
+  const graphEdges = nodes.flatMap(n =>
+    (n.parentIds ?? []).map((parentId, parentIndex) => ({
+      source: parentId,
+      target: n.id,
+      parentIndex,
+    })),
+  );
 
   return (
     <div data-testid="lineage-tab">

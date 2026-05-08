@@ -580,7 +580,7 @@ describe('evolutionActions', () => {
           match_count: 5,
           is_winner: false,
           created_at: '2026-03-01T11:00:00Z',
-          parent_variant_id: PARENT_ID,
+          parent_variant_ids: [PARENT_ID],
         },
       ];
       const parents = [

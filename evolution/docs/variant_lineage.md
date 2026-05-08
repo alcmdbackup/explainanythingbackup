@@ -8,19 +8,24 @@ Shipped as part of `generalize_to_generateFromPreviousArticle_evolution_20260417
 
 ## Data model
 
-### `evolution_variants.parent_variant_id`
+### `evolution_variants.parent_variant_ids`
 
-Every variant row has an optional self-referential pointer:
+Every variant row has a self-referential UUID array column (bring_back_debate_agent_20260506 PR 1+2):
 
 ```sql
-parent_variant_id UUID NULL  -- references evolution_variants(id) (no FK declared)
+parent_variant_ids UUID[] NOT NULL DEFAULT '{}'
+-- GIN index for `WHERE ? = ANY(parent_variant_ids)` and `parent_variant_ids @> ARRAY[?]`
 ```
 
-- Set by `GenerateFromPreviousArticleAgent` via `createVariant({ parentIds: [input.parentVariantId] })`.
-- `persistRunResults` reads `v.parentIds[0]` and persists it as `parent_variant_id`.
-- `CreateSeedArticleAgent` leaves it `NULL` (root of the lineage tree).
+- Set by every variant-producing agent via `createVariant({ parentIds: [...] })`.
+- `persistRunResults` writes `parent_variant_ids: variant.parentIds.slice(0, MAX_PARENT_IDS)` (cap = 10).
+- `CreateSeedArticleAgent` leaves it `'{}'::uuid[]` (root of the lineage tree).
+- Single-parent agents (GFPA, ReflectAndGenerate, EvaluateCriteria, IterativeEditing) emit `parentIds = [parent.id]` (1-element array).
+- **Multi-parent**: `DebateThenGenerateFromPreviousArticleAgent` (Decision §20) emits `parentIds = [winner.id, loser.id]` — order is load-bearing, `parentIds[0]` is the canonical primary parent (judge's winner).
 
-In-memory, `Variant.parentIds` is an array for a theoretical future multi-parent/crossover agent. Today only index 0 is used — the tree is strictly single-parent.
+App-layer enforces referential integrity (no DB-level FK on array elements; PostgreSQL doesn't support FKs on array columns — same pattern as `evolution_arena_comparisons.entry_a/b`).
+
+The legacy `parent_variant_id: UUID NULL` single-FK column was dropped in migration `20260508000001_evolution_variants_parent_id_drop.sql` after the dual-write soak window. Public types still expose a deprecated `parent_variant_id` scalar field derived from `parent_variant_ids[0]` for backward compat.
 
 ### `evolution_variants.agent_invocation_id` (Phase 5)
 
@@ -36,28 +41,29 @@ Populated by threading `ctx.invocationId` from `Agent.run()` through `createVari
 
 ## Recursive chain walk
 
-The Postgres RPC `get_variant_full_chain(target_variant_id UUID)` walks `parent_variant_id` from the target variant up to the root seed.
+The Postgres RPC `get_variant_full_chain(target_variant_id UUID)` walks `parent_variant_ids[1]` (PostgreSQL 1-indexed primary parent) from the target variant up to the root seed. (Migration `20260508000002_evolution_variants_lineage_walker_array.sql`.)
 
 ```sql
 WITH RECURSIVE chain AS (
   -- anchor: the leaf (target) at depth 0
-  SELECT v.*, 0 AS depth, ARRAY[v.id] AS path
+  SELECT v.id, ..., v.parent_variant_ids, 0 AS depth, ARRAY[v.id] AS path
     FROM evolution_variants v WHERE v.id = target_variant_id
   UNION ALL
-  -- recursive step: move up via parent_variant_id
-  SELECT p.*, c.depth + 1, c.path || p.id
+  -- recursive step: walk up via parent_variant_ids[1] (canonical primary parent per Decision §20)
+  SELECT p.id, ..., p.parent_variant_ids, c.depth + 1, c.path || p.id
     FROM chain c
-    JOIN evolution_variants p ON p.id = c.parent_variant_id
-   WHERE c.parent_variant_id IS NOT NULL
+    JOIN evolution_variants p ON p.id = c.parent_variant_ids[1]
+   WHERE c.parent_variant_ids[1] IS NOT NULL
      AND NOT (p.id = ANY(c.path))     -- cycle guard
      AND c.depth < 20                 -- iterationConfigs.max cap
 )
 SELECT ... FROM chain ORDER BY depth DESC;  -- root first, leaf last
 ```
 
-- **Cycle detection** via array-path tracking. `parent_variant_id` has no FK constraint declared, so corrupt cycles are theoretically possible; the guard prevents infinite recursion.
+- **Cycle detection** via array-path tracking.
 - **Depth cap** at 20 (matches `MAX_ITERATION_CONFIGS`).
-- **Index** on `evolution_variants(parent_variant_id)` keeps the walk fast (migration `20260418000001`).
+- **Index** GIN on `evolution_variants(parent_variant_ids)` keeps the walk fast (migration `20260507000003`).
+- **Multi-parent variants** surface their full `parent_variant_ids` in each row's return value, but the linear chain walk follows only `parent_variant_ids[1]` (primary parent). UI consumers read the full array directly when rendering DAG-style multi-parent edges (Phase 4.9).
 
 Server action wrapper: `getVariantFullChainAction(variantId)` in `evolution/src/services/variantDetailActions.ts`.
 

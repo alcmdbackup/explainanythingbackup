@@ -4,6 +4,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Variant } from '../../types';
 import { BudgetExceededError } from '../../types';
+import type { IterationAgentType } from '../../schemas';
 import type { Rating, ComparisonResult } from '../../shared/computeRatings';
 import { createRating, isConverged, DEFAULT_CONVERGENCE_UNCERTAINTY } from '../../shared/computeRatings';
 import type { EvolutionConfig, EvolutionResult, V2Match, IterationResult, IterationStopReason } from '../infra/types';
@@ -94,7 +95,7 @@ function topKUncertainties(ratings: ReadonlyMap<string, Rating>, k: number): num
 
 function recordSnapshot(
   iteration: number,
-  iterationType: 'generate' | 'reflect_and_generate' | 'criteria_and_generate' | 'single_pass_evaluate_criteria_and_generate' | 'proposer_approver_criteria_generate' | 'iterative_editing' | 'iterative_editing_rewrite' | 'swiss',
+  iterationType: IterationAgentType,
   phase: 'start' | 'end',
   pool: ReadonlyArray<Variant>,
   ratings: ReadonlyMap<string, Rating>,
@@ -1011,6 +1012,142 @@ export async function evolveArticle(
           budgetSpent: iterTracker.getTotalSpent(),
           topEloValues: eloValues.slice(0, 5),
           phaseName: 'editing',
+        });
+
+      } else if (iterType === 'debate_and_generate') {
+        // ─── Debate iteration ─────────────────────────────────
+        // bring_back_debate_agent_20260506 Phase 3.2 — single materialized variant per
+        // invocation (Decision §15). Top-2 selected from iteration-start pool snapshot
+        // by Elo desc with deterministic id-tiebreak (Decision §12 + §16). Kill-switch
+        // EVOLUTION_DEBATE_ENABLED falls through to no-op when 'false' (Decision §11).
+        const { resolveDebateDispatchRuntime, resolveDebateEnabled } =
+          await import('./debateDispatch');
+        const { DebateThenGenerateFromPreviousArticleAgent } =
+          await import('../../core/agents/debate/DebateAgent');
+
+        const debateEnabled = resolveDebateEnabled(process.env);
+        if (!debateEnabled) {
+          logger.info('Debate iteration skipped — EVOLUTION_DEBATE_ENABLED=false', {
+            iteration, iterIdx, phaseName: 'debate',
+          });
+          iterStopReason = 'iteration_complete';
+        } else {
+          // Top-2 selection from iteration-start pool snapshot.
+          const arenaVariantIds = new Set<string>(
+            pool.filter((v) => v.fromArena === true).map((v) => v.id),
+          );
+          const dispatchResult = resolveDebateDispatchRuntime({
+            pool,
+            arenaVariantIds,
+            iterationStartRatings: ratings,
+          });
+          if (!dispatchResult) {
+            // Pool too small — gate failure; iteration ends with no new variant.
+            logger.warn('Debate iteration gate failed — fewer than 2 eligible non-arena rated variants in pool', {
+              iteration, iterIdx, phaseName: 'debate', poolSize: pool.length,
+            });
+            iterStopReason = 'iteration_complete';
+          } else {
+            const { variantA, variantB } = dispatchResult;
+            const debateExecOrder = ++executionOrder;
+            const debateCtx: AgentContext = {
+              db, runId, iteration,
+              executionOrder: debateExecOrder,
+              invocationId: '',
+              randomSeed: deriveSeed(randomSeed, `iter${iteration}`, `debate${debateExecOrder}`),
+              logger, costTracker: iterTracker, config: resolvedConfig, promptId: options?.promptId ?? null,
+              experimentId: options?.experimentId,
+              strategyId: options?.strategyId,
+              rawProvider: llmProvider,
+              defaultModel: resolvedConfig.generationModel,
+              generationTemperature: resolvedConfig.generationTemperature,
+            };
+            const debateAgent = new DebateThenGenerateFromPreviousArticleAgent();
+            try {
+              const debateResult = await debateAgent.run({
+                judgeModel: resolvedConfig.judgeModel,
+                strategyDebateJudgeReasoningEffort: (resolvedConfig as { debateJudgeReasoningEffort?: 'none' | 'low' | 'medium' | 'high' }).debateJudgeReasoningEffort,
+                iterDebateJudgeReasoningEffort: (iterCfg as { debateJudgeReasoningEffort?: 'none' | 'low' | 'medium' | 'high' }).debateJudgeReasoningEffort,
+                variantA,
+                variantB,
+                initialPool: pool,
+                initialRatings: ratings,
+                initialMatchCounts: matchCounts,
+                cache: comparisonCache,
+                db,
+              }, debateCtx);
+
+              const debateOutput = debateResult.result;
+              if (debateOutput && debateOutput.variant && debateOutput.surfaced) {
+                // Single materialized variant per Decision §15. Merge ratings so
+                // synthesis ranking matches reach global state before next iteration.
+                const newVariants: Variant[] = [debateOutput.variant];
+                iterVariantsCreated++;
+
+                const debateMatchBuffers: MergeMatchEntry[][] = [];
+                if (debateOutput.matches && debateOutput.matches.length > 0) {
+                  debateMatchBuffers.push(
+                    debateOutput.matches.map((m) => ({ match: m, idA: m.winnerId, idB: m.loserId })),
+                  );
+                }
+
+                const mergeExecOrder = ++executionOrder;
+                const mergeCtx: AgentContext = {
+                  db, runId, iteration,
+                  executionOrder: mergeExecOrder,
+                  invocationId: '',
+                  randomSeed: deriveSeed(randomSeed, `iter${iteration}`, `merge${mergeExecOrder}`),
+                  logger, costTracker: iterTracker, config: resolvedConfig, promptId: options?.promptId ?? null,
+                  experimentId: options?.experimentId,
+                  strategyId: options?.strategyId,
+                };
+                const mergeAgent = new MergeRatingsAgent();
+                const mergeResult = await mergeAgent.run({
+                  iterationType: 'debate_and_generate',
+                  matchBuffers: debateMatchBuffers,
+                  newVariants,
+                  pool, ratings, matchCounts, matchHistory: allMatches,
+                }, mergeCtx);
+
+                if (mergeResult.budgetExceeded) iterStopReason = 'iteration_budget_exceeded';
+              }
+
+              if (debateResult.budgetExceeded) iterStopReason = 'iteration_budget_exceeded';
+            } catch (err) {
+              if (err instanceof IterationBudgetExceededError) {
+                iterStopReason = 'iteration_budget_exceeded';
+              } else {
+                // DebateLLMError, DebateParseError, or unexpected — log + continue.
+                // Partial-detail-on-throw inside DebateAgent has already persisted
+                // forensic context onto the invocation row.
+                logger.warn('Debate iteration failed — partial detail persisted, iteration continues', {
+                  iteration, iterIdx, phaseName: 'debate',
+                  error: err instanceof Error ? err.message : String(err),
+                });
+                iterStopReason = 'iteration_complete';
+              }
+            }
+          }
+        }
+
+        const topKDebate = resolvedConfig.tournamentTopK ?? 5;
+        const eloValues = topKEloValues(ratings, topKDebate);
+        eloHistory.push(eloValues);
+        uncertaintyHistory.push(topKUncertainties(ratings, topKDebate));
+
+        iterationSnapshots.push(recordSnapshot(iteration, 'debate_and_generate', 'end', pool, ratings, matchCounts, {
+          stopReason: iterStopReason,
+          budgetAllocated: iterBudgetUsd,
+          budgetSpent: iterTracker.getTotalSpent(),
+        }));
+
+        logger.info('Debate iteration complete', {
+          iteration, iterIdx,
+          variantsCreated: iterVariantsCreated,
+          iterStopReason,
+          budgetSpent: iterTracker.getTotalSpent(),
+          topEloValues: eloValues.slice(0, 5),
+          phaseName: 'debate',
         });
 
       } else if (iterType === 'swiss') {
