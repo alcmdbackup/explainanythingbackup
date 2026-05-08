@@ -11,13 +11,8 @@
 // Bumping to 20 minutes covers worst-case pipeline durations under cold caches
 // and provider hiccups. The downstream `expect.poll(..., { timeout: 300_000 })`
 // remains the source of truth for run completion.
-//
-// `undici` is bundled with Node 18+ as a built-in module. We import via a
-// dynamic require to avoid the `@types/undici` dependency (the package exposes
-// only types — the runtime is already in Node).
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-explicit-any
-const { Agent } = require('undici') as { Agent: new (opts: { headersTimeout?: number; bodyTimeout?: number }) => unknown };
+import { Agent } from 'undici';
 
 const TWENTY_MINUTES_MS = 20 * 60 * 1000;
 
