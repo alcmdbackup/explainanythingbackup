@@ -93,7 +93,7 @@ describe('Mode B: DISABLE_ITERATIVE_EDITING_REWRITE rollback gate (R-12)', () =>
   // logic ever changes in the dispatcher, the test will only catch via a
   // mirrored update — that's by design (the dispatcher's behavior is what we
   // assert here).
-  function dispatchLogic(iterType: string, env: NodeJS.ProcessEnv): { agentName: string } {
+  function dispatchLogic(iterType: string, env: Record<string, string | undefined>): { agentName: string } {
     const disableRewrite = env.DISABLE_ITERATIVE_EDITING_REWRITE === 'true';
     const useRewrite = iterType === 'iterative_editing_rewrite' && !disableRewrite;
     const agent = useRewrite ? new IterativeEditingRewriteAgent() : new IterativeEditingAgent();
