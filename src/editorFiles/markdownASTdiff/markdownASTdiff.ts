@@ -926,13 +926,15 @@ function splitSurroundingWs(s: string): { lead: string; core: string; trail: str
 function wrapDel(s: string): string {
   if (!s) return '';
   const { lead, core, trail } = splitSurroundingWs(s);
-  if (!core) return s; // all whitespace — nothing to delete
+  // Pure-whitespace input is a legitimate edit (e.g. "Hello  world" →
+  // "Hello world" produces a `del " "` run). Wrap the whole thing without hoisting.
+  if (!core) return `{--${escapeCriticMarkupContent(s)}--}`;
   return `${lead}{--${escapeCriticMarkupContent(core)}--}${trail}`;
 }
 function wrapIns(s: string): string {
   if (!s) return '';
   const { lead, core, trail } = splitSurroundingWs(s);
-  if (!core) return s;
+  if (!core) return `{++${escapeCriticMarkupContent(s)}++}`;
   return `${lead}{++${escapeCriticMarkupContent(core)}++}${trail}`;
 }
 function wrapUpdate(before: string, after: string): string {

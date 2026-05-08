@@ -1251,10 +1251,10 @@ exports[`Golden Tests: Full Pipeline whitespace-only complete pipeline output ma
 {
   "category": "edge-case",
   "name": "whitespace-only",
-  "step3": "Hello   world.
+  "step3": "Hello{--  --}{++ ++}world.
 
 ",
-  "step4": "Hello   world.
+  "step4": "Hello{--  --}{++ ++}world.
 
 ",
 }
