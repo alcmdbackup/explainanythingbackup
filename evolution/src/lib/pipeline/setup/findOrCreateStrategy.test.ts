@@ -283,6 +283,140 @@ describe('V2 labelStrategyConfig', () => {
     const label = labelStrategyConfig(config);
     expect(label).toContain('Gen: cl-3.5-sonnet');
   });
+
+  // ─── new criteria-based agents (updated_criteria_agent_20260505) ──────────
+
+  it('labels include single-pass-criteria count', () => {
+    const config: StrategyConfig = {
+      generationModel: 'gpt-4.1-mini',
+      judgeModel: 'gpt-4.1-nano',
+      iterationConfigs: [
+        {
+          agentType: 'single_pass_evaluate_criteria_and_generate',
+          budgetPercent: 60,
+          criteriaIds: ['00000000-0000-0000-0000-000000000001'],
+          weakestK: 1,
+        },
+        { agentType: 'swiss', budgetPercent: 40 },
+      ],
+    };
+    expect(labelStrategyConfig(config)).toContain('1×single-pass-criteria');
+  });
+
+  it('labels include proposer-approver count', () => {
+    const config: StrategyConfig = {
+      generationModel: 'gpt-4.1-mini',
+      judgeModel: 'gpt-4.1-nano',
+      iterationConfigs: [
+        { agentType: 'generate', budgetPercent: 50 },
+        {
+          agentType: 'proposer_approver_criteria_generate',
+          budgetPercent: 50,
+          criteriaIds: ['00000000-0000-0000-0000-000000000001'],
+          weakestK: 1,
+          editingMaxCycles: 1,
+        },
+      ],
+    };
+    expect(labelStrategyConfig(config)).toContain('1×proposer-approver');
+  });
+});
+
+describe('V2 hashStrategyConfig — new criteria-based agents (updated_criteria_agent_20260505)', () => {
+  const cId1 = '11111111-1111-1111-1111-111111111111';
+  const cId2 = '22222222-2222-2222-2222-222222222222';
+
+  it('hash differs between criteria_and_generate, single_pass, and proposer_approver', () => {
+    const base = (agentType: 'criteria_and_generate' | 'single_pass_evaluate_criteria_and_generate' | 'proposer_approver_criteria_generate'): StrategyConfig => ({
+      generationModel: 'gpt-4.1-mini',
+      judgeModel: 'gpt-4.1-nano',
+      iterationConfigs: [
+        { agentType: 'generate', budgetPercent: 50 },
+        {
+          agentType,
+          budgetPercent: 50,
+          criteriaIds: [cId1],
+          weakestK: 1,
+          ...(agentType === 'proposer_approver_criteria_generate' ? { editingMaxCycles: 1 } : {}),
+        },
+      ],
+    });
+    const h1 = hashStrategyConfig(base('criteria_and_generate'));
+    const h2 = hashStrategyConfig(base('single_pass_evaluate_criteria_and_generate'));
+    const h3 = hashStrategyConfig(base('proposer_approver_criteria_generate'));
+    expect(h1).not.toBe(h2);
+    expect(h2).not.toBe(h3);
+    expect(h1).not.toBe(h3);
+  });
+
+  it('hash includes criteriaIds for the 2 new criteria-based agent types', () => {
+    const make = (agentType: 'single_pass_evaluate_criteria_and_generate' | 'proposer_approver_criteria_generate', ids: string[]): StrategyConfig => ({
+      generationModel: 'gpt-4.1-mini',
+      judgeModel: 'gpt-4.1-nano',
+      iterationConfigs: [
+        { agentType: 'generate', budgetPercent: 50 },
+        {
+          agentType,
+          budgetPercent: 50,
+          criteriaIds: ids,
+          weakestK: 1,
+          ...(agentType === 'proposer_approver_criteria_generate' ? { editingMaxCycles: 1 } : {}),
+        },
+      ],
+    });
+    expect(hashStrategyConfig(make('single_pass_evaluate_criteria_and_generate', [cId1])))
+      .not.toBe(hashStrategyConfig(make('single_pass_evaluate_criteria_and_generate', [cId2])));
+    expect(hashStrategyConfig(make('proposer_approver_criteria_generate', [cId1])))
+      .not.toBe(hashStrategyConfig(make('proposer_approver_criteria_generate', [cId2])));
+  });
+
+  it('lengthCapRatio is included in the hash for proposer_approver only', () => {
+    const baseProposerApprover: StrategyConfig = {
+      generationModel: 'gpt-4.1-mini',
+      judgeModel: 'gpt-4.1-nano',
+      iterationConfigs: [
+        { agentType: 'generate', budgetPercent: 50 },
+        {
+          agentType: 'proposer_approver_criteria_generate',
+          budgetPercent: 50,
+          criteriaIds: [cId1],
+          weakestK: 1,
+          editingMaxCycles: 1,
+        },
+      ],
+    };
+    const baseHash = hashStrategyConfig(baseProposerApprover);
+    const withRatio: StrategyConfig = {
+      ...baseProposerApprover,
+      iterationConfigs: [
+        baseProposerApprover.iterationConfigs[0]!,
+        { ...baseProposerApprover.iterationConfigs[1]!, lengthCapRatio: 1.20 },
+      ],
+    };
+    expect(hashStrategyConfig(withRatio)).not.toBe(baseHash);
+  });
+
+  it('includesMirrorApprover is emitted to the hash ONLY when explicitly false', () => {
+    const make = (mirror: boolean | undefined): StrategyConfig => ({
+      generationModel: 'gpt-4.1-mini',
+      judgeModel: 'gpt-4.1-nano',
+      iterationConfigs: [
+        { agentType: 'generate', budgetPercent: 50 },
+        {
+          agentType: 'proposer_approver_criteria_generate',
+          budgetPercent: 50,
+          criteriaIds: [cId1],
+          weakestK: 1,
+          editingMaxCycles: 1,
+          ...(mirror !== undefined && { includesMirrorApprover: mirror }),
+        },
+      ],
+    });
+    // Default-on (undefined) and explicit-true should hash the same (compact emission).
+    expect(hashStrategyConfig(make(undefined))).toBe(hashStrategyConfig(make(true)));
+    // Explicit-false should produce a different hash.
+    expect(hashStrategyConfig(make(false))).not.toBe(hashStrategyConfig(make(undefined)));
+  });
 });
 
 describe('V2 upsertStrategy', () => {

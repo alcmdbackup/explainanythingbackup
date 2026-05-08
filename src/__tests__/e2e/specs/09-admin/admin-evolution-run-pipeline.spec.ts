@@ -5,6 +5,7 @@ import { adminTest, expect } from '../../fixtures/admin-auth';
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/database.types';
 import { trackEvolutionId } from '../../helpers/evolution-test-data-factory';
+import { longTimeoutDispatcher } from '../../helpers/long-timeout-fetch';
 
 const TEST_PREFIX = '[TEST_EVO] Pipeline';
 
@@ -149,7 +150,10 @@ adminTest.describe('Evolution Run Pipeline', { tag: '@evolution' }, () => {
         'Cookie': `${cookieName}=${cookieValue}`,
       },
       body: JSON.stringify({ targetRunId: runId }),
-    });
+      // Pipeline runs synchronously inside the route handler; default 5-min undici
+      // headersTimeout fires before pipeline completes on slow LLM-provider runs.
+      dispatcher: longTimeoutDispatcher,
+    } as RequestInit & { dispatcher: typeof longTimeoutDispatcher });
     expect(fetchResponse.ok).toBeTruthy();
     const result = await fetchResponse.json();
     expect(result.claimed).toBe(true);

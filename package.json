@@ -146,6 +146,7 @@
     "pg": "^8.18.0",
     "tailwindcss": "^4.0.15",
     "ts-jest": "^29.4.5",
-    "typescript": "^5"
+    "typescript": "^5",
+    "undici": "^6.25.0"
   }
 }

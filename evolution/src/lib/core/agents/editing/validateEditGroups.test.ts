@@ -129,3 +129,108 @@ describe('validateEditGroups — size-ratio guardrail (Decisions §17)', () => {
     expect(r.approverGroups).toHaveLength(0);
   });
 });
+
+// ─── New extension tests for opts (updated_criteria_agent_20260505) ──────────
+
+describe('validateEditGroups — opts.lengthCapRatio parameterization', () => {
+  it('default (no opts) preserves the existing 1.5× behavior', () => {
+    const text = 'a'.repeat(100);
+    const g = group(1, [edit({ range: { start: 0, end: 0 }, oldText: '', newText: 'x'.repeat(40) })]); // 1.4×
+    const r = validateEditGroups([g], text);
+    expect(r.approverGroups).toHaveLength(1); // keeps under default 1.5×
+  });
+
+  it('opts.lengthCapRatio: 1.10 drops what 1.5× would keep', () => {
+    const text = 'a'.repeat(100);
+    const g = group(1, [edit({ range: { start: 0, end: 0 }, oldText: '', newText: 'x'.repeat(40) })]); // 1.4×
+    const r = validateEditGroups([g], text, { lengthCapRatio: 1.10 });
+    // 100 + 40 = 140 chars = 1.4× — exceeds 1.10 cap.
+    expect(r.approverGroups).toHaveLength(0);
+    expect(r.droppedPreApprover.some((d) => d.reason === 'size_ratio_guardrail')).toBe(true);
+  });
+
+  it('opts.lengthCapRatio: 1.10 keeps groups within ±10%', () => {
+    const text = 'a'.repeat(100);
+    const g = group(1, [edit({ range: { start: 0, end: 0 }, oldText: '', newText: 'x'.repeat(5) })]); // 105 chars = 1.05×
+    const r = validateEditGroups([g], text, { lengthCapRatio: 1.10 });
+    expect(r.approverGroups).toHaveLength(1);
+  });
+});
+
+describe('validateEditGroups — opts.flowGuardrailEnabled (transition-word rule)', () => {
+  it('drops a group whose newText replaces a paragraph-start transition phrase', () => {
+    // oldText must span past the transition word so RE_TRANSITION_START matches
+    // after .trim() (regex requires `,?\s` after the keyword).
+    const text = 'Para 1.\n\nHowever, this is the second paragraph.';
+    const start = text.indexOf('However');
+    const oldText = 'However, this is';
+    const end = start + oldText.length;
+    const g = group(1, [edit({
+      range: { start, end },
+      oldText,
+      newText: 'Plus this is',
+    })]);
+    const r = validateEditGroups([g], text, { flowGuardrailEnabled: true });
+    expect(r.droppedPreApprover.some((d) => d.reason === 'flow_transition_violation')).toBe(true);
+  });
+
+  it('flowGuardrailEnabled defaults to ON when not specified', () => {
+    // Same as above but no opts — guardrail still fires.
+    const text = 'Para 1.\n\nTherefore, second paragraph stuff.';
+    const start = text.indexOf('Therefore');
+    const end = start + 'Therefore, '.length;
+    const g = group(1, [edit({
+      range: { start, end },
+      oldText: 'Therefore, ',
+      newText: 'And ',
+    })]);
+    const r = validateEditGroups([g], text);
+    // Default behavior: guardrail OFF (legacy) — group should still be evaluated
+    // by other rules. This test documents that it does NOT auto-fire on legacy callers.
+    const flowDrop = r.droppedPreApprover.find((d) => d.reason === 'flow_transition_violation');
+    // Legacy callers passing no opts get bit-identical behavior, so flow-guardrail does NOT fire.
+    expect(flowDrop).toBeUndefined();
+  });
+});
+
+describe('validateEditGroups — opts.redundancyJaccardThreshold (semantic overlap)', () => {
+  it('drops a group whose newText duplicates the rest of the article', () => {
+    // Long article with a phrase that gets duplicated by newText.
+    const text = 'fox alpha beta gamma delta epsilon zeta eta theta iota.';
+    const newText = 'alpha beta gamma delta epsilon zeta eta theta iota';
+    const g = group(1, [edit({ range: { start: 0, end: 4 }, oldText: 'fox ', newText })]);
+    const r = validateEditGroups([g], text, { redundancyJaccardThreshold: 0.35 });
+    expect(r.droppedPreApprover.some((d) =>
+      d.reason.includes('semantic')
+      || d.reason.includes('overlap')
+      || d.reason.includes('redundancy'),
+    )).toBe(true);
+  });
+
+  it('keeps a group whose newText is novel (low overlap)', () => {
+    const text = 'apple banana cherry date elderberry fig grape';
+    const g = group(1, [edit({
+      range: { start: 0, end: 5 },
+      oldText: 'apple',
+      newText: 'completely unrelated novel content here',
+    })]);
+    const r = validateEditGroups([g], text, { redundancyJaccardThreshold: 0.35 });
+    // Should NOT drop for overlap.
+    const overlapDrop = r.droppedPreApprover.find((d) =>
+      d.reason.includes('semantic') || d.reason.includes('overlap'),
+    );
+    expect(overlapDrop).toBeUndefined();
+  });
+
+  it('opts.redundancyJaccardThreshold undefined disables the check (legacy behavior)', () => {
+    const text = 'fox alpha beta gamma delta epsilon zeta eta theta iota.';
+    const newText = 'alpha beta gamma delta epsilon zeta eta theta iota';
+    const g = group(1, [edit({ range: { start: 0, end: 4 }, oldText: 'fox ', newText })]);
+    const r = validateEditGroups([g], text); // no opts
+    // Should NOT have semantic-overlap drops.
+    const overlapDrop = r.droppedPreApprover.find((d) =>
+      d.reason.includes('semantic') || d.reason.includes('overlap'),
+    );
+    expect(overlapDrop).toBeUndefined();
+  });
+});

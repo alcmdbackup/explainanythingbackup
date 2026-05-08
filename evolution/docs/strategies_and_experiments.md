@@ -29,9 +29,16 @@ The canonical type lives in `evolution/src/lib/pipeline/types.ts`:
 
 ```ts
 interface IterationConfig {
-  agentType: 'generate' | 'reflect_and_generate' | 'criteria_and_generate' | 'swiss';
+  agentType:
+    | 'generate'
+    | 'reflect_and_generate'
+    | 'criteria_and_generate'
+    | 'single_pass_evaluate_criteria_and_generate'   // updated_criteria_agent_20260505 (guardrails-only)
+    | 'proposer_approver_criteria_generate'          // updated_criteria_agent_20260505 (architectural)
+    | 'iterative_editing'
+    | 'swiss';
   budgetPercent: number;  // 1-100, all entries must sum to 100
-  sourceMode?: 'seed' | 'pool';  // variant-producing only (generate, reflect_and_generate, criteria_and_generate); default 'seed'
+  sourceMode?: 'seed' | 'pool';  // variant-producing only; default 'seed'
   qualityCutoff?: { mode: 'topN' | 'topPercent'; value: number };  // required when sourceMode='pool'
   generationGuidance?: Array<{ strategy: string; percent: number }>;  // generate-only per-iteration override
   // reflect_and_generate is the wrapper agent that runs a reflection LLM call before
@@ -39,13 +46,24 @@ interface IterationConfig {
   // from all 24 candidates given the parent text + recent ELO boosts. Mutex with
   // generationGuidance is structural (different agentType).
   reflectionTopN?: number;  // 1-10, default 3, only valid when agentType='reflect_and_generate'
-  // criteria_and_generate is the wrapper agent that scores the parent against
-  // user-defined criteria, then delegates to GenerateFromPreviousArticle with a
-  // customPrompt built from suggestions for the K weakest criteria. Mutex with
-  // generationGuidance is structural (different agentType). criteriaIds order
-  // is sorted before hashing so [a,b] and [b,a] dedupe via config_hash.
-  criteriaIds?: string[];   // required when agentType='criteria_and_generate'; UUIDs into evolution_criteria
-  weakestK?: number;        // required when agentType='criteria_and_generate'; clamped at runtime to min(weakestK, criteriaIds.length)
+  // criteriaIds + weakestK are valid for ALL three criteria-based agent types
+  // (criteria_and_generate, single_pass_evaluate_criteria_and_generate,
+  // proposer_approver_criteria_generate). criteriaIds order is sorted before
+  // hashing so [a,b] and [b,a] dedupe via config_hash.
+  criteriaIds?: string[];   // required when agentType is criteria-based; UUIDs into evolution_criteria
+  weakestK?: number;        // 1-5; clamped at runtime to min(weakestK, criteriaIds.length)
+  // Editing-flow fields. editingMaxCycles is FREE for iterative_editing (1-5)
+  // but FIXED at 1 for proposer_approver_criteria_generate (single-cycle invariant).
+  editingMaxCycles?: number;
+  editingEligibilityCutoff?: { mode: 'topN' | 'topPercent'; value: number };
+  // Guardrail fields for the 2 new criteria agents. lengthCapRatio is
+  // proposer_approver-only (default 1.10). redundancyJaccardThreshold is
+  // valid for both new criteria agents (default 0.35).
+  lengthCapRatio?: number;
+  redundancyJaccardThreshold?: number;
+  // Mirror-approver toggle for proposer_approver_criteria_generate only
+  // (default true; emitted to config_hash ONLY when explicitly false).
+  includesMirrorApprover?: boolean;
 }
 
 interface StrategyConfig {

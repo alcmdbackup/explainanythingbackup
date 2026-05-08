@@ -113,3 +113,9 @@ Three operational health metrics (live during execution, alert thresholds env-tu
 
 - v1.1: per-cycle invocation timeline UI; OutlineGenerationAgent (generate-mode); MDAST-aware judge format.
 - v1.2: OutlineGenerationAgent edit-mode (selective re-expand); SectionDecompositionAgent + section helpers.
+
+## Related: ProposerApproverCriteriaGenerateAgent
+
+The propose/approve criteria agent (`updated_criteria_agent_20260505`) forks `IterativeEditingAgent`'s propose-review-apply primitive but runs **single-cycle** with a **mirror-approver bias-mitigation pass**. It reuses ~80% of this module's editing toolkit (`parseProposedEdits`, `validateEditGroups`, `applyAcceptedGroups`, `checkProposerDrift`, `proposerPrompt`, `approverPrompt`) — the new code is the orchestration (single-cycle + mirror pass + strict-binary aggregator) plus the criteria-context construction for prompt injection. The `validateEditGroups` extension (Phase 3.3) added an `opts` parameter — existing `IterativeEditingAgent` callers pass `{}` and get bit-identical pre-extension behavior; the new agent passes `{ lengthCapRatio: 1.10, redundancyJaccardThreshold: 0.35, flowGuardrailEnabled: true }`.
+
+See full deep dive: [criteria_agents.md](./criteria_agents.md).
