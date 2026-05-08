@@ -760,6 +760,131 @@ describe('strategyConfigSchema', () => {
       }],
     })).not.toThrow();
   });
+
+  // ─── debate cross-field refinement (bring_back_debate_agent_20260506 Phase 1.14) ──
+  describe('debateJudgeReasoningEffort cross-field refinement', () => {
+    it('REJECTS iter-level effort when judgeModel does not support reasoning', () => {
+      expect(() => strategyConfigSchema.parse({
+        generationModel: 'gpt-4.1-nano',
+        judgeModel: 'gpt-4.1-nano',  // supportsReasoning=false
+        iterationConfigs: [
+          { agentType: 'generate', budgetPercent: 50 },
+          { agentType: 'debate_and_generate', budgetPercent: 50, debateJudgeReasoningEffort: 'medium' },
+        ],
+      })).toThrow(/does not support reasoning effort/);
+    });
+
+    it('REJECTS strategy-level effort when judgeModel does not support reasoning', () => {
+      expect(() => strategyConfigSchema.parse({
+        generationModel: 'gpt-4.1-nano',
+        judgeModel: 'gpt-4.1-nano',
+        debateJudgeReasoningEffort: 'low',
+        iterationConfigs: [
+          { agentType: 'generate', budgetPercent: 50 },
+          { agentType: 'debate_and_generate', budgetPercent: 50 },
+        ],
+      })).toThrow(/does not support reasoning effort/);
+    });
+
+    it('ACCEPTS iter-level effort when judgeModel supports reasoning', () => {
+      expect(() => strategyConfigSchema.parse({
+        generationModel: 'gpt-4.1-nano',
+        judgeModel: 'qwen/qwen3-8b',  // supportsReasoning=true
+        iterationConfigs: [
+          { agentType: 'generate', budgetPercent: 50 },
+          { agentType: 'debate_and_generate', budgetPercent: 50, debateJudgeReasoningEffort: 'medium' },
+        ],
+      })).not.toThrow();
+    });
+
+    it('ACCEPTS strategy-level effort when judgeModel supports reasoning', () => {
+      expect(() => strategyConfigSchema.parse({
+        generationModel: 'gpt-4.1-nano',
+        judgeModel: 'qwen/qwen3-8b',
+        debateJudgeReasoningEffort: 'high',
+        iterationConfigs: [
+          { agentType: 'generate', budgetPercent: 50 },
+          { agentType: 'debate_and_generate', budgetPercent: 50 },
+        ],
+      })).not.toThrow();
+    });
+
+    it('ACCEPTS no effort set anywhere (refinement only fires on explicit set)', () => {
+      expect(() => strategyConfigSchema.parse({
+        generationModel: 'gpt-4.1-nano',
+        judgeModel: 'gpt-4.1-nano',  // even non-reasoning model is fine if no effort set
+        iterationConfigs: [
+          { agentType: 'generate', budgetPercent: 50 },
+          { agentType: 'debate_and_generate', budgetPercent: 50 },
+        ],
+      })).not.toThrow();
+    });
+
+    it('error path points at iteration-level field when iter-level is the offender', () => {
+      const result = strategyConfigSchema.safeParse({
+        generationModel: 'gpt-4.1-nano',
+        judgeModel: 'gpt-4.1-nano',
+        iterationConfigs: [
+          { agentType: 'generate', budgetPercent: 50 },
+          { agentType: 'debate_and_generate', budgetPercent: 50, debateJudgeReasoningEffort: 'medium' },
+        ],
+      });
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        const issue = result.error.issues.find((i) => i.message.includes('does not support'));
+        expect(issue?.path).toEqual(['iterationConfigs', 1, 'debateJudgeReasoningEffort']);
+      }
+    });
+
+    it('error path points at strategy-level field when only strategy-level is set', () => {
+      const result = strategyConfigSchema.safeParse({
+        generationModel: 'gpt-4.1-nano',
+        judgeModel: 'gpt-4.1-nano',
+        debateJudgeReasoningEffort: 'low',
+        iterationConfigs: [
+          { agentType: 'generate', budgetPercent: 50 },
+          { agentType: 'debate_and_generate', budgetPercent: 50 },
+        ],
+      });
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        const issue = result.error.issues.find((i) => i.message.includes('does not support'));
+        expect(issue?.path).toEqual(['debateJudgeReasoningEffort']);
+      }
+    });
+
+    it('error message lists reasoning-capable models from registry', () => {
+      const result = strategyConfigSchema.safeParse({
+        generationModel: 'gpt-4.1-nano',
+        judgeModel: 'gpt-4.1-nano',
+        debateJudgeReasoningEffort: 'low',
+        iterationConfigs: [
+          { agentType: 'generate', budgetPercent: 50 },
+          { agentType: 'debate_and_generate', budgetPercent: 50 },
+        ],
+      });
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        const message = result.error.issues[0]?.message ?? '';
+        // Computed dynamically from registry — at minimum should include the 3 known
+        // reasoning-capable models per Phase 1.19 (gpt-oss-20b, qwen/qwen3-8b, o3-mini).
+        expect(message).toMatch(/qwen\/qwen3-8b/);
+        expect(message).toMatch(/gpt-oss-20b/);
+        expect(message).toMatch(/o3-mini/);
+      }
+    });
+
+    it('debate_and_generate cannot be the FIRST iteration (canBeFirstIteration check)', () => {
+      // Independent of reasoning effort — debate needs a non-empty pool to select top-2 from.
+      expect(() => strategyConfigSchema.parse({
+        generationModel: 'gpt-4.1-nano',
+        judgeModel: 'gpt-4.1-nano',
+        iterationConfigs: [
+          { agentType: 'debate_and_generate', budgetPercent: 100 },
+        ],
+      })).toThrow(/First iteration/);
+    });
+  });
 });
 
 describe('evolutionConfigSchema', () => {
@@ -1015,11 +1140,29 @@ describe('agentExecutionDetailSchema (discriminated union)', () => {
     })).not.toThrow();
   });
 
-  it('parses debate detail', () => {
+  it('parses debate detail (V2 Option-C shape per bring_back_debate_agent_20260506)', () => {
     expect(() => debateExecutionDetailSchema.parse({
-      detailType: 'debate', totalCost: 0.08,
-      variantA: { id: UUID1, mu: 25 }, variantB: { id: UUID2, mu: 24 },
-      transcript: [{ role: 'advocate_a', content: 'A is better' }],
+      detailType: 'debate_then_generate_from_previous_article',
+      tactic: 'debate_synthesis',
+      totalCost: 0.08,
+      // mu→elo preprocess accepts legacy `{id, mu}` shape from V1 fixtures.
+      variantA: { id: UUID1, mu: 25 },
+      variantB: { id: UUID2, mu: 24 },
+      debate: {
+        combined: {
+          prosA: ['Strength A1', 'Strength A2'],
+          consA: ['Weakness A1'],
+          prosB: ['Strength B1'],
+          consB: ['Weakness B1', 'Weakness B2'],
+          winner: 'A',
+          reasoning: 'A is more clear and engaging.',
+          strengthsFromA: ['Clear topic introduction'],
+          strengthsFromB: ['Vivid examples'],
+          improvements: ['Tighten the closing paragraph'],
+          cost: 0.02,
+        },
+      },
+      surfaced: true,
     })).not.toThrow();
   });
 
@@ -1528,6 +1671,87 @@ describe('iterationConfigSchema — new criteria-based agents (updated_criteria_
       weakestK: 1,
       sourceMode: 'seed',
     })).not.toThrow();
+  });
+});
+
+describe('iterationConfigSchema — debate_and_generate refinements (Phase 4.7)', () => {
+  it('accepts plain debate_and_generate config (no extra fields)', () => {
+    expect(() => iterationConfigSchema.parse({
+      agentType: 'debate_and_generate',
+      budgetPercent: 100,
+    })).not.toThrow();
+  });
+
+  it('accepts debate_and_generate with debateJudgeReasoningEffort (only allowed override)', () => {
+    expect(() => iterationConfigSchema.parse({
+      agentType: 'debate_and_generate',
+      budgetPercent: 100,
+      debateJudgeReasoningEffort: 'medium',
+    })).not.toThrow();
+  });
+
+  it('rejects sourceMode on debate iteration (debate selects parents internally)', () => {
+    expect(() => iterationConfigSchema.parse({
+      agentType: 'debate_and_generate',
+      budgetPercent: 100,
+      sourceMode: 'pool',
+    })).toThrow(/sourceMode only valid for generate, reflect_and_generate, or criteria_and_generate/);
+  });
+
+  it('rejects qualityCutoff on debate iteration', () => {
+    expect(() => iterationConfigSchema.parse({
+      agentType: 'debate_and_generate',
+      budgetPercent: 100,
+      qualityCutoff: { mode: 'topN', value: 5 },
+    })).toThrow(/qualityCutoff only valid/);
+  });
+
+  it('rejects generationGuidance on debate iteration (debate generates its own synthesis prompt)', () => {
+    expect(() => iterationConfigSchema.parse({
+      agentType: 'debate_and_generate',
+      budgetPercent: 100,
+      generationGuidance: [{ tactic: 'structural_transform', percent: 100 }],
+    })).toThrow(/generationGuidance only valid for agentType=generate/);
+  });
+
+  it('rejects reflectionTopN on debate iteration', () => {
+    expect(() => iterationConfigSchema.parse({
+      agentType: 'debate_and_generate',
+      budgetPercent: 100,
+      reflectionTopN: 3,
+    })).toThrow(/reflectionTopN only valid when agentType is reflect_and_generate/);
+  });
+
+  it('rejects editingMaxCycles on debate iteration', () => {
+    expect(() => iterationConfigSchema.parse({
+      agentType: 'debate_and_generate',
+      budgetPercent: 100,
+      editingMaxCycles: 3,
+    })).toThrow(/editingMaxCycles only valid for editing agent types/);
+  });
+
+  it('rejects criteriaIds on debate iteration', () => {
+    expect(() => iterationConfigSchema.parse({
+      agentType: 'debate_and_generate',
+      budgetPercent: 100,
+      criteriaIds: [UUID1, UUID2],
+    })).toThrow(/criteriaIds only valid when agentType is a criteria-based type/);
+  });
+
+  it('rejects weakestK on debate iteration', () => {
+    expect(() => iterationConfigSchema.parse({
+      agentType: 'debate_and_generate',
+      budgetPercent: 100,
+      weakestK: 2,
+    })).toThrow(/weakestK only valid when agentType is a criteria-based type/);
+  });
+
+  it('rejects editingEligibilityCutoff on debate iteration', () => {
+    expect(() => iterationConfigSchema.parse({
+      agentType: 'debate_and_generate',
+      budgetPercent: 100,
+      editingEligibilityCutoff: { mode: 'topN', value: 10 },
+    })).toThrow(/editingEligibilityCutoff only valid for editing agent types/);
   });
 });
 

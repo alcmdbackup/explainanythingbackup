@@ -9,6 +9,7 @@ import { adminAction, type AdminContext } from './adminAction';
 import { estimateAgentCost } from '../lib/pipeline/infra/estimateCosts';
 import { allowedLLMModelSchema } from '@/lib/schemas/schemas';
 import { DEFAULT_SEED_CHARS } from '../lib/pipeline/loop/projectDispatchPlan';
+import { iterationAgentTypeEnum, type IterationAgentType } from '../lib/schemas';
 
 // ─── Schemas ────────────────────────────────────────────────────
 
@@ -165,7 +166,7 @@ const dispatchPreviewInputSchema = z.object({
     budgetUsd: z.number().positive(),
     maxComparisonsPerVariant: z.number().int().positive().optional(),
     iterationConfigs: z.array(z.object({
-      agentType: z.enum(['generate', 'reflect_and_generate', 'criteria_and_generate', 'single_pass_evaluate_criteria_and_generate', 'proposer_approver_criteria_generate', 'iterative_editing', 'iterative_editing_rewrite', 'swiss']),
+      agentType: iterationAgentTypeEnum,
       budgetPercent: z.number().min(1).max(100),
       sourceMode: z.enum(['seed', 'pool']).optional(),
       qualityCutoff: z.object({ mode: z.enum(['topN', 'topPercent']), value: z.number().positive() }).optional(),
@@ -208,7 +209,7 @@ export interface DispatchPreviewResult {
  *  estPerAgent keys match the server's EstPerAgentValue keys. */
 export interface IterationPlanEntryClient {
   iterIdx: number;
-  agentType: 'generate' | 'reflect_and_generate' | 'criteria_and_generate' | 'single_pass_evaluate_criteria_and_generate' | 'proposer_approver_criteria_generate' | 'iterative_editing' | 'iterative_editing_rewrite' | 'swiss';
+  agentType: IterationAgentType;
   iterBudgetUsd: number;
   /** Effective tactic mix (normalized weights) used for this iteration's estimate. */
   tacticMix: Array<{ tactic: string; weight: number }>;
@@ -218,8 +219,10 @@ export interface IterationPlanEntryClient {
     // Mirrors EstPerAgentValue: gen/rank/reflection/editing/editingRank/evaluation/total.
     // `editingRank` was added by add_ranking_iterative_editing_agent_evolution_20260502 (D3).
     // `evaluation` was added by evaluateCriteriaThenGenerateFromPreviousArticle_20260501.
-    expected: { gen: number; rank: number; reflection: number; editing: number; editingRank: number; evaluation: number; total: number };
-    upperBound: { gen: number; rank: number; reflection: number; editing: number; editingRank: number; evaluation: number; total: number };
+    // Mirror keys for EstPerAgentValue (server) — keep in sync with projectDispatchPlan.ts.
+    // Includes `debate` (bring_back_debate_agent_20260506 Phase 1.10 + 3.3).
+    expected: { gen: number; rank: number; reflection: number; editing: number; editingRank: number; evaluation: number; debate: number; total: number };
+    upperBound: { gen: number; rank: number; reflection: number; editing: number; editingRank: number; evaluation: number; debate: number; total: number };
   };
   maxAffordable: { atExpected: number; atUpperBound: number };
   dispatchCount: number;
@@ -290,11 +293,14 @@ export const getStrategyDispatchPreviewAction = adminAction(
     // to projectDispatchPlan as opts.editingRankEnabled.
     const { resolveEditingRankEnabled } = await import('../lib/pipeline/loop/editingDispatch');
     const editingRankEnabled = resolveEditingRankEnabled(process.env);
+    // bring_back_debate_agent_20260506 Phase 3.3 — debate kill-switch resolved here.
+    const { resolveDebateEnabled } = await import('../lib/pipeline/loop/debateDispatch');
+    const debateEnabled = resolveDebateEnabled(process.env);
 
     const plan = projectDispatchPlan(
       parsed.config as Parameters<typeof projectDispatchPlan>[0],
       { seedChars, initialPoolSize: arenaCount },
-      { topUpEnabled, reflectionEnabled, editingRankEnabled },
+      { topUpEnabled, reflectionEnabled, editingRankEnabled, debateEnabled },
     );
 
     return { plan, arenaCount, seedArticleChars: seedChars, promptName };

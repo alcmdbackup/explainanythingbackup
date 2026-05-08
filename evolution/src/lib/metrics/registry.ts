@@ -83,6 +83,11 @@ const SHARED_PROPAGATION_DEFS: EntityMetricRegistry['atPropagation'] = [
   // Sentence-overlap quality propagation — bootstrap_mean for proper CIs (consistent with avg_final_elo).
   { name: 'avg_median_sentence_verbatim_ratio', label: 'Avg Median Sentence Overlap', category: 'rating', formatter: 'percent', listView: true,
     sourceMetric: 'median_sentence_verbatim_ratio', sourceEntity: 'run', aggregate: aggregateBootstrapMean, aggregationMethod: 'bootstrap_mean' },
+  // bring_back_debate_agent_20260506 Phase 1.5 — debate cost rollups (per Decision §6).
+  { name: 'total_debate_cost', label: 'Total Debate Cost', category: 'cost', formatter: 'cost', listView: true,
+    sourceMetric: 'debate_cost', sourceEntity: 'run', aggregate: aggregateSum, aggregationMethod: 'sum' },
+  { name: 'avg_debate_cost_per_run', label: 'Avg Debate Cost/Run', category: 'cost', formatter: 'cost',
+    sourceMetric: 'debate_cost', sourceEntity: 'run', aggregate: aggregateAvg, aggregationMethod: 'avg' },
   // Rating — from run.winner_elo
   { name: 'avg_final_elo', label: 'Avg Winner Elo', category: 'rating', formatter: 'elo', listView: true,
     sourceMetric: 'winner_elo', sourceEntity: 'run', aggregate: aggregateBootstrapMean, aggregationMethod: 'bootstrap_mean' },
@@ -169,6 +174,8 @@ export const METRIC_REGISTRY: Record<EntityType, EntityMetricRegistry> = {
       { name: 'iterative_edit_accept_rate', label: 'Edit Accept Rate', category: 'cost', formatter: 'integer',
         compute: () => 0 },
       { name: 'evaluation_cost', label: 'Evaluation Cost', category: 'cost', formatter: 'cost',
+        compute: () => 0 },
+      { name: 'debate_cost', label: 'Debate Cost', category: 'cost', formatter: 'cost',
         compute: () => 0 },
       { name: 'seed_cost', label: 'Seed Cost', category: 'cost', formatter: 'cost',
         listView: true, compute: () => 0 },

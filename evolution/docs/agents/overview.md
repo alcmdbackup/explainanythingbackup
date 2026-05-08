@@ -6,7 +6,7 @@ This document covers the V2 pipeline's operational components: the three concret
 
 `evolveArticle()` in `evolution/src/lib/pipeline/loop/runIterationLoop.ts` iterates over
 `config.iterationConfigs[]`, an ordered array of `IterationConfig` objects. Each entry
-specifies `agentType` (`generate`, `reflect_and_generate`, `iterative_editing`, or `swiss`), `budgetPercent`, and optional `maxAgents`.
+specifies `agentType` (`generate`, `reflect_and_generate`, `criteria_and_generate`, `debate_and_generate`, `iterative_editing`, or `swiss`), `budgetPercent`, and optional `maxAgents`.
 Per-iteration dollar budgets are computed at runtime: `(budgetPercent / 100) * totalBudget`.
 Each iteration is one of two types — both have the uniform shape **work agent(s) + merge agent**:
 
@@ -498,3 +498,42 @@ After loop terminates: emit final `Variant` if any cycle accepted edits. The fin
 **Schema deploy gate**: `evolution/src/lib/core/startupAssertions.ts` queries the `evolution_cost_calibration_phase_allowed` CHECK constraint at agent-registry init and throws `MissingMigrationError` if any TS phase string is missing from the DB enum. Eliminates the silent-reject failure mode PR #1017 hit.
 
 See full deep dive: `evolution/docs/editing_agents.md`.
+
+## DebateThenGenerateFromPreviousArticleAgent (bring_back_debate_agent_20260506)
+
+A wrapper agent that runs a structured "analyze + judge" comparison of the top-2 pool variants, then synthesizes a child variant from the judge's verdict. Selected per-iteration via `IterationConfig.agentType: 'debate_and_generate'`. **Cannot be the first iteration** — requires ≥2 pool variants for top-2 selection (`canBeFirstIteration` returns false).
+
+**Class**: `DebateThenGenerateFromPreviousArticleAgent` (`evolution/src/lib/core/agents/debate/DebateAgent.ts`).
+
+- `name = 'debate_then_generate_from_previous_article'`
+- `executionDetailSchema = debateExecutionDetailSchema`
+- `tactic = 'debate_synthesis'` (marker tactic per Decision §9; not used by `buildPromptForTactic`)
+- `getAttributionDimension(detail) → 'debate_synthesis'` — feeds `eloAttrDelta:debate_then_generate_from_previous_article:debate_synthesis` rows.
+
+**Algorithm — Option C (2 LLM calls)** per Decision §17:
+
+1. **Top-2 selection** — `resolveDebateDispatchRuntime()` selects the top-2 non-arena rated variants from the iteration-start pool by Elo desc with deterministic id-tiebreak (Decision §12).
+2. **Combined analyze + judge call** — ONE LLM call against the strategy's `judgeModel` produces structured JSON: `{prosA, consA, prosB, consB, winner, reasoning, strengthsFromA, strengthsFromB, improvements}`. Reasoning effort is cascade-resolved (iter → strategy → registry default → undefined) by `resolveDebateJudgeReasoningEffort()`. Cost is recorded under AgentName `'debate_judge'` → `debate_cost` metric.
+3. **Pre-synthesis budget gate** (Decision §8) — if `getOwnSpent() ≥ 0.9 × $0.40` after the judge call, throw with `failurePoint='budget'` BEFORE invoking inner GFPA. Partial detail captures the verdict.
+4. **Synthesis via inner GFPA** — `GenerateFromPreviousArticleAgent.execute()` is invoked with `parentText = winner.text` (Decision §20: revise winner using loser's strengths) + a `customPrompt` built from the verdict. Cost is recorded under AgentName `'debate_synthesis'` (NOT `'generation'`) → `debate_cost` metric.
+
+**Wrapper-agent LLM-client proxy (I4)** — load-bearing invariant for cost attribution:
+
+The synthesis-LLM-proxy must (a) be injected via `innerInput.llm` (NOT `ctx`), (b) wrap BOTH `complete` and `completeStructured` of `EvolutionLLMClient`, and (c) rewrite `'generation' → 'debate_synthesis'` while passing through all other AgentNames (especially `'ranking'` so Swiss-style pairwise comparisons inside GFPA still tag `ranking_cost`). Without I4 the synthesis cost flows to `generation_cost` and `EstPerAgentValue.gen` instead of `EstPerAgentValue.debate`, silently breaking the cost-attribution contract. Cross-reference: bring_back_debate_agent_20260506 Decision §17 + Phase 1.4.
+
+**Multi-parent emission** (Decision §20) — synthesized variant has `parentIds = [winner.id, loser.id]`. Order is load-bearing: `parentIds[0]` is the canonical primary parent (judge's winner), `parentIds[1]` is the loser. Persistence path writes both to `evolution_variants.parent_variant_ids: uuid[]`.
+
+**Surface gates**:
+- Judge `winner='tie'` → synthesis runs but result not surfaced (Decision §13).
+- Synthesis Jaccard ≥ 0.85 vs EITHER parent → not surfaced (`failurePoint='synthesis_no_op'` per Decision §14).
+- Empty synthesis text → not surfaced (`failurePoint='synthesis_empty'`).
+
+**Models** (no debate-specific overrides per Decision §18):
+- Combined judge call: strategy's `judgeModel`. Reasoning effort overridable via `IterationConfig.debateJudgeReasoningEffort` or `StrategyConfig.debateJudgeReasoningEffort` (cross-field refinement at Phase 1.14 enforces `judgeModel.supportsReasoning=true` when set).
+- Synthesis call: strategy's `generationModel` via inner GFPA (no override).
+
+**Kill switch**: `EVOLUTION_DEBATE_ENABLED='false'` short-circuits the dispatch branch (Decision §11). Mirrors at the wizard preview boundary (`debateEnabled` flag → `EstPerAgentValue.debate=0`).
+
+**Cost cap**: $0.40 per invocation; pre-synthesis budget gate fires at 0.9 × cap (Decision §8).
+
+See full deep dive: `evolution/docs/agents/overview.md` (this section) + planning doc at `docs/planning/bring_back_debate_agent_20260506/`.

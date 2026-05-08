@@ -59,7 +59,7 @@ const MOCK_VARIANT = {
   agent_name: 'mutator',
   match_count: 8,
   is_winner: true,
-  parent_variant_id: VALID_UUID_3,
+  parent_variant_ids: [VALID_UUID_3],
   created_at: '2026-03-01T11:00:00Z',
 };
 
@@ -144,7 +144,7 @@ describe('variantDetailActions', () => {
         // fetch variant to get parent_variant_id
         (b) => {
           b.single = jest.fn().mockResolvedValue({
-            data: { parent_variant_id: VALID_UUID_3 },
+            data: { parent_variant_ids: [VALID_UUID_3] },
             error: null,
           });
         },
@@ -167,7 +167,7 @@ describe('variantDetailActions', () => {
       const mock = createTableAwareMock([
         (b) => {
           b.single = jest.fn().mockResolvedValue({
-            data: { parent_variant_id: null },
+            data: { parent_variant_ids: [] },
             error: null,
           });
         },
@@ -205,6 +205,8 @@ describe('variantDetailActions', () => {
       const chain = {
         select: jest.fn().mockReturnThis(),
         eq: jest.fn().mockReturnThis(),
+        // PR 2: getVariantChildrenAction now uses .contains('parent_variant_ids', [variantId]).
+        contains: jest.fn().mockReturnThis(),
         order: jest.fn().mockReturnThis(),
         limit: jest.fn().mockResolvedValue({ data: children, error: null }),
       };
@@ -251,7 +253,7 @@ describe('variantDetailActions', () => {
         generation: 0,
         elo_score: 1100,
         variant_content: 'Grandparent content here',
-        parent_variant_id: null,
+        parent_variant_ids: [],
       };
       const parent = {
         id: VALID_UUID_3,
@@ -259,14 +261,14 @@ describe('variantDetailActions', () => {
         generation: 1,
         elo_score: 1200,
         variant_content: 'Parent variant content',
-        parent_variant_id: VALID_UUID_2,
+        parent_variant_ids: [VALID_UUID_2],
       };
 
       const mock = createTableAwareMock([
         // fetch variant to get its parent_variant_id
         (b) => {
           b.single = jest.fn().mockResolvedValue({
-            data: { parent_variant_id: VALID_UUID_3 },
+            data: { parent_variant_ids: [VALID_UUID_3] },
             error: null,
           });
         },
@@ -293,7 +295,7 @@ describe('variantDetailActions', () => {
       const mock = createTableAwareMock([
         (b) => {
           b.single = jest.fn().mockResolvedValue({
-            data: { parent_variant_id: null },
+            data: { parent_variant_ids: [] },
             error: null,
           });
         },

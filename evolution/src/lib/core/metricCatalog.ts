@@ -58,6 +58,11 @@ export const METRIC_CATALOG = {
     timing: 'during_execution', listView: false,
     description: 'LLM spend on evaluate_and_suggest combined-call (EvaluateCriteriaThenGenerateFromPreviousArticleAgent)',
   },
+  debate_cost: {
+    name: 'debate_cost', label: 'Debate Cost', category: 'cost', formatter: 'cost',
+    timing: 'during_execution', listView: false,
+    description: 'LLM spend on debate_judge + debate_synthesis calls (DebateThenGenerateFromPreviousArticleAgent — bring_back_debate_agent_20260506)',
+  },
   seed_cost: {
     name: 'seed_cost', label: 'Seed Cost', category: 'cost', formatter: 'cost',
     timing: 'during_execution', listView: true,
@@ -201,6 +206,16 @@ export const METRIC_CATALOG = {
     name: 'avg_evaluation_cost_per_run', label: 'Avg Evaluation Cost/Run', category: 'cost', formatter: 'cost',
     timing: 'at_propagation',
     description: 'Average evaluation_cost per child run',
+  },
+  total_debate_cost: {
+    name: 'total_debate_cost', label: 'Total Debate Cost', category: 'cost', formatter: 'cost',
+    timing: 'at_propagation', listView: true,
+    description: 'Sum of debate_cost across all child runs',
+  },
+  avg_debate_cost_per_run: {
+    name: 'avg_debate_cost_per_run', label: 'Avg Debate Cost/Run', category: 'cost', formatter: 'cost',
+    timing: 'at_propagation',
+    description: 'Average debate_cost per child run',
   },
   total_seed_cost: {
     name: 'total_seed_cost', label: 'Total Seed Cost', category: 'cost', formatter: 'cost',

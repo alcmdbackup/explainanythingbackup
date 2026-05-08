@@ -18,8 +18,11 @@ import { dbToRating } from '@evolution/lib/shared/computeRatings';
 import { bootstrapDeltaCI } from '@evolution/lib/shared/ratingDelta';
 import { VariantParentBadge } from '@evolution/components/evolution/variant/VariantParentBadge';
 
-/** Extended variant type with optional parent_variant_id for display. */
+/** Extended variant type with optional parent IDs for display.
+ *  bring_back_debate_agent_20260506 PR 2: parent_variant_ids is the canonical column;
+ *  parent_variant_id is the deprecated backward-compat field derived from [0]. */
 interface VariantWithParent extends EvolutionVariant {
+  parent_variant_ids?: string[];
   parent_variant_id?: string | null;
 }
 
@@ -204,7 +207,11 @@ export function VariantsTab({ runId, strategyId, runStatus }: VariantsTabProps):
                   <td className="px-2 py-2 text-right text-[var(--text-muted)]">{v.generation}</td>
                   <td className="px-2 py-2">
                     {(() => {
-                      const parentId = v.parent_variant_id ?? null;
+                      // Prefer parent_variant_ids[0] (canonical primary parent per
+                      // bring_back_debate_agent_20260506 Decision §20); fall back to
+                      // legacy parent_variant_id field for transitional compat.
+                      const parentIds = v.parent_variant_ids ?? [];
+                      const parentId = parentIds.length > 0 ? parentIds[0]! : (v.parent_variant_id ?? null);
                       if (!parentId) {
                         return (
                           <VariantParentBadge

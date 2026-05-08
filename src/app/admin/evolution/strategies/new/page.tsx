@@ -8,13 +8,14 @@ import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { MODEL_OPTIONS } from '@/lib/utils/modelOptions';
-import { DEFAULT_JUDGE_MODEL } from '@/config/modelRegistry';
+import { DEFAULT_JUDGE_MODEL, modelSupportsReasoning, MODEL_REGISTRY } from '@/config/modelRegistry';
 import { createStrategyAction } from '@evolution/services/strategyRegistryActions';
 import {
   getLastUsedPromptAction,
   getStrategyDispatchPreviewAction,
 } from '@evolution/services/strategyPreviewActions';
 import type { LastUsedPromptResult, IterationPlanEntryClient } from '@evolution/services/strategyPreviewActions';
+import type { IterationAgentType } from '@evolution/lib/schemas';
 
 // Mirrors DEFAULT_SEED_CHARS in evolution/src/lib/pipeline/loop/projectDispatchPlan.ts.
 // Inlined here because a `"use server"` file (strategyPreviewActions) can only export
@@ -33,18 +34,8 @@ const STEP_LABELS: Record<Step, string> = { config: 'Strategy Config', iteration
 
 type BudgetFloorMode = 'fraction' | 'agentMultiple';
 
-type AgentType =
-  | 'generate'
-  | 'reflect_and_generate'
-  | 'criteria_and_generate'
-  | 'single_pass_evaluate_criteria_and_generate'
-  | 'proposer_approver_criteria_generate'
-  | 'iterative_editing'
-  | 'iterative_editing_rewrite'
-  | 'swiss';
-
 interface IterationRow {
-  agentType: AgentType;
+  agentType: IterationAgentType;
   budgetPercent: number;
   /** Phase 2: parent-article source for generate iterations. Undefined for swiss/editing.
    *  First iteration is locked to 'seed' by schema refine. */
@@ -81,6 +72,10 @@ interface IterationRow {
    *  groups directly. Default true (run mirror). Only valid when
    *  agentType === 'proposer_approver_criteria_generate'. */
   includesMirrorApprover?: boolean;
+  /** Per-iteration override for debate judge reasoning effort. Only valid when
+   *  agentType === 'debate_and_generate' AND the strategy's judgeModel has
+   *  supportsReasoning=true (Phase 1.14 cross-field refinement enforces both). */
+  debateJudgeReasoningEffort?: 'none' | 'low' | 'medium' | 'high';
 }
 
 // Default cutoff applied when user switches a generate iteration to sourceMode='pool'.
@@ -115,7 +110,7 @@ const DEFAULT_ITERATIONS: IterationRow[] = [
 // ─── Form → payload helpers ─────────────────────────────────────
 
 interface IterationConfigPayload {
-  agentType: AgentType;
+  agentType: IterationAgentType;
   budgetPercent: number;
   sourceMode?: 'seed' | 'pool';
   qualityCutoff?: { mode: 'topN' | 'topPercent'; value: number };
@@ -128,6 +123,7 @@ interface IterationConfigPayload {
   lengthCapRatio?: number;
   redundancyJaccardThreshold?: number;
   includesMirrorApprover?: boolean;
+  debateJudgeReasoningEffort?: 'none' | 'low' | 'medium' | 'high';
 }
 
 /** Variant-producing agent types share the same parent-article source machinery
@@ -220,6 +216,10 @@ function toIterationConfigsPayload(iterations: IterationRow[]): IterationConfigP
     // implicit so the strategy hash doesn't drift on default-config strategies).
     ...(it.agentType === 'proposer_approver_criteria_generate' && it.includesMirrorApprover === false
       ? { includesMirrorApprover: false }
+      : {}),
+    // bring_back_debate_agent_20260506 Phase 4.6 — debate-only field.
+    ...(it.agentType === 'debate_and_generate' && it.debateJudgeReasoningEffort
+      ? { debateJudgeReasoningEffort: it.debateJudgeReasoningEffort }
       : {}),
   }));
 }
@@ -554,6 +554,24 @@ export default function NewStrategyPage(): JSX.Element {
         delete updated.lengthCapRatio;
         delete updated.redundancyJaccardThreshold;
         delete updated.includesMirrorApprover;
+        delete updated.debateJudgeReasoningEffort;
+        return updated;
+      }
+      // Debate selects parents internally; reject sourceMode + qualityCutoff per Phase 4.7.
+      if (updated.agentType === 'debate_and_generate') {
+        delete updated.sourceMode;
+        delete updated.qualityCutoffMode;
+        delete updated.qualityCutoffValue;
+        delete updated.tacticGuidance;
+        delete updated.reflectionTopN;
+        delete updated.criteriaIds;
+        delete updated.weakestK;
+        delete updated.editingMaxCycles;
+        delete updated.editingCutoffMode;
+        delete updated.editingCutoffValue;
+        delete updated.lengthCapRatio;
+        delete updated.redundancyJaccardThreshold;
+        delete updated.includesMirrorApprover;
         return updated;
       }
       // iterative_editing: keep editingMaxCycles + editingCutoff*; drop variant-flow fields.
@@ -598,6 +616,7 @@ export default function NewStrategyPage(): JSX.Element {
         delete updated.lengthCapRatio;
         delete updated.redundancyJaccardThreshold;
         delete updated.includesMirrorApprover;
+        delete updated.debateJudgeReasoningEffort;
         updated.reflectionTopN ??= 3;
       } else if (updated.agentType === 'criteria_and_generate') {
         delete updated.tacticGuidance;
@@ -605,16 +624,18 @@ export default function NewStrategyPage(): JSX.Element {
         delete updated.lengthCapRatio;
         delete updated.redundancyJaccardThreshold;
         delete updated.includesMirrorApprover;
+        delete updated.debateJudgeReasoningEffort;
         updated.criteriaIds ??= [];
         updated.weakestK ??= 1;
       } else {
-        // generate: drop reflection + criteria fields (stale from prior selection).
+        // generate: drop reflection + criteria + debate fields (stale from prior selection).
         delete updated.reflectionTopN;
         delete updated.criteriaIds;
         delete updated.weakestK;
         delete updated.lengthCapRatio;
         delete updated.redundancyJaccardThreshold;
         delete updated.includesMirrorApprover;
+        delete updated.debateJudgeReasoningEffort;
       }
       // Variant-producing: ensure sourceMode is always set so payload emission is deterministic.
       updated.sourceMode ??= 'seed';
@@ -1095,6 +1116,7 @@ export default function NewStrategyPage(): JSX.Element {
                         <option value="criteria_and_generate">Evaluate Criteria + Generate</option>
                         <option value="single_pass_evaluate_criteria_and_generate">Single-Pass Criteria w/ Guardrails</option>
                         <option value="proposer_approver_criteria_generate" disabled={idx === 0} title={idx === 0 ? 'First iteration must produce variants — propose/approve edits an existing parent' : undefined}>Proposer-Approver Criteria w/ Mirror</option>
+                        <option value="debate_and_generate" disabled={idx === 0} title={idx === 0 ? 'First iteration must produce variants on an empty pool' : 'Debate top-2 pool variants then synthesize'}>Debate + Generate</option>
                         <option value="iterative_editing" disabled={idx === 0} title={idx === 0 ? 'First iteration must produce variants' : undefined}>Iterative Editing (Markup)</option>
                         <option value="iterative_editing_rewrite" disabled={idx === 0} title={idx === 0 ? 'First iteration must produce variants' : 'Mode B: proposer rewrites; markup computed mechanically'}>Iterative Editing (Rewrite)</option>
                         <option value="swiss" disabled={idx === 0} title={idx === 0 ? 'First iteration must produce variants' : undefined}>Swiss</option>
@@ -1384,6 +1406,53 @@ export default function NewStrategyPage(): JSX.Element {
                         onClose={() => setCriteriaEditorIdx(null)}
                       />
                     )}
+                    {it.agentType === 'debate_and_generate' && (() => {
+                      // bring_back_debate_agent_20260506 Phase 4.6 — debate iteration controls.
+                      // Reasoning-effort dropdown is conditionally enabled by the strategy's
+                      // judgeModel.supportsReasoning flag. Disabled state shows a help-text chip
+                      // listing reasoning-capable models from the registry.
+                      const judgeModel = form.judgeModel;
+                      const judgeSupportsReasoning = modelSupportsReasoning(judgeModel);
+                      const reasoningCapableModels = Object.entries(MODEL_REGISTRY)
+                        .filter(([, m]) => m.supportsReasoning)
+                        .map(([id]) => id);
+                      const registryDefault = MODEL_REGISTRY[judgeModel]?.defaultReasoningEffort;
+                      return (
+                        <div
+                          className="mt-2 pl-8 flex flex-wrap items-center gap-2 text-xs font-ui"
+                          data-testid={`iteration-debate-controls-${idx}`}
+                        >
+                          <span className="text-[var(--text-primary)]" data-testid={`debate-info-chip-${idx}`}>
+                            🥊 Uses strategy Judge model for analyze+judge / Generation model for synthesis · Judge reasoning effort:
+                          </span>
+                          <select
+                            value={it.debateJudgeReasoningEffort ?? ''}
+                            disabled={!judgeSupportsReasoning}
+                            onChange={e => {
+                              const v = e.target.value === '' ? undefined : (e.target.value as 'none' | 'low' | 'medium' | 'high');
+                              updateIteration(idx, { debateJudgeReasoningEffort: v });
+                            }}
+                            className="px-2 py-1 text-xs font-ui bg-[var(--surface-primary)] border border-[var(--border-default)] rounded-page text-[var(--text-primary)] focus:border-[var(--accent-gold)] focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
+                            data-testid={`debate-reasoning-effort-${idx}`}
+                          >
+                            <option value="">
+                              {judgeSupportsReasoning
+                                ? `Inherit (${registryDefault ?? 'none'})`
+                                : `Not supported by ${judgeModel}`}
+                            </option>
+                            <option value="none">none</option>
+                            <option value="low">low</option>
+                            <option value="medium">medium</option>
+                            <option value="high">high</option>
+                          </select>
+                          {!judgeSupportsReasoning && (
+                            <span className="text-[var(--text-muted)] italic" data-testid={`debate-reasoning-help-chip-${idx}`}>
+                              Pick a reasoning-capable model ({reasoningCapableModels.join(', ')}) on Step 1 to enable thinking.
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })()}
                     </div>
                   );
                 })}

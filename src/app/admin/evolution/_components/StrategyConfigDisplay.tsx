@@ -2,6 +2,7 @@
  * Display component for strategy configuration details.
  * Shows models, iterations, budget allocation with agent names.
  */
+import type { IterationAgentType } from '@evolution/lib/schemas';
 
 const REQUIRED_AGENTS = ['generation', 'ranking', 'proximity'];
 
@@ -21,7 +22,7 @@ const AGENT_LABELS: Record<string, string> = {
 };
 
 interface IterationConfigEntry {
-  agentType: 'generate' | 'reflect_and_generate' | 'swiss';
+  agentType: IterationAgentType;
   budgetPercent: number;
   generationGuidance?: Array<{ tactic: string; percent: number }>;
 }

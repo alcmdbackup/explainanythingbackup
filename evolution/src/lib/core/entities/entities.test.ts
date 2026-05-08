@@ -30,11 +30,11 @@ describe('RunEntity', () => {
     expect(entity.children.every(c => c.cascade === 'delete')).toBe(true);
   });
 
-  it('has 15 execution + 21 finalization + 0 propagation metrics', () => {
-    // 11 prior + 4 propose/approve criteria (proposer_approver_criteria_cost +
-    // 3 operational rates: drift_rate, accept_rate, mirror_agreement_rate)
-    // (updated_criteria_agent_20260505).
-    expect(entity.metrics.duringExecution).toHaveLength(15);
+  it('has 16 execution + 21 finalization + 0 propagation metrics', () => {
+    // 11 prior + 1 debate_cost (bring_back_debate_agent_20260506) +
+    // 4 propose/approve criteria (proposer_approver_criteria_cost + 3 operational rates:
+    // drift_rate, accept_rate, mirror_agreement_rate) (updated_criteria_agent_20260505) = 16.
+    expect(entity.metrics.duringExecution).toHaveLength(16);
     // 18 prior + 3 sentence-overlap percentile metrics (median, p25, min)
     // (updated_criteria_agent_20260505).
     expect(entity.metrics.atFinalization).toHaveLength(21);
@@ -75,10 +75,11 @@ describe('StrategyEntity', () => {
     expect(entity.children[0]!.cascade).toBe('delete');
   });
 
-  it('has 42 propagation metrics', () => {
+  it('has 44 propagation metrics', () => {
     // 39 prior + 3 (total + avg propose/approve criteria cost + avg_median_sentence_verbatim_ratio)
-    // (updated_criteria_agent_20260505).
-    expect(entity.metrics.atPropagation).toHaveLength(42);
+    // (updated_criteria_agent_20260505) + 2 debate (total_debate_cost, avg_debate_cost_per_run from
+    // bring_back_debate_agent_20260506) = 44.
+    expect(entity.metrics.atPropagation).toHaveLength(44);
     const names = entity.metrics.atPropagation.map(d => d.name);
     expect(names).toContain('run_count');
     expect(names).toContain('total_cost');

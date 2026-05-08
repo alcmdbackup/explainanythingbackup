@@ -101,9 +101,14 @@ export function LineageGraph({ nodes, edges, treeSearchPath }: LineageGraphProps
         return 0.5;
       })
       .attr('stroke-dasharray', d => {
-        // Dashed edges for pruned tree branches
+        // Dashed edges for pruned tree branches.
         const targetNode = nodes.find(n => n.id === d.target);
         if (targetNode?.tactic?.startsWith('tree_search_') && !pathSet.has(d.target)) return '4,3';
+        // bring_back_debate_agent_20260506 Phase 4.9 — additional parents (parentIndex >= 1)
+        // are rendered dashed to distinguish from canonical primary (parentIndex = 0).
+        // Multi-parent variants (debate's [winner, loser]) emit two edges: solid to winner,
+        // dashed to loser.
+        if (d.parentIndex !== undefined && d.parentIndex >= 1) return '6,3';
         return 'none';
       });
 

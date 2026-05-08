@@ -8,7 +8,7 @@ interface VariantRow {
   id: string;
   mu: number | null;
   elo_score: number;
-  parent_variant_id: string | null;
+  parent_variant_ids: string[];
   agent_invocation_id: string | null;
   persisted: boolean | null;
 }
@@ -62,8 +62,8 @@ function buildMockSupabase(args: {
               variantSelectCounts.base += 1;
               return chainable(args.baseVariants);
             }
-            // The attribution query includes 'agent_invocation_id' and 'parent_variant_id'.
-            if (columns.includes('agent_invocation_id') && columns.includes('parent_variant_id')) {
+            // The attribution query includes 'agent_invocation_id' and 'parent_variant_ids'.
+            if (columns.includes('agent_invocation_id') && columns.includes('parent_variant_ids')) {
               variantSelectCounts.attr += 1;
               return chainable(args.attrVariants);
             }
@@ -111,9 +111,9 @@ describe('computeRunMetrics attribution aggregation', () => {
     const supabase = buildMockSupabase({
       baseVariants: [{ elo_score: 1250 }, { elo_score: 1220 }, { elo_score: 1190 }],
       attrVariants: [
-        { id: 'v1', mu: 1250, elo_score: 1250, parent_variant_id: 'p1', agent_invocation_id: 'inv1', persisted: true },
-        { id: 'v2', mu: 1220, elo_score: 1220, parent_variant_id: 'p2', agent_invocation_id: 'inv2', persisted: true },
-        { id: 'v3', mu: 1190, elo_score: 1190, parent_variant_id: 'p3', agent_invocation_id: 'inv3', persisted: true },
+        { id: 'v1', mu: 1250, elo_score: 1250, parent_variant_ids: ['p1'], agent_invocation_id: 'inv1', persisted: true },
+        { id: 'v2', mu: 1220, elo_score: 1220, parent_variant_ids: ['p2'], agent_invocation_id: 'inv2', persisted: true },
+        { id: 'v3', mu: 1190, elo_score: 1190, parent_variant_ids: ['p3'], agent_invocation_id: 'inv3', persisted: true },
       ],
       invocations: [
         { id: 'inv1', agent_name: 'generate_from_previous_article', cost_usd: 0.01,
@@ -146,8 +146,8 @@ describe('computeRunMetrics attribution aggregation', () => {
     const supabase = buildMockSupabase({
       baseVariants: [{ elo_score: 1250 }, { elo_score: 1210 }],
       attrVariants: [
-        { id: 'v1', mu: 1250, elo_score: 1250, parent_variant_id: 'p1', agent_invocation_id: 'inv1', persisted: true },
-        { id: 'v2', mu: 1210, elo_score: 1210, parent_variant_id: 'p2', agent_invocation_id: 'inv2', persisted: true },
+        { id: 'v1', mu: 1250, elo_score: 1250, parent_variant_ids: ['p1'], agent_invocation_id: 'inv1', persisted: true },
+        { id: 'v2', mu: 1210, elo_score: 1210, parent_variant_ids: ['p2'], agent_invocation_id: 'inv2', persisted: true },
       ],
       invocations: [
         { id: 'inv1', agent_name: 'generate_from_previous_article', cost_usd: 0.01,
@@ -170,7 +170,7 @@ describe('computeRunMetrics attribution aggregation', () => {
     const supabase = buildMockSupabase({
       baseVariants: [{ elo_score: 1250 }],
       attrVariants: [
-        { id: 'v1', mu: 1250, elo_score: 1250, parent_variant_id: 'p1', agent_invocation_id: 'inv1', persisted: true },
+        { id: 'v1', mu: 1250, elo_score: 1250, parent_variant_ids: ['p1'], agent_invocation_id: 'inv1', persisted: true },
       ],
       invocations: [
         { id: 'inv1', agent_name: 'swiss_ranking', cost_usd: 0.01,
@@ -205,8 +205,8 @@ describe('computeRunMetrics attribution — write-through (Blocker 2)', () => {
     return {
       baseVariants: [{ elo_score: 1250 }, { elo_score: 1220 }],
       attrVariants: [
-        { id: 'v1', mu: 1250, elo_score: 1250, parent_variant_id: 'p1', agent_invocation_id: 'inv1', persisted: true },
-        { id: 'v2', mu: 1220, elo_score: 1220, parent_variant_id: 'p2', agent_invocation_id: 'inv2', persisted: true },
+        { id: 'v1', mu: 1250, elo_score: 1250, parent_variant_ids: ['p1'], agent_invocation_id: 'inv1', persisted: true },
+        { id: 'v2', mu: 1220, elo_score: 1220, parent_variant_ids: ['p2'], agent_invocation_id: 'inv2', persisted: true },
       ],
       invocations: [
         { id: 'inv1', agent_name: 'generate_from_previous_article', cost_usd: 0.01,

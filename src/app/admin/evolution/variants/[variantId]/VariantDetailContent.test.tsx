@@ -32,6 +32,7 @@ const mockVariant: VariantFullDetail = {
   matchCount: 8,
   isWinner: true,
   parentVariantId: null,
+  parentVariantIds: [],
   parentElo: null,
   parentUncertainty: null,
   parentRunId: null,

@@ -29,6 +29,18 @@ For how costs fit into the pipeline lifecycle, see [Architecture](./architecture
 > `upsert_metric_max` RPC is available in the local DB. CI applies migrations to staging
 > automatically via `.github/workflows/ci.yml` `deploy-migrations` job.
 
+> **Debate wrapper cost stack.** `DebateThenGenerateFromPreviousArticleAgent` (Shape A:
+> `agentType: 'debate_and_generate'` is a top-level enum value) makes 2 LLM calls per
+> invocation under Option C (Decision §17): ONE combined "analyze + judge" call, plus
+> ONE synthesis call delegated to inner GFPA. Both calls map to the SINGLE `debate_cost`
+> metric per Decision §6 — the combined call uses AgentName `'debate_judge'` and the
+> synthesis call uses `'debate_synthesis'` (NOT `'generation'` — wired via the I4
+> LLM-client proxy that rewrites `'generation' → 'debate_synthesis'` at the inner-GFPA
+> boundary). Total per-invocation cost: `debate_judge + debate_synthesis + ranking`
+> (ranking from inner GFPA's Swiss-style binary-search keeps its own `'ranking'` AgentName
+> and flows to `ranking_cost`). Per-invocation budget cap $0.40 with 0.9× pre-synthesis
+> abort threshold per Decision §8.
+>
 > **Reflection wrapper cost stack.** `ReflectAndGenerateFromPreviousArticleAgent`
 > (Shape A: `agentType: 'reflect_and_generate'` is a top-level enum value alongside
 > `'generate'` and `'swiss'`) makes ONE reflection LLM call up front to pick a tactic,

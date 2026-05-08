@@ -25,6 +25,10 @@ const REFLECTION_COLOR = '#f59e0b'; // amber
 // Criteria-driven wrapper: single combined evaluate + suggest LLM call rendered as
 // an emerald bar (one phase, not two — sourced from one LLM response).
 const EVALUATE_AND_SUGGEST_COLOR = '#10b981'; // emerald
+// bring_back_debate_agent_20260506 Phase 4.5 — debate wrapper's combined analyze+judge
+// LLM call rendered as a rose bar (one phase per Option C — Decision §17). Distinct from
+// the marker-tactic palette color #fda4af (Phase 1.11) used in the lineage graph.
+const DEBATE_COLOR = '#f472b6'; // rose
 const COMPARISON_BUCKET_THRESHOLD = 20;
 const COMPARISON_BUCKET_SIZE = 5;
 
@@ -136,19 +140,29 @@ export function InvocationTimelineTab({ invocation }: InvocationTimelineTabProps
   const evaluateAndSuggest = (detail?.evaluateAndSuggest as Record<string, unknown> | undefined) ?? null;
   const evaluateAndSuggestDurationMs = evaluateAndSuggest?.durationMs as number | undefined;
 
-  // Phase bar total = reflection + evaluate-and-suggest + generation + ranking,
-  // fallback to invocation total. (Reflection and evaluate-and-suggest are mutually
-  // exclusive in practice — one wrapper agent uses each.)
+  // bring_back_debate_agent_20260506 Phase 4.5 — debate wrapper's combined analyze+judge call.
+  // Path: execution_detail.debate.combined.{durationMs, cost} per Phase 1.2 schema.
+  const debateBlock = (detail?.debate as Record<string, unknown> | undefined) ?? null;
+  const debateCombined = (debateBlock?.combined as Record<string, unknown> | undefined) ?? null;
+  const debateCombinedDurationMs = debateCombined?.durationMs as number | undefined;
+
+  // Phase bar total = reflection + evaluate-and-suggest + debate-judge + generation + ranking,
+  // fallback to invocation total. (Reflection / evaluate-and-suggest / debate-judge are
+  // mutually exclusive — one wrapper agent uses each.)
   const phaseTotalMs =
     (reflectionDurationMs ?? 0)
     + (evaluateAndSuggestDurationMs ?? 0)
+    + (debateCombinedDurationMs ?? 0)
     + (generationDurationMs ?? 0)
     + (rankingDurationMs ?? 0) ||
     invocation.duration_ms ||
     1;
 
   // Bar startMs offsets account for the wrapper-prefix phase coming first.
-  const wrapperPrefixMs = (reflectionDurationMs ?? 0) + (evaluateAndSuggestDurationMs ?? 0);
+  const wrapperPrefixMs =
+    (reflectionDurationMs ?? 0)
+    + (evaluateAndSuggestDurationMs ?? 0)
+    + (debateCombinedDurationMs ?? 0);
   const generationStartMs = wrapperPrefixMs;
   const rankingStartMs = generationStartMs + (generationDurationMs ?? 0);
 
@@ -203,6 +217,17 @@ export function InvocationTimelineTab({ invocation }: InvocationTimelineTabProps
                 label={`Eval & Suggest ${fmtMs(evaluateAndSuggestDurationMs)}`}
                 tooltip={`Combined evaluate + suggest phase (1 LLM call)\nDuration: ${fmtMs(evaluateAndSuggestDurationMs)}\nCost: ${(evaluateAndSuggest?.cost as number | undefined)?.toFixed(4) ?? '—'}`}
                 testId="timeline-evaluate-and-suggest-bar"
+              />
+            )}
+            {debateCombinedDurationMs != null && (
+              <GanttBar
+                startMs={0}
+                durationMs={debateCombinedDurationMs}
+                totalMs={phaseTotalMs}
+                color={DEBATE_COLOR}
+                label={`Analyze + Judge ${fmtMs(debateCombinedDurationMs)}`}
+                tooltip={`Combined analyze + judge phase (1 LLM call per Option C — bring_back_debate_agent_20260506 Decision §17)\nDuration: ${fmtMs(debateCombinedDurationMs)}\nCost: ${(debateCombined?.cost as number | undefined)?.toFixed(4) ?? '—'}`}
+                testId="timeline-debate-bar"
               />
             )}
             {generationDurationMs != null && (

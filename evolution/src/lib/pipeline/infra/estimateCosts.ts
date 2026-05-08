@@ -495,3 +495,88 @@ export function estimateProposerApproverCriteriaCost(
 
   return { expected, upperBound, expectedRanking, upperBoundRanking };
 }
+
+// ─── Debate cost estimation ──────────────────────────────────────────
+//
+// bring_back_debate_agent_20260506 Phase 1.9 — estimate cost of one
+// DebateThenGenerateFromPreviousArticleAgent invocation (Option C: 2 LLM calls).
+//
+// Per-invocation cost = combined-judge call + synthesis-via-GFPA call.
+// Synthesis cost flows to the `debate` peer field on EstPerAgentValue per
+// Phase 1.10 — but the estimator returns it as the `expectedSynthesis` /
+// `upperBoundSynthesis` fields so callers can split presentation if desired.
+
+/** Static prompt overhead for the combined analyze+judge call: preamble + 9-field
+ *  structured ask + critique-context block placeholders. Empirical estimate. */
+const DEBATE_JUDGE_PROMPT_OVERHEAD = 2000;
+/** Output: 9 structured fields × ~80-100 chars each + reasoning paragraph ≈ 3000 chars typical. */
+const DEBATE_JUDGE_OUTPUT_CHARS = 3000;
+/** Upper-bound output: capped at 6000 chars (~1500 tokens) for budget reservation. */
+const DEBATE_JUDGE_UPPER_BOUND_OUTPUT_CHARS = 6000;
+/** Synthesis input ≈ both parent texts + verdict-derived customPrompt overhead. */
+const DEBATE_SYNTHESIS_PROMPT_OVERHEAD = 2500;
+
+/**
+ * Estimate cost of one debate_and_generate invocation.
+ * @param parentACharsApprox ≈ winner.text length (used for both judge call input
+ *   and synthesis call input — synthesis revises winner using loser's strengths).
+ * @param parentBCharsApprox ≈ loser.text length (judge call input only).
+ * @param judgeModel Strategy's judgeModel — used for the combined analyze+judge call.
+ * @param generationModel Strategy's generationModel — used for the synthesis call
+ *   delegated to inner GFPA.
+ * @param poolSize Pool size at iteration start (drives ranking comparisons inside synthesis).
+ * @param maxComparisonsPerVariant Cap on binary-search ranking depth.
+ * @returns expected/upperBound for the full invocation, plus separated synthesis
+ *   sub-costs so EstPerAgentValue.debate can be projected from `expected` (whole
+ *   invocation lands in `debate` peer field per Phase 1.10).
+ */
+export function estimateDebateCost(
+  parentACharsApprox: number,
+  parentBCharsApprox: number,
+  judgeModel: string,
+  generationModel: string,
+  poolSize: number,
+  maxComparisonsPerVariant: number,
+): { expected: number; upperBound: number; expectedSynthesis: number; upperBoundSynthesis: number } {
+  // Combined judge call: input = both parents + critique-context + structured ask;
+  // output = 9-field JSON. Calibration-aware via getCalibrationRow.
+  const judgePricing = getModelPricing(judgeModel);
+  const judgeInputChars = parentACharsApprox + parentBCharsApprox + DEBATE_JUDGE_PROMPT_OVERHEAD;
+  const calibratedJudge = getCalibrationRow('__unspecified__', generationModel, judgeModel ?? '__unspecified__', 'debate_judge');
+  const judgeOutputChars = calibratedJudge?.avgOutputChars ?? DEBATE_JUDGE_OUTPUT_CHARS;
+  const judgeUpperOutputChars = calibratedJudge?.avgOutputChars
+    ? calibratedJudge.avgOutputChars * 1.5  // 50% headroom over calibrated mean
+    : DEBATE_JUDGE_UPPER_BOUND_OUTPUT_CHARS;
+  const expectedJudge = calculateCost(judgeInputChars, judgeOutputChars, judgePricing);
+  const upperBoundJudge = calculateCost(judgeInputChars, judgeUpperOutputChars, judgePricing);
+
+  // Synthesis call: input ≈ winner.text + customPrompt overhead; output = full variant.
+  // Treat as a vanilla generation call against generationModel + ranking against judgeModel.
+  const synthesisGenChars = parentACharsApprox + DEBATE_SYNTHESIS_PROMPT_OVERHEAD;
+  const calibratedSynth = getCalibrationRow('__unspecified__', generationModel, judgeModel ?? '__unspecified__', 'debate_synthesis');
+  const synthOutputChars = calibratedSynth?.avgOutputChars ?? DEFAULT_OUTPUT_CHARS;
+  const synthUpperOutputChars = calibratedSynth?.avgOutputChars
+    ? calibratedSynth.avgOutputChars * 1.5
+    : DEFAULT_OUTPUT_CHARS * 1.5;
+  const synthGenPricing = getModelPricing(generationModel);
+  const expectedSynthGen = calculateCost(synthesisGenChars, synthOutputChars, synthGenPricing);
+  const upperBoundSynthGen = calculateCost(synthesisGenChars, synthUpperOutputChars, synthGenPricing);
+
+  // Synthesis ranking: post-generation Swiss-style binary-search ranking.
+  const synthRankCost = poolSize > 0 && maxComparisonsPerVariant > 0
+    ? estimateRankingCost(synthOutputChars, judgeModel, poolSize, maxComparisonsPerVariant)
+    : 0;
+  const upperSynthRankCost = poolSize > 0 && maxComparisonsPerVariant > 0
+    ? estimateRankingCost(synthUpperOutputChars, judgeModel, poolSize, maxComparisonsPerVariant)
+    : 0;
+
+  const expectedSynthesis = expectedSynthGen + synthRankCost;
+  const upperBoundSynthesis = upperBoundSynthGen + upperSynthRankCost;
+
+  return {
+    expected: expectedJudge + expectedSynthesis,
+    upperBound: upperBoundJudge + upperBoundSynthesis,
+    expectedSynthesis,
+    upperBoundSynthesis,
+  };
+}
