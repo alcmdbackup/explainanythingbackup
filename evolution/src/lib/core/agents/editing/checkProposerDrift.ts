@@ -16,28 +16,31 @@ export function checkProposerDrift(
   recoveredSource: string,
   currentText: string,
 ): DriftCheckResult {
-  const a = normalizeWhitespace(recoveredSource);
-  const b = normalizeWhitespace(currentText);
-  if (a === b) return { drift: false };
+  // Normalized comparison decides whether drift is real (cosmetic whitespace
+  // differences are tolerated). If normalized strings are equal, no drift.
+  const aNorm = normalizeWhitespace(recoveredSource);
+  const bNorm = normalizeWhitespace(currentText);
+  if (aNorm === bNorm) return { drift: false };
 
-  // First diff offset (using normalized strings — close enough for human-readable
-  // sample reporting; downstream recovery uses the raw strings for patching).
+  // For region offsets we use RAW coordinates so downstream snap-to-source can
+  // splice the matching slice from currentText directly. Normalized offsets
+  // would skew when whitespace collapse rates differ between the two strings.
   let i = 0;
-  const min = Math.min(a.length, b.length);
-  while (i < min && a[i] === b[i]) i++;
+  const min = Math.min(recoveredSource.length, currentText.length);
+  while (i < min && recoveredSource[i] === currentText[i]) i++;
 
-  // Region detection: walk forward from each diff position until re-sync.
-  // For now, treat the entire mismatched suffix as a single region (drift recovery
-  // re-checks per-region). Conservative: maps to "minor" only when offset+span is small.
+  // Single region = entire mismatched suffix. No length cap: classifyDriftMagnitude
+  // applies its own DRIFT_MAX_CHARS threshold for the major/minor decision, and
+  // snapDriftToSource needs the full extent so its splice covers the whole drift.
   const regions: EditingDriftRegion[] = [{
     offset: i,
-    driftedText: a.slice(i, Math.min(a.length, i + 200)),
+    driftedText: recoveredSource.slice(i),
   }];
 
   return {
     drift: true,
     firstDiffOffset: i,
-    sample: a.slice(Math.max(0, i - 20), i + 40),
+    sample: recoveredSource.slice(Math.max(0, i - 20), i + 40),
     regions,
   };
 }

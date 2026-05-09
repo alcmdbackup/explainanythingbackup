@@ -100,15 +100,6 @@ export type DriftCheckResult =
   | { drift: false }
   | { drift: true; firstDiffOffset: number; sample: string; regions: EditingDriftRegion[] };
 
-/** Result of recoverDrift. */
-export interface RecoverDriftResult {
-  outcome: 'recovered' | 'unrecoverable_residual' | 'unrecoverable_intentional' | 'skipped_major_drift';
-  patchedMarkup?: string;
-  regions: EditingDriftRegion[];
-  classifications?: EditingDriftRegion[];
-  costUsd: number;
-}
-
 /** Result of validateEditGroups — pre-Approver filter result. */
 export interface ValidateResult {
   approverGroups: EditingGroup[];

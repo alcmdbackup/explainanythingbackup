@@ -9,10 +9,11 @@
 //       directly via the injected input.llm. Never instantiate a separate Agent
 //       and call `.run()` — that creates a NESTED `Agent.run()` scope (separate
 //       AgentCostScope) and splits cost attribution.
-//   I2. Capture `costBeforeProposeCall` / `costBeforeApproveCall` /
-//       `costBeforeRecoveryCall` snapshots BEFORE each helper call so per-purpose
-//       cost can be split into execution_detail.cycles[i].{proposeCostUsd,
-//       approveCostUsd, driftRecoveryCostUsd}.
+//   I2. Capture `costBeforeProposeCall` / `costBeforeApproveCall` snapshots
+//       BEFORE each helper call so per-purpose cost can be split into
+//       execution_detail.cycles[i].{proposeCostUsd, approveCostUsd}. Drift
+//       recovery is now deterministic (snapDriftToSource); driftRecoveryCostUsd
+//       is always 0 and no snapshot is needed.
 //   I3. Write partial `execution_detail` to the invocation row BEFORE re-throwing
 //       on any helper failure. The trackInvocations partial-update fix ensures
 //       Agent.run()'s catch handler doesn't overwrite our partial detail with null.
@@ -41,7 +42,8 @@ import { checkProposerDrift } from './checkProposerDrift';
 import { validateEditGroups } from './validateEditGroups';
 import { parseReviewDecisions } from './parseReviewDecisions';
 import { applyAcceptedGroups } from './applyAcceptedGroups';
-import { recoverDrift } from './recoverDrift';
+import { classifyDriftMagnitude } from './recoverDrift';
+import { snapDriftToSource } from './snapDriftToSource';
 import { buildProposerSystemPrompt, buildProposerUserPrompt } from './proposerPrompt';
 import { buildApproverSystemPrompt, buildApproverUserPrompt } from './approverPrompt';
 import { buildProposerSystemPromptRewrite, buildProposerUserPromptRewrite } from './proposerPromptRewrite';
@@ -335,83 +337,83 @@ export class IterativeEditingAgent extends Agent<
           : checkProposerDrift(parseResult.recoveredSource, current.text);
 
         let approverGroups: typeof parseResult.groups;
-        let droppedPreApprover = [...parseResult.dropped];
+        const droppedPreApprover = [...parseResult.dropped];
         let driftRecoveryCostUsd: number | undefined;
         let driftRecoveryDetails: EditingCycle['driftRecovery'] = undefined;
         let workingMarkup = proposedMarkup;
 
         if (driftResult.drift) {
-          // Attempt minor-drift recovery.
-          const costBeforeRecoveryCall = ctx.costTracker.getOwnSpent?.() ?? 0;
-          const recovery = await recoverDrift({
-            regions: driftResult.regions,
-            proposedMarkup,
-            currentText: current.text,
-            groups: parseResult.groups,
-            deps: {
-              callLlm: (prompt, label) => llm.complete(prompt, label, { model: driftRecoveryModel }),
-              measureCost: () => (ctx.costTracker.getOwnSpent?.() ?? 0) - costBeforeRecoveryCall,
-              env: process.env as Record<string, string | undefined>,
-            },
-          });
-          driftRecoveryCostUsd = recovery.costUsd;
-          driftRecoveryDetails = {
-            outcome: recovery.outcome,
-            regions: recovery.regions,
-            classifications: recovery.classifications,
-            patchedMarkup: recovery.patchedMarkup,
-            costUsd: recovery.costUsd,
-          };
-
-          if (recovery.outcome === 'recovered' && recovery.patchedMarkup) {
-            workingMarkup = recovery.patchedMarkup;
-            const repatched = parseProposedEdits(workingMarkup, current.text);
-            const recheckDrift = checkProposerDrift(repatched.recoveredSource, current.text);
-            if (recheckDrift.drift) {
-              stopReason = 'proposer_drift_unrecoverable';
-              cycles.push(this.buildCycle({
-                cycleNumber, proposedMarkup, parseResult, droppedPreApprover,
-                approverGroups: [], reviewDecisions: [], droppedPostApprover: [],
-                appliedGroups: [], formatValid: false, parentText: current.text,
-                proposeCostUsd, approveCostUsd: 0, driftRecoveryCostUsd, driftRecoveryDetails,
-                sizeRatio: 1.0,
-              }));
-              break;
-            }
-            approverGroups = repatched.groups;
-            droppedPreApprover.push(...repatched.dropped);
-          } else if (recovery.outcome === 'unrecoverable_intentional') {
-            stopReason = 'proposer_drift_intentional';
+          const magnitude = classifyDriftMagnitude(driftResult.regions, parseResult.groups);
+          if (magnitude === 'major') {
+            stopReason = 'proposer_drift_major';
+            driftRecoveryDetails = {
+              outcome: 'skipped_major_drift',
+              regions: driftResult.regions,
+              costUsd: 0,
+            };
             cycles.push(this.buildCycle({
               cycleNumber, proposedMarkup, parseResult, droppedPreApprover,
               approverGroups: [], reviewDecisions: [], droppedPostApprover: [],
               appliedGroups: [], formatValid: false, parentText: current.text,
-              proposeCostUsd, approveCostUsd: 0, driftRecoveryCostUsd, driftRecoveryDetails,
+              proposeCostUsd, approveCostUsd: 0, driftRecoveryCostUsd: 0, driftRecoveryDetails,
               sizeRatio: 1.0,
             }));
             break;
-          } else if (recovery.outcome === 'unrecoverable_residual') {
+          }
+          // Minor drift: deterministic snap-to-source. No LLM call.
+          const snap = snapDriftToSource({
+            regions: driftResult.regions,
+            proposedMarkup,
+            currentText: current.text,
+          });
+          driftRecoveryCostUsd = 0;
+          if (snap.aborted) {
+            // Source slice contained CriticMarkup delimiters — splicing would
+            // mint fake edit markers in the re-parse. Treat as unrecoverable.
+            driftRecoveryDetails = {
+              outcome: 'unrecoverable_residual',
+              regions: driftResult.regions,
+              classifications: snap.classifications,
+              costUsd: 0,
+            };
             stopReason = 'proposer_drift_unrecoverable';
             cycles.push(this.buildCycle({
               cycleNumber, proposedMarkup, parseResult, droppedPreApprover,
               approverGroups: [], reviewDecisions: [], droppedPostApprover: [],
               appliedGroups: [], formatValid: false, parentText: current.text,
-              proposeCostUsd, approveCostUsd: 0, driftRecoveryCostUsd, driftRecoveryDetails,
-              sizeRatio: 1.0,
-            }));
-            break;
-          } else {
-            // skipped_major_drift
-            stopReason = 'proposer_drift_major';
-            cycles.push(this.buildCycle({
-              cycleNumber, proposedMarkup, parseResult, droppedPreApprover,
-              approverGroups: [], reviewDecisions: [], droppedPostApprover: [],
-              appliedGroups: [], formatValid: false, parentText: current.text,
-              proposeCostUsd, approveCostUsd: 0, driftRecoveryCostUsd, driftRecoveryDetails,
+              proposeCostUsd, approveCostUsd: 0, driftRecoveryCostUsd: 0, driftRecoveryDetails,
               sizeRatio: 1.0,
             }));
             break;
           }
+          driftRecoveryDetails = {
+            outcome: 'recovered',
+            regions: driftResult.regions,
+            classifications: snap.classifications,
+            patchedMarkup: snap.patchedMarkup,
+            costUsd: 0,
+          };
+          workingMarkup = snap.patchedMarkup;
+          const repatched = parseProposedEdits(workingMarkup, current.text);
+          const recheckDrift = checkProposerDrift(repatched.recoveredSource, current.text);
+          if (recheckDrift.drift) {
+            // Most likely cause: drift offsets were in normalized-stripped-source
+            // coordinates but the splice landed in raw-markup coordinates and
+            // missed. Abort cleanly rather than emit a corrupted variant. The
+            // forensic record uses the snapped workingMarkup so analysts can
+            // see what the snap produced and why it failed re-validation.
+            stopReason = 'proposer_drift_unrecoverable';
+            cycles.push(this.buildCycle({
+              cycleNumber, proposedMarkup: workingMarkup, parseResult, droppedPreApprover,
+              approverGroups: [], reviewDecisions: [], droppedPostApprover: [],
+              appliedGroups: [], formatValid: false, parentText: current.text,
+              proposeCostUsd, approveCostUsd: 0, driftRecoveryCostUsd: 0, driftRecoveryDetails,
+              sizeRatio: 1.0,
+            }));
+            break;
+          }
+          approverGroups = repatched.groups;
+          droppedPreApprover.push(...repatched.dropped);
         } else {
           approverGroups = parseResult.groups;
         }

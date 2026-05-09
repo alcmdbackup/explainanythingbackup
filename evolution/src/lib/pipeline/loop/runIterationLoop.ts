@@ -969,10 +969,9 @@ export async function evolveArticle(
               }
             }
 
-            // Merge — pass iterationType: 'iterative_editing' per Decisions §7.
-            // editingMatchBuffers is now populated when ranking ran; empty when skipped
-            // (matches the pre-ranking-project behavior so MergeRatingsAgent still
-            // inserts new variants with default Elo).
+            // Merge — pass the actual iterType so Mode A vs Mode B remain
+            // distinguishable in execution_detail (analytics/run-detail key
+            // off iterationType).
             if (newVariants.length > 0) {
               const mergeExecOrder = ++executionOrder;
               const mergeCtx: AgentContext = {
@@ -986,7 +985,7 @@ export async function evolveArticle(
               };
               const mergeAgent = new MergeRatingsAgent();
               await mergeAgent.run({
-                iterationType: 'iterative_editing',
+                iterationType: iterType,
                 matchBuffers: editingMatchBuffers,
                 newVariants,
                 pool, ratings, matchCounts, matchHistory: allMatches,
@@ -999,7 +998,7 @@ export async function evolveArticle(
         const eloValues = topKEloValues(ratings, topKEditing);
         eloHistory.push(eloValues);
 
-        iterationSnapshots.push(recordSnapshot(iteration, 'iterative_editing', 'end', pool, ratings, matchCounts, {
+        iterationSnapshots.push(recordSnapshot(iteration, iterType, 'end', pool, ratings, matchCounts, {
           stopReason: iterStopReason,
           budgetAllocated: iterBudgetUsd,
           budgetSpent: iterTracker.getTotalSpent(),

@@ -31,7 +31,7 @@ export const METRIC_CATALOG = {
   iterative_edit_cost: {
     name: 'iterative_edit_cost', label: 'Iterative Edit Cost', category: 'cost', formatter: 'cost',
     timing: 'during_execution', listView: false,
-    description: 'LLM spend on iterative_editing iterations (Proposer + Approver + drift recovery, all cycles, all parents). Per-purpose split lives in execution_detail.cycles[i].{proposeCostUsd, approveCostUsd, driftRecoveryCostUsd}.',
+    description: 'LLM spend on iterative_editing iterations (Proposer + Approver, all cycles, all parents; drift recovery is deterministic snap-to-source with 0 LLM cost). Per-purpose split lives in execution_detail.cycles[i].{proposeCostUsd, approveCostUsd}; driftRecoveryCostUsd is always 0.',
   },
   iterative_edit_rank_cost: {
     name: 'iterative_edit_rank_cost', label: 'Iterative Edit Rank Cost', category: 'cost', formatter: 'cost',

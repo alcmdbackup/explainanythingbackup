@@ -77,6 +77,7 @@ export class InvocationEntity extends Entity<EvolutionAgentInvocationFullDb> {
       'create_seed_article',
       'generate_from_previous_article',
       'iterative_editing',
+      'iterative_editing_rewrite',
       'merge_ratings',
       'reflect_and_generate_from_previous_article',
       'swiss_ranking',

@@ -408,7 +408,7 @@ export const getEvolutionRunByIdAction = adminAction(
 
 export interface IterationSnapshotRow {
   iteration: number;
-  iterationType: 'generate' | 'reflect_and_generate' | 'iterative_editing' | 'swiss';
+  iterationType: 'generate' | 'reflect_and_generate' | 'criteria_and_generate' | 'single_pass_evaluate_criteria_and_generate' | 'proposer_approver_criteria_generate' | 'iterative_editing' | 'iterative_editing_rewrite' | 'swiss' | 'debate_and_generate';
   phase: 'start' | 'end';
   capturedAt: string;
   poolVariantIds: string[];

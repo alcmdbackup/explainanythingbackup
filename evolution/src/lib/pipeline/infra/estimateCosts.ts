@@ -255,10 +255,6 @@ const EDITING_REVIEW_OUTPUT_CHARS_PER_LINE = 80;
  *  groups average ~3 atomic edits each → ~10 groups). */
 const EDITING_AVG_GROUPS_PER_CYCLE = 10;
 
-/** Worst-case drift recovery output (one JSON line per drift region, max 3 regions
- *  per Decisions §17 minor-drift threshold). */
-const EDITING_DRIFT_RECOVERY_OUTPUT_CHARS = 200;
-
 /** Article-size growth factor per editing cycle, per Decisions §17 (1.5× hard cap). */
 const EDITING_SIZE_GROWTH_PER_CYCLE = 1.5;
 
@@ -321,27 +317,6 @@ function estimateEditingReviewCost(
 }
 
 /**
- * Estimate the worst-case drift-recovery LLM call cost. Used in upper-bound
- * sizing only — drift recovery fires zero or one time across all cycles.
- */
-function estimateEditingDriftRecoveryCost(
-  driftRecoveryModel: string,
-  judgeModel: string,
-): number {
-  const pricing = getModelPricing(driftRecoveryModel);
-  // 30-char context window × 2 sides × max 3 regions + small prompt overhead.
-  const inputChars = 30 * 2 * 3 + 500;
-  const calibrated = getCalibrationRow(
-    '__unspecified__',
-    driftRecoveryModel,
-    judgeModel ?? '__unspecified__',
-    'iterative_edit_drift_recovery',
-  );
-  const outputChars = calibrated?.avgOutputChars ?? EDITING_DRIFT_RECOVERY_OUTPUT_CHARS;
-  return calculateCost(inputChars, outputChars, pricing);
-}
-
-/**
  * Estimate total cost of one IterativeEditingAgent invocation (one parent,
  * `maxCycles` cycles, each cycle = 2 LLM calls + maybe drift recovery).
  *
@@ -374,11 +349,10 @@ export function estimateIterativeEditingCost(
   maxCycles: number,
   poolSize: number = 0,
   maxComparisonsPerVariant: number = 0,
-  /** Phase 3 — Mode B saves the drift-recovery cost component (drift impossible
-   *  by construction in rewrite mode). Other cost lines are equivalent: the
-   *  proposer output is a full rewrite (~same size as marked-up article) and
-   *  the approver still sees the computed markup. */
-  mode: 'markup' | 'rewrite' = 'markup',
+  /** Retained for backwards-compat with persisted call sites; both modes now
+   *  produce identical cost shapes since drift recovery is deterministic. */
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  _mode: 'markup' | 'rewrite' = 'markup',
 ): { expected: number; upperBound: number; expectedRanking: number; upperBoundRanking: number } {
   let expected = 0;
   let upperBound = 0;
@@ -401,11 +375,10 @@ export function estimateIterativeEditingCost(
     articleChars *= EDITING_SIZE_GROWTH_PER_CYCLE;
   }
 
-  // Drift recovery: one worst-case fire across all cycles in upper-bound only.
-  // Mode B never enters drift recovery (drift impossible by construction).
-  if (mode === 'markup') {
-    upperBound += estimateEditingDriftRecoveryCost(driftRecoveryModel, judgeModel);
-  }
+  // Drift recovery is now deterministic snap-to-source (0 LLM cost) for both
+  // modes; the legacy gpt-4.1-nano upper-bound term was removed when the LLM
+  // recovery call went away. driftRecoveryModel + mode params are retained so
+  // strategy configs persisted before the cleanup still type-check on read.
   upperBound *= EDITING_UPPER_BOUND_SAFETY_MARGIN;
 
   // Phase 3.1 — Post-cycle ranking cost (D3 surfaces this as `editingRank` peer
@@ -482,8 +455,8 @@ export function estimateProposerApproverCriteriaCost(
   const approveMirrorExpected = includesMirrorApprover ? approveForwardExpected : 0;
   const approveMirrorUpper = includesMirrorApprover ? approveForwardUpper : 0;
 
-  let expected = evalCost + proposeExpected + approveForwardExpected + approveMirrorExpected;
-  let upperBound = (evalCost + proposeUpper + approveForwardUpper + approveMirrorUpper) * EDITING_UPPER_BOUND_SAFETY_MARGIN;
+  const expected = evalCost + proposeExpected + approveForwardExpected + approveMirrorExpected;
+  const upperBound = (evalCost + proposeUpper + approveForwardUpper + approveMirrorUpper) * EDITING_UPPER_BOUND_SAFETY_MARGIN;
 
   // 5. Post-cycle ranking (single variant, single cycle — no growth between cycles).
   const expectedRanking = poolSize > 0 && maxComparisonsPerVariant > 0
