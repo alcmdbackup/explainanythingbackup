@@ -269,6 +269,15 @@ export class ProposerApproverCriteriaGenerateAgent extends Agent<
     const redundancyJaccardThreshold = input.redundancyJaccardThreshold ?? 0.35;
     const includesMirrorApprover = input.includesMirrorApprover ?? true;
 
+    // Resolve per-purpose models. Mirrors IterativeEditingAgent's pattern so a
+    // strategy can route the proposer/approver to a stronger model than the
+    // initial-generate iteration. Eval reuses generationModel (consistent with
+    // the legacy criteria wrapper). Proposer prefers editingModel; both
+    // approvers prefer approverModel. All fall back to generationModel.
+    const cfg = ctx.config as { editingModel?: string; approverModel?: string };
+    const proposerModel = (cfg.editingModel ?? ctx.config.generationModel) as LLMCompletionOptions['model'];
+    const approverResolvedModel = (cfg.approverModel ?? cfg.editingModel ?? ctx.config.generationModel) as LLMCompletionOptions['model'];
+
     // (b) Eval + suggest call
     const evalPrompt = buildEvaluateAndSuggestPrompt(input.parentText, input.criteria, effectiveWeakestK);
     const costBeforeEval = ctx.costTracker.getOwnSpent?.() ?? 0;
@@ -321,7 +330,7 @@ export class ProposerApproverCriteriaGenerateAgent extends Agent<
     let proposerOutput: string;
     try {
       proposerOutput = await llm.complete(proposerPrompt, 'criteria_proposer', {
-        model: ctx.config.generationModel as LLMCompletionOptions['model'],
+        model: proposerModel,
         invocationId: ctx.invocationId,
       });
     } catch (err) {
@@ -353,7 +362,7 @@ export class ProposerApproverCriteriaGenerateAgent extends Agent<
     let forwardOutput: string;
     try {
       forwardOutput = await llm.complete(forwardPrompt, 'criteria_forward_approver', {
-        model: ((ctx.config as { approverModel?: string }).approverModel ?? ctx.config.generationModel) as LLMCompletionOptions['model'],
+        model: approverResolvedModel,
         invocationId: ctx.invocationId,
       });
     } catch (err) {
@@ -416,7 +425,7 @@ export class ProposerApproverCriteriaGenerateAgent extends Agent<
         const costBeforeMirror = ctx.costTracker.getOwnSpent?.() ?? 0;
         try {
           const mirrorOutput = await llm.complete(mirrorPrompt, 'criteria_mirror_approver', {
-            model: ((ctx.config as { approverModel?: string }).approverModel ?? ctx.config.generationModel) as LLMCompletionOptions['model'],
+            model: approverResolvedModel,
             invocationId: ctx.invocationId,
           });
           approveMirrorCostUsd = (ctx.costTracker.getOwnSpent?.() ?? 0) - costBeforeMirror;

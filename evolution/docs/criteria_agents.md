@@ -77,6 +77,13 @@ The mirror-approver protocol is structurally analogous to `run2PassReversal` (us
 
 **Cost stack**: 4 LLM calls per parent (eval + propose + forward + mirror) plus ranking. ~3-4× per-variant cost vs vanilla `generate_from_previous_article`. Mirror short-circuit reclaims 20-30% of mirror cost proportional to forward rejection rate.
 
+**Per-purpose model routing** (mirrors `IterativeEditingAgent` pattern — strategy-level fields, no per-iteration override):
+- `evaluate_and_suggest` call: uses `generationModel` (consistent with the legacy criteria wrapper).
+- `criteria_proposer` call: uses `editingModel`, falls back to `generationModel`.
+- `criteria_forward_approver` + `criteria_mirror_approver` calls: use `approverModel`, fall back to `editingModel`, fall back to `generationModel`.
+
+This lets a strategy route the editing-quality calls to a stronger model than the cheap initial-generate iteration. Set `editingModel` and `approverModel` in the wizard's Step 1 (same fields used by `IterativeEditingAgent`). Leaving them unset means all calls run on `generationModel` — a known foot-gun if the latter is a small/cheap model like `gpt-4.1-nano` or `gemini-flash-lite`.
+
 **Kill switches**:
 - `EVOLUTION_PROPOSER_APPROVER_CRITERIA_ENABLED='false'` — rejects iteration entirely.
 - `EVOLUTION_PROPOSER_APPROVER_CRITERIA_RANK_ENABLED='false'` — skips post-cycle ranking; variant lands at default Elo.
