@@ -74,6 +74,45 @@ describe('IterativeEditingAgent', () => {
     expect(result.result.surfaced).toBe(true);
   });
 
+  // Regression guard for the persistence bug: editing's finalVariant used to be
+  // built via `{...input.parent, text, parentIds}` spread, which inherited
+  // input.parent.id (collision with parent on upsert) and input.parent.fromArena
+  // (silently filtered out by persistRunResults). The fix is to use the
+  // createVariant() factory with explicit tactic + agentInvocationId.
+  it('finalVariant has its own UUID, the agent name as tactic, and the editing invocation as agentInvocationId', async () => {
+    const source = 'Hello world.';
+    const proposedMarkup = 'Hello {~~ [#1] world ~> Earth ~~}.';
+    const approverResponse = JSON.stringify({ groupNumber: 1, decision: 'accept', reason: 'better' });
+    const llm = makeMockLlm([
+      { label: 'iterative_edit_propose', response: proposedMarkup },
+      { label: 'iterative_edit_review', response: approverResponse },
+      { label: 'iterative_edit_propose', response: 'Hello Earth.' },
+    ]);
+    const agent = new IterativeEditingAgent();
+    const ctx = makeCtx({ llm });
+    const parent = variant('parent-uuid-aaa', source);
+    const result = await agent.execute(
+      { parent, perInvocationBudgetUsd: 1.0, llm } as unknown as Parameters<typeof agent.execute>[0],
+      ctx,
+    );
+    expect(result.result.finalVariant).not.toBeNull();
+    const fv = result.result.finalVariant!;
+    // Fresh UUID: NOT the parent's id (would have caused upsert collision).
+    expect(fv.id).not.toBe(parent.id);
+    expect(fv.id.length).toBe(36); // UUID format
+    // tactic must come from the agent's own name, not be inherited from parent.
+    expect(fv.tactic).toBe('iterative_editing');
+    // agentInvocationId must thread back to the editing invocation.
+    expect(fv.agentInvocationId).toBe(ctx.invocationId);
+    // parentIds[0] is the original input parent.
+    expect(fv.parentIds).toEqual([parent.id]);
+    // fromArena must NOT be inherited (would have caused persistRunResults to
+    // silently filter the variant out before the DB upsert).
+    expect(fv.fromArena).toBeFalsy();
+    // iterationBorn reflects the editing iteration, not the parent's birth iteration.
+    expect(fv.iterationBorn).toBe(ctx.iteration);
+  });
+
   it('emits no final variant when all edits are rejected', async () => {
     const source = 'Hello world.';
     const proposedMarkup = 'Hello {~~ [#1] world ~> Earth ~~}.';

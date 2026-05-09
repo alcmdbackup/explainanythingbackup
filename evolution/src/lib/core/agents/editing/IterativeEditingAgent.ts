@@ -20,7 +20,7 @@
 
 import { Agent } from '../../Agent';
 import type { AgentContext, AgentOutput, DetailFieldDef } from '../../types';
-import type { Variant, EvolutionLLMClient } from '../../../types';
+import { createVariant, type Variant, type EvolutionLLMClient } from '../../../types';
 import { iterativeEditingExecutionDetailSchema } from '../../../schemas';
 import { rankNewVariant, type RankNewVariantResult } from '../../../pipeline/loop/rankNewVariant';
 import type { Rating, ComparisonResult } from '../../../shared/computeRatings';
@@ -532,13 +532,24 @@ export class IterativeEditingAgent extends Agent<
 
       // After the loop: materialize the final variant only if any cycle accepted edits.
       if (current.text !== input.parent.text) {
-        finalVariant = {
-          ...input.parent,
+        // Use the createVariant factory rather than spreading input.parent.
+        // The spread inherited input.parent.fromArena (true for cross-run pool
+        // parents — the typical case), which caused persistRunResults' filter
+        // (`pool.filter((v) => !v.fromArena)`) to silently drop the variant
+        // before the DB upsert. The factory generates a fresh UUID, omits
+        // fromArena, and requires explicit tactic + agentInvocationId so the
+        // row threads correctly to its editing invocation.
+        // `this.name` distinguishes Mode A ('iterative_editing') vs
+        // Mode B ('iterative_editing_rewrite') automatically.
+        finalVariant = createVariant({
           text: current.text,
-          // The parent of the final variant is the original input parent (NOT cycle-N-1's
-          // intermediate) per Decisions §14.
+          tactic: this.name,
+          iterationBorn: ctx.iteration,
+          // Per Decisions §14: the final variant's parent is the ORIGINAL
+          // input parent (not cycle-N-1's intermediate text).
           parentIds: [input.parent.id],
-        } as Variant;
+          agentInvocationId: ctx.invocationId,
+        });
       }
     } catch (err) {
       errorPhase = errorPhase ?? 'propose';
