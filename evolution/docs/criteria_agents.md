@@ -58,7 +58,7 @@ Plus a marker tactic (`criteria_driven_single_pass`) so the tactic leaderboard d
 Forks `IterativeEditingAgent`'s propose/review/apply pattern, single-cycle. Per parent variant:
 
 1. **Eval phase** (same as 1, 2).
-2. **Proposer call** — full article verbatim + inline CriticMarkup edits. System prompt extends `IterativeEditingAgent`'s 6 soft rules with the 3 new criteria-specific ones. User prompt includes criteria block + evaluation results + weakest-K suggestions + article body.
+2. **Proposer call** — full article verbatim + inline CriticMarkup edits. System prompt extends `IterativeEditingAgent`'s soft rules with the 3 criteria-specific ones AND a "bias toward proposing more edits" framing: the proposer is told the approver pass will filter low-value candidates, so withholding a useful edit costs more than emitting an extra one. The framing instructs it to address every weakness and propose alternates where multiple plausible fixes exist. User prompt includes criteria block + evaluation results + weakest-K suggestions + article body.
 3. **Implementer pre-check** — `parseProposedEdits` + `validateEditGroups({ lengthCapRatio: 1.10, redundancyJaccardThreshold: 0.35, flowGuardrailEnabled: true })`. The `validateEditGroups` extension (Phase 3.3) takes opts that:
    - Tighten the size-ratio cap from 1.5× to 1.10× (default).
    - Add a transition-word regex hard rule that rejects edits at paragraph starts that delete/replace transition phrases.
