@@ -144,10 +144,15 @@ export class CreateSeedArticleAgent extends Agent<
       return { result: { variant: null, status, surfaced: false, matches: [] }, detail };
     }
 
-    // Strip a leading H1 from the LLM output before prepending our title — many models
-    // ignore the "no title" instruction and emit their own H1, producing duplicated headers
-    // in the persisted seed (e.g. "# Fed\n\n# Fed\n\n…"). 2026-04-14.
-    const articleBody = articleContent.replace(/^\s*#\s+[^\n]*\n+/, '');
+    // Strip ALL leading H1s from the LLM output before prepending our title.
+    // Some models ignore the "no title" instruction and emit their own H1;
+    // a subset emit *two* H1s back-to-back (often the same text twice). Stripping
+    // only the first lets the second survive and produces "# Fed\n\n# Fed\n\n…"
+    // in the persisted seed once our title is prepended. Repeat until no leading
+    // H1 remains. (Original strip added 2026-04-14; greedy fix added 2026-05-09
+    // after staging analysis showed 40% of single-pass invocations and 100% of
+    // propose/approve invocations starting from buggy parents with this pattern.)
+    const articleBody = articleContent.replace(/^(?:\s*#\s+[^\n]*\n+)+/, '');
     const content = `# ${title}\n\n${articleBody}`;
     const generationCost = currentSpent() - costBeforeGen;
 
