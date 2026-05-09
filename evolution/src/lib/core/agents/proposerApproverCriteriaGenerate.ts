@@ -370,6 +370,9 @@ export class ProposerApproverCriteriaGenerateAgent extends Agent<
     const mirrorDecisions: MirrorDecision[] = [];
     let approveMirrorCostUsd = 0;
     let mirrorAbortReason: 'a_prime_format_invalid' | 'mirror_parse_null' | undefined;
+    // Diagnostic block populated when the A' format gate aborts; lets us debug
+    // without one-off scripts. Bounded to keep execution_detail small.
+    let formatGateDiagnostic: { newIssues: string[]; parentIssues: string[]; aPrimeArticleSnippet: string } | undefined;
 
     const forwardAcceptedGroups = approverGroups.filter((g) =>
       forwardDecisions.find((d) => d.groupNumber === g.groupNumber)?.decision === 'accept',
@@ -382,10 +385,25 @@ export class ProposerApproverCriteriaGenerateAgent extends Agent<
         input.parentText, forwardAcceptedGroups,
       );
 
-      // A' format gate
-      const formatResult = validateFormat(mirrorArticleA);
-      if (!formatResult.valid) {
+      // A' format gate (relative). The proposer's edits shouldn't make format
+      // WORSE, but the parent itself may already fail validation (e.g. seed
+      // generation duplicated the H1 title — observed at 74% rate in the
+      // 2026-05-08 staging runs). Compare A' issues against parent issues:
+      // only abort when A' introduces NEW issues that weren't already present.
+      const parentFormatResult = validateFormat(input.parentText);
+      const aPrimeFormatResult = validateFormat(mirrorArticleA);
+      const newFormatIssues = aPrimeFormatResult.issues.filter(
+        (issue) => !parentFormatResult.issues.includes(issue),
+      );
+      if (newFormatIssues.length > 0) {
         mirrorAbortReason = 'a_prime_format_invalid';
+        // Persist diagnostic data so we can debug future failures without
+        // one-off scripts. Truncated to keep execution_detail bounded.
+        formatGateDiagnostic = {
+          newIssues: newFormatIssues,
+          parentIssues: parentFormatResult.issues,
+          aPrimeArticleSnippet: mirrorArticleA.slice(0, 1000),
+        };
         // Mark all forward-accepted as null mirror (drop via aggregator).
         for (const g of forwardAcceptedGroups) {
           mirrorDecisions.push({ groupNumber: g.groupNumber, decision: null, reason: 'a_prime_format_invalid' });
@@ -579,6 +597,7 @@ export class ProposerApproverCriteriaGenerateAgent extends Agent<
         proposeCostUsd,
         approveForwardCostUsd,
         approveMirrorCostUsd,
+        ...(formatGateDiagnostic && { formatGateDiagnostic }),
       }],
       ranking: rankingDetail ?? null,
       totalCost,

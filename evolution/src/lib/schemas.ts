@@ -1876,6 +1876,14 @@ export const proposerApproverCriteriaGenerateExecutionDetailSchema = executionDe
     approveMirrorCostUsd: z.number().min(0),
     /** Optional post-apply article text. Feature-flag in prod (large payloads). */
     childText: z.string().optional(),
+    /** Diagnostic block populated only on `mirrorAbortReason: 'a_prime_format_invalid'`.
+     *  Captures which format issues are net-new vs already in parent so we can debug
+     *  without one-off scripts. Bounded snippet to keep execution_detail small. */
+    formatGateDiagnostic: z.object({
+      newIssues: z.array(z.string()),
+      parentIssues: z.array(z.string()),
+      aPrimeArticleSnippet: z.string(),
+    }).optional(),
   })).max(1),
   ranking: z.preprocess(
     rankingDetailRenameKeys,

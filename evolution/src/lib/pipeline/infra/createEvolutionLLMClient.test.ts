@@ -147,7 +147,10 @@ describe('V2 LLM Client', () => {
   });
 
   it('per-call timeout fires after 60s and rejects', async () => {
-    jest.useRealTimers(); // Need real timers for Promise.race timeout
+    // Fake timers let us fast-forward past the 60s timeout + retry backoffs without
+    // waiting in real time. Total cycle would otherwise be ~250s (4 attempts ×
+    // 60s + backoff 7s), which would exceed jest's default test timeout.
+    jest.useFakeTimers();
     const ct = createCostTracker(10);
     // Provider that never resolves
     const provider = {
@@ -157,13 +160,22 @@ describe('V2 LLM Client', () => {
     };
     const llm = createEvolutionLLMClient(provider, ct, 'gpt-4.1-nano');
 
-    // The timeout is 20s, but we mock setTimeout to make it instant
-    // Use fake timers just for the timeout advancement
+    // Attach the assertion BEFORE advancing timers so the rejection is awaited
+    // (fake-timer rejections otherwise surface as unhandled promise rejections).
     const promise = llm.complete('test', 'generation');
-
-    await expect(promise).rejects.toThrow('LLM call timeout (20s)');
+    const assertion = expect(promise).rejects.toThrow('LLM call timeout (60s)');
+    // Drain 4 attempts × 60s + 1s + 2s + 4s backoffs. Each advanceTimersByTimeAsync
+    // call also drains pending microtasks so the inner Promise.race resolves.
+    for (let i = 0; i < 4; i++) {
+      await jest.advanceTimersByTimeAsync(60_000);
+      if (i === 0) await jest.advanceTimersByTimeAsync(1_000);
+      else if (i === 1) await jest.advanceTimersByTimeAsync(2_000);
+      else if (i === 2) await jest.advanceTimersByTimeAsync(4_000);
+    }
+    await assertion;
     // Budget should be released (not leaked)
     expect(ct.getAvailableBudget()).toBeCloseTo(10);
+    jest.useRealTimers();
   }, 30000);
 
   it('cost estimation formula: inputTokens * inputRate + outputTokens * outputRate', async () => {
