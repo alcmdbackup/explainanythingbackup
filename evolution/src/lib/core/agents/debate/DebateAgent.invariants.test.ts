@@ -115,15 +115,14 @@ describe('DebateAgent invariants', () => {
     expect(executeBody).not.toMatch(/ctx\.llm/);
   });
 
-  it('persistPartialDetail covers all 9 failurePoint enum values via partial-detail catch blocks', () => {
-    // 9 failure points per schema: gate / selection / combined_call / parse / judge_tie /
-    // synthesis / synthesis_empty / synthesis_no_op / budget. Walk source and confirm each
-    // appears at least once (either as failurePoint: 'X' on a partial-detail call OR as a
-    // string literal in the agent's logic).
+  it('persistPartialDetail covers all active failurePoint enum values via partial-detail catch blocks', () => {
+    // After the 2026-05-09 winner-field removal, judge_tie is no longer a live code
+    // path — the schema retains it for backward-compat with rows persisted before
+    // the change but new code paths never emit it. Walk source and confirm each
+    // active failure point appears at least once.
     const failurePoints = [
       'combined_call',
       'parse',
-      'judge_tie',
       'synthesis',
       'synthesis_empty',
       'synthesis_no_op',
@@ -131,6 +130,7 @@ describe('DebateAgent invariants', () => {
     ];
     // (gate + selection are dispatch-site failure points handled in runIterationLoop, not in
     // the agent itself — agent receives variantA + variantB pre-selected per Decision §16.)
+    // (judge_tie removed from active code paths 2026-05-09 — see schema comment.)
     for (const fp of failurePoints) {
       expect(source).toMatch(new RegExp(`'${fp}'`));
     }

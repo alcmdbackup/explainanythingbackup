@@ -55,8 +55,7 @@ const SAMPLE_VERDICT_JSON = JSON.stringify({
   consA: ['A lacks vivid examples'],
   prosB: ['B uses vivid imagery'],
   consB: ['B has muddled structure', 'B is verbose'],
-  winner: 'A',
-  reasoning: 'A is clearer overall but could benefit from B\'s imagery.',
+  reasoning: 'Synthesis should layer B\'s imagery onto A\'s structure.',
   strengthsFromA: ['Topic introduction', 'Concise prose'],
   strengthsFromB: ['Vivid sensory details'],
   improvements: ['Tighten the closing paragraph'],
@@ -139,7 +138,8 @@ describe('buildCombinedAnalyzeAndJudgePrompt', () => {
     expect(prompt).toContain('BBB');
     expect(prompt).toContain('"prosA"');
     expect(prompt).toContain('"prosB"');
-    expect(prompt).toContain('"winner": "A" | "B" | "tie"');
+    // The prompt no longer asks for a `winner` field (removed 2026-05-09 — ELO determines synthesis base).
+    expect(prompt).not.toContain('"winner"');
     expect(prompt).toContain('"strengthsFromA"');
     expect(prompt).toContain('"strengthsFromB"');
     expect(prompt).toContain('"improvements"');
@@ -171,7 +171,6 @@ describe('buildSynthesisCustomPrompt', () => {
   it('embeds verdict strengths + improvements into instructions', () => {
     const verdict: DebateVerdict = {
       prosA: ['x'], consA: ['y'], prosB: ['z'], consB: ['w'],
-      winner: 'A',
       reasoning: 'because',
       strengthsFromA: ['Strength A1', 'Strength A2'],
       strengthsFromB: ['Strength B1'],
@@ -189,12 +188,17 @@ describe('buildSynthesisCustomPrompt', () => {
 // ─── Parser ───────────────────────────────────────────────────
 
 describe('parseCombinedAnalyzeAndJudge', () => {
-  it('parses valid 9-field JSON', () => {
+  it('parses valid 8-field JSON (winner field dropped 2026-05-09)', () => {
     const v = parseCombinedAnalyzeAndJudge(SAMPLE_VERDICT_JSON);
-    expect(v.winner).toBe('A');
     expect(v.prosA).toHaveLength(2);
     expect(v.consA).toHaveLength(1);
     expect(v.improvements).toHaveLength(1);
+    expect(v.reasoning).toBeTruthy();
+  });
+
+  it('tolerates legacy responses that include the `winner` field (silently ignored)', () => {
+    const legacy = JSON.stringify({ ...JSON.parse(SAMPLE_VERDICT_JSON), winner: 'A' });
+    expect(() => parseCombinedAnalyzeAndJudge(legacy)).not.toThrow();
   });
 
   it('strips ```json ... ``` markdown fences', () => {
@@ -209,11 +213,6 @@ describe('parseCombinedAnalyzeAndJudge', () => {
 
   it('throws DebateParseError on malformed JSON', () => {
     expect(() => parseCombinedAnalyzeAndJudge('not json {{{')).toThrow(DebateParseError);
-  });
-
-  it('throws on invalid winner enum', () => {
-    const bad = JSON.stringify({ ...JSON.parse(SAMPLE_VERDICT_JSON), winner: 'C' });
-    expect(() => parseCombinedAnalyzeAndJudge(bad)).toThrow(/Invalid winner/);
   });
 
   it('throws on missing reasoning', () => {
@@ -372,15 +371,19 @@ describe('DebateThenGenerateFromPreviousArticleAgent', () => {
     expect((caughtErr as DebateParseError).rawResponse).toContain('this is not JSON');
   });
 
-  it('judge winner=tie marks synthesis surfaced=false', async () => {
-    const tieJson = JSON.stringify({ ...JSON.parse(SAMPLE_VERDICT_JSON), winner: 'tie' });
-    const result = await agent.execute(baseInput(makeMockLlm({ judge: tieJson })), makeCtx());
-    expect(result.result.surfaced).toBe(false);
+  it('synthesis runs every iteration (no judge-tie short-circuit after winner field removed)', async () => {
+    // The original tie path (Decision §13) marked synthesis surfaced=false when the
+    // judge returned winner='tie'. After the 2026-05-09 winner-field removal, there
+    // is no tie path — every parsed verdict triggers a full synthesis attempt, then
+    // the no-op gate + ELO ranking decide whether to surface.
+    const result = await agent.execute(baseInput(makeMockLlm({})), makeCtx());
+    expect(result.result.variant).not.toBeNull();
+    // The default mock returns synthesis text well below Jaccard 0.95, so it surfaces.
+    expect(result.result.surfaced).toBe(true);
   });
 
-  it('multi-parent emission: parentIds = [variantA.id, variantB.id] in ELO order (judge picked A)', async () => {
-    // Dispatch puts variantA = higher Elo (baseInput: A=1300, B=1280). Even when the
-    // judge picks A, the emitted order is by Elo, not by judge verdict.
+  it('multi-parent emission: parentIds = [variantA.id, variantB.id] in ELO order', async () => {
+    // Dispatch puts variantA = higher Elo (baseInput: A=1300, B=1280).
     const result = await agent.execute(baseInput(makeMockLlm({})), makeCtx());
     expect(result.result.variant?.parentIds).toHaveLength(2);
     expect(result.result.variant?.parentIds[0]).toBe(VARIANT_A); // higher Elo
@@ -388,14 +391,14 @@ describe('DebateThenGenerateFromPreviousArticleAgent', () => {
     expect(result.parentVariantIds).toEqual([VARIANT_A, VARIANT_B]);
   });
 
-  it('multi-parent emission: parentIds stays in ELO order even when judge picks B (lower-Elo)', async () => {
-    // Judge picks B but parentIds[0] is still variantA (higher Elo) so elo_delta_vs_parent
-    // measures synthesis vs the strongest input regardless of judge content-based pick.
-    const verdictBWins = JSON.stringify({ ...JSON.parse(SAMPLE_VERDICT_JSON), winner: 'B' });
-    const result = await agent.execute(baseInput(makeMockLlm({ judge: verdictBWins })), makeCtx());
+  it('multi-parent emission: parentIds is stable regardless of legacy `winner` field in response', async () => {
+    // If the LLM still emits a winner field (legacy response), the parser silently
+    // ignores it and the agent uses ELO order anyway. parentIds[0] is always variantA.
+    const verdictWithLegacyWinner = JSON.stringify({ ...JSON.parse(SAMPLE_VERDICT_JSON), winner: 'B' });
+    const result = await agent.execute(baseInput(makeMockLlm({ judge: verdictWithLegacyWinner })), makeCtx());
     expect(result.result.variant?.parentIds).toHaveLength(2);
-    expect(result.result.variant?.parentIds[0]).toBe(VARIANT_A); // higher Elo (NOT the judge's winner)
-    expect(result.result.variant?.parentIds[1]).toBe(VARIANT_B); // lower Elo (the judge's winner)
+    expect(result.result.variant?.parentIds[0]).toBe(VARIANT_A); // higher Elo
+    expect(result.result.variant?.parentIds[1]).toBe(VARIANT_B); // lower Elo
     expect(result.parentVariantIds).toEqual([VARIANT_A, VARIANT_B]);
   });
 

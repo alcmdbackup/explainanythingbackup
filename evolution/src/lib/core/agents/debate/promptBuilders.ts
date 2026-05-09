@@ -16,12 +16,17 @@ export interface CritiqueContextBlock {
 }
 
 /**
- * Build the combined analyze+judge prompt. Single LLM call asks for:
+ * Build the combined analyze prompt. Single LLM call asks for:
  *   - prosA / consA / prosB / consB (specific strengths + weaknesses per parent)
- *   - winner ('A' | 'B' | 'tie')
- *   - reasoning (1-2 sentence verdict justification)
+ *   - reasoning (1-2 sentence rationale framing for the synthesis)
  *   - strengthsFromA / strengthsFromB (what to preserve in synthesis)
  *   - improvements (actionable changes for the synthesis)
+ *
+ * NO `winner` field (removed 2026-05-09): ELO already tells us which parent is
+ * stronger — the judge LLM doesn't need to re-litigate that. Variant A is always
+ * the higher-Elo input by debate-dispatch contract; the synthesis revises A's text
+ * using B's strengths. Removing `winner` eliminates the 30-50% tie rate that
+ * burned iteration budget without producing pool variants.
  *
  * Returns a single string. JSON output expected — parser tolerates markdown fences.
  */
@@ -34,7 +39,9 @@ export function buildCombinedAnalyzeAndJudgePrompt(
   const lines: string[] = [];
   lines.push(
     'You are a senior editor evaluating two competing article variants. ' +
-    'Produce a structured analysis comparing them, then deliver a verdict.',
+    'Produce a structured analysis comparing them. Your job is to identify what to ' +
+    'preserve from each variant and what to improve — NOT to pick a winner. The ' +
+    'synthesis step will revise variant A using variant B\'s strengths.',
   );
   lines.push('');
   lines.push('## Variant A');
@@ -60,12 +67,12 @@ export function buildCombinedAnalyzeAndJudgePrompt(
   lines.push('## Task');
   lines.push(
     'Analyze both variants for clarity, structure, engagement, precision, and coherence. ' +
-    'Cite specific passages. Then deliver a verdict and the actionable strengths to ' +
-    'preserve from each in a synthesis revision.',
+    'Cite specific passages. Identify the actionable strengths to preserve from each ' +
+    'variant for the synthesis revision.',
   );
   lines.push('');
   lines.push('## Output format');
-  lines.push('Return a SINGLE JSON object with EXACTLY these 9 fields. No surrounding prose.');
+  lines.push('Return a SINGLE JSON object with EXACTLY these 8 fields. No surrounding prose.');
   lines.push('');
   lines.push('```json');
   lines.push('{');
@@ -73,8 +80,7 @@ export function buildCombinedAnalyzeAndJudgePrompt(
   lines.push('  "consA": ["specific weakness of A (cite passage)", "..."],');
   lines.push('  "prosB": ["specific strength of B (cite passage)", "..."],');
   lines.push('  "consB": ["specific weakness of B (cite passage)", "..."],');
-  lines.push('  "winner": "A" | "B" | "tie",');
-  lines.push('  "reasoning": "1-2 sentence verdict justification",');
+  lines.push('  "reasoning": "1-2 sentence rationale for the synthesis approach",');
   lines.push('  "strengthsFromA": ["specific A strength to preserve in synthesis", "..."],');
   lines.push('  "strengthsFromB": ["specific B strength to preserve in synthesis", "..."],');
   lines.push('  "improvements": ["actionable improvement for the synthesis", "..."]');
@@ -109,13 +115,13 @@ function formatCritiqueContext(ctx: CritiqueContextBlock): string {
 
 // ─── Synthesis customPrompt builder ─────────────────────────────────
 
-/** Judge verdict shape — output of Phase 2.3 parser. */
+/** Judge verdict shape — output of Phase 2.3 parser. `winner` field removed
+ *  2026-05-09: ELO determines synthesis base, not the LLM. */
 export interface DebateVerdict {
   prosA: ReadonlyArray<string>;
   consA: ReadonlyArray<string>;
   prosB: ReadonlyArray<string>;
   consB: ReadonlyArray<string>;
-  winner: 'A' | 'B' | 'tie';
   reasoning: string;
   strengthsFromA: ReadonlyArray<string>;
   strengthsFromB: ReadonlyArray<string>;
@@ -125,22 +131,22 @@ export interface DebateVerdict {
 /**
  * Build the synthesis customPrompt fed into inner GFPA.execute(). Embeds the verdict's
  * strengthsFromA / strengthsFromB / improvements lists. The inner GFPA uses this prompt
- * to revise the WINNER's text using the LOSER's strengths (per Decision §20: synthesis
- * revises the winner using the loser's strengths).
+ * to revise THIS article (the higher-Elo parent — variant A by debate-dispatch contract)
+ * using the competing variant's (variant B's) strengths.
  */
 export function buildSynthesisCustomPrompt(
   verdict: DebateVerdict,
 ): { preamble: string; instructions: string } {
   const preamble =
-    'You are an expert article reviser. A judge has compared this article to a competing variant ' +
+    'You are an expert article reviser. An editor has compared this article to a competing variant ' +
     'and identified specific strengths to preserve from each, plus actionable improvements. ' +
     'Produce a stronger synthesis by combining material from both variants. Aim for at least a ' +
-    '70/30 blend — most of the result should retain the winning variant\'s structure and voice ' +
+    '70/30 blend — most of the result should retain this article\'s structure and voice ' +
     '(roughly 70%), but at least 30% of the content should be substantively reshaped or imported ' +
     'from the competing variant\'s strengths. A pure paraphrase of either variant is not a synthesis.';
 
   const lines: string[] = [];
-  lines.push("Apply the judge's recommendations to revise the article:");
+  lines.push("Apply the editor's recommendations to revise the article:");
   lines.push('');
   if (verdict.strengthsFromA.length > 0) {
     lines.push('Preserve these strengths from this variant:');
@@ -165,7 +171,7 @@ export function buildSynthesisCustomPrompt(
   }
   lines.push(
     'Rewrite the article applying these recommendations. Aim for at least a 70/30 blend: keep roughly ' +
-    '70% of the winning variant\'s structure/voice, and substantively reshape or import at least 30% ' +
+    '70% of this article\'s structure/voice, and substantively reshape or import at least 30% ' +
     'from the competing variant\'s strengths — paragraph rewrites, restructured sections, or absorbed ' +
     'arguments. Preserve the original word count within ±10% — refactor or deepen existing passages ' +
     'rather than adding bolted-on new sections. Do not introduce meta-commentary about the article itself.',
