@@ -169,6 +169,8 @@ export const createStrategyAction = adminAction(
     const config: StrategyConfig = {
       generationModel: parsed.generationModel,
       judgeModel: parsed.judgeModel,
+      editingModel: parsed.editingModel,
+      approverModel: parsed.approverModel,
       iterationConfigs: parsed.iterationConfigs,
       budgetUsd: parsed.budgetUsd,
       generationGuidance: parsed.generationGuidance,
