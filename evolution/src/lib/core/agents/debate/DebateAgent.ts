@@ -22,10 +22,17 @@
 //       `generation_cost` and `EstPerAgentValue.gen` instead of `EstPerAgentValue.debate`,
 //       silently breaking the cost-attribution contract.
 //
-// Multi-parent emission (Decision §20): the synthesized variant's parentIds = [winner.id,
-// loser.id]. Order is load-bearing — parentIds[0] is the canonical primary parent
-// (judge's winner), parentIds[1] is the loser. Persistence (Phase 3.8) writes both
-// columns during the 1.15a→1.15b dual-write window.
+// Multi-parent emission: the synthesized variant's parentIds = [variantA.id, variantB.id]
+// in ELO order at dispatch time (resolveDebateDispatchRuntime guarantees variantA has
+// the higher Elo, with deterministic id-tiebreak per Decision §12). Order is load-bearing
+// — parentIds[0] is the canonical primary parent (highest-Elo input at debate time),
+// parentIds[1] is the second parent. The judge's content-based pick lives separately in
+// execution_detail.debate.combined.winner. This guarantees elo_delta_vs_parent compares
+// the synthesis against the strongest input rather than the judge's possibly-weaker pick.
+// (Originally Decision §20 emitted [winner.id, loser.id]; revised 2026-05-09 after
+// staging analysis of run 1365c9f6 showed the judge can pick the lower-Elo parent and
+// the metric needs the strongest baseline.) Persistence (Phase 3.8) writes both columns
+// during the 1.15a→1.15b dual-write window.
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { Agent } from '../../Agent';
@@ -65,8 +72,15 @@ export interface DebateInput {
   strategyDebateJudgeReasoningEffort?: 'none' | 'low' | 'medium' | 'high';
   /** Per-iteration debateJudgeReasoningEffort (highest-priority cascade input). */
   iterDebateJudgeReasoningEffort?: 'none' | 'low' | 'medium' | 'high';
-  /** Top-2 pool variants pre-selected by resolveDebateDispatchRuntime. The runtime
-   *  caller selects per Decision §16 + §12 (top-Elo with deterministic id-tiebreak). */
+  /** Top-2 pool variants pre-selected by resolveDebateDispatchRuntime. **CONTRACT
+   *  (load-bearing):** `variantA` MUST be the higher-Elo input and `variantB` MUST
+   *  be the lower-Elo input at iteration-start ratings. resolveDebateDispatchRuntime
+   *  guarantees this by sorting `pool` desc by Elo with deterministic id-tiebreak
+   *  (Decision §16 + §12). The agent's `parentIds` emission and `elo_delta_vs_parent`
+   *  metric depend on this ordering — `parentIds[0]` is taken as the canonical
+   *  primary parent (highest Elo), and the metric reads `parentIds[0]` as the
+   *  baseline. The agent enforces this contract via a runtime invariant check at
+   *  the start of `execute()`; violations throw `DebateLLMError`. */
   variantA: Variant;
   variantB: Variant;
   /** LLM client. Optional when ctx.rawProvider is set — Agent.run() injects a scoped client. */
@@ -198,6 +212,29 @@ export class DebateThenGenerateFromPreviousArticleAgent extends Agent<
     input: DebateInput,
     ctx: AgentContext,
   ): Promise<AgentOutput<DebateOutput, DebateExecutionDetail>> {
+    // (a0) Enforce the dispatch-time ELO ordering invariant. resolveDebateDispatchRuntime
+    //      sorts the top-2 by Elo desc with id-tiebreak, so by the time we get here,
+    //      input.variantA.elo MUST be >= input.variantB.elo. parentIds[0] is taken from
+    //      input.variantA.id and elo_delta_vs_parent uses parentIds[0] as the baseline,
+    //      so a violation here would silently corrupt the metric. Throw loud rather than
+    //      let bad data through — the only legitimate path constructs DebateInput via
+    //      resolveDebateDispatchRuntime, so any violation is a dispatcher bug.
+    const eloA = input.initialRatings.get(input.variantA.id)?.elo ?? Number.NEGATIVE_INFINITY;
+    const eloB = input.initialRatings.get(input.variantB.id)?.elo ?? Number.NEGATIVE_INFINITY;
+    if (eloA < eloB) {
+      throw new Error(
+        `DebateAgent invariant violated: input.variantA.elo (${eloA}) < input.variantB.elo (${eloB}). ` +
+        `Caller must pass parents in Elo-desc order with id-tiebreak per resolveDebateDispatchRuntime.`,
+      );
+    }
+    // Tie tiebreak: when Elos are equal, ids must be in ascending order (smaller id wins).
+    if (eloA === eloB && input.variantA.id > input.variantB.id) {
+      throw new Error(
+        `DebateAgent invariant violated: equal Elos (${eloA}) but variantA.id (${input.variantA.id}) > ` +
+        `variantB.id (${input.variantB.id}). Caller must pass smaller-id-first on Elo ties.`,
+      );
+    }
+
     // (a) Resolve LLM client. Use input.llm — Agent.run() injects via input.llm,
     //     NOT ctx.llm (verified against GFPA:162, IterativeEditing:133, EvaluateCriteria:379).
     const llm = input.llm;
@@ -386,12 +423,19 @@ export class DebateThenGenerateFromPreviousArticleAgent extends Agent<
     // (l) Tie verdict: synthesis ran but result does not enter pool (Decision §13).
     if (isTie) surfaced = false;
 
-    // (m) Multi-parent emission: parentIds = [winner.id, loser.id] (Decision §20).
-    //     Order load-bearing — parentIds[0] = canonical primary; parentIds[1] = additional.
+    // (m) Multi-parent emission: parentIds = [higher-ELO, lower-ELO] sorted at dispatch
+    //     time. resolveDebateDispatchRuntime guarantees input.variantA is the higher-ELO
+    //     parent (top-2 by Elo desc with id tiebreak per Decision §12), so emitting in
+    //     [variantA, variantB] order means parentIds[0] is always the stronger parent at
+    //     debate time. This makes elo_delta_vs_parent meaningful — the metric compares
+    //     the synthesis to the strongest input rather than the judge's content-based pick.
+    //     Order load-bearing — parentIds[0] = canonical primary (stronger at debate time);
+    //     parentIds[1] = additional. Originally [winner, loser] per Decision §20; the
+    //     judge's pick lives separately in execution_detail.debate.combined.winner.
     const synthesisVariantWithLineage: Variant | null = gfpaOutput.result.variant
       ? {
           ...gfpaOutput.result.variant,
-          parentIds: [winner.id, loser.id],
+          parentIds: [input.variantA.id, input.variantB.id],
         }
       : null;
 
@@ -428,7 +472,7 @@ export class DebateThenGenerateFromPreviousArticleAgent extends Agent<
       },
       detail: merged,
       childVariantIds: gfpaOutput.childVariantIds,
-      parentVariantIds: [winner.id, loser.id],
+      parentVariantIds: [input.variantA.id, input.variantB.id],
     };
   }
 

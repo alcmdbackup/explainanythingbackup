@@ -41,7 +41,8 @@ export interface VariantParentBadgeProps {
   /** bring_back_debate_agent_20260506 Phase 4.9 — additional parents beyond the
    *  canonical primary. When non-empty, the badge appends a "+N more" chip linking
    *  to the variant detail page's full lineage section. Debate variants emit
-   *  [loser.id] here (winner is in `parentId`); single-parent variants pass empty. */
+   *  [lower-Elo-parent.id] here (the higher-Elo parent is in `parentId`); single-
+   *  parent variants pass empty. */
   additionalParentIds?: string[];
 }
 

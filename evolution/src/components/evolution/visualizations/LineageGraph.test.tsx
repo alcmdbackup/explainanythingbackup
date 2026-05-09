@@ -47,9 +47,10 @@ describe('LineageGraph', () => {
 
   // bring_back_debate_agent_20260506 Phase 4.9 — multi-parent edge rendering.
   it('accepts multi-parent edges with parentIndex (debate variants emit two edges)', async () => {
-    // Debate variants emit parentIds = [winner.id, loser.id] (Decision §20). The lineage
-    // graph receives two edges per debate variant: solid primary (parentIndex=0) +
-    // dashed additional (parentIndex=1). The D3 rendering layer applies the dashed style
+    // Debate variants emit parentIds in ELO order at dispatch time — [higher-Elo,
+    // lower-Elo]. The lineage graph receives two edges per debate variant: solid primary
+    // (parentIndex=0) for the higher-Elo parent + dashed additional (parentIndex=1) for
+    // the lower-Elo parent. The D3 rendering layer applies the dashed style
     // based on parentIndex; this test verifies the data shape flows through the component
     // without errors. Visual dashed-style assertions live in Playwright (Phase 5.1).
     const winnerId = 'winner-aaaaaaaa';

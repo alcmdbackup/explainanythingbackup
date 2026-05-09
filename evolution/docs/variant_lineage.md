@@ -21,7 +21,7 @@ parent_variant_ids UUID[] NOT NULL DEFAULT '{}'
 - `persistRunResults` writes `parent_variant_ids: variant.parentIds.slice(0, MAX_PARENT_IDS)` (cap = 10).
 - `CreateSeedArticleAgent` leaves it `'{}'::uuid[]` (root of the lineage tree).
 - Single-parent agents (GFPA, ReflectAndGenerate, EvaluateCriteria, IterativeEditing) emit `parentIds = [parent.id]` (1-element array).
-- **Multi-parent**: `DebateThenGenerateFromPreviousArticleAgent` (Decision §20) emits `parentIds = [winner.id, loser.id]` — order is load-bearing, `parentIds[0]` is the canonical primary parent (judge's winner).
+- **Multi-parent**: `DebateThenGenerateFromPreviousArticleAgent` emits `parentIds` sorted by ELO at debate dispatch time — `parentIds[0]` is the higher-Elo input (canonical primary), `parentIds[1]` is the lower-Elo input. Order is load-bearing because `elo_delta_vs_parent` uses `parentIds[0]` as the baseline. Independent of the judge's content-based pick (lives in `execution_detail.debate.combined.winner`).
 
 App-layer enforces referential integrity (no DB-level FK on array elements; PostgreSQL doesn't support FKs on array columns — same pattern as `evolution_arena_comparisons.entry_a/b`).
 

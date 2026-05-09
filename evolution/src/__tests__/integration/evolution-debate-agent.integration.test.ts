@@ -4,8 +4,10 @@
 //     Option C (Decision §17). Plus N flexible ranking-judge stubs from inner GFPA.
 //   - One materialized variant per debate invocation (Decision §15).
 //   - agent_name = 'debate_then_generate_from_previous_article' on the variant.
-//   - Multi-parent emission: result variant's parentIds = [winner.id, loser.id]
-//     order load-bearing per Decision §20.
+//   - Multi-parent emission: result variant's parentIds = [variantA.id, variantB.id]
+//     in ELO order at debate dispatch time (variantA is the higher-Elo input per
+//     resolveDebateDispatchRuntime). Order load-bearing — parentIds[0] is the canonical
+//     primary parent (highest Elo), independent of the judge's content-based pick.
 //   - iterationType: 'debate_and_generate' on the iteration result.
 //   - EVOLUTION_DEBATE_ENABLED=false short-circuits the dispatch site.
 // (bring_back_debate_agent_20260506 Phase 3.6.)

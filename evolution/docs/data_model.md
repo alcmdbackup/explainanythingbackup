@@ -108,7 +108,7 @@ Text variants produced during a pipeline run. Since migration 20260321000002, th
 | `variant_content` | TEXT | NOT NULL | The generated text |
 | `elo_score` | NUMERIC | NOT NULL, default `1200` | Display Elo-scale score (projected from OpenSkill `mu`; matches the public `Rating.elo` up to display clamping) |
 | `generation` | INT | NOT NULL, default `0` | Maps to `Variant.iterationBorn` — the iteration index (0-based) from `iterationConfigs[]` when this variant was created |
-| `parent_variant_ids` | UUID[] | NOT NULL DEFAULT '{}' | Self-referential array. Empty for root variants; 1-element for single-parent variants; N-element for multi-parent (debate emits `[winner.id, loser.id]` per Decision §20). `parent_variant_ids[0]` is the canonical primary parent by convention. App-layer enforces referential integrity (no DB-level FK on array elements). GIN index `idx_evolution_variants_parent_variant_ids` for `WHERE ? = ANY(parent_variant_ids)` and `parent_variant_ids @> ARRAY[?]` lookups. See [Lineage](#lineage). |
+| `parent_variant_ids` | UUID[] | NOT NULL DEFAULT '{}' | Self-referential array. Empty for root variants; 1-element for single-parent variants; N-element for multi-parent (debate emits parents in ELO order at dispatch time — `[higher-Elo-parent, lower-Elo-parent]`). `parent_variant_ids[0]` is the canonical primary parent (highest-Elo input for debate; the only parent for non-debate). App-layer enforces referential integrity (no DB-level FK on array elements). GIN index `idx_evolution_variants_parent_variant_ids` for `WHERE ? = ANY(parent_variant_ids)` and `parent_variant_ids @> ARRAY[?]` lookups. See [Lineage](#lineage). |
 | `agent_name` | TEXT | | Creating agent tactic name (e.g. `'structural_transform'`, `'lexical_simplify'`) |
 | `match_count` | INT | NOT NULL, default `0` | |
 | `is_winner` | BOOLEAN | NOT NULL, default `false` | Highest `elo` at finalization |
@@ -482,12 +482,12 @@ The `BudgetEventLogger` type in `evolution/src/lib/types.ts` defines the event s
 Variants track parentage as a uuid array in BOTH the in-memory and database representations:
 
 - **In-memory** (`Variant`): `parentIds: string[]` — supports multiple parents.
-- **Database** (`evolution_variants`): `parent_variant_ids: uuid[]` — array column with GIN index. Empty array for root/seed variants; 1-element for single-parent variants; N-element for multi-parent (e.g., debate's `[winner.id, loser.id]` per Decision §20).
+- **Database** (`evolution_variants`): `parent_variant_ids: uuid[]` — array column with GIN index. Empty array for root/seed variants; 1-element for single-parent variants; N-element for multi-parent (e.g., debate emits parents in ELO order at dispatch — `[higher-Elo-parent, lower-Elo-parent]`).
 
 ### Multi-parent variants (bring_back_debate_agent_20260506)
 
-The `DebateThenGenerateFromPreviousArticleAgent` is the first multi-parent agent. It emits synthesis variants with `parentIds = [winner.id, loser.id]` — order is load-bearing:
-- `parent_variant_ids[0]` is the canonical primary parent (the judge's winner). UI surfaces (`VariantParentBadge`, lineage graph primary edge) read from index 0.
+The `DebateThenGenerateFromPreviousArticleAgent` is the first multi-parent agent. It emits synthesis variants with `parentIds` sorted by ELO at debate dispatch time — `parentIds[0]` is the higher-Elo input, `parentIds[1]` is the lower-Elo input. Order is load-bearing:
+- `parent_variant_ids[0]` is the canonical primary parent (the highest-Elo input at debate time). UI surfaces (`VariantParentBadge`, lineage graph primary edge) read from index 0. The `elo_delta_vs_parent` metric uses `parentIds[0]` as the baseline, so the synthesis is compared against the strongest input, not the judge's content-based pick (which lives separately in `execution_detail.debate.combined.winner`).
 - `parent_variant_ids[1..N]` are additional parents. The lineage graph renders dashed edges for these; `VariantParentBadge` surfaces a "+N more" chip linking to the variant detail page's full lineage section.
 
 App-layer enforces referential integrity (no DB-level FK on array elements — PostgreSQL doesn't support FKs on array columns; mirrors the same pattern as `evolution_arena_comparisons.entry_a/b` which dropped DB FKs in migration `20260409000001` and rely on `VariantEntity.ts` for cleanup).

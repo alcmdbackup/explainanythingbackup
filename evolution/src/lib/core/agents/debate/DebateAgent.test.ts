@@ -304,6 +304,53 @@ describe('DebateThenGenerateFromPreviousArticleAgent', () => {
     await expect(agent.execute(input, makeCtx())).rejects.toThrow(/input\.llm is required/);
   });
 
+  // Hardening: enforce dispatch-time ELO ordering invariant. parentIds[0] is taken
+  // from input.variantA, and elo_delta_vs_parent uses parentIds[0] as the baseline;
+  // a violation would silently corrupt the metric.
+  it('invariant: throws when variantA.elo < variantB.elo (caller bug)', async () => {
+    // Build an input where Elo order is inverted: A=1280, B=1300.
+    const input = baseInput(makeMockLlm({}));
+    const inverted: typeof input = {
+      ...input,
+      initialRatings: new Map<string, Rating>([
+        [VARIANT_A, { ...createRating(), elo: 1280 }], // lower
+        [VARIANT_B, { ...createRating(), elo: 1300 }], // higher
+      ]),
+    };
+    await expect(agent.execute(inverted, makeCtx())).rejects.toThrow(/invariant violated.*variantA\.elo.*<.*variantB\.elo/);
+  });
+
+  it('invariant: throws when Elos are equal but variantA.id > variantB.id (id-tiebreak violation)', async () => {
+    // Equal Elos but ids out of order. baseInput uses VARIANT_A (id starts '...000a')
+    // < VARIANT_B (id starts '...000b'), so we need to swap them.
+    const input = baseInput(makeMockLlm({}));
+    const tieInverted: typeof input = {
+      ...input,
+      variantA: { ...input.variantB }, // larger id — wrong
+      variantB: { ...input.variantA },
+      initialRatings: new Map<string, Rating>([
+        [VARIANT_A, { ...createRating(), elo: 1300 }],
+        [VARIANT_B, { ...createRating(), elo: 1300 }], // equal
+      ]),
+    };
+    await expect(agent.execute(tieInverted, makeCtx())).rejects.toThrow(/equal Elos.*variantA\.id.*>.*variantB\.id/);
+  });
+
+  it('invariant: passes when Elos are equal AND ids are in ascending order', async () => {
+    const input = baseInput(makeMockLlm({}));
+    const tieValid: typeof input = {
+      ...input,
+      // variantA / variantB unchanged from baseInput — VARIANT_A < VARIANT_B by lexical id
+      initialRatings: new Map<string, Rating>([
+        [VARIANT_A, { ...createRating(), elo: 1300 }],
+        [VARIANT_B, { ...createRating(), elo: 1300 }], // equal
+      ]),
+    };
+    // Should not throw the invariant — ordering is valid.
+    const result = await agent.execute(tieValid, makeCtx());
+    expect(result.result.variant).not.toBeNull();
+  });
+
   it('happy path: produces a synthesized variant via inner GFPA', async () => {
     const result = await agent.execute(baseInput(makeMockLlm({})), makeCtx());
     expect(result.result.variant).not.toBeNull();
@@ -331,21 +378,25 @@ describe('DebateThenGenerateFromPreviousArticleAgent', () => {
     expect(result.result.surfaced).toBe(false);
   });
 
-  it('multi-parent emission: parentIds = [winner.id, loser.id] when winner=A', async () => {
+  it('multi-parent emission: parentIds = [variantA.id, variantB.id] in ELO order (judge picked A)', async () => {
+    // Dispatch puts variantA = higher Elo (baseInput: A=1300, B=1280). Even when the
+    // judge picks A, the emitted order is by Elo, not by judge verdict.
     const result = await agent.execute(baseInput(makeMockLlm({})), makeCtx());
     expect(result.result.variant?.parentIds).toHaveLength(2);
-    expect(result.result.variant?.parentIds[0]).toBe(VARIANT_A); // winner
-    expect(result.result.variant?.parentIds[1]).toBe(VARIANT_B); // loser
+    expect(result.result.variant?.parentIds[0]).toBe(VARIANT_A); // higher Elo
+    expect(result.result.variant?.parentIds[1]).toBe(VARIANT_B); // lower Elo
     expect(result.parentVariantIds).toEqual([VARIANT_A, VARIANT_B]);
   });
 
-  it('multi-parent emission: parentIds = [winner.id, loser.id] when winner=B', async () => {
+  it('multi-parent emission: parentIds stays in ELO order even when judge picks B (lower-Elo)', async () => {
+    // Judge picks B but parentIds[0] is still variantA (higher Elo) so elo_delta_vs_parent
+    // measures synthesis vs the strongest input regardless of judge content-based pick.
     const verdictBWins = JSON.stringify({ ...JSON.parse(SAMPLE_VERDICT_JSON), winner: 'B' });
     const result = await agent.execute(baseInput(makeMockLlm({ judge: verdictBWins })), makeCtx());
     expect(result.result.variant?.parentIds).toHaveLength(2);
-    expect(result.result.variant?.parentIds[0]).toBe(VARIANT_B); // winner
-    expect(result.result.variant?.parentIds[1]).toBe(VARIANT_A); // loser
-    expect(result.parentVariantIds).toEqual([VARIANT_B, VARIANT_A]);
+    expect(result.result.variant?.parentIds[0]).toBe(VARIANT_A); // higher Elo (NOT the judge's winner)
+    expect(result.result.variant?.parentIds[1]).toBe(VARIANT_B); // lower Elo (the judge's winner)
+    expect(result.parentVariantIds).toEqual([VARIANT_A, VARIANT_B]);
   });
 
   it('I4 invariant: synthesis LLM proxy rewrites generation → debate_synthesis', async () => {

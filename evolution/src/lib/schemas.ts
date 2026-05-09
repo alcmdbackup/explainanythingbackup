@@ -495,8 +495,8 @@ function preprocessBudgetFloor(input: unknown): unknown {
  *    variants (Option C from bring_back_debate_agent_20260506 Decision §17), then
  *    delegates to GFPA with a customPrompt built from the judge's verdict (strengths
  *    from each parent + improvements). Variant-producing; emits multi-parent lineage
- *    (parentIds=[winner.id, loser.id]) per Decision §20. Cannot be first iteration —
- *    requires ≥2 pool variants.
+ *    (parentIds=[higher-Elo, lower-Elo] sorted at dispatch — see DebateAgent header).
+ *    Cannot be first iteration — requires ≥2 pool variants.
  *  - `swiss`: SwissRankingAgent — re-ranks the existing pool, no new variants.
  */
 // 'iterative_editing_rewrite' (Mode B) is the rewrite-then-diff sibling of
@@ -1306,9 +1306,12 @@ export const reflectionExecutionDetailSchema = executionDetailBaseSchema.extend(
  * improvements}, THEN delegate to inner GFPA via .execute() with customPrompt
  * built from the verdict. Mirrors evaluate_criteria_then_generate shape exactly.
  *
- * Multi-parent lineage (Decision §20): the synthesized variant's parentIds is
- * [winner.id, loser.id] — parentIds[0] = canonical primary (judge's winner),
- * parentIds[1] = the other parent. Order is load-bearing.
+ * Multi-parent lineage: the synthesized variant's parentIds is sorted in ELO order
+ * at debate dispatch time — parentIds[0] = highest-Elo input (canonical primary),
+ * parentIds[1] = second-highest-Elo input. Independent of the judge's content-based
+ * pick (which lives in execution_detail.debate.combined.winner). Order is load-bearing
+ * because elo_delta_vs_parent reads parentIds[0] for the baseline. (Originally
+ * Decision §20 emitted [winner.id, loser.id]; revised 2026-05-09 — see DebateAgent header.)
  *
  * Reasoning trace (Phase 1.20): when debateJudgeReasoningEffort is set, the
  * combined call records reasoningTokens and (provider-permitting) reasoningTrace
