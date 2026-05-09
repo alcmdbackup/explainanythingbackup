@@ -574,8 +574,8 @@ export default function NewStrategyPage(): JSX.Element {
         delete updated.includesMirrorApprover;
         return updated;
       }
-      // iterative_editing: keep editingMaxCycles + editingCutoff*; drop variant-flow fields.
-      if (updated.agentType === 'iterative_editing') {
+      // iterative_editing + iterative_editing_rewrite: keep editingMaxCycles + editingCutoff*; drop variant-flow fields.
+      if (updated.agentType === 'iterative_editing' || updated.agentType === 'iterative_editing_rewrite') {
         delete updated.tacticGuidance;
         delete updated.reflectionTopN;
         delete updated.criteriaIds;
@@ -1257,7 +1257,7 @@ export default function NewStrategyPage(): JSX.Element {
                         />
                       </div>
                     )}
-                    {(it.agentType === 'iterative_editing' || it.agentType === 'proposer_approver_criteria_generate') && (
+                    {(it.agentType === 'iterative_editing' || it.agentType === 'iterative_editing_rewrite' || it.agentType === 'proposer_approver_criteria_generate') && (
                       <div
                         className="mt-2 pl-8 flex flex-wrap items-center gap-2 text-xs font-ui"
                         data-testid={`iteration-editing-controls-${idx}`}
@@ -1267,7 +1267,7 @@ export default function NewStrategyPage(): JSX.Element {
                             ? '✏️ Cycles per parent: 1 (single-pass fixed)'
                             : '✏️ Cycles per parent:'}
                         </span>
-                        {it.agentType === 'iterative_editing' && (
+                        {(it.agentType === 'iterative_editing' || it.agentType === 'iterative_editing_rewrite') && (
                           <input
                             type="number"
                             min={1}

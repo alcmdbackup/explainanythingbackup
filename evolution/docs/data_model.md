@@ -572,7 +572,7 @@ top-level enum value alongside `generate`, `reflect_and_generate`,
 | `generation` | object (optional) | Same shape as GFPA `generation` |
 | `ranking` | object (optional, nullable) | Same shape as GFPA `ranking` |
 | `totalCost` | number (optional) | `debate.combined.cost + generation.cost + ranking.cost` |
-| `surfaced` | boolean | Whether the synthesis variant survived the local-Elo + Jaccard ≥ 0.85 + tie-verdict gates |
+| `surfaced` | boolean | Whether the synthesis variant survived the local-Elo + Jaccard ≥ 0.95 + tie-verdict gates |
 | `discardReason` | object (optional) | `{ localElo, localTop15Cutoff }` when not surfaced |
 
 **Reasoning-trace three-state semantics** (Phase 1.20):

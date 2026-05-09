@@ -525,7 +525,7 @@ The synthesis-LLM-proxy must (a) be injected via `innerInput.llm` (NOT `ctx`), (
 
 **Surface gates**:
 - Judge `winner='tie'` → synthesis runs but result not surfaced (Decision §13).
-- Synthesis Jaccard ≥ 0.85 vs EITHER parent → not surfaced (`failurePoint='synthesis_no_op'` per Decision §14).
+- Synthesis Jaccard ≥ 0.95 vs EITHER parent → not surfaced (`failurePoint='synthesis_no_op'` per Decision §14). Threshold raised from 0.85 (2026-05-08) after refinement-style synthesis (winner-grounded edits) was being rejected; 0.95 catches near-paraphrases without blocking valid 70/30-style blends.
 - Empty synthesis text → not surfaced (`failurePoint='synthesis_empty'`).
 
 **Models** (no debate-specific overrides per Decision §18):

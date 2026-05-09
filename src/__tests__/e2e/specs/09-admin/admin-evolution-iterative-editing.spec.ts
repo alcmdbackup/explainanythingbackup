@@ -348,5 +348,12 @@ adminTest.describe('Iterative Editing Wizard', { tag: '@evolution' }, () => {
     // Verify the second iteration can actually be set to the new type without error.
     await select.selectOption('iterative_editing_rewrite');
     await expect(select).toHaveValue('iterative_editing_rewrite');
+    // Selecting Mode B must surface the same editing controls Mode A shows
+    // (cycles input + cutoff input + cutoff mode select). Regression guard for
+    // a wizard bug where these conditional blocks omitted the rewrite type.
+    await expect(adminPage.getByTestId('iteration-editing-controls-1')).toBeVisible();
+    await expect(adminPage.getByTestId('editing-max-cycles-1')).toBeVisible();
+    await expect(adminPage.getByTestId('editing-cutoff-value-1')).toBeVisible();
+    await expect(adminPage.getByTestId('editing-cutoff-mode-1')).toBeVisible();
   });
 });

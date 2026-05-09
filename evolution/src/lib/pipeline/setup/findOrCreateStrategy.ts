@@ -97,7 +97,7 @@ export function labelStrategyConfig(config: StrategyConfig): string {
   const criteriaCount = config.iterationConfigs.filter((ic) => ic.agentType === 'criteria_and_generate').length;
   const singlePassCount = config.iterationConfigs.filter((ic) => ic.agentType === 'single_pass_evaluate_criteria_and_generate').length;
   const proposerApproverCount = config.iterationConfigs.filter((ic) => ic.agentType === 'proposer_approver_criteria_generate').length;
-  const editCount = config.iterationConfigs.filter((ic) => ic.agentType === 'iterative_editing').length;
+  const editCount = config.iterationConfigs.filter((ic) => ic.agentType === 'iterative_editing' || ic.agentType === 'iterative_editing_rewrite').length;
   const swissCount = config.iterationConfigs.filter((ic) => ic.agentType === 'swiss').length;
   const iterLabel = [
     genCount > 0 ? `${genCount}×gen` : '',

@@ -83,7 +83,7 @@ describe('debate_and_generate pipeline (integration)', () => {
     const mockLlm = createV2MockLlm({
       labelResponses: {
         debate_judge: SAMPLE_VERDICT_JSON,
-        debate_synthesis: '# Synthesized\n## Section\nFreshly synthesized prose body that combines strengths from both parents and adds enough novel content to clear the Jaccard 0.85 no-op gate so the synthesized variant surfaces and ranking proceeds normally as expected.',
+        debate_synthesis: '# Synthesized\n## Section\nFreshly synthesized prose body that combines strengths from both parents and adds enough novel content to clear the Jaccard 0.95 no-op gate so the synthesized variant surfaces and ranking proceeds normally as expected.',
       },
     });
 
