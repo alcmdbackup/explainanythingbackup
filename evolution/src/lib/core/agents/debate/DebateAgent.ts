@@ -93,8 +93,12 @@ export type DebateExecutionDetail =
 const COST_CAP_USD = 0.40;
 /** Pre-synthesis budget gate threshold: 0.9 × COST_CAP. */
 const PRE_SYNTHESIS_BUDGET_THRESHOLD = 0.9 * COST_CAP_USD;
-/** Jaccard similarity threshold for the synthesis-no-op gate (Decision §14). */
-const JACCARD_NO_OP_THRESHOLD = 0.85;
+/** Jaccard similarity threshold for the synthesis-no-op gate (Decision §14).
+ *  Raised from 0.85 to 0.95 (2026-05-08) — refinement-style synthesis where the
+ *  winner's structure is preserved and the loser's strengths grafted in legitimately
+ *  lands in the 0.85-0.95 word-overlap band. The 0.85 cut was rejecting valid
+ *  refinements; 0.95 catches only near-paraphrases (≥95% shared vocabulary). */
+const JACCARD_NO_OP_THRESHOLD = 0.95;
 /** Max chars of raw response captured in execution_detail on parse failure. */
 const RAW_RESPONSE_CAPTURE_LIMIT = 8000;
 
@@ -362,7 +366,7 @@ export class DebateThenGenerateFromPreviousArticleAgent extends Agent<
 
     const gfpaDetail = gfpaOutput.detail;
 
-    // (k) Synthesis-no-op gate (Decision §14): Jaccard ≥ 0.85 vs EITHER parent → discard.
+    // (k) Synthesis-no-op gate (Decision §14): Jaccard ≥ 0.95 vs EITHER parent → discard.
     let surfaced = gfpaOutput.result.surfaced;
     let synthesisFailurePoint: 'synthesis_empty' | 'synthesis_no_op' | undefined = undefined;
     if (gfpaOutput.result.variant) {

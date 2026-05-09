@@ -169,7 +169,7 @@ runtime, and cost-sensitivity alike.
 | Iteration type | Work agent(s)                                       | Merge                | Discard rule                                           |
 |----------------|-----------------------------------------------------|----------------------|--------------------------------------------------------|
 | **Generate**   | Parallel batch of `GenerateFromPreviousArticleAgent` + within-iter top-up loop | **1 `MergeRatingsAgent` per iter** over combined buffers | Each agent decides locally (using its own snapshot)   |
-| **Debate**     | 1 `DebateThenGenerateFromPreviousArticleAgent` (top-2 from pool, single materialized variant per Decision §15) | 1 `MergeRatingsAgent` | Judge tie / Jaccard ≥ 0.85 / synthesis-empty / budget |
+| **Debate**     | 1 `DebateThenGenerateFromPreviousArticleAgent` (top-2 from pool, single materialized variant per Decision §15) | 1 `MergeRatingsAgent` | Judge tie / Jaccard ≥ 0.95 / synthesis-empty / budget |
 | **Swiss**      | 1 `SwissRankingAgent` (parallel pairs internally)    | 1 `MergeRatingsAgent` | None — paid-for matches always reach global ratings    |
 
 **Wrapper-agent invariants** — alongside I1 (no nested `.run()`) / I2 (cost snapshots) / I3 (partial-detail-on-throw), debate introduces **I4: synthesis-LLM-proxy injection**. The wrapper constructs an `EvolutionLLMClient` proxy that rewrites `'generation' → 'debate_synthesis'` for both `complete` and `completeStructured`, and passes it to the inner GFPA via `innerInput.llm` (NOT `ctx`). Without I4, synthesis cost flows to `generation_cost` instead of `debate_cost`, silently breaking the cost-attribution contract. Cross-reference: `evolution/docs/agents/overview.md` § DebateThenGenerateFromPreviousArticleAgent.

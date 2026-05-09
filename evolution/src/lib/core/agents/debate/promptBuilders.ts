@@ -134,7 +134,10 @@ export function buildSynthesisCustomPrompt(
   const preamble =
     'You are an expert article reviser. A judge has compared this article to a competing variant ' +
     'and identified specific strengths to preserve from each, plus actionable improvements. ' +
-    'Apply the recommendations to produce a stronger synthesis.';
+    'Produce a stronger synthesis by combining material from both variants. Aim for at least a ' +
+    '70/30 blend — most of the result should retain the winning variant\'s structure and voice ' +
+    '(roughly 70%), but at least 30% of the content should be substantively reshaped or imported ' +
+    'from the competing variant\'s strengths. A pure paraphrase of either variant is not a synthesis.';
 
   const lines: string[] = [];
   lines.push("Apply the judge's recommendations to revise the article:");
@@ -161,9 +164,11 @@ export function buildSynthesisCustomPrompt(
     lines.push('');
   }
   lines.push(
-    'Rewrite the article applying these recommendations. Preserve the original word count within ±10% — ' +
-    'refactor or deepen existing passages rather than adding new sections. Do not introduce ' +
-    'meta-commentary about the article itself.',
+    'Rewrite the article applying these recommendations. Aim for at least a 70/30 blend: keep roughly ' +
+    '70% of the winning variant\'s structure/voice, and substantively reshape or import at least 30% ' +
+    'from the competing variant\'s strengths — paragraph rewrites, restructured sections, or absorbed ' +
+    'arguments. Preserve the original word count within ±10% — refactor or deepen existing passages ' +
+    'rather than adding bolted-on new sections. Do not introduce meta-commentary about the article itself.',
   );
   return { preamble, instructions: lines.join('\n') };
 }

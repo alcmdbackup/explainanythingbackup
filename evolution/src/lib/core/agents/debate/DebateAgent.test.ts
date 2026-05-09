@@ -72,7 +72,7 @@ function makeMockLlm(responses: { judge?: string | (() => string | Promise<strin
       // Inner GFPA's call goes through the I4 proxy which rewrites 'generation' → 'debate_synthesis';
       // by the time the mock sees it, the rewritten name fires.
       if (agentName === 'debate_synthesis' || agentName === 'generation') {
-        return responses.generation ?? '# Synthesized\n## Section\nSynthesis body that combines strengths from both parents and adds detail in fresh prose so Jaccard against either parent stays well below the 0.85 threshold for surfacing contracts to hold.';
+        return responses.generation ?? '# Synthesized\n## Section\nSynthesis body that combines strengths from both parents and adds detail in fresh prose so Jaccard against either parent stays well below the 0.95 threshold for surfacing contracts to hold.';
       }
       return 'A'; // ranking
     }),
@@ -242,6 +242,47 @@ describe('parseCombinedAnalyzeAndJudge', () => {
   it('rejects empty response after fence stripping', () => {
     expect(() => parseCombinedAnalyzeAndJudge('```\n```')).toThrow(/Empty response/);
   });
+
+  // Run b0ebc971 staging observation: gemini-2.5-flash-lite emits invalid `\'`
+  // escapes inside JSON strings — `"Fed\'s operations"`. JSON spec only allows
+  // \", \\, \/, \b, \f, \n, \r, \t, \uXXXX. The parser retries with sanitization
+  // when the first parse fails so a single non-conformant escape doesn't kill
+  // the whole iteration.
+  it("recovers from invalid backslash-apostrophe escape sequences (gemini over-escape)", () => {
+    const obj = JSON.parse(SAMPLE_VERDICT_JSON);
+    obj.consA = ["Some sentences are wordy (cite: 'Fed\\'s operations')"];
+    obj.reasoning = "Both have strengths but A is more detailed about the Fed\\'s mandate.";
+    // Build raw JSON manually so the `\'` lands in the byte stream as 2 chars:
+    // backslash + apostrophe — exactly what JSON.parse rejects.
+    const rawWithInvalidEscape = JSON.stringify(obj).replace(/Fed's/g, "Fed\\'s").replace(/Fed\\\\'s/g, "Fed\\'s");
+    // Sanity check: vanilla JSON.parse should reject this.
+    expect(() => JSON.parse(rawWithInvalidEscape)).toThrow();
+    // Parser sanitizes and recovers.
+    const v = parseCombinedAnalyzeAndJudge(rawWithInvalidEscape);
+    expect(v.consA[0]).toContain("Fed's operations");
+  });
+
+  it("does NOT corrupt valid escaped-backslash + literal apostrophe sequences", () => {
+    // Build the raw JSON byte stream directly. The reasoning field's value, byte
+    // by byte, is: `Path: \\'foo'` — i.e. backslash, backslash, apostrophe, then
+    // foo'. In JSON that decodes to `Path: \'foo'` (one literal backslash + apostrophe).
+    // The sanitizer's (?<!\\) lookbehind must skip the `\\'` here because the
+    // `\'` is preceded by another `\` — `\\` is the escaped-backslash, the trailing
+    // `'` is just a literal apostrophe and the whole sequence is valid JSON.
+    const rawValid = `{
+      "winner": "A",
+      "reasoning": "Path: \\\\'foo'",
+      "prosA": ["x"], "consA": ["x"], "prosB": ["x"], "consB": ["x"],
+      "strengthsFromA": ["x"], "strengthsFromB": ["x"], "improvements": ["x"]
+    }`;
+    const v = parseCombinedAnalyzeAndJudge(rawValid);
+    // After JSON.parse, the reasoning string contains: literal backslash + apostrophe + foo + apostrophe.
+    expect(v.reasoning).toBe("Path: \\'foo'");
+  });
+
+  it('still throws DebateParseError when sanitization cannot recover (truly malformed)', () => {
+    expect(() => parseCombinedAnalyzeAndJudge('{ "winner": "A", "reasoning": "broken')).toThrow(DebateParseError);
+  });
 });
 
 // ─── Agent ────────────────────────────────────────────────────
@@ -336,7 +377,7 @@ describe('DebateThenGenerateFromPreviousArticleAgent', () => {
     expect(reserveAgentNames).not.toContain('generation');
   });
 
-  it('synthesis identical-to-parent gates surfaced=false (Jaccard ≥ 0.85)', async () => {
+  it('synthesis identical-to-parent gates surfaced=false (Jaccard ≥ 0.95)', async () => {
     // Same text as parent A → Jaccard = 1.
     const llm = makeMockLlm({
       generation: 'Variant A — original article text. Clear and concise.',
@@ -424,7 +465,7 @@ describe('DebateThenGenerateFromPreviousArticleAgent', () => {
       }
       if (agentName === 'debate_synthesis' || agentName === 'generation') {
         spent += 0.01;
-        return '# Synthesis\n## Section\nFresh synthesized prose body that is sufficiently distinct from either parent variant to clear the Jaccard 0.85 no-op gate so the variant surfaces and ranking proceeds normally as expected.';
+        return '# Synthesis\n## Section\nFresh synthesized prose body that is sufficiently distinct from either parent variant to clear the Jaccard 0.95 no-op gate so the variant surfaces and ranking proceeds normally as expected.';
       }
       return 'A';
     });

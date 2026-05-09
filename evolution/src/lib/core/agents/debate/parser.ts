@@ -29,12 +29,21 @@ export function parseCombinedAnalyzeAndJudge(rawResponse: string): DebateVerdict
   let parsed: unknown;
   try {
     parsed = JSON.parse(stripped);
-  } catch (err) {
-    throw new DebateParseError(
-      `JSON parse failed: ${err instanceof Error ? err.message : String(err)}`,
-      rawResponse,
-      err,
-    );
+  } catch (firstErr) {
+    // Smaller models (gemini-2.5-flash-lite observed in run b0ebc971) over-escape
+    // apostrophes inside double-quoted JSON strings — `"Fed\'s operations"` is
+    // invalid JSON because `\'` is not in the allowed escape set
+    // (\", \\, \/, \b, \f, \n, \r, \t, \uXXXX). Retry with sanitization before
+    // giving up so a single non-conformant escape doesn't kill the whole iteration.
+    try {
+      parsed = JSON.parse(sanitizeInvalidEscapes(stripped));
+    } catch {
+      throw new DebateParseError(
+        `JSON parse failed: ${firstErr instanceof Error ? firstErr.message : String(firstErr)}`,
+        rawResponse,
+        firstErr,
+      );
+    }
   }
 
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
@@ -110,6 +119,16 @@ export function parseCombinedAnalyzeAndJudge(rawResponse: string): DebateVerdict
     strengthsFromB: validatedArrays.strengthsFromB!,
     improvements: validatedArrays.improvements!,
   };
+}
+
+/** Replace invalid `\'` escape sequences with literal apostrophes. JSON only allows
+ *  `\"`, `\\`, `\/`, `\b`, `\f`, `\n`, `\r`, `\t`, `\uXXXX` — `\'` is rejected by
+ *  JSON.parse. The `(?<!\\)` lookbehind avoids touching `\\'` (escaped backslash
+ *  followed by literal apostrophe, which is valid JSON). Conservative: only fixes
+ *  the single most common LLM over-escape pattern, leaves everything else alone
+ *  so legitimately malformed JSON still surfaces a parse error. */
+function sanitizeInvalidEscapes(input: string): string {
+  return input.replace(/(?<!\\)\\'/g, "'");
 }
 
 /** Remove optional ```json ... ``` markdown fences. Tolerant: matches any leading/trailing
