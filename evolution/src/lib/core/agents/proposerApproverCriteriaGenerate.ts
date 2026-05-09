@@ -59,8 +59,6 @@ const PROPOSER_SOFT_RULES = [
   'Prefer one-sentence edits over multi-sentence rewrites.',
   'Do not edit text inside code fences (```).',
   "Preserve the author's voice, tone, and reading level.",
-  'Edit only when the change demonstrably improves the article — never for its own sake.',
-  // 3 new criteria-specific soft rules:
   'Avoid edits whose newText reiterates ideas, phrases, or arguments already present elsewhere in the article. Each edit should introduce or strengthen a distinct idea, not duplicate existing content.',
   "Preserve transition phrases and connective words at paragraph boundaries; do not delete or replace opening transitions like 'However,' 'Therefore,' or 'In contrast.'",
   'Keep edits concise; aim to preserve article length within ±10% of the original.',
@@ -80,6 +78,8 @@ DO NOT modify any text outside your markup spans. The reviewer will discard ALL 
 function buildProposerSystemPrompt(): string {
   return [
     'You propose edits to an article addressing specific evaluation feedback. Your output is the FULL ARTICLE BODY VERBATIM with inline CriticMarkup edits.',
+    '',
+    'BIAS TOWARD PROPOSING MORE EDITS, NOT FEWER. A separate approver pass reviews every group you propose and rejects low-value or risky candidates, so the cost of an extra proposal is low and the cost of withholding a useful one is high. Address EVERY weakness listed below, and propose multiple alternate edit groups where a weakness admits more than one plausible fix — the approver decides which ship, not you. Two cautious edits is rarely the right answer.',
     '',
     'Soft rules — follow these unless the edit demonstrably improves the article:',
     ...PROPOSER_SOFT_RULES.map((r, i) => `  ${i + 1}. ${r}`),
