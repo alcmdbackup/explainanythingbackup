@@ -128,14 +128,25 @@ interface IterationConfigPayload {
 
 /** Variant-producing agent types share the same parent-article source machinery
  *  (sourceMode, qualityCutoff). Editing has its own per-cycle parent-selection
- *  mechanism (editingEligibilityCutoff); swiss has none. */
+ *  mechanism (editingEligibilityCutoff); swiss has none.
+ *
+ *  proposer_approver_criteria_generate is also variant-producing — it runs the
+ *  same resolveParent() flow in runIterationLoop.ts (sourceMode='seed' default
+ *  picks the run's seed; sourceMode='pool' picks from the configured cutoff).
+ *  Its own editingEligibilityCutoff is a SEPARATE layer that controls which
+ *  groups inside a proposed-edit set survive the approver pass, not which
+ *  parent variants get drawn from the pool. Omitting propose/approve here
+ *  silently forced every wizard-created propose/approve strategy to default
+ *  to sourceMode='seed' with no way to override from the UI. Phase 7 staging
+ *  surfaced this — added 2026-05-09. */
 function isVariantProducing(
   agentType: IterationRow['agentType'],
-): agentType is 'generate' | 'reflect_and_generate' | 'criteria_and_generate' | 'single_pass_evaluate_criteria_and_generate' {
+): agentType is 'generate' | 'reflect_and_generate' | 'criteria_and_generate' | 'single_pass_evaluate_criteria_and_generate' | 'proposer_approver_criteria_generate' {
   return agentType === 'generate'
     || agentType === 'reflect_and_generate'
     || agentType === 'criteria_and_generate'
-    || agentType === 'single_pass_evaluate_criteria_and_generate';
+    || agentType === 'single_pass_evaluate_criteria_and_generate'
+    || agentType === 'proposer_approver_criteria_generate';
 }
 
 /** Agent types eligible to be the FIRST iteration (must produce variants on an
