@@ -72,7 +72,19 @@ function stripOutputWrapper(markup: string): string {
   // <output>...</output> wrapper (case-insensitive, allows whitespace)
   const tagMatch = s.match(/^\s*<output>\s*\n?([\s\S]*?)\n?\s*<\/output>\s*$/i);
   if (tagMatch) s = tagMatch[1]!;
-  // Stray dangling </source> from the user prompt context
+  // Some weak models (gemini-2.5-flash-lite observed) echo the entire
+  // <source>…</source> block from the user prompt before emitting their
+  // output. Drop the leading source block so the parser only sees the
+  // proposer's actual response. Conservative match: must START with <source>
+  // and contain a </source> within the first N chars to avoid clobbering an
+  // edit that legitimately mentions <source> in its body.
+  const leadingSourceMatch = s.match(/^\s*<source>\s*\n?[\s\S]*?<\/source>\s*\n?/i);
+  if (leadingSourceMatch) s = s.slice(leadingSourceMatch[0].length);
+  // Trailing </output> with no opening tag (model self-closed without echoing
+  // the open tag — common with the same gemini quirk).
+  s = s.replace(/\s*<\/output>\s*$/i, '');
+  // Stray dangling <source>/</source> at the edges (left over after the block
+  // strip if the model emitted partial wrappers).
   s = s.replace(/^\s*<\/?source>\s*/i, '').replace(/\s*<\/?source>\s*$/i, '');
   return s;
 }

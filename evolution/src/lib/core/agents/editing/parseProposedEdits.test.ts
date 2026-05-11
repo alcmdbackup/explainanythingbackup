@@ -240,4 +240,29 @@ describe('parseProposedEdits — Mode A hardening (Phase 2)', () => {
     expect(r.groups.length).toBeGreaterThanOrEqual(1);
     expect(r.groups[0]!.atomicEdits[0]!.kind).toBe('replace');
   });
+
+  it('strips a leading <source>…</source> echo block before parsing', () => {
+    // Observed in production (gemini-2.5-flash-lite): the proposer echoes
+    // the entire <source> block from the user prompt, then emits its actual
+    // output, then closes with </output>. Without this strip, recoveredSource
+    // is ~2× parent length and the structural_rewrite gate fires.
+    const source = 'Hello world.';
+    const echoed = `<source>\n${source}\n</source>\nHello{++ brave++} world.\n</output>`;
+    const r = parseProposedEdits(echoed, source);
+    expect(r.groups.length).toBeGreaterThanOrEqual(1);
+    expect(r.groups[0]!.atomicEdits[0]!.kind).toBe('insert');
+    // recoveredSource should match the source — the echo is gone.
+    expect(r.recoveredSource).toContain('Hello world.');
+    expect(r.recoveredSource).not.toContain('<source>');
+    expect(r.recoveredSource).not.toContain('</source>');
+    expect(r.recoveredSource).not.toContain('</output>');
+  });
+
+  it('strips a trailing </output> tag without an opening <output>', () => {
+    const source = 'foo bar';
+    const wrapped = 'foo{++ baz++} bar\n</output>';
+    const r = parseProposedEdits(wrapped, source);
+    expect(r.groups.length).toBeGreaterThanOrEqual(1);
+    expect(r.recoveredSource).not.toContain('</output>');
+  });
 });

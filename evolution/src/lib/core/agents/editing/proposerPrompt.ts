@@ -13,10 +13,14 @@ const SOFT_RULES = [
 
 const HARD_CONSTRAINT = `HARD CONSTRAINT — read twice before writing.
 
-Your output is the source article inside <source>…</source>, copied
-CHARACTER-FOR-CHARACTER, with edits expressed ONLY through inline CriticMarkup.
+Your response contains EXACTLY ONE thing: an <output>…</output> block. Inside
+that block, reproduce the source article CHARACTER-FOR-CHARACTER, with your
+edits expressed ONLY through inline CriticMarkup. Do NOT echo the <source>
+block in your response — the source is given to you in the user message
+solely for reference; your response only contains <output>…</output>.
 
-Two byte-equality rules. Violating either causes ALL your edits to be discarded:
+Two byte-equality rules apply to the contents of <output>. Violating either
+causes ALL your edits to be discarded:
 
   RULE 1 (outside-markup fidelity): every byte OUTSIDE a {++…++}, {--…--}, or
   {~~…~~} span must match the source verbatim — same words, same punctuation,
@@ -43,14 +47,17 @@ const FAILURE_GALLERY = `Failure patterns observed on this exact task — avoid:
 
 const WORKED_EXAMPLE = `Worked example (study the structure, not the topic):
 
-  <source>
-  The product launched in March. Users liked it. Revenue grew quickly.
-  </source>
+  GIVEN this source article (provided to you in the user message inside
+  <source>…</source> — do NOT echo it in your response):
 
-  <output>
-  The product launched in March. {~~Users liked it.~>Early users gave it
-  strong reviews.~~} Revenue grew{++ 40% quarter-over-quarter++} quickly.
-  </output>
+    The product launched in March. Users liked it. Revenue grew quickly.
+
+  YOUR RESPONSE — ONE <output>…</output> block, nothing else:
+
+    <output>
+    The product launched in March. {~~Users liked it.~>Early users gave it
+    strong reviews.~~} Revenue grew{++ 40% quarter-over-quarter++} quickly.
+    </output>
 
   Note: the first sentence is byte-identical. The substitution's old side
   ("Users liked it.") is copied verbatim from the source. The insertion sits
@@ -99,7 +106,7 @@ export function buildProposerSystemPrompt(): string {
     '',
     SELF_CHECK,
     '',
-    'Output the marked-up article only. No commentary, no summary, no preamble.',
+    'Output the <output>…</output> block ONLY. No commentary, no summary, no preamble, and no echo of the <source> block.',
   ].join('\n');
 }
 

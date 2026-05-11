@@ -309,24 +309,31 @@ export class IterativeEditingAgent extends Agent<
           parseResult.dropped = [...parseResult.dropped, ...cap.dropped];
         }
 
-        // Phase 2: Pre-flight structural rejection (Mode A only — Mode B's diff
-        // engine is structurally incapable of producing free-form rewrites).
+        // Phase 2: pre-flight structural rejection (Mode A only). Originally
+        // tuned to >10% length divergence + <3 groups when drift recovery was
+        // an LLM call we wanted to skip on free-form rewrites. With drift
+        // recovery now deterministic snap-to-source (0 cost), the only case
+        // worth bailing on is when the recovered source is so much larger
+        // than the parent that snap can't possibly align (e.g., proposer
+        // echoed the article + appended a rewrite — recovered ~2× parent).
+        // Threshold bumped from 0.10 to 0.50 to let drift-snap handle modest
+        // structural drift.
         if (!isRewriteMode) {
-        const lenDelta = Math.abs(parseResult.recoveredSource.length - current.text.length);
-        const lenDeltaRatio = lenDelta / Math.max(1, current.text.length);
-        if (lenDeltaRatio > 0.10 && parseResult.groups.length < 3) {
-          stopReason = 'structural_rewrite';
-          cycles.push(this.buildCycle({
-            cycleNumber, proposedMarkup, parseResult,
-            droppedPreApprover: [...parseResult.dropped],
-            approverGroups: [], reviewDecisions: [], droppedPostApprover: [],
-            appliedGroups: [], formatValid: false, parentText: current.text,
-            proposeCostUsd, approveCostUsd: 0,
-            sizeRatio: 1.0,
-          }));
-          break;
+          const lenDelta = Math.abs(parseResult.recoveredSource.length - current.text.length);
+          const lenDeltaRatio = lenDelta / Math.max(1, current.text.length);
+          if (lenDeltaRatio > 0.50 && parseResult.groups.length < 3) {
+            stopReason = 'structural_rewrite';
+            cycles.push(this.buildCycle({
+              cycleNumber, proposedMarkup, parseResult,
+              droppedPreApprover: [...parseResult.dropped],
+              approverGroups: [], reviewDecisions: [], droppedPostApprover: [],
+              appliedGroups: [], formatValid: false, parentText: current.text,
+              proposeCostUsd, approveCostUsd: 0,
+              sizeRatio: 1.0,
+            }));
+            break;
+          }
         }
-        } // end if (!isRewriteMode) for structural rejection
 
         // Mode B never enters drift recovery (drift impossible by construction:
         // the diff engine produces markup AGAINST the same normalized source we

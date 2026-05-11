@@ -70,6 +70,15 @@ describe('buildProposerSystemPrompt', () => {
     expect(prompt).toMatch(/1\.\s+Mentally delete/);
     expect(prompt).toMatch(/byte-for-byte|character-for-character/);
   });
+
+  it('explicitly tells the model NOT to echo the <source> block in its response', () => {
+    // Regression guard for the gemini-2.5-flash-lite echo bug observed in
+    // production: the proposer copied the entire <source> block into its
+    // response before emitting the actual <output>. Prompt now states this
+    // is forbidden in three places (HARD_CONSTRAINT, WORKED_EXAMPLE, closing
+    // instruction) so even weak instruction-following models pick it up.
+    expect(prompt).toMatch(/do not echo the <source>|do NOT echo the <source>|no echo of the <source>/i);
+  });
 });
 
 describe('buildProposerUserPrompt', () => {
