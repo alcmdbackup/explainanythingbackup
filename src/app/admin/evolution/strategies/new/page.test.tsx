@@ -259,6 +259,35 @@ describe('NewStrategyPage', () => {
     );
   });
 
+  // ─── Bug regression (20260509): proposer_approver_criteria_generate gets
+  // sourceMode + qualityCutoff controls in the wizard. Pre-fix, the
+  // isVariantProducing() helper omitted propose/approve, so the controls were
+  // not rendered and every wizard-created propose/approve strategy silently
+  // defaulted to sourceMode='seed' with no UI escape hatch. This test asserts
+  // the controls render — the full create-submit flow needs criteriaIds and
+  // is exercised by the dedicated propose/approve E2E spec; here we just pin
+  // the UI contract. ──
+  it('propose/approve iteration shows sourceMode + cutoff controls when selected', () => {
+    render(<NewStrategyPage />);
+    fillStep1();
+    fireEvent.click(screen.getByText(/next: configure iterations/i));
+
+    // Default iterations are generate + swiss. Add a 3rd that we can flip.
+    fireEvent.click(screen.getByText(/\+ add iteration/i));
+
+    const agentSelect = screen.getByTestId('agent-type-select-2') as HTMLSelectElement;
+    fireEvent.change(agentSelect, { target: { value: 'proposer_approver_criteria_generate' } });
+
+    // Pre-fix the next 3 testIds were NOT in the DOM for propose/approve rows.
+    expect(screen.getByTestId('source-mode-select-2')).toBeInTheDocument();
+    const sourceSelect = screen.getByTestId('source-mode-select-2') as HTMLSelectElement;
+    fireEvent.change(sourceSelect, { target: { value: 'pool' } });
+
+    expect(screen.getByTestId('cutoff-mode-2')).toBeInTheDocument();
+    const cutoffValue = screen.getByTestId('cutoff-value-2') as HTMLInputElement;
+    expect(cutoffValue.value).toBe('5'); // auto-defaulted when sourceMode→pool
+  });
+
   it('pool-mode auto-default can be overridden to topPercent/30', async () => {
     render(<NewStrategyPage />);
     fillStep1();
