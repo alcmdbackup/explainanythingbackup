@@ -951,10 +951,18 @@ export async function evolveArticle(
                   finalVariant: Variant | null;
                   surfaced: boolean;
                   matches?: ReadonlyArray<V2Match>;
+                  discardReason?: { localElo: number; localTop15Cutoff: number };
                 };
                 if (r.finalVariant !== null && r.surfaced) {
                   newVariants.push(r.finalVariant);
                   iterVariantsCreated++;
+                } else if (r.finalVariant !== null && !r.surfaced) {
+                  // Mirror generate branch (lines 660-665): collect non-surfaced
+                  // editing variants so the persistence layer can write them as
+                  // persisted=false rows. Without this, ranked-and-discarded
+                  // editing variants vanish and survivorship bias creeps into
+                  // parent→child Elo metrics.
+                  discardedVariants.push(r.finalVariant);
                 }
                 // Phase 4.2 — collect ranking matches into the merge buffer
                 // (mirrors generate-branch line 561). Empty array when ranking skipped.

@@ -192,7 +192,7 @@ adminTest.describe('Iterative Editing Pipeline', { tag: '@evolution' }, () => {
     // Find the editing-iteration invocation (agent_name = 'iterative_editing').
     const { data: editingInvs } = await sb
       .from('evolution_agent_invocations')
-      .select('id, run_id, iteration')
+      .select('id, run_id, iteration, execution_detail')
       .eq('run_id', runId)
       .eq('agent_name', 'iterative_editing');
     expect(editingInvs).not.toBeNull();
@@ -200,14 +200,27 @@ adminTest.describe('Iterative Editing Pipeline', { tag: '@evolution' }, () => {
 
     // For each editing invocation, exactly one variant must exist with that
     // invocation's id as agent_invocation_id (per Decisions §14).
+    // Tightened from `<= 1` to a conditional on (surfaced && appliedCount > 0).
+    // The previous `<= 1` permitted zero, which masked a persistence bug where
+    // every editing variant was silently filtered out before the DB upsert
+    // (see fix_iterative_editing_persistence_bug_20260508).
     for (const inv of editingInvs!) {
       const { data: variants } = await sb
         .from('evolution_variants')
-        .select('id, parent_variant_id')
+        .select('id, parent_variant_ids, agent_name')
         .eq('agent_invocation_id', inv.id);
       expect(variants).not.toBeNull();
-      // Either zero (all-rejected path) or exactly one variant per invocation.
-      expect(variants!.length).toBeLessThanOrEqual(1);
+      const detail = inv.execution_detail as { surfaced?: boolean; cycles?: Array<{ appliedCount?: number }> } | null;
+      const surfaced = detail?.surfaced === true;
+      const totalApplied = (detail?.cycles ?? []).reduce((a, c) => a + (c.appliedCount ?? 0), 0);
+      if (surfaced && totalApplied > 0) {
+        // The agent claims it produced a variant — the DB must have it.
+        expect(variants!.length).toBe(1);
+        expect(variants![0]!.agent_name).toBe('iterative_editing');
+      } else {
+        // No-edits / all-rejected / drift-aborted: zero or one (defensive).
+        expect(variants!.length).toBeLessThanOrEqual(1);
+      }
     }
   });
 
