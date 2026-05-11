@@ -350,10 +350,10 @@ export class DebateThenGenerateFromPreviousArticleAgent extends Agent<
       );
     }
 
-    // (h) Determine winner + loser. Tie → run synthesis but mark not-surfaced (Decision §13).
-    const winner = verdict.winner === 'B' ? input.variantB : input.variantA;
-    const loser = verdict.winner === 'B' ? input.variantA : input.variantB;
-    const isTie = verdict.winner === 'tie';
+    // (h) ELO determines synthesis base — variantA is the higher-Elo input by debate-
+    //     dispatch contract (resolveDebateDispatchRuntime sorts by Elo desc with
+    //     id-tiebreak per Decision §12). The judge's `winner` field was removed
+    //     2026-05-09 — ELO is the more reliable quality signal and never produces ties.
 
     // (i) Build synthesis customPrompt + LLM-client proxy (load-bearing invariant I4).
     const customPrompt = buildSynthesisCustomPrompt(verdict);
@@ -369,16 +369,18 @@ export class DebateThenGenerateFromPreviousArticleAgent extends Agent<
     };
 
     // (j) Delegate synthesis to inner GFPA via .execute() (NOT .run() — invariant I1).
-    //     parentText = winner.text (Decision §20: revise winner using loser's strengths).
+    //     parentText = input.variantA.text — variant A is the higher-Elo parent by
+    //     dispatch contract, so synthesis revises the stronger article using the weaker
+    //     parent's identified strengths (per the synthesis customPrompt's 70/30 framing).
     const innerInput: GenerateFromPreviousInput = {
-      parentText: winner.text,
+      parentText: input.variantA.text,
       tactic: 'debate_synthesis',
       llm: synthesisLlmProxy,
       initialPool: input.initialPool,
       initialRatings: input.initialRatings,
       initialMatchCounts: input.initialMatchCounts,
       cache: input.cache,
-      parentVariantId: winner.id,
+      parentVariantId: input.variantA.id,
       customPrompt,
     };
 
@@ -420,18 +422,17 @@ export class DebateThenGenerateFromPreviousArticleAgent extends Agent<
       synthesisFailurePoint = 'synthesis_empty';
     }
 
-    // (l) Tie verdict: synthesis ran but result does not enter pool (Decision §13).
-    if (isTie) surfaced = false;
+    // (l) Tie path removed 2026-05-09 — winner field dropped from judge output, ELO
+    //     determines synthesis base. No more 30-50% iteration-budget loss to ties.
 
     // (m) Multi-parent emission: parentIds = [higher-ELO, lower-ELO] sorted at dispatch
     //     time. resolveDebateDispatchRuntime guarantees input.variantA is the higher-ELO
     //     parent (top-2 by Elo desc with id tiebreak per Decision §12), so emitting in
     //     [variantA, variantB] order means parentIds[0] is always the stronger parent at
     //     debate time. This makes elo_delta_vs_parent meaningful — the metric compares
-    //     the synthesis to the strongest input rather than the judge's content-based pick.
-    //     Order load-bearing — parentIds[0] = canonical primary (stronger at debate time);
-    //     parentIds[1] = additional. Originally [winner, loser] per Decision §20; the
-    //     judge's pick lives separately in execution_detail.debate.combined.winner.
+    //     the synthesis to the strongest input. Order load-bearing — parentIds[0] is the
+    //     canonical primary (stronger at debate time); parentIds[1] is the second parent.
+    //     (Originally [winner, loser] per Decision §20; revised 2026-05-09 to use ELO order.)
     const synthesisVariantWithLineage: Variant | null = gfpaOutput.result.variant
       ? {
           ...gfpaOutput.result.variant,
@@ -452,7 +453,6 @@ export class DebateThenGenerateFromPreviousArticleAgent extends Agent<
           durationMs: combinedDurationMs,
           reasoningEffortResolved: reasoningEffort,
         },
-        ...(isTie && { failurePoint: 'judge_tie' as const }),
         ...(synthesisFailurePoint && { failurePoint: synthesisFailurePoint as 'synthesis_empty' | 'synthesis_no_op' }),
       },
       generation: gfpaDetail.generation,
@@ -520,7 +520,6 @@ function verdictToCombined(verdict: DebateVerdict): NonNullable<NonNullable<Deba
     consA: [...verdict.consA],
     prosB: [...verdict.prosB],
     consB: [...verdict.consB],
-    winner: verdict.winner,
     reasoning: verdict.reasoning,
     strengthsFromA: [...verdict.strengthsFromA],
     strengthsFromB: [...verdict.strengthsFromB],

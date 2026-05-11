@@ -1354,9 +1354,11 @@ export const debateExecutionDetailSchema = executionDetailBaseSchema.extend({
       prosB: z.array(z.string()).optional(),
       /** Specific weaknesses LLM identified for parent B. */
       consB: z.array(z.string()).optional(),
-      /** Judge's verdict. 'tie' → synthesis runs but result not surfaced (Decision §13). */
+      /** Legacy field — retained for backward-compat with rows persisted before
+       *  2026-05-09 when the judge picked a winner. Removed from new outputs:
+       *  ELO determines synthesis base. */
       winner: z.enum(['A', 'B', 'tie']).optional(),
-      /** 1-2 sentence reasoning for the verdict. */
+      /** 1-2 sentence rationale framing for the synthesis. */
       reasoning: z.string().optional(),
       /** Specific strengths to preserve from parent A — feeds inner GFPA customPrompt. */
       strengthsFromA: z.array(z.string()).optional(),
@@ -1382,7 +1384,9 @@ export const debateExecutionDetailSchema = executionDetailBaseSchema.extend({
        *  or 'unavailable' (thinking happened but trace dropped). */
       reasoningTraceFormat: z.enum(['verbatim', 'summary', 'unavailable']).optional(),
     }).optional(),
-    /** Failure point along the execution path. Used for partial-detail-on-throw observability. */
+    /** Failure point along the execution path. Used for partial-detail-on-throw observability.
+     *  `judge_tie` is retained in the enum for backward-compat with rows persisted before
+     *  2026-05-09 (when the judge had a `winner` field). New code paths never emit it. */
     failurePoint: z.enum([
       'gate',
       'selection',

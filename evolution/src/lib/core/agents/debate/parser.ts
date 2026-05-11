@@ -13,11 +13,15 @@ import type { DebateVerdict } from './promptBuilders';
  * with the raw response captured on failure (partial-detail-on-throw at the agent
  * layer persists this onto execution_detail.debate.combined.{rawResponse, parseError}).
  *
- * Validates all 9 required fields:
- *   - winner: 'A' | 'B' | 'tie'
+ * Validates all 8 required fields:
  *   - reasoning: non-empty string
  *   - prosA, consA, prosB, consB, strengthsFromA, strengthsFromB, improvements:
  *     non-empty string arrays (each entry trimmed; empties dropped)
+ *
+ * The `winner` field was removed 2026-05-09 — ELO determines the synthesis base
+ * (variant A is always the higher-Elo input by debate-dispatch contract). The
+ * parser is tolerant of `winner` being present in legacy responses (just ignored)
+ * but no longer requires or validates it.
  */
 export function parseCombinedAnalyzeAndJudge(rawResponse: string): DebateVerdict {
   // Strip optional ```json ... ``` markdown fences for resilience.
@@ -54,15 +58,6 @@ export function parseCombinedAnalyzeAndJudge(rawResponse: string): DebateVerdict
   }
 
   const obj = parsed as Record<string, unknown>;
-
-  // Validate winner enum.
-  const winner = obj.winner;
-  if (winner !== 'A' && winner !== 'B' && winner !== 'tie') {
-    throw new DebateParseError(
-      `Invalid winner: expected 'A' | 'B' | 'tie', got ${JSON.stringify(winner)}`,
-      rawResponse,
-    );
-  }
 
   // Validate reasoning string.
   const reasoning = obj.reasoning;
@@ -113,7 +108,6 @@ export function parseCombinedAnalyzeAndJudge(rawResponse: string): DebateVerdict
     consA: validatedArrays.consA!,
     prosB: validatedArrays.prosB!,
     consB: validatedArrays.consB!,
-    winner,
     reasoning: reasoning.trim(),
     strengthsFromA: validatedArrays.strengthsFromA!,
     strengthsFromB: validatedArrays.strengthsFromB!,
