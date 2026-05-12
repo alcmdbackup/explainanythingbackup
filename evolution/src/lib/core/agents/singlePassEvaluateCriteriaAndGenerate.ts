@@ -45,10 +45,21 @@ export type SinglePassExecutionDetail =
   z.infer<typeof singlePassEvaluateCriteriaAndGenerateExecutionDetailSchema>
   & ExecutionDetailBase;
 
-/** Single-pass customPrompt builder — emits the legacy 1-directive prompt extended with
- *  redundancy + flow + length directives. Verbatim text matters; tests assert presence. */
+/** Parent Elo cutoff above which the agent receives extra "surgical edits only"
+ *  guidance. Empirically chosen from Phase 7 staging: parents <Elo 1300 show ~43%
+ *  improvement rate; parents >Elo 1300 collapse to 20-22% with mean Δ −50 to −90
+ *  driven by aggressive restructuring (retitled, demoted headings, stripped bold).
+ *  See evolution/docs/criteria_agents.md "High-Elo guidance" section for the data. */
+export const SINGLE_PASS_HIGH_ELO_THRESHOLD = 1300;
+
+/** Single-pass customPrompt builder — emits the legacy 1-directive prompt extended
+ *  with redundancy + flow + length directives. When `opts.highEloParent` is true
+ *  (parent Elo > SINGLE_PASS_HIGH_ELO_THRESHOLD), appends a surgical-edits block
+ *  that tells the LLM to preserve title/headings/emphasis and prefer additive,
+ *  targeted edits over restructuring. Verbatim text matters; tests assert presence. */
 export function buildSinglePassCustomPromptFromSuggestions(
   suggestions: ReadonlyArray<ParsedSuggestion>,
+  opts?: { highEloParent?: boolean },
 ): { preamble: string; instructions: string } {
   const preamble = 'You are an expert article reviser focusing on these specific issues identified during evaluation.';
   const instructionLines: string[] = [];
@@ -72,6 +83,24 @@ export function buildSinglePassCustomPromptFromSuggestions(
   instructionLines.push(
     "**Flow** — Preserve transitions between paragraphs. Do not delete or replace transition phrases at paragraph starts (e.g., 'However,' 'Therefore,' 'In contrast,'). Maintain local sentence rhythm and section-to-section connective tissue.",
   );
+
+  // High-Elo parents (>1300) historically regress when the agent restructures
+  // aggressively (retitle, heading-level changes, stripped emphasis). The 4 high-Elo
+  // wins from Phase 7 staging all preserved title/structure and made small additive
+  // edits — 8-16 atomic changes, +4-13% length growth. This block pushes that pattern.
+  if (opts?.highEloParent) {
+    instructionLines.push('');
+    instructionLines.push(
+      '**High-quality parent — SURGICAL EDITS ONLY** — The current article is already strong (parent Elo > '
+      + `${SINGLE_PASS_HIGH_ELO_THRESHOLD}). Aggressive rewrites here historically regress the article. Make targeted, additive edits and PRESERVE what is working:`,
+    );
+    instructionLines.push('  - **Preserve the title (H1) exactly.** Do not rename, reword, or restyle the top heading.');
+    instructionLines.push('  - **Preserve heading levels and section order.** Do not promote/demote headings (e.g., `###` → `##`) or reorder sections.');
+    instructionLines.push('  - **Preserve bold/italic emphasis on key terms** (e.g., `**Federal Reserve Act**`). Do not strip formatting.');
+    instructionLines.push('  - **Prefer ADDITIVE edits** — insert clarifying analogies, worked examples, or bridging sentences inside existing paragraphs. Avoid wholesale paragraph rewrites.');
+    instructionLines.push('  - **Aim for 5-15 atomic edits, not 16+.** Each issue should resolve in 1-3 sentence additions, not a section overhaul.');
+  }
+
   instructionLines.push('');
   instructionLines.push('Do not introduce meta-commentary about the article itself.');
   return { preamble, instructions: instructionLines.join('\n') };
@@ -259,8 +288,14 @@ export class SinglePassEvaluateCriteriaAndGenerateAgent extends Agent<
       throw err;
     }
 
-    // Inner GFPA dispatch with NEW customPrompt + NEW marker tactic
-    const customPrompt = buildSinglePassCustomPromptFromSuggestions(parsed.suggestions);
+    // Inner GFPA dispatch with NEW customPrompt + NEW marker tactic.
+    // High-Elo parents (>1300) get extra surgical-edits guidance — aggressive
+    // restructuring regresses these articles per Phase 7 staging analysis.
+    const parentElo = input.parentVariantId
+      ? input.initialRatings.get(input.parentVariantId)?.elo
+      : undefined;
+    const highEloParent = parentElo != null && parentElo > SINGLE_PASS_HIGH_ELO_THRESHOLD;
+    const customPrompt = buildSinglePassCustomPromptFromSuggestions(parsed.suggestions, { highEloParent });
     const innerInput: GenerateFromPreviousInput = {
       parentText: input.parentText,
       tactic: 'criteria_driven_single_pass',
