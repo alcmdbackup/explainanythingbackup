@@ -51,6 +51,20 @@ Same shape as (1) but with **three** soft directives in the customPrompt:
 
 Plus a marker tactic (`criteria_driven_single_pass`) so the tactic leaderboard distinguishes the new agent's variants from the legacy. Plus observational `lengthCapHit` telemetry post-rewrite (true if `output.length / parent.length > 1.10`). Telemetry only — variant emits regardless.
 
+**High-Elo guidance** (added 2026-05-11 after Phase 7 staging analysis): when the parent variant's Elo > `SINGLE_PASS_HIGH_ELO_THRESHOLD` (1300), the prompt appends a **SURGICAL EDITS ONLY** block with five additional directives. Background: staging-pool analysis (n=97) showed monotonic decline by parent Elo — 100% improvement on parents <Elo 1150, collapsing to 20–22% improvement on parents ≥Elo 1250. The four winners in the ≥1250 range all shared a pattern (preserved title, preserved heading levels, preserved bold emphasis, 8–16 surgical sentence-level edits, +4–13% length growth); the losers retitled, demoted headings, stripped formatting, and made 16+ aggressive edits. The directives pin that pattern:
+
+> **Preserve the title (H1) exactly.** Do not rename, reword, or restyle the top heading.
+>
+> **Preserve heading levels and section order.** Do not promote/demote headings (e.g., `###` → `##`) or reorder sections.
+>
+> **Preserve bold/italic emphasis on key terms** (e.g., `**Federal Reserve Act**`). Do not strip formatting.
+>
+> **Prefer ADDITIVE edits** — insert clarifying analogies, worked examples, or bridging sentences inside existing paragraphs. Avoid wholesale paragraph rewrites.
+>
+> **Aim for 5–15 atomic edits, not 16+.** Each issue should resolve in 1–3 sentence additions, not a section overhaul.
+
+Parent Elo is looked up from `input.initialRatings` (already passed to the agent); below the threshold the prompt is unchanged.
+
 **Kill switch**: `EVOLUTION_SINGLE_PASS_CRITERIA_ENABLED='false'` falls back to legacy (1).
 
 ## Agent (3): `proposer_approver_criteria_generate`
