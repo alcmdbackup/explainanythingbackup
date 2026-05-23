@@ -255,10 +255,6 @@ const EDITING_REVIEW_OUTPUT_CHARS_PER_LINE = 80;
  *  groups average ~3 atomic edits each → ~10 groups). */
 const EDITING_AVG_GROUPS_PER_CYCLE = 10;
 
-/** Worst-case drift recovery output (one JSON line per drift region, max 3 regions
- *  per Decisions §17 minor-drift threshold). */
-const EDITING_DRIFT_RECOVERY_OUTPUT_CHARS = 200;
-
 /** Article-size growth factor per editing cycle, per Decisions §17 (1.5× hard cap). */
 const EDITING_SIZE_GROWTH_PER_CYCLE = 1.5;
 
@@ -321,27 +317,6 @@ function estimateEditingReviewCost(
 }
 
 /**
- * Estimate the worst-case drift-recovery LLM call cost. Used in upper-bound
- * sizing only — drift recovery fires zero or one time across all cycles.
- */
-function estimateEditingDriftRecoveryCost(
-  driftRecoveryModel: string,
-  judgeModel: string,
-): number {
-  const pricing = getModelPricing(driftRecoveryModel);
-  // 30-char context window × 2 sides × max 3 regions + small prompt overhead.
-  const inputChars = 30 * 2 * 3 + 500;
-  const calibrated = getCalibrationRow(
-    '__unspecified__',
-    driftRecoveryModel,
-    judgeModel ?? '__unspecified__',
-    'iterative_edit_drift_recovery',
-  );
-  const outputChars = calibrated?.avgOutputChars ?? EDITING_DRIFT_RECOVERY_OUTPUT_CHARS;
-  return calculateCost(inputChars, outputChars, pricing);
-}
-
-/**
  * Estimate total cost of one IterativeEditingAgent invocation (one parent,
  * `maxCycles` cycles, each cycle = 2 LLM calls + maybe drift recovery).
  *
@@ -374,6 +349,10 @@ export function estimateIterativeEditingCost(
   maxCycles: number,
   poolSize: number = 0,
   maxComparisonsPerVariant: number = 0,
+  /** Retained for backwards-compat with persisted call sites; both modes now
+   *  produce identical cost shapes since drift recovery is deterministic. */
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  _mode: 'markup' | 'rewrite' = 'markup',
 ): { expected: number; upperBound: number; expectedRanking: number; upperBoundRanking: number } {
   let expected = 0;
   let upperBound = 0;
@@ -396,8 +375,10 @@ export function estimateIterativeEditingCost(
     articleChars *= EDITING_SIZE_GROWTH_PER_CYCLE;
   }
 
-  // Drift recovery: one worst-case fire across all cycles in upper-bound only.
-  upperBound += estimateEditingDriftRecoveryCost(driftRecoveryModel, judgeModel);
+  // Drift recovery is now deterministic snap-to-source (0 LLM cost) for both
+  // modes; the legacy gpt-4.1-nano upper-bound term was removed when the LLM
+  // recovery call went away. driftRecoveryModel + mode params are retained so
+  // strategy configs persisted before the cleanup still type-check on read.
   upperBound *= EDITING_UPPER_BOUND_SAFETY_MARGIN;
 
   // Phase 3.1 — Post-cycle ranking cost (D3 surfaces this as `editingRank` peer
@@ -413,4 +394,162 @@ export function estimateIterativeEditingCost(
     : 0;
 
   return { expected, upperBound, expectedRanking, upperBoundRanking };
+}
+
+/**
+ * Estimate total cost of one ProposerApproverCriteriaGenerateAgent invocation. Single-cycle:
+ * one combined eval+suggest call, then one proposer call, one forward approver call,
+ * optionally one mirror approver call (when includesMirrorApprover), then ranking.
+ *
+ * NOTE: this is a worst-case projection — runtime mirror short-circuit (skip for forward-rejected
+ * groups) makes actual mirror cost a function of forward rejection rate, producing consistent
+ * positive cost-estimation error. DO NOT predict forward rejection rate at projection time.
+ *
+ * @param seedArticleChars Initial article size.
+ * @param editingModel Proposer model. Falls back to generationModel.
+ * @param approverModel Approver model (used for both forward and mirror).
+ * @param judgeModel Judge model for ranking calls.
+ * @param criteriaCount Total criteria evaluated.
+ * @param weakestK Number of weakest criteria addressed by suggestions.
+ * @param avgRubricChars Average rubric size per criterion (calibration-aware).
+ * @param includesMirrorApprover Whether to include the mirror approver pass (default true).
+ * @param poolSize Pool size at iteration start. 0 disables ranking.
+ * @param maxComparisonsPerVariant Cap on binary-search ranking depth.
+ */
+export function estimateProposerApproverCriteriaCost(
+  seedArticleChars: number,
+  editingModel: string,
+  approverModel: string,
+  judgeModel: string,
+  criteriaCount: number,
+  weakestK: number,
+  avgRubricChars: number = EVALUATION_RUBRIC_CHARS_PER_CRITERION,
+  includesMirrorApprover: boolean = true,
+  poolSize: number = 0,
+  maxComparisonsPerVariant: number = 0,
+): { expected: number; upperBound: number; expectedRanking: number; upperBoundRanking: number } {
+  // 1. Combined eval+suggest call (reuse the existing estimator with the editingModel as gen model).
+  const evalCost = estimateEvaluateAndSuggestCost(
+    seedArticleChars,
+    editingModel,
+    judgeModel,
+    criteriaCount,
+    weakestK,
+    avgRubricChars,
+  );
+
+  // 2. Proposer call — full article + markup.
+  const proposeExpected = estimateEditingProposeCost(seedArticleChars, editingModel, judgeModel, false);
+  const proposeUpper = estimateEditingProposeCost(seedArticleChars, editingModel, judgeModel, true);
+
+  // 3. Forward approver call — input is marked-up article.
+  const articleWithMarkup = seedArticleChars * EDITING_MARKUP_OVERHEAD_FACTOR;
+  const approveForwardExpected = estimateEditingReviewCost(articleWithMarkup, approverModel, judgeModel);
+  const approveForwardUpper = estimateEditingReviewCost(
+    seedArticleChars * EDITING_UPPER_BOUND_MARKUP_FACTOR,
+    approverModel,
+    judgeModel,
+  );
+
+  // 4. Mirror approver call (optional).
+  const approveMirrorExpected = includesMirrorApprover ? approveForwardExpected : 0;
+  const approveMirrorUpper = includesMirrorApprover ? approveForwardUpper : 0;
+
+  const expected = evalCost + proposeExpected + approveForwardExpected + approveMirrorExpected;
+  const upperBound = (evalCost + proposeUpper + approveForwardUpper + approveMirrorUpper) * EDITING_UPPER_BOUND_SAFETY_MARGIN;
+
+  // 5. Post-cycle ranking (single variant, single cycle — no growth between cycles).
+  const expectedRanking = poolSize > 0 && maxComparisonsPerVariant > 0
+    ? estimateRankingCost(seedArticleChars, judgeModel, poolSize, maxComparisonsPerVariant)
+    : 0;
+  const upperBoundRanking = poolSize > 0 && maxComparisonsPerVariant > 0
+    ? estimateRankingCost(seedArticleChars, judgeModel, poolSize, maxComparisonsPerVariant) * EDITING_UPPER_BOUND_SAFETY_MARGIN
+    : 0;
+
+  return { expected, upperBound, expectedRanking, upperBoundRanking };
+}
+
+// ─── Debate cost estimation ──────────────────────────────────────────
+//
+// bring_back_debate_agent_20260506 Phase 1.9 — estimate cost of one
+// DebateThenGenerateFromPreviousArticleAgent invocation (Option C: 2 LLM calls).
+//
+// Per-invocation cost = combined-judge call + synthesis-via-GFPA call.
+// Synthesis cost flows to the `debate` peer field on EstPerAgentValue per
+// Phase 1.10 — but the estimator returns it as the `expectedSynthesis` /
+// `upperBoundSynthesis` fields so callers can split presentation if desired.
+
+/** Static prompt overhead for the combined analyze+judge call: preamble + 9-field
+ *  structured ask + critique-context block placeholders. Empirical estimate. */
+const DEBATE_JUDGE_PROMPT_OVERHEAD = 2000;
+/** Output: 9 structured fields × ~80-100 chars each + reasoning paragraph ≈ 3000 chars typical. */
+const DEBATE_JUDGE_OUTPUT_CHARS = 3000;
+/** Upper-bound output: capped at 6000 chars (~1500 tokens) for budget reservation. */
+const DEBATE_JUDGE_UPPER_BOUND_OUTPUT_CHARS = 6000;
+/** Synthesis input ≈ both parent texts + verdict-derived customPrompt overhead. */
+const DEBATE_SYNTHESIS_PROMPT_OVERHEAD = 2500;
+
+/**
+ * Estimate cost of one debate_and_generate invocation.
+ * @param parentACharsApprox ≈ winner.text length (used for both judge call input
+ *   and synthesis call input — synthesis revises winner using loser's strengths).
+ * @param parentBCharsApprox ≈ loser.text length (judge call input only).
+ * @param judgeModel Strategy's judgeModel — used for the combined analyze+judge call.
+ * @param generationModel Strategy's generationModel — used for the synthesis call
+ *   delegated to inner GFPA.
+ * @param poolSize Pool size at iteration start (drives ranking comparisons inside synthesis).
+ * @param maxComparisonsPerVariant Cap on binary-search ranking depth.
+ * @returns expected/upperBound for the full invocation, plus separated synthesis
+ *   sub-costs so EstPerAgentValue.debate can be projected from `expected` (whole
+ *   invocation lands in `debate` peer field per Phase 1.10).
+ */
+export function estimateDebateCost(
+  parentACharsApprox: number,
+  parentBCharsApprox: number,
+  judgeModel: string,
+  generationModel: string,
+  poolSize: number,
+  maxComparisonsPerVariant: number,
+): { expected: number; upperBound: number; expectedSynthesis: number; upperBoundSynthesis: number } {
+  // Combined judge call: input = both parents + critique-context + structured ask;
+  // output = 9-field JSON. Calibration-aware via getCalibrationRow.
+  const judgePricing = getModelPricing(judgeModel);
+  const judgeInputChars = parentACharsApprox + parentBCharsApprox + DEBATE_JUDGE_PROMPT_OVERHEAD;
+  const calibratedJudge = getCalibrationRow('__unspecified__', generationModel, judgeModel ?? '__unspecified__', 'debate_judge');
+  const judgeOutputChars = calibratedJudge?.avgOutputChars ?? DEBATE_JUDGE_OUTPUT_CHARS;
+  const judgeUpperOutputChars = calibratedJudge?.avgOutputChars
+    ? calibratedJudge.avgOutputChars * 1.5  // 50% headroom over calibrated mean
+    : DEBATE_JUDGE_UPPER_BOUND_OUTPUT_CHARS;
+  const expectedJudge = calculateCost(judgeInputChars, judgeOutputChars, judgePricing);
+  const upperBoundJudge = calculateCost(judgeInputChars, judgeUpperOutputChars, judgePricing);
+
+  // Synthesis call: input ≈ winner.text + customPrompt overhead; output = full variant.
+  // Treat as a vanilla generation call against generationModel + ranking against judgeModel.
+  const synthesisGenChars = parentACharsApprox + DEBATE_SYNTHESIS_PROMPT_OVERHEAD;
+  const calibratedSynth = getCalibrationRow('__unspecified__', generationModel, judgeModel ?? '__unspecified__', 'debate_synthesis');
+  const synthOutputChars = calibratedSynth?.avgOutputChars ?? DEFAULT_OUTPUT_CHARS;
+  const synthUpperOutputChars = calibratedSynth?.avgOutputChars
+    ? calibratedSynth.avgOutputChars * 1.5
+    : DEFAULT_OUTPUT_CHARS * 1.5;
+  const synthGenPricing = getModelPricing(generationModel);
+  const expectedSynthGen = calculateCost(synthesisGenChars, synthOutputChars, synthGenPricing);
+  const upperBoundSynthGen = calculateCost(synthesisGenChars, synthUpperOutputChars, synthGenPricing);
+
+  // Synthesis ranking: post-generation Swiss-style binary-search ranking.
+  const synthRankCost = poolSize > 0 && maxComparisonsPerVariant > 0
+    ? estimateRankingCost(synthOutputChars, judgeModel, poolSize, maxComparisonsPerVariant)
+    : 0;
+  const upperSynthRankCost = poolSize > 0 && maxComparisonsPerVariant > 0
+    ? estimateRankingCost(synthUpperOutputChars, judgeModel, poolSize, maxComparisonsPerVariant)
+    : 0;
+
+  const expectedSynthesis = expectedSynthGen + synthRankCost;
+  const upperBoundSynthesis = upperBoundSynthGen + upperSynthRankCost;
+
+  return {
+    expected: expectedJudge + expectedSynthesis,
+    upperBound: upperBoundJudge + upperBoundSynthesis,
+    expectedSynthesis,
+    upperBoundSynthesis,
+  };
 }

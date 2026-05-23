@@ -177,7 +177,7 @@ Sentry captures unhandled errors and exceptions in the deployed app.
 
 - **Dashboard**: Sentry → explainanything project
 - **Via Claude Code**: `/debug sentry EXPLAINANYTHING-XXX` for AI-assisted root cause analysis
-- **Key fields**: stack trace, breadcrumbs, `requestId` tag for correlation
+- **Key fields**: stack trace, breadcrumbs, `requestId` tag for correlation, **`site` tag** (`public` / `evolution` / `preview` / `local` / `unknown`) for hostname-based filtering since the explainanything/evolution split (one Sentry project serves both hostnames — filter `site:evolution` to triage evolution-only regressions).
 
 ### Honeycomb (Traces and Logs)
 

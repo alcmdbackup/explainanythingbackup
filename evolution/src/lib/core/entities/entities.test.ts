@@ -30,18 +30,14 @@ describe('RunEntity', () => {
     expect(entity.children.every(c => c.cascade === 'delete')).toBe(true);
   });
 
-  it('has 11 execution + 18 finalization + 0 propagation metrics', () => {
-    // cost + generation_cost + ranking_cost + reflection_cost + iterative_edit_cost +
-    // iterative_edit_rank_cost (added by add_ranking_iterative_editing_agent_evolution_20260502 Phase 3.5) +
-    // 3 iterative_edit operational health metrics (drift_rate, recovery_success_rate, accept_rate) +
-    // evaluation_cost + seed_cost. Per-purpose split written live by createLLMClient.
-    // reflection_cost: develop_reflection_and_generateFromParentArticle_agent_evolution_20260430.
-    // iterative_edit_*: bring_back_editing_agents_evolution_20260430.
-    // iterative_edit_rank_cost: add_ranking_iterative_editing_agent_evolution_20260502.
-    // evaluation_cost: evaluateCriteriaThenGenerateFromPreviousArticle_20260501.
-    expect(entity.metrics.duringExecution).toHaveLength(11);
-    // 7 ratings/match/count metrics + 11 cost-estimate-accuracy metrics (cost_estimate_accuracy_analysis_20260414).
-    expect(entity.metrics.atFinalization).toHaveLength(18);
+  it('has 16 execution + 21 finalization + 0 propagation metrics', () => {
+    // 11 prior + 1 debate_cost (bring_back_debate_agent_20260506) +
+    // 4 propose/approve criteria (proposer_approver_criteria_cost + 3 operational rates:
+    // drift_rate, accept_rate, mirror_agreement_rate) (updated_criteria_agent_20260505) = 16.
+    expect(entity.metrics.duringExecution).toHaveLength(16);
+    // 18 prior + 3 sentence-overlap percentile metrics (median, p25, min)
+    // (updated_criteria_agent_20260505).
+    expect(entity.metrics.atFinalization).toHaveLength(21);
     expect(entity.metrics.atPropagation).toHaveLength(0);
   });
 
@@ -79,13 +75,11 @@ describe('StrategyEntity', () => {
     expect(entity.children[0]!.cascade).toBe('delete');
   });
 
-  it('has 39 propagation metrics (base + cost-estimate-accuracy + reflection + iterative_edit + iterative_edit_rank + evaluation entries)', () => {
-    // 20 base + 11 cost-estimate-accuracy + 2 reflection + 2 iterative_edit
-    // (total_iterative_edit_cost + avg_iterative_edit_cost_per_run) + 2 iterative_edit_rank
-    // (total_iterative_edit_rank_cost + avg_iterative_edit_rank_cost_per_run, added by
-    // add_ranking_iterative_editing_agent_evolution_20260502 Phase 3.6) + 2 evaluation
-    // (total_evaluation_cost + avg_evaluation_cost_per_run, evaluateCriteriaThenGenerateFromPreviousArticle).
-    expect(entity.metrics.atPropagation).toHaveLength(39);
+  it('has 44 propagation metrics', () => {
+    // 39 prior + 3 (total + avg propose/approve criteria cost + avg_median_sentence_verbatim_ratio)
+    // (updated_criteria_agent_20260505) + 2 debate (total_debate_cost, avg_debate_cost_per_run from
+    // bring_back_debate_agent_20260506) = 44.
+    expect(entity.metrics.atPropagation).toHaveLength(44);
     const names = entity.metrics.atPropagation.map(d => d.name);
     expect(names).toContain('run_count');
     expect(names).toContain('total_cost');
@@ -182,13 +176,18 @@ describe('InvocationEntity', () => {
     expect(entity.parents[0]!.parentType).toBe('run');
   });
 
-  it('has 4 finalization metrics', () => {
-    expect(entity.metrics.atFinalization).toHaveLength(4);
+  it('has 7 finalization metrics', () => {
+    // 4 prior + 3 propose/approve invocation rates (mirror_agreement, forward_accept, mirror_filter)
+    // (updated_criteria_agent_20260505).
+    expect(entity.metrics.atFinalization).toHaveLength(7);
     const names = entity.metrics.atFinalization.map(d => d.name);
     expect(names).toContain('best_variant_elo');
     expect(names).toContain('avg_variant_elo');
     expect(names).toContain('variant_count');
     expect(names).toContain('elo_delta_vs_parent');
+    expect(names).toContain('invocation_mirror_agreement_rate');
+    expect(names).toContain('invocation_forward_accept_rate');
+    expect(names).toContain('invocation_mirror_filter_rate');
   });
 
   it('has no actions', () => {

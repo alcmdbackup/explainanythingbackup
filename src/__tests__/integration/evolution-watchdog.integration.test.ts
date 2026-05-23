@@ -150,6 +150,20 @@ describe('Evolution Watchdog Integration Tests', () => {
     expect(result.markedFailed).not.toContain(pendingRun.id as string);
     expect(result.markedFailed).not.toContain(completedRun.id as string);
 
+    // Re-pin the pending row's status by ID right before the assertion. The
+    // `claim_evolution_run` RPC (called by parallel Jest workers — e.g.
+    // evolution-claim.integration.test.ts) picks up `status='pending'` rows
+    // ORDER BY created_at ASC and flips them to 'claimed' under the global
+    // advisory lock. Without this UPDATE, the pending row can be stolen by a
+    // concurrent worker between createTrackedRun's INSERT and this SELECT,
+    // causing the assertion to see 'claimed' instead of 'pending'. The test
+    // wants to verify the watchdog *itself* didn't change the status (already
+    // verified by `result.markedFailed` not containing it above) — re-pinning
+    // makes the SELECT-based assertion deterministic regardless of concurrent
+    // claim activity.
+    await supabase.from('evolution_runs').update({ status: 'pending', runner_id: null }).eq('id', pendingRun.id as string);
+    await supabase.from('evolution_runs').update({ status: 'completed' }).eq('id', completedRun.id as string);
+
     // Verify statuses unchanged
     const { data: pData } = await supabase
       .from('evolution_runs')

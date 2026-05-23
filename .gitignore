@@ -98,3 +98,8 @@ screenshots/
 docs/planning/testing_fixes_20260329/
 timeline-*.png
 .claude/scheduled_tasks.lock
+
+# DB backup artifacts (e.g. pre-reset pg_dump for split_evolution_explainanythig_into_separate_websites_20260522)
+# These contain PII; must never be checked in. Store under ~/.backups/ with chmod 600.
+*.sql.dump
+*.sql.dump.gz

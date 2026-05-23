@@ -157,10 +157,11 @@ export interface ParsedEvaluateAndSuggest {
   droppedSuggestions: ParsedDroppedSuggestion[];
 }
 
-/** Extract score lines from the score section. Shared by parseEvaluateAndSuggest and
- *  the agent's first-pass parse (which needs scores before suggestions to determine the
- *  weakest set). Returns [] when nothing parses — caller decides how to throw. */
-function extractScores(
+/** Extract score lines from the score section. Shared by parseEvaluateAndSuggest, the
+ *  agent's first-pass parse (which needs scores before suggestions to determine the
+ *  weakest set), AND the new SinglePassEvaluateCriteriaAndGenerateAgent + ProposerApproverCriteriaGenerateAgent
+ *  which reuse the same parsing path. Returns [] when nothing parses — caller decides how to throw. */
+export function extractScores(
   scoreSection: string,
   criteria: ReadonlyArray<CriterionRow>,
 ): ParsedScore[] {
@@ -271,7 +272,7 @@ export function parseEvaluateAndSuggest(
 
 // ─── Helper: build customPrompt for inner GFPA ────────────────────
 
-function buildCustomPromptFromSuggestions(
+export function buildCustomPromptFromSuggestions(
   suggestions: ReadonlyArray<ParsedSuggestion>,
 ): { preamble: string; instructions: string } {
   const preamble = 'You are an expert article reviser focusing on these specific issues identified during evaluation.';
@@ -284,7 +285,9 @@ function buildCustomPromptFromSuggestions(
     instructionLines.push(`  Fix: ${s.suggestedFix}`);
   });
   instructionLines.push('');
-  instructionLines.push('Rewrite the article addressing each issue while preserving its overall intent and structure.');
+  instructionLines.push(
+    'Rewrite the article addressing each issue. Preserve the original word count within ±10% — refactor or deepen existing passages rather than adding new sections or examples. Do not introduce meta-commentary about the article itself.',
+  );
   return { preamble, instructions: instructionLines.join('\n') };
 }
 

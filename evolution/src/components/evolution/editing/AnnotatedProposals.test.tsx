@@ -173,7 +173,7 @@ describe('AnnotatedProposals', () => {
     render(
       <AnnotatedProposals
         proposedMarkup={markup}
-        proposedGroupsRaw={[group(1, 2, 21)]}
+        proposedGroupsRaw={[group(1, 2, 21, { oldText: 'b', newText: 'B' })]}
       />,
     );
     fireEvent.click(screen.getByTestId('annotated-view-original'));

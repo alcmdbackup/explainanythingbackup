@@ -7,6 +7,7 @@ import {
   type SourceCacheInsertType
 } from '@/lib/schemas/schemas';
 import { withLogging } from '@/lib/logging/server/automaticServerLoggingBase';
+import { SOURCE_FETCHER_USER_AGENT } from '@/config/userAgent';
 
 // Constants
 const FETCH_TIMEOUT_MS = 10000; // 10 seconds
@@ -160,7 +161,7 @@ async function fetchAndExtractSourceImpl(url: string): Promise<FetchSourceResult
     const response = await fetch(url, {
       signal: controller.signal,
       headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; ExplainAnything/1.0; +https://explainanything.com)',
+        'User-Agent': SOURCE_FETCHER_USER_AGENT,
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         'Accept-Language': 'en-US,en;q=0.5'
       }

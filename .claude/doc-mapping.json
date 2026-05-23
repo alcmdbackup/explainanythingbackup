@@ -344,19 +344,19 @@
     },
     {
       "pattern": "evolution/src/lib/core/agents/editing/**",
-      "docs": ["docs/feature_deep_dives/editing_agents.md"]
+      "docs": ["evolution/docs/editing_agents.md"]
     },
     {
       "pattern": "evolution/src/lib/pipeline/loop/editingDispatch.ts",
-      "docs": ["docs/feature_deep_dives/editing_agents.md"]
+      "docs": ["evolution/docs/editing_agents.md"]
     },
     {
       "pattern": "evolution/src/lib/core/startupAssertions.ts",
-      "docs": ["docs/feature_deep_dives/editing_agents.md"]
+      "docs": ["evolution/docs/editing_agents.md"]
     },
     {
       "pattern": "evolution/src/components/evolution/editing/**",
-      "docs": ["docs/feature_deep_dives/editing_agents.md"]
+      "docs": ["evolution/docs/editing_agents.md"]
     },
     {
       "pattern": "src/lib/evolution/agents/*section*.ts",

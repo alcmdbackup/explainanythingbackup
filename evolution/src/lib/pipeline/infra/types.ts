@@ -7,6 +7,7 @@ import {
   strategyConfigSchema,
   variantSchema,
   ratingSchema,
+  type IterationAgentType,
 } from '../../schemas';
 
 // ─── V1 re-exports (single source of truth) ─────────────────────
@@ -28,7 +29,7 @@ export type IterationStopReason = 'iteration_budget_exceeded' | 'iteration_conve
 /** Per-iteration result recorded in EvolutionResult.iterationResults. */
 export interface IterationResult {
   iteration: number;
-  agentType: 'generate' | 'reflect_and_generate' | 'criteria_and_generate' | 'iterative_editing' | 'swiss';
+  agentType: IterationAgentType;
   stopReason: IterationStopReason;
   budgetAllocated: number;
   budgetSpent: number;

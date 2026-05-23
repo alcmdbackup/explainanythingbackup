@@ -94,12 +94,18 @@ adminTest.describe('Strategy Registry CRUD', () => {
   });
 
   adminTest('model dropdown includes gpt-oss-20b without slash', async ({ adminPage }) => {
+    // The "Create" UI moved from a modal dialog to a dedicated wizard page;
+    // assert against the wizard's model dropdown instead.
     await adminPage.goto('/admin/evolution/strategies/new', { timeout: 30000 });
-    const generationModelSelect = adminPage.locator('#generation-model');
-    await expect(generationModelSelect).toBeVisible({ timeout: 15000 });
+    const genModelSelect = adminPage.locator('#generation-model');
+    await expect(genModelSelect).toBeVisible({ timeout: 15000 });
 
-    const optionsHTML = await generationModelSelect.innerHTML();
-    expect(optionsHTML).toContain('gpt-oss-20b');
-    expect(optionsHTML).not.toContain('openai/gpt-oss-20b');
+    // Collect every option's value+label and assert on those, not raw HTML
+    // (avoids false positives from comment/blob text).
+    const optionValues = await genModelSelect.locator('option').evaluateAll(
+      (opts) => (opts as HTMLOptionElement[]).map((o) => o.value),
+    );
+    expect(optionValues).toContain('gpt-oss-20b');
+    expect(optionValues).not.toContain('openai/gpt-oss-20b');
   });
 });

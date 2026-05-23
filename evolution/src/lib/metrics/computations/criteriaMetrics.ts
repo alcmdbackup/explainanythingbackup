@@ -33,7 +33,7 @@ export async function computeCriteriaMetrics(
   // are computed across weakest_criteria_ids rows.
   const { data: evaluatedVariants, error: evalErr } = await db
     .from('evolution_variants')
-    .select('id, run_id, mu, sigma, elo_score, parent_variant_id, weakest_criteria_ids')
+    .select('id, run_id, mu, sigma, elo_score, parent_variant_ids, weakest_criteria_ids')
     .contains('criteria_set_used', [criteriaId]);
   if (evalErr || !evaluatedVariants) return;
 
@@ -73,10 +73,14 @@ export async function computeCriteriaMetrics(
   // Frequency-as-weakest = focused / evaluated (within completed runs)
   const frequencyAsWeakest = focusedVariants.length / completedEvaluated.length;
 
-  // avg_elo_delta_when_focused: mean(child.elo - parent.elo) across focused variants
-  // Pull parent variant elo via parent_variant_id JOIN; chunked for safety.
+  // avg_elo_delta_when_focused: mean(child.elo - parent.elo) across focused variants.
+  // Pull parent variant elo via parent_variant_ids[0] (the canonical primary parent
+  // per Decision §20) JOIN; chunked for safety.
   const focusedParentIds = focusedVariants
-    .map((v) => v.parent_variant_id as string | null)
+    .map((v) => {
+      const ids = v.parent_variant_ids as string[] | null;
+      return ids && ids.length > 0 ? ids[0] : null;
+    })
     .filter((id): id is string => Boolean(id));
   const parentEloById = new Map<string, number>();
   for (let i = 0; i < focusedParentIds.length; i += 100) {
@@ -92,7 +96,8 @@ export async function computeCriteriaMetrics(
   }
   const deltas: number[] = [];
   for (const v of focusedVariants) {
-    const parentId = v.parent_variant_id as string | null;
+    const ids = v.parent_variant_ids as string[] | null;
+    const parentId = ids && ids.length > 0 ? ids[0] : null;
     if (!parentId) continue;
     const parentElo = parentEloById.get(parentId);
     if (parentElo === undefined) continue;

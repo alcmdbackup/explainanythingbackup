@@ -4,6 +4,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Variant } from '../../types';
 import { BudgetExceededError } from '../../types';
+import type { IterationAgentType } from '../../schemas';
 import type { Rating, ComparisonResult } from '../../shared/computeRatings';
 import { createRating, isConverged, DEFAULT_CONVERGENCE_UNCERTAINTY } from '../../shared/computeRatings';
 import type { EvolutionConfig, EvolutionResult, V2Match, IterationResult, IterationStopReason } from '../infra/types';
@@ -18,6 +19,8 @@ import {
   type TacticCandidate,
 } from '../../core/agents/reflectAndGenerateFromPreviousArticle';
 import { EvaluateCriteriaThenGenerateFromPreviousArticleAgent } from '../../core/agents/evaluateCriteriaThenGenerateFromPreviousArticle';
+import { SinglePassEvaluateCriteriaAndGenerateAgent } from '../../core/agents/singlePassEvaluateCriteriaAndGenerate';
+import { ProposerApproverCriteriaGenerateAgent } from '../../core/agents/proposerApproverCriteriaGenerate';
 import { getCriteriaForEvaluation, type EvolutionCriterionRow } from '../../../services/criteriaActions';
 import { SwissRankingAgent, type SwissRankingMatchEntry } from '../../core/agents/SwissRankingAgent';
 import { MergeRatingsAgent, type MergeMatchEntry } from '../../core/agents/MergeRatingsAgent';
@@ -92,7 +95,7 @@ function topKUncertainties(ratings: ReadonlyMap<string, Rating>, k: number): num
 
 function recordSnapshot(
   iteration: number,
-  iterationType: 'generate' | 'reflect_and_generate' | 'criteria_and_generate' | 'iterative_editing' | 'swiss',
+  iterationType: IterationAgentType,
   phase: 'start' | 'end',
   pool: ReadonlyArray<Variant>,
   ratings: ReadonlyMap<string, Rating>,
@@ -338,7 +341,7 @@ export async function evolveArticle(
       // sharing the same parallel-batch + top-up + merge dispatch shape. The only
       // difference is which agent class gets dispatched per call (decided inside
       // dispatchOneAgent below based on `reflectionEnabled`).
-      if (iterType === 'generate' || iterType === 'reflect_and_generate' || iterType === 'criteria_and_generate') {
+      if (iterType === 'generate' || iterType === 'reflect_and_generate' || iterType === 'criteria_and_generate' || iterType === 'single_pass_evaluate_criteria_and_generate' || iterType === 'proposer_approver_criteria_generate') {
         // ─── Generate / reflect-and-generate iteration ────────
         // Phase 7b: restructured to accumulate parallel + top-up match buffers, then
         // invoke MergeRatingsAgent ONCE at iteration end over the combined buffers.
@@ -381,7 +384,7 @@ export async function evolveArticle(
         // Phase 4: pre-fetch criteria rows ONCE per iteration when this is a
         // criteria_and_generate iteration. Same Map shared across all parallel agents.
         let evaluationCriteria: Map<string, EvolutionCriterionRow> = new Map();
-        if (iterCfg.agentType === 'criteria_and_generate' && iterCfg.criteriaIds && iterCfg.criteriaIds.length > 0) {
+        if ((iterCfg.agentType === 'criteria_and_generate' || iterCfg.agentType === 'single_pass_evaluate_criteria_and_generate' || iterCfg.agentType === 'proposer_approver_criteria_generate') && iterCfg.criteriaIds && iterCfg.criteriaIds.length > 0) {
           try {
             evaluationCriteria = await getCriteriaForEvaluation(db, iterCfg.criteriaIds, logger);
           } catch (err) {
@@ -400,7 +403,8 @@ export async function evolveArticle(
         // iteration-scoped reflectionEnabled/reflectionTopN values resolved above.
         const availBudget = iterTracker.getAvailableBudget();
         const maxComp = resolvedConfig.maxComparisonsPerVariant ?? 15;
-        const useCriteria = iterCfg.agentType === 'criteria_and_generate';
+        const useCriteria = iterCfg.agentType === 'criteria_and_generate' || iterCfg.agentType === 'single_pass_evaluate_criteria_and_generate' || iterCfg.agentType === 'proposer_approver_criteria_generate';
+        const useSinglePassCriteria = iterCfg.agentType === 'single_pass_evaluate_criteria_and_generate';
         const criteriaCount = iterCfg.criteriaIds?.length ?? 0;
         const weakestK = iterCfg.weakestK ?? 1;
         const estPerAgent = estimateAgentCost(
@@ -507,6 +511,66 @@ export async function evolveArticle(
           // — only the agent class and input differ.
           if (iterCfg.agentType === 'criteria_and_generate') {
             const wrapperAgent = new EvaluateCriteriaThenGenerateFromPreviousArticleAgent();
+            return wrapperAgent.run({
+              parentText: resolved.text,
+              parentVariantId: resolved.variantId,
+              criteria: Array.from(evaluationCriteria.values()),
+              criteriaIds: iterCfg.criteriaIds ?? [],
+              weakestK: iterCfg.weakestK ?? 1,
+              initialPool: initialPoolSnapshot,
+              initialRatings: initialRatingsSnapshot,
+              initialMatchCounts: initialMatchCountsSnapshot,
+              cache: comparisonCache,
+            }, ctxForAgent);
+          }
+          if (iterCfg.agentType === 'proposer_approver_criteria_generate') {
+            const proposerApproverEnabled = process.env.EVOLUTION_PROPOSER_APPROVER_CRITERIA_ENABLED !== 'false';
+            if (!proposerApproverEnabled) {
+              logger.warn('Propose/approve criteria agent disabled via env; iteration produces zero variants', {
+                phaseName: 'proposer_approver_kill_switch',
+                iteration,
+              });
+              // Reject the iteration cleanly — return null (no variant).
+              throw new Error('proposer_approver_criteria_generate disabled via EVOLUTION_PROPOSER_APPROVER_CRITERIA_ENABLED=false');
+            }
+            const wrapperAgent = new ProposerApproverCriteriaGenerateAgent();
+            return wrapperAgent.run({
+              parentText: resolved.text,
+              parentVariantId: resolved.variantId,
+              criteria: Array.from(evaluationCriteria.values()),
+              criteriaIds: iterCfg.criteriaIds ?? [],
+              weakestK: iterCfg.weakestK ?? 1,
+              lengthCapRatio: iterCfg.lengthCapRatio,
+              redundancyJaccardThreshold: iterCfg.redundancyJaccardThreshold,
+              includesMirrorApprover: iterCfg.includesMirrorApprover,
+              initialPool: initialPoolSnapshot,
+              initialRatings: initialRatingsSnapshot,
+              initialMatchCounts: initialMatchCountsSnapshot,
+              cache: comparisonCache,
+            }, ctxForAgent);
+          }
+          if (iterCfg.agentType === 'single_pass_evaluate_criteria_and_generate') {
+            // Honor kill-switch: env=false falls back to legacy wrapper.
+            const singlePassEnabled = process.env.EVOLUTION_SINGLE_PASS_CRITERIA_ENABLED !== 'false';
+            if (!singlePassEnabled) {
+              logger.warn('Single-pass criteria agent disabled via env; falling back to legacy criteria_and_generate', {
+                phaseName: 'single_pass_kill_switch',
+                iteration,
+              });
+              const fallback = new EvaluateCriteriaThenGenerateFromPreviousArticleAgent();
+              return fallback.run({
+                parentText: resolved.text,
+                parentVariantId: resolved.variantId,
+                criteria: Array.from(evaluationCriteria.values()),
+                criteriaIds: iterCfg.criteriaIds ?? [],
+                weakestK: iterCfg.weakestK ?? 1,
+                initialPool: initialPoolSnapshot,
+                initialRatings: initialRatingsSnapshot,
+                initialMatchCounts: initialMatchCountsSnapshot,
+                cache: comparisonCache,
+              }, ctxForAgent);
+            }
+            const wrapperAgent = new SinglePassEvaluateCriteriaAndGenerateAgent();
             return wrapperAgent.run({
               parentText: resolved.text,
               parentVariantId: resolved.variantId,
@@ -783,7 +847,7 @@ export async function evolveArticle(
           phaseName: 'generation',
         });
 
-      } else if (iterType === 'iterative_editing') {
+      } else if (iterType === 'iterative_editing' || iterType === 'iterative_editing_rewrite') {
         // ─── Iterative editing iteration ──────────────────────────
         // Per-parent: dispatch one IterativeEditingAgent per eligible top-Elo parent.
         // Each invocation runs up to maxCycles propose-review-apply cycles in-memory;
@@ -798,7 +862,13 @@ export async function evolveArticle(
           });
           iterStopReason = 'iteration_complete';
         } else {
+          // Mode B (iterative_editing_rewrite) rollback gate: when the env flag
+          // is set, fall Mode B back to Mode A at runtime. Read per-invocation
+          // (no caching) so the flag flip takes effect on the next invocation.
+          const disableRewrite = process.env.DISABLE_ITERATIVE_EDITING_REWRITE === 'true';
+          const useRewriteMode = iterType === 'iterative_editing_rewrite' && !disableRewrite;
           const { IterativeEditingAgent } = await import('../../core/agents/editing/IterativeEditingAgent');
+          const { IterativeEditingRewriteAgent } = await import('../../core/agents/editing/IterativeEditingRewriteAgent');
           const { resolveEditingDispatchRuntime, resolveEditingRankEnabled } = await import('./editingDispatch');
 
           // D4 — runtime gate for the post-cycle ranking step. When 'false' the
@@ -830,7 +900,9 @@ export async function evolveArticle(
               ? remainingBudget / dispatchCount
               : 0;
 
-            const editingAgent = new IterativeEditingAgent();
+            const editingAgent = useRewriteMode
+              ? new IterativeEditingRewriteAgent()
+              : new IterativeEditingAgent();
             const newVariants: Variant[] = [];
             // Phase 4.2 — match buffers populated by per-agent ranking output (D7:
             // one final-variant ranking per invocation). Empty when editingRankEnabled=false
@@ -879,10 +951,18 @@ export async function evolveArticle(
                   finalVariant: Variant | null;
                   surfaced: boolean;
                   matches?: ReadonlyArray<V2Match>;
+                  discardReason?: { localElo: number; localTop15Cutoff: number };
                 };
                 if (r.finalVariant !== null && r.surfaced) {
                   newVariants.push(r.finalVariant);
                   iterVariantsCreated++;
+                } else if (r.finalVariant !== null && !r.surfaced) {
+                  // Mirror generate branch (lines 660-665): collect non-surfaced
+                  // editing variants so the persistence layer can write them as
+                  // persisted=false rows. Without this, ranked-and-discarded
+                  // editing variants vanish and survivorship bias creeps into
+                  // parent→child Elo metrics.
+                  discardedVariants.push(r.finalVariant);
                 }
                 // Phase 4.2 — collect ranking matches into the merge buffer
                 // (mirrors generate-branch line 561). Empty array when ranking skipped.
@@ -897,10 +977,9 @@ export async function evolveArticle(
               }
             }
 
-            // Merge — pass iterationType: 'iterative_editing' per Decisions §7.
-            // editingMatchBuffers is now populated when ranking ran; empty when skipped
-            // (matches the pre-ranking-project behavior so MergeRatingsAgent still
-            // inserts new variants with default Elo).
+            // Merge — pass the actual iterType so Mode A vs Mode B remain
+            // distinguishable in execution_detail (analytics/run-detail key
+            // off iterationType).
             if (newVariants.length > 0) {
               const mergeExecOrder = ++executionOrder;
               const mergeCtx: AgentContext = {
@@ -914,7 +993,7 @@ export async function evolveArticle(
               };
               const mergeAgent = new MergeRatingsAgent();
               await mergeAgent.run({
-                iterationType: 'iterative_editing',
+                iterationType: iterType,
                 matchBuffers: editingMatchBuffers,
                 newVariants,
                 pool, ratings, matchCounts, matchHistory: allMatches,
@@ -927,7 +1006,7 @@ export async function evolveArticle(
         const eloValues = topKEloValues(ratings, topKEditing);
         eloHistory.push(eloValues);
 
-        iterationSnapshots.push(recordSnapshot(iteration, 'iterative_editing', 'end', pool, ratings, matchCounts, {
+        iterationSnapshots.push(recordSnapshot(iteration, iterType, 'end', pool, ratings, matchCounts, {
           stopReason: iterStopReason,
           budgetAllocated: iterBudgetUsd,
           budgetSpent: iterTracker.getTotalSpent(),
@@ -940,6 +1019,142 @@ export async function evolveArticle(
           budgetSpent: iterTracker.getTotalSpent(),
           topEloValues: eloValues.slice(0, 5),
           phaseName: 'editing',
+        });
+
+      } else if (iterType === 'debate_and_generate') {
+        // ─── Debate iteration ─────────────────────────────────
+        // bring_back_debate_agent_20260506 Phase 3.2 — single materialized variant per
+        // invocation (Decision §15). Top-2 selected from iteration-start pool snapshot
+        // by Elo desc with deterministic id-tiebreak (Decision §12 + §16). Kill-switch
+        // EVOLUTION_DEBATE_ENABLED falls through to no-op when 'false' (Decision §11).
+        const { resolveDebateDispatchRuntime, resolveDebateEnabled } =
+          await import('./debateDispatch');
+        const { DebateThenGenerateFromPreviousArticleAgent } =
+          await import('../../core/agents/debate/DebateAgent');
+
+        const debateEnabled = resolveDebateEnabled(process.env);
+        if (!debateEnabled) {
+          logger.info('Debate iteration skipped — EVOLUTION_DEBATE_ENABLED=false', {
+            iteration, iterIdx, phaseName: 'debate',
+          });
+          iterStopReason = 'iteration_complete';
+        } else {
+          // Top-2 selection from iteration-start pool snapshot.
+          const arenaVariantIds = new Set<string>(
+            pool.filter((v) => v.fromArena === true).map((v) => v.id),
+          );
+          const dispatchResult = resolveDebateDispatchRuntime({
+            pool,
+            arenaVariantIds,
+            iterationStartRatings: ratings,
+          });
+          if (!dispatchResult) {
+            // Pool too small — gate failure; iteration ends with no new variant.
+            logger.warn('Debate iteration gate failed — fewer than 2 eligible non-arena rated variants in pool', {
+              iteration, iterIdx, phaseName: 'debate', poolSize: pool.length,
+            });
+            iterStopReason = 'iteration_complete';
+          } else {
+            const { variantA, variantB } = dispatchResult;
+            const debateExecOrder = ++executionOrder;
+            const debateCtx: AgentContext = {
+              db, runId, iteration,
+              executionOrder: debateExecOrder,
+              invocationId: '',
+              randomSeed: deriveSeed(randomSeed, `iter${iteration}`, `debate${debateExecOrder}`),
+              logger, costTracker: iterTracker, config: resolvedConfig, promptId: options?.promptId ?? null,
+              experimentId: options?.experimentId,
+              strategyId: options?.strategyId,
+              rawProvider: llmProvider,
+              defaultModel: resolvedConfig.generationModel,
+              generationTemperature: resolvedConfig.generationTemperature,
+            };
+            const debateAgent = new DebateThenGenerateFromPreviousArticleAgent();
+            try {
+              const debateResult = await debateAgent.run({
+                judgeModel: resolvedConfig.judgeModel,
+                strategyDebateJudgeReasoningEffort: (resolvedConfig as { debateJudgeReasoningEffort?: 'none' | 'low' | 'medium' | 'high' }).debateJudgeReasoningEffort,
+                iterDebateJudgeReasoningEffort: (iterCfg as { debateJudgeReasoningEffort?: 'none' | 'low' | 'medium' | 'high' }).debateJudgeReasoningEffort,
+                variantA,
+                variantB,
+                initialPool: pool,
+                initialRatings: ratings,
+                initialMatchCounts: matchCounts,
+                cache: comparisonCache,
+                db,
+              }, debateCtx);
+
+              const debateOutput = debateResult.result;
+              if (debateOutput && debateOutput.variant && debateOutput.surfaced) {
+                // Single materialized variant per Decision §15. Merge ratings so
+                // synthesis ranking matches reach global state before next iteration.
+                const newVariants: Variant[] = [debateOutput.variant];
+                iterVariantsCreated++;
+
+                const debateMatchBuffers: MergeMatchEntry[][] = [];
+                if (debateOutput.matches && debateOutput.matches.length > 0) {
+                  debateMatchBuffers.push(
+                    debateOutput.matches.map((m) => ({ match: m, idA: m.winnerId, idB: m.loserId })),
+                  );
+                }
+
+                const mergeExecOrder = ++executionOrder;
+                const mergeCtx: AgentContext = {
+                  db, runId, iteration,
+                  executionOrder: mergeExecOrder,
+                  invocationId: '',
+                  randomSeed: deriveSeed(randomSeed, `iter${iteration}`, `merge${mergeExecOrder}`),
+                  logger, costTracker: iterTracker, config: resolvedConfig, promptId: options?.promptId ?? null,
+                  experimentId: options?.experimentId,
+                  strategyId: options?.strategyId,
+                };
+                const mergeAgent = new MergeRatingsAgent();
+                const mergeResult = await mergeAgent.run({
+                  iterationType: 'debate_and_generate',
+                  matchBuffers: debateMatchBuffers,
+                  newVariants,
+                  pool, ratings, matchCounts, matchHistory: allMatches,
+                }, mergeCtx);
+
+                if (mergeResult.budgetExceeded) iterStopReason = 'iteration_budget_exceeded';
+              }
+
+              if (debateResult.budgetExceeded) iterStopReason = 'iteration_budget_exceeded';
+            } catch (err) {
+              if (err instanceof IterationBudgetExceededError) {
+                iterStopReason = 'iteration_budget_exceeded';
+              } else {
+                // DebateLLMError, DebateParseError, or unexpected — log + continue.
+                // Partial-detail-on-throw inside DebateAgent has already persisted
+                // forensic context onto the invocation row.
+                logger.warn('Debate iteration failed — partial detail persisted, iteration continues', {
+                  iteration, iterIdx, phaseName: 'debate',
+                  error: err instanceof Error ? err.message : String(err),
+                });
+                iterStopReason = 'iteration_complete';
+              }
+            }
+          }
+        }
+
+        const topKDebate = resolvedConfig.tournamentTopK ?? 5;
+        const eloValues = topKEloValues(ratings, topKDebate);
+        eloHistory.push(eloValues);
+        uncertaintyHistory.push(topKUncertainties(ratings, topKDebate));
+
+        iterationSnapshots.push(recordSnapshot(iteration, 'debate_and_generate', 'end', pool, ratings, matchCounts, {
+          stopReason: iterStopReason,
+          budgetAllocated: iterBudgetUsd,
+          budgetSpent: iterTracker.getTotalSpent(),
+        }));
+
+        logger.info('Debate iteration complete', {
+          iteration, iterIdx,
+          variantsCreated: iterVariantsCreated,
+          iterStopReason,
+          budgetSpent: iterTracker.getTotalSpent(),
+          topEloValues: eloValues.slice(0, 5),
+          phaseName: 'debate',
         });
 
       } else if (iterType === 'swiss') {

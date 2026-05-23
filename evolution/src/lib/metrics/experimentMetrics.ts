@@ -417,7 +417,7 @@ async function computeEloAttributionMetrics(
   opts?: { strategyId?: string; experimentId?: string },
 ): Promise<void> {
   type AttrVariantRow = {
-    id: string; mu: number | null; elo_score: number; parent_variant_id: string | null;
+    id: string; mu: number | null; elo_score: number; parent_variant_ids: string[];
     agent_invocation_id: string | null; persisted: boolean | null;
     // B052: agent_name is used as the attribution group key when agent_invocation_id is
     // NULL (historic + seed variants) so these rows still contribute to per-tactic
@@ -430,16 +430,22 @@ async function computeEloAttributionMetrics(
   // them ever reaching it. We now pull all variants for the run and let the in-memory
   // routing decide which contribute to which attribution group; rows without a parent
   // and without an agent_invocation_id ALSO without an agent_name are filtered later.
+  // PR 2: parent_variant_ids array column replaces the legacy single-FK. Attribution uses
+  // parent_variant_ids[0] (the canonical primary parent per Decision §20).
   const { data: variantsData } = await supabase
     .from('evolution_variants')
-    .select('id, mu, elo_score, parent_variant_id, agent_invocation_id, persisted, agent_name')
+    .select('id, mu, elo_score, parent_variant_ids, agent_invocation_id, persisted, agent_name')
     .eq('run_id', runId);
   const variants = (variantsData ?? []) as unknown as AttrVariantRow[];
 
   if (variants.length === 0) return;
 
   const invocationIds = [...new Set(variants.map(v => v.agent_invocation_id).filter((x): x is string => !!x))];
-  const parentIds = [...new Set(variants.map(v => v.parent_variant_id).filter((x): x is string => !!x))];
+  const parentIds = [...new Set(
+    variants
+      .map(v => (v.parent_variant_ids && v.parent_variant_ids.length > 0 ? v.parent_variant_ids[0] : null))
+      .filter((x): x is string => !!x),
+  )];
 
   type AttrInvocationRow = {
     id: string; agent_name: string; execution_detail: Record<string, unknown> | null;
@@ -503,7 +509,8 @@ async function computeEloAttributionMetrics(
     }
     if (!agentName || !dim) continue;
 
-    const parent = v.parent_variant_id ? parentMap.get(v.parent_variant_id) : undefined;
+    const primaryParentId = v.parent_variant_ids && v.parent_variant_ids.length > 0 ? v.parent_variant_ids[0] : null;
+    const parent = primaryParentId ? parentMap.get(primaryParentId) : undefined;
     if (!parent) continue;
     const childElo = v.mu ?? v.elo_score;
     const parentElo = parent.mu ?? parent.elo_score;

@@ -29,6 +29,18 @@ For how costs fit into the pipeline lifecycle, see [Architecture](./architecture
 > `upsert_metric_max` RPC is available in the local DB. CI applies migrations to staging
 > automatically via `.github/workflows/ci.yml` `deploy-migrations` job.
 
+> **Debate wrapper cost stack.** `DebateThenGenerateFromPreviousArticleAgent` (Shape A:
+> `agentType: 'debate_and_generate'` is a top-level enum value) makes 2 LLM calls per
+> invocation under Option C (Decision §17): ONE combined "analyze + judge" call, plus
+> ONE synthesis call delegated to inner GFPA. Both calls map to the SINGLE `debate_cost`
+> metric per Decision §6 — the combined call uses AgentName `'debate_judge'` and the
+> synthesis call uses `'debate_synthesis'` (NOT `'generation'` — wired via the I4
+> LLM-client proxy that rewrites `'generation' → 'debate_synthesis'` at the inner-GFPA
+> boundary). Total per-invocation cost: `debate_judge + debate_synthesis + ranking`
+> (ranking from inner GFPA's Swiss-style binary-search keeps its own `'ranking'` AgentName
+> and flows to `ranking_cost`). Per-invocation budget cap $0.40 with 0.9× pre-synthesis
+> abort threshold per Decision §8.
+>
 > **Reflection wrapper cost stack.** `ReflectAndGenerateFromPreviousArticleAgent`
 > (Shape A: `agentType: 'reflect_and_generate'` is a top-level enum value alongside
 > `'generate'` and `'swiss'`) makes ONE reflection LLM call up front to pick a tactic,
@@ -255,6 +267,26 @@ The `EvaluateCriteriaThenGenerateFromPreviousArticleAgent` adds one combined LLM
 - **Output** — per-criterion score line (`SCORE_LINE_OUTPUT_CHARS`) for ALL criteria + `weakestK × SUGGESTION_BLOCK_OUTPUT_CHARS`. `OUTPUT_TOKEN_ESTIMATES.evaluate_and_suggest = 2300` covers this cap.
 
 `estimateAgentCost(useCriteria, criteriaCount, weakestK)` extends the dispatch-plan projector — when `useCriteria` is true, it adds the evaluate-and-suggest cost to the GFPA cost rather than replacing it. `EstPerAgentValue` carries an `evaluation` field alongside `generation` and `ranking` so the projector and admin "Cost Estimates" tab can break out the new phase. The calibration ladder (`evolution/src/lib/pipeline/infra/createEvolutionLLMClient.ts`) and `costCalibrationLoader.ts` phase enum both include `'evaluate_and_suggest'` so DB-backed calibration values can override the hardcoded constants once enough samples exist.
+
+### Proposer-Approver Criteria Cost (updated_criteria_agent_20260505)
+
+The `ProposerApproverCriteriaGenerateAgent` is the heaviest criteria-driven dispatch — **5 cost layers per parent variant**:
+
+| Layer | AgentName label | Bucket metric |
+|---|---|---|
+| Eval + suggest | `evaluate_and_suggest` | `evaluation_cost` |
+| Proposer | `criteria_proposer` | `proposer_approver_criteria_cost` |
+| Forward approver | `criteria_forward_approver` | `proposer_approver_criteria_cost` |
+| Mirror approver (optional, default on) | `criteria_mirror_approver` | `proposer_approver_criteria_cost` |
+| Post-cycle ranking | `ranking` | `ranking_cost` |
+
+The propose / forward / mirror calls all bucket to one **umbrella metric** (`proposer_approver_criteria_cost`) so the run-level cost surfaces as a single column on the leaderboard. Per-purpose split lives in `execution_detail.cycles[0].{proposeCostUsd, approveForwardCostUsd, approveMirrorCostUsd}` for drill-down.
+
+**Cost projection** (`estimateProposerApproverCriteriaCost`): 5-layer projection with a 1.3× upper-bound margin. **Intentional projection drift on mirror cost**: the projector assumes worst-case (every forward-accepted group gets a mirror call). The runtime short-circuit (`mirrorDecisions[i] = null` for forward-rejected groups) skips those mirror calls, making actual mirror cost a function of the forward rejection rate. Estimator over-projection is the expected shape; the Cost Estimates tab surfaces this as a positive projected-vs-actual delta. We do NOT try to predict forward rejection at projection time — it varies per article + criteria set.
+
+**Strategy/experiment-level rollups**: `total_proposer_approver_criteria_cost` (sum) and `avg_proposer_approver_criteria_cost_per_run` (avg). Same shape as the `iterative_edit_*` propagation pattern.
+
+**Single-pass criteria** (`SinglePassEvaluateCriteriaAndGenerateAgent`) cost stack is identical to the legacy criteria wrapper: one `evaluate_and_suggest` call + GFPA generation + ranking. The new 3 guardrail directives in the customPrompt add ~300 chars of overhead, captured by `estimateGenerationCost(seedArticleChars + 300, ...)` in the projector. Negligible cost difference (~$0.0001) but worth being right.
 
 ### Budget-Aware Dispatch
 

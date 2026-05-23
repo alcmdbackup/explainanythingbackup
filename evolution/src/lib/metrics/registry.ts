@@ -23,6 +23,11 @@ import {
   computeInvocationEloDeltaVsParent,
 } from './computations/finalizationInvocation';
 import {
+  computeMedianSentenceVerbatimRatio,
+  computeP25SentenceVerbatimRatio,
+  computeMinSentenceVerbatimRatio,
+} from './computations/sentenceOverlapMetrics';
+import {
   aggregateSum, aggregateAvg, aggregateMax, aggregateMin, aggregateCount,
   aggregateBootstrapMean,
 } from './computations/propagation';
@@ -70,6 +75,19 @@ const SHARED_PROPAGATION_DEFS: EntityMetricRegistry['atPropagation'] = [
     sourceMetric: 'evaluation_cost', sourceEntity: 'run', aggregate: aggregateSum, aggregationMethod: 'sum' },
   { name: 'avg_evaluation_cost_per_run', label: 'Avg Evaluation Cost/Run', category: 'cost', formatter: 'cost',
     sourceMetric: 'evaluation_cost', sourceEntity: 'run', aggregate: aggregateAvg, aggregationMethod: 'avg' },
+  // Propose/approve criteria cost — umbrella metric (propose + forward + mirror calls all bucket here).
+  { name: 'total_proposer_approver_criteria_cost', label: 'Total P/A Criteria Cost', category: 'cost', formatter: 'cost', listView: true,
+    sourceMetric: 'proposer_approver_criteria_cost', sourceEntity: 'run', aggregate: aggregateSum, aggregationMethod: 'sum' },
+  { name: 'avg_proposer_approver_criteria_cost_per_run', label: 'Avg P/A Criteria Cost/Run', category: 'cost', formatter: 'cost',
+    sourceMetric: 'proposer_approver_criteria_cost', sourceEntity: 'run', aggregate: aggregateAvg, aggregationMethod: 'avg' },
+  // Sentence-overlap quality propagation — bootstrap_mean for proper CIs (consistent with avg_final_elo).
+  { name: 'avg_median_sentence_verbatim_ratio', label: 'Avg Median Sentence Overlap', category: 'rating', formatter: 'percent', listView: true,
+    sourceMetric: 'median_sentence_verbatim_ratio', sourceEntity: 'run', aggregate: aggregateBootstrapMean, aggregationMethod: 'bootstrap_mean' },
+  // bring_back_debate_agent_20260506 Phase 1.5 — debate cost rollups (per Decision §6).
+  { name: 'total_debate_cost', label: 'Total Debate Cost', category: 'cost', formatter: 'cost', listView: true,
+    sourceMetric: 'debate_cost', sourceEntity: 'run', aggregate: aggregateSum, aggregationMethod: 'sum' },
+  { name: 'avg_debate_cost_per_run', label: 'Avg Debate Cost/Run', category: 'cost', formatter: 'cost',
+    sourceMetric: 'debate_cost', sourceEntity: 'run', aggregate: aggregateAvg, aggregationMethod: 'avg' },
   // Rating — from run.winner_elo
   { name: 'avg_final_elo', label: 'Avg Winner Elo', category: 'rating', formatter: 'elo', listView: true,
     sourceMetric: 'winner_elo', sourceEntity: 'run', aggregate: aggregateBootstrapMean, aggregationMethod: 'bootstrap_mean' },
@@ -157,8 +175,21 @@ export const METRIC_REGISTRY: Record<EntityType, EntityMetricRegistry> = {
         compute: () => 0 },
       { name: 'evaluation_cost', label: 'Evaluation Cost', category: 'cost', formatter: 'cost',
         compute: () => 0 },
+      { name: 'debate_cost', label: 'Debate Cost', category: 'cost', formatter: 'cost',
+        compute: () => 0 },
       { name: 'seed_cost', label: 'Seed Cost', category: 'cost', formatter: 'cost',
         listView: true, compute: () => 0 },
+      // Propose/approve criteria umbrella cost — propose + forward + mirror calls all bucket here.
+      // Per-purpose split lives in execution_detail.cycles[0]. Written live by createLLMClient.
+      { name: 'proposer_approver_criteria_cost', label: 'Proposer/Approver Criteria Cost', category: 'cost', formatter: 'cost',
+        listView: true, compute: () => 0 },
+      // Operational health metrics for proposer/approver agent (written live or at finalization).
+      { name: 'proposer_approver_drift_rate', label: 'P/A Drift Rate', category: 'cost', formatter: 'percent',
+        compute: () => 0 },
+      { name: 'proposer_approver_accept_rate', label: 'P/A Forward Accept Rate', category: 'cost', formatter: 'percent',
+        compute: () => 0 },
+      { name: 'proposer_approver_mirror_agreement_rate', label: 'P/A Mirror Agreement Rate', category: 'cost', formatter: 'percent',
+        compute: () => 0 },
     ],
     atFinalization: [
       { name: 'winner_elo', label: 'Winner Elo', category: 'rating', formatter: 'elo',
@@ -199,6 +230,14 @@ export const METRIC_REGISTRY: Record<EntityType, EntityMetricRegistry> = {
         compute: computeMedianSequentialGfsaDurationMs },
       { name: 'avg_sequential_gfsa_duration_ms', label: 'Avg Seq GFSA Duration (ms)', category: 'count', formatter: 'integer',
         compute: computeAvgSequentialGfsaDurationMs },
+      // Sentence-overlap quality distribution per run. Universal — all variant-producing
+      // agents contribute. NULL ratios (legacy / helper-failure) excluded from percentile.
+      { name: 'median_sentence_verbatim_ratio', label: 'Median Sentence Overlap', category: 'rating', formatter: 'percent',
+        listView: true, compute: computeMedianSentenceVerbatimRatio },
+      { name: 'p25_sentence_verbatim_ratio', label: 'P25 Sentence Overlap (rewrite-disaster signal)', category: 'rating', formatter: 'percent',
+        compute: computeP25SentenceVerbatimRatio },
+      { name: 'min_sentence_verbatim_ratio', label: 'Min Sentence Overlap', category: 'rating', formatter: 'percent',
+        compute: computeMinSentenceVerbatimRatio },
     ],
     atPropagation: [],
   },
@@ -223,6 +262,18 @@ export const METRIC_REGISTRY: Record<EntityType, EntityMetricRegistry> = {
       { name: 'elo_delta_vs_parent', label: 'ELO Δ vs. Parent', category: 'rating', formatter: 'elo',
         description: 'Produced variant ELO minus parent ELO (live — stale-cascade fires on parent rating changes)',
         compute: (ctx) => computeInvocationEloDeltaVsParent(ctx, ctx.currentInvocationId ?? null) },
+      // ProposerApproverCriteriaGenerateAgent invocation-level metrics — computed from
+      // execution_detail.cycles[0]. Surface on the propose/approve invocation Metrics tab.
+      // For non-propose/approve invocations the compute returns null (filtered out by registry).
+      { name: 'invocation_mirror_agreement_rate', label: 'Mirror Agreement Rate', category: 'rating', formatter: 'percent',
+        description: 'Per-invocation mirror agreement rate = appliedGroups / approverGroups (propose/approve agent only)',
+        compute: () => null },
+      { name: 'invocation_forward_accept_rate', label: 'Forward Accept Rate', category: 'rating', formatter: 'percent',
+        description: 'Per-invocation forward approver accept rate (propose/approve agent only)',
+        compute: () => null },
+      { name: 'invocation_mirror_filter_rate', label: 'Mirror Filter Rate', category: 'rating', formatter: 'percent',
+        description: 'Per-invocation fraction of forward-accepted edits that mirror dropped (propose/approve agent only)',
+        compute: () => null },
     ],
     atPropagation: [],
   },

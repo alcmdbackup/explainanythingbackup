@@ -18,6 +18,10 @@ import {
   computeParallelDispatched, computeSequentialDispatched,
   computeMedianSequentialGfsaDurationMs, computeAvgSequentialGfsaDurationMs,
 } from '../../metrics/computations/finalization';
+import {
+  computeMedianSentenceVerbatimRatio, computeP25SentenceVerbatimRatio,
+  computeMinSentenceVerbatimRatio,
+} from '../../metrics/computations/sentenceOverlapMetrics';
 
 export class RunEntity extends Entity<EvolutionRunFullDb> {
   readonly type: EntityType = 'run';
@@ -53,7 +57,13 @@ export class RunEntity extends Entity<EvolutionRunFullDb> {
       { ...METRIC_CATALOG.iterative_edit_recovery_success_rate, compute: () => 0 },
       { ...METRIC_CATALOG.iterative_edit_accept_rate, compute: () => 0 },
       { ...METRIC_CATALOG.evaluation_cost, compute: () => 0 },
+      { ...METRIC_CATALOG.debate_cost, compute: () => 0 },
       { ...METRIC_CATALOG.seed_cost, compute: () => 0 },
+      // Proposer/Approver criteria agent (updated_criteria_agent_20260505)
+      { ...METRIC_CATALOG.proposer_approver_criteria_cost, compute: () => 0 },
+      { ...METRIC_CATALOG.proposer_approver_drift_rate, compute: () => 0 },
+      { ...METRIC_CATALOG.proposer_approver_accept_rate, compute: () => 0 },
+      { ...METRIC_CATALOG.proposer_approver_mirror_agreement_rate, compute: () => 0 },
     ],
     atFinalization: [
       { ...METRIC_CATALOG.winner_elo, compute: computeWinnerElo },
@@ -75,6 +85,10 @@ export class RunEntity extends Entity<EvolutionRunFullDb> {
       { ...METRIC_CATALOG.sequential_dispatched, compute: computeSequentialDispatched },
       { ...METRIC_CATALOG.median_sequential_gfsa_duration_ms, compute: computeMedianSequentialGfsaDurationMs },
       { ...METRIC_CATALOG.avg_sequential_gfsa_duration_ms, compute: computeAvgSequentialGfsaDurationMs },
+      // Sentence-overlap distribution (universal, all variant-producing agents)
+      { ...METRIC_CATALOG.median_sentence_verbatim_ratio, compute: computeMedianSentenceVerbatimRatio },
+      { ...METRIC_CATALOG.p25_sentence_verbatim_ratio, compute: computeP25SentenceVerbatimRatio },
+      { ...METRIC_CATALOG.min_sentence_verbatim_ratio, compute: computeMinSentenceVerbatimRatio },
     ],
     atPropagation: [],
   };

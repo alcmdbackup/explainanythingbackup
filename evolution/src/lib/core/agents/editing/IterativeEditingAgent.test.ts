@@ -74,6 +74,45 @@ describe('IterativeEditingAgent', () => {
     expect(result.result.surfaced).toBe(true);
   });
 
+  // Regression guard for the persistence bug: editing's finalVariant used to be
+  // built via `{...input.parent, text, parentIds}` spread, which inherited
+  // input.parent.id (collision with parent on upsert) and input.parent.fromArena
+  // (silently filtered out by persistRunResults). The fix is to use the
+  // createVariant() factory with explicit tactic + agentInvocationId.
+  it('finalVariant has its own UUID, the agent name as tactic, and the editing invocation as agentInvocationId', async () => {
+    const source = 'Hello world.';
+    const proposedMarkup = 'Hello {~~ [#1] world ~> Earth ~~}.';
+    const approverResponse = JSON.stringify({ groupNumber: 1, decision: 'accept', reason: 'better' });
+    const llm = makeMockLlm([
+      { label: 'iterative_edit_propose', response: proposedMarkup },
+      { label: 'iterative_edit_review', response: approverResponse },
+      { label: 'iterative_edit_propose', response: 'Hello Earth.' },
+    ]);
+    const agent = new IterativeEditingAgent();
+    const ctx = makeCtx({ llm });
+    const parent = variant('parent-uuid-aaa', source);
+    const result = await agent.execute(
+      { parent, perInvocationBudgetUsd: 1.0, llm } as unknown as Parameters<typeof agent.execute>[0],
+      ctx,
+    );
+    expect(result.result.finalVariant).not.toBeNull();
+    const fv = result.result.finalVariant!;
+    // Fresh UUID: NOT the parent's id (would have caused upsert collision).
+    expect(fv.id).not.toBe(parent.id);
+    expect(fv.id.length).toBe(36); // UUID format
+    // tactic must come from the agent's own name, not be inherited from parent.
+    expect(fv.tactic).toBe('iterative_editing');
+    // agentInvocationId must thread back to the editing invocation.
+    expect(fv.agentInvocationId).toBe(ctx.invocationId);
+    // parentIds[0] is the original input parent.
+    expect(fv.parentIds).toEqual([parent.id]);
+    // fromArena must NOT be inherited (would have caused persistRunResults to
+    // silently filter the variant out before the DB upsert).
+    expect(fv.fromArena).toBeFalsy();
+    // iterationBorn reflects the editing iteration, not the parent's birth iteration.
+    expect(fv.iterationBorn).toBe(ctx.iteration);
+  });
+
   it('emits no final variant when all edits are rejected', async () => {
     const source = 'Hello world.';
     const proposedMarkup = 'Hello {~~ [#1] world ~> Earth ~~}.';
@@ -109,7 +148,15 @@ describe('IterativeEditingAgent', () => {
         { parent: variant('p1', source), perInvocationBudgetUsd: 1.0, llm } as unknown as Parameters<typeof agent.execute>[0],
         makeCtx({ llm }),
       );
-      expect(['proposer_drift_major', 'proposer_drift_intentional', 'proposer_drift_unrecoverable']).toContain(result.detail.stopReason);
+      // Phase 2: pre-flight structural rejection (length divergence >10% AND <3 groups)
+      // intercepts free-form rewrites before the drift-recovery LLM call.
+      // "Hello world." → "Hello darling world." matches that shape.
+      expect([
+        'structural_rewrite',
+        'proposer_drift_major',
+        'proposer_drift_intentional',
+        'proposer_drift_unrecoverable',
+      ]).toContain(result.detail.stopReason);
       expect(result.result.finalVariant).toBeNull();
     } finally {
       if (original === undefined) delete process.env.EVOLUTION_DRIFT_RECOVERY_ENABLED;
@@ -190,6 +237,34 @@ describe('IterativeEditingAgent', () => {
     expect(result.detail.stopReason).toBe('parse_failed');
     expect(result.detail.errorMessage).toMatch(/CriticMarkup/);
     expect(result.result.surfaced).toBe(false);
+  });
+
+  // Phase 2: pre-flight structural rejection
+  it('Phase 2: pre-flight structural_rewrite skips drift-recovery LLM when rewrite is free-form', async () => {
+    // Long source, very short proposer output (no markup) — recovered length ≪ source.
+    const source = 'A wide article. With many words. And several sentences. To exceed the threshold.';
+    // Proposer ignores the markup contract and emits a paraphrase only:
+    const driftedRewrite = 'Short rewrite.';
+    const llm = makeMockLlm([
+      { label: 'iterative_edit_propose', response: driftedRewrite },
+    ]);
+    // Provide only the proposer call — no recovery LLM queued. If the agent
+    // tries to call recovery, the mock would error. So passing here proves the
+    // pre-flight gate fired and skipped the recovery call.
+    const original = process.env.EVOLUTION_DRIFT_RECOVERY_ENABLED;
+    process.env.EVOLUTION_DRIFT_RECOVERY_ENABLED = 'true';
+    try {
+      const agent = new IterativeEditingAgent();
+      const result = await agent.execute(
+        { parent: variant('p1', source), perInvocationBudgetUsd: 1.0, llm } as unknown as Parameters<typeof agent.execute>[0],
+        makeCtx({ llm }),
+      );
+      expect(result.detail.stopReason).toBe('structural_rewrite');
+      expect(result.result.finalVariant).toBeNull();
+    } finally {
+      if (original === undefined) delete process.env.EVOLUTION_DRIFT_RECOVERY_ENABLED;
+      else process.env.EVOLUTION_DRIFT_RECOVERY_ENABLED = original;
+    }
   });
 
   it('per Decisions §14: final variant.parentIds points to the ORIGINAL input parent (not cycle-N-1 intermediate)', async () => {

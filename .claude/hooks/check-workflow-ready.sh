@@ -10,9 +10,12 @@ CWD=$(echo "$input" | jq -r '.cwd // empty')
 TOOL_NAME=$(echo "$input" | jq -r '.tool_name // empty')
 FILE_PATH=$(echo "$input" | jq -r '.tool_input.file_path // empty')
 
-# Change to project directory for git commands
-if [ -n "$CWD" ]; then
-  cd "$CWD" || exit 0
+# Change to project directory for git commands.
+# Prefer CLAUDE_PROJECT_DIR (set by Claude Code, always project root) over stdin cwd
+# (which mirrors the assistant's shell cwd and may be a subdirectory like evolution/).
+TARGET_DIR="${CLAUDE_PROJECT_DIR:-$CWD}"
+if [ -n "$TARGET_DIR" ]; then
+  cd "$TARGET_DIR" || exit 0
 fi
 
 # --- Bypass Checks ---
@@ -240,6 +243,9 @@ fi
 
 is_frontend_file() {
   local path="$1"
+  # Exclude Claude Code agent hook scripts (path contains .claude/hooks/) — these are
+  # bash scripts, not React hooks; otherwise the */hooks/* pattern below misclassifies them.
+  [[ "$path" == *".claude/hooks/"* ]] && return 1
   # Component files
   [[ "$path" == *"/components/"* ]] && return 0
   # App pages (TSX files in app directory)

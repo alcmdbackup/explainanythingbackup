@@ -428,6 +428,16 @@ Operational levers that disable new behavior without requiring a code revert. Se
 | `EVOLUTION_EDITING_RECOVERY_SUCCESS_RATE_ALERT_THRESHOLD` | `'0.70'` | Threshold for `iterative_edit_recovery_success_rate` — alert-colors values BELOW this. | bring_back_editing_agents_evolution_20260430 |
 | `EVOLUTION_EDITING_ACCEPT_RATE_ALERT_THRESHOLD` | `'0.95'` | Threshold for `iterative_edit_accept_rate` — alert-colors values ABOVE this (rubber-stamping signal per Decisions §16). | bring_back_editing_agents_evolution_20260430 |
 | `EVOLUTION_PERMISSIVE_EVAL_PARSER` | `'true'` | Reverts `parseEvaluateAndSuggest` to the strict 4-line null-check (`if (!criterionLine \|\| !exampleLine \|\| !issueLine \|\| !fixLine) continue;`). Default `'true'` permits suggestions with missing/empty Example/Issue/Fix lines (only Criterion is hard-required); set to `'false'` if the relaxed parser ever over-matches in production. Single-env-flip rollback. | fixes_to_evolution_admin_dashboard__20260503 Issue 4 |
+| `EVOLUTION_SINGLE_PASS_CRITERIA_ENABLED` | `'true'` | When `'false'`, dispatching `iterCfg.agentType: 'single_pass_evaluate_criteria_and_generate'` falls back to the legacy `EvaluateCriteriaThenGenerateFromPreviousArticleAgent` (logs a warn at iteration start). Single-env-flip rollback to legacy guardrail-free behavior without code revert. | updated_criteria_agent_20260505 |
+| `EVOLUTION_PROPOSER_APPROVER_CRITERIA_ENABLED` | `'true'` | When `'false'`, dispatching `iterCfg.agentType: 'proposer_approver_criteria_generate'` is rejected — the iteration produces zero variants and logs a warn. No fallback. | updated_criteria_agent_20260505 |
+| `EVOLUTION_PROPOSER_APPROVER_CRITERIA_RANK_ENABLED` | `'true'` | When `'false'`, skips post-cycle ranking for proposer/approver invocations — variants land at default Elo with no `arena_comparisons` rows tied to the iteration. Mirrors the `EDITING_RANK_ENABLED` pattern. | updated_criteria_agent_20260505 |
+| `EVOLUTION_PROPOSER_APPROVER_DRIFT_RATE_ALERT_THRESHOLD` | `'0.30'` | Threshold for `proposer_approver_drift_rate` operational metric — alert-colors values ABOVE this. | updated_criteria_agent_20260505 |
+| `EVOLUTION_PROPOSER_APPROVER_ACCEPT_RATE_ALERT_THRESHOLD` | `'0.95'` | Threshold for `proposer_approver_accept_rate` — alert-colors values ABOVE this (rubber-stamping signal). | updated_criteria_agent_20260505 |
+| `EVOLUTION_PROPOSER_APPROVER_CRITERIA_MIRROR_AGREEMENT_LOW_THRESHOLD` | `'0.20'` | Lower bound for `proposer_approver_mirror_agreement_rate` — alert-colors values BELOW this (mirror dropping too much). | updated_criteria_agent_20260505 |
+| `EVOLUTION_PROPOSER_APPROVER_CRITERIA_MIRROR_AGREEMENT_HIGH_THRESHOLD` | `'0.95'` | Upper bound for `proposer_approver_mirror_agreement_rate` — alert-colors values ABOVE this (mirror not dropping anything; effectively rubber-stamping). | updated_criteria_agent_20260505 |
+| `EVOLUTION_DEBATE_ENABLED` | `'true'` | Set to `'false'` to short-circuit all `iterCfg.agentType: 'debate_and_generate'` iterations at the runIterationLoop dispatch site (Phase 3.2) AND zero `debate` peer field in the wizard preview's `projectDispatchPlan` projection (Phase 3.3 + 3.5). Mid-run flips do NOT abort in-flight invocations. Primary operational rollback — code-revert + migration-revert paths are NOT supported post-deploy (forward-only migrations couple to Phase 1.7 startup assertion). | bring_back_debate_agent_20260506 Decision §11 + Phase 1.12 |
+
+**Per-iteration toggle (no env var)**: `iterCfg.includesMirrorApprover` (default `true`). When `false`, the mirror-approver pass is skipped and forward-accepted edits apply directly. Toggled per-iteration in the strategy wizard.
 
 **String-contract**: the check is `process.env.FLAG !== 'false'` — exact string match. Unset, any other value, or typos keep the feature enabled. Always verify with `env | grep <FLAG>` on the runner.
 
@@ -471,6 +481,8 @@ See [Data Model - RLS Policies](data_model.md#rls-policies) for migration detail
 ## Admin UI Pages
 
 The admin UI is a Next.js App Router application. All pages are under `src/app/admin/`.
+
+> **Hostname (post explainanything/evolution split):** the evolution admin UI is served exclusively from the evolution hostname — placeholder `ea-evolution.vercel.app` until the apex domain is finalized (see `PROD_EVOLUTION_HOST` in `src/config/hostnames.ts`). Hitting any `/admin/evolution/*` or `/admin/evolution-dashboard` URL on the public hostname returns 404. The site share one Vercel project; routing is middleware-gated. See `docs/planning/split_evolution_explainanythig_into_separate_websites_20260522/`.
 
 | Route | Page File | Purpose |
 |-------|-----------|---------|

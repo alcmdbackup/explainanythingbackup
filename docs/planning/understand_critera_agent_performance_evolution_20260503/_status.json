@@ -1,0 +1,11 @@
+{
+  "branch": "feat/understand_critera_agent_performance_evolution_20260503",
+  "created_at": "2026-05-03T18:27:00Z",
+  "prerequisites": {},
+  "relevantDocs": [
+    "docs/docs_overall/debugging.md",
+    "docs/planning/evaluateCriteriaThenGenerateFromPreviousArticle_20260501/evaluateCriteriaThenGenerateFromPreviousArticle_20260501_planning.md",
+    "docs/research/judge_agreement_summary_tables.md",
+    "docs/planning/evaluateCriteriaThenGenerateFromPreviousArticle_20260501/evaluateCriteriaThenGenerateFromPreviousArticle_20260501_research.md"
+  ]
+}

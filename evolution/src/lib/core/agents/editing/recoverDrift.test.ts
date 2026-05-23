@@ -1,8 +1,7 @@
-// Tests for the drift-recovery LLM helper. Mocks the LLM call deterministically
-// so we can verify magnitude classification, JSONL parsing, and patch
-// application without booting a real provider.
+// Tests for the drift magnitude classifier. The deterministic snap-to-source
+// recovery is tested in `snapDriftToSource.test.ts`.
 
-import { classifyDriftMagnitude, recoverDrift } from './recoverDrift';
+import { classifyDriftMagnitude } from './recoverDrift';
 import type { EditingDriftRegion, EditingGroup } from './types';
 
 function region(offset: number, drifted: string): EditingDriftRegion {
@@ -40,108 +39,5 @@ describe('classifyDriftMagnitude', () => {
   it('boundary: exactly 3 regions, 200 chars, no overlap → minor', () => {
     const regions = [region(0, 'a'.repeat(100)), region(50, 'b'.repeat(50)), region(100, 'c'.repeat(50))];
     expect(classifyDriftMagnitude(regions, [])).toBe('minor');
-  });
-});
-
-describe('recoverDrift', () => {
-  function deps(opts: {
-    response: string;
-    env?: Record<string, string | undefined>;
-    cost?: number;
-  }) {
-    return {
-      callLlm: jest.fn(async () => opts.response),
-      measureCost: () => opts.cost ?? 0.001,
-      env: opts.env ?? {},
-    };
-  }
-
-  it('returns skipped_major_drift when EVOLUTION_DRIFT_RECOVERY_ENABLED=false', async () => {
-    const r = await recoverDrift({
-      regions: [region(0, 'x')],
-      proposedMarkup: 'foo',
-      currentText: 'foo',
-      groups: [],
-      deps: deps({ response: '', env: { EVOLUTION_DRIFT_RECOVERY_ENABLED: 'false' } }),
-    });
-    expect(r.outcome).toBe('skipped_major_drift');
-    expect(r.costUsd).toBe(0);
-  });
-
-  it('returns skipped_major_drift when classifier says major', async () => {
-    const r = await recoverDrift({
-      regions: Array.from({ length: 5 }, (_, i) => region(i * 10, 'x')),
-      proposedMarkup: 'foo',
-      currentText: 'foo',
-      groups: [],
-      deps: deps({ response: '' }),
-    });
-    expect(r.outcome).toBe('skipped_major_drift');
-  });
-
-  it('classifies as recovered + applies benign patches in reverse-offset order', async () => {
-    const proposed = 'aaa“bb”ccc'; // smart quotes drifted
-    const current = 'aaa"bb"ccc'; // straight quotes
-    const response = JSON.stringify({ offset: 3, classification: 'benign', patch: '"' }) + '\n'
-                   + JSON.stringify({ offset: 6, classification: 'benign', patch: '"' });
-    const r = await recoverDrift({
-      regions: [region(3, '“'), region(6, '”')],
-      proposedMarkup: proposed,
-      currentText: current,
-      groups: [],
-      deps: deps({ response }),
-    });
-    expect(r.outcome).toBe('recovered');
-    expect(r.patchedMarkup).toBeDefined();
-  });
-
-  it('returns unrecoverable_intentional when any region is classified intentional', async () => {
-    const response = JSON.stringify({ offset: 3, classification: 'benign', patch: ' ' }) + '\n'
-                   + JSON.stringify({ offset: 6, classification: 'intentional' });
-    const r = await recoverDrift({
-      regions: [region(3, 'a'), region(6, 'b')],
-      proposedMarkup: 'xxxxxxxxxx',
-      currentText: 'xxxxxxxxxx',
-      groups: [],
-      deps: deps({ response }),
-    });
-    expect(r.outcome).toBe('unrecoverable_intentional');
-    expect(r.classifications?.some((c) => c.classification === 'intentional')).toBe(true);
-  });
-
-  it('defaults missing classifications to intentional (conservative)', async () => {
-    // Empty response — no JSONL lines parsed.
-    const r = await recoverDrift({
-      regions: [region(3, 'a')],
-      proposedMarkup: 'xxxxx',
-      currentText: 'xxxxx',
-      groups: [],
-      deps: deps({ response: '' }),
-    });
-    expect(r.outcome).toBe('unrecoverable_intentional');
-  });
-
-  it('skips malformed JSONL lines', async () => {
-    const response = 'not json\n' + JSON.stringify({ offset: 3, classification: 'benign', patch: 'x' });
-    const r = await recoverDrift({
-      regions: [region(3, 'a')],
-      proposedMarkup: 'xxxxx',
-      currentText: 'xxxxx',
-      groups: [],
-      deps: deps({ response }),
-    });
-    // The benign patch on offset 3 was parsed successfully → recovered.
-    expect(r.outcome).toBe('recovered');
-  });
-
-  it('reports the recovery LLM call cost via measureCost', async () => {
-    const r = await recoverDrift({
-      regions: [region(3, 'a')],
-      proposedMarkup: 'xxxxx',
-      currentText: 'xxxxx',
-      groups: [],
-      deps: deps({ response: '', cost: 0.0042 }),
-    });
-    expect(r.costUsd).toBe(0.0042);
   });
 });

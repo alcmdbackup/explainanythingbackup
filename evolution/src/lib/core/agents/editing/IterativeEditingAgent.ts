@@ -9,17 +9,18 @@
 //       directly via the injected input.llm. Never instantiate a separate Agent
 //       and call `.run()` — that creates a NESTED `Agent.run()` scope (separate
 //       AgentCostScope) and splits cost attribution.
-//   I2. Capture `costBeforeProposeCall` / `costBeforeApproveCall` /
-//       `costBeforeRecoveryCall` snapshots BEFORE each helper call so per-purpose
-//       cost can be split into execution_detail.cycles[i].{proposeCostUsd,
-//       approveCostUsd, driftRecoveryCostUsd}.
+//   I2. Capture `costBeforeProposeCall` / `costBeforeApproveCall` snapshots
+//       BEFORE each helper call so per-purpose cost can be split into
+//       execution_detail.cycles[i].{proposeCostUsd, approveCostUsd}. Drift
+//       recovery is now deterministic (snapDriftToSource); driftRecoveryCostUsd
+//       is always 0 and no snapshot is needed.
 //   I3. Write partial `execution_detail` to the invocation row BEFORE re-throwing
 //       on any helper failure. The trackInvocations partial-update fix ensures
 //       Agent.run()'s catch handler doesn't overwrite our partial detail with null.
 
 import { Agent } from '../../Agent';
 import type { AgentContext, AgentOutput, DetailFieldDef } from '../../types';
-import type { Variant, EvolutionLLMClient } from '../../../types';
+import { createVariant, type Variant, type EvolutionLLMClient } from '../../../types';
 import { iterativeEditingExecutionDetailSchema } from '../../../schemas';
 import { rankNewVariant, type RankNewVariantResult } from '../../../pipeline/loop/rankNewVariant';
 import type { Rating, ComparisonResult } from '../../../shared/computeRatings';
@@ -41,9 +42,21 @@ import { checkProposerDrift } from './checkProposerDrift';
 import { validateEditGroups } from './validateEditGroups';
 import { parseReviewDecisions } from './parseReviewDecisions';
 import { applyAcceptedGroups } from './applyAcceptedGroups';
-import { recoverDrift } from './recoverDrift';
+import { classifyDriftMagnitude } from './recoverDrift';
+import { snapDriftToSource } from './snapDriftToSource';
 import { buildProposerSystemPrompt, buildProposerUserPrompt } from './proposerPrompt';
 import { buildApproverSystemPrompt, buildApproverUserPrompt } from './approverPrompt';
+import { buildProposerSystemPromptRewrite, buildProposerUserPromptRewrite } from './proposerPromptRewrite';
+import { splitRationaleAndRewrite } from './splitRationaleAndRewrite';
+import {
+  computeMarkupFromRewrite,
+  RewriteParseError,
+  DiffEngineError,
+  RewriteTooLargeError,
+  serializeError,
+} from './computeMarkupFromRewrite';
+import { coalesceAdjacentGroups } from './coalesceAdjacentGroups';
+import { capGroupsByMagnitude } from './capGroupsByMagnitude';
 
 interface InternalIterativeEditInput extends IterativeEditInput {
   llm?: EvolutionLLMClient;
@@ -54,9 +67,15 @@ export class IterativeEditingAgent extends Agent<
   IterativeEditOutput,
   IterativeEditingExecutionDetail
 > {
-  readonly name = 'iterative_editing';
+  readonly name: string = 'iterative_editing';
   readonly executionDetailSchema = iterativeEditingExecutionDetailSchema;
   readonly usesLLM = true;
+
+  // Phase 3 sibling-class hook. The Mode B subclass (IterativeEditingRewriteAgent)
+  // overrides this to true; the parent's execute() inspects this accessor at the
+  // proposer step and branches into the rewrite + diff path. agent_name in the DB
+  // comes from `this.name` (Agent.run writes it), so analytics still partition.
+  protected get isRewriteMode(): boolean { return false; }
 
   // Mirrors the DETAIL_VIEW_CONFIGS['iterative_editing'] entry — the entities.test.ts
   // parity test asserts these are field-for-field identical.
@@ -138,7 +157,7 @@ export class IterativeEditingAgent extends Agent<
       approverModel?: string;
       driftRecoveryModel?: string;
       generationModel?: string;
-      iterationConfigs?: Array<{ agentType?: string; editingMaxCycles?: number }>;
+      iterationConfigs?: Array<{ agentType?: string; editingMaxCycles?: number; editingProposerSoftCap?: number }>;
     };
     const iterIdx = ctx.iteration - 1;
     const iterCfg = cfg.iterationConfigs?.[iterIdx];
@@ -149,6 +168,8 @@ export class IterativeEditingAgent extends Agent<
     const driftRecoveryModel = cfg.driftRecoveryModel ?? 'gpt-4.1-nano';
     const maxCycles = iterCfg?.editingMaxCycles ?? AGENT_DEFAULT_MAX_CYCLES;
     const perInvocationBudgetUsd = input.perInvocationBudgetUsd;
+    const isRewriteMode = this.isRewriteMode;
+    const proposerSoftCap = iterCfg?.editingProposerSoftCap ?? 3;
 
     const cycles: EditingCycle[] = [];
     let stopReason: IterativeEditingStopReason = 'all_cycles_completed';
@@ -186,11 +207,15 @@ export class IterativeEditingAgent extends Agent<
 
         // ── Proposer call ──
         const costBeforeProposeCall = ctx.costTracker.getOwnSpent?.() ?? 0;
-        const proposerSys = buildProposerSystemPrompt();
-        const proposerUser = buildProposerUserPrompt(current.text);
-        let proposedMarkup: string;
+        const proposerSys = isRewriteMode
+          ? buildProposerSystemPromptRewrite(proposerSoftCap)
+          : buildProposerSystemPrompt();
+        const proposerUser = isRewriteMode
+          ? buildProposerUserPromptRewrite(current.text)
+          : buildProposerUserPrompt(current.text);
+        let proposerOutput: string;
         try {
-          proposedMarkup = await llm.complete(
+          proposerOutput = await llm.complete(
             `${proposerSys}\n\n${proposerUser}`,
             'iterative_edit_propose',
             { model: editingModel },
@@ -203,88 +228,199 @@ export class IterativeEditingAgent extends Agent<
         }
         const proposeCostUsd = (ctx.costTracker.getOwnSpent?.() ?? 0) - costBeforeProposeCall;
 
+        // ── Mode-specific proposer-output processing ──
+        // Mode A: proposerOutput is the marked-up article; parse it directly.
+        // Mode B: proposerOutput is "## Rationale\n...\n## Rewrite\n...";
+        //         split, normalize, run diff engine to PRODUCE the markup, then parse.
+        let proposedMarkup: string;
+        let modeBRationale: string | undefined;
+        let modeBRewriteText: string | undefined;
+        let modeBComputedMarkup: string | undefined;
+        let modeBNormalizedSource: string | undefined;
+
+        if (isRewriteMode) {
+          const split = splitRationaleAndRewrite(proposerOutput);
+          modeBRationale = split.rationale;
+          // Truncate persisted rewriteText to 8 KB; the in-memory rewrite (used for
+          // the diff) keeps full content.
+          modeBRewriteText = split.rewrite.slice(0, 8 * 1024);
+          if (split.parseFailed && !split.rewrite) {
+            stopReason = 'proposer_format_violation';
+            errorMessage = 'Proposer output missing both ## Rationale and ## Rewrite sections';
+            break;
+          }
+          let computeResult;
+          try {
+            computeResult = await computeMarkupFromRewrite(current.text, split.rewrite);
+          } catch (e) {
+            if (e instanceof RewriteTooLargeError) {
+              stopReason = 'rewrite_too_large';
+              errorMessage = e.message;
+            } else if (e instanceof RewriteParseError) {
+              stopReason = 'rewrite_parse_failed';
+              errorMessage = e.message;
+            } else if (e instanceof DiffEngineError) {
+              stopReason = 'diff_engine_failed';
+              errorMessage = e.message;
+            } else {
+              throw e;
+            }
+            // Persist a partial cycle for forensics.
+            const errCtx = e instanceof RewriteParseError || e instanceof DiffEngineError
+              ? serializeError(e.originalError)
+              : undefined;
+            const partialCycle = this.buildCycle({
+              cycleNumber, proposedMarkup: '', parseResult: { groups: [], dropped: [], recoveredSource: current.text },
+              droppedPreApprover: [], approverGroups: [], reviewDecisions: [],
+              droppedPostApprover: [], appliedGroups: [], formatValid: false,
+              parentText: current.text,
+              proposeCostUsd, approveCostUsd: 0,
+              sizeRatio: 1.0,
+            });
+            cycles.push({
+              ...partialCycle,
+              proposerMode: 'rewrite',
+              rationale: modeBRationale,
+              rewriteText: modeBRewriteText,
+              errorMessage,
+              ...(errCtx ? { errorContext: errCtx } : {}),
+            });
+            break;
+          }
+          proposedMarkup = computeResult.markup;
+          modeBComputedMarkup = computeResult.markup;
+          modeBNormalizedSource = computeResult.normalizedBefore;
+          // Use the canonicalized source as the anchor for the rest of the
+          // pipeline (parseProposedEdits/applyAcceptedGroups strict-equals
+          // contextBefore/contextAfter checks must match).
+          current = { ...current, text: computeResult.normalizedBefore };
+        } else {
+          proposedMarkup = proposerOutput;
+        }
+
         // ── Parse + drift check ──
         const parseResult = parseProposedEdits(proposedMarkup, current.text);
-        const driftResult = checkProposerDrift(parseResult.recoveredSource, current.text);
+
+        // Mode B post-parse: coalesce + cap groups before validation.
+        if (isRewriteMode) {
+          const coalesced = coalesceAdjacentGroups(parseResult.groups, current.text);
+          const cap = capGroupsByMagnitude(coalesced, current.text, 10);
+          parseResult.groups = cap.kept;
+          parseResult.dropped = [...parseResult.dropped, ...cap.dropped];
+        }
+
+        // Phase 2: pre-flight structural rejection (Mode A only). Originally
+        // tuned to >10% length divergence + <3 groups when drift recovery was
+        // an LLM call we wanted to skip on free-form rewrites. With drift
+        // recovery now deterministic snap-to-source (0 cost), the only case
+        // worth bailing on is when the recovered source is so much larger
+        // than the parent that snap can't possibly align (e.g., proposer
+        // echoed the article + appended a rewrite — recovered ~2× parent).
+        // Threshold bumped from 0.10 to 0.50 to let drift-snap handle modest
+        // structural drift.
+        if (!isRewriteMode) {
+          const lenDelta = Math.abs(parseResult.recoveredSource.length - current.text.length);
+          const lenDeltaRatio = lenDelta / Math.max(1, current.text.length);
+          if (lenDeltaRatio > 0.50 && parseResult.groups.length < 3) {
+            stopReason = 'structural_rewrite';
+            cycles.push(this.buildCycle({
+              cycleNumber, proposedMarkup, parseResult,
+              droppedPreApprover: [...parseResult.dropped],
+              approverGroups: [], reviewDecisions: [], droppedPostApprover: [],
+              appliedGroups: [], formatValid: false, parentText: current.text,
+              proposeCostUsd, approveCostUsd: 0,
+              sizeRatio: 1.0,
+            }));
+            break;
+          }
+        }
+
+        // Mode B never enters drift recovery (drift impossible by construction:
+        // the diff engine produces markup AGAINST the same normalized source we
+        // pass to parseProposedEdits, so recoveredSource matches modulo the
+        // remaining whitespace-bridge edge cases handled by Phase 1 fixes).
+        const driftResult = isRewriteMode
+          ? { drift: false, regions: [] }
+          : checkProposerDrift(parseResult.recoveredSource, current.text);
 
         let approverGroups: typeof parseResult.groups;
-        let droppedPreApprover = [...parseResult.dropped];
+        const droppedPreApprover = [...parseResult.dropped];
         let driftRecoveryCostUsd: number | undefined;
         let driftRecoveryDetails: EditingCycle['driftRecovery'] = undefined;
         let workingMarkup = proposedMarkup;
 
         if (driftResult.drift) {
-          // Attempt minor-drift recovery.
-          const costBeforeRecoveryCall = ctx.costTracker.getOwnSpent?.() ?? 0;
-          const recovery = await recoverDrift({
-            regions: driftResult.regions,
-            proposedMarkup,
-            currentText: current.text,
-            groups: parseResult.groups,
-            deps: {
-              callLlm: (prompt, label) => llm.complete(prompt, label, { model: driftRecoveryModel }),
-              measureCost: () => (ctx.costTracker.getOwnSpent?.() ?? 0) - costBeforeRecoveryCall,
-              env: process.env as Record<string, string | undefined>,
-            },
-          });
-          driftRecoveryCostUsd = recovery.costUsd;
-          driftRecoveryDetails = {
-            outcome: recovery.outcome,
-            regions: recovery.regions,
-            classifications: recovery.classifications,
-            patchedMarkup: recovery.patchedMarkup,
-            costUsd: recovery.costUsd,
-          };
-
-          if (recovery.outcome === 'recovered' && recovery.patchedMarkup) {
-            workingMarkup = recovery.patchedMarkup;
-            const repatched = parseProposedEdits(workingMarkup, current.text);
-            const recheckDrift = checkProposerDrift(repatched.recoveredSource, current.text);
-            if (recheckDrift.drift) {
-              stopReason = 'proposer_drift_unrecoverable';
-              cycles.push(this.buildCycle({
-                cycleNumber, proposedMarkup, parseResult, droppedPreApprover,
-                approverGroups: [], reviewDecisions: [], droppedPostApprover: [],
-                appliedGroups: [], formatValid: false, parentText: current.text,
-                proposeCostUsd, approveCostUsd: 0, driftRecoveryCostUsd, driftRecoveryDetails,
-                sizeRatio: 1.0,
-              }));
-              break;
-            }
-            approverGroups = repatched.groups;
-            droppedPreApprover.push(...repatched.dropped);
-          } else if (recovery.outcome === 'unrecoverable_intentional') {
-            stopReason = 'proposer_drift_intentional';
+          const magnitude = classifyDriftMagnitude(driftResult.regions, parseResult.groups);
+          if (magnitude === 'major') {
+            stopReason = 'proposer_drift_major';
+            driftRecoveryDetails = {
+              outcome: 'skipped_major_drift',
+              regions: driftResult.regions,
+              costUsd: 0,
+            };
             cycles.push(this.buildCycle({
               cycleNumber, proposedMarkup, parseResult, droppedPreApprover,
               approverGroups: [], reviewDecisions: [], droppedPostApprover: [],
               appliedGroups: [], formatValid: false, parentText: current.text,
-              proposeCostUsd, approveCostUsd: 0, driftRecoveryCostUsd, driftRecoveryDetails,
+              proposeCostUsd, approveCostUsd: 0, driftRecoveryCostUsd: 0, driftRecoveryDetails,
               sizeRatio: 1.0,
             }));
             break;
-          } else if (recovery.outcome === 'unrecoverable_residual') {
+          }
+          // Minor drift: deterministic snap-to-source. No LLM call.
+          const snap = snapDriftToSource({
+            regions: driftResult.regions,
+            proposedMarkup,
+            currentText: current.text,
+          });
+          driftRecoveryCostUsd = 0;
+          if (snap.aborted) {
+            // Source slice contained CriticMarkup delimiters — splicing would
+            // mint fake edit markers in the re-parse. Treat as unrecoverable.
+            driftRecoveryDetails = {
+              outcome: 'unrecoverable_residual',
+              regions: driftResult.regions,
+              classifications: snap.classifications,
+              costUsd: 0,
+            };
             stopReason = 'proposer_drift_unrecoverable';
             cycles.push(this.buildCycle({
               cycleNumber, proposedMarkup, parseResult, droppedPreApprover,
               approverGroups: [], reviewDecisions: [], droppedPostApprover: [],
               appliedGroups: [], formatValid: false, parentText: current.text,
-              proposeCostUsd, approveCostUsd: 0, driftRecoveryCostUsd, driftRecoveryDetails,
-              sizeRatio: 1.0,
-            }));
-            break;
-          } else {
-            // skipped_major_drift
-            stopReason = 'proposer_drift_major';
-            cycles.push(this.buildCycle({
-              cycleNumber, proposedMarkup, parseResult, droppedPreApprover,
-              approverGroups: [], reviewDecisions: [], droppedPostApprover: [],
-              appliedGroups: [], formatValid: false, parentText: current.text,
-              proposeCostUsd, approveCostUsd: 0, driftRecoveryCostUsd, driftRecoveryDetails,
+              proposeCostUsd, approveCostUsd: 0, driftRecoveryCostUsd: 0, driftRecoveryDetails,
               sizeRatio: 1.0,
             }));
             break;
           }
+          driftRecoveryDetails = {
+            outcome: 'recovered',
+            regions: driftResult.regions,
+            classifications: snap.classifications,
+            patchedMarkup: snap.patchedMarkup,
+            costUsd: 0,
+          };
+          workingMarkup = snap.patchedMarkup;
+          const repatched = parseProposedEdits(workingMarkup, current.text);
+          const recheckDrift = checkProposerDrift(repatched.recoveredSource, current.text);
+          if (recheckDrift.drift) {
+            // Most likely cause: drift offsets were in normalized-stripped-source
+            // coordinates but the splice landed in raw-markup coordinates and
+            // missed. Abort cleanly rather than emit a corrupted variant. The
+            // forensic record uses the snapped workingMarkup so analysts can
+            // see what the snap produced and why it failed re-validation.
+            stopReason = 'proposer_drift_unrecoverable';
+            cycles.push(this.buildCycle({
+              cycleNumber, proposedMarkup: workingMarkup, parseResult, droppedPreApprover,
+              approverGroups: [], reviewDecisions: [], droppedPostApprover: [],
+              appliedGroups: [], formatValid: false, parentText: current.text,
+              proposeCostUsd, approveCostUsd: 0, driftRecoveryCostUsd: 0, driftRecoveryDetails,
+              sizeRatio: 1.0,
+            }));
+            break;
+          }
+          approverGroups = repatched.groups;
+          droppedPreApprover.push(...repatched.dropped);
         } else {
           approverGroups = parseResult.groups;
         }
@@ -322,9 +458,15 @@ export class IterativeEditingAgent extends Agent<
         }
 
         // ── Approver call ──
+        // Mode B: pass the proposer's rationale as priming context (with the
+        // red-team caveat in the user prompt builder).
         const costBeforeApproveCall = ctx.costTracker.getOwnSpent?.() ?? 0;
         const approverSys = buildApproverSystemPrompt();
-        const approverUser = buildApproverUserPrompt(workingMarkup, validation.approverGroups);
+        const approverUser = buildApproverUserPrompt(
+          workingMarkup,
+          validation.approverGroups,
+          isRewriteMode ? modeBRationale : undefined,
+        );
         let approverResponse: string;
         try {
           approverResponse = await llm.complete(
@@ -351,7 +493,7 @@ export class IterativeEditingAgent extends Agent<
 
         const sizeRatio = current.text.length > 0 ? applyResult.newText.length / current.text.length : 1.0;
 
-        cycles.push(this.buildCycle({
+        const baseCycle = this.buildCycle({
           cycleNumber, proposedMarkup: workingMarkup, parseResult,
           droppedPreApprover,
           approverGroups: validation.approverGroups, reviewDecisions,
@@ -363,7 +505,22 @@ export class IterativeEditingAgent extends Agent<
           proposeCostUsd, approveCostUsd, driftRecoveryCostUsd, driftRecoveryDetails,
           sizeRatio,
           acceptedCount, rejectedCount, appliedCount,
-        }));
+        });
+        cycles.push(isRewriteMode
+          ? {
+              ...baseCycle,
+              proposerMode: 'rewrite',
+              rationale: modeBRationale,
+              rewriteText: modeBRewriteText,
+              computedMarkup: modeBComputedMarkup,
+            }
+          : { ...baseCycle, proposerMode: 'markup' });
+
+        // Suppress unused-var warnings — modeBNormalizedSource is consumed via
+        // the `current = { ...current, text: computeResult.normalizedBefore }`
+        // assignment earlier; we keep the var for future use (cycle-2 invariance
+        // logging) without referencing it here.
+        void modeBNormalizedSource;
 
         if (appliedCount === 0) {
           stopReason = 'all_edits_rejected';
@@ -382,13 +539,24 @@ export class IterativeEditingAgent extends Agent<
 
       // After the loop: materialize the final variant only if any cycle accepted edits.
       if (current.text !== input.parent.text) {
-        finalVariant = {
-          ...input.parent,
+        // Use the createVariant factory rather than spreading input.parent.
+        // The spread inherited input.parent.fromArena (true for cross-run pool
+        // parents — the typical case), which caused persistRunResults' filter
+        // (`pool.filter((v) => !v.fromArena)`) to silently drop the variant
+        // before the DB upsert. The factory generates a fresh UUID, omits
+        // fromArena, and requires explicit tactic + agentInvocationId so the
+        // row threads correctly to its editing invocation.
+        // `this.name` distinguishes Mode A ('iterative_editing') vs
+        // Mode B ('iterative_editing_rewrite') automatically.
+        finalVariant = createVariant({
           text: current.text,
-          // The parent of the final variant is the original input parent (NOT cycle-N-1's
-          // intermediate) per Decisions §14.
+          tactic: this.name,
+          iterationBorn: ctx.iteration,
+          // Per Decisions §14: the final variant's parent is the ORIGINAL
+          // input parent (not cycle-N-1's intermediate text).
           parentIds: [input.parent.id],
-        } as Variant;
+          agentInvocationId: ctx.invocationId,
+        });
       }
     } catch (err) {
       errorPhase = errorPhase ?? 'propose';
@@ -500,7 +668,7 @@ export class IterativeEditingAgent extends Agent<
     };
   }
 
-  private buildCycle(args: {
+  protected buildCycle(args: {
     cycleNumber: number;
     proposedMarkup: string;
     parseResult: ReturnType<typeof parseProposedEdits>;
@@ -544,7 +712,7 @@ export class IterativeEditingAgent extends Agent<
     };
   }
 
-  private buildDetail(args: {
+  protected buildDetail(args: {
     parent: Variant;
     cycles: EditingCycle[];
     stopReason: IterativeEditingStopReason;

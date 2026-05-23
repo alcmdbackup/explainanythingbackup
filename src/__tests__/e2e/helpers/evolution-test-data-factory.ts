@@ -582,6 +582,10 @@ export async function createMultiHopFixture(
         run_id: run.id,
         prompt_id: prompt.id,
         parent_variant_id: parent,
+        // bring_back_debate_agent_20260506: production code reads parent_variant_ids[0]
+        // for the canonical primary parent (Decision §20). Fixture writes both the legacy
+        // single-FK and the array column so the new UI render path resolves correctly.
+        parent_variant_ids: parent ? [parent] : [],
         generation: i,
         variant_content: `${names[i]} content — iteration ${i}`,
         elo_score: elos[i],

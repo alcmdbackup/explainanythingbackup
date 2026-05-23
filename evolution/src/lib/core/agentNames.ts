@@ -22,6 +22,22 @@ export const AGENT_NAMES = [
   'iterative_edit_propose',
   'iterative_edit_review',
   'iterative_edit_drift_recovery',
+  // Per-LLM-call labels for proposer_approver_criteria_generate agent (consolidated
+  // under one proposer_approver_criteria_cost metric — per-purpose split is in
+  // execution_detail.cycles[0].{proposeCostUsd, approveForwardCostUsd, approveMirrorCostUsd}).
+  // Mirror approver short-circuits for forward-rejected groups, so its actual call
+  // count may be lower than worst-case projection.
+  'criteria_proposer',
+  'criteria_forward_approver',
+  'criteria_mirror_approver',
+  // Per-LLM-call labels for debate_and_generate agent (Option C — 2 calls).
+  // Both collapse into one debate_cost metric (per bring_back_debate_agent_20260506
+  // Decision §6 + Phase 1.4); per-purpose split lives in execution_detail.debate
+  // and execution_detail.generation. The synthesis call uses an LLM-client proxy
+  // that rewrites 'generation' → 'debate_synthesis' so cost flows to debate_cost
+  // instead of generation_cost (load-bearing invariant I4).
+  'debate_judge',
+  'debate_synthesis',
 ] as const;
 export type AgentName = typeof AGENT_NAMES[number];
 
@@ -47,4 +63,16 @@ export const COST_METRIC_BY_AGENT: Partial<Record<AgentName, MetricName>> = {
   iterative_edit_propose: 'iterative_edit_cost',
   iterative_edit_review: 'iterative_edit_cost',
   iterative_edit_drift_recovery: 'iterative_edit_cost',
+  // All three propose/approve criteria per-LLM-call labels collapse into one cost metric.
+  // Per-purpose split is tracked in execution_detail.cycles[0] for forensics.
+  criteria_proposer: 'proposer_approver_criteria_cost',
+  criteria_forward_approver: 'proposer_approver_criteria_cost',
+  criteria_mirror_approver: 'proposer_approver_criteria_cost',
+  // Both debate per-LLM-call labels collapse into one cost metric. Per-purpose
+  // split lives in execution_detail.debate.combined.cost (judge call) and
+  // execution_detail.generation.cost (synthesis call). The synthesis call's
+  // AgentName is 'debate_synthesis' (NOT 'generation') only because of the
+  // I4 LLM-client proxy in DebateAgent — keeps cost out of generation_cost.
+  debate_judge: 'debate_cost',
+  debate_synthesis: 'debate_cost',
 };

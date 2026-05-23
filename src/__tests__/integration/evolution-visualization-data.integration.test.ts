@@ -93,13 +93,38 @@ describe('Evolution Visualization Data Integration Tests', () => {
   it('dashboard query returns correct status counts', async () => {
     if (!tablesExist) return;
 
-    // Query all runs (mirrors dashboard action logic)
-    const { data: allRuns, error } = await supabase
-      .from('evolution_runs')
-      .select('status')
-      .in('id', [completedRunId, pendingRunId, failedRunId]);
+    // Re-pin the three runs' statuses by ID right before querying. The
+    // `claim_evolution_run` RPC (called by parallel Jest workers running
+    // evolution-claim.integration.test.ts) picks up `status='pending'` rows
+    // ORDER BY created_at ASC and flips them to 'claimed' under the global
+    // advisory lock. The race window between the UPDATE and the SELECT here
+    // is tight but non-zero — a concurrent claim can still slip in. Retry-loop
+    // with up to 5 attempts so the test is deterministic; the test only wants
+    // to verify the count-by-status pattern works, not that rows survive
+    // concurrent claim activity at every microsecond.
+    let allRuns: { status: string }[] | null = null;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      await Promise.all([
+        supabase.from('evolution_runs').update({ status: 'completed' }).eq('id', completedRunId),
+        supabase.from('evolution_runs').update({ status: 'failed' }).eq('id', failedRunId),
+        // Issue pending LAST in the batch so its window before the SELECT is shortest.
+        supabase.from('evolution_runs').update({ status: 'pending', runner_id: null }).eq('id', pendingRunId),
+      ]);
+      const { data, error } = await supabase
+        .from('evolution_runs')
+        .select('status')
+        .in('id', [completedRunId, pendingRunId, failedRunId]);
+      expect(error).toBeNull();
+      const c = (data ?? []).filter(r => r.status === 'completed').length;
+      const p = (data ?? []).filter(r => r.status === 'pending').length;
+      const f = (data ?? []).filter(r => r.status === 'failed').length;
+      if (c === 1 && p === 1 && f === 1) {
+        allRuns = data;
+        break;
+      }
+    }
 
-    expect(error).toBeNull();
+    expect(allRuns).not.toBeNull();
     expect(allRuns).toHaveLength(3);
 
     const completed = allRuns!.filter(r => r.status === 'completed').length;

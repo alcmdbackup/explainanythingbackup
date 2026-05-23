@@ -27,7 +27,7 @@ export function calculateCost(inputChars: number, outputChars: number, pricing: 
 
 const MAX_RETRIES = 3;
 const BACKOFF_MS = [1000, 2000, 4000];
-const PER_CALL_TIMEOUT_MS = 20_000;
+const PER_CALL_TIMEOUT_MS = 60_000;
 
 /** Estimated output tokens by label. Keys must be valid AgentName values. */
 const OUTPUT_TOKEN_ESTIMATES: Partial<Record<AgentName, number>> = {
@@ -38,6 +38,24 @@ const OUTPUT_TOKEN_ESTIMATES: Partial<Record<AgentName, number>> = {
   // Combined evaluate + suggest: ~150 chars score lines + ~600 tokens × weakestK suggestion
   // blocks ≈ 2300 chars typical at criteriaCount=5, weakestK=1.
   evaluate_and_suggest: 2300,
+  // Proposer outputs full article verbatim with inline CriticMarkup edits — output dominated
+  // by article copy + ~40% markup overhead. Tokens estimate scales with article size; 1200
+  // tokens (~4800 chars) covers a typical 8K-char article with markup.
+  criteria_proposer: 1200,
+  // Forward approver returns JSONL: per-group {decision, reason, redundancy_violation?, ...}.
+  // ~600 chars for typical N=6 groups.
+  criteria_forward_approver: 150,
+  // Mirror approver returns same shape on mirror-flipped groups; same estimate.
+  // (Short-circuit for forward-rejected groups means actual call count may be lower.)
+  criteria_mirror_approver: 150,
+  // Combined analyze+judge: 9-field structured JSON with prosA/consA/prosB/consB +
+  // winner/reasoning + strengthsFromA/strengthsFromB + improvements; ~600-1000 tokens
+  // typical (Option C from bring_back_debate_agent_20260506 Decision §17).
+  debate_judge: 800,
+  // Synthesis call delegates to inner GFPA which produces a full variant.
+  // Same shape as 'generation' but routed through the I4 LLM-client proxy so
+  // cost flows to debate_cost instead of generation_cost.
+  debate_synthesis: 2000,
 };
 
 // ─── Public API ──────────────────────────────────────────────────
@@ -107,6 +125,8 @@ export function createEvolutionLLMClient(
           : agentName === 'seed_title' ? 'seed_title'
           : agentName === 'seed_article' ? 'seed_article'
           : agentName === 'evaluate_and_suggest' ? 'evaluate_and_suggest'
+          : agentName === 'debate_judge' ? 'debate_judge'
+          : agentName === 'debate_synthesis' ? 'debate_synthesis'
           : null;
         if (!phase) return null;
         return getCalibrationRow('__unspecified__', model, '__unspecified__', phase);
@@ -143,7 +163,7 @@ export function createEvolutionLLMClient(
           const rawResponse = await Promise.race([
             rawProvider.complete(prompt, agentName, { model, temperature, reasoningEffort, invocationId: options?.invocationId ?? invocationId }),
             new Promise<never>((_, reject) => {
-              timeoutId = setTimeout(() => reject(new Error('LLM call timeout (20s)')), PER_CALL_TIMEOUT_MS);
+              timeoutId = setTimeout(() => reject(new Error('LLM call timeout (60s)')), PER_CALL_TIMEOUT_MS);
             }),
           ]);
 
