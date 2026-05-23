@@ -30,7 +30,7 @@ jobs:
           - name: evolution
             # Evolution-host smoke. Update this when PROD_EVOLUTION_HOST in
             # src/config/hostnames.ts changes.
-            base_url: https://evolution-explainanything.vercel.app
+            base_url: https://ea-evolution.vercel.app
 
     steps:
       - uses: actions/checkout@v4

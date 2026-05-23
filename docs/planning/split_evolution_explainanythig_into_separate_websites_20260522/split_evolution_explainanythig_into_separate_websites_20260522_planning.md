@@ -135,13 +135,13 @@ Goal: close three FK gaps so the eventual DB reset can't leave orphan evolution 
 
 Goal: same Vercel deployment serves both hostnames; middleware refuses cross-hostname access.
 
-- [ ] Decide the evolution hostname. Default proposal: `evolution-explainanything.vercel.app` (if staying on `*.vercel.app`) or `evolution.explainanything.com` (if a custom apex exists). Capture the chosen value in `docs/docs_overall/environments.md`.
+- [ ] Decide the evolution hostname. Default proposal: `ea-evolution.vercel.app` (if staying on `*.vercel.app`) or `evolution.explainanything.com` (if a custom apex exists). Capture the chosen value in `docs/docs_overall/environments.md`.
 
 - [ ] Add `src/config/hostnames.ts`:
   ```ts
   // Production hostnames — exact match (case-insensitive, port stripped)
   export const PROD_PUBLIC_HOST = 'explainanything.vercel.app';   // or chosen apex
-  export const PROD_EVOLUTION_HOST = 'evolution-explainanything.vercel.app';
+  export const PROD_EVOLUTION_HOST = 'ea-evolution.vercel.app';
   const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '0.0.0.0']);
 
   export type HostTier = 'public' | 'evolution' | 'preview' | 'local' | 'unknown';
@@ -378,7 +378,7 @@ Goal: wipe explainanything user content; preserve every evolution row.
   - `requireAdmin()` returns false / throws when called with public host.
   - `requireAdmin()` succeeds for evolution host with a valid admin user.
   - `requireAdmin()` no-ops (does not throw) when `headers()` is unavailable (non-request context).
-  - Mock pattern: `jest.mock('next/headers', () => ({ headers: jest.fn() }))`, then `(headers as jest.Mock).mockResolvedValue(new Headers({ host: 'evolution-explainanything.vercel.app' }))` per test.
+  - Mock pattern: `jest.mock('next/headers', () => ({ headers: jest.fn() }))`, then `(headers as jest.Mock).mockResolvedValue(new Headers({ host: 'ea-evolution.vercel.app' }))` per test.
 
 - [ ] **`src/lib/services/sourceFetcher.test.ts`** updates:
   - Assert the User-Agent header (from a mocked `fetch` call) contains the expected hostname identity string. Test the behavior, not the source of the constant.

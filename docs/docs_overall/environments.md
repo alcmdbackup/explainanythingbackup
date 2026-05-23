@@ -9,7 +9,7 @@ The single Vercel project serves **two hostnames** for the explainanything / evo
 | Site | Hostname | Routes served | Login |
 |---|---|---|---|
 | Public | `explainanything.vercel.app` (or chosen apex) | `/`, `/results`, `/explanations`, `/sources/*`, `/userlibrary`, `/settings`, `/login`, `/api/returnExplanation`, `/api/runAISuggestionsPipeline`, `/api/stream-chat`, `/api/fetchSourceMetadata` | Supabase Auth (regular user accounts) |
-| Evolution | `evolution-explainanything.vercel.app` (placeholder — see `src/config/hostnames.ts`) | `/admin/evolution-dashboard`, `/admin/evolution/*`, `/api/evolution/*` | Supabase Auth + `admin_users` row check + hostname assertion in `requireAdmin()` |
+| Evolution | `ea-evolution.vercel.app` (placeholder — see `src/config/hostnames.ts`) | `/admin/evolution-dashboard`, `/admin/evolution/*`, `/api/evolution/*` | Supabase Auth + `admin_users` row check + hostname assertion in `requireAdmin()` |
 
 `src/middleware.ts` reads the `Host:` header on every request and 404s the wrong-mode routes per hostname. Cookies are hostname-scoped (`.vercel.app` is on the Public Suffix List), so admin sessions on the evolution hostname are structurally independent from any public-site session.
 

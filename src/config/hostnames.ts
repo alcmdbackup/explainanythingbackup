@@ -12,7 +12,7 @@
  * domain choice (Path 1: `evolution.<apex>`; Path 2: `*.vercel.app` alias).
  */
 export const PROD_PUBLIC_HOST = 'explainanything.vercel.app';
-export const PROD_EVOLUTION_HOST = 'evolution-explainanything.vercel.app';
+export const PROD_EVOLUTION_HOST = 'ea-evolution.vercel.app';
 
 const LOCAL_HOSTS: ReadonlySet<string> = new Set(['localhost', '127.0.0.1', '0.0.0.0']);
 

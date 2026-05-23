@@ -26,7 +26,7 @@ jobs:
             grep_filter: '@critical'
           - name: evolution
             # Update when PROD_EVOLUTION_HOST in src/config/hostnames.ts changes.
-            base_url: https://evolution-explainanything.vercel.app
+            base_url: https://ea-evolution.vercel.app
             grep_filter: '@evolution'
 
     env:
