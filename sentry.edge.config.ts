@@ -38,9 +38,11 @@ Sentry.init({
   debug: false,
 
   // Tag each event with the routing tier of the request hostname (website split).
+  // Node IncomingMessage.headers can store a value as string | string[]; coerce defensively.
   beforeSend(event) {
-    const host = event.request?.headers?.host as string | undefined;
-    if (host) {
+    const rawHost = event.request?.headers?.host;
+    const host = Array.isArray(rawHost) ? rawHost[0] : rawHost;
+    if (typeof host === 'string' && host.length > 0) {
       event.tags = { ...event.tags, site: classifyHost(host) };
     }
     return event;

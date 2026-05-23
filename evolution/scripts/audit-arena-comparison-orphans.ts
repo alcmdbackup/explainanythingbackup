@@ -60,12 +60,16 @@ export async function findOrphans(db: SupabaseClient): Promise<OrphanRow[]> {
   let offset = 0;
 
   // Pre-fetch the set of valid variant ids in batches to avoid one query per row.
+  // .order('id') is load-bearing: Postgres .range() without ORDER BY is non-deterministic
+  // across pages, so rows can be skipped or duplicated → false-positive orphan flags →
+  // wrong deletions in --apply mode.
   const validIds = new Set<string>();
   let variantOffset = 0;
   while (true) {
     const { data, error } = await db
       .from('evolution_variants')
       .select('id')
+      .order('id')
       .range(variantOffset, variantOffset + PAGE_SIZE - 1);
     if (error) throw new Error(`Failed to read evolution_variants: ${error.message}`);
     if (!data || data.length === 0) break;
@@ -78,6 +82,7 @@ export async function findOrphans(db: SupabaseClient): Promise<OrphanRow[]> {
     const { data, error } = await db
       .from('evolution_arena_comparisons')
       .select('id, entry_a, entry_b')
+      .order('id')
       .range(offset, offset + PAGE_SIZE - 1);
     if (error) throw new Error(`Failed to read evolution_arena_comparisons: ${error.message}`);
     if (!data || data.length === 0) break;

@@ -1,3 +1,7 @@
+// Next.js root middleware. Gates the explainanything/evolution website split
+// (per-hostname route 404s, fail-closed unknown hosts) and refreshes the Supabase
+// auth session via updateSession() for downstream handlers.
+
 import { NextResponse, type NextRequest } from 'next/server'
 import { updateSession } from '@/lib/utils/supabase/middleware'
 import {

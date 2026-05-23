@@ -17,25 +17,31 @@ function makeMockDb(
 } {
   const deletedIds: string[] = [];
 
+  // PostgREST chain returns the same builder until terminal; mock both .order() and .range()
+  // because the production code now chains .order('id').range(...) to make pagination deterministic.
   function fromImpl(table: string) {
     if (table === 'evolution_variants') {
+      const builder = {
+        order: (_col: string) => builder,
+        range: (from: number, to: number) =>
+          Promise.resolve({ data: variants.slice(from, to + 1), error: null }),
+      };
       return {
-        select: () => ({
-          range: (from: number, to: number) =>
-            Promise.resolve({ data: variants.slice(from, to + 1), error: null }),
-        }),
+        select: () => builder,
       };
     }
     if (table === 'evolution_arena_comparisons') {
+      const builder = {
+        order: (_col: string) => builder,
+        range: (from: number, to: number) =>
+          Promise.resolve({ data: comparisons.slice(from, to + 1), error: null }),
+      };
       return {
         select: (cols: string, opts?: { count?: string; head?: boolean }) => {
           if (opts?.head) {
             return Promise.resolve({ count: comparisons.length, error: null });
           }
-          return {
-            range: (from: number, to: number) =>
-              Promise.resolve({ data: comparisons.slice(from, to + 1), error: null }),
-          };
+          return builder;
         },
         delete: (_opts: any) => ({
           in: (_col: string, ids: string[]) => {

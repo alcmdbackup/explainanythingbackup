@@ -55,8 +55,11 @@ Sentry.init({
     }
 
     // Per-event host tag — module-init setTag wouldn't work because the host is per-request.
-    const host = event.request?.headers?.host as string | undefined;
-    if (host) {
+    // Node IncomingMessage.headers can store a value as string | string[]; coerce defensively
+    // so beforeSend never throws on the array shape.
+    const rawHost = event.request?.headers?.host;
+    const host = Array.isArray(rawHost) ? rawHost[0] : rawHost;
+    if (typeof host === 'string' && host.length > 0) {
       event.tags = { ...event.tags, site: classifyHost(host) };
     }
 
