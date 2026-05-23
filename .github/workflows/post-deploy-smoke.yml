@@ -17,6 +17,21 @@ jobs:
       contains(github.event.deployment_status.target_url, 'vercel.app')
     runs-on: ubuntu-latest
 
+    # Smoke each Vercel hostname served by this single project. Both hostnames
+    # point at the same deployment (Option B of the explainanything/evolution
+    # website split — see docs/planning/split_evolution_explainanythig_into_separate_websites_20260522/),
+    # so the deployment_status event fires once but we must verify each host.
+    strategy:
+      fail-fast: false
+      matrix:
+        site:
+          - name: public
+            base_url: ${{ github.event.deployment_status.target_url }}
+          - name: evolution
+            # Evolution-host smoke. Update this when PROD_EVOLUTION_HOST in
+            # src/config/hostnames.ts changes.
+            base_url: https://evolution-explainanything.vercel.app
+
     steps:
       - uses: actions/checkout@v4
         with:
@@ -32,13 +47,13 @@ jobs:
       - name: Wait for deployment to stabilize
         run: sleep 10
 
-      - name: Health Check
+      - name: Health Check (${{ matrix.site.name }})
         id: health
         env:
           VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+          DEPLOY_URL: ${{ matrix.site.base_url }}
         run: |
-          DEPLOY_URL="${{ github.event.deployment_status.target_url }}"
-          echo "Checking health at: $DEPLOY_URL/api/health"
+          echo "Checking health at: $DEPLOY_URL/api/health (site=${{ matrix.site.name }})"
 
           # Add bypass header for protected deployments
           # Use -L to follow redirects (Vercel returns 307 with Set-Cookie, then redirects)
@@ -59,10 +74,10 @@ jobs:
 
           # Handle all non-200 status codes (use = for POSIX compliance)
           if [ "$http_code" = "403" ]; then
-            echo "::error::Deployment protection blocked request (403). Check VERCEL_AUTOMATION_BYPASS_SECRET."
+            echo "::error::Deployment protection blocked request (403) for ${{ matrix.site.name }}. Check VERCEL_AUTOMATION_BYPASS_SECRET."
             exit 1
           elif [ "$http_code" != "200" ]; then
-            echo "::error::Health check returned HTTP $http_code"
+            echo "::error::Health check returned HTTP $http_code for ${{ matrix.site.name }}"
             cat /tmp/health.json 2>/dev/null || echo "(No response body)"
             exit 1
           fi
@@ -76,31 +91,15 @@ jobs:
             exit 1
           fi
 
-          echo "Health check response:"
+          echo "Health check response (${{ matrix.site.name }}):"
           echo "$response" | jq .
 
           if [ "$status" != "healthy" ]; then
-            echo "::error::Health check failed - status: $status"
-
-            # Extract specific failures for better error messages
-            db_status=$(echo "$response" | jq -r '.checks.database.status')
-            tags_status=$(echo "$response" | jq -r '.checks.requiredTags.status')
-            env_status=$(echo "$response" | jq -r '.checks.environment.status')
-
-            if [ "$db_status" = "fail" ]; then
-              echo "::error::Database check failed: $(echo "$response" | jq -r '.checks.database.message')"
-            fi
-            if [ "$tags_status" = "fail" ]; then
-              echo "::error::Required tags check failed: $(echo "$response" | jq -r '.checks.requiredTags.message')"
-            fi
-            if [ "$env_status" = "fail" ]; then
-              echo "::error::Environment check failed: $(echo "$response" | jq -r '.checks.environment.message')"
-            fi
-
+            echo "::error::Health check failed for ${{ matrix.site.name }} - status: $status"
             exit 1
           fi
 
-          echo "::notice::Health check passed!"
+          echo "::notice::Health check passed for ${{ matrix.site.name }}!"
 
       - name: Get Playwright version
         id: playwright-version
@@ -121,29 +120,25 @@ jobs:
         if: steps.playwright-cache.outputs.cache-hit == 'true'
         run: npx playwright install-deps chromium
 
-      - name: Run Smoke Tests against Production
+      - name: Run Smoke Tests (${{ matrix.site.name }})
         env:
-          # Override base URL to point to production deployment
-          BASE_URL: ${{ github.event.deployment_status.target_url }}
-          # Production test credentials (from Production environment)
+          BASE_URL: ${{ matrix.site.base_url }}
           TEST_USER_EMAIL: ${{ secrets.TEST_USER_EMAIL }}
           TEST_USER_PASSWORD: ${{ secrets.TEST_USER_PASSWORD }}
           TEST_USER_ID: ${{ secrets.TEST_USER_ID }}
-          # Vercel bypass for protected deployments
           VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
-          # Supabase env vars for auth fixture and production safety validation
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
-          echo "Running smoke tests against: $BASE_URL"
+          echo "Running smoke tests against ${{ matrix.site.name }}: $BASE_URL"
           npx playwright test --project=chromium --grep="@smoke" --reporter=list
 
       - name: Upload test results
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: smoke-test-results
+          name: smoke-test-results-${{ matrix.site.name }}
           path: |
             playwright-report/
             test-results/
@@ -154,7 +149,7 @@ jobs:
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
         run: |
-          echo "::error::Post-deployment smoke tests failed! Check the deployment at ${{ github.event.deployment_status.target_url }}"
+          echo "::error::Post-deployment smoke tests failed for ${{ matrix.site.name }} (${{ matrix.site.base_url }})"
 
           if [ -n "$SLACK_WEBHOOK_URL" ]; then
             curl -X POST -H 'Content-type: application/json' \
@@ -164,7 +159,7 @@ jobs:
                     "type": "header",
                     "text": {
                       "type": "plain_text",
-                      "text": "🚨 Production Smoke Tests Failed",
+                      "text": "🚨 Production Smoke Tests Failed (${{ matrix.site.name }})",
                       "emoji": true
                     }
                   },
@@ -173,11 +168,11 @@ jobs:
                     "fields": [
                       {
                         "type": "mrkdwn",
-                        "text": "*Environment:*\nProduction"
+                        "text": "*Site:*\n${{ matrix.site.name }}"
                       },
                       {
                         "type": "mrkdwn",
-                        "text": "*Deployment:*\n<${{ github.event.deployment_status.target_url }}|View Site>"
+                        "text": "*URL:*\n<${{ matrix.site.base_url }}|View Site>"
                       }
                     ]
                   },

@@ -482,6 +482,8 @@ See [Data Model - RLS Policies](data_model.md#rls-policies) for migration detail
 
 The admin UI is a Next.js App Router application. All pages are under `src/app/admin/`.
 
+> **Hostname (post explainanything/evolution split):** the evolution admin UI is served exclusively from the evolution hostname — placeholder `evolution-explainanything.vercel.app` until the apex domain is finalized (see `PROD_EVOLUTION_HOST` in `src/config/hostnames.ts`). Hitting any `/admin/evolution/*` or `/admin/evolution-dashboard` URL on the public hostname returns 404. The site share one Vercel project; routing is middleware-gated. See `docs/planning/split_evolution_explainanythig_into_separate_websites_20260522/`.
+
 | Route | Page File | Purpose |
 |-------|-----------|---------|
 | `/admin/evolution-dashboard` | `evolution-dashboard/page.tsx` | Aggregate metrics dashboard; auto-refresh every 15 seconds |
