@@ -16,8 +16,10 @@
 -- it before code on staging by default; if code ships first, the field stays NULL
 -- until variants are created with the new wiring in place.
 
+-- Idempotent (IF NOT EXISTS): renamed from 20260506000002 during May 23 main→prod
+-- merge; staging already has the column from the original timestamp.
 ALTER TABLE evolution_variants
-  ADD COLUMN sentence_verbatim_ratio NUMERIC;
+  ADD COLUMN IF NOT EXISTS sentence_verbatim_ratio NUMERIC;
 
 COMMENT ON COLUMN evolution_variants.sentence_verbatim_ratio IS
   'Fraction of parent sentences appearing in child (0.0=full rewrite, 1.0=verbatim copy). '
