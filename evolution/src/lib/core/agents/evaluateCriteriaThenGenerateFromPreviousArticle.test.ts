@@ -5,6 +5,7 @@
 import {
   EvaluateCriteriaThenGenerateFromPreviousArticleAgent,
   buildEvaluateAndSuggestPrompt,
+  buildCustomPromptFromSuggestions,
   parseEvaluateAndSuggest,
   EvaluateAndSuggestLLMError,
   EvaluateAndSuggestParseError,
@@ -388,6 +389,48 @@ Fix: real fix`;
       const result = parseEvaluateAndSuggest(response, SAMPLE_CRITERIA, [C1]);
       expect(result.suggestions).toHaveLength(1);
     });
+  });
+});
+
+describe('buildCustomPromptFromSuggestions', () => {
+  const SAMPLE_SUGGESTIONS = [
+    {
+      criteriaName: 'point_of_view',
+      examplePassage: 'The Fed was established in 1913.',
+      whatNeedsAddressing: 'States a fact without framing.',
+      suggestedFix: 'Link this back to the article\'s overarching purpose.',
+    },
+    {
+      criteriaName: 'engagement',
+      examplePassage: 'OMOs involve buying and selling securities.',
+      whatNeedsAddressing: 'Mechanism is stated without a concrete example.',
+      suggestedFix: 'Add a single hypothetical scenario after this sentence.',
+    },
+  ];
+
+  it('renders preamble + numbered Issue blocks', () => {
+    const { preamble, instructions } = buildCustomPromptFromSuggestions(SAMPLE_SUGGESTIONS);
+    expect(preamble).toContain('expert article reviser');
+    expect(instructions).toContain('Issue 1 (point_of_view):');
+    expect(instructions).toContain('Issue 2 (engagement):');
+    expect(instructions).toContain('OMOs involve buying and selling securities.');
+  });
+
+  it('appends the length-preservation directive verbatim (regression guard for understand_critera_agent_performance_evolution_20260503 Phase 2)', () => {
+    const { instructions } = buildCustomPromptFromSuggestions(SAMPLE_SUGGESTIONS);
+    expect(instructions).toContain('Preserve the original word count within ±10%');
+    expect(instructions).toContain('refactor or deepen existing passages rather than adding new sections or examples');
+    expect(instructions).toContain('Do not introduce meta-commentary about the article itself');
+  });
+
+  it('preserves overall structure (preamble / issue blocks / trailing directive)', () => {
+    const { instructions } = buildCustomPromptFromSuggestions(SAMPLE_SUGGESTIONS);
+    const directiveIdx = instructions.indexOf('Preserve the original word count');
+    const issue2Idx = instructions.indexOf('Issue 2');
+    const issue1Idx = instructions.indexOf('Issue 1');
+    expect(issue1Idx).toBeGreaterThanOrEqual(0);
+    expect(issue2Idx).toBeGreaterThan(issue1Idx);
+    expect(directiveIdx).toBeGreaterThan(issue2Idx);
   });
 });
 

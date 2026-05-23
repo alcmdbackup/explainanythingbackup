@@ -6,7 +6,7 @@ This document covers the V2 pipeline's operational components: the three concret
 
 `evolveArticle()` in `evolution/src/lib/pipeline/loop/runIterationLoop.ts` iterates over
 `config.iterationConfigs[]`, an ordered array of `IterationConfig` objects. Each entry
-specifies `agentType` (`generate`, `reflect_and_generate`, `iterative_editing`, or `swiss`), `budgetPercent`, and optional `maxAgents`.
+specifies `agentType` (`generate`, `reflect_and_generate`, `criteria_and_generate`, `debate_and_generate`, `iterative_editing`, or `swiss`), `budgetPercent`, and optional `maxAgents`.
 Per-iteration dollar budgets are computed at runtime: `(budgetPercent / 100) * totalBudget`.
 Each iteration is one of two types — both have the uniform shape **work agent(s) + merge agent**:
 
@@ -414,6 +414,8 @@ A wrapper agent that scores a parent article against user-defined `evolution_cri
 
 **GFPA delegation**: the wrapper builds a `customPrompt` from the weakest-K suggestion bullets and calls `new GenerateFromPreviousArticleAgent().execute(input)` directly with `tactic: 'criteria_driven'`, `customPrompt`, plus `criteriaSetUsed` and `weakestCriteriaIds` for variant attribution. Same load-bearing invariant as the reflection wrapper — must use `.execute()` not `.run()` so cost attribution stays in the wrapper's `AgentCostScope`.
 
+**`customPrompt` length-preservation directive (2026-05-03)**: `buildCustomPromptFromSuggestions` appends a trailing instruction telling the LLM to "Preserve the original word count within ±10% — refactor or deepen existing passages rather than adding new sections or examples. Do not introduce meta-commentary about the article itself." The three sub-clauses target three concrete bloat patterns observed in the understand_critera_agent_performance_evolution_20260503 investigation: bolting on new sections, ornamental tone inflation, and self-referential meta-commentary. Without this directive, additive verbs in suggestion text ("introduce", "frame", "add") reliably produced 29-45% expansion in the worst-case variants. The ±10% number is approximate (LLMs are imprecise about numeric length constraints) but acts as a directional anchor; the surrounding sub-clauses do most of the work.
+
 **Misconfiguration guard** in GFPA: `if (tactic === 'criteria_driven' && customPrompt === undefined) throw` — the marker tactic only makes sense when invoked through this wrapper; bare GFPA dispatch with that tactic is rejected to surface wiring bugs at runtime.
 
 **Cost stack**: `'evaluate_and_suggest'` is a typed `AgentName` with `evaluation_cost` as its bucket. `OUTPUT_TOKEN_ESTIMATES.evaluate_and_suggest = 2300` covers all per-criterion score lines plus K suggestion blocks. `estimateEvaluateAndSuggestCost(parentChars, gen, judge, criteriaCount, weakestK, avgRubricChars)` accounts for prompt overhead + per-criterion description + rubric anchor injection, and `estimateAgentCost(useCriteria, criteriaCount, weakestK)` extends the dispatch-plan projector. Run-level `evaluation_cost` propagates to `total_evaluation_cost` and `avg_evaluation_cost_per_run` at strategy/experiment level.
@@ -423,6 +425,38 @@ A wrapper agent that scores a parent article against user-defined `evolution_cri
 **Mutual exclusivity** with `generationGuidance` and `weakestK`/`criteriaIds`: the Zod refinements on `iterationConfigSchema` reject `criteriaIds` / `weakestK` on non-`criteria_and_generate` rows and reject `generationGuidance` on `criteria_and_generate` rows. The wizard's agent-type select clears the inverse fields when switched.
 
 **Kill-switch**: `EVOLUTION_REFLECTION_ENABLED='false'` env var falls all `agentType: 'reflect_and_generate'` iterations back to vanilla GFPA dispatch. Resolved once per iteration in `runIterationLoop` before parallel/top-up dispatch — single env flip rolls the feature back without code revert.
+
+## SinglePassEvaluateCriteriaAndGenerateAgent (updated_criteria_agent_20260505)
+
+Successor to the legacy `EvaluateCriteriaThenGenerate...` wrapper that ships the **guardrails-only hypothesis** for the criteria-driven failure modes uncovered by `understand_critera_agent_performance_evolution_20260503`. Same shape as (1) above — combined `evaluate_and_suggest` LLM call → GFPA delegation with `customPrompt` — but the customPrompt carries **three** soft directives instead of one: Length (±10% word count), Redundancy (no duplication of existing ideas/phrasing), and Flow (preserve paragraph transitions and section connective tissue). Selected via `IterationConfig.agentType: 'single_pass_evaluate_criteria_and_generate'`. Inherits `criteriaIds`, `weakestK`. Marker tactic `criteria_driven_single_pass` (cyan) keeps the leaderboard A/B clean.
+
+**Class**: `SinglePassEvaluateCriteriaAndGenerateAgent` (`evolution/src/lib/core/agents/singlePassEvaluateCriteriaAndGenerate.ts`).
+- `name = 'single_pass_evaluate_criteria_and_generate'`
+- `usesLLM = true`
+- `getAttributionDimension(detail) → detail.weakestCriteriaNames[0]`
+
+**Observational telemetry (no enforcement)**: `lengthCapHit = (newText.length / parentText.length) > 1.10` recorded post-generation. The variant emits regardless; the field surfaces on the invocation Metrics tab. `redundancyDropCount` and `flowDropCount` always 0 for single-pass (no edit groups to drop).
+
+**Kill switch**: `EVOLUTION_SINGLE_PASS_CRITERIA_ENABLED='false'` falls back to legacy (1).
+
+See full deep dive: `evolution/docs/criteria_agents.md`.
+
+## ProposerApproverCriteriaGenerateAgent (updated_criteria_agent_20260505)
+
+The architectural counterpart to single-pass — tests the **architectural-selectivity hypothesis** by forking `IterativeEditingAgent`'s propose-review-apply primitive but **single-cycle** with a **mirror-approver bias-mitigation pass**. Selected via `IterationConfig.agentType: 'proposer_approver_criteria_generate'`. Marker tactic `criteria_driven_propose_approve` (purple).
+
+**Class**: `ProposerApproverCriteriaGenerateAgent` (`evolution/src/lib/core/agents/proposerApproverCriteriaGenerate.ts`).
+- `name = 'proposer_approver_criteria_generate'`
+- `usesLLM = true`
+- `getAttributionDimension(detail) → detail.weakestCriteriaNames[0]`
+
+**Algorithm** (single cycle): eval+suggest → proposer (full article + inline CriticMarkup) → `validateEditGroups` with `{ lengthCapRatio: 1.10, redundancyJaccardThreshold: 0.35, flowGuardrailEnabled: true }` → forward approver → mirror approver (only if `iterCfg.includesMirrorApprover ?? true`) → strict-binary aggregator (APPLY iff `(forward, mirror) === ('accept', 'reject')`) → applier → post-cycle ranking.
+
+**Cost stack**: 4 LLM calls per parent (eval + propose + forward + mirror) plus ranking. ~3-4× per-variant cost vs vanilla `generate`. Three new AgentName labels (`criteria_proposer`, `criteria_forward_approver`, `criteria_mirror_approver`) all bucket into the umbrella `proposer_approver_criteria_cost` metric. Mirror short-circuit reclaims 20-30% of mirror cost proportional to forward rejection rate.
+
+**Kill switches**: `EVOLUTION_PROPOSER_APPROVER_CRITERIA_ENABLED='false'` rejects the iteration entirely; `EVOLUTION_PROPOSER_APPROVER_CRITERIA_RANK_ENABLED='false'` skips post-cycle ranking. Mirror toggle is per-iteration (`includesMirrorApprover` config field, default `true`), not a global env var.
+
+See full deep dive: `evolution/docs/criteria_agents.md`.
 
 ## IterativeEditingAgent (bring_back_editing_agents_evolution_20260430)
 
@@ -434,7 +468,7 @@ A wrapper agent that runs a propose-then-review editing protocol on existing poo
 - One invocation row per parent (regardless of cycle count)
 
 **Per-cycle protocol**:
-1. **Proposer** (`iterative_edit_propose`) — LLM call. Output is the FULL ARTICLE BODY VERBATIM with inline numbered CriticMarkup edits: `{++ [#N] inserted ++}`, `{-- [#N] deleted --}`, `{~~ [#N] old ~> new ~~}`. Multiple atomic edits sharing `[#N]` form an atomic accept/reject group.
+1. **Proposer** (`iterative_edit_propose`) — LLM call. Output is the FULL ARTICLE BODY VERBATIM with inline CriticMarkup edits: `{++ inserted ++}`, `{-- deleted --}`, `{~~ old ~> new ~~}`, plus the standard CriticMarkup paired form `{~~ old ~~}{++ new ++}` for substitutions. The optional `[#N]` group tag (e.g. `{++ [#1] inserted ++}`) forces grouping across non-adjacent spans; if omitted, the parser auto-assigns group numbers via the **adjacency rule** — consecutive markup spans separated only by horizontal whitespace plus at most one newline form one group, reviewed atomically by the Approver. Paragraph breaks (`\n\n`) split groups. (The `[#N]`-required dialect was the contract before fix_drift_editing_agent_evolution_20260503; the new contract was added because small Proposer models, e.g. `gemini-2.5-flash-lite`, default to standard CriticMarkup conventions and ignored the `[#N]` requirement.)
 2. **Implementer pre-check** (deterministic): parser extracts atomic edits with byte positions in `current.text`; strip-markup pass + drift check. On drift: minor → drift-recovery LLM call; major → cycle aborts. Hard-rule + size-ratio guardrail filters violator groups.
 3. **Approver** (`iterative_edit_review`) — LLM call. Outputs JSONL: one `{groupNumber, decision, reason}` per group. Missing → reject default.
 4. **Implementer apply** (deterministic): collect accepted groups, drop overlapping ranges + context-mismatched edits, sort survivors by `range.start` descending, splice right-to-left.
@@ -463,4 +497,43 @@ After loop terminates: emit final `Variant` if any cycle accepted edits. The fin
 
 **Schema deploy gate**: `evolution/src/lib/core/startupAssertions.ts` queries the `evolution_cost_calibration_phase_allowed` CHECK constraint at agent-registry init and throws `MissingMigrationError` if any TS phase string is missing from the DB enum. Eliminates the silent-reject failure mode PR #1017 hit.
 
-See full deep dive: `docs/feature_deep_dives/editing_agents.md`.
+See full deep dive: `evolution/docs/editing_agents.md`.
+
+## DebateThenGenerateFromPreviousArticleAgent (bring_back_debate_agent_20260506)
+
+A wrapper agent that runs a structured "analyze + judge" comparison of the top-2 pool variants, then synthesizes a child variant from the judge's verdict. Selected per-iteration via `IterationConfig.agentType: 'debate_and_generate'`. **Cannot be the first iteration** — requires ≥2 pool variants for top-2 selection (`canBeFirstIteration` returns false).
+
+**Class**: `DebateThenGenerateFromPreviousArticleAgent` (`evolution/src/lib/core/agents/debate/DebateAgent.ts`).
+
+- `name = 'debate_then_generate_from_previous_article'`
+- `executionDetailSchema = debateExecutionDetailSchema`
+- `tactic = 'debate_synthesis'` (marker tactic per Decision §9; not used by `buildPromptForTactic`)
+- `getAttributionDimension(detail) → 'debate_synthesis'` — feeds `eloAttrDelta:debate_then_generate_from_previous_article:debate_synthesis` rows.
+
+**Algorithm — Option C (2 LLM calls)** per Decision §17:
+
+1. **Top-2 selection** — `resolveDebateDispatchRuntime()` selects the top-2 non-arena rated variants from the iteration-start pool by Elo desc with deterministic id-tiebreak (Decision §12).
+2. **Combined analyze + judge call** — ONE LLM call against the strategy's `judgeModel` produces structured JSON: `{prosA, consA, prosB, consB, winner, reasoning, strengthsFromA, strengthsFromB, improvements}`. Reasoning effort is cascade-resolved (iter → strategy → registry default → undefined) by `resolveDebateJudgeReasoningEffort()`. Cost is recorded under AgentName `'debate_judge'` → `debate_cost` metric.
+3. **Pre-synthesis budget gate** (Decision §8) — if `getOwnSpent() ≥ 0.9 × $0.40` after the judge call, throw with `failurePoint='budget'` BEFORE invoking inner GFPA. Partial detail captures the verdict.
+4. **Synthesis via inner GFPA** — `GenerateFromPreviousArticleAgent.execute()` is invoked with `parentText = winner.text` (Decision §20: revise winner using loser's strengths) + a `customPrompt` built from the verdict. Cost is recorded under AgentName `'debate_synthesis'` (NOT `'generation'`) → `debate_cost` metric.
+
+**Wrapper-agent LLM-client proxy (I4)** — load-bearing invariant for cost attribution:
+
+The synthesis-LLM-proxy must (a) be injected via `innerInput.llm` (NOT `ctx`), (b) wrap BOTH `complete` and `completeStructured` of `EvolutionLLMClient`, and (c) rewrite `'generation' → 'debate_synthesis'` while passing through all other AgentNames (especially `'ranking'` so Swiss-style pairwise comparisons inside GFPA still tag `ranking_cost`). Without I4 the synthesis cost flows to `generation_cost` and `EstPerAgentValue.gen` instead of `EstPerAgentValue.debate`, silently breaking the cost-attribution contract. Cross-reference: bring_back_debate_agent_20260506 Decision §17 + Phase 1.4.
+
+**Multi-parent emission** — synthesized variant has `parentIds` sorted by ELO at debate dispatch time. Order is load-bearing: `parentIds[0]` is the higher-Elo input (canonical primary), `parentIds[1]` is the lower-Elo input. The `elo_delta_vs_parent` invocation metric uses `parentIds[0]` as the baseline, so the synthesis is compared against the strongest input rather than the judge's content-based pick (which lives separately in `execution_detail.debate.combined.winner`). Persistence writes both to `evolution_variants.parent_variant_ids: uuid[]`. (Originally Decision §20 used [winner, loser] ordering — revised 2026-05-09 after staging analysis showed the metric needed the strongest baseline.)
+
+**Surface gates**:
+- Judge `winner='tie'` → synthesis runs but result not surfaced (Decision §13).
+- Synthesis Jaccard ≥ 0.95 vs EITHER parent → not surfaced (`failurePoint='synthesis_no_op'` per Decision §14). Threshold raised from 0.85 (2026-05-08) after refinement-style synthesis (winner-grounded edits) was being rejected; 0.95 catches near-paraphrases without blocking valid 70/30-style blends.
+- Empty synthesis text → not surfaced (`failurePoint='synthesis_empty'`).
+
+**Models** (no debate-specific overrides per Decision §18):
+- Combined judge call: strategy's `judgeModel`. Reasoning effort overridable via `IterationConfig.debateJudgeReasoningEffort` or `StrategyConfig.debateJudgeReasoningEffort` (cross-field refinement at Phase 1.14 enforces `judgeModel.supportsReasoning=true` when set).
+- Synthesis call: strategy's `generationModel` via inner GFPA (no override).
+
+**Kill switch**: `EVOLUTION_DEBATE_ENABLED='false'` short-circuits the dispatch branch (Decision §11). Mirrors at the wizard preview boundary (`debateEnabled` flag → `EstPerAgentValue.debate=0`).
+
+**Cost cap**: $0.40 per invocation; pre-synthesis budget gate fires at 0.9 × cap (Decision §8).
+
+See full deep dive: `evolution/docs/agents/overview.md` (this section) + planning doc at `docs/planning/bring_back_debate_agent_20260506/`.

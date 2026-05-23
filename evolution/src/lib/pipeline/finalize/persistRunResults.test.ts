@@ -218,11 +218,11 @@ describe('finalizeRun', () => {
     expect(summary.seedVariantElo).toBeNull();
   });
 
-  // Bug 2 regression (20260421): `v.parentIds[0] || null` must coerce both undefined
-  // and empty-string to null so the persisted parent_variant_id is always either
-  // a valid UUID or null (never an empty string, which would fail FK validation).
-  // Covers the safety-net guarantee for the Phase 2 arena-filter fallback path.
-  it('falsy parentIds[0] (undefined or empty-string) persists as parent_variant_id=null', async () => {
+  // bring_back_debate_agent_20260506 PR 2 — Phase 3.8b — array-only.
+  // Bug 2 regression (20260421) original concern: '' parentIds entries should not
+  // become invalid UUIDs in the persisted column. buildParentColumns now filters
+  // falsy entries entirely, so the array stays clean.
+  it('falsy parentIds entries (undefined or empty-string) are filtered from parent_variant_ids', async () => {
     const { db, upserts } = makeMockDb();
     const pool = [
       makeVariant(BASELINE_ID, 'seed_variant', { parentIds: [] }),
@@ -251,9 +251,50 @@ describe('finalizeRun', () => {
     const base = rows.find((r) => r.id === BASELINE_ID);
     const gen1 = rows.find((r) => r.id === GEN1_ID);
     const gen2 = rows.find((r) => r.id === GEN2_ID);
-    expect(base!.parent_variant_id).toBeNull();  // empty parentIds → null
-    expect(gen1!.parent_variant_id).toBeNull();  // '' parentIds[0] → null via `||`
-    expect(gen2!.parent_variant_id).toBe(BASELINE_ID);  // real UUID preserved
+    expect(base!.parent_variant_ids).toEqual([]);          // empty parentIds → empty array
+    expect(gen1!.parent_variant_ids).toEqual([]);          // '' filtered — empty array
+    expect(gen2!.parent_variant_ids).toEqual([BASELINE_ID]); // real UUID preserved
+  });
+
+  // bring_back_debate_agent_20260506 — multi-parent variants (debate emits
+  // parentIds=[winner, loser]) write the full array. Order is load-bearing per Decision §20.
+  it('multi-parent variant: parent_variant_ids preserves [winner, loser] order', async () => {
+    const { db, upserts } = makeMockDb();
+    const PARENT_A = '00000000-0000-4000-8000-0000000000aa';
+    const PARENT_B = '00000000-0000-4000-8000-0000000000bb';
+    const SYNTH_ID = '00000000-0000-4000-8000-0000000000cc';
+    const pool = [
+      makeVariant(BASELINE_ID, 'seed_variant', { parentIds: [] }),
+      makeVariant(PARENT_A, 'structural_transform', { parentIds: [BASELINE_ID] }),
+      makeVariant(PARENT_B, 'lexical_simplify', { parentIds: [BASELINE_ID] }),
+      makeVariant(SYNTH_ID, 'debate_synthesis', { parentIds: [PARENT_A, PARENT_B] }),
+    ];
+    const ratings = new Map<string, Rating>([
+      [BASELINE_ID, { elo: 1200, uncertainty: 80 }],
+      [PARENT_A, { elo: 1300, uncertainty: 64 }],
+      [PARENT_B, { elo: 1280, uncertainty: 64 }],
+      [SYNTH_ID, { elo: 1320, uncertainty: 56 }],
+    ]);
+    const result: EvolutionResult = {
+      winner: pool[3]!,
+      pool,
+      ratings,
+      matchHistory: [],
+      totalCost: 0.012,
+      iterationsRun: 3,
+      stopReason: 'completed',
+      eloHistory: [[1320, 1300, 1280, 1200]],
+      diversityHistory: [],
+      matchCounts: { [BASELINE_ID]: 0, [PARENT_A]: 4, [PARENT_B]: 4, [SYNTH_ID]: 4 },
+    };
+    await finalizeRun(RUN_ID, result, { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
+    const rows = (upserts.find((u) => u.table === 'evolution_variants')?.data ?? []) as Array<Record<string, unknown>>;
+    const synth = rows.find((r) => r.id === SYNTH_ID);
+    expect(synth).toBeDefined();
+    // Full lineage with order load-bearing per Decision §20: [winner, loser].
+    expect(synth!.parent_variant_ids).toEqual([PARENT_A, PARENT_B]);
+    // After PR 2's column drop, parent_variant_id is no longer written.
+    expect(synth!.parent_variant_id).toBeUndefined();
   });
 
   it('tacticEffectiveness computed', async () => {

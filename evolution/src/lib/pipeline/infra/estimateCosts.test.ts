@@ -7,6 +7,7 @@ import {
   estimateSwissPairCost,
   estimateEvaluateAndSuggestCost,
   estimateIterativeEditingCost,
+  estimateDebateCost,
 } from './estimateCosts';
 
 describe('estimateCosts', () => {
@@ -187,6 +188,52 @@ describe('estimateCosts', () => {
         3, 20, 15,
       );
       expect(hi.expectedRanking).toBeGreaterThan(lo.expectedRanking);
+    });
+  });
+
+  // ─── estimateDebateCost (bring_back_debate_agent_20260506 Phase 2.9) ──
+  describe('estimateDebateCost', () => {
+    it('returns positive expected/upperBound + separated synthesis sub-costs', () => {
+      const cost = estimateDebateCost(
+        8000, 8000,  // parentA / parentB chars
+        'qwen-2.5-7b-instruct', 'gpt-4.1-nano',  // judge / generation
+        20, 15,  // poolSize / maxComparisonsPerVariant
+      );
+      expect(cost.expected).toBeGreaterThan(0);
+      expect(cost.upperBound).toBeGreaterThanOrEqual(cost.expected);
+      expect(cost.expectedSynthesis).toBeGreaterThan(0);
+      expect(cost.upperBoundSynthesis).toBeGreaterThanOrEqual(cost.expectedSynthesis);
+    });
+
+    it('expected = combined-judge + synthesis (so synthesis is part of debate field, not gen)', () => {
+      const cost = estimateDebateCost(
+        8000, 8000, 'qwen-2.5-7b-instruct', 'gpt-4.1-nano', 20, 15,
+      );
+      // expected ≈ judge + synthesis. Both > 0.
+      expect(cost.expected).toBeGreaterThan(cost.expectedSynthesis);
+    });
+
+    it('zeros ranking cost when poolSize=0', () => {
+      const cost = estimateDebateCost(
+        8000, 8000, 'qwen-2.5-7b-instruct', 'gpt-4.1-nano', 0, 0,
+      );
+      // Synthesis still has the generation half but no ranking.
+      expect(cost.expectedSynthesis).toBeGreaterThan(0);
+      // Without ranking, expected synthesis should be lower than with ranking.
+      const withRanking = estimateDebateCost(
+        8000, 8000, 'qwen-2.5-7b-instruct', 'gpt-4.1-nano', 20, 15,
+      );
+      expect(withRanking.expectedSynthesis).toBeGreaterThan(cost.expectedSynthesis);
+    });
+
+    it('scales with parent text size (judge call has both parents as input)', () => {
+      const small = estimateDebateCost(
+        2000, 2000, 'qwen-2.5-7b-instruct', 'gpt-4.1-nano', 10, 10,
+      );
+      const large = estimateDebateCost(
+        20000, 20000, 'qwen-2.5-7b-instruct', 'gpt-4.1-nano', 10, 10,
+      );
+      expect(large.expected).toBeGreaterThan(small.expected);
     });
   });
 });

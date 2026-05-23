@@ -851,7 +851,7 @@ export type Database = {
           variant_content: string
           elo_score: number
           generation: number
-          parent_variant_id: string | null
+          parent_variant_ids: string[]
           agent_name: string | null
           match_count: number
           is_winner: boolean
@@ -874,7 +874,7 @@ export type Database = {
           variant_content: string
           elo_score?: number
           generation?: number
-          parent_variant_id?: string | null
+          parent_variant_ids?: string[]
           agent_name?: string | null
           match_count?: number
           is_winner?: boolean
@@ -897,7 +897,7 @@ export type Database = {
           variant_content?: string
           elo_score?: number
           generation?: number
-          parent_variant_id?: string | null
+          parent_variant_ids?: string[]
           agent_name?: string | null
           match_count?: number
           is_winner?: boolean

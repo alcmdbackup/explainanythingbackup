@@ -390,7 +390,7 @@ describe('evolutionVisualizationActions', () => {
           agent_name: 'seed',
           elo_score: 1100,
           is_winner: false,
-          parent_variant_id: null,
+          parent_variant_ids: [],
         },
         {
           id: VALID_UUID_3,
@@ -398,7 +398,7 @@ describe('evolutionVisualizationActions', () => {
           agent_name: 'mutator',
           elo_score: 1250,
           is_winner: true,
-          parent_variant_id: VALID_UUID_2,
+          parent_variant_ids: [VALID_UUID_2],
         },
       ];
       const chain = {

@@ -1,0 +1,17 @@
+{
+  "branch": "feat/bring_back_debate_agent_20260506",
+  "created_at": "2026-05-06T00:00:00Z",
+  "prerequisites": {
+    "getting_started_read": "2026-05-07T13:37:33Z",
+    "project_workflow_read": "2026-05-07T13:57:02Z",
+    "todos_created": "2026-05-07T14:00:00Z",
+    "design_style_guide_read": "2026-05-07T14:16:10Z"
+  },
+  "relevantDocs": [
+    "docs/planning/new_edit_operator_20260201/new_edit_operator_20260201_planning.md",
+    "docs/planning/new_edit_operator_20260201/new_edit_operator_20260201_research.md",
+    "docs/planning/historical_agent_evolution_survey_20260504/debate_agent_revival_brief.md",
+    "docs/planning/bring_back_editing_agents_evolution_20260430/bring_back_editing_agents_evolution_20260430_planning.md",
+    "docs/planning/evaluateCriteriaThenGenerateFromPreviousArticle_20260501/evaluateCriteriaThenGenerateFromPreviousArticle_20260501_planning.md"
+  ]
+}

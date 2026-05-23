@@ -8,11 +8,23 @@ describe('TACTIC_PALETTE', () => {
     expect(TACTIC_PALETTE['criteria_driven']).toBeDefined();
     expect(TACTIC_PALETTE['criteria_driven']).toMatch(/^#[0-9a-fA-F]{6}$/);
   });
+
+  it('includes debate_synthesis marker color (rose) — bring_back_debate_agent_20260506 §9', () => {
+    expect(TACTIC_PALETTE['debate_synthesis']).toBeDefined();
+    expect(TACTIC_PALETTE['debate_synthesis']).toMatch(/^#[0-9a-fA-F]{6}$/);
+  });
 });
 
 describe('MARKER_TACTICS', () => {
-  it('contains exactly one entry (criteria_driven)', () => {
-    expect(MARKER_TACTICS).toHaveLength(1);
+  it('contains the 4 marker tactic entries (3 criteria-driven + debate_synthesis)', () => {
+    expect(MARKER_TACTICS).toHaveLength(4);
+    const names = MARKER_TACTICS.map((t) => t.name).sort();
+    expect(names).toEqual([
+      'criteria_driven',
+      'criteria_driven_propose_approve',
+      'criteria_driven_single_pass',
+      'debate_synthesis',
+    ]);
   });
 
   it('criteria_driven entry has correct shape', () => {
@@ -22,11 +34,37 @@ describe('MARKER_TACTICS', () => {
     expect(entry?.agent_type).toBe('evaluate_criteria_then_generate_from_previous_article');
     expect(entry?.category).toBe('meta');
   });
+
+  it('criteria_driven_single_pass entry has correct shape', () => {
+    const entry = MARKER_TACTICS.find((t) => t.name === 'criteria_driven_single_pass');
+    expect(entry).toBeDefined();
+    expect(entry?.agent_type).toBe('single_pass_evaluate_criteria_and_generate');
+    expect(entry?.category).toBe('meta');
+  });
+
+  it('criteria_driven_propose_approve entry has correct shape', () => {
+    const entry = MARKER_TACTICS.find((t) => t.name === 'criteria_driven_propose_approve');
+    expect(entry).toBeDefined();
+    expect(entry?.agent_type).toBe('proposer_approver_criteria_generate');
+    expect(entry?.category).toBe('meta');
+  });
+
+  it('debate_synthesis entry has correct shape', () => {
+    const entry = MARKER_TACTICS.find((t) => t.name === 'debate_synthesis');
+    expect(entry).toBeDefined();
+    expect(entry?.label).toBe('Debate-Synthesis');
+    expect(entry?.agent_type).toBe('debate_then_generate_from_previous_article');
+    expect(entry?.category).toBe('meta');
+  });
 });
 
 describe('getTacticDef vs MARKER_TACTICS (load-bearing invariant)', () => {
   it('getTacticDef("criteria_driven") returns undefined (marker, not prompt-driving)', () => {
     expect(getTacticDef('criteria_driven')).toBeUndefined();
+  });
+
+  it('getTacticDef("debate_synthesis") returns undefined (marker, not prompt-driving)', () => {
+    expect(getTacticDef('debate_synthesis')).toBeUndefined();
   });
 
   it('getTacticDef returns a real def for system tactics', () => {

@@ -302,6 +302,32 @@ describe('strategyRegistryActions', () => {
 
       expect(result.success).toBe(false);
     });
+
+    it('persists editingModel and approverModel into the saved config', async () => {
+      const chain = {
+        insert: jest.fn().mockReturnThis(),
+        select: jest.fn().mockReturnThis(),
+        single: jest.fn().mockResolvedValue({ data: MOCK_STRATEGY, error: null }),
+      };
+      mockSupabase.from = jest.fn().mockReturnValue(chain);
+
+      const result = await createStrategyAction({
+        name: 'Strong proposer',
+        generationModel: 'google/gemini-2.5-flash-lite',
+        editingModel: 'gpt-4.1',
+        approverModel: 'claude-sonnet-4-6',
+        judgeModel: 'qwen-2.5-7b-instruct',
+        iterationConfigs: [{ agentType: 'generate', budgetPercent: 60 }, { agentType: 'swiss', budgetPercent: 40 }],
+        budgetUsd: 0.05,
+      });
+
+      expect(result.success).toBe(true);
+
+      const inserted = (chain.insert as jest.Mock).mock.calls[0][0];
+      expect(inserted.config.editingModel).toBe('gpt-4.1');
+      expect(inserted.config.approverModel).toBe('claude-sonnet-4-6');
+      expect(inserted.config.generationModel).toBe('google/gemini-2.5-flash-lite');
+    });
   });
 
   // ─── updateStrategyAction ────────────────────────────────────

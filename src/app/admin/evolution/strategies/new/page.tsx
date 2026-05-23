@@ -8,13 +8,14 @@ import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { MODEL_OPTIONS } from '@/lib/utils/modelOptions';
-import { DEFAULT_JUDGE_MODEL } from '@/config/modelRegistry';
+import { DEFAULT_JUDGE_MODEL, modelSupportsReasoning, MODEL_REGISTRY } from '@/config/modelRegistry';
 import { createStrategyAction } from '@evolution/services/strategyRegistryActions';
 import {
   getLastUsedPromptAction,
   getStrategyDispatchPreviewAction,
 } from '@evolution/services/strategyPreviewActions';
 import type { LastUsedPromptResult, IterationPlanEntryClient } from '@evolution/services/strategyPreviewActions';
+import type { IterationAgentType } from '@evolution/lib/schemas';
 
 // Mirrors DEFAULT_SEED_CHARS in evolution/src/lib/pipeline/loop/projectDispatchPlan.ts.
 // Inlined here because a `"use server"` file (strategyPreviewActions) can only export
@@ -34,7 +35,7 @@ const STEP_LABELS: Record<Step, string> = { config: 'Strategy Config', iteration
 type BudgetFloorMode = 'fraction' | 'agentMultiple';
 
 interface IterationRow {
-  agentType: 'generate' | 'reflect_and_generate' | 'criteria_and_generate' | 'iterative_editing' | 'swiss';
+  agentType: IterationAgentType;
   budgetPercent: number;
   /** Phase 2: parent-article source for generate iterations. Undefined for swiss/editing.
    *  First iteration is locked to 'seed' by schema refine. */
@@ -49,16 +50,32 @@ interface IterationRow {
    *  agentType === 'reflect_and_generate'. */
   reflectionTopN?: number;
   /** Number of propose-review-apply cycles per parent (1-5, default 3). Only
-   *  valid when agentType === 'iterative_editing'. */
+   *  valid when agentType === 'iterative_editing' (or proposer_approver, fixed at 1). */
   editingMaxCycles?: number;
   /** Eligibility cutoff for editing — caps how many top-Elo variants are eligible
-   *  per iteration. Default {topN: 10}. Only valid when agentType === 'iterative_editing'. */
+   *  per iteration. Default {topN: 10}. Valid for iterative_editing and
+   *  proposer_approver_criteria_generate. */
   editingCutoffMode?: 'topN' | 'topPercent';
   editingCutoffValue?: number;
-  /** Criteria UUIDs to evaluate. Required when agentType === 'criteria_and_generate'. */
+  /** Criteria UUIDs to evaluate. Required for all 3 criteria-based agent types. */
   criteriaIds?: string[];
   /** Number of weakest criteria to focus suggestions on (1-5). Default 1. */
   weakestK?: number;
+  /** Tightened size-ratio cap for proposer/approver edits (default 1.10). Only
+   *  valid when agentType === 'proposer_approver_criteria_generate'. */
+  lengthCapRatio?: number;
+  /** Trigram-Jaccard threshold rejecting edits whose newText overlaps too much
+   *  with the rest of the article. Default 0.35. Valid for the 2 new criteria
+   *  agents only. */
+  redundancyJaccardThreshold?: number;
+  /** When false, skips the mirror-approver pass and applies forward-accepted
+   *  groups directly. Default true (run mirror). Only valid when
+   *  agentType === 'proposer_approver_criteria_generate'. */
+  includesMirrorApprover?: boolean;
+  /** Per-iteration override for debate judge reasoning effort. Only valid when
+   *  agentType === 'debate_and_generate' AND the strategy's judgeModel has
+   *  supportsReasoning=true (Phase 1.14 cross-field refinement enforces both). */
+  debateJudgeReasoningEffort?: 'none' | 'low' | 'medium' | 'high';
 }
 
 // Default cutoff applied when user switches a generate iteration to sourceMode='pool'.
@@ -93,7 +110,7 @@ const DEFAULT_ITERATIONS: IterationRow[] = [
 // ─── Form → payload helpers ─────────────────────────────────────
 
 interface IterationConfigPayload {
-  agentType: 'generate' | 'reflect_and_generate' | 'criteria_and_generate' | 'iterative_editing' | 'swiss';
+  agentType: IterationAgentType;
   budgetPercent: number;
   sourceMode?: 'seed' | 'pool';
   qualityCutoff?: { mode: 'topN' | 'topPercent'; value: number };
@@ -103,19 +120,52 @@ interface IterationConfigPayload {
   editingEligibilityCutoff?: { mode: 'topN' | 'topPercent'; value: number };
   criteriaIds?: string[];
   weakestK?: number;
+  lengthCapRatio?: number;
+  redundancyJaccardThreshold?: number;
+  includesMirrorApprover?: boolean;
+  debateJudgeReasoningEffort?: 'none' | 'low' | 'medium' | 'high';
 }
 
 /** Variant-producing agent types share the same parent-article source machinery
  *  (sourceMode, qualityCutoff). Editing has its own per-cycle parent-selection
- *  mechanism (editingEligibilityCutoff); swiss has none. */
-function isVariantProducing(agentType: IterationRow['agentType']): agentType is 'generate' | 'reflect_and_generate' | 'criteria_and_generate' {
-  return agentType === 'generate' || agentType === 'reflect_and_generate' || agentType === 'criteria_and_generate';
+ *  mechanism (editingEligibilityCutoff); swiss has none.
+ *
+ *  proposer_approver_criteria_generate is also variant-producing — it runs the
+ *  same resolveParent() flow in runIterationLoop.ts (sourceMode='seed' default
+ *  picks the run's seed; sourceMode='pool' picks from the configured cutoff).
+ *  Its own editingEligibilityCutoff is a SEPARATE layer that controls which
+ *  groups inside a proposed-edit set survive the approver pass, not which
+ *  parent variants get drawn from the pool. Omitting propose/approve here
+ *  silently forced every wizard-created propose/approve strategy to default
+ *  to sourceMode='seed' with no way to override from the UI. Phase 7 staging
+ *  surfaced this — added 2026-05-09. */
+function isVariantProducing(
+  agentType: IterationRow['agentType'],
+): agentType is 'generate' | 'reflect_and_generate' | 'criteria_and_generate' | 'single_pass_evaluate_criteria_and_generate' | 'proposer_approver_criteria_generate' {
+  return agentType === 'generate'
+    || agentType === 'reflect_and_generate'
+    || agentType === 'criteria_and_generate'
+    || agentType === 'single_pass_evaluate_criteria_and_generate'
+    || agentType === 'proposer_approver_criteria_generate';
 }
 
 /** Agent types eligible to be the FIRST iteration (must produce variants on an
- *  empty pool). Editing requires existing variants; swiss only re-ranks. */
+ *  empty pool). Editing requires existing variants; swiss only re-ranks.
+ *  proposer_approver_criteria_generate uses an editing-style flow that needs a
+ *  parent variant in the pool, so it cannot be first. */
 function canBeFirstIteration(agentType: IterationRow['agentType']): boolean {
-  return agentType === 'generate' || agentType === 'reflect_and_generate' || agentType === 'criteria_and_generate';
+  return agentType === 'generate'
+    || agentType === 'reflect_and_generate'
+    || agentType === 'criteria_and_generate'
+    || agentType === 'single_pass_evaluate_criteria_and_generate';
+}
+
+/** True for any of the 3 criteria-based agent types. Used to gate
+ *  criteriaIds + weakestK controls. */
+function isCriteriaBased(agentType: IterationRow['agentType']): boolean {
+  return agentType === 'criteria_and_generate'
+    || agentType === 'single_pass_evaluate_criteria_and_generate'
+    || agentType === 'proposer_approver_criteria_generate';
 }
 
 /** Map UI iteration rows to the iterationConfigs payload accepted by the server
@@ -146,19 +196,41 @@ function toIterationConfigsPayload(iterations: IterationRow[]): IterationConfigP
     ...(it.agentType === 'reflect_and_generate'
       ? { reflectionTopN: it.reflectionTopN ?? 3 }
       : {}),
-    // Editing-only fields.
-    ...(it.agentType === 'iterative_editing' && it.editingMaxCycles != null
+    ...((it.agentType === 'iterative_editing' || it.agentType === 'iterative_editing_rewrite')
+      && it.editingMaxCycles != null
       ? { editingMaxCycles: it.editingMaxCycles }
       : {}),
-    ...(it.agentType === 'iterative_editing' && it.editingCutoffMode && it.editingCutoffValue != null
+    ...((it.agentType === 'iterative_editing'
+        || it.agentType === 'iterative_editing_rewrite'
+        || it.agentType === 'proposer_approver_criteria_generate')
+        && it.editingCutoffMode && it.editingCutoffValue != null
       ? { editingEligibilityCutoff: { mode: it.editingCutoffMode, value: it.editingCutoffValue } }
       : {}),
-    // criteriaIds + weakestK only meaningful for criteria_and_generate iterations.
-    ...(it.agentType === 'criteria_and_generate' && it.criteriaIds && it.criteriaIds.length > 0
+    // criteriaIds + weakestK valid for all 3 criteria-based agent types.
+    ...(isCriteriaBased(it.agentType) && it.criteriaIds && it.criteriaIds.length > 0
       ? { criteriaIds: it.criteriaIds }
       : {}),
-    ...(it.agentType === 'criteria_and_generate' && it.weakestK
+    ...(isCriteriaBased(it.agentType) && it.weakestK
       ? { weakestK: it.weakestK }
+      : {}),
+    // Proposer/approver-only fields.
+    ...(it.agentType === 'proposer_approver_criteria_generate' && it.lengthCapRatio != null
+      ? { lengthCapRatio: it.lengthCapRatio }
+      : {}),
+    // Redundancy threshold valid for the 2 new criteria agents.
+    ...((it.agentType === 'single_pass_evaluate_criteria_and_generate'
+        || it.agentType === 'proposer_approver_criteria_generate')
+        && it.redundancyJaccardThreshold != null
+      ? { redundancyJaccardThreshold: it.redundancyJaccardThreshold }
+      : {}),
+    // includesMirrorApprover: emit ONLY when explicitly false (default-on stays
+    // implicit so the strategy hash doesn't drift on default-config strategies).
+    ...(it.agentType === 'proposer_approver_criteria_generate' && it.includesMirrorApprover === false
+      ? { includesMirrorApprover: false }
+      : {}),
+    // bring_back_debate_agent_20260506 Phase 4.6 — debate-only field.
+    ...(it.agentType === 'debate_and_generate' && it.debateJudgeReasoningEffort
+      ? { debateJudgeReasoningEffort: it.debateJudgeReasoningEffort }
       : {}),
   }));
 }
@@ -464,6 +536,13 @@ export default function NewStrategyPage(): JSX.Element {
           errors.push(`Iteration ${i + 1}: tactic percentages must sum to 100% (currently ${tacticSum.toFixed(0)}%)`);
         }
       }
+      // Criteria-based agents require criteriaIds (any of the 3 types).
+      if (isCriteriaBased(it.agentType) && (!it.criteriaIds || it.criteriaIds.length === 0)) {
+        errors.push(`Iteration ${i + 1}: criteria-based agent requires at least one selected criterion`);
+      }
+      if (isCriteriaBased(it.agentType) && it.weakestK && it.criteriaIds && it.weakestK > it.criteriaIds.length) {
+        errors.push(`Iteration ${i + 1}: weakestK (${it.weakestK}) cannot exceed selected criteria (${it.criteriaIds.length})`);
+      }
     });
     return errors;
   }, [iterations, percentValid, totalPercent]);
@@ -483,26 +562,91 @@ export default function NewStrategyPage(): JSX.Element {
         delete updated.reflectionTopN;
         delete updated.criteriaIds;
         delete updated.weakestK;
+        delete updated.lengthCapRatio;
+        delete updated.redundancyJaccardThreshold;
+        delete updated.includesMirrorApprover;
+        delete updated.debateJudgeReasoningEffort;
         return updated;
       }
-      // Shape A: tacticGuidance is generate-only. Switching to reflect_and_generate
-      // (or starting there) clears any guidance so the schema mutex stays satisfied.
-      // The reflection LLM picks the tactic — guidance would be ignored anyway.
-      if (updated.agentType === 'reflect_and_generate') {
+      // Debate selects parents internally; reject sourceMode + qualityCutoff per Phase 4.7.
+      if (updated.agentType === 'debate_and_generate') {
+        delete updated.sourceMode;
+        delete updated.qualityCutoffMode;
+        delete updated.qualityCutoffValue;
         delete updated.tacticGuidance;
+        delete updated.reflectionTopN;
         delete updated.criteriaIds;
         delete updated.weakestK;
-        updated.reflectionTopN ??= 3;
-      } else if (updated.agentType === 'criteria_and_generate') {
+        delete updated.editingMaxCycles;
+        delete updated.editingCutoffMode;
+        delete updated.editingCutoffValue;
+        delete updated.lengthCapRatio;
+        delete updated.redundancyJaccardThreshold;
+        delete updated.includesMirrorApprover;
+        return updated;
+      }
+      // iterative_editing + iterative_editing_rewrite: keep editingMaxCycles + editingCutoff*; drop variant-flow fields.
+      if (updated.agentType === 'iterative_editing' || updated.agentType === 'iterative_editing_rewrite') {
+        delete updated.tacticGuidance;
+        delete updated.reflectionTopN;
+        delete updated.criteriaIds;
+        delete updated.weakestK;
+        delete updated.lengthCapRatio;
+        delete updated.redundancyJaccardThreshold;
+        delete updated.includesMirrorApprover;
+      } else if (updated.agentType === 'proposer_approver_criteria_generate') {
+        // Single-cycle propose/approve agent. editingMaxCycles fixed at 1.
         delete updated.tacticGuidance;
         delete updated.reflectionTopN;
         updated.criteriaIds ??= [];
         updated.weakestK ??= 1;
+        updated.editingMaxCycles = 1;
+        updated.editingCutoffMode ??= 'topN';
+        updated.editingCutoffValue ??= 10;
+        // Defaults: 1.10 length cap, 0.35 redundancy threshold, mirror on.
+        updated.lengthCapRatio ??= 1.10;
+        updated.redundancyJaccardThreshold ??= 0.35;
+        updated.includesMirrorApprover ??= true;
+      } else if (updated.agentType === 'single_pass_evaluate_criteria_and_generate') {
+        delete updated.tacticGuidance;
+        delete updated.reflectionTopN;
+        delete updated.editingMaxCycles;
+        delete updated.editingCutoffMode;
+        delete updated.editingCutoffValue;
+        delete updated.lengthCapRatio;
+        delete updated.includesMirrorApprover;
+        updated.criteriaIds ??= [];
+        updated.weakestK ??= 1;
+        updated.redundancyJaccardThreshold ??= 0.35;
+      } else if (updated.agentType === 'reflect_and_generate') {
+        // Shape A: tacticGuidance is generate-only. Switching to reflect_and_generate
+        // clears any guidance so the schema mutex stays satisfied.
+        delete updated.tacticGuidance;
+        delete updated.criteriaIds;
+        delete updated.weakestK;
+        delete updated.lengthCapRatio;
+        delete updated.redundancyJaccardThreshold;
+        delete updated.includesMirrorApprover;
+        delete updated.debateJudgeReasoningEffort;
+        updated.reflectionTopN ??= 3;
+      } else if (updated.agentType === 'criteria_and_generate') {
+        delete updated.tacticGuidance;
+        delete updated.reflectionTopN;
+        delete updated.lengthCapRatio;
+        delete updated.redundancyJaccardThreshold;
+        delete updated.includesMirrorApprover;
+        delete updated.debateJudgeReasoningEffort;
+        updated.criteriaIds ??= [];
+        updated.weakestK ??= 1;
       } else {
-        // generate: drop reflection + criteria fields (stale from prior selection).
+        // generate: drop reflection + criteria + debate fields (stale from prior selection).
         delete updated.reflectionTopN;
         delete updated.criteriaIds;
         delete updated.weakestK;
+        delete updated.lengthCapRatio;
+        delete updated.redundancyJaccardThreshold;
+        delete updated.includesMirrorApprover;
+        delete updated.debateJudgeReasoningEffort;
       }
       // Variant-producing: ensure sourceMode is always set so payload emission is deterministic.
       updated.sourceMode ??= 'seed';
@@ -981,7 +1125,11 @@ export default function NewStrategyPage(): JSX.Element {
                         <option value="generate">Generate</option>
                         <option value="reflect_and_generate">Reflect &amp; Generate</option>
                         <option value="criteria_and_generate">Evaluate Criteria + Generate</option>
-                        <option value="iterative_editing" disabled={idx === 0} title={idx === 0 ? 'First iteration must produce variants' : undefined}>Iterative Editing</option>
+                        <option value="single_pass_evaluate_criteria_and_generate">Single-Pass Criteria w/ Guardrails</option>
+                        <option value="proposer_approver_criteria_generate" disabled={idx === 0} title={idx === 0 ? 'First iteration must produce variants — propose/approve edits an existing parent' : undefined}>Proposer-Approver Criteria w/ Mirror</option>
+                        <option value="debate_and_generate" disabled={idx === 0} title={idx === 0 ? 'First iteration must produce variants on an empty pool' : 'Debate top-2 pool variants then synthesize'}>Debate + Generate</option>
+                        <option value="iterative_editing" disabled={idx === 0} title={idx === 0 ? 'First iteration must produce variants' : undefined}>Iterative Editing (Markup)</option>
+                        <option value="iterative_editing_rewrite" disabled={idx === 0} title={idx === 0 ? 'First iteration must produce variants' : 'Mode B: proposer rewrites; markup computed mechanically'}>Iterative Editing (Rewrite)</option>
                         <option value="swiss" disabled={idx === 0} title={idx === 0 ? 'First iteration must produce variants' : undefined}>Swiss</option>
                       </select>
 
@@ -1120,26 +1268,32 @@ export default function NewStrategyPage(): JSX.Element {
                         />
                       </div>
                     )}
-                    {it.agentType === 'iterative_editing' && (
+                    {(it.agentType === 'iterative_editing' || it.agentType === 'iterative_editing_rewrite' || it.agentType === 'proposer_approver_criteria_generate') && (
                       <div
                         className="mt-2 pl-8 flex flex-wrap items-center gap-2 text-xs font-ui"
                         data-testid={`iteration-editing-controls-${idx}`}
                       >
-                        <span className="text-[var(--text-primary)]">✏️ Cycles per parent:</span>
-                        <input
-                          type="number"
-                          min={1}
-                          max={5}
-                          step={1}
-                          value={it.editingMaxCycles ?? 3}
-                          onChange={e => {
-                            const v = e.target.value === '' ? undefined : Number(e.target.value);
-                            updateIteration(idx, { editingMaxCycles: v });
-                          }}
-                          className="w-14 px-2 py-1 text-xs font-mono bg-[var(--surface-primary)] border border-[var(--border-default)] rounded-page text-[var(--text-primary)] text-right focus:border-[var(--accent-gold)] focus:outline-none"
-                          data-testid={`editing-max-cycles-${idx}`}
-                          title="How many propose-review-apply rounds run per parent (1-5). More = more refinement, higher cost."
-                        />
+                        <span className="text-[var(--text-primary)]">
+                          {it.agentType === 'proposer_approver_criteria_generate'
+                            ? '✏️ Cycles per parent: 1 (single-pass fixed)'
+                            : '✏️ Cycles per parent:'}
+                        </span>
+                        {(it.agentType === 'iterative_editing' || it.agentType === 'iterative_editing_rewrite') && (
+                          <input
+                            type="number"
+                            min={1}
+                            max={5}
+                            step={1}
+                            value={it.editingMaxCycles ?? 3}
+                            onChange={e => {
+                              const v = e.target.value === '' ? undefined : Number(e.target.value);
+                              updateIteration(idx, { editingMaxCycles: v });
+                            }}
+                            className="w-14 px-2 py-1 text-xs font-mono bg-[var(--surface-primary)] border border-[var(--border-default)] rounded-page text-[var(--text-primary)] text-right focus:border-[var(--accent-gold)] focus:outline-none"
+                            data-testid={`editing-max-cycles-${idx}`}
+                            title="How many propose-review-apply rounds run per parent (1-5). More = more refinement, higher cost."
+                          />
+                        )}
                         <span className="ml-2 text-[var(--text-primary)]">· Eligibility cutoff: top</span>
                         <input
                           type="number"
@@ -1168,7 +1322,7 @@ export default function NewStrategyPage(): JSX.Element {
                         </span>
                       </div>
                     )}
-                    {it.agentType === 'criteria_and_generate' && (
+                    {isCriteriaBased(it.agentType) && (
                       <div
                         className="mt-2 pl-8 flex flex-wrap items-center gap-2 text-xs font-ui"
                         data-testid={`iteration-criteria-controls-${idx}`}
@@ -1203,6 +1357,58 @@ export default function NewStrategyPage(): JSX.Element {
                         />
                       </div>
                     )}
+                    {(it.agentType === 'single_pass_evaluate_criteria_and_generate'
+                      || it.agentType === 'proposer_approver_criteria_generate') && (
+                      <div
+                        className="mt-2 pl-8 flex flex-wrap items-center gap-2 text-xs font-ui"
+                        data-testid={`iteration-guardrails-controls-${idx}`}
+                      >
+                        <span className="text-[var(--text-primary)]">🛡️ Redundancy threshold:</span>
+                        <input
+                          type="number"
+                          min={0}
+                          max={1}
+                          step={0.05}
+                          value={it.redundancyJaccardThreshold ?? 0.35}
+                          onChange={e => {
+                            const v = e.target.value === '' ? undefined : Number(e.target.value);
+                            updateIteration(idx, { redundancyJaccardThreshold: v });
+                          }}
+                          className="w-16 px-2 py-1 text-xs font-mono bg-[var(--surface-primary)] border border-[var(--border-default)] rounded-page text-[var(--text-primary)] text-right focus:border-[var(--accent-gold)] focus:outline-none"
+                          data-testid={`redundancy-threshold-input-${idx}`}
+                          title="Trigram-Jaccard threshold (0-1). Reject edits whose newText shares more than this fraction of trigrams with the rest of the article. Default 0.35."
+                        />
+                        {it.agentType === 'proposer_approver_criteria_generate' && (
+                          <>
+                            <span className="ml-2 text-[var(--text-primary)]">· Length cap ratio:</span>
+                            <input
+                              type="number"
+                              min={1.01}
+                              max={1.50}
+                              step={0.05}
+                              value={it.lengthCapRatio ?? 1.10}
+                              onChange={e => {
+                                const v = e.target.value === '' ? undefined : Number(e.target.value);
+                                updateIteration(idx, { lengthCapRatio: v });
+                              }}
+                              className="w-16 px-2 py-1 text-xs font-mono bg-[var(--surface-primary)] border border-[var(--border-default)] rounded-page text-[var(--text-primary)] text-right focus:border-[var(--accent-gold)] focus:outline-none"
+                              data-testid={`length-cap-ratio-input-${idx}`}
+                              title="Tightened size-ratio cap. Edits whose newText > this × oldText length get dropped. Default 1.10 (±10%)."
+                            />
+                            <label className="ml-2 inline-flex items-center gap-1 cursor-pointer" title="When checked, the approver runs twice (forward + mirror) and applies edits only when forward=ACCEPT and mirror=REJECT. When unchecked, applies forward-accepted edits directly.">
+                              <input
+                                type="checkbox"
+                                checked={it.includesMirrorApprover ?? true}
+                                onChange={e => updateIteration(idx, { includesMirrorApprover: e.target.checked })}
+                                className="cursor-pointer"
+                                data-testid={`includes-mirror-approver-${idx}`}
+                              />
+                              <span className="text-[var(--text-primary)]">Include mirror approver</span>
+                            </label>
+                          </>
+                        )}
+                      </div>
+                    )}
                     {criteriaEditorIdx === idx && (
                       <CriteriaMultiSelect
                         availableCriteria={availableCriteria}
@@ -1211,6 +1417,53 @@ export default function NewStrategyPage(): JSX.Element {
                         onClose={() => setCriteriaEditorIdx(null)}
                       />
                     )}
+                    {it.agentType === 'debate_and_generate' && (() => {
+                      // bring_back_debate_agent_20260506 Phase 4.6 — debate iteration controls.
+                      // Reasoning-effort dropdown is conditionally enabled by the strategy's
+                      // judgeModel.supportsReasoning flag. Disabled state shows a help-text chip
+                      // listing reasoning-capable models from the registry.
+                      const judgeModel = form.judgeModel;
+                      const judgeSupportsReasoning = modelSupportsReasoning(judgeModel);
+                      const reasoningCapableModels = Object.entries(MODEL_REGISTRY)
+                        .filter(([, m]) => m.supportsReasoning)
+                        .map(([id]) => id);
+                      const registryDefault = MODEL_REGISTRY[judgeModel]?.defaultReasoningEffort;
+                      return (
+                        <div
+                          className="mt-2 pl-8 flex flex-wrap items-center gap-2 text-xs font-ui"
+                          data-testid={`iteration-debate-controls-${idx}`}
+                        >
+                          <span className="text-[var(--text-primary)]" data-testid={`debate-info-chip-${idx}`}>
+                            🥊 Uses strategy Judge model for analyze+judge / Generation model for synthesis · Judge reasoning effort:
+                          </span>
+                          <select
+                            value={it.debateJudgeReasoningEffort ?? ''}
+                            disabled={!judgeSupportsReasoning}
+                            onChange={e => {
+                              const v = e.target.value === '' ? undefined : (e.target.value as 'none' | 'low' | 'medium' | 'high');
+                              updateIteration(idx, { debateJudgeReasoningEffort: v });
+                            }}
+                            className="px-2 py-1 text-xs font-ui bg-[var(--surface-primary)] border border-[var(--border-default)] rounded-page text-[var(--text-primary)] focus:border-[var(--accent-gold)] focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
+                            data-testid={`debate-reasoning-effort-${idx}`}
+                          >
+                            <option value="">
+                              {judgeSupportsReasoning
+                                ? `Inherit (${registryDefault ?? 'none'})`
+                                : `Not supported by ${judgeModel}`}
+                            </option>
+                            <option value="none">none</option>
+                            <option value="low">low</option>
+                            <option value="medium">medium</option>
+                            <option value="high">high</option>
+                          </select>
+                          {!judgeSupportsReasoning && (
+                            <span className="text-[var(--text-muted)] italic" data-testid={`debate-reasoning-help-chip-${idx}`}>
+                              Pick a reasoning-capable model ({reasoningCapableModels.join(', ')}) on Step 1 to enable thinking.
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })()}
                     </div>
                   );
                 })}
@@ -1261,26 +1514,6 @@ export default function NewStrategyPage(): JSX.Element {
                   {iterationErrors.join('. ')}
                 </div>
               )}
-
-              {(() => {
-                // Editing-terminal warning per Decisions §14: when last iteration is
-                // iterative_editing with no later swiss (or other ranking-emitting agent),
-                // newly edited variants enter the pool with default Elo and never get ranked.
-                const lastIdx = iterations.length - 1;
-                if (lastIdx < 0 || iterations[lastIdx]?.agentType !== 'iterative_editing') return null;
-                const hasLaterRanking = false; // last iteration by definition has nothing after it
-                if (hasLaterRanking) return null;
-                return (
-                  <div
-                    data-testid="editing-terminal-warning"
-                    role="alert"
-                    aria-live="polite"
-                    className="rounded-book bg-[var(--status-warning)]/10 border border-[var(--status-warning)]/40 p-2 font-ui text-sm text-[var(--status-warning)]"
-                  >
-                    ⚠️ This strategy ends with an Iterative Editing iteration. Variants edited in the final iteration will enter the pool at default Elo and won&apos;t be ranked. Add a Swiss iteration after the last editing iteration to give the new variants a chance to compete.
-                  </div>
-                );
-              })()}
 
               <div className="flex gap-3">
                 <button

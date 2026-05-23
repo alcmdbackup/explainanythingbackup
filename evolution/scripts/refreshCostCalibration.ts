@@ -38,9 +38,15 @@ type Phase =
   | 'seed_title'
   | 'seed_article'
   | 'reflection'
+  | 'evaluate_and_suggest'
   | 'iterative_edit_propose'
   | 'iterative_edit_review'
-  | 'iterative_edit_drift_recovery';
+  | 'iterative_edit_drift_recovery'
+  | 'criteria_proposer'
+  | 'criteria_forward_approver'
+  | 'criteria_mirror_approver'
+  | 'debate_judge'
+  | 'debate_synthesis';
 
 interface Bucket {
   outputCharsSum: number;
@@ -79,9 +85,15 @@ function asPhase(raw: unknown): Phase | null {
     case 'seed_title':
     case 'seed_article':
     case 'reflection':
+    case 'evaluate_and_suggest':
     case 'iterative_edit_propose':
     case 'iterative_edit_review':
     case 'iterative_edit_drift_recovery':
+    case 'criteria_proposer':
+    case 'criteria_forward_approver':
+    case 'criteria_mirror_approver':
+    case 'debate_judge':
+    case 'debate_synthesis':
       return raw;
     default:
       return null;

@@ -23,6 +23,9 @@ export const STATIC_METRIC_NAMES = [
   // Run (live during-execution)
   'cost', 'generation_cost', 'ranking_cost', 'reflection_cost', 'seed_cost',
   'iterative_edit_cost',
+  // bring_back_debate_agent_20260506 Phase 1.5 — single bucket for both
+  // debate_judge and debate_synthesis AgentNames (per Decision §6 + Phase 1.4).
+  'debate_cost',
   // Phase 3.5 — separate cost bucket for the post-cycle ranking step inside
   // editing iterations (mirrors the generation_cost/ranking_cost split for GFPA).
   'iterative_edit_rank_cost',
@@ -57,6 +60,27 @@ export const STATIC_METRIC_NAMES = [
   'total_seed_cost', 'avg_seed_cost_per_run',
   // Run-level evaluation cost (single combined LLM call by the criteria-driven wrapper)
   'evaluation_cost', 'total_evaluation_cost', 'avg_evaluation_cost_per_run',
+  // Run-level propose/approve criteria cost (umbrella — propose + forward + mirror calls all bucket here).
+  // Per-purpose split lives in execution_detail.cycles[0]; this is the rollup metric.
+  'proposer_approver_criteria_cost',
+  'total_proposer_approver_criteria_cost', 'avg_proposer_approver_criteria_cost_per_run',
+  // Run-level operational health for proposer/approver agent.
+  'proposer_approver_drift_rate',
+  'proposer_approver_accept_rate',
+  'proposer_approver_mirror_agreement_rate',
+  // Invocation-level: per-invocation agreement / accept / mirror-filter rates.
+  'invocation_mirror_agreement_rate',
+  'invocation_forward_accept_rate',
+  'invocation_mirror_filter_rate',
+  // Sentence-overlap quality metrics (universal — all variant-producing agents).
+  // Run-level distribution shape:
+  'median_sentence_verbatim_ratio',
+  'p25_sentence_verbatim_ratio',
+  'min_sentence_verbatim_ratio',
+  // Strategy/experiment-level propagation:
+  'avg_median_sentence_verbatim_ratio',
+  // Run-level + propagation debate cost (combined judge + synthesis calls).
+  'total_debate_cost', 'avg_debate_cost_per_run',
   'avg_final_elo', 'best_final_elo', 'worst_final_elo',
   'avg_median_elo', 'avg_p90_elo', 'best_max_elo',
   'avg_matches_per_run', 'avg_decisive_rate',

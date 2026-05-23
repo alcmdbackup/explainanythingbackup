@@ -11,16 +11,27 @@ jobs:
     environment: Production
     timeout-minutes: 45
 
-    # Sequential browser execution to avoid OpenAI rate limiting
+    # Sequential browser execution to avoid OpenAI rate limiting.
+    # Both hostnames served by the single Vercel project (Option B of the
+    # explainanything/evolution website split) get smoked nightly: the public
+    # host runs @critical, the evolution host runs @evolution.
     strategy:
       fail-fast: false
-      max-parallel: 1  # Run one browser at a time
+      max-parallel: 1
       matrix:
         browser: [chromium, firefox]
+        site:
+          - name: public
+            base_url: https://explainanything.vercel.app
+            grep_filter: '@critical'
+          - name: evolution
+            # Update when PROD_EVOLUTION_HOST in src/config/hostnames.ts changes.
+            base_url: https://ea-evolution.vercel.app
+            grep_filter: '@evolution'
 
     env:
-      # Production URL - no local build
-      BASE_URL: https://explainanything.vercel.app
+      # Per-matrix BASE_URL so each row hits the right hostname.
+      BASE_URL: ${{ matrix.site.base_url }}
 
       # Production secrets
       NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
@@ -79,11 +90,11 @@ jobs:
       - name: Seed admin test user
         run: npx tsx scripts/seed-admin-test-user.ts
 
-      - name: Health Check (with retry)
+      - name: Health Check (${{ matrix.site.name }}, with retry)
         env:
           VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+          DEPLOY_URL: ${{ matrix.site.base_url }}
         run: |
-          DEPLOY_URL="https://explainanything.vercel.app"
           MAX_RETRIES=3
           RETRY_DELAY=10
 
@@ -106,14 +117,14 @@ jobs:
             http_code=$(health_check)
 
             if [ "$http_code" = "403" ]; then
-              echo "::error::Deployment protection blocked (403). Check VERCEL_AUTOMATION_BYPASS_SECRET."
-              exit 1  # Don't retry auth failures
+              echo "::error::Deployment protection blocked (403) on ${{ matrix.site.name }}. Check VERCEL_AUTOMATION_BYPASS_SECRET."
+              exit 1
             elif [ "$http_code" = "200" ]; then
               response=$(cat /tmp/health.json)
               status=$(echo "$response" | jq -r '.status')
               echo "$response" | jq .
               if [ "$status" = "healthy" ]; then
-                echo "::notice::Health check passed on attempt $attempt!"
+                echo "::notice::Health check passed for ${{ matrix.site.name }} on attempt $attempt!"
                 exit 0
               fi
             fi
@@ -124,7 +135,7 @@ jobs:
             fi
           done
 
-          echo "::error::Health check failed after $MAX_RETRIES attempts"
+          echo "::error::Health check failed for ${{ matrix.site.name }} after $MAX_RETRIES attempts"
           cat /tmp/health.json 2>/dev/null || echo "(No response body)"
           exit 1
 
@@ -158,17 +169,21 @@ jobs:
           fi
           echo "All mock-dependent test files have @skip-prod tags"
 
-      - name: Run E2E Tests
-        # Belt-and-suspenders: CLI filter ensures @skip-prod tests are skipped regardless
-        # of which branch's playwright.config.ts is checked out (main vs production).
-        # The config-based grepInvert in playwright.config.ts provides defense-in-depth.
-        run: npx playwright test --project=${{ matrix.browser }} --grep-invert="@skip-prod"
+      - name: Run E2E Tests (${{ matrix.site.name }}, ${{ matrix.browser }})
+        # Per-site grep filter: public → @critical, evolution → @evolution.
+        # Belt-and-suspenders: --grep-invert="@skip-prod" stays so mock-dependent
+        # tests are skipped regardless of which branch's playwright.config.ts is checked out.
+        run: |
+          echo "Running ${{ matrix.site.grep_filter }} tests against ${{ matrix.site.name }}: $BASE_URL"
+          npx playwright test --project=${{ matrix.browser }} \
+            --grep="${{ matrix.site.grep_filter }}" \
+            --grep-invert="@skip-prod"
 
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-report-${{ matrix.browser }}
+          name: playwright-report-${{ matrix.site.name }}-${{ matrix.browser }}
           path: playwright-report/
           retention-days: 30
 
@@ -177,20 +192,22 @@ jobs:
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
         run: |
-          echo "::error::Nightly E2E tests failed!"
+          echo "::error::Nightly E2E tests failed for ${{ matrix.site.name }} (${{ matrix.browser }})!"
           if [ -n "$SLACK_WEBHOOK_URL" ]; then
             curl -X POST -H 'Content-type: application/json' \
               --data '{
                 "blocks": [
                   {
                     "type": "header",
-                    "text": {"type": "plain_text", "text": "🚨 Nightly E2E Tests Failed", "emoji": true}
+                    "text": {"type": "plain_text", "text": "🚨 Nightly E2E Tests Failed (${{ matrix.site.name }})", "emoji": true}
                   },
                   {
                     "type": "section",
                     "fields": [
-                      {"type": "mrkdwn", "text": "*Environment:*\nProduction"},
-                      {"type": "mrkdwn", "text": "*Browser:*\n${{ matrix.browser }}"}
+                      {"type": "mrkdwn", "text": "*Site:*\n${{ matrix.site.name }}"},
+                      {"type": "mrkdwn", "text": "*Browser:*\n${{ matrix.browser }}"},
+                      {"type": "mrkdwn", "text": "*URL:*\n${{ matrix.site.base_url }}"},
+                      {"type": "mrkdwn", "text": "*Filter:*\n${{ matrix.site.grep_filter }}"}
                     ]
                   },
                   {

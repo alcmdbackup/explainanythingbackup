@@ -94,6 +94,46 @@ describe('parseProposedEdits — property-based', () => {
     );
   });
 
+  it('unnumbered substitution: parser auto-assigns groupNumber and recoveredSource matches currentText', () => {
+    fc.assert(
+      fc.property(
+        fc.string({ minLength: 1, maxLength: 20 }).filter((s) => !/[{~+\-\s]/.test(s)),
+        fc.string({ minLength: 1, maxLength: 20 }).filter((s) => !/[{~+\-\s]/.test(s)),
+        fc.string({ minLength: 1, maxLength: 20 }).filter((s) => !/[{~+\-\s]/.test(s)),
+        fc.string({ minLength: 1, maxLength: 20 }).filter((s) => !/[{~+\-\s]/.test(s)),
+        (prefix, oldText, newText, suffix) => {
+          const currentText = `${prefix}${oldText}${suffix}`;
+          // No [#N] tag — relies on the new optional-number contract.
+          const markup = `${prefix}{~~ ${oldText} ~> ${newText} ~~}${suffix}`;
+          const result = parseProposedEdits(markup, currentText);
+          if (result.groups.length === 0) return; // adversarial drop OK
+          // Auto-assigned group number is a positive integer.
+          expect(result.groups[0]!.groupNumber).toBeGreaterThan(0);
+          // recoveredSource invariant still holds for unnumbered markup.
+          expect(result.recoveredSource).toBe(currentText);
+        },
+      ),
+      { numRuns: 50 },
+    );
+  });
+
+  it('N adjacent unnumbered insertions (whitespace-only between) → exactly one group with N edits', () => {
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 2, max: 5 }),
+        (n) => {
+          // Build N adjacent {++ X ++} spans separated by single spaces.
+          const inserts = Array.from({ length: n }, (_, i) => `{++ ins${i} ++}`).join(' ');
+          const markup = `${inserts}rest`;
+          const result = parseProposedEdits(markup, 'rest');
+          expect(result.groups).toHaveLength(1);
+          expect(result.groups[0]!.atomicEdits).toHaveLength(n);
+        },
+      ),
+      { numRuns: 30 },
+    );
+  });
+
   it('parser output is structurally valid (groups have non-empty atomicEdits arrays)', () => {
     fc.assert(
       fc.property(fc.string({ minLength: 0, maxLength: 200 }), (text) => {

@@ -16,6 +16,17 @@
 // Sample criteria are intentionally generic; researchers can edit/archive/delete
 // them through the admin UI (`/admin/evolution/criteria`) without re-running this
 // script.
+//
+// 2026-05-03: `point_of_view` and `engagement` rubric anchors revised based on the
+// understand_critera_agent_performance_evolution_20260503 investigation. Original
+// anchors penalized neutral writing for educational content (POV scored 4.15/10 avg,
+// pushing 96.8% of variants toward opinionated framing) and demanded page-turner
+// pacing (engagement). Reframed POV around authorial-voice/pedagogical-fit and
+// engagement around logical-pacing/example-sequencing. See
+// `docs/planning/understand_critera_agent_performance_evolution_20260503/` for the
+// full investigation. Existing staging/prod rows are NOT updated by this script
+// (skip-if-exists semantics); `evolution/scripts/updatePovEngagementRubrics.ts` is
+// the in-place update tool for those.
 
 import { createClient } from '@supabase/supabase-js';
 
@@ -41,13 +52,13 @@ export const SAMPLE_CRITERIA: ReadonlyArray<SampleCriterion> = [
   },
   {
     name: 'engagement',
-    description: 'How well the article holds reader attention from start to finish.',
+    description: 'Logical pacing and example sequencing — does the reader feel guided from one idea to the next, with examples that build understanding?',
     min_rating: 1,
     max_rating: 10,
     evaluation_guidance: [
-      { score: 1, description: 'No hook; reader bounces in the first paragraph.' },
-      { score: 5, description: 'Mild interest; pacing flat or uneven.' },
-      { score: 10, description: 'Compelling throughout; reader can\'t stop until the end.' },
+      { score: 1, description: 'Examples appear randomly or as bullet-list filler; transitions between concepts are abrupt or absent.' },
+      { score: 5, description: 'Examples are present and mostly relevant, but transitions feel mechanical and pacing is uneven.' },
+      { score: 10, description: 'Each example builds on the last; transitions feel inevitable; pacing matches the cognitive load of the material.' },
     ],
   },
   {
@@ -85,13 +96,13 @@ export const SAMPLE_CRITERIA: ReadonlyArray<SampleCriterion> = [
   },
   {
     name: 'point_of_view',
-    description: 'Whether the article takes a clear stance or perspective rather than enumerating facts neutrally.',
+    description: 'Clarity of authorial voice and pedagogical framing — does the reader understand who is explaining this and why each section is included?',
     min_rating: 1,
     max_rating: 10,
     evaluation_guidance: [
-      { score: 1, description: 'Pure enumeration; no perspective; reads like a Wikipedia summary.' },
-      { score: 5, description: 'Implicit perspective; takes occasional positions but mostly neutral.' },
-      { score: 10, description: 'Clear thesis or perspective; the article argues for something specific.' },
+      { score: 1, description: 'No discernible voice; the article reads like disconnected facts with no guiding intent.' },
+      { score: 5, description: 'Voice is present but inconsistent; the framing of why-this-matters appears in some sections and is missing in others.' },
+      { score: 10, description: 'Strong, consistent authorial voice; the reader always understands the framing and why each section is included.' },
     ],
   },
   {

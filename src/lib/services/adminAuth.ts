@@ -1,20 +1,62 @@
 'use server';
 /**
  * Service for admin authentication and authorization.
- * Provides database-backed admin role checking for server-side enforcement.
+ * Provides database-backed admin role checking for server-side enforcement,
+ * plus a hostname-tier assertion that locks admin functionality to the
+ * evolution hostname (split_evolution_explainanythig_into_separate_websites_20260522).
  */
 
+import { headers } from 'next/headers';
 import { createSupabaseServerClient } from '@/lib/utils/supabase/server';
 import { logger } from '@/lib/server_utilities';
+import { classifyHost } from '@/config/hostnames';
+
+/**
+ * Defense-in-depth: refuse admin access from the public hostname.
+ *
+ * Tiers that pass: `evolution`, `local`, `preview`.
+ * Tiers that fail: `public`, `unknown` (fail-closed).
+ *
+ * When called outside a request context (e.g. background jobs, the
+ * minicomputer batch runner, build-time static generation), `headers()`
+ * throws — we treat that as "no hostname to check" and pass through,
+ * since those callers never have a Host header to begin with. The
+ * middleware is the perimeter; this assertion is the second wall.
+ *
+ * @returns `true` if the host is acceptable for admin access, `false` if not.
+ */
+async function isHostAcceptableForAdmin(): Promise<boolean> {
+  try {
+    const h = await headers();
+    const host = h.get('host');
+    const tier = classifyHost(host);
+    if (tier === 'public' || tier === 'unknown') {
+      logger.warn('Admin access attempted from non-evolution host', { host, tier });
+      return false;
+    }
+    return true;
+  } catch {
+    // Outside a request context (e.g. background job, build-time): no Host header to check.
+    return true;
+  }
+}
 
 /**
  * Check if the current authenticated user is an admin.
  * Uses the admin_users table for database-backed verification.
  *
+ * Also runs the hostname assertion — admin status is only true when both
+ * (a) the user is in `admin_users` AND (b) the request is on the evolution
+ * hostname (or local/preview/non-request-context).
+ *
  * @returns Promise<boolean> - true if user is authenticated and has admin role
  */
 export async function isUserAdmin(): Promise<boolean> {
   try {
+    if (!(await isHostAcceptableForAdmin())) {
+      return false;
+    }
+
     const supabase = await createSupabaseServerClient();
     const { data: { user } } = await supabase.auth.getUser();
 
@@ -46,11 +88,12 @@ export async function isUserAdmin(): Promise<boolean> {
 
 /**
  * Require admin access for a server action.
- * Throws an error if the user is not authenticated or not an admin.
+ * Throws an error if the user is not authenticated, not an admin, or the
+ * request is on the public hostname.
  * This should be called as the FIRST line of every admin server action.
  *
  * @returns Promise<string> - The admin user's ID if authorized
- * @throws Error - If user is not authenticated or not an admin
+ * @throws Error - If user is not authenticated, not an admin, or host is wrong
  *
  * @example
  * async function someAdminAction(params) {
@@ -59,6 +102,10 @@ export async function isUserAdmin(): Promise<boolean> {
  * }
  */
 export async function requireAdmin(): Promise<string> {
+  if (!(await isHostAcceptableForAdmin())) {
+    throw new Error('Unauthorized: Admin actions are not available from this hostname');
+  }
+
   const supabase = await createSupabaseServerClient();
   const { data: { user } } = await supabase.auth.getUser();
 
@@ -90,7 +137,7 @@ export async function requireAdmin(): Promise<string> {
 
 /**
  * Get admin user details for the current user.
- * Returns null if user is not an admin.
+ * Returns null if user is not an admin or host is not acceptable.
  *
  * @returns Promise<AdminUser | null> - Admin user record or null
  */
@@ -104,6 +151,10 @@ export interface AdminUser {
 
 export async function getAdminUser(): Promise<AdminUser | null> {
   try {
+    if (!(await isHostAcceptableForAdmin())) {
+      return null;
+    }
+
     const supabase = await createSupabaseServerClient();
     const { data: { user } } = await supabase.auth.getUser();
 

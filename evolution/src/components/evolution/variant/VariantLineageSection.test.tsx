@@ -46,6 +46,7 @@ const seedNode: VariantChainNode = {
   eloScore: 1200,
   uncertainty: 5,
   parentVariantId: null,
+  parentVariantIds: [],
   variantContent: 'seed text',
   depth: 2,
 };
@@ -58,6 +59,7 @@ const midNode: VariantChainNode = {
   eloScore: 1245,
   uncertainty: 38,
   parentVariantId: 'seed-000000',
+  parentVariantIds: ['seed-000000'],
   variantContent: 'mid text',
   depth: 1,
 };
@@ -70,6 +72,7 @@ const leafNode: VariantChainNode = {
   eloScore: 1272,
   uncertainty: 30,
   parentVariantId: 'mid-aaaaaa',
+  parentVariantIds: ['mid-aaaaaa'],
   variantContent: 'leaf text',
   depth: 0,
 };

@@ -1,0 +1,158 @@
+evolution/src/services/invocationActions.ts:192:      parent_variant_id: string | null; variant_content: string | null;
+evolution/src/services/invocationActions.ts:196:      .select('id, run_id, elo_score, mu, sigma, parent_variant_id, variant_content')
+evolution/src/services/invocationActions.ts:210:    if (variant.parent_variant_id) {
+evolution/src/services/invocationActions.ts:214:        .eq('id', variant.parent_variant_id)
+evolution/src/services/invocationActions.ts:232:      parentVariantId: variant.parent_variant_id,
+evolution/src/services/arenaActions.test.ts:200:        parent_variant_id: null,
+evolution/src/services/variantDetailActions.ts:126:    variant.parent_variant_id
+evolution/src/services/variantDetailActions.ts:127:      ? supabase.from('evolution_variants').select('mu, sigma, elo_score, run_id').eq('id', variant.parent_variant_id).single()
+evolution/src/services/variantDetailActions.ts:151:    parentVariantId: variant.parent_variant_id,
+evolution/src/services/variantDetailActions.ts:178:    .select('parent_variant_id')
+evolution/src/services/variantDetailActions.ts:183:  if (!variant?.parent_variant_id) return [];
+evolution/src/services/variantDetailActions.ts:188:    .eq('id', variant.parent_variant_id)
+evolution/src/services/variantDetailActions.ts:217:    .eq('parent_variant_id', variantId)
+evolution/src/services/variantDetailActions.ts:307:    .select('parent_variant_id')
+evolution/src/services/variantDetailActions.ts:314:  let currentParentId = variant.parent_variant_id;
+evolution/src/services/variantDetailActions.ts:321:      .select('id, agent_name, generation, elo_score, mu, sigma, variant_content, parent_variant_id')
+evolution/src/services/variantDetailActions.ts:335:    currentParentId = ancestor.parent_variant_id;
+evolution/src/services/variantDetailActions.ts:364:    parent_variant_id: string | null;
+evolution/src/services/variantDetailActions.ts:385:      parentVariantId: r.parent_variant_id ? String(r.parent_variant_id) : null,
+evolution/src/services/evolutionVisualizationActions.ts:239:      .select('id, generation, agent_name, elo_score, mu, sigma, is_winner, parent_variant_id, persisted')
+evolution/src/services/evolutionVisualizationActions.ts:257:        parentId: v.parent_variant_id,
+evolution/src/lib/pipeline/finalize/lineageCtesafety.integration.test.ts:47:      .insert({ variant_content: '[TEST_CYCLE] b', elo_score: 1200, generation: 1, parent_variant_id: aId })
+evolution/src/lib/pipeline/finalize/lineageCtesafety.integration.test.ts:57:      .update({ parent_variant_id: bId })
+evolution/src/lib/pipeline/finalize/lineageCtesafety.integration.test.ts:73:  it('handles orphan parent (parent_variant_id pointing to nonexistent row)', async () => {
+evolution/src/lib/pipeline/finalize/lineageCtesafety.integration.test.ts:79:                parent_variant_id: ghostId })
+evolution/src/components/evolution/tabs/VariantsTab.tsx:21:/** Extended variant type with optional parent_variant_id for display. */
+evolution/src/components/evolution/tabs/VariantsTab.tsx:23:  parent_variant_id?: string | null;
+evolution/src/components/evolution/tabs/VariantsTab.tsx:207:                      const parentId = v.parent_variant_id ?? null;
+evolution/src/lib/metrics/computations/criteriaMetrics.ts:36:    .select('id, run_id, mu, sigma, elo_score, parent_variant_id, weakest_criteria_ids')
+evolution/src/lib/metrics/computations/criteriaMetrics.ts:77:  // Pull parent variant elo via parent_variant_id JOIN; chunked for safety.
+evolution/src/lib/metrics/computations/criteriaMetrics.ts:79:    .map((v) => v.parent_variant_id as string | null)
+evolution/src/lib/metrics/computations/criteriaMetrics.ts:95:    const parentId = v.parent_variant_id as string | null;
+evolution/src/lib/pipeline/finalize/variantInvocationLink.integration.test.ts:38:      parent_variant_id: '33333333-3333-3333-3333-333333333333',
+evolution/src/services/variantDetailActions.test.ts:2:// Verifies V2 schema (no elo_attribution, uses parent_variant_id for lineage traversal).
+evolution/src/services/variantDetailActions.test.ts:62:  parent_variant_id: VALID_UUID_3,
+evolution/src/services/variantDetailActions.test.ts:144:        // fetch variant to get parent_variant_id
+evolution/src/services/variantDetailActions.test.ts:147:            data: { parent_variant_id: VALID_UUID_3 },
+evolution/src/services/variantDetailActions.test.ts:170:            data: { parent_variant_id: null },
+evolution/src/services/variantDetailActions.test.ts:254:        parent_variant_id: null,
+evolution/src/services/variantDetailActions.test.ts:262:        parent_variant_id: VALID_UUID_2,
+evolution/src/services/variantDetailActions.test.ts:266:        // fetch variant to get its parent_variant_id
+evolution/src/services/variantDetailActions.test.ts:269:            data: { parent_variant_id: VALID_UUID_3 },
+evolution/src/services/variantDetailActions.test.ts:296:            data: { parent_variant_id: null },
+evolution/src/lib/metrics/computations/criteriaMetrics.test.ts:50:      { id: V1, run_id: RUN, mu: 27, sigma: 7, elo_score: 1300, parent_variant_id: PARENT, weakest_criteria_ids: [C1] },
+evolution/src/lib/metrics/computations/criteriaMetrics.test.ts:51:      { id: V2, run_id: RUN, mu: 26, sigma: 8, elo_score: 1240, parent_variant_id: null, weakest_criteria_ids: null },
+evolution/src/services/evolutionActions.test.ts:583:          parent_variant_id: PARENT_ID,
+evolution/src/services/evolutionActions.ts:65:  parent_variant_id?: string | null;
+evolution/src/services/evolutionActions.ts:114:  parent_variant_id?: string | null;
+evolution/src/services/evolutionActions.ts:514:    const baseFields = 'id, run_id, explanation_id, variant_content, elo_score, mu, sigma, generation, agent_name, match_count, is_winner, created_at, persisted, parent_variant_id';
+evolution/src/services/evolutionActions.ts:537:    const parentIds = [...new Set(items.map(v => v.parent_variant_id).filter((id): id is string => !!id))];
+evolution/src/services/evolutionActions.ts:553:        const parent = item.parent_variant_id ? parentMap.get(item.parent_variant_id) : null;
+evolution/src/services/evolutionActions.ts:710:      ? 'id, run_id, explanation_id, elo_score, mu, sigma, generation, agent_name, match_count, is_winner, created_at, parent_variant_id, evolution_runs!inner(evolution_strategies!inner(is_test_content))'
+evolution/src/services/evolutionActions.ts:711:      : 'id, run_id, explanation_id, elo_score, mu, sigma, generation, agent_name, match_count, is_winner, created_at, parent_variant_id';
+evolution/src/services/evolutionActions.ts:780:    // Batch-fetch parent ratings for VariantParentBadge. A single JOIN by parent_variant_id.
+evolution/src/services/evolutionActions.ts:781:    const parentIds = [...new Set(items.map(v => v.parent_variant_id).filter((id): id is string => !!id))];
+evolution/src/services/evolutionActions.ts:797:        const parent = item.parent_variant_id ? parentMap.get(item.parent_variant_id) : null;
+evolution/src/lib/pipeline/finalize/persistRunResults.ts:34: *  Phase 3.8b removes the parent_variant_id assignment. The parent_variant_id MUST
+evolution/src/lib/pipeline/finalize/persistRunResults.ts:289:      // Phase 3.8a dual-write: BOTH parent_variant_id (legacy single-FK) AND
+evolution/src/lib/pipeline/finalize/persistRunResults.ts:291:      // Phase 3.8b drops the parent_variant_id assignment.
+evolution/src/services/arenaActions.ts:30:    parent_variant_id: (row.parent_variant_id as string | null) ?? null,
+evolution/src/services/arenaActions.ts:73:  parent_variant_id: string | null;
+evolution/src/services/arenaActions.ts:264:    const parentIds = [...new Set(items.map(v => v.parent_variant_id).filter((id): id is string => !!id))];
+evolution/src/services/arenaActions.ts:279:        const parent = item.parent_variant_id ? parentMap.get(item.parent_variant_id) : null;
+evolution/src/services/evolutionVisualizationActions.test.ts:393:          parent_variant_id: null,
+evolution/src/services/evolutionVisualizationActions.test.ts:401:          parent_variant_id: VALID_UUID_2,
+evolution/src/lib/schemas.ts:219:  // Both parent_variant_id (legacy single-FK, dropped in PR 2's 1.15b/1.16b)
+evolution/src/lib/schemas.ts:223:  // After PR 2's 1.16b applies, parent_variant_id is removed from this schema.
+evolution/src/lib/schemas.ts:224:  parent_variant_id: z.string().uuid().nullable().optional(),
+evolution/src/__tests__/integration/evolution-variant-criteria-roundtrip.integration.test.ts:49:      parent_variant_id: PARENT_ID,
+evolution/src/__tests__/integration/evolution-variant-criteria-roundtrip.integration.test.ts:66:      parent_variant_id: null,
+evolution/src/lib/metrics/experimentMetrics.ts:420:    id: string; mu: number | null; elo_score: number; parent_variant_id: string | null;
+evolution/src/lib/metrics/experimentMetrics.ts:427:  // B010-S4: previously also filtered `.not('parent_variant_id', 'is', null)` which
+evolution/src/lib/metrics/experimentMetrics.ts:435:    .select('id, mu, elo_score, parent_variant_id, agent_invocation_id, persisted, agent_name')
+evolution/src/lib/metrics/experimentMetrics.ts:442:  const parentIds = [...new Set(variants.map(v => v.parent_variant_id).filter((x): x is string => !!x))];
+evolution/src/lib/metrics/experimentMetrics.ts:506:    const parent = v.parent_variant_id ? parentMap.get(v.parent_variant_id) : undefined;
+evolution/src/lib/metrics/attributionPipeline.integration.test.ts:11:  parent_variant_id: string | null;
+evolution/src/lib/metrics/attributionPipeline.integration.test.ts:65:            // The attribution query includes 'agent_invocation_id' and 'parent_variant_id'.
+evolution/src/lib/metrics/attributionPipeline.integration.test.ts:66:            if (columns.includes('agent_invocation_id') && columns.includes('parent_variant_id')) {
+evolution/src/lib/metrics/attributionPipeline.integration.test.ts:114:        { id: 'v1', mu: 1250, elo_score: 1250, parent_variant_id: 'p1', agent_invocation_id: 'inv1', persisted: true },
+evolution/src/lib/metrics/attributionPipeline.integration.test.ts:115:        { id: 'v2', mu: 1220, elo_score: 1220, parent_variant_id: 'p2', agent_invocation_id: 'inv2', persisted: true },
+evolution/src/lib/metrics/attributionPipeline.integration.test.ts:116:        { id: 'v3', mu: 1190, elo_score: 1190, parent_variant_id: 'p3', agent_invocation_id: 'inv3', persisted: true },
+evolution/src/lib/metrics/attributionPipeline.integration.test.ts:149:        { id: 'v1', mu: 1250, elo_score: 1250, parent_variant_id: 'p1', agent_invocation_id: 'inv1', persisted: true },
+evolution/src/lib/metrics/attributionPipeline.integration.test.ts:150:        { id: 'v2', mu: 1210, elo_score: 1210, parent_variant_id: 'p2', agent_invocation_id: 'inv2', persisted: true },
+evolution/src/lib/metrics/attributionPipeline.integration.test.ts:173:        { id: 'v1', mu: 1250, elo_score: 1250, parent_variant_id: 'p1', agent_invocation_id: 'inv1', persisted: true },
+evolution/src/lib/metrics/attributionPipeline.integration.test.ts:208:        { id: 'v1', mu: 1250, elo_score: 1250, parent_variant_id: 'p1', agent_invocation_id: 'inv1', persisted: true },
+evolution/src/lib/metrics/attributionPipeline.integration.test.ts:209:        { id: 'v2', mu: 1220, elo_score: 1220, parent_variant_id: 'p2', agent_invocation_id: 'inv2', persisted: true },
+evolution/src/lib/pipeline/claimAndExecuteRun.ts:380:      parent_variant_id: null,
+evolution/src/lib/pipeline/finalize/persistRunResults.test.ts:222:  // and empty-string to null so the persisted parent_variant_id is always either
+evolution/src/lib/pipeline/finalize/persistRunResults.test.ts:225:  it('falsy parentIds[0] (undefined or empty-string) persists as parent_variant_id=null', async () => {
+evolution/src/lib/pipeline/finalize/persistRunResults.test.ts:254:    expect(base!.parent_variant_id).toBeNull();  // empty parentIds → null
+evolution/src/lib/pipeline/finalize/persistRunResults.test.ts:255:    expect(gen1!.parent_variant_id).toBeNull();  // '' parentIds[0] → null via `||`
+evolution/src/lib/pipeline/finalize/persistRunResults.test.ts:256:    expect(gen2!.parent_variant_id).toBe(BASELINE_ID);  // real UUID preserved
+evolution/src/lib/pipeline/finalize/persistRunResults.test.ts:302:    expect(synth!.parent_variant_id).toBe(PARENT_A);
+evolution/docs/strategies_and_experiments.md:652:- `sourceMode: 'pool'`: each agent receives a randomly-selected parent drawn from **variants produced by the current run only**, filtered by `qualityCutoff`. Arena entries loaded via `loadArenaEntries` (prior runs of the same prompt) participate in **ranking** as competitors but are explicitly **excluded as candidate parents** via the call-site filter in `runIterationLoop.ts` (`initialPoolSnapshot.filter((v) => !v.fromArena)`). This invariant — that a new variant's `parent_variant_id` always resolves to the seed or another variant from the same run — was added 2026-04-21; pre-fix pool-mode runs can have cross-run parent lineage and surface it via the `(other run)` pill on `VariantParentBadge`.
+evolution/docs/agents/overview.md:372:**Arena entries are NOT eligible parents (2026-04-21).** `initialPoolSnapshot` — which resolveParent's caller computes — intentionally includes arena entries (loaded via `loadArenaEntries` from prior runs of the same prompt) so they participate in ranking as competitors. However, for **parent selection only**, `runIterationLoop.ts` filters `initialPoolSnapshot` to `inRunPool = initialPoolSnapshot.filter((v) => !v.fromArena)` at the resolveParent call site. This matches the existing `persistRunResults.ts` convention (`.filter((v) => !v.fromArena)` at 5 places) and guarantees that a new variant's `parent_variant_id` always references the seed or another variant born in the same run. Before this fix, pool-mode iterations could produce variants whose `parent_variant_id` pointed to arena variants from other runs — staging run `6743c119-8a52-44e5-8102-0b1f4b212f40` was the canonical signature. When the filter drops all candidates (pool had arena entries but no in-run variants), the existing `empty_pool` fallback returns the seed and the call site emits a distinct `fallbackReason: 'no_same_run_variants'` warn-log context for diagnosability.
+evolution/docs/agents/overview.md:444:After loop terminates: emit final `Variant` if any cycle accepted edits. The final variant's `parent_variant_id` is the original input parent (per Decisions §14 — intermediate cycle texts live only in `execution_detail.cycles[i].childText`).
+evolution/src/lib/pipeline/loop/resolveParent.ts:7:// when sourceMode === 'pool' so new variants' `parent_variant_id` values reference
+evolution/src/lib/pipeline/loop/poolSourcing.integration.test.ts:92:  // resolveParent so new variants' parent_variant_id only references same-run variants.
+evolution/docs/entities.md:32:    VAR -- "parent_variant_id FK" --> VAR
+evolution/docs/entities.md:74:| Variant | Variant | `variant.parent_variant_id` | 0:1 | Self-referential lineage (crossover has multiple parents in pipeline state) |
+evolution/docs/editing_agents.md:27:After cycle loop terminates: emit final `Variant` if any cycle produced edits. `parent_variant_id` is the original input parent (NOT cycle-N-1's intermediate).
+evolution/docs/curriculum.md:190:3. Trace its `parent_variant_id` chain back to the original generated variant
+evolution/docs/planning/multi_iteration_strategy_support_evolution_20260415/multi_iteration_strategy_support_evolution_20260415_planning.md:257:  - Update `getEvolutionVariantsAction` to return `generation` (iteration) and `parent_variant_id`
+evolution/docs/planning/multi_iteration_strategy_support_evolution_20260415/multi_iteration_strategy_support_evolution_20260415_planning.md:266:  - Add "Parent" column with link (from `parent_variant_id`)
+evolution/docs/planning/multi_iteration_strategy_support_evolution_20260415/multi_iteration_strategy_support_evolution_20260415_planning.md:268:  - Update `ArenaEntry` interface and `getArenaEntriesAction` to include `generation` and `parent_variant_id`
+evolution/docs/planning/multi_iteration_strategy_support_evolution_20260415/multi_iteration_strategy_support_evolution_20260415_planning.md:271:  - Update `listVariantsAction` to fetch `parent_variant_id`
+evolution/src/lib/core/agents/reflectAndGenerateFromPreviousArticle.ts:68:   *  parent_variant_id is set correctly. */
+evolution/src/__tests__/integration/evolution-iterative-editing-agent.integration.test.ts:7://   - parent_variant_id of final variant === original input parent (NOT cycle-N-1).
+evolution/docs/data_model.md:111:| `parent_variant_id` | UUID | | Self-referential FK. Populated for generated variants with the seed variant's ID. See [Lineage](#lineage) |
+evolution/docs/data_model.md:336:VARIANT     ─── parent_variant_id ► VARIANT  (self-ref, 0..1)
+evolution/docs/data_model.md:484:- **Database** (`evolution_variants`): `parent_variant_id: UUID` — single nullable FK.
+evolution/docs/data_model.md:488:> parent_variant_id: v.parentIds[0] ?? null,
+evolution/docs/data_model.md:492:The `generation` column maps to `Variant.iterationBorn` (the iteration index from `iterationConfigs[]` when the variant was created), and `agent_name` maps to `Variant.strategy`. Generated variants have `parentIds` set to `[seedVariantId]` in memory, and `parent_variant_id` is populated with the seed variant's UUID at finalization.
+evolution/docs/data_model.md:684:## `parent_variant_id` as the predecessor pointer (Phase 2+)
+evolution/docs/data_model.md:686:Every variant carries a `parent_variant_id UUID NULL` column referencing another row in `evolution_variants` (self-FK is not currently declared in the generated types but is conventionally relied upon). Populated by:
+evolution/docs/data_model.md:707:The Postgres RPC `get_variant_full_chain(variant_id UUID)` (migration `20260418000002_variants_get_full_chain_rpc.sql`) walks `parent_variant_id` up to the root. Uses `WITH RECURSIVE` + array-path cycle detection + 20-hop cap (matches `iterationConfigs.max`). Returns rows ordered root-first.
+evolution/docs/data_model.md:709:An index on `evolution_variants(parent_variant_id)` (migration `20260418000001`) keeps the walk fast.
+evolution/docs/variant_lineage.md:11:### `evolution_variants.parent_variant_id`
+evolution/docs/variant_lineage.md:16:parent_variant_id UUID NULL  -- references evolution_variants(id) (no FK declared)
+evolution/docs/variant_lineage.md:20:- `persistRunResults` reads `v.parentIds[0]` and persists it as `parent_variant_id`.
+evolution/docs/variant_lineage.md:39:The Postgres RPC `get_variant_full_chain(target_variant_id UUID)` walks `parent_variant_id` from the target variant up to the root seed.
+evolution/docs/variant_lineage.md:47:  -- recursive step: move up via parent_variant_id
+evolution/docs/variant_lineage.md:50:    JOIN evolution_variants p ON p.id = c.parent_variant_id
+evolution/docs/variant_lineage.md:51:   WHERE c.parent_variant_id IS NOT NULL
+evolution/docs/variant_lineage.md:58:- **Cycle detection** via array-path tracking. `parent_variant_id` has no FK constraint declared, so corrupt cycles are theoretically possible; the guard prevents infinite recursion.
+evolution/docs/variant_lineage.md:60:- **Index** on `evolution_variants(parent_variant_id)` keeps the walk fast (migration `20260418000001`).
+evolution/docs/variant_lineage.md:76:A chain-truncation banner appears when the CTE hit `depth = 20` and the oldest node still has a non-NULL `parent_variant_id`.
+evolution/docs/variant_lineage.md:125:1. Fetch every variant in this run where both `agent_invocation_id` and `parent_variant_id` are non-null.
+evolution/docs/variant_lineage.md:164:| `supabase/migrations/20260418000001_variants_parent_variant_id_index.sql` | Index for the recursive walk |
+src/app/admin/evolution/arena/arenaBudgetFilter.test.ts:23:    parent_variant_id: null,
+src/app/admin/evolution/arena/[topicId]/page.tsx:55:  if (!entry.parent_variant_id) {
+src/app/admin/evolution/arena/[topicId]/page.tsx:76:      parentId={entry.parent_variant_id}
+src/app/admin/evolution/invocations/[invocationId]/InvocationDetailContent.tsx:93:  // the standalone GFPA invocation page, since the wrapper's variants have parent_variant_id
+src/app/admin/evolution/variants/page.tsx:98:    key: 'parent_variant_id',
+src/app/admin/evolution/variants/page.tsx:107:      if (!v.parent_variant_id) {
+src/app/admin/evolution/variants/page.tsx:129:          parentId={v.parent_variant_id}
+src/lib/database.types.ts:854:          parent_variant_id: string | null
+src/lib/database.types.ts:878:          parent_variant_id?: string | null
+src/lib/database.types.ts:902:          parent_variant_id?: string | null
+src/__tests__/e2e/specs/09-admin/admin-evolution-iterative-editing.spec.ts:11://   - Final variant's parent_variant_id points at the original generated parent
+src/__tests__/e2e/specs/09-admin/admin-evolution-iterative-editing.spec.ts:201:        .select('id, parent_variant_id')
+src/__tests__/e2e/helpers/evolution-test-data-factory.ts:584:        parent_variant_id: parent,
+src/__tests__/integration/attributionFinalization.integration.test.ts:164:        parent_variant_id: parent.id,
+src/__tests__/integration/attributionFinalization.integration.test.ts:179:        parent_variant_id: parent.id,
+supabase/migrations/20260418000001_variants_parent_variant_id_index.sql:1:-- Index on evolution_variants(parent_variant_id) for fast recursive lineage walks.
+supabase/migrations/20260418000001_variants_parent_variant_id_index.sql:5:CREATE INDEX IF NOT EXISTS idx_evolution_variants_parent_variant_id
+supabase/migrations/20260418000001_variants_parent_variant_id_index.sql:6:  ON evolution_variants(parent_variant_id);
+supabase/migrations/20260418000002_variants_get_full_chain_rpc.sql:1:-- RPC get_variant_full_chain(variant_id): walks parent_variant_id up to the root seed.
+supabase/migrations/20260418000002_variants_get_full_chain_rpc.sql:2:-- Uses WITH RECURSIVE with explicit path tracking for cycle protection (parent_variant_id
+supabase/migrations/20260418000002_variants_get_full_chain_rpc.sql:18:  parent_variant_id UUID,
+supabase/migrations/20260418000002_variants_get_full_chain_rpc.sql:32:      v.parent_variant_id,
+supabase/migrations/20260418000002_variants_get_full_chain_rpc.sql:40:    -- Recursive: walk up via parent_variant_id. Terminate on:
+supabase/migrations/20260418000002_variants_get_full_chain_rpc.sql:53:      p.parent_variant_id,
+supabase/migrations/20260418000002_variants_get_full_chain_rpc.sql:57:    JOIN evolution_variants p ON p.id = c.parent_variant_id
+supabase/migrations/20260418000002_variants_get_full_chain_rpc.sql:58:    WHERE c.parent_variant_id IS NOT NULL
+supabase/migrations/20260418000002_variants_get_full_chain_rpc.sql:62:  SELECT id, run_id, variant_content, elo_score, mu, sigma, generation, agent_name, parent_variant_id, depth
+supabase/migrations/20260507000003_evolution_variants_parent_ids_array_add.sql:23:-- Backfill: convert single-FK rows to 1-element arrays. NULL parent_variant_id
+supabase/migrations/20260507000003_evolution_variants_parent_ids_array_add.sql:29:  WHERE parent_variant_id IS NOT NULL

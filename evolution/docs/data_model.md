@@ -108,7 +108,7 @@ Text variants produced during a pipeline run. Since migration 20260321000002, th
 | `variant_content` | TEXT | NOT NULL | The generated text |
 | `elo_score` | NUMERIC | NOT NULL, default `1200` | Display Elo-scale score (projected from OpenSkill `mu`; matches the public `Rating.elo` up to display clamping) |
 | `generation` | INT | NOT NULL, default `0` | Maps to `Variant.iterationBorn` — the iteration index (0-based) from `iterationConfigs[]` when this variant was created |
-| `parent_variant_id` | UUID | | Self-referential FK. Populated for generated variants with the seed variant's ID. See [Lineage](#lineage) |
+| `parent_variant_ids` | UUID[] | NOT NULL DEFAULT '{}' | Self-referential array. Empty for root variants; 1-element for single-parent variants; N-element for multi-parent (debate emits parents in ELO order at dispatch time — `[higher-Elo-parent, lower-Elo-parent]`). `parent_variant_ids[0]` is the canonical primary parent (highest-Elo input for debate; the only parent for non-debate). App-layer enforces referential integrity (no DB-level FK on array elements). GIN index `idx_evolution_variants_parent_variant_ids` for `WHERE ? = ANY(parent_variant_ids)` and `parent_variant_ids @> ARRAY[?]` lookups. See [Lineage](#lineage). |
 | `agent_name` | TEXT | | Creating agent tactic name (e.g. `'structural_transform'`, `'lexical_simplify'`) |
 | `match_count` | INT | NOT NULL, default `0` | |
 | `is_winner` | BOOLEAN | NOT NULL, default `false` | Highest `elo` at finalization |
@@ -122,8 +122,9 @@ Text variants produced during a pipeline run. Since migration 20260321000002, th
 | `cost_usd` | NUMERIC | | LLM cost for generating this variant |
 | `archived_at` | TIMESTAMPTZ | | Soft archive for arena entries |
 | `evolution_explanation_id` | UUID | FK -> `evolution_explanations(id)` | NULLABLE (oneshot entries have none) |
-| `criteria_set_used` | UUID[] | | Set of `evolution_criteria.id` values evaluated when this variant was produced via `evaluate_criteria_then_generate_from_previous_article`. NULL/empty otherwise. GIN-indexed. Migration `20260502120002`. |
+| `criteria_set_used` | UUID[] | | Set of `evolution_criteria.id` values evaluated when this variant was produced via any of the 3 criteria-driven agents (`evaluate_criteria_then_generate_from_previous_article`, `single_pass_evaluate_criteria_and_generate`, `proposer_approver_criteria_generate`). NULL/empty otherwise. GIN-indexed. Migration `20260502120002`. |
 | `weakest_criteria_ids` | UUID[] | | Subset of `criteria_set_used` corresponding to the K weakest criteria the wrapper agent targeted with suggestions. NULL/empty otherwise. GIN-indexed. Migration `20260502120002`. |
+| `sentence_verbatim_ratio` | NUMERIC | | Per-variant quality metric: fraction of parent sentences appearing verbatim (Levenshtein ≤ 2 near-match) in child. Range `[0.0, 1.0]`. Universal — populated by all variant-producing agents (vanilla `generate`, `reflect_and_generate`, all 3 criteria-driven, `iterative_editing`, propose/approve). Pre-existing variants stay NULL and are excluded from percentile aggregation. Observational only — no enforcement, no discard. Migration `20260506000002`. (updated_criteria_agent_20260505) |
 | `created_at` | TIMESTAMPTZ | NOT NULL | |
 
 ### `evolution_criteria`
@@ -333,7 +334,7 @@ RUN         ─── run_id ────────►  LOG         (1:N, CASC
 EXPERIMENT  ─── experiment_id ─►  LOG         (1:N, denormalized)
 STRATEGY    ─── strategy_id ──►  LOG         (1:N, denormalized)
 INVOCATION  ─── entity_id ────►  LOG         (1:N, via entity_type='invocation')
-VARIANT     ─── parent_variant_id ► VARIANT  (self-ref, 0..1)
+VARIANT     ─── parent_variant_ids[] ► VARIANT  (self-ref, 0..N — N=2 for debate, 1 for most agents)
 VARIANT     ─── prompt_id ──────►  PROMPT           (N:1, CASCADE)
 VARIANT     ─── entry_a/b ─────►  ARENA_COMPARISON (1:N, CASCADE)
 PROMPT      ─── prompt_id ──────►  ARENA_COMPARISON  (1:N, CASCADE)
@@ -478,18 +479,26 @@ The `BudgetEventLogger` type in `evolution/src/lib/types.ts` defines the event s
 
 ## Lineage
 
-Variants track parentage differently in memory vs. the database:
+Variants track parentage as a uuid array in BOTH the in-memory and database representations:
 
-- **In-memory** (`Variant`): `parentIds: string[]` — supports multiple parents (e.g., crossover between two variants).
-- **Database** (`evolution_variants`): `parent_variant_id: UUID` — single nullable FK.
+- **In-memory** (`Variant`): `parentIds: string[]` — supports multiple parents.
+- **Database** (`evolution_variants`): `parent_variant_ids: uuid[]` — array column with GIN index. Empty array for root/seed variants; 1-element for single-parent variants; N-element for multi-parent (e.g., debate emits parents in ELO order at dispatch — `[higher-Elo-parent, lower-Elo-parent]`).
 
-> **Warning:** Second parent is silently dropped at finalize. Only `parentIds[0]` is persisted to the database. See `finalizeRun()` in `evolution/src/lib/pipeline/finalize.ts`:
-> ```typescript
-> parent_variant_id: v.parentIds[0] ?? null,
-> ```
-> This means crossover lineage information (the second parent) is lost once a run is finalized.
+### Multi-parent variants (bring_back_debate_agent_20260506)
 
-The `generation` column maps to `Variant.iterationBorn` (the iteration index from `iterationConfigs[]` when the variant was created), and `agent_name` maps to `Variant.strategy`. Generated variants have `parentIds` set to `[seedVariantId]` in memory, and `parent_variant_id` is populated with the seed variant's UUID at finalization.
+The `DebateThenGenerateFromPreviousArticleAgent` is the first multi-parent agent. It emits synthesis variants with `parentIds` sorted by ELO at debate dispatch time — `parentIds[0]` is the higher-Elo input, `parentIds[1]` is the lower-Elo input. Order is load-bearing:
+- `parent_variant_ids[0]` is the canonical primary parent (the highest-Elo input at debate time). UI surfaces (`VariantParentBadge`, lineage graph primary edge) read from index 0. The `elo_delta_vs_parent` metric uses `parentIds[0]` as the baseline, so the synthesis is compared against the strongest input, not the judge's content-based pick (which lives separately in `execution_detail.debate.combined.winner`).
+- `parent_variant_ids[1..N]` are additional parents. The lineage graph renders dashed edges for these; `VariantParentBadge` surfaces a "+N more" chip linking to the variant detail page's full lineage section.
+
+App-layer enforces referential integrity (no DB-level FK on array elements — PostgreSQL doesn't support FKs on array columns; mirrors the same pattern as `evolution_arena_comparisons.entry_a/b` which dropped DB FKs in migration `20260409000001` and rely on `VariantEntity.ts` for cleanup).
+
+The `get_variant_full_chain(variant_id)` RPC (migration `20260508000002`) walks `parent_variant_ids[1]` (PG 1-indexed primary parent) recursively with cycle detection and a 20-hop cap. Multi-parent variants surface only their primary chain in the linear-walk view; the full DAG is exposed by iterating `parent_variant_ids` directly per variant in lineage UI.
+
+### Migration history
+
+Migration `20260507000006_evolution_variants_parent_ids_array_add.sql` (PR 1) added the `parent_variant_ids` column alongside the legacy `parent_variant_id` single-FK. PR 2's migration `20260508000001_evolution_variants_parent_id_drop.sql` dropped the legacy column after a soak window. Public types still expose a deprecated backward-compat `parent_variant_id` scalar field derived from `parent_variant_ids[0]`; new consumers should read `parent_variant_ids` directly.
+
+The `generation` column maps to `Variant.iterationBorn` (the iteration index from `iterationConfigs[]` when the variant was created), and `agent_name` maps to `Variant.strategy`. Generated variants have `parentIds` set to `[seedVariantId]` in memory, and `parent_variant_ids` is populated at finalization.
 
 ---
 
@@ -543,6 +552,38 @@ reflection succeeds but generation throws → only `reflection` is populated). T
 wrapper-error path relies on `trackInvocations.updateInvocation`'s partial-update
 semantics to preserve the partially-written `execution_detail` when the catch handler
 later writes only `cost_usd` / `success` / `error_message`.
+
+### `agentExecutionDetailSchema` — `debate_then_generate_from_previous_article` variant
+
+A discriminated-union variant on `agentExecutionDetailSchema` for the
+`DebateThenGenerateFromPreviousArticleAgent` (bring_back_debate_agent_20260506; Shape A:
+top-level enum value alongside `generate`, `reflect_and_generate`,
+`criteria_and_generate`, `iterative_editing`, and `swiss`). Defined in
+`evolution/src/lib/schemas.ts` as `debateExecutionDetailSchema`. Shape:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `detailType` | literal `'debate_then_generate_from_previous_article'` | Discriminator |
+| `tactic` | literal `'debate_synthesis'` | Static marker tactic per Decision §9 |
+| `variantA` | `{id, elo}` (mu→elo preprocess) | Pool variant selected as parent A (top-Elo) |
+| `variantB` | `{id, elo}` (mu→elo preprocess) | Pool variant selected as parent B (second-highest Elo with id-tiebreak) |
+| `debate.combined` | object (optional) | `{ prosA, consA, prosB, consB, winner, reasoning, strengthsFromA, strengthsFromB, improvements, cost?, durationMs?, rawResponse?, parseError?, reasoningEffortResolved?, reasoningTokens?, reasoningTrace?, reasoningTraceFormat? }`. The 9 verdict array/string fields are optional inside `combined` so combined_call / parse failure paths can capture only metadata fields. |
+| `debate.failurePoint` | enum (optional) | `'gate' \| 'selection' \| 'combined_call' \| 'parse' \| 'judge_tie' \| 'synthesis' \| 'synthesis_empty' \| 'synthesis_no_op' \| 'budget'` |
+| `generation` | object (optional) | Same shape as GFPA `generation` |
+| `ranking` | object (optional, nullable) | Same shape as GFPA `ranking` |
+| `totalCost` | number (optional) | `debate.combined.cost + generation.cost + ranking.cost` |
+| `surfaced` | boolean | Whether the synthesis variant survived the local-Elo + Jaccard ≥ 0.95 + tie-verdict gates |
+| `discardReason` | object (optional) | `{ localElo, localTop15Cutoff }` when not surfaced |
+
+**Reasoning-trace three-state semantics** (Phase 1.20):
+- `reasoningTokens === 0` AND `reasoningTraceFormat === undefined`: thinking was NOT requested.
+- `reasoningTokens > 0` AND `reasoningTraceFormat === 'verbatim' | 'summary'`: trace was extracted (verbatim from OpenRouter, summary from OpenAI/Anthropic).
+- `reasoningTokens > 0` AND `reasoningTraceFormat === 'unavailable'`: thinking happened but provider dropped trace text.
+
+**Cost-attribution invariants** (Phase 1.4 + I4):
+- Combined judge call → AgentName `'debate_judge'` → `debate_cost` metric.
+- Synthesis call (via inner GFPA + I4 LLM-client proxy that rewrites `'generation' → 'debate_synthesis'`) → AgentName `'debate_synthesis'` → `debate_cost` metric.
+- Inner GFPA's ranking calls retain AgentName `'ranking'` → `ranking_cost` metric.
 
 ### Run Summary V3
 

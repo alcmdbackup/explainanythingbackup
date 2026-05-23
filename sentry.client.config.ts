@@ -4,6 +4,7 @@
 
 import * as Sentry from "@sentry/nextjs";
 import { createBeforeSendLog } from "@/lib/sentrySanitization";
+import { classifyHost } from "@/config/hostnames";
 
 // FAST_DEV mode: Skip all Sentry initialization for faster local development
 // Uses NEXT_PUBLIC_ prefix for client-side access
@@ -62,7 +63,8 @@ Sentry.init({
   // Setting this option to true will print useful information to the console while you're setting up Sentry.
   debug: false,
 
-  // Filter out known noise before sending to Sentry
+  // Filter out known noise before sending to Sentry, and tag each event with
+  // the routing tier of the browser host (website split).
   beforeSend(event) {
     const message = event.exception?.values?.[0]?.value || '';
 
@@ -75,6 +77,11 @@ Sentry.init({
       message.includes('Script error') // Cross-origin script errors
     ) {
       return null;
+    }
+
+    // Client-side: read host from window.location (the per-event hook makes it per-load).
+    if (typeof window !== 'undefined' && window.location?.host) {
+      event.tags = { ...event.tags, site: classifyHost(window.location.host) };
     }
 
     return event;

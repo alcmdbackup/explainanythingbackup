@@ -29,6 +29,7 @@
 // resolve env at their own boundary so this function stays pure and reproducible.
 
 import type { EvolutionConfig } from '../infra/types';
+import type { IterationAgentType } from '../../schemas';
 import {
   estimateGenerationCost,
   estimateRankingCost,
@@ -92,6 +93,11 @@ export interface DispatchPlanOptions {
    *  IterativeEditingAgent input-presence gate). Mirrors EDITING_RANK_ENABLED.
    *  Default true. add_ranking_iterative_editing_agent_evolution_20260502 D4. */
   editingRankEnabled?: boolean;
+  /** When false, debate cost is zeroed for `debate_and_generate` iterations because
+   *  the runtime short-circuits debate dispatch at runIterationLoop's branch entry
+   *  (Phase 3.2). Mirrors EVOLUTION_DEBATE_ENABLED. Default true.
+   *  bring_back_debate_agent_20260506 Decision §11 + Phase 3.3. */
+  debateEnabled?: boolean;
 }
 
 export interface EstPerAgentValue {
@@ -108,6 +114,12 @@ export interface EstPerAgentValue {
   editingRank: number;
   /** Combined evaluate + suggest cost per agent (only > 0 when iterCfg.agentType === 'criteria_and_generate'). 0 otherwise. */
   evaluation: number;
+  /** Debate cost per agent (combined judge + synthesis-via-GFPA). Only > 0 when
+   *  iterCfg.agentType === 'debate_and_generate'. 0 for all other agent types.
+   *  Synthesis cost rolls into this field (NOT `gen`) per bring_back_debate_agent_20260506
+   *  Phase 1.10 — wired via the I4 LLM-client proxy in DebateAgent.execute() that
+   *  rewrites 'generation' → 'debate_synthesis' AgentName at the inner-GFPA boundary. */
+  debate: number;
   total: number;
 }
 
@@ -131,7 +143,7 @@ export interface TacticMixEntry {
 
 export interface IterationPlanEntry {
   iterIdx: number;
-  agentType: 'generate' | 'reflect_and_generate' | 'criteria_and_generate' | 'iterative_editing' | 'swiss';
+  agentType: IterationAgentType;
   iterBudgetUsd: number;
   /** Effective tactic pool for this iteration (normalized weights). Cost estimates are
    *  weighted averages over this mix. Single-entry for guidance with one tactic. */
@@ -258,7 +270,7 @@ function weightedAgentCost(
   const evaluation = useCriteria
     ? estimateEvaluateAndSuggestCost(seedChars, generationModel, judgeModel, criteriaCount, weakestK)
     : 0;
-  return { gen, rank, reflection, editing: 0, editingRank: 0, evaluation, total: reflection + evaluation + gen + rank };
+  return { gen, rank, reflection, editing: 0, editingRank: 0, evaluation, debate: 0, total: reflection + evaluation + gen + rank };
 }
 
 // ─── Main ─────────────────────────────────────────────────────────
@@ -307,8 +319,8 @@ export function projectDispatchPlan(
         tacticMixSource: source,
         tacticLabel,
         estPerAgent: {
-          expected: { gen: 0, rank: 0, reflection: 0, editing: 0, editingRank: 0, evaluation: 0, total: 0 },
-          upperBound: { gen: 0, rank: 0, reflection: 0, editing: 0, editingRank: 0, evaluation: 0, total: 0 },
+          expected: { gen: 0, rank: 0, reflection: 0, editing: 0, editingRank: 0, evaluation: 0, debate: 0, total: 0 },
+          upperBound: { gen: 0, rank: 0, reflection: 0, editing: 0, editingRank: 0, evaluation: 0, debate: 0, total: 0 },
         },
         maxAffordable: { atExpected: 0, atUpperBound: 0 },
         dispatchCount: 0,
@@ -321,7 +333,7 @@ export function projectDispatchPlan(
       continue;
     }
 
-    if (iterCfg.agentType === 'iterative_editing') {
+    if (iterCfg.agentType === 'iterative_editing' || iterCfg.agentType === 'iterative_editing_rewrite') {
       // Per Decisions §13/§14/§17: editing iterations cost = maxCycles × (propose +
       // review) per parent, with the article growing up to 1.5× per cycle in
       // upper-bound. Eligibility cutoff comes from the shared dispatch helper —
@@ -348,6 +360,7 @@ export function projectDispatchPlan(
         maxCycles,
         editingRankEnabled ? poolSize : 0,
         editingRankEnabled ? maxComparisonsPerVariant : 0,
+        iterCfg.agentType === 'iterative_editing_rewrite' ? 'rewrite' : 'markup',
       );
 
       // Apply eligibility cutoff against the projected pool. Editing iterations
@@ -390,7 +403,7 @@ export function projectDispatchPlan(
 
       plan.push({
         iterIdx,
-        agentType: 'iterative_editing',
+        agentType: iterCfg.agentType,
         iterBudgetUsd,
         tacticMix: mix,
         tacticMixSource: source,
@@ -403,6 +416,7 @@ export function projectDispatchPlan(
             editing: editCost.expected,
             editingRank: editCost.expectedRanking,
             evaluation: 0,
+            debate: 0,
             total: editCost.expected + editCost.expectedRanking,
           },
           upperBound: {
@@ -412,6 +426,7 @@ export function projectDispatchPlan(
             editing: editCost.upperBound,
             editingRank: editCost.upperBoundRanking,
             evaluation: 0,
+            debate: 0,
             total: editCost.upperBound + editCost.upperBoundRanking,
           },
         },
@@ -426,6 +441,59 @@ export function projectDispatchPlan(
       });
 
       // Editing produces ONE final variant per dispatch (Decisions §14).
+      poolSize += dispatchCount;
+      continue;
+    }
+
+    if (iterCfg.agentType === 'debate_and_generate') {
+      // bring_back_debate_agent_20260506 Phase 3.5 — single materialized variant per
+      // invocation per Decision §15. Cost = combined judge call + synthesis-via-GFPA.
+      // Both halves accumulate into EstPerAgentValue.debate (per Phase 1.10) — NOT
+      // gen/rank, so the wizard preview surfaces a single 'debate' line item.
+      // Kill-switch (Phase 3.3): when EVOLUTION_DEBATE_ENABLED='false', dispatchCount
+      // → 0 mirroring runtime fallback.
+      const { estimateDebateCost } = require('../infra/estimateCosts') as typeof import('../infra/estimateCosts');
+      const { resolveDebateDispatchPlanner } = require('./debateDispatch') as typeof import('./debateDispatch');
+
+      const debateEnabled = opts.debateEnabled !== false;
+      const dispatchCheck = resolveDebateDispatchPlanner({ projectedPoolSize: poolSize });
+      // Pool < 2 → cannot debate (gate fail). debateEnabled=false → forced 0.
+      const willDispatch = debateEnabled && dispatchCheck.willDispatch;
+
+      const debateCost = estimateDebateCost(
+        ctx.seedChars,
+        ctx.seedChars,  // both parents approx same size in projection
+        config.judgeModel,
+        config.generationModel,
+        poolSize,
+        config.maxComparisonsPerVariant ?? 15,
+      );
+
+      const expectedDebate = willDispatch ? debateCost.expected : 0;
+      const upperDebate = willDispatch ? debateCost.upperBound : 0;
+      const dispatchCount = willDispatch ? 1 : 0;  // Single materialized variant per Decision §15.
+
+      plan.push({
+        iterIdx,
+        agentType: 'debate_and_generate',
+        iterBudgetUsd,
+        tacticMix: mix,
+        tacticMixSource: source,
+        tacticLabel,
+        estPerAgent: {
+          expected: { gen: 0, rank: 0, reflection: 0, editing: 0, editingRank: 0, evaluation: 0, debate: expectedDebate, total: expectedDebate },
+          upperBound: { gen: 0, rank: 0, reflection: 0, editing: 0, editingRank: 0, evaluation: 0, debate: upperDebate, total: upperDebate },
+        },
+        maxAffordable: { atExpected: dispatchCount, atUpperBound: dispatchCount },
+        dispatchCount,
+        // Debate has no within-iteration top-up loop — single dispatch per Decision §15.
+        expectedTotalDispatch: dispatchCount,
+        expectedTopUpDispatch: 0,
+        effectiveCap: dispatchCount === 0 ? 'eligibility' : 'budget',
+        poolSizeAtStart: poolSize,
+        parallelFloorUsd: 0,
+      });
+      // Pool grows by 1 if debate dispatched + synthesis surfaced. Best-case projection.
       poolSize += dispatchCount;
       continue;
     }
@@ -513,8 +581,8 @@ export function projectDispatchPlan(
       tacticMixSource: source,
       tacticLabel,
       estPerAgent: {
-        expected: { gen: genExpected, rank: rankExpectedAvg, reflection: reflectionExpected, editing: 0, editingRank: 0, evaluation: evaluationExpected, total: totalExpected },
-        upperBound: { gen: upper.gen, rank: upper.rank, reflection: upper.reflection, editing: upper.editing ?? 0, editingRank: upper.editingRank ?? 0, evaluation: upper.evaluation, total: upper.total },
+        expected: { gen: genExpected, rank: rankExpectedAvg, reflection: reflectionExpected, editing: 0, editingRank: 0, evaluation: evaluationExpected, debate: 0, total: totalExpected },
+        upperBound: { gen: upper.gen, rank: upper.rank, reflection: upper.reflection, editing: upper.editing ?? 0, editingRank: upper.editingRank ?? 0, evaluation: upper.evaluation, debate: 0, total: upper.total },
       },
       maxAffordable: { atExpected: maxAffordableExpected, atUpperBound: maxAffordableUpper },
       dispatchCount,

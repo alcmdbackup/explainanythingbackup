@@ -48,6 +48,10 @@ export interface LineageNode {
   /** Elo-scale rating uncertainty (lifted from mu/sigma). Optional — legacy rows omit it. Phase 4b. */
   uncertainty?: number;
   isWinner: boolean;
+  /** All parent IDs. parentIds[0] is canonical primary; entries 1+ are additional parents
+   *  (debate's [winner, loser] per Decision §20). Empty array for root variants. */
+  parentIds: string[];
+  /** @deprecated Backward-compat — derived from parentIds[0]. New UI reads parentIds. */
   parentId: string | null;
   /** False = discarded by owning generate agent. Defaults true for legacy variants. */
   persisted?: boolean;
@@ -69,7 +73,12 @@ export interface LineageData {
     /** False = discarded variant — rendered with reduced opacity / dashed border. */
     persisted?: boolean;
   }[];
-  edges: { source: string; target: string }[];
+  /** Parent → child edges. parentIndex captures position in the child's parent_variant_ids
+   *  array (0 = canonical primary; 1+ = additional parents).
+   *  bring_back_debate_agent_20260506 Phase 4.9 — multi-parent variants (debate's
+   *  [winner, loser]) emit MULTIPLE edges per child. UI renders parentIndex=0 as solid,
+   *  parentIndex>=1 as dashed to distinguish primary vs additional. */
+  edges: { source: string; target: string; parentIndex?: number }[];
   treeSearchPath?: string[];
 }
 
@@ -236,7 +245,7 @@ export const getEvolutionRunLineageAction = adminAction(
 
     const { data, error } = await ctx.supabase
       .from('evolution_variants')
-      .select('id, generation, agent_name, elo_score, mu, sigma, is_winner, parent_variant_id, persisted')
+      .select('id, generation, agent_name, elo_score, mu, sigma, is_winner, parent_variant_ids, persisted')
       .eq('run_id', runId)
       .order('generation', { ascending: true });
 
@@ -247,6 +256,7 @@ export const getEvolutionRunLineageAction = adminAction(
       const uncertainty = row.mu != null && row.sigma != null
         ? dbToRating(row.mu, row.sigma).uncertainty
         : undefined;
+      const parentIds = (v.parent_variant_ids as string[] | null) ?? [];
       return {
         id: v.id,
         generation: v.generation,
@@ -254,7 +264,9 @@ export const getEvolutionRunLineageAction = adminAction(
         eloScore: v.elo_score,
         ...(uncertainty != null ? { uncertainty } : {}),
         isWinner: v.is_winner,
-        parentId: v.parent_variant_id,
+        parentIds,
+        // Backward-compat — derived from parentIds[0].
+        parentId: parentIds.length > 0 ? parentIds[0]! : null,
         // Default true for legacy rows that pre-date the persisted column.
         persisted: (v as { persisted?: boolean | null }).persisted ?? true,
       };

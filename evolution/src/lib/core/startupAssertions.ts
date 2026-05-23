@@ -22,9 +22,15 @@ const TS_PHASES_REFRESH_CALIBRATION: ReadonlySet<string> = new Set([
   'seed_title',
   'seed_article',
   'reflection',
+  'evaluate_and_suggest',
   'iterative_edit_propose',
   'iterative_edit_review',
   'iterative_edit_drift_recovery',
+  'criteria_proposer',
+  'criteria_forward_approver',
+  'criteria_mirror_approver',
+  'debate_judge',
+  'debate_synthesis',
 ]);
 
 /** Phase strings declared in evolution/src/lib/pipeline/infra/costCalibrationLoader.ts.
@@ -36,9 +42,15 @@ const TS_PHASES_CALIBRATION_LOADER: ReadonlySet<string> = new Set([
   'reflection',
   'seed_title',
   'seed_article',
+  'evaluate_and_suggest',
   'iterative_edit_propose',
   'iterative_edit_review',
   'iterative_edit_drift_recovery',
+  'criteria_proposer',
+  'criteria_forward_approver',
+  'criteria_mirror_approver',
+  'debate_judge',
+  'debate_synthesis',
 ]);
 
 /** Stable name of the CHECK constraint, established by the
@@ -50,6 +62,8 @@ const CONSTRAINT_NAME = 'evolution_cost_calibration_phase_allowed';
 const MIGRATION_FILES = [
   'supabase/migrations/20260501204141_evolution_cost_calibration_reflection_phase.sql',
   'supabase/migrations/20260501204142_evolution_cost_calibration_editing_phases.sql',
+  'supabase/migrations/20260506000001_evolution_cost_calibration_proposer_approver_phases.sql',
+  'supabase/migrations/20260507000004_evolution_cost_calibration_debate_phases.sql',
 ];
 
 export class MissingMigrationError extends Error {

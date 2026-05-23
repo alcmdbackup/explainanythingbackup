@@ -162,6 +162,10 @@ describeIf('Attribution finalization (Blocker 2)', () => {
         mu: 35, sigma: 5, elo_score: 1360,
         agent_name: 'generate_from_previous_article',
         parent_variant_id: parent.id,
+        // bring_back_debate_agent_20260506 (#1045): experimentMetrics reads
+        // parent_variant_ids[0] for attribution, not the legacy parent_variant_id
+        // column. Dual-write here so the attribution path resolves correctly.
+        parent_variant_ids: [parent.id as string],
         agent_invocation_id: invA.id,
         persisted: true,
       })
@@ -177,6 +181,8 @@ describeIf('Attribution finalization (Blocker 2)', () => {
         mu: 28, sigma: 5, elo_score: 1248,
         agent_name: 'generate_from_previous_article',
         parent_variant_id: parent.id,
+        // bring_back_debate_agent_20260506 (#1045): see childA comment.
+        parent_variant_ids: [parent.id as string],
         agent_invocation_id: invB.id,
         persisted: true,
       })

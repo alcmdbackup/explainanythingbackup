@@ -6,7 +6,8 @@ input=$(cat)
 SOURCE=$(echo "$input" | jq -r '.source // empty')
 CWD=$(echo "$input" | jq -r '.cwd // empty')
 
-cd "$CWD" || exit 0
+TARGET_DIR="${CLAUDE_PROJECT_DIR:-$CWD}"
+cd "$TARGET_DIR" || exit 0
 
 # Only run on fresh startup, not resume
 if [ "$SOURCE" != "startup" ]; then

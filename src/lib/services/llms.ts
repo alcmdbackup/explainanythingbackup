@@ -17,7 +17,7 @@ import { withLogging } from '@/lib/logging/server/automaticServerLoggingBase';
 import { ServiceError } from '@/lib/errors/serviceError';
 import { ERROR_CODES } from '@/lib/errorHandling';
 import { calculateLLMCost } from '@/config/llmPricing';
-import { isOpenRouterModel as registryIsOpenRouterModel, getOpenRouterApiModelId, getModelMaxTemperature, getModelDefaultReasoningEffort } from '@/config/modelRegistry';
+import { isOpenRouterModel as registryIsOpenRouterModel, getOpenRouterApiModelId, getModelMaxTemperature, getModelDefaultReasoningEffort, MODEL_REGISTRY } from '@/config/modelRegistry';
 
 /** Clamp temperature to model's max. Returns undefined if model doesn't support temperature or temp not set. */
 function clampTemperature(temperature: number | undefined, model: string): number | undefined {
@@ -36,6 +36,22 @@ export interface LLMUsageMetadata {
   reasoningTokens: number;
   estimatedCostUsd: number;
   model: string;
+  /** Provider-extracted reasoning trace text (when available + permitted).
+   *  bring_back_debate_agent_20260506 Phase 1.20.
+   *
+   *  - OpenRouter (qwen3-8b, gpt-oss-20b): verbatim from response.choices[0].message.reasoning_details[].
+   *  - OpenAI o-series + GPT-5: summary only via reasoning: { summary: 'auto' } opt-in
+   *    (raw chain-of-thought extraction is prohibited by AUP).
+   *  - Anthropic Sonnet 4: summary in `thinking` content blocks (currently dead in v1
+   *    since registry has supportsReasoning=false for all claude-* entries).
+   *
+   *  Three-state semantics paired with reasoningTraceFormat:
+   *    - reasoningTokens === 0 + reasoningTraceFormat undefined → no thinking requested.
+   *    - reasoningTokens > 0 + reasoningTraceFormat 'verbatim'|'summary' → trace surfaced.
+   *    - reasoningTokens > 0 + reasoningTraceFormat 'unavailable' → thinking happened
+   *      (token count proves it) but provider dropped trace text. */
+  reasoningTrace?: string;
+  reasoningTraceFormat?: 'verbatim' | 'summary' | 'unavailable';
 }
 
 export interface CallLLMOptions {
@@ -237,8 +253,13 @@ function getOpenAIClient(): OpenAI {
     if (!openai) {
         openai = new OpenAI({
             apiKey: process.env.OPENAI_API_KEY,
-            maxRetries: 2,
-            timeout: 20000,
+            // Disable SDK retries — createEvolutionLLMClient has its own retry
+            // loop (MAX_RETRIES=3) with backoff. Stacking SDK retries on top
+            // amplified worst-case wait to 3 attempts × 60s × 4 outer = 720s,
+            // blowing past pipeline-test beforeAll budgets. Single attempt
+            // per outer call keeps max wait at 60s × 4 = 240s.
+            maxRetries: 0,
+            timeout: 60000,
         });
     }
 
@@ -261,8 +282,13 @@ function getDeepSeekClient(): OpenAI {
         deepseekClient = new OpenAI({
             apiKey: process.env.DEEPSEEK_API_KEY,
             baseURL: DEEPSEEK_BASE_URL,
-            maxRetries: 2,
-            timeout: 20000,
+            // Disable SDK retries — createEvolutionLLMClient has its own retry
+            // loop (MAX_RETRIES=3) with backoff. Stacking SDK retries on top
+            // amplified worst-case wait to 3 attempts × 60s × 4 outer = 720s,
+            // blowing past pipeline-test beforeAll budgets. Single attempt
+            // per outer call keeps max wait at 60s × 4 = 240s.
+            maxRetries: 0,
+            timeout: 60000,
         });
     }
 
@@ -288,7 +314,12 @@ function getLocalClient(): OpenAI {
         localClient = new OpenAI({
             apiKey: 'local',
             baseURL: process.env.LOCAL_LLM_BASE_URL || 'http://localhost:11434/v1',
-            maxRetries: 2,
+            // Disable SDK retries — createEvolutionLLMClient has its own retry
+            // loop (MAX_RETRIES=3) with backoff. Stacking SDK retries on top
+            // amplified worst-case wait to 3 attempts × 60s × 4 outer = 720s,
+            // blowing past pipeline-test beforeAll budgets. Single attempt
+            // per outer call keeps max wait at 60s × 4 = 240s.
+            maxRetries: 0,
             timeout: 300000,
         });
     }
@@ -312,8 +343,13 @@ function getOpenRouterClient(): OpenAI {
         openRouterClient = new OpenAI({
             apiKey: process.env.OPENROUTER_API_KEY,
             baseURL: OPENROUTER_BASE_URL,
-            maxRetries: 2,
-            timeout: 20000,
+            // Disable SDK retries — createEvolutionLLMClient has its own retry
+            // loop (MAX_RETRIES=3) with backoff. Stacking SDK retries on top
+            // amplified worst-case wait to 3 attempts × 60s × 4 outer = 720s,
+            // blowing past pipeline-test beforeAll budgets. Single attempt
+            // per outer call keeps max wait at 60s × 4 = 240s.
+            maxRetries: 0,
+            timeout: 60000,
         });
     }
 
@@ -338,8 +374,13 @@ function getAnthropicClient(): Anthropic {
     if (!anthropicClient) {
         anthropicClient = new Anthropic({
             apiKey: process.env.ANTHROPIC_API_KEY,
-            maxRetries: 2,
-            timeout: 20000,
+            // Disable SDK retries — createEvolutionLLMClient has its own retry
+            // loop (MAX_RETRIES=3) with backoff. Stacking SDK retries on top
+            // amplified worst-case wait to 3 attempts × 60s × 4 outer = 720s,
+            // blowing past pipeline-test beforeAll budgets. Single attempt
+            // per outer call keeps max wait at 60s × 4 = 240s.
+            maxRetries: 0,
+            timeout: 60000,
         });
     }
 
@@ -398,13 +439,21 @@ async function callOpenAIModel(
         const effectiveReasoningEffort = options?.reasoningEffort ?? getModelDefaultReasoningEffort(validatedModel);
         if (effectiveReasoningEffort) {
             if (isOpenRouterModel(validatedModel)) {
-                // OpenRouter unified API: { reasoning: { effort: 'low'|... } }
+                // OpenRouter unified API: { reasoning: { effort: 'low'|... }, include_reasoning: true }.
+                // bring_back_debate_agent_20260506 Phase 1.20: opt in to reasoning_details
+                // so the trace text is surfaced (verbatim per OpenRouter contract).
                 (requestOptions as unknown as Record<string, unknown>).reasoning = { effort: effectiveReasoningEffort };
+                (requestOptions as unknown as Record<string, unknown>).include_reasoning = true;
             } else {
                 // OpenAI o-series: reasoning_effort parameter on the top-level request.
                 // 'none' is not a valid OpenAI value, so omit it.
                 if (effectiveReasoningEffort !== 'none') {
                     (requestOptions as unknown as Record<string, unknown>).reasoning_effort = effectiveReasoningEffort;
+                    // bring_back_debate_agent_20260506 Phase 1.20: opt in to summary text.
+                    // OpenAI AUP prohibits raw chain-of-thought extraction; the summary is
+                    // what the API exposes under `reasoning: { summary: 'auto' }` for the
+                    // Responses API (and equivalent fields for Chat Completions when surfaced).
+                    (requestOptions as unknown as Record<string, unknown>).reasoning = { summary: 'auto' };
                 }
             }
         }
@@ -445,6 +494,9 @@ async function callOpenAIModel(
         let completionTokens = 0;
         let reasoningTokens = 0;
         let estimatedCostUsd = 0;
+        // bring_back_debate_agent_20260506 Phase 1.20 — provider-specific reasoning trace.
+        let reasoningTrace: string | undefined;
+        let reasoningTraceFormat: 'verbatim' | 'summary' | 'unavailable' | undefined;
 
         try {
             if (streaming) {
@@ -485,6 +537,83 @@ async function callOpenAIModel(
             promptTokens = usage.prompt_tokens ?? 0;
             completionTokens = usage.completion_tokens ?? 0;
             reasoningTokens = usage.completion_tokens_details?.reasoning_tokens ?? 0;
+
+            // bring_back_debate_agent_20260506 Phase 1.20 — extract reasoning trace text
+            // per provider, only when reasoning was actually requested + thinking happened.
+            // Three-state semantics: 'verbatim'/'summary' = trace surfaced; 'unavailable' =
+            // thinking happened but provider dropped trace; undefined = no thinking requested.
+            if (effectiveReasoningEffort && effectiveReasoningEffort !== 'none' && reasoningTokens > 0) {
+                if (isOpenRouterModel(validatedModel)) {
+                    // OpenRouter: parse choices[0].message.reasoning_details[] (verbatim).
+                    // Some providers behind OpenRouter silently drop this — flag observability.
+                    const completion = !streaming ? JSON.parse(rawApiResponse) : null;
+                    const message = completion?.choices?.[0]?.message;
+                    const details = message?.reasoning_details;
+                    if (Array.isArray(details) && details.length > 0) {
+                        const concatenated = details
+                            .map((d: { text?: string }) => d?.text ?? '')
+                            .filter((s: string) => s.length > 0)
+                            .join('\n\n');
+                        if (concatenated.length > 0) {
+                            reasoningTrace = concatenated;
+                            reasoningTraceFormat = 'verbatim';
+                        } else {
+                            reasoningTraceFormat = 'unavailable';
+                        }
+                    } else if (typeof message?.reasoning === 'string' && message.reasoning.length > 0) {
+                        // Some OpenRouter providers surface trace as a single 'reasoning' string instead.
+                        reasoningTrace = message.reasoning;
+                        reasoningTraceFormat = 'verbatim';
+                    } else {
+                        reasoningTraceFormat = 'unavailable';
+                        logger.warn('OpenRouter reasoning trace silently dropped', {
+                            model: validatedModel,
+                            provider: 'openrouter',
+                            reasoningTokens,
+                        });
+                    }
+                } else if (isAnthropicModel(validatedModel)) {
+                    // ANTHROPIC BRANCH IS DEAD CODE IN v1: every claude-* registry entry has
+                    // supportsReasoning=false (Phase 1.19), so the cascade resolver returns
+                    // undefined and effectiveReasoningEffort never fires for Anthropic models.
+                    // This branch is implemented future-ready: when ops flips Sonnet 4 to
+                    // supportsReasoning=true, the extraction Just Works without further changes.
+                    // Defensive throw-guard catches activation-without-test-coverage:
+                    if (!Object.values(MODEL_REGISTRY).some(m => m.provider === 'anthropic' && m.supportsReasoning)) {
+                        throw new Error(
+                            'Anthropic reasoning extraction reached but no claude-* model has ' +
+                            'supportsReasoning=true; verify Phase 1.19 registry update before ' +
+                            'relying on this branch.',
+                        );
+                    }
+                    // (Live extraction would parse response.content[].thinking blocks here.)
+                    reasoningTraceFormat = 'unavailable';
+                } else {
+                    // OpenAI o-series + GPT-5: parse summary from response output.
+                    // Per Phase 1.20 + AUP: summary only, NOT raw chain-of-thought.
+                    // Field path differs by API client version; try both Chat Completions
+                    // (`message.reasoning`) and Responses-API (`output[].summary`) shapes.
+                    const completion = !streaming ? JSON.parse(rawApiResponse) : null;
+                    const message = completion?.choices?.[0]?.message;
+                    let summaryText = '';
+                    if (typeof message?.reasoning === 'string') {
+                        summaryText = message.reasoning;
+                    } else if (Array.isArray(completion?.output)) {
+                        const reasoningItem = completion.output.find((o: { type?: string }) => o?.type === 'reasoning');
+                        const summary = reasoningItem?.summary;
+                        if (Array.isArray(summary) && summary.length > 0) {
+                            summaryText = summary.map((s: { text?: string }) => s?.text ?? '').filter(Boolean).join('\n\n');
+                        }
+                    }
+                    if (summaryText.length > 0) {
+                        reasoningTrace = summaryText;
+                        reasoningTraceFormat = 'summary';
+                    } else {
+                        reasoningTraceFormat = 'unavailable';
+                    }
+                }
+            }
+
             const costModel = (isLocalModel(validatedModel) || isOpenRouterModel(validatedModel)) ? validatedModel : modelUsed;
             // B021 guard: calculateLLMCost now throws on non-finite/negative
             // tokens to expose upstream tracking bugs; we must not let that
@@ -519,7 +648,11 @@ async function callOpenAIModel(
         }
 
         const totalTokens = usage.total_tokens ?? 0;
-        const usageMeta: LLMUsageMetadata = { promptTokens, completionTokens, totalTokens, reasoningTokens, estimatedCostUsd, model: modelUsed };
+        const usageMeta: LLMUsageMetadata = {
+          promptTokens, completionTokens, totalTokens, reasoningTokens, estimatedCostUsd, model: modelUsed,
+          reasoningTrace,
+          reasoningTraceFormat,
+        };
 
         await saveTrackingAndNotify({
             userid,

@@ -157,7 +157,7 @@ table was consolidated into `evolution_variants` in migration `20260321000002`.)
 
 The core algorithm in `evolveArticle()` iterates over `config.iterationConfigs[]`, an
 ordered array of `IterationConfig` objects defined on the strategy. Each iteration config
-specifies its agent type (`generate` or `swiss`) and budget percentage. This replaces the
+specifies its agent type (`generate`, `reflect_and_generate`, `criteria_and_generate`, `debate_and_generate`, `iterative_editing`, or `swiss`) and budget percentage. This replaces the
 previous `nextIteration()` decision function with a fully declarative, config-driven dispatch.
 
 Dispatch count per iteration is governed by budget (`V2CostTracker.reserve()` throws
@@ -169,7 +169,10 @@ runtime, and cost-sensitivity alike.
 | Iteration type | Work agent(s)                                       | Merge                | Discard rule                                           |
 |----------------|-----------------------------------------------------|----------------------|--------------------------------------------------------|
 | **Generate**   | Parallel batch of `GenerateFromPreviousArticleAgent` + within-iter top-up loop | **1 `MergeRatingsAgent` per iter** over combined buffers | Each agent decides locally (using its own snapshot)   |
+| **Debate**     | 1 `DebateThenGenerateFromPreviousArticleAgent` (top-2 from pool, single materialized variant per Decision §15) | 1 `MergeRatingsAgent` | Judge tie / Jaccard ≥ 0.95 / synthesis-empty / budget |
 | **Swiss**      | 1 `SwissRankingAgent` (parallel pairs internally)    | 1 `MergeRatingsAgent` | None — paid-for matches always reach global ratings    |
+
+**Wrapper-agent invariants** — alongside I1 (no nested `.run()`) / I2 (cost snapshots) / I3 (partial-detail-on-throw), debate introduces **I4: synthesis-LLM-proxy injection**. The wrapper constructs an `EvolutionLLMClient` proxy that rewrites `'generation' → 'debate_synthesis'` for both `complete` and `completeStructured`, and passes it to the inner GFPA via `innerInput.llm` (NOT `ctx`). Without I4, synthesis cost flows to `generation_cost` instead of `debate_cost`, silently breaking the cost-attribution contract. Cross-reference: `evolution/docs/agents/overview.md` § DebateThenGenerateFromPreviousArticleAgent.
 
 ```
   for iterIdx in 0..iterationConfigs.length:
@@ -710,7 +713,17 @@ out at the architecture level:
   402 budget exceeded, 503 kill switch, 500 other. Empty body is treated as
   `{}` for backward compatibility with callers that pass no body.
 
-## Criteria-driven generation (evaluateCriteriaThenGenerateFromPreviousArticle_20260501)
+## Criteria-driven generation
+
+There are **three** criteria-driven agents — all share a common eval+suggest phase but diverge in how they apply suggestions. Full deep dive: [criteria_agents.md](./criteria_agents.md). Quick overview:
+
+1. `criteria_and_generate` (legacy, PR #1023) — score + suggest → GFPA delegation.
+2. `single_pass_evaluate_criteria_and_generate` (NEW) — same shape as legacy + 3 new guardrail directives in customPrompt + marker tactic `criteria_driven_single_pass`.
+3. `proposer_approver_criteria_generate` (NEW) — single-cycle propose/forward-approve/mirror-approve/apply with strict-binary aggregator. Forks `IterativeEditingAgent` primitives.
+
+All three contribute to the universal `evolution_variants.sentence_verbatim_ratio` metric for cross-agent comparison on the tactic leaderboard.
+
+### Original single-pass wrapper (evaluateCriteriaThenGenerateFromPreviousArticle_20260501)
 
 `agentType: 'criteria_and_generate'` is a third variant-producing agent type alongside `'generate'` and `'reflect_and_generate'`. The wrapper agent (`EvaluateCriteriaThenGenerateFromPreviousArticleAgent`) makes ONE combined LLM call that scores the parent article against user-defined `evolution_criteria` rows AND drafts fix suggestions for the K weakest in the same response, then delegates to `GenerateFromPreviousArticleAgent.execute()` with `tactic: 'criteria_driven'` and a `customPrompt` built from those suggestions. See [Agents Overview](./agents/overview.md#evaluatecriteriathengeneratefrompreviousarticleagent-evaluatecriteriathengeneratefrompreviousarticle_20260501) for details.
 

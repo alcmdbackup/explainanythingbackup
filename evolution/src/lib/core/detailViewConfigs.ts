@@ -176,6 +176,153 @@ export const DETAIL_VIEW_CONFIGS: Record<string, DetailFieldDef[]> = {
     },
     { key: 'totalCost', label: 'Total Cost', type: 'number', formatter: 'cost' },
   ],
+  single_pass_evaluate_criteria_and_generate: [
+    { key: 'tactic', label: 'Tactic', type: 'badge' },
+    { key: 'weakestCriteriaNames', label: 'Weakest Criteria', type: 'list' },
+    { key: 'variantId', label: 'Variant ID', type: 'text' },
+    { key: 'surfaced', label: 'Surfaced', type: 'boolean' },
+    {
+      key: 'evaluateAndSuggest', label: 'Eval & Suggest', type: 'object',
+      children: [
+        { key: 'cost', label: 'Cost', type: 'number', formatter: 'cost' },
+        { key: 'durationMs', label: 'Duration (ms)', type: 'number' },
+      ],
+    },
+    {
+      key: 'evaluateAndSuggest.criteriaScored', label: 'Criteria Scored', type: 'table',
+      columns: [
+        { key: 'criteriaName', label: 'Criterion' },
+        { key: 'score', label: 'Score' },
+        { key: 'minRating', label: 'Min' },
+        { key: 'maxRating', label: 'Max' },
+      ],
+    },
+    {
+      key: 'evaluateAndSuggest.suggestions', label: 'Suggestions', type: 'table',
+      cellClassName: 'py-1.5 px-2 text-[var(--text-primary)] max-w-md break-words whitespace-pre-wrap align-top',
+      columns: [
+        { key: 'criteriaName', label: 'Criterion' },
+        { key: 'examplePassage', label: 'Example' },
+        { key: 'whatNeedsAddressing', label: 'Issue' },
+        { key: 'suggestedFix', label: 'Fix' },
+      ],
+    },
+    {
+      key: 'guardrails', label: 'Guardrails (observational)', type: 'object',
+      children: [
+        { key: 'redundancyDropCount', label: 'Redundancy Drops', type: 'number' },
+        { key: 'flowDropCount', label: 'Flow Drops', type: 'number' },
+        { key: 'lengthCapHit', label: 'Length Cap Hit (>1.10×)', type: 'boolean' },
+      ],
+    },
+    {
+      key: 'generation', label: 'Generation', type: 'object',
+      children: [
+        { key: 'cost', label: 'Cost', type: 'number', formatter: 'cost' },
+        { key: 'promptLength', label: 'Prompt Length', type: 'number' },
+        { key: 'textLength', label: 'Text Length', type: 'number' },
+        { key: 'formatValid', label: 'Format Valid', type: 'boolean' },
+        { key: 'durationMs', label: 'Duration (ms)', type: 'number' },
+      ],
+    },
+    {
+      key: 'ranking', label: 'Ranking (binary search local view)', type: 'object',
+      children: [
+        { key: 'cost', label: 'Ranking Cost', type: 'number', formatter: 'cost' },
+        { key: 'totalComparisons', label: 'Total Comparisons', type: 'number' },
+        { key: 'finalLocalElo', label: 'Final Local Elo', type: 'number' },
+        { key: 'durationMs', label: 'Duration (ms)', type: 'number' },
+      ],
+    },
+    { key: 'totalCost', label: 'Total Cost', type: 'number', formatter: 'cost' },
+  ],
+  proposer_approver_criteria_generate: [
+    { key: 'tactic', label: 'Tactic', type: 'badge' },
+    { key: 'weakestCriteriaNames', label: 'Weakest Criteria', type: 'list' },
+    { key: 'variantId', label: 'Variant ID', type: 'text' },
+    { key: 'surfaced', label: 'Surfaced', type: 'boolean' },
+    { key: 'mirrorAgreementRate', label: 'Mirror Agreement Rate', type: 'number', formatter: 'percent' },
+    { key: 'mirrorAbortReason', label: 'Mirror Abort Reason', type: 'badge' },
+    {
+      key: 'evaluateAndSuggest', label: 'Eval & Suggest', type: 'object',
+      children: [
+        { key: 'cost', label: 'Cost', type: 'number', formatter: 'cost' },
+        { key: 'durationMs', label: 'Duration (ms)', type: 'number' },
+      ],
+    },
+    {
+      key: 'evaluateAndSuggest.criteriaScored', label: 'Criteria Scored', type: 'table',
+      columns: [
+        { key: 'criteriaName', label: 'Criterion' },
+        { key: 'score', label: 'Score' },
+        { key: 'minRating', label: 'Min' },
+        { key: 'maxRating', label: 'Max' },
+      ],
+    },
+    {
+      key: 'evaluateAndSuggest.suggestions', label: 'Suggestions', type: 'table',
+      cellClassName: 'py-1.5 px-2 text-[var(--text-primary)] max-w-md break-words whitespace-pre-wrap align-top',
+      columns: [
+        { key: 'criteriaName', label: 'Criterion' },
+        { key: 'examplePassage', label: 'Example' },
+        { key: 'whatNeedsAddressing', label: 'Issue' },
+        { key: 'suggestedFix', label: 'Fix' },
+      ],
+    },
+    {
+      key: 'cycles.0', label: 'Edit Cycle (Forward + Mirror)', type: 'object',
+      children: [
+        { key: 'proposedGroupsRaw', label: 'Proposed Groups (raw)', type: 'number' },
+        { key: 'approverGroups', label: 'After Pre-Validation', type: 'number' },
+        { key: 'appliedGroups', label: 'Final Applied', type: 'number' },
+        { key: 'proposeCostUsd', label: 'Propose Cost', type: 'number', formatter: 'cost' },
+        { key: 'approveForwardCostUsd', label: 'Forward Approver Cost', type: 'number', formatter: 'cost' },
+        { key: 'approveMirrorCostUsd', label: 'Mirror Approver Cost', type: 'number', formatter: 'cost' },
+      ],
+    },
+    {
+      key: 'cycles.0.forwardDecisions', label: 'Forward Decisions', type: 'table',
+      columns: [
+        { key: 'groupNumber', label: '#' },
+        { key: 'decision', label: 'Decision' },
+        { key: 'reason', label: 'Reason' },
+        { key: 'redundancy_violation', label: 'Redundancy?' },
+        { key: 'flow_violation', label: 'Flow?' },
+        { key: 'length_violation', label: 'Length?' },
+      ],
+    },
+    {
+      key: 'cycles.0.mirrorDecisions', label: 'Mirror Decisions', type: 'table',
+      columns: [
+        { key: 'groupNumber', label: '#' },
+        { key: 'decision', label: 'Decision (null = short-circuit / parse-fail)' },
+        { key: 'reason', label: 'Reason' },
+      ],
+    },
+    {
+      key: 'cycles.0.droppedPreApprover', label: 'Dropped Pre-Approver (validator)', type: 'table',
+      columns: [
+        { key: 'groupNumber', label: '#' },
+        { key: 'reason', label: 'Reason' },
+      ],
+    },
+    {
+      key: 'cycles.0.droppedPostApprover', label: 'Dropped Post-Approver (aggregator + applier)', type: 'table',
+      columns: [
+        { key: 'groupNumber', label: '#' },
+        { key: 'reason', label: 'Reason' },
+      ],
+    },
+    {
+      key: 'ranking', label: 'Ranking (binary search local view)', type: 'object',
+      children: [
+        { key: 'cost', label: 'Ranking Cost', type: 'number', formatter: 'cost' },
+        { key: 'totalComparisons', label: 'Total Comparisons', type: 'number' },
+        { key: 'finalLocalElo', label: 'Final Local Elo', type: 'number' },
+      ],
+    },
+    { key: 'totalCost', label: 'Total Cost', type: 'number', formatter: 'cost' },
+  ],
   swiss_ranking: [
     { key: 'status', label: 'Status', type: 'badge' },
     { key: 'eligibleCount', label: 'Eligible Count', type: 'number' },
@@ -377,23 +524,94 @@ export const DETAIL_VIEW_CONFIGS: Record<string, DetailFieldDef[]> = {
     { key: 'dimensions', label: 'Dimensions', type: 'list' },
     { key: 'totalCost', label: 'Total Cost', type: 'number', formatter: 'cost' },
   ],
-  debate: [
+  // bring_back_debate_agent_20260506 Phase 4.1 — V2 Option-C config replacing the V1
+  // orphan entry. Key is the FULL detailType literal (matches the schema parity check
+  // in entities.test.ts). Reasoning-trace block is format-aware per Phase 1.20: the
+  // UI reads execution_detail.debate.combined.reasoningTraceFormat to render
+  // 'Reasoning Trace (verbatim)' / 'Reasoning Summary (provider-summarized)' /
+  // 'Thinking happened but provider did not return trace text' headers.
+  debate_then_generate_from_previous_article: [
+    { key: 'tactic', label: 'Tactic', type: 'badge' },
+    { key: 'surfaced', label: 'Surfaced', type: 'boolean' },
     {
-      key: 'variantA', label: 'Variant A', type: 'object',
+      key: 'variantA', label: "Parent A (Top-Elo)", type: 'object',
       children: [
-        { key: 'id', label: 'ID', type: 'text' },
+        { key: 'id', label: 'Variant ID', type: 'text' },
         { key: 'elo', label: 'Elo', type: 'number' },
       ],
     },
     {
-      key: 'variantB', label: 'Variant B', type: 'object',
+      key: 'variantB', label: 'Parent B', type: 'object',
       children: [
-        { key: 'id', label: 'ID', type: 'text' },
+        { key: 'id', label: 'Variant ID', type: 'text' },
         { key: 'elo', label: 'Elo', type: 'number' },
       ],
     },
-    { key: 'synthesisVariantId', label: 'Synthesis Variant', type: 'text' },
+    {
+      key: 'debate.combined', label: 'Analyze + Judge', type: 'object',
+      children: [
+        { key: 'winner', label: 'Winner', type: 'badge' },
+        { key: 'reasoning', label: 'Reasoning', type: 'text' },
+        { key: 'cost', label: 'Cost', type: 'number', formatter: 'cost' },
+        { key: 'durationMs', label: 'Duration (ms)', type: 'number' },
+        { key: 'reasoningEffortResolved', label: 'Reasoning Effort', type: 'badge' },
+        { key: 'reasoningTokens', label: 'Reasoning Tokens', type: 'number' },
+        { key: 'reasoningTraceFormat', label: 'Trace Format', type: 'badge' },
+      ],
+    },
+    {
+      key: 'debate.combined.prosA', label: 'Pros — Variant A', type: 'list',
+    },
+    {
+      key: 'debate.combined.consA', label: 'Cons — Variant A', type: 'list',
+    },
+    {
+      key: 'debate.combined.prosB', label: 'Pros — Variant B', type: 'list',
+    },
+    {
+      key: 'debate.combined.consB', label: 'Cons — Variant B', type: 'list',
+    },
+    {
+      key: 'debate.combined.strengthsFromA', label: 'Strengths Preserved from A', type: 'list',
+    },
+    {
+      key: 'debate.combined.strengthsFromB', label: 'Strengths Preserved from B', type: 'list',
+    },
+    {
+      key: 'debate.combined.improvements', label: 'Improvements for Synthesis', type: 'list',
+    },
+    {
+      key: 'debate.combined.reasoningTrace', label: 'Reasoning Trace', type: 'text',
+    },
+    {
+      key: 'debate.failurePoint', label: 'Failure Point', type: 'badge',
+    },
+    {
+      key: 'generation', label: 'Synthesis Generation', type: 'object',
+      children: [
+        { key: 'cost', label: 'Cost', type: 'number', formatter: 'cost' },
+        { key: 'promptLength', label: 'Prompt Length', type: 'number' },
+        { key: 'textLength', label: 'Text Length', type: 'number' },
+        { key: 'formatValid', label: 'Format Valid', type: 'boolean' },
+        { key: 'durationMs', label: 'Duration (ms)', type: 'number' },
+      ],
+    },
+    {
+      key: 'ranking', label: 'Synthesis Ranking', type: 'object',
+      children: [
+        { key: 'cost', label: 'Ranking Cost', type: 'number', formatter: 'cost' },
+        { key: 'totalComparisons', label: 'Total Comparisons', type: 'number' },
+        { key: 'finalLocalElo', label: 'Final Local Elo', type: 'number' },
+        { key: 'durationMs', label: 'Duration (ms)', type: 'number' },
+      ],
+    },
     { key: 'totalCost', label: 'Total Cost', type: 'number', formatter: 'cost' },
+    { key: 'discardReason', label: 'Discard Reason', type: 'object',
+      children: [
+        { key: 'localElo', label: 'Local Elo', type: 'number' },
+        { key: 'localTop15Cutoff', label: 'Top-15 Cutoff', type: 'number' },
+      ],
+    },
   ],
   sectionDecomposition: [
     { key: 'targetVariantId', label: 'Target Variant', type: 'text' },

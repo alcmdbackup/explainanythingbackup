@@ -94,12 +94,17 @@ adminTest.describe('Strategy Registry CRUD', () => {
   });
 
   adminTest('model dropdown includes gpt-oss-20b without slash', async ({ adminPage }) => {
-    await adminPage.goto('/admin/evolution/strategies/new', { timeout: 30000 });
-    const generationModelSelect = adminPage.locator('#generation-model');
-    await expect(generationModelSelect).toBeVisible({ timeout: 15000 });
+    await adminPage.goto('/admin/evolution/strategies', { timeout: 30000 });
+    await expect(adminPage.locator('main').getByRole('heading', { name: 'Strategies' })).toBeVisible({ timeout: 15000 });
 
-    const optionsHTML = await generationModelSelect.innerHTML();
-    expect(optionsHTML).toContain('gpt-oss-20b');
-    expect(optionsHTML).not.toContain('openai/gpt-oss-20b');
+    // Open create dialog
+    await adminPage.locator('[data-testid="header-action"]').click();
+    const dialog = adminPage.locator('div[role="dialog"]');
+    await expect(dialog).toBeVisible();
+
+    // The model dropdown should contain gpt-oss-20b (not openai/gpt-oss-20b)
+    const dialogContent = await dialog.innerHTML();
+    expect(dialogContent).toContain('gpt-oss-20b');
+    expect(dialogContent).not.toContain('openai/gpt-oss-20b');
   });
 });

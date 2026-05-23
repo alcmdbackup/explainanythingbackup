@@ -27,7 +27,15 @@ function toArenaEntry(row: Record<string, unknown>): ArenaEntry {
     archived_at: row.archived_at as string | null,
     created_at: row.created_at as string,
     generation: (row.generation as number | null) ?? null,
-    parent_variant_id: (row.parent_variant_id as string | null) ?? null,
+    // bring_back_debate_agent_20260506 PR 2 — parent_variant_ids array column replaces
+    // legacy parent_variant_id. parent_variant_id field on ArenaEntry stays as derived
+    // (= parent_variant_ids[0] || null) for backward compat with existing UI consumers
+    // that read it as a scalar; new multi-parent UI consumers read parent_variant_ids.
+    parent_variant_ids: ((row.parent_variant_ids as string[] | null) ?? []),
+    parent_variant_id: (() => {
+      const ids = (row.parent_variant_ids as string[] | null) ?? [];
+      return ids.length > 0 ? ids[0]! : null;
+    })(),
     parent_elo: (row.parent_elo as number | null) ?? null,
     parent_uncertainty: (row.parent_uncertainty as number | null) ?? null,
     parent_run_id: (row.parent_run_id as string | null) ?? null,
@@ -69,7 +77,12 @@ export interface ArenaEntry {
   created_at: string;
   /** Iteration (generation) number from the originating run. */
   generation: number | null;
-  /** Parent variant ID for lineage display. */
+  /** Parent variant IDs for lineage display. parent_variant_ids[0] is the canonical
+   *  primary parent by convention (e.g. judge's winner for debate variants per
+   *  bring_back_debate_agent_20260506 Decision §20). Empty array for root variants. */
+  parent_variant_ids: string[];
+  /** @deprecated Backward-compat field — derived from parent_variant_ids[0]. New UI
+   *  code should read parent_variant_ids directly to support multi-parent variants. */
   parent_variant_id: string | null;
   /** Parent's current ELO (mu preferred over elo_score). Used by VariantParentBadge. */
   parent_elo: number | null;

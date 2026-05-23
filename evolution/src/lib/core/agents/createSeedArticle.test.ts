@@ -163,6 +163,39 @@ describe('CreateSeedArticleAgent', () => {
     expect(result.result?.variant?.tactic).toBe('seed_variant');
   });
 
+  // Strip-leading-H1 regression coverage. Original strip (2026-04-14) only
+  // removed a single leading H1; some models emit two back-to-back, producing
+  // duplicated headers in the persisted seed. Greedy strip added 2026-05-09.
+  describe('leading-H1 stripping', () => {
+    it('strips a single leading H1 emitted by the model', async () => {
+      const articleContent = '# Some Model H1\n\n## Intro\nFirst sentence. Second sentence.';
+      const agent = new CreateSeedArticleAgent();
+      const result = await agent.run(makeInput({ articleContent }), makeCtx());
+      const text = result.result?.variant?.text ?? '';
+      // Exactly one H1 — our prepended title — and no model H1 survived.
+      expect(text.match(/^#\s+/gm)?.length ?? 0).toBe(1);
+      expect(text).not.toContain('# Some Model H1');
+    });
+
+    it('strips MULTIPLE consecutive leading H1s (the duplicate-H1 bug)', async () => {
+      const articleContent = '# Title One\n# Title One\n\n## Intro\nFirst sentence. Second sentence.';
+      const agent = new CreateSeedArticleAgent();
+      const result = await agent.run(makeInput({ articleContent }), makeCtx());
+      const text = result.result?.variant?.text ?? '';
+      // Exactly one H1 — our prepended title — even though the LLM emitted two.
+      expect(text.match(/^#\s+/gm)?.length ?? 0).toBe(1);
+      expect(text).not.toContain('# Title One');
+    });
+
+    it('does not strip H2/H3 headings even when at the start of the body', async () => {
+      const articleContent = '## Intro\nFirst sentence. Second sentence.';
+      const agent = new CreateSeedArticleAgent();
+      const result = await agent.run(makeInput({ articleContent }), makeCtx());
+      const text = result.result?.variant?.text ?? '';
+      expect(text).toContain('## Intro');
+    });
+  });
+
   it('calls rankNewVariant with initial pool deep-cloned (does not mutate input)', async () => {
     const { rankNewVariant: mockRank } = jest.requireMock('../../pipeline/loop/rankNewVariant') as { rankNewVariant: jest.Mock };
     const input = makeInput();

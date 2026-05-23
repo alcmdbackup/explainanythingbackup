@@ -19,7 +19,8 @@ import { buildVariantDetailUrl } from '@evolution/lib/utils/evolutionUrls';
 import { formatEloWithUncertainty } from '@evolution/lib/utils/formatters';
 
 export interface VariantParentBadgeProps {
-  /** Null when the variant has no parent (seed variant). */
+  /** Null when the variant has no parent (seed variant). For multi-parent variants
+   *  (debate's [winner, loser]), this is the canonical primary parent (parent_variant_ids[0]). */
   parentId: string | null;
   parentElo: number | null;
   parentUncertainty: number | null;
@@ -37,6 +38,12 @@ export interface VariantParentBadgeProps {
   role?: 'parent' | 'from';
   /** Optional CSS class override. */
   className?: string;
+  /** bring_back_debate_agent_20260506 Phase 4.9 — additional parents beyond the
+   *  canonical primary. When non-empty, the badge appends a "+N more" chip linking
+   *  to the variant detail page's full lineage section. Debate variants emit
+   *  [lower-Elo-parent.id] here (the higher-Elo parent is in `parentId`); single-
+   *  parent variants pass empty. */
+  additionalParentIds?: string[];
 }
 
 function formatDelta(delta: number): string {
@@ -51,7 +58,8 @@ function formatCi(ci: [number, number]): string {
 }
 
 export function VariantParentBadge(props: VariantParentBadgeProps): JSX.Element {
-  const { parentId, parentElo, parentUncertainty, delta, deltaCi, crossRun, parentRunId, role, className } = props;
+  const { parentId, parentElo, parentUncertainty, delta, deltaCi, crossRun, parentRunId, role, className, additionalParentIds } = props;
+  const extraParentCount = additionalParentIds?.length ?? 0;
 
   // Null-parent state (seed variant, or when lookup failed).
   if (parentId == null || parentElo == null) {
@@ -106,6 +114,26 @@ export function VariantParentBadge(props: VariantParentBadgeProps): JSX.Element 
         >
           {label}
         </Link>
+        {extraParentCount > 0 ? (
+          // bring_back_debate_agent_20260506 Phase 4.9 — multi-parent variants (debate's
+          // [winner, loser]) emit a "+N more" chip linking to the variant detail page's
+          // full lineage section where all parents are listed. Distinct from the cross-run
+          // pill (which annotates a single parent's run-level provenance).
+          <Link
+            href={buildVariantDetailUrl(parentId)}
+            className="ml-1 inline-flex items-center rounded-full px-2 py-0.5 text-xs font-ui font-medium border hover:underline"
+            style={{
+              backgroundColor: 'color-mix(in srgb, var(--accent-gold) 15%, transparent)',
+              color: 'var(--accent-gold)',
+              borderColor: 'color-mix(in srgb, var(--accent-gold) 30%, transparent)',
+            }}
+            data-testid="parent-additional-chip"
+            aria-label={`+${extraParentCount} additional parent${extraParentCount > 1 ? 's' : ''} (multi-parent variant)`}
+            title={`Additional parents: ${additionalParentIds!.join(', ')}`}
+          >
+            +{extraParentCount} more
+          </Link>
+        ) : null}
         {crossRun ? (
           // Styling mirrors StatusBadge.tsx filled variant (20%/30% color-mix bg/border).
           <span

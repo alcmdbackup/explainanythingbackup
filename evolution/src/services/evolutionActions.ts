@@ -61,7 +61,12 @@ export interface EvolutionVariant {
   sigma?: number | null;
   /** Whether this variant survived the discard rule and is part of the final pool. */
   persisted?: boolean;
-  /** Parent variant ID (for lineage display). */
+  /** Parent variant IDs for lineage display. parent_variant_ids[0] is the canonical
+   *  primary parent; entries 1+ are additional parents (debate's [winner, loser] etc.).
+   *  bring_back_debate_agent_20260506 Decision §20. */
+  parent_variant_ids?: string[];
+  /** @deprecated Backward-compat — derived from parent_variant_ids[0]. New UI reads
+   *  parent_variant_ids directly to support multi-parent variants. */
   parent_variant_id?: string | null;
   /** Parent's current ELO (mu) — populated by getEvolutionVariantsAction. Consumed by VariantParentBadge. */
   parent_elo?: number | null;
@@ -111,6 +116,8 @@ export interface VariantListEntry {
   mu?: number | null;
   sigma?: number | null;
   strategy_name?: string | null;
+  parent_variant_ids?: string[];
+  /** @deprecated Derived from parent_variant_ids[0] for backward compat. */
   parent_variant_id?: string | null;
   /** Parent's current ELO + uncertainty (joined from evolution_variants). Null when no parent
    *  (seed variant) or when the parent row was deleted/archived. Consumed by VariantParentBadge. */
@@ -401,7 +408,7 @@ export const getEvolutionRunByIdAction = adminAction(
 
 export interface IterationSnapshotRow {
   iteration: number;
-  iterationType: 'generate' | 'reflect_and_generate' | 'iterative_editing' | 'swiss';
+  iterationType: 'generate' | 'reflect_and_generate' | 'criteria_and_generate' | 'single_pass_evaluate_criteria_and_generate' | 'proposer_approver_criteria_generate' | 'iterative_editing' | 'iterative_editing_rewrite' | 'swiss' | 'debate_and_generate';
   phase: 'start' | 'end';
   capturedAt: string;
   poolVariantIds: string[];
@@ -511,7 +518,7 @@ export const getEvolutionVariantsAction = adminAction(
 
     // When filtering by strategy, embed the evolution_runs !inner join so Postgres/PostgREST
     // filters the variants to those whose parent run has the given strategy_id.
-    const baseFields = 'id, run_id, explanation_id, variant_content, elo_score, mu, sigma, generation, agent_name, match_count, is_winner, created_at, persisted, parent_variant_id';
+    const baseFields = 'id, run_id, explanation_id, variant_content, elo_score, mu, sigma, generation, agent_name, match_count, is_winner, created_at, persisted, parent_variant_ids';
     const selectFields = strategyId
       ? `${baseFields}, evolution_runs!inner(strategy_id)`
       : baseFields;
@@ -532,8 +539,15 @@ export const getEvolutionVariantsAction = adminAction(
     const { data, error } = await query.order('elo_score', { ascending: false }).limit(500);
     if (error) throw error;
     const items = (data ?? []) as unknown as EvolutionVariant[];
+    // PR 2 backward-compat: derive parent_variant_id (scalar) from parent_variant_ids[0]
+    // so existing UI consumers reading the scalar field stay green.
+    for (const item of items) {
+      const ids = item.parent_variant_ids ?? [];
+      item.parent_variant_id = ids.length > 0 ? ids[0] : null;
+    }
 
-    // Batch-fetch parent ratings for VariantParentBadge (Phase 3).
+    // Batch-fetch parent ratings for VariantParentBadge (Phase 3). Use parent_variant_ids[0]
+    // (the canonical primary parent per Decision §20) for the JOIN.
     const parentIds = [...new Set(items.map(v => v.parent_variant_id).filter((id): id is string => !!id))];
     if (parentIds.length > 0) {
       const { data: parentRows, error: parentError } = await ctx.supabase
@@ -707,8 +721,8 @@ export const listVariantsAction = adminAction(
     // .not.in) that silently failed when the IN list exceeded PostgREST URL limits.
     const wantsEmbed = !!parsed.filterTestContent;
     const baseFields = wantsEmbed
-      ? 'id, run_id, explanation_id, elo_score, mu, sigma, generation, agent_name, match_count, is_winner, created_at, parent_variant_id, evolution_runs!inner(evolution_strategies!inner(is_test_content))'
-      : 'id, run_id, explanation_id, elo_score, mu, sigma, generation, agent_name, match_count, is_winner, created_at, parent_variant_id';
+      ? 'id, run_id, explanation_id, elo_score, mu, sigma, generation, agent_name, match_count, is_winner, created_at, parent_variant_ids, evolution_runs!inner(evolution_strategies!inner(is_test_content))'
+      : 'id, run_id, explanation_id, elo_score, mu, sigma, generation, agent_name, match_count, is_winner, created_at, parent_variant_ids';
 
     let query = supabase
       .from('evolution_variants')
@@ -733,6 +747,11 @@ export const listVariantsAction = adminAction(
 
     // Cast via unknown — embedded-resource select doesn't parse cleanly into the generated types.
     const items = (data ?? []) as unknown as VariantListEntry[];
+    // PR 2 backward-compat: derive parent_variant_id (scalar) from parent_variant_ids[0].
+    for (const item of items) {
+      const ids = item.parent_variant_ids ?? [];
+      item.parent_variant_id = ids.length > 0 ? ids[0] : null;
+    }
 
     // Post-fetch enrichment: batch-fetch strategy names via runs
     const runIds = [...new Set(items.map(v => v.run_id).filter(Boolean))];

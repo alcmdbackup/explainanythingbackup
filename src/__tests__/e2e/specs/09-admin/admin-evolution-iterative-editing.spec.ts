@@ -19,6 +19,7 @@ import { adminTest, expect } from '../../fixtures/admin-auth';
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/database.types';
 import { trackEvolutionId } from '../../helpers/evolution-test-data-factory';
+import { longTimeoutDispatcher } from '../../helpers/long-timeout-fetch';
 
 const TEST_PREFIX = '[TEST_EVO] Editing';
 
@@ -160,7 +161,11 @@ adminTest.describe('Iterative Editing Pipeline', { tag: '@evolution' }, () => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Cookie': `${cookieName}=${cookieValue}` },
       body: JSON.stringify({ targetRunId: runId }),
-    });
+      // Pipeline runs synchronously inside the route handler; default 5-min undici
+      // headersTimeout fires before pipeline completes on slow LLM-provider runs.
+      // See helpers/long-timeout-fetch.ts for context.
+      dispatcher: longTimeoutDispatcher,
+    } as RequestInit & { dispatcher: typeof longTimeoutDispatcher });
     expect(fetchResponse.ok).toBeTruthy();
     const result = await fetchResponse.json();
     expect(result.claimed).toBe(true);
@@ -187,7 +192,7 @@ adminTest.describe('Iterative Editing Pipeline', { tag: '@evolution' }, () => {
     // Find the editing-iteration invocation (agent_name = 'iterative_editing').
     const { data: editingInvs } = await sb
       .from('evolution_agent_invocations')
-      .select('id, run_id, iteration')
+      .select('id, run_id, iteration, execution_detail')
       .eq('run_id', runId)
       .eq('agent_name', 'iterative_editing');
     expect(editingInvs).not.toBeNull();
@@ -195,14 +200,27 @@ adminTest.describe('Iterative Editing Pipeline', { tag: '@evolution' }, () => {
 
     // For each editing invocation, exactly one variant must exist with that
     // invocation's id as agent_invocation_id (per Decisions §14).
+    // Tightened from `<= 1` to a conditional on (surfaced && appliedCount > 0).
+    // The previous `<= 1` permitted zero, which masked a persistence bug where
+    // every editing variant was silently filtered out before the DB upsert
+    // (see fix_iterative_editing_persistence_bug_20260508).
     for (const inv of editingInvs!) {
       const { data: variants } = await sb
         .from('evolution_variants')
-        .select('id, parent_variant_id')
+        .select('id, parent_variant_ids, agent_name')
         .eq('agent_invocation_id', inv.id);
       expect(variants).not.toBeNull();
-      // Either zero (all-rejected path) or exactly one variant per invocation.
-      expect(variants!.length).toBeLessThanOrEqual(1);
+      const detail = inv.execution_detail as { surfaced?: boolean; cycles?: Array<{ appliedCount?: number }> } | null;
+      const surfaced = detail?.surfaced === true;
+      const totalApplied = (detail?.cycles ?? []).reduce((a, c) => a + (c.appliedCount ?? 0), 0);
+      if (surfaced && totalApplied > 0) {
+        // The agent claims it produced a variant — the DB must have it.
+        expect(variants!.length).toBe(1);
+        expect(variants![0]!.agent_name).toBe('iterative_editing');
+      } else {
+        // No-edits / all-rejected / drift-aborted: zero or one (defensive).
+        expect(variants!.length).toBeLessThanOrEqual(1);
+      }
     }
   });
 
@@ -322,18 +340,33 @@ adminTest.describe('Iterative Editing Wizard', { tag: '@evolution' }, () => {
     await expect(adminPage.getByTestId('rubber-stamping-warning')).not.toBeVisible();
   });
 
-  adminTest('strategy wizard surfaces editing-terminal warning when last iteration is editing with no later swiss', async ({ adminPage }) => {
+  // Phase 3 (add_rewrite_mode_iterative_editing_evolution_20260507): the wizard
+  // exposes the new agent type 'iterative_editing_rewrite' (Mode B) as a
+  // selectable option in the iteration dropdown. Disabled on the first iteration
+  // (must produce variants) — same constraint as Mode A iterative_editing.
+  adminTest('strategy wizard exposes iterative_editing_rewrite agent type (Mode B)', async ({ adminPage }) => {
     await adminPage.goto('/admin/evolution/strategies/new');
-
-    // Configure required fields to advance to step 2.
-    await adminPage.locator('#strategy-name').fill('[TEST_EVO] Editing-terminal');
+    await adminPage.locator('#strategy-name').fill('[TEST_EVO] Mode B dropdown');
     await adminPage.locator('#generation-model').selectOption({ index: 1 });
     await adminPage.locator('#judge-model').selectOption({ index: 1 });
     await adminPage.getByRole('button', { name: /^Next:/i }).click();
 
-    // Default iterations are gen + swiss. Swap second to iterative_editing.
-    await adminPage.locator('[data-testid="agent-type-select-1"]').selectOption('iterative_editing');
-
-    await expect(adminPage.getByTestId('editing-terminal-warning')).toBeVisible();
+    // Open the second iteration's agent-type select; the new option must appear.
+    const select = adminPage.locator('[data-testid="agent-type-select-1"]');
+    await expect(select.locator('option[value="iterative_editing_rewrite"]')).toBeAttached();
+    // First-iteration dropdown should DISABLE the new option (same rule as Mode A).
+    const firstSelect = adminPage.locator('[data-testid="agent-type-select-0"]');
+    const disabledFlag = await firstSelect.locator('option[value="iterative_editing_rewrite"]').getAttribute('disabled');
+    expect(disabledFlag).not.toBeNull();
+    // Verify the second iteration can actually be set to the new type without error.
+    await select.selectOption('iterative_editing_rewrite');
+    await expect(select).toHaveValue('iterative_editing_rewrite');
+    // Selecting Mode B must surface the same editing controls Mode A shows
+    // (cycles input + cutoff input + cutoff mode select). Regression guard for
+    // a wizard bug where these conditional blocks omitted the rewrite type.
+    await expect(adminPage.getByTestId('iteration-editing-controls-1')).toBeVisible();
+    await expect(adminPage.getByTestId('editing-max-cycles-1')).toBeVisible();
+    await expect(adminPage.getByTestId('editing-cutoff-value-1')).toBeVisible();
+    await expect(adminPage.getByTestId('editing-cutoff-mode-1')).toBeVisible();
   });
 });

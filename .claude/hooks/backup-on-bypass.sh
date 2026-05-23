@@ -11,13 +11,14 @@ if [ "$PERMISSION_MODE" != "bypassPermissions" ]; then
   exit 0
 fi
 
-cd "$CWD" || exit 0
+TARGET_DIR="${CLAUDE_PROJECT_DIR:-$CWD}"
+cd "$TARGET_DIR" || exit 0
 BRANCH=$(git branch --show-current 2>/dev/null)
 [ -z "$BRANCH" ] && exit 0
 [[ "$BRANCH" == "main" || "$BRANCH" == "master" ]] && exit 0
 
 REMOTE="origin"
-LOGFILE="$CWD/.claude/logs/backup-audit.log"
+LOGFILE="$TARGET_DIR/.claude/logs/backup-audit.log"
 mkdir -p "$(dirname "$LOGFILE")" 2>/dev/null
 
 log() {

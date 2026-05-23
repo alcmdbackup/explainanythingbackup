@@ -337,6 +337,10 @@ jobs:
       # ranking step inside iterative_editing iterations (D4). Default is 'true' in
       # code; set explicitly here so the test env exercises the new ranking path.
       EDITING_RANK_ENABLED: 'true'
+      # bring_back_debate_agent_20260506 — kill switch for the debate_and_generate
+      # dispatch path (Phase 5.10). Default 'true' in code; set explicitly here so
+      # debate integration tests exercise the live dispatch branch.
+      EVOLUTION_DEBATE_ENABLED: 'true'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

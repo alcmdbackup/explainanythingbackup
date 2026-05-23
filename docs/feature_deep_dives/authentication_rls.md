@@ -4,6 +4,17 @@
 
 Authentication uses Supabase Auth with middleware-based route protection. Row Level Security (RLS) policies ensure users can only access their own data at the database level.
 
+### Hostname assertion (post-split)
+
+Since the explainanything/evolution website split (Option B — single Vercel project, two hostnames; see `docs/planning/split_evolution_explainanythig_into_separate_websites_20260522/`), `isUserAdmin()` and `requireAdmin()` in `src/lib/services/adminAuth.ts` both gate on the request hostname in addition to the `admin_users` lookup:
+
+- A request from `public` host → returns `false` / throws `Unauthorized: Admin actions are not available from this hostname` (admin checks short-circuit before the DB query).
+- A request from `evolution` host, `local`, or `preview` → passes through to the existing `admin_users` check.
+- A request from `unknown` host → treated as `public` (fail-closed).
+- Called outside a request context (e.g. the minicomputer batch runner, build-time static generation) → `headers()` throws and is caught; admin check passes through. The middleware is the perimeter; this assertion is the second wall.
+
+The host is classified via `classifyHost()` in `src/config/hostnames.ts` using exact case-insensitive equality (no `startsWith` — suffix-extension attacks are not viable).
+
 ## Implementation
 
 ### Key Files

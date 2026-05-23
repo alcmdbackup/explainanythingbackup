@@ -151,11 +151,16 @@ export const createStrategyAction = adminAction(
   async (input: z.input<typeof createStrategySchema>, ctx: AdminContext): Promise<StrategyListItem> => {
     const parsed = createStrategySchema.parse(input);
 
-    // Validate criteriaIds referenced by criteria_and_generate iterations exist + active.
+    // Validate criteriaIds referenced by any criteria-based agent type (legacy + 2 new) exist + active.
     {
       const { validateCriteriaIds } = await import('./criteriaActions');
       const allIds = parsed.iterationConfigs
-        .flatMap((it) => (it.agentType === 'criteria_and_generate' && it.criteriaIds) ? it.criteriaIds : []);
+        .flatMap((it) => {
+          const isCriteriaBased = it.agentType === 'criteria_and_generate'
+            || it.agentType === 'single_pass_evaluate_criteria_and_generate'
+            || it.agentType === 'proposer_approver_criteria_generate';
+          return (isCriteriaBased && it.criteriaIds) ? it.criteriaIds : [];
+        });
       if (allIds.length > 0) {
         await validateCriteriaIds(allIds, ctx.supabase);
       }
@@ -164,6 +169,8 @@ export const createStrategyAction = adminAction(
     const config: StrategyConfig = {
       generationModel: parsed.generationModel,
       judgeModel: parsed.judgeModel,
+      editingModel: parsed.editingModel,
+      approverModel: parsed.approverModel,
       iterationConfigs: parsed.iterationConfigs,
       budgetUsd: parsed.budgetUsd,
       generationGuidance: parsed.generationGuidance,

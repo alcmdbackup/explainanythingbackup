@@ -34,6 +34,20 @@ export interface ModelInfo {
    * See evolution/docs/cost_optimization.md for the impact on latency/cost.
    */
   defaultReasoningEffort?: 'none' | 'low' | 'medium' | 'high';
+  /**
+   * Whether this model supports thinking-mode / reasoning-effort routing.
+   * REQUIRED on every entry (no defaulting) so the Zod cross-field refinement
+   * in strategyConfigBaseSchema (Phase 1.14) and the cascade resolver guard in
+   * debateDispatch.ts (Phase 2.5) can rely on it without falling back to
+   * `defaultReasoningEffort !== undefined` proxy checks.
+   *
+   * Invariant (enforced at module init below): if `supportsReasoning === true`,
+   * `defaultReasoningEffort` MAY be set; if `supportsReasoning === false`,
+   * `defaultReasoningEffort` MUST NOT be set.
+   *
+   * Source: bring_back_debate_agent_20260506 Phase 1.19.
+   */
+  supportsReasoning: boolean;
 }
 
 // ─── Registry ───────────────────────────────────────────────────
@@ -43,60 +57,76 @@ export const MODEL_REGISTRY: Record<string, ModelInfo> = {
   'gpt-4o': {
     id: 'gpt-4o', displayName: 'GPT-4o', provider: 'openai',
     inputPer1M: 2.50, outputPer1M: 10.00, maxTemperature: 2.0, supportsEvolution: true,
+    supportsReasoning: false,
   },
   'gpt-4o-mini': {
     id: 'gpt-4o-mini', displayName: 'GPT-4o Mini', provider: 'openai',
     inputPer1M: 0.15, outputPer1M: 0.60, maxTemperature: 2.0, supportsEvolution: true,
+    supportsReasoning: false,
   },
 
   // OpenAI GPT-4.1
   'gpt-4.1': {
     id: 'gpt-4.1', displayName: 'GPT-4.1', provider: 'openai',
     inputPer1M: 2.00, outputPer1M: 8.00, maxTemperature: 2.0, supportsEvolution: true,
+    supportsReasoning: false,
   },
   'gpt-4.1-mini': {
     id: 'gpt-4.1-mini', displayName: 'GPT-4.1 Mini', provider: 'openai',
     inputPer1M: 0.40, outputPer1M: 1.60, maxTemperature: 2.0, supportsEvolution: true,
+    supportsReasoning: false,
   },
   'gpt-4.1-nano': {
     id: 'gpt-4.1-nano', displayName: 'GPT-4.1 Nano', provider: 'openai',
     inputPer1M: 0.10, outputPer1M: 0.40, maxTemperature: 2.0, supportsEvolution: true,
+    supportsReasoning: false,
   },
 
-  // OpenAI GPT-5
+  // OpenAI GPT-5 — reasoning-capable at API level but registry leaves supportsReasoning=false
+  // until ops explicitly opts in (would also need defaultReasoningEffort + Phase 1.20 wiring).
   'gpt-5.2': {
     id: 'gpt-5.2', displayName: 'GPT-5.2', provider: 'openai',
     inputPer1M: 1.75, outputPer1M: 14.00, maxTemperature: 2.0, supportsEvolution: true,
+    supportsReasoning: false,
   },
   'gpt-5.2-pro': {
     id: 'gpt-5.2-pro', displayName: 'GPT-5.2 Pro', provider: 'openai',
     inputPer1M: 3.50, outputPer1M: 28.00, maxTemperature: 2.0, supportsEvolution: true,
+    supportsReasoning: false,
   },
   'gpt-5-mini': {
     id: 'gpt-5-mini', displayName: 'GPT-5 Mini', provider: 'openai',
     inputPer1M: 0.25, outputPer1M: 2.00, maxTemperature: 2.0, supportsEvolution: true,
+    supportsReasoning: false,
   },
   'gpt-5-nano': {
     id: 'gpt-5-nano', displayName: 'GPT-5 Nano', provider: 'openai',
     inputPer1M: 0.05, outputPer1M: 0.40, maxTemperature: 2.0, supportsEvolution: true,
+    supportsReasoning: false,
   },
 
   // OpenAI reasoning
   'o3-mini': {
     id: 'o3-mini', displayName: 'o3-mini', provider: 'openai',
     inputPer1M: 1.10, outputPer1M: 4.40, maxTemperature: null, supportsEvolution: true,
+    supportsReasoning: true,
   },
 
-  // DeepSeek
+  // DeepSeek (deepseek-chat is non-reasoning; the deepseek-reasoner SKU is not in registry).
   'deepseek-chat': {
     id: 'deepseek-chat', displayName: 'DeepSeek Chat', provider: 'deepseek',
     inputPer1M: 0.28, outputPer1M: 0.42, maxTemperature: 2.0, supportsEvolution: true,
+    supportsReasoning: false,
   },
 
-  // Anthropic
+  // Anthropic — Sonnet 4 supports extended thinking via the Anthropic SDK, but the
+  // wire-up + Phase 1.20 trace extraction are dead-code in v1 (see planning doc).
+  // supportsReasoning intentionally false; flip to true in a follow-up PR + add
+  // defaultReasoningEffort to enable.
   'claude-sonnet-4-20250514': {
     id: 'claude-sonnet-4-20250514', displayName: 'Claude Sonnet 4', provider: 'anthropic',
     inputPer1M: 3.00, outputPer1M: 15.00, maxTemperature: 1.0, supportsEvolution: true,
+    supportsReasoning: false,
   },
 
   // OpenRouter
@@ -107,11 +137,13 @@ export const MODEL_REGISTRY: Record<string, ModelInfo> = {
     // OSS 20B has mandatory reasoning; 'low' is the minimum effective setting.
     // Default medium can take 6-16s per call and emit 2-4k reasoning tokens.
     defaultReasoningEffort: 'low',
+    supportsReasoning: true,
   },
   'google/gemini-2.5-flash-lite': {
     id: 'google/gemini-2.5-flash-lite', displayName: 'Gemini 2.5 Flash Lite', provider: 'openrouter',
     inputPer1M: 0.10, outputPer1M: 0.40, maxTemperature: 2.0, supportsEvolution: true,
     openRouterModelId: 'google/gemini-2.5-flash-lite',
+    supportsReasoning: false,
   },
   'qwen/qwen3-8b': {
     id: 'qwen/qwen3-8b', displayName: 'Qwen3 8B', provider: 'openrouter',
@@ -121,17 +153,20 @@ export const MODEL_REGISTRY: Record<string, ModelInfo> = {
     // tokens per call (~98% of output) and takes ~8s; thinking OFF emits ~5 tokens
     // and completes in ~1s. No quality loss observed for judge use case.
     defaultReasoningEffort: 'none',
+    supportsReasoning: true,
   },
   'qwen-2.5-7b-instruct': {
     id: 'qwen-2.5-7b-instruct', displayName: 'Qwen 2.5 7B Instruct', provider: 'openrouter',
     inputPer1M: 0.04, outputPer1M: 0.10, maxTemperature: 2.0, supportsEvolution: true,
     openRouterModelId: 'qwen/qwen-2.5-7b-instruct',
+    supportsReasoning: false,
   },
 
   // Local (Ollama)
   'LOCAL_qwen2.5:14b': {
     id: 'LOCAL_qwen2.5:14b', displayName: 'Qwen 2.5 14B (Local)', provider: 'local',
     inputPer1M: 0, outputPer1M: 0, maxTemperature: 2.0, supportsEvolution: true,
+    supportsReasoning: false,
   },
 };
 
@@ -142,6 +177,16 @@ if (Object.keys(MODEL_REGISTRY).length === 0) {
 }
 if (!Object.values(MODEL_REGISTRY).some(m => m.supportsEvolution)) {
   throw new Error('MODEL_REGISTRY has no models with supportsEvolution=true');
+}
+// bring_back_debate_agent_20260506 Phase 1.19 consistency check.
+// supportsReasoning=false ↔ defaultReasoningEffort undefined.
+for (const [id, info] of Object.entries(MODEL_REGISTRY)) {
+  if (!info.supportsReasoning && info.defaultReasoningEffort !== undefined) {
+    throw new Error(
+      `MODEL_REGISTRY entry '${id}' has defaultReasoningEffort='${info.defaultReasoningEffort}' ` +
+      `but supportsReasoning=false. Either set supportsReasoning=true or remove defaultReasoningEffort.`,
+    );
+  }
 }
 
 // ─── Default judge model ────────────────────────────────────────
@@ -164,6 +209,14 @@ export function getModelMaxTemperature(modelId: string): number | null | undefin
  *  Returns undefined for unknown models or models that don't support reasoning. */
 export function getModelDefaultReasoningEffort(modelId: string): 'none' | 'low' | 'medium' | 'high' | undefined {
   return MODEL_REGISTRY[modelId]?.defaultReasoningEffort;
+}
+
+/** Whether a model supports thinking-mode / reasoning-effort routing.
+ *  Returns false for unknown models (conservative fallback — caller can't request
+ *  reasoning effort on a model that may not handle it).
+ *  bring_back_debate_agent_20260506 Phase 1.19. */
+export function modelSupportsReasoning(modelId: string): boolean {
+  return MODEL_REGISTRY[modelId]?.supportsReasoning === true;
 }
 
 /** Get all model IDs that support evolution (for schema derivation). */

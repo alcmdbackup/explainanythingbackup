@@ -19,6 +19,36 @@ import { selectWinner } from '../../shared/selectWinner';
 /** Seed variant strategy name (formerly 'baseline'; renamed 2026-04-14 to disambiguate from V1 'original_baseline'
  *  and to clarify its role as the persisted seed article for a prompt). */
 export const SEED_VARIANT_STRATEGY = 'seed_variant';
+
+/** Defensive truncation cap on parent_variant_ids array writes.
+ *  bring_back_debate_agent_20260506 Decision §20 + Phase 3.8a. Today's wrappers emit
+ *  at most 2 parents (debate's [winner, loser]); future N-parent agents (ensemble,
+ *  tournament-of-K) would land here too. The cap prevents a buggy future agent from
+ *  writing runaway arrays. console.warn fires when truncation actually drops elements. */
+export const MAX_PARENT_IDS = 10;
+
+/** Build the parent-id columns for a variant insert.
+ *  bring_back_debate_agent_20260506 Phase 3.8 — array-only insert.
+ *  Inserts only `parent_variant_ids`; the legacy `parent_variant_id` column still
+ *  exists in the schema and lands NULL on new rows. Its DROP is deferred to a
+ *  follow-up PR after a soak window. parentIds[0] is the canonical primary parent
+ *  by convention (e.g. judge's winner for debate variants per Decision §20). Empty
+ *  array for root/seed variants.
+ *
+ *  Falsy filtering: empty-string or undefined entries are dropped (mirrors what the
+ *  legacy column's truthy-check did) — '' is not a valid UUID. */
+function buildParentColumns(variant: Variant): { parent_variant_ids: string[] } {
+  const filtered = variant.parentIds.filter((id): id is string => Boolean(id));
+  const truncated = filtered.slice(0, MAX_PARENT_IDS);
+  if (filtered.length > MAX_PARENT_IDS) {
+    serverLogger.warn('persistRunResults: parent_variant_ids truncated', {
+      variantId: variant.id,
+      droppedCount: filtered.length - MAX_PARENT_IDS,
+      MAX_PARENT_IDS,
+    });
+  }
+  return { parent_variant_ids: truncated };
+}
 /** @deprecated Legacy alias; admin UI dual-accept reads both 'baseline' (legacy rows) and 'seed_variant' (current). */
 const LEGACY_BASELINE_STRATEGY = 'baseline';
 
@@ -243,8 +273,10 @@ export async function finalizeRun(
       mu: db.mu,
       sigma: db.sigma,
       generation: v.iterationBorn,
-      // Use truthy check ('' is not a valid UUID — coerce to null for seed-less explanation runs).
-      parent_variant_id: v.parentIds[0] || null,
+      // Phase 3.8a dual-write: BOTH parent_variant_id (legacy single-FK) AND
+      // parent_variant_ids (new array). After PR 2's 1.15b drops the legacy column,
+      // Phase 3.8b drops the parent_variant_id assignment.
+      ...buildParentColumns(v),
       agent_name: v.tactic,
       match_count: result.matchCounts[v.id] ?? 0,
       is_winner: v.id === winnerId,
@@ -253,6 +285,7 @@ export async function finalizeRun(
       agent_invocation_id: v.agentInvocationId ?? null,
       criteria_set_used: v.criteriaSetUsed ? [...v.criteriaSetUsed] : null,
       weakest_criteria_ids: v.weakestCriteriaIds ? [...v.weakestCriteriaIds] : null,
+      sentence_verbatim_ratio: v.sentenceVerbatimRatio ?? null,
     });
   });
 
@@ -276,8 +309,8 @@ export async function finalizeRun(
         mu: db.mu,
         sigma: db.sigma,
         generation: v.iterationBorn,
-        // Use truthy check ('' is not a valid UUID — coerce to null for seed-less explanation runs).
-        parent_variant_id: v.parentIds[0] || null,
+        // Phase 3.8a dual-write — see buildParentColumns().
+        ...buildParentColumns(v),
         agent_name: v.tactic,
         match_count: 0,
         is_winner: false,
@@ -286,6 +319,7 @@ export async function finalizeRun(
         agent_invocation_id: v.agentInvocationId ?? null,
         criteria_set_used: v.criteriaSetUsed ? [...v.criteriaSetUsed] : null,
         weakest_criteria_ids: v.weakestCriteriaIds ? [...v.weakestCriteriaIds] : null,
+        sentence_verbatim_ratio: v.sentenceVerbatimRatio ?? null,
       });
     });
 

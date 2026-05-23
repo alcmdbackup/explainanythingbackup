@@ -54,4 +54,28 @@ describe('checkProposerDrift', () => {
     expect(r.drift).toBe(true);
     if (r.drift) expect(r.sample.length).toBeGreaterThan(0);
   });
+
+  it('region.driftedText covers the entire mismatched suffix (no 200-char cap)', () => {
+    // Drift starts late in a long article — driftedText must include the full
+    // remaining suffix so snapDriftToSource patches the whole drift, not just
+    // the first 200 chars.
+    const prefix = 'a'.repeat(900);
+    const aSuffix = 'X'.repeat(400);
+    const bSuffix = 'Y'.repeat(400);
+    const r = checkProposerDrift(prefix + aSuffix, prefix + bSuffix);
+    expect(r.drift).toBe(true);
+    if (r.drift) {
+      expect(r.regions[0]!.offset).toBe(900);
+      expect(r.regions[0]!.driftedText.length).toBe(400);
+    }
+  });
+
+  it('uses RAW offsets (matches recoveredSource indexing) so snap can splice currentText.slice at the same offset', () => {
+    // After my fix, offset is computed against raw strings, not normalized.
+    // So a region at offset 5 in the raw recoveredSource maps to position 5
+    // in currentText for splicing purposes.
+    const r = checkProposerDrift('hello WRONG', 'hello right');
+    expect(r.drift).toBe(true);
+    if (r.drift) expect(r.regions[0]!.offset).toBe(6);
+  });
 });

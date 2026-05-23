@@ -1,6 +1,6 @@
 // Tests for ConfigDrivenDetailRenderer: verifies all 7 field types, nested objects, and fallback.
 
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { ConfigDrivenDetailRenderer } from './ConfigDrivenDetailRenderer';
 import type { DetailFieldDef } from '@evolution/lib/core/types';
 
@@ -254,5 +254,118 @@ describe('ConfigDrivenDetailRenderer', () => {
     expect(screen.getByTestId('field-name')).toBeInTheDocument();
     expect(screen.getByTestId('field-tags')).toBeInTheDocument();
     expect(screen.getByTestId('field-nested')).toBeInTheDocument();
+  });
+
+  it('annotated-edits resolves dotted-path keys (markupKey="cycles.0.proposedMarkup")', () => {
+    // Regression: annotated-edits and text-diff branches previously used literal
+    // bracket access on dotted keys (e.g. data['cycles.0.proposedMarkup']),
+    // which JS evaluates as undefined for nested data — every editing
+    // invocation rendered an empty Annotated Edits panel as a result.
+    const config: DetailFieldDef[] = [
+      {
+        key: 'cycles.0', label: 'Annotated Edits', type: 'annotated-edits',
+        markupKey: 'cycles.0.proposedMarkup',
+        groupsKey: 'cycles.0.proposedGroupsRaw',
+        decisionsKey: 'cycles.0.reviewDecisions',
+        dropsPreKey: 'cycles.0.droppedPreApprover',
+        dropsPostKey: 'cycles.0.droppedPostApprover',
+      },
+    ];
+    const data = {
+      cycles: [
+        {
+          proposedMarkup: 'Hello {++ cruel ++}world.',
+          proposedGroupsRaw: [{
+            groupNumber: 1,
+            atomicEdits: [{
+              groupNumber: 1, kind: 'insert',
+              range: { start: 6, end: 6 }, markupRange: { start: 6, end: 19 },
+              oldText: '', newText: 'cruel',
+              contextBefore: 'Hello ', contextAfter: 'world.',
+            }],
+          }],
+          reviewDecisions: [],
+          droppedPreApprover: [],
+          droppedPostApprover: [],
+        },
+      ],
+    };
+    render(<ConfigDrivenDetailRenderer config={config} data={data} />);
+    // The dotted key is resolved → component renders the markup.
+    expect(screen.getByTestId('annotated-content').textContent).toContain('Hello');
+    expect(screen.getByTestId('annotated-content').textContent).toContain('cruel');
+    // Group span is rendered (proves proposedGroupsRaw was resolved, not empty default).
+    expect(screen.getByTestId('annotated-group-1')).toBeInTheDocument();
+  });
+
+  it('annotated-edits resolves cycle-prefixed appliedGroups + parentText (siblings of markupKey)', () => {
+    // Regression: appliedGroups and parentText are NOT on the DetailFieldDef
+    // config — they are sibling fields under the same cycle. The renderer
+    // derives their paths by prepending the cycle prefix from field.key.
+    // Pre-fix bug: literal flat keys 'appliedGroups' / 'parentText' against
+    // top-level data → undefined → "Final variant" view rebuilt from oldText
+    // (showing the original article) and "Original" view's parentText override
+    // silently never fired.
+    const config: DetailFieldDef[] = [
+      {
+        key: 'cycles.0', label: 'Annotated Edits', type: 'annotated-edits',
+        markupKey: 'cycles.0.proposedMarkup',
+        groupsKey: 'cycles.0.proposedGroupsRaw',
+      },
+    ];
+    const proposedGroupsRaw = [{
+      groupNumber: 1,
+      atomicEdits: [{
+        groupNumber: 1, kind: 'replace',
+        range: { start: 0, end: 5 }, markupRange: { start: 0, end: 26 },
+        oldText: 'OLD', newText: 'NEW',
+        contextBefore: '', contextAfter: '',
+      }],
+    }];
+    const data = {
+      cycles: [
+        {
+          proposedMarkup: '{~~ [#1] OLD ~> NEW ~~} suffix',
+          proposedGroupsRaw,
+          appliedGroups: proposedGroupsRaw,  // Group 1 was accepted+applied.
+          parentText: 'PARENT_TEXT_FROM_CYCLE',
+        },
+      ],
+    };
+    render(<ConfigDrivenDetailRenderer config={config} data={data} />);
+
+    // Final view: should show NEW (group 1 in appliedGroups → newText splice).
+    fireEvent.click(screen.getByTestId('annotated-view-final'));
+    expect(screen.getByTestId('annotated-final').textContent).toContain('NEW');
+    expect(screen.getByTestId('annotated-final').textContent).not.toContain('OLD');
+
+    // Original view: should display PARENT_TEXT_FROM_CYCLE verbatim
+    // (parentText override was resolved through cycle prefix).
+    fireEvent.click(screen.getByTestId('annotated-view-original'));
+    expect(screen.getByTestId('annotated-original').textContent).toBe('PARENT_TEXT_FROM_CYCLE');
+  });
+
+  it('text-diff resolves dotted-path keys (sourceKey/targetKey)', () => {
+    // Same regression class as the annotated-edits dotted-key bug — text-diff
+    // also used literal bracket access. Defensive coverage: even though no
+    // current field config uses dotted sourceKey/targetKey, the fix is in
+    // place and a regression here would silently render empty diff panels.
+    const config: DetailFieldDef[] = [
+      {
+        key: 'diff', label: 'Diff', type: 'text-diff',
+        sourceKey: 'cycles.0.parentText',
+        targetKey: 'cycles.0.proposedMarkup',
+        previewLength: 500,
+      },
+    ];
+    const data = {
+      cycles: [
+        { parentText: 'BEFORE_TEXT', proposedMarkup: 'AFTER_TEXT' },
+      ],
+    };
+    render(<ConfigDrivenDetailRenderer config={config} data={data} />);
+    const panel = screen.getByTestId('field-diff');
+    expect(panel.textContent).toContain('BEFORE_TEXT');
+    expect(panel.textContent).toContain('AFTER_TEXT');
   });
 });

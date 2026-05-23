@@ -172,7 +172,11 @@ export interface InvocationVariantContext {
   /** The produced variant's text content — used by InvocationParentBlock's <TextDiff>
    *  collapsible (Phase 4.4/4.5). Null when the invocation produced no variant. */
   variantContent: string | null;
+  /** Canonical primary parent (parent_variant_ids[0]). null for root variants. */
   parentVariantId: string | null;
+  /** All parents — debate emits [winner, loser] (Decision §20). Single-parent variants
+   *  have a 1-element array; root variants have an empty array. */
+  parentVariantIds: string[];
   parentElo: number | null;
   parentMu: number | null;
   parentSigma: number | null;
@@ -189,11 +193,11 @@ export const getInvocationVariantContextAction = adminAction(
 
     type InvocationVariantRow = {
       id: string; run_id: string; elo_score: number; mu: number | null; sigma: number | null;
-      parent_variant_id: string | null; variant_content: string | null;
+      parent_variant_ids: string[] | null; variant_content: string | null;
     };
     const { data: variantsData } = await supabase
       .from('evolution_variants')
-      .select('id, run_id, elo_score, mu, sigma, parent_variant_id, variant_content')
+      .select('id, run_id, elo_score, mu, sigma, parent_variant_ids, variant_content')
       .eq('agent_invocation_id', invocationId)
       .limit(1);
     const variants = (variantsData ?? []) as unknown as InvocationVariantRow[];
@@ -201,17 +205,22 @@ export const getInvocationVariantContextAction = adminAction(
     const variant = variants?.[0];
     if (!variant) return null;
 
+    // bring_back_debate_agent_20260506 PR 2 — read parent_variant_ids[0] (canonical
+    // primary parent per Decision §20). Multi-parent UI displays the full array elsewhere.
+    const parentIds = variant.parent_variant_ids ?? [];
+    const primaryParentId: string | null = parentIds.length > 0 ? parentIds[0]! : null;
+
     let parentElo: number | null = null;
     let parentMu: number | null = null;
     let parentSigma: number | null = null;
     let parentRunId: string | null = null;
     let parentContent: string | null = null;
 
-    if (variant.parent_variant_id) {
+    if (primaryParentId) {
       const { data: parent } = await supabase
         .from('evolution_variants')
         .select('elo_score, mu, sigma, run_id, variant_content')
-        .eq('id', variant.parent_variant_id)
+        .eq('id', primaryParentId)
         .single();
       if (parent) {
         parentElo = parent.elo_score ?? null;
@@ -229,7 +238,8 @@ export const getInvocationVariantContextAction = adminAction(
       variantMu: variant.mu ?? null,
       variantSigma: variant.sigma ?? null,
       variantContent: variant.variant_content ?? null,
-      parentVariantId: variant.parent_variant_id,
+      parentVariantId: primaryParentId,
+      parentVariantIds: parentIds,
       parentElo,
       parentMu,
       parentSigma,
