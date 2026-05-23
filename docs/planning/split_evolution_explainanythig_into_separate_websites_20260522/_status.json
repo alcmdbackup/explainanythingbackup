@@ -1,7 +1,10 @@
 {
   "branch": "feat/split_evolution_explainanythig_into_separate_websites_20260522",
   "created_at": "2026-05-22T00:00:00Z",
-  "prerequisites": {},
+  "prerequisites": {
+    "environments_read": "2026-05-23T04:04:59Z",
+    "project_workflow_read": "2026-05-23T04:07:56Z"
+  },
   "relevantDocs": [
     "docs/docs_overall/architecture.md",
     "docs/docs_overall/environments.md",
