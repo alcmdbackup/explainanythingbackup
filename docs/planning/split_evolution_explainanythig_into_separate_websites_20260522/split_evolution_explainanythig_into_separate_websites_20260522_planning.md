@@ -113,31 +113,31 @@ Goal: close three FK gaps so the eventual DB reset can't leave orphan evolution 
   - [ ] `SELECT id, entry_a, entry_b FROM evolution_arena_comparisons WHERE entry_a NOT IN (SELECT id FROM evolution_variants) OR entry_b NOT IN (SELECT id FROM evolution_variants);` — list orphan arena rows.
   - [ ] `SELECT conname, conrelid::regclass FROM pg_constraint WHERE confrelid = 'explanations'::regclass;` — confirm FK ordering before destructive ops in Phase 5.
 
-- [ ] Write migration `supabase/migrations/20260524000001_evolution_fk_hardening.sql`:
-  - [ ] **NULL out orphaned `evolution_experiments.evolution_explanation_id`** values *before* adding the FK (otherwise `ADD CONSTRAINT` will fail). The migration script does this in a single transaction.
-  - [ ] `ALTER TABLE evolution_experiments ADD CONSTRAINT evolution_experiments_evolution_explanation_id_fkey FOREIGN KEY (evolution_explanation_id) REFERENCES evolution_explanations(id) ON DELETE SET NULL NOT VALID;` followed by `ALTER TABLE evolution_experiments VALIDATE CONSTRAINT evolution_experiments_evolution_explanation_id_fkey;` — two-step pattern that holds the table for less time and allows non-blocking validation.
-  - [ ] `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_evolution_variants_evolution_explanation_id ON evolution_variants(evolution_explanation_id);` — concurrent index build, no exclusive lock.
-  - [ ] Comment block explaining why `evolution_arena_comparisons.entry_a/b` has no DB FK (intentional; app-layer in `evolution/src/lib/core/entities/VariantEntity.ts:65`).
+- [x] Write migration `supabase/migrations/20260524000001_evolution_fk_hardening.sql`:
+  - [x] **NULL out orphaned `evolution_experiments.evolution_explanation_id`** values *before* adding the FK (otherwise `ADD CONSTRAINT` will fail). The migration script does this in a single transaction.
+  - [x] `ALTER TABLE evolution_experiments ADD CONSTRAINT evolution_experiments_evolution_explanation_id_fkey FOREIGN KEY (evolution_explanation_id) REFERENCES evolution_explanations(id) ON DELETE SET NULL NOT VALID;` followed by `ALTER TABLE evolution_experiments VALIDATE CONSTRAINT evolution_experiments_evolution_explanation_id_fkey;` — two-step pattern that holds the table for less time and allows non-blocking validation.
+  - [x] `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_evolution_variants_evolution_explanation_id ON evolution_variants(evolution_explanation_id);` — concurrent index build, no exclusive lock.
+  - [x] Comment block explaining why `evolution_arena_comparisons.entry_a/b` has no DB FK (intentional; app-layer in `evolution/src/lib/core/entities/VariantEntity.ts:65`).
 
-- [ ] Write `evolution/scripts/audit-arena-comparison-orphans.ts`:
-  - [ ] `--dry-run` (default): prints orphan rows, no mutation.
-  - [ ] `--apply`: requires typed confirmation `DELETE ORPHAN ARENA COMPARISONS` before any DELETE.
-  - [ ] Unit test covers the dry-run path and confirmation-required path.
+- [x] Write `evolution/scripts/audit-arena-comparison-orphans.ts`:
+  - [x] `--dry-run` (default): prints orphan rows, no mutation.
+  - [x] `--apply`: requires typed confirmation `DELETE ORPHAN ARENA COMPARISONS` before any DELETE.
+  - [x] Unit test covers the dry-run path and confirmation-required path.
 
 - [ ] **Post-migration verification** — runs in CI AND as a manual prod check:
   - [ ] `SELECT conname FROM pg_constraint WHERE conname = 'evolution_experiments_evolution_explanation_id_fkey';` — must return one row.
   - [ ] `SELECT indexname FROM pg_indexes WHERE indexname = 'idx_evolution_variants_evolution_explanation_id';` — must return one row.
   - [ ] Integration test `src/__tests__/integration/fk-hardening.integration.test.ts` (see Testing section) runs against staging post-deploy.
 
-- [ ] Rollback: standard migration revert (`DROP CONSTRAINT`, `DROP INDEX`). Documented inline in the migration as a comment.
+- [x] Rollback: standard migration revert (`DROP CONSTRAINT`, `DROP INDEX`). Documented inline in the migration as a comment.
 
 ### Phase 2: Middleware-Based Hostname Split (the code change)
 
 Goal: same Vercel deployment serves both hostnames; middleware refuses cross-hostname access.
 
-- [ ] Decide the evolution hostname. Default proposal: `ea-evolution.vercel.app` (if staying on `*.vercel.app`) or `evolution.explainanything.com` (if a custom apex exists). Capture the chosen value in `docs/docs_overall/environments.md`.
+- [x] Decide the evolution hostname. Default proposal: `ea-evolution.vercel.app` (if staying on `*.vercel.app`) or `evolution.explainanything.com` (if a custom apex exists). Capture the chosen value in `docs/docs_overall/environments.md`.
 
-- [ ] Add `src/config/hostnames.ts`:
+- [x] Add `src/config/hostnames.ts`:
   ```ts
   // Production hostnames — exact match (case-insensitive, port stripped)
   export const PROD_PUBLIC_HOST = 'explainanything.vercel.app';   // or chosen apex
@@ -157,9 +157,9 @@ Goal: same Vercel deployment serves both hostnames; middleware refuses cross-hos
   }
   ```
 
-- [ ] Add `src/config/userAgent.ts` exporting `SOURCE_FETCHER_USER_AGENT` (extracts the hardcoded string from `src/lib/services/sourceFetcher.ts:163`). Keep this separate from `hostnames.ts` — different concern.
+- [x] Add `src/config/userAgent.ts` exporting `SOURCE_FETCHER_USER_AGENT` (extracts the hardcoded string from `src/lib/services/sourceFetcher.ts:163`). Keep this separate from `hostnames.ts` — different concern.
 
-- [ ] Update `src/middleware.ts`:
+- [x] Update `src/middleware.ts`:
   ```ts
   import { classifyHost } from '@/config/hostnames';
 
@@ -191,13 +191,13 @@ Goal: same Vercel deployment serves both hostnames; middleware refuses cross-hos
   }
   ```
 
-- [ ] Update `src/lib/services/adminAuth.ts`:
-  - [ ] Add an internal `assertEvolutionHost()` helper that reads `host` from `headers()`, classifies via `classifyHost`, throws if tier is `'public'` or `'unknown'`, no-ops if `'evolution'`, `'preview'`, or `'local'`. Wraps the `headers()` call in try/catch — outside a request context it's a no-op (preserves non-HTTP callers).
-  - [ ] Call `assertEvolutionHost()` at the top of `requireAdmin()` and at the top of `isUserAdmin()` (defense in depth).
+- [x] Update `src/lib/services/adminAuth.ts`:
+  - [x] Add an internal `assertEvolutionHost()` helper that reads `host` from `headers()`, classifies via `classifyHost`, throws if tier is `'public'` or `'unknown'`, no-ops if `'evolution'`, `'preview'`, or `'local'`. Wraps the `headers()` call in try/catch — outside a request context it's a no-op (preserves non-HTTP callers).
+  - [x] Call `assertEvolutionHost()` at the top of `requireAdmin()` and at the top of `isUserAdmin()` (defense in depth).
 
 - [ ] **Audit and update existing `requireAdmin()` consumers** for context compatibility (each file listed in cross-cutting decisions above) — no functional change expected; just verify each call site is reached only from a request context. Documented in `phase2-requireAdmin-audit.md`.
 
-- [ ] Update Sentry per-request tagging in `sentry.server.config.ts`, `sentry.edge.config.ts`, `sentry.client.config.ts`:
+- [x] Update Sentry per-request tagging in `sentry.server.config.ts`, `sentry.edge.config.ts`, `sentry.client.config.ts`:
   ```ts
   // inside Sentry.init({ ... }) for each
   beforeSend(event) {
@@ -208,17 +208,17 @@ Goal: same Vercel deployment serves both hostnames; middleware refuses cross-hos
   ```
   Client config reads `window.location.host` instead. Tag must be set *per event*, not at module init.
 
-- [ ] Update `src/lib/services/sourceFetcher.ts:163` — import `SOURCE_FETCHER_USER_AGENT` from `@/config/userAgent`, replace hardcoded string.
+- [x] Update `src/lib/services/sourceFetcher.ts:163` — import `SOURCE_FETCHER_USER_AGENT` from `@/config/userAgent`, replace hardcoded string.
 
 ### Phase 3: Secondary Domain Setup on Existing Vercel Project
 
 Goal: the second hostname actually resolves to the deployment.
 
-- [ ] In Vercel Dashboard → existing project → Settings → Domains, add the evolution hostname.
-- [ ] DNS: if `evolution.<apex>`, add `CNAME` to `cname.vercel-dns.com`. If `*.vercel.app`, Vercel auto-provisions.
-- [ ] Verify TLS cert provisions cleanly.
+- [x] In Vercel Dashboard → existing project → Settings → Domains, add the evolution hostname.
+- [x] DNS: if `evolution.<apex>`, add `CNAME` to `cname.vercel-dns.com`. If `*.vercel.app`, Vercel auto-provisions.
+- [x] Verify TLS cert provisions cleanly.
 - [ ] Smoke (use GET, not HEAD — Next.js routes don't always implement HEAD): `curl -sS -o /dev/null -w '%{http_code}\n' https://<evolution-host>/admin/evolution-dashboard` returns 200 or 307. `curl -sS -o /dev/null -w '%{http_code}\n' https://<evolution-host>/results` returns 404. `curl -sS -o /dev/null -w '%{http_code}\n' https://<public-host>/admin/evolution/runs` returns 404.
-- [ ] Rollback: remove the domain from Vercel (DNS-level the public host keeps serving everything; existing admin links via the public host still work because that path didn't change yet). Mid-Phase-2 rollback: revert the middleware PR.
+- [x] Rollback: remove the domain from Vercel (DNS-level the public host keeps serving everything; existing admin links via the public host still work because that path didn't change yet). Mid-Phase-2 rollback: revert the middleware PR.
 
 ### Phase 4: Boundary Verification
 
@@ -303,14 +303,14 @@ Goal: wipe explainanything user content; preserve every evolution row.
   ```
   **NOT touched**: every `evolution_*` table, `llmCallTracking`, `llm_cost_config`, `daily_cost_rollups`, `auth.users`, `auth.identities`, `auth.sessions`, `auth.refresh_tokens`, `admin_users`, `supabase_migrations.schema_migrations`.
 
-- [ ] **Pinecone reset (executed in parallel with the SQL reset):**
-  - [ ] Ship `scripts/reset-explainanything-pinecone.ts` with these safety semantics:
+- [x] **Pinecone reset (executed in parallel with the SQL reset):**
+  - [x] Ship `scripts/reset-explainanything-pinecone.ts` with these safety semantics:
     - `--dry-run` default; prints intended deletions; no mutation.
     - `--prod` required for execution AND interactive typed confirmation of the index name (mirror `cleanup-test-content.ts`).
     - Refuses to run unless `process.env.NODE_ENV === 'production'` or `--force` is passed.
     - Prints namespace list, requires per-namespace `y/n` confirmation.
     - Reads `PINECONE_API_KEY` from local env file only; never logs the key; never accepts it as a CLI arg.
-  - [ ] Implementation (deleteAll is async + eventually consistent; poll):
+  - [x] Implementation (deleteAll is async + eventually consistent; poll):
     ```ts
     import { Pinecone } from '@pinecone-database/pinecone';   // v6.x pinned in package.json
     const pc = new Pinecone({ apiKey: process.env.PINECONE_API_KEY! });
@@ -326,8 +326,8 @@ Goal: wipe explainanything user content; preserve every evolution row.
       }
     }
     ```
-  - [ ] On rate-limit / 5xx, retry with exponential backoff (3 attempts).
-  - [ ] Re-running the script after partial completion is safe (idempotent: `deleteAll` on an already-empty namespace is a no-op).
+  - [x] On rate-limit / 5xx, retry with exponential backoff (3 attempts).
+  - [x] Re-running the script after partial completion is safe (idempotent: `deleteAll` on an already-empty namespace is a no-op).
   - [ ] Verify completion: re-run `pinecone describe-index-stats` and confirm explainanything namespaces show vector count = 0.
 
 - [ ] **Post-reset verification:**
@@ -347,13 +347,13 @@ Goal: wipe explainanything user content; preserve every evolution row.
 
 ### Phase 6: Cleanup, CI/CD, Documentation
 
-- [ ] **Update `.github/workflows/post-deploy-smoke.yml`** to fire smoke against BOTH hostnames on a single Vercel deployment. Current workflow triggers on `deployment_status` and uses `target_url` (single URL). Change: after the deploy fires the smoke, run `@smoke` tests once with `BASE_URL=<target_url>` AND once with `BASE_URL=<evolution-host>` (matrix entry). Without this, evolution-host regressions are never smoke-tested.
-- [ ] **Update `.github/workflows/e2e-nightly.yml`** — currently hardcodes `BASE_URL: https://explainanything.vercel.app`. Add a parallel job targeting the evolution host (matrix entry: `BASE_URL` ∈ {public, evolution}, plus grep filter `@critical` vs `@evolution` respectively).
-- [ ] Update `docs/docs_overall/environments.md`: document the two hostnames, that they share one Vercel project, one Supabase project, one Sentry project (with `site` tag).
-- [ ] Update `docs/docs_overall/debugging.md` to mention the `site` Sentry tag for triage.
-- [ ] Update `docs/feature_deep_dives/authentication_rls.md` — note hostname assertion in `requireAdmin()` and `isUserAdmin()`.
-- [ ] Update `docs/feature_deep_dives/admin_panel.md` — evolution lives on its own hostname.
-- [ ] Update `evolution/docs/reference.md` — production evolution URL.
+- [x] **Update `.github/workflows/post-deploy-smoke.yml`** to fire smoke against BOTH hostnames on a single Vercel deployment. Current workflow triggers on `deployment_status` and uses `target_url` (single URL). Change: after the deploy fires the smoke, run `@smoke` tests once with `BASE_URL=<target_url>` AND once with `BASE_URL=<evolution-host>` (matrix entry). Without this, evolution-host regressions are never smoke-tested.
+- [x] **Update `.github/workflows/e2e-nightly.yml`** — currently hardcodes `BASE_URL: https://explainanything.vercel.app`. Add a parallel job targeting the evolution host (matrix entry: `BASE_URL` ∈ {public, evolution}, plus grep filter `@critical` vs `@evolution` respectively).
+- [x] Update `docs/docs_overall/environments.md`: document the two hostnames, that they share one Vercel project, one Supabase project, one Sentry project (with `site` tag).
+- [x] Update `docs/docs_overall/debugging.md` to mention the `site` Sentry tag for triage.
+- [x] Update `docs/feature_deep_dives/authentication_rls.md` — note hostname assertion in `requireAdmin()` and `isUserAdmin()`.
+- [x] Update `docs/feature_deep_dives/admin_panel.md` — evolution lives on its own hostname.
+- [x] Update `evolution/docs/reference.md` — production evolution URL.
 - [ ] Archive `phase5-baseline.md`, `phase5-pinecone-baseline.md`, `phase5-dryrun-staging.md`, `phase4-verification-log.md`, `phase4-e2e-rewiring.md` under the planning folder for audit.
 - [ ] Re-enable Vercel auto-deploys (if paused).
 
@@ -363,7 +363,7 @@ Goal: wipe explainanything user content; preserve every evolution row.
 
 ### Unit Tests
 
-- [ ] **`src/middleware.test.ts`** (new file — middleware unit tests don't exist today; add via the same PR as the middleware change):
+- [x] **`src/middleware.test.ts`** (new file — middleware unit tests don't exist today; add via the same PR as the middleware change):
   - Public host blocks `/admin/evolution/*` and `/api/evolution/*` with 404.
   - Evolution host blocks `/results`, `/explanations`, `/sources/<id>`, `/userlibrary`, `/api/returnExplanation`, etc. with 404.
   - Evolution host redirects `/` to `/admin/evolution-dashboard`.
@@ -374,7 +374,7 @@ Goal: wipe explainanything user content; preserve every evolution row.
   - Suffix-extension attacks: `evolution.example.com.attacker.com` does NOT match `evolution.example.com`.
   - Mocks `request.headers.get('host')` directly on a synthetic `NextRequest`. No `next/headers` mock needed for middleware (it uses Request.headers).
 
-- [ ] **`src/lib/services/adminAuth.test.ts`** updates:
+- [x] **`src/lib/services/adminAuth.test.ts`** updates:
   - `requireAdmin()` returns false / throws when called with public host.
   - `requireAdmin()` succeeds for evolution host with a valid admin user.
   - `requireAdmin()` no-ops (does not throw) when `headers()` is unavailable (non-request context).
@@ -383,24 +383,24 @@ Goal: wipe explainanything user content; preserve every evolution row.
 - [ ] **`src/lib/services/sourceFetcher.test.ts`** updates:
   - Assert the User-Agent header (from a mocked `fetch` call) contains the expected hostname identity string. Test the behavior, not the source of the constant.
 
-- [ ] **`src/config/hostnames.test.ts`** (new):
+- [x] **`src/config/hostnames.test.ts`** (new):
   - `classifyHost` returns correct tier for each tier.
   - Case-insensitivity: `HOST` and `host` produce the same result.
   - Port-stripping: `host:443` and `host` produce the same result.
   - Empty / null / undefined → `'unknown'`.
 
-- [ ] **`evolution/scripts/audit-arena-comparison-orphans.test.ts`** (new):
+- [x] **`evolution/scripts/audit-arena-comparison-orphans.test.ts`** (new):
   - Dry-run mode prints orphans without mutation.
   - Apply mode requires typed confirmation.
 
 ### Integration Tests
 
-- [ ] **`src/__tests__/integration/fk-hardening.integration.test.ts`** (new):
+- [x] **`src/__tests__/integration/fk-hardening.integration.test.ts`** (new):
   - Verify `evolution_experiments.evolution_explanation_id` FK exists in staging post-migration (`pg_constraint` lookup).
   - Verify `idx_evolution_variants_evolution_explanation_id` exists post-migration.
   - Insert a test `evolution_explanations` row, an `evolution_experiments` referencing it, then DELETE the `evolution_explanations` row → assert `evolution_experiments.evolution_explanation_id IS NULL`.
 
-- [ ] **`src/__tests__/integration/explanation-delete-evolution-preservation.integration.test.ts`** (new):
+- [x] **`src/__tests__/integration/explanation-delete-evolution-preservation.integration.test.ts`** (new):
   - Create test explanation + `evolution_run` referencing it.
   - DELETE the explanation.
   - Assert `evolution_run` row still exists with `explanation_id = NULL`.
@@ -411,12 +411,12 @@ Goal: wipe explainanything user content; preserve every evolution row.
 
 ### E2E Tests
 
-- [ ] **`src/__tests__/e2e/specs/00-host-isolation/host-isolation.spec.ts`** (new, `@critical`):
+- [x] **`src/__tests__/e2e/specs/00-host-isolation/host-isolation.spec.ts`** (new, `@critical`):
   - Public host hits to `/admin/evolution/runs` return 404.
   - Evolution host hits to `/results` return 404.
   - Cookie isolation: use two distinct `browser.newContext()` instances. Sign in on public-context, navigate to evolution URL from public-context, assert logged-out state (or redirect to login). Then sign in evolution-context independently, verify dashboard renders.
   - Prefix `00-` to run before existing 01-* specs.
-- [ ] CI strategy for `host-isolation.spec.ts`: this spec needs two real hostnames. Options:
+- [x] CI strategy for `host-isolation.spec.ts`: this spec needs two real hostnames. Options:
   - **Preferred**: tag it `@smoke` (runs in `post-deploy-smoke.yml` against real prod URLs) AND `@critical` (runs in `ci.yml`).
   - In `ci.yml`, override `playwright.config.ts` to bind both hostnames to localhost via Playwright's `extraHTTPHeaders: { Host: ... }` per-test, OR via a `/etc/hosts`-style mock in CI's Playwright launcher.
 - [ ] Run existing `@critical` E2E suite against the public host (no change to that suite).
@@ -440,22 +440,22 @@ Goal: wipe explainanything user content; preserve every evolution row.
 
 ### B) Automated Tests
 
-- [ ] `npm run lint && npm run typecheck && npm run build`
-- [ ] `npm test` (unit)
-- [ ] `npm run test:esm` (mandated by CLAUDE.md / finalize skill)
-- [ ] `npm run test:integration:critical`
-- [ ] `npm run test:e2e:critical`
+- [x] `npm run lint && npm run typecheck && npm run build`
+- [x] `npm test` (unit)
+- [x] `npm run test:esm` (mandated by CLAUDE.md / finalize skill)
+- [x] `npm run test:integration:critical`
+- [x] `npm run test:e2e:critical`
 - [ ] Post-Phase-1 migration check: `npx supabase db diff --linked` against staging shows no drift; new constraint and index visible in `\d` output.
 
 ## Documentation Updates
-- [ ] `docs/docs_overall/environments.md` — two-hostname architecture, `site` Sentry tag, evolution login flow, BASE_URL conventions per E2E run.
-- [ ] `docs/docs_overall/debugging.md` — debugging via `site` Sentry tag.
-- [ ] `docs/feature_deep_dives/authentication_rls.md` — hostname assertion in `requireAdmin()` + `isUserAdmin()`.
-- [ ] `docs/feature_deep_dives/admin_panel.md` — evolution lives on its own hostname.
-- [ ] `evolution/docs/reference.md` — production evolution URL.
+- [x] `docs/docs_overall/environments.md` — two-hostname architecture, `site` Sentry tag, evolution login flow, BASE_URL conventions per E2E run.
+- [x] `docs/docs_overall/debugging.md` — debugging via `site` Sentry tag.
+- [x] `docs/feature_deep_dives/authentication_rls.md` — hostname assertion in `requireAdmin()` + `isUserAdmin()`.
+- [x] `docs/feature_deep_dives/admin_panel.md` — evolution lives on its own hostname.
+- [x] `evolution/docs/reference.md` — production evolution URL.
 - [ ] Archive Phase 4 + Phase 5 logs (`phase4-verification-log.md`, `phase4-e2e-rewiring.md`, `phase5-baseline.md`, `phase5-pinecone-baseline.md`, `phase5-dryrun-staging.md`, `reset-runbook.md`).
 - [ ] `CLAUDE.md` — only if it references the production URL.
-- [ ] `.gitignore` — confirm `*.sql.dump` is ignored (add if missing).
+- [x] `.gitignore` — confirm `*.sql.dump` is ignored (add if missing).
 
 ## Review & Discussion
 
