@@ -94,17 +94,18 @@ adminTest.describe('Strategy Registry CRUD', () => {
   });
 
   adminTest('model dropdown includes gpt-oss-20b without slash', async ({ adminPage }) => {
-    await adminPage.goto('/admin/evolution/strategies', { timeout: 30000 });
-    await expect(adminPage.locator('main').getByRole('heading', { name: 'Strategies' })).toBeVisible({ timeout: 15000 });
+    // The "Create" UI moved from a modal dialog to a dedicated wizard page;
+    // assert against the wizard's model dropdown instead.
+    await adminPage.goto('/admin/evolution/strategies/new', { timeout: 30000 });
+    const genModelSelect = adminPage.locator('#generation-model');
+    await expect(genModelSelect).toBeVisible({ timeout: 15000 });
 
-    // Open create dialog
-    await adminPage.locator('[data-testid="header-action"]').click();
-    const dialog = adminPage.locator('div[role="dialog"]');
-    await expect(dialog).toBeVisible();
-
-    // The model dropdown should contain gpt-oss-20b (not openai/gpt-oss-20b)
-    const dialogContent = await dialog.innerHTML();
-    expect(dialogContent).toContain('gpt-oss-20b');
-    expect(dialogContent).not.toContain('openai/gpt-oss-20b');
+    // Collect every option's value+label and assert on those, not raw HTML
+    // (avoids false positives from comment/blob text).
+    const optionValues = await genModelSelect.locator('option').evaluateAll(
+      (opts) => (opts as HTMLOptionElement[]).map((o) => o.value),
+    );
+    expect(optionValues).toContain('gpt-oss-20b');
+    expect(optionValues).not.toContain('openai/gpt-oss-20b');
   });
 });
