@@ -4,6 +4,15 @@
 
 The admin panel provides content moderation capabilities including user management, content visibility control, audit logging, and link whitelist management. It features comprehensive E2E test coverage, accessibility support with focus traps and ARIA attributes, and toast notifications for user feedback.
 
+### Hostname split (post-explainanything/evolution split)
+
+Evolution admin routes (`/admin/evolution-dashboard`, `/admin/evolution/*`, `/api/evolution/*`) live on a **separate hostname** from the public site. The single Vercel project serves both:
+
+- Public hostname → `/admin/content`, `/admin/users`, `/admin/costs`, `/admin/audit`, `/admin/settings`, `/admin/whitelist`, etc.
+- Evolution hostname → `/admin/evolution-dashboard` + all `/admin/evolution/*` routes.
+
+`src/middleware.ts` 404s cross-hostname requests, and `requireAdmin()` adds a hostname assertion as defense-in-depth (refuses admin actions when called from the public host). Hostname configuration lives in `src/config/hostnames.ts`. See `docs/planning/split_evolution_explainanythig_into_separate_websites_20260522/` for the full topology.
+
 ## Key Files
 
 | File | Purpose |

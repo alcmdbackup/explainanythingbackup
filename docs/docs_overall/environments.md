@@ -2,6 +2,21 @@
 
 > **For CI/CD and GitHub Actions workflows, see [testing_overview.md](testing_overview.md).**
 
+## Website topology (post-split)
+
+The single Vercel project serves **two hostnames** for the explainanything / evolution split (Option B of `docs/planning/split_evolution_explainanythig_into_separate_websites_20260522/`):
+
+| Site | Hostname | Routes served | Login |
+|---|---|---|---|
+| Public | `explainanything.vercel.app` (or chosen apex) | `/`, `/results`, `/explanations`, `/sources/*`, `/userlibrary`, `/settings`, `/login`, `/api/returnExplanation`, `/api/runAISuggestionsPipeline`, `/api/stream-chat`, `/api/fetchSourceMetadata` | Supabase Auth (regular user accounts) |
+| Evolution | `ea-evolution.vercel.app` (placeholder — see `src/config/hostnames.ts`) | `/admin/evolution-dashboard`, `/admin/evolution/*`, `/api/evolution/*` | Supabase Auth + `admin_users` row check + hostname assertion in `requireAdmin()` |
+
+`src/middleware.ts` reads the `Host:` header on every request and 404s the wrong-mode routes per hostname. Cookies are hostname-scoped (`.vercel.app` is on the Public Suffix List), so admin sessions on the evolution hostname are structurally independent from any public-site session.
+
+Sentry tags every event with `site=public|evolution|preview|local|unknown` via per-event `beforeSend` so noise from one half is filterable in the shared project. Same Honeycomb dataset until per-service-name tagging is added.
+
+The two hostnames share the same Vercel deployment, the same Supabase project, the same Sentry project, and the same Honeycomb dataset. They differ only in: hostname, routes served, and cookie jar.
+
 ## Overview
 
 | Environment | Config Source | Supabase | Pinecone | Observability |

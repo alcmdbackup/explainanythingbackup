@@ -4,6 +4,7 @@
 
 import * as Sentry from "@sentry/nextjs";
 import { createBeforeSendLog } from "@/lib/sentrySanitization";
+import { classifyHost } from "@/config/hostnames";
 
 // Production safeguard: FAST_DEV must NEVER run in production
 if (process.env.NODE_ENV === 'production' && process.env.FAST_DEV === 'true' && !process.env.CI) {
@@ -35,6 +36,17 @@ Sentry.init({
 
   // Setting this option to true will print useful information to the console while you're setting up Sentry.
   debug: false,
+
+  // Tag each event with the routing tier of the request hostname (website split).
+  // Node IncomingMessage.headers can store a value as string | string[]; coerce defensively.
+  beforeSend(event) {
+    const rawHost = event.request?.headers?.host;
+    const host = Array.isArray(rawHost) ? rawHost[0] : rawHost;
+    if (typeof host === 'string' && host.length > 0) {
+      event.tags = { ...event.tags, site: classifyHost(host) };
+    }
+    return event;
+  },
 });
 
 } // End FAST_DEV else block
