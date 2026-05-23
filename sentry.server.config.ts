@@ -4,6 +4,7 @@
 
 import * as Sentry from "@sentry/nextjs";
 import { createBeforeSendLog } from "@/lib/sentrySanitization";
+import { classifyHost } from "@/config/hostnames";
 
 // Production safeguard: FAST_DEV must NEVER run in production
 if (process.env.NODE_ENV === 'production' && process.env.FAST_DEV === 'true' && !process.env.CI) {
@@ -38,7 +39,8 @@ Sentry.init({
   // Setting this option to true will print useful information to the console while you're setting up Sentry.
   debug: process.env.NODE_ENV !== 'production',
 
-  // Filter out known noise before sending to Sentry
+  // Filter out known noise before sending to Sentry, and tag each event with
+  // the routing tier of the request hostname (split_evolution_explainanythig_into_separate_websites_20260522).
   beforeSend(event) {
     const message = event.exception?.values?.[0]?.value || '';
 
@@ -50,6 +52,12 @@ Sentry.init({
       message.includes('Load failed') // Safari network errors
     ) {
       return null;
+    }
+
+    // Per-event host tag — module-init setTag wouldn't work because the host is per-request.
+    const host = event.request?.headers?.host as string | undefined;
+    if (host) {
+      event.tags = { ...event.tags, site: classifyHost(host) };
     }
 
     return event;
