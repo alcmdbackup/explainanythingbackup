@@ -15,35 +15,35 @@ Two independent failure clusters (full detail in `_research.md`):
 
 ## Options Considered
 
-- [ ] **Fix A — Pin smoke `public` matrix row to canonical hostname (CHOSEN, paired with E2).** 1-line YAML edit in `.github/workflows/post-deploy-smoke.yml`: replace `${{ github.event.deployment_status.target_url }}` with `https://explainanything.vercel.app`. Same-deployment-still-tested guarantee because both hostnames point at the same Vercel project.
-- [ ] **Fix B — Loosen `classifyHost()` with regex preview-hostname matching (REJECTED).** Would let `explainanything-<hash>.vercel.app` and `ea-evolution-<hash>.vercel.app` pass classification. Rejected: weakens the production fail-closed guarantee in middleware; preview URLs from forks/PRs could match.
-- [ ] **Fix C — Use `VERCEL_ENV` env var to determine classification (REJECTED).** `VERCEL_ENV` is baked at build time, not overridable from the CI smoke runner, and would not help the matrix at all.
-- [ ] **E1 — Helper monkey-patch / per-spec host override (REJECTED).** Hides the underlying confusion of running a single spec against two hostnames with different routing contracts.
-- [ ] **E2 — Split `smoke.spec.ts` into `smoke.public.spec.ts` + `smoke.evolution.spec.ts` (CHOSEN, paired with A).** Each spec tagged + grepped so each matrix row runs only the assertions valid for its hostname. Evolution row checks dashboard load + health; public row keeps the existing 3 home/library tests.
-- [ ] **D1 — Redirect nightly to staging Supabase (REJECTED).** Hides the real issue (production was stale) and breaks the production-parity guarantee the nightly is designed to provide.
+- [x] **Fix A — Pin smoke `public` matrix row to canonical hostname (CHOSEN, paired with E2).** 1-line YAML edit in `.github/workflows/post-deploy-smoke.yml`: replace `${{ github.event.deployment_status.target_url }}` with `https://explainanything.vercel.app`. Same-deployment-still-tested guarantee because both hostnames point at the same Vercel project.
+- [x] **Fix B — Loosen `classifyHost()` with regex preview-hostname matching (REJECTED).** Would let `explainanything-<hash>.vercel.app` and `ea-evolution-<hash>.vercel.app` pass classification. Rejected: weakens the production fail-closed guarantee in middleware; preview URLs from forks/PRs could match.
+- [x] **Fix C — Use `VERCEL_ENV` env var to determine classification (REJECTED).** `VERCEL_ENV` is baked at build time, not overridable from the CI smoke runner, and would not help the matrix at all.
+- [x] **E1 — Helper monkey-patch / per-spec host override (REJECTED).** Hides the underlying confusion of running a single spec against two hostnames with different routing contracts.
+- [x] **E2 — Split `smoke.spec.ts` into `smoke.public.spec.ts` + `smoke.evolution.spec.ts` (CHOSEN, paired with A).** Each spec tagged + grepped so each matrix row runs only the assertions valid for its hostname. Evolution row checks dashboard load + health; public row keeps the existing 3 home/library tests.
+- [x] **D1 — Redirect nightly to staging Supabase (REJECTED).** Hides the real issue (production was stale) and breaks the production-parity guarantee the nightly is designed to provide.
 
 ## Phased Execution Plan
 
 ### Phase 1: Verify the migration fix actually unblocked nightly
-- [ ] Confirm PR #1074 is merged + `supabase-migrations.yml` last `deploy-production` run is green (`gh run list --workflow=supabase-migrations.yml --branch=production --limit=3`).
-- [ ] Spot-check production schema: `evolution_metrics` table exists, `evolution_prompts.name` column exists (not `title`), `evolution_criteria` table exists.
+- [x] Confirm PR #1074 is merged + `supabase-migrations.yml` last `deploy-production` run is green (`gh run list --workflow=supabase-migrations.yml --branch=production --limit=3`).
+- [x] Spot-check production schema: `evolution_metrics` table exists, `evolution_prompts.name` column exists (not `title`), `evolution_criteria` table exists.
 - [ ] **Morning check** (no live watch): after tonight's 06:00 UTC nightly completes, run `gh run list --workflow=e2e-nightly.yml --limit=1 --json conclusion,databaseId,url` to see the result. If `conclusion=success` or only the 3 known-secondary specs failed → Cluster 1 fix confirmed. Rationale: prod schema is already verified correct via direct query; tonight's run only verifies test-selection matches schema. Worst-case failure mode is "secondary specs surface, fix in business hours" — no urgent action required mid-night.
 
 ### Phase 2: Land smoke fix (Fix A + E2)
-- [ ] Edit `.github/workflows/post-deploy-smoke.yml` line 29: replace `base_url: ${{ github.event.deployment_status.target_url }}` with `base_url: https://explainanything.vercel.app`.
-- [ ] Create `src/__tests__/e2e/specs/smoke.public.spec.ts` containing the 3 existing assertions (home title, search input visible, `/userlibrary` reachable) tagged `@smoke @smoke-public`.
-- [ ] Create `src/__tests__/e2e/specs/smoke.evolution.spec.ts` asserting `/admin/evolution/experiments` (or similar admin landing) 200s + renders + `/api/health` healthy, tagged `@smoke @smoke-evolution`.
+- [x] Edit `.github/workflows/post-deploy-smoke.yml` line 29: replace `base_url: ${{ github.event.deployment_status.target_url }}` with `base_url: https://explainanything.vercel.app`.
+- [x] Create `src/__tests__/e2e/specs/smoke.public.spec.ts` containing the 3 existing assertions (home title, search input visible, `/userlibrary` reachable) tagged `@smoke @smoke-public`.
+- [x] Create `src/__tests__/e2e/specs/smoke.evolution.spec.ts` asserting `/admin/evolution/experiments` (or similar admin landing) 200s + renders + `/api/health` healthy, tagged `@smoke @smoke-evolution`.
   - **MUST use admin-auth fixture**: `import { test as adminTest, expect } from '../fixtures/admin-auth';` and the `adminPage` parameter — NOT the public `authenticatedPage` from `fixtures/auth.ts` that current `smoke.spec.ts` uses. Without admin-auth the evolution host will redirect-loop / 403 in production (the entire `/admin/evolution/*` tree is admin-gated by `requireAdmin()` + the hostname middleware).
   - Verify VERCEL_AUTOMATION_BYPASS_SECRET is wired through (the existing `post-deploy-smoke.yml` already passes it to Playwright env).
-- [ ] Delete or replace original `src/__tests__/e2e/specs/smoke.spec.ts`.
-- [ ] Update matrix rows in `post-deploy-smoke.yml`: `public` row greps `@smoke-public`, `evolution` row greps `@smoke-evolution`.
-- [ ] **Pre-merge grep-validation**: run `npx playwright test --grep='@smoke-public' --list` and `--grep='@smoke-evolution' --list` locally. Each MUST return ≥1 test. A typo in the tag (e.g. `@smoke_public` vs `@smoke-public`) would silently make the matrix row run zero tests and pass — a known Playwright failure mode. Add a `if [ "$count" -eq 0 ]; then echo "ERROR: no tests matched"; exit 1; fi` guard inside the matrix step to prevent silent zero-test passes in CI.
+- [x] Delete or replace original `src/__tests__/e2e/specs/smoke.spec.ts`.
+- [x] Update matrix rows in `post-deploy-smoke.yml`: `public` row greps `@smoke-public`, `evolution` row greps `@smoke-evolution`.
+- [x] **Pre-merge grep-validation**: run `npx playwright test --grep='@smoke-public' --list` and `--grep='@smoke-evolution' --list` locally. Each MUST return ≥1 test. A typo in the tag (e.g. `@smoke_public` vs `@smoke-public`) would silently make the matrix row run zero tests and pass — a known Playwright failure mode. Add a `if [ "$count" -eq 0 ]; then echo "ERROR: no tests matched"; exit 1; fi` guard inside the matrix step to prevent silent zero-test passes in CI.
 - [ ] Open PR; verify next deployment produces 2 green smoke matrix rows, each with non-zero test count in the logs.
 
 ### Phase 3: Land secondary nightly spec fixes
-- [ ] `src/__tests__/e2e/specs/01-auth/auth-redirect-security.spec.ts` — add `@skip-prod` tag to the localhost-assertion test; update `e2e-nightly.yml` grep to exclude `@skip-prod` (or rely on existing exclusion if present).
-- [ ] `src/__tests__/e2e/specs/09-admin/admin-evolution-autorefresh-back-nav.spec.ts:33` — replace `await page.goForward()` with `await page.goto(<captured url>)` to side-step the `pageshow` race.
-- [ ] `src/__tests__/e2e/specs/09-evolution-admin/evolution-strategy-wizard-tactics.spec.ts` — **fix, do not skip**. Two-line change applied to all 4 tests in the file:
+- [x] `src/__tests__/e2e/specs/01-auth/auth-redirect-security.spec.ts` — add `@skip-prod` tag to the localhost-assertion test; update `e2e-nightly.yml` grep to exclude `@skip-prod` (or rely on existing exclusion if present).
+- [x] `src/__tests__/e2e/specs/09-admin/admin-evolution-autorefresh-back-nav.spec.ts:33` — replace `await page.goForward()` with `await page.goto(<captured url>)` to side-step the `pageshow` race.
+- [x] `src/__tests__/e2e/specs/09-evolution-admin/evolution-strategy-wizard-tactics.spec.ts` — **fix, do not skip**. Two-line change applied to all 4 tests in the file:
   - Replace `genSelect.selectOption({ index: 1 })` (lines 12, 30, 56, 78) with a stable model selection. Playwright's `selectOption({ label: ... })` does NOT accept a regex (only string or array of strings) — using a regex would throw at runtime. Two options, prefer the first:
     - **(a) Stable label string**: pick the first model that's always present in the wizard (e.g., `'gpt-4o-mini'`), e.g., `await genSelect.selectOption({ label: 'gpt-4o-mini' })`. Add an `// IMPLEMENTATION NOTE: update if the wizard's model lineup ever drops gpt-4o-mini` comment so the future investigator sees the coupling.
     - **(b) Locator-then-select**: `const firstNonPlaceholderValue = await genSelect.locator('option:not([value=""])').first().getAttribute('value'); await genSelect.selectOption(firstNonPlaceholderValue);` — order-agnostic but more code.
@@ -79,17 +79,17 @@ The lint operates on `git diff --name-only --diff-filter=A origin/main...HEAD --
 
 **Rollout safety** (avoid breaking in-flight PRs that already have migrations queued):
 
-- [ ] Ship the lint as `warn-only` for 7 calendar days (CI step prints findings but does not fail the job)
+- [x] Ship the lint as `warn-only` for 7 calendar days (CI step prints findings but does not fail the job)
 - [ ] Flip to `error` (required check) after the in-flight migration backlog drains AND the team has had a week to see the warnings
-- [ ] Update `docs/docs_overall/environments.md §Database Migrations` (NOT `testing_setup.md` — the migrations workflow lives in environments) with the new lint requirement, the bypass label, and the pattern checklist
+- [x] Update `docs/docs_overall/environments.md §Database Migrations` (NOT `testing_setup.md` — the migrations workflow lives in environments) with the new lint requirement, the bypass label, and the pattern checklist
 
 **Tasks:**
 
-- [ ] Write `scripts/lint-migrations-idempotent.ts` per the pattern table above
-- [ ] Write `scripts/lint-migrations-idempotent.test.ts` with passing + failing fixture SQL strings for every pattern
-- [ ] Extend `.github/workflows/supabase-migrations.yml` with `lint-migrations-idempotent` job + bypass label logic + `needs:` chain
-- [ ] Update `docs/docs_overall/environments.md §Database Migrations` with the lint requirement, bypass label, and 7-day warn-only window
-- [ ] Add a `package.json` script entry `"lint:migrations": "npx tsx scripts/lint-migrations-idempotent.ts"` so local devs can run it pre-PR
+- [x] Write `scripts/lint-migrations-idempotent.ts` per the pattern table above
+- [x] Write `scripts/lint-migrations-idempotent.test.ts` with passing + failing fixture SQL strings for every pattern
+- [x] Extend `.github/workflows/supabase-migrations.yml` with `lint-migrations-idempotent` job + bypass label logic + `needs:` chain
+- [x] Update `docs/docs_overall/environments.md §Database Migrations` with the lint requirement, bypass label, and 7-day warn-only window
+- [x] Add a `package.json` script entry `"lint:migrations": "npx tsx scripts/lint-migrations-idempotent.ts"` so local devs can run it pre-PR
 
 ### Phase 5: Close the post-merge verification gap in release skills
 
@@ -113,8 +113,8 @@ These aren't mutually exclusive. The cheap layered approach is: **idempotency li
 
 This phase ships only the minimum that closes the immediate gap: a **reminder note** in both skills pointing the user at the verification commands to run after merging. It does NOT take on merge authority, does NOT add new skills, does NOT add new CI infrastructure.
 
-- [ ] Apply diff to `.claude/commands/mainToProd.md` (see [proposed-diff-mainToProd](#proposed-diff-maintoprod) below).
-- [ ] Apply diff to `.claude/commands/finalize.md` (see [proposed-diff-finalize](#proposed-diff-finalize) below).
+- [x] Apply diff to `.claude/commands/mainToProd.md` (see [proposed-diff-mainToProd](#proposed-diff-maintoprod) below).
+- [x] Apply diff to `.claude/commands/finalize.md` (see [proposed-diff-finalize](#proposed-diff-finalize) below).
 - [ ] Defer `/verifyProdRelease` skill + cron (Option 2) — capture as a follow-up TODO; revisit if the manual reminder proves insufficient over the next 30 days.
 - [ ] Defer pre-merge migration dry-run (Option 3) — capture as a follow-up; the idempotency lint from Phase 4 is the cheap first step.
 
@@ -282,12 +282,12 @@ See parallel pattern in /mainToProd for the full background.
 
 **Background**: agent 4 of round 4 confirmed Slack alerts were firing for both workflows nightly for 62 days and Slack accepted them (`ok` response in logs). The channel went unread / muted. This is an organizational problem more than a config one — keep this phase narrow to two small config tightenings, no new workflows.
 
-- [ ] Tighten failure gate in both workflows so unattended cancels alert, but manual workflow_dispatch cancels do NOT (avoids re-creating the channel-noise problem from agent-4-round-4 — every dev cancel would now Slack-spam the already-muted channel):
+- [x] Tighten failure gate in both workflows so unattended cancels alert, but manual workflow_dispatch cancels do NOT (avoids re-creating the channel-noise problem from agent-4-round-4 — every dev cancel would now Slack-spam the already-muted channel):
   - **New conditional**: `if: failure() || (cancelled() && github.event_name == 'schedule')`
   - For `post-deploy-smoke.yml` (event is `deployment_status`, not `schedule`): use `if: failure() || (cancelled() && github.event_name == 'deployment_status')`
   - Files: `.github/workflows/e2e-nightly.yml` (notify step ~L190-219), `.github/workflows/post-deploy-smoke.yml` (notify step ~L147-191)
   - **Rationale**: only unattended cancels (timeout on a scheduled or deployment-event run) signal a real problem worth waking someone for. A dev hitting "Cancel workflow run" on a manual `workflow_dispatch` test is intentional, not an incident.
-- [ ] Have a human confirm the Slack webhook channel is actually monitored (unmute, set up keyword highlights, or pick a dedicated #release-alerts channel). Document the chosen channel name in `docs/docs_overall/environments.md`.
+- [x] Have a human confirm the Slack webhook channel is actually monitored (unmute, set up keyword highlights, or pick a dedicated #release-alerts channel). Document the chosen channel name in `docs/docs_overall/environments.md`.
 
 > **Deferred**: a daily-heartbeat workflow and auto-issue creation were considered and rejected for this PR — adds new infrastructure for marginal gain over the layered approach already in Phases 4 + 5. Revisit only if monitor-gap incidents recur after Phases 4 + 5 ship.
 
@@ -295,9 +295,9 @@ See parallel pattern in /mainToProd for the full background.
 
 **Background**: production was frozen at 2026-03-05 schema AND app code for 2.5 months until today's PR #1073 release. The migration drift accumulated because there was no regular release cadence forcing the issue to surface. This phase is policy, not code — capture the lesson and leave the cadence-setting to the team.
 
-- [ ] Add a short subsection to `docs/docs_overall/environments.md` (recommended home — it already owns the deploy + migration narrative; co-locating release-cadence policy keeps related operational content together) noting: "Production releases should happen at least every <agreed interval>. The longer prod sits frozen, the larger the migration backlog grows, and the higher the chance any one non-idempotent migration aborts the whole queue."
-- [ ] Recommend a default cadence (e.g., weekly or bi-weekly). Frame as a default that can be relaxed if there's no merged-to-main work that needs to ship.
-- [ ] Note: this is the deepest root cause but the least scope-bounded one. Out of scope to *enforce* via this PR; in scope to *document* so the next investigator finds it.
+- [x] Add a short subsection to `docs/docs_overall/environments.md` (recommended home — it already owns the deploy + migration narrative; co-locating release-cadence policy keeps related operational content together) noting: "Production releases should happen at least every <agreed interval>. The longer prod sits frozen, the larger the migration backlog grows, and the higher the chance any one non-idempotent migration aborts the whole queue."
+- [x] Recommend a default cadence (e.g., weekly or bi-weekly). Frame as a default that can be relaxed if there's no merged-to-main work that needs to ship.
+- [x] Note: this is the deepest root cause but the least scope-bounded one. Out of scope to *enforce* via this PR; in scope to *document* so the next investigator finds it.
 
 ### Phase 8: Backfill idempotency guards into existing migrations (low-priority DR hardening)
 
@@ -318,30 +318,30 @@ See parallel pattern in /mainToProd for the full background.
 ## Testing
 
 ### Unit Tests
-- [ ] `src/config/__tests__/hostnames.test.ts` — confirm `classifyHost('explainanything-<hash>.vercel.app')` returns `unknown` (locks in the intentional strict-match behavior so future devs don't accidentally relax it).
-- [ ] `scripts/lint-migrations-idempotent.test.ts` — sample SQL strings, both passing and failing cases (sibling test, matches existing `scripts/*.test.ts` convention).
+- [x] `src/config/__tests__/hostnames.test.ts` — confirm `classifyHost('explainanything-<hash>.vercel.app')` returns `unknown` (locks in the intentional strict-match behavior so future devs don't accidentally relax it).
+- [x] `scripts/lint-migrations-idempotent.test.ts` — sample SQL strings, both passing and failing cases (sibling test, matches existing `scripts/*.test.ts` convention).
 
 ### Integration Tests
-- [ ] N/A — smoke + nightly are themselves the integration surface.
+- [x] N/A — smoke + nightly are themselves the integration surface.
 
 ### E2E Tests
-- [ ] `src/__tests__/e2e/specs/smoke.public.spec.ts` — runs locally against `BASE_URL=https://explainanything.vercel.app` with bypass token; all 3 assertions pass.
-- [ ] `src/__tests__/e2e/specs/smoke.evolution.spec.ts` — runs locally against `BASE_URL=https://ea-evolution.vercel.app`; dashboard + health pass.
+- [x] `src/__tests__/e2e/specs/smoke.public.spec.ts` — runs locally against `BASE_URL=https://explainanything.vercel.app` with bypass token; all 3 assertions pass.
+- [x] `src/__tests__/e2e/specs/smoke.evolution.spec.ts` — runs locally against `BASE_URL=https://ea-evolution.vercel.app`; dashboard + health pass.
 - [ ] Tonight's nightly (2026-05-24 06:00 UTC) — verified in the morning via `gh run list --workflow=e2e-nightly.yml --limit=1`.
 
 ### Manual Verification
-- [ ] `curl -I https://explainanything.vercel.app/` returns 200 (not 404).
-- [ ] `curl -I https://ea-evolution.vercel.app/admin/evolution-dashboard` returns 200 (or 307 to auth).
-- [ ] Open production Supabase SQL editor, run `\d evolution_prompts` — confirm `name` column, no `title`.
+- [x] `curl -I https://explainanything.vercel.app/` returns 200 (not 404).
+- [x] `curl -I https://ea-evolution.vercel.app/admin/evolution-dashboard` returns 200 (or 307 to auth).
+- [x] Open production Supabase SQL editor, run `\d evolution_prompts` — confirm `name` column, no `title`.
 
 ## Verification
 
 ### A) Playwright Verification (required for UI changes)
-- [ ] N/A for migration / workflow changes. The two new smoke specs ARE the Playwright verification for the smoke split.
+- [x] N/A for migration / workflow changes. The two new smoke specs ARE the Playwright verification for the smoke split.
 
 ### B) Automated Tests
-- [ ] `npm run lint && npm run typecheck && npm run build`
-- [ ] `npm test -- src/config/__tests__/hostnames.test.ts`
+- [x] `npm run lint && npm run typecheck && npm run build`
+- [x] `npm test -- src/config/__tests__/hostnames.test.ts`
 - [ ] `npx playwright test --project=chromium --grep="@smoke-public"` against staging
 - [ ] `npx playwright test --project=chromium --grep="@smoke-evolution"` against staging
 - [ ] `gh run list --workflow=e2e-nightly.yml --limit=2 --json conclusion,createdAt` to confirm Cluster 1 stays green for 2 consecutive nights post-fix (checked next-morning, not live-watched)
@@ -349,17 +349,17 @@ See parallel pattern in /mainToProd for the full background.
 
 ## Local-vs-CI Parity Update (for Phase 2 smoke split)
 
-- [ ] Add a new npm script `"test:e2e:smoke": "npx playwright test --grep='@smoke'"` to `package.json` so devs can run both smoke matrices locally pre-PR.
-- [ ] Update the "Check Parity: Local vs CI" table in `docs/docs_overall/testing_overview.md` to add a `Smoke` row showing local `npm run test:e2e:smoke` mapping to the two CI matrix rows (`@smoke-public` + `@smoke-evolution`).
+- [x] Add a new npm script `"test:e2e:smoke": "npx playwright test --grep='@smoke'"` to `package.json` so devs can run both smoke matrices locally pre-PR.
+- [x] Update the "Check Parity: Local vs CI" table in `docs/docs_overall/testing_overview.md` to add a `Smoke` row showing local `npm run test:e2e:smoke` mapping to the two CI matrix rows (`@smoke-public` + `@smoke-evolution`).
 - [ ] Consider whether `/finalize`'s pre-PR check list should include `npm run test:e2e:smoke` for PRs that touch `src/__tests__/e2e/specs/smoke.*` — recommend yes, document in `/finalize` skill or in testing_overview.
 
 ## Documentation Updates
-- [ ] `docs/feature_deep_dives/testing_setup.md` — note the smoke matrix split (public vs evolution greps) and the migration idempotency requirement.
-- [ ] `docs/docs_overall/environments.md` — capture the lesson: production migrations gate on push-to-production, and any non-idempotent migration silently blocks the entire backlog. Also reference the new post-merge verification reminders in `mainToProd`/`finalize`. Document which Slack channel receives release alerts (Phase 6).
-- [ ] `docs/planning/split_evolution_explainanythig_into_separate_websites_20260522/` — cross-link the smoke fallout findings as a postmortem appendix.
-- [ ] `.claude/commands/mainToProd.md` — append post-release verification reminder (Phase 5; diff in this plan).
-- [ ] `.claude/commands/finalize.md` — append post-merge verification reminder (Phase 5; diff in this plan).
-- [ ] `docs/docs_overall/environments.md` — capture the release-cadence recommendation as a new subsection (Phase 7; co-located with deploy/migration narrative).
+- [x] `docs/feature_deep_dives/testing_setup.md` — note the smoke matrix split (public vs evolution greps) and the migration idempotency requirement.
+- [x] `docs/docs_overall/environments.md` — capture the lesson: production migrations gate on push-to-production, and any non-idempotent migration silently blocks the entire backlog. Also reference the new post-merge verification reminders in `mainToProd`/`finalize`. Document which Slack channel receives release alerts (Phase 6).
+- [x] `docs/planning/split_evolution_explainanythig_into_separate_websites_20260522/` — cross-link the smoke fallout findings as a postmortem appendix.
+- [x] `.claude/commands/mainToProd.md` — append post-release verification reminder (Phase 5; diff in this plan).
+- [x] `.claude/commands/finalize.md` — append post-merge verification reminder (Phase 5; diff in this plan).
+- [x] `docs/docs_overall/environments.md` — capture the release-cadence recommendation as a new subsection (Phase 7; co-located with deploy/migration narrative).
 
 ## Review & Discussion
 
