@@ -69,7 +69,7 @@ describe('LinkResolver — LINKS_BYPASS_WHITELIST bypass', () => {
     process.env.LINKS_BYPASS_WHITELIST = 'true';
     mockSupabaseWithCandidates([{ term: 'transistor', term_lower: 'transistor' }]);
 
-    const links = await resolveLinksForArticle('1', 'A transistor is the basic building block.');
+    const links = await resolveLinksForArticle(1, 'A transistor is the basic building block.');
     expect(links.some((l) => l.term.toLowerCase() === 'transistor')).toBe(true);
   });
 
@@ -77,7 +77,7 @@ describe('LinkResolver — LINKS_BYPASS_WHITELIST bypass', () => {
     delete process.env.LINKS_BYPASS_WHITELIST;
     mockSupabaseWithCandidates([{ term: 'transistor', term_lower: 'transistor' }]);
 
-    const links = await resolveLinksForArticle('1', 'A transistor is the basic building block.');
+    const links = await resolveLinksForArticle(1, 'A transistor is the basic building block.');
     expect(links.some((l) => l.term.toLowerCase() === 'transistor')).toBe(false);
   });
 
@@ -85,7 +85,7 @@ describe('LinkResolver — LINKS_BYPASS_WHITELIST bypass', () => {
     process.env.LINKS_BYPASS_WHITELIST = 'false';
     mockSupabaseWithCandidates([{ term: 'transistor', term_lower: 'transistor' }]);
 
-    const links = await resolveLinksForArticle('1', 'A transistor is the basic building block.');
+    const links = await resolveLinksForArticle(1, 'A transistor is the basic building block.');
     expect(links.some((l) => l.term.toLowerCase() === 'transistor')).toBe(false);
   });
 
@@ -93,7 +93,7 @@ describe('LinkResolver — LINKS_BYPASS_WHITELIST bypass', () => {
     process.env.LINKS_BYPASS_WHITELIST = 'true';
     mockSupabaseWithCandidates([{ term: 'GPU', term_lower: 'gpu' }]);
 
-    const links = await resolveLinksForArticle('1', 'A GPU is parallel.');
+    const links = await resolveLinksForArticle(1, 'A GPU is parallel.');
     const enhanced = applyLinksToContent('A GPU is parallel.', links);
     // applyLinksToContent injects markdown links: [term](/standalone-title?t=encoded+title)
     expect(enhanced).toMatch(/\[GPU\]\(\/standalone-title\?t=GPU\)/);
@@ -109,7 +109,7 @@ describe('LinkResolver — LINKS_BYPASS_WHITELIST bypass', () => {
     });
     mockSupabaseWithCandidates([{ term: 'GPU', term_lower: 'gpu' }]);
 
-    const links = await resolveLinksForArticle('1', 'A GPU is parallel.');
+    const links = await resolveLinksForArticle(1, 'A GPU is parallel.');
     const enhanced = applyLinksToContent('A GPU is parallel.', links);
     // Whitelist's standalone_title wins, not the candidate's degenerate self-title.
     expect(enhanced).toContain('Introduction%20to%20GPUs');
@@ -120,9 +120,9 @@ describe('LinkResolver — LINKS_BYPASS_WHITELIST bypass', () => {
     process.env.LINKS_BYPASS_WHITELIST = 'true';
     mockSupabaseWithCandidates([{ term: 'EUV', term_lower: 'euv' }]);
 
-    await resolveLinksForArticle('1', 'EUV lithography...');
+    await resolveLinksForArticle(1, 'EUV lithography...');
     expect(candidatesSelectSpy).toHaveBeenCalledTimes(1);
-    await resolveLinksForArticle('2', 'EUV process...');
+    await resolveLinksForArticle(2, 'EUV process...');
     // Cache hit: second resolution does NOT query link_candidates again.
     expect(candidatesSelectSpy).toHaveBeenCalledTimes(1);
   });
@@ -131,10 +131,10 @@ describe('LinkResolver — LINKS_BYPASS_WHITELIST bypass', () => {
     process.env.LINKS_BYPASS_WHITELIST = 'true';
     mockSupabaseWithCandidates([{ term: 'CUDA', term_lower: 'cuda' }]);
 
-    await resolveLinksForArticle('1', 'CUDA enables GPUs.');
+    await resolveLinksForArticle(1, 'CUDA enables GPUs.');
     expect(candidatesSelectSpy).toHaveBeenCalledTimes(1);
     __resetBypassCacheForTests();
-    await resolveLinksForArticle('2', 'CUDA enables GPUs.');
+    await resolveLinksForArticle(2, 'CUDA enables GPUs.');
     // After reset, the cache is empty so the second resolution DOES re-query.
     expect(candidatesSelectSpy).toHaveBeenCalledTimes(2);
   });
