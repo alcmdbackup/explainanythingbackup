@@ -96,3 +96,17 @@ const onStreamingText = (text: string) => {
   setContent(prev => prev + text);
 };
 ```
+
+## Post-streaming UX — GenerationStatusPill
+
+A floating bottom-center pill (`src/components/results/GenerationStatusPill.tsx`) communicates streaming state to the user. Subscribes to `pageLifecycleReducer` state passed as a prop. Renders four visual states:
+
+| Phase | Pill state | Copy |
+|---|---|---|
+| `streaming` | A — gold accent + pencil icon | `Drafting your article — hang tight…` |
+| `viewing` (just transitioned) | B — green tick, 800ms | `All set! Bringing the editor in…` |
+| `viewing` (settled) | C — green tick, dismiss ✕, 3s auto-fade | `Try: "explain it like I'm 12" — AI editor →` |
+| `error` | red triangle | `Generation failed — try again` |
+| other | hidden | |
+
+Mounted at page root in `src/app/results/page.tsx` (NOT inside the article container — it's `position: fixed`). Respects `prefers-reduced-motion` via Tailwind `motion-safe:` class. `role="status"` + `aria-live="polite"` for screen readers.

@@ -41,8 +41,9 @@ import { useTextRevealSettings } from '@/hooks/useTextRevealSettings';
 import { SparklesIcon, CheckCircleIcon, CheckIcon } from '@heroicons/react/24/solid';
 import { BookmarkIcon, PencilSquareIcon, DocumentTextIcon, Bars3BottomLeftIcon } from '@heroicons/react/24/outline';
 import ShareButton from '@/components/ShareButton';
+import { GenerationStatusPill } from '@/components/results/GenerationStatusPill';
 
-const FILE_DEBUG = true;
+const FILE_DEBUG = false;
 const FORCE_REGENERATION_ON_NAV = false;
 
 function ResultsPageContent() {
@@ -1028,6 +1029,9 @@ function ResultsPageContent() {
                 description={metaDescription || undefined}
                 keywords={keywords || undefined}
             />
+
+            {/* Floating bottom-center status pill: hands off post-streaming UX. */}
+            <GenerationStatusPill lifecycleState={lifecycleState} />
 
             {/* Top Navigation Bar */}
             <Navigation

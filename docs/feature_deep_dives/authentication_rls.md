@@ -15,13 +15,35 @@ Since the explainanything/evolution website split (Option B — single Vercel pr
 
 The host is classified via `classifyHost()` in `src/config/hostnames.ts` using exact case-insensitive equality (no `startsWith` — suffix-extension attacks are not viable).
 
+## Guest auto-login (demo mode)
+
+For the public demo, `src/lib/utils/supabase/middleware.ts` runs auto-guest-login on every public-hostname request that has no session. It calls `supabase.auth.signInWithPassword({ email: GUEST_EMAIL, password: GUEST_PASSWORD })` and the existing `setAll()` cookie callback writes the session cookies onto the outgoing `NextResponse` — same mechanism `getUser()` uses for token refresh. No redirect, no second round-trip.
+
+**Mechanism details**:
+- Gated to `classifyHost() === 'public' | 'local' | 'preview'`. Never fires on `evolution` or `unknown`.
+- Soft env-var check: missing `GUEST_EMAIL`/`GUEST_PASSWORD` is a no-op (NOT a failure), so deploy-ordering bugs degrade to the existing `/login` redirect path.
+- Disabled by `E2E_TEST_MODE=true` so existing unauth-redirect tests still pass.
+- Module-scope `inFlightGuestLogin` Map dedupes parallel cold-request sign-ins; `Promise.race` with 10s timeout prevents stall-poisoning.
+- On `signInWithPassword` failure, sets `GUEST_AUTOLOGIN_FAILED_RECENTLY` cookie (`httpOnly: true`, `sameSite: 'lax'`, 60s); `/login` server component renders `<ServiceUnavailableNotice />` instead of the form for the cookie window — avoids the redirect loop when sign-out is hidden.
+
+**Client-side**:
+- `useIsGuest()` hook in `src/hooks/useUserAuth.ts` returns `email === process.env.NEXT_PUBLIC_GUEST_EMAIL`.
+- `Navigation.tsx` hides the sign-out button when `useIsGuest()` is true.
+- `/login` is a server component (`src/app/login/page.tsx`) that does `await getUser()` and redirects to `/` if the user is guest. Interactive form lives in `LoginForm.tsx`.
+
+**Rollback levers** (no code revert needed): set `E2E_TEST_MODE=true` OR remove `GUEST_PASSWORD` from Vercel env vars; redeploy.
+
 ## Implementation
 
 ### Key Files
+- `src/app/login/page.tsx` - Server-shell with guest redirect + cookie check
+- `src/app/login/LoginForm.tsx` - Interactive client form
+- `src/app/login/ServiceUnavailableNotice.tsx` - Server component for auth-failure window
 - `src/app/login/actions.ts` - Auth server actions
 - `src/middleware.ts` - Route protection
-- `src/lib/utils/supabase/middleware.ts` - Session management
+- `src/lib/utils/supabase/middleware.ts` - Session management + auto-guest-login
 - `src/lib/utils/supabase/server.ts` - Client utilities
+- `src/hooks/useUserAuth.ts` - useUserAuth + useIsGuest hooks
 
 ### Auth Flow
 

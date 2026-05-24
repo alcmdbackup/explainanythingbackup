@@ -4,6 +4,17 @@
 
 The link whitelist system automatically links key terms and headings to related explanations. It uses a 6-table architecture with caching, aliases, and per-article overrides.
 
+## Demo-mode bypass (LINKS_BYPASS_WHITELIST)
+
+Setting `LINKS_BYPASS_WHITELIST=true` in env makes `resolveLinksForArticleImpl()` merge ALL `link_candidates` rows into the whitelist at render. Lets AI-suggested terms link inline without admin approval. Implemented for the public-demo launch; whitelist + candidate approval admin code remains intact for re-enable.
+
+- Affects ONLY the display path (`_resolveLinksForDisplayAction`). The editor overlay (`_getLinkDataForLexicalOverlayAction`) is independent and not changed.
+- Module-scope 5-minute TTL cache (`bypassMergedCache` in `linkResolver.ts`) avoids per-render DB hits.
+- Whitelist entries take precedence on term-key collision.
+- Bypass uses the term itself as `standalone_title` (since `link_candidates` has no `standalone_title` column — that column is in `link_whitelist` only, populated at admin-approval time). Click routes to `/standalone-title?t=<encoded-term>` which triggers a search-or-generate on the term.
+- Re-enable strict whitelist: flip back to `LINKS_BYPASS_WHITELIST=false` (or unset). No code change needed.
+- Test helper: `__resetBypassCacheForTests()` exported from `linkResolver.ts` for use in unit tests.
+
 ## Implementation
 
 ### Key Files

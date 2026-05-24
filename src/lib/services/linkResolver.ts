@@ -22,6 +22,23 @@ import { withLogging } from '@/lib/logging/server/automaticServerLoggingBase';
  */
 
 // ============================================================================
+// BYPASS-MODE CACHE (demo / LINKS_BYPASS_WHITELIST=true)
+// ============================================================================
+
+// Module-scope TTL cache for the merged (whitelist + approved candidates) map.
+// The system already caches the whitelist via `link_whitelist_snapshot`; this
+// mirror cache covers the bypass branch so it isn't a per-render DB hit against
+// the candidates table.
+type BypassCacheEntry = { value: Map<string, WhitelistCacheEntryType>; expiresAt: number };
+let bypassMergedCache: BypassCacheEntry | null = null;
+const BYPASS_CACHE_TTL_MS = 5 * 60 * 1000;
+
+// Test-only: reset the cache between tests so env-var toggles take effect.
+export function __resetBypassCacheForTests(): void {
+  bypassMergedCache = null;
+}
+
+// ============================================================================
 // HELPER FUNCTIONS
 // ============================================================================
 
@@ -236,11 +253,43 @@ async function resolveLinksForArticleImpl(
   // Build exclusion zones from heading positions to prevent double-linking
   const headingRanges = headingLinks.map(h => ({ start: h.startIndex, end: h.endIndex }));
 
-  // === STEP 2: KEY TERMS (whitelist only) ===
+  // === STEP 2: KEY TERMS (whitelist, or whitelist ∪ approved candidates in bypass mode) ===
   const snapshot = await getSnapshot();
-  const whitelist = new Map<string, WhitelistCacheEntryType>(
+  let whitelist = new Map<string, WhitelistCacheEntryType>(
     Object.entries(snapshot.data)
   );
+
+  // Demo bypass: merge approved candidates so inline links render even for
+  // terms that haven't been admin-approved into link_whitelist. Module-scope
+  // TTL cache (5 min) avoids a per-render DB hit against link_candidates.
+  // Whitelist entries take precedence on collision (preserves any admin overrides).
+  if (process.env.LINKS_BYPASS_WHITELIST === 'true') {
+    if (bypassMergedCache && bypassMergedCache.expiresAt > Date.now()) {
+      whitelist = bypassMergedCache.value;
+    } else {
+      // link_candidates has no standalone_title column (only link_whitelist does,
+      // populated at admin approval time). For the demo bypass, use the term itself
+      // as the standalone_title — clicks route to /standalone-title?t=<encoded-term>
+      // which triggers a search-or-generate on the term, which is the desired
+      // demo behavior anyway.
+      const supabase = await createSupabaseServerClient();
+      const { data: candidates } = await supabase
+        .from('link_candidates')
+        .select('term, term_lower')
+        .limit(2000); // safety cap
+      const merged = new Map(whitelist);
+      for (const c of candidates ?? []) {
+        if (!merged.has(c.term_lower)) {
+          merged.set(c.term_lower, {
+            canonical_term: c.term,
+            standalone_title: c.term, // self-titled — clicks search/generate for the term
+          });
+        }
+      }
+      bypassMergedCache = { value: merged, expiresAt: Date.now() + BYPASS_CACHE_TTL_MS };
+      whitelist = merged;
+    }
+  }
 
   const overrides = await getOverridesForArticleImpl(explanationId);
   const matchedTerms = new Set<string>();
