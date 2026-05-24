@@ -75,9 +75,10 @@ export async function updateSession(request: NextRequest) {
     process.env.GUEST_PASSWORD &&
     !failedRecently
   ) {
-    const tier = classifyHost(request.headers.get('host'))
+    const host = request.headers.get('host')
+    const tier = classifyHost(host)
     if (tier === 'public' || tier === 'local' || tier === 'preview') {
-      const dedupeKey = `${tier}:${request.headers.get('host') ?? 'no-host'}`
+      const dedupeKey = `${tier}:${host ?? 'no-host'}`
       if (!inFlightGuestLogin.has(dedupeKey)) {
         const loginPromise = Promise.race<{ error: AuthError | null }>([
           supabase.auth.signInWithPassword({
@@ -103,7 +104,7 @@ export async function updateSession(request: NextRequest) {
       if (guestErr) {
         console.warn('[middleware] guest-auto-login failed', {
           error: guestErr.message,
-          host: request.headers.get('host'),
+          host,
           path: request.nextUrl.pathname,
         })
         // Set a 60s cookie so subsequent requests skip the sign-in attempt
@@ -124,7 +125,7 @@ export async function updateSession(request: NextRequest) {
       const { data } = await supabase.auth.getUser()
       currentUser = data.user
       console.info('[middleware] guest-auto-login fired', {
-        host: request.headers.get('host'),
+        host,
         path: request.nextUrl.pathname,
       })
     }

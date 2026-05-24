@@ -259,6 +259,7 @@ export class LLMSpendingGate {
     this.killSwitchCache = null;
     this.spendingCache.clear();
     this.monthlyCache = null;
+    this.userSpendingCache.clear();
   }
 
   async cleanupOrphanedReservations(): Promise<void> {
