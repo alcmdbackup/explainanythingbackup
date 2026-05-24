@@ -27,6 +27,7 @@
     "test:e2e:headed": "playwright test --headed",
     "test:e2e:chromium": "playwright test --project=chromium",
     "test:e2e:evolution": "playwright test --project=chromium --grep=@evolution",
+    "test:e2e:smoke": "playwright test --project=chromium --grep=@smoke",
     "test:e2e:non-evolution": "playwright test --project=chromium --grep-invert=\"@evolution|@skip-prod\" --project=chromium-unauth",
     "test:integration:evolution": "jest --config jest.integration.config.js --testPathPatterns=\"evolution-|arena-actions|manual-experiment|strategy-resolution\"",
     "test:integration:non-evolution": "jest --config jest.integration.config.js --testPathIgnorePatterns=\"evolution-|arena-actions|manual-experiment|strategy-resolution\"",
@@ -38,6 +39,7 @@
     "query:prod": "npx tsx scripts/query-db.ts --prod",
     "query:staging": "npx tsx scripts/query-db.ts --staging",
     "check:stale-specs": "npx tsx scripts/check-stale-specs.ts",
+    "lint:migrations": "npx tsx scripts/lint-migrations-idempotent.ts",
     "prepare": "git config core.hooksPath .githooks || true"
   },
   "dependencies": {

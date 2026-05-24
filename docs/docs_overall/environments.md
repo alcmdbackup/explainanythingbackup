@@ -52,8 +52,11 @@ Migrations are stored in `supabase/migrations/` and deployed automatically via G
 | Trigger | Staging | Production |
 |---------|---------|------------|
 | PR with changes in `supabase/migrations/**` | Auto-deploy via CI (`deploy-migrations` job) | N/A |
-| Push to `main` with changes in `supabase/migrations/**` | Auto-deploy | Auto-deploy (after staging succeeds) |
+| Push to `main` with changes in `supabase/migrations/**` | Auto-deploy | N/A — main does NOT deploy to prod |
+| Push to `production` with changes in `supabase/migrations/**` | N/A | Auto-deploy |
 | Manual dispatch | Optional skip | Requires staging success or explicit skip |
+
+> **Important**: production migrations deploy only on push to the `production` branch (which happens when a `Release: main → production` PR is merged via `/mainToProd`). They do NOT deploy on push to `main`. A 62-day silent prod-schema drift was caused by this gating going unmonitored across 7+ releases (PR #1073 aborted the queue on a non-idempotent migration; PR #1074 hotfix fixed it). The `mainToProd` and `finalize` skills now emit a conditional **post-merge verification banner** when the PR being released touches `supabase/migrations/**` — see `.claude/commands/mainToProd.md` and `.claude/commands/finalize.md`. A migration-idempotency CI lint also catches the most common silent-failure patterns before merge.
 
 **CI Flow (PRs)**: When a PR contains migration files, the CI `deploy-migrations` job applies them to staging before tests run. This eliminates the migration/test deadlock where tests fail because the schema hasn't been applied yet. Types are then regenerated from the updated staging schema and auto-committed to the PR branch.
 
@@ -74,6 +77,15 @@ supabase db push
 ```
 
 **Safety**: Production environment in GitHub should have "Required reviewers" enabled for manual approval gate.
+
+### Release Cadence
+
+Production releases (`main → production` merges via `/mainToProd`) should happen at least **every 2 weeks**, even if no urgent fixes are queued. Long periods between releases let migration backlog accumulate, which compounds two risks:
+
+1. **Larger queues are more fragile**. If any single migration in the queue is non-idempotent (e.g., bare `ADD CONSTRAINT` without `DROP IF EXISTS`), the entire deploy aborts at that file and none of the subsequent migrations land. A 5-migration queue has 5 chances to fail; a 56-migration queue has 56.
+2. **Failure correlation gets harder**. When a deploy fails, fewer recent migrations means easier diagnosis. After 2.5 months frozen, the smoke_test_and_nightly_e2e_failing_20260523 investigation had to bisect across 73 migration commits to find the trip-wire.
+
+The 2-week cadence is a *default*, not a hard rule — relax it only when there is genuinely nothing merge-ready on `main` that should ship. When a release does fire, run `/mainToProd` and pay attention to the post-merge verification banner if it surfaces (it only fires when the release includes migrations).
 
 ---
 

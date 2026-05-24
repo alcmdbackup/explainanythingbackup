@@ -9,11 +9,15 @@ test.describe('Strategy Wizard — Tactic Guidance', { tag: '@evolution' }, () =
     // Fill required fields to advance to Step 2
     await page.fill('input[placeholder="Strategy name"]', 'E2E Test Tactics');
     const genSelect = page.locator('#generation-model');
-    await genSelect.selectOption({ index: 1 });
+    // IMPLEMENTATION NOTE: stable label string (not regex — Playwright selectOption({ label })
+    // does NOT accept RegExp, only string or string[]). Update this literal if the wizard's
+    // model lineup ever drops gpt-4o-mini.
+    await genSelect.selectOption({ label: 'gpt-4o-mini' });
     await page.click('button:has-text("Next: Configure Iterations")');
 
-    // Wait for iterations step
-    await page.waitForSelector('[data-testid="tactic-guidance-btn-0"]', { timeout: 10000 });
+    // Wait for iterations step. 30s matches the hardened precedent in line 84 — the
+    // dispatch-preview server-action slows under accumulated DB state from prior tests.
+    await page.waitForSelector('[data-testid="tactic-guidance-btn-0"]', { timeout: 30000 });
 
     // Generate iteration #1 should have tactic button
     await expect(page.locator('[data-testid="tactic-guidance-btn-0"]')).toBeVisible();
@@ -27,9 +31,12 @@ test.describe('Strategy Wizard — Tactic Guidance', { tag: '@evolution' }, () =
     await page.fill('input[placeholder="Strategy name"]', 'E2E Test Tactics Editor');
     // Select first valid generation model
     const genSelect = page.locator('#generation-model');
-    await genSelect.selectOption({ index: 1 });
+    // IMPLEMENTATION NOTE: stable label string (not regex — Playwright selectOption({ label })
+    // does NOT accept RegExp, only string or string[]). Update this literal if the wizard's
+    // model lineup ever drops gpt-4o-mini.
+    await genSelect.selectOption({ label: 'gpt-4o-mini' });
     await page.click('button:has-text("Next: Configure Iterations")');
-    await page.waitForSelector('[data-testid="tactic-guidance-btn-0"]', { timeout: 15000 });
+    await page.waitForSelector('[data-testid="tactic-guidance-btn-0"]', { timeout: 30000 });
 
     await page.click('[data-testid="tactic-guidance-btn-0"]');
     await page.waitForSelector('[data-testid="tactic-guidance-editor"]', { timeout: 5000 });
@@ -53,13 +60,17 @@ test.describe('Strategy Wizard — Tactic Guidance', { tag: '@evolution' }, () =
     await page.goto('/admin/evolution/strategies/new');
     await page.fill('input[placeholder="Strategy name"]', 'E2E Dispatch Preview');
     const genSelect = page.locator('#generation-model');
-    await genSelect.selectOption({ index: 1 });
+    // IMPLEMENTATION NOTE: stable label string (not regex — Playwright selectOption({ label })
+    // does NOT accept RegExp, only string or string[]). Update this literal if the wizard's
+    // model lineup ever drops gpt-4o-mini.
+    await genSelect.selectOption({ label: 'gpt-4o-mini' });
     await page.click('button:has-text("Next: Configure Iterations")');
 
     // Phase 6: dispatch preview now lives in the shared DispatchPlanView component,
     // which renders a per-iteration row with a data-testid of `dispatch-plan-row-{iterIdx}`.
     // The old per-iteration inline `dispatch-preview-{idx}` span was removed.
-    await page.waitForSelector('[data-testid="dispatch-plan-row-0"]', { timeout: 10000 });
+    // 30s matches the hardened precedent in line 84 — dispatch preview slows under DB load.
+    await page.waitForSelector('[data-testid="dispatch-plan-row-0"]', { timeout: 30000 });
     const planRow = page.locator('[data-testid="dispatch-plan-row-0"]');
     await expect(planRow).toBeVisible();
     // The row should contain a dispatch count and an effective-cap badge.
@@ -75,7 +86,10 @@ test.describe('Strategy Wizard — Tactic Guidance', { tag: '@evolution' }, () =
     await page.goto('/admin/evolution/strategies/new');
     await page.fill('input[placeholder="Strategy name"]', 'E2E Likely Total');
     const genSelect = page.locator('#generation-model');
-    await genSelect.selectOption({ index: 1 });
+    // IMPLEMENTATION NOTE: stable label string (not regex — Playwright selectOption({ label })
+    // does NOT accept RegExp, only string or string[]). Update this literal if the wizard's
+    // model lineup ever drops gpt-4o-mini.
+    await genSelect.selectOption({ label: 'gpt-4o-mini' });
     await page.click('button:has-text("Next: Configure Iterations")');
 
     // Wait for the dispatch plan to render. Bumped from 10s → 30s because the dispatch
