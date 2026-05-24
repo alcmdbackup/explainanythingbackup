@@ -42,7 +42,7 @@ import { SparklesIcon, CheckCircleIcon, CheckIcon } from '@heroicons/react/24/so
 import { BookmarkIcon, PencilSquareIcon, DocumentTextIcon, Bars3BottomLeftIcon } from '@heroicons/react/24/outline';
 import ShareButton from '@/components/ShareButton';
 
-const FILE_DEBUG = true;
+const FILE_DEBUG = false;
 const FORCE_REGENERATION_ON_NAV = false;
 
 function ResultsPageContent() {

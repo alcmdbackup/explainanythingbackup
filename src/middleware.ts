@@ -11,6 +11,21 @@ import {
   ALWAYS_ALLOWED_PREFIXES,
 } from '@/config/hostnames'
 
+// (debug) route group paths that must NOT be reachable on the public hostname.
+// Stay accessible on local/preview/evolution tiers for dev work. Uses exact-match
+// or path.startsWith(p + '/') to avoid matching e.g. /diffTest-real-route in the future.
+const DEBUG_ROUTE_PREFIXES = [
+  '/diffTest',
+  '/streaming-test',
+  '/latex-test',
+  '/mdASTdiff_demo',
+  '/resultsTest',
+  '/test-client-logging',
+  '/test-global-error',
+  '/tailwind-test',
+  '/typography-test',
+]
+
 /**
  * Next.js middleware — gates the explainanything / evolution website split
  * AND refreshes the Supabase auth session for downstream handlers.
@@ -50,6 +65,14 @@ export async function middleware(request: NextRequest) {
 
   if (tier === 'public') {
     if (EVOLUTION_PREFIXES.some((p) => path.startsWith(p))) {
+      return new NextResponse(null, { status: 404 })
+    }
+    // Demo-hygiene: 404 the (debug) route group on public hostname so URL-hacking
+    // visitors can't reach internal dev tooling. Routes remain accessible on
+    // local/preview/evolution tiers. /editorTest intentionally NOT gated — the
+    // "Debug in EditorTest" link in AIEditorPanel.tsx is already NODE_ENV='development'
+    // gated, so it doesn't render in prod regardless.
+    if (DEBUG_ROUTE_PREFIXES.some((p) => path === p || path.startsWith(p + '/'))) {
       return new NextResponse(null, { status: 404 })
     }
   } else if (tier === 'evolution') {
