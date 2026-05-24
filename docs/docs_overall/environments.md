@@ -58,6 +58,32 @@ Migrations are stored in `supabase/migrations/` and deployed automatically via G
 
 > **Important**: production migrations deploy only on push to the `production` branch (which happens when a `Release: main → production` PR is merged via `/mainToProd`). They do NOT deploy on push to `main`. A 62-day silent prod-schema drift was caused by this gating going unmonitored across 7+ releases (PR #1073 aborted the queue on a non-idempotent migration; PR #1074 hotfix fixed it). The `mainToProd` and `finalize` skills now emit a conditional **post-merge verification banner** when the PR being released touches `supabase/migrations/**` — see `.claude/commands/mainToProd.md` and `.claude/commands/finalize.md`. A migration-idempotency CI lint also catches the most common silent-failure patterns before merge.
 
+#### Migration idempotency lint (CI requirement)
+
+Every PR that adds files under `supabase/migrations/**` must pass `scripts/lint-migrations-idempotent.ts` (wired as the `lint-migrations-idempotent` job in `.github/workflows/supabase-migrations.yml`, with both deploy jobs declaring `needs: [lint-migrations-idempotent]`). Run it locally pre-PR via `npm run lint:migrations`.
+
+**Patterns the lint enforces (newly-added migration files only):**
+
+| Pattern | Required guard |
+|---|---|
+| `CREATE TABLE foo` | `CREATE TABLE IF NOT EXISTS foo` |
+| `CREATE INDEX idx` | `CREATE INDEX IF NOT EXISTS idx` |
+| `CREATE UNIQUE INDEX idx` | `CREATE UNIQUE INDEX IF NOT EXISTS idx` |
+| `CREATE TYPE t AS ENUM(...)` | wrap in `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname='t') THEN CREATE TYPE t ...; END IF; END $$;` |
+| `CREATE FUNCTION f()` | `CREATE OR REPLACE FUNCTION f()` |
+| `CREATE TRIGGER t ON foo` | preceded by `DROP TRIGGER IF EXISTS t ON foo;` in same file |
+| `CREATE POLICY "p" ON foo` | preceded by `DROP POLICY IF EXISTS "p" ON foo;` in same file |
+| `ALTER TABLE foo ADD COLUMN c` | `ALTER TABLE foo ADD COLUMN IF NOT EXISTS c` (Supabase runs PG 14+) |
+| `ALTER TABLE foo ADD CONSTRAINT c` | preceded by `ALTER TABLE foo DROP CONSTRAINT IF EXISTS c;` in same file (PG has no native `IF NOT EXISTS` for constraints — this was the exact #1073 trip-wire) |
+
+**Warn-only rollout window**: as of 2026-05-24 the job ships with `continue-on-error: true` (warnings annotate the PR but don't block merge). The flag is scheduled to flip to `false` on **2026-05-31** to give the in-flight migration backlog a week to drain.
+
+**Emergency bypass**: apply the `migration-lint-bypass` PR label to skip the check during a production-down hotfix. The bypass logs a warning annotation and requires a follow-up PR to retrofit guards into the bypassed migration. Note that GitHub branch protection does not cover PR-label add/remove events — bypass is a soft control gated on social convention + CODEOWNERS review of the labeled PR; treat the audit annotation as the binding record.
+
+#### Release-alert Slack channel
+
+Both `e2e-nightly.yml` and `post-deploy-smoke.yml` post failure alerts to the channel configured by the repository's `SLACK_WEBHOOK_URL` secret. The channel currently receiving these is whichever channel the webhook is wired to in Slack — confirm with a repo admin and document the channel name here when a dedicated `#release-alerts` channel is established. The 62-day silent outage was largely an attention problem: alerts were firing but the channel went unread. Whoever owns the channel should keep it unmuted and configure keyword highlights on `[release-health]` issues + the workflow names above.
+
 **CI Flow (PRs)**: When a PR contains migration files, the CI `deploy-migrations` job applies them to staging before tests run. This eliminates the migration/test deadlock where tests fail because the schema hasn't been applied yet. Types are then regenerated from the updated staging schema and auto-committed to the PR branch.
 
 - Fork PRs and Dependabot PRs skip migration deployment (no secrets access)
