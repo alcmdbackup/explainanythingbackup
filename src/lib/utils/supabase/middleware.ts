@@ -1,6 +1,21 @@
-import { createServerClient } from '@supabase/ssr'
+import { createServerClient, type CookieMethodsServer } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
+import type { User, AuthError } from '@supabase/supabase-js'
 import type { Database } from '@/lib/database.types'
+import { classifyHost } from '@/config/hostnames'
+
+// Module-scope in-flight cache to dedupe parallel cold-request guest sign-ins.
+// Dedup is per-Node-instance (Vercel cold-start churn = best-effort, NOT global).
+// Acceptable given low concurrency expected from a single demo viewer + Supabase's
+// 30/min IP rate limit as the real backstop. Promise.race timeout (10s) prevents
+// a stalled signInWithPassword from poisoning the slot site-wide.
+const inFlightGuestLogin = new Map<string, Promise<{ error: AuthError | null }>>()
+const GUEST_LOGIN_TIMEOUT_MS = 10_000
+
+// Test-only: reset the in-flight cache between tests.
+export function __resetGuestLoginCacheForTests(): void {
+  inFlightGuestLogin.clear()
+}
 
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({
@@ -24,7 +39,7 @@ export async function updateSession(request: NextRequest) {
             supabaseResponse.cookies.set(name, value, options)
           )
         },
-      },
+      } as CookieMethodsServer,
     }
   )
 
@@ -34,12 +49,89 @@ export async function updateSession(request: NextRequest) {
 
   // IMPORTANT: DO NOT REMOVE auth.getUser()
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  let currentUser: User | null = null
+  {
+    const { data } = await supabase.auth.getUser()
+    currentUser = data.user
+  }
+
+  // Auto-guest-login on public-tier hosts when no session present.
+  // MUST run BEFORE the unauth-redirect block below; otherwise that redirect
+  // fires first and this code is unreachable for unauthenticated visitors.
+  //
+  // The setAll() callback above writes the new session cookies onto
+  // supabaseResponse automatically when signInWithPassword succeeds —
+  // same mechanism getUser() uses to refresh near-expiry tokens.
+  //
+  // Soft env-var truthy check: missing GUEST_EMAIL/GUEST_PASSWORD is a no-op
+  // (NOT a noisy failure) so Phase 4→5 deploy ordering bugs degrade gracefully.
+  // Avoid skip-on-failed-recent cookie loop: when GUEST_AUTOLOGIN_FAILED_RECENTLY
+  // cookie is present, skip the sign-in attempt for its 60s lifetime.
+  const failedRecently = request.cookies.get('GUEST_AUTOLOGIN_FAILED_RECENTLY')?.value === '1'
+  if (
+    !currentUser &&
+    process.env.E2E_TEST_MODE !== 'true' &&
+    process.env.GUEST_EMAIL &&
+    process.env.GUEST_PASSWORD &&
+    !failedRecently
+  ) {
+    const tier = classifyHost(request.headers.get('host'))
+    if (tier === 'public' || tier === 'local' || tier === 'preview') {
+      const dedupeKey = `${tier}:${request.headers.get('host') ?? 'no-host'}`
+      if (!inFlightGuestLogin.has(dedupeKey)) {
+        const loginPromise = Promise.race<{ error: AuthError | null }>([
+          supabase.auth.signInWithPassword({
+            email: process.env.GUEST_EMAIL,
+            password: process.env.GUEST_PASSWORD,
+          }),
+          new Promise<{ error: AuthError | null }>((resolve) =>
+            setTimeout(
+              () =>
+                resolve({
+                  error: {
+                    name: 'TimeoutError',
+                    message: 'guest auto-login timed out after 10s',
+                  } as AuthError,
+                }),
+              GUEST_LOGIN_TIMEOUT_MS,
+            ),
+          ),
+        ]).finally(() => inFlightGuestLogin.delete(dedupeKey))
+        inFlightGuestLogin.set(dedupeKey, loginPromise)
+      }
+      const { error: guestErr } = await inFlightGuestLogin.get(dedupeKey)!
+      if (guestErr) {
+        console.warn('[middleware] guest-auto-login failed', {
+          error: guestErr.message,
+          host: request.headers.get('host'),
+          path: request.nextUrl.pathname,
+        })
+        // Set a 60s cookie so subsequent requests skip the sign-in attempt
+        // and the /login page renders a service-unavailable notice instead
+        // of re-redirecting back through auto-login (redirect-loop avoidance).
+        const url = request.nextUrl.clone()
+        url.pathname = '/login'
+        const fallback = NextResponse.redirect(url)
+        fallback.cookies.set('GUEST_AUTOLOGIN_FAILED_RECENTLY', '1', {
+          maxAge: 60,
+          httpOnly: true,
+          path: '/',
+          sameSite: 'lax',
+        })
+        return fallback
+      }
+      // Re-read user so the downstream user-disabled check sees the new session.
+      const { data } = await supabase.auth.getUser()
+      currentUser = data.user
+      console.info('[middleware] guest-auto-login fired', {
+        host: request.headers.get('host'),
+        path: request.nextUrl.pathname,
+      })
+    }
+  }
 
   if (
-    !user &&
+    !currentUser &&
     !request.nextUrl.pathname.startsWith('/login') &&
     !request.nextUrl.pathname.startsWith('/auth') &&
     !(process.env.NODE_ENV !== 'production' && request.nextUrl.pathname.startsWith('/debug-critic')) &&
@@ -53,7 +145,7 @@ export async function updateSession(request: NextRequest) {
 
   // Check if user is disabled (skip for auth routes and error page)
   if (
-    user &&
+    currentUser &&
     !request.nextUrl.pathname.startsWith('/login') &&
     !request.nextUrl.pathname.startsWith('/auth') &&
     !request.nextUrl.pathname.startsWith('/error') &&
@@ -62,7 +154,7 @@ export async function updateSession(request: NextRequest) {
     const { data: profile } = await supabase
       .from('user_profiles')
       .select('is_disabled, disabled_reason')
-      .eq('user_id', user.id)
+      .eq('user_id', currentUser.id)
       .single()
 
     if (profile?.is_disabled) {

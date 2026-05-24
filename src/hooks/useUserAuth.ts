@@ -18,6 +18,7 @@ import { clearSession, getOrCreateAnonymousSessionId } from '@/lib/sessionId';
  */
 export function useUserAuth() {
     const [userid, setUserid] = useState<string | null>(null);
+    const [email, setEmail] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(true);
 
     /**
@@ -41,6 +42,7 @@ export function useUserAuth() {
             clearSession();
             getOrCreateAnonymousSessionId();
             setUserid(null);
+            setEmail(null);
             return null;
         }
 
@@ -51,11 +53,13 @@ export function useUserAuth() {
             clearSession();
             getOrCreateAnonymousSessionId();
             setUserid(null);
+            setEmail(null);
             return null;
         }
 
         console.log('[useUserAuth] User authenticated successfully:', userData.user.id);
         setUserid(userData.user.id);
+        setEmail(userData.user.email ?? null);
         return userData.user.id;
     }, []);
 
@@ -70,8 +74,23 @@ export function useUserAuth() {
 
     return {
         userid,
+        email,
         isLoading,
         fetchUserid
     };
+}
+
+/**
+ * useIsGuest — returns true when the current user is the shared demo guest account.
+ * Reads NEXT_PUBLIC_GUEST_EMAIL (bundled at build time) and compares to the
+ * logged-in user's email. Returns false when no guest email is configured,
+ * when the user isn't logged in, or while auth is still loading.
+ */
+export function useIsGuest(): boolean {
+    const { email, isLoading } = useUserAuth();
+    if (isLoading) return false;
+    const guestEmail = process.env.NEXT_PUBLIC_GUEST_EMAIL;
+    if (!guestEmail) return false;
+    return email === guestEmail;
 }
 

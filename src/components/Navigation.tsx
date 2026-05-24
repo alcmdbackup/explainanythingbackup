@@ -10,6 +10,7 @@ import Link from 'next/link';
 import { Plus } from 'lucide-react';
 import { signOut } from '@/app/login/actions';
 import { clearRememberMe } from '@/lib/utils/supabase/rememberMe';
+import { useIsGuest } from '@/hooks/useUserAuth';
 import SearchBar from '@/components/SearchBar';
 import ImportModal from '@/components/import/ImportModal';
 import ImportPreview from '@/components/import/ImportPreview';
@@ -41,6 +42,7 @@ export default function Navigation({
 }: NavigationProps) {
     const [importModalOpen, setImportModalOpen] = useState(false);
     const [previewData, setPreviewData] = useState<ImportData | null>(null);
+    const isGuest = useIsGuest();
 
     // Dark Nav theme using CSS variables with fallbacks for reliability
     const navColors = {
@@ -167,17 +169,23 @@ export default function Navigation({
                             Settings
                         </Link>
 
-                        <button
-                            onClick={() => {
-                                clearRememberMe();
-                                signOut();
-                            }}
-                            data-testid="logout-button"
-                            className="scholar-nav-link hover:text-[var(--destructive)] text-base font-ui font-medium transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--destructive)] focus-visible:ring-offset-2 rounded px-1"
-                            style={{ color: navColors.textMuted }}
-                        >
-                            Logout
-                        </button>
+                        {/* Sign-out hidden for guest sessions on the public site —
+                            clicking it would instantly re-trigger auto-login on the
+                            next request (confusing UX). Admins escape via the
+                            evolution hostname where auto-login doesn't fire. */}
+                        {!isGuest && (
+                            <button
+                                onClick={() => {
+                                    clearRememberMe();
+                                    signOut();
+                                }}
+                                data-testid="logout-button"
+                                className="scholar-nav-link hover:text-[var(--destructive)] text-base font-ui font-medium transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--destructive)] focus-visible:ring-offset-2 rounded px-1"
+                                style={{ color: navColors.textMuted }}
+                            >
+                                Logout
+                            </button>
+                        )}
 
                         {/* Import CTA Button - Gold pill on dark nav */}
                         <button
