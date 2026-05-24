@@ -1,7 +1,11 @@
 {
   "branch": "feat/fixes_explainanything_for_public_demo_20260523",
   "created_at": "2026-05-23T00:00:00Z",
-  "prerequisites": {},
+  "prerequisites": {
+    "testing_overview_read": "2026-05-24T05:09:01Z",
+    "environments_read": "2026-05-24T05:12:00Z",
+    "design_style_guide_read": "2026-05-24T05:13:55Z"
+  },
   "relevantDocs": [
     "docs/feature_deep_dives/search_generation_pipeline.md",
     "docs/feature_deep_dives/add_sources_citations.md",
