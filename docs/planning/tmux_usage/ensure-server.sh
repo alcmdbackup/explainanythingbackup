@@ -99,9 +99,16 @@ if [ -n "$INSTANCE_ID" ]; then
 fi
 
 # No server running (or crashed and cleaned up) - need to start one
-# Generate new instance ID only if we don't have one
+# Generate new instance ID only if we don't have one. The ID is derived
+# deterministically from $PROJECT_ROOT so concurrent invocations (e.g. 3
+# Playwright workers all running ensure-server.sh at once) compute the
+# same ID and the mkdir lock below actually serializes them. Previously
+# this used `head -c 8 /dev/urandom`, which gave each concurrent worker a
+# different ID and a different lock path → 3 servers spawned, 2-3 died
+# mid-run, tests cascaded into ECONNREFUSED. See
+# docs/planning/fix/local_test_infra_flakes_20260523.
 if [ -z "$INSTANCE_ID" ]; then
-  INSTANCE_ID=$(head -c 8 /dev/urandom | xxd -p)
+  INSTANCE_ID=$(printf '%s' "$PROJECT_ROOT" | sha256sum | head -c 16)
 fi
 
 echo "[ensure-server] Starting server for instance $INSTANCE_ID..."
