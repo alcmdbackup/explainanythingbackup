@@ -473,6 +473,23 @@ Goal: wipe explainanything user content; preserve every evolution row.
 - [ ] `CLAUDE.md` — only if it references the production URL.
 - [x] `.gitignore` — confirm `*.sql.dump` is ignored (add if missing).
 
+## Postmortem appendix — smoke-test fallout (2026-05-23)
+
+The first prod deploys after this PR (`346b99e8` and `bbca28bc` on 2026-05-23) failed the `post-deploy-smoke.yml` matrix in both rows for two distinct reasons traceable to the hostname split:
+
+- **public row**: matrix BASE_URL was `${{ github.event.deployment_status.target_url }}` (a Vercel per-deploy preview URL like `explainanything-3ad03ivv0-….vercel.app`). `classifyHost()` is strict-exact-match and returned `'unknown'` for preview URLs → middleware fail-closed 404 on `/` and `/userlibrary`. Smoke assertions saw `<title></title>` (Next.js middleware-404 signature).
+- **evolution row**: BASE_URL was `https://ea-evolution.vercel.app`. Middleware redirected `/` → `/admin/evolution-dashboard` (no `home-search-input`), and `/userlibrary` is in `PUBLIC_PREFIXES` blocked on the evolution host → 404.
+
+Fix landed in `docs/planning/smoke_test_and_nightly_e2e_failing_20260523/` (see Phases 2 + 3 of that project's plan):
+- Pin smoke matrix `public` row to the apex hostname (1-line YAML), not `deployment_status.target_url`.
+- Split `smoke.spec.ts` into `smoke.public.spec.ts` (3 tests, `@smoke + @smoke-public`) and `smoke.evolution.spec.ts` (2 tests, `@smoke + @smoke-evolution`, uses admin-auth fixture). Per-matrix-row spec selection + zero-test guard against tag typos.
+- Lock in `classifyHost`'s strict-match contract via `src/config/__tests__/hostnames.test.ts` so this can't silently regress.
+
+**Lessons for future hostname/middleware changes** (worth bookmarking for the next split-style project):
+1. Vercel emits per-deploy preview URLs that don't match the apex. Anything that hits the deploy URL post-deploy needs to either be pinned to the apex or expect to fall through to `'unknown'` classification.
+2. `@smoke` (or any tag-based selection in CI) needs an explicit zero-test guard, otherwise Playwright exits 0 on a tag typo and the check silently passes with no coverage.
+3. Cross-host route-policy changes (e.g. `PUBLIC_PREFIXES` blocking `/userlibrary` on evolution) need a host-aware spec, not a single spec running against multiple hosts.
+
 ## Review & Discussion
 
 Multi-agent `/plan-review` loop reached consensus after 2 iterations.

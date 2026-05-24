@@ -188,7 +188,10 @@ jobs:
           retention-days: 30
 
       - name: Notify Slack on failure
-        if: failure()
+        # Alert on failure OR on cancelled IF the run was unattended (scheduled), not a
+        # manual workflow_dispatch cancel during dev. Avoids re-creating the channel-noise
+        # problem that caused the 62-day silent outage.
+        if: failure() || (cancelled() && github.event_name == 'schedule')
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
         run: |

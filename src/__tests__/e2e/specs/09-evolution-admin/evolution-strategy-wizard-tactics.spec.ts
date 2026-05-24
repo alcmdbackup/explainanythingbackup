@@ -9,11 +9,17 @@ test.describe('Strategy Wizard — Tactic Guidance', { tag: '@evolution' }, () =
     // Fill required fields to advance to Step 2
     await page.fill('input[placeholder="Strategy name"]', 'E2E Test Tactics');
     const genSelect = page.locator('#generation-model');
+    // Use index: 1 per project convention — every sibling spec
+    // (admin-evolution-iterative-editing.spec.ts, admin-strategy-wizard.spec.ts)
+    // uses this same pattern for the #generation-model dropdown. The label-based
+    // approach was attempted but the dropdown renders displayName ('GPT-4o Mini')
+    // not the model id, and a literal label would couple the test to that string.
     await genSelect.selectOption({ index: 1 });
     await page.click('button:has-text("Next: Configure Iterations")');
 
-    // Wait for iterations step
-    await page.waitForSelector('[data-testid="tactic-guidance-btn-0"]', { timeout: 10000 });
+    // Wait for iterations step. 30s matches the already-hardened precedent in the "Likely total" test (see "Bumped from 10s → 30s" comment in that test) — the — the
+    // dispatch-preview server-action slows under accumulated DB state from prior tests.
+    await page.waitForSelector('[data-testid="tactic-guidance-btn-0"]', { timeout: 30000 });
 
     // Generate iteration #1 should have tactic button
     await expect(page.locator('[data-testid="tactic-guidance-btn-0"]')).toBeVisible();
@@ -27,9 +33,14 @@ test.describe('Strategy Wizard — Tactic Guidance', { tag: '@evolution' }, () =
     await page.fill('input[placeholder="Strategy name"]', 'E2E Test Tactics Editor');
     // Select first valid generation model
     const genSelect = page.locator('#generation-model');
+    // Use index: 1 per project convention — every sibling spec
+    // (admin-evolution-iterative-editing.spec.ts, admin-strategy-wizard.spec.ts)
+    // uses this same pattern for the #generation-model dropdown. The label-based
+    // approach was attempted but the dropdown renders displayName ('GPT-4o Mini')
+    // not the model id, and a literal label would couple the test to that string.
     await genSelect.selectOption({ index: 1 });
     await page.click('button:has-text("Next: Configure Iterations")');
-    await page.waitForSelector('[data-testid="tactic-guidance-btn-0"]', { timeout: 15000 });
+    await page.waitForSelector('[data-testid="tactic-guidance-btn-0"]', { timeout: 30000 });
 
     await page.click('[data-testid="tactic-guidance-btn-0"]');
     await page.waitForSelector('[data-testid="tactic-guidance-editor"]', { timeout: 5000 });
@@ -53,13 +64,19 @@ test.describe('Strategy Wizard — Tactic Guidance', { tag: '@evolution' }, () =
     await page.goto('/admin/evolution/strategies/new');
     await page.fill('input[placeholder="Strategy name"]', 'E2E Dispatch Preview');
     const genSelect = page.locator('#generation-model');
+    // Use index: 1 per project convention — every sibling spec
+    // (admin-evolution-iterative-editing.spec.ts, admin-strategy-wizard.spec.ts)
+    // uses this same pattern for the #generation-model dropdown. The label-based
+    // approach was attempted but the dropdown renders displayName ('GPT-4o Mini')
+    // not the model id, and a literal label would couple the test to that string.
     await genSelect.selectOption({ index: 1 });
     await page.click('button:has-text("Next: Configure Iterations")');
 
     // Phase 6: dispatch preview now lives in the shared DispatchPlanView component,
     // which renders a per-iteration row with a data-testid of `dispatch-plan-row-{iterIdx}`.
     // The old per-iteration inline `dispatch-preview-{idx}` span was removed.
-    await page.waitForSelector('[data-testid="dispatch-plan-row-0"]', { timeout: 10000 });
+    // 30s matches the already-hardened precedent in the "Likely total" test (see "Bumped from 10s → 30s" comment in that test) — the — dispatch preview slows under DB load.
+    await page.waitForSelector('[data-testid="dispatch-plan-row-0"]', { timeout: 30000 });
     const planRow = page.locator('[data-testid="dispatch-plan-row-0"]');
     await expect(planRow).toBeVisible();
     // The row should contain a dispatch count and an effective-cap badge.
@@ -75,6 +92,11 @@ test.describe('Strategy Wizard — Tactic Guidance', { tag: '@evolution' }, () =
     await page.goto('/admin/evolution/strategies/new');
     await page.fill('input[placeholder="Strategy name"]', 'E2E Likely Total');
     const genSelect = page.locator('#generation-model');
+    // Use index: 1 per project convention — every sibling spec
+    // (admin-evolution-iterative-editing.spec.ts, admin-strategy-wizard.spec.ts)
+    // uses this same pattern for the #generation-model dropdown. The label-based
+    // approach was attempted but the dropdown renders displayName ('GPT-4o Mini')
+    // not the model id, and a literal label would couple the test to that string.
     await genSelect.selectOption({ index: 1 });
     await page.click('button:has-text("Next: Configure Iterations")');
 
