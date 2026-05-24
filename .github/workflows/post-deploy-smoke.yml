@@ -146,10 +146,13 @@ jobs:
           # Guard against silent zero-test passes: if the grep matches nothing in the
           # target spec (e.g. tag typo), Playwright exits 0 with "no tests found" and
           # the smoke check is meaningless. List first, count, fail loud if zero.
+          # Playwright --list emits lines like "  [chromium] › specs/foo.spec.ts:7:7 › test name".
+          # Match the spec-path:line:col pattern that appears on every test line and
+          # nowhere else in the output (no false positives on the trailing "Total: N" line).
           test_count=$(npx playwright test --project=chromium \
             --grep="${{ matrix.site.grep }}" \
             ${{ matrix.site.spec }} \
-            --list 2>&1 | grep -cE '^\s+[›>].*\s\S+\.spec\.ts:' || true)
+            --list 2>&1 | grep -cE '\.spec\.ts:[0-9]+:[0-9]+' || true)
 
           if [ "$test_count" -eq 0 ]; then
             echo "::error::Zero tests matched grep='${{ matrix.site.grep }}' in spec='${{ matrix.site.spec }}'. Did a tag get renamed or removed? Refusing to silently pass."

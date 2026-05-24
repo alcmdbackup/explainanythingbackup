@@ -18,6 +18,11 @@ on:
       - production
     paths:
       - 'supabase/migrations/**'
+  # Pull-request trigger exists ONLY so the `lint-migrations-idempotent` job can
+  # gate PRs before merge (deploy jobs gate on `github.event_name == 'push'`).
+  pull_request:
+    paths:
+      - 'supabase/migrations/**'
   workflow_dispatch:  # Manual trigger
     inputs:
       environment:
@@ -34,13 +39,15 @@ jobs:
   # Migration idempotency lint. Catches non-idempotent DDL (bare CREATE TABLE,
   # ADD CONSTRAINT without DROP IF EXISTS, etc.) that would silently abort the
   # entire deploy queue. The May 2026 prod-schema drift was caused by exactly
-  # this gap. Both deploy jobs depend on this passing.
+  # this gap. Runs ONLY on pull_request events so it gates merge (not after merge,
+  # where origin/main == HEAD and the diff would be empty).
   #
   # Rollout: starts in warn-only mode (continue-on-error true), flips to error
   # gating after the in-flight migration backlog drains (~7 days post-merge).
   # Emergency bypass: apply the `migration-lint-bypass` label to the PR.
   lint-migrations-idempotent:
     name: Lint migrations (idempotency)
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -68,17 +75,14 @@ jobs:
             echo "::warning::migration-lint-bypass label present — skipping lint. FOLLOW-UP REQUIRED: retrofit idempotency guards in a follow-up PR."
             exit 0
           fi
-          # Use origin/production as base when running on production branch, otherwise origin/main
-          if [ "${{ github.ref }}" = "refs/heads/production" ]; then
-            BASE="origin/production"
-          else
-            BASE="origin/main"
-          fi
-          npx tsx scripts/lint-migrations-idempotent.ts --base="$BASE"
+          # On pull_request, github.base_ref is the target branch (e.g. 'main' or 'production').
+          # Fetch it explicitly so origin/$base_ref is current for the diff.
+          BASE_REF="${{ github.base_ref }}"
+          git fetch origin "$BASE_REF" --depth=1
+          npx tsx scripts/lint-migrations-idempotent.ts --base="origin/$BASE_REF"
 
   deploy-staging:
     name: Deploy to Staging
-    needs: [lint-migrations-idempotent]
     runs-on: ubuntu-latest
     environment: staging
     # Run on: push to main, or manual with staging/both
@@ -159,7 +163,6 @@ jobs:
 
   deploy-production:
     name: Deploy to Production
-    needs: [lint-migrations-idempotent]
     runs-on: ubuntu-latest
     environment: Production
     # Run on: push to production, or manual with production/both

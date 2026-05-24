@@ -30,10 +30,7 @@ adminTest.describe(
       await adminPage.waitForURL('**/admin/evolution/runs');
       await expect(adminPage.getByText(/Evolution/i).first()).toBeVisible({ timeout: 10_000 });
 
-      // Use direct nav rather than goForward(): goForward races with AutoRefreshProvider's
-      // pageshow handler in CI (frame detached → net::ERR_ABORTED). Direct goto exercises
-      // the same pageerror-listener assertion below without the history race.
-      await adminPage.goto('/admin/evolution/arena');
+      await adminPage.goForward();
       await adminPage.waitForURL('**/admin/evolution/arena');
       await expect(adminPage.getByText('Arena').first()).toBeVisible({ timeout: 10_000 });
 
