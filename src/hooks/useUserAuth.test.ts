@@ -1,5 +1,5 @@
 import { renderHook, act, waitFor } from '@testing-library/react';
-import { useUserAuth } from './useUserAuth';
+import { useUserAuth, useIsGuest } from './useUserAuth';
 import { supabase_browser } from '@/lib/supabase';
 
 // Mock Supabase
@@ -569,6 +569,89 @@ describe('useUserAuth', () => {
 
             // fetchUserid is called on mount, so check that it was logged
             expect(consoleSpy).toHaveBeenCalledWith('[useUserAuth] fetchUserid called');
+        });
+    });
+});
+
+describe('useIsGuest', () => {
+    let mockGetUser: jest.Mock;
+    let originalEnv: NodeJS.ProcessEnv;
+
+    beforeEach(() => {
+        originalEnv = { ...process.env };
+        mockGetUser = supabase_browser.auth.getUser as jest.Mock;
+    });
+
+    afterEach(() => {
+        process.env = originalEnv;
+        jest.clearAllMocks();
+    });
+
+    it('returns true when authenticated email matches NEXT_PUBLIC_GUEST_EMAIL', async () => {
+        process.env.NEXT_PUBLIC_GUEST_EMAIL = 'guest@explainanything.app';
+        mockGetUser.mockResolvedValue({
+            data: { user: { id: 'guest-uuid', email: 'guest@explainanything.app' } },
+            error: null,
+        } as any);
+
+        const { result } = renderHook(() => useIsGuest());
+
+        await waitFor(() => {
+            expect(result.current).toBe(true);
+        });
+    });
+
+    it('returns false when authenticated email does NOT match NEXT_PUBLIC_GUEST_EMAIL', async () => {
+        process.env.NEXT_PUBLIC_GUEST_EMAIL = 'guest@explainanything.app';
+        mockGetUser.mockResolvedValue({
+            data: { user: { id: 'real-uuid', email: 'real@example.com' } },
+            error: null,
+        } as any);
+
+        const { result } = renderHook(() => useIsGuest());
+
+        await waitFor(() => {
+            expect(result.current).toBe(false);
+        });
+    });
+
+    it('returns false when NEXT_PUBLIC_GUEST_EMAIL env var is unset (soft no-op)', async () => {
+        delete process.env.NEXT_PUBLIC_GUEST_EMAIL;
+        mockGetUser.mockResolvedValue({
+            data: { user: { id: 'guest-uuid', email: 'guest@explainanything.app' } },
+            error: null,
+        } as any);
+
+        const { result } = renderHook(() => useIsGuest());
+
+        await waitFor(() => {
+            expect(result.current).toBe(false);
+        });
+    });
+
+    it('returns false while auth is still loading (no flash during hydration)', async () => {
+        process.env.NEXT_PUBLIC_GUEST_EMAIL = 'guest@explainanything.app';
+        // Mock that never resolves to simulate the loading state
+        mockGetUser.mockReturnValue(new Promise(() => {}));
+
+        const { result } = renderHook(() => useIsGuest());
+
+        // Initial render — still loading — returns false (avoids brief flash
+        // showing sign-out button before guest status resolves).
+        expect(result.current).toBe(false);
+    });
+
+    it('returns false when user is not authenticated', async () => {
+        process.env.NEXT_PUBLIC_GUEST_EMAIL = 'guest@explainanything.app';
+        mockGetUser.mockResolvedValue({
+            data: { user: null },
+            error: null,
+        } as any);
+
+        const { result } = renderHook(() => useIsGuest());
+
+        await waitFor(() => {
+            expect(result.current).toBe(false);
         });
     });
 });
