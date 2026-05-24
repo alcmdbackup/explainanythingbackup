@@ -185,12 +185,17 @@ export default defineConfig({
           ...(process.env.NODE_USE_ENV_PROXY ? { NODE_USE_ENV_PROXY: '1' } : {}),
         },
       },
-      {
-        // Secondary 3009 server — intentionally runs WITHOUT E2E_TEST_MODE so
-        // middleware guest auto-login actually fires (Phase 5 of demo-prep).
-        // Used by the chromium-guest-auto project. `env -u E2E_TEST_MODE` wrapper
-        // strips the var from the inherited shell env (Playwright `env: {}` would
-        // NOT do this — it merges with process.env by default).
+      // Secondary 3009 server — intentionally runs WITHOUT E2E_TEST_MODE so
+      // middleware guest auto-login actually fires (Phase 5 of demo-prep).
+      // Used by the chromium-guest-auto project. `env -u E2E_TEST_MODE` wrapper
+      // strips the var from the inherited shell env (Playwright `env: {}` would
+      // NOT do this — it merges with process.env by default).
+      //
+      // GATED: only spins up when RUN_GUEST_AUTO_TESTS=1 is set. Playwright starts
+      // ALL configured webServers regardless of which projects are selected, so
+      // leaving this unconditional would add ~2 min `npm run build` per E2E CI
+      // run for the standard chromium-critical job that doesn't need it.
+      ...(process.env.RUN_GUEST_AUTO_TESTS === '1' ? [{
         command: process.env.CI
           ? 'env -u E2E_TEST_MODE bash -c "npm run build && npm start -- -p 3009"'
           : 'env -u E2E_TEST_MODE npm run dev -- -p 3009',
@@ -201,7 +206,7 @@ export default defineConfig({
           NEXT_PUBLIC_USE_AI_API_ROUTE: 'true',
           ...(process.env.NODE_USE_ENV_PROXY ? { NODE_USE_ENV_PROXY: '1' } : {}),
         },
-      },
+      }] : []),
     ],
   }),
   // B116: always exclude @skip-prod tests — locally they hit mocked API handlers
