@@ -1,111 +1,90 @@
-# Phase 0 Dry-Run Harness
+# Explainanything DB Reset Harness
 
-Validate the Phase 5 production-reset SQL on a staging clone of production
-before ever running it on prod. Each step is idempotent enough to retry.
+Tooling for the one-shot Phase 5 production-reset of the explainanything DB
+(`split_evolution_explainanythig_into_separate_websites_20260522`). Executed
+on 2026-05-24 against prod (`qbxhivoezkfbjbsctdzo`) — see
+`docs/planning/split_evolution_explainanythig_into_separate_websites_20260522/_progress.md`
+for the run record. The originally-planned staging dry-run was collapsed
+into the prod run (the data wasn't precious to preserve).
 
-## Sequence
+The harness is kept in the repo so the next destructive reset (e.g. another
+content wipe years from now) has working scaffolding rather than starting
+from scratch.
 
-1. **PITR-restore prod → staging** (Supabase Dashboard → staging project →
-   Database → Backups → Point-in-time recovery → restore at "latest"). This
-   replaces staging's data + schema with prod's state. After it completes,
-   re-run the staging migration apply to pull the new FK migrations on top
-   if `/mainToProd` hasn't already shipped them to prod:
-   ```bash
-   supabase link --project-ref <STAGING_REF>
-   supabase db push --include-all
-   ```
+## What's here
 
-2. **Capture pre-reset counts:**
-   ```bash
-   set -a; source .env.staging.readonly; set +a  # service-role key for staging
-   npx tsx scripts/phase0-dryrun/capture-counts.ts pre > /tmp/counts-pre.json
-   ```
+- **`capture-counts.ts`** — read-only row count snapshot, one JSON per call.
+  Connects via `DATABASE_URL_FOR_COUNTS` (recommended: a readonly_local DSN
+  from `.env.prod.readonly` or `.env.staging.readonly`). Physical safety:
+  the readonly_local role only has SELECT, so this script literally cannot
+  mutate anything regardless of bugs.
+- **`reset.sql`** — the actual destructive SQL block. Documents the four
+  ordering gotchas we hit on first attempt (see comment header).
+- **`diff-counts.ts`** — assert post-reset matches expectations
+  (explainanything tables = 0, evolution + shared preserved exactly).
+- **`inspect-fks.ts`** — diagnostic to query the FK graph + delete actions
+  for a given target table. We used this to figure out the correct ordering
+  in reset.sql after a couple of failed attempts.
 
-3. **Execute the reset SQL** in Supabase Studio → staging project → SQL Editor:
-   ```sql
-   -- Paste contents of scripts/phase0-dryrun/reset.sql
-   ```
-   Note: do NOT run reset.sql via psql piped from your shell — the Studio
-   editor logs the run in the project's audit log, which is what you want
-   for the dry-run record.
-
-4. **Capture post-reset counts:**
-   ```bash
-   npx tsx scripts/phase0-dryrun/capture-counts.ts post > /tmp/counts-post.json
-   ```
-
-5. **Verify expectations:**
-   ```bash
-   npx tsx scripts/phase0-dryrun/diff-counts.ts /tmp/counts-pre.json /tmp/counts-post.json
-   ```
-   Exit 0 = PASS. Exit 1 = FAIL with per-table reasons.
-
-6. **Pinecone dry-run** (separate from the SQL):
-   ```bash
-   set -a; source .env.staging.readonly; set +a
-   npx tsx scripts/reset-explainanything-pinecone.ts   # --dry-run by default
-   ```
-   This prints intended deletions. Do NOT pass `--apply` for the staging
-   dry-run unless staging has a separate Pinecone index (most don't —
-   verify before applying).
-
-7. **Time the SQL block.** If COMMIT took > 5 min, the production reset
-   needs a batched-DELETE rewrite or a maintenance window. Record actual
-   elapsed time.
-
-8. **File the report:**
-   `docs/planning/split_evolution_explainanythig_into_separate_websites_20260522/phase5-dryrun-staging.md`
-   should contain:
-   - PITR timestamp restored from
-   - The pre + post JSON files (inline or attached)
-   - diff-counts.ts output
-   - SQL block elapsed time
-   - Pinecone dry-run output
-   - Sign-off: "Dry-run passed, prod Phase 5 unblocked"
-
-## Refresh staging after the dry-run
-
-The dry-run wipes staging's public data. To restore staging for everyone:
-- Easiest: trigger another PITR restore from prod into staging at "latest"
-- Or: re-import a staging seed if one exists
-
-## Safety guards in this harness
-
-- `capture-counts.ts` refuses to run against production by default. To opt
-  in for the Phase 5 collapse path (run the harness against prod itself),
-  BOTH must be set:
-  - CLI flag: `--allow-prod`
-  - env var:  `PHASE_ALLOW_PROD=I_KNOW_THIS_IS_PROD`
-- `reset.sql` is a plain SQL file with no automation — you paste it into
-  Studio, you see it, you commit it. If you accidentally point Studio at
-  prod and run reset.sql, that's a real risk — verify the project ref in
-  the Studio URL before clicking Run.
-- The two FK changes from PR #1072 (`20260524000002_enforce_evolution_runs_explanation_fk_set_null.sql`)
-  are what make this reset safe at all. If those didn't apply on staging,
-  do not proceed — re-apply via `supabase db push --include-all`.
-
-## Phase 5 collapse path (skipping the staging dry-run)
-
-If you intentionally want to skip the staging rehearsal and run the
-harness against prod directly (acceptable when prod data isn't precious):
+## Run order
 
 ```bash
+# 1. Capture pre-reset counts (read-only)
 set -a; source .env.prod.readonly; set +a
-PHASE_ALLOW_PROD=I_KNOW_THIS_IS_PROD \
-  npx tsx scripts/phase0-dryrun/capture-counts.ts pre --allow-prod \
-  > /tmp/counts-pre-prod.json
+DATABASE_URL_FOR_COUNTS=$PROD_READONLY_DATABASE_URL \
+  npx tsx scripts/phase0-dryrun/capture-counts.ts pre \
+  > /tmp/counts-pre.json
 
-# Paste reset.sql into Supabase Studio for the PROD project. Verify the
-# project ref in the URL is the prod ref before clicking Run.
+# 2. Execute the reset SQL via Supabase Studio → SQL Editor on the prod
+#    project. Paste reset.sql verbatim. Verify the URL contains the prod
+#    project ref before clicking Run.
 
-PHASE_ALLOW_PROD=I_KNOW_THIS_IS_PROD \
-  npx tsx scripts/phase0-dryrun/capture-counts.ts post --allow-prod \
-  > /tmp/counts-post-prod.json
+# 3. Capture post-reset counts
+DATABASE_URL_FOR_COUNTS=$PROD_READONLY_DATABASE_URL \
+  npx tsx scripts/phase0-dryrun/capture-counts.ts post \
+  > /tmp/counts-post.json
 
+# 4. Verify
 npx tsx scripts/phase0-dryrun/diff-counts.ts \
-  /tmp/counts-pre-prod.json /tmp/counts-post-prod.json
+  /tmp/counts-pre.json /tmp/counts-post.json
+# Exit 0 = PASS. Exit 1 = FAIL with per-table reasons.
+
+# 5. Pinecone reset (separate from DB)
+npx tsx scripts/reset-explainanything-pinecone.ts --prod        # dry-run
+npx tsx scripts/reset-explainanything-pinecone.ts --prod --apply  # apply
+#   Requires .env.evolution-prod with PINECONE_API_KEY + PINECONE_INDEX_NAME_ALL.
+#   Apply prompts for typed confirmation "RESET EXPLAINANYTHING PINECONE".
 ```
 
-In this mode the diff-counts assertion IS the verification — there is no
-separate dry-run to compare against. PASS means the reset hit the right
-tables; FAIL means investigate immediately and consider PITR rollback.
+## Safety story
+
+The DSN-based capture-counts approach is preferable to a Supabase JS client
++ service-role key because:
+
+- `readonly_local` is SELECT-only at the role level. Even with bugs in the
+  script, no writes are physically possible.
+- Service role keys are write-capable; protecting them in dev shell history
+  is harder than just not having them.
+- Linking the Supabase CLI to prod is intentionally blocked by
+  `settings.json` per `docs/docs_overall/environments.md:114`.
+
+The destructive SQL (`reset.sql`) is hand-pasted into Studio so the operator
+sees the project context in the URL before clicking Run. No automated way
+to point this at prod accidentally.
+
+## FK ordering — what to do if reset.sql throws
+
+The exact errors we hit on first attempts (instructive for future resets):
+
+1. **`cannot truncate a table referenced in a foreign key constraint`** —
+   PG's TRUNCATE checks FK existence at schema level (not data level). Fix:
+   put all FK-linked tables in ONE `TRUNCATE TABLE a, b, c` statement.
+2. **`violates foreign key constraint evolution_explanations_explanation_id_fkey`**
+   — that FK is `NO ACTION`, not `SET NULL`. Must `UPDATE evolution_explanations SET explanation_id = NULL`
+   BEFORE the `DELETE FROM explanations`.
+3. **`TRUNCATE topics` fails after DELETE explanations** — even with empty
+   explanations, the FK constraint persists in schema and blocks TRUNCATE.
+   Use `DELETE FROM topics` instead.
+
+`inspect-fks.ts` is parameterized over a target table — use it to dump the
+FK graph before adding tables to reset.sql.

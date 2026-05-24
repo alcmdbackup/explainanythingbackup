@@ -79,38 +79,35 @@
 
 ---
 
-## Phase 3.5: `/mainToProd` (PENDING — user-triggered)
+## Phase 3.5: `/mainToProd` ✅ DONE
 
-### Work Pending
+### Work Done
 
-- ⏳ Merge PR #1072 to `main`.
-- ⏳ Run `/mainToProd` (user-triggered, cannot be done by Claude). Promotes `main` → `production`. Applies migrations `20260524000001` (CONCURRENTLY index) and `20260524000002` (FK re-add + orphan-null backfill).
-- ⏳ Watch for: orphan-null UPDATE row count on `evolution_runs` (archive in `phase3.5-fk-orphan-cleanup.md`); migration timing (FK rebuild holds brief `ACCESS EXCLUSIVE` lock); Vercel deploy completion on both hostnames.
-- ⏳ Capture prod deploy SHA — must equal `origin/main` HEAD before Phase 4 begins.
+- ✅ PR #1072 merged to `main` (squash-merge SHA `59c50331`).
+- ✅ `/mainToProd` PR #1073 — merged main → production. Subsequent migration deploy failed on the unrelated `20260322000003_add_budget_check_constraint.sql` (constraint already existed on prod from a non-tracked prior path); hotfix #1074 made it idempotent; backport #1075 brought the idempotency back to main.
+- ✅ Migrations applied on prod (`qbxhivoezkfbjbsctdzo`) at 2026-05-24T00:10:36Z. CI Reorder Migration Timestamps workflow renamed:
+  - `20260524000001_evolution_variants_fk_index.sql` → `20260524000011`
+  - `20260524000002_enforce_evolution_runs_explanation_fk_set_null.sql` → `20260524000012`
+- ✅ FK rebuild sub-second — no concurrent-writer blocking.
+- ⚠️ Orphan-null UPDATE row count not surfaced by `supabase db push` log; cannot recover post-hoc. Migration succeeded, FK now enforces SET NULL on prod.
 
-### Note
+### Production deploy SHA
 
-The two migrations in this PR are now confirmed safe via staging (CI green). Iteration 5 surfaced real orphan rows on staging — the same is plausible on prod.
+`bbca28bc` (production branch HEAD; equivalent to `c45018d7` on main + the hotfix #1074).
 
 ---
 
-## Phase 0: Staging Dry-Run Prerequisite (PENDING — gates Phase 5)
+## Phase 0: Staging Dry-Run Prerequisite — COLLAPSED INTO PHASE 5
 
-### Decisions Recorded
+User decision (2026-05-24): prod data wasn't precious to preserve, so the
+staging-rehearsal step was skipped. Instead the harness (`capture-counts.ts`,
+`reset.sql`, `diff-counts.ts`) was run directly against prod with pre/post
+snapshots providing equivalent verification. See Phase 5 for the actual run record.
 
-- ✅ Re-use existing staging project (not a temporary dedicated project).
-- ✅ Latest PITR timestamp.
-- ✅ Phase 3.5 happens first (so the PITR snapshot has the new FK migration baked in; otherwise we re-apply after restore).
-- ✅ Sweep confirmed wiping staging's public data won't break other PRs' CI — integration/E2E tests use `[TEST]`-prefix data with self-cleanup; smoke tests don't depend on existing rows; health check tags (IDs 2, 5) survive (not in truncate list).
+### Pre-collapse decisions still relevant
 
-### Work Pending
-
-- ⏳ PITR-restore prod into staging at latest timestamp.
-- ⏳ Capture pre-reset row counts (23 explainanything + 13 evolution + 3 shared tables).
-- ⏳ Execute Phase 5 SQL block + Pinecone reset against the staging clone.
-- ⏳ Diff post-reset counts vs Phase 5 expectations. Any divergence blocks prod reset.
-- ⏳ Time the SQL block; if > 5 min, redesign for batched DELETE.
-- ⏳ File report at `docs/planning/split_evolution_explainanythig_into_separate_websites_20260522/phase5-dryrun-staging.md`.
+- ✅ Sweep confirmed wiping staging's public data wouldn't break other PRs' CI — `[TEST]`-prefix self-cleaning data pattern, no hardcoded refs to existing rows.
+- ⚠️ Discovery during execution: the original `capture-counts.ts` from PR #1077 was broken (used wrong project ref guard pointing at `ifubinffdbyewoezcidz` thinking it was prod, but `qbxhivoezkfbjbsctdzo` is actually prod). Fixed by rewriting to use pg + readonly DSN — see PR for the harness postmortem.
 
 ---
 
@@ -127,26 +124,61 @@ The two migrations in this PR are now confirmed safe via staging (CI green). Ite
 
 ---
 
-## Phase 5: Production DB Reset (PENDING — destructive, gates on Phase 0+4)
+## Phase 5: Production DB Reset ✅ DONE (2026-05-24)
 
-### Work Done
+### Run record
 
-- ✅ `scripts/reset-explainanything-pinecone.ts` — `--dry-run` default, `--apply` + typed confirm `RESET EXPLAINANYTHING PINECONE`, refuses unless `NODE_ENV === 'production'` or `--force`, polls `describeIndexStats` for eventual consistency, exponential-backoff retry on rate-limit/5xx, idempotent.
+Executed against prod project `qbxhivoezkfbjbsctdzo` via Supabase Studio SQL Editor.
 
-### Work Pending
+**DB reset:**
+- ✅ 15 tables TRUNCATEd in one combined statement (FK refs among them require single-statement)
+- ✅ `evolution_explanations.explanation_id` UPDATEd to NULL on 90 rows (the FK is NO ACTION, so this had to happen before the DELETE)
+- ✅ `DELETE FROM explanations` — 365 rows. `evolution_runs.explanation_id` FK fired ON DELETE SET NULL per migration `20260524000012`
+- ✅ `DELETE FROM topics` — 622 rows (DELETE not TRUNCATE because `explanations.primary_topic_id` FK schema check blocks TRUNCATE even when explanations is empty)
+- ✅ Single transaction, sub-second; no concurrent-writer blocking
+- ✅ All 14 evolution tables preserved exactly (counts pre == post — see verification below)
 
-- ⏳ Verify Supabase Pro PITR enabled.
-- ⏳ Pause Vercel auto-deploys for the reset window.
-- ⏳ Record evolution baseline row counts → `phase5-baseline.md`.
-- ⏳ `pg_dump --data-only` backup of 23 explainanything tables → `~/.backups/ea-reset-$(date +%Y%m%d-%H%M%S).sql.dump`. Chmod 600. 30-day retention.
-- ⏳ Pinecone pre-reset inventory → `phase5-pinecone-baseline.md`.
-- ⏳ FK pre-flight audit on prod.
-- ⏳ Verify no concurrent writes (minicomputer batch runner, `llmCallTracking` writers).
-- ⏳ Record production deploy SHA.
-- ⏳ Execute Phase 5 reset SQL in Supabase Dashboard SQL Editor.
-- ⏳ Execute Pinecone reset script in parallel.
-- ⏳ Post-reset verification: row counts, Pinecone counts, spot-checks, fresh-explanation smoke.
-- ⏳ Re-enable Vercel auto-deploys.
+**Pinecone reset:**
+- ✅ `scripts/reset-explainanything-pinecone.ts` — typed-confirmation, dry-run by default, exp-backoff retry, polls `describeIndexStats` for eventual consistency. Created `.env.evolution-prod` with prod `PINECONE_API_KEY` (chmod 600, gitignored) + `PINECONE_INDEX_NAME_ALL=explainanythingprodlarge`
+- ✅ Dry-run showed 303 vectors in `default` namespace
+- ✅ Apply: 303 → 0 vectors, status OK
+
+### Pre/post counts (harness-verified)
+
+`diff-counts.ts` → **PASS** on all 37 assertions. Headline:
+- explainanything truncated tables: all 16 = 0 ✓
+- explanations: 365 → 0 ✓
+- topics: 622 → 0 ✓
+- evolution_runs: 1 → 1 ✓
+- evolution_variants: 10 → 10 ✓
+- evolution_explanations: 109 → 109 ✓
+- evolution_experiments: 1 → 1 ✓
+- evolution_arena_comparisons: 14 → 14 ✓
+- evolution_strategies: 138 → 138 ✓
+- llmCallTracking, llm_cost_config, daily_cost_rollups: unchanged ✓
+
+### What got SKIPPED from the original Phase 5 plan
+
+Per user direction (prod data not precious to preserve):
+
+- ❌ `pg_dump --data-only` backup — skipped (no rollback path other than PITR)
+- ❌ Vercel auto-deploy pause — not paused
+- ❌ Concurrent writer pre-check — skipped (low traffic, no production batch runs in flight)
+- ❌ Phase 0 staging dry-run — collapsed into Phase 5 (harness against prod directly)
+
+### Issues hit during execution (kept for future-reset reference)
+
+1. `cannot truncate a table referenced in a foreign key constraint` — fix: combine FK-linked tables into ONE TRUNCATE statement (PG checks schema, not data)
+2. `violates foreign key constraint evolution_explanations_explanation_id_fkey` — the FK is NO ACTION (not SET NULL), so `UPDATE evolution_explanations SET explanation_id = NULL` must come BEFORE the DELETE
+3. TRUNCATE topics fails after DELETE explanations — FK constraint persists in schema. Use DELETE on topics.
+
+The final reset.sql captures all three lessons inline.
+
+### Post-reset smoke
+
+- ✅ `https://explainanything.vercel.app/api/health` → 200 (DB reachable, tags 2 + 5 still seeded)
+- ✅ `https://explainanything.vercel.app/` → 307 → `/login` (pre-existing, unrelated to reset — `src/lib/utils/supabase/middleware.ts:41-52` always redirects unauthenticated)
+- ✅ `https://ea-evolution.vercel.app/admin/evolution-dashboard` → 307 → `/login` (expected unauthenticated curl behavior)
 
 ---
 
