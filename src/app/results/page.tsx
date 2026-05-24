@@ -8,6 +8,7 @@ import { matchWithCurrentContentType, MatchMode, UserInputType, ExplanationStatu
 import { logger } from '@/lib/client_utilities';
 import { RequestIdContext } from '@/lib/requestIdContext';
 import { markPerformance, measurePerformance } from '@/lib/webVitals';
+import { createSseEventBuffer, parseSseDataLine } from '@/lib/utils/sseEventBuffer';
 import { useClientPassRequestId } from '@/hooks/clientPassRequestId';
 import Navigation from '@/components/Navigation';
 import ExplanationCard from '@/components/explore/ExplanationCard';
@@ -365,6 +366,7 @@ function ResultsPageContent() {
         const decoder = new TextDecoder();
         let finalResult: unknown = null;
         let chunkCount = 0;
+        const sseBuffer = createSseEventBuffer();
         const CLIENT_TIMEOUT_MS = 60000; // 60 seconds with no data = timeout
         let lastDataTime = Date.now();
         let timeoutCheckId: ReturnType<typeof setInterval> | null = null;
@@ -392,14 +394,14 @@ function ResultsPageContent() {
 
             chunkCount++;
             lastDataTime = Date.now(); // Reset timeout on any data received
-            const chunk = decoder.decode(value);
-            logger.debug('Chunk received', { chunkCount, length: chunk.length }, FILE_DEBUG);
-            const lines = chunk.split('\n');
+            const events = sseBuffer.push(decoder.decode(value, { stream: true }));
+            logger.debug('Chunk received', { chunkCount, eventCount: events.length }, FILE_DEBUG);
 
-            for (const line of lines) {
-                if (line.startsWith('data: ')) {
+            for (const event of events) {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                const data = parseSseDataLine<any>(event);
+                if (data) {
                     try {
-                        const data = JSON.parse(line.slice(6));
 
                         // Handle heartbeat events - just reset timeout, no UI update needed
                         if (data.type === 'heartbeat') {
