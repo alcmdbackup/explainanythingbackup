@@ -1,6 +1,6 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import LoginPage from './page';
+import { LoginForm as LoginPage } from './LoginForm';
 import { login, signup } from './actions';
 import { setRememberMe, clearSupabaseLocalStorage } from '@/lib/utils/supabase/rememberMe';
 
