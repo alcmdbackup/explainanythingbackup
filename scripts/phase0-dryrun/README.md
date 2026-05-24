@@ -71,7 +71,11 @@ The dry-run wipes staging's public data. To restore staging for everyone:
 
 ## Safety guards in this harness
 
-- `capture-counts.ts` refuses to run against production (URL contains `ifubinffdbyewoezcidz`).
+- `capture-counts.ts` refuses to run against production by default. To opt
+  in for the Phase 5 collapse path (run the harness against prod itself),
+  BOTH must be set:
+  - CLI flag: `--allow-prod`
+  - env var:  `PHASE_ALLOW_PROD=I_KNOW_THIS_IS_PROD`
 - `reset.sql` is a plain SQL file with no automation — you paste it into
   Studio, you see it, you commit it. If you accidentally point Studio at
   prod and run reset.sql, that's a real risk — verify the project ref in
@@ -79,3 +83,29 @@ The dry-run wipes staging's public data. To restore staging for everyone:
 - The two FK changes from PR #1072 (`20260524000002_enforce_evolution_runs_explanation_fk_set_null.sql`)
   are what make this reset safe at all. If those didn't apply on staging,
   do not proceed — re-apply via `supabase db push --include-all`.
+
+## Phase 5 collapse path (skipping the staging dry-run)
+
+If you intentionally want to skip the staging rehearsal and run the
+harness against prod directly (acceptable when prod data isn't precious):
+
+```bash
+set -a; source .env.prod.readonly; set +a
+PHASE_ALLOW_PROD=I_KNOW_THIS_IS_PROD \
+  npx tsx scripts/phase0-dryrun/capture-counts.ts pre --allow-prod \
+  > /tmp/counts-pre-prod.json
+
+# Paste reset.sql into Supabase Studio for the PROD project. Verify the
+# project ref in the URL is the prod ref before clicking Run.
+
+PHASE_ALLOW_PROD=I_KNOW_THIS_IS_PROD \
+  npx tsx scripts/phase0-dryrun/capture-counts.ts post --allow-prod \
+  > /tmp/counts-post-prod.json
+
+npx tsx scripts/phase0-dryrun/diff-counts.ts \
+  /tmp/counts-pre-prod.json /tmp/counts-post-prod.json
+```
+
+In this mode the diff-counts assertion IS the verification — there is no
+separate dry-run to compare against. PASS means the reset hit the right
+tables; FAIL means investigate immediately and consider PITR rollback.
