@@ -52,6 +52,18 @@ export function GenerationStatusPill({ lifecycleState }: Props) {
       return;
     }
 
+    if (lifecycleState.phase === 'loading') {
+      // Prime wasStreamingRef during loading so the post-stream hint still
+      // fires for instant cached-match queries where React batches
+      // loading → viewing into one render and the effect never observes
+      // the 'streaming' phase. Also resets dismissed so a second query
+      // after a previous auto-dismiss still shows its hint.
+      wasStreamingRef.current = true;
+      setDismissed(false);
+      setPillState('hidden');
+      return;
+    }
+
     if (lifecycleState.phase === 'error') {
       setPillState('error');
       return;

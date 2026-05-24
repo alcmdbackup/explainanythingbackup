@@ -95,3 +95,19 @@ These are documented in the planning doc, repeated here for hand-off:
 |---|---|---|---|
 | #1 | admin-evolution-invocation-detail-previous: Raw-LLM section not visible. Fixture log full of `22P02 invalid input syntax for type uuid: ""`. | Initial hypothesis: deny_all RLS blocks trigger INSERT into per_user_daily_cost_rollups, rolling back outer llmCallTracking insert. | 20260524000004: `ALTER FUNCTION ... SET row_security = off`. **Did NOT fix.** |
 | #2 | Same failure persists; same 22P02 errors. | Re-investigated: `llmCallTracking.userid` is `uuid NOT NULL` (per 20251109053825_fix_drift.sql line 66) — NOT TEXT as the 20260524000003 schema comment claimed. The trigger's `NEW.userid = ''` literal forces PG to cast `''` to uuid → 22P02 → outer INSERT rolls back. | 20260524000005: drop the `IS NULL`/`= ''` guards entirely (column is `NOT NULL`), keep `estimated_cost_usd IS NULL` guard. Also keep `row_security = off` for the deny_all bypass. Cast `NEW.userid::text` for the rollup insert (rollup table uses TEXT). |
+
+## Post-merge staging verification (2026-05-24)
+
+Validated via Playwright + Vercel runtime logs + direct staging DB query:
+
+| Feature | Status | Evidence |
+|---|---|---|
+| SSE chunk-boundary fix (PR #1084) | ✅ | Articles stream + complete cleanly. `[ERROR] Error parsing streaming data` no longer in client logs. Unique-query fresh generation completes through 'streaming' phase visible in DOM. |
+| `per_user_daily_cost_rollups` table + trigger | ✅ | Table + function exist. `SELECT ... FROM per_user_daily_cost_rollups WHERE date >= CURRENT_DATE - 1` returns real entries spanning evolution system + human users from today's traffic. |
+| 22P02 fix (migration 20260524000005) | ✅ | New generations succeed without rollback. Rollup rows populating with real call_source/cost values. |
+| Status pill — visible streaming case | ✅ | For multi-second generation, pill cycles streaming (10s) → transition (800ms) → hint (3s) → hidden. Copy + colors match design. |
+| Status pill — instant cached match case | ❌→✅ | **Real bug found**: cached match collapses lifecycle into one render, pill effect never sees 'streaming', wasStreamingRef stays false, no transition/hint. Fixed in PR #1085 by priming on 'loading'. |
+| Guest auto-login | ⏸ | Returns to /login on incognito visit — GUEST_EMAIL/GUEST_PASSWORD not set on Vercel yet (ops). Code path verified by unit tests. |
+| Link bypass | ⏸ | LINKS_BYPASS_WHITELIST not set on Vercel yet (ops). Code path verified by linkResolver.bypass.test.ts. |
+| Per-user $10/day cap | ⏸ | GUEST_USER_ID not set on Vercel yet (ops). Code path verified by llmSpendingGate.test.ts. |
+| Demo-hygiene (debug) route gating | ⏸ | Only fires on `public` tier. Staging is `preview` tier. Code verified by middleware.test.ts + hostnames.test.ts. Will functionally verify after /mainToProd. |

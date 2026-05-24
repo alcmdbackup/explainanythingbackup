@@ -110,12 +110,27 @@ describe('GenerationStatusPill', () => {
     expect(screen.queryByTestId('generation-status-pill')).not.toBeInTheDocument();
   });
 
-  it('does NOT show transition/hint when entering viewing without prior streaming', () => {
-    // E.g., direct navigation to an existing explanation — phase jumps idle → loading → viewing.
+  it('does NOT show transition/hint on direct navigation (idle → viewing, no loading phase)', () => {
+    // Direct navigation to an existing explanation: loadExplanation dispatches
+    // LOAD_EXPLANATION (idle → viewing) without going through 'loading'.
+    const { rerender } = render(<GenerationStatusPill lifecycleState={idle()} />);
+    rerender(<GenerationStatusPill lifecycleState={viewing()} />);
+    expect(screen.queryByTestId('generation-status-pill')).not.toBeInTheDocument();
+  });
+
+  it('shows transition/hint for instant cached-match queries (loading → viewing, no observable streaming)', () => {
+    // When a query matches a cached explanation, React may batch the
+    // loading → streaming → viewing transitions into one render so the
+    // effect never observes 'streaming'. Priming wasStreamingRef during
+    // 'loading' ensures the post-stream hint still fires for the user.
     const { rerender } = render(<GenerationStatusPill lifecycleState={idle()} />);
     rerender(<GenerationStatusPill lifecycleState={loading()} />);
     rerender(<GenerationStatusPill lifecycleState={viewing()} />);
-    expect(screen.queryByTestId('generation-status-pill')).not.toBeInTheDocument();
+    expect(screen.getByTestId('generation-status-pill')).toHaveAttribute('data-pill-state', 'transition');
+    act(() => {
+      jest.advanceTimersByTime(800);
+    });
+    expect(screen.getByTestId('generation-status-pill')).toHaveAttribute('data-pill-state', 'hint');
   });
 
   it('respects prefers-reduced-motion via motion-safe Tailwind class', () => {
