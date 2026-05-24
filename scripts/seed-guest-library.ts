@@ -9,6 +9,16 @@
  * outside an HTTP request context (which would require significant refactoring
  * of returnExplanationLogic since it depends on the cookie-based supabase client).
  *
+ * ⚠ KNOWN ISSUE — cookie format: @supabase/ssr expects chunked cookies named
+ * `sb-<project-ref>-auth-token`, not the plain `sb-access-token` this script
+ * sets. The API auth handler may not recognize the session. If the script
+ * fails to authenticate (401s or empty results), the pragmatic fallback is to
+ * skip this script and manually open the deployed demo as the guest user in
+ * a browser (auto-login fires automatically), then submit each of the 10
+ * queries through the SearchBar — saves to the library happen normally.
+ * Follow-up: rewrite to use the supabase-js client to discover the correct
+ * cookie name from the project URL before forwarding to the API.
+ *
  * Usage:
  *   npx tsx scripts/seed-guest-library.ts --base-url=https://explainanything.vercel.app
  *

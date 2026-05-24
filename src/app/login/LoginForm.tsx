@@ -1,3 +1,6 @@
+// Interactive login form (client component). Extracted from page.tsx during
+// the Phase 5 server/client split so the page can do a server-side getUser()
+// check for the guest auto-login redirect.
 'use client';
 
 import { useState, useEffect } from 'react';

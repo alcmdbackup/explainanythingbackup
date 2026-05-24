@@ -110,14 +110,27 @@ export async function updateSession(request: NextRequest) {
         // Set a 60s cookie so subsequent requests skip the sign-in attempt
         // and the /login page renders a service-unavailable notice instead
         // of re-redirecting back through auto-login (redirect-loop avoidance).
+        //
+        // Respect the file's "must return supabaseResponse object as-is"
+        // invariant (see warning block below): copy over any cookies the
+        // SDK wrote during the failed signInWithPassword (e.g. PKCE state
+        // clears) before returning the new response.
         const url = request.nextUrl.clone()
         url.pathname = '/login'
         const fallback = NextResponse.redirect(url)
+        // Defensive: in test mocks supabaseResponse.cookies may be a plain Map
+        // rather than the rich NextResponse cookies API. The real API has .getAll().
+        if (typeof supabaseResponse.cookies.getAll === 'function') {
+          for (const cookie of supabaseResponse.cookies.getAll()) {
+            fallback.cookies.set(cookie.name, cookie.value, cookie)
+          }
+        }
         fallback.cookies.set('GUEST_AUTOLOGIN_FAILED_RECENTLY', '1', {
           maxAge: 60,
           httpOnly: true,
           path: '/',
           sameSite: 'lax',
+          secure: process.env.NODE_ENV === 'production',
         })
         return fallback
       }
