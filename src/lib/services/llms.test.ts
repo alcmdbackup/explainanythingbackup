@@ -30,9 +30,11 @@ jest.mock('../../../instrumentation', () => ({
   }))
 }));
 jest.mock('openai/helpers/zod');
+const mockCheckPerUserCap = jest.fn().mockResolvedValue(undefined);
 jest.mock('./llmSpendingGate', () => ({
   getSpendingGate: jest.fn(() => ({
     checkBudget: jest.fn().mockResolvedValue(0.01),
+    checkPerUserCap: mockCheckPerUserCap,
     reconcileAfterCall: jest.fn().mockResolvedValue(undefined),
   })),
 }));
@@ -578,6 +580,64 @@ describe('llms', () => {
 
     it('should export correct lighter model', () => {
       expect(LIGHTER_MODEL).toBe('gpt-4.1-nano');
+    });
+  });
+
+  describe('per-user LLM cap (guest)', () => {
+    beforeEach(() => {
+      mockCheckPerUserCap.mockClear();
+      mockCheckPerUserCap.mockResolvedValue(undefined);
+    });
+
+    afterEach(() => {
+      delete process.env.GUEST_USER_ID;
+    });
+
+    function mockSuccessResponse() {
+      mockCreateSpy.mockResolvedValueOnce({
+        choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+        model: 'gpt-4.1-mini',
+      });
+    }
+
+    it('calls checkPerUserCap when userid matches GUEST_USER_ID', async () => {
+      process.env.GUEST_USER_ID = 'guest-uuid-123';
+      mockSuccessResponse();
+
+      await callLLM(
+        'p', 't', 'guest-uuid-123', 'gpt-4.1-mini', false, null, null, null, false,
+      );
+      expect(mockCheckPerUserCap).toHaveBeenCalledWith('guest-uuid-123', 10);
+    });
+
+    it('does NOT call checkPerUserCap when userid does not match GUEST_USER_ID', async () => {
+      process.env.GUEST_USER_ID = 'guest-uuid-123';
+      mockSuccessResponse();
+
+      await callLLM(
+        'p', 't', 'some-other-user', 'gpt-4.1-mini', false, null, null, null, false,
+      );
+      expect(mockCheckPerUserCap).not.toHaveBeenCalled();
+    });
+
+    it('does NOT call checkPerUserCap when GUEST_USER_ID env var unset (soft no-op)', async () => {
+      delete process.env.GUEST_USER_ID;
+      mockSuccessResponse();
+
+      await callLLM(
+        'p', 't', 'guest-uuid-123', 'gpt-4.1-mini', false, null, null, null, false,
+      );
+      expect(mockCheckPerUserCap).not.toHaveBeenCalled();
+    });
+
+    it('propagates checkPerUserCap throw (cap exceeded path)', async () => {
+      process.env.GUEST_USER_ID = 'guest-uuid-123';
+      mockCheckPerUserCap.mockRejectedValueOnce(new Error('Daily per-user budget exceeded'));
+
+      await expect(callLLM(
+        'p', 't', 'guest-uuid-123', 'gpt-4.1-mini', false, null, null, null, false,
+      )).rejects.toThrow('Daily per-user budget exceeded');
     });
   });
 

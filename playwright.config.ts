@@ -138,6 +138,22 @@ export default defineConfig({
         storageState: { cookies: [], origins: [] },
       },
     },
+    // Chromium guest-auto-login — points at the SECONDARY webServer on port 3009
+    // that intentionally runs WITHOUT E2E_TEST_MODE so the middleware auto-login
+    // code path actually fires. Tests in this project verify the guest auto-login
+    // behavior end-to-end (Phase 5 of fixes_explainanything_for_public_demo_20260523).
+    // NOTE: requires GUEST_EMAIL / GUEST_PASSWORD / NEXT_PUBLIC_GUEST_EMAIL env vars
+    // to be set in the CI runner env block (added to ci.yml in a follow-up PR after
+    // staging GUEST_* secrets exist).
+    {
+      name: 'chromium-guest-auto',
+      testMatch: /guest-auto-login\.spec\.ts$/,
+      use: {
+        ...devices['Desktop Chrome'],
+        baseURL: 'http://localhost:3009',
+        storageState: { cookies: [], origins: [] },
+      },
+    },
     // Firefox - for nightly runs only (authenticated via per-worker API auth)
     {
       name: 'firefox',
@@ -150,25 +166,43 @@ export default defineConfig({
   ],
   // Disable webServer when using external server (BASE_URL set or Claude instance discovered)
   ...(process.env.BASE_URL || instanceURL ? {} : {
-    webServer: {
-      // Use production build in CI for stability; dev server locally for HMR
-      // Note: E2E_TEST_MODE must be set at runtime (npm start), not build time,
-      // because the app blocks E2E_TEST_MODE in production builds.
-      command: process.env.CI
-        ? 'npm run build && E2E_TEST_MODE=true npm start -- -p 3008'
-        : 'npm run dev -- -p 3008',
-      url: baseURL,
-      reuseExistingServer: !process.env.CI,
-      timeout: process.env.CI ? 180000 : 120000,  // Extra time for build in CI
-      env: {
-        // Enable API route for AI suggestions (mockable in E2E tests)
-        NEXT_PUBLIC_USE_AI_API_ROUTE: 'true',
-        // Enable E2E test mode for SSE streaming bypass (dev server only, CI uses inline env)
-        ...(process.env.CI ? {} : { E2E_TEST_MODE: 'true' }),
-        // Propagate proxy settings so dev server's fetch() works through egress proxy
-        ...(process.env.NODE_USE_ENV_PROXY ? { NODE_USE_ENV_PROXY: '1' } : {}),
+    webServer: [
+      {
+        // Primary 3008 server — has E2E_TEST_MODE=true so middleware guest auto-login is suppressed
+        // and existing unauth-redirect tests still pass.
+        // Use production build in CI for stability; dev server locally for HMR.
+        // Note: E2E_TEST_MODE must be set at runtime (npm start), not build time,
+        // because the app blocks E2E_TEST_MODE in production builds.
+        command: process.env.CI
+          ? 'npm run build && E2E_TEST_MODE=true npm start -- -p 3008'
+          : 'npm run dev -- -p 3008',
+        url: baseURL,
+        reuseExistingServer: !process.env.CI,
+        timeout: process.env.CI ? 180000 : 120000,
+        env: {
+          NEXT_PUBLIC_USE_AI_API_ROUTE: 'true',
+          ...(process.env.CI ? {} : { E2E_TEST_MODE: 'true' }),
+          ...(process.env.NODE_USE_ENV_PROXY ? { NODE_USE_ENV_PROXY: '1' } : {}),
+        },
       },
-    },
+      {
+        // Secondary 3009 server — intentionally runs WITHOUT E2E_TEST_MODE so
+        // middleware guest auto-login actually fires (Phase 5 of demo-prep).
+        // Used by the chromium-guest-auto project. `env -u E2E_TEST_MODE` wrapper
+        // strips the var from the inherited shell env (Playwright `env: {}` would
+        // NOT do this — it merges with process.env by default).
+        command: process.env.CI
+          ? 'env -u E2E_TEST_MODE bash -c "npm run build && npm start -- -p 3009"'
+          : 'env -u E2E_TEST_MODE npm run dev -- -p 3009',
+        url: 'http://localhost:3009',
+        reuseExistingServer: !process.env.CI,
+        timeout: process.env.CI ? 180000 : 120000,
+        env: {
+          NEXT_PUBLIC_USE_AI_API_ROUTE: 'true',
+          ...(process.env.NODE_USE_ENV_PROXY ? { NODE_USE_ENV_PROXY: '1' } : {}),
+        },
+      },
+    ],
   }),
   // B116: always exclude @skip-prod tests — locally they hit mocked API handlers
   // that differ from production, so running them against a local dev build gave
