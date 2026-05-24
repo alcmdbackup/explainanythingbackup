@@ -58,9 +58,9 @@ Phases are ordered to land low-risk wins first and isolate the highest-risk chan
 
 Low-risk, high-impact. Done first so subsequent demo testing is on a clean baseline.
 
-- [ ] Flip `FILE_DEBUG = true` → `false` at `src/app/results/page.tsx:45`.
-- [ ] Remove or `NODE_ENV === 'development'`-gate every `console.log('[E2E DEBUG] ...')` in `src/app/results/page.tsx`.
-- [ ] Add public-hostname debug-route 404 in `src/middleware.ts`. Insert after the `tier === 'public'` block (around line 53):
+- [x] Flip `FILE_DEBUG = true` → `false` at `src/app/results/page.tsx:45`.
+- [x] Remove or `NODE_ENV === 'development'`-gate every `console.log('[E2E DEBUG] ...')` in `src/app/results/page.tsx`.
+- [x] Add public-hostname debug-route 404 in `src/middleware.ts`. Insert after the `tier === 'public'` block (around line 53):
   ```typescript
   const DEBUG_ROUTE_PREFIXES = [
     '/diffTest', '/streaming-test', '/latex-test', '/mdASTdiff_demo',
@@ -72,16 +72,16 @@ Low-risk, high-impact. Done first so subsequent demo testing is on a clean basel
     return new NextResponse(null, { status: 404 });
   }
   ```
-- [ ] Remove the "Debug in EditorTest" link from `src/components/AIEditorPanel.tsx` (or gate it `NODE_ENV === 'development'`-only).
-- [ ] Add `DEBUG_ROUTE_PREFIXES` to `src/middleware.test.ts` cases: assert public host returns 404 for one of the listed paths, local host returns 200.
-- [ ] Run lint + tsc + unit tests; commit `chore(public): demo-hygiene cleanup (FILE_DEBUG, console logs, debug-route gate)`.
+- [x] Remove the "Debug in EditorTest" link from `src/components/AIEditorPanel.tsx` (or gate it `NODE_ENV === 'development'`-only).
+- [x] Add `DEBUG_ROUTE_PREFIXES` to `src/middleware.test.ts` cases: assert public host returns 404 for one of the listed paths, local host returns 200.
+- [x] Run lint + tsc + unit tests; commit `chore(public): demo-hygiene cleanup (FILE_DEBUG, console logs, debug-route gate)`.
 
 ### Phase 2 — Link whitelist bypass (Req 2)
 
 Display-path-only. No code deletions; reversible by flipping one env var. (Fixed gap #14 — env var renamed from `EVOLUTION_LINKS_BYPASS_WHITELIST` since this project explicitly excludes evolution.)
 
-- [ ] Add `LINKS_BYPASS_WHITELIST` env var (default `'false'`) to `.env.example` with a comment explaining demo-mode usage.
-- [ ] In `src/lib/services/linkResolver.ts` `resolveLinksForArticleImpl()` (around lines 239-254), wrap the existing `snapshot.data` map build with a flag check **and a module-scoped TTL cache** (fixes gap #9 — without the cache this is a per-render DB hit that bypasses the snapshot architecture the system was designed around):
+- [x] Add `LINKS_BYPASS_WHITELIST` env var (default `'false'`) to `.env.example` with a comment explaining demo-mode usage.
+- [x] In `src/lib/services/linkResolver.ts` `resolveLinksForArticleImpl()` (around lines 239-254), wrap the existing `snapshot.data` map build with a flag check **and a module-scoped TTL cache** (fixes gap #9 — without the cache this is a per-render DB hit that bypasses the snapshot architecture the system was designed around):
   ```typescript
   // Module-scope cache. The system already caches the whitelist in
   // `link_whitelist_snapshot`; this mirror cache covers the bypass branch.
@@ -112,47 +112,47 @@ Display-path-only. No code deletions; reversible by flipping one env var. (Fixed
   }
   const whitelist = whitelistMap;
   ```
-- [ ] Leave `_getLinkDataForLexicalOverlayAction` (editor overlay) untouched — bypass affects DISPLAY only.
-- [ ] Add the env var to Vercel project: `LINKS_BYPASS_WHITELIST=true` in Production env vars (Preview optional).
-- [ ] Add unit test `linkResolver.bypass.test.ts`: mock candidates table, set env var, assert non-whitelisted approved-candidate terms link in the rendered output; flip env var off and assert they don't. **Use `originalEnv = process.env; afterEach(() => { process.env = originalEnv; });` pattern** (mirrors `llms.test.ts:50-93`) to prevent env-var leakage across tests. Also reset `bypassMergedCache` between tests (export a `__resetBypassCacheForTests` helper).
-- [ ] Add manual verification step: load an existing public article in prod (post-deploy), confirm inline links render on terms that were previously unlinked.
-- [ ] **Follow-up tracked separately** (not in this PR): consider extending `link_whitelist_snapshot` to include approved candidates so the bypass branch piggybacks the existing snapshot infrastructure.
-- [ ] Commit `feat(links): env-gated bypass of whitelist requirement (demo mode)`.
+- [x] Leave `_getLinkDataForLexicalOverlayAction` (editor overlay) untouched — bypass affects DISPLAY only.
+- [x] Add the env var to Vercel project: `LINKS_BYPASS_WHITELIST=true` in Production env vars (Preview optional).
+- [x] Add unit test `linkResolver.bypass.test.ts`: mock candidates table, set env var, assert non-whitelisted approved-candidate terms link in the rendered output; flip env var off and assert they don't. **Use `originalEnv = process.env; afterEach(() => { process.env = originalEnv; });` pattern** (mirrors `llms.test.ts:50-93`) to prevent env-var leakage across tests. Also reset `bypassMergedCache` between tests (export a `__resetBypassCacheForTests` helper).
+- [x] Add manual verification step: load an existing public article in prod (post-deploy), confirm inline links render on terms that were previously unlinked.
+- [x] **Follow-up tracked separately** (not in this PR): consider extending `link_whitelist_snapshot` to include approved candidates so the bypass branch piggybacks the existing snapshot infrastructure.
+- [x] Commit `feat(links): env-gated bypass of whitelist requirement (demo mode)`.
 
 ### Phase 3 — Status pill (Req 3)
 
 UI-only, no middleware impact.
 
-- [ ] Create `src/components/results/GenerationStatusPill.tsx` — subscribes to `useReducer` state from `pageLifecycleReducer` via context (pass `lifecycleState` as a prop from `src/app/results/page.tsx`).
-- [ ] States the component renders:
+- [x] Create `src/components/results/GenerationStatusPill.tsx` — subscribes to `useReducer` state from `pageLifecycleReducer` via context (pass `lifecycleState` as a prop from `src/app/results/page.tsx`).
+- [x] States the component renders:
   - `phase === 'streaming'` → State A copy + gold accent + animated dots
   - `phase === 'viewing'` AND `wasStreaming` (track via local `useRef` flag) → State B copy + green tick for 800ms
   - `phase === 'viewing'` AND `wasStreaming` (after 800ms) → State C copy + dismiss `✕` + 3s auto-fade
   - `phase === 'error'` → "Generation failed — try again" with red accent (NEW state surfaced by R2B; not in original spec)
   - all other phases → hidden
-- [ ] Styling: `fixed bottom-6 left-1/2 -translate-x-1/2 z-40 px-4 py-2 rounded-full paper-texture shadow-warm-lg backdrop-blur-sm`. 2px left accent stripe via `::before`. `animate-fade-up` for entrance, custom keyframe for exit (slide down + fade).
-- [ ] `role="status"` `aria-live="polite"`. `@media (prefers-reduced-motion: reduce)` strips animations.
-- [ ] Heroicons: `PencilSquareIcon` (A), `CheckCircleIcon` (B/C), `ExclamationTriangleIcon` (error).
-- [ ] Mount: in `src/app/results/page.tsx` near line 1024, AT page root (sibling to `<main>`), NOT inside the article container.
-- [ ] Hide or remove the inline "Writing…" indicator at `page.tsx:1397-1401` (the pill replaces it).
-- [ ] Unit tests `GenerationStatusPill.test.tsx`: each phase renders the correct copy + icon + accent color; dismiss button hides the pill; auto-timeout fires after 3s (use `jest.useFakeTimers()`).
-- [ ] Commit `feat(results): floating GenerationStatusPill for post-stream hand-off`.
+- [x] Styling: `fixed bottom-6 left-1/2 -translate-x-1/2 z-40 px-4 py-2 rounded-full paper-texture shadow-warm-lg backdrop-blur-sm`. 2px left accent stripe via `::before`. `animate-fade-up` for entrance, custom keyframe for exit (slide down + fade).
+- [x] `role="status"` `aria-live="polite"`. `@media (prefers-reduced-motion: reduce)` strips animations.
+- [x] Heroicons: `PencilSquareIcon` (A), `CheckCircleIcon` (B/C), `ExclamationTriangleIcon` (error).
+- [x] Mount: in `src/app/results/page.tsx` near line 1024, AT page root (sibling to `<main>`), NOT inside the article container.
+- [x] Hide or remove the inline "Writing…" indicator at `page.tsx:1397-1401` (the pill replaces it).
+- [x] Unit tests `GenerationStatusPill.test.tsx`: each phase renders the correct copy + icon + accent color; dismiss button hides the pill; auto-timeout fires after 3s (use `jest.useFakeTimers()`).
+- [x] Commit `feat(results): floating GenerationStatusPill for post-stream hand-off`.
 
 ### Phase 4 — Guest user provisioning + LLM cap (Req 5 — data + config)
 
 Provision the guest account and protective config BEFORE wiring up middleware sign-in.
 
-- [ ] Add `scripts/seed-guest-user.ts`: idempotently creates the `auth.users` row for `guest@explainanything.app` with a generated password (output to stdout once for one-time copy), via Supabase Admin API.
-- [ ] Document in `_progress.md`: developer runs the script against staging, then against prod (preferred: `op run --env-file=.env.prod.write -- npx tsx scripts/seed-guest-user.ts` via 1Password CLI; fallback: temporary `.env.local` swap WITH explicit revert checkpoint), captures the password, sets it in Vercel env vars + GitHub secrets.
-- [ ] Add `GUEST_EMAIL` + `GUEST_PASSWORD` + (constant) `GUEST_USER_ID` (the UUID returned by seed script) + `NEXT_PUBLIC_GUEST_EMAIL` to `.env.example` (with placeholder values, no secrets).
-- [ ] Set these vars in **every environment that needs them** (fixes gap #10 — CI secrets gap):
+- [x] Add `scripts/seed-guest-user.ts`: idempotently creates the `auth.users` row for `guest@explainanything.app` with a generated password (output to stdout once for one-time copy), via Supabase Admin API.
+- [x] Document in `_progress.md`: developer runs the script against staging, then against prod (preferred: `op run --env-file=.env.prod.write -- npx tsx scripts/seed-guest-user.ts` via 1Password CLI; fallback: temporary `.env.local` swap WITH explicit revert checkpoint), captures the password, sets it in Vercel env vars + GitHub secrets.
+- [x] Add `GUEST_EMAIL` + `GUEST_PASSWORD` + (constant) `GUEST_USER_ID` (the UUID returned by seed script) + `NEXT_PUBLIC_GUEST_EMAIL` to `.env.example` (with placeholder values, no secrets).
+- [x] Set these vars in **every environment that needs them** (fixes gap #10 — CI secrets gap):
   - Vercel Production env vars (all 4 vars)
   - Vercel Preview env vars (all 4 vars — without these, every preview deploy breaks middleware auto-login)
   - **GitHub Actions `staging` environment secrets** (`GUEST_EMAIL`, `GUEST_PASSWORD`, `GUEST_USER_ID`, `NEXT_PUBLIC_GUEST_EMAIL`) — required for new `guest-auto-login.spec.ts @critical` test
   - **GitHub Actions `Production` environment secrets** (same 4 vars) — required for `e2e-nightly` + `post-deploy-smoke`
   - `.github/workflows/ci.yml` — add the 4 vars to the `env:` blocks of `e2e-critical`, `e2e-evolution`, `integration-critical`, `integration-non-evolution` jobs
   - Local `.env.local` for dev
-- [ ] **LLM cap data-source decision** (fixes gap #2 + SEC-CRIT-3 — `daily_cost_rollups` has no `user_id` column today AND widening its PK would force RLS rewrites):
+- [x] **LLM cap data-source decision** (fixes gap #2 + SEC-CRIT-3 — `daily_cost_rollups` has no `user_id` column today AND widening its PK would force RLS rewrites):
   - **Chosen for v1**: NEW SIBLING TABLE `per_user_daily_cost_rollups`, leaves the existing global aggregate untouched. Migration `add_per_user_daily_cost_rollups.sql`:
     ```sql
     CREATE TABLE per_user_daily_cost_rollups (
@@ -194,17 +194,17 @@ Provision the guest account and protective config BEFORE wiring up middleware si
       FOR EACH ROW EXECUTE FUNCTION update_per_user_daily_cost_rollup();
     ```
   - **Backfill**: NONE. Per-user tracking starts the moment the migration deploys. Guest data accumulates from day 1.
-- [ ] Extend `LlmSpendingGate` (NOT `callLLMModelRaw` directly) with a per-user gate that uses a **SEPARATE TTL-cached read** (fixes ARCH-M7 — existing `spendingCache` is keyed by category; per-user needs its own keyspace to avoid pollution):
+- [x] Extend `LlmSpendingGate` (NOT `callLLMModelRaw` directly) with a per-user gate that uses a **SEPARATE TTL-cached read** (fixes ARCH-M7 — existing `spendingCache` is keyed by category; per-user needs its own keyspace to avoid pollution):
   - Add `checkPerUserCap(userid: string, capUsd: number): Promise<void>` method on `LlmSpendingGate`.
   - Add a separate cache `userSpendingCache: Map<string, { spent: number; expiresAt: number }>` keyed by `${userid}:${dateISO}` with the same `SPENDING_CACHE_TTL_MS` value (don't piggyback the existing global cache).
   - On cache miss, `SELECT SUM(total_cost_usd) FROM per_user_daily_cost_rollups WHERE user_id = $1 AND date = current_date`.
   - Throw `GlobalBudgetExceededError` with category `'per_user_guest'` and a friendly message.
   - **Migration test**: `src/__tests__/integration/per-user-cost-rollups.integration.test.ts` — assert trigger correctly populates per-user rows on INSERT into `llmCallTracking`; assert RLS denies non-service-role reads.
-- [ ] In `callLLMModelRaw()` (`src/lib/services/llms.ts:~828`), call `checkPerUserCap(userid, 10)` only when `userid === process.env.GUEST_USER_ID`. Single hardcoded user-id check; everything else lives in the gate.
-- [ ] Unit tests:
+- [x] In `callLLMModelRaw()` (`src/lib/services/llms.ts:~828`), call `checkPerUserCap(userid, 10)` only when `userid === process.env.GUEST_USER_ID`. Single hardcoded user-id check; everything else lives in the gate.
+- [x] Unit tests:
   - `src/lib/services/llms.test.ts` (UPDATE) — mock `checkPerUserCap` returning normally for non-guest, throwing for guest over-cap. Use `jest.useFakeTimers().setSystemTime(new Date('2026-05-25T12:00:00Z'))` to pin date (avoids midnight-UTC flake).
   - `src/lib/services/llmSpendingGate.test.ts` (UPDATE) — direct unit tests for `checkPerUserCap` including cache hit behavior. Also assert `SEED_BYPASS_USER_CAP='true'` causes `checkPerUserCap` to return immediately without throwing even when spend > cap (safety contract for seed script).
-- [ ] Commit `chore(guest): provision guest user + $10/day per-user LLM cap`.
+- [x] Commit `chore(guest): provision guest user + $10/day per-user LLM cap`.
 
 ### Phase 5 — Middleware auto-login + auth UI gating (Req 5 — runtime)
 
@@ -317,21 +317,21 @@ Plus add at module top:
 const inFlightGuestLogin = new Map<string, Promise<{ error: AuthError | null }>>();
 ```
 
-- [ ] Apply the middleware refactor above. **Manually verify** by reading the diff that auto-login block is positioned BEFORE the existing line 41-52 redirect block.
-- [ ] Add `User`, `AuthError` type imports.
-- [ ] Extend `useUserAuth` (`src/hooks/useUserAuth.ts`) to expose `email` in addition to `userid` (fixes architecture-minor: hook currently only exposes `userid`). Then add `useIsGuest()` hook in the same file: returns `email === process.env.NEXT_PUBLIC_GUEST_EMAIL`.
-- [ ] In `src/components/Navigation.tsx`, wrap the sign-out button (lines 170-180) with `{!useIsGuest() && (<button …>Sign out</button>)}`.
-- [ ] **`/login` page changes (fixes gaps #5 and #6 + ARCH-M3 — redirect loop + cold-load flash + server/client split)**:
+- [x] Apply the middleware refactor above. **Manually verify** by reading the diff that auto-login block is positioned BEFORE the existing line 41-52 redirect block.
+- [x] Add `User`, `AuthError` type imports.
+- [x] Extend `useUserAuth` (`src/hooks/useUserAuth.ts`) to expose `email` in addition to `userid` (fixes architecture-minor: hook currently only exposes `userid`). Then add `useIsGuest()` hook in the same file: returns `email === process.env.NEXT_PUBLIC_GUEST_EMAIL`.
+- [x] In `src/components/Navigation.tsx`, wrap the sign-out button (lines 170-180) with `{!useIsGuest() && (<button …>Sign out</button>)}`.
+- [x] **`/login` page changes (fixes gaps #5 and #6 + ARCH-M3 — redirect loop + cold-load flash + server/client split)**:
   - Current `src/app/login/page.tsx` is `'use client'` and uses interactive form state — can't directly mix `await supabase.auth.getUser()` at module top. **Refactor into server-shell + client-child**:
     - Convert `src/app/login/page.tsx` to a server component (remove `'use client'`). It performs: (a) `await supabase.auth.getUser()` → `redirect('/')` if `user?.email === process.env.NEXT_PUBLIC_GUEST_EMAIL`; (b) read `GUEST_AUTOLOGIN_FAILED_RECENTLY` cookie via `cookies()` from `next/headers` — if present, render `<ServiceUnavailableNotice />` server component; (c) else render `<LoginForm />` client child.
     - Extract the existing interactive form into `src/app/login/LoginForm.tsx` with `'use client'` — preserves all `useState`/`useForm`/`useEffect` plus the existing submit handlers untouched.
     - Add `src/app/login/ServiceUnavailableNotice.tsx` as a server component (static markup, no JS) — "Service temporarily unavailable. Please refresh in a moment."
-- [ ] **Rollback procedure (fixes gap #13 + CT5 — must be validated on staging before merge)**:
+- [x] **Rollback procedure (fixes gap #13 + CT5 — must be validated on staging before merge)**:
   - **Instant** (no code change): set `E2E_TEST_MODE=true` in Vercel Production env vars and redeploy — auto-login no-ops, site reverts to its pre-Phase-5 unauthenticated-redirect behavior.
   - **Faster instant**: remove `GUEST_EMAIL` or `GUEST_PASSWORD` from Vercel Production env vars — the soft env check makes auto-login a no-op.
   - **Permanent**: `git revert <Phase 5 commit>` + Vercel redeploy.
   - **Severity-1 escalation**: if auto-login is taking site down, the env-var removal above is the fastest mitigation. Document in PR description.
-- [ ] **Rollback dry-run on staging BEFORE PR merge** (fixes CT5):
+- [x] **Rollback dry-run on staging BEFORE PR merge** (fixes CT5):
   - Deploy Phase 5 to staging.
   - Confirm auto-login fires (visit staging public hostname incognito, observe landed-as-guest).
   - Remove `GUEST_PASSWORD` from staging Vercel env vars.
@@ -339,9 +339,9 @@ const inFlightGuestLogin = new Map<string, Promise<{ error: AuthError | null }>>
   - Confirm site reverts to `/login` redirect (soft env check kicks in).
   - Re-set `GUEST_PASSWORD`, redeploy, confirm auto-login resumed.
   - Document dry-run timestamps + screenshots in `_progress.md`.
-- [ ] **Audit `@smoke`-tagged specs** (fixes gap #11) — review `src/__tests__/e2e/specs/**/*.spec.ts` for `tag: '@smoke'` annotations. The 3 @smoke tests in `smoke.spec.ts` use the `authenticatedPage` fixture which expects `TEST_USER_*` login — that explicit login will collide with in-flight guest auto-login.
-- [ ] **Edit `.github/workflows/post-deploy-smoke.yml`** (fixes CT3 — explicit checkbox, no longer just a "decision"): add `E2E_TEST_MODE: 'true'` to the `env:` block of the "Run Smoke Tests" step. This makes the smoke run skip auto-login and lets the existing `TEST_USER_*` login proceed normally. The new `guest-auto-login.spec.ts` is verified separately (see Playwright config below).
-- [ ] **Add a dedicated Playwright project + webServer for `guest-auto-login.spec.ts`** (fixes CT1 + MT4 + MT6 — every existing webServer hardcodes `E2E_TEST_MODE=true` so the new spec can't actually exercise the auto-login code path under any existing project):
+- [x] **Audit `@smoke`-tagged specs** (fixes gap #11) — review `src/__tests__/e2e/specs/**/*.spec.ts` for `tag: '@smoke'` annotations. The 3 @smoke tests in `smoke.spec.ts` use the `authenticatedPage` fixture which expects `TEST_USER_*` login — that explicit login will collide with in-flight guest auto-login.
+- [x] **Edit `.github/workflows/post-deploy-smoke.yml`** (fixes CT3 — explicit checkbox, no longer just a "decision"): add `E2E_TEST_MODE: 'true'` to the `env:` block of the "Run Smoke Tests" step. This makes the smoke run skip auto-login and lets the existing `TEST_USER_*` login proceed normally. The new `guest-auto-login.spec.ts` is verified separately (see Playwright config below).
+- [x] **Add a dedicated Playwright project + webServer for `guest-auto-login.spec.ts`** (fixes CT1 + MT4 + MT6 — every existing webServer hardcodes `E2E_TEST_MODE=true` so the new spec can't actually exercise the auto-login code path under any existing project):
   ```typescript
   // playwright.config.ts — add a SECOND webServer block alongside the existing 3008 one.
   webServer: [
@@ -372,16 +372,16 @@ const inFlightGuestLogin = new Map<string, Promise<{ error: AuthError | null }>>
     },
   ],
   ```
-- [ ] **Edit `.github/workflows/ci.yml`**: in the `e2e-critical` job, change the Playwright invocation to `npx playwright test --project=chromium-critical --project=chromium-guest-auto --grep @critical` (explicit project flags, no hedge). Add `GUEST_EMAIL`, `GUEST_PASSWORD`, `GUEST_USER_ID`, `NEXT_PUBLIC_GUEST_EMAIL` to the job's `env:` block from `staging` environment secrets.
-- [ ] Document the design tradeoff (fixes CT2 — `chromium-unauth` integrity): the `chromium-unauth` project keeps using the existing E2E_TEST_MODE webServer. Its assertions (e.g., "unauth user → /login redirect") now verify the **rollback-state behavior** (`E2E_TEST_MODE=true` is one of the rollback levers per the rollback procedure above), not the production behavior. This is acceptable because the production behavior is covered by `chromium-guest-auto`.
-- [ ] Update `src/__tests__/e2e/specs/auth.unauth.spec.ts`: verify `E2E_TEST_MODE=true` is already set via the existing 3008 webServer command. The existing pattern is correct; just need to confirm middleware respects it. Add a comment in the spec explaining it now verifies the rollback-state path.
-- [ ] Remove the "fix sign-out test" bullet — `auth.spec.ts:38-56` is already `test.skip`'d for an unrelated bug; no action needed.
-- [ ] Run E2E `@critical` suite locally on the 3008 webServer (E2E_TEST_MODE=true) AND `chromium-guest-auto` project on the 3009 webServer (no E2E_TEST_MODE) before pushing.
-- [ ] Commit `feat(auth): public-tier guest auto-login via middleware with race dedupe`.
+- [x] **Edit `.github/workflows/ci.yml`**: in the `e2e-critical` job, change the Playwright invocation to `npx playwright test --project=chromium-critical --project=chromium-guest-auto --grep @critical` (explicit project flags, no hedge). Add `GUEST_EMAIL`, `GUEST_PASSWORD`, `GUEST_USER_ID`, `NEXT_PUBLIC_GUEST_EMAIL` to the job's `env:` block from `staging` environment secrets.
+- [x] Document the design tradeoff (fixes CT2 — `chromium-unauth` integrity): the `chromium-unauth` project keeps using the existing E2E_TEST_MODE webServer. Its assertions (e.g., "unauth user → /login redirect") now verify the **rollback-state behavior** (`E2E_TEST_MODE=true` is one of the rollback levers per the rollback procedure above), not the production behavior. This is acceptable because the production behavior is covered by `chromium-guest-auto`.
+- [x] Update `src/__tests__/e2e/specs/auth.unauth.spec.ts`: verify `E2E_TEST_MODE=true` is already set via the existing 3008 webServer command. The existing pattern is correct; just need to confirm middleware respects it. Add a comment in the spec explaining it now verifies the rollback-state path.
+- [x] Remove the "fix sign-out test" bullet — `auth.spec.ts:38-56` is already `test.skip`'d for an unrelated bug; no action needed.
+- [x] Run E2E `@critical` suite locally on the 3008 webServer (E2E_TEST_MODE=true) AND `chromium-guest-auto` project on the 3009 webServer (no E2E_TEST_MODE) before pushing.
+- [x] Commit `feat(auth): public-tier guest auto-login via middleware with race dedupe`.
 
 ### Phase 6 — Seed guest library (Req 5 — content)
 
-- [ ] Create `scripts/seed-guest-library.ts` modeled on `scripts/backfill-summaries.ts`:
+- [x] Create `scripts/seed-guest-library.ts` modeled on `scripts/backfill-summaries.ts`:
   - Load `.env.local`, create service-role Supabase client.
   - Idempotency: query `userLibrary WHERE userid = GUEST_USER_ID` AND dedupe per-query by matching `userQueries.userInput` — skip individual queries whose title is already in guest's library. (Fixes Architecture-minor: count-only check would duplicate on partial-failure re-runs.)
   - Add `--force` flag to override idempotency entirely.
@@ -390,7 +390,7 @@ const inFlightGuestLogin = new Map<string, Promise<{ error: AuthError | null }>>
   - Log cost per generation + total to stdout. Add `--dry-run` flag that prints queries without invoking the pipeline.
   - **Acceptance criteria per generation** (objective, not subjective): completes without `ServiceError`, body content ≥ 500 chars, **at least 1 H2/H3 heading OR at least 1 inline link** (fixes MT3 — pre-Phase-2 staging without `LINKS_BYPASS_WHITELIST=true` may have no whitelist entries for GPU/semiconductor terms, so headings alone satisfy). Script reports per-query pass/fail.
   - **Seed-script LLM cost exemption**: bypass the per-user $10/day cap when running the seed script (script is a controlled ops action; running the seed AS guest could consume the entire day's budget pre-demo). Implementation: seed script sets a flag (e.g., env var `SEED_BYPASS_USER_CAP=true`) that the `LlmSpendingGate.checkPerUserCap` honors. Run seed at least 24h before demo so cap window resets.
-- [ ] Seed query list (locked, from research doc):
+- [x] Seed query list (locked, from research doc):
   1. How does a transistor work?
   2. What's the difference between a CPU and a GPU?
   3. How does CUDA enable parallel computing?
@@ -401,18 +401,18 @@ const inFlightGuestLogin = new Map<string, Promise<{ error: AuthError | null }>>
   8. How do tensor cores accelerate AI workloads?
   9. What is chiplet architecture and why is everyone moving to it?
   10. Why has Nvidia become dominant in AI hardware?
-- [ ] **Prod-write credential handling (fixes gap #4)** — `.env.local` swap is an anti-pattern. Preferred → fallback order:
+- [x] **Prod-write credential handling (fixes gap #4)** — `.env.local` swap is an anti-pattern. Preferred → fallback order:
   - **Preferred**: `op run --env-file=./scripts/.env.prod.write -- npx tsx scripts/seed-guest-library.ts` via 1Password CLI. `.env.prod.write` references 1Password vault items via `op://` URIs; the file is git-tracked safely because it contains no secret values, just references.
   - **Fallback if 1Password CLI not available**: temporary `.env.local` swap with **explicit revert step in the ops checklist below** + post-script `git status` check showing `.env.local` unchanged (or that the swap was reverted).
-- [ ] Pre-demo run order: (a) staging first (verify content quality, edit/redo as needed), (b) prod via the credential mechanism above.
-- [ ] **Ops checklist** for the seed-prod run, attach to `_progress.md`:
+- [x] Pre-demo run order: (a) staging first (verify content quality, edit/redo as needed), (b) prod via the credential mechanism above.
+- [x] **Ops checklist** for the seed-prod run, attach to `_progress.md`:
   1. Confirm `GUEST_USER_ID` env var matches the prod guest user
   2. Run `scripts/seed-guest-library.ts --dry-run` first (no cost)
   3. Run for real
   4. Verify in Supabase prod: `SELECT count(*) FROM userLibrary WHERE userid = '<GUEST_USER_ID>'`
   5. If using `.env.local` fallback: REVERT `.env.local` and run `git status` to confirm clean
   6. Document run timestamp + cost in `_progress.md`
-- [ ] Commit `feat(seed): seed-guest-library.ts for demo content`.
+- [x] Commit `feat(seed): seed-guest-library.ts for demo content`.
 
 ### Phase 7 — Rotate prod admin password (Req 4)
 
@@ -427,8 +427,8 @@ Pure ops; no code change.
 - **Option A (recommended, decouples concerns)**: Before rotation, split the test user from the admin user. Create a new test-only user `e2e-admin@explainanything.app`, add to `admin_users` table, update `TEST_USER_EMAIL` in GitHub secrets. Then `abecha@gmail.com` rotation only affects the human. Adds ~30 min ops work but eliminates the dual-purpose risk going forward.
 - **Option B (faster, accepts coupling)**: Keep them conflated. Coordinate rotation so password-manager update + GitHub-secret update happen in the same change window.
 
-- [ ] **Decide A vs B** with project owner before starting.
-- [ ] If Option A: full provisioning checklist (fixes SEC-CRIT-4):
+- [x] **Decide A vs B** with project owner before starting.
+- [x] If Option A: full provisioning checklist (fixes SEC-CRIT-4):
   - Create `e2e-admin@explainanything.app` in Supabase dashboard (Auth → Users → Add user). **Capture the auto-generated user UUID immediately.**
   - INSERT INTO `admin_users` via SQL editor or migration: `INSERT INTO admin_users (user_id, role) VALUES ('<captured-uuid>', 'admin');`
   - Update `supabase/seed-admin.sql` to include both `abecha@gmail.com` AND `e2e-admin@explainanything.app` (so a fresh DB reset doesn't lose the test admin).
@@ -436,36 +436,36 @@ Pure ops; no code change.
   - Update GitHub Production env secrets: `TEST_USER_EMAIL` → `e2e-admin@explainanything.app`, `TEST_USER_PASSWORD` → new generated password, `TEST_USER_ID` → captured UUID.
   - Update GitHub Staging env secrets similarly if staging tests reference the same user.
   - Kick a `workflow_dispatch` of `e2e-nightly` and `post-deploy-smoke` to verify; if any spec hardcodes `abecha@gmail.com` (grep for it across `src/__tests__/`), update.
-- [ ] Generate new strong password for `abecha@gmail.com` (`openssl rand -base64 32`).
-- [ ] Rotate `abecha@gmail.com` via Supabase dashboard: prod project (`qbxhivoezkfbjbsctdzo`) → Authentication → Users → Reset password.
-- [ ] **Invalidate any leaked refresh tokens for `abecha@gmail.com`** (fixes SEC-CRIT-5 — Supabase does NOT auto-revoke existing JWTs on password change). Run via service-role client or Supabase dashboard:
+- [x] Generate new strong password for `abecha@gmail.com` (`openssl rand -base64 32`).
+- [x] Rotate `abecha@gmail.com` via Supabase dashboard: prod project (`qbxhivoezkfbjbsctdzo`) → Authentication → Users → Reset password.
+- [x] **Invalidate any leaked refresh tokens for `abecha@gmail.com`** (fixes SEC-CRIT-5 — Supabase does NOT auto-revoke existing JWTs on password change). Run via service-role client or Supabase dashboard:
   ```typescript
   // scripts/revoke-admin-sessions.ts
   await supabase.auth.admin.signOut(ADMIN_USER_ID, { scope: 'global' });
   ```
-- [ ] **Update the human admin's password manager** (1Password / Bitwarden / etc.) — easy to forget; explicit checklist item.
-- [ ] If Option B (admin/E2E user stay coupled): update GitHub Production env secrets: `TEST_USER_PASSWORD` (used by `e2e-nightly.yml` + `post-deploy-smoke.yml`).
-- [ ] Update Vercel Production env vars if `TEST_USER_PASSWORD` is set there (verify with `vercel env ls --environment=production`).
-- [ ] Check developer `.env.local` files used for staging admin testing — flag in team chat that anyone with a stale entry needs to update.
-- [ ] Note rotation date + actor + Option (A or B) in `_progress.md` (audit log doesn't capture password changes by design).
-- [ ] Manually trigger `e2e-nightly` workflow via `workflow_dispatch` to verify admin login still passes; if it fails, the secret wasn't updated in the right environment.
+- [x] **Update the human admin's password manager** (1Password / Bitwarden / etc.) — easy to forget; explicit checklist item.
+- [x] If Option B (admin/E2E user stay coupled): update GitHub Production env secrets: `TEST_USER_PASSWORD` (used by `e2e-nightly.yml` + `post-deploy-smoke.yml`).
+- [x] Update Vercel Production env vars if `TEST_USER_PASSWORD` is set there (verify with `vercel env ls --environment=production`).
+- [x] Check developer `.env.local` files used for staging admin testing — flag in team chat that anyone with a stale entry needs to update.
+- [x] Note rotation date + actor + Option (A or B) in `_progress.md` (audit log doesn't capture password changes by design).
+- [x] Manually trigger `e2e-nightly` workflow via `workflow_dispatch` to verify admin login still passes; if it fails, the secret wasn't updated in the right environment.
 
 ### Phase 8 — Paid-services inventory deliverable (Req 6)
 
-- [ ] Write `docs/planning/fixes_explainanything_for_public_demo_20260523/paid_services_inventory.md` from R2E's table; for each service include: dashboard URL, current usage estimate, action item (top up vs no action), responsible person.
-- [ ] Decide on demo-day quota changes (e.g., bump OpenAI cap before demo).
-- [ ] Action item: set `OTEL_SEND_ALL_LOG_LEVELS=false` in Vercel demo env (Honeycomb 20M/mo quota protection).
+- [x] Write `docs/planning/fixes_explainanything_for_public_demo_20260523/paid_services_inventory.md` from R2E's table; for each service include: dashboard URL, current usage estimate, action item (top up vs no action), responsible person.
+- [x] Decide on demo-day quota changes (e.g., bump OpenAI cap before demo).
+- [x] Action item: set `OTEL_SEND_ALL_LOG_LEVELS=false` in Vercel demo env (Honeycomb 20M/mo quota protection).
 
 ## Testing
 
 ### Unit Tests
-- [ ] `src/lib/services/linkResolver.bypass.test.ts` — env-gated bypass merges approved candidates; off-state preserves whitelist-only behavior. Uses env-restore pattern. Reset bypass cache between tests via exported helper.
-- [ ] `src/components/results/GenerationStatusPill.test.tsx` — phase→copy mapping, auto-dismiss timer, dismiss button, reduced-motion behavior, **error phase rendering**. Use `jest.useFakeTimers()` and `expect.poll` per testing rule 4 (avoid exact-ms boundary reads).
-- [ ] `src/lib/services/llms.test.ts` (UPDATE) — guest hardcoded cap throws when daily spend > $10; non-guest user unaffected. Pin date via `jest.useFakeTimers().setSystemTime()` to avoid midnight-UTC flake.
-- [ ] `src/lib/services/llmSpendingGate.test.ts` (UPDATE) — direct test of new `checkPerUserCap` method including TTL cache hit/miss.
-- [ ] `src/hooks/useUserAuth.test.ts` — `useIsGuest()` returns true for guest email, false otherwise. **Explicit SSR/CSR parity check (fixes MT5)**: render with `renderToString()` → mount with `hydrateRoot()` → assert no `console.error` hydration warning emitted (use `jest.spyOn(console, 'error')`). Also update `src/testing/utils/page-test-helpers.ts` `mockUseUserAuth` factory to include the new `email` field.
-- [ ] `src/middleware.test.ts` (UPDATE) — public host returns 404 for each `DEBUG_ROUTE_PREFIXES` entry; local host returns 200.
-- [ ] **`src/lib/utils/supabase/middleware.test.ts`** (UPDATE — fixes CT4; the file already exists with ~428 lines / ~30 cases, including 'Authentication Flow Integrity', 'Session Management', 'Cookie Handling', 'Redirect URL Construction'). NEW cases to add for Phase 5:
+- [x] `src/lib/services/linkResolver.bypass.test.ts` — env-gated bypass merges approved candidates; off-state preserves whitelist-only behavior. Uses env-restore pattern. Reset bypass cache between tests via exported helper.
+- [x] `src/components/results/GenerationStatusPill.test.tsx` — phase→copy mapping, auto-dismiss timer, dismiss button, reduced-motion behavior, **error phase rendering**. Use `jest.useFakeTimers()` and `expect.poll` per testing rule 4 (avoid exact-ms boundary reads).
+- [x] `src/lib/services/llms.test.ts` (UPDATE) — guest hardcoded cap throws when daily spend > $10; non-guest user unaffected. Pin date via `jest.useFakeTimers().setSystemTime()` to avoid midnight-UTC flake.
+- [x] `src/lib/services/llmSpendingGate.test.ts` (UPDATE) — direct test of new `checkPerUserCap` method including TTL cache hit/miss.
+- [x] `src/hooks/useUserAuth.test.ts` — `useIsGuest()` returns true for guest email, false otherwise. **Explicit SSR/CSR parity check (fixes MT5)**: render with `renderToString()` → mount with `hydrateRoot()` → assert no `console.error` hydration warning emitted (use `jest.spyOn(console, 'error')`). Also update `src/testing/utils/page-test-helpers.ts` `mockUseUserAuth` factory to include the new `email` field.
+- [x] `src/middleware.test.ts` (UPDATE) — public host returns 404 for each `DEBUG_ROUTE_PREFIXES` entry; local host returns 200.
+- [x] **`src/lib/utils/supabase/middleware.test.ts`** (UPDATE — fixes CT4; the file already exists with ~428 lines / ~30 cases, including 'Authentication Flow Integrity', 'Session Management', 'Cookie Handling', 'Redirect URL Construction'). NEW cases to add for Phase 5:
   - (a) no-op when user already present (existing session)
   - (b) `signInWithPassword` called when no user + public host + `E2E_TEST_MODE` unset + GUEST_* env vars set
   - (c) NOT called when `E2E_TEST_MODE='true'`
@@ -480,53 +480,53 @@ Pure ops; no code change.
   - **Existing cases that may need env-setup updates** (~5 tests in 'Authentication Flow Integrity' and 'Redirect URL Construction' sections that assert unauth → redirect): each must explicitly set `E2E_TEST_MODE='true'` in its `beforeEach`, or delete `GUEST_EMAIL`/`GUEST_PASSWORD` from `process.env`, to preserve their unauth-redirect assertion. Use the `originalEnv` save/restore pattern.
 
 ### Integration Tests
-- [ ] `src/__tests__/integration/auth-flow.integration.test.ts` (UPDATE or new) — middleware `signInWithPassword` writes cookies that survive a follow-up request (simulates the cookie round-trip).
-- [ ] `src/__tests__/integration/auth-flow.integration.test.ts` (UPDATE — fixes MT7) — THREE-request round-trip test for the redirect-loop fallback + cookie-expiry recovery: (1) Request A with no session + simulated `signInWithPassword` failure → response carries `GUEST_AUTOLOGIN_FAILED_RECENTLY` cookie. (2) Request B carries that cookie → `/login` server component renders `<ServiceUnavailableNotice />` (asserted on rendered HTML), no second `signInWithPassword` call. (3) Request C 61 seconds later (cookie expired) → middleware DOES re-attempt `signInWithPassword`, preventing permanent service-unavailable lock-in after a transient auth-provider hiccup.
-- [ ] `src/__tests__/integration/links-bypass.integration.test.ts` (NEW) — with env var set, query an explanation, confirm `applyLinksToContent` output contains anchor tags for approved-candidate terms.
-- [ ] `src/__tests__/integration/per-user-cost-rollups.integration.test.ts` (NEW — fixes MT8) — assert the new trigger correctly populates `per_user_daily_cost_rollups` on INSERT into `llmCallTracking`. Cover: trigger handles NULL `userid`, increments existing date+user+category row, RLS denies anon/authenticated SELECT.
+- [x] `src/__tests__/integration/auth-flow.integration.test.ts` (UPDATE or new) — middleware `signInWithPassword` writes cookies that survive a follow-up request (simulates the cookie round-trip).
+- [x] `src/__tests__/integration/auth-flow.integration.test.ts` (UPDATE — fixes MT7) — THREE-request round-trip test for the redirect-loop fallback + cookie-expiry recovery: (1) Request A with no session + simulated `signInWithPassword` failure → response carries `GUEST_AUTOLOGIN_FAILED_RECENTLY` cookie. (2) Request B carries that cookie → `/login` server component renders `<ServiceUnavailableNotice />` (asserted on rendered HTML), no second `signInWithPassword` call. (3) Request C 61 seconds later (cookie expired) → middleware DOES re-attempt `signInWithPassword`, preventing permanent service-unavailable lock-in after a transient auth-provider hiccup.
+- [x] `src/__tests__/integration/links-bypass.integration.test.ts` (NEW) — with env var set, query an explanation, confirm `applyLinksToContent` output contains anchor tags for approved-candidate terms.
+- [x] `src/__tests__/integration/per-user-cost-rollups.integration.test.ts` (NEW — fixes MT8) — assert the new trigger correctly populates `per_user_daily_cost_rollups` on INSERT into `llmCallTracking`. Cover: trigger handles NULL `userid`, increments existing date+user+category row, RLS denies anon/authenticated SELECT.
 
 ### E2E Tests
-- [ ] `src/__tests__/e2e/specs/01-auth/guest-auto-login.spec.ts` (NEW) — unauthenticated visitor hits `/` on public host (without `E2E_TEST_MODE`), expects to land in a logged-in state without seeing `/login`. Tag `@critical`.
-- [ ] `src/__tests__/e2e/specs/02-search-generate/status-pill.spec.ts` (NEW) — submit a query, verify pill renders State A while streaming, State B + C after completion, dismiss button hides it. **For error state simulation**: use `page.route('**/api/returnExplanation', ...)` interception to send `event: error\ndata: {"error":"..."}\n\n` SSE frames (mirrors the existing `api-mocks.ts mockReturnExplanationAPI` pattern). Assert via `expect.poll(() => pill.textContent())` rather than point-in-time read.
-- [ ] `src/__tests__/e2e/specs/auth.unauth.spec.ts` (UPDATE) — wrap with `E2E_TEST_MODE=true` env injection so the existing unauth-redirect assertion still passes.
-- [ ] `src/__tests__/e2e/specs/01-auth/auth.spec.ts` sign-out test (UPDATE) — same `E2E_TEST_MODE` gating.
+- [x] `src/__tests__/e2e/specs/01-auth/guest-auto-login.spec.ts` (NEW) — unauthenticated visitor hits `/` on public host (without `E2E_TEST_MODE`), expects to land in a logged-in state without seeing `/login`. Tag `@critical`.
+- [x] `src/__tests__/e2e/specs/02-search-generate/status-pill.spec.ts` (NEW) — submit a query, verify pill renders State A while streaming, State B + C after completion, dismiss button hides it. **For error state simulation**: use `page.route('**/api/returnExplanation', ...)` interception to send `event: error\ndata: {"error":"..."}\n\n` SSE frames (mirrors the existing `api-mocks.ts mockReturnExplanationAPI` pattern). Assert via `expect.poll(() => pill.textContent())` rather than point-in-time read.
+- [x] `src/__tests__/e2e/specs/auth.unauth.spec.ts` (UPDATE) — wrap with `E2E_TEST_MODE=true` env injection so the existing unauth-redirect assertion still passes.
+- [x] `src/__tests__/e2e/specs/01-auth/auth.spec.ts` sign-out test (UPDATE) — same `E2E_TEST_MODE` gating.
 
 ### Manual Verification
-- [ ] Run `scripts/seed-guest-library.ts --dry-run` against staging — review query list output.
-- [ ] Run seed script against staging — verify all 10 explanations generate successfully, log into staging public site as guest, browse Library.
-- [ ] Visit each of the 9 gated debug routes on the public hostname — confirm 404. Same routes on local — confirm 200.
-- [ ] Visit `/editorTest` directly from `AIEditorPanel.tsx` — confirm link removed.
-- [ ] Visit staging public site in incognito — confirm auto-login fires, no `/login` redirect, no `/login` form visible. Confirm sign-out button is hidden.
-- [ ] Visit evolution hostname in incognito — confirm NO auto-login (redirects to `/login`), admin can still sign in manually.
-- [ ] Inspect browser devtools console on demo flow — confirm no `[E2E DEBUG]` lines.
-- [ ] Submit ≥10 LLM calls as guest in rapid succession — confirm $10/day cap throws `GlobalBudgetExceededError` with a friendly message. Use `for i in {1..15}; do curl -X POST https://<staging>/api/returnExplanation -d '{"prompt":"test"}'; done` or a similar repeatable scriptlet.
-- [ ] **Browser-based redirect-loop verification**: on staging, temporarily blank `GUEST_PASSWORD` env var, visit public hostname incognito → confirm `<ServiceUnavailableNotice />` renders on `/login` (not the login form), confirm cookie is set, refresh after 60s and confirm a fresh auto-login attempt fires (cookie expired).
+- [x] Run `scripts/seed-guest-library.ts --dry-run` against staging — review query list output.
+- [x] Run seed script against staging — verify all 10 explanations generate successfully, log into staging public site as guest, browse Library.
+- [x] Visit each of the 9 gated debug routes on the public hostname — confirm 404. Same routes on local — confirm 200.
+- [x] Visit `/editorTest` directly from `AIEditorPanel.tsx` — confirm link removed.
+- [x] Visit staging public site in incognito — confirm auto-login fires, no `/login` redirect, no `/login` form visible. Confirm sign-out button is hidden.
+- [x] Visit evolution hostname in incognito — confirm NO auto-login (redirects to `/login`), admin can still sign in manually.
+- [x] Inspect browser devtools console on demo flow — confirm no `[E2E DEBUG]` lines.
+- [x] Submit ≥10 LLM calls as guest in rapid succession — confirm $10/day cap throws `GlobalBudgetExceededError` with a friendly message. Use `for i in {1..15}; do curl -X POST https://<staging>/api/returnExplanation -d '{"prompt":"test"}'; done` or a similar repeatable scriptlet.
+- [x] **Browser-based redirect-loop verification**: on staging, temporarily blank `GUEST_PASSWORD` env var, visit public hostname incognito → confirm `<ServiceUnavailableNotice />` renders on `/login` (not the login form), confirm cookie is set, refresh after 60s and confirm a fresh auto-login attempt fires (cookie expired).
 
 ## Verification
 
 ### A) Playwright Verification (required for UI changes)
-- [ ] `guest-auto-login.spec.ts` — green
-- [ ] `status-pill.spec.ts` — green
-- [ ] `auth.unauth.spec.ts` (post-update) — green
-- [ ] `auth.spec.ts` sign-out test (post-update) — green
-- [ ] Manual: open staging public hostname in browser, walk the demo path end-to-end (incognito → auto-logged-in → submit semiconductor query → watch pill A→B→C → use AI editor with `"explain it like I'm 12"` prompt → save to library → reload → library shows seeded + saved items).
+- [x] `guest-auto-login.spec.ts` — green
+- [x] `status-pill.spec.ts` — green
+- [x] `auth.unauth.spec.ts` (post-update) — green
+- [x] `auth.spec.ts` sign-out test (post-update) — green
+- [x] Manual: open staging public hostname in browser, walk the demo path end-to-end (incognito → auto-logged-in → submit semiconductor query → watch pill A→B→C → use AI editor with `"explain it like I'm 12"` prompt → save to library → reload → library shows seeded + saved items).
 
 ### B) Automated Tests
-- [ ] `npm run lint` — clean
-- [ ] `npm run typecheck` — clean
-- [ ] `npm run test` — full unit pass
-- [ ] `npm run test:esm` — clean
-- [ ] `npm run test:integration` — full integration pass (requires staging DB)
-- [ ] `npm run test:e2e:critical` — green
-- [ ] `npm run test:e2e -- --grep guest-auto-login` — green
+- [x] `npm run lint` — clean
+- [x] `npm run typecheck` — clean
+- [x] `npm run test` — full unit pass
+- [x] `npm run test:esm` — clean
+- [x] `npm run test:integration` — full integration pass (requires staging DB)
+- [x] `npm run test:e2e:critical` — green
+- [x] `npm run test:e2e -- --grep guest-auto-login` — green
 
 ## Documentation Updates
-- [ ] `docs/feature_deep_dives/authentication_rls.md` — add "Guest auto-login (demo mode)" section describing the public-hostname middleware behavior, `E2E_TEST_MODE` escape hatch, and `useIsGuest()` hook.
-- [ ] `docs/feature_deep_dives/link_whitelist_system.md` — add "Demo-mode bypass" section describing `LINKS_BYPASS_WHITELIST` env var.
-- [ ] `docs/feature_deep_dives/search_generation_pipeline.md` — note the floating `GenerationStatusPill` in the post-streaming UX section.
-- [ ] `docs/docs_overall/environments.md` — list new env vars (`GUEST_EMAIL`, `GUEST_PASSWORD`, `NEXT_PUBLIC_GUEST_EMAIL`, `GUEST_USER_ID`, `LINKS_BYPASS_WHITELIST`, `E2E_TEST_MODE`) in the environment variables table.
-- [ ] `docs/feature_deep_dives/error_handling.md` — note that `GlobalBudgetExceededError` is now also thrown by the per-user guest cap.
-- [ ] `docs/planning/fixes_explainanything_for_public_demo_20260523/paid_services_inventory.md` — new deliverable per Phase 8.
+- [x] `docs/feature_deep_dives/authentication_rls.md` — add "Guest auto-login (demo mode)" section describing the public-hostname middleware behavior, `E2E_TEST_MODE` escape hatch, and `useIsGuest()` hook.
+- [x] `docs/feature_deep_dives/link_whitelist_system.md` — add "Demo-mode bypass" section describing `LINKS_BYPASS_WHITELIST` env var.
+- [x] `docs/feature_deep_dives/search_generation_pipeline.md` — note the floating `GenerationStatusPill` in the post-streaming UX section.
+- [x] `docs/docs_overall/environments.md` — list new env vars (`GUEST_EMAIL`, `GUEST_PASSWORD`, `NEXT_PUBLIC_GUEST_EMAIL`, `GUEST_USER_ID`, `LINKS_BYPASS_WHITELIST`, `E2E_TEST_MODE`) in the environment variables table.
+- [x] `docs/feature_deep_dives/error_handling.md` — note that `GlobalBudgetExceededError` is now also thrown by the per-user guest cap.
+- [x] `docs/planning/fixes_explainanything_for_public_demo_20260523/paid_services_inventory.md` — new deliverable per Phase 8.
 
 ## Review & Discussion
 
