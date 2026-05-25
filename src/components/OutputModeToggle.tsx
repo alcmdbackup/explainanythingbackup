@@ -27,7 +27,7 @@ export default function OutputModeToggle({
 }: OutputModeToggleProps) {
   return (
     <div
-      className={cn('flex w-full border-b border-[var(--border-default)]', className)}
+      className={cn('flex w-full border-b-2 border-[var(--border-strong)]', className)}
       data-testid="output-mode-toggle"
       role="radiogroup"
       aria-label="Output mode selection"
@@ -45,13 +45,14 @@ export default function OutputModeToggle({
           // shape. `-mb-px` overlaps the container's border-b so the tab sits ON
           // the line. First tab drops its right border so the two tabs share an
           // edge (no double border).
-          'border border-r-0 border-[var(--border-default)] rounded-tl-page -mb-px',
+          'border-2 border-r-0 border-[var(--border-strong)] rounded-tl-page -mb-px',
           'focus:outline-none focus:ring-2 focus:ring-[var(--accent-gold)]/30',
           value === 'inline-diff'
-            // Active: gold text + filled bg; bottom border matches the bg so it
-            // "breaks through" the container's border-b and merges with the
-            // content area below — classic tab look.
-            ? 'bg-[var(--surface-elevated)] text-[var(--accent-gold)] border-b-[var(--surface-elevated)]'
+            // Active: dark fill (text-primary) + light text (background) for
+            // strong contrast against the unselected tab. Bottom border matches
+            // the fill so the active tab visually "stamps" over the container
+            // line beneath it.
+            ? 'bg-[var(--text-primary)] text-[var(--background)] border-b-[var(--text-primary)]'
             : 'bg-transparent text-[var(--text-secondary)] hover:bg-[var(--surface-secondary)] hover:text-[var(--text-primary)]',
           disabled && 'opacity-50 cursor-not-allowed'
         )}
@@ -69,10 +70,10 @@ export default function OutputModeToggle({
         className={cn(
           'flex-1 py-3 text-base font-ui font-medium text-center transition-colors',
           // Mirror of the first tab — keeps right border, rounds the top-right.
-          'border border-[var(--border-default)] rounded-tr-page -mb-px',
+          'border-2 border-[var(--border-strong)] rounded-tr-page -mb-px',
           'focus:outline-none focus:ring-2 focus:ring-[var(--accent-gold)]/30',
           value === 'rewrite'
-            ? 'bg-[var(--surface-elevated)] text-[var(--accent-gold)] border-b-[var(--surface-elevated)]'
+            ? 'bg-[var(--text-primary)] text-[var(--background)] border-b-[var(--text-primary)]'
             : 'bg-transparent text-[var(--text-secondary)] hover:bg-[var(--surface-secondary)] hover:text-[var(--text-primary)]',
           disabled && 'opacity-50 cursor-not-allowed'
         )}
