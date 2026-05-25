@@ -45,7 +45,7 @@ export default function OutputModeToggle({
           // shape. `-mb-px` overlaps the container's border-b so the tab sits ON
           // the line. First tab drops its right border so the two tabs share an
           // edge (no double border).
-          'border-2 border-r-0 border-[var(--border-strong)] rounded-tl-page -mb-px',
+          'border-2 border-r-0 border-[var(--border-strong)] rounded-tl-page -mb-px shadow-warm',
           'focus:outline-none focus:ring-2 focus:ring-[var(--accent-gold)]/30',
           value === 'inline-diff'
             // Active: dark fill (text-primary) + light text (background) for
@@ -70,7 +70,7 @@ export default function OutputModeToggle({
         className={cn(
           'flex-1 py-3 text-base font-ui font-medium text-center transition-colors',
           // Mirror of the first tab — keeps right border, rounds the top-right.
-          'border-2 border-[var(--border-strong)] rounded-tr-page -mb-px',
+          'border-2 border-[var(--border-strong)] rounded-tr-page -mb-px shadow-warm',
           'focus:outline-none focus:ring-2 focus:ring-[var(--accent-gold)]/30',
           value === 'rewrite'
             ? 'bg-[var(--text-primary)] text-[var(--background)] border-b-[var(--text-primary)]'

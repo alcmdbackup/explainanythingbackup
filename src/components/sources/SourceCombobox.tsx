@@ -231,7 +231,7 @@ export default function SourceCombobox({
               aria-autocomplete="list"
               data-testid="source-combobox-input"
               className={cn(
-                'w-full px-3 py-2 pr-8 rounded-page text-base',
+                'w-full px-3 py-2 pr-8 rounded-page text-base shadow-warm',
                 'bg-[var(--surface-input)] border border-[var(--border-default)]',
                 'text-[var(--text-primary)] placeholder:text-[var(--text-muted)]',
                 'focus:outline-none focus:border-[var(--accent-gold)] focus:ring-1 focus:ring-[var(--accent-gold)] focus:bg-[var(--surface-secondary)]',

@@ -133,7 +133,7 @@ export default function TagSelector({
               <div
                 key={index}
                 className={cn(
-                  'group flex items-center gap-1 px-2 py-1 rounded-md border text-sm transition-all duration-200',
+                  'group flex items-center gap-1 px-2 py-1 rounded-md border text-sm shadow-warm transition-all duration-200',
                   isActive
                     ? 'bg-[var(--accent-gold)]/10 border-[var(--border-strong)] text-[var(--accent-copper)]'
                     : 'bg-[var(--surface-elevated)] border-[var(--border-strong)] text-[var(--text-muted)]',
