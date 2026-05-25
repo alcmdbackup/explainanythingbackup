@@ -7,7 +7,6 @@
 
 import { useState, useCallback } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import { Plus } from 'lucide-react';
 import { signOut } from '@/app/login/actions';
 import { clearRememberMe } from '@/lib/utils/supabase/rememberMe';
@@ -44,7 +43,6 @@ export default function Navigation({
     const [importModalOpen, setImportModalOpen] = useState(false);
     const [previewData, setPreviewData] = useState<ImportData | null>(null);
     const isGuest = useIsGuest();
-    const router = useRouter();
 
     // Dark Nav theme using CSS variables with fallbacks for reliability
     const navColors = {
@@ -179,17 +177,14 @@ export default function Navigation({
                             re-enables auto-login on the next request, which is the desired
                             demo default. */}
                         <button
-                            onClick={async () => {
+                            onClick={() => {
                                 clearRememberMe();
-                                if (isGuest) {
-                                    // signOut() server-action redirects to /login; we override
-                                    // the destination with ?logout=1 so middleware's auto-login
-                                    // one-shots skip for that request.
-                                    await signOut();
-                                    router.push('/login?logout=1');
-                                } else {
-                                    signOut();
-                                }
+                                // For guest sessions, pass /login?logout=1 so middleware's
+                                // auto-login one-shots skip for that request — otherwise the
+                                // user bounces straight back to a guest session before the
+                                // form renders. signOut() itself calls Next's redirect() and
+                                // never returns to the client, so we cannot router.push after.
+                                signOut(isGuest ? '/login?logout=1' : '/');
                             }}
                             data-testid="logout-button"
                             className="scholar-nav-link hover:text-[var(--destructive)] text-base font-ui font-medium transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--destructive)] focus-visible:ring-offset-2 rounded px-1"

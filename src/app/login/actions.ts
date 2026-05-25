@@ -144,7 +144,13 @@ export async function signup(formData: FormData): Promise<AuthResult | never> {
   );
 }
 
-export async function signOut(): Promise<void | never> {
+// Allow-list of redirect targets to prevent open-redirect via caller-supplied
+// `redirectTo`. Server actions get any string the client cares to send, so the
+// safe pattern is: only honor known paths.
+const SIGN_OUT_REDIRECT_ALLOWLIST = new Set(['/', '/login?logout=1']);
+
+export async function signOut(redirectTo: string = '/'): Promise<void | never> {
+  const safeRedirect = SIGN_OUT_REDIRECT_ALLOWLIST.has(redirectTo) ? redirectTo : '/';
   return Sentry.withServerActionInstrumentation(
     'signOut',
     { recordResponse: true },
@@ -165,7 +171,7 @@ export async function signOut(): Promise<void | never> {
         logger.info('User signed out successfully');
 
         revalidatePath('/', 'layout');
-        redirect('/');
+        redirect(safeRedirect);
       } catch (error) {
         unstable_rethrow(error);
         logger.error('Unexpected error during signout', {
