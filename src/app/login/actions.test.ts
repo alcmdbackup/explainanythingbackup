@@ -22,7 +22,14 @@ jest.mock('next/cache', () => {
   };
 });
 
-import { login, signup, signOut } from './actions';
+// next/headers mock for requestPasswordReset — the action reads `origin` to
+// build the redirectTo URL.
+const mockHeadersGet = jest.fn();
+jest.mock('next/headers', () => ({
+  headers: jest.fn(async () => ({ get: mockHeadersGet })),
+}));
+
+import { login, signup, signOut, requestPasswordReset } from './actions';
 import { createSupabaseServerClient } from '@/lib/utils/supabase/server';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
@@ -63,10 +70,14 @@ describe('Login Actions', () => {
         signInWithPassword: mockSignInWithPassword,
         signUp: mockSignUp,
         signOut: mockSignOut,
+        resetPasswordForEmail: jest.fn().mockResolvedValue({ data: {}, error: null }),
       },
     };
 
     mockCreateSupabaseServerClient.mockResolvedValue(mockSupabaseClient);
+    mockHeadersGet.mockImplementation((key: string) =>
+      key.toLowerCase() === 'origin' ? 'http://localhost:3000' : null,
+    );
   });
 
   afterEach(() => {
@@ -401,6 +412,56 @@ describe('Login Actions', () => {
       mockCreateSupabaseServerClient.mockRejectedValue(new Error('Failed to create client'));
 
       await expect(signOut()).rejects.toThrow('Failed to create client');
+    });
+  });
+
+  describe('requestPasswordReset', () => {
+    it('rejects malformed email with a validation error', async () => {
+      const formData = createMockFormData({ email: 'not-an-email' });
+      const result = await requestPasswordReset(formData);
+      expect(result).toEqual({ error: 'Invalid email format' });
+      expect(mockSupabaseClient.auth.resetPasswordForEmail).not.toHaveBeenCalled();
+    });
+
+    it('calls resetPasswordForEmail with the action redirect URL', async () => {
+      const formData = createMockFormData({ email: 'user@example.com' });
+      const result = await requestPasswordReset(formData);
+      expect(result).toEqual({ success: true });
+      expect(mockSupabaseClient.auth.resetPasswordForEmail).toHaveBeenCalledWith(
+        'user@example.com',
+        { redirectTo: 'http://localhost:3000/auth/confirm?next=/reset-password' },
+      );
+    });
+
+    it('returns an error when Origin header is missing', async () => {
+      mockHeadersGet.mockReturnValue(null);
+      const formData = createMockFormData({ email: 'user@example.com' });
+      const result = await requestPasswordReset(formData);
+      expect(result).toEqual({ error: 'Unable to determine site URL' });
+      expect(mockSupabaseClient.auth.resetPasswordForEmail).not.toHaveBeenCalled();
+    });
+
+    it('masks Supabase errors by returning success (prevents email enumeration)', async () => {
+      mockSupabaseClient.auth.resetPasswordForEmail.mockResolvedValue({
+        data: null,
+        error: { message: 'rate limit exceeded', code: 'over_email_send_rate_limit' },
+      });
+      const formData = createMockFormData({ email: 'user@example.com' });
+      const result = await requestPasswordReset(formData);
+      expect(result).toEqual({ success: true });
+    });
+
+    it('masks unexpected exceptions by returning success', async () => {
+      mockSupabaseClient.auth.resetPasswordForEmail.mockRejectedValue(new Error('network down'));
+      const formData = createMockFormData({ email: 'user@example.com' });
+      const result = await requestPasswordReset(formData);
+      expect(result).toEqual({ success: true });
+    });
+
+    it('revalidates the layout on success', async () => {
+      const formData = createMockFormData({ email: 'user@example.com' });
+      await requestPasswordReset(formData);
+      expect(revalidatePath).toHaveBeenCalledWith('/', 'layout');
     });
   });
 });

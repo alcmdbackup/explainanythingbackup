@@ -233,9 +233,13 @@ export function LoginForm() {
                   </Label>
                 </div>
 
-                <span className="text-sm atlas-ui text-[var(--text-muted)]">
-                  Forgot password? Contact your admin
-                </span>
+                <Link
+                  href="/forgot-password"
+                  data-testid="forgot-password-link"
+                  className="text-sm atlas-ui text-[var(--text-muted)] hover:text-[var(--accent-gold)] transition-colors"
+                >
+                  Forgot password?
+                </Link>
               </div>
             )}
 

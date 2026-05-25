@@ -68,12 +68,22 @@ export async function updateSession(request: NextRequest) {
   // Avoid skip-on-failed-recent cookie loop: when GUEST_AUTOLOGIN_FAILED_RECENTLY
   // cookie is present, skip the sign-in attempt for its 60s lifetime.
   const failedRecently = request.cookies.get('GUEST_AUTOLOGIN_FAILED_RECENTLY')?.value === '1'
+  // Skip guest auto-login on the password-recovery flow paths. Without this,
+  // an unauthenticated visitor hitting any of these routes gets signed in as
+  // the guest BEFORE the recovery session lands, which swaps the session and
+  // breaks the flow. Closes the cookie-propagation race after /auth/confirm
+  // redirects to /reset-password.
+  const onRecoveryPath =
+    request.nextUrl.pathname.startsWith('/reset-password') ||
+    request.nextUrl.pathname.startsWith('/forgot-password') ||
+    request.nextUrl.pathname.startsWith('/auth/confirm')
   if (
     !currentUser &&
     process.env.E2E_TEST_MODE !== 'true' &&
     process.env.GUEST_EMAIL &&
     process.env.GUEST_PASSWORD &&
-    !failedRecently
+    !failedRecently &&
+    !onRecoveryPath
   ) {
     const host = request.headers.get('host')
     const tier = classifyHost(host)
@@ -148,6 +158,8 @@ export async function updateSession(request: NextRequest) {
     !currentUser &&
     !request.nextUrl.pathname.startsWith('/login') &&
     !request.nextUrl.pathname.startsWith('/auth') &&
+    !request.nextUrl.pathname.startsWith('/forgot-password') &&
+    !request.nextUrl.pathname.startsWith('/reset-password') &&
     !(process.env.NODE_ENV !== 'production' && request.nextUrl.pathname.startsWith('/debug-critic')) &&
     !(process.env.NODE_ENV !== 'production' && request.nextUrl.pathname.startsWith('/test-global-error'))
   ) {
@@ -157,13 +169,17 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url)
   }
 
-  // Check if user is disabled (skip for auth routes and error page)
+  // Check if user is disabled (skip for auth routes and error page).
+  // /reset-password is allowlisted so a user holding a pre-disable recovery
+  // session can still complete the password change; they get bounced on the
+  // next non-auth route they hit. See planning doc Risk #6.
   if (
     currentUser &&
     !request.nextUrl.pathname.startsWith('/login') &&
     !request.nextUrl.pathname.startsWith('/auth') &&
     !request.nextUrl.pathname.startsWith('/error') &&
-    !request.nextUrl.pathname.startsWith('/account-disabled')
+    !request.nextUrl.pathname.startsWith('/account-disabled') &&
+    !request.nextUrl.pathname.startsWith('/reset-password')
   ) {
     const { data: profile } = await supabase
       .from('user_profiles')
