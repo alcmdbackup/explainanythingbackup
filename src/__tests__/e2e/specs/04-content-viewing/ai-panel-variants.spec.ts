@@ -55,7 +55,7 @@ test.describe('AI panel variants — URL param wiring @critical', () => {
     expect(className).toContain('vellum-panel');
   });
 
-  test('?panelVariant=garbage falls back to default (lined-paper) @critical', async ({ authenticatedPage }) => {
+  test('?panelVariant=garbage falls back to default (embossed) @critical', async ({ authenticatedPage }) => {
     const resultsPage = new ResultsPage(authenticatedPage);
 
     await authenticatedPage.goto(`/results?explanation_id=${testExplanation.id}&panelVariant=garbage`);
@@ -63,12 +63,14 @@ test.describe('AI panel variants — URL param wiring @critical', () => {
 
     const panel = authenticatedPage.locator('[data-testid="ai-suggestions-panel"]');
     const className = await panel.getAttribute('class');
-    // Legacy lined-paper signature: surface-elevated + gold gradient on its header
+    // Default is now 'embossed' (signature: surface-elevated + shadow-page).
     expect(className).toContain('bg-[var(--surface-elevated)]');
-    // Sanity: should not have applied any one-block surface treatment
+    expect(className).toContain('shadow-page');
+    // Sanity: should not have applied any other one-block surface treatment
     expect(className).not.toContain('paper-texture');
     expect(className).not.toContain('vellum-panel');
     expect(className).not.toContain('focused-minimal-panel');
+    expect(className).not.toContain('gilded-edge-panel');
   });
 
   test('?panelVariant=toString does NOT produce className with "undefined" (Object.prototype attack regression) @critical', async ({ authenticatedPage }) => {
@@ -81,7 +83,7 @@ test.describe('AI panel variants — URL param wiring @critical', () => {
     const className = await panel.getAttribute('class');
     // Must NOT contain literal "undefined" (the bug we guard against).
     expect(className).not.toContain('undefined');
-    // Must fall back to default lined-paper.
-    expect(className).toContain('bg-[var(--surface-elevated)]');
+    // Must fall back to embossed default.
+    expect(className).toContain('shadow-page');
   });
 });

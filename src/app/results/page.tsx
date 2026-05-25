@@ -1332,18 +1332,16 @@ function ResultsPageContent() {
                                             {isEditMode ? <CheckIcon className="w-4 h-4" /> : <PencilSquareIcon className="w-4 h-4" />}
                                             {isEditMode ? 'Done' : 'Edit'}
                                         </button>
+                                        {explanationId && (
+                                            <ReportContentButton
+                                                explanationId={explanationId}
+                                                disabled={isStreaming}
+                                            />
+                                        )}
                                     </div>
 
                                     {/* Mode dropdown - right side */}
                                     <div className="flex items-center gap-2">
-                                        {explanationId && (
-                                            <span className="hidden sm:inline-flex">
-                                                <ReportContentButton
-                                                    explanationId={explanationId}
-                                                    disabled={isStreaming}
-                                                />
-                                            </span>
-                                        )}
                                         <label htmlFor="mode-select" className="text-xs font-ui font-medium text-[var(--text-muted)] uppercase tracking-wider">
                                             Mode:
                                         </label>

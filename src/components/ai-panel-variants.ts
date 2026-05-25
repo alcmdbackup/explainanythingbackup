@@ -74,7 +74,7 @@ const linedPaper: PanelVariantConfig = {
       border-b-2 border-b-[var(--accent-gold)]
     `,
     headerTitle: `
-      text-xl font-display font-semibold text-[var(--text-on-primary)]
+      text-3xl font-display font-semibold text-[var(--text-on-primary)]
       leading-tight
     `,
     headerIcon: `
@@ -170,7 +170,7 @@ function makeOneBlockVariant(o: OneBlockOverrides): PanelVariantConfig {
       container: o.container,
       // No gradient, no border-b — header sits on the body surface.
       header: `px-5 pt-5 pb-2`,
-      headerTitle: `text-xl font-display font-semibold text-[var(--text-primary)] leading-tight`,
+      headerTitle: `text-3xl font-display font-semibold text-[var(--text-primary)] leading-tight`,
       headerIcon: o.headerIcon ?? `w-5 h-5 text-[var(--accent-copper)]`,
       // Subtle margin instead of border separator.
       modeToggleWrapper: `mt-3`,
@@ -358,7 +358,7 @@ export const PANEL_VARIANTS: Record<PanelVariant, PanelVariantConfig> = {
   'gilded-edge': gildedEdge,
 };
 
-export const DEFAULT_PANEL_VARIANT: PanelVariant = 'lined-paper';
+export const DEFAULT_PANEL_VARIANT: PanelVariant = 'embossed';
 
 /**
  * Defensive resolver. Uses Object.prototype.hasOwnProperty.call to avoid

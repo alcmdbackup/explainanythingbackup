@@ -126,6 +126,27 @@ http://localhost:3485/results?explanation_id=<YOUR_ID>&panelVariant=gilded-edge
 ```
 Combine with editorVariant for paired styling: `?editorVariant=parchment&panelVariant=parchment`.
 
+## User-Requested Design Tweaks — DONE (2026-05-25)
+After live A/B'ing the variants on another machine, user requested:
+1. **Set `embossed` as default for both `editorVariant` AND `panelVariant`.** Done — `DEFAULT_EDITOR_PANEL_VARIANT` and `DEFAULT_PANEL_VARIANT` both reassigned. `lined-paper` is still available at `?panelVariant=lined-paper` for backward compat.
+2. **Move flag/report button back inline next to Edit** (was hidden on mobile + right-aligned next to MODE). Reverted the `<span className="hidden sm:inline-flex">` wrapper; flag now renders immediately after the Edit button inside the primary action group at all viewports.
+3. **Fix invisible "Mode:" / "Suggest" / "Rewrite" text in the OutputModeToggle.** Root cause: toggle hardcoded `text-[var(--text-on-primary)]` (white) and `border-white/30 bg-white/15` — designed only for the legacy `lined-paper` gold-banner header. On every one-block variant the header has the body background, so white text/borders became invisible. Switched to body-aware tokens: `text-[var(--text-secondary)]` for the "Mode:" label and inactive buttons, `text-[var(--text-primary)]` on hover, `border-[var(--border-default)]` + `bg-[var(--surface-secondary)]/40` for the container, `ring-[var(--accent-gold)]/30` for focus. Active button kept its inverted `bg-text-primary text-background` (already contrast-safe everywhere).
+4. **Remove QuillIcon in front of "Suggest edits"/"Rewrite article" + bump header font size.** Deleted the `<QuillIcon>` JSX from `AIEditorPanel.tsx` and the now-unused `QuillIcon` SVG component definition. Bumped `headerTitle` from `text-xl` → `text-3xl` in every variant config (both legacy `linedPaper` and the `makeOneBlockVariant` shared default).
+
+### Test updates
+- `editor-panel-variants.spec.ts`: dropped the "ReportContentButton — responsive visibility" describe block (375px / 1280px viewport tests) — flag is now visible at all viewports, so those assertions don't apply. Updated the `garbage` fallback assertion: default is now `embossed` (`bg-[var(--surface-elevated)]` + `shadow-page`) not `scholar-card`.
+- `ai-panel-variants.spec.ts`: updated `garbage` and `toString` fallback assertions to expect the new `embossed` default (`shadow-page`) instead of legacy `lined-paper`.
+- `ai-panel-variants.test.ts` registry tests unchanged — `linedPaper` still has its gold banner (the test asserts that as a backward-compat check); the new variants still satisfy the "no colored header" constraint.
+
+### Files Touched (tweaks turn)
+- `src/components/editor-panel-variants.ts` (DEFAULT → embossed)
+- `src/components/ai-panel-variants.ts` (DEFAULT → embossed, headerTitle text-3xl in both legacy + makeOneBlockVariant)
+- `src/components/AIEditorPanel.tsx` (removed QuillIcon JSX + definition)
+- `src/components/OutputModeToggle.tsx` (body-aware tokens replace text-on-primary/white)
+- `src/app/results/page.tsx` (flag button back inline after Edit)
+- `src/__tests__/e2e/specs/04-content-viewing/editor-panel-variants.spec.ts` (dropped viewport tests, updated default-fallback assertion)
+- `src/__tests__/e2e/specs/04-content-viewing/ai-panel-variants.spec.ts` (updated default-fallback assertions to embossed)
+
 ## Files Touched
 | File | Change |
 |------|--------|

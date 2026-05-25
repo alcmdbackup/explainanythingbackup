@@ -20,7 +20,7 @@ export const EDITOR_PANEL_VARIANTS: Record<EditorPanelVariant, string> = {
   bracketed: 'scholar-card card-enhanced p-8 shadow-warm-lg',
 };
 
-export const DEFAULT_EDITOR_PANEL_VARIANT: EditorPanelVariant = 'default';
+export const DEFAULT_EDITOR_PANEL_VARIANT: EditorPanelVariant = 'embossed';
 
 export function resolveEditorPanelVariant(
   raw: string | null | undefined,
