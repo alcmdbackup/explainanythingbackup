@@ -1179,7 +1179,7 @@ function ResultsPageContent() {
                                 )}
 
                                 {!isTagsModified(tagState) && !isPageLoading && (
-                                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4 atlas-animate-fade-up stagger-4">
+                                    <div className="relative z-10 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4 atlas-animate-fade-up stagger-4">
                                     {/* Action buttons - left side */}
                                     <div className="flex flex-wrap gap-2">
                                         {(explanationTitle || content) && (
