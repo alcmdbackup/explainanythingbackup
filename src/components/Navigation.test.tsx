@@ -13,6 +13,12 @@ jest.mock('@/lib/utils/supabase/rememberMe', () => ({
   clearRememberMe: jest.fn(),
 }));
 
+// Mocked at the hook level so individual tests can switch between guest / non-guest.
+jest.mock('@/hooks/useUserAuth', () => ({
+  useIsGuest: jest.fn(() => false),
+}));
+import { useIsGuest } from '@/hooks/useUserAuth';
+
 jest.mock('./SearchBar', () => {
   return function MockSearchBar(props: any) {
     return (
@@ -32,6 +38,11 @@ jest.mock('next/link', () => {
     );
   };
 });
+
+const mockRouterPush = jest.fn();
+jest.mock('next/navigation', () => ({
+  useRouter: () => ({ push: mockRouterPush }),
+}));
 
 describe('Navigation', () => {
   beforeEach(() => {
@@ -202,6 +213,32 @@ describe('Navigation', () => {
       await user.click(logoutButton);
 
       expect(signOut).toHaveBeenCalledTimes(2);
+    });
+
+    it('should still show logout button for guest sessions (post-Phase-5 redesign)', () => {
+      (useIsGuest as jest.Mock).mockReturnValue(true);
+      render(<Navigation />);
+      expect(screen.getByRole('button', { name: /logout/i })).toBeInTheDocument();
+    });
+
+    it('should redirect guest logout to /login?logout=1 (one-shot auto-login opt-out)', async () => {
+      (useIsGuest as jest.Mock).mockReturnValue(true);
+      const user = userEvent.setup();
+      render(<Navigation />);
+      await user.click(screen.getByRole('button', { name: /logout/i }));
+
+      expect(signOut).toHaveBeenCalledTimes(1);
+      expect(mockRouterPush).toHaveBeenCalledWith('/login?logout=1');
+    });
+
+    it('should NOT redirect non-guest logout (server signOut redirects to /login by default)', async () => {
+      (useIsGuest as jest.Mock).mockReturnValue(false);
+      const user = userEvent.setup();
+      render(<Navigation />);
+      await user.click(screen.getByRole('button', { name: /logout/i }));
+
+      expect(signOut).toHaveBeenCalledTimes(1);
+      expect(mockRouterPush).not.toHaveBeenCalled();
     });
   });
 

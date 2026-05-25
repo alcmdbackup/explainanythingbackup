@@ -540,6 +540,36 @@ describe('Supabase Middleware - updateSession', () => {
       await updateSession(request);
       expect(mockSignInWithPassword).not.toHaveBeenCalled();
     });
+
+    it('(k) skips signInWithPassword when ?logout=1 query param present (Logout opt-out)', async () => {
+      // Logout button on a guest session redirects to /login?logout=1. Middleware
+      // must NOT auto-login on that request, otherwise the user bounces back to
+      // guest before the form ever renders.
+      process.env.GUEST_EMAIL = 'guest@explainanything.app';
+      process.env.GUEST_PASSWORD = 'secret';
+      delete process.env.E2E_TEST_MODE;
+
+      await updateSession(reqWithHost('http://localhost:3000/login?logout=1'));
+      expect(mockSignInWithPassword).not.toHaveBeenCalled();
+    });
+
+    it('(l) ?logout=1 does NOT persist — next request without param re-enables auto-login', async () => {
+      // The opt-out is intentionally one-shot (URL-only, no cookie). Validates that
+      // a subsequent request without the param re-fires sign-in (proves we did not
+      // accidentally set a stickier opt-out side-channel).
+      process.env.GUEST_EMAIL = 'guest@explainanything.app';
+      process.env.GUEST_PASSWORD = 'secret';
+      delete process.env.E2E_TEST_MODE;
+      // Stay null across requests so the second call still has !currentUser → eligible
+      // for auto-login. (The opt-out param is what should make the first call skip it.)
+      mockGetUser.mockResolvedValue({ data: { user: null }, error: null });
+
+      await updateSession(reqWithHost('http://localhost:3000/login?logout=1'));
+      expect(mockSignInWithPassword).not.toHaveBeenCalled();
+
+      await updateSession(reqWithHost('http://localhost:3000/'));
+      expect(mockSignInWithPassword).toHaveBeenCalled();
+    });
   });
 
   describe('Response Integrity', () => {

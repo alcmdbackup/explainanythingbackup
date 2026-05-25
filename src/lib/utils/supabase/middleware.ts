@@ -68,12 +68,17 @@ export async function updateSession(request: NextRequest) {
   // Avoid skip-on-failed-recent cookie loop: when GUEST_AUTOLOGIN_FAILED_RECENTLY
   // cookie is present, skip the sign-in attempt for its 60s lifetime.
   const failedRecently = request.cookies.get('GUEST_AUTOLOGIN_FAILED_RECENTLY')?.value === '1'
+  // Opt-out: when the Logout button on a guest session redirects to /login?logout=1,
+  // suppress auto-login for that one request so the form renders. Param doesn't persist
+  // — the next request without it re-enables auto-login (intentional demo default).
+  const optedOut = request.nextUrl.searchParams.get('logout') === '1'
   if (
     !currentUser &&
     process.env.E2E_TEST_MODE !== 'true' &&
     process.env.GUEST_EMAIL &&
     process.env.GUEST_PASSWORD &&
-    !failedRecently
+    !failedRecently &&
+    !optedOut
   ) {
     const host = request.headers.get('host')
     const tier = classifyHost(host)
