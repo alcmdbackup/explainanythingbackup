@@ -183,6 +183,10 @@ export default defineConfig({
           NEXT_PUBLIC_USE_AI_API_ROUTE: 'true',
           ...(process.env.CI ? {} : { E2E_TEST_MODE: 'true' }),
           ...(process.env.NODE_USE_ENV_PROXY ? { NODE_USE_ENV_PROXY: '1' } : {}),
+          // Required by /reset-password's server-side guest gate: the page
+          // 404s when getUser() returns the guest user id. Without this the
+          // password-reset spec's guest-protection test cannot fire.
+          ...(process.env.GUEST_USER_ID ? { GUEST_USER_ID: process.env.GUEST_USER_ID } : {}),
         },
       },
       // Secondary 3009 server — intentionally runs WITHOUT E2E_TEST_MODE so

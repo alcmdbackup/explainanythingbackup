@@ -128,7 +128,10 @@ describe('Email Confirmation Route - GET', () => {
       });
     });
 
-    it('should handle recovery type verification', async () => {
+    it('should forward recovery tokens to the next page without server-side verifyOtp', async () => {
+      // Recovery is special: PASSWORD_RECOVERY only fires on the client that
+      // *itself* calls verifyOtp. The route forwards the params so the
+      // ResetPasswordForm can do the verify client-side and the event trips.
       const request = createMockNextRequest('http://localhost:3000/auth/confirm', {
         searchParams: {
           token_hash: 'recovery-token',
@@ -137,12 +140,11 @@ describe('Email Confirmation Route - GET', () => {
         },
       }) as unknown as NextRequest;
 
-      await expect(GET(request)).rejects.toThrow('NEXT_REDIRECT: /reset-password');
+      await expect(GET(request)).rejects.toThrow(
+        'NEXT_REDIRECT: /reset-password?token_hash=recovery-token&type=recovery'
+      );
 
-      expect(mockVerifyOtp).toHaveBeenCalledWith({
-        type: 'recovery',
-        token_hash: 'recovery-token',
-      });
+      expect(mockVerifyOtp).not.toHaveBeenCalled();
     });
   });
 

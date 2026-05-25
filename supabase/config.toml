@@ -185,6 +185,15 @@ otp_expiry = 3600
 # subject = "You have been invited"
 # content_path = "./supabase/templates/invite.html"
 
+# Password-recovery email: points users at our /auth/confirm callback with the
+# verifyOtp parameters so the recovery session is established and the user
+# lands on the new-password form. Without this block the Supabase default
+# template fires and sends users to the bare SiteURL with stray query params
+# that no route parses. Prod uses the dashboard equivalent.
+[auth.email.template.recovery]
+subject = "Reset your password"
+content_path = "./supabase/templates/recovery.html"
+
 [auth.sms]
 # Allow/disallow new user signups via SMS to your project.
 enable_signup = false

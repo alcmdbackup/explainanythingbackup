@@ -411,6 +411,13 @@ jobs:
       TEST_USER_EMAIL: ${{ secrets.TEST_USER_EMAIL }}
       TEST_USER_PASSWORD: ${{ secrets.TEST_USER_PASSWORD }}
       TEST_USER_ID: ${{ secrets.TEST_USER_ID }}
+      # Required by password-reset.spec.ts guest-protection test (#6):
+      # the test signs in as guest then asserts /reset-password 404s via the
+      # server-side GUEST_USER_ID gate.
+      GUEST_EMAIL: ${{ secrets.GUEST_EMAIL }}
+      GUEST_PASSWORD: ${{ secrets.GUEST_PASSWORD }}
+      NEXT_PUBLIC_GUEST_EMAIL: ${{ secrets.NEXT_PUBLIC_GUEST_EMAIL }}
+      GUEST_USER_ID: ${{ secrets.GUEST_USER_ID }}
       NEXT_PUBLIC_USE_AI_API_ROUTE: 'true'
     steps:
       - uses: actions/checkout@v4

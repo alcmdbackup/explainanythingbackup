@@ -95,6 +95,26 @@
       "docs": ["docs/feature_deep_dives/authentication_rls.md"]
     },
     {
+      "pattern": "src/app/forgot-password/**",
+      "docs": ["docs/feature_deep_dives/authentication_rls.md"]
+    },
+    {
+      "pattern": "src/app/reset-password/**",
+      "docs": ["docs/feature_deep_dives/authentication_rls.md"]
+    },
+    {
+      "pattern": "src/app/login/**",
+      "docs": ["docs/feature_deep_dives/authentication_rls.md"]
+    },
+    {
+      "pattern": "src/app/auth/**",
+      "docs": ["docs/feature_deep_dives/authentication_rls.md"]
+    },
+    {
+      "pattern": "supabase/templates/recovery.html",
+      "docs": ["docs/feature_deep_dives/authentication_rls.md"]
+    },
+    {
       "pattern": "src/lib/services/*Tracing*.ts",
       "docs": ["docs/feature_deep_dives/request_tracing_observability.md"]
     },
