@@ -2652,6 +2652,27 @@
     inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 
+/* Vellum editor — translucent glassmorphism for the explanation editor panel
+   wrapper. Borrows gallery-card's backdrop blur but intentionally omits the
+   hover-lift/scale (editing surface shouldn't dance under the cursor). */
+.vellum-editor {
+  background: rgba(var(--surface-secondary-rgb), 0.85);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(var(--border-default-rgb), 0.6);
+  box-shadow:
+    0 1px 3px rgba(var(--accent-copper-rgb), 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.4);
+  transition: box-shadow 0.2s ease-out;
+}
+
+.dark .vellum-editor {
+  background: rgba(var(--surface-secondary-rgb), 0.8);
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
 /* Card entrance animation */
 @keyframes cardEntrance {
   from {

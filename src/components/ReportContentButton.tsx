@@ -11,7 +11,11 @@ import { createContentReportAction, type ReportReason } from '@/lib/services/con
 interface ReportContentButtonProps {
   explanationId: number;
   disabled?: boolean;
+  className?: string;
 }
+
+const BASE_BUTTON_CLASSES =
+  'inline-flex items-center justify-center rounded-page bg-[var(--surface-secondary)] border border-[var(--border-default)] px-3 py-2 text-sm font-ui font-medium text-[var(--text-muted)] shadow-warm transition-all duration-200 hover:border-[var(--accent-gold)] hover:text-[var(--text-secondary)] disabled:cursor-not-allowed disabled:opacity-50 h-9';
 
 const REPORT_REASONS: { value: ReportReason; label: string; description: string }[] = [
   { value: 'inappropriate', label: 'Inappropriate Content', description: 'Contains offensive or harmful material' },
@@ -21,7 +25,7 @@ const REPORT_REASONS: { value: ReportReason; label: string; description: string 
   { value: 'other', label: 'Other', description: 'Other issue not listed above' }
 ];
 
-export function ReportContentButton({ explanationId, disabled }: ReportContentButtonProps) {
+export function ReportContentButton({ explanationId, disabled, className }: ReportContentButtonProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [reason, setReason] = useState<ReportReason | ''>('');
   const [details, setDetails] = useState('');
@@ -80,7 +84,7 @@ export function ReportContentButton({ explanationId, disabled }: ReportContentBu
         disabled={disabled}
         title="Report this content"
         data-testid="report-content-button"
-        className="inline-flex items-center justify-center rounded-page bg-[var(--surface-secondary)] border border-[var(--border-default)] px-3 py-2 text-sm font-ui font-medium text-[var(--text-muted)] shadow-warm transition-all duration-200 hover:border-[var(--accent-gold)] hover:text-[var(--text-secondary)] disabled:cursor-not-allowed disabled:opacity-50 h-9"
+        className={`${BASE_BUTTON_CLASSES} ${className ?? ''}`.trim()}
       >
         <svg
           xmlns="http://www.w3.org/2000/svg"

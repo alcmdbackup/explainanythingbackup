@@ -22,6 +22,10 @@ import SourceEditor from '@/components/sources/SourceEditor';
 
 import { RawMarkdownEditor } from '@/components/RawMarkdownEditor';
 import { ReportContentButton } from '@/components/ReportContentButton';
+import {
+    EDITOR_PANEL_VARIANTS,
+    resolveEditorPanelVariant,
+} from '@/components/editor-panel-variants';
 import { tagModeReducer, createInitialTagModeState, isTagsModified } from '@/reducers/tagModeReducer';
 import { PanelVariantProvider } from '@/contexts/PanelVariantContext';
 import {
@@ -50,6 +54,12 @@ const FORCE_REGENERATION_ON_NAV = false;
 function ResultsPageContent() {
     const searchParams = useSearchParams();
     const router = useRouter();
+
+    // Editor-panel variant selected via ?editorVariant=… URL param.
+    // O(1) Record lookup — no memoization needed (deps comparison would cost
+    // more than the lookup itself). See docs/planning/light_design_changes_*.
+    const editorPanelVariant = resolveEditorPanelVariant(searchParams.get('editorVariant'));
+    const editorPanelClass = EDITOR_PANEL_VARIANTS[editorPanelVariant];
 
     // Initialize user authentication hook first (needed for request context)
     const { userid, isLoading: isAuthLoading, fetchUserid } = useUserAuth();
@@ -1322,16 +1332,18 @@ function ResultsPageContent() {
                                             {isEditMode ? <CheckIcon className="w-4 h-4" /> : <PencilSquareIcon className="w-4 h-4" />}
                                             {isEditMode ? 'Done' : 'Edit'}
                                         </button>
-                                        {explanationId && (
-                                            <ReportContentButton
-                                                explanationId={explanationId}
-                                                disabled={isStreaming}
-                                            />
-                                        )}
                                     </div>
 
                                     {/* Mode dropdown - right side */}
                                     <div className="flex items-center gap-2">
+                                        {explanationId && (
+                                            <span className="hidden sm:inline-flex">
+                                                <ReportContentButton
+                                                    explanationId={explanationId}
+                                                    disabled={isStreaming}
+                                                />
+                                            </span>
+                                        )}
                                         <label htmlFor="mode-select" className="text-xs font-ui font-medium text-[var(--text-muted)] uppercase tracking-wider">
                                             Mode:
                                         </label>
@@ -1406,7 +1418,7 @@ function ResultsPageContent() {
                                             background: var(--scrollbar-thumb-active);
                                         }
                                     `}</style>
-                                    <div data-testid="explanation-content" className="scholar-card p-6 atlas-animate-fade-up stagger-5">
+                                    <div data-testid="explanation-content" className={`${editorPanelClass} atlas-animate-fade-up stagger-5`}>
                                         {(streamCompleted || (!isStreaming && content)) && <div data-testid="stream-complete" className="hidden" />}
                                         {isStreaming && !content ? (
                                             <div className="flex flex-col items-center justify-center py-12 gap-4">
