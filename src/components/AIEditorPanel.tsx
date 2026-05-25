@@ -518,7 +518,7 @@ export default function AIEditorPanel({
         </div>
 
         {/* Divider line between header and content */}
-        <div className="border-t-2 border-[var(--border-default)]" />
+        <div className="border-t-4 border-[var(--border-default)]" />
 
         {/* Output Mode Toggle - pinned below divider, above scroll area */}
         {onOutputModeChange && (
