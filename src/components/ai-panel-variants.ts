@@ -85,12 +85,12 @@ const linedPaper: PanelVariantConfig = {
       border-t border-[var(--border-default)]
     `,
     section: `py-4`,
-    sectionLabel: `text-sm font-ui font-medium text-[var(--text-secondary)] mb-2`,
+    sectionLabel: `text-base font-ui font-medium text-[var(--text-secondary)] mb-2`,
     textarea: `
       w-full h-24 px-3 py-2.5
       rounded-page border border-[var(--border-default)]
       ${INPUT_BG}
-      text-[var(--text-primary)] font-body text-sm leading-relaxed
+      text-[var(--text-primary)] font-body text-base leading-relaxed
       placeholder:text-[var(--text-muted)]
       shadow-warm
       focus:outline-none focus:border-[var(--accent-gold)] focus:ring-2 focus:ring-[var(--accent-gold)]/30
@@ -128,7 +128,7 @@ const linedPaper: PanelVariantConfig = {
       w-full text-left py-3 px-3
       rounded-page
       border border-transparent
-      font-body text-sm text-[var(--text-secondary)]
+      font-body text-base text-[var(--text-secondary)]
       hover:bg-[var(--surface-elevated)] hover:border-[var(--border-default)]
       transition-all duration-200 cursor-pointer
     `,
@@ -175,14 +175,14 @@ function makeOneBlockVariant(o: OneBlockOverrides): PanelVariantConfig {
       // Subtle margin instead of border separator.
       modeToggleWrapper: `mt-3`,
       section: `py-4`,
-      sectionLabel: `text-sm font-ui font-medium text-[var(--text-secondary)] mb-2`,
+      sectionLabel: `text-base font-ui font-medium text-[var(--text-secondary)] mb-2`,
       textarea:
         o.textarea ??
         `
         w-full h-24 px-3 py-2.5
         rounded-page border border-[var(--border-default)]
         ${INPUT_BG}
-        text-[var(--text-primary)] font-body text-sm leading-relaxed
+        text-[var(--text-primary)] font-body text-base leading-relaxed
         placeholder:text-[var(--text-muted)]
         shadow-warm
         focus:outline-none focus:border-[var(--accent-gold)] focus:ring-2 focus:ring-[var(--accent-gold)]/30
@@ -224,7 +224,7 @@ function makeOneBlockVariant(o: OneBlockOverrides): PanelVariantConfig {
         w-full text-left py-3 px-3
         rounded-page
         border border-transparent
-        font-body text-sm text-[var(--text-secondary)]
+        font-body text-base text-[var(--text-secondary)]
         hover:bg-[var(--surface-elevated)] hover:border-[var(--border-default)]
         transition-all duration-200 cursor-pointer
       `,
