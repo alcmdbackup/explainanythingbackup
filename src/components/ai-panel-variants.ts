@@ -87,7 +87,7 @@ const linedPaper: PanelVariantConfig = {
       w-full h-40 px-3 py-2.5
       rounded-page border border-[var(--border-default)]
       ${INPUT_BG}
-      text-[var(--text-primary)] font-body text-lg leading-relaxed
+      text-[var(--text-primary)] font-body text-base leading-relaxed
       placeholder:text-[var(--text-muted)]
       shadow-warm
       focus:outline-none focus:border-[var(--accent-gold)] focus:ring-2 focus:ring-[var(--accent-gold)]/30
@@ -183,7 +183,7 @@ function makeOneBlockVariant(o: OneBlockOverrides): PanelVariantConfig {
         w-full h-40 px-3 py-2.5
         rounded-page border border-[var(--border-default)]
         ${INPUT_BG}
-        text-[var(--text-primary)] font-body text-lg leading-relaxed
+        text-[var(--text-primary)] font-body text-base leading-relaxed
         placeholder:text-[var(--text-muted)]
         shadow-warm
         focus:outline-none focus:border-[var(--accent-gold)] focus:ring-2 focus:ring-[var(--accent-gold)]/30

@@ -527,8 +527,9 @@ describe('TagBar', () => {
       render(<TagBar {...props} />);
 
       const tagElement = screen.getByText(presetTag.tags[0]!.tag_name);
-      // Preset tags use CSS variable based styling
-      expect(tagElement).toHaveClass('bg-[var(--surface-elevated)]');
+      // Preset tags use the dark-fill / light-text selected styling.
+      expect(tagElement).toHaveClass('bg-[var(--text-primary)]');
+      expect(tagElement).toHaveClass('text-[var(--background)]');
     });
 
     it('should show dropdown chevron icon on preset tags', () => {

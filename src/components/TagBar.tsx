@@ -270,16 +270,15 @@ export default function TagBar({ tagState, dispatch, className = '', onTagClick,
                     className={`
                         inline-flex items-center px-3 py-1
                         text-xs font-ui font-medium
-                        border-l-3 rounded-r-page
+                        rounded-page border
                         transition-all duration-200 cursor-pointer
                         ${isActive
                             ? isModified
-                                ? 'bg-[var(--surface-elevated)] text-[var(--accent-copper)] border-l-[var(--accent-copper)] border border-[var(--accent-copper)]/30 hover:shadow-warm'
-                                : 'bg-[var(--surface-elevated)] text-[var(--text-secondary)] border-l-[var(--accent-gold)] border border-[var(--border-default)] hover:border-[var(--accent-gold)] hover:shadow-warm hover:-translate-y-0.5'
-                            : 'bg-[var(--surface-primary)] text-[var(--text-muted)] border-l-[var(--border-strong)] border border-[var(--border-default)] line-through opacity-60 hover:opacity-80'
+                                ? 'bg-[var(--accent-copper)] text-[var(--text-on-primary)] border-[var(--accent-copper)] hover:shadow-warm'
+                                : 'bg-[var(--text-primary)] text-[var(--background)] border-[var(--text-primary)] hover:shadow-warm hover:-translate-y-0.5'
+                            : 'bg-[var(--surface-primary)] text-[var(--text-muted)] border-[var(--border-default)] line-through opacity-60 hover:opacity-80'
                         }
                     `}
-                    style={{ borderLeftWidth: '3px' }}
                     title={isActive ? currentTag?.tag_description : `Removed: ${currentTag?.tag_description} (click to restore)`}
                     onClick={() => {
                         if (isPreset) {
