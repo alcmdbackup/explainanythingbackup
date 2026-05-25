@@ -1,12 +1,13 @@
 /**
  * GenerationStatusPill unit tests.
  *
- * Covers phase→copy mapping, transition timing (800ms B→C), auto-dismiss
- * (3s on hint), dismiss button, reduced-motion (handled via CSS so we just
- * assert the motion-safe class is present), and error state.
+ * Covers phase→copy mapping; the streamFinished-driven transition (fires
+ * the moment the SSE complete event arrives, not when phase becomes viewing);
+ * the LOAD_EXPLANATION-driven advance from transition→hint; 3s auto-dismiss;
+ * cached-match silence; reduced-motion class; and error state.
  */
 
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { render, screen, act } from '@testing-library/react';
 import { GenerationStatusPill } from './GenerationStatusPill';
 import type { PageLifecycleState } from '@/reducers/pageLifecycleReducer';
 
@@ -22,8 +23,6 @@ function streaming(): PageLifecycleState {
   return { phase: 'streaming', content: '', title: '' };
 }
 function viewing(): PageLifecycleState {
-  // Type assertion because ExplanationStatus is a string union; the pill only
-  // reads `phase` so the exact status value doesn't matter for these tests.
   return {
     phase: 'viewing',
     content: 'x',
@@ -45,7 +44,7 @@ function loading(): PageLifecycleState {
 }
 
 describe('GenerationStatusPill', () => {
-  it('renders State A (streaming) with the gold drafting copy', () => {
+  it('renders streaming state with the drafting copy', () => {
     render(<GenerationStatusPill lifecycleState={streaming()} />);
     expect(screen.getByTestId('generation-status-pill')).toHaveAttribute('data-pill-state', 'streaming');
     expect(screen.getByText(/Drafting your article — hang tight…/i)).toBeInTheDocument();
@@ -61,35 +60,55 @@ describe('GenerationStatusPill', () => {
     expect(screen.queryByTestId('generation-status-pill')).not.toBeInTheDocument();
   });
 
-  it('renders error state with red accent on error phase', () => {
+  it('renders error state on error phase', () => {
     render(<GenerationStatusPill lifecycleState={errorState()} />);
     expect(screen.getByTestId('generation-status-pill')).toHaveAttribute('data-pill-state', 'error');
     expect(screen.getByText(/Generation failed/i)).toBeInTheDocument();
   });
 
-  it('transitions streaming → State B (transition) → State C (hint)', () => {
-    const { rerender } = render(<GenerationStatusPill lifecycleState={streaming()} />);
+  it('streaming → transition fires the moment streamFinished flips, NOT on phase change', () => {
+    const { rerender } = render(<GenerationStatusPill lifecycleState={streaming()} streamFinished={false} />);
     expect(screen.getByTestId('generation-status-pill')).toHaveAttribute('data-pill-state', 'streaming');
 
-    // Stream finishes — phase becomes viewing.
-    rerender(<GenerationStatusPill lifecycleState={viewing()} />);
+    // SSE complete event arrives — pill swaps to transition immediately, even
+    // though the lifecycle phase is still 'streaming' (URL change + reload race
+    // are still pending underneath).
+    rerender(<GenerationStatusPill lifecycleState={streaming()} streamFinished={true} />);
     expect(screen.getByTestId('generation-status-pill')).toHaveAttribute('data-pill-state', 'transition');
     expect(screen.getByText(/All set! Bringing the editor in…/i)).toBeInTheDocument();
+  });
 
-    // After 800ms, transitions to hint state.
-    act(() => {
-      jest.advanceTimersByTime(800);
-    });
+  it('transition → hint fires when phase reaches viewing (editor is on screen)', () => {
+    const { rerender } = render(<GenerationStatusPill lifecycleState={streaming()} streamFinished={false} />);
+    rerender(<GenerationStatusPill lifecycleState={streaming()} streamFinished={true} />);
+    expect(screen.getByTestId('generation-status-pill')).toHaveAttribute('data-pill-state', 'transition');
+
+    // LOAD_EXPLANATION dispatches viewing — pill advances to hint.
+    rerender(<GenerationStatusPill lifecycleState={viewing()} streamFinished={true} />);
     expect(screen.getByTestId('generation-status-pill')).toHaveAttribute('data-pill-state', 'hint');
     expect(screen.getByText(/Try: "explain it like I'm 12" — AI editor/i)).toBeInTheDocument();
   });
 
-  it('auto-dismisses hint after 3s', () => {
-    const { rerender } = render(<GenerationStatusPill lifecycleState={streaming()} />);
-    rerender(<GenerationStatusPill lifecycleState={viewing()} />);
-    act(() => {
-      jest.advanceTimersByTime(800);
-    });
+  it('transition state HOLDS through the URL change race (idle/loading do not interrupt)', () => {
+    // After streamFinished fires, results/page.tsx may briefly dispatch RESET
+    // (→ idle) then loadExplanation (→ loading → viewing). The pill must not
+    // flash hidden in between — the transition copy stays put.
+    const { rerender } = render(<GenerationStatusPill lifecycleState={streaming()} streamFinished={true} />);
+    expect(screen.getByTestId('generation-status-pill')).toHaveAttribute('data-pill-state', 'transition');
+
+    rerender(<GenerationStatusPill lifecycleState={idle()} streamFinished={true} />);
+    expect(screen.getByTestId('generation-status-pill')).toHaveAttribute('data-pill-state', 'transition');
+
+    rerender(<GenerationStatusPill lifecycleState={loading()} streamFinished={true} />);
+    expect(screen.getByTestId('generation-status-pill')).toHaveAttribute('data-pill-state', 'transition');
+
+    rerender(<GenerationStatusPill lifecycleState={viewing()} streamFinished={true} />);
+    expect(screen.getByTestId('generation-status-pill')).toHaveAttribute('data-pill-state', 'hint');
+  });
+
+  it('hint auto-dismisses 3s after entering', () => {
+    const { rerender } = render(<GenerationStatusPill lifecycleState={streaming()} streamFinished={true} />);
+    rerender(<GenerationStatusPill lifecycleState={viewing()} streamFinished={true} />);
     expect(screen.getByTestId('generation-status-pill')).toHaveAttribute('data-pill-state', 'hint');
 
     act(() => {
@@ -98,39 +117,19 @@ describe('GenerationStatusPill', () => {
     expect(screen.queryByTestId('generation-status-pill')).not.toBeInTheDocument();
   });
 
-  it('dismiss button hides the pill immediately', () => {
-    const { rerender } = render(<GenerationStatusPill lifecycleState={streaming()} />);
-    rerender(<GenerationStatusPill lifecycleState={viewing()} />);
-    act(() => {
-      jest.advanceTimersByTime(800);
-    });
-
-    const dismiss = screen.getByTestId('generation-status-pill-dismiss');
-    fireEvent.click(dismiss);
+  it('stays hidden for cached-match queries (loading → viewing, no streamFinished signal)', () => {
+    // Cached-match server path never emits streaming_start (no begin_streaming),
+    // so phase never enters streaming, streamFinished never flips. Pill silent.
+    const { rerender } = render(<GenerationStatusPill lifecycleState={idle()} streamFinished={false} />);
+    rerender(<GenerationStatusPill lifecycleState={loading()} streamFinished={false} />);
+    rerender(<GenerationStatusPill lifecycleState={viewing()} streamFinished={false} />);
     expect(screen.queryByTestId('generation-status-pill')).not.toBeInTheDocument();
   });
 
-  it('does NOT show transition/hint on direct navigation (idle → viewing, no loading phase)', () => {
-    // Direct navigation to an existing explanation: loadExplanation dispatches
-    // LOAD_EXPLANATION (idle → viewing) without going through 'loading'.
+  it('stays hidden on direct navigation (idle → viewing)', () => {
     const { rerender } = render(<GenerationStatusPill lifecycleState={idle()} />);
     rerender(<GenerationStatusPill lifecycleState={viewing()} />);
     expect(screen.queryByTestId('generation-status-pill')).not.toBeInTheDocument();
-  });
-
-  it('shows transition/hint for instant cached-match queries (loading → viewing, no observable streaming)', () => {
-    // When a query matches a cached explanation, React may batch the
-    // loading → streaming → viewing transitions into one render so the
-    // effect never observes 'streaming'. Priming wasStreamingRef during
-    // 'loading' ensures the post-stream hint still fires for the user.
-    const { rerender } = render(<GenerationStatusPill lifecycleState={idle()} />);
-    rerender(<GenerationStatusPill lifecycleState={loading()} />);
-    rerender(<GenerationStatusPill lifecycleState={viewing()} />);
-    expect(screen.getByTestId('generation-status-pill')).toHaveAttribute('data-pill-state', 'transition');
-    act(() => {
-      jest.advanceTimersByTime(800);
-    });
-    expect(screen.getByTestId('generation-status-pill')).toHaveAttribute('data-pill-state', 'hint');
   });
 
   it('respects prefers-reduced-motion via motion-safe Tailwind class', () => {
@@ -138,24 +137,19 @@ describe('GenerationStatusPill', () => {
     expect(screen.getByTestId('generation-status-pill').className).toContain('motion-safe:animate-fade-up');
   });
 
-  it('does not re-trigger transition after hint dismissed and viewing stays', () => {
-    const { rerender } = render(<GenerationStatusPill lifecycleState={streaming()} />);
-    rerender(<GenerationStatusPill lifecycleState={viewing()} />);
-    act(() => {
-      jest.advanceTimersByTime(800);
-    });
-    const dismiss = screen.getByTestId('generation-status-pill-dismiss');
-    fireEvent.click(dismiss);
-
-    // Re-render with same viewing state — should stay hidden, not re-show transition.
-    rerender(<GenerationStatusPill lifecycleState={viewing()} />);
-    expect(screen.queryByTestId('generation-status-pill')).not.toBeInTheDocument();
-  });
-
   it('aria-live polite for accessibility', () => {
     render(<GenerationStatusPill lifecycleState={streaming()} />);
     const pill = screen.getByTestId('generation-status-pill');
     expect(pill).toHaveAttribute('role', 'status');
     expect(pill).toHaveAttribute('aria-live', 'polite');
+  });
+
+  it('renders plain text — no icon, no left border accent', () => {
+    // Verify the visual refresh: no <svg> children, no border-l-* class on the
+    // inner pill div. Icons and the colored left border were removed for a
+    // cleaner, less ornamental presentation.
+    const { container } = render(<GenerationStatusPill lifecycleState={streaming()} />);
+    expect(container.querySelectorAll('svg')).toHaveLength(0);
+    expect(container.querySelector('[class*="border-l-"]')).toBeNull();
   });
 });

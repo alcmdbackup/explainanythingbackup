@@ -585,6 +585,14 @@ export const returnExplanationLogic = withLoggingAndTracing(
                 finalExplanationId = bestSourceResult.explanationId;
                 isMatchFound = true;
             } else {
+                // Signal to the client that we're about to start LLM streaming.
+                // The route layer maps this to the `event: streaming_start` SSE event
+                // so the GenerationStatusPill only enters its 'streaming' state when
+                // an actual generation is happening — never on cached-match queries.
+                if (onStreamingText) {
+                    onStreamingText(JSON.stringify({ type: 'begin_streaming' }));
+                }
+
                 // Convert sources to prompt format if provided
                 const sourcesForPrompt: SourceForPromptType[] | undefined = sources?.map((source, index) => ({
                     index: index + 1,

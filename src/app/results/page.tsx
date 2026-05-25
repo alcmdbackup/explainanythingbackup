@@ -99,6 +99,12 @@ function ResultsPageContent() {
     // Page lifecycle reducer (replaces 12 state variables with 1 reducer)
     const [lifecycleState, dispatchLifecycle] = useReducer(pageLifecycleReducer, initialPageLifecycleState);
 
+    // Tracks SSE complete-event arrival so GenerationStatusPill can swap to its
+    // 'transition' copy ("Bringing the editor in…") the moment the stream ends,
+    // independently of when link-resolve + router.push + LOAD_EXPLANATION fires.
+    // Reset to false at the start of each new generation in handleUserAction.
+    const [streamFinished, setStreamFinished] = useState(false);
+
     // Derived state from reducer (for easier access)
     const isPageLoading = getIsPageLoading(lifecycleState);
     const isStreaming = getIsStreaming(lifecycleState);
@@ -284,6 +290,7 @@ function ResultsPageContent() {
 
         // Start generation (resets to loading phase)
         dispatchLifecycle({ type: 'START_GENERATION' });
+        setStreamFinished(false); // fresh generation — pill enters streaming, transition won't fire yet
         setMatches([]);
         setContent(''); // Clear useExplanationLoader content
         setExplanationTitle(''); // Clear useExplanationLoader title
@@ -467,6 +474,7 @@ function ResultsPageContent() {
 
                             finalResult = data.result;
                             setStreamCompleted(true); // Mark stream as completed for E2E testing
+                            setStreamFinished(true); // GenerationStatusPill swaps streaming → transition copy now
                             markPerformance('content_complete');
                             measurePerformance('streaming_duration', 'streaming_start', 'content_complete');
                             //setIsStreaming(false);
@@ -1033,7 +1041,7 @@ function ResultsPageContent() {
             />
 
             {/* Floating bottom-center status pill: hands off post-streaming UX. */}
-            <GenerationStatusPill lifecycleState={lifecycleState} />
+            <GenerationStatusPill lifecycleState={lifecycleState} streamFinished={streamFinished} />
 
             {/* Top Navigation Bar */}
             <Navigation
