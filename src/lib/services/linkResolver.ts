@@ -19,7 +19,8 @@ import { logger } from '@/lib/server_utilities';
  * Core of the link overlay system. Resolves links at render time by:
  * 1. Processing headings (always linked, cached AI-generated titles)
  * 2. Matching whitelist terms (first occurrence only)
- * 3. Applying per-article overrides (custom titles or disabled)
+ * 3. Linking LLM-bolded **terms** (self-titled, demo-mode broad coverage)
+ * 4. Applying per-article overrides (custom titles or disabled)
  */
 
 // ============================================================================
@@ -377,6 +378,43 @@ async function resolveLinksForArticleImpl(
     }
   }
 
+  // === STEP 3: BOLD TERMS (LLM-highlighted **key terms** link to themselves) ===
+  // The generation prompt instructs the LLM to bold key terms with **term**.
+  // Step 2's word-boundary check excludes `*`, so bolded terms slip past
+  // whitelist matching — this step catches them. Whitelist entry titles win
+  // over self-titles when the bolded term happens to be curated.
+  const boldRegex = /\*\*([^*\n]+?)\*\*/g;
+  let boldMatch: RegExpExecArray | null;
+  while ((boldMatch = boldRegex.exec(content)) !== null) {
+    const startIndex = boldMatch.index;
+    const endIndex = startIndex + boldMatch[0].length;
+    const inner = boldMatch[1]!.trim();
+    if (!inner) continue;
+    // Skip if inside a heading region
+    if (headingRanges.some(r => startIndex >= r.start && endIndex <= r.end)) continue;
+    // Skip if overlaps with an already-resolved link
+    if (links.some(l => overlaps(l, startIndex, endIndex))) continue;
+
+    const innerLower = inner.toLowerCase();
+    const override = overrides.get(innerLower);
+    // Skip if a per-article override disables this term
+    if (override?.override_type === LinkOverrideType.Disabled) continue;
+
+    const whitelistEntry = whitelist.get(innerLower);
+    const standaloneTitle =
+      override?.override_type === LinkOverrideType.CustomTitle && override.custom_standalone_title
+        ? override.custom_standalone_title
+        : whitelistEntry?.standalone_title ?? inner;
+
+    links.push({
+      term: boldMatch[0], // includes the surrounding ** so applyLinksToContent can strip them
+      startIndex,
+      endIndex,
+      standaloneTitle,
+      type: 'bold-term',
+    });
+  }
+
   // Sort by position
   return links.sort((a, b) => a.startIndex - b.startIndex);
 }
@@ -419,6 +457,14 @@ export function applyLinksToContent(
         // Fallback: wrap entire term
         result = `${before}[${link.term}](/standalone-title?t=${encoded})${after}`;
       }
+    } else if (link.type === 'bold-term') {
+      // link.term is "**inner**" — replace asterisks with link, drop the bold.
+      // Bold markers around a link confuse Lexical's transformer order (BOLD_STAR
+      // runs before STANDALONE_TITLE_LINK_TRANSFORMER, so `**[text](url)**`
+      // gets parsed as bold-around-empty-link). The link's own theme styling
+      // (color + underline + medium weight) provides the visual emphasis.
+      const inner = link.term.slice(2, -2);
+      result = `${before}[${inner}](/standalone-title?t=${encoded})${after}`;
     } else {
       // For regular terms, just wrap the term
       result = `${before}[${link.term}](/standalone-title?t=${encoded})${after}`;
