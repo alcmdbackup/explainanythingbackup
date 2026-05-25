@@ -1650,15 +1650,15 @@ function ResultsPageContent() {
 
 export default function ResultsPage() {
     return (
-        <PanelVariantProvider>
-            <Suspense fallback={
-                <div className="h-screen bg-[var(--surface-primary)] flex flex-col items-center justify-center gap-4">
-                    <div className="ink-dots"></div>
-                    <p className="text-sm font-body text-[var(--text-muted)]">Loading...</p>
-                </div>
-            }>
+        <Suspense fallback={
+            <div className="h-screen bg-[var(--surface-primary)] flex flex-col items-center justify-center gap-4">
+                <div className="ink-dots"></div>
+                <p className="text-sm font-body text-[var(--text-muted)]">Loading...</p>
+            </div>
+        }>
+            <PanelVariantProvider>
                 <ResultsPageContent />
-            </Suspense>
-        </PanelVariantProvider>
+            </PanelVariantProvider>
+        </Suspense>
     );
 } 
