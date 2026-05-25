@@ -43,8 +43,6 @@ import {
 import { useExplanationLoader } from '@/hooks/useExplanationLoader';
 import { useUserAuth } from '@/hooks/useUserAuth';
 import { useTextRevealSettings } from '@/hooks/useTextRevealSettings';
-import { SparklesIcon, CheckCircleIcon, CheckIcon } from '@heroicons/react/24/solid';
-import { BookmarkIcon, PencilSquareIcon, DocumentTextIcon, Bars3BottomLeftIcon } from '@heroicons/react/24/outline';
 import ShareButton from '@/components/ShareButton';
 import { GenerationStatusPill } from '@/components/results/GenerationStatusPill';
 
@@ -1234,9 +1232,8 @@ function ResultsPageContent() {
                                                             }, FILE_DEBUG);
                                                             await handleUserAction(userInput, UserInputType.Rewrite, mode, userid, [], explanationId, explanationVector);
                                                         }}
-                                                        className="inline-flex items-center gap-2 px-4 py-2 text-sm font-ui font-medium text-[var(--text-on-primary)] hover:opacity-90 transition-colors rounded-l-page disabled:cursor-not-allowed disabled:opacity-50"
+                                                        className="inline-flex items-center px-4 py-2 text-sm font-ui font-medium text-[var(--text-on-primary)] hover:opacity-90 transition-colors rounded-l-page disabled:cursor-not-allowed disabled:opacity-50"
                                                     >
-                                                        <SparklesIcon className="w-4 h-4" />
                                                         Rewrite
                                                     </button>
                                                     <button
@@ -1283,9 +1280,8 @@ function ResultsPageContent() {
                                             data-user-saved={userSaved}
                                             data-user-saved-loaded={userSavedLoaded}
                                             title={hasPendingSuggestions ? "Accept or reject AI suggestions before saving" : undefined}
-                                            className="inline-flex items-center justify-center gap-2 rounded-page bg-[var(--surface-secondary)] border border-[var(--border-default)] px-4 py-2 text-sm font-ui font-medium text-[var(--text-secondary)] shadow-warm transition-all duration-200 hover:border-[var(--accent-gold)] hover:text-[var(--accent-gold)] disabled:cursor-not-allowed disabled:opacity-50 h-9"
+                                            className="inline-flex items-center justify-center rounded-page bg-[var(--surface-secondary)] border border-[var(--border-default)] px-4 py-2 text-sm font-ui font-medium text-[var(--text-secondary)] shadow-warm transition-all duration-200 hover:border-[var(--accent-gold)] hover:text-[var(--accent-gold)] disabled:cursor-not-allowed disabled:opacity-50 h-9"
                                         >
-                                            {userSaved ? <CheckIcon className="w-4 h-4" /> : <BookmarkIcon className="w-4 h-4" />}
                                             {isSaving ? 'Saving...' : userSaved ? 'Saved' : 'Save'}
                                         </button>
                                         {explanationId && (
@@ -1301,9 +1297,8 @@ function ResultsPageContent() {
                                                 disabled={isSavingChanges || (explanationStatus !== ExplanationStatus.Draft && !hasUnsavedChanges) || isStreaming || hasPendingSuggestions}
                                                 data-testid="publish-button"
                                                 title={hasPendingSuggestions ? "Accept or reject AI suggestions before publishing" : undefined}
-                                                className="inline-flex items-center justify-center gap-2 rounded-page bg-gradient-to-br from-[var(--accent-gold)] to-[var(--accent-copper)] px-4 py-2 text-sm font-ui font-medium text-[var(--text-on-primary)] shadow-warm transition-all duration-200 hover:shadow-warm-md disabled:cursor-not-allowed disabled:opacity-50 h-9"
+                                                className="inline-flex items-center justify-center rounded-page bg-gradient-to-br from-[var(--accent-gold)] to-[var(--accent-copper)] px-4 py-2 text-sm font-ui font-medium text-[var(--text-on-primary)] shadow-warm transition-all duration-200 hover:shadow-warm-md disabled:cursor-not-allowed disabled:opacity-50 h-9"
                                             >
-                                                <CheckCircleIcon className="w-4 h-4" />
                                                 {isSavingChanges ? 'Publishing...' : 'Publish'}
                                             </button>
                                         )}
@@ -1333,9 +1328,8 @@ function ResultsPageContent() {
                                             disabled={isStreaming || hasPendingSuggestions}
                                             data-testid="format-toggle-button"
                                             title={hasPendingSuggestions ? "Accept or reject AI suggestions before switching view" : undefined}
-                                            className="inline-flex items-center justify-center gap-1.5 rounded-page bg-[var(--surface-secondary)] border border-[var(--border-default)] px-4 py-2 text-sm font-ui font-medium text-[var(--text-secondary)] shadow-warm transition-all duration-200 hover:border-[var(--accent-gold)] hover:text-[var(--accent-gold)] disabled:cursor-not-allowed disabled:opacity-50 h-9"
+                                            className="inline-flex items-center justify-center rounded-page bg-[var(--surface-secondary)] border border-[var(--border-default)] px-4 py-2 text-sm font-ui font-medium text-[var(--text-secondary)] shadow-warm transition-all duration-200 hover:border-[var(--accent-gold)] hover:text-[var(--accent-gold)] disabled:cursor-not-allowed disabled:opacity-50 h-9"
                                         >
-                                            {isMarkdownMode ? <Bars3BottomLeftIcon className="w-4 h-4" /> : <DocumentTextIcon className="w-4 h-4" />}
                                             {isMarkdownMode ? 'Plain Text' : 'Formatted'}
                                         </button>
                                         <button
@@ -1343,9 +1337,8 @@ function ResultsPageContent() {
                                             disabled={isStreaming || hasPendingSuggestions}
                                             data-testid="edit-button"
                                             title={hasPendingSuggestions ? "Accept or reject AI suggestions before exiting edit mode" : undefined}
-                                            className="inline-flex items-center justify-center gap-2 rounded-page bg-[var(--surface-secondary)] border border-[var(--border-default)] px-4 py-2 text-sm font-ui font-medium text-[var(--text-secondary)] shadow-warm transition-all duration-200 hover:border-[var(--accent-gold)] hover:text-[var(--accent-gold)] disabled:cursor-not-allowed disabled:opacity-50 h-9"
+                                            className="inline-flex items-center justify-center rounded-page bg-[var(--surface-secondary)] border border-[var(--border-default)] px-4 py-2 text-sm font-ui font-medium text-[var(--text-secondary)] shadow-warm transition-all duration-200 hover:border-[var(--accent-gold)] hover:text-[var(--accent-gold)] disabled:cursor-not-allowed disabled:opacity-50 h-9"
                                         >
-                                            {isEditMode ? <CheckIcon className="w-4 h-4" /> : <PencilSquareIcon className="w-4 h-4" />}
                                             {isEditMode ? 'Done' : 'Edit'}
                                         </button>
                                         {explanationId && (

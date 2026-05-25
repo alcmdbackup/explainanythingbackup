@@ -174,7 +174,7 @@ function makeOneBlockVariant(o: OneBlockOverrides): PanelVariantConfig {
       headerIcon: o.headerIcon ?? `w-5 h-5 text-[var(--accent-copper)]`,
       // Mode toggle now sits below the main divider in its own pinned region
       // (rendered between divider and scroll area in AIEditorPanel.tsx).
-      modeToggleWrapper: `px-5 py-3`,
+      modeToggleWrapper: `px-5 py-6`,
       section: `py-4`,
       sectionLabel: `text-lg font-ui font-medium text-[var(--text-secondary)] mb-2`,
       textarea:

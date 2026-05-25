@@ -44,7 +44,7 @@ export default function OutputModeToggle({
           disabled={disabled}
           onClick={() => onChange('inline-diff')}
           className={cn(
-            'px-4 py-1.5 text-sm font-ui font-semibold rounded-page transition-all duration-150',
+            'px-6 py-3 text-base font-ui font-semibold rounded-page transition-all duration-150',
             'focus:outline-none focus:ring-2 focus:ring-[var(--accent-gold)]/30',
             value === 'inline-diff'
               ? 'bg-[var(--text-primary)] text-[var(--background)] shadow-warm-sm'
@@ -63,7 +63,7 @@ export default function OutputModeToggle({
           disabled={disabled}
           onClick={() => onChange('rewrite')}
           className={cn(
-            'px-4 py-1.5 text-sm font-ui font-semibold rounded-page transition-all duration-150',
+            'px-6 py-3 text-base font-ui font-semibold rounded-page transition-all duration-150',
             'focus:outline-none focus:ring-2 focus:ring-[var(--accent-gold)]/30',
             value === 'rewrite'
               ? 'bg-[var(--text-primary)] text-[var(--background)] shadow-warm-sm'

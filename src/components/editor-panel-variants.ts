@@ -11,13 +11,16 @@ export type EditorPanelVariant =
   | 'vellum'
   | 'bracketed';
 
+// `pt-0` after `p-6` / `p-8` removes top padding while keeping side + bottom
+// padding from the shorthand. Padding-top is a longhand so it wins over the
+// shorthand regardless of CSS source order.
 export const EDITOR_PANEL_VARIANTS: Record<EditorPanelVariant, string> = {
-  default: 'scholar-card p-6',
-  parchment: 'scholar-card paper-texture shadow-warm-lg p-6',
+  default: 'scholar-card p-6 pt-0',
+  parchment: 'scholar-card paper-texture shadow-warm-lg p-6 pt-0',
   embossed:
-    'bg-[var(--surface-elevated)] border border-[var(--border-default)] rounded-book p-6 shadow-page',
-  vellum: 'vellum-editor rounded-book p-6 shadow-warm-md',
-  bracketed: 'scholar-card card-enhanced p-8 shadow-warm-lg',
+    'bg-[var(--surface-elevated)] border border-[var(--border-default)] rounded-book p-6 pt-0 shadow-page',
+  vellum: 'vellum-editor rounded-book p-6 pt-0 shadow-warm-md',
+  bracketed: 'scholar-card card-enhanced p-8 pt-0 shadow-warm-lg',
 };
 
 export const DEFAULT_EDITOR_PANEL_VARIANT: EditorPanelVariant = 'embossed';

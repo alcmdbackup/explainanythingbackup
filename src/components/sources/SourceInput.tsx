@@ -68,7 +68,7 @@ export default function SourceInput({
           data-testid="source-url-input"
           disabled={disabled || isSubmitting}
           className={cn(
-            'flex-1 px-3 py-2 rounded-page text-sm',
+            'flex-1 px-3 py-2 rounded-page text-lg',
             'bg-[var(--surface-input)] border border-[var(--border-default)]',
             'text-[var(--text-primary)] placeholder:text-[var(--text-muted)]',
             'focus:outline-none focus:border-[var(--accent-gold)] focus:ring-1 focus:ring-[var(--accent-gold)] focus:bg-[var(--surface-secondary)]',
