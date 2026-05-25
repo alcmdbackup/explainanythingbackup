@@ -82,7 +82,7 @@ const linedPaper: PanelVariantConfig = {
     `,
     modeToggleWrapper: `px-5 py-3`,
     section: `py-4`,
-    sectionLabel: `text-lg font-ui font-medium text-[var(--text-secondary)] mb-3`,
+    sectionLabel: `text-lg font-ui font-medium text-[var(--text-secondary)] mb-4`,
     textarea: `
       w-full h-40 px-3 py-2.5
       rounded-page border border-[var(--border-default)]
@@ -176,7 +176,7 @@ function makeOneBlockVariant(o: OneBlockOverrides): PanelVariantConfig {
       // (rendered between divider and scroll area in AIEditorPanel.tsx).
       modeToggleWrapper: `px-5 py-6`,
       section: `py-4`,
-      sectionLabel: `text-lg font-ui font-medium text-[var(--text-secondary)] mb-3`,
+      sectionLabel: `text-lg font-ui font-medium text-[var(--text-secondary)] mb-4`,
       textarea:
         o.textarea ??
         `

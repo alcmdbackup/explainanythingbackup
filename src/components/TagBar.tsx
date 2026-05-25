@@ -274,9 +274,9 @@ export default function TagBar({ tagState, dispatch, className = '', onTagClick,
                         transition-all duration-200 cursor-pointer
                         ${isActive
                             ? isModified
-                                ? 'bg-[var(--accent-copper)] text-[var(--text-on-primary)] border-[var(--accent-copper)]/25 hover:shadow-warm'
-                                : 'bg-[var(--text-primary)] text-[var(--background)] border-[var(--text-primary)]/25 hover:shadow-warm hover:-translate-y-0.5'
-                            : 'bg-[var(--surface-primary)] text-[var(--text-muted)] border-[var(--border-default)]/25 line-through opacity-60 hover:opacity-80'
+                                ? 'bg-[var(--accent-copper)] text-[var(--text-on-primary)] border-[var(--border-strong)] hover:shadow-warm'
+                                : 'bg-[var(--text-primary)] text-[var(--background)] border-[var(--border-strong)] hover:shadow-warm hover:-translate-y-0.5'
+                            : 'bg-[var(--surface-primary)] text-[var(--text-muted)] border-[var(--border-strong)] line-through opacity-60 hover:opacity-80'
                         }
                     `}
                     title={isActive ? currentTag?.tag_description : `Removed: ${currentTag?.tag_description} (click to restore)`}
