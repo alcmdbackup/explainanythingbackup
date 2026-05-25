@@ -80,10 +80,7 @@ const linedPaper: PanelVariantConfig = {
     headerIcon: `
       w-5 h-5 text-[var(--text-on-primary)]
     `,
-    modeToggleWrapper: `
-      mt-3 pt-4
-      border-t border-[var(--border-default)]
-    `,
+    modeToggleWrapper: `px-5 py-3`,
     section: `py-4`,
     sectionLabel: `text-base font-ui font-medium text-[var(--text-secondary)] mb-2`,
     textarea: `
@@ -169,11 +166,14 @@ function makeOneBlockVariant(o: OneBlockOverrides): PanelVariantConfig {
     styles: {
       container: o.container,
       // No gradient, no border-b — header sits on the body surface.
-      header: `px-5 pt-5 pb-2`,
+      // pt-7 bumps the divider Y position to roughly align with the article
+      // title's title-flourish divider on the main content area.
+      header: `px-5 pt-7 pb-2`,
       headerTitle: `text-3xl font-display font-semibold text-[var(--text-primary)] leading-tight`,
       headerIcon: o.headerIcon ?? `w-5 h-5 text-[var(--accent-copper)]`,
-      // Subtle margin instead of border separator.
-      modeToggleWrapper: `mt-3`,
+      // Mode toggle now sits below the main divider in its own pinned region
+      // (rendered between divider and scroll area in AIEditorPanel.tsx).
+      modeToggleWrapper: `px-5 py-3`,
       section: `py-4`,
       sectionLabel: `text-base font-ui font-medium text-[var(--text-secondary)] mb-2`,
       textarea:
