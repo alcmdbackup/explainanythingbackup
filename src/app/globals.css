@@ -2652,6 +2652,54 @@
     inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 
+/* ============================================================================
+   AI Editor Panel one-block variants (used by ai-panel-variants.ts).
+   These are side-panel treatments — full-height, no top border for nav-seam.
+   ========================================================================== */
+
+/* Vellum panel — translucent glass body (no hover-lift, editing surface).
+   Stand-alone class so the AI panel keeps its own `border-2 border-t-0`
+   structural chrome from ai-panel-variants.ts. */
+.vellum-panel {
+  background: rgba(var(--surface-secondary-rgb), 0.85);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.dark .vellum-panel {
+  background: rgba(var(--surface-secondary-rgb), 0.8);
+}
+
+/* Focused-minimal panel — 3px gold left edge, calm/zen. */
+.focused-minimal-panel {
+  border-left: 3px solid var(--accent-gold);
+}
+
+/* Gilded-edge panel — refined gold→copper gradient right edge + soft inner
+   highlight on the top. */
+.gilded-edge-panel {
+  position: relative;
+}
+
+.gilded-edge-panel::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 3px;
+  background: linear-gradient(180deg,
+    var(--accent-gold) 0%,
+    var(--accent-copper) 50%,
+    var(--accent-gold) 100%);
+  pointer-events: none;
+  opacity: 0.85;
+}
+
+.dark .gilded-edge-panel::after {
+  opacity: 0.7;
+}
+
 /* Vellum editor — translucent glassmorphism for the explanation editor panel
    wrapper. Borrows gallery-card's backdrop blur but intentionally omits the
    hover-lift/scale (editing surface shouldn't dance under the cursor). */

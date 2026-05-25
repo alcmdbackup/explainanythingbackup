@@ -77,6 +77,55 @@
 - User picks variant by A/B'ing `?editorVariant=parchment|embossed|vellum|bracketed`, then I update `DEFAULT_EDITOR_PANEL_VARIANT` accordingly (single-line change, separate commit).
 - Documentation updates (`design_style_guide.md`, `lexical_editor_plugins.md`) deferred until variant choice is made.
 
+## Scope Addition: AI Editor Panel Variants — DONE (2026-05-24)
+### Work Done
+User asked for **6 single-block variants of the AI Editor Panel** (right-side sidebar), with URL-param selection on top of the existing localStorage `PanelVariantContext`. This is an additive scope expansion to the original "light design changes" — same branch, separate commit.
+
+- Refactored `src/components/ai-panel-variants.ts`:
+  - Kept the legacy `lined-paper` variant unchanged (preserves user localStorage prefs).
+  - Added a `makeOneBlockVariant({...})` helper that produces a full 18-slot `PanelVariantConfig` from a small override object — keeps each new variant declaration to ~10 lines of distinctive styling instead of duplicating ~50 lines of shared slots.
+  - Added 6 new one-block variants:
+    | Key | Identity |
+    |---|---|
+    | `parchment` | paper-texture + warm shadow + copper-accent icon |
+    | `vellum` | frosted glassmorphism (backdrop blur 8px) |
+    | `focused-minimal` | 3px gold left edge, outline submit button |
+    | `embossed` | `surface-elevated` + `shadow-page` recessed feel |
+    | `ink-stamped` | paper-texture + dark monochrome submit button |
+    | `gilded-edge` | refined gold→copper right-edge gradient |
+  - Added `resolvePanelVariant(raw)` using `Object.prototype.hasOwnProperty.call` (rejects `toString`/`__proto__`/etc. attack inputs and produces dev-only `console.warn`).
+- Updated `src/contexts/PanelVariantContext.tsx`:
+  - Now resolves variant as **URL `?panelVariant=…` → localStorage → default** (URL wins).
+  - Replaced the existing `stored in PANEL_VARIANTS` localStorage check with `hasOwnProperty.call` (the same out-of-scope follow-up flagged during plan review iteration 2 — fixed inline since we were touching the file).
+  - Uses `useSearchParams` (page already runs under Suspense so no hydration issues).
+- Added 3 small CSS classes to `src/app/globals.css`:
+  - `.vellum-panel` — translucent + backdrop blur (side-panel sibling of `.vellum-editor`).
+  - `.focused-minimal-panel` — 3px gold left edge.
+  - `.gilded-edge-panel` — pseudo-element gold→copper gradient right edge.
+- Wrote `src/components/ai-panel-variants.test.ts` — 31 tests covering registry integrity (every slot non-empty per variant, IDs match keys, exactly 7 variants, legacy keeps gold banner, new ones do NOT have colored headers), `resolvePanelVariant` round-trip + null/undefined/empty/unknown fallback + 6 Object.prototype attack inputs, and console.warn discrimination.
+- Wrote `src/__tests__/e2e/specs/04-content-viewing/ai-panel-variants.spec.ts` — 4 `@critical` tests covering URL-param wiring (parchment, vellum, garbage→default, toString attack→default).
+
+### Issues Encountered
+- None on implementation. Lint, typecheck, and unit tests all clean.
+
+### User Clarifications
+- 6 variants total (user picked from 2/3/4 options — answered "6 directions").
+- Each must be a single cohesive block — no colored header banner like the legacy `lined-paper`.
+- URL param + localStorage fallback (not URL-only — preserves existing per-user preference).
+- Existing `lined-paper` stays for backward-compat; not deleted.
+
+### Variant URLs (for live A/B)
+```
+http://localhost:3485/results?explanation_id=<YOUR_ID>                              # default = lined-paper (legacy)
+http://localhost:3485/results?explanation_id=<YOUR_ID>&panelVariant=parchment
+http://localhost:3485/results?explanation_id=<YOUR_ID>&panelVariant=vellum
+http://localhost:3485/results?explanation_id=<YOUR_ID>&panelVariant=focused-minimal
+http://localhost:3485/results?explanation_id=<YOUR_ID>&panelVariant=embossed
+http://localhost:3485/results?explanation_id=<YOUR_ID>&panelVariant=ink-stamped
+http://localhost:3485/results?explanation_id=<YOUR_ID>&panelVariant=gilded-edge
+```
+Combine with editorVariant for paired styling: `?editorVariant=parchment&panelVariant=parchment`.
+
 ## Files Touched
 | File | Change |
 |------|--------|
@@ -87,3 +136,8 @@
 | `src/components/editor-panel-variants.test.ts` | NEW — 23 tests |
 | `src/app/globals.css` | + `.vellum-editor` rule (16 lines, light + dark) |
 | `src/__tests__/e2e/specs/04-content-viewing/editor-panel-variants.spec.ts` | NEW — 5 `@critical` tests |
+| `src/components/ai-panel-variants.ts` | refactored + 6 new variants + resolver |
+| `src/components/ai-panel-variants.test.ts` | NEW — 31 tests |
+| `src/contexts/PanelVariantContext.tsx` | URL > localStorage > default + hasOwnProperty guard |
+| `src/app/globals.css` | + `.vellum-panel`, `.focused-minimal-panel`, `.gilded-edge-panel` |
+| `src/__tests__/e2e/specs/04-content-viewing/ai-panel-variants.spec.ts` | NEW — 4 `@critical` tests |
