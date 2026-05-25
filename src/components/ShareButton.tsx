@@ -22,8 +22,6 @@ export default function ShareButton({ url, variant = 'text', className = '' }: S
 
     try {
       await navigator.clipboard.writeText(url);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
     } catch {
       // Fallback for older browsers
       const textArea = document.createElement('textarea');
@@ -34,9 +32,9 @@ export default function ShareButton({ url, variant = 'text', className = '' }: S
       textArea.select();
       document.execCommand('copy');
       document.body.removeChild(textArea);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
     }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
 
   return (

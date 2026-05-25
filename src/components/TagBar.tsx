@@ -23,7 +23,7 @@ interface TagBarProps {
  */
 export default function TagBar({ tagState, dispatch, className = '', onTagClick, explanationId, isStreaming = false }: TagBarProps) {
     const tags = getCurrentTags(tagState);
-    const effectiveIsTagsModified = getIsTagsModified(tagState);
+    const isTagsModified = getIsTagsModified(tagState);
     const [openDropdown, setOpenDropdown] = useState<number | null>(null);
     const [showModifiedMenu, setShowModifiedMenu] = useState(false);
     const [showAddTagInput, setShowAddTagInput] = useState(false);
@@ -250,8 +250,6 @@ export default function TagBar({ tagState, dispatch, className = '', onTagClick,
 
     // Note: We intentionally don't return null when tags.length === 0
     // The normal display path below will still show the "Add tag" button via AddTagInput
-
-    const isTagsModified = effectiveIsTagsModified;
 
     // Reusable tag chip component
     const TagChip = ({ tag, index, isActive, isPreset, isModified }: {

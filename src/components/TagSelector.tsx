@@ -64,14 +64,9 @@ export default function TagSelector({
     if (!tag) return;
 
     // Create updated tags array with toggled tag
-    const updatedTags = tags.map((t, i) => {
-      if (i !== tagIndex) return t;
-      if ('tag_name' in t) {
-        return { ...t, tag_active_current: !t.tag_active_current };
-      } else {
-        return { ...t, tag_active_current: !t.tag_active_current };
-      }
-    });
+    const updatedTags = tags.map((t, i) =>
+      i === tagIndex ? { ...t, tag_active_current: !t.tag_active_current } : t
+    );
 
     dispatch({ type: 'UPDATE_TAGS', tags: updatedTags });
   };
