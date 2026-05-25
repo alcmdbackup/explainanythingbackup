@@ -82,7 +82,7 @@ const linedPaper: PanelVariantConfig = {
     `,
     modeToggleWrapper: `px-5 py-3`,
     section: `py-4`,
-    sectionLabel: `text-lg font-ui font-medium text-[var(--text-secondary)] mb-2`,
+    sectionLabel: `text-lg font-ui font-medium text-[var(--text-secondary)] mb-3`,
     textarea: `
       w-full h-40 px-3 py-2.5
       rounded-page border border-[var(--border-default)]
@@ -108,7 +108,7 @@ const linedPaper: PanelVariantConfig = {
       focus:outline-none focus:ring-2 focus:ring-[var(--accent-gold)]/30 focus:ring-offset-2
       disabled:opacity-50 disabled:cursor-not-allowed
     `,
-    quickActions: `flex flex-wrap items-center gap-x-3 pt-3`,
+    quickActions: `flex flex-wrap items-center gap-x-3 pt-1`,
     quickActionLink: `
       text-sm font-ui text-[var(--text-secondary)]
       hover:text-[var(--accent-copper)]
@@ -176,7 +176,7 @@ function makeOneBlockVariant(o: OneBlockOverrides): PanelVariantConfig {
       // (rendered between divider and scroll area in AIEditorPanel.tsx).
       modeToggleWrapper: `px-5 py-6`,
       section: `py-4`,
-      sectionLabel: `text-lg font-ui font-medium text-[var(--text-secondary)] mb-2`,
+      sectionLabel: `text-lg font-ui font-medium text-[var(--text-secondary)] mb-3`,
       textarea:
         o.textarea ??
         `
@@ -206,7 +206,7 @@ function makeOneBlockVariant(o: OneBlockOverrides): PanelVariantConfig {
         focus:outline-none focus:ring-2 focus:ring-[var(--accent-gold)]/30 focus:ring-offset-2
         disabled:opacity-50 disabled:cursor-not-allowed
       `,
-      quickActions: `flex flex-wrap items-center gap-x-3 pt-3`,
+      quickActions: `flex flex-wrap items-center gap-x-3 pt-1`,
       quickActionLink: `
         text-sm font-ui text-[var(--text-secondary)]
         hover:text-[var(--accent-copper)]
