@@ -1,7 +1,9 @@
 {
   "branch": "feat/light_design_changes_explain_anything_20260524",
   "created_at": "2026-05-24T16:39:51-07:00",
-  "prerequisites": {},
+  "prerequisites": {
+    "design_style_guide_read": "2026-05-25T14:59:16Z"
+  },
   "relevantDocs": [
     "docs/docs_overall/architecture.md",
     "docs/docs_overall/cloud_env.md",
