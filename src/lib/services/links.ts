@@ -265,25 +265,6 @@ async function enhanceContentWithInlineLinksImpl(
   }
 } 
 
-/**
- * Cleans up content by removing **bold** patterns and replacing with just the term
- * 
- * • Finds all **term** patterns in the content
- * • Replaces each pattern with just the term inside (without the bold markers)
- * • Used after enhancement processing to clean up any remaining keyterm markers
- * • Ensures final content has clean, readable text without formatting artifacts
- * 
- * @param content - The content to clean up
- * @returns Content with **term** patterns replaced by just the term
- */
-function cleanupAfterEnhancementsImpl(content: string): string {
-    // Regex to match **term** pattern and capture the term
-    const keyTermPattern = /\*\*([^*]+)\*\*/g;
-
-    // Replace all **term** with just the term
-    return content.replace(keyTermPattern, '$1');
-}
-
 // Wrap all async functions with automatic logging for entry/exit/timing
 export const createMappingsHeadingsToLinks = withLogging(
   createMappingsHeadingsToLinksImpl,
@@ -296,6 +277,3 @@ export const enhanceContentWithInlineLinks = withLogging(
   'enhanceContentWithInlineLinks',
   { logErrors: true }
 );
-
-// Sync functions don't need withLogging (no timing benefit)
-export { cleanupAfterEnhancementsImpl as cleanupAfterEnhancements };

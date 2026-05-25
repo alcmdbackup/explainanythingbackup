@@ -9,7 +9,6 @@ import { handleError, createError, createInputError, createValidationError, ERRO
 import { ServiceError } from '@/lib/errors/serviceError';
 import { withLoggingAndTracing, withLogging } from '@/lib/logging/server/automaticServerLoggingBase';
 import { logger } from '@/lib/client_utilities';
-import { cleanupAfterEnhancements } from '@/lib/services/links';
 import { evaluateTags } from '@/lib/services/tagEvaluation';
 import { generateHeadingStandaloneTitles, saveHeadingLinks } from '@/lib/services/linkWhitelist';
 import { saveCandidatesFromLLM } from '@/lib/services/linkCandidates';
@@ -139,10 +138,12 @@ export const extractLinkCandidates = withLogging(
  * - Cleans up formatting and removes unwanted patterns
  * - Returns enhanced content, heading titles (for DB storage), tag evaluation, and link candidates
  *
- * Note: Key term links are now resolved at render time via linkResolver service
+ * Note: Key term links are now resolved at render time via linkResolver service.
+ * **bold** markers from the LLM are preserved so the resolver's bold-term step
+ * can convert them to inline links at render time.
  *
  * Used by: generateNewExplanation
- * Calls: generateHeadingStandaloneTitles, evaluateTags, extractLinkCandidates, cleanupAfterEnhancements
+ * Calls: generateHeadingStandaloneTitles, evaluateTags, extractLinkCandidates
  */
 export const postprocessNewExplanationContent = withLogging(
     async function postprocessExplanationContent(
@@ -165,19 +166,15 @@ export const postprocessNewExplanationContent = withLogging(
                 extractLinkCandidates(rawContent, titleResult, userid)
             ]);
 
-            // Clean up any remaining **bold** patterns
-            const enhancedContent = cleanupAfterEnhancements(rawContent);
-
             logger.debug('Content postprocessing completed', {
-                originalContentLength: rawContent.length,
-                enhancedContentLength: enhancedContent.length,
+                contentLength: rawContent.length,
                 headingTitlesCount: Object.keys(headingTitles).length,
                 hasTagEvaluation: !!tagEvaluation,
                 linkCandidatesCount: linkCandidates.length
             });
 
             return {
-                enhancedContent,
+                enhancedContent: rawContent,
                 tagEvaluation,
                 headingTitles,
                 linkCandidates,

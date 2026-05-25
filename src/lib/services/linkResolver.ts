@@ -11,7 +11,6 @@ import {
   type WhitelistCacheEntryType
 } from '@/lib/schemas/schemas';
 import { withLogging } from '@/lib/logging/server/automaticServerLoggingBase';
-import { logger } from '@/lib/server_utilities';
 
 /**
  * Link Resolver Service
@@ -265,21 +264,9 @@ async function resolveLinksForArticleImpl(
   // terms that haven't been admin-approved into link_whitelist. Module-scope
   // TTL cache (5 min) avoids a per-render DB hit against link_candidates.
   // Whitelist entries take precedence on collision (preserves any admin overrides).
-  const bypassRaw = process.env.LINKS_BYPASS_WHITELIST;
-  const bypassActive = bypassRaw === 'true';
-  logger.info('linkResolver: bypass branch eval', {
-    explanationId,
-    bypassRaw,
-    bypassActive,
-    snapshotEntryCount: whitelist.size,
-  });
-  if (bypassActive) {
+  if (process.env.LINKS_BYPASS_WHITELIST === 'true') {
     if (bypassMergedCache && bypassMergedCache.expiresAt > Date.now()) {
       whitelist = bypassMergedCache.value;
-      logger.info('linkResolver: bypass cache hit', {
-        explanationId,
-        mergedSize: whitelist.size,
-      });
     } else {
       // link_candidates has no standalone_title column (only link_whitelist does,
       // populated at admin approval time). For the demo bypass, use the term itself
@@ -287,18 +274,10 @@ async function resolveLinksForArticleImpl(
       // which triggers a search-or-generate on the term, which is the desired
       // demo behavior anyway.
       const supabase = await createSupabaseServerClient();
-      const { data: candidates, error: candidatesError } = await supabase
+      const { data: candidates } = await supabase
         .from('link_candidates')
         .select('term, term_lower')
         .limit(2000); // safety cap
-      logger.info('linkResolver: candidates fetch result', {
-        explanationId,
-        candidateCount: candidates?.length ?? 0,
-        candidatesIsNull: candidates === null,
-        errorMessage: candidatesError?.message ?? null,
-        errorCode: candidatesError?.code ?? null,
-        sampleTerms: (candidates ?? []).slice(0, 5).map((c) => c.term_lower),
-      });
       const merged = new Map(whitelist);
       for (const c of candidates ?? []) {
         if (!merged.has(c.term_lower)) {
@@ -310,10 +289,6 @@ async function resolveLinksForArticleImpl(
       }
       bypassMergedCache = { value: merged, expiresAt: Date.now() + BYPASS_CACHE_TTL_MS };
       whitelist = merged;
-      logger.info('linkResolver: bypass merge complete', {
-        explanationId,
-        mergedSize: merged.size,
-      });
     }
   }
 
