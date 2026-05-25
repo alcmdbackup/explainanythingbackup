@@ -1,6 +1,6 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import LoginPage from './page';
+import { LoginForm as LoginPage } from './LoginForm';
 import { login, signup } from './actions';
 import { setRememberMe, clearSupabaseLocalStorage } from '@/lib/utils/supabase/rememberMe';
 
@@ -300,11 +300,14 @@ describe('LoginPage', () => {
   });
 
   describe('Password Reset Info', () => {
-    it('should show contact admin text instead of forgot password link', () => {
+    it('should render a Forgot password link pointing at /forgot-password', () => {
       render(<LoginPage />);
 
-      expect(screen.getByText('Forgot password? Contact your admin')).toBeInTheDocument();
-      expect(screen.queryByRole('link', { name: /forgot password/i })).not.toBeInTheDocument();
+      const link = screen.getByTestId('forgot-password-link');
+      expect(link).toBeInTheDocument();
+      expect(link).toHaveAttribute('href', '/forgot-password');
+      expect(link).toHaveTextContent(/forgot password/i);
+      expect(screen.queryByText('Forgot password? Contact your admin')).not.toBeInTheDocument();
     });
   });
 

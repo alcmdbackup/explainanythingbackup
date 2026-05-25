@@ -13,6 +13,12 @@ jest.mock('@/lib/utils/supabase/rememberMe', () => ({
   clearRememberMe: jest.fn(),
 }));
 
+// Mocked at the hook level so individual tests can switch between guest / non-guest.
+jest.mock('@/hooks/useUserAuth', () => ({
+  useIsGuest: jest.fn(() => false),
+}));
+import { useIsGuest } from '@/hooks/useUserAuth';
+
 jest.mock('./SearchBar', () => {
   return function MockSearchBar(props: any) {
     return (
@@ -173,14 +179,14 @@ describe('Navigation', () => {
       expect(signOut).toHaveBeenCalledTimes(1);
     });
 
-    it('should call signOut with no arguments', async () => {
+    it('should call signOut with the default redirect ("/") for non-guest users', async () => {
       const user = userEvent.setup();
       render(<Navigation />);
 
       const logoutButton = screen.getByRole('button', { name: /logout/i });
       await user.click(logoutButton);
 
-      expect(signOut).toHaveBeenCalledWith();
+      expect(signOut).toHaveBeenCalledWith('/');
     });
 
     it('should clear remember me preference when signing out', async () => {
@@ -202,6 +208,25 @@ describe('Navigation', () => {
       await user.click(logoutButton);
 
       expect(signOut).toHaveBeenCalledTimes(2);
+    });
+
+    it('should still show logout button for guest sessions (post-Phase-5 redesign)', () => {
+      (useIsGuest as jest.Mock).mockReturnValue(true);
+      render(<Navigation />);
+      expect(screen.getByRole('button', { name: /logout/i })).toBeInTheDocument();
+    });
+
+    it('should pass /login?logout=1 to signOut for guest sessions (auto-login opt-out)', async () => {
+      (useIsGuest as jest.Mock).mockReturnValue(true);
+      const user = userEvent.setup();
+      render(<Navigation />);
+      await user.click(screen.getByRole('button', { name: /logout/i }));
+
+      // signOut() throws Next's redirect() internally and never returns to the client,
+      // so the only way to land the user on /login?logout=1 (not "/") is via signOut's
+      // redirectTo parameter. Confirms we did NOT regress to the broken "await signOut +
+      // router.push" pattern that was dead code because of the server-side redirect.
+      expect(signOut).toHaveBeenCalledWith('/login?logout=1');
     });
   });
 

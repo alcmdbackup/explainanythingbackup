@@ -56,15 +56,21 @@ adminTest.describe('Iterative Editing Pipeline', { tag: '@evolution' }, () => {
           editingModel: 'gpt-4.1-nano',
           approverModel: 'gpt-4.1-nano',
           driftRecoveryModel: 'gpt-4.1-nano',
+          // Tight budget allocation to keep iteration 1 dispatch count low.
+          // Dispatch is budget-governed (no maxAgents in schema); $0.025 generate
+          // budget was previously dispatching 30-40+ agents and hitting the
+          // pipeline's 240s wall-clock deadline before iteration 2 could run.
+          // Halving generate's allocation caps it at ~5-8 agents (still produces
+          // enough variants for editingEligibilityCutoff topN=3 to find parents).
           iterationConfigs: [
-            { agentType: 'generate', budgetPercent: 50 },
+            { agentType: 'generate', budgetPercent: 25 },
             {
               agentType: 'iterative_editing',
-              budgetPercent: 30,
+              budgetPercent: 50,
               editingMaxCycles: 1,
               editingEligibilityCutoff: { mode: 'topN', value: 3 },
             },
-            { agentType: 'swiss', budgetPercent: 20 },
+            { agentType: 'swiss', budgetPercent: 25 },
           ],
           budgetUsd: 0.05,
         },

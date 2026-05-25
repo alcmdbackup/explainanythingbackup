@@ -1,12 +1,16 @@
+// Server actions for the /login, /forgot-password, and /reset-password forms.
+// All actions are Sentry-wrapped and return { success?, error? }.
+
 'use server';
 
 import { revalidatePath } from 'next/cache';
+import { headers } from 'next/headers';
 import { redirect, unstable_rethrow } from 'next/navigation';
 import * as Sentry from '@sentry/nextjs';
 
 import { createSupabaseServerClient } from '@/lib/utils/supabase/server';
 import { logger } from '@/lib/server_utilities';
-import { loginSchema } from './validation';
+import { loginSchema, forgotPasswordSchema } from './validation';
 
 type AuthResult = {
   error?: string;
@@ -144,7 +148,78 @@ export async function signup(formData: FormData): Promise<AuthResult | never> {
   );
 }
 
-export async function signOut(): Promise<void | never> {
+export async function requestPasswordReset(formData: FormData): Promise<AuthResult | never> {
+  return Sentry.withServerActionInstrumentation(
+    'requestPasswordReset',
+    { formData, recordResponse: true },
+    async () => {
+      const validated = forgotPasswordSchema.safeParse({
+        email: formData.get('email'),
+      });
+
+      if (!validated.success) {
+        logger.error('Password reset validation failed', {
+          errors: validated.error.flatten().fieldErrors,
+        });
+        return { error: 'Invalid email format' };
+      }
+
+      // Resolve origin for the redirect URL. Server actions receive Origin in
+      // request headers from the browser POST. If absent (rare; non-browser
+      // callers), fail loudly rather than send a recovery email pointing at
+      // a wrong host.
+      const h = await headers();
+      const origin = h.get('origin');
+      if (!origin) {
+        logger.error('Password reset: missing Origin header');
+        return { error: 'Unable to determine site URL' };
+      }
+
+      const supabase = await createSupabaseServerClient();
+      const { email } = validated.data;
+      const redirectTo = `${origin}/auth/confirm?next=/reset-password`;
+
+      try {
+        const { error } = await supabase.auth.resetPasswordForEmail(email, {
+          redirectTo,
+        });
+
+        if (error) {
+          // Log but mask — never reveal whether the email is registered.
+          // Supabase itself doesn't distinguish in its response, but log here
+          // for operator visibility into rate-limits / provider hiccups.
+          logger.error('Password reset request failed', {
+            email,
+            errorMessage: error.message,
+            errorCode: error.code,
+          });
+        } else {
+          logger.info('Password reset requested', { email });
+        }
+
+        // Always return success to prevent email enumeration via response shape.
+        revalidatePath('/', 'layout');
+        return { success: true };
+      } catch (error) {
+        unstable_rethrow(error);
+        logger.error('Unexpected error during password reset request', {
+          email,
+          error: error instanceof Error ? error.message : 'Unknown error',
+        });
+        // Still mask — return success even on unexpected error.
+        return { success: true };
+      }
+    }
+  );
+}
+
+// Allow-list of redirect targets to prevent open-redirect via caller-supplied
+// `redirectTo`. Server actions get any string the client cares to send, so the
+// safe pattern is: only honor known paths.
+const SIGN_OUT_REDIRECT_ALLOWLIST = new Set(['/', '/login?logout=1']);
+
+export async function signOut(redirectTo: string = '/'): Promise<void | never> {
+  const safeRedirect = SIGN_OUT_REDIRECT_ALLOWLIST.has(redirectTo) ? redirectTo : '/';
   return Sentry.withServerActionInstrumentation(
     'signOut',
     { recordResponse: true },
@@ -165,7 +240,7 @@ export async function signOut(): Promise<void | never> {
         logger.info('User signed out successfully');
 
         revalidatePath('/', 'layout');
-        redirect('/');
+        redirect(safeRedirect);
       } catch (error) {
         unstable_rethrow(error);
         logger.error('Unexpected error during signout', {

@@ -179,19 +179,28 @@ export async function POST(request: NextRequest) {
                 try {
                     startHeartbeat();
 
-                    // Send streaming start signal
-                    const startData = JSON.stringify({
-                        type: 'streaming_start',
-                        isStreaming: true
-                    });
-                    controller.enqueue(encoder.encode(`event: message\ndata: ${startData}\n\n`));
+                    // Note: streaming_start is NOT emitted up-front anymore. The
+                    // service signals `begin_streaming` once it commits to LLM
+                    // generation — until then the client sits in 'loading' phase
+                    // with no GenerationStatusPill. Cached-match queries never
+                    // emit begin_streaming, so the pill is correctly silent for
+                    // them. See returnExplanation.ts shouldReturnMatch branch.
 
                     // Streaming callback that forwards content to the client
                     const streamingCallback = (content: string) => {
                         logger.debug('API route streamingCallback called', { contentLength: content?.length }, FILE_DEBUG);
                         try {
-                            // Check if this is a progress event (JSON string)
+                            // Check if this is a progress / control event (JSON string)
                             const parsedContent = JSON.parse(content);
+                            if (parsedContent.type === 'begin_streaming') {
+                                // Service is about to start LLM streaming — emit streaming_start to client.
+                                const startData = JSON.stringify({
+                                    type: 'streaming_start',
+                                    isStreaming: true,
+                                });
+                                controller.enqueue(encoder.encode(`event: message\ndata: ${startData}\n\n`));
+                                return;
+                            }
                             if (parsedContent.type === 'progress') {
                                 // Forward progress events directly
                                 logger.debug('API route forwarding progress event', parsedContent, FILE_DEBUG);

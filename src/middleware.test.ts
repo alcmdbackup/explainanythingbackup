@@ -77,6 +77,39 @@ describe('middleware', () => {
       await middleware(reqWithHost(PROD_PUBLIC_HOST, '/admin/content'));
       expect(mockUpdateSession).toHaveBeenCalledTimes(1);
     });
+
+    it.each([
+      '/diffTest',
+      '/streaming-test',
+      '/latex-test',
+      '/mdASTdiff_demo',
+      '/resultsTest',
+      '/test-client-logging',
+      '/test-global-error',
+      '/tailwind-test',
+      '/typography-test',
+    ])('blocks (debug) route %s with 404 on public host', async (path) => {
+      const res = await middleware(reqWithHost(PROD_PUBLIC_HOST, path));
+      expect(res.status).toBe(404);
+      expect(mockUpdateSession).not.toHaveBeenCalled();
+    });
+
+    it('does NOT block /editorTest on public host (link is dev-only gated in AIEditorPanel)', async () => {
+      await middleware(reqWithHost(PROD_PUBLIC_HOST, '/editorTest'));
+      expect(mockUpdateSession).toHaveBeenCalledTimes(1);
+    });
+
+    it('blocks /diffTest/nested with 404 (subpath also gated)', async () => {
+      const res = await middleware(reqWithHost(PROD_PUBLIC_HOST, '/diffTest/foo'));
+      expect(res.status).toBe(404);
+    });
+
+    it('does NOT block /diffTest-future (no false-positive on prefix substring)', async () => {
+      // Confirms `path === p || path.startsWith(p + '/')` correctly avoids matching
+      // hypothetical future routes whose name starts with a debug-route prefix.
+      await middleware(reqWithHost(PROD_PUBLIC_HOST, '/diffTest-future'));
+      expect(mockUpdateSession).toHaveBeenCalledTimes(1);
+    });
   });
 
   describe('evolution host', () => {
@@ -130,6 +163,11 @@ describe('middleware', () => {
 
     it('127.0.0.1 bypasses', async () => {
       await middleware(reqWithHost('127.0.0.1', '/admin/evolution/runs'));
+      expect(mockUpdateSession).toHaveBeenCalledTimes(1);
+    });
+
+    it('does NOT block (debug) routes on localhost (dev access preserved)', async () => {
+      await middleware(reqWithHost('localhost', '/diffTest'));
       expect(mockUpdateSession).toHaveBeenCalledTimes(1);
     });
   });

@@ -8,6 +8,7 @@ import { matchWithCurrentContentType, MatchMode, UserInputType, ExplanationStatu
 import { logger } from '@/lib/client_utilities';
 import { RequestIdContext } from '@/lib/requestIdContext';
 import { markPerformance, measurePerformance } from '@/lib/webVitals';
+import { createSseEventBuffer, parseSseDataLine } from '@/lib/utils/sseEventBuffer';
 import { useClientPassRequestId } from '@/hooks/clientPassRequestId';
 import Navigation from '@/components/Navigation';
 import ExplanationCard from '@/components/explore/ExplanationCard';
@@ -21,6 +22,10 @@ import SourceEditor from '@/components/sources/SourceEditor';
 
 import { RawMarkdownEditor } from '@/components/RawMarkdownEditor';
 import { ReportContentButton } from '@/components/ReportContentButton';
+import {
+    EDITOR_PANEL_VARIANTS,
+    resolveEditorPanelVariant,
+} from '@/components/editor-panel-variants';
 import { tagModeReducer, createInitialTagModeState, isTagsModified } from '@/reducers/tagModeReducer';
 import { PanelVariantProvider } from '@/contexts/PanelVariantContext';
 import {
@@ -38,16 +43,21 @@ import {
 import { useExplanationLoader } from '@/hooks/useExplanationLoader';
 import { useUserAuth } from '@/hooks/useUserAuth';
 import { useTextRevealSettings } from '@/hooks/useTextRevealSettings';
-import { SparklesIcon, CheckCircleIcon, CheckIcon } from '@heroicons/react/24/solid';
-import { BookmarkIcon, PencilSquareIcon, DocumentTextIcon, Bars3BottomLeftIcon } from '@heroicons/react/24/outline';
 import ShareButton from '@/components/ShareButton';
+import { GenerationStatusPill } from '@/components/results/GenerationStatusPill';
 
-const FILE_DEBUG = true;
+const FILE_DEBUG = false;
 const FORCE_REGENERATION_ON_NAV = false;
 
 function ResultsPageContent() {
     const searchParams = useSearchParams();
     const router = useRouter();
+
+    // Editor-panel variant selected via ?editorVariant=… URL param.
+    // O(1) Record lookup — no memoization needed (deps comparison would cost
+    // more than the lookup itself). See docs/planning/light_design_changes_*.
+    const editorPanelVariant = resolveEditorPanelVariant(searchParams.get('editorVariant'));
+    const editorPanelClass = EDITOR_PANEL_VARIANTS[editorPanelVariant];
 
     // Initialize user authentication hook first (needed for request context)
     const { userid, isLoading: isAuthLoading, fetchUserid } = useUserAuth();
@@ -96,6 +106,12 @@ function ResultsPageContent() {
 
     // Page lifecycle reducer (replaces 12 state variables with 1 reducer)
     const [lifecycleState, dispatchLifecycle] = useReducer(pageLifecycleReducer, initialPageLifecycleState);
+
+    // Tracks SSE complete-event arrival so GenerationStatusPill can swap to its
+    // 'transition' copy ("Bringing the editor in…") the moment the stream ends,
+    // independently of when link-resolve + router.push + LOAD_EXPLANATION fires.
+    // Reset to false at the start of each new generation in handleUserAction.
+    const [streamFinished, setStreamFinished] = useState(false);
 
     // Derived state from reducer (for easier access)
     const isPageLoading = getIsPageLoading(lifecycleState);
@@ -229,7 +245,9 @@ function ResultsPageContent() {
             const userQuery = await (getUserQueryByIdAction as any)(withRequestId({ id: userQueryId }));
 
             if (!userQuery) {
-                dispatchLifecycle({ type: 'ERROR', error: 'User query not found' });
+                // Defensive: service currently throws on not-found instead of returning
+                // null, but keep this branch in case the contract changes.
+                logger.info('User query not found, skipping URL prefill', { userQueryId });
                 return;
             }
 
@@ -240,9 +258,23 @@ function ResultsPageContent() {
             //setActiveTab('matches');
 
         } catch (err) {
-            const errorMessage = err instanceof Error ? err.message : 'Failed to load user query';
+            const errorMessage = err instanceof Error ? err.message : String(err);
+
+            // "Not found" is benign — the userQueryId in the URL may point to a row that
+            // was deleted (e.g., E2E teardown, retention sweep) or never existed (stale
+            // bookmark). Don't dispatch a user-facing ERROR for it; just log info.
+            if (errorMessage.startsWith('User query not found for ID')) {
+                logger.info('User query not found, skipping URL prefill', { userQueryId, error: errorMessage });
+                return;
+            }
+
+            // Genuine failure — surface to user + log with full context.
             dispatchLifecycle({ type: 'ERROR', error: errorMessage });
-            logger.error('Failed to load user query:', { error: errorMessage });
+            logger.error('Failed to load user query', {
+                userQueryId,
+                error: errorMessage,
+                stack: err instanceof Error ? err.stack : undefined,
+            });
         }
     };
 
@@ -282,6 +314,7 @@ function ResultsPageContent() {
 
         // Start generation (resets to loading phase)
         dispatchLifecycle({ type: 'START_GENERATION' });
+        setStreamFinished(false); // fresh generation — pill enters streaming, transition won't fire yet
         setMatches([]);
         setContent(''); // Clear useExplanationLoader content
         setExplanationTitle(''); // Clear useExplanationLoader title
@@ -364,6 +397,7 @@ function ResultsPageContent() {
         const decoder = new TextDecoder();
         let finalResult: unknown = null;
         let chunkCount = 0;
+        const sseBuffer = createSseEventBuffer();
         const CLIENT_TIMEOUT_MS = 60000; // 60 seconds with no data = timeout
         let lastDataTime = Date.now();
         let timeoutCheckId: ReturnType<typeof setInterval> | null = null;
@@ -391,14 +425,14 @@ function ResultsPageContent() {
 
             chunkCount++;
             lastDataTime = Date.now(); // Reset timeout on any data received
-            const chunk = decoder.decode(value);
-            logger.debug('Chunk received', { chunkCount, length: chunk.length }, FILE_DEBUG);
-            const lines = chunk.split('\n');
+            const events = sseBuffer.push(decoder.decode(value, { stream: true }));
+            logger.debug('Chunk received', { chunkCount, eventCount: events.length }, FILE_DEBUG);
 
-            for (const line of lines) {
-                if (line.startsWith('data: ')) {
+            for (const event of events) {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                const data = parseSseDataLine<any>(event);
+                if (data) {
                     try {
-                        const data = JSON.parse(line.slice(6));
 
                         // Handle heartbeat events - just reset timeout, no UI update needed
                         if (data.type === 'heartbeat') {
@@ -464,6 +498,7 @@ function ResultsPageContent() {
 
                             finalResult = data.result;
                             setStreamCompleted(true); // Mark stream as completed for E2E testing
+                            setStreamFinished(true); // GenerationStatusPill swaps streaming → transition copy now
                             markPerformance('content_complete');
                             measurePerformance('streaming_duration', 'streaming_start', 'content_complete');
                             //setIsStreaming(false);
@@ -1029,6 +1064,9 @@ function ResultsPageContent() {
                 keywords={keywords || undefined}
             />
 
+            {/* Floating bottom-center status pill: hands off post-streaming UX. */}
+            <GenerationStatusPill lifecycleState={lifecycleState} streamFinished={streamFinished} />
+
             {/* Top Navigation Bar */}
             <Navigation
                 showSearchBar={true}
@@ -1165,7 +1203,7 @@ function ResultsPageContent() {
                                 )}
 
                                 {!isTagsModified(tagState) && !isPageLoading && (
-                                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4 atlas-animate-fade-up stagger-4">
+                                    <div className="relative z-10 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4 atlas-animate-fade-up stagger-4">
                                     {/* Action buttons - left side */}
                                     <div className="flex flex-wrap gap-2">
                                         {(explanationTitle || content) && (
@@ -1194,9 +1232,8 @@ function ResultsPageContent() {
                                                             }, FILE_DEBUG);
                                                             await handleUserAction(userInput, UserInputType.Rewrite, mode, userid, [], explanationId, explanationVector);
                                                         }}
-                                                        className="inline-flex items-center gap-2 px-4 py-2 text-sm font-ui font-medium text-[var(--text-on-primary)] hover:opacity-90 transition-colors rounded-l-page disabled:cursor-not-allowed disabled:opacity-50"
+                                                        className="inline-flex items-center px-4 py-2 text-sm font-ui font-medium text-[var(--text-on-primary)] hover:opacity-90 transition-colors rounded-l-page disabled:cursor-not-allowed disabled:opacity-50"
                                                     >
-                                                        <SparklesIcon className="w-4 h-4" />
                                                         Rewrite
                                                     </button>
                                                     <button
@@ -1243,9 +1280,8 @@ function ResultsPageContent() {
                                             data-user-saved={userSaved}
                                             data-user-saved-loaded={userSavedLoaded}
                                             title={hasPendingSuggestions ? "Accept or reject AI suggestions before saving" : undefined}
-                                            className="inline-flex items-center justify-center gap-2 rounded-page bg-[var(--surface-secondary)] border border-[var(--border-default)] px-4 py-2 text-sm font-ui font-medium text-[var(--text-secondary)] shadow-warm transition-all duration-200 hover:border-[var(--accent-gold)] hover:text-[var(--accent-gold)] disabled:cursor-not-allowed disabled:opacity-50 h-9"
+                                            className="inline-flex items-center justify-center rounded-page bg-[var(--surface-secondary)] border border-[var(--border-default)] px-4 py-2 text-sm font-ui font-medium text-[var(--text-secondary)] shadow-warm transition-all duration-200 hover:border-[var(--accent-gold)] hover:text-[var(--accent-gold)] disabled:cursor-not-allowed disabled:opacity-50 h-9"
                                         >
-                                            {userSaved ? <CheckIcon className="w-4 h-4" /> : <BookmarkIcon className="w-4 h-4" />}
                                             {isSaving ? 'Saving...' : userSaved ? 'Saved' : 'Save'}
                                         </button>
                                         {explanationId && (
@@ -1261,9 +1297,8 @@ function ResultsPageContent() {
                                                 disabled={isSavingChanges || (explanationStatus !== ExplanationStatus.Draft && !hasUnsavedChanges) || isStreaming || hasPendingSuggestions}
                                                 data-testid="publish-button"
                                                 title={hasPendingSuggestions ? "Accept or reject AI suggestions before publishing" : undefined}
-                                                className="inline-flex items-center justify-center gap-2 rounded-page bg-gradient-to-br from-[var(--accent-gold)] to-[var(--accent-copper)] px-4 py-2 text-sm font-ui font-medium text-[var(--text-on-primary)] shadow-warm transition-all duration-200 hover:shadow-warm-md disabled:cursor-not-allowed disabled:opacity-50 h-9"
+                                                className="inline-flex items-center justify-center rounded-page bg-gradient-to-br from-[var(--accent-gold)] to-[var(--accent-copper)] px-4 py-2 text-sm font-ui font-medium text-[var(--text-on-primary)] shadow-warm transition-all duration-200 hover:shadow-warm-md disabled:cursor-not-allowed disabled:opacity-50 h-9"
                                             >
-                                                <CheckCircleIcon className="w-4 h-4" />
                                                 {isSavingChanges ? 'Publishing...' : 'Publish'}
                                             </button>
                                         )}
@@ -1293,9 +1328,8 @@ function ResultsPageContent() {
                                             disabled={isStreaming || hasPendingSuggestions}
                                             data-testid="format-toggle-button"
                                             title={hasPendingSuggestions ? "Accept or reject AI suggestions before switching view" : undefined}
-                                            className="inline-flex items-center justify-center gap-1.5 rounded-page bg-[var(--surface-secondary)] border border-[var(--border-default)] px-4 py-2 text-sm font-ui font-medium text-[var(--text-secondary)] shadow-warm transition-all duration-200 hover:border-[var(--accent-gold)] hover:text-[var(--accent-gold)] disabled:cursor-not-allowed disabled:opacity-50 h-9"
+                                            className="inline-flex items-center justify-center rounded-page bg-[var(--surface-secondary)] border border-[var(--border-default)] px-4 py-2 text-sm font-ui font-medium text-[var(--text-secondary)] shadow-warm transition-all duration-200 hover:border-[var(--accent-gold)] hover:text-[var(--accent-gold)] disabled:cursor-not-allowed disabled:opacity-50 h-9"
                                         >
-                                            {isMarkdownMode ? <Bars3BottomLeftIcon className="w-4 h-4" /> : <DocumentTextIcon className="w-4 h-4" />}
                                             {isMarkdownMode ? 'Plain Text' : 'Formatted'}
                                         </button>
                                         <button
@@ -1303,9 +1337,8 @@ function ResultsPageContent() {
                                             disabled={isStreaming || hasPendingSuggestions}
                                             data-testid="edit-button"
                                             title={hasPendingSuggestions ? "Accept or reject AI suggestions before exiting edit mode" : undefined}
-                                            className="inline-flex items-center justify-center gap-2 rounded-page bg-[var(--surface-secondary)] border border-[var(--border-default)] px-4 py-2 text-sm font-ui font-medium text-[var(--text-secondary)] shadow-warm transition-all duration-200 hover:border-[var(--accent-gold)] hover:text-[var(--accent-gold)] disabled:cursor-not-allowed disabled:opacity-50 h-9"
+                                            className="inline-flex items-center justify-center rounded-page bg-[var(--surface-secondary)] border border-[var(--border-default)] px-4 py-2 text-sm font-ui font-medium text-[var(--text-secondary)] shadow-warm transition-all duration-200 hover:border-[var(--accent-gold)] hover:text-[var(--accent-gold)] disabled:cursor-not-allowed disabled:opacity-50 h-9"
                                         >
-                                            {isEditMode ? <CheckIcon className="w-4 h-4" /> : <PencilSquareIcon className="w-4 h-4" />}
                                             {isEditMode ? 'Done' : 'Edit'}
                                         </button>
                                         {explanationId && (
@@ -1392,7 +1425,7 @@ function ResultsPageContent() {
                                             background: var(--scrollbar-thumb-active);
                                         }
                                     `}</style>
-                                    <div data-testid="explanation-content" className="scholar-card p-6 atlas-animate-fade-up stagger-5">
+                                    <div data-testid="explanation-content" className={`${editorPanelClass} atlas-animate-fade-up stagger-5`}>
                                         {(streamCompleted || (!isStreaming && content)) && <div data-testid="stream-complete" className="hidden" />}
                                         {isStreaming && !content ? (
                                             <div className="flex flex-col items-center justify-center py-12 gap-4">
@@ -1617,15 +1650,15 @@ function ResultsPageContent() {
 
 export default function ResultsPage() {
     return (
-        <PanelVariantProvider>
-            <Suspense fallback={
-                <div className="h-screen bg-[var(--surface-primary)] flex flex-col items-center justify-center gap-4">
-                    <div className="ink-dots"></div>
-                    <p className="text-sm font-body text-[var(--text-muted)]">Loading...</p>
-                </div>
-            }>
+        <Suspense fallback={
+            <div className="h-screen bg-[var(--surface-primary)] flex flex-col items-center justify-center gap-4">
+                <div className="ink-dots"></div>
+                <p className="text-sm font-body text-[var(--text-muted)]">Loading...</p>
+            </div>
+        }>
+            <PanelVariantProvider>
                 <ResultsPageContent />
-            </Suspense>
-        </PanelVariantProvider>
+            </PanelVariantProvider>
+        </Suspense>
     );
 } 

@@ -527,8 +527,9 @@ describe('TagBar', () => {
       render(<TagBar {...props} />);
 
       const tagElement = screen.getByText(presetTag.tags[0]!.tag_name);
-      // Preset tags use CSS variable based styling
+      // Preset tags use the surface-elevated bookmark-tag-style fill.
       expect(tagElement).toHaveClass('bg-[var(--surface-elevated)]');
+      expect(tagElement).toHaveClass('text-[var(--text-secondary)]');
     });
 
     it('should show dropdown chevron icon on preset tags', () => {

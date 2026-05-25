@@ -814,7 +814,7 @@ export const resolvedLinkSchema = z.object({
   startIndex: z.number().int().nonnegative(),
   endIndex: z.number().int().nonnegative(),
   standaloneTitle: z.string(),
-  type: z.enum(['heading', 'term']),
+  type: z.enum(['heading', 'term', 'bold-term']),
 });
 
 export type ResolvedLinkType = z.infer<typeof resolvedLinkSchema>;

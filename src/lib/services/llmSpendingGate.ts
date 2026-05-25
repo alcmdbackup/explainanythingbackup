@@ -68,6 +68,84 @@ export class LLMSpendingGate {
   private spendingCache = new Map<string, CacheEntry<SpendingCacheData>>();
   private killSwitchCache: CacheEntry<boolean> | null = null;
   private monthlyCache: CacheEntry<{ total: number; cap: number }> | null = null;
+  // Per-user spending cache, keyed by `${userid}:${dateISO}`. Separate keyspace
+  // from the category-keyed spendingCache to avoid pollution.
+  private userSpendingCache = new Map<string, CacheEntry<number>>();
+
+  /**
+   * Per-user daily LLM cap. Reads from per_user_daily_cost_rollups (populated
+   * by trigger on llmCallTracking insert — see migration 20260524000003).
+   * Used by the demo guest account's $10/day cap; usable for any user_id.
+   *
+   * SEED_BYPASS_USER_CAP='true' lets seed scripts (e.g., scripts/seed-guest-library.ts)
+   * bypass the cap so they can populate the demo library without consuming the
+   * day's budget for the actual demo. Set as env var only when running the script.
+   *
+   * Falls back to no-op (allow) if the per_user_daily_cost_rollups table doesn't
+   * exist yet (migration hasn't been applied) — never blocks LLM calls because
+   * of missing migration.
+   */
+  async checkPerUserCap(userid: string, capUsd: number): Promise<void> {
+    if (process.env.SEED_BYPASS_USER_CAP === 'true') return;
+    if (!userid || capUsd <= 0) return;
+
+    const today = new Date().toISOString().split('T')[0]!;
+    const cacheKey = `${userid}:${today}`;
+    const cached = this.userSpendingCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      if (cached.value >= capUsd) {
+        throw new GlobalBudgetExceededError(
+          `Daily per-user budget exceeded: $${cached.value.toFixed(2)} spent of $${capUsd.toFixed(2)} cap`,
+          { category: 'per_user', dailyTotal: cached.value, dailyCap: capUsd, reserved: 0 },
+        );
+      }
+      return;
+    }
+
+    try {
+      const supabase = await createSupabaseServiceClient();
+      // Cast the .from() result: `per_user_daily_cost_rollups` is added by migration
+      // 20260524000003 and database.types.ts will regenerate on next CI types pass.
+      // Until then, the table isn't in the generated `Database` type, so we type-assert.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const rollupTable = supabase.from('per_user_daily_cost_rollups' as any);
+      const { data, error } = await rollupTable
+        .select('total_cost_usd')
+        .eq('user_id', userid)
+        .eq('date', today);
+
+      if (error) {
+        if (isMissingTableError(error)) {
+          logger.debug('per_user_daily_cost_rollups missing — skipping per-user cap', { userid });
+          return;
+        }
+        logger.warn('per_user cap read failed; allowing call', { userid, error: error.message });
+        return;
+      }
+
+      const rows = (data ?? []) as unknown as Array<{ total_cost_usd: number | string | null }>;
+      const total = rows.reduce((sum, r) => {
+        const v = r.total_cost_usd;
+        return sum + (typeof v === 'string' ? parseFloat(v) : v ?? 0);
+      }, 0);
+
+      this.userSpendingCache.set(cacheKey, {
+        value: total,
+        expiresAt: Date.now() + SPENDING_CACHE_TTL_MS,
+      });
+
+      if (total >= capUsd) {
+        throw new GlobalBudgetExceededError(
+          `Daily per-user budget exceeded: $${total.toFixed(2)} spent of $${capUsd.toFixed(2)} cap`,
+          { category: 'per_user', dailyTotal: total, dailyCap: capUsd, reserved: 0 },
+        );
+      }
+    } catch (err) {
+      if (err instanceof GlobalBudgetExceededError) throw err;
+      if (isMissingTableError(err)) return;
+      logger.warn('per_user cap check threw; allowing call', { userid, error: errorMsg(err) });
+    }
+  }
 
   /** Throws on kill switch, over-cap, or DB errors (fail-closed). Returns reserved cost. */
   async checkBudget(callSource: string, estimatedCostUsd?: number): Promise<number> {
@@ -181,6 +259,7 @@ export class LLMSpendingGate {
     this.killSwitchCache = null;
     this.spendingCache.clear();
     this.monthlyCache = null;
+    this.userSpendingCache.clear();
   }
 
   async cleanupOrphanedReservations(): Promise<void> {

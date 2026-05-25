@@ -494,6 +494,106 @@ describe('LinkResolver Service', () => {
       expect(result[1]!.term).toBe('machine learning');
       expect(result[0]!.startIndex).toBeLessThan(result[1]!.startIndex);
     });
+
+    describe('bold-term linking', () => {
+      it('links every **bold** term in body, self-titled', async () => {
+        const content = 'A **transistor** is a component that uses **silicon**.';
+
+        mockGetHeadingLinks.mockResolvedValue(new Map());
+        mockGetSnapshot.mockResolvedValue({
+          id: 1,
+          version: 1,
+          data: {},
+          updated_at: '2024-01-01'
+        });
+
+        const result = await resolveLinksForArticle(123, content);
+
+        const boldLinks = result.filter(l => l.type === 'bold-term');
+        expect(boldLinks).toHaveLength(2);
+        expect(boldLinks[0]!.standaloneTitle).toBe('transistor');
+        expect(boldLinks[1]!.standaloneTitle).toBe('silicon');
+      });
+
+      it('skips bold terms inside headings', async () => {
+        const content = '## Intro to **transistors**\n\nText here.';
+
+        mockGetHeadingLinks.mockResolvedValue(new Map([
+          ['intro to **transistors**', 'Transistors Intro']
+        ]));
+        mockGetSnapshot.mockResolvedValue({
+          id: 1,
+          version: 1,
+          data: {},
+          updated_at: '2024-01-01'
+        });
+
+        const result = await resolveLinksForArticle(123, content);
+
+        expect(result.filter(l => l.type === 'bold-term')).toHaveLength(0);
+      });
+
+      it('bolded term uses whitelist standalone_title when one exists', async () => {
+        const content = 'A **transistor** is small.';
+
+        mockGetHeadingLinks.mockResolvedValue(new Map());
+        mockGetSnapshot.mockResolvedValue({
+          id: 1,
+          version: 1,
+          data: {
+            transistor: { canonical_term: 'Transistor', standalone_title: 'Transistor Overview' }
+          },
+          updated_at: '2024-01-01'
+        });
+
+        const result = await resolveLinksForArticle(123, content);
+
+        // Step 2's word-boundary check excludes asterisks, so the whitelist
+        // step doesn't match inside **...**. The bold-term step does, and
+        // promotes the whitelist's standalone_title over the self-title.
+        expect(result).toHaveLength(1);
+        expect(result[0]!.type).toBe('bold-term');
+        expect(result[0]!.standaloneTitle).toBe('Transistor Overview');
+      });
+
+      it('honors disabled override for a bolded term', async () => {
+        const content = 'Avoid **deprecated** API.';
+
+        mockGetHeadingLinks.mockResolvedValue(new Map());
+        mockGetSnapshot.mockResolvedValue({
+          id: 1,
+          version: 1,
+          data: {},
+          updated_at: '2024-01-01'
+        });
+        const mockSupabase = createMockSupabase();
+        (createSupabaseServerClient as jest.Mock).mockResolvedValue(mockSupabase);
+        mockSupabase.eq.mockResolvedValue({
+          data: [{ term_lower: 'deprecated', override_type: LinkOverrideType.Disabled }],
+          error: null
+        });
+
+        const result = await resolveLinksForArticle(123, content);
+
+        expect(result.filter(l => l.type === 'bold-term')).toHaveLength(0);
+      });
+
+      it('skips empty/whitespace-only bold markers', async () => {
+        const content = 'Edge case ** ** and ****.';
+
+        mockGetHeadingLinks.mockResolvedValue(new Map());
+        mockGetSnapshot.mockResolvedValue({
+          id: 1,
+          version: 1,
+          data: {},
+          updated_at: '2024-01-01'
+        });
+
+        const result = await resolveLinksForArticle(123, content);
+
+        expect(result.filter(l => l.type === 'bold-term')).toHaveLength(0);
+      });
+    });
   });
 
   // ============================================================================
@@ -574,6 +674,21 @@ describe('LinkResolver Service', () => {
       const result = applyLinksToContent(content, links);
 
       expect(result).toBe('### [Sub Section](/standalone-title?t=Sub%20Section%20Details)\n\nDetails here');
+    });
+
+    it('replaces **bold** with a link (drops asterisks; link styling carries emphasis)', () => {
+      const content = 'A **transistor** is small.';
+      const links: ResolvedLinkType[] = [{
+        term: '**transistor**',
+        startIndex: 2,
+        endIndex: 16,
+        standaloneTitle: 'transistor',
+        type: 'bold-term'
+      }];
+
+      const result = applyLinksToContent(content, links);
+
+      expect(result).toBe('A [transistor](/standalone-title?t=transistor) is small.');
     });
   });
 });

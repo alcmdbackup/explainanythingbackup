@@ -154,6 +154,40 @@ jest.mock('@/lib/utils/supabase/server', () => {
   };
 });
 
+// Unset OTLP endpoint at the global setup level so production code paths
+// that call otelLogger.emitLog() short-circuit via initializeOTLPLogger()
+// returning null — never creating the OTLP exporter, never triggering its
+// lazy dynamic ESM import. That import is rejected by Node in a Jest VM
+// context without --experimental-vm-modules, and the rejection lands as an
+// unhandled promise rejection after the test completes, making jest exit 1
+// even when every test passed.
+//
+// otelLogger.integration.test.ts explicitly sets OTEL_EXPORTER_OTLP_ENDPOINT
+// per-test under `jest.resetModules()`, so its scenarios still create real
+// exporters. For those, the unhandledRejection handler below catches the
+// async dynamic-import rejection (which arrives after the test body has
+// already finished synchronously) and drops it on the floor.
+delete process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
+delete process.env.OTEL_EXPORTER_OTLP_HEADERS;
+
+process.on('unhandledRejection', (reason) => {
+  // Pre-existing OTEL exporter teardown leak: the OTLP exporter does a
+  // dynamic ESM import inside an async callback that fires AFTER the test
+  // body returns. Jest can't await it; Node treats it as unhandled and
+  // exits 1. The rejection has `code === 'ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING_FLAG'`.
+  // Suppress only this specific shape so genuine test failures still surface.
+  if (
+    reason &&
+    typeof reason === 'object' &&
+    'code' in reason &&
+    reason.code === 'ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING_FLAG'
+  ) {
+    return;
+  }
+  // Anything else: re-throw to preserve default Node behavior.
+  throw reason;
+});
+
 // Integration test specific configuration
 console.log('Integration test environment loaded');
 console.log('- PINECONE_NAMESPACE:', process.env.PINECONE_NAMESPACE);

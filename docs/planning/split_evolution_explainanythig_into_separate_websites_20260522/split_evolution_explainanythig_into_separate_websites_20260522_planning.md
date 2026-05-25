@@ -93,6 +93,13 @@ The implementation of `requireAdmin()` must use `try/catch` around `headers()` a
 
 ## Phased Execution Plan
 
+> **Deployment note**: PR merge alone does NOT ship to production. After the PR
+> lands on `main`, run `/mainToProd` to promote the new migrations (FK SET NULL
+> enforcement on `evolution_runs.explanation_id`), middleware-based hostname
+> split, Sentry tagging, and Pinecone reset script to production. Phase 4
+> boundary verification cannot start until `/mainToProd` has completed and the
+> production deployment SHA matches `origin/main`.
+
 ### Phase 0: Staging Dry-Run Prerequisite (gates Phase 5)
 
 Goal: prove the Phase 5 destructive SQL on a staging clone of production before ever running it on prod.
@@ -219,6 +226,15 @@ Goal: the second hostname actually resolves to the deployment.
 - [x] Verify TLS cert provisions cleanly.
 - [ ] Smoke (use GET, not HEAD — Next.js routes don't always implement HEAD): `curl -sS -o /dev/null -w '%{http_code}\n' https://<evolution-host>/admin/evolution-dashboard` returns 200 or 307. `curl -sS -o /dev/null -w '%{http_code}\n' https://<evolution-host>/results` returns 404. `curl -sS -o /dev/null -w '%{http_code}\n' https://<public-host>/admin/evolution/runs` returns 404.
 - [x] Rollback: remove the domain from Vercel (DNS-level the public host keeps serving everything; existing admin links via the public host still work because that path didn't change yet). Mid-Phase-2 rollback: revert the middleware PR.
+
+### Phase 3.5: Promote to Production via `/mainToProd`
+
+Goal: get the merged code (migrations + middleware + Sentry tagging + Pinecone script) onto the production deployment so Phase 4 has something real to verify.
+
+- [ ] Confirm PR #1072 merged to `main` and the merge SHA is green on CI.
+- [ ] Run `/mainToProd` to promote `main` → `production`. Watch for: migration `20260524000002_enforce_evolution_runs_explanation_fk_set_null.sql` applies cleanly (orphan-null UPDATE may touch N rows — record N in the run log); Vercel deploy to the public host succeeds; deploy completes for the evolution host once Phase 3 has finished provisioning it.
+- [ ] Capture the production deploy SHA — it MUST equal `origin/main` HEAD before Phase 4 begins.
+- [ ] If the migration UPDATE nulled > 0 orphan rows on prod, archive the count in `phase3.5-fk-orphan-cleanup.md` — it's evidence that prior DELETEs on `explanations` had been silently leaving dangling FKs (the bug the new constraint fixes).
 
 ### Phase 4: Boundary Verification
 
@@ -456,6 +472,23 @@ Goal: wipe explainanything user content; preserve every evolution row.
 - [ ] Archive Phase 4 + Phase 5 logs (`phase4-verification-log.md`, `phase4-e2e-rewiring.md`, `phase5-baseline.md`, `phase5-pinecone-baseline.md`, `phase5-dryrun-staging.md`, `reset-runbook.md`).
 - [ ] `CLAUDE.md` — only if it references the production URL.
 - [x] `.gitignore` — confirm `*.sql.dump` is ignored (add if missing).
+
+## Postmortem appendix — smoke-test fallout (2026-05-23)
+
+The first prod deploys after this PR (`346b99e8` and `bbca28bc` on 2026-05-23) failed the `post-deploy-smoke.yml` matrix in both rows for two distinct reasons traceable to the hostname split:
+
+- **public row**: matrix BASE_URL was `${{ github.event.deployment_status.target_url }}` (a Vercel per-deploy preview URL like `explainanything-3ad03ivv0-….vercel.app`). `classifyHost()` is strict-exact-match and returned `'unknown'` for preview URLs → middleware fail-closed 404 on `/` and `/userlibrary`. Smoke assertions saw `<title></title>` (Next.js middleware-404 signature).
+- **evolution row**: BASE_URL was `https://ea-evolution.vercel.app`. Middleware redirected `/` → `/admin/evolution-dashboard` (no `home-search-input`), and `/userlibrary` is in `PUBLIC_PREFIXES` blocked on the evolution host → 404.
+
+Fix landed in `docs/planning/smoke_test_and_nightly_e2e_failing_20260523/` (see Phases 2 + 3 of that project's plan):
+- Pin smoke matrix `public` row to the apex hostname (1-line YAML), not `deployment_status.target_url`.
+- Split `smoke.spec.ts` into `smoke.public.spec.ts` (3 tests, `@smoke + @smoke-public`) and `smoke.evolution.spec.ts` (2 tests, `@smoke + @smoke-evolution`, uses admin-auth fixture). Per-matrix-row spec selection + zero-test guard against tag typos.
+- Lock in `classifyHost`'s strict-match contract via `src/config/__tests__/hostnames.test.ts` so this can't silently regress.
+
+**Lessons for future hostname/middleware changes** (worth bookmarking for the next split-style project):
+1. Vercel emits per-deploy preview URLs that don't match the apex. Anything that hits the deploy URL post-deploy needs to either be pinned to the apex or expect to fall through to `'unknown'` classification.
+2. `@smoke` (or any tag-based selection in CI) needs an explicit zero-test guard, otherwise Playwright exits 0 on a tag typo and the check silently passes with no coverage.
+3. Cross-host route-policy changes (e.g. `PUBLIC_PREFIXES` blocking `/userlibrary` on evolution) need a host-aware spec, not a single spec running against multiple hosts.
 
 ## Review & Discussion
 

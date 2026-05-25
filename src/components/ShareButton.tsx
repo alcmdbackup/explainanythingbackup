@@ -22,8 +22,6 @@ export default function ShareButton({ url, variant = 'text', className = '' }: S
 
     try {
       await navigator.clipboard.writeText(url);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
     } catch {
       // Fallback for older browsers
       const textArea = document.createElement('textarea');
@@ -34,9 +32,9 @@ export default function ShareButton({ url, variant = 'text', className = '' }: S
       textArea.select();
       document.execCommand('copy');
       document.body.removeChild(textArea);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
     }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
 
   return (
@@ -45,10 +43,12 @@ export default function ShareButton({ url, variant = 'text', className = '' }: S
       className={`inline-flex items-center gap-1.5 text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors ${className}`}
       aria-label={copied ? 'Link copied' : 'Share link'}
     >
-      {copied ? (
-        <CheckIcon className="w-4 h-4 text-green-500" />
-      ) : (
-        <LinkIcon className="w-4 h-4" />
+      {variant === 'icon' && (
+        copied ? (
+          <CheckIcon className="w-4 h-4 text-green-500" />
+        ) : (
+          <LinkIcon className="w-4 h-4" />
+        )
       )}
       {variant === 'text' && (
         <span className="text-sm">{copied ? 'Copied!' : 'Share'}</span>

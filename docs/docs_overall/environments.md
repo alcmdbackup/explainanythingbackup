@@ -52,8 +52,37 @@ Migrations are stored in `supabase/migrations/` and deployed automatically via G
 | Trigger | Staging | Production |
 |---------|---------|------------|
 | PR with changes in `supabase/migrations/**` | Auto-deploy via CI (`deploy-migrations` job) | N/A |
-| Push to `main` with changes in `supabase/migrations/**` | Auto-deploy | Auto-deploy (after staging succeeds) |
+| Push to `main` with changes in `supabase/migrations/**` | Auto-deploy | N/A — main does NOT deploy to prod |
+| Push to `production` with changes in `supabase/migrations/**` | N/A | Auto-deploy |
 | Manual dispatch | Optional skip | Requires staging success or explicit skip |
+
+> **Important**: production migrations deploy only on push to the `production` branch (which happens when a `Release: main → production` PR is merged via `/mainToProd`). They do NOT deploy on push to `main`. A 62-day silent prod-schema drift was caused by this gating going unmonitored across 7+ releases (PR #1073 aborted the queue on a non-idempotent migration; PR #1074 hotfix fixed it). The `mainToProd` and `finalize` skills now emit a conditional **post-merge verification banner** when the PR being released touches `supabase/migrations/**` — see `.claude/commands/mainToProd.md` and `.claude/commands/finalize.md`. A migration-idempotency CI lint also catches the most common silent-failure patterns before merge.
+
+#### Migration idempotency lint (CI requirement)
+
+Every PR that adds files under `supabase/migrations/**` must pass `scripts/lint-migrations-idempotent.ts` (wired as the `lint-migrations-idempotent` job in `.github/workflows/supabase-migrations.yml`, with both deploy jobs declaring `needs: [lint-migrations-idempotent]`). Run it locally pre-PR via `npm run lint:migrations`.
+
+**Patterns the lint enforces (newly-added migration files only):**
+
+| Pattern | Required guard |
+|---|---|
+| `CREATE TABLE foo` | `CREATE TABLE IF NOT EXISTS foo` |
+| `CREATE INDEX idx` | `CREATE INDEX IF NOT EXISTS idx` |
+| `CREATE UNIQUE INDEX idx` | `CREATE UNIQUE INDEX IF NOT EXISTS idx` |
+| `CREATE TYPE t AS ENUM(...)` | wrap in `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname='t') THEN CREATE TYPE t ...; END IF; END $$;` |
+| `CREATE FUNCTION f()` | `CREATE OR REPLACE FUNCTION f()` |
+| `CREATE TRIGGER t ON foo` | preceded by `DROP TRIGGER IF EXISTS t ON foo;` in same file |
+| `CREATE POLICY "p" ON foo` | preceded by `DROP POLICY IF EXISTS "p" ON foo;` in same file |
+| `ALTER TABLE foo ADD COLUMN c` | `ALTER TABLE foo ADD COLUMN IF NOT EXISTS c` (Supabase runs PG 14+) |
+| `ALTER TABLE foo ADD CONSTRAINT c` | preceded by `ALTER TABLE foo DROP CONSTRAINT IF EXISTS c;` in same file (PG has no native `IF NOT EXISTS` for constraints — this was the exact #1073 trip-wire) |
+
+**Warn-only rollout window**: as of 2026-05-24 the job ships with `continue-on-error: true` (warnings annotate the PR but don't block merge). The flag is scheduled to flip to `false` on **2026-05-31** to give the in-flight migration backlog a week to drain.
+
+**Emergency bypass**: apply the `migration-lint-bypass` PR label to skip the check during a production-down hotfix. The bypass logs a warning annotation and requires a follow-up PR to retrofit guards into the bypassed migration. Note that GitHub branch protection does not cover PR-label add/remove events — bypass is a soft control gated on social convention + CODEOWNERS review of the labeled PR; treat the audit annotation as the binding record.
+
+#### Release-alert Slack channel
+
+Both `e2e-nightly.yml` and `post-deploy-smoke.yml` post failure alerts to the channel configured by the repository's `SLACK_WEBHOOK_URL` secret. The channel currently receiving these is whichever channel the webhook is wired to in Slack — confirm with a repo admin and document the channel name here when a dedicated `#release-alerts` channel is established. The 62-day silent outage was largely an attention problem: alerts were firing but the channel went unread. Whoever owns the channel should keep it unmuted and configure keyword highlights on `[release-health]` issues + the workflow names above.
 
 **CI Flow (PRs)**: When a PR contains migration files, the CI `deploy-migrations` job applies them to staging before tests run. This eliminates the migration/test deadlock where tests fail because the schema hasn't been applied yet. Types are then regenerated from the updated staging schema and auto-committed to the PR branch.
 
@@ -74,6 +103,15 @@ supabase db push
 ```
 
 **Safety**: Production environment in GitHub should have "Required reviewers" enabled for manual approval gate.
+
+### Release Cadence
+
+Production releases (`main → production` merges via `/mainToProd`) should happen at least **every 2 weeks**, even if no urgent fixes are queued. Long periods between releases let migration backlog accumulate, which compounds two risks:
+
+1. **Larger queues are more fragile**. If any single migration in the queue is non-idempotent (e.g., bare `ADD CONSTRAINT` without `DROP IF EXISTS`), the entire deploy aborts at that file and none of the subsequent migrations land. A 5-migration queue has 5 chances to fail; a 56-migration queue has 56.
+2. **Failure correlation gets harder**. When a deploy fails, fewer recent migrations means easier diagnosis. After 2.5 months frozen, the smoke_test_and_nightly_e2e_failing_20260523 investigation had to bisect across 73 migration commits to find the trip-wire.
+
+The 2-week cadence is a *default*, not a hard rule — relax it only when there is genuinely nothing merge-ready on `main` that should ship. When a release does fire, run `/mainToProd` and pay attention to the post-merge verification banner if it surfaces (it only fires when the release includes migrations).
 
 ---
 
@@ -414,6 +452,18 @@ See `scripts/query-honeycomb.md` for detailed instructions on querying logs and 
 | `NEXT_PUBLIC_ENABLE_BROWSER_TRACING` | Enable browser tracing via `/api/traces` proxy |
 | `NEXT_PUBLIC_LOG_ALL_LEVELS` | Client sends all log levels (build-time) |
 | `SENTRY_DSN` | Sentry DSN |
+
+### Demo Mode
+
+| Variable | Description |
+|----------|-------------|
+| `LINKS_BYPASS_WHITELIST` | When `'true'`, `linkResolver` merges `link_candidates` rows into the whitelist so AI-suggested terms link inline without admin approval. Module-scope 5-min TTL cache. Display-path only. Default `'false'`. |
+| `GUEST_EMAIL` | Shared demo guest account email (e.g., `guest@explainanything.app`). Middleware uses it for auto-login on public hostname. Missing = auto-login is a no-op. |
+| `GUEST_PASSWORD` | Password for the demo guest account. Generated by `scripts/seed-guest-user.ts` (printed once on creation). Missing = auto-login is a no-op. |
+| `GUEST_USER_ID` | UUID of the demo guest account. Used by `llms.ts` to apply the $10/day per-user cap. |
+| `NEXT_PUBLIC_GUEST_EMAIL` | Same as `GUEST_EMAIL` but bundled into the client at build time. Read by `useIsGuest()` hook to hide sign-out button. Changing this requires a new deployment, not just an env-var update. |
+| `E2E_TEST_MODE` | When `'true'`, suppresses guest auto-login in middleware so existing unauth-redirect E2E tests still pass. Set in `playwright.config.ts` webServer and in `post-deploy-smoke.yml` env block. |
+| `SEED_BYPASS_USER_CAP` | When `'true'`, `LlmSpendingGate.checkPerUserCap()` returns immediately even when spend > cap. Set ONLY when running `scripts/seed-guest-library.ts` to avoid burning the day's budget pre-demo. NEVER set in any deployed env. |
 
 ### Local LLM (Ollama)
 

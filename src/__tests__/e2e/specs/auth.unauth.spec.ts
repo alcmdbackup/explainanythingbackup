@@ -20,7 +20,20 @@ test.describe('Unauthenticated User Tests', () => {
     await expect(submitButton).toBeVisible();
   });
 
-  test('unauthenticated user redirected from protected route', { tag: '@critical' }, async ({ page }) => {
+  test('unauthenticated user redirected from protected route', { tag: '@critical' }, async ({ page, context }) => {
+    // Suppress middleware guest-auto-login so the unauth-redirect path actually fires.
+    // Local tmux dev server doesn't set E2E_TEST_MODE=true (unlike Playwright's webServer
+    // on port 3008), so without this cookie the middleware silently logs the "unauth"
+    // user in as a guest (see src/lib/utils/supabase/middleware.ts:70-76) and the page
+    // loads /userlibrary instead of redirecting to /login.
+    // Scoped to this single test only — applying it at the project level via storageState
+    // breaks the "login with valid credentials" test in this same file.
+    await context.addCookies([{
+      name: 'GUEST_AUTOLOGIN_FAILED_RECENTLY',
+      value: '1',
+      url: 'http://localhost',
+    }]);
+
     // Navigate to protected route without auth
     await page.goto('/userlibrary');
 

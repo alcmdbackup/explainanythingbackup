@@ -1124,6 +1124,66 @@ Iterations: N (0 = first attempt passed)
 ──────────────────────────────────────
 ```
 
+### Step 8.5 Migration-Present Warning (Conditional)
+
+After CI is green, detect whether this PR touches any migration files. **Same fail-loud semantics as mainToProd Step 7.5 — silent skip recreates the failure mode this guard exists to prevent.** (Do NOT use `set -e` — it would abort the snippet before the `DIFF_EXIT=$?` capture, defeating the explicit-check pattern.)
+
+```bash
+# Get the PR number (must be defined; this skill does not maintain it as a global)
+PR_NUMBER=$(gh pr view --json number -q .number)
+if [ -z "$PR_NUMBER" ] || [ "$PR_NUMBER" = "null" ]; then
+  echo "WARNING: unable to determine PR number — migration-presence check skipped. Inspect manually before merging."
+else
+  DIFF_OUTPUT=$(gh pr diff "$PR_NUMBER" --name-only)
+  DIFF_EXIT=$?
+  if [ "$DIFF_EXIT" -ne 0 ]; then
+    echo "WARNING: 'gh pr diff $PR_NUMBER --name-only' exited $DIFF_EXIT — migration-presence check could not run. Run manually before merging:"
+    echo "  git diff origin/main..HEAD -- supabase/migrations/"
+  else
+    MIGRATION_FILES=$(echo "$DIFF_OUTPUT" | grep '^supabase/migrations/' || true)
+    if [ -z "$MIGRATION_FILES" ]; then
+      :  # No migrations; no banner.
+    else
+      MIGRATION_COUNT=$(echo "$MIGRATION_FILES" | wc -l | tr -d ' ')
+      # MUST emit the banner below as the FINAL message to the user. Claude (the
+      # skill runner) MUST include this banner literally in its final response
+      # — do not summarize or paraphrase. Render as a fenced code block so ASCII
+      # rules display verbatim and aren't reflowed.
+      echo "================================================================================"
+      echo "!! POST-MERGE STAGING MIGRATION VERIFICATION REQUIRED !!"
+      echo "================================================================================"
+      echo ""
+      echo "This PR ships $MIGRATION_COUNT migration file(s):"
+      echo ""
+      echo "$MIGRATION_FILES" | sed 's/^/  /'
+      echo ""
+      echo "After you merge to main, you MUST verify the staging migration workflow:"
+      echo ""
+      echo "  # Wait ~5-10 seconds after merge for GitHub to populate the merge commit SHA"
+      echo "  MERGE_SHA=\$(gh pr view $PR_NUMBER --json mergeCommit -q '.mergeCommit.oid')"
+      echo "  if [ -z \"\$MERGE_SHA\" ] || [ \"\$MERGE_SHA\" = \"null\" ]; then"
+      echo "    echo 'Merge SHA not yet populated — wait 10s and re-run.'"
+      echo "  else"
+      echo "    gh run list --workflow=supabase-migrations.yml --branch=main \\"
+      echo "      --commit=\"\$MERGE_SHA\" --limit=1"
+      echo "  fi"
+      echo ""
+      echo "EXPECTED: conclusion=success."
+      echo ""
+      echo "IF FAILURE: do NOT merge further migration-touching PRs until this is fixed."
+      echo "A failed staging migration leaves staging schema stale and will manifest as"
+      echo "PR CI failures for the next unrelated author — confusing them and adding"
+      echo "investigation overhead. Blast radius is lower than prod but the fix pattern"
+      echo "is the same:"
+      echo "  gh run view <id> --log-failed"
+      echo ""
+      echo "See parallel pattern in /mainToProd for the full background."
+      echo "================================================================================"
+    fi
+  fi
+fi
+```
+
 ## Success Criteria
 
 - Plan assessment passed (or user chose to proceed with gaps)
