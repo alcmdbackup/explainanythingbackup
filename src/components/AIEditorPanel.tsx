@@ -139,21 +139,6 @@ const CheckIcon = () => (
   </svg>
 );
 
-const QuillIcon = ({ className }: { className?: string }) => (
-  <svg
-    className={className}
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="1.5"
-  >
-    <path d="M12 19l7-7 3 3-7 7-3-3z" strokeLinecap="round" strokeLinejoin="round" />
-    <path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18" strokeLinecap="round" strokeLinejoin="round" />
-    <path d="M2 2l7.586 7.586" strokeLinecap="round" strokeLinejoin="round" />
-    <circle cx="11" cy="11" r="2" fill="currentColor" />
-  </svg>
-);
-
 const ExpandModalIcon = () => (
   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
@@ -509,11 +494,10 @@ export default function AIEditorPanel({
           </span>
         )}
 
-        {/* Header - Title, mode toggle, and expand button */}
+        {/* Header - Title + expand button (mode toggle moved below divider) */}
         <div className={styles.header}>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <QuillIcon className={styles.headerIcon} />
               <h2 className={styles.headerTitle}>
                 {outputMode === 'rewrite' ? 'Rewrite article' : 'Suggest edits'}
               </h2>
@@ -531,24 +515,24 @@ export default function AIEditorPanel({
               </button>
             )}
           </div>
-
-          {/* Output Mode Toggle - in header */}
-          {onOutputModeChange && (
-            <div className="mt-3">
-              <OutputModeToggle
-                value={outputMode}
-                onChange={onOutputModeChange}
-                disabled={isStreaming || isLoading}
-              />
-            </div>
-          )}
         </div>
 
         {/* Divider line between header and content */}
-        <div className="border-t-2 border-[var(--border-default)]" />
+        <div className="border-t-4 border-[var(--border-default)]" />
+
+        {/* Output Mode Toggle - pinned below divider, above scroll area */}
+        {onOutputModeChange && (
+          <div className={styles.modeToggleWrapper}>
+            <OutputModeToggle
+              value={outputMode}
+              onChange={onOutputModeChange}
+              disabled={isStreaming || isLoading}
+            />
+          </div>
+        )}
 
         {/* Scrollable Content Area */}
-        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-8">
           {/* Prompt Input */}
           <div className={styles.section}>
             <label htmlFor="ai-prompt" className={styles.sectionLabel}>
@@ -635,29 +619,6 @@ export default function AIEditorPanel({
               />
             </div>
           )}
-
-          {/* Submit Button */}
-          <button
-            onClick={() => handleSubmit()}
-            disabled={isStreaming || isLoading || !userPrompt.trim() || !currentContent.trim()}
-            className={styles.submitButton}
-          >
-            <span className="flex items-center justify-center gap-2">
-              {isLoading ? (
-                <>
-                  <Spinner variant="quill" size={18} />
-                  <span>{outputMode === 'rewrite' ? 'Generating...' : 'Composing...'}</span>
-                </>
-              ) : (
-                <>
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                  </svg>
-                  <span>{outputMode === 'rewrite' ? 'Generate New Version' : 'Get Suggestions'}</span>
-                </>
-              )}
-            </span>
-          </button>
 
           {/* Loading State with Progress */}
           {isLoading && progressState && (
@@ -839,6 +800,26 @@ export default function AIEditorPanel({
             )}
           </div>
         )}
+
+        {/* Submit Button - pinned at the very bottom */}
+        <div className="shrink-0 px-5 py-4 border-t border-[var(--border-default)]">
+          <button
+            onClick={() => handleSubmit()}
+            disabled={isStreaming || isLoading || !userPrompt.trim() || !currentContent.trim()}
+            className={styles.submitButton}
+          >
+            <span className="flex items-center justify-center gap-2">
+              {isLoading ? (
+                <>
+                  <Spinner variant="quill" size={18} />
+                  <span>{outputMode === 'rewrite' ? 'Generating...' : 'Composing...'}</span>
+                </>
+              ) : (
+                <span>{outputMode === 'rewrite' ? 'Generate New Version' : 'Get Suggestions'}</span>
+              )}
+            </span>
+          </button>
+        </div>
       </div>
     </div>
   );

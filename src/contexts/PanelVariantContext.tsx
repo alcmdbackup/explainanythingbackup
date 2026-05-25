@@ -1,12 +1,27 @@
 'use client';
 
 /**
- * PanelVariantContext - Manages AI Editor Panel design variant selection
- * Persists choice to localStorage for user preference retention
+ * PanelVariantContext - Manages AI Editor Panel design variant selection.
+ *
+ * Resolution priority (first match wins):
+ *   1. URL search param `?panelVariant=…` (for A/B testing, shareable)
+ *   2. localStorage `ai-panel-variant` (per-user preference)
+ *   3. DEFAULT_PANEL_VARIANT
+ *
+ * URL param is re-evaluated on every navigation. setVariant() still writes to
+ * localStorage so user preference persists across sessions when no URL param
+ * is present.
  */
 
-import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { PanelVariant, PANEL_VARIANTS, DEFAULT_PANEL_VARIANT, type PanelVariantConfig } from '@/components/ai-panel-variants';
+import { createContext, useContext, useState, useEffect, ReactNode, useMemo } from 'react';
+import { useSearchParams } from 'next/navigation';
+import {
+  PanelVariant,
+  PANEL_VARIANTS,
+  DEFAULT_PANEL_VARIANT,
+  resolvePanelVariant,
+  type PanelVariantConfig,
+} from '@/components/ai-panel-variants';
 
 const STORAGE_KEY = 'ai-panel-variant';
 
@@ -23,31 +38,43 @@ interface PanelVariantProviderProps {
 }
 
 export function PanelVariantProvider({ children }: PanelVariantProviderProps) {
-  const [variant, setVariantState] = useState<PanelVariant>(DEFAULT_PANEL_VARIANT);
+  const searchParams = useSearchParams();
+  const urlVariantRaw = searchParams.get('panelVariant');
+
+  const [storedVariant, setStoredVariant] = useState<PanelVariant>(DEFAULT_PANEL_VARIANT);
   const [isHydrated, setIsHydrated] = useState(false);
 
-  // Load from localStorage on mount
+  // Load from localStorage on mount — defensive: hasOwnProperty.call instead
+  // of `in` (the same Object.prototype-key attack that affected
+  // editor-panel-variants applies here for localStorage).
   useEffect(() => {
     const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored && stored in PANEL_VARIANTS) {
-      setVariantState(stored as PanelVariant);
+    if (stored && Object.prototype.hasOwnProperty.call(PANEL_VARIANTS, stored)) {
+      setStoredVariant(stored as PanelVariant);
     }
     setIsHydrated(true);
   }, []);
 
-  // Save to localStorage when variant changes
+  // URL param wins, then localStorage, then default. resolvePanelVariant
+  // returns DEFAULT for unknown / null / Object.prototype keys.
+  const variant: PanelVariant = useMemo(() => {
+    if (urlVariantRaw) return resolvePanelVariant(urlVariantRaw);
+    return isHydrated ? storedVariant : DEFAULT_PANEL_VARIANT;
+  }, [urlVariantRaw, storedVariant, isHydrated]);
+
+  // setVariant writes to localStorage; URL param (if any) still takes
+  // precedence on next render.
   const setVariant = (newVariant: PanelVariant) => {
-    setVariantState(newVariant);
+    setStoredVariant(newVariant);
     localStorage.setItem(STORAGE_KEY, newVariant);
   };
 
   const config = PANEL_VARIANTS[variant];
 
-  // Prevent hydration mismatch by using default until client-side hydration
   const value: PanelVariantContextType = {
-    variant: isHydrated ? variant : DEFAULT_PANEL_VARIANT,
+    variant,
     setVariant,
-    config: isHydrated ? config : PANEL_VARIANTS[DEFAULT_PANEL_VARIANT],
+    config,
   };
 
   return (

@@ -37,6 +37,27 @@ describe('ReportContentButton', () => {
 
       expect(screen.queryByText('Report Content')).not.toBeInTheDocument();
     });
+
+    it('preserves baseline classes when no className is passed', () => {
+      render(<ReportContentButton explanationId={123} />);
+
+      const button = screen.getByTestId('report-content-button');
+      expect(button.className).toContain('rounded-page');
+      expect(button.className).toContain('bg-[var(--surface-secondary)]');
+      expect(button.className).toContain('h-9');
+    });
+
+    it('merges optional className with baseline classes', () => {
+      render(<ReportContentButton explanationId={123} className="hidden sm:inline-flex" />);
+
+      const button = screen.getByTestId('report-content-button');
+      // Baseline still present
+      expect(button.className).toContain('rounded-page');
+      expect(button.className).toContain('h-9');
+      // Caller class also present
+      expect(button.className).toContain('hidden');
+      expect(button.className).toContain('sm:inline-flex');
+    });
   });
 
   describe('modal interaction', () => {

@@ -22,6 +22,10 @@ import SourceEditor from '@/components/sources/SourceEditor';
 
 import { RawMarkdownEditor } from '@/components/RawMarkdownEditor';
 import { ReportContentButton } from '@/components/ReportContentButton';
+import {
+    EDITOR_PANEL_VARIANTS,
+    resolveEditorPanelVariant,
+} from '@/components/editor-panel-variants';
 import { tagModeReducer, createInitialTagModeState, isTagsModified } from '@/reducers/tagModeReducer';
 import { PanelVariantProvider } from '@/contexts/PanelVariantContext';
 import {
@@ -39,8 +43,6 @@ import {
 import { useExplanationLoader } from '@/hooks/useExplanationLoader';
 import { useUserAuth } from '@/hooks/useUserAuth';
 import { useTextRevealSettings } from '@/hooks/useTextRevealSettings';
-import { SparklesIcon, CheckCircleIcon, CheckIcon } from '@heroicons/react/24/solid';
-import { BookmarkIcon, PencilSquareIcon, DocumentTextIcon, Bars3BottomLeftIcon } from '@heroicons/react/24/outline';
 import ShareButton from '@/components/ShareButton';
 import { GenerationStatusPill } from '@/components/results/GenerationStatusPill';
 
@@ -50,6 +52,12 @@ const FORCE_REGENERATION_ON_NAV = false;
 function ResultsPageContent() {
     const searchParams = useSearchParams();
     const router = useRouter();
+
+    // Editor-panel variant selected via ?editorVariant=… URL param.
+    // O(1) Record lookup — no memoization needed (deps comparison would cost
+    // more than the lookup itself). See docs/planning/light_design_changes_*.
+    const editorPanelVariant = resolveEditorPanelVariant(searchParams.get('editorVariant'));
+    const editorPanelClass = EDITOR_PANEL_VARIANTS[editorPanelVariant];
 
     // Initialize user authentication hook first (needed for request context)
     const { userid, isLoading: isAuthLoading, fetchUserid } = useUserAuth();
@@ -237,7 +245,9 @@ function ResultsPageContent() {
             const userQuery = await (getUserQueryByIdAction as any)(withRequestId({ id: userQueryId }));
 
             if (!userQuery) {
-                dispatchLifecycle({ type: 'ERROR', error: 'User query not found' });
+                // Defensive: service currently throws on not-found instead of returning
+                // null, but keep this branch in case the contract changes.
+                logger.info('User query not found, skipping URL prefill', { userQueryId });
                 return;
             }
 
@@ -248,9 +258,23 @@ function ResultsPageContent() {
             //setActiveTab('matches');
 
         } catch (err) {
-            const errorMessage = err instanceof Error ? err.message : 'Failed to load user query';
+            const errorMessage = err instanceof Error ? err.message : String(err);
+
+            // "Not found" is benign — the userQueryId in the URL may point to a row that
+            // was deleted (e.g., E2E teardown, retention sweep) or never existed (stale
+            // bookmark). Don't dispatch a user-facing ERROR for it; just log info.
+            if (errorMessage.startsWith('User query not found for ID')) {
+                logger.info('User query not found, skipping URL prefill', { userQueryId, error: errorMessage });
+                return;
+            }
+
+            // Genuine failure — surface to user + log with full context.
             dispatchLifecycle({ type: 'ERROR', error: errorMessage });
-            logger.error('Failed to load user query:', { error: errorMessage });
+            logger.error('Failed to load user query', {
+                userQueryId,
+                error: errorMessage,
+                stack: err instanceof Error ? err.stack : undefined,
+            });
         }
     };
 
@@ -1208,9 +1232,8 @@ function ResultsPageContent() {
                                                             }, FILE_DEBUG);
                                                             await handleUserAction(userInput, UserInputType.Rewrite, mode, userid, [], explanationId, explanationVector);
                                                         }}
-                                                        className="inline-flex items-center gap-2 px-4 py-2 text-sm font-ui font-medium text-[var(--text-on-primary)] hover:opacity-90 transition-colors rounded-l-page disabled:cursor-not-allowed disabled:opacity-50"
+                                                        className="inline-flex items-center px-4 py-2 text-sm font-ui font-medium text-[var(--text-on-primary)] hover:opacity-90 transition-colors rounded-l-page disabled:cursor-not-allowed disabled:opacity-50"
                                                     >
-                                                        <SparklesIcon className="w-4 h-4" />
                                                         Rewrite
                                                     </button>
                                                     <button
@@ -1257,9 +1280,8 @@ function ResultsPageContent() {
                                             data-user-saved={userSaved}
                                             data-user-saved-loaded={userSavedLoaded}
                                             title={hasPendingSuggestions ? "Accept or reject AI suggestions before saving" : undefined}
-                                            className="inline-flex items-center justify-center gap-2 rounded-page bg-[var(--surface-secondary)] border border-[var(--border-default)] px-4 py-2 text-sm font-ui font-medium text-[var(--text-secondary)] shadow-warm transition-all duration-200 hover:border-[var(--accent-gold)] hover:text-[var(--accent-gold)] disabled:cursor-not-allowed disabled:opacity-50 h-9"
+                                            className="inline-flex items-center justify-center rounded-page bg-[var(--surface-secondary)] border border-[var(--border-default)] px-4 py-2 text-sm font-ui font-medium text-[var(--text-secondary)] shadow-warm transition-all duration-200 hover:border-[var(--accent-gold)] hover:text-[var(--accent-gold)] disabled:cursor-not-allowed disabled:opacity-50 h-9"
                                         >
-                                            {userSaved ? <CheckIcon className="w-4 h-4" /> : <BookmarkIcon className="w-4 h-4" />}
                                             {isSaving ? 'Saving...' : userSaved ? 'Saved' : 'Save'}
                                         </button>
                                         {explanationId && (
@@ -1275,9 +1297,8 @@ function ResultsPageContent() {
                                                 disabled={isSavingChanges || (explanationStatus !== ExplanationStatus.Draft && !hasUnsavedChanges) || isStreaming || hasPendingSuggestions}
                                                 data-testid="publish-button"
                                                 title={hasPendingSuggestions ? "Accept or reject AI suggestions before publishing" : undefined}
-                                                className="inline-flex items-center justify-center gap-2 rounded-page bg-gradient-to-br from-[var(--accent-gold)] to-[var(--accent-copper)] px-4 py-2 text-sm font-ui font-medium text-[var(--text-on-primary)] shadow-warm transition-all duration-200 hover:shadow-warm-md disabled:cursor-not-allowed disabled:opacity-50 h-9"
+                                                className="inline-flex items-center justify-center rounded-page bg-gradient-to-br from-[var(--accent-gold)] to-[var(--accent-copper)] px-4 py-2 text-sm font-ui font-medium text-[var(--text-on-primary)] shadow-warm transition-all duration-200 hover:shadow-warm-md disabled:cursor-not-allowed disabled:opacity-50 h-9"
                                             >
-                                                <CheckCircleIcon className="w-4 h-4" />
                                                 {isSavingChanges ? 'Publishing...' : 'Publish'}
                                             </button>
                                         )}
@@ -1307,9 +1328,8 @@ function ResultsPageContent() {
                                             disabled={isStreaming || hasPendingSuggestions}
                                             data-testid="format-toggle-button"
                                             title={hasPendingSuggestions ? "Accept or reject AI suggestions before switching view" : undefined}
-                                            className="inline-flex items-center justify-center gap-1.5 rounded-page bg-[var(--surface-secondary)] border border-[var(--border-default)] px-4 py-2 text-sm font-ui font-medium text-[var(--text-secondary)] shadow-warm transition-all duration-200 hover:border-[var(--accent-gold)] hover:text-[var(--accent-gold)] disabled:cursor-not-allowed disabled:opacity-50 h-9"
+                                            className="inline-flex items-center justify-center rounded-page bg-[var(--surface-secondary)] border border-[var(--border-default)] px-4 py-2 text-sm font-ui font-medium text-[var(--text-secondary)] shadow-warm transition-all duration-200 hover:border-[var(--accent-gold)] hover:text-[var(--accent-gold)] disabled:cursor-not-allowed disabled:opacity-50 h-9"
                                         >
-                                            {isMarkdownMode ? <Bars3BottomLeftIcon className="w-4 h-4" /> : <DocumentTextIcon className="w-4 h-4" />}
                                             {isMarkdownMode ? 'Plain Text' : 'Formatted'}
                                         </button>
                                         <button
@@ -1317,9 +1337,8 @@ function ResultsPageContent() {
                                             disabled={isStreaming || hasPendingSuggestions}
                                             data-testid="edit-button"
                                             title={hasPendingSuggestions ? "Accept or reject AI suggestions before exiting edit mode" : undefined}
-                                            className="inline-flex items-center justify-center gap-2 rounded-page bg-[var(--surface-secondary)] border border-[var(--border-default)] px-4 py-2 text-sm font-ui font-medium text-[var(--text-secondary)] shadow-warm transition-all duration-200 hover:border-[var(--accent-gold)] hover:text-[var(--accent-gold)] disabled:cursor-not-allowed disabled:opacity-50 h-9"
+                                            className="inline-flex items-center justify-center rounded-page bg-[var(--surface-secondary)] border border-[var(--border-default)] px-4 py-2 text-sm font-ui font-medium text-[var(--text-secondary)] shadow-warm transition-all duration-200 hover:border-[var(--accent-gold)] hover:text-[var(--accent-gold)] disabled:cursor-not-allowed disabled:opacity-50 h-9"
                                         >
-                                            {isEditMode ? <CheckIcon className="w-4 h-4" /> : <PencilSquareIcon className="w-4 h-4" />}
                                             {isEditMode ? 'Done' : 'Edit'}
                                         </button>
                                         {explanationId && (
@@ -1406,7 +1425,7 @@ function ResultsPageContent() {
                                             background: var(--scrollbar-thumb-active);
                                         }
                                     `}</style>
-                                    <div data-testid="explanation-content" className="scholar-card p-6 atlas-animate-fade-up stagger-5">
+                                    <div data-testid="explanation-content" className={`${editorPanelClass} atlas-animate-fade-up stagger-5`}>
                                         {(streamCompleted || (!isStreaming && content)) && <div data-testid="stream-complete" className="hidden" />}
                                         {isStreaming && !content ? (
                                             <div className="flex flex-col items-center justify-center py-12 gap-4">
@@ -1631,15 +1650,15 @@ function ResultsPageContent() {
 
 export default function ResultsPage() {
     return (
-        <PanelVariantProvider>
-            <Suspense fallback={
-                <div className="h-screen bg-[var(--surface-primary)] flex flex-col items-center justify-center gap-4">
-                    <div className="ink-dots"></div>
-                    <p className="text-sm font-body text-[var(--text-muted)]">Loading...</p>
-                </div>
-            }>
+        <Suspense fallback={
+            <div className="h-screen bg-[var(--surface-primary)] flex flex-col items-center justify-center gap-4">
+                <div className="ink-dots"></div>
+                <p className="text-sm font-body text-[var(--text-muted)]">Loading...</p>
+            </div>
+        }>
+            <PanelVariantProvider>
                 <ResultsPageContent />
-            </Suspense>
-        </PanelVariantProvider>
+            </PanelVariantProvider>
+        </Suspense>
     );
 } 
