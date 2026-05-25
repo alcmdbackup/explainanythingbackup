@@ -82,12 +82,12 @@ const linedPaper: PanelVariantConfig = {
     `,
     modeToggleWrapper: `px-5 py-3`,
     section: `py-4`,
-    sectionLabel: `text-base font-ui font-medium text-[var(--text-secondary)] mb-2`,
+    sectionLabel: `text-lg font-ui font-medium text-[var(--text-secondary)] mb-2`,
     textarea: `
-      w-full h-24 px-3 py-2.5
+      w-full h-40 px-3 py-2.5
       rounded-page border border-[var(--border-default)]
       ${INPUT_BG}
-      text-[var(--text-primary)] font-body text-base leading-relaxed
+      text-[var(--text-primary)] font-body text-lg leading-relaxed
       placeholder:text-[var(--text-muted)]
       shadow-warm
       focus:outline-none focus:border-[var(--accent-gold)] focus:ring-2 focus:ring-[var(--accent-gold)]/30
@@ -96,9 +96,9 @@ const linedPaper: PanelVariantConfig = {
       resize-none
     `,
     submitButton: `
-      w-full h-9
+      w-full h-11
       rounded-page
-      font-ui font-medium text-sm
+      font-ui font-medium text-base
       text-[var(--text-on-primary)]
       bg-gradient-to-br from-[var(--accent-gold)] to-[var(--accent-copper)]
       shadow-warm
@@ -110,14 +110,14 @@ const linedPaper: PanelVariantConfig = {
     `,
     quickActions: `flex flex-wrap items-center gap-x-3 pt-3`,
     quickActionLink: `
-      text-xs font-ui text-[var(--text-secondary)]
+      text-sm font-ui text-[var(--text-secondary)]
       hover:text-[var(--accent-copper)]
       transition-colors cursor-pointer
     `,
     historyWrapper: `px-5 py-4 border-t border-[var(--border-default)]`,
     historyButton: `
       w-full flex items-center justify-between
-      text-sm font-ui font-medium text-[var(--text-secondary)]
+      text-base font-ui font-medium text-[var(--text-secondary)]
       hover:text-[var(--accent-gold)]
       transition-colors py-1
     `,
@@ -125,7 +125,7 @@ const linedPaper: PanelVariantConfig = {
       w-full text-left py-3 px-3
       rounded-page
       border border-transparent
-      font-body text-base text-[var(--text-secondary)]
+      font-body text-lg text-[var(--text-secondary)]
       hover:bg-[var(--surface-elevated)] hover:border-[var(--border-default)]
       transition-all duration-200 cursor-pointer
     `,
@@ -168,21 +168,22 @@ function makeOneBlockVariant(o: OneBlockOverrides): PanelVariantConfig {
       // No gradient, no border-b — header sits on the body surface.
       // pt-7 bumps the divider Y position to roughly align with the article
       // title's title-flourish divider on the main content area.
-      header: `px-5 pt-7 pb-2`,
+      // pb-5 gives breathing room between the title and the divider.
+      header: `px-5 pt-7 pb-5`,
       headerTitle: `text-3xl font-display font-semibold text-[var(--text-primary)] leading-tight`,
       headerIcon: o.headerIcon ?? `w-5 h-5 text-[var(--accent-copper)]`,
       // Mode toggle now sits below the main divider in its own pinned region
       // (rendered between divider and scroll area in AIEditorPanel.tsx).
       modeToggleWrapper: `px-5 py-3`,
       section: `py-4`,
-      sectionLabel: `text-base font-ui font-medium text-[var(--text-secondary)] mb-2`,
+      sectionLabel: `text-lg font-ui font-medium text-[var(--text-secondary)] mb-2`,
       textarea:
         o.textarea ??
         `
-        w-full h-24 px-3 py-2.5
+        w-full h-40 px-3 py-2.5
         rounded-page border border-[var(--border-default)]
         ${INPUT_BG}
-        text-[var(--text-primary)] font-body text-base leading-relaxed
+        text-[var(--text-primary)] font-body text-lg leading-relaxed
         placeholder:text-[var(--text-muted)]
         shadow-warm
         focus:outline-none focus:border-[var(--accent-gold)] focus:ring-2 focus:ring-[var(--accent-gold)]/30
@@ -193,9 +194,9 @@ function makeOneBlockVariant(o: OneBlockOverrides): PanelVariantConfig {
       submitButton:
         o.submitButton ??
         `
-        w-full h-9
+        w-full h-11
         rounded-page
-        font-ui font-medium text-sm
+        font-ui font-medium text-base
         text-[var(--text-on-primary)]
         bg-gradient-to-br from-[var(--accent-gold)] to-[var(--accent-copper)]
         shadow-warm
@@ -207,7 +208,7 @@ function makeOneBlockVariant(o: OneBlockOverrides): PanelVariantConfig {
       `,
       quickActions: `flex flex-wrap items-center gap-x-3 pt-3`,
       quickActionLink: `
-        text-xs font-ui text-[var(--text-secondary)]
+        text-sm font-ui text-[var(--text-secondary)]
         hover:text-[var(--accent-copper)]
         transition-colors cursor-pointer
       `,
@@ -216,7 +217,7 @@ function makeOneBlockVariant(o: OneBlockOverrides): PanelVariantConfig {
         `px-5 py-4 border-t border-[var(--border-default)]/40`,
       historyButton: `
         w-full flex items-center justify-between
-        text-sm font-ui font-medium text-[var(--text-secondary)]
+        text-base font-ui font-medium text-[var(--text-secondary)]
         hover:text-[var(--accent-gold)]
         transition-colors py-1
       `,
@@ -224,7 +225,7 @@ function makeOneBlockVariant(o: OneBlockOverrides): PanelVariantConfig {
         w-full text-left py-3 px-3
         rounded-page
         border border-transparent
-        font-body text-base text-[var(--text-secondary)]
+        font-body text-lg text-[var(--text-secondary)]
         hover:bg-[var(--surface-elevated)] hover:border-[var(--border-default)]
         transition-all duration-200 cursor-pointer
       `,

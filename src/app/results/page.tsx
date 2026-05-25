@@ -247,7 +247,9 @@ function ResultsPageContent() {
             const userQuery = await (getUserQueryByIdAction as any)(withRequestId({ id: userQueryId }));
 
             if (!userQuery) {
-                dispatchLifecycle({ type: 'ERROR', error: 'User query not found' });
+                // Defensive: service currently throws on not-found instead of returning
+                // null, but keep this branch in case the contract changes.
+                logger.info('User query not found, skipping URL prefill', { userQueryId });
                 return;
             }
 
@@ -258,9 +260,23 @@ function ResultsPageContent() {
             //setActiveTab('matches');
 
         } catch (err) {
-            const errorMessage = err instanceof Error ? err.message : 'Failed to load user query';
+            const errorMessage = err instanceof Error ? err.message : String(err);
+
+            // "Not found" is benign — the userQueryId in the URL may point to a row that
+            // was deleted (e.g., E2E teardown, retention sweep) or never existed (stale
+            // bookmark). Don't dispatch a user-facing ERROR for it; just log info.
+            if (errorMessage.startsWith('User query not found for ID')) {
+                logger.info('User query not found, skipping URL prefill', { userQueryId, error: errorMessage });
+                return;
+            }
+
+            // Genuine failure — surface to user + log with full context.
             dispatchLifecycle({ type: 'ERROR', error: errorMessage });
-            logger.error('Failed to load user query:', { error: errorMessage });
+            logger.error('Failed to load user query', {
+                userQueryId,
+                error: errorMessage,
+                stack: err instanceof Error ? err.stack : undefined,
+            });
         }
     };
 
