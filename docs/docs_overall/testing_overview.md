@@ -306,8 +306,9 @@ npx supabase inspect db long-running-queries --linked
 | Integration | `test:integration` (all) | `:critical` (5) | `:evolution` + `:non-evolution` |
 | E2E Critical | `test:e2e:critical` | `test:e2e:critical` | `:evolution` + `:non-evolution --shard` |
 | E2E Evolution | `test:e2e:evolution` (if `evolution/` changed) | `test:e2e:evolution` (if evolution path) | included in full suite |
+| E2E Smoke | `test:e2e:smoke` (both `@smoke-public` + `@smoke-evolution`) | n/a (smoke runs post-deploy, not in PR CI) | n/a (post-deploy via `post-deploy-smoke.yml` matrix: public row greps `@smoke-public`, evolution row greps `@smoke-evolution`) |
 
-**Intentional differences**: CI uses `--changedSince` (unit), `--shard` (E2E), `--maxWorkers=2`. Local runs full suites for strict pre-PR verification.
+**Intentional differences**: CI uses `--changedSince` (unit), `--shard` (E2E), `--maxWorkers=2`. Local runs full suites for strict pre-PR verification. Smoke specs are not gated by PR CI — they run after a successful Vercel production deploy. To validate smoke changes pre-PR locally, run `npm run test:e2e:smoke` (which runs against your local server, not against a deployed environment).
 
 ### E2E Tests in Skill Workflows
 

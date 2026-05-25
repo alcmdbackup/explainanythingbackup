@@ -1,0 +1,17 @@
+{
+  "branch": "feat/fixes_explainanything_for_public_demo_20260523",
+  "created_at": "2026-05-23T00:00:00Z",
+  "prerequisites": {
+    "testing_overview_read": "2026-05-24T05:09:01Z",
+    "environments_read": "2026-05-24T05:12:00Z",
+    "design_style_guide_read": "2026-05-24T05:13:55Z"
+  },
+  "relevantDocs": [
+    "docs/feature_deep_dives/search_generation_pipeline.md",
+    "docs/feature_deep_dives/add_sources_citations.md",
+    "docs/feature_deep_dives/error_handling.md",
+    "docs/feature_deep_dives/authentication_rls.md",
+    "docs/feature_deep_dives/realtime_streaming.md"
+  ],
+  "notes": "User also requested all non-evolution docs be read at /initialize time (8 in docs_overall + 25 in feature_deep_dives = 33 read). The 5 docs above are the explicitly tracked subset."
+}

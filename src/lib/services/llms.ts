@@ -825,6 +825,16 @@ async function callLLMModelRaw(
 ): Promise<string> {
     const spendingGate = getSpendingGate();
     const estimatedCost = calculateLLMCost(model, 1000, 4096, 0);
+
+    // Per-user cap: enforced only for the demo guest user (Phase 4 of
+    // fixes_explainanything_for_public_demo_20260523). $10/day prevents any
+    // single demo viewer from burning the global LLM budget mid-demo.
+    // Guarded by GUEST_USER_ID env var so missing config = no-op (not "always fail").
+    const guestUserId = process.env.GUEST_USER_ID;
+    if (guestUserId && userid === guestUserId) {
+      await spendingGate.checkPerUserCap(userid, 10);
+    }
+
     const reservedCost = await spendingGate.checkBudget(call_source, estimatedCost);
 
     try {

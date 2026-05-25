@@ -99,10 +99,6 @@ jest.mock('@/lib/client_utilities', () => ({
   }
 }));
 
-jest.mock('@/lib/services/links', () => ({
-  cleanupAfterEnhancements: jest.fn(content => content)
-}));
-
 jest.mock('@/lib/services/linkWhitelist', () => ({
   generateHeadingStandaloneTitles: jest.fn().mockResolvedValue({}),
   saveHeadingLinks: jest.fn().mockResolvedValue(undefined)
@@ -156,7 +152,6 @@ describe('returnExplanation', () => {
 
     it('should test postprocessNewExplanationContent', async () => {
       // Import mocked modules
-      const { cleanupAfterEnhancements } = require('@/lib/services/links');
       const { generateHeadingStandaloneTitles } = require('@/lib/services/linkWhitelist');
       const { evaluateTags } = require('@/lib/services/tagEvaluation');
       const { callLLM } = require('@/lib/services/llms');
@@ -166,26 +161,26 @@ describe('returnExplanation', () => {
       // Key terms are now resolved at render time via linkResolver (not embedded)
       generateHeadingStandaloneTitles.mockResolvedValue({ 'Test': 'Standalone Test Title' });
       evaluateTags.mockResolvedValue({ difficultyLevel: 3 });
-      cleanupAfterEnhancements.mockImplementation((c: string) => c);
       // Mock extractLinkCandidates' call to callLLM
       callLLM.mockResolvedValue(JSON.stringify({ candidates: ['keyword'] }));
 
       // Import the function
       const { postprocessNewExplanationContent } = require('./returnExplanation');
 
-      // Test the function
+      // Test the function with bold marker preserved through postprocessing
       const result = await postprocessNewExplanationContent(
-        '## Test\n\nContent with keyword',
+        '## Test\n\nContent with **keyword**',
         'Test Title',
         'user123'
       );
 
       // Assertions
-      // Links are now resolved at render time via linkResolver
-      // Content should be preserved as-is (only cleaned up with cleanupAfterEnhancements)
+      // Links are now resolved at render time via linkResolver. The bold
+      // markers must survive postprocessing so the resolver's bold-term
+      // step can wrap them at render time.
       expect(result.enhancedContent).toContain('## Test'); // heading preserved as-is
       expect(result.enhancedContent).not.toContain('[[Test]]'); // no embedded link
-      expect(result.enhancedContent).toContain('keyword'); // key term preserved as plain text
+      expect(result.enhancedContent).toContain('**keyword**'); // bold preserved for render-time linking
       expect(result.headingTitles).toEqual({ 'Test': 'Standalone Test Title' });
       expect(result.tagEvaluation).toEqual({ difficultyLevel: 3 });
       expect(result.error).toBeNull();
@@ -195,7 +190,6 @@ describe('returnExplanation', () => {
       // Import mocked modules
       const { callLLM } = require('@/lib/services/llms');
       const { createExplanationPrompt } = require('@/lib/prompts');
-      const { cleanupAfterEnhancements } = require('@/lib/services/links');
       const { generateHeadingStandaloneTitles } = require('@/lib/services/linkWhitelist');
       const { evaluateTags } = require('@/lib/services/tagEvaluation');
       const { UserInputType } = require('@/lib/schemas/schemas');
@@ -209,7 +203,6 @@ describe('returnExplanation', () => {
       generateHeadingStandaloneTitles.mockResolvedValue({ 'Heading': 'Standalone Heading Title' });
       // Key terms are now resolved at render time via linkResolver
       evaluateTags.mockResolvedValue({ difficultyLevel: 3 });
-      cleanupAfterEnhancements.mockImplementation((c: string) => c);
 
       // Import the function
       const { generateNewExplanation } = require('./returnExplanation');

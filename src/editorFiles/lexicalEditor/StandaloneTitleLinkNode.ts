@@ -33,8 +33,9 @@ export class StandaloneTitleLinkNode extends LinkNode {
   createDOM(config: EditorConfig): HTMLAnchorElement {
     const anchorElement = super.createDOM(config) as HTMLAnchorElement;
 
-    // Apply consistent styling matching the theme
-    anchorElement.className = 'text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 underline cursor-pointer transition-colors';
+    // Theme-aligned link styling: accent-blue (deep in light, brighter in dark
+    // via CSS var), underlined, slightly weighted for visual prominence.
+    anchorElement.className = 'text-[var(--accent-blue)] hover:text-[var(--accent-copper)] underline underline-offset-2 font-medium cursor-pointer transition-colors';
 
     // Store the URL at DOM creation time when we're in editor context
     const url = this.getURL();

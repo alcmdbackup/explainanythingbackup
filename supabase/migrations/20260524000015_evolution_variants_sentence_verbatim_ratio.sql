@@ -16,8 +16,10 @@
 -- it before code on staging by default; if code ships first, the field stays NULL
 -- until variants are created with the new wiring in place.
 
--- Idempotent (IF NOT EXISTS): renamed from 20260506000002 during May 23 main→prod
--- merge; staging already has the column from the original timestamp.
+-- Idempotent (IF NOT EXISTS): staging's migration tracker is out of sync
+-- with its actual schema (column exists but migration not recorded), and the
+-- same migration also ships under the renamed timestamp 20260524000005 on
+-- production (PR #1073). Either name should be safe to re-apply.
 ALTER TABLE evolution_variants
   ADD COLUMN IF NOT EXISTS sentence_verbatim_ratio NUMERIC;
 

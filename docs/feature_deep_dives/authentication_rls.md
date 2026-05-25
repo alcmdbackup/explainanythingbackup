@@ -15,13 +15,35 @@ Since the explainanything/evolution website split (Option B — single Vercel pr
 
 The host is classified via `classifyHost()` in `src/config/hostnames.ts` using exact case-insensitive equality (no `startsWith` — suffix-extension attacks are not viable).
 
+## Guest auto-login (demo mode)
+
+For the public demo, `src/lib/utils/supabase/middleware.ts` runs auto-guest-login on every public-hostname request that has no session. It calls `supabase.auth.signInWithPassword({ email: GUEST_EMAIL, password: GUEST_PASSWORD })` and the existing `setAll()` cookie callback writes the session cookies onto the outgoing `NextResponse` — same mechanism `getUser()` uses for token refresh. No redirect, no second round-trip.
+
+**Mechanism details**:
+- Gated to `classifyHost() === 'public' | 'local' | 'preview'`. Never fires on `evolution` or `unknown`.
+- Soft env-var check: missing `GUEST_EMAIL`/`GUEST_PASSWORD` is a no-op (NOT a failure), so deploy-ordering bugs degrade to the existing `/login` redirect path.
+- Disabled by `E2E_TEST_MODE=true` so existing unauth-redirect tests still pass.
+- Module-scope `inFlightGuestLogin` Map dedupes parallel cold-request sign-ins; `Promise.race` with 10s timeout prevents stall-poisoning.
+- On `signInWithPassword` failure, sets `GUEST_AUTOLOGIN_FAILED_RECENTLY` cookie (`httpOnly: true`, `sameSite: 'lax'`, 60s); `/login` server component renders `<ServiceUnavailableNotice />` instead of the form for the cookie window — avoids the redirect loop when sign-out is hidden.
+
+**Client-side**:
+- `useIsGuest()` hook in `src/hooks/useUserAuth.ts` returns `email === process.env.NEXT_PUBLIC_GUEST_EMAIL`.
+- `Navigation.tsx` hides the sign-out button when `useIsGuest()` is true.
+- `/login` is a server component (`src/app/login/page.tsx`) that does `await getUser()` and redirects to `/` if the user is guest. Interactive form lives in `LoginForm.tsx`.
+
+**Rollback levers** (no code revert needed): set `E2E_TEST_MODE=true` OR remove `GUEST_PASSWORD` from Vercel env vars; redeploy.
+
 ## Implementation
 
 ### Key Files
+- `src/app/login/page.tsx` - Server-shell with guest redirect + cookie check
+- `src/app/login/LoginForm.tsx` - Interactive client form
+- `src/app/login/ServiceUnavailableNotice.tsx` - Server component for auth-failure window
 - `src/app/login/actions.ts` - Auth server actions
 - `src/middleware.ts` - Route protection
-- `src/lib/utils/supabase/middleware.ts` - Session management
+- `src/lib/utils/supabase/middleware.ts` - Session management + auto-guest-login
 - `src/lib/utils/supabase/server.ts` - Client utilities
+- `src/hooks/useUserAuth.ts` - useUserAuth + useIsGuest hooks
 
 ### Auth Flow
 
@@ -186,3 +208,84 @@ export async function middleware(request: NextRequest) {
 3. **Use RLS**: Enforce access control at database level
 4. **Service client sparingly**: Only for background/admin operations
 5. **Revalidate paths**: Call `revalidatePath('/')` after auth changes
+
+## Password reset flow
+
+The Supabase email-OTP recovery flow, end-to-end. Lives in `src/app/forgot-password/`, `src/app/reset-password/`, and `src/app/login/actions.ts` (`requestPasswordReset`); the callback at `src/app/auth/confirm/route.ts` already handles `type=recovery` tokens generically.
+
+### Four-step flow
+
+```
+User clicks "Forgot password?" on /login
+    ↓
+/forgot-password — types email, submits to requestPasswordReset action
+    ↓
+Supabase sends recovery email with link to /auth/confirm?token_hash=…&type=recovery&next=/reset-password
+    ↓
+User clicks link → /auth/confirm → supabase.auth.verifyOtp() sets recovery session cookie
+    ↓
+Redirect to /reset-password → form gates open (PASSWORD_RECOVERY event + non-guest check)
+    ↓
+User enters new password → supabase.auth.updateUser({ password }) → redirect to /
+```
+
+### Triple-gate against guest-account password takeover
+
+Because of guest auto-login on the public tier (a visitor with no session is signed in as the shared demo guest), a naive `/reset-password` page would let any visitor overwrite the guest's password. Three independent gates:
+
+1. **Server-side** (`src/app/reset-password/page.tsx`): `await getUser()` is compared to `process.env.GUEST_USER_ID` (a server-only env var, no client bundle dependency). If the current user is the guest, `notFound()` returns 404 before the form renders.
+2. **Client-side recovery event** (`src/app/reset-password/ResetPasswordForm.tsx`): the form is disabled until `supabase.auth.onAuthStateChange` fires `PASSWORD_RECOVERY`. This event only fires after a successful `verifyOtp({type: 'recovery'})`.
+3. **Client-side guest email check**: `useIsGuest()` hook returns true when `user.email === NEXT_PUBLIC_GUEST_EMAIL`. Form stays disabled even if the recovery event somehow fires for the guest.
+
+Any single gate failure is caught by the other two.
+
+### Middleware allowlist
+
+The recovery flow requires three changes to `src/lib/utils/supabase/middleware.ts`:
+
+| Block | Change | Why |
+|---|---|---|
+| Guest auto-login (~lines 70-77) | Skip when path starts with `/reset-password`, `/forgot-password`, or `/auth/confirm` | Prevents the cookie-propagation race: without this, a public-host visitor on `/reset-password` gets signed in as guest before the recovery session lands, swapping it away |
+| Redirect-to-login (~lines 147-158) | Allowlist `/reset-password` and `/forgot-password` | These pages must be reachable when unauthenticated |
+| Disabled-user check (~lines 161-167) | Allowlist `/reset-password` | A disabled user holding a pre-disable recovery link can still complete the password change; they get bounced on the next non-auth route. Disabled users CAN'T request a new reset link (no `/forgot-password` allowlist), but they CAN complete one in flight |
+
+### Pre-authenticated user clicks recovery link
+
+This is by-design behaviour, not a bug. `verifyOtp` swaps the cookie to the recovered account. Recovery emails are account-specific, so swapping matches user intent.
+
+### Test pattern: `admin.generateLink`
+
+Recovery flows can't easily be E2E tested via real email. Use Supabase's admin API to synthesize the email URL:
+
+```typescript
+const { data } = await serviceClient.auth.admin.generateLink({
+  type: 'recovery',
+  email: testUserEmail,
+});
+// data.properties.hashed_token  ← use this for verifyOtp (NOT a URL parse)
+// data.properties.action_link   ← navigate to this in Playwright
+```
+
+**Important**: extract `hashed_token` from the structured response — the `action_link` URL uses `?token=` (raw GoTrue verify), not `?token_hash=`.
+
+Test users in this flow MUST be dedicated (`admin.createUser` + `admin.deleteUser`), NOT the shared `TEST_USER_*` — password mutations would poison other parallel-worker tests' cached sessions.
+
+### Email template
+
+`supabase/config.toml` defines `[auth.email.template.recovery]` → `supabase/templates/recovery.html`. Local dev (`supabase db reset`) picks this up automatically. **Hosted Supabase projects (dev + prod) use the dashboard template — the repo file does NOT affect them.** Dashboard runbook is in the project planning doc; ops checklist must run after any template change in the repo.
+
+The redirect URL allowlist in the Supabase dashboard must include `https://<site>/auth/confirm` (the actual `redirectTo` value), NOT `/reset-password` — the `next=` query string is not part of Supabase's URL match.
+
+### Key files
+
+| File | Purpose |
+|---|---|
+| `src/app/login/actions.ts` | `requestPasswordReset` server action (Sentry-wrapped, reads `origin` from headers, fails loudly if missing) |
+| `src/app/login/validation.ts` | `forgotPasswordSchema` (email) + `resetPasswordSchema` (signup-grade complexity) |
+| `src/app/forgot-password/` | Page + form for requesting a reset link |
+| `src/app/reset-password/page.tsx` | Server-side guest gate via `GUEST_USER_ID` |
+| `src/app/reset-password/ResetPasswordForm.tsx` | Client form with `PASSWORD_RECOVERY` + `useIsGuest()` gates |
+| `src/app/auth/confirm/route.ts` | Generic `verifyOtp` callback — works for recovery without change |
+| `supabase/templates/recovery.html` | Recovery email body (local dev only; hosted Supabase uses dashboard) |
+| `src/__tests__/integration/password-reset.integration.test.ts` | Full SDK round-trip with dedicated test user |
+| `src/__tests__/e2e/specs/01-auth/password-reset.spec.ts` | E2E `@critical` |

@@ -40,10 +40,10 @@ Error handling uses a categorization system with 18 error codes. Errors are auto
 
 | Class | Code | Thrown By |
 |-------|------|-----------|
-| `GlobalBudgetExceededError` | `GLOBAL_BUDGET_EXCEEDED` | `LLMSpendingGate` when daily or monthly cap is reached |
+| `GlobalBudgetExceededError` | `GLOBAL_BUDGET_EXCEEDED` | `LLMSpendingGate` when daily, monthly, OR per-user cap is reached. The `details.category` field disambiguates: `'evolution'` / `'non_evolution'` / `'per_user'`. |
 | `LLMKillSwitchError` | `LLM_KILL_SWITCH` | `LLMSpendingGate` when admin kill switch is enabled |
 
-Both are caught in `llms.ts` before any provider call and propagated to callers as structured error responses.
+Both are caught in `llms.ts` before any provider call and propagated to callers as structured error responses. The per-user variant fires from `LlmSpendingGate.checkPerUserCap()` and is invoked from `callLLMModelRaw` only when `userid === process.env.GUEST_USER_ID` (demo guest $10/day cap).
 
 ### Automatic Categorization
 

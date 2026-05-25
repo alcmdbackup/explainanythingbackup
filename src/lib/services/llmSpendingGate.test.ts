@@ -325,6 +325,99 @@ describe('LLMSpendingGate', () => {
     });
   });
 
+  describe('checkPerUserCap', () => {
+    let originalEnv: NodeJS.ProcessEnv;
+
+    function mockPerUserSpend(userid: string, totalUsd: number) {
+      const supabase = {
+        from: jest.fn().mockImplementation((table: string) => {
+          if (table === 'per_user_daily_cost_rollups') {
+            return {
+              select: jest.fn().mockReturnValue({
+                eq: jest.fn().mockImplementation((col: string, val: string) => {
+                  // Second .eq chains and resolves to the data.
+                  return col === 'user_id' && val === userid
+                    ? {
+                        eq: jest.fn().mockResolvedValue({
+                          data: [{ total_cost_usd: totalUsd }],
+                          error: null,
+                        }),
+                      }
+                    : {
+                        eq: jest.fn().mockResolvedValue({ data: [], error: null }),
+                      };
+                }),
+              }),
+            };
+          }
+          return { select: jest.fn() };
+        }),
+      };
+      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(supabase);
+      return supabase;
+    }
+
+    beforeEach(() => {
+      originalEnv = { ...process.env };
+      jest.useRealTimers(); // checkPerUserCap uses Date.now() directly
+    });
+
+    afterEach(() => {
+      process.env = originalEnv;
+    });
+
+    it('throws GlobalBudgetExceededError when spend >= cap', async () => {
+      mockPerUserSpend('guest-uuid', 12.5);
+      await expect(gate.checkPerUserCap('guest-uuid', 10)).rejects.toBeInstanceOf(GlobalBudgetExceededError);
+    });
+
+    it('does not throw when spend < cap', async () => {
+      mockPerUserSpend('guest-uuid', 3.4);
+      await expect(gate.checkPerUserCap('guest-uuid', 10)).resolves.toBeUndefined();
+    });
+
+    it('no-ops when SEED_BYPASS_USER_CAP=true (safety contract for seed script)', async () => {
+      process.env.SEED_BYPASS_USER_CAP = 'true';
+      // Even with spend WAY over cap, must not throw.
+      mockPerUserSpend('guest-uuid', 999);
+      await expect(gate.checkPerUserCap('guest-uuid', 10)).resolves.toBeUndefined();
+    });
+
+    it('no-ops on empty userid', async () => {
+      await expect(gate.checkPerUserCap('', 10)).resolves.toBeUndefined();
+    });
+
+    it('no-ops on capUsd <= 0', async () => {
+      await expect(gate.checkPerUserCap('guest-uuid', 0)).resolves.toBeUndefined();
+    });
+
+    it('caches result so second call within TTL does not re-query DB', async () => {
+      const supabase = mockPerUserSpend('guest-uuid', 3);
+      await gate.checkPerUserCap('guest-uuid', 10);
+      const firstCallCount = (supabase.from as jest.Mock).mock.calls.length;
+      await gate.checkPerUserCap('guest-uuid', 10);
+      const secondCallCount = (supabase.from as jest.Mock).mock.calls.length;
+      expect(secondCallCount).toBe(firstCallCount); // cache hit
+    });
+
+    it('allows call when per_user_daily_cost_rollups table missing (graceful migration handling)', async () => {
+      const supabase = {
+        from: jest.fn().mockReturnValue({
+          select: jest.fn().mockReturnValue({
+            eq: jest.fn().mockReturnValue({
+              eq: jest.fn().mockResolvedValue({
+                data: null,
+                error: { code: '42P01', message: 'relation "per_user_daily_cost_rollups" does not exist' },
+              }),
+            }),
+          }),
+        }),
+      };
+      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(supabase);
+      await expect(gate.checkPerUserCap('guest-uuid', 10)).resolves.toBeUndefined();
+    });
+  });
+
   describe('singleton', () => {
     it('returns same instance', () => {
       const a = getSpendingGate();

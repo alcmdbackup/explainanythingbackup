@@ -49,32 +49,24 @@ adminTest.describe('Strategy Registry CRUD', () => {
     await adminPage.locator('[data-testid="header-action"]').click();
     await expect(adminPage).toHaveURL(/\/strategies\/new/, { timeout: 15000 });
 
-    // Step 1: Fill strategy config
-    await adminPage.getByPlaceholder(/name/i).fill(testStrategyName);
+    // Step 1: Fill strategy config — use specific selectors matching wizard-tactics.spec.ts
+    // (placeholder="Strategy name" + #generation-model + #judge-model) to avoid fuzzy-match flake
+    await adminPage.fill('input[placeholder="Strategy name"]', testStrategyName);
+    await adminPage.locator('#generation-model').selectOption({ index: 1 });
+    await adminPage.locator('#judge-model').selectOption({ index: 1 });
 
-    // Select generation model (required)
-    const genModelSelect = adminPage.locator('select').first();
-    const genOptions = await genModelSelect.locator('option').allTextContents();
-    const validModel = genOptions.find(o => o !== 'Select a model...' && o.trim() !== '');
-    if (validModel) await genModelSelect.selectOption({ label: validModel });
-
-    // Select judge model (required)
-    const judgeModelSelect = adminPage.locator('select').nth(1);
-    const judgeOptions = await judgeModelSelect.locator('option').allTextContents();
-    const validJudge = judgeOptions.find(o => o !== 'Select a model...' && o.trim() !== '');
-    if (validJudge) await judgeModelSelect.selectOption({ label: validJudge });
-
-    // Set budget
-    const budgetInput = adminPage.getByLabel(/total budget/i);
-    await budgetInput.clear();
+    // Set budget (specific id)
+    const budgetInput = adminPage.locator('#budget-usd');
     await budgetInput.fill('1.00');
 
     // Click Next to go to Step 2 (Iterations)
-    await adminPage.getByRole('button', { name: /next.*iterations/i }).click();
+    await adminPage.click('button:has-text("Next: Configure Iterations")');
 
-    // Step 2: Wait for iteration list to appear (use exact match to avoid step indicator conflict)
-    await expect(adminPage.getByText('Iterations', { exact: true })).toBeVisible({ timeout: 10000 });
-    await adminPage.getByRole('button', { name: /create strategy/i }).click();
+    // Step 2: wait for an iteration row to render (matches wizard-tactics.spec.ts pattern)
+    await adminPage.waitForSelector('[data-testid="tactic-guidance-btn-0"]', { timeout: 30000 });
+
+    // Click Create Strategy submit
+    await adminPage.click('button:has-text("Create Strategy")');
 
     // Should redirect to strategy detail page
     await expect(adminPage).toHaveURL(/\/strategies\/[a-f0-9-]+/, { timeout: 30000 });
@@ -94,18 +86,19 @@ adminTest.describe('Strategy Registry CRUD', () => {
   });
 
   adminTest('model dropdown includes gpt-oss-20b without slash', async ({ adminPage }) => {
-    // The "Create" UI moved from a modal dialog to a dedicated wizard page;
-    // assert against the wizard's model dropdown instead.
+    // Strategy creation moved from dialog to wizard page (/strategies/new)
     await adminPage.goto('/admin/evolution/strategies/new', { timeout: 30000 });
-    const genModelSelect = adminPage.locator('#generation-model');
+
+    // Generation model select on Step 1 of wizard
+    const genModelSelect = adminPage.locator('select').first();
     await expect(genModelSelect).toBeVisible({ timeout: 15000 });
 
-    // Collect every option's value+label and assert on those, not raw HTML
-    // (avoids false positives from comment/blob text).
+    // Inspect option values (model IDs, not display names like "GPT-OSS 20B")
     const optionValues = await genModelSelect.locator('option').evaluateAll(
-      (opts) => (opts as HTMLOptionElement[]).map((o) => o.value),
+      (opts) => opts.map((o) => (o as HTMLOptionElement).value),
     );
-    expect(optionValues).toContain('gpt-oss-20b');
-    expect(optionValues).not.toContain('openai/gpt-oss-20b');
+    const joined = optionValues.join('\n');
+    expect(joined).toContain('gpt-oss-20b');
+    expect(joined).not.toContain('openai/gpt-oss-20b');
   });
 });

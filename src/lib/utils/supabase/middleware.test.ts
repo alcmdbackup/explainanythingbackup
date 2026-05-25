@@ -400,6 +400,178 @@ describe('Supabase Middleware - updateSession', () => {
     });
   });
 
+  describe('Guest auto-login (Phase 5)', () => {
+    let originalEnv: NodeJS.ProcessEnv;
+    let mockSignInWithPassword: jest.Mock;
+    const { __resetGuestLoginCacheForTests } = jest.requireActual('./middleware');
+
+    // Helper to attach a Host header — mock NextRequest doesn't auto-populate it
+    // from the URL, but classifyHost() reads request.headers.get('host').
+    function reqWithHost(url: string, opts?: { cookies?: Array<{ name: string; value: string }> }) {
+      const parsed = new URL(url);
+      return createTestNextRequest(url, {
+        cookies: opts?.cookies,
+        headers: { host: parsed.host },
+      });
+    }
+
+    beforeEach(() => {
+      originalEnv = { ...process.env };
+      __resetGuestLoginCacheForTests();
+
+      mockSignInWithPassword = jest.fn().mockResolvedValue({
+        data: { user: createMockUser({ email: 'guest@explainanything.app' }) },
+        error: null,
+      });
+
+      // Default to unauthenticated; tests can override.
+      mockGetUser.mockResolvedValue({ data: { user: null }, error: null });
+
+      // Re-construct supabase client to include the signInWithPassword spy.
+      mockSupabaseClient.auth.signInWithPassword = mockSignInWithPassword;
+    });
+
+    afterEach(() => {
+      process.env = originalEnv;
+      __resetGuestLoginCacheForTests();
+    });
+
+    it('(a) no-op when user already present (existing session)', async () => {
+      process.env.GUEST_EMAIL = 'guest@explainanything.app';
+      process.env.GUEST_PASSWORD = 'secret';
+      delete process.env.E2E_TEST_MODE;
+      mockGetUser.mockResolvedValue({
+        data: { user: createMockUser() },
+        error: null,
+      });
+
+      await updateSession(reqWithHost('http://localhost:3000/'));
+      expect(mockSignInWithPassword).not.toHaveBeenCalled();
+    });
+
+    it('(b) signInWithPassword called when no user + GUEST_* set + E2E_TEST_MODE unset', async () => {
+      process.env.GUEST_EMAIL = 'guest@explainanything.app';
+      process.env.GUEST_PASSWORD = 'secret';
+      delete process.env.E2E_TEST_MODE;
+      // After signIn, getUser is called again — return the guest user.
+      mockGetUser
+        .mockResolvedValueOnce({ data: { user: null }, error: null })
+        .mockResolvedValueOnce({
+          data: { user: createMockUser({ email: 'guest@explainanything.app' }) },
+          error: null,
+        });
+
+      await updateSession(reqWithHost('http://localhost:3000/'));
+      expect(mockSignInWithPassword).toHaveBeenCalledWith({
+        email: 'guest@explainanything.app',
+        password: 'secret',
+      });
+    });
+
+    it('(c) NOT called when E2E_TEST_MODE=true', async () => {
+      process.env.GUEST_EMAIL = 'guest@explainanything.app';
+      process.env.GUEST_PASSWORD = 'secret';
+      process.env.E2E_TEST_MODE = 'true';
+
+      await updateSession(reqWithHost('http://localhost:3000/'));
+      expect(mockSignInWithPassword).not.toHaveBeenCalled();
+    });
+
+    it('(e) NOT called when GUEST_EMAIL missing (soft no-op for deploy-ordering safety)', async () => {
+      delete process.env.GUEST_EMAIL;
+      process.env.GUEST_PASSWORD = 'secret';
+      delete process.env.E2E_TEST_MODE;
+
+      await updateSession(reqWithHost('http://localhost:3000/'));
+      expect(mockSignInWithPassword).not.toHaveBeenCalled();
+    });
+
+    it('(e) NOT called when GUEST_PASSWORD missing', async () => {
+      process.env.GUEST_EMAIL = 'guest@explainanything.app';
+      delete process.env.GUEST_PASSWORD;
+      delete process.env.E2E_TEST_MODE;
+
+      await updateSession(reqWithHost('http://localhost:3000/'));
+      expect(mockSignInWithPassword).not.toHaveBeenCalled();
+    });
+
+    it('(j) E2E_TEST_MODE="" (empty string) does NOT suppress auto-login', async () => {
+      process.env.GUEST_EMAIL = 'guest@explainanything.app';
+      process.env.GUEST_PASSWORD = 'secret';
+      process.env.E2E_TEST_MODE = '';
+      mockGetUser
+        .mockResolvedValueOnce({ data: { user: null }, error: null })
+        .mockResolvedValueOnce({
+          data: { user: createMockUser({ email: 'guest@explainanything.app' }) },
+          error: null,
+        });
+
+      await updateSession(reqWithHost('http://localhost:3000/'));
+      expect(mockSignInWithPassword).toHaveBeenCalled();
+    });
+
+    it('(f) failed signInWithPassword sets GUEST_AUTOLOGIN_FAILED_RECENTLY cookie + redirects to /login', async () => {
+      process.env.GUEST_EMAIL = 'guest@explainanything.app';
+      process.env.GUEST_PASSWORD = 'secret';
+      delete process.env.E2E_TEST_MODE;
+      mockSignInWithPassword.mockResolvedValue({
+        data: null,
+        error: { message: 'invalid credentials', name: 'AuthError' },
+      });
+
+      const response = await updateSession(reqWithHost('http://localhost:3000/'));
+      expect(response.status).toBeGreaterThanOrEqual(300);
+      expect(response.status).toBeLessThan(400);
+      expect(response.headers.get('Location')).toContain('/login');
+      // Mock NextResponse.cookies is a Map (not the real rich cookies object).
+      // The middleware calls .set(name, value, options) — Map only stores (name, value).
+      const cookiesMap = (response as unknown as { cookies: Map<string, unknown> }).cookies;
+      expect(cookiesMap.has('GUEST_AUTOLOGIN_FAILED_RECENTLY')).toBe(true);
+    });
+
+    it('(i) skips signInWithPassword when GUEST_AUTOLOGIN_FAILED_RECENTLY cookie present', async () => {
+      process.env.GUEST_EMAIL = 'guest@explainanything.app';
+      process.env.GUEST_PASSWORD = 'secret';
+      delete process.env.E2E_TEST_MODE;
+
+      const request = reqWithHost('http://localhost:3000/', {
+        cookies: [{ name: 'GUEST_AUTOLOGIN_FAILED_RECENTLY', value: '1' }],
+      });
+      await updateSession(request);
+      expect(mockSignInWithPassword).not.toHaveBeenCalled();
+    });
+
+    it('(k) skips signInWithPassword when ?logout=1 query param present (Logout opt-out)', async () => {
+      // Logout button on a guest session redirects to /login?logout=1. Middleware
+      // must NOT auto-login on that request, otherwise the user bounces back to
+      // guest before the form ever renders.
+      process.env.GUEST_EMAIL = 'guest@explainanything.app';
+      process.env.GUEST_PASSWORD = 'secret';
+      delete process.env.E2E_TEST_MODE;
+
+      await updateSession(reqWithHost('http://localhost:3000/login?logout=1'));
+      expect(mockSignInWithPassword).not.toHaveBeenCalled();
+    });
+
+    it('(l) ?logout=1 does NOT persist — next request without param re-enables auto-login', async () => {
+      // The opt-out is intentionally one-shot (URL-only, no cookie). Validates that
+      // a subsequent request without the param re-fires sign-in (proves we did not
+      // accidentally set a stickier opt-out side-channel).
+      process.env.GUEST_EMAIL = 'guest@explainanything.app';
+      process.env.GUEST_PASSWORD = 'secret';
+      delete process.env.E2E_TEST_MODE;
+      // Stay null across requests so the second call still has !currentUser → eligible
+      // for auto-login. (The opt-out param is what should make the first call skip it.)
+      mockGetUser.mockResolvedValue({ data: { user: null }, error: null });
+
+      await updateSession(reqWithHost('http://localhost:3000/login?logout=1'));
+      expect(mockSignInWithPassword).not.toHaveBeenCalled();
+
+      await updateSession(reqWithHost('http://localhost:3000/'));
+      expect(mockSignInWithPassword).toHaveBeenCalled();
+    });
+  });
+
   describe('Response Integrity', () => {
     it('should return response with status 200 for authenticated request', async () => {
       const request = createTestNextRequest('http://localhost:3000/dashboard');

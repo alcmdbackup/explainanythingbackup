@@ -26,11 +26,20 @@ jobs:
       matrix:
         site:
           - name: public
-            base_url: ${{ github.event.deployment_status.target_url }}
+            # Pin to the canonical apex hostname. deployment_status.target_url is a
+            # per-deploy preview URL (e.g. explainanything-<hash>-<scope>.vercel.app)
+            # which middleware classifyHost() does NOT recognize → 404s everything
+            # except /api/health. The apex is what real user traffic hits, and Vercel
+            # promotes apex within seconds of a Production deploy succeeding.
+            base_url: https://explainanything.vercel.app
+            spec: src/__tests__/e2e/specs/smoke.public.spec.ts
+            grep: '@smoke-public'
           - name: evolution
             # Evolution-host smoke. Update this when PROD_EVOLUTION_HOST in
             # src/config/hostnames.ts changes.
             base_url: https://ea-evolution.vercel.app
+            spec: src/__tests__/e2e/specs/smoke.evolution.spec.ts
+            grep: '@smoke-evolution'
 
     steps:
       - uses: actions/checkout@v4
@@ -132,7 +141,29 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
           echo "Running smoke tests against ${{ matrix.site.name }}: $BASE_URL"
-          npx playwright test --project=chromium --grep="@smoke" --reporter=list
+          echo "Spec: ${{ matrix.site.spec }} | Grep: ${{ matrix.site.grep }}"
+
+          # Guard against silent zero-test passes: if the grep matches nothing in the
+          # target spec (e.g. tag typo), Playwright exits 0 with "no tests found" and
+          # the smoke check is meaningless. List first, count, fail loud if zero.
+          # Playwright --list emits lines like "  [chromium] › specs/foo.spec.ts:7:7 › test name".
+          # Match the spec-path:line:col pattern that appears on every test line and
+          # nowhere else in the output (no false positives on the trailing "Total: N" line).
+          test_count=$(npx playwright test --project=chromium \
+            --grep="${{ matrix.site.grep }}" \
+            ${{ matrix.site.spec }} \
+            --list 2>&1 | grep -cE '\.spec\.ts:[0-9]+:[0-9]+' || true)
+
+          if [ "$test_count" -eq 0 ]; then
+            echo "::error::Zero tests matched grep='${{ matrix.site.grep }}' in spec='${{ matrix.site.spec }}'. Did a tag get renamed or removed? Refusing to silently pass."
+            exit 1
+          fi
+          echo "Discovered $test_count smoke test(s) for ${{ matrix.site.name }}; running…"
+
+          npx playwright test --project=chromium \
+            --grep="${{ matrix.site.grep }}" \
+            ${{ matrix.site.spec }} \
+            --reporter=list
 
       - name: Upload test results
         uses: actions/upload-artifact@v4
@@ -145,7 +176,10 @@ jobs:
           retention-days: 7
 
       - name: Notify Slack on failure
-        if: failure()
+        # Alert on failure OR on cancelled IF the run was a real deployment_status event
+        # (vs an intentional manual workflow_dispatch cancel during dev). This avoids
+        # spamming the channel that was already going unread post the 62-day silent outage.
+        if: failure() || (cancelled() && github.event_name == 'deployment_status')
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
         run: |

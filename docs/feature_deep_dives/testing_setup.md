@@ -414,6 +414,25 @@ Evolution E2E specs include accessibility tests using Playwright's accessibility
 
 The `chromium-unauth` Playwright project also filters to `grep: /@critical/`, so only the 2 `@critical` unauth tests run in the critical suite (not all 13 unauth tests).
 
+### `@smoke` Tagging Strategy (post-deploy)
+
+`@smoke` runs against the **live production deployment**, not against PR CI or the nightly suite. It fires from `.github/workflows/post-deploy-smoke.yml` after every successful Vercel production deploy, in a 2-row matrix (one row per hostname after the explainanything/evolution split):
+
+| Row | Hostname | Spec | Grep filter |
+|---|---|---|---|
+| public | `https://explainanything.vercel.app` (apex, pinned — not `deployment_status.target_url`) | `src/__tests__/e2e/specs/smoke.public.spec.ts` | `@smoke-public` |
+| evolution | `https://ea-evolution.vercel.app` | `src/__tests__/e2e/specs/smoke.evolution.spec.ts` (uses `adminTest` from `fixtures/admin-auth.ts`) | `@smoke-evolution` |
+
+Each spec carries BOTH tags: `{ tag: ['@smoke', '@smoke-public'] }` or `{ tag: ['@smoke', '@smoke-evolution'] }`. The umbrella `@smoke` tag is what `npm run test:e2e:smoke` greps against locally. CI matrix rows grep the narrower per-host tags so each row only runs its host-appropriate assertions (running `/userlibrary` checks on the evolution host would 404).
+
+**Zero-test guard**: the matrix step counts the discovered tests via `npx playwright test --grep="$grep" --spec --list` and fails loud if zero match — defends against tag typos silently passing (a known Playwright failure mode where `--grep` matching zero tests exits 0).
+
+**Smoke spec scope** (deliberately small): each spec asserts only that the page loads and `/api/health` returns healthy. Smoke is a deploy-validation check, not a feature-coverage check. See `docs/planning/smoke_test_and_nightly_e2e_failing_20260523/` for the postmortem on why these specs were split per-host (the original single-spec design 404'd on both rows after the website split).
+
+### Migration idempotency requirement
+
+PRs that add files under `supabase/migrations/**` must pass `scripts/lint-migrations-idempotent.ts` (wired into `.github/workflows/supabase-migrations.yml`). See [environments.md #Migration idempotency lint](../docs_overall/environments.md#migration-idempotency-lint-ci-requirement) for the full pattern checklist, bypass label, and rollout window.
+
 ### Auth Fixture
 
 ```typescript

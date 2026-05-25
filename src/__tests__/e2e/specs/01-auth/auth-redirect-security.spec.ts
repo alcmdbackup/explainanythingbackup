@@ -23,13 +23,19 @@ test.describe('Auth Redirect Security', () => {
     expect(url).not.toContain('evil.com');
   });
 
-  test('should allow valid relative path in auth callback', async ({ page }) => {
-    await page.goto('/auth/callback?code=fake&next=/dashboard');
-    const url = page.url();
-    expect(url).not.toContain('evil.com');
-    // Verify we stayed on the same origin (localhost or configured base)
-    expect(url).toContain('localhost');
-  });
+  test(
+    'should allow valid relative path in auth callback',
+    { tag: '@skip-prod' },
+    async ({ page }) => {
+      await page.goto('/auth/callback?code=fake&next=/dashboard');
+      const url = page.url();
+      expect(url).not.toContain('evil.com');
+      // Verify we stayed on the same origin (localhost or configured base).
+      // Tagged @skip-prod because this assertion is dev-only: in prod the fake code
+      // exchange fails and the route redirects to ${origin}/error rather than localhost.
+      expect(url).toContain('localhost');
+    },
+  );
 
   test('should reject external URL in auth confirm next param', async ({ page }) => {
     await page.goto('/auth/confirm?token_hash=fake&type=email&next=https://evil.com');

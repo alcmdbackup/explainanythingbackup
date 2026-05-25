@@ -5,7 +5,6 @@
 import {
   createMappingsHeadingsToLinks,
   enhanceContentWithInlineLinks,
-  cleanupAfterEnhancements,
   createLinksInContentPrompt
 } from './links';
 import { callLLM } from '@/lib/services/llms';
@@ -221,49 +220,6 @@ More text.
 
       // Assert
       expect(result).toBe('Enhanced content');
-    });
-  });
-
-  describe('cleanupAfterEnhancements', () => {
-    it('should remove **bold** markers from text', () => {
-      // Arrange
-      const content = 'This has **bold text** and **more bold**.';
-
-      // Act
-      const result = cleanupAfterEnhancements(content);
-
-      // Assert
-      expect(result).toBe('This has bold text and more bold.');
-    });
-
-    it('should handle content without bold markers', () => {
-      // Arrange
-      const content = 'This is plain text.';
-
-      // Act
-      const result = cleanupAfterEnhancements(content);
-
-      // Assert
-      expect(result).toBe(content);
-    });
-
-    it('should handle multiple bold patterns in sequence', () => {
-      // Arrange
-      const content = '**first****second****third**';
-
-      // Act
-      const result = cleanupAfterEnhancements(content);
-
-      // Assert
-      expect(result).toBe('firstsecondthird');
-    });
-
-    it('should handle empty content', () => {
-      // Act
-      const result = cleanupAfterEnhancements('');
-
-      // Assert
-      expect(result).toBe('');
     });
   });
 

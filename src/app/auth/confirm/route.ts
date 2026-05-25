@@ -15,6 +15,17 @@ export async function GET(request: NextRequest) {
   const next = sanitizeRedirectPath(searchParams.get('next') ?? '/', origin)
 
   if (token_hash && type) {
+    // Recovery is special: PASSWORD_RECOVERY only fires on the client that
+    // *itself* calls verifyOtp (the JWT carries amr.method='otp' with no
+    // recovery marker, so a cookie-hydrated client sees SIGNED_IN instead).
+    // Forward the token to /reset-password and let the form's useEffect
+    // call verifyOtp client-side; the event then fires on the browser
+    // client and trips the form's existing gate.
+    if (type === 'recovery') {
+      const params = new URLSearchParams({ token_hash, type })
+      redirect(`${next}?${params.toString()}`)
+    }
+
     const supabase = await createSupabaseServerClient()
 
     const { error } = await supabase.auth.verifyOtp({
