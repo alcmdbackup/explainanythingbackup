@@ -135,8 +135,8 @@ export default function TagSelector({
                 className={cn(
                   'group flex items-center gap-1 px-2 py-1 rounded-md border text-sm transition-all duration-200',
                   isActive
-                    ? 'bg-[var(--accent-gold)]/10 border-[var(--accent-gold)] text-[var(--accent-copper)]'
-                    : 'bg-[var(--surface-elevated)] border-[var(--border-default)] text-[var(--text-muted)]',
+                    ? 'bg-[var(--accent-gold)]/10 border-[var(--border-strong)] text-[var(--accent-copper)]'
+                    : 'bg-[var(--surface-elevated)] border-[var(--border-strong)] text-[var(--text-muted)]',
                   disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
                 )}
                 onClick={() => handleToggleTag(index)}
