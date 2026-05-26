@@ -1264,17 +1264,23 @@
   color: var(--text-primary);
 }
 
-/* Links - gold accent styling */
+/* Links - gold accent styling with underline so links are obvious */
 .lexical-editor a {
   color: var(--link);
-  text-decoration: none;
-  border-bottom: 1px solid transparent;
-  transition: all 0.2s ease-in-out;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+  transition: color 0.2s ease-in-out, text-decoration-color 0.2s ease-in-out;
 }
 
 .lexical-editor a:hover {
   color: var(--link-hover);
-  border-bottom-color: var(--link-hover);
+  text-decoration-color: var(--link-hover);
+}
+
+/* Headings: keep the link color but drop the underline so titles stay clean */
+.lexical-editor :is(h1, h2, h3, h4, h5, h6) a {
+  text-decoration: none;
 }
 
 /* Horizontal rule */
