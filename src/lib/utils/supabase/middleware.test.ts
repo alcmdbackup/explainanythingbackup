@@ -569,6 +569,18 @@ describe('Supabase Middleware - updateSession', () => {
       await updateSession(reqWithHost('http://localhost:3000/login'));
       expect(mockSignInWithPassword).not.toHaveBeenCalled();
     });
+
+    it('(n) still attempts signInWithPassword on / when guest unauthenticated', async () => {
+      // Sanity check that the onLoginPath guard didn't accidentally over-broaden.
+      // Case (b) covers this indirectly; (n) is a focused single-assertion check
+      // that fails with a clearer diagnostic if the / path regresses.
+      process.env.GUEST_EMAIL = 'guest@explainanything.app';
+      process.env.GUEST_PASSWORD = 'secret';
+      delete process.env.E2E_TEST_MODE;
+
+      await updateSession(reqWithHost('http://localhost:3000/'));
+      expect(mockSignInWithPassword).toHaveBeenCalled();
+    });
   });
 
   describe('Response Integrity', () => {
