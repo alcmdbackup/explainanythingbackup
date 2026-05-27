@@ -1,0 +1,168 @@
+// Paragraph-slot helpers for paragraph_recombine.
+// Per Phase 3 of rank_individual_paragraphs_evolution_20260525.
+//
+// extractParagraphsWithRanges: walk the article text post-stripCodeBlocks, split on \n\n,
+//   filter out heading-only lines, and track cumulative byte offsets so the reassembly step
+//   can splice winning rewrites back into the article at the original paragraph positions.
+//
+// validateParagraphRewrite: per-paragraph pre-validation (drop bad rewrites before they
+//   consume ranking budget). Composed from existing primitives (hasBulletPoints, etc.).
+//   Symmetric ±10% length cap per D7/D12.
+//
+// assembleRecombinedArticle: right-to-left splice (mirrors applyAcceptedGroups pattern)
+//   so earlier slots' byte offsets stay valid as later slots are replaced.
+
+import { stripCodeBlocks, hasBulletPoints, hasNumberedLists, hasTables, countShortParagraphs } from './enforceVariantFormat';
+
+export interface ParagraphSlot {
+  /** 0-based index of the paragraph in the article (skipping heading-only blocks). */
+  paragraphIndex: number;
+  /** The original paragraph text (trimmed). */
+  originalText: string;
+  /** Byte offset (in the ORIGINAL untrimmed article text) where this paragraph starts. */
+  startByte: number;
+  /** Byte offset (in the ORIGINAL untrimmed article text) where this paragraph ends (exclusive). */
+  endByte: number;
+}
+
+/**
+ * Walk the article text and return paragraph slots with byte ranges. Each slot's
+ * `startByte`/`endByte` are offsets into the ORIGINAL `text` argument (not the
+ * code-stripped variant), so `text.slice(slot.startByte, slot.endByte)` recovers
+ * the original (possibly leading/trailing whitespace) span.
+ *
+ * Filters out heading-only blocks (lines starting with `#`), horizontal-rule blocks,
+ * emphasis-only blocks (`*foo*`), and label lines ending with `:`. Matches the
+ * existing `extractParagraphs` behavior plus byte-range tracking.
+ *
+ * Code blocks: code-fenced regions are NOT included as paragraphs. We use the existing
+ * stripCodeBlocks helper to identify them; the byte ranges returned exclude code-fenced
+ * spans.
+ */
+export function extractParagraphsWithRanges(text: string): ParagraphSlot[] {
+  // First, identify code-fenced spans in the ORIGINAL text so we can skip paragraphs
+  // that fall inside them. We don't actually strip the code from `text` — we just
+  // mark those byte ranges as off-limits for paragraph extraction.
+  const codeBlockRanges: Array<[number, number]> = [];
+  const codeBlockRegex = /```[\s\S]*?```/g;
+  let codeMatch;
+  while ((codeMatch = codeBlockRegex.exec(text)) !== null) {
+    codeBlockRanges.push([codeMatch.index, codeMatch.index + codeMatch[0].length]);
+  }
+  const isInCodeBlock = (offset: number): boolean =>
+    codeBlockRanges.some(([s, e]) => offset >= s && offset < e);
+
+  const slots: ParagraphSlot[] = [];
+  let paragraphIndex = 0;
+  let cursor = 0;
+  const blockSeparator = '\n\n';
+  while (cursor < text.length) {
+    // Find the next \n\n boundary (or end of text).
+    const nextBoundary = text.indexOf(blockSeparator, cursor);
+    const blockEnd = nextBoundary === -1 ? text.length : nextBoundary;
+    const blockStart = cursor;
+    const blockText = text.slice(blockStart, blockEnd);
+    const trimmed = blockText.trim();
+
+    // Advance cursor past the block + the \n\n separator (or to end of text).
+    cursor = nextBoundary === -1 ? text.length : nextBoundary + blockSeparator.length;
+
+    // Filter rules — matches extractParagraphs behavior.
+    if (trimmed.length === 0) continue;
+    if (isInCodeBlock(blockStart)) continue;
+    if (trimmed.startsWith('#')) continue;
+    if (/^[-*_](\s*[-*_]){2,}\s*$/.test(trimmed)) continue;
+    if (/^\*[^*\n]+\*$/.test(trimmed)) continue;
+    if (trimmed.trim().endsWith(':')) continue;
+
+    // Compute the inner byte range (text.slice(startByte, endByte) === blockText).
+    slots.push({
+      paragraphIndex,
+      originalText: trimmed,
+      startByte: blockStart,
+      endByte: blockEnd,
+    });
+    paragraphIndex++;
+  }
+  return slots;
+}
+
+export interface ParagraphValidationResult {
+  valid: boolean;
+  /** Set when valid=false. Identifies which gate failed for the SlotsTab UI annotation. */
+  dropReason?:
+    | 'no_bullets'
+    | 'no_lists'
+    | 'no_tables'
+    | 'no_h1'
+    | 'length_under'
+    | 'length_over'
+    | 'zero_sentences';
+}
+
+/**
+ * Pre-validate a paragraph rewrite BEFORE it consumes ranking budget. Per D7/D12 of
+ * rank_individual_paragraphs_evolution_20260525.
+ *
+ * Symmetric ±10% length cap: `0.90 <= len(rewrite)/originalLength <= 1.10`. Tighter
+ * than the prior 1.20× upper-bound cap (the symmetric form catches both compression
+ * disasters AND expansion disasters).
+ *
+ * Other gates: no bullets/lists/tables (would break article-level validateFormat after
+ * recombination), no H1 (paragraphs are sub-article snippets), at least one sentence-
+ * ending punctuation mark.
+ */
+export function validateParagraphRewrite(
+  rewriteText: string,
+  originalLength: number,
+): ParagraphValidationResult {
+  const stripped = stripCodeBlocks(rewriteText);
+  if (hasBulletPoints(stripped)) return { valid: false, dropReason: 'no_bullets' };
+  if (hasNumberedLists(stripped)) return { valid: false, dropReason: 'no_lists' };
+  if (hasTables(stripped)) return { valid: false, dropReason: 'no_tables' };
+  if (/^\s*#\s/m.test(stripped)) return { valid: false, dropReason: 'no_h1' };
+
+  const ratio = rewriteText.length / Math.max(originalLength, 1);
+  if (ratio < 0.9) return { valid: false, dropReason: 'length_under' };
+  if (ratio > 1.1) return { valid: false, dropReason: 'length_over' };
+
+  // At least 1 sentence-ending punctuation. Reuses the SENTENCE_END_PATTERN approach
+  // from enforceVariantFormat but checks for ≥1 (not the article-level ≥2 threshold).
+  const sentenceCount = countShortParagraphs([rewriteText]); // returns 1 if < 2 sentences
+  // countShortParagraphs returns 1 (counted as short) if the paragraph has < 2 sentences.
+  // We want to allow 1-sentence rewrites (paragraphs can be naturally short). So we just
+  // check that there's AT LEAST one sentence-ending punctuation mark.
+  if (sentenceCount === 1) {
+    // Could be 0 or 1 sentences. Check for any sentence-ending punctuation.
+    const hasSentenceEnd = /[.!?]/.test(rewriteText);
+    if (!hasSentenceEnd) return { valid: false, dropReason: 'zero_sentences' };
+  }
+
+  return { valid: true };
+}
+
+/**
+ * Recombine the parent article by replacing paragraph spans with winning rewrites.
+ * `slotWinners` maps `paragraphIndex` to the winning text (the original is also a
+ * valid winner — passed through unchanged in that case). Paragraphs not in the map
+ * stay at their original text.
+ *
+ * Right-to-left splice (sorted by `startByte` descending) so earlier slots' byte
+ * offsets stay valid as later slots are replaced. Mirrors the splice primitive in
+ * applyAcceptedGroups.ts.
+ */
+export function assembleRecombinedArticle(
+  parentText: string,
+  slots: ParagraphSlot[],
+  slotWinners: Map<number, string>,
+): string {
+  // Replace right-to-left so earlier byte offsets aren't invalidated by later splices.
+  const sortedSlots = [...slots].sort((a, b) => b.startByte - a.startByte);
+  let result = parentText;
+  for (const slot of sortedSlots) {
+    const winner = slotWinners.get(slot.paragraphIndex);
+    if (winner === undefined) continue; // Not in map → keep original.
+    result = result.slice(0, slot.startByte) + winner + result.slice(slot.endByte);
+  }
+  return result;
+}
