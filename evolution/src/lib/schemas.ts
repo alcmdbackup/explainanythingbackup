@@ -2141,7 +2141,6 @@ export const slotRecombineExecutionDetailSchema = executionDetailBaseSchema.exte
     formatValid: z.boolean(),
     formatIssues: z.array(z.string()).optional(),
   }),
-  totalCostUsd: z.number().min(0).optional(),
   /** Post-emit ranking results (against the article-level run pool). */
   postEmitRanking: z.object({
     matchCount: z.number().int().min(0),
