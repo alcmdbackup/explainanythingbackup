@@ -230,6 +230,7 @@ init_workspace feat/foo
 add_migration
 expect "DISABLE_PR_GATE=true env → allow" allow "$(run_hook 'gh pr create --base main' 'DISABLE_PR_GATE=true')"
 expect "inline DISABLE_PR_GATE=true → allow" allow "$(run_hook 'DISABLE_PR_GATE=true gh pr create --base main')"
+expect "DISABLE_PR_GATE=true in --body should NOT bypass (regression #3)" deny "$(run_hook 'gh pr create --base main --body "tracks DISABLE_PR_GATE=true workaround"')"
 
 echo ""
 echo "=== Reactive path: branch with normal feature → main PR ==="

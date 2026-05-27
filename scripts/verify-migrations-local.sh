@@ -122,7 +122,9 @@ if [[ ${#MIGRATIONS[@]} -eq 0 ]]; then
 fi
 
 for migration in "${MIGRATIONS[@]}"; do
-  if ! PGPASSWORD=shadow psql "$CONN_STRING" -v ON_ERROR_STOP=1 -q -f "$migration" 2>&1; then
+  # Apply via `docker exec` so we don't depend on a host-installed psql.
+  # The container has psql built in; we pipe the SQL file to its stdin.
+  if ! docker exec -i "$CONTAINER_ID" psql -U postgres -v ON_ERROR_STOP=1 -q < "$migration" 2>&1; then
     echo "" >&2
     echo "FAIL: migration did not apply cleanly: $migration" >&2
     echo "" >&2

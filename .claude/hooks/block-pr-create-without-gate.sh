@@ -78,9 +78,12 @@ fi
 
 # ─── Bypasses ─────────────────────────────────────────────────────
 
-# Emergency kill switch — honors both `export DISABLE_PR_GATE=true` and
-# inline `DISABLE_PR_GATE=true gh pr create ...` forms.
-if [[ "${DISABLE_PR_GATE:-}" = "true" ]] || [[ "$COMMAND" =~ DISABLE_PR_GATE=true ]]; then
+# Emergency kill switch — honors `export DISABLE_PR_GATE=true` AND the
+# inline form `DISABLE_PR_GATE=true gh pr create ...`. The inline match
+# is anchored to the env-var prefix position so the literal text appearing
+# inside a quoted arg (e.g., --body) doesn't accidentally satisfy it.
+if [[ "${DISABLE_PR_GATE:-}" = "true" ]] || \
+   [[ "$COMMAND" =~ ^[[:space:]]*([A-Z_][A-Z_0-9]*=[^[:space:]]+[[:space:]]+)*DISABLE_PR_GATE=true[[:space:]] ]]; then
   echo "PR gate bypassed via DISABLE_PR_GATE" >&2
   exit 0
 fi

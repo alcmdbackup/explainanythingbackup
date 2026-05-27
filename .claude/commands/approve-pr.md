@@ -65,18 +65,20 @@ When the user replies, treat their entire next message as the reason. Validate:
 - If empty or whitespace-only, re-prompt: "Reason cannot be empty. Please provide a one-line reason."
 - Otherwise proceed to Step 5.
 
-### Step 5: Write the override token
+### Step 5: Write the override token (placeholder commit first)
+
+The override's `commit` field must match the SHA the hook will see AFTER the auto-commit. Since git creates that SHA only when we commit, we use a two-step pattern: write a placeholder, commit, then amend with the correct SHA.
 
 ```bash
-HEAD_SHA=$(git rev-parse HEAD)
 BRANCH=$(git branch --show-current)
 NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 APPROVED_BY=$(git config user.email || echo "unknown")
-REASON="<the user's reply from Step 4 — embed safely via jq, do not interpolate raw>"
+REASON="<the user's reply from Step 4 — embed safely via jq, never interpolate into shell>"
 
+# Initial write with a placeholder commit (will be corrected after the amend)
 jq -n \
   --arg branch "$BRANCH" \
-  --arg commit "$HEAD_SHA" \
+  --arg commit "pending" \
   --arg reason "$REASON" \
   --arg approved_at "$NOW" \
   --arg approved_by "$APPROVED_BY" \
@@ -91,14 +93,28 @@ test -f .claude/ci-gate-override.json || { echo "ERROR: failed to write override
 jq empty .claude/ci-gate-override.json || { echo "ERROR: override file is not valid JSON"; exit 1; }
 ```
 
-### Step 6: Auto-commit
+### Step 6: Auto-commit (safely, with shell-injection-resistant message)
 
-The commit message embeds the reason verbatim so it's grep-able in `git log` later:
+The commit message includes the user's reason. Pass it via `git commit -F -` from stdin instead of `-m "$REASON"` — the `-m` form interpolates `$REASON` into the shell command line, so a reason containing `"`, backticks, or `$(...)` could break out and execute. The stdin form treats the message as pure data.
 
 ```bash
 git add .claude/ci-gate-override.json
-git commit -m "chore: approve PR skip — $REASON"
+printf 'chore: approve PR skip — %s\n' "$REASON" | git commit -F -
 ```
+
+### Step 6b: Fix the SHA and amend
+
+The override file now sits in a commit; its `commit` field still says "pending". Update it to the actual commit SHA and amend so the override is committed correctly in a single PR commit:
+
+```bash
+NEW_HEAD=$(git rev-parse HEAD)
+jq --arg c "$NEW_HEAD" '.commit = $c' .claude/ci-gate-override.json > .claude/ci-gate-override.json.tmp
+mv .claude/ci-gate-override.json.tmp .claude/ci-gate-override.json
+git add .claude/ci-gate-override.json
+git commit --amend --no-edit
+```
+
+The final commit on the branch contains the override file with `commit` matching its own SHA. The hook's `oc == CURRENT_HEAD` check passes.
 
 ### Step 7: Print next steps
 
