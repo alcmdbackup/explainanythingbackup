@@ -10,14 +10,7 @@ import {
 } from '@evolution/testing/evolution-test-helpers';
 import { createEntityLogger } from '@evolution/lib/pipeline/infra/createEntityLogger';
 
-// SKIPPED: schema drift between code and DB — the logger inserts `agent_name`
-// but staging DB has `subagent_name` (rename never reached the application code
-// or the test). All 9 tests in this file fail silently because the logger's
-// fire-and-forget insert is rejected by the missing column. Tracked for
-// follow-up: code + types + this test need to be updated to subagent_name to
-// match the deployed schema.
-// eslint-disable-next-line flakiness/no-test-skip -- pre-existing schema drift; needs codebase-wide column rename
-describe.skip('Evolution Entity Logger Integration Tests', () => {
+describe('Evolution Entity Logger Integration Tests', () => {
   let supabase: SupabaseClient;
   let tablesExist = false;
 
@@ -110,7 +103,7 @@ describe.skip('Evolution Entity Logger Integration Tests', () => {
 
     const { data: logs } = await supabase
       .from('evolution_logs')
-      .select('id, iteration, agent_name, variant_id, context')
+      .select('id, iteration, subagent_name, variant_id, context')
       .eq('run_id', runId)
       .eq('message', '[TEST] context extraction test');
 
@@ -120,7 +113,7 @@ describe.skip('Evolution Entity Logger Integration Tests', () => {
     const log = logs![0]!;
     logIds.push(log.id);
     expect(log.iteration).toBe(3);
-    expect(log.agent_name).toBe('ranking');
+    expect(log.subagent_name).toBe('ranking');
     expect(log.variant_id).toBe('v1');
     expect(log.context).toEqual({ custom: 'data' });
   });

@@ -65,7 +65,7 @@ export function createEntityLogger(
             strategy_id: entityCtx.strategyId ?? null,
             level,
             message,
-            agent_name: (phaseName as string) ?? null,
+            subagent_name: (phaseName as string) ?? null,
             iteration: (iteration as number) ?? null,
             variant_id: (variantId as string) ?? null,
             context: Object.keys(rest).length > 0 ? rest : null,

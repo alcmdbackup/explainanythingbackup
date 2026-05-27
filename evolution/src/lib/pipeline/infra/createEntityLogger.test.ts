@@ -71,12 +71,12 @@ describe('createEntityLogger', () => {
     expect(insertedRows[0]).toMatchObject({ iteration: 3 });
   });
 
-  it('extracts phaseName to agent_name column', async () => {
+  it('extracts phaseName to subagent_name column', async () => {
     const { db, insertedRows } = makeMockSupabase();
     const logger = createEntityLogger(runCtx, db);
     logger.info('test', { phaseName: 'ranking' });
     await flushPromises();
-    expect(insertedRows[0]).toMatchObject({ agent_name: 'ranking' });
+    expect(insertedRows[0]).toMatchObject({ subagent_name: 'ranking' });
   });
 
   it('extracts variantId to variant_id column', async () => {
