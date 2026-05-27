@@ -92,8 +92,9 @@ Main/master branches and legacy projects (without `_status.json`) are automatica
 Bypass mechanisms (in escalating order of "user intent"):
 - `hotfix/*` branches — bypass all paths automatically (emergency carve-out)
 - `/approve-pr` — write a SHA-keyed approval token committed to git with a reason
+- `npm run test:gate` — run the local check trio (lint + tsc + ESM + unit + integration + e2e:critical); on success writes `.claude/test-pass.json` for HEAD, unlocking the reactive gate
 - `DISABLE_PR_GATE=true gh pr create ...` — one-shot emergency kill switch (audit line to stderr)
-- `.claude/ci-gate.disabled` file — disable the reactive layer entirely
+- `.claude/ci-gate.disabled` file — disable the reactive layer entirely (`update-ci-gate.sh` Stop hook also honors this)
 
 ## Migration Verification
 

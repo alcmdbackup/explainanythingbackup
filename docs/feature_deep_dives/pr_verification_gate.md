@@ -8,7 +8,7 @@ The PR-creation gate prevents Claude from opening PRs with unverified code, whil
 |---|---|---|---|
 | `.claude/push-gate.json` | `/finalize` Step 7, `/mainToProd` Step 6 | `block-push-without-gate.sh`, `block-pr-create-without-gate.sh` (high-blast path) | No (gitignored) |
 | `.claude/test-pass.json` | `/finalize` Step 7 | `block-pr-create-without-gate.sh` (reactive path) | No (gitignored) |
-| `.claude/ci-gate.json` | Stop-hook observer (Phase 2 — not shipped yet) | `block-pr-create-without-gate.sh` (reactive path) | No (gitignored) |
+| `.claude/ci-gate.json` | `update-ci-gate.sh` Stop hook | `block-pr-create-without-gate.sh` + `block-push-without-gate.sh` (reactive path) | No (gitignored) |
 | `.claude/ci-gate-override.json` | `/approve-pr` | `block-pr-create-without-gate.sh` (both paths) | **Yes** (audit trail) |
 | `.claude/ci-gate.disabled` | User (manual touch) | `block-pr-create-without-gate.sh` (reactive path only) | No (gitignored) |
 
@@ -91,13 +91,24 @@ The Playwright MCP can drive `github.com` directly via browser automation to cre
 
 ## Implementation files
 
-- `.claude/hooks/block-pr-create-without-gate.sh` — the gate hook (PreToolUse Bash matcher)
-- `.claude/commands/approve-pr.md` — the slash-command escape hatch
-- `.claude/commands/finalize.md` — adds Step 5.5 (migration verify) and Step 7 test-pass.json write
-- `scripts/verify-migrations-local.sh` — Docker postgres migration runner (`npm run migration:verify`)
-- `scripts/test-block-pr-create-without-gate.sh` — ~45 test cases (`npm run test:hooks`)
-- `scripts/test-verify-migrations-local.sh` — migration verify tests (`npm run test:migration-verify`)
-- `.github/workflows/ci.yml` — `hook-tests` + `migration-verify-test` jobs
+**Hooks:**
+- `.claude/hooks/block-pr-create-without-gate.sh` — the PR-creation gate (PreToolUse Bash matcher)
+- `.claude/hooks/update-ci-gate.sh` — Stop hook that observes CI state and writes `ci-gate.json`. **Asymmetric bypass**: only `hotfix/` exempt (NOT `fix|docs|chore`) — this closes the loophole flagged in plan-review iteration 2.
+- `.claude/hooks/block-push-without-gate.sh` — extended to gate feature-branch pushes when `ci-gate.json` is CLOSED (same asymmetric bypass)
+
+**Slash commands:**
+- `.claude/commands/approve-pr.md` — escape hatch (writes audit-trail override)
+- `.claude/commands/finalize.md` — Step 5.5 (migration verify) + Step 7 also writes test-pass.json
+
+**Scripts:**
+- `scripts/verify-migrations-local.sh` — Docker postgres shadow-DB migration runner (`npm run migration:verify`)
+- `scripts/run-test-gate.sh` — `npm run test:gate` — runs the local check trio + writes test-pass.json
+- `scripts/test-block-pr-create-without-gate.sh` — 49 cases
+- `scripts/test-verify-migrations-local.sh` — ~10 cases (Docker-skip if absent)
+- `scripts/test-update-ci-gate.sh` — 19 cases (stubs `gh` via PATH override)
+
+**CI:**
+- `.github/workflows/ci.yml` — `hook-tests` (light) + `migration-verify-test` (Docker) jobs
 
 ## Related
 

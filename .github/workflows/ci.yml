@@ -246,6 +246,7 @@ jobs:
       - uses: actions/checkout@v4
       - run: bash scripts/test-bypass-safety-hooks.sh
       - run: bash scripts/test-block-pr-create-without-gate.sh
+      - run: bash scripts/test-update-ci-gate.sh
 
   # Migration verify test (Docker postgres). Only runs when migration-related
   # files change; Ubuntu runners ship with Docker so no extra setup needed.

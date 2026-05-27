@@ -92,13 +92,68 @@
 - Docker prerequisite: add as Phase 0 with install instructions — confirmed
 - Phase 1+3 shipped together to avoid escape-hatch gap; Phase 2 deferred to a follow-up PR
 
-## Phase 2: Reactive CI-failure gate (DEFERRED to follow-up PR)
+## Phase 2: Reactive CI-failure gate
 
-Per the plan's resolved decision, Phase 2 ships separately. The hook is already wired to read `.claude/ci-gate.json` and `.claude/test-pass.json` when they exist — those files just aren't written yet. The reactive path is dormant in this PR; only the always-on path is active.
+Shipped in the same PR as Phase 1+3 per user request.
 
-Work remaining for Phase 2:
-- `update-ci-gate.sh` — separate Stop-hook entry that writes `.claude/ci-gate.json` based on `gh pr checks` observations (fix/docs/chore not bypassed — that's the loophole this closes)
-- `run-test-gate.sh` — `npm run test:gate` script (lint/tsc/ESM/unit/integration/e2e:critical with bash & wait parallelism + CI-detection on `ensure-server.sh`)
-- `block-push-without-gate.sh` extension — gate feature-branch pushes when ci-gate.json is CLOSED
-- `scripts/test-update-ci-gate.sh` — ~10-case harness for the new Stop hook
-- Test cases added to `test-block-pr-create-without-gate.sh` for the now-active reactive path
+### Work Done
+
+**Phase 2a: CI-gate state writer**
+- Created `.claude/hooks/update-ci-gate.sh` — Stop-hook sibling of `enforce-ci-monitoring.sh`
+  - Queries `gh pr view --json statusCheckRollup`, writes `.claude/ci-gate.json` based on observation
+  - **Asymmetric bypass**: only `hotfix/` exempt; `fix/`, `docs/`, `chore/` are NOT bypassed — this is the iteration-2 loophole closed
+  - Schema: `{branch, status: open|closed|unknown, last_observed_at, last_observed_sha, last_failure_commit, last_observation_source: "stop_hook", schema_version: 1}`
+  - Writes `closed` on observed FAILURE, `open` on all-SUCCESS, preserves on PENDING / gh-failure / different-branch-state (never clobbers wrong state)
+  - Atomic write (`.tmp` + `mv`), SIGINT/EXIT/TERM trap cleans the `.tmp`
+  - Honors `.claude/ci-gate.disabled` kill switch
+- Registered as separate Stop-hook entry in `.claude/settings.json` (sibling of `enforce-ci-monitoring.sh`, NOT inline-invoked from it — coupling them would defeat the loophole fix)
+
+**Phase 2b: Local test-pass tracker**
+- Created `scripts/run-test-gate.sh` (`npm run test:gate`):
+  - Phase A (parallel): `lint` + `typecheck` + `test:esm`
+  - Phase B (parallel): `test` (unit full) + `test:integration` (full)
+  - Phase C: `test:e2e:critical` (requires dev server)
+  - `bash & wait` parallelism with explicit exit-code aggregation (`npm-run-all` confirmed not in package.json)
+  - **CI detection**: `ensure-server.sh` + `seed-admin-test-user.ts` only invoked when `$CI` is unset
+  - On success: atomic write of `.claude/test-pass.json` with `tests: [...]` canonical array (6 entries)
+  - On failure or SIGINT: deletes any existing `test-pass.json` (no stale pass)
+- Added `test:gate` script to `package.json`
+
+**Phase 2c: Push-gate extension**
+- Extended `.claude/hooks/block-push-without-gate.sh`:
+  - **Path 1 (main/production push)**: existing behavior preserved — bypasses `hotfix|fix|docs|chore`, requires `push-gate.json`
+  - **Path 2 (feature-branch push)**: NEW — only `hotfix/` bypasses (asymmetric vs Path 1). If `ci-gate.json` says CLOSED for current branch, requires `test-pass.json` matching HEAD OR matching override.
+- Both paths still fail-open on parse errors with stderr warnings (reactive path is non-critical)
+- Honors `.claude/ci-gate.disabled` kill switch
+
+**Phase 2d: Tests + CI**
+- Created `scripts/test-update-ci-gate.sh` with 19 test cases:
+  - Bypass: hotfix branch, .ci-gate.disabled, main/production
+  - Asymmetric bypass regression: fix/, docs/, chore/ all DO write CLOSED state
+  - gh-missing: no write, no error
+  - No PR: no clobber
+  - CI failure: full schema written + last_failure_commit set
+  - All SUCCESS: status=open + failure_commit cleared
+  - PENDING: prior status preserved
+  - Smoke: hook registered in settings.json + executable
+  - Uses PATH-stub `gh` to inject canned JSON responses
+- Added `test-update-ci-gate.sh` to both `npm run test:hooks` and the CI `hook-tests` job
+
+### Issues Encountered
+
+1. **Stop-hook stubbing**: Unlike PreToolUse hooks (stdin JSON), Stop hooks query `gh` directly. Tests had to stub `gh` via PATH override, returning canned JSON. Cleaner than mocking gh API calls.
+2. **PENDING semantics**: Plan said "preserve prior state on PENDING" — implementation needed care to handle the empty-prior-state and different-branch-prior-state cases. Solved by setting `WRITE_STATUS="unknown"` only when no prior state for this branch exists.
+3. **Existing block-push-without-gate.sh structure**: bypass-branch check was BEFORE target-branch determination, conflating "what's the target" with "should we bypass". Restructured into two clear paths so the new feature-branch case has its own asymmetric bypass rules.
+
+### Verification
+
+- `npm run test:hooks` → **148 total PASS, 0 fail** across 3 harnesses (80 bypass-safety + 49 PR-create + 19 update-ci-gate)
+- `npm run typecheck` → clean
+- `npm run lint` → clean (only pre-existing design-system warnings)
+
+### Effect on the system
+
+With Phase 2 shipped, the gate system is now fully active:
+- **Always-on path** (migrations / `--base production`): unchanged from Phase 1+3
+- **Reactive path** (normal feature → main): now ENFORCING. After a CI failure on a branch's PR, both `git push` to that feature branch AND `gh pr create` will deny until either `npm run test:gate` writes a fresh test-pass.json, OR `/approve-pr` writes an override.
+- **Asymmetric bypass**: `hotfix/` is the only branch prefix exempt from the new reactive checks. `fix/`, `docs/`, `chore/` are now gated — closing the loophole noted in plan-review iteration 2.

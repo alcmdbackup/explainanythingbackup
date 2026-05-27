@@ -237,6 +237,11 @@
             "type": "command",
             "command": "cd \"$CLAUDE_PROJECT_DIR\" && bash .claude/hooks/enforce-ci-monitoring.sh",
             "timeout": 30000
+          },
+          {
+            "type": "command",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" && bash .claude/hooks/update-ci-gate.sh",
+            "timeout": 30000
           }
         ]
       }
