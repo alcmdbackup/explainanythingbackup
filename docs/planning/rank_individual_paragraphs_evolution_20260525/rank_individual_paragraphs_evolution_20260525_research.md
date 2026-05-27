@@ -141,22 +141,110 @@ Use the Problem Statement as the requirements anchor; concrete implementation ch
 
 8. **Test scope:** ~2 new test files + extensions to ~5 existing suites → **~80–100 new test cases** across unit / schema / dispatch / cost-estimator / integration / E2E. Mock LLM (`v2MockLlm.ts`) already supports per-label responses — just add `paragraph_rewrite` + `paragraph_rank` to `labelResponses`. New helper needed: `createMockParagraphRecombineInvocation(runId, config)`.
 
-## Open Questions
+## Resolved Questions
 
-1. **Decompose granularity** — paragraph-only (per `extractParagraphs`), or sentence-level for fine control? Recommend paragraph-only for v1 (sentence-level explodes the LLM-call count further).
+All 9 open questions from the initial research rounds have been answered during the planning walkthrough discussions and locked in as design decisions (D1–D20 in the planning doc).
 
-2. **Neighbor context window** — pass `{prev, current, next}` (3 paragraphs) or larger context (whole article + paragraph index marker)? Trade-off: more context = more cost + better coherence; less context = cheaper + worse transitions. Likely answer: 3-paragraph window with the rewrite call passing a section heading and the article's H1 title for top-level orientation.
+| # | Question | Resolution | Decision |
+|---|---|---|---|
+| 1 | Decompose granularity | Paragraph-level (`\n\n` split with heading filtering) | D1 |
+| 2 | Neighbor context window | Minimal — H1 + paragraph only (transition breakage observed-not-mitigated; metric in v1.5) | D2 |
+| 3 | Per-paragraph ranking depth | Pairwise Elo tournament via existing `rankNewVariant` (sequential within slot — see "Iteration-time discoveries" below) | D3 |
+| 4 | Recombined variant lineage | `parent_variant_ids = [originalParent]` only — slot winners stored in `execution_detail.slots[i].winnerSlotVariantId` to avoid `MAX_PARENT_IDS=10` truncation on the default 12-paragraph config | D4 (revised iter-1) |
+| 5 | Iteration eligibility | CAN be first iteration; when first uses `sourceMode: 'seed'`, when non-first can use `'seed'` or `'pool'` | D5 (revised mid-discussion) |
+| 6 | Recombined output ranking | Always-on, no kill switch — recombined variant goes through `rankNewVariant` against the run's pool | D6 |
+| 7 | Validation tolerance | Standard `validateFormat` (reject) + per-paragraph pre-validate so bad rewrites drop early; symmetric ±10% length gate | D7 |
+| 8 | Section-tree extraction | Not needed — paragraph_recombine rewrites in place against ONE parent, so heading structure stays intact; pure regex `\n\n` split is enough | D8 |
+| 9 | Cost-knob defaults | `rewritesPerParagraph=3`, `maxComparisonsPerParagraph=6`, `maxParagraphsPerInvocation=12`, perInvocationCap=$0.40, perSlotBudget=$0.033 with 90% self-abort | D9 + D16 |
 
-3. **Per-paragraph ranking depth** — pairwise-rank all M rewrites + original (M+1 candidates per slot)? Or just pick best via single LLM "which of these M paragraphs is best" call? Single-call would be ~M× cheaper at the cost of losing Elo / uncertainty per-slot. Likely: pairwise ranking for the first iteration with this agent, fall back to single-call if cost/Elo trade-off doesn't pan out.
+Eight additional decisions emerged from later discussions: D10 (arena reuse for per-slot leaderboards), D11 (subagent model: stay with I1 single-invocation-row pattern), D12 (3-guardrail rewrite prompt), D13 (`variant_kind` + `prompt_kind` enum columns), D14 (future-proof for sentence/section granularities), D15 (top-20-Elo pool cap + warn-log), D17 (extract `ArenaLeaderboardTable` into shared component), D18 (fully parallel slot+rewrite execution), D19 (`V8.P3.R1` hierarchical naming), D20 (per-invocation contribution visibility via highlight/filter props).
 
-4. **Recombined variant lineage** — `parentIds = [originalArticleId, donor1, donor2, ..., donorN]`? With original as `parentIds[0]` so `elo_delta_vs_parent` compares to the article being improved (matching DebateAgent's convention). Verify in planning.
+## Iteration-time discoveries (4-round plan review)
 
-5. **Iteration eligibility** — paragraph_recombine likely can't be the first iteration (needs a pool of ≥1 variant to draw "donors" from). Mirror DebateAgent's `canBeFirstIteration = false` invariant. Or does it operate on the seed article alone in iter 0?
+The plan went through four iterations of multi-agent plan-review. Each iteration uncovered code-level discoveries that the initial 3-round research missed. Captured here so the research doc reflects actual current understanding:
 
-6. **Recombined output passes whole-article ranking?** — after we emit the recombined variant, should it go through `rankNewVariant` against the existing pool (matching ProposerApprover/Editing pattern, gated by `EVOLUTION_PARAGRAPH_RECOMBINE_RANK_ENABLED`)? Probably yes — it lets paragraph_recombine compete in the arena.
+### Function signatures (verified against source)
 
-7. **Validation tolerance for recombined output** — `FORMAT_VALIDATION_MODE=warn` for the recombined output specifically, while remaining `reject` for vanilla generates? Or extend `validateFormat` with a more lenient mode for recombined variants? Or pre-validate paragraphs individually so we don't hit the 25%-short cliff on small articles?
+- **`loadArenaEntries(promptId, supabase, excludeId?)`** — lives in `evolution/src/lib/pipeline/setup/buildRunContext.ts` (NOT `pipeline/arena.ts`). Existing positional `supabase` argument was almost lost to a hand-wavy "opts object" proposal in the initial plan draft.
+- **`syncToArena(runId, promptId, pool, ratings, matchHistory, supabase, isSeeded, logger?)`** — actual 8-arg signature in `evolution/src/lib/pipeline/finalize/persistRunResults.ts` (NOT `pipeline/arena.ts`). Initial plan draft had a wrong 5-arg form.
+- **`MergeRatingsAgent`'s arena_comparisons row construction** is at `evolution/src/lib/core/agents/MergeRatingsAgent.ts:277-334`. It writes `prompt_id: ctx.promptId ?? null` (line 295) where `ctx.promptId` is the run's article-level promptId — load-bearing for the next finding.
+- **`evolution_prompts.title → name` rename** in `20260324000001_entity_evolution_phase0.sql`. The column for the topic name is `name`, but there's ALSO a separate `prompt` column for the natural-language prompt text. For paragraph topics we use both columns (identifier written to both; partial unique index on `prompt`).
 
-8. **Section-tree extraction** — required for v1 (full heading-paragraph mapping via remark-parse MDAST)? Or v1 punts to "rewrite within paragraph only, parent owns headings" and we add MDAST walker in v2?
+### sync_to_arena RPC's `p_matches` is deprecated (`20260331000002`)
 
-9. **Cost-knob defaults** — proposed: `rewritesPerParagraph=3`, `maxComparisonsPerParagraph=6`, `maxParagraphsPerInvocation=12`, per-invocation cap=$0.40. Need to validate by mock-running once we have an implementation.
+Major iter-2 finding. The RPC explicitly ignores `p_matches`:
+
+```sql
+CREATE OR REPLACE FUNCTION sync_to_arena(
+  p_prompt_id UUID,
+  p_run_id UUID,
+  p_entries JSONB,
+  p_matches JSONB,             -- DEPRECATED: ignored. Match rows are written by MergeRatingsAgent.
+  p_arena_updates JSONB DEFAULT '[]'::JSONB
+)
+```
+
+Match rows for `evolution_arena_comparisons` are SOLELY written by `MergeRatingsAgent` (Critical Fix J). This forced a redesign: paragraph_recombine cannot rely on `syncToArena` to persist per-slot matches because `MergeRatingsAgent.ctx.promptId` is the run's article-level promptId, not the slot's topic id. Result: new `persistSlotMatches(db, slotTopicId, runId, invocationId, iteration, slotMatches, beforeAfterRatings)` helper added to the plan (Phase 3) — mirrors `MergeRatingsAgent.ts:277-334`'s row construction but parameterized on `slotTopicId`.
+
+### V2Match has no rating fields
+
+`v2MatchSchema` (`evolution/src/lib/schemas.ts:912-919`) carries only `{winnerId, loserId, result, confidence, judgeModel, reversed}`. The before/after rating snapshots needed for `evolution_arena_comparisons.entry_a_mu_before/after` etc. live in `rankResult.detail.comparisons[]` (`rankSingleVariant.ts:51-72`) as `Rating = {elo, uncertainty}` (Elo-scale). The new `persistSlotMatches` helper must walk the detail records, build a `Map<matchKey, { aBefore, aAfter, bBefore, bAfter }>`, and call `ratingToDb()` inline to convert each Rating to `{mu, sigma, elo_score}` for the DB-scale columns.
+
+### Variant schema needs new optional fields
+
+`agent_name` and `variant_kind` are added on the DB column side via D13 migrations, but the runtime path from `Variant` → `syncToArena.newEntries.map(...)` → JSONB → RPC INSERT requires the `Variant` type itself to carry `agentName?` and `variantKind?` so the constructor at `persistRunResults.ts:628-643` can emit them in the JSONB entry payload. Without this TS-side extension, the extended RPC's new optional fields would always receive defaults.
+
+### MergeRatingsInput.iterationType enum needs extension
+
+`mergeRatingsInputSchema.iterationType` and `mergeRatingsExecutionDetailSchema.iterationType` (both in `evolution/src/lib/schemas.ts` ~lines 1975, 2033) are z.enum unions that must accept `'paragraph_recombine'` because post-emit ranking flows through MergeRatingsAgent which Zod-validates the iterationType from the iteration's agentType.
+
+### No unique constraint on `evolution_prompts` topic columns
+
+Grep across all migrations confirms there is NO unique constraint on `evolution_prompts.prompt` or `.name`. The arena.md doc mentions "UNIQUE (case-insensitive)" but that's stale. The plan adds a partial unique index `uq_evolution_prompts_paragraph_topic ON evolution_prompts(prompt) WHERE prompt_kind = 'paragraph'` in a new Phase 1 migration — scoped to paragraph topics so article-topic duplicate behavior stays unchanged.
+
+### MAX_PARENT_IDS=10 truncates the default 12-paragraph config
+
+Confirmed in `persistRunResults.ts:28-47`: `const MAX_PARENT_IDS = 10; const truncated = filtered.slice(0, MAX_PARENT_IDS);`. The initial D4 proposal stored slot winners as additional entries in `parent_variant_ids` — would have silently truncated for the default knobs. Revised D4: single-parent column `[originalParent]` only; slot winners moved to `execution_detail.slots[i].winnerSlotVariantId` (no truncation cap, fully queryable, lineage UI reads the array via "Recombined from N slots" badge).
+
+### Within-slot ranking must be SEQUENTIAL
+
+`rankNewVariant` mutates `localPool`/`localRatings`/`localMatchCounts`/`completedPairs` in place (`rankNewVariant.ts:66-67, 82-83`). D18's "fully parallel" framing applies to CROSS-slot dispatch only — WITHIN a slot the M rewrites' `rankNewVariant` calls must run sequentially against the slot's own local maps. Otherwise concurrent mutation would corrupt rankings.
+
+### v2MockLlm hardcodes `if (label === 'ranking')` for pair routing
+
+Confirmed in `evolution/src/testing/v2MockLlm.ts`. Initial plan draft introduced a new `'paragraph_rank'` AgentName label that would have bypassed the mock's pair-routing path, breaking test infrastructure. Revised plan reuses the existing `'ranking'` label for per-slot ranking calls; per-purpose cost attribution still works correctly because the call is made under the slot's `slotScope` which routes to `paragraph_recombine_cost` via the AgentCostScope intercept path.
+
+### Phase 4 syncToArena-before-persistSlotMatches ordering
+
+Eliminates orphan-match window: if persistSlotMatches were called first and syncToArena failed, the match rows would reference rewrite variant_ids that aren't yet in `evolution_variants`. With the corrected order, syncToArena establishes the rows first, then matches are persisted that reference them. Additional guard: on syncToArena failure for a slot, persistSlotMatches is SKIPPED entirely and the slot falls back to the original-paragraph variant.
+
+## Additional code files read during plan review
+
+Beyond the original Round 1–3 reads, the 4-iteration plan-review process inspected these additional code paths:
+
+- `evolution/src/lib/pipeline/setup/buildRunContext.ts:30-81` — actual `loadArenaEntries` implementation + sort behavior (no ORDER BY in the existing query; `mu` vs `elo_score` semantics)
+- `evolution/src/lib/pipeline/finalize/persistRunResults.ts:23-51` — `MAX_PARENT_IDS=10` constant + truncation behavior in `buildParentColumns`
+- `evolution/src/lib/pipeline/finalize/persistRunResults.ts:600-700` — actual `syncToArena` 8-arg signature, retry-once semantics, fromArena filtering, RPC call site
+- `evolution/src/lib/core/agents/MergeRatingsAgent.ts:277-334` — bulk-INSERT pattern for `evolution_arena_comparisons` (B122 fix: `prompt_id` set at INSERT, not backfilled), the row-shape we now mirror in `persistSlotMatches`
+- `evolution/src/services/arenaActions.ts:177-322` — `getArenaTopicDetailAction`, `getArenaEntriesAction`, `getArenaComparisonsAction` all exist (confirmed reviewer was wrong about `getArenaComparisonsAction` not existing)
+- `evolution/src/testing/v2MockLlm.ts` — `if (label === 'ranking')` pair-routing path; `labelResponses` map for direct overrides
+- `supabase/migrations/20260322000006_evolution_fresh_schema.sql` — RLS posture for evolution tables, table list
+- `supabase/migrations/20260322000007_evolution_prod_convergence.sql` — original sync_to_arena RPC (writes p_matches)
+- `supabase/migrations/20260327000001_sync_to_arena_arena_updates.sql` — sync_to_arena gains p_arena_updates
+- `supabase/migrations/20260324000001_entity_evolution_phase0.sql` — `evolution_prompts.title → name` rename
+- `supabase/migrations/20260329000001_add_evolution_constraints.sql` — status-enum CHECK constraints (no unique constraint on `prompt` or `name` found)
+- `supabase/migrations/20260331000002_sync_to_arena_in_run_matches.sql` — RPC p_matches DEPRECATED; MergeRatingsAgent becomes sole writer
+- `evolution/src/lib/pipeline/loop/rankSingleVariant.ts:51-72` — `RankSingleVariantComparisonRecord` shape (before/after Rating snapshots keyed by `(round, opponentId)`)
+- `evolution/src/lib/schemas.ts:912-919, ~1975, ~2033` — `v2MatchSchema`, `mergeRatingsInputSchema.iterationType`, `mergeRatingsExecutionDetailSchema.iterationType`
+
+## Confidence
+
+The plan-review process confirmed the original ~80%-reusable / ~20%-build-new shape from the High Level Summary, but the "build new" surface area grew during iterations:
+- **+1 SQL migration**: partial unique index on `evolution_prompts.prompt` for paragraph topics (didn't anticipate the missing constraint)
+- **+1 SQL migration**: extend `sync_to_arena` RPC to read `agent_name`+`variant_kind` from JSONB (didn't anticipate the RPC stripped these)
+- **+1 helper**: `persistSlotMatches` (didn't anticipate `sync_to_arena.p_matches` was deprecated)
+- **+1 metric**: `paragraph_slot_match_persist_failures` for observability of silent persist failures
+- **+~3 Zod schema extensions**: Variant.agentName + Variant.variantKind, MergeRatingsInput.iterationType, mergeRatingsExecutionDetailSchema.iterationType
+- **+~25 unit/integration test cases** beyond original scope (slotTopicActions.test.ts ~12 cases, D10 accumulation gained 4 cases, others)
+
+Net: still ~80% reuse of existing pipeline machinery; the additions are surgical and bounded.
