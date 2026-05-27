@@ -412,6 +412,16 @@ export const variantSchema = z.object({
    *  at their direct apply sites). Persisted as `sentence_verbatim_ratio` NUMERIC. Optional
    *  at in-memory layer; legacy variants and helper-failure cases stay undefined. */
   sentenceVerbatimRatio: z.number().min(0).max(1).optional(),
+  /** Provenance label persisted as `agent_name` on `evolution_variants`. For paragraph_recombine
+   *  per D10 of rank_individual_paragraphs_evolution_20260525: paragraph rewrites carry
+   *  `'paragraph_rewrite'` and originals carry `'paragraph_original'`. Optional at the
+   *  in-memory layer — article-level variants leave this undefined and the syncToArena
+   *  RPC writes NULL. */
+  agentName: z.string().optional(),
+  /** Granularity discriminator persisted as `variant_kind` on `evolution_variants` per D13.
+   *  Defaults to 'article' for whole-article variants; 'paragraph' for paragraph snippets
+   *  produced by paragraph_recombine. Optional at in-memory layer (defaults via Postgres). */
+  variantKind: z.enum(['article', 'paragraph']).optional(),
 });
 
 export type VariantSchema = z.infer<typeof variantSchema>;
@@ -514,6 +524,7 @@ export const iterationAgentTypeEnum = z.enum([
   'debate_and_generate',
   'iterative_editing',
   'iterative_editing_rewrite',
+  'paragraph_recombine',
   'swiss',
 ]);
 
@@ -540,7 +551,8 @@ export function canBeFirstIteration(t: z.infer<typeof iterationAgentTypeEnum>): 
     || t === 'reflect_and_generate'
     || t === 'criteria_and_generate'
     || t === 'single_pass_evaluate_criteria_and_generate'
-    || t === 'proposer_approver_criteria_generate';
+    || t === 'proposer_approver_criteria_generate'
+    || t === 'paragraph_recombine';
 }
 
 /** Helper: agent types that produce new variants via parallel-batch dispatch + sourceMode/qualityCutoff.
@@ -568,7 +580,8 @@ export function producesNewVariants(t: IterationAgentType): boolean {
     || t === 'proposer_approver_criteria_generate'
     || t === 'iterative_editing'
     || t === 'iterative_editing_rewrite'
-    || t === 'debate_and_generate';
+    || t === 'debate_and_generate'
+    || t === 'paragraph_recombine';
 }
 
 /** Helper: agent types that share the iterative-editing config bag (max cycles,
@@ -1972,7 +1985,7 @@ const afterVariantRenameKeys = renameKeys({
 
 export const mergeRatingsExecutionDetailSchema = executionDetailBaseSchema.extend({
   detailType: z.literal('merge_ratings'),
-  iterationType: z.enum(['generate', 'reflect_and_generate', 'criteria_and_generate', 'single_pass_evaluate_criteria_and_generate', 'proposer_approver_criteria_generate', 'debate_and_generate', 'iterative_editing', 'iterative_editing_rewrite', 'swiss']),
+  iterationType: z.enum(['generate', 'reflect_and_generate', 'criteria_and_generate', 'single_pass_evaluate_criteria_and_generate', 'proposer_approver_criteria_generate', 'debate_and_generate', 'iterative_editing', 'iterative_editing_rewrite', 'paragraph_recombine', 'swiss']),
   before: z.object({
     poolSize: z.number().int().min(0),
     variants: z.array(z.preprocess(
@@ -2030,7 +2043,7 @@ const snapshotDiscardReasonRename = renameKeys({ mu: 'elo' });
 // only contain 'generate' or 'swiss' so backward-compat reads remain valid.
 export const iterationSnapshotSchema = z.object({
   iteration: z.number().int().min(1),
-  iterationType: z.enum(['generate', 'reflect_and_generate', 'criteria_and_generate', 'single_pass_evaluate_criteria_and_generate', 'proposer_approver_criteria_generate', 'debate_and_generate', 'iterative_editing', 'iterative_editing_rewrite', 'swiss']),
+  iterationType: z.enum(['generate', 'reflect_and_generate', 'criteria_and_generate', 'single_pass_evaluate_criteria_and_generate', 'proposer_approver_criteria_generate', 'debate_and_generate', 'iterative_editing', 'iterative_editing_rewrite', 'paragraph_recombine', 'swiss']),
   phase: z.enum(['start', 'end']),
   capturedAt: z.string(),
   poolVariantIds: z.array(z.string()),
@@ -2057,6 +2070,89 @@ export const iterationSnapshotSchema = z.object({
 
 export type IterationSnapshot = z.infer<typeof iterationSnapshotSchema>;
 
+// ─── slotRecombineExecutionDetailSchema ──────────────────────────
+//
+// Per D11/D14/D20 of rank_individual_paragraphs_evolution_20260525.
+// Discriminated-union shape: v1 ships one variant `detailType:'paragraph_recombine'`.
+// Future granularities (`'sentence_recombine'`, `'section_recombine'`) extend
+// this union without renaming the file. Field names use `slot*` so the schema
+// generalizes naturally across granularities.
+
+export const slotRecombineExecutionDetailSchema = executionDetailBaseSchema.extend({
+  detailType: z.literal('paragraph_recombine'),
+  parentVariantId: z.string().uuid(),
+  /** N slots — one per paragraph in the parent article. */
+  slots: z.array(z.object({
+    slotIndex: z.number().int().min(0),
+    originalText: z.string(),
+    /** UUID of the slot's original-paragraph variant (in `evolution_variants`). Created
+     *  by `upsertSlotTopic` so this always exists, even when the rewrite/ranking phase
+     *  is skipped (e.g. self-aborted). */
+    originalSlotVariantId: z.string().uuid(),
+    /** UUID of this slot's arena topic in `evolution_prompts`. Deterministic per
+     *  (parentVariantId, slotIndex) per D10. */
+    slotTopicId: z.string().uuid(),
+    /** Per-slot budget allocated (USD). perInvocationCap / paragraphCount per D16. */
+    perSlotBudgetUsd: z.number().min(0),
+    /** Per-slot LLM spend (USD) from slotScope.getOwnSpent() at end of slot. */
+    spentUsd: z.number().min(0),
+    /** M rewrite attempts. Includes pre-rank-dropped ones (with dropReason). */
+    rewrites: z.array(z.object({
+      index: z.number().int().min(0),
+      text: z.string(),
+      /** UUID of this rewrite's `evolution_variants` row. Undefined for rewrites
+       *  dropped pre-rank (those are never inserted). */
+      slotVariantId: z.string().uuid().optional(),
+      costUsd: z.number().min(0),
+      durationMs: z.number().int().min(0).optional(),
+      sentenceVerbatimRatio: z.number().min(0).max(1).optional(),
+      formatValid: z.boolean(),
+      dropReason: z.enum([
+        'no_bullets', 'no_lists', 'no_tables', 'no_h1',
+        'length_under', 'length_over', 'zero_sentences',
+      ]).optional(),
+    })),
+    /** Per-slot ranking results. Undefined when slot was self-aborted before ranking. */
+    ranking: z.object({
+      matchCount: z.number().int().min(0),
+      ratings: z.array(z.object({
+        variantId: z.string().uuid(),
+        elo: z.number(),
+        uncertainty: z.number().min(0),
+      })),
+      /** UUID of the winning candidate (rewrite slotVariantId OR originalSlotVariantId). */
+      winnerSlotVariantId: z.string().uuid(),
+      /** Whether the winner is the original (true) or a rewrite (false). */
+      winnerIsOriginal: z.boolean(),
+      /** Source of the winning candidate. 'this_invocation' if this invocation
+       *  produced the winning rewrite; 'prior_invocation' if a previously-persisted
+       *  rewrite (loaded via loadArenaEntries) won; 'original' if the original kept. */
+      winnerSource: z.enum(['this_invocation', 'prior_invocation', 'original']),
+    }).optional(),
+    /** Set when the slot was discarded mid-execution. */
+    discardReason: z.object({
+      failurePoint: z.enum(['slot_budget', 'sync_failed', 'no_valid_rewrites']),
+      message: z.string().optional(),
+    }).optional(),
+  })),
+  /** Final recombined article + format-validation result. */
+  recombined: z.object({
+    text: z.string(),
+    formatValid: z.boolean(),
+    formatIssues: z.array(z.string()).optional(),
+  }),
+  totalCostUsd: z.number().min(0).optional(),
+  /** Post-emit ranking results (against the article-level run pool). */
+  postEmitRanking: z.object({
+    matchCount: z.number().int().min(0),
+    elo: z.number(),
+    uncertainty: z.number().min(0),
+    costUsd: z.number().min(0),
+  }).optional(),
+});
+
+export type SlotRecombineExecutionDetail = z.infer<typeof slotRecombineExecutionDetailSchema>;
+
 export const agentExecutionDetailSchema = z.discriminatedUnion('detailType', [
   generationExecutionDetailSchema,
   iterativeEditingExecutionDetailSchema,
@@ -2077,6 +2173,7 @@ export const agentExecutionDetailSchema = z.discriminatedUnion('detailType', [
   createSeedArticleExecutionDetailSchema,
   swissRankingExecutionDetailSchema,
   mergeRatingsExecutionDetailSchema,
+  slotRecombineExecutionDetailSchema,
 ]);
 
 export type AgentExecutionDetailSchema = z.infer<typeof agentExecutionDetailSchema>;
