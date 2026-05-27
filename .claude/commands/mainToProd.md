@@ -333,6 +333,95 @@ After 5 failed iterations, use **AskUserQuestion**:
 gh pr view --json mergeable,mergeStateStatus
 ```
 
+#### 7.4 Backport Test Fixes to Main (Conditional)
+
+Test/helper fixes applied during this workflow (whether from conflict resolution
+preferring production-side text, or from manual fixes in Step 4 / Step 4.5) currently
+live only on the deploy branch. Without round-tripping to main, the next
+`/mainToProd` rediscovers the same failures and re-applies the same fixes. This
+step automates the round-trip by opening a backport PR to main.
+
+The diff between `origin/main` and the deploy branch — restricted to test paths — is
+exactly the set of changes main is missing.
+
+```bash
+DEPLOY_BRANCH=$(git branch --show-current)
+
+# Identify test-file changes on the deploy branch that main lacks
+FIXED_FILES=$(git diff origin/main..HEAD --name-only -- \
+  'src/__tests__/' '*.spec.ts' '*.test.ts' 'src/__tests__/e2e/helpers/' \
+  2>/dev/null | sort -u)
+
+if [ -z "$FIXED_FILES" ]; then
+  echo "No test-file diffs vs main — no backport PR needed."
+else
+  echo "Backporting these test fixes to main:"
+  echo "$FIXED_FILES" | sed 's/^/  /'
+
+  BACKPORT_BRANCH="chore/backport-test-fixes-$(date +%Y%m%d-%H%M)"
+
+  # Create branch off main; copy each fixed file from deploy branch
+  git checkout -b "$BACKPORT_BRANCH" origin/main
+
+  echo "$FIXED_FILES" | while IFS= read -r f; do
+    [ -z "$f" ] && continue
+    git checkout "$DEPLOY_BRANCH" -- "$f"
+  done
+
+  # If the copy resulted in no actual changes (files already matched main), skip
+  if git diff --cached --quiet && git diff --quiet; then
+    echo "Files identical to main after copy — no backport PR needed."
+    git checkout "$DEPLOY_BRANCH"
+  else
+    git add -A
+    git commit -m "chore: backport test fixes from production release $(date '+%b %d')
+
+Backports test/helper fixes applied inline during the main → production deploy
+workflow. Without this round-trip, the next /mainToProd run would rediscover
+the same failing tests and re-apply identical fixes during conflict resolution.
+
+Files backported:
+$(echo "$FIXED_FILES" | sed 's/^/  - /')
+
+Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
+
+    # Push gate (same pattern as main deploy push)
+    echo "{\"commit\":\"$(git rev-parse HEAD)\",\"skill\":\"mainToProd\",\"timestamp\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" > .claude/push-gate.json
+
+    if git push -u origin HEAD 2>&1; then
+      gh pr create --base main --head "$BACKPORT_BRANCH" \
+        --title "chore: backport test fixes from production release $(date '+%b %d')" \
+        --body "## Why
+
+The \`/mainToProd\` workflow applied test/helper fixes inline during the $(date '+%b %d') production release. Without backporting, the same fixes would be lost on the next release and would have to be re-discovered during conflict resolution.
+
+## Files
+$(echo "$FIXED_FILES" | sed 's/^/- /')
+
+## Test plan
+- [ ] CI passes (these are test-only changes)
+- [ ] No conflicts when merged
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)" \
+        2>&1 | tail -3
+
+      echo "Backport PR opened. Merge it after the production release lands so the next /mainToProd run doesn't have to re-apply these fixes."
+    else
+      echo "WARNING: backport branch push failed. Manually push '$BACKPORT_BRANCH' and open PR to main:"
+      echo "  git push -u origin $BACKPORT_BRANCH"
+      echo "  gh pr create --base main --head $BACKPORT_BRANCH --title 'chore: backport test fixes from production release'"
+    fi
+
+    # Return to deploy branch
+    git checkout "$DEPLOY_BRANCH"
+  fi
+fi
+```
+
+If the backport branch has its own conflicts against main (e.g., main has changed
+the same test file since divergence), the `git push` succeeds but a future merge
+needs manual resolution. That's a one-off cleanup — accept it and resolve in PR review.
+
 #### 7.5 Migration-Present Warning (Conditional)
 
 After confirming PR is mergeable, detect whether this PR touches any migration files. **Fail-loud semantics throughout: capture exit codes explicitly, surface failures with WARNING text — silently swallowing errors here would reproduce the exact failure mode this guard exists to prevent.** (Do NOT use `set -e` — it would abort the snippet before the `DIFF_EXIT=$?` capture on the next line, defeating the explicit-check pattern.)
