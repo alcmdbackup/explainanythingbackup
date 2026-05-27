@@ -26,12 +26,16 @@ adminTest.describe('Experiment Wizard E2E', { tag: '@evolution' }, () => {
   adminTest.beforeAll(async () => {
     const sb = getServiceClient();
 
-    // Seed prompt visible to wizard (no [TEST] in name)
+    // Seed prompt visible to wizard (no [TEST] in name).
+    // Prompt text needs Date.now() too — there's a `uq_arena_topic_prompt`
+    // unique index on lower(prompt) that fires when seeded text collides
+    // across runs.
+    const seedTs = Date.now();
     const { data: prompt, error: promptErr } = await sb
       .from('evolution_prompts')
       .insert({
-        prompt: 'E2E wizard test: explain photosynthesis',
-        name: `${TEST_PREFIX} Prompt ${Date.now()}`,
+        prompt: `E2E wizard test ${seedTs}: explain photosynthesis`,
+        name: `${TEST_PREFIX} Prompt ${seedTs}`,
         status: 'active',
       })
       .select('id')
