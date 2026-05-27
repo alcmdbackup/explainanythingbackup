@@ -42,6 +42,8 @@ async function seedGuestUser() {
     process.exit(1);
   }
 
+  const ROTATE = process.argv.includes('--rotate');
+
   const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 
   // Look up existing user by email.
@@ -53,6 +55,27 @@ async function seedGuestUser() {
 
   const existing = listResult?.users.find((u) => u.email === GUEST_EMAIL);
   if (existing) {
+    if (ROTATE) {
+      const newPassword = generatePassword();
+      const { error: updateErr } = await supabase.auth.admin.updateUserById(existing.id, {
+        password: newPassword,
+      });
+      if (updateErr) {
+        console.error(`✗ updateUserById failed: ${updateErr.message}`);
+        process.exit(1);
+      }
+      console.log(`✓ Guest user password rotated`);
+      console.log('');
+      console.log('  COPY THESE VALUES INTO VERCEL + GITHUB SECRETS NOW (only printed once):');
+      console.log(`  GUEST_EMAIL=${GUEST_EMAIL}`);
+      console.log(`  GUEST_PASSWORD=${newPassword}`);
+      console.log(`  GUEST_USER_ID=${existing.id}`);
+      console.log(`  NEXT_PUBLIC_GUEST_EMAIL=${GUEST_EMAIL}`);
+      console.log('');
+      console.log('  Targets: Vercel Production + Preview env vars, GitHub Actions staging + Production env secrets, local .env.local');
+      console.log('  REMINDER: trigger a Vercel redeploy after updating env vars so running containers pick up the new password.');
+      return;
+    }
     console.log(`✓ Guest user already exists`);
     console.log(`  GUEST_EMAIL=${GUEST_EMAIL}`);
     console.log(`  GUEST_USER_ID=${existing.id}`);

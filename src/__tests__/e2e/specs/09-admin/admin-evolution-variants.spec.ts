@@ -230,7 +230,12 @@ adminTest.describe('Evolution Variants (list page)', { tag: '@evolution' }, () =
     await expect(table).toBeVisible({ timeout: 15000 });
 
     // Uncheck "Hide test content" so seeded test variants are visible.
+    // Must wait for filter to be visible before reading isChecked() — otherwise
+    // hydration race lets isChecked() return false against pre-hydration DOM
+    // and the uncheck is silently skipped (same pattern as sister spec
+    // admin-evolution-experiments-list.spec.ts:143-145).
     const testContentFilter = adminPage.locator('[data-testid="filter-filterTestContent"] input[type="checkbox"]');
+    await expect(testContentFilter).toBeVisible({ timeout: 15000 });
     // eslint-disable-next-line flakiness/no-point-in-time-checks -- control flow, not assertion
     if (await testContentFilter.isChecked()) {
       await testContentFilter.uncheck();

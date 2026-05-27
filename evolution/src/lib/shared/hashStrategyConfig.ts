@@ -61,8 +61,12 @@ export function normalizeEnabledAgents(agents: AgentName[] | undefined): AgentNa
 
 // ─── Labeling ───────────────────────────────────────────────────
 
-/** Shorten a model name for display (e.g. "gpt-4.1-mini" -> "4.1-mini"). */
-function shortenModel(model: string): string {
+/** Shorten a model name for display (e.g. "gpt-4.1-mini" -> "4.1-mini").
+ *  Tolerates missing values — some legacy/seeded strategies on staging have
+ *  `config.generationModel` / `judgeModel` unset, which used to crash the
+ *  experiment-creation wizard's auto-label fallback render via Array.map. */
+function shortenModel(model: string | undefined | null): string {
+  if (!model) return '?';
   return model
     .replace('gpt-', '')
     .replace('deepseek-', 'ds-')

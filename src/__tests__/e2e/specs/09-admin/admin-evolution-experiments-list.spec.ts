@@ -182,7 +182,7 @@ adminTest.describe('Evolution Experiments List', { tag: '@evolution' }, () => {
     await expect(expLink).toBeVisible({ timeout: 10000 });
     await expLink.click();
 
-    await adminPage.waitForURL(`**/admin/evolution/experiments/${activeExperimentId}`, { timeout: 10000 });
+    await adminPage.waitForURL(`**/admin/evolution/experiments/${activeExperimentId}`, { timeout: 10000, waitUntil: 'commit' });
     expect(adminPage.url()).toContain(`/admin/evolution/experiments/${activeExperimentId}`);
 
     // Navigate back to list and verify breadcrumb
