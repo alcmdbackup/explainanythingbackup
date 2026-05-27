@@ -102,6 +102,10 @@
           {
             "type": "command",
             "command": "cd \"$CLAUDE_PROJECT_DIR\" && bash .claude/hooks/block-push-without-gate.sh"
+          },
+          {
+            "type": "command",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" && bash .claude/hooks/block-pr-create-without-gate.sh"
           }
         ]
       },

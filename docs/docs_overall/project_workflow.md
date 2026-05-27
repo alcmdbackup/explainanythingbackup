@@ -89,6 +89,8 @@ See the planning doc for full bypass documentation.
 - Make sure to avoid merge conflicts
 - Do not worry about production, that will be taken care of later
 - **Push gate**: `git push` to `main` or `production` is blocked by a PreToolUse hook unless `/finalize` or `/mainToProd` wrote a valid `.claude/push-gate.json` matching the current HEAD. Feature branch pushes, bypass branch prefixes (`hotfix/`, `fix/`, `docs/`, `chore/`), tags, and backup mirror pushes are exempt.
+- **PR-creation gate**: `gh pr create` (and `gh pr ready`, `gh api ... /pulls -X POST`, `gh api graphql createPullRequest`) is blocked by `.claude/hooks/block-pr-create-without-gate.sh`. Two paths: (1) **high-blast** — PRs touching `supabase/migrations/**` or `--base production` always require a valid `.claude/push-gate.json` for HEAD (failed-closed); (2) **reactive** — normal feature → main PRs are only gated when a CI failure has been observed for the branch (failed-open). Bypass: `hotfix/*` branches, `/approve-pr` (writes a committed SHA-keyed override), or `DISABLE_PR_GATE=true`.
+- **Migration verification**: `/finalize` Step 5.5 runs `npm run migration:verify` when the PR touches migrations. The script uses an ephemeral Docker postgres on a random port; it does not touch the user's live local DB. Docker is a one-time prerequisite — see CLAUDE.md.
 - **CI monitoring**: A Stop hook prevents Claude from finishing while a PR targeting `main` or `production` has failing or pending CI checks. Fails open if `gh` is unavailable.
 
 ---

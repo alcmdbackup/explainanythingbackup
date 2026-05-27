@@ -234,6 +234,41 @@ jobs:
       - run: npm ci
       - run: npm run lint
 
+  # Hook test harnesses (light — no Docker / DB). Runs on every code PR;
+  # skips on docs-only via detect-changes fast path.
+  hook-tests:
+    name: Hook Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [detect-changes]
+    if: needs.detect-changes.outputs.path != 'fast'
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash scripts/test-bypass-safety-hooks.sh
+      - run: bash scripts/test-block-pr-create-without-gate.sh
+
+  # Migration verify test (Docker postgres). Only runs when migration-related
+  # files change; Ubuntu runners ship with Docker so no extra setup needed.
+  migration-verify-test:
+    name: Migration Verify Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [detect-changes]
+    if: >-
+      needs.detect-changes.outputs.has_migrations == 'true'
+      || contains(github.event.pull_request.changed_files, 'scripts/verify-migrations-local.sh')
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pre-pull postgres image (with retry)
+        run: |
+          for i in 1 2; do
+            if docker pull postgres:15-alpine; then exit 0; fi
+            echo "pull attempt $i failed; retrying in 5s..."
+            sleep 5
+          done
+          exit 1
+      - run: bash scripts/test-verify-migrations-local.sh
+
   # Phase 2: Affected-only unit tests (skip on fast path)
   unit-tests:
     name: Unit Tests

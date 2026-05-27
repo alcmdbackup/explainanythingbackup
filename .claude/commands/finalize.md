@@ -719,6 +719,26 @@ If `$ARGUMENTS` contains `--e2e`, ALSO run the full E2E suite after critical and
 npm run test:e2e:full
 ```
 
+### 5.5. Migration Verification (Conditional)
+
+If this PR touches any migration files, verify that all migrations apply cleanly against a fresh DB. This catches "migration references a column that doesn't exist" before the post-merge staging deploy fails. The check runs against an ephemeral Docker postgres on a random port — it does NOT touch the user's live local DB.
+
+```bash
+MIGRATIONS_CHANGED=$(git diff --name-only origin/main -- 'supabase/migrations/**' || true)
+```
+
+If `MIGRATIONS_CHANGED` is empty, skip to Step 6.
+
+If non-empty, run:
+
+```bash
+npm run migration:verify
+```
+
+**HARD GATE**: if it fails, finalize stops. The recovery loop is the same as Step 4-5: fix the migration in your editor, then re-run /finalize from Step 5.5. No rebase needed; the verification uses an ephemeral container, so your local environment is unchanged.
+
+If Docker is not installed, the script exits with install instructions. The escape hatch is `MIGRATION_VERIFY_SKIP=true npm run migration:verify` — use only when Docker is genuinely unavailable.
+
 ### 6. Documentation Updates
 
 Automatically update documentation based on code changes:
@@ -822,6 +842,19 @@ If still not clean → Display remaining files and abort finalization.
 Write the push gate file so the push hook allows the push:
 ```bash
 echo "{\"commit\":\"$(git rev-parse HEAD)\",\"skill\":\"finalize\",\"timestamp\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" > .claude/push-gate.json
+```
+
+Also write the test-pass gate file so the new PR-creation hook (block-pr-create-without-gate.sh) allows `gh pr create`. The Step-4-5 check results carry forward (no re-run): code is bit-identical between Step 5 and Step 6.5 commit; only the SHA changed.
+
+```bash
+cat > .claude/test-pass.json <<EOF
+{
+  "commit": "$(git rev-parse HEAD)",
+  "tests": ["lint", "typecheck", "test:esm", "test", "test:integration", "test:e2e:critical"],
+  "passed_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+  "schema_version": 1
+}
+EOF
 ```
 
 ```bash
