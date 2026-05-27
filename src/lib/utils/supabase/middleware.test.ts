@@ -544,6 +544,9 @@ describe('Supabase Middleware - updateSession', () => {
       // The opt-out is intentionally one-shot (URL-only, no cookie). Validates that
       // a subsequent request without the param re-fires sign-in (proves we did not
       // accidentally set a stickier opt-out side-channel).
+      // First request uses /userlibrary?logout=1 (NOT /login) so the optedOut guard
+      // is what suppresses signIn — using /login would also trigger onLoginPath and
+      // mask coverage of the optedOut behavior.
       process.env.GUEST_EMAIL = 'guest@explainanything.app';
       process.env.GUEST_PASSWORD = 'secret';
       delete process.env.E2E_TEST_MODE;
@@ -551,7 +554,7 @@ describe('Supabase Middleware - updateSession', () => {
       // for auto-login. (The opt-out param is what should make the first call skip it.)
       mockGetUser.mockResolvedValue({ data: { user: null }, error: null });
 
-      await updateSession(reqWithHost('http://localhost:3000/login?logout=1'));
+      await updateSession(reqWithHost('http://localhost:3000/userlibrary?logout=1'));
       expect(mockSignInWithPassword).not.toHaveBeenCalled();
 
       await updateSession(reqWithHost('http://localhost:3000/'));

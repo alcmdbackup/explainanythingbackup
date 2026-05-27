@@ -72,12 +72,17 @@ export async function updateSession(request: NextRequest) {
   // limit (~30/min) as the sole backstop. Acceptable at demo-tier traffic; if
   // traffic grows, add a module-scope last-failure Map to gate retries.
 
-  // Opt-out: when the Logout button on a guest session redirects to /login?logout=1,
-  // suppress auto-login for that one request so the form renders. Param doesn't persist
-  // — the next request without it re-enables auto-login (intentional demo default).
-  // Note: now structurally unreachable on /login (covered by the !onLoginPath
-  // guard below); kept as defensive documentation in case the /login matcher changes
-  // or the param starts being used on other paths.
+  // Opt-out: when ?logout=1 is on the URL, suppress auto-login for that one
+  // request so the form renders. Param doesn't persist — the next request
+  // without it re-enables auto-login (intentional demo default).
+  // Two callers today:
+  //   1. The Logout button on a guest session redirects to /login?logout=1.
+  //      (Redundant with `onLoginPath` below for that specific URL, but kept
+  //      for symmetry and in case the /login matcher narrows in the future.)
+  //   2. The E2E unauth-redirect test navigates to /userlibrary?logout=1 to
+  //      suppress auto-login on a protected route so the redirect-to-/login
+  //      path fires. This caller is NOT covered by `onLoginPath`.
+  // Removing this check would break caller #2.
   const optedOut = request.nextUrl.searchParams.get('logout') === '1'
   // Skip guest auto-login on the password-recovery flow paths. Without this,
   // an unauthenticated visitor hitting any of these routes gets signed in as
