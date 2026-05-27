@@ -2,6 +2,7 @@
 // Verifies the public site's home + library routes load and the health endpoint is healthy.
 
 import { test, expect } from '../fixtures/auth';
+import { test as unauthTest } from '@playwright/test';
 
 test.describe('Public Smoke Tests', () => {
   test(
@@ -44,6 +45,33 @@ test.describe('Public Smoke Tests', () => {
 
       // Supabase queries can take 15-30s on cold start
       await expect(page.locator('h1:has-text("My Library")')).toBeVisible({ timeout: 30000 });
+    },
+  );
+});
+
+// Catches today's failure mode (debug_no_logged_out_page_explainanything_20260505):
+// prod GUEST_PASSWORD out of sync with prod Supabase user → middleware sets
+// GUEST_AUTOLOGIN_FAILED_RECENTLY cookie → /login renders ServiceUnavailableNotice.
+// Runs in both post-deploy smoke (@smoke-public grep) and nightly (chromium/firefox
+// testMatch on this file), so any deploy that breaks guest auto-login alerts within
+// ~2 min via Slack.
+unauthTest.describe('Public Smoke Tests — guest auto-login', () => {
+  unauthTest.use({ storageState: { cookies: [], origins: [] } });
+
+  unauthTest(
+    'unauthenticated visitor lands signed-in (guest auto-login works)',
+    { tag: ['@smoke', '@smoke-public'] },
+    async ({ page }) => {
+      await page.goto('/');
+
+      await expect(page.getByTestId('service-unavailable-notice')).toHaveCount(0);
+      await expect(page).not.toHaveURL(/\/login/);
+
+      // Hydration proof (testing_overview.md Rule 18) — also confirms we landed
+      // on the home surface, not stuck on an auth-error or transitional page.
+      await expect(page.locator('[data-testid="home-search-input"]')).toBeVisible({
+        timeout: 15000,
+      });
     },
   );
 });
