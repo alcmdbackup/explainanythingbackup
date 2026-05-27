@@ -13,7 +13,8 @@ export interface LogEntry {
   id: number;
   created_at: string;
   level: string;
-  agent_name: string | null;
+  /** Dotted subagent path of the emitter. Renamed from agent_name in Phase 4b. */
+  subagent_name: string | null;
   iteration: number | null;
   variant_id: string | null;
   message: string;
@@ -24,6 +25,9 @@ export interface LogEntry {
 
 export interface LogFilters {
   level?: string;
+  /** Filter by subagent path prefix. Renamed from agentName in Phase 4b. */
+  subagentName?: string;
+  /** @deprecated Use subagentName. Kept for one release window. */
   agentName?: string;
   iteration?: number;
   entityType?: string;
@@ -51,7 +55,7 @@ export const getEntityLogsAction = adminAction(
 
     let query = ctx.supabase
       .from('evolution_logs')
-      .select('id, created_at, level, agent_name, iteration, variant_id, message, context, entity_type, entity_id', { count: 'exact' });
+      .select('id, created_at, level, subagent_name, iteration, variant_id, message, context, entity_type, entity_id', { count: 'exact' });
 
     // Query by entity's logQueryColumn (ancestor FK) or direct entity_type+entity_id
     const entity = getEntity(entityType);
@@ -72,9 +76,11 @@ export const getEntityLogsAction = adminAction(
 
     // Apply filters
     if (filters?.level) query = query.eq('level', filters.level);
-    if (filters?.agentName) {
-      const escapedAgent = filters.agentName.replace(/[%_\\]/g, '\\$&');
-      query = query.ilike('agent_name', `%${escapedAgent}%`);
+    // Accept both subagentName (new) and agentName (back-compat) for the same filter.
+    const subagentFilter = filters?.subagentName ?? filters?.agentName;
+    if (subagentFilter) {
+      const escaped = subagentFilter.replace(/[%_\\]/g, '\\$&');
+      query = query.ilike('subagent_name', `%${escaped}%`);
     }
     if (filters?.iteration !== undefined) query = query.eq('iteration', filters.iteration);
     if (filters?.entityType) query = query.eq('entity_type', filters.entityType);

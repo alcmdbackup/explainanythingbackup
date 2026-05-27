@@ -120,15 +120,23 @@ describe('evolutionVisualizationActions', () => {
         (b) => { b.then = jest.fn((resolve: (v: unknown) => void) => resolve({ data: [], error: null })); },
         // 7. evolution_metrics (seed_cost — layer 2, Promise.all)
         (b) => { b.then = jest.fn((resolve: (v: unknown) => void) => resolve({ data: [], error: null })); },
-        // 8. evolution_run_costs (layer 3)
+        // rename_agents_subagents_evolution_20260508 Phase 6: Layer 2 widened
+        // from 4 → 7 cost metrics. Three additional reads land here.
+        // 8. evolution_metrics (evaluation_cost — layer 2, Promise.all)
         (b) => { b.then = jest.fn((resolve: (v: unknown) => void) => resolve({ data: [], error: null })); },
-        // 9. evolution_strategies (names) — enrichment
+        // 9. evolution_metrics (iterative_edit_cost — layer 2, Promise.all)
+        (b) => { b.then = jest.fn((resolve: (v: unknown) => void) => resolve({ data: [], error: null })); },
+        // 10. evolution_metrics (proposer_approver_criteria_cost — layer 2, Promise.all)
+        (b) => { b.then = jest.fn((resolve: (v: unknown) => void) => resolve({ data: [], error: null })); },
+        // 11. evolution_run_costs (layer 3)
+        (b) => { b.then = jest.fn((resolve: (v: unknown) => void) => resolve({ data: [], error: null })); },
+        // 12. evolution_strategies (names) — enrichment
         (b) => {
           b.then = jest.fn((resolve: (v: unknown) => void) =>
             resolve({ data: strategies, error: null })
           );
         },
-        // 10. evolution_metrics (per run cost for recent) — enrichment
+        // 13. evolution_metrics (per run cost for recent) — enrichment
         (b) => {
           b.then = jest.fn((resolve: (v: unknown) => void) =>
             resolve({ data: perRunCostMetrics, error: null })
@@ -229,15 +237,23 @@ describe('evolutionVisualizationActions', () => {
         (b) => { b.then = jest.fn((resolve: (v: unknown) => void) => resolve({ data: [], error: null })); },
         // 7. evolution_metrics (seed_cost — layer 2)
         (b) => { b.then = jest.fn((resolve: (v: unknown) => void) => resolve({ data: [], error: null })); },
-        // 8. evolution_run_costs (layer 3)
+        // rename_agents_subagents_evolution_20260508 Phase 6: Layer 2 widened
+        // from 4 → 7 cost metrics. Three additional reads land here.
+        // 8. evolution_metrics (evaluation_cost — layer 2)
         (b) => { b.then = jest.fn((resolve: (v: unknown) => void) => resolve({ data: [], error: null })); },
-        // 9. evolution_strategies (names enrichment)
+        // 9. evolution_metrics (iterative_edit_cost — layer 2)
+        (b) => { b.then = jest.fn((resolve: (v: unknown) => void) => resolve({ data: [], error: null })); },
+        // 10. evolution_metrics (proposer_approver_criteria_cost — layer 2)
+        (b) => { b.then = jest.fn((resolve: (v: unknown) => void) => resolve({ data: [], error: null })); },
+        // 11. evolution_run_costs (layer 3)
+        (b) => { b.then = jest.fn((resolve: (v: unknown) => void) => resolve({ data: [], error: null })); },
+        // 12. evolution_strategies (names enrichment)
         (b) => {
           b.then = jest.fn((resolve: (v: unknown) => void) =>
             resolve({ data: strategies, error: null })
           );
         },
-        // 10. evolution_metrics (per-run costs enrichment)
+        // 13. evolution_metrics (per-run costs enrichment)
         (b) => {
           b.then = jest.fn((resolve: (v: unknown) => void) =>
             resolve({ data: perRunCostMetrics, error: null })

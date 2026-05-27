@@ -36,7 +36,8 @@ const CHUNK_SIZE = 100;
 
 async function readCostMetrics(
   db: SupabaseClient,
-  metricName: 'cost' | 'generation_cost' | 'ranking_cost' | 'reflection_cost' | 'seed_cost',
+  metricName: 'cost' | 'generation_cost' | 'ranking_cost' | 'reflection_cost' | 'seed_cost'
+    | 'evaluation_cost' | 'iterative_edit_cost' | 'proposer_approver_criteria_cost',
   runIds: string[],
 ): Promise<Map<string, number>> {
   const out = new Map<string, number>();
@@ -99,22 +100,41 @@ export async function getRunCostsWithFallback(
   const layer1 = await readCostMetrics(db, 'cost', runIds);
   const stillMissing1 = runIds.filter(id => !layer1.has(id));
 
-  // Layer 2: sum of gen+rank+reflection+seed cost metrics for runs that have
-  // per-phase metric rows but no rollup `cost` row.
-  // Fix #11 (use_playwright_find_ux_issues_bugs_20260501): include reflection_cost
-  // so reflect+generate runs reconcile (the rollup `cost` already includes it via
-  // writeMetricMax in createEvolutionLLMClient).
+  // Layer 2: sum of all per-purpose cost metrics for runs that have per-phase
+  // metric rows but no rollup `cost` row.
+  //
+  // rename_agents_subagents_evolution_20260508 Phase 6: widened to all 8
+  // per-purpose metrics (was 4 of 9). The previous version silently undercounted
+  // iterative_edit / proposer_approver / evaluation costs when the rollup row was
+  // missing. Now sums: generation + ranking + reflection + seed + evaluation +
+  // iterative_edit + proposer_approver_criteria. (iterative_edit_rank_cost is
+  // soft-deprecated; superseded by subagent:ranking.cost via Phase 3.)
   const layer2 = new Map<string, number>();
   if (stillMissing1.length > 0) {
-    const [gen, rank, reflection, seed] = await Promise.all([
+    const [gen, rank, reflection, seed, evaluation, iterEdit, proposerApprover] = await Promise.all([
       readCostMetrics(db, 'generation_cost', stillMissing1),
       readCostMetrics(db, 'ranking_cost', stillMissing1),
       readCostMetrics(db, 'reflection_cost', stillMissing1),
       readCostMetrics(db, 'seed_cost', stillMissing1),
+      readCostMetrics(db, 'evaluation_cost', stillMissing1),
+      readCostMetrics(db, 'iterative_edit_cost', stillMissing1),
+      readCostMetrics(db, 'proposer_approver_criteria_cost', stillMissing1),
     ]);
     for (const id of stillMissing1) {
-      const sum = (gen.get(id) ?? 0) + (rank.get(id) ?? 0) + (reflection.get(id) ?? 0) + (seed.get(id) ?? 0);
-      if (gen.has(id) || rank.has(id) || reflection.has(id) || seed.has(id)) layer2.set(id, sum);
+      const sum =
+        (gen.get(id) ?? 0) +
+        (rank.get(id) ?? 0) +
+        (reflection.get(id) ?? 0) +
+        (seed.get(id) ?? 0) +
+        (evaluation.get(id) ?? 0) +
+        (iterEdit.get(id) ?? 0) +
+        (proposerApprover.get(id) ?? 0);
+      if (
+        gen.has(id) || rank.has(id) || reflection.has(id) || seed.has(id) ||
+        evaluation.has(id) || iterEdit.has(id) || proposerApprover.has(id)
+      ) {
+        layer2.set(id, sum);
+      }
     }
   }
   const stillMissing2 = stillMissing1.filter(id => !layer2.has(id));

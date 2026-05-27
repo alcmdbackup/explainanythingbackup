@@ -4,9 +4,15 @@
 import { isValidMetricName } from './registry';
 
 describe('isValidMetricName — dynamic prefix whitelisting', () => {
-  it('accepts agentCost:<name> (pre-existing)', () => {
-    expect(isValidMetricName('run', 'agentCost:generation')).toBe(true);
-    expect(isValidMetricName('run', 'agentCost:generate_from_previous_article')).toBe(true);
+  it('accepts subagent:<path>.<measure> (rename_agents_subagents_evolution_20260508 Phase 3)', () => {
+    expect(isValidMetricName('run', 'subagent:reflection.cost')).toBe(true);
+    expect(isValidMetricName('run', 'subagent:generation.duration_ms')).toBe(true);
+    expect(isValidMetricName('run', 'subagent:ranking.count')).toBe(true);
+    expect(isValidMetricName('strategy', 'subagent:cycle.propose.cost')).toBe(true);
+  });
+
+  it('rejects the removed agentCost: prefix (Phase 6)', () => {
+    expect(isValidMetricName('run', 'agentCost:generation')).toBe(false);
   });
 
   it('accepts eloAttrDelta:<agent>:<dim> (Phase 5)', () => {

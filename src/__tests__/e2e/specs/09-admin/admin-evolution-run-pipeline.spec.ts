@@ -18,7 +18,7 @@ function getServiceClient() {
 
 adminTest.describe('Evolution Run Pipeline', { tag: '@evolution' }, () => {
   adminTest.describe.configure({ mode: 'serial' });
-  adminTest.setTimeout(180_000);
+  adminTest.setTimeout(360_000);
 
   // SKIPPED: beforeAll runs a real LLM pipeline that times out on CI. See
   // admin-evolution-iterative-editing.spec.ts for the same root cause.
@@ -32,7 +32,7 @@ adminTest.describe('Evolution Run Pipeline', { tag: '@evolution' }, () => {
 
   // Pipeline runs real LLM calls; need extended timeout for seed + trigger + poll completion
   adminTest.beforeAll(async ({ browser }, testInfo) => {
-    testInfo.setTimeout(180_000);
+    testInfo.setTimeout(360_000);
     const sb = getServiceClient();
 
     // 1. Seed strategy with cheap models

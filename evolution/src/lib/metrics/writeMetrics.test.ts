@@ -115,11 +115,18 @@ describe('writeMetric timing validation', () => {
     )).resolves.not.toThrow();
   });
 
-  it('accepts dynamic agentCost:* in during_execution', async () => {
+  it('accepts dynamic subagent:* in during_execution', async () => {
     const { db } = makeMockDb();
     await expect(writeMetric(
-      db, 'run', '00000000-0000-0000-0000-000000000001', 'agentCost:generation', 0.5, 'during_execution',
+      db, 'run', '00000000-0000-0000-0000-000000000001', 'subagent:generation.cost', 0.5, 'during_execution',
     )).resolves.not.toThrow();
+  });
+
+  it('rejects the removed agentCost: prefix (Phase 6)', async () => {
+    const { db } = makeMockDb();
+    await expect(writeMetric(
+      db, 'run', '00000000-0000-0000-0000-000000000001', 'agentCost:generation' as never, 0.5, 'during_execution',
+    )).rejects.toThrow();
   });
 
   it('rejects unknown metric name', async () => {

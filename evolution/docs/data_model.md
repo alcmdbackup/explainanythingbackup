@@ -196,11 +196,13 @@ Structured log entries for pipeline debugging. Renamed from `evolution_run_logs`
 | `strategy_id` | UUID | FK -> `evolution_strategies(id)` | Denormalized ancestor FK for strategy-level aggregation |
 | `created_at` | TIMESTAMPTZ | NOT NULL | |
 | `level` | TEXT | NOT NULL, default `'info'` | `'info'`, `'warn'`, `'error'`, `'debug'` |
-| `agent_name` | TEXT | | |
+| `subagent_name` | TEXT | | Dotted subagent path identifying the log emitter. Examples: `'reflection'`, `'generate_from_previous_article.ranking'`, `'cycle.1.propose'`. Distinct from `evolution_agent_invocations.agent_name`, which is the L1 agent class name (intentionally kept under that name — the L1 = the invocation row itself; subagents are L2+). Migrations `20260509000001` (expand: add column + dual-write trigger) and `20260509000002` (contract: drop trigger + drop legacy agent_name column). |
 | `iteration` | INT | | |
 | `variant_id` | TEXT | | |
 | `message` | TEXT | NOT NULL | |
 | `context` | JSONB | | Structured metadata |
+
+> **Migration history (Phase 4 / 4b)**: Phase 4a (migration 20260509000001) added `subagent_name` alongside the legacy `agent_name` column with a bidirectional dual-write trigger. Phase 4b (migration 20260509000002) dropped the trigger and the `agent_name` column. Code-side rename details are captured in `evolution/src/lib/pipeline/infra/createEntityLogger.ts`.
 
 The entity hierarchy enables aggregation queries without JOINs. For example, querying all logs for an experiment uses `WHERE experiment_id = ?` which returns logs from the experiment itself plus all its child runs and invocations, since each log row denormalizes its ancestor FKs at write time.
 

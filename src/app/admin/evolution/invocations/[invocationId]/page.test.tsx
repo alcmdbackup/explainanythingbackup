@@ -67,10 +67,15 @@ describe('InvocationDetailPage', () => {
     expect(link).toBeInTheDocument();
   });
 
-  it('renders execution detail component', async () => {
+  it('renders Subagents tab content by default (Phase 2 rename_agents_subagents_evolution_20260508)', async () => {
+    // Phase 2 made `subagents` the default tab; the SubagentsTab component
+    // renders subagent-row-* testids for each node in the tree (the L1 row is
+    // always present even when the parser yields no children).
     const page = await InvocationDetailPage({ params: Promise.resolve({ invocationId: 'aaaaaaaa-1111-2222-3333-444444444444' }) });
     render(page);
-    expect(screen.getByTestId('execution-detail')).toBeInTheDocument();
+    // The mocked invocation has agent_name 'mutator' — unknown to the parser
+    // so children are []. The L1 root row is still present.
+    expect(screen.getByTestId('subagent-row-mutator')).toBeInTheDocument();
   });
 
   it('calls notFound when action fails', async () => {

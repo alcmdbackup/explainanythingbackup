@@ -178,6 +178,40 @@ export function createAppSpan(name: string, attributes: Record<string, string | 
   return appTracer.startSpan(name, { attributes });
 }
 
+/**
+ * Run `fn` inside an active span, so child spans created via `tracer.startActiveSpan`
+ * (or our other `withActiveSpan` calls) auto-nest under it via `AsyncLocalStorageContextManager`.
+ * Returns `fn`'s result.
+ *
+ * Under `Promise.allSettled` with multiple sibling agents, each callback gets its own
+ * AsyncLocalStorage slot — sibling spans do NOT pollute each other; span context is
+ * per-microtask-chain.
+ *
+ * FAST_DEV: when `appTracer === null` (FAST_DEV mode) we skip the tracer and call
+ * `fn(noopSpan)` directly. Without this branch every test running under FAST_DEV=true
+ * would throw at the first wrapper invocation.
+ */
+export async function withActiveSpan<T>(
+  name: string,
+  attributes: Record<string, string | number>,
+  fn: (span: Span) => Promise<T>,
+): Promise<T> {
+  if (!appTracer) return fn(noopSpan);
+  return appTracer.startActiveSpan(name, async (span) => {
+    span.setAttributes(attributes);
+    try {
+      const result = await fn(span);
+      return result;
+    } catch (error) {
+      span.recordException(error as Error);
+      span.setStatus({ code: 2, message: (error as Error).message });
+      throw error;
+    } finally {
+      span.end();
+    }
+  });
+}
+
 // Capture React Server Component errors for Sentry
 // This is required for proper error reporting in RSC
 export const onRequestError = Sentry.captureRequestError;

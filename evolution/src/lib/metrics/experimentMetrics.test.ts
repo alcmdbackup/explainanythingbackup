@@ -192,7 +192,7 @@ describe('computeRunMetrics', () => {
     expect(result.metrics.medianElo?.value).toBe(1400);
   });
 
-  it('aggregates agent costs by agent_name', async () => {
+  it('sums run-level cost from invocations (Phase 6: no longer emits per-agentCost rows)', async () => {
     const supabase = mockSupabase({
       invocations: [
         { agent_name: 'generation', cost_usd: 0.1 },
@@ -201,8 +201,10 @@ describe('computeRunMetrics', () => {
       ],
     });
     const result = await computeRunMetrics('run-1', supabase as never);
-    expect(result.metrics['agentCost:generation']?.value).toBeCloseTo(0.3);
-    expect(result.metrics['agentCost:tournament']?.value).toBeCloseTo(0.5);
+    // agentCost:* rows are no longer emitted (Phase 6).
+    expect(result.metrics['agentCost:generation' as never]).toBeUndefined();
+    expect(result.metrics['agentCost:tournament' as never]).toBeUndefined();
+    // Run-level total cost remains.
     expect(result.metrics.cost?.value).toBeCloseTo(0.8);
   });
 
@@ -326,17 +328,17 @@ describe('aggregateMetrics', () => {
     expect(result.medianElo!.value).toBeGreaterThan(1100);
   });
 
-  it('handles mixed agent costs across runs', () => {
+  it('aggregates run-level cost across runs', () => {
+    // Phase 6: agentCost:* prefix was removed. The aggregator still handles
+    // any per-run cost dimension correctly via the generic path; verify with
+    // the static `cost` field instead.
     const data: RunMetricsWithRatings[] = [
-      { metrics: { 'agentCost:gen': mv(0.3), 'agentCost:judge': mv(0.5) }, variantRatings: null },
-      { metrics: { 'agentCost:gen': mv(0.4) }, variantRatings: null },
+      { metrics: { cost: mv(0.3) }, variantRatings: null },
+      { metrics: { cost: mv(0.4) }, variantRatings: null },
     ];
     const result = aggregateMetrics(data, rng());
-    expect(result['agentCost:gen']).not.toBeNull();
-    // agentCost:judge only present in 1 run, should still aggregate
-    expect(result['agentCost:judge']).not.toBeNull();
-    expect(result['agentCost:judge']?.n).toBe(1);
-    expect(result['agentCost:judge']?.ci).toBeNull(); // single value
+    expect(result.cost).not.toBeNull();
+    expect(result.cost?.n).toBe(2);
   });
 });
 

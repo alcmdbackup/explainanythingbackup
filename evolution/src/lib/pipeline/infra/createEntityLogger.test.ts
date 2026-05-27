@@ -71,12 +71,41 @@ describe('createEntityLogger', () => {
     expect(insertedRows[0]).toMatchObject({ iteration: 3 });
   });
 
-  it('extracts phaseName to subagent_name column', async () => {
+  it('extracts phaseName (legacy) or subagentName to subagent_name column', async () => {
+    // Phase 4: subagentName is the canonical field; phaseName is accepted for
+    // back-compat. Phase 4b: legacy agent_name column was dropped — only
+    // subagent_name is written now.
     const { db, insertedRows } = makeMockSupabase();
     const logger = createEntityLogger(runCtx, db);
     logger.info('test', { phaseName: 'ranking' });
     await flushPromises();
     expect(insertedRows[0]).toMatchObject({ subagent_name: 'ranking' });
+  });
+
+  it('extracts subagentName (canonical) to subagent_name column', async () => {
+    const { db, insertedRows } = makeMockSupabase();
+    const logger = createEntityLogger(runCtx, db);
+    logger.info('test', { subagentName: 'ranking' });
+    await flushPromises();
+    expect(insertedRows[0]).toMatchObject({ subagent_name: 'ranking' });
+  });
+
+  it('logger.child(name) extends the subagent path on subsequent logs', async () => {
+    const { db, insertedRows } = makeMockSupabase();
+    const logger = createEntityLogger(runCtx, db);
+    const childLogger = logger.child!('reflection');
+    childLogger.info('hello');
+    await flushPromises();
+    expect(insertedRows[0]).toMatchObject({ subagent_name: 'reflection' });
+  });
+
+  it('logger.child accepts array segments and joins with dots', async () => {
+    const { db, insertedRows } = makeMockSupabase();
+    const logger = createEntityLogger(runCtx, db);
+    const childLogger = logger.child!(['cycle', '1', 'propose']);
+    childLogger.info('hello');
+    await flushPromises();
+    expect(insertedRows[0]).toMatchObject({ subagent_name: 'cycle.1.propose' });
   });
 
   it('extracts variantId to variant_id column', async () => {

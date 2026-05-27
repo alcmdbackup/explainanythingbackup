@@ -31,7 +31,16 @@ export interface V2CostTracker {
   /** Release reservation on LLM failure without spending. */
   release(phase: AgentName, reservedAmount: number): void;
   getTotalSpent(): number;
+  /**
+   * Returns per-agent-label cost accumulator. The legacy name is `phaseCosts` for
+   * backward compatibility — semantically these are per-subagent costs (one entry
+   * per AgentName label = one subagent name). New code should prefer
+   * `getSubagentCosts()` (added by rename_agents_subagents_evolution_20260508
+   * Phase 4) which is an identical alias.
+   */
   getPhaseCosts(): Partial<Record<AgentName, number>>;
+  /** Phase 4 alias for getPhaseCosts. Semantically identical; same return shape. */
+  getSubagentCosts?(): Partial<Record<AgentName, number>>;
   getAvailableBudget(): number;
   /** B007-S2: compute the margined reservation without mutating state. Lets wrappers
    *  (e.g. createIterationBudgetTracker) peek both budgets atomically before committing.
@@ -67,6 +76,8 @@ export function createAgentCostScope(shared: V2CostTracker): AgentCostScope {
     release: shared.release.bind(shared),
     getTotalSpent: shared.getTotalSpent.bind(shared),
     getPhaseCosts: shared.getPhaseCosts.bind(shared),
+    // Phase 4 alias — bind only when shared exposes it (test mocks may omit).
+    ...(shared.getSubagentCosts && { getSubagentCosts: shared.getSubagentCosts.bind(shared) }),
     getAvailableBudget: shared.getAvailableBudget.bind(shared),
     // B007-S2: bind optional methods only when present (test mocks may omit them).
     ...(shared.computeMargined && { computeMargined: shared.computeMargined.bind(shared) }),
@@ -187,6 +198,11 @@ export function createCostTracker(budgetUsd: number, logger?: EntityLogger): V2C
       return { ...phaseCosts };
     },
 
+    // Phase 4 alias for getPhaseCosts (rename_agents_subagents_evolution_20260508).
+    getSubagentCosts(): Partial<Record<AgentName, number>> {
+      return { ...phaseCosts };
+    },
+
     getAvailableBudget(): number {
       return Math.max(0, budgetUsd - totalSpent - totalReserved);
     },
@@ -286,6 +302,11 @@ export function createIterationBudgetTracker(
     },
 
     getPhaseCosts(): Partial<Record<AgentName, number>> {
+      return { ...iterPhaseCosts };
+    },
+
+    // Phase 4 alias for getPhaseCosts (rename_agents_subagents_evolution_20260508).
+    getSubagentCosts(): Partial<Record<AgentName, number>> {
       return { ...iterPhaseCosts };
     },
 

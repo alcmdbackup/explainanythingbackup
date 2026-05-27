@@ -63,10 +63,9 @@ const SHARED_PROPAGATION_DEFS: EntityMetricRegistry['atPropagation'] = [
     sourceMetric: 'iterative_edit_cost', sourceEntity: 'run', aggregate: aggregateSum, aggregationMethod: 'sum' },
   { name: 'avg_iterative_edit_cost_per_run', label: 'Avg Iterative Edit Cost/Run', category: 'cost', formatter: 'cost',
     sourceMetric: 'iterative_edit_cost', sourceEntity: 'run', aggregate: aggregateAvg, aggregationMethod: 'avg' },
-  { name: 'total_iterative_edit_rank_cost', label: 'Total Iterative Edit Rank Cost', category: 'cost', formatter: 'cost',
-    sourceMetric: 'iterative_edit_rank_cost', sourceEntity: 'run', aggregate: aggregateSum, aggregationMethod: 'sum' },
-  { name: 'avg_iterative_edit_rank_cost_per_run', label: 'Avg Iterative Edit Rank Cost/Run', category: 'cost', formatter: 'cost',
-    sourceMetric: 'iterative_edit_rank_cost', sourceEntity: 'run', aggregate: aggregateAvg, aggregationMethod: 'avg' },
+  // (rename_agents_subagents_evolution_20260508 Phase 6 cleanup) Removed:
+  // total_iterative_edit_rank_cost / avg_iterative_edit_rank_cost_per_run.
+  // Superseded by subagent:ranking.cost rollups.
   { name: 'total_seed_cost', label: 'Total Seed Cost', category: 'cost', formatter: 'cost', listView: true,
     sourceMetric: 'seed_cost', sourceEntity: 'run', aggregate: aggregateSum, aggregationMethod: 'sum' },
   { name: 'avg_seed_cost_per_run', label: 'Avg Seed Cost/Run', category: 'cost', formatter: 'cost',
@@ -165,8 +164,7 @@ export const METRIC_REGISTRY: Record<EntityType, EntityMetricRegistry> = {
         compute: () => 0 },
       { name: 'iterative_edit_cost', label: 'Iterative Edit Cost', category: 'cost', formatter: 'cost',
         compute: () => 0 },
-      { name: 'iterative_edit_rank_cost', label: 'Iterative Edit Rank Cost', category: 'cost', formatter: 'cost',
-        compute: () => 0 },
+      // (removed) iterative_edit_rank_cost — superseded by subagent:ranking.cost.
       { name: 'iterative_edit_drift_rate', label: 'Edit Drift Rate', category: 'cost', formatter: 'integer',
         compute: () => 0 },
       { name: 'iterative_edit_recovery_success_rate', label: 'Edit Recovery Success Rate', category: 'cost', formatter: 'integer',

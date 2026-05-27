@@ -55,7 +55,7 @@ export async function recomputeStaleMetrics(
       const claimedNames = (claimed as Array<{ metric_name?: string }>)
         .map(r => r.metric_name)
         .filter((n): n is string => typeof n === 'string');
-      if (claimedNames.some((n) => n.startsWith('eloAttrDelta:') || n.startsWith('eloAttrDeltaHist:') || n.startsWith('agentCost:'))) {
+      if (claimedNames.some((n) => n.startsWith('eloAttrDelta:') || n.startsWith('eloAttrDeltaHist:') || n.startsWith('subagent:'))) {
         try {
           const { computeRunMetrics } = await import('./experimentMetrics');
           // computeRunMetrics writes attribution rows directly via writeMetric internally.
@@ -70,7 +70,7 @@ export async function recomputeStaleMetrics(
             experimentId: runRow?.experiment_id ?? undefined,
           });
           for (const n of claimedNames) {
-            if (n.startsWith('eloAttrDelta:') || n.startsWith('eloAttrDeltaHist:') || n.startsWith('agentCost:')) {
+            if (n.startsWith('eloAttrDelta:') || n.startsWith('eloAttrDeltaHist:') || n.startsWith('subagent:')) {
               persistedNames.add(n);
             }
           }

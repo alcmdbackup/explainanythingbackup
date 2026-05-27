@@ -153,11 +153,13 @@ export function EntityMetricsTab({ entityType, entityId }: EntityMetricsTabProps
     );
   }
 
-  // Filter out agentCost:* metrics — superseded by total_generation_cost/total_ranking_cost
-  const filteredMetrics = metrics.filter(m => !m.metric_name.startsWith('agentCost:'));
+  // (rename_agents_subagents_evolution_20260508 Phase 6) The legacy
+  // `agentCost:*` filter was removed alongside the prefix itself. Per-subagent
+  // costs now live under `subagent:*.cost` and are displayed alongside static
+  // `*_cost` metrics — duplication risk acceptable; rows distinguish by name.
   // Group by category
   type GroupedMetric = MetricItem & { aggregation?: string };
-  const items = filteredMetrics.map(m => toMetricItem(m, entityType));
+  const items = metrics.map(m => toMetricItem(m, entityType));
   const grouped = new Map<Category, GroupedMetric[]>();
   for (const item of items) {
     const { category, ...rest } = item;

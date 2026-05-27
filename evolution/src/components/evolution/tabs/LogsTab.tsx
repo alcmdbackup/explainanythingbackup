@@ -69,7 +69,7 @@ export function LogsTab({ entityType, entityId }: LogsTabProps): JSX.Element {
     const filters: LogFilters = { limit: PAGE_SIZE, offset };
     if (levelFilter) filters.level = levelFilter;
     if (entityTypeFilter) filters.entityType = entityTypeFilter;
-    if (debouncedAgent) filters.agentName = debouncedAgent;
+    if (debouncedAgent) filters.subagentName = debouncedAgent;
     if (iterationFilter) filters.iteration = parseInt(iterationFilter, 10);
     if (debouncedVariantId) filters.variantId = debouncedVariantId;
     if (debouncedMessage) filters.messageSearch = debouncedMessage;
@@ -214,7 +214,7 @@ export function LogsTab({ entityType, entityId }: LogsTabProps): JSX.Element {
                       </span>
                     </td>
                     <td className="px-3 py-2 text-xs font-mono text-[var(--text-secondary)]">
-                      {log.agent_name ?? '—'}
+                      {log.subagent_name ?? '—'}
                     </td>
                     <td className="px-3 py-2 text-xs">{log.message}</td>
                   </tr>
