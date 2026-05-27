@@ -58,6 +58,18 @@ test.describe('Public Smoke Tests', () => {
 unauthTest.describe('Public Smoke Tests — guest auto-login', () => {
   unauthTest.use({ storageState: { cookies: [], origins: [] } });
 
+  // Local dev server runs with E2E_TEST_MODE=true (set by playwright.config.ts
+  // webServer env) which suppresses guest auto-login in middleware. This test
+  // only meaningful when targeting a deployed environment (BASE_URL set
+  // explicitly by post-deploy-smoke.yml / nightly), where E2E_TEST_MODE is unset.
+  // Runner can't read the server's E2E_TEST_MODE, so we use BASE_URL as the
+  // proxy signal for "running against deployment vs local".
+  // eslint-disable-next-line flakiness/no-test-skip -- infrastructure: guest auto-login is server-side and suppressed by local-only E2E_TEST_MODE
+  unauthTest.skip(
+    !process.env.BASE_URL || /localhost|127\.0\.0\.1/.test(process.env.BASE_URL),
+    'guest auto-login only meaningful against deployed BASE_URL; local dev server has E2E_TEST_MODE=true suppressing it',
+  );
+
   unauthTest(
     'unauthenticated visitor lands signed-in (guest auto-login works)',
     { tag: ['@smoke', '@smoke-public'] },

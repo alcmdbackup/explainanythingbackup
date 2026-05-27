@@ -12,7 +12,7 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { createTestSupabaseClient } from '@/testing/utils/integration-helpers';
 import type { Database } from '@/lib/database.types';
 
-const TEST_USER_ID = `test-user-${Date.now()}`;
+const TEST_USER_ID = crypto.randomUUID();
 const TEST_DATE = new Date().toISOString().split('T')[0]!;
 const ANON_USER_UUID = '00000000-0000-0000-0000-000000000000';
 

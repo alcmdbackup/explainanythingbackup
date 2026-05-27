@@ -12,7 +12,7 @@ import {
   type TestExplanation,
 } from '../../helpers/test-data-factory';
 
-test.describe('User Library Management', () => {
+test.describe('User Library Management', { tag: '@critical' }, () => {
   // Run tests serially to avoid shared data contention
   test.describe.configure({ mode: 'serial' });
 

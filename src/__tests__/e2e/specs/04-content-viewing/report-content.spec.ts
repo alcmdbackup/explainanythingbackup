@@ -37,7 +37,7 @@ test.describe('Report Content Button', () => {
 
     // Navigate to the test explanation
     await authenticatedPage.goto(`/results?explanation_id=${testExplanation.id}`);
-    await resultsPage.waitForStreamingComplete(30000);
+    await resultsPage.waitForAnyContent(30000);
 
     // Find and click the flag button
     const flagButton = authenticatedPage.locator('[data-testid="report-content-button"]');
@@ -60,7 +60,7 @@ test.describe('Report Content Button', () => {
     const resultsPage = new ResultsPage(authenticatedPage);
 
     await authenticatedPage.goto(`/results?explanation_id=${testExplanation.id}`);
-    await resultsPage.waitForStreamingComplete(30000);
+    await resultsPage.waitForAnyContent(30000);
 
     // Open modal
     const flagButton = authenticatedPage.locator('[data-testid="report-content-button"]');
@@ -79,7 +79,7 @@ test.describe('Report Content Button', () => {
     const resultsPage = new ResultsPage(authenticatedPage);
 
     await authenticatedPage.goto(`/results?explanation_id=${testExplanation.id}`);
-    await resultsPage.waitForStreamingComplete(30000);
+    await resultsPage.waitForAnyContent(30000);
 
     // Open modal
     const flagButton = authenticatedPage.locator('[data-testid="report-content-button"]');
@@ -98,7 +98,7 @@ test.describe('Report Content Button', () => {
     const resultsPage = new ResultsPage(authenticatedPage);
 
     await authenticatedPage.goto(`/results?explanation_id=${testExplanation.id}`);
-    await resultsPage.waitForStreamingComplete(30000);
+    await resultsPage.waitForAnyContent(30000);
 
     // Open modal
     const flagButton = authenticatedPage.locator('[data-testid="report-content-button"]');
@@ -113,7 +113,7 @@ test.describe('Report Content Button', () => {
     const resultsPage = new ResultsPage(authenticatedPage);
 
     await authenticatedPage.goto(`/results?explanation_id=${testExplanation.id}`);
-    await resultsPage.waitForStreamingComplete(30000);
+    await resultsPage.waitForAnyContent(30000);
 
     // Open modal
     const flagButton = authenticatedPage.locator('[data-testid="report-content-button"]');
@@ -138,7 +138,7 @@ test.describe('Report Content Button', () => {
     const resultsPage = new ResultsPage(authenticatedPage);
 
     await authenticatedPage.goto(`/results?explanation_id=${testExplanation.id}`);
-    await resultsPage.waitForStreamingComplete(30000);
+    await resultsPage.waitForAnyContent(30000);
 
     // Open modal
     const flagButton = authenticatedPage.locator('[data-testid="report-content-button"]');

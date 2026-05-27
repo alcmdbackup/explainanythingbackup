@@ -1,64 +1,42 @@
-// Verify the generationGuidance field appears on the strategy creation form
-// and that add/remove/percent controls work correctly.
+// Verify the generationGuidance feature is reachable from the strategy creation form.
+// The form moved from a dialog (with guidance-* testids) to the wizard at
+// /admin/evolution/strategies/new; per-iteration guidance now lives in the
+// TacticGuidanceEditor popover (tactic-guidance-btn-N / tactic-guidance-editor).
+// Deeper TacticGuidanceEditor coverage lives in evolution-strategy-wizard-tactics.spec.ts.
 import { adminTest as test, expect } from '../../fixtures/admin-auth';
 
 test.describe('Strategy creation generationGuidance UI', () => {
   test.describe.configure({ mode: 'serial' });
 
-  test('strategy form shows generation guidance field with add/remove controls', async ({ adminPage: page }) => {
+  test('strategy form exposes tactic guidance editor on generate iterations', async ({ adminPage: page }) => {
     // Navigate to strategies page
     await page.goto('/admin/evolution/strategies');
 
-    // Click "New Strategy" button
+    // Click "New Strategy" button — navigates to wizard
     const newBtn = page.getByRole('button', { name: /new strategy/i });
     await expect(newBtn).toBeVisible({ timeout: 10000 });
     await newBtn.click();
+    await expect(page).toHaveURL(/\/strategies\/new/, { timeout: 15000 });
 
-    // Wait for dialog to appear
-    const dialog = page.getByRole('dialog');
-    await expect(dialog).toBeVisible({ timeout: 5000 });
+    // Fill Step 1 required fields
+    await page.fill('input[placeholder="Strategy name"]', `[E2E] guidance-${Date.now()}`);
+    const genSelect = page.locator('#generation-model');
+    await genSelect.selectOption({ index: 1 });
 
-    // Verify the Generation Guidance label exists
-    await expect(dialog.getByText('Generation Guidance (optional)')).toBeVisible();
+    // Advance to Step 2 (iterations)
+    await page.click('button:has-text("Next: Configure Iterations")');
+    await page.waitForSelector('[data-testid="tactic-guidance-btn-0"]', { timeout: 30000 });
 
-    // Verify the "Add strategy" button exists
-    const addBtn = dialog.getByTestId('guidance-add');
-    await expect(addBtn).toBeVisible();
+    // The first iteration (generate) should expose the tactic-guidance button
+    await expect(page.locator('[data-testid="tactic-guidance-btn-0"]')).toBeVisible();
 
-    // Verify total shows 0% initially
-    const totalEl = dialog.getByTestId('guidance-total');
-    await expect(totalEl).toContainText('Total: 0%');
+    // Open the popover and verify add/remove/percent equivalents exist
+    await page.click('[data-testid="tactic-guidance-btn-0"]');
+    const editor = page.locator('[data-testid="tactic-guidance-editor"]');
+    await expect(editor).toBeVisible({ timeout: 5000 });
 
-    // Add first strategy entry
-    await addBtn.click();
-
-    // Verify strategy dropdown and percent input appeared
-    const strategySelect = dialog.getByTestId('guidance-strategy-0');
-    await expect(strategySelect).toBeVisible();
-    const percentInput = dialog.getByTestId('guidance-percent-0');
-    await expect(percentInput).toBeVisible();
-
-    // Set percent to 50
-    await percentInput.fill('50');
-    await expect(totalEl).toContainText('Total: 50%');
-    await expect(totalEl).toContainText('must equal 100%');
-
-    // Add second strategy entry
-    await addBtn.click();
-    const percentInput1 = dialog.getByTestId('guidance-percent-1');
-    await expect(percentInput1).toBeVisible();
-
-    // Set second percent to 50 — total should now be 100%
-    await percentInput1.fill('50');
-    await expect(totalEl).toContainText('Total: 100%');
-
-    // Verify remove button works
-    const removeBtn = dialog.getByTestId('guidance-remove-1');
-    await removeBtn.click();
-    await expect(dialog.getByTestId('guidance-strategy-1')).not.toBeVisible();
-
-    // Take screenshot for verification
-    // eslint-disable-next-line flakiness/no-hardcoded-tmpdir -- per-worker screenshot path
-    await page.screenshot({ path: `/tmp/strategy-guidance-form-${test.info().workerIndex}.png`, fullPage: true });
+    // The editor exposes preset controls — replaces the old guidance-add / guidance-total UI
+    await expect(editor.locator('button:has-text("Even")')).toBeVisible();
+    await expect(editor.locator('button:has-text("Clear")')).toBeVisible();
   });
 });
