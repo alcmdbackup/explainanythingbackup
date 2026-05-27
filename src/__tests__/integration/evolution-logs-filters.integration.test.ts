@@ -55,7 +55,7 @@ describe('Evolution Logs Filters Integration', () => {
         entity_id: runId,
         level: 'info',
         message: `alpha message ${suffix}`,
-        agent_name: 'generation-agent',
+        subagent_name: 'generation-agent',
         iteration: 1,
         variant_id: null,
       },
@@ -65,7 +65,7 @@ describe('Evolution Logs Filters Integration', () => {
         entity_id: runId,
         level: 'error',
         message: `beta message ${suffix}`,
-        agent_name: 'ranking-agent',
+        subagent_name: 'ranking-agent',
         iteration: 2,
         variant_id: null,
       },
@@ -75,7 +75,7 @@ describe('Evolution Logs Filters Integration', () => {
         entity_id: runId,
         level: 'info',
         message: `gamma message ${suffix}`,
-        agent_name: 'generation-agent',
+        subagent_name: 'generation-agent',
         iteration: 1,
         variant_id: variantId,
       },
@@ -130,16 +130,16 @@ describe('Evolution Logs Filters Integration', () => {
     expect(data?.[0]?.iteration).toBe(2);
   });
 
-  it('agentName partial match returns logs where agent_name contains substring', async () => {
+  it('agentName partial match returns logs where subagent_name contains substring', async () => {
     if (!tablesExist) return;
     const { data, error } = await supabase
       .from('evolution_logs')
-      .select('id, agent_name')
+      .select('id, subagent_name')
       .eq('run_id', runId)
-      .ilike('agent_name', '%generation%');
+      .ilike('subagent_name', '%generation%');
     expect(error).toBeNull();
     expect(data).toHaveLength(2);
-    expect(data?.every(r => r.agent_name?.includes('generation'))).toBe(true);
+    expect(data?.every(r => r.subagent_name?.includes('generation'))).toBe(true);
   });
 
   it('messageSearch returns only logs where message ilike matches', async () => {
@@ -171,12 +171,12 @@ describe('Evolution Logs Filters Integration', () => {
     if (!tablesExist) return;
     const { data, error } = await supabase
       .from('evolution_logs')
-      .select('id, level, agent_name')
+      .select('id, level, subagent_name')
       .eq('run_id', runId)
       .eq('level', 'info')
-      .ilike('agent_name', '%generation%');
+      .ilike('subagent_name', '%generation%');
     expect(error).toBeNull();
     expect(data).toHaveLength(2);
-    expect(data?.every(r => r.level === 'info' && r.agent_name?.includes('generation'))).toBe(true);
+    expect(data?.every(r => r.level === 'info' && r.subagent_name?.includes('generation'))).toBe(true);
   });
 });

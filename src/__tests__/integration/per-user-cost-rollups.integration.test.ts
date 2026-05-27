@@ -12,7 +12,13 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { createTestSupabaseClient } from '@/testing/utils/integration-helpers';
 import type { Database } from '@/lib/database.types';
 
-const TEST_USER_ID = `test-user-${Date.now()}`;
+// Use a deterministic-per-run UUID. The llmCallTracking.userid column is UUID-typed,
+// so a plain string like `test-user-${Date.now()}` is rejected with 22P02. Convert the
+// timestamp into a valid UUID by padding into the hex spaces.
+const TEST_USER_ID = (() => {
+  const hex = Date.now().toString(16).padStart(12, '0');
+  return `00000000-0000-4000-8000-${hex.slice(-12)}`;
+})();
 const TEST_DATE = new Date().toISOString().split('T')[0]!;
 const ANON_USER_UUID = '00000000-0000-0000-0000-000000000000';
 
