@@ -64,7 +64,7 @@ unauthTest.describe('Public Smoke Tests — guest auto-login', () => {
   // explicitly by post-deploy-smoke.yml / nightly), where E2E_TEST_MODE is unset.
   // Runner can't read the server's E2E_TEST_MODE, so we use BASE_URL as the
   // proxy signal for "running against deployment vs local".
-  // eslint-disable-next-line playwright/no-skipped-test -- infrastructure: guest auto-login is server-side and suppressed by local-only E2E_TEST_MODE
+  // eslint-disable-next-line flakiness/no-test-skip -- infrastructure: guest auto-login is server-side and suppressed by local-only E2E_TEST_MODE
   unauthTest.skip(
     !process.env.BASE_URL || /localhost|127\.0\.0\.1/.test(process.env.BASE_URL),
     'guest auto-login only meaningful against deployed BASE_URL; local dev server has E2E_TEST_MODE=true suppressing it',

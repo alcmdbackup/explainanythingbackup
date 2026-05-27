@@ -87,7 +87,7 @@ test.describe('Import Articles Feature', () => {
         // Skip when running locally (BASE_URL unset or localhost); runs on deployed runs.
         // TODO: add a process.env.E2E_TEST_MODE branch to _processImport that returns
         // canned preview data (mirroring userLibrary pattern) so these tests can run locally.
-        // eslint-disable-next-line playwright/no-skipped-test -- infrastructure: real LLM call has no E2E_TEST_MODE mock; runs on deployed CI only
+        // eslint-disable-next-line flakiness/no-test-skip -- infrastructure: real LLM call has no E2E_TEST_MODE mock; runs on deployed CI only
         test.skip(
           !process.env.BASE_URL || /localhost|127\.0\.0\.1/.test(process.env.BASE_URL),
           'real LLM call in _processImport has no E2E_TEST_MODE mock; only runs against deployed BASE_URL',

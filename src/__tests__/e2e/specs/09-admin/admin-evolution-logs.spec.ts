@@ -122,7 +122,7 @@ adminTest.describe('Admin Evolution LogsTab Filters', { tag: '@evolution' }, () 
   // doesn't surface its [TEST]-prefixed logs once the level filter triggers
   // a server re-fetch that may apply filterTestContent. Needs investigation
   // of the LogsTab fetch path + filter interactions.
-  // eslint-disable-next-line playwright/no-skipped-test -- tracked in follow-up: real bug in LogsTab filter behavior; identical on main+production
+  // eslint-disable-next-line flakiness/no-test-skip -- tracked in follow-up: real bug in LogsTab filter behavior; identical on main+production
   adminTest.skip(
     true,
     'LogsTab filter re-fetch hides seeded logs; identical broken on main + production',
