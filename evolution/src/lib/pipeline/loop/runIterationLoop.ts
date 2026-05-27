@@ -21,6 +21,7 @@ import {
 import { EvaluateCriteriaThenGenerateFromPreviousArticleAgent } from '../../core/agents/evaluateCriteriaThenGenerateFromPreviousArticle';
 import { SinglePassEvaluateCriteriaAndGenerateAgent } from '../../core/agents/singlePassEvaluateCriteriaAndGenerate';
 import { ProposerApproverCriteriaGenerateAgent } from '../../core/agents/proposerApproverCriteriaGenerate';
+import { ParagraphRecombineAgent } from '../../core/agents/paragraphRecombine/ParagraphRecombineAgent';
 import { getCriteriaForEvaluation, type EvolutionCriterionRow } from '../../../services/criteriaActions';
 import { SwissRankingAgent, type SwissRankingMatchEntry } from '../../core/agents/SwissRankingAgent';
 import { MergeRatingsAgent, type MergeMatchEntry } from '../../core/agents/MergeRatingsAgent';
@@ -521,6 +522,21 @@ export async function evolveArticle(
               initialRatings: initialRatingsSnapshot,
               initialMatchCounts: initialMatchCountsSnapshot,
               cache: comparisonCache,
+            }, ctxForAgent);
+          }
+          if (iterCfg.agentType === 'paragraph_recombine') {
+            const paragraphRecombineEnabled = process.env.EVOLUTION_PARAGRAPH_RECOMBINE_ENABLED !== 'false';
+            if (!paragraphRecombineEnabled) {
+              logger.warn('paragraph_recombine agent disabled via env; iteration produces zero variants', {
+                phaseName: 'paragraph_recombine_kill_switch',
+                iteration,
+              });
+              throw new Error('paragraph_recombine disabled via EVOLUTION_PARAGRAPH_RECOMBINE_ENABLED=false');
+            }
+            const wrapperAgent = new ParagraphRecombineAgent();
+            return wrapperAgent.run({
+              parentText: resolved.text,
+              parentVariantId: resolved.variantId,
             }, ctxForAgent);
           }
           if (iterCfg.agentType === 'proposer_approver_criteria_generate') {

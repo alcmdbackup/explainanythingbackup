@@ -56,7 +56,10 @@ const SLOT_SELF_ABORT_FRACTION = 0.9;
 // ─── Types ────────────────────────────────────────────────────────
 
 export interface ParagraphRecombineInput {
-  parent: Variant;
+  /** Parent article text being decomposed. */
+  parentText: string;
+  /** Parent variant UUID — used for paragraph_variant_ids lineage and topic naming. */
+  parentVariantId: string;
   rewritesPerParagraph?: number;
   maxComparisonsPerParagraph?: number;
   maxParagraphsPerInvocation?: number;
@@ -71,6 +74,15 @@ export interface ParagraphRecombineOutput {
   variant: Variant | null;
   /** True iff the recombined variant passed validation and is competing in arena. */
   surfaced: boolean;
+  /** Compatibility with GenerateFromPreviousOutput so this agent can flow through
+   *  the dispatch loop's parallel-batch result handler. paragraph_recombine doesn't have
+   *  a binary-search status; we report 'converged' on success and 'generation_failed'
+   *  on no-variant paths. */
+  status: 'converged' | 'generation_failed';
+  /** Match buffer (always empty for paragraph_recombine — per-slot matches are persisted
+   *  inline by persistSlotMatches and do NOT flow through MergeRatingsAgent's bulk-merge
+   *  at iteration end. This field exists for dispatch-loop type compatibility only). */
+  matches: import('../../../pipeline/infra/types').V2Match[];
 }
 
 // ─── Agent class ──────────────────────────────────────────────────
@@ -94,7 +106,8 @@ export class ParagraphRecombineAgent extends Agent<
     ctx: AgentContext,
   ): Promise<AgentOutput<ParagraphRecombineOutput, SlotRecombineExecutionDetail>> {
     const {
-      parent,
+      parentText,
+      parentVariantId,
       rewritesPerParagraph = DEFAULT_REWRITES_PER_PARAGRAPH,
       maxComparisonsPerParagraph = DEFAULT_MAX_COMPARISONS_PER_PARAGRAPH,
       maxParagraphsPerInvocation = DEFAULT_MAX_PARAGRAPHS_PER_INVOCATION,
@@ -112,13 +125,13 @@ export class ParagraphRecombineAgent extends Agent<
     }
 
     // ─── Step 1: Decompose ─────────────────────────────────────────
-    const allSlots = extractParagraphsWithRanges(parent.text);
+    const allSlots = extractParagraphsWithRanges(parentText);
     const slots = allSlots.slice(0, maxParagraphsPerInvocation);
     const paragraphCount = slots.length;
     const perSlotBudgetUsd = paragraphCount > 0 ? perInvocationCapUsd / paragraphCount : 0;
 
     // Extract H1 title from parent for the rewrite prompt's context.
-    const parentH1 = extractH1(parent.text);
+    const parentH1 = extractH1(parentText);
 
     // Accumulator for execution_detail.slots[i] (populated in per-slot processing).
     const slotDetails: SlotRecombineExecutionDetail['slots'] = [];
@@ -129,7 +142,8 @@ export class ParagraphRecombineAgent extends Agent<
       slots.map((slot) =>
         processSlot({
           slot,
-          parent,
+          parentText,
+          parentVariantId,
           parentH1,
           totalSlots: paragraphCount,
           rewritesPerParagraph,
@@ -148,12 +162,12 @@ export class ParagraphRecombineAgent extends Agent<
     slotDetails.sort((a, b) => a.slotIndex - b.slotIndex);
 
     // ─── Step 3: Assemble recombined article + validate format ────
-    const recombinedText = assembleRecombinedArticle(parent.text, slots, slotWinnerTexts);
+    const recombinedText = assembleRecombinedArticle(parentText, slots, slotWinnerTexts);
     const formatResult = validateFormat(recombinedText);
 
     const partialDetail: SlotRecombineExecutionDetail = {
       detailType: 'paragraph_recombine',
-      parentVariantId: parent.id,
+      parentVariantId,
       slots: slotDetails,
       recombined: {
         text: recombinedText,
@@ -167,7 +181,7 @@ export class ParagraphRecombineAgent extends Agent<
       // Persist partial detail before returning (I3).
       await safeUpdateInvocation(ctx, partialDetail);
       return {
-        result: { variant: null, surfaced: false },
+        result: { variant: null, surfaced: false, status: 'generation_failed', matches: [] },
         detail: partialDetail,
       };
     }
@@ -176,7 +190,7 @@ export class ParagraphRecombineAgent extends Agent<
     if (invocationScope.getOwnSpent!() >= PRE_FINAL_RANKING_GATE_FRACTION * perInvocationCapUsd) {
       await safeUpdateInvocation(ctx, partialDetail);
       return {
-        result: { variant: null, surfaced: false },
+        result: { variant: null, surfaced: false, status: 'generation_failed', matches: [] },
         detail: partialDetail,
       };
     }
@@ -188,7 +202,7 @@ export class ParagraphRecombineAgent extends Agent<
       text: recombinedText,
       tactic: 'paragraph_recombine',
       iterationBorn: ctx.iteration,
-      parentIds: [parent.id],
+      parentIds: [parentVariantId],
       agentInvocationId: ctx.invocationId === '' ? undefined : ctx.invocationId,
     });
 
@@ -207,10 +221,10 @@ export class ParagraphRecombineAgent extends Agent<
     await safeUpdateInvocation(ctx, finalDetail);
 
     return {
-      result: { variant: recombinedVariant, surfaced: true },
+      result: { variant: recombinedVariant, surfaced: true, status: 'converged', matches: [] },
       detail: finalDetail,
       childVariantIds: [recombinedVariant.id],
-      parentVariantIds: [parent.id],
+      parentVariantIds: [parentVariantId],
     };
   }
 }
@@ -219,7 +233,8 @@ export class ParagraphRecombineAgent extends Agent<
 
 interface ProcessSlotParams {
   slot: ReturnType<typeof extractParagraphsWithRanges>[number];
-  parent: Variant;
+  parentText: string;
+  parentVariantId: string;
   parentH1: string;
   totalSlots: number;
   rewritesPerParagraph: number;
@@ -234,7 +249,7 @@ interface ProcessSlotParams {
 
 async function processSlot(params: ProcessSlotParams): Promise<void> {
   const {
-    slot, parent, parentH1, totalSlots, rewritesPerParagraph, maxComparisonsPerParagraph,
+    slot, parentVariantId, parentH1, totalSlots, rewritesPerParagraph, maxComparisonsPerParagraph,
     perSlotBudgetUsd, invocationScope, ctx, llm, slotDetails, slotWinnerTexts,
   } = params;
 
@@ -264,7 +279,7 @@ async function processSlot(params: ProcessSlotParams): Promise<void> {
   let topicId: string;
   let originalSlotVariantId: string;
   try {
-    const upsert = await upsertSlotTopic(ctx.db, 'paragraph', parent.id, slot.paragraphIndex, slot.originalText);
+    const upsert = await upsertSlotTopic(ctx.db, 'paragraph', parentVariantId, slot.paragraphIndex, slot.originalText);
     topicId = upsert.topicId;
     originalSlotVariantId = upsert.originalSlotVariantId;
   } catch (err) {
