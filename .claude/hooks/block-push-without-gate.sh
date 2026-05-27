@@ -139,6 +139,36 @@ if [[ "$CI_BRANCH" != "$BRANCH" ]]; then
   exit 0
 fi
 
+# Inline refresh: if status is CLOSED and last_observed_at is >10 min old,
+# try `gh pr view` with a 5s timeout to auto-recover from stale state mid-
+# session. Per plan, fail OPEN on any refresh failure (gh missing/timeout).
+if [[ "$CI_STATUS" = "closed" ]]; then
+  LAST_OBSERVED=$(jq -r '.last_observed_at // ""' "$CI_GATE_FILE" 2>/dev/null) || LAST_OBSERVED=""
+  if [[ -n "$LAST_OBSERVED" ]]; then
+    LAST_EPOCH=$(date -d "$LAST_OBSERVED" +%s 2>/dev/null || echo "0")
+    NOW_EPOCH=$(date -u +%s)
+    if (( NOW_EPOCH - LAST_EPOCH > 600 )); then
+      if command -v gh >/dev/null 2>&1; then
+        REFRESH_JSON=$(timeout 5 gh pr view --json statusCheckRollup 2>/dev/null || echo "")
+        if [[ -n "$REFRESH_JSON" ]]; then
+          RF=$(echo "$REFRESH_JSON" | jq '[.statusCheckRollup[]? | select(.conclusion == "FAILURE")] | length' 2>/dev/null || echo "0")
+          RP=$(echo "$REFRESH_JSON" | jq '[.statusCheckRollup[]? | select(.status != "COMPLETED")] | length' 2>/dev/null || echo "0")
+          RT=$(echo "$REFRESH_JSON" | jq '[.statusCheckRollup[]?] | length' 2>/dev/null || echo "0")
+          if [[ "$RF" = "0" && "$RP" = "0" && "$RT" -gt 0 ]]; then
+            CI_STATUS="open"
+          fi
+        else
+          echo "ci-gate.json >10min stale; gh refresh failed — fail open" >&2
+          CI_STATUS="open"
+        fi
+      else
+        echo "ci-gate.json >10min stale; gh unavailable — fail open" >&2
+        CI_STATUS="open"
+      fi
+    fi
+  fi
+fi
+
 # Not CLOSED → allow
 if [[ "$CI_STATUS" != "closed" ]]; then
   exit 0

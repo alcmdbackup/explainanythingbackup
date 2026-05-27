@@ -51,6 +51,45 @@ run_hook() {
   fi
 }
 
+# Stub `gh` for inline-refresh tests. Creates a temp PATH dir with a fake gh
+# that prints the given JSON. Unset (or set "") to simulate gh missing.
+stub_gh_path() {
+  local response="${1-}"
+  local stub_dir="$WORK_BASE/stub-gh-$$-$RANDOM"
+  mkdir -p "$stub_dir"
+  if [[ -n "$response" ]]; then
+    printf '#!/bin/bash\necho %q\n' "$response" > "$stub_dir/gh"
+    chmod +x "$stub_dir/gh"
+  fi
+  echo "$stub_dir"
+}
+
+run_hook_with_stub_gh() {
+  local cmd="$1"
+  local response="${2-}"
+  local stub_dir
+  stub_dir=$(stub_gh_path "$response")
+  local json
+  json=$(jq -n --arg c "$cmd" '{tool_input: {command: $c}}')
+  if [[ -n "$response" ]]; then
+    PATH="$stub_dir:$PATH" echo "$json" | PATH="$stub_dir:$PATH" bash "$HOOK_ABS" 2>/dev/null
+  else
+    # gh missing: strip from PATH (use /usr/bin:/bin only)
+    echo "$json" | PATH="/usr/bin:/bin" bash "$HOOK_ABS" 2>/dev/null
+  fi
+}
+
+# Write a stale ci-gate.json (last_observed_at = 1 hour ago) with given status
+write_stale_ci_gate() {
+  local status="$1"
+  local one_hour_ago
+  one_hour_ago=$(date -u -d "1 hour ago" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || \
+                 date -u -v-1H +%Y-%m-%dT%H:%M:%SZ)
+  jq -n --arg b "$(git branch --show-current)" --arg sha "$(git rev-parse HEAD)" --arg lo "$one_hour_ago" --arg st "$status" \
+    '{branch: $b, status: $st, last_observed_at: $lo, last_observed_sha: $sha, schema_version: 1}' \
+    > .claude/ci-gate.json
+}
+
 expect() {
   local desc="$1"
   local expected="$2"  # "deny" or "allow"
@@ -99,14 +138,18 @@ write_valid_override() {
 }
 
 write_ci_gate_closed() {
-  jq -n --arg b "$(git branch --show-current)" --arg sha "$(git rev-parse HEAD)" \
-    '{branch: $b, status: "closed", last_observed_at: "2026-05-27T00:00:00Z", last_observed_sha: $sha, last_failure_commit: $sha, last_observation_source: "stop_hook", schema_version: 1}' \
+  local now
+  now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  jq -n --arg b "$(git branch --show-current)" --arg sha "$(git rev-parse HEAD)" --arg lo "$now" \
+    '{branch: $b, status: "closed", last_observed_at: $lo, last_observed_sha: $sha, last_failure_commit: $sha, last_observation_source: "stop_hook", schema_version: 1}' \
     > .claude/ci-gate.json
 }
 
 write_ci_gate_open() {
-  jq -n --arg b "$(git branch --show-current)" --arg sha "$(git rev-parse HEAD)" \
-    '{branch: $b, status: "open", last_observed_at: "2026-05-27T00:00:00Z", last_observed_sha: $sha, last_observation_source: "stop_hook", schema_version: 1}' \
+  local now
+  now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  jq -n --arg b "$(git branch --show-current)" --arg sha "$(git rev-parse HEAD)" --arg lo "$now" \
+    '{branch: $b, status: "open", last_observed_at: $lo, last_observed_sha: $sha, last_observation_source: "stop_hook", schema_version: 1}' \
     > .claude/ci-gate.json
 }
 
@@ -232,6 +275,24 @@ expect "ci-gate CLOSED for different branch → allow" allow "$(run_hook 'gh pr 
 init_workspace feat/foo
 jq -n '{branch: "feat/foo", status: "closed", schema_version: 99}' > .claude/ci-gate.json
 expect "ci-gate unknown schema_version → allow (fail open with warning)" allow "$(run_hook 'gh pr create --base main')"
+
+echo ""
+echo "=== Inline refresh: stale ci-gate.json (>10 min) ==="
+init_workspace feat/foo
+write_stale_ci_gate closed
+expect "stale CLOSED + gh unavailable → fail open (allow + warning)" allow "$(run_hook_with_stub_gh 'gh pr create --base main' '')"
+
+init_workspace feat/foo
+write_stale_ci_gate closed
+expect "stale CLOSED + gh returns SUCCESS → refresh to OPEN → allow" allow "$(run_hook_with_stub_gh 'gh pr create --base main' '{"statusCheckRollup":[{"conclusion":"SUCCESS","status":"COMPLETED"}]}')"
+
+init_workspace feat/foo
+write_stale_ci_gate closed
+expect "stale CLOSED + gh returns FAILURE → still CLOSED → deny" deny "$(run_hook_with_stub_gh 'gh pr create --base main' '{"statusCheckRollup":[{"conclusion":"FAILURE","status":"COMPLETED"}]}')"
+
+init_workspace feat/foo
+write_stale_ci_gate closed
+expect "stale CLOSED + gh returns empty (no PR) → fail open → allow" allow "$(run_hook_with_stub_gh 'gh pr create --base main' '')"
 
 init_workspace feat/foo
 write_ci_gate_closed
