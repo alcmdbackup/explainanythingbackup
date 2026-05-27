@@ -92,7 +92,7 @@ export class AdminUsersPage extends AdminBasePage {
   async search(query: string) {
     await this.searchInput.fill(query);
     await this.searchButton.click();
-    await expect(this.table.locator('tbody')).not.toContainText('Loading...', { timeout: 15000 });
+    await expect(this.table.locator('tbody')).not.toContainText('Loading...');
   }
 
   /**
@@ -100,9 +100,7 @@ export class AdminUsersPage extends AdminBasePage {
    */
   async toggleShowDisabled() {
     await this.showDisabledCheckbox.click();
-    // 15s — getAdminUsersAction queries users + admin_users join; can exceed
-    // Playwright's 5s default when staging DB has accumulated user rows.
-    await expect(this.table.locator('tbody')).not.toContainText('Loading...', { timeout: 15000 });
+    await expect(this.table.locator('tbody')).not.toContainText('Loading...');
   }
 
   /**

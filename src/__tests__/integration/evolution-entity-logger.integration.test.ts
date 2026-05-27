@@ -103,7 +103,7 @@ describe('Evolution Entity Logger Integration Tests', () => {
 
     const { data: logs } = await supabase
       .from('evolution_logs')
-      .select('id, iteration, agent_name, variant_id, context')
+      .select('id, iteration, subagent_name, variant_id, context')
       .eq('run_id', runId)
       .eq('message', '[TEST] context extraction test');
 
@@ -113,7 +113,7 @@ describe('Evolution Entity Logger Integration Tests', () => {
     const log = logs![0]!;
     logIds.push(log.id);
     expect(log.iteration).toBe(3);
-    expect(log.agent_name).toBe('ranking');
+    expect(log.subagent_name).toBe('ranking');
     expect(log.variant_id).toBe('v1');
     expect(log.context).toEqual({ custom: 'data' });
   });
