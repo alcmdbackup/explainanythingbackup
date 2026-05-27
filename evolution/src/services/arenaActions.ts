@@ -121,7 +121,7 @@ const createTopicSchema = z.object({
 export const getArenaTopicsAction = adminAction(
   'getArenaTopics',
   async (
-    filters: { status?: string; filterTestContent?: boolean } | undefined,
+    filters: { status?: string; filterTestContent?: boolean; includeParagraphTopics?: boolean } | undefined,
     ctx: AdminContext,
   ): Promise<ArenaTopic[]> => {
     let query = ctx.supabase
@@ -132,6 +132,12 @@ export const getArenaTopicsAction = adminAction(
 
     if (filters?.status) query = query.eq('status', filters.status);
     if (filters?.filterTestContent) query = applyTestContentColumnFilter(query);
+    // Per D13 + D20 of rank_individual_paragraphs_evolution_20260525: filter out
+    // paragraph topics by default so they don't drown the article-topic list.
+    // Researchers can opt in by passing `includeParagraphTopics: true`.
+    if (!filters?.includeParagraphTopics) {
+      query = query.eq('prompt_kind', 'article');
+    }
 
     const { data, error } = await query;
     if (error) throw error;

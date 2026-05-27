@@ -141,7 +141,7 @@ interface IterationConfigPayload {
  *  surfaced this — added 2026-05-09. */
 function isVariantProducing(
   agentType: IterationRow['agentType'],
-): agentType is 'generate' | 'reflect_and_generate' | 'criteria_and_generate' | 'single_pass_evaluate_criteria_and_generate' | 'proposer_approver_criteria_generate' {
+): agentType is 'generate' | 'reflect_and_generate' | 'criteria_and_generate' | 'single_pass_evaluate_criteria_and_generate' | 'proposer_approver_criteria_generate' | 'paragraph_recombine' {
   return agentType === 'generate'
     || agentType === 'reflect_and_generate'
     || agentType === 'criteria_and_generate'
@@ -1130,6 +1130,7 @@ export default function NewStrategyPage(): JSX.Element {
                         <option value="debate_and_generate" disabled={idx === 0} title={idx === 0 ? 'First iteration must produce variants on an empty pool' : 'Debate top-2 pool variants then synthesize'}>Debate + Generate</option>
                         <option value="iterative_editing" disabled={idx === 0} title={idx === 0 ? 'First iteration must produce variants' : undefined}>Iterative Editing (Markup)</option>
                         <option value="iterative_editing_rewrite" disabled={idx === 0} title={idx === 0 ? 'First iteration must produce variants' : 'Mode B: proposer rewrites; markup computed mechanically'}>Iterative Editing (Rewrite)</option>
+                        <option value="paragraph_recombine" title="Decompose article into paragraphs, generate M rewrites per slot, rank pairwise, recombine winners">Paragraph Recombine</option>
                         <option value="swiss" disabled={idx === 0} title={idx === 0 ? 'First iteration must produce variants' : undefined}>Swiss</option>
                       </select>
 
