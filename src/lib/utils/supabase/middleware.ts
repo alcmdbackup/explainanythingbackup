@@ -65,12 +65,19 @@ export async function updateSession(request: NextRequest) {
   //
   // Soft env-var truthy check: missing GUEST_EMAIL/GUEST_PASSWORD is a no-op
   // (NOT a noisy failure) so Phase 4→5 deploy ordering bugs degrade gracefully.
-  // Avoid skip-on-failed-recent cookie loop: when GUEST_AUTOLOGIN_FAILED_RECENTLY
-  // cookie is present, skip the sign-in attempt for its 60s lifetime.
-  const failedRecently = request.cookies.get('GUEST_AUTOLOGIN_FAILED_RECENTLY')?.value === '1'
+  //
+  // Rate-limit backstop: there's no client-side cool-down between failed attempts.
+  // Per-instance dedupe via inFlightGuestLogin collapses concurrent requests on a
+  // single Node instance; sequential failures rely on Supabase's per-IP auth rate
+  // limit (~30/min) as the sole backstop. Acceptable at demo-tier traffic; if
+  // traffic grows, add a module-scope last-failure Map to gate retries.
+
   // Opt-out: when the Logout button on a guest session redirects to /login?logout=1,
   // suppress auto-login for that one request so the form renders. Param doesn't persist
   // — the next request without it re-enables auto-login (intentional demo default).
+  // Note: now structurally unreachable on /login (covered by the !onLoginPath
+  // guard below); kept as defensive documentation in case the /login matcher changes
+  // or the param starts being used on other paths.
   const optedOut = request.nextUrl.searchParams.get('logout') === '1'
   // Skip guest auto-login on the password-recovery flow paths. Without this,
   // an unauthenticated visitor hitting any of these routes gets signed in as
@@ -81,14 +88,19 @@ export async function updateSession(request: NextRequest) {
     request.nextUrl.pathname.startsWith('/reset-password') ||
     request.nextUrl.pathname.startsWith('/forgot-password') ||
     request.nextUrl.pathname.startsWith('/auth/confirm')
+  // Skip guest auto-login on /login. When a failed signIn redirects to /login,
+  // this guard prevents the second middleware invocation from re-attempting
+  // auto-login and bouncing back. Lets /login render <LoginForm /> normally so
+  // visitors can sign in manually with their own credentials during an outage.
+  const onLoginPath = request.nextUrl.pathname.startsWith('/login')
   if (
     !currentUser &&
     process.env.E2E_TEST_MODE !== 'true' &&
     process.env.GUEST_EMAIL &&
     process.env.GUEST_PASSWORD &&
-    !failedRecently &&
     !optedOut &&
-    !onRecoveryPath
+    !onRecoveryPath &&
+    !onLoginPath
   ) {
     const host = request.headers.get('host')
     const tier = classifyHost(host)
@@ -122,9 +134,9 @@ export async function updateSession(request: NextRequest) {
           host,
           path: request.nextUrl.pathname,
         })
-        // Set a 60s cookie so subsequent requests skip the sign-in attempt
-        // and the /login page renders a service-unavailable notice instead
-        // of re-redirecting back through auto-login (redirect-loop avoidance).
+        // Redirect to /login so the visitor sees <LoginForm />. The onLoginPath
+        // guard above prevents this redirect from re-triggering auto-login on
+        // the second middleware invocation (no redirect loop).
         //
         // Respect the file's "must return supabaseResponse object as-is"
         // invariant (see warning block below): copy over any cookies the
@@ -140,13 +152,6 @@ export async function updateSession(request: NextRequest) {
             fallback.cookies.set(cookie.name, cookie.value, cookie)
           }
         }
-        fallback.cookies.set('GUEST_AUTOLOGIN_FAILED_RECENTLY', '1', {
-          maxAge: 60,
-          httpOnly: true,
-          path: '/',
-          sameSite: 'lax',
-          secure: process.env.NODE_ENV === 'production',
-        })
         return fallback
       }
       // Re-read user so the downstream user-disabled check sees the new session.

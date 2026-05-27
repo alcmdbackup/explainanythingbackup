@@ -510,7 +510,7 @@ describe('Supabase Middleware - updateSession', () => {
       expect(mockSignInWithPassword).toHaveBeenCalled();
     });
 
-    it('(f) failed signInWithPassword sets GUEST_AUTOLOGIN_FAILED_RECENTLY cookie + redirects to /login', async () => {
+    it('(f) failed signInWithPassword redirects to /login WITHOUT setting GUEST_AUTOLOGIN_FAILED_RECENTLY cookie', async () => {
       process.env.GUEST_EMAIL = 'guest@explainanything.app';
       process.env.GUEST_PASSWORD = 'secret';
       delete process.env.E2E_TEST_MODE;
@@ -523,22 +523,9 @@ describe('Supabase Middleware - updateSession', () => {
       expect(response.status).toBeGreaterThanOrEqual(300);
       expect(response.status).toBeLessThan(400);
       expect(response.headers.get('Location')).toContain('/login');
-      // Mock NextResponse.cookies is a Map (not the real rich cookies object).
-      // The middleware calls .set(name, value, options) — Map only stores (name, value).
+      // Cookie was removed in the Phase 0 refactor — assert we don't regress.
       const cookiesMap = (response as unknown as { cookies: Map<string, unknown> }).cookies;
-      expect(cookiesMap.has('GUEST_AUTOLOGIN_FAILED_RECENTLY')).toBe(true);
-    });
-
-    it('(i) skips signInWithPassword when GUEST_AUTOLOGIN_FAILED_RECENTLY cookie present', async () => {
-      process.env.GUEST_EMAIL = 'guest@explainanything.app';
-      process.env.GUEST_PASSWORD = 'secret';
-      delete process.env.E2E_TEST_MODE;
-
-      const request = reqWithHost('http://localhost:3000/', {
-        cookies: [{ name: 'GUEST_AUTOLOGIN_FAILED_RECENTLY', value: '1' }],
-      });
-      await updateSession(request);
-      expect(mockSignInWithPassword).not.toHaveBeenCalled();
+      expect(cookiesMap.has('GUEST_AUTOLOGIN_FAILED_RECENTLY')).toBe(false);
     });
 
     it('(k) skips signInWithPassword when ?logout=1 query param present (Logout opt-out)', async () => {
@@ -569,6 +556,18 @@ describe('Supabase Middleware - updateSession', () => {
 
       await updateSession(reqWithHost('http://localhost:3000/'));
       expect(mockSignInWithPassword).toHaveBeenCalled();
+    });
+
+    it('(m) skips signInWithPassword when pathname starts with /login', async () => {
+      // onLoginPath guard prevents the redirect-loop second-hop after a failed
+      // signIn redirects to /login. Without this guard, /login would re-trigger
+      // auto-login and bounce again.
+      process.env.GUEST_EMAIL = 'guest@explainanything.app';
+      process.env.GUEST_PASSWORD = 'secret';
+      delete process.env.E2E_TEST_MODE;
+
+      await updateSession(reqWithHost('http://localhost:3000/login'));
+      expect(mockSignInWithPassword).not.toHaveBeenCalled();
     });
   });
 

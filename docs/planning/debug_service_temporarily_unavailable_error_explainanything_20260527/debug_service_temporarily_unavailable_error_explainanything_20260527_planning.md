@@ -25,6 +25,48 @@ The `/login` page on production renders `<ServiceUnavailableNotice />` instead o
 
 ## Phased Execution Plan
 
+**Phase 0 ships the UX symptom fix immediately and is independent of Phases 1-3.** Phases 1-3 continue the original root-cause investigation in parallel — they're no longer blocking on the bad UX.
+
+### Phase 0: Ship symptom fix (delete cookie + ServiceUnavailableNotice + block autologin on `/login`)
+
+Goal: when guest autologin fails, visitors see `<LoginForm />` instead of `<ServiceUnavailableNotice />`. No new state, no breaker, no cookie.
+
+**Code changes:**
+
+- [ ] `src/lib/utils/supabase/middleware.ts:70` — delete the `failedRecently` const + its inclusion in the guard at L89.
+- [ ] `src/lib/utils/supabase/middleware.ts:84-92` — add `!request.nextUrl.pathname.startsWith('/login')` to the autologin guard conditions. Place alongside the existing `!onRecoveryPath` and `!optedOut` checks. Block style: keep one condition per line; comment that this prevents the redirect-loop second-hop without needing a cookie or breaker.
+- [ ] `src/lib/utils/supabase/middleware.ts:119-150` — keep the failure block (log + redirect + supabase-cookie-copy) but delete only the `fallback.cookies.set('GUEST_AUTOLOGIN_FAILED_RECENTLY', ...)` call at L143-149 and the associated comment at L125-127. Preserves the "copy SDK-written cookies onto redirect" invariant.
+- [ ] `src/lib/utils/supabase/middleware.ts:58-69` and `:125-132` — update the comment block to reflect that the cookie is gone and Supabase's ~30/min/IP rate limit is now the sole backstop (was: "cookie + rate-limit together"). One paragraph rewrite total. The `optedOut` check at L74 becomes structurally unreachable on `/login` after this change (only `?logout=1` arrival path is `/login`); leave it in as defensive documentation — note this in the comment.
+- [ ] `src/app/login/page.tsx:18,21-27` — delete the import of `ServiceUnavailableNotice`, the cookie check, and the early return. Delete the `cookies` import at L15 if unused after removal. Update the file-header comment to drop the "(2) cookie check" bullet.
+- [ ] `src/app/login/ServiceUnavailableNotice.tsx` — delete the file.
+
+**Test changes:**
+
+- [ ] `src/lib/utils/supabase/middleware.test.ts:513-530` — rewrite case (f). After change: failed `signInWithPassword` STILL redirects to `/login` (via the kept failure block), but does NOT set the cookie. Assert: response is 3xx with Location `/login`, cookies map does NOT contain `GUEST_AUTOLOGIN_FAILED_RECENTLY`, and any supabase-set cookies on `supabaseResponse` were copied onto the redirect.
+- [ ] `src/lib/utils/supabase/middleware.test.ts:532-542` — delete case (i) entirely (cookie no longer exists).
+- [ ] `src/lib/utils/supabase/middleware.test.ts` — keep cases (k) and (l) (`?logout=1` opt-out behavior unchanged).
+- [ ] `src/lib/utils/supabase/middleware.test.ts` — add new case (m): "skips `signInWithPassword` when pathname starts with `/login`". Set GUEST_EMAIL/PASSWORD, no E2E_TEST_MODE, navigate to `/login`, assert `mockSignInWithPassword` was NOT called.
+- [ ] `src/lib/utils/supabase/middleware.test.ts` — add new case (n): "still attempts `signInWithPassword` on `/` when guest unauthenticated". Sanity check that the guard didn't accidentally over-broaden.
+- [ ] `src/__tests__/e2e/specs/auth.unauth.spec.ts:23-42` — replace the `addCookies` fixture with `await page.goto('/userlibrary?logout=1')`. The new `/login` skip condition means the redirect-to-/login won't re-trigger autologin, so no further fixture machinery is needed.
+- [ ] `src/__tests__/e2e/specs/smoke.public.spec.ts:52-57` — update the comment block. New text: "Catches today's failure mode: prod GUEST_PASSWORD out of sync with prod Supabase user → middleware fails signIn → unauth-redirect to /login. URL assertion catches this within ~2 min via Slack." Drop the `service-unavailable-notice` reference; that testid is gone.
+- [ ] `src/__tests__/e2e/specs/smoke.public.spec.ts:67` — delete the `service-unavailable-notice` count-0 assertion (testid no longer exists). Keep the URL + hydration assertions; they're what actually detects the bug.
+- [ ] `src/__tests__/integration/auth-flow.integration.test.ts` — **no change needed.** Verified during planning that this file does not test cookie behavior despite a historical planning-doc reference to a 3-request cookie integration test (`docs/planning/fixes_explainanything_for_public_demo_20260523/...:484`). The cookie was only exercised in E2E specs.
+
+**Doc changes:**
+
+- [ ] `docs/feature_deep_dives/authentication_rls.md:27` — rewrite the failure-handling paragraph. New text: "On `signInWithPassword` failure, logs `[middleware] guest-auto-login failed` and redirects to `/login`. Autologin is suppressed on `/login` pathnames (`!startsWith('/login')` in the guard), so the redirect won't re-trigger sign-in. `/login` renders `<LoginForm />` so visitors can sign in manually with their own credentials. Rollback levers (unchanged): set `E2E_TEST_MODE=true` OR remove `GUEST_PASSWORD` from Vercel env vars and redeploy."
+
+**Verification (Phase 0):**
+
+- [ ] Unit: `npm run test -- src/lib/utils/supabase/middleware.test.ts` — all cases pass including new (m)(n).
+- [ ] Unit: `npm run test -- src/app/login` — no test references the deleted notice/cookie.
+- [ ] E2E (local): `npm run test:e2e -- --grep "auth.unauth|smoke"` — auth.unauth passes with `?logout=1`; smoke detects a synthetic failure (manually break `GUEST_PASSWORD` env on the local dev server, confirm URL assertion fires).
+- [ ] Lint + tsc + build: `npm run lint && npm run typecheck && npm run build`.
+- [ ] Manual UX check on local dev (with autologin WORKING): direct nav to `/` works as before; direct nav to `/login` now shows LoginForm instead of bouncing to `/` (expected behavior change).
+- [ ] Manual UX check on local dev (with autologin BROKEN — set `GUEST_PASSWORD=wrong` in `.env.local`): nav to `/` → ends up on `/login` with LoginForm (no "Service Temporarily Unavailable" anywhere).
+
+**Rollback for Phase 0**: revert the PR. No data migration, no env changes, no Supabase changes.
+
 ### Phase 1: Confirm failure mode and capture the next recurrence
 
 - [ ] Hit production `https://ea-evolution.vercel.app/` (and the public host if separate) in a private window with no cookies; record middleware response status, `Set-Cookie` headers, and final page rendered. Repeat against staging `https://explainanythingstage.vercel.app/` for baseline.
@@ -59,6 +101,8 @@ The `/login` page on production renders `<ServiceUnavailableNotice />` instead o
 
 ## Testing
 
+> **Phase 0 tests are listed inside the Phase 0 block above.** The sections below are for Phase 3 (regression tests added after the root cause is identified).
+
 ### Unit Tests
 - [ ] `src/lib/utils/supabase/middleware.test.ts` — assert that when `signInWithPassword` rejects with a recognizable Supabase auth error (`Invalid login credentials`, `User banned`, `429 rate-limited`), the failure cookie is set AND the error code is logged with that exact category.
 - [ ] `src/app/reset-password/page.test.tsx` — assert that with `GUEST_USER_ID` unset OR the current user matching `GUEST_USER_ID`, `notFound()` fires before rendering the form (covers H1).
@@ -76,6 +120,8 @@ The `/login` page on production renders `<ServiceUnavailableNotice />` instead o
 
 ## Verification
 
+> **Phase 0 verification is listed inside the Phase 0 block above.** The sections below are for Phase 3.
+
 ### A) Playwright Verification (required for UI changes)
 - [ ] Run new E2E spec locally via `npm run test:e2e -- --grep "guest-autologin"`.
 - [ ] Run smoke against the deployed preview using `VERCEL_AUTOMATION_BYPASS_SECRET` to confirm the post-deploy smoke catches future regressions.
@@ -87,7 +133,10 @@ The `/login` page on production renders `<ServiceUnavailableNotice />` instead o
 - [ ] `npm run test:e2e -- --grep "guest-autologin"`
 
 ## Documentation Updates
-- [ ] `docs/feature_deep_dives/authentication_rls.md` — document the diagnostic path (what to check first, where the logs live) for "Service Temporarily Unavailable" recurrences. Update if root cause exposes any new invariant.
+
+> **Phase 0's doc change (`authentication_rls.md` rewrite of the failure paragraph) is listed inside the Phase 0 block above.** The items below are additive updates for Phase 3 (the root-cause fix).
+
+- [ ] `docs/feature_deep_dives/authentication_rls.md` — document the diagnostic path (what to check first, where the logs live) for guest-autologin recurrences. Update if root cause exposes any new invariant.
 - [ ] `docs/docs_overall/debugging.md` — add a top-level "Guest Auto-Login Failures" entry with the Phase 1 checklist condensed to commands.
 - [ ] `docs/docs_overall/environments.md` — (a) fix stale prod URL `explainanything.vercel.app` → `ea-evolution.vercel.app`; (b) document the staging URL `explainanythingstage.vercel.app`; (c) list `GUEST_PASSWORD`, `GUEST_EMAIL`, `NEXT_PUBLIC_GUEST_EMAIL`, `GUEST_USER_ID` as required env vars with their relationships if H2/H4 turn out to be the cause.
 - [ ] `docs/docs_overall/testing_overview.md` — only if root cause is H7 (a test workflow touches the guest row); document the boundary.
