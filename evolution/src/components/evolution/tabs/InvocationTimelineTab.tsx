@@ -29,6 +29,10 @@ const EVALUATE_AND_SUGGEST_COLOR = '#10b981'; // emerald
 // LLM call rendered as a rose bar (one phase per Option C — Decision §17). Distinct from
 // the marker-tactic palette color #fda4af (Phase 1.11) used in the lineage graph.
 const DEBATE_COLOR = '#f472b6'; // rose
+// rank_individual_paragraphs_evolution_20260525 Phase 6 — paragraph slot timing.
+// Two sub-segments per slot rendered as parallel rows: rewrite (light) + rank (deep).
+const PARAGRAPH_REWRITE_COLOR = '#06b6d4'; // cyan
+const PARAGRAPH_RANK_COLOR = '#0e7490';    // deep cyan
 const COMPARISON_BUCKET_THRESHOLD = 20;
 const COMPARISON_BUCKET_SIZE = 5;
 
@@ -111,6 +115,11 @@ function maybeBucketComparisons(
 
 export function InvocationTimelineTab({ invocation }: InvocationTimelineTabProps): JSX.Element {
   const detail = invocation.execution_detail as Record<string, unknown> | null;
+
+  // paragraph_recombine has its own per-slot bespoke timeline (see below).
+  if (detail && (detail.detailType as string | undefined) === 'paragraph_recombine') {
+    return <ParagraphRecombineTimeline detail={detail} totalDurationMs={invocation.duration_ms} />;
+  }
 
   // Extract generation and ranking subsections
   const generation = (detail?.generation as Record<string, unknown> | undefined) ?? null;
@@ -300,6 +309,86 @@ export function InvocationTimelineTab({ invocation }: InvocationTimelineTabProps
           </div>
         );
       })()}
+    </div>
+  );
+}
+
+interface ParagraphSlotTimingDetail {
+  detailType: 'paragraph_recombine';
+  slots: Array<{
+    slotIndex: number;
+    spentUsd: number;
+    rewrites: Array<{ durationMs?: number }>;
+    ranking?: { matchCount: number };
+    discardReason?: { failurePoint: string };
+  }>;
+}
+
+function ParagraphRecombineTimeline({
+  detail,
+  totalDurationMs,
+}: {
+  detail: Record<string, unknown>;
+  totalDurationMs: number | null;
+}): JSX.Element {
+  const typedDetail = detail as unknown as ParagraphSlotTimingDetail;
+  const slots = typedDetail.slots ?? [];
+
+  if (slots.length === 0) {
+    return (
+      <div className="p-3 rounded-book bg-[var(--surface-elevated)] text-sm font-ui text-[var(--text-muted)]" data-testid="timeline-paragraph-empty">
+        No slot timing data.
+      </div>
+    );
+  }
+
+  // Per-slot total ms = sum of rewrite durations + (matchCount × heuristic 300ms per ranking call).
+  // No ranking timing is recorded per-call in v1, so we estimate from match count.
+  const RANK_MS_PER_MATCH = 300;
+  const slotTotals = slots.map((s) => {
+    const rewriteMs = s.rewrites.reduce((acc, r) => acc + (r.durationMs ?? 0), 0);
+    const rankMs = (s.ranking?.matchCount ?? 0) * RANK_MS_PER_MATCH;
+    return { slotIndex: s.slotIndex, rewriteMs, rankMs, totalMs: rewriteMs + rankMs };
+  });
+  const widestSlotMs = Math.max(1, ...slotTotals.map((s) => s.totalMs));
+
+  return (
+    <div className="space-y-3" data-testid="timeline-paragraph-recombine">
+      <div className="text-xs font-ui text-[var(--text-muted)]">
+        Total invocation: {fmtMs(totalDurationMs)} · {slots.length} slots executed in parallel (D18)
+      </div>
+      <div className="space-y-1">
+        {slotTotals.map((s) => (
+          <div key={s.slotIndex} className="flex gap-2 items-center" data-testid={`timeline-paragraph-slot-${s.slotIndex}`}>
+            <div className="w-16 shrink-0 text-right">
+              <span className="text-xs font-mono text-[var(--text-muted)]">P{s.slotIndex + 1}</span>
+            </div>
+            <div className="flex-1 relative h-5">
+              <GanttBar
+                startMs={0}
+                durationMs={s.rewriteMs}
+                totalMs={widestSlotMs}
+                color={PARAGRAPH_REWRITE_COLOR}
+                label={`rewrite ${fmtMs(s.rewriteMs)}`}
+                tooltip={`Paragraph ${s.slotIndex + 1} rewrite phase (M parallel rewrites)\nDuration: ${fmtMs(s.rewriteMs)}`}
+                testId={`timeline-paragraph-rewrite-${s.slotIndex}`}
+              />
+              <GanttBar
+                startMs={s.rewriteMs}
+                durationMs={s.rankMs}
+                totalMs={widestSlotMs}
+                color={PARAGRAPH_RANK_COLOR}
+                label={`rank ${fmtMs(s.rankMs)}`}
+                tooltip={`Paragraph ${s.slotIndex + 1} ranking phase (estimated ${RANK_MS_PER_MATCH}ms/match)\nDuration: ${fmtMs(s.rankMs)}`}
+                testId={`timeline-paragraph-rank-${s.slotIndex}`}
+              />
+            </div>
+            <div className="w-20 shrink-0 text-right">
+              <span className="text-xs font-mono text-[var(--text-muted)]">{fmtMs(s.totalMs)}</span>
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

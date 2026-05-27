@@ -27,6 +27,16 @@ const FILTERS: FilterDef[] = [
     ],
   },
   { key: 'filterTestContent', label: 'Hide test content', type: 'checkbox', defaultChecked: true },
+  {
+    key: 'variantKind',
+    label: 'Kind',
+    type: 'select',
+    options: [
+      { value: 'article', label: 'Articles only (default)' },
+      { value: 'paragraph', label: 'Paragraph snippets only' },
+      { value: 'any', label: 'Both' },
+    ],
+  },
 ];
 
 const COLUMNS: ColumnDef<VariantListEntry>[] = [
@@ -154,16 +164,21 @@ export default function VariantsListPage(): JSX.Element {
   const [loading, setLoading] = useState(true);
   const [totalCount, setTotalCount] = useState(0);
   const [page, setPage] = useState(1);
-  const [filterValues, setFilterValues] = useState<Record<string, string>>({ filterTestContent: 'true' });
+  const [filterValues, setFilterValues] = useState<Record<string, string>>({ filterTestContent: 'true', variantKind: 'article' });
 
   const fetchData = useCallback(async (currentPage: number, filters: Record<string, string>) => {
     setLoading(true);
     const isWinnerRaw = filters.isWinner;
     const isWinner = isWinnerRaw === 'yes' ? true : isWinnerRaw === 'no' ? false : undefined;
+    const variantKindRaw = filters.variantKind;
+    const variantKind = variantKindRaw === 'paragraph' || variantKindRaw === 'any' || variantKindRaw === 'article'
+      ? variantKindRaw
+      : 'article';
     const result = await listVariantsAction({
       agentName: filters.agentName || undefined,
       isWinner,
       filterTestContent: filters.filterTestContent === 'true',
+      variantKind,
       limit: PAGE_SIZE,
       offset: (currentPage - 1) * PAGE_SIZE,
     });

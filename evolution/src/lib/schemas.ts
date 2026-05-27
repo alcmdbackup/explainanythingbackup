@@ -659,6 +659,12 @@ export const iterationConfigSchema = z.object({
    *  asserts the strategy's judgeModel has supportsReasoning=true when set.
    *  bring_back_debate_agent_20260506 Decision §18 + Phase 1.14. */
   debateJudgeReasoningEffort: z.enum(['none', 'low', 'medium', 'high']).optional(),
+  /** rank_individual_paragraphs_evolution_20260525 — paragraph_recombine knobs.
+   *  All four fields are only valid when agentType === 'paragraph_recombine'. */
+  rewritesPerParagraph: z.number().int().min(1).max(6).optional(),
+  maxComparisonsPerParagraph: z.number().int().min(1).max(20).optional(),
+  maxParagraphsPerInvocation: z.number().int().min(1).max(50).optional(),
+  paragraphRewriteModel: z.string().optional(),
 }).refine(
   // sourceMode is for parent-article selection in variant-producing iterations.
   // Debate selects parents internally (top-2 from pool snapshot per Decision §16) so
@@ -739,6 +745,20 @@ export const iterationConfigSchema = z.object({
   // NEW: includesMirrorApprover is only valid for proposer_approver_criteria_generate.
   (c) => c.agentType === 'proposer_approver_criteria_generate' || c.includesMirrorApprover === undefined,
   { message: 'includesMirrorApprover only valid when agentType is proposer_approver_criteria_generate' },
+).refine(
+  // rank_individual_paragraphs_evolution_20260525 — paragraph knobs are only valid
+  // when agentType === 'paragraph_recombine'.
+  (c) => c.agentType === 'paragraph_recombine' || c.rewritesPerParagraph === undefined,
+  { message: 'rewritesPerParagraph only valid when agentType is paragraph_recombine' },
+).refine(
+  (c) => c.agentType === 'paragraph_recombine' || c.maxComparisonsPerParagraph === undefined,
+  { message: 'maxComparisonsPerParagraph only valid when agentType is paragraph_recombine' },
+).refine(
+  (c) => c.agentType === 'paragraph_recombine' || c.maxParagraphsPerInvocation === undefined,
+  { message: 'maxParagraphsPerInvocation only valid when agentType is paragraph_recombine' },
+).refine(
+  (c) => c.agentType === 'paragraph_recombine' || c.paragraphRewriteModel === undefined,
+  { message: 'paragraphRewriteModel only valid when agentType is paragraph_recombine' },
 );
 
 export type IterationConfig = z.infer<typeof iterationConfigSchema>;

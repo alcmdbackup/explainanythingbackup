@@ -70,6 +70,7 @@ export default function ArenaListPage(): JSX.Element {
     status: '',
     filterTestContent: 'true',
     hideEmpty: 'true',
+    showParagraphTopics: 'false',
   });
 
   const fetchTopics = useCallback(async () => {
@@ -77,6 +78,7 @@ export default function ArenaListPage(): JSX.Element {
     const result = await getArenaTopicsAction({
       status: filterValues.status || undefined,
       filterTestContent: filterValues.filterTestContent === 'true',
+      includeParagraphTopics: filterValues.showParagraphTopics === 'true',
     });
     if (result.success && result.data) {
       setTopics(result.data);
@@ -84,7 +86,7 @@ export default function ArenaListPage(): JSX.Element {
       toast.error(result.error?.message ?? 'Failed to load arena topics');
     }
     setLoading(false);
-  }, [filterValues.status, filterValues.filterTestContent]);
+  }, [filterValues.status, filterValues.filterTestContent, filterValues.showParagraphTopics]);
 
   useEffect(() => {
     fetchTopics();
@@ -113,7 +115,7 @@ export default function ArenaListPage(): JSX.Element {
         return (
           <EntityListPage
             title="Arena Topics"
-            filters={[STATUS_FILTER, HIDE_EMPTY_FILTER, { key: 'filterTestContent', label: 'Hide test content', type: 'checkbox', defaultChecked: true }]}
+            filters={[STATUS_FILTER, HIDE_EMPTY_FILTER, { key: 'filterTestContent', label: 'Hide test content', type: 'checkbox', defaultChecked: true }, { key: 'showParagraphTopics', label: 'Show paragraph topics', type: 'checkbox', defaultChecked: false }]}
             columns={COLUMNS}
             items={visibleTopics}
             loading={loading}

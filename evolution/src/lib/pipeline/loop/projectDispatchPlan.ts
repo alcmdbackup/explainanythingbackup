@@ -455,6 +455,58 @@ export function projectDispatchPlan(
       continue;
     }
 
+    if (iterCfg.agentType === 'paragraph_recombine') {
+      // rank_individual_paragraphs_evolution_20260525 Phase 5 — projector branch.
+      // Cost = N paragraphs × (M rewrites + per-slot ranking). Accumulates into
+      // EstPerAgentValue.paragraphRecombine so the wizard preview shows a single
+      // 'paragraph_recombine' line item. Kill-switch (Phase 5): when
+      // EVOLUTION_PARAGRAPH_RECOMBINE_ENABLED='false', dispatchCount → 0 mirroring runtime.
+      const { estimateParagraphRecombineCost } = require('../infra/estimateCosts') as typeof import('../infra/estimateCosts');
+
+      const paragraphEnabled = opts.paragraphRecombineEnabled !== false;
+      const rewritesPerParagraph = iterCfg.rewritesPerParagraph ?? 3;
+      const maxComparisonsPerParagraph = iterCfg.maxComparisonsPerParagraph ?? 8;
+      const maxParagraphsPerInvocation = iterCfg.maxParagraphsPerInvocation ?? 12;
+      const rewriteModel = iterCfg.paragraphRewriteModel ?? config.generationModel;
+
+      const paragraphCost = estimateParagraphRecombineCost(
+        ctx.seedChars,
+        maxParagraphsPerInvocation,
+        rewritesPerParagraph,
+        maxComparisonsPerParagraph,
+        rewriteModel,
+        config.judgeModel,
+      );
+
+      // Single materialized variant per invocation (one recombined article output).
+      const willDispatch = paragraphEnabled && poolSize >= 1;
+      const expectedCost = willDispatch ? paragraphCost.expected : 0;
+      const upperCost = willDispatch ? paragraphCost.upperBound : 0;
+      const dispatchCount = willDispatch ? 1 : 0;
+
+      plan.push({
+        iterIdx,
+        agentType: 'paragraph_recombine',
+        iterBudgetUsd,
+        tacticMix: mix,
+        tacticMixSource: source,
+        tacticLabel,
+        estPerAgent: {
+          expected: { gen: 0, rank: 0, reflection: 0, editing: 0, editingRank: 0, evaluation: 0, debate: 0, paragraphRecombine: expectedCost, total: expectedCost },
+          upperBound: { gen: 0, rank: 0, reflection: 0, editing: 0, editingRank: 0, evaluation: 0, debate: 0, paragraphRecombine: upperCost, total: upperCost },
+        },
+        maxAffordable: { atExpected: dispatchCount, atUpperBound: dispatchCount },
+        dispatchCount,
+        expectedTotalDispatch: dispatchCount,
+        expectedTopUpDispatch: 0,
+        effectiveCap: dispatchCount === 0 ? 'eligibility' : 'budget',
+        poolSizeAtStart: poolSize,
+        parallelFloorUsd: 0,
+      });
+      poolSize += dispatchCount;
+      continue;
+    }
+
     if (iterCfg.agentType === 'debate_and_generate') {
       // bring_back_debate_agent_20260506 Phase 3.5 — single materialized variant per
       // invocation per Decision §15. Cost = combined judge call + synthesis-via-GFPA.

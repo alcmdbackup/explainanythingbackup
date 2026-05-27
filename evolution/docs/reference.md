@@ -187,6 +187,9 @@ Validation throws plain `Error` with a descriptive message on constraint violati
 | `COST_CALIBRATION_ENABLED` | `false` | When `'true'`, consult `evolution_cost_calibration` values for cost estimates; otherwise the hardcoded `EMPIRICAL_OUTPUT_CHARS` / `OUTPUT_TOKEN_ESTIMATES` constants remain authoritative. Sub-minute kill switch if the refresh job ever produces bad data. |
 | `COST_CALIBRATION_TTL_MS` | `300000` | In-memory cache TTL for `costCalibrationLoader`. Past TTL, the next reader triggers a promise-coalesced DB refresh. |
 | `COST_CALIBRATION_SAMPLE_DAYS` | `14` | Window in days for `refreshCostCalibration.ts` aggregation of historical `evolution_agent_invocations`. |
+| `EVOLUTION_REFLECTION_ENABLED` | `true` | Kill-switch for `reflect_and_generate` iterations. When `'false'`, the dispatch loop falls these iterations back to vanilla GFPA so the feature can be rolled back without a code revert. Mirrored at the wizard preview boundary. |
+| `EVOLUTION_DEBATE_ENABLED` | `true` | Kill-switch for `debate_and_generate` iterations (bring_back_debate_agent_20260506). When `'false'`, the dispatch loop short-circuits to `dispatchCount=0`. Mirrored at the wizard preview boundary. |
+| `EVOLUTION_PARAGRAPH_RECOMBINE_ENABLED` | `true` | Kill-switch for `paragraph_recombine` iterations (rank_individual_paragraphs_evolution_20260525). When `'false'`, the dispatch loop short-circuits to `dispatchCount=0`. Mirrored at the wizard preview boundary via `paragraphRecombineEnabled` opts flag. |
 
 ### EntityLogger
 

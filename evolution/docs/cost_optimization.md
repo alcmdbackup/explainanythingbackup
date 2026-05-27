@@ -288,6 +288,26 @@ The propose / forward / mirror calls all bucket to one **umbrella metric** (`pro
 
 **Single-pass criteria** (`SinglePassEvaluateCriteriaAndGenerateAgent`) cost stack is identical to the legacy criteria wrapper: one `evaluate_and_suggest` call + GFPA generation + ranking. The new 3 guardrail directives in the customPrompt add ~300 chars of overhead, captured by `estimateGenerationCost(seedArticleChars + 300, ...)` in the projector. Negligible cost difference (~$0.0001) but worth being right.
 
+### Paragraph-Recombine Cost (rank_individual_paragraphs_evolution_20260525)
+
+The `ParagraphRecombineAgent` cost stack scales as `N slots × M rewrites × (rewrite + ranking)`. Both layers bucket into the single umbrella metric `paragraph_recombine_cost` — the `'paragraph_rewrite'` AgentName routes directly, and the `'ranking'`-labeled per-slot judge calls route via the per-slot `AgentCostScope` intercept (D11/D18) so they don't pollute the article-level `ranking_cost`.
+
+| Knob | Default | Range | Effect |
+|---|---|---|---|
+| `rewritesPerParagraph` | 3 | 1-6 | Number of parallel rewrites per slot. Cost ∝ N × M (rewrite) + N × M × maxComp (rank). |
+| `maxComparisonsPerParagraph` | 8 | 1-20 | Per-slot ranking depth cap. Within-slot binary search early-exits before hitting this. |
+| `maxParagraphsPerInvocation` | 12 | 1-50 | Hard cap on N. Articles with > N paragraphs only process the first N (per `extractParagraphsWithRanges`). |
+| `paragraphRewriteModel` | inherits `generationModel` | any model id | Override for the per-paragraph rewrite calls (judge calls always use strategy `judgeModel`). |
+
+**Cost envelope at defaults** (gpt-4.1-nano + qwen, 12 slots × 3 rewrites × 8 comparisons):
+- Rewrite layer: ~$0.006
+- Per-slot ranking layer: ~$0.005
+- Total: **~$0.011/variant**
+
+**Cost projection** (`estimateParagraphRecombineCost`): math-direct sum with a 1.3× upper-bound margin. Wizard preview surfaces a single `paragraph_recombine` line item via `EstPerAgentValue.paragraphRecombine`.
+
+**Strategy/experiment-level rollups**: `total_paragraph_recombine_cost` (sum) and `avg_paragraph_recombine_cost_per_run` (avg).
+
 ### Budget-Aware Dispatch
 
 The orchestrator computes two budget floors from strategy config:
