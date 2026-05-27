@@ -62,6 +62,11 @@ const OUTPUT_TOKEN_ESTIMATES: Partial<Record<AgentName, number>> = {
   // Same shape as 'generation' but routed through the I4 LLM-client proxy so
   // cost flows to debate_cost instead of generation_cost.
   debate_synthesis: 2000,
+  // Per-paragraph rewrite: paragraph-level output, much smaller than article-
+  // level 'generation' (1000). A typical 8K-char article has ~12 paragraphs ≈
+  // ~660 chars/paragraph; rewrite output ~similar size + minor variance.
+  // 250 tokens (~1000 chars) covers a typical paragraph rewrite.
+  paragraph_rewrite: 250,
 };
 
 // ─── Public API ──────────────────────────────────────────────────

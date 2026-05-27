@@ -38,6 +38,13 @@ export const AGENT_NAMES = [
   // instead of generation_cost (load-bearing invariant I4).
   'debate_judge',
   'debate_synthesis',
+  // Per-LLM-call label for paragraph_recombine agent (rank_individual_paragraphs_
+  // evolution_20260525 Phase 2). One label only — per-slot ranking REUSES the
+  // existing 'ranking' label so v2MockLlm.ts pair-routing works without modification.
+  // Per-purpose cost attribution still works because the per-slot ranking calls are
+  // made under the slot's AgentCostScope which records into paragraph_recombine_cost
+  // via the scope intercept path (NOT via this static COST_METRIC_BY_AGENT mapping).
+  'paragraph_rewrite',
 ] as const;
 export type AgentName = typeof AGENT_NAMES[number];
 
@@ -75,4 +82,11 @@ export const COST_METRIC_BY_AGENT: Partial<Record<AgentName, MetricName>> = {
   // I4 LLM-client proxy in DebateAgent — keeps cost out of generation_cost.
   debate_judge: 'debate_cost',
   debate_synthesis: 'debate_cost',
+  // The paragraph_rewrite label maps to the paragraph_recombine_cost umbrella.
+  // Per-slot ranking calls (which use the existing 'ranking' label, NOT a new
+  // 'paragraph_rank' label) ALSO bucket into paragraph_recombine_cost when made
+  // under a paragraph_recombine slotScope — but that routing happens at the
+  // scope intercept layer, not via this static map (which would otherwise send
+  // them to ranking_cost).
+  paragraph_rewrite: 'paragraph_recombine_cost',
 };
