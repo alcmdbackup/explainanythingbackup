@@ -10,8 +10,13 @@ interface Scenario {
   events: SSEEvent[];
 }
 
-// Counter for generating incrementing mock IDs
-let mockExplanationIdCounter = 90000;
+// Counter for generating incrementing mock IDs.
+// Must stay in the 9_000_000+ sentinel range (matching api-mocks.ts and the
+// E2E_TEST_MODE bypass thresholds in actions.ts) so mock IDs never collide with
+// real auto-increment explanation IDs. Real dev-DB IDs already exceed 100k, so
+// the previous 90000 base caused real seeded explanations to be mistaken for
+// mocks and served "Test Explanation Title" instead of their real content.
+let mockExplanationIdCounter = 9_000_000;
 
 // Generate a mock result that matches production schema
 function createMockResult() {
