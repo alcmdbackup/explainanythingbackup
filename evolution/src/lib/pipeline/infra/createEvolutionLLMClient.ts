@@ -12,6 +12,12 @@ import type { EntityLogger } from './createEntityLogger';
 import { writeMetricMax } from '../../metrics/writeMetrics';
 import { type AgentName, COST_METRIC_BY_AGENT } from '../../core/agentNames';
 import { getCalibrationRow } from './costCalibrationLoader';
+// Phase 1 (rename_agents_subagents_evolution_20260508): wrap each LLM call in a child active
+// span. Combined with the agent.<name> active span opened in Agent.run(), Honeycomb traces
+// show the full agent → subagent (per-LLM-call) hierarchy. Imports from the leaf
+// `lib/observability/withActiveSpan` (not the top-level `instrumentation.ts`) so the
+// pipeline doesn't drag server-only chunks into client bundles — see Agent.ts for details.
+import { withActiveSpan } from '../../observability/withActiveSpan';
 
 // ─── Cost estimation ─────────────────────────────────────────────
 
@@ -109,6 +115,13 @@ export function createEvolutionLLMClient(
       agentName: AgentName,
       options?: LLMCompletionOptions,
     ): Promise<string> {
+      // Wrap the entire complete() body in an active child span. Auto-nests under any
+      // agent.<name> span the caller opened (via Agent.run()) thanks to AsyncLocalStorage.
+      // The subagent.path attribute joins the parent agent's name to this LLM call's label.
+      return withActiveSpan(
+        `subagent.${agentName}`,
+        { 'subagent.path': agentName, 'subagent.label': agentName },
+        async () => {
       const model = (options?.model as string) ?? defaultModel;
       const temperature = agentName === 'ranking'
         ? 0
@@ -254,6 +267,8 @@ export function createEvolutionLLMClient(
 
       // Should not reach here, but safety net
       throw lastError ?? new Error('LLM call failed after retries');
+        },
+      );
     },
 
     async completeStructured(): Promise<never> {

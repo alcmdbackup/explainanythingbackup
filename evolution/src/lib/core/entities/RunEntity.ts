@@ -52,7 +52,7 @@ export class RunEntity extends Entity<EvolutionRunFullDb> {
       { ...METRIC_CATALOG.ranking_cost, compute: () => 0 },
       { ...METRIC_CATALOG.reflection_cost, compute: () => 0 },
       { ...METRIC_CATALOG.iterative_edit_cost, compute: () => 0 },
-      { ...METRIC_CATALOG.iterative_edit_rank_cost, compute: () => 0 },
+      // (removed) iterative_edit_rank_cost — superseded by subagent:ranking.cost.
       { ...METRIC_CATALOG.iterative_edit_drift_rate, compute: () => 0 },
       { ...METRIC_CATALOG.iterative_edit_recovery_success_rate, compute: () => 0 },
       { ...METRIC_CATALOG.iterative_edit_accept_rate, compute: () => 0 },

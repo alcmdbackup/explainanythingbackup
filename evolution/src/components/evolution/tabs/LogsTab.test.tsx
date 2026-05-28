@@ -8,7 +8,7 @@ const mockLogs = [
     id: 1,
     created_at: '2026-03-23T10:00:00Z',
     level: 'info',
-    agent_name: 'generation',
+    subagent_name: 'generation',
     iteration: 1,
     variant_id: null,
     message: 'Starting generation',
@@ -20,7 +20,7 @@ const mockLogs = [
     id: 2,
     created_at: '2026-03-23T10:01:00Z',
     level: 'warn',
-    agent_name: 'ranking',
+    subagent_name: 'ranking',
     iteration: 1,
     variant_id: null,
     message: 'Triage eliminated 2 variants',
@@ -111,7 +111,7 @@ describe('LogsTab', () => {
     });
   });
 
-  it('renders agent name column', async () => {
+  it('renders subagent name column (Phase 4 rename)', async () => {
     render(<LogsTab entityType="run" entityId="run-1" />);
     await waitFor(() => {
       expect(screen.getByText('generation')).toBeInTheDocument();
@@ -236,7 +236,7 @@ describe('LogsTab', () => {
       expect(getEntityLogsAction).toHaveBeenCalled();
     });
     const lastCall = getEntityLogsAction.mock.calls[getEntityLogsAction.mock.calls.length - 1]![0];
-    expect(lastCall.filters.agentName).toBe('gen');
+    expect(lastCall.filters.subagentName).toBe('gen');
 
     jest.useRealTimers();
   });

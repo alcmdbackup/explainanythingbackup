@@ -1,5 +1,24 @@
 # Visualization and Admin UI
 
+> **Subagents tab** (rename_agents_subagents_evolution_20260508 Phase 2): every
+> invocation detail page (`/admin/evolution/invocations/[invocationId]`) now has a
+> generic **Subagents** tab as the default view. It renders a recursive
+> agent → subagent tree (L1 = the invocation; L2+ = nested sub-units of work)
+> derived from `execution_detail` JSONB via the shared parser at
+> `evolution/src/lib/shared/subagentTreeParser.ts`. Each row shows: chevron, level
+> pill, name, kind tag (`LLM` / `Composite` / `Deterministic`), duration, cost,
+> summary line. Cost and duration sum upward — an L1 row's totals equal the
+> recursive sum of its children, with a render-time validation hook flagging
+> mismatches in dev.
+>
+> The bespoke per-wrapper tabs (Reflection Overview, Generation Overview, Eval &
+> Suggest, Edit Cycle, Apply, etc.) **remain alongside** the new Subagents tab —
+> they preserve domain-specific tables (criteriaScored, suggestions,
+> forwardDecisions, mirrorDecisions, `annotated-edits` custom renderer) that a
+> generic tree cannot reproduce.
+
+
+
 The Evolution system ships a full admin interface built with Next.js server actions and shared React components. This document covers the 15 admin pages, shared component library, D3 lineage visualization, and the server action architecture that powers data fetching.
 
 For database tables backing these views, see [Data Model](./data_model.md). For system-level concepts, see [Architecture](./architecture.md).

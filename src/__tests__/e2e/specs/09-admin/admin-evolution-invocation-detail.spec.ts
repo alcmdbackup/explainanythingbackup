@@ -151,6 +151,12 @@ adminTest.describe('Evolution Invocation Detail', { tag: '@evolution' }, () => {
     const header = adminPage.locator('[data-testid="entity-detail-header"]');
     await expect(header).toBeVisible({ timeout: 15000 });
 
+    // rename_agents_subagents_evolution_20260508 Phase 2 made Subagents the default
+    // tab; the Overview tab (which renders the MetricGrid) must be clicked explicitly.
+    const overviewTab = adminPage.locator('[role="tab"]').filter({ hasText: /^Overview$/ }).first();
+    await expect(overviewTab).toBeVisible({ timeout: 15000 });
+    await overviewTab.click();
+
     // The MetricGrid should show the agent name
     const metricGrid = adminPage.locator('[data-testid="metric-grid"]');
     await expect(metricGrid).toBeVisible({ timeout: 10000 });
@@ -277,9 +283,13 @@ adminTest.describe('Evolution Invocation Detail', { tag: '@evolution' }, () => {
   adminTest('wrapper invocation: Reflection Overview tab renders tactic chosen + ranking', async ({ adminPage }) => {
     await adminPage.goto(`/admin/evolution/invocations/${reflectInvocationId}`);
     await adminPage.waitForLoadState('domcontentloaded');
-    await expect(adminPage.locator('[data-testid="tab-overview-reflection"]')).toBeVisible({ timeout: 15000 });
+    const reflectionOverviewTab = adminPage.locator('[data-testid="tab-overview-reflection"]');
+    await expect(reflectionOverviewTab).toBeVisible({ timeout: 15000 });
 
-    // Reflection Overview tab is active by default (first in the wrapper's tab list).
+    // rename_agents_subagents_evolution_20260508 Phase 2 made Subagents the
+    // default tab; click into Reflection Overview to render its pane.
+    await reflectionOverviewTab.click();
+
     const reflectionTab = adminPage.locator('[data-testid="reflection-overview-tab"]');
     await expect(reflectionTab).toBeVisible();
 
@@ -380,11 +390,12 @@ adminTest.describe('Evolution Invocation Detail', { tag: '@evolution' }, () => {
     await adminPage.goto(`/admin/evolution/invocations/${evalCriteriaInvocationId}`);
     await adminPage.waitForLoadState('domcontentloaded');
 
-    // Wrapper layout puts Eval & Suggest first → it's auto-active. Verify the
-    // tab exists (catches a regression that would silently fall back to the
-    // single Overview layout).
+    // rename_agents_subagents_evolution_20260508 Phase 2 made Subagents the
+    // default tab; click into Eval & Suggest to render its pane (also catches
+    // the regression that would silently fall back to a single Overview layout).
     const evalTab = adminPage.getByRole('tab', { name: 'Eval & Suggest' });
     await expect(evalTab).toBeVisible({ timeout: 15000 });
+    await evalTab.click();
 
     // Execution detail is collapsed by default — click Expand to render fields.
     const toggle = adminPage.locator('[data-testid="toggle-detail"]');

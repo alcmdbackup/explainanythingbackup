@@ -7,6 +7,7 @@ import { InvocationExecutionDetail } from './InvocationExecutionDetail';
 import { LogsTab } from '@evolution/components/evolution/tabs/LogsTab';
 import { InvocationTimelineTab } from '@evolution/components/evolution/tabs/InvocationTimelineTab';
 import { InvocationParentBlock } from '@evolution/components/evolution/tabs/InvocationParentBlock';
+import { SubagentsTab } from '@evolution/components/evolution/tabs/SubagentsTab';
 
 const TIMELINE_AGENTS = new Set<string>([
   'generate_from_previous_article',
@@ -20,8 +21,16 @@ const CRITERIA_GENERATE_AGENT = 'evaluate_criteria_then_generate_from_previous_a
 const DEBATE_GENERATE_AGENT = 'debate_then_generate_from_previous_article';
 
 function buildTabs(agentName: string): TabDef[] {
+  // Subagents tab is added to ALL agent types (Phase 2 of
+  // rename_agents_subagents_evolution_20260508). It surfaces the recursive
+  // agent → subagent tree from execution_detail. Bespoke per-wrapper tabs
+  // (Reflection Overview, Eval & Suggest, etc.) remain alongside it because
+  // they contain domain-specific tables a generic tree can't reproduce.
+  const subagentsTab: TabDef = { id: 'subagents', label: 'Subagents' };
+
   if (agentName === REFLECT_GENERATE_AGENT) {
     return [
+      subagentsTab,
       { id: 'overview-reflection', label: 'Reflection Overview' },
       { id: 'overview-gfpa', label: 'Generation Overview' },
       { id: 'metrics', label: 'Metrics' },
@@ -32,6 +41,7 @@ function buildTabs(agentName: string): TabDef[] {
   if (agentName === CRITERIA_GENERATE_AGENT) {
     // Single combined Eval & Suggest tab (one LLM call sources both scoring + suggestions).
     return [
+      subagentsTab,
       { id: 'overview-evaluate-suggest', label: 'Eval & Suggest' },
       { id: 'overview-gfpa', label: 'Generation' },
       { id: 'metrics', label: 'Metrics' },
@@ -51,6 +61,7 @@ function buildTabs(agentName: string): TabDef[] {
     ];
   }
   const tabs: TabDef[] = [
+    subagentsTab,
     { id: 'overview', label: 'Overview' },
     { id: 'metrics', label: 'Metrics' },
   ];
@@ -113,6 +124,9 @@ export function InvocationDetailContent({ invocation: inv }: Props): JSX.Element
       />
 
       <EntityDetailTabs tabs={tabs} activeTab={activeTab} onTabChange={setActiveTab}>
+        {/* Phase 2 of rename_agents_subagents_evolution_20260508 — generic Subagents tab
+            for every agent type. Tree derived from execution_detail JSONB. */}
+        {activeTab === 'subagents' && <SubagentsTab invocation={inv} />}
         {/* Existing single-Overview path (all agents except the wrapper) */}
         {activeTab === 'overview' && (
           <div className="space-y-6">

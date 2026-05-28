@@ -73,7 +73,7 @@ async function seedRunWithLogs(): Promise<SeededData> {
     strategy_id: strategy.id,
     level: 'info',
     message: '[TEST] E2E log entry',
-    agent_name: 'setup',
+    subagent_name: 'setup',
     iteration: 1,
   });
 
@@ -180,7 +180,7 @@ adminTest.describe('Admin Evolution LogsTab Filters', { tag: '@evolution' }, () 
       const agentInput = logsContainer.locator('input[aria-label="Filter by agent name"]');
       await expect(agentInput).toBeVisible();
 
-      // Type a partial agent name — seeded log uses 'setup' as agent_name
+      // Type a partial agent name — seeded log uses 'setup' as subagent_name
       await agentInput.fill('set');
 
       // After debounce, table should update (may show the row or empty state)

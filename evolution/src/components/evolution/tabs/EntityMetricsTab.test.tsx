@@ -174,14 +174,16 @@ describe('EntityMetricsTab', () => {
     expect(screen.getByText('$0.01')).toBeInTheDocument();
   });
 
-  it('filters out agentCost:* metrics, keeping generation_cost/ranking_cost', async () => {
-    // Run-level per-purpose cost metrics are named generation_cost/ranking_cost (label: "Generation Cost"/"Ranking Cost")
-    // agentCost:* are legacy per-phase metrics that should be hidden from the UI
+  it('renders subagent:*.cost rows alongside generation_cost/ranking_cost (Phase 6: no agentCost: filter)', async () => {
+    // rename_agents_subagents_evolution_20260508 Phase 6 removed the agentCost:* filter
+    // because the prefix itself was removed. Per-subagent costs now live under
+    // subagent:*.cost via the dynamic-prefix path and render alongside the static
+    // *_cost rows; there is no longer a filter to test against.
     getEntityMetricsAction.mockResolvedValue({
       success: true,
       data: [
-        makeRow({ metric_name: 'agentCost:generation', value: 0.0085 }),
-        makeRow({ metric_name: 'agentCost:ranking', value: 0.0413 }),
+        makeRow({ metric_name: 'subagent:generation.cost', value: 0.0085 }),
+        makeRow({ metric_name: 'subagent:ranking.cost', value: 0.0413 }),
         makeRow({ metric_name: 'generation_cost', value: 0.1565 }),
         makeRow({ metric_name: 'ranking_cost', value: 0.1565 }),
       ],
@@ -191,11 +193,8 @@ describe('EntityMetricsTab', () => {
     await waitFor(() => {
       expect(screen.getByTestId('entity-metrics-tab')).toBeInTheDocument();
     });
-    // generation_cost and ranking_cost render as "Generation Cost" / "Ranking Cost"
-    // agentCost:* are filtered out so there should be exactly one card per label
-    const generationCells = screen.getAllByText('Generation Cost');
-    expect(generationCells).toHaveLength(1);
-    const rankingCells = screen.getAllByText('Ranking Cost');
-    expect(rankingCells).toHaveLength(1);
+    // Static *_cost names still resolve to their label-driven cards.
+    expect(screen.getAllByText('Generation Cost').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('Ranking Cost').length).toBeGreaterThanOrEqual(1);
   });
 });

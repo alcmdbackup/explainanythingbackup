@@ -97,10 +97,19 @@ describe('getEntityLogsAction', () => {
     expect(chainMethods.ilike).toHaveBeenCalledWith('message', '%seed%');
   });
 
-  it('applies agentName filter', async () => {
+  it('applies agentName filter (legacy alias) against the subagent_name column', async () => {
+    // Phase 4 logger rename: filter.agentName is the deprecated alias; both
+    // it and filter.subagentName target evolution_logs.subagent_name (which
+    // replaced agent_name in Phase 4b).
     const { ctx, chainMethods } = makeMockCtx();
     await handler({ entityType: 'run', entityId: 'a0000000-0000-0000-0000-000000000001', filters: { agentName: 'GenerationAgent' } }, ctx);
-    expect(chainMethods.ilike).toHaveBeenCalledWith('agent_name', '%GenerationAgent%');
+    expect(chainMethods.ilike).toHaveBeenCalledWith('subagent_name', '%GenerationAgent%');
+  });
+
+  it('applies subagentName filter (canonical) against subagent_name column', async () => {
+    const { ctx, chainMethods } = makeMockCtx();
+    await handler({ entityType: 'run', entityId: 'a0000000-0000-0000-0000-000000000001', filters: { subagentName: 'reflection' } }, ctx);
+    expect(chainMethods.ilike).toHaveBeenCalledWith('subagent_name', '%reflection%');
   });
 
   it('applies entityType filter', async () => {
@@ -130,7 +139,7 @@ describe('getEntityLogsAction', () => {
       filters: { level: 'warn', agentName: 'RankingAgent', iteration: 2, variantId: 'v-1' },
     }, ctx);
     expect(chainMethods.eq).toHaveBeenCalledWith('level', 'warn');
-    expect(chainMethods.ilike).toHaveBeenCalledWith('agent_name', '%RankingAgent%');
+    expect(chainMethods.ilike).toHaveBeenCalledWith('subagent_name', '%RankingAgent%');
     expect(chainMethods.eq).toHaveBeenCalledWith('iteration', 2);
     expect(chainMethods.eq).toHaveBeenCalledWith('variant_id', 'v-1');
   });

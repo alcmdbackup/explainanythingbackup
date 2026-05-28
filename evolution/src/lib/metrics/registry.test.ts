@@ -66,8 +66,13 @@ describe('isValidEntityMetricName', () => {
   });
 
   it('returns true for dynamic prefixed names', () => {
-    expect(isValidEntityMetricName('run', 'agentCost:generation')).toBe(true);
-    expect(isValidEntityMetricName('run', 'agentCost:ranking')).toBe(true);
+    expect(isValidEntityMetricName('run', 'eloAttrDelta:generate:lexical')).toBe(true);
+    expect(isValidEntityMetricName('run', 'subagent:ranking.cost')).toBe(true);
+    expect(isValidEntityMetricName('run', 'subagent:reflection.duration_ms')).toBe(true);
+    // isValidEntityMetricName is a loose check at the entity-registry level — it
+    // accepts any name with `:` in it (tight whitelist lives in writeMetrics.ts +
+    // DYNAMIC_METRIC_PREFIXES). Phase 6 removal of agentCost: doesn't change this
+    // boundary's behavior; tighter rejection is enforced at write time.
   });
 
   it('returns false for unknown', () => {

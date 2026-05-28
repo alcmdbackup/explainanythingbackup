@@ -20,22 +20,13 @@ test.describe('Unauthenticated User Tests', () => {
     await expect(submitButton).toBeVisible();
   });
 
-  test('unauthenticated user redirected from protected route', { tag: '@critical' }, async ({ page, context }) => {
-    // Suppress middleware guest-auto-login so the unauth-redirect path actually fires.
-    // Local tmux dev server doesn't set E2E_TEST_MODE=true (unlike Playwright's webServer
-    // on port 3008), so without this cookie the middleware silently logs the "unauth"
-    // user in as a guest (see src/lib/utils/supabase/middleware.ts:70-76) and the page
-    // loads /userlibrary instead of redirecting to /login.
-    // Scoped to this single test only — applying it at the project level via storageState
-    // breaks the "login with valid credentials" test in this same file.
-    await context.addCookies([{
-      name: 'GUEST_AUTOLOGIN_FAILED_RECENTLY',
-      value: '1',
-      url: 'http://localhost',
-    }]);
-
-    // Navigate to protected route without auth
-    await page.goto('/userlibrary');
+  test('unauthenticated user redirected from protected route', { tag: '@critical' }, async ({ page }) => {
+    // Suppress middleware guest-auto-login for this navigation so the unauth-redirect
+    // path fires. Middleware honors `?logout=1` as a per-request opt-out (see
+    // src/lib/utils/supabase/middleware.ts — `optedOut` const). The redirect to /login
+    // doesn't carry the param, but middleware's `onLoginPath` guard also skips auto-login
+    // on /login, so no re-trigger happens on the second hop.
+    await page.goto('/userlibrary?logout=1');
 
     // Should redirect to login
     await expect(page).toHaveURL(/\/login/);

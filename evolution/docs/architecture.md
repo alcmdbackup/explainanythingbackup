@@ -233,6 +233,16 @@ Per-iteration stop reasons (`iteration_budget_exceeded`, `iteration_converged`,
 `iteration_no_pairs`, `iteration_complete`) are recorded in
 `EvolutionResult.iterationResults[]`.
 
+### Agent / Subagent / Level vocabulary
+
+(Introduced by `rename_agents_subagents_evolution_20260508`.)
+
+- **Agent** = one row in `evolution_agent_invocations`. One `Agent.run()`, one cost scope. The L1 of the tree.
+- **Subagent** = any sub-unit of work inside an agent. Recursive: a subagent can itself contain subagents (e.g. `iterative_editing` agent → `cycle.1` subagent → `cycle.1.propose` LLM call). Per the team decision "all agents can also be subagents," any Agent class can appear as a subagent of another invocation when it's invoked from inside another agent's `Agent.run()`.
+- **Level** = depth in the tree relative to the L1 root. Same Agent class can be L1 in one invocation and L2+ in another — level is contextual to the tree.
+
+Cost rolls up: `subagent:<name>.cost` rows are written at run / strategy / experiment levels via the dynamic-prefix metric path (see [Metrics](./metrics.md)). The recursive composition is surfaced visually in the "Subagents" tab on `/admin/evolution/invocations/[invocationId]`. Each agent invocation also opens an OTel active span (`agent.<name>`) under which inner LLM calls auto-nest as `subagent.<label>` child spans, so Honeycomb traces show the same hierarchy.
+
 ### Agent Types
 
 All agents extend the `Agent` base class (`evolution/src/lib/core/Agent.ts`) and

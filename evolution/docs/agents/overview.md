@@ -1,5 +1,18 @@
 # Agents and Pipeline Operations
 
+> **Agent / subagent / level vocabulary** (rename_agents_subagents_evolution_20260508):
+> An **agent** is one row in `evolution_agent_invocations` — one `Agent.run()`, one
+> `AgentCostScope`. A **subagent** is any sub-unit of work inside it (recursive: a
+> subagent can itself contain subagents). **Level** is depth in the tree (L1 = the
+> agent invocation; L2+ = subagents).
+>
+> Wrapper agents like `ReflectAndGenerateFromPreviousArticleAgent` delegate to inner
+> Agent classes via `.execute()` (NEVER `.run()` — load-bearing for cost-scope unity).
+> Each invocation now opens an OTel active span (`agent.<name>`) under which inner LLM
+> calls auto-nest as `subagent.<label>` child spans, so Honeycomb traces show the same
+> hierarchy the Subagents tab on `/admin/evolution/invocations/[id]` displays.
+
+
 This document covers the V2 pipeline's operational components: the three concrete agent classes that drive the orchestrator-driven iteration loop, plus the supporting infrastructure for format validation, cost tracking, invocation logging, and LLM communication. For the overall system design, see [Architecture](../architecture.md). For rating math details, see [Rating and Comparison](../rating_and_comparison.md).
 
 ## V2 Config-Driven Iteration Loop

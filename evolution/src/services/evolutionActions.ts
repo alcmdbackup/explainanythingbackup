@@ -86,7 +86,8 @@ export interface RunLogEntry {
   id: number;
   created_at: string;
   level: string;
-  agent_name: string | null;
+  /** Dotted subagent path of the emitter. Renamed from agent_name in Phase 4b. */
+  subagent_name: string | null;
   iteration: number | null;
   variant_id: string | null;
   message: string;
@@ -640,12 +641,12 @@ export const getEvolutionRunLogsAction = adminAction(
 
     let query = ctx.supabase
       .from('evolution_logs')
-      .select('id, created_at, level, agent_name, iteration, variant_id, message, context', { count: 'exact' })
+      .select('id, created_at, level, subagent_name, iteration, variant_id, message, context', { count: 'exact' })
       .eq('run_id', runId)
       .order('created_at', { ascending: true });
 
     if (filters?.level) query = query.eq('level', filters.level);
-    if (filters?.agentName) query = query.eq('agent_name', filters.agentName);
+    if (filters?.agentName) query = query.eq('subagent_name', filters.agentName);
     if (filters?.iteration !== undefined) query = query.eq('iteration', filters.iteration);
     if (filters?.variantId) query = query.eq('variant_id', filters.variantId);
 
