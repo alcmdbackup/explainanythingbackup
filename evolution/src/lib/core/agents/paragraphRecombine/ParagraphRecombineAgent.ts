@@ -35,6 +35,8 @@ import { loadArenaEntries } from '../../../pipeline/setup/buildRunContext';
 import { selectWinner, type WinnerCandidate } from '../../../shared/selectWinner';
 import { createRating, type Rating, type ComparisonResult } from '../../../shared/computeRatings';
 import { syncToArena } from '../../../pipeline/finalize/persistRunResults';
+import { writeMetricMax } from '../../../metrics/writeMetrics';
+import type { MetricName } from '../../../metrics/types';
 import { validateFormat } from '../../../shared/enforceVariantFormat';
 import {
   upsertSlotTopic,
@@ -160,6 +162,24 @@ export class ParagraphRecombineAgent extends Agent<
 
     // Sort slotDetails by slotIndex so the detail is deterministic.
     slotDetails.sort((a, b) => a.slotIndex - b.slotIndex);
+
+    // Phase 9 cost-attribution fix: write the run-level paragraph_recombine_cost as the
+    // SUM of the two paragraph phase-cost accumulators. The per-slot LLM client has no
+    // db/runId (so per-call writes don't fire), and getPhaseCosts() returns the SHARED
+    // run-cumulative accumulator keyed by label — so this sum is run-cumulative and
+    // monotonic, making the single writeMetricMax (GREATEST) write correct even across
+    // multiple paragraph_recombine invocations in one run. Written here (after all slots
+    // complete, before the format/budget branches) so spend is recorded on every return
+    // path, including no-variant outcomes.
+    if (ctx.db && ctx.runId) {
+      const phases = invocationScope.getPhaseCosts();
+      const paragraphCost = (phases['paragraph_rewrite'] ?? 0) + (phases['paragraph_rank'] ?? 0);
+      try {
+        await writeMetricMax(ctx.db, 'run', ctx.runId, 'paragraph_recombine_cost' as MetricName, paragraphCost, 'during_execution');
+      } catch (err) {
+        ctx.logger.warn?.('paragraph_recombine_cost write failed (non-fatal)', { error: err instanceof Error ? err.message : String(err) });
+      }
+    }
 
     // ─── Step 3: Assemble recombined article + validate format ────
     const recombinedText = assembleRecombinedArticle(parentText, slots, slotWinnerTexts);
@@ -436,6 +456,18 @@ async function processSlot(params: ProcessSlotParams): Promise<void> {
   // Phase 9 retrofit R3: ranking calls inside this slot's loop get a
   // 'slot.N.ranking' subagent_name path.
   const rankingLogger = slotLogger.child?.('ranking') ?? slotLogger;
+  // Phase 9 cost-attribution fix: rankNewVariant → rankSingleVariant issues LLM
+  // calls under the shared 'ranking' label. Relabel them to 'paragraph_rank' via a
+  // thin proxy so per-slot ranking spend buckets into paragraph_recombine_cost
+  // (the shared 'ranking' label maps to ranking_cost — would pollute article ranking).
+  const toRankLabel = (label: string): 'paragraph_rank' | typeof label =>
+    label === 'ranking' ? 'paragraph_rank' : label;
+  const rankLlm: EvolutionLLMClient = {
+    complete: (prompt, label, options) =>
+      slotLlm.complete(prompt, toRankLabel(label) as typeof label, options),
+    completeStructured: (prompt, schema, schemaName, label, options) =>
+      slotLlm.completeStructured(prompt, schema, schemaName, toRankLabel(label) as typeof label, options),
+  };
   for (const candidate of survivingRewriteVariants) {
     try {
       // Snapshot before ratings for the candidate's comparisons.
@@ -449,7 +481,7 @@ async function processSlot(params: ProcessSlotParams): Promise<void> {
         localMatchCounts,
         completedPairs,
         cache,
-        llm: slotLlm,
+        llm: rankLlm,
         config: perSlotConfig,
         invocationId: ctx.invocationId,
         logger: rankingLogger,

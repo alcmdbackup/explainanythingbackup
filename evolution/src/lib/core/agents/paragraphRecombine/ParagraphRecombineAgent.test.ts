@@ -39,6 +39,12 @@ jest.mock('../../../pipeline/loop/rankNewVariant', () => ({
   rankNewVariant: (...args: unknown[]) => rankNewVariantMock(...args),
 }));
 
+const writeMetricMaxMock = jest.fn().mockResolvedValue(undefined);
+jest.mock('../../../metrics/writeMetrics', () => ({
+  writeMetricMax: (...args: unknown[]) => writeMetricMaxMock(...args),
+  writeMetric: jest.fn().mockResolvedValue(undefined),
+}));
+
 // ─── Fixtures ─────────────────────────────────────────────────────
 
 const PARENT_ID = '00000000-0000-4000-8000-000000000001';
@@ -77,7 +83,7 @@ function makeLlmMock(rewriteTextProvider?: (paragraphText: string, callIdx: numb
   } as unknown as EvolutionLLMClient;
 }
 
-function makeCostScope() {
+function makeCostScope(phaseCosts: Record<string, number> = {}) {
   let spent = 0;
   return {
     reserve: jest.fn(() => 0.001),
@@ -85,7 +91,7 @@ function makeCostScope() {
     release: jest.fn(),
     getTotalSpent: jest.fn(() => spent),
     getOwnSpent: jest.fn(() => spent),
-    getPhaseCosts: jest.fn(() => ({})),
+    getPhaseCosts: jest.fn(() => phaseCosts),
     getAvailableBudget: jest.fn(() => 10),
   };
 }
@@ -369,5 +375,35 @@ describe('ParagraphRecombineAgent — boundary contract', () => {
     const result = await agent.execute(baseInput(makeLlmMock()), makeCtx());
     expect(result.result.status).toBe('converged');
     expect(result.result.surfaced).toBe(true);
+  });
+
+  // Phase 9 cost-attribution fix — paragraph_recombine_cost is written as the SUM of
+  // the paragraph_rewrite + paragraph_rank phase-cost accumulators.
+  it('writes paragraph_recombine_cost = sum of paragraph_rewrite + paragraph_rank phase costs', async () => {
+    const ctx = makeCtx();
+    // Override the cost tracker so getPhaseCosts returns known per-label spend.
+    (ctx as { costTracker: unknown }).costTracker = makeCostScope({
+      paragraph_rewrite: 0.006,
+      paragraph_rank: 0.005,
+      ranking: 0.099, // article ranking — MUST be excluded from the paragraph sum
+    }) as never;
+    const agent = new ParagraphRecombineAgent();
+    await agent.execute(baseInput(makeLlmMock()), ctx);
+
+    const call = writeMetricMaxMock.mock.calls.find((c) => c[3] === 'paragraph_recombine_cost');
+    expect(call).toBeDefined();
+    // run-level entity, the run id, the metric name, the summed value, timing.
+    expect(call![1]).toBe('run');
+    expect(call![2]).toBe(RUN_ID);
+    expect(call![4]).toBeCloseTo(0.011); // 0.006 + 0.005, NOT including ranking 0.099
+    expect(call![5]).toBe('during_execution');
+  });
+
+  it('does not write paragraph_recombine_cost when ctx.db or runId is absent', async () => {
+    const ctx = makeCtx();
+    (ctx as { db: unknown }).db = undefined;
+    const agent = new ParagraphRecombineAgent();
+    await agent.execute(baseInput(makeLlmMock()), ctx);
+    expect(writeMetricMaxMock.mock.calls.some((c) => c[3] === 'paragraph_recombine_cost')).toBe(false);
   });
 });

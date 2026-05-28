@@ -40,8 +40,10 @@ export function createV2MockLlm(options: MockLlmOptions = {}): EvolutionLLMClien
     // Label-based override
     if (labelResponses[label]) return labelResponses[label];
 
-    // Ranking: try pair-based first, then positional
-    if (label === 'ranking') {
+    // Ranking: try pair-based first, then positional. 'paragraph_rank' is the
+    // paragraph_recombine per-slot ranking label (Phase 9 cost-attribution fix) and
+    // uses the identical pairwise-verdict format, so route it through the same path.
+    if (label === 'ranking' || label === 'paragraph_rank') {
       // Extract texts from prompt for pair matching
       for (const [key, response] of pairResponses) {
         if (prompt.includes(key)) return response;

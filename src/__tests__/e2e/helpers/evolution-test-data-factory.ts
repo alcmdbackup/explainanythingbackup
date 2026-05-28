@@ -750,6 +750,22 @@ export async function createParagraphRecombineFixture(
   const slotCount = options.slotCount ?? 3;
   const rewritesPerSlot = options.rewritesPerSlot ?? 3;
 
+  // Fail loudly on insert errors. Without this, a missing column (e.g. variant_kind
+  // before migration 20260527000001 is applied to the target DB) makes the insert
+  // fail silently → the fixture produces zero arena entries → the embedded
+  // leaderboard renders "No entries yet." and the E2E spec fails with an opaque
+  // "element not found" instead of the real "column does not exist" cause.
+  const insertOrThrow = async (table: string, row: Record<string, unknown>): Promise<void> => {
+    const { error } = await sb.from(table).insert(row as never);
+    if (error) {
+      throw new Error(
+        `createParagraphRecombineFixture: insert into ${table} failed (${error.code}: ${error.message}). ` +
+        `If this is "column ... does not exist", the target DB is missing migration 20260527000001 ` +
+        `(variant_kind/prompt_kind) — apply migrations before running @evolution E2E specs.`,
+      );
+    }
+  };
+
   // 1. Strategy + prompt + run (article-level).
   const strategy = await createTestStrategy();
   const prompt = await createTestPrompt({ prompt: `[TEST_EVO] paragraph-recombine fixture ${suffix}` });
@@ -762,7 +778,7 @@ export async function createParagraphRecombineFixture(
     `Paragraph ${i + 1} original sentence. Second sentence for slot ${i + 1}.`,
   );
   const parentText = `# Title ${suffix}\n\n## Section\n\n${parentSentences.join('\n\n')}`;
-  await sb.from('evolution_variants').insert({
+  await insertOrThrow('evolution_variants', {
     id: parentVariantId,
     run_id: run.id,
     prompt_id: prompt.id,
@@ -785,7 +801,7 @@ export async function createParagraphRecombineFixture(
     const topicId = randomUUID();
     const topicName = `[para] V${parentVariantId.slice(0, 8)}.P${slotIdx + 1}`;
     trackEvolutionId('prompt', topicId);
-    await sb.from('evolution_prompts').insert({
+    await insertOrThrow('evolution_prompts', {
       id: topicId,
       prompt: topicName,
       name: topicName,
@@ -797,7 +813,7 @@ export async function createParagraphRecombineFixture(
     // Original-paragraph variant.
     const originalVariantId = randomUUID();
     trackEvolutionId('variant', originalVariantId);
-    await sb.from('evolution_variants').insert({
+    await insertOrThrow('evolution_variants', {
       id: originalVariantId,
       prompt_id: topicId,
       run_id: run.id,
@@ -835,7 +851,7 @@ export async function createParagraphRecombineFixture(
       trackEvolutionId('variant', rId);
       const rewriteElo = 1200 + (r + 1) * 30; // ramp so the leaderboard sort is non-trivial
       const rewriteText = `Rewrite ${r + 1} of paragraph ${slotIdx + 1}. Two sentences here.`;
-      await sb.from('evolution_variants').insert({
+      await insertOrThrow('evolution_variants', {
         id: rId,
         prompt_id: topicId,
         run_id: run.id,
@@ -867,7 +883,7 @@ export async function createParagraphRecombineFixture(
       const loser = r === 0 ? originalVariantId : rewriteVariantIds[r - 1]!;
       const cmpId = randomUUID();
       trackEvolutionId('comparison', cmpId);
-      await sb.from('evolution_arena_comparisons').insert({
+      await insertOrThrow('evolution_arena_comparisons', {
         id: cmpId,
         prompt_id: topicId,
         run_id: run.id,
@@ -931,7 +947,7 @@ export async function createParagraphRecombineFixture(
     },
     totalCost: 0.011,
   };
-  await sb.from('evolution_agent_invocations').insert({
+  await insertOrThrow('evolution_agent_invocations', {
     id: invocationId,
     run_id: run.id,
     agent_name: 'paragraph_recombine',

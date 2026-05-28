@@ -433,4 +433,45 @@ describe('Per-purpose cost attribution integration tests', () => {
     expect(byName.get('generation_cost') ?? 0).toBe(0);
     expect(byName.get('ranking_cost') ?? 0).toBe(0);
   });
+
+  // Phase 9 cost-attribution fix — the dedicated 'paragraph_rank' label routes per-slot
+  // ranking spend to paragraph_recombine_cost, NOT to the article-level ranking_cost.
+  it('"paragraph_rank" label routes to paragraph_recombine_cost (NOT ranking_cost)', async () => {
+    if (!tablesExist || !migrationApplied) return;
+
+    const rawProvider = {
+      complete: jest.fn(async (_prompt: string, label: AgentName) => {
+        if (label === 'paragraph_rank') return PARA_REWRITE_RESPONSE;
+        throw new Error(`Unexpected label: ${label}`);
+      }),
+    };
+    const costTracker = createCostTracker(1.0);
+    const llm = createEvolutionLLMClient(
+      rawProvider,
+      costTracker,
+      'gpt-4.1-nano',
+      undefined,
+      supabase,
+      runId,
+    );
+
+    await llm.complete(PARA_REWRITE_PROMPT, 'paragraph_rank');
+    await llm.complete(PARA_REWRITE_PROMPT, 'paragraph_rank');
+
+    const expectedRankCost = 2 * COST_PER_PARA_REWRITE_CALL;
+
+    const { data, error } = await supabase
+      .from('evolution_metrics')
+      .select('metric_name, value')
+      .eq('entity_type', 'run')
+      .eq('entity_id', runId)
+      .in('metric_name', ['cost', 'ranking_cost', 'paragraph_recombine_cost']);
+
+    expect(error).toBeNull();
+    const byName = new Map(data!.map(r => [r.metric_name, Number(r.value)]));
+
+    expect(byName.get('paragraph_recombine_cost')).toBeCloseTo(expectedRankCost, 6);
+    // Critically: paragraph ranking did NOT pollute the article-level ranking_cost.
+    expect(byName.get('ranking_cost') ?? 0).toBe(0);
+  });
 });

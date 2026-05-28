@@ -38,13 +38,17 @@ export const AGENT_NAMES = [
   // instead of generation_cost (load-bearing invariant I4).
   'debate_judge',
   'debate_synthesis',
-  // Per-LLM-call label for paragraph_recombine agent (rank_individual_paragraphs_
-  // evolution_20260525 Phase 2). One label only — per-slot ranking REUSES the
-  // existing 'ranking' label so v2MockLlm.ts pair-routing works without modification.
-  // Per-purpose cost attribution still works because the per-slot ranking calls are
-  // made under the slot's AgentCostScope which records into paragraph_recombine_cost
-  // via the scope intercept path (NOT via this static COST_METRIC_BY_AGENT mapping).
+  // Per-LLM-call labels for paragraph_recombine agent (rank_individual_paragraphs_
+  // evolution_20260525). Two labels, both mapping to paragraph_recombine_cost:
+  //   - 'paragraph_rewrite': per-slot rewrite generation calls.
+  //   - 'paragraph_rank': per-slot pairwise ranking calls. A dedicated label (NOT
+  //     the shared 'ranking' label) so per-slot ranking spend lands in
+  //     paragraph_recombine_cost instead of polluting the article-level ranking_cost.
+  //     The agent relabels rankNewVariant's 'ranking' calls → 'paragraph_rank' via a
+  //     thin LLM-client proxy (Phase 9 cost-attribution fix). v2MockLlm.ts routes
+  //     both labels through its pairwise-verdict path.
   'paragraph_rewrite',
+  'paragraph_rank',
 ] as const;
 export type AgentName = typeof AGENT_NAMES[number];
 
@@ -82,11 +86,11 @@ export const COST_METRIC_BY_AGENT: Partial<Record<AgentName, MetricName>> = {
   // I4 LLM-client proxy in DebateAgent — keeps cost out of generation_cost.
   debate_judge: 'debate_cost',
   debate_synthesis: 'debate_cost',
-  // The paragraph_rewrite label maps to the paragraph_recombine_cost umbrella.
-  // Per-slot ranking calls (which use the existing 'ranking' label, NOT a new
-  // 'paragraph_rank' label) ALSO bucket into paragraph_recombine_cost when made
-  // under a paragraph_recombine slotScope — but that routing happens at the
-  // scope intercept layer, not via this static map (which would otherwise send
-  // them to ranking_cost).
+  // Both paragraph_recombine per-LLM-call labels collapse into the
+  // paragraph_recombine_cost umbrella. The agent writes the run-level metric as the
+  // SUM of these two phase-cost accumulators once per invocation (Phase 9 fix) —
+  // a single sum-write is MAX-safe because both accumulators are run-cumulative
+  // (monotonic). Per-slot/per-rewrite split lives in execution_detail.slots[*].
   paragraph_rewrite: 'paragraph_recombine_cost',
+  paragraph_rank: 'paragraph_recombine_cost',
 };
