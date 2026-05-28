@@ -67,6 +67,13 @@ const OUTPUT_TOKEN_ESTIMATES: Partial<Record<AgentName, number>> = {
   // ~660 chars/paragraph; rewrite output ~similar size + minor variance.
   // 250 tokens (~1000 chars) covers a typical paragraph rewrite.
   paragraph_rewrite: 250,
+  // Per-slot ranking: the agent relabels rankNewVariant's 'ranking' calls to
+  // 'paragraph_rank' (cost-attribution fix), so it needs the same output estimate
+  // as 'ranking' (100) — same pairwise-verdict shape. Without this entry the
+  // reserve-before-spend path would fall back to the 1000-token default and
+  // over-reserve ~10×, risking premature per-slot self-abort on the small
+  // per-slot budget (~$0.033 at defaults).
+  paragraph_rank: 100,
 };
 
 // ─── Public API ──────────────────────────────────────────────────
