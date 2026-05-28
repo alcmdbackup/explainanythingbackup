@@ -114,15 +114,8 @@ echo "=== Clean migrations apply ==="
 if [[ $DOCKER_AVAILABLE -eq 1 ]]; then
   init_workspace
   write_clean_migration
-  # TEMP DIAGNOSTIC (revert after CI reveals the real error): capture run_verify's
-  # combined output and print it when the clean apply unexpectedly fails, instead of
-  # swallowing it with >/dev/null. run_verify already does 2>&1.
-  CLEAN_OUT=$(run_verify); CLEAN_RC=$?
-  if [[ $CLEAN_RC -ne 0 ]]; then
-    echo "  [DIAGNOSTIC] clean-migration verify failed (rc=$CLEAN_RC). Full output:"
-    echo "$CLEAN_OUT" | sed 's/^/    | /'
-  fi
-  expect_exit "clean migration → exit 0" 0 $CLEAN_RC
+  run_verify >/dev/null
+  expect_exit "clean migration → exit 0" 0 $?
 else
   skip "clean migration test (requires docker)"
 fi
