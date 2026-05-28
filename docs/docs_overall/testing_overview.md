@@ -307,8 +307,12 @@ npx supabase inspect db long-running-queries --linked
 | E2E Critical | `test:e2e:critical` | `test:e2e:critical` | `:evolution` + `:non-evolution --shard` |
 | E2E Evolution | `test:e2e:evolution` (if `evolution/` changed) | `test:e2e:evolution` (if evolution path) | included in full suite |
 | E2E Smoke | `test:e2e:smoke` (both `@smoke-public` + `@smoke-evolution`) | n/a (smoke runs post-deploy, not in PR CI) | n/a (post-deploy via `post-deploy-smoke.yml` matrix: public row greps `@smoke-public`, evolution row greps `@smoke-evolution`) |
+| Migration verify | `npm run migration:verify` (only when migrations changed; /finalize Step 5.5) | `migration-verify-test` job (Docker postgres) | same as main |
+| Hook tests | `npm run test:hooks` (manual) | `hook-tests` job (every code PR) | same as main |
 
 **Intentional differences**: CI uses `--changedSince` (unit), `--shard` (E2E), `--maxWorkers=2`. Local runs full suites for strict pre-PR verification. Smoke specs are not gated by PR CI — they run after a successful Vercel production deploy. To validate smoke changes pre-PR locally, run `npm run test:e2e:smoke` (which runs against your local server, not against a deployed environment).
+
+**Migration verify**: applies all `supabase/migrations/*.sql` to an ephemeral Docker postgres on a random port. Catches "migration references a column that doesn't exist" — the failure class the existing `lint-migrations-idempotent.yml` PR check does NOT catch. Local and CI run the same harness (`test-verify-migrations-local.sh`); local requires a one-time Docker install (see CLAUDE.md).
 
 ### E2E Tests in Skill Workflows
 

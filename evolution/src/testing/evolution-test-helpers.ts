@@ -329,7 +329,7 @@ export async function createTestEvolutionLog(
     entity_id: entityId,
     level: 'info',
     message: '[TEST_EVO] test log',
-    agent_name: 'test',
+    subagent_name: 'test',
     iteration: 0,
     ...overrides,
   };

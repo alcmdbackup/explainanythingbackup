@@ -64,6 +64,9 @@ client.log
 .claude/logs/
 .claude/metrics/
 .claude/push-gate.json
+.claude/ci-gate.json
+.claude/test-pass.json
+.claude/ci-gate.disabled
 
 # Evolution pipeline output
 evolution-output-*.json

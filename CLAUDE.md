@@ -82,3 +82,27 @@ For quick fixes or emergencies:
 2. **Environment variable** - `WORKFLOW_BYPASS=true claude`
 
 Main/master branches and legacy projects (without `_status.json`) are automatically exempt.
+
+## PR-Creation Gate
+
+`gh pr create` is gated by `.claude/hooks/block-pr-create-without-gate.sh`. Two paths:
+- **High-blast** (PR touches `supabase/migrations/**` OR `--base production`): always requires a valid `.claude/push-gate.json` for HEAD (written by `/finalize` or `/mainToProd`). Fails closed on any error.
+- **Reactive** (normal feature → main): only blocks when a CI failure has been observed for the branch (state in `.claude/ci-gate.json`). Unlock with `.claude/test-pass.json` matching HEAD. Fails open on any error.
+
+Bypass mechanisms (in escalating order of "user intent"):
+- `hotfix/*` branches — bypass all paths automatically (emergency carve-out)
+- `/approve-pr` — write a SHA-keyed approval token committed to git with a reason
+- `npm run test:gate` — run the local check trio (lint + tsc + ESM + unit + integration + e2e:critical); on success writes `.claude/test-pass.json` for HEAD, unlocking the reactive gate
+- `DISABLE_PR_GATE=true gh pr create ...` — one-shot emergency kill switch (audit line to stderr)
+- `.claude/ci-gate.disabled` file — disable the reactive layer entirely (`update-ci-gate.sh` Stop hook also honors this)
+
+## Migration Verification
+
+`/finalize` Step 5.5 runs `npm run migration:verify` when the PR touches `supabase/migrations/**`. The script applies all migrations to an **ephemeral Docker postgres** on a random port — it does NOT touch the user's live local DB.
+
+**Docker is required.** One-time install:
+- Linux:   `sudo apt-get install -y docker.io && sudo usermod -aG docker $USER`
+- macOS:   `brew install --cask docker` (then launch Docker Desktop once)
+- Windows: download Docker Desktop from docker.com
+
+If Docker is genuinely unavailable, `MIGRATION_VERIFY_SKIP=true` bypasses the check (last resort).
