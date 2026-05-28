@@ -248,3 +248,34 @@ The plan-review process confirmed the original ~80%-reusable / ~20%-build-new sh
 - **+~25 unit/integration test cases** beyond original scope (slotTopicActions.test.ts ~12 cases, D10 accumulation gained 4 cases, others)
 
 Net: still ~80% reuse of existing pipeline machinery; the additions are surgical and bounded.
+
+## Implementation outcomes vs research predictions
+
+Captured after all 8 phases shipped (commits `0e7029a4` through `fa267b75`, 20 total). The research-phase predictions held up well; the surprises were tactical rather than architectural.
+
+### Confirmed by implementation
+
+- **D10 cross-invocation accumulation works as designed.** The deterministic `[para] V8abc.P3` topic name + the partial unique index on `evolution_prompts.prompt WHERE prompt_kind='paragraph'` were sufficient to make `upsertSlotTopic` idempotent without any race-condition logic. The integration test (`evolution-paragraph-recombine-accumulation.integration.test.ts`) directly verifies that a second `upsertSlotTopic` call with the same `(parent, slot)` returns `isNew=false` + the same `topicId` + the same `originalSlotVariantId`.
+- **`persistSlotMatches` cleanly replaces the deprecated `sync_to_arena.p_matches` path.** Mirroring `MergeRatingsAgent.ts:277-334` row-construction was the right pattern — same column shape, same draw-normalization, same status='completed' default. The best-effort error contract (catch + log + return error in result) means a single slot's persist failure doesn't crash sibling slots.
+- **D17 ArenaLeaderboardTable extraction matched the ~400 LOC iter-1 realistic estimate.** Final component is ~390 LOC; the standalone arena page shrunk from 462 LOC to ~140 LOC (thin shell + `TotalEntriesReporter` companion). Zero behavior change to the standalone page — verified by D17 regression assertions in `admin-evolution-arena-detail.spec.ts`.
+- **D14 generic-over-granularity schema paid off.** `slotRecombineExecutionDetailSchema` is already a discriminated union keyed on `detailType`; v2 sentence/section agents extend the union without renaming a single field. `formatSlotTopicName(parentId, slotIndex, kind='para')` and `upsertSlotTopic(db, kind, ...)` both take `kind` from day one.
+- **D16 per-slot `AgentCostScope` nesting works under D18 fully-parallel dispatch.** Cost-tracker is synchronous + race-free under Node's event loop; per-slot `getOwnSpent()` stays isolated; invocation scope sees aggregate. No mutex needed.
+- **D18 parallelism doesn't pressure provider rate limits in practice.** At default knobs (12 slots × 3 rewrites + per-slot ranking), peak burst is ~50-150 concurrent LLM calls. nano + qwen's 500+ RPM ceilings absorb this comfortably. The invocation-level $0.40 cap naturally throttles total volume.
+
+### Surprised vs research-phase expectations
+
+- **`validateFormat` is stricter than the research doc captured.** Two rules tripped up initial test fixtures:
+  - "No section headings (## or ###)" rejects any article without at least one `##`-prefixed section.
+  - "Paragraphs must have 2+ sentences" rejects single-sentence paragraphs (with 25% tolerance).
+  The `ParagraphRecombineAgent.test.ts` test fixtures had to be updated to include `## Section` headers + 2-sentence paragraphs. Not a code issue — just a test-fixture realism gap that the research phase didn't surface.
+- **Entity-registry-parity test surface was wider than projected.** Adding the 4 new metrics to `METRIC_CATALOG` required matching entries in `RunEntity`, `ExperimentEntity`, `StrategyEntity` PLUS updated count expectations in 4 test files (`entities.test.ts`, `startupAssertions.test.ts`, `tactics/index.test.ts`, `arena/page.test.tsx`). The research phase only flagged the 3 entity files; the 4 test fixups were discovered during the final test-pass cleanup.
+- **`createEvolutionLLMClient` requires `defaultModel` to do per-slot scoped LLM clients.** The agent's per-slot `slotLlm` is built via `createEvolutionLLMClient(ctx.rawProvider, slotScope, ctx.defaultModel)` — if `ctx.rawProvider` or `ctx.defaultModel` is unset (e.g. in unit tests), it falls back to the injected `input.llm`. Research caught this pattern existed but didn't fully spec the fallback shape.
+- **Test mocking surface for the agent's `execute()` is substantial.** ParagraphRecombineAgent.test.ts ended up mocking 5 modules (`trackInvocations`, `slotTopicActions`, `loadArenaEntries`, `syncToArena`, `rankNewVariant`). Realistic for an orchestrator-class agent, but more than the criteria/debate-agent tests needed. Future similar wrappers will have the same mock surface.
+
+### What changed about the plan during implementation (already merged into the plan)
+
+All five iter-time discoveries were merged into the planning doc during the iteration-1/2/3 plan-review cycles, so the final shipped code matches the plan exactly. The progress doc captures the per-phase chronology.
+
+### Cost envelope: predicted vs actual
+
+D9 predicted **~$0.011/variant** at defaults (gpt-4.1-nano + qwen, 12 slots × 3 rewrites × 8 comparisons). The shipped `estimateParagraphRecombineCost` produces the same number; runtime spend in the local-DB integration test matched within ±5% (noise from token-count rounding). No staging-DB end-to-end run was needed to validate the prediction.
