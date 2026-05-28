@@ -318,3 +318,138 @@ No remaining deferred items beyond the explicit v1.5/v2 list above.
 - **Got right**: D4 single-parent lineage (after iter-1 revision), D10 per-slot persistence helper, D14 generic-over-granularity schema, D16 per-slot `AgentCostScope`, D17 ArenaLeaderboardTable extraction (matched the ~400 LOC realistic estimate from iter-1).
 - **Surprised**: `validateFormat`'s "no section headings" + "paragraphs must have ≥2 sentences" rules required test fixtures to include `## Section` headers and 2-sentence paragraphs — not anticipated in initial test sketches. The entity-registry-parity test-fixup surface (7 files: entities.test, startupAssertions.test, tactics/index.test, arena/page.test plus the registries themselves) was wider than the plan projected (~3 files).
 - **Cost envelope**: actual ~$0.011/variant at defaults matched the prediction (D9 said "~$0.011/variant with nano+qwen").
+
+## Post-merge retrofit for the subagent hierarchy (PR #1109 — `rename_agents_subagents_evolution_20260508`)
+
+**Context**: Main gained PR #1109 (commit `cb62c1d1`) AFTER this branch was cut from `ea7d57f8`. That PR introduces an agent → subagent hierarchy that this branch's code predates. The retrofit is mostly additive — no architectural rework — but there are six concrete integration points to land before merging this branch into main. Verified directly via `git show origin/main:<path>` not from prediction.
+
+### Architecture summary (what landed in #1109)
+
+- **Subagents are derived, not registered.** Each invocation's `execution_detail` JSONB is parsed at render time by an agent-specific parser in `evolution/src/lib/shared/subagentTreeParser.ts`. The parser returns a `SubagentNode[]` tree consumed by both the UI (`SubagentsTab.tsx`) and the metric backfill script. There is NO database table for subagents; the tree is computed from JSONB.
+- **The Subagents tab is now the default first tab** on `/admin/evolution/invocations/[id]` for ALL agent types (added in `InvocationDetailContent.tsx`'s `buildTabs()`).
+- **Logger gains `.child()`** in `createEntityLogger.ts`. Returns a new logger whose dotted-path basePath is extended; the result lands in `evolution_logs.subagent_name`.
+- **LLM client auto-wraps in spans** — `createEvolutionLLMClient` wraps each `complete()` call in `withActiveSpan('subagent.${agentName}', ...)`. No agent-level code change needed for OTel attribution.
+- **`evolution_logs.agent_name` is renamed to `subagent_name`** — migrations `20260524000006` (expand: add `subagent_name` + bidirectional mirror trigger) and `20260524000007` (contract: drop `agent_name`). Our migrations (`20260527000001-4`) run AFTER both, and we never reference `evolution_logs.agent_name` directly (verified by grep), so this is transparent.
+- **`trackBudget` gains `getSubagentCosts?()` as an alias for `getPhaseCosts()`** — semantically identical, no behavior change.
+
+### Conflicts confirmed via direct verification (not agent guesses)
+
+Earlier parallel-agent investigation produced one contradiction: agent #2 claimed main "deleted paragraph_recombine from `iterationAgentTypeEnum`" and "deleted the wizard UI". Direct verification (`git show origin/main:evolution/src/lib/schemas.ts | grep paragraph_recombine` → empty; `git show origin/main:src/app/admin/evolution/strategies/new/page.tsx | grep paragraph_recombine` → empty) **disproved that claim**: main simply never had paragraph_recombine; it's our feature. The "-114 LOC" stat in `git diff HEAD..origin/main` reads as deletion *from* HEAD's perspective because main lacks our additions. No architectural decision is needed about whether paragraph_recombine is "user-facing"; our Phase 6 wizard work stands as designed.
+
+### Retrofit work items
+
+#### R1 — `InvocationDetailContent.tsx`: add Subagents tab to the paragraph_recombine 5-tab layout
+
+Main's `buildTabs('paragraph_recombine')` doesn't exist (the agent's not in main), but every other branch in the switch now prepends a `subagentsTab` entry. When we resolve the merge conflict, our paragraph_recombine arm must follow the same convention:
+
+```typescript
+// Final shape (after merge): 6-tab layout
+return [
+  { id: 'subagents', label: 'Subagents' },     // ← NEW prepend
+  { id: 'slots', label: 'Paragraph Slots' },
+  { id: 'recombined', label: 'Recombined Output' },
+  { id: 'metrics', label: 'Metrics' },
+  { id: 'timeline', label: 'Timeline' },
+  { id: 'logs', label: 'Logs' },
+];
+```
+
+Wire `{activeTab === 'subagents' && <SubagentsTab invocation={inv} />}` alongside our existing `paragraph-slots-tab` and `paragraph-recombined-tab` blocks. Bespoke per-slot drill-in (SlotsTab) stays alongside the generic tree — that's the established pattern for wrapper agents in main (debate keeps its Debate Overview tab alongside Subagents, reflect_and_generate keeps Reflection Overview, etc.).
+
+#### R2 — `evolution/src/lib/shared/subagentTreeParser.ts`: register a parser for `paragraph_recombine`
+
+Add a new export `parseParagraphRecombineTree(detail)` and a `case 'paragraph_recombine':` arm in `parseSubagentTreeByAgentName()`. Our `SlotRecombineExecutionDetail` shape maps naturally to a subagent tree:
+
+```
+L1 paragraph_recombine (Composite)
+├── L2 slot.0 (Composite)
+│   ├── L3 rewrite.0 (LLM)
+│   ├── L3 rewrite.1 (LLM)
+│   ├── L3 rewrite.2 (LLM)
+│   └── L3 ranking (Composite)
+│       ├── L4 comparison.0 (LLM)
+│       ├── L4 comparison.1 (LLM)
+│       └── …
+├── L2 slot.1 (Composite)
+│   └── …
+└── L2 recombine (Deterministic)
+```
+
+The parser reads `detail.slots[i].rewrites[j].costUsd` / `durationMs` and `detail.slots[i].ranking.matchCount` (× heuristic ms-per-comparison) into the `SubagentNode` shape per the pattern in `parseGenerateFromPreviousArticleTree` (line 86 on main).
+
+Per-slot tree gets `bespokeDetail` set to `{configKey: 'paragraph_recombine', keyFilter: ['slots.${i}']}` so the row's expander uses our existing `DETAIL_VIEW_CONFIGS['paragraph_recombine']` slice for that slot.
+
+#### R3 — `ParagraphRecombineAgent`: adopt `logger.child()` chains
+
+Currently the agent passes `ctx.logger` flat into `rankNewVariant` (lines 446, 502). After merge, refactor to:
+
+```typescript
+const slotLogger = ctx.logger.child?.(`slot.${slot.paragraphIndex}`) ?? ctx.logger;
+// ... pass slotLogger to rankNewVariant and any other helpers used inside the slot
+const rewriteLogger = slotLogger.child?.(`rewrite.${rewriteIdx}`) ?? slotLogger;
+```
+
+This puts `slot.2.rewrite.1` style dotted paths in `evolution_logs.subagent_name` — matches the convention every other agent type follows. The `?.` is required because the type's `.child?()` is optional (our unit tests use a flat-mock logger without it).
+
+#### R4 — `OUTPUT_TOKEN_ESTIMATES['paragraph_rewrite']` and span attribution
+
+The LLM client's auto-span wrapper uses `agentName` as the span name. Our `'paragraph_rewrite'` AgentName already flows through correctly — verified by reading `createEvolutionLLMClient.ts:118-123` on main:
+```typescript
+return withActiveSpan(
+  `subagent.${agentName}`,           // → 'subagent.paragraph_rewrite'
+  { 'subagent.path': agentName, 'subagent.label': agentName },
+  // …
+);
+```
+No agent-level code change needed; cost + span attribution works automatically as soon as the agent calls `slotLlm.complete(prompt, 'paragraph_rewrite')` (which it already does).
+
+#### R5 — E2E spec: add a Subagents-tab assertion to `admin-evolution-paragraph-recombine.spec.ts`
+
+Following the pattern in main's `admin-evolution-subagents.spec.ts` (which seeds fixture invocations + asserts tree rendering), extend our existing fixture-based E2E spec with one new case:
+
+```typescript
+adminTest('Subagents tab renders the paragraph slot → rewrite/ranking tree', async ({ adminPage }) => {
+  await adminPage.goto(`/admin/evolution/invocations/${standardFixture.invocationId}`);
+  await adminPage.locator('[role="tab"]:has-text("Subagents")').click();
+  // L2 slot rows visible.
+  expect(await adminPage.locator('[data-testid^="subagent-row-slot."]').count()).toBeGreaterThanOrEqual(3);
+  // Expand slot.0 → L3 rewrite + ranking rows.
+  await adminPage.locator('[data-testid="subagent-row-slot.0"]').click();
+  expect(await adminPage.locator('[data-testid^="subagent-row-slot.0.rewrite."]').count()).toBeGreaterThanOrEqual(2);
+});
+```
+
+#### R6 — Update `createParagraphRecombineFixture` execution_detail to satisfy the new parser
+
+Our fixture already emits the canonical `SlotRecombineExecutionDetail` shape (`slots[].rewrites[].costUsd/durationMs`, `slots[].ranking.matchCount`), which is exactly what R2's parser expects. No fixture changes needed — the assertion in R5 will pass once R2 lands.
+
+### Out of retrofit scope (no changes needed)
+
+- **Migrations** — our 4 migrations (timestamps `20260527000001-4`) run cleanly after main's `20260524000006-7`. No schema overlap; verified via direct read.
+- **Metric registry** — our 4 new metrics (`paragraph_recombine_cost`, `paragraph_slot_match_persist_failures`, `total_paragraph_recombine_cost`, `avg_paragraph_recombine_cost_per_run`) are additive. The `'paragraph_rewrite'` `AgentName` addition in `agentNames.ts` is additive. Main also added a dynamic `subagent:*` metric prefix that's orthogonal to our static metrics.
+- **`persistSlotMatches` + `evolution_arena_comparisons`** — untouched by the subagent PR. Our slot-match persistence path is independent of `evolution_logs`.
+- **`trackBudget` API** — our per-slot `AgentCostScope` nesting (D16/D18) works unchanged. We can OPTIONALLY adopt `getSubagentCosts?()` as a forward-compat name where we call `getPhaseCosts()`, but it's the same method.
+- **`startupAssertions.ts` + `agentNames.ts`** — our additions of `'paragraph_rewrite'` are additive; main hasn't touched these enum lists for the subagent PR.
+
+### Merge conflict files (predicted, in priority order)
+
+| File | Cause | Expected resolution |
+|---|---|---|
+| `InvocationDetailContent.tsx` | We added paragraph_recombine arm; main added `subagentsTab` to every existing arm | Manually add `subagentsTab` to our arm + render `<SubagentsTab>` block (per R1) |
+| `evolution/src/lib/shared/subagentTreeParser.ts` | New file on main; we have nothing | Pure addition (R2) — no conflict, just net-new function |
+| `evolution/src/lib/pipeline/infra/createEntityLogger.ts` | Both branches edit (theirs: `.child()` method; ours: untouched besides imports) | Likely clean auto-merge — the `.child()` addition is in a different region than any of our edits |
+| `evolution/src/lib/pipeline/infra/trackBudget.ts` | Main adds `getSubagentCosts?()` alias | Clean auto-merge; we can adopt later |
+| `evolution/src/lib/pipeline/infra/createEvolutionLLMClient.ts` | Main wraps in `withActiveSpan`; we added `OUTPUT_TOKEN_ESTIMATES['paragraph_rewrite']` entry | Likely clean auto-merge — non-overlapping regions |
+| `evolution/src/lib/core/entities/entities.test.ts` | Main may have changed metric counts independently (need to re-verify if it touched our 18→17 / 46→? lines) | Re-run after merge; update counts to match merged superset |
+
+### Estimated retrofit effort
+
+- R1 — InvocationDetailContent merge + Subagents tab wiring: **~30 min** (mostly mechanical)
+- R2 — `parseParagraphRecombineTree` parser: **~90 min** (~80 LOC + 4-5 unit cases mirroring existing parsers)
+- R3 — agent logger.child() retrofit: **~30 min** (~15 LOC across `processSlot()` and the rewrite/ranking inner functions)
+- R4 — span attribution: **0 min** (already works)
+- R5 — E2E Subagents-tab case: **~30 min** (1 new case using existing fixture)
+- R6 — fixture: **0 min** (already in shape)
+- **Total**: ~3 hours focused work + rebase friction.
+
+No paragraph_recombine architectural decisions revisited — the existing D1–D20 design holds. This retrofit is purely additive integration with the new generic-tree primitive.
