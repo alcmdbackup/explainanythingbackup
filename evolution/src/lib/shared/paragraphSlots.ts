@@ -73,7 +73,7 @@ export function extractParagraphsWithRanges(text: string): ParagraphSlot[] {
     if (trimmed.startsWith('#')) continue;
     if (/^[-*_](\s*[-*_]){2,}\s*$/.test(trimmed)) continue;
     if (/^\*[^*\n]+\*$/.test(trimmed)) continue;
-    if (trimmed.trim().endsWith(':')) continue;
+    if (trimmed.endsWith(':')) continue;
 
     // Compute the inner byte range (text.slice(startByte, endByte) === blockText).
     slots.push({
@@ -126,16 +126,13 @@ export function validateParagraphRewrite(
   if (ratio < 0.9) return { valid: false, dropReason: 'length_under' };
   if (ratio > 1.1) return { valid: false, dropReason: 'length_over' };
 
-  // At least 1 sentence-ending punctuation. Reuses the SENTENCE_END_PATTERN approach
-  // from enforceVariantFormat but checks for ≥1 (not the article-level ≥2 threshold).
-  const sentenceCount = countShortParagraphs([rewriteText]); // returns 1 if < 2 sentences
-  // countShortParagraphs returns 1 (counted as short) if the paragraph has < 2 sentences.
-  // We want to allow 1-sentence rewrites (paragraphs can be naturally short). So we just
-  // check that there's AT LEAST one sentence-ending punctuation mark.
-  if (sentenceCount === 1) {
-    // Could be 0 or 1 sentences. Check for any sentence-ending punctuation.
-    const hasSentenceEnd = /[.!?]/.test(rewriteText);
-    if (!hasSentenceEnd) return { valid: false, dropReason: 'zero_sentences' };
+  // Require at least one sentence-ending punctuation mark. countShortParagraphs returns 1
+  // when the paragraph has < 2 sentences — but 1-sentence rewrites are fine (paragraphs can
+  // be naturally short), so in that case we only reject when there's NO sentence end at all
+  // (i.e. 0 sentences). Uses ≥1 rather than the article-level ≥2 threshold.
+  const isShort = countShortParagraphs([rewriteText]) === 1;
+  if (isShort && !/[.!?]/.test(rewriteText)) {
+    return { valid: false, dropReason: 'zero_sentences' };
   }
 
   return { valid: true };

@@ -23,7 +23,8 @@ export function RecombinedOutputTab({ parentText, detail }: RecombinedOutputTabP
 
   // Split into paragraphs by \n\n for color coding. This matches extractParagraphsWithRanges'
   // segmentation so each rendered block aligns with a slot.
-  const paragraphs = renderText.split(/\n\n+/).map((p, i) => ({ idx: i, text: p }));
+  const paragraphs = renderText.split(/\n\n+/);
+  const isHeadingBlock = (block: string): boolean => /^#{1,6}\s/.test(block.trim());
 
   return (
     <div className="space-y-4" data-testid="recombined-output-tab">
@@ -80,18 +81,16 @@ export function RecombinedOutputTab({ parentText, detail }: RecombinedOutputTabP
       </div>
 
       <article className="space-y-3 bg-[var(--surface-secondary)] border border-[var(--border-default)] rounded-book p-4" data-testid="recombined-article">
-        {paragraphs.map(({ idx, text }) => {
+        {paragraphs.map((text, idx) => {
           // Slot index is paragraph-among-content-blocks, not raw split index. Without
           // re-running extractParagraphsWithRanges we approximate: blocks that look like
           // headings (start with #) get neutral chrome; others map to slot[N-skipped].
-          const isHeading = /^#{1,6}\s/.test(text.trim());
+          const isHeading = isHeadingBlock(text);
           let slot = null;
           if (!isHeading && view === 'recombined') {
             // Approximate mapping: nth non-heading block → slot[n]. Same heuristic the
             // extractor uses, so 1:1 alignment in practice.
-            const blocksBefore = paragraphs
-              .slice(0, idx)
-              .filter((p) => !/^#{1,6}\s/.test(p.text.trim())).length;
+            const blocksBefore = paragraphs.slice(0, idx).filter((p) => !isHeadingBlock(p)).length;
             slot = slotsByIndex.get(blocksBefore) ?? null;
           }
           const winnerIsRewrite = slot?.ranking && !slot.ranking.winnerIsOriginal;

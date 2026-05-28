@@ -1,13 +1,6 @@
 // Per-paragraph rewrite prompt builder. Per D12 of rank_individual_paragraphs_evolution_20260525.
 // Three guardrails: preserve meaning in spirit, first/last sentences extra care, length ±10%.
 
-export interface BuildParagraphRewritePromptInput {
-  parentH1: string;
-  paragraphText: string;
-  paragraphIndex: number;
-  totalSlots: number;
-}
-
 /**
  * Build the prompt for a single per-paragraph rewrite call.
  *

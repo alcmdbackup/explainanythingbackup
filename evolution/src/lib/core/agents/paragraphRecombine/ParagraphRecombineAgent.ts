@@ -27,7 +27,6 @@ import { type Variant, createVariant } from '../../../types';
 import { slotRecombineExecutionDetailSchema, type SlotRecombineExecutionDetail } from '../../../schemas';
 import { registerAttributionExtractor } from '../../../metrics/attributionExtractors';
 import { createAgentCostScope, type AgentCostScope } from '../../../pipeline/infra/trackBudget';
-import { updateInvocation } from '../../../pipeline/infra/trackInvocations';
 import { createEvolutionLLMClient } from '../../../pipeline/infra/createEvolutionLLMClient';
 import { extractParagraphsWithRanges, validateParagraphRewrite, assembleRecombinedArticle } from '../../../shared/paragraphSlots';
 import { rankNewVariant } from '../../../pipeline/loop/rankNewVariant';
@@ -517,8 +516,13 @@ async function processSlot(params: ProcessSlotParams): Promise<void> {
     const winnerResult = selectWinner(winnerCandidates, localRatings);
     winnerSlotVariantId = winnerResult.winnerId;
     winnerIsOriginal = winnerSlotVariantId === originalSlotVariantId;
-    const isThisInvocation = survivingRewriteVariants.some((v) => v.id === winnerSlotVariantId);
-    winnerSource = winnerIsOriginal ? 'original' : (isThisInvocation ? 'this_invocation' : 'prior_invocation');
+    if (winnerIsOriginal) {
+      winnerSource = 'original';
+    } else if (survivingRewriteVariants.some((v) => v.id === winnerSlotVariantId)) {
+      winnerSource = 'this_invocation';
+    } else {
+      winnerSource = 'prior_invocation';
+    }
   } catch {
     // No-rated-candidates path: stays with original.
   }

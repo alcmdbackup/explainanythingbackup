@@ -121,7 +121,7 @@ export interface ArenaLeaderboardTableProps {
   storageKey?: string;
   /** When set, bottom caption appears beneath the table. */
   bottomCaption?: string;
-  /** When provided, overrides the default ⓘ cutoff message. */
+  /** When true, suppresses the default ⓘ Elo-cutoff callout above the table. */
   hideCutoffCallout?: boolean;
 }
 

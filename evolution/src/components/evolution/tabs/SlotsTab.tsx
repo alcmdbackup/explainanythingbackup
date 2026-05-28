@@ -56,6 +56,17 @@ export function SlotsTab({
     [slots, selectedIdx],
   );
 
+  // Variant IDs introduced by THIS invocation (the slot's surviving rewrites).
+  const thisInvocationIds = useMemo(
+    () =>
+      new Set<string>(
+        (selectedSlot?.rewrites ?? [])
+          .map((r) => r.slotVariantId)
+          .filter((v): v is string => Boolean(v)),
+      ),
+    [selectedSlot],
+  );
+
   if (!selectedSlot) {
     return (
       <div className="text-sm font-ui text-[var(--text-muted)] py-6" data-testid="slots-tab-empty">
@@ -175,35 +186,25 @@ export function SlotsTab({
             </button>
           </div>
 
-          {(() => {
-            const thisInvocationIds = new Set<string>(
-              selectedSlot.rewrites
-                .map((r) => r.slotVariantId)
-                .filter((v): v is string => Boolean(v)),
-            );
-            const totalThisInv = thisInvocationIds.size;
-            const captionAll = `● = introduced by this invocation · ${totalThisInv} from this invocation`;
-            const captionThis = `Showing ${totalThisInv} variant${totalThisInv === 1 ? '' : 's'} from this invocation (ranks remain absolute)`;
-            return filterMode === 'all' ? (
-              <ArenaLeaderboardTable
-                key={`${selectedSlot.slotTopicId}-all`}
-                topicId={selectedSlot.slotTopicId}
-                highlightVariantIds={thisInvocationIds}
-                bottomCaption={captionAll}
-                storageKey="evolution-slots-tab-leaderboard-hidden-columns"
-                hideCutoffCallout
-              />
-            ) : (
-              <ArenaLeaderboardTable
-                key={`${selectedSlot.slotTopicId}-this`}
-                topicId={selectedSlot.slotTopicId}
-                filterToVariantIds={thisInvocationIds}
-                bottomCaption={captionThis}
-                storageKey="evolution-slots-tab-leaderboard-hidden-columns"
-                hideCutoffCallout
-              />
-            );
-          })()}
+          {filterMode === 'all' ? (
+            <ArenaLeaderboardTable
+              key={`${selectedSlot.slotTopicId}-all`}
+              topicId={selectedSlot.slotTopicId}
+              highlightVariantIds={thisInvocationIds}
+              bottomCaption={`● = introduced by this invocation · ${thisInvocationIds.size} from this invocation`}
+              storageKey="evolution-slots-tab-leaderboard-hidden-columns"
+              hideCutoffCallout
+            />
+          ) : (
+            <ArenaLeaderboardTable
+              key={`${selectedSlot.slotTopicId}-this`}
+              topicId={selectedSlot.slotTopicId}
+              filterToVariantIds={thisInvocationIds}
+              bottomCaption={`Showing ${thisInvocationIds.size} variant${thisInvocationIds.size === 1 ? '' : 's'} from this invocation (ranks remain absolute)`}
+              storageKey="evolution-slots-tab-leaderboard-hidden-columns"
+              hideCutoffCallout
+            />
+          )}
         </div>
       </section>
     </div>
