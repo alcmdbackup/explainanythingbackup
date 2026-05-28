@@ -87,11 +87,17 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-# Wait for postgres ready, capped at 30s (150 × 0.2s)
+# Wait for postgres ready, capped at 30s (150 × 0.2s).
+# Probe with an actual `SELECT 1` query (NOT pg_isready): the postgres:15-alpine
+# entrypoint reports pg_isready=ready during its bootstrap phase BEFORE the final
+# server restart, so the first psql connection after pg_isready can still be
+# refused ("the database system is starting up"). Querying via the same
+# `docker exec … -U postgres` socket the migration-apply uses guarantees the DB
+# genuinely accepts query connections before we proceed.
 echo "→ Waiting for postgres to be ready..."
 READY=0
 for _ in $(seq 1 150); do
-  if docker exec "$CONTAINER_ID" pg_isready -q -U postgres 2>/dev/null; then
+  if docker exec "$CONTAINER_ID" psql -U postgres -tAc 'SELECT 1' >/dev/null 2>&1; then
     READY=1
     break
   fi
