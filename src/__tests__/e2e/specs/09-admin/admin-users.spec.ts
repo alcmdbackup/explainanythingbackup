@@ -130,6 +130,20 @@ adminTest.describe('Admin Users Management', () => {
       const usersPage = new AdminUsersPage(adminPage);
       await usersPage.gotoUsers();
 
+      // Wait for hydration proof (testing_overview.md Rule 18) before toggling
+      // the filter: assert a real data row exists, not just any tbody tr (the
+      // "Loading..." placeholder is itself a tr, so `tbody tr.first()` would
+      // match it and give a false-positive ready signal).
+      //
+      // The 30s timeout accommodates the local dev server's cold-start latency:
+      // getAdminUsersAction does auth.admin.listUsers() + per-user stat queries
+      // and, under `npm run dev` with full OTel/Sentry instrumentation (no
+      // FAST_DEV), the first load can exceed the default 10s. CI's webServer
+      // runs with FAST_DEV=true and resolves well under 10s.
+      await expect(
+        usersPage.table.locator('tbody tr[data-testid^="admin-users-row-"]').first()
+      ).toBeVisible({ timeout: 30000 });
+
       // Show disabled checkbox should be visible and checked by default
       await expect(usersPage.showDisabledCheckbox).toBeVisible();
       await expect(usersPage.showDisabledCheckbox).toBeChecked();
