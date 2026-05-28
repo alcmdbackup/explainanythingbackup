@@ -113,4 +113,34 @@ adminTest.describe('Evolution Paragraph Recombine Invocation Detail', { tag: '@e
     await adminPage.locator('[data-testid="paragraph-slots-tab"]').waitFor({ timeout: 15000 });
     expect(await adminPage.locator('[data-testid^="slot-abort-badge-"]').count()).toBeGreaterThan(0);
   });
+
+  // Phase 9 retrofit R5 — Subagents tab cases.
+  adminTest('Subagents tab renders L2 slot rows + L3 rewrite/ranking children for happy-path fixture', async ({ adminPage }) => {
+    await adminPage.goto(`/admin/evolution/invocations/${standardFixture.invocationId}?tab=subagents`);
+    // 3 slot composites + 1 recombine deterministic at L2.
+    await expect(adminPage.locator('[data-testid="subagent-row-slot.0"]')).toBeVisible({ timeout: 15000 });
+    await expect(adminPage.locator('[data-testid="subagent-row-slot.1"]')).toBeVisible();
+    await expect(adminPage.locator('[data-testid="subagent-row-slot.2"]')).toBeVisible();
+    await expect(adminPage.locator('[data-testid="subagent-row-recombine"]')).toBeVisible();
+    // Expand slot.0 → L3 rewrite + ranking rows.
+    await adminPage.locator('[data-testid="subagent-row-slot.0"]').click();
+    expect(await adminPage.locator('[data-testid^="subagent-row-slot.0.rewrite."]').count()).toBeGreaterThanOrEqual(2);
+    await expect(adminPage.locator('[data-testid="subagent-row-slot.0.ranking"]')).toBeVisible();
+  });
+
+  adminTest('Subagents tab marks self-aborted slot with "self-aborted" summary', async ({ adminPage }) => {
+    await adminPage.goto(`/admin/evolution/invocations/${abortFixture.invocationId}?tab=subagents`);
+    // forceSlotAbort makes the last slot self-abort; expect its row to contain the summary.
+    const lastSlotIdx = 2;
+    await expect(adminPage.locator(`[data-testid="subagent-row-slot.${lastSlotIdx}"]`)).toContainText('self-aborted', { timeout: 15000 });
+  });
+
+  adminTest('default active tab remains "Paragraph Slots" for paragraph_recombine invocations (R1 UX pin)', async ({ adminPage }) => {
+    await adminPage.goto(`/admin/evolution/invocations/${standardFixture.invocationId}`);
+    // Phase 9 retrofit R1: defaultTab='slots' so SlotsTab stays the researcher entry point.
+    await expect(adminPage.locator('[data-testid="paragraph-slots-tab"]')).toBeVisible({ timeout: 15000 });
+    // Subagents tab visible in the strip but NOT the selected one.
+    await expect(adminPage.locator('[role="tab"]:has-text("Subagents")')).toBeVisible();
+    await expect(adminPage.locator('[role="tab"][aria-selected="true"]:has-text("Paragraph Slots")')).toBeVisible();
+  });
 });

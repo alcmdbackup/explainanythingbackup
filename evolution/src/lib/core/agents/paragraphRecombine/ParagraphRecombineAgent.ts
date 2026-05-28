@@ -275,6 +275,12 @@ async function processSlot(params: ProcessSlotParams): Promise<void> {
     ? createEvolutionLLMClient(ctx.rawProvider, slotScope, ctx.defaultModel)
     : llm; // Tests may pass llm directly without rawProvider.
 
+  // Phase 9 retrofit R3: per-slot logger.child for evolution_logs.subagent_name
+  // dotted-path attribution (e.g. 'slot.2'). Optional-chain because unit tests
+  // pass a flat-mock logger without .child(). The rankNewVariant call below
+  // gets a further .child('ranking') extension.
+  const slotLogger = ctx.logger.child?.(`slot.${slot.paragraphIndex}`) ?? ctx.logger;
+
   // ─── Topic setup (D10) ───────────────────────────────────────────
   let topicId: string;
   let originalSlotVariantId: string;
@@ -427,6 +433,9 @@ async function processSlot(params: ProcessSlotParams): Promise<void> {
   // Override maxComparisonsPerVariant for the per-slot ranking (D9).
   const perSlotConfig = { ...slotConfig, maxComparisonsPerVariant: maxComparisonsPerParagraph };
   const slotMatches: import('../../../pipeline/infra/types').V2Match[] = [];
+  // Phase 9 retrofit R3: ranking calls inside this slot's loop get a
+  // 'slot.N.ranking' subagent_name path.
+  const rankingLogger = slotLogger.child?.('ranking') ?? slotLogger;
   for (const candidate of survivingRewriteVariants) {
     try {
       // Snapshot before ratings for the candidate's comparisons.
@@ -443,7 +452,7 @@ async function processSlot(params: ProcessSlotParams): Promise<void> {
         llm: slotLlm,
         config: perSlotConfig,
         invocationId: ctx.invocationId,
-        logger: ctx.logger,
+        logger: rankingLogger,
         costTracker: slotScope,
       });
       // Build beforeAfterRatings map entries from this rank's matches.
@@ -499,7 +508,7 @@ async function processSlot(params: ProcessSlotParams): Promise<void> {
       [], // matchHistory: empty — sync_to_arena's p_matches is deprecated; we use persistSlotMatches.
       ctx.db,
       false, // isSeeded
-      ctx.logger,
+      slotLogger, // Phase 9 R3: slot.N subagent path on persistence logs
     );
   } catch (err) {
     // syncToArena failed: fall back to original, skip persistSlotMatches.

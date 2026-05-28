@@ -331,4 +331,43 @@ describe('ParagraphRecombineAgent — boundary contract', () => {
     await agent.execute(baseInput(makeLlmMock()), makeCtx());
     expect(syncToArenaMock).not.toHaveBeenCalled();
   });
+
+  // Phase 9 retrofit R7b — logger.child propagation cases.
+  it('when ctx.logger.child is defined, builds slot.N + slot.N.ranking dotted paths', async () => {
+    const childCalls: string[] = [];
+    const childLogger = {
+      info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn(),
+      child: jest.fn().mockImplementation(function (this: never, name: string) {
+        childCalls.push(name);
+        // Return a logger that itself supports .child for the second-level call.
+        return {
+          info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn(),
+          child: jest.fn().mockImplementation((n: string) => {
+            childCalls.push(`<nested>${n}`);
+            return { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() };
+          }),
+        };
+      }),
+    };
+    const ctx = makeCtx();
+    (ctx as { logger: unknown }).logger = childLogger;
+    const agent = new ParagraphRecombineAgent();
+    await agent.execute(baseInput(makeLlmMock()), ctx);
+    // Two slot.N invocations expected from the 2-paragraph sample article.
+    expect(childCalls).toContain('slot.0');
+    expect(childCalls).toContain('slot.1');
+    // Nested .child('ranking') happens inside each slot once the surviving rewrites
+    // enter the ranking loop.
+    expect(childCalls).toContain('<nested>ranking');
+  });
+
+  it('when ctx.logger.child is undefined, agent completes successfully via optional-chain fallback', async () => {
+    // makeCtx() default flat-mock logger has no .child method — exercises the
+    // ?. fallback path so subagent_name attribution silently degrades to flat
+    // without throwing.
+    const agent = new ParagraphRecombineAgent();
+    const result = await agent.execute(baseInput(makeLlmMock()), makeCtx());
+    expect(result.result.status).toBe('converged');
+    expect(result.result.surfaced).toBe(true);
+  });
 });
