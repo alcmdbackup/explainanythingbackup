@@ -173,7 +173,7 @@
         ]
       },
       {
-        "matcher": "TodoWrite",
+        "matcher": "TodoWrite|TaskCreate|TaskUpdate",
         "hooks": [
           {
             "type": "command",

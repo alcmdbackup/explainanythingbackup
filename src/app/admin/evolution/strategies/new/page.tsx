@@ -163,7 +163,8 @@ function isVariantProducing(
     || agentType === 'reflect_and_generate'
     || agentType === 'criteria_and_generate'
     || agentType === 'single_pass_evaluate_criteria_and_generate'
-    || agentType === 'proposer_approver_criteria_generate';
+    || agentType === 'proposer_approver_criteria_generate'
+    || agentType === 'paragraph_recombine';
 }
 
 /** Agent types eligible to be the FIRST iteration (must produce variants on an
@@ -174,7 +175,8 @@ function canBeFirstIteration(agentType: IterationRow['agentType']): boolean {
   return agentType === 'generate'
     || agentType === 'reflect_and_generate'
     || agentType === 'criteria_and_generate'
-    || agentType === 'single_pass_evaluate_criteria_and_generate';
+    || agentType === 'single_pass_evaluate_criteria_and_generate'
+    || agentType === 'paragraph_recombine';
 }
 
 /** True for any of the 3 criteria-based agent types. Used to gate
@@ -540,7 +542,7 @@ export default function NewStrategyPage(): JSX.Element {
     const errors: string[] = [];
     if (iterations.length === 0) errors.push('At least one iteration is required');
     if (iterations.length > 0 && !canBeFirstIteration(iterations[0]!.agentType)) {
-      errors.push('First iteration must be generate or reflect_and_generate');
+      errors.push('First iteration must produce variants on an empty pool (generate, reflect_and_generate, a criteria agent, or paragraph_recombine)');
     }
     if (!percentValid) errors.push(`Budget percentages must sum to 100% (currently ${totalPercent.toFixed(1)}%)`);
     // Check swiss doesn't precede all variant-producing iterations

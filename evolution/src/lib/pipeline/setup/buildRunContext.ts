@@ -345,7 +345,15 @@ export async function buildRunContext(
   }
   const configParsed = strategyConfigSchema.safeParse(strategyRow.config);
   if (!configParsed.success) {
-    return { error: `Strategy ${claimedRun.strategy_id} has invalid config` };
+    // Surface the specific Zod issues (path: message) so skew/misconfig is diagnosable
+    // from the run's error_message — not a generic "invalid config". Capped to the first
+    // few issues + a hard length clamp (markRunFailed also truncates at 2000).
+    const issues = configParsed.error.issues
+      .slice(0, 3)
+      .map((i) => `${i.path.join('.') || '(root)'}: ${i.message}`)
+      .join('; ')
+      .slice(0, 1500);
+    return { error: `Strategy ${claimedRun.strategy_id} has invalid config: ${issues}` };
   }
   const stratConfig = configParsed.data;
 

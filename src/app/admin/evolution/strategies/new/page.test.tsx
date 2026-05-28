@@ -288,6 +288,43 @@ describe('NewStrategyPage', () => {
     expect(cutoffValue.value).toBe('5'); // auto-defaulted when sourceMode→pool
   });
 
+  // ─── Task 1 (make_fixes_paragraph_recombine_20260528): paragraph_recombine gets the
+  // top-N pool source controls. Pre-fix, isVariantProducing()'s body omitted
+  // paragraph_recombine so the controls never rendered and sourceMode/qualityCutoff were
+  // never emitted (wizard-created paragraph_recombine strategies were pinned to seed). ──
+  it('paragraph_recombine iteration shows top-N pool controls and emits qualityCutoff in the payload', async () => {
+    render(<NewStrategyPage />);
+    fillStep1();
+    fireEvent.click(screen.getByText(/next: configure iterations/i));
+
+    fireEvent.click(screen.getByText(/split evenly/i));
+    fireEvent.click(screen.getByText(/\+ add iteration/i));
+    fireEvent.click(screen.getByText(/split evenly/i));
+
+    const agentSelect = screen.getByTestId('agent-type-select-2') as HTMLSelectElement;
+    fireEvent.change(agentSelect, { target: { value: 'paragraph_recombine' } });
+
+    // Pre-fix these testIds were NOT in the DOM for paragraph_recombine rows.
+    expect(screen.getByTestId('source-mode-select-2')).toBeInTheDocument();
+    const sourceSelect = screen.getByTestId('source-mode-select-2') as HTMLSelectElement;
+    fireEvent.change(sourceSelect, { target: { value: 'pool' } });
+    const cutoffValue = screen.getByTestId('cutoff-value-2') as HTMLInputElement;
+    expect(cutoffValue.value).toBe('5'); // auto-defaulted when sourceMode→pool
+
+    fireEvent.click(screen.getByText(/create strategy/i));
+    await waitFor(() => {
+      expect(mockCreate).toHaveBeenCalledTimes(1);
+    });
+
+    expect(mockCreate.mock.calls[0][0].iterationConfigs[2]).toEqual(
+      expect.objectContaining({
+        agentType: 'paragraph_recombine',
+        sourceMode: 'pool',
+        qualityCutoff: { mode: 'topN', value: 5 },
+      }),
+    );
+  });
+
   it('pool-mode auto-default can be overridden to topPercent/30', async () => {
     render(<NewStrategyPage />);
     fillStep1();
@@ -331,6 +368,35 @@ describe('NewStrategyPage', () => {
     const swissOption = firstSelect.querySelector('option[value="swiss"]') as HTMLOptionElement;
     expect(swissOption).toBeTruthy();
     expect(swissOption.disabled).toBe(true);
+  });
+
+  // ─── Task 1 (make_fixes_paragraph_recombine_20260528): paragraph_recombine is a valid
+  // FIRST iteration. The wizard's canBeFirstIteration() now includes it (matching the
+  // schema's canBeFirstIteration at schemas.ts), so the option is NOT disabled at idx 0
+  // and a first-iteration paragraph_recombine strategy submits without raising
+  // "First iteration must produce variants...". Pre-fix, canBeFirstIteration() omitted it. ──
+  it('allows paragraph_recombine as the first iteration (no first-iteration validation error)', async () => {
+    render(<NewStrategyPage />);
+    fillStep1();
+    fireEvent.click(screen.getByText(/next: configure iterations/i));
+
+    const firstSelect = screen.getByTestId('agent-type-select-0') as HTMLSelectElement;
+    // Unlike swiss/debate/editing, the paragraph_recombine option is selectable at idx 0.
+    const prOption = firstSelect.querySelector('option[value="paragraph_recombine"]') as HTMLOptionElement;
+    expect(prOption).toBeTruthy();
+    expect(prOption.disabled).toBe(false);
+
+    fireEvent.change(firstSelect, { target: { value: 'paragraph_recombine' } });
+
+    // No first-iteration validation error surfaces.
+    expect(screen.queryByText(/first iteration must produce variants/i)).not.toBeInTheDocument();
+
+    // And the strategy submits with paragraph_recombine as iteration 0.
+    fireEvent.click(screen.getByText(/create strategy/i));
+    await waitFor(() => {
+      expect(mockCreate).toHaveBeenCalledTimes(1);
+    });
+    expect(mockCreate.mock.calls[0][0].iterationConfigs[0].agentType).toBe('paragraph_recombine');
   });
 
   // ─── Phase 3: smart-default prompt context ───────────────────

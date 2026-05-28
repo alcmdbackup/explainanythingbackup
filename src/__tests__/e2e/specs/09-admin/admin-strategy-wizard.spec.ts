@@ -329,4 +329,80 @@ adminTest.describe('Strategy Creation Wizard', { tag: '@evolution' }, () => {
     await expect(tacticsButton).toBeVisible();
     await expect(topNInput).toHaveCount(0);
   });
+
+  // ─── paragraph_recombine top-N pool selection (make_fixes_paragraph_recombine_20260528) ───
+  // Task 1: the wizard now exposes sourceMode/qualityCutoff controls for paragraph_recombine
+  // (its isVariantProducing() gate was fixed). Build [generate, paragraph_recombine], set the
+  // recombine row to pool with a top-N cutoff, submit, and assert the persisted config carries
+  // sourceMode:'pool' + qualityCutoff. Pre-fix the controls never rendered and the iteration
+  // was silently pinned to seed.
+
+  let paragraphRecombineStrategyId: string | undefined;
+
+  adminTest.afterAll(async () => {
+    if (!paragraphRecombineStrategyId) return;
+    const sb = getServiceClient();
+    await sb.from('evolution_metrics').delete().eq('entity_id', paragraphRecombineStrategyId);
+    await sb.from('evolution_strategies').delete().eq('id', paragraphRecombineStrategyId);
+  });
+
+  adminTest('paragraph_recombine: pool-mode source controls persist sourceMode + qualityCutoff', async ({ adminPage }) => {
+    await adminPage.goto('/admin/evolution/strategies/new');
+    await adminPage.waitForLoadState('domcontentloaded');
+    await expect(adminPage.locator('#strategy-name')).toBeVisible({ timeout: 15000 });
+
+    const strategyName = `${TEST_PREFIX} ParagraphRecombine ${Date.now()}`;
+
+    // Step 1
+    await adminPage.locator('#strategy-name').fill(strategyName);
+    await adminPage.locator('#generation-model').selectOption({ index: 1 });
+    await adminPage.locator('#budget-usd').fill('1.00');
+    await adminPage.locator('button', { hasText: 'Next: Configure Iterations' }).click();
+
+    // Step 2 — defaults: #1 generate, #2 swiss. Turn #2 (idx=1) into paragraph_recombine.
+    await expect(adminPage.locator('text=#1')).toBeVisible({ timeout: 10000 });
+    await expect(adminPage.locator('text=#2')).toBeVisible();
+
+    const agentTypeSelect = adminPage.locator('[data-testid="agent-type-select-1"]');
+    await expect(agentTypeSelect).toBeVisible();
+    await agentTypeSelect.selectOption('paragraph_recombine');
+
+    // The source controls now render for the recombine row (idx>0 + variant-producing).
+    const sourceSelect = adminPage.locator('[data-testid="source-mode-select-1"]');
+    await expect(sourceSelect).toBeVisible();
+    await sourceSelect.selectOption('pool');
+
+    // sourceMode→pool auto-defaults the top-N cutoff to 5.
+    const cutoffValue = adminPage.locator('[data-testid="cutoff-value-1"]');
+    await expect(cutoffValue).toHaveValue('5');
+
+    // Submit — successful create redirects to the strategy detail page.
+    const createBtn = adminPage.locator('button', { hasText: 'Create Strategy' });
+    await expect(createBtn).toBeEnabled();
+    await createBtn.click();
+
+    await expect(adminPage).toHaveURL(/\/admin\/evolution\/strategies\/[0-9a-f-]+/, { timeout: 20000 });
+    const url = adminPage.url();
+    const idMatch = url.match(/strategies\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/);
+    if (idMatch) {
+      paragraphRecombineStrategyId = idMatch[1]!;
+      trackEvolutionId('strategy', paragraphRecombineStrategyId);
+    }
+    expect(paragraphRecombineStrategyId).toBeTruthy();
+
+    // Verify the persisted config: iteration 1 is paragraph_recombine with pool source + cutoff.
+    const sb = getServiceClient();
+    const { data } = await sb
+      .from('evolution_strategies')
+      .select('config')
+      .eq('id', paragraphRecombineStrategyId!)
+      .single();
+    expect(data).toBeTruthy();
+    const config = data!.config as {
+      iterationConfigs: Array<{ agentType: string; sourceMode?: string; qualityCutoff?: { mode: string; value: number } }>;
+    };
+    expect(config.iterationConfigs[1]!.agentType).toBe('paragraph_recombine');
+    expect(config.iterationConfigs[1]!.sourceMode).toBe('pool');
+    expect(config.iterationConfigs[1]!.qualityCutoff).toEqual({ mode: 'topN', value: 5 });
+  });
 });

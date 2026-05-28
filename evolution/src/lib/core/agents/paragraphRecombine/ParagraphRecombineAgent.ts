@@ -65,6 +65,14 @@ export interface ParagraphRecombineInput {
   maxComparisonsPerParagraph?: number;
   maxParagraphsPerInvocation?: number;
   perInvocationCapUsd?: number;
+  /** Run pool / ratings / matchCounts / cache for article-level ranking of the recombined
+   *  variant (Task 3). When `initialPool` is non-empty, the agent ranks the recombined
+   *  variant against it via `rankNewVariant` and returns the resulting `matches` for the
+   *  loop's MergeRatingsAgent. Omitted (e.g. seed-only first iteration) → no article rank. */
+  initialPool?: Variant[];
+  initialRatings?: Map<string, Rating>;
+  initialMatchCounts?: Map<string, number>;
+  cache?: Map<string, ComparisonResult>;
   /** Optional per-call llm injected by Agent.run when ctx.rawProvider is set.
    *  Tests can pass directly. */
   llm?: EvolutionLLMClient;
@@ -80,9 +88,11 @@ export interface ParagraphRecombineOutput {
    *  a binary-search status; we report 'converged' on success and 'generation_failed'
    *  on no-variant paths. */
   status: 'converged' | 'generation_failed';
-  /** Match buffer (always empty for paragraph_recombine — per-slot matches are persisted
-   *  inline by persistSlotMatches and do NOT flow through MergeRatingsAgent's bulk-merge
-   *  at iteration end. This field exists for dispatch-loop type compatibility only). */
+  /** Article-level ranking matches for the recombined variant (from Step 6's rankNewVariant).
+   *  The loop's dedicated paragraph_recombine branch feeds these to MergeRatingsAgent for the
+   *  authoritative global rating update. Empty when no variant surfaced or there's no run pool
+   *  to rank against (e.g. a seed-only first iteration). Distinct from per-slot (paragraph-level)
+   *  matches, which are persisted inline by persistSlotMatches. */
   matches: import('../../../pipeline/infra/types').V2Match[];
 }
 
@@ -225,12 +235,37 @@ export class ParagraphRecombineAgent extends Agent<
       agentInvocationId: ctx.invocationId === '' ? undefined : ctx.invocationId,
     });
 
-    // ─── Step 6: Post-emit ranking (D6 — always-on) ───────────────
-    // Skipped when there's no run pool to rank against (initial article-only iteration).
-    // The orchestrator-supplied run pool isn't directly available here; the dispatch
-    // loop's MergeRatingsAgent path is what integrates this variant into the run pool.
-    // Per the plan: post-emit ranking flows through MergeRatingsAgent at iteration end
-    // with iterationType='paragraph_recombine' (added to the enum in Phase 1).
+    // ─── Step 6: Article-level ranking (Task 3) ───────────────────
+    // Rank the recombined variant against the run's article pool so it competes for the
+    // run winner. Uses input.llm (the invocation-scoped client → 'ranking' label →
+    // ranking_cost) — NOT the per-slot rankLlm relabel proxy. rankNewVariant mutates the
+    // CLONES passed here; the loop's dedicated paragraph_recombine branch feeds the returned
+    // matches to MergeRatingsAgent (the authoritative global update). Skipped when there's
+    // no run pool to rank against (e.g. a seed-only first iteration).
+    let articleMatches: import('../../../pipeline/infra/types').V2Match[] = [];
+    let surfaced = true;
+    if (input.initialPool && input.initialPool.length > 0) {
+      const rankPool: Variant[] = [...input.initialPool];
+      const rankRatings = new Map<string, Rating>();
+      for (const [id, r] of input.initialRatings ?? new Map<string, Rating>()) {
+        rankRatings.set(id, { ...r });
+      }
+      const articleRank = await rankNewVariant({
+        variant: recombinedVariant,
+        localPool: rankPool,
+        localRatings: rankRatings,
+        localMatchCounts: new Map<string, number>(input.initialMatchCounts ?? new Map()),
+        completedPairs: new Set<string>(),
+        cache: input.cache ?? new Map(),
+        llm,
+        config: ctx.config,
+        invocationId: ctx.invocationId,
+        logger: ctx.logger,
+        costTracker: invocationScope,
+      });
+      articleMatches = articleRank.rankResult.matches;
+      surfaced = articleRank.surfaced;
+    }
 
     // Finalize execution_detail and persist.
     const finalDetail: SlotRecombineExecutionDetail = {
@@ -240,7 +275,7 @@ export class ParagraphRecombineAgent extends Agent<
     await safeUpdateInvocation(ctx, finalDetail);
 
     return {
-      result: { variant: recombinedVariant, surfaced: true, status: 'converged', matches: [] },
+      result: { variant: recombinedVariant, surfaced, status: 'converged', matches: surfaced ? articleMatches : [] },
       detail: finalDetail,
       childVariantIds: [recombinedVariant.id],
       parentVariantIds: [parentVariantId],

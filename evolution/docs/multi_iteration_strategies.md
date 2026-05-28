@@ -162,9 +162,11 @@ The strategy creation wizard at `/admin/evolution/strategies/new` is a 2-step fo
 **Step 1: Models & Budget** — Select generation model, judge model, and total budget.
 
 **Step 2: Iteration Builder** — Add/remove/reorder iteration configs. Each row specifies
-agent type (generate/swiss), budget percentage, and (for generate iterations) optional
-source mode + quality cutoff + per-iteration tactic guidance. The form validates that
-percentages sum to 100 and the first iteration is generate. A visual budget bar shows the
+agent type (generate/swiss), budget percentage, and (for variant-producing iterations —
+generate, reflect_and_generate, the criteria agents, and `paragraph_recombine`) optional
+source mode + quality cutoff (top-N pool) + per-iteration tactic guidance. The form validates that
+percentages sum to 100 and the first iteration produces variants on an empty pool (generate,
+reflect_and_generate, a criteria agent, or `paragraph_recombine`). A visual budget bar shows the
 percentage allocation across iterations.
 
 On mount, the wizard fetches the most-recently-used prompt from any non-test-content run

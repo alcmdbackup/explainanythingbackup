@@ -229,6 +229,14 @@ npm ci
 sudo systemctl restart evolution-runner.timer
 ```
 
+> **Keep the runner at origin/main, especially after agent-type merges.** A runner on
+> older code rejects strategies that use a newly-merged `agentType` (its `agentType` enum
+> lacks the value) — the run fails with `Strategy <id> has invalid config`. Since
+> make_fixes_paragraph_recombine_20260528, `buildRunContext` surfaces the offending field
+> (e.g. `iterationConfigs.1.agentType`) in `error_message`, so this skew is diagnosable from
+> the run detail. The fix is operational: pull + `npm ci` + restart as above. (This is forward
+> skew by design — an old runner literally lacks the new agent class; there is no version guard.)
+
 ### Disable permanently
 
 ```bash

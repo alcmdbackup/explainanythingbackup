@@ -670,10 +670,10 @@ export const iterationConfigSchema = z.object({
   // Debate selects parents internally (top-2 from pool snapshot per Decision §16) so
   // it does NOT accept sourceMode.
   (c) => (c.agentType !== 'swiss' && c.agentType !== 'debate_and_generate') || c.sourceMode === undefined,
-  { message: 'sourceMode only valid for generate, reflect_and_generate, or criteria_and_generate iterations (debate selects parents internally; swiss does not produce variants)' },
+  { message: 'sourceMode is not valid for swiss or debate_and_generate iterations (swiss does not produce variants; debate selects parents internally). It is valid for generate, reflect_and_generate, the criteria agents, and paragraph_recombine.' },
 ).refine(
   (c) => (c.agentType !== 'swiss' && c.agentType !== 'debate_and_generate') || c.qualityCutoff === undefined,
-  { message: 'qualityCutoff only valid for generate, reflect_and_generate, or criteria_and_generate iterations' },
+  { message: 'qualityCutoff is not valid for swiss or debate_and_generate iterations. It is valid (and required when sourceMode=pool) for generate, reflect_and_generate, the criteria agents, and paragraph_recombine.' },
 ).refine(
   (c) => c.sourceMode !== 'pool' || c.qualityCutoff !== undefined,
   { message: 'qualityCutoff required when sourceMode is pool' },

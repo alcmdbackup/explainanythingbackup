@@ -34,8 +34,9 @@ Per invocation (~336 LLM calls at default knobs):
 4. **Validate** the recombined article via `validateFormat`. On invalid, emit `surfaced=false` with `discardReason.formatIssues`.
 5. **Pre-final-ranking gate** (per D6/D9): if `invocationScope.getOwnSpent() >= 0.9 × perInvocationCap`, emit `surfaced=false` to leave headroom.
 6. **Emit recombined `Variant`** with `parent_variant_ids = [parentId]` (single-parent per revised D4), `tactic: 'paragraph_recombine'`, `agentInvocationId` set.
+7. **Article-level ranking** (make_fixes_paragraph_recombine_20260528): when the loop passes `initialPool`/`initialRatings`/`initialMatchCounts`/`cache`, the agent ranks the recombined variant against the run's article pool via `rankNewVariant` (using the invocation `input.llm` → `ranking_cost`, distinct from the per-slot `paragraph_recombine_cost`) and returns the resulting `matches`. The dedicated `paragraph_recombine` branch in `runIterationLoop.ts` then feeds those matches + the variant to `MergeRatingsAgent` (whose `iterationType` union now includes `paragraph_recombine`), so the recombined variant competes for the run winner instead of landing at baseline Elo.
 
-Post-emit ranking against the run's article-level pool happens at iteration end via the standard `MergeRatingsAgent` path (`iterationType: 'paragraph_recombine'` was added to the enum in Phase 1).
+> **Dispatch wiring note:** Before make_fixes_paragraph_recombine_20260528, a `paragraph_recombine` iteration was a silent no-op — `runIterationLoop.ts` had no branch for it (the dispatch case lived dead inside the generate-family `dispatchOneAgent`, gated behind a condition that excluded `paragraph_recombine`). It now has a dedicated top-level branch (sibling to swiss) that resolves ONE parent via `resolveParent` (honoring `sourceMode`/`qualityCutoff`), dispatches exactly one `ParagraphRecombineAgent`, and merges as above.
 
 ## Naming convention (D19)
 
