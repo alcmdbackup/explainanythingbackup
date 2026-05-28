@@ -290,7 +290,7 @@ The propose / forward / mirror calls all bucket to one **umbrella metric** (`pro
 
 ### Paragraph-Recombine Cost (rank_individual_paragraphs_evolution_20260525)
 
-The `ParagraphRecombineAgent` cost stack scales as `N slots × M rewrites × (rewrite + ranking)`. Both layers bucket into the single umbrella metric `paragraph_recombine_cost` — the `'paragraph_rewrite'` AgentName routes directly, and the `'ranking'`-labeled per-slot judge calls route via the per-slot `AgentCostScope` intercept (D11/D18) so they don't pollute the article-level `ranking_cost`.
+The `ParagraphRecombineAgent` cost stack scales as `N slots × M rewrites × (rewrite + ranking)`. Both layers bucket into the single umbrella metric `paragraph_recombine_cost` via two dedicated AgentName labels: `'paragraph_rewrite'` (rewrite calls) and `'paragraph_rank'` (per-slot ranking calls — the agent relabels `rankNewVariant`'s `'ranking'` calls so they don't pollute the article-level `ranking_cost`). The agent writes the run-level metric once per invocation as the SUM of the two phase-cost accumulators (MAX-safe because both are run-cumulative).
 
 | Knob | Default | Range | Effect |
 |---|---|---|---|

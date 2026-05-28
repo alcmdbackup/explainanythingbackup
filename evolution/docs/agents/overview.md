@@ -558,7 +558,7 @@ Decomposes a parent article into paragraph-sized slots, generates M parallel rew
 - `name = 'paragraph_recombine'`
 - `detailType = 'paragraph_recombine'` (see `slotRecombineExecutionDetailSchema`)
 - `tactic = 'paragraph_recombine'` (marker tactic; cyan `#06b6d4`)
-- New AgentName `'paragraph_rewrite'` → cost metric `paragraph_recombine_cost`. Per-slot ranking LLM calls reuse the existing `'ranking'` AgentName but route into the same metric via the per-slot `AgentCostScope` intercept (D11/D18 invariants in `evolution/docs/paragraph_recombine.md`).
+- Two new AgentNames `'paragraph_rewrite'` (rewrite calls) and `'paragraph_rank'` (per-slot ranking calls) both → cost metric `paragraph_recombine_cost`. The agent relabels `rankNewVariant`'s `'ranking'` calls to `'paragraph_rank'` via a thin LLM-client proxy (keeps per-slot ranking out of article `ranking_cost`), and writes the run-level metric once as the SUM of both phase-cost accumulators (see `evolution/docs/paragraph_recombine.md`).
 
 **Algorithm** (per `evolution/src/lib/core/agents/paragraphRecombine/ParagraphRecombineAgent.ts`):
 
