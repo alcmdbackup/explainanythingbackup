@@ -122,8 +122,9 @@ adminTest.describe('Evolution Paragraph Recombine Invocation Detail', { tag: '@e
     await expect(adminPage.locator('[data-testid="subagent-row-slot.1"]')).toBeVisible();
     await expect(adminPage.locator('[data-testid="subagent-row-slot.2"]')).toBeVisible();
     await expect(adminPage.locator('[data-testid="subagent-row-recombine"]')).toBeVisible();
-    // Expand slot.0 → L3 rewrite + ranking rows.
-    await adminPage.locator('[data-testid="subagent-row-slot.0"]').click();
+    // L2 slot rows auto-expand (SubagentsTab opens node.level <= 2 by default), so slot.0's
+    // L3 rewrite + ranking children are already rendered — do NOT click slot.0, that would
+    // TOGGLE it closed and unmount the children.
     expect(await adminPage.locator('[data-testid^="subagent-row-slot.0.rewrite."]').count()).toBeGreaterThanOrEqual(2);
     await expect(adminPage.locator('[data-testid="subagent-row-slot.0.ranking"]')).toBeVisible();
   });
