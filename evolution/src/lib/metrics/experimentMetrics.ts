@@ -1,10 +1,17 @@
 // Core metrics computation for evolution experiments: per-run stats, bootstrap CIs, and aggregation.
 // Shared by experiment detail, strategy detail, cron analysis, and backfill script.
 
-import { writeMetric } from './writeMetrics';
+import { writeMetric, writeMetricMax } from './writeMetrics';
 import type { MetricName as RegistryMetricName } from './types';
 import type { SupabaseClient as RealSupabaseClient } from '@supabase/supabase-js';
 import { ATTRIBUTION_EXTRACTORS } from './attributionExtractors';
+// rename_agents_subagents_evolution_20260508 Phase 3: per-subagent cost/duration/count
+// metrics. Parser is the same module the UI Subagents tab + the backfill script use, so
+// the three paths can't drift.
+import {
+  parseSubagentTreeByAgentName,
+  type SubagentNode,
+} from '../shared/subagentTreeParser';
 // NOTE: ATTRIBUTION_EXTRACTORS is populated at module-load time by side-effect imports
 // at the bottom of each agent file (`registerAttributionExtractor(...)` calls).
 // Production callers of `computeEloAttributionMetrics` reach this aggregator via
@@ -23,7 +30,9 @@ import { ATTRIBUTION_EXTRACTORS } from './attributionExtractors';
 
 // ─── Types ──────────────────────────────────────────────────────
 
-/** Canonical metric names. Agent costs use template literal pattern. */
+/** Canonical metric names. Includes the eloAttrDelta:* template-literal pattern
+ *  used by computeEloAttributionMetrics. The legacy `agentCost:${string}` pattern
+ *  was removed in Phase 6 (rename_agents_subagents_evolution_20260508). */
 export type MetricName =
   | 'totalVariants'
   | 'medianElo'
@@ -31,7 +40,8 @@ export type MetricName =
   | 'maxElo'
   | 'cost'
   | 'eloPer$'
-  | `agentCost:${string}`;
+  | `eloAttrDelta:${string}`
+  | `eloAttrDeltaHist:${string}`;
 
 /** A single metric measurement with optional uncertainty and CI. */
 export interface MetricValue {
@@ -356,14 +366,12 @@ export async function computeRunMetrics(
 
   let totalCost = 0;
   if (invocations && invocations.length > 0) {
-    const agentCosts = new Map<string, number>();
+    // (rename_agents_subagents_evolution_20260508 Phase 6) Removed agentCost:*
+    // metric emission — superseded by subagent:*.cost via the dynamic-prefix path
+    // emitted from computeSubagentMetrics (below).
     for (const inv of invocations) {
       const cost = Number(inv.cost_usd) || 0;
-      agentCosts.set(inv.agent_name, (agentCosts.get(inv.agent_name) ?? 0) + cost);
       totalCost += cost;
-    }
-    for (const [agent, cost] of agentCosts) {
-      metrics[`agentCost:${agent}` as MetricName] = scalar(cost);
     }
   }
 
@@ -380,6 +388,15 @@ export async function computeRunMetrics(
   // When opts.strategyId / opts.experimentId are set, rows are ALSO persisted to
   // evolution_metrics at those entity levels (Blocker 2 fix, 2026-04-22).
   await computeEloAttributionMetrics(runId, metrics, supabase, opts);
+
+  // ─── rename_agents_subagents_evolution_20260508 Phase 3 ────────────
+  // Per-subagent cost/duration/count rows: subagent:<dotted-path>.<measure>.
+  // Mirrors the eloAttrDelta:* per-level write structure (3 calls keyed on opts), but
+  // uses writeMetricMax (GREATEST) for monotone-up cost values vs writeMetric (overwrite)
+  // for signed Elo deltas. Gated by EVOLUTION_EMIT_SUBAGENT_METRICS env var (default 'true').
+  if (process.env.EVOLUTION_EMIT_SUBAGENT_METRICS !== 'false') {
+    await computeSubagentMetrics(runId, supabase, opts);
+  }
 
   return { metrics, variantRatings: null };
 }
@@ -603,3 +620,130 @@ async function computeEloAttributionMetrics(
   }
 }
 
+
+// ─── Subagent metrics (Phase 3 of rename_agents_subagents_evolution_20260508) ────
+
+/** Subagent names that may appear in metric rows. Allowlist prevents typo-driven ghost rows. */
+const SUBAGENT_ALLOWLIST = new Set<string>([
+  // L2/L3 names emitted by the parsers in evolution/src/lib/shared/subagentTreeParser.ts.
+  'reflection',
+  'generation',
+  'ranking',
+  'comparison',
+  'evaluate_and_suggest',
+  'cycle.propose',
+  'cycle.review',
+  'cycle.apply',
+  'drift_recovery',
+  'approve_forward',
+  'approve_mirror',
+  'seed_title',
+  'seed_article',
+  'merge',
+  'pair',
+]);
+
+/**
+ * Walk a SubagentNode tree and accumulate per-subagent sums.
+ * Key shape: `<lastPathSegment>.<measure>` (or `cycle.<verb>.<measure>` for cycle children).
+ * We aggregate by NAME (not full path) so e.g. all `propose` nodes across cycles sum to one
+ * `subagent:cycle.propose.cost` value at the run level.
+ */
+function accumulateSubagentSums(
+  nodes: SubagentNode[],
+  acc: Map<string, { cost: number; durationMs: number; count: number }>,
+  parentName?: string,
+): void {
+  for (const node of nodes) {
+    // Drop the per-cycle index: `cycle.1.propose` → `cycle.propose`.
+    const groupKey = node.name.startsWith('comparison.') ? 'comparison'
+      : node.name.startsWith('pair.') ? 'pair'
+      : node.name.startsWith('cycle.') ? `cycle.${parentName ?? 'unknown'}`
+      : parentName === 'cycle' ? `cycle.${node.name}`
+      : node.name;
+    if (SUBAGENT_ALLOWLIST.has(groupKey)) {
+      const cur = acc.get(groupKey) ?? { cost: 0, durationMs: 0, count: 0 };
+      cur.cost += Number.isFinite(node.costUsd) ? node.costUsd : 0;
+      cur.durationMs += Number.isFinite(node.durationMs) ? node.durationMs : 0;
+      cur.count += node.kind === 'LLM' ? 1 : 0;
+      acc.set(groupKey, cur);
+    }
+    if (node.children.length > 0) {
+      accumulateSubagentSums(
+        node.children,
+        acc,
+        node.name.startsWith('cycle.') ? 'cycle' : node.name,
+      );
+    }
+  }
+}
+
+/**
+ * Read all completed invocations for a run, parse each one's execution_detail to a tree,
+ * sum per-subagent cost/duration/count, and write run/strategy/experiment-level rows
+ * via three explicit `writeMetricMax` calls each (mirroring the eloAttrDelta:* pattern).
+ *
+ * The block is gated by EVOLUTION_EMIT_SUBAGENT_METRICS at the call site so ops can
+ * disable emission without a code revert.
+ */
+async function computeSubagentMetrics(
+  runId: string,
+  supabase: SupabaseClient,
+  opts: { strategyId?: string; experimentId?: string | null } = {},
+): Promise<void> {
+  const dbForWrite = supabase as unknown as RealSupabaseClient;
+
+  const { data: invocations } = (await supabase
+    .from('evolution_agent_invocations')
+    .select('agent_name, execution_detail')
+    .eq('run_id', runId)) as {
+      data: Array<{ agent_name: string; execution_detail: Record<string, unknown> | null }> | null;
+    };
+
+  if (!invocations || invocations.length === 0) return;
+
+  const sums = new Map<string, { cost: number; durationMs: number; count: number }>();
+  for (const inv of invocations) {
+    try {
+      const tree = parseSubagentTreeByAgentName(inv.agent_name, inv.execution_detail);
+      accumulateSubagentSums(tree, sums);
+    } catch {
+      // Defensive: malformed JSONB shouldn't block metric emission for the rest of the run.
+      continue;
+    }
+  }
+
+  for (const [name, agg] of sums) {
+    // writeMetricMax hard-throws on non-finite; pre-filter here.
+    if (Number.isFinite(agg.cost)) {
+      const metricName = `subagent:${name}.cost` as RegistryMetricName;
+      await writeMetricMax(dbForWrite, 'run', runId, metricName, agg.cost, 'at_finalization');
+      if (opts.strategyId) {
+        await writeMetricMax(dbForWrite, 'strategy', opts.strategyId, metricName, agg.cost, 'at_finalization');
+      }
+      if (opts.experimentId) {
+        await writeMetricMax(dbForWrite, 'experiment', opts.experimentId, metricName, agg.cost, 'at_finalization');
+      }
+    }
+    if (Number.isFinite(agg.durationMs) && agg.durationMs > 0) {
+      const metricName = `subagent:${name}.duration_ms` as RegistryMetricName;
+      await writeMetricMax(dbForWrite, 'run', runId, metricName, agg.durationMs, 'at_finalization');
+      if (opts.strategyId) {
+        await writeMetricMax(dbForWrite, 'strategy', opts.strategyId, metricName, agg.durationMs, 'at_finalization');
+      }
+      if (opts.experimentId) {
+        await writeMetricMax(dbForWrite, 'experiment', opts.experimentId, metricName, agg.durationMs, 'at_finalization');
+      }
+    }
+    if (agg.count > 0) {
+      const metricName = `subagent:${name}.count` as RegistryMetricName;
+      await writeMetricMax(dbForWrite, 'run', runId, metricName, agg.count, 'at_finalization');
+      if (opts.strategyId) {
+        await writeMetricMax(dbForWrite, 'strategy', opts.strategyId, metricName, agg.count, 'at_finalization');
+      }
+      if (opts.experimentId) {
+        await writeMetricMax(dbForWrite, 'experiment', opts.experimentId, metricName, agg.count, 'at_finalization');
+      }
+    }
+  }
+}

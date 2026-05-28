@@ -9,6 +9,16 @@ import { createInvocation, updateInvocation } from '../pipeline/infra/trackInvoc
 import { createAgentCostScope } from '../pipeline/infra/trackBudget';
 import { createEvolutionLLMClient } from '../pipeline/infra/createEvolutionLLMClient';
 import { createEntityLogger } from '../pipeline/infra/createEntityLogger';
+// Phase 1 (rename_agents_subagents_evolution_20260508): wrap `execute()` in an active span
+// so per-LLM-call spans auto-nest under the agent's span via AsyncLocalStorageContextManager.
+// Honeycomb / Sentry traces show the full agent → subagent hierarchy. Cost scope is unaffected
+// (span context is observability-only; AgentCostScope is plumbed through ctx.costTracker).
+// NOTE: imports from `../observability/withActiveSpan` (a leaf module), NOT from the
+// top-level `instrumentation.ts`. Agent.ts is reachable from client bundles via
+// entityRegistry → EntityMetricsTab; pulling in instrumentation.ts would transitively
+// drag its dynamic `automaticServerLoggingBase` chunk (→ server_utilities → 'fs') into
+// the client bundle and break dev-mode page compilation.
+import { withActiveSpan } from '../observability/withActiveSpan';
 
 export abstract class Agent<TInput, TOutput, TDetail extends ExecutionDetailBase = ExecutionDetailBase> {
   abstract readonly name: string;
@@ -66,8 +76,21 @@ export abstract class Agent<TInput, TOutput, TDetail extends ExecutionDetailBase
     // this, all per-agent logs land at run scope and the LogsTab on every invocation detail page
     // is empty (verified via grep — zero invocation-scope log writes existed before this fix).
     // Falls back to ctx.logger when invocationId is absent (tests, createInvocation failures).
+    // Phase 4 of rename_agents_subagents_evolution_20260508: thread the agent's name
+    // as the L1 segment of the subagent path via logger.child(). Inner subagents
+    // (reflection LLM call, generation phase, ranking comparisons) extend this path
+    // by calling .child() on this logger when they emit logs.
     const invocationLogger = invocationId
       ? createEntityLogger(
+          {
+            entityType: 'invocation',
+            entityId: invocationId,
+            runId: ctx.runId,
+            experimentId: ctx.experimentId,
+            strategyId: ctx.strategyId,
+          },
+          ctx.db,
+        ).child?.(this.name) ?? createEntityLogger(
           {
             entityType: 'invocation',
             entityId: invocationId,
@@ -124,8 +147,15 @@ export abstract class Agent<TInput, TOutput, TDetail extends ExecutionDetailBase
     // context noise. Per-invocation detail goes through `invocationLogger` (extendedCtx.logger).
     ctx.logger.info(`Agent ${this.name} starting`, { phaseName: this.name, iteration: ctx.iteration });
 
+    // tracer.startActiveSpan + logger.child wrap but do NOT replace the .execute() contract;
+    // cost scope is unaffected. The load-bearing rule "wrappers call inner .execute() not .run()"
+    // is enforced structurally by Agent.run() being the only thing that creates an invocation row.
     try {
-      const output = await this.execute(effectiveInput, extendedCtx);
+      const output = await withActiveSpan(
+        `agent.${this.name}`,
+        { 'subagent.path': this.name, 'agent.name': this.name, 'evolution.iteration': ctx.iteration },
+        () => this.execute(effectiveInput, extendedCtx),
+      );
       const durationMs = Date.now() - startMs;
       const { detail } = output;
 

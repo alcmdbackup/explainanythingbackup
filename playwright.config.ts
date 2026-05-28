@@ -173,8 +173,12 @@ export default defineConfig({
         // Use production build in CI for stability; dev server locally for HMR.
         // Note: E2E_TEST_MODE must be set at runtime (npm start), not build time,
         // because the app blocks E2E_TEST_MODE in production builds.
+        // FAST_DEV=true bypasses observability wrappers (withActiveSpan span exporters,
+        // server logging instrumentation) so pipeline E2E tests don't suffer from
+        // OTel/Sentry export latency on every agent execution. Production builds
+        // run with full observability; this only affects the E2E job's web server.
         command: process.env.CI
-          ? 'npm run build && E2E_TEST_MODE=true npm start -- -p 3008'
+          ? 'npm run build && E2E_TEST_MODE=true FAST_DEV=true npm start -- -p 3008'
           : 'npm run dev -- -p 3008',
         url: baseURL,
         reuseExistingServer: !process.env.CI,

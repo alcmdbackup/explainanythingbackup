@@ -95,11 +95,24 @@ jobs:
           if [ -z "$CHANGED" ]; then exit 0; fi
           # Allowlist: DROP FUNCTION/VIEW/INDEX/TRIGGER IF EXISTS (standard RPC/view replacement)
           # Block: DROP TABLE, DROP COLUMN, RENAME TABLE/COLUMN, TRUNCATE, DELETE FROM
-          BLOCKED=$(echo "$CHANGED" | xargs grep -niE '(DROP\s+(TABLE|COLUMN)|RENAME\s+(TABLE|COLUMN)|TRUNCATE|DELETE\s+FROM)' \
-            2>/dev/null | grep -viE 'DROP\s+(FUNCTION|VIEW|INDEX|TRIGGER)\s+IF\s+EXISTS' || true)
+          # Override: a migration containing the literal marker `@destructive-ddl-approved`
+          # in a SQL comment is exempted from this check (intentional, reviewed in PR).
+          BLOCKED=""
+          for f in $CHANGED; do
+            if grep -qE -- '--\s*@destructive-ddl-approved' "$f" 2>/dev/null; then
+              echo "[ci] $f carries @destructive-ddl-approved marker — skipping destructive-DDL check for this file"
+              continue
+            fi
+            # Strip SQL comment lines (lines whose first non-whitespace is `--`)
+            # before grepping — comments describing destructive ops shouldn't trip the check.
+            HITS=$(grep -vE '^\s*--' "$f" 2>/dev/null | grep -niE '(DROP\s+(TABLE|COLUMN)|RENAME\s+(TABLE|COLUMN)|TRUNCATE|DELETE\s+FROM)' | grep -viE 'DROP\s+(FUNCTION|VIEW|INDEX|TRIGGER)\s+IF\s+EXISTS' || true)
+            if [ -n "$HITS" ]; then
+              BLOCKED="$BLOCKED$f:\n$HITS\n"
+            fi
+          done
           if [ -n "$BLOCKED" ]; then
-            echo "::error::Destructive DDL detected — requires manual approval:"
-            echo "$BLOCKED"
+            echo "::error::Destructive DDL detected — requires manual approval (add '-- @destructive-ddl-approved' marker to acknowledge):"
+            printf '%b' "$BLOCKED"
             exit 1
           fi
       - name: Link to staging project

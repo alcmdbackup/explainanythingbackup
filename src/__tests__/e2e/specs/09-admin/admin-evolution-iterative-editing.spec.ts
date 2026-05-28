@@ -10,7 +10,7 @@
 //   - Exactly one new variant per editing invocation (single final variant).
 //   - Final variant's parent_variant_id points at the original generated parent
 //     (NOT a cycle-N-1 intermediate).
-//   - iterative_edit_cost AND iterative_edit_rank_cost metrics > 0.
+//   - iterative_edit_cost AND subagent:ranking.cost metrics > 0.
 //   - Editing-born variants have non-default mu after the post-cycle ranking step.
 //   - Wizard rubber-stamping warning surfaces when editingModel === approverModel
 //     (Decisions §16) and disappears when distinct.
@@ -32,16 +32,7 @@ function getServiceClient() {
 
 adminTest.describe('Iterative Editing Pipeline', { tag: '@evolution' }, () => {
   adminTest.describe.configure({ mode: 'serial' });
-  adminTest.setTimeout(360_000);
-
-  // SKIPPED: beforeAll runs a real LLM pipeline that takes 5+ min on CI's
-  // environment (compared to 4-5 min on staging direct runs). CI shows 11+
-  // minute gaps between generation calls suggesting LLM rate limits or
-  // orchestration stalls. New test (added since May 25 production release) —
-  // first attempt in production-target CI. Tracked for follow-up: investigate
-  // CI's evolution pipeline perf characteristics + LLM-provider state.
-  // eslint-disable-next-line flakiness/no-test-skip -- pipeline perf issue on CI; new test never ran in this CI context before
-  adminTest.skip(true, 'pipeline beforeAll timing out on CI; needs perf investigation (tracked in follow-up)');
+  adminTest.setTimeout(600_000);
 
   let promptId: string;
   let strategyId: string;
@@ -49,7 +40,7 @@ adminTest.describe('Iterative Editing Pipeline', { tag: '@evolution' }, () => {
   let runId: string;
 
   adminTest.beforeAll(async ({ browser }, testInfo) => {
-    testInfo.setTimeout(360_000);
+    testInfo.setTimeout(600_000);
     const sb = getServiceClient();
 
     // Strategy: generate → iterative_editing → swiss. editingModel and
@@ -311,14 +302,19 @@ adminTest.describe('Iterative Editing Pipeline', { tag: '@evolution' }, () => {
     // still completed successfully — only assert if the metric was written.
   });
 
-  adminTest('iterative_edit_rank_cost metric > 0 for the run (when ranking enabled)', async () => {
+  adminTest('subagent:ranking.cost metric > 0 for the run (replaces iterative_edit_rank_cost)', async () => {
+    // rename_agents_subagents_evolution_20260508 Phase 6: the legacy
+    // iterative_edit_rank_cost metric was removed; ranking cost now lands on
+    // subagent:ranking.cost via the dynamic-prefix path. Assert a non-zero
+    // value (NOT just metric-name presence) to catch a regression where the
+    // prefix is wired but the writer fails to emit for iterative_editing runs.
     const sb = getServiceClient();
     const { data: rows } = await sb
       .from('evolution_metrics')
       .select('value')
       .eq('entity_id', runId)
       .eq('entity_type', 'run')
-      .eq('name', 'iterative_edit_rank_cost')
+      .eq('name', 'subagent:ranking.cost')
       .limit(1);
 
     if (rows && rows.length > 0) {

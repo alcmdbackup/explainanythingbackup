@@ -9,7 +9,8 @@
 //     EDITING_RANK_ENABLED=true (default), surfaced editing variants land
 //     with non-default Elo and the editing iteration's arena_comparisons
 //     buffer (formerly empty per §14) is now populated by MergeRatingsAgent.
-//   - iterative_edit_cost + iterative_edit_rank_cost metrics > 0.
+//   - iterative_edit_cost + subagent:ranking.cost metrics > 0
+//     (iterative_edit_rank_cost was removed in Phase 6).
 //   - Per-purpose cost split present in execution_detail.cycles[i].
 
 import { evolveArticle } from '@evolution/lib/pipeline/loop/runIterationLoop';

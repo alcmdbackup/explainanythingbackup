@@ -15,6 +15,12 @@ import {
   buildVariantDetailUrl,
 } from '@evolution/lib/utils/evolutionUrls';
 import { GanttBar } from '@evolution/components/evolution/visualizations/GanttBar';
+// Phase 5 of rename_agents_subagents_evolution_20260508: each invocation row in
+// the run Timeline now expands to reveal its subagent tree inline. Same data
+// source (execution_detail JSONB) as the Subagents tab; the row → tree mapping
+// uses buildSubagentTree from lib/shared/. Pure presentation; no DB change.
+import { buildSubagentTree, type InvocationForTree } from '@evolution/lib/shared/buildSubagentTree';
+import type { SubagentNode } from '@evolution/lib/shared/subagentTreeParser';
 import type { IterationResult } from '@evolution/lib/pipeline/infra/types';
 
 export interface TimelineTabProps {
@@ -115,6 +121,88 @@ interface BarProps {
   inv: InvocationListEntry;
   runStartMs: number;
   totalMs: number;
+}
+
+/**
+ * Phase 5 of rename_agents_subagents_evolution_20260508: row wrapper that adds
+ * an expand chevron next to each invocation. Expanded state reveals the L2+
+ * subagent tree inline as indented secondary rows. Same buildSubagentTree pipeline
+ * the Subagents tab uses; same node renderer (simple inline summary, NOT the full
+ * SubagentRow component — keeps the run Timeline compact).
+ */
+function SubagentInlineRow({ node }: { node: SubagentNode }): JSX.Element {
+  const indent = (node.level - 1) * 12;
+  const kindColor =
+    node.kind === 'LLM' ? '#3b82f6'
+    : node.kind === 'Composite' ? '#8b5cf6'
+    : '#9ca3af';
+  return (
+    <>
+      <div
+        className="flex items-center gap-2 py-0.5 text-xs"
+        style={{ paddingLeft: `${36 + indent}px` }}
+        data-testid={`timeline-subagent-${node.path.join('.')}`}
+      >
+        <span className="font-mono text-[var(--text-muted)] w-6">L{node.level}</span>
+        <span
+          className="inline-block w-2 h-2 rounded-full shrink-0"
+          style={{ backgroundColor: kindColor }}
+        />
+        <span className="font-mono text-[var(--text-secondary)] flex-1 truncate" title={node.path.join('.')}>
+          {node.name}
+        </span>
+        <span className="text-[var(--text-muted)] w-14 text-right">
+          {node.durationMs > 0 ? `${node.durationMs}ms` : '—'}
+        </span>
+        <span className="text-[var(--text-muted)] w-16 text-right font-mono">
+          ${node.costUsd.toFixed(node.costUsd < 0.001 ? 6 : 4)}
+        </span>
+      </div>
+      {node.children.map((child) => (
+        <SubagentInlineRow key={child.path.join('.')} node={child} />
+      ))}
+    </>
+  );
+}
+
+function ExpandableInvocationBar({ inv, runStartMs, totalMs }: BarProps): JSX.Element {
+  const [open, setOpen] = useState(false);
+
+  // Build the tree lazily — only when the row is open. Avoids parsing JSONB for
+  // every invocation on render.
+  const tree = open ? buildSubagentTree(inv as unknown as InvocationForTree) : null;
+  const hasChildren = (tree?.children.length ?? 0) > 0;
+
+  return (
+    <div data-testid={`timeline-row-${inv.id}`}>
+      <div className="flex items-center">
+        <button
+          type="button"
+          onClick={() => setOpen(!open)}
+          className="w-6 shrink-0 text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+          aria-label={open ? 'Collapse subagents' : 'Expand subagents'}
+          data-testid={`timeline-expand-${inv.id}`}
+        >
+          {open ? '▼' : '▶'}
+        </button>
+        <div className="flex-1">
+          <InvocationBar inv={inv} runStartMs={runStartMs} totalMs={totalMs} />
+        </div>
+      </div>
+      {open && tree && hasChildren && (
+        <div className="border-l border-[var(--border-default)] ml-3 pl-1">
+          {tree.children.map((child) => (
+            <SubagentInlineRow key={child.path.join('.')} node={child} />
+          ))}
+        </div>
+      )}
+      {open && !hasChildren && (
+        <div className="text-xs text-[var(--text-muted)] pl-12 py-1">
+          No subagents in execution_detail for this agent type.
+        </div>
+      )}
+    </div>
+  );
 }
 
 function InvocationBar({ inv, runStartMs, totalMs }: BarProps): JSX.Element {
@@ -470,7 +558,7 @@ export function TimelineTab({ runId, run }: TimelineTabProps): JSX.Element {
                     <div className="w-16 shrink-0" />
                   </div>
                   {invs.map((inv) => (
-                    <InvocationBar
+                    <ExpandableInvocationBar
                       key={inv.id}
                       inv={inv}
                       runStartMs={runStartMs}

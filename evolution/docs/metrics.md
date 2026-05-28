@@ -1,5 +1,29 @@
 # Metrics System
 
+> **Subagent metrics (rename_agents_subagents_evolution_20260508 Phase 3 / 6):**
+> the dynamic prefix `subagent:<dotted-path>.<measure>` (where `<measure>` ∈
+> `{cost, duration_ms, count}`) carries per-subagent rollups at run, strategy, and
+> experiment levels. **Supersedes** the legacy `agentCost:` dynamic prefix and the
+> legacy `iterative_edit_rank_cost` static metric — both removed in Phase 6. Examples: `subagent:reflection.cost`, `subagent:cycle.propose.cost`,
+> `subagent:ranking.count`. Written at run finalization via three explicit
+> `writeMetricMax` calls (one per entity level), keyed on `opts.strategyId` /
+> `opts.experimentId` — mirrors the existing `eloAttrDelta:*` per-level write
+> structure but uses `writeMetricMax` (GREATEST) for monotone-up cost values vs
+> `writeMetric` (overwrite) for signed Elo deltas.
+>
+> Allowlist of subagent names is enforced in `experimentMetrics.computeSubagentMetrics`:
+> `reflection`, `generation`, `ranking`, `comparison`, `evaluate_and_suggest`,
+> `cycle.{propose,review,apply}`, `drift_recovery`, `approve_forward`, `approve_mirror`,
+> `seed_title`, `seed_article`, `merge`, `pair`. Typo'd names are dropped.
+>
+> Kill switch: `EVOLUTION_EMIT_SUBAGENT_METRICS=false` disables the new emission
+> without a code revert.
+>
+> Backfill for historical runs: `evolution/scripts/backfillSubagentMetrics.ts`
+> (default `--dry-run`; pass `--apply` to write).
+
+
+
 The evolution pipeline uses a centralized metrics system stored in a single `evolution_metrics` EAV (entity-attribute-value) table. Metrics are computed at three lifecycle stages, support lazy recomputation via stale flags, and propagate from child entities (runs) to parent entities (strategies, experiments) using configurable aggregation.
 
 > **Per-purpose cost split (live):** Two run-level metrics — `generation_cost` and

@@ -81,12 +81,8 @@ export class StrategyEntity extends Entity<EvolutionStrategyFullDb> {
       { ...METRIC_CATALOG.avg_iterative_edit_cost_per_run,
         sourceEntity: 'run', sourceMetric: 'iterative_edit_cost',
         aggregate: aggregateAvg, aggregationMethod: 'avg' },
-      { ...METRIC_CATALOG.total_iterative_edit_rank_cost,
-        sourceEntity: 'run', sourceMetric: 'iterative_edit_rank_cost',
-        aggregate: aggregateSum, aggregationMethod: 'sum' },
-      { ...METRIC_CATALOG.avg_iterative_edit_rank_cost_per_run,
-        sourceEntity: 'run', sourceMetric: 'iterative_edit_rank_cost',
-        aggregate: aggregateAvg, aggregationMethod: 'avg' },
+      // (rename_agents_subagents_evolution_20260508 Phase 6) Removed iterative_edit_rank_cost
+      // propagations — superseded by subagent:ranking.cost dynamic prefix.
       { ...METRIC_CATALOG.total_evaluation_cost,
         sourceEntity: 'run', sourceMetric: 'evaluation_cost',
         aggregate: aggregateSum, aggregationMethod: 'sum' },

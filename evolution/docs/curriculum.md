@@ -226,6 +226,9 @@ Key terms used throughout the Evolution documentation and codebase.
 
 | Term | Definition |
 |------|------------|
+| **Agent** | One row in `evolution_agent_invocations`. One `Agent.run()`, one `AgentCostScope`, one invocation-scoped logger. The L1 root of the subagent tree. (See `rename_agents_subagents_evolution_20260508`.) |
+| **Subagent** | Any sub-unit of work inside an agent invocation — reflection, generation, ranking, an individual ranking comparison, an iterative-editing cycle, etc. Recursive: a subagent can itself contain subagents. Per the team decision, **any Agent class can also appear as a subagent** when invoked from inside another agent. Surfaced via the "Subagents" tab on invocation detail and via run-level `subagent:<name>.cost` metric rows. |
+| **Level** | Depth in the subagent tree relative to the L1 root. L1 = the agent invocation; L2+ = subagents. Computed from path depth at render time, not stored. The same Agent class can be L1 in one invocation and L2+ in another. |
 | **Arena** | Persistent cross-run leaderboard using Elo ratings with per-variant uncertainty (OpenSkill internally). Allows variants from different runs to be compared. See [Arena](./arena.md). |
 | **Seed variant** | The initial article variant in a run (version 0, `strategy='seed_variant'`). Every prompt-based run starts with one seed variant before generating alternatives. **Renamed from "baseline" 2026-04-14**; admin UI dual-accepts both names for one release cycle. When a persisted seed exists for the prompt (`generation_method='seed'`), the run reuses its UUID + rating instead of creating a fresh one — see [arena.md](./arena.md). |
 | **Budget pressure** | Dynamic scaling of comparison counts based on how much of the run budget has been consumed. Three tiers — low, medium, high — progressively reduce comparison work to stay within budget. See [Cost Optimization](./cost_optimization.md). |

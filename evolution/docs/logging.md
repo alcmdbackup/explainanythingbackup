@@ -28,6 +28,8 @@ STRATEGY (shared across runs, not a parent in the hierarchy)
 
 Each log row records both its direct emitter (`entity_type` + `entity_id`) and denormalized ancestor FKs (`run_id`, `experiment_id`, `strategy_id`). This denormalization enables efficient aggregation queries without JOINs.
 
+**Subagent name (rename_agents_subagents_evolution_20260508 Phase 4 + 4b):** every log row carries the dotted **subagent path** of the emitter in `evolution_logs.subagent_name` (e.g. `'reflection'`, `'generate_from_previous_article.ranking'`, `'cycle.1.propose'`). The legacy `evolution_logs.agent_name` column has been dropped (Phase 4b, migration 20260509000002). Code-side, callers pass `subagentName: string | string[]` (arrays joined to a dotted path on write) or use the `logger.child(name)` ergonomic primitive — `child()` returns a new EntityLogger with the path extended; pure in-memory, no DB write at construction, safe inside hot loops.
+
 **Entity types** (`EntityType` union in `createEntityLogger.ts`):
 - `'run'` — pipeline-level lifecycle events (start, phase transitions, completion)
 - `'invocation'` — per-agent-per-iteration execution logs

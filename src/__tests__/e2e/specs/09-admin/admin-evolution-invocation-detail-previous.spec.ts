@@ -22,6 +22,11 @@ adminTest.describe('Invocation Detail — generate_from_previous_article', { tag
     await adminPage.goto(`/admin/evolution/invocations/${fixture.leafInvocationId}`);
     await adminPage.waitForLoadState('domcontentloaded');
 
+    // Phase 2 of rename_agents_subagents_evolution_20260508: Subagents is now the
+    // default first tab. Switch to Overview to access the parent block + raw-LLM
+    // section, which remain in the bespoke Overview content.
+    await adminPage.getByRole('tab', { name: 'Overview', exact: true }).click();
+
     // Parent-context block visible.
     await expect(adminPage.locator('[data-testid="invocation-parent-block"]')).toBeVisible({ timeout: 20000 });
 

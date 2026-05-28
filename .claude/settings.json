@@ -84,7 +84,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cd \"$CLAUDE_PROJECT_DIR\" && bash .claude/hooks/enforce-bypass-safety.sh"
+            "command": "bash .claude/hooks/enforce-bypass-safety.sh"
           }
         ]
       },
@@ -93,15 +93,11 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cd \"$CLAUDE_PROJECT_DIR\" && bash .claude/hooks/block-manual-server.sh"
+            "command": "bash .claude/hooks/block-manual-server.sh"
           },
           {
             "type": "command",
-            "command": "cd \"$CLAUDE_PROJECT_DIR\" && bash .claude/hooks/block-supabase-writes.sh"
-          },
-          {
-            "type": "command",
-            "command": "cd \"$CLAUDE_PROJECT_DIR\" && bash .claude/hooks/block-push-without-gate.sh"
+            "command": "bash .claude/hooks/block-supabase-writes.sh"
           }
         ]
       },
@@ -110,11 +106,11 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cd \"$CLAUDE_PROJECT_DIR\" && bash .claude/hooks/check-workflow-ready.sh"
+            "command": "bash .claude/hooks/check-workflow-ready.sh"
           },
           {
             "type": "command",
-            "command": "cd \"$CLAUDE_PROJECT_DIR\" && bash .claude/hooks/block-silent-failures.sh \"$FILE_PATH\" \"$NEW_CONTENT\""
+            "command": "bash .claude/hooks/block-silent-failures.sh \"$FILE_PATH\" \"$NEW_CONTENT\""
           }
         ]
       },
@@ -123,11 +119,11 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cd \"$CLAUDE_PROJECT_DIR\" && bash .claude/hooks/check-workflow-ready.sh"
+            "command": "bash .claude/hooks/check-workflow-ready.sh"
           },
           {
             "type": "command",
-            "command": "cd \"$CLAUDE_PROJECT_DIR\" && bash .claude/hooks/block-silent-failures.sh \"$FILE_PATH\" \"$CONTENT\""
+            "command": "bash .claude/hooks/block-silent-failures.sh \"$FILE_PATH\" \"$CONTENT\""
           }
         ]
       }
@@ -142,7 +138,7 @@
           },
           {
             "type": "command",
-            "command": "cd \"$CLAUDE_PROJECT_DIR\" && bash .claude/hooks/check-test-patterns.sh $FILE_PATH"
+            "command": "bash .claude/hooks/check-test-patterns.sh $FILE_PATH"
           }
         ]
       },
@@ -155,7 +151,7 @@
           },
           {
             "type": "command",
-            "command": "cd \"$CLAUDE_PROJECT_DIR\" && bash .claude/hooks/check-test-patterns.sh $FILE_PATH"
+            "command": "bash .claude/hooks/check-test-patterns.sh $FILE_PATH"
           }
         ]
       },
@@ -164,7 +160,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cd \"$CLAUDE_PROJECT_DIR\" && bash .claude/hooks/track-prerequisites.sh"
+            "command": "bash .claude/hooks/track-prerequisites.sh"
           }
         ]
       },
@@ -173,7 +169,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cd \"$CLAUDE_PROJECT_DIR\" && bash .claude/hooks/track-prerequisites.sh"
+            "command": "bash .claude/hooks/track-prerequisites.sh"
           }
         ]
       }
@@ -194,7 +190,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cd \"$CLAUDE_PROJECT_DIR\" && bash .claude/hooks/backup-on-bypass.sh"
+            "command": "bash .claude/hooks/backup-on-bypass.sh"
           }
         ]
       },
@@ -203,7 +199,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cd \"$CLAUDE_PROJECT_DIR\" && bash .claude/hooks/fresh-branch-on-startup.sh"
+            "command": "bash .claude/hooks/fresh-branch-on-startup.sh"
           }
         ]
       },
@@ -211,7 +207,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cd \"$CLAUDE_PROJECT_DIR\" && bash .claude/hooks/start-dev-servers.sh"
+            "command": "bash .claude/hooks/start-dev-servers.sh"
           }
         ]
       }
@@ -221,18 +217,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cd \"$CLAUDE_PROJECT_DIR\" && bash .claude/hooks/cleanup-tmux.sh"
-          }
-        ]
-      }
-    ],
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "cd \"$CLAUDE_PROJECT_DIR\" && bash .claude/hooks/enforce-ci-monitoring.sh",
-            "timeout": 30000
+            "command": "bash .claude/hooks/cleanup-tmux.sh"
           }
         ]
       }

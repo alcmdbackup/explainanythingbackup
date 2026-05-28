@@ -26,9 +26,9 @@ export const STATIC_METRIC_NAMES = [
   // bring_back_debate_agent_20260506 Phase 1.5 — single bucket for both
   // debate_judge and debate_synthesis AgentNames (per Decision §6 + Phase 1.4).
   'debate_cost',
-  // Phase 3.5 — separate cost bucket for the post-cycle ranking step inside
-  // editing iterations (mirrors the generation_cost/ranking_cost split for GFPA).
-  'iterative_edit_rank_cost',
+  // (rename_agents_subagents_evolution_20260508 Phase 6 / 4b cleanup) The legacy
+  // iterative_edit_rank_cost metric was removed — superseded by subagent:ranking.cost
+  // which carries the same value at higher granularity via the dynamic-prefix path.
   // Run (live during-execution) — operational health for iterative_editing
   'iterative_edit_drift_rate',
   'iterative_edit_recovery_success_rate',
@@ -56,7 +56,7 @@ export const STATIC_METRIC_NAMES = [
   'total_ranking_cost', 'avg_ranking_cost_per_run',
   'total_reflection_cost', 'avg_reflection_cost_per_run',
   'total_iterative_edit_cost', 'avg_iterative_edit_cost_per_run',
-  'total_iterative_edit_rank_cost', 'avg_iterative_edit_rank_cost_per_run',
+  // (removed) total_iterative_edit_rank_cost / avg_iterative_edit_rank_cost_per_run
   'total_seed_cost', 'avg_seed_cost_per_run',
   // Run-level evaluation cost (single combined LLM call by the criteria-driven wrapper)
   'evaluation_cost', 'total_evaluation_cost', 'avg_evaluation_cost_per_run',
@@ -105,18 +105,25 @@ export const STATIC_METRIC_NAMES = [
 ] as const;
 export type StaticMetricName = typeof STATIC_METRIC_NAMES[number];
 /**
- * Dynamic per-agent-class cost metric prefix. Used by `experimentMetrics.ts` ONLY
- * for aggregating invocation `cost_usd` by `agent_name` (e.g. `agentCost:generate_from_previous_article`).
+ * Dynamic metric prefixes.
  *
- * Per-LLM-call cost attribution uses static `*_cost` names via `COST_METRIC_BY_AGENT`
- * in `evolution/src/lib/core/agentNames.ts`. The two namespaces are orthogonal.
+ * (rename_agents_subagents_evolution_20260508 Phase 6) The legacy `agentCost:`
+ * prefix was removed — superseded by `subagent:<name>.cost` which carries the same
+ * value at higher granularity via the dynamic-prefix path.
  */
 export type DynamicMetricName =
-  | `agentCost:${string}`
   /** Phase 5: per-agent, per-dimension mean ELO delta. `eloAttrDelta:<agentName>:<dimensionValue>`. */
   | `eloAttrDelta:${string}`
   /** Phase 5: per-agent ELO-delta histogram bucket. `eloAttrDeltaHist:<agentName>:<bucketStart>:<bucketEnd>`. */
-  | `eloAttrDeltaHist:${string}`;
+  | `eloAttrDeltaHist:${string}`
+  /**
+   * rename_agents_subagents_evolution_20260508 Phase 3: per-subagent cost / duration / count.
+   * `subagent:<dotted-path>.<measure>` where `<measure>` ∈ {cost, duration_ms, count}.
+   * Examples: `subagent:reflection.cost`, `subagent:cycle.propose.cost`,
+   * `subagent:ranking.count`. Written at run/strategy/experiment levels via three
+   * explicit writeMetricMax calls in experimentMetrics.computeRunSubagentMetrics.
+   */
+  | `subagent:${string}`;
 export type MetricName = StaticMetricName | DynamicMetricName;
 
 /**
@@ -127,16 +134,21 @@ export type MetricName = StaticMetricName | DynamicMetricName;
  *  - `EntityMetricsTab` formatter / category / label resolution
  *
  * Per-purpose notes:
- *  - `agentCost:` rows aggregate per-invocation `cost_usd` by `agent_name`. They
- *    were superseded by static `*_cost` names but are kept for legacy compatibility.
  *  - `eloAttrDelta:` rows are SIGNED Elo-point deltas (child − parent). MUST render
  *    via `elo` formatter; rendering as currency produces nonsense like `$-1.951`.
  *  - `eloAttrDeltaHist:` rows are bucket-fraction percents in `[0, 1]`.
+ *  - `subagent:<path>.<measure>` rows are per-subagent cost/duration/count rollups
+ *    written at run/strategy/experiment levels (Phase 3). Superseded the legacy
+ *    `agentCost:` prefix in Phase 6.
  */
 export const DYNAMIC_METRIC_REGISTRY = {
-  'agentCost:':        { formatter: 'costDetailed', category: 'cost',   labelSuffix: ' Cost' },
   'eloAttrDelta:':     { formatter: 'elo',          category: 'rating', labelSuffix: ' Δ Elo' },
   'eloAttrDeltaHist:': { formatter: 'percent',      category: 'rating', labelSuffix: ' (bucket)' },
+  // rename_agents_subagents_evolution_20260508 Phase 3:
+  // subagent:<path>.<cost|duration_ms|count>. Formatter is costDetailed because cost
+  // is the most common access pattern; duration_ms/count consumers can render via
+  // the registered measure suffix at the call site.
+  'subagent:':         { formatter: 'costDetailed', category: 'cost',   labelSuffix: '' },
 } as const satisfies Record<string, { formatter: 'cost' | 'costDetailed' | 'elo' | 'score' | 'percent' | 'percentValue' | 'integer'; category: 'cost' | 'rating' | 'match' | 'count'; labelSuffix: string }>;
 
 // Backward-compat: derive prefix list from the registry so the two never drift.
@@ -145,7 +157,7 @@ export const DYNAMIC_METRIC_PREFIXES = Object.keys(DYNAMIC_METRIC_REGISTRY) as A
 /**
  * B041: true when the metric name is one of the dynamic-prefix families above. The
  * stale-cascade (`Entity.markParentMetricsStale`) consults this in addition to the
- * static propagation defs so dynamic-prefix rows (`eloAttrDelta:*`, `agentCost:*`,
+ * static propagation defs so dynamic-prefix rows (`eloAttrDelta:*`, `subagent:*`,
  * `eloAttrDeltaHist:*`) get marked stale on variant rating drift.
  */
 export function isDynamicMetricName(name: string): boolean {

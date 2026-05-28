@@ -49,12 +49,11 @@ test.describe('Public Smoke Tests', () => {
   );
 });
 
-// Catches today's failure mode (debug_no_logged_out_page_explainanything_20260505):
-// prod GUEST_PASSWORD out of sync with prod Supabase user → middleware sets
-// GUEST_AUTOLOGIN_FAILED_RECENTLY cookie → /login renders ServiceUnavailableNotice.
-// Runs in both post-deploy smoke (@smoke-public grep) and nightly (chromium/firefox
-// testMatch on this file), so any deploy that breaks guest auto-login alerts within
-// ~2 min via Slack.
+// Catches the prod GUEST_PASSWORD out-of-sync failure mode: middleware fails
+// signInWithPassword → redirects to /login → visitor lands on the login form
+// instead of being silently signed in as guest. The URL assertion below catches
+// this within ~2 min via Slack (runs in both post-deploy smoke @smoke-public grep
+// and nightly chromium/firefox testMatch on this file).
 unauthTest.describe('Public Smoke Tests — guest auto-login', () => {
   unauthTest.use({ storageState: { cookies: [], origins: [] } });
 
@@ -76,7 +75,6 @@ unauthTest.describe('Public Smoke Tests — guest auto-login', () => {
     async ({ page }) => {
       await page.goto('/');
 
-      await expect(page.getByTestId('service-unavailable-notice')).toHaveCount(0);
       await expect(page).not.toHaveURL(/\/login/);
 
       // Hydration proof (testing_overview.md Rule 18) — also confirms we landed
