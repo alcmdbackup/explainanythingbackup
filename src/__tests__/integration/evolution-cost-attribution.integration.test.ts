@@ -52,9 +52,13 @@ const GEN_PROMPT = 'g'.repeat(4000); // 1000 input tokens
 const GEN_RESPONSE = 'G'.repeat(4000); // 1000 output tokens → cost $0.002 per call
 const RANK_PROMPT = 'r'.repeat(4000); // 1000 input tokens
 const RANK_RESPONSE = 'R'.repeat(400); // 100 output tokens → cost $0.0011 per call
+// rank_individual_paragraphs_evolution_20260525 Phase 7 — paragraph_rewrite cost engineering.
+const PARA_REWRITE_PROMPT = 'p'.repeat(1000); // 250 input tokens
+const PARA_REWRITE_RESPONSE = 'P'.repeat(1000); // 250 output tokens → cost $0.0005 per call
 
 const COST_PER_GEN_CALL = (1000 + 1000) / 1_000_000; // = 0.002
 const COST_PER_RANK_CALL = (1000 + 100) / 1_000_000; // = 0.0011
+const COST_PER_PARA_REWRITE_CALL = (250 + 250) / 1_000_000; // = 0.0005
 
 async function rpcExists(sb: SupabaseClient): Promise<boolean> {
   const { error } = await sb.rpc('upsert_metric_max', {
@@ -384,5 +388,49 @@ describe('Per-purpose cost attribution integration tests', () => {
     expect(sharedTracker.getTotalSpent()).toBeCloseTo(
       expected.reduce((a, b) => a + b, 0), 8,
     );
+  });
+
+  // rank_individual_paragraphs_evolution_20260525 Phase 7 — paragraph_rewrite label routes
+  // to paragraph_recombine_cost (NOT generation_cost / ranking_cost).
+  it('"paragraph_rewrite" label routes to paragraph_recombine_cost metric', async () => {
+    if (!tablesExist || !migrationApplied) return;
+
+    const rawProvider = {
+      complete: jest.fn(async (_prompt: string, label: AgentName) => {
+        if (label === 'paragraph_rewrite') return PARA_REWRITE_RESPONSE;
+        throw new Error(`Unexpected label: ${label}`);
+      }),
+    };
+    const costTracker = createCostTracker(1.0);
+    const llm = createEvolutionLLMClient(
+      rawProvider,
+      costTracker,
+      'gpt-4.1-nano',
+      undefined,
+      supabase,
+      runId,
+    );
+
+    await llm.complete(PARA_REWRITE_PROMPT, 'paragraph_rewrite');
+    await llm.complete(PARA_REWRITE_PROMPT, 'paragraph_rewrite');
+    await llm.complete(PARA_REWRITE_PROMPT, 'paragraph_rewrite');
+
+    const expectedRewriteCost = 3 * COST_PER_PARA_REWRITE_CALL;
+
+    const { data, error } = await supabase
+      .from('evolution_metrics')
+      .select('metric_name, value')
+      .eq('entity_type', 'run')
+      .eq('entity_id', runId)
+      .in('metric_name', ['cost', 'generation_cost', 'ranking_cost', 'paragraph_recombine_cost']);
+
+    expect(error).toBeNull();
+    const byName = new Map(data!.map(r => [r.metric_name, Number(r.value)]));
+
+    expect(byName.get('paragraph_recombine_cost')).toBeCloseTo(expectedRewriteCost, 6);
+    expect(byName.get('cost')).toBeCloseTo(expectedRewriteCost, 6);
+    // Cost did NOT leak into generation_cost or ranking_cost.
+    expect(byName.get('generation_cost') ?? 0).toBe(0);
+    expect(byName.get('ranking_cost') ?? 0).toBe(0);
   });
 });
