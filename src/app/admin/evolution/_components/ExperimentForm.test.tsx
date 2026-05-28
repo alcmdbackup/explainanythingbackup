@@ -119,6 +119,10 @@ describe('ExperimentForm', () => {
       render(<ExperimentForm />);
       expect(screen.getByText('Loading...')).toBeInTheDocument();
       await waitFor(() => expect(screen.getByText('Photosynthesis')).toBeInTheDocument());
+      // id-keyed testid lets the wizard E2E target a specific seeded prompt (avoids
+      // matching leftover rows from prior runs).
+      expect(screen.getByTestId('prompt-option-p1')).toBeInTheDocument();
+      expect(screen.getByTestId('prompt-option-p2')).toBeInTheDocument();
     });
 
     it('shows errors when Next clicked with empty name', async () => {

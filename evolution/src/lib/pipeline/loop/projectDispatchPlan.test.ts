@@ -711,4 +711,79 @@ describe('projectDispatchPlan', () => {
       );
     });
   });
+
+  // rank_individual_paragraphs_evolution_20260525 — paragraph_recombine branch tests.
+  describe('paragraph_recombine branch', () => {
+    it('routes paragraph_recombine through paragraphRecombine cost field (NOT gen/rank)', () => {
+      const plan = projectDispatchPlan(
+        baseConfig({
+          iterationConfigs: [
+            { agentType: 'generate', budgetPercent: 30 },
+            { agentType: 'paragraph_recombine', budgetPercent: 70, sourceMode: 'pool', qualityCutoff: { mode: 'topN', value: 5 } },
+          ],
+        }),
+        baseCtx(),
+      );
+      // generate iteration: gen > 0, paragraphRecombine = 0
+      expect(plan[0]!.estPerAgent.expected.gen).toBeGreaterThan(0);
+      expect(plan[0]!.estPerAgent.expected.paragraphRecombine).toBe(0);
+      // paragraph_recombine iteration: paragraphRecombine > 0, gen = 0 (per-slot rewrites bucket here)
+      expect(plan[1]!.estPerAgent.expected.gen).toBe(0);
+      expect(plan[1]!.estPerAgent.expected.paragraphRecombine).toBeGreaterThan(0);
+    });
+
+    it('emits dispatchCount=1 when paragraph_recombine has a pool parent available', () => {
+      const plan = projectDispatchPlan(
+        baseConfig({
+          iterationConfigs: [
+            { agentType: 'generate', budgetPercent: 50 },
+            { agentType: 'paragraph_recombine', budgetPercent: 50, sourceMode: 'pool', qualityCutoff: { mode: 'topN', value: 5 } },
+          ],
+        }),
+        baseCtx(),
+      );
+      expect(plan[1]!.dispatchCount).toBe(1);
+      expect(plan[1]!.expectedTotalDispatch).toBe(1);
+    });
+
+    it('kill-switch (paragraphRecombineEnabled=false) collapses dispatch to 0', () => {
+      const plan = projectDispatchPlan(
+        baseConfig({
+          iterationConfigs: [
+            { agentType: 'generate', budgetPercent: 30 },
+            { agentType: 'paragraph_recombine', budgetPercent: 70, sourceMode: 'pool', qualityCutoff: { mode: 'topN', value: 5 } },
+          ],
+        }),
+        baseCtx(),
+        { paragraphRecombineEnabled: false },
+      );
+      expect(plan[1]!.dispatchCount).toBe(0);
+      expect(plan[1]!.estPerAgent.expected.paragraphRecombine).toBe(0);
+    });
+
+    it('per-iteration knobs flow into the cost projection', () => {
+      const lo = projectDispatchPlan(
+        baseConfig({
+          iterationConfigs: [
+            { agentType: 'generate', budgetPercent: 30 },
+            { agentType: 'paragraph_recombine', budgetPercent: 70, sourceMode: 'pool', qualityCutoff: { mode: 'topN', value: 5 },
+              rewritesPerParagraph: 1, maxParagraphsPerInvocation: 3, maxComparisonsPerParagraph: 1 },
+          ],
+        }),
+        baseCtx(),
+      );
+      const hi = projectDispatchPlan(
+        baseConfig({
+          iterationConfigs: [
+            { agentType: 'generate', budgetPercent: 30 },
+            { agentType: 'paragraph_recombine', budgetPercent: 70, sourceMode: 'pool', qualityCutoff: { mode: 'topN', value: 5 },
+              rewritesPerParagraph: 6, maxParagraphsPerInvocation: 24, maxComparisonsPerParagraph: 20 },
+          ],
+        }),
+        baseCtx(),
+      );
+      expect(hi[1]!.estPerAgent.expected.paragraphRecombine)
+        .toBeGreaterThan(lo[1]!.estPerAgent.expected.paragraphRecombine);
+    });
+  });
 });

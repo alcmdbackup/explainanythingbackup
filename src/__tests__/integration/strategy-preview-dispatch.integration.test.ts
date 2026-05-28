@@ -147,9 +147,10 @@ describe('getStrategyDispatchPreviewAction (integration)', () => {
     // the `evaluation` field (criteria-driven branch), and most recently the `debate`
     // field (bring_back_debate_agent_20260506 PR #1045). All are now backfilled to
     // mirror the server's EstPerAgentValue. Guards against manual-mirror drift.
+    // 'paragraphRecombine' added by rank_individual_paragraphs_evolution_20260525 Phase 5.
     const expectedKeys = Object.keys(plan[0]!.estPerAgent.expected).sort();
-    expect(expectedKeys).toEqual(['debate', 'editing', 'editingRank', 'evaluation', 'gen', 'rank', 'reflection', 'total']);
+    expect(expectedKeys).toEqual(['debate', 'editing', 'editingRank', 'evaluation', 'gen', 'paragraphRecombine', 'rank', 'reflection', 'total']);
     const upperKeys = Object.keys(plan[0]!.estPerAgent.upperBound).sort();
-    expect(upperKeys).toEqual(['debate', 'editing', 'editingRank', 'evaluation', 'gen', 'rank', 'reflection', 'total']);
+    expect(upperKeys).toEqual(['debate', 'editing', 'editingRank', 'evaluation', 'gen', 'paragraphRecombine', 'rank', 'reflection', 'total']);
   });
 });

@@ -87,11 +87,21 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-# Wait for postgres ready, capped at 30s (150 × 0.2s)
+# Wait for the FINAL postgres server, capped at 30s (150 × 0.2s).
+# The official postgres entrypoint first boots a TEMPORARY server that listens on
+# the UNIX SOCKET ONLY (listen_addresses='') to run init scripts, then stops it and
+# starts the real server. A socket-based probe (psql -U postgres, no host) is
+# satisfied by that temporary server, so readiness "passes" — then the socket
+# vanishes during the restart and the migration-apply fails with
+# "connection to server on socket … No such file or directory".
+# Probe over TCP (-h 127.0.0.1) instead: the temporary server never opens a TCP
+# listener, so this only succeeds once the FINAL server is accepting connections
+# (its socket is up by then too). PGPASSWORD is needed because host connections use
+# scram auth, whereas the socket the apply uses is trust.
 echo "→ Waiting for postgres to be ready..."
 READY=0
 for _ in $(seq 1 150); do
-  if docker exec "$CONTAINER_ID" pg_isready -q -U postgres 2>/dev/null; then
+  if docker exec -e PGPASSWORD=shadow "$CONTAINER_ID" psql -h 127.0.0.1 -U postgres -tAc 'SELECT 1' >/dev/null 2>&1; then
     READY=1
     break
   fi

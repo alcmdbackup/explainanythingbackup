@@ -291,6 +291,71 @@ export function parseMergeRatingsTree(detail: Record<string, unknown> | null | u
   })];
 }
 
+/**
+ * `paragraph_recombine` (wrapper, N-parallel slot orchestration).
+ * Tree: L1 wrapper → L2 slot.0 (Composite) → L3 rewrite.0 (LLM), L3 rewrite.1 (LLM), …,
+ *                                           L3 ranking (Composite, no L3 children)
+ *                  → L2 slot.1 (Composite) → …
+ *                  → L2 recombine (Deterministic).
+ *
+ * Schema constraint: `slots[i].ranking` captures matchCount + ratings only, NOT per-comparison
+ * detail (verified at slotRecombineExecutionDetailSchema). Per the Phase 9 retrofit R2 decision,
+ * ranking is emitted as an L3 Composite with no children and a `'N matches ranked'` summary
+ * rather than synthesizing fake L4 comparison nodes.
+ *
+ * rank_individual_paragraphs_evolution_20260525 — Phase 9 retrofit R2.
+ */
+export function parseParagraphRecombineTree(detail: Record<string, unknown> | null | undefined): SubagentNode[] {
+  if (!detail) return [];
+  const slots = (detail.slots as Array<Record<string, unknown>> | undefined) ?? [];
+  const out: SubagentNode[] = [];
+  let slotsReplaced = 0;
+
+  slots.forEach((slot, slotIdx) => {
+    const slotPath = [`slot.${slotIdx}`];
+    const children: SubagentNode[] = [];
+    let slotCost = 0;
+    let slotDuration = 0;
+
+    const rewrites = (slot.rewrites as Array<Record<string, unknown>> | undefined) ?? [];
+    rewrites.forEach((rw) => {
+      const cost = num(rw.costUsd);
+      const duration = num(rw.durationMs);
+      const idx = typeof rw.index === 'number' ? rw.index : 0;
+      slotCost += cost;
+      slotDuration += duration;
+      const dropReason = typeof rw.dropReason === 'string' ? rw.dropReason : undefined;
+      children.push(makeChild(slotPath, `rewrite.${idx}`, 'LLM', duration, cost, {
+        summary: dropReason ? `dropped (${dropReason})` : undefined,
+      }));
+    });
+
+    const ranking = slot.ranking as Record<string, unknown> | undefined;
+    let slotSummary: string | undefined;
+    if (ranking) {
+      const matchCount = num(ranking.matchCount);
+      children.push(makeChild(slotPath, 'ranking', 'Composite', 0, 0, {
+        summary: `${matchCount} match${matchCount === 1 ? '' : 'es'} ranked`,
+      }));
+      if (ranking.winnerIsOriginal !== true) slotsReplaced++;
+    } else {
+      const discard = slot.discardReason as Record<string, unknown> | undefined;
+      const failurePoint = discard && typeof discard.failurePoint === 'string' ? discard.failurePoint : 'unknown';
+      slotSummary = `self-aborted (${failurePoint})`;
+    }
+
+    out.push(makeChild([], `slot.${slotIdx}`, 'Composite', slotDuration, slotCost, {
+      children,
+      summary: slotSummary,
+    }));
+  });
+
+  out.push(makeChild([], 'recombine', 'Deterministic', 0, 0, {
+    summary: `${slotsReplaced} of ${slots.length} slot${slots.length === 1 ? '' : 's'} replaced`,
+  }));
+  return out;
+}
+
 /** `create_seed_article` — Tree: seed_title (LLM), seed_article (LLM), ranking (Composite). */
 export function parseCreateSeedArticleTree(detail: Record<string, unknown> | null | undefined): SubagentNode[] {
   if (!detail) return [];
@@ -341,6 +406,16 @@ export function parseSubagentTreeByAgentName(
       return parseMergeRatingsTree(detail);
     case 'create_seed_article':
       return parseCreateSeedArticleTree(detail);
+    case 'paragraph_recombine':
+      // Phase 9 retrofit T8 — try/catch fallback. paragraph_recombine has higher
+      // shape variance than other parsers (N-parallel slots with optional
+      // self-abort discardReason) so a defensive guard keeps the SubagentsTab
+      // from breaking the whole invocation page on malformed JSONB.
+      try { return parseParagraphRecombineTree(detail); }
+      catch (err) {
+        console.warn('[subagentTreeParser] paragraph_recombine parser failed; rendering empty tree', err);
+        return [];
+      }
     default:
       return [];
   }

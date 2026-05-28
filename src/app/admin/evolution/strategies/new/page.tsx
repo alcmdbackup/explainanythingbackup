@@ -76,7 +76,20 @@ interface IterationRow {
    *  agentType === 'debate_and_generate' AND the strategy's judgeModel has
    *  supportsReasoning=true (Phase 1.14 cross-field refinement enforces both). */
   debateJudgeReasoningEffort?: 'none' | 'low' | 'medium' | 'high';
+  /** rank_individual_paragraphs_evolution_20260525 — paragraph_recombine knobs.
+   *  Only valid when agentType === 'paragraph_recombine'. */
+  rewritesPerParagraph?: number;
+  maxComparisonsPerParagraph?: number;
+  maxParagraphsPerInvocation?: number;
+  paragraphRewriteModel?: string;
 }
+
+// Paragraph_recombine wizard defaults — match agent constants.
+const PARAGRAPH_RECOMBINE_DEFAULTS = {
+  rewritesPerParagraph: 3,
+  maxComparisonsPerParagraph: 8,
+  maxParagraphsPerInvocation: 12,
+} as const;
 
 // Default cutoff applied when user switches a generate iteration to sourceMode='pool'.
 // Matches the "top X articles" language; topN=5 is a sensible middle ground.
@@ -124,6 +137,10 @@ interface IterationConfigPayload {
   redundancyJaccardThreshold?: number;
   includesMirrorApprover?: boolean;
   debateJudgeReasoningEffort?: 'none' | 'low' | 'medium' | 'high';
+  rewritesPerParagraph?: number;
+  maxComparisonsPerParagraph?: number;
+  maxParagraphsPerInvocation?: number;
+  paragraphRewriteModel?: string;
 }
 
 /** Variant-producing agent types share the same parent-article source machinery
@@ -141,7 +158,7 @@ interface IterationConfigPayload {
  *  surfaced this — added 2026-05-09. */
 function isVariantProducing(
   agentType: IterationRow['agentType'],
-): agentType is 'generate' | 'reflect_and_generate' | 'criteria_and_generate' | 'single_pass_evaluate_criteria_and_generate' | 'proposer_approver_criteria_generate' {
+): agentType is 'generate' | 'reflect_and_generate' | 'criteria_and_generate' | 'single_pass_evaluate_criteria_and_generate' | 'proposer_approver_criteria_generate' | 'paragraph_recombine' {
   return agentType === 'generate'
     || agentType === 'reflect_and_generate'
     || agentType === 'criteria_and_generate'
@@ -231,6 +248,19 @@ function toIterationConfigsPayload(iterations: IterationRow[]): IterationConfigP
     // bring_back_debate_agent_20260506 Phase 4.6 — debate-only field.
     ...(it.agentType === 'debate_and_generate' && it.debateJudgeReasoningEffort
       ? { debateJudgeReasoningEffort: it.debateJudgeReasoningEffort }
+      : {}),
+    // rank_individual_paragraphs_evolution_20260525 — paragraph_recombine knobs.
+    ...(it.agentType === 'paragraph_recombine' && it.rewritesPerParagraph != null
+      ? { rewritesPerParagraph: it.rewritesPerParagraph }
+      : {}),
+    ...(it.agentType === 'paragraph_recombine' && it.maxComparisonsPerParagraph != null
+      ? { maxComparisonsPerParagraph: it.maxComparisonsPerParagraph }
+      : {}),
+    ...(it.agentType === 'paragraph_recombine' && it.maxParagraphsPerInvocation != null
+      ? { maxParagraphsPerInvocation: it.maxParagraphsPerInvocation }
+      : {}),
+    ...(it.agentType === 'paragraph_recombine' && it.paragraphRewriteModel
+      ? { paragraphRewriteModel: it.paragraphRewriteModel }
       : {}),
   }));
 }
@@ -638,8 +668,24 @@ export default function NewStrategyPage(): JSX.Element {
         delete updated.debateJudgeReasoningEffort;
         updated.criteriaIds ??= [];
         updated.weakestK ??= 1;
+      } else if (updated.agentType === 'paragraph_recombine') {
+        // Clear unrelated criteria/editing/reflection/debate fields.
+        delete updated.tacticGuidance;
+        delete updated.reflectionTopN;
+        delete updated.editingMaxCycles;
+        delete updated.editingCutoffMode;
+        delete updated.editingCutoffValue;
+        delete updated.criteriaIds;
+        delete updated.weakestK;
+        delete updated.lengthCapRatio;
+        delete updated.redundancyJaccardThreshold;
+        delete updated.includesMirrorApprover;
+        delete updated.debateJudgeReasoningEffort;
+        updated.rewritesPerParagraph ??= PARAGRAPH_RECOMBINE_DEFAULTS.rewritesPerParagraph;
+        updated.maxComparisonsPerParagraph ??= PARAGRAPH_RECOMBINE_DEFAULTS.maxComparisonsPerParagraph;
+        updated.maxParagraphsPerInvocation ??= PARAGRAPH_RECOMBINE_DEFAULTS.maxParagraphsPerInvocation;
       } else {
-        // generate: drop reflection + criteria + debate fields (stale from prior selection).
+        // generate: drop reflection + criteria + debate + paragraph fields (stale from prior selection).
         delete updated.reflectionTopN;
         delete updated.criteriaIds;
         delete updated.weakestK;
@@ -647,6 +693,10 @@ export default function NewStrategyPage(): JSX.Element {
         delete updated.redundancyJaccardThreshold;
         delete updated.includesMirrorApprover;
         delete updated.debateJudgeReasoningEffort;
+        delete updated.rewritesPerParagraph;
+        delete updated.maxComparisonsPerParagraph;
+        delete updated.maxParagraphsPerInvocation;
+        delete updated.paragraphRewriteModel;
       }
       // Variant-producing: ensure sourceMode is always set so payload emission is deterministic.
       updated.sourceMode ??= 'seed';
@@ -1130,6 +1180,7 @@ export default function NewStrategyPage(): JSX.Element {
                         <option value="debate_and_generate" disabled={idx === 0} title={idx === 0 ? 'First iteration must produce variants on an empty pool' : 'Debate top-2 pool variants then synthesize'}>Debate + Generate</option>
                         <option value="iterative_editing" disabled={idx === 0} title={idx === 0 ? 'First iteration must produce variants' : undefined}>Iterative Editing (Markup)</option>
                         <option value="iterative_editing_rewrite" disabled={idx === 0} title={idx === 0 ? 'First iteration must produce variants' : 'Mode B: proposer rewrites; markup computed mechanically'}>Iterative Editing (Rewrite)</option>
+                        <option value="paragraph_recombine" title="Decompose article into paragraphs, generate M rewrites per slot, rank pairwise, recombine winners">Paragraph Recombine</option>
                         <option value="swiss" disabled={idx === 0} title={idx === 0 ? 'First iteration must produce variants' : undefined}>Swiss</option>
                       </select>
 
@@ -1464,6 +1515,65 @@ export default function NewStrategyPage(): JSX.Element {
                         </div>
                       );
                     })()}
+                    {it.agentType === 'paragraph_recombine' && (
+                      <div
+                        className="mt-2 pl-8 flex flex-wrap items-center gap-2 text-xs font-ui"
+                        data-testid={`iteration-paragraph-controls-${idx}`}
+                      >
+                        <span className="text-[var(--text-primary)]">Rewrites/slot:</span>
+                        <input
+                          type="number"
+                          min={1}
+                          max={6}
+                          value={it.rewritesPerParagraph ?? PARAGRAPH_RECOMBINE_DEFAULTS.rewritesPerParagraph}
+                          onChange={e => {
+                            const v = e.target.value === '' ? undefined : Number(e.target.value);
+                            updateIteration(idx, { rewritesPerParagraph: v });
+                          }}
+                          className="w-14 px-2 py-1 text-xs font-mono bg-[var(--surface-primary)] border border-[var(--border-default)] rounded-page text-[var(--text-primary)] text-right focus:border-[var(--accent-gold)] focus:outline-none"
+                          data-testid={`rewrites-per-paragraph-${idx}`}
+                          title="Number of parallel rewrites per paragraph slot (1-6). Default 3."
+                        />
+                        <span className="ml-2 text-[var(--text-primary)]">· Max comparisons/slot:</span>
+                        <input
+                          type="number"
+                          min={1}
+                          max={20}
+                          value={it.maxComparisonsPerParagraph ?? PARAGRAPH_RECOMBINE_DEFAULTS.maxComparisonsPerParagraph}
+                          onChange={e => {
+                            const v = e.target.value === '' ? undefined : Number(e.target.value);
+                            updateIteration(idx, { maxComparisonsPerParagraph: v });
+                          }}
+                          className="w-14 px-2 py-1 text-xs font-mono bg-[var(--surface-primary)] border border-[var(--border-default)] rounded-page text-[var(--text-primary)] text-right focus:border-[var(--accent-gold)] focus:outline-none"
+                          data-testid={`max-comparisons-per-paragraph-${idx}`}
+                          title="Maximum pairwise comparisons within a single slot's ranking phase (1-20). Default 8."
+                        />
+                        <span className="ml-2 text-[var(--text-primary)]">· Max slots/invocation:</span>
+                        <input
+                          type="number"
+                          min={1}
+                          max={50}
+                          value={it.maxParagraphsPerInvocation ?? PARAGRAPH_RECOMBINE_DEFAULTS.maxParagraphsPerInvocation}
+                          onChange={e => {
+                            const v = e.target.value === '' ? undefined : Number(e.target.value);
+                            updateIteration(idx, { maxParagraphsPerInvocation: v });
+                          }}
+                          className="w-14 px-2 py-1 text-xs font-mono bg-[var(--surface-primary)] border border-[var(--border-default)] rounded-page text-[var(--text-primary)] text-right focus:border-[var(--accent-gold)] focus:outline-none"
+                          data-testid={`max-paragraphs-per-invocation-${idx}`}
+                          title="Caps the number of paragraph slots processed in one invocation (1-50). Default 12."
+                        />
+                        <span className="ml-2 text-[var(--text-primary)]">· Rewrite model:</span>
+                        <input
+                          type="text"
+                          value={it.paragraphRewriteModel ?? ''}
+                          placeholder="(inherit generation model)"
+                          onChange={e => updateIteration(idx, { paragraphRewriteModel: e.target.value || undefined })}
+                          className="w-44 px-2 py-1 text-xs font-mono bg-[var(--surface-primary)] border border-[var(--border-default)] rounded-page text-[var(--text-primary)] focus:border-[var(--accent-gold)] focus:outline-none"
+                          data-testid={`paragraph-rewrite-model-${idx}`}
+                          title="Override model used for paragraph rewriting LLM calls. Empty = inherit strategy generation model."
+                        />
+                      </div>
+                    )}
                     </div>
                   );
                 })}

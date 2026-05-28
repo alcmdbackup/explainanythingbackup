@@ -87,6 +87,14 @@ const SHARED_PROPAGATION_DEFS: EntityMetricRegistry['atPropagation'] = [
     sourceMetric: 'debate_cost', sourceEntity: 'run', aggregate: aggregateSum, aggregationMethod: 'sum' },
   { name: 'avg_debate_cost_per_run', label: 'Avg Debate Cost/Run', category: 'cost', formatter: 'cost',
     sourceMetric: 'debate_cost', sourceEntity: 'run', aggregate: aggregateAvg, aggregationMethod: 'avg' },
+  // rank_individual_paragraphs_evolution_20260525 Phase 2 — paragraph_recombine cost rollups.
+  // Per-slot ranking calls (using existing 'ranking' label) bucket here via the slotScope
+  // intercept path; per-paragraph rewrite calls (using 'paragraph_rewrite' label) bucket here
+  // via COST_METRIC_BY_AGENT mapping. Single umbrella metric per D10.
+  { name: 'total_paragraph_recombine_cost', label: 'Total Paragraph Recombine Cost', category: 'cost', formatter: 'cost', listView: true,
+    sourceMetric: 'paragraph_recombine_cost', sourceEntity: 'run', aggregate: aggregateSum, aggregationMethod: 'sum' },
+  { name: 'avg_paragraph_recombine_cost_per_run', label: 'Avg Paragraph Recombine Cost/Run', category: 'cost', formatter: 'cost',
+    sourceMetric: 'paragraph_recombine_cost', sourceEntity: 'run', aggregate: aggregateAvg, aggregationMethod: 'avg' },
   // Rating — from run.winner_elo
   { name: 'avg_final_elo', label: 'Avg Winner Elo', category: 'rating', formatter: 'elo', listView: true,
     sourceMetric: 'winner_elo', sourceEntity: 'run', aggregate: aggregateBootstrapMean, aggregationMethod: 'bootstrap_mean' },
@@ -187,6 +195,17 @@ export const METRIC_REGISTRY: Record<EntityType, EntityMetricRegistry> = {
       { name: 'proposer_approver_accept_rate', label: 'P/A Forward Accept Rate', category: 'cost', formatter: 'percent',
         compute: () => 0 },
       { name: 'proposer_approver_mirror_agreement_rate', label: 'P/A Mirror Agreement Rate', category: 'cost', formatter: 'percent',
+        compute: () => 0 },
+      // rank_individual_paragraphs_evolution_20260525 Phase 2 — paragraph_recombine umbrella cost.
+      // Per-paragraph rewrite calls bucket here via COST_METRIC_BY_AGENT mapping (paragraph_rewrite
+      // label). Per-slot ranking calls (using existing 'ranking' label) also bucket here via the
+      // slotScope intercept path. Per-purpose split lives in execution_detail.slots[i] for forensics.
+      { name: 'paragraph_recombine_cost', label: 'Paragraph Recombine Cost', category: 'cost', formatter: 'cost',
+        listView: true, compute: () => 0 },
+      // Observability: when persistSlotMatches fails (best-effort path), this increments.
+      // Surfaces silent persist failures that would otherwise break D10 cross-invocation
+      // accumulation for the affected slot.
+      { name: 'paragraph_slot_match_persist_failures', label: 'Paragraph Slot Match Persist Failures', category: 'count', formatter: 'integer',
         compute: () => 0 },
     ],
     atFinalization: [

@@ -30,12 +30,12 @@ describe('RunEntity', () => {
     expect(entity.children.every(c => c.cascade === 'delete')).toBe(true);
   });
 
-  it('has 15 execution + 21 finalization + 0 propagation metrics', () => {
-    // 16 (prior: 11 + 1 debate_cost + 4 propose/approve criteria) - 1
-    // (iterative_edit_rank_cost removed in Phase 6 of
-    // rename_agents_subagents_evolution_20260508; superseded by
-    // subagent:ranking.cost via the dynamic-prefix path).
-    expect(entity.metrics.duringExecution).toHaveLength(15);
+  it('has 17 execution + 21 finalization + 0 propagation metrics', () => {
+    // 15 (16 prior - 1 iterative_edit_rank_cost removed in Phase 6 of
+    // rename_agents_subagents_evolution_20260508; superseded by subagent:ranking.cost
+    // dynamic prefix) + 2 paragraph_recombine (paragraph_recombine_cost +
+    // paragraph_slot_match_persist_failures from rank_individual_paragraphs_evolution_20260525) = 17.
+    expect(entity.metrics.duringExecution).toHaveLength(17);
     // 18 prior + 3 sentence-overlap percentile metrics (median, p25, min)
     // (updated_criteria_agent_20260505).
     expect(entity.metrics.atFinalization).toHaveLength(21);
@@ -76,12 +76,12 @@ describe('StrategyEntity', () => {
     expect(entity.children[0]!.cascade).toBe('delete');
   });
 
-  it('has 42 propagation metrics', () => {
-    // 44 (prior: 39 + 3 propose/approve + 2 debate) - 2
-    // (total_iterative_edit_rank_cost + avg_iterative_edit_rank_cost_per_run
-    // removed in Phase 6 of rename_agents_subagents_evolution_20260508;
-    // superseded by subagent:ranking.cost dynamic prefix).
-    expect(entity.metrics.atPropagation).toHaveLength(42);
+  it('has 44 propagation metrics', () => {
+    // 42 (44 prior - 2 iterative_edit_rank_cost rollups removed in Phase 6 of
+    // rename_agents_subagents_evolution_20260508; superseded by subagent:ranking.cost
+    // dynamic prefix) + 2 paragraph_recombine (total_paragraph_recombine_cost +
+    // avg_paragraph_recombine_cost_per_run from rank_individual_paragraphs_evolution_20260525) = 44.
+    expect(entity.metrics.atPropagation).toHaveLength(44);
     const names = entity.metrics.atPropagation.map(d => d.name);
     expect(names).toContain('run_count');
     expect(names).toContain('total_cost');

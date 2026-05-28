@@ -270,6 +270,7 @@ export function ExperimentForm({ onCreated }: ExperimentFormProps): JSX.Element 
                     return (
                       <label
                         key={p.id}
+                        data-testid={`prompt-option-${p.id}`}
                         className={`flex items-start gap-3 p-3 border rounded-page cursor-pointer transition-colors ${
                           isSelected
                             ? 'border-[var(--accent-gold)] bg-[var(--surface-elevated)]'

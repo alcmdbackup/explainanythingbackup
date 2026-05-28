@@ -553,3 +553,86 @@ export function estimateDebateCost(
     upperBoundSynthesis,
   };
 }
+
+// ─── Paragraph Recombine ──────────────────────────────────────────
+
+/**
+ * Per-paragraph prompt overhead for paragraph_recombine rewrite calls.
+ * Covers: 3-guardrail prompt + CONTEXT header (article title + slot index) +
+ * ORIGINAL/REWRITTEN markers. Modest overhead vs article-level prompts.
+ */
+const PARAGRAPH_REWRITE_PROMPT_OVERHEAD = 800;
+
+/**
+ * Typical paragraph output size — paragraph-level rewrite output is much smaller
+ * than article-level generation (DEFAULT_OUTPUT_CHARS = 9197). A typical 8K-char
+ * article has ~12 paragraphs ≈ ~660 chars/paragraph. The ±10% length cap (D7/D12)
+ * means rewrites stay close to original size; 1000 chars covers a typical rewrite
+ * with margin.
+ */
+const PARAGRAPH_REWRITE_OUTPUT_CHARS = 1000;
+
+/**
+ * Estimate the cost of a paragraph_recombine invocation per Phase 3 of
+ * rank_individual_paragraphs_evolution_20260525. Covers:
+ *
+ *   N paragraphs × M rewrites × per-rewrite cost
+ * + N slots × per-slot pairwise ranking cost (M+1 candidates per slot,
+ *   ~M comparisons each at binary-search bound)
+ *
+ * Per-slot ranking reuses estimateRankingCost (existing helper) since per-slot
+ * judge calls use the existing 'ranking' AgentName label.
+ *
+ * Output: {expected, upperBound} — expected is the math-direct sum; upperBound
+ * applies a 1.3× safety margin (matches the 30% margin used in other estimators).
+ *
+ * @param parentArticleChars Approx character length of the parent article.
+ * @param paragraphCount Number of paragraph slots to decompose into (= N).
+ * @param rewritesPerParagraph M rewrites per slot.
+ * @param maxComparisonsPerParagraph Cap on per-slot ranking depth.
+ * @param rewriteModel LLM model for per-paragraph rewrite calls (falls back to generation model).
+ * @param judgeModel LLM model for per-slot ranking judge calls.
+ */
+export function estimateParagraphRecombineCost(
+  parentArticleChars: number,
+  paragraphCount: number,
+  rewritesPerParagraph: number,
+  maxComparisonsPerParagraph: number,
+  rewriteModel: string,
+  judgeModel: string,
+): { expected: number; upperBound: number } {
+  if (paragraphCount <= 0 || rewritesPerParagraph <= 0) {
+    return { expected: 0, upperBound: 0 };
+  }
+
+  // Per-paragraph rewrite cost.
+  const rewritePricing = getModelPricing(rewriteModel);
+  const avgParagraphChars = Math.max(parentArticleChars / paragraphCount, 100);
+  const rewriteInputChars = avgParagraphChars + PARAGRAPH_REWRITE_PROMPT_OVERHEAD;
+  const calibratedRewrite = getCalibrationRow('__unspecified__', rewriteModel, judgeModel, 'paragraph_rewrite');
+  const rewriteOutputChars = calibratedRewrite?.avgOutputChars ?? PARAGRAPH_REWRITE_OUTPUT_CHARS;
+  const costPerRewrite = calculateCost(rewriteInputChars, rewriteOutputChars, rewritePricing);
+
+  // Total rewrite cost: N paragraphs × M rewrites each.
+  const totalRewriteCost = paragraphCount * rewritesPerParagraph * costPerRewrite;
+
+  // Per-slot ranking cost: each slot has M+1 candidates (M rewrites + 1 original);
+  // binary-search ranking goes through ~maxComparisonsPerParagraph comparisons per
+  // candidate, each comparison is 2 LLM calls (bias-mitigation reversal).
+  // Use estimateRankingCost with paragraph-sized articleChars.
+  // Approximation: pool size per slot = rewrites + 1 (original).
+  const slotPoolSize = rewritesPerParagraph + 1;
+  const perSlotRankCost = estimateRankingCost(
+    avgParagraphChars,
+    judgeModel,
+    slotPoolSize,
+    maxComparisonsPerParagraph,
+  );
+  // Per-slot ranks all M new candidates (originals don't need re-ranking).
+  const totalRankCost = paragraphCount * rewritesPerParagraph * perSlotRankCost;
+
+  const expected = totalRewriteCost + totalRankCost;
+  const upperBound = expected * 1.3;
+  return { expected, upperBound };
+}
+

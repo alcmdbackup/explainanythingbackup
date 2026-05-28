@@ -8,6 +8,7 @@ import {
   estimateEvaluateAndSuggestCost,
   estimateIterativeEditingCost,
   estimateDebateCost,
+  estimateParagraphRecombineCost,
 } from './estimateCosts';
 
 describe('estimateCosts', () => {
@@ -234,6 +235,57 @@ describe('estimateCosts', () => {
         20000, 20000, 'qwen-2.5-7b-instruct', 'gpt-4.1-nano', 10, 10,
       );
       expect(large.expected).toBeGreaterThan(small.expected);
+    });
+  });
+
+  // ─── estimateParagraphRecombineCost (rank_individual_paragraphs_evolution_20260525) ─
+  describe('estimateParagraphRecombineCost', () => {
+    it('returns zero when paragraphCount is 0', () => {
+      const r = estimateParagraphRecombineCost(5000, 0, 3, 8, 'gpt-4.1-nano', 'gpt-4.1-nano');
+      expect(r.expected).toBe(0);
+      expect(r.upperBound).toBe(0);
+    });
+
+    it('returns zero when rewritesPerParagraph is 0', () => {
+      const r = estimateParagraphRecombineCost(5000, 12, 0, 8, 'gpt-4.1-nano', 'gpt-4.1-nano');
+      expect(r.expected).toBe(0);
+      expect(r.upperBound).toBe(0);
+    });
+
+    it('returns positive expected + upperBound for default knobs', () => {
+      const r = estimateParagraphRecombineCost(5000, 12, 3, 8, 'gpt-4.1-nano', 'gpt-4.1-nano');
+      expect(r.expected).toBeGreaterThan(0);
+      expect(r.upperBound).toBeGreaterThan(r.expected);
+    });
+
+    it('upperBound is 1.3× expected (matches established 30% margin)', () => {
+      const r = estimateParagraphRecombineCost(5000, 12, 3, 8, 'gpt-4.1-nano', 'gpt-4.1-nano');
+      expect(r.upperBound).toBeCloseTo(r.expected * 1.3, 6);
+    });
+
+    it('scales with paragraphCount (cost ∝ N)', () => {
+      const small = estimateParagraphRecombineCost(5000, 6, 3, 8, 'gpt-4.1-nano', 'gpt-4.1-nano');
+      const large = estimateParagraphRecombineCost(5000, 24, 3, 8, 'gpt-4.1-nano', 'gpt-4.1-nano');
+      expect(large.expected).toBeGreaterThan(small.expected);
+    });
+
+    it('scales with rewritesPerParagraph (cost ∝ M)', () => {
+      const m1 = estimateParagraphRecombineCost(5000, 12, 1, 8, 'gpt-4.1-nano', 'gpt-4.1-nano');
+      const m6 = estimateParagraphRecombineCost(5000, 12, 6, 8, 'gpt-4.1-nano', 'gpt-4.1-nano');
+      expect(m6.expected).toBeGreaterThan(m1.expected);
+    });
+
+    it('scales with maxComparisonsPerParagraph (ranking depth)', () => {
+      const shallow = estimateParagraphRecombineCost(5000, 12, 3, 2, 'gpt-4.1-nano', 'gpt-4.1-nano');
+      const deep = estimateParagraphRecombineCost(5000, 12, 3, 20, 'gpt-4.1-nano', 'gpt-4.1-nano');
+      expect(deep.expected).toBeGreaterThan(shallow.expected);
+    });
+
+    it('rewrite + judge model independence (different models produce different costs)', () => {
+      const both = estimateParagraphRecombineCost(5000, 12, 3, 8, 'gpt-4.1-nano', 'gpt-4.1-nano');
+      const splitJudge = estimateParagraphRecombineCost(5000, 12, 3, 8, 'gpt-4.1-nano', 'qwen-2.5-7b-instruct');
+      // Different judge model yields different ranking layer cost.
+      expect(splitJudge.expected).not.toBe(both.expected);
     });
   });
 });

@@ -463,6 +463,28 @@ export const METRIC_CATALOG = {
     timing: 'at_propagation', listView: true,
     description: 'Bootstrap mean of median_sentence_verbatim_ratio across child runs',
   },
+
+  // === Paragraph recombine agent (rank_individual_paragraphs_evolution_20260525) ===
+  paragraph_recombine_cost: {
+    name: 'paragraph_recombine_cost', label: 'Paragraph Recombine Cost', category: 'cost', formatter: 'cost',
+    timing: 'during_execution', listView: true,
+    description: 'Umbrella LLM spend on ParagraphRecombineAgent (paragraph_rewrite calls + per-slot judge calls via AgentCostScope intercept).',
+  },
+  paragraph_slot_match_persist_failures: {
+    name: 'paragraph_slot_match_persist_failures', label: 'Paragraph Slot Match Persist Failures', category: 'count', formatter: 'integer',
+    timing: 'during_execution',
+    description: 'Number of slots whose persistSlotMatches() INSERT failed in this run (best-effort contract).',
+  },
+  total_paragraph_recombine_cost: {
+    name: 'total_paragraph_recombine_cost', label: 'Total Paragraph Recombine Cost', category: 'cost', formatter: 'cost',
+    timing: 'at_propagation', listView: true,
+    description: 'Sum of paragraph_recombine_cost across child runs.',
+  },
+  avg_paragraph_recombine_cost_per_run: {
+    name: 'avg_paragraph_recombine_cost_per_run', label: 'Avg Paragraph Recombine Cost/Run', category: 'cost', formatter: 'cost',
+    timing: 'at_propagation',
+    description: 'Average paragraph_recombine_cost per child run.',
+  },
 } as const satisfies Record<string, CatalogMetricDef>;
 
 export type CatalogMetricName = keyof typeof METRIC_CATALOG;

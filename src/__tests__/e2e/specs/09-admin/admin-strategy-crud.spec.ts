@@ -101,4 +101,37 @@ adminTest.describe('Strategy Registry CRUD', () => {
     expect(joined).toContain('gpt-oss-20b');
     expect(joined).not.toContain('openai/gpt-oss-20b');
   });
+
+  // rank_individual_paragraphs_evolution_20260525 Phase 6 — paragraph_recombine wizard controls.
+  adminTest('paragraph_recombine wizard controls appear only for paragraph_recombine iterations', async ({ adminPage }) => {
+    await adminPage.goto('/admin/evolution/strategies/new', { timeout: 30000 });
+    await adminPage.waitForLoadState('domcontentloaded');
+
+    // Per-iteration agent-type select for iteration 0. Initially defaults to 'generate'
+    // (no paragraph controls visible).
+    expect(await adminPage.locator('[data-testid="iteration-paragraph-controls-0"]').count()).toBe(0);
+
+    // Switch the iteration's agent type to paragraph_recombine.
+    const iter0AgentSelect = adminPage.locator('select').filter({ hasText: /generate|paragraph/i }).first();
+    await iter0AgentSelect.selectOption('paragraph_recombine');
+
+    // Controls become visible with default values populated.
+    await expect(adminPage.locator('[data-testid="iteration-paragraph-controls-0"]')).toBeVisible();
+    await expect(adminPage.locator('[data-testid="rewrites-per-paragraph-0"]')).toHaveValue('3');
+    await expect(adminPage.locator('[data-testid="max-comparisons-per-paragraph-0"]')).toHaveValue('8');
+    await expect(adminPage.locator('[data-testid="max-paragraphs-per-invocation-0"]')).toHaveValue('12');
+  });
+
+  adminTest('paragraph_recombine wizard controls clear when agent type switches away', async ({ adminPage }) => {
+    await adminPage.goto('/admin/evolution/strategies/new', { timeout: 30000 });
+    await adminPage.waitForLoadState('domcontentloaded');
+
+    const iter0AgentSelect = adminPage.locator('select').filter({ hasText: /generate|paragraph/i }).first();
+    await iter0AgentSelect.selectOption('paragraph_recombine');
+    await expect(adminPage.locator('[data-testid="iteration-paragraph-controls-0"]')).toBeVisible();
+
+    // Switch back to generate — controls should disappear.
+    await iter0AgentSelect.selectOption('generate');
+    expect(await adminPage.locator('[data-testid="iteration-paragraph-controls-0"]').count()).toBe(0);
+  });
 });

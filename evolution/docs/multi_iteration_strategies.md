@@ -90,7 +90,10 @@ const iterationConfigSchema = z.object({
     'criteria_and_generate',
     'single_pass_evaluate_criteria_and_generate',     // updated_criteria_agent_20260505
     'proposer_approver_criteria_generate',            // updated_criteria_agent_20260505
+    'debate_and_generate',                            // bring_back_debate_agent_20260506
     'iterative_editing',
+    'iterative_editing_rewrite',
+    'paragraph_recombine',                            // rank_individual_paragraphs_evolution_20260525
     'swiss',
   ]),
   budgetPercent: z.number().min(1).max(100),
@@ -105,6 +108,11 @@ const iterationConfigSchema = z.object({
   lengthCapRatio: z.number().min(1.01).max(1.50).optional(),   // proposer_approver only (default 1.10)
   redundancyJaccardThreshold: z.number().min(0).max(1).optional(), // single_pass + proposer_approver (default 0.35)
   includesMirrorApprover: z.boolean().optional(),              // proposer_approver only (default true)
+  // paragraph_recombine knobs (rank_individual_paragraphs_evolution_20260525)
+  rewritesPerParagraph: z.number().int().min(1).max(6).optional(),
+  maxComparisonsPerParagraph: z.number().int().min(1).max(20).optional(),
+  maxParagraphsPerInvocation: z.number().int().min(1).max(50).optional(),
+  paragraphRewriteModel: z.string().optional(),
 });
 ```
 
@@ -116,10 +124,11 @@ iterationConfigs: z.array(iterationConfigSchema).min(1).max(20)
 
 With superRefine validations:
 - Budget percentages must sum to 100 (floating-point tolerance 0.01).
-- First iteration must be variant-producing (`generate`, `reflect_and_generate`, `criteria_and_generate`, or `single_pass_evaluate_criteria_and_generate`). `proposer_approver_criteria_generate` cannot be first since it edits an existing parent variant.
+- First iteration must be variant-producing (`generate`, `reflect_and_generate`, `criteria_and_generate`, `single_pass_evaluate_criteria_and_generate`, or `paragraph_recombine`). `paragraph_recombine` as first iteration operates on the seed article for the topic (per D5). `proposer_approver_criteria_generate` cannot be first since it edits an existing parent variant.
 - No swiss iteration may precede all variant-producing iterations.
 - `criteriaIds` / `weakestK` are required for ALL three criteria-based types and rejected on other agent types. `criteriaIds` is sorted (canonicalized) before being included in the strategy `config_hash` so `[a,b]` and `[b,a]` deduplicate.
 - `lengthCapRatio` is rejected on agent types other than `proposer_approver_criteria_generate`. `redundancyJaccardThreshold` is rejected on legacy `criteria_and_generate` (only the 2 new criteria types). `includesMirrorApprover` is rejected on agent types other than `proposer_approver_criteria_generate`. The `editingMaxCycles === 1` invariant is enforced for `proposer_approver_criteria_generate`.
+- The 4 paragraph knobs (`rewritesPerParagraph`, `maxComparisonsPerParagraph`, `maxParagraphsPerInvocation`, `paragraphRewriteModel`) are rejected on agent types other than `paragraph_recombine`.
 
 The `criteria_and_generate` agent type (evaluateCriteriaThenGenerateFromPreviousArticle_20260501) routes through the `EvaluateCriteriaThenGenerateFromPreviousArticleAgent` wrapper, which makes one combined LLM call to score the parent article against the referenced `evolution_criteria` rows AND draft fix suggestions for the `effectiveWeakestK = min(weakestK, criteriaIds.length)` weakest criteria, then delegates to `GenerateFromPreviousArticleAgent.execute()` with `tactic: 'criteria_driven'` and a `customPrompt` built from the suggestions. See [Agents Overview](./agents/overview.md#evaluatecriteriathengeneratefrompreviousarticleagent-evaluatecriteriathengeneratefrompreviousarticle_20260501) for the full agent contract.
 

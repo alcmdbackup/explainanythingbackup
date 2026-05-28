@@ -64,6 +64,9 @@ export class RunEntity extends Entity<EvolutionRunFullDb> {
       { ...METRIC_CATALOG.proposer_approver_drift_rate, compute: () => 0 },
       { ...METRIC_CATALOG.proposer_approver_accept_rate, compute: () => 0 },
       { ...METRIC_CATALOG.proposer_approver_mirror_agreement_rate, compute: () => 0 },
+      // Paragraph Recombine agent (rank_individual_paragraphs_evolution_20260525)
+      { ...METRIC_CATALOG.paragraph_recombine_cost, compute: () => 0 },
+      { ...METRIC_CATALOG.paragraph_slot_match_persist_failures, compute: () => 0 },
     ],
     atFinalization: [
       { ...METRIC_CATALOG.winner_elo, compute: computeWinnerElo },
