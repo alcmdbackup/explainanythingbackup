@@ -20,11 +20,6 @@ adminTest.describe('Evolution Run Pipeline', { tag: '@evolution' }, () => {
   adminTest.describe.configure({ mode: 'serial' });
   adminTest.setTimeout(360_000);
 
-  // SKIPPED: beforeAll runs a real LLM pipeline that times out on CI. See
-  // admin-evolution-iterative-editing.spec.ts for the same root cause.
-  // eslint-disable-next-line flakiness/no-test-skip -- pipeline perf issue on CI; new test never ran in this CI context before
-  adminTest.skip(true, 'pipeline beforeAll timing out on CI; needs perf investigation (tracked in follow-up)');
-
   let promptId: string;
   let strategyId: string;
   let experimentId: string;
