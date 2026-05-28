@@ -7,8 +7,13 @@ import { evolutionStrategyInsertSchema } from '../../schemas';
 
 // ─── Internal helpers ────────────────────────────────────────────
 
-/** Shorten a model name for display (e.g. "gpt-4.1-mini" -> "4.1-mini"). */
-function shortenModel(model: string): string {
+/** Shorten a model name for display (e.g. "gpt-4.1-mini" -> "4.1-mini").
+ * Defensive against nullish — legacy strategies (e.g. migration-imported rows
+ * with `mig-strategy-*` names) have null model fields and would otherwise
+ * crash any UI that calls labelStrategyConfig on them (caught by the wizard's
+ * error boundary as "Something went wrong"). */
+function shortenModel(model: string | null | undefined): string {
+  if (!model) return '?';
   return model
     .replace('gpt-', '')
     .replace('deepseek-', 'ds-')

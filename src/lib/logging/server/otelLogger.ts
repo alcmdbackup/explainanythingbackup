@@ -59,19 +59,29 @@ class DebugLogRecordProcessor implements LogRecordProcessor {
           scheduledDelayMillis: 5000,
         });
 
-    // Wrap the exporter's export method to log results
-    const originalExport = exporter.export.bind(exporter);
-    exporter.export = (logs: ReadableLogRecord[], resultCallback: (result: ExportResult) => void) => {
-      console.log(`[otelLogger] Exporting ${logs.length} log(s) to Honeycomb...`);
-      return originalExport(logs, (result: ExportResult) => {
-        if (result.code === ExportResultCode.SUCCESS) {
-          console.log(`[otelLogger] ✅ Export SUCCESS - ${logs.length} log(s) sent to Honeycomb`);
-        } else {
-          console.error(`[otelLogger] ❌ Export FAILED - code: ${result.code}, error:`, result.error);
-        }
-        resultCallback(result);
-      });
-    };
+    // Wrap the exporter's export method to log results.
+    // Skip the debug console logging under Jest (JEST_WORKER_ID is set by Jest in
+    // both unit and integration runs, regardless of NODE_ENV — the integration
+    // server initializes OTel with NODE_ENV=production, so a NODE_ENV check would
+    // miss it). BatchLogRecordProcessor flushes asynchronously
+    // (scheduledDelayMillis), so these logs can fire AFTER Jest has torn down the
+    // test, producing "Cannot log after tests are done" and failing the job even
+    // when every test passed. The wrapper is purely diagnostic, so omitting it
+    // under Jest changes no production behavior.
+    if (!process.env.JEST_WORKER_ID) {
+      const originalExport = exporter.export.bind(exporter);
+      exporter.export = (logs: ReadableLogRecord[], resultCallback: (result: ExportResult) => void) => {
+        console.log(`[otelLogger] Exporting ${logs.length} log(s) to Honeycomb...`);
+        return originalExport(logs, (result: ExportResult) => {
+          if (result.code === ExportResultCode.SUCCESS) {
+            console.log(`[otelLogger] ✅ Export SUCCESS - ${logs.length} log(s) sent to Honeycomb`);
+          } else {
+            console.error(`[otelLogger] ❌ Export FAILED - code: ${result.code}, error:`, result.error);
+          }
+          resultCallback(result);
+        });
+      };
+    }
   }
 
   onEmit(logRecord: SdkLogRecord, context?: Context): void {

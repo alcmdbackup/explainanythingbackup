@@ -347,7 +347,7 @@ export async function createTestEvolutionLog(
       run_id: options?.runId ?? null,
       level: options?.level ?? 'info',
       message: options?.message ?? `${TEST_EVO_PREFIX} Log entry ${suffix}`,
-      agent_name: options?.agentName ?? 'test',
+      subagent_name: options?.agentName ?? 'test',
       iteration: options?.iteration ?? 0,
     })
     .select('id')

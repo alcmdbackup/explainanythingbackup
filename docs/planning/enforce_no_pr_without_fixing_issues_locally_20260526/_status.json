@@ -1,0 +1,15 @@
+{
+  "branch": "feat/enforce_no_pr_without_fixing_issues_locally_20260526",
+  "created_at": "2026-05-26T22:50:17Z",
+  "prerequisites": {
+    "testing_overview_read": "2026-05-26T23:25:39Z",
+    "project_workflow_read": "2026-05-27T05:32:20Z"
+  },
+  "relevantDocs": [
+    ".claude/commands/finalize.md",
+    ".claude/hooks/block-push-without-gate.sh",
+    ".claude/hooks/enforce-ci-monitoring.sh",
+    "docs/docs_overall/testing_overview.md",
+    "docs/feature_deep_dives/testing_setup.md"
+  ]
+}
