@@ -3,7 +3,7 @@
 ## Background
 I see that some paragraphs in invocation 83c9a188-cb83-4cd0-bdbc-3356cbc537fc have 0 matches and 0 iterations, and are also coming from seed despite strategy specifying was supposed to take from top variants of run.
 
-## Requirements (from GH Issue #NNN)
+## Requirements (from GH Issue #1125)
 I see that some paragraphs in invocation 83c9a188-cb83-4cd0-bdbc-3356cbc537fc have 0 matches and 0 iterations, and are also coming from seed despite strategy specifying was supposed to take from top variants of run.
 
 ## Problem
