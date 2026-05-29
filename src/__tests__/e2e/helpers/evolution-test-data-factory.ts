@@ -61,7 +61,8 @@ type EvolutionEntityType =
   | 'invocation'
   | 'comparison'
   | 'explanation'
-  | 'metric';
+  | 'metric'
+  | 'tactic';
 
 /**
  * Registers an evolution entity ID for cleanup.
@@ -417,6 +418,67 @@ export async function createTestArenaComparison(
   };
 }
 
+export interface CreateTestTacticOptions {
+  /** Override the generated `[TEST_EVO]`-prefixed name. */
+  name?: string;
+  /** Agent type (NOT NULL) — defaults to a valid generation agent. */
+  agentType?: string;
+}
+
+export interface TestTactic {
+  id: string;
+  name: string;
+  cleanup: () => Promise<void>;
+}
+
+/**
+ * Creates a test evolution tactic (active status, test-prefixed name).
+ * `evolution_tactics` is not in the generated Database types yet, so the insert
+ * uses the same untyped cast idiom the specs use for this table.
+ * Auto-tracked for defense-in-depth cleanup.
+ */
+export async function createTestTactic(options?: CreateTestTacticOptions): Promise<TestTactic> {
+  const supabase = getEvolutionServiceClient();
+  const suffix = generateTestSuffix();
+  const name = options?.name ?? `${TEST_EVO_PREFIX} tactic ${suffix}`;
+
+  // Cast via unknown: evolution_tactics isn't in generated Database types yet.
+  const { data, error } = await (supabase as unknown as {
+    from: (t: string) => {
+      insert: (r: Record<string, unknown>) => {
+        select: (s: string) => { single: () => Promise<{ data: { id: string } | null; error: { message: string } | null }> };
+      };
+    };
+  })
+    .from('evolution_tactics')
+    .insert({
+      name,
+      agent_type: options?.agentType ?? 'generate_from_previous_article',
+      status: 'active',
+    })
+    .select('id')
+    .single();
+
+  if (error || !data) {
+    throw new Error(`Failed to create test tactic: ${error?.message}`);
+  }
+
+  trackEvolutionId('tactic', data.id);
+
+  return {
+    id: data.id,
+    name,
+    cleanup: async () => {
+      await (supabase as unknown as {
+        from: (t: string) => { delete: () => { eq: (c: string, v: string) => Promise<unknown> } };
+      })
+        .from('evolution_tactics')
+        .delete()
+        .eq('id', data.id);
+    },
+  };
+}
+
 // ============================================================================
 // Bulk cleanup (defense-in-depth, used by global-teardown)
 // ============================================================================
@@ -433,6 +495,7 @@ const FK_SAFE_DELETION_ORDER: { type: EvolutionEntityType; table: string }[] = [
   { type: 'experiment', table: 'evolution_experiments' },
   { type: 'strategy', table: 'evolution_strategies' },
   { type: 'prompt', table: 'evolution_prompts' },
+  { type: 'tactic', table: 'evolution_tactics' },
 ];
 
 /**

@@ -81,7 +81,6 @@ adminTest.describe('Admin Strategy Registry - Origin Filter', { tag: '@evolution
 
   adminTest(
     'filter exists+filter works: Origin filter dropdown shows correct options and filters by created_by value',
-    { tag: '@critical' },
     async ({ adminPage }) => {
       await adminPage.goto('/admin/evolution/strategies');
       await expect(adminPage.locator('[data-testid="entity-list-page"]')).toBeVisible({ timeout: 15000 });

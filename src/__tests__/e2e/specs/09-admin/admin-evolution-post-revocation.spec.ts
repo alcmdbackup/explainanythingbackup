@@ -1,12 +1,12 @@
 // B092: the /admin/evolution layout re-verifies admin status on every navigation so a
-// just-revoked admin session cannot continue poking around. Dual-tagged @critical +
-// @evolution so it runs on main PRs (security-adjacent).
+// just-revoked admin session cannot continue poking around. Tagged @evolution so it
+// runs on the evolution host (security-adjacent).
 
 import { adminTest, expect } from '../../fixtures/admin-auth';
 
 adminTest.describe(
   'Admin evolution layout — post-revocation gate (B092)',
-  { tag: ['@evolution', '@critical'] },
+  { tag: '@evolution' },
   () => {
     adminTest('nested admin evolution route enforces admin check', async ({ adminPage }) => {
       // The positive path: an admin can reach the nested route.

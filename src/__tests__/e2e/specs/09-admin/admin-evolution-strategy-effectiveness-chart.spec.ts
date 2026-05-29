@@ -6,7 +6,7 @@
 import { adminTest, expect } from '../../fixtures/admin-auth';
 import { createMultiHopFixture, getEvolutionServiceClient, type MultiHopFixture } from '../../helpers/evolution-test-data-factory';
 
-adminTest.describe('Strategy Effectiveness Chart', { tag: ['@evolution', '@critical'] }, () => {
+adminTest.describe('Strategy Effectiveness Chart', { tag: '@evolution' }, () => {
   adminTest.describe.configure({ mode: 'serial' });
 
   let fixture: MultiHopFixture;

@@ -46,7 +46,9 @@ jobs:
             echo "::notice ::Full path - migration changes require test validation"
           else
             # Classify changes as evolution-only, non-evolution-only, or full
-            EVOLUTION_ONLY_PATHS="evolution|arena|strategy-resolution|manual-experiment|src/app/admin/quality/optimization/"
+            # 09-admin + 00-host-isolation specs are now @evolution-tagged (post hostname-split,
+            # admin runs only on the evolution host), so route admin-spec-only PRs to e2e-evolution.
+            EVOLUTION_ONLY_PATHS="evolution|arena|strategy-resolution|manual-experiment|src/app/admin/quality/optimization/|src/__tests__/e2e/specs/09-admin/|src/__tests__/e2e/specs/00-host-isolation/"
             SHARED_PATHS="package\\.json|tsconfig|next\\.config|playwright\\.config|jest\\.config|src/lib/|src/utils/|src/types/"
 
             HAS_SHARED=$(echo "$CODE_CHANGED" | grep -E "$SHARED_PATHS" || true)

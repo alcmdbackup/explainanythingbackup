@@ -14,6 +14,7 @@
 import { adminTest, expect } from '../../fixtures/admin-auth';
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/database.types';
+import { createTestTactic } from '../../helpers/evolution-test-data-factory';
 import * as dotenv from 'dotenv';
 import * as path from 'path';
 
@@ -30,6 +31,7 @@ interface SeededData {
   strategyId: string;
   runId: string;
   variantIds: string[];
+  tacticCleanups: Array<() => Promise<void>>;
 }
 
 async function seed(): Promise<SeededData> {
@@ -65,21 +67,15 @@ async function seed(): Promise<SeededData> {
     .single();
   if (re || !run) throw new Error(`run seed failed: ${re?.message}`);
 
-  // Pick two tactic names to diversify the per-tactic breakdown.
-  // Cast via unknown: evolution_tactics isn't in generated Database types yet.
-  const { data: tactics } = await (supabase as unknown as {
-    from: (t: string) => { select: (s: string) => { eq: (c: string, v: string) => { limit: (n: number) => Promise<{ data: Array<{ name: string }> | null }> } } };
-  })
-    .from('evolution_tactics')
-    .select('name')
-    .eq('status', 'active')
-    .limit(2);
-  if (!tactics || tactics.length < 2) throw new Error('need ≥2 evolution_tactics rows');
+  // Create our OWN two active tactics to diversify the per-tactic breakdown —
+  // data-independent so this passes against prod (1 tactic) and dev (24) alike.
+  const tacticA = await createTestTactic();
+  const tacticB = await createTestTactic();
 
   const variantRows = [
-    { run_id: run.id, variant_content: `[TEST] A-1 ${ts}`, mu: 25, sigma: 5, elo_score: 1310, agent_name: tactics[0]!.name, is_winner: true, cost_usd: 0.01, generation: 1 },
-    { run_id: run.id, variant_content: `[TEST] A-2 ${ts}`, mu: 25, sigma: 5, elo_score: 1250, agent_name: tactics[0]!.name, is_winner: false, cost_usd: 0.01, generation: 1 },
-    { run_id: run.id, variant_content: `[TEST] B-1 ${ts}`, mu: 25, sigma: 5, elo_score: 1200, agent_name: tactics[1]!.name, is_winner: false, cost_usd: 0.01, generation: 1 },
+    { run_id: run.id, variant_content: `[TEST] A-1 ${ts}`, mu: 25, sigma: 5, elo_score: 1310, agent_name: tacticA.name, is_winner: true, cost_usd: 0.01, generation: 1 },
+    { run_id: run.id, variant_content: `[TEST] A-2 ${ts}`, mu: 25, sigma: 5, elo_score: 1250, agent_name: tacticA.name, is_winner: false, cost_usd: 0.01, generation: 1 },
+    { run_id: run.id, variant_content: `[TEST] B-1 ${ts}`, mu: 25, sigma: 5, elo_score: 1200, agent_name: tacticB.name, is_winner: false, cost_usd: 0.01, generation: 1 },
   ];
   const { data: variants, error: ve } = await supabase
     .from('evolution_variants')
@@ -91,6 +87,7 @@ async function seed(): Promise<SeededData> {
     strategyId: strategy.id,
     runId: run.id,
     variantIds: variants.map((v) => v.id as string),
+    tacticCleanups: [tacticA.cleanup, tacticB.cleanup],
   };
 }
 
@@ -99,6 +96,9 @@ async function cleanup(data: SeededData) {
   await supabase.from('evolution_variants').delete().eq('run_id', data.runId);
   await supabase.from('evolution_runs').delete().eq('id', data.runId);
   await supabase.from('evolution_strategies').delete().eq('id', data.strategyId);
+  // Delete ONLY the tactics this spec seeded (not a global sweep — that would
+  // race with other evolution specs running in parallel locally / in CI).
+  for (const tacticCleanup of data.tacticCleanups) await tacticCleanup();
 }
 
 adminTest.describe('Admin Evolution Strategy Tactics Tab', { tag: '@evolution' }, () => {

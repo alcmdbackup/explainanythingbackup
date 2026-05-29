@@ -433,7 +433,7 @@ detect-changes → typecheck + lint (parallel)
 | **Secrets** | Staging environment | Production environment | Production environment |
 | **Browsers** | Chromium | Chromium + Firefox | Chromium |
 | **E2E_TEST_MODE** | Yes (mocked SSE) | No (real AI) | No (real AI) |
-| **@skip-prod** | N/A (isProduction=false) | CLI `--grep-invert` + config `grepInvert` | N/A (only @smoke runs) |
+| **@skip-prod** | runs locally + in CI (config `grepInvert` is prod-gated on `isProduction`) | excluded via CLI `--grep-invert="@skip-prod"` + the now prod-gated config `grepInvert` | N/A (only @smoke runs) |
 
 > **Note:** CI workflow builds and runs the app locally on the GitHub runner (`npm run build && npm start`). Nightly and Post-Deploy Smoke workflows test against the live production deployment (no local build).
 

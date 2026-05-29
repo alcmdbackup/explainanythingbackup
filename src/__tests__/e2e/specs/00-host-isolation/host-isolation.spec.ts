@@ -29,7 +29,7 @@ async function ctxWithHost(host: string, baseURL: string): Promise<APIRequestCon
   });
 }
 
-test.describe('Host isolation', { tag: '@critical' }, () => {
+test.describe('Host isolation', { tag: ['@critical', '@skip-prod'] }, () => {
   // Serial mode: each inner describe shares an APIRequestContext via beforeAll.
   // Per testing_overview.md Rule 13, beforeAll-driven shared state requires serial.
   test.describe.configure({ mode: 'serial' });

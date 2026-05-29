@@ -134,7 +134,18 @@ adminTest.describe('Evolution Invocation Detail', { tag: '@evolution' }, () => {
     const table = adminPage.locator('[data-testid="entity-list-table"]');
     await expect(table).toBeVisible({ timeout: 15000 });
 
-    // Click the success invocation link
+    // Uncheck "Hide test content" FIRST so the seeded invocation (its run has a
+    // timestamp-named, test-flagged strategy) is visible. Without this the seeded
+    // row is hidden and the link assertion below times out on prod.
+    const testContentFilter = adminPage.locator('[data-testid="filter-filterTestContent"] input[type="checkbox"]');
+    // eslint-disable-next-line flakiness/no-point-in-time-checks -- control flow, not assertion
+    if (await testContentFilter.isChecked()) {
+      await testContentFilter.uncheck();
+      // Wait for table to re-render after filter change
+      await table.locator('tbody tr').first().waitFor({ state: 'visible', timeout: 10000 });
+    }
+
+    // Click the success invocation link (wait for the seeded row to appear first)
     const invLink = table.locator(`a[href*="/admin/evolution/invocations/${successInvocationId}"]`).first();
     await expect(invLink).toBeVisible({ timeout: 10000 });
     await invLink.click();

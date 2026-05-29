@@ -4,7 +4,7 @@
 import { adminTest, expect } from '../../fixtures/admin-auth';
 import { createMultiHopFixture, type MultiHopFixture } from '../../helpers/evolution-test-data-factory';
 
-adminTest.describe('Variant Lineage Tab', { tag: ['@evolution', '@critical'] }, () => {
+adminTest.describe('Variant Lineage Tab', { tag: '@evolution' }, () => {
   adminTest.describe.configure({ mode: 'serial' });
 
   let fixture: MultiHopFixture;

@@ -217,11 +217,13 @@ export default defineConfig({
       }] : []),
     ],
   }),
-  // B116: always exclude @skip-prod tests — locally they hit mocked API handlers
-  // that differ from production, so running them against a local dev build gave
-  // misleading pass/fail signals. Tests that require the mocked API should tag
-  // themselves explicitly rather than rely on @skip-prod meaning "local-only".
-  grepInvert: /@skip-prod/,
+  // B116/fix: exclude @skip-prod tests ONLY when targeting real prod (BASE_URL is a
+  // *.vercel.app / explainanything host → isProduction). Locally + in CI these
+  // mock-dependent / local-only specs SHOULD run (mocks are active there); the prod
+  // nightly and post-deploy already exclude them via their CLI --grep-invert="@skip-prod"
+  // and positive @smoke-* greps respectively. Gating here (instead of unconditional)
+  // restores local/CI coverage while keeping prod exclusion intact.
+  ...(isProduction ? { grepInvert: /@skip-prod/ } : {}),
   // Extended timeouts for production (real AI latency)
   timeout: isProduction ? 120000 : (process.env.CI ? 60000 : 30000),
   expect: {

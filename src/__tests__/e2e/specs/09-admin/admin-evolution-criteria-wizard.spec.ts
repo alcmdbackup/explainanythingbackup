@@ -5,7 +5,7 @@
 import { adminTest, expect } from '../../fixtures/admin-auth';
 import { getEvolutionServiceClient } from '../../helpers/evolution-test-data-factory';
 
-adminTest.describe('Strategy wizard — criteria_and_generate', { tag: ['@evolution', '@critical'] }, () => {
+adminTest.describe('Strategy wizard — criteria_and_generate', { tag: '@evolution' }, () => {
   adminTest.describe.configure({ mode: 'serial' });
 
   const seededIds: string[] = [];

@@ -5,7 +5,7 @@
 import { adminTest, expect } from '../../fixtures/admin-auth';
 import { getEvolutionServiceClient } from '../../helpers/evolution-test-data-factory';
 
-adminTest.describe('Criteria rubric editor', { tag: ['@evolution', '@critical'] }, () => {
+adminTest.describe('Criteria rubric editor', { tag: '@evolution' }, () => {
   adminTest.describe.configure({ mode: 'serial' });
 
   let seededId = '';

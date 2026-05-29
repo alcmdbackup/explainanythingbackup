@@ -1,5 +1,5 @@
 /**
- * @critical
+ * @evolution
  * Admin Strategy Registry E2E tests.
  * Tests create strategy with preset and agent selection.
  */
@@ -12,6 +12,10 @@ import * as path from 'path';
 
 dotenv.config({ path: path.resolve(process.cwd(), '.env.local') });
 
+// NOTE: tag the formerly-@critical test below at the TEST level (not the describe),
+// so the untagged `paragraph_recombine` tests (#1116, currently failing in the evolution
+// E2E job — page crash on selectOption) are NOT enrolled here. Those are a separate,
+// pre-existing concern tracked outside this broken-nightly fix.
 adminTest.describe('Strategy Registry CRUD', () => {
   const testStrategyName = `[E2E] Test Strategy ${Date.now()}`;
 
@@ -40,7 +44,7 @@ adminTest.describe('Strategy Registry CRUD', () => {
     }
   });
 
-  adminTest('create strategy with wizard @critical', async ({ adminPage }) => {
+  adminTest('create strategy with wizard', { tag: '@evolution' }, async ({ adminPage }) => {
     // Navigate to strategies page
     await adminPage.goto('/admin/evolution/strategies', { timeout: 30000 });
     await expect(adminPage.locator('main').getByRole('heading', { name: 'Strategies' })).toBeVisible({ timeout: 15000 });

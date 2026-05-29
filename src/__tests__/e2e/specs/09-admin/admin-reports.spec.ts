@@ -12,7 +12,7 @@ import {
   TestExplanation
 } from '../../helpers/test-data-factory';
 
-adminTest.describe('Admin Content Reports', () => {
+adminTest.describe('Admin Content Reports', { tag: '@evolution' }, () => {
   adminTest.describe.configure({ mode: 'serial' });
 
   let testExplanation: TestExplanation;
@@ -34,11 +34,11 @@ adminTest.describe('Admin Content Reports', () => {
   });
 
   /**
-   * @critical - This test runs on every PR to main.
+   * @evolution - This test runs on the evolution host.
    * Verifies the reports table loads correctly.
    */
   adminTest(
-    'reports table loads @critical',
+    'reports table loads',
     async ({ adminPage }) => {
       const reportsPage = new AdminReportsPage(adminPage);
       await reportsPage.gotoReports();

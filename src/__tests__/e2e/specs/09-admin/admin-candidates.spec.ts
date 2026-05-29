@@ -6,14 +6,13 @@
 import { adminTest, expect } from '../../fixtures/admin-auth';
 import { AdminCandidatesPage } from '../../helpers/pages/admin/AdminCandidatesPage';
 
-adminTest.describe('Admin Candidates Management', () => {
+adminTest.describe('Admin Candidates Management', { tag: '@evolution' }, () => {
   /**
-   * @critical - This test runs on every PR to main.
+   * @evolution - This test runs on the evolution host.
    * Verifies the candidates table loads correctly.
    */
   adminTest(
     'candidates table loads',
-    { tag: '@critical' },
     async ({ adminPage }) => {
       const candidatesPage = new AdminCandidatesPage(adminPage);
       await candidatesPage.gotoCandidates();

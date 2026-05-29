@@ -10,7 +10,7 @@
 import { test, expect } from '../../fixtures/auth';
 
 test.describe('GenerationStatusPill (streaming hand-off)', () => {
-  test('appears during streaming and survives URL navigation', { tag: '@critical' }, async ({ authenticatedPage: page }) => {
+  test('appears during streaming and survives URL navigation', { tag: ['@critical', '@skip-prod'] }, async ({ authenticatedPage: page }) => {
     // X-Test-Scenario header selects the `slow` mock SSE scenario (200ms gap
     // between events) so the pill in 'streaming' state stays mounted long
     // enough to observe. The header is propagated by the test-mode router.
@@ -39,7 +39,7 @@ test.describe('GenerationStatusPill (streaming hand-off)', () => {
     await expect(pill).toContainText(/Drafting your article/i);
   });
 
-  test('renders the hint state with the AI-editor copy after streaming', { tag: '@critical' }, async ({ authenticatedPage: page }) => {
+  test('renders the hint state with the AI-editor copy after streaming', { tag: ['@critical', '@skip-prod'] }, async ({ authenticatedPage: page }) => {
     // Default scenario completes quickly (~400ms total). The streaming
     // handler only fires on /results — '/?q=...' is the home page and
     // doesn't dispatch START_GENERATION.
