@@ -9,6 +9,8 @@ import type { ArenaTextVariation } from '../setup/buildRunContext';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { writeMetric, writeMetricMax } from '../../metrics/writeMetrics';
 import { createMockEntityLogger } from '../../../testing/evolution-test-helpers';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 jest.mock('../../metrics/writeMetrics', () => ({
   writeMetric: jest.fn().mockResolvedValue(undefined),
@@ -634,6 +636,31 @@ describe('syncToArena', () => {
     expect(entry.parent_variant_ids).toEqual([ORIGINAL_ID]); // lineage persisted (was [] before fix)
     expect(entry.match_count).toBe(2);                        // run match count persisted (was 0 before fix)
     expect(entry.arena_match_count).toBe(2);
+  });
+
+  // investigate_paragraph_recombine_invocation_20260529 — article-path no-clobber regression.
+  // syncToArena is shared with article topics: article variants are upserted by finalizeRun FIRST
+  // (with their own parent_variant_ids/match_count), then re-enter via this RPC's INSERT…ON CONFLICT.
+  // The migration MUST write the two new columns on INSERT only and leave them untouched on conflict,
+  // or it would overwrite article variants' finalize-written lineage/counts. Static guard on the SQL.
+  it('migration ON CONFLICT DO UPDATE does not clobber parent_variant_ids/match_count', () => {
+    const sql = readFileSync(
+      join(process.cwd(), 'supabase/migrations/20260529000001_sync_to_arena_persist_parent_and_match_count.sql'),
+      'utf8',
+    );
+    const onConflictIdx = sql.indexOf('ON CONFLICT (id) DO UPDATE SET');
+    expect(onConflictIdx).toBeGreaterThan(-1);
+    // The DO UPDATE SET clause runs until the statement-terminating semicolon (the trailing
+    // explanatory comment that names these columns lives AFTER the ';', so it is excluded).
+    const afterConflict = sql.slice(onConflictIdx);
+    const setClause = afterConflict.slice(0, afterConflict.indexOf(';'));
+    expect(setClause).not.toContain('parent_variant_ids');
+    expect(setClause).not.toMatch(/\bmatch_count\b/); // \b so it does NOT match arena_match_count
+
+    // Sanity: the INSERT branch DOES write both (so the fix is actually present, not just absent everywhere).
+    const insertCols = sql.slice(sql.indexOf('INSERT INTO evolution_variants'), onConflictIdx);
+    expect(insertCols).toContain('parent_variant_ids');
+    expect(insertCols).toMatch(/\bmatch_count\b/);
   });
 
   it('logs warning on RPC error after retry without throwing', async () => {
