@@ -107,7 +107,7 @@ adminTest.describe('Strategy Registry CRUD', () => {
   });
 
   // rank_individual_paragraphs_evolution_20260525 Phase 6 — paragraph_recombine wizard controls.
-  adminTest('paragraph_recombine wizard controls appear only for paragraph_recombine iterations', async ({ adminPage }) => {
+  adminTest('paragraph_recombine wizard controls appear only for paragraph_recombine iterations', { tag: '@evolution' }, async ({ adminPage }) => {
     await adminPage.goto('/admin/evolution/strategies/new', { timeout: 30000 });
     await adminPage.waitForLoadState('domcontentloaded');
 
@@ -126,7 +126,7 @@ adminTest.describe('Strategy Registry CRUD', () => {
     await expect(adminPage.locator('[data-testid="max-paragraphs-per-invocation-0"]')).toHaveValue('12');
   });
 
-  adminTest('paragraph_recombine wizard controls clear when agent type switches away', async ({ adminPage }) => {
+  adminTest('paragraph_recombine wizard controls clear when agent type switches away', { tag: '@evolution' }, async ({ adminPage }) => {
     await adminPage.goto('/admin/evolution/strategies/new', { timeout: 30000 });
     await adminPage.waitForLoadState('domcontentloaded');
 
