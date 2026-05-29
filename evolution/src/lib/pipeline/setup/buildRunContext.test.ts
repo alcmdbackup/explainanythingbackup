@@ -130,6 +130,34 @@ describe('buildRunContext', () => {
     }
   });
 
+  // Task 2 (make_fixes_paragraph_recombine_20260528): the invalid-config error must
+  // surface the SPECIFIC failing field (a Zod issue path), not just "invalid config".
+  // Simulates the #1117 version-skew failure mode (an unknown agentType in the stored
+  // config — what an older runner's enum produced for 'paragraph_recombine').
+  it('surfaces the specific Zod issue (field path) in the invalid-config error', async () => {
+    const { db } = makeMockDb({
+      contentText: validText,
+      strategyConfig: {
+        generationModel: 'gpt-4.1-nano',
+        judgeModel: 'gpt-4.1-nano',
+        iterationConfigs: [
+          { agentType: 'generate', budgetPercent: 60 },
+          { agentType: 'some_unknown_agent', budgetPercent: 40 },
+        ],
+      },
+    });
+    const run = makeClaimedRun();
+
+    const result = await buildRunContext('run-1', run, db, makeProvider());
+
+    expect('error' in result).toBe(true);
+    if ('error' in result) {
+      expect(result.error).toContain('invalid config');
+      // The failing field path is named (was swallowed pre-fix).
+      expect(result.error).toContain('iterationConfigs.1.agentType');
+    }
+  });
+
   it('passes generationGuidance from strategy config to EvolutionConfig', async () => {
     const guidance = [
       { tactic: 'engagement_amplify', percent: 60 },

@@ -48,3 +48,7 @@ export type { EntityListPageProps, FilterDef, RowAction } from './EntityListPage
 // tabs/
 export { EntityMetricsTab } from './tabs/EntityMetricsTab';
 export { CostEstimatesTab } from './tabs/CostEstimatesTab';
+
+// arena/
+export { ArenaLeaderboardTable } from './arena/ArenaLeaderboardTable';
+export type { ArenaLeaderboardTableProps } from './arena/ArenaLeaderboardTable';

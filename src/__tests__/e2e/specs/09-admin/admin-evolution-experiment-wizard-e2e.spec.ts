@@ -120,8 +120,9 @@ adminTest.describe('Experiment Wizard E2E', { tag: '@evolution' }, () => {
     await adminPage.waitForLoadState('domcontentloaded');
     await adminPage.locator('text=Experiment Name').waitFor({ state: 'visible', timeout: 15000 });
     await adminPage.locator('input[type="text"][placeholder*="Model comparison"]').fill(`${TEST_PREFIX} Spinner Test`);
-    const promptLabel = adminPage.locator('label').filter({ hasText: TEST_PREFIX }).filter({ hasText: 'Prompt' });
-    await promptLabel.click();
+    // Target THIS run's seeded prompt by id — fuzzy text matching breaks when prior
+    // cancelled/crashed runs leave their own `E2E-Wizard Prompt …` rows behind.
+    await adminPage.locator(`[data-testid="prompt-option-${promptId}"]`).click();
     await adminPage.locator('button', { hasText: 'Next: Select Strategies' }).click();
     const strategyCheck = adminPage.locator(`[data-testid="strategy-check-${strategyId}"]`);
     await expect(strategyCheck).toBeVisible({ timeout: 15000 });
@@ -142,9 +143,8 @@ adminTest.describe('Experiment Wizard E2E', { tag: '@evolution' }, () => {
     const nameInput = adminPage.locator('input[type="text"][placeholder*="Model comparison"]');
     await nameInput.fill(experimentName);
 
-    // Select the seeded prompt by finding its name text
-    const promptLabel = adminPage.locator('label').filter({ hasText: TEST_PREFIX }).filter({ hasText: 'Prompt' });
-    await promptLabel.click();
+    // Select THIS run's seeded prompt by id (avoids matching leftover E2E-Wizard rows)
+    await adminPage.locator(`[data-testid="prompt-option-${promptId}"]`).click();
 
     // Click "Next: Select Strategies"
     await adminPage.locator('button', { hasText: 'Next: Select Strategies' }).click();

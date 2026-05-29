@@ -311,8 +311,45 @@ export interface ComparisonResult {
   turns: number;
 }
 
-/** Build a prompt asking the LLM to compare two texts. */
-export function buildComparisonPrompt(textA: string, textB: string): string {
+/** Which comparison prompt to use. 'article' is the default whole-text rubric;
+ *  'paragraph' is the paragraph-level rubric used by paragraph_recombine per-slot ranking
+ *  (investigate_matchmaking_paragraph_recombine_20260528). */
+export type ComparisonMode = 'article' | 'paragraph';
+
+/** Build a prompt asking the LLM to compare two texts.
+ *  `mode` defaults to 'article' so every existing caller is byte-for-byte unchanged. */
+export function buildComparisonPrompt(textA: string, textB: string, mode: ComparisonMode = 'article'): string {
+  if (mode === 'paragraph') {
+    // Paragraph-level rubric. Static framing/criteria/instructions come FIRST and the
+    // variable texts come LAST so the instruction block is a stable, cacheable prefix
+    // across every comparison and both reversal passes. Keeps the `## Text A`/`## Text B`
+    // labels and the A/B/TIE contract so parseWinner is unchanged. The TIE-discouraging
+    // instruction counteracts the over-tying that froze per-slot Elo at 1200.
+    return `You are an expert writing evaluator. You will be shown two versions (Text A and Text B) of the SAME single paragraph from a longer article. Decide which version is the stronger paragraph.
+
+## Evaluation Criteria (judge at the paragraph level)
+- Clarity and concision — the point made cleanly, without padding
+- Sentence fluency and rhythm — smooth, well-varied sentences
+- Fidelity — preserves the original claim/conclusion (no distortion or drift)
+- Usefulness — any added example or detail genuinely sharpens the point
+
+## Instructions
+Pick the stronger paragraph. Differences are often small — that is expected and fine. Answer "TIE" ONLY if the two are genuinely indistinguishable in quality; otherwise choose the better one even by a slim margin.
+
+Respond with ONLY one of these exact answers:
+- "A" if Text A is better
+- "B" if Text B is better
+- "TIE" only if truly indistinguishable
+
+## Text A
+${textA}
+
+## Text B
+${textB}
+
+Your answer:`;
+  }
+
   return `You are an expert writing evaluator. Compare the following two text variations and determine which is better.
 
 ## Text A
@@ -443,7 +480,12 @@ export async function compareWithBiasMitigation(
   textB: string,
   callLLM: (prompt: string) => Promise<string>,
   cache?: Map<string, ComparisonResult>,
+  mode: ComparisonMode = 'article',
 ): Promise<ComparisonResult> {
+  // NOTE (B029/B039): makeCacheKey is keyed on the texts only, NOT on `mode`. This is safe
+  // because each call site uses a mode-homogeneous cache (paragraph_recombine allocates a
+  // fresh per-slot cache that only ever sees 'paragraph'; article ranking uses its own).
+  // Do not share one cache across modes or stale cross-mode results could be returned.
   if (cache) {
     const key = makeCacheKey(textA, textB);
     const cached = cache.get(key);
@@ -452,8 +494,8 @@ export async function compareWithBiasMitigation(
 
   const result = await run2PassReversal<string | null, ComparisonResult>({
     buildPrompts: () => ({
-      forward: buildComparisonPrompt(textA, textB),
-      reverse: buildComparisonPrompt(textB, textA),
+      forward: buildComparisonPrompt(textA, textB, mode),
+      reverse: buildComparisonPrompt(textB, textA, mode),
     }),
     callLLM,
     parseResponse: parseWinner,

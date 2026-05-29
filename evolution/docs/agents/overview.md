@@ -19,7 +19,7 @@ This document covers the V2 pipeline's operational components: the three concret
 
 `evolveArticle()` in `evolution/src/lib/pipeline/loop/runIterationLoop.ts` iterates over
 `config.iterationConfigs[]`, an ordered array of `IterationConfig` objects. Each entry
-specifies `agentType` (`generate`, `reflect_and_generate`, `criteria_and_generate`, `debate_and_generate`, `iterative_editing`, or `swiss`), `budgetPercent`, and optional `maxAgents`.
+specifies `agentType` (`generate`, `reflect_and_generate`, `criteria_and_generate`, `debate_and_generate`, `iterative_editing`, `paragraph_recombine`, or `swiss`), `budgetPercent`, and optional `maxAgents`.
 Per-iteration dollar budgets are computed at runtime: `(budgetPercent / 100) * totalBudget`.
 Each iteration is one of two types — both have the uniform shape **work agent(s) + merge agent**:
 
@@ -550,3 +550,28 @@ The synthesis-LLM-proxy must (a) be injected via `innerInput.llm` (NOT `ctx`), (
 **Cost cap**: $0.40 per invocation; pre-synthesis budget gate fires at 0.9 × cap (Decision §8).
 
 See full deep dive: `evolution/docs/agents/overview.md` (this section) + planning doc at `docs/planning/bring_back_debate_agent_20260506/`.
+
+## ParagraphRecombineAgent (rank_individual_paragraphs_evolution_20260525)
+
+Decomposes a parent article into paragraph-sized slots, generates M parallel rewrites per slot, ranks them via the existing Elo machinery in a per-slot arena topic, then recombines the per-slot winners into a single new article variant. Selected per-iteration via `IterationConfig.agentType: 'paragraph_recombine'` (Shape A top-level agent type). The iteration carries optional knobs `rewritesPerParagraph` (default 3), `maxComparisonsPerParagraph` (default 8), `maxParagraphsPerInvocation` (default 12), and `paragraphRewriteModel` (defaults to strategy `generationModel`).
+
+- `name = 'paragraph_recombine'`
+- `detailType = 'paragraph_recombine'` (see `slotRecombineExecutionDetailSchema`)
+- `tactic = 'paragraph_recombine'` (marker tactic; cyan `#06b6d4`)
+- Two new AgentNames `'paragraph_rewrite'` (rewrite calls) and `'paragraph_rank'` (per-slot ranking calls) both → cost metric `paragraph_recombine_cost`. The agent relabels `rankNewVariant`'s `'ranking'` calls to `'paragraph_rank'` via a thin LLM-client proxy (keeps per-slot ranking out of article `ranking_cost`), and writes the run-level metric once as the SUM of both phase-cost accumulators (see `evolution/docs/paragraph_recombine.md`).
+
+**Algorithm** (per `evolution/src/lib/core/agents/paragraphRecombine/ParagraphRecombineAgent.ts`):
+
+1. **Decompose** — `extractParagraphsWithRanges(parentText)` returns N slots with byte ranges.
+2. **Per-slot pipeline in parallel (D18)** — `Promise.allSettled` across N slots; each slot internally generates M parallel rewrites, validates each via `validateParagraphRewrite` (length cap ±20%, no bullets/lists/tables/H1, ≥1 sentence-ending punctuation), then ranks the survivors sequentially (within-slot ranking must be sequential to preserve `localRatings` consistency). Cross-slot parallelism is bounded by per-slot `AgentCostScope` nesting under the invocation scope.
+3. **Per-slot match persistence** — `persistSlotMatches()` writes per-slot pairwise comparisons to `evolution_arena_comparisons` with the slot's `slotTopicId`, MIRRORING `MergeRatingsAgent`'s bulk-INSERT shape. `syncToArena` is called BEFORE `persistSlotMatches` to avoid orphan-match rows on failure (iter-3 plan review).
+4. **Assemble** — `assembleRecombinedArticle` right-to-left splices winners into the parent text (right-to-left so earlier slots' byte offsets stay valid).
+5. **Format validation + emission** — `validateFormat(recombinedText)`; on success, emit a single recombined `Variant` with `parent_variant_ids = [originalParent]` only (single-parent lineage per revised D4). Slot winners live in `execution_detail.slots[*].ranking.winnerSlotVariantId`.
+
+**Cost envelope** (~$0.011/variant at 12 slots × 3 rewrites × 8 comparisons, gpt-4.1-nano + qwen). Hard invocation cap inherits from `perInvocationCap`; per-slot budget = `cap / paragraphCount`.
+
+**Cross-invocation Elo accumulation (D10)** — paragraph topics are keyed by deterministic name `[para] V8abc123.P3`, so a second invocation against the same parent reuses the same `slotTopicId` and inherits all prior rewrites' Elos via `loadArenaEntries`. R-numbering continues across invocations (inv 1 emits R1-R3, inv 2 emits R4-R6).
+
+**Kill switch**: `EVOLUTION_PARAGRAPH_RECOMBINE_ENABLED='false'` short-circuits the dispatch branch in `runIterationLoop.ts`. Mirrored at the wizard preview boundary (`paragraphRecombineEnabled` flag → `EstPerAgentValue.paragraphRecombine=0`).
+
+See full deep dive: `evolution/docs/paragraph_recombine.md`.

@@ -272,7 +272,7 @@ detect-changes → typecheck + lint (parallel)
 
 ### Post-Deploy Smoke Tests (`post-deploy-smoke.yml`)
 
-**Trigger:** Vercel deployment completes successfully to Production
+**Trigger:** Push to the `production` branch (Vercel deploys prod on this push) + `workflow_dispatch`. The original `deployment_status` trigger is retained only as an inert secondary — GitHub anti-recursion drops the `GITHUB_TOKEN`-created Vercel deployment status, so it never fired a workflow run (this was the cause of zero post-deploy smoke coverage). The job's Health Check now polls the apex `/api/health` (~5 min) to wait for the Vercel deploy to go live before running the smoke specs.
 
 **Behavior:**
 - Runs `@smoke` tagged E2E tests against the live production URL

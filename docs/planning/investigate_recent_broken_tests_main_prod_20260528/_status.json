@@ -1,0 +1,17 @@
+{
+  "branch": "feat/investigate_recent_broken_tests_main_prod_20260528",
+  "created_at": "2026-05-28T14:26:28Z",
+  "prerequisites": {
+    "testing_setup_read": "2026-05-28T15:03:11Z",
+    "testing_overview_read": "2026-05-28T15:03:11Z"
+  },
+  "relevantDocs": [
+    "docs/docs_overall/testing_overview.md",
+    "docs/feature_deep_dives/testing_setup.md",
+    "docs/docs_overall/debugging.md",
+    "docs/feature_deep_dives/debugging_skill.md",
+    "docs/docs_overall/environments.md",
+    "docs/docs_overall/cloud_env.md",
+    "docs/feature_deep_dives/pr_verification_gate.md"
+  ]
+}

@@ -62,6 +62,18 @@ const OUTPUT_TOKEN_ESTIMATES: Partial<Record<AgentName, number>> = {
   // Same shape as 'generation' but routed through the I4 LLM-client proxy so
   // cost flows to debate_cost instead of generation_cost.
   debate_synthesis: 2000,
+  // Per-paragraph rewrite: paragraph-level output, much smaller than article-
+  // level 'generation' (1000). A typical 8K-char article has ~12 paragraphs ≈
+  // ~660 chars/paragraph; rewrite output ~similar size + minor variance.
+  // 250 tokens (~1000 chars) covers a typical paragraph rewrite.
+  paragraph_rewrite: 250,
+  // Per-slot ranking: the agent relabels rankNewVariant's 'ranking' calls to
+  // 'paragraph_rank' (cost-attribution fix), so it needs the same output estimate
+  // as 'ranking' (100) — same pairwise-verdict shape. Without this entry the
+  // reserve-before-spend path would fall back to the 1000-token default and
+  // over-reserve ~10×, risking premature per-slot self-abort on the small
+  // per-slot budget (~$0.033 at defaults).
+  paragraph_rank: 100,
 };
 
 // ─── Public API ──────────────────────────────────────────────────
@@ -123,7 +135,12 @@ export function createEvolutionLLMClient(
         { 'subagent.path': agentName, 'subagent.label': agentName },
         async () => {
       const model = (options?.model as string) ?? defaultModel;
-      const temperature = agentName === 'ranking'
+      // Judge/ranking calls are deterministic (temp 0). 'paragraph_rank' is the relabeled
+      // per-slot ranking judge call (ParagraphRecombineAgent relabels rankNewVariant's
+      // 'ranking' → 'paragraph_rank' for cost attribution); without it here the judge would
+      // fall through to the generation/provider-default temperature, breaking the 2-pass
+      // reversal determinism the paragraph ranking relies on.
+      const temperature = (agentName === 'ranking' || agentName === 'paragraph_rank')
         ? 0
         : (options?.temperature ?? generationTemperature);
       const reasoningEffort = options?.reasoningEffort;

@@ -5,7 +5,7 @@
 import { adminTest, expect } from '../../fixtures/admin-auth';
 import { createMultiHopFixture, type MultiHopFixture } from '../../helpers/evolution-test-data-factory';
 
-adminTest.describe('Invocation Detail — generate_from_previous_article', { tag: ['@evolution', '@critical'] }, () => {
+adminTest.describe('Invocation Detail — generate_from_previous_article', { tag: '@evolution' }, () => {
   adminTest.describe.configure({ mode: 'serial' });
 
   let fixture: MultiHopFixture;

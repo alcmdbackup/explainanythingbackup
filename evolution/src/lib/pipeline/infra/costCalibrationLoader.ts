@@ -35,7 +35,8 @@ export interface CalibrationRow {
     | 'criteria_forward_approver'
     | 'criteria_mirror_approver'
     | 'debate_judge'
-    | 'debate_synthesis';
+    | 'debate_synthesis'
+    | 'paragraph_rewrite';
   avgOutputChars: number;
   avgInputOverheadChars: number;
   avgCostPerCall: number;

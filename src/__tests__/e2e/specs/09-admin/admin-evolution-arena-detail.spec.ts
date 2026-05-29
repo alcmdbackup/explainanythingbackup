@@ -148,5 +148,17 @@ adminTest.describe('Evolution Arena Detail', { tag: '@evolution' }, () => {
     // We verify the sort mechanism is wired up (first row text may differ)
     expect(firstRowBefore).toBeDefined();
     expect(firstRowAfter).toBeDefined();
+
+    // D17 regression: arena leaderboard summary chip (new in the extracted
+    // ArenaLeaderboardTable) should be present and show the entry count.
+    const summary = adminPage.locator('[data-testid="arena-leaderboard-summary"]');
+    await expect(summary).toBeVisible();
+    const summaryText = await summary.textContent();
+    expect(summaryText).toMatch(/\d+\s+entries/);
+
+    // D17 regression: standalone arena page should NOT render the
+    // SlotsTab embedded-leaderboard tab toggle (only invocation-detail SlotsTab does).
+    expect(await adminPage.locator('[data-testid="slot-tab-all"]').count()).toBe(0);
+    expect(await adminPage.locator('[data-testid="slot-tab-this"]').count()).toBe(0);
   });
 });

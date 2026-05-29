@@ -11,7 +11,7 @@ import {
   TestExplanation
 } from '../../helpers/test-data-factory';
 
-adminTest.describe('Admin Content Management', () => {
+adminTest.describe('Admin Content Management', { tag: '@evolution' }, () => {
   adminTest.describe.configure({ mode: 'serial' });
 
   let testExplanations: TestExplanation[] = [];
@@ -30,12 +30,11 @@ adminTest.describe('Admin Content Management', () => {
   });
 
   /**
-   * @critical - This test runs on every PR to main.
+   * @evolution - This test runs on the evolution host.
    * Verifies the content table loads and displays data.
    */
   adminTest(
     'content table loads with data',
-    { tag: '@critical' },
     async ({ adminPage }) => {
       const contentPage = new AdminContentPage(adminPage);
       await contentPage.gotoContent();

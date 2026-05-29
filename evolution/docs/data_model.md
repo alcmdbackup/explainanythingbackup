@@ -53,6 +53,7 @@ Prompt registry for evolution runs and arena topics. Renamed from `evolution_are
 | `deleted_at` | TIMESTAMPTZ | | Soft delete timestamp |
 | `archived_at` | TIMESTAMPTZ | | |
 | `is_test_content` | BOOLEAN | NOT NULL, default `false` | Set by a BEFORE INSERT/UPDATE-OF-name trigger calling `evolution_is_test_name(name)`. Migration `20260423000001`. Backed by partial index `idx_evolution_prompts_non_test`. Used by `applyTestContentColumnFilter` for the prompts list and arena topics list. |
+| `prompt_kind` | TEXT | NOT NULL, default `'article'`, CHECK ∈ (`'article'`, `'paragraph'`) | Whether the row is a normal article topic (default) or a per-paragraph slot topic introduced by `ParagraphRecombineAgent`. Paragraph topics share `evolution_prompts` so per-slot Elo leaderboards reuse the arena machinery. Partial unique index `uq_evolution_prompts_paragraph_topic` on `prompt` for `prompt_kind = 'paragraph'` gives the deterministic `[para] V8abc123.P3`-keyed identity that drives D10 cross-invocation Elo accumulation. Arena topic list defaults to `WHERE prompt_kind = 'article'`. Migration `20260527000001` + `20260527000002`. (rank_individual_paragraphs_evolution_20260525) |
 | `created_at` | TIMESTAMPTZ | NOT NULL | |
 
 ### `evolution_experiments`
@@ -125,6 +126,7 @@ Text variants produced during a pipeline run. Since migration 20260321000002, th
 | `criteria_set_used` | UUID[] | | Set of `evolution_criteria.id` values evaluated when this variant was produced via any of the 3 criteria-driven agents (`evaluate_criteria_then_generate_from_previous_article`, `single_pass_evaluate_criteria_and_generate`, `proposer_approver_criteria_generate`). NULL/empty otherwise. GIN-indexed. Migration `20260502120002`. |
 | `weakest_criteria_ids` | UUID[] | | Subset of `criteria_set_used` corresponding to the K weakest criteria the wrapper agent targeted with suggestions. NULL/empty otherwise. GIN-indexed. Migration `20260502120002`. |
 | `sentence_verbatim_ratio` | NUMERIC | | Per-variant quality metric: fraction of parent sentences appearing verbatim (Levenshtein ≤ 2 near-match) in child. Range `[0.0, 1.0]`. Universal — populated by all variant-producing agents (vanilla `generate`, `reflect_and_generate`, all 3 criteria-driven, `iterative_editing`, propose/approve). Pre-existing variants stay NULL and are excluded from percentile aggregation. Observational only — no enforcement, no discard. Migration `20260506000002`. (updated_criteria_agent_20260505) |
+| `variant_kind` | TEXT | NOT NULL, default `'article'`, CHECK ∈ (`'article'`, `'paragraph'`) | Whether the row is a full article variant (default — every pre-existing row) or a paragraph snippet introduced by `ParagraphRecombineAgent`. Used by the variants list filter to default-hide paragraph snippets (D13). The extended `sync_to_arena` RPC reads + writes this column from the JSONB payload; ON CONFLICT leaves it untouched so re-syncs don't clobber. Partial index `idx_evolution_variants_paragraph_partition` for paragraph queries. Migration `20260527000001`. (rank_individual_paragraphs_evolution_20260525) |
 | `created_at` | TIMESTAMPTZ | NOT NULL | |
 
 ### `evolution_criteria`

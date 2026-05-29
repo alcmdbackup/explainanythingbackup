@@ -28,27 +28,125 @@ export function isArenaEntry(variant: Variant): variant is ArenaTextVariation {
 // ─── Load arena entries ─────────────────────────────────────────
 
 /**
+ * Optional cap params for loadArenaEntries. Per D15 of rank_individual_paragraphs_evolution_20260525.
+ *
+ * For paragraph topics (per D10) the pool can accumulate many entries over invocations;
+ * a topK cap (default 20) keeps the binary-search ranking pool focused on the strongest
+ * existing entries. `alwaysIncludeIds` guarantees the original-paragraph variant is loaded
+ * regardless of its current Elo rank — so the original always competes against rewrites.
+ *
+ * For article-level callers, omit `opts` entirely — behavior is byte-identical to the
+ * pre-D15 implementation.
+ */
+export interface LoadArenaEntriesOpts {
+  /** When set, ORDER BY elo_score DESC LIMIT topK after applying the alwaysIncludeIds union. */
+  topK?: number;
+  /** Variant IDs guaranteed to be loaded regardless of elo_score rank. */
+  alwaysIncludeIds?: readonly string[];
+}
+
+/**
  * Load active (non-archived) arena entries for a topic into the pool.
  * Returns Variant[] with fromArena=true and preset ratings.
  *
  * `excludeId`: when set, skip this row (used by buildRunContext to avoid double-loading
  * the persisted seed which already enters the pool via the seed-variant baseline path).
+ *
+ * `opts.topK`: when set, cap the load to top-K by elo_score (paragraph_recombine per D15).
+ * `opts.alwaysIncludeIds`: when set, guarantee these IDs are loaded (e.g. original-paragraph
+ *                          variant for paragraph topics).
+ *
+ * **NOTE on sort column**: when `opts.topK` is set we use elo_score DESC, NOT mu DESC.
+ * elo_score is the uncertainty-adjusted projection used elsewhere in the leaderboard;
+ * raw mu can rank a new variant with high sigma above a battle-tested low-sigma one.
  */
 export async function loadArenaEntries(
   promptId: string,
   supabase: SupabaseClient,
   excludeId?: string,
+  opts?: LoadArenaEntriesOpts,
 ): Promise<{ variants: ArenaTextVariation[]; ratings: Map<string, Rating> }> {
-  const { data, error } = await supabase
-    .from('evolution_variants')
-    .select('id, variant_content, mu, sigma, arena_match_count, generation_method')
-    .eq('prompt_id', promptId)
-    .eq('synced_to_arena', true)
-    .is('archived_at', null);
+  // For paragraph topics with topK cap, we run TWO queries to guarantee
+  // alwaysIncludeIds get loaded regardless of elo_score rank:
+  //   (1) the top-K by elo_score DESC
+  //   (2) the alwaysIncludeIds rows by id
+  // Then UNION the results (dedup by id). Article-level callers (no opts) skip
+  // this branch and use the existing unbounded query for backward compatibility.
 
-  if (error || !data) {
-    return { variants: [], ratings: new Map() };
+  type ArenaRow = {
+    id: string;
+    variant_content: string;
+    mu: number | null;
+    sigma: number | null;
+    arena_match_count: number | null;
+    generation_method: string | null;
+  };
+  let combinedRows: ArenaRow[] = [];
+
+  if (opts?.topK !== undefined) {
+    // Branch (a): topK + alwaysIncludeIds union.
+    const { data: topRows, error: topErr } = await supabase
+      .from('evolution_variants')
+      .select('id, variant_content, mu, sigma, arena_match_count, generation_method')
+      .eq('prompt_id', promptId)
+      .eq('synced_to_arena', true)
+      .is('archived_at', null)
+      .order('elo_score', { ascending: false })
+      .limit(opts.topK);
+    if (topErr || !topRows) {
+      return { variants: [], ratings: new Map() };
+    }
+    combinedRows = topRows;
+
+    if (opts.alwaysIncludeIds && opts.alwaysIncludeIds.length > 0) {
+      const existingIds = new Set(combinedRows.map((r) => r.id));
+      const missingIds = opts.alwaysIncludeIds.filter((id) => !existingIds.has(id));
+      if (missingIds.length > 0) {
+        const { data: includeRows } = await supabase
+          .from('evolution_variants')
+          .select('id, variant_content, mu, sigma, arena_match_count, generation_method')
+          .eq('prompt_id', promptId)
+          .eq('synced_to_arena', true)
+          .is('archived_at', null)
+          .in('id', missingIds);
+        if (includeRows) {
+          combinedRows = [...combinedRows, ...includeRows];
+        }
+      }
+    }
+
+    // Emit topic-size growth warn-log (D15) when the topic has accumulated past 50
+    // non-archived variants. Fire-and-forget COUNT query — no need to block on it.
+    void supabase
+      .from('evolution_variants')
+      .select('id', { count: 'exact', head: true })
+      .eq('prompt_id', promptId)
+      .eq('synced_to_arena', true)
+      .is('archived_at', null)
+      .then(({ count }) => {
+        if ((count ?? 0) > 50) {
+          // eslint-disable-next-line no-console
+          console.warn('[topic_arena_growth_warn] paragraph topic exceeds 50 non-archived variants', {
+            promptId,
+            count,
+          });
+        }
+      });
+  } else {
+    // Branch (b): existing unbounded query — backward compatible for article-level callers.
+    const { data, error } = await supabase
+      .from('evolution_variants')
+      .select('id, variant_content, mu, sigma, arena_match_count, generation_method')
+      .eq('prompt_id', promptId)
+      .eq('synced_to_arena', true)
+      .is('archived_at', null);
+    if (error || !data) {
+      return { variants: [], ratings: new Map() };
+    }
+    combinedRows = data;
   }
+  // Re-alias for the existing variable name used downstream.
+  const data = combinedRows;
 
   const variants: ArenaTextVariation[] = [];
   const ratings = new Map<string, Rating>();
@@ -247,7 +345,15 @@ export async function buildRunContext(
   }
   const configParsed = strategyConfigSchema.safeParse(strategyRow.config);
   if (!configParsed.success) {
-    return { error: `Strategy ${claimedRun.strategy_id} has invalid config` };
+    // Surface the specific Zod issues (path: message) so skew/misconfig is diagnosable
+    // from the run's error_message — not a generic "invalid config". Capped to the first
+    // few issues + a hard length clamp (markRunFailed also truncates at 2000).
+    const issues = configParsed.error.issues
+      .slice(0, 3)
+      .map((i) => `${i.path.join('.') || '(root)'}: ${i.message}`)
+      .join('; ')
+      .slice(0, 1500);
+    return { error: `Strategy ${claimedRun.strategy_id} has invalid config: ${issues}` };
   }
   const stratConfig = configParsed.data;
 

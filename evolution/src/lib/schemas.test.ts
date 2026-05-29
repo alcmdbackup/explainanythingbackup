@@ -585,6 +585,23 @@ describe('strategyConfigSchema', () => {
     })).toThrow();
   });
 
+  // Locks the contract the Task-2 buildRunContext legibility fix relies on
+  // (make_fixes_paragraph_recombine_20260528): an unknown agentType is REJECTED — not
+  // stripped — with an issue whose path points at the offending iteration's agentType
+  // field, so buildRunContext can surface `iterationConfigs.N.agentType` in error_message.
+  it('rejects an unknown agentType with an issue path at iterationConfigs.0.agentType', () => {
+    const result = strategyConfigSchema.safeParse({
+      ...validBase, iterationConfigs: [{ agentType: 'some_unknown_agent', budgetPercent: 100 }],
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const hasAgentTypePath = result.error.issues.some(
+        i => i.path[0] === 'iterationConfigs' && i.path[1] === 0 && i.path[2] === 'agentType',
+      );
+      expect(hasAgentTypePath).toBe(true);
+    }
+  });
+
   it('accepts valid generationGuidance', () => {
     expect(() => strategyConfigSchema.parse({
       ...validBase,
@@ -1695,7 +1712,7 @@ describe('iterationConfigSchema — debate_and_generate refinements (Phase 4.7)'
       agentType: 'debate_and_generate',
       budgetPercent: 100,
       sourceMode: 'pool',
-    })).toThrow(/sourceMode only valid for generate, reflect_and_generate, or criteria_and_generate/);
+    })).toThrow(/sourceMode is not valid for swiss or debate_and_generate/);
   });
 
   it('rejects qualityCutoff on debate iteration', () => {
@@ -1703,7 +1720,7 @@ describe('iterationConfigSchema — debate_and_generate refinements (Phase 4.7)'
       agentType: 'debate_and_generate',
       budgetPercent: 100,
       qualityCutoff: { mode: 'topN', value: 5 },
-    })).toThrow(/qualityCutoff only valid/);
+    })).toThrow(/qualityCutoff is not valid for swiss or debate_and_generate/);
   });
 
   it('rejects generationGuidance on debate iteration (debate generates its own synthesis prompt)', () => {

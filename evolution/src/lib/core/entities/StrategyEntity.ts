@@ -176,6 +176,13 @@ export class StrategyEntity extends Entity<EvolutionStrategyFullDb> {
       { ...METRIC_CATALOG.avg_proposer_approver_criteria_cost_per_run,
         sourceEntity: 'run', sourceMetric: 'proposer_approver_criteria_cost',
         aggregate: aggregateAvg, aggregationMethod: 'avg' },
+      // Paragraph recombine cost rollups (rank_individual_paragraphs_evolution_20260525)
+      { ...METRIC_CATALOG.total_paragraph_recombine_cost,
+        sourceEntity: 'run', sourceMetric: 'paragraph_recombine_cost',
+        aggregate: aggregateSum, aggregationMethod: 'sum' },
+      { ...METRIC_CATALOG.avg_paragraph_recombine_cost_per_run,
+        sourceEntity: 'run', sourceMetric: 'paragraph_recombine_cost',
+        aggregate: aggregateAvg, aggregationMethod: 'avg' },
       // Universal sentence-overlap rollup
       { ...METRIC_CATALOG.avg_median_sentence_verbatim_ratio,
         sourceEntity: 'run', sourceMetric: 'median_sentence_verbatim_ratio',

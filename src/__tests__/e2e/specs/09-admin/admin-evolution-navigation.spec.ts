@@ -13,7 +13,7 @@ function getServiceClient() {
   );
 }
 
-adminTest.describe('Evolution Navigation', { tag: ['@evolution', '@critical'] }, () => {
+adminTest.describe('Evolution Navigation', { tag: '@evolution' }, () => {
   adminTest.describe.configure({ mode: 'serial' });
 
   const testPrefix = `e2e-nav-${Date.now()}`;
