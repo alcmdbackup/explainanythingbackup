@@ -1,5 +1,5 @@
 // Per-paragraph rewrite prompt builder. Per D12 of rank_individual_paragraphs_evolution_20260525.
-// Three guardrails: preserve meaning in spirit, first/last sentences extra care, length ±10%.
+// Three guardrails: preserve meaning in spirit, first/last sentences extra care, length ±20%.
 
 /**
  * Build the prompt for a single per-paragraph rewrite call.
@@ -9,7 +9,7 @@
  *     analogies/supporting details are fine if they REINFORCE the original point.
  *  2. FIRST AND LAST SENTENCES — rewrites OK but extra careful (transitions to
  *     neighboring paragraphs the rewriter can't see).
- *  3. LENGTH WITHIN ±10% — total character count must stay within 10% of original.
+ *  3. LENGTH WITHIN ±20% — total character count must stay within 20% of original.
  *
  * Length cap is ALSO enforced via code in validateParagraphRewrite (the per-paragraph
  * gate in Phase 3). Prompt + code form belt-and-suspenders defense.
@@ -37,7 +37,7 @@ RULES (violations are silently discarded)
   2. FIRST AND LAST SENTENCES. Rewrites are OK, but be extra careful —
      these often carry transitions to neighboring paragraphs you can't see.
 
-  3. LENGTH WITHIN ±10%. Total character count must stay within 10% of the
+  3. LENGTH WITHIN ±20%. Total character count must stay within 20% of the
      original.
 
 OUTPUT

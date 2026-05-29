@@ -53,7 +53,7 @@ const INV_ID = '00000000-0000-4000-8000-000000000003';
 const SLOT_TOPIC_ID = '00000000-0000-4000-8000-000000000004';
 const ORIG_VARIANT_ID = '00000000-0000-4000-8000-000000000005';
 
-// Use a longer parent so the ±10% length cap on rewrites is easier to satisfy
+// Use a longer parent so the ±20% length cap on rewrites is easier to satisfy
 // with concrete test text.
 const SAMPLE_ARTICLE = [
   '# Title',
@@ -232,7 +232,7 @@ describe('ParagraphRecombineAgent — boundary contract', () => {
       // valid rewrites + recombination still fails. Skip the bullet-edge for now and test
       // the no-valid-rewrites fallback path.
       void idx;
-      return 'short.'; // length < 90% of original → all rewrites dropped pre-rank
+      return 'short.'; // length < 80% of original → all rewrites dropped pre-rank
     });
     const agent = new ParagraphRecombineAgent();
     const result = await agent.execute(baseInput(badLlm), makeCtx());

@@ -566,7 +566,7 @@ const PARAGRAPH_REWRITE_PROMPT_OVERHEAD = 800;
 /**
  * Typical paragraph output size — paragraph-level rewrite output is much smaller
  * than article-level generation (DEFAULT_OUTPUT_CHARS = 9197). A typical 8K-char
- * article has ~12 paragraphs ≈ ~660 chars/paragraph. The ±10% length cap (D7/D12)
+ * article has ~12 paragraphs ≈ ~660 chars/paragraph. The ±20% length cap (D7/D12)
  * means rewrites stay close to original size; 1000 chars covers a typical rewrite
  * with margin.
  */

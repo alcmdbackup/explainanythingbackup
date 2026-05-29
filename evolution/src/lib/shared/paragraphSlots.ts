@@ -7,7 +7,7 @@
 //
 // validateParagraphRewrite: per-paragraph pre-validation (drop bad rewrites before they
 //   consume ranking budget). Composed from existing primitives (hasBulletPoints, etc.).
-//   Symmetric ±10% length cap per D7/D12.
+//   Symmetric ±20% length cap per D7/D12 (widened from ±10%).
 //
 // assembleRecombinedArticle: right-to-left splice (mirrors applyAcceptedGroups pattern)
 //   so earlier slots' byte offsets stay valid as later slots are replaced.
@@ -104,9 +104,10 @@ export interface ParagraphValidationResult {
  * Pre-validate a paragraph rewrite BEFORE it consumes ranking budget. Per D7/D12 of
  * rank_individual_paragraphs_evolution_20260525.
  *
- * Symmetric ±10% length cap: `0.90 <= len(rewrite)/originalLength <= 1.10`. Tighter
- * than the prior 1.20× upper-bound cap (the symmetric form catches both compression
- * disasters AND expansion disasters).
+ * Symmetric ±20% length cap: `0.80 <= len(rewrite)/originalLength <= 1.20`. Widened
+ * from the prior ±10% window, which rejected ~60% of otherwise-valid rewrites in
+ * staging runs (LLM rewrites routinely vary paragraph length 20-30% while staying
+ * complete and well-formed). The cap still catches gross compression/expansion.
  *
  * Other gates: no bullets/lists/tables (would break article-level validateFormat after
  * recombination), no H1 (paragraphs are sub-article snippets), at least one sentence-
@@ -123,8 +124,8 @@ export function validateParagraphRewrite(
   if (/^\s*#\s/m.test(stripped)) return { valid: false, dropReason: 'no_h1' };
 
   const ratio = rewriteText.length / Math.max(originalLength, 1);
-  if (ratio < 0.9) return { valid: false, dropReason: 'length_under' };
-  if (ratio > 1.1) return { valid: false, dropReason: 'length_over' };
+  if (ratio < 0.8) return { valid: false, dropReason: 'length_under' };
+  if (ratio > 1.2) return { valid: false, dropReason: 'length_over' };
 
   // Require at least one sentence-ending punctuation mark. countShortParagraphs returns 1
   // when the paragraph has < 2 sentences — but 1-sentence rewrites are fine (paragraphs can

@@ -87,7 +87,7 @@ At default knobs with `gpt-4.1-nano` (rewriter) + `qwen-2.5-7b-instruct` (judge)
 | Failure mode | Mitigation |
 |---|---|
 | LLM produces a rewrite with bullets / lists / tables / H1 | `validateParagraphRewrite` drops it pre-rank with explicit `dropReason` |
-| Rewrite is too long / too short (±10%) | Symmetric length cap in `validateParagraphRewrite` |
+| Rewrite is too long / too short (±20%) | Symmetric length cap in `validateParagraphRewrite` (widened from ±10% — the tighter window dropped ~60% of valid rewrites in staging) |
 | Cross-paragraph transition breakage | D2 (minimal context) is an accepted trade-off; observed-not-mitigated. The 3-guardrail prompt (D12) warns the LLM that rewrites are for ONE paragraph in a larger article; first/last sentences flagged as transition-carriers |
 | One slot exhausts the entire invocation budget | D16 per-slot AgentCostScope + 0.9× self-abort; falls back to original |
 | Recombined article fails `validateFormat` | Emit `surfaced=false` with `discardReason.formatIssues`; surfaces in admin UI |
