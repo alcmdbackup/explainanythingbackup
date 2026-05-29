@@ -38,3 +38,17 @@
 
 ### Issues Encountered
 - None.
+
+## Verification
+### Ran locally (all green)
+- `npm run typecheck` — clean.
+- `npm run build` — success (full route table emitted, no errors; validates the 3 client-component UI changes).
+- `npx jest` on all 6 modified test files together — **142 passed**.
+- `npm run lint` (CI parity = `next lint` + `check:stale-specs`) — exit 0; "✓ No stale specs detected". (Pre-existing warnings in untouched `src/` files only.)
+
+### Added but runtime-gated (run in CI / /finalize)
+- **Integration round-trip** (`evolution-paragraph-recombine-accumulation.integration.test.ts`, new `it`): asserts `syncToArena` persists `parent_variant_ids=[originalSlotVariantId]` + `match_count=2` + `arena_match_count=2`. It's the ONLY runtime guard for the migration's jsonb→uuid[] cast. NOT run locally because the new migration `20260529000001` isn't deployed to the staging test DB yet (the existing `migrationApplied` guard checks `prompt_kind`, not the new RPC). CI's `deploy-migrations` job applies it before integration tests run → the test exercises the cast there.
+- **`npm run migration:verify`** — BLOCKED locally: Docker daemon is down and starting it needs an interactive sudo password. Runs in CI (`supabase-migrations` workflow applies the migration to staging) and in `/finalize` Step 5.5 (start Docker first). Migration SQL uses standard PG casts (`array_agg(e::uuid)` over `jsonb_array_elements_text`).
+
+### Not run by me (recommend before/at merge)
+- **Playwright (UI)**: the relabel + hidden-Iteration-column rendering is covered by `ArenaLeaderboardTable.test.tsx` + `VariantParentBadge.test.tsx` (React Testing Library renders the real components with the exact props `SlotsTab` passes). A browser check of `/admin/evolution/invocations/<id>` → Paragraph Slots tab is still recommended as end-to-end confidence (e.g. during `/finalize` or manually).
