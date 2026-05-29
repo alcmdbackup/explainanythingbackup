@@ -9,6 +9,7 @@ import type { EvolutionConfig } from '../infra/types';
 const mockGenerateRun = jest.fn();
 const mockSwissRun = jest.fn();
 const mockMergeRun = jest.fn();
+const mockParagraphRun = jest.fn();
 
 jest.mock('../../core/agents/generateFromPreviousArticle', () => ({
   GenerateFromPreviousArticleAgent: jest.fn().mockImplementation(() => ({
@@ -29,6 +30,13 @@ jest.mock('../../core/agents/MergeRatingsAgent', () => ({
   MergeRatingsAgent: jest.fn().mockImplementation(() => ({
     name: 'merge_ratings',
     run: (input: unknown, ctx: unknown) => mockMergeRun(input, ctx),
+  })),
+}));
+
+jest.mock('../../core/agents/paragraphRecombine/ParagraphRecombineAgent', () => ({
+  ParagraphRecombineAgent: jest.fn().mockImplementation(() => ({
+    name: 'paragraph_recombine',
+    run: (input: unknown, ctx: unknown) => mockParagraphRun(input, ctx),
   })),
 }));
 
@@ -206,6 +214,69 @@ describe('evolveArticle (orchestrator)', () => {
     const firstCtx = mockGenerateRun.mock.calls[0][1] as { iteration: number };
     expect(firstCtx.iteration).toBe(1);
     expect(result.iterationsRun).toBeGreaterThanOrEqual(1);
+  });
+
+  it('dispatches ParagraphRecombineAgent + merges its ranked variant for a paragraph_recombine iteration (regression: silent no-op)', async () => {
+    mockGenerateRun.mockResolvedValue(generateSuccess('g1'));
+    mockParagraphRun.mockResolvedValue({
+      success: true,
+      result: {
+        variant: mkVariant('pr1'),
+        status: 'converged',
+        surfaced: true,
+        // article-level matches the agent ranks internally + returns (Task 3)
+        matches: [{ winnerId: 'pr1', loserId: 'g1', result: 'win', confidence: 1, judgeModel: 'gpt-4o', reversed: false }],
+      },
+      cost: 0.01,
+      durationMs: 5,
+      invocationId: 'inv-pr',
+    });
+
+    const cfg = makeConfig();
+    cfg.iterationConfigs = [
+      { agentType: 'generate', budgetPercent: 60 },
+      { agentType: 'paragraph_recombine', budgetPercent: 40 },
+    ];
+
+    const result = await evolveArticle('seed text', makeProvider(), makeDb() as never, 'run-1', cfg);
+
+    // Regression guard: the paragraph_recombine iteration actually dispatches the agent
+    // (was 0 invocations before the line-345-gate / dedicated-branch fix — run e26350f7).
+    expect(mockParagraphRun).toHaveBeenCalledTimes(1);
+    const prCtx = mockParagraphRun.mock.calls[0]![1] as { iteration: number };
+    expect(prCtx.iteration).toBe(2);
+
+    // Ranked, not just dispatched: the recombined variant + its matches reach MergeRatingsAgent
+    // under iterationType 'paragraph_recombine' (so it competes, not a baseline-Elo orphan).
+    const prMergeCall = mockMergeRun.mock.calls.find(
+      (c) => (c[0] as { iterationType: string }).iterationType === 'paragraph_recombine',
+    );
+    expect(prMergeCall).toBeDefined();
+    const prMergeInput = prMergeCall![0] as { newVariants: Array<{ id: string }>; matchBuffers: unknown[][] };
+    expect(prMergeInput.newVariants.map((v) => v.id)).toContain('pr1');
+    expect(prMergeInput.matchBuffers.length).toBeGreaterThan(0);
+
+    const prIter = result.iterationResults?.find((ir) => ir.agentType === 'paragraph_recombine');
+    expect(prIter?.variantsCreated).toBe(1);
+  });
+
+  it('paragraph_recombine iteration is a no-op when EVOLUTION_PARAGRAPH_RECOMBINE_ENABLED=false', async () => {
+    mockGenerateRun.mockResolvedValue(generateSuccess('g1'));
+    process.env.EVOLUTION_PARAGRAPH_RECOMBINE_ENABLED = 'false';
+    try {
+      const cfg = makeConfig();
+      cfg.iterationConfigs = [
+        { agentType: 'generate', budgetPercent: 60 },
+        { agentType: 'paragraph_recombine', budgetPercent: 40 },
+      ];
+      const result = await evolveArticle('seed text', makeProvider(), makeDb() as never, 'run-1', cfg);
+      expect(mockParagraphRun).not.toHaveBeenCalled();
+      const prIter = result.iterationResults?.find((ir) => ir.agentType === 'paragraph_recombine');
+      expect(prIter?.stopReason).toBe('iteration_complete');
+      expect(prIter?.variantsCreated).toBe(0);
+    } finally {
+      delete process.env.EVOLUTION_PARAGRAPH_RECOMBINE_ENABLED;
+    }
   });
 
   it('dispatches N parallel generate agents in iteration 1 with cycling tactics', async () => {

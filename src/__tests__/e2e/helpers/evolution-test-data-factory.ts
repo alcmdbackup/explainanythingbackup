@@ -61,7 +61,8 @@ type EvolutionEntityType =
   | 'invocation'
   | 'comparison'
   | 'explanation'
-  | 'metric';
+  | 'metric'
+  | 'tactic';
 
 /**
  * Registers an evolution entity ID for cleanup.
@@ -347,7 +348,7 @@ export async function createTestEvolutionLog(
       run_id: options?.runId ?? null,
       level: options?.level ?? 'info',
       message: options?.message ?? `${TEST_EVO_PREFIX} Log entry ${suffix}`,
-      agent_name: options?.agentName ?? 'test',
+      subagent_name: options?.agentName ?? 'test',
       iteration: options?.iteration ?? 0,
     })
     .select('id')
@@ -417,6 +418,67 @@ export async function createTestArenaComparison(
   };
 }
 
+export interface CreateTestTacticOptions {
+  /** Override the generated `[TEST_EVO]`-prefixed name. */
+  name?: string;
+  /** Agent type (NOT NULL) — defaults to a valid generation agent. */
+  agentType?: string;
+}
+
+export interface TestTactic {
+  id: string;
+  name: string;
+  cleanup: () => Promise<void>;
+}
+
+/**
+ * Creates a test evolution tactic (active status, test-prefixed name).
+ * `evolution_tactics` is not in the generated Database types yet, so the insert
+ * uses the same untyped cast idiom the specs use for this table.
+ * Auto-tracked for defense-in-depth cleanup.
+ */
+export async function createTestTactic(options?: CreateTestTacticOptions): Promise<TestTactic> {
+  const supabase = getEvolutionServiceClient();
+  const suffix = generateTestSuffix();
+  const name = options?.name ?? `${TEST_EVO_PREFIX} tactic ${suffix}`;
+
+  // Cast via unknown: evolution_tactics isn't in generated Database types yet.
+  const { data, error } = await (supabase as unknown as {
+    from: (t: string) => {
+      insert: (r: Record<string, unknown>) => {
+        select: (s: string) => { single: () => Promise<{ data: { id: string } | null; error: { message: string } | null }> };
+      };
+    };
+  })
+    .from('evolution_tactics')
+    .insert({
+      name,
+      agent_type: options?.agentType ?? 'generate_from_previous_article',
+      status: 'active',
+    })
+    .select('id')
+    .single();
+
+  if (error || !data) {
+    throw new Error(`Failed to create test tactic: ${error?.message}`);
+  }
+
+  trackEvolutionId('tactic', data.id);
+
+  return {
+    id: data.id,
+    name,
+    cleanup: async () => {
+      await (supabase as unknown as {
+        from: (t: string) => { delete: () => { eq: (c: string, v: string) => Promise<unknown> } };
+      })
+        .from('evolution_tactics')
+        .delete()
+        .eq('id', data.id);
+    },
+  };
+}
+
 // ============================================================================
 // Bulk cleanup (defense-in-depth, used by global-teardown)
 // ============================================================================
@@ -433,6 +495,7 @@ const FK_SAFE_DELETION_ORDER: { type: EvolutionEntityType; table: string }[] = [
   { type: 'experiment', table: 'evolution_experiments' },
   { type: 'strategy', table: 'evolution_strategies' },
   { type: 'prompt', table: 'evolution_prompts' },
+  { type: 'tactic', table: 'evolution_tactics' },
 ];
 
 /**
@@ -703,6 +766,279 @@ export async function createMultiHopFixture(
       await supabase.from('evolution_variants').delete().in('id', variantIds);
       await run.cleanup();
       await strategyRow.cleanup();
+      await prompt.cleanup();
+    },
+  };
+}
+
+// ============================================================================
+// Paragraph recombine fixture (rank_individual_paragraphs_evolution_20260525)
+// ============================================================================
+
+export interface CreateParagraphRecombineFixtureOptions {
+  /** Number of paragraph slots in the recombined output (default 3). */
+  slotCount?: number;
+  /** Rewrites per slot (default 3). */
+  rewritesPerSlot?: number;
+  /** Inject a format-validation failure in the recombined output (banner test). */
+  forceFormatRejection?: boolean;
+  /** Force one slot to self-abort via slot_budget (red badge test). */
+  forceSlotAbort?: boolean;
+}
+
+export interface ParagraphRecombineFixture {
+  invocationId: string;
+  runId: string;
+  promptId: string;
+  parentVariantId: string;
+  slotTopicIds: string[];
+  slotVariantIds: string[];
+  cleanup: () => Promise<void>;
+}
+
+/**
+ * Seed a paragraph_recombine invocation row with realistic execution_detail JSONB,
+ * plus parent variant + slot topics + slot variants + arena_comparisons so the
+ * UI assertions in admin-evolution-paragraph-recombine.spec.ts can render the
+ * full 5-tab layout against real DB rows.
+ *
+ * NOT a pipeline run — this fixture directly writes the rows the UI reads,
+ * avoiding the need for an LLM provider + orchestrator setup.
+ */
+export async function createParagraphRecombineFixture(
+  options: CreateParagraphRecombineFixtureOptions = {},
+): Promise<ParagraphRecombineFixture> {
+  const sb = getEvolutionServiceClient();
+  const suffix = generateTestSuffix();
+  const slotCount = options.slotCount ?? 3;
+  const rewritesPerSlot = options.rewritesPerSlot ?? 3;
+
+  // Fail loudly on insert errors. Without this, a missing column (e.g. variant_kind
+  // before migration 20260527000001 is applied to the target DB) makes the insert
+  // fail silently → the fixture produces zero arena entries → the embedded
+  // leaderboard renders "No entries yet." and the E2E spec fails with an opaque
+  // "element not found" instead of the real "column does not exist" cause.
+  const insertOrThrow = async (table: string, row: Record<string, unknown>): Promise<void> => {
+    const { error } = await sb.from(table).insert(row as never);
+    if (error) {
+      throw new Error(
+        `createParagraphRecombineFixture: insert into ${table} failed (${error.code}: ${error.message}). ` +
+        `If this is "column ... does not exist", the target DB is missing migration 20260527000001 ` +
+        `(variant_kind/prompt_kind) — apply migrations before running @evolution E2E specs.`,
+      );
+    }
+  };
+
+  // 1. Strategy + prompt + run (article-level).
+  const strategy = await createTestStrategy();
+  const prompt = await createTestPrompt({ prompt: `[TEST_EVO] paragraph-recombine fixture ${suffix}` });
+  const run = await createTestRun({ promptId: prompt.id, strategyId: strategy.id });
+
+  // 2. Parent article variant.
+  const parentVariantId = randomUUID();
+  trackEvolutionId('variant', parentVariantId);
+  const parentSentences = Array.from({ length: slotCount }, (_, i) =>
+    `Paragraph ${i + 1} original sentence. Second sentence for slot ${i + 1}.`,
+  );
+  const parentText = `# Title ${suffix}\n\n## Section\n\n${parentSentences.join('\n\n')}`;
+  await insertOrThrow('evolution_variants', {
+    id: parentVariantId,
+    run_id: run.id,
+    prompt_id: prompt.id,
+    variant_content: parentText,
+    elo_score: 1300,
+    mu: 7,
+    sigma: 5,
+    agent_name: 'generate_from_previous_article',
+    generation: 0,
+    generation_method: 'llm',
+    variant_kind: 'article',
+    synced_to_arena: true,
+  });
+
+  // 3. Per-slot: paragraph topic + original variant + N rewrite variants + comparisons.
+  const slotTopicIds: string[] = [];
+  const slotVariantIds: string[] = [];
+  const slots: Record<string, unknown>[] = [];
+  for (let slotIdx = 0; slotIdx < slotCount; slotIdx++) {
+    const topicId = randomUUID();
+    const topicName = `[para] V${parentVariantId.slice(0, 8)}.P${slotIdx + 1}`;
+    trackEvolutionId('prompt', topicId);
+    await insertOrThrow('evolution_prompts', {
+      id: topicId,
+      prompt: topicName,
+      name: topicName,
+      status: 'active',
+      prompt_kind: 'paragraph',
+    });
+    slotTopicIds.push(topicId);
+
+    // Original-paragraph variant.
+    const originalVariantId = randomUUID();
+    trackEvolutionId('variant', originalVariantId);
+    await insertOrThrow('evolution_variants', {
+      id: originalVariantId,
+      prompt_id: topicId,
+      run_id: run.id,
+      variant_content: parentSentences[slotIdx],
+      elo_score: 1200,
+      mu: 0,
+      sigma: 6,
+      arena_match_count: 0,
+      agent_name: 'paragraph_original',
+      generation_method: 'paragraph_original',
+      variant_kind: 'paragraph',
+      synced_to_arena: true,
+    });
+
+    // Self-abort branch (no rewrites, discardReason set).
+    if (options.forceSlotAbort && slotIdx === slotCount - 1) {
+      slots.push({
+        slotIndex: slotIdx,
+        originalText: parentSentences[slotIdx],
+        originalSlotVariantId: originalVariantId,
+        slotTopicId: topicId,
+        perSlotBudgetUsd: 0.0333,
+        spentUsd: 0.0300,
+        rewrites: [],
+        discardReason: { failurePoint: 'slot_budget', message: 'budget exhausted before ranking' },
+      });
+      continue;
+    }
+
+    // Rewrite variants + per-slot match rows.
+    const rewriteVariantIds: string[] = [];
+    const rewriteRecords: Record<string, unknown>[] = [];
+    for (let r = 0; r < rewritesPerSlot; r++) {
+      const rId = randomUUID();
+      trackEvolutionId('variant', rId);
+      const rewriteElo = 1200 + (r + 1) * 30; // ramp so the leaderboard sort is non-trivial
+      const rewriteText = `Rewrite ${r + 1} of paragraph ${slotIdx + 1}. Two sentences here.`;
+      await insertOrThrow('evolution_variants', {
+        id: rId,
+        prompt_id: topicId,
+        run_id: run.id,
+        variant_content: rewriteText,
+        elo_score: rewriteElo,
+        mu: r + 1,
+        sigma: 5,
+        arena_match_count: rewritesPerSlot - r,
+        agent_name: 'paragraph_rewrite',
+        generation_method: 'llm',
+        variant_kind: 'paragraph',
+        synced_to_arena: true,
+      });
+      rewriteVariantIds.push(rId);
+      rewriteRecords.push({
+        index: r,
+        text: rewriteText,
+        slotVariantId: rId,
+        costUsd: 0.0005,
+        durationMs: 800,
+        formatValid: true,
+      });
+    }
+    slotVariantIds.push(...rewriteVariantIds);
+
+    // Insert a few arena_comparisons rows so the embedded leaderboard shows match counts.
+    for (let r = 0; r < rewriteVariantIds.length; r++) {
+      const winner = rewriteVariantIds[r]!;
+      const loser = r === 0 ? originalVariantId : rewriteVariantIds[r - 1]!;
+      const cmpId = randomUUID();
+      trackEvolutionId('comparison', cmpId);
+      await insertOrThrow('evolution_arena_comparisons', {
+        id: cmpId,
+        prompt_id: topicId,
+        run_id: run.id,
+        entry_a: winner,
+        entry_b: loser,
+        winner: 'a',
+        confidence: 0.8,
+        iteration: 1,
+      });
+    }
+
+    // Slot detail with ranking results (winner = highest-elo rewrite).
+    const winnerVariantId = rewriteVariantIds[rewriteVariantIds.length - 1]!;
+    slots.push({
+      slotIndex: slotIdx,
+      originalText: parentSentences[slotIdx],
+      originalSlotVariantId: originalVariantId,
+      slotTopicId: topicId,
+      perSlotBudgetUsd: 0.0333,
+      spentUsd: 0.0100,
+      rewrites: rewriteRecords,
+      ranking: {
+        matchCount: rewriteVariantIds.length,
+        ratings: [
+          { variantId: originalVariantId, elo: 1200, uncertainty: 60 },
+          ...rewriteVariantIds.map((id, i) => ({
+            variantId: id,
+            elo: 1200 + (i + 1) * 30,
+            uncertainty: 50,
+          })),
+        ],
+        winnerSlotVariantId: winnerVariantId,
+        winnerIsOriginal: false,
+        winnerSource: 'this_invocation',
+      },
+    });
+  }
+
+  // 4. Recombined output text.
+  const recombinedText = options.forceFormatRejection
+    ? `# Title ${suffix}\n\n## Section\n\n- This bullet violates format!\n\nPara two.`
+    : `# Title ${suffix}\n\n## Section\n\n${slots
+        .map((s, i) => {
+          if (s.discardReason) return parentSentences[i];
+          return `Rewrite ${rewritesPerSlot} of paragraph ${i + 1}. Two sentences here.`;
+        })
+        .join('\n\n')}`;
+  const formatIssues = options.forceFormatRejection ? ['Contains bullet points'] : undefined;
+
+  // 5. The paragraph_recombine invocation row.
+  const invocationId = randomUUID();
+  trackEvolutionId('invocation', invocationId);
+  const executionDetail = {
+    detailType: 'paragraph_recombine',
+    parentVariantId,
+    slots,
+    recombined: {
+      text: recombinedText,
+      formatValid: !options.forceFormatRejection,
+      ...(formatIssues && { formatIssues }),
+    },
+    totalCost: 0.011,
+  };
+  await insertOrThrow('evolution_agent_invocations', {
+    id: invocationId,
+    run_id: run.id,
+    agent_name: 'paragraph_recombine',
+    iteration: 1,
+    execution_order: 1,
+    cost_usd: 0.011,
+    duration_ms: 12000,
+    success: true,
+    execution_detail: executionDetail as never,
+  });
+
+  return {
+    invocationId,
+    runId: run.id,
+    promptId: prompt.id,
+    parentVariantId,
+    slotTopicIds,
+    slotVariantIds,
+    cleanup: async () => {
+      // trackEvolutionId queues everything for global teardown; the explicit fallback
+      // here mirrors createMultiHopFixture's style for tests that want immediate cleanup.
+      await sb.from('evolution_arena_comparisons').delete().eq('run_id', run.id);
+      await sb.from('evolution_agent_invocations').delete().eq('id', invocationId);
+      await sb.from('evolution_variants').delete().eq('run_id', run.id);
+      await sb.from('evolution_variants').delete().in('prompt_id', slotTopicIds);
+      await sb.from('evolution_prompts').delete().in('id', slotTopicIds);
+      await run.cleanup();
+      await strategy.cleanup();
       await prompt.cleanup();
     },
   };

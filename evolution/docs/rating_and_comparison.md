@@ -484,9 +484,10 @@ const restored = ComparisonCache.fromEntries(serialized, 500);
 
 ## Comparison Prompt Structure
 
-**Source:** `evolution/src/lib/comparison.ts` (function `buildComparisonPrompt`)
+**Source:** `evolution/src/lib/shared/computeRatings.ts` (function `buildComparisonPrompt`)
 
-The prompt presented to the judge model evaluates five criteria:
+`buildComparisonPrompt(textA, textB, mode = 'article')` builds the judge prompt. The default
+`'article'` mode evaluates five criteria:
 
 1. **Clarity and readability**
 2. **Structure and flow**
@@ -497,6 +498,18 @@ The prompt presented to the judge model evaluates five criteria:
 The prompt instructs the model to respond with exactly one of `"A"`, `"B"`, or `"TIE"`.
 The two texts are labeled `## Text A` and `## Text B` with no additional framing that
 might bias the judge.
+
+> **Paragraph mode (`mode = 'paragraph'`).** `paragraph_recombine` per-slot ranking sets
+> `comparisonMode: 'paragraph'` on its config (threaded `rankSingleVariant` →
+> `compareWithBiasMitigation` → `buildComparisonPrompt`). This swaps in a paragraph-level
+> rubric (clarity/concision, sentence fluency, **fidelity** to the original meaning,
+> **usefulness** of added detail) and a TIE-discouraging instruction ("pick the better one
+> even by a slim margin"), and places the variable texts LAST so the instruction block is a
+> cacheable prefix. It keeps the same `## Text A`/`## Text B` labels + A/B/TIE contract so
+> `parseWinner` is unchanged. The default `'article'` output is byte-for-byte unchanged for
+> all other callers (swiss, debate, generate, article-level ranking). Added by
+> investigate_matchmaking_paragraph_recombine_20260528 to counter the judge's near-total
+> position bias on quality-equivalent paragraph rewrites (which froze per-slot Elo at 1200).
 
 In the reverse pass, the texts swap positions: what was Text A becomes Text B and vice
 versa. The `flipWinner()` function translates the reverse-pass response back to the

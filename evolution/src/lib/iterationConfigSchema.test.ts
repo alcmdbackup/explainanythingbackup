@@ -32,14 +32,14 @@ describe('iterationConfigSchema', () => {
   it('rejects sourceMode on swiss iterations', () => {
     expect(() => iterationConfigSchema.parse({
       agentType: 'swiss', budgetPercent: 40, sourceMode: 'seed',
-    })).toThrow(/sourceMode only valid for/);
+    })).toThrow(/sourceMode is not valid for/);
   });
 
   it('rejects qualityCutoff on swiss iterations', () => {
     expect(() => iterationConfigSchema.parse({
       agentType: 'swiss', budgetPercent: 40,
       qualityCutoff: { mode: 'topN', value: 5 },
-    })).toThrow(/qualityCutoff only valid for/);
+    })).toThrow(/qualityCutoff is not valid for/);
   });
 
   it('silently strips maxAgents (Phase 4 removed the field; swiss or generate both OK)', () => {
@@ -55,6 +55,44 @@ describe('iterationConfigSchema', () => {
       agentType: 'generate', budgetPercent: 60, sourceMode: 'pool',
       qualityCutoff: { mode: 'topPercent', value: 25 },
     })).not.toThrow();
+  });
+
+  // rank_individual_paragraphs_evolution_20260525 — paragraph_recombine knob refines.
+  describe('paragraph_recombine knobs', () => {
+    it('accepts a paragraph_recombine iteration with all four knobs', () => {
+      expect(() => iterationConfigSchema.parse({
+        agentType: 'paragraph_recombine',
+        budgetPercent: 50,
+        rewritesPerParagraph: 3,
+        maxComparisonsPerParagraph: 8,
+        maxParagraphsPerInvocation: 12,
+        paragraphRewriteModel: 'gpt-4.1-nano',
+      })).not.toThrow();
+    });
+
+    it('rejects rewritesPerParagraph on non-paragraph_recombine agent types', () => {
+      expect(() => iterationConfigSchema.parse({
+        agentType: 'generate', budgetPercent: 60, rewritesPerParagraph: 3,
+      })).toThrow(/rewritesPerParagraph only valid/);
+    });
+
+    it('rejects maxComparisonsPerParagraph on non-paragraph_recombine agent types', () => {
+      expect(() => iterationConfigSchema.parse({
+        agentType: 'generate', budgetPercent: 60, maxComparisonsPerParagraph: 8,
+      })).toThrow(/maxComparisonsPerParagraph only valid/);
+    });
+
+    it('rejects maxParagraphsPerInvocation on non-paragraph_recombine agent types', () => {
+      expect(() => iterationConfigSchema.parse({
+        agentType: 'swiss', budgetPercent: 40, maxParagraphsPerInvocation: 12,
+      })).toThrow(/maxParagraphsPerInvocation only valid/);
+    });
+
+    it('rejects paragraphRewriteModel on non-paragraph_recombine agent types', () => {
+      expect(() => iterationConfigSchema.parse({
+        agentType: 'reflect_and_generate', budgetPercent: 100, paragraphRewriteModel: 'gpt-4.1-nano',
+      })).toThrow(/paragraphRewriteModel only valid/);
+    });
   });
 });
 

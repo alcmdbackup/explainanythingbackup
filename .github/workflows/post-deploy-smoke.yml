@@ -1,20 +1,35 @@
 name: Post-Deploy Smoke Tests
 
-# Triggers when Vercel completes a deployment
+# Fires on every push to the production branch (Vercel deploys prod on this push) —
+# the reliable prod-deploy signal. deployment_status is kept only as a (currently
+# inert) secondary: GitHub anti-recursion drops the GITHUB_TOKEN-created Vercel
+# deployment status, so it never triggers a workflow run today. workflow_dispatch
+# allows manual smoke runs.
 on:
+  push:
+    branches: [production]
+  workflow_dispatch:
   deployment_status:
+
+concurrency:
+  group: post-deploy-smoke-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   smoke-test:
     # Use Production environment to access PROD_TEST_USER_* secrets
     environment: Production
-    timeout-minutes: 15
-    # Only run on successful Vercel deployments to production
-    # Filter out GitHub Actions environment deployments (which have GitHub URLs as target_url)
+    timeout-minutes: 20
+    # push:[production] / manual dispatch always proceed (the Health Check step below
+    # polls until the apex deploy is live). The deployment_status path keeps its original
+    # prod+vercel.app guard for the day GitHub stops anti-recursion-dropping the event.
     if: |
-      github.event.deployment_status.state == 'success' &&
-      github.event.deployment.environment == 'Production' &&
-      contains(github.event.deployment_status.target_url, 'vercel.app')
+      github.event_name == 'push' ||
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'deployment_status' &&
+        github.event.deployment_status.state == 'success' &&
+        github.event.deployment.environment == 'Production' &&
+        contains(github.event.deployment_status.target_url, 'vercel.app'))
     runs-on: ubuntu-latest
 
     # Smoke each Vercel hostname served by this single project. Both hostnames
@@ -62,53 +77,56 @@ jobs:
           VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
           DEPLOY_URL: ${{ matrix.site.base_url }}
         run: |
-          echo "Checking health at: $DEPLOY_URL/api/health (site=${{ matrix.site.name }})"
+          echo "Polling health at: $DEPLOY_URL/api/health (site=${{ matrix.site.name }})"
+          # push:[production] fires immediately, BEFORE Vercel finishes building, so poll
+          # the apex /api/health until the new deploy is live (~5 min budget) instead of
+          # checking once. Limitation: confirms the apex is healthy, not that THIS commit
+          # is live — acceptable for a smoke gate. Follow-up: poll a /api/health SHA field.
+          MAX_RETRIES=15
+          RETRY_DELAY=20
 
-          # Add bypass header for protected deployments
-          # Use -L to follow redirects (Vercel returns 307 with Set-Cookie, then redirects)
-          # Use -c/-b to handle cookies across redirects
-          # Use --max-redirs to prevent infinite redirect loops
-          # Use --connect-timeout and --max-time to prevent hangs
-          if [ -n "$VERCEL_AUTOMATION_BYPASS_SECRET" ]; then
-            http_code=$(curl -s -L --max-redirs 5 --connect-timeout 10 --max-time 30 \
-              -o /tmp/health.json -w '%{http_code}' \
-              -c /tmp/cookies.txt -b /tmp/cookies.txt \
-              -H "x-vercel-protection-bypass: $VERCEL_AUTOMATION_BYPASS_SECRET" \
-              -H "x-vercel-set-bypass-cookie: samesitenone" \
-              "$DEPLOY_URL/api/health")
-          else
-            http_code=$(curl -s -L --max-redirs 5 --connect-timeout 10 --max-time 30 \
-              -o /tmp/health.json -w '%{http_code}' "$DEPLOY_URL/api/health")
-          fi
+          check_once() {
+            if [ -n "$VERCEL_AUTOMATION_BYPASS_SECRET" ]; then
+              curl -s -L --max-redirs 5 --connect-timeout 10 --max-time 30 \
+                -o /tmp/health.json -w '%{http_code}' \
+                -c /tmp/cookies.txt -b /tmp/cookies.txt \
+                -H "x-vercel-protection-bypass: $VERCEL_AUTOMATION_BYPASS_SECRET" \
+                -H "x-vercel-set-bypass-cookie: samesitenone" \
+                "$DEPLOY_URL/api/health"
+            else
+              curl -s -L --max-redirs 5 --connect-timeout 10 --max-time 30 \
+                -o /tmp/health.json -w '%{http_code}' "$DEPLOY_URL/api/health"
+            fi
+          }
 
-          # Handle all non-200 status codes (use = for POSIX compliance)
-          if [ "$http_code" = "403" ]; then
-            echo "::error::Deployment protection blocked request (403) for ${{ matrix.site.name }}. Check VERCEL_AUTOMATION_BYPASS_SECRET."
-            exit 1
-          elif [ "$http_code" != "200" ]; then
-            echo "::error::Health check returned HTTP $http_code for ${{ matrix.site.name }}"
-            cat /tmp/health.json 2>/dev/null || echo "(No response body)"
-            exit 1
-          fi
+          for attempt in $(seq 1 $MAX_RETRIES); do
+            http_code=$(check_once || echo "000")
 
-          # Add jq error handling
-          response=$(cat /tmp/health.json)
-          if ! status=$(echo "$response" | jq -r '.status' 2>/dev/null); then
-            echo "::error::Failed to parse health check JSON response"
-            echo "Response body:"
-            cat /tmp/health.json
-            exit 1
-          fi
+            # Protection misconfig is fatal immediately — retrying won't help.
+            if [ "$http_code" = "403" ]; then
+              echo "::error::Deployment protection blocked request (403) for ${{ matrix.site.name }}. Check VERCEL_AUTOMATION_BYPASS_SECRET."
+              exit 1
+            fi
 
-          echo "Health check response (${{ matrix.site.name }}):"
-          echo "$response" | jq .
+            if [ "$http_code" = "200" ]; then
+              response=$(cat /tmp/health.json)
+              if status=$(echo "$response" | jq -r '.status' 2>/dev/null) && [ "$status" = "healthy" ]; then
+                echo "Health check response (${{ matrix.site.name }}):"
+                echo "$response" | jq .
+                echo "::notice::Health check passed for ${{ matrix.site.name }} on attempt $attempt!"
+                exit 0
+              fi
+            fi
 
-          if [ "$status" != "healthy" ]; then
-            echo "::error::Health check failed for ${{ matrix.site.name }} - status: $status"
-            exit 1
-          fi
+            if [ "$attempt" -lt "$MAX_RETRIES" ]; then
+              echo "Attempt $attempt/$MAX_RETRIES: HTTP $http_code (waiting for deploy to go live), retrying in ${RETRY_DELAY}s..."
+              sleep $RETRY_DELAY
+            fi
+          done
 
-          echo "::notice::Health check passed for ${{ matrix.site.name }}!"
+          echo "::error::Health check failed for ${{ matrix.site.name }} after $MAX_RETRIES attempts (~$((MAX_RETRIES * RETRY_DELAY))s)"
+          cat /tmp/health.json 2>/dev/null || echo "(No response body)"
+          exit 1
 
       - name: Get Playwright version
         id: playwright-version
@@ -176,10 +194,11 @@ jobs:
           retention-days: 7
 
       - name: Notify Slack on failure
-        # Alert on failure OR on cancelled IF the run was a real deployment_status event
-        # (vs an intentional manual workflow_dispatch cancel during dev). This avoids
-        # spamming the channel that was already going unread post the 62-day silent outage.
-        if: failure() || (cancelled() && github.event_name == 'deployment_status')
+        # Alert on failure OR on cancelled IF the run was an unattended prod-deploy event
+        # (push to production, or a real deployment_status) vs an intentional manual
+        # workflow_dispatch cancel during dev. Avoids re-spamming the channel that went
+        # unread during the 62-day silent outage.
+        if: failure() || (cancelled() && (github.event_name == 'push' || github.event_name == 'deployment_status'))
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
         run: |

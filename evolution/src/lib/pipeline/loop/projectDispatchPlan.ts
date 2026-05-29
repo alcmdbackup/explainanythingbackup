@@ -98,6 +98,10 @@ export interface DispatchPlanOptions {
    *  (Phase 3.2). Mirrors EVOLUTION_DEBATE_ENABLED. Default true.
    *  bring_back_debate_agent_20260506 Decision §11 + Phase 3.3. */
   debateEnabled?: boolean;
+  /** rank_individual_paragraphs_evolution_20260525 Phase 5 — when false, projector
+   *  collapses EstPerAgentValue.paragraphRecombine to 0 so the wizard preview matches
+   *  what the runtime will dispatch (the kill switch is checked at the dispatch branch). */
+  paragraphRecombineEnabled?: boolean;
 }
 
 export interface EstPerAgentValue {
@@ -120,6 +124,10 @@ export interface EstPerAgentValue {
    *  Phase 1.10 — wired via the I4 LLM-client proxy in DebateAgent.execute() that
    *  rewrites 'generation' → 'debate_synthesis' AgentName at the inner-GFPA boundary. */
   debate: number;
+  /** Paragraph recombine cost per agent (per-paragraph rewrites + per-slot ranking).
+   *  Only > 0 when iterCfg.agentType === 'paragraph_recombine'. 0 for all other agent types.
+   *  Per rank_individual_paragraphs_evolution_20260525 Phase 5. */
+  paragraphRecombine: number;
   total: number;
 }
 
@@ -270,7 +278,7 @@ function weightedAgentCost(
   const evaluation = useCriteria
     ? estimateEvaluateAndSuggestCost(seedChars, generationModel, judgeModel, criteriaCount, weakestK)
     : 0;
-  return { gen, rank, reflection, editing: 0, editingRank: 0, evaluation, debate: 0, total: reflection + evaluation + gen + rank };
+  return { gen, rank, reflection, editing: 0, editingRank: 0, evaluation, debate: 0, paragraphRecombine: 0, total: reflection + evaluation + gen + rank };
 }
 
 // ─── Main ─────────────────────────────────────────────────────────
@@ -319,8 +327,8 @@ export function projectDispatchPlan(
         tacticMixSource: source,
         tacticLabel,
         estPerAgent: {
-          expected: { gen: 0, rank: 0, reflection: 0, editing: 0, editingRank: 0, evaluation: 0, debate: 0, total: 0 },
-          upperBound: { gen: 0, rank: 0, reflection: 0, editing: 0, editingRank: 0, evaluation: 0, debate: 0, total: 0 },
+          expected: { gen: 0, rank: 0, reflection: 0, editing: 0, editingRank: 0, evaluation: 0, debate: 0, paragraphRecombine: 0, total: 0 },
+          upperBound: { gen: 0, rank: 0, reflection: 0, editing: 0, editingRank: 0, evaluation: 0, debate: 0, paragraphRecombine: 0, total: 0 },
         },
         maxAffordable: { atExpected: 0, atUpperBound: 0 },
         dispatchCount: 0,
@@ -417,6 +425,7 @@ export function projectDispatchPlan(
             editingRank: editCost.expectedRanking,
             evaluation: 0,
             debate: 0,
+            paragraphRecombine: 0,
             total: editCost.expected + editCost.expectedRanking,
           },
           upperBound: {
@@ -427,6 +436,7 @@ export function projectDispatchPlan(
             editingRank: editCost.upperBoundRanking,
             evaluation: 0,
             debate: 0,
+            paragraphRecombine: 0,
             total: editCost.upperBound + editCost.upperBoundRanking,
           },
         },
@@ -441,6 +451,58 @@ export function projectDispatchPlan(
       });
 
       // Editing produces ONE final variant per dispatch (Decisions §14).
+      poolSize += dispatchCount;
+      continue;
+    }
+
+    if (iterCfg.agentType === 'paragraph_recombine') {
+      // rank_individual_paragraphs_evolution_20260525 Phase 5 — projector branch.
+      // Cost = N paragraphs × (M rewrites + per-slot ranking). Accumulates into
+      // EstPerAgentValue.paragraphRecombine so the wizard preview shows a single
+      // 'paragraph_recombine' line item. Kill-switch (Phase 5): when
+      // EVOLUTION_PARAGRAPH_RECOMBINE_ENABLED='false', dispatchCount → 0 mirroring runtime.
+      const { estimateParagraphRecombineCost } = require('../infra/estimateCosts') as typeof import('../infra/estimateCosts');
+
+      const paragraphEnabled = opts.paragraphRecombineEnabled !== false;
+      const rewritesPerParagraph = iterCfg.rewritesPerParagraph ?? 3;
+      const maxComparisonsPerParagraph = iterCfg.maxComparisonsPerParagraph ?? 8;
+      const maxParagraphsPerInvocation = iterCfg.maxParagraphsPerInvocation ?? 12;
+      const rewriteModel = iterCfg.paragraphRewriteModel ?? config.generationModel;
+
+      const paragraphCost = estimateParagraphRecombineCost(
+        ctx.seedChars,
+        maxParagraphsPerInvocation,
+        rewritesPerParagraph,
+        maxComparisonsPerParagraph,
+        rewriteModel,
+        config.judgeModel,
+      );
+
+      // Single materialized variant per invocation (one recombined article output).
+      const willDispatch = paragraphEnabled && poolSize >= 1;
+      const expectedCost = willDispatch ? paragraphCost.expected : 0;
+      const upperCost = willDispatch ? paragraphCost.upperBound : 0;
+      const dispatchCount = willDispatch ? 1 : 0;
+
+      plan.push({
+        iterIdx,
+        agentType: 'paragraph_recombine',
+        iterBudgetUsd,
+        tacticMix: mix,
+        tacticMixSource: source,
+        tacticLabel,
+        estPerAgent: {
+          expected: { gen: 0, rank: 0, reflection: 0, editing: 0, editingRank: 0, evaluation: 0, debate: 0, paragraphRecombine: expectedCost, total: expectedCost },
+          upperBound: { gen: 0, rank: 0, reflection: 0, editing: 0, editingRank: 0, evaluation: 0, debate: 0, paragraphRecombine: upperCost, total: upperCost },
+        },
+        maxAffordable: { atExpected: dispatchCount, atUpperBound: dispatchCount },
+        dispatchCount,
+        expectedTotalDispatch: dispatchCount,
+        expectedTopUpDispatch: 0,
+        effectiveCap: dispatchCount === 0 ? 'eligibility' : 'budget',
+        poolSizeAtStart: poolSize,
+        parallelFloorUsd: 0,
+      });
       poolSize += dispatchCount;
       continue;
     }
@@ -481,8 +543,8 @@ export function projectDispatchPlan(
         tacticMixSource: source,
         tacticLabel,
         estPerAgent: {
-          expected: { gen: 0, rank: 0, reflection: 0, editing: 0, editingRank: 0, evaluation: 0, debate: expectedDebate, total: expectedDebate },
-          upperBound: { gen: 0, rank: 0, reflection: 0, editing: 0, editingRank: 0, evaluation: 0, debate: upperDebate, total: upperDebate },
+          expected: { gen: 0, rank: 0, reflection: 0, editing: 0, editingRank: 0, evaluation: 0, debate: expectedDebate, paragraphRecombine: 0, total: expectedDebate },
+          upperBound: { gen: 0, rank: 0, reflection: 0, editing: 0, editingRank: 0, evaluation: 0, debate: upperDebate, paragraphRecombine: 0, total: upperDebate },
         },
         maxAffordable: { atExpected: dispatchCount, atUpperBound: dispatchCount },
         dispatchCount,
@@ -581,8 +643,8 @@ export function projectDispatchPlan(
       tacticMixSource: source,
       tacticLabel,
       estPerAgent: {
-        expected: { gen: genExpected, rank: rankExpectedAvg, reflection: reflectionExpected, editing: 0, editingRank: 0, evaluation: evaluationExpected, debate: 0, total: totalExpected },
-        upperBound: { gen: upper.gen, rank: upper.rank, reflection: upper.reflection, editing: upper.editing ?? 0, editingRank: upper.editingRank ?? 0, evaluation: upper.evaluation, debate: 0, total: upper.total },
+        expected: { gen: genExpected, rank: rankExpectedAvg, reflection: reflectionExpected, editing: 0, editingRank: 0, evaluation: evaluationExpected, debate: 0, paragraphRecombine: 0, total: totalExpected },
+        upperBound: { gen: upper.gen, rank: upper.rank, reflection: upper.reflection, editing: upper.editing ?? 0, editingRank: upper.editingRank ?? 0, evaluation: upper.evaluation, debate: 0, paragraphRecombine: 0, total: upper.total },
       },
       maxAffordable: { atExpected: maxAffordableExpected, atUpperBound: maxAffordableUpper },
       dispatchCount,

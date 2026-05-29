@@ -11,7 +11,7 @@ import {
   createTestRun,
 } from '../../helpers/evolution-test-data-factory';
 
-adminTest.describe('Criteria-driven invocation detail', { tag: ['@evolution', '@critical'] }, () => {
+adminTest.describe('Criteria-driven invocation detail', { tag: '@evolution' }, () => {
   adminTest.describe.configure({ mode: 'serial' });
 
   let invocationId = '';

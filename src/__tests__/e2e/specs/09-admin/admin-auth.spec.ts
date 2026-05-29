@@ -7,14 +7,13 @@ import { adminTest, expect } from '../../fixtures/admin-auth';
 import { test } from '../../fixtures/auth';
 import { AdminBasePage } from '../../helpers/pages/admin/AdminBasePage';
 
-adminTest.describe('Admin Authentication', () => {
+adminTest.describe('Admin Authentication', { tag: '@evolution' }, () => {
   /**
-   * @critical - This test runs on every PR to main.
+   * @evolution - This test runs on the evolution host.
    * Verifies the admin dashboard loads correctly for admin users.
    */
   adminTest(
     'admin dashboard loads for admin user',
-    { tag: '@critical' },
     async ({ adminPage }) => {
       const adminBasePage = new AdminBasePage(adminPage);
 
@@ -37,7 +36,7 @@ adminTest.describe('Admin Authentication', () => {
   );
 });
 
-test.describe('Admin Access Control', () => {
+test.describe('Admin Access Control', { tag: '@evolution' }, () => {
   /**
    * Verifies non-admin users are redirected away from admin panel.
    * Uses regular TEST_USER (not admin) to verify access control.

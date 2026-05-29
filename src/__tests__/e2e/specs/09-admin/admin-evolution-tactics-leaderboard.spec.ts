@@ -9,8 +9,29 @@
  */
 
 import { adminTest, expect } from '../../fixtures/admin-auth';
+import { createTestTactic } from '../../helpers/evolution-test-data-factory';
 
 adminTest.describe('Admin Evolution Tactics Leaderboard', { tag: '@evolution' }, () => {
+  adminTest.describe.configure({ mode: 'serial' });
+
+  // Seed a small, fixed set of tactics so the search-filter test ("structural")
+  // has a guaranteed match on every environment (prod has no `structural` tactic).
+  // Keep the count small (≤5) so the bounded "<= 5 rows after filter" assertion
+  // can't be violated by our own seeds.
+  let structuralTacticCleanup: (() => Promise<void>) | undefined;
+
+  adminTest.beforeAll(async () => {
+    const suffix = Date.now();
+    const tactic = await createTestTactic({ name: `[TEST_EVO] structural ${suffix}` });
+    structuralTacticCleanup = tactic.cleanup;
+  });
+
+  adminTest.afterAll(async () => {
+    // Delete ONLY the tactic this spec seeded (no global sweep — that would race
+    // with other evolution specs running in parallel locally / in CI).
+    await structuralTacticCleanup?.();
+  });
+
   adminTest(
     'tactics list renders 5 metric columns and 24 rows',
     async ({ adminPage }) => {

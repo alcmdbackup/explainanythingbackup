@@ -80,6 +80,11 @@ export interface CleanupOptions {
   variantIds?: string[];
   strategyIds?: string[];
   promptIds?: string[];
+  /** rank_individual_paragraphs_evolution_20260525 — cascade-cleanup paragraph
+   *  topics + their variants + arena_comparisons rows by parent-variant-id prefix.
+   *  Paragraph topics are named `[para] V<8-hex>.P<n>` via formatSlotTopicName, so
+   *  we glob `[para] <prefix>%` where prefix is V<first-8-hex-of-parent-id>. */
+  paragraphTopicParentPrefixes?: string[];
 }
 
 /**
@@ -90,8 +95,8 @@ export async function cleanupEvolutionData(
   supabase: SupabaseClient,
   options: CleanupOptions,
 ): Promise<void> {
-  const { explanationIds = [], runIds: extraRunIds = [], experimentIds = [], variantIds: extraVariantIds = [], strategyIds = [], promptIds = [] } = options;
-  const hasIds = explanationIds.length > 0 || extraRunIds.length > 0 || experimentIds.length > 0 || extraVariantIds.length > 0 || strategyIds.length > 0 || promptIds.length > 0;
+  const { explanationIds = [], runIds: extraRunIds = [], experimentIds = [], variantIds: extraVariantIds = [], strategyIds = [], promptIds = [], paragraphTopicParentPrefixes = [] } = options;
+  const hasIds = explanationIds.length > 0 || extraRunIds.length > 0 || experimentIds.length > 0 || extraVariantIds.length > 0 || strategyIds.length > 0 || promptIds.length > 0 || paragraphTopicParentPrefixes.length > 0;
   if (!hasIds) return;
 
   try {
@@ -152,6 +157,39 @@ export async function cleanupEvolutionData(
 
     if (promptIds.length > 0) {
       await supabase.from('evolution_prompts').delete().in('id', promptIds);
+    }
+
+    // rank_individual_paragraphs_evolution_20260525 — cascade-clean paragraph topics by parent prefix.
+    // Required because evolution_arena_comparisons.prompt_id → evolution_prompts.id does NOT have an
+    // FK CASCADE on prompt deletion (verified via grep). Without this 3-step cascade, paragraph
+    // arena_comparisons rows orphan and staging DB pollutes with each integration run.
+    for (const prefix of paragraphTopicParentPrefixes) {
+      // 1. Find all paragraph topics whose name starts with `[para] <prefix>`.
+      const { data: paragraphTopics } = await supabase
+        .from('evolution_prompts')
+        .select('id')
+        .eq('prompt_kind', 'paragraph')
+        .like('prompt', `[para] ${prefix}%`);
+      const topicIdsToDelete = (paragraphTopics ?? []).map((p) => p.id as string);
+      if (topicIdsToDelete.length === 0) continue;
+
+      // 2. Delete arena_comparisons referencing those slot topic IDs.
+      await supabase
+        .from('evolution_arena_comparisons')
+        .delete()
+        .in('prompt_id', topicIdsToDelete);
+
+      // 3. Delete variants under those slot topics.
+      await supabase
+        .from('evolution_variants')
+        .delete()
+        .in('prompt_id', topicIdsToDelete);
+
+      // 4. Delete the slot topics themselves.
+      await supabase
+        .from('evolution_prompts')
+        .delete()
+        .in('id', topicIdsToDelete);
     }
   } catch (error) {
     // Don't throw on cleanup failure — log only
@@ -329,7 +367,7 @@ export async function createTestEvolutionLog(
     entity_id: entityId,
     level: 'info',
     message: '[TEST_EVO] test log',
-    agent_name: 'test',
+    subagent_name: 'test',
     iteration: 0,
     ...overrides,
   };

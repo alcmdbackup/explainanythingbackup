@@ -698,4 +698,4 @@ iterationConfigs: [
 ]
 ```
 
-**UI.** The strategy builder at `src/app/admin/evolution/strategies/new/page.tsx` renders a Source dropdown + quantity/unit controls for non-first generate iterations. Swiss iterations have no source controls.
+**UI.** The strategy builder at `src/app/admin/evolution/strategies/new/page.tsx` renders a Source dropdown + quantity/unit controls for non-first variant-producing iterations (generate, reflect_and_generate, the criteria agents, and `paragraph_recombine` — gated by `isVariantProducing()`). Swiss/debate iterations have no source controls.

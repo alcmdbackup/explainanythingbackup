@@ -1,5 +1,5 @@
 /**
- * @critical
+ * @evolution
  * Admin Strategy Registry E2E tests.
  * Tests create strategy with preset and agent selection.
  */
@@ -12,6 +12,10 @@ import * as path from 'path';
 
 dotenv.config({ path: path.resolve(process.cwd(), '.env.local') });
 
+// NOTE: tag the formerly-@critical test below at the TEST level (not the describe),
+// so the untagged `paragraph_recombine` tests (#1116, currently failing in the evolution
+// E2E job — page crash on selectOption) are NOT enrolled here. Those are a separate,
+// pre-existing concern tracked outside this broken-nightly fix.
 adminTest.describe('Strategy Registry CRUD', () => {
   const testStrategyName = `[E2E] Test Strategy ${Date.now()}`;
 
@@ -40,7 +44,7 @@ adminTest.describe('Strategy Registry CRUD', () => {
     }
   });
 
-  adminTest('create strategy with wizard @critical', async ({ adminPage }) => {
+  adminTest('create strategy with wizard', { tag: '@evolution' }, async ({ adminPage }) => {
     // Navigate to strategies page
     await adminPage.goto('/admin/evolution/strategies', { timeout: 30000 });
     await expect(adminPage.locator('main').getByRole('heading', { name: 'Strategies' })).toBeVisible({ timeout: 15000 });
@@ -100,5 +104,54 @@ adminTest.describe('Strategy Registry CRUD', () => {
     const joined = optionValues.join('\n');
     expect(joined).toContain('gpt-oss-20b');
     expect(joined).not.toContain('openai/gpt-oss-20b');
+  });
+
+  // rank_individual_paragraphs_evolution_20260525 Phase 6 — paragraph_recombine wizard controls.
+  adminTest('paragraph_recombine wizard controls appear only for paragraph_recombine iterations', { tag: '@evolution' }, async ({ adminPage }) => {
+    await adminPage.goto('/admin/evolution/strategies/new', { timeout: 30000 });
+    await adminPage.waitForLoadState('domcontentloaded');
+
+    // The wizard starts on Step 1 (Strategy Config); per-iteration controls only render on
+    // Step 2 (Iterations). Fill the minimum required on Step 1 and advance, mirroring the
+    // pattern used by the 'create strategy with wizard' test above.
+    await adminPage.fill('input[placeholder="Strategy name"]', '[E2E] paragraph_recombine wizard appear');
+    await adminPage.locator('#generation-model').selectOption({ index: 1 });
+    await adminPage.locator('#judge-model').selectOption({ index: 1 });
+    await adminPage.locator('#budget-usd').fill('1.00');
+    await adminPage.click('button:has-text("Next: Configure Iterations")');
+
+    // Per-iteration agent-type select for iteration 0. Initially defaults to 'generate'
+    // (no paragraph controls visible).
+    expect(await adminPage.locator('[data-testid="iteration-paragraph-controls-0"]').count()).toBe(0);
+
+    // Switch the iteration's agent type to paragraph_recombine.
+    const iter0AgentSelect = adminPage.locator('select').filter({ hasText: /generate|paragraph/i }).first();
+    await iter0AgentSelect.selectOption('paragraph_recombine');
+
+    // Controls become visible with default values populated.
+    await expect(adminPage.locator('[data-testid="iteration-paragraph-controls-0"]')).toBeVisible();
+    await expect(adminPage.locator('[data-testid="rewrites-per-paragraph-0"]')).toHaveValue('3');
+    await expect(adminPage.locator('[data-testid="max-comparisons-per-paragraph-0"]')).toHaveValue('8');
+    await expect(adminPage.locator('[data-testid="max-paragraphs-per-invocation-0"]')).toHaveValue('12');
+  });
+
+  adminTest('paragraph_recombine wizard controls clear when agent type switches away', { tag: '@evolution' }, async ({ adminPage }) => {
+    await adminPage.goto('/admin/evolution/strategies/new', { timeout: 30000 });
+    await adminPage.waitForLoadState('domcontentloaded');
+
+    // Advance to Step 2 (Iterations) — see the appear-test above for rationale.
+    await adminPage.fill('input[placeholder="Strategy name"]', '[E2E] paragraph_recombine wizard clear');
+    await adminPage.locator('#generation-model').selectOption({ index: 1 });
+    await adminPage.locator('#judge-model').selectOption({ index: 1 });
+    await adminPage.locator('#budget-usd').fill('1.00');
+    await adminPage.click('button:has-text("Next: Configure Iterations")');
+
+    const iter0AgentSelect = adminPage.locator('select').filter({ hasText: /generate|paragraph/i }).first();
+    await iter0AgentSelect.selectOption('paragraph_recombine');
+    await expect(adminPage.locator('[data-testid="iteration-paragraph-controls-0"]')).toBeVisible();
+
+    // Switch back to generate — controls should disappear.
+    await iter0AgentSelect.selectOption('generate');
+    expect(await adminPage.locator('[data-testid="iteration-paragraph-controls-0"]').count()).toBe(0);
   });
 });

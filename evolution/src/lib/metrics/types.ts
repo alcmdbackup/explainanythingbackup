@@ -81,6 +81,12 @@ export const STATIC_METRIC_NAMES = [
   'avg_median_sentence_verbatim_ratio',
   // Run-level + propagation debate cost (combined judge + synthesis calls).
   'total_debate_cost', 'avg_debate_cost_per_run',
+  // rank_individual_paragraphs_evolution_20260525 Phase 2 — paragraph_recombine umbrella
+  // metric (per-paragraph rewrite + per-slot ranking) + propagation rollups +
+  // observability counter for persistSlotMatches failures.
+  'paragraph_recombine_cost',
+  'total_paragraph_recombine_cost', 'avg_paragraph_recombine_cost_per_run',
+  'paragraph_slot_match_persist_failures',
   'avg_final_elo', 'best_final_elo', 'worst_final_elo',
   'avg_median_elo', 'avg_p90_elo', 'best_max_elo',
   'avg_matches_per_run', 'avg_decisive_rate',

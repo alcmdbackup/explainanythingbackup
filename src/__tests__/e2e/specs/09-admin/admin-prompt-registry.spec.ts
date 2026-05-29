@@ -1,5 +1,5 @@
 /**
- * @critical
+ * @evolution
  * Admin Prompt Registry E2E tests.
  * Tests create, edit, and delete flows on the prompts page.
  */
@@ -12,7 +12,7 @@ import * as path from 'path';
 
 dotenv.config({ path: path.resolve(process.cwd(), '.env.local') });
 
-adminTest.describe('Prompt Registry CRUD', () => {
+adminTest.describe('Prompt Registry CRUD', { tag: '@evolution' }, () => {
   const testPromptTitle = `[E2E] Test Prompt ${Date.now()}`;
 
   adminTest.afterAll(async () => {
@@ -39,7 +39,7 @@ adminTest.describe('Prompt Registry CRUD', () => {
     }
   });
 
-  adminTest('create, edit, and delete a prompt @critical', async ({ adminPage }) => {
+  adminTest('create, edit, and delete a prompt', async ({ adminPage }) => {
     // Navigate to prompts page
     await adminPage.goto('/admin/evolution/prompts', { timeout: 30000 });
     await expect(adminPage.locator('main').getByRole('heading', { name: 'Prompts' })).toBeVisible({ timeout: 15000 });
@@ -84,7 +84,7 @@ adminTest.describe('Prompt Registry CRUD', () => {
     await expect(adminPage.locator('[data-testid="entity-list-table"]').getByText(`${testPromptTitle} (edited)`)).not.toBeVisible({ timeout: 15000 });
   });
 
-  adminTest('name search filter input is visible', { tag: '@critical' }, async ({ adminPage }) => {
+  adminTest('name search filter input is visible', async ({ adminPage }) => {
     await adminPage.goto('/admin/evolution/prompts');
     await adminPage.waitForLoadState('domcontentloaded');
 

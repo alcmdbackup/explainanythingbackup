@@ -639,6 +639,12 @@ export async function syncToArena(
         // The DB RPC accumulates this into the arena entry's lifetime total.
         arena_match_count: variantMatchCounts.get(v.id) ?? 0,
         generation_method: isSeeded && isSeedVariantTactic(v.tactic) ? 'seed' : 'pipeline',
+        // rank_individual_paragraphs_evolution_20260525 Phase 1: emit agent_name +
+        // variant_kind so the extended sync_to_arena RPC (migration 20260527000003)
+        // tags paragraph rewrites correctly. Absent → RPC defaults (agent_name NULL,
+        // variant_kind 'article'), preserving existing article-variant behavior.
+        agent_name: v.agentName ?? null,
+        variant_kind: v.variantKind ?? 'article',
       };
     });
 

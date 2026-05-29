@@ -130,6 +130,9 @@ export const TACTIC_PALETTE: Record<string, string> = {
   debate_synthesis: '#fda4af',      // rose — marker tactic for debate_and_generate variants
                                     // (bring_back_debate_agent_20260506 Decision §9; distinct
                                     // from #f472b6 used for the timeline DEBATE_COLOR per Phase 4.5)
+  paragraph_recombine: '#06b6d4',   // cyan — marker tactic for paragraph_recombine variants
+                                    // (rank_individual_paragraphs_evolution_20260525 D19/D14;
+                                    // matches the timeline PARAGRAPH_REWRITE_COLOR per Phase 6)
 
   // Tree search prefixed variants
   tree_search_edit_dimension: '#eab308',
@@ -183,6 +186,12 @@ export const MARKER_TACTICS: ReadonlyArray<{
     name: 'debate_synthesis',
     label: 'Debate-Synthesis',
     agent_type: 'debate_then_generate_from_previous_article',
+    category: 'meta',
+  },
+  {
+    name: 'paragraph_recombine',
+    label: 'Paragraph Recombine',
+    agent_type: 'paragraph_recombine',
     category: 'meta',
   },
 ];

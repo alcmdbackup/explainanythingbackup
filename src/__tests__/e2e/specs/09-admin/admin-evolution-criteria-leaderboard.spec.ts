@@ -4,7 +4,7 @@
 import { adminTest, expect } from '../../fixtures/admin-auth';
 import { getEvolutionServiceClient, trackEvolutionId } from '../../helpers/evolution-test-data-factory';
 
-adminTest.describe('Criteria leaderboard', { tag: ['@evolution', '@critical'] }, () => {
+adminTest.describe('Criteria leaderboard', { tag: '@evolution' }, () => {
   adminTest.describe.configure({ mode: 'serial' });
 
   const seededIds: string[] = [];

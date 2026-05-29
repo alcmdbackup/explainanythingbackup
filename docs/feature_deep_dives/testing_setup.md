@@ -20,7 +20,7 @@ ExplainAnything uses a **four-tier testing strategy**:
   - **Full** (run on PRs to production): All 31 tests
   - **Evolution** (15 files): Auto-skip when evolution DB tables not yet migrated. Covers claim, budget, costs, watchdog, strategy hashing/aggregates, cancel experiment, arena sync, entity logging, experiment lifecycle, metrics-recomputation, cost-cascade, visualization-data, experiment-create-complete, arena-comparison.
 - **E2E**: 58 spec files in `__tests__/e2e/specs/`
-  - **Critical** (`{ tag: '@critical' }` parameter): Run on PRs to main (~18 tests). Core user flows: auth session, library browsing, unauth redirects, search/generate, admin smoke.
+  - **Critical** (`{ tag: '@critical' }` parameter): Run on PRs to main. Core user flows: auth session, library browsing, unauth redirects, search/generate, host-isolation. (Post hostname-split, admin specs are `@evolution`, NOT `@critical` — admin is host-gated to the evolution host.)
   - **Evolution** (`{ tag: '@evolution' }` parameter): Dashboard, runs, strategies, arena, experiments, invocations, variants, logs, run pipeline, experiment wizard, accessibility, strategy budget, navigation, filter-consistency, error-states, and more.
   - **Full**: All tests (run on PRs to production)
 - **Exploratory**: `/user-test` skill for AI-driven exploration (see [User Testing](./user_testing.md))
@@ -408,9 +408,9 @@ Evolution E2E specs include accessibility tests using Playwright's accessibility
 
 `@critical` marks only the fastest, highest-signal tests (~18 total) that run on every PR to `main`. The goal is fast feedback (target < 3 min), not exhaustive coverage — that's what `@evolution` and the full suite are for.
 
-**What's @critical:** Auth session persistence, protected route access, library page + card display + navigation, unauth redirect tests (via `chromium-unauth` project), admin smoke, search/generate core flow.
+**What's @critical:** Auth session persistence, protected route access, library page + card display + navigation, unauth redirect tests (via `chromium-unauth` project), search/generate core flow, host-isolation. (Admin smoke is NOT `@critical` post-split — admin is host-gated to the evolution host, so all `09-admin/*` specs are `@evolution`.)
 
-**What's @evolution (not @critical):** All evolution admin pages — dashboard, runs, experiments, strategies, arena, variants, logs, invocations, wizard, run-pipeline, filter/navigation, accessibility, budget, budget-dispatch, UI regression fixes. These run on PRs to `production`, nightly, and locally during `/finalize` when `evolution/` files are changed.
+**What's @evolution (not @critical):** ALL `09-admin/*` specs — both evolution admin pages (dashboard, runs, experiments, strategies, arena, variants, logs, invocations, wizard, run-pipeline, filter/navigation, accessibility, budget, UI regression fixes) AND plain admin pages (auth, users, content, reports, candidates, whitelist, prompt/strategy registry + crud). Post hostname-split, admin is host-gated to the evolution host (`adminAuth.isHostAcceptableForAdmin()` rejects the public host), so admin specs must run there — they were moved off the public `@critical` row to fix the prod nightly. These run on PRs to `production` and `main` (the `EVOLUTION_ONLY_PATHS` classifier in `ci.yml` now includes `src/__tests__/e2e/specs/09-admin/`), nightly, and locally during `/finalize` when evolution/admin files change.
 
 The `chromium-unauth` Playwright project also filters to `grep: /@critical/`, so only the 2 `@critical` unauth tests run in the critical suite (not all 13 unauth tests).
 

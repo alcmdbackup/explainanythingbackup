@@ -13,7 +13,7 @@ function getServiceClient() {
   );
 }
 
-adminTest.describe('Evolution Filter Consistency', { tag: ['@evolution', '@critical'] }, () => {
+adminTest.describe('Evolution Filter Consistency', { tag: '@evolution' }, () => {
   adminTest.describe.configure({ mode: 'serial' });
 
   const testPrefix = `e2e-filter-${Date.now()}`;

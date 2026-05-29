@@ -6,13 +6,13 @@
 import { adminTest, expect } from '../../fixtures/admin-auth';
 import { AdminWhitelistPage } from '../../helpers/pages/admin/AdminWhitelistPage';
 
-adminTest.describe('Admin Whitelist Management', () => {
+adminTest.describe('Admin Whitelist Management', { tag: '@evolution' }, () => {
   /**
-   * @critical - This test runs on every PR to main.
+   * @evolution - This test runs on the evolution host.
    * Verifies the whitelist table loads correctly.
    */
   adminTest(
-    'whitelist table loads @critical',
+    'whitelist table loads',
     async ({ adminPage }) => {
       const whitelistPage = new AdminWhitelistPage(adminPage);
       await whitelistPage.gotoWhitelist();

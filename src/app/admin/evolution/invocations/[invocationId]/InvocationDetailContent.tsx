@@ -8,17 +8,22 @@ import { LogsTab } from '@evolution/components/evolution/tabs/LogsTab';
 import { InvocationTimelineTab } from '@evolution/components/evolution/tabs/InvocationTimelineTab';
 import { InvocationParentBlock } from '@evolution/components/evolution/tabs/InvocationParentBlock';
 import { SubagentsTab } from '@evolution/components/evolution/tabs/SubagentsTab';
+import { SlotsTab } from '@evolution/components/evolution/tabs/SlotsTab';
+import { RecombinedOutputTab } from '@evolution/components/evolution/tabs/RecombinedOutputTab';
+import type { SlotRecombineExecutionDetail } from '@evolution/lib/schemas';
 
 const TIMELINE_AGENTS = new Set<string>([
   'generate_from_previous_article',
   'reflect_and_generate_from_previous_article',
   'evaluate_criteria_then_generate_from_previous_article',
   'debate_then_generate_from_previous_article',
+  'paragraph_recombine',
 ]);
 
 const REFLECT_GENERATE_AGENT = 'reflect_and_generate_from_previous_article';
 const CRITERIA_GENERATE_AGENT = 'evaluate_criteria_then_generate_from_previous_article';
 const DEBATE_GENERATE_AGENT = 'debate_then_generate_from_previous_article';
+const PARAGRAPH_RECOMBINE_AGENT = 'paragraph_recombine';
 
 function buildTabs(agentName: string): TabDef[] {
   // Subagents tab is added to ALL agent types (Phase 2 of
@@ -60,6 +65,20 @@ function buildTabs(agentName: string): TabDef[] {
       { id: 'logs', label: 'Logs' },
     ];
   }
+  if (agentName === PARAGRAPH_RECOMBINE_AGENT) {
+    // rank_individual_paragraphs_evolution_20260525 Phase 6 + Phase 9 retrofit R1 —
+    // 6-tab layout. Subagents prepended per the rename_agents_subagents convention,
+    // but useTabState pins defaultTab='slots' so researchers' bespoke per-slot
+    // drill-in stays the entry point (Phase 9 retrofit decision A2).
+    return [
+      { id: 'subagents', label: 'Subagents' },
+      { id: 'slots', label: 'Paragraph Slots' },
+      { id: 'recombined', label: 'Recombined Output' },
+      { id: 'metrics', label: 'Metrics' },
+      { id: 'timeline', label: 'Timeline' },
+      { id: 'logs', label: 'Logs' },
+    ];
+  }
   const tabs: TabDef[] = [
     subagentsTab,
     { id: 'overview', label: 'Overview' },
@@ -92,7 +111,11 @@ interface Props {
 
 export function InvocationDetailContent({ invocation: inv }: Props): JSX.Element {
   const tabs = buildTabs(inv.agent_name);
-  const [activeTab, setActiveTab] = useTabState(tabs);
+  // Phase 9 retrofit R1: paragraph_recombine pins defaultTab='slots' so the
+  // bespoke per-slot drill-in stays the researcher's entry point even though
+  // 'subagents' is tabs[0] per the new convention.
+  const defaultTab = inv.agent_name === PARAGRAPH_RECOMBINE_AGENT ? 'slots' : undefined;
+  const [activeTab, setActiveTab] = useTabState(tabs, { defaultTab });
   const detail = inv.execution_detail as {
     detailType?: string;
     tactic?: string;
@@ -105,6 +128,9 @@ export function InvocationDetailContent({ invocation: inv }: Props): JSX.Element
   // populated by the inner GFPA execute().
   const isReflectAndGenerate = detail?.detailType === 'reflect_and_generate_from_previous_article';
   const isCriteriaAndGenerate = detail?.detailType === 'evaluate_criteria_then_generate_from_previous_article';
+  const paragraphDetail = detail?.detailType === 'paragraph_recombine'
+    ? (inv.execution_detail as unknown as SlotRecombineExecutionDetail)
+    : null;
 
   return (
     <>
@@ -324,6 +350,20 @@ export function InvocationDetailContent({ invocation: inv }: Props): JSX.Element
               detail={inv.execution_detail}
               keyFilter={(key) => key === 'tactic' || key.startsWith('weakestCriteria') || key.startsWith('evaluateAndSuggest')}
             />
+          </div>
+        )}
+
+        {/* paragraph_recombine: per-slot drill-in. */}
+        {activeTab === 'slots' && paragraphDetail && (
+          <div data-testid="paragraph-slots-tab">
+            <SlotsTab parentVariantId={paragraphDetail.parentVariantId} slots={paragraphDetail.slots} />
+          </div>
+        )}
+
+        {/* paragraph_recombine: final recombined article + format-validation banner. */}
+        {activeTab === 'recombined' && paragraphDetail && (
+          <div data-testid="paragraph-recombined-tab">
+            <RecombinedOutputTab parentText={null} detail={paragraphDetail} />
           </div>
         )}
 

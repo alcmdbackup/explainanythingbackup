@@ -21,6 +21,7 @@ import {
 import { EvaluateCriteriaThenGenerateFromPreviousArticleAgent } from '../../core/agents/evaluateCriteriaThenGenerateFromPreviousArticle';
 import { SinglePassEvaluateCriteriaAndGenerateAgent } from '../../core/agents/singlePassEvaluateCriteriaAndGenerate';
 import { ProposerApproverCriteriaGenerateAgent } from '../../core/agents/proposerApproverCriteriaGenerate';
+import { ParagraphRecombineAgent } from '../../core/agents/paragraphRecombine/ParagraphRecombineAgent';
 import { getCriteriaForEvaluation, type EvolutionCriterionRow } from '../../../services/criteriaActions';
 import { SwissRankingAgent, type SwissRankingMatchEntry } from '../../core/agents/SwissRankingAgent';
 import { MergeRatingsAgent, type MergeMatchEntry } from '../../core/agents/MergeRatingsAgent';
@@ -1265,6 +1266,127 @@ export async function evolveArticle(
           budgetSpent: iterTracker.getTotalSpent(),
           topEloValues: eloValues.slice(0, 5),
           phaseName: 'ranking',
+        });
+      } else if (iterType === 'paragraph_recombine') {
+        // ─── Paragraph-recombine iteration (Task 3) ───────────────
+        // Dedicated single-dispatch branch (NOT the generate-family gate): resolve ONE
+        // parent (honoring sourceMode/qualityCutoff), run ONE ParagraphRecombineAgent
+        // (which ranks the recombined variant internally via rankNewVariant and returns
+        // matches), then feed matches + the variant to MergeRatingsAgent — mirroring debate.
+        const paragraphEnabled = process.env.EVOLUTION_PARAGRAPH_RECOMBINE_ENABLED !== 'false';
+        if (!paragraphEnabled) {
+          logger.info('Paragraph-recombine iteration skipped — EVOLUTION_PARAGRAPH_RECOMBINE_ENABLED=false', {
+            iteration, iterIdx, phaseName: 'paragraph_recombine',
+          });
+          iterStopReason = 'iteration_complete';
+        } else {
+          const iterSourceMode = iterCfg.sourceMode ?? 'seed';
+          const inRunPool = pool.filter((v) => !v.fromArena);
+          const poolForParentResolve = iterSourceMode === 'pool' ? inRunPool : pool;
+          const prExecOrder = ++executionOrder;
+          const pickRng = createSeededRng(hashSeed(runId, iteration, prExecOrder));
+          const resolved = resolveParent({
+            sourceMode: iterSourceMode,
+            qualityCutoff: iterCfg.qualityCutoff,
+            seedVariant: { id: options?.seedVariantId ?? '', text: originalText },
+            pool: poolForParentResolve,
+            ratings,
+            rng: pickRng,
+            warn: (msg, c) => logger.warn(msg, { ...c, phaseName: 'paragraph_recombine', iteration, execOrder: prExecOrder }),
+          });
+
+          const prCtx: AgentContext = {
+            db, runId, iteration,
+            executionOrder: prExecOrder,
+            invocationId: '',
+            randomSeed: deriveSeed(randomSeed, `iter${iteration}`, `paragraph_recombine${prExecOrder}`),
+            logger, costTracker: iterTracker, config: resolvedConfig, promptId: options?.promptId ?? null,
+            experimentId: options?.experimentId,
+            strategyId: options?.strategyId,
+            rawProvider: llmProvider,
+            defaultModel: resolvedConfig.generationModel,
+            generationTemperature: resolvedConfig.generationTemperature,
+          };
+          const paragraphAgent = new ParagraphRecombineAgent();
+          try {
+            const prResult = await paragraphAgent.run({
+              parentText: resolved.text,
+              parentVariantId: resolved.variantId,
+              rewritesPerParagraph: iterCfg.rewritesPerParagraph,
+              maxComparisonsPerParagraph: iterCfg.maxComparisonsPerParagraph,
+              maxParagraphsPerInvocation: iterCfg.maxParagraphsPerInvocation,
+              initialPool: pool,
+              initialRatings: ratings,
+              initialMatchCounts: matchCounts,
+              cache: comparisonCache,
+            }, prCtx);
+
+            const prOutput = prResult.result;
+            if (prOutput && prOutput.variant && prOutput.surfaced) {
+              const newVariants: Variant[] = [prOutput.variant];
+              iterVariantsCreated++;
+
+              const prMatchBuffers: MergeMatchEntry[][] = [];
+              if (prOutput.matches && prOutput.matches.length > 0) {
+                prMatchBuffers.push(
+                  prOutput.matches.map((m) => ({ match: m, idA: m.winnerId, idB: m.loserId })),
+                );
+              }
+
+              const mergeExecOrder = ++executionOrder;
+              const mergeCtx: AgentContext = {
+                db, runId, iteration,
+                executionOrder: mergeExecOrder,
+                invocationId: '',
+                randomSeed: deriveSeed(randomSeed, `iter${iteration}`, `merge${mergeExecOrder}`),
+                logger, costTracker: iterTracker, config: resolvedConfig, promptId: options?.promptId ?? null,
+                experimentId: options?.experimentId,
+                strategyId: options?.strategyId,
+              };
+              const mergeAgent = new MergeRatingsAgent();
+              const mergeResult = await mergeAgent.run({
+                iterationType: 'paragraph_recombine',
+                matchBuffers: prMatchBuffers,
+                newVariants,
+                pool, ratings, matchCounts, matchHistory: allMatches,
+              }, mergeCtx);
+              if (mergeResult.budgetExceeded) iterStopReason = 'iteration_budget_exceeded';
+            }
+
+            // Agent.run() catches an in-agent IterationBudgetExceededError and surfaces it
+            // as this flag (not a throw), so the budget path can arrive either way.
+            if (prResult.budgetExceeded) iterStopReason = 'iteration_budget_exceeded';
+          } catch (err) {
+            if (err instanceof IterationBudgetExceededError) {
+              iterStopReason = 'iteration_budget_exceeded';
+            } else {
+              logger.warn('Paragraph-recombine iteration failed — partial detail persisted, iteration continues', {
+                iteration, iterIdx, phaseName: 'paragraph_recombine',
+                error: err instanceof Error ? err.message : String(err),
+              });
+              iterStopReason = 'iteration_complete';
+            }
+          }
+        }
+
+        const topKPR = resolvedConfig.tournamentTopK ?? 5;
+        const eloValues = topKEloValues(ratings, topKPR);
+        eloHistory.push(eloValues);
+        uncertaintyHistory.push(topKUncertainties(ratings, topKPR));
+
+        iterationSnapshots.push(recordSnapshot(iteration, 'paragraph_recombine', 'end', pool, ratings, matchCounts, {
+          stopReason: iterStopReason,
+          budgetAllocated: iterBudgetUsd,
+          budgetSpent: iterTracker.getTotalSpent(),
+        }));
+
+        logger.info('Paragraph-recombine iteration complete', {
+          iteration, iterIdx,
+          variantsCreated: iterVariantsCreated,
+          iterStopReason,
+          budgetSpent: iterTracker.getTotalSpent(),
+          topEloValues: eloValues.slice(0, 5),
+          phaseName: 'paragraph_recombine',
         });
       }
     } catch (err) {

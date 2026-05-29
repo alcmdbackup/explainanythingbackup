@@ -140,6 +140,9 @@ const listVariantsInputSchema = z.object({
   filterTestContent: z.boolean().optional(),
   /** Default false — only return variants that survived to the final pool. */
   includeDiscarded: z.boolean().optional().default(false),
+  /** rank_individual_paragraphs_evolution_20260525 D13 — default to 'article' so
+   *  the variants list hides paragraph snippets. Pass 'paragraph' or 'any' to opt in. */
+  variantKind: z.enum(['article', 'paragraph', 'any']).optional().default('article'),
   limit: z.number().int().min(1).max(200).default(50),
   offset: z.number().int().min(0).default(0),
 });
@@ -735,6 +738,10 @@ export const listVariantsAction = adminAction(
     if (!parsed.includeDiscarded) {
       // Default: only show variants that survived to the final pool.
       query = query.eq('persisted', true);
+    }
+    // D13: filter on variant_kind unless 'any' was explicitly requested.
+    if (parsed.variantKind !== 'any') {
+      query = query.eq('variant_kind', parsed.variantKind);
     }
     if (wantsEmbed) {
       query = query.eq('evolution_runs.evolution_strategies.is_test_content', false);

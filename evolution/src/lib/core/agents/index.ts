@@ -23,3 +23,4 @@ export { EvaluateCriteriaThenGenerateFromPreviousArticleAgent } from './evaluate
 export { SwissRankingAgent } from './SwissRankingAgent';
 export { MergeRatingsAgent } from './MergeRatingsAgent';
 export { CreateSeedArticleAgent } from './createSeedArticle';
+export { ParagraphRecombineAgent } from './paragraphRecombine/ParagraphRecombineAgent';

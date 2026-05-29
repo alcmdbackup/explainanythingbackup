@@ -5,7 +5,7 @@
 import { adminTest, expect } from '../../fixtures/admin-auth';
 import { createMultiHopFixture, type MultiHopFixture } from '../../helpers/evolution-test-data-factory';
 
-adminTest.describe('Variant Parent Badge', { tag: ['@evolution', '@critical'] }, () => {
+adminTest.describe('Variant Parent Badge', { tag: '@evolution' }, () => {
   adminTest.describe.configure({ mode: 'serial' });
 
   let fixture: MultiHopFixture;
