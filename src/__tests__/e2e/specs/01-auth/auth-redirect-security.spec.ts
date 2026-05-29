@@ -7,20 +7,22 @@ test.describe('Auth Redirect Security', () => {
 
   test('should reject external URL in auth callback next param', async ({ page }) => {
     await page.goto('/auth/callback?code=fake&next=https://evil.com');
-    const url = page.url();
-    expect(url).not.toContain('evil.com');
+    // Assert on the resolved HOST, not a substring of the full href. A failed auth
+    // attempt may bounce the user to a same-origin page (e.g. /login) that still
+    // carries the malicious value as an unused `next` query param — the login action
+    // always redirects to '/', so it is never acted on. Open-redirect protection
+    // means the browser is never navigated to the external host.
+    expect(new URL(page.url()).host).not.toContain('evil.com');
   });
 
   test('should reject protocol-relative URL in auth callback', async ({ page }) => {
     await page.goto('/auth/callback?code=fake&next=//evil.com');
-    const url = page.url();
-    expect(url).not.toContain('evil.com');
+    expect(new URL(page.url()).host).not.toContain('evil.com');
   });
 
   test('should reject backslash trick in auth callback', async ({ page }) => {
     await page.goto('/auth/callback?code=fake&next=/\\evil.com');
-    const url = page.url();
-    expect(url).not.toContain('evil.com');
+    expect(new URL(page.url()).host).not.toContain('evil.com');
   });
 
   test(
