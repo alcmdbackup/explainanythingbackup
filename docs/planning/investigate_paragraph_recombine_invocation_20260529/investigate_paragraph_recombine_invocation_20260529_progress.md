@@ -52,3 +52,6 @@
 
 ### Not run by me (recommend before/at merge)
 - **Playwright (UI)**: the relabel + hidden-Iteration-column rendering is covered by `ArenaLeaderboardTable.test.tsx` + `VariantParentBadge.test.tsx` (React Testing Library renders the real components with the exact props `SlotsTab` passes). A browser check of `/admin/evolution/invocations/<id>` → Paragraph Slots tab is still recommended as end-to-end confidence (e.g. during `/finalize` or manually).
+
+## Documentation
+Updated (behavioral changes): `paragraph_recombine.md` (syncToArena step + temperature ladder floor + length_under failure mode + migrations list), `variant_lineage.md` (paragraph-rewrite lineage + attribution `variant_kind='article'` exclusion), `arena.md` (syncToArena payload), `data_model.md` (sync_to_arena RPC), `metrics.md` (attribution exclusion), `docs/docs_overall/debugging.md` (new diagnosis recipe). Reviewed, no change: `multi_iteration_strategies.md`, `architecture.md`, `agents/overview.md`, `rating_and_comparison.md`, `strategies_and_experiments.md` (their subject matter was not modified).

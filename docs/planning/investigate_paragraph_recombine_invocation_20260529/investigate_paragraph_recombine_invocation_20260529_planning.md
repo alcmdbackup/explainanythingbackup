@@ -96,17 +96,17 @@ Three issues underlie the report on invocation `83c9a188-cb83-4cd0-bdbc-3356cbc5
 
 ## Documentation Updates
 The following docs were identified as relevant and may need updates:
-- [ ] `evolution/docs/paragraph_recombine.md` — failure modes / parent resolution / per-slot ranking behavior. SPECIFICALLY correct line ~31 which documents the per-slot `syncToArena` as "pass empty `matchHistory`" (Phase 1 reverses this to pass `slotMatches`) and fix the misleading rationale (matchHistory drives the `arena_match_count` tally, NOT the deprecated `p_matches`). Document that per-slot rewrites now persist `parent_variant_ids=[originalSlotVariantId]` and `match_count`/`arena_match_count`.
-- [ ] `evolution/docs/variant_lineage.md` — note that paragraph-kind rewrites now carry `parent_variant_ids=[originalSlot]` (1-hop chain), and that ELO attribution explicitly excludes `variant_kind='paragraph'`.
-- [ ] `evolution/docs/multi_iteration_strategies.md` — `sourceMode`/`qualityCutoff` semantics if seed-fallback logic changes
-- [ ] `evolution/docs/architecture.md` — content/parent resolution notes if changed
-- [ ] `evolution/docs/agents/overview.md` — `ParagraphRecombineAgent` algorithm if changed
-- [ ] `evolution/docs/arena.md` — `loadArenaEntries` / per-slot topic loading if changed
-- [ ] `evolution/docs/rating_and_comparison.md` — per-slot ranking / paragraph comparison mode if changed
-- [ ] `evolution/docs/data_model.md` — schema notes if any column/metric changes
-- [ ] `evolution/docs/metrics.md` — `paragraph_recombine_cost` / `paragraph_slot_match_persist_failures` if changed
-- [ ] `evolution/docs/strategies_and_experiments.md` — sourceMode + qualityCutoff section if changed
-- [ ] `docs/docs_overall/debugging.md` — add a paragraph_recombine diagnosis recipe if useful
+- [x] `evolution/docs/paragraph_recombine.md` — failure modes / parent resolution / per-slot ranking behavior. SPECIFICALLY correct line ~31 which documents the per-slot `syncToArena` as "pass empty `matchHistory`" (Phase 1 reverses this to pass `slotMatches`) and fix the misleading rationale (matchHistory drives the `arena_match_count` tally, NOT the deprecated `p_matches`). Document that per-slot rewrites now persist `parent_variant_ids=[originalSlotVariantId]` and `match_count`/`arena_match_count`.
+- [x] `evolution/docs/variant_lineage.md` — note that paragraph-kind rewrites now carry `parent_variant_ids=[originalSlot]` (1-hop chain), and that ELO attribution explicitly excludes `variant_kind='paragraph'`.
+- [x] `evolution/docs/multi_iteration_strategies.md` — reviewed, no change: `sourceMode`/`qualityCutoff` + seed-fallback logic was NOT touched (the article parent was already pool-sourced correctly).
+- [x] `evolution/docs/architecture.md` — reviewed, no change: content/parent resolution was not modified.
+- [x] `evolution/docs/agents/overview.md` — reviewed, no change: the agent algorithm is unchanged; only persistence + prompt/temperature details changed, which live in `paragraph_recombine.md`.
+- [x] `evolution/docs/arena.md` — syncToArena `p_entries` now carries `parent_variant_ids` + `match_count` (INSERT-only). (`loadArenaEntries` / per-slot topic loading unchanged.)
+- [x] `evolution/docs/rating_and_comparison.md` — reviewed, no change: per-slot ranking + paragraph comparison mode were not modified.
+- [x] `evolution/docs/data_model.md` — `sync_to_arena` RPC entry now documents the INSERT-only `parent_variant_ids` + `match_count` writes (no new columns — both columns pre-existed).
+- [x] `evolution/docs/metrics.md` — documented the `eloAttrDelta` attribution `variant_kind='article'` exclusion. (`paragraph_recombine_cost` / `paragraph_slot_match_persist_failures` unchanged.)
+- [x] `evolution/docs/strategies_and_experiments.md` — reviewed, no change: the sourceMode + qualityCutoff section was not modified.
+- [x] `docs/docs_overall/debugging.md` — added a "0 matches / 0 iterations / Seed · no parent" paragraph_recombine diagnosis recipe (symptom→column table + triage SQL).
 
 ## Implementation Notes (plan-review residuals, non-blocking)
 - Attribution guard: a PostgREST `.neq('variant_kind','paragraph')` filters server-side and does NOT require adding `variant_kind` to the `select` list — but if the regression test inspects the field, add it to the select explicitly. Prefer `.eq('variant_kind','article')` for forward-safety if a 3rd kind is ever added.
