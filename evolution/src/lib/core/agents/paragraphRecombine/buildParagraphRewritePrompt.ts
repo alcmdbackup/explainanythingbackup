@@ -15,10 +15,15 @@
  *
  * The content-additive directive (index 1) is deliberately capped at ONE sentence so it stays
  * within `validateParagraphRewrite`'s ±20% length window.
+ *
+ * The tighten directive (index 0) carries an explicit LOWER-length floor: without it, "prefer
+ * shorter sentences" reliably underflowed the 0.8× floor (89% length_under drop rate on slot
+ * index 0 — investigate_paragraph_recombine_invocation_20260529), leaving slots with one surviving
+ * rewrite. It must trim wordiness WITHOUT dropping below ~0.85× the original length.
  */
 export const PARAGRAPH_REWRITE_DIRECTIVES: readonly string[] = [
-  // 0 — meaning-preserving, structural: trims toward a tighter, plainer version.
-  'Tighten and simplify. Cut padding, hedging, and redundant phrasing; prefer plain words and shorter sentences. Do NOT add new information.',
+  // 0 — meaning-preserving, structural: trims toward a tighter, plainer version (with a length floor).
+  'Tighten and simplify. Cut padding, hedging, and redundant phrasing; prefer plain words and shorter sentences. Do NOT add new information. Keep the result within the ±20% length window — never below ~0.85x the original length: trim wordiness, do not delete substance or drop whole sentences.',
   // 1 — content-additive (ONE sentence, to respect the ±20% length cap).
   'Add exactly ONE concise concrete example or analogy (a single sentence) that reinforces the existing point. Keep the underlying claim unchanged.',
   // 2 — style / flow: same information, better cadence.

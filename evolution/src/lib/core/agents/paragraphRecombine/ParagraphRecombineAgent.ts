@@ -55,9 +55,16 @@ const DEFAULT_PER_INVOCATION_CAP_USD = 0.4;
 const PRE_FINAL_RANKING_GATE_FRACTION = 0.9;
 const SLOT_SELF_ABORT_FRACTION = 0.9;
 
-/** Per-rewrite temperature ladder spanning 1.0–2.0 to diversify the M parallel rewrites
- *  (Option A, investigate_matchmaking_paragraph_recombine_20260528). For M rewrites the
- *  schedule is `1.0 + index/(M-1)` (M=1 → 1.5). Clamped to the model's maxTemperature;
+/** Lower bound of the per-rewrite temperature ladder. Raised from 1.0 → 1.2 by
+ *  investigate_paragraph_recombine_invocation_20260529: the index-0 "tighten" rewrite ran at temp
+ *  1.0 and reliably underflowed the 0.8 length floor (89% length_under drop rate on slot index 0).
+ *  Starting the ladder hotter gives the tighten rewrite enough variance to land in the ±20% window. */
+const PARAGRAPH_REWRITE_TEMP_FLOOR = 1.2;
+
+/** Per-rewrite temperature ladder spanning 1.2–2.0 to diversify the M parallel rewrites
+ *  (Option A, investigate_matchmaking_paragraph_recombine_20260528; floor raised in
+ *  investigate_paragraph_recombine_invocation_20260529). For M rewrites the schedule is
+ *  `FLOOR + index*(2.0 - FLOOR)/(M-1)` (M=1 → 1.5). Clamped to the model's maxTemperature;
  *  returns undefined when the model rejects temperature so the caller omits the option. */
 export function paragraphRewriteTemperature(
   index: number,
@@ -65,7 +72,9 @@ export function paragraphRewriteTemperature(
   maxTemp: number | null | undefined,
 ): number | undefined {
   if (maxTemp === null) return undefined; // model doesn't support temperature → omit option
-  const base = total > 1 ? 1.0 + index / (total - 1) : 1.5;
+  const base = total > 1
+    ? PARAGRAPH_REWRITE_TEMP_FLOOR + (index * (2.0 - PARAGRAPH_REWRITE_TEMP_FLOOR)) / (total - 1)
+    : 1.5;
   return typeof maxTemp === 'number' ? Math.min(base, maxTemp) : base; // undefined (unknown model) → pass through
 }
 

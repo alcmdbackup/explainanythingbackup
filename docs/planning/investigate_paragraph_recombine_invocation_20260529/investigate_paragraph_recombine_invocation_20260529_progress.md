@@ -28,8 +28,13 @@
 ### Issues Encountered
 - None. (Note: a pre-existing `text-[10px]` design-system lint error at `SlotsTab.tsx:114` is not mine and not caught by CI lint; left untouched to avoid altering existing 10px sizing.)
 
-## Phase 3: length_under rewrite-quality fix
-
-## Phase 3: length_under rewrite-quality fix
+## Phase 3: length_under rewrite-quality fix (DONE)
 ### Work Done
-[pending]
+- `buildParagraphRewritePrompt.ts` — the index-0 "tighten" directive now carries an explicit lower-length floor: "Keep the result within the ±20% length window — never below ~0.85x the original length: trim wordiness, do not delete substance or drop whole sentences." Doc comment updated to explain the 89% length_under drop motivation.
+- `ParagraphRecombineAgent.ts` (`paragraphRewriteTemperature`) — ladder floor raised 1.0 → 1.2 via a named `PARAGRAPH_REWRITE_TEMP_FLOOR` constant: `base = total>1 ? FLOOR + index*(2.0-FLOOR)/(total-1) : 1.5`. M=3 → [1.2, 1.6, 2.0]; M=2 → [1.2, 2.0]; M=1 → 1.5 (unchanged). Clamp to model maxTemperature unchanged.
+- Tests updated: `ParagraphRecombineAgent.test.ts` (M=3 ladder `[1.2,1.6,2.0]`, M=2 set `has(1.2)`, range floor `>=1.2`, comments; clamp test `[1.0,1.0,1.0]` still valid since `min(1.2,1.0)=1.0`); `buildParagraphRewritePrompt.test.ts` (new: index-0 directive contains the lower-floor language). 36 unit tests pass.
+- Checks: `npm run typecheck` clean; my changed lines introduce no new lint findings (the 5 pre-existing `ExecutionDetailBase`/`_detail`/`_ctx` no-unused-vars errors in `ParagraphRecombineAgent.ts` predate this work, are at lines I didn't edit, and are outside CI's dir-walk lint scope — left as-is).
+- `paragraphSlots.test.ts` regression case: N/A — the ±20% cap interpretation did not change (only the prompt directive + temperature), so no new validateParagraphRewrite case needed.
+
+### Issues Encountered
+- None.
