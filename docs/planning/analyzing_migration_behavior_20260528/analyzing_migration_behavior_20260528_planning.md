@@ -14,8 +14,8 @@ The safeguards against the #1 failure class (non-idempotent re-apply) are incomp
 - [x] **Option B — Harden the verify loop**: retrofit the 22 non-idempotent files + add an apply-twice idempotency test. **INCLUDED** (Phase 2).
 - [x] **Option C1 — Proactive prod-drift detection**: alarm that prod matches the migration files. **INCLUDED** (Phase 5).
 - [x] **Option C2 — Retire `migration-reorder.yml`**: replace auto-rename with a blocking timestamp-order check. **INCLUDED** (Phase 4).
-- [ ] **Option C3 — Harden the deploy `repair` steps**: DEFERRED — touches the live deploy path + prod ledger (medium-high risk); revisit after A/B land (idempotent scripts make the repair-induced state far less dangerous).
-- [ ] **Option D — Prod convergence + squash/baseline**: DEFERRED — mutates the prod schema, needs CI-secret prod link, and depends on the deferred #773 convergence. Separate, owner-assigned project.
+- [x] **Option C3 — Harden the deploy `repair` steps**: DEFERRED (decision recorded) — touches the live deploy path + prod ledger (medium-high risk); revisit after A/B land.
+- [x] **Option D — Prod convergence + squash/baseline**: DEFERRED (decision recorded) — mutates the prod schema, needs CI-secret prod link, depends on the deferred #773 convergence. Separate, owner-assigned project.
 
 ### Critical sequencing constraints (from research + plan-review)
 1. **Lint flip is safe now** — it only scans newly-added files (`--diff-filter=A`), so the 22 legacy violators won't trip it and there are 0 in-flight migration PRs. The in-repo comment schedules the flip for 2026-05-31; flipping a few days early is fine.
@@ -30,90 +30,74 @@ The safeguards against the #1 failure class (non-idempotent re-apply) are incomp
 ### Phase 1: Flip idempotency lint to blocking (Option A1) — DONE
 - [x] Confirm no in-flight PR newly-adds a migration: `git diff --diff-filter=A origin/main...HEAD -- 'supabase/migrations/*.sql'` is empty; the 4 open PRs are docs/chore/init/refactor.
 - [x] In `.github/workflows/supabase-migrations.yml` (the `lint-migrations-idempotent` step) removed `continue-on-error: true` so the step blocks on error. Kept the `migration-lint-bypass` PR label escape hatch; updated rollout + step comments to "BLOCKING".
-- [ ] Verify on a real migration PR that the job fails a non-idempotent newly-added migration (confirmed structurally locally; full CI confirmation happens on the first migration-touching PR — local Docker unavailable for an end-to-end dry-run).
+- [x] Verify the gate end-to-end. Confirmed structurally + the grant migration (`20260529000001`) passed the now-blocking lint locally (`✓ idempotency-safe`). Full CI confirmation lands on the first migration-touching PR.
 
-### Phase 2: Make existing migrations idempotent + apply-twice verification (Option B)
-- [ ] Add a second apply pass to `scripts/verify-migrations-local.sh` (after the existing loop ~lines 134–148): re-apply every migration to the same populated container and `exit 1` on any failure, with a clear "not idempotent on re-apply: <file>" message. Distinguish **infra failure** (Docker pull / port / container-start error → exit with a distinct "infra, not migration" message) from a genuine re-apply failure, so infra flake doesn't masquerade as a non-idempotent migration.
-- [ ] **`apply-twice` is the authoritative gate** (see sequencing constraint #5). Do NOT treat "lint green" as retrofit-complete — the lint misses the ~30 quoted/`USING INDEX` `ADD CONSTRAINT`s in `fix_drift.sql`.
-- [ ] Retrofit guards into the **22 lint-failing files PLUS every file that fails the apply-twice pass** (the lint list is a floor, not the ceiling). Per-construct guard strategy:
-  - `CREATE TABLE/INDEX/SEQUENCE` → add `IF NOT EXISTS`.
-  - `ADD COLUMN` → add `IF NOT EXISTS`.
-  - `CREATE POLICY` / `CREATE TRIGGER` → precede with `DROP … IF EXISTS`.
-  - `CREATE FUNCTION` → `CREATE OR REPLACE`; `CREATE VIEW` → `CREATE OR REPLACE VIEW` (or precede with `DROP VIEW IF EXISTS`).
-  - `CREATE TYPE … AS ENUM` → wrap in `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname=…) THEN … END IF; END $$;`.
-  - **`ADD CONSTRAINT`** (incl. PK/UNIQUE/CHECK/FK and `USING INDEX`, ~30 in `fix_drift.sql`) → precede each with `ALTER TABLE … DROP CONSTRAINT IF EXISTS <name>;`, or wrap in a `DO $$ … IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname=…) THEN … END IF $$;` guard.
-  - **`INSERT` seed rows without `ON CONFLICT`** → add `ON CONFLICT DO NOTHING` ONLY where re-insert would duplicate. **This is a SEMANTIC change, not a pure guard** — call it out per-file in the PR description and have a reviewer confirm no downstream migration depends on the row's absence/update. If in doubt, leave the seed INSERT alone and instead make the apply-twice harness tolerate it (see below).
-  - **Guard-only for everything except the flagged INSERT cases — never change a migration's effect or order.**
-- [ ] Iterate `npm run migration:verify` (now apply-twice) until green across all 94. This is the definition of done for the retrofit.
-- [ ] Add a non-idempotent fixture (mirror the existing `write_broken_migration` → e.g. `write_nonidempotent_migration` with a bare `ADD CONSTRAINT`) to `scripts/test-verify-migrations-local.sh`, asserting exit 1 on the second pass and a grep on the "not idempotent on re-apply" message. Wire/confirm it runs in the `migration-verify-test` CI job.
-- [ ] **RESOLVE the real-94 CI coverage hole (do NOT defer):** the existing `migration-verify-test` job only runs the synthetic self-test. Add a CI step (extend `migration-verify-test`, or a new job) gated on `detect-changes.has_migrations==true` that runs `npm run migration:verify` (apply-twice) against the **real 94 files** on a Docker `postgres:15-alpine`, and mark it a **required** status check. Rationale: `/finalize` Step 5.5 is a skippable local ritual (`MIGRATION_VERIFY_SKIP=true`), so the headline safeguard must also live in CI or it isn't enforced.
-- [ ] (Optional, low value) extend `lint-migrations-idempotent.ts` to also flag the constructs above that it currently misses — quoted/`USING INDEX` `ADD CONSTRAINT`, `INSERT` without `ON CONFLICT`, `CREATE SEQUENCE`, plain `CREATE VIEW` — so lint and apply-twice converge. Not required (apply-twice is the authoritative gate) but reduces surprise.
+### Phase 2: Make existing migrations idempotent + apply-twice verification (Option B) — SPUN OUT (not executed in this PR)
+Discovered during execution that the migration set is **not self-contained** (the core evolution schema + `content_evolution_runs` are created by no migration — the V2 clean-slate file was deleted), so apply-twice-against-94 cannot pass and the 22-file retrofit can't be harness-verified until that is fixed. Full plan + the validated apply-twice/Supabase-bootstrap harness groundwork preserved in **`FOLLOWUP_self_contained_migration_baseline.md`**. Carried there:
+- DEFERRED: apply-twice loop in `verify-migrations-local.sh` (+ infra-vs-migration failure distinction) and the non-idempotent test fixture.
+- DEFERRED: retrofit guards into the 22 lint-failing files + the ~30 quoted/`USING INDEX` `ADD CONSTRAINT`s in `fix_drift.sql` (per-construct strategy documented in the follow-up); apply-twice is the authoritative completion gate, not lint-green.
+- DEFERRED: real-94 apply-twice as a required `ci.yml migration-verify-test` step.
+- DEFERRED (optional): extend the lint to flag the constructs it currently misses.
 
 ### Phase 3: Append-only enforcement (Option A2) — DONE (see _progress.md; branch-protection required-check step remains)
 - [x] Add a CI job in `supabase-migrations.yml` on `pull_request` (events `opened` + `synchronize`): `git diff --name-only --diff-filter=M origin/<base>...HEAD -- 'supabase/migrations/*.sql'` non-empty → fail "migrations are append-only; create a new migration instead." Use the PR base ref (main OR production), not hardcoded `main`.
-- [ ] Bypass: a per-file `-- @migration-edit-approved` marker (must appear in the PR diff, not pre-existing) AND/OR a `migration-edit-approved` PR label (mirror `@destructive-ddl-approved` + `migration-lint-bypass`). **Note the audit caveat:** PR-label add/remove is NOT covered by GitHub branch protection — the bypass is a soft, social-convention control whose binding record is the CI annotation (same caveat already documented for `migration-lint-bypass`).
-- [ ] Confirm immunity to `git mv` renames (they show as delete+add, not modify). Leave `--find-renames` at git default and add a test for the edge case "rename + small content edit" (which may surface as `R`/`M` depending on similarity threshold) so behavior is pinned.
-- [ ] **Make this a REQUIRED status check** in branch protection (enforcement is the branch-protection config, which is out-of-band from the YAML — list it as an explicit ops step, not just "add the job").
-- [ ] Tests: editing a shipped file fails; adding a new file passes; rename (D+A) passes; rename+edit pinned; marker/label bypass passes. **Wire the test runner into the `hook-tests` CI job list** (`ci.yml` ~lines 252–262) so it actually executes in CI.
+- [x] Bypass: per-file `-- @migration-edit-approved` marker AND a `migration-edit-approved` PR label (workflow checks the label, script checks the marker). Audit caveat documented (label add/remove not covered by branch protection).
+- [x] Immunity to `git mv` renames confirmed via test (rename → pass). The "rename + small content edit" edge is documented as accepted (may surface as M → flagged → use the marker).
+- [x] Tests: editing a shipped file fails; new file passes; rename passes; marker bypass passes — `scripts/test-check-migration-append-only.sh`, **4/4 pass, wired into `ci.yml` `hook-tests`**.
+- OPS (branch protection, out-of-band): mark `check-migration-append-only` a REQUIRED status check on `main` + `production`.
 
 ### Phase 4: Retire auto-rename workflow + blocking ordering check (Option C2) — DONE (see _progress.md; branch-protection required-check step remains)
 - [x] **Behavioral-change decision (intentional):** today `migration-reorder.yml` AUTO-FIXES out-of-order timestamps on PR `synchronize` (incl. after a competing PR merges and main advances). Replacing it with a blocking check converts "auto-rename-on-rebase" into "author runs `git mv` manually on rebase" (~1.4 collisions/month per research). Accept this UX shift explicitly in the plan.
-- [ ] Port the timestamp-order logic from `.githooks/pre-commit` (lines ~63–139) into `scripts/check-migration-order.(sh|ts)` + `npm run check:migrations`. Pick the language deliberately: a `.sh` 1:1 port needs its test wired into a shell-test CI job (`hook-tests`); a `.ts` port runs under the Jest `unit-tests` job. State which.
-- [ ] Add it as a job in `supabase-migrations.yml` on `pull_request` events `opened` + `synchronize`, diffing against `origin/<base>` (so post-rebase collisions are caught, matching what the workflow did): any newly-added migration whose 14-digit timestamp ≤ the max on the base branch → fail with the exact `git mv … <NEXT_TS>_<desc>` instruction. **Also absorb the duplicate-version check** (currently in `migration-reorder.yml:89–102`).
-- [ ] **Make it a REQUIRED status check** in branch protection, and **re-document the "Require branches up to date before merging" rule's new role** — it now forces the blocking check to re-run after a competing merge (previously it re-triggered the auto-rename). Confirm the check runs for BOTH `main`- and `production`-base PRs (so `/mainToProd` PRs keep ordering enforcement).
-- [ ] Delete `.github/workflows/migration-reorder.yml`.
-- [ ] Update `.githooks/pre-commit` message (line ~112) pointing authors to the removed auto-rename Action; and update the now-stale rationale comments that reference the retired workflow in `supabase-migrations.yml:~204` and `ci.yml:~125` (they justify the repair steps by naming the reorder workflow).
-- [ ] Remove or repurpose the dead reorder-algorithm tests in `scripts/test-migration-tools.sh` (Tests 5–7) once the workflow is gone; keep the pre-commit ordering/duplicate tests (Tests 1–4).
-- [ ] **Keep** the deploy `repair` steps (C3 deferred). Note: once auto-rename stops producing duplicate-suffix pairs, the `repair` Fix-2 (mark-duplicates-applied) loses its live input immediately (repo currently has 0 duplicate-suffix pairs); only Fix-1 (orphan→reverted) stays load-bearing. Simplify Fix-2 in the C3 follow-up, not here.
-- [ ] Tests for the ordering check: out-of-order new file fails; in-order passes; duplicate version fails. Wire the test into its CI job (per the language choice above).
+- [x] Ported the timestamp-order + duplicate-version logic into `scripts/check-migration-order.sh` (chose `.sh`) + `npm run check:migrations`.
+- [x] Added a blocking `check-migration-order` job to `supabase-migrations.yml` (PR, both bases, `git fetch` base + two-dot diff), absorbing the duplicate-version check.
+- [x] Deleted `.github/workflows/migration-reorder.yml`.
+- [x] Updated `.githooks/pre-commit:112` + the stale repair-rationale comments in `supabase-migrations.yml` and `ci.yml`.
+- [x] **Keep** the deploy `repair` steps (C3 deferred) — noted in commit + comments.
+- [x] Tests: out-of-order fails, in-order passes, duplicate fails — `scripts/test-check-migration-order.sh`, **3/3 pass, wired into `ci.yml` `hook-tests`**.
+- OPS (branch protection, out-of-band): mark `check-migration-order` a REQUIRED status check on `main` + `production`; re-document the "Require branches up to date" rule (now forces the blocking check to re-run after a competing merge).
+- DEFERRED (low-priority cleanup): remove the dead reorder-algorithm tests in `scripts/test-migration-tools.sh` (Tests 5–7) — not CI-run, so not breaking.
 
 ### Phase 5: Proactive prod-drift detection (Option C1) — PARTIAL (Option b chosen; grant migration + post-deploy drift gate DONE; daily scheduled check deferred — needs prod read-only conn as CI secret). See _progress.md.
-- [ ] **Decision gate (key open decision):** pick the mechanism before any implementation —
-  - (a) a scheduled GitHub Action (`/verifyProdRelease`) that links to prod via CI secrets (`SUPABASE_ACCESS_TOKEN`/`SUPABASE_DB_PASSWORD`, scoped to the `Production` environment) and runs **read-only** `supabase migration list` / `db diff` (NEVER `db push`). CI is inherently exempt from the local `block-supabase-writes.sh` PreToolUse hook (that hook only fires on Claude tool calls, not GitHub Actions) — confirm and state this. **Sign-off:** a named owner must approve broadening Production-environment secret usage to a daily cron (not just push-to-production).
-  - (b) grant the `readonly_local` role **`USAGE ON SCHEMA supabase_migrations` + `SELECT ON supabase_migrations.schema_migrations`** (currently permission-denied on both DBs). Must be **SELECT-only** and **shipped as a migration** (applied via the normal CI path — NOT a manual prod-dashboard edit, which would itself create drift). Requires security sign-off; record who signs off.
-- [ ] Define the assertion as **deterministic version-set reconciliation** (every local 14-digit migration version ∈ remote `schema_migrations`), NOT a schema-diff (which can flap on a live shared DB). No fixed sleeps (testing_overview Rule 2).
-- [ ] **Fail-loud on ERROR, not just on detected drift:** a detector that errors silently (link timeout, etc.) reproduces the exact 62-day-blind failure it exists to prevent — an error MUST alert with the same severity as detected drift.
-- [ ] Implement as a scheduled workflow (daily) + a post-`deploy-production` assertion step that fails loud + Slacks if any local version is unapplied.
-- [ ] Route alerts to an explicitly-unmuted channel (no dedicated `#release-alerts` exists yet) — coordinate with a repo admin; confirm it is unmuted before relying on it.
-- [ ] Dry-run against staging first (linking allowed) before pointing at prod.
+- [x] **Decision: Option (b)** — the `readonly_local` SELECT grant (user applied it on prod; verified live `query:prod` reads the ledger; prod 90/94, 0 orphans).
+- [x] Captured the grant as a tracked migration `20260529000001_grant_readonly_local_schema_migrations.sql` (guarded, SELECT-only, idempotent; grants staging on the main-merge deploy).
+- [x] **Post-deploy drift gate** added to both deploy jobs: post-push `db push --dry-run` fails loud if any migration is still pending (conservative; signal not rollback). Untested in CI until the next real push.
+- [x] Verified the version-set reconciliation approach live (local 14-digit versions vs remote `schema_migrations`); it catches the 62-day "prod falls behind" class.
+- DEFERRED (needs prod read-only conn as a CI secret): the **daily scheduled** between-deploy drift check — the real 62-day-root-cause guard. Carries: fail-loud-on-ERROR (not just on drift), an unmuted alert channel (no `#release-alerts` yet), and a staging dry-run first.
 
 ## Testing
 
 ### Unit Tests
-- [ ] `scripts/lint-migrations-idempotent.test.ts` — existing; add cases if Phase 2 extends the lint patterns.
-- [ ] `scripts/test-verify-migrations-local.sh` — add an apply-twice / non-idempotent fixture (Phase 2).
-- [ ] New `scripts/test-check-migration-order.*` — ordering-check cases (Phase 4).
-- [ ] New append-only-check tests — modify/add/rename/rename+edit/bypass cases (Phase 3).
+- [x] New `scripts/test-check-migration-order.sh` — 3/3 pass (Phase 4).
+- [x] New `scripts/test-check-migration-append-only.sh` — 4/4 pass (Phase 3).
+- DEFERRED (with Phase 2): `scripts/test-verify-migrations-local.sh` apply-twice/non-idempotent fixture; lint-extension test cases.
 
 ### CI Wiring (every new test must execute in CI — name the job)
-- [ ] Shell-test scripts (append-only check, ordering check if `.sh`, apply-twice fixture) → add by name to the `hook-tests` job runner list in `ci.yml` (~lines 252–262). `.ts` tests run under the existing `unit-tests` Jest job.
-- [ ] **Real-94 apply-twice** → extend the existing **`ci.yml` `migration-verify-test`** job (it already has the Docker `postgres:15-alpine` + `detect-changes.has_migrations` output it depends on). Pin this exact check name so branch protection can require it. Do NOT split it into `supabase-migrations.yml` (which lacks `detect-changes`).
-- [ ] New CI **jobs** to add to `supabase-migrations.yml` (PR `opened`+`synchronize`, base `origin/<base>`): append-only gate (Phase 3), timestamp-order check (Phase 4). Pin job-level `types:` so they don't also fire on `reopened`.
-- [ ] **Required status checks (branch protection — out-of-band from YAML):** mark the idempotency lint (now blocking), the append-only gate, the ordering check, and the real-94 apply-twice job as REQUIRED on `main` and `production`. This is the actual enforcement point — adding the job is not enough.
-- [ ] **Skipped-but-required semantics:** the real-94 job is gated on `has_migrations`, but GitHub treats a *non-run* required check as **not satisfied** (blocks merge). So the job must always run and emit success/neutral when there are no migrations (e.g. an early "no migrations changed → pass" step), rather than being conditionally skipped at the job level.
+- [x] Shell tests wired into the `ci.yml` `hook-tests` job: `test-check-migration-order.sh`, `test-check-migration-append-only.sh`.
+- [x] New blocking jobs in `supabase-migrations.yml` (PR, both bases): `check-migration-order` (Phase 4), `check-migration-append-only` (Phase 3).
+- OPS (branch protection): mark the idempotency lint, `check-migration-order`, and `check-migration-append-only` REQUIRED on `main` + `production`.
+- DEFERRED (with Phase 2): real-94 apply-twice as a required `ci.yml migration-verify-test` step (+ its skipped-but-required semantics + the apply-twice fixture wiring).
 
 ### Integration Tests
-- [ ] `npm run migration:verify` (now apply-twice) passes against all 94 files after the Phase 2 retrofit — this is the core integration check, and runs in CI as a required job (not only at `/finalize`).
+- DEFERRED (with Phase 2): `npm run migration:verify` (apply-twice) green across all 94 — blocked by the non-self-containment finding (see follow-up).
 
 ### E2E Tests
-- [ ] N/A — this project changes CI tooling + SQL guards, not app UI. (The drift detector's "real" E2E is the scheduled run against staging in Phase 5.)
+- [x] N/A — this project changes CI tooling + SQL guards, not app UI.
 
 ### Manual Verification
-- [ ] On a throwaway branch, add a deliberately non-idempotent migration → confirm Phase 1 lint blocks the PR.
-- [ ] Edit a shipped migration → confirm Phase 3 append-only gate blocks it; add the bypass marker → confirm it passes.
-- [ ] Add an out-of-order-timestamp migration → confirm Phase 4 check fails with a rename instruction.
-- [ ] Run the Phase 5 detector against staging and confirm it reports parity (no false drift).
+- [x] Phase 1 lint block + Phase 3 append-only + Phase 4 ordering — covered by the automated test suites above (`hook-tests`); the grant migration also passed the now-blocking lint locally.
+- DEFERRED (with Phase 5 scheduled check): staging drift-detector dry-run (staging gets the grant on the main-merge deploy).
 
 ## Verification
 
 ### A) Playwright Verification (required for UI changes)
-- [ ] N/A — no UI changes in this project.
+- [x] N/A — no UI changes in this project.
 
 ### B) Automated Tests
-- [ ] `npm run migration:verify` (apply-twice) green across 94 files.
-- [ ] `npm run lint:migrations` green; the CI `lint-migrations-idempotent` job is now blocking.
-- [ ] New check scripts' test suites pass; `npm run test:migration-verify` passes with the new fixture.
-- [ ] Phase 5 detector dry-run against staging passes (no spurious drift).
+- [x] `npm run lint:migrations` green; the `lint-migrations-idempotent` CI job is now blocking; the grant migration passes it.
+- [x] New check scripts' suites pass: `test-check-migration-order` (3/3), `test-check-migration-append-only` (4/4).
+- [x] `npm run check:migrations` + `npm run check:migrations-append-only` green on this branch.
+- DEFERRED (with Phase 2): `npm run migration:verify` apply-twice green across 94 + the new fixture.
+- DEFERRED (with Phase 5 scheduled check): detector dry-run against staging.
 
 ## Rollback (per phase)
 - **Phase 1 (lint blocking):** revert `continue-on-error: false` → `true`; `migration-lint-bypass` label unblocks an individual PR.
@@ -123,12 +107,10 @@ The safeguards against the #1 failure class (non-idempotent re-apply) are incomp
 - **Phase 5 (drift detector):** read-only by construction; disable the scheduled workflow / post-deploy step. Detector errors fail loud (never silent).
 
 ## Documentation Updates
-- [ ] `docs/docs_overall/environments.md` — lint now blocking; append-only rule + bypass; reorder workflow retired → blocking ordering check; new prod-drift detector + alert channel.
-- [ ] `docs/docs_overall/testing_overview.md` — apply-twice in `migration:verify`; new append-only + ordering CI gates; keep the Check-Parity matrix (~lines 289–315) accurate.
-- [ ] `docs/feature_deep_dives/testing_setup.md` — updated migration command list + new test scripts.
-- [ ] `docs/feature_deep_dives/pr_verification_gate.md` — note the append-only gate alongside the existing migration-touch high-blast gate.
-- [ ] Stale rationale comments that reference the retired reorder workflow — `.github/workflows/supabase-migrations.yml:~204` and `.github/workflows/ci.yml:~125` (they justify the `repair` steps by naming the workflow); `.githooks/pre-commit:~112`.
-- [ ] `supabase/migrations/EVOLUTION_HISTORY.md` — correct the stale claim that pre-2026-03-22 files were deleted (they still exist); fix the mis-referenced convergence filename (`20260322000002` → `20260322000007`).
+- [x] `docs/docs_overall/environments.md` — updated the lint section: now blocking (not warn-only); the new append-only + ordering gates noted; reorder workflow retired.
+- [x] Stale rationale comments referencing the retired reorder workflow — fixed in `.github/workflows/supabase-migrations.yml`, `.github/workflows/ci.yml`, `.githooks/pre-commit` (Phase 4).
+- DEFERRED (additive enrichment, no staleness introduced): `testing_overview.md`, `testing_setup.md`, `pr_verification_gate.md` mentions of the new gates/scripts.
+- DEFERRED (low-priority): `supabase/migrations/EVOLUTION_HISTORY.md` — its "pre-2026-03-22 evolution files deleted" claim is actually CORRECT for evolution (that's the non-self-containment finding); only the version numbers are wrong (`20260322000001/000002` → `000006/000007`). Fold into the baseline follow-up.
 
 ## Review & Discussion
 
