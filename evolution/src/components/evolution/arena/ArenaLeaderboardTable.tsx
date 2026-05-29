@@ -48,7 +48,7 @@ function ContentLink({ entryId, content }: { entryId: string; content: string })
   );
 }
 
-function ParentBadgeCell({ entry }: { entry: ArenaEntry }): JSX.Element {
+function ParentBadgeCell({ entry, parentlessLabel }: { entry: ArenaEntry; parentlessLabel?: string }): JSX.Element {
   if (!entry.parent_variant_id) {
     return (
       <VariantParentBadge
@@ -57,6 +57,7 @@ function ParentBadgeCell({ entry }: { entry: ArenaEntry }): JSX.Element {
         parentUncertainty={null}
         delta={null}
         deltaCi={null}
+        noParentLabel={parentlessLabel}
       />
     );
   }
@@ -123,6 +124,13 @@ export interface ArenaLeaderboardTableProps {
   bottomCaption?: string;
   /** When true, suppresses the default ⓘ Elo-cutoff callout above the table. */
   hideCutoffCallout?: boolean;
+  /** Label for the null-parent state in the Parent column. Defaults to 'Seed · no parent'.
+   *  Paragraph-recombine slot leaderboards pass 'Original paragraph' since a parentless paragraph
+   *  row is the slot's original, not a seed article (investigate_paragraph_recombine_invocation_20260529). */
+  parentlessLabel?: string;
+  /** When true, removes the Iteration (generation) column. Paragraph-slot variants are always
+   *  generation 0, so the column is meaningless noise for those topics. */
+  hideIterationColumn?: boolean;
 }
 
 export function ArenaLeaderboardTable({
@@ -132,6 +140,8 @@ export function ArenaLeaderboardTable({
   storageKey = 'evolution-arena-leaderboard-hidden-columns',
   bottomCaption,
   hideCutoffCallout,
+  parentlessLabel,
+  hideIterationColumn,
 }: ArenaLeaderboardTableProps): JSX.Element {
   const [entries, setEntries] = useState<ArenaEntry[]>([]);
   const [totalEntries, setTotalEntries] = useState(0);
@@ -248,7 +258,7 @@ export function ArenaLeaderboardTable({
           {totalEntries} entries{isFilterMode ? ` · showing ${displayedEntries.length} matching` : ''}
         </div>
         <ColumnPicker
-          allColumns={TOGGLEABLE_LEADERBOARD_COLUMNS}
+          allColumns={hideIterationColumn ? TOGGLEABLE_LEADERBOARD_COLUMNS.filter((c) => c.key !== 'iteration') : TOGGLEABLE_LEADERBOARD_COLUMNS}
           hidden={hiddenLbCols}
           onChange={setHiddenLbCols}
           testId="arena-leaderboard-column-picker"
@@ -290,7 +300,7 @@ export function ArenaLeaderboardTable({
                 {!hiddenLbCols.has('95ci') && <th className="py-2 pr-3">95% CI</th>}
                 {!hiddenLbCols.has('elo_unc') && <th {...sortableThProps('uncertainty')}>Elo ± Uncertainty{sortIndicator('uncertainty')}</th>}
                 {!hiddenLbCols.has('matches') && <th {...sortableThProps('arena_match_count')}>Matches{sortIndicator('arena_match_count')}</th>}
-                {!hiddenLbCols.has('iteration') && <th className="py-2 pr-3">Iteration</th>}
+                {!hideIterationColumn && !hiddenLbCols.has('iteration') && <th className="py-2 pr-3">Iteration</th>}
                 {!hiddenLbCols.has('tactic') && <th {...sortableThProps('agent_name')}>Tactic{sortIndicator('agent_name')}</th>}
                 {!hiddenLbCols.has('method') && <th {...sortableThProps('generation_method')}>Method{sortIndicator('generation_method')}</th>}
                 {!hiddenLbCols.has('parent') && <th className="py-2 pr-3">Parent</th>}
@@ -346,7 +356,7 @@ export function ArenaLeaderboardTable({
                     {!hiddenLbCols.has('matches') && (
                       <td className="py-2 pr-3 font-mono">{entry.arena_match_count}</td>
                     )}
-                    {!hiddenLbCols.has('iteration') && (
+                    {!hideIterationColumn && !hiddenLbCols.has('iteration') && (
                       <td className="py-2 pr-3 font-mono text-[var(--text-muted)]">
                         {entry.generation ?? '—'}
                       </td>
@@ -373,7 +383,7 @@ export function ArenaLeaderboardTable({
                     )}
                     {!hiddenLbCols.has('parent') && (
                       <td className="py-2 pr-3">
-                        <ParentBadgeCell entry={entry} />
+                        <ParentBadgeCell entry={entry} parentlessLabel={parentlessLabel} />
                       </td>
                     )}
                   </tr>

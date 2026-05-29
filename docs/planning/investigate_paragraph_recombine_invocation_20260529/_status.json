@@ -4,7 +4,8 @@
   "prerequisites": {
     "getting_started_read": "2026-05-29T14:01:42Z",
     "todos_created": "2026-05-29T14:43:57Z",
-    "project_workflow_read": "2026-05-29T14:45:23Z"
+    "project_workflow_read": "2026-05-29T14:45:23Z",
+    "design_style_guide_read": "2026-05-29T15:10:34Z"
   },
   "relevantDocs": [
     "evolution/docs/paragraph_recombine.md",

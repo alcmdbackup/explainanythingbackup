@@ -17,9 +17,18 @@
 ### User Clarifications
 - Scope = all three bugs; length_under fix = prompt-floor + temperature; counters = both columns; display = relabel both. (Captured in plan Decisions.)
 
-## Phase 2: Display relabel (UI)
+## Phase 2: Display relabel (UI) (DONE)
 ### Work Done
-[pending]
+- `VariantParentBadge.tsx` — added optional `noParentLabel?: string` prop; the null-parent branch renders `{noParentLabel ?? 'Seed · no parent'}` (default preserves article behavior).
+- `ArenaLeaderboardTable.tsx` — added `parentlessLabel?` (threaded to `ParentBadgeCell` → `VariantParentBadge.noParentLabel`) and `hideIterationColumn?` (gates the Iteration header + cell AND removes 'iteration' from the ColumnPicker toggle list). Article topics unchanged (props default undefined/false).
+- `SlotsTab.tsx` — both embedded per-slot leaderboards now pass `parentlessLabel="Original paragraph"` + `hideIterationColumn`. So slot originals read "Original paragraph" (not "Seed · no parent") and the always-0 Iteration column is gone for paragraph topics.
+- Tests: `VariantParentBadge.test.tsx` (noParentLabel override + default 'Seed · no parent' preserved); `ArenaLeaderboardTable.test.tsx` (parentless override label, default label, Iteration hidden via prop, Iteration shown by default). 19 component tests pass.
+- Checks: `npm run typecheck` clean; my changed lines introduce no new lint findings (pre-existing evolution `text-[10px]` + return-type warnings in these files predate this change and are outside CI's dir-walk lint scope — left as-is to avoid an unintended visual change).
+
+### Issues Encountered
+- None. (Note: a pre-existing `text-[10px]` design-system lint error at `SlotsTab.tsx:114` is not mine and not caught by CI lint; left untouched to avoid altering existing 10px sizing.)
+
+## Phase 3: length_under rewrite-quality fix
 
 ## Phase 3: length_under rewrite-quality fix
 ### Work Done

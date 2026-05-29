@@ -51,9 +51,9 @@ Three issues underlie the report on invocation `83c9a188-cb83-4cd0-bdbc-3356cbc5
 - [x] Regenerate DB types — not needed (migration changes the RPC body only; no new columns / no signature change).
 
 ### Phase 2: Display relabel (UI)
-- [ ] `evolution/src/components/evolution/variant/VariantParentBadge.tsx:65-74` — add an optional `noParentLabel?: string` prop (default `'Seed · no parent'`) used in the null-parent branch.
-- [ ] `evolution/src/components/evolution/arena/ArenaLeaderboardTable.tsx` — add an optional prop (e.g. `parentlessLabel` / `hideIterationColumn`) threaded to `ParentBadgeCell` (→ `VariantParentBadge.noParentLabel`) and to the column set. Default behavior unchanged for article topics.
-- [ ] `evolution/src/components/evolution/tabs/SlotsTab.tsx` — pass `parentlessLabel="Original paragraph"` (or "—") and hide/relabel the Iteration column on the embedded per-slot `ArenaLeaderboardTable` instances (paragraph topics only).
+- [x] `evolution/src/components/evolution/variant/VariantParentBadge.tsx:65-74` — add an optional `noParentLabel?: string` prop (default `'Seed · no parent'`) used in the null-parent branch.
+- [x] `evolution/src/components/evolution/arena/ArenaLeaderboardTable.tsx` — add an optional prop (e.g. `parentlessLabel` / `hideIterationColumn`) threaded to `ParentBadgeCell` (→ `VariantParentBadge.noParentLabel`) and to the column set. Default behavior unchanged for article topics.
+- [x] `evolution/src/components/evolution/tabs/SlotsTab.tsx` — pass `parentlessLabel="Original paragraph"` (or "—") and hide/relabel the Iteration column on the embedded per-slot `ArenaLeaderboardTable` instances (paragraph topics only).
 
 ### Phase 3: length_under rewrite-quality fix
 - [ ] `evolution/src/lib/core/agents/paragraphRecombine/buildParagraphRewritePrompt.ts:19-26` — add an explicit lower-length floor to the index-0 "Tighten and simplify" directive (e.g. "…but keep total length within ±20% of the original — do NOT drop below ~0.8× its length."). Keep the distinct compression intent.
@@ -69,8 +69,8 @@ Three issues underlie the report on invocation `83c9a188-cb83-4cd0-bdbc-3356cbc5
 - [x] `evolution/src/lib/metrics/experimentMetrics.test.ts` — assert the attribution variant query restricts to `variant_kind='article'` (recording-mock captures the `.eq('variant_kind','article')` filter; the no-op chainable can't express row-level exclusion).
 - [ ] `evolution/src/lib/core/agents/paragraphRecombine/buildParagraphRewritePrompt.test.ts` — assert the index-0 directive contains the lower-length-floor language.
 - [ ] `evolution/src/lib/shared/paragraphSlots.test.ts` — (existing 0.8/1.2 bounds) add a regression case if the cap interpretation changes.
-- [ ] `evolution/src/components/evolution/variant/VariantParentBadge.test.tsx` — assert the new `noParentLabel` prop renders the override in the null-parent branch, and that the DEFAULT (no prop) still renders "Seed · no parent" (keeps the existing article behavior green).
-- [ ] `evolution/src/components/evolution/arena/ArenaLeaderboardTable.test.tsx` — assert a parentless paragraph row renders the override label ("Original paragraph"/"—"), not "Seed · no parent"; assert the Iteration column hide/relabel.
+- [x] `evolution/src/components/evolution/variant/VariantParentBadge.test.tsx` — assert the new `noParentLabel` prop renders the override in the null-parent branch, and that the DEFAULT (no prop) still renders "Seed · no parent" (keeps the existing article behavior green).
+- [x] `evolution/src/components/evolution/arena/ArenaLeaderboardTable.test.tsx` — assert a parentless paragraph row renders the override label ("Original paragraph"/"—"), not "Seed · no parent"; assert the Iteration column hide/relabel.
 
 ### Integration Tests
 - [ ] `src/__tests__/integration/evolution-paragraph-recombine-accumulation.integration.test.ts` — add a NEW `it` block that invokes the per-slot `syncToArena` (this file currently exercises `upsertSlotTopic`/`persistSlotMatches`/`loadArenaEntries` only — this is net-new setup, not a one-line assertion add). Assert the persisted slot rewrite variants have non-zero `arena_match_count`, non-zero `match_count`, and **non-empty `parent_variant_ids` = `[originalSlotVariantId]`** (this is the ONLY automated guard that exercises the migration's jsonb→uuid[] cast at runtime). NOTE: this suite auto-skips when the evolution schema isn't migrated, so it only provides coverage on a locally-migrated DB (`supabase db reset`) / CI staging lane — call this out so the cast is actually exercised before merge.
