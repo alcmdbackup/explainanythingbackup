@@ -111,6 +111,15 @@ adminTest.describe('Strategy Registry CRUD', () => {
     await adminPage.goto('/admin/evolution/strategies/new', { timeout: 30000 });
     await adminPage.waitForLoadState('domcontentloaded');
 
+    // The wizard starts on Step 1 (Strategy Config); per-iteration controls only render on
+    // Step 2 (Iterations). Fill the minimum required on Step 1 and advance, mirroring the
+    // pattern used by the 'create strategy with wizard' test above.
+    await adminPage.fill('input[placeholder="Strategy name"]', '[E2E] paragraph_recombine wizard appear');
+    await adminPage.locator('#generation-model').selectOption({ index: 1 });
+    await adminPage.locator('#judge-model').selectOption({ index: 1 });
+    await adminPage.locator('#budget-usd').fill('1.00');
+    await adminPage.click('button:has-text("Next: Configure Iterations")');
+
     // Per-iteration agent-type select for iteration 0. Initially defaults to 'generate'
     // (no paragraph controls visible).
     expect(await adminPage.locator('[data-testid="iteration-paragraph-controls-0"]').count()).toBe(0);
@@ -129,6 +138,13 @@ adminTest.describe('Strategy Registry CRUD', () => {
   adminTest('paragraph_recombine wizard controls clear when agent type switches away', { tag: '@evolution' }, async ({ adminPage }) => {
     await adminPage.goto('/admin/evolution/strategies/new', { timeout: 30000 });
     await adminPage.waitForLoadState('domcontentloaded');
+
+    // Advance to Step 2 (Iterations) — see the appear-test above for rationale.
+    await adminPage.fill('input[placeholder="Strategy name"]', '[E2E] paragraph_recombine wizard clear');
+    await adminPage.locator('#generation-model').selectOption({ index: 1 });
+    await adminPage.locator('#judge-model').selectOption({ index: 1 });
+    await adminPage.locator('#budget-usd').fill('1.00');
+    await adminPage.click('button:has-text("Next: Configure Iterations")');
 
     const iter0AgentSelect = adminPage.locator('select').filter({ hasText: /generate|paragraph/i }).first();
     await iter0AgentSelect.selectOption('paragraph_recombine');
