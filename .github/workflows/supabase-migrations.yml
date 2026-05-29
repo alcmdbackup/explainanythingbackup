@@ -42,8 +42,9 @@ jobs:
   # this gap. Runs ONLY on pull_request events so it gates merge (not after merge,
   # where origin/main == HEAD and the diff would be empty).
   #
-  # Rollout: starts in warn-only mode (continue-on-error true), flips to error
-  # gating after the in-flight migration backlog drains (~7 days post-merge).
+  # Rollout: BLOCKING (required check) as of analyzing_migration_behavior_20260528.
+  # Warn-only mode ended once the in-flight backlog drained; the lint only scans
+  # newly-added migration files, so the legacy backlog does not trip it.
   # Emergency bypass: apply the `migration-lint-bypass` label to the PR.
   lint-migrations-idempotent:
     name: Lint migrations (idempotency)
@@ -62,10 +63,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
       - name: Run lint
-        # WARN-ONLY MODE: this step continues on error for the first 7 days post-merge
-        # to allow the in-flight migration backlog to drain. Flip continue-on-error: false
-        # (or remove the line) on 2026-05-31 to make this a true required check.
-        continue-on-error: true
+        # BLOCKING: a non-idempotent newly-added migration fails this required check.
+        # (Was warn-only during the backlog-drain window; flipped early — safe because
+        # the lint scans only newly-added files via git diff --diff-filter=A.)
         # Bypass path: if the PR has the `migration-lint-bypass` label, exit 0 with a warning.
         # Bypass requires admin reviewer per CODEOWNERS (acceptable per plan rev iter-3 minor:
         # GitHub branch protection does not cover PR-label add/remove, so this is a soft

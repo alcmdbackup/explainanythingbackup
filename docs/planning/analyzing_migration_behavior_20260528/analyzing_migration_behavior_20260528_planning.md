@@ -27,10 +27,10 @@ The safeguards against the #1 failure class (non-idempotent re-apply) are incomp
 
 ## Phased Execution Plan
 
-### Phase 1: Flip idempotency lint to blocking (Option A1)
-- [ ] Confirm no in-flight PR newly-adds a migration: `gh pr list --state open` + `git diff --diff-filter=A origin/main...HEAD -- 'supabase/migrations/*.sql'` is empty.
-- [ ] In `.github/workflows/supabase-migrations.yml` (the `lint-migrations-idempotent` step, ~line 68) set `continue-on-error: false` (or remove the line). Keep the `migration-lint-bypass` PR label as the escape hatch.
-- [ ] Verify the job now fails a PR that adds a non-idempotent migration (use a throwaway test branch/fixture, then delete it).
+### Phase 1: Flip idempotency lint to blocking (Option A1) — DONE
+- [x] Confirm no in-flight PR newly-adds a migration: `git diff --diff-filter=A origin/main...HEAD -- 'supabase/migrations/*.sql'` is empty; the 4 open PRs are docs/chore/init/refactor.
+- [x] In `.github/workflows/supabase-migrations.yml` (the `lint-migrations-idempotent` step) removed `continue-on-error: true` so the step blocks on error. Kept the `migration-lint-bypass` PR label escape hatch; updated rollout + step comments to "BLOCKING".
+- [ ] Verify on a real migration PR that the job fails a non-idempotent newly-added migration (confirmed structurally locally; full CI confirmation happens on the first migration-touching PR — local Docker unavailable for an end-to-end dry-run).
 
 ### Phase 2: Make existing migrations idempotent + apply-twice verification (Option B)
 - [ ] Add a second apply pass to `scripts/verify-migrations-local.sh` (after the existing loop ~lines 134–148): re-apply every migration to the same populated container and `exit 1` on any failure, with a clear "not idempotent on re-apply: <file>" message. Distinguish **infra failure** (Docker pull / port / container-start error → exit with a distinct "infra, not migration" message) from a genuine re-apply failure, so infra flake doesn't masquerade as a non-idempotent migration.
