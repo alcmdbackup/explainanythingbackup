@@ -1,7 +1,9 @@
 {
   "branch": "feat/investigate_paragraph_recombine_invocation_20260529",
   "created_at": "2026-05-29T13:45:32Z",
-  "prerequisites": {},
+  "prerequisites": {
+    "getting_started_read": "2026-05-29T14:01:42Z"
+  },
   "relevantDocs": [
     "evolution/docs/paragraph_recombine.md",
     "evolution/docs/multi_iteration_strategies.md",

@@ -7,18 +7,20 @@ I see that some paragraphs in invocation 83c9a188-cb83-4cd0-bdbc-3356cbc537fc ha
 I see that some paragraphs in invocation 83c9a188-cb83-4cd0-bdbc-3356cbc537fc have 0 matches and 0 iterations, and are also coming from seed despite strategy specifying was supposed to take from top variants of run.
 
 ## Problem
-[3-5 sentences describing the problem — refine after /research]
+(Refined after /research — see `_research.md` for full evidence. The original speculation was partly wrong: the article parent was NOT from seed.)
 
-Two distinct symptoms in `paragraph_recombine` invocation `83c9a188-cb83-4cd0-bdbc-3356cbc537fc`:
-1. Some paragraph slots show 0 matches and 0 iterations (no pairwise comparisons recorded → per-slot Elo never moved off baseline).
-2. The parent article was resolved from the seed even though the strategy's iteration specified `sourceMode: 'pool'` with a top-N quality cutoff.
+Three issues underlie the report on invocation `83c9a188-cb83-4cd0-bdbc-3356cbc537fc` (run `b3406b91`, staging — the only paragraph_recombine run yet):
 
-These may be the same root cause (no eligible in-run pool → seed fallback → degenerate per-slot ranking) or two independent bugs. /research must confirm against the DB row and the `resolveParent` / per-slot ranking code paths.
+1. **"0 matches and 0 iterations" — REAL but cosmetic counter-persistence bug (universal).** All 70 paragraph variants persist `arena_match_count=0`/`match_count=0` despite 26 real `evolution_arena_comparisons` rows and moved Elos. The per-slot `syncToArena` is called with `[]` matchHistory (`ParagraphRecombineAgent.ts:604`), so `arena_match_count` is never tallied; slot variants also never go through `finalizeRun` where article variants get `match_count`. The SlotsTab leaderboard reads `arena_match_count` (Matches) and `generation` (Iteration, always 0) → shows 0/0.
+2. **"coming from seed" — mostly PERCEPTION.** The article parent was correctly pool-sourced (top-Elo variant `b2a79411`, elo 1270; seed is only the grandparent). No literal seed-parent bug. What's shown: 2/9 slots had `winnerSource='original'` → rendered "(original)" (SlotsTab) / "original kept" (RecombinedOutputTab). No "★ seed" badge fires (no paragraph variant is `generation_method='seed'`).
+3. **`length_under` epidemic — REAL quality bug (drives #2).** The index-0 rewrite directive "Tighten and simplify… shorter sentences" at temperature 1.0 underflows the 0.8 char-ratio floor in `validateParagraphRewrite` → 89% drop on index 0, 37% overall, 100% of drops are `length_under`, 22% of slots degenerate to matchCount≤1 (no backfill). Fewer surviving rewrites makes originals win more (directional, not deterministic).
 
 ## Options Considered
-- [ ] **Option A: [Name]**: [Description — fill after /research]
-- [ ] **Option B: [Name]**: [Description — fill after /research]
-- [ ] **Option C: [Name]**: [Description — fill after /research]
+- [ ] **Option A: Counter-persistence fix (write-path)** — pass `slotMatches` instead of `[]` to the per-slot `syncToArena` (`ParagraphRecombineAgent.ts:604`) so `arena_match_count` is tallied. Verified safe (RPC `p_matches` is deprecated/ignored → no double-write) and sufficient for the leaderboard. Optionally also write `match_count` via a targeted UPDATE for article parity. Mirror the article-path test at `persistRunResults.test.ts:909`.
+- [ ] **Option B: `length_under` fix (prompt floor + temperature)** — add an explicit lower-length floor to the index-0 "tighten" directive in `buildParagraphRewritePrompt.ts` and raise index-0 temperature off the 1.0 floor (ladder start ~1.2). Preserves the distinct compression-diversity axis while stopping systematic underflow.
+- [ ] **Option C: `length_under` fix (backfill)** — regenerate dropped rewrites up to a retry cap so each slot reaches M survivors. More robust but larger; interacts with per-slot budget self-abort. Likely defer in favor of B.
+- [ ] **Option D: UI-read counter fix (rejected)** — derive Matches from `evolution_arena_comparisons` at render. Rejected: diverges from how article topics render (they read the persisted column) and adds query cost.
+- [ ] **Option E: UI "Iteration" column** — suppress/relabel the always-0 `generation` column for paragraph topics (optional polish).
 
 ## Phased Execution Plan
 

@@ -7,12 +7,49 @@ I see that some paragraphs in invocation 83c9a188-cb83-4cd0-bdbc-3356cbc537fc ha
 I see that some paragraphs in invocation 83c9a188-cb83-4cd0-bdbc-3356cbc537fc have 0 matches and 0 iterations, and are also coming from seed despite strategy specifying was supposed to take from top variants of run.
 
 ## High Level Summary
-[To be filled during /research]
 
-Initial leads from doc review (to verify against code + DB during /research):
-- **"Coming from seed despite strategy specifying top variants of run":** `paragraph_recombine` resolves ONE parent via `resolveParent`, honoring `sourceMode`/`qualityCutoff`. When `sourceMode: 'pool'` and the filtered pool is empty (e.g. arena entries excluded as parents, all in-run variants unrated, or cutoff too strict), `resolveParent` falls back to the seed and emits a `fallbackReason: 'no_same_run_variants'` warn-log. Check whether this fallback fired for the invocation, and whether the iteration was actually first (locked to seed) vs non-first.
-- **"0 matches and 0 iterations":** per-slot ranking generates M rewrites then ranks survivors via `rankNewVariant`. If rewrites are quality-equivalent paraphrases the judge can't distinguish (~98% draws → per-slot Elo frozen at 1200), or if rewrites are all dropped by `validateParagraphRewrite` (length cap ±20%, no bullets/lists/tables/H1), a slot can end with 0 surviving comparisons. Also check `paragraph_slot_match_persist_failures` metric and the self-abort path (`slotScope.getOwnSpent() >= 0.9 × perSlotBudgetUsd` → fall back to original, other slots continue).
-- Recent related work: `investigate_matchmaking_paragraph_recombine_20260528` (per-rewrite diversity directives + temperature ladder + paragraph judging mode) and `make_fixes_paragraph_recombine_20260528` (dedicated dispatch branch + article-level ranking). This invocation may pre-date or post-date those fixes — confirm via `created_at`.
+Investigation ran 4 rounds × 4 agents against the **staging** DB (the invocation lives on staging; prod was not involved) and the code. The reported invocation is the **only** `paragraph_recombine` run on staging — the feature is brand new — so "systemic" is asserted within this one run.
+
+**The headline: the invocation's pipeline logic was mostly CORRECT. The two reported symptoms are (1) a real but cosmetic counter-persistence bug and (2) a UI-perception of "original kept" paragraphs, amplified by (3) a real rewrite-quality bug that makes originals win more often.** There is **no** literal "parent came from seed" bug — the article parent was correctly drawn from the run's top-N pool.
+
+Facts for the invocation (`83c9a188-cb83-4cd0-bdbc-3356cbc537fc`, run `b3406b91-a8dd-4b20-be49-ff43c73d5596`, success=true, 2026-05-29T13:33Z, 9 slots):
+- **`iteration: 2` is 1-based display → config index 1.** The strategy has only 2 `iterationConfigs`: index 0 = `generate`/`seed`/40%, index 1 = `paragraph_recombine`/**`sourceMode:'pool'`**/`qualityCutoff:{topN:3}`/60%. So this WAS a non-first, pool-mode iteration — pool-mode applies and was honored.
+- **Article parent = pool, not seed.** Parent `b2a79411` (gen-1 `pipeline`, elo **1270.33**, the top-Elo article = correct topN pick). The recombined output `68fbf088` has `parent_variant_ids=[b2a79411]`. The seed `26ab2327` (gen-0, `generation_method='seed'`) is the **grandparent**, two hops up.
+
+## Key Findings
+
+### Finding 1 — "0 matches and 0 iterations" = a REAL counter-persistence bug (universal, cosmetic)
+- **70/70** paragraph-kind variants on staging persist `match_count=0` AND `arena_match_count=0`, even though **26** real `evolution_arena_comparisons` rows exist for this run (matching `execution_detail` matchCounts exactly: one 6, six 3s, two 1s) and **12/17** of this run's paragraph variants have moved Elo (1112–1280). Rating math and comparison persistence work; only the two **counter columns** are never written.
+- **Root cause (write-path divergence):** `ParagraphRecombineAgent.ts:604` passes `[]` as `matchHistory` to the per-slot `syncToArena(...)`. `syncToArena` derives `arena_match_count` solely from `matchHistory` (`persistRunResults.ts:618-624,640`) → 0. Slot variants are persisted ONLY via the `sync_to_arena` RPC and never go through `finalizeRun`, which is where ARTICLE variants get `match_count` (`persistRunResults.ts:281` from `result.matchCounts`). The per-slot `localMatchCounts` IS tallied (`ParagraphRecombineAgent.ts:330`) but never threaded into any DB write.
+- **UI surface:** `/admin/evolution/invocations/[id]` → `SlotsTab` embeds `ArenaLeaderboardTable`, which re-fetches `evolution_variants` via `getArenaEntriesAction` and renders **Matches = `arena_match_count`** (`ArenaLeaderboardTable.tsx:347`) and **Iteration = `generation`** (`:350`, all paragraph variants are `generation=0`). Hence "0 matches and 0 iterations" despite real comparisons.
+- **Status:** an UNSPECIFIED gap in the D10 design of `rank_individual_paragraphs_evolution_20260525` — not a tracked deferral, not a regression.
+- **Fix (verified safe + sufficient):** pass `slotMatches` (already collected at `ParagraphRecombineAgent.ts:~558`) instead of `[]` at line 604. The `sync_to_arena` RPC's `p_matches` param is **DEPRECATED/ignored** (migration `20260527000003...sql:27`; comparison rows are written exclusively by `persistSlotMatches`), so there is **no double-write risk**. `arena_match_count` is the only counter the leaderboard reads (shared by article + paragraph topics), so populating it alone fixes the UI. `match_count` has no live paragraph/leaderboard consumer (only article `VariantsTab`/`variantDetailActions`) — optional, for parity.
+
+### Finding 2 — "coming from seed" = the per-paragraph "original kept" rendering (perception, not an article-parent bug)
+- **No literal seed-parent bug:** confirmed the article parent was the pool variant `b2a79411` (elo 1270); seed is only the grandparent. sourceMode='pool'/topN=3 resolved correctly.
+- All paragraph variants have `generation_method='pipeline'` (rewrites) or `'paragraph_original'` (originals, set by `upsertSlotTopic` at `slotTopicActions.ts:114`) — **none are `'seed'`**, so the gold "★ seed" badge (`ArenaLeaderboardTable.tsx:361`, fires only on `generation_method==='seed'`) structurally cannot appear.
+- What the user saw: **2/9 slots had `winnerSource='original'`** (the original paragraph beat all rewrites). `SlotsTab.tsx:34` renders "(original)"; `RecombinedOutputTab.tsx:112` renders neutral-bordered "original kept" (vs cyan "rewrite chosen"). The original paragraph text ultimately traces to seed content (via grandparent), so "coming from seed" is a reasonable colloquial read of "this paragraph kept its original."
+
+### Finding 3 — `length_under` epidemic = a REAL rewrite-quality bug (the actionable defect)
+- The per-rewrite diversity fix (PR #1122) assigns index-0 the directive **"Tighten and simplify. Cut padding… prefer plain words and shorter sentences. Do NOT add new information."** with the **lowest temperature (1.0)** (ladder = 1.0/1.5/2.0 for M=3; `ParagraphRecombineAgent.ts:62-70`). `validateParagraphRewrite` drops any rewrite with char-ratio `<0.8` as `length_under` (`paragraphSlots.ts:126-128`). The tighten directive has **no lower floor** (only the index-1 additive directive was capped to protect the UPPER bound).
+- **Measured impact (this run):** rewrite **index 0 dropped 8/9 slots (89%)**; **37% overall drop rate**; **100% of drops are `length_under`** (zero length_over/format). No backfill/retry — a drop just shrinks the surviving pool → **2/9 slots (22%) degenerated to matchCount<=1**.
+- **Link to Finding 2:** fewer surviving rewrites raises the original's win/tie odds — directional but **not deterministic** (slot 0 kept original at matchCount=3; slot 5 had matchCount=1 but a rewrite won). So Finding 3 *contributes to* but does not *fully cause* Finding 2.
+- **Fix:** add an explicit lower-length floor to the index-0 directive prompt ("keep within ±20% — do NOT drop below 0.8× the original length") and/or raise index-0 temperature off the 1.0 floor (e.g. start ladder ~1.2), preserving the distinct compression axis. Backfill (regenerate dropped rewrites up to a cap) is the robust but larger alternative.
+
+### Finding 4 — Fix design + safety
+- Counter fix is **write-path** (populate `arena_match_count`), not UI-read: article arena topics also read the persisted column, so a UI-read fix would make paragraph topics inconsistent and add query cost. Recommended minimal change: one line at `ParagraphRecombineAgent.ts:604`.
+- Counter gap is **slot-specific**: article variants in the same run have `arena_match_count>0` and `match_count>0` (15/15); only paragraph variants are at 0.
+- Cross-check: Round-1 "no slot had 0 matches" is NOT a contradiction — `execution_detail.ranking.matchCount` is nonzero while the PERSISTED columns are 0 (different surfaces). Reconciled.
+
+### Finding 5 — Test coverage (runner = jest; the evolution-vitest note in reference.md is stale)
+Existing: `evolution/src/lib/shared/paragraphSlots.test.ts` (length bounds), `.../paragraphRecombine/ParagraphRecombineAgent.test.ts` (temp ladder, orchestration), `.../buildParagraphRewritePrompt.test.ts` (directives ≥3/distinct, index-1 cap), `evolution/src/services/slotTopicActions.test.ts`, `evolution/src/lib/pipeline/finalize/persistRunResults.test.ts:909` (article `arena_match_count` tally — **mirror template for the counter fix**), `src/__tests__/integration/evolution-paragraph-recombine-accumulation.integration.test.ts`, `evolution/src/components/evolution/arena/ArenaLeaderboardTable.test.tsx`, `src/__tests__/e2e/specs/09-admin/admin-evolution-paragraph-recombine.spec.ts`.
+Gaps: NO test asserts a slot variant persists non-zero `arena_match_count`; NO test on the index-0 directive text / temp interplay vs the 0.8 floor; NO unit tests for `SlotsTab.tsx` / `RecombinedOutputTab.tsx`.
+
+## Open Questions (for planning)
+1. **Scope:** Fix all three (counter persistence + length_under + optionally `match_count` parity), or just the counter + length bugs? The "coming from seed" perception largely resolves once length_under is fixed (more rewrites survive → originals win less) and the counters display correctly.
+2. **length_under fix choice:** prompt-floor + temperature bump (cheap, soft) vs reworded directive (risks losing the compression-diversity axis) vs backfill/retry (robust, larger, has budget interaction via per-slot self-abort). Recommendation leans prompt-floor + temp bump.
+3. **`match_count` column:** populate for paragraph variants too (parity with article path), or leave (no live consumer)? Affects whether a post-persist `UPDATE` is needed beyond the one-line `syncToArena` change.
+4. **UI "Iteration" column:** paragraph variants always show `generation=0` → "0 iterations" even after the counter fix. Decide whether to suppress/relabel the Iteration column for paragraph topics, or accept it.
 
 ## Documents Read
 
@@ -28,27 +65,24 @@ Initial leads from doc review (to verify against code + DB during /research):
 - docs/docs_overall/debugging.md
 
 ### Evolution Docs (full set, requested by user)
-- evolution/docs/README.md
-- evolution/docs/architecture.md
-- evolution/docs/paragraph_recombine.md
-- evolution/docs/multi_iteration_strategies.md
-- evolution/docs/data_model.md
-- evolution/docs/agents/overview.md
-- evolution/docs/arena.md
-- evolution/docs/reference.md
-- evolution/docs/variant_lineage.md
-- evolution/docs/strategies_and_experiments.md
-- evolution/docs/rating_and_comparison.md
-- evolution/docs/metrics.md
-- evolution/docs/logging.md
-- evolution/docs/cost_optimization.md
-- evolution/docs/entities.md
-- evolution/docs/editing_agents.md
-- evolution/docs/criteria_agents.md
-- evolution/docs/evolution_metrics.md
-- evolution/docs/visualization.md
-- evolution/docs/curriculum.md
-- evolution/docs/minicomputer_deployment.md
+- evolution/docs/README.md, architecture.md, paragraph_recombine.md, multi_iteration_strategies.md, data_model.md, agents/overview.md, arena.md, reference.md, variant_lineage.md, strategies_and_experiments.md, rating_and_comparison.md, metrics.md, logging.md, cost_optimization.md, entities.md, editing_agents.md, criteria_agents.md, evolution_metrics.md, visualization.md, curriculum.md, minicomputer_deployment.md
 
-## Code Files Read
-- [list of code files reviewed during /research]
+## Code Files Read (via agents)
+- `evolution/src/lib/pipeline/loop/runIterationLoop.ts` — paragraph_recombine dispatch branch (~1270-1296); `resolveParent` call honoring sourceMode/qualityCutoff (correct).
+- `evolution/src/lib/pipeline/loop/resolveParent.ts` + `cutoffHelpers.ts` — seed-fallback conditions (`empty_pool`, `no_eligible_variants`, `missing_cutoff_config`).
+- `evolution/src/lib/core/agents/paragraphRecombine/ParagraphRecombineAgent.ts` — per-slot pipeline, rewrite loop (no backfill, :411-430), temperature ladder (:62-70), slot `syncToArena` passing `[]` (:599-608, the bug), `localMatchCounts` (:330).
+- `evolution/src/lib/core/agents/paragraphRecombine/buildParagraphRewritePrompt.ts` — `PARAGRAPH_REWRITE_DIRECTIVES` (:19-26), ±20% RULE 3 (:75), index-0 "tighten" with no lower floor.
+- `evolution/src/lib/shared/paragraphSlots.ts` — `validateParagraphRewrite` 0.8/1.2 char-ratio bounds (:126-128).
+- `evolution/src/lib/pipeline/finalize/persistRunResults.ts` — article `match_count` write (:281), `syncToArena` arena_match_count tally (:618-640).
+- `evolution/src/lib/core/agents/MergeRatingsAgent.ts` — `matchCounts` increment for article variants (:264-265).
+- `evolution/src/services/slotTopicActions.ts` — `upsertSlotTopic` (generation_method='paragraph_original', :114), `persistSlotMatches` (returns {inserted,error}, ignored by agent; confidence<=0 filtered).
+- `evolution/src/services/arenaActions.ts` — `toArenaEntry` (arena_match_count :26, is_seed :21), `getArenaEntriesAction`.
+- `evolution/src/components/evolution/arena/ArenaLeaderboardTable.tsx` — Matches=arena_match_count (:347), Iteration=generation (:350), ★ seed badge (:361).
+- `evolution/src/components/evolution/tabs/SlotsTab.tsx` — winnerSourceTag "(original)" (:29-36), embedded leaderboard (:190-199).
+- `evolution/src/components/evolution/tabs/RecombinedOutputTab.tsx` — per-paragraph "original kept"/"rewrite chosen" coloring (:96-112).
+- `supabase/migrations/20260527000003_extend_sync_to_arena_for_paragraph_kind.sql` — p_matches deprecated/ignored (:27); arena_match_count COALESCE (:65).
+- `src/config/modelRegistry.ts` — model `maxTemperature` (most cap at 2.0).
+- Test files per Finding 5.
+
+## DB Queries (read-only, staging)
+- Invocation row, run row, strategy `iterationConfigs`, full `execution_detail` slots, per-slot winnerSource/matchCount, paragraph + article variant counters/elo/generation_method, `evolution_arena_comparisons` counts per slot topic (26 rows), `evolution_metrics` paragraph rows, run logs (no parent-fallback warn).
