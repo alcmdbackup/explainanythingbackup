@@ -43,7 +43,8 @@ import {
   makeMatchKey,
   type BeforeAfterRatingsMap,
 } from '../../../../services/slotTopicActions';
-import { buildParagraphRewritePrompt } from './buildParagraphRewritePrompt';
+import { buildParagraphRewritePrompt, PARAGRAPH_REWRITE_DIRECTIVES } from './buildParagraphRewritePrompt';
+import { getModelMaxTemperature } from '@/config/modelRegistry';
 
 // ─── Defaults (per D9) ────────────────────────────────────────────
 
@@ -53,6 +54,20 @@ const DEFAULT_MAX_PARAGRAPHS_PER_INVOCATION = 12;
 const DEFAULT_PER_INVOCATION_CAP_USD = 0.4;
 const PRE_FINAL_RANKING_GATE_FRACTION = 0.9;
 const SLOT_SELF_ABORT_FRACTION = 0.9;
+
+/** Per-rewrite temperature ladder spanning 1.0–2.0 to diversify the M parallel rewrites
+ *  (Option A, investigate_matchmaking_paragraph_recombine_20260528). For M rewrites the
+ *  schedule is `1.0 + index/(M-1)` (M=1 → 1.5). Clamped to the model's maxTemperature;
+ *  returns undefined when the model rejects temperature so the caller omits the option. */
+export function paragraphRewriteTemperature(
+  index: number,
+  total: number,
+  maxTemp: number | null | undefined,
+): number | undefined {
+  if (maxTemp === null) return undefined; // model doesn't support temperature → omit option
+  const base = total > 1 ? 1.0 + index / (total - 1) : 1.5;
+  return typeof maxTemp === 'number' ? Math.min(base, maxTemp) : base; // undefined (unknown model) → pass through
+}
 
 // ─── Types ────────────────────────────────────────────────────────
 
@@ -387,17 +402,24 @@ async function processSlot(params: ProcessSlotParams): Promise<void> {
   }
 
   // ─── Rewrites (M parallel; D18) ──────────────────────────────────
+  // Each rewrite gets a DISTINCT directive (cycled) + a DISTINCT temperature (1.0–2.0 ladder,
+  // clamped to the model cap) so the M rewrites differ on a real quality axis — giving the
+  // judge signal to discriminate (Option A). ctx.defaultModel may be undefined in unit tests
+  // (no rawProvider) → getModelMaxTemperature(undefined) returns undefined → temps pass through.
+  const rewriteMaxTemp = ctx.defaultModel ? getModelMaxTemperature(ctx.defaultModel) : undefined;
   const rewriteResults = await Promise.allSettled(
     Array.from({ length: rewritesPerParagraph }, async (_, index) => {
       // Self-abort check before each rewrite (D16).
       if (slotScope.getOwnSpent!() >= SLOT_SELF_ABORT_FRACTION * perSlotBudgetUsd) {
         return { index, skipped: true as const };
       }
-      const prompt = buildParagraphRewritePrompt(parentH1, slot.originalText, slot.paragraphIndex, totalSlots);
+      const directive = PARAGRAPH_REWRITE_DIRECTIVES[index % PARAGRAPH_REWRITE_DIRECTIVES.length];
+      const temperature = paragraphRewriteTemperature(index, rewritesPerParagraph, rewriteMaxTemp);
+      const prompt = buildParagraphRewritePrompt(parentH1, slot.originalText, slot.paragraphIndex, totalSlots, directive);
       const tStart = Date.now();
       let text: string;
       try {
-        text = await slotLlm.complete(prompt, 'paragraph_rewrite');
+        text = await slotLlm.complete(prompt, 'paragraph_rewrite', temperature !== undefined ? { temperature } : undefined);
       } catch (err) {
         return { index, skipped: false as const, error: err instanceof Error ? err.message : String(err) };
       }
@@ -484,8 +506,11 @@ async function processSlot(params: ProcessSlotParams): Promise<void> {
   // rankNewVariant MUTATES localPool/localRatings/etc. in place; calling in parallel
   // would corrupt the per-slot maps. Sequential is required.
   const slotConfig = ctx.config; // reuse run-level config (judge model + maxComparisonsPerVariant)
-  // Override maxComparisonsPerVariant for the per-slot ranking (D9).
-  const perSlotConfig = { ...slotConfig, maxComparisonsPerVariant: maxComparisonsPerParagraph };
+  // Override maxComparisonsPerVariant for the per-slot ranking (D9), and select the
+  // paragraph-level comparison prompt (B1, investigate_matchmaking_paragraph_recombine_20260528)
+  // so the judge evaluates single paragraphs with paragraph-appropriate criteria. Article-level
+  // ranking (Step 6) keeps ctx.config unmodified → 'article' mode.
+  const perSlotConfig = { ...slotConfig, maxComparisonsPerVariant: maxComparisonsPerParagraph, comparisonMode: 'paragraph' as const };
   const slotMatches: import('../../../pipeline/infra/types').V2Match[] = [];
   // Phase 9 retrofit R3: ranking calls inside this slot's loop get a
   // 'slot.N.ranking' subagent_name path.

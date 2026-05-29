@@ -934,6 +934,10 @@ const evolutionConfigBaseSchema = z.object({
   budgetBufferAfterSequential: z.number().min(0).max(1).optional(),
   /** Temperature for generation LLM calls (0-2). Omit for provider default. Ranking always uses 0. */
   generationTemperature: z.number().min(0).max(2).optional(),
+  /** Comparison prompt mode for ranking. 'paragraph' selects the paragraph-level judge prompt
+   *  (set on the per-slot config by ParagraphRecombineAgent). Run-internal override — never set
+   *  at strategy level, so it is NOT part of the strategy config_hash. Default/omitted = 'article'. */
+  comparisonMode: z.enum(['article', 'paragraph']).optional(),
 });
 
 export const evolutionConfigSchema = z.preprocess(preprocessBudgetFloor, evolutionConfigBaseSchema);

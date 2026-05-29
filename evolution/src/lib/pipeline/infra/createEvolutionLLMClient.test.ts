@@ -296,4 +296,38 @@ describe('V2 LLM Client', () => {
       expect(ct.getTotalSpent()).toBeCloseTo(expectedCost, 5);
     }
   });
+
+  // investigate_matchmaking_paragraph_recombine_20260528: judge/ranking calls must be
+  // deterministic (temp 0). 'paragraph_rank' is the relabeled per-slot ranking judge call;
+  // it previously leaked to the provider default temperature, breaking 2-pass reversal.
+  describe('judge temperature', () => {
+    // The raw provider receives opts as its 3rd arg; the shared makeProvider mock types
+    // complete with one param, so read the recorded opts via a cast.
+    const optsOf = (provider: ReturnType<typeof makeProvider>): { temperature?: number } =>
+      (provider.complete.mock.calls[0] as unknown as [string, string, { temperature?: number }])[2];
+
+    it("forces temperature 0 for 'ranking'", async () => {
+      const ct = createCostTracker(10);
+      const provider = makeProvider();
+      const llm = createEvolutionLLMClient(provider, ct, 'gpt-4.1-nano');
+      await llm.complete('test', 'ranking');
+      expect(optsOf(provider).temperature).toBe(0);
+    });
+
+    it("forces temperature 0 for 'paragraph_rank' (the per-slot ranking judge)", async () => {
+      const ct = createCostTracker(10);
+      const provider = makeProvider();
+      const llm = createEvolutionLLMClient(provider, ct, 'gpt-4.1-nano');
+      await llm.complete('test', 'paragraph_rank');
+      expect(optsOf(provider).temperature).toBe(0);
+    });
+
+    it('passes a per-call options.temperature through for generation-class calls', async () => {
+      const ct = createCostTracker(10);
+      const provider = makeProvider();
+      const llm = createEvolutionLLMClient(provider, ct, 'gpt-4.1-nano');
+      await llm.complete('test', 'paragraph_rewrite', { temperature: 1.7 });
+      expect(optsOf(provider).temperature).toBe(1.7);
+    });
+  });
 });

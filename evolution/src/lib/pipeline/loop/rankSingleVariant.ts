@@ -316,6 +316,7 @@ export async function rankSingleVariant(
           opp.text,
           callLLM,
           cache,
+          config.comparisonMode,
         );
       } catch (e) {
         if (e instanceof BudgetExceededError) {

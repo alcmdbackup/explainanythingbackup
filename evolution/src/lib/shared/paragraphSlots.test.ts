@@ -136,6 +136,18 @@ describe('validateParagraphRewrite', () => {
     expect(result.dropReason).toBeUndefined();
   });
 
+  // investigate_matchmaking_paragraph_recombine_20260528: the content-additive directive
+  // ("add ONE concise example") must stay within the ±20% window or it is silently dropped,
+  // starving the slot of survivors → re-tie. Pin the exact upper boundary.
+  it('content-additive boundary: ≤120% passes, >120% drops with length_over', () => {
+    const atCap = 'x'.repeat(Math.floor(baseline.length * 1.2) - 1) + '.';     // ratio ≤ 1.20
+    const overCap = 'x'.repeat(Math.floor(baseline.length * 1.2) + 1) + '.';   // ratio > 1.20
+    expect(validateParagraphRewrite(atCap, baseline.length).valid).toBe(true);
+    const over = validateParagraphRewrite(overCap, baseline.length);
+    expect(over.valid).toBe(false);
+    expect(over.dropReason).toBe('length_over');
+  });
+
   it('still rejects a rewrite at ~75% of the original (below the ±20% floor)', () => {
     const at75 = 'x'.repeat(Math.round(baseline.length * 0.75) - 1) + '.'; // ratio ≈ 0.75
     const result = validateParagraphRewrite(at75, baseline.length);

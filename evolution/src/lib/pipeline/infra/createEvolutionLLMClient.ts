@@ -135,7 +135,12 @@ export function createEvolutionLLMClient(
         { 'subagent.path': agentName, 'subagent.label': agentName },
         async () => {
       const model = (options?.model as string) ?? defaultModel;
-      const temperature = agentName === 'ranking'
+      // Judge/ranking calls are deterministic (temp 0). 'paragraph_rank' is the relabeled
+      // per-slot ranking judge call (ParagraphRecombineAgent relabels rankNewVariant's
+      // 'ranking' → 'paragraph_rank' for cost attribution); without it here the judge would
+      // fall through to the generation/provider-default temperature, breaking the 2-pass
+      // reversal determinism the paragraph ranking relies on.
+      const temperature = (agentName === 'ranking' || agentName === 'paragraph_rank')
         ? 0
         : (options?.temperature ?? generationTemperature);
       const reasoningEffort = options?.reasoningEffort;

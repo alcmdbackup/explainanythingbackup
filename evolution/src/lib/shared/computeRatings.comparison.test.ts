@@ -20,6 +20,65 @@ describe('buildComparisonPrompt', () => {
     expect(prompt).toContain('Clarity and readability');
     expect(prompt).toContain('Your answer:');
   });
+
+  // investigate_matchmaking_paragraph_recombine_20260528 (B1): the new `mode` param must
+  // leave the default 'article' output byte-for-byte unchanged (used by swiss/debate/generate
+  // /article ranking). EXACT equality, not .toContain, to catch reorder/whitespace drift.
+  it("default and explicit 'article' mode are byte-for-byte the current literal", () => {
+    const expectedArticle = `You are an expert writing evaluator. Compare the following two text variations and determine which is better.
+
+## Text A
+AAA
+
+## Text B
+BBB
+
+## Evaluation Criteria
+Consider the following when making your decision:
+- Clarity and readability
+- Structure and flow
+- Engagement and impact
+- Grammar and style
+- Overall effectiveness
+
+## Instructions
+Respond with ONLY one of these exact answers:
+- "A" if Text A is better
+- "B" if Text B is better
+- "TIE" if they are equally good
+
+Your answer:`;
+    expect(buildComparisonPrompt('AAA', 'BBB')).toBe(expectedArticle);
+    expect(buildComparisonPrompt('AAA', 'BBB', 'article')).toBe(expectedArticle);
+  });
+
+  describe("mode: 'paragraph'", () => {
+    const p = buildComparisonPrompt('AAA', 'BBB', 'paragraph');
+
+    it('uses paragraph framing + paragraph-level criteria, drops article-scale criteria', () => {
+      expect(p).toContain('SAME single paragraph');
+      expect(p).toContain('Sentence fluency and rhythm');
+      expect(p).toContain('Fidelity');
+      // Article-scale criteria are gone.
+      expect(p).not.toContain('Structure and flow');
+      expect(p).not.toContain('Overall effectiveness');
+    });
+
+    it('discourages TIE (counteracts over-tying)', () => {
+      expect(p).toContain('even by a slim margin');
+    });
+
+    it('keeps ## Text A / ## Text B labels and the A/B/TIE contract (parseWinner unchanged)', () => {
+      expect(p).toContain('## Text A\nAAA');
+      expect(p).toContain('## Text B\nBBB');
+      expect(p.trimEnd().endsWith('Your answer:')).toBe(true);
+    });
+
+    it('places the variable texts AFTER the instructions (cacheable prefix)', () => {
+      expect(p.indexOf('## Text A')).toBeGreaterThan(p.indexOf('## Instructions'));
+      expect(p.indexOf('Your answer:')).toBeGreaterThan(p.indexOf('## Text A'));
+    });
+  });
 });
 
 describe('parseWinner', () => {
@@ -180,6 +239,23 @@ describe('compareWithBiasMitigation', () => {
     expect(result.winner).toBe('A');
     expect(result.confidence).toBe(1.0);
     expect(result.turns).toBe(2);
+  });
+
+  // B1 threading: the 5th `mode` arg selects which prompt reaches the judge.
+  it("mode='paragraph' routes the paragraph prompt to the judge (both passes)", async () => {
+    const seen: string[] = [];
+    const callLLM = jest.fn(async (prompt: string) => { seen.push(prompt); return 'A'; });
+    await compareWithBiasMitigation('text1', 'text2', callLLM, undefined, 'paragraph');
+    expect(seen).toHaveLength(2);
+    expect(seen.every((s) => s.includes('SAME single paragraph'))).toBe(true);
+  });
+
+  it('default (no mode arg) uses the article prompt — back-compat for swiss/article callers', async () => {
+    const seen: string[] = [];
+    const callLLM = jest.fn(async (prompt: string) => { seen.push(prompt); return 'A'; });
+    await compareWithBiasMitigation('text1', 'text2', callLLM);
+    expect(seen.every((s) => s.includes('Compare the following two text variations'))).toBe(true);
+    expect(seen.some((s) => s.includes('SAME single paragraph'))).toBe(false);
   });
 
   it('full agreement on B → confidence 1.0', async () => {

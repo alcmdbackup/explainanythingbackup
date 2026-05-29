@@ -5,7 +5,8 @@
 // (syncToArena), rankNewVariant. The agent's helper methods + buildParagraphRewritePrompt
 // stay real so we test orchestration, not helper internals (those have their own tests).
 
-import { ParagraphRecombineAgent, type ParagraphRecombineInput } from './ParagraphRecombineAgent';
+import { ParagraphRecombineAgent, paragraphRewriteTemperature, type ParagraphRecombineInput } from './ParagraphRecombineAgent';
+import { PARAGRAPH_REWRITE_DIRECTIVES } from './buildParagraphRewritePrompt';
 import type { AgentContext } from '../../types';
 import type { EvolutionLLMClient } from '../../../types';
 
@@ -243,6 +244,43 @@ describe('ParagraphRecombineAgent — boundary contract', () => {
     expect(result.detail.recombined.text).toBe(SAMPLE_ARTICLE);
   });
 
+  it('rewrite diversity (Option A): each of the M rewrites gets a distinct directive + temperature', async () => {
+    const llm = makeLlmMock();
+    const agent = new ParagraphRecombineAgent();
+    await agent.execute(baseInput(llm), makeCtx()); // rewritesPerParagraph = 2
+
+    const completeFn = llm.complete as jest.Mock;
+    const rewriteCalls = completeFn.mock.calls.filter(([, label]) => label === 'paragraph_rewrite');
+    expect(rewriteCalls.length).toBeGreaterThanOrEqual(2);
+
+    // Each rewrite carries a numeric temperature in the 1.0–2.0 ladder (test ctx has no
+    // defaultModel → unclamped, so the schedule passes through).
+    for (const call of rewriteCalls) {
+      const options = call[2] as { temperature?: number } | undefined;
+      expect(options?.temperature).toEqual(expect.any(Number));
+      expect(options!.temperature!).toBeGreaterThanOrEqual(1.0);
+      expect(options!.temperature!).toBeLessThanOrEqual(2.0);
+    }
+    // For M=2 the schedule is exactly {1.0, 2.0}.
+    const temps = new Set(rewriteCalls.map((c) => (c[2] as { temperature: number }).temperature));
+    expect(temps.has(1.0)).toBe(true);
+    expect(temps.has(2.0)).toBe(true);
+
+    // Within a slot the two rewrites get distinct directives → distinct prompts.
+    const prompts = rewriteCalls.map((c) => c[0] as string);
+    expect(prompts.some((p) => p.includes(PARAGRAPH_REWRITE_DIRECTIVES[0]!))).toBe(true);
+    expect(prompts.some((p) => p.includes(PARAGRAPH_REWRITE_DIRECTIVES[1]!))).toBe(true);
+  });
+
+  it('B1: per-slot ranking config carries comparisonMode=paragraph', async () => {
+    const agent = new ParagraphRecombineAgent();
+    await agent.execute(baseInput(makeLlmMock()), makeCtx()); // no initialPool → only per-slot ranks
+    expect(rankNewVariantMock).toHaveBeenCalled();
+    for (const call of rankNewVariantMock.mock.calls) {
+      expect((call[0] as { config: { comparisonMode?: string } }).config.comparisonMode).toBe('paragraph');
+    }
+  });
+
   it('persists per-slot match rows via persistSlotMatches (D10)', async () => {
     const agent = new ParagraphRecombineAgent();
     await agent.execute(baseInput(makeLlmMock()), makeCtx());
@@ -405,5 +443,23 @@ describe('ParagraphRecombineAgent — boundary contract', () => {
     const agent = new ParagraphRecombineAgent();
     await agent.execute(baseInput(makeLlmMock()), ctx);
     expect(writeMetricMaxMock.mock.calls.some((c) => c[3] === 'paragraph_recombine_cost')).toBe(false);
+  });
+});
+
+describe('paragraphRewriteTemperature (Option A ladder)', () => {
+  it('M=1 → 1.5 (single rewrite gets the mid value)', () => {
+    expect(paragraphRewriteTemperature(0, 1, undefined)).toBe(1.5);
+  });
+
+  it('M=3, unknown model cap (undefined) → [1.0, 1.5, 2.0] unclamped', () => {
+    expect([0, 1, 2].map((i) => paragraphRewriteTemperature(i, 3, undefined))).toEqual([1.0, 1.5, 2.0]);
+  });
+
+  it('clamps to a lower model maxTemperature', () => {
+    expect([0, 1, 2].map((i) => paragraphRewriteTemperature(i, 3, 1.0))).toEqual([1.0, 1.0, 1.0]);
+  });
+
+  it('returns undefined (omit option) when the model rejects temperature (null cap)', () => {
+    expect(paragraphRewriteTemperature(0, 3, null)).toBeUndefined();
   });
 });
