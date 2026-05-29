@@ -601,7 +601,10 @@ async function processSlot(params: ProcessSlotParams): Promise<void> {
       topicId,
       localPool.filter((v) => survivingRewriteVariants.some((s) => s.id === v.id)), // Only new rewrites; arena entries already exist.
       localRatings,
-      [], // matchHistory: empty — sync_to_arena's p_matches is deprecated; we use persistSlotMatches.
+      // matchHistory drives syncToArena's per-variant arena_match_count tally so the slot
+      // leaderboard shows real match counts (not 0). The RPC's p_matches is deprecated/ignored,
+      // so comparison ROWS are still written solely by persistSlotMatches below — no double-write.
+      slotMatches,
       ctx.db,
       false, // isSeeded
       slotLogger, // Phase 9 R3: slot.N subagent path on persistence logs

@@ -1,21 +1,26 @@
 # Investigate Paragraph Recombine Invocation Progress
 
-## Phase 1: Reproduce & Root-Cause
+## Phase 1: Persistence fix — parent lineage + counters (DONE)
 ### Work Done
-[Description]
+- `ParagraphRecombineAgent.ts:604` — per-slot `syncToArena` now receives `slotMatches` (was `[]`), so the RPC tallies `arena_match_count` per slot variant. No double-write (RPC `p_matches` ignored; rows still written by `persistSlotMatches`).
+- `persistRunResults.ts` `newEntries` payload — now carries `parent_variant_ids: buildParentColumns(v).parent_variant_ids` and `match_count: variantMatchCounts.get(v.id) ?? 0`. Written on INSERT only; article variants hit ON CONFLICT (finalize wrote them first) and keep their values.
+- New migration `supabase/migrations/20260529000001_sync_to_arena_persist_parent_and_match_count.sql` — `sync_to_arena` writes `parent_variant_ids` (jsonb_array_elements_text→uuid[]) + `match_count` on INSERT only (NOT in ON CONFLICT DO UPDATE). Rollback comment included; REVOKE/GRANT preserved.
+- `experimentMetrics.ts` — attribution variant query now `.eq('variant_kind','article')` so persisted paragraph-slot lineage can't inject paragraph-scale Elo deltas into per-tactic attribution buckets. Sibling percentile query (`.eq('persisted', true)`) confirmed safe — slot variants are `persisted=false`.
+- Tests: `persistRunResults.test.ts` (p_entries carries parent_variant_ids+match_count; default-rating → []/0), `ParagraphRecombineAgent.test.ts` (slot syncToArena gets non-empty matchHistory), `experimentMetrics.test.ts` (attribution query filters to variant_kind='article'). 118 + 31 unit tests pass.
+- Checks: `npm run typecheck` clean; affected unit suites green; changed-file lint clean (pre-existing evolution lint findings are out of CI lint scope and not introduced by this change).
 
 ### Issues Encountered
-[Problems and solutions]
+- `ChainableQuery` type lacks `.neq` → used `.eq('variant_kind','article')` (also the forward-safe choice from plan review).
+- An agent-level "rewrites carry parent lineage" test was brittle (mocked `rankNewVariant` doesn't push candidates into `localPool`, so the pool passed to `syncToArena` is empty in the mock). Removed it — lineage persistence is covered at the correct layer by the `persistRunResults` payload test.
+- Deferred: full `npm run build` runs once in the final verification phase (Phase 7) rather than after each phase; tsc + unit + lint cover per-phase correctness.
 
 ### User Clarifications
-[Questions asked and answers received]
+- Scope = all three bugs; length_under fix = prompt-floor + temperature; counters = both columns; display = relabel both. (Captured in plan Decisions.)
 
-## Phase 2: Fix
+## Phase 2: Display relabel (UI)
 ### Work Done
-[Description]
+[pending]
 
-### Issues Encountered
-[Problems and solutions]
-
-### User Clarifications
-[Questions asked and answers received]
+## Phase 3: length_under rewrite-quality fix
+### Work Done
+[pending]

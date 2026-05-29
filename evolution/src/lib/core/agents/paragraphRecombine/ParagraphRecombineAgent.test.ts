@@ -222,6 +222,20 @@ describe('ParagraphRecombineAgent — boundary contract', () => {
     expect(result.parentVariantIds).toEqual([PARENT_ID]);
   });
 
+  // investigate_paragraph_recombine_invocation_20260529 — counter-persistence fix.
+  // The per-slot syncToArena must receive the slot's matchHistory (not []) so the RPC tallies
+  // arena_match_count; pre-fix this arg was always [] → leaderboard showed "0 matches".
+  it('passes the slot matchHistory (non-empty) to per-slot syncToArena', async () => {
+    const agent = new ParagraphRecombineAgent();
+    await agent.execute(baseInput(makeLlmMock()), makeCtx());
+    expect(syncToArenaMock).toHaveBeenCalled();
+    const matchHistories = syncToArenaMock.mock.calls.map((c) => c[4]); // 5th arg = matchHistory
+    expect(matchHistories.some((m) => Array.isArray(m) && m.length > 0)).toBe(true);
+  });
+  // NOTE: the per-slot rewrites' parent_variant_ids persistence is covered end-to-end by
+  // persistRunResults.test.ts ('p_entries carries parent_variant_ids + match_count') — the agent
+  // already constructs rewrites with parentIds=[originalSlotVariantId]; the fix was the payload.
+
   it('returns variant=null + status=generation_failed when recombined output fails format validation', async () => {
     // Inject bullet-point rewrites which validateFormat will reject at the recombined level.
     const badLlm = makeLlmMock((_prompt, idx) => {

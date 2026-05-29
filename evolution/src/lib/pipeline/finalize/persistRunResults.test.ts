@@ -606,6 +606,34 @@ describe('syncToArena', () => {
     expect(call[1].p_entries[0].arena_match_count).toBe(0);
     expect(call[1].p_entries[0].mu).toBe(25);
     expect(call[1].p_entries[0].sigma).toBeCloseTo(25 / 3, 3);
+    // investigate_paragraph_recombine_invocation_20260529: no matches / no parent → safe defaults.
+    expect(call[1].p_entries[0].parent_variant_ids).toEqual([]);
+    expect(call[1].p_entries[0].match_count).toBe(0);
+  });
+
+  // investigate_paragraph_recombine_invocation_20260529: per-slot paragraph rewrites are
+  // persisted ONLY through this RPC (never through finalizeRun), so p_entries must carry
+  // parent_variant_ids + match_count or they land empty/0 (the "Seed · no parent" / "0 matches" bug).
+  it('p_entries carries parent_variant_ids + match_count for new variants', async () => {
+    const supabase = createMockArenaSupabase();
+    const ORIGINAL_ID = '00000000-0000-4000-8000-0000000000a1';
+    const pool: Variant[] = [
+      makeVariant(V1_ID, 'paragraph_rewrite', { text: '# Rewrite', parentIds: [ORIGINAL_ID] }),
+    ];
+    const ratings = new Map<string, Rating>([[V1_ID, { elo: 1300, uncertainty: 80 }]]);
+    // V1 participates in 2 matches → variantMatchCounts.get(V1) === 2.
+    const matches: V2Match[] = [
+      { winnerId: V1_ID, loserId: ORIGINAL_ID, result: 'win' as const, confidence: 0.8, judgeModel: 'qwen-2.5-7b-instruct', reversed: false },
+      { winnerId: ORIGINAL_ID, loserId: V1_ID, result: 'win' as const, confidence: 0.7, judgeModel: 'qwen-2.5-7b-instruct', reversed: false },
+    ];
+
+    await syncToArena(RUN_ID, PROMPT_ID, pool, ratings, matches, supabase, false);
+
+    const entry = (supabase.rpc as jest.Mock).mock.calls[0][1].p_entries[0];
+    expect(entry.id).toBe(V1_ID);
+    expect(entry.parent_variant_ids).toEqual([ORIGINAL_ID]); // lineage persisted (was [] before fix)
+    expect(entry.match_count).toBe(2);                        // run match count persisted (was 0 before fix)
+    expect(entry.arena_match_count).toBe(2);
   });
 
   it('logs warning on RPC error after retry without throwing', async () => {
