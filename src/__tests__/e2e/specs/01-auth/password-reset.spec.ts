@@ -37,7 +37,10 @@ function getServiceClient(): SupabaseClient {
 }
 
 async function createDedicatedUser(client: SupabaseClient) {
-  const email = `pwreset-e2e-${Date.now()}-${randomUUID()}@example.com`;
+  // Use the TEST_USER email domain (prod GoTrue rejects @example.com as invalid).
+  // generateLink never sends mail, so no message is delivered to this address.
+  const domain = process.env.TEST_USER_EMAIL?.split('@')[1] || 'example.com';
+  const email = `pwreset-e2e-${Date.now()}-${randomUUID()}@${domain}`;
   const { data, error } = await client.auth.admin.createUser({
     email,
     password: INITIAL_PWD,
@@ -55,14 +58,12 @@ async function restoreDedicatedUserPassword(client: SupabaseClient, userId: stri
   await client.auth.admin.updateUserById(userId, { password: INITIAL_PWD });
 }
 
-// @skip-prod: must NOT run against production. On the prod public host the guest
-// auto-login session contaminates this recovery flow (the @example.com test user is
-// rejected by prod GoTrue, so verifyOtp fails and the session stays the guest), so
-// updateUser({ password }) clobbers the shared guest account and breaks demo
-// autologin until manually reset. Confirmed clobbering the guest on 2026-05-28 and
-// -29 (incident: docs/planning/autologin_broken_3rd_night_after_fix_20260529).
-// Stays @critical so it still runs in PR CI (dev DB + E2E_TEST_MODE off guest auto-login).
-test.describe('Password Reset', { tag: ['@critical', '@skip-prod'] }, () => {
+// Runs against prod (nightly). Safe because: (a) it uses a dedicated per-run user
+// (created+deleted), never the shared guest; (b) ResetPasswordForm now refuses to
+// updateUser while the session is the guest, so even if the prod guest-auto-login
+// displaces the recovery session the guest can't be clobbered. Incident that drove
+// these guards: docs/planning/autologin_broken_3rd_night_after_fix_20260529.
+test.describe('Password Reset', { tag: '@critical' }, () => {
   test.describe.configure({ mode: 'serial' });
 
   test.beforeAll(async () => {
