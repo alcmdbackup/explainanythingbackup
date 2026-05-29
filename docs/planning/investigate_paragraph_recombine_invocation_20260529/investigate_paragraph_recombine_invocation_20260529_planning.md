@@ -41,7 +41,13 @@ Three issues underlie the report on invocation `83c9a188-cb83-4cd0-bdbc-3356cbc5
 ### Phase 1: Persistence fix — parent lineage + counters (data)
 - [ ] `evolution/src/lib/core/agents/paragraphRecombine/ParagraphRecombineAgent.ts:604` — pass `slotMatches` (already collected at `:514/:558`, a `V2Match[]`) instead of `[]` as the `matchHistory` arg to the per-slot `syncToArena`. This makes `syncToArena` tally `variantMatchCounts` → non-zero `arena_match_count`. (No double-write: `p_matches` is ignored by the RPC; comparison rows stay written solely by `persistSlotMatches`.)
 - [ ] `evolution/src/lib/pipeline/finalize/persistRunResults.ts:632-648` (`newEntries` payload) — add `parent_variant_ids: buildParentColumns(v).parent_variant_ids` and `match_count: variantMatchCounts.get(v.id) ?? 0` to each entry. Shared with the article path, but safe: article variants are upserted by `finalizeRun` FIRST, so they hit the RPC's `ON CONFLICT` branch (which will NOT update these two fields); only fresh paragraph rewrites take the INSERT branch.
-- [ ] NEW migration `supabase/migrations/<ts>_sync_to_arena_persist_parent_and_match_count.sql` — `CREATE OR REPLACE FUNCTION sync_to_arena(...)` adding `parent_variant_ids` (jsonb→uuid[]) and `match_count` to the INSERT column list, reading from the entry JSONB with COALESCE defaults (`'{}'::uuid[]`, `0`). Do NOT add them to the `ON CONFLICT DO UPDATE SET` (mirror the existing `agent_name`/`variant_kind` insert-only pattern at lines 67-68/78-79). Must be idempotent (CREATE OR REPLACE is allowlisted) and pass `npm run migration:verify`.
+- [ ] NEW migration `supabase/migrations/<ts>_sync_to_arena_persist_parent_and_match_count.sql` — `DROP FUNCTION IF EXISTS sync_to_arena(UUID,UUID,JSONB,JSONB,JSONB);` + `CREATE OR REPLACE FUNCTION sync_to_arena(...)` adding `parent_variant_ids` and `match_count` to the INSERT column list ONLY (NOT to `ON CONFLICT DO UPDATE SET` — mirror the existing insert-only `agent_name`/`variant_kind` pattern at lines 67-68/78-79). Pin the exact casts (no in-repo precedent for jsonb-array→uuid[]):
+  - `parent_variant_ids`: `COALESCE((SELECT array_agg(e::uuid) FROM jsonb_array_elements_text(entry->'parent_variant_ids') e), '{}'::uuid[])` — `(entry->>'parent_variant_ids')::uuid[]` is WRONG (yields a JSON text literal, not a PG array).
+  - `match_count`: `COALESCE((entry->>'match_count')::INT, 0)`.
+  - Idempotency: `CREATE OR REPLACE FUNCTION` + `DROP FUNCTION IF EXISTS` are lint-allowlisted; preserve `REVOKE … FROM PUBLIC` + `GRANT … TO service_role`. Add a top-of-file rollback comment (forward-only repo; revert = re-apply prior function body).
+  - **Verification caveat:** `npm run migration:verify` only checks that the migration APPLIES to an empty DB — plpgsql does NOT type-check the cast until runtime, so a bad cast PASSES migration:verify. The cast is therefore covered ONLY by the integration test below, which MUST round-trip a NON-EMPTY `parent_variant_ids` (an all-empty-array fixture would not exercise the cast).
+- [ ] **High-blast PR note:** touching `supabase/migrations/**` makes this a high-blast PR — `gh pr create` requires a valid `.claude/push-gate.json` for HEAD (written by `/finalize`). Plan for `/finalize` to run `migration:verify` (Step 5.5) and the post-merge migration verification banner.
+- [ ] **GUARD the ELO-attribution side-effect (blocker from review).** `computeEloAttributionMetrics` in `evolution/src/lib/metrics/experimentMetrics.ts:452-455` selects ALL variants by `run_id` with NO `variant_kind` filter and routes by parent presence (`parent_variant_ids[0]`). Today paragraph rewrites are skipped because their `parent_variant_ids` is empty; once Phase 1 persists `[originalSlotVariantId]`, they would start injecting paragraph-scale Elo deltas into a `paragraph_rewrite:legacy` per-tactic attribution bucket. Add `.neq('variant_kind', 'paragraph')` (and `select` `variant_kind` if needed) to that query so only article variants contribute to attribution. Add a regression unit test in `experimentMetrics.test.ts` asserting a paragraph-kind variant with a parent does NOT produce an `eloAttrDelta:*` row. Also AUDIT the sibling run-scoped variant query at `experimentMetrics.ts:343-346` (run-level elo percentiles, filters `persisted=true` only) — if paragraph variants can have `persisted=true`, apply the same `variant_kind='article'` exclusion (defensive; confirm at implementation).
 - [ ] Regenerate DB types if needed (`npm run db:types` / CI auto-commits).
 
 ### Phase 2: Display relabel (UI)
@@ -51,19 +57,23 @@ Three issues underlie the report on invocation `83c9a188-cb83-4cd0-bdbc-3356cbc5
 
 ### Phase 3: length_under rewrite-quality fix
 - [ ] `evolution/src/lib/core/agents/paragraphRecombine/buildParagraphRewritePrompt.ts:19-26` — add an explicit lower-length floor to the index-0 "Tighten and simplify" directive (e.g. "…but keep total length within ±20% of the original — do NOT drop below ~0.8× its length."). Keep the distinct compression intent.
-- [ ] `evolution/src/lib/core/agents/paragraphRecombine/ParagraphRecombineAgent.ts:62-70` — raise the index-0 temperature off the 1.0 ladder floor (e.g. start the ladder at ~1.2, or special-case index 0) so the tighten rewrite gets enough variance to land in-window. Clamp to model `maxTemperature` as today.
+- [ ] `evolution/src/lib/core/agents/paragraphRecombine/ParagraphRecombineAgent.ts:62-70` (`paragraphRewriteTemperature`) — raise the ladder floor off 1.0. Concrete: `base = total > 1 ? LADDER_FLOOR + index*(2.0 - LADDER_FLOOR)/(total-1) : 1.5` with `LADDER_FLOOR = 1.2`. New values: M=3 → `[1.2, 1.6, 2.0]`; M=2 → `[1.2, 2.0]`; M=1 → `1.5` (unchanged); clamp to model `maxTemperature` as today.
+- [ ] **UPDATE the pinned temperature tests (blocker from review)** in `evolution/src/lib/core/agents/paragraphRecombine/ParagraphRecombineAgent.test.ts`: line ~455 `[1.0,1.5,2.0]` → `[1.2,1.6,2.0]`; line ~266-267 the M=2 set `temps.has(1.0)` → `temps.has(1.2)`; verify line ~261-262 range assertion (`>=1.0`, `<=2.0`) still holds (1.2 is in range — OK); line ~451 (M=1 → 1.5) and line ~459 (cap=1.0 → `[1.0,1.0,1.0]`, since `min(1.2,1.0)=1.0`) remain VALID. Running `npm test` after the ladder change without these edits WILL fail.
 
 ## Testing
 
 ### Unit Tests
 - [ ] `evolution/src/lib/pipeline/finalize/persistRunResults.test.ts` — extend (mirror the article `arena_match_count` test at `:909`) to assert `newEntries` carries `parent_variant_ids` + `match_count`, and that non-empty `matchHistory` yields non-zero `arena_match_count`.
-- [ ] `evolution/src/lib/core/agents/paragraphRecombine/ParagraphRecombineAgent.test.ts` — assert the per-slot `syncToArena` is called with non-empty `matchHistory` (slotMatches); assert rewrite variants carry `parentIds=[originalSlotVariantId]`; pin the revised index-0 temperature (no longer 1.0).
+- [ ] `evolution/src/lib/pipeline/finalize/persistRunResults.test.ts` — **article-path no-clobber regression** (shared-payload safety): assert that when an article variant already has `parent_variant_ids`/`match_count` set (finalize path) and re-enters via `syncToArena`'s INSERT…ON CONFLICT, those two columns are NOT overwritten (verify they're absent from the `ON CONFLICT DO UPDATE SET` list — assert via the generated payload/SQL or a mock RPC capturing the entry shape).
+- [ ] `evolution/src/lib/core/agents/paragraphRecombine/ParagraphRecombineAgent.test.ts` — assert the per-slot `syncToArena` is called with non-empty `matchHistory` (slotMatches); assert rewrite variants carry `parentIds=[originalSlotVariantId]`. (Temperature-ladder assertion updates are listed in Phase 3.)
+- [ ] `evolution/src/lib/metrics/experimentMetrics.test.ts` — assert a paragraph-kind variant with a non-empty parent produces NO `eloAttrDelta:*` row (the new `variant_kind='paragraph'` exclusion).
 - [ ] `evolution/src/lib/core/agents/paragraphRecombine/buildParagraphRewritePrompt.test.ts` — assert the index-0 directive contains the lower-length-floor language.
 - [ ] `evolution/src/lib/shared/paragraphSlots.test.ts` — (existing 0.8/1.2 bounds) add a regression case if the cap interpretation changes.
+- [ ] `evolution/src/components/evolution/variant/VariantParentBadge.test.tsx` — assert the new `noParentLabel` prop renders the override in the null-parent branch, and that the DEFAULT (no prop) still renders "Seed · no parent" (keeps the existing article behavior green).
 - [ ] `evolution/src/components/evolution/arena/ArenaLeaderboardTable.test.tsx` — assert a parentless paragraph row renders the override label ("Original paragraph"/"—"), not "Seed · no parent"; assert the Iteration column hide/relabel.
 
 ### Integration Tests
-- [ ] `src/__tests__/integration/evolution-paragraph-recombine-accumulation.integration.test.ts` — after a slot `syncToArena`, assert the persisted slot variants have non-zero `arena_match_count`, non-zero `match_count`, and non-empty `parent_variant_ids` (rewrites → `[originalSlotVariantId]`).
+- [ ] `src/__tests__/integration/evolution-paragraph-recombine-accumulation.integration.test.ts` — add a NEW `it` block that invokes the per-slot `syncToArena` (this file currently exercises `upsertSlotTopic`/`persistSlotMatches`/`loadArenaEntries` only — this is net-new setup, not a one-line assertion add). Assert the persisted slot rewrite variants have non-zero `arena_match_count`, non-zero `match_count`, and **non-empty `parent_variant_ids` = `[originalSlotVariantId]`** (this is the ONLY automated guard that exercises the migration's jsonb→uuid[] cast at runtime). NOTE: this suite auto-skips when the evolution schema isn't migrated, so it only provides coverage on a locally-migrated DB (`supabase db reset`) / CI staging lane — call this out so the cast is actually exercised before merge.
 
 ### E2E Tests
 - [ ] `src/__tests__/e2e/specs/09-admin/admin-evolution-paragraph-recombine.spec.ts` — (optional) assert the SlotsTab leaderboard Parent column for a rewrite row is not "Seed · no parent".
@@ -79,9 +89,15 @@ Three issues underlie the report on invocation `83c9a188-cb83-4cd0-bdbc-3356cbc5
 ### B) Automated Tests
 - [ ] `npm run migration:verify` (new sync_to_arena migration), `npm test` (affected evolution unit + component tests), `npm run test:integration` (paragraph-recombine accumulation), `npm run lint`, `npm run typecheck`, `npm run build`.
 
+### C) Rollback & Kill Switch
+- [ ] **Operational rollback** for the whole feature: `EVOLUTION_PARAGRAPH_RECOMBINE_ENABLED='false'` (confirmed at `runIterationLoop.ts:1276`) short-circuits paragraph_recombine dispatch — no new paragraph runs. No code revert needed for an emergency stop.
+- [ ] **Migration is forward-only** (per repo workflow). Revert path = a follow-up migration that re-applies the prior `sync_to_arena` body (the prior body is preserved in `20260527000003_extend_sync_to_arena_for_paragraph_kind.sql`). The change is INSERT-only + additive, so re-applying the old function is a clean revert. Document this in the new migration's header comment.
+- [ ] **Risk assessment:** low — the persistence change is additive (new columns written on INSERT for fresh paragraph rewrites only; article rows hit ON CONFLICT and are untouched); the display change is a default-preserving prop; the prompt/temperature change is gated by the existing kill switch. No feature flag beyond the existing kill switch is needed.
+
 ## Documentation Updates
 The following docs were identified as relevant and may need updates:
-- [ ] `evolution/docs/paragraph_recombine.md` — failure modes / parent resolution / per-slot ranking behavior if changed
+- [ ] `evolution/docs/paragraph_recombine.md` — failure modes / parent resolution / per-slot ranking behavior. SPECIFICALLY correct line ~31 which documents the per-slot `syncToArena` as "pass empty `matchHistory`" (Phase 1 reverses this to pass `slotMatches`) and fix the misleading rationale (matchHistory drives the `arena_match_count` tally, NOT the deprecated `p_matches`). Document that per-slot rewrites now persist `parent_variant_ids=[originalSlotVariantId]` and `match_count`/`arena_match_count`.
+- [ ] `evolution/docs/variant_lineage.md` — note that paragraph-kind rewrites now carry `parent_variant_ids=[originalSlot]` (1-hop chain), and that ELO attribution explicitly excludes `variant_kind='paragraph'`.
 - [ ] `evolution/docs/multi_iteration_strategies.md` — `sourceMode`/`qualityCutoff` semantics if seed-fallback logic changes
 - [ ] `evolution/docs/architecture.md` — content/parent resolution notes if changed
 - [ ] `evolution/docs/agents/overview.md` — `ParagraphRecombineAgent` algorithm if changed
@@ -92,5 +108,20 @@ The following docs were identified as relevant and may need updates:
 - [ ] `evolution/docs/strategies_and_experiments.md` — sourceMode + qualityCutoff section if changed
 - [ ] `docs/docs_overall/debugging.md` — add a paragraph_recombine diagnosis recipe if useful
 
+## Implementation Notes (plan-review residuals, non-blocking)
+- Attribution guard: a PostgREST `.neq('variant_kind','paragraph')` filters server-side and does NOT require adding `variant_kind` to the `select` list — but if the regression test inspects the field, add it to the select explicitly. Prefer `.eq('variant_kind','article')` for forward-safety if a 3rd kind is ever added.
+- Temperature tests: also update the now-stale CODE COMMENTS adjacent to the assertions — `ParagraphRecombineAgent.test.ts:256` ("1.0–2.0 ladder" → "1.2–2.0") and `:264` ("schedule is exactly {1.0, 2.0}" → "{1.2, 2.0}"). Consider a named `LADDER_FLOOR = 1.2` constant rather than an inline literal.
+- Pre-existing (out of strict scope): the run-level percentile query at `experimentMetrics.ts:343-346` aggregates Elo across ALL run variants regardless of kind; paragraph slot variants are `persisted=false` today so they're not picked up — leave a one-line ticket note rather than expanding scope.
+- New migration filename timestamp must sort strictly after `20260527000003`.
+- Before merge, actually run `supabase db reset` + `npm run test:integration` so the jsonb→uuid[] cast is exercised at runtime (migration:verify alone won't catch a bad cast).
+
 ## Review & Discussion
-[This section is populated by /plan-review with agent scores, reasoning, and gap resolutions per iteration]
+
+### Iteration 1 (scores 4 / 4 / 3 — consensus NOT reached)
+- **Security & Technical 4/5** — no blockers; flagged the under-specified jsonb→uuid[] cast, migration:verify blind spot, temperature-test churn, high-blast PR note, match_count parity.
+- **Architecture & Integration 4/5** — BLOCKER: persisting `parent_variant_ids` on paragraph rewrites would make them eligible for `computeEloAttributionMetrics` (`experimentMetrics.ts:452-455`, no variant_kind filter) → paragraph-scale Elo deltas injected into per-tactic attribution. Minors: doc inconsistency at `paragraph_recombine.md:31`, `variant_lineage.md` missing from doc updates.
+- **Testing & CI/CD 3/5** — BLOCKER: Phase 3 temperature change breaks pinned assertions (`ParagraphRecombineAgent.test.ts:261-267/455/459`) not flagged. Minors: article-path no-clobber test prose-only, integration test needs net-new syncToArena block + auto-skip caveat, rollback/kill-switch under-specified.
+- **Fixes applied:** added the attribution `variant_kind` guard + regression test (Phase 1); specified the exact new ladder `[1.2,1.6,2.0]` + precise test-line updates (Phase 3); pinned the cast SQL + migration:verify caveat; added high-blast/push-gate note, article-path no-clobber test, integration auto-skip caveat, VariantParentBadge override test, Rollback & Kill Switch section (§C), and doc corrections.
+
+### Iteration 2 (scores 5 / 5 / 5 — CONSENSUS REACHED)
+All three reviewers re-verified the fixes against source (the guard targets the exact unfiltered query with a valid mechanism; the temperature test edits match the file line-by-line; the cast/no-clobber/rollback items are present and correct). No remaining critical gaps; residual notes captured above are cosmetic.
