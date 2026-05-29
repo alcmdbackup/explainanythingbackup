@@ -58,12 +58,14 @@ async function restoreDedicatedUserPassword(client: SupabaseClient, userId: stri
   await client.auth.admin.updateUserById(userId, { password: INITIAL_PWD });
 }
 
-// Runs against prod (nightly). Safe because: (a) it uses a dedicated per-run user
-// (created+deleted), never the shared guest; (b) ResetPasswordForm now refuses to
-// updateUser while the session is the guest, so even if the prod guest-auto-login
-// displaces the recovery session the guest can't be clobbered. Incident that drove
-// these guards: docs/planning/autologin_broken_3rd_night_after_fix_20260529.
-test.describe('Password Reset', { tag: '@critical' }, () => {
+// @skip-prod: this destructive recovery flow is fragile against the prod public
+// host's guest auto-login and adds little coverage there. It is still fully
+// exercised on dev — by password-reset.integration.test.ts and by this spec in
+// PR CI (where E2E_TEST_MODE disables guest auto-login). Defense-in-depth even if
+// it ever runs in prod: it uses a dedicated per-run user (never the guest), and
+// ResetPasswordForm refuses to updateUser while the session is the guest.
+// Incident: docs/planning/autologin_broken_3rd_night_after_fix_20260529.
+test.describe('Password Reset', { tag: ['@critical', '@skip-prod'] }, () => {
   test.describe.configure({ mode: 'serial' });
 
   test.beforeAll(async () => {
