@@ -44,6 +44,8 @@
     "query:staging": "npx tsx scripts/query-db.ts --staging",
     "check:stale-specs": "npx tsx scripts/check-stale-specs.ts",
     "lint:migrations": "npx tsx scripts/lint-migrations-idempotent.ts",
+    "check:migrations": "bash scripts/check-migration-order.sh",
+    "test:check-migration-order": "bash scripts/test-check-migration-order.sh",
     "prepare": "git config core.hooksPath .githooks || true"
   },
   "dependencies": {

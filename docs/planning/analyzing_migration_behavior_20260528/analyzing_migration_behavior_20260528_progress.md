@@ -14,19 +14,48 @@
 ### Issues Encountered
 - None.
 
-## Phase 2: Idempotent migrations + apply-twice verify — BLOCKED (needs Docker)
-### Status
-Not started. The retrofit of the 22 files MUST be verified by the apply-twice Docker harness (the plan's authoritative gate), and Docker is unavailable here. Editing ~22 SQL files (incl. ~30 ADD CONSTRAINT guards in `fix_drift.sql`) without being able to run the verification would be committing unverified SQL — declined pending a decision.
-### Options (pending user)
-1. Install Docker locally (one-time, needs sudo), then execute + verify here.
-2. Write the harness + guards and rely on CI's `migration-verify-test` (which has Docker) for verification — riskier (push-then-verify), and the apply-twice CI gate would be red until the retrofit is correct.
-3. Defer Phase 2 until Docker is available; proceed with Docker-free Phases 3/4 — but Phase 3 is sequenced AFTER Phase 2, so only Phase 4 can proceed independently.
+## Phase 2: Idempotent migrations + apply-twice verify — BLOCKED (migrations not self-contained)
+Docker was installed (socket chmod 666'd for access). Running the harness surfaced TWO findings the no-Docker research could not:
 
-## Phase 3: Append-only enforcement gate — NOT STARTED (blocked by Phase 2 ordering)
-Must follow the Phase 2 retrofit (which edits shipped files in place; the gate would otherwise block our own cleanup).
+### Finding 1 (fixed): harness lacked Supabase bootstrap
+The bare `postgres:15-alpine` shadow DB has no Supabase roles/auth schema, so the real migration set never fresh-applied (this is why CI only ran synthetic fixtures and "real-94 apply-twice" was an open gap). Added to `scripts/verify-migrations-local.sh` (UNCOMMITTED, in working tree):
+- An **apply-twice idempotency loop** (re-applies all migrations to the populated DB; fails on non-idempotent DDL).
+- A **Supabase bootstrap step** seeding the 4 referenced roles (anon/authenticated/service_role/readonly_local) + the `auth` schema, `auth.users`, `auth.uid()`, `auth.role()` (the only Supabase surface the migrations touch).
 
-## Phase 4: Retire auto-rename + ordering check — NOT STARTED (Docker-free, independent)
-Can proceed without Docker and without conflicting with Phase 2/3.
+### Finding 2 (BLOCKER): the migration set is NOT self-contained — and the gap is LARGE
+With bootstrap in place, fresh-apply still fails at `20260131000004_content_history.sql` (`relation "content_evolution_runs" does not exist`). A full static gap scan (FK-referenced / altered tables vs tables any migration CREATEs) shows this is not isolated cruft:
+- The V2 clean-slate migration **`20260315000001_evolution_v2.sql` is NOT in the repo** (only `20260322000006_evolution_fresh_schema.sql` + `...007_prod_convergence.sql` remain). It was deleted in the V2 wipe — it's what created the core evolution tables.
+- Across all 94 migrations, only **4** evolution tables are ever created: `evolution_cost_calibration`, `evolution_criteria`, `evolution_metrics`, `evolution_tactics`.
+- **Never created but referenced/altered by ~60 migrations:** `evolution_runs`, `evolution_variants`, `evolution_prompts`, `evolution_strategies`, `evolution_experiments`, `evolution_agent_invocations`, `evolution_explanations`, `evolution_arena_comparisons`, `evolution_logs` — i.e. the entire core evolution schema — plus `content_evolution_runs`.
+
+**Conclusion:** the repo's migrations cannot rebuild a database from scratch. The foundational schema-creating migrations were deleted (V2 wipe); the remaining set assumes a large pre-existing schema. This is a migration-history-integrity problem (broken DR / new-environment provisioning), far beyond the low-risk idempotency retrofit Phase 2 assumed — and it's the headline finding of the investigation. It also explains why CI only ran synthetic fixtures and why "real-94 apply-twice" was an open gap (it literally cannot pass).
+
+### Consequence
+The plan's "apply-twice against all 94" gate is **not achievable** until the set is made fresh-appliable. The static idempotency retrofit of the 22 files also can't be harness-verified, because fresh-apply aborts before reaching most of them. PAUSED for a user decision (see options below). Harness improvements left UNCOMMITTED (committing would leave `migration:verify` red and block migration PRs via /finalize Step 5.5).
+
+### Options (pending user decision)
+1. **Make the set self-contained** (add the missing object creations, starting with `content_evolution_runs`, after a full fresh-apply-gap scan). Tractable IF the gap is just the legacy `content_*` cruft; merges into Option-D/prod-convergence if larger.
+2. **Baseline-from-staging verification**: shadow DB starts from a `supabase db dump` of staging (link allowed), then NEW migrations apply on top — matches real incremental application, sidesteps non-self-containment.
+3. **Scope Phase 2 down**: keep the harness improvements, do the static 22-file idempotency retrofit (lint-verified, not harness-verified), and reclassify "fresh-appliable + apply-twice-against-94" as a newly-discovered follow-up rather than a gate now.
+
+## Re-scope decision (after Finding 2)
+User chose to **ship the safe, verifiable wins and spin out the baseline fix**. The 22-file static idempotency retrofit is **deferred** to the spun-out follow-up (`FOLLOWUP_self_contained_migration_baseline.md`) because it can't be harness-verified until the set is self-contained, conflicts with the new append-only gate, and largely no-ops on existing environments. The harness apply-twice + bootstrap groundwork was reverted from `verify-migrations-local.sh` and preserved in the follow-up doc.
+
+## Phase 4: Retire auto-rename + ordering check — DONE
+### Work Done
+- Added `scripts/check-migration-order.sh` (+ `npm run check:migrations`): blocking timestamp-order + duplicate-version check; `--base` arg; two-dot diff vs base tip (CI-shallow-safe). Replaces the auto-rename behavior with a manual `git mv` instruction.
+- Added `scripts/test-check-migration-order.sh` (+ `npm run test:check-migration-order`): temp-git-repo fixture; **3/3 pass** (in-order→0, out-of-order→1, duplicate→1). Wired into the `hook-tests` CI job in `ci.yml`.
+- Added a blocking `check-migration-order` job to `supabase-migrations.yml` (PR, both bases, `git fetch` base then run the script).
+- **Deleted `.github/workflows/migration-reorder.yml`** (the auto-rename workflow that resurrected files + fed the orphan-repair loop).
+- Fixed stale comments referencing the retired workflow: `.githooks/pre-commit:112`, `supabase-migrations.yml` repair-step comment, `ci.yml` repair-step comment.
+### Verification
+- `npm run check:migrations` → exit 0 on this branch ("No newly-added migrations vs origin/main — order OK").
+- `npm run test:check-migration-order` → 3 passed, 0 failed.
+### Remaining (ops, out-of-band from code)
+- Mark `check-migration-order` a REQUIRED status check in branch protection (main + production).
+
+## Phase 3: Append-only enforcement gate — NOT STARTED (next)
+Docker-free and verifiable. No longer blocked by Phase 2 (the 22-file retrofit was deferred), so it can proceed independently. Plan: CI job `git diff --diff-filter=M` on `supabase/migrations/*.sql` → fail, with `@migration-edit-approved` marker/label bypass; tests wired into `hook-tests`.
 
 ## Phase 5: Proactive prod-drift detection — BLOCKED ON DECISION
 Awaiting the mechanism choice (CI-secret scheduled link vs `readonly_local` grant shipped as a migration).
