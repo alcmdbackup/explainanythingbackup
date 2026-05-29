@@ -54,8 +54,19 @@ User chose to **ship the safe, verifiable wins and spin out the baseline fix**. 
 ### Remaining (ops, out-of-band from code)
 - Mark `check-migration-order` a REQUIRED status check in branch protection (main + production).
 
-## Phase 3: Append-only enforcement gate — NOT STARTED (next)
-Docker-free and verifiable. No longer blocked by Phase 2 (the 22-file retrofit was deferred), so it can proceed independently. Plan: CI job `git diff --diff-filter=M` on `supabase/migrations/*.sql` → fail, with `@migration-edit-approved` marker/label bypass; tests wired into `hook-tests`.
+## Phase 3: Append-only enforcement gate — DONE
+### Work Done
+- Added `scripts/check-migration-append-only.sh` (+ `npm run check:migrations-append-only`): two-dot `git diff --diff-filter=M` on `supabase/migrations/*.sql` vs base → fail. Per-file `@migration-edit-approved` marker bypass; renames (git mv) are not flagged (not modifications), so they don't conflict with Phase 4 reorders.
+- Added `scripts/test-check-migration-append-only.sh` (+ npm) — temp-git fixture, **4/4 pass** (no-edit→0, in-place edit→1, marker→0, rename→0). Wired into `hook-tests` in `ci.yml`.
+- Added a blocking `check-migration-append-only` job to `supabase-migrations.yml` (PR, both bases) with a `migration-edit-approved` PR-label bypass.
+### Verification
+- `npm run test:check-migration-append-only` → 4 passed, 0 failed.
+- `npm run check:migrations-append-only` → exit 0 on this branch.
+### Remaining (ops)
+- Mark `check-migration-append-only` a REQUIRED status check in branch protection (main + production).
+
+## Summary of this execution
+Shipped (committed): **Phase 1** (lint blocking), **Phase 4** (retire auto-rename + ordering check), **Phase 3** (append-only gate). **Phase 2** concluded as an investigation → headline finding (migrations not self-contained) → spun out to `FOLLOWUP_self_contained_migration_baseline.md` (incl. the apply-twice + Supabase-bootstrap harness groundwork and the deferred 22-file retrofit). **Phase 5** (prod-drift detection) remains blocked on the mechanism decision. Two ops follow-ups: mark the three new gates (idempotency lint, ordering check, append-only) REQUIRED in branch protection.
 
 ## Phase 5: Proactive prod-drift detection — BLOCKED ON DECISION
 Awaiting the mechanism choice (CI-secret scheduled link vs `readonly_local` grant shipped as a migration).

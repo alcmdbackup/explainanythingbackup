@@ -264,6 +264,7 @@ jobs:
       - run: bash scripts/test-block-pr-create-without-gate.sh
       - run: bash scripts/test-update-ci-gate.sh
       - run: bash scripts/test-check-migration-order.sh
+      - run: bash scripts/test-check-migration-append-only.sh
 
   # Required-sections lint for skill specs (.claude/commands/*.md). Asserts
   # specific section headers exist in each spec — catches silent deletions
