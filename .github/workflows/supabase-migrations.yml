@@ -196,8 +196,22 @@ jobs:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
 
-      - name: Verify migration status
-        run: supabase migration list
+      - name: Verify migration status + drift gate
+        run: |
+          supabase migration list
+          # Drift gate: after a successful push, a dry-run must find NOTHING pending.
+          # If a local migration is still unapplied here, this environment has drifted
+          # from the repo — fail loud (the 62-day-incident signal). Conservative: only
+          # fails when the dry-run still names a migration file, so a healthy deploy
+          # (nothing pending) is never false-blocked. Runs post-push, so it is a signal,
+          # not a rollback.
+          PENDING=$(supabase db push --include-all --dry-run 2>&1 || true)
+          echo "$PENDING"
+          if echo "$PENDING" | grep -qE '[0-9]{14}_[a-z]'; then
+            echo "::error::Migrations still pending after push — this environment drifted from the repo. Investigate before relying on it."
+            exit 1
+          fi
+          echo "Drift gate OK: no migrations pending after push."
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
@@ -333,8 +347,22 @@ jobs:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
 
-      - name: Verify migration status
-        run: supabase migration list
+      - name: Verify migration status + drift gate
+        run: |
+          supabase migration list
+          # Drift gate: after a successful push, a dry-run must find NOTHING pending.
+          # If a local migration is still unapplied here, this environment has drifted
+          # from the repo — fail loud (the 62-day-incident signal). Conservative: only
+          # fails when the dry-run still names a migration file, so a healthy deploy
+          # (nothing pending) is never false-blocked. Runs post-push, so it is a signal,
+          # not a rollback.
+          PENDING=$(supabase db push --include-all --dry-run 2>&1 || true)
+          echo "$PENDING"
+          if echo "$PENDING" | grep -qE '[0-9]{14}_[a-z]'; then
+            echo "::error::Migrations still pending after push — this environment drifted from the repo. Investigate before relying on it."
+            exit 1
+          fi
+          echo "Drift gate OK: no migrations pending after push."
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}

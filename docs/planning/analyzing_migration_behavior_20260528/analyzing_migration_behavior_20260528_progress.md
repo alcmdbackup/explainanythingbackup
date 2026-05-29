@@ -68,5 +68,10 @@ User chose to **ship the safe, verifiable wins and spin out the baseline fix**. 
 ## Summary of this execution
 Shipped (committed): **Phase 1** (lint blocking), **Phase 4** (retire auto-rename + ordering check), **Phase 3** (append-only gate). **Phase 2** concluded as an investigation → headline finding (migrations not self-contained) → spun out to `FOLLOWUP_self_contained_migration_baseline.md` (incl. the apply-twice + Supabase-bootstrap harness groundwork and the deferred 22-file retrofit). **Phase 5** (prod-drift detection) remains blocked on the mechanism decision. Two ops follow-ups: mark the three new gates (idempotency lint, ordering check, append-only) REQUIRED in branch protection.
 
-## Phase 5: Proactive prod-drift detection — BLOCKED ON DECISION
-Awaiting the mechanism choice (CI-secret scheduled link vs `readonly_local` grant shipped as a migration).
+## Phase 5: Proactive prod-drift detection — PARTIAL (grant + post-deploy gate done; scheduled check deferred)
+Chose Option (b): the `readonly_local` SELECT grant. Live findings + work:
+- **Grant works (verified live):** user applied the grant on prod; `npm run query:prod` now reads `supabase_migrations.schema_migrations` (was `permission denied`). Reconciliation: prod has **90 applied vs 94 local** — the 4 "missing" are the recent `20260527*` paragraph migrations (unreleased, normal), and **zero prod-applied versions lack a local file** (no ledger orphans). The ledger check catches the 62-day "prod falls behind" class; the non-self-containment is schema-level drift (baseline follow-up), invisible to ledger reconciliation since the deleted migrations' ledger rows were reverted away.
+- **Grant captured as a migration:** `supabase/migrations/20260529000001_grant_readonly_local_schema_migrations.sql` (guarded/idempotent) — makes the manually-applied prod grant tracked + reproducible, and grants staging on the main-merge deploy.
+- **Post-deploy drift gate:** both deploy jobs' "Verify migration status" step now runs a post-push `db push --dry-run` and fails loud if any migration is still pending (conservative grep so a healthy deploy isn't false-blocked). Runs post-push = signal, not rollback. **Untested in CI** (only runs on a real push to main/production) — note for first release.
+### Deferred
+- The **daily scheduled drift check** (between-deploy detection — the real 62-day-root-cause guard) needs the prod read-only connection as a CI secret. Left for a follow-up decision.
