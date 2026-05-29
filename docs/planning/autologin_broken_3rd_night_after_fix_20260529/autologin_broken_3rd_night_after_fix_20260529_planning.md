@@ -3,7 +3,7 @@
 ## Background
 autologin is broken on prod overnight. User absolutely did not change anything, something automated reset password on either supabase or Vercel prod. Look into what might have done this and prevent this from happening ever again.
 
-## Requirements (from GH Issue #NNN)
+## Requirements (from GH Issue #1123)
 autologin is broken on prod overnight. User absolutely did not change anything, something automated reset password on either supabase or Vercel prod. Look into what might have done this and prevent this from happening ever again.
 
 ## Problem
