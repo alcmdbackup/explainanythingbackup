@@ -106,3 +106,15 @@ Bypass mechanisms (in escalating order of "user intent"):
 - Windows: download Docker Desktop from docker.com
 
 If Docker is genuinely unavailable, `MIGRATION_VERIFY_SKIP=true` bypasses the check (last resort).
+
+## Editing `.claude/` files and skill specs
+
+Never use a wholesale `git checkout <ref> -- .claude/` to "catch up drift" — it copies whatever that ref had, silently overwriting recent additions to skill specs, hooks, and settings without producing a merge conflict. This exact pattern caused PR #1110 to drop ~330 lines from `.claude/commands/mainToProd.md` (Step 7.4 backport + Step 7.5 migration-warning banner) on May 27, and the May-27 release squash propagated the regression into production until restored on May 29.
+
+Use one of the safe alternatives instead:
+
+- **Targeted reset:** `git checkout <ref> -- .claude/path/to/specific/file` (one file at a time, not the whole directory).
+- **Real merge:** `git merge <ref>` — produces 3-way conflicts if both sides edited the same lines, so a regression here would not pass review silently.
+- **Cherry-pick:** `git cherry-pick <commit>` — for the specific commits you actually want from another branch.
+
+CI's `skill-sections-lint` job (in `.github/workflows/ci.yml`) asserts that required section headers are present in each skill spec. If you intentionally rename or remove a section, update `REQUIRED_SECTIONS` in `scripts/check-skill-sections.sh` in the SAME PR so the lint and the spec stay coherent.

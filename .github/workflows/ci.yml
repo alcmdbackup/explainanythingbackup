@@ -263,6 +263,19 @@ jobs:
       - run: bash scripts/test-block-pr-create-without-gate.sh
       - run: bash scripts/test-update-ci-gate.sh
 
+  # Required-sections lint for skill specs (.claude/commands/*.md). Asserts
+  # specific section headers exist in each spec — catches silent deletions
+  # like the May-27 #1110 regression that wiped Step 7.4 and 7.5 from
+  # mainToProd.md. Always runs; <1s on a cold runner.
+  skill-sections-lint:
+    name: Skill Sections Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    needs: [detect-changes]
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash scripts/check-skill-sections.sh
+
   # Migration verify test (Docker postgres). Only runs when migration-related
   # files change; Ubuntu runners ship with Docker so no extra setup needed.
   migration-verify-test:
