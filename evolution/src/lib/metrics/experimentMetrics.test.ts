@@ -231,6 +231,34 @@ describe('computeRunMetrics', () => {
     const result = await computeRunMetrics('run-1', supabase as never);
     expect(result.metrics.cost?.value).toBe(0);
   });
+
+  // investigate_paragraph_recombine_invocation_20260529: per-slot paragraph_recombine variants
+  // now persist parent_variant_ids, which would otherwise route them through the parent-based
+  // attribution path and inject paragraph-scale Elo deltas into per-tactic buckets. The attribution
+  // query must restrict to article variants. Verify the filter is applied to that query.
+  it('attribution query restricts to article variants (excludes paragraph slot variants)', async () => {
+    const eqCalls: Array<[string, unknown]> = [];
+    function recordingChainable(): Record<string, unknown> {
+      const result = { data: [], error: null };
+      const obj: Record<string, unknown> = {
+        eq: (col: string, val: unknown) => { eqCalls.push([col, val]); return obj; },
+        not: () => obj,
+        in: () => obj,
+        limit: () => obj,
+        order: () => obj,
+        single: () => Promise.resolve(result),
+        then: (onFulfilled?: (v: unknown) => unknown, onRejected?: (e: unknown) => unknown) =>
+          Promise.resolve(result).then(onFulfilled, onRejected),
+      };
+      return obj;
+    }
+    const supabase = {
+      from: jest.fn().mockImplementation(() => ({ select: () => recordingChainable() })),
+    };
+    // opts triggers the attribution path (computeEloAttributionMetrics).
+    await computeRunMetrics('run-1', supabase as never, { strategyId: 'strat-1' });
+    expect(eqCalls).toContainEqual(['variant_kind', 'article']);
+  });
 });
 
 // ─── aggregateMetrics ───────────────────────────────────────────

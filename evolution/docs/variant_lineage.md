@@ -21,6 +21,7 @@ parent_variant_ids UUID[] NOT NULL DEFAULT '{}'
 - `persistRunResults` writes `parent_variant_ids: variant.parentIds.slice(0, MAX_PARENT_IDS)` (cap = 10).
 - `CreateSeedArticleAgent` leaves it `'{}'::uuid[]` (root of the lineage tree).
 - Single-parent agents (GFPA, ReflectAndGenerate, EvaluateCriteria, IterativeEditing) emit `parentIds = [parent.id]` (1-element array).
+- **Paragraph-recombine per-slot variants** (`variant_kind='paragraph'`): rewrites emit `parentIds = [originalSlotVariantId]` (the slot's original-paragraph variant); the original itself is parentless (`'{}'`). These are persisted NOT through `persistRunResults`/`finalizeRun` but through the per-slot `syncToArena` → `sync_to_arena` RPC, which only writes `parent_variant_ids` since migration `20260529000001` (investigate_paragraph_recombine_invocation_20260529) — before that the slot rewrites persisted with empty lineage, so the slot leaderboard's Parent column showed "Seed · no parent" for every row. The recombined ARTICLE variant's own lineage is unchanged: `parent_variant_ids = [poolParent]` (D4).
 - **Multi-parent**: `DebateThenGenerateFromPreviousArticleAgent` emits `parentIds` sorted by ELO at debate dispatch time — `parentIds[0]` is the higher-Elo input (canonical primary), `parentIds[1]` is the lower-Elo input. Order is load-bearing because `elo_delta_vs_parent` uses `parentIds[0]` as the baseline. Independent of the judge's content-based pick (lives in `execution_detail.debate.combined.winner`).
 
 App-layer enforces referential integrity (no DB-level FK on array elements; PostgreSQL doesn't support FKs on array columns — same pattern as `evolution_arena_comparisons.entry_a/b`).
@@ -128,7 +129,7 @@ Non-variant-producing agents (swiss, merge, seed) keep the default `null`.
 
 `computeEloAttributionMetrics` in `evolution/src/lib/metrics/experimentMetrics.ts` runs as part of `computeRunMetrics`:
 
-1. Fetch every variant in this run where both `agent_invocation_id` and `parent_variant_id` are non-null.
+1. Fetch every variant in this run where both `agent_invocation_id` and `parent_variant_id` are non-null. The query filters `.eq('variant_kind', 'article')` (since investigate_paragraph_recombine_invocation_20260529): once paragraph-recombine slot rewrites began persisting `parent_variant_ids` (migration `20260529000001`), they would otherwise enter this parent-based path and inject paragraph-scale Elo deltas into a `paragraph_rewrite` per-tactic attribution bucket. Attribution is article-variant-only.
 2. Fetch the associated invocations' `execution_detail.strategy` (dimension).
 3. Fetch parents' current `mu` (live).
 4. Group by `(agent_name, dimension)`. For each group, compute:

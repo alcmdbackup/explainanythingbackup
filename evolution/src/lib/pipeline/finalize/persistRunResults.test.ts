@@ -9,6 +9,8 @@ import type { ArenaTextVariation } from '../setup/buildRunContext';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { writeMetric, writeMetricMax } from '../../metrics/writeMetrics';
 import { createMockEntityLogger } from '../../../testing/evolution-test-helpers';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 jest.mock('../../metrics/writeMetrics', () => ({
   writeMetric: jest.fn().mockResolvedValue(undefined),
@@ -606,6 +608,59 @@ describe('syncToArena', () => {
     expect(call[1].p_entries[0].arena_match_count).toBe(0);
     expect(call[1].p_entries[0].mu).toBe(25);
     expect(call[1].p_entries[0].sigma).toBeCloseTo(25 / 3, 3);
+    // investigate_paragraph_recombine_invocation_20260529: no matches / no parent → safe defaults.
+    expect(call[1].p_entries[0].parent_variant_ids).toEqual([]);
+    expect(call[1].p_entries[0].match_count).toBe(0);
+  });
+
+  // investigate_paragraph_recombine_invocation_20260529: per-slot paragraph rewrites are
+  // persisted ONLY through this RPC (never through finalizeRun), so p_entries must carry
+  // parent_variant_ids + match_count or they land empty/0 (the "Seed · no parent" / "0 matches" bug).
+  it('p_entries carries parent_variant_ids + match_count for new variants', async () => {
+    const supabase = createMockArenaSupabase();
+    const ORIGINAL_ID = '00000000-0000-4000-8000-0000000000a1';
+    const pool: Variant[] = [
+      makeVariant(V1_ID, 'paragraph_rewrite', { text: '# Rewrite', parentIds: [ORIGINAL_ID] }),
+    ];
+    const ratings = new Map<string, Rating>([[V1_ID, { elo: 1300, uncertainty: 80 }]]);
+    // V1 participates in 2 matches → variantMatchCounts.get(V1) === 2.
+    const matches: V2Match[] = [
+      { winnerId: V1_ID, loserId: ORIGINAL_ID, result: 'win' as const, confidence: 0.8, judgeModel: 'qwen-2.5-7b-instruct', reversed: false },
+      { winnerId: ORIGINAL_ID, loserId: V1_ID, result: 'win' as const, confidence: 0.7, judgeModel: 'qwen-2.5-7b-instruct', reversed: false },
+    ];
+
+    await syncToArena(RUN_ID, PROMPT_ID, pool, ratings, matches, supabase, false);
+
+    const entry = (supabase.rpc as jest.Mock).mock.calls[0][1].p_entries[0];
+    expect(entry.id).toBe(V1_ID);
+    expect(entry.parent_variant_ids).toEqual([ORIGINAL_ID]); // lineage persisted (was [] before fix)
+    expect(entry.match_count).toBe(2);                        // run match count persisted (was 0 before fix)
+    expect(entry.arena_match_count).toBe(2);
+  });
+
+  // investigate_paragraph_recombine_invocation_20260529 — article-path no-clobber regression.
+  // syncToArena is shared with article topics: article variants are upserted by finalizeRun FIRST
+  // (with their own parent_variant_ids/match_count), then re-enter via this RPC's INSERT…ON CONFLICT.
+  // The migration MUST write the two new columns on INSERT only and leave them untouched on conflict,
+  // or it would overwrite article variants' finalize-written lineage/counts. Static guard on the SQL.
+  it('migration ON CONFLICT DO UPDATE does not clobber parent_variant_ids/match_count', () => {
+    const sql = readFileSync(
+      join(process.cwd(), 'supabase/migrations/20260529000001_sync_to_arena_persist_parent_and_match_count.sql'),
+      'utf8',
+    );
+    const onConflictIdx = sql.indexOf('ON CONFLICT (id) DO UPDATE SET');
+    expect(onConflictIdx).toBeGreaterThan(-1);
+    // The DO UPDATE SET clause runs until the statement-terminating semicolon (the trailing
+    // explanatory comment that names these columns lives AFTER the ';', so it is excluded).
+    const afterConflict = sql.slice(onConflictIdx);
+    const setClause = afterConflict.slice(0, afterConflict.indexOf(';'));
+    expect(setClause).not.toContain('parent_variant_ids');
+    expect(setClause).not.toMatch(/\bmatch_count\b/); // \b so it does NOT match arena_match_count
+
+    // Sanity: the INSERT branch DOES write both (so the fix is actually present, not just absent everywhere).
+    const insertCols = sql.slice(sql.indexOf('INSERT INTO evolution_variants'), onConflictIdx);
+    expect(insertCols).toContain('parent_variant_ids');
+    expect(insertCols).toMatch(/\bmatch_count\b/);
   });
 
   it('logs warning on RPC error after retry without throwing', async () => {

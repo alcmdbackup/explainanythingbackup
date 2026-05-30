@@ -194,6 +194,8 @@ export function SlotsTab({
               bottomCaption={`● = introduced by this invocation · ${thisInvocationIds.size} from this invocation`}
               storageKey="evolution-slots-tab-leaderboard-hidden-columns"
               hideCutoffCallout
+              parentlessLabel="Original paragraph"
+              hideIterationColumn
             />
           ) : (
             <ArenaLeaderboardTable
@@ -203,6 +205,8 @@ export function SlotsTab({
               bottomCaption={`Showing ${thisInvocationIds.size} variant${thisInvocationIds.size === 1 ? '' : 's'} from this invocation (ranks remain absolute)`}
               storageKey="evolution-slots-tab-leaderboard-hidden-columns"
               hideCutoffCallout
+              parentlessLabel="Original paragraph"
+              hideIterationColumn
             />
           )}
         </div>

@@ -80,7 +80,7 @@ Key behaviors:
 
 - Filters out variants where `fromArena === true` (they already exist in the arena) for the new-entries array
 - Builds a separate `arenaUpdates` array for existing arena entries, containing only mutable rating fields (`mu`, `sigma`, `elo_score`, `arena_match_count`). These are projected from the in-memory `Rating {elo, uncertainty}` via `ratingToDb` — the DB columns remain `mu`/`sigma` because the stale trigger and `sync_to_arena` RPC depend on them. Immutable fields (content, generation_method, model, etc.) are preserved.
-- Upserts each new variant into `evolution_variants` with `synced_to_arena = true` and its current `mu`, `sigma`, and Elo-scale rating
+- Upserts each new variant into `evolution_variants` with `synced_to_arena = true` and its current `mu`, `sigma`, and Elo-scale rating. The `p_entries` payload also carries `parent_variant_ids` + `match_count` (written on INSERT only since migration `20260529000001`) so variants persisted ONLY through this path — paragraph-recombine per-slot rewrites, which never pass through `finalizeRun` — get correct lineage + counts instead of empty defaults. Article variants are upserted by `finalizeRun` first, so they hit ON CONFLICT and keep those values untouched.
 - Builds match records from the run's match history, including cross-pool comparisons between new variants and existing arena entries
 - Calls `sync_to_arena` RPC with both `p_entries` (new variants) and `p_arena_updates` (existing arena entry rating updates), which handles upserting variants, updating arena ratings, and inserting comparisons atomically
 - Limits enforced by the RPC: max **200 entries** and max **1000 matches** per sync call
