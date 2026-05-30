@@ -89,6 +89,16 @@ export function ResetPasswordForm() {
       const { data: userBefore } = await supabase_browser.auth.getUser();
       const email = userBefore.user?.email;
 
+      // Hard guard: never run updateUser while the active session is the demo
+      // guest. On the public host the recovery session can be displaced by guest
+      // auto-login mid-flow; without this, a reset overwrites the SHARED guest
+      // account (root cause of autologin_broken_3rd_night_after_fix_20260529).
+      if (!email || email === process.env.NEXT_PUBLIC_GUEST_EMAIL) {
+        setFormError('This reset link is no longer valid. Please request a new one.');
+        setIsLoading(false);
+        return;
+      }
+
       const { error: updateErr } = await supabase_browser.auth.updateUser({
         password: data.password,
       });
