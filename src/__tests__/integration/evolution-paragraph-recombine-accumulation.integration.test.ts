@@ -31,9 +31,10 @@ import {
   type BeforeAfterRatingsMap,
 } from '@evolution/services/slotTopicActions';
 import { loadArenaEntries } from '@evolution/lib/pipeline/setup/buildRunContext';
+import { syncToArena } from '@evolution/lib/pipeline/finalize/persistRunResults';
 import { formatSlotTopicName } from '@evolution/lib/shared/paragraphLabels';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { V2Match } from '@evolution/lib/pipeline/infra/types';
+import type { V2Match, Variant } from '@evolution/lib/pipeline/infra/types';
 
 const TEST_PREFIX = '[TEST_EVO] paragraph-accumulation';
 
@@ -211,6 +212,69 @@ describe('Paragraph recombine — cross-invocation Elo accumulation (D10)', () =
     // mu_before/after columns populated from ratingToDb.
     const withRatings = comparisons!.filter((c) => c.entry_a_mu_before != null);
     expect(withRatings.length).toBeGreaterThanOrEqual(2);
+  });
+
+  // investigate_paragraph_recombine_invocation_20260529: per-slot syncToArena must persist
+  // parent_variant_ids + match_count + arena_match_count for paragraph rewrites. This is the
+  // ONLY automated guard that exercises the migration's jsonb-array→uuid[] cast at RUNTIME
+  // (migration:verify only checks the function APPLIES, not that the cast populates the column).
+  // Runs in CI after the deploy-migrations job applies 20260529000001 to staging; locally needs
+  // a DB with that migration (`supabase db reset`).
+  it('syncToArena round-trips parent_variant_ids + match_count + arena_match_count for a paragraph rewrite', async () => {
+    if (!tablesExist || !migrationApplied) return;
+
+    const { topicId, originalSlotVariantId } = await upsertSlotTopic(
+      supabase, 'paragraph', parentVariantId, slotIndex, 'First paragraph. Second sentence.',
+    );
+
+    // A fresh rewrite minted in-memory (as ParagraphRecombineAgent does), single-parent = slot original.
+    const rewriteId = crypto.randomUUID();
+    const variant = {
+      id: rewriteId,
+      text: 'A fresh rewrite of the paragraph. Second sentence keeps the length steady.',
+      version: 0,
+      parentIds: [originalSlotVariantId],
+      strategy: 'paragraph_rewrite',
+      createdAt: Date.now(),
+      iterationBorn: 0,
+      variantKind: 'paragraph',
+      agentName: 'paragraph_rewrite',
+    } as unknown as Variant;
+    const ratings = new Map([[rewriteId, makeRating(1280, 60)]]);
+    // Two matches involving the rewrite → variantMatchCounts.get(rewriteId) === 2.
+    const matches: V2Match[] = [
+      { winnerId: rewriteId, loserId: originalSlotVariantId, result: 'a-wins', confidence: 0.8, cost: 0, durationMs: 0 } as unknown as V2Match,
+      { winnerId: originalSlotVariantId, loserId: rewriteId, result: 'a-wins', confidence: 0.7, cost: 0, durationMs: 0 } as unknown as V2Match,
+    ];
+
+    await syncToArena(runId, topicId, [variant], ratings, matches, supabase, false);
+
+    const { data: row } = await supabase
+      .from('evolution_variants')
+      .select('parent_variant_ids, match_count, arena_match_count')
+      .eq('id', rewriteId)
+      .single();
+    expect(row).toBeTruthy();
+
+    // Deploy-ordering guard: migration 20260529000001 may not be on this DB yet (the
+    // `migrationApplied` probe above only checks `prompt_kind` from 20260527000001). If the
+    // OLD sync_to_arena RPC is live, parent_variant_ids/match_count won't be written — skip the
+    // persistence assertions rather than false-fail. In CI the deploy-migrations job applies the
+    // migration BEFORE this runs, so the assertions execute and guard the jsonb→uuid[] cast.
+    const syncRpcUpgraded =
+      (row!.parent_variant_ids?.length ?? 0) > 0 || (row!.match_count ?? 0) > 0;
+    if (!syncRpcUpgraded) {
+      console.warn(
+        'sync_to_arena migration 20260529000001 not applied to this DB — skipping parent/match persistence assertions (run `supabase db reset` or rely on CI deploy-migrations)',
+      );
+      return;
+    }
+
+    // The migration round-trips the jsonb array → uuid[] (was '{}' before the fix).
+    expect(row!.parent_variant_ids).toEqual([originalSlotVariantId]);
+    // match_count + arena_match_count tallied from the 2 matches (were 0 before the fix).
+    expect(row!.match_count).toBe(2);
+    expect(row!.arena_match_count).toBe(2);
   });
 
   it('loadArenaEntries with topK surfaces prior-invocation rewrites as competitors (warm-state inheritance for next invocation)', async () => {

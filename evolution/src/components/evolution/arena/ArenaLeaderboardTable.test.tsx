@@ -156,3 +156,33 @@ describe('ArenaLeaderboardTable — D20 props', () => {
     expect(screen.queryAllByTestId('lb-highlight-marker')).toHaveLength(1);
   });
 });
+
+// investigate_paragraph_recombine_invocation_20260529 — paragraph-slot display relabel.
+describe('ArenaLeaderboardTable — paragraph slot display', () => {
+  it('parentlessLabel overrides the null-parent label (no "Seed" wording for slot originals)', async () => {
+    render(<ArenaLeaderboardTable topicId={TOPIC_ID} parentlessLabel="Original paragraph" />);
+    await waitFor(() => expect(screen.getByTestId('leaderboard-table')).toBeInTheDocument());
+    const badges = screen.getAllByTestId('variant-parent-badge'); // all MOCK_ENTRIES have parent_variant_id=null
+    expect(badges.length).toBeGreaterThan(0);
+    for (const b of badges) expect(b).toHaveTextContent('Original paragraph');
+    expect(screen.queryAllByText(/Seed/)).toHaveLength(0);
+  });
+
+  it('defaults to the "Seed · no parent" label when parentlessLabel is omitted (article behavior)', async () => {
+    render(<ArenaLeaderboardTable topicId={TOPIC_ID} />);
+    await waitFor(() => expect(screen.getByTestId('leaderboard-table')).toBeInTheDocument());
+    expect(screen.getAllByTestId('variant-parent-badge')[0]).toHaveTextContent('Seed');
+  });
+
+  it('hideIterationColumn removes the Iteration column header', async () => {
+    render(<ArenaLeaderboardTable topicId={TOPIC_ID} hideIterationColumn />);
+    await waitFor(() => expect(screen.getByTestId('leaderboard-table')).toBeInTheDocument());
+    expect(screen.queryByRole('columnheader', { name: 'Iteration' })).not.toBeInTheDocument();
+  });
+
+  it('shows the Iteration column header by default', async () => {
+    render(<ArenaLeaderboardTable topicId={TOPIC_ID} />);
+    await waitFor(() => expect(screen.getByTestId('leaderboard-table')).toBeInTheDocument());
+    expect(screen.getByRole('columnheader', { name: 'Iteration' })).toBeInTheDocument();
+  });
+});

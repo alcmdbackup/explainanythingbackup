@@ -17,6 +17,24 @@ describe('VariantParentBadge', () => {
     expect(badge).toHaveTextContent('Seed · no parent');
   });
 
+  // investigate_paragraph_recombine_invocation_20260529: paragraph-slot leaderboards override the
+  // null-parent label so a parentless slot row reads "Original paragraph", not a seed article.
+  it('renders the noParentLabel override in the null-parent state', () => {
+    render(
+      <VariantParentBadge
+        parentId={null}
+        parentElo={null}
+        parentUncertainty={null}
+        delta={null}
+        deltaCi={null}
+        noParentLabel="Original paragraph"
+      />,
+    );
+    const badge = screen.getByTestId('variant-parent-badge');
+    expect(badge).toHaveTextContent('Original paragraph');
+    expect(badge).not.toHaveTextContent('Seed');
+  });
+
   it('renders parent short ID + elo + delta + CI', () => {
     render(
       <VariantParentBadge

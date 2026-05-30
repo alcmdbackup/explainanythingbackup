@@ -109,6 +109,56 @@ describe('ResetPasswordForm', () => {
     expect(screen.queryByTestId('reset-password-submit')).not.toBeInTheDocument();
   });
 
+  it('refuses to updateUser when the submit-time session is the guest (guard against clobbering the shared guest)', async () => {
+    // Form renders enabled (recovery fired, not guest at render), but the session
+    // has been displaced to the guest by the time onSubmit reads getUser() — the
+    // exact prod race that broke demo autologin. The guard must abort updateUser.
+    const prevGuestEmail = process.env.NEXT_PUBLIC_GUEST_EMAIL;
+    process.env.NEXT_PUBLIC_GUEST_EMAIL = 'guest@explainanything.app';
+    (supabase_browser.auth.getUser as jest.Mock).mockResolvedValue({
+      data: { user: { id: 'guest', email: 'guest@explainanything.app' } },
+      error: null,
+    });
+    try {
+      const { fire } = setupAuthChange();
+      const user = userEvent.setup();
+      render(<ResetPasswordForm />);
+      fire('PASSWORD_RECOVERY');
+
+      await user.type(screen.getByTestId('reset-password-new'), 'NewStrongPass1');
+      await user.type(screen.getByTestId('reset-password-confirm'), 'NewStrongPass1');
+      await user.click(screen.getByTestId('reset-password-submit'));
+
+      await waitFor(() => {
+        expect(screen.getByTestId('reset-password-error')).toHaveTextContent(/no longer valid/i);
+      });
+      expect(supabase_browser.auth.updateUser).not.toHaveBeenCalled();
+      expect(supabase_browser.auth.signInWithPassword).not.toHaveBeenCalled();
+    } finally {
+      process.env.NEXT_PUBLIC_GUEST_EMAIL = prevGuestEmail;
+    }
+  });
+
+  it('refuses to updateUser when there is no active session', async () => {
+    (supabase_browser.auth.getUser as jest.Mock).mockResolvedValue({
+      data: { user: null },
+      error: null,
+    });
+    const { fire } = setupAuthChange();
+    const user = userEvent.setup();
+    render(<ResetPasswordForm />);
+    fire('PASSWORD_RECOVERY');
+
+    await user.type(screen.getByTestId('reset-password-new'), 'NewStrongPass1');
+    await user.type(screen.getByTestId('reset-password-confirm'), 'NewStrongPass1');
+    await user.click(screen.getByTestId('reset-password-submit'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('reset-password-error')).toHaveTextContent(/no longer valid/i);
+    });
+    expect(supabase_browser.auth.updateUser).not.toHaveBeenCalled();
+  });
+
   it('rejects mismatched passwords at the schema layer', async () => {
     const { fire } = setupAuthChange();
     const user = userEvent.setup();

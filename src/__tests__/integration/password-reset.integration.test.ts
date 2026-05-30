@@ -56,7 +56,9 @@ describe('Password Reset Integration', () => {
   });
 
   async function createDedicatedUser(): Promise<{ id: string; email: string }> {
-    const email = `pwreset-${Date.now()}-${randomUUID()}@example.com`;
+    // Use the TEST_USER email domain (mirrors prod; GoTrue rejects @example.com).
+    const domain = process.env.TEST_USER_EMAIL?.split('@')[1] || 'example.com';
+    const email = `pwreset-${Date.now()}-${randomUUID()}@${domain}`;
     const { data, error } = await serviceClient.auth.admin.createUser({
       email,
       password: INITIAL_PWD,

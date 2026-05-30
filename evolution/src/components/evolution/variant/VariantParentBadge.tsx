@@ -44,6 +44,10 @@ export interface VariantParentBadgeProps {
    *  [lower-Elo-parent.id] here (the higher-Elo parent is in `parentId`); single-
    *  parent variants pass empty. */
   additionalParentIds?: string[];
+  /** Label rendered in the null-parent state. Defaults to 'Seed · no parent' (article variants).
+   *  Paragraph-recombine slot leaderboards pass 'Original paragraph' since a parentless paragraph
+   *  variant is the slot's original, not a seed article (investigate_paragraph_recombine_invocation_20260529). */
+  noParentLabel?: string;
 }
 
 function formatDelta(delta: number): string {
@@ -58,10 +62,10 @@ function formatCi(ci: [number, number]): string {
 }
 
 export function VariantParentBadge(props: VariantParentBadgeProps): JSX.Element {
-  const { parentId, parentElo, parentUncertainty, delta, deltaCi, crossRun, parentRunId, role, className, additionalParentIds } = props;
+  const { parentId, parentElo, parentUncertainty, delta, deltaCi, crossRun, parentRunId, role, className, additionalParentIds, noParentLabel } = props;
   const extraParentCount = additionalParentIds?.length ?? 0;
 
-  // Null-parent state (seed variant, or when lookup failed).
+  // Null-parent state (seed variant, paragraph-slot original, or when lookup failed).
   if (parentId == null || parentElo == null) {
     return (
       <span
@@ -69,7 +73,7 @@ export function VariantParentBadge(props: VariantParentBadgeProps): JSX.Element 
         data-state="seed"
         className={className ?? 'text-[var(--text-secondary)] text-xs font-ui'}
       >
-        Seed · no parent
+        {noParentLabel ?? 'Seed · no parent'}
       </span>
     );
   }

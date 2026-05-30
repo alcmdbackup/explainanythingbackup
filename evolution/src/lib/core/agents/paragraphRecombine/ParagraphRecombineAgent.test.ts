@@ -222,6 +222,20 @@ describe('ParagraphRecombineAgent — boundary contract', () => {
     expect(result.parentVariantIds).toEqual([PARENT_ID]);
   });
 
+  // investigate_paragraph_recombine_invocation_20260529 — counter-persistence fix.
+  // The per-slot syncToArena must receive the slot's matchHistory (not []) so the RPC tallies
+  // arena_match_count; pre-fix this arg was always [] → leaderboard showed "0 matches".
+  it('passes the slot matchHistory (non-empty) to per-slot syncToArena', async () => {
+    const agent = new ParagraphRecombineAgent();
+    await agent.execute(baseInput(makeLlmMock()), makeCtx());
+    expect(syncToArenaMock).toHaveBeenCalled();
+    const matchHistories = syncToArenaMock.mock.calls.map((c) => c[4]); // 5th arg = matchHistory
+    expect(matchHistories.some((m) => Array.isArray(m) && m.length > 0)).toBe(true);
+  });
+  // NOTE: the per-slot rewrites' parent_variant_ids persistence is covered end-to-end by
+  // persistRunResults.test.ts ('p_entries carries parent_variant_ids + match_count') — the agent
+  // already constructs rewrites with parentIds=[originalSlotVariantId]; the fix was the payload.
+
   it('returns variant=null + status=generation_failed when recombined output fails format validation', async () => {
     // Inject bullet-point rewrites which validateFormat will reject at the recombined level.
     const badLlm = makeLlmMock((_prompt, idx) => {
@@ -253,17 +267,18 @@ describe('ParagraphRecombineAgent — boundary contract', () => {
     const rewriteCalls = completeFn.mock.calls.filter(([, label]) => label === 'paragraph_rewrite');
     expect(rewriteCalls.length).toBeGreaterThanOrEqual(2);
 
-    // Each rewrite carries a numeric temperature in the 1.0–2.0 ladder (test ctx has no
+    // Each rewrite carries a numeric temperature in the 1.2–2.0 ladder (test ctx has no
     // defaultModel → unclamped, so the schedule passes through).
     for (const call of rewriteCalls) {
       const options = call[2] as { temperature?: number } | undefined;
       expect(options?.temperature).toEqual(expect.any(Number));
-      expect(options!.temperature!).toBeGreaterThanOrEqual(1.0);
+      expect(options!.temperature!).toBeGreaterThanOrEqual(1.2);
       expect(options!.temperature!).toBeLessThanOrEqual(2.0);
     }
-    // For M=2 the schedule is exactly {1.0, 2.0}.
+    // For M=2 the schedule is exactly {1.2, 2.0} (floor raised from 1.0 in
+    // investigate_paragraph_recombine_invocation_20260529).
     const temps = new Set(rewriteCalls.map((c) => (c[2] as { temperature: number }).temperature));
-    expect(temps.has(1.0)).toBe(true);
+    expect(temps.has(1.2)).toBe(true);
     expect(temps.has(2.0)).toBe(true);
 
     // Within a slot the two rewrites get distinct directives → distinct prompts.
@@ -451,8 +466,8 @@ describe('paragraphRewriteTemperature (Option A ladder)', () => {
     expect(paragraphRewriteTemperature(0, 1, undefined)).toBe(1.5);
   });
 
-  it('M=3, unknown model cap (undefined) → [1.0, 1.5, 2.0] unclamped', () => {
-    expect([0, 1, 2].map((i) => paragraphRewriteTemperature(i, 3, undefined))).toEqual([1.0, 1.5, 2.0]);
+  it('M=3, unknown model cap (undefined) → [1.2, 1.6, 2.0] unclamped (floor raised to 1.2)', () => {
+    expect([0, 1, 2].map((i) => paragraphRewriteTemperature(i, 3, undefined))).toEqual([1.2, 1.6, 2.0]);
   });
 
   it('clamps to a lower model maxTemperature', () => {

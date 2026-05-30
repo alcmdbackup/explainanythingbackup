@@ -18,6 +18,16 @@ describe('PARAGRAPH_REWRITE_DIRECTIVES', () => {
     expect(PARAGRAPH_REWRITE_DIRECTIVES[1]).toMatch(/\bONE\b/);
     expect(PARAGRAPH_REWRITE_DIRECTIVES[1]!.toLowerCase()).toContain('sentence');
   });
+
+  it('tighten directive (index 0) carries an explicit lower-length floor (length_under fix)', () => {
+    // investigate_paragraph_recombine_invocation_20260529: the tighten axis at low temperature
+    // underflowed validateParagraphRewrite's 0.8 length floor (89% length_under drop on slot 0).
+    // The directive must now pin a lower bound so the rewrite stays in the ±20% window.
+    const d0 = PARAGRAPH_REWRITE_DIRECTIVES[0]!.toLowerCase();
+    expect(d0).toContain('0.85');
+    expect(d0).toContain('never below');
+    expect(d0).toContain('substance');
+  });
 });
 
 describe('buildParagraphRewritePrompt', () => {

@@ -457,6 +457,8 @@ Two dynamic metric families are emitted by `experimentMetrics.computeEloAttribut
 
 Mean ELO delta (child - parent) across every invocation of `<agentName>` whose `execution_detail.<dimension>` equals `<dimensionValue>`. Dimension is pulled via `Agent.getAttributionDimension(detail)`. For `GenerateFromPreviousArticleAgent` the dimension is `execution_detail.strategy`.
 
+> **Article-variant-only (investigate_paragraph_recombine_invocation_20260529).** The source query in `computeEloAttributionMetrics` filters `.eq('variant_kind', 'article')`. Paragraph-recombine per-slot rewrites began persisting `parent_variant_ids` (migration `20260529000001`); without this filter they would enter the parent-based attribution path and inject paragraph-scale Elo deltas into a `paragraph_rewrite` per-tactic bucket. Per-slot quality is tracked separately via the slot arena topics, not via run-level tactic attribution.
+
 - `value`: arithmetic mean of per-invocation deltas.
 - `uncertainty`: sample standard deviation when `n >= 2`, else `null`.
 - `ci_lower`/`ci_upper`: normal-approximation 95% CI (`mean ± 1.96 * sd / sqrt(n)`) when `n >= 2`; `null` for `n == 1`.
