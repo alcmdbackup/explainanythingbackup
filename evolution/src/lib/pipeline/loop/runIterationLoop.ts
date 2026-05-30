@@ -1432,8 +1432,26 @@ export async function evolveArticle(
               parallelDispatchCount < maxDispatchesK &&
               parallelDispatchCount < resolvedParents.length
             ) {
+              // J3 (investigate_paragraph_rewrite_cost_undershoot_evolution_20260529):
+              // per-iteration floor overrides take precedence over strategy-level
+              // fields. Build a synthetic `BudgetFloorConfig` that prefers iter-level
+              // values when set; falls back to strategy-level otherwise. Fraction
+              // wins over AgentMultiple within a single config (resolver convention).
+              const iterFloorConfig = {
+                minBudgetAfterSequentialFraction: iterCfg.sequentialFloorFraction
+                  ?? resolvedConfig.minBudgetAfterSequentialFraction,
+                minBudgetAfterSequentialAgentMultiple: iterCfg.sequentialFloorAgentMultiple
+                  ?? resolvedConfig.minBudgetAfterSequentialAgentMultiple,
+                // Parallel floor fields are unused at runtime here (only resolveSequentialFloor
+                // is consulted at runtime per generate convention), but pass them through
+                // for completeness in case the resolver ever consults them.
+                minBudgetAfterParallelFraction: iterCfg.parallelFloorFraction
+                  ?? resolvedConfig.minBudgetAfterParallelFraction,
+                minBudgetAfterParallelAgentMultiple: iterCfg.parallelFloorAgentMultiple
+                  ?? resolvedConfig.minBudgetAfterParallelAgentMultiple,
+              };
               const sequentialFloor = resolveSequentialFloor(
-                resolvedConfig,
+                iterFloorConfig,
                 iterBudgetUsd,
                 expectedPerAgent,
                 actualAvgCostPerAgent,

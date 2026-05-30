@@ -574,4 +574,10 @@ Decomposes a parent article into paragraph-sized slots, generates M parallel rew
 
 **Kill switch**: `EVOLUTION_PARAGRAPH_RECOMBINE_ENABLED='false'` short-circuits the dispatch branch in `runIterationLoop.ts`. Mirrored at the wizard preview boundary (`paragraphRecombineEnabled` flag → `EstPerAgentValue.paragraphRecombine=0`).
 
+**Multi-dispatch (investigate_paragraph_rewrite_cost_undershoot_evolution_20260529, Option J)**: when `iterationConfig.maxDispatches > 1` + `sourceMode === 'pool'`, the runtime selects K distinct parents from the `qualityCutoff`-filtered eligible set (seeded pre-shuffle), runs `ParagraphRecombineAgent` against each in parallel + sequential top-up (mirrors the generate-iteration RUNTIME pattern — `resolveSequentialFloor` only at runtime; `resolveParallelFloor` lives in the projector), then feeds the concatenated match histories into a SINGLE `MergeRatingsAgent.run()`. Both fraction-of-budget and multiple-of-agent-cost floor methods are honored via the existing strategy-level fields; per-iteration overrides available via `parallelFloorFraction` / `parallelFloorAgentMultiple` / `sequentialFloorFraction` / `sequentialFloorAgentMultiple` (J3).
+
+**Per-slot LLM client wired with db/runId/invocationId (G8)**: `ParagraphRecombineAgent.ts:352-354` now threads `db`/`runId`/`invocationId` into the per-slot `EvolutionLLMClient` so `paragraph_rewrite` + `paragraph_rank` calls write `llmCallTracking` audit rows. Pre-G8 the per-slot client was db-less and these calls wrote ZERO tracking rows.
+
+**Projector-vs-actual instrumentation (G4-G7)**: `execution_detail` now carries `estimatedTotalCost`, `estimatedTotalCostUpperBound`, `estimationErrorPct` + per-phase `paragraph_rewrite.{estimatedCost,cost,estimationErrorPct}` and `paragraph_rank.{estimatedCost,cost,estimationErrorPct}`. The agent auto-joins the existing `cost_estimation_error_pct` + `estimated_cost` finalization metrics. New per-phase rollups: `paragraph_rewrite_estimation_error_pct`, `paragraph_rank_estimation_error_pct` (+ their `avg_*` propagation).
+
 See full deep dive: `evolution/docs/paragraph_recombine.md`.

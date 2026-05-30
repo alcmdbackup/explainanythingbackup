@@ -682,6 +682,20 @@ export const iterationConfigSchema = z.object({
    *  investigate_paragraph_rewrite_cost_undershoot_evolution_20260529 (Option J).
    *  MUST be emitted by `canonicalizeIterationConfig` to participate in config_hash. */
   maxDispatches: z.number().int().min(1).max(10).optional(),
+  /** J3 (investigate_paragraph_rewrite_cost_undershoot_evolution_20260529):
+   *  per-iteration budget-floor overrides. When set, these take precedence over
+   *  the strategy-level `minBudgetAfter*Fraction` / `minBudgetAfter*AgentMultiple`
+   *  fields for THIS iteration only. Useful when paragraph_recombine and generate
+   *  iterations within the same strategy want different floor profiles (e.g.
+   *  generate uses a conservative parallel floor, paragraph_recombine wants
+   *  aggressive multi-dispatch with no parallel floor). Fraction takes precedence
+   *  over AgentMultiple per `budgetFloorResolvers.ts` selection rules. Honored only
+   *  for paragraph_recombine in the current J refactor; the generate runtime path
+   *  ignores these (it consults strategy-level fields only). */
+  parallelFloorFraction: z.number().min(0).max(1).optional(),
+  parallelFloorAgentMultiple: z.number().min(0).optional(),
+  sequentialFloorFraction: z.number().min(0).max(1).optional(),
+  sequentialFloorAgentMultiple: z.number().min(0).optional(),
 }).refine(
   // sourceMode is for parent-article selection in variant-producing iterations.
   // Debate selects parents internally (top-2 from pool snapshot per Decision §16) so

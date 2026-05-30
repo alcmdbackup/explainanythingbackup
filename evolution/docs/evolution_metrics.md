@@ -173,3 +173,30 @@ boundary and pass explicit booleans so the function stays pure and reproducible.
 wizard's `DispatchPlanView` surfaces `expectedTotalDispatch` in a "Likely total" column
 between Dispatch and $/Agent, with a sub-line `N parallel + M top-up` when top-up adds
 agents beyond the parallel batch.
+
+## Paragraph_recombine projector-vs-actual metrics (G4–G7)
+
+Added by `investigate_paragraph_rewrite_cost_undershoot_evolution_20260529`. The
+`ParagraphRecombineAgent` now persists projector outputs alongside actual spend in
+`execution_detail` so the agent auto-joins the existing `cost_estimation_error_pct` +
+`estimated_cost` finalization metric family:
+
+| Field | Meaning |
+|---|---|
+| `execution_detail.estimatedTotalCost` | Projector `expected` for this invocation |
+| `execution_detail.estimatedTotalCostUpperBound` | Projector `upperBound` (1.3× expected) |
+| `execution_detail.estimationErrorPct` | `(actual − estimated) / estimated × 100` |
+| `execution_detail.paragraph_rewrite.{estimatedCost,cost,estimationErrorPct}` | Per-phase rewrite breakdown |
+| `execution_detail.paragraph_rank.{estimatedCost,cost,estimationErrorPct}` | Per-phase ranking breakdown |
+
+Two new per-phase finalization compute functions + their `avg_*` propagation:
+
+| Metric | Source | Notes |
+|---|---|---|
+| `paragraph_rewrite_estimation_error_pct` | `execution_detail.paragraph_rewrite.{estimatedCost,cost}` | Run-level. Strategy/experiment rollup: `avg_paragraph_rewrite_estimation_error_pct`. |
+| `paragraph_rank_estimation_error_pct` | `execution_detail.paragraph_rank.{estimatedCost,cost}` | Run-level. Strategy/experiment rollup: `avg_paragraph_rank_estimation_error_pct`. |
+
+The projector function `estimateParagraphRecombineCost` was refactored to ALSO return a
+`perPhase: { paragraphRewriteCost, paragraphRankCost }` breakdown so the agent can persist
+the split. Existing callers (`projectDispatchPlan.ts`) continue to read `expected` /
+`upperBound` unchanged.

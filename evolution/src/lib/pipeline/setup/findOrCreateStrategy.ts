@@ -92,6 +92,13 @@ function canonicalizeIterationConfig(
   if (iterCfg.maxDispatches !== undefined && iterCfg.agentType === 'paragraph_recombine') {
     out.maxDispatches = iterCfg.maxDispatches;
   }
+  // J3 (investigate_paragraph_rewrite_cost_undershoot_evolution_20260529): per-iteration
+  // budget-floor overrides participate in config_hash. Two strategies that differ only in
+  // these floor knobs must dedupe distinctly.
+  if (iterCfg.parallelFloorFraction !== undefined) out.parallelFloorFraction = iterCfg.parallelFloorFraction;
+  if (iterCfg.parallelFloorAgentMultiple !== undefined) out.parallelFloorAgentMultiple = iterCfg.parallelFloorAgentMultiple;
+  if (iterCfg.sequentialFloorFraction !== undefined) out.sequentialFloorFraction = iterCfg.sequentialFloorFraction;
+  if (iterCfg.sequentialFloorAgentMultiple !== undefined) out.sequentialFloorAgentMultiple = iterCfg.sequentialFloorAgentMultiple;
   return out;
 }
 

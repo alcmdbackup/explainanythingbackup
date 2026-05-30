@@ -128,7 +128,14 @@ export function DispatchPlanView({
                 <td className="py-1 pr-3 font-mono">{entry.iterIdx + 1}</td>
                 <td className="py-1 pr-3">
                   <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-semibold uppercase tracking-wider ${
-                    entry.agentType === 'generate' ? 'bg-blue-500/20 text-blue-400' : 'bg-purple-500/20 text-purple-400'
+                    entry.agentType === 'generate'
+                      ? 'bg-blue-500/20 text-blue-400'
+                      : entry.agentType === 'paragraph_recombine'
+                        // K3 (investigate_paragraph_rewrite_cost_undershoot_evolution_20260529):
+                        // distinct color so the new multi-dispatch breakdown stands out from
+                        // generate (blue) / swiss (purple). Cyan matches the marker tactic color.
+                        ? 'bg-cyan-500/20 text-cyan-400'
+                        : 'bg-purple-500/20 text-purple-400'
                   }`}>{entry.agentType}</span>
                   {entry.agentType === 'criteria_and_generate' && entry.criteriaCount != null && (
                     <div className="text-[10px] text-[var(--text-muted)] mt-0.5" data-testid={`dispatch-plan-criteria-${entry.iterIdx}`}>
@@ -153,7 +160,21 @@ export function DispatchPlanView({
                   )}
                 </td>
                 <td className="py-1 pr-3 text-right font-mono text-[var(--text-muted)]">
-                  {entry.agentType === 'swiss' ? '—' : formatCostRange(entry.estPerAgent.expected.total, entry.estPerAgent.upperBound.total)}
+                  {entry.agentType === 'swiss' ? '—' : (
+                    <>
+                      <div>{formatCostRange(entry.estPerAgent.expected.total, entry.estPerAgent.upperBound.total)}</div>
+                      {/* F4 (investigate_paragraph_rewrite_cost_undershoot_evolution_20260529):
+                          render `cap $X` annotation for paragraph_recombine so users see
+                          the safety cap alongside the projector envelope. Pre-F4 the
+                          $0.40 default cap was invisible in the wizard, fueling the
+                          "1% spent" SlotsTab confusion. */}
+                      {entry.agentType === 'paragraph_recombine' && entry.perInvocationCapUsd != null && (
+                        <div className="text-xs text-[var(--text-muted)]" title="Per-invocation safety cap (not a spend target). Compare against the expected/upperBound range to gauge headroom.">
+                          cap ${entry.perInvocationCapUsd.toFixed(3)}
+                        </div>
+                      )}
+                    </>
+                  )}
                 </td>
                 <td className="py-1 pr-3">
                   <span

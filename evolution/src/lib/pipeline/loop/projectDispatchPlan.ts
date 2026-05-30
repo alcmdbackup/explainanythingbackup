@@ -192,6 +192,15 @@ export interface IterationPlanEntry {
   criteriaCount?: number;
   /** Number of weakest criteria the wrapper targets with suggestions. Undefined when not criteria-driven. */
   weakestK?: number;
+  /** F4 (investigate_paragraph_rewrite_cost_undershoot_evolution_20260529): the
+   *  per-invocation safety cap configured (or defaulted) for paragraph_recombine
+   *  iterations. Surfaced so the wizard preview can render "expected $X / cap $Y"
+   *  side-by-side, making it visually obvious whether the cap matches the projector
+   *  envelope. Undefined for non-paragraph_recombine iterations. */
+  perInvocationCapUsd?: number;
+  /** Effective `maxDispatches` for paragraph_recombine iterations (defaults to 1
+   *  if unset). Undefined for other agent types. */
+  maxDispatches?: number;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────
@@ -550,6 +559,9 @@ export function projectDispatchPlan(
         effectiveCap,
         poolSizeAtStart: poolSize,
         parallelFloorUsd,
+        // F4 (investigate_paragraph_rewrite_cost_undershoot_evolution_20260529).
+        perInvocationCapUsd: iterCfg.perInvocationCapUsd ?? 0.05,
+        maxDispatches: maxDispatchesK,
       });
       poolSize += expectedTotalDispatch;
       continue;

@@ -28,10 +28,27 @@ export function buildInvocationRows(invocations: InvRow[]): CostInvocationRow[] 
     const d = (inv.execution_detail ?? {}) as Record<string, unknown>;
     const gen = d.generation as Record<string, unknown> | undefined;
     const rank = d.ranking as Record<string, unknown> | undefined;
-    const genEst = typeof gen?.estimatedCost === 'number' ? gen.estimatedCost as number : null;
-    const genAct = typeof gen?.cost === 'number' ? gen.cost as number : null;
-    const rankEst = typeof rank?.estimatedCost === 'number' ? rank.estimatedCost as number : null;
-    const rankAct = typeof rank?.cost === 'number' ? rank.cost as number : null;
+    // K5 (investigate_paragraph_rewrite_cost_undershoot_evolution_20260529): paragraph_recombine
+    // invocations persist `paragraph_rewrite.{estimatedCost,cost}` and
+    // `paragraph_rank.{estimatedCost,cost}` instead of the generate-style `generation`/`ranking`
+    // objects. Map them into the same row shape so the Cost Estimates tab renders the
+    // projected-vs-actual rows uniformly. Display rule: paragraph_rewrite goes into the
+    // "Gen" column (it's the variant-producing phase) and paragraph_rank goes into the
+    // "Rank" column.
+    const pRewrite = d.paragraph_rewrite as Record<string, unknown> | undefined;
+    const pRank = d.paragraph_rank as Record<string, unknown> | undefined;
+    const genEst = typeof gen?.estimatedCost === 'number'
+      ? gen.estimatedCost as number
+      : (typeof pRewrite?.estimatedCost === 'number' ? pRewrite.estimatedCost as number : null);
+    const genAct = typeof gen?.cost === 'number'
+      ? gen.cost as number
+      : (typeof pRewrite?.cost === 'number' ? pRewrite.cost as number : null);
+    const rankEst = typeof rank?.estimatedCost === 'number'
+      ? rank.estimatedCost as number
+      : (typeof pRank?.estimatedCost === 'number' ? pRank.estimatedCost as number : null);
+    const rankAct = typeof rank?.cost === 'number'
+      ? rank.cost as number
+      : (typeof pRank?.cost === 'number' ? pRank.cost as number : null);
     const errPct = typeof d.estimationErrorPct === 'number' && Number.isFinite(d.estimationErrorPct)
       ? d.estimationErrorPct as number : null;
     const tactic = (typeof d.tactic === 'string' && d.tactic ? d.tactic as string : null)
