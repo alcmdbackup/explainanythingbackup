@@ -87,6 +87,11 @@ function canonicalizeIterationConfig(
   if (iterCfg.perInvocationCapUsd !== undefined && iterCfg.agentType === 'paragraph_recombine') {
     out.perInvocationCapUsd = iterCfg.perInvocationCapUsd;
   }
+  // J1.5: maxDispatches MUST also participate in config_hash so a maxDispatches=1
+  // strategy and a maxDispatches=5 strategy don't collide on the upsert.
+  if (iterCfg.maxDispatches !== undefined && iterCfg.agentType === 'paragraph_recombine') {
+    out.maxDispatches = iterCfg.maxDispatches;
+  }
   return out;
 }
 

@@ -267,18 +267,21 @@ describe('ParagraphRecombineAgent — boundary contract', () => {
     const rewriteCalls = completeFn.mock.calls.filter(([, label]) => label === 'paragraph_rewrite');
     expect(rewriteCalls.length).toBeGreaterThanOrEqual(2);
 
-    // Each rewrite carries a numeric temperature in the 1.2–2.0 ladder (test ctx has no
-    // defaultModel → unclamped, so the schedule passes through).
+    // Each rewrite carries a numeric temperature. I3b
+    // (investigate_paragraph_rewrite_cost_undershoot_evolution_20260529) special-cases
+    // index-0 to 0.7 (low for length compliance on the "tighten" directive) while
+    // index-1+ uses the 1.2–2.0 diversity ladder. Range now [0.7, 2.0]. Test ctx has
+    // no defaultModel → unclamped, so the schedule passes through.
     for (const call of rewriteCalls) {
       const options = call[2] as { temperature?: number } | undefined;
       expect(options?.temperature).toEqual(expect.any(Number));
-      expect(options!.temperature!).toBeGreaterThanOrEqual(1.2);
+      expect(options!.temperature!).toBeGreaterThanOrEqual(0.7);
       expect(options!.temperature!).toBeLessThanOrEqual(2.0);
     }
-    // For M=2 the schedule is exactly {1.2, 2.0} (floor raised from 1.0 in
-    // investigate_paragraph_recombine_invocation_20260529).
+    // For M=2 the schedule is exactly {0.7, 2.0} post-I3b — index-0 special-case +
+    // index-1 at the high end of the diversity ladder.
     const temps = new Set(rewriteCalls.map((c) => (c[2] as { temperature: number }).temperature));
-    expect(temps.has(1.2)).toBe(true);
+    expect(temps.has(0.7)).toBe(true); // I3b: index-0 special-case
     expect(temps.has(2.0)).toBe(true);
 
     // Within a slot the two rewrites get distinct directives → distinct prompts.
@@ -462,16 +465,20 @@ describe('ParagraphRecombineAgent — boundary contract', () => {
 });
 
 describe('paragraphRewriteTemperature (Option A ladder)', () => {
-  it('M=1 → 1.5 (single rewrite gets the mid value)', () => {
-    expect(paragraphRewriteTemperature(0, 1, undefined)).toBe(1.5);
+  it('M=1 → 0.7 (single rewrite uses index-0 special-case temp)', () => {
+    // I3b: index-0 is always 0.7 regardless of M, including M=1.
+    expect(paragraphRewriteTemperature(0, 1, undefined)).toBe(0.7);
   });
 
-  it('M=3, unknown model cap (undefined) → [1.2, 1.6, 2.0] unclamped (floor raised to 1.2)', () => {
-    expect([0, 1, 2].map((i) => paragraphRewriteTemperature(i, 3, undefined))).toEqual([1.2, 1.6, 2.0]);
+  it('M=3, unknown model cap (undefined) → [0.7, 1.2, 2.0] (index-0 special, index-1+ diversity ladder)', () => {
+    // I3b: index-0 = 0.7 (length compliance), index-1+ walks 1.2–2.0 diversity ladder.
+    // For M=3, indices 1-2 split (2.0-1.2)=0.8 across (M-2)=1 step → [0.7, 1.2, 2.0].
+    expect([0, 1, 2].map((i) => paragraphRewriteTemperature(i, 3, undefined))).toEqual([0.7, 1.2, 2.0]);
   });
 
   it('clamps to a lower model maxTemperature', () => {
-    expect([0, 1, 2].map((i) => paragraphRewriteTemperature(i, 3, 1.0))).toEqual([1.0, 1.0, 1.0]);
+    // I3b: with maxTemp=1.0, index-0 stays 0.7 (already < 1.0), index-1+ clamps to 1.0.
+    expect([0, 1, 2].map((i) => paragraphRewriteTemperature(i, 3, 1.0))).toEqual([0.7, 1.0, 1.0]);
   });
 
   it('returns undefined (omit option) when the model rejects temperature (null cap)', () => {

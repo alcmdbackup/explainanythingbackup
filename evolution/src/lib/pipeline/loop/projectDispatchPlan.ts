@@ -457,10 +457,11 @@ export function projectDispatchPlan(
 
     if (iterCfg.agentType === 'paragraph_recombine') {
       // rank_individual_paragraphs_evolution_20260525 Phase 5 — projector branch.
-      // Cost = N paragraphs × (M rewrites + per-slot ranking). Accumulates into
-      // EstPerAgentValue.paragraphRecombine so the wizard preview shows a single
-      // 'paragraph_recombine' line item. Kill-switch (Phase 5): when
-      // EVOLUTION_PARAGRAPH_RECOMBINE_ENABLED='false', dispatchCount → 0 mirroring runtime.
+      // K1 (investigate_paragraph_rewrite_cost_undershoot_evolution_20260529): when
+      // maxDispatches > 1 + sourceMode='pool', use the same parallel-batch +
+      // sequential-top-up projection math as the generate-iteration projector
+      // (resolveParallelFloor + resolveSequentialFloor) so the wizard preview shows
+      // realistic K-dispatch projections instead of always 0-or-1.
       const { estimateParagraphRecombineCost } = require('../infra/estimateCosts') as typeof import('../infra/estimateCosts');
 
       const paragraphEnabled = opts.paragraphRecombineEnabled !== false;
@@ -468,6 +469,7 @@ export function projectDispatchPlan(
       const maxComparisonsPerParagraph = iterCfg.maxComparisonsPerParagraph ?? 8;
       const maxParagraphsPerInvocation = iterCfg.maxParagraphsPerInvocation ?? 12;
       const rewriteModel = iterCfg.paragraphRewriteModel ?? config.generationModel;
+      const maxDispatchesK = iterCfg.maxDispatches ?? 1;
 
       const paragraphCost = estimateParagraphRecombineCost(
         ctx.seedChars,
@@ -478,11 +480,57 @@ export function projectDispatchPlan(
         config.judgeModel,
       );
 
-      // Single materialized variant per invocation (one recombined article output).
+      // K1: multi-dispatch projection. For maxDispatches=1 (default), collapses to
+      // exact pre-J behavior (dispatchCount = 0 or 1). For maxDispatches>1, projects
+      // K-dispatch using the same floor math the runtime uses for top-up gating —
+      // but applied to BOTH parallel + sequential here in the projector context
+      // (the runtime uses only sequentialFloor; the projector uses both for
+      // wizard-preview math accuracy).
       const willDispatch = paragraphEnabled && poolSize >= 1;
+      let dispatchCount: number;
+      let expectedTotalDispatch: number;
+      let expectedTopUpDispatch: number;
+      let effectiveCap: 'budget' | 'safety_cap' | 'floor' | 'eligibility' | 'swiss';
+      let parallelFloorUsd = 0;
+      if (!willDispatch) {
+        dispatchCount = 0;
+        expectedTotalDispatch = 0;
+        expectedTopUpDispatch = 0;
+        effectiveCap = 'eligibility';
+      } else if (maxDispatchesK <= 1) {
+        // Back-compat single-dispatch projection.
+        dispatchCount = 1;
+        expectedTotalDispatch = 1;
+        expectedTopUpDispatch = 0;
+        effectiveCap = 'budget';
+      } else {
+        // Multi-dispatch projection: resolve floors against iter budget; size by
+        // min(budget-affordable, maxDispatches, eligible pool size, safety cap).
+        const expectedPerAgent = Math.max(0.001, paragraphCost.expected);
+        const upperPerAgent = Math.max(0.001, paragraphCost.upperBound);
+        const parallelFloor = resolveParallelFloor(config, iterBudgetUsd, expectedPerAgent);
+        const sequentialFloor = resolveSequentialFloor(config, iterBudgetUsd, expectedPerAgent, null);
+        parallelFloorUsd = parallelFloor;
+        // Parallel batch: how many fit BEFORE we hit parallel floor (using upperBound for safety).
+        const parallelAffordable = Math.max(1, Math.floor((iterBudgetUsd - parallelFloor) / upperPerAgent));
+        const parallelN = Math.min(DISPATCH_SAFETY_CAP, parallelAffordable, maxDispatchesK, poolSize);
+        // Sequential top-up: closed-form gate matches the runtime loop —
+        // K_total <= floor((iterBudget - sequentialFloor) / expected.total).
+        const totalAffordable = opts.topUpEnabled === false
+          ? parallelN
+          : Math.max(parallelN, Math.floor((iterBudgetUsd - sequentialFloor) / expectedPerAgent));
+        const finalDispatch = Math.min(totalAffordable, maxDispatchesK, poolSize, DISPATCH_SAFETY_CAP);
+        dispatchCount = parallelN;
+        expectedTotalDispatch = finalDispatch;
+        expectedTopUpDispatch = Math.max(0, finalDispatch - parallelN);
+        if (finalDispatch === maxDispatchesK) effectiveCap = 'safety_cap';
+        else if (finalDispatch === poolSize) effectiveCap = 'eligibility';
+        else if (finalDispatch === DISPATCH_SAFETY_CAP) effectiveCap = 'safety_cap';
+        else effectiveCap = 'budget';
+      }
+
       const expectedCost = willDispatch ? paragraphCost.expected : 0;
       const upperCost = willDispatch ? paragraphCost.upperBound : 0;
-      const dispatchCount = willDispatch ? 1 : 0;
 
       plan.push({
         iterIdx,
@@ -497,13 +545,13 @@ export function projectDispatchPlan(
         },
         maxAffordable: { atExpected: dispatchCount, atUpperBound: dispatchCount },
         dispatchCount,
-        expectedTotalDispatch: dispatchCount,
-        expectedTopUpDispatch: 0,
-        effectiveCap: dispatchCount === 0 ? 'eligibility' : 'budget',
+        expectedTotalDispatch,
+        expectedTopUpDispatch,
+        effectiveCap,
         poolSizeAtStart: poolSize,
-        parallelFloorUsd: 0,
+        parallelFloorUsd,
       });
-      poolSize += dispatchCount;
+      poolSize += expectedTotalDispatch;
       continue;
     }
 

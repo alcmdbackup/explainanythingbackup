@@ -186,6 +186,48 @@ export function computeRankingEstimationErrorPct(ctx: FinalizationContext): numb
   return errors.reduce((a, b) => a + b, 0) / errors.length;
 }
 
+/** G7 (investigate_paragraph_rewrite_cost_undershoot_evolution_20260529):
+ *  Mean per-invocation paragraph_rewrite-phase error % across paragraph_recombine
+ *  invocations. Reads from `execution_detail.paragraph_rewrite.{estimatedCost,cost}`
+ *  populated by the agent at G4/G5. Returns null when no paragraph_recombine
+ *  invocations have estimation data on the run. */
+export function computeParagraphRewriteEstimationErrorPct(ctx: FinalizationContext): number | null {
+  if (!ctx.invocationDetails) return null;
+  const errors: number[] = [];
+  for (const detail of ctx.invocationDetails.values()) {
+    const d = detail as unknown as Record<string, unknown>;
+    const phase = d.paragraph_rewrite as Record<string, unknown> | undefined;
+    if (!phase) continue;
+    const est = phase.estimatedCost;
+    const act = phase.cost;
+    if (typeof est === 'number' && typeof act === 'number') {
+      const e = pctError(act, est);
+      if (e !== null) errors.push(e);
+    }
+  }
+  if (errors.length === 0) return null;
+  return errors.reduce((a, b) => a + b, 0) / errors.length;
+}
+
+/** G7: same as above but for paragraph_rank phase. */
+export function computeParagraphRankEstimationErrorPct(ctx: FinalizationContext): number | null {
+  if (!ctx.invocationDetails) return null;
+  const errors: number[] = [];
+  for (const detail of ctx.invocationDetails.values()) {
+    const d = detail as unknown as Record<string, unknown>;
+    const phase = d.paragraph_rank as Record<string, unknown> | undefined;
+    if (!phase) continue;
+    const est = phase.estimatedCost;
+    const act = phase.cost;
+    if (typeof est === 'number' && typeof act === 'number') {
+      const e = pctError(act, est);
+      if (e !== null) errors.push(e);
+    }
+  }
+  if (errors.length === 0) return null;
+  return errors.reduce((a, b) => a + b, 0) / errors.length;
+}
+
 // ─── Budget-floor observables (passed through FinalizationContext) ─────────────
 
 export function computeAgentCostProjected(ctx: FinalizationContext): number | null {

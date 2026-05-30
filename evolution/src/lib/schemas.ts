@@ -672,6 +672,16 @@ export const iterationConfigSchema = z.object({
    *  investigate_paragraph_rewrite_cost_undershoot_evolution_20260529 (Option F).
    *  MUST be emitted by `canonicalizeIterationConfig` to participate in config_hash. */
   perInvocationCapUsd: z.number().min(0.001).max(0.5).optional(),
+  /** Hard upper bound on the number of parent variants paragraph_recombine will
+   *  process per iteration. Default behavior when unset: `1` (the existing
+   *  single-dispatch behavior pre-J). Set to `>1` to opt into multi-dispatch:
+   *  the dispatch loop selects up to `maxDispatches` distinct parents from the
+   *  `qualityCutoff`-filtered eligible set and runs `ParagraphRecombineAgent`
+   *  in parallel against each, mirroring the `generate` iteration's parallel+top-up
+   *  pattern. Cap of 10 matches the practical eligible-parent pool size. Added by
+   *  investigate_paragraph_rewrite_cost_undershoot_evolution_20260529 (Option J).
+   *  MUST be emitted by `canonicalizeIterationConfig` to participate in config_hash. */
+  maxDispatches: z.number().int().min(1).max(10).optional(),
 }).refine(
   // sourceMode is for parent-article selection in variant-producing iterations.
   // Debate selects parents internally (top-2 from pool snapshot per Decision §16) so
@@ -769,6 +779,9 @@ export const iterationConfigSchema = z.object({
 ).refine(
   (c) => c.agentType === 'paragraph_recombine' || c.perInvocationCapUsd === undefined,
   { message: 'perInvocationCapUsd only valid when agentType is paragraph_recombine' },
+).refine(
+  (c) => c.agentType === 'paragraph_recombine' || c.maxDispatches === undefined,
+  { message: 'maxDispatches only valid when agentType is paragraph_recombine' },
 );
 
 export type IterationConfig = z.infer<typeof iterationConfigSchema>;
@@ -2204,6 +2217,33 @@ export const slotRecombineExecutionDetailSchema = executionDetailBaseSchema.exte
     elo: z.number(),
     uncertainty: z.number().min(0),
     costUsd: z.number().min(0),
+  }).optional(),
+  /** G4 (investigate_paragraph_rewrite_cost_undershoot_evolution_20260529): projector
+   *  output captured at dispatch time + per-phase breakdown. Persisted so that
+   *  paragraph_recombine joins the existing `cost_estimation_error_pct` / `estimated_cost`
+   *  run-level metric family AUTOMATICALLY (the finalization compute functions iterate
+   *  all invocation details agnostic to agent_name and look for `estimationErrorPct`
+   *  + `estimatedTotalCost` at the top level).
+   *
+   *  - `estimatedTotalCost`: projector's `expected` (per-invocation, USD).
+   *  - `estimatedTotalCostUpperBound`: projector's `upperBound` (1.3× expected).
+   *  - `estimationErrorPct`: `(actualCost - estimatedCost) / estimatedCost × 100`.
+   *  - `paragraph_rewrite.{estimatedCost,cost,estimationErrorPct}`: per-phase split.
+   *  - `paragraph_rank.{estimatedCost,cost,estimationErrorPct}`: per-phase split.
+   *
+   *  All `.optional()` for back-compat with existing rows. */
+  estimatedTotalCost: z.number().min(0).optional(),
+  estimatedTotalCostUpperBound: z.number().min(0).optional(),
+  estimationErrorPct: z.number().optional(),
+  paragraph_rewrite: z.object({
+    estimatedCost: z.number().min(0),
+    cost: z.number().min(0),
+    estimationErrorPct: z.number().optional(),
+  }).optional(),
+  paragraph_rank: z.object({
+    estimatedCost: z.number().min(0),
+    cost: z.number().min(0),
+    estimationErrorPct: z.number().optional(),
   }).optional(),
 });
 

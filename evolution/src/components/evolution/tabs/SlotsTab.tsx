@@ -135,7 +135,15 @@ export function SlotsTab({
             {previewText(selectedSlot.originalText, 280)}
           </p>
           <div className="mt-2 flex flex-wrap gap-3 text-xs font-ui text-[var(--text-muted)]">
-            <span>budget: ${selectedSlot.perSlotBudgetUsd.toFixed(4)}</span>
+            {/* K7 (investigate_paragraph_rewrite_cost_undershoot_evolution_20260529):
+                Pre-K7 this rendered `budget: ${perSlotBudgetUsd}` which was the
+                cap-derived per-slot budget — typically 80–100× actual spend, creating
+                a misleading "1% spent" perception. Post-K7 we show the safety cap with
+                an explicit label (`cap`) so users understand it's a safety rail, not
+                a target. Spend is the realistic signal.  */}
+            <span title="Per-slot safety cap derived from perInvocationCapUsd / slotCount. This is the upper bound the slot will not exceed before self-aborting — NOT a spend target. Compare against the projector's `expected` value (see Cost Estimates tab) for the realistic envelope.">
+              cap: ${selectedSlot.perSlotBudgetUsd.toFixed(4)}
+            </span>
             <span>spent: ${selectedSlot.spentUsd.toFixed(4)}</span>
             <span>rewrites: {selectedSlot.rewrites.length}</span>
             <span>dropped pre-rank: {selectedSlot.rewrites.filter((r) => r.dropReason).length}</span>

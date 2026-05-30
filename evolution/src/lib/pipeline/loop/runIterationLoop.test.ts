@@ -67,6 +67,13 @@ jest.mock('../infra/estimateCosts', () => ({
   estimateGenerationCost: jest.fn(() => 2.0),
   estimateRankingCost: jest.fn(() => 1.0),
   getVariantChars: jest.fn(() => 9197),
+  // J4 (investigate_paragraph_rewrite_cost_undershoot_evolution_20260529):
+  // multi-dispatch refactor calls the projector for parallel batch sizing.
+  estimateParagraphRecombineCost: jest.fn(() => ({
+    expected: 0.01,
+    upperBound: 0.013,
+    perPhase: { paragraphRewriteCost: 0.006, paragraphRankCost: 0.004 },
+  })),
 }));
 
 jest.mock('../infra/trackBudget', () => {

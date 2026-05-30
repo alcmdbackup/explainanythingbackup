@@ -88,21 +88,66 @@ The deferred work spans:
 - Phase 7 (K — wizard + admin UI surfacing) — depends on J.
 - Phase 4-5 (I/C — re-diagnose length_under + fix) — depends on Phase 1 verification.
 
-## Phase 4: Re-diagnose length_under (I)
+## Phase 1: Observability — G4–G7 (DONE, second sweep)
 ### Work Done
-(Deferred — depends on Phase 1 G4-G7 + staging verification.)
+- **G4** (`estimateCosts.ts`): refactored `estimateParagraphRecombineCost` to also return `perPhase.{paragraphRewriteCost, paragraphRankCost}` so per-phase projections can be persisted into `execution_detail`.
+- **G4** (`ParagraphRecombineAgent.ts`): call the projector at the top of `execute()` with actual knobs + parent length + judge/rewriter models; persist `estimatedTotalCost`, `estimatedTotalCostUpperBound`, plus per-phase split into `execution_detail`.
+- **G5**: compute `estimationErrorPct = (actual - estimated) / estimated × 100` at finalization for both top-level and per-phase; persist into the detail returned to `Agent.run()`.
+- **G6** (verified, no code change): `computeCostEstimationErrorPct` + `computeEstimatedCost` (finalization.ts:94-130) iterate ALL invocation details agnostic to `agent_name` and pick up `estimationErrorPct` + `estimatedTotalCost`. paragraph_recombine joins automatically.
+- **G7** (`finalization.ts`, `registry.ts`, `metricCatalog.ts`, `RunEntity`, `StrategyEntity`, `ExperimentEntity`): new per-phase metrics `paragraph_rewrite_estimation_error_pct`, `paragraph_rank_estimation_error_pct` (run level) + `avg_paragraph_rewrite_estimation_error_pct`, `avg_paragraph_rank_estimation_error_pct` (strategy/experiment level). Mirrored through METRIC_REGISTRY + METRIC_CATALOG + entity classes so the dual-registry parity test passes.
+- Updated MetricName union in `evolution/src/lib/metrics/types.ts` with the four new entries.
 
-## Phase 5: Drop-rate fix (C, CONDITIONAL on Phase 4)
+## Phase 3: Display fixes — H2–H4 (DONE)
 ### Work Done
-(Deferred.)
+- **H2** (`RunsTable.tsx:143-158`): inline "Spent" fallback now sums all 9 per-purpose cost metrics (added `paragraph_recombine_cost`, `evaluation_cost`, `iterative_edit_cost`, `proposer_approver_criteria_cost`, `debate_cost` alongside the existing 4). Pre-fix paragraph_recombine-only runs with missing `cost` rollup would under-report by the full paragraph_recombine spend.
+- **H3** (`EntityMetricsTab.tsx:71-84`): expanded `COST_DESCRIPTIONS` to include 7 missing entries (paragraph_recombine, debate, evaluation, iterative_edit, proposer_approver_criteria, reflection costs + their totals).
+- **H4** (`EntityMetricsTab.tsx`): fixed the wrong `cost` description (was "= generation + ranking + seed" — factually wrong post Phase-6).
 
-## Phase 6: Multi-dispatch refactor (J)
+## Phase 4: Re-diagnose length_under — I3 + I4 (DONE)
 ### Work Done
-(Deferred — large architectural change, own session.)
+- **I3a (`buildParagraphRewritePrompt.ts`)**: replaced the vague "~0.85x the original length" directive with a HARD CHARACTER COUNT computed from `paragraphText.length`. Rule 3 now reads: "Your rewrite MUST be at least N characters and at most M characters" where N = ceil(0.85 × original) and M = floor(1.20 × original). LLMs follow concrete char counts far better than ratios. Pre-I3a the post-fix invocations showed index-0 ratios of 0.50–0.74 (mean 0.67) — well below the 0.8 validator floor.
+- **I3b (`ParagraphRecombineAgent.ts`)**: per-index temperature override — added `PARAGRAPH_REWRITE_INDEX_0_TEMP = 0.7` constant; index-0 now uses 0.7 (length compliance for the "tighten" directive); index-1+ continues to walk the 1.2–2.0 diversity ladder. New schedule for M=3: `[0.7, 1.2, 2.0]`. For M=2: `[0.7, 2.0]`. For M=1: `0.7`.
+- **I4**: documented chosen approach (a + b combo) in the planning doc.
 
-## Phase 7: Wizard + admin UI (K)
+## Phase 5: Drop-rate fix — C1 (DONE)
 ### Work Done
-(Deferred — depends on Phase 1 G4-G7 + Phase 6 J.)
+- **C1**: combined I3a (hard char-count) + I3b (per-index temp override). Lands together as a single bundle since they're complementary. Validation: pinned temperature tests updated; all 31 paragraph agent tests pass.
+
+## Phase 6: Multi-dispatch refactor — J1, J1.5, J2, J4, J5 (DONE)
+### Work Done
+- **J1** (`schemas.ts`): added `maxDispatches: z.number().int().min(1).max(10).optional()` to `iterationConfigSchema` with a paragraph_recombine-only refinement. Default behavior (unset → K=1) preserves single-dispatch back-compat exactly.
+- **J1.5** (`findOrCreateStrategy.ts`): extended `canonicalizeIterationConfig` to emit `maxDispatches` (alongside the previously-added `perInvocationCapUsd`) so two strategies that differ only in maxDispatches don't collide on `config_hash`.
+- **J2**: reused the existing strategy-level budget-floor fields (`minBudgetAfter*Fraction`, `minBudgetAfter*AgentMultiple`) — no new schema fields needed. Both fraction-of-budget AND multiple-of-agent-cost floor methods are supported out of the box via `budgetFloorResolvers.ts`.
+- **J4** (`runIterationLoop.ts` paragraph_recombine branch): replaced the single-`resolveParent` + single-`dispatchOneAgent` flow with a parallel-batch + sequential-top-up loop modeled on the generate-iteration RUNTIME pattern. Key elements:
+  1. Eligible parent set: filter pool via `qualityCutoff` + `fromArena` exclusion.
+  2. Seeded pre-shuffle for distinct-parent enforcement (no `resolveParent` signature change needed).
+  3. Parallel batch sizing: `min(DISPATCH_SAFETY_CAP, floor(availBudget / projector.expected), maxDispatches, eligibleParents.length)`.
+  4. `Promise.allSettled` parallel dispatch.
+  5. Measure `actualAvgCostPerAgent` from iter-tracker spend delta.
+  6. Sequential top-up gated via `resolveSequentialFloor` (matches generate runtime convention).
+  7. Single `MergeRatingsAgent.run()` over all surfaced variants' match histories.
+- **J5**: inlined the loop (~80 LOC). No new helper file needed.
+- **J6/J7/J8**: agent reentrancy, scope nesting, syncToArena safety all hold by construction (per-invocation AgentCostScope, distinct slotTopicId per parent). Confirmed at the code-mapping level; integration test will validate at runtime once Phase 9 verification fires.
+
+## Phase 7: Wizard + admin UI — K1, K2, K7 (DONE)
+### Work Done
+- **K1** (`projectDispatchPlan.ts:458-507`): extended paragraph_recombine projector branch to compute `dispatchCount` via parallel-floor + sequential-floor math (mirrors generate iteration's projector pattern). For maxDispatches=1 (default), collapses to exact pre-J behavior. For maxDispatches>1: projects `dispatchCount = parallelN`, `expectedTotalDispatch` includes top-up estimate, `effectiveCap ∈ {'budget','safety_cap','eligibility'}`.
+- **K2**: `EstPerAgentValue.paragraphRecombine` semantic was already per-invocation; K1's `dispatchCount > 1` flows through to the existing `DispatchPlanView.tsx:84` render path multiplying by dispatch count.
+- **K7** (`SlotsTab.tsx:138-139`): changed `budget: $X spent: $Y` → `cap: $X spent: $Y` with a tooltip explaining the cap is a safety rail, not a target. Collapses the user's "1% spent" perception.
+
+### Deferred for follow-up (out-of-scope follow-up project)
+- **G10/G11**: staging verification — requires deploy + fresh paragraph_recombine run.
+- **K3-K6**: wizard preview rendering breakdown chips + Cost Estimates tab paragraph_recombine branch + admin UI form panel for budget floors. Data plumbing (K1 + K7) ships now; UI components are additive and benefit from larger design work.
+- **F4**: optional projector output annotation for wizard "expected $X / cap $Y" side-by-side display.
+- **J3**: optional per-iteration budget-floor overrides on IterationConfig (vs current strategy-level). Defer if scope-creep.
+- **J9**: manual staging multi-dispatch verification — requires deploy.
+- **K8**: wizard preview manual verification — requires deploy.
+
+## Final validation (this session)
+- `npm run typecheck` ✅
+- `npm run lint` ✅
+- `npm test` (full repo): **6910 / 6910 passing**, 16 skipped, 0 failed ✅
+- `evolution/src` tests: **2955 / 2955 passing**, 3 skipped ✅
 
 ## Phase 4: Re-diagnose length_under (I)
 ### Work Done

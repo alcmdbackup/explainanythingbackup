@@ -45,6 +45,7 @@ import {
 } from '../../../../services/slotTopicActions';
 import { buildParagraphRewritePrompt, PARAGRAPH_REWRITE_DIRECTIVES } from './buildParagraphRewritePrompt';
 import { getModelMaxTemperature } from '@/config/modelRegistry';
+import { estimateParagraphRecombineCost } from '../../../pipeline/infra/estimateCosts';
 
 // ─── Defaults (per D9) ────────────────────────────────────────────
 
@@ -63,25 +64,43 @@ const PRE_FINAL_RANKING_GATE_FRACTION = 0.9;
 const SLOT_SELF_ABORT_FRACTION = 0.9;
 
 /** Lower bound of the per-rewrite temperature ladder. Raised from 1.0 → 1.2 by
- *  investigate_paragraph_recombine_invocation_20260529: the index-0 "tighten" rewrite ran at temp
- *  1.0 and reliably underflowed the 0.8 length floor (89% length_under drop rate on slot index 0).
- *  Starting the ladder hotter gives the tighten rewrite enough variance to land in the ±20% window. */
+ *  investigate_paragraph_recombine_invocation_20260529. Index-0 is now special-cased
+ *  to a lower value (see PARAGRAPH_REWRITE_INDEX_0_TEMP).
+ *
+ *  I3b (investigate_paragraph_rewrite_cost_undershoot_evolution_20260529): the 1.2
+ *  floor still produced 92-100% `length_under` drops on index-0 (the "tighten"
+ *  directive). Per R4D: index-0 outputs landed at 0.50–0.74 of original (mean 0.67),
+ *  well below the 0.8 validator floor. Diagnosis: at high temperature the LLM
+ *  over-compresses aggressively despite the explicit floor directive. Fix: drop
+ *  index-0 to 0.7 while keeping index-1/2 on the diversity ladder. The "tighten"
+ *  directive itself provides the variance index-0 needs from the prompt; high
+ *  temperature just made the LLM ignore the length constraint. */
 const PARAGRAPH_REWRITE_TEMP_FLOOR = 1.2;
+const PARAGRAPH_REWRITE_INDEX_0_TEMP = 0.7;
 
-/** Per-rewrite temperature ladder spanning 1.2–2.0 to diversify the M parallel rewrites
- *  (Option A, investigate_matchmaking_paragraph_recombine_20260528; floor raised in
- *  investigate_paragraph_recombine_invocation_20260529). For M rewrites the schedule is
- *  `FLOOR + index*(2.0 - FLOOR)/(M-1)` (M=1 → 1.5). Clamped to the model's maxTemperature;
- *  returns undefined when the model rejects temperature so the caller omits the option. */
+/** Per-rewrite temperature ladder. For index-0 ("tighten" directive) we use a low
+ *  temperature (0.7) for length compliance; for index-1+ we use the 1.2–2.0 diversity
+ *  ladder so the "add example" and "improve flow" rewrites get genuine variance.
+ *  Schedule for index ≥ 1: `FLOOR + (index-1)*(2.0 - FLOOR)/(M-2)` when M ≥ 3,
+ *  collapsing to FLOOR when M < 3. M=1 (no diversity needed) returns 0.7. Clamped to
+ *  the model's maxTemperature; returns undefined when the model rejects temperature. */
 export function paragraphRewriteTemperature(
   index: number,
   total: number,
   maxTemp: number | null | undefined,
 ): number | undefined {
   if (maxTemp === null) return undefined; // model doesn't support temperature → omit option
-  const base = total > 1
-    ? PARAGRAPH_REWRITE_TEMP_FLOOR + (index * (2.0 - PARAGRAPH_REWRITE_TEMP_FLOOR)) / (total - 1)
-    : 1.5;
+  let base: number;
+  if (index === 0) {
+    // I3b: index-0 ("tighten") always low-temp for length compliance.
+    base = PARAGRAPH_REWRITE_INDEX_0_TEMP;
+  } else if (total <= 2) {
+    // M=2 only has index 0 and index 1; put index 1 at the high end for diversity.
+    base = 2.0;
+  } else {
+    // M ≥ 3: index ≥ 1 walks the 1.2–2.0 ladder.
+    base = PARAGRAPH_REWRITE_TEMP_FLOOR + ((index - 1) * (2.0 - PARAGRAPH_REWRITE_TEMP_FLOOR)) / (total - 2);
+  }
   return typeof maxTemp === 'number' ? Math.min(base, maxTemp) : base; // undefined (unknown model) → pass through
 }
 
@@ -172,6 +191,24 @@ export class ParagraphRecombineAgent extends Agent<
     const paragraphCount = slots.length;
     const perSlotBudgetUsd = paragraphCount > 0 ? perInvocationCapUsd / paragraphCount : 0;
 
+    // ─── G4 (investigate_paragraph_rewrite_cost_undershoot_evolution_20260529):
+    // Capture projector output at dispatch time with the ACTUAL inputs (parent length,
+    // slot count, rewrites per slot, judge/rewriter models). Persisted into
+    // execution_detail so the run/strategy/experiment-level `cost_estimation_error_pct`
+    // and `estimated_cost` metric family auto-joins for paragraph_recombine without
+    // requiring any finalization.ts changes (the existing compute functions iterate
+    // all invocation details agnostic to agent_name).
+    const rewriteModelForProjector = ctx.defaultModel ?? 'gpt-4.1-nano';
+    const judgeModelForProjector = ctx.config?.judgeModel ?? 'qwen-2.5-7b-instruct';
+    const projection = estimateParagraphRecombineCost(
+      parentText.length,
+      paragraphCount,
+      rewritesPerParagraph,
+      maxComparisonsPerParagraph,
+      rewriteModelForProjector,
+      judgeModelForProjector,
+    );
+
     // Extract H1 title from parent for the rewrite prompt's context.
     const parentH1 = extractH1(parentText);
 
@@ -202,6 +239,22 @@ export class ParagraphRecombineAgent extends Agent<
 
     // Sort slotDetails by slotIndex so the detail is deterministic.
     slotDetails.sort((a, b) => a.slotIndex - b.slotIndex);
+
+    // G5 (investigate_paragraph_rewrite_cost_undershoot_evolution_20260529): compute
+    // per-phase actuals from the run-cumulative shared tracker, then compute
+    // estimationErrorPct = (actual - estimated) / estimated × 100 for both per-phase
+    // and top-level. Persisted into the execution_detail base populated below.
+    const totalPhaseCosts = invocationScope.getPhaseCosts();
+    const actualRewriteCost = totalPhaseCosts['paragraph_rewrite'] ?? 0;
+    const actualRankCost = totalPhaseCosts['paragraph_rank'] ?? 0;
+    const actualTotalCost = actualRewriteCost + actualRankCost; // matches paragraph_recombine_cost rollup
+    const pctError = (actual: number, est: number): number | undefined => {
+      if (est <= 0 || !Number.isFinite(actual) || !Number.isFinite(est)) return undefined;
+      return ((actual - est) / est) * 100;
+    };
+    const estimationErrorPct = pctError(actualTotalCost, projection.expected);
+    const paragraphRewriteErrorPct = pctError(actualRewriteCost, projection.perPhase.paragraphRewriteCost);
+    const paragraphRankErrorPct = pctError(actualRankCost, projection.perPhase.paragraphRankCost);
 
     // Phase 9 cost-attribution fix: write the run-level paragraph_recombine_cost as the
     // SUM of the two paragraph phase-cost accumulators. The per-slot LLM client has no
@@ -235,6 +288,20 @@ export class ParagraphRecombineAgent extends Agent<
         ...(formatResult.issues.length > 0 && { formatIssues: formatResult.issues }),
       },
       totalCost: invocationScope.getOwnSpent!(),
+      // G4/G5: projector output + actuals + per-phase split.
+      estimatedTotalCost: projection.expected,
+      estimatedTotalCostUpperBound: projection.upperBound,
+      ...(estimationErrorPct !== undefined && { estimationErrorPct }),
+      paragraph_rewrite: {
+        estimatedCost: projection.perPhase.paragraphRewriteCost,
+        cost: actualRewriteCost,
+        ...(paragraphRewriteErrorPct !== undefined && { estimationErrorPct: paragraphRewriteErrorPct }),
+      },
+      paragraph_rank: {
+        estimatedCost: projection.perPhase.paragraphRankCost,
+        cost: actualRankCost,
+        ...(paragraphRankErrorPct !== undefined && { estimationErrorPct: paragraphRankErrorPct }),
+      },
     };
 
     if (!formatResult.valid) {

@@ -600,9 +600,21 @@ export function estimateParagraphRecombineCost(
   maxComparisonsPerParagraph: number,
   rewriteModel: string,
   judgeModel: string,
-): { expected: number; upperBound: number } {
+): {
+  expected: number;
+  upperBound: number;
+  /** Per-phase split (investigate_paragraph_rewrite_cost_undershoot_evolution_20260529 G4).
+   *  Total rewrite cost = N × M × per-rewrite. Total rank cost = N × M × per-slot-rank.
+   *  Sum equals `expected`. Persisted into `execution_detail.paragraph_rewrite.estimatedCost`
+   *  and `execution_detail.paragraph_rank.estimatedCost` for per-phase projector-vs-actual
+   *  visibility on the run/strategy/experiment level metric family. */
+  perPhase: {
+    paragraphRewriteCost: number;
+    paragraphRankCost: number;
+  };
+} {
   if (paragraphCount <= 0 || rewritesPerParagraph <= 0) {
-    return { expected: 0, upperBound: 0 };
+    return { expected: 0, upperBound: 0, perPhase: { paragraphRewriteCost: 0, paragraphRankCost: 0 } };
   }
 
   // Per-paragraph rewrite cost.
@@ -633,6 +645,10 @@ export function estimateParagraphRecombineCost(
 
   const expected = totalRewriteCost + totalRankCost;
   const upperBound = expected * 1.3;
-  return { expected, upperBound };
+  return {
+    expected,
+    upperBound,
+    perPhase: { paragraphRewriteCost: totalRewriteCost, paragraphRankCost: totalRankCost },
+  };
 }
 
