@@ -51,7 +51,14 @@ import { getModelMaxTemperature } from '@/config/modelRegistry';
 const DEFAULT_REWRITES_PER_PARAGRAPH = 3;
 const DEFAULT_MAX_COMPARISONS_PER_PARAGRAPH = 6;
 const DEFAULT_MAX_PARAGRAPHS_PER_INVOCATION = 12;
-const DEFAULT_PER_INVOCATION_CAP_USD = 0.4;
+// Lowered $0.40 → $0.05 by investigate_paragraph_rewrite_cost_undershoot_evolution_20260529 (Option F).
+// Rationale: the $0.40 default was 33× the projector's upperBound (~$0.012) and 80× actual median
+// spend (~$0.0048) on staging. That cap-vs-actual disconnect was the entire source of the
+// user-perceived "98.8% under cap" illusion (rendered by SlotsTab as `budget: $0.0333  spent: $0.0004`).
+// At $0.05 → per-slot $0.00417 at 12 slots → pre-final-ranking gate $0.045 still retains 9× headroom.
+// Strategies that intentionally need a larger envelope override via `iterCfg.perInvocationCapUsd`
+// (schemas.ts iterationConfigSchema; whitelisted in canonicalizeIterationConfig per J1.5).
+const DEFAULT_PER_INVOCATION_CAP_USD = 0.05;
 const PRE_FINAL_RANKING_GATE_FRACTION = 0.9;
 const SLOT_SELF_ABORT_FRACTION = 0.9;
 
@@ -347,17 +354,32 @@ async function processSlot(params: ProcessSlotParams): Promise<void> {
   // Per-slot AgentCostScope (D16). Nested under invocationScope so the slot self-abort
   // check is independent of sibling slots, while budget reserves still flow up.
   const slotScope = createAgentCostScope(invocationScope);
-  // Build a per-slot LLM client bound to slotScope so per-paragraph_rewrite calls are
-  // attributed to this slot's spend, not aggregated across slots.
-  const slotLlm = ctx.rawProvider && ctx.defaultModel
-    ? createEvolutionLLMClient(ctx.rawProvider, slotScope, ctx.defaultModel)
-    : llm; // Tests may pass llm directly without rawProvider.
 
   // Phase 9 retrofit R3: per-slot logger.child for evolution_logs.subagent_name
   // dotted-path attribution (e.g. 'slot.2'). Optional-chain because unit tests
   // pass a flat-mock logger without .child(). The rankNewVariant call below
   // gets a further .child('ranking') extension.
   const slotLogger = ctx.logger.child?.(`slot.${slot.paragraphIndex}`) ?? ctx.logger;
+
+  // Build a per-slot LLM client bound to slotScope so per-paragraph_rewrite calls are
+  // attributed to this slot's spend, not aggregated across slots.
+  //
+  // G8 (investigate_paragraph_rewrite_cost_undershoot_evolution_20260529): thread
+  // db/runId/invocationId so per-slot LLM calls write `llmCallTracking` rows linked
+  // back to this invocation. Pre-G8 the per-slot client was db-less, so
+  // `paragraph_rewrite`/`paragraph_rank` calls produced ZERO audit rows on staging.
+  // The slot's per-call live cost-metric writes via writeMetricMax also become
+  // available — but the agent's once-per-invocation rollup write (in execute()
+  // below) is monotonic and MAX-safe, so the live writes are belt-and-suspenders.
+  const slotLlm = ctx.rawProvider && ctx.defaultModel
+    ? createEvolutionLLMClient(
+        ctx.rawProvider, slotScope, ctx.defaultModel,
+        slotLogger,
+        ctx.db, ctx.runId,
+        undefined, // generationTemperature: per-rewrite temperature is passed per-call via options
+        ctx.invocationId === '' ? undefined : ctx.invocationId,
+      )
+    : llm; // Tests may pass llm directly without rawProvider.
 
   // ─── Topic setup (D10) ───────────────────────────────────────────
   let topicId: string;
@@ -420,21 +442,34 @@ async function processSlot(params: ProcessSlotParams): Promise<void> {
     Array.from({ length: rewritesPerParagraph }, async (_, index) => {
       // Self-abort check before each rewrite (D16).
       if (slotScope.getOwnSpent!() >= SLOT_SELF_ABORT_FRACTION * perSlotBudgetUsd) {
-        return { index, skipped: true as const };
+        return { index, skipped: true as const, temperature: undefined as number | undefined };
       }
       const directive = PARAGRAPH_REWRITE_DIRECTIVES[index % PARAGRAPH_REWRITE_DIRECTIVES.length];
       const temperature = paragraphRewriteTemperature(index, rewritesPerParagraph, rewriteMaxTemp);
       const prompt = buildParagraphRewritePrompt(parentH1, slot.originalText, slot.paragraphIndex, totalSlots, directive);
       const tStart = Date.now();
+      // G1 (investigate_paragraph_rewrite_cost_undershoot_evolution_20260529): snapshot
+      // per-rewrite cost via slotScope.getOwnSpent() delta. The shared run-cumulative
+      // accumulator means per-call deltas can race when rewrites complete concurrently
+      // (Promise.allSettled). To get monotonic per-rewrite cost regardless of ordering,
+      // we snapshot the slot's `paragraph_rewrite` phase total before and after THIS
+      // call's complete() resolves (single-threaded JS event loop guarantees the
+      // recordSpend handler for this call settles before the next microtask). Falls
+      // back to a 0 cost on error (the release() refunded the reservation).
+      const phasesBefore = slotScope.getPhaseCosts();
+      const rewriteBefore = phasesBefore['paragraph_rewrite'] ?? 0;
       let text: string;
       try {
         text = await slotLlm.complete(prompt, 'paragraph_rewrite', temperature !== undefined ? { temperature } : undefined);
       } catch (err) {
-        return { index, skipped: false as const, error: err instanceof Error ? err.message : String(err) };
+        return { index, skipped: false as const, error: err instanceof Error ? err.message : String(err), temperature };
       }
+      const phasesAfter = slotScope.getPhaseCosts();
+      const rewriteAfter = phasesAfter['paragraph_rewrite'] ?? 0;
+      const costUsd = Math.max(0, rewriteAfter - rewriteBefore);
       const durationMs = Date.now() - tStart;
       const validation = validateParagraphRewrite(text, slot.originalText.length);
-      return { index, skipped: false as const, text, durationMs, validation };
+      return { index, skipped: false as const, text, durationMs, validation, costUsd, temperature };
     }),
   );
 
@@ -445,14 +480,27 @@ async function processSlot(params: ProcessSlotParams): Promise<void> {
     if (r.status !== 'fulfilled') continue;
     const rv = r.value;
     if (rv.skipped) {
-      continue; // skipped due to self-abort
-    }
-    if ('error' in rv) {
+      // G1: record the skipped status so per-slot drill-down can see which rewrites
+      // never fired due to self-abort. Cost is 0 (no LLM call happened).
       rewrites.push({
         index: rv.index,
         text: '',
         costUsd: 0,
         formatValid: false,
+        ...(rv.temperature !== undefined && { temperature: rv.temperature }),
+        status: 'skipped_slot_abort',
+      });
+      continue;
+    }
+    if ('error' in rv) {
+      // G1: LLM call threw. The reserve was release()'d, so cost is 0.
+      rewrites.push({
+        index: rv.index,
+        text: '',
+        costUsd: 0,
+        formatValid: false,
+        ...(rv.temperature !== undefined && { temperature: rv.temperature }),
+        status: 'llm_error',
       });
       continue;
     }
@@ -462,9 +510,12 @@ async function processSlot(params: ProcessSlotParams): Promise<void> {
       index: rv.index,
       text: rv.text,
       ...(variantId && { slotVariantId: variantId }),
-      costUsd: 0, // Per-call cost is bundled in slotScope.getOwnSpent() at slot end.
+      // G1: per-rewrite cost from the slotScope.getOwnSpent() delta around this call.
+      costUsd: rv.costUsd,
       durationMs: rv.durationMs,
+      ...(rv.temperature !== undefined && { temperature: rv.temperature }),
       formatValid: valid,
+      status: valid ? 'succeeded' : 'dropped',
       ...(!valid && rv.validation.dropReason && { dropReason: rv.validation.dropReason }),
     });
     if (valid && variantId) {
@@ -536,6 +587,12 @@ async function processSlot(params: ProcessSlotParams): Promise<void> {
     completeStructured: (prompt, schema, schemaName, label, options) =>
       slotLlm.completeStructured(prompt, schema, schemaName, toRankLabel(label) as typeof label, options),
   };
+  // G2 (investigate_paragraph_rewrite_cost_undershoot_evolution_20260529): snapshot
+  // the per-slot paragraph_rank phase total before the ranking loop so we can record
+  // ranking.cost as a deltatized accounting of just THIS slot's ranking spend.
+  const phasesBeforeRanking = slotScope.getPhaseCosts();
+  const rankBefore = phasesBeforeRanking['paragraph_rank'] ?? 0;
+  let rankingStatus: 'completed' | 'self_aborted' | 'skipped_insufficient_pool' = 'completed';
   for (const candidate of survivingRewriteVariants) {
     try {
       // Snapshot before ratings for the candidate's comparisons.
@@ -572,9 +629,14 @@ async function processSlot(params: ProcessSlotParams): Promise<void> {
 
     // Self-abort check between rank cycles.
     if (slotScope.getOwnSpent!() >= SLOT_SELF_ABORT_FRACTION * perSlotBudgetUsd) {
+      rankingStatus = 'self_aborted';
       break;
     }
   }
+  // G2: capture per-slot ranking cost via the paragraph_rank phase delta.
+  const phasesAfterRanking = slotScope.getPhaseCosts();
+  const rankAfter = phasesAfterRanking['paragraph_rank'] ?? 0;
+  const rankingCost = Math.max(0, rankAfter - rankBefore);
 
   // ─── Pick winner ─────────────────────────────────────────────────
   const winnerCandidates: WinnerCandidate[] = localPool.map((v) => ({ id: v.id }));
@@ -658,6 +720,10 @@ async function processSlot(params: ProcessSlotParams): Promise<void> {
     rewrites,
     ranking: {
       matchCount: slotMatches.length,
+      // G2: per-slot ranking cost from the paragraph_rank phase delta + status.
+      comparisonCount: slotMatches.length,
+      cost: rankingCost,
+      status: rankingStatus,
       ratings: Array.from(localRatings.entries()).map(([variantId, r]) => ({
         variantId,
         elo: r.elo,

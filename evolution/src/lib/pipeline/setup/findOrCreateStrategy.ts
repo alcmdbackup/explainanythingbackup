@@ -78,6 +78,15 @@ function canonicalizeIterationConfig(
       && iterCfg.agentType === 'proposer_approver_criteria_generate') {
     out.includesMirrorApprover = false;
   }
+  // investigate_paragraph_rewrite_cost_undershoot_evolution_20260529 (J1.5):
+  // paragraph_recombine perInvocationCapUsd MUST participate in config_hash so
+  // strategies that differ only in cap do NOT dedupe to the same row.
+  // Pre-existing paragraph_recombine knobs (rewritesPerParagraph etc.) remain
+  // unhashed by deliberate choice — changing that would invalidate existing
+  // strategy hashes on staging/prod.
+  if (iterCfg.perInvocationCapUsd !== undefined && iterCfg.agentType === 'paragraph_recombine') {
+    out.perInvocationCapUsd = iterCfg.perInvocationCapUsd;
+  }
   return out;
 }
 

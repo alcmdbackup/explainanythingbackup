@@ -45,23 +45,64 @@ Ran `/research` with 4 rounds × 5 parallel agents (20 agents total) against sta
 - Planning doc: 6-phase revised plan (G → F → H → I → C, plus follow-up flag for the broader llmCallTracking regression).
 - Branch + GH issue + skeleton committed (`b06133dd`).
 
-## Phase 1: Observability (G)
+## Phase 1: Observability (G) — PARTIAL (G1-G3, G8, G9 done; G4-G7 + verification deferred)
 ### Work Done
-(Pending — next phase after `/plan-review`.)
+- **G1** (`ParagraphRecombineAgent.ts`): added per-rewrite `costUsd` via `slotScope.getOwnSpent()` delta around each `slotLlm.complete()` call. Added `temperature` (from ladder index) and `status` enum (`succeeded` | `dropped` | `skipped_slot_abort` | `llm_error`) to rewrites detail. Pre-G1 every `rewrites[i].costUsd === 0` — phase split was impossible to observe.
+- **G2** (`ParagraphRecombineAgent.ts`): added per-slot ranking `cost`, `comparisonCount`, `status` enum (`completed` | `self_aborted` | `skipped_insufficient_pool`) via `paragraph_rank` phase-cost delta around the per-slot ranking loop.
+- **G3** (`schemas.ts`): extended `slotRecombineExecutionDetailSchema` with the new optional fields. All `.optional()` for back-compat with existing rows.
+- **G8** (`ParagraphRecombineAgent.ts:352-354`): threaded `db`, `runId`, `invocationId`, `slotLogger` into the per-slot `createEvolutionLLMClient` call. Pre-G8 the per-slot client was db-less, so `paragraph_rewrite`/`paragraph_rank` calls wrote ZERO `llmCallTracking` rows on staging.
+- **G9** (`getRunCostWithFallback.ts`): removed dead Layer 3 (`evolution_run_costs` view was dropped in `20260323000004_drop_legacy_metrics.sql`; queries against it have been erroring silently). Layers 1+2 now cover all cases. Test updated to assert new behavior.
 
-### Issues Encountered
-(TBD)
+### Deferred for next session
+- **G4-G7**: projector-output capture + `estimationErrorPct` finalization + new per-phase rollup metrics (`paragraph_rewrite_estimation_error_pct`, `paragraph_rank_estimation_error_pct`). These require touching `estimateCosts.ts`, `finalization.ts`, `registry.ts` — sizable scope.
+- **G10**: staging verification — requires deploy + fresh run.
+- **G11**: out-of-scope flag — only fires if G10 verification shows broader regression.
 
-### User Clarifications
-(TBD)
-
-## Phase 2: Cap right-sizing (F)
+## Phase 2: Cap right-sizing (F) — DONE (F1-F3; F4 bundled with Phase 7)
 ### Work Done
-(Pending.)
+- **F1** (`ParagraphRecombineAgent.ts:54`): lowered `DEFAULT_PER_INVOCATION_CAP_USD` from `0.4` → `0.05`. Per-slot self-abort floor at 12 slots → $0.00375 (median spend $0.0005 = 13%); pre-final-ranking gate at 0.9 × $0.05 = $0.045 (9× headroom over median invocation spend $0.005). Added inline comment block explaining the rationale.
+- **F2** (`schemas.ts`): added `perInvocationCapUsd: z.number().min(0.001).max(0.5).optional()` to `iterationConfigSchema` plus refinement rejecting it on non-paragraph_recombine agent types.
+- **F3** (`runIterationLoop.ts:1312-1322`): threaded `iterCfg.perInvocationCapUsd` into the agent input.
+- **J1.5 PARTIAL** (`findOrCreateStrategy.ts`): extended `canonicalizeIterationConfig` to emit `perInvocationCapUsd` so it participates in `config_hash`. `maxDispatches` not yet hashed (defers until J1 lands in Phase 6).
 
-## Phase 3: Display fixes (H)
+## Phase 3: Display fixes (H) — PARTIAL (H1 + test; H2-H4 deferred)
 ### Work Done
-(Pending.)
+- **H1** (`getRunCostWithFallback.ts:114-138`): added `paragraph_recombine_cost` AND `debate_cost` to Layer 2 sum. Pre-fix any paragraph_recombine-only run with a missing `cost` rollup row would under-report by the full paragraph_recombine spend.
+- **Tests** (`getRunCostWithFallback.test.ts`): added two regression cases asserting Layer 2 sum picks up `paragraph_recombine_cost` and `debate_cost`. Updated the prior Layer-3 fall-through test to assert post-G9 behavior (returns 0 with warn instead of Layer 3 query).
+
+### Deferred for next session
+- **H2** (`RunsTable.tsx:143-158`): inline "Spent" fallback omits `paragraph_recombine_cost`, `evaluation_cost`, `iterative_edit_cost`, `proposer_approver_criteria_cost`, `debate_cost`.
+- **H3** (`EntityMetricsTab.tsx:71-84`): `COST_DESCRIPTIONS` missing entries for these metrics.
+- **H4**: fix wrong `cost` description (`"= generation + ranking + seed"`).
+
+## Verification
+- `npm run typecheck` ✅
+- `npm run lint` ✅
+- `npx jest` on affected files: 266 passed, 0 failed ✅
+
+## Next session plan
+The deferred work spans:
+- Phase 1 G4-G7 (projector instrumentation + per-phase rollup metrics) — ~3-4 files.
+- Phase 3 H2-H4 (display fallback + descriptions) — small.
+- Phase 6 (J — multi-dispatch refactor) — large, the architectural piece.
+- Phase 7 (K — wizard + admin UI surfacing) — depends on J.
+- Phase 4-5 (I/C — re-diagnose length_under + fix) — depends on Phase 1 verification.
+
+## Phase 4: Re-diagnose length_under (I)
+### Work Done
+(Deferred — depends on Phase 1 G4-G7 + staging verification.)
+
+## Phase 5: Drop-rate fix (C, CONDITIONAL on Phase 4)
+### Work Done
+(Deferred.)
+
+## Phase 6: Multi-dispatch refactor (J)
+### Work Done
+(Deferred — large architectural change, own session.)
+
+## Phase 7: Wizard + admin UI (K)
+### Work Done
+(Deferred — depends on Phase 1 G4-G7 + Phase 6 J.)
 
 ## Phase 4: Re-diagnose length_under (I)
 ### Work Done

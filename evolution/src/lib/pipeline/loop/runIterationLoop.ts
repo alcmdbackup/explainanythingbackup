@@ -1315,6 +1315,7 @@ export async function evolveArticle(
               rewritesPerParagraph: iterCfg.rewritesPerParagraph,
               maxComparisonsPerParagraph: iterCfg.maxComparisonsPerParagraph,
               maxParagraphsPerInvocation: iterCfg.maxParagraphsPerInvocation,
+              perInvocationCapUsd: iterCfg.perInvocationCapUsd,
               initialPool: pool,
               initialRatings: ratings,
               initialMatchCounts: matchCounts,
