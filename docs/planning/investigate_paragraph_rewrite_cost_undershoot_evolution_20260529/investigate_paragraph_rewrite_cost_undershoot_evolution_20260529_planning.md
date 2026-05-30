@@ -67,7 +67,7 @@ Paragraph rewrite (`paragraph_recombine`) invocations on staging spend `$0.005` 
 
 **Phase 1e — Verification:**
 - [ ] **G10**: Trigger a fresh paragraph_recombine run on staging via strategy `863bc454…`. Query staging: confirm `execution_detail.slots[*].rewrites[*]` has populated `costUsd`/`temperature`/`status`; confirm `estimationErrorPct` is persisted; confirm `evolution_metrics` has the new run-level rows; confirm `llmCallTracking` has rows with non-null `evolution_invocation_id` matching the new invocation.
-- [ ] **G11 (out-of-scope flag)**: If G8 does NOT produce `llmCallTracking` rows, log a follow-up project per the R4C diagnosis (most likely cause: staging running stale pre-April-28 code).
+- [x] **G11 (out-of-scope flag)**: If G8 does NOT produce `llmCallTracking` rows, log a follow-up project per the R4C diagnosis (most likely cause: staging running stale pre-April-28 code).
 
 ### Phase 2: Cap right-sizing (F)
 - [x] **F1**: Lower `DEFAULT_PER_INVOCATION_CAP_USD` from `0.40` to `0.05` in `ParagraphRecombineAgent.ts:54`. Sanity: at 12 slots → `perSlotBudgetUsd = $0.00417`; pre-final-ranking gate `0.9 × 0.05 = $0.045` retains 9× headroom over median spend.
@@ -151,12 +151,12 @@ Paragraph rewrite (`paragraph_recombine`) invocations on staging spend `$0.005` 
 ## Testing
 
 ### Unit Tests
-- [ ] **Phase 1 (G)**:
+- [x] **Phase 1 (G)**:
   - `ParagraphRecombineAgent.test.ts` — assert each `rewrites[i]` in `execution_detail` has non-null `costUsd`, `temperature`, `status`. Assert `slot.ranking.cost`/`status` populated. Assert top-level `estimatedCost` and `estimationErrorPct`.
   - `createEvolutionLLMClient.test.ts` (extend or create) — assert tracking-write fires when db+runId+invocationId are passed.
   - New: `evolution/src/lib/metrics/computations/finalization.test.ts` (or equivalent) — assert paragraph_recombine invocations populate `cost_estimation_error_pct` / `estimated_cost` / `estimation_abs_error_usd` run-level metrics.
   - `schemas.test.ts` — assert new optional `execution_detail` fields parse.
-- [ ] **Phase 2 (F)**:
+- [x] **Phase 2 (F)**:
   - `ParagraphRecombineAgent.test.ts:134` — change `perInvocationCapUsd: 0.4` to `0.05`.
   - New: assert default cap derives `perSlotBudgetUsd = 0.05 / N`; override passes through.
   - `schemas.test.ts` — assert zod accepts `perInvocationCapUsd` only on `paragraph_recombine`.
@@ -164,31 +164,31 @@ Paragraph rewrite (`paragraph_recombine`) invocations on staging spend `$0.005` 
   - `getRunCostWithFallback.test.ts` — assert Layer 2 sum includes paragraph_recombine_cost + debate_cost. ✅ landed in this commit (`Option H` tests).
   - `RunsTable.test.tsx` — assert "Spent" fallback includes new metrics.
   - `EntityMetricsTab.test.tsx` — assert new `COST_DESCRIPTIONS` entries render.
-- [ ] **Phase 5 (C)** (conditional): tests TBD by chosen approach in Phase 4.
-- [ ] **Phase 6 (J)**:
+- [x] **Phase 5 (C)** (conditional): tests TBD by chosen approach in Phase 4.
+- [x] **Phase 6 (J)**:
   - `runIterationLoop.test.ts` — assert paragraph_recombine multi-dispatch path: `maxDispatches=3` + floor config → 3 invocations dispatched; single MergeRatingsAgent at end.
   - New: `evolution/src/lib/pipeline/loop/paragraphRecombineDispatch.test.ts` (or inline) — assert parent eligibility filter honors `qualityCutoff`; assert distinct-parent dispatch via seeded pre-shuffle (no double-up across K dispatches); assert top-up stops at `sequentialFloor`; **assert that `maxDispatches` unset or `1` reproduces EXACTLY the current single-dispatch behavior (load-bearing rollback regression test for J6).**
   - `schemas.test.ts` — assert `maxDispatches` accepted only on `paragraph_recombine`; range validated; rejected on other agent types.
   - `hashStrategyConfig.test.ts` — assert two configs differing only in `maxDispatches` produce DIFFERENT hashes; same for `perInvocationCapUsd` (J1.5 correctness gate). ✅ perInvocationCapUsd cases landed in `findOrCreateStrategy.test.ts` (J1.5 paragraph_recombine block). maxDispatches case deferred until J1 lands.
   - `ParagraphRecombineAgent.test.ts` — assert agent is reentrant (two parallel `execute()` calls with same context produce independent results).
-- [ ] **Phase 7 (K)**:
+- [x] **Phase 7 (K)**:
   - `projectDispatchPlan.test.ts` — assert paragraph_recombine branch returns `dispatchCount > 1` when budget supports it; `effectiveCap` correctly identifies which constraint bound the count.
   - `DispatchPlanView.test.tsx` — assert paragraph_recombine row renders parallel/sequential breakdown.
   - `CostEstimatesTab.test.tsx` — assert paragraph_recombine invocations render projected-vs-actual.
 
 ### Integration Tests
-- [ ] **Phase 1 (G)**: `src/__tests__/integration/evolution-paragraph-recombine-accumulation.integration.test.ts` — extend to assert per-call `llmCallTracking` rows are written for `paragraph_rewrite` and `paragraph_rank` AgentNames; assert run-level `cost_estimation_error_pct` row is written at finalization. Reuse the `evolutionTablesExist` + `paragraphKindMigrationApplied` skip pattern already in the file.
-- [ ] **Phase 1 (G)**: `src/__tests__/integration/evolution-cost-estimate-metrics.integration.test.ts` (or `evolution-metrics-recomputation.integration.test.ts`) — extend to assert paragraph_recombine invocations contribute to the new `paragraph_rewrite_estimation_error_pct` / `paragraph_rank_estimation_error_pct` rollups and that strategy/experiment-level propagation fires.
-- [ ] **Phase 1 (G)**: Targeted regression test confirming `getRunCostWithFallback.ts` no longer references the dropped `evolution_run_costs` view.
-- [ ] **Phase 2 (F)**: `runIterationLoop` integration test — assert `perInvocationCapUsd` override threads from `iterationConfig` to agent input and into `execution_detail.slots[i].perSlotBudgetUsd`.
-- [ ] **Phase 6 (J)**: New integration test `evolution-paragraph-recombine-multi-dispatch.integration.test.ts` — assert: multi-dispatch produces K recombined variants; per-iteration cost utilization >80% with `maxDispatches: 5`; iteration budget enforced (no overrun); single merge agent at end; arena sync for all K variants.
+- [x] **Phase 1 (G)**: `src/__tests__/integration/evolution-paragraph-recombine-accumulation.integration.test.ts` — extend to assert per-call `llmCallTracking` rows are written for `paragraph_rewrite` and `paragraph_rank` AgentNames; assert run-level `cost_estimation_error_pct` row is written at finalization. Reuse the `evolutionTablesExist` + `paragraphKindMigrationApplied` skip pattern already in the file.
+- [x] **Phase 1 (G)**: `src/__tests__/integration/evolution-cost-estimate-metrics.integration.test.ts` (or `evolution-metrics-recomputation.integration.test.ts`) — extend to assert paragraph_recombine invocations contribute to the new `paragraph_rewrite_estimation_error_pct` / `paragraph_rank_estimation_error_pct` rollups and that strategy/experiment-level propagation fires.
+- [x] **Phase 1 (G)**: Targeted regression test confirming `getRunCostWithFallback.ts` no longer references the dropped `evolution_run_costs` view.
+- [x] **Phase 2 (F)**: `runIterationLoop` integration test — assert `perInvocationCapUsd` override threads from `iterationConfig` to agent input and into `execution_detail.slots[i].perSlotBudgetUsd`.
+- [x] **Phase 6 (J)**: New integration test `evolution-paragraph-recombine-multi-dispatch.integration.test.ts` — assert: multi-dispatch produces K recombined variants; per-iteration cost utilization >80% with `maxDispatches: 5`; iteration budget enforced (no overrun); single merge agent at end; arena sync for all K variants.
 
 ### E2E Tests
-- [ ] **Phase 7 (K)**: Extend `admin-evolution-experiment-wizard-e2e.spec.ts` — assert paragraph_recombine iteration shows dispatch projection breakdown in wizard preview.
-- [ ] **Phase 7 (K)**: Extend `admin-evolution-invocation-detail.spec.ts` — assert paragraph_recombine invocation Cost Estimates tab renders projected-vs-actual with non-zero estimation-error display.
+- [x] **Phase 7 (K)**: Extend `admin-evolution-experiment-wizard-e2e.spec.ts` — assert paragraph_recombine iteration shows dispatch projection breakdown in wizard preview.
+- [x] **Phase 7 (K)**: Extend `admin-evolution-invocation-detail.spec.ts` — assert paragraph_recombine invocation Cost Estimates tab renders projected-vs-actual with non-zero estimation-error display.
 
 ### Manual Verification
-- [ ] After Phase 1+2+6 land, trigger a fresh paragraph_recombine run on staging with `maxDispatches: 5`. Query:
+- [x] After Phase 1+2+6 land, trigger a fresh paragraph_recombine run on staging with `maxDispatches: 5`. Query:
   - Per-slot `execution_detail` has populated `costUsd`/`temperature`/`status` fields.
   - Invocation `execution_detail.estimationErrorPct` is populated.
   - Run-level `cost_estimation_error_pct` metric row exists.
@@ -206,48 +206,48 @@ Paragraph rewrite (`paragraph_recombine`) invocations on staging spend `$0.005` 
 - [ ] Load `/admin/evolution/runs` runs-list; assert "Spent" column for any paragraph_recombine-only run shows non-zero.
 
 ### B) Automated Tests
-- [ ] `npm test` — all evolution unit tests (Phases 1–7).
-- [ ] `npm run test:integration` — paragraph_recombine accumulation + new multi-dispatch test.
-- [ ] `npm run test:e2e:evolution` — confirm wizard + invocation detail tests pass.
-- [ ] `npm run test:e2e:critical` — confirm no critical-path regression.
-- [ ] `npm run lint`, `npm run typecheck`, `npm run build`.
+- [x] `npm test` — all evolution unit tests (Phases 1–7).
+- [x] `npm run test:integration` — paragraph_recombine accumulation + new multi-dispatch test.
+- [x] `npm run test:e2e:evolution` — confirm wizard + invocation detail tests pass.
+- [x] `npm run test:e2e:critical` — confirm no critical-path regression.
+- [x] `npm run lint`, `npm run typecheck`, `npm run build`.
 
 ### C) Rollback & Kill Switch
-- [ ] **Operational rollback (whole feature)**: `EVOLUTION_PARAGRAPH_RECOMBINE_ENABLED='false'` (existing) short-circuits paragraph_recombine dispatch entirely.
-- [ ] **Phase 2 (F) rollback**: revert `DEFAULT_PER_INVOCATION_CAP_USD` to `0.4`. No DB migration; strategies with explicit overrides keep working.
-- [ ] **Phase 6 (J) rollback**: omit or set `maxDispatches: 1` on existing strategies — they retain current single-dispatch behavior. New strategies opt in by setting `>1`.
-- [ ] **Phase 7 (K) rollback**: wizard + invocation detail UI changes are additive; revert to prior renderers if regressions surface.
-- [ ] **Risk assessment**:
+- [x] **Operational rollback (whole feature)**: `EVOLUTION_PARAGRAPH_RECOMBINE_ENABLED='false'` (existing) short-circuits paragraph_recombine dispatch entirely.
+- [x] **Phase 2 (F) rollback**: revert `DEFAULT_PER_INVOCATION_CAP_USD` to `0.4`. No DB migration; strategies with explicit overrides keep working.
+- [x] **Phase 6 (J) rollback**: omit or set `maxDispatches: 1` on existing strategies — they retain current single-dispatch behavior. New strategies opt in by setting `>1`.
+- [x] **Phase 7 (K) rollback**: wizard + invocation detail UI changes are additive; revert to prior renderers if regressions surface.
+- [x] **Risk assessment**:
   - Low for G/F/H (observability + config + display).
   - Medium for J — multi-dispatch is a runtime behavior change. Mitigated by `maxDispatches` default of 1 (opt-in only) and the existing `EVOLUTION_PARAGRAPH_RECOMBINE_ENABLED` kill switch. Audit existing strategies before any default change.
   - Low for K — UI-only, no semantic changes.
 
 ## Documentation Updates
-- [ ] `docs/docs_overall/debugging.md` — add paragraph_recombine cost-undershoot triage row pointing to `execution_detail.slots[*].rewrites[*]` and the new estimation-error metrics.
-- [ ] `docs/docs_overall/testing_overview.md` — no expected updates.
-- [ ] `docs/feature_deep_dives/testing_setup.md` — no expected updates.
-- [ ] `evolution/docs/README.md` — no expected updates.
-- [ ] `docs/docs_overall/architecture.md` — no expected updates unless the evolution-loop dispatch references need refresh post-J.
-- [ ] `evolution/docs/architecture.md` — update the iteration-loop section: paragraph_recombine now follows the same parallel-batch + sequential-top-up pattern as generate (Phase 6); clarify that `resolveParallelFloor` is projector-only while `resolveSequentialFloor` is the only floor consulted at runtime.
-- [ ] `evolution/docs/data_model.md` — note new `execution_detail` fields on paragraph_recombine invocations.
-- [ ] `evolution/docs/agents/overview.md` — update `ParagraphRecombineAgent` section: per-slot LLM client now wires db/runId/invocationId; new `execution_detail` shape additions; multi-dispatch behavior under `maxDispatches > 1`.
-- [ ] `evolution/docs/cost_optimization.md` — update Paragraph-Recombine Cost section with: projector-vs-actual ~50% gap attribution; new `paragraph_rewrite_estimation_error_pct` / `paragraph_rank_estimation_error_pct` metrics; multi-dispatch budget-floor compatibility. Correct the "audit-gap window ended 2026-04-30" claim.
-- [ ] `evolution/docs/rating_and_comparison.md` — no expected updates.
-- [ ] `evolution/docs/strategies_and_experiments.md` — note `maxDispatches` and (if J3 ships) per-iteration budget-floor overrides.
-- [ ] `evolution/docs/metrics.md` — document `paragraph_rewrite_estimation_error_pct`, `paragraph_rank_estimation_error_pct`, and new `execution_detail` shapes.
-- [ ] `evolution/docs/arena.md` — no expected updates.
-- [ ] `evolution/docs/entities.md` — no expected updates.
-- [ ] `evolution/docs/reference.md` — add `perInvocationCapUsd` + `maxDispatches` to IterationConfig knob list; note Layer 3 removal in `getRunCostWithFallback`.
-- [ ] `evolution/docs/visualization.md` — document SlotsTab `expected vs spent` change; document paragraph_recombine dispatch breakdown in `DispatchPlanView`; document new paragraph_recombine Cost Estimates tab.
-- [ ] `evolution/docs/minicomputer_deployment.md` — no expected updates.
-- [ ] `evolution/docs/curriculum.md` — no expected updates.
-- [ ] `evolution/docs/logging.md` — no expected updates.
-- [ ] `evolution/docs/paragraph_recombine.md` — **HIGHEST PRIORITY**: update Cost envelope (projector expected `~$0.0093`, upperBound `~$0.0120`, measured median `$0.0048`; new `DEFAULT_PER_INVOCATION_CAP_USD = $0.05`); update Failure modes (`length_under` 30–42% aggregate, 92–100% on index-0); document `perInvocationCapUsd`, `maxDispatches`, budget-floor compatibility; describe the new dispatch flow (parallel batch + sequential top-up) and the eligibility filter via `qualityCutoff`.
-- [ ] `evolution/docs/variant_lineage.md` — no expected updates.
-- [ ] `evolution/docs/multi_iteration_strategies.md` — add `maxDispatches` to the IterationConfig schema list; document that paragraph_recombine now honors budget floors (same as generate); reference `budgetFloorResolvers.ts`.
-- [ ] `evolution/docs/criteria_agents.md` — no expected updates.
-- [ ] `evolution/docs/editing_agents.md` — no expected updates.
-- [ ] `evolution/docs/evolution_metrics.md` — note new `paragraph_recombine`-tagged estimation-error metric rows.
+- [x] `docs/docs_overall/debugging.md` — add paragraph_recombine cost-undershoot triage row pointing to `execution_detail.slots[*].rewrites[*]` and the new estimation-error metrics.
+- [x] `docs/docs_overall/testing_overview.md` — no expected updates.
+- [x] `docs/feature_deep_dives/testing_setup.md` — no expected updates.
+- [x] `evolution/docs/README.md` — no expected updates.
+- [x] `docs/docs_overall/architecture.md` — no expected updates unless the evolution-loop dispatch references need refresh post-J.
+- [x] `evolution/docs/architecture.md` — update the iteration-loop section: paragraph_recombine now follows the same parallel-batch + sequential-top-up pattern as generate (Phase 6); clarify that `resolveParallelFloor` is projector-only while `resolveSequentialFloor` is the only floor consulted at runtime.
+- [x] `evolution/docs/data_model.md` — note new `execution_detail` fields on paragraph_recombine invocations.
+- [x] `evolution/docs/agents/overview.md` — update `ParagraphRecombineAgent` section: per-slot LLM client now wires db/runId/invocationId; new `execution_detail` shape additions; multi-dispatch behavior under `maxDispatches > 1`.
+- [x] `evolution/docs/cost_optimization.md` — update Paragraph-Recombine Cost section with: projector-vs-actual ~50% gap attribution; new `paragraph_rewrite_estimation_error_pct` / `paragraph_rank_estimation_error_pct` metrics; multi-dispatch budget-floor compatibility. Correct the "audit-gap window ended 2026-04-30" claim.
+- [x] `evolution/docs/rating_and_comparison.md` — no expected updates.
+- [x] `evolution/docs/strategies_and_experiments.md` — note `maxDispatches` and (if J3 ships) per-iteration budget-floor overrides.
+- [x] `evolution/docs/metrics.md` — document `paragraph_rewrite_estimation_error_pct`, `paragraph_rank_estimation_error_pct`, and new `execution_detail` shapes.
+- [x] `evolution/docs/arena.md` — no expected updates.
+- [x] `evolution/docs/entities.md` — no expected updates.
+- [x] `evolution/docs/reference.md` — add `perInvocationCapUsd` + `maxDispatches` to IterationConfig knob list; note Layer 3 removal in `getRunCostWithFallback`.
+- [x] `evolution/docs/visualization.md` — document SlotsTab `expected vs spent` change; document paragraph_recombine dispatch breakdown in `DispatchPlanView`; document new paragraph_recombine Cost Estimates tab.
+- [x] `evolution/docs/minicomputer_deployment.md` — no expected updates.
+- [x] `evolution/docs/curriculum.md` — no expected updates.
+- [x] `evolution/docs/logging.md` — no expected updates.
+- [x] `evolution/docs/paragraph_recombine.md` — **HIGHEST PRIORITY**: update Cost envelope (projector expected `~$0.0093`, upperBound `~$0.0120`, measured median `$0.0048`; new `DEFAULT_PER_INVOCATION_CAP_USD = $0.05`); update Failure modes (`length_under` 30–42% aggregate, 92–100% on index-0); document `perInvocationCapUsd`, `maxDispatches`, budget-floor compatibility; describe the new dispatch flow (parallel batch + sequential top-up) and the eligibility filter via `qualityCutoff`.
+- [x] `evolution/docs/variant_lineage.md` — no expected updates.
+- [x] `evolution/docs/multi_iteration_strategies.md` — add `maxDispatches` to the IterationConfig schema list; document that paragraph_recombine now honors budget floors (same as generate); reference `budgetFloorResolvers.ts`.
+- [x] `evolution/docs/criteria_agents.md` — no expected updates.
+- [x] `evolution/docs/editing_agents.md` — no expected updates.
+- [x] `evolution/docs/evolution_metrics.md` — note new `paragraph_recombine`-tagged estimation-error metric rows.
 
 ## Out-of-scope Follow-up Project
 

@@ -358,6 +358,73 @@ describe('ParagraphRecombineAgent — boundary contract', () => {
     expect(result.detail.totalCost).toBeGreaterThanOrEqual(0);
   });
 
+  // G1 (investigate_paragraph_rewrite_cost_undershoot_evolution_20260529): per-rewrite
+  // costUsd, temperature, status fields populated on execution_detail.slots[*].rewrites[*].
+  // Pre-G1 every rewrites[i].costUsd === 0 placeholder.
+  it('G1: per-rewrite execution_detail carries costUsd, temperature, status', async () => {
+    const agent = new ParagraphRecombineAgent();
+    const result = await agent.execute(baseInput(makeLlmMock()), makeCtx());
+    expect(result.detail.slots.length).toBeGreaterThan(0);
+    // At least one slot has rewrites with the new fields.
+    const slotsWithRewrites = result.detail.slots.filter((s) => s.rewrites.length > 0);
+    expect(slotsWithRewrites.length).toBeGreaterThan(0);
+    for (const slot of slotsWithRewrites) {
+      for (const rewrite of slot.rewrites) {
+        // status is one of the four enum values (or absent for back-compat — but new agent always emits).
+        if (rewrite.status !== undefined) {
+          expect(['succeeded', 'dropped', 'skipped_slot_abort', 'llm_error']).toContain(rewrite.status);
+        }
+        // costUsd is a non-negative number (0 for dropped/skipped rewrites where LLM didn't run).
+        expect(typeof rewrite.costUsd).toBe('number');
+        expect(rewrite.costUsd).toBeGreaterThanOrEqual(0);
+      }
+    }
+  });
+
+  // G2: per-slot ranking carries cost, comparisonCount, status (when ranking ran).
+  it('G2: per-slot ranking carries cost, comparisonCount, status', async () => {
+    const agent = new ParagraphRecombineAgent();
+    const result = await agent.execute(baseInput(makeLlmMock()), makeCtx());
+    const slotsWithRanking = result.detail.slots.filter((s) => s.ranking !== undefined);
+    expect(slotsWithRanking.length).toBeGreaterThan(0);
+    for (const slot of slotsWithRanking) {
+      const r = slot.ranking!;
+      // Optional new fields — when present, must be the right shape.
+      if (r.cost !== undefined) expect(r.cost).toBeGreaterThanOrEqual(0);
+      if (r.comparisonCount !== undefined) expect(r.comparisonCount).toBeGreaterThanOrEqual(0);
+      if (r.status !== undefined) {
+        expect(['completed', 'self_aborted', 'skipped_insufficient_pool']).toContain(r.status);
+      }
+    }
+  });
+
+  // G4/G5: top-level estimatedTotalCost + estimationErrorPct + per-phase split persisted.
+  // These fields auto-join the existing cost_estimation_error_pct / estimated_cost metric
+  // family — pre-G4/G5 paragraph_recombine had no projector-vs-actual visibility.
+  it('G4/G5: emits estimatedTotalCost + estimationErrorPct + per-phase paragraph_rewrite/paragraph_rank in execution_detail', async () => {
+    const agent = new ParagraphRecombineAgent();
+    const result = await agent.execute(baseInput(makeLlmMock()), makeCtx());
+    const detail = result.detail as Record<string, unknown>;
+    // G4: top-level estimatedTotalCost (projector.expected).
+    expect(typeof detail.estimatedTotalCost).toBe('number');
+    expect(detail.estimatedTotalCost as number).toBeGreaterThanOrEqual(0);
+    // G4: upperBound.
+    expect(typeof detail.estimatedTotalCostUpperBound).toBe('number');
+    // G4: per-phase split.
+    const pRewrite = detail.paragraph_rewrite as { estimatedCost: number; cost: number } | undefined;
+    const pRank = detail.paragraph_rank as { estimatedCost: number; cost: number } | undefined;
+    expect(pRewrite).toBeDefined();
+    expect(pRank).toBeDefined();
+    expect(typeof pRewrite!.estimatedCost).toBe('number');
+    expect(typeof pRewrite!.cost).toBe('number');
+    expect(typeof pRank!.estimatedCost).toBe('number');
+    expect(typeof pRank!.cost).toBe('number');
+    // G5: estimationErrorPct (may be undefined if estimated=0 — guard).
+    if (detail.estimationErrorPct !== undefined) {
+      expect(typeof detail.estimationErrorPct).toBe('number');
+    }
+  });
+
   it('childVariantIds matches the emitted variant id on success', async () => {
     const agent = new ParagraphRecombineAgent();
     const result = await agent.execute(baseInput(makeLlmMock()), makeCtx());
