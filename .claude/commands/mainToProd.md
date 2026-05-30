@@ -227,7 +227,78 @@ done
 ```bash
 # Verify PR is mergeable
 gh pr view --json mergeable,mergeStateStatus
+```
 
+#### 7.5 Migration-Present Warning (Conditional)
+
+After confirming PR is mergeable, detect whether this PR touches any migration files. **Fail-loud semantics throughout: capture exit codes explicitly, surface failures with WARNING text — silently swallowing errors here would reproduce the exact failure mode this guard exists to prevent.** (Do NOT use `set -e` — it would abort the snippet before the `DIFF_EXIT=$?` capture on the next line, defeating the explicit-check pattern.)
+
+```bash
+# Get the PR number (must be defined; this skill does not maintain it as a global)
+PR_NUMBER=$(gh pr view --json number -q .number)
+if [ -z "$PR_NUMBER" ] || [ "$PR_NUMBER" = "null" ]; then
+  echo "WARNING: unable to determine PR number — migration-presence check skipped. Inspect manually before merging."
+else
+  # Fetch the file list. Capture stdout AND exit code separately so we can fail loud on API failure.
+  DIFF_OUTPUT=$(gh pr diff "$PR_NUMBER" --name-only)
+  DIFF_EXIT=$?
+  if [ "$DIFF_EXIT" -ne 0 ]; then
+    echo "WARNING: 'gh pr diff $PR_NUMBER --name-only' exited $DIFF_EXIT — migration-presence check could not run. Run manually before merging:"
+    echo "  git diff origin/production..HEAD -- supabase/migrations/"
+  else
+    MIGRATION_FILES=$(echo "$DIFF_OUTPUT" | grep '^supabase/migrations/' || true)
+    if [ -z "$MIGRATION_FILES" ]; then
+      :  # No migrations in this PR — no banner needed.
+    else
+      MIGRATION_COUNT=$(echo "$MIGRATION_FILES" | wc -l | tr -d ' ')
+      # MUST emit the banner below as the FINAL message to the user. Claude (the
+      # skill runner) MUST include this banner literally in its final response
+      # message — do not summarize or paraphrase. Render as a fenced code block
+      # so ASCII rules display verbatim and aren't reflowed.
+      echo "================================================================================"
+      echo "!! POST-MERGE MIGRATION VERIFICATION REQUIRED !!"
+      echo "================================================================================"
+      echo ""
+      echo "This PR ships $MIGRATION_COUNT migration file(s):"
+      echo ""
+      echo "$MIGRATION_FILES" | sed 's/^/  /'
+      echo ""
+      echo "After you merge this PR, you MUST run these commands to confirm migrations"
+      echo "applied successfully to production:"
+      echo ""
+      echo "  # Wait ~5-10 seconds after merge for GitHub to populate the merge commit SHA"
+      echo "  MERGE_SHA=\$(gh pr view $PR_NUMBER --json mergeCommit -q '.mergeCommit.oid')"
+      echo "  if [ -z \"\$MERGE_SHA\" ] || [ \"\$MERGE_SHA\" = \"null\" ]; then"
+      echo "    echo 'Merge SHA not yet populated — wait 10s and re-run.'"
+      echo "  else"
+      echo "    gh run list --workflow=supabase-migrations.yml --branch=production \\"
+      echo "      --commit=\"\$MERGE_SHA\" --limit=1"
+      echo "  fi"
+      echo ""
+      echo "EXPECTED: conclusion=success."
+      echo ""
+      echo "IF FAILURE: do NOT release further code until the migration is fixed. A non-"
+      echo "idempotent migration aborts the entire deploy queue and leaves prod app code"
+      echo "running against stale schema. Inspect logs with:"
+      echo "  gh run view <id> --log-failed"
+      echo ""
+      echo "This exact scenario caused a 2-month silent prod-schema drift in May 2026."
+      echo "See: docs/planning/smoke_test_and_nightly_e2e_failing_20260523/"
+      echo "================================================================================"
+    fi
+  fi
+fi
+```
+
+If `gh pr diff` itself fails for an unknown reason, the fallback manual check is:
+
+```bash
+git diff origin/production..HEAD -- supabase/migrations/ | head -1
+```
+
+A non-empty result means migrations are present and the post-merge verification is required regardless.
+
+```bash
 # Return to original branch
 git checkout <original-branch>
 git stash pop

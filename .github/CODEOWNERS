@@ -1,0 +1,26 @@
+# CODEOWNERS — automatic-review requirements per path.
+#
+# GitHub semantics: when a PR touches a path matching one of these globs, the
+# listed owner(s) are auto-requested as reviewers. With branch protection
+# "Require review from Code Owners" enabled, the PR cannot merge without
+# explicit owner approval. Catches accidental skill-spec deletions (the
+# pattern that caused the Step 7.4 + 7.5 regression in May 2026 via PR #1110,
+# where ~330 lines of mainToProd.md were silently wiped by a wholesale
+# `git checkout <stale-ref> -- .claude/` "drift catch-up").
+
+# Skill specs — the orchestration scripts Claude reads at command invocation.
+# Silent edits here change agent behavior in non-obvious ways.
+.claude/commands/*.md   @alcmd15492
+
+# PreToolUse / Stop / SessionStart hooks — enforce gates that protect main and
+# production. A bad edit here can silently disable a gate.
+.claude/hooks/*.sh      @alcmd15492
+
+# Permission + MCP configuration — drift here changes what the agent can do.
+.claude/settings.json   @alcmd15492
+.mcp.json               @alcmd15492
+
+# CI workflow + the section-presence lint that enforces this file.
+.github/workflows/ci.yml             @alcmd15492
+.github/CODEOWNERS                   @alcmd15492
+scripts/check-skill-sections.sh      @alcmd15492
