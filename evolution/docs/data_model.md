@@ -400,7 +400,7 @@ Previously updated strategy aggregate metrics after run finalization using Welfo
 
 ### `sync_to_arena(p_prompt_id UUID, p_run_id UUID, p_entries JSONB, p_matches JSONB)`
 
-Atomically upserts arena entries and inserts comparison records. Enforces size limits: max 200 entries, max 1000 matches per call. Uses `ON CONFLICT (id) DO UPDATE` for entry upserts. Migration `20260326000002_fix_sync_to_arena_match_count.sql` fixed the INSERT path to use `COALESCE((entry->>'arena_match_count')::INT, 0)` instead of hardcoded `0`, so `arena_match_count` is now properly persisted for entries that carry existing match history.
+Atomically upserts arena entries and inserts comparison records. Enforces size limits: max 200 entries, max 1000 matches per call. Uses `ON CONFLICT (id) DO UPDATE` for entry upserts. Migration `20260326000002_fix_sync_to_arena_match_count.sql` fixed the INSERT path to use `COALESCE((entry->>'arena_match_count')::INT, 0)` instead of hardcoded `0`, so `arena_match_count` is now properly persisted for entries that carry existing match history. Migration `20260529000001` (investigate_paragraph_recombine_invocation_20260529) extends the INSERT column list with `parent_variant_ids` (cast from the `entry->'parent_variant_ids'` JSONB array via `array_agg(... ::uuid)`) and `match_count` — INSERT only, NOT in `ON CONFLICT DO UPDATE` (mirrors the insert-only `agent_name`/`variant_kind` handling). This lets per-slot paragraph_recombine rewrites — persisted exclusively through this RPC — carry real lineage + counts; article variants are upserted by `finalizeRun` first and so keep their finalize-written values on conflict.
 
 ### `cancel_experiment(p_experiment_id UUID)`
 

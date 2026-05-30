@@ -449,10 +449,16 @@ async function computeEloAttributionMetrics(
   // and without an agent_invocation_id ALSO without an agent_name are filtered later.
   // PR 2: parent_variant_ids array column replaces the legacy single-FK. Attribution uses
   // parent_variant_ids[0] (the canonical primary parent per Decision §20).
+  // Restrict attribution to article variants. Since investigate_paragraph_recombine_invocation_20260529,
+  // per-slot paragraph_recombine variants persist parent_variant_ids=[originalSlotVariantId], which would
+  // otherwise route them through the parent-based attribution path below and inject paragraph-scale Elo
+  // deltas into per-tactic buckets. .eq('variant_kind','article') is forward-safe (a future 3rd kind stays
+  // excluded) and filters server-side, so variant_kind need not be in the select list.
   const { data: variantsData } = await supabase
     .from('evolution_variants')
     .select('id, mu, elo_score, parent_variant_ids, agent_invocation_id, persisted, agent_name')
-    .eq('run_id', runId);
+    .eq('run_id', runId)
+    .eq('variant_kind', 'article');
   const variants = (variantsData ?? []) as unknown as AttrVariantRow[];
 
   if (variants.length === 0) return;

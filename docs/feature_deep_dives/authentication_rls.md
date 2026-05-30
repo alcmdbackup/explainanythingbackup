@@ -228,15 +228,16 @@ Redirect to /reset-password → form gates open (PASSWORD_RECOVERY event + non-g
 User enters new password → supabase.auth.updateUser({ password }) → redirect to /
 ```
 
-### Triple-gate against guest-account password takeover
+### Four-gate against guest-account password takeover
 
-Because of guest auto-login on the public tier (a visitor with no session is signed in as the shared demo guest), a naive `/reset-password` page would let any visitor overwrite the guest's password. Three independent gates:
+Because of guest auto-login on the public tier (a visitor with no session is signed in as the shared demo guest), a naive `/reset-password` page would let any visitor overwrite the guest's password. Four independent gates:
 
 1. **Server-side** (`src/app/reset-password/page.tsx`): `await getUser()` is compared to `process.env.GUEST_USER_ID` (a server-only env var, no client bundle dependency). If the current user is the guest, `notFound()` returns 404 before the form renders.
 2. **Client-side recovery event** (`src/app/reset-password/ResetPasswordForm.tsx`): the form is disabled until `supabase.auth.onAuthStateChange` fires `PASSWORD_RECOVERY`. This event only fires after a successful `verifyOtp({type: 'recovery'})`.
 3. **Client-side guest email check**: `useIsGuest()` hook returns true when `user.email === NEXT_PUBLIC_GUEST_EMAIL`. Form stays disabled even if the recovery event somehow fires for the guest.
+4. **Submit-time guard** (`ResetPasswordForm.onSubmit`): even after the form renders, `onSubmit` re-reads `getUser()` and refuses to call `updateUser` if the current user is the guest (or there is no session). This closes the race where guest auto-login displaces the recovery session *after* the render-time gates pass — the exact failure that let the nightly `password-reset.spec.ts` overwrite the shared guest on prod (incident `autologin_broken_3rd_night_after_fix_20260529`). Because it fires at the moment of mutation, it protects real users, not just tests.
 
-Any single gate failure is caught by the other two.
+Gates 1–3 prevent the form from rendering/enabling for the guest; gate 4 is the last line — it blocks the password write itself even if the session is swapped mid-flow. Any single gate failure is caught by the others.
 
 ### Middleware allowlist
 
@@ -287,4 +288,4 @@ The redirect URL allowlist in the Supabase dashboard must include `https://<site
 | `src/app/auth/confirm/route.ts` | Generic `verifyOtp` callback — works for recovery without change |
 | `supabase/templates/recovery.html` | Recovery email body (local dev only; hosted Supabase uses dashboard) |
 | `src/__tests__/integration/password-reset.integration.test.ts` | Full SDK round-trip with dedicated test user |
-| `src/__tests__/e2e/specs/01-auth/password-reset.spec.ts` | E2E `@critical` |
+| `src/__tests__/e2e/specs/01-auth/password-reset.spec.ts` | E2E `@critical` + `@skip-prod` — the destructive recovery flow must NOT run against the live prod guest (guest auto-login can displace the recovery session and clobber the shared account); runs on dev / PR CI only |

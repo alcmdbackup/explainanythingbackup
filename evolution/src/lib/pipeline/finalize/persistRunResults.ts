@@ -638,6 +638,13 @@ export async function syncToArena(
         // arena_match_count: matches played in THIS run only (not cumulative).
         // The DB RPC accumulates this into the arena entry's lifetime total.
         arena_match_count: variantMatchCounts.get(v.id) ?? 0,
+        // parent_variant_ids + match_count: written on INSERT only (the RPC's ON CONFLICT
+        // branch leaves them untouched, mirroring agent_name/variant_kind), so the per-slot
+        // paragraph_recombine path — whose rewrites are INSERTed fresh here and never pass
+        // through finalizeRun — persists real lineage + counts. Article variants are upserted
+        // by finalizeRun first, so they hit ON CONFLICT and keep their finalize-written values.
+        parent_variant_ids: buildParentColumns(v).parent_variant_ids,
+        match_count: variantMatchCounts.get(v.id) ?? 0,
         generation_method: isSeeded && isSeedVariantTactic(v.tactic) ? 'seed' : 'pipeline',
         // rank_individual_paragraphs_evolution_20260525 Phase 1: emit agent_name +
         // variant_kind so the extended sync_to_arena RPC (migration 20260527000003)

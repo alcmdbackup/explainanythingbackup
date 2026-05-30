@@ -433,6 +433,24 @@ If the `/admin/evolution/runs` "Hide test content" checkbox returns zero rows ev
 
 `evolution/scripts/backfillInvocationCostFromTokens.ts` repairs `evolution_agent_invocations.cost_usd` + run-level `cost`/`generation_cost`/`ranking_cost`/`seed_cost` metrics from `llmCallTracking`. Default is `--dry-run`; add `--apply` to write. Use `--run-id <uuid>` for single-run spot fixes. Uses `writeMetricReplace` (plain upsert) instead of `writeMetricMax` (GREATEST) so downward corrections actually land.
 
+### Debugging paragraph_recombine slot leaderboard showing "0 matches", "0 iterations", or "Seed · no parent"
+
+These are the symptoms from `investigate_paragraph_recombine_invocation_20260529`. They are PERSISTENCE/DISPLAY issues, not lost work — the per-slot pipeline ran fine. The `SlotsTab` arena leaderboard reads persisted `evolution_variants` columns:
+
+| Symptom in leaderboard | Column read | Root cause (fixed by 20260529000001 + the agent change) |
+|---|---|---|
+| Matches = 0 | `arena_match_count` | per-slot `syncToArena` was called with `[]` matchHistory → tally never ran |
+| Iteration = 0 | `generation` | paragraph variants are always `generation=0`; column now hidden for paragraph topics |
+| Parent = "Seed · no parent" | `parent_variant_ids` (→ `parent_variant_id`) | slot rewrites persisted with empty `parent_variant_ids` because the `sync_to_arena` payload omitted it; now relabeled "Original paragraph" for parentless slot rows |
+
+Quick triage: compare the in-memory truth (`execution_detail.slots[*].ranking.matchCount`) against the persisted columns. If `execution_detail` shows non-zero matchCounts but the variant rows show `arena_match_count=0` / empty `parent_variant_ids`, and `evolution_arena_comparisons` HAS rows for the slot topic, the run predates migration `20260529000001` (the columns aren't backfilled — only new runs persist them).
+```sql
+-- Persisted columns vs real comparison rows for a parent's slot topics:
+SELECT v.id, v.variant_kind, v.arena_match_count, v.match_count, v.parent_variant_ids
+FROM evolution_variants v WHERE v.variant_kind='paragraph' AND v.prompt_id IN (
+  SELECT id FROM evolution_prompts WHERE prompt_kind='paragraph' AND prompt LIKE '[para] V<parent8>%');
+```
+
 ### Related
 
 - [Cost Optimization](../../evolution/docs/cost_optimization.md) — Budget event logger implementation details
