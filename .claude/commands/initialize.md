@@ -138,11 +138,18 @@ If files exist:
 
 ### 2.5. Read Core Documentation
 
-Before creating project files, read these three core documents to understand the codebase context:
+Before creating project files, read these core documents to understand the codebase context:
 
+**Core Workflow Docs:**
 1. **Read** `docs/docs_overall/getting_started.md` - Documentation structure and reading order
 2. **Read** `docs/docs_overall/architecture.md` - System design, data flow, and tech stack
 3. **Read** `docs/docs_overall/project_workflow.md` - Complete workflow for projects
+
+**Core Operations Docs:**
+4. **Read** `docs/docs_overall/environments.md` - Environment configuration, CI/CD, secrets
+5. **Read** `docs/docs_overall/testing_overview.md` - Testing rules and four-tier strategy
+6. **Read** `docs/feature_deep_dives/testing_setup.md` - Test infrastructure, fixtures, mocking patterns (NOTE: lives under `feature_deep_dives/`, not `docs_overall/`)
+7. **Read** `docs/docs_overall/debugging.md` - Debugging tools: local logs, Sentry, Honeycomb, prod DB queries
 
 These provide essential context for the project initialization.
 
@@ -192,7 +199,7 @@ After reading core docs, discover which additional docs in `docs/docs_overall/` 
    Rules:
    - Only include files from docs/docs_overall/ and docs/feature_deep_dives/
    - Do NOT include any files from docs/planning/
-   - Exclude the 3 core docs already read: getting_started.md, architecture.md, project_workflow.md
+   - Exclude the 7 core docs already read: getting_started.md, architecture.md, project_workflow.md, environments.md, testing_overview.md, testing_setup.md, debugging.md
    - Exclude docs already manually tagged by user in step 2.6: [list RELEVANT_DOCS entries]
    ```
 
@@ -244,6 +251,7 @@ Create `$PROJECT_PATH/_status.json` using the **Write tool**. Include the `relev
 - `relevantDocs` may contain paths under `docs/docs_overall/`, `docs/feature_deep_dives/`, or `evolution/docs/evolution/`
 - Never include paths under `docs/planning/`
 - Populate from the user-confirmed list in step 2.7
+- **Core docs are pre-read** (Step 2.5) and intentionally excluded from `relevantDocs` to avoid flooding `/finalize` Step 6 with phantom doc-update prompts; `.claude/doc-mapping.json` handles them via file-pattern matching when actually relevant
 
 ### 3.8. Ask for GitHub Issue Summary and Detailed Requirements
 
@@ -284,10 +292,16 @@ Create `$PROJECT_PATH/${PROJECT_NAME}_research.md` using the **Write tool** with
 
 ## Documents Read
 
-### Core Docs
+### Core Workflow Docs
 - docs/docs_overall/getting_started.md
 - docs/docs_overall/architecture.md
 - docs/docs_overall/project_workflow.md
+
+### Core Operations Docs
+- docs/docs_overall/environments.md
+- docs/docs_overall/testing_overview.md
+- docs/feature_deep_dives/testing_setup.md
+- docs/docs_overall/debugging.md
 
 ### Relevant Docs (discovered in step 2.7)
 - [list each confirmed doc from step 2.7, e.g. docs/feature_deep_dives/tag_system.md]
@@ -488,6 +502,7 @@ Documents created:
    - ${PROJECT_NAME}_research.md
    - ${PROJECT_NAME}_planning.md
    - ${PROJECT_NAME}_progress.md
+Core docs read: 7
 Manually tagged docs: [count from step 2.6]
    - [list manually tagged paths]
 Relevant docs discovered and read: [count from step 2.7]
