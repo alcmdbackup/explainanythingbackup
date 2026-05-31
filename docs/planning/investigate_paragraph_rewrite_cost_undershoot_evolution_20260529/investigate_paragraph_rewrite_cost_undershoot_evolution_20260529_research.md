@@ -301,3 +301,41 @@ Concrete file-by-file changes for the cap right-sizing (covered in detail in the
 - Docs: `evolution/docs/paragraph_recombine.md` Cost envelope + Configuration knobs update.
 
 Risks: (a) audit existing strategies for any whose paragraph_recombine cost exceeded $0.045 — they'd hit the pre-final-ranking gate post-F; (b) long-article degenerate cases may push per-slot spend above the new $0.00375 self-abort floor.
+
+## Round 5: Post-merge gap — wizard input for `maxDispatches` was never added (Phase 8)
+
+**Trigger**: User observed staging run `2b8655a3-2065-4705-b79b-a4ecc4e3741b` (strategy `7c17d6ab-399e-4e83-877b-21978229cd84`, "Refreshed paragraph strategy") only deployed ONE paragraph_recombine invocation despite PR #1140 having merged (03:10:51 UTC) 21 minutes before the run (03:31:54 UTC). Hypothesis was either a deploy lag or a config gap.
+
+**Discovery**: PR #1140's Phase 7 (K) shipped the projector + dispatch-view rendering + admin tab updates but **never added the wizard input controls** for `maxDispatches` and `perInvocationCapUsd`. The plan's K2 checkbox was scoped only to "ensure the new `dispatchCount > 1` from K1 flows through to the existing render path" — i.e. the *output* surface — and no checkbox covered the *input* surface in the strategy-creation form. K4 (budget-floor configuration) also did not extend to these two paragraph_recombine knobs.
+
+### Static-inspection evidence
+- `grep -cE "max-?[Dd]ispatches|per-?[Ii]nvocation-?[Cc]ap" src/app/admin/evolution/strategies/new/page.tsx` returns **0**.
+- The paragraph_recombine knob row (`new/page.tsx:1520-1577`) exposes exactly 4 inputs: `rewritesPerParagraph`, `maxComparisonsPerParagraph`, `maxParagraphsPerInvocation` (name-confusable with `maxDispatches` — caps slots WITHIN one invocation), and `paragraphRewriteModel`.
+- `toIterationConfigsPayload` (`new/page.tsx:201-266`) has no `maxDispatches` or `perInvocationCapUsd` emission clause; even if form state held them, they wouldn't reach `findOrCreateStrategy`.
+- `IterationConfigEntry` interface in `src/app/admin/evolution/_components/StrategyConfigDisplay.tsx:24-28` only declares `{agentType, budgetPercent, generationGuidance}` — so the strategy detail page also can't surface these new fields even when present in the JSONB config.
+
+### Backend wiring is complete (the surprise)
+- **Schema**: `iterationConfigSchema.maxDispatches` and `.perInvocationCapUsd` accepted + paragraph_recombine-only refinements (`evolution/src/lib/schemas.ts:674, 684, 794, 797`).
+- **Canonicalization**: both fields participate in `config_hash` (`findOrCreateStrategy.ts:87-94`) — J1.5 correctness gate.
+- **Projector**: full K-dispatch math at `projectDispatchPlan.ts:481-565`; emits `dispatchCount`, `expectedTotalDispatch`, `expectedTopUpDispatch`, `effectiveCap`, `parallelFloorUsd`, `maxDispatches`, `perInvocationCapUsd` in the entry.
+- **Runtime**: `runIterationLoop.ts:1293, 1303, 1354` — multi-dispatch branch gated on `maxDispatchesK > 1 && sourceMode === 'pool' && qualityCutoff`.
+- **DispatchPlanView**: renders cyan badge, dispatchCount, parallel/top-up split, `cap $X` annotation (`evolution/src/components/evolution/DispatchPlanView.tsx:63, 151, 155-159, 173-177`).
+
+### DB evidence (staging + prod)
+- Staging: 0 non-test strategies have `maxDispatches`; only 2 E2E fixtures with synthetic `config_hash` like `e2e-paragraph-multidispatch-1780193445872` (bypassing canonicalization).
+- Prod: 0 non-test strategies have `maxDispatches`.
+- The user's specific strategy `7c17d6ab-...` was wizard-created at 03:31:32 UTC; config has `sourceMode: pool` + `qualityCutoff: {mode: topN, value: 5}` (J4 gate clauses 2 + 3 satisfied) but no `maxDispatches`, so `maxDispatchesK ?? 1 = 1` and the multi-dispatch branch short-circuits.
+
+### Runtime log evidence
+The run's log emits `Dispatching generate iteration (parallel batch) parallelDispatchCount: 7` for iter 1 (budget-driven via `maxAffordable`) but NO equivalent log for iter 2 (paragraph_recombine) — confirming the multi-dispatch branch was never entered. The iter ran one invocation costing $0.00487 against a $0.025 iter budget (16% utilization, vs ~80% target).
+
+### Why K8 verification didn't catch it
+The plan's K8 verification checkbox ("Wizard preview shows realistic dispatch counts and cost breakdown for a multi-dispatch paragraph_recombine strategy") was left unchecked, and the `/finalize` checkbox-gate exception was granted to ship. K8 required clicking through the wizard with a `maxDispatches > 1` config — which is impossible without the input control. Phase 8 introduces both the input AND a K8-equivalent E2E spec asserting the inputs render and the dispatch-plan preview updates.
+
+### Fix sketch (Phase 8)
+1. Add 2 inputs to the paragraph_recombine knob row at `new/page.tsx:1520-1577` mirroring the existing 4-input pattern.
+2. Extend `IterationFormState` (line 79-86) and `PARAGRAPH_RECOMBINE_DEFAULTS` (line 88-92) with the new fields and defaults (`maxDispatches: 1`, `perInvocationCapUsd: 0.05`).
+3. Add 2 emission clauses to `toIterationConfigsPayload` (line 254-266) so the fields reach `findOrCreateStrategy`.
+4. Add cleanup deletes when agentType changes away from paragraph_recombine (line 698-701).
+5. Extend `IterationConfigEntry` in `StrategyConfigDisplay.tsx` so the detail page surfaces the values on existing strategies (optional polish, not blocking).
+6. New E2E coverage: assert the 2 inputs render with correct testids, default values match `PARAGRAPH_RECOMBINE_DEFAULTS`, and the DispatchPlanView's `dispatch-plan-row-${idx}` updates K3 chip + cap annotation when the inputs change.

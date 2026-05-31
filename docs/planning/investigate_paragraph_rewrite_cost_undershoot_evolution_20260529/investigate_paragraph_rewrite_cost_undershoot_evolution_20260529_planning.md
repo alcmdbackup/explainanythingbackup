@@ -148,6 +148,29 @@ Paragraph rewrite (`paragraph_recombine`) invocations on staging spend `$0.005` 
 **Phase 7e — Verification:**
 - [ ] **K8**: Wizard preview shows realistic dispatch counts and cost breakdown for a multi-dispatch paragraph_recombine strategy. Iteration detail page surfaces projected-vs-actual with non-zero estimation error rates.
 
+### Phase 8: Wizard input gap fix (L) — POST-MERGE FOLLOW-UP
+
+**Background**: Phase 7 (K) shipped projector + dispatch-view rendering + admin tab updates but never added the wizard input controls for `maxDispatches` and `perInvocationCapUsd`. Staging run `2b8655a3-2065-4705-b79b-a4ecc4e3741b` only dispatched 1 paragraph_recombine invocation despite J4 being live — strategy `7c17d6ab-...` was wizard-created with no way to set `maxDispatches > 1`. K8 verification would have caught it but the checkbox-gate exception was granted at finalize. See research doc "Round 5" for full forensics. Goal: close the input-surface gap so users can actually configure multi-dispatch.
+
+**Phase 8a — Wizard form state + inputs (`src/app/admin/evolution/strategies/new/page.tsx`):**
+- [ ] **L1**: Extend `IterationFormState` (line 79-86) with `maxDispatches?: number` and `perInvocationCapUsd?: number` typed fields. Extend `PARAGRAPH_RECOMBINE_DEFAULTS` (line 88-92) with `maxDispatches: 1` and `perInvocationCapUsd: 0.05`.
+- [ ] **L2**: Add 2 numeric inputs to the paragraph_recombine knob row (line 1520-1577) mirroring the existing 4-input pattern. Use `data-testid={\`max-dispatches-${idx}\`}` and `data-testid={\`per-invocation-cap-usd-${idx}\`}`. Tooltips explain: (a) maxDispatches caps parallel invocations per iteration, requires `sourceMode=pool` + `qualityCutoff` to take effect; (b) perInvocationCapUsd is a safety cap, not a spend target.
+- [ ] **L3**: Add emission clauses to `toIterationConfigsPayload` (line 254-266) so the fields reach `findOrCreateStrategy`. Mirror existing pattern: `...(it.agentType === 'paragraph_recombine' && it.maxDispatches != null ? { maxDispatches: it.maxDispatches } : {})`.
+- [ ] **L4**: Add cleanup deletes (line 698-701) so changing agentType away from paragraph_recombine clears the form-state fields.
+- [ ] **L5**: When agentType becomes paragraph_recombine, default the fields via `??=` mirroring the existing `rewritesPerParagraph ??=` pattern (line 686-688).
+
+**Phase 8b — Detail-page surfacing (optional polish):**
+- [ ] **L6**: Extend `IterationConfigEntry` interface in `src/app/admin/evolution/_components/StrategyConfigDisplay.tsx:24-28` with the new fields and render them when present. Non-blocking — strategies created via Phase 8 will still work even without this.
+
+**Phase 8c — Verification + tests:**
+- [ ] **L7**: New E2E spec (or extension to `evolution-strategy-wizard-tactics.spec.ts`) — asserts both inputs render with correct testids; default values match `PARAGRAPH_RECOMBINE_DEFAULTS`; changing maxDispatches updates the `DispatchPlanView` row's parallelDispatchCount; changing perInvocationCapUsd updates the `cap $X` annotation.
+- [ ] **L8**: Wizard-payload unit test (extends an existing `new/page.tsx` test if one exists, otherwise inline) — assert `toIterationConfigsPayload` emits `maxDispatches` and `perInvocationCapUsd` only when set + only for paragraph_recombine agentType.
+- [ ] **L9**: Manual verification on staging — create a fresh strategy via wizard with `maxDispatches: 5`; confirm the resulting `config_hash` differs from the existing `36ae840b4d3f`; trigger a run; confirm 3-5 paragraph_recombine invocations dispatched per the projector preview (gated by `floor(iterBudget/projector.expected)` and `qualityCutoff` pool size).
+
+**Phase 8d — Documentation:**
+- [ ] **L10**: `evolution/docs/strategies_and_experiments.md` — note that the wizard now exposes `maxDispatches` and `perInvocationCapUsd` controls for paragraph_recombine iterations.
+- [ ] **L11**: `evolution/docs/paragraph_recombine.md` — Configuration Knobs section: update to show both fields are wizard-accessible (previously documented as schema-only).
+
 ## Testing
 
 ### Unit Tests
